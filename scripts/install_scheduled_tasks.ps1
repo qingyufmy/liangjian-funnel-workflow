@@ -12,11 +12,13 @@ if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
     throw "Run .\.venv\Scripts\python.exe -m pip install -e '.[dev]' first."
 }
 
-$taskCommand = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$runner`""
+$morningCommand = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$runner`" -Command run-morning"
+$closeCommand = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$runner`" -Command run-close"
+$monitorCommand = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$runner`" -Command run-monitor"
 $definitions = @(
-    @('/Create', '/F', '/TN', 'LiangjianAStockResearchMorning', '/TR', $taskCommand, '/SC', 'DAILY', '/ST', '09:25'),
-    @('/Create', '/F', '/TN', 'LiangjianAStockResearchClose', '/TR', $taskCommand, '/SC', 'DAILY', '/ST', '15:10'),
-    @('/Create', '/F', '/TN', 'LiangjianAStockMonitor', '/TR', $taskCommand, '/SC', 'DAILY', '/ST', '09:25')
+    @('/Create', '/F', '/TN', 'LiangjianAStockResearchMorning', '/TR', $morningCommand, '/SC', 'DAILY', '/ST', '09:26'),
+    @('/Create', '/F', '/TN', 'LiangjianAStockResearchClose', '/TR', $closeCommand, '/SC', 'DAILY', '/ST', '15:10'),
+    @('/Create', '/F', '/TN', 'LiangjianAStockMonitor', '/TR', $monitorCommand, '/SC', 'DAILY', '/ST', '09:25')
 )
 
 foreach ($arguments in $definitions) {
@@ -37,7 +39,7 @@ $repetition = $monitorXml.CreateElement('Repetition', $namespace)
 $interval = $monitorXml.CreateElement('Interval', $namespace)
 $interval.InnerText = 'PT1M'
 $duration = $monitorXml.CreateElement('Duration', $namespace)
-$duration.InnerText = 'PT5H45M'
+$duration.InnerText = 'PT5H35M'
 $stop = $monitorXml.CreateElement('StopAtDurationEnd', $namespace)
 $stop.InnerText = 'true'
 [void]$repetition.AppendChild($interval)
@@ -46,4 +48,4 @@ $stop.InnerText = 'true'
 [void]$trigger.PrependChild($repetition)
 Register-ScheduledTask -TaskName 'LiangjianAStockMonitor' -Xml $monitorXml.OuterXml -Force | Out-Null
 
-Write-Output 'Scheduled tasks installed. The internal Shanghai scheduler skips weekends, lunch, duplicate dispatches and stale monitor catch-up.'
+Write-Output 'Scheduled tasks installed. The exchange calendar skips official holidays; monitor repetition ends at 15:00 before the 15:10 close run.'

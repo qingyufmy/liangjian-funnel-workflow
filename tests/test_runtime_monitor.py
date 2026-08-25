@@ -5,7 +5,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from liangjian_funnel.data.mootdx import MinuteBar
-from liangjian_funnel.runtime.monitor import MonitorEngine
+from liangjian_funnel.runtime.monitor import MonitorEngine, rebuild_effective_markdown
 from liangjian_funnel.runtime.state import MonitorAction, PlanStatus, RuntimeStore
 
 
@@ -79,6 +79,26 @@ def test_lane_isolation_and_effective_markdown_dedup(tmp_path):
     assert after.count("BUY_SIGNAL") == 1
     assert len(store.list_monitor_events(lane_id="lane-b")) == 0
     assert "thinking" not in after
+
+
+def test_effective_markdown_is_rebuilt_from_sqlite_after_corruption(tmp_path):
+    store = setup_store(tmp_path)
+    minute = datetime(2026, 8, 24, 9, 32, tzinfo=TZ)
+    store.record_monitor_event(
+        event_key="effective:test",
+        lane_id="lane-a",
+        minute_end=minute,
+        action=MonitorAction.DATA_BLOCK,
+        reason_code="DATA_TEST",
+        effective=True,
+        payload={"symbol": "600519.SH"},
+    )
+    path = tmp_path / "effective.md"
+    path.write_text("partial-corruption", encoding="utf-8")
+    rebuild_effective_markdown(store, path)
+    content = path.read_text(encoding="utf-8")
+    assert "partial-corruption" not in content
+    assert content.count("DATA_BLOCK") == 1
 
 
 def test_one_flash_batch_per_nonempty_lane_contains_all_trigger_results(tmp_path):

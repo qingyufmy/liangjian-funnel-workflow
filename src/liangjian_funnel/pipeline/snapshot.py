@@ -53,6 +53,17 @@ class SecurityRecord(BaseModel):
         return value
 
 
+class UniverseGatePolicy(BaseModel):
+    """Deterministic, configuration-derived subset of the G0 contract."""
+
+    model_config = ConfigDict(frozen=True)
+
+    minimum_daily_turnover_cny: float = Field(default=0.0, ge=0)
+    newly_listed_min_days: int = Field(default=0, ge=0)
+    block_suspended: bool = False
+    block_no_price_limit_new_listing: bool = False
+
+
 class UniverseLineage(BaseModel):
     """Counts and deterministic exclusion reasons for the entire universe."""
 
@@ -117,7 +128,9 @@ class UniverseSnapshot(BaseModel):
         *,
         as_of: datetime,
         fetched_at: datetime | None = None,
+        gate_policy: UniverseGatePolicy | None = None,
     ) -> "UniverseSnapshot":
+        policy = gate_policy or UniverseGatePolicy()
         catalog_rows, catalog_complete, catalog_reason = _rows_and_status(catalog)
         market_rows, market_complete, market_reason = _rows_and_status(market_snapshot) if market_snapshot is not None else ((), True, "NOT_PROVIDED")
         catalog_map: dict[str, dict[str, Any]] = {}
@@ -162,7 +175,15 @@ class UniverseSnapshot(BaseModel):
             catalog_data = catalog_map.get(symbol, {})
             snapshot_data = snapshot_map.get(symbol, {})
             merged = {**catalog_data, **snapshot_data}
-            record, reasons = _security_record(merged, symbol=symbol, index=index, in_catalog=symbol in catalog_map, in_snapshot=symbol in snapshot_map)
+            record, reasons = _security_record(
+                merged,
+                symbol=symbol,
+                index=index,
+                in_catalog=symbol in catalog_map,
+                in_snapshot=symbol in snapshot_map,
+                as_of=as_of.date(),
+                gate_policy=policy,
+            )
             records.append(record)
             for reason in reasons:
                 excluded[reason] = excluded.get(reason, 0) + 1
@@ -494,6 +515,8 @@ def _security_record(
     index: int,
     in_catalog: bool,
     in_snapshot: bool,
+    as_of: date,
+    gate_policy: UniverseGatePolicy,
 ) -> tuple[SecurityRecord, tuple[str, ...]]:
     match = _CANONICAL.fullmatch(symbol)
     code, exchange = (match.group(1), match.group(2)) if match else ("INVALID", "INVALID")
@@ -524,17 +547,46 @@ def _security_record(
         reasons.append("INVALID_VOLUME")
     if amount is None or amount < 0:
         reasons.append("INVALID_AMOUNT")
+    elif amount < gate_policy.minimum_daily_turnover_cny:
+        reasons.append("MINIMUM_TURNOVER_NOT_MET")
     upper_name = name.upper()
     if _ST.search(upper_name) or bool(row.get("is_st") or row.get("st_flag") or row.get("risk_warning")):
         reasons.append("ST_RISK")
     status = str(_first_value(row, ("status", "listing_status", "state")) or "").lower()
+    suspended = bool(
+        row.get("is_suspended")
+        or row.get("suspended")
+        or row.get("suspend_flag")
+        or "停牌" in status
+        or (volume == 0 and price is not None and price > 0)
+    )
+    if gate_policy.block_suspended and suspended:
+        reasons.append("SUSPENDED")
     if any(word in upper_name or word in status for word in _DELIST_WORDS):
         reasons.append("DELIST_RISK")
+    listing_date = _date_value(
+        _first_value(row, ("listing_date", "listed_date", "list_date", "ipo_date", "上市日期"))
+    )
+    if listing_date is not None:
+        listed_days = (as_of - listing_date).days
+        if listed_days < gate_policy.newly_listed_min_days:
+            reasons.append("NEWLY_LISTED")
+        if gate_policy.block_no_price_limit_new_listing and listed_days < 5:
+            reasons.append("NO_PRICE_LIMIT_NEW_LISTING")
     if exchange == "BJ":
         reasons.append("BJ_RESEARCH_ONLY")
     reasons = list(dict.fromkeys(reasons))
     structural = {"MISSING_CODE", "MISSING_NAME", "MISSING_MARKET_SNAPSHOT", "INVALID_PRICE", "INVALID_VOLUME", "INVALID_AMOUNT"}
-    eligible = not any(reason in structural or reason in {"ST_RISK", "DELIST_RISK", "NOT_IN_CATALOG"} for reason in reasons)
+    gate_blocks = {
+        "ST_RISK",
+        "DELIST_RISK",
+        "NOT_IN_CATALOG",
+        "MINIMUM_TURNOVER_NOT_MET",
+        "SUSPENDED",
+        "NEWLY_LISTED",
+        "NO_PRICE_LIMIT_NEW_LISTING",
+    }
+    eligible = not any(reason in structural or reason in gate_blocks for reason in reasons)
     research_eligible = eligible and exchange in {"SH", "SZ", "BJ"}
     trade_eligible = research_eligible and exchange in {"SH", "SZ"}
     return SecurityRecord(
@@ -570,6 +622,22 @@ def _numeric(value: Any) -> float | None:
     except (TypeError, ValueError, OverflowError):
         return None
     return number if math.isfinite(number) else None
+
+
+def _date_value(value: Any) -> date | None:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if value in (None, ""):
+        return None
+    text = str(value).strip()
+    if text.isdigit() and len(text) == 8:
+        text = f"{text[:4]}-{text[4:6]}-{text[6:]}"
+    try:
+        return date.fromisoformat(text[:10])
+    except ValueError:
+        return None
 
 
 def _payload_has_rows(value: Any) -> bool:
@@ -631,5 +699,6 @@ __all__ = [
     "PreselectResult",
     "SecurityRecord",
     "UniverseLineage",
+    "UniverseGatePolicy",
     "UniverseSnapshot",
 ]

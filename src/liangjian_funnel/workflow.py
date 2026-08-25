@@ -42,11 +42,12 @@ from .pipeline.model_client import ModelCallResult, OpenAICompatibleModelClient
 from .pipeline.prompts import PromptRepository
 from .pipeline.research import FrozenInputSnapshot as ResearchSnapshot
 from .pipeline.research import ResearchPipeline, ResearchRunResult
-from .pipeline.snapshot import FrozenInputSnapshot, UniverseSnapshot
+from .pipeline.snapshot import FrozenInputSnapshot, UniverseGatePolicy, UniverseSnapshot
 from .pipeline.technical_aggregates import build_technical_aggregates
 from .redaction import digest_text
 from .reporting import atomic_write_json, atomic_write_text
-from .runtime.monitor import MonitorBatchResult, MonitorEngine
+from .runtime.monitor import MonitorBatchResult, MonitorEngine, rebuild_effective_markdown
+from .runtime.calendar import ExchangeTradingCalendar, TradingCalendarError
 from .runtime.scheduler import ScheduleKind, Scheduler
 from .runtime.simulation import PaperBroker, SimulationAction, SimulationConfig
 from .runtime.state import MonitorAction, PlanStatus, RuntimeStore
@@ -97,8 +98,9 @@ class WorkflowApplication:
         self.model_client = OpenAICompatibleModelClient(settings)
         self.monitor_model_client = OpenAICompatibleModelClient(
             settings.model_copy(update={"model_timeout_seconds": 45.0}),
-            max_attempts=1,
+            max_attempts=2,
         )
+        self.trading_calendar = ExchangeTradingCalendar()
         self.mootdx = MootdxAdapter(
             tuple(MootdxNode(host=host, port=port) for host, port in settings.mootdx_servers),
             page_size=settings.mootdx_page_size,
@@ -129,14 +131,33 @@ class WorkflowApplication:
         if not 1 <= candidate_limit <= 300:
             raise WorkflowError("CANDIDATE_LIMIT_INVALID")
 
+        source_config = load_yaml(self.settings.source_config_path)
+        gate_config = source_config.get("universe_gate", {})
+        if not isinstance(gate_config, Mapping):
+            raise WorkflowError("UNIVERSE_GATE_CONFIG_INVALID")
+        gate_policy = UniverseGatePolicy(
+            minimum_daily_turnover_cny=gate_config.get("minimum_daily_turnover_cny", 0),
+            newly_listed_min_days=gate_config.get("newly_listed_min_days", 0),
+            block_suspended=gate_config.get("block_suspended", False),
+            block_no_price_limit_new_listing=gate_config.get("block_no_price_limit_new_listing", False),
+        )
         source_failures: dict[str, list[str]] = {}
         with HithinkClient(self.settings) as client:
             catalog = client.ticker_catalog(limit=1000, max_pages=10)
             market = client.market_snapshot(limit=1000, max_pages=10)
-            universe = UniverseSnapshot.from_records(catalog, market, as_of=current)
+            universe = UniverseSnapshot.from_records(
+                catalog,
+                market,
+                as_of=current,
+                gate_policy=gate_policy,
+            )
             if not universe.ready:
                 raise WorkflowError("UNIVERSE_NOT_READY")
-            selected = universe.deterministic_preselect(candidate_limit)
+            # Fetch a bounded reserve in the same deterministic turnover
+            # order. Candidate-level source degradation can then be backfilled
+            # without expanding beyond G0 or changing ranking semantics.
+            reserve_limit = min(len(universe.trade_candidates), candidate_limit + 10)
+            selected = universe.deterministic_preselect(reserve_limit)
             market_fact_results = collect_market_results(
                 client,
                 [candidate.symbol for candidate in selected],
@@ -190,6 +211,9 @@ class WorkflowApplication:
                 cash_flow = client.cash_flow_statements(symbol, limit=20)
                 if history.ok and history.complete:
                     daily[symbol] = [row.model_dump(mode="json") for row in history.items]
+                    if len(history.items) < gate_policy.newly_listed_min_days:
+                        source_failures.setdefault(symbol, []).append("G0:LISTING_HISTORY_INSUFFICIENT")
+                        daily.pop(symbol, None)
                 else:
                     source_failures.setdefault(symbol, []).append(f"DAILY:{history.reason_code}")
                 financial_rows: list[dict[str, Any]] = []
@@ -289,7 +313,7 @@ class WorkflowApplication:
             daily_payload=daily,
             fundamental_payload=fundamental,
             fact_payload=fact_payload,
-            max_candidates=candidate_limit,
+            max_candidates=reserve_limit,
         )
         for candidate in frozen.trade_candidates:
             symbol = candidate.symbol
@@ -314,6 +338,8 @@ class WorkflowApplication:
                 "kline_patterns": aggregates["KLINE_PATTERNS"],
                 "price_levels": aggregates["PRICE_LEVELS"],
             }
+            if sum(item.get("ready") is True for item in technical.values()) >= candidate_limit:
+                break
 
         factor_ready = sorted(symbol for symbol, item in technical.items() if item.get("ready") is True)
         if not factor_ready:
@@ -325,7 +351,7 @@ class WorkflowApplication:
             fundamental_payload=fundamental,
             technical_payload=technical,
             fact_payload=fact_payload,
-            max_candidates=candidate_limit,
+            max_candidates=reserve_limit,
         )
         raw_path = self.settings.snapshot_dir / "raw" / f"{frozen.snapshot_id}.json"
         frozen.write_json(raw_path)
@@ -362,7 +388,7 @@ class WorkflowApplication:
             full_universe_count=len(universe.records),
             research_universe_count=len(universe.research_candidates),
             trade_universe_count=len(universe.trade_candidates),
-            selected_count=len(selected),
+            selected_count=len(factor_ready),
             factor_ready_count=len(factor_ready),
         )
 
@@ -442,9 +468,7 @@ class WorkflowApplication:
     ) -> dict[str, Any]:
         normalized_slot = _slot(slot)
         current = _aware(as_of or datetime.now(SHANGHAI))
-        if normalized_slot == "morning":
-            for broker in self.brokers.values():
-                broker.start_trading_day()
+        self._ensure_trading_day(current)
         if normalized_slot == "morning" and current.hour == 9 and current.minute < 26:
             time.sleep(max(0.0, (_at_time(current, 9, 26) - current).total_seconds()))
             current = datetime.now(SHANGHAI)
@@ -456,6 +480,8 @@ class WorkflowApplication:
             model_client=self.model_client,
             output_dir=self.settings.workflow_output_dir / "research",
             parallel_lanes=True,
+            runtime_store=self.store,
+            slot=normalized_slot,
         )
         result = pipeline.run(prepared.snapshot, run_id=run_id, generated_at=current)
         publication = self._publish_plans(result, normalized_slot, datetime.now(SHANGHAI))
@@ -472,31 +498,74 @@ class WorkflowApplication:
 
     def monitor_once(self, *, now: datetime | None = None) -> dict[str, Any]:
         current = _aware(now or datetime.now(SHANGHAI)).replace(second=0, microsecond=0)
+        self._ensure_trading_day(current)
         minute_snapshot_id = f"minute-{current.strftime('%Y%m%dT%H%M%S%z')}"
-        results: list[dict[str, Any]] = []
-        simulation: list[dict[str, Any]] = []
-        for lane_id in self.brokers:
-            plans = self.store.list_active_plans(lane_id, at=current)
-            bars: dict[str, MinuteBar] = {}
-            data_ok = True
-            scope_symbols = {str(plan["symbol"]) for plan in plans}
-            scope_symbols.update(
+        lane_plans = {
+            lane_id: self.store.list_active_plans(lane_id, at=current)
+            for lane_id in self.brokers
+        }
+        lane_scopes: dict[str, set[str]] = {}
+        for lane_id, plans in lane_plans.items():
+            scope = {str(plan["symbol"]) for plan in plans}
+            scope.update(
                 str(position["symbol"])
                 for position in self.store.list_positions(f"paper:{lane_id}")
             )
-            for symbol in sorted(scope_symbols):
-                fetched = self.mootdx.fetch_bars(symbol, "1m", 2, as_of=current)
-                if not fetched.complete:
-                    data_ok = False
-                    continue
-                self.minute_store.write(fetched.bars)
-                bars[symbol] = fetched.bars[-1]
-                simulation.extend(self._settle_prior_signals(lane_id, symbol, fetched.bars[-1]))
+            lane_scopes[lane_id] = scope
 
+        # Market data is frozen once per symbol/minute and shared by every
+        # isolated lane.  The two intervals are fetched together per symbol;
+        # no lane can observe a later quote than another lane.
+        market: dict[str, dict[str, Any]] = {}
+        all_symbols = sorted(set().union(*lane_scopes.values())) if lane_scopes else []
+
+        def fetch_symbol(symbol: str) -> tuple[str, dict[str, Any]]:
+            one = self.mootdx.fetch_bars(symbol, "1m", 21, as_of=current)
+            five = self.mootdx.fetch_bars(symbol, "5m", 60, as_of=current)
+            return symbol, {"1m": one, "5m": five}
+
+        if all_symbols:
+            with ThreadPoolExecutor(max_workers=min(8, len(all_symbols))) as executor:
+                futures = [executor.submit(fetch_symbol, symbol) for symbol in all_symbols]
+                for future in as_completed(futures):
+                    symbol, fetched = future.result()
+                    market[symbol] = fetched
+                    for interval in ("1m", "5m"):
+                        result = fetched[interval]
+                        if result.bars:
+                            self.minute_store.write(result.bars)
+
+        simulation: list[dict[str, Any]] = []
+        lane_inputs: dict[str, tuple[dict[str, MinuteBar], bool, dict[str, Any]]] = {}
+        for lane_id, scope_symbols in lane_scopes.items():
+            bars: dict[str, MinuteBar] = {}
+            contexts: dict[str, Any] = {}
+            data_ok = True
+            for symbol in sorted(scope_symbols):
+                fetched = market.get(symbol, {})
+                one = fetched.get("1m")
+                five = fetched.get("5m")
+                one_bars = tuple(one.bars) if one is not None else ()
+                five_bars = tuple(five.bars) if five is not None else ()
+                if not one_bars or one_bars[-1].bar_end != current:
+                    data_ok = False
+                else:
+                    bars[symbol] = one_bars[-1]
+                    simulation.extend(self._settle_prior_signals(lane_id, symbol, one_bars[-1]))
+                contexts[symbol] = _intraday_market_context(
+                    symbol,
+                    one_bars,
+                    five_bars,
+                    current=current,
+                )
+            lane_inputs[lane_id] = (bars, data_ok, contexts)
+
+        def process_lane(lane_id: str) -> tuple[str, MonitorBatchResult]:
+            plans = lane_plans[lane_id]
+            bars, data_ok, contexts = lane_inputs[lane_id]
             engine = MonitorEngine(
                 self.store,
-                llm_veto=self._a4_callback(lane_id, plans, bars, current),
-                effective_md_path=self.settings.workflow_output_dir / "monitor" / "effective_signals.md",
+                llm_veto=self._a4_callback(lane_id, plans, contexts, current),
                 max_seconds=50,
             )
             batch = engine.process_minute(
@@ -507,7 +576,19 @@ class WorkflowApplication:
                 data_ok=data_ok,
                 snapshot_contiguous=data_ok,
             )
-            results.append(_batch_dict(batch))
+            return lane_id, batch
+
+        lane_batches: dict[str, MonitorBatchResult] = {}
+        with ThreadPoolExecutor(max_workers=max(1, len(self.brokers))) as executor:
+            futures = [executor.submit(process_lane, lane_id) for lane_id in self.brokers]
+            for future in as_completed(futures):
+                lane_id, batch = future.result()
+                lane_batches[lane_id] = batch
+        results = [_batch_dict(lane_batches[lane_id]) for lane_id in self.brokers]
+        rebuild_effective_markdown(
+            self.store,
+            self.settings.workflow_output_dir / "monitor" / "effective_signals.md",
+        )
         payload = {
             "minute_snapshot_id": minute_snapshot_id,
             "time": current.isoformat(),
@@ -517,18 +598,115 @@ class WorkflowApplication:
         atomic_write_json(self.settings.workflow_output_dir / "monitor" / "latest.json", payload)
         return payload
 
+    def review_pending_morning(self, *, now: datetime | None = None) -> dict[str, Any]:
+        """Perform the time-bounded deterministic review of close A3 plans."""
+
+        current = _aware(now or datetime.now(SHANGHAI)).replace(second=0, microsecond=0)
+        self._ensure_trading_day(current)
+        clock = current.time().replace(tzinfo=None)
+        if clock < datetime.strptime("09:26", "%H:%M").time():
+            raise WorkflowError("MORNING_REVIEW_BEFORE_AUCTION_FINAL")
+        if clock > datetime.strptime("09:40", "%H:%M").time():
+            raise WorkflowError("MORNING_REVIEW_DEADLINE_MISSED")
+        pending = tuple(
+            plan
+            for lane_id in self.brokers
+            for plan in self.store.list_execution_plans(
+                lane_id=lane_id,
+                status=PlanStatus.PENDING_MORNING_REVIEW,
+            )
+        )
+        if not pending:
+            return {
+                "status": "READY",
+                "reviewed_at": current.isoformat(),
+                "activated": [],
+                "reason_code": "NO_PENDING_MORNING_PLANS",
+            }
+
+        failures: list[dict[str, str]] = []
+        evidence: dict[str, Any] = {}
+        symbols = sorted({str(plan["symbol"]) for plan in pending})
+        for symbol in symbols:
+            fetched = self.mootdx.fetch_bars(symbol, "1m", 2, as_of=current)
+            if fetched.bars:
+                self.minute_store.write(fetched.bars)
+            if not fetched.complete or not fetched.bars or fetched.bars[-1].bar_end != current:
+                failures.append({"symbol": symbol, "reason_code": "CURRENT_1M_BAR_UNAVAILABLE"})
+                continue
+            bar = fetched.bars[-1]
+            if bar.volume <= 0:
+                failures.append({"symbol": symbol, "reason_code": "CURRENT_1M_BAR_ZERO_VOLUME"})
+                continue
+            evidence[symbol] = bar.model_dump(mode="json")
+
+        for plan in pending:
+            symbol = str(plan["symbol"])
+            if symbol not in evidence:
+                continue
+            try:
+                payload = json.loads(str(plan.get("payload_json") or "{}"))
+                stop_level = float(payload["stop_level"])
+                trigger_high = float(payload["trigger_high"])
+                price = float(evidence[symbol]["close"])
+            except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                failures.append({"symbol": symbol, "reason_code": "PLAN_PRICE_CONTRACT_INVALID"})
+                continue
+            if price <= stop_level:
+                failures.append({"symbol": symbol, "reason_code": "PLAN_INVALIDATED_AT_OPEN"})
+            elif price > trigger_high * 1.05:
+                failures.append({"symbol": symbol, "reason_code": "OPEN_PRICE_CHASE_BLOCK"})
+
+        if failures:
+            payload = {
+                "status": "BLOCKED",
+                "reviewed_at": current.isoformat(),
+                "activated": [],
+                "failures": failures,
+            }
+            atomic_write_json(
+                self.settings.workflow_output_dir / "runs" / f"{current.date()}-morning-review.json",
+                payload,
+            )
+            return payload
+        activated = self.store.activate_pending_plan_batch(
+            [str(plan["plan_id"]) for plan in pending],
+            valid_from=_at_time(current, 9, 32),
+        )
+        payload = {
+            "status": "READY",
+            "reviewed_at": current.isoformat(),
+            "atomic": True,
+            "activated": [str(plan["plan_id"]) for plan in activated],
+            "evidence_symbols": symbols,
+        }
+        atomic_write_json(
+            self.settings.workflow_output_dir / "runs" / f"{current.date()}-morning-review.json",
+            payload,
+        )
+        return payload
+
     def run_due(self, *, now: datetime | None = None) -> dict[str, Any]:
+        return self.run_scheduled(now=now)
+
+    def run_scheduled(
+        self,
+        kind: ScheduleKind | None = None,
+        *,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
         current = _aware(now or datetime.now(SHANGHAI))
         scheduler = Scheduler(
             self.store,
             callbacks={
-                ScheduleKind.MORNING_0925: lambda _job: self.run_research("morning", as_of=current),
+                ScheduleKind.MORNING_0925: lambda _job: self.review_pending_morning(now=current),
                 ScheduleKind.CLOSE_1510: lambda _job: self.run_research("close", as_of=current),
                 ScheduleKind.MONITOR: lambda _job: self.monitor_once(now=current),
             },
             owner="liangjian-runtime",
+            trading_day=self.trading_calendar.is_trading_day,
         )
-        records = scheduler.dispatch_once(current)
+        records = scheduler.dispatch_once(current, kinds=(kind,) if kind is not None else None)
         return {
             "time": current.isoformat(),
             "dispatch": [record.model_dump(mode="json") for record in records],
@@ -607,14 +785,7 @@ class WorkflowApplication:
             g0_symbols,
             as_of=as_of,
         )
-        exchange_rules = {
-            "snapshot_id": "CN-A-SIMULATION-20260824",
-            "external_orders": False,
-            "simulation_only": True,
-            "lot_size": 100,
-            "t_plus_one": True,
-            "bj_trade_enabled": False,
-        }
+        exchange_rules = _exchange_rules_for(self.settings.exchange_rules_path, as_of)
         values: dict[str, Any] = {
             "snapshot_manifest": {
                 "as_of": as_of.isoformat(),
@@ -653,7 +824,17 @@ class WorkflowApplication:
             "MARKET_REGIME_SNAPSHOT": {"regime": regime, "position_cap_pct": 0.5, "risk_warnings": []},
             "MARKET_EMOTION_SNAPSHOT": market_emotion,
             "LIQUIDITY_SNAPSHOT": {item.symbol: {"turnover": item.amount} for item in universe.records if item.symbol in g0_symbols},
-            "TRADABILITY_FLAGS": {symbol: {"tradable": True, "simulation_only": True} for symbol in g0_symbols},
+            "TRADABILITY_FLAGS": {
+                item.symbol: {
+                    "available": True,
+                    "tradable": item.trade_eligible,
+                    "simulation_only": True,
+                    "exclusion_reasons": list(item.exclusion_reasons),
+                    "source": "frozen_g0_universe",
+                }
+                for item in frozen.trade_candidates
+                if item.symbol in g0_symbols
+            },
             "EXCHANGE_RULES": exchange_rules,
             "DATA_SLA_POLICY": {"closed_bars_only": True, "fail_closed": True},
             "REGIME_PARAM_SET": dict(regime_parameters),
@@ -701,9 +882,9 @@ class WorkflowApplication:
         return values
 
     def _publish_plans(self, result: ResearchRunResult, slot: str, now: datetime) -> dict[str, Any]:
-        created: list[str] = []
-        activated: list[str] = []
+        batch: list[dict[str, Any]] = []
         blocked: list[dict[str, str]] = []
+        ready_lanes: list[str] = []
         for lane in result.lanes:
             if lane.status != "READY" or not isinstance(lane.final_output, Mapping):
                 blocked.append({"lane": lane.lane, "reason": "LANE_NOT_READY"})
@@ -712,13 +893,11 @@ class WorkflowApplication:
             if not isinstance(plans, list):
                 blocked.append({"lane": lane.lane, "reason": "CORE_WATCH_POOL_MISSING"})
                 continue
+            ready_lanes.append(lane.lane)
             previous = {
                 str(item["symbol"]): item
                 for item in self.store.list_execution_plans(lane_id=lane.lane, status=PlanStatus.PENDING_MORNING_REVIEW)
             }
-            if slot == "close":
-                for active in self.store.list_execution_plans(lane_id=lane.lane, status=PlanStatus.ACTIVE_TODAY):
-                    self.store.invalidate_plan(str(active["plan_id"]), status=PlanStatus.EXPIRED)
             for raw in plans:
                 if not isinstance(raw, Mapping):
                     continue
@@ -736,16 +915,16 @@ class WorkflowApplication:
                 logical = str(raw.get("plan_id") or _hash_json(raw)[:16])
                 plan_id = f"{result.run_id}:{lane.lane}:{logical}"
                 if slot == "close":
-                    self.store.create_execution_plan(
-                        plan_id,
-                        lane.lane,
-                        symbol,
-                        status=PlanStatus.DRAFT_CLOSE,
-                        expires_at=_plan_expiry(payload.get("plan_expiry"), now, slot),
-                        payload=payload,
+                    batch.append(
+                        {
+                            "plan_id": plan_id,
+                            "lane_id": lane.lane,
+                            "symbol": symbol,
+                            "status": PlanStatus.PENDING_MORNING_REVIEW.value,
+                            "expires_at": _plan_expiry(payload.get("plan_expiry"), now, slot),
+                            "payload": payload,
+                        }
                     )
-                    self.store.set_plan_pending_morning_review(plan_id)
-                    created.append(plan_id)
                     continue
                 parent = previous.get(symbol)
                 if now.time().replace(tzinfo=None) > datetime.strptime("09:40", "%H:%M").time():
@@ -754,26 +933,41 @@ class WorkflowApplication:
                 if parent is None or not _tightens(parent, payload):
                     blocked.append({"lane": lane.lane, "symbol": symbol, "reason": "MORNING_NOT_TIGHTEN_ONLY"})
                     continue
-                self.store.create_execution_plan(
-                    plan_id,
-                    lane.lane,
-                    symbol,
-                    status=PlanStatus.DRAFT_CLOSE,
-                    expires_at=_plan_expiry(payload.get("plan_expiry"), now, slot),
-                    payload=payload,
+                batch.append(
+                    {
+                        "plan_id": plan_id,
+                        "lane_id": lane.lane,
+                        "symbol": symbol,
+                        "status": PlanStatus.ACTIVE_TODAY.value,
+                        "valid_from": _at_time(now, 9, 32),
+                        "expires_at": _plan_expiry(payload.get("plan_expiry"), now, slot),
+                        "payload": payload,
+                        "parent_plan_id": str(parent["plan_id"]),
+                    }
                 )
-                self.store.set_plan_pending_morning_review(plan_id)
-                self.store.activate_plan(plan_id, valid_from=_at_time(now, 9, 32))
-                self.store.invalidate_plan(str(parent["plan_id"]))
-                created.append(plan_id)
-                activated.append(plan_id)
-        return {"created": created, "activated": activated, "blocked": blocked}
+        published = self.store.publish_plan_batch(
+            batch,
+            expire_active_lanes=ready_lanes if slot == "close" else (),
+        )
+        self.store.mark_workflow_runs_published(result.run_id, ready_lanes)
+        created = [str(item["plan_id"]) for item in published]
+        activated = [
+            str(item["plan_id"])
+            for item in published
+            if item.get("status") == PlanStatus.ACTIVE_TODAY.value
+        ]
+        return {
+            "atomic": True,
+            "created": created,
+            "activated": activated,
+            "blocked": blocked,
+        }
 
     def _a4_callback(
         self,
         lane_id: str,
         plans: tuple[dict[str, Any], ...],
-        bars: Mapping[str, MinuteBar],
+        market_context: Mapping[str, Mapping[str, Any]],
         now: datetime,
     ):
         if not plans:
@@ -782,20 +976,44 @@ class WorkflowApplication:
         plan_by_id = {str(plan["plan_id"]): plan for plan in plans}
 
         def callback(context: Mapping[str, Any]) -> Mapping[str, Any]:
-            contexts = context.get("plans") if isinstance(context.get("plans"), list) else [context]
+            contexts = context.get("plans") if isinstance(context.get("plans"), (list, tuple)) else [context]
             replacements = {name: None for name in bundle.shared.placeholders + bundle.document(_A4_FILE).placeholders}
             replacements.update(
                 {
                     "EXECUTION_PLANS": list(plans),
                     "TRIGGER_ENGINE_RESULT": contexts,
-                    "REALTIME_QUOTE": {key: value.model_dump(mode="json") for key, value in bars.items()},
-                    "CLOSED_BARS": {key: value.model_dump(mode="json") for key, value in bars.items()},
-                    "REALTIME_MA": {"available": False, "reason_code": "NOT_RECOMPUTED_THIS_MINUTE"},
+                    "REALTIME_QUOTE": {
+                        key: value.get("realtime_quote") for key, value in market_context.items()
+                    },
+                    "CLOSED_BARS": {
+                        key: value.get("closed_bars") for key, value in market_context.items()
+                    },
+                    "REALTIME_MA": {
+                        key: value.get("moving_averages") for key, value in market_context.items()
+                    },
                     "OPEN_SIGNAL_STATE": {"lane_id": lane_id},
-                    "MARKET_CONTEXT": {"time": now.isoformat()},
-                    "SECTOR_CONTEXT": {"available": False},
-                    "TRADABILITY_FLAGS": {key: {"tradable": True} for key in bars},
-                    "EXCHANGE_RULES": {"simulation_only": True, "external_orders": False, "t_plus_one": True},
+                    "MARKET_CONTEXT": {
+                        "time": now.isoformat(),
+                        "minute_snapshot_id": context.get("minute_snapshot_id"),
+                        "symbols": market_context,
+                    },
+                    "SECTOR_CONTEXT": {
+                        "available": any(
+                            isinstance(plan_by_id.get(str(item.get("plan_id"))), Mapping)
+                            and bool(plan_by_id[str(item.get("plan_id"))].get("sector_context"))
+                            for item in contexts
+                            if isinstance(item, Mapping) and item.get("plan_id")
+                        ),
+                        "by_plan": {
+                            plan_id: plan.get("sector_context")
+                            for plan_id, plan in plan_by_id.items()
+                            if plan.get("sector_context") is not None
+                        },
+                    },
+                    "TRADABILITY_FLAGS": {
+                        key: value.get("tradability") for key, value in market_context.items()
+                    },
+                    "EXCHANGE_RULES": _exchange_rules_for(self.settings.exchange_rules_path, now),
                     "CURRENT_TIME": now.isoformat(),
                     "PRIOR_OUTCOME_FEEDBACK": None,
                     "TIGHTEN_AFTER": "13:45:00",
@@ -840,14 +1058,26 @@ class WorkflowApplication:
         broker = self.brokers[lane_id]
         results: list[dict[str, Any]] = []
         for event in self.store.list_monitor_events(lane_id=lane_id, effective_only=True):
-            if event.get("action") not in {MonitorAction.BUY_SIGNAL.value, MonitorAction.ADD_SIGNAL.value, MonitorAction.FORCED_RISK_EXIT.value}:
+            if event.get("action") not in {
+                MonitorAction.BUY_SIGNAL.value,
+                MonitorAction.ADD_SIGNAL.value,
+                MonitorAction.SELL_SIGNAL.value,
+                MonitorAction.REDUCE_SIGNAL.value,
+                MonitorAction.FORCED_RISK_EXIT.value,
+            }:
                 continue
             payload = json.loads(event.get("payload_json") or "{}")
             if payload.get("symbol") != symbol:
                 continue
             plan = self.store.get_execution_plan(str(payload.get("plan_id") or ""))
             plan_payload = json.loads(plan.get("payload_json") or "{}") if plan else {}
-            action = "SELL" if event["action"] == MonitorAction.FORCED_RISK_EXIT.value else "ADD" if event["action"] == MonitorAction.ADD_SIGNAL.value else "BUY"
+            action = {
+                MonitorAction.BUY_SIGNAL.value: "BUY",
+                MonitorAction.ADD_SIGNAL.value: "ADD",
+                MonitorAction.SELL_SIGNAL.value: "SELL",
+                MonitorAction.REDUCE_SIGNAL.value: "REDUCE",
+                MonitorAction.FORCED_RISK_EXIT.value: "FORCED_RISK_EXIT",
+            }[str(event["action"])]
             signal_time = datetime.fromisoformat(str(event["minute_end"]))
             if bar.bar_end <= signal_time:
                 continue
@@ -857,7 +1087,11 @@ class WorkflowApplication:
                 symbol=symbol,
                 action=action,
                 signal_bar_end=signal_time,
-                entry_reference=plan_payload.get("trigger_low") or bar.open,
+                entry_reference=(
+                    plan_payload.get("trigger_low")
+                    if action in {"BUY", "ADD"}
+                    else bar.open
+                ) or bar.open,
                 stop_level=plan_payload.get("stop_level"),
                 risk_unit=0.33 if plan_payload.get("risk_unit") == "PROBE" else 1.0,
                 plan_id=payload.get("plan_id"),
@@ -865,6 +1099,141 @@ class WorkflowApplication:
             outcome = broker.apply(simulation_action, bar)
             results.append(outcome.model_dump(mode="json"))
         return results
+
+    def _ensure_trading_day(self, current: datetime) -> None:
+        try:
+            is_session = self.trading_calendar.is_trading_day(current.date())
+        except TradingCalendarError as exc:
+            raise WorkflowError(exc.reason_code) from exc
+        if not is_session:
+            raise WorkflowError("NON_TRADING_DAY")
+        for broker in self.brokers.values():
+            broker.start_trading_day(current.date())
+
+
+def _intraday_market_context(
+    symbol: str,
+    one_minute: tuple[MinuteBar, ...],
+    five_minute: tuple[MinuteBar, ...],
+    *,
+    current: datetime,
+) -> dict[str, Any]:
+    """Build bounded deterministic A4 evidence from closed bars only."""
+
+    current_bar = one_minute[-1] if one_minute and one_minute[-1].bar_end == current else None
+
+    def compact(bars: tuple[MinuteBar, ...]) -> list[dict[str, Any]]:
+        return [bar.model_dump(mode="json") for bar in bars[-21:]]
+
+    fifteen_minute = _aggregate_closed_15m(five_minute)
+
+    def statistics(bars: list[Mapping[str, Any]]) -> dict[str, Any]:
+        closes = [float(bar["close"]) for bar in bars]
+        total_volume = sum(float(bar["volume"]) for bar in bars)
+        total_amount = sum(float(bar["amount"]) for bar in bars)
+        return {
+            "available": bool(bars),
+            "ma5": sum(closes[-5:]) / 5 if len(closes) >= 5 else None,
+            "ma20": sum(closes[-20:]) / 20 if len(closes) >= 20 else None,
+            "vwap": total_amount / total_volume if total_volume > 0 else None,
+            "closed_bar_count": len(bars),
+        }
+
+    return {
+        "symbol": symbol,
+        "as_of": current.isoformat(),
+        "realtime_quote": (
+            current_bar.model_dump(mode="json")
+            if current_bar is not None
+            else {"available": False, "reason_code": "CURRENT_1M_BAR_UNAVAILABLE"}
+        ),
+        "closed_bars": {
+            "1m": compact(one_minute),
+            "5m": compact(five_minute),
+            "15m": fifteen_minute[-21:],
+        },
+        "moving_averages": {
+            "1m": statistics(compact(one_minute)),
+            "5m": statistics(compact(five_minute)),
+            "15m": statistics(fifteen_minute),
+        },
+        "tradability": {
+            "available": current_bar is not None,
+            "tradable": current_bar is not None and current_bar.volume > 0,
+            "reason_code": (
+                "CURRENT_1M_BAR_AVAILABLE"
+                if current_bar is not None and current_bar.volume > 0
+                else "CURRENT_1M_BAR_ZERO_VOLUME"
+                if current_bar is not None
+                else "CURRENT_1M_BAR_UNAVAILABLE"
+            ),
+            "source": "mootdx_closed_1m",
+        },
+    }
+
+
+def _aggregate_closed_15m(bars: tuple[MinuteBar, ...]) -> list[dict[str, Any]]:
+    groups: dict[tuple[str, str, int], list[MinuteBar]] = {}
+    for bar in sorted(bars, key=lambda item: item.bar_end):
+        value = bar.bar_end.astimezone(SHANGHAI)
+        clock = value.time().replace(tzinfo=None)
+        if datetime.strptime("09:30", "%H:%M").time() < clock <= datetime.strptime("11:30", "%H:%M").time():
+            origin = value.replace(hour=9, minute=30)
+            session = "AM"
+        elif datetime.strptime("13:00", "%H:%M").time() < clock <= datetime.strptime("15:00", "%H:%M").time():
+            origin = value.replace(hour=13, minute=0)
+            session = "PM"
+        else:
+            continue
+        elapsed = int((value - origin).total_seconds() // 60)
+        bucket = (elapsed + 14) // 15
+        groups.setdefault((value.date().isoformat(), session, bucket), []).append(bar)
+    result: list[dict[str, Any]] = []
+    for key in sorted(groups):
+        group = sorted(groups[key], key=lambda item: item.bar_end)
+        if len(group) != 3:
+            continue
+        result.append(
+            {
+                "symbol": group[-1].symbol,
+                "interval": "15m",
+                "bar_end": group[-1].bar_end.isoformat(),
+                "open": group[0].open,
+                "high": max(item.high for item in group),
+                "low": min(item.low for item in group),
+                "close": group[-1].close,
+                "volume": sum(item.volume for item in group),
+                "amount": sum(item.amount for item in group),
+                "source_id": "DERIVED:MOOTDX_CLOSED_5M",
+                "adjust_mode": "none",
+            }
+        )
+    return result
+
+
+def _exchange_rules_for(path: Path, as_of: datetime) -> dict[str, Any]:
+    if not path.is_file():
+        raise WorkflowError("EXCHANGE_RULE_SNAPSHOT_MISSING")
+    try:
+        rules = load_yaml(path)
+        effective = datetime.fromisoformat(str(rules["effective_from"])).date()
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise WorkflowError("EXCHANGE_RULE_SNAPSHOT_INVALID") from exc
+    sources = rules.get("sources")
+    if (
+        rules.get("schema_version") != "liangjian-exchange-rules/1.0.0"
+        or not isinstance(rules.get("snapshot_id"), str)
+        or rules.get("simulation_only") is not True
+        or rules.get("external_orders") is not False
+        or rules.get("t_plus_one") is not True
+        or int(rules.get("lot_size", 0)) != 100
+        or not isinstance(sources, Mapping)
+        or set(sources) != {"sse", "szse", "bse"}
+    ):
+        raise WorkflowError("EXCHANGE_RULE_SNAPSHOT_INVALID")
+    if effective > as_of.astimezone(SHANGHAI).date():
+        raise WorkflowError("EXCHANGE_RULE_SNAPSHOT_NOT_EFFECTIVE")
+    return dict(rules)
 
 
 def _prompt_parameters(config: Mapping[str, Any]) -> dict[str, Any]:

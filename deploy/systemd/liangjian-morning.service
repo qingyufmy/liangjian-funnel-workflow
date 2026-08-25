@@ -1,0 +1,17 @@
+[Unit]
+Description=Liangjian A-share morning research workflow
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=liangjian
+Group=liangjian
+WorkingDirectory=/opt/liangjian-funnel-workflow
+EnvironmentFile=/opt/liangjian-funnel-workflow/.env
+ExecStart=/opt/liangjian-funnel-workflow/.venv/bin/liangjian-funnel run-morning
+TimeoutStartSec=30m
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/liangjian-funnel-workflow/outputs /opt/liangjian-funnel-workflow/state /opt/liangjian-funnel-workflow/storage /opt/liangjian-funnel-workflow/cache

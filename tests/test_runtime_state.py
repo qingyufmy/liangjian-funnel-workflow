@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -90,3 +90,50 @@ def test_persistence_failure_blocks_new_writes(tmp_path):
     store.mark_persistence_failed()
     with pytest.raises(PersistenceBlockedError, match="PERSISTENCE_FAILED"):
         store.ensure_virtual_account("paper:model-a", "model-a")
+
+
+def test_plan_batch_conflict_rolls_back_every_insert(tmp_path):
+    store = RuntimeStore(tmp_path / "runtime.sqlite3")
+    expires = datetime(2026, 8, 24, 15, 0, tzinfo=TZ)
+    batch = [
+        {
+            "plan_id": "same-id",
+            "lane_id": "lane-a",
+            "symbol": "600519.SH",
+            "status": PlanStatus.ACTIVE_TODAY.value,
+            "expires_at": expires,
+            "payload": {"trigger_low": 10},
+        },
+        {
+            "plan_id": "same-id",
+            "lane_id": "lane-b",
+            "symbol": "000001.SZ",
+            "status": PlanStatus.ACTIVE_TODAY.value,
+            "expires_at": expires,
+            "payload": {"trigger_low": 20},
+        },
+    ]
+    with pytest.raises(StateTransitionError, match="PLAN_ID_CONTENT_CONFLICT"):
+        store.publish_plan_batch(batch)
+    assert store.list_execution_plans() == ()
+
+
+def test_workflow_lane_state_and_real_trading_day_are_durable(tmp_path):
+    store = RuntimeStore(tmp_path / "runtime.sqlite3")
+    store.ensure_virtual_account("paper:lane-a", "model-a")
+    store.record_workflow_run(
+        run_id="run-1",
+        lane_id="lane-a",
+        trade_date="2026-08-24",
+        slot="close",
+        model="model-a",
+        status="READY_TO_PUBLISH",
+        snapshot_hash="s" * 64,
+    )
+    store.record_workflow_stage(run_id="run-1", lane_id="lane-a", stage="A1", status="VALIDATED")
+    assert store.mark_workflow_runs_published("run-1", ["lane-a"]) == 1
+    assert store.list_workflow_runs()[0]["status"] == "PUBLISHED"
+    assert store.start_account_trading_day("paper:lane-a", date(2026, 8, 24)) is True
+    assert store.start_account_trading_day("paper:lane-a", date(2026, 8, 24)) is False
+    with pytest.raises(StateTransitionError, match="TRADING_DAY_REGRESSION"):
+        store.start_account_trading_day("paper:lane-a", date(2026, 8, 23))

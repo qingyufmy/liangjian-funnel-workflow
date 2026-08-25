@@ -12,7 +12,7 @@ import json
 import sqlite3
 import threading
 import uuid
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import date, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
@@ -146,6 +146,12 @@ def _row_dict(row: sqlite3.Row | tuple[Any, ...] | None, columns: tuple[str, ...
     return dict(zip(columns, row))
 
 
+def _ensure_column(connection: sqlite3.Connection, table: str, column: str, declaration: str) -> None:
+    existing = {str(row[1]) for row in connection.execute(f"PRAGMA table_info({table})").fetchall()}
+    if column not in existing:
+        connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
+
+
 class RuntimeStore:
     """SQLite-backed state store with durable fail-closed semantics."""
 
@@ -271,6 +277,44 @@ class RuntimeStore:
                         PRIMARY KEY(account_id, symbol),
                         CHECK(sellable_qty <= total_qty)
                     );
+                    CREATE TABLE IF NOT EXISTS position_risk_plans (
+                        account_id TEXT NOT NULL REFERENCES virtual_accounts(account_id),
+                        symbol TEXT NOT NULL,
+                        source_plan_id TEXT,
+                        status TEXT NOT NULL,
+                        entry_price REAL NOT NULL CHECK(entry_price > 0),
+                        stop_level REAL NOT NULL CHECK(stop_level > 0),
+                        max_adds INTEGER NOT NULL DEFAULT 1 CHECK(max_adds >= 0),
+                        adds_used INTEGER NOT NULL DEFAULT 0 CHECK(adds_used >= 0),
+                        corporate_action_version TEXT,
+                        unresolved_corporate_action INTEGER NOT NULL DEFAULT 0 CHECK(unresolved_corporate_action IN (0,1)),
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        PRIMARY KEY(account_id, symbol)
+                    );
+                    CREATE TABLE IF NOT EXISTS portfolio_marks (
+                        account_id TEXT NOT NULL REFERENCES virtual_accounts(account_id),
+                        symbol TEXT NOT NULL,
+                        price REAL NOT NULL CHECK(price > 0),
+                        bar_end TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        PRIMARY KEY(account_id, symbol)
+                    );
+                    CREATE TABLE IF NOT EXISTS account_trading_days (
+                        account_id TEXT PRIMARY KEY REFERENCES virtual_accounts(account_id),
+                        trade_date TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS applied_corporate_actions (
+                        account_id TEXT NOT NULL REFERENCES virtual_accounts(account_id),
+                        symbol TEXT NOT NULL,
+                        action_id TEXT NOT NULL,
+                        quantity_factor REAL NOT NULL CHECK(quantity_factor > 0),
+                        price_factor REAL NOT NULL CHECK(price_factor > 0),
+                        effective_at TEXT NOT NULL,
+                        applied_at TEXT NOT NULL,
+                        PRIMARY KEY(account_id, symbol, action_id)
+                    );
                     CREATE TABLE IF NOT EXISTS simulation_intents (
                         intent_id TEXT PRIMARY KEY,
                         intent_key TEXT NOT NULL UNIQUE,
@@ -306,8 +350,35 @@ class RuntimeStore:
                         generation INTEGER NOT NULL DEFAULT 1,
                         last_dispatch_key TEXT
                     );
+                    CREATE TABLE IF NOT EXISTS workflow_runs (
+                        run_id TEXT NOT NULL,
+                        lane_id TEXT NOT NULL,
+                        trade_date TEXT NOT NULL,
+                        slot TEXT NOT NULL,
+                        model TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        snapshot_hash TEXT NOT NULL,
+                        prompt_hash TEXT,
+                        config_hash TEXT,
+                        reason_codes_json TEXT NOT NULL DEFAULT '[]',
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        PRIMARY KEY(run_id, lane_id)
+                    );
+                    CREATE TABLE IF NOT EXISTS workflow_stages (
+                        run_id TEXT NOT NULL,
+                        lane_id TEXT NOT NULL,
+                        stage TEXT NOT NULL CHECK(stage IN ('A1','A2','A3')),
+                        status TEXT NOT NULL,
+                        reason_codes_json TEXT NOT NULL DEFAULT '[]',
+                        updated_at TEXT NOT NULL,
+                        PRIMARY KEY(run_id, lane_id, stage),
+                        FOREIGN KEY(run_id, lane_id) REFERENCES workflow_runs(run_id, lane_id)
+                    );
                     """
                 )
+                _ensure_column(connection, "scheduler_leases", "state", "TEXT NOT NULL DEFAULT 'ACTIVE'")
+                _ensure_column(connection, "scheduler_leases", "completed_at", "TEXT")
         except Exception:
             self._persistence_failed = True
             raise PersistenceError("PERSISTENCE_FAILED") from None
@@ -481,6 +552,125 @@ class RuntimeStore:
 
         return self._write(operation)
 
+    def record_workflow_run(
+        self,
+        *,
+        run_id: str,
+        lane_id: str,
+        trade_date: str,
+        slot: str,
+        model: str,
+        status: str,
+        snapshot_hash: str,
+        prompt_hash: str | None = None,
+        config_hash: str | None = None,
+        reason_codes: Sequence[str] = (),
+    ) -> dict[str, Any]:
+        now = _iso(_now())
+        reasons = json.dumps(list(dict.fromkeys(str(item) for item in reason_codes)), ensure_ascii=False)
+
+        def operation(connection):
+            connection.execute(
+                """
+                INSERT INTO workflow_runs(
+                    run_id,lane_id,trade_date,slot,model,status,snapshot_hash,prompt_hash,config_hash,
+                    reason_codes_json,created_at,updated_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(run_id,lane_id) DO UPDATE SET
+                    status=excluded.status,prompt_hash=COALESCE(excluded.prompt_hash,workflow_runs.prompt_hash),
+                    config_hash=COALESCE(excluded.config_hash,workflow_runs.config_hash),
+                    reason_codes_json=excluded.reason_codes_json,updated_at=excluded.updated_at
+                """,
+                (
+                    run_id,
+                    lane_id,
+                    trade_date,
+                    slot,
+                    model,
+                    status,
+                    snapshot_hash,
+                    prompt_hash,
+                    config_hash,
+                    reasons,
+                    now,
+                    now,
+                ),
+            )
+            return _row_dict(
+                connection.execute(
+                    "SELECT * FROM workflow_runs WHERE run_id=? AND lane_id=?",
+                    (run_id, lane_id),
+                ).fetchone()
+            )
+
+        return self._write(operation)
+
+    def record_workflow_stage(
+        self,
+        *,
+        run_id: str,
+        lane_id: str,
+        stage: str,
+        status: str,
+        reason_codes: Sequence[str] = (),
+    ) -> dict[str, Any]:
+        if stage not in {"A1", "A2", "A3"}:
+            raise ValueError("invalid workflow stage")
+        now = _iso(_now())
+        reasons = json.dumps(list(dict.fromkeys(str(item) for item in reason_codes)), ensure_ascii=False)
+
+        def operation(connection):
+            connection.execute(
+                """
+                INSERT INTO workflow_stages(run_id,lane_id,stage,status,reason_codes_json,updated_at)
+                VALUES(?,?,?,?,?,?)
+                ON CONFLICT(run_id,lane_id,stage) DO UPDATE SET
+                    status=excluded.status,reason_codes_json=excluded.reason_codes_json,updated_at=excluded.updated_at
+                """,
+                (run_id, lane_id, stage, status, reasons, now),
+            )
+            return _row_dict(
+                connection.execute(
+                    "SELECT * FROM workflow_stages WHERE run_id=? AND lane_id=? AND stage=?",
+                    (run_id, lane_id, stage),
+                ).fetchone()
+            )
+
+        return self._write(operation)
+
+    def list_workflow_runs(self, *, limit: int = 20) -> tuple[dict[str, Any], ...]:
+        bounded = max(1, min(int(limit), 200))
+        return self._read(
+            lambda connection: tuple(
+                _row_dict(row)
+                for row in connection.execute(
+                    "SELECT * FROM workflow_runs ORDER BY updated_at DESC,run_id,lane_id LIMIT ?",
+                    (bounded,),
+                ).fetchall()
+            )
+        )
+
+    def mark_workflow_runs_published(self, run_id: str, lane_ids: Sequence[str]) -> int:
+        lanes = tuple(dict.fromkeys(str(item) for item in lane_ids))
+        if not lanes:
+            return 0
+        now = _iso(_now())
+
+        def operation(connection):
+            updated = 0
+            for lane_id in lanes:
+                cursor = connection.execute(
+                    """
+                    UPDATE workflow_runs SET status='PUBLISHED',updated_at=?
+                    WHERE run_id=? AND lane_id=? AND status='READY_TO_PUBLISH'
+                    """,
+                    (now, run_id, lane_id),
+                )
+                updated += int(cursor.rowcount)
+            return updated
+
+        return int(self._write(operation))
+
     # ------------------------------------------------------------------
     # Execution plans and monitor event ledger
     # ------------------------------------------------------------------
@@ -590,6 +780,141 @@ class RuntimeStore:
     def set_plan_pending_morning_review(self, plan_id: str) -> dict[str, Any]:
         return self._transition_plan(plan_id, PlanStatus.PENDING_MORNING_REVIEW.value)
 
+    def publish_plan_batch(
+        self,
+        plans: Sequence[Mapping[str, Any]],
+        *,
+        expire_active_lanes: Sequence[str] = (),
+    ) -> tuple[dict[str, Any], ...]:
+        """Publish a validated multi-lane plan set in one SQLite transaction."""
+
+        normalized: list[dict[str, Any]] = []
+        allowed_statuses = {PlanStatus.PENDING_MORNING_REVIEW.value, PlanStatus.ACTIVE_TODAY.value}
+        for raw in plans:
+            item = dict(raw)
+            required = {"plan_id", "lane_id", "symbol", "status", "expires_at", "payload"}
+            if not required.issubset(item):
+                raise ValueError("plan batch item incomplete")
+            status = str(item["status"])
+            if status not in allowed_statuses:
+                raise ValueError("plan batch status invalid")
+            item["status"] = status
+            item["payload_json"] = _json(item["payload"])
+            normalized.append(item)
+        now = _iso(_now())
+        lanes = tuple(dict.fromkeys(str(item) for item in expire_active_lanes))
+
+        def operation(connection):
+            for lane_id in lanes:
+                connection.execute(
+                    "UPDATE execution_plans SET status=?,updated_at=? WHERE lane_id=? AND status=?",
+                    (PlanStatus.EXPIRED.value, now, lane_id, PlanStatus.ACTIVE_TODAY.value),
+                )
+            rows: list[dict[str, Any]] = []
+            for item in normalized:
+                existing = connection.execute(
+                    "SELECT * FROM execution_plans WHERE plan_id=?",
+                    (str(item["plan_id"]),),
+                ).fetchone()
+                if existing is None:
+                    connection.execute(
+                        """
+                        INSERT INTO execution_plans(
+                            plan_id,lane_id,symbol,status,plan_version,valid_from,expires_at,
+                            payload_json,created_at,updated_at
+                        ) VALUES(?,?,?,?,?,?,?,?,?,?)
+                        """,
+                        (
+                            str(item["plan_id"]),
+                            str(item["lane_id"]),
+                            str(item["symbol"]),
+                            str(item["status"]),
+                            int(item.get("plan_version", 1)),
+                            _iso(item.get("valid_from")),
+                            _iso(item["expires_at"]),
+                            item["payload_json"],
+                            now,
+                            now,
+                        ),
+                    )
+                else:
+                    immutable = (
+                        existing["lane_id"],
+                        existing["symbol"],
+                        existing["payload_json"],
+                    )
+                    proposed = (
+                        str(item["lane_id"]),
+                        str(item["symbol"]),
+                        item["payload_json"],
+                    )
+                    if immutable != proposed:
+                        raise StateTransitionError("PLAN_ID_CONTENT_CONFLICT")
+                parent = item.get("parent_plan_id")
+                if parent:
+                    connection.execute(
+                        "UPDATE execution_plans SET status=?,updated_at=? WHERE plan_id=? AND status=?",
+                        (
+                            PlanStatus.INVALIDATED.value,
+                            now,
+                            str(parent),
+                            PlanStatus.PENDING_MORNING_REVIEW.value,
+                        ),
+                    )
+                rows.append(
+                    _row_dict(
+                        connection.execute(
+                            "SELECT * FROM execution_plans WHERE plan_id=?",
+                            (str(item["plan_id"]),),
+                        ).fetchone()
+                    )
+                )
+            return tuple(rows)
+
+        return self._write(operation)
+
+    def activate_pending_plan_batch(
+        self,
+        plan_ids: Sequence[str],
+        *,
+        valid_from: datetime,
+    ) -> tuple[dict[str, Any], ...]:
+        """Atomically activate a fully validated morning-review plan set."""
+
+        ids = tuple(dict.fromkeys(str(item) for item in plan_ids))
+        if not ids:
+            return ()
+        stamp = _iso(valid_from)
+        now = _iso(_now())
+
+        def operation(connection):
+            rows = []
+            for plan_id in ids:
+                row = connection.execute(
+                    "SELECT * FROM execution_plans WHERE plan_id=?",
+                    (plan_id,),
+                ).fetchone()
+                if row is None:
+                    raise StateTransitionError("PLAN_NOT_FOUND")
+                if row["status"] != PlanStatus.PENDING_MORNING_REVIEW.value:
+                    raise StateTransitionError("PLAN_NOT_PENDING_MORNING_REVIEW")
+                rows.append(row)
+            for plan_id in ids:
+                connection.execute(
+                    "UPDATE execution_plans SET status=?,valid_from=?,updated_at=? WHERE plan_id=?",
+                    (PlanStatus.ACTIVE_TODAY.value, stamp, now, plan_id),
+                )
+            return tuple(
+                _row_dict(
+                    connection.execute(
+                        "SELECT * FROM execution_plans WHERE plan_id=?", (plan_id,)
+                    ).fetchone()
+                )
+                for plan_id in ids
+            )
+
+        return self._write(operation)
+
     def list_active_plans(self, lane_id: str, *, at: datetime | None = None) -> tuple[dict[str, Any], ...]:
         stamp = _iso(at or _now())
 
@@ -697,6 +1022,188 @@ class RuntimeStore:
             )
         )
 
+    def get_position_risk_plan(self, account_id: str, symbol: str) -> dict[str, Any] | None:
+        return self._read(
+            lambda connection: _row_dict(
+                connection.execute(
+                    "SELECT * FROM position_risk_plans WHERE account_id=? AND symbol=?",
+                    (account_id, symbol),
+                ).fetchone()
+            )
+        )
+
+    def start_account_trading_day(self, account_id: str, trade_date: date) -> bool:
+        """Idempotently release T+1 quantities once per real trading date."""
+
+        day = trade_date.isoformat()
+        now = _iso(_now())
+
+        def operation(connection):
+            current = connection.execute(
+                "SELECT trade_date FROM account_trading_days WHERE account_id=?",
+                (account_id,),
+            ).fetchone()
+            if current is not None and str(current["trade_date"]) == day:
+                return False
+            if current is not None and str(current["trade_date"]) > day:
+                raise StateTransitionError("TRADING_DAY_REGRESSION")
+            connection.execute(
+                "UPDATE virtual_positions SET sellable_qty=total_qty,updated_at=? WHERE account_id=? AND sellable_qty<total_qty",
+                (now, account_id),
+            )
+            connection.execute(
+                """
+                INSERT INTO account_trading_days(account_id,trade_date,updated_at) VALUES(?,?,?)
+                ON CONFLICT(account_id) DO UPDATE SET trade_date=excluded.trade_date,updated_at=excluded.updated_at
+                """,
+                (account_id, day, now),
+            )
+            return True
+
+        return bool(self._write(operation))
+
+    def upsert_market_mark(self, account_id: str, symbol: str, price: float, bar_end: datetime) -> dict[str, Any]:
+        if price <= 0:
+            raise ValueError("mark price must be positive")
+        stamp = _iso(bar_end)
+        now = _iso(_now())
+
+        def operation(connection):
+            existing = connection.execute(
+                "SELECT * FROM portfolio_marks WHERE account_id=? AND symbol=?",
+                (account_id, symbol),
+            ).fetchone()
+            if existing is not None and str(existing["bar_end"]) > str(stamp):
+                raise StateTransitionError("MARK_TIME_REGRESSION")
+            connection.execute(
+                """
+                INSERT INTO portfolio_marks(account_id,symbol,price,bar_end,updated_at) VALUES(?,?,?,?,?)
+                ON CONFLICT(account_id,symbol) DO UPDATE SET
+                    price=excluded.price,bar_end=excluded.bar_end,updated_at=excluded.updated_at
+                """,
+                (account_id, symbol, float(price), stamp, now),
+            )
+            return _row_dict(
+                connection.execute(
+                    "SELECT * FROM portfolio_marks WHERE account_id=? AND symbol=?",
+                    (account_id, symbol),
+                ).fetchone()
+            )
+
+        return self._write(operation)
+
+    def get_market_mark(self, account_id: str, symbol: str) -> dict[str, Any] | None:
+        return self._read(
+            lambda connection: _row_dict(
+                connection.execute(
+                    "SELECT * FROM portfolio_marks WHERE account_id=? AND symbol=?",
+                    (account_id, symbol),
+                ).fetchone()
+            )
+        )
+
+    def mark_account_to_market(self, account_id: str) -> float:
+        now = _iso(_now())
+
+        def operation(connection):
+            account = connection.execute(
+                "SELECT cash FROM virtual_accounts WHERE account_id=?",
+                (account_id,),
+            ).fetchone()
+            if account is None:
+                raise StateTransitionError("ACCOUNT_NOT_FOUND")
+            positions = connection.execute(
+                "SELECT * FROM virtual_positions WHERE account_id=?",
+                (account_id,),
+            ).fetchall()
+            equity = float(account["cash"])
+            for position in positions:
+                mark = connection.execute(
+                    "SELECT price FROM portfolio_marks WHERE account_id=? AND symbol=?",
+                    (account_id, position["symbol"]),
+                ).fetchone()
+                price = float(mark["price"]) if mark is not None else float(position["avg_cost"])
+                equity += int(position["total_qty"]) * price
+            connection.execute(
+                "UPDATE virtual_accounts SET equity=?,updated_at=? WHERE account_id=?",
+                (equity, now, account_id),
+            )
+            return equity
+
+        return float(self._write(operation))
+
+    def apply_corporate_action(
+        self,
+        *,
+        account_id: str,
+        symbol: str,
+        action_id: str,
+        quantity_factor: float,
+        price_factor: float,
+        effective_at: datetime,
+    ) -> bool:
+        """Idempotently adjust a simulated position for a verified action."""
+
+        if quantity_factor <= 0 or price_factor <= 0:
+            raise ValueError("corporate action factors must be positive")
+        now = _iso(_now())
+
+        def operation(connection):
+            existing = connection.execute(
+                "SELECT 1 FROM applied_corporate_actions WHERE account_id=? AND symbol=? AND action_id=?",
+                (account_id, symbol, action_id),
+            ).fetchone()
+            if existing is not None:
+                return False
+            position = connection.execute(
+                "SELECT * FROM virtual_positions WHERE account_id=? AND symbol=?",
+                (account_id, symbol),
+            ).fetchone()
+            if position is None:
+                raise StateTransitionError("POSITION_NOT_FOUND")
+            total = int(round(int(position["total_qty"]) * quantity_factor))
+            sellable = int(round(int(position["sellable_qty"]) * quantity_factor))
+            if total <= 0 or sellable < 0 or sellable > total:
+                raise StateTransitionError("CORPORATE_ACTION_QUANTITY_INVALID")
+            connection.execute(
+                """
+                UPDATE virtual_positions SET total_qty=?,sellable_qty=?,avg_cost=?,stop_level=?,updated_at=?
+                WHERE account_id=? AND symbol=?
+                """,
+                (
+                    total,
+                    sellable,
+                    float(position["avg_cost"]) * price_factor,
+                    float(position["stop_level"]) * price_factor if position["stop_level"] is not None else None,
+                    now,
+                    account_id,
+                    symbol,
+                ),
+            )
+            connection.execute(
+                """
+                UPDATE position_risk_plans SET entry_price=entry_price*?,stop_level=stop_level*?,
+                    corporate_action_version=?,unresolved_corporate_action=0,updated_at=?
+                WHERE account_id=? AND symbol=?
+                """,
+                (price_factor, price_factor, action_id, now, account_id, symbol),
+            )
+            connection.execute(
+                "INSERT INTO applied_corporate_actions VALUES(?,?,?,?,?,?,?)",
+                (
+                    account_id,
+                    symbol,
+                    action_id,
+                    float(quantity_factor),
+                    float(price_factor),
+                    _iso(effective_at),
+                    now,
+                ),
+            )
+            return True
+
+        return bool(self._write(operation))
+
     def commit_fill(
         self,
         *,
@@ -768,6 +1275,10 @@ class RuntimeStore:
             )
             if position is None or int(position["total_qty"]) == 0:
                 connection.execute("DELETE FROM virtual_positions WHERE account_id=? AND symbol=?", (account_id, symbol))
+                connection.execute(
+                    "UPDATE position_risk_plans SET status='CLOSED',updated_at=? WHERE account_id=? AND symbol=?",
+                    (now, account_id, symbol),
+                )
             else:
                 connection.execute(
                     """
@@ -788,6 +1299,40 @@ class RuntimeStore:
                         now,
                     ),
                 )
+                existing_risk = connection.execute(
+                    "SELECT * FROM position_risk_plans WHERE account_id=? AND symbol=?",
+                    (account_id, symbol),
+                ).fetchone()
+                if action in {"BUY", "ADD"}:
+                    effective_stop = stop_level if stop_level is not None else position.get("stop_level")
+                    if effective_stop is None:
+                        raise StateTransitionError("POSITION_RISK_STOP_REQUIRED")
+                    adds_used = int(existing_risk["adds_used"]) + 1 if action == "ADD" and existing_risk else 0
+                    connection.execute(
+                        """
+                        INSERT INTO position_risk_plans(
+                            account_id,symbol,source_plan_id,status,entry_price,stop_level,max_adds,adds_used,
+                            corporate_action_version,unresolved_corporate_action,created_at,updated_at
+                        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+                        ON CONFLICT(account_id,symbol) DO UPDATE SET
+                            source_plan_id=excluded.source_plan_id,status='ACTIVE',entry_price=excluded.entry_price,
+                            stop_level=excluded.stop_level,adds_used=excluded.adds_used,updated_at=excluded.updated_at
+                        """,
+                        (
+                            account_id,
+                            symbol,
+                            plan_id,
+                            "ACTIVE",
+                            float(position["avg_cost"]),
+                            float(effective_stop),
+                            1,
+                            adds_used,
+                            None,
+                            0,
+                            now,
+                            now,
+                        ),
+                    )
             return _row_dict(connection.execute("SELECT * FROM virtual_fills WHERE fill_id=?", (fill_id,)).fetchone()), True
 
         return self._write(operation)
@@ -848,18 +1393,19 @@ class RuntimeStore:
             existing = connection.execute("SELECT * FROM scheduler_leases WHERE lease_name=?", (lease_name,)).fetchone()
             if existing is None:
                 connection.execute(
-                    "INSERT INTO scheduler_leases(lease_name,owner,acquired_at,heartbeat_at,expires_at,generation,last_dispatch_key) VALUES(?,?,?,?,?,?,?)",
-                    (lease_name, owner, now_text, now_text, expires_text, 1, dispatch_key),
+                    "INSERT INTO scheduler_leases(lease_name,owner,acquired_at,heartbeat_at,expires_at,generation,last_dispatch_key,state,completed_at) VALUES(?,?,?,?,?,?,?,?,?)",
+                    (lease_name, owner, now_text, now_text, expires_text, 1, dispatch_key, "ACTIVE", None),
                 )
                 return True
-            if dispatch_key is not None and existing["last_dispatch_key"] == dispatch_key:
+            same_dispatch = dispatch_key is not None and existing["last_dispatch_key"] == dispatch_key
+            if same_dispatch and existing["state"] == "COMPLETED":
                 return False
             active = existing["expires_at"] > now_text
-            if active and existing["owner"] != owner:
+            if active and existing["state"] == "ACTIVE":
                 return False
-            generation = int(existing["generation"]) + (0 if existing["owner"] == owner and active else 1)
+            generation = int(existing["generation"]) + 1
             connection.execute(
-                "UPDATE scheduler_leases SET owner=?,acquired_at=?,heartbeat_at=?,expires_at=?,generation=?,last_dispatch_key=? WHERE lease_name=?",
+                "UPDATE scheduler_leases SET owner=?,acquired_at=?,heartbeat_at=?,expires_at=?,generation=?,last_dispatch_key=?,state='ACTIVE',completed_at=NULL WHERE lease_name=?",
                 (owner, now_text, now_text, expires_text, generation, dispatch_key, lease_name),
             )
             return True
@@ -887,8 +1433,42 @@ class RuntimeStore:
 
         return bool(self._write(operation))
 
+    def complete_lease(
+        self,
+        lease_name: str,
+        owner: str,
+        *,
+        dispatch_key: str | None = None,
+        now: datetime | None = None,
+    ) -> bool:
+        stamp = _iso(now or _now())
+
+        def operation(connection):
+            clauses = "lease_name=? AND owner=? AND state='ACTIVE'"
+            args: list[Any] = [stamp, stamp, lease_name, owner]
+            if dispatch_key is not None:
+                clauses += " AND last_dispatch_key=?"
+                args.append(dispatch_key)
+            cursor = connection.execute(
+                f"UPDATE scheduler_leases SET state='COMPLETED',completed_at=?,expires_at=? WHERE {clauses}",
+                args,
+            )
+            return cursor.rowcount == 1
+
+        return bool(self._write(operation))
+
     def get_lease(self, lease_name: str) -> dict[str, Any] | None:
         return self._read(lambda connection: _row_dict(connection.execute("SELECT * FROM scheduler_leases WHERE lease_name=?", (lease_name,)).fetchone()))
+
+    def list_leases(self) -> tuple[dict[str, Any], ...]:
+        return self._read(
+            lambda connection: tuple(
+                _row_dict(row)
+                for row in connection.execute(
+                    "SELECT * FROM scheduler_leases ORDER BY lease_name"
+                ).fetchall()
+            )
+        )
 
     def effective_events(self, *, lane_id: str | None = None) -> tuple[dict[str, Any], ...]:
         return self.list_monitor_events(lane_id=lane_id, effective_only=True)

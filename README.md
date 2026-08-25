@@ -42,18 +42,31 @@ cd D:\dev_A股\liangjian_funnel_workflow
 .\.venv\Scripts\python.exe -m liangjian_funnel run-research --slot morning
 .\.venv\Scripts\python.exe -m liangjian_funnel monitor-once
 .\.venv\Scripts\python.exe -m liangjian_funnel run-due
+.\.venv\Scripts\python.exe -m liangjian_funnel run-morning
+.\.venv\Scripts\python.exe -m liangjian_funnel run-close
+.\.venv\Scripts\python.exe -m liangjian_funnel run-monitor
 .\.venv\Scripts\python.exe -m liangjian_funnel status
 ```
 
 默认 G0 后取成交额最高的 20 只；初始域仍保存全市场计数和淘汰血缘。可用 `LIANGJIAN_RESEARCH_MAX_CANDIDATES` 调整到 1–300。
+完整 A1 默认每 5 只一批（`LIANGJIAN_A1_BATCH_SIZE`），模型阶段默认总时限 300 秒（可调至 600）、最大输出 6,000 tokens。这些限制只影响模型投影；完整冻结快照与哈希不会被截断。
+
+对已冻结快照重放或从已验证的上游阶段恢复：
+
+```bash
+.venv/bin/python scripts/replay_frozen_research.py --snapshot storage/snapshots/snapshot-....json --slot close
+.venv/bin/python scripts/replay_frozen_research.py --snapshot storage/snapshots/snapshot-....json --resume-audit outputs/research/research_..._lane_2.json --stage A3
+```
+
+重放会先校验快照 SHA-256，且只允许读取配置的快照/研究输出目录。
 
 ## 自动运行
 
 已安装三个 Windows 计划任务：
 
-- `LiangjianAStockResearchMorning`：每天 09:25；内部等到 09:26 冻结竞价数据。
+- `LiangjianAStockResearchMorning`：每天 09:26；只冻结最新闭合行情，对前一收盘 A3 计划执行失效/追高门禁后原子激活，不再重跑完整三模型漏斗。
 - `LiangjianAStockResearchClose`：每天 15:10。
-- `LiangjianAStockMonitor`：每天 09:25 起每分钟一次，持续 5 小时 45 分；内部跳过午休、周末、重复任务和过期补买。
+- `LiangjianAStockMonitor`：每天 09:25 起每分钟一次，15:00 停止；内部用交易所日历跳过法定休市日、午休、重复任务和过期补买。15:10 收盘研究不再与盯盘任务竞争。
 
 重新安装或卸载：
 
@@ -61,6 +74,8 @@ cd D:\dev_A股\liangjian_funnel_workflow
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\install_scheduled_tasks.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\uninstall_scheduled_tasks.ps1
 ```
+
+Linux、systemd/cron、容器、部署门禁和回滚步骤见 [DEPLOYMENT.md](DEPLOYMENT.md)。生产调度分别调用 `run-morning`、`run-close`、`run-monitor`，不会让三种任务在同一 `run-due` 进程中争抢执行权。
 
 ## 结果位置
 
@@ -77,5 +92,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\uninstall_sche
 ## 当前真实运行结论
 
 数据链、冻结、并行模型编排和失败关闭已真实跑通。同花顺已补齐涨停/跌停/炸板、连板天梯、龙虎榜、热榜、集合竞价、行业/概念目录、行业当前成分关系，以及利润表、资产负债表、现金流量表和财务指标；巨潮公开公告元数据与高价值 PDF 页码证据已按候选接入；国务院政策文件库已接入近 7 日正式文件，并区分确认零记录与查询失败。开放资讯包含财联社电报、东财7×24、逐候选个股新闻，以及Vibe-Research的12赛道/106个RSS源。每次运行都会先冻结来源 URL、发布/抓取时间、来源状态、内容哈希与缺失原因。同花顺是当前主行业口径，申万仅作为未来可选校验源。资讯统一是T3不可信线索，先去重、记录转载数并隔离疑似提示注入，不能替代政策、公告、财报或主营收入证据。行业统计、完整资金流和完整持仓拥挤等事实缺失时，相关阶段继续fail-closed，不会用其他模型代答或绕过血缘。
+
+2026-08-25 同一真实快照上，Kimi lane 已完成并验证 A1→A2→A3；最终候选因日线和 120 分钟同时跌破 MA255 被确定性门禁改为 `NO_ENTRY`。DeepSeek/GLM 长请求仍未完成稳定性验收，真实 A4→模拟买入→减仓/离场也尚无自然产生的现场样本。完整处置表见 [AUDIT_REMEDIATION_2026-08-25.md](AUDIT_REMEDIATION_2026-08-25.md)。
 
 > 内部研究与模拟，不构成投资建议。

@@ -56,6 +56,12 @@ def make_client(tmp_path: Path, handler, *, sleeps: list[float] | None = None, m
     )
 
 
+def test_owned_client_ignores_process_proxy_configuration(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ALL_PROXY", "socks5://127.0.0.1:9999")
+    client = CninfoPdfClient(tmp_path)
+    client.close()
+
+
 def test_download_extract_and_hash_validated_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(pypdf, "PdfReader", Reader)
     calls = 0

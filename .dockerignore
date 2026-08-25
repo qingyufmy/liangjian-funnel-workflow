@@ -1,0 +1,12 @@
+.git
+.github
+.venv
+build
+dist
+outputs
+state
+storage
+cache
+__pycache__
+*.pyc
+.env

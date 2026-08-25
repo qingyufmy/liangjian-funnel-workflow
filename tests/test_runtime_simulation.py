@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from liangjian_funnel.data.mootdx import MinuteBar
@@ -102,3 +102,64 @@ def test_action_priority_exits_win_over_buy_same_minute():
     assert len(winners) == 1
     assert winners[0].action is SimulationActionType.FORCED_RISK_EXIT
 
+
+def test_buy_creates_risk_plan_add_requires_profit_and_has_limit(tmp_path):
+    store = RuntimeStore(tmp_path / "runtime.sqlite3")
+    broker = PaperBroker(store, model="model-a", config=SimulationConfig(initial_cash=100_000))
+    signal_time = datetime(2026, 8, 24, 9, 32, tzinfo=TZ)
+    bought = broker.apply(
+        action("paper:model-a", "buy", signal_time, requested_qty=100, plan_id="plan-a"),
+        bar(signal_time + timedelta(minutes=1), close=10),
+    )
+    assert bought.status is SimulationStatus.FILLED
+    risk_plan = store.get_position_risk_plan("paper:model-a", "600519.SH")
+    assert risk_plan["status"] == "ACTIVE"
+    assert risk_plan["source_plan_id"] == "plan-a"
+
+    losing_add = broker.apply(
+        action("paper:model-a", "add-losing", signal_time + timedelta(minutes=2), "ADD", requested_qty=100),
+        bar(signal_time + timedelta(minutes=3), close=9.5),
+    )
+    assert losing_add.reason_code == "ADD_REQUIRES_OPEN_PROFIT"
+    profitable_add = broker.apply(
+        action("paper:model-a", "add-profit", signal_time + timedelta(minutes=4), "ADD", requested_qty=100),
+        bar(signal_time + timedelta(minutes=5), close=10.8),
+    )
+    assert profitable_add.status is SimulationStatus.FILLED
+    maxed = broker.apply(
+        action("paper:model-a", "add-maxed", signal_time + timedelta(minutes=6), "ADD", requested_qty=100),
+        bar(signal_time + timedelta(minutes=7), close=11),
+    )
+    assert maxed.reason_code == "MAX_ADDS_REACHED"
+
+
+def test_verified_corporate_action_adjusts_position_and_risk_plan_once(tmp_path):
+    store = RuntimeStore(tmp_path / "runtime.sqlite3")
+    broker = PaperBroker(store, model="model-a", config=SimulationConfig(initial_cash=100_000))
+    signal_time = datetime(2026, 8, 24, 9, 32, tzinfo=TZ)
+    broker.apply(
+        action("paper:model-a", "buy", signal_time, requested_qty=100, plan_id="plan-a"),
+        bar(signal_time + timedelta(minutes=1), close=10),
+    )
+    before = store.get_position("paper:model-a", "600519.SH")
+    assert store.apply_corporate_action(
+        account_id="paper:model-a",
+        symbol="600519.SH",
+        action_id="split-20260825",
+        quantity_factor=2,
+        price_factor=0.5,
+        effective_at=datetime(2026, 8, 25, 9, 0, tzinfo=TZ),
+    ) is True
+    after = store.get_position("paper:model-a", "600519.SH")
+    risk = store.get_position_risk_plan("paper:model-a", "600519.SH")
+    assert after["total_qty"] == before["total_qty"] * 2
+    assert after["avg_cost"] == before["avg_cost"] * 0.5
+    assert risk["corporate_action_version"] == "split-20260825"
+    assert store.apply_corporate_action(
+        account_id="paper:model-a",
+        symbol="600519.SH",
+        action_id="split-20260825",
+        quantity_factor=2,
+        price_factor=0.5,
+        effective_at=datetime(2026, 8, 25, 9, 0, tzinfo=TZ),
+    ) is False

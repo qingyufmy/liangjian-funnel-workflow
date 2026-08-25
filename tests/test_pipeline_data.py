@@ -8,7 +8,7 @@ import httpx
 import pytest
 
 from liangjian_funnel.pipeline.data_source import HithinkClient
-from liangjian_funnel.pipeline.snapshot import FrozenInputSnapshot, UniverseSnapshot
+from liangjian_funnel.pipeline.snapshot import FrozenInputSnapshot, UniverseGatePolicy, UniverseSnapshot
 from liangjian_funnel.settings import Settings
 
 
@@ -126,6 +126,33 @@ def test_universe_preserves_market_change_for_breadth() -> None:
     )
 
     assert universe.records[0].change_ratio_pct == pytest.approx(10.0)
+
+
+def test_g0_policy_blocks_turnover_suspension_and_new_listing():
+    universe = UniverseSnapshot.from_records(
+        [
+            {"thscode": "600519.SH", "name": "low turnover", "listing_date": "2001-08-27"},
+            {"thscode": "000001.SZ", "name": "suspended", "listing_date": "1991-04-03"},
+            {"thscode": "300750.SZ", "name": "new", "listing_date": "2026-08-23"},
+        ],
+        [
+            {"thscode": "600519.SH", "last_price": 10, "volume": 1, "turnover": 99},
+            {"thscode": "000001.SZ", "last_price": 10, "volume": 0, "turnover": 200},
+            {"thscode": "300750.SZ", "last_price": 10, "volume": 1, "turnover": 200},
+        ],
+        as_of=NOW,
+        gate_policy=UniverseGatePolicy(
+            minimum_daily_turnover_cny=100,
+            newly_listed_min_days=60,
+            block_suspended=True,
+            block_no_price_limit_new_listing=True,
+        ),
+    )
+    reasons = {record.symbol: set(record.exclusion_reasons) for record in universe.records}
+    assert "MINIMUM_TURNOVER_NOT_MET" in reasons["600519.SH"]
+    assert "SUSPENDED" in reasons["000001.SZ"]
+    assert {"NEWLY_LISTED", "NO_PRICE_LIMIT_NEW_LISTING"}.issubset(reasons["300750.SZ"])
+    assert universe.trade_candidates == ()
 
 
 def test_frozen_snapshot_hash_replay_and_candidate_failure(tmp_path: Path):

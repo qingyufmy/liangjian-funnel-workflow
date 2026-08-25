@@ -1,0 +1,21 @@
+schema_version: liangjian-exchange-rules/1.0.0
+snapshot_id: CN-A-SIMULATION-20260706
+effective_from: "2026-07-06"
+simulation_only: true
+external_orders: false
+bj_trade_enabled: false
+lot_size: 100
+t_plus_one: true
+sources:
+  sse:
+    document: 上海证券交易所交易规则（2026年修订）
+    document_number: 上证发〔2026〕41号
+    url: https://www.sse.com.cn/lawandrules/sselawsrules2025/trade/universal/c/c_20260424_10816492.shtml
+  szse:
+    document: 深圳证券交易所交易规则（2026年修订）
+    document_number: 深证上〔2026〕551号
+    url: https://investor.szse.cn/lawrules/rule/trade/t20260424_620190.html
+  bse:
+    document: 北京证券交易所交易规则
+    document_number: 北证公告〔2026〕17号
+    url: https://www.bse.cn/jygl_list/200028217.html

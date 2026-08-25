@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..data.mootdx import MinuteBar
+from ..reporting import atomic_write_text
 from .state import EFFECTIVE_ACTIONS, MonitorAction, PersistenceError, RuntimeStore
 
 
@@ -504,29 +505,38 @@ class MonitorEngine:
         )
 
     def _append_markdown(self, record: Mapping[str, Any]) -> None:
-        if record["action"] not in EFFECTIVE_ACTIONS:
-            return
+        del record
         path = self.effective_md_path
         if path is None:
             return
-        path.parent.mkdir(parents=True, exist_ok=True)
-        if not path.exists():
-            path.write_text("# Effective intraday signals\n\n", encoding="utf-8")
-        try:
-            payload = json.loads(str(record.get("payload_json") or "{}"))
-        except Exception:
-            payload = {}
-        symbol = payload.get("symbol", "")
-        line = (
-            f"- `{record['minute_end']}` | lane `{record['lane_id']}` | "
-            f"`{symbol}` | `{record['action']}` | `{record['reason_code'] or ''}`\n"
-        )
-        with path.open("a", encoding="utf-8", newline="\n") as handle:
-            handle.write(line)
+        rebuild_effective_markdown(self.store, path)
 
     run_minute = process_minute
     tick = process_minute
     monitor_minute = process_minute
 
 
-__all__ = ["MonitorBatchResult", "MonitorEngine", "MonitorEvent"]
+def rebuild_effective_markdown(store: RuntimeStore, path: str | Path) -> Path:
+    target = Path(path)
+    lines = [
+        "# Effective intraday state-changing events",
+        "",
+        "> Includes only executable signals, vetoes, invalidations and data/risk blocks.",
+        "",
+    ]
+    for item in store.list_monitor_events(effective_only=True):
+        if item.get("action") not in EFFECTIVE_ACTIONS:
+            continue
+        try:
+            payload = json.loads(str(item.get("payload_json") or "{}"))
+        except Exception:
+            payload = {}
+        lines.append(
+            f"- `{item['minute_end']}` | lane `{item['lane_id']}` | "
+            f"`{payload.get('symbol', '')}` | `{item['action']}` | `{item.get('reason_code') or ''}`"
+        )
+    atomic_write_text(target, "\n".join(lines) + "\n")
+    return target
+
+
+__all__ = ["MonitorBatchResult", "MonitorEngine", "MonitorEvent", "rebuild_effective_markdown"]

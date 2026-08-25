@@ -10,14 +10,19 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterable, Mapping
-from datetime import datetime, time as datetime_time
+from datetime import date, datetime, time as datetime_time
 from enum import StrEnum
 from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ..data.mootdx import MinuteBar, map_symbol
 from .state import PersistenceBlockedError, PersistenceError, RuntimeStore
+from .risk import RiskGovernor
+
+
+SHANGHAI = ZoneInfo("Asia/Shanghai")
 
 
 class SimulationActionType(StrEnum):
@@ -171,6 +176,7 @@ class PaperBroker:
         self.account_id = account_id or f"paper:{model}"
         self.model = model or self.account_id
         self.store.ensure_virtual_account(self.account_id, self.model, self.config.initial_cash)
+        self.risk_governor = RiskGovernor(self.store, self.account_id)
 
     @classmethod
     def for_models(
@@ -182,10 +188,14 @@ class PaperBroker:
     ) -> tuple["PaperBroker", ...]:
         return tuple(cls(store, model=model, config=config) for model in models)
 
-    def start_trading_day(self) -> int:
+    def start_trading_day(self, trade_date: date | None = None) -> int:
         """Release prior-session buys for T+1 selling."""
 
-        return self.store.release_t1(self.account_id)
+        started = self.store.start_account_trading_day(
+            self.account_id,
+            trade_date or datetime.now(SHANGHAI).date(),
+        )
+        return 1 if started else 0
 
     def calculate_quantity(
         self,
@@ -226,9 +236,18 @@ class PaperBroker:
         current_position = self.store.get_position(self.account_id, symbol) if symbol else None
         current_total = 0.0
         for existing in self.store.list_positions(self.account_id):
-            current_total += float(existing["total_qty"]) * fill_reference
+            mark = self.store.get_market_mark(self.account_id, str(existing["symbol"]))
+            existing_price = float(mark["price"]) if mark is not None else float(existing["avg_cost"])
+            current_total += float(existing["total_qty"]) * existing_price
         same_value = (
-            float(current_position["total_qty"]) * fill_reference if current_position is not None else 0.0
+            float(current_position["total_qty"])
+            * (
+                float(self.store.get_market_mark(self.account_id, str(current_position["symbol"]))["price"])
+                if self.store.get_market_mark(self.account_id, str(current_position["symbol"])) is not None
+                else fill_reference
+            )
+            if current_position is not None
+            else 0.0
         )
         total_room = max(0.0, float(account["equity"]) * self.config.max_total_position_pct - current_total)
         single_room = float(account["equity"]) * self.config.max_single_position_pct - same_value
@@ -245,8 +264,11 @@ class PaperBroker:
             return self._blocked(parsed, "ACCOUNT_LANE_MISMATCH")
         try:
             self.store.assert_writable()
+            decision = self.risk_governor.evaluate(parsed, bar)
         except (PersistenceError, PersistenceBlockedError):
             return self._blocked(parsed, "PERSISTENCE_FAILED")
+        if not decision.allowed:
+            return self._blocked(parsed, decision.reason_code)
         intent_key = f"{parsed.account_id}:{parsed.signal_id}:{parsed.action.value}"
         try:
             existing = self.store.get_fill_by_intent_key(intent_key)
@@ -280,6 +302,8 @@ class PaperBroker:
             return self._blocked(parsed, "NEXT_COMPLETE_BAR_REQUIRED")
         if bar.volume <= 0 or bar.high <= bar.low:
             return self._blocked(parsed, "BAR_NOT_EXECUTABLE")
+        self.store.upsert_market_mark(self.account_id, parsed.symbol, bar.close, bar.bar_end)
+        self.store.mark_account_to_market(self.account_id)
         if parsed.action in {SimulationActionType.BUY, SimulationActionType.ADD} and (
             bar.bar_end.time().replace(tzinfo=None) >= datetime_time(14, 45)
         ):
@@ -332,7 +356,12 @@ class PaperBroker:
             sellable = int(position["sellable_qty"])
             if sellable <= 0:
                 return self._blocked(parsed, "BLOCKED_T1")
-            requested = parsed.requested_qty or sellable
+            requested = parsed.requested_qty
+            if requested is None:
+                requested = sellable if parsed.action in {SimulationActionType.SELL, SimulationActionType.FORCED_RISK_EXIT} else max(
+                    self.config.lot_size,
+                    _floor_lot(sellable / 2, self.config.lot_size),
+                )
             qty = _floor_lot(float(requested), self.config.lot_size)
             if qty <= 0:
                 return self._blocked(parsed, "INVALID_SELL_QTY")
@@ -355,7 +384,11 @@ class PaperBroker:
             qty_existing = int(existing["total_qty"])
             if existing["symbol"] == parsed.symbol:
                 qty_existing = int(position_payload["total_qty"]) if position_payload else 0
-            equity_after += qty_existing * (bar.close if existing["symbol"] == parsed.symbol else float(existing["avg_cost"]))
+            mark = self.store.get_market_mark(self.account_id, str(existing["symbol"]))
+            mark_price = bar.close if existing["symbol"] == parsed.symbol else (
+                float(mark["price"]) if mark is not None else float(existing["avg_cost"])
+            )
+            equity_after += qty_existing * mark_price
         if position is None and position_payload is not None:
             equity_after += int(position_payload["total_qty"]) * bar.close
 

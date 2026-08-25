@@ -111,11 +111,18 @@ class Scheduler:
         job = self.next_due(now)
         return job.due if job else None
 
-    def dispatch_once(self, now: datetime | None = None) -> tuple[DispatchRecord, ...]:
+    def dispatch_once(
+        self,
+        now: datetime | None = None,
+        *,
+        kinds: tuple[ScheduleKind, ...] | None = None,
+    ) -> tuple[DispatchRecord, ...]:
         current = _local(now or datetime.now(SHANGHAI))
+        allowed = set(kinds or tuple(ScheduleKind))
         if not self.trading_day(current.date()):
-            return (DispatchRecord(kind=ScheduleKind.MONITOR, due=current, status=DispatchStatus.SKIPPED, dispatch_key=f"nontrade:{current.date()}", reason_code="NON_TRADING_DAY"),)
-        jobs = self._due_jobs(current)
+            kind = next((item for item in ScheduleKind if item in allowed), ScheduleKind.MONITOR)
+            return (DispatchRecord(kind=kind, due=current, status=DispatchStatus.SKIPPED, dispatch_key=f"nontrade:{current.date()}", reason_code="NON_TRADING_DAY"),)
+        jobs = tuple(job for job in self._due_jobs(current) if job.kind in allowed)
         records: list[DispatchRecord] = []
         for job in jobs:
             if self._is_missed(job, current):
@@ -138,6 +145,7 @@ class Scheduler:
                 if not acquired:
                     continue
                 records.append(DispatchRecord(kind=job.kind, due=job.due, status=DispatchStatus.MISSED, dispatch_key=job.dispatch_key, reason_code="SCHEDULE_MISSED"))
+                self.store.complete_lease(lease, self.owner, dispatch_key=missed_key, now=current)
                 continue
             lease = self._lease_name(job.kind)
             acquired = self.store.acquire_lease(
@@ -153,9 +161,24 @@ class Scheduler:
             callback = self._callback(job.kind)
             if callback is None:
                 records.append(DispatchRecord(kind=job.kind, due=job.due, status=DispatchStatus.SKIPPED, dispatch_key=job.dispatch_key, reason_code="CALLBACK_NOT_CONFIGURED"))
+                self.store.complete_lease(lease, self.owner, dispatch_key=job.dispatch_key, now=current)
                 continue
             try:
-                self._invoke(callback, job)
+                result = self._invoke(callback, job)
+                business_reason = self._callback_result_reason(result)
+                if business_reason is not None:
+                    self.store.release_lease(lease, self.owner)
+                    records.append(
+                        DispatchRecord(
+                            kind=job.kind,
+                            due=job.due,
+                            status=DispatchStatus.FAILED,
+                            dispatch_key=job.dispatch_key,
+                            reason_code=business_reason,
+                        )
+                    )
+                    continue
+                self.store.complete_lease(lease, self.owner, dispatch_key=job.dispatch_key, now=current)
             except Exception as exc:
                 # A failed callback must be retryable before the slot's
                 # deadline.  Keep the callback's error isolated from the
@@ -182,7 +205,7 @@ class Scheduler:
         return tuple(records)
 
     def _next_on_day(self, day: date, current: datetime) -> ScheduledJob | None:
-        morning = _at(day, datetime_time(9, 25))
+        morning = _at(day, datetime_time(9, 26))
         if current <= morning:
             return self._job(ScheduleKind.MORNING_0925, morning, current)
         if current <= _at(day, datetime_time(11, 30)):
@@ -200,7 +223,7 @@ class Scheduler:
     def _due_jobs(self, current: datetime) -> tuple[ScheduledJob, ...]:
         day = current.date()
         jobs: list[ScheduledJob] = []
-        morning = _at(day, datetime_time(9, 25))
+        morning = _at(day, datetime_time(9, 26))
         if current >= morning and current < _at(day, datetime_time(15, 10)):
             jobs.append(self._job(ScheduleKind.MORNING_0925, morning, current))
         if datetime_time(9, 25) <= current.time().replace(tzinfo=None) <= datetime_time(11, 30):
@@ -282,7 +305,23 @@ class Scheduler:
         return result
 
     @staticmethod
-    def _invoke(callback: Callable[..., Any], job: ScheduledJob) -> None:
+    def _callback_result_reason(result: Any) -> str | None:
+        """Promote fail-closed business results to scheduler failures."""
+
+        if not isinstance(result, Mapping):
+            return None
+        status = str(result.get("status") or "").upper()
+        if status in {"BLOCKED", "FAILED", "PARTIAL"}:
+            return f"WORKFLOW_{status}"
+        lanes = result.get("lanes")
+        if isinstance(lanes, (list, tuple)) and any(
+            isinstance(item, Mapping) and item.get("blocked") is True for item in lanes
+        ):
+            return "WORKFLOW_MONITOR_BLOCKED"
+        return None
+
+    @staticmethod
+    def _invoke(callback: Callable[..., Any], job: ScheduledJob) -> Any:
         try:
             signature = inspect.signature(callback)
             required = [
@@ -294,9 +333,8 @@ class Scheduler:
         except (TypeError, ValueError):
             required = [object()]
         if required:
-            callback(job)
-        else:
-            callback()
+            return callback(job)
+        return callback()
 
 
 RuntimeScheduler = Scheduler

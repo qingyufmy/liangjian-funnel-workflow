@@ -76,7 +76,7 @@ data_sources:
   authority:                                # 字段类 → 权威源
     daily_ohlcv: mootdx
     minute_bars: mootdx
-    realtime_quote: gm
+    realtime_quote: hithink_ths
     adjust_factor: mootdx
     trading_calendar: exchange_official
     exchange_rules: exchange_official       # 人工签核
@@ -501,20 +501,21 @@ agent_4:
   output_destination: SIGNAL_LOG            # ★ 验证阶段：只进日志，不接委托链
 
 # ---------------------------------------------------------------------------
-# Agent 6 · RiskGovernor（规划中，尚未实现）
+# Agent 6 · RiskGovernor（确定性模拟风险权限）
 # ---------------------------------------------------------------------------
 agent_6:
   id: RISK_GOVERNOR
-  status: PLANNED                           # 未实现，占位
-  will_own:
+  status: IMPLEMENTED_SIMULATION
+  owns:
     - position_sizing
     - risk_budget_and_risk_units
     - account_level_gates                   # 总仓/单票/板块/现金/每日次数
     - t_plus_one_sellable_quantity
     - add_position_rules                    # 已有浮盈才可加、禁止亏损摊平
     - intent_building_and_idempotency
-    - human_review_routing
-    - order_reconciliation
+    - persistent_position_risk_plan
+    - verified_corporate_action_adjustment
+    - local_fill_reconciliation
   consumes: IntradaySignalV1
   note: "Agent 4 只给信号，Agent 6 决定是否执行、执行多少。
          职责分离后，信号质量与仓位管理可以被独立复盘。"

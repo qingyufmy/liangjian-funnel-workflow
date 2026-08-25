@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 from ipaddress import ip_address
 from pathlib import Path
 from typing import Mapping
@@ -28,7 +29,16 @@ DEFAULT_MOOTDX_SERVERS = (
 
 
 def project_root() -> Path:
-    return Path(__file__).resolve().parents[2]
+    source_root = Path(__file__).resolve().parents[2]
+    if (source_root / "config" / "runtime.yaml").is_file():
+        return source_root
+    working_root = Path.cwd().resolve()
+    if (working_root / "config" / "runtime.yaml").is_file():
+        return working_root
+    installed_root = Path(sys.prefix).resolve() / "share" / "liangjian-funnel"
+    if (installed_root / "config" / "runtime.yaml").is_file():
+        return installed_root
+    return source_root
 
 
 class Settings(BaseModel):
@@ -43,7 +53,8 @@ class Settings(BaseModel):
     model_api_key: SecretStr | None = Field(default=None, repr=False)
     timezone: str = "Asia/Shanghai"
     timeout_seconds: float = Field(default=30.0, gt=0, le=120)
-    model_timeout_seconds: float = Field(default=180.0, gt=0, le=600)
+    model_timeout_seconds: float = Field(default=300.0, gt=0, le=600)
+    model_max_output_tokens: int = Field(default=6_000, ge=1_024, le=32_768)
     hithink_min_request_interval_seconds: float = Field(default=0.5, ge=0, le=10)
     cninfo_min_request_interval_seconds: float = Field(default=0.5, ge=0, le=10)
     cninfo_pdf_max_documents_per_symbol: int = Field(default=3, ge=0, le=10)
@@ -62,12 +73,14 @@ class Settings(BaseModel):
     state_db_path: Path
     prompt_dir: Path
     source_config_path: Path
+    exchange_rules_path: Path
     news_source_config_path: Path
     open_news_timeout_seconds: float = Field(default=15.0, gt=0, le=60)
     open_news_rss_workers: int = Field(default=16, ge=1, le=40)
     open_news_stock_limit: int = Field(default=20, ge=1, le=50)
     open_news_flash_limit: int = Field(default=50, ge=1, le=100)
     research_max_candidates: int = Field(default=20, ge=1, le=300)
+    research_a1_batch_size: int = Field(default=5, ge=1, le=20)
     simulation_initial_cash: float = Field(default=1_000_000.0, ge=0)
     research_models: tuple[str, ...] = RESEARCH_MODELS
     monitor_model: str = MONITOR_MODEL
@@ -120,6 +133,7 @@ class Settings(BaseModel):
         state_db_raw = env.get("LIANGJIAN_STATE_DB_PATH")
         prompt_raw = env.get("LIANGJIAN_PROMPT_DIR")
         source_config_raw = env.get("LIANGJIAN_SOURCE_CONFIG_PATH")
+        exchange_rules_raw = env.get("LIANGJIAN_EXCHANGE_RULES_PATH")
         news_source_config_raw = env.get("LIANGJIAN_NEWS_SOURCE_CONFIG_PATH")
         default_prompt = base / "prompts"
         return cls(
@@ -132,7 +146,8 @@ class Settings(BaseModel):
             model_api_key=_secret(env.get("LIANGJIAN_MODEL_API_KEY")),
             timezone=env.get("LIANGJIAN_TIMEZONE", "Asia/Shanghai"),
             timeout_seconds=float(env.get("LIANGJIAN_HTTP_TIMEOUT_SECONDS", "30")),
-            model_timeout_seconds=float(env.get("LIANGJIAN_MODEL_TIMEOUT_SECONDS", "180")),
+            model_timeout_seconds=float(env.get("LIANGJIAN_MODEL_TIMEOUT_SECONDS", "300")),
+            model_max_output_tokens=int(env.get("LIANGJIAN_MODEL_MAX_OUTPUT_TOKENS", "6000")),
             hithink_min_request_interval_seconds=float(
                 env.get("ASTOCK_HITHINK_MIN_REQUEST_INTERVAL_SECONDS", "0.5")
             ),
@@ -169,6 +184,9 @@ class Settings(BaseModel):
             source_config_path=Path(source_config_raw).resolve()
             if source_config_raw
             else base / "config" / "funnel_config_v2.yaml",
+            exchange_rules_path=Path(exchange_rules_raw).resolve()
+            if exchange_rules_raw
+            else base / "config" / "exchange_rules.yaml",
             news_source_config_path=Path(news_source_config_raw).resolve()
             if news_source_config_raw
             else base / "config" / "news_sources.json",
@@ -177,6 +195,7 @@ class Settings(BaseModel):
             open_news_stock_limit=int(env.get("LIANGJIAN_OPEN_NEWS_STOCK_LIMIT", "20")),
             open_news_flash_limit=int(env.get("LIANGJIAN_OPEN_NEWS_FLASH_LIMIT", "50")),
             research_max_candidates=int(env.get("LIANGJIAN_RESEARCH_MAX_CANDIDATES", "20")),
+            research_a1_batch_size=int(env.get("LIANGJIAN_A1_BATCH_SIZE", "5")),
             simulation_initial_cash=float(env.get("LIANGJIAN_SIMULATION_INITIAL_CASH", "1000000")),
         )
 
@@ -192,6 +211,7 @@ class Settings(BaseModel):
             "timezone": self.timezone,
             "timeout_seconds": self.timeout_seconds,
             "model_timeout_seconds": self.model_timeout_seconds,
+            "model_max_output_tokens": self.model_max_output_tokens,
             "hithink_min_request_interval_seconds": self.hithink_min_request_interval_seconds,
             "cninfo_min_request_interval_seconds": self.cninfo_min_request_interval_seconds,
             "cninfo_pdf_max_documents_per_symbol": self.cninfo_pdf_max_documents_per_symbol,
@@ -210,12 +230,14 @@ class Settings(BaseModel):
             "state_db_path": str(self.state_db_path),
             "prompt_dir": str(self.prompt_dir),
             "source_config_path": str(self.source_config_path),
+            "exchange_rules_path": str(self.exchange_rules_path),
             "news_source_config_path": str(self.news_source_config_path),
             "open_news_timeout_seconds": self.open_news_timeout_seconds,
             "open_news_rss_workers": self.open_news_rss_workers,
             "open_news_stock_limit": self.open_news_stock_limit,
             "open_news_flash_limit": self.open_news_flash_limit,
             "research_max_candidates": self.research_max_candidates,
+            "research_a1_batch_size": self.research_a1_batch_size,
             "simulation_initial_cash": self.simulation_initial_cash,
             "research_models": list(self.research_models),
             "monitor_model": self.monitor_model,

@@ -3,7 +3,7 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from liangjian_funnel.cli import main
+from liangjian_funnel.cli import _latest_workflow_acceptance, main
 import liangjian_funnel.cli as cli_module
 from liangjian_funnel.contracts import CapabilityCheck, CapabilityReport, CapabilityStatus
 from liangjian_funnel.reporting import write_capability_report
@@ -29,13 +29,26 @@ def test_doctor_is_offline_and_does_not_print_key(tmp_path: Path, capsys):
         "schema_version: liangjian-runtime/1.0.0\n"
         "mode: PHASE0_CAPABILITY_ONLY\n"
         "timezone: Asia/Shanghai\n"
-        "research_slots: {morning: '09:25', close: '15:10'}\n"
+            "research_slots: {morning: '09:26', close: '15:10'}\n"
         "monitor: {cadence_seconds: 60}\n"
         "models:\n  research:\n    - deepseek-v4-pro-0813\n    - moonshotai/kimi-k3-free\n    - z-ai/glm-5.3-free\n  monitor: deepseek-v4-flash-0731\n"
         "permissions: {external_orders: false, gm_fallback: false, live_trading: false, fast_track: false}\n",
         encoding="utf-8",
     )
     (tmp_path / "config" / "capability_specs.yaml").write_text("schema_version: test\n", encoding="utf-8")
+    (tmp_path / "config" / "funnel_config_v2.yaml").write_text(
+        "schema_version: astock-agent-funnel-v2\n"
+        "runtime: {simulation_only: true, order_permission: DISABLED}\n"
+        "data_sources:\n  authority: {realtime_quote: hithink_ths, minute_bars: mootdx}\n"
+        "universe_gate: {require_trading_calendar: true}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "config" / "exchange_rules.yaml").write_text(
+        "schema_version: liangjian-exchange-rules/1.0.0\n"
+        "simulation_only: true\nexternal_orders: false\nt_plus_one: true\nlot_size: 100\n"
+        "sources: {sse: {}, szse: {}, bse: {}}\n",
+        encoding="utf-8",
+    )
     (tmp_path / "FINAL_IMPLEMENTATION_PLAN.md").write_text("plan", encoding="utf-8")
     secret = "doctor-secret-value"
     settings = Settings.from_env({"HITHINK_FINANCE_API_KEY": secret, "LIANGJIAN_MODEL_API_KEY": secret}, root=tmp_path)
@@ -108,3 +121,35 @@ def test_workflow_command_returns_safe_reason_for_unexpected_reason_coded_error(
         "status": "FAILED",
         "reason_code": "MINUTE_CACHE_CONFLICT",
     }
+
+
+def test_latest_workflow_acceptance_requires_three_lanes_from_same_run():
+    assert _latest_workflow_acceptance([])["status"] == "NOT_RUN"
+    ready = [
+        {"run_id": "new", "lane_id": "lane_1", "status": "READY_TO_PUBLISH"},
+        {"run_id": "new", "lane_id": "lane_2", "status": "PUBLISHED"},
+        {"run_id": "new", "lane_id": "lane_3", "status": "READY_TO_PUBLISH"},
+        {"run_id": "old", "lane_id": "lane_1", "status": "BLOCKED"},
+    ]
+    assert _latest_workflow_acceptance(ready) == {
+        "status": "READY",
+        "run_id": "new",
+        "expected_lanes": 3,
+        "recorded_lanes": 3,
+        "ready_lanes": 3,
+    }
+
+    partial = [
+        {"run_id": "new", "lane_id": "lane_1", "status": "READY_TO_PUBLISH"},
+        {"run_id": "new", "lane_id": "lane_2", "status": "BLOCKED"},
+        {"run_id": "new", "lane_id": "lane_3", "status": "BLOCKED"},
+    ]
+    assert _latest_workflow_acceptance(partial)["status"] == "PARTIAL"
+    assert _latest_workflow_acceptance(partial)["ready_lanes"] == 1
+
+    blocked = [
+        {"run_id": "new", "lane_id": "lane_1", "status": "BLOCKED"},
+        {"run_id": "new", "lane_id": "lane_2", "status": "FAILED"},
+        {"run_id": "new", "lane_id": "lane_3", "status": "BLOCKED"},
+    ]
+    assert _latest_workflow_acceptance(blocked)["status"] == "BLOCKED"

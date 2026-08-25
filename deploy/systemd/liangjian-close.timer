@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Liangjian close research at 15:10 Asia/Shanghai
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 15:10:00 Asia/Shanghai
+Persistent=false
+Unit=liangjian-close.service
+
+[Install]
+WantedBy=timers.target

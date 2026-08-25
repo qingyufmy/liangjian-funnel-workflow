@@ -148,7 +148,11 @@ class CninfoPdfClient:
         self._now = now or (lambda: datetime.now(SHANGHAI))
         self._monotonic = monotonic
         self._owns_client = client is None
-        self._client = client or httpx.Client(timeout=timeout_seconds, follow_redirects=False)
+        self._client = client or httpx.Client(
+            timeout=timeout_seconds,
+            follow_redirects=False,
+            trust_env=False,
+        )
 
     def __enter__(self) -> "CninfoPdfClient":
         return self

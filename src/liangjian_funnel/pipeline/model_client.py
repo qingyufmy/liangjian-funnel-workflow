@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import time
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Sequence
 
@@ -14,20 +15,43 @@ from ..redaction import digest_text
 from ..settings import ALL_MODELS, Settings
 
 
+# These models expose a bounded thinking-effort control.  Starting production
+# research at ``low`` keeps structured runs finite; the capability-probe
+# variants remain as compatibility fallbacks for providers that reject it.
+PRODUCTION_THINKING_VARIANTS: tuple[tuple[str, dict[str, Any]], ...] = (
+    ("reasoning_effort_low", {"reasoning_effort": "low"}),
+    *THINKING_VARIANTS,
+)
+
+
 class ModelClientError(RuntimeError):
     """Stable, non-sensitive model-call error."""
 
-    def __init__(self, reason_code: str, *, status_code: int | None = None, attempts: int | None = None):
+    def __init__(
+        self,
+        reason_code: str,
+        *,
+        status_code: int | None = None,
+        attempts: int | None = None,
+        diagnostics: Mapping[str, Any] | None = None,
+    ):
         self.reason_code = reason_code
         self.status_code = status_code
         self.attempts = attempts
+        self.diagnostics = dict(diagnostics or {})
         suffix = f" status={status_code}" if status_code is not None else ""
         super().__init__(f"model client {reason_code}{suffix}")
 
 
 class StrictJSONError(ModelClientError):
-    def __init__(self, reason_code: str = "STRICT_JSON_INVALID", *, attempts: int | None = None):
-        super().__init__(reason_code, attempts=attempts)
+    def __init__(
+        self,
+        reason_code: str = "STRICT_JSON_INVALID",
+        *,
+        attempts: int | None = None,
+        diagnostics: Mapping[str, Any] | None = None,
+    ):
+        super().__init__(reason_code, attempts=attempts, diagnostics=diagnostics)
 
 
 class ModelNetworkError(ModelClientError):
@@ -72,8 +96,8 @@ class OpenAICompatibleModelClient:
 
     Retries are deliberately local to one request.  A 429 is retried with the
     same model and no circuit breaker, and no request is silently downgraded to
-    another model.  Thinking parameter variants are tried in the same order as
-    the capability probe, with ``thinking.type=enabled`` first.
+    another model. Production starts with bounded ``reasoning_effort=low`` and
+    then tries the capability-probe variants as compatibility fallbacks.
     """
 
     def __init__(
@@ -115,8 +139,9 @@ class OpenAICompatibleModelClient:
 
         safe_messages = [dict(message) for message in messages]
         started_all = time.perf_counter()
+        overall_deadline = self.monotonic() + self.settings.model_timeout_seconds
         total_attempts = 0
-        last_variant = THINKING_VARIANTS[0][0]
+        last_variant = PRODUCTION_THINKING_VARIANTS[0][0]
         with httpx.Client(
             base_url=self.settings.model_base_url,
             timeout=self.settings.model_timeout_seconds,
@@ -128,16 +153,19 @@ class OpenAICompatibleModelClient:
                 "Content-Type": "application/json",
             },
         ) as client:
-            for variant_id, thinking_payload in THINKING_VARIANTS:
+            for variant_id, thinking_payload in PRODUCTION_THINKING_VARIANTS:
                 last_variant = variant_id
                 variant_attempts = 0
                 while variant_attempts < self.max_attempts:
                     variant_attempts += 1
                     total_attempts += 1
-                    attempt_deadline = self.monotonic() + self.settings.model_timeout_seconds
+                    if self.monotonic() >= overall_deadline:
+                        raise ModelNetworkError("MODEL_TOTAL_DEADLINE_EXCEEDED", attempts=total_attempts)
+                    attempt_deadline = overall_deadline
                     body: dict[str, Any] = {
                         "model": model,
                         "temperature": 0,
+                        "max_tokens": self.settings.model_max_output_tokens,
                         "messages": safe_messages,
                         "response_format": {"type": "json_object"},
                         "stream": True,
@@ -148,7 +176,11 @@ class OpenAICompatibleModelClient:
                             status = response.status_code
                             if status == 429 or status >= 500:
                                 if variant_attempts < self.max_attempts:
-                                    self._backoff(variant_attempts)
+                                    self._backoff(
+                                        variant_attempts,
+                                        retry_after=response.headers.get("Retry-After"),
+                                        deadline=overall_deadline,
+                                    )
                                     continue
                                 reason = "RATE_LIMIT_RETRY_EXHAUSTED" if status == 429 else "UPSTREAM_5XX_RETRY_EXHAUSTED"
                                 raise ModelHTTPError(reason, status_code=status, attempts=total_attempts)
@@ -156,7 +188,7 @@ class OpenAICompatibleModelClient:
                             if status >= 400:
                                 # Unsupported thinking parameters are the sole reason
                                 # to try the next already-verified thinking variant.
-                                if status in {400, 404, 422} and variant_id != THINKING_VARIANTS[-1][0]:
+                                if status in {400, 404, 422} and variant_id != PRODUCTION_THINKING_VARIANTS[-1][0]:
                                     break
                                 raise ModelHTTPError("UPSTREAM_4XX", status_code=status, attempts=total_attempts)
 
@@ -165,17 +197,21 @@ class OpenAICompatibleModelClient:
                                 deadline=attempt_deadline,
                                 clock=self.monotonic,
                             )
+                            output = _strip_reasoning(strict_json_object(content))
                     except StrictJSONError as exc:
-                        raise StrictJSONError(exc.reason_code, attempts=total_attempts) from exc
+                        if variant_attempts < self.max_attempts and self.monotonic() < overall_deadline:
+                            self._backoff(variant_attempts, deadline=overall_deadline)
+                            continue
+                        raise StrictJSONError(
+                            exc.reason_code,
+                            attempts=total_attempts,
+                            diagnostics=exc.diagnostics,
+                        ) from exc
                     except (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError, httpx.HTTPError) as exc:
                         if variant_attempts < self.max_attempts:
-                            self._backoff(variant_attempts)
+                            self._backoff(variant_attempts, deadline=overall_deadline)
                             continue
                         raise ModelNetworkError(attempts=total_attempts) from exc
-                    try:
-                        output = _strip_reasoning(strict_json_object(content))
-                    except StrictJSONError as exc:
-                        raise StrictJSONError(exc.reason_code, attempts=total_attempts) from exc
                     return ModelCallResult(
                         model=model,
                         output=output,
@@ -194,9 +230,20 @@ class OpenAICompatibleModelClient:
     call = complete
     complete_json = complete
 
-    def _backoff(self, attempt: int) -> None:
-        if self.retry_backoff_seconds:
-            self.sleep(self.retry_backoff_seconds * (2 ** (attempt - 1)))
+    def _backoff(
+        self,
+        attempt: int,
+        *,
+        retry_after: str | None = None,
+        deadline: float | None = None,
+    ) -> None:
+        delay = _retry_after_seconds(retry_after)
+        if delay is None:
+            delay = self.retry_backoff_seconds * (2 ** (attempt - 1))
+        if deadline is not None:
+            delay = min(delay, max(0.0, deadline - self.monotonic()))
+        if delay > 0:
+            self.sleep(delay)
 
 
 # Short compatibility aliases for callers that do not use the longer class
@@ -324,9 +371,10 @@ def _decode_sse_lines(
     reasoning_tokens: int | None = None
     saw_data = False
     saw_done = False
+    event_index = 0
 
     def flush_event() -> None:
-        nonlocal data_lines, saw_data, saw_done, reasoning_tokens
+        nonlocal data_lines, saw_data, saw_done, reasoning_tokens, event_index
         if not data_lines:
             return
         event_data = "\n".join(data_lines)
@@ -343,18 +391,46 @@ def _decode_sse_lines(
         if not isinstance(payload, dict):
             raise StrictJSONError("STREAM_SSE_INVALID")
         saw_data = True
+        event_index += 1
         value = _reasoning_tokens(payload)
         if value is not None:
             reasoning_tokens = value
 
         choices = payload.get("choices")
+        if choices is None:
+            if isinstance(payload.get("error"), Mapping):
+                raise StrictJSONError(
+                    "STREAM_UPSTREAM_ERROR",
+                    diagnostics=_stream_shape(payload, event_index),
+                )
+            allowed_metadata = {
+                "id",
+                "object",
+                "created",
+                "model",
+                "system_fingerprint",
+                "usage",
+                "service_tier",
+            }
+            if set(payload).issubset(allowed_metadata):
+                return
+            raise StrictJSONError(
+                "STREAM_CHOICES_INVALID",
+                diagnostics=_stream_shape(payload, event_index),
+            )
         if not isinstance(choices, list):
-            raise StrictJSONError("STREAM_CHOICES_INVALID")
+            raise StrictJSONError(
+                "STREAM_CHOICES_INVALID",
+                diagnostics=_stream_shape(payload, event_index),
+            )
         if not choices:
             return
         choice = choices[0]
         if not isinstance(choice, Mapping):
-            raise StrictJSONError("STREAM_CHOICES_INVALID")
+            raise StrictJSONError(
+                "STREAM_CHOICES_INVALID",
+                diagnostics=_stream_shape(payload, event_index),
+            )
         delta = choice.get("delta")
         if not isinstance(delta, Mapping):
             raise StrictJSONError("STREAM_DELTA_INVALID")
@@ -404,6 +480,35 @@ def _decode_sse_lines(
     if not content:
         raise StrictJSONError("STREAM_CONTENT_MISSING")
     return content, reasoning_tokens
+
+
+def _stream_shape(payload: Mapping[str, Any], event_index: int) -> dict[str, Any]:
+    """Return bounded structural diagnostics without response values."""
+
+    keys = sorted(str(key) for key in payload)[:20]
+    return {
+        "event_index": max(1, int(event_index)),
+        "top_level_fields": keys,
+        "top_level_types": {
+            key: type(payload.get(key)).__name__
+            for key in keys
+        },
+    }
+
+
+def _retry_after_seconds(value: str | None) -> float | None:
+    if not value:
+        return None
+    clean = value.strip()
+    try:
+        return min(30.0, max(0.0, float(clean)))
+    except ValueError:
+        pass
+    try:
+        parsed = datetime.strptime(clean, "%a, %d %b %Y %H:%M:%S %Z").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+    return min(30.0, max(0.0, (parsed - datetime.now(timezone.utc)).total_seconds()))
 
 
 def _enforce_stream_deadline(deadline: float | None, clock: Callable[[], float]) -> None:

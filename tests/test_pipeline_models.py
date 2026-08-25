@@ -40,7 +40,7 @@ def _settings(tmp_path: Path, key: str | None = "model-secret") -> Settings:
     return Settings.from_env({"LIANGJIAN_MODEL_API_KEY": key or ""}, root=tmp_path)
 
 
-def test_client_uses_exact_model_thinking_and_json_object(tmp_path: Path):
+def test_client_uses_bounded_model_thinking_and_json_object(tmp_path: Path):
     seen: list[dict] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -67,8 +67,9 @@ def test_client_uses_exact_model_thinking_and_json_object(tmp_path: Path):
         input_hash="i" * 64,
     )
     assert seen[0]["model"] == "deepseek-v4-pro-0813"
-    assert seen[0]["thinking"] == {"type": "enabled"}
+    assert seen[0]["reasoning_effort"] == "low"
     assert seen[0]["stream"] is True
+    assert seen[0]["max_tokens"] == 6_000
     assert seen[0]["response_format"] == {"type": "json_object"}
     assert result.output == {"envelope": {"status": "OK"}}
     assert result.reasoning_tokens == 7
@@ -132,6 +133,27 @@ def test_429_retries_same_model_without_circuit_or_downgrade(tmp_path: Path):
     result = client.complete("moonshotai/kimi-k3-free", [{"role": "user", "content": "{}"}])
     assert result.attempts == 3
     assert calls == ["moonshotai/kimi-k3-free"] * 3
+
+
+def test_retry_after_is_honored_within_bounded_request_budget(tmp_path: Path):
+    sleeps = []
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return httpx.Response(429, headers={"Retry-After": "2"}, request=request)
+        return _sse_response(request, [{"choices": [{"delta": {"content": '{"ok":true}'}}]}, "[DONE]"])
+
+    client = OpenAICompatibleModelClient(
+        _settings(tmp_path),
+        transport=httpx.MockTransport(handler),
+        sleep=sleeps.append,
+        max_attempts=2,
+    )
+    assert client.complete("deepseek-v4-flash-0731", [{"role": "user", "content": "{}"}]).attempts == 2
+    assert sleeps == [2.0]
 
 
 def test_5xx_retries_same_model_and_succeeds_with_sse(tmp_path: Path):
@@ -201,7 +223,7 @@ def test_unsupported_thinking_variant_falls_back_without_changing_model(tmp_path
     client = OpenAICompatibleModelClient(_settings(tmp_path), transport=httpx.MockTransport(handler), sleep=lambda _: None)
     result = client.complete("z-ai/glm-5.3-free", [{"role": "user", "content": "{}"}])
     assert result.model == "z-ai/glm-5.3-free"
-    assert variants[:2] == ["thinking", "reasoning_effort"]
+    assert variants[:2] == ["reasoning_effort", "thinking"]
 
 
 @pytest.mark.parametrize(
@@ -228,6 +250,59 @@ def test_malformed_or_incomplete_sse_fails_closed_without_body(tmp_path: Path, b
     assert exc_info.value.attempts == 1
     assert "not-json" not in str(exc_info.value)
     assert "secret" not in str(exc_info.value)
+
+
+def test_sse_metadata_event_is_accepted_and_unknown_shape_has_safe_diagnostics(tmp_path: Path):
+    def accepted(request: httpx.Request) -> httpx.Response:
+        return _sse_response(
+            request,
+            [
+                {"id": "opaque", "object": "chat.completion.chunk", "model": "opaque-model"},
+                {"choices": [{"delta": {"content": '{"ok":true}'}}]},
+                "[DONE]",
+            ],
+        )
+
+    result = OpenAICompatibleModelClient(
+        _settings(tmp_path), transport=httpx.MockTransport(accepted), sleep=lambda _: None
+    ).complete("deepseek-v4-pro-0813", [{"role": "user", "content": "{}"}])
+    assert result.output == {"ok": True}
+
+    def rejected(request: httpx.Request) -> httpx.Response:
+        return _sse_response(request, [{"unexpected": "sensitive-value"}, "[DONE]"])
+
+    client = OpenAICompatibleModelClient(
+        _settings(tmp_path),
+        transport=httpx.MockTransport(rejected),
+        sleep=lambda _: None,
+        max_attempts=1,
+    )
+    with pytest.raises(StrictJSONError) as exc_info:
+        client.complete("deepseek-v4-pro-0813", [{"role": "user", "content": "{}"}])
+    assert exc_info.value.reason_code == "STREAM_CHOICES_INVALID"
+    assert exc_info.value.diagnostics == {
+        "event_index": 1,
+        "top_level_fields": ["unexpected"],
+        "top_level_types": {"unexpected": "str"},
+    }
+    assert "sensitive-value" not in repr(exc_info.value.diagnostics)
+
+
+def test_strict_json_failure_retries_then_succeeds(tmp_path: Path):
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        content = "not-json" if calls == 1 else '{"ok":true}'
+        return _sse_response(request, [{"choices": [{"delta": {"content": content}}]}, "[DONE]"])
+
+    client = OpenAICompatibleModelClient(
+        _settings(tmp_path), transport=httpx.MockTransport(handler), sleep=lambda _: None, max_attempts=2
+    )
+    result = client.complete("z-ai/glm-5.3-free", [{"role": "user", "content": "{}"}])
+    assert result.output == {"ok": True}
+    assert result.attempts == 2
 
 
 def test_strict_parser_rejects_fence_text_and_non_object():

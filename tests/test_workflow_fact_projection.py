@@ -26,6 +26,15 @@ def _fact(count: int) -> dict:
 
 
 def test_research_input_projects_phase_one_facts_without_semantic_substitution(tmp_path: Path) -> None:
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    config_dir.joinpath("exchange_rules.yaml").write_text(
+        "schema_version: liangjian-exchange-rules/1.0.0\n"
+        "snapshot_id: CN-A-SIMULATION-20260706\neffective_from: '2026-07-06'\n"
+        "simulation_only: true\nexternal_orders: false\nt_plus_one: true\nlot_size: 100\n"
+        "sources: {sse: {}, szse: {}, bse: {}}\n",
+        encoding="utf-8",
+    )
     universe = UniverseSnapshot.from_records(
         [
             {"thscode": "600519.SH", "name": "A"},

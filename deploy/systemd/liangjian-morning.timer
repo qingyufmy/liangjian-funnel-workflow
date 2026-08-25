@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Liangjian morning review at 09:26 Asia/Shanghai
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 09:26:00 Asia/Shanghai
+Persistent=false
+Unit=liangjian-morning.service
+
+[Install]
+WantedBy=timers.target
