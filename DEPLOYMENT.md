@@ -23,12 +23,15 @@ into an image or unit file. The application writes only to `outputs/`,
 with the immutable snapshots.
 
 For the full research payload, the deployment defaults are
-`LIANGJIAN_MODEL_TIMEOUT_SECONDS=300`,
-`LIANGJIAN_MODEL_MAX_OUTPUT_TOKENS=6000` and
-`LIANGJIAN_A1_BATCH_SIZE=5`. A low-frequency host may raise the timeout to 600
-seconds, but must keep the prompt/output limits. The close systemd unit allows
-five hours so four sequential A1 batches per lane can finish while the three
-lanes remain parallel.
+`LIANGJIAN_MODEL_TIMEOUT_SECONDS=600`,
+`LIANGJIAN_MODEL_MAX_OUTPUT_TOKENS=6000`,
+`LIANGJIAN_RESEARCH_MAX_CANDIDATES=120` and
+`LIANGJIAN_A1_BATCH_SIZE=5`. A low-frequency host should use a 600-second model
+timeout for close-sized DeepSeek requests while keeping the prompt/output
+limits. The close systemd unit allows five hours so the default 24 sequential
+A1 transport batches per lane can finish while the three lanes remain
+parallel. Every A1 input must be classified into ACTIVE, MONITOR or REJECT;
+batch size never acts as a global pool cap.
 
 Copy the two research services/timers from `deploy/systemd/` to
 `/etc/systemd/system/`, review the user and paths, then enable them. Install

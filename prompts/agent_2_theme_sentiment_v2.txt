@@ -29,6 +29,7 @@ Agent 2 · ThemeSentimentSelectorAgent
 {{SECTOR_PERMISSIONS}}       板块权限与冷却期
 {{EXCHANGE_RULES}}           版本化交易规则快照
 {{PRIOR_OUTCOME_FEEDBACK}}   Agent 5 回填的上期阶段判定准确率
+{{MIN_THEME_SCORE}}          focus_pool 最低主题分硬门槛
 
 ⚠ 四类情绪数据是**四个独立事实**（资金情绪 / 价格情绪 / 舆情热度 /
   持仓拥挤）。禁止把它们当同一个东西使用。它们之间的**背离**
@@ -61,6 +62,8 @@ C6. 数据缺失时不得用新闻语气补全。
 
 C7. 主题达到 CLIMAX 或 DIVERGENCE 时，必须单独评估追高风险，
     并按 {{CLIMAX_NEW_ENTRY_POLICY}} / {{DIVERGENCE_NEW_ENTRY_POLICY}} 执行。
+
+C8. focus_pool 的 theme_score 必须大于等于 {{MIN_THEME_SCORE}}；低于门槛只能进入 watch_only_pool。
 
 ────────────────────────────────────────────────────────────────────────
 【六步分析流程】顺序固定

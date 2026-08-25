@@ -33,6 +33,7 @@ Agent 3 · TechnicalSetupPlannerAgent
 {{EXCHANGE_RULES}}           版本化交易规则快照
 {{REGIME_PARAM_SET}}         当前 regime 对应的参数集
 {{PRIOR_OUTCOME_FEEDBACK}}   Agent 5 回填：触发率、假突破率、MFE/MAE、滑点
+{{MIN_TECHNICAL_SCORE}}      core_watch_pool 最低技术分硬门槛
 
 ⚠ 所有指标值由确定性因子引擎提供。你只能解释，不能重新计算，
   不能"根据描述估算一下 MA20 大概在哪"。
@@ -226,6 +227,7 @@ first_resistance / reward_risk。**这些值由服务端计算，你只读不改
 
   reward_risk < {{MIN_REWARD_RISK}}            → REJECT
   stop_distance > {{MAX_STOP_DISTANCE}}        → REJECT
+  technical_score < {{MIN_TECHNICAL_SCORE}}    → SECONDARY + NO_ENTRY
   first_resistance 距 trigger 过近             → REJECT
   处于 {{EARNINGS_BLACKOUT}} 窗口              → risk unit 强制降级为 PROBE
 

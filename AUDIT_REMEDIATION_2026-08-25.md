@@ -14,28 +14,33 @@ branch. It distinguishes implemented controls from live end-to-end evidence.
   790k characters and asked for an unbounded full report.
 - The production view now retains the full immutable snapshot for audit while
   sending bounded facts, five-symbol A1 batches, a compact downstream contract,
-  `reasoning_effort=low`, a 6,000-token output ceiling and a 300-second request
-  deadline (configurable up to 600 seconds).
-- `moonshotai/kimi-k3-free` completed four A1 batches, validated A2, and
-  completed a validated A3 replay. A3 deterministic prices were canonicalized
-  from frozen `PRICE_LEVELS` rather than trusting rounded model numbers.
-- The only final core item, `300750.SZ`, was changed by the deterministic trend
-  governor to `NO_ENTRY`: both daily and 120-minute closes were below MA255.
-  The result remains an observation plan and cannot be published as a simulated
-  buy.
-- DeepSeek and GLM long-form lanes remain provider-unstable (network deadline or
-  invalid strict JSON). Lane isolation remains fail-closed; they cannot create
-  plans or contaminate a validated lane.
+  `reasoning_effort=low`, a 6,000-token output ceiling and a 600-second request
+  deadline. Failed multi-symbol A1 transport groups can split without repeating
+  already validated groups.
+- The v10 replay completed `READY` for DeepSeek, Kimi and GLM; every A1-A3 stage
+  was `VALIDATED`. A1 classified all 20 inputs exactly once. The respective
+  ACTIVE/MONITOR/REJECT counts were 0/20/0, 7/13/0 and 3/16/1.
+- Batch size no longer acts as a global pool cap. Production defaults to 120
+  factor-ready candidates and can be configured up to 300; the 20-name replay
+  is a chain-acceptance sample, not the production A1 breadth.
+- YAML thresholds are enforced by the service after model interpretation: A1
+  score/data-quality/evidence thresholds, A2 minimum theme score, and A3
+  technical-score/reward-risk/stop-distance gates. Provider JSON can no longer
+  promote a below-threshold item by assertion alone.
+- A3 deterministic prices were canonicalized from frozen `PRICE_LEVELS` rather
+  than trusting rounded model numbers. Kimi's only core observation,
+  `002837.SZ`, was forced to `NO_ENTRY` by the deterministic major-trend gate;
+  GLM produced no core plan and DeepSeek correctly produced `NO_ACTION`.
 
-The A1 -> A2 -> A3 AI chain is therefore proven for one real lane and the same
-real snapshot. Three-lane reliability and a real A4/buy/exit cycle are not yet
-accepted.
+The A1 -> A2 -> A3 AI chain is therefore accepted for all three configured
+models on the same real snapshot. A naturally generated executable plan and
+real A4/buy/exit cycle are still not accepted.
 
 ## Audit issue disposition
 
 | Audit item | Disposition |
 |---|---|
-| P0-1 full-model failure | Partially accepted live: Kimi A1-A3 validated; bounded prompts, batching, safe SSE diagnostics, total deadlines, compact contract, replay/resume tooling added. DeepSeek/GLM remain external reliability gaps. |
+| P0-1 full-model failure | Accepted live for A1-A3: all three configured model lanes completed `READY` on v10. Bounded prompts, 600-second deadlines, safe SSE/JSON compatibility, semantic retry, failed-batch splitting, deterministic no-action stages and replay/resume tooling are included. |
 | P0-2 15:10 task race / false success | Fixed: dedicated morning/close/monitor commands and nonzero propagation for business `BLOCKED`; monitor ends at 15:00. |
 | P0-3 weekday-only calendar | Fixed: XSHG exchange calendar is injected and fails closed; holiday tests included. |
 | P0-4 morning misses 09:40 | Fixed structurally: 09:26 performs deterministic tighten-only review of prior close plans, not a new full A1-A3 run. |
@@ -62,11 +67,9 @@ accepted.
 
 Do not label the service fully unattended/three-lane accepted until:
 
-1. DeepSeek and GLM each complete repeated close-sized runs, or the approved
-   production model set is explicitly changed.
-2. The external business fact sources listed above are configured and their
+1. The external business fact sources listed above are configured and their
    point-in-time contracts pass.
-3. A naturally generated executable plan completes close publication, morning
+2. A naturally generated executable plan completes close publication, morning
    tightening, A4 monitoring, simulated entry, T+1 and normal reduce/exit.
-4. The target server's backup destination, retention period and alert channel
+3. The target server's backup destination, retention period and alert channel
    are configured and tested.

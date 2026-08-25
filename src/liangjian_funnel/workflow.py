@@ -1240,8 +1240,19 @@ def _prompt_parameters(config: Mapping[str, Any]) -> dict[str, Any]:
     a1 = config.get("agent_1", {}) if isinstance(config.get("agent_1"), Mapping) else {}
     a2 = config.get("agent_2", {}) if isinstance(config.get("agent_2"), Mapping) else {}
     a3 = config.get("agent_3", {}) if isinstance(config.get("agent_3"), Mapping) else {}
+    a2_selection = a2.get("stock_selection", {}) if isinstance(a2.get("stock_selection"), Mapping) else {}
     return {
         "TOP_N_PER_NODE": a1.get("top_n_per_node", 8),
+        "A1_POOL_TARGETS": {
+            "pool_min": a1.get("pool_min", 120),
+            "pool_max": a1.get("pool_max", 300),
+            "node_count_target": a1.get("node_count_target", [40, 80]),
+        },
+        "A1_MINIMUMS": {
+            "structural_score": a1.get("minimum_score", 65),
+            "data_quality_score": a1.get("minimum_data_quality", 75),
+            "evidence_confidence": a1.get("minimum_evidence_confidence", 0.70),
+        },
         "PRIOR_CONTRIBUTION_CAP": 0.20,
         "THEME_EXPIRY_DAYS": 5,
         "POLICY_CALENDAR_HORIZON_DAYS": 90,
@@ -1256,14 +1267,16 @@ def _prompt_parameters(config: Mapping[str, Any]) -> dict[str, Any]:
         "LEADER_MIN_CRITERIA": 3,
         "LOW_IDENTITY_TRIGGER_COUNT": 2,
         "MIN_FREE_FLOAT_CAP": 3_000_000_000,
-        "MIN_IDENTIFIABILITY_SCORE": 70,
-        "MAX_LEADERS_PER_THEME": 5,
+        "MIN_IDENTIFIABILITY_SCORE": a2_selection.get("min_identifiability_score", 60),
+        "MAX_LEADERS_PER_THEME": a2_selection.get("max_leaders_per_theme", 2),
+        "MIN_THEME_SCORE": a2.get("minimum_theme_score", 60),
         "THEME_SCORE_WEIGHTS": a2.get("score_weights", {}),
         "PENALTY_RULES": a2.get("penalty_rules", {}),
         "MAX_MA_BIAS": a3.get("max_ma_bias", 0.10),
         "MAX_ATR_EXTENSION": a3.get("max_atr_extension", 3.0),
         "MIN_REWARD_RISK": a3.get("minimum_reward_risk", 2.0),
         "MAX_STOP_DISTANCE": a3.get("max_stop_distance_pct", 0.06),
+        "MIN_TECHNICAL_SCORE": a3.get("minimum_technical_score", 70),
         "EARNINGS_BLACKOUT": 3,
         "NORMAL_GAP_RANGE": [-0.02, 0.03],
         "NO_CHASE_THRESHOLD": 0.05,

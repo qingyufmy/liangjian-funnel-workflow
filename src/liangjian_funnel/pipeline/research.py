@@ -61,6 +61,30 @@ _CANDIDATE_KEYS = {
     "candidate_pool",
 }
 _REASONING_KEYS = {"reasoning", "reasoning_content", "thinking", "chain_of_thought", "cot"}
+_SAFE_OUTPUT_FIELDS = {
+    "envelope",
+    "analysis_summary",
+    "active_research_pool",
+    "monitor_pool",
+    "active_themes",
+    "focus_pool",
+    "watch_only_pool",
+    "core_watch_pool",
+    "secondary_watch_pool",
+    "rejected_candidates",
+    "source_health",
+    "unresolved_questions",
+}
+_SAFE_ENVELOPE_FIELDS = {
+    "schema_version",
+    "stage_id",
+    "status",
+    "input_snapshot_ids",
+    "model_name",
+    "config_version",
+    "prompt_version",
+    "market_regime",
+}
 _PERMISSION_KEYS = {
     "live_trading",
     "external_orders",
@@ -409,9 +433,16 @@ class ResearchPipeline:
                 )
                 continue
             if previous is not None and not previous.symbols:
-                audits.append(
-                    self._blocked_stage(lane_id, model, stage, snapshot.snapshot_id, "UPSTREAM_POOL_EMPTY")
+                audit = self._empty_stage(
+                    lane_id=lane_id,
+                    model=model,
+                    stage=stage,
+                    snapshot=snapshot,
+                    upstream_output=upstream_output,
                 )
+                audits.append(audit)
+                upstream_output = audit.output
+                upstream_symbols = set()
                 continue
             if stage == "A1" and len(upstream_symbols) > self.settings.research_a1_batch_size:
                 audit = self._run_a1_batched(
@@ -442,6 +473,71 @@ class ResearchPipeline:
         final_output = audits[-1].output if status == "READY" else None
         return LaneResult(lane=lane_id, model=model, status=status, stages=tuple(audits), final_output=final_output)
 
+    def _empty_stage(
+        self,
+        *,
+        lane_id: str,
+        model: str,
+        stage: str,
+        snapshot: FrozenInputSnapshot,
+        upstream_output: Mapping[str, Any] | None,
+    ) -> StageAudit:
+        runtime = _runtime_input(
+            snapshot,
+            lane_id,
+            model,
+            stage,
+            upstream_output,
+            set(),
+        )
+        output: dict[str, Any] = {
+            "envelope": runtime["required_envelope"],
+            "analysis_summary": {
+                "outcome": "NO_ACTION",
+                "reason_codes": ["UPSTREAM_POOL_EMPTY"],
+            },
+            "rejected_candidates": [],
+        }
+        if stage == "A2":
+            output.update({"active_themes": [], "focus_pool": [], "watch_only_pool": []})
+        elif stage == "A3":
+            output.update({"core_watch_pool": [], "secondary_watch_pool": []})
+        else:
+            raise ResearchPipelineError("EMPTY_STAGE_UNSUPPORTED")
+        reasons = _validate_output(
+            output,
+            stage=stage,
+            model=model,
+            snapshot_id=snapshot.snapshot_id,
+            upstream_symbols=set(),
+            snapshot_data=snapshot.data,
+        )
+        if reasons:
+            return self._blocked_stage(
+                lane_id,
+                model,
+                stage,
+                snapshot.snapshot_id,
+                "EMPTY_STAGE_CONTRACT_INVALID",
+            )
+        return StageAudit(
+            lane=lane_id,
+            model=model,
+            stage=stage,
+            status="VALIDATED",
+            snapshot_id=snapshot.snapshot_id,
+            prompt_hash=None,
+            input_hash=_sha256_json(runtime),
+            output_hash=_sha256_json(output),
+            latency_ms=0,
+            attempts=0,
+            thinking_variant="deterministic_noop",
+            symbols=(),
+            reason_codes=(),
+            output=output,
+            diagnostics={"outcome_code": "NO_ACTION_UPSTREAM_POOL_EMPTY"},
+        )
+
     def _run_a1_batched(
         self,
         *,
@@ -455,8 +551,12 @@ class ResearchPipeline:
         ordered = sorted(g0)
         size = self.settings.research_a1_batch_size
         batches = [set(ordered[index:index + size]) for index in range(0, len(ordered), size)]
+        pending = list(batches)
         audits: list[StageAudit] = []
-        for batch in batches:
+        valid_audits: list[StageAudit] = []
+        split_count = 0
+        while pending:
+            batch = pending.pop(0)
             audit = self._run_stage(
                 lane_id=lane_id,
                 model=model,
@@ -470,6 +570,12 @@ class ResearchPipeline:
             )
             audits.append(audit)
             if audit.status != "VALIDATED":
+                if len(batch) > 1 and _a1_batch_is_splittable(audit.reason_codes):
+                    midpoint = max(1, len(batch) // 2)
+                    batch_order = sorted(batch)
+                    pending = [set(batch_order[:midpoint]), set(batch_order[midpoint:]), *pending]
+                    split_count += 1
+                    continue
                 reasons = tuple(f"A1_BATCH_BLOCKED:{reason}" for reason in audit.reason_codes)
                 return StageAudit(
                     lane=lane_id,
@@ -487,12 +593,18 @@ class ResearchPipeline:
                     reason_codes=reasons or ("A1_BATCH_BLOCKED",),
                     diagnostics={
                         "batch_count": len(batches),
-                        "completed_batches": len(audits),
+                        "completed_batches": len(valid_audits),
+                        "request_groups": len(audits),
+                        "split_count": split_count,
                         "blocked_batch_output_shape": _output_shape(audit.output),
+                        "blocked_batch_diagnostics": audit.diagnostics,
                     },
                 )
+            valid_audits.append(audit)
 
-        merged = _merge_a1_outputs([audit.output for audit in audits if isinstance(audit.output, Mapping)])
+        merged = _merge_a1_outputs(
+            [audit.output for audit in valid_audits if isinstance(audit.output, Mapping)]
+        )
         reasons = _validate_output(
             merged,
             stage="A1",
@@ -517,7 +629,13 @@ class ResearchPipeline:
             symbols=symbols,
             reason_codes=tuple(reasons),
             output=merged,
-            diagnostics={"batch_count": len(batches), "completed_batches": len(audits)},
+            diagnostics={
+                "batch_count": len(batches),
+                "completed_batches": len(valid_audits),
+                "request_groups": len(audits),
+                "split_count": split_count,
+                "pool_counts": _stage_pool_counts(merged, "A1"),
+            },
         )
 
     def _run_stage(
@@ -546,7 +664,7 @@ class ResearchPipeline:
             shared = bundle.render("00_shared_system_v2.txt", replacements)
             stage_prompt = bundle.render_stage(stage, replacements)
             effective_scope = projection_symbols if projection_symbols is not None else upstream_symbols
-            execution_budget = _stage_execution_budget(stage, len(effective_scope))
+            execution_budget = _stage_execution_budget(stage, len(effective_scope), snapshot.data)
             system_content = shared + "\n\n" + stage_prompt + "\n\n" + execution_budget
             prompt_hash = digest_text(system_content)
             runtime = _runtime_input(
@@ -608,99 +726,164 @@ class ResearchPipeline:
                 diagnostics={"prompt_chars": locals().get("prompt_chars", 0), "limit_chars": _PROMPT_MAX_CHARS},
             )
 
-        model_started = time.perf_counter()
-        try:
-            result = self._call_model(
-                model,
-                messages,
-                prompt_hash=prompt_hash,
-                input_hash=input_hash,
-                snapshot_id=snapshot.snapshot_id,
-                stage=stage,
-            )
-        except ModelClientError as exc:
-            return StageAudit(
-                lane=lane_id,
-                model=model,
-                stage=stage,
-                status="BLOCKED",
-                snapshot_id=snapshot.snapshot_id,
-                prompt_hash=prompt_hash,
-                input_hash=input_hash,
-                output_hash=None,
-                latency_ms=int((time.perf_counter() - model_started) * 1000),
-                attempts=max(0, _safe_int(getattr(exc, "attempts", 0))),
-                thinking_variant=None,
-                symbols=(),
-                reason_codes=(exc.reason_code,),
-                diagnostics=getattr(exc, "diagnostics", None),
-            )
-        except (OSError, TypeError, ValueError):
-            return StageAudit(
-                lane=lane_id,
-                model=model,
-                stage=stage,
-                status="BLOCKED",
-                snapshot_id=snapshot.snapshot_id,
-                prompt_hash=prompt_hash,
-                input_hash=input_hash,
-                output_hash=None,
-                latency_ms=int((time.perf_counter() - model_started) * 1000),
-                attempts=0,
-                thinking_variant=None,
-                symbols=(),
-                reason_codes=("MODEL_CALL_FAILED",),
-            )
+        semantic_limit = 2
+        aggregate_latency_ms = 0
+        aggregate_attempts = 0
+        variants: list[str] = []
+        last_reasons: list[str] = []
+        last_shape: dict[str, Any] = {"type": "NoneType"}
+        for semantic_attempt in range(1, semantic_limit + 1):
+            active_messages = list(messages)
+            if semantic_attempt > 1:
+                active_messages.append(
+                    {
+                        "role": "user",
+                        "content": _semantic_retry_instruction(stage, last_reasons),
+                    }
+                )
+            model_started = time.perf_counter()
+            try:
+                result = self._call_model(
+                    model,
+                    active_messages,
+                    prompt_hash=prompt_hash,
+                    input_hash=input_hash,
+                    snapshot_id=snapshot.snapshot_id,
+                    stage=stage,
+                )
+            except ModelClientError as exc:
+                aggregate_latency_ms += int((time.perf_counter() - model_started) * 1000)
+                aggregate_attempts += max(0, _safe_int(getattr(exc, "attempts", 0)))
+                return StageAudit(
+                    lane=lane_id,
+                    model=model,
+                    stage=stage,
+                    status="BLOCKED",
+                    snapshot_id=snapshot.snapshot_id,
+                    prompt_hash=prompt_hash,
+                    input_hash=input_hash,
+                    output_hash=None,
+                    latency_ms=aggregate_latency_ms,
+                    attempts=aggregate_attempts,
+                    thinking_variant=_common_text(variants),
+                    symbols=(),
+                    reason_codes=(exc.reason_code,),
+                    diagnostics={
+                        "semantic_attempts": semantic_attempt,
+                        "last_invalid_output_shape": last_shape,
+                        "client_diagnostics": _safe_diagnostics(getattr(exc, "diagnostics", None)),
+                    },
+                )
+            except (OSError, TypeError, ValueError):
+                aggregate_latency_ms += int((time.perf_counter() - model_started) * 1000)
+                return StageAudit(
+                    lane=lane_id,
+                    model=model,
+                    stage=stage,
+                    status="BLOCKED",
+                    snapshot_id=snapshot.snapshot_id,
+                    prompt_hash=prompt_hash,
+                    input_hash=input_hash,
+                    output_hash=None,
+                    latency_ms=aggregate_latency_ms,
+                    attempts=aggregate_attempts,
+                    thinking_variant=_common_text(variants),
+                    symbols=(),
+                    reason_codes=("MODEL_CALL_FAILED",),
+                    diagnostics={"semantic_attempts": semantic_attempt},
+                )
 
-        output = _strip_reasoning(result.output)
-        canonicalized_price_items = 0
-        trend_veto_items = 0
-        if stage == "A3":
-            output, canonicalized_price_items, trend_veto_items = _canonicalize_a3_price_fields(output, snapshot.data)
-        output_hash = _sha256_json(output)
-        symbols = tuple(sorted(_approved_symbols(output, stage)))
-        reasons = _validate_output(
-            output,
-            stage=stage,
-            model=model,
-            snapshot_id=snapshot.snapshot_id,
-            upstream_symbols=upstream_symbols,
-            snapshot_data=snapshot.data,
-        )
-        envelope = output.get("envelope") if isinstance(output, Mapping) else None
-        model_status = envelope.get("status") if isinstance(envelope, Mapping) else None
-        status = "VALIDATED" if not reasons and model_status != "BLOCKED" else "BLOCKED"
-        if model_status == "BLOCKED" and "MODEL_DECLARED_BLOCKED" not in reasons:
-            reasons.append("MODEL_DECLARED_BLOCKED")
+            aggregate_latency_ms += result.latency_ms
+            aggregate_attempts += result.attempts
+            variants.append(result.thinking_variant)
+            output = _strip_reasoning(result.output)
+            output, canonicalized_pool_fields = _canonicalize_stage_pool_fields(output, stage)
+            canonicalized_price_items = 0
+            trend_veto_items = 0
+            if stage == "A3":
+                output, canonicalized_price_items, trend_veto_items = _canonicalize_a3_price_fields(
+                    output, snapshot.data
+                )
+            output, policy_demotions = _apply_stage_threshold_policy(output, stage, snapshot.data)
+            reasons = _validate_output(
+                output,
+                stage=stage,
+                model=model,
+                snapshot_id=snapshot.snapshot_id,
+                upstream_symbols=upstream_symbols,
+                snapshot_data=snapshot.data,
+            )
+            envelope = output.get("envelope") if isinstance(output, Mapping) else None
+            model_status = envelope.get("status") if isinstance(envelope, Mapping) else None
+            if model_status == "BLOCKED":
+                reasons.append("MODEL_DECLARED_BLOCKED")
+                return StageAudit(
+                    lane=lane_id,
+                    model=model,
+                    stage=stage,
+                    status="BLOCKED",
+                    snapshot_id=snapshot.snapshot_id,
+                    prompt_hash=prompt_hash,
+                    input_hash=input_hash,
+                    output_hash=_sha256_json(output),
+                    latency_ms=aggregate_latency_ms,
+                    attempts=aggregate_attempts,
+                    thinking_variant=_common_text(variants),
+                    symbols=tuple(sorted(_approved_symbols(output, stage))),
+                    reason_codes=tuple(dict.fromkeys(reasons)),
+                    output=output,
+                    diagnostics={"semantic_attempts": semantic_attempt},
+                )
+            if not reasons:
+                diagnostics = {
+                    "semantic_attempts": semantic_attempt,
+                    "canonicalized_price_items": canonicalized_price_items,
+                    "trend_veto_items": trend_veto_items,
+                    "pool_counts": _stage_pool_counts(output, stage),
+                }
+                if canonicalized_pool_fields:
+                    diagnostics["canonicalized_pool_fields"] = canonicalized_pool_fields
+                if policy_demotions:
+                    diagnostics["policy_demotions"] = policy_demotions
+                return StageAudit(
+                    lane=lane_id,
+                    model=model,
+                    stage=stage,
+                    status="VALIDATED",
+                    snapshot_id=snapshot.snapshot_id,
+                    prompt_hash=prompt_hash,
+                    input_hash=input_hash,
+                    output_hash=_sha256_json(output),
+                    latency_ms=aggregate_latency_ms,
+                    attempts=aggregate_attempts,
+                    thinking_variant=_common_text(variants),
+                    symbols=tuple(sorted(_approved_symbols(output, stage))),
+                    reason_codes=(),
+                    output=output,
+                    diagnostics=diagnostics if any(diagnostics.values()) else None,
+                )
+            last_reasons = list(dict.fromkeys(reasons))
+            last_shape = _output_shape(output)
+
         return StageAudit(
             lane=lane_id,
             model=model,
             stage=stage,
-            status=status,
+            status="BLOCKED",
             snapshot_id=snapshot.snapshot_id,
             prompt_hash=prompt_hash,
             input_hash=input_hash,
-            output_hash=output_hash,
-            latency_ms=result.latency_ms,
-            attempts=result.attempts,
-            thinking_variant=result.thinking_variant,
-            symbols=symbols,
-            reason_codes=tuple(dict.fromkeys(reasons)),
-            output=output,
-            diagnostics=(
-                {
-                    "output_shape": _output_shape(output),
-                    "canonicalized_price_items": canonicalized_price_items,
-                    "trend_veto_items": trend_veto_items,
-                }
-                if reasons
-                else {
-                    "canonicalized_price_items": canonicalized_price_items,
-                    "trend_veto_items": trend_veto_items,
-                }
-                if canonicalized_price_items or trend_veto_items
-                else None
-            ),
+            output_hash=None,
+            latency_ms=aggregate_latency_ms,
+            attempts=aggregate_attempts,
+            thinking_variant=_common_text(variants),
+            symbols=(),
+            reason_codes=tuple(last_reasons),
+            output=None,
+            diagnostics={
+                "semantic_attempts": semantic_limit,
+                "last_invalid_output_shape": last_shape,
+            },
         )
 
     def _call_model(self, model: str, messages: Sequence[Mapping[str, Any]], **metadata: Any) -> ModelCallResult:
@@ -905,6 +1088,29 @@ def _prompt_replacements(
             manifest = snapshot.data.get("snapshot_manifest", snapshot.data)
             replacements[name] = _with_projection_metadata(manifest, snapshot, allowed_symbols)
             continue
+        if name == "A1_POOL_TARGETS":
+            found, value = _lookup_field(snapshot.data, name)
+            # Snapshots frozen before this prompt parameter was introduced stay
+            # replayable. New snapshots carry the configured value explicitly.
+            replacements[name] = value if found else {
+                "pool_min": 120,
+                "pool_max": 300,
+                "node_count_target": [40, 80],
+            }
+            continue
+        if name in {"A1_MINIMUMS", "MIN_THEME_SCORE", "MIN_TECHNICAL_SCORE"}:
+            defaults: dict[str, Any] = {
+                "A1_MINIMUMS": {
+                    "structural_score": 65,
+                    "data_quality_score": 75,
+                    "evidence_confidence": 0.70,
+                },
+                "MIN_THEME_SCORE": 60,
+                "MIN_TECHNICAL_SCORE": 70,
+            }
+            found, value = _lookup_field(snapshot.data, name)
+            replacements[name] = value if found else defaults[name]
+            continue
         found, value = _lookup_field(snapshot.data, name)
         replacements[name] = _project_prompt_value(name, value, allowed_symbols) if found else None
     return replacements
@@ -1081,13 +1287,39 @@ def _project_news(value: Any, *, item_limit: int, symbols: set[str] | None = Non
     return result
 
 
-def _stage_execution_budget(stage: str, input_symbol_count: int) -> str:
-    budget = _STAGE_OUTPUT_BUDGETS[stage]
+def _stage_execution_budget(
+    stage: str,
+    input_symbol_count: int,
+    snapshot_data: Mapping[str, Any],
+) -> str:
+    supplied = max(0, int(input_symbol_count))
+    budget = dict(_STAGE_OUTPUT_BUDGETS[stage])
+    regime_parameters = snapshot_data.get("REGIME_PARAM_SET")
+    regime = regime_parameters if isinstance(regime_parameters, Mapping) else {}
+    if stage == "A1":
+        # A1 is a broad macro/fundamental eligibility layer. The batch size is
+        # a transport boundary, not a global stock-selection quota.
+        budget["approved_pool"] = supplied
+        budget["secondary_pool"] = supplied
+    elif stage == "A2":
+        agent = regime.get("agent_2") if isinstance(regime.get("agent_2"), Mapping) else {}
+        focus_max = max(0, _safe_int(agent.get("focus_pool_max", supplied)))
+        budget["approved_pool"] = min(supplied, focus_max)
+        budget["secondary_pool"] = supplied
+    elif stage == "A3":
+        agent = regime.get("agent_3") if isinstance(regime.get("agent_3"), Mapping) else {}
+        core_max = max(0, _safe_int(agent.get("core_watch_max", supplied)))
+        total_max = max(core_max, _safe_int(agent.get("total_watch_max", supplied)))
+        budget["approved_pool"] = min(supplied, core_max)
+        budget["secondary_pool"] = min(supplied, max(0, total_max - core_max))
     stage_contract = {
         "A1": (
             "Required top-level keys: envelope, analysis_summary, active_research_pool, monitor_pool, "
             "rejected_candidates. Each approved item needs symbol, company_name, primary_theme, "
-            "industry_chain_node, core_thesis, bear_case, structural_score, status, source_refs."
+            "industry_chain_node, core_thesis, bear_case, structural_score, data_quality_score, "
+            "evidence_confidence, status, source_refs."
+            " Every supplied symbol must appear exactly once across active_research_pool, monitor_pool, "
+            "and rejected_candidates; the batch boundary is not a selection quota."
         ),
         "A2": (
             "Required top-level keys: envelope, analysis_summary, active_themes, focus_pool, "
@@ -1103,7 +1335,7 @@ def _stage_execution_budget(stage: str, input_symbol_count: int) -> str:
     }[stage]
     return (
         "RUNTIME_EXECUTION_BUDGET (overrides generic target counts, never overrides evidence gates):\n"
-        f"- supplied_symbol_count={max(0, int(input_symbol_count))}; analyze only supplied symbols.\n"
+        f"- supplied_symbol_count={supplied}; analyze only supplied symbols.\n"
         f"- approved pool <= {budget['approved_pool']}; secondary/watch pool <= {budget['secondary_pool']}.\n"
         f"- themes <= {budget['themes']}; industry_chain_graph nodes <= {budget['chain_nodes']}.\n"
         f"- each evidence/source/reference array <= {budget['evidence_per_item']}; use concise strings.\n"
@@ -1145,31 +1377,34 @@ def _merge_a1_outputs(outputs: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
                 -_safe_float(item.get("structural_score")) if isinstance(item, Mapping) else 0.0,
                 _first_symbol(item) if isinstance(item, Mapping) else "",
             ),
-        )[: _STAGE_OUTPUT_BUDGETS["A1"]["approved_pool"]]
+        )
     monitor = merged.get("monitor_pool")
     if isinstance(monitor, list):
         rejected_symbols = _scan_symbols(merged.get("rejected_candidates", ()))
+        active_symbols = _scan_symbols(merged.get("active_research_pool", ()))
         normalized_monitor = [_normalize_pool_symbol(item) for item in monitor]
-        normalized_monitor = [item for item in normalized_monitor if not _scan_symbols(item).intersection(rejected_symbols)]
+        normalized_monitor = [
+            item
+            for item in normalized_monitor
+            if not _scan_symbols(item).intersection(rejected_symbols | active_symbols)
+        ]
         merged["monitor_pool"] = sorted(
             normalized_monitor,
             key=lambda item: _first_symbol(item) if isinstance(item, Mapping) else _canonical_json(item),
-        )[: _STAGE_OUTPUT_BUDGETS["A1"]["secondary_pool"]]
-    for key, limit in (
-        ("structural_themes", _STAGE_OUTPUT_BUDGETS["A1"]["themes"]),
-        ("industry_chain_graph", _STAGE_OUTPUT_BUDGETS["A1"]["chain_nodes"]),
-    ):
-        if isinstance(merged.get(key), list):
-            merged[key] = merged[key][:limit]
+        )
     if isinstance(merged.get("rejected_candidates"), list):
         merged["rejected_candidates"] = [_normalize_pool_symbol(item) for item in merged["rejected_candidates"]]
-    summary = merged.get("analysis_summary")
-    if isinstance(summary, Mapping):
-        normalized_summary = dict(summary)
-        normalized_summary["approved_count"] = len(merged.get("active_research_pool", ()))
-        normalized_summary["monitor_count"] = len(merged.get("monitor_pool", ()))
-        normalized_summary["rejected_count"] = len(merged.get("rejected_candidates", ()))
-        merged["analysis_summary"] = normalized_summary
+    # A provider summary describes only one transport batch and becomes
+    # misleading after merge (for example, "all five candidates"). Publish a
+    # deterministic aggregate summary instead; the normalized pools and their
+    # combined hashes remain the authoritative merged result.
+    merged["analysis_summary"] = {
+        "outcome": "A1_BATCHES_MERGED",
+        "batch_count": len(outputs),
+        "approved_count": len(merged.get("active_research_pool", ())),
+        "monitor_count": len(merged.get("monitor_pool", ())),
+        "rejected_count": len(merged.get("rejected_candidates", ())),
+    }
     return merged
 
 
@@ -1205,11 +1440,62 @@ def _combined_digest(values: Any) -> str | None:
     return digest_text("|".join(retained)) if retained else None
 
 
+def _a1_batch_is_splittable(reasons: Sequence[str]) -> bool:
+    retryable_prefixes = (
+        "NETWORK_",
+        "MODEL_TOTAL_DEADLINE_",
+        "STRICT_JSON_",
+        "STREAM_",
+        "RESPONSE_",
+        "JSON_",
+        "ENVELOPE_",
+        "STAGE_ID_",
+        "MODEL_NAME_",
+        "SNAPSHOT_LINEAGE_",
+        "APPROVED_POOL_",
+        "A1_POOL_",
+    )
+    return any(str(reason).startswith(retryable_prefixes) for reason in reasons)
+
+
 def _common_variant(audits: Sequence[StageAudit]) -> str | None:
     variants = {audit.thinking_variant for audit in audits if audit.thinking_variant}
     if not variants:
         return None
     return next(iter(variants)) if len(variants) == 1 else "mixed"
+
+
+def _common_text(values: Sequence[str]) -> str | None:
+    retained = {str(value) for value in values if value}
+    if not retained:
+        return None
+    return next(iter(retained)) if len(retained) == 1 else "mixed"
+
+
+def _semantic_retry_instruction(stage: str, reasons: Sequence[str]) -> str:
+    safe_reasons = [
+        reason
+        for reason in dict.fromkeys(str(item) for item in reasons)
+        if re.fullmatch(r"[A-Z0-9_:.-]{1,120}", reason)
+    ][:20]
+    return (
+        "PREVIOUS_RESPONSE_REJECTED\n"
+        f"stage={stage}\n"
+        f"reason_codes={_canonical_json(safe_reasons)}\n"
+        "Regenerate the complete response from the original RUNTIME_INPUT. "
+        "Copy required_envelope exactly, include every required top-level pool, "
+        "and return one JSON object only. Do not discuss or repair the previous response."
+    )
+
+
+def _safe_diagnostics(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, Mapping):
+        return None
+    return {
+        "type": "object",
+        "field_count": min(len(value), 100),
+        "has_event_index": isinstance(value.get("event_index"), int),
+    }
 
 
 def _safe_float(value: Any) -> float:
@@ -1239,22 +1525,205 @@ def _normalize_pool_symbol(value: Any) -> Any:
     return value
 
 
+def _stage_pool_counts(output: Mapping[str, Any], stage: str) -> dict[str, int]:
+    fields = {
+        "A1": ("active_research_pool", "monitor_pool", "rejected_candidates"),
+        "A2": ("focus_pool", "watch_only_pool", "rejected_candidates"),
+        "A3": ("core_watch_pool", "secondary_watch_pool", "rejected_candidates"),
+    }[stage]
+    return {
+        field: len(output.get(field)) if isinstance(output.get(field), list) else 0
+        for field in fields
+    }
+
+
+def _canonicalize_stage_pool_fields(
+    output: Mapping[str, Any],
+    stage: str,
+) -> tuple[dict[str, Any], int]:
+    """Normalize harmless provider pool omissions/aliases to the runtime schema."""
+
+    result = dict(output)
+    changed = 0
+    if stage == "A2":
+        required = ("active_themes", "focus_pool", "watch_only_pool", "rejected_candidates")
+    elif stage == "A3":
+        if "secondary_watch_pool" not in result and isinstance(result.get("watch_only_pool"), list):
+            result["secondary_watch_pool"] = result.pop("watch_only_pool")
+            changed += 1
+        required = ("core_watch_pool", "secondary_watch_pool", "rejected_candidates")
+    else:
+        return result, changed
+    for field in required:
+        if field not in result:
+            result[field] = []
+            changed += 1
+    return result, changed
+
+
+def _apply_stage_threshold_policy(
+    output: Mapping[str, Any],
+    stage: str,
+    snapshot_data: Mapping[str, Any],
+) -> tuple[dict[str, Any], int]:
+    """Enforce configured funnel thresholds after model interpretation."""
+
+    result = dict(output)
+    if stage == "A1":
+        raw_minimums = snapshot_data.get("A1_MINIMUMS")
+        minimums = raw_minimums if isinstance(raw_minimums, Mapping) else {}
+        thresholds = (
+            ("structural_score", _safe_float(minimums.get("structural_score", 65)), "A1_SCORE_BELOW_MINIMUM"),
+            (
+                "data_quality_score",
+                _safe_float(minimums.get("data_quality_score", 75)),
+                "A1_DATA_QUALITY_BELOW_MINIMUM",
+            ),
+            (
+                "evidence_confidence",
+                _safe_float(minimums.get("evidence_confidence", 0.70)),
+                "A1_EVIDENCE_CONFIDENCE_BELOW_MINIMUM",
+            ),
+        )
+        active = result.get("active_research_pool")
+        monitor = list(result.get("monitor_pool")) if isinstance(result.get("monitor_pool"), list) else []
+        if not isinstance(active, list):
+            return result, 0
+        retained: list[Any] = []
+        changed = 0
+        for raw_item in active:
+            if not isinstance(raw_item, Mapping):
+                retained.append(raw_item)
+                continue
+            item = dict(raw_item)
+            reason_codes = [
+                reason
+                for field, minimum, reason in thresholds
+                if _safe_float(item.get(field)) < minimum
+            ]
+            if not reason_codes:
+                retained.append(item)
+                continue
+            existing = item.get("reason_codes") if isinstance(item.get("reason_codes"), list) else []
+            item["reason_codes"] = list(dict.fromkeys([*existing, *reason_codes]))
+            item["status"] = "MONITOR"
+            monitor.append(item)
+            changed += 1
+        result["active_research_pool"] = retained
+        result["monitor_pool"] = _deduplicate_stage_items("monitor_pool", monitor)
+        if changed:
+            result["analysis_summary"] = _policy_summary(result, stage, changed)
+        return result, changed
+
+    if stage == "A2":
+        minimum = _safe_float(snapshot_data.get("MIN_THEME_SCORE", 60))
+        focus = result.get("focus_pool")
+        watch = list(result.get("watch_only_pool")) if isinstance(result.get("watch_only_pool"), list) else []
+        if not isinstance(focus, list):
+            return result, 0
+        retained = []
+        changed = 0
+        for raw_item in focus:
+            if not isinstance(raw_item, Mapping) or _safe_float(raw_item.get("theme_score")) >= minimum:
+                retained.append(raw_item)
+                continue
+            item = dict(raw_item)
+            existing = item.get("reason_codes") if isinstance(item.get("reason_codes"), list) else []
+            item["reason_codes"] = list(dict.fromkeys([*existing, "A2_THEME_SCORE_BELOW_MINIMUM"]))
+            watch.append(item)
+            changed += 1
+        result["focus_pool"] = retained
+        result["watch_only_pool"] = _deduplicate_stage_items("watch_only_pool", watch)
+        if changed:
+            result["analysis_summary"] = _policy_summary(result, stage, changed)
+        return result, changed
+
+    if stage == "A3":
+        minimum_technical = _safe_float(snapshot_data.get("MIN_TECHNICAL_SCORE", 70))
+        minimum_reward_risk = _safe_float(snapshot_data.get("MIN_REWARD_RISK", 2.0))
+        maximum_stop = _safe_float(snapshot_data.get("MAX_STOP_DISTANCE", 0.06))
+        core = result.get("core_watch_pool")
+        secondary = (
+            list(result.get("secondary_watch_pool"))
+            if isinstance(result.get("secondary_watch_pool"), list)
+            else []
+        )
+        rejected = (
+            list(result.get("rejected_candidates"))
+            if isinstance(result.get("rejected_candidates"), list)
+            else []
+        )
+        if not isinstance(core, list):
+            return result, 0
+        retained = []
+        changed = 0
+        for raw_item in core:
+            if not isinstance(raw_item, Mapping):
+                retained.append(raw_item)
+                continue
+            item = dict(raw_item)
+            hard_reasons: list[str] = []
+            if _safe_float(item.get("reward_risk")) < minimum_reward_risk:
+                hard_reasons.append("A3_REWARD_RISK_BELOW_MINIMUM")
+            stop_distance = _safe_float(item.get("stop_distance_pct"))
+            if stop_distance <= 0 or stop_distance > maximum_stop:
+                hard_reasons.append("A3_STOP_DISTANCE_OUTSIDE_LIMIT")
+            if hard_reasons:
+                rejected.append(
+                    {
+                        "symbol": _first_symbol(item),
+                        "parent_candidate_id": item.get("parent_candidate_id"),
+                        "reason_codes": hard_reasons,
+                        "veto_triggered": "SERVER_THRESHOLD_POLICY",
+                    }
+                )
+                changed += 1
+                continue
+            if _safe_float(item.get("technical_score")) < minimum_technical:
+                existing = item.get("reason_codes") if isinstance(item.get("reason_codes"), list) else []
+                item["reason_codes"] = list(dict.fromkeys([*existing, "A3_TECHNICAL_SCORE_BELOW_MINIMUM"]))
+                item["risk_unit"] = "NO_ENTRY"
+                secondary.append(item)
+                changed += 1
+                continue
+            retained.append(item)
+        result["core_watch_pool"] = retained
+        result["secondary_watch_pool"] = _deduplicate_stage_items("secondary_watch_pool", secondary)
+        result["rejected_candidates"] = _deduplicate_stage_items("rejected_candidates", rejected)
+        if changed:
+            result["analysis_summary"] = _policy_summary(result, stage, changed)
+        return result, changed
+
+    return result, 0
+
+
+def _policy_summary(output: Mapping[str, Any], stage: str, changed: int) -> dict[str, Any]:
+    return {
+        "outcome": "SERVER_THRESHOLD_POLICY_APPLIED",
+        "policy_demotions": changed,
+        "pool_counts": _stage_pool_counts(output, stage),
+    }
+
+
 def _output_shape(value: Any) -> dict[str, Any]:
     if not isinstance(value, Mapping):
         return {"type": type(value).__name__}
-    keys = sorted(str(key) for key in value)[:30]
+    raw_keys = {str(key) for key in value}
+    keys = sorted(raw_keys.intersection(_SAFE_OUTPUT_FIELDS))
+    envelope = value.get("envelope")
+    envelope_keys = {str(key) for key in envelope} if isinstance(envelope, Mapping) else set()
     return {
         "type": "object",
         "fields": keys,
+        "unknown_field_count": len(raw_keys.difference(_SAFE_OUTPUT_FIELDS)),
         "field_types": {key: type(value.get(key)).__name__ for key in keys},
         "array_lengths": {
             key: len(value.get(key))
             for key in keys
             if isinstance(value.get(key), list)
         },
-        "envelope_fields": sorted(str(key) for key in value.get("envelope", {}))[:20]
-        if isinstance(value.get("envelope"), Mapping)
-        else [],
+        "envelope_fields": sorted(envelope_keys.intersection(_SAFE_ENVELOPE_FIELDS)),
+        "envelope_unknown_field_count": len(envelope_keys.difference(_SAFE_ENVELOPE_FIELDS)),
     }
 
 
@@ -1362,6 +1831,8 @@ def _validate_output(
     if _unprovable_candidate_pool(output):
         reasons.append("CANDIDATE_LINEAGE_UNPROVABLE")
     reasons.extend(_validate_approved_pool(output, stage))
+    if stage == "A1":
+        reasons.extend(_validate_a1_partition(output, upstream_symbols))
     if stage == "A3":
         reasons.extend(_validate_a3_provenance(output, snapshot_data or {}))
     return list(dict.fromkeys(reasons))
@@ -1380,6 +1851,38 @@ def _validate_approved_pool(output: Mapping[str, Any], stage: str) -> list[str]:
         symbol = item.get("symbol")
         if not isinstance(symbol, str) or len(_scan_symbols(symbol)) != 1:
             reasons.append("APPROVED_POOL_SYMBOL_INVALID")
+    return reasons
+
+
+def _validate_a1_partition(output: Mapping[str, Any], upstream_symbols: set[str]) -> list[str]:
+    reasons: list[str] = []
+    pools: dict[str, set[str]] = {}
+    for key in ("active_research_pool", "monitor_pool", "rejected_candidates"):
+        value = output.get(key)
+        if not isinstance(value, list):
+            reasons.append("A1_POOL_SCHEMA_INVALID")
+            pools[key] = set()
+            continue
+        declared: set[str] = set()
+        for item in value:
+            if not isinstance(item, Mapping):
+                reasons.append("A1_POOL_ITEM_INVALID")
+                continue
+            scanned = _scan_symbols(item.get("symbol"))
+            if len(scanned) != 1:
+                reasons.append("A1_POOL_SYMBOL_INVALID")
+                continue
+            declared.update(scanned)
+        pools[key] = declared
+    if any(pools[left].intersection(pools[right]) for left, right in (
+        ("active_research_pool", "monitor_pool"),
+        ("active_research_pool", "rejected_candidates"),
+        ("monitor_pool", "rejected_candidates"),
+    )):
+        reasons.append("A1_POOL_PARTITION_OVERLAP")
+    covered = set().union(*pools.values())
+    if covered != upstream_symbols:
+        reasons.append("A1_POOL_PARTITION_INCOMPLETE")
     return reasons
 
 

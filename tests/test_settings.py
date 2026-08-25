@@ -21,6 +21,8 @@ def test_exact_models_and_safe_summary_do_not_leak_keys(tmp_path: Path):
     assert secret not in repr(settings)
     assert secret not in str(settings.safe_summary())
     assert settings.safe_summary()["model_key_present"] is True
+    assert settings.model_timeout_seconds == 600
+    assert settings.research_max_candidates == 120
 
 
 def test_only_https_endpoints_are_allowed(tmp_path: Path):

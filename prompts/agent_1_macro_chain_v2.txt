@@ -29,6 +29,8 @@ Agent 1 · MacroFundamentalChainAgent
 {{EXCHANGE_RULES}}           版本化交易规则快照
 {{FAST_TRACK_REQUESTS}}      Agent 2 提交的快速研究请求
 {{PRIOR_OUTCOME_FEEDBACK}}   Agent 5 回填的上期判断结果标签
+{{A1_POOL_TARGETS}}          全局结构池/节点目标（非单批次配额）
+{{A1_MINIMUMS}}              ACTIVE 的结构分、数据质量和证据置信度硬门槛
 
 ────────────────────────────────────────────────────────────────────────
 【核心方法】研究单位是产业链节点，不是股票
@@ -54,6 +56,12 @@ Step B · 确定性挂载（不由你完成）
 
 Step C · 公司复核（只做每节点 Top-N，N 由 {{TOP_N_PER_NODE}} 给定）
   对候选公司验证业务纯度与证据强度，产出 CompanyThesisCard。
+
+批次只是传输边界，不是筛选名额。对当前批次每个输入标的，必须恰好输出到
+active_research_pool、monitor_pool 或 rejected_candidates 之一；禁止静默丢弃。
+{{A1_POOL_TARGETS}} 只在全量/周度合并后评估，不得用它强迫单批次凑数，
+也不得因单批次较小而额外收紧 ACTIVE。
+ACTIVE 必须同时达到 {{A1_MINIMUMS}}；任一字段缺失或低于门槛必须放入 MONITOR。
 
 ────────────────────────────────────────────────────────────────────────
 【七步分析流程】顺序固定

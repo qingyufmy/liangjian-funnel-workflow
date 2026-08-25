@@ -107,6 +107,7 @@ def main() -> int:
                                 "latency_ms": stage.latency_ms,
                                 "attempts": stage.attempts,
                                 "symbol_count": len(stage.symbols),
+                                "pool_counts": _pool_counts(stage.output, stage.stage),
                             }
                             for stage in lane.stages
                         ],
@@ -118,6 +119,20 @@ def main() -> int:
         )
     )
     return 0 if result.status == "READY" else 2
+
+
+def _pool_counts(output: object, stage: str) -> dict[str, int]:
+    if not isinstance(output, dict):
+        return {}
+    fields = {
+        "A1": ("active_research_pool", "monitor_pool", "rejected_candidates"),
+        "A2": ("focus_pool", "watch_only_pool", "rejected_candidates"),
+        "A3": ("core_watch_pool", "secondary_watch_pool", "rejected_candidates"),
+    }.get(stage, ())
+    return {
+        field: len(output.get(field)) if isinstance(output.get(field), list) else 0
+        for field in fields
+    }
 
 
 def _resume_stage(

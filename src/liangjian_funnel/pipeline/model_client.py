@@ -253,12 +253,25 @@ ModelClient = OpenAICompatibleModelClient
 
 
 def strict_json_object(content: Any) -> dict[str, Any]:
-    """Parse exactly one JSON object, rejecting fences and surrounding text."""
+    """Parse one JSON object with only harmless transport wrappers allowed.
 
-    if not isinstance(content, str) or content.strip() != content or content.startswith("```"):
+    Compatible gateways sometimes add outer whitespace or one exact Markdown
+    JSON fence even when ``response_format=json_object`` was requested.  Both
+    wrappers are deterministic and content-free, so normalise them while still
+    rejecting prose, multiple objects, malformed fences and trailing text.
+    """
+
+    if not isinstance(content, str):
+        raise StrictJSONError()
+    normalized = content.strip()
+    if normalized.startswith("```json\n") and normalized.endswith("\n```"):
+        normalized = normalized[len("```json\n") : -len("\n```")].strip()
+    elif normalized.startswith("```\n") and normalized.endswith("\n```"):
+        normalized = normalized[len("```\n") : -len("\n```")].strip()
+    elif normalized.startswith("```") or normalized.endswith("```"):
         raise StrictJSONError()
     try:
-        parsed = json.loads(content, object_pairs_hook=_unique_object, parse_constant=_reject_constant)
+        parsed = json.loads(normalized, object_pairs_hook=_unique_object, parse_constant=_reject_constant)
     except (TypeError, ValueError) as exc:
         raise StrictJSONError() from exc
     if not isinstance(parsed, dict):

@@ -305,8 +305,20 @@ def test_strict_json_failure_retries_then_succeeds(tmp_path: Path):
     assert result.attempts == 2
 
 
-def test_strict_parser_rejects_fence_text_and_non_object():
-    for value in ('```json\n{"ok":true}\n```', 'prefix {"ok":true}', '[1, 2]', '{"ok":true} suffix'):
+def test_strict_parser_normalizes_only_harmless_whitespace_and_exact_fence():
+    assert strict_json_object('  {"ok":true}\n') == {"ok": True}
+    assert strict_json_object('```json\n{"ok":true}\n```') == {"ok": True}
+    assert strict_json_object('```\n{"ok":true}\n```') == {"ok": True}
+
+
+def test_strict_parser_rejects_prose_malformed_fence_and_non_object():
+    for value in (
+        '```json {"ok":true}```',
+        '```json\n{"ok":true}\n``` suffix',
+        'prefix {"ok":true}',
+        '[1, 2]',
+        '{"ok":true} suffix',
+    ):
         with pytest.raises(StrictJSONError):
             strict_json_object(value)
 

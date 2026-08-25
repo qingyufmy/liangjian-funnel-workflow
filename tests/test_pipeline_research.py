@@ -5,15 +5,20 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from liangjian_funnel.pipeline.model_client import ModelCallResult, StrictJSONError
+from liangjian_funnel.pipeline.model_client import ModelCallResult, ModelNetworkError, StrictJSONError
 from liangjian_funnel.pipeline.prompts import PROMPT_FILENAMES, PromptRepository, PromptRepositoryError
 from liangjian_funnel.pipeline.research import (
     ResearchPipeline,
+    _a1_batch_is_splittable,
+    _apply_stage_threshold_policy,
     _canonicalize_a3_price_fields,
+    _canonicalize_stage_pool_fields,
     _merge_a1_outputs,
+    _output_shape,
     _project_fundamentals,
     _project_news,
     _scan_symbols,
+    _stage_execution_budget,
     _validate_output,
 )
 from liangjian_funnel.pipeline.snapshot import FrozenInputSnapshot as CanonicalFrozenInputSnapshot
@@ -58,6 +63,17 @@ def _envelope(model: str, stage: str, snapshot_id: str) -> dict:
     }
 
 
+def _qualifying_item(symbol: str, stage: str) -> dict:
+    item = {"symbol": symbol}
+    if stage == "A1":
+        item.update(structural_score=80, data_quality_score=80, evidence_confidence=0.8)
+    elif stage == "A2":
+        item["theme_score"] = 65
+    else:
+        item.update(technical_score=80, reward_risk=3.0, stop_distance_pct=0.03)
+    return item
+
+
 class FakeResearchClient:
     def __init__(self, symbols_by_model: dict[str, str], *, outside_a2: bool = False, escalate: bool = False):
         self.symbols_by_model = symbols_by_model
@@ -76,11 +92,23 @@ class FakeResearchClient:
         if self.escalate:
             output["envelope"]["external_orders"] = True
         if stage == "A1":
-            output["active_research_pool"] = [{"symbol": symbol, "candidate_id": f"{model}:a1"}]
+            output["active_research_pool"] = [
+                {**_qualifying_item(symbol, stage), "candidate_id": f"{model}:a1"}
+            ]
+            output["monitor_pool"] = []
+            output["rejected_candidates"] = [
+                {"symbol": candidate, "reason_codes": ["TEST_REJECTED"]}
+                for candidate in runtime["g0_symbols"]
+                if candidate != symbol
+            ]
         elif stage == "A2":
-            output["focus_pool"] = [{"symbol": symbol, "upstream_candidate_id": f"{model}:a1"}]
+            output["focus_pool"] = [
+                {**_qualifying_item(symbol, stage), "upstream_candidate_id": f"{model}:a1"}
+            ]
         else:
-            output["core_watch_pool"] = [{"symbol": symbol, "parent_candidate_id": f"{model}:a2"}]
+            output["core_watch_pool"] = [
+                {**_qualifying_item(symbol, stage), "parent_candidate_id": f"{model}:a2"}
+            ]
             output["reasoning_content"] = "do-not-persist-this"
         return ModelCallResult(
             model=model,
@@ -135,11 +163,17 @@ def test_a1_large_universe_is_batched_and_merged_before_a2(tmp_path: Path):
             symbol = domain[0]
             output = {"envelope": _envelope(model, stage, runtime["snapshot_id"])}
             if stage == "A1":
-                output["active_research_pool"] = [{"symbol": symbol, "structural_score": 80}]
+                output["active_research_pool"] = [_qualifying_item(symbol, stage)]
+                output["monitor_pool"] = []
+                output["rejected_candidates"] = [
+                    {"symbol": candidate, "reason_codes": ["TEST_REJECTED"]}
+                    for candidate in domain
+                    if candidate != symbol
+                ]
             elif stage == "A2":
-                output["focus_pool"] = [{"symbol": symbol}]
+                output["focus_pool"] = [_qualifying_item(symbol, stage)]
             else:
-                output["core_watch_pool"] = [{"symbol": symbol}]
+                output["core_watch_pool"] = [_qualifying_item(symbol, stage)]
             return ModelCallResult(
                 model=model,
                 output=output,
@@ -162,11 +196,169 @@ def test_a1_large_universe_is_batched_and_merged_before_a2(tmp_path: Path):
     ).run(snapshot, run_id="run-batched", generated_at=NOW)
 
     assert result.status == "READY"
-    assert all(lane.stages[0].diagnostics == {"batch_count": 2, "completed_batches": 2} for lane in result.lanes)
+    assert all(
+        lane.stages[0].diagnostics
+        == {
+            "batch_count": 2,
+            "completed_batches": 2,
+            "request_groups": 2,
+            "split_count": 0,
+            "pool_counts": {
+                "active_research_pool": 2,
+                "monitor_pool": 0,
+                "rejected_candidates": 4,
+            },
+        }
+        for lane in result.lanes
+    )
     for model in MODELS:
         calls = [item for item in client.calls if item[0] == model]
         assert [stage for _, stage, _ in calls] == ["A1", "A1", "A2", "A3"]
         assert sorted(len(scope) for _, stage, scope in calls if stage == "A1") == [1, 5]
+
+
+def test_failed_large_a1_batch_is_split_without_repeating_successful_groups(tmp_path: Path):
+    class SplitClient:
+        def __init__(self):
+            self.calls = []
+
+        def complete(self, model: str, messages, **metadata):
+            runtime = json.loads(messages[1]["content"].split("\n", 1)[1])
+            stage = runtime["stage"]
+            domain = runtime["g0_symbols"] if stage == "A1" else runtime["upstream_symbols"]
+            self.calls.append((model, stage, tuple(domain)))
+            if stage == "A1" and len(domain) > 2:
+                raise ModelNetworkError(attempts=1)
+            output = {"envelope": _envelope(model, stage, runtime["snapshot_id"])}
+            pool = {"A1": "active_research_pool", "A2": "focus_pool", "A3": "core_watch_pool"}[stage]
+            output[pool] = [_qualifying_item(domain[0], stage)] if domain else []
+            if stage == "A1":
+                output["monitor_pool"] = []
+                output["rejected_candidates"] = [
+                    {"symbol": candidate, "reason_codes": ["TEST_REJECTED"]}
+                    for candidate in domain[1:]
+                ]
+            return ModelCallResult(
+                model=model,
+                output=output,
+                prompt_hash=metadata.get("prompt_hash"),
+                input_hash=metadata.get("input_hash"),
+                latency_ms=4,
+                attempts=1,
+                thinking_variant="reasoning_effort_low",
+            )
+
+    symbols = [f"6005{index:02d}.SH" for index in range(6)]
+    client = SplitClient()
+    settings = _settings(tmp_path).model_copy(update={"research_a1_batch_size": 5})
+    result = ResearchPipeline(
+        settings,
+        prompt_repository=_prompt_dir(tmp_path),
+        model_client=client,
+        now=lambda: NOW,
+    ).run(
+        {"snapshot_id": "split-snapshot", "snapshot_hash": "s" * 64, "g0": symbols},
+        run_id="run-split",
+        generated_at=NOW,
+    )
+
+    assert result.status == "READY"
+    for lane in result.lanes:
+        diagnostics = lane.stages[0].diagnostics
+        assert diagnostics == {
+            "batch_count": 2,
+            "completed_batches": 4,
+            "request_groups": 6,
+            "split_count": 2,
+            "pool_counts": {
+                "active_research_pool": 4,
+                "monitor_pool": 0,
+                "rejected_candidates": 2,
+            },
+        }
+        groups = [scope for model, stage, scope in client.calls if model == lane.model and stage == "A1"]
+        assert [len(group) for group in groups] == [5, 2, 3, 1, 2, 1]
+
+
+def test_schema_invalid_output_is_not_persisted_and_stage_retries_once(tmp_path: Path):
+    class SemanticRetryClient:
+        def __init__(self):
+            self.counts = {}
+            self.repair_messages = []
+
+        def complete(self, model: str, messages, **metadata):
+            runtime = json.loads(messages[1]["content"].split("\n", 1)[1])
+            stage = runtime["stage"]
+            key = (model, stage)
+            self.counts[key] = self.counts.get(key, 0) + 1
+            if len(messages) > 2:
+                self.repair_messages.append(messages[2]["content"])
+            if stage == "A1" and self.counts[key] == 1:
+                output = {"envelope": {"private-model-self-correction": "must-not-persist"}}
+            else:
+                symbol = runtime["g0_symbols"][0] if stage == "A1" else runtime["upstream_symbols"][0]
+                output = {"envelope": _envelope(model, stage, runtime["snapshot_id"])}
+                output[{"A1": "active_research_pool", "A2": "focus_pool", "A3": "core_watch_pool"}[stage]] = [
+                    _qualifying_item(symbol, stage)
+                ]
+                if stage == "A1":
+                    output["monitor_pool"] = []
+                    output["rejected_candidates"] = [
+                        {"symbol": candidate, "reason_codes": ["TEST_REJECTED"]}
+                        for candidate in runtime["g0_symbols"]
+                        if candidate != symbol
+                    ]
+            return ModelCallResult(
+                model=model,
+                output=output,
+                prompt_hash=metadata.get("prompt_hash"),
+                input_hash=metadata.get("input_hash"),
+                latency_ms=4,
+                attempts=1,
+                thinking_variant="reasoning_effort_low",
+            )
+
+    client = SemanticRetryClient()
+    result = ResearchPipeline(
+        _settings(tmp_path),
+        prompt_repository=_prompt_dir(tmp_path),
+        model_client=client,
+        now=lambda: NOW,
+    ).run(_snapshot(), run_id="run-semantic-retry", generated_at=NOW)
+
+    assert result.status == "READY"
+    assert all(lane.stages[0].attempts == 2 for lane in result.lanes)
+    assert all(
+        lane.stages[0].diagnostics
+        == {
+            "semantic_attempts": 2,
+            "canonicalized_price_items": 0,
+            "trend_veto_items": 0,
+            "pool_counts": {
+                "active_research_pool": 1,
+                "monitor_pool": 0,
+                "rejected_candidates": 2,
+            },
+        }
+        for lane in result.lanes
+    )
+    assert all("must-not-persist" not in path.read_text(encoding="utf-8") for path in result.audit_paths)
+    assert len(client.repair_messages) == 3
+    assert all("private-model-self-correction" not in message for message in client.repair_messages)
+
+
+def test_output_shape_never_exposes_unknown_model_field_names():
+    shape = _output_shape(
+        {
+            "envelope": {"private-self-correction": "hidden", "status": "DEGRADED"},
+            "private-output-key": "hidden",
+        }
+    )
+    assert shape["fields"] == ["envelope"]
+    assert shape["unknown_field_count"] == 1
+    assert shape["envelope_fields"] == ["status"]
+    assert shape["envelope_unknown_field_count"] == 1
+    assert "private" not in json.dumps(shape)
 
 
 def test_a1_batch_merge_recomputes_counts_and_removes_rejected_from_monitor():
@@ -193,6 +385,172 @@ def test_a1_batch_merge_recomputes_counts_and_removes_rejected_from_monitor():
     assert merged["analysis_summary"]["approved_count"] == 2
     assert merged["analysis_summary"]["monitor_count"] == 0
     assert merged["analysis_summary"]["rejected_count"] == 1
+    assert merged["analysis_summary"]["batch_count"] == 2
+    assert merged["analysis_summary"]["outcome"] == "A1_BATCHES_MERGED"
+
+
+def test_a1_batch_merge_does_not_apply_a_global_five_stock_cap():
+    envelope = _envelope(MODELS[0], "A1", "snap")
+    outputs = [
+        {
+            "envelope": envelope,
+            "active_research_pool": [
+                {"symbol": f"6005{batch * 5 + offset:02d}.SH", "structural_score": 90 - offset}
+                for offset in range(5)
+            ],
+            "monitor_pool": [],
+            "rejected_candidates": [],
+        }
+        for batch in range(3)
+    ]
+    merged = _merge_a1_outputs(outputs)
+    assert len(merged["active_research_pool"]) == 15
+
+
+def test_stage_execution_budget_keeps_a1_broad_and_uses_downstream_regime_caps():
+    regime = {
+        "REGIME_PARAM_SET": {
+            "agent_2": {"focus_pool_max": 12},
+            "agent_3": {"core_watch_max": 5, "total_watch_max": 8},
+        }
+    }
+    a1 = _stage_execution_budget("A1", 20, regime)
+    a2 = _stage_execution_budget("A2", 20, regime)
+    a3 = _stage_execution_budget("A3", 20, regime)
+    assert "approved pool <= 20; secondary/watch pool <= 20" in a1
+    assert "approved pool <= 12; secondary/watch pool <= 20" in a2
+    assert "approved pool <= 5; secondary/watch pool <= 3" in a3
+
+
+def test_a1_incomplete_partition_can_split_to_smaller_transport_groups():
+    assert _a1_batch_is_splittable(["A1_POOL_PARTITION_INCOMPLETE"])
+
+
+def test_a3_watch_only_alias_is_canonicalized_without_losing_items():
+    output, changed = _canonicalize_stage_pool_fields(
+        {
+            "core_watch_pool": [],
+            "watch_only_pool": [{"symbol": "300502.SZ", "risk_unit": "NO_ENTRY"}],
+        },
+        "A3",
+    )
+    assert changed == 2
+    assert output["secondary_watch_pool"] == [
+        {"symbol": "300502.SZ", "risk_unit": "NO_ENTRY"}
+    ]
+    assert output["rejected_candidates"] == []
+    assert "watch_only_pool" not in output
+
+
+def test_server_threshold_policy_keeps_a1_broad_but_demotes_weak_active_items():
+    output, changed = _apply_stage_threshold_policy(
+        {
+            "active_research_pool": [
+                {
+                    "symbol": "600183.SH",
+                    "structural_score": 72,
+                    "data_quality_score": 78,
+                    "evidence_confidence": 0.72,
+                    "status": "ACTIVE",
+                },
+                {
+                    "symbol": "300308.SZ",
+                    "structural_score": 80,
+                    "data_quality_score": 70,
+                    "evidence_confidence": 0.72,
+                    "status": "ACTIVE",
+                },
+            ],
+            "monitor_pool": [{"symbol": "000725.SZ"}],
+        },
+        "A1",
+        {},
+    )
+    assert changed == 1
+    assert [item["symbol"] for item in output["active_research_pool"]] == ["600183.SH"]
+    assert {item["symbol"] for item in output["monitor_pool"]} == {"300308.SZ", "000725.SZ"}
+    demoted = next(item for item in output["monitor_pool"] if item["symbol"] == "300308.SZ")
+    assert demoted["status"] == "MONITOR"
+    assert "A1_DATA_QUALITY_BELOW_MINIMUM" in demoted["reason_codes"]
+    assert output["analysis_summary"]["pool_counts"]["active_research_pool"] == 1
+
+
+def test_server_threshold_policy_demotes_low_theme_score_and_rejects_bad_a3_payoff():
+    a2, a2_changed = _apply_stage_threshold_policy(
+        {
+            "focus_pool": [
+                {"symbol": "300308.SZ", "theme_score": 65},
+                {"symbol": "600183.SH", "theme_score": 56},
+            ],
+            "watch_only_pool": [],
+        },
+        "A2",
+        {},
+    )
+    assert a2_changed == 1
+    assert [item["symbol"] for item in a2["focus_pool"]] == ["300308.SZ"]
+    assert a2["watch_only_pool"][0]["reason_codes"] == ["A2_THEME_SCORE_BELOW_MINIMUM"]
+    assert a2["analysis_summary"]["policy_demotions"] == 1
+
+    a3, a3_changed = _apply_stage_threshold_policy(
+        {
+            "core_watch_pool": [
+                {
+                    "symbol": "600183.SH",
+                    "technical_score": 80,
+                    "reward_risk": 0.75,
+                    "stop_distance_pct": 0.05,
+                },
+                {
+                    "symbol": "300502.SZ",
+                    "technical_score": 50,
+                    "reward_risk": 4.0,
+                    "stop_distance_pct": 0.04,
+                },
+            ],
+            "secondary_watch_pool": [],
+            "rejected_candidates": [],
+        },
+        "A3",
+        {},
+    )
+    assert a3_changed == 2
+    assert a3["core_watch_pool"] == []
+    assert a3["rejected_candidates"][0]["reason_codes"] == ["A3_REWARD_RISK_BELOW_MINIMUM"]
+    assert a3["secondary_watch_pool"][0]["risk_unit"] == "NO_ENTRY"
+    assert "A3_TECHNICAL_SCORE_BELOW_MINIMUM" in a3["secondary_watch_pool"][0]["reason_codes"]
+    assert a3["analysis_summary"]["pool_counts"]["core_watch_pool"] == 0
+
+
+def test_a1_partition_reads_only_declared_symbol_not_evidence_references():
+    output = {
+        "envelope": _envelope(MODELS[0], "A1", "snap"),
+        "active_research_pool": [
+            {
+                "symbol": "600519.SH",
+                "company_name": "A",
+                "primary_theme": "T",
+                "industry_chain_node": "N",
+                "core_thesis": ["peer 000001.SZ is not another pool member"],
+                "bear_case": ["risk"],
+                "structural_score": 80,
+                "status": "ACTIVE",
+                "source_refs": ["ref"],
+            }
+        ],
+        "monitor_pool": [{"symbol": "000001.SZ"}],
+        "rejected_candidates": [{"symbol": "300750.SZ"}],
+    }
+    reasons = _validate_output(
+        output,
+        stage="A1",
+        model=MODELS[0],
+        snapshot_id="snap",
+        upstream_symbols={"600519.SH", "000001.SZ", "300750.SZ"},
+        snapshot_data={},
+    )
+    assert "A1_POOL_PARTITION_OVERLAP" not in reasons
+    assert "A1_POOL_PARTITION_INCOMPLETE" not in reasons
 
 
 def test_pool_outside_upstream_blocks_only_downstream_stages(tmp_path: Path):
@@ -447,6 +805,11 @@ class EmptyA1Client(FakeResearchClient):
                 output={
                     "envelope": _envelope(model, "A1", runtime["snapshot_id"]),
                     "active_research_pool": [],
+                    "monitor_pool": [],
+                    "rejected_candidates": [
+                        {"symbol": candidate, "reason_codes": ["TEST_REJECTED"]}
+                        for candidate in runtime["g0_symbols"]
+                    ],
                 },
                 prompt_hash=metadata.get("prompt_hash"),
                 input_hash=metadata.get("input_hash"),
@@ -457,7 +820,7 @@ class EmptyA1Client(FakeResearchClient):
         return result
 
 
-def test_empty_validated_a1_pool_stops_downstream_before_model_call(tmp_path: Path):
+def test_empty_validated_a1_pool_yields_deterministic_no_action_downstream(tmp_path: Path):
     symbols = dict(zip(MODELS, ("600519.SH", "000001.SZ", "300750.SZ")))
     client = EmptyA1Client(symbols)
     result = ResearchPipeline(
@@ -467,8 +830,10 @@ def test_empty_validated_a1_pool_stops_downstream_before_model_call(tmp_path: Pa
         now=lambda: NOW,
     ).run(_snapshot(), run_id="run-empty-a1", generated_at=NOW)
 
-    assert result.status == "BLOCKED"
+    assert result.status == "READY"
     assert all(lane.stages[0].status == "VALIDATED" for lane in result.lanes)
-    assert all(lane.stages[1].reason_codes == ("UPSTREAM_POOL_EMPTY",) for lane in result.lanes)
-    assert all(lane.stages[2].reason_codes == ("UPSTREAM_STAGE_BLOCKED",) for lane in result.lanes)
+    assert all(lane.stages[1].status == "VALIDATED" for lane in result.lanes)
+    assert all(lane.stages[2].status == "VALIDATED" for lane in result.lanes)
+    assert all(lane.stages[1].diagnostics == {"outcome_code": "NO_ACTION_UPSTREAM_POOL_EMPTY"} for lane in result.lanes)
+    assert all(lane.stages[2].output["core_watch_pool"] == [] for lane in result.lanes)
     assert all([stage for called_model, stage, _ in client.calls if called_model == model] == ["A1"] for model in MODELS)
