@@ -54,7 +54,7 @@ class Settings(BaseModel):
     timezone: str = "Asia/Shanghai"
     timeout_seconds: float = Field(default=30.0, gt=0, le=120)
     model_timeout_seconds: float = Field(default=600.0, gt=0, le=600)
-    model_max_output_tokens: int = Field(default=6_000, ge=1_024, le=32_768)
+    model_max_output_tokens: int = Field(default=12_000, ge=1_024, le=32_768)
     hithink_min_request_interval_seconds: float = Field(default=0.5, ge=0, le=10)
     cninfo_min_request_interval_seconds: float = Field(default=0.5, ge=0, le=10)
     cninfo_pdf_max_documents_per_symbol: int = Field(default=3, ge=0, le=10)
@@ -80,7 +80,7 @@ class Settings(BaseModel):
     open_news_stock_limit: int = Field(default=20, ge=1, le=50)
     open_news_flash_limit: int = Field(default=50, ge=1, le=100)
     research_max_candidates: int = Field(default=120, ge=1, le=300)
-    research_a1_batch_size: int = Field(default=5, ge=1, le=20)
+    research_a1_batch_size: int = Field(default=8, ge=1, le=20)
     simulation_initial_cash: float = Field(default=1_000_000.0, ge=0)
     research_models: tuple[str, ...] = RESEARCH_MODELS
     monitor_model: str = MONITOR_MODEL
@@ -147,7 +147,7 @@ class Settings(BaseModel):
             timezone=env.get("LIANGJIAN_TIMEZONE", "Asia/Shanghai"),
             timeout_seconds=float(env.get("LIANGJIAN_HTTP_TIMEOUT_SECONDS", "30")),
             model_timeout_seconds=float(env.get("LIANGJIAN_MODEL_TIMEOUT_SECONDS", "600")),
-            model_max_output_tokens=int(env.get("LIANGJIAN_MODEL_MAX_OUTPUT_TOKENS", "6000")),
+            model_max_output_tokens=int(env.get("LIANGJIAN_MODEL_MAX_OUTPUT_TOKENS", "12000")),
             hithink_min_request_interval_seconds=float(
                 env.get("ASTOCK_HITHINK_MIN_REQUEST_INTERVAL_SECONDS", "0.5")
             ),
@@ -195,7 +195,7 @@ class Settings(BaseModel):
             open_news_stock_limit=int(env.get("LIANGJIAN_OPEN_NEWS_STOCK_LIMIT", "20")),
             open_news_flash_limit=int(env.get("LIANGJIAN_OPEN_NEWS_FLASH_LIMIT", "50")),
             research_max_candidates=int(env.get("LIANGJIAN_RESEARCH_MAX_CANDIDATES", "120")),
-            research_a1_batch_size=int(env.get("LIANGJIAN_A1_BATCH_SIZE", "5")),
+            research_a1_batch_size=int(env.get("LIANGJIAN_A1_BATCH_SIZE", "8")),
             simulation_initial_cash=float(env.get("LIANGJIAN_SIMULATION_INITIAL_CASH", "1000000")),
         )
 

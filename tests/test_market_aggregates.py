@@ -99,6 +99,39 @@ def test_ths_membership_is_primary_but_does_not_invent_sector_cycle() -> None:
     assert permissions["by_symbol"] == {"600519.SH": "PROBE_ONLY"}
 
 
+def test_sector_history_proves_persistent_mainline_without_calling_turnover_capital_flow() -> None:
+    facts = _facts()
+    facts["THS_INDUSTRY_CATALOG"] = _fact([
+        {"thscode": "881101.TI", "name": "行业A"},
+        {"thscode": "881102.TI", "name": "行业B"},
+        {"thscode": "881103.TI", "name": "行业C"},
+    ])
+    histories = []
+    for code, name, closes in (
+        ("881101.TI", "行业A", [10, 11, 12, 13, 14, 15]),
+        ("881102.TI", "行业B", [10, 10, 10, 10, 10, 10]),
+        ("881103.TI", "行业C", [10, 9, 8, 7, 6, 5]),
+    ):
+        histories.append({
+            "industry_thscode": code,
+            "industry_name": name,
+            "bars": [
+                {"date_ms": day, "close_price": close, "turnover": 1000 + day}
+                for day, close in enumerate(closes, start=1)
+            ],
+        })
+    facts["THS_INDUSTRY_HISTORY"] = _fact(histories)
+
+    cycle, permissions = build_sector_cycle_and_permissions(facts, ["600519.SH"], as_of=NOW)
+
+    assert cycle["available"] is True
+    assert cycle["capital_flow_available"] is False
+    assert cycle["turnover_is_capital_flow"] is False
+    assert cycle["history_metrics"]["top3_daily_overlap"] == 1.0
+    assert cycle["history_metrics"]["persistent_mainline_candidates"][0]["industry_thscode"] == "881101.TI"
+    assert permissions["by_symbol"] == {"600519.SH": "STANDARD"}
+
+
 def test_news_heat_uses_only_frozen_deduped_t3_items() -> None:
     payload = {
         "fact_groups": {

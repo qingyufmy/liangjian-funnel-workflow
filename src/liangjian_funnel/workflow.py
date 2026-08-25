@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -13,12 +14,16 @@ from typing import Any, Mapping
 from zoneinfo import ZoneInfo
 
 from .data.cache import MinuteBarStore
-from .data.cninfo import CninfoClient
+from .data.cninfo import CninfoClient, CninfoFetchResult
 from .data.cninfo_pdf import CninfoPdfClient, CninfoPdfEvidence
 from .data.gov_policy import GovPolicyClient
 from .data.mootdx import MootdxAdapter, MootdxNode, MinuteBar, map_symbol
 from .data.open_news import OpenNewsClient, OpenNewsFetchResult
-from .data.ths_industry import collect_ths_industry_membership
+from .data.ths_industry import (
+    collect_ths_industry_history,
+    collect_ths_industry_membership,
+    select_industry_diversified_symbols,
+)
 from .facts import (
     FactStore,
     collect_market_results,
@@ -44,7 +49,7 @@ from .pipeline.research import FrozenInputSnapshot as ResearchSnapshot
 from .pipeline.research import ResearchPipeline, ResearchRunResult
 from .pipeline.snapshot import FrozenInputSnapshot, UniverseGatePolicy, UniverseSnapshot
 from .pipeline.technical_aggregates import build_technical_aggregates
-from .redaction import digest_text
+from .redaction import digest_text, sanitize
 from .reporting import atomic_write_json, atomic_write_text
 from .runtime.monitor import MonitorBatchResult, MonitorEngine, rebuild_effective_markdown
 from .runtime.calendar import ExchangeTradingCalendar, TradingCalendarError
@@ -153,22 +158,66 @@ class WorkflowApplication:
             )
             if not universe.ready:
                 raise WorkflowError("UNIVERSE_NOT_READY")
-            # Fetch a bounded reserve in the same deterministic turnover
-            # order. Candidate-level source degradation can then be backfilled
-            # without expanding beyond G0 or changing ranking semantics.
+            a1_config = source_config.get("agent_1", {})
+            if not isinstance(a1_config, Mapping):
+                raise WorkflowError("A1_CONFIG_INVALID")
+            top_n_per_node = int(a1_config.get("top_n_per_node", 8))
+            node_count_target = a1_config.get("node_count_target", [40, 80])
+            if not isinstance(node_count_target, list):
+                raise WorkflowError("A1_NODE_TARGET_INVALID")
+
+            # A1 is node-first.  Build the full THS reverse membership graph
+            # before selecting companies, then take a deterministic Top-N per
+            # specific industry node.  A global turnover slice would collapse
+            # the macro/fundamental pool into the day's hottest few sectors.
+            industry_catalog = client.ths_index_catalog(tag="industry")
+            full_membership = collect_ths_industry_membership(
+                client,
+                industry_catalog,
+                [candidate.symbol for candidate in universe.trade_candidates],
+                cache_dir=self.settings.fact_store_dir / "ths_industry",
+                as_of=current,
+            )
+            if not full_membership.ok or not full_membership.complete:
+                raise WorkflowError(f"THS_INDUSTRY_MEMBERSHIP_NOT_READY:{full_membership.reason_code}")
+
+            # Keep a bounded reserve so source-level failures can be backfilled
+            # without violating the same node selection rule.
             reserve_limit = min(len(universe.trade_candidates), candidate_limit + 10)
-            selected = universe.deterministic_preselect(reserve_limit)
+            selected_symbols, g0_selection = select_industry_diversified_symbols(
+                universe.trade_candidates,
+                full_membership,
+                limit=reserve_limit,
+                top_n_per_node=top_n_per_node,
+                node_count_target=node_count_target,
+            )
+            if len(selected_symbols) < reserve_limit:
+                raise WorkflowError("A1_NODE_DIVERSIFICATION_INSUFFICIENT")
+            record_by_symbol = {candidate.symbol: candidate for candidate in universe.trade_candidates}
+            selected = tuple(record_by_symbol[symbol] for symbol in selected_symbols)
             market_fact_results = collect_market_results(
                 client,
                 [candidate.symbol for candidate in selected],
             )
+            market_fact_results["THS_INDUSTRY_CATALOG"] = industry_catalog
+            market_fact_results["THS_INDUSTRY_HISTORY"] = collect_ths_industry_history(
+                client,
+                industry_catalog,
+                cache_dir=self.settings.fact_store_dir / "ths_industry",
+                as_of=current,
+            )
             market_fact_results["THS_INDUSTRY_MEMBERSHIP"] = collect_ths_industry_membership(
                 client,
-                market_fact_results["THS_INDUSTRY_CATALOG"],
+                industry_catalog,
                 [candidate.symbol for candidate in selected],
                 cache_dir=self.settings.fact_store_dir / "ths_industry",
                 as_of=current,
             )
+            if not market_fact_results["THS_INDUSTRY_HISTORY"].ok:
+                raise WorkflowError(
+                    "THS_INDUSTRY_HISTORY_NOT_READY:"
+                    f"{market_fact_results['THS_INDUSTRY_HISTORY'].reason_code}"
+                )
             required_market_facts = (
                 "LIMIT_UP_POOL",
                 "LIMIT_DOWN_POOL",
@@ -238,7 +287,10 @@ class WorkflowApplication:
                 if financial_complete:
                     fundamental[symbol] = financial_rows
 
-        policy_start = (current.date() - timedelta(days=6)).isoformat()
+        # A1 is a structural macro/policy layer. A six-day window only shows
+        # incidental recent notices and cannot support policy lifecycle or
+        # a 90-day catalyst calendar.
+        policy_start = (current.date() - timedelta(days=90)).isoformat()
         policy_end = current.date().isoformat()
         with GovPolicyClient(
             timeout_seconds=self.settings.timeout_seconds,
@@ -251,6 +303,7 @@ class WorkflowApplication:
         policy_manifest = normalize_gov_policy_result(policy_result, as_of=current)
 
         query_start = (current.date() - timedelta(days=10)).isoformat()
+        business_query_start = (current.date() - timedelta(days=450)).isoformat()
         query_end = current.date().isoformat()
         cninfo_results: dict[str, Any] = {}
         cninfo_pdf_evidence: dict[tuple[str, str], CninfoPdfEvidence] = {}
@@ -261,14 +314,25 @@ class WorkflowApplication:
         ) as cninfo:
             for candidate in selected:
                 symbol = candidate.symbol
-                result = cninfo.fetch_announcements(symbol, query_start, query_end)
+                recent_result = cninfo.fetch_announcements(symbol, query_start, query_end)
+                business_result = cninfo.fetch_announcements(
+                    symbol,
+                    business_query_start,
+                    query_end,
+                    search_keyword="年度报告",
+                )
+                result = _merge_cninfo_query_results(recent_result, business_result)
                 cninfo_results[symbol] = result
-                if not result.ok or not result.complete:
-                    source_failures.setdefault(symbol, []).append(f"CNINFO:{result.reason_code}")
+                if not recent_result.ok or not recent_result.complete:
+                    source_failures.setdefault(symbol, []).append(f"CNINFO:{recent_result.reason_code}")
                     # Announcement query success is a P0 company boundary.
                     # Removing fundamentals excludes this symbol in the
                     # canonical freeze without changing the full universe.
                     fundamental.pop(symbol, None)
+                if not business_result.ok or not business_result.complete:
+                    source_failures.setdefault(symbol, []).append(
+                        f"CNINFO_MAIN_BUSINESS:{business_result.reason_code}"
+                    )
         if self.settings.cninfo_pdf_max_documents_per_symbol:
             with CninfoPdfClient(
                 self.settings.cninfo_pdf_cache_dir,
@@ -314,22 +378,29 @@ class WorkflowApplication:
             fundamental_payload=fundamental,
             fact_payload=fact_payload,
             max_candidates=reserve_limit,
+            candidate_symbols=selected_symbols,
         )
         for candidate in frozen.trade_candidates:
             symbol = candidate.symbol
-            minutes = self.mootdx.fetch_bars(
-                symbol,
-                "5m",
-                self.settings.mootdx_history_5m_required_bars,
-                as_of=current,
-            )
-            if not minutes.complete:
-                source_failures.setdefault(symbol, []).append(f"MOOTDX:{minutes.reason_code}")
-                continue
-            self.minute_store.write(minutes.bars)
+            required_bars = self.settings.mootdx_history_5m_required_bars
+            cached_bars = self.minute_store.load_latest(symbol, "5m", limit=required_bars)
+            if _minute_cache_ready(cached_bars, required_bars=required_bars, as_of=current):
+                minute_bars = cached_bars
+            else:
+                minutes = self.mootdx.fetch_bars(
+                    symbol,
+                    "5m",
+                    required_bars,
+                    as_of=current,
+                )
+                if not minutes.complete:
+                    source_failures.setdefault(symbol, []).append(f"MOOTDX:{minutes.reason_code}")
+                    continue
+                self.minute_store.write(minutes.bars)
+                minute_bars = minutes.bars
             factor = FactorEngine(symbol).compute(
                 daily_bars=daily.get(symbol, ()),
-                minute_bars=minutes.bars,
+                minute_bars=minute_bars,
                 as_of=current,
             )
             aggregates = build_technical_aggregates(factor)
@@ -344,6 +415,15 @@ class WorkflowApplication:
         factor_ready = sorted(symbol for symbol, item in technical.items() if item.get("ready") is True)
         if not factor_ready:
             raise WorkflowError("NO_FACTOR_READY_CANDIDATES")
+        factor_ready_order, factor_ready_selection = select_industry_diversified_symbols(
+            [record_by_symbol[symbol] for symbol in factor_ready],
+            full_membership,
+            limit=len(factor_ready),
+            top_n_per_node=top_n_per_node,
+            node_count_target=node_count_target,
+        )
+        if set(factor_ready_order) != set(factor_ready):
+            raise WorkflowError("A1_FACTOR_READY_NODE_LINEAGE_INVALID")
         frozen = FrozenInputSnapshot.freeze(
             universe,
             as_of=current,
@@ -352,18 +432,26 @@ class WorkflowApplication:
             technical_payload=technical,
             fact_payload=fact_payload,
             max_candidates=reserve_limit,
+            candidate_symbols=selected_symbols,
         )
         raw_path = self.settings.snapshot_dir / "raw" / f"{frozen.snapshot_id}.json"
         frozen.write_json(raw_path)
-        data = self._research_input(
+        data = sanitize(self._research_input(
             frozen=frozen,
             universe=universe,
             technical=technical,
             g0_symbols=factor_ready,
             source_failures=source_failures,
+            g0_selection={
+                **factor_ready_selection,
+                "reserve_strategy": g0_selection.get("strategy"),
+                "reserve_selected_count": len(selected_symbols),
+                "selected_count": len(factor_ready),
+                "factor_ready_symbols": factor_ready,
+            },
             raw_snapshot_path=raw_path,
             as_of=current,
-        )
+        ))
         snapshot_hash = _hash_json(data)
         snapshot_id = f"snapshot-{current.strftime('%Y%m%dT%H%M%S%z')}-{snapshot_hash[:12]}"
         snapshot = ResearchSnapshot(
@@ -722,6 +810,7 @@ class WorkflowApplication:
         source_failures: Mapping[str, Any],
         raw_snapshot_path: Path,
         as_of: datetime,
+        g0_selection: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         source_config = load_yaml(self.settings.source_config_path) if self.settings.source_config_path.is_file() else {}
         config_hash = digest_text(json.dumps(source_config, ensure_ascii=False, sort_keys=True, default=str))
@@ -738,13 +827,6 @@ class WorkflowApplication:
         if market_emotion.get("available") is not True:
             raise WorkflowError("MARKET_EMOTION_AGGREGATE_NOT_READY")
         breadth = float(market_emotion["breadth"])
-        regime = "TREND_MAINLINE" if breadth >= 0.58 else "RISK_OFF_RETREAT" if breadth <= 0.35 else "ROTATION_NO_MAINLINE"
-        regime_matrix = source_config.get("regime_parameter_matrix")
-        if not isinstance(regime_matrix, Mapping):
-            regime_matrix = source_config.get("regime_overrides", {})
-        regime_parameters = regime_matrix.get(regime, {}) if isinstance(regime_matrix, Mapping) else {}
-        if not isinstance(regime_parameters, Mapping):
-            regime_parameters = {}
         auction = _available_fact(facts, "AUCTION_FINAL") if _auction_window(as_of) else None
         dragon_tiger = _available_fact(facts, "DRAGON_TIGER_LIST")
         hot_stocks = _available_fact(facts, "HOT_STOCK_LIST")
@@ -761,6 +843,7 @@ class WorkflowApplication:
             "RISK_EVENT",
             g0_symbols,
         )
+        main_business_evidence = _main_business_evidence(disclosure_events, g0_symbols)
         macro_policy_feed = _macro_policy_feed(frozen.fact_payload)
         news_heat = build_news_heat_snapshot(
             frozen.fact_payload,
@@ -785,6 +868,19 @@ class WorkflowApplication:
             g0_symbols,
             as_of=as_of,
         )
+        regime_config = source_config.get("market_regime")
+        regime_settings = regime_config if isinstance(regime_config, Mapping) else {}
+        regime, regime_evidence = _determine_market_regime(
+            market_emotion,
+            sector_cycle,
+            rotation_overlap_threshold=float(regime_settings.get("rotation_overlap_threshold", 0.40)),
+        )
+        regime_matrix = source_config.get("regime_parameter_matrix")
+        if not isinstance(regime_matrix, Mapping):
+            regime_matrix = source_config.get("regime_overrides", {})
+        regime_parameters = regime_matrix.get(regime, {}) if isinstance(regime_matrix, Mapping) else {}
+        if not isinstance(regime_parameters, Mapping):
+            regime_parameters = {}
         exchange_rules = _exchange_rules_for(self.settings.exchange_rules_path, as_of)
         values: dict[str, Any] = {
             "snapshot_manifest": {
@@ -794,6 +890,7 @@ class WorkflowApplication:
                 "research_universe_count": len(universe.research_candidates),
                 "trade_universe_count": len(universe.trade_candidates),
                 "selected_count": len(selected_records),
+                "g0_selection": dict(g0_selection or {}),
                 "source_checksums": frozen.source_checksums,
                 "source_failures": source_failures,
                 "raw_snapshot_hash": frozen.snapshot_hash,
@@ -812,6 +909,7 @@ class WorkflowApplication:
                 if key in g0_symbols and isinstance(value, list)
             },
             "COMPANY_FUNDAMENTALS": {key: value for key, value in frozen.fundamental_payload.items() if key in g0_symbols},
+            "MAIN_BUSINESS_EVIDENCE": main_business_evidence,
             "FACTOR_SNAPSHOT": {
                 key: {
                     item_key: item_value
@@ -821,7 +919,12 @@ class WorkflowApplication:
                 for key, value in technical.items()
                 if key in g0_symbols and isinstance(value, Mapping)
             },
-            "MARKET_REGIME_SNAPSHOT": {"regime": regime, "position_cap_pct": 0.5, "risk_warnings": []},
+            "MARKET_REGIME_SNAPSHOT": {
+                "regime": regime,
+                "position_cap_pct": 0.5,
+                "risk_warnings": [],
+                "evidence": regime_evidence,
+            },
             "MARKET_EMOTION_SNAPSHOT": market_emotion,
             "LIQUIDITY_SNAPSHOT": {item.symbol: {"turnover": item.amount} for item in universe.records if item.symbol in g0_symbols},
             "TRADABILITY_FLAGS": {
@@ -848,7 +951,7 @@ class WorkflowApplication:
                 for key, value in technical.items()
                 if key in g0_symbols and isinstance(value, Mapping)
             },
-            "MARKET_CONTEXT": {"regime": regime, "breadth": breadth},
+            "MARKET_CONTEXT": {"regime": regime, "breadth": breadth, "regime_evidence": regime_evidence},
             "AUCTION_SNAPSHOT": auction or {
                 "available": False,
                 "reason_code": "OUTSIDE_0926_REVIEW_WINDOW" if not _auction_window(as_of) else "SOURCE_UNAVAILABLE",
@@ -861,6 +964,12 @@ class WorkflowApplication:
             "DISCLOSURE_EVENTS": disclosure_events,
             "RISK_EVENTS": risk_events,
             "MACRO_POLICY_FEED": macro_policy_feed,
+            "MACRO_ECONOMIC_DATA": {
+                "available": False,
+                "reason_code": "SOURCE_NOT_CONFIGURED",
+                "required_series": ["GDP", "CPI", "PPI", "PMI", "SOCIAL_FINANCING", "NEW_LOANS"],
+                "substitution_forbidden": True,
+            },
             "INDUSTRY_NEWS_FEED": industry_news_feed,
             "NEWS_HEAT_SNAPSHOT": news_heat,
             "CROWDING_SNAPSHOT": crowding,
@@ -872,7 +981,7 @@ class WorkflowApplication:
             "config_hash": config_hash,
         }
         for key in (
-            "MACRO_POLICY_FEED", "INDUSTRY_NEWS_FEED", "INDUSTRY_PROFIT_DATA", "THS_INDUSTRY_MEMBERSHIP", "EXISTING_CHAIN_GRAPH",
+            "MACRO_POLICY_FEED", "MACRO_ECONOMIC_DATA", "INDUSTRY_NEWS_FEED", "INDUSTRY_PROFIT_DATA", "THS_INDUSTRY_MEMBERSHIP", "EXISTING_CHAIN_GRAPH",
             "THEME_REGISTRY", "DISCLOSURE_EVENTS", "RISK_EVENTS", "RESEARCH_CONSENSUS", "FUND_HOLDINGS",
             "FAST_TRACK_REQUESTS", "PRIOR_OUTCOME_FEEDBACK", "SECTOR_CYCLE_SNAPSHOT", "CAPITAL_FLOW_SNAPSHOT",
             "NEWS_HEAT_SNAPSHOT", "CROWDING_SNAPSHOT", "AUCTION_SNAPSHOT", "SECTOR_PERMISSIONS",
@@ -1240,7 +1349,14 @@ def _prompt_parameters(config: Mapping[str, Any]) -> dict[str, Any]:
     a1 = config.get("agent_1", {}) if isinstance(config.get("agent_1"), Mapping) else {}
     a2 = config.get("agent_2", {}) if isinstance(config.get("agent_2"), Mapping) else {}
     a3 = config.get("agent_3", {}) if isinstance(config.get("agent_3"), Mapping) else {}
+    data_policy = config.get("data_policy", {}) if isinstance(config.get("data_policy"), Mapping) else {}
+    market_regime = config.get("market_regime", {}) if isinstance(config.get("market_regime"), Mapping) else {}
+    theme_registry = config.get("theme_registry", {}) if isinstance(config.get("theme_registry"), Mapping) else {}
+    a1_policy = a1.get("policy_research", {}) if isinstance(a1.get("policy_research"), Mapping) else {}
+    a1_fast_track = a1.get("fast_track", {}) if isinstance(a1.get("fast_track"), Mapping) else {}
     a2_selection = a2.get("stock_selection", {}) if isinstance(a2.get("stock_selection"), Mapping) else {}
+    a3_ma = a3.get("moving_average_system", {}) if isinstance(a3.get("moving_average_system"), Mapping) else {}
+    a3_blackout = a3.get("earnings_blackout", {}) if isinstance(a3.get("earnings_blackout"), Mapping) else {}
     return {
         "TOP_N_PER_NODE": a1.get("top_n_per_node", 8),
         "A1_POOL_TARGETS": {
@@ -1253,34 +1369,41 @@ def _prompt_parameters(config: Mapping[str, Any]) -> dict[str, Any]:
             "data_quality_score": a1.get("minimum_data_quality", 75),
             "evidence_confidence": a1.get("minimum_evidence_confidence", 0.70),
         },
-        "PRIOR_CONTRIBUTION_CAP": 0.20,
-        "THEME_EXPIRY_DAYS": 5,
-        "POLICY_CALENDAR_HORIZON_DAYS": 90,
-        "BOTTLENECK_MIN_EVIDENCE": 2,
+        "A1_DRIVER_LINEAGE_REQUIRED": True,
+        "STRICT_AGENT_RULES": True,
+        "PRIOR_CONTRIBUTION_CAP": theme_registry.get("prior_contribution_cap", 10),
+        "THEME_EXPIRY_DAYS": theme_registry.get("theme_expiry_without_confirmation_days", 10),
+        "POLICY_CALENDAR_HORIZON_DAYS": a1_policy.get("policy_calendar_horizon_days", 90),
+        "BOTTLENECK_MIN_EVIDENCE": a1.get("bottleneck_minimum_evidence_classes", 3),
         "SCORE_WEIGHTS": a1.get("score_weights", {}),
         "FAST_TRACK_DAILY_QUOTA": 0,
-        "FAST_TRACK_COOLDOWN_DAYS": 30,
-        "CLIMAX_NEW_ENTRY_POLICY": "PROBE_ONLY",
-        "DIVERGENCE_NEW_ENTRY_POLICY": "NO_NEW_ENTRY",
-        "MIN_SECTOR_COVERAGE": 0.7,
-        "ROTATION_LOOKBACK_DAYS": 5,
-        "LEADER_MIN_CRITERIA": 3,
-        "LOW_IDENTITY_TRIGGER_COUNT": 2,
-        "MIN_FREE_FLOAT_CAP": 3_000_000_000,
+        "FAST_TRACK_COOLDOWN_DAYS": a1_fast_track.get("cooldown_days", 30),
+        "CLIMAX_NEW_ENTRY_POLICY": a2.get("climax_new_entry_policy", "WATCH_ONLY"),
+        "DIVERGENCE_NEW_ENTRY_POLICY": a2.get("divergence_new_entry_policy", "NO_NEW_ENTRY"),
+        "MIN_SECTOR_COVERAGE": data_policy.get("minimum_sector_coverage", 0.80),
+        "ROTATION_LOOKBACK_DAYS": market_regime.get("rotation_lookback_days", 5),
+        "LEADER_MIN_CRITERIA": a2_selection.get("leader_min_criteria", 4),
+        "LOW_IDENTITY_TRIGGER_COUNT": a2_selection.get("low_identity_trigger_count", 2),
+        "MIN_FREE_FLOAT_CAP": a2_selection.get("min_free_float_cap_cny", 3_000_000_000),
         "MIN_IDENTIFIABILITY_SCORE": a2_selection.get("min_identifiability_score", 60),
         "MAX_LEADERS_PER_THEME": a2_selection.get("max_leaders_per_theme", 2),
         "MIN_THEME_SCORE": a2.get("minimum_theme_score", 60),
         "THEME_SCORE_WEIGHTS": a2.get("score_weights", {}),
         "PENALTY_RULES": a2.get("penalty_rules", {}),
-        "MAX_MA_BIAS": a3.get("max_ma_bias", 0.10),
+        "MAX_MA_BIAS": a3_ma.get("max_ma_bias_pct", 0.12),
         "MAX_ATR_EXTENSION": a3.get("max_atr_extension", 3.0),
         "MIN_REWARD_RISK": a3.get("minimum_reward_risk", 2.0),
         "MAX_STOP_DISTANCE": a3.get("max_stop_distance_pct", 0.06),
         "MIN_TECHNICAL_SCORE": a3.get("minimum_technical_score", 70),
-        "EARNINGS_BLACKOUT": 3,
+        "TECHNICAL_SCORE_WEIGHTS": a3.get("score_weights", {}),
+        "EARNINGS_BLACKOUT": {
+            "days_before": a3_blackout.get("days_before", 3),
+            "days_after": a3_blackout.get("days_after", 1),
+            "action": a3_blackout.get("action", "FORCE_PROBE"),
+        },
         "NORMAL_GAP_RANGE": [-0.02, 0.03],
         "NO_CHASE_THRESHOLD": 0.05,
-        "REQUIRED_CONFIRMATIONS": 2,
+        "REQUIRED_CONFIRMATIONS": a3.get("required_confirmations", []),
     }
 
 
@@ -1328,6 +1451,53 @@ def _row_change(item: Any, _frozen: FrozenInputSnapshot) -> float:
     return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0.0
 
 
+def _determine_market_regime(
+    market_emotion: Mapping[str, Any],
+    sector_cycle: Mapping[str, Any],
+    *,
+    rotation_overlap_threshold: float,
+) -> tuple[str, dict[str, Any]]:
+    """Determine regime only from declared deterministic evidence.
+
+    Breadth can prove a broad risk retreat, but it can never prove that a
+    persistent market main line exists.  TREND_MAINLINE requires the frozen
+    THS sector-history overlap and at least one persistent candidate.
+    """
+
+    breadth = float(market_emotion.get("breadth") or 0.0)
+    if breadth <= 0.35:
+        return "RISK_OFF_RETREAT", {
+            "algorithm": "market-regime/2.0.0",
+            "reason_code": "BREADTH_RISK_OFF_THRESHOLD",
+            "breadth": breadth,
+        }
+    if sector_cycle.get("available") is not True:
+        raise WorkflowError("MARKET_REGIME_SECTOR_HISTORY_UNAVAILABLE")
+    metrics = sector_cycle.get("history_metrics")
+    if not isinstance(metrics, Mapping):
+        raise WorkflowError("MARKET_REGIME_SECTOR_HISTORY_INVALID")
+    overlap = metrics.get("top3_daily_overlap")
+    persistent = metrics.get("persistent_mainline_candidates")
+    if not isinstance(overlap, (int, float)) or isinstance(overlap, bool) or not isinstance(persistent, list):
+        raise WorkflowError("MARKET_REGIME_SECTOR_METRICS_INVALID")
+    evidence = {
+        "algorithm": "market-regime/2.0.0",
+        "breadth": breadth,
+        "top3_daily_overlap": float(overlap),
+        "rotation_overlap_threshold": rotation_overlap_threshold,
+        "persistent_mainline_count": len(persistent),
+        "persistent_mainline_industries": [
+            str(item.get("industry_thscode") or "")
+            for item in persistent
+            if isinstance(item, Mapping)
+        ],
+        "turnover_metric_role": metrics.get("turnover_metric_role"),
+    }
+    if float(overlap) >= rotation_overlap_threshold and persistent:
+        return "TREND_MAINLINE", {**evidence, "reason_code": "PERSISTENT_TOP3_SECTOR_OVERLAP"}
+    return "ROTATION_NO_MAINLINE", {**evidence, "reason_code": "MAINLINE_PERSISTENCE_NOT_PROVEN"}
+
+
 def _auction_window(value: datetime) -> bool:
     local = _aware(value)
     return local.hour == 9 and 26 <= local.minute <= 30
@@ -1345,6 +1515,59 @@ def _record_count(value: Mapping[str, Any] | None) -> int | None:
         return None
     count = value.get("record_count")
     return count if isinstance(count, int) and not isinstance(count, bool) and count >= 0 else None
+
+
+def _merge_cninfo_query_results(
+    recent: CninfoFetchResult,
+    business_history: CninfoFetchResult,
+) -> CninfoFetchResult:
+    """Attach point-in-time periodic reports without weakening recent-event health.
+
+    The ten-day query remains the P0 announcement boundary.  A separate,
+    keyword-bounded historical query only enriches A1 with the latest annual
+    or half-year report needed for main-business/revenue mapping.
+    """
+
+    metadata = {
+        **recent.metadata,
+        "recent_query": {
+            "start_date": recent.start_date,
+            "end_date": recent.end_date,
+            "reason_code": recent.reason_code,
+            "announcement_count": len(recent.announcements),
+        },
+        "main_business_query": {
+            "start_date": business_history.start_date,
+            "end_date": business_history.end_date,
+            "search_keyword": "年度报告",
+            "reason_code": business_history.reason_code,
+            "announcement_count": len(business_history.announcements),
+        },
+    }
+    if not recent.ok or not recent.complete or not business_history.ok or not business_history.complete:
+        return recent.model_copy(update={"metadata": metadata})
+    combined = {item.announcement_id: item for item in recent.announcements}
+    for item in business_history.announcements:
+        combined.setdefault(item.announcement_id, item)
+    announcements = tuple(
+        sorted(
+            combined.values(),
+            key=lambda item: (item.publish_time, item.announcement_id),
+            reverse=True,
+        )
+    )
+    return recent.model_copy(
+        update={
+            "start_date": business_history.start_date,
+            "announcements": announcements,
+            "total": len(announcements),
+            "total_pages": recent.total_pages,
+            "pages": recent.pages + business_history.pages,
+            "attempts": recent.attempts + business_history.attempts,
+            "fetched_at": max(recent.fetched_at, business_history.fetched_at),
+            "metadata": metadata,
+        }
+    )
 
 
 def _official_event_snapshot(
@@ -1366,11 +1589,29 @@ def _official_event_snapshot(
         if symbol in by_symbol:
             by_symbol[symbol].append(dict(record))
     for symbol in by_symbol:
-        by_symbol[symbol] = sorted(
+        ordered = sorted(
             by_symbol[symbol],
             key=lambda item: (str(item.get("publish_time") or ""), str(item.get("fact_id") or "")),
             reverse=True,
-        )[:20]
+        )
+        if fact_type == "DISCLOSURE_EVENT":
+            periodic = [
+                item
+                for item in ordered
+                if item.get("pdf_evidence_available") is True
+                and re.search(
+                    r"(?:19|20)\d{2}年(?:半年度|年度)报告(?:全文)?$",
+                    re.sub(r"\s+", "", str(item.get("announcement_title") or "")),
+                )
+            ]
+            retained = [*periodic[:1], *ordered[:20]]
+            unique: dict[str, dict[str, Any]] = {}
+            for item in retained:
+                key = str(item.get("announcement_id") or item.get("fact_id") or _hash_json(item))
+                unique.setdefault(key, item)
+            by_symbol[symbol] = list(unique.values())[:20]
+        else:
+            by_symbol[symbol] = ordered[:20]
 
     raw_health = fact_payload.get("source_health", ())
     health = raw_health if isinstance(raw_health, list) else []
@@ -1396,6 +1637,62 @@ def _official_event_snapshot(
         "query_confirmed_symbols": sorted(healthy_symbols),
         "untrusted_text_policy": "BLOCK_SUSPECTED_INJECTION",
     }
+
+
+def _main_business_evidence(
+    disclosure_events: Mapping[str, Any],
+    symbols: list[str],
+) -> dict[str, Any]:
+    """Project hash-bound filing snippets that can prove revenue exposure."""
+
+    raw_by_symbol = disclosure_events.get("by_symbol")
+    by_symbol = raw_by_symbol if isinstance(raw_by_symbol, Mapping) else {}
+    result: dict[str, Any] = {}
+    strong_terms = ("主营业务分行业", "主营业务分产品", "主营业务分地区")
+    supporting_terms = ("分行业", "分产品", "营业收入", "营业成本", "毛利率")
+    for symbol in sorted(set(symbols)):
+        selected: list[dict[str, Any]] = []
+        records = by_symbol.get(symbol)
+        for record in records if isinstance(records, list) else ():
+            if not isinstance(record, Mapping) or record.get("pdf_evidence_available") is not True:
+                continue
+            snippets = record.get("pdf_evidence_snippets")
+            if not isinstance(snippets, list):
+                continue
+            for snippet in snippets:
+                if not isinstance(snippet, Mapping):
+                    continue
+                text_value = str(snippet.get("text") or "")
+                compact = re.sub(r"\s+", "", text_value)
+                structured_revenue_share = (
+                    "占营业收入的" in compact
+                    and any(term in compact for term in ("客户", "产品", "地区", "业务板块"))
+                )
+                if (
+                    not structured_revenue_share
+                    and not any(term in compact for term in strong_terms)
+                    and sum(term in compact for term in supporting_terms) < 2
+                ):
+                    continue
+                page_number = snippet.get("page_number")
+                announcement_id = str(record.get("announcement_id") or "")
+                selected.append(
+                    {
+                        "announcement_id": announcement_id,
+                        "announcement_title": record.get("announcement_title"),
+                        "publish_time": record.get("publish_time"),
+                        "page_number": page_number,
+                        "source_ref": f"cninfo:{announcement_id}:page:{page_number}",
+                        "text": text_value[:1_500],
+                        "content_hash": record.get("content_hash"),
+                    }
+                )
+        result[symbol] = {
+            "available": bool(selected),
+            "reason_code": "OK" if selected else "MAIN_BUSINESS_BREAKDOWN_NOT_FOUND",
+            "evidence": selected[:3],
+        }
+    return result
 
 
 def _macro_policy_feed(fact_payload: Mapping[str, Any]) -> dict[str, Any]:
@@ -1430,6 +1727,41 @@ def _macro_policy_feed(fact_payload: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _minute_cache_ready(
+    bars: tuple[MinuteBar, ...],
+    *,
+    required_bars: int,
+    as_of: datetime,
+) -> bool:
+    if len(bars) < required_bars:
+        return False
+    expected = _latest_required_5m_end(as_of)
+    if expected is None or bars[-1].bar_end != expected:
+        return False
+    return all(
+        bar.interval == "5m"
+        and bar.adjust_mode in {"none", "raw"}
+        and bar.bar_end <= expected
+        for bar in bars
+    )
+
+
+def _latest_required_5m_end(value: datetime) -> datetime | None:
+    current = _aware(value)
+    day = current.date()
+    if current.time() >= datetime.strptime("15:00", "%H:%M").time():
+        return datetime.combine(day, datetime.strptime("15:00", "%H:%M").time(), SHANGHAI)
+    if current.time() >= datetime.strptime("13:05", "%H:%M").time():
+        minutes = min(120, ((current.hour * 60 + current.minute) - (13 * 60)) // 5 * 5)
+        return datetime.combine(day, datetime.strptime("13:00", "%H:%M").time(), SHANGHAI) + timedelta(minutes=minutes)
+    if current.time() >= datetime.strptime("11:30", "%H:%M").time():
+        return datetime.combine(day, datetime.strptime("11:30", "%H:%M").time(), SHANGHAI)
+    if current.time() >= datetime.strptime("09:35", "%H:%M").time():
+        minutes = min(120, ((current.hour * 60 + current.minute) - (9 * 60 + 30)) // 5 * 5)
+        return datetime.combine(day, datetime.strptime("09:30", "%H:%M").time(), SHANGHAI) + timedelta(minutes=minutes)
+    return None
+
+
 def _batch_dict(batch: MonitorBatchResult) -> dict[str, Any]:
     return batch.model_dump(mode="json")
 
@@ -1446,6 +1778,9 @@ def _compact_factor(value: Mapping[str, Any]) -> dict[str, Any]:
             compact_frames[str(name)] = {
                 "latest": raw.get("latest"),
                 "moving_averages": raw.get("moving_averages"),
+                "ma_alignment": raw.get("ma_alignment"),
+                "ma_event": raw.get("ma_event"),
+                "ma_bias": raw.get("ma_bias"),
                 "vwap": raw.get("vwap"),
                 "ready": raw.get("ready"),
                 "reasons": raw.get("reasons"),
@@ -1456,7 +1791,6 @@ def _compact_factor(value: Mapping[str, Any]) -> dict[str, Any]:
         "ready": value.get("ready"),
         "reasons": value.get("reasons"),
         "timeframes": compact_frames,
-        "technical_summary": value.get("technical_summary"),
     }
 
 

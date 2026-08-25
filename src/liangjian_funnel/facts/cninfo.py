@@ -29,6 +29,7 @@ _RISK_KEYWORDS = (
 _EARNINGS_KEYWORDS = ("年度报告", "半年度报告", "季度报告", "业绩预告", "业绩快报")
 _ORDER_KEYWORDS = ("中标", "合同", "订单", "项目", "产能", "投资建设")
 _ST_RISK = re.compile(r"(?:^|[^A-Z])(?:\*?ST|S\*ST)(?:[^A-Z]|$)", re.IGNORECASE)
+_FULL_PERIODIC_REPORT = re.compile(r"(?:19|20)\d{2}年(?:半年度|年度)报告(?:全文)?$")
 
 
 def normalize_cninfo_results(
@@ -243,16 +244,28 @@ def select_cninfo_pdf_candidates(
         raise ValueError("CNINFO PDF candidate limit must be non-negative")
     if not result.ok or not result.complete or limit == 0:
         return ()
+    periodic_reports = sorted(
+        (
+            announcement
+            for announcement in result.announcements
+            if _FULL_PERIODIC_REPORT.search(re.sub(r"\s+", "", announcement.announcement_title))
+        ),
+        key=lambda announcement: (announcement.publish_time, announcement.announcement_id),
+        reverse=True,
+    )
     ranked: list[tuple[int, float, str, CninfoAnnouncement]] = []
     for announcement in result.announcements:
         _, tags = classify_cninfo_title(announcement.announcement_title)
         tag_set = set(tags)
+        normalized_title = re.sub(r"\s+", "", announcement.announcement_title)
+        if _FULL_PERIODIC_REPORT.search(normalized_title):
+            continue
         if "RISK" in tag_set:
             priority = 0
         elif "ORDER_OR_CAPACITY" in tag_set:
-            priority = 1
-        elif "EARNINGS" in tag_set:
             priority = 2
+        elif "EARNINGS" in tag_set:
+            continue
         else:
             continue
         ranked.append(
@@ -264,7 +277,20 @@ def select_cninfo_pdf_candidates(
             )
         )
     ranked.sort(key=lambda item: item[:3])
-    return tuple(item[3] for item in ranked[:limit])
+    retained = [item[3] for item in ranked[: max(0, limit - bool(periodic_reports))]]
+    if periodic_reports:
+        retained.append(periodic_reports[0])
+    periodic_id = periodic_reports[0].announcement_id if periodic_reports else None
+    retained.sort(
+        key=lambda announcement: (
+            0 if "RISK" in classify_cninfo_title(announcement.announcement_title)[1]
+            else 1 if announcement.announcement_id == periodic_id
+            else 2,
+            -announcement.publish_time.timestamp(),
+            announcement.announcement_id,
+        )
+    )
+    return tuple(retained[:limit])
 
 
 def _aware(value: datetime) -> datetime:

@@ -37,6 +37,7 @@ _ENDPOINT_CASH_FLOW = "/api/a-share/financials/cash-flow-statements"
 _ENDPOINT_THS_INDEX_CATALOG = "/api/a-share-index/catalog/ths-index-list"
 _ENDPOINT_THS_INDEX_CONSTITUENTS = "/api/a-share-index/constituents/ths-stock-list"
 _ENDPOINT_INDEX_SNAPSHOT = "/api/a-share-index/prices/snapshot"
+_ENDPOINT_INDEX_HISTORY = "/api/a-share-index/prices/historical"
 _ENDPOINT_AUCTION = "/api/a-share/auction/snapshot"
 _ENDPOINT_LIMIT_UP = "/api/a-share/special-data/limit-up-pool"
 _ENDPOINT_LIMIT_DOWN = "/api/a-share/special-data/limit-down-pool"
@@ -323,6 +324,35 @@ class HithinkClient:
         return self._fetch_once(_ENDPOINT_INDEX_SNAPSHOT, {"thscodes": ",".join(symbols)})
 
     fetch_index_snapshot = index_snapshot
+
+    def index_history_1d(
+        self,
+        thscode: str,
+        *,
+        start: int,
+        end: int,
+        limit: int = 1000,
+    ) -> HithinkFetchResult:
+        symbol = _public_symbol(thscode)
+        if not _valid_qualified_symbol(symbol, suffixes={"SH", "SZ", "TI"}):
+            return self._failure(_ENDPOINT_INDEX_HISTORY, "INVALID_INDEX_SYMBOL")
+        if (
+            isinstance(start, bool)
+            or isinstance(end, bool)
+            or not isinstance(start, int)
+            or not isinstance(end, int)
+            or start < 0
+            or end <= start
+        ):
+            return self._failure(_ENDPOINT_INDEX_HISTORY, "INVALID_TIME_RANGE")
+        return self._paginate(
+            _ENDPOINT_INDEX_HISTORY,
+            {"thscode": symbol, "interval": "1d", "start": start, "end": end},
+            limit=limit,
+            max_pages=1,
+        )
+
+    fetch_index_history_1d = index_history_1d
 
     def auction_snapshot(
         self,
@@ -691,6 +721,7 @@ class HithinkClient:
                 )
             if endpoint in {
                 _ENDPOINT_HISTORY,
+                _ENDPOINT_INDEX_HISTORY,
                 _ENDPOINT_INCOME,
                 _ENDPOINT_BALANCE,
                 _ENDPOINT_CASH_FLOW,

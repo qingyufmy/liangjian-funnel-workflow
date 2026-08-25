@@ -15,6 +15,8 @@ from liangjian_funnel.workflow import (
     _canonical_symbol,
     _compact_factor,
     _intraday_market_context,
+    _latest_required_5m_end,
+    _minute_cache_ready,
     _plan_expiry,
     _tightens,
 )
@@ -37,6 +39,18 @@ def _bar(end: datetime) -> MinuteBar:
         source_id="mootdx:test",
         adjust_mode="none",
     )
+
+
+def test_minute_history_cache_is_reused_only_at_the_expected_closed_bar():
+    as_of = datetime(2026, 8, 25, 22, 0, tzinfo=TZ)
+    bars = (
+        _bar(datetime(2026, 8, 25, 14, 55, tzinfo=TZ)).model_copy(update={"interval": "5m"}),
+        _bar(datetime(2026, 8, 25, 15, 0, tzinfo=TZ)).model_copy(update={"interval": "5m"}),
+    )
+    assert _latest_required_5m_end(as_of) == datetime(2026, 8, 25, 15, 0, tzinfo=TZ)
+    assert _minute_cache_ready(bars, required_bars=2, as_of=as_of)
+    stale = bars[:-1]
+    assert not _minute_cache_ready(stale, required_bars=1, as_of=as_of)
 
 
 def test_monitor_confirmation_survives_new_process_instance(tmp_path):

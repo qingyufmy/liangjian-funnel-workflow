@@ -223,6 +223,10 @@ C8. focus_pool 的 theme_score 必须大于等于 {{MIN_THEME_SCORE}}；低于�
 
 第七步 · 评分与淘汰
   使用 {{THEME_SCORE_WEIGHTS}} 与 {{PENALTY_RULES}}，不得自行调整。
+  score_breakdown 必须且只能包含 THEME_SCORE_WEIGHTS 的全部同名键；
+  每个值是 0-100 的“未乘权重原始分”，禁止填写贡献分。
+  theme_score = clamp(Σ(原始分 × 权重) + penalties.points, 0, 100)；
+  服务端会确定性重算总分，候选中的 theme_score 必须继承主题总分。
   HARD_VETO 优先于总分。
   每个被淘汰标的必须给出机器可读 reason_codes，不接受自然语言理由。
 

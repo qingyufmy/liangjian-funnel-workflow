@@ -380,7 +380,7 @@ first_resistance / reward_risk。**这些值由服务端计算，你只读不改
       "risk_unit": "PROBE|STANDARD|NO_ENTRY",
       "allowed_time_windows": [{"from":"09:32","to":"14:45"}],
       "technical_score": 0-100,
-      "score_breakdown": {...},
+      "score_breakdown": {...},  // 仅含 TECHNICAL_SCORE_WEIGHTS 同名键；各值为未乘权重的 0-100 原始分，服务端重算总分
       "reason_codes": [...],
       "factor_snapshot_hash": "...",
       "config_hash": "...",

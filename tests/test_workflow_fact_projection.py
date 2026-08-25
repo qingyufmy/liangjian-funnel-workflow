@@ -54,6 +54,47 @@ def test_research_input_projects_phase_one_facts_without_semantic_substitution(t
         "AUCTION_FINAL": _fact(2),
         "DRAGON_TIGER_LIST": _fact(64),
         "HOT_STOCK_LIST": _fact(30),
+        "THS_INDUSTRY_CATALOG": {
+            **_fact(3),
+            "records": [
+                {"thscode": "881101.TI", "name": "行业A"},
+                {"thscode": "881102.TI", "name": "行业B"},
+                {"thscode": "881103.TI", "name": "行业C"},
+            ],
+        },
+        "THS_INDUSTRY_MEMBERSHIP": {
+            **_fact(2),
+            "records": [
+                {
+                    "thscode": "600519.SH",
+                    "mapping_status": "MAPPED",
+                    "memberships": [{"industry_thscode": "881101.TI", "industry_name": "行业A"}],
+                },
+                {
+                    "thscode": "000001.SZ",
+                    "mapping_status": "MAPPED",
+                    "memberships": [{"industry_thscode": "881102.TI", "industry_name": "行业B"}],
+                },
+            ],
+        },
+        "THS_INDUSTRY_HISTORY": {
+            **_fact(3),
+            "records": [
+                {
+                    "industry_thscode": code,
+                    "industry_name": name,
+                    "bars": [
+                        {"date_ms": day, "close_price": close, "turnover": 1000 + day}
+                        for day, close in enumerate(closes, start=1)
+                    ],
+                }
+                for code, name, closes in (
+                    ("881101.TI", "行业A", [10, 11, 12, 13, 14, 15]),
+                    ("881102.TI", "行业B", [10, 10, 10, 10, 10, 10]),
+                    ("881103.TI", "行业C", [10, 9, 8, 7, 6, 5]),
+                )
+            ],
+        },
     }
     frozen = FrozenInputSnapshot.freeze(
         universe,

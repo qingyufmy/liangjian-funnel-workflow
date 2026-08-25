@@ -27,6 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 CNINFO_ENDPOINT = "https://www.cninfo.com.cn/new/hisAnnouncement/query"
+CNINFO_ORG_SEARCH_ENDPOINT = "https://www.cninfo.com.cn/new/information/topSearch/detailOfQuery"
 CNINFO_REFERER = "https://www.cninfo.com.cn/new/index"
 CNINFO_SOURCE_ID = "cninfo_public"
 CNINFO_USER_AGENT = (
@@ -426,6 +427,8 @@ class CninfoClient:
         self._last_request = 0.0
         self._min_request_interval = float(min_request_interval_seconds)
         self._endpoint = f"{base_url.rstrip('/')}/new/hisAnnouncement/query"
+        self._org_search_endpoint = f"{base_url.rstrip('/')}/new/information/topSearch/detailOfQuery"
+        self._org_id_cache: dict[str, str] = {}
         self._now_fn = now or (lambda: datetime.now(SHANGHAI))
         self._client = http_client or client
         if self._client is None:
@@ -476,6 +479,8 @@ class CninfoClient:
         *,
         page_size: int = PAGE_SIZE_DEFAULT,
         max_pages: int = MAX_PAGES_DEFAULT,
+        search_keyword: str = "",
+        _resolved_stock: str | None = None,
     ) -> CninfoFetchResult:
         fetched_at = self._now()
         raw_symbol = str(symbol) if isinstance(symbol, str) else ""
@@ -496,6 +501,15 @@ class CninfoClient:
             return self._failure(canonical, start, end, "INVALID_PAGE_SIZE", fetched_at=fetched_at)
         if isinstance(max_pages, bool) or not isinstance(max_pages, int) or not 1 <= max_pages <= MAX_PAGES_MAX:
             return self._failure(canonical, start, end, "INVALID_MAX_PAGES", fetched_at=fetched_at)
+        keyword = str(search_keyword).strip()
+        if len(keyword) > 40 or _SECRET.search(keyword) or _INJECTION.search(keyword):
+            return self._failure(canonical, start, end, "INVALID_SEARCH_KEYWORD", fetched_at=fetched_at)
+
+        if _resolved_stock is not None:
+            expected_prefix = f"{canonical.split('.', 1)[0]},"
+            if not _resolved_stock.startswith(expected_prefix) or not re.fullmatch(r"\d{6},[A-Za-z0-9]{3,32}", _resolved_stock):
+                return self._failure(canonical, start, end, "INVALID_RESOLVED_STOCK", fetched_at=fetched_at)
+            stock = _resolved_stock
 
         form_base: dict[str, str | int] = {
             "pageSize": page_size,
@@ -503,7 +517,7 @@ class CninfoClient:
             "tabName": "fulltext",
             "plate": "",
             "stock": stock,
-            "searchkey": "",
+            "searchkey": keyword,
             "secid": "",
             "category": "",
             "trade": "",
@@ -579,7 +593,7 @@ class CninfoClient:
                         http_status=http_status,
                     )
                 reason = "NO_RECORDS" if total == 0 else "OK"
-                return self._success(
+                result = self._success(
                     canonical,
                     start,
                     end,
@@ -594,6 +608,27 @@ class CninfoClient:
                     fetched_at=fetched_at,
                     http_status=http_status,
                 )
+                if reason == "NO_RECORDS" and _resolved_stock is None:
+                    resolved_stock = self._resolve_stock(canonical, column)
+                    if resolved_stock is not None and resolved_stock != stock:
+                        resolved = self.fetch_announcements(
+                            canonical,
+                            start,
+                            end,
+                            page_size=page_size,
+                            max_pages=max_pages,
+                            search_keyword=keyword,
+                            _resolved_stock=resolved_stock,
+                        )
+                        return resolved.model_copy(
+                            update={
+                                "metadata": {
+                                    **resolved.metadata,
+                                    "org_id_source": "CNINFO_TOP_SEARCH",
+                                }
+                            }
+                        )
+                return result
             if total_pages is not None and page_number >= total_pages:
                 return self._failure(
                     canonical,
@@ -664,6 +699,52 @@ class CninfoClient:
                 return _PageOutcome(page=None, reason_code=exc.reason_code, http_status=status, attempts=attempts)
             return _PageOutcome(page=page, reason_code=None, http_status=status, attempts=attempts)
         return _PageOutcome(page=None, reason_code="CNINFO_REQUEST_FAILED", http_status=last_status, attempts=attempts)
+
+    def _resolve_stock(self, canonical: str, column: str) -> str | None:
+        code = canonical.split(".", 1)[0]
+        cached = self._org_id_cache.get(code)
+        if cached is not None:
+            return f"{code},{cached}"
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                self._throttle()
+                response = self._client.post(
+                    self._org_search_endpoint,
+                    data={"keyWord": code, "maxSecNum": 10, "maxListNum": 5},
+                )
+            except (httpx.HTTPError, TimeoutError, OSError):
+                return None
+            except Exception:
+                return None
+            status = int(getattr(response, "status_code", 0))
+            if status == 429 or 500 <= status <= 599:
+                if attempt < MAX_RETRIES:
+                    self._sleep(self._retry_after(response, attempt))
+                    continue
+                return None
+            if status < 200 or status >= 300:
+                return None
+            try:
+                payload = response.json()
+            except (ValueError, TypeError):
+                return None
+            rows = payload.get("keyBoardList") if isinstance(payload, Mapping) else None
+            if not isinstance(rows, list):
+                return None
+            matches = [
+                row
+                for row in rows
+                if isinstance(row, Mapping)
+                and str(row.get("code") or "") == code
+                and str(row.get("plate") or "").lower() == column
+                and re.fullmatch(r"[A-Za-z0-9]{3,32}", str(row.get("orgId") or ""))
+            ]
+            if len(matches) != 1:
+                return None
+            org_id = str(matches[0]["orgId"])
+            self._org_id_cache[code] = org_id
+            return f"{code},{org_id}"
+        return None
 
     def _parse_page(self, payload: Any, symbol: str) -> _Page:
         if not isinstance(payload, Mapping):
@@ -793,6 +874,7 @@ class CninfoClient:
 
 __all__ = [
     "CNINFO_ENDPOINT",
+    "CNINFO_ORG_SEARCH_ENDPOINT",
     "CNINFO_REFERER",
     "CNINFO_SOURCE_ID",
     "CNINFO_USER_AGENT",

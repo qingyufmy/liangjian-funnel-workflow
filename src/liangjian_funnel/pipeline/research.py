@@ -64,6 +64,8 @@ _REASONING_KEYS = {"reasoning", "reasoning_content", "thinking", "chain_of_thoug
 _SAFE_OUTPUT_FIELDS = {
     "envelope",
     "analysis_summary",
+    "structural_themes",
+    "industry_chain_graph",
     "active_research_pool",
     "monitor_pool",
     "active_themes",
@@ -96,6 +98,7 @@ _PERMISSION_KEYS = {
 _ALLOWED_DISABLED = {False, None, "", "DISABLED", "DISABLE", "OFF", "SHADOW", "SIMULATION"}
 _PROMPT_PROJECTION_VERSION = "research-prompt-projection/1.0.0"
 _PROMPT_MAX_CHARS = 180_000
+_A3_BATCH_SIZE = 16
 _STAGE_OUTPUT_BUDGETS: Mapping[str, Mapping[str, int]] = {
     "A1": {"approved_pool": 5, "secondary_pool": 5, "themes": 8, "chain_nodes": 12, "evidence_per_item": 3},
     "A2": {"approved_pool": 5, "secondary_pool": 5, "themes": 8, "chain_nodes": 0, "evidence_per_item": 3},
@@ -453,6 +456,16 @@ class ResearchPipeline:
                     bundle=bundle,
                     run_id=run_id,
                 )
+            elif stage == "A3" and len(upstream_symbols) > _A3_BATCH_SIZE:
+                audit = self._run_a3_batched(
+                    lane_id=lane_id,
+                    model=model,
+                    snapshot=snapshot,
+                    upstream_output=upstream_output or {},
+                    upstream_symbols=upstream_symbols,
+                    bundle=bundle,
+                    run_id=run_id,
+                )
             else:
                 audit = self._run_stage(
                     lane_id=lane_id,
@@ -548,11 +561,53 @@ class ResearchPipeline:
         bundle: PromptBundle | None,
         run_id: str,
     ) -> StageAudit:
-        ordered = sorted(g0)
         size = self.settings.research_a1_batch_size
-        batches = [set(ordered[index:index + size]) for index in range(0, len(ordered), size)]
+        batches = _build_a1_node_batches(g0, snapshot.data, size)
         pending = list(batches)
+        discovery_output: Mapping[str, Any] = {}
+        frozen_discovery_context: Mapping[str, Any] | None = None
         audits: list[StageAudit] = []
+        if snapshot.data.get("A1_DRIVER_LINEAGE_REQUIRED") is True:
+            discovery = self._run_stage(
+                lane_id=lane_id,
+                model=model,
+                stage="A1",
+                snapshot=snapshot,
+                upstream_output=None,
+                upstream_symbols=set(),
+                bundle=bundle,
+                run_id=run_id,
+                projection_symbols=set(),
+                a1_discovery_context={"mode": "POLICY_MACRO_DISCOVERY"},
+            )
+            discovery_output = discovery.output if isinstance(discovery.output, Mapping) else {}
+            if discovery.status != "VALIDATED" or not _valid_a1_discovery_output(discovery_output):
+                reasons = tuple(
+                    f"A1_DISCOVERY_BLOCKED:{reason}"
+                    for reason in (discovery.reason_codes or ("A1_DISCOVERY_OUTPUT_INVALID",))
+                )
+                return StageAudit(
+                    lane=lane_id,
+                    model=model,
+                    stage="A1",
+                    status="BLOCKED",
+                    snapshot_id=snapshot.snapshot_id,
+                    prompt_hash=discovery.prompt_hash,
+                    input_hash=discovery.input_hash,
+                    output_hash=None,
+                    latency_ms=discovery.latency_ms,
+                    attempts=discovery.attempts,
+                    thinking_variant=discovery.thinking_variant,
+                    symbols=(),
+                    reason_codes=reasons,
+                    diagnostics={"discovery_output_shape": _output_shape(discovery.output)},
+                )
+            frozen_discovery_context = {
+                "mode": "COMPANY_MAPPING",
+                "structural_themes": discovery_output["structural_themes"],
+                "industry_chain_graph": discovery_output["industry_chain_graph"],
+            }
+            audits.append(discovery)
         valid_audits: list[StageAudit] = []
         split_count = 0
         while pending:
@@ -567,6 +622,7 @@ class ResearchPipeline:
                 bundle=bundle,
                 run_id=run_id,
                 projection_symbols=batch,
+                a1_discovery_context=frozen_discovery_context,
             )
             audits.append(audit)
             if audit.status != "VALIDATED":
@@ -602,9 +658,12 @@ class ResearchPipeline:
                 )
             valid_audits.append(audit)
 
-        merged = _merge_a1_outputs(
-            [audit.output for audit in valid_audits if isinstance(audit.output, Mapping)]
-        )
+        merge_outputs = [
+            audit.output for audit in valid_audits if isinstance(audit.output, Mapping)
+        ]
+        if discovery_output:
+            merge_outputs.insert(0, discovery_output)
+        merged = _merge_a1_outputs(merge_outputs)
         reasons = _validate_output(
             merged,
             stage="A1",
@@ -614,6 +673,18 @@ class ResearchPipeline:
             snapshot_data=snapshot.data,
         )
         symbols = tuple(sorted(_approved_symbols(merged, "A1")))
+        diagnostics = {
+            "batch_count": len(batches),
+            "completed_batches": len(valid_audits),
+            "request_groups": len(audits),
+            "split_count": split_count,
+            "pool_counts": _stage_pool_counts(merged, "A1"),
+        }
+        if discovery_output:
+            diagnostics.update({
+                "discovery_theme_count": len(discovery_output.get("structural_themes", ())),
+                "discovery_node_count": len(discovery_output.get("industry_chain_graph", ())),
+            })
         return StageAudit(
             lane=lane_id,
             model=model,
@@ -629,12 +700,89 @@ class ResearchPipeline:
             symbols=symbols,
             reason_codes=tuple(reasons),
             output=merged,
+            diagnostics=diagnostics,
+        )
+
+    def _run_a3_batched(
+        self,
+        *,
+        lane_id: str,
+        model: str,
+        snapshot: FrozenInputSnapshot,
+        upstream_output: Mapping[str, Any],
+        upstream_symbols: set[str],
+        bundle: PromptBundle | None,
+        run_id: str,
+    ) -> StageAudit:
+        ordered = sorted(upstream_symbols)
+        batches = [set(ordered[offset:offset + _A3_BATCH_SIZE]) for offset in range(0, len(ordered), _A3_BATCH_SIZE)]
+        audits: list[StageAudit] = []
+        for batch in batches:
+            audit = self._run_stage(
+                lane_id=lane_id,
+                model=model,
+                stage="A3",
+                snapshot=snapshot,
+                upstream_output=upstream_output,
+                upstream_symbols=batch,
+                bundle=bundle,
+                run_id=run_id,
+                projection_symbols=batch,
+            )
+            audits.append(audit)
+            if audit.status != "VALIDATED":
+                return StageAudit(
+                    lane=lane_id,
+                    model=model,
+                    stage="A3",
+                    status="BLOCKED",
+                    snapshot_id=snapshot.snapshot_id,
+                    prompt_hash=_combined_digest(item.prompt_hash for item in audits),
+                    input_hash=_combined_digest(item.input_hash for item in audits),
+                    output_hash=None,
+                    latency_ms=sum(item.latency_ms or 0 for item in audits),
+                    attempts=sum(item.attempts for item in audits),
+                    thinking_variant=_common_variant(audits),
+                    symbols=(),
+                    reason_codes=tuple(f"A3_BATCH_BLOCKED:{reason}" for reason in audit.reason_codes),
+                    diagnostics={
+                        "batch_count": len(batches),
+                        "completed_batches": len(audits) - 1,
+                        "blocked_batch_diagnostics": audit.diagnostics,
+                    },
+                )
+        merged = _merge_stage_outputs(
+            "A3",
+            [audit.output for audit in audits if isinstance(audit.output, Mapping)],
+        )
+        merged, _ = _apply_a3_pool_limits(merged, snapshot.data)
+        reasons = _validate_output(
+            merged,
+            stage="A3",
+            model=model,
+            snapshot_id=snapshot.snapshot_id,
+            upstream_symbols=upstream_symbols,
+            snapshot_data=snapshot.data,
+        )
+        return StageAudit(
+            lane=lane_id,
+            model=model,
+            stage="A3",
+            status="VALIDATED" if not reasons else "BLOCKED",
+            snapshot_id=snapshot.snapshot_id,
+            prompt_hash=_combined_digest(item.prompt_hash for item in audits),
+            input_hash=_combined_digest(item.input_hash for item in audits),
+            output_hash=_sha256_json(merged),
+            latency_ms=sum(item.latency_ms or 0 for item in audits),
+            attempts=sum(item.attempts for item in audits),
+            thinking_variant=_common_variant(audits),
+            symbols=tuple(sorted(_approved_symbols(merged, "A3"))),
+            reason_codes=tuple(reasons),
+            output=merged,
             diagnostics={
                 "batch_count": len(batches),
-                "completed_batches": len(valid_audits),
-                "request_groups": len(audits),
-                "split_count": split_count,
-                "pool_counts": _stage_pool_counts(merged, "A1"),
+                "completed_batches": len(audits),
+                "pool_counts": _stage_pool_counts(merged, "A3"),
             },
         )
 
@@ -650,6 +798,7 @@ class ResearchPipeline:
         bundle: PromptBundle | None,
         run_id: str,
         projection_symbols: set[str] | None = None,
+        a1_discovery_context: Mapping[str, Any] | None = None,
     ) -> StageAudit:
         if bundle is None:
             return self._blocked_stage(lane_id, model, stage, snapshot.snapshot_id, "PROMPT_REPOSITORY_BLOCKED")
@@ -660,6 +809,7 @@ class ResearchPipeline:
                 snapshot,
                 upstream_output,
                 projection_symbols=projection_symbols,
+                a1_discovery_context=a1_discovery_context,
             )
             shared = bundle.render("00_shared_system_v2.txt", replacements)
             stage_prompt = bundle.render_stage(stage, replacements)
@@ -679,12 +829,16 @@ class ResearchPipeline:
             runtime["prompt_projection_version"] = _PROMPT_PROJECTION_VERSION
             runtime["output_budget"] = dict(_STAGE_OUTPUT_BUDGETS[stage])
             input_hash = _sha256_json(runtime)
-            # Snapshot fields are already rendered into the immutable stage
-            # prompt placeholders.  Sending the complete snapshot again in
-            # the user message duplicated hundreds of kilobytes and could
-            # exceed gateway context/body limits.  Keep it in ``runtime`` for
-            # the lineage hash, but send only the compact execution envelope.
-            model_runtime = {key: value for key, value in runtime.items() if key != "snapshot_data"}
+            # Snapshot fields and upstream output are already rendered into
+            # immutable stage-prompt placeholders. Sending either again in the
+            # user message duplicates evidence and can exceed provider limits.
+            # Keep both in ``runtime`` for the lineage hash and audit only.
+            model_runtime = {
+                key: value
+                for key, value in runtime.items()
+                if key not in {"snapshot_data", "upstream_output"}
+            }
+            model_runtime["upstream_output"] = None
             messages = [
                 {"role": "system", "content": system_content},
                 {"role": "user", "content": "RUNTIME_INPUT\n" + _canonical_json(model_runtime)},
@@ -797,7 +951,19 @@ class ResearchPipeline:
             aggregate_attempts += result.attempts
             variants.append(result.thinking_variant)
             output = _strip_reasoning(result.output)
+            canonicalized_driver_context = 0
+            if (
+                stage == "A1"
+                and isinstance(a1_discovery_context, Mapping)
+                and a1_discovery_context.get("mode") == "COMPANY_MAPPING"
+            ):
+                output, canonicalized_driver_context = _canonicalize_a1_driver_context(
+                    output, a1_discovery_context
+                )
             output, canonicalized_pool_fields = _canonicalize_stage_pool_fields(output, stage)
+            output, canonicalized_score_items = _canonicalize_stage_scores(
+                output, stage, snapshot.data
+            )
             canonicalized_price_items = 0
             trend_veto_items = 0
             if stage == "A3":
@@ -805,6 +971,9 @@ class ResearchPipeline:
                     output, snapshot.data
                 )
             output, policy_demotions = _apply_stage_threshold_policy(output, stage, snapshot.data)
+            if stage == "A2" and snapshot.data.get("STRICT_AGENT_RULES") is True:
+                output, a2_demotions = _apply_a2_lineage_policy(output, upstream_output or {}, snapshot.data)
+                policy_demotions += a2_demotions
             reasons = _validate_output(
                 output,
                 stage=stage,
@@ -813,6 +982,10 @@ class ResearchPipeline:
                 upstream_symbols=upstream_symbols,
                 snapshot_data=snapshot.data,
             )
+            if stage == "A1" and a1_discovery_context:
+                reasons.extend(_a1_discovery_context_reasons(output, a1_discovery_context))
+                if a1_discovery_context.get("mode") == "POLICY_MACRO_DISCOVERY":
+                    reasons.extend(_a1_discovery_evidence_reasons(output, snapshot.data))
             envelope = output.get("envelope") if isinstance(output, Mapping) else None
             model_status = envelope.get("status") if isinstance(envelope, Mapping) else None
             if model_status == "BLOCKED":
@@ -841,6 +1014,10 @@ class ResearchPipeline:
                     "trend_veto_items": trend_veto_items,
                     "pool_counts": _stage_pool_counts(output, stage),
                 }
+                if canonicalized_score_items:
+                    diagnostics["canonicalized_score_items"] = canonicalized_score_items
+                if canonicalized_driver_context:
+                    diagnostics["canonicalized_driver_context"] = canonicalized_driver_context
                 if canonicalized_pool_fields:
                     diagnostics["canonicalized_pool_fields"] = canonicalized_pool_fields
                 if policy_demotions:
@@ -1068,6 +1245,7 @@ def _prompt_replacements(
     upstream_output: Mapping[str, Any] | None,
     *,
     projection_symbols: set[str] | None = None,
+    a1_discovery_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     names = set(bundle.shared.placeholders)
     names.update(bundle.document({"A1": "agent_1_macro_chain_v2.txt", "A2": "agent_2_theme_sentiment_v2.txt", "A3": "agent_3_technical_planner_v2.txt"}[stage]).placeholders)
@@ -1082,7 +1260,11 @@ def _prompt_replacements(
     replacements: dict[str, Any] = {}
     for name in names:
         if name == "UPSTREAM_ACTIVE_POOL" or name == "UPSTREAM_FOCUS_POOL":
-            replacements[name] = upstream_output if upstream_output is not None else None
+            replacements[name] = (
+                _project_upstream_output(upstream_output, allowed_symbols)
+                if upstream_output is not None
+                else None
+            )
             continue
         if name == "SNAPSHOT_MANIFEST":
             manifest = snapshot.data.get("snapshot_manifest", snapshot.data)
@@ -1096,6 +1278,18 @@ def _prompt_replacements(
                 "pool_min": 120,
                 "pool_max": 300,
                 "node_count_target": [40, 80],
+            }
+            continue
+        if name == "A1_BATCH_CONTEXT":
+            replacements[name] = {
+                "mode": str((a1_discovery_context or {}).get("mode") or "COMPANY_MAPPING"),
+                "symbols": sorted(allowed_symbols or ()),
+                "node_by_symbol": _a1_node_by_symbol(snapshot.data, set(allowed_symbols or ())),
+                "batch_is_transport_boundary": True,
+                "frozen_discovery": {
+                    "structural_themes": (a1_discovery_context or {}).get("structural_themes", []),
+                    "industry_chain_graph": (a1_discovery_context or {}).get("industry_chain_graph", []),
+                },
             }
             continue
         if name in {"A1_MINIMUMS", "MIN_THEME_SCORE", "MIN_TECHNICAL_SCORE"}:
@@ -1144,6 +1338,10 @@ def _project_prompt_value(name: str, value: Any, symbols: set[str] | None) -> An
 
     if name == "COMPANY_FUNDAMENTALS":
         return _project_fundamentals(value, symbols)
+    if name == "MACRO_POLICY_FEED":
+        return _project_macro_policy(value, item_limit=24)
+    if name == "FACTOR_SNAPSHOT":
+        return _project_factor_snapshot(value, symbols)
     if name == "DISCLOSURE_EVENTS":
         return _project_disclosures(value, symbols)
     if name == "INDUSTRY_NEWS_FEED":
@@ -1151,12 +1349,12 @@ def _project_prompt_value(name: str, value: Any, symbols: set[str] | None) -> An
     if name == "NEWS_HEAT_SNAPSHOT":
         return _project_news(value, item_limit=40, symbols=symbols)
     if name in {
-        "FACTOR_SNAPSHOT",
         "KLINE_PATTERNS",
         "PRICE_LEVELS",
         "LIQUIDITY_SNAPSHOT",
         "TRADABILITY_FLAGS",
         "COMPANY_FUNDAMENTALS",
+        "MAIN_BUSINESS_EVIDENCE",
     }:
         return _filter_symbol_mapping(value, symbols)
     if name == "RISK_EVENTS":
@@ -1166,6 +1364,91 @@ def _project_prompt_value(name: str, value: Any, symbols: set[str] | None) -> An
     if name in {"CROWDING_SNAPSHOT", "FUND_HOLDINGS"}:
         return _filter_nested_symbol_data(value, symbols)
     return value
+
+
+def _project_factor_snapshot(value: Any, symbols: set[str] | None) -> Any:
+    if not isinstance(value, Mapping):
+        return value
+    projected: dict[str, Any] = {}
+    for raw_symbol, raw_factor in sorted(value.items(), key=lambda item: str(item[0])):
+        symbol = str(raw_symbol)
+        if symbols is not None and symbol not in symbols:
+            continue
+        if not isinstance(raw_factor, Mapping):
+            projected[symbol] = raw_factor
+            continue
+        raw_frames = raw_factor.get("timeframes")
+        frames: dict[str, Any] = {}
+        if isinstance(raw_frames, Mapping):
+            for name, raw_frame in raw_frames.items():
+                if not isinstance(raw_frame, Mapping):
+                    continue
+                latest = raw_frame.get("latest")
+                compact_latest = {
+                    key: latest.get(key)
+                    for key in ("open", "high", "low", "close", "end", "closed", "timeframe")
+                    if isinstance(latest, Mapping) and key in latest
+                }
+                frames[str(name)] = {
+                    "latest": compact_latest,
+                    "moving_averages": raw_frame.get("moving_averages"),
+                    "ma_alignment": raw_frame.get("ma_alignment"),
+                    "ma_event": raw_frame.get("ma_event"),
+                    "ma_bias": raw_frame.get("ma_bias"),
+                    "vwap": raw_frame.get("vwap"),
+                    "ready": raw_frame.get("ready"),
+                    "reasons": raw_frame.get("reasons"),
+                }
+        projected[symbol] = {
+            "symbol": raw_factor.get("symbol", symbol),
+            "as_of": raw_factor.get("as_of"),
+            "ready": raw_factor.get("ready"),
+            "reasons": raw_factor.get("reasons"),
+            "timeframes": frames,
+        }
+    return projected
+
+
+_POLICY_RESEARCH_TERMS: tuple[str, ...] = (
+    "产业", "工业", "制造", "科技", "技术", "创新", "数字", "人工智能", "算力",
+    "半导体", "机器人", "能源", "电力", "储能", "资源", "材料", "设备更新",
+    "消费", "投资", "财政", "货币", "金融", "资本市场", "监管", "改革",
+    "出口", "进口", "贸易", "关税", "制裁", "供应链", "专项债", "补贴", "招标",
+)
+
+
+def _project_macro_policy(value: Any, *, item_limit: int) -> Any:
+    """Keep a bounded, auditable official-policy view for model research."""
+
+    if not isinstance(value, Mapping):
+        return value
+    result = dict(value)
+    documents = value.get("official_documents")
+    if not isinstance(documents, list):
+        return result
+
+    def priority(item: Any) -> tuple[int, str, str]:
+        if not isinstance(item, Mapping):
+            return 0, "", ""
+        text = " ".join(str(item.get(key) or "") for key in ("title", "summary", "issuing_body"))
+        relevance = sum(1 for term in _POLICY_RESEARCH_TERMS if term in text)
+        published = str(item.get("publish_time") or item.get("event_time") or "")
+        fact_id = str(item.get("fact_id") or "")
+        return relevance, published, fact_id
+
+    eligible = [
+        item for item in documents
+        if isinstance(item, Mapping)
+        and item.get("prompt_injection_suspected") is not True
+        and isinstance(item.get("fact_id"), str)
+        and item.get("fact_id")
+    ]
+    selected = sorted(eligible, key=priority, reverse=True)[:item_limit]
+    result["official_documents"] = [_truncate_nested(item, 2_000) for item in selected]
+    result["prompt_document_count"] = len(selected)
+    result["full_document_count"] = len(documents)
+    result["projection_method"] = "OFFICIAL_POLICY_RELEVANCE_THEN_RECENCY"
+    return result
 
 
 def _project_fundamentals(value: Any, symbols: set[str] | None) -> Any:
@@ -1235,10 +1518,12 @@ def _project_disclosures(value: Any, symbols: set[str] | None) -> Any:
         if symbols is not None and symbol not in symbols:
             continue
         items = raw_items if isinstance(raw_items, list) else []
+        ordered_items = sorted(
+            (item for item in items if isinstance(item, Mapping)),
+            key=_disclosure_prompt_priority,
+        )
         compact_items: list[dict[str, Any]] = []
-        for item in items[:1]:
-            if not isinstance(item, Mapping):
-                continue
+        for item in ordered_items[:3]:
             compact = {key: item.get(key) for key in allowed_fields if key in item}
             snippets = compact.get("pdf_evidence_snippets")
             if isinstance(snippets, list):
@@ -1249,6 +1534,28 @@ def _project_disclosures(value: Any, symbols: set[str] | None) -> Any:
     if isinstance(result.get("query_confirmed_symbols"), list) and symbols is not None:
         result["query_confirmed_symbols"] = sorted(set(result["query_confirmed_symbols"]).intersection(symbols))
     return result
+
+
+def _disclosure_prompt_priority(item: Mapping[str, Any]) -> tuple[int, int, str]:
+    title = re.sub(r"\s+", "", str(item.get("announcement_title") or ""))
+    tags = {str(value) for value in item.get("event_tags", ())} if isinstance(item.get("event_tags"), list) else set()
+    has_pdf = item.get("pdf_evidence_available") is True
+    full_report = bool(re.search(r"(?:19|20)\d{2}年(?:半年度|年度)报告(?:全文)?$", title))
+    if has_pdf and full_report:
+        rank = 0
+    elif has_pdf and "EARNINGS" in tags:
+        rank = 1
+    elif has_pdf:
+        rank = 2
+    elif "RISK" in tags:
+        rank = 3
+    elif "ORDER_OR_CAPACITY" in tags:
+        rank = 4
+    else:
+        rank = 5
+    published = str(item.get("publish_time") or item.get("event_time") or "")
+    digits = re.sub(r"\D", "", published)
+    return rank, -int(digits or 0), str(item.get("announcement_id") or "")
 
 
 def _project_membership(value: Any, symbols: set[str] | None) -> Any:
@@ -1314,10 +1621,15 @@ def _stage_execution_budget(
         budget["secondary_pool"] = min(supplied, max(0, total_max - core_max))
     stage_contract = {
         "A1": (
-            "Required top-level keys: envelope, analysis_summary, active_research_pool, monitor_pool, "
-            "rejected_candidates. Each approved item needs symbol, company_name, primary_theme, "
+            "Required top-level keys: envelope, analysis_summary, structural_themes, industry_chain_graph, "
+            "active_research_pool, monitor_pool, rejected_candidates. Each approved item needs symbol, "
+            "company_name, primary_theme, "
             "industry_chain_node, core_thesis, bear_case, structural_score, data_quality_score, "
-            "evidence_confidence, status, source_refs."
+            "evidence_confidence, status, source_refs, and score_breakdown containing every exact key "
+            "from SCORE_WEIGHTS. structural_score must equal that configured weighted sum."
+            " primary_theme must exactly match a theme_id or display_name in structural_themes; "
+            "industry_chain_node must exactly match a node_id in industry_chain_graph. Both records need "
+            "snapshot-bound source_refs; unsupported narrative is MONITOR, never ACTIVE."
             " Every supplied symbol must appear exactly once across active_research_pool, monitor_pool, "
             "and rejected_candidates; the batch boundary is not a selection quota."
         ),
@@ -1330,7 +1642,8 @@ def _stage_execution_budget(
             "Required top-level keys: envelope, analysis_summary, core_watch_pool, secondary_watch_pool, "
             "rejected_candidates. Each core item must copy deterministic PRICE_LEVELS values for symbol, "
             "risk_unit, trigger_zone, invalidation_level, stop_distance_pct, first_resistance and reward_risk, "
-            "then add concise scenarios and confirmation_conditions."
+            "then add concise scenarios and confirmation_conditions. score_breakdown must contain every "
+            "exact key from TECHNICAL_SCORE_WEIGHTS, and technical_score must equal that weighted sum."
         ),
     }[stage]
     return (
@@ -1345,6 +1658,86 @@ def _stage_execution_budget(
         "- This compact contract permits omission of all other large sections in the generic report schema.\n"
         "- Finish one valid JSON object within the response budget; no markdown or commentary."
     )
+
+
+def _build_a1_node_batches(
+    symbols: set[str],
+    snapshot_data: Mapping[str, Any],
+    batch_size: int,
+) -> list[set[str]]:
+    """Pack deterministic industry-node groups into bounded A1 calls."""
+
+    if batch_size < 1:
+        raise ResearchPipelineError("A1_BATCH_SIZE_INVALID")
+    node_by_symbol = _a1_node_by_symbol(snapshot_data, symbols)
+    raw_liquidity = snapshot_data.get("LIQUIDITY_SNAPSHOT")
+    liquidity = raw_liquidity if isinstance(raw_liquidity, Mapping) else {}
+    groups: dict[str, list[str]] = {}
+    for symbol in symbols:
+        groups.setdefault(node_by_symbol.get(symbol, f"UNMAPPED:{symbol}"), []).append(symbol)
+
+    def turnover(symbol: str) -> float:
+        value = liquidity.get(symbol)
+        return _safe_float(value.get("turnover")) if isinstance(value, Mapping) else 0.0
+
+    for members in groups.values():
+        members.sort(key=lambda symbol: (-turnover(symbol), symbol))
+    ordered_nodes = sorted(
+        groups,
+        key=lambda node: (-sum(turnover(symbol) for symbol in groups[node]), node),
+    )
+    batches: list[set[str]] = []
+    current: list[str] = []
+    for node in ordered_nodes:
+        members = groups[node]
+        for offset in range(0, len(members), batch_size):
+            chunk = members[offset:offset + batch_size]
+            if current and len(current) + len(chunk) > batch_size:
+                batches.append(set(current))
+                current = []
+            current.extend(chunk)
+            if len(current) == batch_size:
+                batches.append(set(current))
+                current = []
+    if current:
+        batches.append(set(current))
+    return batches
+
+
+def _a1_node_by_symbol(
+    snapshot_data: Mapping[str, Any],
+    symbols: set[str],
+) -> dict[str, str]:
+    raw_membership = snapshot_data.get("THS_INDUSTRY_MEMBERSHIP")
+    if not isinstance(raw_membership, Mapping):
+        return {}
+    records = raw_membership.get("records")
+    if not isinstance(records, list):
+        return {}
+    result: dict[str, str] = {}
+    for record in records:
+        if not isinstance(record, Mapping):
+            continue
+        symbol = str(record.get("thscode") or record.get("symbol") or "")
+        memberships = record.get("memberships")
+        if symbol not in symbols or not isinstance(memberships, list):
+            continue
+        valid = [
+            item
+            for item in memberships
+            if isinstance(item, Mapping) and str(item.get("industry_thscode") or "")
+        ]
+        if not valid:
+            continue
+        specific = max(
+            valid,
+            key=lambda item: (
+                str(item.get("industry_thscode") or "").startswith("884"),
+                str(item.get("industry_thscode") or ""),
+            ),
+        )
+        result[symbol] = str(specific.get("industry_thscode"))
+    return result
 
 
 def _merge_a1_outputs(outputs: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
@@ -1408,6 +1801,117 @@ def _merge_a1_outputs(outputs: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     return merged
 
 
+def _merge_stage_outputs(stage: str, outputs: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    if stage != "A3" or not outputs:
+        return {}
+    merged: dict[str, Any] = {}
+    list_values: dict[str, list[Any]] = {}
+    for output in outputs:
+        for key, value in output.items():
+            if key == "envelope":
+                if key not in merged and isinstance(value, Mapping):
+                    merged[key] = dict(value)
+                continue
+            if isinstance(value, list):
+                list_values.setdefault(str(key), []).extend(value)
+            elif key not in merged:
+                merged[str(key)] = value
+    for key, values in list_values.items():
+        merged[key] = _deduplicate_stage_items(key, values)
+    merged["analysis_summary"] = {
+        "outcome": "A3_BATCHES_MERGED",
+        "batch_count": len(outputs),
+        **_stage_pool_counts(merged, "A3"),
+    }
+    return merged
+
+
+def _valid_a1_discovery_output(output: Mapping[str, Any]) -> bool:
+    themes = output.get("structural_themes")
+    nodes = output.get("industry_chain_graph")
+    if not isinstance(themes, list) or not themes or not isinstance(nodes, list) or not nodes:
+        return False
+    theme_ids = {
+        str(item.get("theme_id") or "").strip()
+        for item in themes
+        if isinstance(item, Mapping) and str(item.get("theme_id") or "").strip()
+    }
+    if not theme_ids:
+        return False
+    return all(
+        isinstance(node, Mapping)
+        and str(node.get("node_id") or "").strip()
+        and isinstance(node.get("theme_ids"), list)
+        and bool(theme_ids.intersection(str(value).strip() for value in node["theme_ids"] if isinstance(value, str)))
+        for node in nodes
+    )
+
+
+def _a1_discovery_context_reasons(
+    output: Mapping[str, Any],
+    context: Mapping[str, Any],
+) -> list[str]:
+    mode = str(context.get("mode") or "")
+    if mode == "POLICY_MACRO_DISCOVERY":
+        return [] if _valid_a1_discovery_output(output) else ["A1_DISCOVERY_OUTPUT_INVALID"]
+    if mode != "COMPANY_MAPPING":
+        return []
+    frozen_themes = context.get("structural_themes")
+    frozen_nodes = context.get("industry_chain_graph")
+    allowed_theme_ids = {
+        str(item.get("theme_id") or "").strip()
+        for item in frozen_themes
+        if isinstance(item, Mapping) and str(item.get("theme_id") or "").strip()
+    } if isinstance(frozen_themes, list) else set()
+    allowed_node_ids = {
+        str(item.get("node_id") or "").strip()
+        for item in frozen_nodes
+        if isinstance(item, Mapping) and str(item.get("node_id") or "").strip()
+    } if isinstance(frozen_nodes, list) else set()
+    output_theme_ids = {
+        str(item.get("theme_id") or "").strip()
+        for item in output.get("structural_themes", ())
+        if isinstance(item, Mapping) and str(item.get("theme_id") or "").strip()
+    } if isinstance(output.get("structural_themes"), list) else set()
+    output_node_ids = {
+        str(item.get("node_id") or "").strip()
+        for item in output.get("industry_chain_graph", ())
+        if isinstance(item, Mapping) and str(item.get("node_id") or "").strip()
+    } if isinstance(output.get("industry_chain_graph"), list) else set()
+    reasons: list[str] = []
+    if output_theme_ids.difference(allowed_theme_ids):
+        reasons.append("A1_BATCH_THEME_OUTSIDE_DISCOVERY")
+    if output_node_ids.difference(allowed_node_ids):
+        reasons.append("A1_BATCH_NODE_OUTSIDE_DISCOVERY")
+    return reasons
+
+
+def _a1_discovery_evidence_reasons(
+    output: Mapping[str, Any],
+    snapshot_data: Mapping[str, Any],
+) -> list[str]:
+    valid_refs = _snapshot_primary_evidence_refs(snapshot_data)
+    reasons: list[str] = []
+    for field, reason in (
+        ("structural_themes", "A1_DISCOVERY_THEME_EVIDENCE_INVALID"),
+        ("industry_chain_graph", "A1_DISCOVERY_NODE_EVIDENCE_INVALID"),
+    ):
+        records = output.get(field)
+        if not isinstance(records, list):
+            continue
+        for record in records:
+            raw_refs = record.get("source_refs") if isinstance(record, Mapping) else None
+            refs = {
+                str(value).strip()
+                for value in raw_refs
+                if isinstance(value, str) and value.strip()
+            } if isinstance(raw_refs, list) else set()
+            if not refs.intersection(valid_refs):
+                reasons.append(reason)
+                break
+    return reasons
+
+
 def _deduplicate_stage_items(key: str, values: Sequence[Any]) -> list[Any]:
     identity_fields = {
         "active_research_pool": ("symbol",),
@@ -1418,6 +1922,9 @@ def _deduplicate_stage_items(key: str, values: Sequence[Any]) -> list[Any]:
         "policy_calendar": ("date", "event"),
         "structural_themes": ("theme_id",),
         "industry_chain_graph": ("node_id",),
+        "active_themes": ("theme_id",),
+        "core_watch_pool": ("symbol",),
+        "secondary_watch_pool": ("symbol",),
     }
     seen: set[str] = set()
     result: list[Any] = []
@@ -1491,11 +1998,24 @@ def _semantic_retry_instruction(stage: str, reasons: Sequence[str]) -> str:
 def _safe_diagnostics(value: Any) -> dict[str, Any] | None:
     if not isinstance(value, Mapping):
         return None
-    return {
+    result = {
         "type": "object",
         "field_count": min(len(value), 100),
         "has_event_index": isinstance(value.get("event_index"), int),
     }
+    for key in (
+        "content_type",
+        "content_chars",
+        "starts_with_object",
+        "ends_with_object",
+        "starts_with_fence",
+        "ends_with_fence",
+        "parsed_type",
+    ):
+        raw = value.get(key)
+        if isinstance(raw, (str, int, bool)) and not isinstance(raw, float):
+            result[key] = raw
+    return result
 
 
 def _safe_float(value: Any) -> float:
@@ -1561,6 +2081,143 @@ def _canonicalize_stage_pool_fields(
     return result, changed
 
 
+def _canonicalize_a1_driver_context(
+    output: Mapping[str, Any],
+    discovery_context: Mapping[str, Any],
+) -> tuple[dict[str, Any], int]:
+    """Keep company batches read-only with respect to frozen A1 drivers."""
+
+    result = dict(output)
+    changed = 0
+    for field in ("structural_themes", "industry_chain_graph"):
+        frozen = discovery_context.get(field)
+        if not isinstance(frozen, list):
+            continue
+        canonical = [dict(item) if isinstance(item, Mapping) else item for item in frozen]
+        if result.get(field) != canonical:
+            result[field] = canonical
+            changed += 1
+    return result, changed
+
+
+def _canonicalize_stage_scores(
+    output: Mapping[str, Any],
+    stage: str,
+    snapshot_data: Mapping[str, Any],
+) -> tuple[dict[str, Any], int]:
+    """Make configured weighted arithmetic deterministic and auditable.
+
+    Models interpret evidence and assign component scores; the server owns the
+    arithmetic. Older/provider-specific responses sometimes return already
+    weighted point contributions instead of raw 0-100 component scores. That
+    representation is normalized only when every value is within its exact
+    contribution cap and the contribution sum matches the supplied total.
+    """
+
+    result = dict(output)
+    specs = {
+        "A1": ("SCORE_WEIGHTS", "structural_score", ("active_research_pool",), False),
+        "A2": ("THEME_SCORE_WEIGHTS", "theme_score", ("active_themes",), True),
+        "A3": (
+            "TECHNICAL_SCORE_WEIGHTS",
+            "technical_score",
+            ("core_watch_pool", "secondary_watch_pool"),
+            False,
+        ),
+    }
+    weight_field, score_field, pools, include_penalties = specs[stage]
+    raw_weights = snapshot_data.get(weight_field)
+    if not isinstance(raw_weights, Mapping) or not raw_weights:
+        return result, 0
+    weights = {str(key): _safe_float(value) for key, value in raw_weights.items()}
+    if (
+        any(value <= 0 or value > 1 for value in weights.values())
+        or abs(sum(weights.values()) - 1.0) > 1e-6
+    ):
+        return result, 0
+
+    changed = 0
+    for pool in pools:
+        raw_items = result.get(pool)
+        if not isinstance(raw_items, list):
+            continue
+        normalized_items: list[Any] = []
+        for raw_item in raw_items:
+            if not isinstance(raw_item, Mapping):
+                normalized_items.append(raw_item)
+                continue
+            item = dict(raw_item)
+            breakdown = item.get("score_breakdown")
+            if not isinstance(breakdown, Mapping) or set(breakdown) != set(weights):
+                normalized_items.append(item)
+                continue
+            if any(
+                isinstance(breakdown.get(key), bool)
+                or breakdown.get(key) is None
+                or _safe_float(breakdown.get(key)) < 0
+                or _safe_float(breakdown.get(key)) > 100
+                for key in weights
+            ):
+                normalized_items.append(item)
+                continue
+            values = {key: _safe_float(breakdown.get(key)) for key in weights}
+            penalty_points = 0.0
+            if include_penalties:
+                penalties = item.get("penalties")
+                penalty_points = sum(
+                    _safe_float(penalty.get("points"))
+                    for penalty in penalties
+                    if isinstance(penalty, Mapping)
+                ) if isinstance(penalties, list) else 0.0
+
+            contribution_total = sum(values.values()) + penalty_points
+            contribution_mode = (
+                all(values[key] <= weights[key] * 100 + 1e-6 for key in weights)
+                and abs(contribution_total - _safe_float(item.get(score_field))) <= 0.51
+            )
+            if contribution_mode:
+                values = {key: values[key] / weights[key] for key in weights}
+                item["score_breakdown"] = {
+                    key: round(values[key], 6) for key in weights
+                }
+            computed = max(
+                0.0,
+                min(100.0, sum(values[key] * weights[key] for key in weights) + penalty_points),
+            )
+            canonical_score = round(computed, 2)
+            if contribution_mode or abs(canonical_score - _safe_float(item.get(score_field))) > 0.005:
+                item[score_field] = canonical_score
+                changed += 1
+            normalized_items.append(item)
+        result[pool] = normalized_items
+
+    if stage == "A2":
+        canonical_theme_scores = {
+            str(item.get("theme_id") or "").strip(): _safe_float(item.get("theme_score"))
+            for item in result.get("active_themes", ())
+            if isinstance(item, Mapping) and str(item.get("theme_id") or "").strip()
+        }
+        for pool in ("focus_pool", "watch_only_pool"):
+            raw_items = result.get(pool)
+            if not isinstance(raw_items, list):
+                continue
+            normalized_items: list[Any] = []
+            for raw_item in raw_items:
+                if not isinstance(raw_item, Mapping):
+                    normalized_items.append(raw_item)
+                    continue
+                item = dict(raw_item)
+                theme_id = str(item.get("theme_id") or "").strip()
+                if theme_id in canonical_theme_scores and abs(
+                    _safe_float(item.get("theme_score")) - canonical_theme_scores[theme_id]
+                ) > 0.005:
+                    item["theme_score"] = canonical_theme_scores[theme_id]
+                    changed += 1
+                normalized_items.append(item)
+            result[pool] = normalized_items
+    return result, changed
+
+
 def _apply_stage_threshold_policy(
     output: Mapping[str, Any],
     stage: str,
@@ -1589,6 +2246,7 @@ def _apply_stage_threshold_policy(
         monitor = list(result.get("monitor_pool")) if isinstance(result.get("monitor_pool"), list) else []
         if not isinstance(active, list):
             return result, 0
+        structural_evidence_refs = _snapshot_primary_evidence_refs(snapshot_data)
         retained: list[Any] = []
         changed = 0
         for raw_item in active:
@@ -1601,6 +2259,10 @@ def _apply_stage_threshold_policy(
                 for field, minimum, reason in thresholds
                 if _safe_float(item.get(field)) < minimum
             ]
+            reason_codes.extend(_a1_business_evidence_reasons(item, snapshot_data))
+            if snapshot_data.get("A1_DRIVER_LINEAGE_REQUIRED") is True:
+                reason_codes.extend(_a1_structural_lineage_reasons(item, result, structural_evidence_refs))
+            reason_codes.extend(_a1_score_breakdown_reasons(item, snapshot_data))
             if not reason_codes:
                 retained.append(item)
                 continue
@@ -1679,6 +2341,21 @@ def _apply_stage_threshold_policy(
                 )
                 changed += 1
                 continue
+            score_reasons = _weighted_score_reasons(
+                item,
+                weights=snapshot_data.get("TECHNICAL_SCORE_WEIGHTS"),
+                score_field="technical_score",
+                missing_reason="A3_SCORE_BREAKDOWN_MISSING",
+                invalid_reason="A3_SCORE_BREAKDOWN_INVALID",
+                mismatch_reason="A3_TECHNICAL_SCORE_MISMATCH",
+            )
+            if score_reasons:
+                existing = item.get("reason_codes") if isinstance(item.get("reason_codes"), list) else []
+                item["reason_codes"] = list(dict.fromkeys([*existing, *score_reasons]))
+                item["risk_unit"] = "NO_ENTRY"
+                secondary.append(item)
+                changed += 1
+                continue
             if _safe_float(item.get("technical_score")) < minimum_technical:
                 existing = item.get("reason_codes") if isinstance(item.get("reason_codes"), list) else []
                 item["reason_codes"] = list(dict.fromkeys([*existing, "A3_TECHNICAL_SCORE_BELOW_MINIMUM"]))
@@ -1686,15 +2363,417 @@ def _apply_stage_threshold_policy(
                 secondary.append(item)
                 changed += 1
                 continue
+            if item.get("risk_unit") == "NO_ENTRY":
+                existing = item.get("reason_codes") if isinstance(item.get("reason_codes"), list) else []
+                item["reason_codes"] = list(dict.fromkeys([*existing, "A3_NO_ENTRY_IS_SECONDARY_ONLY"]))
+                secondary.append(item)
+                changed += 1
+                continue
             retained.append(item)
         result["core_watch_pool"] = retained
         result["secondary_watch_pool"] = _deduplicate_stage_items("secondary_watch_pool", secondary)
         result["rejected_candidates"] = _deduplicate_stage_items("rejected_candidates", rejected)
+        result, limit_changes = _apply_a3_pool_limits(result, snapshot_data)
+        changed += limit_changes
         if changed:
             result["analysis_summary"] = _policy_summary(result, stage, changed)
         return result, changed
 
     return result, 0
+
+
+def _apply_a3_pool_limits(
+    output: Mapping[str, Any],
+    snapshot_data: Mapping[str, Any],
+) -> tuple[dict[str, Any], int]:
+    result = dict(output)
+    params = snapshot_data.get("REGIME_PARAM_SET")
+    agent = params.get("agent_3") if isinstance(params, Mapping) else None
+    if not isinstance(agent, Mapping):
+        return result, 0
+    core_max = max(0, _safe_int(agent.get("core_watch_max", 0)))
+    total_max = max(core_max, _safe_int(agent.get("total_watch_max", core_max)))
+    core = list(result.get("core_watch_pool")) if isinstance(result.get("core_watch_pool"), list) else []
+    secondary = list(result.get("secondary_watch_pool")) if isinstance(result.get("secondary_watch_pool"), list) else []
+    rejected = list(result.get("rejected_candidates")) if isinstance(result.get("rejected_candidates"), list) else []
+
+    def ranking(item: Any) -> tuple[float, str]:
+        return (
+            -_safe_float(item.get("technical_score")) if isinstance(item, Mapping) else 0.0,
+            _first_symbol(item) if isinstance(item, Mapping) else _canonical_json(item),
+        )
+
+    ordered_core = sorted(core, key=ranking)
+    retained_core = ordered_core[:core_max]
+    overflow_core: list[Any] = []
+    for raw_item in ordered_core[core_max:]:
+        if not isinstance(raw_item, Mapping):
+            overflow_core.append(raw_item)
+            continue
+        item = dict(raw_item)
+        codes = item.get("reason_codes") if isinstance(item.get("reason_codes"), list) else []
+        item["reason_codes"] = list(dict.fromkeys([*codes, "A3_GLOBAL_CORE_LIMIT"]))
+        item["risk_unit"] = "NO_ENTRY"
+        overflow_core.append(item)
+    ordered_secondary = sorted([*secondary, *overflow_core], key=ranking)
+    secondary_max = max(0, total_max - len(retained_core))
+    retained_secondary = ordered_secondary[:secondary_max]
+    overflow_secondary = ordered_secondary[secondary_max:]
+    for raw_item in overflow_secondary:
+        symbol = _first_symbol(raw_item) if isinstance(raw_item, Mapping) else ""
+        rejected.append({
+            "symbol": symbol,
+            "parent_candidate_id": raw_item.get("parent_candidate_id") if isinstance(raw_item, Mapping) else None,
+            "reason_codes": ["A3_GLOBAL_WATCH_LIMIT"],
+            "veto_triggered": "SERVER_POOL_LIMIT",
+        })
+    result["core_watch_pool"] = retained_core
+    result["secondary_watch_pool"] = _deduplicate_stage_items("secondary_watch_pool", retained_secondary)
+    result["rejected_candidates"] = _deduplicate_stage_items("rejected_candidates", rejected)
+    changed_tokens = {
+        _first_symbol(item) if isinstance(item, Mapping) else _canonical_json(item)
+        for item in [*overflow_core, *overflow_secondary]
+    }
+    return result, len(changed_tokens)
+
+
+def _a1_business_evidence_reasons(
+    item: Mapping[str, Any],
+    snapshot_data: Mapping[str, Any],
+) -> list[str]:
+    if "MAIN_BUSINESS_EVIDENCE" not in snapshot_data:
+        # Backward-compatible replay/test snapshots predate the deterministic
+        # evidence contract. New production snapshots always include it.
+        return []
+    symbol = _first_symbol(item)
+    raw_evidence = snapshot_data.get("MAIN_BUSINESS_EVIDENCE")
+    symbol_evidence = raw_evidence.get(symbol) if isinstance(raw_evidence, Mapping) else None
+    if not isinstance(symbol_evidence, Mapping) or symbol_evidence.get("available") is not True:
+        return ["A1_MAIN_BUSINESS_EVIDENCE_MISSING"]
+
+    exposure = item.get("business_exposure")
+    if not isinstance(exposure, Mapping):
+        return ["A1_REVENUE_EXPOSURE_UNCONFIRMED", "A1_BUSINESS_SOURCE_REF_INVALID"]
+    revenue_exposure = _safe_float(exposure.get("revenue_exposure_pct"))
+    reasons: list[str] = []
+    if revenue_exposure <= 0 or revenue_exposure > 100:
+        reasons.append("A1_REVENUE_EXPOSURE_UNCONFIRMED")
+
+    valid_refs = {
+        str(evidence.get("source_ref"))
+        for evidence in symbol_evidence.get("evidence", ())
+        if isinstance(evidence, Mapping) and evidence.get("source_ref")
+    }
+    if str(exposure.get("source_ref") or "") not in valid_refs:
+        reasons.append("A1_BUSINESS_SOURCE_REF_INVALID")
+    return reasons
+
+
+def _a1_structural_lineage_reasons(
+    item: Mapping[str, Any],
+    output: Mapping[str, Any],
+    valid_refs: set[str],
+) -> list[str]:
+    """Reject free-form A1 narratives that are not bound to frozen evidence."""
+
+    themes = output.get("structural_themes")
+    nodes = output.get("industry_chain_graph")
+    if not isinstance(themes, list):
+        return ["A1_STRUCTURAL_THEME_LINEAGE_MISSING", "A1_CHAIN_NODE_LINEAGE_MISSING"]
+    if not isinstance(nodes, list):
+        return ["A1_CHAIN_NODE_LINEAGE_MISSING"]
+    primary_theme = str(item.get("primary_theme") or "").strip()
+    chain_node = str(item.get("industry_chain_node") or "").strip()
+    matched_theme = next((
+        theme for theme in themes
+        if isinstance(theme, Mapping)
+        and primary_theme in {
+            str(theme.get("theme_id") or "").strip(),
+            str(theme.get("display_name") or "").strip(),
+        }
+    ), None)
+    matched_node = next((
+        node for node in nodes
+        if isinstance(node, Mapping) and chain_node == str(node.get("node_id") or "").strip()
+    ), None)
+    reasons: list[str] = []
+    if matched_theme is None:
+        reasons.append("A1_STRUCTURAL_THEME_LINEAGE_MISSING")
+    if matched_node is None:
+        reasons.append("A1_CHAIN_NODE_LINEAGE_MISSING")
+    if matched_theme is not None and matched_node is not None:
+        theme_id = str(matched_theme.get("theme_id") or "").strip()
+        node_theme_ids = matched_node.get("theme_ids")
+        if not isinstance(node_theme_ids, list) or theme_id not in {
+            str(value).strip() for value in node_theme_ids if isinstance(value, str)
+        }:
+            reasons.append("A1_CHAIN_NODE_THEME_LINK_INVALID")
+    for matched, reason in (
+        (matched_theme, "A1_THEME_DRIVER_EVIDENCE_INVALID"),
+        (matched_node, "A1_CHAIN_NODE_EVIDENCE_INVALID"),
+    ):
+        if matched is None:
+            continue
+        raw_refs = matched.get("source_refs")
+        refs = {
+            str(value).strip()
+            for value in raw_refs
+            if isinstance(value, str) and value.strip()
+        } if isinstance(raw_refs, list) else set()
+        if not refs.intersection(valid_refs):
+            reasons.append(reason)
+    return reasons
+
+
+def _a1_score_breakdown_reasons(
+    item: Mapping[str, Any],
+    snapshot_data: Mapping[str, Any],
+) -> list[str]:
+    """Ensure the model used configured A1 weights instead of an ad-hoc score."""
+
+    raw_weights = snapshot_data.get("SCORE_WEIGHTS")
+    if not isinstance(raw_weights, Mapping) or not raw_weights:
+        return []
+    weights = {
+        str(key): _safe_float(value)
+        for key, value in raw_weights.items()
+        if isinstance(key, str) and 0 < _safe_float(value) <= 1
+    }
+    if not weights or abs(sum(weights.values()) - 1.0) > 1e-6:
+        return ["A1_SCORE_WEIGHTS_INVALID"]
+    breakdown = item.get("score_breakdown")
+    if not isinstance(breakdown, Mapping):
+        return ["A1_SCORE_BREAKDOWN_MISSING"]
+    if set(breakdown) != set(weights):
+        return ["A1_SCORE_BREAKDOWN_INVALID"]
+    values: dict[str, float] = {}
+    for key in weights:
+        raw_value = breakdown.get(key)
+        value = _safe_float(raw_value)
+        if isinstance(raw_value, bool) or raw_value is None or value < 0 or value > 100:
+            return ["A1_SCORE_BREAKDOWN_INVALID"]
+        values[key] = value
+    computed = sum(values[key] * weights[key] for key in weights)
+    if abs(computed - _safe_float(item.get("structural_score"))) > 0.51:
+        return ["A1_STRUCTURAL_SCORE_MISMATCH"]
+    return []
+
+
+def _weighted_score_reasons(
+    item: Mapping[str, Any],
+    *,
+    weights: Any,
+    score_field: str,
+    missing_reason: str,
+    invalid_reason: str,
+    mismatch_reason: str,
+) -> list[str]:
+    if not isinstance(weights, Mapping) or not weights:
+        return []
+    resolved_weights = {str(key): _safe_float(value) for key, value in weights.items()}
+    if abs(sum(resolved_weights.values()) - 1.0) > 1e-6:
+        return [invalid_reason]
+    breakdown = item.get("score_breakdown")
+    if not isinstance(breakdown, Mapping) or set(breakdown) != set(resolved_weights):
+        return [missing_reason]
+    values = {key: _safe_float(breakdown.get(key)) for key in resolved_weights}
+    if any(value < 0 or value > 100 for value in values.values()):
+        return [invalid_reason]
+    computed = sum(values[key] * resolved_weights[key] for key in resolved_weights)
+    if abs(computed - _safe_float(item.get(score_field))) > 0.51:
+        return [mismatch_reason]
+    return []
+
+
+def _snapshot_primary_evidence_refs(snapshot_data: Mapping[str, Any]) -> set[str]:
+    """Return refs allowed to prove A1 policy/macro-to-business lineage.
+
+    Open-news/RSS material is deliberately excluded: it is T3 discovery input
+    and may corroborate a thesis, but cannot by itself promote a company into
+    the A1 ACTIVE pool.
+    """
+
+    refs: set[str] = set()
+    relevant = (
+        "MACRO_POLICY_FEED",
+        "DISCLOSURE_EVENTS",
+        "RISK_EVENTS",
+        "MAIN_BUSINESS_EVIDENCE",
+        "INDUSTRY_PROFIT_DATA",
+    )
+
+    def visit(value: Any) -> None:
+        if isinstance(value, Mapping):
+            for key, item in value.items():
+                if str(key) in {"fact_id", "source_ref", "source_url", "content_hash"} and isinstance(item, str):
+                    clean = item.strip()
+                    if clean:
+                        refs.add(clean)
+                else:
+                    visit(item)
+        elif isinstance(value, list):
+            for item in value:
+                visit(item)
+
+    for key in relevant:
+        visit(snapshot_data.get(key))
+    return refs
+
+
+def _apply_a2_lineage_policy(
+    output: Mapping[str, Any],
+    upstream_output: Mapping[str, Any],
+    snapshot_data: Mapping[str, Any],
+) -> tuple[dict[str, Any], int]:
+    """Demote A2 focus items that rewrite A1 themes or invent missing facts."""
+
+    result = dict(output)
+    upstream_themes = upstream_output.get("structural_themes")
+    allowed_theme_ids: set[str] = set()
+    if isinstance(upstream_themes, list):
+        for theme in upstream_themes:
+            if not isinstance(theme, Mapping):
+                continue
+            theme_id = str(theme.get("theme_id") or "").strip()
+            if theme_id:
+                allowed_theme_ids.add(theme_id)
+
+    active_themes = result.get("active_themes")
+    valid_active_themes: set[str] = set()
+    if isinstance(active_themes, list):
+        normalized_themes: list[Any] = []
+        for raw_theme in active_themes:
+            if not isinstance(raw_theme, Mapping):
+                normalized_themes.append(raw_theme)
+                continue
+            theme = dict(raw_theme)
+            theme_id = str(theme.get("theme_id") or "").strip()
+            theme_reasons = _a2_theme_reasons(theme, snapshot_data)
+            if theme_id not in allowed_theme_ids:
+                theme_reasons.append("A2_THEME_OUTSIDE_A1")
+            if theme_reasons:
+                existing = theme.get("reason_codes") if isinstance(theme.get("reason_codes"), list) else []
+                theme["reason_codes"] = list(dict.fromkeys([*existing, *theme_reasons]))
+            else:
+                valid_active_themes.add(theme_id)
+            normalized_themes.append(theme)
+        result["active_themes"] = normalized_themes
+
+    focus = result.get("focus_pool")
+    watch = list(result.get("watch_only_pool")) if isinstance(result.get("watch_only_pool"), list) else []
+    if not isinstance(focus, list):
+        return result, 0
+    minimum_identity = _safe_float(snapshot_data.get("MIN_IDENTIFIABILITY_SCORE", 60))
+    retained: list[Any] = []
+    changed = 0
+    for raw_item in focus:
+        if not isinstance(raw_item, Mapping):
+            retained.append(raw_item)
+            continue
+        item = dict(raw_item)
+        reasons: list[str] = []
+        theme_id = str(item.get("theme_id") or "").strip()
+        if theme_id not in valid_active_themes:
+            reasons.append("A2_THEME_LINEAGE_INVALID")
+        role = str(item.get("market_role") or "").strip()
+        if role in {"LOW_IDENTITY", "EVENT_ONLY", "CROWDED", "AVOID"}:
+            reasons.append("A2_MARKET_ROLE_NOT_FOCUS_ELIGIBLE")
+        if _safe_float(item.get("identifiability_score")) < minimum_identity:
+            reasons.append("A2_IDENTIFIABILITY_BELOW_MINIMUM")
+        active_theme = next((
+            theme for theme in result.get("active_themes", ())
+            if isinstance(theme, Mapping) and str(theme.get("theme_id") or "").strip() == theme_id
+        ), None)
+        if isinstance(active_theme, Mapping):
+            if abs(_safe_float(item.get("theme_score")) - _safe_float(active_theme.get("theme_score"))) > 0.51:
+                reasons.append("A2_THEME_SCORE_LINEAGE_MISMATCH")
+            stage = str(active_theme.get("stage") or "")
+            policy = str(active_theme.get("new_entry_policy") or "")
+            if stage in {"CLIMAX", "DIVERGENCE", "RETREAT", "FADE"} or policy in {"WATCH_ONLY", "NO_NEW_ENTRY"}:
+                reasons.append("A2_THEME_STAGE_NOT_FOCUS_ELIGIBLE")
+        if not reasons:
+            retained.append(item)
+            continue
+        existing = item.get("reason_codes") if isinstance(item.get("reason_codes"), list) else []
+        item["reason_codes"] = list(dict.fromkeys([*existing, *reasons]))
+        watch.append(item)
+        changed += 1
+    result["focus_pool"] = retained
+    result["watch_only_pool"] = _deduplicate_stage_items("watch_only_pool", watch)
+    params = snapshot_data.get("REGIME_PARAM_SET")
+    agent = params.get("agent_2") if isinstance(params, Mapping) else None
+    if isinstance(agent, Mapping):
+        focus_max = max(0, _safe_int(agent.get("focus_pool_max", len(retained))))
+        ordered_focus = sorted(
+            retained,
+            key=lambda candidate: (
+                -_safe_float(candidate.get("theme_score")) if isinstance(candidate, Mapping) else 0.0,
+                -_safe_float(candidate.get("identifiability_score")) if isinstance(candidate, Mapping) else 0.0,
+                _first_symbol(candidate) if isinstance(candidate, Mapping) else _canonical_json(candidate),
+            ),
+        )
+        retained = ordered_focus[:focus_max]
+        for raw_item in ordered_focus[focus_max:]:
+            if not isinstance(raw_item, Mapping):
+                watch.append(raw_item)
+                continue
+            item = dict(raw_item)
+            existing = item.get("reason_codes") if isinstance(item.get("reason_codes"), list) else []
+            item["reason_codes"] = list(dict.fromkeys([*existing, "A2_GLOBAL_FOCUS_LIMIT"]))
+            watch.append(item)
+            changed += 1
+        result["focus_pool"] = retained
+        result["watch_only_pool"] = _deduplicate_stage_items("watch_only_pool", watch)
+    if changed:
+        result["analysis_summary"] = _policy_summary(result, "A2", changed)
+    return result, changed
+
+
+def _a2_theme_reasons(theme: Mapping[str, Any], snapshot_data: Mapping[str, Any]) -> list[str]:
+    reasons: list[str] = []
+    for field, reason in (
+        ("supporting_evidence", "A2_SUPPORTING_EVIDENCE_MISSING"),
+        ("contradicting_evidence", "A2_CONTRADICTING_EVIDENCE_MISSING"),
+    ):
+        value = theme.get(field)
+        if not isinstance(value, list) or not value:
+            reasons.append(reason)
+    raw_weights = snapshot_data.get("THEME_SCORE_WEIGHTS")
+    breakdown = theme.get("score_breakdown")
+    if isinstance(raw_weights, Mapping) and raw_weights:
+        weights = {str(key): _safe_float(value) for key, value in raw_weights.items()}
+        if not isinstance(breakdown, Mapping):
+            reasons.append("A2_SCORE_BREAKDOWN_MISSING")
+        elif set(breakdown) != set(weights):
+            reasons.append("A2_SCORE_BREAKDOWN_INVALID")
+        else:
+            values = {key: _safe_float(breakdown.get(key)) for key in weights}
+            if any(value < 0 or value > 100 for value in values.values()):
+                reasons.append("A2_SCORE_BREAKDOWN_INVALID")
+            else:
+                penalties = theme.get("penalties")
+                penalty_points = sum(
+                    _safe_float(item.get("points"))
+                    for item in penalties
+                    if isinstance(item, Mapping)
+                ) if isinstance(penalties, list) else 0.0
+                computed = max(0.0, min(100.0, sum(values[key] * weights[key] for key in weights) + penalty_points))
+                if abs(computed - _safe_float(theme.get("theme_score"))) > 0.51:
+                    reasons.append("A2_THEME_SCORE_MISMATCH")
+                capital_flow = snapshot_data.get("CAPITAL_FLOW_SNAPSHOT")
+                if (
+                    isinstance(capital_flow, Mapping)
+                    and capital_flow.get("available") is not True
+                    and values.get("capital_flow", 0.0) != 0.0
+                ):
+                    reasons.append("A2_CAPITAL_FLOW_SCORE_INVENTED")
+    history = snapshot_data.get("SECTOR_CYCLE_SNAPSHOT")
+    metrics = history.get("history_metrics") if isinstance(history, Mapping) else None
+    if isinstance(metrics, Mapping) and metrics.get("available") is True:
+        expected_overlap = _safe_float(metrics.get("top3_daily_overlap"))
+        if abs(_safe_float(theme.get("rotation_overlap_ratio")) - expected_overlap) > 0.001:
+            reasons.append("A2_ROTATION_OVERLAP_MISMATCH")
+    return reasons
 
 
 def _policy_summary(output: Mapping[str, Any], stage: str, changed: int) -> dict[str, Any]:
@@ -1731,6 +2810,20 @@ def _filter_symbol_mapping(value: Any, symbols: set[str] | None) -> Any:
     if symbols is None or not isinstance(value, Mapping):
         return value
     return {str(key): item for key, item in value.items() if str(key) in symbols}
+
+
+def _project_upstream_output(value: Mapping[str, Any], symbols: set[str] | None) -> dict[str, Any]:
+    if symbols is None:
+        return dict(value)
+    result = dict(value)
+    for key in _CANDIDATE_KEYS:
+        pool = result.get(key)
+        if isinstance(pool, list):
+            result[key] = [
+                item for item in pool
+                if isinstance(item, Mapping) and bool(_scan_symbols(item).intersection(symbols))
+            ]
+    return result
 
 
 def _filter_nested_symbol_data(value: Any, symbols: set[str] | None) -> Any:
@@ -1824,7 +2917,7 @@ def _validate_output(
     if not isinstance(input_snapshot_ids, list) or snapshot_id not in input_snapshot_ids:
         reasons.append("SNAPSHOT_LINEAGE_MISSING")
     reasons.extend(_permission_violations(output))
-    symbols = _scan_symbols(output)
+    symbols = _candidate_pool_symbols(output)
     outside = sorted(symbols.difference(upstream_symbols))
     if outside:
         reasons.append("POOL_OUTSIDE_G0" if stage == "A1" else "POOL_OUTSIDE_UPSTREAM")
@@ -1833,9 +2926,31 @@ def _validate_output(
     reasons.extend(_validate_approved_pool(output, stage))
     if stage == "A1":
         reasons.extend(_validate_a1_partition(output, upstream_symbols))
+    elif stage == "A2" and (snapshot_data or {}).get("STRICT_AGENT_RULES") is True:
+        reasons.extend(_validate_partition(
+            output,
+            upstream_symbols,
+            ("focus_pool", "watch_only_pool", "crowded_pool", "low_identity_pool", "rejected_candidates"),
+            "A2",
+        ))
+    elif stage == "A3" and (snapshot_data or {}).get("STRICT_AGENT_RULES") is True:
+        reasons.extend(_validate_partition(
+            output,
+            upstream_symbols,
+            ("core_watch_pool", "secondary_watch_pool", "rejected_candidates"),
+            "A3",
+        ))
     if stage == "A3":
         reasons.extend(_validate_a3_provenance(output, snapshot_data or {}))
     return list(dict.fromkeys(reasons))
+
+
+def _candidate_pool_symbols(output: Mapping[str, Any]) -> set[str]:
+    symbols: set[str] = set()
+    for key in _CANDIDATE_KEYS:
+        if key in output:
+            symbols.update(_scan_symbols(output.get(key)))
+    return symbols
 
 
 def _validate_approved_pool(output: Mapping[str, Any], stage: str) -> list[str]:
@@ -1886,6 +3001,41 @@ def _validate_a1_partition(output: Mapping[str, Any], upstream_symbols: set[str]
     return reasons
 
 
+def _validate_partition(
+    output: Mapping[str, Any],
+    upstream_symbols: set[str],
+    keys: Sequence[str],
+    stage: str,
+) -> list[str]:
+    pools: dict[str, set[str]] = {}
+    reasons: list[str] = []
+    for key in keys:
+        value = output.get(key, [])
+        if not isinstance(value, list):
+            reasons.append(f"{stage}_POOL_SCHEMA_INVALID")
+            pools[key] = set()
+            continue
+        declared: set[str] = set()
+        for item in value:
+            if not isinstance(item, Mapping):
+                reasons.append(f"{stage}_POOL_ITEM_INVALID")
+                continue
+            scanned = _scan_symbols(item.get("symbol"))
+            if len(scanned) != 1:
+                reasons.append(f"{stage}_POOL_SYMBOL_INVALID")
+                continue
+            declared.update(scanned)
+        pools[key] = declared
+    seen: set[str] = set()
+    for key in keys:
+        if seen.intersection(pools[key]):
+            reasons.append(f"{stage}_POOL_PARTITION_OVERLAP")
+        seen.update(pools[key])
+    if seen != upstream_symbols:
+        reasons.append(f"{stage}_POOL_PARTITION_INCOMPLETE")
+    return reasons
+
+
 def _validate_a3_provenance(output: Mapping[str, Any], snapshot_data: Mapping[str, Any]) -> list[str]:
     pool = output.get("core_watch_pool")
     if not isinstance(pool, list) or not pool:
@@ -1929,6 +3079,37 @@ def _validate_a3_provenance(output: Mapping[str, Any], snapshot_data: Mapping[st
         ):
             if not _same_number(item.get(actual_key), expected.get(expected_key)):
                 reasons.append(reason)
+        if snapshot_data.get("STRICT_AGENT_RULES") is True:
+            reasons.extend(_a3_factor_contract_reasons(symbol, snapshot_data))
+            scenarios = item.get("scenarios")
+            required_scenarios = {
+                "normal_open_plan", "weak_open_plan", "high_gap_no_chase_plan", "invalidation_plan"
+            }
+            if not isinstance(scenarios, Mapping) or not required_scenarios.issubset(str(key) for key in scenarios):
+                reasons.append("A3_SCENARIO_SET_INCOMPLETE")
+    return reasons
+
+
+def _a3_factor_contract_reasons(symbol: str, snapshot_data: Mapping[str, Any]) -> list[str]:
+    factors = snapshot_data.get("FACTOR_SNAPSHOT")
+    factor = factors.get(symbol) if isinstance(factors, Mapping) else None
+    frames = factor.get("timeframes") if isinstance(factor, Mapping) else None
+    if not isinstance(factor, Mapping) or factor.get("ready") is not True or not isinstance(frames, Mapping):
+        return ["A3_FACTOR_SNAPSHOT_NOT_READY"]
+    reasons: list[str] = []
+    for timeframe in ("weekly", "daily", "120m", "15m", "5m"):
+        frame = frames.get(timeframe)
+        if not isinstance(frame, Mapping) or frame.get("ready") is not True:
+            reasons.append(f"A3_FACTOR_FRAME_NOT_READY:{timeframe}")
+            continue
+        if frame.get("ma_alignment") not in {
+            "BULL_STACK", "BULL_PARTIAL", "ENTANGLED", "BEAR_PARTIAL", "BEAR_STACK"
+        }:
+            reasons.append(f"A3_MA_ALIGNMENT_MISSING:{timeframe}")
+        if not isinstance(frame.get("ma_event"), str):
+            reasons.append(f"A3_MA_EVENT_MISSING:{timeframe}")
+        if not isinstance(frame.get("ma_bias"), Mapping):
+            reasons.append(f"A3_MA_BIAS_MISSING:{timeframe}")
     return reasons
 
 
@@ -1964,6 +3145,11 @@ def _canonicalize_a3_price_fields(
             "first_resistance": expected.get("first_resistance"),
             "reward_risk": expected.get("reward_risk"),
         }
+        factor_snapshot = snapshot_data.get("FACTOR_SNAPSHOT")
+        factor = factor_snapshot.get(symbol) if isinstance(factor_snapshot, Mapping) else None
+        if isinstance(factor, Mapping):
+            replacements["ma_analysis"] = _canonical_ma_analysis(factor)
+            replacements["factor_snapshot_hash"] = _sha256_json(factor)
         for key, value in replacements.items():
             item[key] = value
         if _major_trend_repair_required(symbol, snapshot_data):
@@ -1990,20 +3176,49 @@ def _canonicalize_a3_price_fields(
     return result, count, trend_veto_count
 
 
+def _canonical_ma_analysis(factor: Mapping[str, Any]) -> dict[str, Any]:
+    frames = factor.get("timeframes")
+    if not isinstance(frames, Mapping):
+        return {}
+    aliases = {"weekly": "weekly", "daily": "daily", "m120": "120m", "m15": "15m", "m5": "5m"}
+    result: dict[str, Any] = {}
+    for output_name, timeframe in aliases.items():
+        frame = frames.get(timeframe)
+        if not isinstance(frame, Mapping):
+            continue
+        moving = frame.get("moving_averages")
+        result[output_name] = {
+            **(dict(moving) if isinstance(moving, Mapping) else {}),
+            "alignment": frame.get("ma_alignment"),
+            "event": frame.get("ma_event"),
+            "bias": frame.get("ma_bias"),
+        }
+    return result
+
+
 def _major_trend_repair_required(symbol: str, snapshot_data: Mapping[str, Any]) -> bool:
     factors = snapshot_data.get("FACTOR_SNAPSHOT")
     factor = factors.get(symbol) if isinstance(factors, Mapping) else None
     summary = factor.get("technical_summary") if isinstance(factor, Mapping) else None
     timeframes = summary.get("timeframes") if isinstance(summary, Mapping) else None
+    compact_timeframes = factor.get("timeframes") if isinstance(factor, Mapping) else None
+    if not isinstance(timeframes, Mapping):
+        timeframes = compact_timeframes
     if not isinstance(timeframes, Mapping):
         return False
 
     def below_ma255(timeframe: str) -> bool:
         payload = timeframes.get(timeframe)
         averages = payload.get("ma") if isinstance(payload, Mapping) else None
+        if not isinstance(averages, Mapping) and isinstance(payload, Mapping):
+            averages = payload.get("moving_averages")
         if not isinstance(payload, Mapping) or not isinstance(averages, Mapping):
             return False
-        return _safe_float(payload.get("latest_close")) < _safe_float(averages.get("ma255")) and _safe_float(
+        latest_close = payload.get("latest_close")
+        latest = payload.get("latest")
+        if latest_close is None and isinstance(latest, Mapping):
+            latest_close = latest.get("close")
+        return _safe_float(latest_close) < _safe_float(averages.get("ma255")) and _safe_float(
             averages.get("ma255")
         ) > 0
 

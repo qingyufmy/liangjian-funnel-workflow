@@ -79,6 +79,9 @@ class TimeframeFactors(BaseModel):
     bars: tuple[OHLCVBar, ...] = ()
     latest: OHLCVBar | None = None
     moving_averages: dict[str, float | None] = Field(default_factory=dict)
+    ma_alignment: str | None = None
+    ma_event: str | None = None
+    ma_bias: dict[str, float | None] = Field(default_factory=dict)
     vwap: float | None = None
     ready: bool = False
     reasons: tuple[str, ...] = ()
@@ -195,15 +198,119 @@ def _calculate_frame(timeframe: str, bars: Sequence[OHLCVBar]) -> TimeframeFacto
     if vwap is None:
         reasons.append("VWAP_UNAVAILABLE")
     ready = not reasons
+    required_periods = _TIMEFRAME_REQUIRED.get(timeframe, MA_PERIODS)
+    previous_moving = {
+        f"ma{period}": _moving_average(closes[:-1], period)
+        for period in required_periods
+    }
+    alignment = _ma_alignment(moving, required_periods, ordered[-1].close if ordered else None)
+    event = _ma_event(
+        ordered,
+        moving,
+        previous_moving,
+        required_periods,
+    )
+    bias = _ma_bias(ordered[-1].close if ordered else None, moving)
     return TimeframeFactors(
         timeframe=timeframe,
         bars=ordered,
         latest=ordered[-1] if ordered else None,
         moving_averages=moving,
+        ma_alignment=alignment,
+        ma_event=event,
+        ma_bias=bias,
         vwap=vwap,
         ready=ready,
         reasons=tuple(dict.fromkeys(reasons)),
     )
+
+
+def _ma_alignment(
+    moving: Mapping[str, float | None],
+    periods: Sequence[int],
+    close: float | None,
+) -> str | None:
+    values = [moving.get(f"ma{period}") for period in periods]
+    if close is None or any(value is None for value in values):
+        return None
+    resolved = [float(value) for value in values if value is not None]
+    if all(left > right for left, right in zip(resolved, resolved[1:])):
+        return "BULL_STACK"
+    if all(left < right for left, right in zip(resolved, resolved[1:])):
+        return "BEAR_STACK"
+    ma5 = _number(moving.get("ma5"))
+    ma20 = _number(moving.get("ma20"))
+    if ma5 is not None and ma20 is not None and ma5 > ma20 and close > ma20:
+        return "BULL_PARTIAL"
+    if ma5 is not None and ma20 is not None and ma5 < ma20 and close < ma20:
+        return "BEAR_PARTIAL"
+    return "ENTANGLED"
+
+
+def _ma_event(
+    bars: Sequence[OHLCVBar],
+    moving: Mapping[str, float | None],
+    previous: Mapping[str, float | None],
+    periods: Sequence[int],
+) -> str | None:
+    if len(bars) < 2 or any(moving.get(f"ma{period}") is None for period in periods):
+        return None
+
+    def crossed_above(fast: str, slow: str) -> bool:
+        return (
+            _number(previous.get(fast)) is not None
+            and _number(previous.get(slow)) is not None
+            and float(previous[fast]) <= float(previous[slow])
+            and float(moving[fast]) > float(moving[slow])
+        )
+
+    def crossed_below(fast: str, slow: str) -> bool:
+        return (
+            _number(previous.get(fast)) is not None
+            and _number(previous.get(slow)) is not None
+            and float(previous[fast]) >= float(previous[slow])
+            and float(moving[fast]) < float(moving[slow])
+        )
+
+    if crossed_above("ma5", "ma20"):
+        return "GOLDEN_CROSS_SHORT"
+    if "ma99" in moving and (crossed_above("ma20", "ma99") or crossed_above("ma20", "ma128")):
+        return "GOLDEN_CROSS_MID"
+    if crossed_below("ma5", "ma20"):
+        return "DEAD_CROSS_SHORT"
+    if "ma99" in moving and (crossed_below("ma20", "ma99") or crossed_below("ma20", "ma128")):
+        return "DEAD_CROSS_MID"
+
+    latest = bars[-1]
+    prior_close = bars[-2].close
+    for period in (255, 128, 99):
+        key = f"ma{period}"
+        current_ma = _number(moving.get(key))
+        previous_ma = _number(previous.get(key))
+        if current_ma is None or previous_ma is None:
+            continue
+        if prior_close < previous_ma <= latest.close:
+            return f"RECLAIM_MA{period}"
+        if prior_close >= previous_ma > latest.close:
+            return f"LOSE_MA{period}"
+    for period in (20, 99, 128):
+        key = f"ma{period}"
+        current_ma = _number(moving.get(key))
+        if current_ma is not None and latest.low <= current_ma <= latest.close:
+            return f"PULLBACK_HOLD_MA{period}"
+    return "NONE"
+
+
+def _ma_bias(close: float | None, moving: Mapping[str, float | None]) -> dict[str, float | None]:
+    result: dict[str, float | None] = {}
+    for period in (20, 99):
+        average = _number(moving.get(f"ma{period}"))
+        result[f"close_vs_ma{period}_pct"] = (
+            (float(close) / average) - 1.0
+            if close is not None and average is not None and average > 0
+            else None
+        )
+    return result
 
 
 def _moving_average(values: Sequence[float], period: int) -> float | None:
@@ -522,6 +629,9 @@ def _technical_summary(symbol: str, as_of: datetime, frames: Mapping[str, Timefr
             "latest_end": frame.latest.end.isoformat() if frame.latest else None,
             "latest_close": frame.latest.close if frame.latest else None,
             "ma": dict(frame.moving_averages),
+            "ma_alignment": frame.ma_alignment,
+            "ma_event": frame.ma_event,
+            "ma_bias": dict(frame.ma_bias),
             "vwap": frame.vwap,
             "ready": frame.ready,
             "reasons": list(frame.reasons),

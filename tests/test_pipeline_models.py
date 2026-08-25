@@ -7,6 +7,7 @@ from liangjian_funnel.pipeline.model_client import (
     ModelClientError,
     ModelNetworkError,
     OpenAICompatibleModelClient,
+    PRODUCTION_THINKING_VARIANTS,
     StrictJSONError,
     strict_json_object,
 )
@@ -69,7 +70,7 @@ def test_client_uses_bounded_model_thinking_and_json_object(tmp_path: Path):
     assert seen[0]["model"] == "deepseek-v4-pro-0813"
     assert seen[0]["reasoning_effort"] == "low"
     assert seen[0]["stream"] is True
-    assert seen[0]["max_tokens"] == 6_000
+    assert seen[0]["max_tokens"] == 12_000
     assert seen[0]["response_format"] == {"type": "json_object"}
     assert result.output == {"envelope": {"status": "OK"}}
     assert result.reasoning_tokens == 7
@@ -247,7 +248,7 @@ def test_malformed_or_incomplete_sse_fails_closed_without_body(tmp_path: Path, b
         client.complete("deepseek-v4-pro-0813", [{"role": "user", "content": "{}"}])
 
     assert exc_info.value.reason_code == reason_code
-    assert exc_info.value.attempts == 1
+    assert exc_info.value.attempts == len(PRODUCTION_THINKING_VARIANTS)
     assert "not-json" not in str(exc_info.value)
     assert "secret" not in str(exc_info.value)
 
@@ -303,6 +304,28 @@ def test_strict_json_failure_retries_then_succeeds(tmp_path: Path):
     result = client.complete("z-ai/glm-5.3-free", [{"role": "user", "content": "{}"}])
     assert result.output == {"ok": True}
     assert result.attempts == 2
+
+
+def test_strict_json_retry_regenerates_with_json_only_instruction(tmp_path: Path):
+    seen: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+
+        body = json.loads(request.read())
+        seen.append(body)
+        content = "not-json" if len(seen) == 1 else '{"ok":true}'
+        return _sse_response(request, [{"choices": [{"delta": {"content": content}}]}, "[DONE]"])
+
+    client = OpenAICompatibleModelClient(
+        _settings(tmp_path), transport=httpx.MockTransport(handler), sleep=lambda _: None, max_attempts=2
+    )
+    result = client.complete("deepseek-v4-pro-0813", [{"role": "user", "content": "original"}])
+
+    assert result.output == {"ok": True}
+    assert seen[0]["messages"] == [{"role": "user", "content": "original"}]
+    assert seen[1]["messages"][-1]["content"].startswith("TRANSPORT_JSON_RETRY")
+    assert "not-json" not in str(seen[1])
 
 
 def test_strict_parser_normalizes_only_harmless_whitespace_and_exact_fence():

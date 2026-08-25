@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 from datetime import datetime
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
-from liangjian_funnel.data.ths_industry import collect_ths_industry_membership
+from liangjian_funnel.data.ths_industry import (
+    collect_ths_industry_history,
+    collect_ths_industry_membership,
+    select_industry_diversified_symbols,
+)
 from liangjian_funnel.pipeline.data_source import HithinkFetchResult, HithinkRow
 
 
@@ -133,3 +138,130 @@ def test_rate_limit_is_retried_without_reusing_partial_data(tmp_path) -> None:
     assert result.ok is True
     assert client.calls == 2
     assert waits == [2.0]
+
+
+def test_industry_history_collects_broad_indices_and_reuses_daily_cache(tmp_path) -> None:
+    catalog = _result("/catalog", [
+        {"thscode": "881101.TI", "name": "宽口径A"},
+        {"thscode": "881102.TI", "name": "宽口径B"},
+        {"thscode": "884001.TI", "name": "细分A"},
+    ])
+    bars = [
+        {
+            "date_ms": index * 86_400_000,
+            "open_price": 10 + index,
+            "high_price": 11 + index,
+            "low_price": 9 + index,
+            "close_price": 10.5 + index,
+            "volume": 100,
+            "turnover": 1000 + index,
+        }
+        for index in range(1, 6)
+    ]
+
+    class HistoryClient:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def index_history_1d(self, thscode: str, *, start: int, end: int) -> HithinkFetchResult:
+            assert end > start
+            self.calls.append(thscode)
+            return _result("/history", bars)
+
+    first_client = HistoryClient()
+    first = collect_ths_industry_history(
+        first_client,
+        catalog,
+        cache_dir=tmp_path,
+        as_of=NOW,
+    )
+
+    assert first.ok and first.complete
+    assert first_client.calls == ["881101.TI", "881102.TI"]
+    assert len(first.items) == 2
+    assert len(first.items[0].model_dump()["bars"]) == 5
+
+    second_client = HistoryClient()
+    second = collect_ths_industry_history(
+        second_client,
+        catalog,
+        cache_dir=tmp_path,
+        as_of=NOW,
+    )
+    assert second.ok and second.metadata["cache_hit"] is True
+    assert second_client.calls == []
+
+
+def test_a1_preselect_is_node_diversified_with_strict_top_n() -> None:
+    rows = []
+    records = []
+    for node_index in range(45):
+        node_code = f"{884000 + node_index}.TI"
+        for member_index in range(4):
+            symbol = f"{600000 + node_index * 4 + member_index:06d}.SH"
+            rows.append({
+                "thscode": symbol,
+                "mapping_status": "MAPPED",
+                "memberships": [
+                    {
+                        "industry_thscode": f"{881100 + node_index:06d}.TI",
+                        "industry_name": f"宽口径行业{node_index}",
+                    },
+                    {"industry_thscode": node_code, "industry_name": f"细分行业{node_index}"},
+                ],
+            })
+            records.append(SimpleNamespace(symbol=symbol, amount=float(10_000 - node_index * 10 - member_index)))
+    membership = _result("/memberships", rows)
+
+    selected, metadata = select_industry_diversified_symbols(
+        records,
+        membership,
+        limit=120,
+        top_n_per_node=8,
+        node_count_target=[40, 80],
+    )
+
+    assert len(selected) == 120
+    assert metadata["node_count"] == 45
+    assert metadata["parent_industry_count"] == 45
+    assert metadata["strategy"] == "THS_PARENT_BALANCED_SPECIFIC_NODE_ROUND_ROBIN_TOP_N"
+    assert max(item["selected_members"] for item in metadata["nodes"]) == 3
+    assert min(item["selected_members"] for item in metadata["nodes"]) == 2
+
+
+def test_a1_node_choice_is_parent_balanced_not_turnover_concentrated() -> None:
+    rows = []
+    records = []
+    # Ten very hot child nodes share one parent; twenty quiet nodes each have
+    # a distinct parent. A1 must cover the parents before taking a second hot
+    # child from the same market theme.
+    for node_index in range(30):
+        node_code = f"{884400 + node_index}.TI"
+        parent_index = 0 if node_index < 10 else node_index - 9
+        parent_code = f"{881400 + parent_index}.TI"
+        for member_index in range(2):
+            symbol = f"{300000 + node_index * 2 + member_index:06d}.SZ"
+            rows.append({
+                "thscode": symbol,
+                "mapping_status": "MAPPED",
+                "memberships": [
+                    {"industry_thscode": parent_code, "industry_name": f"宽口径{parent_index}"},
+                    {"industry_thscode": node_code, "industry_name": f"细分{node_index}"},
+                ],
+            })
+            turnover = 1_000_000.0 if node_index < 10 else 1.0
+            records.append(SimpleNamespace(symbol=symbol, amount=turnover - member_index))
+    membership = _result("/memberships", rows)
+
+    selected, metadata = select_industry_diversified_symbols(
+        records,
+        membership,
+        limit=20,
+        top_n_per_node=8,
+        node_count_target=[10, 20],
+    )
+
+    assert len(selected) == 20
+    assert metadata["node_count"] == 20
+    assert metadata["parent_industry_count"] == 20
+    assert sum(symbol < "300020.SZ" for symbol in selected) == 1

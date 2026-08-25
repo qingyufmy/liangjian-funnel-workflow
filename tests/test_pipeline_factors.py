@@ -82,3 +82,20 @@ def test_ma255_is_none_when_history_is_short():
     assert frame.moving_averages["ma255"] is None
     assert "INSUFFICIENT_MA255" in frame.reasons
     assert not result.ready
+
+
+def test_ma_alignment_event_and_bias_are_deterministic_closed_bar_factors():
+    rows = daily_rows(80)
+    result = FactorEngine("600519.SH").compute(
+        daily_bars=rows,
+        as_of=datetime(2026, 8, 24, 15, tzinfo=TZ),
+    )
+    daily = result.timeframes["daily"]
+    assert daily.ma_alignment == "BULL_STACK"
+    assert daily.ma_event in {
+        "NONE", "PULLBACK_HOLD_MA20", "GOLDEN_CROSS_SHORT", "GOLDEN_CROSS_MID",
+        "RECLAIM_MA99", "RECLAIM_MA128", "RECLAIM_MA255",
+    }
+    assert daily.ma_bias["close_vs_ma20_pct"] is not None
+    assert daily.ma_bias["close_vs_ma20_pct"] > 0
+    assert result.technical_summary["timeframes"]["daily"]["ma_alignment"] == "BULL_STACK"

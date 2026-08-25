@@ -106,7 +106,7 @@ def test_pdf_candidate_selection_is_bounded_relevant_and_risk_first() -> None:
 
     selected = select_cninfo_pdf_candidates(result, limit=2)
 
-    assert [item.announcement_id for item in selected] == ["risk", "order"]
+    assert [item.announcement_id for item in selected] == ["risk", "earnings"]
     assert select_cninfo_pdf_candidates(result, limit=0) == ()
 
 

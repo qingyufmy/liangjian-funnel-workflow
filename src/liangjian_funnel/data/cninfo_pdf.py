@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import time
@@ -30,7 +31,7 @@ MAX_EVIDENCE_SNIPPETS = 12
 MAX_SNIPPET_CHARS = 500
 _CONTENT_TYPES = {"application/pdf", "application/octet-stream"}
 _EVIDENCE_KEYWORDS = (
-    "中标", "合同", "订单", "金额", "收入", "营收", "产能", "投产", "客户",
+    "主营业务", "分行业", "分产品", "营业收入", "中标", "合同", "订单", "金额", "收入", "营收", "产能", "投产", "客户",
     "减持", "质押", "冻结", "诉讼", "仲裁", "处罚", "调查", "审计", "退市",
     "风险", "现金流", "毛利率", "净利润", "同比", "报告期",
 )
@@ -299,6 +300,7 @@ class CninfoPdfClient:
         http_status: int | None,
         cache_hit: bool,
     ) -> CninfoPdfEvidence:
+        logging.getLogger("pypdf").setLevel(logging.ERROR)
         try:
             from pypdf import PdfReader
             from pypdf.errors import PdfReadError

@@ -339,11 +339,21 @@ class FrozenInputSnapshot(BaseModel):
         history_fetcher: Callable[[str], Any] | None = None,
         fundamental_fetcher: Callable[[str], Any] | None = None,
         max_candidates: int = 50,
+        candidate_symbols: Sequence[str] | None = None,
     ) -> "FrozenInputSnapshot":
         if not isinstance(max_candidates, int) or isinstance(max_candidates, bool) or max_candidates < 1:
             raise ValueError("max_candidates must be a positive integer")
         effective_as_of = as_of or universe.as_of
-        selected = universe.deterministic_preselect(max_candidates) if universe.ready else ()
+        if candidate_symbols is None:
+            selected = universe.deterministic_preselect(max_candidates) if universe.ready else ()
+        else:
+            requested = tuple(str(symbol).strip().upper() for symbol in candidate_symbols)
+            if len(requested) > max_candidates or len(set(requested)) != len(requested):
+                raise ValueError("candidate_symbols must be unique and within max_candidates")
+            tradable = {candidate.symbol: candidate for candidate in universe.trade_candidates}
+            if any(symbol not in tradable for symbol in requested):
+                raise ValueError("candidate_symbols must be a subset of the tradable universe")
+            selected = tuple(tradable[symbol] for symbol in requested)
         daily: dict[str, Any] = {_payload_key(key): _json_ready(value) for key, value in (daily_payload or {}).items()}
         fundamental: dict[str, Any] = {_payload_key(key): _json_ready(value) for key, value in (fundamental_payload or {}).items()}
         failures: list[CandidateFailure] = []

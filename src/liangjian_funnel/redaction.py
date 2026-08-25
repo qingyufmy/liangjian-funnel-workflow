@@ -5,7 +5,9 @@ import re
 from typing import Any
 
 
-SECRET_PATTERN = re.compile(r"(?i)(sk-[a-z0-9_-]{8,}|bearer\s+[a-z0-9._-]{8,}|x-api-key\s*[:=]\s*\S+)")
+SECRET_PATTERN = re.compile(
+    r"(?i)((?<![a-z0-9_-])sk-[a-z0-9_-]{8,}|bearer\s+[a-z0-9._-]{8,}|x-api-key\s*[:=]\s*\S+)"
+)
 SENSITIVE_KEYS = {"authorization", "x-api-key", "api_key", "apikey", "token", "secret"}
 
 

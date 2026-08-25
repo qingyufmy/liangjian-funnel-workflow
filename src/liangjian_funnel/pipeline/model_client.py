@@ -15,9 +15,9 @@ from ..redaction import digest_text
 from ..settings import ALL_MODELS, Settings
 
 
-# These models expose a bounded thinking-effort control.  Starting production
-# research at ``low`` keeps structured runs finite; the capability-probe
-# variants remain as compatibility fallbacks for providers that reject it.
+# Long production prompts have completed reliably in bounded low-effort mode,
+# while probe-verified full thinking can consume the entire stage deadline.
+# Keep the probe variants as same-model fallbacks after strict JSON failures.
 PRODUCTION_THINKING_VARIANTS: tuple[tuple[str, dict[str, Any]], ...] = (
     ("reasoning_effort_low", {"reasoning_effort": "low"}),
     *THINKING_VARIANTS,
@@ -142,6 +142,8 @@ class OpenAICompatibleModelClient:
         overall_deadline = self.monotonic() + self.settings.model_timeout_seconds
         total_attempts = 0
         last_variant = PRODUCTION_THINKING_VARIANTS[0][0]
+        strict_json_retry = False
+        last_strict_error: StrictJSONError | None = None
         with httpx.Client(
             base_url=self.settings.model_base_url,
             timeout=self.settings.model_timeout_seconds,
@@ -166,7 +168,22 @@ class OpenAICompatibleModelClient:
                         "model": model,
                         "temperature": 0,
                         "max_tokens": self.settings.model_max_output_tokens,
-                        "messages": safe_messages,
+                        "messages": [
+                            *safe_messages,
+                            *(
+                                [{
+                                    "role": "user",
+                                    "content": (
+                                        "TRANSPORT_JSON_RETRY\n"
+                                        "Regenerate the complete answer from the original request. "
+                                        "Return exactly one valid JSON object, with no Markdown fence, "
+                                        "prefix, suffix, commentary, or truncated fields."
+                                    ),
+                                }]
+                                if strict_json_retry
+                                else []
+                            ),
+                        ],
                         "response_format": {"type": "json_object"},
                         "stream": True,
                         **thinking_payload,
@@ -199,9 +216,20 @@ class OpenAICompatibleModelClient:
                             )
                             output = _strip_reasoning(strict_json_object(content))
                     except StrictJSONError as exc:
+                        last_strict_error = exc
                         if variant_attempts < self.max_attempts and self.monotonic() < overall_deadline:
+                            # Repeating the identical request often repeats the
+                            # identical malformed wrapper/truncation. Ask the
+                            # same model to regenerate; never parse or repair
+                            # the rejected body locally.
+                            strict_json_retry = True
                             self._backoff(variant_attempts, deadline=overall_deadline)
                             continue
+                        if (
+                            variant_id != PRODUCTION_THINKING_VARIANTS[-1][0]
+                            and self.monotonic() < overall_deadline
+                        ):
+                            break
                         raise StrictJSONError(
                             exc.reason_code,
                             attempts=total_attempts,
@@ -223,7 +251,13 @@ class OpenAICompatibleModelClient:
                         reasoning_tokens=reasoning_tokens,
                     )
 
-        raise ModelClientError("THINKING_VARIANTS_EXHAUSTED")
+        if last_strict_error is not None:
+            raise StrictJSONError(
+                last_strict_error.reason_code,
+                attempts=total_attempts,
+                diagnostics=last_strict_error.diagnostics,
+            ) from last_strict_error
+        raise ModelClientError("THINKING_VARIANTS_EXHAUSTED", attempts=total_attempts)
 
     # A short alias makes test doubles and callers that call the operation
     # rather than completion read naturally.
@@ -262,21 +296,37 @@ def strict_json_object(content: Any) -> dict[str, Any]:
     """
 
     if not isinstance(content, str):
-        raise StrictJSONError()
+        raise StrictJSONError(diagnostics={"content_type": type(content).__name__})
     normalized = content.strip()
+    diagnostics = _strict_json_shape(normalized)
     if normalized.startswith("```json\n") and normalized.endswith("\n```"):
         normalized = normalized[len("```json\n") : -len("\n```")].strip()
     elif normalized.startswith("```\n") and normalized.endswith("\n```"):
         normalized = normalized[len("```\n") : -len("\n```")].strip()
     elif normalized.startswith("```") or normalized.endswith("```"):
-        raise StrictJSONError()
+        raise StrictJSONError(diagnostics=diagnostics)
     try:
         parsed = json.loads(normalized, object_pairs_hook=_unique_object, parse_constant=_reject_constant)
     except (TypeError, ValueError) as exc:
-        raise StrictJSONError() from exc
+        raise StrictJSONError(diagnostics=diagnostics) from exc
     if not isinstance(parsed, dict):
-        raise StrictJSONError("JSON_OBJECT_REQUIRED")
+        raise StrictJSONError(
+            "JSON_OBJECT_REQUIRED",
+            diagnostics={**diagnostics, "parsed_type": type(parsed).__name__},
+        )
     return parsed
+
+
+def _strict_json_shape(content: str) -> dict[str, Any]:
+    """Return non-content diagnostics safe for persisted model audits."""
+
+    return {
+        "content_chars": min(len(content), 10_000_000),
+        "starts_with_object": content.startswith("{"),
+        "ends_with_object": content.endswith("}"),
+        "starts_with_fence": content.startswith("```"),
+        "ends_with_fence": content.endswith("```"),
+    }
 
 
 def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:

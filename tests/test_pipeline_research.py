@@ -10,16 +10,26 @@ from liangjian_funnel.pipeline.prompts import PROMPT_FILENAMES, PromptRepository
 from liangjian_funnel.pipeline.research import (
     ResearchPipeline,
     _a1_batch_is_splittable,
+    _a1_discovery_context_reasons,
+    _a1_discovery_evidence_reasons,
     _apply_stage_threshold_policy,
+    _apply_a2_lineage_policy,
+    _apply_a3_pool_limits,
     _canonicalize_a3_price_fields,
+    _canonicalize_a1_driver_context,
+    _canonicalize_stage_scores,
     _canonicalize_stage_pool_fields,
     _merge_a1_outputs,
     _output_shape,
+    _project_disclosures,
     _project_fundamentals,
+    _project_factor_snapshot,
+    _project_macro_policy,
     _project_news,
     _scan_symbols,
     _stage_execution_budget,
     _validate_output,
+    _valid_a1_discovery_output,
 )
 from liangjian_funnel.pipeline.snapshot import FrozenInputSnapshot as CanonicalFrozenInputSnapshot
 from liangjian_funnel.settings import Settings
@@ -136,10 +146,8 @@ def test_three_lanes_are_isolated_and_run_in_stage_order(tmp_path: Path):
         assert all(stage.status == "VALIDATED" for stage in stages.values())
         assert stages["A1"].symbols == stages["A2"].symbols == stages["A3"].symbols
         assert stages["A3"].output and "do-not-persist-this" not in json.dumps(stages["A3"].output)
-    assert all(client.calls[index][2]["upstream_output"] is None for index in (0, 3, 6))
+    assert all(runtime["upstream_output"] is None for _, _, runtime in client.calls)
     assert all("snapshot_data" not in runtime for _, _, runtime in client.calls)
-    assert client.calls[1][2]["upstream_output"]["active_research_pool"][0]["symbol"] == "600519.SH"
-    assert client.calls[4][2]["upstream_output"]["active_research_pool"][0]["symbol"] == "000001.SZ"
 
     assert result.markdown_path and result.markdown_path.exists()
     markdown = result.markdown_path.read_text(encoding="utf-8")
@@ -278,6 +286,60 @@ def test_failed_large_a1_batch_is_split_without_repeating_successful_groups(tmp_
         }
         groups = [scope for model, stage, scope in client.calls if model == lane.model and stage == "A1"]
         assert [len(group) for group in groups] == [5, 2, 3, 1, 2, 1]
+
+
+def test_a3_large_focus_pool_is_batched_and_deterministically_merged(tmp_path: Path):
+    class A3BatchClient:
+        def __init__(self):
+            self.calls: list[tuple[str, str, tuple[str, ...]]] = []
+
+        def complete(self, model: str, messages, **metadata):
+            runtime = json.loads(messages[1]["content"].split("\n", 1)[1])
+            stage = runtime["stage"]
+            domain = runtime["g0_symbols"] if stage == "A1" else runtime["upstream_symbols"]
+            self.calls.append((model, stage, tuple(domain)))
+            output = {"envelope": _envelope(model, stage, runtime["snapshot_id"])}
+            if stage == "A1":
+                output.update({
+                    "active_research_pool": [_qualifying_item(symbol, stage) for symbol in domain],
+                    "monitor_pool": [],
+                    "rejected_candidates": [],
+                })
+            elif stage == "A2":
+                output["focus_pool"] = [_qualifying_item(symbol, stage) for symbol in domain]
+            else:
+                output["core_watch_pool"] = [_qualifying_item(symbol, stage) for symbol in domain]
+            return ModelCallResult(
+                model=model,
+                output=output,
+                prompt_hash=metadata.get("prompt_hash"),
+                input_hash=metadata.get("input_hash"),
+                latency_ms=4,
+                attempts=1,
+                thinking_variant="thinking_object",
+            )
+
+    symbols = [f"6006{index:02d}.SH" for index in range(17)]
+    client = A3BatchClient()
+    settings = _settings(tmp_path).model_copy(update={"research_a1_batch_size": 20})
+    result = ResearchPipeline(
+        settings,
+        prompt_repository=_prompt_dir(tmp_path),
+        model_client=client,
+        now=lambda: NOW,
+    ).run(
+        {"snapshot_id": "a3-batch-snapshot", "snapshot_hash": "a" * 64, "g0": symbols},
+        run_id="run-a3-batched",
+        generated_at=NOW,
+    )
+    assert result.status == "READY"
+    for lane in result.lanes:
+        assert lane.stages[2].diagnostics["batch_count"] == 2
+        assert lane.stages[2].diagnostics["completed_batches"] == 2
+        assert set(lane.stages[2].symbols) == set(symbols)
+    for model in MODELS:
+        a3_calls = [domain for called_model, stage, domain in client.calls if called_model == model and stage == "A3"]
+        assert [len(domain) for domain in a3_calls] == [16, 1]
 
 
 def test_schema_invalid_output_is_not_persisted_and_stage_retries_once(tmp_path: Path):
@@ -475,6 +537,366 @@ def test_server_threshold_policy_keeps_a1_broad_but_demotes_weak_active_items():
     assert output["analysis_summary"]["pool_counts"]["active_research_pool"] == 1
 
 
+def test_a1_active_requires_hash_bound_main_business_revenue_evidence():
+    evidence_ref = "cninfo:annual-1:page:11"
+    output, changed = _apply_stage_threshold_policy(
+        {
+            "active_research_pool": [
+                {
+                    "symbol": "600183.SH",
+                    "structural_score": 72,
+                    "data_quality_score": 78,
+                    "evidence_confidence": 0.72,
+                    "business_exposure": {
+                        "revenue_exposure_pct": 65.0,
+                        "source_ref": evidence_ref,
+                    },
+                    "status": "ACTIVE",
+                },
+                {
+                    "symbol": "300308.SZ",
+                    "structural_score": 80,
+                    "data_quality_score": 80,
+                    "evidence_confidence": 0.8,
+                    "business_exposure": {
+                        "revenue_exposure_pct": None,
+                        "source_ref": "THS_INDUSTRY_MEMBERSHIP",
+                    },
+                    "status": "ACTIVE",
+                },
+            ],
+            "monitor_pool": [],
+        },
+        "A1",
+        {
+            "MAIN_BUSINESS_EVIDENCE": {
+                "600183.SH": {"available": True, "evidence": [{"source_ref": evidence_ref}]},
+                "300308.SZ": {"available": False, "evidence": []},
+            }
+        },
+    )
+
+    assert changed == 1
+    assert [item["symbol"] for item in output["active_research_pool"]] == ["600183.SH"]
+    assert output["monitor_pool"][0]["reason_codes"] == ["A1_MAIN_BUSINESS_EVIDENCE_MISSING"]
+
+
+def test_a1_active_requires_theme_and_chain_lineage_bound_to_snapshot_evidence():
+    policy_ref = "sha256:policy-1"
+    business_ref = "cninfo:annual-1:page:11"
+    base_item = {
+        "symbol": "600183.SH",
+        "primary_theme": "theme-policy",
+        "industry_chain_node": "node-material",
+        "structural_score": 80,
+        "score_breakdown": {"structural_theme": 80, "business_mapping": 80},
+        "data_quality_score": 80,
+        "evidence_confidence": 0.8,
+        "business_exposure": {"revenue_exposure_pct": 65.0, "source_ref": business_ref},
+        "status": "ACTIVE",
+    }
+    snapshot = {
+        "A1_DRIVER_LINEAGE_REQUIRED": True,
+        "SCORE_WEIGHTS": {"structural_theme": 0.5, "business_mapping": 0.5},
+        "MACRO_POLICY_FEED": {"official_documents": [{"fact_id": policy_ref}]},
+        "MAIN_BUSINESS_EVIDENCE": {
+            "600183.SH": {"available": True, "evidence": [{"source_ref": business_ref}]},
+        },
+    }
+
+    valid, valid_changed = _apply_stage_threshold_policy(
+        {
+            "structural_themes": [{
+                "theme_id": "theme-policy",
+                "display_name": "政策主线",
+                "origin": "POLICY_PRIOR",
+                "source_refs": [policy_ref],
+            }],
+            "industry_chain_graph": [{
+                "node_id": "node-material",
+                "theme_ids": ["theme-policy"],
+                "source_refs": [policy_ref],
+            }],
+            "active_research_pool": [base_item],
+            "monitor_pool": [],
+        },
+        "A1",
+        snapshot,
+    )
+    assert valid_changed == 0
+    assert [item["symbol"] for item in valid["active_research_pool"]] == ["600183.SH"]
+
+    free_form, changed = _apply_stage_threshold_policy(
+        {
+            "structural_themes": [{
+                "theme_id": "unrelated-theme",
+                "display_name": "自由发挥题材",
+                "source_refs": ["invented-ref"],
+            }],
+            "industry_chain_graph": [{
+                "node_id": "invented-node",
+                "theme_ids": ["unrelated-theme"],
+                "source_refs": ["invented-ref"],
+            }],
+            "active_research_pool": [base_item],
+            "monitor_pool": [],
+        },
+        "A1",
+        snapshot,
+    )
+    assert changed == 1
+    reasons = set(free_form["monitor_pool"][0]["reason_codes"])
+    assert "A1_STRUCTURAL_THEME_LINEAGE_MISSING" in reasons
+    assert "A1_CHAIN_NODE_LINEAGE_MISSING" in reasons
+
+    rss_only_snapshot = {
+        **snapshot,
+        "MACRO_POLICY_FEED": {"official_documents": []},
+        "INDUSTRY_NEWS_FEED": {
+            "evidence_tier": "T3",
+            "items": [{"fact_id": "rss:story-1", "source_url": "https://example.test/story"}],
+        },
+    }
+    rss_only, rss_changed = _apply_stage_threshold_policy(
+        {
+            "structural_themes": [{
+                "theme_id": "theme-policy",
+                "display_name": "媒体题材",
+                "source_refs": ["rss:story-1"],
+            }],
+            "industry_chain_graph": [{
+                "node_id": "node-material",
+                "theme_ids": ["theme-policy"],
+                "source_refs": ["rss:story-1"],
+            }],
+            "active_research_pool": [base_item],
+            "monitor_pool": [],
+        },
+        "A1",
+        rss_only_snapshot,
+    )
+    assert rss_changed == 1
+    rss_reasons = set(rss_only["monitor_pool"][0]["reason_codes"])
+    assert "A1_THEME_DRIVER_EVIDENCE_INVALID" in rss_reasons
+    assert "A1_CHAIN_NODE_EVIDENCE_INVALID" in rss_reasons
+
+
+def test_a1_active_score_must_follow_configured_weighted_breakdown():
+    item = {
+        "symbol": "600183.SH",
+        "structural_score": 90,
+        "data_quality_score": 80,
+        "evidence_confidence": 0.8,
+        "score_breakdown": {"structural_theme": 80, "business_mapping": 60},
+    }
+    output, changed = _apply_stage_threshold_policy(
+        {"active_research_pool": [item], "monitor_pool": []},
+        "A1",
+        {"SCORE_WEIGHTS": {"structural_theme": 0.5, "business_mapping": 0.5}},
+    )
+    assert changed == 1
+    assert output["monitor_pool"][0]["reason_codes"] == ["A1_STRUCTURAL_SCORE_MISMATCH"]
+
+
+def test_server_canonicalizes_raw_and_legacy_contribution_scores():
+    weights = {"structural_theme": 0.2, "business_mapping": 0.8}
+    output, changed = _canonicalize_stage_scores(
+        {
+            "active_research_pool": [
+                {
+                    "symbol": "600183.SH",
+                    "structural_score": 99,
+                    "score_breakdown": {"structural_theme": 80, "business_mapping": 60},
+                },
+                {
+                    "symbol": "000001.SZ",
+                    "structural_score": 70,
+                    "score_breakdown": {"structural_theme": 10, "business_mapping": 60},
+                },
+            ]
+        },
+        "A1",
+        {"SCORE_WEIGHTS": weights},
+    )
+    assert changed == 2
+    raw, contribution = output["active_research_pool"]
+    assert raw["structural_score"] == 64
+    assert contribution["structural_score"] == 70
+    assert contribution["score_breakdown"] == {
+        "structural_theme": 50,
+        "business_mapping": 75,
+    }
+
+
+def test_a2_score_is_recomputed_with_penalties_and_propagated_to_candidates():
+    output, changed = _canonicalize_stage_scores(
+        {
+            "active_themes": [{
+                "theme_id": "theme-1",
+                "theme_score": 90,
+                "score_breakdown": {"breadth": 80, "capital_flow": 20},
+                "penalties": [{"points": -10}],
+            }],
+            "focus_pool": [{"symbol": "600183.SH", "theme_id": "theme-1", "theme_score": 90}],
+            "watch_only_pool": [],
+        },
+        "A2",
+        {"THEME_SCORE_WEIGHTS": {"breadth": 0.5, "capital_flow": 0.5}},
+    )
+    assert changed == 2
+    assert output["active_themes"][0]["theme_score"] == 40
+    assert output["focus_pool"][0]["theme_score"] == 40
+
+
+def test_a1_company_batches_cannot_invent_themes_after_discovery():
+    discovery = {
+        "structural_themes": [{"theme_id": "theme-policy"}],
+        "industry_chain_graph": [{"node_id": "node-material", "theme_ids": ["theme-policy"]}],
+    }
+    assert _valid_a1_discovery_output(discovery)
+    assert _a1_discovery_context_reasons(
+        discovery,
+        {"mode": "COMPANY_MAPPING", **discovery},
+    ) == []
+    invented = {
+        "structural_themes": [{"theme_id": "free-form-theme"}],
+        "industry_chain_graph": [{"node_id": "free-form-node", "theme_ids": ["free-form-theme"]}],
+    }
+    assert set(_a1_discovery_context_reasons(
+        invented,
+        {"mode": "COMPANY_MAPPING", **discovery},
+    )) == {"A1_BATCH_THEME_OUTSIDE_DISCOVERY", "A1_BATCH_NODE_OUTSIDE_DISCOVERY"}
+    canonical, changed = _canonicalize_a1_driver_context(
+        invented,
+        {"mode": "COMPANY_MAPPING", **discovery},
+    )
+    assert changed == 2
+    assert canonical["structural_themes"] == discovery["structural_themes"]
+    assert canonical["industry_chain_graph"] == discovery["industry_chain_graph"]
+    assert _a1_discovery_context_reasons(
+        canonical,
+        {"mode": "COMPANY_MAPPING", **discovery},
+    ) == []
+    assert set(_a1_discovery_evidence_reasons(
+        discovery,
+        {"MACRO_POLICY_FEED": {"official_documents": [{"fact_id": "policy-ref"}]}},
+    )) == {"A1_DISCOVERY_THEME_EVIDENCE_INVALID", "A1_DISCOVERY_NODE_EVIDENCE_INVALID"}
+    evidenced = {
+        "structural_themes": [{"theme_id": "theme-policy", "source_refs": ["policy-ref"]}],
+        "industry_chain_graph": [{
+            "node_id": "node-material", "theme_ids": ["theme-policy"], "source_refs": ["policy-ref"],
+        }],
+    }
+    assert _a1_discovery_evidence_reasons(
+        evidenced,
+        {"MACRO_POLICY_FEED": {"official_documents": [{"fact_id": "policy-ref"}]}},
+    ) == []
+
+
+def test_macro_policy_projection_prefers_relevant_official_documents_and_retains_counts():
+    feed = {
+        "official_documents": [
+            {"fact_id": "p-old", "title": "人工智能产业行动方案", "publish_time": "2026-08-01"},
+            {"fact_id": "p-new", "title": "一般行政通知", "publish_time": "2026-08-25"},
+            {"fact_id": "p-risk", "title": "产业政策", "prompt_injection_suspected": True},
+        ]
+    }
+    projected = _project_macro_policy(feed, item_limit=1)
+    assert projected["official_documents"][0]["fact_id"] == "p-old"
+    assert projected["prompt_document_count"] == 1
+    assert projected["full_document_count"] == 3
+
+
+def test_a2_focus_must_reuse_a1_theme_and_cannot_invent_missing_capital_flow():
+    upstream = {"structural_themes": [{"theme_id": "theme-policy"}]}
+    valid_theme = {
+        "theme_id": "theme-policy",
+        "stage": "CONFIRMATION",
+        "new_entry_policy": "ALLOW",
+        "supporting_evidence": ["sector breadth"],
+        "contradicting_evidence": ["capital flow unavailable"],
+        "score_breakdown": {"breadth": 80, "capital_flow": 0},
+        "theme_score": 40,
+        "rotation_overlap_ratio": 0.2,
+        "penalties": [],
+    }
+    item = {
+        "symbol": "600183.SH",
+        "theme_id": "theme-policy",
+        "market_role": "CORE_ARMY",
+        "identifiability_score": 80,
+        "theme_score": 40,
+    }
+    snapshot = {
+        "MIN_IDENTIFIABILITY_SCORE": 60,
+        "THEME_SCORE_WEIGHTS": {"breadth": 0.5, "capital_flow": 0.5},
+        "CAPITAL_FLOW_SNAPSHOT": {"available": False},
+        "SECTOR_CYCLE_SNAPSHOT": {"history_metrics": {"available": True, "top3_daily_overlap": 0.2}},
+    }
+    valid, changed = _apply_a2_lineage_policy(
+        {"active_themes": [valid_theme], "focus_pool": [item], "watch_only_pool": []},
+        upstream,
+        snapshot,
+    )
+    assert changed == 0
+    assert valid["focus_pool"] == [item]
+
+    invented_theme = {**valid_theme, "score_breakdown": {"breadth": 80, "capital_flow": 80}, "theme_score": 80}
+    invalid, invalid_changed = _apply_a2_lineage_policy(
+        {
+            "active_themes": [invented_theme],
+            "focus_pool": [{**item, "market_role": "LOW_IDENTITY", "theme_score": 80}],
+            "watch_only_pool": [],
+        },
+        upstream,
+        snapshot,
+    )
+    assert invalid_changed == 1
+    reasons = set(invalid["watch_only_pool"][0]["reason_codes"])
+    assert "A2_THEME_LINEAGE_INVALID" in reasons
+    assert "A2_MARKET_ROLE_NOT_FOCUS_ELIGIBLE" in reasons
+
+
+def test_factor_projection_removes_duplicate_summary_and_raw_bar_payload():
+    projected = _project_factor_snapshot({
+        "600183.SH": {
+            "symbol": "600183.SH",
+            "technical_summary": {"duplicated": True},
+            "timeframes": {
+                "120m": {
+                    "latest": {
+                        "symbol": "600183.SH", "open": 10, "high": 11, "low": 9,
+                        "close": 10.5, "end": "2026-08-25T15:00:00+08:00", "volume": 100,
+                    },
+                    "moving_averages": {"ma20": 10},
+                    "ma_alignment": "BULL_PARTIAL",
+                    "ma_event": "PULLBACK_HOLD_MA20",
+                    "ma_bias": {"close_vs_ma20_pct": 0.05},
+                }
+            },
+        }
+    }, {"600183.SH"})
+    factor = projected["600183.SH"]
+    assert "technical_summary" not in factor
+    assert "volume" not in factor["timeframes"]["120m"]["latest"]
+    assert factor["timeframes"]["120m"]["ma_alignment"] == "BULL_PARTIAL"
+
+
+def test_a3_global_pool_limits_are_applied_after_batch_merge():
+    core = [
+        {"symbol": f"6007{index:02d}.SH", "technical_score": 90 - index, "risk_unit": "STANDARD"}
+        for index in range(5)
+    ]
+    limited, changed = _apply_a3_pool_limits(
+        {"core_watch_pool": core, "secondary_watch_pool": [], "rejected_candidates": []},
+        {"REGIME_PARAM_SET": {"agent_3": {"core_watch_max": 2, "total_watch_max": 3}}},
+    )
+    assert changed == 3
+    assert [item["symbol"] for item in limited["core_watch_pool"]] == ["600700.SH", "600701.SH"]
+    assert [item["symbol"] for item in limited["secondary_watch_pool"]] == ["600702.SH"]
+    assert {item["symbol"] for item in limited["rejected_candidates"]} == {"600703.SH", "600704.SH"}
+
+
 def test_server_threshold_policy_demotes_low_theme_score_and_rejects_bad_a3_payoff():
     a2, a2_changed = _apply_stage_threshold_policy(
         {
@@ -661,6 +1083,35 @@ def test_prompt_projection_bounds_history_and_filters_upstream_symbols():
     assert projected_news["full_item_count"] == 2
     assert set(projected_news["by_symbol"]) == {"600519.SH"}
     assert len(projected_news["items"][0]["body"]) <= 801
+
+
+def test_disclosure_projection_prioritizes_full_report_pdf_business_evidence():
+    projected = _project_disclosures(
+        {
+            "by_symbol": {
+                "600183.SH": [
+                    {
+                        "announcement_id": "new-general",
+                        "announcement_title": "最新董事会公告",
+                        "publish_time": "2026-08-25T10:00:00+08:00",
+                        "event_tags": ["GENERAL_DISCLOSURE"],
+                        "pdf_evidence_available": False,
+                    },
+                    {
+                        "announcement_id": "half-year",
+                        "announcement_title": "生益科技2026年半年度报告",
+                        "publish_time": "2026-08-22T10:00:00+08:00",
+                        "event_tags": ["EARNINGS"],
+                        "pdf_evidence_available": True,
+                        "pdf_evidence_snippets": [{"page_number": 11, "text": "主营业务分产品"}],
+                    },
+                ]
+            }
+        },
+        {"600183.SH"},
+    )
+
+    assert projected["by_symbol"]["600183.SH"][0]["announcement_id"] == "half-year"
 
 
 def test_a3_numeric_plan_must_match_deterministic_price_levels():

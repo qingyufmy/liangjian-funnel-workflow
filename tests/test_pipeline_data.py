@@ -77,6 +77,42 @@ def test_financial_indicators_flatten_nested_abilities(tmp_path: Path):
     assert result.items[0].model_dump() == {"ability": "growth", "index_id": "roe", "value": "1.2"}
 
 
+def test_ths_index_history_uses_the_official_index_endpoint_once(tmp_path: Path) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/a-share-index/prices/historical"
+        assert request.url.params["thscode"] == "881101.TI"
+        assert request.url.params["interval"] == "1d"
+        assert request.url.params["start"] == "1000"
+        assert request.url.params["end"] == "2000"
+        return httpx.Response(
+            200,
+            json={
+                "code": 0,
+                "data": {
+                    "item": [
+                        {
+                            "date_ms": 1000,
+                            "open_price": 10,
+                            "high_price": 11,
+                            "low_price": 9,
+                            "close_price": 10.5,
+                            "volume": 100,
+                            "turnover": 1000,
+                        }
+                    ]
+                },
+            },
+            request=request,
+        )
+
+    client = HithinkClient(settings(tmp_path), transport=httpx.MockTransport(handler), sleep=lambda _: None)
+    result = client.index_history_1d("881101.TI", start=1000, end=2000)
+    client.close()
+
+    assert result.ok and result.complete
+    assert result.items[0].model_dump()["close_price"] == 10.5
+
+
 def _universe() -> UniverseSnapshot:
     catalog = [
         {"thscode": "600519.SH", "name": "A"},
@@ -171,3 +207,25 @@ def test_frozen_snapshot_hash_replay_and_candidate_failure(tmp_path: Path):
     assert restored.snapshot_hash == frozen.snapshot_hash
     assert restored.fact_payload == frozen.fact_payload
     assert [failure.symbol for failure in restored.candidate_failures] == ["000001.SZ"]
+
+
+def test_frozen_snapshot_can_preserve_explicit_node_diversified_candidates():
+    universe = _universe()
+    frozen = FrozenInputSnapshot.freeze(
+        universe,
+        as_of=NOW,
+        daily_payload={"000001.SZ": [{"date": "2026-08-23", "close": 10}]},
+        fundamental_payload={"000001.SZ": [{"period": "2026Q2"}]},
+        max_candidates=1,
+        candidate_symbols=["000001.SZ"],
+    )
+
+    assert [item.symbol for item in frozen.trade_candidates] == ["000001.SZ"]
+
+    with pytest.raises(ValueError, match="subset of the tradable universe"):
+        FrozenInputSnapshot.freeze(
+            universe,
+            as_of=NOW,
+            max_candidates=1,
+            candidate_symbols=["300750.SZ"],
+        )

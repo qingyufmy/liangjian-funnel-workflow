@@ -112,6 +112,36 @@ def test_zero_records_with_null_announcements_is_a_valid_complete_result() -> No
     assert result.announcements == ()
 
 
+def test_zero_records_resolves_exact_cninfo_org_id_and_retries_query() -> None:
+    queried_stocks: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        form = dict(httpx.QueryParams(request.content.decode()))
+        if request.url.path.endswith("/topSearch/detailOfQuery"):
+            return httpx.Response(
+                200,
+                json={
+                    "keyBoardList": [
+                        {"code": "300308", "plate": "szse", "orgId": "9900022016"},
+                    ]
+                },
+            )
+        queried_stocks.append(form["stock"])
+        if form["stock"] == "300308,gssz0300308":
+            return httpx.Response(200, json=page(None, total=0, total_pages=0, has_more=False))
+        assert form["stock"] == "300308,9900022016"
+        item = announcement("a1")
+        item["secCode"] = "300308"
+        return httpx.Response(200, json=page([item], total=1, total_pages=1, has_more=False))
+
+    with client(handler) as cninfo:
+        result = cninfo.fetch_announcements("300308.SZ", "2026-08-25", "2026-08-25")
+
+    assert result.ok is True
+    assert result.metadata["org_id_source"] == "CNINFO_TOP_SEARCH"
+    assert queried_stocks == ["300308,gssz0300308", "300308,9900022016"]
+
+
 def test_real_single_stock_shape_allows_zero_totalpages_and_null_storage_time() -> None:
     item = announcement("a1")
     item["storageTime"] = None
