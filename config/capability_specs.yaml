@@ -1,0 +1,33 @@
+schema_version: liangjian-capability-specs/1.0.0
+hithink:
+  probe_symbol: 600519.SH
+  checks:
+    - trading_calendar
+    - ticker_catalog
+    - realtime_snapshot
+    - historical_1d
+    - raw_price_mode
+    - adjustment_events
+    - auction_final
+    - financial_statements
+mootdx:
+  probe_symbol: 600519.SH
+  checks:
+    - node_rotation
+    - historical_1m
+    - historical_5m
+    - history_5m_12240
+    - raw_price_mode
+    - closed_bar_timestamps
+    - session_gap_detection
+models:
+  thinking_variants:
+    - id: thinking_object
+      payload: {thinking: {type: enabled}}
+    - id: reasoning_effort
+      payload: {reasoning_effort: high}
+    - id: reasoning_object
+      payload: {reasoning: {enabled: true}}
+  pass_requires:
+    - strict_json
+    - explicit_reasoning_marker

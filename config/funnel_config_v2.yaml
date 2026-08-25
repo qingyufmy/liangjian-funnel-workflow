@@ -1,0 +1,704 @@
+# ============================================================================
+# 量见·A股漏斗系统统一配置  LIANGJIAN_FUNNEL_V2
+# ----------------------------------------------------------------------------
+# ⚠ 本文件中的所有数值均为**初始配置**，不是已验证的最优参数。
+#   上线前必须经 Agent 5 的历史回放校准。
+#   任何变更必须通过 CONFIG_CHANGE_PROPOSAL 流程，不得手工直接改生产值。
+# ============================================================================
+
+schema_version: astock-agent-funnel-v2
+funnel_version: LIANGJIAN_FUNNEL_V2/2.0.0
+config_hash: ""            # 由 CI 计算并回填，写入每条决策记录
+
+# ---------------------------------------------------------------------------
+# 运行时
+# ---------------------------------------------------------------------------
+runtime:
+  timezone: Asia/Shanghai
+  mode: SHADOW                       # SHADOW → SIMULATION → 永不 LIVE
+  order_permission: DISABLED
+  simulation_only: true
+  human_review_required: true
+  llm_permission: TIGHTEN_ONLY
+  llm_intraday_permission: VETO_ONLY # ★ 盘中 LLM 只有否决权
+  point_in_time_required: true
+  fail_closed: true
+  downstream_symbol_expansion: false
+  after_hours_entry_enabled: false   # 盘后固定价 15:05–15:30，验证前禁用
+
+# ---------------------------------------------------------------------------
+# 交易规则快照（不在此处写规则本体，只声明来源与校验策略）
+# ---------------------------------------------------------------------------
+exchange_rules:
+  source: ExchangeRuleSnapshotV2
+  require_human_signoff: true
+  block_on_missing_rule: true        # 未命中规则表 → BLOCK，禁止默认 10%
+  block_on_stale_snapshot: true
+  prompt_hardcode_check: true        # CI 扫描 Prompt 中的规则数字，命中即 fail
+  known_effective_dates:
+    - "2026-07-06"                   # 沪深北 2026 年修订交易规则施行日
+    - "2026-04-07"                   # 证监会短线交易新规实施日
+  historical_replay_uses_asof_version: true
+
+# ---------------------------------------------------------------------------
+# 数据策略
+# ---------------------------------------------------------------------------
+data_policy:
+  required_publication_timestamp: true
+  closed_bars_only: true
+  minimum_market_coverage: 0.90
+  minimum_sector_coverage: 0.80
+  missing_numeric_render: "-"
+  llm_numeric_imputation: false
+  llm_factor_calculation: false
+  sentiment_must_be_independent: true   # ★ 禁止 sentiment = capital_flow
+  sentiment_channels:
+    - CAPITAL_SENTIMENT      # 主力净流、超大单、两融、ETF 申赎
+    - PRICE_SENTIMENT        # 涨跌停、炸板、连板、涨停溢价、赚钱效应
+    - NEWS_HEAT              # 新闻、互动易、搜索热度
+    - CROWDING               # 基金持仓、龙虎榜集中度、融资占比、换手结构
+  source_priority:
+    - EXCHANGE_AND_OFFICIAL  # T0
+    - COMPANY_DISCLOSURE     # T1
+    - LICENSED_RESEARCH      # T2 —— 仅代表预期，非事实
+    - MAINSTREAM_MEDIA       # T3 —— 仅线索
+    - SOCIAL_CLUE_ONLY       # T4 —— 仅触发待核实任务
+
+# ---------------------------------------------------------------------------
+# 数据源治理  ★ 详见《数据源治理与污染防护.md》
+# ---------------------------------------------------------------------------
+data_sources:
+  stance: OPEN_SOURCE_FREE_ONLY             # 研究阶段不引入积分墙与付费源
+  single_source_of_truth_required: true     # ★ 每字段唯一权威源
+  averaging_across_sources_forbidden: true  # ★ 禁止取平均或随意择一
+  require_four_timestamps: true             # event/publish/fetch/ingest
+
+  authority:                                # 字段类 → 权威源
+    daily_ohlcv: mootdx
+    minute_bars: mootdx
+    realtime_quote: gm
+    adjust_factor: mootdx
+    trading_calendar: exchange_official
+    exchange_rules: exchange_official       # 人工签核
+    industry_membership: hithink_ths
+    concept_membership: hithink_ths
+    financial_statements: cninfo            # ★ 待接入，见 P0
+    disclosure_timestamp: cninfo            # ★ 无替代来源
+    earnings_consensus: ths
+    dragon_tiger: exchange_official
+    lockup_release: eastmoney
+    capital_flow: eastmoney
+    margin_balance: exchange_official
+    news_flash: cls
+    news_flash_backup: eastmoney_7x24
+    stock_news: eastmoney_search
+    industry_news: curated_rss_vibe_research
+    policy_text: gov_official
+    tender_and_award: gov_procurement       # L4 政策证据唯一来源
+
+  validators:                               # 仅用于校验，不可升为 authority
+    daily_ohlcv: [sina, gm, akshare]
+    financial_statements: [ths, sina, mootdx]
+    dragon_tiger: [eastmoney, akshare]
+    capital_flow: [baidu_stock]
+
+  akshare:
+    role: VALIDATOR_ONLY                    # ★ 不得作为 CRITICAL 字段权威源
+    reason: "官方声明仅供学术研究，且部分接口可能被移除"
+    contract_tests_required: true           # 每日 CI 跑字段契约测试
+    license: MIT
+
+  sla_seconds:                              # 最大可接受 system_lag
+    realtime_quote: 3
+    bar_1m: 15
+    bar_5m: 30
+    ma_realtime: 30
+    sector_tier: 60
+    capital_flow: 90                        # ★ 受东财限流约束
+    sector_quote: 90
+    news_flash: 300
+  sla_violation_action:
+    critical: BLOCK
+    high: BLOCK
+    medium: DEGRADE_TO_OBSERVATION
+    low: LOG_ONLY
+
+  sector_data_usage: MINUTE_LEVEL_VETO_ONLY # ★ 禁止用于秒级触发判断
+
+  throttling:                               # 东财风控规避（项目已有 _em_get）
+    eastmoney_min_interval_s: 1.0
+    eastmoney_jitter_s: [0.1, 0.5]
+    eastmoney_serial_only: true
+
+  cross_validation:
+    critical: SINGLE_AUTHORITY_PLUS_HUMAN_SIGNOFF
+    high: DUAL_SOURCE_COMPARE
+    high_price_diff_threshold_pct: 0.005
+    medium: SINGLE_AUTHORITY_PLUS_ANOMALY_DETECTION
+    low: DEDUP_AND_TAG
+  internal_consistency_checks:
+    - OHLC_ORDERING
+    - PRICE_LIMIT_BOUND
+    - VOLUME_AMOUNT_CONSISTENCY
+    - MA_WITHIN_WINDOW_RANGE
+    - MARKET_BREADTH_SUM
+    - SECTOR_INDEX_VS_CONSTITUENTS
+    - CAPITAL_FLOW_ZERO_SUM              # ★ 无需第二源即可检出脏数据
+    - BALANCE_SHEET_IDENTITY
+    - CASHFLOW_IDENTITY
+
+  point_in_time:
+    require_disclosure_timestamp: true
+    missing_timestamp_action: DATA_NOT_POINT_IN_TIME
+    financial_revisions_append_only: true
+    concept_membership_daily_snapshot: true
+    concept_snapshot_missing_action: MARK_UNRELIABLE_AND_EXCLUDE
+    security_status_history_required: true   # ST/停牌/退市整理按日存档
+
+  adjustment:
+    mode: RAW_PLUS_EXPLICIT_FACTOR          # ★ 不使用源提供的前复权序列
+    record_factor_version: true
+    replay_uses_asof_factor_version: true
+
+  news:
+    dedup_method: NORMALIZED_URL_AND_TITLE_48H
+    heat_uses_deduped_count: true
+    record_original_source_and_repost_count: true
+    media_evidence_tier: T3
+    untrusted_text: true
+    sentiment_inference_without_classifier: false
+    channels: [CLS_FLASH, EASTMONEY_7X24, EASTMONEY_STOCK, CURATED_RSS]
+    rss_catalog_source: Vibe-Research/backend/news_sources.json
+    rss_source_count: 106
+    rss_recent_days: 7
+    rss_per_source: 6
+    stock_news_per_symbol: 20
+    flash_items_per_source: 50
+
+  planned_integrations:                     # 建议接入，按优先级
+    P0: [cninfo, exchange_official_sse, exchange_official_szse,
+         exchange_official_bse]
+    P1: [akshare, gov_official_ndrc, gov_official_miit, gov_official_stats,
+         gov_procurement, tender_platform]
+    P2: [cninfo_interactive, sse_e_interaction, swsindex_official_optional]
+  excluded:
+    - tushare_pro                           # 积分墙
+    - any_paid_api
+    - login_required_or_anti_scraping_sites
+
+# ---------------------------------------------------------------------------
+# G0 全市场门禁
+# ---------------------------------------------------------------------------
+universe_gate:
+  require_trading_calendar: true
+  require_exchange_rule_snapshot: true
+  block_suspended: true
+  block_delisting_risk: true
+  block_delisting_consolidation: true      # 退市整理期永久黑名单
+  block_no_price_limit_new_listing: true   # 新股上市初期无涨跌幅
+  unknown_rule_action: BLOCK
+  unknown_industry_mapping_action: RESEARCH_ONLY
+  newly_listed_min_days: 60
+  minimum_daily_turnover_cny: 100000000    # 需按 regime 校准
+  research_universe_and_tradable_universe_are_separate: true
+
+# ---------------------------------------------------------------------------
+# 市场状态机
+# ---------------------------------------------------------------------------
+market_regime:
+  states:
+    - TREND_MAINLINE
+    - ROTATION_NO_MAINLINE
+    - RISK_OFF_RETREAT
+    - REPAIR
+  determined_by: DETERMINISTIC_ONLY        # LLM 只读，不得改判
+  rotation_lookback_days: 5
+  rotation_overlap_threshold: 0.40         # Top3 板块日间重合度低于此值 → 轮动市
+
+# ---------------------------------------------------------------------------
+# Agent 1
+# ---------------------------------------------------------------------------
+agent_1:
+  id: MACRO_FUNDAMENTAL_CHAIN
+  research_unit: INDUSTRY_CHAIN_NODE       # ★ 不是单只股票
+  full_rebuild_schedule: WEEKLY            # 周六
+  incremental_schedule: DAILY_AND_EVENT
+  prior_rebuild_schedule: MONTHLY
+
+  node_count_target: [40, 80]
+  top_n_per_node: 8
+  pool_min: 120
+  pool_max: 300
+
+  minimum_score: 65
+  minimum_data_quality: 75
+  minimum_evidence_confidence: 0.70
+
+  score_weights:
+    structural_theme: 0.20
+    business_mapping: 0.20
+    barrier_and_bottleneck: 0.15
+    financial_quality: 0.20
+    catalyst_confirmation: 0.15
+    valuation_expectation_gap: 0.10
+
+  bottleneck_minimum_evidence_classes: 3
+
+  policy_research:                          # ★ A 股是政策市，本块单列
+    enabled: true
+    levels: [L1, L2, L3, L4, L5]
+    level_weights: {L1: 2, L2: 4, L3: 7, L4: 10, L5: 3}
+    tool_certainty:
+      HIGH_CERTAINTY: 1.0
+      MEDIUM_CERTAINTY: 0.6
+      LOW_CERTAINTY: 0.3
+      RESTRICTIVE: 0.8
+      PRICE_MECHANISM: 0.9
+    lifecycle_stages:
+      - RUMOR            # 不可作为证据
+      - DRAFT            # 仅线索
+      - ISSUED
+      - DETAILED
+      - PILOT_NAMED      # ★ 首次可映射个股
+      - FUNDED
+      - TENDERED         # ★ 可进入财务传导链
+      - REVENUE
+    min_stage_for_stock_mapping: PILOT_NAMED
+    min_stage_for_transmission_chain: TENDERED
+    narrative_and_verifiability_reported_separately: true
+    policy_calendar_horizon_days: 90
+    policy_calendar_required: true
+  research_report_is_primary_evidence: false
+  fund_holding_is_primary_evidence: false
+  insider_increase_is_strong_signal: false  # 2026-04-07 短线交易新规后
+
+  fast_track:
+    enabled: true
+    daily_quota: 5
+    deadline: "17:00"
+    evidence_standard: SAME_AS_NORMAL       # ★ 只加快时间，不降低标准
+    cooldown_days: 30
+
+# ---------------------------------------------------------------------------
+# Agent 2
+# ---------------------------------------------------------------------------
+agent_2:
+  id: THEME_SENTIMENT_SELECTOR
+  minimum_theme_score: 60
+  opening_review_mode: TIGHTEN_ONLY
+
+  score_weights:
+    breadth: 0.15
+    turnover_share: 0.12
+    capital_flow: 0.13
+    leader_structure: 0.15
+    tier_structure: 0.15                    # ★ 新增：连续梯队完整度
+    profit_effect: 0.10
+    catalyst_freshness: 0.08
+    index_chain_resonance: 0.07
+    agent_1_quality: 0.05
+
+  tier_analysis:                            # ★ 梯队结构
+    enabled: true
+    tiers: [T3_plus, T2, T1, TB, TR]
+    structures: [COMPLETE, THINNING, BROKEN, SINGLE_STOCK, NONE]
+    broken_tier_action: FORCE_HIGH_CHASE_RISK
+    single_stock_max_stage: IGNITION        # 无梯队不得标 CONFIRMATION 及以上
+    top_tier_broken_downgrade_stages: 1
+    record_height_and_width_separately: true
+
+  stock_selection:                          # ★ 只做龙头与中军，剔除杂毛
+    roles:
+      - LEADER            # 子类 EMOTION_LEADER / TREND_LEADER
+      - CORE_ARMY         # 中军
+      - TREND_CORE
+      - CHAIN_RESONANCE
+      - FIRST_MOVER
+      - LOW_IDENTITY      # 杂毛，强制排除
+      - EVENT_ONLY
+      - CROWDED
+      - AVOID
+    leader_min_criteria: 4                  # 6 条标准中至少满足 4 条
+    max_leaders_per_theme: 2
+    min_identifiability_score: 60           # 低于此值强制 LOW_IDENTITY
+    identifiability_is_veto_dimension: true # ★ 否决维度，不可被总分抵消
+    identifiability_weights:
+      pricing_power: 25
+      capital_absorption: 20
+      business_purity: 20
+      historical_leadership: 15
+      institutional_participation: 10
+      liquidity_capacity: 10
+    low_identity_trigger_count: 2           # 命中 2 条即判为杂毛
+    min_free_float_cap_cny: 3000000000
+    low_identity_excluded_from_all_pools: true
+
+  penalty_rules:
+    high_crowding:              [-20, -5]
+    single_limit_up_driven:     [-15, -5]
+    laggard_spread_core_weak:   [-20, -5]
+    news_hot_capital_out:       [-15, -5]
+    volume_up_return_down:      [-20, -5]
+    insufficient_capacity:      [-15, -5]   # ★ 新增：资金容载量不足
+
+  stages:
+    - IGNITION
+    - CONFIRMATION
+    - ACCELERATION
+    - CLIMAX
+    - DIVERGENCE
+    - RETREAT
+    - REPAIR
+    - FADE
+  climax_new_entry_policy: WATCH_ONLY
+  divergence_new_entry_policy: NO_NEW_ENTRY
+
+  divergence_checks: [D1, D2, D3, D4, D5, D6, D7, D8, D9, D10]
+  divergence_count_for_high_risk: 2
+  critical_divergences: [D8, D9, D10]       # 龙头中军背离 / 梯队断层 / 高标被打
+  critical_divergence_action: PROBE_ONLY
+
+  auction_review:
+    enabled: true
+    time: "09:26"
+    cancelable_window_weight: LOW           # 09:15–09:20
+    non_cancelable_window_weight: HIGH      # 09:20–09:25 ★
+    allowed_actions: [KEEP, DOWNGRADE_PRIORITY, REMOVE,
+                      REDUCE_SECTOR_PERMISSION, REDUCE_POSITION_CAP]
+
+# ---------------------------------------------------------------------------
+# Agent 3
+# ---------------------------------------------------------------------------
+agent_3:
+  id: TECHNICAL_SETUP_PLANNER
+  minimum_technical_score: 70
+  minimum_reward_risk: 2.0
+  max_stop_distance_pct: 0.06
+  max_atr_extension: 3.0
+  require_weekly_daily_120m_15m: true
+
+  moving_average_system:                    # ★ 核心技术框架
+    enabled: true
+    periods:
+      weekly:  [5, 20, 60]
+      daily:   [5, 20, 60]
+      m120:    [5, 20, 99, 128, 255]        # ★ 主框架
+      m15:     [5, 20, 60]
+      m5:      [5, 20, 99, 128, 255]        # ★ 触发精修
+    alignment_states: [BULL_STACK, BULL_PARTIAL, ENTANGLED,
+                       BEAR_PARTIAL, BEAR_STACK]
+    max_ma_bias_pct: 0.12
+    entangled_downgrade_setups: [PLATFORM_BREAKOUT, BREAKOUT_RETEST]
+    entangled_downgrade_to: PROBE
+    below_m120_ma255_max_risk_unit: PROBE   # 逆势试仓，须显式标注
+    m120_regime_driver: MA_SYSTEM           # 120m 状态由均线主导判定
+    m5_role: CONFIRMATION_ONLY              # 5m 均线不可作独立买入依据
+    kline_requires_ma_context: true         # ★ 形态必须附均线位置
+  closed_bars_only: true
+  support_touch_alone_is_buy: false
+
+  score_weights:
+    higher_timeframe_trend: 0.20
+    structure_quality: 0.20
+    volume_price: 0.15
+    relative_strength: 0.10
+    location_and_extension: 0.15
+    room_and_reward_risk: 0.15
+    liquidity: 0.05
+
+  allowed_setups:
+    - BREAKOUT_RETEST
+    - TREND_PULLBACK
+    - PLATFORM_BREAKOUT
+    - VOLUME_CONTRACTION_PULLBACK
+    - BOTTOM_REVERSAL_OBSERVATION
+  hard_veto_states:
+    - REGIME_UNKNOWN
+    - MID_AIR
+    - FAILED_BREAKOUT
+    - DISTRIBUTION
+
+  required_confirmations:
+    - PRICE_WITHIN_TRIGGER_ZONE
+    - VWAP_RECLAIM_AND_HOLD
+    - FIVE_MIN_HIGHER_LOW
+    - SECTOR_NOT_WEAKENING
+    - NO_MARKET_SHOCK
+    - SPREAD_WITHIN_LIMIT
+
+  risk_units:
+    PROBE: 0.33
+    STANDARD: 1.00
+    NO_ENTRY: 0.00
+
+  earnings_blackout:
+    enabled: true
+    days_before: 3
+    days_after: 1
+    action: FORCE_PROBE
+
+  scenario_completeness_required: true      # A/B/C/D 四情景缺一不可
+
+# ---------------------------------------------------------------------------
+# Agent 4
+# ---------------------------------------------------------------------------
+agent_4:
+  id: INTRADAY_SIGNAL                       # ★ 已由 EXECUTION_TRADER 更名
+  scope: SIGNAL_ONLY                        # ★ 仅产生信号，不含仓位与风控
+  architecture: DUAL_PATH                   # tick 确定性 + LLM 节拍
+  llm_cadence_seconds: 45
+  llm_permission: VETO_ONLY                 # 只能否决，不能促成
+  direct_broker_permission: false
+
+  # 以下职责已移交 Agent 6 RiskGovernor，Agent 4 不再持有
+  owns_position_sizing: false
+  owns_risk_budget: false
+  owns_account_gates: false
+  owns_t_plus_one_check: false
+  receives_account_snapshot: false          # ★ 输入中不含账户，刻意为之
+
+  confirmation_minutes: 2
+  signal_ttl_seconds: 300
+
+  tighten_after: "14:15:00"
+  no_new_entry_after: "14:45:00"
+
+  allowed_actions:
+    - NO_ACTION
+    - START_CONFIRMATION
+    - BUY_SIGNAL
+    - ADD_SIGNAL
+    - SELL_SIGNAL
+    - REDUCE_SIGNAL
+    - CANCEL_SIGNAL
+    - BLOCK
+
+  signal_strength_levels: [WEAK, NORMAL, STRONG]
+  signal_strength_is_not_position_advice: true
+
+  required_buy_confirmations:
+    - PRICE_WITHIN_TRIGGER_ZONE
+    - M5_RECLAIM_MA20_AND_HOLD              # ★ 均线精修
+    - M5_MA5_CROSS_ABOVE_MA20
+    - VWAP_RECLAIM_AND_HOLD
+    - FIVE_MIN_HIGHER_LOW_ABOVE_MA20
+    - SECTOR_TIER_NOT_BROKEN                # ★ 梯队未断层
+    - LEADER_AND_CORE_ARMY_NOT_WEAKENING    # ★ 龙头中军未转弱
+    - NO_MARKET_SHOCK
+
+  exit_signal_types:
+    - STRUCTURE_BREAK
+    - TREND_INVALIDATED
+    - VWAP_LOST
+    - MOMENTUM_FADE
+    - SECTOR_RETREAT
+    - MARKET_SHOCK
+    - PLAN_EXPIRED
+
+  stale_quote_action: BLOCK
+  ma_data_missing_action: BLOCK
+
+  output_destination: SIGNAL_LOG            # ★ 验证阶段：只进日志，不接委托链
+
+# ---------------------------------------------------------------------------
+# Agent 6 · RiskGovernor（规划中，尚未实现）
+# ---------------------------------------------------------------------------
+agent_6:
+  id: RISK_GOVERNOR
+  status: PLANNED                           # 未实现，占位
+  will_own:
+    - position_sizing
+    - risk_budget_and_risk_units
+    - account_level_gates                   # 总仓/单票/板块/现金/每日次数
+    - t_plus_one_sellable_quantity
+    - add_position_rules                    # 已有浮盈才可加、禁止亏损摊平
+    - intent_building_and_idempotency
+    - human_review_routing
+    - order_reconciliation
+  consumes: IntradaySignalV1
+  note: "Agent 4 只给信号，Agent 6 决定是否执行、执行多少。
+         职责分离后，信号质量与仓位管理可以被独立复盘。"
+
+# ---------------------------------------------------------------------------
+# Agent 5
+# ---------------------------------------------------------------------------
+agent_5:
+  id: REVIEW_CALIBRATOR
+  reads_realtime_quotes: false              # ★ 不读实时行情
+  computes_statistics_itself: false         # ★ 统计量由确定性代码计算
+  can_write_production_config: false        # ★ 永不直接改生产参数
+
+  schedules:
+    daily_label: AFTER_SETTLEMENT
+    weekly_attribution: MONDAY
+    monthly_calibration: FIRST_TRADING_DAY_OF_MONTH
+    quarterly_structural: QUARTERLY
+    incident: EVENT_TRIGGERED
+
+  focus_areas:                              # ★ 本阶段重点评估对象
+    - AGENT_3_TECHNICAL
+    - AGENT_4_SIGNAL
+  agent_3_review_methods:
+    - SETUP_BY_MA_BY_REGIME
+    - MA_LEVEL_EFFECTIVENESS
+    - TRIGGER_ZONE_CALIBRATION
+    - STOP_ADEQUACY
+    - RESISTANCE_REALIZATION
+    - SCENARIO_DISTRIBUTION
+    - TIMEFRAME_CONSISTENCY
+    - PLAN_DECAY
+    - UNTRIGGERED_OPPORTUNITY_COST
+    - FALSE_BREAKOUT_ATTRIBUTION
+  agent_4_review_methods:
+    - VS_TRIGGER_ENGINE_PRECISION_RECALL
+    - CONFIRMATION_ABLATION                 # ★ 最高价值
+    - LATENCY_DECOMPOSITION
+    - LLM_VETO_QUALITY_BY_REASON
+    - SECTOR_VETO_EFFECTIVENESS
+    - SIGNAL_STRENGTH_MONOTONICITY
+    - TIME_OF_DAY_DISTRIBUTION
+    - SIGNAL_DECAY_CURVE
+    - FALSE_SIGNAL_THREE_WAY_ATTRIBUTION
+  data_quality_attribution_required: true   # ★ 未排除数据因素不得提案
+  quality_buckets: [">=90", "75-90", "<75"]
+
+  minimum_samples:
+    agent_2_tier_calls: 60
+    agent_2_role_calls: 100                 # 龙头/中军/杂毛判定
+    agent_3_ma_setup_metrics: 100
+    agent_3_trigger_metrics: 100
+    agent_2_stage_calls: 60
+    agent_1_theme_return_cycles: 3
+    agent_4_execution_metrics: 100
+    llm_veto_quality: 30
+
+  statistics:
+    baseline: CONDITIONAL_RANDOMIZATION     # ★ 不用沪深300 做基准
+    randomization_strata: [trade_date, ths_industry_primary,
+                           market_cap_quintile, volatility_quintile]
+    bootstrap_resamples: 2000
+    confidence_level: 0.95
+    fdr_threshold: 0.10
+    walk_forward_required: true
+    regime_stratified_required: true
+    report_cost_and_signal_separately: true
+
+  proposals:
+    max_per_cycle: 2
+    require_falsification_criteria: true
+    require_data_quality_cleared: true      # ★ 预检硬条件
+    min_shadow_days: 20
+    cooldown_days_after_falsified: 90
+    auto_apply: false                       # 永远 false
+
+# ---------------------------------------------------------------------------
+# 分 regime 参数覆盖（覆盖上面的基础值）
+# ---------------------------------------------------------------------------
+regime_overrides:
+
+  TREND_MAINLINE:
+    agent_2: { focus_pool_max: 60 }
+    agent_3:
+      core_watch_max: 12
+      total_watch_max: 20
+      setup_risk_unit_multiplier:
+        PLATFORM_BREAKOUT: 1.0
+        BREAKOUT_RETEST: 1.0
+        TREND_PULLBACK: 1.0
+        VOLUME_CONTRACTION_PULLBACK: 1.0
+    agent_4:
+      active_monitor_max: 8
+      max_signal_holding_days: 10
+
+  ROTATION_NO_MAINLINE:                     # 存量博弈 / 电风扇轮动
+    agent_2: { focus_pool_max: 40 }
+    agent_3:
+      core_watch_max: 8
+      total_watch_max: 14
+      minimum_reward_risk: 2.5              # 提高门槛
+      setup_risk_unit_multiplier:
+        PLATFORM_BREAKOUT: 0.5              # ★ 轮动市砍半追突破
+        BREAKOUT_RETEST: 0.5
+        TREND_PULLBACK: 1.0
+        VOLUME_CONTRACTION_PULLBACK: 1.0
+    agent_4:
+      active_monitor_max: 5
+      max_signal_holding_days: 3
+      tighten_after: "13:45:00"
+
+  RISK_OFF_RETREAT:
+    agent_2: { focus_pool_max: 20, new_entry_policy: NO_NEW_ENTRY }
+    agent_3: { core_watch_max: 0, generate_buy_plans: false }
+    agent_4: { active_monitor_max: 0, buy_signal_allowed: false }
+    note: "只处理持仓风险，新增仓位上限归零"
+
+  REPAIR:
+    agent_2: { focus_pool_max: 30 }
+    agent_3:
+      core_watch_max: 6
+      max_risk_unit: PROBE                  # ★ 只允许试仓
+    agent_4:
+      active_monitor_max: 3
+      add_signal_allowed: false             # 修复期不发加仓信号
+
+# ---------------------------------------------------------------------------
+# 主题注册表
+# ---------------------------------------------------------------------------
+theme_registry:
+  prior_contribution_cap: 10
+  require_daily_market_confirmation: true
+  theme_expiry_without_confirmation_days: 10
+  market_discovered_themes_enabled: true
+  policy_structural_priors:                 # 只是先验，不是买入白名单
+    - AI_INFRA_AND_AGENTS
+    - SEMICONDUCTOR_DOMESTIC_SUBSTITUTION
+    - EMBODIED_INTELLIGENCE
+    - SATELLITE_INTERNET_AND_6G
+    - QUANTUM_TECH
+    - FUTURE_ENERGY
+  require_capacity_score: true              # 资金容载量不足不得当主线
+
+# ---------------------------------------------------------------------------
+# 审计
+# ---------------------------------------------------------------------------
+audit:
+  persist_candidate_lineage: true           # ★ Agent 5 的前提
+  persist_state_vector: true
+  persist_source_bar_time: true
+  persist_config_hash: true
+  persist_config_version: true
+  persist_prompt_version: true
+  persist_model_version: true
+  persist_market_regime: true
+  persist_reason_codes: true
+  persist_rejected_candidates: true
+  persist_llm_veto_records: true
+  deterministic_replay_required: true
+
+# ---------------------------------------------------------------------------
+# 上线验收门槛（建议值，非已证明的最优统计标准）
+# ---------------------------------------------------------------------------
+acceptance_gates:
+  future_data_leakage: 0
+  downstream_symbol_injection: 0
+  unapproved_orders: 0
+  duplicate_submissions: 0
+  low_identity_stocks_in_focus_pool: 0      # ★ 杂毛不得进入聚焦池
+  kline_conclusions_without_ma_context: 0   # ★ 形态判断必须附均线位置
+  agent_4_outputs_containing_position_size: 0  # ★ 信号层不得出现仓位
+  exchange_rule_version_errors: 0
+  unresolved_submission_states: 0
+  reconciliation_mismatches: 0
+  consecutive_shadow_trading_days: 20
+  historical_replay_trading_days: 60
+  required_regimes_covered:
+    - TREND_MAINLINE
+    - ROTATION_NO_MAINLINE
+    - RISK_OFF_RETREAT
+  agent_5_completed_calibration_cycles: 1
+  agent_5_falsified_proposals_min: 1        # ★ 从未证伪过自己 = 标准太松
+  data_sla_violations_in_critical_fields: 0
+  point_in_time_violations: 0
+  adjust_mode_inconsistencies: 0
+  concept_snapshot_coverage_min: 1.0        # 回放期必须全覆盖
+  cross_source_unresolved_conflicts: 0

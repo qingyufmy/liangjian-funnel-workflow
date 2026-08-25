@@ -1,0 +1,66 @@
+schema_version: liangjian-runtime/1.0.0
+mode: SIMULATION_WORKFLOW
+timezone: Asia/Shanghai
+research_slots:
+  morning: "09:25"
+  close: "15:10"
+monitor:
+  model: deepseek-v4-flash-0731
+  cadence_seconds: 60
+  max_seconds: 50
+  sessions:
+    - ["09:25", "11:30"]
+    - ["13:00", "15:00"]
+data_sources:
+  hithink:
+    responsibilities:
+      - ticker_catalog
+      - realtime_snapshot
+      - daily_bars
+      - financial_statements
+      - financial_indicators
+      - ths_index_catalog
+      - ths_industry_membership
+      - auction
+      - limit_pools
+      - limit_ladder
+      - dragon_tiger
+      - hot_stock_attention
+  mootdx:
+    responsibilities: [minute_1m, minute_5m]
+    raw_prices_only: true
+    page_size: 800
+    max_pages: 20
+    history_5m_required_bars: 12240
+    exchanges: [SH, SZ]
+    unsupported_exchanges: [BJ]
+  cninfo:
+    responsibilities: [candidate_announcement_metadata, disclosure_events, risk_events, bounded_pdf_evidence]
+    public_web_contract: true
+    pdf_download_mode: on_demand
+    pdf_max_documents_per_symbol: 3
+    pdf_full_text_to_model: false
+    pdf_ocr_enabled: false
+  gov_policy_library:
+    responsibilities: [official_state_council_policy, official_department_policy]
+    public_web_contract: true
+    excluded_categories: [policy_interpretation, state_council_gazette_duplicate]
+    direct_stock_mapping: false
+  open_news:
+    responsibilities: [market_flash, candidate_stock_news, curated_industry_rss]
+    providers: [cls, eastmoney_7x24, eastmoney_search, curated_rss]
+    evidence_tier: T3
+    untrusted_text: true
+    failure_action: DEGRADE_TO_OBSERVATION
+    rss_catalog: config/news_sources.json
+models:
+  research:
+    - deepseek-v4-pro-0813
+    - moonshotai/kimi-k3-free
+    - z-ai/glm-5.3-free
+  monitor: deepseek-v4-flash-0731
+permissions:
+  external_orders: false
+  gm_fallback: false
+  live_trading: false
+  fast_track: false
