@@ -14,6 +14,7 @@ from liangjian_funnel.pipeline.research import FrozenInputSnapshot, ResearchPipe
 from liangjian_funnel.reporting import atomic_write_json
 from liangjian_funnel.runtime.state import RuntimeStore
 from liangjian_funnel.settings import Settings
+from liangjian_funnel.workflow import WorkflowApplication
 
 
 def _canonical_hash(value: object) -> str:
@@ -49,6 +50,11 @@ def main() -> int:
     parser.add_argument("--snapshot", help="snapshot JSON under LIANGJIAN_SNAPSHOT_DIR; latest when omitted")
     parser.add_argument("--slot", choices=("morning", "close"), default="close")
     parser.add_argument("--run-id", help="optional stable audit run id")
+    parser.add_argument(
+        "--publish",
+        action="store_true",
+        help="publish plans and write the normal outputs/runs summary after a full replay",
+    )
     parser.add_argument("--resume-audit", help="validated lane audit under outputs/research")
     parser.add_argument("--stage", choices=("A2", "A3"), help="single downstream stage to replay")
     args = parser.parse_args()
@@ -83,10 +89,32 @@ def main() -> int:
     )
     if bool(args.resume_audit) != bool(args.stage):
         raise SystemExit("RESUME_AUDIT_AND_STAGE_REQUIRED_TOGETHER")
+    if args.publish and args.resume_audit:
+        raise SystemExit("PUBLISH_REQUIRES_FULL_REPLAY")
     if args.resume_audit:
         return _resume_stage(pipeline, snapshot, settings, args.resume_audit, args.stage, run_id)
 
     result = pipeline.run(snapshot, run_id=run_id, generated_at=current)
+    publication = None
+    run_summary_path = None
+    if args.publish:
+        application = WorkflowApplication(settings)
+        publication = application._publish_plans(result, args.slot, current)
+        summary = {
+            "run_id": run_id,
+            "slot": args.slot,
+            "status": result.status,
+            "snapshot": {
+                "path": str(path),
+                "snapshot_hash": snapshot.snapshot_hash,
+                "snapshot_id": snapshot.snapshot_id,
+                "as_of": snapshot.as_of,
+            },
+            "research_markdown": str(result.markdown_path) if result.markdown_path else None,
+            "plan_publication": publication,
+        }
+        run_summary_path = settings.workflow_output_dir / "runs" / f"{run_id}.json"
+        atomic_write_json(run_summary_path, summary)
     print(
         json.dumps(
             {
@@ -94,6 +122,8 @@ def main() -> int:
                 "status": result.status,
                 "snapshot_id": result.snapshot_id,
                 "markdown": str(result.markdown_path) if result.markdown_path else None,
+                "plan_publication": publication,
+                "run_summary": str(run_summary_path) if run_summary_path else None,
                 "lanes": [
                     {
                         "lane": lane.lane,

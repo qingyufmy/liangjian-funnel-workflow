@@ -83,7 +83,7 @@ cd D:\dev_A股\liangjian_funnel_workflow
 对已冻结快照重放或从已验证的上游阶段恢复：
 
 ```bash
-.venv/bin/python scripts/replay_frozen_research.py --snapshot storage/snapshots/snapshot-....json --slot close
+.venv/bin/python scripts/replay_frozen_research.py --snapshot storage/snapshots/snapshot-....json --slot close --publish
 .venv/bin/python scripts/replay_frozen_research.py --snapshot storage/snapshots/snapshot-....json --resume-audit outputs/research/research_..._lane_2.json --stage A3
 ```
 
