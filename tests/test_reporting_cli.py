@@ -101,6 +101,37 @@ def test_run_due_ignores_lease_busy_and_skipped_statuses(tmp_path: Path, monkeyp
     assert json.loads(capsys.readouterr().out)["dispatch"][0]["status"] == "LEASE_BUSY"
 
 
+def test_historical_research_cli_preserves_explicit_timezone_cutoff(tmp_path: Path, monkeypatch, capsys):
+    captured = {}
+
+    class FakeApplication:
+        def __init__(self, _settings):
+            pass
+
+        def run_research(self, slot, *, max_candidates=None, as_of=None, historical_replay=False):
+            captured.update(
+                slot=slot,
+                max_candidates=max_candidates,
+                as_of=as_of,
+                historical_replay=historical_replay,
+            )
+            return {"status": "READY", "run_id": "historical"}
+
+    monkeypatch.setattr(cli_module, "WorkflowApplication", FakeApplication)
+    settings = Settings.from_env({}, root=tmp_path)
+    assert main(
+        ["run-research", "--slot", "close", "--as-of", "2026-08-25T15:10:00+08:00"],
+        settings=settings,
+    ) == 0
+    assert captured == {
+        "slot": "close",
+        "max_candidates": None,
+        "as_of": datetime(2026, 8, 25, 15, 10, tzinfo=ZoneInfo("Asia/Shanghai")),
+        "historical_replay": True,
+    }
+    assert json.loads(capsys.readouterr().out)["run_id"] == "historical"
+
+
 def test_workflow_command_returns_safe_reason_for_unexpected_reason_coded_error(
     tmp_path: Path, monkeypatch, capsys
 ):

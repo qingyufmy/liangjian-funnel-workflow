@@ -4,6 +4,7 @@ import argparse
 import json
 import re
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Sequence
 
@@ -64,6 +65,11 @@ def build_parser() -> argparse.ArgumentParser:
     research = sub.add_parser("run-research", help="run three isolated A1-A2-A3 model lanes")
     research.add_argument("--slot", choices=("morning", "close"), required=True)
     research.add_argument("--max-candidates", type=int, default=None)
+    research.add_argument(
+        "--as-of",
+        default=None,
+        help="historical ISO-8601 cutoff with timezone; keeps the current simulation trading day",
+    )
     sub.add_parser("monitor-once", help="run one A4 minute and paper-simulation cycle")
     sub.add_parser("run-due", help="dispatch only work due at the current Shanghai time")
     sub.add_parser("run-morning", help="dispatch only the due 09:26 morning review")
@@ -173,7 +179,13 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
         if args.command == "prepare-snapshot":
             payload = application.prepare_snapshot(max_candidates=args.max_candidates).as_dict()
         elif args.command == "run-research":
-            payload = application.run_research(args.slot, max_candidates=args.max_candidates)
+            historical_as_of = datetime.fromisoformat(args.as_of) if args.as_of else None
+            payload = application.run_research(
+                args.slot,
+                max_candidates=args.max_candidates,
+                as_of=historical_as_of,
+                historical_replay=historical_as_of is not None,
+            )
         elif args.command == "monitor-once":
             payload = application.monitor_once()
         elif args.command == "run-due":

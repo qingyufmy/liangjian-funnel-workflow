@@ -95,6 +95,19 @@ def test_workflow_plan_helpers_are_fail_closed():
     assert "bars" not in compact["timeframes"]["5m"]
 
 
+def test_historical_trading_day_validation_does_not_regress_accounts():
+    calls = []
+    app = SimpleNamespace(
+        trading_calendar=SimpleNamespace(is_trading_day=lambda _day: True),
+        brokers={"lane_1": SimpleNamespace(start_trading_day=lambda day: calls.append(day))},
+    )
+    historical = datetime(2026, 8, 25, 15, 10, tzinfo=TZ)
+    WorkflowApplication._ensure_trading_day(app, historical, synchronize_accounts=False)
+    assert calls == []
+    WorkflowApplication._ensure_trading_day(app, historical)
+    assert calls == [historical.date()]
+
+
 def test_research_runtime_injects_exact_model_and_only_approved_pool_flows_downstream():
     snapshot = ResearchSnapshot(
         snapshot_id="snap-1",

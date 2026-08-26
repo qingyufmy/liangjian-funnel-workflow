@@ -564,10 +564,16 @@ class WorkflowApplication:
         *,
         max_candidates: int | None = None,
         as_of: datetime | None = None,
+        historical_replay: bool = False,
     ) -> dict[str, Any]:
         normalized_slot = _slot(slot)
         current = _aware(as_of or datetime.now(SHANGHAI))
-        self._ensure_trading_day(current)
+        if historical_replay:
+            if as_of is None:
+                raise WorkflowError("HISTORICAL_AS_OF_REQUIRED")
+            if current.date() >= datetime.now(SHANGHAI).date():
+                raise WorkflowError("HISTORICAL_AS_OF_NOT_PAST")
+        self._ensure_trading_day(current, synchronize_accounts=not historical_replay)
         if normalized_slot == "morning" and current.hour == 9 and current.minute < 26:
             time.sleep(max(0.0, (_at_time(current, 9, 26) - current).total_seconds()))
             current = datetime.now(SHANGHAI)
@@ -1220,15 +1226,16 @@ class WorkflowApplication:
             results.append(outcome.model_dump(mode="json"))
         return results
 
-    def _ensure_trading_day(self, current: datetime) -> None:
+    def _ensure_trading_day(self, current: datetime, *, synchronize_accounts: bool = True) -> None:
         try:
             is_session = self.trading_calendar.is_trading_day(current.date())
         except TradingCalendarError as exc:
             raise WorkflowError(exc.reason_code) from exc
         if not is_session:
             raise WorkflowError("NON_TRADING_DAY")
-        for broker in self.brokers.values():
-            broker.start_trading_day(current.date())
+        if synchronize_accounts:
+            for broker in self.brokers.values():
+                broker.start_trading_day(current.date())
 
 
 def _intraday_market_context(

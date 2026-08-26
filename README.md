@@ -71,6 +71,12 @@ cd D:\dev_A股\liangjian_funnel_workflow
 .\.venv\Scripts\python.exe -m liangjian_funnel status
 ```
 
+历史收盘研究使用同一条 A1→A2→A3 主链和正式状态库，但不会把模拟账户交易日回退：
+
+```bash
+.venv/bin/python -m liangjian_funnel run-research --slot close --as-of 2026-08-25T15:10:00+08:00
+```
+
 正式默认在 G0 后先按同花顺 881* 一级行业均衡覆盖、再按 884* 细分节点轮询，从每个已选节点内以流动性排序取 Top-N，冻结日线、基本面与正式证据就绪的最多 1000 只。5 分钟技术因子允许缺失并留到 A3 淘汰，不能再提前缩小 A1/A2。节点选择不使用跨行业的全市场成交热度排名，避免把 A2 的题材/情绪职责前移到 A1。初始域仍保存全市场计数和淘汰血缘。可用 `LIANGJIAN_RESEARCH_MAX_CANDIDATES` 调整到 1–1000。上面的 `--max-candidates 20` 只用于首次能力/链路验收，不代表生产 A1 宽度。
 完整 A1 默认按产业节点每 20 只一批（`LIANGJIAN_A1_BATCH_SIZE`），A2 按 A1 主题每 40 只一批（`LIANGJIAN_A2_BATCH_SIZE`）并在合并后执行全局排名。模型阶段默认总时限 600 秒、最大输出 12,000 tokens。这些限制只影响模型投影；完整冻结快照与哈希不会被截断。
 
