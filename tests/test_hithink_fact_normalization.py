@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from liangjian_funnel.facts import manifest_projection, normalize_hithink_results
+from liangjian_funnel.facts import collect_market_results, manifest_projection, normalize_hithink_results
 from liangjian_funnel.facts import FactSnapshotManifest
 from liangjian_funnel.pipeline.data_source import HithinkFetchResult, HithinkRow
 
@@ -102,3 +102,56 @@ def test_manifest_projection_preserves_duplicate_fact_types() -> None:
 
     assert projection["facts"]["DUPLICATE_TYPE"]["record_count"] == 2
     assert len(projection["fact_groups"]["DUPLICATE_TYPE"]) == 2
+
+
+def test_market_fact_auction_requests_are_batched_and_merged_without_loss() -> None:
+    symbols = tuple(f"{600000 + index:06d}.SH" for index in range(205))
+
+    class Client:
+        def __init__(self) -> None:
+            self.auction_batches: list[tuple[str, ...]] = []
+
+        def ths_index_catalog(self, *, tag: str) -> HithinkFetchResult:
+            return _result()
+
+        def limit_up_pool(self) -> HithinkFetchResult:
+            return _result()
+
+        def limit_down_pool(self) -> HithinkFetchResult:
+            return _result()
+
+        def limit_break_pool(self) -> HithinkFetchResult:
+            return _result()
+
+        def limit_up_ladder(self) -> HithinkFetchResult:
+            return _result()
+
+        def dragon_tiger_list(self) -> HithinkFetchResult:
+            return _result()
+
+        def hot_stock_list(self, *, period: str) -> HithinkFetchResult:
+            return _result()
+
+        def auction_snapshot(self, batch: tuple[str, ...], *, stage: str) -> HithinkFetchResult:
+            self.auction_batches.append(batch)
+            return HithinkFetchResult(
+                endpoint="/api/a-share/auction/snapshot",
+                ok=True,
+                complete=True,
+                reason_code="OK",
+                items=tuple(HithinkRow.model_validate({"thscode": symbol, "auction_price": 10}) for symbol in batch),
+                pages=1,
+                total=len(batch),
+                fetch_time=NOW,
+                http_status=200,
+            )
+
+    client = Client()
+    results = collect_market_results(client, symbols)
+    auction = results["AUCTION_FINAL"]
+
+    assert [len(batch) for batch in client.auction_batches] == [100, 100, 5]
+    assert auction.ok and auction.complete
+    assert {row.model_dump()["thscode"] for row in auction.items} == set(symbols)
+    assert auction.metadata["batch_count"] == 3
+    assert auction.metadata["missing_symbol_count"] == 0

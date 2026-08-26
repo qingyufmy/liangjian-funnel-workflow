@@ -229,6 +229,49 @@ def test_a1_preselect_is_node_diversified_with_strict_top_n() -> None:
     assert min(item["selected_members"] for item in metadata["nodes"]) == 2
 
 
+def test_a1_full_coverage_mode_preserves_every_trade_candidate() -> None:
+    rows = []
+    records = []
+    for node_index in range(3):
+        node_code = f"884900{node_index}.TI"
+        for member_index in range(4):
+            symbol = f"{600900 + node_index * 4 + member_index:06d}.SH"
+            rows.append({
+                "thscode": symbol,
+                "mapping_status": "MAPPED",
+                "memberships": [
+                    {
+                        "industry_thscode": f"881900{node_index}.TI",
+                        "industry_name": f"宽口径行业{node_index}",
+                    },
+                    {"industry_thscode": node_code, "industry_name": f"细分行业{node_index}"},
+                ],
+            })
+            records.append(SimpleNamespace(symbol=symbol, amount=float(100 - member_index)))
+    # An explicit unmapped row must also remain in the full formal universe.
+    rows.append({
+        "thscode": "601000.SZ",
+        "mapping_status": "UNMAPPED",
+        "memberships": [],
+    })
+    records.append(SimpleNamespace(symbol="601000.SZ", amount=1.0))
+    membership = _result("/memberships", rows)
+
+    selected, metadata = select_industry_diversified_symbols(
+        records,
+        membership,
+        limit=len(records),
+        top_n_per_node=1,
+        node_count_target=[1, 1],
+    )
+
+    assert metadata["full_coverage"] is True
+    assert metadata["strategy"] == "THS_PARENT_BALANCED_FULL_COVERAGE_ROUND_ROBIN"
+    assert metadata["top_n_applied"] is False
+    assert set(selected) == {record.symbol for record in records}
+    assert len(selected) == len(records)
+
+
 def test_a1_node_choice_is_parent_balanced_not_turnover_concentrated() -> None:
     rows = []
     records = []

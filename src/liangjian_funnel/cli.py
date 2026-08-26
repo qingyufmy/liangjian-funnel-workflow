@@ -60,11 +60,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("probe-models", help="run model strict-JSON and thinking gates")
     sub.add_parser("probe-mootdx", help="run mootdx minute-history and cross-source gates")
     sub.add_parser("probe-all", help="run all external capability gates")
-    snapshot = sub.add_parser("prepare-snapshot", help="freeze a real full-market research snapshot")
-    snapshot.add_argument("--max-candidates", type=int, default=None)
+    sub.add_parser("prepare-snapshot", help="freeze a real full-market research snapshot")
     research = sub.add_parser("run-research", help="run three isolated A1-A2-A3 model lanes")
     research.add_argument("--slot", choices=("morning", "close"), required=True)
-    research.add_argument("--max-candidates", type=int, default=None)
     research.add_argument(
         "--as-of",
         default=None,
@@ -177,12 +175,11 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
     try:
         application = WorkflowApplication(settings)
         if args.command == "prepare-snapshot":
-            payload = application.prepare_snapshot(max_candidates=args.max_candidates).as_dict()
+            payload = application.prepare_snapshot().as_dict()
         elif args.command == "run-research":
             historical_as_of = datetime.fromisoformat(args.as_of) if args.as_of else None
             payload = application.run_research(
                 args.slot,
-                max_candidates=args.max_candidates,
                 as_of=historical_as_of,
                 historical_replay=historical_as_of is not None,
             )

@@ -125,16 +125,12 @@ class WorkflowApplication:
     def prepare_snapshot(
         self,
         *,
-        max_candidates: int | None = None,
         as_of: datetime | None = None,
     ) -> PreparedSnapshot:
         current = _aware(as_of or datetime.now(SHANGHAI))
         wall_now = datetime.now(SHANGHAI)
         if abs((current - wall_now).total_seconds()) > 600:
             raise WorkflowError("LIVE_FACTS_POINT_IN_TIME_UNSUPPORTED")
-        candidate_limit = max_candidates or self.settings.research_max_candidates
-        if not 1 <= candidate_limit <= 1_000:
-            raise WorkflowError("CANDIDATE_LIMIT_INVALID")
 
         source_config = load_yaml(self.settings.source_config_path)
         gate_config = source_config.get("universe_gate", {})
@@ -146,6 +142,13 @@ class WorkflowApplication:
             block_suspended=gate_config.get("block_suspended", False),
             block_no_price_limit_new_listing=gate_config.get("block_no_price_limit_new_listing", False),
         )
+        a1_config = source_config.get("agent_1", {})
+        if not isinstance(a1_config, Mapping):
+            raise WorkflowError("A1_CONFIG_INVALID")
+        top_n_per_node = int(a1_config.get("top_n_per_node", 8))
+        node_count_target = a1_config.get("node_count_target", [40, 80])
+        if not isinstance(node_count_target, list):
+            raise WorkflowError("A1_NODE_TARGET_INVALID")
         source_failures: dict[str, list[str]] = {}
         with HithinkClient(self.settings) as client:
             catalog = client.ticker_catalog(limit=1000, max_pages=10)
@@ -158,18 +161,11 @@ class WorkflowApplication:
             )
             if not universe.ready:
                 raise WorkflowError("UNIVERSE_NOT_READY")
-            a1_config = source_config.get("agent_1", {})
-            if not isinstance(a1_config, Mapping):
-                raise WorkflowError("A1_CONFIG_INVALID")
-            top_n_per_node = int(a1_config.get("top_n_per_node", 8))
-            node_count_target = a1_config.get("node_count_target", [40, 80])
-            if not isinstance(node_count_target, list):
-                raise WorkflowError("A1_NODE_TARGET_INVALID")
 
-            # A1 is node-first.  Build the full THS reverse membership graph
-            # before selecting companies, then take a deterministic Top-N per
-            # specific industry node.  A global turnover slice would collapse
-            # the macro/fundamental pool into the day's hottest few sectors.
+            # A1 is node-first. Build the full THS reverse membership graph
+            # before ordering companies. Industry nodes provide deterministic
+            # grouping and intra-node turnover order; the formal call retains
+            # every trade candidate instead of taking a global turnover slice.
             industry_catalog = client.ths_index_catalog(tag="industry")
             full_membership = collect_ths_industry_membership(
                 client,
@@ -181,20 +177,19 @@ class WorkflowApplication:
             if not full_membership.ok or not full_membership.complete:
                 raise WorkflowError(f"THS_INDUSTRY_MEMBERSHIP_NOT_READY:{full_membership.reason_code}")
 
-            # Keep a bounded reserve so source-level failures can be backfilled
-            # without violating the same node selection rule.
-            reserve_limit = min(len(universe.trade_candidates), candidate_limit + 10)
+            # Freeze the complete deterministic G0 trade universe.  Industry
+            # membership controls ordering and grouping only; it must not act
+            # as a performance cap for the formal workflow.
+            selection_limit = len(universe.trade_candidates)
             selected_symbols, g0_selection = select_industry_diversified_symbols(
                 universe.trade_candidates,
                 full_membership,
-                limit=reserve_limit,
+                limit=selection_limit,
                 top_n_per_node=top_n_per_node,
                 node_count_target=node_count_target,
             )
-            configured_pool_min = max(1, int(a1_config.get("pool_min", 300)))
-            required_coverage = min(candidate_limit, configured_pool_min)
-            if len(selected_symbols) < required_coverage:
-                raise WorkflowError("A1_NODE_DIVERSIFICATION_INSUFFICIENT")
+            if set(selected_symbols) != {candidate.symbol for candidate in universe.trade_candidates}:
+                raise WorkflowError("A1_TRADE_UNIVERSE_SELECTION_INCOMPLETE")
             record_by_symbol = {candidate.symbol: candidate for candidate in universe.trade_candidates}
             selected = tuple(record_by_symbol[symbol] for symbol in selected_symbols)
             market_fact_results = collect_market_results(
@@ -379,13 +374,12 @@ class WorkflowApplication:
             daily_payload=daily,
             fundamental_payload=fundamental,
             fact_payload=fact_payload,
-            max_candidates=reserve_limit,
+            max_candidates=selection_limit,
             candidate_symbols=selected_symbols,
+            retain_incomplete=True,
         )
         accepted_symbols = {candidate.symbol for candidate in frozen.trade_candidates}
-        g0_symbols = [
-            symbol for symbol in selected_symbols if symbol in accepted_symbols
-        ][:candidate_limit]
+        g0_symbols = [symbol for symbol in selected_symbols if symbol in accepted_symbols]
         if not g0_symbols:
             raise WorkflowError("NO_FUNDAMENTAL_READY_CANDIDATES")
         g0_records = [record_by_symbol[symbol] for symbol in g0_symbols]
@@ -440,8 +434,9 @@ class WorkflowApplication:
             fundamental_payload=fundamental,
             technical_payload=technical,
             fact_payload=fact_payload,
-            max_candidates=reserve_limit,
+            max_candidates=selection_limit,
             candidate_symbols=selected_symbols,
+            retain_incomplete=True,
         )
         raw_path = self.settings.snapshot_dir / "raw" / f"{frozen.snapshot_id}.json"
         frozen.write_json(raw_path)
@@ -453,8 +448,8 @@ class WorkflowApplication:
             source_failures=source_failures,
             g0_selection={
                 **final_g0_selection,
-                "reserve_strategy": g0_selection.get("strategy"),
-                "reserve_selected_count": len(selected_symbols),
+                "selection_strategy": g0_selection.get("strategy"),
+                "trade_universe_selected_count": len(selected_symbols),
                 "selected_count": len(g0_symbols),
                 "factor_ready_symbols": factor_ready,
                 "factor_ready_count": len(factor_ready),
@@ -562,7 +557,6 @@ class WorkflowApplication:
         self,
         slot: str,
         *,
-        max_candidates: int | None = None,
         as_of: datetime | None = None,
         historical_replay: bool = False,
     ) -> dict[str, Any]:
@@ -577,7 +571,7 @@ class WorkflowApplication:
         if normalized_slot == "morning" and current.hour == 9 and current.minute < 26:
             time.sleep(max(0.0, (_at_time(current, 9, 26) - current).total_seconds()))
             current = datetime.now(SHANGHAI)
-        prepared = self.prepare_snapshot(max_candidates=max_candidates, as_of=current)
+        prepared = self.prepare_snapshot(as_of=current)
         run_id = f"{current.date()}-{normalized_slot}-{prepared.snapshot.snapshot_hash[:12]}"
         pipeline = ResearchPipeline(
             self.settings,

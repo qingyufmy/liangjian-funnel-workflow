@@ -21,7 +21,7 @@
 
 ## A1–A4 职责边界
 
-- **A1 宏观/产业链/基本面**：G0 只提供中性的可研究股票域；A1 AI 必须按“官方政策/宏观变化 → 结构性主题 → 产业链节点 → 公司主营与财务传导”选择 `ACTIVE`。它不做技术面入场判断；T3 资讯只能发现线索，不能单独证明主题或公司受益。单批 20 只只是模型传输边界，不是全局名额；每个输入必须恰好归入 `ACTIVE` / `MONITOR` / `REJECT` 之一。正式覆盖上限为 1000 只。
+- **A1 宏观/产业链/基本面**：G0 只提供中性的完整可研究股票域；A1 AI 必须按“官方政策/宏观变化 → 结构性主题 → 产业链节点 → 公司主营与财务传导”选择 `ACTIVE`。它不做技术面入场判断；T3 资讯只能发现线索，不能单独证明主题或公司受益。单批 20 只只是模型传输边界，不是全局名额；每个输入必须恰好归入 `ACTIVE` / `MONITOR` / `REJECT` 之一。正式流程覆盖全部 G0 可交易股票，事实源失败逐票记录并关闭该票，不以性能上限裁剪股票池。
 - **A2 主题/情绪/市场角色**：只在 A1 `ACTIVE` 内按主题分批判断市场正在交易什么，评估板块宽度、资金、梯队、周期与龙头/中军辨识度；全量交易候选池目标为 100–200 只，但证据门槛优先，禁止为凑数放宽标准。
 - **A3 技术设置/次日计划**：只在 A2 聚焦池内检查周线、日线、120m、15m 与 5m 确认，由确定性引擎回填触发区、失效位、止损距离和盈亏比，产出条件计划，不能越级新增标的。
 - **A4 盘中信号复核**：对已有 A3 计划做分钟级确认；确定性触发先行，Flash 只有否决权，无权创建候选、放宽价位或提高风险单位。
@@ -60,7 +60,7 @@ cd D:\dev_A股\liangjian_funnel_workflow
 ```powershell
 .\.venv\Scripts\python.exe -m liangjian_funnel doctor
 .\.venv\Scripts\python.exe -m liangjian_funnel probe-all
-.\.venv\Scripts\python.exe -m liangjian_funnel prepare-snapshot --max-candidates 20
+.\.venv\Scripts\python.exe -m liangjian_funnel prepare-snapshot
 .\.venv\Scripts\python.exe -m liangjian_funnel run-research --slot close
 .\.venv\Scripts\python.exe -m liangjian_funnel run-research --slot morning
 .\.venv\Scripts\python.exe -m liangjian_funnel monitor-once
@@ -77,7 +77,7 @@ cd D:\dev_A股\liangjian_funnel_workflow
 .venv/bin/python -m liangjian_funnel run-research --slot close --as-of 2026-08-25T15:10:00+08:00
 ```
 
-正式默认在 G0 后先按同花顺 881* 一级行业均衡覆盖、再按 884* 细分节点轮询，从每个已选节点内以流动性排序取 Top-N，冻结日线、基本面与正式证据就绪的最多 1000 只。5 分钟技术因子允许缺失并留到 A3 淘汰，不能再提前缩小 A1/A2。节点选择不使用跨行业的全市场成交热度排名，避免把 A2 的题材/情绪职责前移到 A1。初始域仍保存全市场计数和淘汰血缘。可用 `LIANGJIAN_RESEARCH_MAX_CANDIDATES` 调整到 1–1000。上面的 `--max-candidates 20` 只用于首次能力/链路验收，不代表生产 A1 宽度。
+正式流程从 G0 全市场可交易股票全集开始，先按同花顺 881* 一级行业均衡编排、再按 884* 细分节点轮询，节点内仅按流动性确定传输顺序，不执行 Top-N 截断。系统完整冻结全集的日线、基本面与正式证据；事实源失败的单票仍保留在 G0/A1，并把缺失原因写入候选失败清单，交由 Agent 按证据门槛分类，不会被性能上限静默裁剪。5 分钟技术因子允许缺失并留到 A3 处理，不能提前缩小 A1/A2。初始域仍保存全市场计数和淘汰血缘。
 完整 A1 默认按产业节点每 20 只一批（`LIANGJIAN_A1_BATCH_SIZE`），A2 按 A1 主题每 40 只一批（`LIANGJIAN_A2_BATCH_SIZE`）并在合并后执行全局排名。模型阶段默认总时限 600 秒、最大输出 12,000 tokens。这些限制只影响模型投影；完整冻结快照与哈希不会被截断。
 
 对已冻结快照重放或从已验证的上游阶段恢复：

@@ -194,6 +194,7 @@ def select_industry_diversified_symbols(
         for record in records
         if str(getattr(record, "symbol", ""))
     }
+    full_coverage = limit >= len(record_by_symbol)
     node_by_symbol: dict[str, tuple[str, str, str, str]] = {}
     for raw in membership.items:
         row = raw.model_dump(mode="python")
@@ -258,7 +259,15 @@ def select_industry_diversified_symbols(
     )
 
     minimum_nodes, maximum_nodes = targets
-    desired_nodes = min(maximum_nodes, limit, len(grouped))
+    # A formal workflow call passes the complete trade-universe size.  In that
+    # mode node targets are ordering guidance only: every mapped node is
+    # visited, and every member is emitted.  Smaller explicit limits retain
+    # the bounded capability/test behavior used by unit tests.
+    desired_nodes = (
+        len(grouped)
+        if full_coverage
+        else min(maximum_nodes, limit, len(grouped))
+    )
     selected_nodes: list[str] = []
     child_rank = 0
     while len(selected_nodes) < desired_nodes:
@@ -274,32 +283,54 @@ def select_industry_diversified_symbols(
         if not added:
             break
         child_rank += 1
-    # Small explicit capability runs may request fewer stocks than the formal
-    # 40-node production minimum. They still receive one node per stock and
-    # are labelled by their actual coverage; production limits must satisfy
-    # the configured minimum in full.
-    if len(selected_nodes) < min(minimum_nodes, limit):
+    # Bounded explicit capability/test runs may request fewer stocks than the
+    # formal node target; they remain labelled by their actual coverage.
+    if not full_coverage and len(selected_nodes) < min(minimum_nodes, limit):
         raise ValueError("industry membership cannot satisfy minimum node coverage")
 
     selected: list[str] = []
-    for rank in range(top_n_per_node):
+    rank_limit = (
+        max((len(grouped[code]) for code in selected_nodes), default=0)
+        if full_coverage
+        else top_n_per_node
+    )
+    for rank in range(rank_limit):
         for code in selected_nodes:
             candidates = grouped[code]
             if rank < len(candidates):
                 selected.append(str(candidates[rank].symbol))
-                if len(selected) == limit:
+                if not full_coverage and len(selected) == limit:
                     break
-        if len(selected) == limit:
+        if not full_coverage and len(selected) == limit:
             break
 
+    if full_coverage:
+        selected_set = set(selected)
+        # A complete membership response can still contain explicit UNMAPPED
+        # rows. Keep those trade candidates in the formal snapshot as a
+        # deterministic fallback instead of silently dropping them.
+        unmapped = [
+            record
+            for symbol, record in record_by_symbol.items()
+            if symbol not in selected_set
+        ]
+        unmapped.sort(key=lambda item: (-float(getattr(item, "amount", None) or 0.0), str(item.symbol)))
+        selected.extend(str(record.symbol) for record in unmapped)
+
     metadata = {
-        "strategy": "THS_PARENT_BALANCED_SPECIFIC_NODE_ROUND_ROBIN_TOP_N",
+        "strategy": (
+            "THS_PARENT_BALANCED_FULL_COVERAGE_ROUND_ROBIN"
+            if full_coverage
+            else "THS_PARENT_BALANCED_SPECIFIC_NODE_ROUND_ROBIN_TOP_N"
+        ),
         "requested_limit": limit,
         "selected_count": len(selected),
+        "full_coverage": full_coverage,
         "node_count": len(selected_nodes),
         "parent_industry_count": len({parent_by_node[code] for code in selected_nodes}),
         "mapped_symbol_count": len(node_by_symbol),
         "top_n_per_node": top_n_per_node,
+        "top_n_applied": not full_coverage,
         "nodes": [
             {
                 "industry_thscode": code,

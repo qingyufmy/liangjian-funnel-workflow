@@ -21,6 +21,7 @@ from .contracts import (
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
+_AUCTION_SYMBOL_BATCH_SIZE = 100
 
 
 def normalize_hithink_results(
@@ -198,8 +199,91 @@ def collect_market_results(
         "HOT_STOCK_LIST": client.hot_stock_list(period="hour"),
     }
     if symbols:
-        results["AUCTION_FINAL"] = client.auction_snapshot(symbols, stage="final")
+        normalized_symbols = tuple(dict.fromkeys(str(symbol).strip().upper() for symbol in symbols if str(symbol).strip()))
+        batches = tuple(
+            normalized_symbols[index : index + _AUCTION_SYMBOL_BATCH_SIZE]
+            for index in range(0, len(normalized_symbols), _AUCTION_SYMBOL_BATCH_SIZE)
+        )
+        results["AUCTION_FINAL"] = _merge_auction_batches(
+            tuple(client.auction_snapshot(batch, stage="final") for batch in batches),
+            requested_symbols=normalized_symbols,
+        )
     return results
+
+
+def _merge_auction_batches(
+    results: Sequence[HithinkFetchResult],
+    *,
+    requested_symbols: Sequence[str],
+) -> HithinkFetchResult:
+    """Merge bounded auction requests without turning a failed batch into empty data."""
+
+    if not results:
+        raise ValueError("auction batches must not be empty")
+    first = results[0]
+    items: list[Any] = []
+    seen: set[str] = set()
+    for result in results:
+        for row in result.items:
+            raw = row.model_dump(mode="json")
+            identity = str(
+                raw.get("thscode")
+                or raw.get("symbol")
+                or raw.get("code")
+                or hashlib.sha256(canonical_json_bytes(raw)).hexdigest()
+            )
+            if identity in seen:
+                continue
+            seen.add(identity)
+            items.append(row)
+    requested = set(requested_symbols)
+    returned = {
+        str(row.model_dump(mode="json").get("thscode") or "").strip().upper()
+        for row in items
+    }
+    missing_symbols = sorted(symbol for symbol in requested if symbol not in returned)
+    failed = [
+        {
+            "batch_index": index,
+            "ok": result.ok,
+            "complete": result.complete,
+            "reason_code": result.reason_code,
+            "record_count": len(result.items),
+        }
+        for index, result in enumerate(results)
+        if not result.ok or not result.complete
+    ]
+    all_complete = not failed and not missing_symbols
+    metadata = {
+        "batch_size": _AUCTION_SYMBOL_BATCH_SIZE,
+        "batch_count": len(results),
+        "successful_batch_count": len(results) - len(failed),
+        "requested_symbol_count": len(requested),
+        "returned_symbol_count": len(returned),
+        "missing_symbol_count": len(missing_symbols),
+        "missing_symbols": missing_symbols[:100],
+        "record_count": len(items),
+        "failed_batches": failed,
+    }
+    return HithinkFetchResult(
+        endpoint=first.endpoint,
+        ok=all_complete,
+        complete=all_complete,
+        reason_code=(
+            "OK"
+            if all_complete
+            else "AUCTION_SYMBOL_COVERAGE_INCOMPLETE"
+            if missing_symbols and not failed
+            else "AUCTION_BATCH_PARTIAL_FAILURE"
+        ),
+        items=tuple(items),
+        pages=sum(result.pages for result in results),
+        total=len(items),
+        fetch_time=max(result.fetch_time for result in results),
+        http_status=next((result.http_status for result in results if result.http_status is not None), None),
+        business_code=next((result.business_code for result in results if result.business_code is not None), None),
+        metadata=metadata,
+    )
 
 
 def _source_id(endpoint: str) -> str:

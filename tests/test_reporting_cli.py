@@ -3,7 +3,9 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from liangjian_funnel.cli import _latest_workflow_acceptance, main
+import pytest
+
+from liangjian_funnel.cli import _latest_workflow_acceptance, build_parser, main
 import liangjian_funnel.cli as cli_module
 from liangjian_funnel.contracts import CapabilityCheck, CapabilityReport, CapabilityStatus
 from liangjian_funnel.reporting import write_capability_report
@@ -108,10 +110,9 @@ def test_historical_research_cli_preserves_explicit_timezone_cutoff(tmp_path: Pa
         def __init__(self, _settings):
             pass
 
-        def run_research(self, slot, *, max_candidates=None, as_of=None, historical_replay=False):
+        def run_research(self, slot, *, as_of=None, historical_replay=False):
             captured.update(
                 slot=slot,
-                max_candidates=max_candidates,
                 as_of=as_of,
                 historical_replay=historical_replay,
             )
@@ -125,7 +126,6 @@ def test_historical_research_cli_preserves_explicit_timezone_cutoff(tmp_path: Pa
     ) == 0
     assert captured == {
         "slot": "close",
-        "max_candidates": None,
         "as_of": datetime(2026, 8, 25, 15, 10, tzinfo=ZoneInfo("Asia/Shanghai")),
         "historical_replay": True,
     }
@@ -152,6 +152,14 @@ def test_workflow_command_returns_safe_reason_for_unexpected_reason_coded_error(
         "status": "FAILED",
         "reason_code": "MINUTE_CACHE_CONFLICT",
     }
+
+
+def test_production_cli_rejects_removed_candidate_cap() -> None:
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["prepare-snapshot", "--max-candidates", "20"])
+
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["run-research", "--slot", "close", "--max-candidates", "20"])
 
 
 def test_latest_workflow_acceptance_requires_three_lanes_from_same_run():

@@ -22,7 +22,6 @@ def test_exact_models_and_safe_summary_do_not_leak_keys(tmp_path: Path):
     assert secret not in str(settings.safe_summary())
     assert settings.safe_summary()["model_key_present"] is True
     assert settings.model_timeout_seconds == 600
-    assert settings.research_max_candidates == 1000
     assert settings.research_a1_batch_size == 20
     assert settings.research_a2_batch_size == 40
 

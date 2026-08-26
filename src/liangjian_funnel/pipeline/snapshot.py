@@ -340,6 +340,7 @@ class FrozenInputSnapshot(BaseModel):
         fundamental_fetcher: Callable[[str], Any] | None = None,
         max_candidates: int = 50,
         candidate_symbols: Sequence[str] | None = None,
+        retain_incomplete: bool = False,
     ) -> "FrozenInputSnapshot":
         if not isinstance(max_candidates, int) or isinstance(max_candidates, bool) or max_candidates < 1:
             raise ValueError("max_candidates must be a positive integer")
@@ -361,29 +362,39 @@ class FrozenInputSnapshot(BaseModel):
         for candidate in selected:
             symbol = candidate.symbol
             history_value = daily.get(symbol)
+            history_failure_recorded = False
             if history_fetcher is not None:
                 history_result = history_fetcher(symbol)
                 ok, payload, reason = _consume_fetch_result(history_result)
                 if not ok:
                     failures.append(CandidateFailure(symbol=symbol, stage="history", reason_code=reason))
-                    continue
-                daily[symbol] = payload
-                history_value = payload
-            if not _payload_has_rows(history_value):
+                    history_failure_recorded = True
+                    if not retain_incomplete:
+                        continue
+                else:
+                    daily[symbol] = payload
+                    history_value = payload
+            if not history_failure_recorded and not _payload_has_rows(history_value):
                 failures.append(CandidateFailure(symbol=symbol, stage="history", reason_code="HISTORY_DATA_MISSING"))
-                continue
+                if not retain_incomplete:
+                    continue
             fundamental_value = fundamental.get(symbol)
+            fundamental_failure_recorded = False
             if fundamental_fetcher is not None:
                 fundamental_result = fundamental_fetcher(symbol)
                 ok, payload, reason = _consume_fetch_result(fundamental_result)
                 if not ok:
                     failures.append(CandidateFailure(symbol=symbol, stage="fundamental", reason_code=reason))
-                    continue
-                fundamental[symbol] = payload
-                fundamental_value = payload
-            if not _payload_has_rows(fundamental_value):
+                    fundamental_failure_recorded = True
+                    if not retain_incomplete:
+                        continue
+                else:
+                    fundamental[symbol] = payload
+                    fundamental_value = payload
+            if not fundamental_failure_recorded and not _payload_has_rows(fundamental_value):
                 failures.append(CandidateFailure(symbol=symbol, stage="fundamental", reason_code="FUNDAMENTAL_DATA_MISSING"))
-                continue
+                if not retain_incomplete:
+                    continue
             accepted.append(candidate)
 
         timestamps = dict(fetch_timestamps or {"universe": universe.fetched_at})

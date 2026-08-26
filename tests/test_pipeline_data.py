@@ -209,6 +209,25 @@ def test_frozen_snapshot_hash_replay_and_candidate_failure(tmp_path: Path):
     assert [failure.symbol for failure in restored.candidate_failures] == ["000001.SZ"]
 
 
+def test_formal_snapshot_can_retain_incomplete_candidates_for_a1_classification():
+    universe = _universe()
+    frozen = FrozenInputSnapshot.freeze(
+        universe,
+        as_of=NOW,
+        daily_payload={"600519.SH": [{"date": "2026-08-23", "close": 10}]},
+        fundamental_payload={"600519.SH": [{"period": "2026Q2"}]},
+        fact_payload={"manifest_hash": "a" * 64},
+        max_candidates=2,
+        retain_incomplete=True,
+    )
+
+    assert {item.symbol for item in frozen.trade_candidates} == {"600519.SH", "000001.SZ"}
+    assert [(failure.symbol, failure.stage) for failure in frozen.candidate_failures] == [
+        ("000001.SZ", "history"),
+        ("000001.SZ", "fundamental"),
+    ]
+
+
 def test_frozen_snapshot_can_preserve_explicit_node_diversified_candidates():
     universe = _universe()
     frozen = FrozenInputSnapshot.freeze(
