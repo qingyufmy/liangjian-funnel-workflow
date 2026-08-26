@@ -15,7 +15,7 @@ from typing import Any, Mapping
 from zoneinfo import ZoneInfo
 
 from .data.cache import MinuteBarStore
-from .data.cninfo import CninfoClient, CninfoFetchResult
+from .data.cninfo import CninfoAnnouncement, CninfoClient, CninfoFetchResult
 from .data.cninfo_pdf import CninfoPdfClient, CninfoPdfEvidence
 from .data.gov_policy import GovPolicyClient
 from .data.mootdx import MootdxAdapter, MootdxNode, MinuteBar, map_symbol
@@ -68,6 +68,27 @@ SHANGHAI = ZoneInfo("Asia/Shanghai")
 _A4_FILE = "agent_4_intraday_signal_v2.txt"
 _G0_SCOPE_CONTRACT = "CONFIGURED_RESEARCH_UNIVERSE_V1"
 _RESEARCH_RESUME_SCHEMA = "liangjian-research-resume/1.2.0"
+_CNINFO_PDF_PERMANENT_FAILURES = frozenset(
+    {
+        "CNINFO_PDF_URL_REJECTED",
+        "CNINFO_PDF_REDIRECT_REJECTED",
+        "CNINFO_PDF_HTTP_4XX",
+        "CNINFO_PDF_CONTENT_TYPE_INVALID",
+        "CNINFO_PDF_MAGIC_INVALID",
+        "CNINFO_PDF_TOO_LARGE",
+        "CNINFO_PDF_ENCRYPTED",
+        "CNINFO_PDF_TEXT_EMPTY",
+        "CNINFO_PDF_PARSE_FAILED",
+    }
+)
+_CNINFO_PDF_TRANSIENT_FAILURES = frozenset(
+    {
+        "CNINFO_PDF_RATE_LIMITED",
+        "CNINFO_PDF_HTTP_5XX",
+        "CNINFO_PDF_REQUEST_FAILED",
+        "CNINFO_PDF_TIMEOUT",
+    }
+)
 
 
 class WorkflowError(RuntimeError):
@@ -338,27 +359,65 @@ class WorkflowApplication:
             base_url=self.settings.cninfo_base_url,
             min_request_interval_seconds=self.settings.cninfo_min_request_interval_seconds,
         ) as cninfo:
-            for index, candidate in enumerate(selected, start=1):
-                symbol = candidate.symbol
-                recent_result, recent_hit = self._cached_cninfo_result(
-                    cninfo,
-                    symbol=symbol,
-                    start_date=query_start,
-                    end_date=query_end,
-                    semantic_key="RECENT_10D",
-                    ttl=timedelta(hours=6),
-                )
-                business_result, business_hit = self._cached_cninfo_result(
-                    cninfo,
-                    symbol=symbol,
-                    start_date=business_query_start,
-                    end_date=query_end,
-                    semantic_key="ANNUAL_REPORT_450D",
-                    ttl=timedelta(days=7),
-                    search_keyword="年度报告",
-                )
-                cninfo_hits += int(recent_hit) + int(business_hit)
-                cninfo_misses += int(not recent_hit) + int(not business_hit)
+            # Each candidate is one independent unit containing the recent and
+            # business-history queries.  The shared client owns the global
+            # request throttle, so workers hide network latency without
+            # creating a per-thread request burst.
+            query_futures = {}
+            with ThreadPoolExecutor(max_workers=self.settings.cninfo_workers) as executor:
+                for index, candidate in enumerate(selected):
+                    future = executor.submit(
+                        self._fetch_cninfo_candidate_queries,
+                        cninfo,
+                        candidate.symbol,
+                        query_start,
+                        query_end,
+                        business_query_start,
+                    )
+                    query_futures[future] = index
+                completed_queries: dict[
+                    int,
+                    tuple[str, CninfoFetchResult, bool, CninfoFetchResult, bool],
+                ] = {}
+                completed_count = 0
+                for future in as_completed(query_futures):
+                    index = query_futures[future]
+                    completed_queries[index] = future.result()
+                    completed_count += 1
+                    symbol, recent_result, recent_hit, business_result, business_hit = completed_queries[index]
+                    cninfo_hits += int(recent_hit) + int(business_hit)
+                    cninfo_misses += int(not recent_hit) + int(not business_hit)
+                    if progress is not None and (
+                        completed_count == len(selected)
+                        or completed_count % self.settings.data_progress_every == 0
+                    ):
+                        completed_query_failures = sum(
+                            int(
+                                not recent.ok
+                                or not recent.complete
+                                or not business.ok
+                                or not business.complete
+                            )
+                            for _, recent, _, business, _ in completed_queries.values()
+                        )
+                        progress.update_data(
+                            processed=completed_count,
+                            total=len(selected),
+                            cache_hits=cninfo_hits,
+                            cache_misses=cninfo_misses,
+                            failures=(
+                                sum(1 for reasons in source_failures.values() if reasons)
+                                + completed_query_failures
+                            ),
+                            current_symbol=symbol,
+                        )
+                        _progress_stdout(progress.snapshot())
+
+            # Rebuild all maps and P0 failure side effects in candidate order;
+            # completion order must never affect snapshot bytes or failure
+            # reason ordering.
+            for index in range(len(selected)):
+                symbol, recent_result, recent_hit, business_result, business_hit = completed_queries[index]
                 result = _merge_cninfo_query_results(recent_result, business_result)
                 cninfo_results[symbol] = result
                 if not recent_result.ok or not recent_result.complete:
@@ -371,34 +430,139 @@ class WorkflowApplication:
                     source_failures.setdefault(symbol, []).append(
                         f"CNINFO_MAIN_BUSINESS:{business_result.reason_code}"
                     )
-                if progress is not None and (
-                    index == len(selected) or index % self.settings.data_progress_every == 0
-                ):
-                    progress.update_data(
-                        processed=index,
-                        total=len(selected),
-                        cache_hits=cninfo_hits,
-                        cache_misses=cninfo_misses,
-                        failures=sum(1 for reasons in source_failures.values() if reasons),
-                        current_symbol=symbol,
-                    )
-                    _progress_stdout(progress.snapshot())
-        if self.settings.cninfo_pdf_max_documents_per_symbol:
+        # Freeze the complete PDF work list before opening the client.  The
+        # candidate selector is deterministic, so this gives the control
+        # plane an honest document-level total instead of leaving the prior
+        # CNINFO announcement-query counters on screen while PDF work runs.
+        pdf_tasks = _build_cninfo_pdf_tasks(
+            cninfo_results,
+            limit=self.settings.cninfo_pdf_max_documents_per_symbol,
+        )
+        unique_pdf_tasks = _deduplicate_cninfo_pdf_tasks(pdf_tasks)
+        pdf_evidence_by_index: dict[int, CninfoPdfEvidence] = {}
+        pdf_cache_hits = 0
+        pdf_cache_misses = 0
+        pdf_documents_succeeded = 0
+        pdf_documents_failed = 0
+        pdf_progress_last_at = 0.0
+        if progress is not None:
+            progress.set_phase("CNINFO_PDF_SYNC")
+            progress.update_data(
+                processed=0,
+                total=len(unique_pdf_tasks),
+                cache_hits=0,
+                cache_misses=0,
+                failures=0,
+                documents_succeeded=0,
+                documents_failed=0,
+            )
+            _progress_stdout(progress.snapshot())
+        if unique_pdf_tasks:
             with CninfoPdfClient(
                 self.settings.cninfo_pdf_cache_dir,
                 timeout_seconds=self.settings.timeout_seconds,
             ) as pdf_client:
-                for symbol, result in sorted(cninfo_results.items()):
-                    for announcement in select_cninfo_pdf_candidates(
-                        result,
-                        limit=self.settings.cninfo_pdf_max_documents_per_symbol,
-                    ):
-                        evidence = self._cached_cninfo_pdf_evidence(pdf_client, announcement)
-                        cninfo_pdf_evidence[(symbol, announcement.announcement_id)] = evidence
-                        if not evidence.available:
-                            source_failures.setdefault(symbol, []).append(
-                                f"CNINFO_PDF:{announcement.announcement_id}:{evidence.reason_code}"
+                # Read all evidence rows in one connection/query set.  Only
+                # valid cache hits enter the completion set; misses are the
+                # only documents submitted to the bounded worker pool.
+                cache_keys = [announcement.announcement_id for _, announcement in unique_pdf_tasks]
+                cached_rows = self.fact_cache.get_cached_results(
+                    "CNINFO_PDF_EVIDENCE",
+                    cache_keys,
+                    fresh_at=datetime.now(SHANGHAI),
+                )
+                pending: list[tuple[int, str, CninfoAnnouncement]] = []
+                for index, (symbol, announcement) in enumerate(unique_pdf_tasks):
+                    cached_evidence = self._cached_cninfo_pdf_evidence_from_record(
+                        announcement,
+                        cached_rows.get(announcement.announcement_id),
+                    )
+                    if cached_evidence is None:
+                        pending.append((index, symbol, announcement))
+                        continue
+                    pdf_evidence_by_index[index] = cached_evidence
+
+                pdf_cache_hits = len(pdf_evidence_by_index)
+                pdf_cache_misses = len(pending)
+                pdf_documents_succeeded = sum(
+                    int(evidence.available) for evidence in pdf_evidence_by_index.values()
+                )
+                pdf_documents_failed = pdf_cache_hits - pdf_documents_succeeded
+                latest_cached = unique_pdf_tasks[max(pdf_evidence_by_index)] if pdf_evidence_by_index else (None, None)
+                if progress is not None and pdf_cache_hits:
+                    progress.update_data(
+                        processed=pdf_cache_hits,
+                        total=len(unique_pdf_tasks),
+                        cache_hits=pdf_cache_hits,
+                        cache_misses=pdf_cache_misses,
+                        failures=pdf_documents_failed,
+                        current_symbol=latest_cached[0],
+                        current_document=(
+                            latest_cached[1].announcement_id if latest_cached[1] is not None else None
+                        ),
+                        documents_succeeded=pdf_documents_succeeded,
+                        documents_failed=pdf_documents_failed,
+                    )
+                    _progress_stdout(progress.snapshot())
+                    pdf_progress_last_at = time.monotonic()
+
+                with ThreadPoolExecutor(max_workers=self.settings.cninfo_pdf_workers) as executor:
+                    pdf_futures = {
+                        executor.submit(
+                            self._fetch_and_cache_cninfo_pdf_evidence,
+                            pdf_client,
+                            announcement,
+                        ): (index, symbol, announcement)
+                        for index, symbol, announcement in pending
+                    }
+                    for future in as_completed(pdf_futures):
+                        index, symbol, announcement = pdf_futures[future]
+                        try:
+                            evidence = future.result()
+                        except Exception:
+                            # A worker-level error is isolated to its
+                            # document, but remains visible as a stable
+                            # source failure instead of being silently lost.
+                            evidence = self._cninfo_pdf_worker_failure(announcement)
+                        pdf_evidence_by_index[index] = evidence
+                        if evidence.available:
+                            pdf_documents_succeeded += 1
+                        else:
+                            pdf_documents_failed += 1
+                        completed = len(pdf_evidence_by_index)
+                        progress_now = time.monotonic()
+                        if progress is not None and (
+                            completed == len(unique_pdf_tasks)
+                            or progress_now - pdf_progress_last_at >= 2.0
+                        ):
+                            progress.update_data(
+                                processed=completed,
+                                total=len(unique_pdf_tasks),
+                                cache_hits=pdf_cache_hits,
+                                cache_misses=pdf_cache_misses,
+                                failures=pdf_documents_failed,
+                                current_symbol=symbol,
+                                current_document=announcement.announcement_id,
+                                documents_succeeded=pdf_documents_succeeded,
+                                documents_failed=pdf_documents_failed,
                             )
+                            _progress_stdout(progress.snapshot())
+                            pdf_progress_last_at = progress_now
+
+                # Expand one fetched document back to every symbol occurrence.
+                # This keeps the full fact boundary while avoiding duplicate
+                # network/download/parse work for repeated announcement IDs.
+                ordered_evidence = {
+                    unique_pdf_tasks[index][1].announcement_id: pdf_evidence_by_index[index]
+                    for index in range(len(unique_pdf_tasks))
+                }
+                for symbol, announcement in pdf_tasks:
+                    evidence = ordered_evidence[announcement.announcement_id]
+                    cninfo_pdf_evidence[(symbol, announcement.announcement_id)] = evidence
+                    if not evidence.available:
+                        source_failures.setdefault(symbol, []).append(
+                            f"CNINFO_PDF:{announcement.announcement_id}:{evidence.reason_code}"
+                        )
         cninfo_manifest = normalize_cninfo_results(
             cninfo_results,
             pdf_evidence=cninfo_pdf_evidence,
@@ -635,6 +799,35 @@ class WorkflowApplication:
             )
         return result, False
 
+    def _fetch_cninfo_candidate_queries(
+        self,
+        client: CninfoClient,
+        symbol: str,
+        query_start: str,
+        query_end: str,
+        business_query_start: str,
+    ) -> tuple[str, CninfoFetchResult, bool, CninfoFetchResult, bool]:
+        """Fetch both deterministic CNINFO query lanes for one candidate."""
+
+        recent_result, recent_hit = self._cached_cninfo_result(
+            client,
+            symbol=symbol,
+            start_date=query_start,
+            end_date=query_end,
+            semantic_key="RECENT_10D",
+            ttl=timedelta(hours=6),
+        )
+        business_result, business_hit = self._cached_cninfo_result(
+            client,
+            symbol=symbol,
+            start_date=business_query_start,
+            end_date=query_end,
+            semantic_key="ANNUAL_REPORT_450D",
+            ttl=timedelta(days=7),
+            search_keyword="年度报告",
+        )
+        return symbol, recent_result, recent_hit, business_result, business_hit
+
     def _cached_cninfo_pdf_evidence(
         self,
         client: CninfoPdfClient,
@@ -644,42 +837,96 @@ class WorkflowApplication:
         cached = self.fact_cache.get_cached_result(
             "CNINFO_PDF_EVIDENCE",
             cache_key,
+            fresh_at=datetime.now(SHANGHAI),
         )
-        if cached is not None:
-            try:
-                evidence = CninfoPdfEvidence.model_validate(cached["payload"])
+        cached_evidence = self._cached_cninfo_pdf_evidence_from_record(announcement, cached)
+        if cached_evidence is not None:
+            return cached_evidence
+        evidence = client.fetch_evidence(announcement)
+        self._persist_cninfo_pdf_evidence(evidence)
+        return evidence
+
+    def _cached_cninfo_pdf_evidence_from_record(
+        self,
+        announcement: CninfoAnnouncement,
+        cached: Mapping[str, Any] | None,
+    ) -> CninfoPdfEvidence | None:
+        """Validate one bulk-loaded PDF evidence row using the old cache rules."""
+
+        if cached is None:
+            return None
+        try:
+            evidence = CninfoPdfEvidence.model_validate(cached["payload"])
+            if evidence.announcement_id != announcement.announcement_id:
+                return None
+            if evidence.available:
                 raw_path = (
                     self.settings.cninfo_pdf_cache_dir / str(evidence.cache_relative_path)
                 ).resolve()
                 root = self.settings.cninfo_pdf_cache_dir.resolve()
-                if (
-                    evidence.available
-                    and (
-                        not self.settings.cninfo_pdf_retain_raw
-                        or (
-                            raw_path.is_relative_to(root)
-                            and raw_path.is_file()
-                            and raw_path.stat().st_size == evidence.byte_size
-                        )
+                if not (
+                    not self.settings.cninfo_pdf_retain_raw
+                    or (
+                        raw_path.is_relative_to(root)
+                        and raw_path.is_file()
+                        and raw_path.stat().st_size == evidence.byte_size
                     )
                 ):
-                    if not self.settings.cninfo_pdf_retain_raw:
-                        self._prune_cninfo_pdf_raw(evidence)
-                    return evidence.model_copy(update={"cache_hit": True})
-            except (OSError, TypeError, ValueError):
-                pass
+                    return None
+                if not self.settings.cninfo_pdf_retain_raw:
+                    self._prune_cninfo_pdf_raw(evidence)
+            # Failed evidence is intentionally a cache hit too.  The caller
+            # still records its reason in source_failures, but avoids retrying
+            # a known permanent (or short-lived transient) failure until TTL.
+            return evidence.model_copy(update={"cache_hit": True})
+        except (OSError, TypeError, ValueError, KeyError):
+            return None
+
+    def _fetch_and_cache_cninfo_pdf_evidence(
+        self,
+        client: CninfoPdfClient,
+        announcement: CninfoAnnouncement,
+    ) -> CninfoPdfEvidence:
+        """Fetch one known cache miss and persist the evidence from its worker."""
+
         evidence = client.fetch_evidence(announcement)
-        if evidence.available:
-            self.fact_cache.put_cached_result(
-                "CNINFO_PDF_EVIDENCE",
-                cache_key,
-                evidence.model_dump(mode="json"),
-                fetched_at=evidence.fetched_at,
-                expires_at=evidence.fetched_at + timedelta(days=3650),
-            )
-            if not self.settings.cninfo_pdf_retain_raw:
-                self._prune_cninfo_pdf_raw(evidence)
+        self._persist_cninfo_pdf_evidence(evidence)
         return evidence
+
+    def _persist_cninfo_pdf_evidence(self, evidence: CninfoPdfEvidence) -> None:
+        """Persist successful evidence and bounded-TTL deterministic failures."""
+
+        if evidence.available:
+            ttl = timedelta(days=3650)
+        elif evidence.reason_code in _CNINFO_PDF_PERMANENT_FAILURES:
+            ttl = timedelta(days=7)
+        elif evidence.reason_code in _CNINFO_PDF_TRANSIENT_FAILURES:
+            ttl = timedelta(minutes=15)
+        else:
+            # Parser availability and cache/provider implementation errors
+            # should not be retried in a hot loop, but are short-lived.
+            ttl = timedelta(minutes=15)
+        self.fact_cache.put_cached_result(
+            "CNINFO_PDF_EVIDENCE",
+            str(evidence.announcement_id),
+            evidence.model_dump(mode="json"),
+            fetched_at=evidence.fetched_at,
+            expires_at=evidence.fetched_at + ttl,
+        )
+        if not self.settings.cninfo_pdf_retain_raw:
+            self._prune_cninfo_pdf_raw(evidence)
+
+    @staticmethod
+    def _cninfo_pdf_worker_failure(announcement: CninfoAnnouncement) -> CninfoPdfEvidence:
+        """Create a redacted, stable outcome for an isolated worker exception."""
+
+        return CninfoPdfEvidence(
+            announcement_id=announcement.announcement_id,
+            pdf_url=announcement.pdf_url,
+            available=False,
+            reason_code="CNINFO_PDF_WORKER_FAILED",
+            fetched_at=datetime.now(SHANGHAI),
+        )
 
     def _prune_cninfo_pdf_raw(self, evidence: CninfoPdfEvidence) -> None:
         """Remove re-downloadable PDF bytes after durable evidence extraction."""
@@ -2154,6 +2401,40 @@ def _merge_cninfo_query_results(
     )
 
 
+def _build_cninfo_pdf_tasks(
+    cninfo_results: Mapping[str, CninfoFetchResult],
+    *,
+    limit: int,
+) -> tuple[tuple[str, CninfoAnnouncement], ...]:
+    """Build a stable, bounded PDF task list before any document is fetched."""
+
+    if limit < 0:
+        raise ValueError("CNINFO PDF candidate limit must be non-negative")
+    tasks: list[tuple[str, CninfoAnnouncement]] = []
+    for symbol, result in sorted(cninfo_results.items(), key=lambda item: str(item[0])):
+        tasks.extend(
+            (str(symbol), announcement)
+            for announcement in select_cninfo_pdf_candidates(result, limit=limit)
+        )
+    return tuple(tasks)
+
+
+def _deduplicate_cninfo_pdf_tasks(
+    tasks: tuple[tuple[str, CninfoAnnouncement], ...],
+) -> tuple[tuple[str, CninfoAnnouncement], ...]:
+    """Deduplicate downloads by announcement ID while retaining input order."""
+
+    unique: list[tuple[str, CninfoAnnouncement]] = []
+    index_by_id: set[str] = set()
+    for symbol, announcement in tasks:
+        announcement_id = announcement.announcement_id
+        if announcement_id in index_by_id:
+            continue
+        index_by_id.add(announcement_id)
+        unique.append((symbol, announcement))
+    return tuple(unique)
+
+
 def _merge_news_heat_snapshots(base: Any, stock: Any) -> dict[str, Any]:
     """Merge bounded T3 market/RSS and stock-news projections deterministically."""
 
@@ -2470,6 +2751,10 @@ def _progress_stdout(state: Mapping[str, Any]) -> None:
         "cache_hits": data.get("cache_hits"),
         "cache_misses": data.get("cache_misses"),
         "failures": data.get("failures"),
+        "current_symbol": data.get("current_symbol"),
+        "current_document": data.get("current_document"),
+        "documents_succeeded": data.get("documents_succeeded"),
+        "documents_failed": data.get("documents_failed"),
     }
     print(json.dumps(sanitize(payload), ensure_ascii=False, separators=(",", ":")), flush=True)
 

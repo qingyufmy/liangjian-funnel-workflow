@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from urllib.parse import parse_qs
 from zoneinfo import ZoneInfo
@@ -273,3 +274,22 @@ def test_base_url_and_rate_interval_are_constrained() -> None:
         CninfoClient(base_url="https://example.test")
     with pytest.raises(ValueError, match="interval"):
         CninfoClient(min_request_interval_seconds=-1)
+
+
+def test_shared_client_throttle_is_global_and_thread_safe() -> None:
+    sleeps: list[float] = []
+
+    # Keep the clock fixed so a per-thread implementation would visibly
+    # collapse all calls onto the same timestamp.  The production throttle
+    # reserves the next logical start even when an injected sleep does not
+    # advance the test clock.
+    with CninfoClient(
+        http_client=httpx.Client(transport=httpx.MockTransport(lambda _request: httpx.Response(200))),
+        sleep=sleeps.append,
+        monotonic=lambda: 0.0,
+        min_request_interval_seconds=0.5,
+    ) as cninfo:
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            list(executor.map(lambda _item: cninfo._throttle(), range(4)))
+
+    assert sleeps == [0.5, 1.0, 1.5]

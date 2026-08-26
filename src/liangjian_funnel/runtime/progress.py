@@ -78,6 +78,9 @@ class WorkflowProgress:
         cache_misses: int,
         failures: int,
         current_symbol: str | None = None,
+        current_document: str | None = None,
+        documents_succeeded: int | None = None,
+        documents_failed: int | None = None,
         eta_seconds: int | None = None,
         now: datetime | None = None,
     ) -> None:
@@ -91,6 +94,12 @@ class WorkflowProgress:
             }
             if current_symbol:
                 payload["current_symbol"] = _token(current_symbol, 32)
+            if current_document:
+                payload["current_document"] = _token(current_document, 200)
+            if documents_succeeded is not None:
+                payload["documents_succeeded"] = _non_negative(documents_succeeded) or 0
+            if documents_failed is not None:
+                payload["documents_failed"] = _non_negative(documents_failed) or 0
             self._state["data"] = payload
             computed_eta = _non_negative(eta_seconds)
             if computed_eta is None and payload["processed"] > 0 and payload["total"] > payload["processed"]:

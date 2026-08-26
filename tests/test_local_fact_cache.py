@@ -239,3 +239,47 @@ def test_cached_provider_result_is_versioned_redacted_and_freshness_checked(tmp_
         as_of="2026-08-25T23:59:59+00:00",
     )
     assert historical["payload"]["items"] == [1]
+
+
+def test_cached_provider_results_batch_selects_latest_valid_revision_and_chunks(tmp_path: Path):
+    cache = LocalFactCache(tmp_path)
+    cache.put_cached_result(
+        "cninfo",
+        "a",
+        {"value": "old"},
+        fetched_at="2026-08-25T08:00:00+00:00",
+        expires_at="2026-08-27T08:00:00+00:00",
+    )
+    cache.put_cached_result(
+        "cninfo",
+        "a",
+        {"value": "new-but-expired"},
+        fetched_at="2026-08-26T08:00:00+00:00",
+        expires_at="2026-08-26T12:00:00+00:00",
+    )
+    cache.put_cached_result(
+        "cninfo",
+        "b",
+        {"value": "b"},
+        fetched_at="2026-08-26T09:00:00+00:00",
+        expires_at="2026-08-27T09:00:00+00:00",
+    )
+
+    result = cache.get_cached_results(
+        "cninfo",
+        ["a", "b", "a", "missing"],
+        fresh_at="2026-08-26T13:00:00+00:00",
+        chunk_size=1,
+    )
+    assert list(result) == ["a", "b"]
+    assert result["a"]["payload"] == {"value": "old"}
+    assert result["b"]["payload"] == {"value": "b"}
+
+    historical = cache.get_cached_results(
+        "cninfo",
+        ["a", "b"],
+        as_of="2026-08-25T12:00:00+00:00",
+        chunk_size=1,
+    )
+    assert historical["a"]["payload"] == {"value": "old"}
+    assert "b" not in historical

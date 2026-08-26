@@ -26,6 +26,8 @@ def test_exact_models_and_safe_summary_do_not_leak_keys(tmp_path: Path):
     assert settings.research_a2_batch_size == 40
     assert settings.research_batch_workers == 2
     assert settings.data_sync_batch_size == 50
+    assert settings.cninfo_workers == 4
+    assert settings.cninfo_pdf_workers == 2
     assert settings.fundamental_refresh_hours == 24
     assert settings.daily_refresh_hours == 4
     assert settings.research_thinking_enabled is True
@@ -45,6 +47,23 @@ def test_thinking_flags_are_explicit_and_strict(tmp_path: Path):
 
     with pytest.raises(ValueError, match="boolean"):
         Settings.from_env({"LIANGJIAN_MONITOR_THINKING_ENABLED": "maybe"}, root=tmp_path)
+
+
+def test_cninfo_worker_bounds_are_configurable(tmp_path: Path):
+    settings = Settings.from_env(
+        {
+            "LIANGJIAN_CNINFO_WORKERS": "8",
+            "LIANGJIAN_CNINFO_PDF_WORKERS": "4",
+        },
+        root=tmp_path,
+    )
+    assert settings.cninfo_workers == 8
+    assert settings.cninfo_pdf_workers == 4
+
+    with pytest.raises(ValidationError):
+        Settings.from_env({"LIANGJIAN_CNINFO_WORKERS": "0"}, root=tmp_path)
+    with pytest.raises(ValidationError):
+        Settings.from_env({"LIANGJIAN_CNINFO_PDF_WORKERS": "5"}, root=tmp_path)
 
 
 def test_only_https_endpoints_are_allowed(tmp_path: Path):

@@ -190,8 +190,13 @@ export interface WorkflowProgressSummary {
   cacheHits: number | null;
   cacheMisses: number | null;
   failures: number | null;
+  currentSymbol: string | null;
+  currentDocument: string | null;
+  documentsSucceeded: number | null;
+  documentsFailed: number | null;
   elapsedMs: number | null;
   etaMs: number | null;
+  phaseStartedAt: string | null;
   updatedAt: string | null;
   lanes: WorkflowProgressLane[];
 }

@@ -569,6 +569,7 @@ function progressPhaseLabel(phase?: string | null): string {
     UNIVERSE_SYNC: "全市场股票池",
     MARKET_FACT_SYNC: "行情事实同步",
     CNINFO_SYNC: "巨潮公告同步",
+    CNINFO_PDF_SYNC: "巨潮 PDF 证据提取",
     DATA_SYNC: "数据同步",
     SNAPSHOT: "冻结快照",
     SNAPSHOT_RESUMED: "恢复已冻结快照",
@@ -607,10 +608,21 @@ function progressPercent(processed: number | null, total: number | null): number
 
 function ProgressBar({ processed, total, compact = false }: { processed: number | null; total: number | null; compact?: boolean }) {
   const percent = progressPercent(processed, total);
-  return <div className={`progress-bar ${compact ? "progress-bar-compact" : ""}`} role="progressbar" aria-valuemin={0} aria-valuemax={total ?? undefined} aria-valuenow={processed ?? undefined} aria-label="执行进度"><span style={{ width: `${percent ?? 0}%` }} /></div>;
+  return <div className={`progress-bar ${compact ? "progress-bar-compact" : ""}`} role="progressbar" aria-valuemin={0} aria-valuemax={total ?? undefined} aria-valuenow={processed ?? undefined} aria-label="执行进度"><span style={{ transform: `scaleX(${(percent ?? 0) / 100})` }} /></div>;
+}
+
+function progressRate(progress: WorkflowProgressSummary): string {
+  if (!progress.phaseStartedAt || !progress.processed || progress.processed < 1) return "—";
+  const startedAt = Date.parse(progress.phaseStartedAt);
+  const updatedAt = Date.parse(progress.updatedAt ?? "");
+  if (!Number.isFinite(startedAt) || !Number.isFinite(updatedAt) || updatedAt <= startedAt) return "—";
+  const perMinute = progress.processed / ((updatedAt - startedAt) / 60_000);
+  if (!Number.isFinite(perMinute) || perMinute <= 0) return "—";
+  return `${perMinute < 10 ? perMinute.toFixed(1) : Math.round(perMinute)} 份/分钟`;
 }
 
 function WorkflowProgressPanel({ progress }: { progress: WorkflowProgressSummary | null }) {
+  const isPdfProgress = progress?.phase === "CNINFO_PDF_SYNC";
   return (
     <Panel title="执行进度" icon={<Activity size={18} />} className="workflow-progress-panel">
       {!progress ? <EmptyState title="暂无持久化进度" detail="首次初始化或研究任务开始后，Python 会将阶段进度写入控制台。" icon={<Activity size={22} />} /> : progress.issue ? (
@@ -619,12 +631,20 @@ function WorkflowProgressPanel({ progress }: { progress: WorkflowProgressSummary
         <>
           <div className="progress-summary-grid">
             <div><span>当前阶段</span><strong>{progressPhaseLabel(progress.phase)}</strong><StatusBadge status={progress.status} /></div>
-            <div><span>总体处理</span><strong>{progressPair(progress.processed, progress.total)}</strong><ProgressBar processed={progress.processed} total={progress.total} /></div>
-            <div><span>缓存命中 / 未命中</span><strong>{progressPair(progress.cacheHits, progress.cacheMisses)}</strong></div>
-            <div><span>失败数</span><strong className={progress.failures ? "progress-danger" : ""}>{progressCount(progress.failures)}</strong></div>
+            <div><span>{isPdfProgress ? "PDF 文档处理" : "总体处理"}</span><strong>{progressPair(progress.processed, progress.total)}</strong><ProgressBar processed={progress.processed} total={progress.total} /></div>
+            <div><span>{isPdfProgress ? "PDF 缓存命中 / 未命中" : "缓存命中 / 未命中"}</span><strong>{progressPair(progress.cacheHits, progress.cacheMisses)}</strong></div>
+            <div><span>{isPdfProgress ? "PDF 失败数" : "失败数"}</span><strong className={progress.failures ? "progress-danger" : ""}>{progressCount(progress.failures)}</strong></div>
             <div><span>已用时间</span><strong>{formatDuration(progress.elapsedMs)}</strong></div>
             <div><span>预计剩余</span><strong>{formatDuration(progress.etaMs)}</strong></div>
           </div>
+          {isPdfProgress ? (
+            <div className="progress-current-task" aria-live="polite">
+              <div><span>最近完成股票</span><strong>{progress.currentSymbol ?? "等待首份完成"}</strong></div>
+              <div><span>最近完成文档</span><strong title={progress.currentDocument ?? undefined}>{progress.currentDocument ?? "正在生成并行任务"}</strong></div>
+              <div><span>成功 / 失败</span><strong>{progressPair(progress.documentsSucceeded, progress.documentsFailed)}</strong></div>
+              <div><span>处理速度</span><strong>{progressRate(progress)}</strong></div>
+            </div>
+          ) : null}
           {progress.lanes.length === 0 ? <div className="progress-empty-lanes">当前阶段尚未产生模型 lane 批次。</div> : <div className="progress-lanes">{progress.lanes.map((lane) => <ProgressLane key={lane.laneId} lane={lane} />)}</div>}
           <div className="panel-footnote"><Activity size={14} /><span>最近更新时间 {formatDateTime(progress.updatedAt)}；此处只显示安全的汇总进度，不展示模型原文。</span></div>
         </>

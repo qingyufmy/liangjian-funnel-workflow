@@ -413,6 +413,53 @@ test("reads the Python progress writer shape including second-based timing and s
   expect(progress?.lanes[0]).toMatchObject({ laneId: "lane_1", batchProcessed: 4, batchTotal: 20 });
 });
 
+test("projects allow-listed CNINFO PDF progress without exposing document payloads", async () => {
+  const root = await mkdtemp(join(tmpdir(), "liangjian-progress-cninfo-pdf-"));
+  await mkdir(join(root, "state"), { recursive: true });
+  await writeFile(join(root, "state", "workflow_progress.json"), JSON.stringify({
+    schema_version: 1,
+    run_id: "close-20260826",
+    job: "close",
+    status: "RUNNING",
+    phase: "CNINFO_PDF_SYNC",
+    phase_started_at: "2026-08-26T21:52:38+08:00",
+    updated_at: "2026-08-26T21:54:38+08:00",
+    elapsed_seconds: 120,
+    eta_seconds: 600,
+    data: {
+      processed: 25,
+      total: 150,
+      cache_hits: 20,
+      cache_misses: 5,
+      failures: 2,
+      current_symbol: "600519.SH",
+      current_document: "ANNUAL_REPORT_2025_120001",
+      documents_succeeded: 23,
+      documents_failed: 2,
+      raw_text: "private PDF contents",
+    },
+    lanes: {},
+  }));
+  const config = loadConfig({ LIANGJIAN_PYTHON_BIN: "python3" }, root);
+  const files = new ProjectFiles(config, new LogStore(config));
+  const progress = await files.workflowProgress();
+  expect(progress).toMatchObject({
+    phase: "CNINFO_PDF_SYNC",
+    processed: 25,
+    total: 150,
+    cacheHits: 20,
+    cacheMisses: 5,
+    failures: 2,
+    currentSymbol: "600519.SH",
+    currentDocument: "ANNUAL_REPORT_2025_120001",
+    documentsSucceeded: 23,
+    documentsFailed: 2,
+    etaMs: 600_000,
+    phaseStartedAt: "2026-08-26T13:52:38.000Z",
+  });
+  expect(JSON.stringify(progress)).not.toContain("private PDF contents");
+});
+
 test("scheduler dispatches each due minute once", async () => {
   const calls: string[] = [];
   const fakeRunner = {

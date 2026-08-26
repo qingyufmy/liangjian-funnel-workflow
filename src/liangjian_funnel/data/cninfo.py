@@ -17,6 +17,7 @@ from collections.abc import Callable, Mapping
 from datetime import date, datetime, timezone
 from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
+from threading import Lock, RLock
 from typing import Any
 from urllib.parse import urljoin, urlsplit
 from zoneinfo import ZoneInfo
@@ -424,11 +425,18 @@ class CninfoClient:
         self._owns_client = http_client is None and client is None
         self._sleep = sleep
         self._monotonic = monotonic
-        self._last_request = 0.0
+        # A single client is shared by all announcement workers.  The lock
+        # reserves each request start globally, so concurrent callers cannot
+        # each observe the same last-request timestamp and burst the public
+        # endpoint.  RLock also protects the organization-id memo used by the
+        # zero-result fallback without changing its public behavior.
+        self._throttle_lock = Lock()
+        self._last_request: float | None = None
         self._min_request_interval = float(min_request_interval_seconds)
         self._endpoint = f"{base_url.rstrip('/')}/new/hisAnnouncement/query"
         self._org_search_endpoint = f"{base_url.rstrip('/')}/new/information/topSearch/detailOfQuery"
         self._org_id_cache: dict[str, str] = {}
+        self._org_id_lock = RLock()
         self._now_fn = now or (lambda: datetime.now(SHANGHAI))
         self._client = http_client or client
         if self._client is None:
@@ -702,7 +710,8 @@ class CninfoClient:
 
     def _resolve_stock(self, canonical: str, column: str) -> str | None:
         code = canonical.split(".", 1)[0]
-        cached = self._org_id_cache.get(code)
+        with self._org_id_lock:
+            cached = self._org_id_cache.get(code)
         if cached is not None:
             return f"{code},{cached}"
         for attempt in range(1, MAX_RETRIES + 1):
@@ -742,7 +751,8 @@ class CninfoClient:
             if len(matches) != 1:
                 return None
             org_id = str(matches[0]["orgId"])
-            self._org_id_cache[code] = org_id
+            with self._org_id_lock:
+                self._org_id_cache[code] = org_id
             return f"{code},{org_id}"
         return None
 
@@ -840,11 +850,23 @@ class CninfoClient:
         return _aware(value)
 
     def _throttle(self) -> None:
-        current = self._monotonic()
-        wait = self._min_request_interval - (current - self._last_request)
-        if self._last_request and wait > 0:
-            self._sleep(wait)
-        self._last_request = self._monotonic()
+        # Keep the lock while sleeping.  That reserves the next request start
+        # and makes the interval a property of this client as a whole rather
+        # than of each worker thread.  ``sleep`` is injected in tests, hence
+        # the second monotonic read after it rather than assuming wall-clock
+        # advancement.
+        with self._throttle_lock:
+            current = self._monotonic()
+            scheduled = current
+            if self._last_request is not None:
+                scheduled = max(scheduled, self._last_request + self._min_request_interval)
+                wait = scheduled - current
+                if wait > 0:
+                    self._sleep(wait)
+            # A test double (or an interrupted sleep) may not advance the
+            # monotonic clock.  Retain the reserved timestamp in that case so
+            # the next caller still cannot start at the same logical instant.
+            self._last_request = max(scheduled, self._monotonic())
 
     @staticmethod
     def _failure(symbol: str, start: str, end: str, reason_code: str, **kwargs: Any) -> CninfoFetchResult:

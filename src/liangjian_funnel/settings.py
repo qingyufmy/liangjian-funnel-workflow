@@ -57,6 +57,11 @@ class Settings(BaseModel):
     model_max_output_tokens: int = Field(default=12_000, ge=1_024, le=32_768)
     hithink_min_request_interval_seconds: float = Field(default=0.5, ge=0, le=10)
     cninfo_min_request_interval_seconds: float = Field(default=0.5, ge=0, le=10)
+    # CNINFO calls are network-bound, but the client still enforces one
+    # process-wide request interval.  Keep the worker count bounded because
+    # the VM has only two CPUs and less than 1 GiB of available memory.
+    cninfo_workers: int = Field(default=4, ge=1, le=8)
+    cninfo_pdf_workers: int = Field(default=2, ge=1, le=4)
     cninfo_pdf_max_documents_per_symbol: int = Field(default=3, ge=0, le=10)
     cninfo_pdf_retain_raw: bool = False
     gov_policy_min_request_interval_seconds: float = Field(default=0.5, ge=0, le=10)
@@ -171,6 +176,8 @@ class Settings(BaseModel):
             cninfo_min_request_interval_seconds=float(
                 env.get("LIANGJIAN_CNINFO_MIN_REQUEST_INTERVAL_SECONDS", "0.5")
             ),
+            cninfo_workers=int(env.get("LIANGJIAN_CNINFO_WORKERS", "4")),
+            cninfo_pdf_workers=int(env.get("LIANGJIAN_CNINFO_PDF_WORKERS", "2")),
             cninfo_pdf_max_documents_per_symbol=int(
                 env.get("LIANGJIAN_CNINFO_PDF_MAX_DOCUMENTS_PER_SYMBOL", "3")
             ),
@@ -251,6 +258,8 @@ class Settings(BaseModel):
             "model_max_output_tokens": self.model_max_output_tokens,
             "hithink_min_request_interval_seconds": self.hithink_min_request_interval_seconds,
             "cninfo_min_request_interval_seconds": self.cninfo_min_request_interval_seconds,
+            "cninfo_workers": self.cninfo_workers,
+            "cninfo_pdf_workers": self.cninfo_pdf_workers,
             "cninfo_pdf_max_documents_per_symbol": self.cninfo_pdf_max_documents_per_symbol,
             "cninfo_pdf_retain_raw": self.cninfo_pdf_retain_raw,
             "gov_policy_min_request_interval_seconds": self.gov_policy_min_request_interval_seconds,

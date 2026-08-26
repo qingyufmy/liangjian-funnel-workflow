@@ -65,6 +65,7 @@ const PROGRESS_PHASES = new Set([
   "MARKET_FACT_SYNC",
   "MARKETFACTSYNC",
   "CNINFO_SYNC",
+  "CNINFO_PDF_SYNC",
   "DATA_SYNC",
   "SNAPSHOT",
   "SNAPSHOT_RESUMED",
@@ -109,6 +110,10 @@ const NUMERIC_PROGRESS_KEYS = new Set([
   "failures",
   "failed",
   "failure_count",
+  "documents_succeeded",
+  "documentsSucceeded",
+  "documents_failed",
+  "documentsFailed",
   "elapsed_ms",
   "elapsedMs",
   "elapsed_seconds",
@@ -486,7 +491,7 @@ function nestedRecord(source: JsonRecord | null, keys: readonly string[]): JsonR
 }
 
 function validateProgressShape(source: JsonRecord): boolean {
-  const stringKeys = ["status", "phase", "current_phase", "run_id", "runId", "updated_at", "updatedAt", "time", "started_at", "startedAt"];
+  const stringKeys = ["status", "phase", "current_phase", "run_id", "runId", "updated_at", "updatedAt", "time", "started_at", "startedAt", "phase_started_at", "phaseStartedAt"];
   if (stringKeys.some((key) => key in source && typeof source[key] !== "string")) return false;
   const collection = source.lanes ?? source.lane_progress ?? source.laneProgress;
   if (!validateProgressCollection(collection, false)) return false;
@@ -601,8 +606,13 @@ function invalidProgress(issue: "OVERSIZE" | "INVALID_JSON" | "INVALID_SHAPE"): 
     cacheHits: null,
     cacheMisses: null,
     failures: null,
+    currentSymbol: null,
+    currentDocument: null,
+    documentsSucceeded: null,
+    documentsFailed: null,
     elapsedMs: null,
     etaMs: null,
+    phaseStartedAt: null,
     updatedAt: null,
     lanes: [],
   };
@@ -623,6 +633,8 @@ function normalizeWorkflowProgress(source: JsonRecord): WorkflowProgressSummary 
   const cacheHits = metricFromSources(metricSourcesList, ["cache_hits", "cacheHit", "hits"], "count");
   const cacheMisses = metricFromSources(metricSourcesList, ["cache_misses", "cacheMisses", "misses"], "count");
   const failures = metricFromSources(metricSourcesList, ["failures", "failed", "failure_count"], "count");
+  const documentsSucceeded = metricFromSources(metricSourcesList, ["documents_succeeded", "documentsSucceeded"], "count");
+  const documentsFailed = metricFromSources(metricSourcesList, ["documents_failed", "documentsFailed"], "count");
   const elapsedMs = durationFromSources(metricSourcesList, ["elapsed_ms", "elapsedMs", "elapsed"], ["elapsed_seconds"]);
   const etaMs = durationFromSources(metricSourcesList, ["eta_ms", "etaMs", "remaining_ms", "estimated_remaining_ms"], ["eta_seconds"]);
   const lanes = collectionEntries(source.lanes ?? source.lane_progress ?? source.laneProgress)
@@ -640,8 +652,13 @@ function normalizeWorkflowProgress(source: JsonRecord): WorkflowProgressSummary 
     cacheHits: cacheHits.value,
     cacheMisses: cacheMisses.value,
     failures: failures.value,
+    currentSymbol: progressString(nestedData?.current_symbol ?? nestedData?.currentSymbol, 32),
+    currentDocument: progressString(nestedData?.current_document ?? nestedData?.currentDocument, 120),
+    documentsSucceeded: documentsSucceeded.value,
+    documentsFailed: documentsFailed.value,
     elapsedMs: elapsedMs.value,
     etaMs: etaMs.value,
+    phaseStartedAt: progressTime(source.phase_started_at ?? source.phaseStartedAt),
     updatedAt: progressTime(source.updated_at ?? source.updatedAt ?? source.time ?? nestedProgress?.updated_at ?? nestedData?.updated_at),
     lanes,
   };

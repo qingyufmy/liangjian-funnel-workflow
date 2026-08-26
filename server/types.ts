@@ -97,8 +97,13 @@ export interface WorkflowProgressSummary {
   readonly cacheHits: number | null;
   readonly cacheMisses: number | null;
   readonly failures: number | null;
+  readonly currentSymbol: string | null;
+  readonly currentDocument: string | null;
+  readonly documentsSucceeded: number | null;
+  readonly documentsFailed: number | null;
   readonly elapsedMs: number | null;
   readonly etaMs: number | null;
+  readonly phaseStartedAt: string | null;
   readonly updatedAt: string | null;
   readonly lanes: readonly WorkflowProgressLane[];
 }

@@ -898,6 +898,83 @@ class LocalFactCache:
             "payload": self._json_loads(row["payload_json"]),
         }
 
+    def get_cached_results(
+        self,
+        namespace: str,
+        cache_keys: Iterable[str],
+        *,
+        as_of: datetime | str | None = None,
+        fresh_at: datetime | str | None = None,
+        chunk_size: int = 500,
+    ) -> dict[str, dict[str, Any]]:
+        """Return the newest valid revision for many keys in bounded queries.
+
+        SQLite limits the number of bound parameters per statement.  The
+        caller may therefore pass the whole document universe; this method
+        chunks the ``IN`` predicates and merges the rows into one key mapping.
+        Filters are applied before ranking, matching :meth:`get_cached_result`:
+        an expired revision cannot mask an older still-fresh revision.
+        Duplicate keys are queried once and the returned mapping is
+        deterministic.
+        """
+
+        if isinstance(chunk_size, bool) or not isinstance(chunk_size, int) or not 1 <= chunk_size <= 900:
+            raise ValueError("chunk_size must be between 1 and 900")
+        normalized_namespace = str(_sanitize(namespace)).strip()
+        if not normalized_namespace:
+            raise ValueError("namespace must not be empty")
+        normalized_keys: list[str] = []
+        seen: set[str] = set()
+        for raw_key in cache_keys:
+            key = str(_sanitize(raw_key)).strip()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            normalized_keys.append(key)
+        if not normalized_keys:
+            return {}
+        as_of_value = None if as_of is None else _timestamp(as_of)
+        fresh_at_value = None if fresh_at is None else _timestamp(fresh_at)
+        result: dict[str, dict[str, Any]] = {}
+        with self._connect() as connection:
+            # Namespace and both optional timestamps consume three parameters;
+            # keep the default comfortably below SQLite's common 999 limit.
+            for offset in range(0, len(normalized_keys), chunk_size):
+                chunk = normalized_keys[offset : offset + chunk_size]
+                placeholders = ",".join("?" for _ in chunk)
+                clauses = [f"namespace=?", f"cache_key IN ({placeholders})"]
+                params: list[Any] = [normalized_namespace, *chunk]
+                if as_of_value is not None:
+                    clauses.append("fetched_at<=?")
+                    params.append(as_of_value)
+                if fresh_at_value is not None:
+                    clauses.append("expires_at>=?")
+                    params.append(fresh_at_value)
+                rows = connection.execute(
+                    "WITH ranked AS ("
+                    " SELECT namespace, cache_key, fetched_at, expires_at, content_hash, payload_json,"
+                    " ROW_NUMBER() OVER ("
+                    " PARTITION BY cache_key ORDER BY fetched_at DESC, content_hash DESC"
+                    ") AS revision_rank"
+                    " FROM cached_results WHERE "
+                    + " AND ".join(clauses)
+                    + ") SELECT namespace, cache_key, fetched_at, expires_at, content_hash, payload_json"
+                    " FROM ranked WHERE revision_rank=1",
+                    params,
+                ).fetchall()
+                for row in rows:
+                    result[row["cache_key"]] = {
+                        "namespace": row["namespace"],
+                        "cache_key": row["cache_key"],
+                        "fetched_at": row["fetched_at"],
+                        "expires_at": row["expires_at"],
+                        "content_hash": row["content_hash"],
+                        "payload": self._json_loads(row["payload_json"]),
+                    }
+        # Dict insertion order follows caller order even if SQLite returns a
+        # different row order, which makes downstream cache accounting stable.
+        return {key: result[key] for key in normalized_keys if key in result}
+
     def get_sync_state(
         self, endpoint: str, symbol: str | None = None
     ) -> dict[str, Any] | None:
