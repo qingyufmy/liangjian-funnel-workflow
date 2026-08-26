@@ -2,6 +2,11 @@
 .env.*
 !.env.example
 .venv/
+node_modules/
+dist/
+.vite/
+.impeccable/live/sessions/
+.impeccable/live/*.lock
 __pycache__/
 *.py[cod]
 .pytest_cache/

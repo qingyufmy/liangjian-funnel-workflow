@@ -119,3 +119,17 @@ Linux、systemd/cron、容器、部署门禁和回滚步骤见 [DEPLOYMENT.md](D
 2026-08-25 同一真实冻结快照 `snapshot-20260825T163244+0800-4d48ab813482` 的 v10 重放中，DeepSeek、Kimi、GLM 三个 lane 全部 `READY`，A1–A3 全部 `VALIDATED`。A1 对 20 只验收样本逐只完整分区：DeepSeek `0/20/0`、Kimi `7/13/0`、GLM `3/16/1`（`ACTIVE/MONITOR/REJECT`），不再受单批 5 只的全局截断。Kimi 最终保留 `002837.SZ` 为核心观察，但确定性大趋势门禁将其固定为 `NO_ENTRY`；GLM 无核心可执行计划，DeepSeek 因 A1 无证据合格 ACTIVE 而合法返回 `NO_ACTION`。当前没有模拟入场是正常的安全结果，不是 AI 链路故障。真实 A4→模拟买入→减仓/离场仍需等待自然产生的可执行计划样本。完整处置表见 [AUDIT_REMEDIATION_2026-08-25.md](AUDIT_REMEDIATION_2026-08-25.md)。
 
 > 内部研究与模拟，不构成投资建议。
+
+## Node 运行控制台
+
+仓库根目录现在同时是可由宝塔管理的 Node 20+ 项目。Node 作为常驻控制面，负责固定时刻调度 Python 命令、聚合工作流状态、写入脱敏 JSONL 日志并提供响应式 Web 页面；A1–A4、交易日历、SQLite 租约和模拟账户仍由 Python 引擎负责。
+
+```bash
+npm ci
+npm run typecheck
+npm test
+npm run build
+npm start
+```
+
+默认只监听 `127.0.0.1:3210`。生产环境建议设置 `LIANGJIAN_DASHBOARD_TOKEN`，并通过宝塔 Nginx、IP 白名单或 VPN 访问。Node 调度启用后，不要再同时安装 Windows 计划任务、systemd timer 或 cron。完整参数见 [DEPLOYMENT.md](DEPLOYMENT.md) 和 [deploy/baota/README.md](deploy/baota/README.md)。

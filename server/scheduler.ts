@@ -1,0 +1,166 @@
+import { JOB_DEFINITIONS, TIMEZONE } from "./config.js";
+import { LogStore } from "./logger.js";
+import { JobRunner } from "./runner.js";
+import type { JobName, SchedulerSnapshot } from "./types.js";
+
+interface ShanghaiClock {
+  readonly date: string;
+  readonly weekday: number;
+  readonly hour: number;
+  readonly minute: number;
+  readonly second: number;
+}
+
+export interface SchedulerOptions {
+  readonly now?: () => Date;
+  readonly intervalMs?: number;
+  readonly retryMs?: number;
+}
+
+export function shanghaiClock(value: Date): ShanghaiClock {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(value);
+  const values = new Map(parts.map((part) => [part.type, part.value]));
+  const date = `${values.get("year") ?? "0000"}-${values.get("month") ?? "00"}-${values.get("day") ?? "00"}`;
+  const dateParts = date.split("-");
+  const year = Number(dateParts[0] ?? "0");
+  const month = Number(dateParts[1] ?? "0");
+  const day = Number(dateParts[2] ?? "0");
+  return {
+    date,
+    weekday: Number.isSafeInteger(year) && Number.isSafeInteger(month) && Number.isSafeInteger(day)
+      ? new Date(Date.UTC(year, month - 1, day)).getUTCDay()
+      : 0,
+    hour: Number(values.get("hour") ?? "0"),
+    minute: Number(values.get("minute") ?? "0"),
+    second: Number(values.get("second") ?? "0"),
+  };
+}
+
+export function isMonitorMinute(clock: ShanghaiClock): boolean {
+  const minuteOfDay = clock.hour * 60 + clock.minute;
+  return (minuteOfDay >= 9 * 60 + 25 && minuteOfDay <= 11 * 60 + 30)
+    || (minuteOfDay >= 13 * 60 && minuteOfDay <= 15 * 60);
+}
+
+export class WorkflowScheduler {
+  private timer: NodeJS.Timeout | null = null;
+  private running = false;
+  private readonly dispatched = new Map<JobName, string>();
+  private readonly lastDispatch = new Map<JobName, string>();
+  private readonly inFlight = new Set<JobName>();
+  private readonly retryKeys = new Map<JobName, string>();
+  private readonly retryTimers = new Map<JobName, NodeJS.Timeout>();
+  private readonly now: () => Date;
+  private readonly intervalMs: number;
+  private readonly retryMs: number;
+
+  public constructor(
+    private readonly runner: JobRunner,
+    private readonly logger: LogStore,
+    options: SchedulerOptions = {},
+  ) {
+    this.now = options.now ?? (() => new Date());
+    this.intervalMs = options.intervalMs ?? 1_000;
+    this.retryMs = options.retryMs ?? 5_000;
+  }
+
+  public start(): void {
+    if (this.timer) return;
+    this.running = true;
+    this.timer = setInterval(() => this.tick(), this.intervalMs);
+    void this.tick();
+    this.logger.info("Node 调度器已启动");
+  }
+
+  public stop(): void {
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
+    for (const timer of this.retryTimers.values()) clearTimeout(timer);
+    this.retryTimers.clear();
+    this.retryKeys.clear();
+    this.inFlight.clear();
+    this.running = false;
+    this.logger.info("Node 调度器已停止");
+  }
+
+  public async tick(value: Date = this.now()): Promise<void> {
+    const clock = shanghaiClock(value);
+    const key = `${clock.date}T${String(clock.hour).padStart(2, "0")}:${String(clock.minute).padStart(2, "0")}`;
+    const due: JobName[] = [];
+    if (clock.weekday === 0 || clock.weekday === 6) return;
+    if (clock.hour === 9 && clock.minute === 26) due.push("morning");
+    if (clock.hour === 15 && clock.minute === 10) due.push("close");
+    if (isMonitorMinute(clock)) due.push("monitor");
+
+    for (const job of due) {
+      if (this.dispatched.get(job) === key || this.inFlight.has(job) || this.retryKeys.get(job) === key) continue;
+      this.dispatch(job, key, value);
+    }
+  }
+
+  public snapshot(): SchedulerSnapshot {
+    return {
+      timezone: TIMEZONE,
+      running: this.running,
+      jobs: JOB_DEFINITIONS.map((definition) => ({
+        job: definition.name,
+        label: definition.label,
+        schedule: definition.schedule,
+        enabled: this.running,
+        lastDispatchAt: this.lastDispatch.get(definition.name) ?? null,
+      })),
+    };
+  }
+
+  private dispatch(job: JobName, key: string, value: Date): void {
+    this.dispatched.set(job, key);
+    this.lastDispatch.set(job, value.toISOString());
+    this.inFlight.add(job);
+    this.logger.info(`触发调度 ${job} at=${key}`, { job });
+    void this.runner.run(job)
+      .then((result) => {
+        const shouldRetry = (job === "morning" || job === "close")
+          && result.status === "skipped"
+          && result.reason?.startsWith("BUSY:") === true;
+        if (shouldRetry) {
+          this.dispatched.delete(job);
+          this.scheduleResearchRetry(job, key);
+        }
+      })
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : "unknown scheduler error";
+        this.logger.error(`调度执行异常 ${job}: ${message}`, { job });
+      })
+      .finally(() => {
+        this.inFlight.delete(job);
+      });
+  }
+
+  private scheduleResearchRetry(job: JobName, key: string): void {
+    if (this.retryKeys.get(job) === key || this.retryTimers.has(job)) return;
+    this.retryKeys.set(job, key);
+    const timer = setTimeout(() => {
+      this.retryTimers.delete(job);
+      if (this.retryKeys.get(job) !== key) return;
+      this.retryKeys.delete(job);
+      const current = this.now();
+      const clock = shanghaiClock(current);
+      const currentKey = `${clock.date}T${String(clock.hour).padStart(2, "0")}:${String(clock.minute).padStart(2, "0")}`;
+      const stillDue = (job === "morning" && clock.hour === 9 && clock.minute === 26)
+        || (job === "close" && clock.hour === 15 && clock.minute === 10);
+      if (currentKey === key && stillDue && clock.weekday !== 0 && clock.weekday !== 6) {
+        this.dispatch(job, key, current);
+      }
+    }, this.retryMs);
+    this.retryTimers.set(job, timer);
+  }
+}
