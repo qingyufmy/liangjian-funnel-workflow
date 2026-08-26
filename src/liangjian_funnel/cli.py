@@ -61,6 +61,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("probe-mootdx", help="run mootdx minute-history and cross-source gates")
     sub.add_parser("probe-all", help="run all external capability gates")
     sub.add_parser("prepare-snapshot", help="freeze a real full-market research snapshot")
+    sub.add_parser("sync-data", help="bootstrap or incrementally refresh the local fact cache")
     research = sub.add_parser("run-research", help="run three isolated A1-A2-A3 model lanes")
     research.add_argument("--slot", choices=("morning", "close"), required=True)
     research.add_argument(
@@ -84,7 +85,7 @@ def main(argv: Sequence[str] | None = None, *, settings: Settings | None = None)
     active = settings or Settings.from_env()
     if args.command == "doctor":
         return _doctor(active)
-    if args.command in {"prepare-snapshot", "run-research", "monitor-once", "run-due", "run-morning", "run-close", "run-monitor", "status"}:
+    if args.command in {"prepare-snapshot", "sync-data", "run-research", "monitor-once", "run-due", "run-morning", "run-close", "run-monitor", "status"}:
         return _workflow_command(args, active)
     reports = []
     if args.command in {"probe-hithink", "probe-all"}:
@@ -176,6 +177,8 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
         application = WorkflowApplication(settings)
         if args.command == "prepare-snapshot":
             payload = application.prepare_snapshot().as_dict()
+        elif args.command == "sync-data":
+            payload = application.sync_data_cache()
         elif args.command == "run-research":
             historical_as_of = datetime.fromisoformat(args.as_of) if args.as_of else None
             payload = application.run_research(
@@ -211,6 +214,7 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
             payload = {
                 "state_db": str(settings.state_db_path),
                 "state_healthy": application.store.healthy,
+                "fact_cache": application.fact_cache.get_coverage(),
                 "accounts": application.store.list_accounts(),
                 "positions": {
                     account["account_id"]: application.store.list_positions(str(account["account_id"]))

@@ -74,6 +74,119 @@ test("reads and sorts fixed workflow run files without accepting arbitrary paths
   expect(await files.getRun("../old")).toBeNull();
 });
 
+test("returns null when the persisted workflow progress file is missing", async () => {
+  const root = await mkdtemp(join(tmpdir(), "liangjian-progress-missing-"));
+  const config = loadConfig({ LIANGJIAN_PYTHON_BIN: "python3" }, root);
+  const files = new ProjectFiles(config, new LogStore(config));
+  expect(await files.workflowProgress()).toBeNull();
+});
+
+test("projects a valid workflow progress document without exposing unknown fields", async () => {
+  const root = await mkdtemp(join(tmpdir(), "liangjian-progress-valid-"));
+  await mkdir(join(root, "state"), { recursive: true });
+  await writeFile(join(root, "state", "workflow_progress.json"), JSON.stringify({
+    run_id: "close-20260826",
+    status: "running",
+    phase: "A1",
+    processed: 100,
+    total: 5000,
+    cache_hits: 90,
+    cache_misses: 10,
+    failures: 0,
+    elapsed_ms: 12_345,
+    eta_ms: 67_890,
+    updated_at: "2026-08-26T07:10:00.000Z",
+    api_key: "sk-should-not-appear",
+    reasoning_content: "private model output",
+    lanes: {
+      lane_1: {
+        model: "deepseek-v4-pro-0813",
+        status: "running",
+        current_stage: "A1",
+        processed: 50,
+        total: 2500,
+        batch_processed: 2,
+        batch_total: 10,
+        stages: [{ stage: "A1", status: "running", processed: 50, total: 2500, batch_processed: 2, batch_total: 10 }],
+      },
+    },
+  }));
+  const config = loadConfig({ LIANGJIAN_PYTHON_BIN: "python3" }, root);
+  const files = new ProjectFiles(config, new LogStore(config));
+  const progress = await files.workflowProgress();
+  expect(progress).toMatchObject({
+    status: "RUNNING",
+    issue: null,
+    runId: "close-20260826",
+    phase: "A1",
+    processed: 100,
+    total: 5000,
+    cacheHits: 90,
+    cacheMisses: 10,
+    failures: 0,
+    elapsedMs: 12_345,
+    etaMs: 67_890,
+    updatedAt: "2026-08-26T07:10:00.000Z",
+  });
+  expect(progress?.lanes[0]).toMatchObject({ laneId: "lane_1", model: "deepseek-v4-pro-0813", currentStage: "A1", batchProcessed: 2, batchTotal: 10 });
+  expect(JSON.stringify(progress)).not.toContain("sk-should-not-appear");
+  expect(JSON.stringify(progress)).not.toContain("private model output");
+});
+
+test("returns a fixed invalid summary for malformed workflow progress JSON", async () => {
+  const root = await mkdtemp(join(tmpdir(), "liangjian-progress-malformed-"));
+  await mkdir(join(root, "state"), { recursive: true });
+  await writeFile(join(root, "state", "workflow_progress.json"), "{\"status\":\"running\",\"secret\":");
+  const config = loadConfig({ LIANGJIAN_PYTHON_BIN: "python3" }, root);
+  const files = new ProjectFiles(config, new LogStore(config));
+  await expect(files.workflowProgress()).resolves.toMatchObject({ status: "INVALID", issue: "INVALID_JSON", lanes: [] });
+});
+
+test("returns a blocked summary when workflow progress exceeds the safe file size", async () => {
+  const root = await mkdtemp(join(tmpdir(), "liangjian-progress-oversize-"));
+  await mkdir(join(root, "state"), { recursive: true });
+  await writeFile(join(root, "state", "workflow_progress.json"), JSON.stringify({ status: "running", note: "x".repeat(300_000) }));
+  const config = loadConfig({ LIANGJIAN_PYTHON_BIN: "python3" }, root);
+  const files = new ProjectFiles(config, new LogStore(config));
+  const progress = await files.workflowProgress();
+  expect(progress).toMatchObject({ status: "BLOCKED", issue: "OVERSIZE", lanes: [] });
+  expect(JSON.stringify(progress)).not.toContain("x".repeat(100));
+});
+
+test("returns a fixed invalid summary when workflow progress has the wrong JSON shape", async () => {
+  const root = await mkdtemp(join(tmpdir(), "liangjian-progress-shape-"));
+  await mkdir(join(root, "state"), { recursive: true });
+  await writeFile(join(root, "state", "workflow_progress.json"), JSON.stringify({ status: "running", lanes: "not-an-array" }));
+  const config = loadConfig({ LIANGJIAN_PYTHON_BIN: "python3" }, root);
+  const files = new ProjectFiles(config, new LogStore(config));
+  await expect(files.workflowProgress()).resolves.toMatchObject({ status: "INVALID", issue: "INVALID_SHAPE", lanes: [] });
+});
+
+test("reads the Python progress writer shape including second-based timing and stage batches", async () => {
+  const root = await mkdtemp(join(tmpdir(), "liangjian-progress-python-shape-"));
+  await mkdir(join(root, "state"), { recursive: true });
+  await writeFile(join(root, "state", "workflow_progress.json"), JSON.stringify({
+    schema_version: 1,
+    run_id: "close-20260826",
+    job: "run-close",
+    status: "RUNNING",
+    phase: "RESEARCH_A1",
+    started_at: "2026-08-26T15:00:00+08:00",
+    updated_at: "2026-08-26T15:01:00+08:00",
+    elapsed_seconds: 60,
+    eta_seconds: 120,
+    data: { processed: 5000, total: 5000, cache_hits: 4900, cache_misses: 100, failures: 0 },
+    lanes: {
+      LANE1: { model: "deepseek-v4-pro-0813", status: "RUNNING", stages: { A1: { status: "RUNNING", completed_batches: 4, total_batches: 20 } } },
+    },
+  }));
+  const config = loadConfig({ LIANGJIAN_PYTHON_BIN: "python3" }, root);
+  const files = new ProjectFiles(config, new LogStore(config));
+  const progress = await files.workflowProgress();
+  expect(progress).toMatchObject({ phase: "RESEARCH_A1", processed: 5000, total: 5000, cacheHits: 4900, cacheMisses: 100, elapsedMs: 60_000, etaMs: 120_000 });
+  expect(progress?.lanes[0]).toMatchObject({ laneId: "lane_1", batchProcessed: 4, batchTotal: 20 });
+});
+
 test("scheduler dispatches each due minute once", async () => {
   const calls: string[] = [];
   const fakeRunner = {

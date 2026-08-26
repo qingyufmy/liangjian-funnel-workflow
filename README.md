@@ -7,10 +7,11 @@
 ```text
 同花顺全市场 5,559 只 + mootdx 原始 1m/5m
   → G0 与跨一级行业均衡的细分产业节点预筛
-  → 冻结日线/财务/技术因子、同花顺行业与市场事实、巨潮公告/PDF证据、国务院正式政策及开放资讯
+  → 全市场日线/财务和正式事实本地落盘，冻结 A1 快照
   → 确定性市场情绪、K线形态、触发区/失效位/盈亏比
   → deepseek / kimi / glm 三个并行隔离 lane
-  → 每 lane 严格 A1 → A2 → A3
+  → 每 lane 严格 A1(全量 G0) → A2(仅 A1 ACTIVE) → A3(仅 A2 focus)
+  → 仅在 A3 为上游子集按需读取 5m 长历史并计算技术因子
   → 收盘计划待次日早盘 tighten-only 复核
   → Flash 每分钟每非空 lane 一次批量 veto-only
   → 三个隔离虚拟账户（100 股整手、T+1、费用、滑点、幂等）
@@ -33,7 +34,7 @@
 | 项目层 | 机构池角色 | 目标带宽 | 是否进入下一层 |
 |---|---|---:|---|
 | 全市场与合规门 | P0/P1 母池、合规可交易池 | 全市场 / 约 1,500–3,000 | 仅合规域可进入 G0 |
-| G0 + A1 `ACTIVE/MONITOR` | P2 线索池 | 输入上限 1,000；有效线索目标 300–800 | 仅 A1 `ACTIVE` 下传 |
+| G0 + A1 `ACTIVE/MONITOR` | P2 线索池 | 输入为完整 G0；有效线索目标 300–800 | 仅 A1 `ACTIVE` 下传 |
 | A1 `ACTIVE` | P3 研究覆盖池 | 100–250 | 下传 A2 |
 | A2 `focus_pool` | 当期主线/轮动与龙头中军候选 | 100–200 | 下传 A3 |
 | A3 `core_watch_pool` | P8 日前正式计划池 | 5–10 | 可发布给 A4 |
@@ -60,6 +61,7 @@ cd D:\dev_A股\liangjian_funnel_workflow
 ```powershell
 .\.venv\Scripts\python.exe -m liangjian_funnel doctor
 .\.venv\Scripts\python.exe -m liangjian_funnel probe-all
+.\.venv\Scripts\python.exe -m liangjian_funnel sync-data
 .\.venv\Scripts\python.exe -m liangjian_funnel prepare-snapshot
 .\.venv\Scripts\python.exe -m liangjian_funnel run-research --slot close
 .\.venv\Scripts\python.exe -m liangjian_funnel run-research --slot morning
@@ -77,7 +79,7 @@ cd D:\dev_A股\liangjian_funnel_workflow
 .venv/bin/python -m liangjian_funnel run-research --slot close --as-of 2026-08-25T15:10:00+08:00
 ```
 
-正式流程从 G0 全市场可交易股票全集开始，先按同花顺 881* 一级行业均衡编排、再按 884* 细分节点轮询，节点内仅按流动性确定传输顺序，不执行 Top-N 截断。系统完整冻结全集的日线、基本面与正式证据；事实源失败的单票仍保留在 G0/A1，并把缺失原因写入候选失败清单，交由 Agent 按证据门槛分类，不会被性能上限静默裁剪。5 分钟技术因子允许缺失并留到 A3 处理，不能提前缩小 A1/A2。初始域仍保存全市场计数和淘汰血缘。
+正式流程从 G0 全市场可交易股票全集开始，先按同花顺 881* 一级行业均衡编排、再按 884* 细分节点轮询，节点内仅按流动性确定传输顺序，不执行 Top-N 截断。系统完整冻结全集的日线、基本面与正式证据；事实源失败的单票仍保留在 G0/A1，并把缺失原因写入候选失败清单，交由 Agent 按证据门槛分类，不会被性能上限静默裁剪。个股资讯到 A2 才仅按 A1 `ACTIVE` 子集抓取；5 分钟长历史到 A3 才仅按 A2 `focus_pool` 读取和计算，不会用技术因子提前缩小 A1/A2。初始域仍保存全市场计数和淘汰血缘。
 完整 A1 默认按产业节点每 20 只一批（`LIANGJIAN_A1_BATCH_SIZE`），A2 按 A1 主题每 40 只一批（`LIANGJIAN_A2_BATCH_SIZE`）并在合并后执行全局排名。模型阶段默认总时限 600 秒、最大输出 12,000 tokens。这些限制只影响模型投影；完整冻结快照与哈希不会被截断。
 
 对已冻结快照重放或从已验证的上游阶段恢复：
@@ -114,6 +116,9 @@ Linux、systemd/cron、容器、部署门禁和回滚步骤见 [DEPLOYMENT.md](D
 - `outputs/scheduler/*.log`：计划任务脱敏输出。
 - `storage/snapshots/`：模型事实包；`raw/` 保存完整全市场和源数据冻结快照。
 - `storage/facts/`：同花顺、巨潮、国务院政策与开放资讯的联合事实清单及逐文件 SHA-256 校验侧车；`ths_industry/` 保存每日完整行业成分缓存。
+- `storage/facts/market_fact_cache.sqlite3`：WAL/FULL 本地事实库，保留日线与财务修订、数据同步水位、巨潮查询、PDF 证据卡与个股资讯缓存。
+- `state/research_checkpoints/`：按模型/lane/阶段/快照/提示词/股票批次绑定的原子检查点；同日中断会恢复原冻结快照。
+- `state/workflow_progress.json`：前端只读的脱敏进度摘要，包含数据、缓存、lane 和 A1–A3 批次进度。
 - `storage/cninfo_pdfs/`：按需下载的巨潮原始 PDF 与哈希侧车；模型只读取带页码的短证据卡，不读取整篇 PDF。
 - `PHASE1_PHASE2_ACCEPTANCE_REPORT.md`：事实源和本地确定性聚合的中间验收证据。
 - `state/workflow.sqlite3`：计划、信号、三个虚拟账户、持仓、成交和租约。

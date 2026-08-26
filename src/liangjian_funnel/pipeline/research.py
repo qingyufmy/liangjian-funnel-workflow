@@ -9,6 +9,7 @@ before a stage can be consumed by its downstream stage.
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import os
 import re
@@ -28,6 +29,12 @@ from ..settings import RESEARCH_MODELS, Settings
 from ..runtime.state import RuntimeStore
 from .model_client import ModelCallResult, ModelClientError, OpenAICompatibleModelClient
 from .prompts import PromptBundle, PromptRepository, PromptRepositoryError
+from .research_checkpoint import (
+    FileResearchCheckpointStore,
+    InMemoryResearchCheckpointStore,
+    ResearchCheckpointKey,
+    ResearchCheckpointStore,
+)
 
 
 STAGES: tuple[str, ...] = ("A1", "A2", "A3")
@@ -260,6 +267,16 @@ class ResearchRunResult:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class _PreparedStageRequest:
+    """Rendered request metadata shared by checkpoint lookup and model call."""
+
+    prompt_hash: str
+    input_hash: str
+    messages: tuple[Mapping[str, Any], ...]
+    prompt_chars: int
+
+
 class ResearchPipeline:
     """Run three independent research-model lanes with fail-closed gates."""
 
@@ -274,7 +291,13 @@ class ResearchPipeline:
         parallel_lanes: bool = False,
         runtime_store: RuntimeStore | None = None,
         slot: str | None = None,
+        batch_workers: int = 1,
+        progress_callback: Callable[[Mapping[str, Any]], Any] | None = None,
+        checkpoint_store: Any | None = None,
+        stage_snapshot_enricher: Callable[..., Any] | None = None,
     ):
+        if isinstance(batch_workers, bool) or not isinstance(batch_workers, int) or batch_workers < 1:
+            raise ValueError("batch_workers must be a positive integer")
         self.settings = settings
         if prompt_repository is None:
             configured = os.environ.get("LIANGJIAN_PROMPT_DIR")
@@ -290,6 +313,10 @@ class ResearchPipeline:
         self.parallel_lanes = bool(parallel_lanes)
         self.runtime_store = runtime_store
         self.slot = str(slot or "UNSPECIFIED").upper()
+        self.batch_workers = batch_workers
+        self.progress_callback = progress_callback
+        self.checkpoint_store = checkpoint_store
+        self.stage_snapshot_enricher = stage_snapshot_enricher
 
     def run(
         self,
@@ -428,11 +455,33 @@ class ResearchPipeline:
         for stage in STAGES:
             if global_reason:
                 audits.append(self._blocked_stage(lane_id, model, stage, snapshot.snapshot_id, global_reason))
+                self._emit_progress(
+                    run_id=run_id,
+                    lane=lane_id,
+                    model=model,
+                    stage=stage,
+                    completed=0,
+                    total=1,
+                    status="FAILED",
+                    attempts=0,
+                    batch_index=1,
+                )
                 continue
             previous = audits[-1] if audits else None
             if previous is not None and previous.status != "VALIDATED":
                 audits.append(
                     self._blocked_stage(lane_id, model, stage, snapshot.snapshot_id, "UPSTREAM_STAGE_BLOCKED")
+                )
+                self._emit_progress(
+                    run_id=run_id,
+                    lane=lane_id,
+                    model=model,
+                    stage=stage,
+                    completed=0,
+                    total=1,
+                    status="FAILED",
+                    attempts=0,
+                    batch_index=1,
                 )
                 continue
             if previous is not None and not previous.symbols:
@@ -446,12 +495,58 @@ class ResearchPipeline:
                 audits.append(audit)
                 upstream_output = audit.output
                 upstream_symbols = set()
+                self._emit_progress(
+                    run_id=run_id,
+                    lane=lane_id,
+                    model=model,
+                    stage=stage,
+                    completed=1,
+                    total=1,
+                    status="SKIPPED",
+                    attempts=0,
+                    batch_index=1,
+                )
                 continue
+            stage_snapshot = snapshot
+            if stage in {"A2", "A3"} and self.stage_snapshot_enricher is not None:
+                try:
+                    stage_snapshot = self._enrich_stage_snapshot(
+                        stage=stage,
+                        lane_id=lane_id,
+                        model=model,
+                        upstream_symbols=upstream_symbols,
+                        snapshot=snapshot,
+                    )
+                except Exception:
+                    # Enrichment is an optional data boundary.  A malformed or
+                    # failed enrichment must never fall back to a different
+                    # lane's data or to an unscoped full-universe snapshot.
+                    audits.append(
+                        self._blocked_stage(
+                            lane_id,
+                            model,
+                            stage,
+                            snapshot.snapshot_id,
+                            "STAGE_SNAPSHOT_ENRICHMENT_FAILED",
+                        )
+                    )
+                    self._emit_progress(
+                        run_id=run_id,
+                        lane=lane_id,
+                        model=model,
+                        stage=stage,
+                        completed=0,
+                        total=1,
+                        status="FAILED",
+                        attempts=0,
+                        batch_index=1,
+                    )
+                    continue
             if stage == "A1" and len(upstream_symbols) > self.settings.research_a1_batch_size:
                 audit = self._run_a1_batched(
                     lane_id=lane_id,
                     model=model,
-                    snapshot=snapshot,
+                    snapshot=stage_snapshot,
                     g0=upstream_symbols,
                     bundle=bundle,
                     run_id=run_id,
@@ -460,7 +555,7 @@ class ResearchPipeline:
                 audit = self._run_a2_batched(
                     lane_id=lane_id,
                     model=model,
-                    snapshot=snapshot,
+                    snapshot=stage_snapshot,
                     upstream_output=upstream_output or {},
                     upstream_symbols=upstream_symbols,
                     bundle=bundle,
@@ -470,22 +565,33 @@ class ResearchPipeline:
                 audit = self._run_a3_batched(
                     lane_id=lane_id,
                     model=model,
-                    snapshot=snapshot,
+                    snapshot=stage_snapshot,
                     upstream_output=upstream_output or {},
                     upstream_symbols=upstream_symbols,
                     bundle=bundle,
                     run_id=run_id,
                 )
             else:
-                audit = self._run_stage(
+                audit = self._run_stage_with_checkpoint(
                     lane_id=lane_id,
                     model=model,
                     stage=stage,
-                    snapshot=snapshot,
+                    snapshot=stage_snapshot,
                     upstream_output=upstream_output,
                     upstream_symbols=upstream_symbols,
                     bundle=bundle,
                     run_id=run_id,
+                )
+                self._emit_progress(
+                    run_id=run_id,
+                    lane=lane_id,
+                    model=model,
+                    stage=stage,
+                    completed=1,
+                    total=1,
+                    status=_progress_status(audit),
+                    attempts=audit.attempts,
+                    batch_index=1,
                 )
             audits.append(audit)
             if audit.status == "VALIDATED":
@@ -495,6 +601,355 @@ class ResearchPipeline:
         status = "READY" if len(audits) == 3 and all(item.status == "VALIDATED" for item in audits) else "BLOCKED"
         final_output = audits[-1].output if status == "READY" else None
         return LaneResult(lane=lane_id, model=model, status=status, stages=tuple(audits), final_output=final_output)
+
+    def _emit_progress(
+        self,
+        *,
+        run_id: str,
+        lane: str,
+        model: str | None = None,
+        stage: str,
+        completed: int,
+        total: int,
+        status: str,
+        attempts: int,
+        batch_index: int | None = None,
+    ) -> None:
+        """Send a redacted, stable progress event to the optional observer."""
+
+        if self.progress_callback is None:
+            return
+        completed_value = max(0, int(completed))
+        total_value = max(0, int(total))
+        event: dict[str, Any] = {
+            "run_id": str(run_id),
+            "lane": str(lane),
+            "stage": str(stage),
+            "batch": {"completed": completed_value, "total": total_value},
+            # Keep flat aliases for lightweight loggers and API adapters.
+            "completed": completed_value,
+            "total": total_value,
+            "batch_completed": completed_value,
+            "batch_total": total_value,
+            "completed_batches": completed_value,
+            "total_batches": total_value,
+            "status": str(status),
+            "attempts": max(0, int(attempts)),
+        }
+        if model:
+            event["model"] = str(model)
+        if batch_index is not None:
+            event["batch_index"] = max(1, int(batch_index))
+        try:
+            self.progress_callback(event)
+        except Exception:
+            # Observability must not change the model or fail-closed contract.
+            return
+
+    def _enrich_stage_snapshot(
+        self,
+        *,
+        stage: str,
+        lane_id: str,
+        model: str,
+        upstream_symbols: set[str],
+        snapshot: FrozenInputSnapshot,
+    ) -> FrozenInputSnapshot:
+        """Load an immutable, lane-scoped snapshot for A2 or A3.
+
+        The callback receives a frozen base snapshot and a ``frozenset`` of
+        the current upstream pool.  A returned mapping is interpreted as a
+        data overlay; a returned ``FrozenInputSnapshot`` is used verbatim.
+        Several compatible callback signatures are accepted so integrations
+        can remain small without weakening the lane/scope boundary.
+        """
+
+        callback = self.stage_snapshot_enricher
+        if callback is None:
+            return snapshot
+        symbols = frozenset(upstream_symbols)
+        callback_snapshot = _freeze_snapshot(snapshot)
+        result = _invoke_stage_snapshot_enricher(
+            callback,
+            stage=stage,
+            lane_id=lane_id,
+            model=model,
+            upstream_symbols=symbols,
+            snapshot=callback_snapshot,
+        )
+        if result is None:
+            return snapshot
+        if isinstance(result, FrozenInputSnapshot):
+            return _freeze_snapshot(result)
+        if isinstance(result, Mapping):
+            # A full wrapper can be returned by a data adapter.  Otherwise the
+            # mapping is an immutable overlay on the base stage snapshot.
+            nested = result.get("data")
+            if isinstance(nested, Mapping):
+                data = dict(nested)
+                snapshot_id = str(result.get("snapshot_id") or "")
+                snapshot_hash = str(result.get("snapshot_hash") or "")
+                as_of = result.get("as_of", snapshot.as_of)
+                if not snapshot_id:
+                    snapshot_id = f"{snapshot.snapshot_id}:{stage.lower()}"
+                return FrozenInputSnapshot(
+                    snapshot_id=snapshot_id,
+                    data=data,
+                    snapshot_hash=snapshot_hash,
+                    as_of=as_of,
+                )
+            merged = dict(snapshot.data)
+            merged.update(dict(result))
+            # The base snapshot is already content-addressed.  Hash only the
+            # stage overlay here; traversing the full-market evidence tree for
+            # every lane would erase the performance benefit of enrichment.
+            overlay_hash = _sha256_json({
+                "base_snapshot_hash": snapshot.snapshot_hash,
+                "stage": stage,
+                "overlay": result,
+            })
+            return FrozenInputSnapshot(
+                snapshot_id=f"{snapshot.snapshot_id}:{stage.lower()}:{overlay_hash[:12]}",
+                data=merged,
+                snapshot_hash=overlay_hash,
+                as_of=snapshot.as_of,
+            )
+        # Accept adapters that return a canonical snapshot object, but do not
+        # let arbitrary model/data objects cross the immutable boundary.
+        try:
+            coerced = _coerce_snapshot(result)
+        except Exception as exc:
+            raise ResearchPipelineError("STAGE_SNAPSHOT_ENRICHMENT_INVALID") from exc
+        if not isinstance(coerced, FrozenInputSnapshot):
+            raise ResearchPipelineError("STAGE_SNAPSHOT_ENRICHMENT_INVALID")
+        return _freeze_snapshot(coerced)
+
+    def _checkpoint_key(
+        self,
+        *,
+        run_id: str,
+        lane_id: str,
+        model: str,
+        stage: str,
+        snapshot: FrozenInputSnapshot,
+        upstream_output: Mapping[str, Any] | None,
+        upstream_symbols: set[str],
+        bundle: PromptBundle | None,
+        projection_symbols: set[str] | None,
+        a1_discovery_context: Mapping[str, Any] | None,
+    ) -> tuple[ResearchCheckpointKey | None, _PreparedStageRequest | None]:
+        if self.checkpoint_store is None or bundle is None:
+            return None, None
+        try:
+            prepared = self._prepare_stage_request(
+                lane_id=lane_id,
+                model=model,
+                stage=stage,
+                snapshot=snapshot,
+                upstream_output=upstream_output,
+                upstream_symbols=upstream_symbols,
+                bundle=bundle,
+                projection_symbols=projection_symbols,
+                a1_discovery_context=a1_discovery_context,
+            )
+        except Exception:
+            return None, None
+        return (
+            ResearchCheckpointKey(
+                run_id=_safe_run_id(run_id),
+                lane=lane_id,
+                stage=stage,
+                model=model,
+                prompt_hash=prepared.prompt_hash,
+                snapshot_hash=snapshot.snapshot_hash,
+                batch_symbols_hash=_sha256_json(sorted(upstream_symbols)),
+            ),
+            prepared,
+        )
+
+    def _load_checkpoint(
+        self,
+        *,
+        key: ResearchCheckpointKey,
+        lane_id: str,
+        model: str,
+        stage: str,
+        snapshot: FrozenInputSnapshot,
+        upstream_symbols: set[str],
+    ) -> StageAudit | None:
+        store = self.checkpoint_store
+        if store is None:
+            return None
+        try:
+            if isinstance(store, Mapping):
+                record = store.get(key.digest)
+            else:
+                operation = getattr(store, "load", None) or getattr(store, "get", None)
+                if operation is None:
+                    return None
+                try:
+                    record = operation(key)
+                except (KeyError, TypeError):
+                    record = operation(key.digest)
+        except Exception:
+            return None
+        if not isinstance(record, Mapping):
+            return None
+        stored_key = record.get("key")
+        if isinstance(stored_key, Mapping) and dict(stored_key) != key.as_dict():
+            return None
+        if str(record.get("status") or "") != "VALIDATED":
+            return None
+        raw = record.get("audit", record)
+        if not isinstance(raw, Mapping):
+            return None
+        try:
+            output = raw.get("output")
+            if not isinstance(output, Mapping):
+                return None
+            output = _strip_reasoning(output)
+            reasons = _validate_output(
+                output,
+                stage=stage,
+                model=model,
+                snapshot_id=snapshot.snapshot_id,
+                upstream_symbols=upstream_symbols,
+                snapshot_data=snapshot.data,
+            )
+            if reasons:
+                return None
+            symbols = tuple(sorted(_approved_symbols(output, stage)))
+            if tuple(sorted(str(item) for item in (raw.get("symbols") or ()))) != symbols:
+                return None
+            audit = StageAudit(
+                lane=str(raw.get("lane") or lane_id),
+                model=str(raw.get("model") or model),
+                stage=str(raw.get("stage") or stage),
+                status=str(raw.get("status") or ""),
+                snapshot_id=str(raw.get("snapshot_id") or ""),
+                prompt_hash=str(raw.get("prompt_hash") or ""),
+                input_hash=str(raw.get("input_hash") or "") or None,
+                output_hash=str(raw.get("output_hash") or "") or None,
+                latency_ms=_safe_optional_int(raw.get("latency_ms")),
+                attempts=_safe_int(raw.get("attempts")),
+                thinking_variant=str(raw.get("thinking_variant") or "unknown"),
+                symbols=symbols,
+                reason_codes=tuple(str(item) for item in (raw.get("reason_codes") or ())),
+                output=output,
+                diagnostics=raw.get("diagnostics") if isinstance(raw.get("diagnostics"), Mapping) else None,
+            )
+        except (TypeError, ValueError):
+            return None
+        if (
+            audit.lane != lane_id
+            or audit.model != model
+            or audit.stage != stage
+            or audit.status != "VALIDATED"
+            or audit.snapshot_id != snapshot.snapshot_id
+            or audit.prompt_hash != key.prompt_hash
+            or audit.output_hash != _sha256_json(output)
+            or audit.reason_codes
+        ):
+            return None
+        diagnostics = dict(audit.diagnostics or {})
+        diagnostics["checkpoint_reused"] = True
+        return StageAudit(
+            lane=audit.lane,
+            model=audit.model,
+            stage=audit.stage,
+            status=audit.status,
+            snapshot_id=audit.snapshot_id,
+            prompt_hash=audit.prompt_hash,
+            input_hash=audit.input_hash,
+            output_hash=audit.output_hash,
+            latency_ms=audit.latency_ms,
+            attempts=audit.attempts,
+            thinking_variant=audit.thinking_variant,
+            symbols=audit.symbols,
+            reason_codes=audit.reason_codes,
+            output=audit.output,
+            diagnostics=diagnostics,
+        )
+
+    def _save_checkpoint(self, *, key: ResearchCheckpointKey, audit: StageAudit) -> bool:
+        store = self.checkpoint_store
+        if store is None or audit.status != "VALIDATED":
+            return False
+        record = {
+            "key": key.as_dict(),
+            "status": "VALIDATED",
+            "audit": _strip_reasoning(audit.as_dict()),
+        }
+        try:
+            if isinstance(store, Mapping):
+                # A plain mapping is accepted for tiny test doubles only when
+                # it is mutable; immutable mappings remain read-only.
+                store[key.digest] = record  # type: ignore[index]
+            else:
+                operation = getattr(store, "save", None) or getattr(store, "put", None)
+                if operation is None:
+                    return False
+                try:
+                    operation(key, record)
+                except (KeyError, TypeError):
+                    operation(key.digest, record)
+            return True
+        except Exception:
+            return False
+
+    def _run_stage_with_checkpoint(
+        self,
+        *,
+        lane_id: str,
+        model: str,
+        stage: str,
+        snapshot: FrozenInputSnapshot,
+        upstream_output: Mapping[str, Any] | None,
+        upstream_symbols: set[str],
+        bundle: PromptBundle | None,
+        run_id: str,
+        projection_symbols: set[str] | None = None,
+        a1_discovery_context: Mapping[str, Any] | None = None,
+    ) -> StageAudit:
+        key, prepared_request = self._checkpoint_key(
+            run_id=run_id,
+            lane_id=lane_id,
+            model=model,
+            stage=stage,
+            snapshot=snapshot,
+            upstream_output=upstream_output,
+            upstream_symbols=upstream_symbols,
+            bundle=bundle,
+            projection_symbols=projection_symbols,
+            a1_discovery_context=a1_discovery_context,
+        )
+        if key is not None:
+            reused = self._load_checkpoint(
+                key=key,
+                lane_id=lane_id,
+                model=model,
+                stage=stage,
+                snapshot=snapshot,
+                upstream_symbols=upstream_symbols,
+            )
+            if reused is not None:
+                return reused
+        audit = self._run_stage(
+            lane_id=lane_id,
+            model=model,
+            stage=stage,
+            snapshot=snapshot,
+            upstream_output=upstream_output,
+            upstream_symbols=upstream_symbols,
+            bundle=bundle,
+            run_id=run_id,
+            projection_symbols=projection_symbols,
+            a1_discovery_context=a1_discovery_context,
+            prepared_request=prepared_request,
+        )
+        if key is not None and audit.status == "VALIDATED":
+            self._save_checkpoint(key=key, audit=audit)
+        return audit
 
     def _empty_stage(
         self,
@@ -561,6 +1016,123 @@ class ResearchPipeline:
             diagnostics={"outcome_code": "NO_ACTION_UPSTREAM_POOL_EMPTY"},
         )
 
+    def _execute_batch_plan(
+        self,
+        *,
+        batches: Sequence[set[str]],
+        lane_id: str,
+        model: str,
+        stage: str,
+        run_id: str,
+        snapshot_id: str,
+        runner: Callable[[set[str]], StageAudit],
+        splittable: Callable[[Sequence[str]], bool],
+    ) -> tuple[list[StageAudit], list[StageAudit], int, StageAudit | None, int]:
+        """Execute a deterministic batch plan with optional bounded workers.
+
+        The returned audits are ordered by their logical batch path, not by
+        completion time.  A failed splittable batch is retried as two smaller
+        batches; any non-splittable failure remains fail-closed.  This keeps
+        the old serial semantics when ``batch_workers=1`` while making the
+        parallel case deterministic at merge time.
+        """
+
+        pending: list[tuple[tuple[int, ...], set[str]]] = [
+            ((index,), set(batch)) for index, batch in enumerate(batches)
+        ]
+        initial_total = len(pending)
+        total = initial_total
+        request_audits: list[tuple[tuple[int, ...], StageAudit]] = []
+        valid_audits: dict[tuple[int, ...], StageAudit] = {}
+        split_count = 0
+        completed = 0
+        blocked: StageAudit | None = None
+        def invoke(batch: set[str]) -> StageAudit:
+            try:
+                return runner(batch)
+            except Exception:
+                return self._blocked_stage(
+                    lane_id,
+                    model,
+                    stage,
+                    snapshot_id,
+                    "BATCH_EXECUTION_FAILED",
+                )
+        executor = (
+            ThreadPoolExecutor(max_workers=self.batch_workers, thread_name_prefix="liangjian-batch")
+            if self.batch_workers > 1
+            else None
+        )
+        try:
+            while pending:
+                if executor is None or split_count > 0:
+                    current = [pending.pop(0)]
+                    results = [(current[0][0], invoke(current[0][1]))]
+                else:
+                    current = pending[: self.batch_workers]
+                    del pending[: self.batch_workers]
+                    # executor.map preserves the input order even when model
+                    # responses complete out of order.
+                    results = [
+                        (item[0], audit)
+                        for item, audit in zip(current, executor.map(lambda item: invoke(item[1]), current))
+                    ]
+                children: list[tuple[tuple[int, ...], set[str]]] = []
+                for order, batch_audit in results:
+                    request_audits.append((order, batch_audit))
+                    if batch_audit.status == "VALIDATED":
+                        valid_audits[order] = batch_audit
+                        completed += 1
+                        self._emit_progress(
+                            run_id=run_id,
+                            lane=lane_id,
+                            model=model,
+                            stage=stage,
+                            completed=completed,
+                            total=total,
+                            status=_progress_status(batch_audit),
+                            attempts=batch_audit.attempts,
+                            batch_index=order[0] + 1,
+                        )
+                        continue
+                    self._emit_progress(
+                        run_id=run_id,
+                        lane=lane_id,
+                        model=model,
+                        stage=stage,
+                        completed=completed,
+                        total=total,
+                        status="FAILED",
+                        attempts=batch_audit.attempts,
+                        batch_index=order[0] + 1,
+                    )
+                    batch = next((candidate for candidate_order, candidate in current if candidate_order == order), set())
+                    if len(batch) > 1 and splittable(batch_audit.reason_codes):
+                        midpoint = max(1, len(batch) // 2)
+                        ordered_symbols = sorted(batch)
+                        children.extend(
+                            [
+                                (order + (0,), set(ordered_symbols[:midpoint])),
+                                (order + (1,), set(ordered_symbols[midpoint:])),
+                            ]
+                        )
+                        split_count += 1
+                        total += 1
+                    else:
+                        blocked = batch_audit
+                        break
+                if blocked is not None:
+                    break
+                if children:
+                    children.sort(key=lambda item: item[0])
+                    pending = [*children, *pending]
+        finally:
+            if executor is not None:
+                executor.shutdown(wait=True)
+        request_audits.sort(key=lambda item: item[0])
+        ordered_valid = [audit for _, audit in sorted(valid_audits.items(), key=lambda item: item[0])]
+        return [audit for _, audit in request_audits], ordered_valid, split_count, blocked, total
+
     def _run_a1_batched(
         self,
         *,
@@ -573,7 +1145,6 @@ class ResearchPipeline:
     ) -> StageAudit:
         size = self.settings.research_a1_batch_size
         batches = _build_a1_node_batches(g0, snapshot.data, size)
-        pending = list(batches)
         discovery_output: Mapping[str, Any] = {}
         frozen_discovery_context: Mapping[str, Any] | None = None
         audits: list[StageAudit] = []
@@ -618,11 +1189,14 @@ class ResearchPipeline:
                 "industry_chain_graph": discovery_output["industry_chain_graph"],
             }
             audits.append(discovery)
-        valid_audits: list[StageAudit] = []
-        split_count = 0
-        while pending:
-            batch = pending.pop(0)
-            audit = self._run_stage(
+        batch_audits, valid_audits, split_count, blocked, _total_batches = self._execute_batch_plan(
+            batches=batches,
+            lane_id=lane_id,
+            model=model,
+            stage="A1",
+            run_id=run_id,
+            snapshot_id=snapshot.snapshot_id,
+            runner=lambda batch: self._run_stage_with_checkpoint(
                 lane_id=lane_id,
                 model=model,
                 stage="A1",
@@ -633,40 +1207,35 @@ class ResearchPipeline:
                 run_id=run_id,
                 projection_symbols=batch,
                 a1_discovery_context=frozen_discovery_context,
+            ),
+            splittable=_a1_batch_is_splittable,
+        )
+        audits.extend(batch_audits)
+        if blocked is not None:
+            reasons = tuple(f"A1_BATCH_BLOCKED:{reason}" for reason in blocked.reason_codes)
+            return StageAudit(
+                lane=lane_id,
+                model=model,
+                stage="A1",
+                status="BLOCKED",
+                snapshot_id=snapshot.snapshot_id,
+                prompt_hash=_combined_digest(item.prompt_hash for item in audits),
+                input_hash=_combined_digest(item.input_hash for item in audits),
+                output_hash=None,
+                latency_ms=sum(item.latency_ms or 0 for item in audits),
+                attempts=sum(item.attempts for item in audits),
+                thinking_variant=_common_variant(audits),
+                symbols=(),
+                reason_codes=reasons or ("A1_BATCH_BLOCKED",),
+                diagnostics={
+                    "batch_count": len(batches),
+                    "completed_batches": len(valid_audits),
+                    "request_groups": len(audits),
+                    "split_count": split_count,
+                    "blocked_batch_output_shape": _output_shape(blocked.output),
+                    "blocked_batch_diagnostics": blocked.diagnostics,
+                },
             )
-            audits.append(audit)
-            if audit.status != "VALIDATED":
-                if len(batch) > 1 and _a1_batch_is_splittable(audit.reason_codes):
-                    midpoint = max(1, len(batch) // 2)
-                    batch_order = sorted(batch)
-                    pending = [set(batch_order[:midpoint]), set(batch_order[midpoint:]), *pending]
-                    split_count += 1
-                    continue
-                reasons = tuple(f"A1_BATCH_BLOCKED:{reason}" for reason in audit.reason_codes)
-                return StageAudit(
-                    lane=lane_id,
-                    model=model,
-                    stage="A1",
-                    status="BLOCKED",
-                    snapshot_id=snapshot.snapshot_id,
-                    prompt_hash=_combined_digest(item.prompt_hash for item in audits),
-                    input_hash=_combined_digest(item.input_hash for item in audits),
-                    output_hash=None,
-                    latency_ms=sum(item.latency_ms or 0 for item in audits),
-                    attempts=sum(item.attempts for item in audits),
-                    thinking_variant=_common_variant(audits),
-                    symbols=(),
-                    reason_codes=reasons or ("A1_BATCH_BLOCKED",),
-                    diagnostics={
-                        "batch_count": len(batches),
-                        "completed_batches": len(valid_audits),
-                        "request_groups": len(audits),
-                        "split_count": split_count,
-                        "blocked_batch_output_shape": _output_shape(audit.output),
-                        "blocked_batch_diagnostics": audit.diagnostics,
-                    },
-                )
-            valid_audits.append(audit)
 
         merge_outputs = [
             audit.output for audit in valid_audits if isinstance(audit.output, Mapping)
@@ -732,13 +1301,14 @@ class ResearchPipeline:
             upstream_symbols,
             self.settings.research_a2_batch_size,
         )
-        pending = list(batches)
-        audits: list[StageAudit] = []
-        valid_audits: list[StageAudit] = []
-        split_count = 0
-        while pending:
-            batch = pending.pop(0)
-            audit = self._run_stage(
+        audits, valid_audits, split_count, blocked, _total_batches = self._execute_batch_plan(
+            batches=batches,
+            lane_id=lane_id,
+            model=model,
+            stage="A2",
+            run_id=run_id,
+            snapshot_id=snapshot.snapshot_id,
+            runner=lambda batch: self._run_stage_with_checkpoint(
                 lane_id=lane_id,
                 model=model,
                 stage="A2",
@@ -748,38 +1318,32 @@ class ResearchPipeline:
                 bundle=bundle,
                 run_id=run_id,
                 projection_symbols=batch,
+            ),
+            splittable=_a2_batch_is_splittable,
+        )
+        if blocked is not None:
+            return StageAudit(
+                lane=lane_id,
+                model=model,
+                stage="A2",
+                status="BLOCKED",
+                snapshot_id=snapshot.snapshot_id,
+                prompt_hash=_combined_digest(item.prompt_hash for item in audits),
+                input_hash=_combined_digest(item.input_hash for item in audits),
+                output_hash=None,
+                latency_ms=sum(item.latency_ms or 0 for item in audits),
+                attempts=sum(item.attempts for item in audits),
+                thinking_variant=_common_variant(audits),
+                symbols=(),
+                reason_codes=tuple(f"A2_BATCH_BLOCKED:{reason}" for reason in blocked.reason_codes),
+                diagnostics={
+                    "batch_count": len(batches),
+                    "completed_batches": len(valid_audits),
+                    "request_groups": len(audits),
+                    "split_count": split_count,
+                    "blocked_batch_diagnostics": blocked.diagnostics,
+                },
             )
-            audits.append(audit)
-            if audit.status != "VALIDATED":
-                if len(batch) > 1 and _a2_batch_is_splittable(audit.reason_codes):
-                    midpoint = max(1, len(batch) // 2)
-                    ordered = sorted(batch)
-                    pending = [set(ordered[:midpoint]), set(ordered[midpoint:]), *pending]
-                    split_count += 1
-                    continue
-                return StageAudit(
-                    lane=lane_id,
-                    model=model,
-                    stage="A2",
-                    status="BLOCKED",
-                    snapshot_id=snapshot.snapshot_id,
-                    prompt_hash=_combined_digest(item.prompt_hash for item in audits),
-                    input_hash=_combined_digest(item.input_hash for item in audits),
-                    output_hash=None,
-                    latency_ms=sum(item.latency_ms or 0 for item in audits),
-                    attempts=sum(item.attempts for item in audits),
-                    thinking_variant=_common_variant(audits),
-                    symbols=(),
-                    reason_codes=tuple(f"A2_BATCH_BLOCKED:{reason}" for reason in audit.reason_codes),
-                    diagnostics={
-                        "batch_count": len(batches),
-                        "completed_batches": len(valid_audits),
-                        "request_groups": len(audits),
-                        "split_count": split_count,
-                        "blocked_batch_diagnostics": audit.diagnostics,
-                    },
-                )
-            valid_audits.append(audit)
 
         merged = _merge_a2_outputs([
             audit.output for audit in valid_audits if isinstance(audit.output, Mapping)
@@ -840,9 +1404,14 @@ class ResearchPipeline:
     ) -> StageAudit:
         ordered = sorted(upstream_symbols)
         batches = [set(ordered[offset:offset + _A3_BATCH_SIZE]) for offset in range(0, len(ordered), _A3_BATCH_SIZE)]
-        audits: list[StageAudit] = []
-        for batch in batches:
-            audit = self._run_stage(
+        audits, valid_audits, _split_count, blocked, _total_batches = self._execute_batch_plan(
+            batches=batches,
+            lane_id=lane_id,
+            model=model,
+            stage="A3",
+            run_id=run_id,
+            snapshot_id=snapshot.snapshot_id,
+            runner=lambda batch: self._run_stage_with_checkpoint(
                 lane_id=lane_id,
                 model=model,
                 stage="A3",
@@ -852,32 +1421,36 @@ class ResearchPipeline:
                 bundle=bundle,
                 run_id=run_id,
                 projection_symbols=batch,
+            ),
+            # A3 transport failures are intentionally not split: the stage's
+            # fixed technical projection is already bounded and its semantic
+            # contract is fail-closed.
+            splittable=lambda _reasons: False,
+        )
+        if blocked is not None:
+            return StageAudit(
+                lane=lane_id,
+                model=model,
+                stage="A3",
+                status="BLOCKED",
+                snapshot_id=snapshot.snapshot_id,
+                prompt_hash=_combined_digest(item.prompt_hash for item in audits),
+                input_hash=_combined_digest(item.input_hash for item in audits),
+                output_hash=None,
+                latency_ms=sum(item.latency_ms or 0 for item in audits),
+                attempts=sum(item.attempts for item in audits),
+                thinking_variant=_common_variant(audits),
+                symbols=(),
+                reason_codes=tuple(f"A3_BATCH_BLOCKED:{reason}" for reason in blocked.reason_codes),
+                diagnostics={
+                    "batch_count": len(batches),
+                    "completed_batches": len(valid_audits),
+                    "blocked_batch_diagnostics": blocked.diagnostics,
+                },
             )
-            audits.append(audit)
-            if audit.status != "VALIDATED":
-                return StageAudit(
-                    lane=lane_id,
-                    model=model,
-                    stage="A3",
-                    status="BLOCKED",
-                    snapshot_id=snapshot.snapshot_id,
-                    prompt_hash=_combined_digest(item.prompt_hash for item in audits),
-                    input_hash=_combined_digest(item.input_hash for item in audits),
-                    output_hash=None,
-                    latency_ms=sum(item.latency_ms or 0 for item in audits),
-                    attempts=sum(item.attempts for item in audits),
-                    thinking_variant=_common_variant(audits),
-                    symbols=(),
-                    reason_codes=tuple(f"A3_BATCH_BLOCKED:{reason}" for reason in audit.reason_codes),
-                    diagnostics={
-                        "batch_count": len(batches),
-                        "completed_batches": len(audits) - 1,
-                        "blocked_batch_diagnostics": audit.diagnostics,
-                    },
-                )
         merged = _merge_stage_outputs(
             "A3",
-            [audit.output for audit in audits if isinstance(audit.output, Mapping)],
+            [audit.output for audit in valid_audits if isinstance(audit.output, Mapping)],
         )
         merged, _ = _apply_a3_pool_limits(merged, snapshot.data)
         reasons = _validate_output(
@@ -905,9 +1478,72 @@ class ResearchPipeline:
             output=merged,
             diagnostics={
                 "batch_count": len(batches),
-                "completed_batches": len(audits),
+                "completed_batches": len(valid_audits),
                 "pool_counts": _stage_pool_counts(merged, "A3"),
             },
+        )
+
+    def _prepare_stage_request(
+        self,
+        *,
+        lane_id: str,
+        model: str,
+        stage: str,
+        snapshot: FrozenInputSnapshot,
+        upstream_output: Mapping[str, Any] | None,
+        upstream_symbols: set[str],
+        bundle: PromptBundle,
+        projection_symbols: set[str] | None = None,
+        a1_discovery_context: Mapping[str, Any] | None = None,
+    ) -> _PreparedStageRequest:
+        replacements = _prompt_replacements(
+            bundle,
+            stage,
+            snapshot,
+            upstream_output,
+            projection_symbols=projection_symbols,
+            a1_discovery_context=a1_discovery_context,
+        )
+        shared = bundle.render("00_shared_system_v2.txt", replacements)
+        stage_prompt = bundle.render_stage(stage, replacements)
+        effective_scope = projection_symbols if projection_symbols is not None else upstream_symbols
+        execution_budget = _stage_execution_budget(stage, len(effective_scope), snapshot.data)
+        system_content = shared + "\n\n" + stage_prompt + "\n\n" + execution_budget
+        prompt_hash = digest_text(system_content)
+        runtime = _runtime_input(
+            snapshot,
+            lane_id,
+            model,
+            stage,
+            upstream_output,
+            upstream_symbols,
+            scope_symbols=projection_symbols,
+        )
+        runtime["prompt_projection_version"] = _PROMPT_PROJECTION_VERSION
+        runtime["output_budget"] = dict(_STAGE_OUTPUT_BUDGETS[stage])
+        input_hash = _sha256_json(runtime)
+        # Snapshot fields and upstream output are already rendered into
+        # immutable stage-prompt placeholders. Sending either again in the
+        # user message duplicates evidence and can exceed provider limits.
+        # Keep both in ``runtime`` for the lineage hash and audit only.
+        model_runtime = {
+            key: value
+            for key, value in runtime.items()
+            if key not in {"snapshot_data", "upstream_output"}
+        }
+        model_runtime["upstream_output"] = None
+        messages: tuple[Mapping[str, Any], ...] = (
+            {"role": "system", "content": system_content},
+            {"role": "user", "content": "RUNTIME_INPUT\n" + _canonical_json(model_runtime)},
+        )
+        prompt_chars = sum(len(str(message.get("content", ""))) for message in messages)
+        if prompt_chars > _PROMPT_MAX_CHARS:
+            raise ResearchPipelineError("MODEL_PROMPT_TOO_LARGE")
+        return _PreparedStageRequest(
+            prompt_hash=prompt_hash,
+            input_hash=input_hash,
+            messages=messages,
+            prompt_chars=prompt_chars,
         )
 
     def _run_stage(
@@ -923,53 +1559,26 @@ class ResearchPipeline:
         run_id: str,
         projection_symbols: set[str] | None = None,
         a1_discovery_context: Mapping[str, Any] | None = None,
+        prepared_request: _PreparedStageRequest | None = None,
     ) -> StageAudit:
         if bundle is None:
             return self._blocked_stage(lane_id, model, stage, snapshot.snapshot_id, "PROMPT_REPOSITORY_BLOCKED")
         try:
-            replacements = _prompt_replacements(
-                bundle,
-                stage,
-                snapshot,
-                upstream_output,
+            prepared = prepared_request or self._prepare_stage_request(
+                lane_id=lane_id,
+                model=model,
+                stage=stage,
+                snapshot=snapshot,
+                upstream_output=upstream_output,
+                upstream_symbols=upstream_symbols,
+                bundle=bundle,
                 projection_symbols=projection_symbols,
                 a1_discovery_context=a1_discovery_context,
             )
-            shared = bundle.render("00_shared_system_v2.txt", replacements)
-            stage_prompt = bundle.render_stage(stage, replacements)
-            effective_scope = projection_symbols if projection_symbols is not None else upstream_symbols
-            execution_budget = _stage_execution_budget(stage, len(effective_scope), snapshot.data)
-            system_content = shared + "\n\n" + stage_prompt + "\n\n" + execution_budget
-            prompt_hash = digest_text(system_content)
-            runtime = _runtime_input(
-                snapshot,
-                lane_id,
-                model,
-                stage,
-                upstream_output,
-                upstream_symbols,
-                scope_symbols=projection_symbols,
-            )
-            runtime["prompt_projection_version"] = _PROMPT_PROJECTION_VERSION
-            runtime["output_budget"] = dict(_STAGE_OUTPUT_BUDGETS[stage])
-            input_hash = _sha256_json(runtime)
-            # Snapshot fields and upstream output are already rendered into
-            # immutable stage-prompt placeholders. Sending either again in the
-            # user message duplicates evidence and can exceed provider limits.
-            # Keep both in ``runtime`` for the lineage hash and audit only.
-            model_runtime = {
-                key: value
-                for key, value in runtime.items()
-                if key not in {"snapshot_data", "upstream_output"}
-            }
-            model_runtime["upstream_output"] = None
-            messages = [
-                {"role": "system", "content": system_content},
-                {"role": "user", "content": "RUNTIME_INPUT\n" + _canonical_json(model_runtime)},
-            ]
-            prompt_chars = sum(len(str(message.get("content", ""))) for message in messages)
-            if prompt_chars > _PROMPT_MAX_CHARS:
-                raise ResearchPipelineError("MODEL_PROMPT_TOO_LARGE")
+            prompt_hash = prepared.prompt_hash
+            input_hash = prepared.input_hash
+            messages = list(prepared.messages)
+            prompt_chars = prepared.prompt_chars
         except (PromptRepositoryError, TypeError, ValueError):
             return StageAudit(
                 lane=lane_id,
@@ -3711,10 +4320,96 @@ def _safe_optional_int(value: Any) -> int | None:
         return None
 
 
+def _freeze_snapshot(snapshot: FrozenInputSnapshot) -> FrozenInputSnapshot:
+    """Return a cheap immutable top-level snapshot view.
+
+    ``FrozenInputSnapshot`` already freezes its top-level data mapping.  Do
+    not recursively copy the full-market evidence tree for every lane/stage;
+    that would defeat the cache and memory improvements this callback exists
+    to provide.  Enrichers must treat nested evidence as read-only by contract.
+    """
+
+    return FrozenInputSnapshot(
+        snapshot_id=snapshot.snapshot_id,
+        data=snapshot.data,
+        snapshot_hash=snapshot.snapshot_hash,
+        as_of=snapshot.as_of,
+    )
+
+
+def _progress_status(audit: StageAudit) -> str:
+    if audit.status != "VALIDATED":
+        return "FAILED"
+    diagnostics = audit.diagnostics if isinstance(audit.diagnostics, Mapping) else {}
+    return "REUSED" if diagnostics.get("checkpoint_reused") is True else "COMPLETED"
+
+
+def _invoke_stage_snapshot_enricher(
+    callback: Callable[..., Any],
+    *,
+    stage: str,
+    lane_id: str,
+    model: str,
+    upstream_symbols: frozenset[str],
+    snapshot: FrozenInputSnapshot,
+) -> Any:
+    """Call an enricher using the richest compatible signature.
+
+    The primary contract is keyword-friendly ``(stage, lane_id, model,
+    upstream_symbols, snapshot)``.  The shorter positional variants are
+    retained for small adapters and tests.
+    """
+
+    keyword_candidates = (
+        {
+            "stage": stage,
+            "lane_id": lane_id,
+            "model": model,
+            "upstream_symbols": upstream_symbols,
+            "snapshot": snapshot,
+        },
+        {
+            "stage": stage,
+            "lane": lane_id,
+            "model": model,
+            "upstream_symbols": upstream_symbols,
+            "snapshot": snapshot,
+        },
+        {"stage": stage, "lane_id": lane_id, "upstream_symbols": upstream_symbols, "snapshot": snapshot},
+        {"stage": stage, "lane": lane_id, "upstream_symbols": upstream_symbols, "snapshot": snapshot},
+    )
+    positional_candidates = (
+        (stage, lane_id, model, upstream_symbols, snapshot),
+        (stage, lane_id, upstream_symbols, snapshot),
+        (stage, upstream_symbols, snapshot),
+    )
+    try:
+        signature = inspect.signature(callback)
+    except (TypeError, ValueError):
+        return callback(stage, lane_id, model, upstream_symbols, snapshot)
+    for kwargs in keyword_candidates:
+        try:
+            signature.bind(**kwargs)
+        except TypeError:
+            continue
+        return callback(**kwargs)
+    for args in positional_candidates:
+        try:
+            signature.bind(*args)
+        except TypeError:
+            continue
+        return callback(*args)
+    raise TypeError("stage snapshot enricher signature is unsupported")
+
+
 __all__ = [
     "FrozenInputSnapshot",
+    "FileResearchCheckpointStore",
+    "InMemoryResearchCheckpointStore",
     "LaneResult",
     "ResearchPipeline",
+    "ResearchCheckpointKey",
+    "ResearchCheckpointStore",
     "ResearchPipelineError",
     "ResearchRunResult",
     "StageAudit",

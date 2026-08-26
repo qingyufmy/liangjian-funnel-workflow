@@ -69,8 +69,11 @@ class Settings(BaseModel):
     workflow_output_dir: Path
     snapshot_dir: Path
     fact_store_dir: Path
+    fact_cache_db_path: Path
     cninfo_pdf_cache_dir: Path
     state_db_path: Path
+    workflow_progress_path: Path
+    research_checkpoint_dir: Path
     prompt_dir: Path
     source_config_path: Path
     exchange_rules_path: Path
@@ -81,6 +84,11 @@ class Settings(BaseModel):
     open_news_flash_limit: int = Field(default=50, ge=1, le=100)
     research_a1_batch_size: int = Field(default=20, ge=1, le=40)
     research_a2_batch_size: int = Field(default=40, ge=1, le=100)
+    research_batch_workers: int = Field(default=2, ge=1, le=8)
+    data_sync_batch_size: int = Field(default=50, ge=1, le=500)
+    data_progress_every: int = Field(default=25, ge=1, le=500)
+    fundamental_refresh_hours: int = Field(default=24, ge=1, le=24 * 31)
+    daily_refresh_hours: int = Field(default=4, ge=1, le=24 * 7)
     simulation_initial_cash: float = Field(default=1_000_000.0, ge=0)
     # Thinking is an explicit capability of a client role. Research lanes
     # keep it enabled; the independent intraday monitor is intentionally
@@ -134,8 +142,11 @@ class Settings(BaseModel):
         workflow_output_raw = env.get("LIANGJIAN_WORKFLOW_OUTPUT_DIR")
         snapshot_raw = env.get("LIANGJIAN_SNAPSHOT_DIR")
         fact_store_raw = env.get("LIANGJIAN_FACT_STORE_DIR")
+        fact_cache_db_raw = env.get("LIANGJIAN_FACT_CACHE_DB_PATH")
         cninfo_pdf_cache_raw = env.get("LIANGJIAN_CNINFO_PDF_CACHE_DIR")
         state_db_raw = env.get("LIANGJIAN_STATE_DB_PATH")
+        progress_path_raw = env.get("LIANGJIAN_WORKFLOW_PROGRESS_PATH")
+        checkpoint_dir_raw = env.get("LIANGJIAN_RESEARCH_CHECKPOINT_DIR")
         prompt_raw = env.get("LIANGJIAN_PROMPT_DIR")
         source_config_raw = env.get("LIANGJIAN_SOURCE_CONFIG_PATH")
         exchange_rules_raw = env.get("LIANGJIAN_EXCHANGE_RULES_PATH")
@@ -181,10 +192,19 @@ class Settings(BaseModel):
             fact_store_dir=Path(fact_store_raw).resolve()
             if fact_store_raw
             else base / "storage" / "facts",
+            fact_cache_db_path=Path(fact_cache_db_raw).resolve()
+            if fact_cache_db_raw
+            else base / "storage" / "facts" / "market_fact_cache.sqlite3",
             cninfo_pdf_cache_dir=Path(cninfo_pdf_cache_raw).resolve()
             if cninfo_pdf_cache_raw
             else base / "storage" / "cninfo_pdfs",
             state_db_path=Path(state_db_raw).resolve() if state_db_raw else base / "state" / "workflow.sqlite3",
+            workflow_progress_path=Path(progress_path_raw).resolve()
+            if progress_path_raw
+            else base / "state" / "workflow_progress.json",
+            research_checkpoint_dir=Path(checkpoint_dir_raw).resolve()
+            if checkpoint_dir_raw
+            else base / "state" / "research_checkpoints",
             prompt_dir=Path(prompt_raw).resolve() if prompt_raw else default_prompt.resolve(),
             source_config_path=Path(source_config_raw).resolve()
             if source_config_raw
@@ -201,6 +221,11 @@ class Settings(BaseModel):
             open_news_flash_limit=int(env.get("LIANGJIAN_OPEN_NEWS_FLASH_LIMIT", "50")),
             research_a1_batch_size=int(env.get("LIANGJIAN_A1_BATCH_SIZE", "20")),
             research_a2_batch_size=int(env.get("LIANGJIAN_A2_BATCH_SIZE", "40")),
+            research_batch_workers=int(env.get("LIANGJIAN_RESEARCH_BATCH_WORKERS", "2")),
+            data_sync_batch_size=int(env.get("LIANGJIAN_DATA_SYNC_BATCH_SIZE", "50")),
+            data_progress_every=int(env.get("LIANGJIAN_DATA_PROGRESS_EVERY", "25")),
+            fundamental_refresh_hours=int(env.get("LIANGJIAN_FUNDAMENTAL_REFRESH_HOURS", "24")),
+            daily_refresh_hours=int(env.get("LIANGJIAN_DAILY_REFRESH_HOURS", "4")),
             simulation_initial_cash=float(env.get("LIANGJIAN_SIMULATION_INITIAL_CASH", "1000000")),
             research_thinking_enabled=_parse_bool(env.get("LIANGJIAN_RESEARCH_THINKING_ENABLED"), default=True),
             monitor_thinking_enabled=_parse_bool(env.get("LIANGJIAN_MONITOR_THINKING_ENABLED"), default=False),
@@ -233,8 +258,11 @@ class Settings(BaseModel):
             "workflow_output_dir": str(self.workflow_output_dir),
             "snapshot_dir": str(self.snapshot_dir),
             "fact_store_dir": str(self.fact_store_dir),
+            "fact_cache_db_path": str(self.fact_cache_db_path),
             "cninfo_pdf_cache_dir": str(self.cninfo_pdf_cache_dir),
             "state_db_path": str(self.state_db_path),
+            "workflow_progress_path": str(self.workflow_progress_path),
+            "research_checkpoint_dir": str(self.research_checkpoint_dir),
             "prompt_dir": str(self.prompt_dir),
             "source_config_path": str(self.source_config_path),
             "exchange_rules_path": str(self.exchange_rules_path),
@@ -245,6 +273,11 @@ class Settings(BaseModel):
             "open_news_flash_limit": self.open_news_flash_limit,
             "research_a1_batch_size": self.research_a1_batch_size,
             "research_a2_batch_size": self.research_a2_batch_size,
+            "research_batch_workers": self.research_batch_workers,
+            "data_sync_batch_size": self.data_sync_batch_size,
+            "data_progress_every": self.data_progress_every,
+            "fundamental_refresh_hours": self.fundamental_refresh_hours,
+            "daily_refresh_hours": self.daily_refresh_hours,
             "simulation_initial_cash": self.simulation_initial_cash,
             "research_thinking_enabled": self.research_thinking_enabled,
             "monitor_thinking_enabled": self.monitor_thinking_enabled,

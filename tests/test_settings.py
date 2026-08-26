@@ -24,6 +24,10 @@ def test_exact_models_and_safe_summary_do_not_leak_keys(tmp_path: Path):
     assert settings.model_timeout_seconds == 600
     assert settings.research_a1_batch_size == 20
     assert settings.research_a2_batch_size == 40
+    assert settings.research_batch_workers == 2
+    assert settings.data_sync_batch_size == 50
+    assert settings.fundamental_refresh_hours == 24
+    assert settings.daily_refresh_hours == 4
     assert settings.research_thinking_enabled is True
     assert settings.monitor_thinking_enabled is False
 
@@ -55,8 +59,11 @@ def test_mootdx_server_override_is_strict_and_cache_stays_under_root(tmp_path: P
     assert settings.mootdx_servers == (("127.0.0.1", 7709), ("127.0.0.2", 7719))
     assert settings.minute_cache_dir == tmp_path / "storage" / "minute"
     assert settings.fact_store_dir == tmp_path / "storage" / "facts"
+    assert settings.fact_cache_db_path == tmp_path / "storage" / "facts" / "market_fact_cache.sqlite3"
     assert settings.cninfo_pdf_cache_dir == tmp_path / "storage" / "cninfo_pdfs"
     assert settings.cninfo_pdf_max_documents_per_symbol == 3
+    assert settings.workflow_progress_path == tmp_path / "state" / "workflow_progress.json"
+    assert settings.research_checkpoint_dir == tmp_path / "state" / "research_checkpoints"
     assert settings.prompt_dir == tmp_path / "prompts"
     assert settings.source_config_path == tmp_path / "config" / "funnel_config_v2.yaml"
 

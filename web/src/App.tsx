@@ -37,6 +37,9 @@ import {
   RunSummary,
   RunsResponse,
   StageSummary,
+  WorkflowProgressLane,
+  WorkflowProgressStage,
+  WorkflowProgressSummary,
 } from "./types";
 
 type ViewId = "overview" | "funnel" | "monitor" | "accounts" | "logs" | "deployment";
@@ -67,6 +70,7 @@ const EMPTY_OVERVIEW: OverviewResponse = {
   service: { status: "unknown" },
   schedule: [],
   latestWorkflow: { status: "unknown", lanes: [] },
+  workflowProgress: null,
   monitor: { status: "unknown", events: [] },
   accounts: [],
   planCounts: {},
@@ -86,6 +90,12 @@ function normalizeOverview(value: OverviewResponse): OverviewResponse {
       ...(value.latestWorkflow ?? {}),
       lanes: Array.isArray(value.latestWorkflow?.lanes) ? value.latestWorkflow.lanes : [],
     },
+    workflowProgress: value.workflowProgress && typeof value.workflowProgress === "object"
+      ? {
+        ...value.workflowProgress,
+        lanes: Array.isArray(value.workflowProgress.lanes) ? value.workflowProgress.lanes : [],
+      }
+      : null,
     monitor: {
       ...EMPTY_OVERVIEW.monitor,
       ...(value.monitor ?? {}),
@@ -471,6 +481,8 @@ function OverviewPage({ overview, logs, onNavigate }: { overview: OverviewRespon
         </div>
       </div>
 
+      <WorkflowProgressPanel progress={overview.workflowProgress} />
+
       <LogPanel logs={logs.slice(0, 10)} onOpen={() => onNavigate("logs")} />
     </div>
   );
@@ -504,6 +516,96 @@ function FunnelPanel({ workflow, onOpen }: { workflow: OverviewResponse["latestW
       <div className="panel-footnote"><Database size={14} /><span>所有数量和状态来自已持久化运行结果；无数据时不会估算进度。</span></div>
     </Panel>
   );
+}
+
+function progressCount(value: number | null | undefined): string {
+  return value === null || value === undefined || !Number.isFinite(value) ? "—" : new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 0 }).format(value);
+}
+
+function progressPair(processed: number | null | undefined, total: number | null | undefined): string {
+  return `${progressCount(processed)} / ${progressCount(total)}`;
+}
+
+function progressPhaseLabel(phase?: string | null): string {
+  const labels: Record<string, string> = {
+    STARTING: "启动准备",
+    UNIVERSE_SYNC: "全市场股票池",
+    MARKET_FACT_SYNC: "行情事实同步",
+    CNINFO_SYNC: "巨潮公告同步",
+    DATA_SYNC: "数据同步",
+    SNAPSHOT: "冻结快照",
+    SNAPSHOT_RESUMED: "恢复已冻结快照",
+    A1: "A1 基本面",
+    A2: "A2 主题情绪",
+    A3: "A3 技术计划",
+    RESEARCH_A1: "A1 基本面研究",
+    RESEARCH_A2: "A2 主题情绪研究",
+    RESEARCH_A3: "A3 技术计划研究",
+    RESEARCH: "模型研究",
+    PERSIST: "结果落盘",
+    COMPLETE: "已完成",
+    COMPLETED: "已完成",
+    DATA_READY: "数据已就绪",
+    DATA_PARTIAL: "数据部分就绪",
+    FAILED: "执行失败",
+    DONE: "已完成",
+    READY: "已就绪",
+    BOOTSTRAP: "首次初始化",
+    UNKNOWN: "未知阶段",
+  };
+  return labels[phase ?? "UNKNOWN"] ?? "未知阶段";
+}
+
+function progressIssueLabel(issue?: WorkflowProgressSummary["issue"]): string {
+  if (issue === "OVERSIZE") return "进度文件超过安全大小限制，已阻断读取";
+  if (issue === "INVALID_JSON") return "进度文件格式无效，已停止展示原文";
+  if (issue === "INVALID_SHAPE") return "进度文件结构无效，已停止展示原文";
+  return "";
+}
+
+function progressPercent(processed: number | null, total: number | null): number | null {
+  if (processed === null || total === null || total <= 0) return null;
+  return Math.max(0, Math.min(100, (processed / total) * 100));
+}
+
+function ProgressBar({ processed, total, compact = false }: { processed: number | null; total: number | null; compact?: boolean }) {
+  const percent = progressPercent(processed, total);
+  return <div className={`progress-bar ${compact ? "progress-bar-compact" : ""}`} role="progressbar" aria-valuemin={0} aria-valuemax={total ?? undefined} aria-valuenow={processed ?? undefined} aria-label="执行进度"><span style={{ width: `${percent ?? 0}%` }} /></div>;
+}
+
+function WorkflowProgressPanel({ progress }: { progress: WorkflowProgressSummary | null }) {
+  return (
+    <Panel title="执行进度" icon={<Activity size={18} />} className="workflow-progress-panel">
+      {!progress ? <EmptyState title="暂无持久化进度" detail="首次初始化或研究任务开始后，Python 会将阶段进度写入控制台。" icon={<Activity size={22} />} /> : progress.issue ? (
+        <div className="progress-issue" role="status"><StatusIcon tone={progress.status === "BLOCKED" ? "warning" : "error"} size={20} /><div><strong>{progress.status === "BLOCKED" ? "进度读取已阻断" : "进度不可用"}</strong><span>{progressIssueLabel(progress.issue)}</span></div></div>
+      ) : (
+        <>
+          <div className="progress-summary-grid">
+            <div><span>当前阶段</span><strong>{progressPhaseLabel(progress.phase)}</strong><StatusBadge status={progress.status} /></div>
+            <div><span>总体处理</span><strong>{progressPair(progress.processed, progress.total)}</strong><ProgressBar processed={progress.processed} total={progress.total} /></div>
+            <div><span>缓存命中 / 未命中</span><strong>{progressPair(progress.cacheHits, progress.cacheMisses)}</strong></div>
+            <div><span>失败数</span><strong className={progress.failures ? "progress-danger" : ""}>{progressCount(progress.failures)}</strong></div>
+            <div><span>已用时间</span><strong>{formatDuration(progress.elapsedMs)}</strong></div>
+            <div><span>预计剩余</span><strong>{formatDuration(progress.etaMs)}</strong></div>
+          </div>
+          {progress.lanes.length === 0 ? <div className="progress-empty-lanes">当前阶段尚未产生模型 lane 批次。</div> : <div className="progress-lanes">{progress.lanes.map((lane) => <ProgressLane key={lane.laneId} lane={lane} />)}</div>}
+          <div className="panel-footnote"><Activity size={14} /><span>最近更新时间 {formatDateTime(progress.updatedAt)}；此处只显示安全的汇总进度，不展示模型原文。</span></div>
+        </>
+      )}
+    </Panel>
+  );
+}
+
+function ProgressLane({ lane }: { lane: WorkflowProgressLane }) {
+  return <article className="progress-lane"><header><div><strong>{MODEL_LABELS[lane.laneId] ?? lane.laneId}</strong><small>{lane.model ?? "模型未标注"}</small></div><StatusBadge status={lane.status} label={lane.currentStage ? progressPhaseLabel(lane.currentStage) : statusLabel(lane.status)} /></header>
+    <div className="progress-lane-meta"><span>批次 {progressPair(lane.batchProcessed, lane.batchTotal)}</span><span>股票 {progressPair(lane.processed, lane.total)}</span></div>
+    <ProgressBar processed={lane.processed} total={lane.total} compact />
+    {lane.stages.length ? <ul className="progress-stage-list">{lane.stages.map((stage) => <ProgressStage key={stage.stage} stage={stage} />)}</ul> : null}
+  </article>;
+}
+
+function ProgressStage({ stage }: { stage: WorkflowProgressStage }) {
+  return <li><div><strong>{progressPhaseLabel(stage.stage)}</strong><StatusBadge status={stage.status} /></div><span>批次 {progressPair(stage.batchProcessed, stage.batchTotal)} · 股票 {progressPair(stage.processed, stage.total)}</span><ProgressBar processed={stage.processed} total={stage.total} compact /></li>;
 }
 
 function StageCell({ stage }: { stage?: StageSummary }) {
@@ -572,6 +674,7 @@ function FunnelPage({ overview, runs }: { overview: OverviewResponse; runs: RunS
   return (
     <div className="page-stack">
       <PageHeading eyebrow="A1 → A2 → A3" title="研究漏斗" detail="每个模型 lane 严格独立；上游未验证时，下游不会运行。" />
+      <WorkflowProgressPanel progress={overview.workflowProgress} />
       <FunnelPanel workflow={overview.latestWorkflow} onOpen={() => undefined} />
       <Panel title="最近运行" icon={<FileClock size={18} />}>
         {runs.length === 0 ? <EmptyState title="暂无运行历史" detail="首次运行完成后，这里会按时间列出研究和盯盘任务。" /> : <RunsTable runs={runs} />}

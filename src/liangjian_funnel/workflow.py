@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
+from threading import RLock
 from typing import Any, Mapping
 from zoneinfo import ZoneInfo
 
@@ -36,7 +37,9 @@ from .facts import (
     select_cninfo_pdf_candidates,
 )
 from .pipeline.data_source import HithinkClient
+from .pipeline.data_sync import HithinkIncrementalSynchronizer
 from .pipeline.factors import FactorEngine
+from .pipeline.local_fact_cache import LocalFactCache
 from .pipeline.market_aggregates import (
     build_crowding_snapshot,
     build_market_emotion,
@@ -47,11 +50,13 @@ from .pipeline.model_client import ModelCallResult, OpenAICompatibleModelClient
 from .pipeline.prompts import PromptRepository
 from .pipeline.research import FrozenInputSnapshot as ResearchSnapshot
 from .pipeline.research import ResearchPipeline, ResearchRunResult
+from .pipeline.research_checkpoint import FileResearchCheckpointStore
 from .pipeline.snapshot import FrozenInputSnapshot, UniverseGatePolicy, UniverseSnapshot
 from .pipeline.technical_aggregates import build_technical_aggregates
 from .redaction import digest_text, sanitize
 from .reporting import atomic_write_json, atomic_write_text
 from .runtime.monitor import MonitorBatchResult, MonitorEngine, rebuild_effective_markdown
+from .runtime.progress import WorkflowProgress
 from .runtime.calendar import ExchangeTradingCalendar, TradingCalendarError
 from .runtime.scheduler import ScheduleKind, Scheduler
 from .runtime.simulation import PaperBroker, SimulationAction, SimulationConfig
@@ -99,9 +104,21 @@ class WorkflowApplication:
         self.settings = settings
         self.store = RuntimeStore(settings.state_db_path)
         self.minute_store = MinuteBarStore(settings.minute_cache_dir)
+        self.fact_cache = LocalFactCache(settings.fact_cache_db_path)
+        self.fact_synchronizer = HithinkIncrementalSynchronizer(
+            self.fact_cache,
+            fundamental_refresh_hours=settings.fundamental_refresh_hours,
+            daily_refresh_hours=settings.daily_refresh_hours,
+            progress_every=settings.data_progress_every,
+            batch_size=settings.data_sync_batch_size,
+        )
+        self._stage_technical_cache: dict[tuple[str, str], dict[str, Any]] = {}
+        self._stage_technical_lock = RLock()
+        self.research_checkpoints = FileResearchCheckpointStore(settings.research_checkpoint_dir)
         self.prompts = PromptRepository(settings.prompt_dir)
         self.model_client = OpenAICompatibleModelClient(
             settings,
+            max_attempts=8,
             thinking_enabled=settings.research_thinking_enabled,
         )
         self.monitor_model_client = OpenAICompatibleModelClient(
@@ -130,6 +147,7 @@ class WorkflowApplication:
         self,
         *,
         as_of: datetime | None = None,
+        progress: WorkflowProgress | None = None,
     ) -> PreparedSnapshot:
         current = _aware(as_of or datetime.now(SHANGHAI))
         wall_now = datetime.now(SHANGHAI)
@@ -154,6 +172,9 @@ class WorkflowApplication:
         if not isinstance(node_count_target, list):
             raise WorkflowError("A1_NODE_TARGET_INVALID")
         source_failures: dict[str, list[str]] = {}
+        if progress is not None:
+            progress.set_phase("UNIVERSE_SYNC")
+            _progress_stdout(progress.snapshot())
         with HithinkClient(self.settings) as client:
             catalog = client.ticker_catalog(limit=1000, max_pages=10)
             market = client.market_snapshot(limit=1000, max_pages=10)
@@ -165,6 +186,15 @@ class WorkflowApplication:
             )
             if not universe.ready:
                 raise WorkflowError("UNIVERSE_NOT_READY")
+            if progress is not None:
+                progress.update_data(
+                    processed=0,
+                    total=len(universe.trade_candidates),
+                    cache_hits=0,
+                    cache_misses=0,
+                    failures=0,
+                )
+                _progress_stdout(progress.snapshot())
 
             # A1 is node-first. Build the full THS reverse membership graph
             # before ordering companies. Industry nodes provide deterministic
@@ -196,9 +226,12 @@ class WorkflowApplication:
                 raise WorkflowError("A1_TRADE_UNIVERSE_SELECTION_INCOMPLETE")
             record_by_symbol = {candidate.symbol: candidate for candidate in universe.trade_candidates}
             selected = tuple(record_by_symbol[symbol] for symbol in selected_symbols)
+            if progress is not None:
+                progress.set_phase("MARKET_FACT_SYNC")
+                _progress_stdout(progress.snapshot())
             market_fact_results = collect_market_results(
                 client,
-                [candidate.symbol for candidate in selected],
+                [candidate.symbol for candidate in selected] if _auction_window(current) else [],
             )
             market_fact_results["THS_INDUSTRY_CATALOG"] = industry_catalog
             market_fact_results["THS_INDUSTRY_HISTORY"] = collect_ths_industry_history(
@@ -240,53 +273,35 @@ class WorkflowApplication:
                 as_of=current,
             )
             current = max(current, hithink_manifest.as_of)
-            start_ms = int((current - timedelta(days=800)).timestamp() * 1000)
-            end_ms = int(current.timestamp() * 1000)
-            daily: dict[str, Any] = {}
-            fundamental: dict[str, Any] = {}
+            def sync_progress(event: Mapping[str, Any]) -> None:
+                if progress is None:
+                    return
+                progress.update_data(
+                    processed=int(event.get("processed") or 0),
+                    total=int(event.get("total") or len(selected)),
+                    cache_hits=int(event.get("cache_hits") or 0),
+                    cache_misses=int(event.get("cache_misses") or 0),
+                    failures=int(event.get("failures") or 0),
+                    current_symbol=str(event.get("current_symbol") or "") or None,
+                )
+                _progress_stdout(progress.snapshot())
+
+            sync_result = self.fact_synchronizer.sync(
+                client,
+                [candidate.symbol for candidate in selected],
+                as_of=current,
+                lookback_days=800,
+                compact_daily_bars=30,
+                progress=sync_progress,
+            )
+            for symbol, reasons in sync_result.failures.items():
+                source_failures.setdefault(symbol, []).extend(reasons)
+            daily: dict[str, Any] = sync_result.daily
+            fundamental: dict[str, Any] = {
+                symbol: _compact_fundamental_rows(rows)
+                for symbol, rows in sync_result.fundamental.items()
+            }
             technical: dict[str, Any] = {}
-            for candidate in selected:
-                symbol = candidate.symbol
-                history = client.history_1d(
-                    symbol,
-                    start=start_ms,
-                    end=end_ms,
-                    adjust="none",
-                    limit=1000,
-                    max_pages=3,
-                )
-                income = client.income_statements(symbol, limit=20, max_pages=3)
-                indicators = client.financial_indicators(symbol, limit=100, max_pages=3)
-                balance = client.balance_sheets(symbol, limit=20)
-                cash_flow = client.cash_flow_statements(symbol, limit=20)
-                if history.ok and history.complete:
-                    daily[symbol] = [row.model_dump(mode="json") for row in history.items]
-                    if len(history.items) < gate_policy.newly_listed_min_days:
-                        source_failures.setdefault(symbol, []).append("G0:LISTING_HISTORY_INSUFFICIENT")
-                        daily.pop(symbol, None)
-                else:
-                    source_failures.setdefault(symbol, []).append(f"DAILY:{history.reason_code}")
-                financial_rows: list[dict[str, Any]] = []
-                financial_results = (
-                    ("INCOME", income),
-                    ("INDICATORS", indicators),
-                    ("BALANCE", balance),
-                    ("CASH_FLOW", cash_flow),
-                )
-                financial_complete = True
-                for dataset, result in financial_results:
-                    if result.ok and result.complete and result.items:
-                        financial_rows.extend(
-                            {"_dataset": dataset, **row.model_dump(mode="json")}
-                            for row in result.items
-                        )
-                    else:
-                        financial_complete = False
-                        source_failures.setdefault(symbol, []).append(
-                            f"{dataset}:{result.reason_code if result.items or not result.ok else 'EMPTY_DATA'}"
-                        )
-                if financial_complete:
-                    fundamental[symbol] = financial_rows
 
         # A1 is a structural macro/policy layer. A six-day window only shows
         # incidental recent notices and cannot support policy lifecycle or
@@ -308,20 +323,37 @@ class WorkflowApplication:
         query_end = current.date().isoformat()
         cninfo_results: dict[str, Any] = {}
         cninfo_pdf_evidence: dict[tuple[str, str], CninfoPdfEvidence] = {}
+        cninfo_hits = 0
+        cninfo_misses = 0
+        if progress is not None:
+            progress.set_phase("CNINFO_SYNC")
+            _progress_stdout(progress.snapshot())
         with CninfoClient(
             timeout_seconds=self.settings.timeout_seconds,
             base_url=self.settings.cninfo_base_url,
             min_request_interval_seconds=self.settings.cninfo_min_request_interval_seconds,
         ) as cninfo:
-            for candidate in selected:
+            for index, candidate in enumerate(selected, start=1):
                 symbol = candidate.symbol
-                recent_result = cninfo.fetch_announcements(symbol, query_start, query_end)
-                business_result = cninfo.fetch_announcements(
-                    symbol,
-                    business_query_start,
-                    query_end,
+                recent_result, recent_hit = self._cached_cninfo_result(
+                    cninfo,
+                    symbol=symbol,
+                    start_date=query_start,
+                    end_date=query_end,
+                    semantic_key="RECENT_10D",
+                    ttl=timedelta(hours=6),
+                )
+                business_result, business_hit = self._cached_cninfo_result(
+                    cninfo,
+                    symbol=symbol,
+                    start_date=business_query_start,
+                    end_date=query_end,
+                    semantic_key="ANNUAL_REPORT_450D",
+                    ttl=timedelta(days=7),
                     search_keyword="年度报告",
                 )
+                cninfo_hits += int(recent_hit) + int(business_hit)
+                cninfo_misses += int(not recent_hit) + int(not business_hit)
                 result = _merge_cninfo_query_results(recent_result, business_result)
                 cninfo_results[symbol] = result
                 if not recent_result.ok or not recent_result.complete:
@@ -334,6 +366,18 @@ class WorkflowApplication:
                     source_failures.setdefault(symbol, []).append(
                         f"CNINFO_MAIN_BUSINESS:{business_result.reason_code}"
                     )
+                if progress is not None and (
+                    index == len(selected) or index % self.settings.data_progress_every == 0
+                ):
+                    progress.update_data(
+                        processed=index,
+                        total=len(selected),
+                        cache_hits=cninfo_hits,
+                        cache_misses=cninfo_misses,
+                        failures=sum(1 for reasons in source_failures.values() if reasons),
+                        current_symbol=symbol,
+                    )
+                    _progress_stdout(progress.snapshot())
         if self.settings.cninfo_pdf_max_documents_per_symbol:
             with CninfoPdfClient(
                 self.settings.cninfo_pdf_cache_dir,
@@ -344,7 +388,7 @@ class WorkflowApplication:
                         result,
                         limit=self.settings.cninfo_pdf_max_documents_per_symbol,
                     ):
-                        evidence = pdf_client.fetch_evidence(announcement)
+                        evidence = self._cached_cninfo_pdf_evidence(pdf_client, announcement)
                         cninfo_pdf_evidence[(symbol, announcement.announcement_id)] = evidence
                         if not evidence.available:
                             source_failures.setdefault(symbol, []).append(
@@ -355,7 +399,9 @@ class WorkflowApplication:
             pdf_evidence=cninfo_pdf_evidence,
             as_of=current,
         )
-        news_results = self._collect_open_news([candidate.symbol for candidate in selected])
+        # Market-wide/RSS news is frozen once. Stock-specific T3 news belongs
+        # to A2 and is fetched only for that lane's A1-approved subset.
+        news_results = self._collect_open_news([])
         news_manifest = normalize_open_news_results(news_results, as_of=current)
         for source_id, result in news_results.items():
             if result.ok and result.complete:
@@ -398,39 +444,10 @@ class WorkflowApplication:
             raise WorkflowError("A1_FUNDAMENTAL_READY_NODE_LINEAGE_INVALID")
         g0_symbols = list(g0_order)
 
-        # Technical readiness belongs to A3.  Collect factors for the same
-        # frozen G0, but never remove an otherwise valid macro/fundamental
-        # candidate before A1 or A2 merely because minute history is missing.
-        for symbol in g0_symbols:
-            required_bars = self.settings.mootdx_history_5m_required_bars
-            cached_bars = self.minute_store.load_latest(symbol, "5m", limit=required_bars)
-            if _minute_cache_ready(cached_bars, required_bars=required_bars, as_of=current):
-                minute_bars = cached_bars
-            else:
-                minutes = self.mootdx.fetch_bars(
-                    symbol,
-                    "5m",
-                    required_bars,
-                    as_of=current,
-                )
-                if not minutes.complete:
-                    source_failures.setdefault(symbol, []).append(f"MOOTDX:{minutes.reason_code}")
-                    continue
-                self.minute_store.write(minutes.bars)
-                minute_bars = minutes.bars
-            factor = FactorEngine(symbol).compute(
-                daily_bars=daily.get(symbol, ()),
-                minute_bars=minute_bars,
-                as_of=current,
-            )
-            aggregates = build_technical_aggregates(factor)
-            technical[symbol] = {
-                **_compact_factor(factor.model_dump(mode="json")),
-                "kline_patterns": aggregates["KLINE_PATTERNS"],
-                "price_levels": aggregates["PRICE_LEVELS"],
-            }
-
-        factor_ready = sorted(symbol for symbol, item in technical.items() if item.get("ready") is True)
+        # A3 technical enrichment is intentionally deferred until A2 has
+        # produced its per-lane focus pool.  Loading 12,240 five-minute bars
+        # for the complete G0 here would violate the funnel boundary.
+        factor_ready: list[str] = []
         frozen = FrozenInputSnapshot.freeze(
             universe,
             as_of=current,
@@ -490,7 +507,167 @@ class WorkflowApplication:
             factor_ready_count=len(factor_ready),
         )
 
-    def _collect_open_news(self, symbols: list[str]) -> dict[str, OpenNewsFetchResult]:
+    def sync_data_cache(self, *, as_of: datetime | None = None) -> dict[str, Any]:
+        """Bootstrap or incrementally refresh reusable daily/fundamental facts."""
+
+        current = _aware(as_of or datetime.now(SHANGHAI))
+        progress = WorkflowProgress(
+            self.settings.workflow_progress_path,
+            run_id=f"data-sync-{current.strftime('%Y%m%dT%H%M%S%z')}",
+            job="data_sync",
+        )
+        progress.set_phase("UNIVERSE_SYNC")
+        _progress_stdout(progress.snapshot())
+        try:
+            source_config = load_yaml(self.settings.source_config_path)
+            raw_gate = source_config.get("universe_gate", {})
+            if not isinstance(raw_gate, Mapping):
+                raise WorkflowError("UNIVERSE_GATE_CONFIG_INVALID")
+            gate = UniverseGatePolicy(
+                minimum_daily_turnover_cny=raw_gate.get("minimum_daily_turnover_cny", 0),
+                newly_listed_min_days=raw_gate.get("newly_listed_min_days", 0),
+                block_suspended=raw_gate.get("block_suspended", False),
+                block_no_price_limit_new_listing=raw_gate.get("block_no_price_limit_new_listing", False),
+            )
+            with HithinkClient(self.settings) as client:
+                universe = UniverseSnapshot.from_records(
+                    client.ticker_catalog(limit=1000, max_pages=10),
+                    client.market_snapshot(limit=1000, max_pages=10),
+                    as_of=current,
+                    gate_policy=gate,
+                )
+                if not universe.ready:
+                    raise WorkflowError("UNIVERSE_NOT_READY")
+                symbols = [candidate.symbol for candidate in universe.trade_candidates]
+
+                def on_progress(event: Mapping[str, Any]) -> None:
+                    progress.update_data(
+                        processed=int(event.get("processed") or 0),
+                        total=int(event.get("total") or len(symbols)),
+                        cache_hits=int(event.get("cache_hits") or 0),
+                        cache_misses=int(event.get("cache_misses") or 0),
+                        failures=int(event.get("failures") or 0),
+                        current_symbol=str(event.get("current_symbol") or "") or None,
+                    )
+                    _progress_stdout(progress.snapshot())
+
+                progress.set_phase("DATA_SYNC")
+                result = self.fact_synchronizer.sync(
+                    client,
+                    symbols,
+                    as_of=current,
+                    lookback_days=800,
+                    compact_daily_bars=30,
+                    progress=on_progress,
+                )
+            coverage = self.fact_cache.get_coverage()
+            summary = {
+                "status": "READY" if not result.failures else "PARTIAL",
+                "as_of": current.isoformat(),
+                "universe_count": len(universe.records),
+                "trade_universe_count": len(symbols),
+                "processed": result.processed,
+                "cache_hits": result.cache_hits,
+                "cache_misses": result.cache_misses,
+                "failure_count": len(result.failures),
+                "coverage": coverage,
+            }
+            output = self.settings.workflow_output_dir / "data_sync" / f"{current.strftime('%Y%m%dT%H%M%S%z')}.json"
+            atomic_write_json(output, summary)
+            progress.finish(
+                status=str(summary["status"]),
+                phase="DATA_READY" if not result.failures else "DATA_PARTIAL",
+                reason_code=None if not result.failures else "SYMBOL_DATA_PARTIAL",
+            )
+            _progress_stdout(progress.snapshot())
+            return {**summary, "report": str(output)}
+        except Exception as exc:
+            progress.finish(status="BLOCKED", phase="FAILED", reason_code=_safe_reason_code(exc))
+            _progress_stdout(progress.snapshot())
+            raise
+
+    def _cached_cninfo_result(
+        self,
+        client: CninfoClient,
+        *,
+        symbol: str,
+        start_date: str,
+        end_date: str,
+        semantic_key: str,
+        ttl: timedelta,
+        search_keyword: str | None = None,
+    ) -> tuple[CninfoFetchResult, bool]:
+        cache_key = f"{symbol}:{semantic_key}"
+        now = datetime.now(SHANGHAI)
+        cached = self.fact_cache.get_cached_result(
+            "CNINFO_ANNOUNCEMENTS",
+            cache_key,
+            fresh_at=now,
+        )
+        if cached is not None:
+            try:
+                return CninfoFetchResult.model_validate(cached["payload"]), True
+            except Exception:
+                pass
+        result = client.fetch_announcements(
+            symbol,
+            start_date,
+            end_date,
+            search_keyword=search_keyword or "",
+        )
+        if result.ok and result.complete:
+            self.fact_cache.put_cached_result(
+                "CNINFO_ANNOUNCEMENTS",
+                cache_key,
+                result.model_dump(mode="json"),
+                fetched_at=result.fetched_at,
+                expires_at=result.fetched_at + ttl,
+            )
+        return result, False
+
+    def _cached_cninfo_pdf_evidence(
+        self,
+        client: CninfoPdfClient,
+        announcement: Any,
+    ) -> CninfoPdfEvidence:
+        cache_key = str(announcement.announcement_id)
+        cached = self.fact_cache.get_cached_result(
+            "CNINFO_PDF_EVIDENCE",
+            cache_key,
+        )
+        if cached is not None:
+            try:
+                evidence = CninfoPdfEvidence.model_validate(cached["payload"])
+                raw_path = (
+                    self.settings.cninfo_pdf_cache_dir / str(evidence.cache_relative_path)
+                ).resolve()
+                root = self.settings.cninfo_pdf_cache_dir.resolve()
+                if (
+                    evidence.available
+                    and raw_path.is_relative_to(root)
+                    and raw_path.is_file()
+                    and raw_path.stat().st_size == evidence.byte_size
+                ):
+                    return evidence.model_copy(update={"cache_hit": True})
+            except (OSError, TypeError, ValueError):
+                pass
+        evidence = client.fetch_evidence(announcement)
+        if evidence.available:
+            self.fact_cache.put_cached_result(
+                "CNINFO_PDF_EVIDENCE",
+                cache_key,
+                evidence.model_dump(mode="json"),
+                fetched_at=evidence.fetched_at,
+                expires_at=evidence.fetched_at + timedelta(days=3650),
+            )
+        return evidence
+
+    def _collect_open_news(
+        self,
+        symbols: list[str],
+        *,
+        include_market: bool = True,
+    ) -> dict[str, OpenNewsFetchResult]:
         """Collect independent media sources without making them P0 gates."""
 
         try:
@@ -515,15 +692,38 @@ class WorkflowApplication:
 
         results: dict[str, OpenNewsFetchResult] = {}
         with OpenNewsClient(timeout_seconds=self.settings.open_news_timeout_seconds) as client:
-            flash = client.fetch_cls_roll(page_size=self.settings.open_news_flash_limit)
-            results[flash.source_id] = flash
-            global_news = client.fetch_eastmoney_7x24(page_size=self.settings.open_news_flash_limit)
-            results[global_news.source_id] = global_news
+            if include_market:
+                flash = client.fetch_cls_roll(page_size=self.settings.open_news_flash_limit)
+                results[flash.source_id] = flash
+                global_news = client.fetch_eastmoney_7x24(page_size=self.settings.open_news_flash_limit)
+                results[global_news.source_id] = global_news
             for symbol in symbols:
-                item = client.fetch_eastmoney_stock_news(
-                    symbol,
-                    page_size=self.settings.open_news_stock_limit,
+                cache_key = f"{symbol}:STOCK_NEWS"
+                now = datetime.now(SHANGHAI)
+                cached = self.fact_cache.get_cached_result(
+                    "OPEN_NEWS",
+                    cache_key,
+                    fresh_at=now,
                 )
+                item: OpenNewsFetchResult
+                if cached is not None:
+                    try:
+                        item = OpenNewsFetchResult.model_validate(cached["payload"])
+                    except Exception:
+                        cached = None
+                if cached is None:
+                    item = client.fetch_eastmoney_stock_news(
+                        symbol,
+                        page_size=self.settings.open_news_stock_limit,
+                    )
+                    if item.ok and item.complete:
+                        self.fact_cache.put_cached_result(
+                            "OPEN_NEWS",
+                            cache_key,
+                            item.model_dump(mode="json"),
+                            fetched_at=item.fetched_at,
+                            expires_at=item.fetched_at + timedelta(hours=2),
+                        )
                 results[item.source_id] = item
 
             def fetch_rss(source: Mapping[str, Any]) -> OpenNewsFetchResult:
@@ -545,7 +745,10 @@ class WorkflowApplication:
                 return result.model_copy(update={"metadata": metadata})
 
             with ThreadPoolExecutor(max_workers=self.settings.open_news_rss_workers) as executor:
-                futures = [executor.submit(fetch_rss, source) for source in rss_sources]
+                futures = [
+                    executor.submit(fetch_rss, source)
+                    for source in (rss_sources if include_market else [])
+                ]
                 for future in as_completed(futures):
                     try:
                         result = future.result()
@@ -575,8 +778,43 @@ class WorkflowApplication:
         if normalized_slot == "morning" and current.hour == 9 and current.minute < 26:
             time.sleep(max(0.0, (_at_time(current, 9, 26) - current).total_seconds()))
             current = datetime.now(SHANGHAI)
-        prepared = self.prepare_snapshot(as_of=current)
+        progress = WorkflowProgress(
+            self.settings.workflow_progress_path,
+            run_id=f"{current.date()}-{normalized_slot}",
+            job=normalized_slot,
+        )
+        progress.set_phase("DATA_SYNC")
+        _progress_stdout(progress.snapshot())
+        try:
+            prepared = None if historical_replay else self._load_research_resume_snapshot(
+                normalized_slot,
+                current,
+            )
+            if prepared is None:
+                prepared = self.prepare_snapshot(as_of=current, progress=progress)
+                if not historical_replay:
+                    self._write_research_resume_marker(
+                        normalized_slot,
+                        prepared,
+                        status="ACTIVE",
+                    )
+            else:
+                progress.set_phase("SNAPSHOT_RESUMED")
+                _progress_stdout(progress.snapshot())
+        except Exception as exc:
+            progress.finish(
+                status="BLOCKED",
+                phase="FAILED",
+                reason_code=_safe_reason_code(exc),
+            )
+            _progress_stdout(progress.snapshot())
+            raise
         run_id = f"{current.date()}-{normalized_slot}-{prepared.snapshot.snapshot_hash[:12]}"
+
+        def research_progress(event: Mapping[str, Any]) -> None:
+            progress.research_event(event)
+            _progress_stdout(progress.snapshot())
+
         pipeline = ResearchPipeline(
             self.settings,
             prompt_repository=self.prompts,
@@ -585,8 +823,21 @@ class WorkflowApplication:
             parallel_lanes=True,
             runtime_store=self.store,
             slot=normalized_slot,
+            batch_workers=self.settings.research_batch_workers,
+            progress_callback=research_progress,
+            checkpoint_store=self.research_checkpoints,
+            stage_snapshot_enricher=self._stage_snapshot_enricher,
         )
-        result = pipeline.run(prepared.snapshot, run_id=run_id, generated_at=current)
+        try:
+            result = pipeline.run(prepared.snapshot, run_id=run_id, generated_at=current)
+        except Exception as exc:
+            progress.finish(
+                status="BLOCKED",
+                phase="FAILED",
+                reason_code=_safe_reason_code(exc),
+            )
+            _progress_stdout(progress.snapshot())
+            raise
         publication = self._publish_plans(result, normalized_slot, datetime.now(SHANGHAI))
         summary = {
             "run_id": run_id,
@@ -597,7 +848,217 @@ class WorkflowApplication:
             "plan_publication": publication,
         }
         atomic_write_json(self.settings.workflow_output_dir / "runs" / f"{run_id}.json", summary)
+        if not historical_replay:
+            self._write_research_resume_marker(
+                normalized_slot,
+                prepared,
+                status="COMPLETED" if result.status == "READY" else "RETRYABLE",
+                reason_code=None if result.status == "READY" else "RESEARCH_NOT_READY",
+            )
+        progress.finish(
+            status=result.status,
+            phase="COMPLETED" if result.status == "READY" else "BLOCKED",
+            reason_code=None if result.status == "READY" else "RESEARCH_NOT_READY",
+        )
+        _progress_stdout(progress.snapshot())
         return summary
+
+    def _research_resume_marker_path(self, slot: str, trade_date: str) -> Path:
+        return self.settings.research_checkpoint_dir / "active_runs" / f"{trade_date}-{slot}.json"
+
+    def _write_research_resume_marker(
+        self,
+        slot: str,
+        prepared: PreparedSnapshot,
+        *,
+        status: str,
+        reason_code: str | None = None,
+    ) -> None:
+        trade_date = prepared.snapshot.as_of.astimezone(SHANGHAI).date().isoformat()
+        atomic_write_json(
+            self._research_resume_marker_path(slot, trade_date),
+            {
+                "schema_version": "liangjian-research-resume/1.0.0",
+                "slot": slot,
+                "trade_date": trade_date,
+                "status": status,
+                "reason_code": reason_code,
+                "updated_at": datetime.now(SHANGHAI).isoformat(),
+                "prepared_snapshot": prepared.as_dict(),
+            },
+        )
+
+    def _load_research_resume_snapshot(
+        self,
+        slot: str,
+        current: datetime,
+    ) -> PreparedSnapshot | None:
+        trade_date = current.astimezone(SHANGHAI).date().isoformat()
+        marker_path = self._research_resume_marker_path(slot, trade_date)
+        try:
+            marker = json.loads(marker_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            return None
+        if (
+            not isinstance(marker, Mapping)
+            or marker.get("schema_version") != "liangjian-research-resume/1.0.0"
+            or marker.get("slot") != slot
+            or marker.get("trade_date") != trade_date
+            or marker.get("status") not in {"ACTIVE", "RETRYABLE"}
+        ):
+            return None
+        raw = marker.get("prepared_snapshot")
+        if not isinstance(raw, Mapping):
+            return None
+        try:
+            path = Path(str(raw["path"])).resolve()
+            snapshot_root = self.settings.snapshot_dir.resolve()
+            if not path.is_relative_to(snapshot_root) or not path.is_file():
+                return None
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(payload, Mapping) or not isinstance(payload.get("data"), Mapping):
+                return None
+            data = dict(payload["data"])
+            snapshot_hash = str(payload.get("snapshot_hash") or "")
+            snapshot_id = str(payload.get("snapshot_id") or "")
+            if (
+                not snapshot_hash
+                or snapshot_hash != _hash_json(data)
+                or snapshot_hash != str(raw.get("snapshot_hash") or "")
+                or snapshot_id != str(raw.get("snapshot_id") or "")
+            ):
+                return None
+            as_of = _aware(datetime.fromisoformat(str(payload["as_of"])))
+            if as_of.date().isoformat() != trade_date:
+                return None
+            return PreparedSnapshot(
+                snapshot=ResearchSnapshot(
+                    snapshot_id=snapshot_id,
+                    snapshot_hash=snapshot_hash,
+                    as_of=as_of,
+                    data=data,
+                ),
+                path=path,
+                full_universe_count=int(raw["full_universe_count"]),
+                research_universe_count=int(raw["research_universe_count"]),
+                trade_universe_count=int(raw["trade_universe_count"]),
+                selected_count=int(raw["selected_count"]),
+                factor_ready_count=int(raw["factor_ready_count"]),
+            )
+        except (OSError, ValueError, TypeError, KeyError):
+            return None
+
+    def _stage_snapshot_enricher(
+        self,
+        *,
+        stage: str,
+        lane_id: str,
+        model: str,
+        upstream_symbols: frozenset[str],
+        snapshot: ResearchSnapshot,
+    ) -> Mapping[str, Any] | None:
+        """Load stage-specific evidence only for the upstream lane subset."""
+
+        del lane_id, model
+        if not upstream_symbols:
+            return None
+        current = _aware(snapshot.as_of or datetime.now(SHANGHAI))
+        if stage == "A2":
+            stage_current = datetime.now(SHANGHAI)
+            results = self._collect_open_news(
+                sorted(upstream_symbols),
+                include_market=False,
+            )
+            manifest = normalize_open_news_results(results, as_of=stage_current)
+            stock_news = build_news_heat_snapshot(
+                manifest_projection(manifest),
+                sorted(upstream_symbols),
+                as_of=stage_current,
+            )
+            base_news = snapshot.data.get("NEWS_HEAT_SNAPSHOT")
+            merged_data = {
+                **dict(snapshot.data),
+                "NEWS_HEAT_SNAPSHOT": _merge_news_heat_snapshots(base_news, stock_news),
+                "A2_STOCK_NEWS_SCOPE": sorted(upstream_symbols),
+            }
+            stage_hash = _hash_json(merged_data)
+            return {
+                "snapshot_id": f"{snapshot.snapshot_id}:a2:{stage_hash[:12]}",
+                "snapshot_hash": stage_hash,
+                "as_of": stage_current,
+                "data": merged_data,
+            }
+        if stage != "A3":
+            return None
+
+        def build(symbol: str) -> tuple[str, dict[str, Any] | None]:
+            cache_key = (symbol, current.isoformat())
+            with self._stage_technical_lock:
+                retained = self._stage_technical_cache.get(cache_key)
+            if retained is not None:
+                return symbol, retained
+
+            daily_rows = self.fact_cache.query_daily_bars(
+                symbol,
+                adjust="none",
+                end=current + timedelta(days=1),
+                limit=800,
+                descending=True,
+            )
+            daily_bars = [dict(item["payload"]) for item in reversed(daily_rows)]
+            required_bars = self.settings.mootdx_history_5m_required_bars
+            cached_bars = self.minute_store.load_latest(symbol, "5m", limit=required_bars)
+            if _minute_cache_ready(cached_bars, required_bars=required_bars, as_of=current):
+                minute_bars = cached_bars
+            else:
+                minutes = self.mootdx.fetch_bars(symbol, "5m", required_bars, as_of=current)
+                if not minutes.complete:
+                    return symbol, None
+                self.minute_store.write(minutes.bars)
+                minute_bars = minutes.bars
+            factor = FactorEngine(symbol).compute(
+                daily_bars=daily_bars,
+                minute_bars=minute_bars,
+                as_of=current,
+            )
+            aggregates = build_technical_aggregates(factor)
+            value = {
+                **_compact_factor(factor.model_dump(mode="json")),
+                "kline_patterns": aggregates["KLINE_PATTERNS"],
+                "price_levels": aggregates["PRICE_LEVELS"],
+            }
+            with self._stage_technical_lock:
+                self._stage_technical_cache[cache_key] = value
+            return symbol, value
+
+        technical: dict[str, Any] = {}
+        with ThreadPoolExecutor(max_workers=min(8, len(upstream_symbols))) as executor:
+            futures = [executor.submit(build, symbol) for symbol in sorted(upstream_symbols)]
+            for future in as_completed(futures):
+                symbol, value = future.result()
+                if value is not None:
+                    technical[symbol] = value
+        missing = {"available": False, "reason_code": "TECHNICAL_DATA_NOT_READY"}
+        return {
+            "FACTOR_SNAPSHOT": {
+                symbol: {
+                    key: item
+                    for key, item in value.items()
+                    if key not in {"kline_patterns", "price_levels"}
+                }
+                for symbol, value in sorted(technical.items())
+            },
+            "KLINE_PATTERNS": {
+                symbol: value.get("kline_patterns", missing)
+                for symbol, value in sorted(technical.items())
+            },
+            "PRICE_LEVELS": {
+                symbol: value.get("price_levels", missing)
+                for symbol, value in sorted(technical.items())
+            },
+            "A3_TECHNICAL_SCOPE": sorted(upstream_symbols),
+            "A3_TECHNICAL_READY": sorted(technical),
+        }
 
     def monitor_once(self, *, now: datetime | None = None) -> dict[str, Any]:
         current = _aware(now or datetime.now(SHANGHAI)).replace(second=0, microsecond=0)
@@ -1606,6 +2067,55 @@ def _merge_cninfo_query_results(
     )
 
 
+def _merge_news_heat_snapshots(base: Any, stock: Any) -> dict[str, Any]:
+    """Merge bounded T3 market/RSS and stock-news projections deterministically."""
+
+    base_value = dict(base) if isinstance(base, Mapping) else {}
+    stock_value = dict(stock) if isinstance(stock, Mapping) else {}
+    retained: dict[str, Mapping[str, Any]] = {}
+    for source in (base_value, stock_value):
+        items = source.get("items")
+        if not isinstance(items, (list, tuple)):
+            continue
+        for item in items:
+            if not isinstance(item, Mapping):
+                continue
+            identity = str(
+                item.get("content_hash")
+                or item.get("provider_item_id")
+                or item.get("source_ref")
+                or _hash_json(item)
+            )
+            retained[identity] = dict(item)
+    merged_items = sorted(
+        retained.values(),
+        key=lambda item: (
+            str(item.get("publish_time") or item.get("observed_at") or ""),
+            str(item.get("source_id") or ""),
+            str(item.get("title") or ""),
+        ),
+        reverse=True,
+    )[:200]
+    available = (
+        bool(merged_items)
+        or base_value.get("available") is True
+        or stock_value.get("available") is True
+    )
+    return {
+        **base_value,
+        **stock_value,
+        "available": available,
+        "reason_code": "OK" if available else str(
+            stock_value.get("reason_code")
+            or base_value.get("reason_code")
+            or "NO_NEWS_AVAILABLE"
+        ),
+        "items": merged_items,
+        "item_count": len(merged_items),
+        "untrusted_text": True,
+    }
+
+
 def _official_event_snapshot(
     fact_payload: Mapping[str, Any],
     fact_type: str,
@@ -1855,6 +2365,70 @@ def _plan_expiry(value: Any, now: datetime, slot: str) -> datetime:
 def _hash_json(value: Any) -> str:
     text = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _progress_stdout(state: Mapping[str, Any]) -> None:
+    """Emit one bounded progress line for the Node log stream."""
+
+    data = state.get("data") if isinstance(state.get("data"), Mapping) else {}
+    payload = {
+        "event": "WORKFLOW_PROGRESS",
+        "run_id": state.get("run_id"),
+        "status": state.get("status"),
+        "phase": state.get("phase"),
+        "elapsed_seconds": state.get("elapsed_seconds"),
+        "eta_seconds": state.get("eta_seconds"),
+        "processed": data.get("processed"),
+        "total": data.get("total"),
+        "cache_hits": data.get("cache_hits"),
+        "cache_misses": data.get("cache_misses"),
+        "failures": data.get("failures"),
+    }
+
+
+def _compact_fundamental_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Keep bounded statement history while the durable cache retains all rows."""
+
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        grouped.setdefault(str(row.get("_dataset") or "UNKNOWN"), []).append(dict(row))
+
+    result: dict[str, Any] = {"statements": {}, "indicators": []}
+    for dataset in ("INCOME", "BALANCE", "CASH_FLOW"):
+        ordered = sorted(
+            grouped.get(dataset, ()),
+            key=lambda item: (
+                _int_or_zero(item.get("report_date_ms")),
+                _int_or_zero(item.get("period_end_ms")),
+                str(item.get("report_period") or ""),
+            ),
+            reverse=True,
+        )
+        result["statements"][dataset] = ordered[:8]
+    indicators = sorted(
+        grouped.get("INDICATORS", ()),
+        key=lambda item: (str(item.get("ability") or ""), str(item.get("index_id") or "")),
+    )
+    result["indicators"] = indicators[:128]
+    return result
+
+
+def _int_or_zero(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+    print(json.dumps(sanitize(payload), ensure_ascii=False, separators=(",", ":")), flush=True)
+
+
+def _safe_reason_code(exc: BaseException) -> str:
+    candidate = getattr(exc, "reason_code", None)
+    if isinstance(candidate, str) and re.fullmatch(r"[A-Z0-9_:.+-]{1,120}", candidate):
+        return candidate
+    name = type(exc).__name__.upper()
+    return re.sub(r"[^A-Z0-9_]+", "_", name)[:120] or "UNEXPECTED_RUNTIME_ERROR"
 
 
 def _aware(value: datetime) -> datetime:

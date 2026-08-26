@@ -56,3 +56,49 @@ export interface StatusSnapshot {
   readonly fetchedAt: string;
   readonly reason: string | null;
 }
+
+export type WorkflowProgressStatus = "RUNNING" | "COMPLETED" | "READY" | "PARTIAL" | "BLOCKED" | "FAILED" | "IDLE" | "UNKNOWN" | "INVALID";
+
+export interface WorkflowProgressStage {
+  readonly stage: string;
+  readonly status: string | null;
+  readonly processed: number | null;
+  readonly total: number | null;
+  readonly batchProcessed: number | null;
+  readonly batchTotal: number | null;
+  readonly updatedAt: string | null;
+}
+
+export interface WorkflowProgressLane {
+  readonly laneId: string;
+  readonly model: string | null;
+  readonly status: string | null;
+  readonly currentStage: string | null;
+  readonly processed: number | null;
+  readonly total: number | null;
+  readonly batchProcessed: number | null;
+  readonly batchTotal: number | null;
+  readonly updatedAt: string | null;
+  readonly stages: readonly WorkflowProgressStage[];
+}
+
+/**
+ * A deliberately small, allow-listed projection of state/workflow_progress.json.
+ * The control plane must never expose the original progress document because it
+ * is written by a separate process and may contain provider or model payloads.
+ */
+export interface WorkflowProgressSummary {
+  readonly status: WorkflowProgressStatus;
+  readonly issue: "OVERSIZE" | "INVALID_JSON" | "INVALID_SHAPE" | null;
+  readonly runId: string | null;
+  readonly phase: string | null;
+  readonly processed: number | null;
+  readonly total: number | null;
+  readonly cacheHits: number | null;
+  readonly cacheMisses: number | null;
+  readonly failures: number | null;
+  readonly elapsedMs: number | null;
+  readonly etaMs: number | null;
+  readonly updatedAt: string | null;
+  readonly lanes: readonly WorkflowProgressLane[];
+}

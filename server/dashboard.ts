@@ -139,6 +139,7 @@ export class DashboardData {
       .filter((item): item is JsonRecord => item !== null);
     const rows = latestRows(status);
     const monitor = await this.files.monitor();
+    const workflowProgress = await this.files.workflowProgress();
     const dataSources = (await this.files.dataSources()).map((source) => ({
       ...source,
       id: source.provider,
@@ -219,6 +220,7 @@ export class DashboardData {
         }
         : null,
       latestWorkflow,
+      workflowProgress,
       lanes,
       monitor: {
         status: monitorStatus,

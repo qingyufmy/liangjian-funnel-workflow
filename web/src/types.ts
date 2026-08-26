@@ -96,6 +96,45 @@ export interface MonitorSummary {
   events: EffectiveEvent[];
 }
 
+export interface WorkflowProgressStage {
+  stage: string;
+  status: string | null;
+  processed: number | null;
+  total: number | null;
+  batchProcessed: number | null;
+  batchTotal: number | null;
+  updatedAt: string | null;
+}
+
+export interface WorkflowProgressLane {
+  laneId: string;
+  model: string | null;
+  status: string | null;
+  currentStage: string | null;
+  processed: number | null;
+  total: number | null;
+  batchProcessed: number | null;
+  batchTotal: number | null;
+  updatedAt: string | null;
+  stages: WorkflowProgressStage[];
+}
+
+export interface WorkflowProgressSummary {
+  status: "RUNNING" | "COMPLETED" | "READY" | "PARTIAL" | "BLOCKED" | "FAILED" | "IDLE" | "UNKNOWN" | "INVALID";
+  issue: "OVERSIZE" | "INVALID_JSON" | "INVALID_SHAPE" | null;
+  runId: string | null;
+  phase: string | null;
+  processed: number | null;
+  total: number | null;
+  cacheHits: number | null;
+  cacheMisses: number | null;
+  failures: number | null;
+  elapsedMs: number | null;
+  etaMs: number | null;
+  updatedAt: string | null;
+  lanes: WorkflowProgressLane[];
+}
+
 export interface OverviewResponse {
   generatedAt: string;
   service: ServiceSummary;
@@ -107,6 +146,7 @@ export interface OverviewResponse {
   } | null;
   schedule: ScheduleItem[];
   latestWorkflow: WorkflowSummary;
+  workflowProgress: WorkflowProgressSummary | null;
   monitor: MonitorSummary;
   accounts: AccountSummary[];
   planCounts: Record<string, number>;
