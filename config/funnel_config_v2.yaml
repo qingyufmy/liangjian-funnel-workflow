@@ -220,15 +220,18 @@ market_regime:
 # ---------------------------------------------------------------------------
 agent_1:
   id: MACRO_FUNDAMENTAL_CHAIN
+  institutional_pool_role: P2_CLUE_TO_P3_RESEARCH_COVERAGE
   research_unit: INDUSTRY_CHAIN_NODE       # ★ 不是单只股票
   full_rebuild_schedule: WEEKLY            # 周六
   incremental_schedule: DAILY_AND_EVENT
   prior_rebuild_schedule: MONTHLY
 
   node_count_target: [40, 80]
-  top_n_per_node: 8
-  pool_min: 120
-  pool_max: 300
+  top_n_per_node: 15
+  pool_min: 300
+  pool_max: 1000
+  clue_pool_target: [300, 800]              # ACTIVE + MONITOR，容量目标而非配额
+  active_research_target: [100, 250]        # 可持续研究覆盖层，证据不足可低于下限
 
   minimum_score: 65
   minimum_data_quality: 75
@@ -284,8 +287,10 @@ agent_1:
 # ---------------------------------------------------------------------------
 agent_2:
   id: THEME_SENTIMENT_SELECTOR
+  institutional_pool_role: P3_CURRENT_MARKET_CANDIDATES
   minimum_theme_score: 60
   opening_review_mode: TIGHTEN_ONLY
+  candidate_pool_target: [100, 200]         # 容量目标，不覆盖证据门槛、不强制凑数
 
   score_weights:
     breadth: 0.15
@@ -371,6 +376,9 @@ agent_2:
 # ---------------------------------------------------------------------------
 agent_3:
   id: TECHNICAL_SETUP_PLANNER
+  institutional_pool_role: P7_TACTICAL_TO_P8_DAILY_AND_P8_5_SHADOW
+  core_watch_target: [5, 10]
+  shadow_watch_target: [3, 8]
   minimum_technical_score: 70
   minimum_reward_risk: 2.0
   max_stop_distance_pct: 0.06
@@ -598,10 +606,10 @@ agent_5:
 regime_overrides:
 
   TREND_MAINLINE:
-    agent_2: { focus_pool_max: 60 }
+    agent_2: { focus_pool_max: 200 }
     agent_3:
-      core_watch_max: 12
-      total_watch_max: 20
+      core_watch_max: 10
+      total_watch_max: 16
       setup_risk_unit_multiplier:
         PLATFORM_BREAKOUT: 1.0
         BREAKOUT_RETEST: 1.0
@@ -612,7 +620,7 @@ regime_overrides:
       max_signal_holding_days: 10
 
   ROTATION_NO_MAINLINE:                     # 存量博弈 / 电风扇轮动
-    agent_2: { focus_pool_max: 40 }
+    agent_2: { focus_pool_max: 160 }
     agent_3:
       core_watch_max: 8
       total_watch_max: 14
@@ -628,15 +636,16 @@ regime_overrides:
       tighten_after: "13:45:00"
 
   RISK_OFF_RETREAT:
-    agent_2: { focus_pool_max: 20, new_entry_policy: NO_NEW_ENTRY }
+    agent_2: { focus_pool_max: 100, new_entry_policy: NO_NEW_ENTRY }
     agent_3: { core_watch_max: 0, generate_buy_plans: false }
     agent_4: { active_monitor_max: 0, buy_signal_allowed: false }
     note: "只处理持仓风险，新增仓位上限归零"
 
   REPAIR:
-    agent_2: { focus_pool_max: 30 }
+    agent_2: { focus_pool_max: 120 }
     agent_3:
       core_watch_max: 6
+      total_watch_max: 10
       max_risk_unit: PROBE                  # ★ 只允许试仓
     agent_4:
       active_monitor_max: 3

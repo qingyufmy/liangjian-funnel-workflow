@@ -34,6 +34,7 @@ Agent 3 · TechnicalSetupPlannerAgent
 {{REGIME_PARAM_SET}}         当前 regime 对应的参数集
 {{PRIOR_OUTCOME_FEEDBACK}}   Agent 5 回填：触发率、假突破率、MFE/MAE、滑点
 {{MIN_TECHNICAL_SCORE}}      core_watch_pool 最低技术分硬门槛
+{{A3_POOL_TARGETS}}          日前正式计划池与 P8.5 影子信号池容量目标
 
 ⚠ 所有指标值由确定性因子引擎提供。你只能解释，不能重新计算，
   不能"根据描述估算一下 MA20 大概在哪"。
@@ -388,7 +389,14 @@ first_resistance / reward_risk。**这些值由服务端计算，你只读不改
     }
   ],
 
-  "secondary_watch_pool": [ ... ],
+  "secondary_watch_pool": [
+    {
+      "symbol":"...","parent_candidate_id":"...",
+      "shadow_status":"P8_5_SHADOW_ONLY",
+      "veto_triggered":"...","distance_to_threshold":null,
+      "hypothetical_entry":null,"reason_codes":[...]
+    }
+  ],
   "watch_only_pool": [ ... ],
 
   "rejected_candidates": [

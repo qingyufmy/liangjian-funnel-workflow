@@ -10,16 +10,20 @@ from liangjian_funnel.pipeline.prompts import PROMPT_FILENAMES, PromptRepository
 from liangjian_funnel.pipeline.research import (
     ResearchPipeline,
     _a1_batch_is_splittable,
+    _a2_batch_is_splittable,
     _a1_discovery_context_reasons,
     _a1_discovery_evidence_reasons,
     _apply_stage_threshold_policy,
     _apply_a2_lineage_policy,
     _apply_a3_pool_limits,
+    _annotate_a2_pool_target,
+    _build_a2_theme_batches,
     _canonicalize_a3_price_fields,
     _canonicalize_a1_driver_context,
     _canonicalize_stage_scores,
     _canonicalize_stage_pool_fields,
     _merge_a1_outputs,
+    _merge_a2_outputs,
     _output_shape,
     _project_disclosures,
     _project_fundamentals,
@@ -486,6 +490,163 @@ def test_stage_execution_budget_keeps_a1_broad_and_uses_downstream_regime_caps()
 
 def test_a1_incomplete_partition_can_split_to_smaller_transport_groups():
     assert _a1_batch_is_splittable(["A1_POOL_PARTITION_INCOMPLETE"])
+
+
+def test_a2_theme_batches_preserve_scope_and_pool_target_is_advisory():
+    symbols = {f"6008{index:02d}.SH" for index in range(45)}
+    active = [
+        {
+            "symbol": symbol,
+            "primary_theme": "theme-a" if index < 30 else "theme-b",
+            "structural_score": 90 - index,
+        }
+        for index, symbol in enumerate(sorted(symbols))
+    ]
+    batches = _build_a2_theme_batches({"active_research_pool": active}, symbols, 20)
+    assert sorted(len(batch) for batch in batches) == [10, 15, 20]
+    assert set().union(*batches) == symbols
+    assert sum(len(batch) for batch in batches) == len(symbols)
+    assert _a2_batch_is_splittable(["A2_POOL_PARTITION_INCOMPLETE"])
+
+    annotated = _annotate_a2_pool_target(
+        {"analysis_summary": {}, "focus_pool": active[:80]},
+        {"A2_POOL_TARGETS": {"pool_min": 100, "pool_max": 200}},
+    )
+    assert annotated["analysis_summary"]["pool_target_underfilled_by"] == 55
+    assert annotated["analysis_summary"]["reason_codes"] == ["POOL_TARGET_UNDERFILLED"]
+
+
+def test_a2_batch_merge_has_no_hidden_small_global_cap():
+    envelope = _envelope(MODELS[0], "A2", "snap")
+    outputs = [
+        {
+            "envelope": envelope,
+            "active_themes": [{"theme_id": f"theme-{batch}"}],
+            "focus_pool": [
+                {
+                    "symbol": f"6009{batch * 20 + offset:02d}.SH",
+                    "theme_score": 80,
+                    "identifiability_score": 70,
+                }
+                for offset in range(20)
+            ],
+            "watch_only_pool": [],
+            "rejected_candidates": [],
+        }
+        for batch in range(5)
+    ]
+    merged = _merge_a2_outputs(outputs)
+    assert len(merged["focus_pool"]) == 100
+    assert len(merged["active_themes"]) == 5
+    assert merged["analysis_summary"]["outcome"] == "A2_BATCHES_MERGED"
+
+
+def test_institutional_scale_funnel_keeps_1000_a1_200_a2_then_filters_in_a3(tmp_path: Path):
+    class ScaleClient:
+        def __init__(self):
+            self.calls: list[tuple[str, str, int]] = []
+
+        def complete(self, model: str, messages, **metadata):
+            runtime = json.loads(messages[1]["content"].split("\n", 1)[1])
+            stage = runtime["stage"]
+            domain = runtime["g0_symbols"] if stage == "A1" else runtime["upstream_symbols"]
+            self.calls.append((model, stage, len(domain)))
+            output = {"envelope": _envelope(model, stage, runtime["snapshot_id"])}
+            if stage == "A1":
+                output.update({
+                    "structural_themes": [{"theme_id": "theme-cycle"}],
+                    "industry_chain_graph": [],
+                    "active_research_pool": [
+                        {
+                            **_qualifying_item(symbol, stage),
+                            "primary_theme": "theme-cycle",
+                            "candidate_id": f"a1:{symbol}",
+                        }
+                        for symbol in domain
+                    ],
+                    "monitor_pool": [],
+                    "rejected_candidates": [],
+                })
+            elif stage == "A2":
+                output.update({
+                    "active_themes": [{
+                        "theme_id": "theme-cycle",
+                        "stage": "CONFIRMATION",
+                        "new_entry_policy": "ALLOW",
+                        "supporting_evidence": ["breadth"],
+                        "contradicting_evidence": ["rotation risk"],
+                        "theme_score": 80,
+                    }],
+                    "focus_pool": [
+                        {
+                            **_qualifying_item(symbol, stage),
+                            "theme_id": "theme-cycle",
+                            "theme_score": 80,
+                            "market_role": "CORE_ARMY",
+                            "identifiability_score": 80,
+                            "upstream_candidate_id": f"a1:{symbol}",
+                        }
+                        for symbol in domain
+                    ],
+                    "watch_only_pool": [],
+                    "rejected_candidates": [],
+                })
+            else:
+                output.update({
+                    "core_watch_pool": [
+                        {
+                            **_qualifying_item(symbol, stage),
+                            "parent_candidate_id": f"a2:{symbol}",
+                        }
+                        for symbol in domain
+                    ],
+                    "secondary_watch_pool": [],
+                    "rejected_candidates": [],
+                })
+            return ModelCallResult(
+                model=model,
+                output=output,
+                prompt_hash=metadata.get("prompt_hash"),
+                input_hash=metadata.get("input_hash"),
+                latency_ms=1,
+                attempts=1,
+                thinking_variant="thinking_object",
+            )
+
+    symbols = [f"{600000 + index:06d}.SH" for index in range(1000)]
+    snapshot = {
+        "snapshot_id": "institutional-scale",
+        "snapshot_hash": "i" * 64,
+        "g0": symbols,
+        "STRICT_AGENT_RULES": True,
+        "A2_POOL_TARGETS": {"pool_min": 100, "pool_max": 200},
+        "REGIME_PARAM_SET": {
+            "agent_2": {"focus_pool_max": 200},
+            "agent_3": {"core_watch_max": 12, "total_watch_max": 20},
+        },
+    }
+    client = ScaleClient()
+    result = ResearchPipeline(
+        _settings(tmp_path),
+        prompt_repository=_prompt_dir(tmp_path),
+        model_client=client,
+        now=lambda: NOW,
+    ).run(snapshot, run_id="run-institutional-scale", generated_at=NOW)
+
+    assert result.status == "READY"
+    for lane in result.lanes:
+        assert lane.stages[0].diagnostics["pool_counts"]["active_research_pool"] == 1000
+        assert lane.stages[1].diagnostics["pool_counts"] == {
+            "focus_pool": 200,
+            "watch_only_pool": 800,
+            "rejected_candidates": 0,
+        }
+        assert lane.stages[1].output["analysis_summary"]["pool_target_underfilled_by"] == 0
+        assert lane.stages[2].diagnostics["pool_counts"] == {
+            "core_watch_pool": 12,
+            "secondary_watch_pool": 8,
+            "rejected_candidates": 180,
+        }
 
 
 def test_a3_watch_only_alias_is_canonicalized_without_losing_items():

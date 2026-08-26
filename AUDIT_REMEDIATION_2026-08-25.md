@@ -20,8 +20,8 @@ branch. It distinguishes implemented controls from live end-to-end evidence.
 - The v10 replay completed `READY` for DeepSeek, Kimi and GLM; every A1-A3 stage
   was `VALIDATED`. A1 classified all 20 inputs exactly once. The respective
   ACTIVE/MONITOR/REJECT counts were 0/20/0, 7/13/0 and 3/16/1.
-- Batch size no longer acts as a global pool cap. Production defaults to 120
-  factor-ready candidates and can be configured up to 300; the 20-name replay
+- Batch size no longer acts as a global pool cap. Production covers up to 1,000
+  macro/fundamental-ready candidates, and technical readiness is enforced in A3; the 20-name replay
   is a chain-acceptance sample, not the production A1 breadth.
 - YAML thresholds are enforced by the service after model interpretation: A1
   score/data-quality/evidence thresholds, A2 minimum theme score, and A3

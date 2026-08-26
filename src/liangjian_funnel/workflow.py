@@ -133,7 +133,7 @@ class WorkflowApplication:
         if abs((current - wall_now).total_seconds()) > 600:
             raise WorkflowError("LIVE_FACTS_POINT_IN_TIME_UNSUPPORTED")
         candidate_limit = max_candidates or self.settings.research_max_candidates
-        if not 1 <= candidate_limit <= 300:
+        if not 1 <= candidate_limit <= 1_000:
             raise WorkflowError("CANDIDATE_LIMIT_INVALID")
 
         source_config = load_yaml(self.settings.source_config_path)
@@ -191,7 +191,9 @@ class WorkflowApplication:
                 top_n_per_node=top_n_per_node,
                 node_count_target=node_count_target,
             )
-            if len(selected_symbols) < reserve_limit:
+            configured_pool_min = max(1, int(a1_config.get("pool_min", 300)))
+            required_coverage = min(candidate_limit, configured_pool_min)
+            if len(selected_symbols) < required_coverage:
                 raise WorkflowError("A1_NODE_DIVERSIFICATION_INSUFFICIENT")
             record_by_symbol = {candidate.symbol: candidate for candidate in universe.trade_candidates}
             selected = tuple(record_by_symbol[symbol] for symbol in selected_symbols)
@@ -380,8 +382,28 @@ class WorkflowApplication:
             max_candidates=reserve_limit,
             candidate_symbols=selected_symbols,
         )
-        for candidate in frozen.trade_candidates:
-            symbol = candidate.symbol
+        accepted_symbols = {candidate.symbol for candidate in frozen.trade_candidates}
+        g0_symbols = [
+            symbol for symbol in selected_symbols if symbol in accepted_symbols
+        ][:candidate_limit]
+        if not g0_symbols:
+            raise WorkflowError("NO_FUNDAMENTAL_READY_CANDIDATES")
+        g0_records = [record_by_symbol[symbol] for symbol in g0_symbols]
+        g0_order, final_g0_selection = select_industry_diversified_symbols(
+            g0_records,
+            full_membership,
+            limit=len(g0_records),
+            top_n_per_node=top_n_per_node,
+            node_count_target=node_count_target,
+        )
+        if set(g0_order) != set(g0_symbols):
+            raise WorkflowError("A1_FUNDAMENTAL_READY_NODE_LINEAGE_INVALID")
+        g0_symbols = list(g0_order)
+
+        # Technical readiness belongs to A3.  Collect factors for the same
+        # frozen G0, but never remove an otherwise valid macro/fundamental
+        # candidate before A1 or A2 merely because minute history is missing.
+        for symbol in g0_symbols:
             required_bars = self.settings.mootdx_history_5m_required_bars
             cached_bars = self.minute_store.load_latest(symbol, "5m", limit=required_bars)
             if _minute_cache_ready(cached_bars, required_bars=required_bars, as_of=current):
@@ -409,21 +431,8 @@ class WorkflowApplication:
                 "kline_patterns": aggregates["KLINE_PATTERNS"],
                 "price_levels": aggregates["PRICE_LEVELS"],
             }
-            if sum(item.get("ready") is True for item in technical.values()) >= candidate_limit:
-                break
 
         factor_ready = sorted(symbol for symbol, item in technical.items() if item.get("ready") is True)
-        if not factor_ready:
-            raise WorkflowError("NO_FACTOR_READY_CANDIDATES")
-        factor_ready_order, factor_ready_selection = select_industry_diversified_symbols(
-            [record_by_symbol[symbol] for symbol in factor_ready],
-            full_membership,
-            limit=len(factor_ready),
-            top_n_per_node=top_n_per_node,
-            node_count_target=node_count_target,
-        )
-        if set(factor_ready_order) != set(factor_ready):
-            raise WorkflowError("A1_FACTOR_READY_NODE_LINEAGE_INVALID")
         frozen = FrozenInputSnapshot.freeze(
             universe,
             as_of=current,
@@ -440,14 +449,16 @@ class WorkflowApplication:
             frozen=frozen,
             universe=universe,
             technical=technical,
-            g0_symbols=factor_ready,
+            g0_symbols=g0_symbols,
             source_failures=source_failures,
             g0_selection={
-                **factor_ready_selection,
+                **final_g0_selection,
                 "reserve_strategy": g0_selection.get("strategy"),
                 "reserve_selected_count": len(selected_symbols),
-                "selected_count": len(factor_ready),
+                "selected_count": len(g0_symbols),
                 "factor_ready_symbols": factor_ready,
+                "factor_ready_count": len(factor_ready),
+                "technical_readiness_is_a3_only": True,
             },
             raw_snapshot_path=raw_path,
             as_of=current,
@@ -476,7 +487,7 @@ class WorkflowApplication:
             full_universe_count=len(universe.records),
             research_universe_count=len(universe.research_candidates),
             trade_universe_count=len(universe.trade_candidates),
-            selected_count=len(factor_ready),
+            selected_count=len(g0_symbols),
             factor_ready_count=len(factor_ready),
         )
 
@@ -1360,9 +1371,17 @@ def _prompt_parameters(config: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "TOP_N_PER_NODE": a1.get("top_n_per_node", 8),
         "A1_POOL_TARGETS": {
-            "pool_min": a1.get("pool_min", 120),
-            "pool_max": a1.get("pool_max", 300),
+            "pool_min": a1.get("pool_min", 300),
+            "pool_max": a1.get("pool_max", 1000),
+            "clue_pool_target": a1.get("clue_pool_target", [300, 800]),
+            "active_research_target": a1.get("active_research_target", [100, 250]),
             "node_count_target": a1.get("node_count_target", [40, 80]),
+            "quota_forbidden": True,
+        },
+        "A2_POOL_TARGETS": _pool_targets(a2.get("candidate_pool_target"), default=(100, 200)),
+        "A3_POOL_TARGETS": {
+            "core_watch": _pool_targets(a3.get("core_watch_target"), default=(5, 10)),
+            "shadow_watch": _pool_targets(a3.get("shadow_watch_target"), default=(3, 8)),
         },
         "A1_MINIMUMS": {
             "structural_score": a1.get("minimum_score", 65),
@@ -1405,6 +1424,18 @@ def _prompt_parameters(config: Mapping[str, Any]) -> dict[str, Any]:
         "NO_CHASE_THRESHOLD": 0.05,
         "REQUIRED_CONFIRMATIONS": a3.get("required_confirmations", []),
     }
+
+
+def _pool_targets(value: Any, *, default: tuple[int, int]) -> dict[str, Any]:
+    """Normalize advisory pool capacity without turning it into a quota."""
+
+    values = value if isinstance(value, list) else list(default)
+    if len(values) != 2 or any(isinstance(item, bool) or not isinstance(item, int) for item in values):
+        values = list(default)
+    minimum, maximum = values
+    if minimum < 0 or maximum < minimum:
+        minimum, maximum = default
+    return {"pool_min": minimum, "pool_max": maximum, "quota_forbidden": True}
 
 
 def _plan_payload(raw: Mapping[str, Any]) -> dict[str, Any]:

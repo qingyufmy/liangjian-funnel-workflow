@@ -39,12 +39,14 @@ Agent 1 · MacroFundamentalChainAgent
 结构性主题与产业链节点发现，三个股票池必须为空。若 mode=COMPANY_MAPPING：
 必须复用 frozen_discovery 中的 theme_id/node_id，不得为迎合当前股票批次
 另造近义主题或节点；确有强证据但词表缺失时只能放入 MONITOR 并报告缺口。
+COMPANY_MAPPING 批次只回填当前标的实际引用到的主题和节点，不要机械复制整份
+frozen_discovery；系统会在全局合并时恢复完整主题与节点图谱。
 
 ────────────────────────────────────────────────────────────────────────
 【核心方法】研究单位是产业链节点，不是股票
 ────────────────────────────────────────────────────────────────────────
 
-不要对 200 只股票逐个写论证。按以下三段式工作：
+不要把最多 1000 只覆盖标的当成 1000 个彼此孤立的故事。按以下三段式工作：
 
 Step A · 节点研究（你的主战场，目标 40–80 个节点）
   把每个主题拆成：上游材料 → 核心设备 → 零部件 → 模组 → 系统集成 → 应用
@@ -69,6 +71,9 @@ Step C · 公司复核（只做每节点 Top-N，N 由 {{TOP_N_PER_NODE}} 给定
 active_research_pool、monitor_pool 或 rejected_candidates 之一；禁止静默丢弃。
 {{A1_POOL_TARGETS}} 只在全量/周度合并后评估，不得用它强迫单批次凑数，
 也不得因单批次较小而额外收紧 ACTIVE。
+机构层级上，ACTIVE 对应可持续研究覆盖，ACTIVE+MONITOR 对应线索/覆盖总池；
+输入上限不是 ACTIVE 配额。全量低于目标时必须报告证据、数据源或主题覆盖缺口，
+不得为了达到数量目标降低主营映射、财务质量或政策传导标准。
 ACTIVE 必须同时达到 {{A1_MINIMUMS}}；任一字段缺失或低于门槛必须放入 MONITOR。
 ACTIVE 的 primary_theme 必须精确对应本批 structural_themes 中的
 theme_id 或 display_name；industry_chain_node 必须精确对应

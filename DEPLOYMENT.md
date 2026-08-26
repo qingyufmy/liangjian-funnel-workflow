@@ -24,12 +24,12 @@ with the immutable snapshots.
 
 For the full research payload, the deployment defaults are
 `LIANGJIAN_MODEL_TIMEOUT_SECONDS=600`,
-`LIANGJIAN_MODEL_MAX_OUTPUT_TOKENS=6000`,
-`LIANGJIAN_RESEARCH_MAX_CANDIDATES=120` and
-`LIANGJIAN_A1_BATCH_SIZE=5`. A low-frequency host should use a 600-second model
+`LIANGJIAN_MODEL_MAX_OUTPUT_TOKENS=12000`,
+`LIANGJIAN_RESEARCH_MAX_CANDIDATES=1000`,
+`LIANGJIAN_A1_BATCH_SIZE=20` and `LIANGJIAN_A2_BATCH_SIZE=40`. A low-frequency host should use a 600-second model
 timeout for close-sized DeepSeek requests while keeping the prompt/output
-limits. The close systemd unit allows five hours so the default 24 sequential
-A1 transport batches per lane can finish while the three lanes remain
+limits. The close systemd unit allows five hours so the bounded A1/A2 transport
+batches per lane can finish while the three lanes remain
 parallel. Every A1 input must be classified into ACTIVE, MONITOR or REJECT;
 batch size never acts as a global pool cap.
 

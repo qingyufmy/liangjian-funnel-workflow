@@ -100,8 +100,8 @@ _PROMPT_PROJECTION_VERSION = "research-prompt-projection/1.0.0"
 _PROMPT_MAX_CHARS = 180_000
 _A3_BATCH_SIZE = 16
 _STAGE_OUTPUT_BUDGETS: Mapping[str, Mapping[str, int]] = {
-    "A1": {"approved_pool": 5, "secondary_pool": 5, "themes": 8, "chain_nodes": 12, "evidence_per_item": 3},
-    "A2": {"approved_pool": 5, "secondary_pool": 5, "themes": 8, "chain_nodes": 0, "evidence_per_item": 3},
+    "A1": {"approved_pool": 5, "secondary_pool": 5, "themes": 20, "chain_nodes": 80, "evidence_per_item": 3},
+    "A2": {"approved_pool": 5, "secondary_pool": 5, "themes": 20, "chain_nodes": 0, "evidence_per_item": 3},
     "A3": {"approved_pool": 5, "secondary_pool": 5, "themes": 0, "chain_nodes": 0, "evidence_per_item": 3},
 }
 _FUNDAMENTAL_FIELDS: Mapping[str, tuple[str, ...]] = {
@@ -456,6 +456,16 @@ class ResearchPipeline:
                     bundle=bundle,
                     run_id=run_id,
                 )
+            elif stage == "A2" and len(upstream_symbols) > self.settings.research_a2_batch_size:
+                audit = self._run_a2_batched(
+                    lane_id=lane_id,
+                    model=model,
+                    snapshot=snapshot,
+                    upstream_output=upstream_output or {},
+                    upstream_symbols=upstream_symbols,
+                    bundle=bundle,
+                    run_id=run_id,
+                )
             elif stage == "A3" and len(upstream_symbols) > _A3_BATCH_SIZE:
                 audit = self._run_a3_batched(
                     lane_id=lane_id,
@@ -664,6 +674,7 @@ class ResearchPipeline:
         if discovery_output:
             merge_outputs.insert(0, discovery_output)
         merged = _merge_a1_outputs(merge_outputs)
+        merged = _annotate_a1_pool_target(merged, snapshot.data)
         reasons = _validate_output(
             merged,
             stage="A1",
@@ -701,6 +712,119 @@ class ResearchPipeline:
             reason_codes=tuple(reasons),
             output=merged,
             diagnostics=diagnostics,
+        )
+
+    def _run_a2_batched(
+        self,
+        *,
+        lane_id: str,
+        model: str,
+        snapshot: FrozenInputSnapshot,
+        upstream_output: Mapping[str, Any],
+        upstream_symbols: set[str],
+        bundle: PromptBundle | None,
+        run_id: str,
+    ) -> StageAudit:
+        """Run A2 in theme-preserving transport batches, then rank globally."""
+
+        batches = _build_a2_theme_batches(
+            upstream_output,
+            upstream_symbols,
+            self.settings.research_a2_batch_size,
+        )
+        pending = list(batches)
+        audits: list[StageAudit] = []
+        valid_audits: list[StageAudit] = []
+        split_count = 0
+        while pending:
+            batch = pending.pop(0)
+            audit = self._run_stage(
+                lane_id=lane_id,
+                model=model,
+                stage="A2",
+                snapshot=snapshot,
+                upstream_output=upstream_output,
+                upstream_symbols=batch,
+                bundle=bundle,
+                run_id=run_id,
+                projection_symbols=batch,
+            )
+            audits.append(audit)
+            if audit.status != "VALIDATED":
+                if len(batch) > 1 and _a2_batch_is_splittable(audit.reason_codes):
+                    midpoint = max(1, len(batch) // 2)
+                    ordered = sorted(batch)
+                    pending = [set(ordered[:midpoint]), set(ordered[midpoint:]), *pending]
+                    split_count += 1
+                    continue
+                return StageAudit(
+                    lane=lane_id,
+                    model=model,
+                    stage="A2",
+                    status="BLOCKED",
+                    snapshot_id=snapshot.snapshot_id,
+                    prompt_hash=_combined_digest(item.prompt_hash for item in audits),
+                    input_hash=_combined_digest(item.input_hash for item in audits),
+                    output_hash=None,
+                    latency_ms=sum(item.latency_ms or 0 for item in audits),
+                    attempts=sum(item.attempts for item in audits),
+                    thinking_variant=_common_variant(audits),
+                    symbols=(),
+                    reason_codes=tuple(f"A2_BATCH_BLOCKED:{reason}" for reason in audit.reason_codes),
+                    diagnostics={
+                        "batch_count": len(batches),
+                        "completed_batches": len(valid_audits),
+                        "request_groups": len(audits),
+                        "split_count": split_count,
+                        "blocked_batch_diagnostics": audit.diagnostics,
+                    },
+                )
+            valid_audits.append(audit)
+
+        merged = _merge_a2_outputs([
+            audit.output for audit in valid_audits if isinstance(audit.output, Mapping)
+        ])
+        merged, canonicalized_scores = _canonicalize_stage_scores(merged, "A2", snapshot.data)
+        merged, threshold_demotions = _apply_stage_threshold_policy(merged, "A2", snapshot.data)
+        if snapshot.data.get("STRICT_AGENT_RULES") is True:
+            merged, lineage_demotions = _apply_a2_lineage_policy(
+                merged, upstream_output, snapshot.data
+            )
+        else:
+            lineage_demotions = 0
+        merged = _annotate_a2_pool_target(merged, snapshot.data)
+        reasons = _validate_output(
+            merged,
+            stage="A2",
+            model=model,
+            snapshot_id=snapshot.snapshot_id,
+            upstream_symbols=upstream_symbols,
+            snapshot_data=snapshot.data,
+        )
+        return StageAudit(
+            lane=lane_id,
+            model=model,
+            stage="A2",
+            status="VALIDATED" if not reasons else "BLOCKED",
+            snapshot_id=snapshot.snapshot_id,
+            prompt_hash=_combined_digest(item.prompt_hash for item in audits),
+            input_hash=_combined_digest(item.input_hash for item in audits),
+            output_hash=_sha256_json(merged),
+            latency_ms=sum(item.latency_ms or 0 for item in audits),
+            attempts=sum(item.attempts for item in audits),
+            thinking_variant=_common_variant(audits),
+            symbols=tuple(sorted(_approved_symbols(merged, "A2"))),
+            reason_codes=tuple(reasons),
+            output=merged,
+            diagnostics={
+                "batch_count": len(batches),
+                "completed_batches": len(valid_audits),
+                "request_groups": len(audits),
+                "split_count": split_count,
+                "canonicalized_score_items": canonicalized_scores,
+                "policy_demotions": threshold_demotions + lineage_demotions,
+                "pool_counts": _stage_pool_counts(merged, "A2"),
+            },
         )
 
     def _run_a3_batched(
@@ -971,9 +1095,13 @@ class ResearchPipeline:
                     output, snapshot.data
                 )
             output, policy_demotions = _apply_stage_threshold_policy(output, stage, snapshot.data)
+            if stage == "A1" and projection_symbols is None:
+                output = _annotate_a1_pool_target(output, snapshot.data)
             if stage == "A2" and snapshot.data.get("STRICT_AGENT_RULES") is True:
                 output, a2_demotions = _apply_a2_lineage_policy(output, upstream_output or {}, snapshot.data)
                 policy_demotions += a2_demotions
+            if stage == "A2" and projection_symbols is None:
+                output = _annotate_a2_pool_target(output, snapshot.data)
             reasons = _validate_output(
                 output,
                 stage=stage,
@@ -1275,9 +1403,20 @@ def _prompt_replacements(
             # Snapshots frozen before this prompt parameter was introduced stay
             # replayable. New snapshots carry the configured value explicitly.
             replacements[name] = value if found else {
-                "pool_min": 120,
-                "pool_max": 300,
+                "pool_min": 300,
+                "pool_max": 1000,
+                "clue_pool_target": [300, 800],
+                "active_research_target": [100, 250],
                 "node_count_target": [40, 80],
+                "quota_forbidden": True,
+            }
+            continue
+        if name == "A2_POOL_TARGETS":
+            found, value = _lookup_field(snapshot.data, name)
+            replacements[name] = value if found else {
+                "pool_min": 100,
+                "pool_max": 200,
+                "quota_forbidden": True,
             }
             continue
         if name == "A1_BATCH_CONTEXT":
@@ -1704,6 +1843,55 @@ def _build_a1_node_batches(
     return batches
 
 
+def _build_a2_theme_batches(
+    upstream_output: Mapping[str, Any],
+    symbols: set[str],
+    batch_size: int,
+) -> list[set[str]]:
+    """Pack A1-approved companies by structural theme for A2 role review."""
+
+    if batch_size < 1:
+        raise ResearchPipelineError("A2_BATCH_SIZE_INVALID")
+    groups: dict[str, list[tuple[float, str]]] = {}
+    active = upstream_output.get("active_research_pool")
+    if isinstance(active, list):
+        for item in active:
+            if not isinstance(item, Mapping):
+                continue
+            scanned = _scan_symbols(item.get("symbol"))
+            if len(scanned) != 1:
+                continue
+            symbol = next(iter(scanned))
+            if symbol not in symbols:
+                continue
+            theme = str(item.get("primary_theme") or "UNMAPPED").strip() or "UNMAPPED"
+            groups.setdefault(theme, []).append((_safe_float(item.get("structural_score")), symbol))
+    assigned = {symbol for members in groups.values() for _score, symbol in members}
+    for symbol in sorted(symbols.difference(assigned)):
+        groups.setdefault("UNMAPPED", []).append((0.0, symbol))
+
+    ordered_groups = sorted(
+        groups.items(),
+        key=lambda entry: (-max((score for score, _symbol in entry[1]), default=0.0), entry[0]),
+    )
+    batches: list[set[str]] = []
+    current: list[str] = []
+    for _theme, members in ordered_groups:
+        ordered_members = [symbol for _score, symbol in sorted(members, key=lambda item: (-item[0], item[1]))]
+        for offset in range(0, len(ordered_members), batch_size):
+            chunk = ordered_members[offset:offset + batch_size]
+            if current and len(current) + len(chunk) > batch_size:
+                batches.append(set(current))
+                current = []
+            current.extend(chunk)
+            if len(current) == batch_size:
+                batches.append(set(current))
+                current = []
+    if current:
+        batches.append(set(current))
+    return batches
+
+
 def _a1_node_by_symbol(
     snapshot_data: Mapping[str, Any],
     symbols: set[str],
@@ -1797,6 +1985,64 @@ def _merge_a1_outputs(outputs: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         "approved_count": len(merged.get("active_research_pool", ())),
         "monitor_count": len(merged.get("monitor_pool", ())),
         "rejected_count": len(merged.get("rejected_candidates", ())),
+    }
+    return merged
+
+
+def _merge_a2_outputs(outputs: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Merge theme-preserving A2 batches into one globally ranked partition."""
+
+    if not outputs:
+        return {}
+    merged: dict[str, Any] = {}
+    list_values: dict[str, list[Any]] = {}
+    for output in outputs:
+        for key, value in output.items():
+            if key == "envelope":
+                if key not in merged and isinstance(value, Mapping):
+                    merged[key] = dict(value)
+                elif isinstance(value, Mapping) and isinstance(merged.get(key), dict):
+                    if value.get("status") == "DEGRADED":
+                        merged[key]["status"] = "DEGRADED"
+                continue
+            if isinstance(value, list):
+                list_values.setdefault(str(key), []).extend(value)
+            elif key not in merged:
+                merged[str(key)] = value
+    for key, values in list_values.items():
+        merged[key] = _deduplicate_stage_items(key, values)
+    for pool in ("focus_pool", "watch_only_pool", "rejected_candidates"):
+        values = merged.get(pool)
+        if isinstance(values, list):
+            merged[pool] = [_normalize_pool_symbol(item) for item in values]
+
+    focus_symbols = _scan_symbols(merged.get("focus_pool", ()))
+    if isinstance(merged.get("watch_only_pool"), list):
+        merged["watch_only_pool"] = [
+            item for item in merged["watch_only_pool"]
+            if not _scan_symbols(item).intersection(focus_symbols)
+        ]
+    selected_symbols = focus_symbols | _scan_symbols(merged.get("watch_only_pool", ()))
+    if isinstance(merged.get("rejected_candidates"), list):
+        merged["rejected_candidates"] = [
+            item for item in merged["rejected_candidates"]
+            if not _scan_symbols(item).intersection(selected_symbols)
+        ]
+
+    def ranking(item: Any) -> tuple[float, float, str]:
+        return (
+            -_safe_float(item.get("theme_score")) if isinstance(item, Mapping) else 0.0,
+            -_safe_float(item.get("identifiability_score")) if isinstance(item, Mapping) else 0.0,
+            _first_symbol(item) if isinstance(item, Mapping) else _canonical_json(item),
+        )
+
+    for pool in ("focus_pool", "watch_only_pool"):
+        if isinstance(merged.get(pool), list):
+            merged[pool] = sorted(merged[pool], key=ranking)
+    merged["analysis_summary"] = {
+        "outcome": "A2_BATCHES_MERGED",
+        "batch_count": len(outputs),
+        **_stage_pool_counts(merged, "A2"),
     }
     return merged
 
@@ -1923,6 +2169,8 @@ def _deduplicate_stage_items(key: str, values: Sequence[Any]) -> list[Any]:
         "structural_themes": ("theme_id",),
         "industry_chain_graph": ("node_id",),
         "active_themes": ("theme_id",),
+        "focus_pool": ("symbol",),
+        "watch_only_pool": ("symbol",),
         "core_watch_pool": ("symbol",),
         "secondary_watch_pool": ("symbol",),
     }
@@ -1961,6 +2209,24 @@ def _a1_batch_is_splittable(reasons: Sequence[str]) -> bool:
         "SNAPSHOT_LINEAGE_",
         "APPROVED_POOL_",
         "A1_POOL_",
+    )
+    return any(str(reason).startswith(retryable_prefixes) for reason in reasons)
+
+
+def _a2_batch_is_splittable(reasons: Sequence[str]) -> bool:
+    retryable_prefixes = (
+        "NETWORK_",
+        "MODEL_TOTAL_DEADLINE_",
+        "STRICT_JSON_",
+        "STREAM_",
+        "RESPONSE_",
+        "JSON_",
+        "ENVELOPE_",
+        "STAGE_ID_",
+        "MODEL_NAME_",
+        "SNAPSHOT_LINEAGE_",
+        "APPROVED_POOL_",
+        "A2_POOL_",
     )
     return any(str(reason).startswith(retryable_prefixes) for reason in reasons)
 
@@ -2727,6 +2993,76 @@ def _apply_a2_lineage_policy(
     if changed:
         result["analysis_summary"] = _policy_summary(result, "A2", changed)
     return result, changed
+
+
+def _annotate_a2_pool_target(
+    output: Mapping[str, Any],
+    snapshot_data: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Report institutional pool capacity without manufacturing candidates."""
+
+    result = dict(output)
+    raw_targets = snapshot_data.get("A2_POOL_TARGETS")
+    targets = raw_targets if isinstance(raw_targets, Mapping) else {}
+    minimum = max(0, _safe_int(targets.get("pool_min", 100)))
+    maximum = max(minimum, _safe_int(targets.get("pool_max", 200)))
+    focus_count = len(result.get("focus_pool")) if isinstance(result.get("focus_pool"), list) else 0
+    summary = dict(result.get("analysis_summary")) if isinstance(result.get("analysis_summary"), Mapping) else {}
+    reason_codes = summary.get("reason_codes") if isinstance(summary.get("reason_codes"), list) else []
+    if focus_count < minimum:
+        reason_codes = list(dict.fromkeys([*reason_codes, "POOL_TARGET_UNDERFILLED"]))
+    summary.update({
+        "focus_pool_count": focus_count,
+        "pool_target": {"minimum": minimum, "maximum": maximum, "quota_forbidden": True},
+        "pool_target_underfilled_by": max(0, minimum - focus_count),
+        "reason_codes": reason_codes,
+    })
+    result["analysis_summary"] = summary
+    return result
+
+
+def _annotate_a1_pool_target(
+    output: Mapping[str, Any],
+    snapshot_data: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Expose A1 research coverage gaps without changing the classification."""
+
+    result = dict(output)
+    raw_targets = snapshot_data.get("A1_POOL_TARGETS")
+    targets = raw_targets if isinstance(raw_targets, Mapping) else {}
+    active_min, active_max = _target_pair(targets.get("active_research_target"), (100, 250))
+    clue_min, clue_max = _target_pair(targets.get("clue_pool_target"), (300, 800))
+    active_count = len(result.get("active_research_pool")) if isinstance(result.get("active_research_pool"), list) else 0
+    monitor_count = len(result.get("monitor_pool")) if isinstance(result.get("monitor_pool"), list) else 0
+    clue_count = active_count + monitor_count
+    summary = dict(result.get("analysis_summary")) if isinstance(result.get("analysis_summary"), Mapping) else {}
+    reason_codes = summary.get("reason_codes") if isinstance(summary.get("reason_codes"), list) else []
+    if active_count < active_min:
+        reason_codes = [*reason_codes, "A1_ACTIVE_TARGET_UNDERFILLED"]
+    if clue_count < clue_min:
+        reason_codes = [*reason_codes, "A1_CLUE_TARGET_UNDERFILLED"]
+    summary.update({
+        "institutional_pool_role": "P2_CLUE_TO_P3_RESEARCH_COVERAGE",
+        "active_research_count": active_count,
+        "clue_pool_count": clue_count,
+        "active_research_target": {"minimum": active_min, "maximum": active_max},
+        "clue_pool_target": {"minimum": clue_min, "maximum": clue_max},
+        "quota_forbidden": True,
+        "reason_codes": list(dict.fromkeys(reason_codes)),
+    })
+    result["analysis_summary"] = summary
+    return result
+
+
+def _target_pair(value: Any, default: tuple[int, int]) -> tuple[int, int]:
+    if (
+        isinstance(value, list)
+        and len(value) == 2
+        and all(isinstance(item, int) and not isinstance(item, bool) for item in value)
+        and 0 <= value[0] <= value[1]
+    ):
+        return value[0], value[1]
+    return default
 
 
 def _a2_theme_reasons(theme: Mapping[str, Any], snapshot_data: Mapping[str, Any]) -> list[str]:

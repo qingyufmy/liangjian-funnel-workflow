@@ -79,8 +79,9 @@ class Settings(BaseModel):
     open_news_rss_workers: int = Field(default=16, ge=1, le=40)
     open_news_stock_limit: int = Field(default=20, ge=1, le=50)
     open_news_flash_limit: int = Field(default=50, ge=1, le=100)
-    research_max_candidates: int = Field(default=120, ge=1, le=300)
-    research_a1_batch_size: int = Field(default=8, ge=1, le=20)
+    research_max_candidates: int = Field(default=1_000, ge=1, le=1_000)
+    research_a1_batch_size: int = Field(default=20, ge=1, le=40)
+    research_a2_batch_size: int = Field(default=40, ge=1, le=100)
     simulation_initial_cash: float = Field(default=1_000_000.0, ge=0)
     research_models: tuple[str, ...] = RESEARCH_MODELS
     monitor_model: str = MONITOR_MODEL
@@ -194,8 +195,9 @@ class Settings(BaseModel):
             open_news_rss_workers=int(env.get("LIANGJIAN_OPEN_NEWS_RSS_WORKERS", "16")),
             open_news_stock_limit=int(env.get("LIANGJIAN_OPEN_NEWS_STOCK_LIMIT", "20")),
             open_news_flash_limit=int(env.get("LIANGJIAN_OPEN_NEWS_FLASH_LIMIT", "50")),
-            research_max_candidates=int(env.get("LIANGJIAN_RESEARCH_MAX_CANDIDATES", "120")),
-            research_a1_batch_size=int(env.get("LIANGJIAN_A1_BATCH_SIZE", "8")),
+            research_max_candidates=int(env.get("LIANGJIAN_RESEARCH_MAX_CANDIDATES", "1000")),
+            research_a1_batch_size=int(env.get("LIANGJIAN_A1_BATCH_SIZE", "20")),
+            research_a2_batch_size=int(env.get("LIANGJIAN_A2_BATCH_SIZE", "40")),
             simulation_initial_cash=float(env.get("LIANGJIAN_SIMULATION_INITIAL_CASH", "1000000")),
         )
 
@@ -238,6 +240,7 @@ class Settings(BaseModel):
             "open_news_flash_limit": self.open_news_flash_limit,
             "research_max_candidates": self.research_max_candidates,
             "research_a1_batch_size": self.research_a1_batch_size,
+            "research_a2_batch_size": self.research_a2_batch_size,
             "simulation_initial_cash": self.simulation_initial_cash,
             "research_models": list(self.research_models),
             "monitor_model": self.monitor_model,
