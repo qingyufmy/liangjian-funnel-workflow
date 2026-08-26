@@ -45,9 +45,10 @@ fi
 echo "[deploy] Building production assets..."
 runuser -u www -- npm run build
 
-echo "[deploy] Restarting BaoTa Node project only..."
-cd /www/server/panel
-PROJECT_NAME="${PROJECT_NAME}" python3 - <<'PY'
+baota_action() {
+  local action="$1"
+  cd /www/server/panel
+  PROJECT_NAME="${PROJECT_NAME}" BAOTA_ACTION="${action}" python3 - <<'PY'
 import json
 import os
 import sys
@@ -64,24 +65,46 @@ class FakeGet(dict):
         self[name] = value
 
 
-result = nodejsModel().restart_project(FakeGet(project_name=os.environ["PROJECT_NAME"]))
+model = nodejsModel()
+method = model.restart_project if os.environ["BAOTA_ACTION"] == "restart" else model.start_project
+result = method(FakeGet(project_name=os.environ["PROJECT_NAME"]))
 print(json.dumps(result, ensure_ascii=False))
 if not isinstance(result, dict) or not result.get("status"):
     raise SystemExit(1)
 PY
+}
+
+wait_for_health() {
+  for _ in $(seq 1 20); do
+    if curl --fail --silent --show-error http://127.0.0.1:3210/api/health >/dev/null; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
+echo "[deploy] Restarting BaoTa Node project only..."
+baota_action restart
 
 echo "[deploy] Verifying Node health..."
-health_ok=0
-for _ in $(seq 1 20); do
-  if curl --fail --silent --show-error http://127.0.0.1:3210/api/health >/dev/null; then
-    health_ok=1
-    break
-  fi
-  sleep 1
-done
-if [[ "${health_ok}" != "1" ]]; then
+if ! wait_for_health; then
   echo "[deploy] Node health check failed."
   exit 3
+fi
+sleep 5
+if ! curl --fail --silent --show-error http://127.0.0.1:3210/api/health >/dev/null; then
+  echo "[deploy] Node exited after the initial health check; retrying BaoTa start once..."
+  baota_action start
+  if ! wait_for_health; then
+    echo "[deploy] Node recovery start failed."
+    exit 4
+  fi
+  sleep 5
+  if ! curl --fail --silent --show-error http://127.0.0.1:3210/api/health >/dev/null; then
+    echo "[deploy] Node did not remain healthy after recovery start."
+    exit 5
+  fi
 fi
 
 cd "${PROJECT_ROOT}"
