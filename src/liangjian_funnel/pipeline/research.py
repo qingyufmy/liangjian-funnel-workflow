@@ -1762,9 +1762,10 @@ def _stage_execution_budget(
         "A1": (
             "Required top-level keys: envelope, analysis_summary, structural_themes, industry_chain_graph, "
             "active_research_pool, monitor_pool, rejected_candidates. Each approved item needs symbol, "
-            "company_name, primary_theme, "
+            "candidate_id, company_name, primary_theme, "
             "industry_chain_node, core_thesis, bear_case, structural_score, data_quality_score, "
-            "evidence_confidence, status, source_refs, and score_breakdown containing every exact key "
+            "evidence_confidence, status, source_refs, business_exposure with revenue_exposure_pct and "
+            "a snapshot-valid source_ref, and score_breakdown containing every exact key "
             "from SCORE_WEIGHTS. structural_score must equal that configured weighted sum."
             " primary_theme must exactly match a theme_id or display_name in structural_themes; "
             "industry_chain_node must exactly match a node_id in industry_chain_graph. Both records need "
@@ -1774,8 +1775,13 @@ def _stage_execution_budget(
         ),
         "A2": (
             "Required top-level keys: envelope, analysis_summary, active_themes, focus_pool, "
-            "watch_only_pool, rejected_candidates. Each focus item needs symbol, theme_id, "
-            "theme_stage, market_role, theme_score, supporting_evidence, contradicting_evidence, risk_flags."
+            "watch_only_pool, rejected_candidates. Each active theme needs theme_id, stage, new_entry_policy, "
+            "theme_score, score_breakdown containing every exact key from THEME_SCORE_WEIGHTS, penalties, "
+            "supporting_evidence, contradicting_evidence, and rotation_overlap_ratio. Each focus item needs "
+            "symbol, upstream_candidate_id, theme_id, theme_stage, market_role, role_evidence, "
+            "identifiability_score, identifiability_breakdown, theme_score inherited from its active theme, "
+            "selection_reasons, risk_reasons, risk_flags. Every supplied symbol must appear exactly once "
+            "across focus_pool, watch_only_pool, and rejected_candidates."
         ),
         "A3": (
             "Required top-level keys: envelope, analysis_summary, core_watch_pool, secondary_watch_pool, "
@@ -2942,7 +2948,8 @@ def _apply_a2_lineage_policy(
         if theme_id not in valid_active_themes:
             reasons.append("A2_THEME_LINEAGE_INVALID")
         role = str(item.get("market_role") or "").strip()
-        if role in {"LOW_IDENTITY", "EVENT_ONLY", "CROWDED", "AVOID"}:
+        focus_roles = {"LEADER", "CORE_ARMY", "TREND_CORE", "CHAIN_RESONANCE", "FIRST_MOVER"}
+        if role not in focus_roles:
             reasons.append("A2_MARKET_ROLE_NOT_FOCUS_ELIGIBLE")
         if _safe_float(item.get("identifiability_score")) < minimum_identity:
             reasons.append("A2_IDENTIFIABILITY_BELOW_MINIMUM")
@@ -3067,6 +3074,15 @@ def _target_pair(value: Any, default: tuple[int, int]) -> tuple[int, int]:
 
 def _a2_theme_reasons(theme: Mapping[str, Any], snapshot_data: Mapping[str, Any]) -> list[str]:
     reasons: list[str] = []
+    if str(theme.get("stage") or "") not in {
+        "IGNITION", "CONFIRMATION", "ACCELERATION", "CLIMAX",
+        "DIVERGENCE", "RETREAT", "REPAIR", "FADE",
+    }:
+        reasons.append("A2_THEME_STAGE_INVALID")
+    if str(theme.get("new_entry_policy") or "") not in {
+        "ALLOW", "PROBE_ONLY", "WATCH_ONLY", "NO_NEW_ENTRY",
+    }:
+        reasons.append("A2_NEW_ENTRY_POLICY_INVALID")
     for field, reason in (
         ("supporting_evidence", "A2_SUPPORTING_EVIDENCE_MISSING"),
         ("contradicting_evidence", "A2_CONTRADICTING_EVIDENCE_MISSING"),

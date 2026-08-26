@@ -486,6 +486,9 @@ def test_stage_execution_budget_keeps_a1_broad_and_uses_downstream_regime_caps()
     assert "approved pool <= 20; secondary/watch pool <= 20" in a1
     assert "approved pool <= 12; secondary/watch pool <= 20" in a2
     assert "approved pool <= 5; secondary/watch pool <= 3" in a3
+    assert "business_exposure with revenue_exposure_pct" in a1
+    assert "identifiability_score, identifiability_breakdown" in a2
+    assert "Every supplied symbol must appear exactly once" in a2
 
 
 def test_a1_incomplete_partition_can_split_to_smaller_transport_groups():
@@ -1016,6 +1019,19 @@ def test_a2_focus_must_reuse_a1_theme_and_cannot_invent_missing_capital_flow():
     reasons = set(invalid["watch_only_pool"][0]["reason_codes"])
     assert "A2_THEME_LINEAGE_INVALID" in reasons
     assert "A2_MARKET_ROLE_NOT_FOCUS_ELIGIBLE" in reasons
+
+    invalid_stage, invalid_stage_changed = _apply_a2_lineage_policy(
+        {
+            "active_themes": [{**valid_theme, "stage": "ROTATION_ACTIVE"}],
+            "focus_pool": [item],
+            "watch_only_pool": [],
+        },
+        upstream,
+        snapshot,
+    )
+    assert invalid_stage_changed == 1
+    assert invalid_stage["active_themes"][0]["reason_codes"] == ["A2_THEME_STAGE_INVALID"]
+    assert "A2_THEME_LINEAGE_INVALID" in invalid_stage["watch_only_pool"][0]["reason_codes"]
 
 
 def test_factor_projection_removes_duplicate_summary_and_raw_bar_payload():
