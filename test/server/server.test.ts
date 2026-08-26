@@ -34,6 +34,8 @@ test("rejects path traversal and accepts only paths inside root", () => {
   expect(resolveWithinRoot(root, "outputs/runs/a.json")).toBe(join(root, "outputs", "runs", "a.json"));
   expect(resolveWithinRoot(root, "../secrets.env")).toBeNull();
   expect(resolveWithinRoot(root, "outputs\\..\\..\\secrets.env")).toBeNull();
+  expect(resolveWithinRoot(root, "C:\\secrets.env")).toBeNull();
+  expect(resolveWithinRoot(root, "/etc/passwd")).toBeNull();
 });
 
 test("requires exact bearer token and does not compare different lengths", () => {

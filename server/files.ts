@@ -1,5 +1,5 @@
 import { readdir, readFile, stat } from "node:fs/promises";
-import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, isAbsolute, join, relative, resolve, sep, win32 } from "node:path";
 
 import type { AppConfig } from "./config.js";
 import { asArray, asJsonRecord, asString, redactText, sanitizeJson } from "./redaction.js";
@@ -16,8 +16,15 @@ function laneBelongsToRun(name: string, runId: string): boolean {
 
 export function resolveWithinRoot(rootDir: string, relativePath: string): string | null {
   if (!relativePath || relativePath.includes("\0")) return null;
+  const portablePath = relativePath.replaceAll("\\", "/");
+  if (
+    portablePath.startsWith("/")
+    || win32.isAbsolute(relativePath)
+    || /^[A-Za-z]:/.test(portablePath)
+    || portablePath.split("/").includes("..")
+  ) return null;
   const root = resolve(rootDir);
-  const candidate = resolve(root, relativePath);
+  const candidate = resolve(root, portablePath);
   const child = relative(root, candidate);
   if (child === "" || (child !== ".." && !child.startsWith(`..${sep}`) && !child.startsWith("../") && !child.startsWith("..\\") && !child.includes(":\\"))) {
     return candidate;
