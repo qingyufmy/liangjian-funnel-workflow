@@ -252,6 +252,20 @@ export class DashboardData {
     return detail ? sanitizeJson(detail) : null;
   }
 
+  public async stageDetail(
+    runId: string,
+    laneId: string,
+    stage: string,
+    pool: string,
+    page: number,
+    pageSize: number,
+    query: string,
+    reason: string,
+  ): Promise<JsonValue | null> {
+    const detail = await this.files.researchStageDetail(runId, laneId, stage, pool, page, pageSize, query, reason);
+    return detail ? sanitizeJson(detail) : null;
+  }
+
   public async logs(limit: number, level?: "debug" | "info" | "warn" | "error", job?: string): Promise<JsonValue> {
     return sanitizeJson({ logs: await this.logger.list(limit, level, job), limit, level: level ?? null, job: job ?? null });
   }

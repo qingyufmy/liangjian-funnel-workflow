@@ -3,10 +3,13 @@ import express, { type Express, type NextFunction, type Request, type RequestHan
 import type { AppConfig } from "./config.js";
 import { dashboardAuth } from "./auth.js";
 import { DashboardData } from "./dashboard.js";
+import { isResearchLaneId, isResearchPool, isResearchStage } from "./files.js";
 import { LogStore } from "./logger.js";
 import { asString } from "./redaction.js";
 import { JobRunner } from "./runner.js";
 import { WorkflowScheduler } from "./scheduler.js";
+
+const SAFE_RESEARCH_RUN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,200}$/;
 
 export interface ApiDependencies {
   readonly config: AppConfig;
@@ -27,6 +30,15 @@ function queryLimit(request: Request, fallback = 50): number {
   const value = raw ? Number.parseInt(raw, 10) : fallback;
   if (!Number.isSafeInteger(value) || value < 1) return fallback;
   return Math.min(value, 200);
+}
+
+function queryPositiveInteger(request: Request, key: string, fallback: number, maximum: number): number | null {
+  const raw = queryString(request, key);
+  if (raw === null) return fallback;
+  if (!/^\d+$/.test(raw)) return null;
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < 1 || value > maximum) return null;
+  return value;
 }
 
 function asyncRoute(
@@ -67,6 +79,34 @@ export function createApp(deps: ApiDependencies): Express {
     const detail = await deps.dashboard.run(runId);
     if (!detail) {
       response.status(404).json({ error: "RUN_NOT_FOUND" });
+      return;
+    }
+    response.json(detail);
+  }));
+  app.get("/api/research/runs/:runId/lanes/:laneId/stages/:stage", asyncRoute(async (request, response) => {
+    response.setHeader("Cache-Control", "no-store");
+    const runId = typeof request.params.runId === "string" ? request.params.runId : "";
+    const laneId = typeof request.params.laneId === "string" ? request.params.laneId : "";
+    const stage = typeof request.params.stage === "string" ? request.params.stage : "";
+    const pool = queryString(request, "pool") ?? "approved";
+    const page = queryPositiveInteger(request, "page", 1, Number.MAX_SAFE_INTEGER);
+    const pageSize = queryPositiveInteger(request, "pageSize", 50, 100);
+    if (!SAFE_RESEARCH_RUN_ID.test(runId) || !isResearchLaneId(laneId) || !isResearchStage(stage) || !isResearchPool(pool) || page === null || pageSize === null) {
+      response.status(400).json({ error: "INVALID_STAGE_DETAIL_QUERY" });
+      return;
+    }
+    const detail = await deps.dashboard.stageDetail(
+      runId,
+      laneId,
+      stage,
+      pool,
+      page,
+      pageSize,
+      queryString(request, "q") ?? "",
+      queryString(request, "reason") ?? "",
+    );
+    if (!detail) {
+      response.status(404).json({ error: "RESEARCH_STAGE_NOT_FOUND" });
       return;
     }
     response.json(detail);

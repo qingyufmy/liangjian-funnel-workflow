@@ -2,6 +2,8 @@ import {
   Activity,
   CalendarClock,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   CircleAlert,
   CircleDotDashed,
   Database,
@@ -14,6 +16,7 @@ import {
   Menu,
   MonitorDot,
   RefreshCw,
+  Search,
   ScrollText,
   Server,
   ShieldCheck,
@@ -22,7 +25,7 @@ import {
   X,
   XCircle,
 } from "lucide-react";
-import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, KeyboardEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch, getStoredToken, saveToken, withQuery } from "./api";
 import {
   AccountSummary,
@@ -37,6 +40,10 @@ import {
   RunSummary,
   RunsResponse,
   StageSummary,
+  StageDetailItem,
+  StageDetailPool,
+  StageDetailResponse,
+  StagePoolId,
   WorkflowProgressLane,
   WorkflowProgressStage,
   WorkflowProgressSummary,
@@ -488,33 +495,63 @@ function OverviewPage({ overview, logs, onNavigate }: { overview: OverviewRespon
   );
 }
 
+interface StageDetailTarget {
+  runId: string;
+  laneId: string;
+  model: string;
+  modelLabel: string;
+  stage: StageSummary;
+}
+
 function FunnelPanel({ workflow, onOpen }: { workflow: OverviewResponse["latestWorkflow"]; onOpen: () => void }) {
   const stages = ["A1", "A2", "A3"];
+  const [detailTarget, setDetailTarget] = useState<StageDetailTarget | null>(null);
+  const returnFocusRef = useRef<HTMLButtonElement | null>(null);
+
+  function openStageDetail(target: StageDetailTarget, trigger: HTMLButtonElement): void {
+    returnFocusRef.current = trigger;
+    setDetailTarget(target);
+  }
+
+  function dismissStageDetail(): void {
+    setDetailTarget(null);
+    window.requestAnimationFrame(() => returnFocusRef.current?.focus());
+  }
+
   return (
-    <Panel title="研究漏斗" icon={<GitBranch size={18} />} action={<button className="text-button" type="button" onClick={onOpen}>查看运行详情</button>} className="funnel-panel">
-      <div className="workflow-meta">
-        <div><span>最近运行</span><strong title={workflow.runId ?? undefined}>{workflow.runId ?? "尚未运行"}</strong></div>
-        <div><span>时段</span><strong>{workflow.slot ?? "—"}</strong></div>
-        <div><span>状态</span><StatusBadge status={workflow.status} /></div>
-        <div><span>更新时间</span><strong>{formatDateTime(workflow.updatedAt)}</strong></div>
-      </div>
-      {workflow.lanes.length === 0 ? (
-        <EmptyState title="暂无模型运行记录" detail="收盘研究运行后，三个模型的 A1–A3 阶段会在这里逐项显示。" icon={<GitBranch size={22} />} />
-      ) : (
-        <div className="funnel-table-wrap">
-          <table className="funnel-table">
-            <thead><tr><th>模型</th>{stages.map((stage) => <th key={stage}>{STAGE_LABELS[stage]}</th>)}</tr></thead>
-            <tbody>{workflow.lanes.map((lane) => (
-              <tr key={lane.laneId}>
-                <th scope="row"><span className="model-name">{modelLabel(lane)}</span><small>{lane.model}</small></th>
-                {stages.map((stage) => <StageCell key={stage} stage={lane.stages.find((item) => item.stage.toUpperCase() === stage)} />)}
-              </tr>
-            ))}</tbody>
-          </table>
+    <>
+      <Panel title="研究漏斗" icon={<GitBranch size={18} />} action={<button className="text-button" type="button" onClick={onOpen}>查看运行详情</button>} className="funnel-panel">
+        <div className="workflow-meta">
+          <div><span>最近运行</span><strong title={workflow.runId ?? undefined}>{workflow.runId ?? "尚未运行"}</strong></div>
+          <div><span>时段</span><strong>{workflow.slot ?? "—"}</strong></div>
+          <div><span>状态</span><StatusBadge status={workflow.status} /></div>
+          <div><span>更新时间</span><strong>{formatDateTime(workflow.updatedAt)}</strong></div>
         </div>
-      )}
-      <div className="panel-footnote"><Database size={14} /><span>所有数量和状态来自已持久化运行结果；无数据时不会估算进度。</span></div>
-    </Panel>
+        {workflow.lanes.length === 0 ? (
+          <EmptyState title="暂无模型运行记录" detail="收盘研究运行后，三个模型的 A1–A3 阶段会在这里逐项显示。" icon={<GitBranch size={22} />} />
+        ) : (
+          <div className="funnel-table-wrap">
+            <table className="funnel-table">
+              <thead><tr><th>模型</th>{stages.map((stage) => <th key={stage}>{STAGE_LABELS[stage]}</th>)}</tr></thead>
+              <tbody>{workflow.lanes.map((lane) => (
+                <tr key={lane.laneId}>
+                  <th scope="row"><span className="model-name">{modelLabel(lane)}</span><small>{lane.model}</small></th>
+                  {stages.map((stage) => {
+                    const summary = lane.stages.find((item) => item.stage.toUpperCase() === stage);
+                    return <StageCell key={stage} stage={summary} model={modelLabel(lane)} canOpen={Boolean(workflow.runId && summary)} onOpen={(trigger) => {
+                      if (!workflow.runId || !summary) return;
+                      openStageDetail({ runId: workflow.runId, laneId: lane.laneId, model: lane.model, modelLabel: modelLabel(lane), stage: summary }, trigger);
+                    }} />;
+                  })}
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        )}
+        <div className="panel-footnote"><Database size={14} /><span>点击任一阶段可查看该模型本次筛选的股票、原因、证据与风险；无数据时不会估算。</span></div>
+      </Panel>
+      <StageDetailDialog target={detailTarget} onDismiss={dismissStageDetail} />
+    </>
   );
 }
 
@@ -608,10 +645,210 @@ function ProgressStage({ stage }: { stage: WorkflowProgressStage }) {
   return <li><div><strong>{progressPhaseLabel(stage.stage)}</strong><StatusBadge status={stage.status} /></div><span>批次 {progressPair(stage.batchProcessed, stage.batchTotal)} · 股票 {progressPair(stage.processed, stage.total)}</span><ProgressBar processed={stage.processed} total={stage.total} compact /></li>;
 }
 
-function StageCell({ stage }: { stage?: StageSummary }) {
+function StageCell({ stage, model, canOpen, onOpen }: { stage?: StageSummary; model: string; canOpen: boolean; onOpen: (trigger: HTMLButtonElement) => void }) {
   if (!stage) return <td><div className="stage-cell stage-unknown"><StatusBadge status="UNKNOWN" label="无记录" /><small>—</small></div></td>;
+  const countLabel = stage.symbolCount !== undefined && stage.symbolCount !== null ? `${stage.symbolCount} 只` : "数量未知";
   return (
-    <td><div className="stage-cell"><StatusBadge status={stage.status} /><small>{stage.symbolCount !== undefined && stage.symbolCount !== null ? `${stage.symbolCount} 只` : "数量未知"}{stage.latencyMs ? ` · ${formatDuration(stage.latencyMs)}` : ""}</small></div></td>
+    <td className="stage-cell-table-cell">
+      <button className="stage-cell-trigger" type="button" disabled={!canOpen} onClick={(event) => onOpen(event.currentTarget)} aria-label={`查看 ${model} ${STAGE_LABELS[stage.stage.toUpperCase()] ?? stage.stage} 详情，${countLabel}`}>
+        <StatusBadge status={stage.status} />
+        <span className="stage-count">{countLabel}</span>
+        <small>{stage.latencyMs ? formatDuration(stage.latencyMs) : "耗时未知"}</small>
+      </button>
+    </td>
+  );
+}
+
+function fallbackPools(stage: string): StageDetailPool[] {
+  const labels: Record<string, [string, string, string]> = {
+    A1: ["晋级研究", "持续观察", "淘汰"],
+    A2: ["聚焦候选", "仅观察", "淘汰"],
+    A3: ["核心计划", "次级观察", "淘汰"],
+  };
+  const stageLabels = labels[stage.toUpperCase()] ?? ["晋级", "观察", "淘汰"];
+  return (["approved", "watch", "rejected"] as StagePoolId[]).map((id, index) => ({ id, label: stageLabels[index], count: 0 }));
+}
+
+function stageDetailPath(target: StageDetailTarget, pool: StagePoolId, page: number, query: string, reason: string): string {
+  const base = `/api/research/runs/${encodeURIComponent(target.runId)}/lanes/${encodeURIComponent(target.laneId)}/stages/${encodeURIComponent(target.stage.stage.toUpperCase())}`;
+  return withQuery(base, { pool, page, pageSize: 50, q: query, reason });
+}
+
+function StageDetailDialog({ target, onDismiss }: { target: StageDetailTarget | null; onDismiss: () => void }) {
+  const dialogRef = useRef<HTMLDialogElement | null>(null);
+  const [pool, setPool] = useState<StagePoolId>("approved");
+  const [page, setPage] = useState(1);
+  const [queryInput, setQueryInput] = useState("");
+  const [query, setQuery] = useState("");
+  const [reason, setReason] = useState("");
+  const [data, setData] = useState<StageDetailResponse | null>(null);
+  const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const handleClose = (): void => onDismiss();
+    dialog.addEventListener("close", handleClose);
+    return () => dialog.removeEventListener("close", handleClose);
+  }, [onDismiss]);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    if (target && !dialog.open) dialog.showModal();
+    if (!target && dialog.open) dialog.close();
+  }, [target]);
+
+  useEffect(() => {
+    setPool("approved");
+    setPage(1);
+    setQueryInput("");
+    setQuery("");
+    setReason("");
+    setData(null);
+    setSelectedSymbol(null);
+    setError(null);
+    setMobileDetailOpen(false);
+  }, [target?.runId, target?.laneId, target?.stage.stage]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setPage(1);
+      setQuery(queryInput.trim());
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [queryInput]);
+
+  useEffect(() => {
+    if (!target) return;
+    const controller = new AbortController();
+    setLoading(true);
+    setError(null);
+    void apiFetch<StageDetailResponse>(stageDetailPath(target, pool, page, query, reason), controller.signal)
+      .then((response) => {
+        setData(response);
+        setSelectedSymbol((current) => response.items.some((item) => item.symbol === current) ? current : response.items[0]?.symbol ?? null);
+      })
+      .catch((caught) => {
+        if (controller.signal.aborted) return;
+        setError(caught instanceof Error ? caught.message : "无法读取阶段详情");
+        setData(null);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [target, pool, page, query, reason]);
+
+  const pools = data?.pools ?? fallbackPools(target?.stage.stage ?? "A1");
+  const selected = data?.items.find((item) => item.symbol === selectedSymbol) ?? data?.items[0] ?? null;
+  const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
+
+  function selectPool(nextPool: StagePoolId): void {
+    setPool(nextPool);
+    setPage(1);
+    setReason("");
+    setSelectedSymbol(null);
+    setMobileDetailOpen(false);
+  }
+
+  function handleTabKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number): void {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const nextIndex = (index + (event.key === "ArrowRight" ? 1 : -1) + pools.length) % pools.length;
+    selectPool(pools[nextIndex].id);
+    const tabs = event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>("[role='tab']");
+    window.requestAnimationFrame(() => tabs?.[nextIndex]?.focus());
+  }
+
+  return (
+    <dialog ref={dialogRef} className={`stage-detail-dialog ${mobileDetailOpen ? "stage-detail-mobile-open" : ""}`} aria-labelledby="stage-detail-title" onCancel={(event) => { event.preventDefault(); dialogRef.current?.close(); }} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); dialogRef.current?.close(); } }}>
+      {target ? (
+        <div className="stage-detail-shell">
+          <header className="stage-detail-header">
+            <div className="stage-detail-heading">
+              <p className="eyebrow">{target.modelLabel} · {target.stage.stage.toUpperCase()}</p>
+              <h2 id="stage-detail-title">{STAGE_LABELS[target.stage.stage.toUpperCase()] ?? target.stage.stage}筛选明细</h2>
+              <span title={target.runId}>{target.runId}</span>
+            </div>
+            <dl className="stage-detail-metrics">
+              <div><dt>状态</dt><dd><StatusBadge status={data?.status ?? target.stage.status} /></dd></div>
+              <div><dt>输入</dt><dd>{progressCount(data?.inputCount)}</dd></div>
+              <div><dt>结果</dt><dd>{progressCount(data?.outputCount ?? target.stage.symbolCount)}</dd></div>
+              <div><dt>耗时</dt><dd>{formatDuration(data?.latencyMs ?? target.stage.latencyMs)}</dd></div>
+            </dl>
+            <button className="icon-button stage-detail-close" type="button" aria-label="关闭阶段详情" onClick={() => dialogRef.current?.close()}><X size={21} /></button>
+          </header>
+
+          <div className="stage-detail-tabs" role="tablist" aria-label="筛选结果分类">
+            {pools.map((item, index) => <button key={item.id} id={`stage-tab-${item.id}`} type="button" role="tab" aria-selected={pool === item.id} aria-controls="stage-detail-panel" tabIndex={pool === item.id ? 0 : -1} className={pool === item.id ? "stage-detail-tab stage-detail-tab-active" : "stage-detail-tab"} onClick={() => selectPool(item.id)} onKeyDown={(event) => handleTabKeyDown(event, index)}><span>{item.label}</span><strong>{item.count}</strong></button>)}
+          </div>
+
+          <div className="stage-detail-toolbar">
+            <label className="stage-detail-search"><Search size={16} aria-hidden="true" /><span className="sr-only">搜索股票代码或名称</span><input value={queryInput} onChange={(event) => setQueryInput(event.target.value)} placeholder="搜索股票代码或名称" /></label>
+            <label className="stage-detail-filter"><Filter size={16} aria-hidden="true" /><span className="sr-only">按原因筛选</span><select value={reason} onChange={(event) => { setReason(event.target.value); setPage(1); }}><option value="">全部原因</option>{(data?.reasonOptions ?? []).map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
+            <span>{loading ? "读取中…" : `共 ${data?.total ?? 0} 只`}</span>
+          </div>
+
+          <div className="stage-detail-content" id="stage-detail-panel" role="tabpanel" aria-labelledby={`stage-tab-${pool}`}>
+            <section className="stage-stock-master" aria-label="股票列表">
+              <div className="stage-stock-grid stage-stock-grid-head" aria-hidden="true"><span>股票</span><span>主题 / 行业</span><span>评分</span><span>主要原因</span><span>状态</span></div>
+              <div className="stage-stock-list">
+                {error ? <div className="stage-detail-state stage-detail-error"><TriangleAlert size={20} /><strong>明细读取失败</strong><span>{error}</span></div> : loading && !data ? <div className="stage-detail-state"><RefreshCw className="spin" size={20} /><strong>正在读取持久化结果</strong></div> : data?.items.length ? data.items.map((item) => (
+                  <button key={item.symbol} type="button" className={item.symbol === selected?.symbol ? "stage-stock-grid stage-stock-row stage-stock-row-selected" : "stage-stock-grid stage-stock-row"} aria-pressed={item.symbol === selected?.symbol} onClick={() => { setSelectedSymbol(item.symbol); setMobileDetailOpen(true); }}>
+                    <span className="stage-stock-identity"><strong>{item.name || "名称未提供"}</strong><small>{item.symbol}</small></span>
+                    <span>{item.theme || item.industry || "—"}</span>
+                    <strong className="stage-stock-score">{item.score === null || item.score === undefined ? "—" : item.score}</strong>
+                    <span className="stage-stock-reasons">{item.selectionReasons[0] ?? item.reasonCodes[0] ?? item.evidence[0] ?? "未提供原因"}</span>
+                    <span><StatusBadge status={item.status ?? (item.pool === "rejected" ? "BLOCKED" : "VALIDATED")} label={pools.find((entry) => entry.id === item.pool)?.label} /></span>
+                  </button>
+                )) : <div className="stage-detail-state"><Database size={20} /><strong>当前筛选条件没有股票</strong><span>可切换分类或清空搜索与原因筛选。</span></div>}
+              </div>
+              <footer className="stage-stock-pagination"><span>第 {data?.page ?? page} / {totalPages} 页</span><div><button className="icon-button" type="button" aria-label="上一页" disabled={!data || data.page <= 1 || loading} onClick={() => setPage((current) => Math.max(1, current - 1))}><ChevronLeft size={18} /></button><button className="icon-button" type="button" aria-label="下一页" disabled={!data || data.page >= totalPages || loading} onClick={() => setPage((current) => current + 1)}><ChevronRight size={18} /></button></div></footer>
+            </section>
+
+            <StageStockDetail item={selected} onBack={() => setMobileDetailOpen(false)} />
+          </div>
+        </div>
+      ) : null}
+    </dialog>
+  );
+}
+
+function detailValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "—";
+  if (typeof value === "number") return new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 4 }).format(value);
+  if (typeof value === "string" || typeof value === "boolean") return String(value);
+  try { return JSON.stringify(value); } catch { return String(value); }
+}
+
+function DetailStringList({ title, badge, values }: { title: string; badge: string; values: string[] }) {
+  if (!values.length) return null;
+  return <section className="stage-detail-section"><header><h3>{title}</h3><span>{badge}</span></header><ul>{values.map((value, index) => <li key={`${value}-${index}`}>{value}</li>)}</ul></section>;
+}
+
+function StageStockDetail({ item, onBack }: { item: StageDetailItem | null; onBack: () => void }) {
+  if (!item) return <aside className="stage-stock-detail"><div className="stage-detail-state"><CircleAlert size={21} /><strong>选择一只股票查看详情</strong><span>模型判断、系统原因码与事实证据会分开展示。</span></div></aside>;
+  const scoreEntries = Object.entries(item.scoreBreakdown ?? {});
+  const plan = item.plan;
+  return (
+    <aside className="stage-stock-detail" aria-label={`${item.symbol} 详情`}>
+      <button className="stage-detail-back text-button" type="button" onClick={onBack}><ChevronLeft size={17} />返回股票列表</button>
+      <header className="stage-stock-detail-heading"><div><h3>{item.name || "名称未提供"}</h3><span>{item.symbol} · {item.theme || item.industry || "行业主题未提供"}</span></div>{item.score !== null && item.score !== undefined ? <strong>{item.score}<small>分</small></strong> : null}</header>
+      {item.nameSource === "unavailable" ? <div className="stage-detail-notice"><CircleAlert size={16} />冻结快照和模型结果均未提供名称，页面没有推测填充。</div> : null}
+      <DetailStringList title="入选逻辑" badge="模型判断" values={item.selectionReasons} />
+      <DetailStringList title="淘汰 / 校验原因" badge="系统原因码" values={item.reasonCodes} />
+      {scoreEntries.length ? <section className="stage-detail-section"><header><h3>评分拆解</h3><span>模型字段</span></header><dl className="stage-score-grid">{scoreEntries.map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{detailValue(value)}</dd></div>)}</dl></section> : null}
+      <DetailStringList title="证据与依据" badge="模型证据" values={item.evidence} />
+      {item.sourceRefs.length ? <section className="stage-detail-section"><header><h3>事实来源</h3><span>source refs</span></header><ul className="stage-source-refs">{item.sourceRefs.map((source, index) => <li key={index}>{detailValue(source)}</li>)}</ul></section> : null}
+      <DetailStringList title="风险提示" badge="模型风险" values={[...new Set([...item.riskReasons, ...item.risks])]} />
+      <DetailStringList title="失效条件" badge="约束条件" values={item.invalidation} />
+      {item.lineage && Object.keys(item.lineage).length ? <section className="stage-detail-section"><header><h3>上游追溯</h3><span>lineage</span></header><dl className="stage-definition-grid">{Object.entries(item.lineage).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{detailValue(value)}</dd></div>)}</dl></section> : null}
+      {plan ? <section className="stage-detail-section stage-plan-section"><header><h3>A3 技术计划</h3><span>只读计划</span></header><dl className="stage-definition-grid"><div><dt>形态</dt><dd>{detailValue(plan.setupType)}</dd></div><div><dt>触发区间</dt><dd>{plan.triggerZone ? `${detailValue(plan.triggerZone.low)} – ${detailValue(plan.triggerZone.high)}` : "—"}</dd></div><div><dt>失效价</dt><dd>{detailValue(plan.invalidationLevel)}</dd></div><div><dt>盈亏比</dt><dd>{detailValue(plan.rewardRisk)}</dd></div><div><dt>止损距离原始值</dt><dd>{detailValue(plan.stopDistancePct)}</dd></div><div><dt>风险单位</dt><dd>{detailValue(plan.riskUnit)}</dd></div><div><dt>计划 ID</dt><dd>{detailValue(plan.planId)}</dd></div><div><dt>有效期</dt><dd>{detailValue(plan.planExpiry)}</dd></div></dl>{plan.timeframeStates && Object.keys(plan.timeframeStates).length ? <section className="stage-detail-section"><header><h3>周期状态</h3><span>timeframes</span></header><dl className="stage-definition-grid">{Object.entries(plan.timeframeStates).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{detailValue(value)}</dd></div>)}</dl></section> : null}{plan.scenarios ? <section className="stage-detail-section"><header><h3>情景计划</h3><span>scenarios</span></header><p className="stage-detail-raw-value">{detailValue(plan.scenarios)}</p></section> : null}{plan.confirmationConditions?.length ? <DetailStringList title="确认条件" badge="触发约束" values={plan.confirmationConditions} /> : null}</section> : null}
+    </aside>
   );
 }
 

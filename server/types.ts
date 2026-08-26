@@ -102,3 +102,66 @@ export interface WorkflowProgressSummary {
   readonly updatedAt: string | null;
   readonly lanes: readonly WorkflowProgressLane[];
 }
+
+export type ResearchStage = "A1" | "A2" | "A3";
+
+export type ResearchPool = "approved" | "watch" | "rejected";
+
+export interface ResearchStageDetailPlan {
+  readonly setupType: string | null;
+  readonly triggerZone: JsonValue | null;
+  readonly invalidationLevel: number | null;
+  readonly rewardRisk: number | null;
+  readonly stopDistancePct: number | null;
+  readonly riskUnit: number | null;
+  readonly planId: string | null;
+  readonly planExpiry: string | null;
+  readonly confirmationConditions: readonly string[];
+  readonly scenarios: JsonValue | null;
+  readonly timeframeStates: JsonValue | null;
+}
+
+export interface ResearchStageDetailItem {
+  readonly symbol: string;
+  readonly name: string | null;
+  readonly nameSource: "model" | "lane_a1" | "snapshot" | "unavailable";
+  readonly status: string | null;
+  readonly pool: ResearchPool;
+  readonly theme: string | null;
+  readonly industry: string | null;
+  readonly score: number | null;
+  readonly reasonCodes: readonly string[];
+  readonly selectionReasons: readonly string[];
+  readonly riskReasons: readonly string[];
+  readonly evidence: readonly string[];
+  readonly risks: readonly string[];
+  readonly invalidation: readonly string[];
+  readonly scoreBreakdown: JsonValue | null;
+  readonly sourceRefs: JsonValue;
+  readonly lineage: JsonValue | null;
+  readonly plan: ResearchStageDetailPlan | null;
+}
+
+export interface ResearchStageDetailPool {
+  readonly id: ResearchPool;
+  readonly label: string;
+  readonly count: number;
+}
+
+export interface ResearchStageDetail {
+  readonly runId: string;
+  readonly laneId: string;
+  readonly model: string | null;
+  readonly stage: ResearchStage;
+  readonly status: string | null;
+  readonly latencyMs: number | null;
+  readonly inputCount: number | null;
+  readonly outputCount: number | null;
+  readonly pools: readonly ResearchStageDetailPool[];
+  readonly pool: ResearchPool;
+  readonly page: number;
+  readonly pageSize: number;
+  readonly total: number;
+  readonly reasonOptions: readonly string[];
+  readonly items: readonly ResearchStageDetailItem[];
+}

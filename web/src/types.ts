@@ -9,6 +9,67 @@ export interface StageSummary {
   reasonCodes?: string[];
 }
 
+export type StagePoolId = "approved" | "watch" | "rejected";
+
+export interface StageDetailPool {
+  id: StagePoolId;
+  label: string;
+  count: number;
+}
+
+export interface StageDetailPlan {
+  setupType?: string | null;
+  triggerZone?: { low?: number | null; high?: number | null } | null;
+  invalidationLevel?: number | null;
+  rewardRisk?: number | null;
+  stopDistancePct?: number | null;
+  riskUnit?: number | null;
+  planId?: string | null;
+  planExpiry?: string | null;
+  confirmationConditions?: string[];
+  scenarios?: unknown;
+  timeframeStates?: Record<string, unknown>;
+}
+
+export interface StageDetailItem {
+  symbol: string;
+  name?: string | null;
+  nameSource?: string | null;
+  status?: string | null;
+  pool: StagePoolId;
+  theme?: string | null;
+  industry?: string | null;
+  score?: number | null;
+  reasonCodes: string[];
+  selectionReasons: string[];
+  riskReasons: string[];
+  evidence: string[];
+  risks: string[];
+  invalidation: string[];
+  scoreBreakdown?: Record<string, unknown> | null;
+  sourceRefs: unknown[];
+  lineage?: Record<string, unknown> | null;
+  plan?: StageDetailPlan | null;
+}
+
+export interface StageDetailResponse {
+  runId: string;
+  laneId: string;
+  model?: string | null;
+  stage: string;
+  status?: string | null;
+  latencyMs?: number | null;
+  inputCount?: number | null;
+  outputCount?: number | null;
+  pools: StageDetailPool[];
+  pool: StagePoolId;
+  page: number;
+  pageSize: number;
+  total: number;
+  reasonOptions: string[];
+  items: StageDetailItem[];
+}
+
 export interface LaneSummary {
   laneId: string;
   model: string;

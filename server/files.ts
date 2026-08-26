@@ -8,6 +8,12 @@ import { LogStore } from "./logger.js";
 import type {
   JsonRecord,
   JsonValue,
+  ResearchPool,
+  ResearchStage,
+  ResearchStageDetail,
+  ResearchStageDetailItem,
+  ResearchStageDetailPlan,
+  ResearchStageDetailPool,
   StatusSnapshot,
   WorkflowProgressLane,
   WorkflowProgressStage,
@@ -16,11 +22,30 @@ import type {
 } from "./types.js";
 
 const MAX_JSON_BYTES = 8 * 1024 * 1024;
+const MAX_RESEARCH_JSON_BYTES = 64 * 1024 * 1024;
+const MAX_SNAPSHOT_JSON_BYTES = 64 * 1024 * 1024;
 const MAX_WORKFLOW_PROGRESS_BYTES = 256 * 1024;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,200}$/;
+const SAFE_SNAPSHOT_ID = /^[A-Za-z0-9][A-Za-z0-9._+\-]{0,200}$/;
 const SAFE_PROGRESS_TOKEN = /^[\p{L}\p{N}][\p{L}\p{N} ._:/+\-]{0,119}$/u;
 const MAX_PROGRESS_COUNT = 10_000_000;
 const MAX_PROGRESS_DURATION_MS = 10 ** 12;
+
+const RESEARCH_LANE_IDS = new Set(["lane_1", "lane_2", "lane_3"]);
+const RESEARCH_STAGES = new Set<ResearchStage>(["A1", "A2", "A3"]);
+const RESEARCH_POOLS = new Set<ResearchPool>(["approved", "watch", "rejected"]);
+const RESEARCH_POOL_LABELS: Record<ResearchStage, Record<ResearchPool, string>> = {
+  A1: { approved: "晋级研究", watch: "持续观察", rejected: "淘汰" },
+  A2: { approved: "聚焦候选", watch: "仅观察", rejected: "淘汰" },
+  A3: { approved: "核心计划", watch: "次级观察", rejected: "淘汰" },
+};
+const RESEARCH_POOL_KEYS: Record<ResearchStage, Record<ResearchPool, string>> = {
+  A1: { approved: "active_research_pool", watch: "monitor_pool", rejected: "rejected_candidates" },
+  A2: { approved: "focus_pool", watch: "watch_only_pool", rejected: "rejected_candidates" },
+  A3: { approved: "core_watch_pool", watch: "secondary_watch_pool", rejected: "rejected_candidates" },
+};
+const DETAIL_PAGE_SIZE_MAX = 100;
+const DETAIL_TEXT_MAX_LENGTH = 1_000;
 
 const PROGRESS_STATUS = new Set<WorkflowProgressStatus>([
   "RUNNING",
@@ -112,6 +137,18 @@ function laneBelongsToRun(name: string, runId: string): boolean {
   return name.startsWith(`${runId}_lane_`) || name.startsWith(`research_${runId}_lane_`);
 }
 
+export function isResearchLaneId(value: string): value is "lane_1" | "lane_2" | "lane_3" {
+  return RESEARCH_LANE_IDS.has(value);
+}
+
+export function isResearchStage(value: string): value is ResearchStage {
+  return RESEARCH_STAGES.has(value as ResearchStage);
+}
+
+export function isResearchPool(value: string): value is ResearchPool {
+  return RESEARCH_POOLS.has(value as ResearchPool);
+}
+
 export function resolveWithinRoot(rootDir: string, relativePath: string): string | null {
   if (!relativePath || relativePath.includes("\0")) return null;
   const portablePath = relativePath.replaceAll("\\", "/");
@@ -134,15 +171,179 @@ function isRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-async function readJson(path: string): Promise<JsonRecord | null> {
+async function readJson(path: string, maxBytes = MAX_JSON_BYTES): Promise<JsonRecord | null> {
   try {
     const metadata = await stat(path);
-    if (!metadata.isFile() || metadata.size > MAX_JSON_BYTES) return null;
+    if (!metadata.isFile() || metadata.size > maxBytes) return null;
     const parsed: unknown = JSON.parse(await readFile(path, { encoding: "utf8" }));
     return isRecord(parsed) ? parsed : null;
   } catch {
     return null;
   }
+}
+
+function numberValue(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function boundedText(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const text = value.trim();
+  return text ? text.slice(0, DETAIL_TEXT_MAX_LENGTH) : null;
+}
+
+function boundedStringList(value: unknown): string[] {
+  const values = typeof value === "string" ? [value] : Array.isArray(value) ? value : [];
+  const output: string[] = [];
+  for (const item of values) {
+    const text = boundedText(item);
+    if (text && !output.includes(text)) output.push(text);
+  }
+  return output;
+}
+
+function firstString(record: JsonRecord, keys: readonly string[]): string | null {
+  for (const key of keys) {
+    const value = boundedText(record[key]);
+    if (value) return value;
+  }
+  return null;
+}
+
+function firstNumber(record: JsonRecord, keys: readonly string[]): number | null {
+  for (const key of keys) {
+    const value = numberValue(record[key]);
+    if (value !== null) return value;
+  }
+  return null;
+}
+
+function normalizedSymbol(value: JsonRecord): string | null {
+  const direct = firstString(value, ["symbol", "thscode"]);
+  if (direct) return direct;
+  const code = firstString(value, ["code", "ticker"]);
+  const exchange = firstString(value, ["exchange", "market"]);
+  return code ? (exchange ? `${code}.${exchange.toUpperCase()}` : code) : null;
+}
+
+function rawArray(value: unknown): readonly unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function asSafeJson(value: unknown): JsonValue | null {
+  return value === undefined ? null : sanitizeJson(value);
+}
+
+function industryText(value: JsonRecord): string | null {
+  const direct = firstString(value, ["industry", "industry_name", "primary_industry"]);
+  if (direct) return direct;
+  const industries = rawArray(value.ths_industries);
+  const names = industries
+    .map((item) => isRecord(item) ? firstString(item, ["industry_name", "name", "industry"]) : null)
+    .filter((item): item is string => item !== null);
+  return names.length ? [...new Set(names)].join(" / ") : null;
+}
+
+function collectReasonCodes(value: JsonRecord): string[] {
+  return boundedStringList(value.reason_codes ?? value.reasonCodes);
+}
+
+function collectTextFields(value: JsonRecord, keys: readonly string[]): string[] {
+  const output: string[] = [];
+  for (const key of keys) {
+    for (const item of boundedStringList(value[key])) {
+      if (!output.includes(item)) output.push(item);
+    }
+  }
+  return output;
+}
+
+function optionalRecord(value: unknown): JsonRecord | null {
+  return isRecord(value) ? value : null;
+}
+
+function lineageValue(value: JsonRecord): JsonValue | null {
+  const fields: JsonRecord = {};
+  const mappings: readonly [string, readonly string[]][] = [
+    ["candidateId", ["candidate_id", "candidateId"]],
+    ["parentCandidateId", ["parent_candidate_id", "parentCandidateId"]],
+    ["origin", ["origin"]],
+    ["themeId", ["theme_id", "themeId"]],
+    ["parentThemeId", ["parent_theme_id", "parentThemeId"]],
+    ["marketRole", ["market_role", "marketRole"]],
+  ];
+  for (const [outputKey, keys] of mappings) {
+    const field = firstString(value, keys);
+    if (field) fields[outputKey] = field;
+  }
+  return Object.keys(fields).length ? sanitizeJson(fields) : null;
+}
+
+function timeframeStates(value: JsonRecord): JsonValue | null {
+  const states: JsonRecord = {};
+  const stateKeys = ["weekly_state", "daily_state", "m120_state", "m15_state", "m5_state", "weekly", "daily", "m120", "m15", "m5"] as const;
+  for (const key of stateKeys) {
+    if (value[key] !== undefined) states[key] = value[key];
+  }
+  if (value.ma_analysis !== undefined) states.maAnalysis = value.ma_analysis;
+  return Object.keys(states).length ? sanitizeJson(states) : null;
+}
+
+function planValue(value: JsonRecord): ResearchStageDetailPlan | null {
+  const trigger = optionalRecord(value.trigger_zone ?? value.triggerZone);
+  const triggerZone = trigger
+    ? sanitizeJson({ low: numberValue(trigger.low), high: numberValue(trigger.high) })
+    : null;
+  const confirmationConditions = collectTextFields(value, ["confirmation_conditions", "confirmationConditions"]);
+  const scenarios = value.scenarios === undefined ? null : asSafeJson(value.scenarios);
+  const timeframe = timeframeStates(value);
+  const plan: ResearchStageDetailPlan = {
+    setupType: firstString(value, ["setup_type", "setupType"]),
+    triggerZone,
+    invalidationLevel: firstNumber(value, ["invalidation_level", "invalidationLevel"]),
+    rewardRisk: firstNumber(value, ["reward_risk", "rewardRisk"]),
+    stopDistancePct: firstNumber(value, ["stop_distance_pct", "stopDistancePct"]),
+    riskUnit: firstNumber(value, ["risk_unit", "riskUnit"]),
+    planId: firstString(value, ["plan_id", "planId"]),
+    planExpiry: firstString(value, ["plan_expiry", "planExpiry"]),
+    confirmationConditions,
+    scenarios,
+    timeframeStates: timeframe,
+  };
+  return plan.setupType || plan.triggerZone || plan.invalidationLevel !== null || plan.rewardRisk !== null
+    || plan.stopDistancePct !== null || plan.riskUnit !== null || plan.planId || plan.planExpiry
+    || plan.confirmationConditions.length || plan.scenarios || plan.timeframeStates
+    ? plan
+    : null;
+}
+
+interface NameCatalogEntry {
+  readonly name: string;
+  readonly source: "lane_a1" | "snapshot";
+}
+
+function addNamesFromArray(catalog: Map<string, NameCatalogEntry>, value: unknown, source: NameCatalogEntry["source"]): void {
+  for (const item of rawArray(value)) {
+    if (!isRecord(item)) continue;
+    const symbol = normalizedSymbol(item);
+    const name = firstString(item, ["company_name", "name", "sec_name"]);
+    if (symbol && name && !catalog.has(symbol)) catalog.set(symbol, { name, source });
+  }
+}
+
+function rootChild(rootDir: string, candidate: string): string | null {
+  const root = resolve(rootDir);
+  const path = resolve(candidate);
+  const child = relative(root, path);
+  if (child === "" || child === ".." || child.startsWith(`..${sep}`) || child.startsWith("../") || child.startsWith("..\\") || isAbsolute(child)) return null;
+  return path;
+}
+
+function resolveSafeReference(rootDir: string, value: string): string | null {
+  if (!value || value.includes("\0")) return null;
+  if (isAbsolute(value)) return rootChild(rootDir, value);
+  const safe = resolveWithinRoot(rootDir, value);
+  return safe ? rootChild(rootDir, safe) : null;
 }
 
 async function listFiles(rootDir: string, directory: string, pattern: RegExp): Promise<{ path: string; name: string; mtimeMs: number }[]> {
@@ -469,6 +670,74 @@ export interface DataSourceSummary {
   readonly checks: JsonValue | null;
 }
 
+function normalizeResearchItem(
+  value: unknown,
+  pool: ResearchPool,
+  stage: ResearchStage,
+  names: ReadonlyMap<string, NameCatalogEntry>,
+): ResearchStageDetailItem | null {
+  if (!isRecord(value)) return null;
+  const symbol = normalizedSymbol(value);
+  if (!symbol) return null;
+  const modelName = firstString(value, ["company_name", "name", "sec_name"]);
+  const catalogName = names.get(symbol);
+  const name = modelName ?? catalogName?.name ?? null;
+  const nameSource: ResearchStageDetailItem["nameSource"] = modelName
+    ? "model"
+    : catalogName?.source ?? "unavailable";
+  const score = stage === "A1"
+    ? firstNumber(value, ["structural_score", "score"])
+    : stage === "A2"
+      ? firstNumber(value, ["theme_score", "score"])
+      : firstNumber(value, ["technical_score", "score"]);
+  const selectionReasons = stage === "A1"
+    ? collectTextFields(value, ["core_thesis", "selection_reasons", "supporting_evidence"])
+    : stage === "A2"
+      ? collectTextFields(value, ["selection_reasons", "role_evidence", "supporting_evidence"])
+      : collectTextFields(value, ["selection_reasons", "confirmation_conditions", "setup_type"]);
+  const riskReasons = stage === "A1"
+    ? collectTextFields(value, ["bear_case", "risk_reasons", "risk_flags"])
+    : stage === "A2"
+      ? collectTextFields(value, ["risk_reasons", "riskReasons", "risk_flags", "contradicting_evidence"])
+      : collectTextFields(value, ["risk_reasons", "riskReasons", "risk_flags", "veto_triggered"]);
+  const evidence = collectTextFields(value, ["evidence", "role_evidence", "supporting_evidence", "core_thesis"]);
+  const risks = collectTextFields(value, ["bear_case", "risk_reasons", "riskReasons", "risk_flags", "contradicting_evidence"]);
+  const invalidation = collectTextFields(value, ["invalidation_conditions", "invalidation", "veto_triggered"]);
+  const sourceRefs = asSafeJson(value.source_refs ?? value.sourceRefs ?? []) ?? [];
+  const scoreBreakdown = asSafeJson(value.score_breakdown ?? value.scoreBreakdown);
+  const theme = firstString(value, ["primary_theme", "theme", "theme_id", "themeId"]);
+  const lineage = lineageValue(value);
+  const plan = planValue(value);
+  return {
+    symbol,
+    name,
+    nameSource,
+    status: firstString(value, ["status", "state"]),
+    pool,
+    theme,
+    industry: industryText(value),
+    score,
+    reasonCodes: collectReasonCodes(value),
+    selectionReasons,
+    riskReasons,
+    evidence,
+    risks,
+    invalidation,
+    scoreBreakdown,
+    sourceRefs,
+    lineage,
+    plan,
+  };
+}
+
+function stageOutput(stage: JsonRecord): JsonRecord | null {
+  return optionalRecord(stage.output);
+}
+
+function researchLaneFileNames(runId: string, laneId: string): readonly string[] {
+  return [`research_${runId}_${laneId}.json`, `${runId}_${laneId}.json`];
+}
+
 export class ProjectFiles {
   private readonly statusReader: PythonStatusReader;
 
@@ -522,7 +791,7 @@ export class ProjectFiles {
     const lanes: JsonValue[] = [];
     for (const laneFile of laneFiles) {
       if (!laneBelongsToRun(laneFile.name, runId)) continue;
-      const lane = await readJson(laneFile.path);
+      const lane = await readJson(laneFile.path, MAX_RESEARCH_JSON_BYTES);
       if (lane) lanes.push(sanitizeJson(lane));
     }
     const summary: WorkflowRunSummary = {
@@ -543,10 +812,154 @@ export class ProjectFiles {
     const lanes: JsonValue[] = [];
     for (const file of files) {
       if (!laneBelongsToRun(file.name, runId)) continue;
-      const payload = await readJson(file.path);
+      const payload = await readJson(file.path, MAX_RESEARCH_JSON_BYTES);
       if (payload) lanes.push(sanitizeJson(payload));
     }
     return lanes;
+  }
+
+  private async researchLane(runId: string, laneId: string): Promise<JsonRecord | null> {
+    if (!SAFE_ID.test(runId) || !isResearchLaneId(laneId)) return null;
+    for (const fileName of researchLaneFileNames(runId, laneId)) {
+      const path = resolveWithinRoot(this.config.rootDir, join("outputs/research", fileName));
+      if (!path) continue;
+      const payload = await readJson(path, MAX_RESEARCH_JSON_BYTES);
+      if (payload && payload.lane === laneId) return payload;
+    }
+    return null;
+  }
+
+  private async researchNameCatalog(runId: string, lane: JsonRecord): Promise<Map<string, NameCatalogEntry>> {
+    const catalog = new Map<string, NameCatalogEntry>();
+    const stages = rawArray(lane.stages);
+    const a1 = stages.find((item) => isRecord(item) && item.stage === "A1");
+    const a1Output = a1 && isRecord(a1) ? stageOutput(a1) : null;
+    if (a1Output) {
+      for (const key of Object.values(RESEARCH_POOL_KEYS.A1)) addNamesFromArray(catalog, a1Output[key], "lane_a1");
+    }
+
+    const snapshotPayload = await this.researchSnapshot(runId, lane);
+    if (snapshotPayload) {
+      const data = optionalRecord(snapshotPayload.data);
+      for (const source of [snapshotPayload, data]) {
+        if (!source) continue;
+        addNamesFromArray(catalog, source.trade_candidates, "snapshot");
+        addNamesFromArray(catalog, source.universe_candidates, "snapshot");
+      }
+    }
+    return catalog;
+  }
+
+  private async researchSnapshot(runId: string, lane: JsonRecord): Promise<JsonRecord | null> {
+    const runPath = resolveWithinRoot(this.config.rootDir, join("outputs/runs", `${runId}.json`));
+    const run = runPath ? await readJson(runPath) : null;
+    const snapshot = run ? optionalRecord(run.snapshot) : null;
+    const snapshotReference = snapshot ? firstString(snapshot, ["path"]) : null;
+    let snapshotPath = snapshotReference ? resolveSafeReference(this.config.rootDir, snapshotReference) : null;
+    if (!snapshotPath) {
+      for (const stage of rawArray(lane.stages)) {
+        if (!isRecord(stage)) continue;
+        const envelope = optionalRecord(stageOutput(stage)?.envelope);
+        const snapshotId = firstString(stage, ["snapshot_id", "snapshotId"])
+          ?? rawArray(envelope?.input_snapshot_ids).map((item) => boundedText(item)).find((item): item is string => Boolean(item));
+        if (!snapshotId || !SAFE_SNAPSHOT_ID.test(snapshotId)) continue;
+        snapshotPath = resolveWithinRoot(this.config.rootDir, join("storage/snapshots", `${snapshotId}.json`));
+        if (snapshotPath) break;
+      }
+    }
+    return snapshotPath ? readJson(snapshotPath, MAX_SNAPSHOT_JSON_BYTES) : null;
+  }
+
+  private async researchInputCount(runId: string, lane: JsonRecord, stages: readonly unknown[], stageIndex: number): Promise<number | null> {
+    if (stageIndex > 0) {
+      const previous = stages[stageIndex - 1];
+      return isRecord(previous) && Array.isArray(previous.symbols) ? rawArray(previous.symbols).length : null;
+    }
+    const runPath = resolveWithinRoot(this.config.rootDir, join("outputs/runs", `${runId}.json`));
+    const run = runPath ? await readJson(runPath) : null;
+    const snapshot = run ? optionalRecord(run.snapshot) : null;
+    const runCount = snapshot ? numberValue(snapshot.selected_count ?? snapshot.selectedCount) : null;
+    if (runCount !== null) return runCount;
+    const snapshotPayload = await this.researchSnapshot(runId, lane);
+    const data = snapshotPayload ? optionalRecord(snapshotPayload.data) : null;
+    const manifest = data ? optionalRecord(data.snapshot_manifest ?? data.snapshotManifest) : null;
+    return manifest ? numberValue(manifest.selected_count ?? manifest.selectedCount) : null;
+  }
+
+  public async researchStageDetail(
+    runId: string,
+    laneId: string,
+    stage: string,
+    pool: string,
+    page = 1,
+    pageSize = 50,
+    query = "",
+    reason = "",
+  ): Promise<ResearchStageDetail | null> {
+    if (!SAFE_ID.test(runId) || !isResearchLaneId(laneId) || !isResearchStage(stage) || !isResearchPool(pool)) return null;
+    const lane = await this.researchLane(runId, laneId);
+    if (!lane) return null;
+    const stages = rawArray(lane.stages);
+    const stageIndex = stages.findIndex((item) => isRecord(item) && item.stage === stage);
+    const stageRecord = stageIndex >= 0 ? stages[stageIndex] : undefined;
+    if (!isRecord(stageRecord)) return null;
+    const stageKey = stage as ResearchStage;
+    const poolKey = pool as ResearchPool;
+    const output = stageOutput(stageRecord);
+    const names = await this.researchNameCatalog(runId, lane);
+    const normalizedPools = new Map<ResearchPool, ResearchStageDetailItem[]>();
+    for (const candidatePool of ["approved", "watch", "rejected"] as const) {
+      const rawItems = output ? rawArray(output[RESEARCH_POOL_KEYS[stageKey][candidatePool]]) : [];
+      const items = rawItems
+        .map((item) => normalizeResearchItem(item, candidatePool, stageKey, names))
+        .filter((item): item is ResearchStageDetailItem => item !== null);
+      normalizedPools.set(candidatePool, items);
+    }
+    const allPools: ResearchStageDetailPool[] = (["approved", "watch", "rejected"] as const).map((candidatePool) => ({
+      id: candidatePool,
+      label: RESEARCH_POOL_LABELS[stageKey][candidatePool],
+      count: normalizedPools.get(candidatePool)?.length ?? 0,
+    }));
+    const selectedItems = normalizedPools.get(poolKey) ?? [];
+    const reasonOptions: string[] = [];
+    const reasonSet = new Set<string>();
+    for (const item of selectedItems) {
+      for (const code of item.reasonCodes) {
+        if (reasonSet.has(code)) continue;
+        reasonSet.add(code);
+        reasonOptions.push(code);
+      }
+    }
+    const search = boundedText(query)?.toLocaleLowerCase() ?? "";
+    const reasonFilter = boundedText(reason) ?? "";
+    const filtered = selectedItems.filter((item) => {
+      const queryMatch = !search || item.symbol.toLocaleLowerCase().includes(search) || (item.name?.toLocaleLowerCase().includes(search) ?? false);
+      const reasonMatch = !reasonFilter || item.reasonCodes.includes(reasonFilter);
+      return queryMatch && reasonMatch;
+    });
+    const safePage = Number.isSafeInteger(page) && page > 0 ? page : 1;
+    const safePageSize = Number.isSafeInteger(pageSize) && pageSize > 0 ? Math.min(pageSize, DETAIL_PAGE_SIZE_MAX) : 50;
+    const offset = (safePage - 1) * safePageSize;
+    const symbols = rawArray(stageRecord.symbols);
+    const outputCount = Array.isArray(stageRecord.symbols) ? symbols.length : null;
+    const inputCount = await this.researchInputCount(runId, lane, stages, stageIndex);
+    return {
+      runId,
+      laneId,
+      model: firstString(lane, ["model"]) ?? firstString(stageRecord, ["model"]),
+      stage: stageKey,
+      status: firstString(stageRecord, ["status"]),
+      latencyMs: numberValue(stageRecord.latency_ms ?? stageRecord.latencyMs),
+      inputCount,
+      outputCount,
+      pools: allPools,
+      pool: poolKey,
+      page: safePage,
+      pageSize: safePageSize,
+      total: filtered.length,
+      reasonOptions,
+      items: filtered.slice(offset, offset + safePageSize),
+    };
   }
 
   public async monitor(): Promise<{ readonly latest: JsonValue | null; readonly effectiveSignals: string | null; readonly events: readonly JsonValue[] }> {

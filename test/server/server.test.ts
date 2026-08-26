@@ -1,4 +1,5 @@
 import { mkdtemp, mkdir, utimes, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
@@ -6,13 +7,123 @@ import { expect, test } from "vitest";
 import type { Request } from "express";
 
 import { tokenMatches } from "../../server/auth.js";
+import { createApp } from "../../server/api.js";
 import { loadConfig } from "../../server/config.js";
+import { DashboardData } from "../../server/dashboard.js";
 import { ProjectFiles, resolveWithinRoot } from "../../server/files.js";
 import { LogStore } from "../../server/logger.js";
 import { redactText, sanitizeJson } from "../../server/redaction.js";
 import { JobRunner, timeoutForJob, waitForProcessExit } from "../../server/runner.js";
 import { WorkflowScheduler } from "../../server/scheduler.js";
 import type { JobRunRecord } from "../../server/types.js";
+
+async function createResearchDetailFixture(): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), "liangjian-stage-detail-"));
+  await mkdir(join(root, "outputs", "research"), { recursive: true });
+  await mkdir(join(root, "outputs", "runs"), { recursive: true });
+  await mkdir(join(root, "storage", "snapshots"), { recursive: true });
+  await writeFile(join(root, "outputs", "runs", "fixture-run.json"), JSON.stringify({
+    run_id: "fixture-run",
+    snapshot: { path: "storage/snapshots/fixture-snapshot.json", selected_count: 7 },
+  }));
+  await writeFile(join(root, "storage", "snapshots", "fixture-snapshot.json"), JSON.stringify({
+    data: {
+      trade_candidates: [{ symbol: "600002.SZ", name: "快照补全" }],
+    },
+  }));
+  await writeFile(join(root, "storage", "snapshots", "snapshot-replay+0800.json"), JSON.stringify({
+    data: {
+      snapshot_manifest: { selected_count: 1 },
+      universe_candidates: [{ symbol: "600004.SH", name: "回放快照名称" }],
+    },
+  }));
+  await writeFile(join(root, "outputs", "research", "research_fixture-run_lane_1.json"), JSON.stringify({
+    lane: "lane_1",
+    model: "fixture-model",
+    stages: [
+      {
+        stage: "A1",
+        status: "VALIDATED",
+        latency_ms: 123,
+        symbols: ["600001.SH", "600002.SZ", "600003.SH"],
+        output: {
+          active_research_pool: [{
+            symbol: "600001.SH",
+            company_name: "模型名称",
+            primary_theme: "人工智能",
+            ths_industries: [{ industry_name: "软件开发" }],
+            structural_score: 88.5,
+            core_thesis: ["收入增长", "现金流改善"],
+            bear_case: ["估值偏高"],
+            invalidation_conditions: ["收入增速跌破20%"],
+            score_breakdown: { financial_quality: 90 },
+            reason_codes: ["QUALITY_PASS"],
+            source_refs: ["fixture-source"],
+          }],
+          monitor_pool: [{
+            symbol: "600002.SZ",
+            reason_codes: ["WAIT_CONFIRMATION"],
+            evidence: ["等待趋势确认"],
+          }],
+          rejected_candidates: [{
+            symbol: "600003.SH",
+            reason_codes: ["LOW_PROFITABILITY"],
+            veto_triggered: "盈利能力不足",
+          }],
+        },
+      },
+      {
+        stage: "A2",
+        status: "VALIDATED",
+        latency_ms: 456,
+        symbols: ["600001.SH", "600002.SZ"],
+        output: {
+          focus_pool: [{ symbol: "600001.SH", theme_score: 72, selection_reasons: ["主题强度"] }],
+          watch_only_pool: [{ symbol: "600002.SZ", reason_codes: ["WAIT_CONFIRMATION"] }],
+          rejected_candidates: [{ symbol: "600003.SH", reason_codes: ["THEME_WEAK"] }],
+        },
+      },
+      {
+        stage: "A3",
+        status: "VALIDATED",
+        latency_ms: 789,
+        symbols: ["600001.SH"],
+        output: {
+          core_watch_pool: [{
+            symbol: "600001.SH",
+            technical_score: 81,
+            setup_type: "BREAKOUT_RETEST",
+            trigger_zone: { low: 10, high: 11 },
+            invalidation_level: 9.5,
+            reward_risk: 2.4,
+            stop_distance_pct: 4.5,
+            risk_unit: 0.01,
+            plan_id: "fixture-plan",
+            plan_expiry: "2026-08-27T15:00:00+08:00",
+            confirmation_conditions: ["VWAP_RECLAIM"],
+            daily_state: "UPTREND",
+            m5_state: "BREAKOUT",
+            scenarios: { normal_open_plan: { action: "ENTER" } },
+          }],
+          secondary_watch_pool: [],
+          rejected_candidates: [{ symbol: "600003.SH", reason_codes: ["REWARD_RISK_TOO_LOW"] }],
+        },
+      },
+    ],
+  }));
+  await writeFile(join(root, "outputs", "research", "research_replay-run_lane_1.json"), JSON.stringify({
+    lane: "lane_1",
+    model: "fixture-model",
+    stages: [{
+      stage: "A1",
+      status: "VALIDATED",
+      snapshot_id: "snapshot-replay+0800",
+      symbols: [],
+      output: { active_research_pool: [], monitor_pool: [], rejected_candidates: [{ symbol: "600004.SH", reason_codes: ["TEST_REJECT"] }] },
+    }],
+  }));
+  return root;
+}
 
 function requestWithAuthorization(value: string | undefined): Request {
   return {
@@ -72,6 +183,121 @@ test("reads and sorts fixed workflow run files without accepting arbitrary paths
   const runs = await files.listRuns(10);
   expect(runs.map((run) => run.runId)).toEqual(["new", "old"]);
   expect(await files.getRun("../old")).toBeNull();
+});
+
+test("projects paginated research stage pools with names, reasons, and allow-listed detail", async () => {
+  const root = await createResearchDetailFixture();
+  const config = loadConfig({ LIANGJIAN_PYTHON_BIN: "python3" }, root);
+  const files = new ProjectFiles(config, new LogStore(config));
+
+  const approved = await files.researchStageDetail("fixture-run", "lane_1", "A1", "approved", 1, 1, "模型名称", "QUALITY_PASS");
+  expect(approved).toMatchObject({
+    runId: "fixture-run",
+    laneId: "lane_1",
+    model: "fixture-model",
+    stage: "A1",
+    latencyMs: 123,
+    outputCount: 3,
+    inputCount: 7,
+    pool: "approved",
+    page: 1,
+    pageSize: 1,
+    total: 1,
+    reasonOptions: ["QUALITY_PASS"],
+  });
+  expect(approved?.pools).toEqual([
+    { id: "approved", label: "晋级研究", count: 1 },
+    { id: "watch", label: "持续观察", count: 1 },
+    { id: "rejected", label: "淘汰", count: 1 },
+  ]);
+  expect(approved?.items[0]).toMatchObject({
+    symbol: "600001.SH",
+    name: "模型名称",
+    nameSource: "model",
+    theme: "人工智能",
+    industry: "软件开发",
+    score: 88.5,
+    reasonCodes: ["QUALITY_PASS"],
+    selectionReasons: ["收入增长", "现金流改善"],
+    riskReasons: ["估值偏高"],
+  });
+  expect(JSON.stringify(approved)).not.toContain("raw");
+
+  const snapshotName = await files.researchStageDetail("fixture-run", "lane_1", "A1", "watch", 1, 50, "600002", "WAIT_CONFIRMATION");
+  expect(snapshotName?.items[0]).toMatchObject({ symbol: "600002.SZ", name: "快照补全", nameSource: "snapshot" });
+
+  const laneName = await files.researchStageDetail("fixture-run", "lane_1", "A2", "approved", 1, 50, "600001", "");
+  expect(laneName).toMatchObject({ inputCount: 3, outputCount: 2, reasonOptions: [] });
+  expect(laneName?.items[0]).toMatchObject({ symbol: "600001.SH", name: "模型名称", nameSource: "lane_a1" });
+  expect(laneName?.pools).toEqual([
+    { id: "approved", label: "聚焦候选", count: 1 },
+    { id: "watch", label: "仅观察", count: 1 },
+    { id: "rejected", label: "淘汰", count: 1 },
+  ]);
+
+  const a3 = await files.researchStageDetail("fixture-run", "lane_1", "A3", "approved", 1, 50);
+  expect(a3).toMatchObject({ inputCount: 2, outputCount: 1, reasonOptions: [] });
+  expect(a3?.pools).toEqual([
+    { id: "approved", label: "核心计划", count: 1 },
+    { id: "watch", label: "次级观察", count: 0 },
+    { id: "rejected", label: "淘汰", count: 1 },
+  ]);
+  expect(a3?.items[0]).toMatchObject({
+    symbol: "600001.SH",
+    plan: {
+      setupType: "BREAKOUT_RETEST",
+      triggerZone: { low: 10, high: 11 },
+      invalidationLevel: 9.5,
+      rewardRisk: 2.4,
+      stopDistancePct: 4.5,
+      planId: "fixture-plan",
+      timeframeStates: { daily_state: "UPTREND", m5_state: "BREAKOUT" },
+    },
+  });
+
+  const replay = await files.researchStageDetail("replay-run", "lane_1", "A1", "rejected", 1, 50);
+  expect(replay).toMatchObject({ inputCount: 1, outputCount: 0, total: 1 });
+  expect(replay?.items[0]).toMatchObject({ symbol: "600004.SH", name: "回放快照名称", nameSource: "snapshot" });
+});
+
+test("rejects invalid stage detail parameters and preserves dashboard authentication", async () => {
+  const root = await createResearchDetailFixture();
+  const config = loadConfig({ LIANGJIAN_PYTHON_BIN: "python3", LIANGJIAN_DASHBOARD_TOKEN: "fixture-token" }, root);
+  const logger = new LogStore(config);
+  const runner = new JobRunner(config, logger);
+  const scheduler = new WorkflowScheduler(runner, logger);
+  const dashboard = new DashboardData(config, new ProjectFiles(config, logger), runner, scheduler, logger);
+  const server = createServer(createApp({ config, dashboard, runner, scheduler, logger, startedAt: Date.now() }));
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => resolve());
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("fixture server did not bind to a TCP port");
+  const base = `http://127.0.0.1:${address.port}`;
+  try {
+    const unauthorized = await fetch(`${base}/api/research/runs/fixture-run/lanes/lane_1/stages/A1?pool=approved`);
+    expect(unauthorized.status).toBe(401);
+    const invalidLane = await fetch(`${base}/api/research/runs/fixture-run/lanes/lane_9/stages/A1?pool=approved`, {
+      headers: { Authorization: "Bearer fixture-token" },
+    });
+    expect(invalidLane.status).toBe(400);
+    const invalidPool = await fetch(`${base}/api/research/runs/fixture-run/lanes/lane_1/stages/A1?pool=all`, {
+      headers: { Authorization: "Bearer fixture-token" },
+    });
+    expect(invalidPool.status).toBe(400);
+    const valid = await fetch(`${base}/api/research/runs/fixture-run/lanes/lane_1/stages/A1?pool=watch&page=1&pageSize=1&q=快照补全`, {
+      headers: { Authorization: "Bearer fixture-token" },
+    });
+    expect(valid.status).toBe(200);
+    await expect(valid.json()).resolves.toMatchObject({ pool: "watch", total: 1, items: [{ symbol: "600002.SZ", name: "快照补全" }] });
+    const missing = await fetch(`${base}/api/research/runs/missing/lanes/lane_1/stages/A1?pool=approved`, {
+      headers: { Authorization: "Bearer fixture-token" },
+    });
+    expect(missing.status).toBe(404);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
 });
 
 test("returns null when the persisted workflow progress file is missing", async () => {
