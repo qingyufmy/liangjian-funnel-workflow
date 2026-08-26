@@ -102,7 +102,11 @@ def test_research_resume_marker_reuses_only_untampered_same_day_snapshot(tmp_pat
     )
     application.settings.snapshot_dir.mkdir(parents=True)
     as_of = datetime(2026, 8, 26, 15, 10, tzinfo=SHANGHAI)
-    data = {"g0_symbols": ["600519.SH"], "value": 1}
+    data = {
+        "G0_SCOPE_CONTRACT": "FULL_MARKET_CATALOG_V1",
+        "g0_symbols": ["600519.SH"],
+        "value": 1,
+    }
     digest = _hash_json(data)
     path = application.settings.snapshot_dir / "snapshot.json"
     path.write_text(
@@ -125,10 +129,10 @@ def test_research_resume_marker_reuses_only_untampered_same_day_snapshot(tmp_pat
             data=data,
         ),
         path=path,
-        full_universe_count=5_400,
-        research_universe_count=5_200,
-        trade_universe_count=5_000,
-        selected_count=5_000,
+        full_universe_count=1,
+        research_universe_count=1,
+        trade_universe_count=1,
+        selected_count=1,
         factor_ready_count=0,
     )
 
@@ -136,7 +140,7 @@ def test_research_resume_marker_reuses_only_untampered_same_day_snapshot(tmp_pat
     resumed = application._load_research_resume_snapshot("close", as_of)
     assert resumed is not None
     assert resumed.snapshot.snapshot_hash == digest
-    assert resumed.selected_count == 5_000
+    assert resumed.selected_count == 1
 
     path.write_text(path.read_text(encoding="utf-8").replace('"value": 1', '"value": 2'), encoding="utf-8")
     assert application._load_research_resume_snapshot("close", as_of) is None

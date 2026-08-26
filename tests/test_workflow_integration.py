@@ -8,7 +8,11 @@ from liangjian_funnel.data.mootdx import FetchResult, MinuteBar
 from liangjian_funnel.runtime.monitor import MonitorEngine
 from liangjian_funnel.runtime.simulation import PaperBroker, SimulationAction, SimulationConfig
 from liangjian_funnel.runtime.state import MonitorAction, PlanStatus, RuntimeStore
-from liangjian_funnel.pipeline.research import FrozenInputSnapshot as ResearchSnapshot
+from liangjian_funnel.pipeline.research import (
+    FrozenInputSnapshot as ResearchSnapshot,
+    LaneResult,
+    ResearchRunResult,
+)
 from liangjian_funnel.pipeline.research import _approved_symbols, _runtime_input
 from liangjian_funnel.workflow import (
     WorkflowApplication,
@@ -18,6 +22,7 @@ from liangjian_funnel.workflow import (
     _latest_required_5m_end,
     _minute_cache_ready,
     _plan_expiry,
+    _progress_stdout,
     _tightens,
 )
 
@@ -93,6 +98,76 @@ def test_workflow_plan_helpers_are_fail_closed():
     assert expiry.weekday() == 0
     compact = _compact_factor({"symbol": "600519.SH", "timeframes": {"5m": {"bars": [1, 2], "latest": {"close": 10}, "moving_averages": {"ma5": 9}, "ready": True}}})
     assert "bars" not in compact["timeframes"]["5m"]
+
+
+def test_plan_publication_blocks_symbols_without_trade_permission(tmp_path):
+    store = RuntimeStore(tmp_path / "runtime.sqlite3")
+    current = datetime(2026, 8, 26, 15, 10, tzinfo=TZ)
+    output = {
+        "core_watch_pool": [
+            {
+                "plan_id": "blocked-plan",
+                "symbol": "600519.SH",
+                "risk_unit": "STANDARD",
+                "trigger_zone": {"low": 10, "high": 11},
+                "invalidation_level": 9,
+            },
+            {
+                "plan_id": "allowed-plan",
+                "symbol": "000001.SZ",
+                "risk_unit": "STANDARD",
+                "trigger_zone": {"low": 10, "high": 11},
+                "invalidation_level": 9,
+            },
+        ]
+    }
+    result = ResearchRunResult(
+        run_id="run-full-market",
+        generated_at=current,
+        snapshot_id="snapshot-full-market",
+        snapshot_hash="a" * 64,
+        status="READY",
+        lanes=(LaneResult("lane_1", "model", "READY", (), output),),
+        audit_paths=(),
+        markdown_path=None,
+    )
+    app = SimpleNamespace(store=store)
+
+    publication = WorkflowApplication._publish_plans(
+        app,
+        result,
+        "close",
+        current,
+        snapshot_data={
+            "TRADABILITY_FLAGS": {
+                "600519.SH": {"tradable": False, "exclusion_reasons": ["ST_RISK"]},
+                "000001.SZ": {"tradable": True, "exclusion_reasons": []},
+            }
+        },
+    )
+
+    assert len(publication["created"]) == 1
+    assert store.list_execution_plans(lane_id="lane_1")[0]["symbol"] == "000001.SZ"
+    assert {
+        (item.get("symbol"), item["reason"])
+        for item in publication["blocked"]
+    } == {("600519.SH", "PLAN_SYMBOL_NOT_TRADABLE")}
+
+
+def test_workflow_progress_is_emitted_for_node_log_stream(capsys):
+    _progress_stdout(
+        {
+            "run_id": "data-sync",
+            "status": "RUNNING",
+            "phase": "DATA_SYNC",
+            "data": {"processed": 10, "total": 5562, "failures": 1},
+        }
+    )
+
+    output = capsys.readouterr().out
+    assert '"event":"WORKFLOW_PROGRESS"' in output
+    assert '"processed":10' in output
+    assert '"total":5562' in output
 
 
 def test_historical_trading_day_validation_does_not_regress_accounts():

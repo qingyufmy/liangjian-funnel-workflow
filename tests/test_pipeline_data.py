@@ -248,3 +248,38 @@ def test_frozen_snapshot_can_preserve_explicit_node_diversified_candidates():
             max_candidates=1,
             candidate_symbols=["300750.SZ"],
         )
+
+
+def test_full_market_freeze_keeps_research_only_and_trade_blocked_symbols():
+    universe = UniverseSnapshot.from_records(
+        [
+            {"thscode": "600519.SH", "name": "low turnover"},
+            {"thscode": "000001.SZ", "name": "normal"},
+            {"thscode": "830001.BJ", "name": "research only"},
+        ],
+        [
+            {"thscode": "600519.SH", "last_price": 10, "volume": 1, "turnover": 99},
+            {"thscode": "000001.SZ", "last_price": 10, "volume": 1, "turnover": 200},
+            {"thscode": "830001.BJ", "last_price": 10, "volume": 1, "turnover": 200},
+        ],
+        as_of=NOW,
+        gate_policy=UniverseGatePolicy(minimum_daily_turnover_cny=100),
+    )
+
+    frozen = FrozenInputSnapshot.freeze(
+        universe,
+        as_of=NOW,
+        max_candidates=3,
+        candidate_symbols=["600519.SH", "000001.SZ", "830001.BJ"],
+        candidate_domain="market",
+        retain_incomplete=True,
+    )
+
+    assert [item.symbol for item in frozen.g0_candidates] == [
+        "600519.SH",
+        "000001.SZ",
+        "830001.BJ",
+    ]
+    assert [item.symbol for item in frozen.g0_candidates if item.trade_eligible] == ["000001.SZ"]
+    assert "MINIMUM_TURNOVER_NOT_MET" in frozen.g0_candidates[0].exclusion_reasons
+    assert "BJ_RESEARCH_ONLY" in frozen.g0_candidates[2].exclusion_reasons

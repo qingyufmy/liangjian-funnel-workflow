@@ -322,6 +322,18 @@ class FrozenInputSnapshot(BaseModel):
 
         return self.technical_payload
 
+    @property
+    def g0_candidates(self) -> tuple[SecurityRecord, ...]:
+        """Return the explicitly frozen A1 input candidates.
+
+        ``trade_candidates`` is the historical serialized field name. A
+        formal full-market freeze may contain records whose deterministic
+        ``trade_eligible`` flag is false; execution permission comes from that
+        flag, not from the legacy collection name.
+        """
+
+        return self.trade_candidates
+
     @classmethod
     def freeze(
         cls,
@@ -340,6 +352,7 @@ class FrozenInputSnapshot(BaseModel):
         fundamental_fetcher: Callable[[str], Any] | None = None,
         max_candidates: int = 50,
         candidate_symbols: Sequence[str] | None = None,
+        candidate_domain: Literal["trade", "research", "market"] = "trade",
         retain_incomplete: bool = False,
     ) -> "FrozenInputSnapshot":
         if not isinstance(max_candidates, int) or isinstance(max_candidates, bool) or max_candidates < 1:
@@ -351,10 +364,16 @@ class FrozenInputSnapshot(BaseModel):
             requested = tuple(str(symbol).strip().upper() for symbol in candidate_symbols)
             if len(requested) > max_candidates or len(set(requested)) != len(requested):
                 raise ValueError("candidate_symbols must be unique and within max_candidates")
-            tradable = {candidate.symbol: candidate for candidate in universe.trade_candidates}
-            if any(symbol not in tradable for symbol in requested):
-                raise ValueError("candidate_symbols must be a subset of the tradable universe")
-            selected = tuple(tradable[symbol] for symbol in requested)
+            domains = {
+                "trade": universe.trade_candidates,
+                "research": universe.research_candidates,
+                "market": universe.records,
+            }
+            domain = {candidate.symbol: candidate for candidate in domains[candidate_domain]}
+            if any(symbol not in domain for symbol in requested):
+                label = "tradable" if candidate_domain == "trade" else candidate_domain
+                raise ValueError(f"candidate_symbols must be a subset of the {label} universe")
+            selected = tuple(domain[symbol] for symbol in requested)
         daily: dict[str, Any] = {_payload_key(key): _json_ready(value) for key, value in (daily_payload or {}).items()}
         fundamental: dict[str, Any] = {_payload_key(key): _json_ready(value) for key, value in (fundamental_payload or {}).items()}
         failures: list[CandidateFailure] = []

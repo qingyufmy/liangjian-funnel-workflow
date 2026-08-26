@@ -66,6 +66,8 @@ from .settings import Settings, load_yaml
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 _A4_FILE = "agent_4_intraday_signal_v2.txt"
+_G0_SCOPE_CONTRACT = "FULL_MARKET_CATALOG_V1"
+_RESEARCH_RESUME_SCHEMA = "liangjian-research-resume/1.1.0"
 
 
 class WorkflowError(RuntimeError):
@@ -189,7 +191,7 @@ class WorkflowApplication:
             if progress is not None:
                 progress.update_data(
                     processed=0,
-                    total=len(universe.trade_candidates),
+                    total=len(universe.records),
                     cache_hits=0,
                     cache_misses=0,
                     failures=0,
@@ -198,33 +200,35 @@ class WorkflowApplication:
 
             # A1 is node-first. Build the full THS reverse membership graph
             # before ordering companies. Industry nodes provide deterministic
-            # grouping and intra-node turnover order; the formal call retains
-            # every trade candidate instead of taking a global turnover slice.
+            # grouping and intra-node turnover order. The formal research call
+            # retains every catalog security; trade gates are labels here and
+            # are enforced only when an A3 plan is published/executed.
+            market_records = _market_universe_records(universe)
             industry_catalog = client.ths_index_catalog(tag="industry")
             full_membership = collect_ths_industry_membership(
                 client,
                 industry_catalog,
-                [candidate.symbol for candidate in universe.trade_candidates],
+                [candidate.symbol for candidate in market_records],
                 cache_dir=self.settings.fact_store_dir / "ths_industry",
                 as_of=current,
             )
             if not full_membership.ok or not full_membership.complete:
                 raise WorkflowError(f"THS_INDUSTRY_MEMBERSHIP_NOT_READY:{full_membership.reason_code}")
 
-            # Freeze the complete deterministic G0 trade universe.  Industry
+            # Freeze the complete deterministic G0 market universe. Industry
             # membership controls ordering and grouping only; it must not act
             # as a performance cap for the formal workflow.
-            selection_limit = len(universe.trade_candidates)
+            selection_limit = len(market_records)
             selected_symbols, g0_selection = select_industry_diversified_symbols(
-                universe.trade_candidates,
+                market_records,
                 full_membership,
                 limit=selection_limit,
                 top_n_per_node=top_n_per_node,
                 node_count_target=node_count_target,
             )
-            if set(selected_symbols) != {candidate.symbol for candidate in universe.trade_candidates}:
-                raise WorkflowError("A1_TRADE_UNIVERSE_SELECTION_INCOMPLETE")
-            record_by_symbol = {candidate.symbol: candidate for candidate in universe.trade_candidates}
+            if set(selected_symbols) != {candidate.symbol for candidate in market_records}:
+                raise WorkflowError("A1_MARKET_UNIVERSE_SELECTION_INCOMPLETE")
+            record_by_symbol = {candidate.symbol: candidate for candidate in market_records}
             selected = tuple(record_by_symbol[symbol] for symbol in selected_symbols)
             if progress is not None:
                 progress.set_phase("MARKET_FACT_SYNC")
@@ -426,9 +430,10 @@ class WorkflowApplication:
             fact_payload=fact_payload,
             max_candidates=selection_limit,
             candidate_symbols=selected_symbols,
+            candidate_domain="market",
             retain_incomplete=True,
         )
-        accepted_symbols = {candidate.symbol for candidate in frozen.trade_candidates}
+        accepted_symbols = {candidate.symbol for candidate in frozen.g0_candidates}
         g0_symbols = [symbol for symbol in selected_symbols if symbol in accepted_symbols]
         if not g0_symbols:
             raise WorkflowError("NO_FUNDAMENTAL_READY_CANDIDATES")
@@ -457,6 +462,7 @@ class WorkflowApplication:
             fact_payload=fact_payload,
             max_candidates=selection_limit,
             candidate_symbols=selected_symbols,
+            candidate_domain="market",
             retain_incomplete=True,
         )
         raw_path = self.settings.snapshot_dir / "raw" / f"{frozen.snapshot_id}.json"
@@ -470,7 +476,7 @@ class WorkflowApplication:
             g0_selection={
                 **final_g0_selection,
                 "selection_strategy": g0_selection.get("strategy"),
-                "trade_universe_selected_count": len(selected_symbols),
+                "market_universe_selected_count": len(selected_symbols),
                 "selected_count": len(g0_symbols),
                 "factor_ready_symbols": factor_ready,
                 "factor_ready_count": len(factor_ready),
@@ -538,7 +544,7 @@ class WorkflowApplication:
                 )
                 if not universe.ready:
                     raise WorkflowError("UNIVERSE_NOT_READY")
-                symbols = [candidate.symbol for candidate in universe.trade_candidates]
+                symbols = [candidate.symbol for candidate in _market_universe_records(universe)]
 
                 def on_progress(event: Mapping[str, Any]) -> None:
                     progress.update_data(
@@ -565,7 +571,9 @@ class WorkflowApplication:
                 "status": "READY" if not result.failures else "PARTIAL",
                 "as_of": current.isoformat(),
                 "universe_count": len(universe.records),
-                "trade_universe_count": len(symbols),
+                "data_universe_count": len(symbols),
+                "research_universe_count": len(universe.research_candidates),
+                "trade_universe_count": len(universe.trade_candidates),
                 "processed": result.processed,
                 "cache_hits": result.cache_hits,
                 "cache_misses": result.cache_misses,
@@ -867,7 +875,12 @@ class WorkflowApplication:
             )
             _progress_stdout(progress.snapshot())
             raise
-        publication = self._publish_plans(result, normalized_slot, datetime.now(SHANGHAI))
+        publication = self._publish_plans(
+            result,
+            normalized_slot,
+            datetime.now(SHANGHAI),
+            snapshot_data=prepared.snapshot.data,
+        )
         summary = {
             "run_id": run_id,
             "slot": normalized_slot,
@@ -907,7 +920,7 @@ class WorkflowApplication:
         atomic_write_json(
             self._research_resume_marker_path(slot, trade_date),
             {
-                "schema_version": "liangjian-research-resume/1.0.0",
+                "schema_version": _RESEARCH_RESUME_SCHEMA,
                 "slot": slot,
                 "trade_date": trade_date,
                 "status": status,
@@ -930,7 +943,7 @@ class WorkflowApplication:
             return None
         if (
             not isinstance(marker, Mapping)
-            or marker.get("schema_version") != "liangjian-research-resume/1.0.0"
+            or marker.get("schema_version") != _RESEARCH_RESUME_SCHEMA
             or marker.get("slot") != slot
             or marker.get("trade_date") != trade_date
             or marker.get("status") not in {"ACTIVE", "RETRYABLE"}
@@ -960,6 +973,17 @@ class WorkflowApplication:
             as_of = _aware(datetime.fromisoformat(str(payload["as_of"])))
             if as_of.date().isoformat() != trade_date:
                 return None
+            full_count = int(raw["full_universe_count"])
+            selected_count = int(raw["selected_count"])
+            g0_symbols = data.get("g0_symbols")
+            if (
+                data.get("G0_SCOPE_CONTRACT") != _G0_SCOPE_CONTRACT
+                or selected_count != full_count
+                or not isinstance(g0_symbols, list)
+                or len(g0_symbols) != full_count
+                or len(set(map(str, g0_symbols))) != full_count
+            ):
+                return None
             return PreparedSnapshot(
                 snapshot=ResearchSnapshot(
                     snapshot_id=snapshot_id,
@@ -968,10 +992,10 @@ class WorkflowApplication:
                     data=data,
                 ),
                 path=path,
-                full_universe_count=int(raw["full_universe_count"]),
+                full_universe_count=full_count,
                 research_universe_count=int(raw["research_universe_count"]),
                 trade_universe_count=int(raw["trade_universe_count"]),
-                selected_count=int(raw["selected_count"]),
+                selected_count=selected_count,
                 factor_ready_count=int(raw["factor_ready_count"]),
             )
         except (OSError, ValueError, TypeError, KeyError):
@@ -1321,9 +1345,10 @@ class WorkflowApplication:
         config_hash = digest_text(json.dumps(source_config, ensure_ascii=False, sort_keys=True, default=str))
         selected_records = [
             item.model_dump(mode="json")
-            for item in frozen.trade_candidates
+            for item in frozen.g0_candidates
             if item.symbol in set(g0_symbols)
         ]
+        trade_records = [item for item in selected_records if item.get("trade_eligible") is True]
         missing = {"available": False, "reason_code": "SOURCE_NOT_CONFIGURED"}
         facts = frozen.fact_payload.get("facts", {})
         if not isinstance(facts, Mapping):
@@ -1388,6 +1413,7 @@ class WorkflowApplication:
             regime_parameters = {}
         exchange_rules = _exchange_rules_for(self.settings.exchange_rules_path, as_of)
         values: dict[str, Any] = {
+            "G0_SCOPE_CONTRACT": _G0_SCOPE_CONTRACT,
             "snapshot_manifest": {
                 "as_of": as_of.isoformat(),
                 "frozen": True,
@@ -1406,7 +1432,8 @@ class WorkflowApplication:
                 "fact_coverage": frozen.fact_payload.get("coverage_by_fact_type", {}),
             },
             "g0_symbols": g0_symbols,
-            "trade_candidates": selected_records,
+            "g0_candidates": selected_records,
+            "trade_candidates": trade_records,
             "universe_candidates": selected_records,
             "RECENT_DAILY_BARS": {
                 key: value[-30:]
@@ -1440,7 +1467,7 @@ class WorkflowApplication:
                     "exclusion_reasons": list(item.exclusion_reasons),
                     "source": "frozen_g0_universe",
                 }
-                for item in frozen.trade_candidates
+                for item in frozen.g0_candidates
                 if item.symbol in g0_symbols
             },
             "EXCHANGE_RULES": exchange_rules,
@@ -1495,10 +1522,20 @@ class WorkflowApplication:
         values.update(_prompt_parameters(source_config))
         return values
 
-    def _publish_plans(self, result: ResearchRunResult, slot: str, now: datetime) -> dict[str, Any]:
+    def _publish_plans(
+        self,
+        result: ResearchRunResult,
+        slot: str,
+        now: datetime,
+        *,
+        snapshot_data: Mapping[str, Any],
+    ) -> dict[str, Any]:
         batch: list[dict[str, Any]] = []
         blocked: list[dict[str, str]] = []
         ready_lanes: list[str] = []
+        tradability_flags = snapshot_data.get("TRADABILITY_FLAGS")
+        if not isinstance(tradability_flags, Mapping):
+            tradability_flags = {}
         for lane in result.lanes:
             if lane.status != "READY" or not isinstance(lane.final_output, Mapping):
                 blocked.append({"lane": lane.lane, "reason": "LANE_NOT_READY"})
@@ -1525,6 +1562,15 @@ class WorkflowApplication:
                     or payload.get("stop_level") is None
                 ):
                     blocked.append({"lane": lane.lane, "symbol": symbol or "-", "reason": "PLAN_NOT_EXECUTABLE"})
+                    continue
+                flag = tradability_flags.get(symbol)
+                if not isinstance(flag, Mapping):
+                    blocked.append(
+                        {"lane": lane.lane, "symbol": symbol, "reason": "PLAN_TRADABILITY_EVIDENCE_MISSING"}
+                    )
+                    continue
+                if flag.get("tradable") is not True:
+                    blocked.append({"lane": lane.lane, "symbol": symbol, "reason": "PLAN_SYMBOL_NOT_TRADABLE"})
                     continue
                 logical = str(raw.get("plan_id") or _hash_json(raw)[:16])
                 plan_id = f"{result.run_id}:{lane.lane}:{logical}"
@@ -1977,6 +2023,19 @@ def _row_change(item: Any, _frozen: FrozenInputSnapshot) -> float:
     return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0.0
 
 
+def _market_universe_records(universe: UniverseSnapshot) -> tuple[Any, ...]:
+    """Return every canonical catalog security, independent of trade gates."""
+
+    records = tuple(
+        record
+        for record in universe.records
+        if "NOT_IN_CATALOG" not in record.exclusion_reasons
+    )
+    if len(records) != universe.lineage.catalog_record_count:
+        raise WorkflowError("MARKET_DATA_UNIVERSE_INCOMPLETE")
+    return records
+
+
 def _determine_market_regime(
     market_emotion: Mapping[str, Any],
     sector_cycle: Mapping[str, Any],
@@ -2413,6 +2472,7 @@ def _progress_stdout(state: Mapping[str, Any]) -> None:
         "cache_misses": data.get("cache_misses"),
         "failures": data.get("failures"),
     }
+    print(json.dumps(sanitize(payload), ensure_ascii=False, separators=(",", ":")), flush=True)
 
 
 def _compact_fundamental_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -2449,7 +2509,6 @@ def _int_or_zero(value: Any) -> int:
         return int(value or 0)
     except (TypeError, ValueError):
         return 0
-    print(json.dumps(sanitize(payload), ensure_ascii=False, separators=(",", ":")), flush=True)
 
 
 def _safe_reason_code(exc: BaseException) -> str:

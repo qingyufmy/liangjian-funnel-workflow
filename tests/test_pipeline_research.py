@@ -1214,6 +1214,17 @@ def test_canonical_frozen_snapshot_trade_candidates_are_g0(tmp_path: Path):
     assert result.status == "READY"
 
 
+def test_explicit_g0_symbols_take_priority_over_trade_subset():
+    from liangjian_funnel.pipeline.research import _extract_g0
+
+    assert _extract_g0(
+        {
+            "g0_symbols": ["600519.SH", "830001.BJ"],
+            "trade_candidates": [{"symbol": "600519.SH"}],
+        }
+    ) == {"600519.SH", "830001.BJ"}
+
+
 def test_symbol_scanner_normalizes_prompt_prefix_exchange_format():
     assert _scan_symbols({"a": "SHSE.600519", "b": ["SZSE.000001", "BJSE.430047"]}) == {
         "600519.SH",

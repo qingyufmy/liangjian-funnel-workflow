@@ -1946,14 +1946,19 @@ def _coerce_snapshot(snapshot: FrozenInputSnapshot | Mapping[str, Any] | Any) ->
 
 def _extract_g0(data: Mapping[str, Any]) -> set[str]:
     candidates: list[Any] = []
-    # The canonical frozen snapshot exposes these typed candidate collections.
-    # ``trade_candidates`` is preferred because it is the deterministic,
-    # tradable G0 passed to the research chain; the generic mapping form still
-    # accepts the broader universe aliases below.
-    preferred = data.get("trade_candidates")
-    if preferred is not None:
-        candidates.append(preferred)
-    else:
+    # Formal snapshots declare the complete A1 research domain explicitly.
+    # Trade eligibility is a later publication/execution gate and must never
+    # shrink G0 before the research funnel starts.
+    for preferred_key in ("g0_symbols", "g0_candidates"):
+        preferred = data.get(preferred_key)
+        if preferred is not None:
+            candidates.append(preferred)
+            break
+    if not candidates:
+        preferred = data.get("trade_candidates")
+        if preferred is not None:
+            candidates.append(preferred)
+    if not candidates:
         for key, value in data.items():
             normalized = str(key).lower().replace("-", "_")
             if normalized in {
