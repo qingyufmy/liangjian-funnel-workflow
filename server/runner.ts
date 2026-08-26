@@ -19,6 +19,14 @@ export interface ReadOnlyCommandResult {
   readonly timedOut: boolean;
 }
 
+export function timeoutForJob(job: JobName, configuredTimeoutMs: number): number | null {
+  // The close workflow must traverse the complete G0 universe. Its transport
+  // and model calls retain their own bounded timeouts, but the orchestration
+  // process must not be killed merely because all batches take more than the
+  // control-plane default. Morning review and minute monitoring stay bounded.
+  return job === "close" ? null : configuredTimeoutMs;
+}
+
 export function waitForProcessExit(child: ChildProcess, timeoutMs: number): Promise<boolean> {
   if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true);
   return new Promise<boolean>((resolve) => {
@@ -133,23 +141,13 @@ export class JobRunner {
     const result = await new Promise<JobRunRecord>((resolve) => {
       let settled = false;
       let timedOut = false;
+      let timer: NodeJS.Timeout | null = null;
       let escalationTimer: NodeJS.Timeout | null = null;
       let hardFinishTimer: NodeJS.Timeout | null = null;
-      const timer = setTimeout(() => {
-        timedOut = true;
-        this.logger.error(`任务超时，终止 ${definition.command}`, { job, runId });
-        child.kill("SIGTERM");
-        escalationTimer = setTimeout(() => {
-          if (settled) return;
-          this.logger.error(`SIGTERM 未结束任务，发送 SIGKILL ${definition.command}`, { job, runId });
-          child.kill("SIGKILL");
-          hardFinishTimer = setTimeout(() => finish(null, "SIGKILL"), 2_000);
-        }, 10_000);
-      }, this.config.jobTimeoutMs);
       const finish = (exitCode: number | null, signal: NodeJS.Signals | null): void => {
         if (settled) return;
         settled = true;
-        clearTimeout(timer);
+        if (timer) clearTimeout(timer);
         if (escalationTimer) clearTimeout(escalationTimer);
         if (hardFinishTimer) clearTimeout(hardFinishTimer);
         if (stdoutPending) this.logger.info(redactText(stdoutPending, this.config.maxLogLineLength), { job, runId, stream: "stdout" });
@@ -177,6 +175,20 @@ export class JobRunner {
         );
         resolve(record);
       };
+      const timeoutMs = timeoutForJob(job, this.config.jobTimeoutMs);
+      if (timeoutMs !== null) {
+        timer = setTimeout(() => {
+          timedOut = true;
+          this.logger.error(`任务超时，终止 ${definition.command}`, { job, runId });
+          child.kill("SIGTERM");
+          escalationTimer = setTimeout(() => {
+            if (settled) return;
+            this.logger.error(`SIGTERM 未结束任务，发送 SIGKILL ${definition.command}`, { job, runId });
+            child.kill("SIGKILL");
+            hardFinishTimer = setTimeout(() => finish(null, "SIGKILL"), 2_000);
+          }, 10_000);
+        }, timeoutMs);
+      }
       child.once("error", (error: Error) => {
         this.logger.error(`任务启动失败 ${definition.command}: ${redactText(error.message)}`, { job, runId });
         finish(null, null);

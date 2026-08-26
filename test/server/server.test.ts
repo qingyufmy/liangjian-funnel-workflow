@@ -10,7 +10,7 @@ import { loadConfig } from "../../server/config.js";
 import { ProjectFiles, resolveWithinRoot } from "../../server/files.js";
 import { LogStore } from "../../server/logger.js";
 import { redactText, sanitizeJson } from "../../server/redaction.js";
-import { JobRunner, waitForProcessExit } from "../../server/runner.js";
+import { JobRunner, timeoutForJob, waitForProcessExit } from "../../server/runner.js";
 import { WorkflowScheduler } from "../../server/scheduler.js";
 import type { JobRunRecord } from "../../server/types.js";
 
@@ -156,4 +156,10 @@ test("process-exit wait returns after timeout so shutdown can escalate to SIGKIL
   expect(exited).toBe(false);
   child.kill("SIGKILL");
   expect(await waitForProcessExit(child, 2_000)).toBe(true);
+});
+
+test("full-market close research has no control-plane total timeout", () => {
+  expect(timeoutForJob("close", 1234)).toBeNull();
+  expect(timeoutForJob("morning", 1234)).toBe(1234);
+  expect(timeoutForJob("monitor", 1234)).toBe(1234);
 });
