@@ -327,9 +327,9 @@ class FrozenInputSnapshot(BaseModel):
         """Return the explicitly frozen A1 input candidates.
 
         ``trade_candidates`` is the historical serialized field name. A
-        formal full-market freeze may contain records whose deterministic
-        ``trade_eligible`` flag is false; execution permission comes from that
-        flag, not from the legacy collection name.
+        formal research freeze may contain Beijing-exchange records whose
+        deterministic ``trade_eligible`` flag is false; execution permission
+        comes from that flag, not from the legacy collection name.
         """
 
         return self.trade_candidates

@@ -103,7 +103,7 @@ def test_research_resume_marker_reuses_only_untampered_same_day_snapshot(tmp_pat
     application.settings.snapshot_dir.mkdir(parents=True)
     as_of = datetime(2026, 8, 26, 15, 10, tzinfo=SHANGHAI)
     data = {
-        "G0_SCOPE_CONTRACT": "FULL_MARKET_CATALOG_V1",
+        "G0_SCOPE_CONTRACT": "CONFIGURED_RESEARCH_UNIVERSE_V1",
         "g0_symbols": ["600519.SH"],
         "value": 1,
     }
@@ -129,7 +129,7 @@ def test_research_resume_marker_reuses_only_untampered_same_day_snapshot(tmp_pat
             data=data,
         ),
         path=path,
-        full_universe_count=1,
+        full_universe_count=3,
         research_universe_count=1,
         trade_universe_count=1,
         selected_count=1,

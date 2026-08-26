@@ -187,7 +187,7 @@ data_sources:
     - login_required_or_anti_scraping_sites
 
 # ---------------------------------------------------------------------------
-# 交易发布/模拟入场门禁（不得在 A1 前裁剪全市场 G0）
+# A1 研究池确定性质量门；北交所通过同一质量门后保留为只研究
 # ---------------------------------------------------------------------------
 universe_gate:
   require_trading_calendar: true
@@ -199,7 +199,7 @@ universe_gate:
   unknown_rule_action: BLOCK
   unknown_industry_mapping_action: RESEARCH_ONLY
   newly_listed_min_days: 60
-  minimum_daily_turnover_cny: 100000000    # 需按 regime 校准
+  minimum_daily_turnover_cny: 50000000     # 日成交额低于 5000 万元不进入 A1
   research_universe_and_tradable_universe_are_separate: true
 
 # ---------------------------------------------------------------------------

@@ -66,8 +66,8 @@ from .settings import Settings, load_yaml
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 _A4_FILE = "agent_4_intraday_signal_v2.txt"
-_G0_SCOPE_CONTRACT = "FULL_MARKET_CATALOG_V1"
-_RESEARCH_RESUME_SCHEMA = "liangjian-research-resume/1.1.0"
+_G0_SCOPE_CONTRACT = "CONFIGURED_RESEARCH_UNIVERSE_V1"
+_RESEARCH_RESUME_SCHEMA = "liangjian-research-resume/1.2.0"
 
 
 class WorkflowError(RuntimeError):
@@ -191,7 +191,7 @@ class WorkflowApplication:
             if progress is not None:
                 progress.update_data(
                     processed=0,
-                    total=len(universe.records),
+                    total=len(universe.research_candidates),
                     cache_hits=0,
                     cache_misses=0,
                     failures=0,
@@ -201,34 +201,35 @@ class WorkflowApplication:
             # A1 is node-first. Build the full THS reverse membership graph
             # before ordering companies. Industry nodes provide deterministic
             # grouping and intra-node turnover order. The formal research call
-            # retains every catalog security; trade gates are labels here and
-            # are enforced only when an A3 plan is published/executed.
-            market_records = _market_universe_records(universe)
+            # uses the configured quality-filtered research universe. Beijing
+            # securities remain research-only after passing the same quality
+            # gate; execution permission is enforced at plan publication.
+            research_records = _research_universe_records(universe)
             industry_catalog = client.ths_index_catalog(tag="industry")
             full_membership = collect_ths_industry_membership(
                 client,
                 industry_catalog,
-                [candidate.symbol for candidate in market_records],
+                [candidate.symbol for candidate in research_records],
                 cache_dir=self.settings.fact_store_dir / "ths_industry",
                 as_of=current,
             )
             if not full_membership.ok or not full_membership.complete:
                 raise WorkflowError(f"THS_INDUSTRY_MEMBERSHIP_NOT_READY:{full_membership.reason_code}")
 
-            # Freeze the complete deterministic G0 market universe. Industry
+            # Freeze the complete deterministic G0 research universe. Industry
             # membership controls ordering and grouping only; it must not act
             # as a performance cap for the formal workflow.
-            selection_limit = len(market_records)
+            selection_limit = len(research_records)
             selected_symbols, g0_selection = select_industry_diversified_symbols(
-                market_records,
+                research_records,
                 full_membership,
                 limit=selection_limit,
                 top_n_per_node=top_n_per_node,
                 node_count_target=node_count_target,
             )
-            if set(selected_symbols) != {candidate.symbol for candidate in market_records}:
-                raise WorkflowError("A1_MARKET_UNIVERSE_SELECTION_INCOMPLETE")
-            record_by_symbol = {candidate.symbol: candidate for candidate in market_records}
+            if set(selected_symbols) != {candidate.symbol for candidate in research_records}:
+                raise WorkflowError("A1_RESEARCH_UNIVERSE_SELECTION_INCOMPLETE")
+            record_by_symbol = {candidate.symbol: candidate for candidate in research_records}
             selected = tuple(record_by_symbol[symbol] for symbol in selected_symbols)
             if progress is not None:
                 progress.set_phase("MARKET_FACT_SYNC")
@@ -430,7 +431,7 @@ class WorkflowApplication:
             fact_payload=fact_payload,
             max_candidates=selection_limit,
             candidate_symbols=selected_symbols,
-            candidate_domain="market",
+            candidate_domain="research",
             retain_incomplete=True,
         )
         accepted_symbols = {candidate.symbol for candidate in frozen.g0_candidates}
@@ -462,7 +463,7 @@ class WorkflowApplication:
             fact_payload=fact_payload,
             max_candidates=selection_limit,
             candidate_symbols=selected_symbols,
-            candidate_domain="market",
+            candidate_domain="research",
             retain_incomplete=True,
         )
         raw_path = self.settings.snapshot_dir / "raw" / f"{frozen.snapshot_id}.json"
@@ -476,7 +477,7 @@ class WorkflowApplication:
             g0_selection={
                 **final_g0_selection,
                 "selection_strategy": g0_selection.get("strategy"),
-                "market_universe_selected_count": len(selected_symbols),
+                "research_universe_selected_count": len(selected_symbols),
                 "selected_count": len(g0_symbols),
                 "factor_ready_symbols": factor_ready,
                 "factor_ready_count": len(factor_ready),
@@ -544,7 +545,7 @@ class WorkflowApplication:
                 )
                 if not universe.ready:
                     raise WorkflowError("UNIVERSE_NOT_READY")
-                symbols = [candidate.symbol for candidate in _market_universe_records(universe)]
+                symbols = [candidate.symbol for candidate in _research_universe_records(universe)]
 
                 def on_progress(event: Mapping[str, Any]) -> None:
                     progress.update_data(
@@ -571,6 +572,7 @@ class WorkflowApplication:
                 "status": "READY" if not result.failures else "PARTIAL",
                 "as_of": current.isoformat(),
                 "universe_count": len(universe.records),
+                "catalog_universe_count": len(universe.records),
                 "data_universe_count": len(symbols),
                 "research_universe_count": len(universe.research_candidates),
                 "trade_universe_count": len(universe.trade_candidates),
@@ -974,14 +976,15 @@ class WorkflowApplication:
             if as_of.date().isoformat() != trade_date:
                 return None
             full_count = int(raw["full_universe_count"])
+            research_count = int(raw["research_universe_count"])
             selected_count = int(raw["selected_count"])
             g0_symbols = data.get("g0_symbols")
             if (
                 data.get("G0_SCOPE_CONTRACT") != _G0_SCOPE_CONTRACT
-                or selected_count != full_count
+                or selected_count != research_count
                 or not isinstance(g0_symbols, list)
-                or len(g0_symbols) != full_count
-                or len(set(map(str, g0_symbols))) != full_count
+                or len(g0_symbols) != research_count
+                or len(set(map(str, g0_symbols))) != research_count
             ):
                 return None
             return PreparedSnapshot(
@@ -993,7 +996,7 @@ class WorkflowApplication:
                 ),
                 path=path,
                 full_universe_count=full_count,
-                research_universe_count=int(raw["research_universe_count"]),
+                research_universe_count=research_count,
                 trade_universe_count=int(raw["trade_universe_count"]),
                 selected_count=selected_count,
                 factor_ready_count=int(raw["factor_ready_count"]),
@@ -2023,16 +2026,12 @@ def _row_change(item: Any, _frozen: FrozenInputSnapshot) -> float:
     return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0.0
 
 
-def _market_universe_records(universe: UniverseSnapshot) -> tuple[Any, ...]:
-    """Return every canonical catalog security, independent of trade gates."""
+def _research_universe_records(universe: UniverseSnapshot) -> tuple[Any, ...]:
+    """Return the configured A1 quality domain, retaining eligible BJ stocks."""
 
-    records = tuple(
-        record
-        for record in universe.records
-        if "NOT_IN_CATALOG" not in record.exclusion_reasons
-    )
-    if len(records) != universe.lineage.catalog_record_count:
-        raise WorkflowError("MARKET_DATA_UNIVERSE_INCOMPLETE")
+    records = universe.research_candidates
+    if len(records) != universe.lineage.research_candidate_count or not records:
+        raise WorkflowError("RESEARCH_DATA_UNIVERSE_INCOMPLETE")
     return records
 
 

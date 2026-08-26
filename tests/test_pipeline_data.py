@@ -250,7 +250,7 @@ def test_frozen_snapshot_can_preserve_explicit_node_diversified_candidates():
         )
 
 
-def test_full_market_freeze_keeps_research_only_and_trade_blocked_symbols():
+def test_research_freeze_filters_low_turnover_and_keeps_eligible_bj_symbols():
     universe = UniverseSnapshot.from_records(
         [
             {"thscode": "600519.SH", "name": "low turnover"},
@@ -269,17 +269,23 @@ def test_full_market_freeze_keeps_research_only_and_trade_blocked_symbols():
     frozen = FrozenInputSnapshot.freeze(
         universe,
         as_of=NOW,
-        max_candidates=3,
-        candidate_symbols=["600519.SH", "000001.SZ", "830001.BJ"],
-        candidate_domain="market",
+        max_candidates=2,
+        candidate_symbols=["000001.SZ", "830001.BJ"],
+        candidate_domain="research",
         retain_incomplete=True,
     )
 
     assert [item.symbol for item in frozen.g0_candidates] == [
-        "600519.SH",
         "000001.SZ",
         "830001.BJ",
     ]
     assert [item.symbol for item in frozen.g0_candidates if item.trade_eligible] == ["000001.SZ"]
-    assert "MINIMUM_TURNOVER_NOT_MET" in frozen.g0_candidates[0].exclusion_reasons
-    assert "BJ_RESEARCH_ONLY" in frozen.g0_candidates[2].exclusion_reasons
+    assert "BJ_RESEARCH_ONLY" in frozen.g0_candidates[1].exclusion_reasons
+    with pytest.raises(ValueError, match="subset of the research universe"):
+        FrozenInputSnapshot.freeze(
+            universe,
+            as_of=NOW,
+            max_candidates=1,
+            candidate_symbols=["600519.SH"],
+            candidate_domain="research",
+        )

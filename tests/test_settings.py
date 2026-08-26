@@ -93,6 +93,8 @@ def test_project_funnel_config_uses_runtime_schema():
         "RISK_OFF_RETREAT",
         "REPAIR",
     }
+    assert config["universe_gate"]["minimum_daily_turnover_cny"] == 50_000_000
+    assert config["universe_gate"]["research_universe_and_tradable_universe_are_separate"] is True
 
 
 @pytest.mark.parametrize(
