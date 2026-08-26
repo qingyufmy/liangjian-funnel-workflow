@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 from liangjian_funnel.data.cninfo import CninfoFetchResult
+from liangjian_funnel.data.cninfo_pdf import CninfoPdfEvidence, PdfEvidenceSnippet
 from liangjian_funnel.pipeline.local_fact_cache import LocalFactCache
 from liangjian_funnel.pipeline.research import FrozenInputSnapshot
 from liangjian_funnel.workflow import (
@@ -139,3 +140,35 @@ def test_research_resume_marker_reuses_only_untampered_same_day_snapshot(tmp_pat
 
     path.write_text(path.read_text(encoding="utf-8").replace('"value": 1', '"value": 2'), encoding="utf-8")
     assert application._load_research_resume_snapshot("close", as_of) is None
+
+
+def test_pdf_raw_cache_is_pruned_only_inside_configured_generated_directories(tmp_path: Path):
+    root = tmp_path / "cninfo"
+    raw = root / "raw" / "abc.pdf"
+    metadata = root / "metadata" / "abc.json"
+    raw.parent.mkdir(parents=True)
+    metadata.parent.mkdir(parents=True)
+    raw.write_bytes(b"%PDF-test")
+    metadata.write_text("{}", encoding="utf-8")
+    application = object.__new__(WorkflowApplication)
+    application.settings = SimpleNamespace(cninfo_pdf_cache_dir=root)
+    evidence = CninfoPdfEvidence(
+        announcement_id="announcement-1",
+        pdf_url="https://static.cninfo.com.cn/finalpage/test.pdf",
+        available=True,
+        reason_code="OK",
+        fetched_at=datetime.now(SHANGHAI),
+        pdf_sha256="a" * 64,
+        cache_relative_path="raw/abc.pdf",
+        content_type="application/pdf",
+        byte_size=9,
+        page_count=1,
+        pages_scanned=1,
+        extracted_chars=4,
+        snippets=(PdfEvidenceSnippet(page_number=1, text="主营业务"),),
+    )
+
+    application._prune_cninfo_pdf_raw(evidence)
+
+    assert not raw.exists()
+    assert not metadata.exists()

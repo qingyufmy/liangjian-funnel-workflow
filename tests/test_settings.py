@@ -62,6 +62,7 @@ def test_mootdx_server_override_is_strict_and_cache_stays_under_root(tmp_path: P
     assert settings.fact_cache_db_path == tmp_path / "storage" / "facts" / "market_fact_cache.sqlite3"
     assert settings.cninfo_pdf_cache_dir == tmp_path / "storage" / "cninfo_pdfs"
     assert settings.cninfo_pdf_max_documents_per_symbol == 3
+    assert settings.cninfo_pdf_retain_raw is False
     assert settings.workflow_progress_path == tmp_path / "state" / "workflow_progress.json"
     assert settings.research_checkpoint_dir == tmp_path / "state" / "research_checkpoints"
     assert settings.prompt_dir == tmp_path / "prompts"

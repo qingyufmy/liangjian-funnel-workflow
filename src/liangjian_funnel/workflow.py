@@ -644,10 +644,17 @@ class WorkflowApplication:
                 root = self.settings.cninfo_pdf_cache_dir.resolve()
                 if (
                     evidence.available
-                    and raw_path.is_relative_to(root)
-                    and raw_path.is_file()
-                    and raw_path.stat().st_size == evidence.byte_size
+                    and (
+                        not self.settings.cninfo_pdf_retain_raw
+                        or (
+                            raw_path.is_relative_to(root)
+                            and raw_path.is_file()
+                            and raw_path.stat().st_size == evidence.byte_size
+                        )
+                    )
                 ):
+                    if not self.settings.cninfo_pdf_retain_raw:
+                        self._prune_cninfo_pdf_raw(evidence)
                     return evidence.model_copy(update={"cache_hit": True})
             except (OSError, TypeError, ValueError):
                 pass
@@ -660,7 +667,29 @@ class WorkflowApplication:
                 fetched_at=evidence.fetched_at,
                 expires_at=evidence.fetched_at + timedelta(days=3650),
             )
+            if not self.settings.cninfo_pdf_retain_raw:
+                self._prune_cninfo_pdf_raw(evidence)
         return evidence
+
+    def _prune_cninfo_pdf_raw(self, evidence: CninfoPdfEvidence) -> None:
+        """Remove re-downloadable PDF bytes after durable evidence extraction."""
+
+        if not evidence.cache_relative_path:
+            return
+        root = self.settings.cninfo_pdf_cache_dir.resolve()
+        raw_path = (root / evidence.cache_relative_path).resolve()
+        metadata_path = (root / "metadata" / f"{raw_path.stem}.json").resolve()
+        for path, expected_parent in (
+            (raw_path, root / "raw"),
+            (metadata_path, root / "metadata"),
+        ):
+            try:
+                if path.parent == expected_parent.resolve():
+                    path.unlink(missing_ok=True)
+            except OSError:
+                # Evidence has already been persisted. A leftover raw cache is
+                # safe and can be pruned by a later run.
+                continue
 
     def _collect_open_news(
         self,

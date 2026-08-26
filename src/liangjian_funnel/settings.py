@@ -58,6 +58,7 @@ class Settings(BaseModel):
     hithink_min_request_interval_seconds: float = Field(default=0.5, ge=0, le=10)
     cninfo_min_request_interval_seconds: float = Field(default=0.5, ge=0, le=10)
     cninfo_pdf_max_documents_per_symbol: int = Field(default=3, ge=0, le=10)
+    cninfo_pdf_retain_raw: bool = False
     gov_policy_min_request_interval_seconds: float = Field(default=0.5, ge=0, le=10)
     mootdx_servers: tuple[tuple[str, int], ...] = DEFAULT_MOOTDX_SERVERS
     mootdx_timeout_seconds: float = Field(default=10.0, gt=0, le=30)
@@ -173,6 +174,10 @@ class Settings(BaseModel):
             cninfo_pdf_max_documents_per_symbol=int(
                 env.get("LIANGJIAN_CNINFO_PDF_MAX_DOCUMENTS_PER_SYMBOL", "3")
             ),
+            cninfo_pdf_retain_raw=_parse_bool(
+                env.get("LIANGJIAN_CNINFO_PDF_RETAIN_RAW"),
+                default=False,
+            ),
             gov_policy_min_request_interval_seconds=float(
                 env.get("LIANGJIAN_GOV_POLICY_MIN_REQUEST_INTERVAL_SECONDS", "0.5")
             ),
@@ -247,6 +252,7 @@ class Settings(BaseModel):
             "hithink_min_request_interval_seconds": self.hithink_min_request_interval_seconds,
             "cninfo_min_request_interval_seconds": self.cninfo_min_request_interval_seconds,
             "cninfo_pdf_max_documents_per_symbol": self.cninfo_pdf_max_documents_per_symbol,
+            "cninfo_pdf_retain_raw": self.cninfo_pdf_retain_raw,
             "gov_policy_min_request_interval_seconds": self.gov_policy_min_request_interval_seconds,
             "mootdx_servers": [f"{host}:{port}" for host, port in self.mootdx_servers],
             "mootdx_timeout_seconds": self.mootdx_timeout_seconds,

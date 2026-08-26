@@ -119,7 +119,7 @@ Linux、systemd/cron、容器、部署门禁和回滚步骤见 [DEPLOYMENT.md](D
 - `storage/facts/market_fact_cache.sqlite3`：WAL/FULL 本地事实库，保留日线与财务修订、数据同步水位、巨潮查询、PDF 证据卡与个股资讯缓存。
 - `state/research_checkpoints/`：按模型/lane/阶段/快照/提示词/股票批次绑定的原子检查点；同日中断会恢复原冻结快照。
 - `state/workflow_progress.json`：前端只读的脱敏进度摘要，包含数据、缓存、lane 和 A1–A3 批次进度。
-- `storage/cninfo_pdfs/`：按需下载的巨潮原始 PDF 与哈希侧车；模型只读取带页码的短证据卡，不读取整篇 PDF。
+- `storage/cninfo_pdfs/`：巨潮 PDF 的有界下载/解析工作目录；默认在页码证据卡和 PDF SHA-256 已落入事实库后删除可重新下载的原文，可用 `LIANGJIAN_CNINFO_PDF_RETAIN_RAW=true` 选择长期保留。模型始终只读带页码的短证据卡。
 - `PHASE1_PHASE2_ACCEPTANCE_REPORT.md`：事实源和本地确定性聚合的中间验收证据。
 - `state/workflow.sqlite3`：计划、信号、三个虚拟账户、持仓、成交和租约。
 
