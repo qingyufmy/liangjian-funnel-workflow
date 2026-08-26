@@ -51,7 +51,7 @@ cd D:\dev_A股\liangjian_funnel_workflow
 .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
 ```
 
-密钥只放在 `.env`。程序自动读取该文件，进程环境变量优先；日志和报告不保存密钥、认证头或模型思考正文。提示词默认读取项目根目录下的 `prompts`，也可用 `LIANGJIAN_PROMPT_DIR` 覆盖。
+密钥只放在 `.env`。程序自动读取该文件，进程环境变量优先；日志和报告不保存密钥、认证头或模型思考正文。提示词默认读取项目根目录下的 `prompts`，也可用 `LIANGJIAN_PROMPT_DIR` 覆盖。模型思考模式按角色显式配置：研究模型默认开启，独立盯盘模型默认关闭，可分别通过 `LIANGJIAN_RESEARCH_THINKING_ENABLED` 和 `LIANGJIAN_MONITOR_THINKING_ENABLED` 调整。
 
 漏斗参数默认读取项目内的 `config/funnel_config_v2.yaml`，也可用 `LIANGJIAN_SOURCE_CONFIG_PATH` 覆盖。资讯源读取 `config/news_sources.json`；该目录来自 Vibe-Research 的12赛道、106个公开RSS源，可用 `LIANGJIAN_NEWS_SOURCE_CONFIG_PATH` 覆盖。
 

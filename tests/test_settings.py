@@ -24,6 +24,23 @@ def test_exact_models_and_safe_summary_do_not_leak_keys(tmp_path: Path):
     assert settings.model_timeout_seconds == 600
     assert settings.research_a1_batch_size == 20
     assert settings.research_a2_batch_size == 40
+    assert settings.research_thinking_enabled is True
+    assert settings.monitor_thinking_enabled is False
+
+
+def test_thinking_flags_are_explicit_and_strict(tmp_path: Path):
+    settings = Settings.from_env(
+        {
+            "LIANGJIAN_RESEARCH_THINKING_ENABLED": "off",
+            "LIANGJIAN_MONITOR_THINKING_ENABLED": "ON",
+        },
+        root=tmp_path,
+    )
+    assert settings.research_thinking_enabled is False
+    assert settings.monitor_thinking_enabled is True
+
+    with pytest.raises(ValueError, match="boolean"):
+        Settings.from_env({"LIANGJIAN_MONITOR_THINKING_ENABLED": "maybe"}, root=tmp_path)
 
 
 def test_only_https_endpoints_are_allowed(tmp_path: Path):

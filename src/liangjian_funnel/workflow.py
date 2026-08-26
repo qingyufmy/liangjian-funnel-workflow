@@ -100,10 +100,14 @@ class WorkflowApplication:
         self.store = RuntimeStore(settings.state_db_path)
         self.minute_store = MinuteBarStore(settings.minute_cache_dir)
         self.prompts = PromptRepository(settings.prompt_dir)
-        self.model_client = OpenAICompatibleModelClient(settings)
+        self.model_client = OpenAICompatibleModelClient(
+            settings,
+            thinking_enabled=settings.research_thinking_enabled,
+        )
         self.monitor_model_client = OpenAICompatibleModelClient(
             settings.model_copy(update={"model_timeout_seconds": 45.0}),
             max_attempts=2,
+            thinking_enabled=settings.monitor_thinking_enabled,
         )
         self.trading_calendar = ExchangeTradingCalendar()
         self.mootdx = MootdxAdapter(

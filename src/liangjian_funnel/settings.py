@@ -82,6 +82,11 @@ class Settings(BaseModel):
     research_a1_batch_size: int = Field(default=20, ge=1, le=40)
     research_a2_batch_size: int = Field(default=40, ge=1, le=100)
     simulation_initial_cash: float = Field(default=1_000_000.0, ge=0)
+    # Thinking is an explicit capability of a client role. Research lanes
+    # keep it enabled; the independent intraday monitor is intentionally
+    # deterministic at the transport level by default.
+    research_thinking_enabled: bool = True
+    monitor_thinking_enabled: bool = False
     research_models: tuple[str, ...] = RESEARCH_MODELS
     monitor_model: str = MONITOR_MODEL
 
@@ -197,6 +202,8 @@ class Settings(BaseModel):
             research_a1_batch_size=int(env.get("LIANGJIAN_A1_BATCH_SIZE", "20")),
             research_a2_batch_size=int(env.get("LIANGJIAN_A2_BATCH_SIZE", "40")),
             simulation_initial_cash=float(env.get("LIANGJIAN_SIMULATION_INITIAL_CASH", "1000000")),
+            research_thinking_enabled=_parse_bool(env.get("LIANGJIAN_RESEARCH_THINKING_ENABLED"), default=True),
+            monitor_thinking_enabled=_parse_bool(env.get("LIANGJIAN_MONITOR_THINKING_ENABLED"), default=False),
         )
 
     def safe_summary(self) -> dict[str, object]:
@@ -239,6 +246,8 @@ class Settings(BaseModel):
             "research_a1_batch_size": self.research_a1_batch_size,
             "research_a2_batch_size": self.research_a2_batch_size,
             "simulation_initial_cash": self.simulation_initial_cash,
+            "research_thinking_enabled": self.research_thinking_enabled,
+            "monitor_thinking_enabled": self.monitor_thinking_enabled,
             "research_models": list(self.research_models),
             "monitor_model": self.monitor_model,
         }
@@ -247,6 +256,19 @@ class Settings(BaseModel):
 def _secret(value: str | None) -> SecretStr | None:
     clean = (value or "").strip()
     return SecretStr(clean) if clean else None
+
+
+def _parse_bool(value: str | None, *, default: bool) -> bool:
+    """Parse an explicit boolean environment flag without silent coercion."""
+
+    if value is None or not value.strip():
+        return default
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError("boolean environment values must be true/false")
 
 
 def _parse_mootdx_servers(value: str | None) -> tuple[tuple[str, int], ...]:

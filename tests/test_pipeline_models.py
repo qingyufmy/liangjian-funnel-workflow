@@ -5,6 +5,7 @@ import pytest
 
 from liangjian_funnel.pipeline.model_client import (
     ModelClientError,
+    ModelHTTPError,
     ModelNetworkError,
     OpenAICompatibleModelClient,
     PRODUCTION_THINKING_VARIANTS,
@@ -75,6 +76,63 @@ def test_client_uses_bounded_model_thinking_and_json_object(tmp_path: Path):
     assert result.output == {"envelope": {"status": "OK"}}
     assert result.reasoning_tokens == 7
     assert "secret-cot" not in repr(result)
+
+
+def test_client_can_disable_thinking_without_emitting_or_falling_back_thinking_fields(tmp_path: Path):
+    seen: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+
+        parsed = json.loads(request.read())
+        seen.append(parsed)
+        return httpx.Response(
+            400 if len(seen) == 1 else 200,
+            json={"error": "unsupported request"}
+            if len(seen) == 1
+            else {"choices": [{"message": {"content": '{"ok":true}'}}]},
+            request=request,
+        )
+
+    client = OpenAICompatibleModelClient(
+        _settings(tmp_path),
+        transport=httpx.MockTransport(handler),
+        sleep=lambda _: None,
+        thinking_enabled=False,
+    )
+
+    with pytest.raises(ModelHTTPError):
+        client.complete("deepseek-v4-flash-0731", [{"role": "user", "content": "{}"}])
+
+    assert len(seen) == 1
+    assert not {"thinking", "reasoning", "reasoning_effort", "enable_thinking"}.intersection(seen[0])
+
+
+def test_disabled_thinking_keeps_normal_429_retry_without_thinking_payload(tmp_path: Path):
+    seen: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+
+        seen.append(json.loads(request.read()))
+        if len(seen) == 1:
+            return httpx.Response(429, json={"error": "rate limited"}, request=request)
+        return _sse_response(request, [{"choices": [{"delta": {"content": '{"ok":true}'}}]}, "[DONE]"])
+
+    client = OpenAICompatibleModelClient(
+        _settings(tmp_path),
+        transport=httpx.MockTransport(handler),
+        sleep=lambda _: None,
+        max_attempts=2,
+        thinking_enabled=False,
+    )
+    result = client.complete("deepseek-v4-flash-0731", [{"role": "user", "content": "{}"}])
+
+    assert result.attempts == 2
+    assert result.thinking_variant == "thinking_disabled"
+    assert len(seen) == 2
+    for body in seen:
+        assert not {"thinking", "reasoning", "reasoning_effort", "enable_thinking"}.intersection(body)
 
 
 def test_client_decodes_multichunk_sse_and_never_retains_reasoning(tmp_path: Path):

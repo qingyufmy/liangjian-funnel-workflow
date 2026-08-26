@@ -22,6 +22,7 @@ PRODUCTION_THINKING_VARIANTS: tuple[tuple[str, dict[str, Any]], ...] = (
     ("reasoning_effort_low", {"reasoning_effort": "low"}),
     *THINKING_VARIANTS,
 )
+NO_THINKING_VARIANTS: tuple[tuple[str, dict[str, Any]], ...] = (("thinking_disabled", {}),)
 
 
 class ModelClientError(RuntimeError):
@@ -96,8 +97,10 @@ class OpenAICompatibleModelClient:
 
     Retries are deliberately local to one request.  A 429 is retried with the
     same model and no circuit breaker, and no request is silently downgraded to
-    another model. Production starts with bounded ``reasoning_effort=low`` and
-    then tries the capability-probe variants as compatibility fallbacks.
+    another model. Thinking is selected explicitly by the caller: enabled
+    research clients start with bounded ``reasoning_effort=low`` and then try
+    capability-probe variants, while disabled clients send no thinking fields
+    and have no thinking-parameter fallback path.
     """
 
     def __init__(
@@ -109,6 +112,7 @@ class OpenAICompatibleModelClient:
         monotonic: Callable[[], float] = time.monotonic,
         max_attempts: int = 3,
         retry_backoff_seconds: float = 0.25,
+        thinking_enabled: bool = True,
     ):
         if max_attempts < 1:
             raise ValueError("max_attempts must be positive")
@@ -118,6 +122,8 @@ class OpenAICompatibleModelClient:
         self.monotonic = monotonic
         self.max_attempts = max_attempts
         self.retry_backoff_seconds = max(0.0, float(retry_backoff_seconds))
+        self.thinking_enabled = bool(thinking_enabled)
+        self.thinking_variants = PRODUCTION_THINKING_VARIANTS if self.thinking_enabled else NO_THINKING_VARIANTS
 
     def complete(
         self,
@@ -141,7 +147,7 @@ class OpenAICompatibleModelClient:
         started_all = time.perf_counter()
         overall_deadline = self.monotonic() + self.settings.model_timeout_seconds
         total_attempts = 0
-        last_variant = PRODUCTION_THINKING_VARIANTS[0][0]
+        last_variant = self.thinking_variants[0][0]
         strict_json_retry = False
         last_strict_error: StrictJSONError | None = None
         with httpx.Client(
@@ -155,7 +161,7 @@ class OpenAICompatibleModelClient:
                 "Content-Type": "application/json",
             },
         ) as client:
-            for variant_id, thinking_payload in PRODUCTION_THINKING_VARIANTS:
+            for variant_id, thinking_payload in self.thinking_variants:
                 last_variant = variant_id
                 variant_attempts = 0
                 while variant_attempts < self.max_attempts:
@@ -205,7 +211,7 @@ class OpenAICompatibleModelClient:
                             if status >= 400:
                                 # Unsupported thinking parameters are the sole reason
                                 # to try the next already-verified thinking variant.
-                                if status in {400, 404, 422} and variant_id != PRODUCTION_THINKING_VARIANTS[-1][0]:
+                                if status in {400, 404, 422} and variant_id != self.thinking_variants[-1][0]:
                                     break
                                 raise ModelHTTPError("UPSTREAM_4XX", status_code=status, attempts=total_attempts)
 
@@ -226,7 +232,7 @@ class OpenAICompatibleModelClient:
                             self._backoff(variant_attempts, deadline=overall_deadline)
                             continue
                         if (
-                            variant_id != PRODUCTION_THINKING_VARIANTS[-1][0]
+                            variant_id != self.thinking_variants[-1][0]
                             and self.monotonic() < overall_deadline
                         ):
                             break
