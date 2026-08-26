@@ -22,7 +22,7 @@ Requirements:
 
 - Linux x86_64 virtual machine
 - Node 20 LTS or 22 LTS
-- Python 3.11
+- Python 3.11 or newer
 - one non-root application user
 - BaoTa Node Project Manager and Nginx
 
@@ -30,7 +30,7 @@ Assuming the repository is at `/www/wwwroot/liangjian-funnel-workflow`:
 
 ```bash
 cd /www/wwwroot/liangjian-funnel-workflow
-python3.11 -m venv .venv
+python3 -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
 .venv/bin/python -m pip install ".[dev]"
 npm ci

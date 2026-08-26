@@ -12,10 +12,10 @@
 - 实例数：1（禁止 cluster 多实例）
 - 监听：`127.0.0.1:3210`
 
-Python 3.11 虚拟环境仍放在项目根目录 `.venv`：
+Python 3.11 或更高版本的虚拟环境仍放在项目根目录 `.venv`：
 
 ```bash
-python3.11 -m venv .venv
+python3 -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
 .venv/bin/python -m pip install ".[dev]"
 .venv/bin/python -m liangjian_funnel doctor
