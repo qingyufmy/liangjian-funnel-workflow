@@ -174,7 +174,7 @@ test("reads the Python progress writer shape including second-based timing and s
     started_at: "2026-08-26T15:00:00+08:00",
     updated_at: "2026-08-26T15:01:00+08:00",
     elapsed_seconds: 60,
-    eta_seconds: 120,
+    eta_seconds: null,
     data: { processed: 5000, total: 5000, cache_hits: 4900, cache_misses: 100, failures: 0 },
     lanes: {
       LANE1: { model: "deepseek-v4-pro-0813", status: "RUNNING", stages: { A1: { status: "RUNNING", completed_batches: 4, total_batches: 20 } } },
@@ -183,7 +183,7 @@ test("reads the Python progress writer shape including second-based timing and s
   const config = loadConfig({ LIANGJIAN_PYTHON_BIN: "python3" }, root);
   const files = new ProjectFiles(config, new LogStore(config));
   const progress = await files.workflowProgress();
-  expect(progress).toMatchObject({ phase: "RESEARCH_A1", processed: 5000, total: 5000, cacheHits: 4900, cacheMisses: 100, elapsedMs: 60_000, etaMs: 120_000 });
+  expect(progress).toMatchObject({ phase: "RESEARCH_A1", processed: 5000, total: 5000, cacheHits: 4900, cacheMisses: 100, elapsedMs: 60_000, etaMs: null });
   expect(progress?.lanes[0]).toMatchObject({ laneId: "lane_1", batchProcessed: 4, batchTotal: 20 });
 });
 

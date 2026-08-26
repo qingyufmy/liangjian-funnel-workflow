@@ -300,6 +300,7 @@ function validateProgressMetrics(source: JsonRecord): boolean {
   for (const key of NUMERIC_PROGRESS_KEYS) {
     if (!(key in source)) continue;
     const value = source[key];
+    if (value === null) continue;
     if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return false;
   }
   return true;
