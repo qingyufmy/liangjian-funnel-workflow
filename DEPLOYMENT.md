@@ -32,7 +32,7 @@ Assuming the repository is at `/www/wwwroot/liangjian-funnel-workflow`:
 cd /www/wwwroot/liangjian-funnel-workflow
 python3.11 -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
-.venv/bin/python -m pip install .
+.venv/bin/python -m pip install ".[dev]"
 npm ci
 npm run build
 mkdir -p outputs/node outputs/scheduler state storage cache
@@ -120,7 +120,7 @@ Before an upgrade, stop the BaoTa Node project and take a consistent backup. The
 git pull --ff-only
 npm ci
 npm run build
-.venv/bin/python -m pip install .
+.venv/bin/python -m pip install ".[dev]"
 npm run typecheck
 npm test
 .venv/bin/python -m pytest

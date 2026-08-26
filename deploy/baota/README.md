@@ -17,7 +17,7 @@ Python 3.11 虚拟环境仍放在项目根目录 `.venv`：
 ```bash
 python3.11 -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
-.venv/bin/python -m pip install .
+.venv/bin/python -m pip install ".[dev]"
 .venv/bin/python -m liangjian_funnel doctor
 ```
 
@@ -42,4 +42,4 @@ LIANGJIAN_DASHBOARD_TOKEN=<随机长令牌>
 mkdir -p outputs/node outputs/scheduler state storage cache
 ```
 
-备份必须同时包含 `.env`（单独加密）、`state/workflow.sqlite3`、`storage/` 和 `outputs/`。更新时先停止 Node 项目，备份状态，再执行 `git pull && npm ci && npm run build && .venv/bin/python -m pip install .`，最后由宝塔启动项目。
+备份必须同时包含 `.env`（单独加密）、`state/workflow.sqlite3`、`storage/` 和 `outputs/`。更新时先停止 Node 项目，备份状态，再执行 `git pull && npm ci && npm run build && .venv/bin/python -m pip install ".[dev]"`，最后由宝塔启动项目。
