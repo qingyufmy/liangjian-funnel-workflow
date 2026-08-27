@@ -110,6 +110,145 @@ def test_bse_official_pdf_host_is_allowed_with_bse_referer(
     assert result.reason_code == "OK"
 
 
+def test_bse_same_url_redirect_retries_with_cookie_then_succeeds(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(pypdf, "PdfReader", Reader)
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        if len(calls) == 1:
+            return httpx.Response(
+                302,
+                headers={
+                    "Location": "/disclosure/2026/2026-08-20/example.pdf",
+                    "Set-Cookie": "bse_challenge=1; Path=/",
+                    "Retry-After": "0",
+                },
+            )
+        assert request.headers.get("cookie") == "bse_challenge=1"
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/pdf"},
+            content=b"%PDF-bse-cookie-cleared",
+        )
+
+    sleeps: list[float] = []
+    result = make_client(
+        tmp_path,
+        handler,
+        sleeps=sleeps,
+    ).fetch_evidence(announcement("https://www.bse.cn/disclosure/2026/2026-08-20/example.pdf"))
+
+    assert result.available is True
+    assert result.reason_code == "OK"
+    assert result.attempts == 2
+    assert sleeps == [0.0]
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize(
+    "location",
+    [
+        "https://evil.example/disclosure/2026/2026-08-20/example.pdf",
+        "/disclosure/2026/2026-08-20/other.pdf",
+    ],
+)
+def test_bse_cross_origin_or_different_path_redirect_is_rejected(
+    tmp_path: Path,
+    location: str,
+) -> None:
+    calls = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(302, headers={"Location": location})
+
+    result = make_client(tmp_path, handler).fetch_evidence(
+        announcement("https://www.bse.cn/disclosure/2026/2026-08-20/example.pdf")
+    )
+
+    assert result.available is False
+    assert result.reason_code == "CNINFO_PDF_REDIRECT_REJECTED"
+    assert result.http_status == 302
+    assert result.attempts == 1
+    assert calls == 1
+
+
+@pytest.mark.parametrize("temporary_status", [403, 408])
+def test_bse_temporary_http_failure_retries_then_succeeds(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    temporary_status: int,
+) -> None:
+    monkeypatch.setattr(pypdf, "PdfReader", Reader)
+    statuses = iter((temporary_status, 200))
+    sleeps: list[float] = []
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        status = next(statuses)
+        if status != 200:
+            return httpx.Response(status, headers={"Retry-After": "0"})
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/pdf"},
+            content=b"%PDF-bse-temporary-recovered",
+        )
+
+    result = make_client(
+        tmp_path,
+        handler,
+        sleeps=sleeps,
+    ).fetch_evidence(announcement("https://www.bse.cn/disclosure/2026/2026-08-20/example.pdf"))
+
+    assert result.available is True
+    assert result.reason_code == "OK"
+    assert result.http_status == 200
+    assert result.attempts == 2
+    assert sleeps == [0.0]
+
+
+def test_bse_403_exhaustion_is_explicit_and_not_success(tmp_path: Path) -> None:
+    calls = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(403)
+
+    result = make_client(
+        tmp_path,
+        handler,
+        max_bytes=1024,
+    ).fetch_evidence(announcement("https://www.bse.cn/disclosure/2026/2026-08-20/example.pdf"))
+
+    assert result.available is False
+    assert result.reason_code == "CNINFO_PDF_BSE_CDN_BLOCKED"
+    assert result.http_status == 403
+    assert result.attempts == 3
+    assert calls == 3
+
+
+def test_cninfo_403_is_not_retried(tmp_path: Path) -> None:
+    calls = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(403)
+
+    result = make_client(tmp_path, handler).fetch_evidence(announcement())
+
+    assert result.available is False
+    assert result.reason_code == "CNINFO_PDF_HTTP_4XX"
+    assert result.http_status == 403
+    assert result.attempts == 1
+    assert calls == 1
+
+
 def test_corrupt_cache_is_refetched(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(pypdf, "PdfReader", Reader)
     calls = 0

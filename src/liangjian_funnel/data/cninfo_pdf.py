@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -32,6 +32,8 @@ MAX_EXTRACTED_CHARS = 200_000
 MAX_EVIDENCE_SNIPPETS = 12
 MAX_SNIPPET_CHARS = 500
 _CONTENT_TYPES = {"application/pdf", "application/octet-stream"}
+_BSE_CDN_CHALLENGE_STATUSES = frozenset({301, 302, 303, 307, 308})
+_BSE_TEMPORARY_STATUSES = frozenset({403, 408})
 _EVIDENCE_KEYWORDS = (
     "主营业务", "分行业", "分产品", "营业收入", "中标", "合同", "订单", "金额", "收入", "营收", "产能", "投产", "客户",
     "减持", "质押", "冻结", "诉讼", "仲裁", "处罚", "调查", "审计", "退市",
@@ -263,7 +265,21 @@ class CninfoPdfClient:
                     status = response.status_code
                     last_status = status
                     if 300 <= status < 400:
+                        if (
+                            urlparse(url).hostname == BSE_PDF_HOST
+                            and status in _BSE_CDN_CHALLENGE_STATUSES
+                            and _is_bse_self_redirect(url, response.headers.get("Location"))
+                        ):
+                            if attempt < self.max_attempts:
+                                self._sleep(_retry_delay(response.headers.get("Retry-After"), attempt))
+                                continue
+                            return None, "CNINFO_PDF_BSE_CDN_BLOCKED", status, attempt
                         return None, "CNINFO_PDF_REDIRECT_REJECTED", status, attempt
+                    if urlparse(url).hostname == BSE_PDF_HOST and status in _BSE_TEMPORARY_STATUSES:
+                        if attempt < self.max_attempts:
+                            self._sleep(_retry_delay(response.headers.get("Retry-After"), attempt))
+                            continue
+                        return None, "CNINFO_PDF_BSE_CDN_BLOCKED", status, attempt
                     if status == 429 or 500 <= status <= 599:
                         if attempt < self.max_attempts:
                             self._sleep(_retry_delay(response.headers.get("Retry-After"), attempt))
@@ -458,6 +474,26 @@ def _approved_url(url: str) -> bool:
         and not parsed.username
         and not parsed.password
     )
+
+
+def _is_bse_self_redirect(url: str, location: str | None) -> bool:
+    """Recognize only an exact same-URL BSE CDN cookie challenge redirect.
+
+    Redirects remain fail-closed: a missing, malformed, cross-origin, or
+    different-path Location is never followed.  The caller retries the
+    original URL, allowing httpx.Client's cookie jar to carry Set-Cookie
+    challenge state into the next request.
+    """
+    if not location or urlparse(url).hostname != BSE_PDF_HOST:
+        return False
+    try:
+        original = httpx.URL(url)
+        target = httpx.URL(urljoin(str(original), location))
+    except (TypeError, ValueError):
+        return False
+    if not _approved_url(str(target)):
+        return False
+    return str(target) == str(original)
 
 
 def _retry_delay(value: str | None, attempt: int) -> float:

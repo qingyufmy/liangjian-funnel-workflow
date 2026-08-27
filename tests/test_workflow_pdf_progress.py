@@ -303,6 +303,38 @@ def test_pdf_failure_cache_uses_seven_day_ttl_and_is_reported_as_a_cache_hit(tmp
     ) is None
 
 
+def test_bse_cdn_failure_cache_uses_transient_ttl(tmp_path: Path):
+    cache = LocalFactCache(tmp_path / "facts.sqlite3")
+    app = object.__new__(WorkflowApplication)
+    app.fact_cache = cache
+    app.settings = SimpleNamespace(
+        cninfo_pdf_retain_raw=False,
+        cninfo_pdf_cache_dir=tmp_path / "pdf",
+    )
+    evidence = CninfoPdfEvidence(
+        announcement_id="bse-cdn-blocked",
+        pdf_url="https://www.bse.cn/disclosure/2026/2026-08-20/example.pdf",
+        available=False,
+        reason_code="CNINFO_PDF_BSE_CDN_BLOCKED",
+        fetched_at=NOW,
+        http_status=403,
+        attempts=3,
+    )
+
+    app._persist_cninfo_pdf_evidence(evidence)
+
+    assert cache.get_cached_result(
+        "CNINFO_PDF_EVIDENCE",
+        evidence.announcement_id,
+        fresh_at=NOW + timedelta(minutes=14),
+    ) is not None
+    assert cache.get_cached_result(
+        "CNINFO_PDF_EVIDENCE",
+        evidence.announcement_id,
+        fresh_at=NOW + timedelta(minutes=16),
+    ) is None
+
+
 def test_cninfo_candidate_workers_rebuild_results_in_selected_order():
     symbols = ("000001.SZ", "000002.SZ", "600519.SH")
     app = object.__new__(WorkflowApplication)
