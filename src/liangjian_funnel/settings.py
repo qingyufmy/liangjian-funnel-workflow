@@ -70,7 +70,7 @@ class Settings(BaseModel):
     # CNINFO calls are network-bound, but the client still enforces one
     # process-wide request interval.  Keep the worker count bounded because
     # the VM has only two CPUs and less than 1 GiB of available memory.
-    cninfo_workers: int = Field(default=4, ge=1, le=16)
+    cninfo_workers: int = Field(default=4, ge=1, le=32)
     cninfo_pdf_workers: int = Field(default=2, ge=1, le=4)
     cninfo_pdf_max_documents_per_symbol: int = Field(default=3, ge=0, le=10)
     cninfo_pdf_retain_raw: bool = False

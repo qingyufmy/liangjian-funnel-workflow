@@ -93,12 +93,12 @@ def test_model_token_budget_validation_accepts_384k_and_rejects_above_context(tm
 def test_cninfo_worker_bounds_are_configurable(tmp_path: Path):
     settings = Settings.from_env(
         {
-            "LIANGJIAN_CNINFO_WORKERS": "16",
+            "LIANGJIAN_CNINFO_WORKERS": "32",
             "LIANGJIAN_CNINFO_PDF_WORKERS": "4",
         },
         root=tmp_path,
     )
-    assert settings.cninfo_workers == 16
+    assert settings.cninfo_workers == 32
     assert settings.cninfo_pdf_workers == 4
 
     with pytest.raises(ValidationError):
