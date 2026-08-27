@@ -24,6 +24,8 @@ from .cninfo import CNINFO_REFERER, CNINFO_USER_AGENT, CninfoAnnouncement
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 CNINFO_PDF_HOST = "static.cninfo.com.cn"
+BSE_PDF_HOST = "www.bse.cn"
+BSE_PDF_REFERER = "https://www.bse.cn/disclosure/announcement.html"
 MAX_PDF_BYTES = 20 * 1024 * 1024
 MAX_PDF_PAGES = 200
 MAX_EXTRACTED_CHARS = 200_000
@@ -247,7 +249,14 @@ class CninfoPdfClient:
                 with self._client.stream(
                     "GET",
                     url,
-                    headers={"User-Agent": CNINFO_USER_AGENT, "Referer": CNINFO_REFERER},
+                    headers={
+                        "User-Agent": CNINFO_USER_AGENT,
+                        "Referer": (
+                            BSE_PDF_REFERER
+                            if urlparse(url).hostname == BSE_PDF_HOST
+                            else CNINFO_REFERER
+                        ),
+                    },
                     timeout=self.timeout_seconds,
                     follow_redirects=False,
                 ) as response:
@@ -442,7 +451,13 @@ class CninfoPdfClient:
 
 def _approved_url(url: str) -> bool:
     parsed = urlparse(url)
-    return parsed.scheme == "https" and parsed.hostname == CNINFO_PDF_HOST and not parsed.username and not parsed.password
+    return bool(
+        parsed.scheme == "https"
+        and parsed.hostname in {CNINFO_PDF_HOST, BSE_PDF_HOST}
+        and parsed.port is None
+        and not parsed.username
+        and not parsed.password
+    )
 
 
 def _retry_delay(value: str | None, attempt: int) -> float:

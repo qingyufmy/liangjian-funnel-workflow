@@ -7,11 +7,28 @@ from zoneinfo import ZoneInfo
 
 from liangjian_funnel.pipeline.snapshot import FrozenInputSnapshot, UniverseSnapshot
 from liangjian_funnel.settings import Settings
-from liangjian_funnel.workflow import WorkflowApplication
+from liangjian_funnel.workflow import WorkflowApplication, _compact_fundamental_rows
 
 
 TZ = ZoneInfo("Asia/Shanghai")
 NOW = datetime(2026, 8, 25, 9, 26, tzinfo=TZ)
+
+
+def test_compact_fundamentals_expose_deterministic_dataset_coverage() -> None:
+    compact = _compact_fundamental_rows(
+        [
+            {"_dataset": "INCOME", "report_date_ms": 3},
+            {"_dataset": "BALANCE", "report_date_ms": 2},
+            {"_dataset": "CASH_FLOW", "report_date_ms": 1},
+        ]
+    )
+
+    assert compact["dataset_coverage"] == {
+        "core_reports_complete": True,
+        "indicators_available": False,
+        "missing_datasets": ["INDICATORS"],
+    }
+    assert compact["indicators"] == []
 
 
 def _fact(count: int) -> dict:

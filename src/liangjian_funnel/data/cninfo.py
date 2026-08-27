@@ -540,6 +540,19 @@ class CninfoClient:
         pages = 0
         attempts = 0
         http_status: int | None = None
+        pagination_metadata_inconsistent = False
+
+        def pagination_metadata() -> dict[str, Any]:
+            # Keep provider diagnostics deliberately small and stable.  The
+            # announcement payload is untrusted and can be very large; the
+            # caller only needs to know that the advisory ``totalpages``
+            # field disagreed with the observed pagination contract.
+            return (
+                {"pagination_metadata_inconsistent": True}
+                if pagination_metadata_inconsistent
+                else {}
+            )
+
         for page_number in range(1, max_pages + 1):
             form = {**form_base, "pageNum": page_number}
             outcome = self._request_page(form, canonical)
@@ -560,12 +573,18 @@ class CninfoClient:
                     max_pages=max_pages,
                     fetched_at=fetched_at,
                     http_status=http_status,
+                    metadata=pagination_metadata(),
                 )
             page = outcome.page
             pages += 1
             if total is None:
                 total, total_pages = page.total, page.total_pages
-            elif page.total != total or page.total_pages != total_pages:
+                # ``totalpages`` is advisory in the live endpoint.  When it
+                # disagrees with the requested page size, retain the value for
+                # observability but follow ``hasMore`` below.
+                if total and total_pages and total_pages != (total + page_size - 1) // page_size:
+                    pagination_metadata_inconsistent = True
+            elif page.total != total:
                 return self._failure(
                     canonical,
                     start,
@@ -580,11 +599,51 @@ class CninfoClient:
                     max_pages=max_pages,
                     fetched_at=fetched_at,
                     http_status=http_status,
+                    metadata=pagination_metadata(),
                 )
+            elif page.total_pages != total_pages:
+                pagination_metadata_inconsistent = True
+
+            # The endpoint has returned cases such as totalpages=1 while
+            # still asserting hasMore=true for a second page.  Likewise, a
+            # final page can disagree with the reported page count.  These
+            # are diagnostics, not reasons to stop fetching.
+            if page.total_pages > 0 and (
+                (page.has_more and page_number >= page.total_pages)
+                or (not page.has_more and page_number != page.total_pages)
+            ):
+                pagination_metadata_inconsistent = True
+
+            before_count = len(announcements)
             for item in page.announcements:
                 announcements.setdefault(item.announcement_id, item)
+            new_count = len(announcements) - before_count
+
+            # A repeated page with hasMore=true cannot make progress and
+            # would otherwise loop until the caller's hard page limit.  Keep
+            # the partial records for diagnostics, but never mark them ready.
+            if page.has_more and new_count == 0:
+                return self._failure(
+                    canonical,
+                    start,
+                    end,
+                    "CNINFO_PAGINATION_STALLED",
+                    announcements=tuple(announcements.values()),
+                    total=total,
+                    total_pages=total_pages,
+                    pages=pages,
+                    attempts=attempts,
+                    page_size=page_size,
+                    max_pages=max_pages,
+                    fetched_at=fetched_at,
+                    http_status=http_status,
+                    metadata=pagination_metadata(),
+                )
             if not page.has_more:
-                if total_pages is not None and total_pages not in (0, page_number):
+                # hasMore is authoritative, but completeness is still
+                # measured against the provider's total unique count.  A
+                # final page with too few records is a fail-closed result.
+                if total is not None and len(announcements) < total:
                     return self._failure(
                         canonical,
                         start,
@@ -599,6 +658,7 @@ class CninfoClient:
                         max_pages=max_pages,
                         fetched_at=fetched_at,
                         http_status=http_status,
+                        metadata=pagination_metadata(),
                     )
                 reason = "NO_RECORDS" if total == 0 else "OK"
                 result = self._success(
@@ -615,6 +675,7 @@ class CninfoClient:
                     max_pages=max_pages,
                     fetched_at=fetched_at,
                     http_status=http_status,
+                    metadata=pagination_metadata(),
                 )
                 if reason == "NO_RECORDS" and _resolved_stock is None:
                     resolved_stock = self._resolve_stock(canonical, column)
@@ -637,22 +698,6 @@ class CninfoClient:
                             }
                         )
                 return result
-            if total_pages is not None and page_number >= total_pages:
-                return self._failure(
-                    canonical,
-                    start,
-                    end,
-                    "CNINFO_CONTRACT_CHANGED",
-                    announcements=tuple(announcements.values()),
-                    total=total,
-                    total_pages=total_pages,
-                    pages=pages,
-                    attempts=attempts,
-                    page_size=page_size,
-                    max_pages=max_pages,
-                    fetched_at=fetched_at,
-                    http_status=http_status,
-                )
         return self._failure(
             canonical,
             start,
@@ -667,6 +712,7 @@ class CninfoClient:
             max_pages=max_pages,
             fetched_at=fetched_at,
             http_status=http_status,
+            metadata=pagination_metadata(),
         )
 
     def _request_page(self, form: Mapping[str, str | int], symbol: str) -> _PageOutcome:
@@ -769,7 +815,7 @@ class CninfoClient:
         has_more = _boolean(payload["hasMore"])
         raw_announcements = payload.get("announcements", _MISSING)
         if total == 0 and raw_announcements is None:
-            if has_more or total_pages not in (0, 1):
+            if has_more:
                 raise CninfoContractError("CNINFO_CONTRACT_CHANGED")
             return _Page((), total, total_pages, False)
         if raw_announcements is _MISSING or raw_announcements is None or not isinstance(raw_announcements, list):

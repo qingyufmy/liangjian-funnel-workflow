@@ -14,7 +14,9 @@ import math
 import re
 import time
 from collections.abc import Callable, Mapping, Sequence
-from datetime import datetime
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
@@ -55,6 +57,14 @@ _POOL_SORT_FIELDS = {
     },
     _ENDPOINT_LIMIT_BREAK: {"price_change_ratio_pct", "open_times", "last_price", "turnover_ratio_pct", "turnover"},
 }
+
+# Provider throttling and retry policy are deliberately conservative.  The
+# retry count is per HTTP GET, so a paginated request can still make progress
+# one page at a time without turning a transient outage into an unbounded
+# request storm.
+_MAX_REQUEST_ATTEMPTS = 3
+_RETRY_BASE_DELAY_SECONDS = 0.5
+_RETRY_MAX_DELAY_SECONDS = 60.0
 
 
 class HithinkRow(BaseModel):
@@ -125,6 +135,16 @@ class _Page(BaseModel):
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("page fetch_time must be timezone-aware")
         return value.astimezone(_SHANGHAI)
+
+
+@dataclass(frozen=True, slots=True)
+class _TransportOutcome:
+    """Sanitized result of the retried HTTP transport operation."""
+
+    response: httpx.Response | None
+    reason_code: str | None
+    http_status: int | None
+    metadata: dict[str, Any]
 
 
 class HithinkClient:
@@ -572,24 +592,42 @@ class HithinkClient:
         fetched_at = self._now()
         if self.settings.hithink_api_key is None:
             return self._failure(endpoint, "HITHINK_API_KEY_MISSING", fetch_time=fetched_at)
-        self._throttle()
-        try:
-            response = self._client.get(endpoint, params=dict(params))
-        except (httpx.HTTPError, TimeoutError, OSError) as exc:
-            return self._failure(endpoint, "REQUEST_FAILED", fetch_time=fetched_at, metadata={"error": safe_error(exc)})
-        except Exception:
-            return self._failure(endpoint, "REQUEST_FAILED", fetch_time=fetched_at)
+        transport = self._get_with_retries(endpoint, params)
+        if transport.reason_code is not None:
+            metadata = dict(transport.metadata)
+            return self._failure(
+                endpoint,
+                transport.reason_code,
+                http_status=transport.http_status,
+                fetch_time=fetched_at,
+                metadata=metadata,
+            )
+        # A successful transport outcome always contains a response.  Keep a
+        # defensive branch here so a future transport change cannot turn a
+        # malformed internal result into an exception that escapes the data
+        # contract.
+        response = transport.response
+        if response is None:
+            return self._failure(endpoint, "REQUEST_FAILED", fetch_time=fetched_at, metadata=dict(transport.metadata))
         status = int(response.status_code)
-        if status == 429:
-            return self._failure(endpoint, "RATE_LIMITED", http_status=status, fetch_time=fetched_at)
-        if status >= 400:
-            return self._failure(endpoint, "HTTP_ERROR", http_status=status, fetch_time=fetched_at)
         try:
             envelope = response.json()
         except (TypeError, ValueError):
-            return self._failure(endpoint, "INVALID_JSON", http_status=status, fetch_time=fetched_at)
+            return self._failure(
+                endpoint,
+                "INVALID_JSON",
+                http_status=status,
+                fetch_time=fetched_at,
+                metadata=dict(transport.metadata),
+            )
         if not isinstance(envelope, Mapping) or "code" not in envelope:
-            return self._failure(endpoint, "INVALID_ENVELOPE", http_status=status, fetch_time=fetched_at)
+            return self._failure(
+                endpoint,
+                "INVALID_ENVELOPE",
+                http_status=status,
+                fetch_time=fetched_at,
+                metadata=dict(transport.metadata),
+            )
         business_code = envelope.get("code")
         if business_code not in (0, "0"):
             safe_code = business_code if isinstance(business_code, (int, str)) and not isinstance(business_code, bool) else type(business_code).__name__
@@ -599,10 +637,17 @@ class HithinkClient:
                 http_status=status,
                 business_code=safe_code,
                 fetch_time=fetched_at,
+                metadata=dict(transport.metadata),
             )
         data = envelope.get("data")
         if not isinstance(data, Mapping):
-            return self._failure(endpoint, "MALFORMED_DATA", http_status=status, fetch_time=fetched_at)
+            return self._failure(
+                endpoint,
+                "MALFORMED_DATA",
+                http_status=status,
+                fetch_time=fetched_at,
+                metadata=dict(transport.metadata),
+            )
 
         found_collection = False
         raw_rows: list[dict[str, Any]] = []
@@ -612,27 +657,58 @@ class HithinkClient:
                 continue
             found_collection = True
             if not isinstance(value, list):
-                return self._failure(endpoint, "MALFORMED_DATA", http_status=status, fetch_time=fetched_at)
+                return self._failure(
+                    endpoint,
+                    "MALFORMED_DATA",
+                    http_status=status,
+                    fetch_time=fetched_at,
+                    metadata=dict(transport.metadata),
+                )
             for raw in value:
                 if not isinstance(raw, Mapping):
-                    return self._failure(endpoint, "MALFORMED_ITEM", http_status=status, fetch_time=fetched_at)
+                    return self._failure(
+                        endpoint,
+                        "MALFORMED_ITEM",
+                        http_status=status,
+                        fetch_time=fetched_at,
+                        metadata=dict(transport.metadata),
+                    )
                 row = _sanitize_row(raw)
                 if annotate_collection:
                     row = {"collection": collection, **row}
                 raw_rows.append(row)
         if not found_collection:
-            return self._failure(endpoint, "MALFORMED_DATA", http_status=status, fetch_time=fetched_at)
+            return self._failure(
+                endpoint,
+                "MALFORMED_DATA",
+                http_status=status,
+                fetch_time=fetched_at,
+                metadata=dict(transport.metadata),
+            )
         if not raw_rows and not allow_empty:
-            return self._failure(endpoint, "EMPTY_DATA", http_status=status, fetch_time=fetched_at)
+            return self._failure(
+                endpoint,
+                "EMPTY_DATA",
+                http_status=status,
+                fetch_time=fetched_at,
+                metadata=dict(transport.metadata),
+            )
         try:
             rows = tuple(HithinkRow.model_validate(row) for row in raw_rows)
         except Exception:
-            return self._failure(endpoint, "MALFORMED_ITEM", http_status=status, fetch_time=fetched_at)
+            return self._failure(
+                endpoint,
+                "MALFORMED_ITEM",
+                http_status=status,
+                fetch_time=fetched_at,
+                metadata=dict(transport.metadata),
+            )
         metadata = {
             str(key): _sanitize_json_value(data[key])
             for key in metadata_keys
             if key in data and not _KEY_WORDS.search(str(key))
         }
+        metadata.update(transport.metadata)
         return HithinkFetchResult(
             endpoint=endpoint,
             ok=True,
@@ -775,25 +851,51 @@ class HithinkClient:
         limit: int,
         offset: int,
     ) -> HithinkFetchResult | _Page:
-        self._throttle()
         fetched_at = self._now()
-        try:
-            response = self._client.get(endpoint, params=dict(params))
-        except (httpx.HTTPError, TimeoutError, OSError) as exc:
-            return self._failure(endpoint, "REQUEST_FAILED", offset=offset, limit=limit, fetch_time=fetched_at, metadata={"error": safe_error(exc)})
-        except Exception:
-            return self._failure(endpoint, "REQUEST_FAILED", offset=offset, limit=limit, fetch_time=fetched_at)
+        transport = self._get_with_retries(endpoint, params)
+        if transport.reason_code is not None:
+            return self._failure(
+                endpoint,
+                transport.reason_code,
+                http_status=transport.http_status,
+                offset=offset,
+                limit=limit,
+                fetch_time=fetched_at,
+                metadata=dict(transport.metadata),
+            )
+        response = transport.response
+        if response is None:
+            return self._failure(
+                endpoint,
+                "REQUEST_FAILED",
+                offset=offset,
+                limit=limit,
+                fetch_time=fetched_at,
+                metadata=dict(transport.metadata),
+            )
         status = int(response.status_code)
-        if status == 429:
-            return self._failure(endpoint, "RATE_LIMITED", http_status=status, offset=offset, limit=limit, fetch_time=fetched_at)
-        if status >= 400:
-            return self._failure(endpoint, "HTTP_ERROR", http_status=status, offset=offset, limit=limit, fetch_time=fetched_at)
         try:
             envelope = response.json()
         except (ValueError, TypeError):
-            return self._failure(endpoint, "INVALID_JSON", http_status=status, offset=offset, limit=limit, fetch_time=fetched_at)
+            return self._failure(
+                endpoint,
+                "INVALID_JSON",
+                http_status=status,
+                offset=offset,
+                limit=limit,
+                fetch_time=fetched_at,
+                metadata=dict(transport.metadata),
+            )
         if not isinstance(envelope, dict) or "code" not in envelope:
-            return self._failure(endpoint, "INVALID_ENVELOPE", http_status=status, offset=offset, limit=limit, fetch_time=fetched_at)
+            return self._failure(
+                endpoint,
+                "INVALID_ENVELOPE",
+                http_status=status,
+                offset=offset,
+                limit=limit,
+                fetch_time=fetched_at,
+                metadata=dict(transport.metadata),
+            )
         business_code = envelope.get("code")
         if business_code not in (0, "0"):
             safe_code: int | str
@@ -801,39 +903,113 @@ class HithinkClient:
                 safe_code = business_code
             else:
                 safe_code = type(business_code).__name__
-            return self._failure(endpoint, "BUSINESS_ERROR", http_status=status, business_code=safe_code, offset=offset, limit=limit, fetch_time=fetched_at)
+            return self._failure(
+                endpoint,
+                "BUSINESS_ERROR",
+                http_status=status,
+                business_code=safe_code,
+                offset=offset,
+                limit=limit,
+                fetch_time=fetched_at,
+                metadata=dict(transport.metadata),
+            )
         data = envelope.get("data")
         if not isinstance(data, dict):
-            return self._failure(endpoint, "MALFORMED_DATA", http_status=status, offset=offset, limit=limit, fetch_time=fetched_at)
+            return self._failure(
+                endpoint,
+                "MALFORMED_DATA",
+                http_status=status,
+                offset=offset,
+                limit=limit,
+                fetch_time=fetched_at,
+                metadata=dict(transport.metadata),
+            )
         raw_items = data.get("item", data.get("items"))
         if endpoint == _ENDPOINT_INDICATORS and raw_items is None:
             abilities = data.get("abilities")
             if not isinstance(abilities, list):
-                return self._failure(endpoint, "MALFORMED_DATA", http_status=status, offset=offset, limit=limit, fetch_time=fetched_at)
+                return self._failure(
+                    endpoint,
+                    "MALFORMED_DATA",
+                    http_status=status,
+                    offset=offset,
+                    limit=limit,
+                    fetch_time=fetched_at,
+                    metadata=dict(transport.metadata),
+                )
             flattened: list[dict[str, Any]] = []
             for ability in abilities:
                 if not isinstance(ability, Mapping):
-                    return self._failure(endpoint, "MALFORMED_ITEM", http_status=status, offset=offset, limit=limit, fetch_time=fetched_at)
+                    return self._failure(
+                        endpoint,
+                        "MALFORMED_ITEM",
+                        http_status=status,
+                        offset=offset,
+                        limit=limit,
+                        fetch_time=fetched_at,
+                        metadata=dict(transport.metadata),
+                    )
                 ability_name = ability.get("ability")
                 indicators = ability.get("indicators")
                 if not isinstance(indicators, list):
-                    return self._failure(endpoint, "MALFORMED_ITEM", http_status=status, offset=offset, limit=limit, fetch_time=fetched_at)
+                    return self._failure(
+                        endpoint,
+                        "MALFORMED_ITEM",
+                        http_status=status,
+                        offset=offset,
+                        limit=limit,
+                        fetch_time=fetched_at,
+                        metadata=dict(transport.metadata),
+                    )
                 for indicator in indicators:
                     if not isinstance(indicator, Mapping):
-                        return self._failure(endpoint, "MALFORMED_ITEM", http_status=status, offset=offset, limit=limit, fetch_time=fetched_at)
+                        return self._failure(
+                            endpoint,
+                            "MALFORMED_ITEM",
+                            http_status=status,
+                            offset=offset,
+                            limit=limit,
+                            fetch_time=fetched_at,
+                            metadata=dict(transport.metadata),
+                        )
                     flattened.append({"ability": ability_name, **dict(indicator)})
             raw_items = flattened
         if not isinstance(raw_items, list):
-            return self._failure(endpoint, "MALFORMED_DATA", http_status=status, offset=offset, limit=limit, fetch_time=fetched_at)
+            return self._failure(
+                endpoint,
+                "MALFORMED_DATA",
+                http_status=status,
+                offset=offset,
+                limit=limit,
+                fetch_time=fetched_at,
+                metadata=dict(transport.metadata),
+            )
         rows: list[HithinkRow] = []
         for raw in raw_items:
             if not isinstance(raw, Mapping):
-                return self._failure(endpoint, "MALFORMED_ITEM", http_status=status, offset=offset, limit=limit, fetch_time=fetched_at)
+                return self._failure(
+                    endpoint,
+                    "MALFORMED_ITEM",
+                    http_status=status,
+                    offset=offset,
+                    limit=limit,
+                    fetch_time=fetched_at,
+                    metadata=dict(transport.metadata),
+                )
             try:
                 rows.append(HithinkRow.model_validate(_sanitize_row(raw)))
             except Exception:
-                return self._failure(endpoint, "MALFORMED_ITEM", http_status=status, offset=offset, limit=limit, fetch_time=fetched_at)
+                return self._failure(
+                    endpoint,
+                    "MALFORMED_ITEM",
+                    http_status=status,
+                    offset=offset,
+                    limit=limit,
+                    fetch_time=fetched_at,
+                    metadata=dict(transport.metadata),
+                )
         metadata = _safe_page_metadata(data)
+        metadata.update(transport.metadata)
         return _Page(
             items=tuple(rows),
             fetch_time=fetched_at,
@@ -841,6 +1017,133 @@ class HithinkClient:
             has_more=_first_bool(data, "has_more", "hasMore", "more"),
             next_offset=_first_int(data, "next_offset", "nextOffset"),
             metadata=metadata,
+        )
+
+    def _get_with_retries(
+        self,
+        endpoint: str,
+        params: Mapping[str, Any],
+    ) -> _TransportOutcome:
+        """GET one endpoint with bounded transport-only retries.
+
+        Parsing and business failures are intentionally handled by the
+        caller, after this method returns a response.  Consequently a 4xx,
+        invalid JSON, malformed envelope, or non-zero provider code is never
+        retried as if it were a transient transport failure.  ``_throttle``
+        runs before every attempt, including retries.
+        """
+
+        for attempt in range(1, _MAX_REQUEST_ATTEMPTS + 1):
+            self._throttle()
+            try:
+                response = self._client.get(endpoint, params=dict(params))
+            except (httpx.HTTPError, TimeoutError, OSError) as exc:
+                if attempt < _MAX_REQUEST_ATTEMPTS:
+                    self._sleep(self._retry_delay(None, attempt))
+                    continue
+                return _TransportOutcome(
+                    response=None,
+                    reason_code="REQUEST_FAILED",
+                    http_status=None,
+                    metadata=self._retry_metadata(attempt, error=safe_error(exc)),
+                )
+            except Exception as exc:
+                if attempt < _MAX_REQUEST_ATTEMPTS:
+                    self._sleep(self._retry_delay(None, attempt))
+                    continue
+                return _TransportOutcome(
+                    response=None,
+                    reason_code="REQUEST_FAILED",
+                    http_status=None,
+                    metadata=self._retry_metadata(attempt, error=safe_error(exc)),
+                )
+
+            status = int(response.status_code)
+            if status == 429:
+                if attempt < _MAX_REQUEST_ATTEMPTS:
+                    self._sleep(self._retry_delay(response, attempt, honor_retry_after=True))
+                    continue
+                return _TransportOutcome(
+                    response=None,
+                    reason_code="RATE_LIMITED",
+                    http_status=status,
+                    metadata=self._retry_metadata(attempt),
+                )
+            if 500 <= status <= 599:
+                if attempt < _MAX_REQUEST_ATTEMPTS:
+                    self._sleep(self._retry_delay(None, attempt))
+                    continue
+                return _TransportOutcome(
+                    response=None,
+                    reason_code="HTTP_ERROR",
+                    http_status=status,
+                    metadata=self._retry_metadata(attempt),
+                )
+            if status >= 400:
+                return _TransportOutcome(
+                    response=None,
+                    reason_code="HTTP_ERROR",
+                    http_status=status,
+                    metadata=self._retry_metadata(attempt),
+                )
+            return _TransportOutcome(
+                response=response,
+                reason_code=None,
+                http_status=status,
+                metadata=self._retry_metadata(attempt),
+            )
+
+        # The loop is statically exhaustive, but retain a fail-closed guard
+        # if the retry constant is changed to an invalid value in the future.
+        return _TransportOutcome(
+            response=None,
+            reason_code="REQUEST_FAILED",
+            http_status=None,
+            metadata=self._retry_metadata(_MAX_REQUEST_ATTEMPTS),
+        )
+
+    @staticmethod
+    def _retry_metadata(attempts: int, *, error: str | None = None) -> dict[str, Any]:
+        # Preserve the existing metadata shape for the normal one-attempt
+        # path.  Once a retry occurs, expose only bounded, non-sensitive
+        # counters.  Keep the pre-existing safe exception class for a
+        # first-attempt network failure as well.
+        metadata: dict[str, Any] = {}
+        if attempts > 1:
+            metadata.update({"attempts": attempts, "retries": attempts - 1})
+        if error is not None:
+            metadata["error"] = error
+        return metadata
+
+    @staticmethod
+    def _retry_delay(
+        response: httpx.Response | None,
+        attempt: int,
+        *,
+        honor_retry_after: bool = False,
+    ) -> float:
+        if honor_retry_after and response is not None:
+            value = response.headers.get("Retry-After")
+            if value is not None:
+                text = str(value).strip()
+                try:
+                    delay = float(text)
+                    if math.isfinite(delay) and delay >= 0:
+                        return min(delay, _RETRY_MAX_DELAY_SECONDS)
+                except (TypeError, ValueError, OverflowError):
+                    pass
+                try:
+                    retry_at = parsedate_to_datetime(text)
+                    if retry_at.tzinfo is None:
+                        retry_at = retry_at.replace(tzinfo=timezone.utc)
+                    delay = (retry_at - datetime.now(timezone.utc)).total_seconds()
+                    if math.isfinite(delay):
+                        return min(max(0.0, delay), _RETRY_MAX_DELAY_SECONDS)
+                except (TypeError, ValueError, OverflowError):
+                    pass
+        return min(
+            _RETRY_BASE_DELAY_SECONDS * (2 ** (attempt - 1)),
+            _RETRY_MAX_DELAY_SECONDS,
         )
 
     def _throttle(self) -> None:

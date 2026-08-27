@@ -15,6 +15,7 @@ from typing import Any, Mapping
 from zoneinfo import ZoneInfo
 
 from .data.cache import MinuteBarStore
+from .data.bse import BseClient
 from .data.cninfo import CninfoAnnouncement, CninfoClient, CninfoFetchResult
 from .data.cninfo_pdf import CninfoPdfClient, CninfoPdfEvidence
 from .data.gov_policy import GovPolicyClient
@@ -358,7 +359,10 @@ class WorkflowApplication:
             timeout_seconds=self.settings.timeout_seconds,
             base_url=self.settings.cninfo_base_url,
             min_request_interval_seconds=self.settings.cninfo_min_request_interval_seconds,
-        ) as cninfo:
+        ) as cninfo, BseClient(
+            timeout_seconds=self.settings.timeout_seconds,
+            min_request_interval_seconds=self.settings.cninfo_min_request_interval_seconds,
+        ) as bse:
             # Each candidate is one independent unit containing the recent and
             # business-history queries.  The shared client owns the global
             # request throttle, so workers hide network latency without
@@ -373,6 +377,7 @@ class WorkflowApplication:
                         query_start,
                         query_end,
                         business_query_start,
+                        bse_client=bse,
                     )
                     query_futures[future] = index
                 completed_queries: dict[
@@ -420,15 +425,14 @@ class WorkflowApplication:
                 symbol, recent_result, recent_hit, business_result, business_hit = completed_queries[index]
                 result = _merge_cninfo_query_results(recent_result, business_result)
                 cninfo_results[symbol] = result
+                disclosure_source = "BSE" if symbol.upper().endswith(".BJ") else "CNINFO"
                 if not recent_result.ok or not recent_result.complete:
-                    source_failures.setdefault(symbol, []).append(f"CNINFO:{recent_result.reason_code}")
-                    # Announcement query success is a P0 company boundary.
-                    # Removing fundamentals excludes this symbol in the
-                    # canonical freeze without changing the full universe.
-                    fundamental.pop(symbol, None)
+                    source_failures.setdefault(symbol, []).append(
+                        f"{disclosure_source}:{recent_result.reason_code}"
+                    )
                 if not business_result.ok or not business_result.complete:
                     source_failures.setdefault(symbol, []).append(
-                        f"CNINFO_MAIN_BUSINESS:{business_result.reason_code}"
+                        f"{disclosure_source}_MAIN_BUSINESS:{business_result.reason_code}"
                     )
         # Freeze the complete PDF work list before opening the client.  The
         # candidate selector is deterministic, so this gives the control
@@ -762,7 +766,7 @@ class WorkflowApplication:
 
     def _cached_cninfo_result(
         self,
-        client: CninfoClient,
+        client: CninfoClient | BseClient,
         *,
         symbol: str,
         start_date: str,
@@ -801,13 +805,19 @@ class WorkflowApplication:
 
     def _fetch_cninfo_candidate_queries(
         self,
-        client: CninfoClient,
+        cninfo_client: CninfoClient,
         symbol: str,
         query_start: str,
         query_end: str,
         business_query_start: str,
+        *,
+        bse_client: BseClient | None = None,
     ) -> tuple[str, CninfoFetchResult, bool, CninfoFetchResult, bool]:
-        """Fetch both deterministic CNINFO query lanes for one candidate."""
+        """Fetch both official disclosure-query lanes for one candidate."""
+
+        client: CninfoClient | BseClient = cninfo_client
+        if symbol.upper().endswith(".BJ") and bse_client is not None:
+            client = bse_client
 
         recent_result, recent_hit = self._cached_cninfo_result(
             client,
@@ -2768,7 +2778,22 @@ def _compact_fundamental_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
             continue
         grouped.setdefault(str(row.get("_dataset") or "UNKNOWN"), []).append(dict(row))
 
-    result: dict[str, Any] = {"statements": {}, "indicators": []}
+    missing_datasets = [
+        dataset
+        for dataset in ("INCOME", "BALANCE", "CASH_FLOW", "INDICATORS")
+        if not grouped.get(dataset)
+    ]
+    result: dict[str, Any] = {
+        "statements": {},
+        "indicators": [],
+        "dataset_coverage": {
+            "core_reports_complete": not any(
+                dataset in missing_datasets for dataset in ("INCOME", "BALANCE", "CASH_FLOW")
+            ),
+            "indicators_available": "INDICATORS" not in missing_datasets,
+            "missing_datasets": missing_datasets,
+        },
+    }
     for dataset in ("INCOME", "BALANCE", "CASH_FLOW"):
         ordered = sorted(
             grouped.get(dataset, ()),

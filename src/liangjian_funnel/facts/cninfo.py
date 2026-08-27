@@ -50,7 +50,9 @@ def normalize_cninfo_results(
     pdf_requested_total = len(pdf_results)
     pdf_available_total = sum(item.available for item in pdf_results.values())
     for symbol, result in sorted(results.items()):
-        source_id = f"cninfo.public.{symbol.replace('.', '_').lower()}"
+        provider_prefix = "bse.official" if result.source_id == "bse_official" else "cninfo.public"
+        source_id = f"{provider_prefix}.{symbol.replace('.', '_').lower()}"
+        checksum_prefix = "BSE" if result.source_id == "bse_official" else "CNINFO"
         symbol_pdf = {
             identifier: item
             for (item_symbol, identifier), item in pdf_results.items()
@@ -67,9 +69,9 @@ def normalize_cninfo_results(
             query_digest = hashlib.sha256(
                 canonical_json_bytes([item.model_dump(mode="json") for item in result.announcements])
             ).hexdigest()
-            checksums[f"CNINFO_{symbol.replace('.', '_')}"] = query_digest
+            checksums[f"{checksum_prefix}_{symbol.replace('.', '_')}"] = query_digest
         if symbol_pdf:
-            checksums[f"CNINFO_PDF_{symbol.replace('.', '_')}"] = hashlib.sha256(
+            checksums[f"{checksum_prefix}_PDF_{symbol.replace('.', '_')}"] = hashlib.sha256(
                 canonical_json_bytes([
                     item.model_dump(mode="json")
                     for _, item in sorted(symbol_pdf.items())
@@ -93,6 +95,7 @@ def normalize_cninfo_results(
                 http_status=result.http_status,
                 available=available,
                 details={
+                    "source_system": result.metadata.get("source_system", result.source_id),
                     "query_start_date": result.start_date,
                     "query_end_date": result.end_date,
                     "announcement_count": len(result.announcements),
@@ -130,7 +133,7 @@ def normalize_cninfo_results(
             identity = hashlib.sha256(
                 canonical_json_bytes(
                     {
-                        "source": "cninfo",
+                        "source": result.source_id,
                         "announcement_id": announcement.announcement_id,
                         "symbol": canonical_symbol,
                         "content_hash": content_hash,

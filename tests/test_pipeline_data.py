@@ -61,6 +61,244 @@ def test_hithink_business_error_and_empty_page_are_structured(tmp_path: Path):
     assert not result.ok and result.reason_code == "EMPTY_DATA"
 
 
+def _successful_index_response(request: httpx.Request) -> httpx.Response:
+    return httpx.Response(
+        200,
+        json={"code": 0, "data": {"item": [{"thscode": "881101.TI", "name": "行业A"}]}},
+        request=request,
+    )
+
+
+def test_hithink_fetch_once_retries_429_and_honors_retry_after(tmp_path: Path):
+    calls = 0
+    sleeps: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return httpx.Response(429, headers={"Retry-After": "2.5"}, request=request)
+        return _successful_index_response(request)
+
+    client = HithinkClient(
+        settings(tmp_path),
+        transport=httpx.MockTransport(handler),
+        sleep=sleeps.append,
+    )
+    result = client.ths_index_catalog(tag="industry")
+    client.close()
+
+    assert result.ok and result.complete
+    assert result.metadata["attempts"] == 2
+    assert result.metadata["retries"] == 1
+    assert calls == 2
+    assert sleeps == [2.5]
+
+
+def test_hithink_fetch_once_retries_5xx_with_bounded_exponential_backoff(tmp_path: Path):
+    calls = 0
+    sleeps: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls < 3:
+            return httpx.Response(503, request=request)
+        return _successful_index_response(request)
+
+    client = HithinkClient(
+        settings(tmp_path),
+        transport=httpx.MockTransport(handler),
+        sleep=sleeps.append,
+    )
+    result = client.ths_index_catalog(tag="industry")
+    client.close()
+
+    assert result.ok and result.complete
+    assert result.metadata["attempts"] == 3
+    assert result.metadata["retries"] == 2
+    assert calls == 3
+    assert sleeps == [0.5, 1.0]
+
+
+def test_hithink_fetch_once_retries_network_exception_then_succeeds(tmp_path: Path):
+    calls = 0
+    sleeps: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise httpx.ConnectError("offline", request=request)
+        return _successful_index_response(request)
+
+    client = HithinkClient(
+        settings(tmp_path),
+        transport=httpx.MockTransport(handler),
+        sleep=sleeps.append,
+    )
+    result = client.ths_index_catalog(tag="industry")
+    client.close()
+
+    assert result.ok and result.complete
+    assert result.metadata["attempts"] == 2
+    assert result.metadata["retries"] == 1
+    assert calls == 2
+    assert sleeps == [0.5]
+
+
+def test_hithink_fetch_once_persistent_429_is_bounded_and_structured(tmp_path: Path):
+    calls = 0
+    sleeps: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(429, headers={"Retry-After": "3"}, request=request)
+
+    client = HithinkClient(
+        settings(tmp_path),
+        transport=httpx.MockTransport(handler),
+        sleep=sleeps.append,
+    )
+    result = client.ths_index_catalog(tag="industry")
+    client.close()
+
+    assert not result.ok and result.reason_code == "RATE_LIMITED"
+    assert result.http_status == 429
+    assert result.metadata["attempts"] == 3
+    assert result.metadata["retries"] == 2
+    assert calls == 3
+    assert sleeps == [3.0, 3.0]
+
+
+@pytest.mark.parametrize(
+    ("response", "reason_code"),
+    [
+        (lambda request: httpx.Response(400, request=request), "HTTP_ERROR"),
+        (
+            lambda request: httpx.Response(
+                200,
+                json={"code": 1002, "data": None},
+                request=request,
+            ),
+            "BUSINESS_ERROR",
+        ),
+    ],
+)
+def test_hithink_fetch_once_does_not_retry_client_or_business_errors(
+    tmp_path: Path,
+    response,
+    reason_code: str,
+):
+    calls = 0
+    sleeps: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return response(request)
+
+    client = HithinkClient(
+        settings(tmp_path),
+        transport=httpx.MockTransport(handler),
+        sleep=sleeps.append,
+    )
+    result = client.ths_index_catalog(tag="industry")
+    client.close()
+
+    assert not result.ok and result.reason_code == reason_code
+    assert calls == 1
+    assert sleeps == []
+
+
+def test_hithink_pagination_retries_transport_and_preserves_page_progress(tmp_path: Path):
+    calls = 0
+    sleeps: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise httpx.ReadTimeout("temporary", request=request)
+        return httpx.Response(
+            200,
+            json={
+                "code": 0,
+                "data": {
+                    "item": [
+                        {"thscode": "600519.SH", "name": "A"},
+                    ],
+                    "total": 1,
+                },
+            },
+            request=request,
+        )
+
+    client = HithinkClient(
+        settings(tmp_path),
+        transport=httpx.MockTransport(handler),
+        sleep=sleeps.append,
+    )
+    result = client.ticker_catalog(limit=1, max_pages=2)
+    client.close()
+
+    assert result.ok and result.complete
+    assert [row.model_dump()["thscode"] for row in result.items] == ["600519.SH"]
+    assert result.metadata["attempts"] == 2
+    assert result.metadata["retries"] == 1
+    assert calls == 2
+    assert sleeps == [0.5]
+
+
+@pytest.mark.parametrize(
+    ("status", "headers", "expected_sleep"),
+    [
+        (429, {"Retry-After": "1.25"}, 1.25),
+        (503, {}, 0.5),
+    ],
+)
+def test_hithink_pagination_retries_rate_limit_and_server_errors(
+    tmp_path: Path,
+    status: int,
+    headers: dict[str, str],
+    expected_sleep: float,
+):
+    calls = 0
+    sleeps: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return httpx.Response(status, headers=headers, request=request)
+        return httpx.Response(
+            200,
+            json={
+                "code": 0,
+                "data": {
+                    "item": [{"thscode": "600519.SH", "name": "A"}],
+                    "total": 1,
+                },
+            },
+            request=request,
+        )
+
+    client = HithinkClient(
+        settings(tmp_path),
+        transport=httpx.MockTransport(handler),
+        sleep=sleeps.append,
+    )
+    result = client.ticker_catalog(limit=1, max_pages=2)
+    client.close()
+
+    assert result.ok and result.complete
+    assert result.metadata["attempts"] == 2
+    assert result.metadata["retries"] == 1
+    assert calls == 2
+    assert sleeps == [expected_sleep]
+
+
 def test_financial_indicators_flatten_nested_abilities(tmp_path: Path):
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.params["report"] == "2025-4"

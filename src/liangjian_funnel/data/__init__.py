@@ -33,6 +33,16 @@ from .cninfo_pdf import (
     CninfoPdfEvidence,
     PdfEvidenceSnippet,
 )
+from .bse import (
+    BSE_BASE_URL,
+    BSE_CALLBACK,
+    BSE_ENDPOINT,
+    BSE_REFERER,
+    BSE_SOURCE_ID,
+    BSE_USER_AGENT,
+    BseClient,
+    BseContractError,
+)
 from .gov_policy import (
     GOV_POLICY_ENDPOINT,
     GOV_POLICY_SOURCE_ID,
@@ -62,6 +72,14 @@ __all__ = [
     "CninfoPdfClient",
     "CninfoPdfEvidence",
     "PdfEvidenceSnippet",
+    "BSE_BASE_URL",
+    "BSE_CALLBACK",
+    "BSE_ENDPOINT",
+    "BSE_REFERER",
+    "BSE_SOURCE_ID",
+    "BSE_USER_AGENT",
+    "BseClient",
+    "BseContractError",
     "GOV_POLICY_ENDPOINT",
     "GOV_POLICY_SOURCE_ID",
     "GovPolicyClient",

@@ -72,6 +72,39 @@ def test_confirmed_zero_records_is_healthy_but_creates_no_fake_event() -> None:
     assert manifest.source_health[0].reason_code == "NO_RECORDS"
 
 
+def test_bse_result_keeps_official_source_provenance() -> None:
+    item = CninfoAnnouncement(
+        announcement_id="bse-a1",
+        sec_code="920012",
+        sec_name="创达新材",
+        announcement_title="2026年半年度报告",
+        adjunct_url="https://www.bse.cn/disclosure/2026/2026-08-20/bse-a1.pdf",
+        publish_time=NOW - timedelta(minutes=10),
+    )
+    result = CninfoFetchResult(
+        symbol="920012.BJ",
+        start_date="2026-08-20",
+        end_date="2026-08-25",
+        ok=True,
+        complete=True,
+        reason_code="OK",
+        announcements=(item,),
+        total=1,
+        pages=1,
+        fetched_at=NOW,
+        source_id="bse_official",
+        source_url="https://www.bse.cn/disclosureInfoController/companyAnnouncement.do",
+        metadata={"source_system": "bse"},
+    )
+
+    manifest = normalize_cninfo_results({"920012.BJ": result}, as_of=NOW, ingest_time=NOW)
+
+    assert manifest.source_health[0].source_id == "bse.official.920012_bj"
+    assert manifest.source_health[0].details["source_system"] == "bse"
+    assert manifest.facts[0].source_id == "bse.official.920012_bj"
+    assert "BSE_920012_BJ" in manifest.source_checksums
+
+
 def test_failed_query_has_zero_coverage_and_no_fake_empty_success() -> None:
     manifest = normalize_cninfo_results(
         {"600519.SH": _result(ok=False)},

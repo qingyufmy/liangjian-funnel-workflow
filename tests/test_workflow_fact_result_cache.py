@@ -75,6 +75,28 @@ def test_cninfo_semantic_cache_avoids_repeated_company_request(tmp_path: Path):
     assert second.model_dump(mode="json") == first.model_dump(mode="json")
 
 
+def test_official_disclosure_queries_route_bj_to_bse(tmp_path: Path):
+    application = object.__new__(WorkflowApplication)
+    application.fact_cache = LocalFactCache(tmp_path / "facts.sqlite3")
+    cninfo = FakeCninfoClient()
+    bse = FakeCninfoClient()
+
+    symbol, recent, _, business, _ = application._fetch_cninfo_candidate_queries(
+        cninfo,
+        "920012.BJ",
+        "2026-08-17",
+        "2026-08-27",
+        "2025-05-04",
+        bse_client=bse,
+    )
+
+    assert symbol == "920012.BJ"
+    assert recent.ok and business.ok
+    assert cninfo.calls == 0
+    assert bse.calls == 2
+    assert business.metadata["search_keyword"] == "年度报告"
+
+
 def test_news_heat_merge_is_deduplicated_bounded_and_keeps_market_items():
     duplicate = {"content_hash": "same", "title": "stock", "publish_time": "2026-08-26T10:00:00+08:00"}
     merged = _merge_news_heat_snapshots(

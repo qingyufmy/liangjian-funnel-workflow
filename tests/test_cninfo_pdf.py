@@ -87,6 +87,29 @@ def test_download_extract_and_hash_validated_cache(tmp_path: Path, monkeypatch: 
     assert json.loads(sidecar.read_text(encoding="utf-8"))["url"] == announcement().pdf_url
 
 
+def test_bse_official_pdf_host_is_allowed_with_bse_referer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(pypdf, "PdfReader", Reader)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.host == "www.bse.cn"
+        assert request.headers["referer"] == "https://www.bse.cn/disclosure/announcement.html"
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/pdf"},
+            content=b"%PDF-bse",
+        )
+
+    result = make_client(tmp_path, handler).fetch_evidence(
+        announcement("https://www.bse.cn/disclosure/2026/2026-08-20/example.pdf")
+    )
+
+    assert result.available is True
+    assert result.reason_code == "OK"
+
+
 def test_corrupt_cache_is_refetched(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(pypdf, "PdfReader", Reader)
     calls = 0

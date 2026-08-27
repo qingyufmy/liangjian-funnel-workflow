@@ -66,6 +66,18 @@ class FakeClient:
         return _result("cash", [{"report_date_ms": int((NOW - timedelta(days=90)).timestamp() * 1000), "net_cash_flow": 3}])
 
 
+class MissingIndicatorsClient(FakeClient):
+    def financial_indicators(self, symbol, **_kwargs):
+        self.calls.append(("INDICATORS", symbol))
+        return HithinkFetchResult(
+            endpoint="indicators",
+            ok=False,
+            complete=False,
+            reason_code="BUSINESS_ERROR",
+            fetch_time=NOW,
+        )
+
+
 def test_incremental_sync_persists_each_symbol_and_warm_run_uses_cache(tmp_path):
     cache = LocalFactCache(tmp_path / "facts.sqlite3")
     client = FakeClient()
@@ -99,6 +111,22 @@ def test_interrupted_bootstrap_resumes_completed_symbols(tmp_path):
     assert result.cache_hits == 1
     assert result.cache_misses == 1
     assert all(symbol == "000001.SZ" for _dataset, symbol in resumed.calls)
+
+
+def test_core_statements_are_returned_when_indicators_are_missing(tmp_path):
+    cache = LocalFactCache(tmp_path / "facts.sqlite3")
+    sync = HithinkIncrementalSynchronizer(cache, progress_every=1)
+
+    result = sync.sync(MissingIndicatorsClient(), ["600519.SH"], as_of=NOW)
+
+    assert "600519.SH" in result.fundamental
+    assert {row["_dataset"] for row in result.fundamental["600519.SH"]} == {
+        "INCOME",
+        "BALANCE",
+        "CASH_FLOW",
+    }
+    assert "INDICATORS:BUSINESS_ERROR" in result.failures["600519.SH"]
+    assert "INDICATORS:CACHE_EMPTY" in result.failures["600519.SH"]
 
 
 def test_stale_daily_cache_refreshes_only_recent_overlap_window(tmp_path):

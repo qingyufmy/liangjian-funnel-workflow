@@ -14,6 +14,7 @@ from .local_fact_cache import LocalFactCache
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 FINANCIAL_DATASETS = ("INCOME", "INDICATORS", "BALANCE", "CASH_FLOW")
+CORE_FINANCIAL_DATASETS = ("INCOME", "BALANCE", "CASH_FLOW")
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,9 +183,13 @@ class HithinkIncrementalSynchronizer:
                 financial_rows.extend(
                     {"_dataset": dataset, **dict(item["payload"])} for item in cached
                 )
+            # Indicators are an optional enrichment dataset.  The three
+            # statements remain a usable fundamental projection when the
+            # provider has no indicators for a symbol; the original
+            # INDICATORS failure is still retained in ``failures`` above.
             if financial_rows and all(
                 any(row.get("_dataset") == dataset for row in financial_rows)
-                for dataset in FINANCIAL_DATASETS
+                for dataset in CORE_FINANCIAL_DATASETS
             ):
                 fundamental[symbol] = financial_rows
 
@@ -302,4 +307,9 @@ def _aware(value: datetime) -> datetime:
     return value.astimezone(SHANGHAI)
 
 
-__all__ = ["FINANCIAL_DATASETS", "HithinkIncrementalSynchronizer", "SyncResult"]
+__all__ = [
+    "CORE_FINANCIAL_DATASETS",
+    "FINANCIAL_DATASETS",
+    "HithinkIncrementalSynchronizer",
+    "SyncResult",
+]
