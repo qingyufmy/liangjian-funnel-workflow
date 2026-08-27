@@ -320,6 +320,7 @@ def test_v2_pipeline_does_not_send_the_full_g0_to_a1(tmp_path: Path):
         root=tmp_path,
     )
     client = V2Client()
+    progress_events: list[dict] = []
     snapshot_data = _snapshot(8)
     snapshot_data["A1_DRIVER_LINEAGE_REQUIRED"] = True
     snapshot = FrozenInputSnapshot("snapshot-v2", snapshot_data, as_of=NOW)
@@ -328,6 +329,7 @@ def test_v2_pipeline_does_not_send_the_full_g0_to_a1(tmp_path: Path):
         prompt_repository=_prompt_dir(tmp_path),
         model_client=client,
         output_dir=tmp_path / "outputs",
+        progress_callback=progress_events.append,
         now=lambda: NOW,
     ).run(snapshot, run_id="run-v2", generated_at=NOW)
 
@@ -338,3 +340,13 @@ def test_v2_pipeline_does_not_send_the_full_g0_to_a1(tmp_path: Path):
         assert max(map(len, a1_calls[1:])) <= 2
         assert all(len(symbols) < len(snapshot_data["g0_symbols"]) for symbols in a1_calls)
     assert all(lane.stages[0].diagnostics["local_screen"]["evaluated_count"] == 8 for lane in result.lanes)
+    for lane_id in ("lane_1", "lane_2", "lane_3"):
+        discovery_events = [
+            event
+            for event in progress_events
+            if event["lane"] == lane_id and event["stage"] == "MACRO_DISCOVERY"
+        ]
+        assert discovery_events[0]["status"] == "RUNNING"
+        assert discovery_events[0]["completed"] == 0
+        assert discovery_events[-1]["status"] == "COMPLETED"
+        assert discovery_events[-1]["completed"] == 1

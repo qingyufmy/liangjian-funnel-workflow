@@ -718,6 +718,23 @@ class ResearchPipeline:
             policy_lookback_days=self.settings.a1_policy_lookback_days,
             policy_document_limit=self.settings.a1_policy_document_limit,
         )
+        # Publish the in-flight discovery stage before the potentially
+        # multi-minute model request. Otherwise the dashboard remains on
+        # SNAPSHOT_RESUMED until the response finishes, which looks stalled
+        # even though all three lanes are actively working.
+        self._emit_progress(
+            run_id=run_id,
+            lane=lane_id,
+            model=model,
+            stage="MACRO_DISCOVERY",
+            completed=0,
+            total=1,
+            status="RUNNING",
+            attempts=0,
+            batch_index=1,
+            processed_symbols=0,
+            total_symbols=0,
+        )
         discovery = self._run_stage_with_checkpoint(
             lane_id=lane_id,
             model=model,
