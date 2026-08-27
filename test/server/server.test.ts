@@ -476,6 +476,28 @@ test("reads the Python progress writer shape including second-based timing and s
   expect(progress?.lanes[0]).toMatchObject({ laneId: "lane_1", batchProcessed: 4, batchTotal: 20 });
 });
 
+test("does not label an incomplete aggregate stage as completed", async () => {
+  const root = await mkdtemp(join(tmpdir(), "liangjian-progress-incomplete-stage-"));
+  await mkdir(join(root, "state"), { recursive: true });
+  await writeFile(join(root, "state", "workflow_progress.json"), JSON.stringify({
+    run_id: "running-batches",
+    status: "RUNNING",
+    phase: "RESEARCH_A1",
+    lanes: {
+      LANE_1: {
+        model: "deepseek-v4-pro-0813",
+        status: "RUNNING",
+        stages: { A1: { status: "COMPLETED", completed_batches: 10, total_batches: 248 } },
+      },
+    },
+  }));
+  const config = loadConfig({ LIANGJIAN_PYTHON_BIN: "python3" }, root);
+  const files = new ProjectFiles(config, new LogStore(config));
+
+  const progress = await files.workflowProgress();
+  expect(progress?.lanes[0]?.stages[0]).toMatchObject({ status: "RUNNING", batchProcessed: 10, batchTotal: 248 });
+});
+
 test("projects allow-listed CNINFO PDF progress without exposing document payloads", async () => {
   const root = await mkdtemp(join(tmpdir(), "liangjian-progress-cninfo-pdf-"));
   await mkdir(join(root, "state"), { recursive: true });

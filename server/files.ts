@@ -551,9 +551,17 @@ function normalizeStage(stageKey: string | null, stage: JsonRecord): WorkflowPro
   const total = metricFromSources(sources, ["total", "total_count", "universe_total"], "count");
   const batchProcessed = metricFromSources(sources, ["batch_processed", "batch_completed", "completed_batches", "current_batch", "processed_batches", "processed", "completed"], "count");
   const batchTotal = metricFromSources(sources, ["batch_total", "batch_count", "total_batches", "total"], "count");
+  const rawStatus = progressString(stage.status) ? progressStatus(stage.status) : null;
+  const hasIncompleteAggregate = (
+    processed.value !== null && total.value !== null && total.value > 0 && processed.value < total.value
+  ) || (
+    batchProcessed.value !== null && batchTotal.value !== null && batchTotal.value > 0 && batchProcessed.value < batchTotal.value
+  );
   return {
     stage: stageName,
-    status: progressString(stage.status) ? progressStatus(stage.status) : null,
+    // A completed latest batch does not mean the aggregate stage is complete.
+    // Do not present an incomplete 10/248 aggregate as a completed stage.
+    status: rawStatus === "COMPLETED" && hasIncompleteAggregate ? "RUNNING" : rawStatus,
     processed: processed.value,
     total: total.value,
     batchProcessed: batchProcessed.value,
