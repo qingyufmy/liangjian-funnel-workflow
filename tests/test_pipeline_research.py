@@ -8,7 +8,9 @@ import pytest
 from liangjian_funnel.pipeline.model_client import ModelCallResult, ModelNetworkError, StrictJSONError
 from liangjian_funnel.pipeline.prompts import PROMPT_FILENAMES, PromptRepository, PromptRepositoryError
 from liangjian_funnel.pipeline.research import (
+    FrozenInputSnapshot,
     ResearchPipeline,
+    ResearchPipelineError,
     _a1_batch_is_splittable,
     _a2_batch_is_splittable,
     _a1_discovery_context_reasons,
@@ -22,6 +24,7 @@ from liangjian_funnel.pipeline.research import (
     _canonicalize_a1_driver_context,
     _canonicalize_stage_scores,
     _canonicalize_stage_pool_fields,
+    _estimate_message_tokens,
     _merge_a1_outputs,
     _merge_a2_outputs,
     _output_shape,
@@ -31,6 +34,7 @@ from liangjian_funnel.pipeline.research import (
     _project_macro_policy,
     _project_news,
     _scan_symbols,
+    _snapshot_discovery_evidence_refs,
     _stage_execution_budget,
     _validate_output,
     _valid_a1_discovery_output,
@@ -493,6 +497,57 @@ def test_stage_execution_budget_keeps_a1_broad_and_uses_downstream_regime_caps()
 
 def test_a1_incomplete_partition_can_split_to_smaller_transport_groups():
     assert _a1_batch_is_splittable(["A1_POOL_PARTITION_INCOMPLETE"])
+    assert _a1_batch_is_splittable(["MODEL_PROMPT_TOO_LARGE"])
+
+
+def test_input_token_estimate_is_conservative_for_mixed_chinese_json():
+    messages = (
+        {"role": "system", "content": "abcd"},
+        {"role": "user", "content": "基本面"},
+    )
+    # ASCII: 1 token; CJK: 3 * 2; framing: 8 per message.
+    assert _estimate_message_tokens(messages) == 23
+
+
+def test_discovery_evidence_catalog_excludes_company_only_disclosures():
+    refs = _snapshot_discovery_evidence_refs({
+        "MACRO_POLICY_FEED": {"items": [{"fact_id": "policy-1"}]},
+        "INDUSTRY_PROFIT_DATA": [{"source_url": "https://stats.example/industry"}],
+        "DISCLOSURE_EVENTS": {"600519.SH": [{"fact_id": "company-only"}]},
+    })
+    assert refs == {"policy-1", "https://stats.example/industry"}
+
+
+def test_prompt_budget_failure_reports_real_size_before_model_call(tmp_path: Path):
+    settings = _settings(tmp_path).model_copy(update={"model_max_input_tokens": 16})
+    pipeline = ResearchPipeline(
+        settings,
+        prompt_repository=_prompt_dir(tmp_path),
+        model_client=object(),
+        now=lambda: NOW,
+    )
+    snapshot = FrozenInputSnapshot(
+        snapshot_id="prompt-budget",
+        snapshot_hash="p" * 64,
+        data={"g0": ["600519.SH"], "snapshot_manifest": {"snapshot_id": "prompt-budget"}},
+    )
+
+    with pytest.raises(ResearchPipelineError) as exc_info:
+        pipeline._prepare_stage_request(
+            lane_id="lane_1",
+            model=MODELS[0],
+            stage="A1",
+            snapshot=snapshot,
+            upstream_output=None,
+            upstream_symbols={"600519.SH"},
+            bundle=pipeline.prompts.bundle(),
+            projection_symbols={"600519.SH"},
+        )
+
+    assert exc_info.value.reason_code == "MODEL_PROMPT_TOO_LARGE"
+    assert exc_info.value.diagnostics["prompt_chars"] > 0
+    assert exc_info.value.diagnostics["estimated_input_tokens"] > 16
+    assert exc_info.value.diagnostics["input_token_limit"] == 16
 
 
 def test_a2_theme_batches_preserve_scope_and_pool_target_is_advisory():

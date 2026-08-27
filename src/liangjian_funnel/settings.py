@@ -54,7 +54,17 @@ class Settings(BaseModel):
     timezone: str = "Asia/Shanghai"
     timeout_seconds: float = Field(default=30.0, gt=0, le=120)
     model_timeout_seconds: float = Field(default=600.0, gt=0, le=600)
-    model_max_output_tokens: int = Field(default=12_000, ge=1_024, le=32_768)
+    # ``model_max_output_tokens`` is the primary request budget.  Keep the
+    # legacy field/env name so existing deployments can still override it.
+    # The gateway models advertise a 1M-token context, so 384K output must be
+    # accepted by local validation instead of being rejected at 32K.
+    model_max_output_tokens: int = Field(default=393_216, ge=1_024, le=1_000_000)
+    # A capacity-specific retry uses this lower budget once.  It is separate
+    # from the primary value so the fallback is visible in safe diagnostics.
+    model_fallback_output_tokens: int = Field(default=262_144, ge=1_024, le=1_000_000)
+    # Input prompt budget in tokens; research.py applies its conservative
+    # character/token estimate before sending a request.
+    model_max_input_tokens: int = Field(default=1_000_000, ge=1_024, le=1_000_000)
     hithink_min_request_interval_seconds: float = Field(default=0.5, ge=0, le=10)
     cninfo_min_request_interval_seconds: float = Field(default=0.5, ge=0, le=10)
     # CNINFO calls are network-bound, but the client still enforces one
@@ -169,7 +179,11 @@ class Settings(BaseModel):
             timezone=env.get("LIANGJIAN_TIMEZONE", "Asia/Shanghai"),
             timeout_seconds=float(env.get("LIANGJIAN_HTTP_TIMEOUT_SECONDS", "30")),
             model_timeout_seconds=float(env.get("LIANGJIAN_MODEL_TIMEOUT_SECONDS", "600")),
-            model_max_output_tokens=int(env.get("LIANGJIAN_MODEL_MAX_OUTPUT_TOKENS", "12000")),
+            model_max_output_tokens=int(env.get("LIANGJIAN_MODEL_MAX_OUTPUT_TOKENS", "393216")),
+            model_fallback_output_tokens=int(
+                env.get("LIANGJIAN_MODEL_FALLBACK_OUTPUT_TOKENS", "262144")
+            ),
+            model_max_input_tokens=int(env.get("LIANGJIAN_MODEL_MAX_INPUT_TOKENS", "1000000")),
             hithink_min_request_interval_seconds=float(
                 env.get("ASTOCK_HITHINK_MIN_REQUEST_INTERVAL_SECONDS", "0.5")
             ),
@@ -256,6 +270,9 @@ class Settings(BaseModel):
             "timeout_seconds": self.timeout_seconds,
             "model_timeout_seconds": self.model_timeout_seconds,
             "model_max_output_tokens": self.model_max_output_tokens,
+            "model_primary_output_tokens": self.model_max_output_tokens,
+            "model_fallback_output_tokens": self.model_fallback_output_tokens,
+            "model_max_input_tokens": self.model_max_input_tokens,
             "hithink_min_request_interval_seconds": self.hithink_min_request_interval_seconds,
             "cninfo_min_request_interval_seconds": self.cninfo_min_request_interval_seconds,
             "cninfo_workers": self.cninfo_workers,

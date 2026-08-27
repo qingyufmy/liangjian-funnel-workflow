@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from datetime import datetime, timezone
 from dataclasses import dataclass
@@ -23,6 +24,27 @@ PRODUCTION_THINKING_VARIANTS: tuple[tuple[str, dict[str, Any]], ...] = (
     *THINKING_VARIANTS,
 )
 NO_THINKING_VARIANTS: tuple[tuple[str, dict[str, Any]], ...] = (("thinking_disabled", {}),)
+
+# A status code alone is not enough to identify an output-budget rejection:
+# 400/422 are also used for unsupported thinking parameters, and 413 can mean
+# an oversized input body.  Only downgrade when the bounded error body names
+# an output-token field and describes a limit/size rejection.
+_OUTPUT_TOKEN_FIELD_RE = re.compile(
+    r"\b(?:max[\s_-]*(?:output|completion)?[\s_-]*tokens?|"
+    r"(?:output|completion)[\s_-]*tokens?)(?:\b|[_-])",
+    re.IGNORECASE,
+)
+_OUTPUT_TOKEN_LIMIT_RE = re.compile(
+    r"(?:too[\s_-]*(?:large|high)|"
+    r"exceed(?:ed|s)?|"
+    r"(?:maximum|max(?:imum)?|limit)\b|"
+    r"must[\s_-]+(?:be|not[\s_-]+exceed)|"
+    r"(?:less|lower)[\s_-]+than|"
+    r"(?:greater|larger)[\s_-]+than|"
+    r"(?:<=|<))",
+    re.IGNORECASE,
+)
+_MAX_ERROR_BODY_BYTES = 32_768
 
 
 class ModelClientError(RuntimeError):
@@ -164,6 +186,16 @@ class OpenAICompatibleModelClient:
             for variant_id, thinking_payload in self.thinking_variants:
                 last_variant = variant_id
                 variant_attempts = 0
+                primary_output_tokens = self.settings.model_max_output_tokens
+                # A legacy deployment may override the primary value below
+                # the configured fallback. Never turn a fallback into a larger
+                # request; in that case the primary value is the only budget.
+                fallback_output_tokens = min(
+                    self.settings.model_fallback_output_tokens,
+                    primary_output_tokens,
+                )
+                output_tokens = primary_output_tokens
+                budget_fallback_attempted = False
                 while variant_attempts < self.max_attempts:
                     variant_attempts += 1
                     total_attempts += 1
@@ -173,7 +205,7 @@ class OpenAICompatibleModelClient:
                     body: dict[str, Any] = {
                         "model": model,
                         "temperature": 0,
-                        "max_tokens": self.settings.model_max_output_tokens,
+                        "max_tokens": output_tokens,
                         "messages": [
                             *safe_messages,
                             *(
@@ -209,6 +241,30 @@ class OpenAICompatibleModelClient:
                                 raise ModelHTTPError(reason, status_code=status, attempts=total_attempts)
 
                             if status >= 400:
+                                if status in {400, 413, 422} and _is_output_budget_rejection(
+                                    response,
+                                    requested_tokens=output_tokens,
+                                ):
+                                    if (
+                                        not budget_fallback_attempted
+                                        and output_tokens == primary_output_tokens
+                                        and fallback_output_tokens < primary_output_tokens
+                                    ):
+                                        # Treat the capacity fallback as a new
+                                        # budget's retry window.  This ensures a
+                                        # capacity error on the last primary
+                                        # attempt still gets its one fallback
+                                        # request, while 429/5xx retries after
+                                        # that continue at the fallback size.
+                                        output_tokens = fallback_output_tokens
+                                        budget_fallback_attempted = True
+                                        variant_attempts = 0
+                                        continue
+                                    raise ModelHTTPError(
+                                        "OUTPUT_BUDGET_FALLBACK_REJECTED",
+                                        status_code=status,
+                                        attempts=total_attempts,
+                                    )
                                 # Unsupported thinking parameters are the sole reason
                                 # to try the next already-verified thinking variant.
                                 if status in {400, 404, 422} and variant_id != self.thinking_variants[-1][0]:
@@ -578,6 +634,28 @@ def _retry_after_seconds(value: str | None) -> float | None:
     except ValueError:
         return None
     return min(30.0, max(0.0, (parsed - datetime.now(timezone.utc)).total_seconds()))
+
+
+def _is_output_budget_rejection(response: httpx.Response, *, requested_tokens: int) -> bool:
+    """Identify an explicit output-token capacity rejection without retaining it.
+
+    The gateway's 400/413/422 responses are also used for unrelated request
+    errors.  A downgrade is therefore allowed only when the bounded response
+    body mentions an output-token field and a size/limit rejection.  The
+    requested value is accepted as an argument to make the call site's intent
+    explicit and to keep this predicate tied to the current budget; response
+    values themselves are never persisted or included in diagnostics.
+    """
+
+    del requested_tokens
+    try:
+        raw = response.read()
+    except (httpx.HTTPError, TypeError, ValueError):
+        return False
+    if not isinstance(raw, bytes):
+        return False
+    body = raw[:_MAX_ERROR_BODY_BYTES].decode("utf-8", errors="replace")
+    return bool(_OUTPUT_TOKEN_FIELD_RE.search(body) and _OUTPUT_TOKEN_LIMIT_RE.search(body))
 
 
 def _enforce_stream_deadline(deadline: float | None, clock: Callable[[], float]) -> None:

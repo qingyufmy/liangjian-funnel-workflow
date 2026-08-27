@@ -104,7 +104,7 @@ _PERMISSION_KEYS = {
 }
 _ALLOWED_DISABLED = {False, None, "", "DISABLED", "DISABLE", "OFF", "SHADOW", "SIMULATION"}
 _PROMPT_PROJECTION_VERSION = "research-prompt-projection/1.0.0"
-_PROMPT_MAX_CHARS = 180_000
+_DEFAULT_MODEL_MAX_INPUT_TOKENS = 1_000_000
 _A3_BATCH_SIZE = 16
 _STAGE_OUTPUT_BUDGETS: Mapping[str, Mapping[str, int]] = {
     "A1": {"approved_pool": 5, "secondary_pool": 5, "themes": 20, "chain_nodes": 80, "evidence_per_item": 3},
@@ -153,8 +153,14 @@ _FUNDAMENTAL_INDICATORS = {
 class ResearchPipelineError(RuntimeError):
     """Safe pipeline error for invalid construction or snapshot shape."""
 
-    def __init__(self, reason_code: str):
+    def __init__(
+        self,
+        reason_code: str,
+        *,
+        diagnostics: Mapping[str, Any] | None = None,
+    ):
         self.reason_code = reason_code
+        self.diagnostics = dict(diagnostics or {})
         super().__init__(f"research pipeline {reason_code}")
 
 
@@ -275,6 +281,8 @@ class _PreparedStageRequest:
     input_hash: str
     messages: tuple[Mapping[str, Any], ...]
     prompt_chars: int
+    estimated_input_tokens: int
+    input_token_limit: int
 
 
 class ResearchPipeline:
@@ -1537,13 +1545,26 @@ class ResearchPipeline:
             {"role": "user", "content": "RUNTIME_INPUT\n" + _canonical_json(model_runtime)},
         )
         prompt_chars = sum(len(str(message.get("content", ""))) for message in messages)
-        if prompt_chars > _PROMPT_MAX_CHARS:
-            raise ResearchPipelineError("MODEL_PROMPT_TOO_LARGE")
+        estimated_input_tokens = _estimate_message_tokens(messages)
+        input_token_limit = int(
+            getattr(self.settings, "model_max_input_tokens", _DEFAULT_MODEL_MAX_INPUT_TOKENS)
+        )
+        if estimated_input_tokens > input_token_limit:
+            raise ResearchPipelineError(
+                "MODEL_PROMPT_TOO_LARGE",
+                diagnostics={
+                    "prompt_chars": prompt_chars,
+                    "estimated_input_tokens": estimated_input_tokens,
+                    "input_token_limit": input_token_limit,
+                },
+            )
         return _PreparedStageRequest(
             prompt_hash=prompt_hash,
             input_hash=input_hash,
             messages=messages,
             prompt_chars=prompt_chars,
+            estimated_input_tokens=estimated_input_tokens,
+            input_token_limit=input_token_limit,
         )
 
     def _run_stage(
@@ -1610,7 +1631,7 @@ class ResearchPipeline:
                 thinking_variant=None,
                 symbols=(),
                 reason_codes=(exc.reason_code,),
-                diagnostics={"prompt_chars": locals().get("prompt_chars", 0), "limit_chars": _PROMPT_MAX_CHARS},
+                diagnostics=exc.diagnostics,
             )
 
         semantic_limit = 2
@@ -2034,11 +2055,17 @@ def _prompt_replacements(
             }
             continue
         if name == "A1_BATCH_CONTEXT":
+            batch_mode = str((a1_discovery_context or {}).get("mode") or "COMPANY_MAPPING")
             replacements[name] = {
-                "mode": str((a1_discovery_context or {}).get("mode") or "COMPANY_MAPPING"),
+                "mode": batch_mode,
                 "symbols": sorted(allowed_symbols or ()),
                 "node_by_symbol": _a1_node_by_symbol(snapshot.data, set(allowed_symbols or ())),
                 "batch_is_transport_boundary": True,
+                "allowed_primary_source_refs": (
+                    sorted(_snapshot_discovery_evidence_refs(snapshot.data))[:512]
+                    if batch_mode == "POLICY_MACRO_DISCOVERY"
+                    else []
+                ),
                 "frozen_discovery": {
                     "structural_themes": (a1_discovery_context or {}).get("structural_themes", []),
                     "industry_chain_graph": (a1_discovery_context or {}).get("industry_chain_graph", []),
@@ -2815,8 +2842,29 @@ def _combined_digest(values: Any) -> str | None:
     return digest_text("|".join(retained)) if retained else None
 
 
+def _estimate_message_tokens(messages: Sequence[Mapping[str, Any]]) -> int:
+    """Conservatively estimate mixed Chinese/JSON input without a model tokenizer.
+
+    The three configured gateways do not expose a shared tokenizer.  ASCII
+    JSON is approximated at four characters per token, while non-ASCII text is
+    charged at two tokens per code point so CJK text and emoji fail closed.
+    A small per-message allowance covers role and transport framing.
+    """
+
+    total = 0
+    for message in messages:
+        content = str(message.get("content", ""))
+        ascii_chars = sum(ord(char) < 128 for char in content)
+        non_ascii_chars = len(content) - ascii_chars
+        total += (ascii_chars + 3) // 4
+        total += non_ascii_chars * 2
+        total += 8
+    return total
+
+
 def _a1_batch_is_splittable(reasons: Sequence[str]) -> bool:
     retryable_prefixes = (
+        "MODEL_PROMPT_TOO_LARGE",
         "NETWORK_",
         "MODEL_TOTAL_DEADLINE_",
         "STRICT_JSON_",
@@ -2835,6 +2883,7 @@ def _a1_batch_is_splittable(reasons: Sequence[str]) -> bool:
 
 def _a2_batch_is_splittable(reasons: Sequence[str]) -> bool:
     retryable_prefixes = (
+        "MODEL_PROMPT_TOO_LARGE",
         "NETWORK_",
         "MODEL_TOTAL_DEADLINE_",
         "STRICT_JSON_",
@@ -3504,6 +3553,35 @@ def _snapshot_primary_evidence_refs(snapshot_data: Mapping[str, Any]) -> set[str
     for key in relevant:
         visit(snapshot_data.get(key))
     return refs
+
+
+def _snapshot_discovery_evidence_refs(snapshot_data: Mapping[str, Any]) -> set[str]:
+    """Return a bounded-source domain suitable for macro/chain discovery.
+
+    Discovery should cite policy or formal industry-operating evidence, not a
+    random company PDF from the much larger company-mapping snapshot.  The
+    returned identifiers are copied verbatim into the prompt as an allowlist;
+    the ordinary primary-evidence validator remains the final authority.
+    """
+
+    refs: set[str] = set()
+
+    def visit(value: Any) -> None:
+        if isinstance(value, Mapping):
+            for key, item in value.items():
+                if str(key) in {"fact_id", "source_ref", "source_url", "content_hash"} and isinstance(item, str):
+                    clean = item.strip()
+                    if clean:
+                        refs.add(clean)
+                else:
+                    visit(item)
+        elif isinstance(value, list):
+            for item in value:
+                visit(item)
+
+    for key in ("MACRO_POLICY_FEED", "INDUSTRY_PROFIT_DATA"):
+        visit(snapshot_data.get(key))
+    return refs or _snapshot_primary_evidence_refs(snapshot_data)
 
 
 def _apply_a2_lineage_policy(

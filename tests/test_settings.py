@@ -22,6 +22,9 @@ def test_exact_models_and_safe_summary_do_not_leak_keys(tmp_path: Path):
     assert secret not in str(settings.safe_summary())
     assert settings.safe_summary()["model_key_present"] is True
     assert settings.model_timeout_seconds == 600
+    assert settings.model_max_output_tokens == 393_216
+    assert settings.model_fallback_output_tokens == 262_144
+    assert settings.model_max_input_tokens == 1_000_000
     assert settings.research_a1_batch_size == 20
     assert settings.research_a2_batch_size == 40
     assert settings.research_batch_workers == 2
@@ -47,6 +50,44 @@ def test_thinking_flags_are_explicit_and_strict(tmp_path: Path):
 
     with pytest.raises(ValueError, match="boolean"):
         Settings.from_env({"LIANGJIAN_MONITOR_THINKING_ENABLED": "maybe"}, root=tmp_path)
+
+
+def test_model_token_budgets_are_configurable_and_legacy_primary_env_is_preserved(tmp_path: Path):
+    settings = Settings.from_env(
+        {
+            "LIANGJIAN_MODEL_MAX_OUTPUT_TOKENS": "12000",
+            "LIANGJIAN_MODEL_FALLBACK_OUTPUT_TOKENS": "8000",
+            "LIANGJIAN_MODEL_MAX_INPUT_TOKENS": "900000",
+        },
+        root=tmp_path,
+    )
+    assert settings.model_max_output_tokens == 12_000
+    assert settings.model_fallback_output_tokens == 8_000
+    assert settings.model_max_input_tokens == 900_000
+    summary = settings.safe_summary()
+    assert summary["model_max_output_tokens"] == 12_000
+    assert summary["model_primary_output_tokens"] == 12_000
+    assert summary["model_fallback_output_tokens"] == 8_000
+    assert summary["model_max_input_tokens"] == 900_000
+
+
+def test_model_token_budget_validation_accepts_384k_and_rejects_above_context(tmp_path: Path):
+    settings = Settings.from_env(
+        {
+            "LIANGJIAN_MODEL_MAX_OUTPUT_TOKENS": "393216",
+            "LIANGJIAN_MODEL_FALLBACK_OUTPUT_TOKENS": "262144",
+            "LIANGJIAN_MODEL_MAX_INPUT_TOKENS": "1000000",
+        },
+        root=tmp_path,
+    )
+    assert settings.model_max_output_tokens == 393_216
+    assert settings.model_fallback_output_tokens == 262_144
+    assert settings.model_max_input_tokens == 1_000_000
+
+    with pytest.raises(ValidationError):
+        Settings.from_env({"LIANGJIAN_MODEL_MAX_OUTPUT_TOKENS": "1000001"}, root=tmp_path)
+    with pytest.raises(ValidationError):
+        Settings.from_env({"LIANGJIAN_MODEL_MAX_INPUT_TOKENS": "1000001"}, root=tmp_path)
 
 
 def test_cninfo_worker_bounds_are_configurable(tmp_path: Path):

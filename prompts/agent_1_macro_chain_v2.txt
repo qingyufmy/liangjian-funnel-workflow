@@ -39,6 +39,9 @@ Agent 1 · MacroFundamentalChainAgent
 结构性主题与产业链节点发现，三个股票池必须为空。若 mode=COMPANY_MAPPING：
 必须复用 frozen_discovery 中的 theme_id/node_id，不得为迎合当前股票批次
 另造近义主题或节点；确有强证据但词表缺失时只能放入 MONITOR 并报告缺口。
+POLICY_MACRO_DISCOVERY 输出的每个 structural_theme 和 industry_chain_graph
+节点，都必须从 allowed_primary_source_refs 原样复制至少一个字符串到
+source_refs；禁止改写、概括、拼接或自行生成引用标识。
 COMPANY_MAPPING 批次只回填当前标的实际引用到的主题和节点，不要机械复制整份
 frozen_discovery；系统会在全局合并时恢复完整主题与节点图谱。
 

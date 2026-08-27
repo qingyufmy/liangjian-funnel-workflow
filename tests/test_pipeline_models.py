@@ -71,11 +71,100 @@ def test_client_uses_bounded_model_thinking_and_json_object(tmp_path: Path):
     assert seen[0]["model"] == "deepseek-v4-pro-0813"
     assert seen[0]["reasoning_effort"] == "low"
     assert seen[0]["stream"] is True
-    assert seen[0]["max_tokens"] == 12_000
+    assert seen[0]["max_tokens"] == 393_216
     assert seen[0]["response_format"] == {"type": "json_object"}
     assert result.output == {"envelope": {"status": "OK"}}
     assert result.reasoning_tokens == 7
     assert "secret-cot" not in repr(result)
+
+
+@pytest.mark.parametrize(
+    ("status", "message"),
+    [
+        (400, "max_tokens is too large; maximum is 262144"),
+        (413, "max_completion_tokens must be <= 262144"),
+        (422, "requested max output tokens exceed the model limit"),
+    ],
+)
+def test_explicit_output_budget_rejection_retries_same_variant_at_256k(
+    tmp_path: Path, status: int, message: str
+):
+    seen: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+
+        body = json.loads(request.read())
+        seen.append(body)
+        if len(seen) == 1:
+            return httpx.Response(status, json={"error": {"message": message}}, request=request)
+        return _sse_response(request, [{"choices": [{"delta": {"content": '{"ok":true}'}}]}, "[DONE]"])
+
+    client = OpenAICompatibleModelClient(
+        _settings(tmp_path),
+        transport=httpx.MockTransport(handler),
+        sleep=lambda _: None,
+        max_attempts=1,
+    )
+    result = client.complete("deepseek-v4-pro-0813", [{"role": "user", "content": "same"}])
+
+    assert result.output == {"ok": True}
+    assert result.attempts == 2
+    assert [body["max_tokens"] for body in seen] == [393_216, 262_144]
+    assert [body["model"] for body in seen] == ["deepseek-v4-pro-0813"] * 2
+    assert [body["reasoning_effort"] for body in seen] == ["low"] * 2
+    assert seen[0]["messages"] == seen[1]["messages"]
+
+
+def test_capacity_fallback_rejection_is_not_retried_at_a_third_budget(tmp_path: Path):
+    seen: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+
+        seen.append(json.loads(request.read()))
+        return httpx.Response(
+            413,
+            json={"error": {"message": "max_tokens too large; maximum is 128000"}},
+            request=request,
+        )
+
+    client = OpenAICompatibleModelClient(
+        _settings(tmp_path),
+        transport=httpx.MockTransport(handler),
+        sleep=lambda _: None,
+        max_attempts=3,
+    )
+    with pytest.raises(ModelHTTPError) as exc_info:
+        client.complete("deepseek-v4-pro-0813", [{"role": "user", "content": "same"}])
+
+    assert exc_info.value.reason_code == "OUTPUT_BUDGET_FALLBACK_REJECTED"
+    assert exc_info.value.status_code == 413
+    assert exc_info.value.attempts == 2
+    assert [body["max_tokens"] for body in seen] == [393_216, 262_144]
+
+
+def test_413_without_explicit_output_token_limit_does_not_downgrade(tmp_path: Path):
+    seen: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+
+        seen.append(json.loads(request.read()))
+        return httpx.Response(413, json={"error": {"message": "request entity too large"}}, request=request)
+
+    client = OpenAICompatibleModelClient(
+        _settings(tmp_path),
+        transport=httpx.MockTransport(handler),
+        sleep=lambda _: None,
+        max_attempts=1,
+    )
+    with pytest.raises(ModelHTTPError) as exc_info:
+        client.complete("deepseek-v4-pro-0813", [{"role": "user", "content": "same"}])
+
+    assert exc_info.value.reason_code == "UPSTREAM_4XX"
+    assert exc_info.value.status_code == 413
+    assert [body["max_tokens"] for body in seen] == [393_216]
 
 
 def test_client_can_disable_thinking_without_emitting_or_falling_back_thinking_fields(tmp_path: Path):
@@ -172,13 +261,13 @@ def test_client_decodes_multichunk_sse_and_never_retains_reasoning(tmp_path: Pat
 
 
 def test_429_retries_same_model_without_circuit_or_downgrade(tmp_path: Path):
-    calls: list[str] = []
+    calls: list[dict] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         import json
 
         body = json.loads(request.read())
-        calls.append(body["model"])
+        calls.append(body)
         if len(calls) < 3:
             return httpx.Response(429, json={"error": "rate limited"}, request=request)
         return _sse_response(
@@ -191,7 +280,8 @@ def test_429_retries_same_model_without_circuit_or_downgrade(tmp_path: Path):
     )
     result = client.complete("moonshotai/kimi-k3-free", [{"role": "user", "content": "{}"}])
     assert result.attempts == 3
-    assert calls == ["moonshotai/kimi-k3-free"] * 3
+    assert [body["model"] for body in calls] == ["moonshotai/kimi-k3-free"] * 3
+    assert [body["max_tokens"] for body in calls] == [393_216] * 3
 
 
 def test_retry_after_is_honored_within_bounded_request_budget(tmp_path: Path):
@@ -216,13 +306,13 @@ def test_retry_after_is_honored_within_bounded_request_budget(tmp_path: Path):
 
 
 def test_5xx_retries_same_model_and_succeeds_with_sse(tmp_path: Path):
-    calls: list[str] = []
+    calls: list[dict] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         import json
 
         body = json.loads(request.read())
-        calls.append(body["model"])
+        calls.append(body)
         if len(calls) < 3:
             return httpx.Response(503, json={"error": "upstream"}, request=request)
         return _sse_response(
@@ -237,7 +327,8 @@ def test_5xx_retries_same_model_and_succeeds_with_sse(tmp_path: Path):
 
     assert result.output == {"ok": True}
     assert result.attempts == 3
-    assert calls == ["z-ai/glm-5.3-free"] * 3
+    assert [body["model"] for body in calls] == ["z-ai/glm-5.3-free"] * 3
+    assert [body["max_tokens"] for body in calls] == [393_216] * 3
 
 
 def test_continuous_sse_is_bounded_by_total_wall_clock(tmp_path: Path):
@@ -383,6 +474,7 @@ def test_strict_json_retry_regenerates_with_json_only_instruction(tmp_path: Path
     assert result.output == {"ok": True}
     assert seen[0]["messages"] == [{"role": "user", "content": "original"}]
     assert seen[1]["messages"][-1]["content"].startswith("TRANSPORT_JSON_RETRY")
+    assert [body["max_tokens"] for body in seen] == [393_216, 393_216]
     assert "not-json" not in str(seen[1])
 
 
