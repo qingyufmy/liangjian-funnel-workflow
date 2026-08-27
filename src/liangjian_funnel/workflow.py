@@ -21,11 +21,13 @@ from .data.cninfo_pdf import CninfoPdfClient, CninfoPdfEvidence
 from .data.gov_policy import GovPolicyClient
 from .data.mootdx import MootdxAdapter, MootdxNode, MinuteBar, map_symbol
 from .data.open_news import OpenNewsClient, OpenNewsFetchResult
+from .data.open_macro import OpenMacroDataCollector
 from .data.ths_industry import (
     collect_ths_industry_history,
     collect_ths_industry_membership,
     select_industry_diversified_symbols,
 )
+from .data.ths_taxonomy import collect_ths_taxonomy_membership
 from .facts import (
     FactStore,
     collect_market_results,
@@ -229,6 +231,7 @@ class WorkflowApplication:
             # gate; execution permission is enforced at plan publication.
             research_records = _research_universe_records(universe)
             industry_catalog = client.ths_index_catalog(tag="industry")
+            concept_catalog = client.ths_index_catalog(tag="cn_concept")
             full_membership = collect_ths_industry_membership(
                 client,
                 industry_catalog,
@@ -262,6 +265,7 @@ class WorkflowApplication:
                 [candidate.symbol for candidate in selected] if _auction_window(current) else [],
             )
             market_fact_results["THS_INDUSTRY_CATALOG"] = industry_catalog
+            market_fact_results["THS_CONCEPT_CATALOG"] = concept_catalog
             market_fact_results["THS_INDUSTRY_HISTORY"] = collect_ths_industry_history(
                 client,
                 industry_catalog,
@@ -273,6 +277,14 @@ class WorkflowApplication:
                 industry_catalog,
                 [candidate.symbol for candidate in selected],
                 cache_dir=self.settings.fact_store_dir / "ths_industry",
+                as_of=current,
+            )
+            market_fact_results["THS_CONCEPT_MEMBERSHIP"] = collect_ths_taxonomy_membership(
+                client,
+                concept_catalog,
+                [candidate.symbol for candidate in selected],
+                taxonomy="concept",
+                cache_dir=self.settings.fact_store_dir / "ths_taxonomy",
                 as_of=current,
             )
             if not market_fact_results["THS_INDUSTRY_HISTORY"].ok:
@@ -591,6 +603,33 @@ class WorkflowApplication:
         fact_payload["store_relative_path"] = str(
             fact_manifest_path.relative_to(self.settings.fact_store_dir)
         )
+        if progress is not None:
+            progress.set_phase("OPEN_MACRO_SYNC")
+            _progress_stdout(progress.snapshot())
+        if self.settings.open_macro_enabled:
+            try:
+                open_macro_bundle = OpenMacroDataCollector(
+                    cache_dir=self.settings.open_macro_cache_dir,
+                ).collect(current)
+            except (OSError, RuntimeError, TypeError, ValueError):
+                # Supplemental open sources may degrade, but must never erase
+                # the authoritative THS/CNINFO/government facts already frozen.
+                open_macro_bundle = {
+                    "schema_version": "open-macro-contract/1.0.0",
+                    "as_of": current.isoformat(),
+                    "available": False,
+                    "reason_code": "OPEN_MACRO_COLLECTION_FAILED",
+                }
+        else:
+            open_macro_bundle = {
+                "schema_version": "open-macro-contract/1.0.0",
+                "as_of": current.isoformat(),
+                "available": False,
+                "reason_code": "SOURCE_DISABLED",
+            }
+        # This payload is included before FrozenInputSnapshot.freeze, so the
+        # contracts and their source manifest participate in the facts hash.
+        fact_payload["open_macro_bundle"] = open_macro_bundle
 
         frozen = FrozenInputSnapshot.freeze(
             universe,
@@ -1614,6 +1653,8 @@ class WorkflowApplication:
         facts = frozen.fact_payload.get("facts", {})
         if not isinstance(facts, Mapping):
             facts = {}
+        open_macro_bundle = frozen.fact_payload.get("open_macro_bundle")
+        open_macro_bundle = open_macro_bundle if isinstance(open_macro_bundle, Mapping) else {}
         market_emotion = build_market_emotion(universe.records, facts, as_of=as_of)
         if market_emotion.get("available") is not True:
             raise WorkflowError("MARKET_EMOTION_AGGREGATE_NOT_READY")
@@ -1624,6 +1665,7 @@ class WorkflowApplication:
         industry_catalog = _available_fact(facts, "THS_INDUSTRY_CATALOG")
         industry_membership = _available_fact(facts, "THS_INDUSTRY_MEMBERSHIP")
         concept_catalog = _available_fact(facts, "THS_CONCEPT_CATALOG")
+        concept_membership = _available_fact(facts, "THS_CONCEPT_MEMBERSHIP")
         disclosure_events = _official_event_snapshot(
             frozen.fact_payload,
             "DISCLOSURE_EVENT",
@@ -1675,6 +1717,8 @@ class WorkflowApplication:
         exchange_rules = _exchange_rules_for(self.settings.exchange_rules_path, as_of)
         values: dict[str, Any] = {
             "G0_SCOPE_CONTRACT": _G0_SCOPE_CONTRACT,
+            "DETERMINISTIC_RESEARCH_V2_ENABLED": self.settings.research_pipeline_mode == "deterministic_v2",
+            "research_pipeline_mode": self.settings.research_pipeline_mode,
             "snapshot_manifest": {
                 "as_of": as_of.isoformat(),
                 "frozen": True,
@@ -1691,6 +1735,13 @@ class WorkflowApplication:
                 "fact_manifest_hash": frozen.fact_payload.get("manifest_hash"),
                 "fact_store_relative_path": frozen.fact_payload.get("store_relative_path"),
                 "fact_coverage": frozen.fact_payload.get("coverage_by_fact_type", {}),
+                "open_macro": {
+                    "schema_version": open_macro_bundle.get("schema_version"),
+                    "content_hash": open_macro_bundle.get("content_hash"),
+                    "cache_status": open_macro_bundle.get("cache_status"),
+                    "reason_code": open_macro_bundle.get("reason_code"),
+                    "quality": open_macro_bundle.get("quality"),
+                },
             },
             "g0_symbols": g0_symbols,
             "g0_candidates": selected_records,
@@ -1752,16 +1803,43 @@ class WorkflowApplication:
             "THS_INDUSTRY_CATALOG": industry_catalog or missing,
             "THS_INDUSTRY_MEMBERSHIP": industry_membership or missing,
             "THS_CONCEPT_CATALOG": concept_catalog or missing,
+            "THS_CONCEPT_MEMBERSHIP": concept_membership or missing,
             "DRAGON_TIGER_SNAPSHOT": dragon_tiger or missing,
             "MARKET_ATTENTION_SNAPSHOT": hot_stocks or missing,
             "DISCLOSURE_EVENTS": disclosure_events,
             "RISK_EVENTS": risk_events,
             "MACRO_POLICY_FEED": macro_policy_feed,
-            "MACRO_ECONOMIC_DATA": {
+            "MACRO_ECONOMIC_DATA": _supplemental_contract(open_macro_bundle, "MACRO_ECONOMIC_DATA") or {
                 "available": False,
                 "reason_code": "SOURCE_NOT_CONFIGURED",
                 "required_series": ["GDP", "CPI", "PPI", "PMI", "SOCIAL_FINANCING", "NEW_LOANS"],
                 "substitution_forbidden": True,
+            },
+            "ASSET_ROTATION_SNAPSHOT": _supplemental_contract(open_macro_bundle, "ASSET_ROTATION_SNAPSHOT") or {
+                "available": False,
+                "reason_code": "SOURCE_NOT_CONFIGURED",
+                "required_assets": ["EQUITY", "GOLD", "BOND", "CASH"],
+                "required_factors": ["MOMENTUM_20D", "MOMENTUM_60D", "FUND_FLOW"],
+            },
+            "GLOBAL_MACRO_SNAPSHOT": _supplemental_contract(open_macro_bundle, "GLOBAL_MACRO_SNAPSHOT") or {
+                "available": False,
+                "reason_code": "SOURCE_NOT_CONFIGURED",
+                "required_series": ["USD_INDEX", "FED_EASING_EXPECTATION", "US_RATE", "CN_RATE"],
+            },
+            "CROSS_MARKET_LEAD_SNAPSHOT": _supplemental_contract(open_macro_bundle, "CROSS_MARKET_LEAD_SNAPSHOT") or {
+                "available": False,
+                "reason_code": "SOURCE_NOT_CONFIGURED",
+                "required_markets": ["US", "KOREA", "TAIWAN", "JAPAN"],
+            },
+            "INDUSTRY_ACTIVITY_DATA": _supplemental_contract(open_macro_bundle, "INDUSTRY_ACTIVITY_DATA") or {
+                "available": False,
+                "reason_code": "SOURCE_NOT_CONFIGURED",
+                "metric_scope": "INDUSTRIAL_VALUE_ADDED_GROWTH_NOT_PROFIT",
+            },
+            "BROKER_RESEARCH_CONSENSUS": {
+                "available": False,
+                "reason_code": "AUTHORIZED_RESEARCH_SOURCE_NOT_CONFIGURED",
+                "primary_evidence": False,
             },
             "INDUSTRY_NEWS_FEED": industry_news_feed,
             "NEWS_HEAT_SNAPSHOT": news_heat,
@@ -1774,7 +1852,7 @@ class WorkflowApplication:
             "config_hash": config_hash,
         }
         for key in (
-            "MACRO_POLICY_FEED", "MACRO_ECONOMIC_DATA", "INDUSTRY_NEWS_FEED", "INDUSTRY_PROFIT_DATA", "THS_INDUSTRY_MEMBERSHIP", "EXISTING_CHAIN_GRAPH",
+            "MACRO_POLICY_FEED", "MACRO_ECONOMIC_DATA", "ASSET_ROTATION_SNAPSHOT", "GLOBAL_MACRO_SNAPSHOT", "CROSS_MARKET_LEAD_SNAPSHOT", "BROKER_RESEARCH_CONSENSUS", "INDUSTRY_NEWS_FEED", "INDUSTRY_ACTIVITY_DATA", "INDUSTRY_PROFIT_DATA", "THS_INDUSTRY_MEMBERSHIP", "THS_CONCEPT_MEMBERSHIP", "EXISTING_CHAIN_GRAPH",
             "THEME_REGISTRY", "DISCLOSURE_EVENTS", "RISK_EVENTS", "RESEARCH_CONSENSUS", "FUND_HOLDINGS",
             "FAST_TRACK_REQUESTS", "PRIOR_OUTCOME_FEEDBACK", "SECTOR_CYCLE_SNAPSHOT", "CAPITAL_FLOW_SNAPSHOT",
             "NEWS_HEAT_SNAPSHOT", "CROWDING_SNAPSHOT", "AUCTION_SNAPSHOT", "SECTOR_PERMISSIONS",
@@ -2744,6 +2822,21 @@ def _plan_expiry(value: Any, now: datetime, slot: str) -> datetime:
 def _hash_json(value: Any) -> str:
     text = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _supplemental_contract(bundle: Mapping[str, Any], key: str) -> dict[str, Any] | None:
+    """Return one immutable-by-copy supplemental contract when well formed."""
+
+    value = bundle.get(key)
+    if not isinstance(value, Mapping):
+        return None
+    contract = dict(value)
+    if str(contract.get("contract") or key) != key:
+        return None
+    contract.setdefault("contract", key)
+    contract.setdefault("available", False)
+    contract.setdefault("reason_code", "SOURCE_UNAVAILABLE")
+    return contract
 
 
 def _progress_stdout(state: Mapping[str, Any]) -> None:

@@ -73,6 +73,9 @@ export interface WorkflowProgressStage {
   readonly total: number | null;
   readonly batchProcessed: number | null;
   readonly batchTotal: number | null;
+  readonly selected: number | null;
+  readonly monitor: number | null;
+  readonly rejected: number | null;
   readonly updatedAt: string | null;
 }
 

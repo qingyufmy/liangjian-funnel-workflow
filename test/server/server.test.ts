@@ -476,6 +476,49 @@ test("reads the Python progress writer shape including second-based timing and s
   expect(progress?.lanes[0]).toMatchObject({ laneId: "lane_1", batchProcessed: 4, batchTotal: 20 });
 });
 
+test("projects deterministic V2 stock counters separately from model batches", async () => {
+  const root = await mkdtemp(join(tmpdir(), "liangjian-progress-v2-shape-"));
+  await mkdir(join(root, "state"), { recursive: true });
+  await writeFile(join(root, "state", "workflow_progress.json"), JSON.stringify({
+    run_id: "close-v2",
+    status: "RUNNING",
+    phase: "RESEARCH_A1_LOCAL_SCREEN",
+    lanes: {
+      LANE_1: {
+        model: "deepseek-v4-pro-0813",
+        status: "RUNNING",
+        current_stage: "A1_LOCAL_SCREEN",
+        stages: {
+          A1_LOCAL_SCREEN: {
+            status: "COMPLETED",
+            completed_batches: 1,
+            total_batches: 1,
+            processed_symbols: 3886,
+            total_symbols: 3886,
+            selected_symbols: 36,
+            monitor_symbols: 3800,
+            rejected_symbols: 50,
+          },
+        },
+      },
+    },
+  }));
+  const config = loadConfig({ LIANGJIAN_PYTHON_BIN: "python3" }, root);
+  const files = new ProjectFiles(config, new LogStore(config));
+  const progress = await files.workflowProgress();
+  expect(progress?.lanes[0]).toMatchObject({ processed: 3886, total: 3886 });
+  expect(progress?.lanes[0]?.stages[0]).toMatchObject({
+    stage: "A1_LOCAL_SCREEN",
+    processed: 3886,
+    total: 3886,
+    batchProcessed: 1,
+    batchTotal: 1,
+    selected: 36,
+    monitor: 3800,
+    rejected: 50,
+  });
+});
+
 test("does not label an incomplete aggregate stage as completed", async () => {
   const root = await mkdtemp(join(tmpdir(), "liangjian-progress-incomplete-stage-"));
   await mkdir(join(root, "state"), { recursive: true });

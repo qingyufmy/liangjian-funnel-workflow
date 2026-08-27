@@ -32,6 +32,11 @@ def test_progress_is_atomic_bounded_and_does_not_retain_sensitive_payload(tmp_pa
             "completed_batches": 2,
             "total_batches": 50,
             "attempts": 3,
+            "processed_symbols": 3886,
+            "total_symbols": 3886,
+            "selected_symbols": 36,
+            "monitor_symbols": 3800,
+            "rejected_symbols": 50,
             "reasoning": "must never persist",
             "api_key": "sk-must-never-persist",
         },
@@ -43,6 +48,8 @@ def test_progress_is_atomic_bounded_and_does_not_retain_sensitive_payload(tmp_pa
     assert state["phase"] == "RESEARCH_A1"
     assert state["data"]["processed"] == 25
     assert state["lanes"]["LANE_1"]["stages"]["A1"]["completed_batches"] == 2
+    assert state["lanes"]["LANE_1"]["stages"]["A1"]["processed_symbols"] == 3886
+    assert state["lanes"]["LANE_1"]["stages"]["A1"]["selected_symbols"] == 36
     assert state["elapsed_seconds"] == 30
     assert "must never persist" not in text
     assert "sk-must-never-persist" not in text

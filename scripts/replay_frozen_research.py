@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from liangjian_funnel.data.open_macro import OpenMacroDataCollector
 from liangjian_funnel.pipeline.research import FrozenInputSnapshot, ResearchPipeline
 from liangjian_funnel.reporting import atomic_write_json
 from liangjian_funnel.runtime.state import RuntimeStore
@@ -57,6 +58,16 @@ def main() -> int:
     )
     parser.add_argument("--resume-audit", help="validated lane audit under outputs/research")
     parser.add_argument("--stage", choices=("A2", "A3"), help="single downstream stage to replay")
+    parser.add_argument(
+        "--enable-deterministic-v2-overlay",
+        action="store_true",
+        help="derive a non-publishable V2 validation snapshot from a pre-V2 frozen snapshot",
+    )
+    parser.add_argument(
+        "--refresh-open-macro-overlay",
+        action="store_true",
+        help="attach same-day open macro contracts to a non-publishable validation replay",
+    )
     args = parser.parse_args()
 
     settings = Settings.from_env()
@@ -67,25 +78,75 @@ def main() -> int:
         raise SystemExit("RESEARCH_SNAPSHOT_INVALID") from exc
     if not isinstance(raw, dict) or not isinstance(raw.get("data"), dict):
         raise SystemExit("RESEARCH_SNAPSHOT_SCHEMA_INVALID")
-    expected_hash = raw.get("snapshot_hash")
-    if not isinstance(expected_hash, str) or _canonical_hash(raw["data"]) != expected_hash:
+    base_snapshot_hash = raw.get("snapshot_hash")
+    if not isinstance(base_snapshot_hash, str) or _canonical_hash(raw["data"]) != base_snapshot_hash:
         raise SystemExit("RESEARCH_SNAPSHOT_HASH_MISMATCH")
+    if args.publish and (args.enable_deterministic_v2_overlay or args.refresh_open_macro_overlay):
+        raise SystemExit("VALIDATION_OVERLAY_CANNOT_PUBLISH")
+    snapshot_data = dict(raw["data"])
+    snapshot_id = str(raw.get("snapshot_id") or "")
+    expected_hash = base_snapshot_hash
+    if args.enable_deterministic_v2_overlay:
+        snapshot_data["DETERMINISTIC_RESEARCH_V2_ENABLED"] = True
+        snapshot_data["research_pipeline_mode"] = "deterministic_v2"
+        expected_hash = _canonical_hash(snapshot_data)
+        snapshot_id = f"{snapshot_id}:deterministic-v2-validation"
 
     current = datetime.now(ZoneInfo(settings.timezone))
+    raw_as_of = raw.get("as_of")
+    try:
+        snapshot_as_of = datetime.fromisoformat(str(raw_as_of))
+    except (TypeError, ValueError) as exc:
+        raise SystemExit("RESEARCH_SNAPSHOT_AS_OF_INVALID") from exc
+    if snapshot_as_of.tzinfo is None or snapshot_as_of.utcoffset() is None:
+        raise SystemExit("RESEARCH_SNAPSHOT_AS_OF_TIMEZONE_REQUIRED")
+    if args.refresh_open_macro_overlay:
+        if snapshot_as_of.astimezone(ZoneInfo(settings.timezone)).date() != current.date():
+            raise SystemExit("OPEN_MACRO_OVERLAY_REQUIRES_SAME_DAY_SNAPSHOT")
+        open_macro = OpenMacroDataCollector(
+            cache_dir=settings.open_macro_cache_dir,
+        ).collect(current)
+        contract_names = (
+            "MACRO_ECONOMIC_DATA",
+            "ASSET_ROTATION_SNAPSHOT",
+            "GLOBAL_MACRO_SNAPSHOT",
+            "CROSS_MARKET_LEAD_SNAPSHOT",
+            "INDUSTRY_ACTIVITY_DATA",
+        )
+        for contract_name in contract_names:
+            contract = open_macro.get(contract_name)
+            if isinstance(contract, dict):
+                snapshot_data[contract_name] = contract
+        manifest = dict(snapshot_data.get("snapshot_manifest") or {})
+        manifest["open_macro_validation_overlay"] = {
+            "schema_version": open_macro.get("schema_version"),
+            "content_hash": open_macro.get("content_hash"),
+            "cache_status": open_macro.get("cache_status"),
+            "as_of": open_macro.get("as_of"),
+            "non_publishable": True,
+        }
+        snapshot_data["snapshot_manifest"] = manifest
+        expected_hash = _canonical_hash(snapshot_data)
+        snapshot_id = f"{snapshot_id}:open-macro-validation"
     snapshot = FrozenInputSnapshot(
-        snapshot_id=str(raw.get("snapshot_id") or ""),
+        snapshot_id=snapshot_id,
         snapshot_hash=expected_hash,
-        as_of=raw.get("as_of"),
-        data=raw["data"],
+        as_of=snapshot_as_of,
+        data=snapshot_data,
     )
     run_id = args.run_id or f"{current.date()}-{args.slot}-replay-{expected_hash[:12]}"
+    application = WorkflowApplication(settings)
     pipeline = ResearchPipeline(
         settings,
         prompt_repository=settings.prompt_dir,
+        model_client=application.model_client,
         output_dir=settings.workflow_output_dir / "research",
         parallel_lanes=True,
         runtime_store=RuntimeStore(settings.state_db_path),
         slot=args.slot,
+        batch_workers=settings.research_batch_workers,
+        checkpoint_store=application.research_checkpoints,
+        stage_snapshot_enricher=application._stage_snapshot_enricher,
     )
     if bool(args.resume_audit) != bool(args.stage):
         raise SystemExit("RESUME_AUDIT_AND_STAGE_REQUIRED_TOGETHER")
@@ -98,7 +159,6 @@ def main() -> int:
     publication = None
     run_summary_path = None
     if args.publish:
-        application = WorkflowApplication(settings)
         publication = application._publish_plans(result, args.slot, current)
         summary = {
             "run_id": run_id,
@@ -121,6 +181,9 @@ def main() -> int:
                 "run_id": result.run_id,
                 "status": result.status,
                 "snapshot_id": result.snapshot_id,
+                "base_snapshot_hash": base_snapshot_hash if (
+                    args.enable_deterministic_v2_overlay or args.refresh_open_macro_overlay
+                ) else None,
                 "markdown": str(result.markdown_path) if result.markdown_path else None,
                 "plan_publication": publication,
                 "run_summary": str(run_summary_path) if run_summary_path else None,

@@ -116,7 +116,35 @@ def test_explicit_output_budget_rejection_retries_same_variant_at_256k(
     assert seen[0]["messages"] == seen[1]["messages"]
 
 
-def test_capacity_fallback_rejection_is_not_retried_at_a_third_budget(tmp_path: Path):
+def test_capacity_rejection_descends_to_128k_third_budget(tmp_path: Path):
+    seen: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+
+        seen.append(json.loads(request.read()))
+        if len(seen) < 3:
+            return httpx.Response(
+                413,
+                json={"error": {"message": "max_tokens too large; maximum is 131072"}},
+                request=request,
+            )
+        return _sse_response(request, [{"choices": [{"delta": {"content": '{"ok":true}'}}]}, "[DONE]"])
+
+    client = OpenAICompatibleModelClient(
+        _settings(tmp_path),
+        transport=httpx.MockTransport(handler),
+        sleep=lambda _: None,
+        max_attempts=1,
+    )
+    result = client.complete("z-ai/glm-5.3-free", [{"role": "user", "content": "same"}])
+
+    assert result.output == {"ok": True}
+    assert result.attempts == 3
+    assert [body["max_tokens"] for body in seen] == [393_216, 262_144, 131_072]
+
+
+def test_third_capacity_budget_rejection_closes_after_128k(tmp_path: Path):
     seen: list[dict] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -125,7 +153,7 @@ def test_capacity_fallback_rejection_is_not_retried_at_a_third_budget(tmp_path: 
         seen.append(json.loads(request.read()))
         return httpx.Response(
             413,
-            json={"error": {"message": "max_tokens too large; maximum is 128000"}},
+            json={"error": {"message": "max_tokens too large; maximum is 65536"}},
             request=request,
         )
 
@@ -140,7 +168,69 @@ def test_capacity_fallback_rejection_is_not_retried_at_a_third_budget(tmp_path: 
 
     assert exc_info.value.reason_code == "OUTPUT_BUDGET_FALLBACK_REJECTED"
     assert exc_info.value.status_code == 413
-    assert exc_info.value.attempts == 2
+    assert exc_info.value.attempts == 3
+    assert [body["max_tokens"] for body in seen] == [393_216, 262_144, 131_072]
+
+
+def test_fallback_sequence_never_increases_a_custom_low_primary(tmp_path: Path):
+    seen: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+
+        seen.append(json.loads(request.read()))
+        if len(seen) == 1:
+            return httpx.Response(
+                413,
+                json={"error": {"message": "max_tokens too large; maximum is 8000"}},
+                request=request,
+            )
+        return _sse_response(request, [{"choices": [{"delta": {"content": '{"ok":true}'}}]}, "[DONE]"])
+
+    settings = Settings.from_env(
+        {
+            "LIANGJIAN_MODEL_API_KEY": "model-secret",
+            "LIANGJIAN_MODEL_MAX_OUTPUT_TOKENS": "12000",
+            "LIANGJIAN_MODEL_FALLBACK_OUTPUT_TOKENS": "8000",
+            # This legacy/default-like tier is above the custom primary and
+            # must be discarded instead of increasing the second request.
+            "LIANGJIAN_MODEL_SECONDARY_FALLBACK_OUTPUT_TOKENS": "131072",
+        },
+        root=tmp_path,
+    )
+    client = OpenAICompatibleModelClient(
+        settings,
+        transport=httpx.MockTransport(handler),
+        sleep=lambda _: None,
+        max_attempts=1,
+    )
+    result = client.complete("deepseek-v4-pro-0813", [{"role": "user", "content": "same"}])
+
+    assert result.output == {"ok": True}
+    assert [body["max_tokens"] for body in seen] == [12_000, 8_000]
+
+
+def test_generic_final_thinking_400_uses_the_configured_256k_fallback_once(tmp_path: Path):
+    seen: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+
+        seen.append(json.loads(request.read()))
+        if len(seen) == 1:
+            return httpx.Response(400, json={"error": "invalid request"}, request=request)
+        return _sse_response(request, [{"choices": [{"delta": {"content": '{"ok":true}'}}]}, "[DONE]"])
+
+    client = OpenAICompatibleModelClient(
+        _settings(tmp_path),
+        transport=httpx.MockTransport(handler),
+        sleep=lambda _: None,
+        max_attempts=1,
+    )
+    client.thinking_variants = (("reasoning_effort_low", {"reasoning_effort": "low"}),)
+    result = client.complete("z-ai/glm-5.3-free", [{"role": "user", "content": "same"}])
+
+    assert result.output == {"ok": True}
     assert [body["max_tokens"] for body in seen] == [393_216, 262_144]
 
 

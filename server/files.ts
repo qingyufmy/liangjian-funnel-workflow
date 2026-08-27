@@ -67,9 +67,24 @@ const PROGRESS_PHASES = new Set([
   "MARKETFACTSYNC",
   "CNINFO_SYNC",
   "CNINFO_PDF_SYNC",
+  "OPEN_MACRO_SYNC",
   "DATA_SYNC",
   "SNAPSHOT",
   "SNAPSHOT_RESUMED",
+  "MACRO_DISCOVERY",
+  "RESEARCH_MACRO_DISCOVERY",
+  "A1_LOCAL_SCREEN",
+  "RESEARCH_A1_LOCAL_SCREEN",
+  "A1_LLM_REVIEW",
+  "RESEARCH_A1_LLM_REVIEW",
+  "A2_LOCAL_ROLE",
+  "RESEARCH_A2_LOCAL_ROLE",
+  "A2_LLM_REVIEW",
+  "RESEARCH_A2_LLM_REVIEW",
+  "A3_LOCAL_TECHNICAL",
+  "RESEARCH_A3_LOCAL_TECHNICAL",
+  "A3_LLM_REVIEW",
+  "RESEARCH_A3_LLM_REVIEW",
   "A1",
   "A2",
   "A3",
@@ -102,6 +117,11 @@ const NUMERIC_PROGRESS_KEYS = new Set([
   "total",
   "total_count",
   "universe_total",
+  "processed_symbols",
+  "total_symbols",
+  "selected_symbols",
+  "monitor_symbols",
+  "rejected_symbols",
   "cache_hits",
   "cacheHit",
   "hits",
@@ -547,10 +567,13 @@ function normalizeStage(stageKey: string | null, stage: JsonRecord): WorkflowPro
   const stageName = progressPhase(stage.stage ?? stage.stage_id ?? stage.stageId ?? stage.name ?? stageKey) ?? "UNKNOWN";
   const nested = nestedRecord(stage, ["progress", "batch", "batch_progress", "batchProgress", "counts"]);
   const sources = nested ? [stage, nested] : [stage];
-  const processed = metricFromSources(sources, ["processed", "processed_count", "completed", "completed_count", "current", "done"], "count");
-  const total = metricFromSources(sources, ["total", "total_count", "universe_total"], "count");
+  const processed = metricFromSources(sources, ["processed_symbols", "processed", "processed_count", "completed", "completed_count", "current", "done"], "count");
+  const total = metricFromSources(sources, ["total_symbols", "total", "total_count", "universe_total"], "count");
   const batchProcessed = metricFromSources(sources, ["batch_processed", "batch_completed", "completed_batches", "current_batch", "processed_batches", "processed", "completed"], "count");
   const batchTotal = metricFromSources(sources, ["batch_total", "batch_count", "total_batches", "total"], "count");
+  const selected = metricFromSources(sources, ["selected_symbols"], "count");
+  const monitor = metricFromSources(sources, ["monitor_symbols"], "count");
+  const rejected = metricFromSources(sources, ["rejected_symbols"], "count");
   const rawStatus = progressString(stage.status) ? progressStatus(stage.status) : null;
   const hasIncompleteAggregate = (
     processed.value !== null && total.value !== null && total.value > 0 && processed.value < total.value
@@ -566,6 +589,9 @@ function normalizeStage(stageKey: string | null, stage: JsonRecord): WorkflowPro
     total: total.value,
     batchProcessed: batchProcessed.value,
     batchTotal: batchTotal.value,
+    selected: selected.value,
+    monitor: monitor.value,
+    rejected: rejected.value,
     updatedAt: progressTime(stage.updated_at ?? stage.updatedAt ?? stage.time),
   };
 }
@@ -595,8 +621,8 @@ function normalizeLane(laneKey: string | null, lane: JsonRecord): WorkflowProgre
     model: progressString(lane.model, 120),
     status: progressString(lane.status) ? progressStatus(lane.status) : null,
     currentStage: progressPhase(directStage),
-    processed: processed.value,
-    total: total.value,
+    processed: processed.value ?? currentStage?.processed ?? null,
+    total: total.value ?? currentStage?.total ?? null,
     batchProcessed: batchProcessed.value ?? currentStage?.batchProcessed ?? null,
     batchTotal: batchTotal.value ?? currentStage?.batchTotal ?? null,
     updatedAt: progressTime(lane.updated_at ?? lane.updatedAt ?? lane.time),

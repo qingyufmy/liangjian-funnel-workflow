@@ -17,8 +17,13 @@ Agent 1 · MacroFundamentalChainAgent
 {{SNAPSHOT_MANIFEST}}        as_of 时点、数据源清单、覆盖率
 {{MACRO_POLICY_FEED}}        政策、统计、监管、国际贸易与技术限制（T0/T1）
 {{MACRO_ECONOMIC_DATA}}      GDP/CPI/PPI/PMI/社融信贷等结构化宏观序列
+{{ASSET_ROTATION_SNAPSHOT}}  股票/贵金属/债券/现金的动量与资金流分位
+{{GLOBAL_MACRO_SNAPSHOT}}    美元、海内外利率与流动性预期
+{{CROSS_MARKET_LEAD_SNAPSHOT}} 美/韩/台/日先行行业与已验证产业映射
+{{BROKER_RESEARCH_CONSENSUS}} 合法授权券商研究方向共识（T2，非事实真值）
 {{INDUSTRY_NEWS_FEED}}       行业媒体/RSS资讯线索（T3，不得直接证明基本面）
 {{INDUSTRY_PROFIT_DATA}}     分行业营收、利润、产能利用率、价格指数
+{{INDUSTRY_ACTIVITY_DATA}}   国家统计局分行业工业增加值同比/累计增速；不是利润数据
 {{THS_INDUSTRY_MEMBERSHIP}}  同花顺行业目录与当前成分关系（主行业口径）
 {{EXISTING_CHAIN_GRAPH}}     上一版产业链节点图谱
 {{THEME_REGISTRY}}           主题注册表当前状态与生命周期
@@ -42,8 +47,28 @@ Agent 1 · MacroFundamentalChainAgent
 POLICY_MACRO_DISCOVERY 输出的每个 structural_theme 和 industry_chain_graph
 节点，都必须从 allowed_primary_source_refs 原样复制至少一个字符串到
 source_refs；禁止改写、概括、拼接或自行生成引用标识。
+POLICY_MACRO_DISCOVERY 还必须为每个节点输出 taxonomy_links，只能从
+A1_BATCH_CONTEXT.allowed_taxonomy_catalog 中原样选择 industry_thscodes 与
+concept_thscodes。不得发明代码。找不到可靠映射时输出空数组，由系统将该节点
+降为研究线索；股票成员挂载仍由系统确定性完成。
 COMPANY_MAPPING 批次只回填当前标的实际引用到的主题和节点，不要机械复制整份
 frozen_discovery；系统会在全局合并时恢复完整主题与节点图谱。
+
+A1_BATCH_CONTEXT.monthly_strategy_context 是本次 A1 的月度策略主工作面。
+必须先读取 strategy_month、最近 90–120 天正式政策、已发布宏观序列、
+monthly_industry_rotation 与 prior_theme_registry，再形成当月策略篮子；不得只根据
+最近一日新闻或单份政策文件发现主题。月度策略必须同时覆盖：
+  1) 政策与中期产业趋势；
+  2) 宏观增长/通胀/流动性状态（数据不可用必须明确降级）；
+  3) 行业价格—成交—相对强度所揭示的周期轮动；
+  4) 上月主题的延续、强化、弱化或退出。
+monthly_industry_rotation 中的候选不是答案，但每个排名靠前的候选都必须给出
+纳入结构性主题或排除的证据理由。禁止硬编码行业名单。
+monthly_strategy_context.macro_asset_quadrant 由服务端确定性计算，你不得改判；
+它决定本月研究方向的风险预算语境，但不能直接生成股票。cross_market_leads 只能
+用于发现时间差和产业链线索，必须再由国内政策、同花顺行业、公告或主营证据验证。
+broker_research_consensus 只用于检查方向共振与分歧，禁止把评级、目标价或金股名单
+直接复制进 ACTIVE；券商月度金股仅在运行完成后作为独立盲测基准。
 
 ────────────────────────────────────────────────────────────────────────
 【核心方法】研究单位是产业链节点，不是股票
@@ -67,8 +92,10 @@ Step B · 确定性挂载（不由你完成）
   系统按同花顺行业成分 + 主营收入构成 + 客户关系，把全市场股票挂到节点。
   同花顺行业标签只用于确定研究范围，不能单独证明业务收入贡献。
 
-Step C · 公司复核（只做每节点 Top-N，N 由 {{TOP_N_PER_NODE}} 给定）
-  对候选公司验证业务纯度与证据强度，产出 CompanyThesisCard。
+Step C · 公司复核（确定性覆盖层 + 代表样本复核）
+  系统先按每节点 Top-N 形成可审计研究覆盖层，再按主题抽取代表样本供你复核。
+  你只对当前批次候选验证业务纯度与证据强度，产出 CompanyThesisCard；当前批次
+  不是整个 A1 的批准配额，未发送给你的本地结构化证据合格项由系统保留。
 
 批次只是传输边界，不是筛选名额。对当前批次每个输入标的，必须恰好输出到
 active_research_pool、monitor_pool 或 rejected_candidates 之一；禁止静默丢弃。
@@ -96,6 +123,12 @@ T3 行业资讯/RSS 只能发现线索，即使引用真实存在也不能单独
   - T3行业资讯只能生成待核实线索；必须回查政策、公告或财报后才能进入传导链
   - 判断影响层级、开始时间、持续周期、政策落地工具
   - 严格区分「长期结构性政策」与「短期事件刺激」
+  - 研究周期固定为月度：至少比较 M-2、M-1 与 M0 的政策密度、政策工具、
+    宏观方向和行业相对强度；单日异动只能作为月度策略的确认或反证
+  - 对明显周期行业必须检查 5/10/20 日相对强度、成交持续性，以及可获得的
+    价格/利润/库存/产能利用率；只有单日涨幅不得定义为周期启动
+  - INDUSTRY_ACTIVITY_DATA 只能证明行业生产活动增速，禁止将其表述为利润增长
+  - 对科技、创新产业等中期成长主线，必须区分政策长期方向与当月市场确认
   - MACRO_ECONOMIC_DATA.available=false 时，liquidity_condition 与
     profit_cycle_position 必须写 "UNAVAILABLE"，不得用新闻或常识补值
   - 政策方向只能作为先验，贡献分数上限 {{PRIOR_CONTRIBUTION_CAP}}
@@ -405,6 +438,15 @@ T3 行业资讯/RSS 只能发现线索，即使引用真实存在也不能单独
       "bottleneck_evidence_classes": [...],
       "price_transmission": "...",
       "source_refs": [...]
+    }
+  ],
+
+  "taxonomy_links": [
+    {
+      "node_id": "...",
+      "industry_thscodes": ["...TI"],
+      "concept_thscodes": ["...TI"],
+      "mapping_basis": "节点与同花顺分类的直接语义对应；不得写股票代码"
     }
   ],
 

@@ -103,10 +103,21 @@ data_sources:
     capital_flow: [baidu_stock]
 
   akshare:
-    role: VALIDATOR_ONLY                    # ★ 不得作为 CRITICAL 字段权威源
+    role: VALIDATOR_AND_NONCRITICAL_OPEN_AGGREGATOR
     reason: "官方声明仅供学术研究，且部分接口可能被移除"
     contract_tests_required: true           # 每日 CI 跑字段契约测试
     license: MIT
+    pinned_version: 1.18.94
+    allowed_runtime_domains:
+      - MONTHLY_MACRO_NORMALIZATION
+      - FOUR_ASSET_ETF_MOMENTUM
+      - CROSS_MARKET_LEAD_OPTIONAL
+      - NBS_INDUSTRY_ACTIVITY_NORMALIZATION
+    forbidden_runtime_domains:
+      - OFFICIAL_DISCLOSURE_TIMESTAMP
+      - FINANCIAL_STATEMENT_AUTHORITY
+      - REALTIME_EXECUTION_PRICE
+    cache_and_degrade_required: true
 
   sla_seconds:                              # 最大可接受 system_lag
     realtime_quote: 3
@@ -226,8 +237,24 @@ agent_1:
   incremental_schedule: DAILY_AND_EVENT
   prior_rebuild_schedule: MONTHLY
 
+  macro_asset_quadrant:
+    assets: [EQUITY, GOLD, BOND, CASH]
+    primary_factors: [MOMENTUM_20D, MOMENTUM_60D, FUND_FLOW]
+    macro_tilts: [USD_INDEX, FED_EASING_EXPECTATION, CREDIT_IMPULSE, M1_M2_GAP]
+    deterministic_only: true
+    news_substitution_forbidden: true
+  cross_market_leads:
+    markets: [US, KOREA, TAIWAN, JAPAN]
+    domestic_evidence_required: true
+  broker_research_consensus:
+    preferred_groups: [CITIC, CICC, ZHONGTAI, HUATAI]
+    evidence_tier: T2
+    primary_evidence: false
+    benchmark_not_runtime_input: true
+
   node_count_target: [40, 80]
-  top_n_per_node: 15
+  top_n_per_node: 15                       # 本地可审计线索池
+  llm_representatives_per_theme: 8         # LLM 按主题复核代表样本，不审批整个本地覆盖层
   pool_min: 300
   pool_max: 1000
   clue_pool_target: [300, 800]              # ACTIVE + MONITOR，容量目标而非配额
@@ -271,6 +298,12 @@ agent_1:
     narrative_and_verifiability_reported_separately: true
     policy_calendar_horizon_days: 90
     policy_calendar_required: true
+    monthly_strategy_lookback_days: 120
+    monthly_policy_document_limit: 60
+    monthly_theme_target: [8, 15]           # 覆盖目标，不以无证据主题凑数
+    monthly_cycle_lookback_trading_days: 20
+    require_policy_macro_cycle_reconciliation: true
+    hardcoded_theme_allowlist_forbidden: true
   research_report_is_primary_evidence: false
   fund_holding_is_primary_evidence: false
   insider_increase_is_strong_signal: false  # 2026-04-07 短线交易新规后
@@ -290,7 +323,7 @@ agent_2:
   institutional_pool_role: P3_CURRENT_MARKET_CANDIDATES
   minimum_theme_score: 60
   opening_review_mode: TIGHTEN_ONLY
-  candidate_pool_target: [100, 200]         # 容量目标，不覆盖证据门槛、不强制凑数
+  candidate_pool_target: [30, 80]           # 当前市场可执行研究候选；观察池另计
 
   score_weights:
     breadth: 0.15
@@ -337,6 +370,34 @@ agent_2:
     low_identity_trigger_count: 2           # 命中 2 条即判为杂毛
     min_free_float_cap_cny: 3000000000
     low_identity_excluded_from_all_pools: true
+
+  supply_chain_bottleneck_research:
+    enabled: true
+    methodology: liangjian-serenity-a2/1.0.0
+    upstream_reference: muxuuu/serenity-skill@c2fe93deedfd0d1bd9fe7ef0601ea1b9c20ea24a
+    license: MIT
+    rank_layers_before_companies: true
+    unknown_is_not_zero: true
+    social_or_price_action_is_proof: false
+    minimum_evidence_items: 2
+    minimum_strong_or_medium_evidence: 1
+    focus_roles:
+      - CONTROLS_SCARCE_LAYER
+      - SUPPLIES_SCARCE_LAYER
+      - BENEFITS_WITH_LIMITED_CONTROL
+    excluded_focus_roles: [STORY_ONLY]
+    factor_weights:
+      demand_inflection: 15
+      architecture_coupling: 10
+      chokepoint_severity: 15
+      supplier_concentration: 12
+      expansion_difficulty: 12
+      evidence_quality: 15
+      valuation_disconnect: 11
+      catalyst_timing: 10
+    penalty_multiplier: 2
+    required_failure_conditions: true
+    required_missing_proof: true
 
   penalty_rules:
     high_crowding:              [-20, -5]

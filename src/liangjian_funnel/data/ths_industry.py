@@ -352,13 +352,15 @@ def collect_ths_industry_history(
     *,
     cache_dir: Path,
     as_of: datetime,
-    lookback_days: int = 15,
+    lookback_days: int = 45,
 ) -> HithinkFetchResult:
     """Collect point-in-time 881* industry bars used to prove market regime.
 
-    Market breadth alone cannot establish a persistent main line.  This daily
-    cache provides the cross-sector history required to measure Top-3 overlap
-    and turnover persistence without calling current winners a main line.
+    Market breadth alone cannot establish a persistent main line.  The default
+    45-calendar-day window normally contains at least 20 trading sessions,
+    which lets the deterministic aggregate distinguish a monthly rotation from
+    a one-day price pulse.  The raw history remains point-in-time and is cached
+    by trade date and requested lookback.
     """
 
     cutoff = _aware(as_of)

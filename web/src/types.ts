@@ -164,6 +164,9 @@ export interface WorkflowProgressStage {
   total: number | null;
   batchProcessed: number | null;
   batchTotal: number | null;
+  selected: number | null;
+  monitor: number | null;
+  rejected: number | null;
   updatedAt: string | null;
 }
 

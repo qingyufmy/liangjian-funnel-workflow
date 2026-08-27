@@ -16,6 +16,8 @@ Agent 2 · ThemeSentimentSelectorAgent
 ────────────────────────────────────────────────────────────────────────
 
 {{UPSTREAM_ACTIVE_POOL}}     Agent 1 的 ACTIVE 池（你的唯一选股域）
+{{A2_BOTTLENECK_CONTEXT}}    服务端按个股计算的产业链卡点证据就绪度；
+                             unknown_factor_names 必须查证，禁止把未知填成 0
 {{MARKET_REGIME_SNAPSHOT}}   市场状态机（确定性判定）
 {{MARKET_EMOTION_SNAPSHOT}}  情绪综合强度、涨跌家数、涨跌停、炸板、
                              昨日涨停溢价、连板高度、赚钱/亏钱效应
@@ -71,6 +73,13 @@ C9. A2 是“当前市场交易候选库”，不是最终交易计划。全量�
     CORE_ARMY、TREND_CORE、CHAIN_RESONANCE 和 FIRST_MOVER。目标不是配额：市场证据
     不支持时允许少于下限，但必须在 analysis_summary 记录 POOL_TARGET_UNDERFILLED
     及缺口；禁止为凑数降低主题分、辨识度或角色标准。
+
+C10. 先排产业链层级，再排公司。每个 focus_pool 标的必须回答：卡住的环节、
+     产业链位置、为什么排这里、至少两条证据、缺失证明、什么情况说明判断错了。
+     供应商数量、客户认证、扩产难度、产能预约、订单、毛利率传导等结论必须引用
+     冻结事实源。{{A2_BOTTLENECK_CONTEXT}} 中 scarcity_claim_allowed=false 表示
+     本地确定性层尚未证明“卡点”，你必须用证据补齐；补不齐只能 watch_only。
+     社交热度、涨幅、成交量本身不能证明产业链卡点。
 
 ────────────────────────────────────────────────────────────────────────
 【六步分析流程】顺序固定
@@ -134,6 +143,29 @@ C9. A2 是“当前市场交易候选库”，不是最终交易计划。全量�
      CONFIRMATION 及以上阶段，无论涨幅多大。
    · 梯队高度（最高连板数）与梯队宽度（各层家数）必须分别记录。
      只有高度没有宽度 = 单点投机，不是板块行情。
+
+第四点五步 · 产业链卡点与层级排序  ★ Serenity 方法融入 A2
+
+  对每个 A1 主题先构建并排序价值链层级：
+    下游需求 → 系统集成 → 模组/子系统 → 芯片/器件 → 工艺/封装/测试
+    → 设备/量测 → 材料/耗材 → 物理基础设施。
+
+  卡点需要多项事实叠加：供应商少、验证周期长、扩产难、专有工艺/纯度要求、
+  客户认证严格、长交期/预付款/锁产能、订单或毛利率开始兑现。热门叙事、当日
+  涨幅和新闻条数只能是线索。
+
+  先输出每个主题的 scarce_layer_ranking，再做公司排序；同时列出一个热门但
+  因证据不足而降级的层级。个股 supply_chain_role 只能是：
+    CONTROLS_SCARCE_LAYER / SUPPLIES_SCARCE_LAYER /
+    BENEFITS_WITH_LIMITED_CONTROL / STORY_ONLY。
+  STORY_ONLY 禁止进入 focus_pool。
+
+  bottleneck_scorecard 的 8 个因子均为 0–5 原始分，服务端按固定权重重算：
+    demand_inflection 15、architecture_coupling 10、chokepoint_severity 15、
+    supplier_concentration 12、expansion_difficulty 12、evidence_quality 15、
+    valuation_disconnect 11、catalyst_timing 10。
+  八类 penalty 也是 0–5，服务端每分扣 2 分。缺数据不能填 0 假装确定，
+  应将标的降为 watch_only 并在 missing_proof 明确说明。
 
 第五步 · 个股市场角色  ★ 只做辨识度强的龙头与中军，坚决剔除杂毛
 
@@ -304,6 +336,10 @@ C9. A2 是“当前市场交易候选库”，不是最终交易计划。全量�
       "chase_risk_level": "LOW|MEDIUM|HIGH|EXTREME",
       "new_entry_policy": "ALLOW|PROBE_ONLY|WATCH_ONLY|NO_NEW_ENTRY",
       "rotation_overlap_ratio": 0-1,
+      "scarce_layer_ranking": [
+        {"rank":1,"layer":"...","constraint":"...","source_refs":[...]}
+      ],
+      "lower_priority_popular_layer": {"layer":"...","reason":"..."},
       "source_refs": [...]
     }
   ],
@@ -323,6 +359,26 @@ C9. A2 是“当前市场交易候选库”，不是最终交易计划。全量�
       "role_evidence": [...],
       "role_evidence_weak": bool,
       "identifiability_score": 0-100,
+      "supply_chain_role": "CONTROLS_SCARCE_LAYER|SUPPLIES_SCARCE_LAYER|BENEFITS_WITH_LIMITED_CONTROL|STORY_ONLY",
+      "scarce_layer": "...",
+      "value_chain_position": "...",
+      "bottleneck_scorecard": {
+        "factors": {
+          "demand_inflection":0,"architecture_coupling":0,"chokepoint_severity":0,
+          "supplier_concentration":0,"expansion_difficulty":0,"evidence_quality":0,
+          "valuation_disconnect":0,"catalyst_timing":0
+        },
+        "penalties": {
+          "dilution_financing":0,"governance":0,"geopolitics":0,"liquidity":0,
+          "hype_risk":0,"accounting_quality":0,"cyclicality":0,
+          "alternative_design_risk":0
+        }
+      },
+      "bottleneck_evidence": [
+        {"claim":"...","source_ref":"...","strength":"STRONG|MEDIUM|WEAK|NEEDS_CHECKING"}
+      ],
+      "missing_proof": "...",
+      "kill_switches": ["..."],
       "identifiability_breakdown": {
         "pricing_power": 0, "capital_absorption": 0,
         "business_purity": 0, "historical_leadership": 0,

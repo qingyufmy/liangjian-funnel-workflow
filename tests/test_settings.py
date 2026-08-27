@@ -24,6 +24,7 @@ def test_exact_models_and_safe_summary_do_not_leak_keys(tmp_path: Path):
     assert settings.model_timeout_seconds == 600
     assert settings.model_max_output_tokens == 393_216
     assert settings.model_fallback_output_tokens == 262_144
+    assert settings.model_secondary_fallback_output_tokens == 131_072
     assert settings.model_max_input_tokens == 1_000_000
     assert settings.research_a1_batch_size == 20
     assert settings.research_a2_batch_size == 40
@@ -33,6 +34,8 @@ def test_exact_models_and_safe_summary_do_not_leak_keys(tmp_path: Path):
     assert settings.cninfo_pdf_workers == 2
     assert settings.fundamental_refresh_hours == 24
     assert settings.daily_refresh_hours == 4
+    assert settings.open_macro_enabled is True
+    assert settings.open_macro_cache_dir == tmp_path / "storage" / "facts" / "open_macro"
     assert settings.research_thinking_enabled is True
     assert settings.monitor_thinking_enabled is False
 
@@ -52,22 +55,34 @@ def test_thinking_flags_are_explicit_and_strict(tmp_path: Path):
         Settings.from_env({"LIANGJIAN_MONITOR_THINKING_ENABLED": "maybe"}, root=tmp_path)
 
 
+def test_open_macro_can_be_disabled_without_changing_other_sources(tmp_path: Path):
+    settings = Settings.from_env(
+        {"LIANGJIAN_OPEN_MACRO_ENABLED": "false"},
+        root=tmp_path,
+    )
+    assert settings.open_macro_enabled is False
+    assert settings.safe_summary()["open_macro_enabled"] is False
+
+
 def test_model_token_budgets_are_configurable_and_legacy_primary_env_is_preserved(tmp_path: Path):
     settings = Settings.from_env(
         {
             "LIANGJIAN_MODEL_MAX_OUTPUT_TOKENS": "12000",
             "LIANGJIAN_MODEL_FALLBACK_OUTPUT_TOKENS": "8000",
+            "LIANGJIAN_MODEL_SECONDARY_FALLBACK_OUTPUT_TOKENS": "4000",
             "LIANGJIAN_MODEL_MAX_INPUT_TOKENS": "900000",
         },
         root=tmp_path,
     )
     assert settings.model_max_output_tokens == 12_000
     assert settings.model_fallback_output_tokens == 8_000
+    assert settings.model_secondary_fallback_output_tokens == 4_000
     assert settings.model_max_input_tokens == 900_000
     summary = settings.safe_summary()
     assert summary["model_max_output_tokens"] == 12_000
     assert summary["model_primary_output_tokens"] == 12_000
     assert summary["model_fallback_output_tokens"] == 8_000
+    assert summary["model_secondary_fallback_output_tokens"] == 4_000
     assert summary["model_max_input_tokens"] == 900_000
 
 
@@ -76,12 +91,14 @@ def test_model_token_budget_validation_accepts_384k_and_rejects_above_context(tm
         {
             "LIANGJIAN_MODEL_MAX_OUTPUT_TOKENS": "393216",
             "LIANGJIAN_MODEL_FALLBACK_OUTPUT_TOKENS": "262144",
+            "LIANGJIAN_MODEL_SECONDARY_FALLBACK_OUTPUT_TOKENS": "131072",
             "LIANGJIAN_MODEL_MAX_INPUT_TOKENS": "1000000",
         },
         root=tmp_path,
     )
     assert settings.model_max_output_tokens == 393_216
     assert settings.model_fallback_output_tokens == 262_144
+    assert settings.model_secondary_fallback_output_tokens == 131_072
     assert settings.model_max_input_tokens == 1_000_000
 
     with pytest.raises(ValidationError):

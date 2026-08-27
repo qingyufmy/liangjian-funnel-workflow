@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Independent, fail-closed A-share funnel workflow"
 requires-python = ">=3.11"
 dependencies = [
+  "akshare==1.18.94",
   "exchange-calendars>=4.13.2,<5",
   "httpx>=0.25,<1",
   "mootdx>=0.11.7,<0.12",
@@ -32,6 +33,7 @@ include-package-data = true
   "AUDIT_REMEDIATION_2026-08-25.md",
   "DEPLOYMENT.md",
   "IMPLEMENTATION_STATUS.md",
+  "DETERMINISTIC_RESEARCH_PIPELINE_V2_PLAN.md",
   "README.md",
   "THIRD_PARTY_NOTICES.md",
 ]

@@ -13,6 +13,9 @@ from pydantic import BaseModel
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 EMOTION_ALGORITHM = "market-emotion/1.0.0"
+SECTOR_CYCLE_ALGORITHM = "sector-cycle/2.0.0"
+_MONTHLY_OBSERVATION_BARS = 21  # 20 return periods require 21 closes.
+_MONTHLY_TOP10_MIN_APPEARANCES = 2
 
 
 def build_market_emotion(
@@ -168,7 +171,11 @@ def build_sector_cycle_and_permissions(
         and bool(row.get("memberships"))
     }
     coverage = len(mapped) / len(wanted) if wanted else 1.0
-    history_metrics = _sector_history_metrics(history_rows or ()) if history_rows is not None else None
+    history_metrics = (
+        _sector_history_metrics(history_rows or (), as_of=cutoff)
+        if history_rows is not None
+        else None
+    )
     if history_rows is not None and history_metrics is None:
         reason = "THS_INDUSTRY_HISTORY_MALFORMED"
     cycle_available = reason == "OK" and history_metrics is not None
@@ -234,24 +241,49 @@ def build_sector_cycle_and_permissions(
     return cycle, permissions
 
 
-def _sector_history_metrics(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any] | None:
-    series: dict[str, dict[int, dict[str, float]]] = {}
+def _sector_history_metrics(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    as_of: datetime | None = None,
+) -> dict[str, Any] | None:
+    """Build short- and monthly-cycle metrics from point-in-time index bars.
+
+    ``top3_by_day`` and ``persistent_mainline_candidates`` are retained for
+    compatibility with the existing regime/A2 consumers.  The monthly view is
+    intentionally calculated independently: it uses up to 21 closes (up to 20
+    return periods), counts Top-10 appearances across the whole window, and
+    only admits a sector after it appears on at least two ranking days.  That
+    last gate prevents a one-day price pulse from becoming a monthly mainline.
+
+    A bar is usable for price calculations even when its turnover is absent;
+    turnover-dependent fields then become ``None``.  When ``as_of`` is given,
+    bars whose epoch-millisecond timestamp is in the future are excluded.
+    """
+
+    series: dict[str, dict[int, dict[str, float | None]]] = {}
     names: dict[str, str] = {}
+    cutoff_ms = int(_aware(as_of).timestamp() * 1000) if as_of is not None else None
+    future_bars_dropped = 0
     for raw in rows:
         code = str(raw.get("industry_thscode") or "")
         name = str(raw.get("industry_name") or "")
         bars = raw.get("bars")
         if not code.startswith("881") or not isinstance(bars, Sequence) or isinstance(bars, (str, bytes, bytearray)):
             continue
-        parsed: dict[int, dict[str, float]] = {}
+        parsed: dict[int, dict[str, float | None]] = {}
         for bar in bars:
             if not isinstance(bar, Mapping):
                 continue
             day = _integer(bar.get("date_ms"))
             close = _finite(bar.get("close_price"))
-            turnover = _finite(bar.get("turnover"))
-            if day is None or close is None or close <= 0 or turnover is None or turnover < 0:
+            if cutoff_ms is not None and day is not None and day > cutoff_ms:
+                future_bars_dropped += 1
                 continue
+            turnover = _finite(bar.get("turnover"))
+            if day is None or close is None or close <= 0:
+                continue
+            if turnover is not None and turnover < 0:
+                turnover = None
             parsed[day] = {"close": close, "turnover": turnover}
         if len(parsed) >= 5:
             series[code] = parsed
@@ -301,12 +333,9 @@ def _sector_history_metrics(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]
         if len(ordered) < 2:
             continue
         return_lookback = ordered[-1]["close"] / ordered[0]["close"] - 1.0
-        recent_turnover = sum(item["turnover"] for item in ordered[-3:]) / min(3, len(ordered))
+        recent_turnover = _mean(item.get("turnover") for item in ordered[-3:])
         prior_values = ordered[:-3]
-        prior_turnover = (
-            sum(item["turnover"] for item in prior_values) / len(prior_values)
-            if prior_values else None
-        )
+        prior_turnover = _mean(item.get("turnover") for item in prior_values)
         candidates.append({
             "industry_thscode": code,
             "industry_name": names.get(code, ""),
@@ -314,20 +343,169 @@ def _sector_history_metrics(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]
             "lookback_return": return_lookback,
             "recent_turnover": recent_turnover,
             "turnover_persistence_ratio": (
-                recent_turnover / prior_turnover if prior_turnover and prior_turnover > 0 else None
+                recent_turnover / prior_turnover
+                if recent_turnover is not None and prior_turnover is not None and prior_turnover > 0
+                else None
             ),
         })
     persistent = [
         item for item in candidates
         if item["top3_appearance_count"] >= 2 and item["lookback_return"] > 0
     ]
+
+    # Monthly rotation: retain the final 21 closes so that a complete series
+    # has 5d/10d/20d return observations.  Missing bars are not filled or
+    # forward-filled; each metric explicitly degrades to None when it lacks
+    # enough point-in-time closes.
+    monthly_dates = all_dates[-_MONTHLY_OBSERVATION_BARS:]
+    monthly_top10: list[dict[str, Any]] = []
+    monthly_appearances: dict[str, int] = {}
+    for previous_day, day in zip(monthly_dates, monthly_dates[1:]):
+        returns = []
+        for code, values in series.items():
+            previous = values.get(previous_day)
+            current = values.get(day)
+            if previous is None or current is None or previous["close"] is None or previous["close"] <= 0:
+                continue
+            returns.append((current["close"] / previous["close"] - 1.0, code))
+        if len(returns) < 3:
+            continue
+        leaders = sorted(returns, key=lambda item: (-item[0], item[1]))[:10]
+        for _return, code in leaders:
+            monthly_appearances[code] = monthly_appearances.get(code, 0) + 1
+        monthly_top10.append({
+            "date_ms": day,
+            "industries": [
+                {
+                    "industry_thscode": code,
+                    "industry_name": names.get(code, ""),
+                    "daily_return": value,
+                }
+                for value, code in leaders
+            ],
+        })
+
+    monthly_returns: dict[str, dict[str, float | None]] = {}
+    relative_strength_inputs: dict[str, float] = {}
+    monthly_candidates: list[dict[str, Any]] = []
+    for code, values in series.items():
+        ordered = [values[day] for day in monthly_dates if day in values]
+        return_5d = _period_return(ordered, 5)
+        return_10d = _period_return(ordered, 10)
+        return_20d = _period_return(ordered, 20)
+        monthly_returns[code] = {
+            "return_5d": return_5d,
+            "return_10d": return_10d,
+            "return_20d": return_20d,
+        }
+        if return_20d is not None:
+            relative_strength_inputs[code] = return_20d
+
+    monthly_min_appearances = (
+        max(
+            _MONTHLY_TOP10_MIN_APPEARANCES,
+            math.ceil(len(monthly_top10) * 0.10),
+        )
+        if monthly_top10
+        else _MONTHLY_TOP10_MIN_APPEARANCES
+    )
+    monthly_rank_days = len(monthly_top10)
+    for code, count in monthly_appearances.items():
+        returns = monthly_returns.get(code, {})
+        recent_window = min(5, len([day for day in monthly_dates if day in series[code]]))
+        ordered = [series[code][day] for day in monthly_dates if day in series[code]]
+        recent_values = ordered[-recent_window:] if recent_window else []
+        prior_values = ordered[:-recent_window] if recent_window else []
+        recent_turnover = _mean(item.get("turnover") for item in recent_values)
+        prior_turnover = _mean(item.get("turnover") for item in prior_values)
+        relative_strength = _cross_section_percentile(
+            relative_strength_inputs.get(code),
+            tuple(relative_strength_inputs.values()),
+        )
+        candidate = {
+            "industry_thscode": code,
+            "industry_name": names.get(code, ""),
+            "return_5d": returns.get("return_5d"),
+            "return_10d": returns.get("return_10d"),
+            "return_20d": returns.get("return_20d"),
+            "relative_strength_percentile_20d": relative_strength,
+            "top10_appearance_count": count,
+            "top10_appearance_rate": count / monthly_rank_days if monthly_rank_days else None,
+            "recent_turnover": recent_turnover,
+            "turnover_persistence_ratio": (
+                recent_turnover / prior_turnover
+                if recent_turnover is not None and prior_turnover is not None and prior_turnover > 0
+                else None
+            ),
+        }
+        # A single daily pulse has count=1 and is deliberately not promoted to
+        # the monthly candidate set.  No sector names or industry classes are
+        # special-cased here; the same rule applies to every taxonomy member.
+        if count >= monthly_min_appearances:
+            monthly_candidates.append(candidate)
+
+    monthly_candidates.sort(
+        key=lambda item: (
+            -int(item["top10_appearance_count"]),
+            -float(item["relative_strength_percentile_20d"])
+            if item["relative_strength_percentile_20d"] is not None
+            else float("inf"),
+            -float(item["return_20d"])
+            if item["return_20d"] is not None
+            else float("inf"),
+            str(item["industry_thscode"]),
+        )
+    )
     return {
         "lookback_trading_days": len(daily_top3),
         "top3_daily_overlap": overlap,
         "top3_by_day": daily_top3,
         "persistent_mainline_candidates": persistent,
+        "algorithm_version": SECTOR_CYCLE_ALGORITHM,
+        "monthly_lookback_trading_days": max(0, len(monthly_dates) - 1),
+        "monthly_observation_bars": len(monthly_dates),
+        "monthly_rank_days": monthly_rank_days,
+        "monthly_top10_by_day": monthly_top10,
+        "monthly_min_top10_appearances": monthly_min_appearances,
+        "monthly_rotation_candidates": monthly_candidates,
+        "future_bars_dropped": future_bars_dropped,
         "turnover_metric_role": "PRICE_VOLUME_PROXY_ONLY",
     }
+
+
+def _period_return(
+    ordered: Sequence[Mapping[str, float | None]],
+    periods: int,
+) -> float | None:
+    if periods <= 0 or len(ordered) < periods + 1:
+        return None
+    start = _finite(ordered[-(periods + 1)].get("close"))
+    end = _finite(ordered[-1].get("close"))
+    if start is None or end is None or start <= 0:
+        return None
+    return end / start - 1.0
+
+
+def _mean(values: Sequence[Any] | Any) -> float | None:
+    if isinstance(values, (str, bytes, bytearray)):
+        return None
+    try:
+        numbers = [number for value in values if (number := _finite(value)) is not None]
+    except TypeError:
+        return None
+    return sum(numbers) / len(numbers) if numbers else None
+
+
+def _cross_section_percentile(value: float | None, population: Sequence[float]) -> float | None:
+    if value is None or not population:
+        return None
+    finite = [item for item in population if _finite(item) is not None]
+    if not finite:
+        return None
+    less = sum(item < value for item in finite)
+    equal = sum(item == value for item in finite)
+    # Mid-rank percentile, deterministic under ties and bounded to [0, 100].
+    return 100.0 * (less + 0.5 * equal) / len(finite)
 
 
 def build_news_heat_snapshot(

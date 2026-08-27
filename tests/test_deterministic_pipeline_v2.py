@@ -1,0 +1,340 @@
+from __future__ import annotations
+
+import json
+from datetime import datetime
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+from liangjian_funnel.pipeline.deterministic import local_active_items, screen_a1, screen_a2, screen_a3
+from liangjian_funnel.pipeline.feature_store import ResearchFeatureStore
+from liangjian_funnel.pipeline.model_client import ModelCallResult
+from liangjian_funnel.pipeline.prompts import PROMPT_FILENAMES
+from liangjian_funnel.pipeline.research import FrozenInputSnapshot, ResearchPipeline
+from liangjian_funnel.settings import Settings
+
+
+NOW = datetime(2026, 8, 27, 15, 10, tzinfo=ZoneInfo("Asia/Shanghai"))
+MODELS = ("deepseek-v4-pro-0813", "moonshotai/kimi-k3-free", "z-ai/glm-5.3-free")
+
+
+def _frame() -> dict:
+    return {
+        "ready": True,
+        "ma_alignment": "BULL_STACK",
+        "ma_event": "NONE",
+        "ma_bias": {"close_vs_ma20_pct": 0.02},
+        "moving_averages": {"ma5": 11, "ma20": 10},
+    }
+
+
+def _snapshot(symbol_count: int = 8) -> dict:
+    symbols = [f"{600000 + index:06d}.SH" for index in range(symbol_count)]
+    industry_rows = []
+    candidates = []
+    fundamentals = {}
+    evidence = {}
+    factors = {}
+    levels = {}
+    flags = {}
+    for index, symbol in enumerate(symbols):
+        code = "884001.TI" if index < symbol_count - 1 else "884999.TI"
+        name = "算力设备" if code == "884001.TI" else "食品加工"
+        industry_rows.append({
+            "thscode": symbol,
+            "mapping_status": "MAPPED",
+            "memberships": [{"industry_thscode": code, "industry_name": name}],
+        })
+        candidates.append({"symbol": symbol, "name": f"公司{index}", "amount": 5_000_000_000 - index * 100_000_000})
+        fundamentals[symbol] = {
+            "dataset_coverage": {"core_reports_complete": True, "indicators_available": True},
+            "indicators": [
+                {"index_id": "index_weighted_avg_roe", "value": 18 - index * 0.1},
+                {"index_id": "sale_gross_margin", "value": 42 - index * 0.1},
+                {"index_id": "net_profit_cash_content", "value": 1.1},
+            ],
+        }
+        evidence[symbol] = {
+            "available": index != symbol_count - 2,
+            "evidence": ([{
+                "source_ref": f"cninfo:{symbol}:page:1",
+                "page_number": 1,
+                "publish_time": "2026-04-30",
+                "text": "算力设备业务占公司营业收入65.5%",
+            }] if index != symbol_count - 2 else []),
+        }
+        factors[symbol] = {
+            "ready": True,
+            "timeframes": {name: _frame() for name in ("weekly", "daily", "120m", "15m", "5m")},
+            "technical_summary": {"relative_strength_score": 80 - index},
+        }
+        levels[symbol] = {
+            "available": True,
+            "trigger_zone": {"low": 10, "high": 10.5},
+            "invalidation": 9.5,
+            "stop_distance_pct": 0.05,
+            "first_resistance": 12,
+            "reward_risk": 3.0,
+        }
+        flags[symbol] = {"available": True, "tradable": True, "exclusion_reasons": []}
+    return {
+        "DETERMINISTIC_RESEARCH_V2_ENABLED": True,
+        "g0_symbols": symbols,
+        "g0_candidates": candidates,
+        "snapshot_manifest": {"as_of": NOW.isoformat(), "source_checksums": {"daily": "d" * 64}},
+        "THS_INDUSTRY_CATALOG": {
+            "available": True,
+            "records": [
+                {"thscode": "884001.TI", "name": "算力设备"},
+                {"thscode": "884999.TI", "name": "食品加工"},
+            ],
+        },
+        "THS_CONCEPT_CATALOG": {"available": True, "records": []},
+        "THS_INDUSTRY_MEMBERSHIP": {"available": True, "records": industry_rows},
+        "THS_CONCEPT_MEMBERSHIP": {"available": True, "records": []},
+        "COMPANY_FUNDAMENTALS": fundamentals,
+        "MAIN_BUSINESS_EVIDENCE": evidence,
+        "RISK_EVENTS": {"available": True, "records": []},
+        "TRADABILITY_FLAGS": flags,
+        "FACTOR_SNAPSHOT": factors,
+        "PRICE_LEVELS": levels,
+        "MARKET_ATTENTION_SNAPSHOT": {"available": True, "records": []},
+        "DRAGON_TIGER_SNAPSHOT": {"available": True, "records": []},
+        "MACRO_POLICY_FEED": {"official_documents": [{"fact_id": "policy-ref"}]},
+        "SCORE_WEIGHTS": {
+            "structural_theme": 0.2,
+            "business_mapping": 0.2,
+            "barrier_and_bottleneck": 0.15,
+            "financial_quality": 0.2,
+            "cash_flow_quality": 0.1,
+            "evidence_quality": 0.15,
+        },
+        "A1_MINIMUMS": {"minimum_score": 65, "minimum_data_quality": 75},
+        "STRICT_AGENT_RULES": False,
+        "config_hash": "c" * 64,
+    }
+
+
+def _discovery() -> dict:
+    return {
+        "structural_themes": [{"theme_id": "theme-compute", "display_name": "算力", "source_refs": ["policy-ref"]}],
+        "industry_chain_graph": [{
+            "node_id": "node-compute-device",
+            "theme_ids": ["theme-compute"],
+            "demand_driver": "算力设备",
+            "source_refs": ["policy-ref"],
+        }],
+        "taxonomy_links": [{
+            "node_id": "node-compute-device",
+            "industry_thscodes": ["884001.TI"],
+            "concept_thscodes": [],
+        }],
+    }
+
+
+def test_a1_evaluates_every_g0_and_keeps_local_research_coverage():
+    snapshot = _snapshot()
+    result = screen_a1(snapshot, _discovery(), local_top_n_per_node=5, llm_top_n_per_theme=2)
+
+    assert result.summary["evaluated_count"] == len(snapshot["g0_symbols"])
+    assert len(result.review_symbols) == 2
+    assert len({item["symbol"] for item in result.decisions}) == len(snapshot["g0_symbols"])
+    assert next(item for item in result.decisions if item["symbol"] == snapshot["g0_symbols"][-1])["status"] == "OUTSIDE_THEME"
+    assert next(item for item in result.decisions if item["symbol"] == snapshot["g0_symbols"][-2])["status"] == "LOCAL_MONITOR"
+    assert all(item["sent_to_llm"] is (item["symbol"] in result.review_symbols) for item in result.decisions)
+    # The two per-theme representatives are sent to the model; the remaining
+    # four rows with exact disclosed business exposure stay in the local A1
+    # research layer instead of being discarded by the review budget.
+    assert len(local_active_items(result)) == 4
+
+
+def test_a2_and_a3_never_expand_the_upstream_pool():
+    snapshot = _snapshot(4)
+    a1_output = {
+        "active_research_pool": [
+            {"symbol": symbol, "candidate_id": f"a1:{symbol}", "primary_theme": "theme-compute", "structural_score": 80}
+            for symbol in snapshot["g0_symbols"][:3]
+        ]
+    }
+    a2 = screen_a2(snapshot, a1_output, minimum_identifiability_score=40, llm_top_n_per_theme=2)
+    assert set(a2.review_symbols).issubset(set(snapshot["g0_symbols"][:3]))
+    a2_output = {"focus_pool": [{"symbol": symbol, "theme_id": "theme-compute"} for symbol in a2.review_symbols]}
+    a3 = screen_a3(snapshot, a2_output)
+    assert set(a3.review_symbols).issubset(set(a2.review_symbols))
+
+
+def test_feature_store_replaces_one_lane_stage_atomically(tmp_path: Path):
+    store = ResearchFeatureStore(tmp_path / "features.sqlite3")
+    gate = screen_a1(_snapshot(5), _discovery(), local_top_n_per_node=4, llm_top_n_per_theme=2)
+    assert store.replace_stage_decisions(
+        run_id="run-v2",
+        lane_id="lane_1",
+        stage=gate.stage,
+        decisions=gate.decisions,
+        updated_at=NOW,
+    ) == 5
+    summary = store.stage_summary("run-v2", "lane_1", gate.stage)
+    assert summary["evaluated_count"] == 5
+    assert summary["sent_to_llm_count"] == 2
+    assert len(store.stage_decisions("run-v2", "lane_1", gate.stage)) == 5
+
+    snapshot = _snapshot(5)
+    assert store.replace_taxonomy_memberships(
+        taxonomy="INDUSTRY",
+        snapshot=snapshot["THS_INDUSTRY_MEMBERSHIP"],
+        as_of=NOW,
+    ) == 5
+    assert store.record_fundamental_features(as_of=NOW, decisions=gate.decisions) == 5
+
+    a1_output = {
+        "active_research_pool": [
+            {"symbol": symbol, "primary_theme": "theme-compute", "structural_score": 80}
+            for symbol in gate.review_symbols
+        ],
+    }
+    a2 = screen_a2(snapshot, a1_output, minimum_identifiability_score=40, llm_top_n_per_theme=2)
+    assert store.record_market_role_features(
+        run_id="run-v2",
+        lane_id="lane_1",
+        decisions=a2.decisions,
+    ) == len(a2.decisions)
+
+    store.mark_dirty(
+        entity_type="SYMBOL",
+        entity_id="600000.SH",
+        reason_code="DAILY_BAR_CHANGED",
+        source_version="v2",
+        created_at=NOW,
+    )
+    assert store.resolve_dirty(entity_type="SYMBOL", entity_id="600000.SH", resolved_at=NOW) == 1
+
+
+def _prompt_dir(tmp_path: Path) -> Path:
+    path = tmp_path / "prompts"
+    path.mkdir()
+    for filename in PROMPT_FILENAMES:
+        path.joinpath(filename).write_text("prompt " + filename, encoding="utf-8")
+    return path
+
+
+def _envelope(model: str, stage: str, snapshot_id: str) -> dict:
+    return {
+        "schema_version": "test/2",
+        "stage_id": {"A1": "AGENT_1", "A2": "AGENT_2", "A3": "AGENT_3"}[stage],
+        "status": "OK",
+        "input_snapshot_ids": [snapshot_id],
+        "model_name": model,
+        "config_version": "test-v2",
+        "prompt_version": "test-v2",
+        "market_regime": "REPAIR",
+    }
+
+
+class V2Client:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, tuple[str, ...]]] = []
+
+    def complete(self, model: str, messages, **metadata):
+        runtime = json.loads(messages[1]["content"].split("\n", 1)[1])
+        stage = runtime["stage"]
+        symbols = tuple(runtime["g0_symbols"] if stage == "A1" else runtime["upstream_symbols"])
+        self.calls.append((model, stage, symbols))
+        output = {"envelope": _envelope(model, stage, runtime["snapshot_id"])}
+        if stage == "A1" and not symbols:
+            output.update(_discovery())
+            output.update(active_research_pool=[], monitor_pool=[], rejected_candidates=[])
+        elif stage == "A1":
+            output.update(
+                structural_themes=_discovery()["structural_themes"],
+                industry_chain_graph=_discovery()["industry_chain_graph"],
+                taxonomy_links=_discovery()["taxonomy_links"],
+                active_research_pool=[
+                    {
+                        "symbol": symbol,
+                        "candidate_id": f"{model}:a1:{symbol}",
+                        "primary_theme": "theme-compute",
+                        "industry_chain_node": "node-compute-device",
+                        "structural_score": 80,
+                        "score_breakdown": {"structural_theme": 80, "business_mapping": 80, "barrier_and_bottleneck": 80, "financial_quality": 80, "cash_flow_quality": 80, "evidence_quality": 80},
+                        "data_quality_score": 90,
+                        "evidence_confidence": 0.9,
+                        "business_exposure": {"revenue_exposure_pct": 50, "source_ref": f"cninfo:{symbol}:page:1"},
+                        "source_refs": ["policy-ref", f"cninfo:{symbol}:page:1"],
+                    }
+                    for symbol in symbols
+                ],
+                monitor_pool=[],
+                rejected_candidates=[],
+            )
+        elif stage == "A2":
+            output.update(
+                active_themes=[],
+                focus_pool=[
+                    {
+                        "symbol": symbol,
+                        "upstream_candidate_id": f"{model}:a1:{symbol}",
+                        "theme_id": "theme-compute",
+                        "theme_score": 70,
+                        "identifiability_score": 75,
+                    }
+                    for symbol in symbols
+                ],
+                watch_only_pool=[],
+            )
+        else:
+            output.update(
+                core_watch_pool=[
+                    {
+                        "symbol": symbol,
+                        "parent_candidate_id": f"{model}:a2:{symbol}",
+                        "technical_score": 80,
+                        "reward_risk": 3.0,
+                        "stop_distance_pct": 0.05,
+                        "risk_unit": "STANDARD",
+                    }
+                    for symbol in symbols
+                ],
+                secondary_watch_pool=[],
+                rejected_candidates=[],
+            )
+        return ModelCallResult(
+            model=model,
+            output=output,
+            prompt_hash=metadata.get("prompt_hash"),
+            input_hash=metadata.get("input_hash"),
+            latency_ms=1,
+            attempts=1,
+            thinking_variant="thinking_object",
+        )
+
+
+def test_v2_pipeline_does_not_send_the_full_g0_to_a1(tmp_path: Path):
+    settings = Settings.from_env(
+        {
+            "LIANGJIAN_MODEL_API_KEY": "test",
+            "LIANGJIAN_RESEARCH_PIPELINE_MODE": "deterministic_v2",
+            "LIANGJIAN_A1_LOCAL_TOP_N_PER_NODE": "5",
+            "LIANGJIAN_A1_LLM_TOP_N_PER_NODE": "2",
+            "LIANGJIAN_A1_LLM_REPRESENTATIVES_PER_THEME": "2",
+            "LIANGJIAN_A2_LLM_TOP_N_PER_THEME": "2",
+        },
+        root=tmp_path,
+    )
+    client = V2Client()
+    snapshot_data = _snapshot(8)
+    snapshot_data["A1_DRIVER_LINEAGE_REQUIRED"] = True
+    snapshot = FrozenInputSnapshot("snapshot-v2", snapshot_data, as_of=NOW)
+    result = ResearchPipeline(
+        settings,
+        prompt_repository=_prompt_dir(tmp_path),
+        model_client=client,
+        output_dir=tmp_path / "outputs",
+        now=lambda: NOW,
+    ).run(snapshot, run_id="run-v2", generated_at=NOW)
+
+    assert result.status == "READY"
+    for model in MODELS:
+        a1_calls = [symbols for called_model, stage, symbols in client.calls if called_model == model and stage == "A1"]
+        assert a1_calls[0] == ()
+        assert max(map(len, a1_calls[1:])) <= 2
+        assert all(len(symbols) < len(snapshot_data["g0_symbols"]) for symbols in a1_calls)
+    assert all(lane.stages[0].diagnostics["local_screen"]["evaluated_count"] == 8 for lane in result.lanes)

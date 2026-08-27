@@ -132,6 +132,128 @@ def test_sector_history_proves_persistent_mainline_without_calling_turnover_capi
     assert permissions["by_symbol"] == {"600519.SH": "STANDARD"}
 
 
+def test_monthly_rotation_keeps_persistent_sector_and_rejects_one_day_pulse() -> None:
+    facts = _facts()
+    histories = []
+    # Twelve synthetic broad sectors leave two sectors outside the daily
+    # Top-10.  One sector compounds steadily; the pulse sector only jumps on
+    # the final day and therefore cannot pass the monthly appearance gate.
+    for index in range(10):
+        code = f"88110{index + 1}.TI"
+        histories.append({
+            "industry_thscode": code,
+            "industry_name": f"基准行业{index}",
+            "bars": [
+                {
+                    "date_ms": int((NOW - timedelta(days=21 - day)).timestamp() * 1000),
+                    "close_price": 100.0 * (1.001 ** day),
+                    "turnover": 1_000.0 + day,
+                }
+                for day in range(22)
+            ],
+        })
+    histories.append({
+        "industry_thscode": "881199.TI",
+        "industry_name": "持续轮动行业",
+        "bars": [
+            {
+                "date_ms": int((NOW - timedelta(days=21 - day)).timestamp() * 1000),
+                "close_price": 100.0 * (1.003 ** day),
+                "turnover": 2_000.0 + day * 10,
+            }
+            for day in range(22)
+        ],
+    })
+    histories.append({
+        "industry_thscode": "881198.TI",
+        "industry_name": "单日脉冲行业",
+        "bars": [
+            {
+                "date_ms": int((NOW - timedelta(days=21 - day)).timestamp() * 1000),
+                "close_price": 100.0 if day < 21 else 120.0,
+                "turnover": 900.0 if day < 21 else 9_000.0,
+            }
+            for day in range(22)
+        ],
+    })
+    facts["THS_INDUSTRY_CATALOG"] = _fact([
+        {"thscode": row["industry_thscode"], "name": row["industry_name"]}
+        for row in histories
+    ])
+    facts["THS_INDUSTRY_HISTORY"] = _fact(histories)
+
+    cycle, _permissions = build_sector_cycle_and_permissions(
+        facts,
+        ["600519.SH"],
+        as_of=NOW,
+    )
+    metrics = cycle["history_metrics"]
+    candidates = metrics["monthly_rotation_candidates"]
+    persistent = next(item for item in candidates if item["industry_thscode"] == "881199.TI")
+
+    assert metrics["monthly_lookback_trading_days"] == 20
+    assert persistent["top10_appearance_count"] >= 2
+    assert persistent["return_5d"] is not None
+    assert persistent["return_10d"] is not None
+    assert persistent["return_20d"] is not None
+    assert persistent["relative_strength_percentile_20d"] > 50
+    assert persistent["recent_turnover"] is not None
+    assert persistent["turnover_persistence_ratio"] is not None
+    assert not any(item["industry_thscode"] == "881198.TI" for item in candidates)
+
+
+def test_monthly_rotation_drops_future_bars_and_degrades_missing_fields() -> None:
+    facts = _facts()
+    histories = []
+    for index in range(3):
+        code = f"88120{index + 1}.TI"
+        bars = [
+            {
+                "date_ms": int((NOW - timedelta(days=21 - day)).timestamp() * 1000),
+                "close_price": 100.0 + day + index,
+                "turnover": 1_000.0 + day,
+            }
+            for day in range(22)
+        ]
+        histories.append({
+            "industry_thscode": code,
+            "industry_name": f"缺数据行业{index}",
+            "bars": bars,
+        })
+    # Missing close removes one observation and therefore makes the 20d
+    # return unavailable for this sector.  Missing turnover only affects
+    # turnover-derived fields and must not remove the price observation.
+    histories[0]["bars"][5].pop("close_price")
+    for bar in histories[1]["bars"][-5:]:
+        bar.pop("turnover")
+    histories[0]["bars"].append({
+        "date_ms": int((NOW + timedelta(days=1)).timestamp() * 1000),
+        "close_price": 999.0,
+        "turnover": 999.0,
+    })
+    facts["THS_INDUSTRY_CATALOG"] = _fact([
+        {"thscode": row["industry_thscode"], "name": row["industry_name"]}
+        for row in histories
+    ])
+    facts["THS_INDUSTRY_HISTORY"] = _fact(histories)
+
+    cycle, _permissions = build_sector_cycle_and_permissions(
+        facts,
+        ["600519.SH"],
+        as_of=NOW,
+    )
+    metrics = cycle["history_metrics"]
+
+    assert cycle["available"] is True
+    assert metrics["future_bars_dropped"] == 1
+    first = next(item for item in metrics["monthly_rotation_candidates"] if item["industry_thscode"] == "881201.TI")
+    second = next(item for item in metrics["monthly_rotation_candidates"] if item["industry_thscode"] == "881202.TI")
+    assert first["return_20d"] is None
+    assert second["return_20d"] is not None
+    assert second["recent_turnover"] is None
+    assert second["turnover_persistence_ratio"] is None
+
+
 def test_news_heat_uses_only_frozen_deduped_t3_items() -> None:
     payload = {
         "fact_groups": {

@@ -59,9 +59,10 @@ class Settings(BaseModel):
     # The gateway models advertise a 1M-token context, so 384K output must be
     # accepted by local validation instead of being rejected at 32K.
     model_max_output_tokens: int = Field(default=393_216, ge=1_024, le=1_000_000)
-    # A capacity-specific retry uses this lower budget once.  It is separate
-    # from the primary value so the fallback is visible in safe diagnostics.
+    # Capacity-specific retries step through these lower budgets.  They are
+    # separate from the primary value so every tier is visible in diagnostics.
     model_fallback_output_tokens: int = Field(default=262_144, ge=1_024, le=1_000_000)
+    model_secondary_fallback_output_tokens: int = Field(default=131_072, ge=1_024, le=1_000_000)
     # Input prompt budget in tokens; research.py applies its conservative
     # character/token estimate before sending a request.
     model_max_input_tokens: int = Field(default=1_000_000, ge=1_024, le=1_000_000)
@@ -85,7 +86,9 @@ class Settings(BaseModel):
     workflow_output_dir: Path
     snapshot_dir: Path
     fact_store_dir: Path
+    open_macro_cache_dir: Path
     fact_cache_db_path: Path
+    feature_store_db_path: Path
     cninfo_pdf_cache_dir: Path
     state_db_path: Path
     workflow_progress_path: Path
@@ -98,9 +101,18 @@ class Settings(BaseModel):
     open_news_rss_workers: int = Field(default=16, ge=1, le=40)
     open_news_stock_limit: int = Field(default=20, ge=1, le=50)
     open_news_flash_limit: int = Field(default=50, ge=1, le=100)
+    open_macro_enabled: bool = True
     research_a1_batch_size: int = Field(default=20, ge=1, le=40)
     research_a2_batch_size: int = Field(default=40, ge=1, le=100)
     research_batch_workers: int = Field(default=2, ge=1, le=8)
+    research_pipeline_mode: str = "deterministic_v2"
+    a1_local_top_n_per_node: int = Field(default=15, ge=1, le=100)
+    a1_llm_top_n_per_node: int = Field(default=3, ge=1, le=20)  # deprecated compatibility input
+    a1_llm_representatives_per_theme: int = Field(default=8, ge=1, le=30)
+    a1_policy_lookback_days: int = Field(default=120, ge=30, le=366)
+    a1_policy_document_limit: int = Field(default=60, ge=12, le=120)
+    a2_llm_top_n_per_theme: int = Field(default=8, ge=1, le=30)
+    research_close_deadline_seconds: int = Field(default=3600, ge=300, le=24 * 3600)
     data_sync_batch_size: int = Field(default=50, ge=1, le=500)
     data_progress_every: int = Field(default=25, ge=1, le=500)
     fundamental_refresh_hours: int = Field(default=24, ge=1, le=24 * 31)
@@ -141,6 +153,14 @@ class Settings(BaseModel):
                 raise ValueError("invalid mootdx port")
         return value
 
+    @field_validator("research_pipeline_mode")
+    @classmethod
+    def valid_research_pipeline_mode(cls, value: str) -> str:
+        normalized = str(value or "").strip().lower()
+        if normalized not in {"legacy", "deterministic_v2"}:
+            raise ValueError("research_pipeline_mode must be legacy or deterministic_v2")
+        return normalized
+
     @classmethod
     def from_env(
         cls,
@@ -158,7 +178,9 @@ class Settings(BaseModel):
         workflow_output_raw = env.get("LIANGJIAN_WORKFLOW_OUTPUT_DIR")
         snapshot_raw = env.get("LIANGJIAN_SNAPSHOT_DIR")
         fact_store_raw = env.get("LIANGJIAN_FACT_STORE_DIR")
+        open_macro_cache_raw = env.get("LIANGJIAN_OPEN_MACRO_CACHE_DIR")
         fact_cache_db_raw = env.get("LIANGJIAN_FACT_CACHE_DB_PATH")
+        feature_store_db_raw = env.get("LIANGJIAN_FEATURE_STORE_DB_PATH")
         cninfo_pdf_cache_raw = env.get("LIANGJIAN_CNINFO_PDF_CACHE_DIR")
         state_db_raw = env.get("LIANGJIAN_STATE_DB_PATH")
         progress_path_raw = env.get("LIANGJIAN_WORKFLOW_PROGRESS_PATH")
@@ -182,6 +204,9 @@ class Settings(BaseModel):
             model_max_output_tokens=int(env.get("LIANGJIAN_MODEL_MAX_OUTPUT_TOKENS", "393216")),
             model_fallback_output_tokens=int(
                 env.get("LIANGJIAN_MODEL_FALLBACK_OUTPUT_TOKENS", "262144")
+            ),
+            model_secondary_fallback_output_tokens=int(
+                env.get("LIANGJIAN_MODEL_SECONDARY_FALLBACK_OUTPUT_TOKENS", "131072")
             ),
             model_max_input_tokens=int(env.get("LIANGJIAN_MODEL_MAX_INPUT_TOKENS", "1000000")),
             hithink_min_request_interval_seconds=float(
@@ -218,9 +243,15 @@ class Settings(BaseModel):
             fact_store_dir=Path(fact_store_raw).resolve()
             if fact_store_raw
             else base / "storage" / "facts",
+            open_macro_cache_dir=Path(open_macro_cache_raw).resolve()
+            if open_macro_cache_raw
+            else base / "storage" / "facts" / "open_macro",
             fact_cache_db_path=Path(fact_cache_db_raw).resolve()
             if fact_cache_db_raw
             else base / "storage" / "facts" / "market_fact_cache.sqlite3",
+            feature_store_db_path=Path(feature_store_db_raw).resolve()
+            if feature_store_db_raw
+            else base / "storage" / "features" / "research_feature_store.sqlite3",
             cninfo_pdf_cache_dir=Path(cninfo_pdf_cache_raw).resolve()
             if cninfo_pdf_cache_raw
             else base / "storage" / "cninfo_pdfs",
@@ -245,9 +276,22 @@ class Settings(BaseModel):
             open_news_rss_workers=int(env.get("LIANGJIAN_OPEN_NEWS_RSS_WORKERS", "16")),
             open_news_stock_limit=int(env.get("LIANGJIAN_OPEN_NEWS_STOCK_LIMIT", "20")),
             open_news_flash_limit=int(env.get("LIANGJIAN_OPEN_NEWS_FLASH_LIMIT", "50")),
+            open_macro_enabled=_parse_bool(env.get("LIANGJIAN_OPEN_MACRO_ENABLED"), default=True),
             research_a1_batch_size=int(env.get("LIANGJIAN_A1_BATCH_SIZE", "20")),
             research_a2_batch_size=int(env.get("LIANGJIAN_A2_BATCH_SIZE", "40")),
             research_batch_workers=int(env.get("LIANGJIAN_RESEARCH_BATCH_WORKERS", "2")),
+            research_pipeline_mode=env.get("LIANGJIAN_RESEARCH_PIPELINE_MODE", "deterministic_v2"),
+            a1_local_top_n_per_node=int(env.get("LIANGJIAN_A1_LOCAL_TOP_N_PER_NODE", "15")),
+            a1_llm_top_n_per_node=int(env.get("LIANGJIAN_A1_LLM_TOP_N_PER_NODE", "3")),
+            a1_llm_representatives_per_theme=int(
+                env.get("LIANGJIAN_A1_LLM_REPRESENTATIVES_PER_THEME", "8")
+            ),
+            a1_policy_lookback_days=int(env.get("LIANGJIAN_A1_POLICY_LOOKBACK_DAYS", "120")),
+            a1_policy_document_limit=int(env.get("LIANGJIAN_A1_POLICY_DOCUMENT_LIMIT", "60")),
+            a2_llm_top_n_per_theme=int(env.get("LIANGJIAN_A2_LLM_TOP_N_PER_THEME", "8")),
+            research_close_deadline_seconds=int(
+                env.get("LIANGJIAN_RESEARCH_CLOSE_DEADLINE_SECONDS", "3600")
+            ),
             data_sync_batch_size=int(env.get("LIANGJIAN_DATA_SYNC_BATCH_SIZE", "50")),
             data_progress_every=int(env.get("LIANGJIAN_DATA_PROGRESS_EVERY", "25")),
             fundamental_refresh_hours=int(env.get("LIANGJIAN_FUNDAMENTAL_REFRESH_HOURS", "24")),
@@ -272,6 +316,7 @@ class Settings(BaseModel):
             "model_max_output_tokens": self.model_max_output_tokens,
             "model_primary_output_tokens": self.model_max_output_tokens,
             "model_fallback_output_tokens": self.model_fallback_output_tokens,
+            "model_secondary_fallback_output_tokens": self.model_secondary_fallback_output_tokens,
             "model_max_input_tokens": self.model_max_input_tokens,
             "hithink_min_request_interval_seconds": self.hithink_min_request_interval_seconds,
             "cninfo_min_request_interval_seconds": self.cninfo_min_request_interval_seconds,
@@ -290,7 +335,9 @@ class Settings(BaseModel):
             "workflow_output_dir": str(self.workflow_output_dir),
             "snapshot_dir": str(self.snapshot_dir),
             "fact_store_dir": str(self.fact_store_dir),
+            "open_macro_cache_dir": str(self.open_macro_cache_dir),
             "fact_cache_db_path": str(self.fact_cache_db_path),
+            "feature_store_db_path": str(self.feature_store_db_path),
             "cninfo_pdf_cache_dir": str(self.cninfo_pdf_cache_dir),
             "state_db_path": str(self.state_db_path),
             "workflow_progress_path": str(self.workflow_progress_path),
@@ -303,9 +350,18 @@ class Settings(BaseModel):
             "open_news_rss_workers": self.open_news_rss_workers,
             "open_news_stock_limit": self.open_news_stock_limit,
             "open_news_flash_limit": self.open_news_flash_limit,
+            "open_macro_enabled": self.open_macro_enabled,
             "research_a1_batch_size": self.research_a1_batch_size,
             "research_a2_batch_size": self.research_a2_batch_size,
             "research_batch_workers": self.research_batch_workers,
+            "research_pipeline_mode": self.research_pipeline_mode,
+            "a1_local_top_n_per_node": self.a1_local_top_n_per_node,
+            "a1_llm_top_n_per_node": self.a1_llm_top_n_per_node,
+            "a1_llm_representatives_per_theme": self.a1_llm_representatives_per_theme,
+            "a1_policy_lookback_days": self.a1_policy_lookback_days,
+            "a1_policy_document_limit": self.a1_policy_document_limit,
+            "a2_llm_top_n_per_theme": self.a2_llm_top_n_per_theme,
+            "research_close_deadline_seconds": self.research_close_deadline_seconds,
             "data_sync_batch_size": self.data_sync_batch_size,
             "data_progress_every": self.data_progress_every,
             "fundamental_refresh_hours": self.fundamental_refresh_hours,

@@ -116,7 +116,7 @@ class WorkflowProgress:
         """Consume one safe batch event from ``ResearchPipeline``."""
 
         lane = _token(event.get("lane") or event.get("lane_id") or "unknown", 40)
-        stage = _token(event.get("stage") or "unknown", 16)
+        stage = _token(event.get("stage") or "unknown", 40)
         with self._lock:
             lanes = self._state.setdefault("lanes", {})
             lane_state = lanes.setdefault(lane, {"model": None, "status": "RUNNING", "stages": {}})
@@ -125,7 +125,7 @@ class WorkflowProgress:
             lane_state["status"] = _token(event.get("lane_status") or "RUNNING", 40)
             lane_state["current_stage"] = stage
             stages = lane_state.setdefault("stages", {})
-            stages[stage] = {
+            stage_state = {
                 "status": _token(event.get("status") or "RUNNING", 40),
                 "completed_batches": _non_negative(
                     event.get("completed_batches", event.get("completed", 0))
@@ -133,6 +133,17 @@ class WorkflowProgress:
                 "total_batches": _non_negative(event.get("total_batches", event.get("total", 0))) or 0,
                 "attempts": _non_negative(event.get("attempts", 0)) or 0,
             }
+            for target, *sources in (
+                ("processed_symbols", "processed_symbols", "processed"),
+                ("total_symbols", "total_symbols", "universe_total"),
+                ("selected_symbols", "selected_symbols"),
+                ("monitor_symbols", "monitor_symbols"),
+                ("rejected_symbols", "rejected_symbols"),
+            ):
+                value = next((_non_negative(event.get(source)) for source in sources if event.get(source) is not None), None)
+                if value is not None:
+                    stage_state[target] = value
+            stages[stage] = stage_state
             self._state["phase"] = f"RESEARCH_{stage}"[:80]
             self._touch(now)
 

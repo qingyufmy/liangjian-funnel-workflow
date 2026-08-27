@@ -129,6 +129,23 @@ def test_research_input_projects_phase_one_facts_without_semantic_substitution(t
         fact_payload={
             "snapshot_id": "facts-1",
             "manifest_hash": "a" * 64,
+            "open_macro_bundle": {
+                "schema_version": "open-macro-contract/1.0.0",
+                "content_hash": "b" * 64,
+                "cache_status": "LIVE",
+                "MACRO_ECONOMIC_DATA": {
+                    "contract": "MACRO_ECONOMIC_DATA",
+                    "available": True,
+                    "reason_code": "OK",
+                    "values": {"PMI": 49.2, "m1_m2_gap": -2.1},
+                },
+                "ASSET_ROTATION_SNAPSHOT": {
+                    "contract": "ASSET_ROTATION_SNAPSHOT",
+                    "available": True,
+                    "reason_code": "OK",
+                    "assets": {"EQUITY": {"momentum_20d_percentile": 75}},
+                },
+            },
             "facts": facts,
             "fact_groups": {
                 "DISCLOSURE_EVENT": [{
@@ -219,3 +236,6 @@ def test_research_input_projects_phase_one_facts_without_semantic_substitution(t
     assert result["MACRO_POLICY_FEED"]["available"] is True
     assert result["MACRO_POLICY_FEED"]["document_count"] == 1
     assert result["MACRO_POLICY_FEED"]["direct_stock_mapping_allowed"] is False
+    assert result["MACRO_ECONOMIC_DATA"]["values"]["PMI"] == 49.2
+    assert result["ASSET_ROTATION_SNAPSHOT"]["assets"]["EQUITY"]["momentum_20d_percentile"] == 75
+    assert result["snapshot_manifest"]["open_macro"]["content_hash"] == "b" * 64

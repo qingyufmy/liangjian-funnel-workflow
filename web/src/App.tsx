@@ -573,9 +573,24 @@ function progressPhaseLabel(phase?: string | null): string {
     MARKET_FACT_SYNC: "行情事实同步",
     CNINFO_SYNC: "巨潮公告同步",
     CNINFO_PDF_SYNC: "巨潮 PDF 证据提取",
+    OPEN_MACRO_SYNC: "宏观与大类资产数据",
     DATA_SYNC: "数据同步",
     SNAPSHOT: "冻结快照",
     SNAPSHOT_RESUMED: "恢复已冻结快照",
+    MACRO_DISCOVERY: "宏观与产业链发现",
+    RESEARCH_MACRO_DISCOVERY: "宏观与产业链发现",
+    A1_LOCAL_SCREEN: "A1 本地确定性筛选",
+    RESEARCH_A1_LOCAL_SCREEN: "A1 本地确定性筛选",
+    A1_LLM_REVIEW: "A1 模型复核",
+    RESEARCH_A1_LLM_REVIEW: "A1 模型复核",
+    A2_LOCAL_ROLE: "A2 本地角色识别",
+    RESEARCH_A2_LOCAL_ROLE: "A2 本地角色识别",
+    A2_LLM_REVIEW: "A2 模型复核",
+    RESEARCH_A2_LLM_REVIEW: "A2 模型复核",
+    A3_LOCAL_TECHNICAL: "A3 本地技术门禁",
+    RESEARCH_A3_LOCAL_TECHNICAL: "A3 本地技术门禁",
+    A3_LLM_REVIEW: "A3 模型计划复核",
+    RESEARCH_A3_LLM_REVIEW: "A3 模型计划复核",
     A1: "A1 基本面",
     A2: "A2 主题情绪",
     A3: "A3 技术计划",
@@ -715,7 +730,12 @@ function ProgressStage({ stage }: { stage: WorkflowProgressStage }) {
     : batchMeasure
       ? `股票计数未提供 · 批次 ${progressPair(stage.batchProcessed, stage.batchTotal)}`
       : "股票计数未提供 · 批次数据未提供";
-  return <li><div><strong>{progressPhaseLabel(stage.stage)}</strong><StatusBadge status={stage.status} /></div><span>{metricLabel}</span>{displayMeasure ? <ProgressBar processed={displayMeasure.processed} total={displayMeasure.total} compact /> : <span className="progress-no-value">暂无可用进度</span>}</li>;
+  const funnelCounts = [
+    stage.selected !== null ? `送模型 ${progressCount(stage.selected)}` : null,
+    stage.monitor !== null ? `观察 ${progressCount(stage.monitor)}` : null,
+    stage.rejected !== null ? `淘汰 ${progressCount(stage.rejected)}` : null,
+  ].filter(Boolean).join(" · ");
+  return <li><div><strong>{progressPhaseLabel(stage.stage)}</strong><StatusBadge status={stage.status} /></div><span>{metricLabel}</span>{funnelCounts ? <span>{funnelCounts}</span> : null}{displayMeasure ? <ProgressBar processed={displayMeasure.processed} total={displayMeasure.total} compact /> : <span className="progress-no-value">暂无可用进度</span>}</li>;
 }
 
 function StageCell({ stage, model, canOpen, onOpen }: { stage?: StageSummary; model: string; canOpen: boolean; onOpen: (trigger: HTMLButtonElement) => void }) {

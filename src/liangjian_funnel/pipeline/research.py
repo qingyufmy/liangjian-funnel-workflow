@@ -13,6 +13,7 @@ import inspect
 import json
 import os
 import re
+import sqlite3
 import time
 from concurrent.futures import ThreadPoolExecutor
 from collections.abc import Iterator, Mapping, Sequence
@@ -27,7 +28,26 @@ from ..redaction import digest_text, safe_error
 from ..reporting import atomic_write_json, atomic_write_text
 from ..settings import RESEARCH_MODELS, Settings
 from ..runtime.state import RuntimeStore
+from .bottleneck import (
+    EVIDENCE_STRENGTHS,
+    FACTOR_WEIGHTS as BOTTLENECK_FACTOR_WEIGHTS,
+    SUPPLY_CHAIN_ROLES,
+    canonicalize_model_scorecard,
+)
+from .deterministic import (
+    PIPELINE_MODE as DETERMINISTIC_PIPELINE_MODE,
+    DeterministicGateResult,
+    local_active_items,
+    local_monitor_items,
+    local_rejected_items,
+    screen_a1,
+    screen_a2,
+    screen_a3,
+)
+from .business_exposure import extract_business_exposure_facts
+from .feature_store import ResearchFeatureStore
 from .model_client import ModelCallResult, ModelClientError, OpenAICompatibleModelClient
+from .monthly_strategy import build_monthly_strategy_context
 from .prompts import PromptBundle, PromptRepository, PromptRepositoryError
 from .research_checkpoint import (
     FileResearchCheckpointStore,
@@ -73,6 +93,8 @@ _SAFE_OUTPUT_FIELDS = {
     "analysis_summary",
     "structural_themes",
     "industry_chain_graph",
+    "taxonomy_links",
+    "local_screen_summary",
     "active_research_pool",
     "monitor_pool",
     "active_themes",
@@ -325,6 +347,12 @@ class ResearchPipeline:
         self.progress_callback = progress_callback
         self.checkpoint_store = checkpoint_store
         self.stage_snapshot_enricher = stage_snapshot_enricher
+        self.feature_store = (
+            ResearchFeatureStore(settings.feature_store_db_path)
+            if settings.research_pipeline_mode == DETERMINISTIC_PIPELINE_MODE
+            else None
+        )
+        self._deadline_started_monotonic: float | None = None
 
     def run(
         self,
@@ -333,6 +361,7 @@ class ResearchPipeline:
         run_id: str | None = None,
         generated_at: datetime | None = None,
     ) -> ResearchRunResult:
+        self._deadline_started_monotonic = time.monotonic()
         current = generated_at or self.now()
         if current.tzinfo is None or current.utcoffset() is None:
             current = current.replace(tzinfo=ZoneInfo(self.settings.timezone))
@@ -347,6 +376,25 @@ class ResearchPipeline:
             global_reason = None if frozen.snapshot_id else "SNAPSHOT_ID_MISSING"
             if not g0:
                 global_reason = global_reason or "G0_UNPROVABLE"
+
+        if self.feature_store is not None and frozen.snapshot_id != "UNKNOWN":
+            try:
+                for taxonomy, field in (
+                    ("INDUSTRY", "THS_INDUSTRY_MEMBERSHIP"),
+                    ("CONCEPT", "THS_CONCEPT_MEMBERSHIP"),
+                ):
+                    value = frozen.data.get(field)
+                    if isinstance(value, Mapping):
+                        self.feature_store.replace_taxonomy_memberships(
+                            taxonomy=taxonomy,
+                            snapshot=value,
+                            as_of=frozen.as_of or current,
+                        )
+                self.feature_store.replace_business_exposure_facts(
+                    extract_business_exposure_facts(frozen.data.get("MAIN_BUSINESS_EVIDENCE"))
+                )
+            except (OSError, sqlite3.Error, ValueError):
+                global_reason = global_reason or "FEATURE_STORE_MATERIALIZATION_FAILED"
 
         effective_run_id = _safe_run_id(run_id or _default_run_id(current, frozen.snapshot_id))
         try:
@@ -457,6 +505,19 @@ class ResearchPipeline:
         run_id: str,
         global_reason: str | None,
     ) -> LaneResult:
+        if (
+            self.settings.research_pipeline_mode == DETERMINISTIC_PIPELINE_MODE
+            and snapshot.data.get("DETERMINISTIC_RESEARCH_V2_ENABLED") is True
+        ):
+            return self._run_lane_v2(
+                lane_id=lane_id,
+                model=model,
+                snapshot=snapshot,
+                g0=g0,
+                bundle=bundle,
+                run_id=run_id,
+                global_reason=global_reason,
+            )
         audits: list[StageAudit] = []
         upstream_output: Mapping[str, Any] | None = None
         upstream_symbols = set(g0)
@@ -610,6 +671,719 @@ class ResearchPipeline:
         final_output = audits[-1].output if status == "READY" else None
         return LaneResult(lane=lane_id, model=model, status=status, stages=tuple(audits), final_output=final_output)
 
+    def _run_lane_v2(
+        self,
+        *,
+        lane_id: str,
+        model: str,
+        snapshot: FrozenInputSnapshot,
+        g0: set[str],
+        bundle: PromptBundle | None,
+        run_id: str,
+        global_reason: str | None,
+    ) -> LaneResult:
+        """Run local full-market gates followed by bounded LLM reviews."""
+
+        if global_reason:
+            stages = tuple(
+                self._blocked_stage(lane_id, model, stage, snapshot.snapshot_id, global_reason)
+                for stage in STAGES
+            )
+            return LaneResult(lane=lane_id, model=model, status="BLOCKED", stages=stages, final_output=None)
+        if bundle is None:
+            stages = tuple(
+                self._blocked_stage(lane_id, model, stage, snapshot.snapshot_id, "PROMPT_REPOSITORY_BLOCKED")
+                for stage in STAGES
+            )
+            return LaneResult(lane=lane_id, model=model, status="BLOCKED", stages=stages, final_output=None)
+        if self._deadline_exceeded():
+            stages = tuple(
+                self._blocked_stage(lane_id, model, stage, snapshot.snapshot_id, "RESEARCH_DEADLINE_EXCEEDED")
+                for stage in STAGES
+            )
+            return LaneResult(lane=lane_id, model=model, status="BLOCKED", stages=stages, final_output=None)
+
+        prior_registry = (
+            self.feature_store.latest_theme_registry(
+                lane_id=lane_id,
+                before=snapshot.as_of or self.now(),
+            )
+            if self.feature_store is not None
+            else None
+        )
+        monthly_strategy_context = build_monthly_strategy_context(
+            snapshot.data,
+            as_of=snapshot.as_of or self.now(),
+            prior_registry=prior_registry,
+            policy_lookback_days=self.settings.a1_policy_lookback_days,
+            policy_document_limit=self.settings.a1_policy_document_limit,
+        )
+        discovery = self._run_stage_with_checkpoint(
+            lane_id=lane_id,
+            model=model,
+            stage="A1",
+            snapshot=snapshot,
+            upstream_output=None,
+            upstream_symbols=set(),
+            bundle=bundle,
+            run_id=run_id,
+            projection_symbols=set(),
+            a1_discovery_context={
+                "mode": "POLICY_MACRO_DISCOVERY",
+                "monthly_strategy_context": monthly_strategy_context,
+            },
+        )
+        if self._deadline_exceeded():
+            discovery = self._blocked_stage(
+                lane_id, model, "A1", snapshot.snapshot_id, "RESEARCH_DEADLINE_EXCEEDED"
+            )
+        self._emit_progress(
+            run_id=run_id,
+            lane=lane_id,
+            model=model,
+            stage="MACRO_DISCOVERY",
+            completed=1 if discovery.status == "VALIDATED" else 0,
+            total=1,
+            status=_progress_status(discovery),
+            attempts=discovery.attempts,
+            batch_index=1,
+            processed_symbols=0,
+            total_symbols=0,
+        )
+        discovery_output = discovery.output if isinstance(discovery.output, Mapping) else {}
+        monthly_discovery_reasons = _monthly_discovery_reasons(
+            discovery_output,
+            monthly_strategy_context,
+        )
+        if (
+            discovery.status != "VALIDATED"
+            or not _valid_a1_discovery_output(discovery_output)
+            or monthly_discovery_reasons
+        ):
+            discovery_reasons = tuple(dict.fromkeys([
+                "A1_DISCOVERY_BLOCKED",
+                *(discovery.reason_codes or ()),
+                *(() if _valid_a1_discovery_output(discovery_output) else ("A1_DISCOVERY_OUTPUT_INVALID",)),
+                *monthly_discovery_reasons,
+            ]))
+            blocked = StageAudit(
+                lane=discovery.lane,
+                model=discovery.model,
+                stage="A1",
+                status="BLOCKED",
+                snapshot_id=discovery.snapshot_id,
+                prompt_hash=discovery.prompt_hash,
+                input_hash=discovery.input_hash,
+                output_hash=discovery.output_hash,
+                latency_ms=discovery.latency_ms,
+                attempts=discovery.attempts,
+                thinking_variant=discovery.thinking_variant,
+                symbols=(),
+                reason_codes=discovery_reasons,
+                output=discovery.output,
+                diagnostics={**dict(discovery.diagnostics or {}), "pipeline_mode": DETERMINISTIC_PIPELINE_MODE},
+            )
+            downstream = tuple(
+                self._blocked_stage(lane_id, model, stage, snapshot.snapshot_id, "UPSTREAM_STAGE_BLOCKED")
+                for stage in ("A2", "A3")
+            )
+            return LaneResult(
+                lane=lane_id,
+                model=model,
+                status="BLOCKED",
+                stages=(blocked, *downstream),
+                final_output=None,
+            )
+
+        themes = [item for item in discovery_output.get("structural_themes", ()) if isinstance(item, Mapping)]
+        nodes = [item for item in discovery_output.get("industry_chain_graph", ()) if isinstance(item, Mapping)]
+        if self.feature_store is not None:
+            self.feature_store.record_theme_registry(
+                run_id=run_id,
+                lane_id=lane_id,
+                as_of=snapshot.as_of or self.now(),
+                themes=themes,
+                nodes=nodes,
+            )
+
+        a1_gate = screen_a1(
+            snapshot.data,
+            discovery_output,
+            local_top_n_per_node=self.settings.a1_local_top_n_per_node,
+            llm_top_n_per_theme=self.settings.a1_llm_representatives_per_theme,
+        )
+        self._persist_gate(run_id, lane_id, a1_gate, snapshot)
+        self._emit_gate_progress(run_id, lane_id, model, a1_gate)
+        if self.feature_store is not None:
+            self.feature_store.record_taxonomy_links(
+                run_id=run_id,
+                lane_id=lane_id,
+                links=a1_gate.taxonomy_links,
+                source_hash=snapshot.snapshot_hash,
+            )
+        frozen_discovery_context = {
+            "mode": "COMPANY_MAPPING",
+            "structural_themes": discovery_output["structural_themes"],
+            "industry_chain_graph": discovery_output["industry_chain_graph"],
+            "taxonomy_links": list(a1_gate.taxonomy_links),
+            "monthly_strategy_context": monthly_strategy_context,
+            "local_candidates": {
+                str(item["symbol"]): item
+                for item in a1_gate.decisions
+                if item.get("sent_to_llm") is True
+            },
+        }
+        a1_audit = self._run_v2_a1_review(
+            lane_id=lane_id,
+            model=model,
+            snapshot=snapshot,
+            g0=g0,
+            bundle=bundle,
+            run_id=run_id,
+            discovery=discovery,
+            discovery_output=discovery_output,
+            discovery_context=frozen_discovery_context,
+            gate=a1_gate,
+        )
+        if a1_audit.status != "VALIDATED":
+            downstream = tuple(
+                self._blocked_stage(lane_id, model, stage, snapshot.snapshot_id, "UPSTREAM_STAGE_BLOCKED")
+                for stage in ("A2", "A3")
+            )
+            return LaneResult(
+                lane=lane_id,
+                model=model,
+                status="BLOCKED",
+                stages=(a1_audit, *downstream),
+                final_output=None,
+            )
+
+        a1_output = a1_audit.output if isinstance(a1_audit.output, Mapping) else {}
+        a1_symbols = set(a1_audit.symbols)
+        if not a1_symbols:
+            a2_audit = self._empty_stage(
+                lane_id=lane_id,
+                model=model,
+                stage="A2",
+                snapshot=snapshot,
+                upstream_output=a1_output,
+            )
+            a3_audit = self._empty_stage(
+                lane_id=lane_id,
+                model=model,
+                stage="A3",
+                snapshot=snapshot,
+                upstream_output=a2_audit.output,
+            )
+            return LaneResult(
+                lane=lane_id,
+                model=model,
+                status="READY",
+                stages=(a1_audit, a2_audit, a3_audit),
+                final_output=a3_audit.output,
+            )
+
+        try:
+            a2_snapshot = self._enrich_stage_snapshot(
+                stage="A2",
+                lane_id=lane_id,
+                model=model,
+                upstream_symbols=a1_symbols,
+                snapshot=snapshot,
+            ) if self.stage_snapshot_enricher is not None else snapshot
+        except Exception:
+            blocked = self._blocked_stage(
+                lane_id, model, "A2", snapshot.snapshot_id, "STAGE_SNAPSHOT_ENRICHMENT_FAILED"
+            )
+            return LaneResult(
+                lane=lane_id,
+                model=model,
+                status="BLOCKED",
+                stages=(a1_audit, blocked, self._blocked_stage(lane_id, model, "A3", snapshot.snapshot_id, "UPSTREAM_STAGE_BLOCKED")),
+                final_output=None,
+            )
+        a2_gate = screen_a2(
+            a2_snapshot.data,
+            a1_output,
+            minimum_identifiability_score=float(
+                a2_snapshot.data.get("MIN_IDENTIFIABILITY_SCORE") or 60.0
+            ),
+            llm_top_n_per_theme=self.settings.a2_llm_top_n_per_theme,
+        )
+        a2_snapshot = _with_a2_bottleneck_context(a2_snapshot, a2_gate)
+        self._persist_gate(run_id, lane_id, a2_gate, a2_snapshot)
+        self._emit_gate_progress(run_id, lane_id, model, a2_gate)
+        a2_audit = self._run_v2_downstream_review(
+            lane_id=lane_id,
+            model=model,
+            stage="A2",
+            snapshot=a2_snapshot,
+            upstream_output=a1_output,
+            full_upstream_symbols=a1_symbols,
+            gate=a2_gate,
+            bundle=bundle,
+            run_id=run_id,
+        )
+        if a2_audit.status != "VALIDATED":
+            blocked = self._blocked_stage(lane_id, model, "A3", snapshot.snapshot_id, "UPSTREAM_STAGE_BLOCKED")
+            return LaneResult(
+                lane=lane_id,
+                model=model,
+                status="BLOCKED",
+                stages=(a1_audit, a2_audit, blocked),
+                final_output=None,
+            )
+
+        a2_output = a2_audit.output if isinstance(a2_audit.output, Mapping) else {}
+        a2_symbols = set(a2_audit.symbols)
+        if not a2_symbols:
+            a3_audit = self._empty_stage(
+                lane_id=lane_id,
+                model=model,
+                stage="A3",
+                snapshot=a2_snapshot,
+                upstream_output=a2_output,
+            )
+            return LaneResult(
+                lane=lane_id,
+                model=model,
+                status="READY",
+                stages=(a1_audit, a2_audit, a3_audit),
+                final_output=a3_audit.output,
+            )
+
+        try:
+            a3_snapshot = self._enrich_stage_snapshot(
+                stage="A3",
+                lane_id=lane_id,
+                model=model,
+                upstream_symbols=a2_symbols,
+                snapshot=a2_snapshot,
+            ) if self.stage_snapshot_enricher is not None else a2_snapshot
+        except Exception:
+            a3_audit = self._blocked_stage(
+                lane_id, model, "A3", snapshot.snapshot_id, "STAGE_SNAPSHOT_ENRICHMENT_FAILED"
+            )
+            return LaneResult(
+                lane=lane_id,
+                model=model,
+                status="BLOCKED",
+                stages=(a1_audit, a2_audit, a3_audit),
+                final_output=None,
+            )
+        a3_gate = screen_a3(a3_snapshot.data, a2_output)
+        self._persist_gate(run_id, lane_id, a3_gate, a3_snapshot)
+        self._emit_gate_progress(run_id, lane_id, model, a3_gate)
+        a3_audit = self._run_v2_downstream_review(
+            lane_id=lane_id,
+            model=model,
+            stage="A3",
+            snapshot=a3_snapshot,
+            upstream_output=a2_output,
+            full_upstream_symbols=a2_symbols,
+            gate=a3_gate,
+            bundle=bundle,
+            run_id=run_id,
+        )
+        status = "READY" if a3_audit.status == "VALIDATED" else "BLOCKED"
+        return LaneResult(
+            lane=lane_id,
+            model=model,
+            status=status,
+            stages=(a1_audit, a2_audit, a3_audit),
+            final_output=a3_audit.output if status == "READY" else None,
+        )
+
+    def _run_v2_a1_review(
+        self,
+        *,
+        lane_id: str,
+        model: str,
+        snapshot: FrozenInputSnapshot,
+        g0: set[str],
+        bundle: PromptBundle,
+        run_id: str,
+        discovery: StageAudit,
+        discovery_output: Mapping[str, Any],
+        discovery_context: Mapping[str, Any],
+        gate: DeterministicGateResult,
+    ) -> StageAudit:
+        batches = _chunk_symbol_sets(gate.review_symbols, self.settings.research_a1_batch_size)
+        self._emit_progress(
+            run_id=run_id,
+            lane=lane_id,
+            model=model,
+            stage="A1_LLM_REVIEW",
+            completed=0,
+            total=len(batches),
+            status="RUNNING",
+            attempts=0,
+            processed_symbols=0,
+            total_symbols=len(gate.review_symbols),
+        )
+        request_audits: list[StageAudit] = []
+        valid_audits: list[StageAudit] = []
+        split_count = 0
+        blocked: StageAudit | None = None
+        if batches:
+            request_audits, valid_audits, split_count, blocked, _ = self._execute_batch_plan(
+                batches=batches,
+                lane_id=lane_id,
+                model=model,
+                stage="A1",
+                run_id=run_id,
+                snapshot_id=snapshot.snapshot_id,
+                runner=lambda batch: self._run_stage_with_checkpoint(
+                    lane_id=lane_id,
+                    model=model,
+                    stage="A1",
+                    snapshot=snapshot,
+                    upstream_output=None,
+                    upstream_symbols=batch,
+                    bundle=bundle,
+                    run_id=run_id,
+                    projection_symbols=batch,
+                    a1_discovery_context=discovery_context,
+                ),
+                splittable=_a1_batch_is_splittable,
+            )
+        if blocked is not None:
+            self._emit_progress(
+                run_id=run_id,
+                lane=lane_id,
+                model=model,
+                stage="A1_LLM_REVIEW",
+                completed=len(valid_audits),
+                total=len(batches),
+                status="FAILED",
+                attempts=sum(item.attempts for item in request_audits),
+                processed_symbols=sum(len(item.symbols) for item in valid_audits),
+                total_symbols=len(gate.review_symbols),
+            )
+            return StageAudit(
+                lane=lane_id,
+                model=model,
+                stage="A1",
+                status="BLOCKED",
+                snapshot_id=snapshot.snapshot_id,
+                prompt_hash=_combined_digest(item.prompt_hash for item in (discovery, *request_audits)),
+                input_hash=_combined_digest(item.input_hash for item in (discovery, *request_audits)),
+                output_hash=None,
+                latency_ms=sum(item.latency_ms or 0 for item in (discovery, *request_audits)),
+                attempts=sum(item.attempts for item in (discovery, *request_audits)),
+                thinking_variant=_common_variant((discovery, *request_audits)),
+                symbols=(),
+                reason_codes=tuple(f"A1_BATCH_BLOCKED:{reason}" for reason in blocked.reason_codes) or ("A1_BATCH_BLOCKED",),
+                diagnostics={"pipeline_mode": DETERMINISTIC_PIPELINE_MODE, "local_screen": gate.summary},
+            )
+        outputs = [discovery_output, *(audit.output for audit in valid_audits if isinstance(audit.output, Mapping))]
+        merged = _merge_a1_outputs(outputs)
+        merged["taxonomy_links"] = list(gate.taxonomy_links)
+        merged["active_research_pool"] = _deduplicate_stage_items(
+            "active_research_pool",
+            [*merged.get("active_research_pool", []), *local_active_items(gate)],
+        )
+        merged["monitor_pool"] = _deduplicate_stage_items(
+            "monitor_pool",
+            [*merged.get("monitor_pool", []), *local_monitor_items(gate)],
+        )
+        merged["rejected_candidates"] = _deduplicate_stage_items(
+            "rejected_candidates",
+            [*merged.get("rejected_candidates", []), *local_rejected_items(gate)],
+        )
+        merged["local_screen_summary"] = gate.summary
+        merged = _refresh_analysis_counts(merged, "A1")
+        merged = _annotate_a1_pool_target(merged, snapshot.data)
+        reasons = _validate_output(
+            merged,
+            stage="A1",
+            model=model,
+            snapshot_id=snapshot.snapshot_id,
+            upstream_symbols=g0,
+            snapshot_data=snapshot.data,
+        )
+        if len(g0) >= 500:
+            raw_targets = snapshot.data.get("A1_POOL_TARGETS")
+            targets = raw_targets if isinstance(raw_targets, Mapping) else {}
+            target = targets.get("active_research_target")
+            minimum = (
+                max(0, _safe_int(target[0]))
+                if isinstance(target, list) and target
+                else 100
+            )
+            active_count = len(merged.get("active_research_pool", ()))
+            if active_count < minimum:
+                reasons = list(dict.fromkeys([*reasons, "A1_ACTIVE_COVERAGE_UNDERFILLED"]))
+        approved_symbols = tuple(sorted(_approved_symbols(merged, "A1")))
+        self._emit_progress(
+            run_id=run_id,
+            lane=lane_id,
+            model=model,
+            stage="A1_LLM_REVIEW",
+            completed=len(valid_audits),
+            total=len(batches),
+            status="COMPLETED" if not reasons else "FAILED",
+            attempts=sum(item.attempts for item in request_audits),
+            processed_symbols=len(gate.review_symbols),
+            total_symbols=len(gate.review_symbols),
+            selected_symbols=len(approved_symbols),
+        )
+        audits = (discovery, *request_audits)
+        return StageAudit(
+            lane=lane_id,
+            model=model,
+            stage="A1",
+            status="VALIDATED" if not reasons else "BLOCKED",
+            snapshot_id=snapshot.snapshot_id,
+            prompt_hash=_combined_digest(item.prompt_hash for item in audits),
+            input_hash=_combined_digest(item.input_hash for item in audits),
+            output_hash=_sha256_json(merged),
+            latency_ms=sum(item.latency_ms or 0 for item in audits),
+            attempts=sum(item.attempts for item in audits),
+            thinking_variant=_common_variant(audits),
+            symbols=approved_symbols,
+            reason_codes=tuple(reasons),
+            output=merged,
+            diagnostics={
+                "pipeline_mode": DETERMINISTIC_PIPELINE_MODE,
+                "local_screen": gate.summary,
+                "monthly_strategy_status": (
+                    discovery_context.get("monthly_strategy_context", {}).get("status")
+                    if isinstance(discovery_context.get("monthly_strategy_context"), Mapping)
+                    else None
+                ),
+                "batch_count": len(batches),
+                "completed_batches": len(valid_audits),
+                "split_count": split_count,
+                "pool_counts": _stage_pool_counts(merged, "A1"),
+            },
+        )
+
+    def _run_v2_downstream_review(
+        self,
+        *,
+        lane_id: str,
+        model: str,
+        stage: str,
+        snapshot: FrozenInputSnapshot,
+        upstream_output: Mapping[str, Any],
+        full_upstream_symbols: set[str],
+        gate: DeterministicGateResult,
+        bundle: PromptBundle,
+        run_id: str,
+    ) -> StageAudit:
+        review_symbols = set(gate.review_symbols)
+        progress_stage = f"{stage}_LLM_REVIEW"
+        self._emit_progress(
+            run_id=run_id,
+            lane=lane_id,
+            model=model,
+            stage=progress_stage,
+            completed=0,
+            total=1 if review_symbols else 0,
+            status="RUNNING",
+            attempts=0,
+            processed_symbols=0,
+            total_symbols=len(review_symbols),
+        )
+        if self._deadline_exceeded():
+            return self._blocked_stage(
+                lane_id, model, stage, snapshot.snapshot_id, "RESEARCH_DEADLINE_EXCEEDED"
+            )
+        if review_symbols:
+            if stage == "A2" and len(review_symbols) > self.settings.research_a2_batch_size:
+                audit = self._run_a2_batched(
+                    lane_id=lane_id,
+                    model=model,
+                    snapshot=snapshot,
+                    upstream_output=upstream_output,
+                    upstream_symbols=review_symbols,
+                    bundle=bundle,
+                    run_id=run_id,
+                )
+            elif stage == "A3" and len(review_symbols) > _A3_BATCH_SIZE:
+                audit = self._run_a3_batched(
+                    lane_id=lane_id,
+                    model=model,
+                    snapshot=snapshot,
+                    upstream_output=upstream_output,
+                    upstream_symbols=review_symbols,
+                    bundle=bundle,
+                    run_id=run_id,
+                )
+            else:
+                audit = self._run_stage_with_checkpoint(
+                    lane_id=lane_id,
+                    model=model,
+                    stage=stage,
+                    snapshot=snapshot,
+                    upstream_output=upstream_output,
+                    upstream_symbols=review_symbols,
+                    bundle=bundle,
+                    run_id=run_id,
+                    projection_symbols=review_symbols,
+                )
+            if self._deadline_exceeded():
+                audit = self._blocked_stage(
+                    lane_id, model, stage, snapshot.snapshot_id, "RESEARCH_DEADLINE_EXCEEDED"
+                )
+            if audit.status != "VALIDATED":
+                self._emit_progress(
+                    run_id=run_id,
+                    lane=lane_id,
+                    model=model,
+                    stage=progress_stage,
+                    completed=0,
+                    total=1,
+                    status="FAILED",
+                    attempts=audit.attempts,
+                    processed_symbols=0,
+                    total_symbols=len(review_symbols),
+                )
+                return audit
+            output = dict(audit.output or {})
+        else:
+            runtime = _runtime_input(snapshot, lane_id, model, stage, upstream_output, set())
+            output = {"envelope": runtime["required_envelope"], "analysis_summary": {"outcome": "NO_LOCAL_REVIEW_CANDIDATES"}}
+            if stage == "A2":
+                output.update({"active_themes": [], "focus_pool": [], "watch_only_pool": []})
+            else:
+                output.update({"core_watch_pool": [], "secondary_watch_pool": [], "rejected_candidates": []})
+            audit = StageAudit(
+                lane=lane_id,
+                model=model,
+                stage=stage,
+                status="VALIDATED",
+                snapshot_id=snapshot.snapshot_id,
+                prompt_hash=None,
+                input_hash=_sha256_json(runtime),
+                output_hash=None,
+                latency_ms=0,
+                attempts=0,
+                thinking_variant="deterministic_noop",
+                symbols=(),
+                reason_codes=(),
+                output=output,
+                diagnostics={},
+            )
+        if stage == "A2":
+            output["watch_only_pool"] = _deduplicate_stage_items(
+                "watch_only_pool",
+                [*output.get("watch_only_pool", []), *_gate_secondary_items(gate, stage)],
+            )
+            output.setdefault("crowded_pool", [])
+            output.setdefault("low_identity_pool", [])
+            output.setdefault("rejected_candidates", [])
+        else:
+            output["rejected_candidates"] = _deduplicate_stage_items(
+                "rejected_candidates",
+                [*output.get("rejected_candidates", []), *_gate_secondary_items(gate, stage)],
+            )
+            output.setdefault("secondary_watch_pool", [])
+        output["local_screen_summary"] = gate.summary
+        output = _refresh_analysis_counts(output, stage)
+        reasons = _validate_output(
+            output,
+            stage=stage,
+            model=model,
+            snapshot_id=snapshot.snapshot_id,
+            upstream_symbols=full_upstream_symbols,
+            snapshot_data=snapshot.data,
+        )
+        approved_symbols = tuple(sorted(_approved_symbols(output, stage)))
+        self._emit_progress(
+            run_id=run_id,
+            lane=lane_id,
+            model=model,
+            stage=progress_stage,
+            completed=1 if review_symbols else 0,
+            total=1 if review_symbols else 0,
+            status="COMPLETED" if not reasons else "FAILED",
+            attempts=audit.attempts,
+            processed_symbols=len(review_symbols),
+            total_symbols=len(review_symbols),
+            selected_symbols=len(approved_symbols),
+        )
+        return StageAudit(
+            lane=audit.lane,
+            model=audit.model,
+            stage=audit.stage,
+            status="VALIDATED" if not reasons else "BLOCKED",
+            snapshot_id=audit.snapshot_id,
+            prompt_hash=audit.prompt_hash,
+            input_hash=audit.input_hash,
+            output_hash=_sha256_json(output),
+            latency_ms=audit.latency_ms,
+            attempts=audit.attempts,
+            thinking_variant=audit.thinking_variant,
+            symbols=approved_symbols,
+            reason_codes=tuple(reasons),
+            output=output,
+            diagnostics={**dict(audit.diagnostics or {}), "pipeline_mode": DETERMINISTIC_PIPELINE_MODE, "local_screen": gate.summary},
+        )
+
+    def _persist_gate(
+        self,
+        run_id: str,
+        lane_id: str,
+        gate: DeterministicGateResult,
+        snapshot: FrozenInputSnapshot,
+    ) -> None:
+        if self.feature_store is None:
+            return
+        try:
+            self.feature_store.replace_stage_decisions(
+                run_id=run_id,
+                lane_id=lane_id,
+                stage=gate.stage,
+                decisions=gate.decisions,
+                updated_at=snapshot.as_of or self.now(),
+            )
+            if gate.stage == "A1_LOCAL_SCREEN":
+                self.feature_store.record_fundamental_features(
+                    as_of=snapshot.as_of or self.now(),
+                    decisions=gate.decisions,
+                )
+            elif gate.stage == "A2_LOCAL_ROLE":
+                self.feature_store.record_market_role_features(
+                    run_id=run_id,
+                    lane_id=lane_id,
+                    decisions=gate.decisions,
+                )
+        except (OSError, sqlite3.Error, ValueError) as exc:
+            raise ResearchPipelineError("FEATURE_STORE_WRITE_FAILED") from exc
+
+    def _emit_gate_progress(
+        self,
+        run_id: str,
+        lane_id: str,
+        model: str,
+        gate: DeterministicGateResult,
+    ) -> None:
+        summary = gate.summary
+        self._emit_progress(
+            run_id=run_id,
+            lane=lane_id,
+            model=model,
+            stage=gate.stage,
+            completed=1,
+            total=1,
+            status="COMPLETED",
+            attempts=0,
+            batch_index=1,
+            processed_symbols=int(summary["evaluated_count"]),
+            total_symbols=int(summary["evaluated_count"]),
+            selected_symbols=int(summary["sent_to_llm_count"]),
+            monitor_symbols=int(summary["monitor_count"]),
+            rejected_symbols=int(summary["rejected_count"]),
+        )
+
+    def _deadline_exceeded(self) -> bool:
+        started = self._deadline_started_monotonic
+        if started is None:
+            return False
+        return time.monotonic() - started >= float(self.settings.research_close_deadline_seconds)
+
     def _emit_progress(
         self,
         *,
@@ -622,6 +1396,11 @@ class ResearchPipeline:
         status: str,
         attempts: int,
         batch_index: int | None = None,
+        processed_symbols: int | None = None,
+        total_symbols: int | None = None,
+        selected_symbols: int | None = None,
+        monitor_symbols: int | None = None,
+        rejected_symbols: int | None = None,
     ) -> None:
         """Send a redacted, stable progress event to the optional observer."""
 
@@ -648,6 +1427,15 @@ class ResearchPipeline:
             event["model"] = str(model)
         if batch_index is not None:
             event["batch_index"] = max(1, int(batch_index))
+        for key, value in (
+            ("processed_symbols", processed_symbols),
+            ("total_symbols", total_symbols),
+            ("selected_symbols", selected_symbols),
+            ("monitor_symbols", monitor_symbols),
+            ("rejected_symbols", rejected_symbols),
+        ):
+            if value is not None:
+                event[key] = max(0, int(value))
         try:
             self.progress_callback(event)
         except Exception:
@@ -1056,8 +1844,25 @@ class ResearchPipeline:
         completed = 0
         blocked: StageAudit | None = None
         def invoke(batch: set[str]) -> StageAudit:
+            if self._deadline_exceeded():
+                return self._blocked_stage(
+                    lane_id,
+                    model,
+                    stage,
+                    snapshot_id,
+                    "RESEARCH_DEADLINE_EXCEEDED",
+                )
             try:
-                return runner(batch)
+                audit = runner(batch)
+                if self._deadline_exceeded():
+                    return self._blocked_stage(
+                        lane_id,
+                        model,
+                        stage,
+                        snapshot_id,
+                        "RESEARCH_DEADLINE_EXCEEDED",
+                    )
+                return audit
             except Exception:
                 return self._blocked_stage(
                     lane_id,
@@ -1357,6 +2162,7 @@ class ResearchPipeline:
             audit.output for audit in valid_audits if isinstance(audit.output, Mapping)
         ])
         merged, canonicalized_scores = _canonicalize_stage_scores(merged, "A2", snapshot.data)
+        merged, canonicalized_bottleneck_scores = _canonicalize_a2_bottleneck_scorecards(merged)
         merged, threshold_demotions = _apply_stage_threshold_policy(merged, "A2", snapshot.data)
         if snapshot.data.get("STRICT_AGENT_RULES") is True:
             merged, lineage_demotions = _apply_a2_lineage_policy(
@@ -1394,6 +2200,7 @@ class ResearchPipeline:
                 "request_groups": len(audits),
                 "split_count": split_count,
                 "canonicalized_score_items": canonicalized_scores,
+                "canonicalized_bottleneck_scorecards": canonicalized_bottleneck_scores,
                 "policy_demotions": threshold_demotions + lineage_demotions,
                 "pool_counts": _stage_pool_counts(merged, "A2"),
             },
@@ -1679,7 +2486,10 @@ class ResearchPipeline:
                     diagnostics={
                         "semantic_attempts": semantic_attempt,
                         "last_invalid_output_shape": last_shape,
-                        "client_diagnostics": _safe_diagnostics(getattr(exc, "diagnostics", None)),
+                        "client_diagnostics": _safe_diagnostics({
+                            **dict(getattr(exc, "diagnostics", None) or {}),
+                            "status_code": getattr(exc, "status_code", None),
+                        }),
                     },
                 )
             except (OSError, TypeError, ValueError):
@@ -1718,6 +2528,9 @@ class ResearchPipeline:
             output, canonicalized_score_items = _canonicalize_stage_scores(
                 output, stage, snapshot.data
             )
+            canonicalized_bottleneck_scores = 0
+            if stage == "A2":
+                output, canonicalized_bottleneck_scores = _canonicalize_a2_bottleneck_scorecards(output)
             canonicalized_price_items = 0
             trend_veto_items = 0
             if stage == "A3":
@@ -1744,6 +2557,9 @@ class ResearchPipeline:
                 reasons.extend(_a1_discovery_context_reasons(output, a1_discovery_context))
                 if a1_discovery_context.get("mode") == "POLICY_MACRO_DISCOVERY":
                     reasons.extend(_a1_discovery_evidence_reasons(output, snapshot.data))
+                    monthly_context = a1_discovery_context.get("monthly_strategy_context")
+                    if isinstance(monthly_context, Mapping):
+                        reasons.extend(_monthly_discovery_reasons(output, monthly_context))
             envelope = output.get("envelope") if isinstance(output, Mapping) else None
             model_status = envelope.get("status") if isinstance(envelope, Mapping) else None
             if model_status == "BLOCKED":
@@ -1774,6 +2590,8 @@ class ResearchPipeline:
                 }
                 if canonicalized_score_items:
                     diagnostics["canonicalized_score_items"] = canonicalized_score_items
+                if canonicalized_bottleneck_scores:
+                    diagnostics["canonicalized_bottleneck_scorecards"] = canonicalized_bottleneck_scores
                 if canonicalized_driver_context:
                     diagnostics["canonicalized_driver_context"] = canonicalized_driver_context
                 if canonicalized_pool_fields:
@@ -2069,7 +2887,19 @@ def _prompt_replacements(
                 "frozen_discovery": {
                     "structural_themes": (a1_discovery_context or {}).get("structural_themes", []),
                     "industry_chain_graph": (a1_discovery_context or {}).get("industry_chain_graph", []),
+                    "taxonomy_links": (a1_discovery_context or {}).get("taxonomy_links", []),
                 },
+                "monthly_strategy_context": (
+                    (a1_discovery_context or {}).get("monthly_strategy_context", {})
+                ),
+                "allowed_taxonomy_catalog": _taxonomy_catalog_projection(snapshot.data),
+                "local_candidate_decisions": {
+                    symbol: value
+                    for symbol, value in (
+                        (a1_discovery_context or {}).get("local_candidates", {})
+                    ).items()
+                    if symbol in set(allowed_symbols or ())
+                } if isinstance((a1_discovery_context or {}).get("local_candidates"), Mapping) else {},
             }
             continue
         if name in {"A1_MINIMUMS", "MIN_THEME_SCORE", "MIN_TECHNICAL_SCORE"}:
@@ -2135,6 +2965,7 @@ def _project_prompt_value(name: str, value: Any, symbols: set[str] | None) -> An
         "TRADABILITY_FLAGS",
         "COMPANY_FUNDAMENTALS",
         "MAIN_BUSINESS_EVIDENCE",
+        "A2_BOTTLENECK_CONTEXT",
     }:
         return _filter_symbol_mapping(value, symbols)
     if name == "RISK_EVENTS":
@@ -2354,6 +3185,27 @@ def _project_membership(value: Any, symbols: set[str] | None) -> Any:
     return result
 
 
+def _taxonomy_catalog_projection(snapshot_data: Mapping[str, Any]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for taxonomy, key in (
+        ("industry", "THS_INDUSTRY_CATALOG"),
+        ("concept", "THS_CONCEPT_CATALOG"),
+    ):
+        value = snapshot_data.get(key)
+        records = value.get("records") if isinstance(value, Mapping) else None
+        projected: list[dict[str, str]] = []
+        if isinstance(records, list):
+            for item in records:
+                if not isinstance(item, Mapping):
+                    continue
+                code = str(item.get("thscode") or "").strip().upper()
+                name = str(item.get("name") or "").strip()
+                if code and name:
+                    projected.append({"thscode": code, "name": name})
+        result[taxonomy] = sorted(projected, key=lambda item: (item["thscode"], item["name"]))[:1000]
+    return result
+
+
 def _project_news(value: Any, *, item_limit: int, symbols: set[str] | None = None) -> Any:
     if not isinstance(value, Mapping):
         return value
@@ -2402,7 +3254,7 @@ def _stage_execution_budget(
     stage_contract = {
         "A1": (
             "Required top-level keys: envelope, analysis_summary, structural_themes, industry_chain_graph, "
-            "active_research_pool, monitor_pool, rejected_candidates. Each approved item needs symbol, "
+            "taxonomy_links, active_research_pool, monitor_pool, rejected_candidates. Each approved item needs symbol, "
             "candidate_id, company_name, primary_theme, "
             "industry_chain_node, core_thesis, bear_case, structural_score, data_quality_score, "
             "evidence_confidence, status, source_refs, business_exposure with revenue_exposure_pct and "
@@ -2413,6 +3265,13 @@ def _stage_execution_budget(
             "snapshot-bound source_refs; unsupported narrative is MONITOR, never ACTIVE."
             " Every supplied symbol must appear exactly once across active_research_pool, monitor_pool, "
             "and rejected_candidates; the batch boundary is not a selection quota."
+            + (
+                " This is POLICY_MACRO_DISCOVERY: return at least 6 structural themes and at least 12 "
+                "industry-chain nodes. taxonomy_links is a top-level array; every entry must reuse an "
+                "allowed node_id and exact allowed_taxonomy_catalog codes. Cover at least 40 percent of "
+                "the top 10 monthly_industry_rotation industry_thscode values when at least 3 exist."
+                if supplied == 0 else ""
+            )
         ),
         "A2": (
             "Required top-level keys: envelope, analysis_summary, active_themes, focus_pool, "
@@ -2421,7 +3280,10 @@ def _stage_execution_budget(
             "supporting_evidence, contradicting_evidence, and rotation_overlap_ratio. Each focus item needs "
             "symbol, upstream_candidate_id, theme_id, theme_stage, market_role, role_evidence, "
             "identifiability_score, identifiability_breakdown, theme_score inherited from its active theme, "
-            "selection_reasons, risk_reasons, risk_flags. Every supplied symbol must appear exactly once "
+            "selection_reasons, risk_reasons, risk_flags, supply_chain_role, scarce_layer, "
+            "value_chain_position, bottleneck_scorecard, at least two bottleneck_evidence items, "
+            "missing_proof and kill_switches. Rank scarce layers before companies; unknown bottleneck facts "
+            "must be sent to watch_only, never scored as zero. Every supplied symbol must appear exactly once "
             "across focus_pool, watch_only_pool, and rejected_candidates."
         ),
         "A3": (
@@ -2488,6 +3350,39 @@ def _build_a1_node_batches(
     if current:
         batches.append(set(current))
     return batches
+
+
+def _chunk_symbol_sets(symbols: Sequence[str], size: int) -> list[set[str]]:
+    ordered = tuple(dict.fromkeys(str(symbol) for symbol in symbols if str(symbol)))
+    if size < 1:
+        raise ValueError("batch size must be positive")
+    return [set(ordered[index : index + size]) for index in range(0, len(ordered), size)]
+
+
+def _gate_secondary_items(gate: DeterministicGateResult, stage: str) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for decision in gate.decisions:
+        if decision.get("status") == "REVIEW_CANDIDATE":
+            continue
+        item = {
+            "symbol": decision.get("symbol"),
+            "company_name": decision.get("name"),
+            "theme_id": decision.get("theme_id"),
+            "industry_chain_node": decision.get("node_id"),
+            "status": "WATCH_ONLY" if stage == "A2" else "REJECTED",
+            "reason_codes": list(decision.get("reason_codes", ())),
+            "local_decision": True,
+            "sent_to_llm": False,
+            "source_refs": [],
+        }
+        if stage == "A2":
+            item.update({
+                "theme_score": decision.get("score"),
+                "identifiability_score": decision.get("score"),
+                "market_role": decision.get("role", "LOW_IDENTITY"),
+            })
+        items.append(item)
+    return items
 
 
 def _build_a2_theme_batches(
@@ -2740,6 +3635,54 @@ def _valid_a1_discovery_output(output: Mapping[str, Any]) -> bool:
     )
 
 
+def _monthly_discovery_reasons(
+    output: Mapping[str, Any],
+    context: Mapping[str, Any],
+) -> tuple[str, ...]:
+    """Reject a schema-valid but commercially unusable monthly theme map."""
+
+    if _safe_int(context.get("g0_symbol_count")) < 500:
+        return ()
+    if str(context.get("status") or "BLOCKED") == "BLOCKED":
+        return ("A1_MONTHLY_STRATEGY_INPUT_BLOCKED",)
+    themes = output.get("structural_themes")
+    nodes = output.get("industry_chain_graph")
+    theme_count = len(themes) if isinstance(themes, list) else 0
+    node_count = len(nodes) if isinstance(nodes, list) else 0
+    reasons: list[str] = []
+    if theme_count < 6:
+        reasons.append("A1_MONTHLY_THEME_COVERAGE_INSUFFICIENT")
+    if node_count < 12:
+        reasons.append("A1_MONTHLY_CHAIN_COVERAGE_INSUFFICIENT")
+
+    rotations = context.get("monthly_industry_rotation")
+    rotations = rotations if isinstance(rotations, list) else []
+    expected_codes = {
+        str(item.get("industry_thscode") or "")
+        for item in rotations[:10]
+        if isinstance(item, Mapping) and str(item.get("industry_thscode") or "")
+    }
+    covered_codes: set[str] = set()
+    def collect_codes(value: Any) -> None:
+        if isinstance(value, Mapping):
+            for key, nested in value.items():
+                if key in {"industry_thscodes", "industry_codes"} and isinstance(nested, list):
+                    covered_codes.update(str(item) for item in nested if str(item))
+                elif key == "taxonomy_links":
+                    collect_codes(nested)
+        elif isinstance(value, list):
+            for nested in value:
+                collect_codes(nested)
+
+    collect_codes(output.get("taxonomy_links"))
+    collect_codes(nodes)
+    if len(expected_codes) >= 3:
+        coverage = len(expected_codes.intersection(covered_codes)) / len(expected_codes)
+        if coverage < 0.40:
+            reasons.append("A1_MONTHLY_CYCLE_COVERAGE_INSUFFICIENT")
+    return tuple(reasons)
+
+
 def _a1_discovery_context_reasons(
     output: Mapping[str, Any],
     context: Mapping[str, Any],
@@ -2815,6 +3758,7 @@ def _deduplicate_stage_items(key: str, values: Sequence[Any]) -> list[Any]:
         "policy_calendar": ("date", "event"),
         "structural_themes": ("theme_id",),
         "industry_chain_graph": ("node_id",),
+        "taxonomy_links": ("node_id", "taxonomy", "taxonomy_code"),
         "active_themes": ("theme_id",),
         "focus_pool": ("symbol",),
         "watch_only_pool": ("symbol",),
@@ -2939,6 +3883,7 @@ def _safe_diagnostics(value: Any) -> dict[str, Any] | None:
         "has_event_index": isinstance(value.get("event_index"), int),
     }
     for key in (
+        "status_code",
         "content_type",
         "content_chars",
         "starts_with_object",
@@ -2992,6 +3937,35 @@ def _stage_pool_counts(output: Mapping[str, Any], stage: str) -> dict[str, int]:
     }
 
 
+def _refresh_analysis_counts(output: Mapping[str, Any], stage: str) -> dict[str, Any]:
+    """Refresh aggregate counts after deterministic local rows are attached."""
+
+    result = dict(output)
+    summary = dict(result.get("analysis_summary")) if isinstance(result.get("analysis_summary"), Mapping) else {}
+    counts = _stage_pool_counts(result, stage)
+    summary.update(counts)
+    if stage == "A1":
+        summary.update({
+            "approved_count": counts["active_research_pool"],
+            "monitor_count": counts["monitor_pool"],
+            "rejected_count": counts["rejected_candidates"],
+        })
+    elif stage == "A2":
+        summary.update({
+            "approved_count": counts["focus_pool"],
+            "monitor_count": counts["watch_only_pool"],
+            "rejected_count": counts["rejected_candidates"],
+        })
+    else:
+        summary.update({
+            "approved_count": counts["core_watch_pool"],
+            "monitor_count": counts["secondary_watch_pool"],
+            "rejected_count": counts["rejected_candidates"],
+        })
+    result["analysis_summary"] = summary
+    return result
+
+
 def _canonicalize_stage_pool_fields(
     output: Mapping[str, Any],
     stage: str,
@@ -3032,6 +4006,37 @@ def _canonicalize_a1_driver_context(
         if result.get(field) != canonical:
             result[field] = canonical
             changed += 1
+    return result, changed
+
+
+def _canonicalize_a2_bottleneck_scorecards(
+    output: Mapping[str, Any],
+) -> tuple[dict[str, Any], int]:
+    """Recompute Serenity-style scorecards; invalid cards stay invalid for validation."""
+
+    result = dict(output)
+    changed = 0
+    for pool in ("focus_pool", "watch_only_pool"):
+        raw_items = result.get(pool)
+        if not isinstance(raw_items, list):
+            continue
+        normalized: list[Any] = []
+        for raw_item in raw_items:
+            if not isinstance(raw_item, Mapping):
+                normalized.append(raw_item)
+                continue
+            item = dict(raw_item)
+            scorecard, reasons = canonicalize_model_scorecard(item.get("bottleneck_scorecard"))
+            if scorecard is not None:
+                if item.get("bottleneck_scorecard") != scorecard:
+                    changed += 1
+                item["bottleneck_scorecard"] = scorecard
+                item["bottleneck_score"] = scorecard["final_score"]
+            elif reasons:
+                existing = item.get("reason_codes") if isinstance(item.get("reason_codes"), list) else []
+                item["reason_codes"] = list(dict.fromkeys([*existing, *reasons]))
+            normalized.append(item)
+        result[pool] = normalized
     return result, changed
 
 
@@ -3534,6 +4539,7 @@ def _snapshot_primary_evidence_refs(snapshot_data: Mapping[str, Any]) -> set[str
         "DISCLOSURE_EVENTS",
         "RISK_EVENTS",
         "MAIN_BUSINESS_EVIDENCE",
+        "INDUSTRY_ACTIVITY_DATA",
         "INDUSTRY_PROFIT_DATA",
     )
 
@@ -3579,9 +4585,86 @@ def _snapshot_discovery_evidence_refs(snapshot_data: Mapping[str, Any]) -> set[s
             for item in value:
                 visit(item)
 
-    for key in ("MACRO_POLICY_FEED", "INDUSTRY_PROFIT_DATA"):
+    for key in ("MACRO_POLICY_FEED", "INDUSTRY_ACTIVITY_DATA", "INDUSTRY_PROFIT_DATA"):
         visit(snapshot_data.get(key))
     return refs or _snapshot_primary_evidence_refs(snapshot_data)
+
+
+def _a2_bottleneck_reasons(
+    item: Mapping[str, Any],
+    snapshot_data: Mapping[str, Any],
+) -> list[str]:
+    """Require a source-backed scarce-layer thesis for every A2 focus item."""
+
+    reasons: list[str] = []
+    symbol = _first_symbol(item)
+    raw_context = snapshot_data.get("A2_BOTTLENECK_CONTEXT")
+    # Pre-v2/legacy snapshots remain replayable. New deterministic-v2 runs
+    # always attach this context after the local A2 gate.
+    if not isinstance(raw_context, Mapping):
+        return reasons
+    context = raw_context.get(symbol) if isinstance(raw_context, Mapping) else None
+    if not isinstance(context, Mapping):
+        reasons.append("A2_BOTTLENECK_CONTEXT_MISSING")
+    role = str(item.get("supply_chain_role") or "").strip()
+    if role not in SUPPLY_CHAIN_ROLES or role == "STORY_ONLY":
+        reasons.append("A2_SUPPLY_CHAIN_ROLE_NOT_FOCUS_ELIGIBLE")
+    if not str(item.get("scarce_layer") or "").strip():
+        reasons.append("A2_SCARCE_LAYER_MISSING")
+    if not str(item.get("value_chain_position") or "").strip():
+        reasons.append("A2_VALUE_CHAIN_POSITION_MISSING")
+    scorecard, scorecard_reasons = canonicalize_model_scorecard(item.get("bottleneck_scorecard"))
+    reasons.extend(scorecard_reasons)
+    if scorecard is not None and role in {"CONTROLS_SCARCE_LAYER", "SUPPLIES_SCARCE_LAYER"}:
+        factors = scorecard["factors"]
+        if (
+            _safe_float(factors.get("chokepoint_severity")) < 3.0
+            or max(
+                _safe_float(factors.get("supplier_concentration")),
+                _safe_float(factors.get("expansion_difficulty")),
+            ) < 2.0
+        ):
+            reasons.append("A2_SCARCE_LAYER_SCORE_UNSUPPORTED")
+
+    evidence = item.get("bottleneck_evidence")
+    evidence = evidence if isinstance(evidence, list) else []
+    allowed_refs = _snapshot_primary_evidence_refs(snapshot_data)
+    if isinstance(context, Mapping):
+        allowed_refs.update(
+            str(value).strip()
+            for value in context.get("source_refs", ())
+            if isinstance(value, str) and value.strip()
+        )
+    allowed_refs.update(
+        str(value).strip()
+        for value in item.get("source_refs", ())
+        if isinstance(value, str) and value.strip()
+    ) if isinstance(item.get("source_refs"), list) else None
+    valid_evidence = 0
+    stronger_evidence = 0
+    for raw in evidence:
+        if not isinstance(raw, Mapping):
+            continue
+        strength = str(raw.get("strength") or "").strip().upper()
+        source_ref = str(raw.get("source_ref") or "").strip()
+        claim = str(raw.get("claim") or "").strip()
+        if not claim or strength not in EVIDENCE_STRENGTHS or not source_ref:
+            continue
+        if allowed_refs and source_ref not in allowed_refs:
+            continue
+        valid_evidence += 1
+        if strength in {"STRONG", "MEDIUM"}:
+            stronger_evidence += 1
+    if valid_evidence < 2:
+        reasons.append("A2_BOTTLENECK_EVIDENCE_INSUFFICIENT")
+    if stronger_evidence < 1:
+        reasons.append("A2_BOTTLENECK_STRONG_EVIDENCE_MISSING")
+    if not str(item.get("missing_proof") or "").strip():
+        reasons.append("A2_BOTTLENECK_MISSING_PROOF_UNDECLARED")
+    kill_switches = item.get("kill_switches")
+    if not isinstance(kill_switches, list) or not any(str(value).strip() for value in kill_switches):
+        reasons.append("A2_BOTTLENECK_KILL_SWITCH_MISSING")
+    return list(dict.fromkeys(reasons))
 
 
 def _apply_a2_lineage_policy(
@@ -3645,6 +4728,7 @@ def _apply_a2_lineage_policy(
             reasons.append("A2_MARKET_ROLE_NOT_FOCUS_ELIGIBLE")
         if _safe_float(item.get("identifiability_score")) < minimum_identity:
             reasons.append("A2_IDENTIFIABILITY_BELOW_MINIMUM")
+        reasons.extend(_a2_bottleneck_reasons(item, snapshot_data))
         active_theme = next((
             theme for theme in result.get("active_themes", ())
             if isinstance(theme, Mapping) and str(theme.get("theme_id") or "").strip() == theme_id
@@ -4416,6 +5500,32 @@ def _freeze_snapshot(snapshot: FrozenInputSnapshot) -> FrozenInputSnapshot:
         snapshot_id=snapshot.snapshot_id,
         data=snapshot.data,
         snapshot_hash=snapshot.snapshot_hash,
+        as_of=snapshot.as_of,
+    )
+
+
+def _with_a2_bottleneck_context(
+    snapshot: FrozenInputSnapshot,
+    gate: DeterministicGateResult,
+) -> FrozenInputSnapshot:
+    """Attach the server-computed A2 scorecard inputs to the model view."""
+
+    context = {
+        str(item.get("symbol")): dict(item.get("bottleneck_context") or {})
+        for item in gate.decisions
+        if item.get("symbol") and isinstance(item.get("bottleneck_context"), Mapping)
+    }
+    overlay_hash = _sha256_json({
+        "base_snapshot_hash": snapshot.snapshot_hash,
+        "stage": "A2_BOTTLENECK_CONTEXT",
+        "context": context,
+    })
+    data = dict(snapshot.data)
+    data["A2_BOTTLENECK_CONTEXT"] = context
+    return FrozenInputSnapshot(
+        snapshot_id=f"{snapshot.snapshot_id}:a2-bottleneck:{overlay_hash[:12]}",
+        data=data,
+        snapshot_hash=overlay_hash,
         as_of=snapshot.as_of,
     )
 

@@ -187,15 +187,20 @@ class OpenAICompatibleModelClient:
                 last_variant = variant_id
                 variant_attempts = 0
                 primary_output_tokens = self.settings.model_max_output_tokens
-                # A legacy deployment may override the primary value below
-                # the configured fallback. Never turn a fallback into a larger
-                # request; in that case the primary value is the only budget.
-                fallback_output_tokens = min(
-                    self.settings.model_fallback_output_tokens,
+                # Legacy deployments may set a primary below one or both
+                # fallback tiers. Build a strictly descending, de-duplicated
+                # sequence so a fallback can never increase the request.
+                output_budgets: list[int] = []
+                for configured_budget in (
                     primary_output_tokens,
-                )
-                output_tokens = primary_output_tokens
-                budget_fallback_attempted = False
+                    self.settings.model_fallback_output_tokens,
+                    self.settings.model_secondary_fallback_output_tokens,
+                ):
+                    bounded_budget = min(configured_budget, primary_output_tokens)
+                    if not output_budgets or bounded_budget < output_budgets[-1]:
+                        output_budgets.append(bounded_budget)
+                budget_index = 0
+                output_tokens = output_budgets[budget_index]
                 while variant_attempts < self.max_attempts:
                     variant_attempts += 1
                     total_attempts += 1
@@ -241,23 +246,33 @@ class OpenAICompatibleModelClient:
                                 raise ModelHTTPError(reason, status_code=status, attempts=total_attempts)
 
                             if status >= 400:
-                                if status in {400, 413, 422} and _is_output_budget_rejection(
-                                    response,
-                                    requested_tokens=output_tokens,
-                                ):
-                                    if (
-                                        not budget_fallback_attempted
-                                        and output_tokens == primary_output_tokens
-                                        and fallback_output_tokens < primary_output_tokens
-                                    ):
-                                        # Treat the capacity fallback as a new
+                                output_budget_rejected = (
+                                    status in {400, 413, 422}
+                                    and _is_output_budget_rejection(
+                                        response,
+                                        requested_tokens=output_tokens,
+                                    )
+                                )
+                                # Some compatible gateways return an empty or
+                                # generic 400 for an excessive output budget.
+                                # Honor the configured 384K -> 256K -> 128K
+                                # contract on the final thinking variant even
+                                # when the bounded body cannot be classified.
+                                generic_final_variant_fallback = (
+                                    status in {400, 413, 422}
+                                    and self.thinking_enabled
+                                    and variant_id == self.thinking_variants[-1][0]
+                                )
+                                if output_budget_rejected or generic_final_variant_fallback:
+                                    if budget_index + 1 < len(output_budgets):
+                                        # Treat each capacity fallback as a new
                                         # budget's retry window.  This ensures a
-                                        # capacity error on the last primary
-                                        # attempt still gets its one fallback
-                                        # request, while 429/5xx retries after
-                                        # that continue at the fallback size.
-                                        output_tokens = fallback_output_tokens
-                                        budget_fallback_attempted = True
+                                        # capacity error on the last attempt at
+                                        # one tier still gets the next tier,
+                                        # while 429/5xx retries continue at the
+                                        # currently selected budget.
+                                        budget_index += 1
+                                        output_tokens = output_budgets[budget_index]
                                         variant_attempts = 0
                                         continue
                                     raise ModelHTTPError(
