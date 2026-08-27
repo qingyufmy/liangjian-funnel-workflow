@@ -182,7 +182,9 @@ export interface WorkflowProgressLane {
 
 export interface WorkflowProgressSummary {
   status: "RUNNING" | "COMPLETED" | "READY" | "PARTIAL" | "BLOCKED" | "FAILED" | "IDLE" | "UNKNOWN" | "INVALID";
-  issue: "OVERSIZE" | "INVALID_JSON" | "INVALID_SHAPE" | null;
+  issue: "OVERSIZE" | "UNREADABLE" | "INVALID_JSON" | "INVALID_SHAPE" | null;
+  stale: boolean;
+  staleIssue: "OVERSIZE" | "UNREADABLE" | "INVALID_JSON" | "INVALID_SHAPE" | null;
   runId: string | null;
   phase: string | null;
   processed: number | null;

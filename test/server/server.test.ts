@@ -365,7 +365,70 @@ test("returns a fixed invalid summary for malformed workflow progress JSON", asy
   await writeFile(join(root, "state", "workflow_progress.json"), "{\"status\":\"running\",\"secret\":");
   const config = loadConfig({ LIANGJIAN_PYTHON_BIN: "python3" }, root);
   const files = new ProjectFiles(config, new LogStore(config));
-  await expect(files.workflowProgress()).resolves.toMatchObject({ status: "INVALID", issue: "INVALID_JSON", lanes: [] });
+  await expect(files.workflowProgress()).resolves.toMatchObject({ status: "INVALID", issue: "INVALID_JSON", stale: false, staleIssue: null, lanes: [] });
+});
+
+test("distinguishes an unreadable progress file from malformed JSON", async () => {
+  const root = await mkdtemp(join(tmpdir(), "liangjian-progress-unreadable-"));
+  const config = loadConfig({ LIANGJIAN_PYTHON_BIN: "python3" }, root);
+  const files = new ProjectFiles(config, new LogStore(config), {
+    workflowProgressFs: {
+      stat: async () => { throw Object.assign(new Error("permission denied: secret path"), { code: "EACCES" }); },
+      readFile: async () => "{}",
+    },
+  });
+  const progress = await files.workflowProgress();
+  expect(progress).toMatchObject({ status: "INVALID", issue: "UNREADABLE", stale: false, staleIssue: null, lanes: [] });
+  expect(JSON.stringify(progress)).not.toContain("permission denied");
+  expect(JSON.stringify(progress)).not.toContain("secret path");
+});
+
+test("serves the last valid progress projection while the file is broken, then clears stale state on recovery", async () => {
+  const root = await mkdtemp(join(tmpdir(), "liangjian-progress-stale-"));
+  let unreadable = false;
+  let malformed = false;
+  const validDocument = JSON.stringify({
+    run_id: "stale-run",
+    status: "RUNNING",
+    phase: "RESEARCH_A1",
+    data: { processed: 6, total: 248 },
+    lanes: {
+      LANE_1: {
+        model: "fixture-model",
+        status: "RUNNING",
+        stages: { A1: { status: "RUNNING", completed_batches: 6, total_batches: 248 } },
+      },
+    },
+  });
+  const config = loadConfig({ LIANGJIAN_PYTHON_BIN: "python3" }, root);
+  const files = new ProjectFiles(config, new LogStore(config), {
+    workflowProgressFs: {
+      stat: async () => ({ isFile: () => true, size: validDocument.length }),
+      readFile: async () => {
+        if (unreadable) throw Object.assign(new Error("EACCES private detail"), { code: "EACCES" });
+        if (malformed) return JSON.stringify({ status: "RUNNING", secret: "private model output" }).slice(0, -1);
+        return validDocument;
+      },
+    },
+  });
+
+  const fresh = await files.workflowProgress();
+  expect(fresh).toMatchObject({ runId: "stale-run", phase: "RESEARCH_A1", stale: false, staleIssue: null, issue: null });
+  expect(fresh?.lanes[0]).toMatchObject({ laneId: "lane_1", batchProcessed: 6, batchTotal: 248 });
+
+  malformed = true;
+  const staleMalformed = await files.workflowProgress();
+  expect(staleMalformed).toMatchObject({ runId: "stale-run", phase: "RESEARCH_A1", stale: true, issue: null, staleIssue: "INVALID_JSON" });
+  expect(JSON.stringify(staleMalformed)).not.toContain("private model output");
+
+  malformed = false;
+  unreadable = true;
+  const staleUnreadable = await files.workflowProgress();
+  expect(staleUnreadable).toMatchObject({ runId: "stale-run", stale: true, issue: null, staleIssue: "UNREADABLE" });
+
+  unreadable = false;
+  const recovered = await files.workflowProgress();
+  expect(recovered).toMatchObject({ runId: "stale-run", phase: "RESEARCH_A1", stale: false, issue: null, staleIssue: null });
 });
 
 test("returns a blocked summary when workflow progress exceeds the safe file size", async () => {
@@ -403,7 +466,7 @@ test("reads the Python progress writer shape including second-based timing and s
     eta_seconds: null,
     data: { processed: 5000, total: 5000, cache_hits: 4900, cache_misses: 100, failures: 0 },
     lanes: {
-      LANE1: { model: "deepseek-v4-pro-0813", status: "RUNNING", stages: { A1: { status: "RUNNING", completed_batches: 4, total_batches: 20 } } },
+      LANE_1: { model: "deepseek-v4-pro-0813", status: "RUNNING", stages: { A1: { status: "RUNNING", completed_batches: 4, total_batches: 20 } } },
     },
   }));
   const config = loadConfig({ LIANGJIAN_PYTHON_BIN: "python3" }, root);

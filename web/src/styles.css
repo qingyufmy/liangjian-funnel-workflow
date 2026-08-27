@@ -248,6 +248,11 @@ button, a, input, select { -webkit-tap-highlight-color: transparent; }
 .progress-issue > div { display: flex; flex-direction: column; gap: 4px; }
 .progress-issue strong { color: var(--color-ink); font-size: var(--text-ui); }
 .progress-issue span { font-size: var(--text-caption); }
+.progress-stale { display: flex; align-items: center; gap: 9px; padding: 9px 16px; color: var(--color-warning); background: color-mix(in srgb, var(--color-warning-soft) 58%, transparent); border-bottom: 1px solid color-mix(in srgb, var(--color-warning) 18%, transparent); }
+.progress-stale > div { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; }
+.progress-stale strong { color: var(--color-ink); font-size: var(--text-caption); }
+.progress-stale span { color: var(--color-muted); font-size: var(--text-caption); }
+.progress-no-value { color: var(--color-muted); font-size: var(--text-caption); }
 
 .rail-summary { min-height: 42px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 16px; border-bottom: 1px solid var(--color-border); }
 .rail-summary > span:last-child { color: var(--color-muted); font-size: var(--text-caption); }

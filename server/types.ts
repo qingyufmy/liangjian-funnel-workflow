@@ -59,6 +59,13 @@ export interface StatusSnapshot {
 
 export type WorkflowProgressStatus = "RUNNING" | "COMPLETED" | "READY" | "PARTIAL" | "BLOCKED" | "FAILED" | "IDLE" | "UNKNOWN" | "INVALID";
 
+/**
+ * Fixed, non-sensitive diagnostics for a failed progress-file read.
+ * These values are deliberately narrower than Node's filesystem errors so
+ * the API never exposes an OS error message or the source document.
+ */
+export type WorkflowProgressIssue = "OVERSIZE" | "UNREADABLE" | "INVALID_JSON" | "INVALID_SHAPE";
+
 export interface WorkflowProgressStage {
   readonly stage: string;
   readonly status: string | null;
@@ -89,7 +96,11 @@ export interface WorkflowProgressLane {
  */
 export interface WorkflowProgressSummary {
   readonly status: WorkflowProgressStatus;
-  readonly issue: "OVERSIZE" | "INVALID_JSON" | "INVALID_SHAPE" | null;
+  readonly issue: WorkflowProgressIssue | null;
+  /** True when this is the last successful projection while the file is unavailable. */
+  readonly stale: boolean;
+  /** The fixed reason for serving the cached projection, if stale. */
+  readonly staleIssue: WorkflowProgressIssue | null;
   readonly runId: string | null;
   readonly phase: string | null;
   readonly processed: number | null;

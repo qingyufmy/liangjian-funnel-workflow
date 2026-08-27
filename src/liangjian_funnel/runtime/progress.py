@@ -167,7 +167,14 @@ class WorkflowProgress:
         self._write()
 
     def _write(self) -> None:
-        atomic_write_json(self.path, self._state)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        parent_stat = self.path.parent.stat()
+        atomic_write_json(
+            self.path,
+            self._state,
+            mode=0o640,
+            group_id=getattr(parent_stat, "st_gid", None),
+        )
 
 
 def _aware(value: datetime) -> datetime:

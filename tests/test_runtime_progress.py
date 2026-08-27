@@ -1,3 +1,5 @@
+import os
+import stat
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -44,6 +46,10 @@ def test_progress_is_atomic_bounded_and_does_not_retain_sensitive_payload(tmp_pa
     assert state["elapsed_seconds"] == 30
     assert "must never persist" not in text
     assert "sk-must-never-persist" not in text
+    if os.name != "nt":
+        metadata = (tmp_path / "workflow_progress.json").stat()
+        assert stat.S_IMODE(metadata.st_mode) == 0o640
+        assert metadata.st_gid == tmp_path.stat().st_gid
 
 
 def test_progress_finish_records_only_stable_reason_code(tmp_path):

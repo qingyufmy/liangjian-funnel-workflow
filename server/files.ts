@@ -15,6 +15,7 @@ import type {
   ResearchStageDetailPlan,
   ResearchStageDetailPool,
   StatusSnapshot,
+  WorkflowProgressIssue,
   WorkflowProgressLane,
   WorkflowProgressStage,
   WorkflowProgressStatus,
@@ -595,10 +596,12 @@ function normalizeLane(laneKey: string | null, lane: JsonRecord): WorkflowProgre
   };
 }
 
-function invalidProgress(issue: "OVERSIZE" | "INVALID_JSON" | "INVALID_SHAPE"): WorkflowProgressSummary {
+function invalidProgress(issue: WorkflowProgressIssue): WorkflowProgressSummary {
   return {
     status: issue === "OVERSIZE" ? "BLOCKED" : "INVALID",
     issue,
+    stale: false,
+    staleIssue: null,
     runId: null,
     phase: null,
     processed: null,
@@ -616,6 +619,11 @@ function invalidProgress(issue: "OVERSIZE" | "INVALID_JSON" | "INVALID_SHAPE"): 
     updatedAt: null,
     lanes: [],
   };
+}
+
+function nodeErrorCode(error: unknown): string | null {
+  if (!isRecord(error)) return null;
+  return typeof error.code === "string" ? error.code : null;
 }
 
 function normalizeWorkflowProgress(source: JsonRecord): WorkflowProgressSummary | null {
@@ -645,6 +653,8 @@ function normalizeWorkflowProgress(source: JsonRecord): WorkflowProgressSummary 
   return {
     status: progressStatus(statusValue),
     issue: null,
+    stale: false,
+    staleIssue: null,
     runId: progressId(source.run_id ?? source.runId),
     phase: progressPhase(phaseValue),
     processed: processed.value,
@@ -755,14 +765,34 @@ function researchLaneFileNames(runId: string, laneId: string): readonly string[]
   return [`research_${runId}_${laneId}.json`, `${runId}_${laneId}.json`];
 }
 
+interface WorkflowProgressFileSystem {
+  readonly stat: (path: string) => Promise<{ readonly isFile: () => boolean; readonly size: number }>;
+  readonly readFile: (path: string) => Promise<string>;
+}
+
+export interface ProjectFilesOptions {
+  /**
+   * Small dependency seam for deterministic tests of atomic-replace and
+   * permission races. Production callers use node:fs/promises by default.
+   */
+  readonly workflowProgressFs?: Partial<WorkflowProgressFileSystem>;
+}
+
 export class ProjectFiles {
   private readonly statusReader: PythonStatusReader;
+  private readonly workflowProgressFs: WorkflowProgressFileSystem;
+  private lastWorkflowProgress: WorkflowProgressSummary | null = null;
 
   public constructor(
     private readonly config: AppConfig,
     logger: LogStore,
+    options: ProjectFilesOptions = {},
   ) {
     this.statusReader = new PythonStatusReader(config, logger);
+    this.workflowProgressFs = {
+      stat: options.workflowProgressFs?.stat ?? (async (path) => stat(path)),
+      readFile: options.workflowProgressFs?.readFile ?? (async (path) => readFile(path, { encoding: "utf8" })),
+    };
   }
 
   public async status(): Promise<StatusSnapshot> {
@@ -1007,37 +1037,55 @@ export class ProjectFiles {
     return { latest: sanitizeJson(latest), effectiveSignals: effectiveSignals ? effectiveSignals : null, events };
   }
 
+  private workflowProgressFailure(issue: WorkflowProgressIssue): WorkflowProgressSummary {
+    if (!this.lastWorkflowProgress) return invalidProgress(issue);
+    return {
+      ...this.lastWorkflowProgress,
+      issue: null,
+      stale: true,
+      staleIssue: issue,
+    };
+  }
+
   /**
    * Read only the bounded, allow-listed projection of the Python progress file.
-   * Missing progress is normal before the first run; malformed or oversized
-   * files become a fixed diagnostic summary and never bubble their contents.
+   * Missing progress is normal before the first run. After a successful read,
+   * transient stat/read/parse failures serve the last allow-listed projection
+   * with a fixed stale diagnostic; the source document is never cached.
    */
   public async workflowProgress(): Promise<WorkflowProgressSummary | null> {
     const progressPath = resolveWithinRoot(this.config.rootDir, "state/workflow_progress.json");
     if (!progressPath) return null;
     let metadata;
     try {
-      metadata = await stat(progressPath);
-    } catch {
-      return null;
+      metadata = await this.workflowProgressFs.stat(progressPath);
+    } catch (error) {
+      // ENOENT is the expected pre-first-run state. If a previously valid
+      // file disappears during an atomic replace, report it as stale data.
+      if (nodeErrorCode(error) === "ENOENT" && !this.lastWorkflowProgress) return null;
+      return this.workflowProgressFailure("UNREADABLE");
     }
-    if (!metadata.isFile()) return invalidProgress("INVALID_SHAPE");
-    if (metadata.size > MAX_WORKFLOW_PROGRESS_BYTES) return invalidProgress("OVERSIZE");
+    if (!metadata.isFile()) return this.workflowProgressFailure("INVALID_SHAPE");
+    if (metadata.size > MAX_WORKFLOW_PROGRESS_BYTES) return this.workflowProgressFailure("OVERSIZE");
     let contents: string;
     try {
-      contents = await readFile(progressPath, { encoding: "utf8" });
+      contents = await this.workflowProgressFs.readFile(progressPath);
     } catch {
-      return invalidProgress("INVALID_JSON");
+      return this.workflowProgressFailure("UNREADABLE");
     }
-    if (Buffer.byteLength(contents, "utf8") > MAX_WORKFLOW_PROGRESS_BYTES) return invalidProgress("OVERSIZE");
+    if (Buffer.byteLength(contents, "utf8") > MAX_WORKFLOW_PROGRESS_BYTES) return this.workflowProgressFailure("OVERSIZE");
     let parsed: unknown;
     try {
       parsed = JSON.parse(contents);
     } catch {
-      return invalidProgress("INVALID_JSON");
+      return this.workflowProgressFailure("INVALID_JSON");
     }
-    if (!isRecord(parsed)) return invalidProgress("INVALID_SHAPE");
-    return normalizeWorkflowProgress(parsed);
+    if (!isRecord(parsed)) return this.workflowProgressFailure("INVALID_SHAPE");
+    const normalized = normalizeWorkflowProgress(parsed);
+    if (!normalized || normalized.issue) return this.workflowProgressFailure(normalized?.issue ?? "INVALID_SHAPE");
+    const fresh: WorkflowProgressSummary = { ...normalized, stale: false, staleIssue: null };
+    this.lastWorkflowProgress = fresh;
+    return fresh;
   }
 
   public async dataSources(): Promise<DataSourceSummary[]> {

@@ -100,6 +100,9 @@ function normalizeOverview(value: OverviewResponse): OverviewResponse {
     workflowProgress: value.workflowProgress && typeof value.workflowProgress === "object"
       ? {
         ...value.workflowProgress,
+        issue: value.workflowProgress.issue ?? null,
+        stale: value.workflowProgress.stale === true,
+        staleIssue: value.workflowProgress.staleIssue ?? null,
         lanes: Array.isArray(value.workflowProgress.lanes) ? value.workflowProgress.lanes : [],
       }
       : null,
@@ -594,11 +597,45 @@ function progressPhaseLabel(phase?: string | null): string {
   return labels[phase ?? "UNKNOWN"] ?? "未知阶段";
 }
 
+function progressIssueTitle(issue: WorkflowProgressSummary["issue"]): string {
+  if (issue === "UNREADABLE") return "进度文件不可读";
+  if (issue === "OVERSIZE") return "进度读取已阻断";
+  if (issue === "INVALID_JSON") return "进度文件格式无效";
+  if (issue === "INVALID_SHAPE") return "进度文件结构无效";
+  return "进度不可用";
+}
+
 function progressIssueLabel(issue?: WorkflowProgressSummary["issue"]): string {
+  if (issue === "UNREADABLE") return "无法读取进度文件，控制台会继续自动重试";
   if (issue === "OVERSIZE") return "进度文件超过安全大小限制，已阻断读取";
   if (issue === "INVALID_JSON") return "进度文件格式无效，已停止展示原文";
   if (issue === "INVALID_SHAPE") return "进度文件结构无效，已停止展示原文";
   return "";
+}
+
+type ProgressMeasure = {
+  processed: number;
+  total: number;
+  kind: "stocks" | "batches";
+};
+
+function hasMeaningfulProgress(processed: number | null, total: number | null): processed is number {
+  return processed !== null && Number.isFinite(processed) && total !== null && Number.isFinite(total) && total > 0;
+}
+
+function progressMeasure(
+  processed: number | null,
+  total: number | null,
+  batchProcessed: number | null,
+  batchTotal: number | null,
+): ProgressMeasure | null {
+  if (hasMeaningfulProgress(processed, total)) return { processed, total: total as number, kind: "stocks" };
+  if (hasMeaningfulProgress(batchProcessed, batchTotal)) return { processed: batchProcessed, total: batchTotal as number, kind: "batches" };
+  return null;
+}
+
+function isResearchPhase(phase?: string | null): boolean {
+  return phase?.startsWith("RESEARCH_") === true;
 }
 
 function progressPercent(processed: number | null, total: number | null): number | null {
@@ -608,7 +645,8 @@ function progressPercent(processed: number | null, total: number | null): number
 
 function ProgressBar({ processed, total, compact = false }: { processed: number | null; total: number | null; compact?: boolean }) {
   const percent = progressPercent(processed, total);
-  return <div className={`progress-bar ${compact ? "progress-bar-compact" : ""}`} role="progressbar" aria-valuemin={0} aria-valuemax={total ?? undefined} aria-valuenow={processed ?? undefined} aria-label="执行进度"><span style={{ transform: `scaleX(${(percent ?? 0) / 100})` }} /></div>;
+  if (percent === null) return null;
+  return <div className={`progress-bar ${compact ? "progress-bar-compact" : ""}`} role="progressbar" aria-valuemin={0} aria-valuemax={total ?? undefined} aria-valuenow={processed ?? undefined} aria-label="执行进度"><span style={{ transform: `scaleX(${percent / 100})` }} /></div>;
 }
 
 function progressRate(progress: WorkflowProgressSummary): string {
@@ -623,15 +661,19 @@ function progressRate(progress: WorkflowProgressSummary): string {
 
 function WorkflowProgressPanel({ progress }: { progress: WorkflowProgressSummary | null }) {
   const isPdfProgress = progress?.phase === "CNINFO_PDF_SYNC";
+  const hasBlockingIssue = Boolean(progress?.issue && !progress.stale);
+  const overallMeasure = progress ? progressMeasure(progress.processed, progress.total, null, null) : null;
+  const researchWithoutOverallCount = progress ? isResearchPhase(progress.phase) && !overallMeasure : false;
   return (
     <Panel title="执行进度" icon={<Activity size={18} />} className="workflow-progress-panel">
-      {!progress ? <EmptyState title="暂无持久化进度" detail="首次初始化或研究任务开始后，Python 会将阶段进度写入控制台。" icon={<Activity size={22} />} /> : progress.issue ? (
-        <div className="progress-issue" role="status"><StatusIcon tone={progress.status === "BLOCKED" ? "warning" : "error"} size={20} /><div><strong>{progress.status === "BLOCKED" ? "进度读取已阻断" : "进度不可用"}</strong><span>{progressIssueLabel(progress.issue)}</span></div></div>
+      {!progress ? <EmptyState title="暂无持久化进度" detail="首次初始化或研究任务开始后，Python 会将阶段进度写入控制台。" icon={<Activity size={22} />} /> : hasBlockingIssue ? (
+        <div className="progress-issue" role="status"><StatusIcon tone={progress.status === "BLOCKED" ? "warning" : "error"} size={20} /><div><strong>{progressIssueTitle(progress.issue)}</strong><span>{progressIssueLabel(progress.issue)}</span></div></div>
       ) : (
         <>
+          {progress.stale ? <div className="progress-stale" role="status"><StatusIcon tone="warning" size={17} /><div><strong>更新暂时延迟，正在重试</strong><span>{progressIssueLabel(progress.staleIssue ?? "UNREADABLE")}</span></div></div> : null}
           <div className="progress-summary-grid">
             <div><span>当前阶段</span><strong>{progressPhaseLabel(progress.phase)}</strong><StatusBadge status={progress.status} /></div>
-            <div><span>{isPdfProgress ? "PDF 文档处理" : "总体处理"}</span><strong>{progressPair(progress.processed, progress.total)}</strong><ProgressBar processed={progress.processed} total={progress.total} /></div>
+            <div><span>{isPdfProgress ? "PDF 文档处理" : researchWithoutOverallCount ? "研究批次（按模型）" : "总体处理"}</span><strong>{overallMeasure ? progressPair(overallMeasure.processed, overallMeasure.total) : researchWithoutOverallCount ? "按下方模型批次" : "暂无可用计数"}</strong>{overallMeasure ? <ProgressBar processed={overallMeasure.processed} total={overallMeasure.total} /> : <span className="progress-no-value">{researchWithoutOverallCount ? "各 lane 分别统计" : "暂未提供"}</span>}</div>
             <div><span>{isPdfProgress ? "PDF 缓存命中 / 未命中" : "缓存命中 / 未命中"}</span><strong>{progressPair(progress.cacheHits, progress.cacheMisses)}</strong></div>
             <div><span>{isPdfProgress ? "PDF 失败数" : "失败数"}</span><strong className={progress.failures ? "progress-danger" : ""}>{progressCount(progress.failures)}</strong></div>
             <div><span>已用时间</span><strong>{formatDuration(progress.elapsedMs)}</strong></div>
@@ -646,7 +688,7 @@ function WorkflowProgressPanel({ progress }: { progress: WorkflowProgressSummary
             </div>
           ) : null}
           {progress.lanes.length === 0 ? <div className="progress-empty-lanes">当前阶段尚未产生模型 lane 批次。</div> : <div className="progress-lanes">{progress.lanes.map((lane) => <ProgressLane key={lane.laneId} lane={lane} />)}</div>}
-          <div className="panel-footnote"><Activity size={14} /><span>最近更新时间 {formatDateTime(progress.updatedAt)}；此处只显示安全的汇总进度，不展示模型原文。</span></div>
+          <div className="panel-footnote"><Activity size={14} /><span>{progress.stale ? `更新暂时延迟，正在重试；以下为最近一次成功读取的安全汇总（${formatDateTime(progress.updatedAt)}）。` : `最近更新时间 ${formatDateTime(progress.updatedAt)}；此处只显示安全的汇总进度，不展示模型原文。`}</span></div>
         </>
       )}
     </Panel>
@@ -654,15 +696,26 @@ function WorkflowProgressPanel({ progress }: { progress: WorkflowProgressSummary
 }
 
 function ProgressLane({ lane }: { lane: WorkflowProgressLane }) {
+  const stockMeasure = hasMeaningfulProgress(lane.processed, lane.total);
+  const batchMeasure = hasMeaningfulProgress(lane.batchProcessed, lane.batchTotal);
+  const displayMeasure = progressMeasure(lane.processed, lane.total, lane.batchProcessed, lane.batchTotal);
   return <article className="progress-lane"><header><div><strong>{MODEL_LABELS[lane.laneId] ?? lane.laneId}</strong><small>{lane.model ?? "模型未标注"}</small></div><StatusBadge status={lane.status} label={lane.currentStage ? progressPhaseLabel(lane.currentStage) : statusLabel(lane.status)} /></header>
-    <div className="progress-lane-meta"><span>批次 {progressPair(lane.batchProcessed, lane.batchTotal)}</span><span>股票 {progressPair(lane.processed, lane.total)}</span></div>
-    <ProgressBar processed={lane.processed} total={lane.total} compact />
+    <div className="progress-lane-meta"><span>{stockMeasure ? `股票 ${progressPair(lane.processed, lane.total)}` : "股票计数未提供"}</span><span>{batchMeasure ? `批次 ${progressPair(lane.batchProcessed, lane.batchTotal)}` : "批次数据未提供"}</span></div>
+    {displayMeasure ? <ProgressBar processed={displayMeasure.processed} total={displayMeasure.total} compact /> : <span className="progress-no-value">暂无可用进度</span>}
     {lane.stages.length ? <ul className="progress-stage-list">{lane.stages.map((stage) => <ProgressStage key={stage.stage} stage={stage} />)}</ul> : null}
   </article>;
 }
 
 function ProgressStage({ stage }: { stage: WorkflowProgressStage }) {
-  return <li><div><strong>{progressPhaseLabel(stage.stage)}</strong><StatusBadge status={stage.status} /></div><span>批次 {progressPair(stage.batchProcessed, stage.batchTotal)} · 股票 {progressPair(stage.processed, stage.total)}</span><ProgressBar processed={stage.processed} total={stage.total} compact /></li>;
+  const stockMeasure = hasMeaningfulProgress(stage.processed, stage.total);
+  const batchMeasure = hasMeaningfulProgress(stage.batchProcessed, stage.batchTotal);
+  const displayMeasure = progressMeasure(stage.processed, stage.total, stage.batchProcessed, stage.batchTotal);
+  const metricLabel = stockMeasure
+    ? `股票 ${progressPair(stage.processed, stage.total)}${batchMeasure ? ` · 批次 ${progressPair(stage.batchProcessed, stage.batchTotal)}` : " · 批次数据未提供"}`
+    : batchMeasure
+      ? `股票计数未提供 · 批次 ${progressPair(stage.batchProcessed, stage.batchTotal)}`
+      : "股票计数未提供 · 批次数据未提供";
+  return <li><div><strong>{progressPhaseLabel(stage.stage)}</strong><StatusBadge status={stage.status} /></div><span>{metricLabel}</span>{displayMeasure ? <ProgressBar processed={displayMeasure.processed} total={displayMeasure.total} compact /> : <span className="progress-no-value">暂无可用进度</span>}</li>;
 }
 
 function StageCell({ stage, model, canOpen, onOpen }: { stage?: StageSummary; model: string; canOpen: boolean; onOpen: (trigger: HTMLButtonElement) => void }) {
