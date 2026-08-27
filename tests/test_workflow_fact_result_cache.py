@@ -1,3 +1,5 @@
+import hashlib
+import json
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -16,6 +18,24 @@ from liangjian_funnel.workflow import (
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
+
+
+def test_hash_json_streaming_matches_legacy_canonical_contract():
+    value = {
+        "z": [1, {"中文": "量见"}],
+        "a": datetime(2026, 8, 27, 15, 10, tzinfo=SHANGHAI),
+    }
+    legacy = hashlib.sha256(
+        json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        ).encode("utf-8")
+    ).hexdigest()
+
+    assert _hash_json(value) == legacy
 
 
 class FakeCninfoClient:

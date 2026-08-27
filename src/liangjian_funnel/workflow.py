@@ -1329,12 +1329,24 @@ class WorkflowApplication:
                 as_of=stage_current,
             )
             base_news = snapshot.data.get("NEWS_HEAT_SNAPSHOT")
+            merged_news = _merge_news_heat_snapshots(base_news, stock_news)
+            scoped_symbols = sorted(upstream_symbols)
             merged_data = {
                 **dict(snapshot.data),
-                "NEWS_HEAT_SNAPSHOT": _merge_news_heat_snapshots(base_news, stock_news),
-                "A2_STOCK_NEWS_SCOPE": sorted(upstream_symbols),
+                "NEWS_HEAT_SNAPSHOT": merged_news,
+                "A2_STOCK_NEWS_SCOPE": scoped_symbols,
             }
-            stage_hash = _hash_json(merged_data)
+            # The base snapshot is already content-addressed. Hash only its
+            # digest plus the A2 overlay; serializing the complete 200MB+
+            # snapshot once per lane creates an avoidable multi-GB peak.
+            stage_hash = _hash_json(
+                {
+                    "base_snapshot_hash": snapshot.snapshot_hash,
+                    "stage": "A2",
+                    "NEWS_HEAT_SNAPSHOT": merged_news,
+                    "A2_STOCK_NEWS_SCOPE": scoped_symbols,
+                }
+            )
             return {
                 "snapshot_id": f"{snapshot.snapshot_id}:a2:{stage_hash[:12]}",
                 "snapshot_hash": stage_hash,
@@ -2820,8 +2832,21 @@ def _plan_expiry(value: Any, now: datetime, slot: str) -> datetime:
 
 
 def _hash_json(value: Any) -> str:
-    text = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+    # ``json.dumps(...).encode(...)`` simultaneously retains the Python
+    # object tree, one complete Unicode JSON string and one complete UTF-8
+    # byte string. Full-market snapshots exceed 200MB, making that transient
+    # duplication large enough to trigger the VM OOM killer. ``iterencode``
+    # produces byte-identical canonical JSON incrementally.
+    encoder = json.JSONEncoder(
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    digest = hashlib.sha256()
+    for chunk in encoder.iterencode(value):
+        digest.update(chunk.encode("utf-8"))
+    return digest.hexdigest()
 
 
 def _supplemental_contract(bundle: Mapping[str, Any], key: str) -> dict[str, Any] | None:
