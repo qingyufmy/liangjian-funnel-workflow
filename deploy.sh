@@ -31,9 +31,23 @@ if [[ "${bootstrap_state_before}" == "active" && "${current_commit}" != "${targe
 fi
 
 lock_hash_before="$(sha256sum package-lock.json | awk '{print $1}')"
+python_project_hash_before="$(sha256sum pyproject.toml | awk '{print $1}')"
 echo "[deploy] Pulling latest Node/UI code..."
 runuser -u www -- git pull --ff-only origin main
 lock_hash_after="$(sha256sum package-lock.json | awk '{print $1}')"
+python_project_hash_after="$(sha256sum pyproject.toml | awk '{print $1}')"
+
+if [[ ! -x .venv/bin/python ]]; then
+  echo "[deploy] Python virtual environment is missing."
+  exit 6
+fi
+
+if [[ "${python_project_hash_before}" != "${python_project_hash_after}" ]]; then
+  echo "[deploy] Python project metadata changed; updating virtual environment..."
+  runuser -u www -- .venv/bin/python -m pip install ".[dev]"
+else
+  echo "[deploy] pyproject.toml unchanged; reusing Python dependencies."
+fi
 
 if [[ ! -d node_modules || "${lock_hash_before}" != "${lock_hash_after}" ]]; then
   echo "[deploy] Installing Node dependencies..."
