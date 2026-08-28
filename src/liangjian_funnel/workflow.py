@@ -333,15 +333,13 @@ class WorkflowApplication:
                 as_of=current,
                 lookback_days=800,
                 compact_daily_bars=30,
+                fundamental_projector=_compact_fundamental_rows,
                 progress=sync_progress,
             )
             for symbol, reasons in sync_result.failures.items():
                 source_failures.setdefault(symbol, []).extend(reasons)
             daily: dict[str, Any] = sync_result.daily
-            fundamental: dict[str, Any] = {
-                symbol: _compact_fundamental_rows(rows)
-                for symbol, rows in sync_result.fundamental.items()
-            }
+            fundamental: dict[str, Any] = sync_result.fundamental
             technical: dict[str, Any] = {}
 
         # A1 is a structural macro/policy layer. A six-day window only shows

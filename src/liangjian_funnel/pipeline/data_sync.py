@@ -20,7 +20,7 @@ CORE_FINANCIAL_DATASETS = ("INCOME", "BALANCE", "CASH_FLOW")
 @dataclass(frozen=True, slots=True)
 class SyncResult:
     daily: dict[str, list[dict[str, Any]]]
-    fundamental: dict[str, list[dict[str, Any]]]
+    fundamental: dict[str, Any]
     failures: dict[str, list[str]]
     processed: int
     total: int
@@ -29,6 +29,7 @@ class SyncResult:
 
 
 ProgressCallback = Callable[[Mapping[str, Any]], None]
+FundamentalProjector = Callable[[list[dict[str, Any]]], Any]
 
 
 class HithinkIncrementalSynchronizer:
@@ -62,13 +63,14 @@ class HithinkIncrementalSynchronizer:
         as_of: datetime,
         lookback_days: int = 800,
         compact_daily_bars: int = 30,
+        fundamental_projector: FundamentalProjector | None = None,
         progress: ProgressCallback | None = None,
     ) -> SyncResult:
         current = _aware(as_of)
         ordered = tuple(dict.fromkeys(str(symbol).strip().upper() for symbol in symbols))
         failures: dict[str, list[str]] = {}
         daily: dict[str, list[dict[str, Any]]] = {}
-        fundamental: dict[str, list[dict[str, Any]]] = {}
+        fundamental: dict[str, Any] = {}
         hits = 0
         misses = 0
         start = current - timedelta(days=max(1, int(lookback_days)))
@@ -191,7 +193,16 @@ class HithinkIncrementalSynchronizer:
                 any(row.get("_dataset") == dataset for row in financial_rows)
                 for dataset in CORE_FINANCIAL_DATASETS
             ):
-                fundamental[symbol] = financial_rows
+                # The complete revision history is already durable in SQLite.
+                # Formal full-market runs provide a bounded projector here so
+                # only the model-facing summary survives this iteration.  The
+                # default preserves the historical public API for callers that
+                # explicitly need every cached row.
+                fundamental[symbol] = (
+                    fundamental_projector(financial_rows)
+                    if fundamental_projector is not None
+                    else financial_rows
+                )
 
             if symbol_hit:
                 hits += 1
@@ -310,6 +321,7 @@ def _aware(value: datetime) -> datetime:
 __all__ = [
     "CORE_FINANCIAL_DATASETS",
     "FINANCIAL_DATASETS",
+    "FundamentalProjector",
     "HithinkIncrementalSynchronizer",
     "SyncResult",
 ]

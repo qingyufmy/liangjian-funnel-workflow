@@ -129,6 +129,38 @@ def test_core_statements_are_returned_when_indicators_are_missing(tmp_path):
     assert "INDICATORS:CACHE_EMPTY" in result.failures["600519.SH"]
 
 
+def test_full_market_sync_retains_only_projected_fundamentals(tmp_path):
+    cache = LocalFactCache(tmp_path / "facts.sqlite3")
+    sync = HithinkIncrementalSynchronizer(cache, progress_every=1)
+    projected_row_counts: list[int] = []
+
+    def project(rows: list[dict]) -> dict:
+        projected_row_counts.append(len(rows))
+        return {
+            "datasets": sorted({row["_dataset"] for row in rows}),
+            "row_count": len(rows),
+        }
+
+    result = sync.sync(
+        FakeClient(),
+        ["600519.SH", "000001.SZ"],
+        as_of=NOW,
+        fundamental_projector=project,
+    )
+
+    assert projected_row_counts == [4, 4]
+    assert result.fundamental == {
+        "600519.SH": {
+            "datasets": ["BALANCE", "CASH_FLOW", "INCOME", "INDICATORS"],
+            "row_count": 4,
+        },
+        "000001.SZ": {
+            "datasets": ["BALANCE", "CASH_FLOW", "INCOME", "INDICATORS"],
+            "row_count": 4,
+        },
+    }
+
+
 def test_stale_daily_cache_refreshes_only_recent_overlap_window(tmp_path):
     cache = LocalFactCache(tmp_path / "facts.sqlite3")
     sync = HithinkIncrementalSynchronizer(cache, daily_refresh_hours=4)
