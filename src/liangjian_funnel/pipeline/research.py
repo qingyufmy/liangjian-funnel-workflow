@@ -8,6 +8,7 @@ before a stage can be consumed by its downstream stage.
 
 from __future__ import annotations
 
+import gc
 import hashlib
 import inspect
 import json
@@ -435,7 +436,12 @@ class ResearchPipeline:
             with ThreadPoolExecutor(max_workers=3, thread_name_prefix="liangjian-lane") as executor:
                 lanes = list(executor.map(lambda item: execute_lane(*item), indexed_models))
         else:
-            lanes = [execute_lane(index, model) for index, model in indexed_models]
+            lanes = []
+            for index, model in indexed_models:
+                lanes.append(execute_lane(index, model))
+                # Prompt projections can leave large temporary object graphs.
+                # Collect them before the next model lane starts.
+                gc.collect()
 
         if self.runtime_store is not None:
             config_hash = str(frozen.data.get("config_hash") or "") or None

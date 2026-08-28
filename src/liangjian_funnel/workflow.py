@@ -1167,10 +1167,13 @@ class WorkflowApplication:
             prompt_repository=self.prompts,
             model_client=self.model_client,
             output_dir=self.settings.workflow_output_dir / "research",
-            parallel_lanes=True,
+            # A full lane must finish and release its projected prompt data
+            # before the next model starts. Parallel lanes multiply the
+            # 200+ MiB frozen snapshot during JSON projection.
+            parallel_lanes=False,
             runtime_store=self.store,
             slot=normalized_slot,
-            batch_workers=self.settings.research_batch_workers,
+            batch_workers=1,
             progress_callback=research_progress,
             checkpoint_store=self.research_checkpoints,
             stage_snapshot_enricher=self._stage_snapshot_enricher,

@@ -28,7 +28,7 @@ def test_exact_models_and_safe_summary_do_not_leak_keys(tmp_path: Path):
     assert settings.model_max_input_tokens == 1_000_000
     assert settings.research_a1_batch_size == 20
     assert settings.research_a2_batch_size == 40
-    assert settings.research_batch_workers == 2
+    assert settings.research_batch_workers == 1
     assert settings.data_sync_batch_size == 50
     assert settings.cninfo_workers == 4
     assert settings.cninfo_pdf_workers == 2
@@ -53,6 +53,15 @@ def test_thinking_flags_are_explicit_and_strict(tmp_path: Path):
 
     with pytest.raises(ValueError, match="boolean"):
         Settings.from_env({"LIANGJIAN_MONITOR_THINKING_ENABLED": "maybe"}, root=tmp_path)
+
+
+def test_research_batch_workers_cannot_reenable_parallel_production_requests(tmp_path: Path):
+    settings = Settings.from_env(
+        {"LIANGJIAN_RESEARCH_BATCH_WORKERS": "8"},
+        root=tmp_path,
+    )
+
+    assert settings.research_batch_workers == 1
 
 
 def test_open_macro_can_be_disabled_without_changing_other_sources(tmp_path: Path):

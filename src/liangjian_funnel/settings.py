@@ -104,7 +104,7 @@ class Settings(BaseModel):
     open_macro_enabled: bool = True
     research_a1_batch_size: int = Field(default=20, ge=1, le=40)
     research_a2_batch_size: int = Field(default=40, ge=1, le=100)
-    research_batch_workers: int = Field(default=2, ge=1, le=8)
+    research_batch_workers: int = Field(default=1, ge=1, le=1)
     research_pipeline_mode: str = "deterministic_v2"
     a1_local_top_n_per_node: int = Field(default=15, ge=1, le=100)
     a1_llm_top_n_per_node: int = Field(default=3, ge=1, le=20)  # deprecated compatibility input
@@ -279,7 +279,10 @@ class Settings(BaseModel):
             open_macro_enabled=_parse_bool(env.get("LIANGJIAN_OPEN_MACRO_ENABLED"), default=True),
             research_a1_batch_size=int(env.get("LIANGJIAN_A1_BATCH_SIZE", "20")),
             research_a2_batch_size=int(env.get("LIANGJIAN_A2_BATCH_SIZE", "40")),
-            research_batch_workers=int(env.get("LIANGJIAN_RESEARCH_BATCH_WORKERS", "2")),
+            # Production research is deliberately serial on the 4 GiB VM.
+            # Ignore legacy worker overrides so deployment configuration
+            # cannot silently re-enable concurrent prompt construction.
+            research_batch_workers=1,
             research_pipeline_mode=env.get("LIANGJIAN_RESEARCH_PIPELINE_MODE", "deterministic_v2"),
             a1_local_top_n_per_node=int(env.get("LIANGJIAN_A1_LOCAL_TOP_N_PER_NODE", "15")),
             a1_llm_top_n_per_node=int(env.get("LIANGJIAN_A1_LLM_TOP_N_PER_NODE", "3")),
