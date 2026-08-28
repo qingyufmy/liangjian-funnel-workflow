@@ -13,7 +13,7 @@ import json
 import re
 import sqlite3
 import time
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -974,6 +974,83 @@ class LocalFactCache:
         # Dict insertion order follows caller order even if SQLite returns a
         # different row order, which makes downstream cache accounting stable.
         return {key: result[key] for key in normalized_keys if key in result}
+
+    def iter_cached_results(
+        self,
+        namespace: str,
+        cache_keys: Iterable[str],
+        *,
+        fresh_at: datetime | str | None = None,
+        as_of: datetime | str | None = None,
+        chunk_size: int = 100,
+    ) -> Iterator[tuple[str, dict[str, Any]]]:
+        """Yield valid cached results in the caller's stable key order.
+
+        ``get_cached_results`` returns a mapping containing every matching
+        payload, which is useful for small batches but would retain the whole
+        document universe when called with thousands of keys.  This iterator
+        keeps only the current bounded batch's result mapping.  Keys are
+        normalized and de-duplicated as they are consumed, so callers may
+        supply a large or one-shot iterable without first materializing it.
+
+        The query and revision semantics are deliberately delegated to
+        :meth:`get_cached_results`: filters are applied before ranking, so an
+        expired newest revision cannot hide an older fresh revision and an
+        ``as_of`` cut-off excludes future revisions.
+        """
+
+        if (
+            isinstance(chunk_size, bool)
+            or not isinstance(chunk_size, int)
+            or chunk_size <= 0
+        ):
+            raise ValueError("chunk_size must be a positive integer")
+
+        normalized_namespace = str(_sanitize(namespace)).strip()
+        if not normalized_namespace:
+            raise ValueError("namespace must not be empty")
+        # Parse optional cut-offs before returning the lazy iterator.  This
+        # matches the eager validation behavior of get_cached_results while
+        # still allowing cache_keys itself to remain a one-shot iterable.
+        as_of_value = None if as_of is None else _timestamp(as_of)
+        fresh_at_value = None if fresh_at is None else _timestamp(fresh_at)
+        # ``get_cached_results`` keeps each SQL statement below SQLite's
+        # practical bound of 900 key parameters.  Apply the same bound to the
+        # iterator batch so a caller cannot accidentally retain a very large
+        # result mapping by passing an oversized chunk_size.
+        effective_chunk_size = min(chunk_size, 900)
+
+        def _iterate() -> Iterator[tuple[str, dict[str, Any]]]:
+            seen: set[str] = set()
+            chunk: list[str] = []
+
+            def emit_current_chunk() -> Iterator[tuple[str, dict[str, Any]]]:
+                if not chunk:
+                    return
+                records = self.get_cached_results(
+                    normalized_namespace,
+                    chunk,
+                    as_of=as_of_value,
+                    fresh_at=fresh_at_value,
+                    chunk_size=effective_chunk_size,
+                )
+                for key in chunk:
+                    record = records.get(key)
+                    if record is not None:
+                        yield key, record
+
+            for raw_key in cache_keys:
+                key = str(_sanitize(raw_key)).strip()
+                if not key or key in seen:
+                    continue
+                seen.add(key)
+                chunk.append(key)
+                if len(chunk) == effective_chunk_size:
+                    yield from emit_current_chunk()
+                    chunk.clear()
+            yield from emit_current_chunk()
+
+        return _iterate()
 
     def get_sync_state(
         self, endpoint: str, symbol: str | None = None

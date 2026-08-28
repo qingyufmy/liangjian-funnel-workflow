@@ -11,18 +11,27 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from pydantic import BaseModel
-
 from .contracts import (
     FactEnvelope,
     FactSnapshotManifest,
     RealtimeFactEnvelope,
-    canonical_json_bytes,
+    canonical_json_chunks,
 )
 
 
 def _sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
+
+
+_HASH_CHUNK_SIZE = 1024 * 1024
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(_HASH_CHUNK_SIZE), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 _SAFE_PATH_TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
@@ -44,8 +53,10 @@ def _atomic_write_bytes(path: Path, content: bytes) -> None:
         suffix=".tmp",
     )
     temporary = Path(temporary_name)
+    file_descriptor: int | None = fd
     try:
         with os.fdopen(fd, "wb") as handle:
+            file_descriptor = None
             handle.write(content)
             handle.flush()
             os.fsync(handle.fileno())
@@ -62,6 +73,52 @@ def _atomic_write_bytes(path: Path, content: bytes) -> None:
             finally:
                 os.close(directory_fd)
     finally:
+        if file_descriptor is not None:
+            os.close(file_descriptor)
+        if temporary.exists():
+            temporary.unlink()
+
+
+def _atomic_write_json(path: Path, value: Any) -> str:
+    """Stream canonical JSON to an atomic temporary file and return its hash."""
+
+    # Run validation before opening a file.  Besides avoiding a needless temp
+    # file for rejected secrets, this keeps the error path free of leaked file
+    # descriptors.
+    chunks = canonical_json_chunks(value)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary_name = tempfile.mkstemp(
+        dir=str(path.parent),
+        prefix=f".{path.name}.{uuid4().hex}.",
+        suffix=".tmp",
+    )
+    temporary = Path(temporary_name)
+    digest = hashlib.sha256()
+    file_descriptor: int | None = fd
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            file_descriptor = None
+            for chunk in chunks:
+                handle.write(chunk)
+                digest.update(chunk)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        try:
+            directory_fd = os.open(path.parent, os.O_RDONLY)
+        except OSError:
+            directory_fd = None
+        if directory_fd is not None:
+            try:
+                os.fsync(directory_fd)
+            except OSError:
+                pass
+            finally:
+                os.close(directory_fd)
+        return digest.hexdigest()
+    finally:
+        if file_descriptor is not None:
+            os.close(file_descriptor)
         if temporary.exists():
             temporary.unlink()
 
@@ -99,15 +156,13 @@ class FactStore:
 
     def write_json(self, path: str | os.PathLike[str], value: Any) -> Path:
         target = self.resolve(path)
-        if isinstance(value, BaseModel):
-            value = value.model_dump(mode="json")
-        content = canonical_json_bytes(value)
-        digest = _sha256_bytes(content)
-        _atomic_write_bytes(target, content)
+        digest = _atomic_write_json(target, value)
         _atomic_write_bytes(Path(f"{target}.sha256"), f"{digest}\n".encode("ascii"))
-        # Read immediately after replace.  This catches a failed write or an
-        # unexpected filesystem transformation before the caller can bind it.
-        self.read_json(target, expected_sha256=digest)
+        # Verify the replaced file without loading its full content or parsing
+        # a second in-memory JSON tree.  read_json() remains the compatibility
+        # API for callers that need the decoded object.
+        if _sha256_file(target) != digest:
+            raise ValueError("stored JSON content hash mismatch")
         return target
 
     def read_json(
@@ -117,8 +172,7 @@ class FactStore:
         expected_sha256: str | None = None,
     ) -> Any:
         target = self.resolve(path)
-        content = target.read_bytes()
-        actual = _sha256_bytes(content)
+        actual = _sha256_file(target)
         expected = expected_sha256
         if expected is None:
             sidecar = Path(f"{target}.sha256")
@@ -128,13 +182,14 @@ class FactStore:
         if expected is not None and actual.lower() != expected.lower():
             raise ValueError("stored JSON content hash mismatch")
         try:
-            return json.loads(content.decode("utf-8"))
+            with target.open("r", encoding="utf-8") as handle:
+                return json.load(handle)
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise ValueError("stored JSON is invalid") from exc
 
     def content_hash(self, path: str | os.PathLike[str]) -> str:
         target = self.resolve(path)
-        return _sha256_bytes(target.read_bytes())
+        return _sha256_file(target)
 
     def write_fact(
         self,

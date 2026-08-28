@@ -359,6 +359,84 @@ test("projects a valid workflow progress document without exposing unknown field
   expect(JSON.stringify(progress)).not.toContain("private model output");
 });
 
+test("marks a running progress file as stale when its filesystem heartbeat times out", async () => {
+  const root = await mkdtemp(join(tmpdir(), "liangjian-progress-heartbeat-timeout-"));
+  await mkdir(join(root, "state"), { recursive: true });
+  const progressPath = join(root, "state", "workflow_progress.json");
+  await writeFile(progressPath, JSON.stringify({
+    run_id: "heartbeat-timeout",
+    status: "RUNNING",
+    phase: "A1",
+    updated_at: "2026-01-01T00:00:00.000Z",
+  }));
+  const oldTime = new Date(Date.now() - 10_000);
+  await utimes(progressPath, oldTime, oldTime);
+  const config = loadConfig({
+    LIANGJIAN_PYTHON_BIN: "python3",
+    LIANGJIAN_WORKFLOW_PROGRESS_STALE_MS: "1000",
+  }, root);
+  const files = new ProjectFiles(config, new LogStore(config));
+
+  await expect(files.workflowProgress()).resolves.toMatchObject({
+    status: "STALE",
+    issue: null,
+    stale: true,
+    staleIssue: "HEARTBEAT_TIMEOUT",
+    runId: "heartbeat-timeout",
+  });
+});
+
+test("keeps a recently modified running progress file in the running state", async () => {
+  const root = await mkdtemp(join(tmpdir(), "liangjian-progress-heartbeat-fresh-"));
+  await mkdir(join(root, "state"), { recursive: true });
+  await writeFile(join(root, "state", "workflow_progress.json"), JSON.stringify({
+    run_id: "heartbeat-fresh",
+    status: "RUNNING",
+    phase: "A1",
+    updated_at: "2026-01-01T00:00:00.000Z",
+  }));
+  const config = loadConfig({
+    LIANGJIAN_PYTHON_BIN: "python3",
+    LIANGJIAN_WORKFLOW_PROGRESS_STALE_MS: "60000",
+  }, root);
+  const files = new ProjectFiles(config, new LogStore(config));
+
+  await expect(files.workflowProgress()).resolves.toMatchObject({
+    status: "RUNNING",
+    issue: null,
+    stale: false,
+    staleIssue: null,
+    runId: "heartbeat-fresh",
+  });
+});
+
+test("does not mark an old completed progress file as stale", async () => {
+  const root = await mkdtemp(join(tmpdir(), "liangjian-progress-heartbeat-completed-"));
+  await mkdir(join(root, "state"), { recursive: true });
+  const progressPath = join(root, "state", "workflow_progress.json");
+  await writeFile(progressPath, JSON.stringify({
+    run_id: "heartbeat-completed",
+    status: "COMPLETED",
+    phase: "COMPLETE",
+    updated_at: "2026-01-01T00:00:00.000Z",
+  }));
+  const oldTime = new Date(Date.now() - 10_000);
+  await utimes(progressPath, oldTime, oldTime);
+  const config = loadConfig({
+    LIANGJIAN_PYTHON_BIN: "python3",
+    LIANGJIAN_WORKFLOW_PROGRESS_STALE_MS: "1000",
+  }, root);
+  const files = new ProjectFiles(config, new LogStore(config));
+
+  await expect(files.workflowProgress()).resolves.toMatchObject({
+    status: "COMPLETED",
+    issue: null,
+    stale: false,
+    staleIssue: null,
+    runId: "heartbeat-completed",
+  });
+});
+
 test("returns a fixed invalid summary for malformed workflow progress JSON", async () => {
   const root = await mkdtemp(join(tmpdir(), "liangjian-progress-malformed-"));
   await mkdir(join(root, "state"), { recursive: true });
@@ -413,7 +491,7 @@ test("serves the last valid progress projection while the file is broken, then c
   });
 
   const fresh = await files.workflowProgress();
-  expect(fresh).toMatchObject({ runId: "stale-run", phase: "RESEARCH_A1", stale: false, staleIssue: null, issue: null });
+  expect(fresh).toMatchObject({ runId: "stale-run", phase: "RESEARCH_A1", status: "RUNNING", stale: false, staleIssue: null, issue: null });
   expect(fresh?.lanes[0]).toMatchObject({ laneId: "lane_1", batchProcessed: 6, batchTotal: 248 });
 
   malformed = true;

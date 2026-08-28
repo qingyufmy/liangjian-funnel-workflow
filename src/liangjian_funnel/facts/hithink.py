@@ -163,12 +163,18 @@ def manifest_projection(manifest: FactSnapshotManifest) -> dict[str, Any]:
         if len(records) == 1:
             facts[fact_type] = records[0]
         else:
-            facts[fact_type] = {
+            aggregate = {
                 "available": all(record.get("available") is True for record in records),
                 "reason_code": "OK" if all(record.get("available") is True for record in records) else "PARTIAL_SOURCE_FAILURE",
                 "record_count": len(records),
-                "records": records,
             }
+            # ``fact_groups`` is the authoritative multi-record collection.
+            # Repeating thousands of disclosure rows below ``facts`` doubled
+            # both snapshot bytes and serialization memory.  Small groups keep
+            # the legacy convenience field; large groups retain only a summary.
+            if len(records) <= 256:
+                aggregate["records"] = records
+            facts[fact_type] = aggregate
     return {
         "schema_version": manifest.schema_version,
         "snapshot_id": manifest.snapshot_id,

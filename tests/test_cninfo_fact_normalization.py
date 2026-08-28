@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 from liangjian_funnel.data.cninfo import CninfoAnnouncement, CninfoFetchResult
 from liangjian_funnel.data.cninfo_pdf import CninfoPdfEvidence, PdfEvidenceSnippet
 from liangjian_funnel.facts import (
+    compact_cninfo_pdf_evidence,
     manifest_projection,
     normalize_cninfo_results,
     select_cninfo_pdf_candidates,
@@ -204,3 +205,65 @@ def test_failed_pdf_degrades_health_without_erasing_metadata_fact() -> None:
     assert manifest.source_health[0].available is True
     assert str(manifest.source_health[0].status) == "DEGRADED"
     assert manifest.coverage_by_fact_type["CNINFO_PDF_EVIDENCE"] == 0.0
+
+
+def test_id_indexed_pdf_evidence_preserves_symbol_coverage_without_tuple_expansion() -> None:
+    item = _announcement("shared-a1", "2026年年度报告")
+    evidence = CninfoPdfEvidence(
+        announcement_id=item.announcement_id,
+        pdf_url=item.pdf_url,
+        available=True,
+        reason_code="OK",
+        fetched_at=NOW,
+        pdf_sha256="b" * 64,
+        cache_relative_path="raw/shared-a1.pdf",
+        content_type="application/pdf",
+        byte_size=10,
+        page_count=1,
+        pages_scanned=1,
+        extracted_chars=20,
+        snippets=(PdfEvidenceSnippet(page_number=1, text="主营业务分产品 营业收入 毛利率"),),
+    )
+
+    manifest = normalize_cninfo_results(
+        {"600519.SH": _result(item)},
+        pdf_evidence_by_id={item.announcement_id: evidence},
+        pdf_ids_by_symbol={"600519.SH": [item.announcement_id]},
+        as_of=NOW,
+        ingest_time=NOW,
+    )
+
+    assert manifest.coverage_by_fact_type["CNINFO_PDF_EVIDENCE"] == 1.0
+    assert manifest.facts[0].payload["pdf_evidence_available"] is True
+
+
+def test_snapshot_pdf_projection_keeps_full_cache_value_but_bounds_memory_snippets() -> None:
+    item = _announcement("compact-a1", "2026年年度报告")
+    snippets = tuple(
+        PdfEvidenceSnippet(
+            page_number=index + 1,
+            text=("主营业务分产品 营业收入 毛利率" if index == 9 else f"普通证据 {index}"),
+        )
+        for index in range(12)
+    )
+    evidence = CninfoPdfEvidence(
+        announcement_id=item.announcement_id,
+        pdf_url=item.pdf_url,
+        available=True,
+        reason_code="OK",
+        fetched_at=NOW,
+        pdf_sha256="c" * 64,
+        cache_relative_path="raw/compact-a1.pdf",
+        content_type="application/pdf",
+        byte_size=10,
+        page_count=12,
+        pages_scanned=12,
+        extracted_chars=200,
+        snippets=snippets,
+    )
+
+    compact = compact_cninfo_pdf_evidence(evidence, max_snippets=4)
+
+    assert len(evidence.snippets) == 12
+    assert len(compact.snippets) == 4
+    assert any("主营业务分产品" in snippet.text for snippet in compact.snippets)

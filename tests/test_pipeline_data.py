@@ -447,6 +447,26 @@ def test_frozen_snapshot_hash_replay_and_candidate_failure(tmp_path: Path):
     assert [failure.symbol for failure in restored.candidate_failures] == ["000001.SZ"]
 
 
+def test_frozen_snapshot_streams_without_dumping_the_complete_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    frozen = FrozenInputSnapshot.freeze(
+        _universe(),
+        as_of=NOW,
+        daily_payload={"600519.SH": [{"date": "2026-08-23", "close": 10}]},
+        max_candidates=1,
+    )
+
+    def fail_model_dump(*_args, **_kwargs):
+        raise AssertionError("complete frozen snapshot model_dump is not allowed")
+
+    monkeypatch.setattr(FrozenInputSnapshot, "model_dump", fail_model_dump)
+    path = frozen.write_json(tmp_path / "streaming-snapshot.json")
+
+    assert path.exists()
+    assert FrozenInputSnapshot.read_json(path).snapshot_hash == frozen.snapshot_hash
+
+
 def test_formal_snapshot_can_retain_incomplete_candidates_for_a1_classification():
     universe = _universe()
     frozen = FrozenInputSnapshot.freeze(

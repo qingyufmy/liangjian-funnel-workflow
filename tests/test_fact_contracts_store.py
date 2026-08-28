@@ -17,6 +17,8 @@ from liangjian_funnel.facts import (
     SourceHealth,
     merge_fact_manifests,
 )
+from liangjian_funnel.facts import contracts as fact_contracts
+from liangjian_funnel.facts.contracts import canonical_json_chunks, canonical_json_hash
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -97,6 +99,47 @@ def test_manifest_hash_is_stable_independent_of_fact_order() -> None:
     right = FactSnapshotManifest(snapshot_id="snapshot-1", as_of=T0, facts=(second, first))
     assert left.facts_sha256 == right.facts_sha256
     assert left.facts == right.facts
+
+
+def test_streaming_canonical_json_matches_legacy_bytes_for_nested_values() -> None:
+    fact = make_fact().model_copy(
+        update={
+            "payload": {
+                "unicode": "中文\nquote\"",
+                "nested": {"tuple": (None, 1, -0.0)},
+                "plain_set": {"b", "a"},
+                "timestamp": T0,
+            }
+        }
+    )
+    values = [
+        {
+            "mapping": {2: "numeric key", "nested": [{"value": None}]},
+            "tuple": (1, 2.5),
+            "set": {"b", "a"},
+            "date": T0.date(),
+            "fact": fact,
+        },
+        fact,
+        FactSnapshotManifest(snapshot_id="streaming", as_of=T0, facts=(fact,)),
+    ]
+
+    for value in values:
+        expected = fact_contracts.canonical_json_bytes(value)
+        actual = b"".join(canonical_json_chunks(value))
+        assert actual == expected
+        assert canonical_json_hash(value) == hashlib.sha256(expected).hexdigest()
+
+
+def test_fact_hash_uses_incremental_canonical_stream(monkeypatch: pytest.MonkeyPatch) -> None:
+    facts = (make_fact("fact-a"), make_fact("fact-b"))
+    expected = hashlib.sha256(fact_contracts.canonical_json_bytes(list(facts))).hexdigest()
+
+    def fail_canonical_bytes(_: object) -> bytes:
+        raise AssertionError("canonical_json_bytes must not be used for fact hashing")
+
+    monkeypatch.setattr(fact_contracts, "canonical_json_bytes", fail_canonical_bytes)
+    assert fact_contracts._facts_hash(facts) == expected
 
 
 def test_manifest_rejects_tampered_fact_hash() -> None:
@@ -183,6 +226,31 @@ def test_manifest_store_round_trip_revalidates_canonical_hash(tmp_path: Path) ->
     loaded = store.read_manifest(path)
     assert loaded.facts_sha256 == manifest.facts_sha256
     assert loaded.manifest_hash == manifest.manifest_hash
+
+
+def test_large_manifest_stream_path_avoids_full_dump_and_json_materialization(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    facts = tuple(make_fact(f"fact-{index:04d}") for index in range(128))
+    manifest = FactSnapshotManifest(snapshot_id="large-streaming", as_of=T0, facts=facts)
+    expected = fact_contracts.canonical_json_bytes(manifest)
+    expected_hash = hashlib.sha256(expected).hexdigest()
+
+    def fail_json_dump(*_: object, **__: object) -> str:
+        raise AssertionError("streaming path must not call json.dumps")
+
+    def fail_model_dump(*_: object, **__: object) -> object:
+        raise AssertionError("streaming path must not call model_dump")
+
+    monkeypatch.setattr(fact_contracts.json, "dumps", fail_json_dump)
+    monkeypatch.setattr(fact_contracts.FactSnapshotManifest, "model_dump", fail_model_dump)
+    monkeypatch.setattr(fact_contracts.FactEnvelope, "model_dump", fail_model_dump)
+
+    assert manifest.manifest_hash == expected_hash
+    store = FactStore(tmp_path / "facts")
+    path = store.write_manifest(manifest)
+    assert path.read_bytes() == expected
+    assert path.with_name(f"{path.name}.sha256").read_text(encoding="ascii").strip() == expected_hash
 
 
 def test_manifest_merge_is_stable_and_uses_latest_cutoff() -> None:

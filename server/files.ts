@@ -50,6 +50,7 @@ const DETAIL_TEXT_MAX_LENGTH = 1_000;
 
 const PROGRESS_STATUS = new Set<WorkflowProgressStatus>([
   "RUNNING",
+  "STALE",
   "COMPLETED",
   "READY",
   "PARTIAL",
@@ -800,7 +801,7 @@ function researchLaneFileNames(runId: string, laneId: string): readonly string[]
 }
 
 interface WorkflowProgressFileSystem {
-  readonly stat: (path: string) => Promise<{ readonly isFile: () => boolean; readonly size: number }>;
+  readonly stat: (path: string) => Promise<{ readonly isFile: () => boolean; readonly size: number; readonly mtimeMs?: number }>;
   readonly readFile: (path: string) => Promise<string>;
 }
 
@@ -1117,7 +1118,14 @@ export class ProjectFiles {
     if (!isRecord(parsed)) return this.workflowProgressFailure("INVALID_SHAPE");
     const normalized = normalizeWorkflowProgress(parsed);
     if (!normalized || normalized.issue) return this.workflowProgressFailure(normalized?.issue ?? "INVALID_SHAPE");
-    const fresh: WorkflowProgressSummary = { ...normalized, stale: false, staleIssue: null };
+    const mtimeMs = metadata.mtimeMs;
+    const heartbeatTimedOut = normalized.status === "RUNNING"
+      && typeof mtimeMs === "number"
+      && Number.isFinite(mtimeMs)
+      && Date.now() - mtimeMs > this.config.workflowProgressStaleMs;
+    const fresh: WorkflowProgressSummary = heartbeatTimedOut
+      ? { ...normalized, status: "STALE", stale: true, staleIssue: "HEARTBEAT_TIMEOUT" }
+      : { ...normalized, stale: false, staleIssue: null };
     this.lastWorkflowProgress = fresh;
     return fresh;
   }

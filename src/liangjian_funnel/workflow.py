@@ -31,6 +31,7 @@ from .data.ths_taxonomy import collect_ths_taxonomy_membership
 from .facts import (
     FactStore,
     collect_market_results,
+    compact_cninfo_pdf_evidence,
     manifest_projection,
     merge_fact_manifests,
     normalize_cninfo_results,
@@ -57,7 +58,7 @@ from .pipeline.research_checkpoint import FileResearchCheckpointStore
 from .pipeline.snapshot import FrozenInputSnapshot, UniverseGatePolicy, UniverseSnapshot
 from .pipeline.technical_aggregates import build_technical_aggregates
 from .redaction import digest_text, sanitize
-from .reporting import atomic_write_json, atomic_write_text
+from .reporting import atomic_write_json, atomic_write_json_streaming, atomic_write_text
 from .runtime.monitor import MonitorBatchResult, MonitorEngine, rebuild_effective_markdown
 from .runtime.progress import WorkflowProgress
 from .runtime.calendar import ExchangeTradingCalendar, TradingCalendarError
@@ -362,7 +363,6 @@ class WorkflowApplication:
         business_query_start = (current.date() - timedelta(days=450)).isoformat()
         query_end = current.date().isoformat()
         cninfo_results: dict[str, Any] = {}
-        cninfo_pdf_evidence: dict[tuple[str, str], CninfoPdfEvidence] = {}
         cninfo_hits = 0
         cninfo_misses = 0
         if progress is not None:
@@ -483,21 +483,29 @@ class WorkflowApplication:
                 # valid cache hits enter the completion set; misses are the
                 # only documents submitted to the bounded worker pool.
                 cache_keys = [announcement.announcement_id for _, announcement in unique_pdf_tasks]
-                cached_rows = self.fact_cache.get_cached_results(
+                index_by_id = {
+                    announcement.announcement_id: index
+                    for index, (_, announcement) in enumerate(unique_pdf_tasks)
+                }
+                for identifier, cached in self.fact_cache.iter_cached_results(
                     "CNINFO_PDF_EVIDENCE",
                     cache_keys,
                     fresh_at=datetime.now(SHANGHAI),
-                )
-                pending: list[tuple[int, str, CninfoAnnouncement]] = []
-                for index, (symbol, announcement) in enumerate(unique_pdf_tasks):
+                    chunk_size=100,
+                ):
+                    index = index_by_id[identifier]
+                    _, announcement = unique_pdf_tasks[index]
                     cached_evidence = self._cached_cninfo_pdf_evidence_from_record(
                         announcement,
-                        cached_rows.get(announcement.announcement_id),
+                        cached,
                     )
-                    if cached_evidence is None:
-                        pending.append((index, symbol, announcement))
-                        continue
-                    pdf_evidence_by_index[index] = cached_evidence
+                    if cached_evidence is not None:
+                        pdf_evidence_by_index[index] = compact_cninfo_pdf_evidence(cached_evidence)
+                pending: list[tuple[int, str, CninfoAnnouncement]] = [
+                    (index, symbol, announcement)
+                    for index, (symbol, announcement) in enumerate(unique_pdf_tasks)
+                    if index not in pdf_evidence_by_index
+                ]
 
                 pdf_cache_hits = len(pdf_evidence_by_index)
                 pdf_cache_misses = len(pending)
@@ -541,7 +549,7 @@ class WorkflowApplication:
                             # document, but remains visible as a stable
                             # source failure instead of being silently lost.
                             evidence = self._cninfo_pdf_worker_failure(announcement)
-                        pdf_evidence_by_index[index] = evidence
+                        pdf_evidence_by_index[index] = compact_cninfo_pdf_evidence(evidence)
                         if evidence.available:
                             pdf_documents_succeeded += 1
                         else:
@@ -566,23 +574,27 @@ class WorkflowApplication:
                             _progress_stdout(progress.snapshot())
                             pdf_progress_last_at = progress_now
 
-                # Expand one fetched document back to every symbol occurrence.
-                # This keeps the full fact boundary while avoiding duplicate
-                # network/download/parse work for repeated announcement IDs.
-                ordered_evidence = {
-                    unique_pdf_tasks[index][1].announcement_id: pdf_evidence_by_index[index]
-                    for index in range(len(unique_pdf_tasks))
-                }
-                for symbol, announcement in pdf_tasks:
-                    evidence = ordered_evidence[announcement.announcement_id]
-                    cninfo_pdf_evidence[(symbol, announcement.announcement_id)] = evidence
-                    if not evidence.available:
-                        source_failures.setdefault(symbol, []).append(
-                            f"CNINFO_PDF:{announcement.announcement_id}:{evidence.reason_code}"
-                        )
+        # Keep one bounded in-memory projection per deduplicated document.
+        # Complete extraction objects remain durable in SQLite/the file cache.
+        evidence_by_id = {
+            unique_pdf_tasks[index][1].announcement_id: pdf_evidence_by_index[index]
+            for index in range(len(unique_pdf_tasks))
+        }
+        pdf_ids_by_symbol: dict[str, list[str]] = {}
+        for symbol, announcement in pdf_tasks:
+            pdf_ids_by_symbol.setdefault(symbol, []).append(announcement.announcement_id)
+            evidence = evidence_by_id[announcement.announcement_id]
+            if not evidence.available:
+                source_failures.setdefault(symbol, []).append(
+                    f"CNINFO_PDF:{announcement.announcement_id}:{evidence.reason_code}"
+                )
+        if progress is not None:
+            progress.set_phase("FACT_MANIFEST_SYNC")
+            _progress_stdout(progress.snapshot())
         cninfo_manifest = normalize_cninfo_results(
             cninfo_results,
-            pdf_evidence=cninfo_pdf_evidence,
+            pdf_evidence_by_id=evidence_by_id,
+            pdf_ids_by_symbol=pdf_ids_by_symbol,
             as_of=current,
         )
         # Market-wide/RSS news is frozen once. Stock-specific T3 news belongs
@@ -631,6 +643,9 @@ class WorkflowApplication:
         # contracts and their source manifest participate in the facts hash.
         fact_payload["open_macro_bundle"] = open_macro_bundle
 
+        if progress is not None:
+            progress.set_phase("SNAPSHOT")
+            _progress_stdout(progress.snapshot())
         frozen = FrozenInputSnapshot.freeze(
             universe,
             as_of=current,
@@ -662,18 +677,10 @@ class WorkflowApplication:
         # produced its per-lane focus pool.  Loading 12,240 five-minute bars
         # for the complete G0 here would violate the funnel boundary.
         factor_ready: list[str] = []
-        frozen = FrozenInputSnapshot.freeze(
-            universe,
-            as_of=current,
-            daily_payload=daily,
-            fundamental_payload=fundamental,
-            technical_payload=technical,
-            fact_payload=fact_payload,
-            max_candidates=selection_limit,
-            candidate_symbols=selected_symbols,
-            candidate_domain="research",
-            retain_incomplete=True,
-        )
+        # ``frozen`` already contains the same daily, fundamental, technical
+        # and fact payloads.  Re-freezing it here used to duplicate the full
+        # market object tree and recompute all checksums immediately before
+        # serialization, which materially raised the VM peak RSS.
         raw_path = self.settings.snapshot_dir / "raw" / f"{frozen.snapshot_id}.json"
         frozen.write_json(raw_path)
         data = sanitize(self._research_input(
@@ -703,7 +710,7 @@ class WorkflowApplication:
             data=data,
         )
         path = self.settings.snapshot_dir / f"{snapshot_id}.json"
-        atomic_write_json(
+        atomic_write_json_streaming(
             path,
             {
                 "snapshot_id": snapshot.snapshot_id,

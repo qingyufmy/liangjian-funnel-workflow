@@ -312,9 +312,21 @@ class FrozenInputSnapshot(BaseModel):
 
     @model_validator(mode="after")
     def hash_matches(self) -> "FrozenInputSnapshot":
-        if self.snapshot_hash != _snapshot_hash(self.model_dump(exclude={"snapshot_hash"})):
+        if self.snapshot_hash != _snapshot_hash(self._hash_body()):
             raise ValueError("snapshot_hash does not match canonical content")
         return self
+
+    def _hash_body(self) -> dict[str, Any]:
+        """Return a shallow field view so hashing never clones the snapshot."""
+
+        return {
+            name: getattr(self, name)
+            for name in type(self).model_fields
+            if name != "snapshot_hash"
+        }
+
+    def _json_body(self) -> dict[str, Any]:
+        return {name: getattr(self, name) for name in type(self).model_fields}
 
     @property
     def factor_payload(self) -> dict[str, Any]:
@@ -455,18 +467,26 @@ class FrozenInputSnapshot(BaseModel):
     from_universe = freeze
 
     def verify_hash(self) -> bool:
-        return self.snapshot_hash == _snapshot_hash(self.model_dump(exclude={"snapshot_hash"}))
+        return self.snapshot_hash == _snapshot_hash(self._hash_body())
 
     def write_json(self, path: str | Path) -> Path:
         """Write canonical JSON with an atomic same-directory replacement."""
 
         target = Path(path)
         target.parent.mkdir(parents=True, exist_ok=True)
-        content = _canonical_json(self.model_dump(mode="json"))
-        handle = tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=target.parent, prefix=f".{target.name}.", suffix=".tmp", delete=False)
+        handle = tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            newline="\n",
+            dir=target.parent,
+            prefix=f".{target.name}.",
+            suffix=".tmp",
+            delete=False,
+        )
         temporary = Path(handle.name)
         try:
-            handle.write(content)
+            for chunk in _canonical_json_chunks(self._json_body()):
+                handle.write(chunk)
             handle.write("\n")
             handle.flush()
             os.fsync(handle.fileno())
@@ -475,12 +495,8 @@ class FrozenInputSnapshot(BaseModel):
         except Exception:
             try:
                 handle.close()
-            except Exception:
-                pass
-            try:
+            finally:
                 temporary.unlink(missing_ok=True)
-            except Exception:
-                pass
             raise
         return target
 
@@ -721,12 +737,33 @@ def _json_ready(value: Any) -> Any:
     return value
 
 
-def _canonical_json(value: Any) -> str:
-    return json.dumps(_json_ready(value), ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+def _canonical_default(value: Any) -> Any:
+    if isinstance(value, BaseModel):
+        # One record is converted at a time by the encoder.  This preserves the
+        # prior canonical representation without cloning the complete frozen
+        # snapshot through ``model_dump``.
+        return value.model_dump(mode="python")
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    raise TypeError(f"{type(value).__name__} is not JSON serializable")
+
+
+def _canonical_json_chunks(value: Any):
+    encoder = json.JSONEncoder(
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+        default=_canonical_default,
+    )
+    yield from encoder.iterencode(value)
 
 
 def _snapshot_hash(value: Any) -> str:
-    return hashlib.sha256(_canonical_json(value).encode("utf-8")).hexdigest()
+    digest = hashlib.sha256()
+    for chunk in _canonical_json_chunks(value):
+        digest.update(chunk.encode("utf-8"))
+    return digest.hexdigest()
 
 
 def _checksum(value: Any) -> str:

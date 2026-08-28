@@ -123,7 +123,7 @@ function toneForStatus(status?: string | null): HealthTone {
   const normalized = (status ?? "").toUpperCase();
   if (["OK", "PASS", "HEALTHY", "READY", "READY_TO_PUBLISH", "PUBLISHED", "COMPLETED", "VALIDATED", "ACTIVE"].includes(normalized)) return "healthy";
   if (["RUNNING", "IN_PROGRESS", "STARTED", "RETRYING"].includes(normalized)) return "running";
-  if (["WARN", "WARNING", "DEGRADED", "BLOCKED", "PARTIAL", "MISSED"].includes(normalized)) return "warning";
+  if (["WARN", "WARNING", "DEGRADED", "BLOCKED", "PARTIAL", "MISSED", "STALE"].includes(normalized)) return "warning";
   if (["ERROR", "FAILED", "UNHEALTHY", "STOPPED"].includes(normalized)) return "error";
   return "unknown";
 }
@@ -157,6 +157,7 @@ function statusLabel(status?: string | null): string {
     VALIDATED: "已验证",
     ACTIVE: "活动",
     RUNNING: "运行中",
+    STALE: "进度失联",
     IN_PROGRESS: "进行中",
     DEGRADED: "部分降级",
     BLOCKED: "已阻断",
@@ -573,6 +574,7 @@ function progressPhaseLabel(phase?: string | null): string {
     MARKET_FACT_SYNC: "行情事实同步",
     CNINFO_SYNC: "巨潮公告同步",
     CNINFO_PDF_SYNC: "巨潮 PDF 证据提取",
+    FACT_MANIFEST_SYNC: "事实清单落盘",
     OPEN_MACRO_SYNC: "宏观与大类资产数据",
     DATA_SYNC: "数据同步",
     SNAPSHOT: "冻结快照",
@@ -617,6 +619,7 @@ function progressIssueTitle(issue: WorkflowProgressSummary["issue"]): string {
   if (issue === "OVERSIZE") return "进度读取已阻断";
   if (issue === "INVALID_JSON") return "进度文件格式无效";
   if (issue === "INVALID_SHAPE") return "进度文件结构无效";
+  if (issue === "HEARTBEAT_TIMEOUT") return "进度失联";
   return "进度不可用";
 }
 
@@ -625,6 +628,7 @@ function progressIssueLabel(issue?: WorkflowProgressSummary["issue"]): string {
   if (issue === "OVERSIZE") return "进度文件超过安全大小限制，已阻断读取";
   if (issue === "INVALID_JSON") return "进度文件格式无效，已停止展示原文";
   if (issue === "INVALID_SHAPE") return "进度文件结构无效，已停止展示原文";
+  if (issue === "HEARTBEAT_TIMEOUT") return "超过阈值未更新，任务可能退出或卡住，请查看日志";
   return "";
 }
 
@@ -685,7 +689,7 @@ function WorkflowProgressPanel({ progress }: { progress: WorkflowProgressSummary
         <div className="progress-issue" role="status"><StatusIcon tone={progress.status === "BLOCKED" ? "warning" : "error"} size={20} /><div><strong>{progressIssueTitle(progress.issue)}</strong><span>{progressIssueLabel(progress.issue)}</span></div></div>
       ) : (
         <>
-          {progress.stale ? <div className="progress-stale" role="status"><StatusIcon tone="warning" size={17} /><div><strong>更新暂时延迟，正在重试</strong><span>{progressIssueLabel(progress.staleIssue ?? "UNREADABLE")}</span></div></div> : null}
+          {progress.stale ? <div className="progress-stale" role="status"><StatusIcon tone="warning" size={17} /><div><strong>{progress.staleIssue === "HEARTBEAT_TIMEOUT" ? "进度失联" : "更新暂时延迟"}</strong><span>{progressIssueLabel(progress.staleIssue ?? "UNREADABLE")}</span></div></div> : null}
           <div className="progress-summary-grid">
             <div><span>当前阶段</span><strong>{progressPhaseLabel(progress.phase)}</strong><StatusBadge status={progress.status} /></div>
             <div><span>{isPdfProgress ? "PDF 文档处理" : researchWithoutOverallCount ? "研究批次（按模型）" : "总体处理"}</span><strong>{overallMeasure ? progressPair(overallMeasure.processed, overallMeasure.total) : researchWithoutOverallCount ? "按下方模型批次" : "暂无可用计数"}</strong>{overallMeasure ? <ProgressBar processed={overallMeasure.processed} total={overallMeasure.total} /> : <span className="progress-no-value">{researchWithoutOverallCount ? "各 lane 分别统计" : "暂未提供"}</span>}</div>
@@ -703,7 +707,11 @@ function WorkflowProgressPanel({ progress }: { progress: WorkflowProgressSummary
             </div>
           ) : null}
           {progress.lanes.length === 0 ? <div className="progress-empty-lanes">当前阶段尚未产生模型 lane 批次。</div> : <div className="progress-lanes">{progress.lanes.map((lane) => <ProgressLane key={lane.laneId} lane={lane} />)}</div>}
-          <div className="panel-footnote"><Activity size={14} /><span>{progress.stale ? `更新暂时延迟，正在重试；以下为最近一次成功读取的安全汇总（${formatDateTime(progress.updatedAt)}）。` : `最近更新时间 ${formatDateTime(progress.updatedAt)}；此处只显示安全的汇总进度，不展示模型原文。`}</span></div>
+          <div className="panel-footnote"><Activity size={14} /><span>{progress.stale
+            ? progress.staleIssue === "HEARTBEAT_TIMEOUT"
+              ? `最后更新时间 ${formatDateTime(progress.updatedAt)}；超过阈值未更新，任务可能退出或卡住，请查看日志。`
+              : `更新暂时延迟，正在重试；以下为最近一次成功读取的安全汇总（${formatDateTime(progress.updatedAt)}）。`
+            : `最近更新时间 ${formatDateTime(progress.updatedAt)}；此处只显示安全的汇总进度，不展示模型原文。`}</span></div>
         </>
       )}
     </Panel>

@@ -104,6 +104,29 @@ def test_manifest_projection_preserves_duplicate_fact_types() -> None:
     assert len(projection["fact_groups"]["DUPLICATE_TYPE"]) == 2
 
 
+def test_manifest_projection_does_not_duplicate_large_fact_groups() -> None:
+    first = normalize_hithink_results(
+        {"LARGE_TYPE": _result()},
+        base_url="https://fuyao.aicubes.cn",
+        as_of=NOW,
+        ingest_time=NOW + timedelta(seconds=1),
+    ).facts[0]
+    facts = tuple(
+        first.model_copy(update={"fact_id": f"sha256:{index:064x}"})
+        for index in range(257)
+    )
+    manifest = FactSnapshotManifest(snapshot_id="large-group", as_of=NOW, facts=facts)
+
+    projection = manifest_projection(manifest)
+
+    assert projection["facts"]["LARGE_TYPE"] == {
+        "available": True,
+        "reason_code": "OK",
+        "record_count": 257,
+    }
+    assert len(projection["fact_groups"]["LARGE_TYPE"]) == 257
+
+
 def test_market_fact_auction_requests_are_batched_and_merged_without_loss() -> None:
     symbols = tuple(f"{600000 + index:06d}.SH" for index in range(205))
 

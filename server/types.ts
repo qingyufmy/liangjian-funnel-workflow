@@ -57,14 +57,14 @@ export interface StatusSnapshot {
   readonly reason: string | null;
 }
 
-export type WorkflowProgressStatus = "RUNNING" | "COMPLETED" | "READY" | "PARTIAL" | "BLOCKED" | "FAILED" | "IDLE" | "UNKNOWN" | "INVALID";
+export type WorkflowProgressStatus = "RUNNING" | "STALE" | "COMPLETED" | "READY" | "PARTIAL" | "BLOCKED" | "FAILED" | "IDLE" | "UNKNOWN" | "INVALID";
 
 /**
- * Fixed, non-sensitive diagnostics for a failed progress-file read.
+ * Fixed, non-sensitive diagnostics for an unavailable or stale progress file.
  * These values are deliberately narrower than Node's filesystem errors so
  * the API never exposes an OS error message or the source document.
  */
-export type WorkflowProgressIssue = "OVERSIZE" | "UNREADABLE" | "INVALID_JSON" | "INVALID_SHAPE";
+export type WorkflowProgressIssue = "OVERSIZE" | "UNREADABLE" | "INVALID_JSON" | "INVALID_SHAPE" | "HEARTBEAT_TIMEOUT";
 
 export interface WorkflowProgressStage {
   readonly stage: string;

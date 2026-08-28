@@ -15,10 +15,10 @@ import re
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime
 from enum import StrEnum
-from typing import Any, ClassVar, Literal
+from typing import Any, ClassVar, Iterator, Literal
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serializer, model_validator
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator, model_serializer, model_validator
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -140,6 +140,203 @@ def canonical_json_bytes(value: Any) -> bytes:
     return canonical_json(value).encode("utf-8")
 
 
+_CANONICAL_ENCODER = json.JSONEncoder(
+    ensure_ascii=False,
+    sort_keys=True,
+    separators=(",", ":"),
+    allow_nan=False,
+)
+_JSON_ANY_ADAPTER = TypeAdapter(Any)
+
+
+def _stream_model_items(value: BaseModel) -> tuple[tuple[str, Any], ...] | None:
+    """Return the normal field view for the fact models without a model dump.
+
+    Pydantic's ``model_dump`` is intentionally avoided for ``_SafeModel``
+    instances.  A snapshot can contain thousands of nested facts, and a
+    complete dump would recreate that entire tree before it can be hashed or
+    written.  The fact models use the default field serializer (the
+    ``_SafeModel`` wrapper only validates the serialized result), so walking
+    their fields produces the same mode-json representation after the scalar
+    conversions below.
+
+    Other BaseModel implementations are delegated to Pydantic's normal
+    serializer.  That keeps custom model/field serializers compatible while
+    keeping the large fact snapshot path allocation-light.
+    """
+
+    safe_model = globals().get("_SafeModel")
+    if safe_model is None or not isinstance(value, safe_model):
+        return None
+
+    # RootModel serializes to its root value rather than an object.  None
+    # tells the caller to use the normal Pydantic dump for this uncommon case.
+    if getattr(value.__class__, "__pydantic_root_model__", False):
+        return None
+
+    items: list[tuple[str, Any]] = []
+    fields = getattr(value.__class__, "model_fields", {})
+    for name, field in fields.items():
+        # ``exclude=True`` is the only field-level exclusion that applies to
+        # the default model_dump() call used by canonical_json().
+        if getattr(field, "exclude", None):
+            continue
+        if hasattr(value, name):
+            items.append((name, getattr(value, name)))
+
+    # Computed fields are included by Pydantic's default model_dump().
+    computed_fields = getattr(value.__class__, "model_computed_fields", {})
+    for name, field in computed_fields.items():
+        if getattr(field, "exclude", None) or any(key == name for key, _ in items):
+            continue
+        if hasattr(value, name):
+            items.append((name, getattr(value, name)))
+
+    # Models configured with ``extra='allow'`` retain extras in this mapping.
+    # The fact contracts forbid extras, but preserving the behavior costs only
+    # a shallow iteration for compatible subclasses.
+    extras = getattr(value, "__pydantic_extra__", None)
+    if isinstance(extras, Mapping):
+        items.extend((str(key), item) for key, item in extras.items())
+    return tuple(items)
+
+
+def _reject_secrets_streaming(value: Any, *, model_mode: bool = False) -> None:
+    """Apply the canonical secret rejection policy without a model dump."""
+
+    if isinstance(value, BaseModel):
+        items = _stream_model_items(value)
+        if items is None:
+            # Custom BaseModel serializers are uncommon in fact payloads.  A
+            # mode-json dump preserves their existing behavior; only the
+            # large _SafeModel snapshot path is required to remain streaming.
+            _reject_secrets(value.model_dump(mode="json"))
+            return
+        for key, item in items:
+            if _secret_key_name(key):
+                raise ValueError("secret-like field is not allowed in fact data")
+            _reject_secrets_streaming(key)
+            _reject_secrets_streaming(item, model_mode=True)
+        return
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            normalized_key = str(key)
+            if _secret_key_name(normalized_key):
+                raise ValueError("secret-like field is not allowed in fact data")
+            _reject_secrets_streaming(normalized_key)
+            _reject_secrets_streaming(item, model_mode=model_mode)
+        return
+    if isinstance(value, (list, tuple, set, frozenset)):
+        for item in value:
+            _reject_secrets_streaming(item, model_mode=model_mode)
+        return
+    if isinstance(value, str) and _SECRET_VALUE_RE.search(value):
+        raise ValueError("secret-like value is not allowed in fact data")
+    if isinstance(value, (str, int, float, bool, type(None), datetime, date)):
+        return
+    if model_mode:
+        converted = _JSON_ANY_ADAPTER.dump_python(value, mode="json")
+        if converted is not value:
+            _reject_secrets_streaming(converted, model_mode=True)
+
+
+def _iter_canonical_json(value: Any, *, model_mode: bool = False) -> Iterator[bytes]:
+    """Yield canonical JSON UTF-8 bytes without materializing the document."""
+
+    if isinstance(value, BaseModel):
+        items = _stream_model_items(value)
+        if items is None:
+            # Preserve custom Pydantic serializers for non-fact models.  This
+            # fallback is intentionally limited to that model, not snapshots.
+            yield from _iter_canonical_json(value.model_dump(mode="json"))
+            return
+        normalized = {str(key): item for key, item in items}
+        yield b"{"
+        for index, key in enumerate(sorted(normalized)):
+            if index:
+                yield b","
+            yield from _iter_canonical_json(key)
+            yield b":"
+            yield from _iter_canonical_json(normalized[key], model_mode=True)
+        yield b"}"
+        return
+
+    if isinstance(value, Mapping):
+        # _jsonable() first converts every key to str and then constructs a
+        # dict.  The shallow map below reproduces duplicate-key collapse while
+        # avoiding any recursive copy of the values.
+        normalized: dict[str, Any] = {}
+        for key, item in value.items():
+            normalized[str(key)] = item
+        yield b"{"
+        for index, key in enumerate(sorted(normalized)):
+            if index:
+                yield b","
+            yield from _iter_canonical_json(key)
+            yield b":"
+            yield from _iter_canonical_json(normalized[key], model_mode=model_mode)
+        yield b"}"
+        return
+
+    if isinstance(value, (list, tuple)):
+        yield b"["
+        for index, item in enumerate(value):
+            if index:
+                yield b","
+            yield from _iter_canonical_json(item, model_mode=model_mode)
+        yield b"]"
+        return
+
+    if isinstance(value, (set, frozenset)):
+        # Pydantic mode="json" turns sets into lists in their native
+        # iteration order.  A plain set passed to canonical_json() is first
+        # normalized by _jsonable(), which deliberately sorts it by repr.
+        # Keep both behaviors by carrying the model serialization context.
+        items = value if model_mode else sorted(value, key=repr)
+        yield b"["
+        for index, item in enumerate(items):
+            if index:
+                yield b","
+            yield from _iter_canonical_json(item, model_mode=model_mode)
+        yield b"]"
+        return
+
+    if isinstance(value, (datetime, date)):
+        value = value.isoformat()
+
+    if model_mode and not isinstance(value, (str, int, float, bool, type(None))):
+        converted = _JSON_ANY_ADAPTER.dump_python(value, mode="json")
+        if converted is not value:
+            yield from _iter_canonical_json(converted, model_mode=True)
+            return
+
+    # JSONEncoder's scalar path is the source of truth for escaping, float
+    # formatting, integer handling, and allow_nan=False behavior.  It emits
+    # only a small scalar chunk here, never the enclosing large object.
+    yield from (chunk.encode("utf-8") for chunk in _CANONICAL_ENCODER.iterencode(value))
+
+
+def canonical_json_chunks(value: Any) -> Iterator[bytes]:
+    """Yield the exact UTF-8 bytes produced by :func:`canonical_json_bytes`.
+
+    Secret validation runs before the first chunk is returned, so callers can
+    safely stream into a temporary file without ever publishing a partial
+    document containing rejected material.
+    """
+
+    _reject_secrets_streaming(value)
+    return _iter_canonical_json(value)
+
+
+def canonical_json_hash(value: Any) -> str:
+    """Hash canonical JSON incrementally without creating a full byte string."""
+
+    digest = hashlib.sha256()
+    for chunk in canonical_json_chunks(value):
+        digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _jsonable(value: Any) -> Any:
     """Convert nested Pydantic models before handing data to ``json.dumps``."""
 
@@ -166,7 +363,10 @@ def _facts_hash(facts: Sequence[FactEnvelope | RealtimeFactEnvelope]) -> str:
             canonical_json(fact),
         ),
     )
-    return hashlib.sha256(canonical_json_bytes([fact for fact in ordered])).hexdigest()
+    digest = hashlib.sha256()
+    for chunk in canonical_json_chunks(ordered):
+        digest.update(chunk)
+    return digest.hexdigest()
 
 
 class _SafeModel(BaseModel):
@@ -388,7 +588,7 @@ class FactSnapshotManifest(_SafeModel):
 
     @property
     def manifest_hash(self) -> str:
-        return hashlib.sha256(canonical_json_bytes(self)).hexdigest()
+        return canonical_json_hash(self)
 
 
 __all__ = [
@@ -401,4 +601,6 @@ __all__ = [
     "SourceTier",
     "canonical_json",
     "canonical_json_bytes",
+    "canonical_json_chunks",
+    "canonical_json_hash",
 ]

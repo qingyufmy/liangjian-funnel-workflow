@@ -6,7 +6,7 @@ import hashlib
 import re
 from collections.abc import Mapping
 from datetime import datetime
-from typing import Any
+from typing import Any, Sequence
 from zoneinfo import ZoneInfo
 
 from ..data.cninfo import CninfoAnnouncement, CninfoFetchResult
@@ -36,6 +36,8 @@ def normalize_cninfo_results(
     results: Mapping[str, CninfoFetchResult],
     *,
     pdf_evidence: Mapping[tuple[str, str], CninfoPdfEvidence] | None = None,
+    pdf_evidence_by_id: Mapping[str, CninfoPdfEvidence] | None = None,
+    pdf_ids_by_symbol: Mapping[str, Sequence[str]] | None = None,
     as_of: datetime,
     ingest_time: datetime | None = None,
     snapshot_id: str | None = None,
@@ -46,17 +48,45 @@ def normalize_cninfo_results(
     health: list[SourceHealth] = []
     checksums: dict[str, str] = {}
     successful = 0
-    pdf_results = dict(pdf_evidence or {})
-    pdf_requested_total = len(pdf_results)
-    pdf_available_total = sum(item.available for item in pdf_results.values())
+    # The legacy tuple-keyed mapping remains supported for callers and old
+    # replay fixtures.  Formal full-market runs use the id-indexed mapping so
+    # one deduplicated PDF object is not expanded into thousands of tuple keys
+    # before normalization.
+    legacy_pdf_results = pdf_evidence or {}
+    indexed_pdf_results = pdf_evidence_by_id or {}
+    symbol_pdf_ids: dict[str, tuple[str, ...]] = {
+        str(symbol): tuple(dict.fromkeys(str(identifier) for identifier in identifiers))
+        for symbol, identifiers in (pdf_ids_by_symbol or {}).items()
+    }
+    if legacy_pdf_results:
+        legacy_ids: dict[str, list[str]] = {}
+        for (symbol, identifier), _ in legacy_pdf_results.items():
+            legacy_ids.setdefault(symbol, []).append(identifier)
+        for symbol, identifiers in legacy_ids.items():
+            symbol_pdf_ids.setdefault(symbol, tuple(dict.fromkeys(identifiers)))
+    pdf_requested_total = sum(len(identifiers) for identifiers in symbol_pdf_ids.values())
+    pdf_available_total = sum(
+        int(
+            (
+                legacy_pdf_results.get((symbol, identifier))
+                or indexed_pdf_results.get(identifier)
+            ).available
+        )
+        for symbol, identifiers in symbol_pdf_ids.items()
+        for identifier in identifiers
+        if legacy_pdf_results.get((symbol, identifier)) or indexed_pdf_results.get(identifier)
+    )
     for symbol, result in sorted(results.items()):
         provider_prefix = "bse.official" if result.source_id == "bse_official" else "cninfo.public"
         source_id = f"{provider_prefix}.{symbol.replace('.', '_').lower()}"
         checksum_prefix = "BSE" if result.source_id == "bse_official" else "CNINFO"
         symbol_pdf = {
             identifier: item
-            for (item_symbol, identifier), item in pdf_results.items()
-            if item_symbol == symbol
+            for identifier in symbol_pdf_ids.get(symbol, ())
+            if (item := (
+                legacy_pdf_results.get((symbol, identifier))
+                or indexed_pdf_results.get(identifier)
+            )) is not None
         }
         checked_at = max(
             ingested,
@@ -222,6 +252,42 @@ def _pdf_payload(evidence: CninfoPdfEvidence | None) -> dict[str, Any]:
     }
 
 
+def compact_cninfo_pdf_evidence(
+    evidence: CninfoPdfEvidence,
+    *,
+    max_snippets: int = 4,
+) -> CninfoPdfEvidence:
+    """Return the bounded snapshot projection of one durably cached result.
+
+    The complete extraction remains in the SQLite/file cache.  A frozen
+    research snapshot only needs a few page-addressable snippets proving main
+    business exposure or material risk; retaining all twelve snippets for all
+    market securities multiplies Pydantic and JSON memory without adding model
+    coverage.
+    """
+
+    if max_snippets < 1:
+        raise ValueError("max_snippets must be positive")
+    if not evidence.available or len(evidence.snippets) <= max_snippets:
+        return evidence
+
+    def rank(item: Any) -> tuple[int, int, int, str]:
+        compact = re.sub(r"\s+", "", str(item.text))
+        business = any(term in compact for term in (
+            "主营业务分行业", "主营业务分产品", "主营业务分地区", "占营业收入的",
+        ))
+        risk = any(term in compact for term in _RISK_KEYWORDS)
+        return (
+            0 if business else 1 if risk else 2,
+            -len(item.matched_keywords),
+            int(item.page_number),
+            str(item.text),
+        )
+
+    retained = tuple(sorted(evidence.snippets, key=rank)[:max_snippets])
+    return evidence.model_copy(update={"snippets": retained})
+
+
 def classify_cninfo_title(title: str) -> tuple[str, list[str]]:
     normalized = title.upper()
     tags: list[str] = []
@@ -302,4 +368,9 @@ def _aware(value: datetime) -> datetime:
     return value.astimezone(SHANGHAI)
 
 
-__all__ = ["classify_cninfo_title", "normalize_cninfo_results", "select_cninfo_pdf_candidates"]
+__all__ = [
+    "classify_cninfo_title",
+    "compact_cninfo_pdf_evidence",
+    "normalize_cninfo_results",
+    "select_cninfo_pdf_candidates",
+]

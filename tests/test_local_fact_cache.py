@@ -283,3 +283,108 @@ def test_cached_provider_results_batch_selects_latest_valid_revision_and_chunks(
     )
     assert historical["a"]["payload"] == {"value": "old"}
     assert "b" not in historical
+
+
+def test_iter_cached_results_preserves_order_deduplicates_and_applies_revision_filters(
+    tmp_path: Path,
+):
+    cache = LocalFactCache(tmp_path)
+    cache.put_cached_result(
+        "cninfo",
+        "a",
+        {"value": "old"},
+        fetched_at="2026-08-25T08:00:00+00:00",
+        expires_at="2026-08-27T08:00:00+00:00",
+    )
+    cache.put_cached_result(
+        "cninfo",
+        "a",
+        {"value": "new-but-expired"},
+        fetched_at="2026-08-26T08:00:00+00:00",
+        expires_at="2026-08-26T12:00:00+00:00",
+    )
+    cache.put_cached_result(
+        "cninfo",
+        "b",
+        {"value": "b"},
+        fetched_at="2026-08-26T09:00:00+00:00",
+        expires_at="2026-08-27T09:00:00+00:00",
+    )
+    cache.put_cached_result(
+        "cninfo",
+        "c",
+        {"value": "historical"},
+        fetched_at="2026-08-25T09:00:00+00:00",
+        expires_at="2026-08-30T09:00:00+00:00",
+    )
+    cache.put_cached_result(
+        "cninfo",
+        "c",
+        {"value": "future"},
+        fetched_at="2026-08-27T09:00:00+00:00",
+        expires_at="2026-08-30T09:00:00+00:00",
+    )
+
+    rows = list(
+        cache.iter_cached_results(
+            "cninfo",
+            ["b", "a", "b", "missing", "c", "a"],
+            fresh_at="2026-08-26T13:00:00+00:00",
+            as_of="2026-08-26T23:59:59+00:00",
+            chunk_size=2,
+        )
+    )
+
+    assert [key for key, _ in rows] == ["b", "a", "c"]
+    assert [record["payload"] for _, record in rows] == [
+        {"value": "b"},
+        {"value": "old"},
+        {"value": "historical"},
+    ]
+
+
+def test_iter_cached_results_reads_in_bounded_chunks_without_materializing_all_keys(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    cache = LocalFactCache(tmp_path)
+    calls: list[tuple[list[str], int]] = []
+
+    def fake_get_cached_results(
+        namespace: str,
+        cache_keys: list[str],
+        *,
+        as_of=None,
+        fresh_at=None,
+        chunk_size: int,
+    ):
+        assert namespace == "test"
+        assert as_of is None
+        assert fresh_at is None
+        calls.append((list(cache_keys), chunk_size))
+        return {
+            key: {
+                "namespace": namespace,
+                "cache_key": key,
+                "payload": {"value": key},
+            }
+            for key in cache_keys
+        }
+
+    monkeypatch.setattr(cache, "get_cached_results", fake_get_cached_results)
+    source = (f"k{index}" for index in range(2_501))
+    rows = list(cache.iter_cached_results("test", source, chunk_size=100))
+
+    assert [key for key, _ in rows] == [f"k{index}" for index in range(2_501)]
+    assert len(calls) == 26
+    assert all(1 <= len(keys) <= 100 for keys, _ in calls)
+    assert all(query_chunk_size == 100 for _, query_chunk_size in calls)
+    assert sum(len(keys) for keys, _ in calls) == 2_501
+
+
+@pytest.mark.parametrize("invalid", [0, -1, True, False, 1.5, "100"])
+def test_iter_cached_results_requires_strictly_positive_integer_chunk_size(
+    tmp_path: Path, invalid,
+):
+    cache = LocalFactCache(tmp_path)
+    with pytest.raises(ValueError, match="chunk_size must be a positive integer"):
+        cache.iter_cached_results("test", [], chunk_size=invalid)
