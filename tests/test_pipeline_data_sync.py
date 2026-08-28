@@ -46,7 +46,8 @@ class FakeClient:
                     "turnover": 10000,
                 }
             )
-        rows[-1]["date_ms"] = int(NOW.timestamp() * 1000)
+        requested_end = datetime.fromtimestamp(kwargs["end"] / 1000, tz=TZ)
+        rows[-1]["date_ms"] = int((requested_end - timedelta(days=1)).timestamp() * 1000)
         return _result("history", rows)
 
     def income_statements(self, symbol, **_kwargs):
@@ -161,13 +162,24 @@ def test_full_market_sync_retains_only_projected_fundamentals(tmp_path):
     }
 
 
-def test_stale_daily_cache_refreshes_only_recent_overlap_window(tmp_path):
+def test_daily_cache_uses_closed_bar_watermark_instead_of_wall_clock_ttl(tmp_path):
     cache = LocalFactCache(tmp_path / "facts.sqlite3")
     sync = HithinkIncrementalSynchronizer(cache, daily_refresh_hours=4)
     sync.sync(FakeClient(), ["600519.SH"], as_of=NOW)
 
+    next_morning = NOW.replace(hour=9, minute=25) + timedelta(days=1)
+    morning = FakeClient()
+    morning_result = sync.sync(morning, ["600519.SH"], as_of=next_morning)
+
+    assert morning.calls == []
+    assert all(
+        datetime.fromtimestamp(row["date_ms"] / 1000, tz=TZ).date() < next_morning.date()
+        for row in morning_result.daily["600519.SH"]
+    )
+
+    next_close = NOW + timedelta(days=1)
     refreshed = FakeClient()
-    sync.sync(refreshed, ["600519.SH"], as_of=NOW + timedelta(hours=5))
+    sync.sync(refreshed, ["600519.SH"], as_of=next_close)
 
     assert ("DAILY", "600519.SH") in refreshed.calls
     request_start = datetime.fromtimestamp(refreshed.history_kwargs[0]["start"] / 1000, tz=TZ)

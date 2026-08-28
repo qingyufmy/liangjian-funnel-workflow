@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, time as datetime_time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -74,10 +74,21 @@ class HithinkIncrementalSynchronizer:
         hits = 0
         misses = 0
         start = current - timedelta(days=max(1, int(lookback_days)))
+        closed_daily_end = _closed_daily_end(current)
+        required_latest_daily = (
+            current.replace(hour=0, minute=0, second=0, microsecond=0)
+            if current.time().replace(tzinfo=None) >= datetime_time(15, 0)
+            else None
+        )
 
         for index, symbol in enumerate(ordered, start=1):
             symbol_hit = True
-            daily_ready = self._daily_ready(symbol, start=start, as_of=current)
+            daily_ready = self._daily_ready(
+                symbol,
+                start=start,
+                closed_daily_end=closed_daily_end,
+                required_latest=required_latest_daily,
+            )
             if not daily_ready:
                 symbol_hit = False
                 latest = self.cache.latest_daily_bar(symbol, adjust="none")
@@ -90,12 +101,17 @@ class HithinkIncrementalSynchronizer:
                 result = client.history_1d(
                     symbol,
                     start=int(request_start.timestamp() * 1000),
-                    end=int(current.timestamp() * 1000),
+                    end=int(closed_daily_end.timestamp() * 1000),
                     adjust="none",
                     limit=1000,
                     max_pages=1,
                 )
-                if result.ok and result.complete and result.items:
+                closed_items = tuple(
+                    row
+                    for row in result.items
+                    if _row_time(row.model_dump(mode="python")) < closed_daily_end
+                )
+                if result.ok and result.complete and closed_items:
                     self.cache.upsert_daily_bars(
                         (
                             {
@@ -105,7 +121,7 @@ class HithinkIncrementalSynchronizer:
                                 "fetched_at": result.fetch_time,
                                 "payload": row.model_dump(mode="json"),
                             }
-                            for row in result.items
+                            for row in closed_items
                         ),
                         batch_size=self.batch_size,
                     )
@@ -113,21 +129,22 @@ class HithinkIncrementalSynchronizer:
                         "HITHINK_DAILY_1D",
                         symbol,
                         last_success=result.fetch_time,
-                        cursor={"through": _latest_row_time(result)},
+                        cursor={"through": _latest_row_time(closed_items)},
                         status="READY",
                         reason=None,
                     )
                 else:
-                    failures.setdefault(symbol, []).append(f"DAILY:{result.reason_code}")
+                    reason = result.reason_code if not result.ok else "NO_CLOSED_DAILY_BARS"
+                    failures.setdefault(symbol, []).append(f"DAILY:{reason}")
                     self.cache.update_sync_state(
-                        "HITHINK_DAILY_1D", symbol, status="FAILED", reason=result.reason_code
+                        "HITHINK_DAILY_1D", symbol, status="FAILED", reason=reason
                     )
 
             rows = self.cache.query_daily_bars(
                 symbol,
                 adjust="none",
                 start=start,
-                end=current + timedelta(days=1),
+                end=closed_daily_end,
                 limit=compact_daily_bars,
                 descending=True,
             )
@@ -230,24 +247,33 @@ class HithinkIncrementalSynchronizer:
             cache_misses=misses,
         )
 
-    def _daily_ready(self, symbol: str, *, start: datetime, as_of: datetime) -> bool:
+    def _daily_ready(
+        self,
+        symbol: str,
+        *,
+        start: datetime,
+        closed_daily_end: datetime,
+        required_latest: datetime | None,
+    ) -> bool:
         state = self.cache.get_sync_state("HITHINK_DAILY_1D", symbol)
         if not state or state.get("status") != "READY":
             return False
         if not state.get("last_success"):
             return False
-        last_success = _aware(datetime.fromisoformat(str(state["last_success"])))
-        if last_success < as_of - self.daily_refresh:
-            return False
-        coverage = self.cache.get_coverage(symbol=symbol, adjust="none")
-        daily = coverage.get("daily", {})
-        return bool(
-            int(daily.get("rows") or 0) >= 30
-            and daily.get("min_timestamp")
-            and daily.get("max_timestamp")
-            and datetime.fromisoformat(str(daily["min_timestamp"])) <= start + timedelta(days=14)
-            and datetime.fromisoformat(str(daily["max_timestamp"])) >= as_of - timedelta(days=7)
+        rows = self.cache.query_daily_bars(
+            symbol,
+            adjust="none",
+            start=start,
+            end=closed_daily_end,
+            limit=30,
+            descending=True,
         )
+        if len(rows) < 30:
+            return False
+        latest = datetime.fromisoformat(str(rows[0]["timestamp"]))
+        if required_latest is not None:
+            return latest >= required_latest
+        return latest >= closed_daily_end - timedelta(days=7)
 
     def _financial_ready(self, endpoint: str, symbol: str, current: datetime) -> bool:
         state = self.cache.get_sync_state(endpoint, symbol)
@@ -282,9 +308,19 @@ def _row_time(row: Mapping[str, Any]) -> datetime:
     raise ValueError("daily row timestamp missing")
 
 
-def _latest_row_time(result: HithinkFetchResult) -> str | None:
-    values = [_row_time(row.model_dump(mode="python")) for row in result.items]
+def _latest_row_time(rows: Sequence[Any]) -> str | None:
+    values = [_row_time(row.model_dump(mode="python")) for row in rows]
     return max(values).isoformat() if values else None
+
+
+def _closed_daily_end(value: datetime) -> datetime:
+    """Exclusive cutoff containing only fully closed A-share daily bars."""
+
+    current = _aware(value)
+    day_start = current.replace(hour=0, minute=0, second=0, microsecond=0)
+    if current.time().replace(tzinfo=None) >= datetime_time(15, 0):
+        return day_start + timedelta(days=1)
+    return day_start
 
 
 def _report_period(row: Mapping[str, Any], fallback: datetime) -> str:
