@@ -46,7 +46,8 @@ if [[ "${python_project_hash_before}" != "${python_project_hash_after}" ]]; then
   echo "[deploy] Python project metadata changed; updating virtual environment..."
   runuser -u www -- .venv/bin/python -m pip install ".[dev]"
 else
-  echo "[deploy] pyproject.toml unchanged; reusing Python dependencies."
+  echo "[deploy] pyproject.toml unchanged; syncing current Python source package..."
+  runuser -u www -- .venv/bin/python -m pip install --no-deps .
 fi
 
 if [[ ! -d node_modules || "${lock_hash_before}" != "${lock_hash_after}" ]]; then
