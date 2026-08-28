@@ -2893,6 +2893,41 @@ def _progress_stdout(state: Mapping[str, Any]) -> None:
     print(json.dumps(sanitize(payload), ensure_ascii=False, separators=(",", ":")), flush=True)
 
 
+_COMPACT_FUNDAMENTAL_FIELDS: Mapping[str, tuple[str, ...]] = {
+    "INCOME": (
+        "_dataset", "fiscal_year", "fiscal_period", "period_end_ms", "report_date_ms",
+        "operating_income", "operating_costs", "operating_profit",
+        "parent_holder_net_profit", "basic_eps", "research_and_development_expenses",
+        "sales_fee", "manage_fee",
+    ),
+    "BALANCE": (
+        "_dataset", "fiscal_year", "fiscal_period", "period_end_ms", "report_date_ms",
+        "assets_total", "total_debt", "holder_equity_total", "cash",
+        "accounts_receivable", "total_current_assets", "non_current_nets_total",
+    ),
+    "CASH_FLOW": (
+        "_dataset", "fiscal_year", "fiscal_period", "period_end_ms", "report_date_ms",
+        "act_cash_flow_net", "invest_cash_flow_net", "financing_cash_flow_net",
+        "cash_equivalents_net_addition", "pay_fixed_assets_etc_cash",
+    ),
+    "INDICATORS": ("_dataset", "ability", "index_id", "value"),
+}
+_PREFERRED_FUNDAMENTAL_INDICATORS = frozenset({
+    "calculate_operating_income_yoy_growth_ratio",
+    "calculate_parent_holder_net_profit_yoy_growth_ratio",
+    "sale_gross_margin",
+    "net_profit_margin",
+    "index_weighted_avg_roe",
+    "roe",
+    "assets_debt_ratio",
+    "debt_to_assets",
+    "receive_account_turnover_ratio",
+    "net_profit_cash_content",
+    "cashflow_net_income_ratio",
+    "operating_cash_flow_net_divide_income",
+})
+
+
 def _compact_fundamental_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
     """Keep bounded statement history while the durable cache retains all rows."""
 
@@ -2928,12 +2963,27 @@ def _compact_fundamental_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
             ),
             reverse=True,
         )
-        result["statements"][dataset] = ordered[:8]
+        fields = _COMPACT_FUNDAMENTAL_FIELDS[dataset]
+        result["statements"][dataset] = [
+            {key: item.get(key) for key in fields if key in item}
+            for item in ordered[:4]
+        ]
     indicators = sorted(
         grouped.get("INDICATORS", ()),
-        key=lambda item: (str(item.get("ability") or ""), str(item.get("index_id") or "")),
+        key=lambda item: (
+            0
+            if str(item.get("index_id") or "").strip().lower()
+            in _PREFERRED_FUNDAMENTAL_INDICATORS
+            else 1,
+            str(item.get("ability") or ""),
+            str(item.get("index_id") or ""),
+        ),
     )
-    result["indicators"] = indicators[:128]
+    indicator_fields = _COMPACT_FUNDAMENTAL_FIELDS["INDICATORS"]
+    result["indicators"] = [
+        {key: item.get(key) for key in indicator_fields if key in item}
+        for item in indicators[:40]
+    ]
     return result
 
 
