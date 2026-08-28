@@ -120,6 +120,27 @@ def test_daily_as_of_excludes_later_fetched_observation(tmp_path: Path):
     assert rows[0]["timestamp"].endswith("09:31:00.000000+00:00")
 
 
+def test_latest_daily_bars_before_returns_closed_watermark_in_batches(tmp_path: Path):
+    cache = LocalFactCache(tmp_path)
+    cache.upsert_daily_bars(
+        [
+            daily("600519.SH", 31, close=10),
+            daily("600519.SH", 32, close=11),
+            daily("000001.SZ", 31, close=12),
+        ]
+    )
+
+    rows = cache.latest_daily_bars_before(
+        ["600519.SH", "000001.SZ", "600519.SH"],
+        end="2026-08-25T09:32:00+00:00",
+        batch_size=1,
+    )
+
+    assert set(rows) == {"600519.SH", "000001.SZ"}
+    assert rows["600519.SH"]["payload"]["close"] == 10
+    assert rows["000001.SZ"]["payload"]["close"] == 12
+
+
 def test_financial_revisions_are_retained_and_as_of_is_strict(tmp_path: Path):
     cache = LocalFactCache(tmp_path)
     original = financial(

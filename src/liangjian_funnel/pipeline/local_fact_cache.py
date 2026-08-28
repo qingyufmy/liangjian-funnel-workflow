@@ -13,7 +13,7 @@ import json
 import re
 import sqlite3
 import time
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -630,6 +630,42 @@ class LocalFactCache:
             symbol, adjust=adjust, as_of=as_of, limit=1, descending=True
         )
         return rows[0] if rows else None
+
+    def latest_daily_bars_before(
+        self,
+        symbols: Sequence[str],
+        *,
+        end: datetime | str,
+        adjust: str = "none",
+        batch_size: int = DEFAULT_BATCH_SIZE,
+    ) -> dict[str, dict[str, Any]]:
+        """Return one latest closed bar per symbol using bounded SQL batches."""
+
+        ordered = tuple(dict.fromkeys(_symbol({"symbol": symbol}) for symbol in symbols))
+        if not ordered:
+            return {}
+        cutoff = _timestamp(end)
+        mode = str(adjust).strip().lower()
+        output: dict[str, dict[str, Any]] = {}
+        for symbol_batch in _chunks(ordered, min(_batch_size(batch_size), 500)):
+            placeholders = ",".join("?" for _ in symbol_batch)
+            query = (
+                "WITH ranked AS ("
+                " SELECT symbol, bar_timestamp, adjust, fetched_at, content_hash, payload_json,"
+                " ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY "
+                "bar_timestamp DESC, fetched_at DESC, content_hash DESC) AS row_rank"
+                f" FROM daily_bars WHERE symbol IN ({placeholders})"
+                " AND adjust=? AND bar_timestamp<?"
+                ") SELECT symbol, bar_timestamp, adjust, fetched_at, content_hash, payload_json"
+                " FROM ranked WHERE row_rank=1"
+            )
+            params = [*symbol_batch, mode, cutoff]
+            with self._connect() as connection:
+                rows = connection.execute(query, params).fetchall()
+            for row in rows:
+                item = self._daily_output(row)
+                output[item["symbol"]] = item
+        return output
 
     def upsert_financial_facts(
         self, rows: Iterable[Mapping[str, Any]], *, batch_size: int = DEFAULT_BATCH_SIZE

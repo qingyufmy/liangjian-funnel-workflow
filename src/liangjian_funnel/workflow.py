@@ -40,7 +40,7 @@ from .facts import (
     normalize_open_news_results,
     select_cninfo_pdf_candidates,
 )
-from .pipeline.data_source import HithinkClient
+from .pipeline.data_source import HithinkClient, HithinkFetchResult
 from .pipeline.data_sync import HithinkIncrementalSynchronizer
 from .pipeline.factors import FactorEngine
 from .pipeline.local_fact_cache import LocalFactCache
@@ -206,6 +206,12 @@ class WorkflowApplication:
         with HithinkClient(self.settings) as client:
             catalog = client.ticker_catalog(limit=1000, max_pages=10)
             market = client.market_snapshot(limit=1000, max_pages=10)
+            if current.hour < 15:
+                market = _market_snapshot_with_closed_turnover(
+                    market,
+                    cache=self.fact_cache,
+                    cutoff=current.replace(hour=0, minute=0, second=0, microsecond=0),
+                )
             universe = UniverseSnapshot.from_records(
                 catalog,
                 market,
@@ -2372,6 +2378,51 @@ def _canonical_symbol(value: Any) -> str | None:
         return map_symbol(text).canonical
     except Exception:
         return None
+
+
+def _market_snapshot_with_closed_turnover(
+    market: HithinkFetchResult,
+    *,
+    cache: LocalFactCache,
+    cutoff: datetime,
+) -> HithinkFetchResult:
+    """Use the prior closed daily amount for a research run started intraday."""
+
+    symbols: list[str] = []
+    row_symbols: list[str | None] = []
+    for row in market.items:
+        data = row.model_dump(mode="python")
+        symbol = None
+        for key in ("thscode", "ths_code", "thsCode", "symbol", "ticker", "security_code", "code"):
+            if data.get(key) not in (None, ""):
+                symbol = _canonical_symbol(data[key])
+                if symbol:
+                    break
+        row_symbols.append(symbol)
+        if symbol:
+            symbols.append(symbol)
+    closed = cache.latest_daily_bars_before(symbols, end=cutoff, adjust="none")
+    updated = []
+    overrides = 0
+    for row, symbol in zip(market.items, row_symbols, strict=True):
+        bar = closed.get(symbol or "")
+        payload = bar.get("payload") if isinstance(bar, Mapping) else None
+        turnover = payload.get("turnover") if isinstance(payload, Mapping) else None
+        if not isinstance(turnover, (int, float)) or isinstance(turnover, bool) or turnover < 0:
+            updated.append(row)
+            continue
+        data = row.model_dump(mode="python")
+        data["amount"] = float(turnover)
+        data["turnover"] = float(turnover)
+        updated.append(row.__class__.model_validate(data))
+        overrides += 1
+    metadata = {
+        **market.metadata,
+        "turnover_metric": "LATEST_CLOSED_DAILY_BAR",
+        "turnover_cutoff": cutoff.isoformat(),
+        "turnover_override_count": overrides,
+    }
+    return market.model_copy(update={"items": tuple(updated), "metadata": metadata})
 
 
 def _row_change(item: Any, _frozen: FrozenInputSnapshot) -> float:
