@@ -14,14 +14,39 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from .bottleneck import deterministic_bottleneck_context
+from .bottleneck import (
+    MARKET_CORE_ROUTE,
+    SUPPLY_CHAIN_ALPHA_ROUTE,
+    canonicalize_model_scorecard,
+    deterministic_bottleneck_context,
+)
 from .business_exposure import extract_business_exposure_facts
 from .feature_store import content_hash
 
 
 PIPELINE_MODE = "deterministic_v2"
-FEATURE_VERSION = "deterministic-features/2.0.0"
+FEATURE_VERSION = "deterministic-features/2.1.0"
+_A1_DEFAULT_WEIGHTS: dict[str, float] = {
+    "structural_theme": 0.20,
+    "business_mapping": 0.20,
+    "barrier_and_bottleneck": 0.15,
+    "financial_quality": 0.20,
+    "catalyst_confirmation": 0.15,
+    "valuation_expectation_gap": 0.10,
+}
 _TOKEN = re.compile(r"[^0-9A-Za-z\u3400-\u9fff]+")
+A2_THEME_FACTORS: tuple[str, ...] = (
+    "breadth",
+    "turnover_share",
+    "capital_flow",
+    "leader_structure",
+    "tier_structure",
+    "profit_effect",
+    "catalyst_freshness",
+    "index_chain_resonance",
+    "agent_1_quality",
+)
+A2_FACTOR_COVERAGE_MINIMUM = 0.65
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,10 +111,16 @@ def screen_a1(
     tradability = tradability if isinstance(tradability, Mapping) else {}
     weights = snapshot.get("SCORE_WEIGHTS")
     weights = weights if isinstance(weights, Mapping) else {}
+    weights = _resolve_a1_weights(weights)
     minimums = snapshot.get("A1_MINIMUMS")
     minimums = minimums if isinstance(minimums, Mapping) else {}
     minimum_score = _number(minimums.get("minimum_score")) or _number(snapshot.get("MIN_STRUCTURAL_SCORE")) or 65.0
     minimum_quality = _number(minimums.get("minimum_data_quality")) or 75.0
+    minimum_available_weight = _number(
+        minimums.get("minimum_available_weight", snapshot.get("A1_MINIMUM_AVAILABLE_WEIGHT", 0.70))
+    )
+    if minimum_available_weight is None or minimum_available_weight <= 0 or minimum_available_weight > 1:
+        minimum_available_weight = 0.70
     targets = snapshot.get("A1_POOL_TARGETS")
     targets = targets if isinstance(targets, Mapping) else {}
     active_target = targets.get("active_research_target")
@@ -141,22 +172,27 @@ def screen_a1(
             (_number(item.get("revenue_exposure_pct")) or 0.0 for item in exposure_facts),
             default=0.0,
         )
-        business_score = (
-            min(100.0, 55.0 + maximum_exposure * 0.6)
-            if structured_exposure_available
-            else 62.0 if raw_evidence_available else 35.0
+        primary_link = matched[0] if matched else {}
+        primary_theme = theme_by_id.get(str(primary_link.get("theme_id") or ""), {}) if matched else {}
+        primary_node = node_by_id.get(str(primary_link.get("node_id") or ""), {}) if matched else {}
+        factor_details = _a1_factor_details(
+            snapshot,
+            symbol=symbol,
+            matched=matched,
+            theme=primary_theme,
+            node=primary_node,
+            raw_evidence_available=raw_evidence_available,
+            structured_exposure=exposure_facts,
+            maximum_revenue_exposure_pct=maximum_exposure,
+            financial_quality=financial_quality,
+            financial_details=financial_details,
+            data_quality=data_quality,
+            as_of=_snapshot_as_of(snapshot),
         )
-        structural_score = 95.0 if matched else 0.0
-        liquidity_score = _liquidity_score(amount)
-        score_breakdown = _a1_breakdown(
-            weights,
-            structural=structural_score,
-            business=business_score,
-            financial=financial_quality,
-            liquidity=liquidity_score,
-            evidence=data_quality,
-        )
+        score_breakdown = _a1_breakdown(weights, factor_details)
         score = _weighted_score(score_breakdown, weights)
+        available_weight = _a1_available_weight(factor_details, weights)
+        liquidity_score = _liquidity_score(amount)
         flags = tradability.get(symbol)
         flags = flags if isinstance(flags, Mapping) else {}
         reason_codes: list[str] = []
@@ -184,15 +220,22 @@ def screen_a1(
         elif data_quality < minimum_quality:
             status = "LOCAL_MONITOR"
             reason_codes.append("A1_DATA_QUALITY_BELOW_MINIMUM")
+        elif available_weight < minimum_available_weight:
+            status = "LOCAL_MONITOR"
+            reason_codes.append("A1_FACTOR_COVERAGE_BELOW_MINIMUM")
         elif score < minimum_score:
             status = "LOCAL_MONITOR"
             reason_codes.append("A1_LOCAL_SCORE_BELOW_MINIMUM")
         else:
             status = "LOCAL_CANDIDATE"
+        if matched and not hard_reject and available_weight < minimum_available_weight:
+            # Preserve every independent data-gap reason even when an earlier
+            # fail-closed branch (for example missing business evidence) has
+            # already selected LOCAL_MONITOR.
+            reason_codes.append("A1_FACTOR_COVERAGE_BELOW_MINIMUM")
         if raw_evidence_available and not structured_exposure_available:
             reason_codes.append("A1_BUSINESS_EXPOSURE_UNSTRUCTURED")
 
-        primary_link = matched[0] if matched else {}
         decision = {
             "symbol": symbol,
             "name": str(candidate.get("name") or candidate.get("security_name") or "") or None,
@@ -208,6 +251,14 @@ def screen_a1(
             "theme_source_refs": list(theme_by_id.get(str(primary_link.get("theme_id") or ""), {}).get("source_refs") or ()),
             "node_source_refs": list(node_by_id.get(str(primary_link.get("node_id") or ""), {}).get("source_refs") or ()),
             "score_breakdown": score_breakdown,
+            "factor_details": factor_details,
+            "available_weight": round(available_weight, 6),
+            "available_weight_pct": round(available_weight * 100.0, 4),
+            "minimum_available_weight": round(minimum_available_weight, 6),
+            "missing_factors": [
+                key for key, value in factor_details.items()
+                if not isinstance(value, Mapping) or value.get("available") is not True
+            ],
             "financial_features": financial_details,
             "business_exposure_facts": exposure_facts,
             "maximum_revenue_exposure_pct": maximum_exposure if exposure_facts else None,
@@ -270,7 +321,13 @@ def screen_a1(
                 if item.get("status") == "LOCAL_MONITOR"
                 and item.get("business_exposure_facts")
                 and item.get("node_id")
-                and "A1_LOCAL_SCORE_BELOW_MINIMUM" not in item.get("reason_codes", ())
+                and not set(item.get("reason_codes", ())).intersection({
+                    "A1_LOCAL_SCORE_BELOW_MINIMUM",
+                    "A1_FACTOR_COVERAGE_BELOW_MINIMUM",
+                    "A1_FUNDAMENTAL_DATA_INCOMPLETE",
+                    "A1_MAIN_BUSINESS_EVIDENCE_MISSING",
+                    "A1_DATA_QUALITY_BELOW_MINIMUM",
+                })
             ),
             key=lambda item: (int(item.get("node_rank") or 10**9), -float(item["score"]), -float(item["amount"]), str(item["symbol"])),
         )
@@ -312,7 +369,18 @@ def screen_a2(
     minimum_identifiability_score: float = 60.0,
     llm_top_n_per_theme: int = 5,
 ) -> DeterministicGateResult:
-    """Rank A1 ACTIVE rows by deterministic liquidity and relative strength."""
+    """Build the A2 market-core and supply-chain review routes locally.
+
+    A2 is intentionally a scorer, not an LLM-sized second full-market scan.
+    Every row comes from A1 ``active_research_pool`` and carries its A1 theme,
+    chain node and business evidence forward.  Scores are calculated from the
+    configured semantic factors.  A missing capital-flow source removes that
+    dimension from the denominator; turnover is never used as a capital-flow
+    substitute.
+    """
+
+    if llm_top_n_per_theme < 1:
+        raise ValueError("A2 Top-N value must be positive")
 
     rows = _mapping_list(a1_output.get("active_research_pool"))
     candidates = _candidate_map(snapshot)
@@ -321,6 +389,11 @@ def screen_a2(
     recent_bars = snapshot.get("RECENT_DAILY_BARS")
     recent_bars = recent_bars if isinstance(recent_bars, Mapping) else {}
     industry_membership = _membership_map(snapshot.get("THS_INDUSTRY_MEMBERSHIP"), taxonomy="INDUSTRY")
+    local_market_factors = _build_a2_local_market_factors(
+        snapshot,
+        candidates=candidates,
+        industry_membership=industry_membership,
+    )
     cycle_metrics = snapshot.get("SECTOR_CYCLE_SNAPSHOT")
     cycle_metrics = cycle_metrics if isinstance(cycle_metrics, Mapping) else {}
     history_metrics = cycle_metrics.get("history_metrics")
@@ -342,6 +415,9 @@ def screen_a2(
     return_distribution = sorted(bar_returns.values())
     attention = _attention_symbols(snapshot.get("MARKET_ATTENTION_SNAPSHOT"))
     dragon = _event_symbols(snapshot.get("DRAGON_TIGER_SNAPSHOT"))
+    weights, weight_source, configured_weights = _a2_weights(snapshot)
+    enforce_coverage = configured_weights or "CAPITAL_FLOW_SNAPSHOT" in snapshot
+    coverage_minimum = _a2_coverage_minimum(snapshot)
     source_hashes = _source_hashes(snapshot)
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     decisions: list[dict[str, Any]] = []
@@ -351,7 +427,7 @@ def screen_a2(
             continue
         theme_id = str(item.get("primary_theme") or item.get("theme_id") or "UNMAPPED")
         candidate = candidates.get(symbol, {})
-        amount = max(0.0, _number(candidate.get("amount")) or 0.0)
+        amount = max(0.0, _number(candidate.get("amount")) or _number(candidate.get("turnover")) or 0.0)
         factor = factors.get(symbol)
         factor = factor if isinstance(factor, Mapping) else {}
         explicit_relative = _relative_strength_score(factor, default=None)
@@ -359,80 +435,730 @@ def screen_a2(
             bar_returns.get(symbol), return_distribution
         )
         liquidity = _liquidity_score(amount)
-        attention_score = 100.0 if symbol in attention else 50.0
-        dragon_score = 100.0 if symbol in dragon else 45.0
-        business = _number(item.get("structural_score")) or 50.0
         rotations = [
             rotation_by_code.get(str(membership.get("taxonomy_code") or ""))
             for membership in industry_membership.get(symbol, ())
         ]
         rotations = [value for value in rotations if isinstance(value, Mapping)]
-        cycle_score = max((_cycle_rotation_score(value) for value in rotations), default=35.0)
+        cycle_score = max((_cycle_rotation_score(value) for value in rotations), default=None)
         bottleneck_context = deterministic_bottleneck_context(
             item,
-            demand_score_0_100=cycle_score,
-            timing_score_0_100=max(relative, cycle_score),
+            demand_score_0_100=cycle_score if cycle_score is not None else 0.0,
+            timing_score_0_100=max(relative, cycle_score or 0.0),
+            factor_weights=item.get("bottleneck_factor_weights")
+            if isinstance(item.get("bottleneck_factor_weights"), Mapping)
+            else None,
         )
-        bottleneck_readiness = _number(bottleneck_context.get("evidence_readiness_score")) or 0.0
-        score = (
-            0.20 * relative
-            + 0.20 * liquidity
-            + 0.20 * cycle_score
-            + 0.08 * attention_score
-            + 0.05 * dragon_score
-            + 0.12 * business
-            + 0.15 * bottleneck_readiness
+        factor_scores = _a2_factor_scores(
+            item=item,
+            symbol=symbol,
+            theme_id=theme_id,
+            snapshot=snapshot,
+            factor=factor,
+            relative=relative,
+            liquidity=liquidity,
+            cycle_score=cycle_score,
+            attention=symbol in attention,
+            dragon=symbol in dragon,
+            local_market_factors=local_market_factors.get(symbol, {}),
+        )
+        score, coverage = _available_weighted_score(factor_scores, weights)
+        identifiability, identity_breakdown = _a2_identifiability(
+            item=item,
+            relative=relative,
+            liquidity=liquidity,
+            factor_scores=factor_scores,
+            attention=symbol in attention,
+            dragon=symbol in dragon,
+        )
+        eligible_routes = _a2_route_eligibility(
+            item=item,
+            identifiability=identifiability,
+            minimum_identifiability_score=minimum_identifiability_score,
+            factor_scores=factor_scores,
+            bottleneck_context=bottleneck_context,
         )
         reasons: list[str] = []
-        status = "LOCAL_FOCUS_CANDIDATE" if score >= minimum_identifiability_score else "LOCAL_MONITOR"
-        if status == "LOCAL_MONITOR":
+        low_identity = identifiability < minimum_identifiability_score
+        if low_identity:
             reasons.append("A2_IDENTIFIABILITY_BELOW_MINIMUM")
+        if enforce_coverage and coverage["ratio"] < coverage_minimum:
+            reasons.append("A2_FACTOR_COVERAGE_BELOW_MINIMUM")
+        capital_flow = factor_scores.get("capital_flow", {})
+        if capital_flow.get("available") is not True:
+            reasons.append("A2_CAPITAL_FLOW_UNAVAILABLE")
+        status = "REVIEW_CANDIDATE"
+        if low_identity:
+            status = "HARD_REJECT"
+            reasons.append("A2_LOW_IDENTITY_EXCLUDED")
+        elif enforce_coverage and coverage["ratio"] < coverage_minimum:
+            status = "LOCAL_MONITOR"
+        elif not eligible_routes and enforce_coverage:
+            status = "LOCAL_MONITOR"
+            reasons.append("A2_NO_ROUTE_READY")
+        elif not configured_weights:
+            reasons.append("A2_SCORE_WEIGHTS_FALLBACK")
         decision = {
             "symbol": symbol,
-            "name": item.get("company_name") or candidate.get("name"),
+            "name": item.get("company_name") or item.get("name") or candidate.get("name"),
             "stage": "A2_LOCAL_ROLE",
             "status": status,
             "score": round(score, 4),
+            "identifiability_score": round(identifiability, 4),
             "theme_id": theme_id,
-            "node_id": item.get("industry_chain_node"),
-            "role": _role(score, liquidity, relative),
+            "primary_theme": theme_id,
+            "node_id": item.get("industry_chain_node") or item.get("node_id"),
+            "industry_chain_node": item.get("industry_chain_node") or item.get("node_id"),
+            "upstream_candidate_id": item.get("candidate_id") or item.get("upstream_candidate_id"),
+            "business_exposure": item.get("business_exposure"),
+            "business_exposure_facts": item.get("business_exposure_facts", []),
+            "source_refs": list(item.get("source_refs") or ()) if isinstance(item.get("source_refs"), Sequence) and not isinstance(item.get("source_refs"), (str, bytes, bytearray)) else [],
+            "role": _role(identifiability, liquidity, relative),
+            "route": eligible_routes[0] if eligible_routes else None,
+            "eligible_routes": eligible_routes,
+            "route_eligibility": {
+                MARKET_CORE_ROUTE: _market_core_route_result(item, identifiability, minimum_identifiability_score, factor_scores, coverage, enforce_coverage, coverage_minimum),
+                SUPPLY_CHAIN_ALPHA_ROUTE: _supply_chain_route_result(item, bottleneck_context),
+            },
             "role_breakdown": {
                 "relative_strength": round(relative, 4),
                 "liquidity_capacity": round(liquidity, 4),
-                "market_attention": round(attention_score, 4),
-                "dragon_tiger": round(dragon_score, 4),
-                "monthly_cycle_rotation": round(cycle_score, 4),
-                "business_purity": round(business, 4),
-                "bottleneck_evidence_readiness": round(bottleneck_readiness, 4),
+                "monthly_cycle_rotation": round(cycle_score, 4) if cycle_score is not None else None,
+                "bottleneck_evidence_readiness": _number(bottleneck_context.get("evidence_readiness_score")),
                 "relative_strength_source": "FACTOR_SNAPSHOT" if explicit_relative is not None else "RECENT_DAILY_BARS",
+                "identifiability": identity_breakdown,
             },
+            "a2_factor_scores": factor_scores,
+            "factor_coverage": coverage,
+            "score_weight_source": weight_source,
             "bottleneck_context": bottleneck_context,
-            "reason_codes": reasons,
+            "bottleneck_status": "NOT_REQUIRED_FOR_MARKET_CORE" if MARKET_CORE_ROUTE in eligible_routes else "UNPROVEN",
+            "reason_codes": list(dict.fromkeys(reasons)),
             "sent_to_llm": False,
             "feature_version": FEATURE_VERSION,
             "source_hashes": source_hashes,
         }
         decisions.append(decision)
-        if status == "LOCAL_FOCUS_CANDIDATE":
+        if status == "REVIEW_CANDIDATE":
             grouped[theme_id].append(decision)
     for theme_id, values in grouped.items():
-        values.sort(key=lambda item: (-float(item["score"]), str(item["symbol"])))
+        values.sort(key=lambda item: (-float(item["score"]), -float(item["identifiability_score"]), str(item["symbol"])))
         for rank, item in enumerate(values, start=1):
-            item["node_rank"] = rank
-            if rank <= llm_top_n_per_theme:
-                item["status"] = "REVIEW_CANDIDATE"
-                item["sent_to_llm"] = True
-            else:
+            item["theme_rank"] = rank
+            if rank > llm_top_n_per_theme:
                 item["status"] = "LOCAL_MONITOR"
                 item["reason_codes"].append("A2_NOT_SENT_TO_LLM")
+            else:
+                item["sent_to_llm"] = True
     decisions.sort(key=lambda item: str(item["symbol"]))
     return DeterministicGateResult(
         stage="A2_LOCAL_ROLE",
         decisions=tuple(decisions),
         review_symbols=tuple(str(item["symbol"]) for item in decisions if item["status"] == "REVIEW_CANDIDATE"),
         monitor_symbols=tuple(str(item["symbol"]) for item in decisions if item["status"] == "LOCAL_MONITOR"),
-        rejected_symbols=(),
+        rejected_symbols=tuple(str(item["symbol"]) for item in decisions if item["status"] == "HARD_REJECT"),
     )
+
+
+def _a2_weights(snapshot: Mapping[str, Any]) -> tuple[dict[str, float], str, bool]:
+    """Read A2 weights from the frozen configuration and normalize them."""
+
+    raw = snapshot.get("A2_SCORE_WEIGHTS")
+    if not isinstance(raw, Mapping) or not raw:
+        raw = snapshot.get("THEME_SCORE_WEIGHTS")
+    parsed: dict[str, float] = {}
+    if isinstance(raw, Mapping):
+        for key, value in raw.items():
+            number = _number(value)
+            if number is not None and number > 0:
+                parsed[str(key)] = number
+    if not parsed:
+        # Legacy unit snapshots do not carry prompt parameters.  This fallback
+        # is equal-weighted at runtime and is explicitly marked as such; it is
+        # not a copy of the production configuration or a proxy weight set.
+        parsed = {key: 1.0 for key in A2_THEME_FACTORS}
+        return (
+            {key: 1.0 / len(parsed) for key in parsed},
+            "EQUAL_RUNTIME_FALLBACK",
+            False,
+        )
+    total = sum(parsed.values())
+    if total <= 0:
+        parsed = {key: 1.0 for key in A2_THEME_FACTORS}
+        return (
+            {key: 1.0 / len(parsed) for key in parsed},
+            "EQUAL_RUNTIME_FALLBACK",
+            False,
+        )
+    return ({key: value / total for key, value in parsed.items()}, "CONFIGURED", True)
+
+
+def _a2_coverage_minimum(snapshot: Mapping[str, Any]) -> float:
+    for key in (
+        "A2_FACTOR_COVERAGE_MINIMUM",
+        "A2_MIN_FACTOR_COVERAGE",
+        "MIN_A2_FACTOR_COVERAGE",
+    ):
+        value = _number(snapshot.get(key))
+        if value is not None:
+            # Configuration is expressed as a ratio, but accepting 65 keeps
+            # hand-authored snapshots unambiguous and is recorded downstream.
+            return max(0.0, min(1.0, value / 100.0 if value > 1.0 else value))
+    return A2_FACTOR_COVERAGE_MINIMUM
+
+
+def _a2_factor_scores(
+    *,
+    item: Mapping[str, Any],
+    symbol: str,
+    theme_id: str,
+    snapshot: Mapping[str, Any],
+    factor: Mapping[str, Any],
+    relative: float,
+    liquidity: float,
+    cycle_score: float | None,
+    attention: bool,
+    dragon: bool,
+    local_market_factors: Mapping[str, Mapping[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    aliases: dict[str, tuple[str, ...]] = {
+        "breadth": ("breadth_score", "sector_breadth_score", "sector_breadth", "breadth"),
+        "turnover_share": ("turnover_share_score", "turnover_share_pct", "turnover_share", "volume_share"),
+        "capital_flow": ("capital_flow_score", "net_inflow_score", "capital_flow", "fund_flow_score"),
+        "leader_structure": ("leader_structure_score", "leader_score", "leadership_score"),
+        "tier_structure": ("tier_structure_score", "ladder_score", "tier_score"),
+        "profit_effect": ("profit_effect_score", "profit_effect", "earning_effect_score"),
+        "catalyst_freshness": ("catalyst_freshness_score", "catalyst_score", "event_freshness_score"),
+        "index_chain_resonance": ("index_chain_resonance_score", "chain_resonance_score", "relative_strength_score"),
+        "agent_1_quality": ("agent_1_quality_score", "a1_quality_score", "data_quality_score"),
+    }
+    for name in A2_THEME_FACTORS:
+        if name == "capital_flow" and not _capital_flow_available(snapshot):
+            # A model/A1 row cannot authorize a capital-flow score.  The source
+            # availability flag is the sole authority for this dimension.
+            value = _capital_flow_unavailable(snapshot)
+        else:
+            value = _read_item_factor(item, name, aliases[name])
+            if value is None:
+                value = _read_snapshot_factor(snapshot, symbol, theme_id, name, aliases[name])
+            if value is None and isinstance(local_market_factors.get(name), Mapping):
+                value = dict(local_market_factors[name])
+            if value is None and name == "capital_flow":
+                value = _capital_flow_unavailable(snapshot)
+        if value is None and name == "index_chain_resonance" and cycle_score is not None:
+            value = _factor_result(cycle_score, "SECTOR_CYCLE_SNAPSHOT", (), "OK")
+        if value is None and name == "leader_structure" and (attention or dragon):
+            value = _factor_result(100.0 if dragon else 75.0, "DRAGON_TIGER_SNAPSHOT" if dragon else "MARKET_ATTENTION_SNAPSHOT", (), "OK")
+        if value is None and name == "agent_1_quality":
+            quality = _number(item.get("data_quality_score"))
+            if quality is None:
+                confidence = _number(item.get("evidence_confidence"))
+                quality = confidence * 100.0 if confidence is not None else _number(item.get("structural_score"))
+            if quality is not None:
+                value = _factor_result(quality, "A1_ACTIVE_RESEARCH_POOL", _item_source_refs(item), "OK")
+        result[name] = value or _factor_result(None, "UNAVAILABLE", (), "A2_FACTOR_UNAVAILABLE")
+    return result
+
+
+def _build_a2_local_market_factors(
+    snapshot: Mapping[str, Any],
+    *,
+    candidates: Mapping[str, Mapping[str, Any]],
+    industry_membership: Mapping[str, Sequence[Mapping[str, Any]]],
+) -> dict[str, dict[str, dict[str, Any]]]:
+    """Derive auditable A2 market factors from the frozen G0 snapshot.
+
+    These are deliberately narrow definitions: member breadth, sector share
+    of G0 turnover, member profit effect, stock relative-strength/liquidity,
+    and source-backed disclosure freshness.  None of them is labelled or used
+    as capital flow.
+    """
+
+    by_industry: dict[str, set[str]] = defaultdict(set)
+    for symbol, memberships in industry_membership.items():
+        for membership in memberships:
+            code = str(membership.get("taxonomy_code") or "").strip()
+            if code:
+                by_industry[code].add(symbol)
+
+    total_amount = sum(max(0.0, _number(item.get("amount")) or _number(item.get("turnover")) or 0.0) for item in candidates.values())
+    sector_rows: dict[str, dict[str, float]] = {}
+    for code, symbols in by_industry.items():
+        amounts = [
+            max(0.0, _number(candidates.get(symbol, {}).get("amount")) or _number(candidates.get(symbol, {}).get("turnover")) or 0.0)
+            for symbol in symbols
+        ]
+        changes = [
+            value
+            for symbol in symbols
+            if (value := _number(candidates.get(symbol, {}).get("change_ratio_pct"))) is not None
+        ]
+        observed = len(changes)
+        breadth = sum(value > 0 for value in changes) / observed if observed else None
+        mean_change = sum(changes) / observed if observed else None
+        sector_rows[code] = {
+            "turnover_share": (sum(amounts) / total_amount) if total_amount > 0 else 0.0,
+            "breadth": breadth if breadth is not None else -1.0,
+            "mean_change": mean_change if mean_change is not None else float("nan"),
+        }
+    turnover_distribution = sorted(row["turnover_share"] for row in sector_rows.values())
+
+    result: dict[str, dict[str, dict[str, Any]]] = {}
+    for symbol, candidate in candidates.items():
+        codes = [
+            str(item.get("taxonomy_code") or "")
+            for item in industry_membership.get(symbol, ())
+            if str(item.get("taxonomy_code") or "") in sector_rows
+        ]
+        if not codes:
+            codes = []
+        primary_code = max(codes, key=lambda code: sector_rows[code]["turnover_share"], default=None)
+        symbol_factors: dict[str, dict[str, Any]] = {}
+        if primary_code is not None:
+            sector = sector_rows[primary_code]
+            if sector["breadth"] >= 0:
+                symbol_factors["breadth"] = _factor_result(
+                    sector["breadth"] * 100.0,
+                    "FROZEN_G0_INDUSTRY_BREADTH",
+                    (),
+                    "OK",
+                )
+            symbol_factors["turnover_share"] = _factor_result(
+                _percentile_score(sector["turnover_share"], turnover_distribution),
+                "FROZEN_G0_INDUSTRY_TURNOVER_SHARE",
+                (),
+                "OK",
+            )
+            if math.isfinite(sector["mean_change"]) and sector["breadth"] >= 0:
+                return_component = _scale(sector["mean_change"], -2.0, 2.0)
+                symbol_factors["profit_effect"] = _factor_result(
+                    0.60 * sector["breadth"] * 100.0 + 0.40 * return_component,
+                    "FROZEN_G0_INDUSTRY_MEMBER_RETURNS",
+                    (),
+                    "OK",
+                )
+
+        relative = _relative_strength_score(
+            snapshot.get("FACTOR_SNAPSHOT", {}).get(symbol, {})
+            if isinstance(snapshot.get("FACTOR_SNAPSHOT"), Mapping)
+            else {},
+            default=None,
+        )
+        amount = max(0.0, _number(candidate.get("amount")) or _number(candidate.get("turnover")) or 0.0)
+        if relative is not None and amount > 0:
+            symbol_factors["leader_structure"] = _factor_result(
+                0.60 * relative + 0.40 * _liquidity_score(amount),
+                "FROZEN_RELATIVE_STRENGTH_AND_LIQUIDITY",
+                (),
+                "OK",
+            )
+        catalyst_score, catalyst_available, catalyst_refs, _reason = _catalyst_factor(
+            snapshot.get("DISCLOSURE_EVENTS"), symbol
+        )
+        if catalyst_available:
+            symbol_factors["catalyst_freshness"] = _factor_result(
+                catalyst_score,
+                "DISCLOSURE_EVENTS",
+                catalyst_refs,
+                "OK",
+            )
+        result[symbol] = symbol_factors
+    return result
+
+
+def _a2_identifiability(
+    *,
+    item: Mapping[str, Any],
+    relative: float,
+    liquidity: float,
+    factor_scores: Mapping[str, Mapping[str, Any]],
+    attention: bool,
+    dragon: bool,
+) -> tuple[float, dict[str, float | None]]:
+    """Average independently available identity evidence without proxy weights."""
+
+    business = _business_purity_score(item)
+    a1_quality = factor_scores.get("agent_1_quality", {})
+    market = factor_scores.get("leader_structure", {})
+    tier = factor_scores.get("tier_structure", {})
+    market_value = None
+    if market.get("available") is True:
+        market_value = _number(market.get("score"))
+    elif tier.get("available") is True:
+        market_value = _number(tier.get("score"))
+    elif dragon or attention:
+        market_value = 100.0 if dragon else 75.0
+    breakdown: dict[str, float | None] = {
+        "relative_strength": round(relative, 4),
+        "liquidity_capacity": round(liquidity, 4),
+        "business_purity": round(business, 4) if business is not None else None,
+        "market_confirmation": round(market_value, 4) if market_value is not None else None,
+        "agent_1_quality": round(_number(a1_quality.get("score")), 4)
+        if a1_quality.get("available") is True and _number(a1_quality.get("score")) is not None
+        else None,
+    }
+    values = [value for value in breakdown.values() if value is not None]
+    return (sum(values) / len(values) if values else 0.0), breakdown
+
+
+def _a2_route_eligibility(
+    *,
+    item: Mapping[str, Any],
+    identifiability: float,
+    minimum_identifiability_score: float,
+    factor_scores: Mapping[str, Mapping[str, Any]],
+    bottleneck_context: Mapping[str, Any],
+) -> tuple[str, ...]:
+    if identifiability < minimum_identifiability_score:
+        return ()
+    market = _market_core_route_result(
+        item,
+        identifiability,
+        minimum_identifiability_score,
+        factor_scores,
+        {"ratio": _factor_coverage_ratio(factor_scores)},
+        False,
+        A2_FACTOR_COVERAGE_MINIMUM,
+    )
+    supply = _supply_chain_route_result(item, bottleneck_context)
+    return tuple(
+        route
+        for route, result in (
+            (MARKET_CORE_ROUTE, market),
+            (SUPPLY_CHAIN_ALPHA_ROUTE, supply),
+        )
+        if result.get("eligible") is True
+    )
+
+
+def _market_core_route_result(
+    item: Mapping[str, Any],
+    identifiability: float,
+    minimum_identifiability_score: float,
+    factor_scores: Mapping[str, Mapping[str, Any]],
+    coverage: Mapping[str, Any],
+    enforce_coverage: bool,
+    coverage_minimum: float,
+) -> dict[str, Any]:
+    missing: list[str] = []
+    if identifiability < minimum_identifiability_score:
+        missing.append("A2_IDENTIFIABILITY_BELOW_MINIMUM")
+    if not str(item.get("primary_theme") or item.get("theme_id") or "").strip():
+        missing.append("A1_THEME_MISSING")
+    if not str(item.get("industry_chain_node") or item.get("node_id") or "").strip():
+        missing.append("A1_CHAIN_NODE_MISSING")
+    if not _has_business_evidence(item):
+        missing.append("A1_BUSINESS_EVIDENCE_MISSING")
+    market_factor_names = ("breadth", "turnover_share", "leader_structure", "tier_structure", "index_chain_resonance")
+    market_fact_count = sum(
+        factor_scores.get(name, {}).get("available") is True
+        for name in market_factor_names
+    )
+    if enforce_coverage and _safe_float(coverage.get("ratio")) < coverage_minimum:
+        missing.append("A2_FACTOR_COVERAGE_BELOW_MINIMUM")
+    if enforce_coverage and market_fact_count < 2:
+        missing.append("A2_MARKET_FACTS_INSUFFICIENT")
+    return {
+        "eligible": not missing,
+        "route": MARKET_CORE_ROUTE,
+        "missing_reason_codes": list(dict.fromkeys(missing)),
+        "bottleneck_status": "NOT_REQUIRED_FOR_MARKET_CORE",
+        "market_fact_count": market_fact_count,
+    }
+
+
+def _supply_chain_route_result(item: Mapping[str, Any], bottleneck_context: Mapping[str, Any]) -> dict[str, Any]:
+    missing: list[str] = []
+    role = str(item.get("supply_chain_role") or "").strip()
+    if role not in {"CONTROLS_SCARCE_LAYER", "SUPPLIES_SCARCE_LAYER", "BENEFITS_WITH_LIMITED_CONTROL"}:
+        missing.append("A2_SUPPLY_CHAIN_ROLE_NOT_FOCUS_ELIGIBLE")
+    if not str(item.get("scarce_layer") or "").strip():
+        missing.append("A2_SCARCE_LAYER_MISSING")
+    if not str(item.get("value_chain_position") or "").strip():
+        missing.append("A2_VALUE_CHAIN_POSITION_MISSING")
+    scorecard, reasons = canonicalize_model_scorecard(item.get("bottleneck_scorecard"))
+    missing.extend(reasons)
+    evidence = item.get("bottleneck_evidence")
+    evidence_rows = evidence if isinstance(evidence, list) else []
+    valid_evidence = [row for row in evidence_rows if isinstance(row, Mapping) and str(row.get("claim") or "").strip() and str(row.get("source_ref") or "").strip()]
+    stronger = [row for row in valid_evidence if str(row.get("strength") or "").upper() in {"STRONG", "MEDIUM"}]
+    if len(valid_evidence) < 2:
+        missing.append("A2_BOTTLENECK_EVIDENCE_INSUFFICIENT")
+    if not stronger:
+        missing.append("A2_BOTTLENECK_STRONG_EVIDENCE_MISSING")
+    if not str(item.get("missing_proof") or "").strip():
+        missing.append("A2_BOTTLENECK_MISSING_PROOF_UNDECLARED")
+    kill_switches = item.get("kill_switches")
+    if not isinstance(kill_switches, list) or not any(str(value).strip() for value in kill_switches):
+        missing.append("A2_BOTTLENECK_KILL_SWITCH_MISSING")
+    if isinstance(bottleneck_context, Mapping) and bottleneck_context.get("scarcity_claim_allowed") is True:
+        # A deterministic context cannot authorize an unsupported scarcity
+        # claim.  This is defensive for hand-authored snapshots.
+        missing.append("A2_SCARCITY_AUTHORIZATION_INVALID")
+    return {
+        "eligible": not missing and scorecard is not None,
+        "route": SUPPLY_CHAIN_ALPHA_ROUTE,
+        "missing_reason_codes": list(dict.fromkeys(missing)),
+        "bottleneck_status": "SOURCE_BACKED" if not missing and scorecard is not None else "UNPROVEN",
+        "evidence_count": len(valid_evidence),
+    }
+
+
+def _available_weighted_score(
+    factor_scores: Mapping[str, Mapping[str, Any]],
+    weights: Mapping[str, float],
+) -> tuple[float, dict[str, Any]]:
+    available_names = [
+        name for name in weights
+        if isinstance(factor_scores.get(name), Mapping)
+        and factor_scores[name].get("available") is True
+        and _number(factor_scores[name].get("score")) is not None
+    ]
+    available_weight = sum(weights[name] for name in available_names)
+    total_weight = sum(weights.values())
+    score = (
+        sum(_safe_float(factor_scores[name].get("score")) * weights[name] for name in available_names) / available_weight
+        if available_weight > 0
+        else 0.0
+    )
+    return round(score, 4), {
+        "available_weight": round(available_weight, 6),
+        "total_weight": round(total_weight, 6),
+        "ratio": round(available_weight / total_weight, 6) if total_weight else 0.0,
+        "percent": round(available_weight / total_weight * 100.0, 4) if total_weight else 0.0,
+        "available_factors": available_names,
+        "missing_factors": [name for name in weights if name not in available_names],
+    }
+
+
+def _factor_coverage_ratio(factor_scores: Mapping[str, Mapping[str, Any]]) -> float:
+    available = sum(
+        value.get("available") is True
+        for value in factor_scores.values()
+        if isinstance(value, Mapping)
+    )
+    total = len(factor_scores)
+    return available / total if total else 0.0
+
+
+def _read_item_factor(item: Mapping[str, Any], name: str, aliases: Sequence[str]) -> dict[str, Any] | None:
+    for key in ("a2_factor_scores", "market_factor_scores", "factor_scores"):
+        container = item.get(key)
+        if not isinstance(container, Mapping):
+            continue
+        payload = container.get(name)
+        result = _read_metric_payload(payload, source="A1_ACTIVE_RESEARCH_POOL", source_refs=_item_source_refs(item), ratio_hint=False)
+        if result is not None:
+            return result
+        result = _read_metric_fields(container, aliases, source="A1_ACTIVE_RESEARCH_POOL", source_refs=_item_source_refs(item), ratio_hint=False)
+        if result is not None:
+            return result
+    return _read_metric_fields(item, aliases, source="A1_ACTIVE_RESEARCH_POOL", source_refs=_item_source_refs(item), ratio_hint=False)
+
+
+def _read_snapshot_factor(
+    snapshot: Mapping[str, Any],
+    symbol: str,
+    theme_id: str,
+    name: str,
+    aliases: Sequence[str],
+) -> dict[str, Any] | None:
+    source_names = {
+        "capital_flow": ("CAPITAL_FLOW_SNAPSHOT",),
+        "tier_structure": ("TIER_STRUCTURE_SNAPSHOT", "MARKET_EMOTION_SNAPSHOT"),
+        "breadth": ("A2_FACTOR_SNAPSHOT", "A2_THEME_METRICS", "SECTOR_CYCLE_SNAPSHOT"),
+        "turnover_share": ("A2_FACTOR_SNAPSHOT", "A2_THEME_METRICS", "SECTOR_CYCLE_SNAPSHOT"),
+        "leader_structure": ("A2_FACTOR_SNAPSHOT", "A2_THEME_METRICS", "DRAGON_TIGER_SNAPSHOT", "MARKET_ATTENTION_SNAPSHOT"),
+        "profit_effect": ("A2_FACTOR_SNAPSHOT", "A2_THEME_METRICS", "MARKET_EMOTION_SNAPSHOT"),
+        "catalyst_freshness": ("A2_FACTOR_SNAPSHOT", "A2_THEME_METRICS", "DISCLOSURE_EVENTS", "NEWS_HEAT_SNAPSHOT"),
+        "index_chain_resonance": ("A2_FACTOR_SNAPSHOT", "A2_THEME_METRICS", "SECTOR_CYCLE_SNAPSHOT"),
+        "agent_1_quality": ("A2_FACTOR_SNAPSHOT",),
+    }
+    for source_name in source_names.get(name, ("A2_FACTOR_SNAPSHOT",)):
+        root = snapshot.get(source_name)
+        if name == "capital_flow" and (not isinstance(root, Mapping) or root.get("available") is not True):
+            continue
+        for payload in _scoped_payloads(root, symbol, theme_id):
+            result = _read_metric_fields(payload, aliases, source=source_name, source_refs=_payload_source_refs(payload), ratio_hint=name in {"breadth", "turnover_share"})
+            if result is not None:
+                return result
+            # A factor may be represented as a nested object keyed by its
+            # semantic name rather than flattened into the record.
+            nested = payload.get(name) if isinstance(payload, Mapping) else None
+            result = _read_metric_payload(nested, source=source_name, source_refs=_payload_source_refs(payload), ratio_hint=name in {"breadth", "turnover_share"})
+            if result is not None:
+                return result
+    return None
+
+
+def _capital_flow_unavailable(snapshot: Mapping[str, Any]) -> dict[str, Any]:
+    source = snapshot.get("CAPITAL_FLOW_SNAPSHOT")
+    reason = "SOURCE_NOT_CONFIGURED"
+    if isinstance(source, Mapping):
+        reason = str(source.get("reason_code") or "SOURCE_UNAVAILABLE")
+    return _factor_result(
+        None,
+        "CAPITAL_FLOW_SNAPSHOT",
+        (),
+        reason,
+        reason_code_override="A2_CAPITAL_FLOW_UNAVAILABLE",
+    )
+
+
+def _capital_flow_available(snapshot: Mapping[str, Any]) -> bool:
+    source = snapshot.get("CAPITAL_FLOW_SNAPSHOT")
+    return isinstance(source, Mapping) and source.get("available") is True
+
+
+def _read_metric_fields(
+    payload: Mapping[str, Any],
+    aliases: Sequence[str],
+    *,
+    source: str,
+    source_refs: Sequence[str],
+    ratio_hint: bool,
+) -> dict[str, Any] | None:
+    if not isinstance(payload, Mapping):
+        return None
+    for alias in aliases:
+        if alias not in payload:
+            continue
+        result = _read_metric_payload(
+            payload.get(alias),
+            source=source,
+            source_refs=source_refs,
+            ratio_hint=ratio_hint or "ratio" in alias or "share" in alias or "pct" in alias,
+        )
+        if result is not None:
+            return result
+    return None
+
+
+def _read_metric_payload(
+    raw: Any,
+    *,
+    source: str,
+    source_refs: Sequence[str],
+    ratio_hint: bool,
+) -> dict[str, Any] | None:
+    available = True
+    if isinstance(raw, Mapping):
+        if raw.get("available") is False:
+            return _factor_result(None, source, source_refs, "A2_FACTOR_UNAVAILABLE")
+        available = raw.get("available") is not False
+        for key in ("score", "normalized_score", "percentile", "value", "raw_value"):
+            if key in raw:
+                number = _number(raw.get(key))
+                if number is not None:
+                    ratio = ratio_hint or key in {"percentile", "ratio"}
+                    return _factor_result(number * 100.0 if ratio and 0.0 <= number <= 1.0 else number, source, _payload_source_refs(raw) or source_refs, "OK")
+        return _factor_result(None, source, _payload_source_refs(raw) or source_refs, "A2_FACTOR_VALUE_MISSING")
+    number = _number(raw)
+    if number is None:
+        return None
+    if ratio_hint and 0.0 <= number <= 1.0:
+        number *= 100.0
+    if number < 0.0 or number > 100.0:
+        return _factor_result(None, source, source_refs, "A2_FACTOR_VALUE_INVALID")
+    return _factor_result(number, source, source_refs, "OK") if available else _factor_result(None, source, source_refs, "A2_FACTOR_UNAVAILABLE")
+
+
+def _factor_result(
+    score: float | None,
+    source: str,
+    source_refs: Sequence[str],
+    reason_code: str,
+    *,
+    reason_code_override: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "score": round(score, 4) if score is not None else None,
+        "available": score is not None,
+        "source": source,
+        "source_refs": list(dict.fromkeys(str(value) for value in source_refs if str(value))),
+        "reason_code": reason_code_override or reason_code,
+    }
+
+
+def _scoped_payloads(value: Any, symbol: str, theme_id: str) -> list[Mapping[str, Any]]:
+    if not isinstance(value, Mapping):
+        return []
+    result: list[Mapping[str, Any]] = []
+
+    def add_mapping(mapping: Any) -> None:
+        if isinstance(mapping, Mapping):
+            result.append(mapping)
+
+    add_mapping(value.get(symbol))
+    add_mapping(value.get(theme_id))
+    for key in ("by_symbol", "symbols", "by_theme", "themes", "theme_metrics", "metrics", "records", "items", "payload", "data"):
+        nested = value.get(key)
+        if isinstance(nested, Mapping):
+            add_mapping(nested.get(symbol))
+            add_mapping(nested.get(theme_id))
+        elif isinstance(nested, Sequence) and not isinstance(nested, (str, bytes, bytearray)):
+            for row in nested:
+                if not isinstance(row, Mapping):
+                    continue
+                row_symbol = _symbol(row.get("symbol") or row.get("thscode"))
+                row_theme = str(row.get("theme_id") or row.get("primary_theme") or "")
+                row_industry = str(row.get("industry_thscode") or row.get("industry_code") or "")
+                if row_symbol == symbol or row_theme == theme_id or row_industry == theme_id:
+                    add_mapping(row)
+    return result
+
+
+def _payload_source_refs(value: Mapping[str, Any]) -> list[str]:
+    refs: list[str] = []
+    raw = value.get("source_refs")
+    if isinstance(raw, Sequence) and not isinstance(raw, (str, bytes, bytearray)):
+        refs.extend(str(item) for item in raw if str(item).strip())
+    for key in ("source_ref", "fact_id", "source_url"):
+        if str(value.get(key) or "").strip():
+            refs.append(str(value[key]).strip())
+    return list(dict.fromkeys(refs))
+
+
+def _item_source_refs(item: Mapping[str, Any]) -> list[str]:
+    raw = item.get("source_refs")
+    if isinstance(raw, Sequence) and not isinstance(raw, (str, bytes, bytearray)):
+        return list(dict.fromkeys(str(value) for value in raw if str(value).strip()))
+    return []
+
+
+def _business_purity_score(item: Mapping[str, Any]) -> float | None:
+    facts = item.get("business_exposure_facts")
+    if isinstance(facts, Sequence) and not isinstance(facts, (str, bytes, bytearray)):
+        exposures = [
+            _number(row.get("revenue_exposure_pct"))
+            for row in facts
+            if isinstance(row, Mapping) and _number(row.get("revenue_exposure_pct")) is not None
+        ]
+        if exposures:
+            return max(0.0, min(100.0, max(exposures)))
+    business = item.get("business_exposure")
+    if isinstance(business, Mapping):
+        exposure = _number(business.get("revenue_exposure_pct"))
+        if exposure is not None:
+            return max(0.0, min(100.0, exposure))
+    breakdown = item.get("score_breakdown")
+    if isinstance(breakdown, Mapping):
+        for key in ("business_mapping", "business_purity", "business_exposure"):
+            value = _number(breakdown.get(key))
+            if value is not None:
+                return max(0.0, min(100.0, value))
+    return None
+
+
+def _has_business_evidence(item: Mapping[str, Any]) -> bool:
+    facts = item.get("business_exposure_facts")
+    if isinstance(facts, Sequence) and not isinstance(facts, (str, bytes, bytearray)):
+        return any(isinstance(row, Mapping) and str(row.get("evidence_ref") or row.get("source_ref") or "").strip() for row in facts)
+    business = item.get("business_exposure")
+    if isinstance(business, Mapping):
+        return bool(str(business.get("source_ref") or business.get("evidence_ref") or "").strip())
+    return False
 
 
 def screen_a3(snapshot: Mapping[str, Any], a2_output: Mapping[str, Any]) -> DeterministicGateResult:
@@ -498,12 +1224,22 @@ def local_monitor_items(result: DeterministicGateResult) -> list[dict[str, Any]]
             "industry_chain_node": item.get("node_id"),
             "structural_score": item.get("score"),
             "data_quality_score": item.get("data_quality_score"),
+            "factor_details": item.get("factor_details", {}),
+            "available_weight": item.get("available_weight"),
+            "available_weight_pct": item.get("available_weight_pct"),
+            "missing_factors": item.get("missing_factors", []),
             "evidence_confidence": 0.0,
             "status": "MONITOR",
             "reason_codes": item.get("reason_codes", []),
             "local_decision": True,
             "sent_to_llm": False,
-            "source_refs": [],
+            "source_refs": list(dict.fromkeys(
+                str(ref)
+                for factor in (item.get("factor_details") or {}).values()
+                if isinstance(factor, Mapping)
+                for ref in (factor.get("source_refs") or ())
+                if str(ref)
+            )),
         }
         for item in result.decisions
         if item.get("status") in {"LOCAL_MONITOR", "OUTSIDE_THEME"}
@@ -526,6 +1262,13 @@ def local_active_items(result: DeterministicGateResult) -> list[dict[str, Any]]:
             *[str(value) for value in item.get("theme_source_refs", ()) if str(value)],
             *[str(value) for value in item.get("node_source_refs", ()) if str(value)],
             source_ref,
+            *[
+                str(ref)
+                for factor in (item.get("factor_details") or {}).values()
+                if isinstance(factor, Mapping)
+                for ref in (factor.get("source_refs") or ())
+                if str(ref)
+            ],
         ]))
         projected.append({
             "symbol": item["symbol"],
@@ -553,6 +1296,10 @@ def local_active_items(result: DeterministicGateResult) -> list[dict[str, Any]]:
                 "extraction_method": exposure.get("extraction_method"),
             },
             "score_breakdown": dict(item.get("score_breakdown") or {}),
+            "factor_details": dict(item.get("factor_details") or {}),
+            "available_weight": item.get("available_weight"),
+            "available_weight_pct": item.get("available_weight_pct"),
+            "missing_factors": list(item.get("missing_factors") or ()),
             "reason_codes": ["A1_DETERMINISTIC_MONTHLY_RESEARCH_ELIGIBLE"],
             "local_decision": True,
             "sent_to_llm": False,
@@ -731,15 +1478,17 @@ def _financial_quality(value: Mapping[str, Any]) -> tuple[float, dict[str, float
         "net_margin": pick("net_profit_margin", "销售净利率"),
         "revenue_growth": pick("operating_income_yoy", "revenue_yoy", "营业收入同比增长率"),
         "profit_growth": pick("net_profit_yoy", "归母净利润同比增长率"),
-        "cashflow_quality": pick("cashflow_net_income_ratio", "经营现金流净利润比"),
+        "cashflow_quality": pick(
+            "cashflow_net_income_ratio",
+            "operating_cash_flow_net_divide_income",
+            "net_profit_cash_content",
+            "经营现金流净利润比",
+        ),
         "debt_ratio": pick("debt_to_assets", "资产负债率"),
     }
     available = [value for value in features.values() if value is not None]
     if not available:
-        coverage = value.get("dataset_coverage")
-        coverage = coverage if isinstance(coverage, Mapping) else {}
-        fallback = 60.0 if coverage.get("core_reports_complete") is True else 35.0
-        return fallback, features
+        return 0.0, features
     scores: list[float] = []
     if features["roe"] is not None:
         scores.append(_scale(features["roe"], 0, 20))
@@ -757,50 +1506,397 @@ def _financial_quality(value: Mapping[str, Any]) -> tuple[float, dict[str, float
     return sum(scores) / len(scores), features
 
 
+def _a1_factor_details(
+    snapshot: Mapping[str, Any],
+    *,
+    symbol: str,
+    matched: Sequence[Mapping[str, Any]],
+    theme: Mapping[str, Any],
+    node: Mapping[str, Any],
+    raw_evidence_available: bool,
+    structured_exposure: Sequence[Mapping[str, Any]],
+    maximum_revenue_exposure_pct: float,
+    financial_quality: float,
+    financial_details: Mapping[str, Any],
+    data_quality: float,
+    as_of: str | None,
+) -> dict[str, dict[str, Any]]:
+    """Build independent A1 factor records without filling missing factors.
+
+    ``score_breakdown`` remains a numeric compatibility view for the existing
+    model contract.  The richer records here carry availability and evidence,
+    allowing the caller to distinguish a real zero from an unavailable factor.
+    """
+
+    structural_refs = _source_refs_from_values(
+        theme.get("source_refs"),
+        node.get("source_refs"),
+    )
+    structural_available = bool(matched)
+    structural_score = 95.0 if structural_available else 0.0
+
+    business_refs = _source_refs_from_values(
+        *(fact.get("evidence_ref") for fact in structured_exposure if isinstance(fact, Mapping))
+    )
+    business_available = bool(structured_exposure)
+    business_score = (
+        min(100.0, 55.0 + maximum_revenue_exposure_pct * 0.6)
+        if business_available
+        else 0.0
+    )
+
+    barrier_score, barrier_available, barrier_refs, barrier_reason = _barrier_factor(node)
+    financial_refs = _source_refs_from_mapping(snapshot.get("COMPANY_FUNDAMENTALS"), symbol)
+    financial_available = bool(
+        any(value is not None for value in financial_details.values())
+    )
+    cashflow_value = _number(financial_details.get("cashflow_quality"))
+    cashflow_score = _scale(cashflow_value, 0.0, 1.2) if cashflow_value is not None else 0.0
+    cashflow_available = cashflow_value is not None
+    evidence_available = bool(raw_evidence_available or financial_available)
+    evidence_refs = _source_refs_from_values(
+        _source_refs_from_mapping(snapshot.get("MAIN_BUSINESS_EVIDENCE"), symbol),
+        _source_refs_from_mapping(snapshot.get("COMPANY_FUNDAMENTALS"), symbol),
+    )
+    catalyst_score, catalyst_available, catalyst_refs, catalyst_reason = _catalyst_factor(
+        snapshot.get("DISCLOSURE_EVENTS"), symbol
+    )
+    valuation_score, valuation_available, valuation_refs, valuation_reason = _valuation_factor(
+        snapshot.get("COMPANY_FUNDAMENTALS"), symbol,
+        snapshot.get("RESEARCH_CONSENSUS"),
+    )
+
+    return {
+        "structural_theme": _factor_record(
+            structural_score,
+            available=structural_available,
+            source_refs=structural_refs,
+            as_of=as_of,
+            missing_reason=None if structural_available else "A1_STRUCTURAL_THEME_NOT_MAPPED",
+        ),
+        "business_mapping": _factor_record(
+            business_score,
+            available=business_available,
+            source_refs=business_refs,
+            as_of=as_of,
+            missing_reason=None if business_available else "A1_EXPLICIT_REVENUE_EXPOSURE_MISSING",
+        ),
+        "barrier_and_bottleneck": _factor_record(
+            barrier_score,
+            available=barrier_available,
+            source_refs=barrier_refs,
+            as_of=as_of,
+            missing_reason=barrier_reason,
+        ),
+        "financial_quality": _factor_record(
+            financial_quality if financial_available else 0.0,
+            available=financial_available,
+            source_refs=financial_refs,
+            as_of=as_of,
+            missing_reason=None if financial_available else "A1_FINANCIAL_INDICATORS_MISSING",
+        ),
+        "cash_flow_quality": _factor_record(
+            cashflow_score,
+            available=cashflow_available,
+            source_refs=financial_refs,
+            as_of=as_of,
+            missing_reason=None if cashflow_available else "A1_CASH_FLOW_QUALITY_MISSING",
+        ),
+        "evidence_quality": _factor_record(
+            data_quality if evidence_available else 0.0,
+            available=evidence_available,
+            source_refs=evidence_refs,
+            as_of=as_of,
+            missing_reason=None if evidence_available else "A1_EVIDENCE_SOURCE_MISSING",
+        ),
+        "catalyst_confirmation": _factor_record(
+            catalyst_score,
+            available=catalyst_available,
+            source_refs=catalyst_refs,
+            as_of=as_of,
+            missing_reason=catalyst_reason,
+        ),
+        "valuation_expectation_gap": _factor_record(
+            valuation_score,
+            available=valuation_available,
+            source_refs=valuation_refs,
+            as_of=as_of,
+            missing_reason=valuation_reason,
+        ),
+    }
+
+
+def _factor_record(
+    score: float,
+    *,
+    available: bool,
+    source_refs: Sequence[str],
+    as_of: str | None,
+    missing_reason: str | None,
+) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "score": round(max(0.0, min(100.0, float(score))), 4),
+        "available": bool(available),
+        "source_refs": list(dict.fromkeys(str(value) for value in source_refs if str(value))),
+        "as_of": as_of,
+    }
+    if missing_reason:
+        result["missing_reason"] = missing_reason
+    return result
+
+
 def _a1_breakdown(
     weights: Mapping[str, Any],
-    *,
-    structural: float,
-    business: float,
-    financial: float,
-    liquidity: float,
-    evidence: float,
+    factors: Mapping[str, Mapping[str, Any]],
 ) -> dict[str, float]:
-    if not weights:
-        weights = {
-            "structural_theme": 0.20,
-            "business_mapping": 0.20,
-            "barrier_and_bottleneck": 0.15,
-            "financial_quality": 0.20,
-            "cash_flow_quality": 0.10,
-            "evidence_quality": 0.15,
-        }
+    """Project each configured weight to its own factor score.
+
+    Unknown configured factors are explicit zeroes.  They are never replaced by
+    a cross-factor average, which would turn missing evidence into a positive
+    signal.
+    """
+
+    resolved = {
+        str(key): _number(value)
+        for key, value in (weights or _A1_DEFAULT_WEIGHTS).items()
+        if _number(value) is not None and _number(value) > 0
+    }
     result: dict[str, float] = {}
-    for key in weights:
-        normalized = _normalize(key)
-        if "structural" in normalized or "theme" in normalized:
-            value = structural
-        elif "business" in normalized or "mapping" in normalized:
-            value = business
-        elif "financial" in normalized or "cashflow" in normalized or "profit" in normalized:
-            value = financial
-        elif "liquidity" in normalized or "capacity" in normalized:
-            value = liquidity
-        elif "evidence" in normalized or "dataquality" in normalized:
-            value = evidence
-        elif "barrier" in normalized or "bottleneck" in normalized:
-            value = (structural + evidence) / 2.0
-        else:
-            value = (financial + evidence) / 2.0
-        result[str(key)] = round(max(0.0, min(100.0, value)), 4)
+    for key in resolved:
+        canonical = _canonical_a1_factor_name(key)
+        factor = factors.get(canonical)
+        value = _number(factor.get("score")) if isinstance(factor, Mapping) else None
+        result[key] = round(max(0.0, min(100.0, value or 0.0)), 4)
     return result
+
+
+def _canonical_a1_factor_name(value: str) -> str:
+    normalized = _normalize(value)
+    if "structural" in normalized or "theme" in normalized:
+        return "structural_theme"
+    if "business" in normalized or "mapping" in normalized:
+        return "business_mapping"
+    if "barrier" in normalized or "bottleneck" in normalized:
+        return "barrier_and_bottleneck"
+    if "catalyst" in normalized:
+        return "catalyst_confirmation"
+    if "valuation" in normalized or "expectationgap" in normalized:
+        return "valuation_expectation_gap"
+    if "cashflow" in normalized:
+        return "cash_flow_quality"
+    if "evidence" in normalized or "dataquality" in normalized:
+        return "evidence_quality"
+    if "financial" in normalized or "profit" in normalized:
+        return "financial_quality"
+    return normalized
+
+
+def _a1_available_weight(
+    factors: Mapping[str, Mapping[str, Any]],
+    weights: Mapping[str, Any],
+) -> float:
+    resolved = {
+        str(key): _number(value)
+        for key, value in (weights or _A1_DEFAULT_WEIGHTS).items()
+        if _number(value) is not None and _number(value) > 0
+    }
+    total = sum(value for value in resolved.values() if value is not None)
+    if total <= 0:
+        return 0.0
+    available = sum(
+        float(weight)
+        for key, weight in resolved.items()
+        if isinstance(factors.get(_canonical_a1_factor_name(key)), Mapping)
+        and factors[_canonical_a1_factor_name(key)].get("available") is True
+    )
+    return available / total
+
+
+def _resolve_a1_weights(value: Mapping[str, Any]) -> dict[str, float]:
+    parsed = {
+        str(key): float(number)
+        for key, raw in value.items()
+        if (number := _number(raw)) is not None and number > 0
+    }
+    if not parsed or sum(parsed.values()) <= 0:
+        return dict(_A1_DEFAULT_WEIGHTS)
+    return parsed
+
+
+def _snapshot_as_of(snapshot: Mapping[str, Any]) -> str | None:
+    manifest = snapshot.get("snapshot_manifest")
+    if not isinstance(manifest, Mapping):
+        return None
+    value = manifest.get("as_of")
+    return str(value) if value else None
+
+
+def _factor_source_refs(value: Any) -> list[str]:
+    refs: list[str] = []
+
+    def visit(raw: Any) -> None:
+        if isinstance(raw, str):
+            text = raw.strip()
+            if text:
+                refs.append(text)
+            return
+        if isinstance(raw, Mapping):
+            for key in ("source_ref", "source_url", "fact_id", "announcement_id"):
+                visit(raw.get(key))
+            for key in ("source_refs", "supporting_source_refs"):
+                values = raw.get(key)
+                if isinstance(values, Sequence) and not isinstance(values, (str, bytes, bytearray)):
+                    for item in values:
+                        visit(item)
+            return
+        if isinstance(raw, Sequence) and not isinstance(raw, (str, bytes, bytearray)):
+            for item in raw:
+                visit(item)
+
+    visit(value)
+    return list(dict.fromkeys(refs))
+
+
+def _source_refs_from_values(*values: Any) -> list[str]:
+    refs: list[str] = []
+    for value in values:
+        refs.extend(_factor_source_refs(value))
+    return list(dict.fromkeys(refs))
+
+
+def _source_refs_from_mapping(value: Any, symbol: str) -> list[str]:
+    if not isinstance(value, Mapping):
+        return []
+    return _source_refs_from_values(value.get(symbol), value.get("by_symbol", {}).get(symbol) if isinstance(value.get("by_symbol"), Mapping) else None)
+
+
+def _barrier_factor(node: Mapping[str, Any]) -> tuple[float, bool, list[str], str]:
+    status = str(node.get("bottleneck_status") or "").strip().upper()
+    barrier_type = str(node.get("barrier_type") or "").strip().upper()
+    classes = node.get("bottleneck_evidence_classes")
+    classes = classes if isinstance(classes, Sequence) and not isinstance(classes, (str, bytes, bytearray)) else []
+    refs = _source_refs_from_values(node)
+    if status == "CONFIRMED" and barrier_type and classes and refs:
+        score = min(100.0, 65.0 + 10.0 * min(3, len(classes)))
+        return score, True, refs, ""
+    if status == "PARTIAL" and (barrier_type or classes) and refs:
+        return 50.0, True, refs, ""
+    if not node:
+        return 0.0, False, [], "A1_BARRIER_EVIDENCE_MISSING"
+    if not refs:
+        return 0.0, False, [], "A1_BARRIER_SOURCE_REF_MISSING"
+    return 0.0, False, refs, "A1_BARRIER_STATUS_UNPROVEN"
+
+
+def _symbol_records(value: Any, symbol: str) -> list[Mapping[str, Any]]:
+    if not isinstance(value, Mapping):
+        return []
+    by_symbol = value.get("by_symbol")
+    if isinstance(by_symbol, Mapping):
+        records = by_symbol.get(symbol, ())
+    else:
+        records = value.get(symbol, ())
+    if isinstance(records, Mapping):
+        records = records.get("records", ())
+    if not isinstance(records, Sequence) or isinstance(records, (str, bytes, bytearray)):
+        return []
+    return [item for item in records if isinstance(item, Mapping)]
+
+
+def _catalyst_factor(value: Any, symbol: str) -> tuple[float, bool, list[str], str]:
+    records = _symbol_records(value, symbol)
+    if not records:
+        return 0.0, False, [], "A1_CATALYST_CONFIRMATION_MISSING"
+    strong_terms = (
+        "订单", "招标", "合同", "产能", "投产", "客户认证", "认证", "业绩", "业绩预告", "业绩快报",
+        "盈利预期", "guidance", "order", "tender", "capacity", "certification", "customer",
+        "contract", "ramp", "earnings",
+    )
+    strong: list[Mapping[str, Any]] = []
+    for record in records:
+        if record.get("prompt_injection_suspected") is True:
+            continue
+        tags = " ".join(str(item) for item in record.get("event_tags", ()) if item) if isinstance(record.get("event_tags"), list) else ""
+        text = " ".join(
+            str(record.get(key) or "")
+            for key in ("announcement_title", "event_type", "summary", "title", "event_tags")
+        )
+        if any(term.casefold() in (tags + " " + text).casefold() for term in strong_terms):
+            strong.append(record)
+    refs = _source_refs_from_values(strong)
+    if not strong or not refs:
+        return 0.0, False, refs, "A1_CATALYST_CONFIRMATION_NOT_FOUND"
+    return min(100.0, 60.0 + 10.0 * min(4, len(strong))), True, refs, ""
+
+
+def _valuation_factor(
+    fundamentals: Any,
+    symbol: str,
+    consensus: Any,
+) -> tuple[float, bool, list[str], str]:
+    payload = fundamentals.get(symbol) if isinstance(fundamentals, Mapping) else None
+    indicator_map = _indicator_map(payload)
+    consensus_payload = consensus.get(symbol) if isinstance(consensus, Mapping) else None
+    if isinstance(consensus_payload, Mapping):
+        indicator_map.update(_indicator_map(consensus_payload))
+    refs = _source_refs_from_values(payload, consensus_payload)
+    percentile = _pick_number(indicator_map, "valuationpercentile", "pepercentile", "pbpercentile", "估值分位")
+    if percentile is not None:
+        normalized = percentile * 100.0 if 0.0 <= percentile <= 1.0 else percentile
+        return max(0.0, min(100.0, 100.0 - normalized)), True, refs, ""
+    peg = _pick_number(indicator_map, "peg", "市盈增长比")
+    if peg is not None and peg >= 0:
+        return max(0.0, min(100.0, 100.0 - peg * 40.0)), True, refs, ""
+    pe = _pick_number(indicator_map, "pettm", "pe", "priceearningsratio", "市盈率")
+    expected_growth = _pick_number(
+        indicator_map,
+        "expectedgrowth", "profitgrowth", "netprofitgrowth", "earningsgrowth", "一致预期净利润增速",
+    )
+    if pe is not None and pe > 0:
+        if expected_growth is not None:
+            growth = abs(expected_growth)
+            return max(0.0, min(100.0, 100.0 - pe / max(1.0, growth) * 2.0)), True, refs, ""
+        return max(0.0, min(100.0, 100.0 - pe)), True, refs, ""
+    return 0.0, False, refs, "A1_VALUATION_DATA_MISSING"
+
+
+def _indicator_map(value: Any) -> dict[str, float]:
+    if not isinstance(value, Mapping):
+        return {}
+    raw = value.get("indicators")
+    if isinstance(raw, Mapping):
+        rows = ({"index_id": key, "value": item} for key, item in raw.items())
+    elif isinstance(raw, Sequence) and not isinstance(raw, (str, bytes, bytearray)):
+        rows = iter(raw)
+    else:
+        rows = iter(())
+    result: dict[str, float] = {}
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        key = _normalize(row.get("index_id") or row.get("name"))
+        number = _number(row.get("value"))
+        if key and number is not None:
+            result[key] = number
+    return result
+
+
+def _pick_number(values: Mapping[str, float], *aliases: str) -> float | None:
+    for alias in aliases:
+        key = _normalize(alias)
+        if key in values:
+            return values[key]
+        for actual, number in values.items():
+            if key and key in actual:
+                return number
+    return None
 
 
 def _weighted_score(breakdown: Mapping[str, float], weights: Mapping[str, Any]) -> float:
     parsed = {key: _number(weights.get(key)) for key in breakdown}
     total_weight = sum(value for value in parsed.values() if value is not None and value > 0)
     if total_weight <= 0:
-        return sum(breakdown.values()) / max(1, len(breakdown))
+        return 0.0
     return sum(breakdown[key] * float(value or 0.0) for key, value in parsed.items()) / total_weight
 
 
@@ -994,6 +2090,11 @@ def _number(value: Any) -> float | None:
     return number if math.isfinite(number) else None
 
 
+def _safe_float(value: Any) -> float:
+    number = _number(value)
+    return number if number is not None else 0.0
+
+
 def _scale(value: float, low: float, high: float) -> float:
     if high <= low:
         return 50.0
@@ -1012,6 +2113,8 @@ def _symbol(value: Any) -> str:
 
 
 __all__ = [
+    "A2_FACTOR_COVERAGE_MINIMUM",
+    "A2_THEME_FACTORS",
     "FEATURE_VERSION",
     "PIPELINE_MODE",
     "DeterministicGateResult",

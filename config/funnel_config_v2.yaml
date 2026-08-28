@@ -263,6 +263,7 @@ agent_1:
   minimum_score: 65
   minimum_data_quality: 75
   minimum_evidence_confidence: 0.70
+  minimum_available_weight: 0.70       # 六因子可用权重不足时只进 MONITOR
 
   score_weights:
     structural_theme: 0.20
@@ -302,6 +303,8 @@ agent_1:
     monthly_policy_document_limit: 60
     monthly_theme_target: [8, 15]           # 覆盖目标，不以无证据主题凑数
     monthly_cycle_lookback_trading_days: 20
+    monthly_rotation_decision_top_n: 20
+    monthly_rotation_top10_required: true
     require_policy_macro_cycle_reconciliation: true
     hardcoded_theme_allowlist_forbidden: true
   research_report_is_primary_evidence: false
@@ -309,8 +312,8 @@ agent_1:
   insider_increase_is_strong_signal: false  # 2026-04-07 短线交易新规后
 
   fast_track:
-    enabled: true
-    daily_quota: 5
+    enabled: false
+    daily_quota: 0
     deadline: "17:00"
     evidence_standard: SAME_AS_NORMAL       # ★ 只加快时间，不降低标准
     cooldown_days: 30
@@ -324,6 +327,15 @@ agent_2:
   minimum_theme_score: 60
   opening_review_mode: TIGHTEN_ONLY
   candidate_pool_target: [30, 80]           # 当前市场可执行研究候选；观察池另计
+
+  routes:                                  # A2 合法入池路线；两条路线均继承 A1 血缘
+    - MARKET_CORE
+    - SUPPLY_CHAIN_ALPHA
+  factor_coverage_minimum: 0.65            # 可用权重低于此值最高只能 WATCH_ONLY
+  capital_flow:
+    required_for_focus: false              # 缺失时按可用权重归一，禁止用成交额冒充
+    unavailable_reason_code: A2_CAPITAL_FLOW_UNAVAILABLE
+    invented_score_reason_code: A2_CAPITAL_FLOW_SCORE_INVENTED
 
   score_weights:
     breadth: 0.15
@@ -398,6 +410,22 @@ agent_2:
     penalty_multiplier: 2
     required_failure_conditions: true
     required_missing_proof: true
+
+  route_requirements:
+    MARKET_CORE:
+      inherit_a1_theme: true
+      inherit_a1_chain_node: true
+      inherit_a1_business_evidence: true
+      require_complete_bottleneck_scorecard: false
+      bottleneck_status: NOT_REQUIRED_FOR_MARKET_CORE
+      minimum_market_evidence_families: 2
+    SUPPLY_CHAIN_ALPHA:
+      inherit_a1_theme: true
+      inherit_a1_chain_node: true
+      inherit_a1_business_evidence: true
+      require_complete_bottleneck_scorecard: true
+      minimum_bottleneck_evidence_items: 2
+      minimum_strong_or_medium_evidence: 1
 
   penalty_rules:
     high_crowding:              [-20, -5]

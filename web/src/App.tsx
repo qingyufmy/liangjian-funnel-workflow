@@ -121,9 +121,9 @@ function normalizeOverview(value: OverviewResponse): OverviewResponse {
 
 function toneForStatus(status?: string | null): HealthTone {
   const normalized = (status ?? "").toUpperCase();
-  if (["OK", "PASS", "HEALTHY", "READY", "READY_TO_PUBLISH", "PUBLISHED", "COMPLETED", "VALIDATED", "ACTIVE"].includes(normalized)) return "healthy";
+  if (["OK", "PASS", "HEALTHY", "READY", "READY_TO_PUBLISH", "PUBLISHED", "COMPLETED", "VALIDATED", "VALIDATED_NO_OPPORTUNITY", "VALIDATED_NO_ACTION", "VALIDATED_NO_SETUP", "ACTIVE"].includes(normalized)) return "healthy";
   if (["RUNNING", "IN_PROGRESS", "STARTED", "RETRYING"].includes(normalized)) return "running";
-  if (["WARN", "WARNING", "DEGRADED", "BLOCKED", "PARTIAL", "MISSED", "STALE"].includes(normalized)) return "warning";
+  if (["WARN", "WARNING", "DEGRADED", "READY_DEGRADED", "VALIDATED_UNDERFILLED_MARKET", "DEGRADED_UNDERFILLED_DATA_GAP", "NOT_RUN_UPSTREAM_BLOCKED", "BLOCKED", "BLOCKED_DATA_COVERAGE", "BLOCKED_EVIDENCE_GAP", "BLOCKED_MODEL", "BLOCKED_TECHNICAL_DATA", "PARTIAL", "MISSED", "STALE"].includes(normalized)) return "warning";
   if (["ERROR", "FAILED", "UNHEALTHY", "STOPPED"].includes(normalized)) return "error";
   return "unknown";
 }
@@ -155,6 +155,17 @@ function statusLabel(status?: string | null): string {
     PUBLISHED: "已发布",
     COMPLETED: "已完成",
     VALIDATED: "已验证",
+    VALIDATED_NO_OPPORTUNITY: "已验证·当前无机会",
+    VALIDATED_NO_ACTION: "已验证·无需行动",
+    VALIDATED_NO_SETUP: "已验证·无合格形态",
+    VALIDATED_UNDERFILLED_MARKET: "已验证·市场机会较少",
+    READY_DEGRADED: "就绪·降级",
+    DEGRADED_UNDERFILLED_DATA_GAP: "降级·事实覆盖不足",
+    NOT_RUN_UPSTREAM_BLOCKED: "未执行·上游阻断",
+    BLOCKED_DATA_COVERAGE: "阻断·数据覆盖不足",
+    BLOCKED_EVIDENCE_GAP: "阻断·事实证据不足",
+    BLOCKED_MODEL: "阻断·模型失败",
+    BLOCKED_TECHNICAL_DATA: "阻断·技术数据不足",
     ACTIVE: "活动",
     RUNNING: "运行中",
     STALE: "进度失联",
@@ -940,6 +951,7 @@ function StageStockDetail({ item, onBack }: { item: StageDetailItem | null; onBa
       <button className="stage-detail-back text-button" type="button" onClick={onBack}><ChevronLeft size={17} />返回股票列表</button>
       <header className="stage-stock-detail-heading"><div><h3>{item.name || "名称未提供"}</h3><span>{item.symbol} · {item.theme || item.industry || "行业主题未提供"}</span></div>{item.score !== null && item.score !== undefined ? <strong>{item.score}<small>分</small></strong> : null}</header>
       {item.nameSource === "unavailable" ? <div className="stage-detail-notice"><CircleAlert size={16} />冻结快照和模型结果均未提供名称，页面没有推测填充。</div> : null}
+      {item.route || item.bottleneckStatus || item.factorCoverage ? <section className="stage-detail-section"><header><h3>A2 入池通道</h3><span>确定性门禁</span></header><dl className="stage-definition-grid"><div><dt>路线</dt><dd>{detailValue(item.route)}</dd></div><div><dt>瓶颈状态</dt><dd>{detailValue(item.bottleneckStatus)}</dd></div><div><dt>事实覆盖</dt><dd>{detailValue(item.factorCoverage)}</dd></div></dl></section> : null}
       <DetailStringList title="入选逻辑" badge="模型判断" values={item.selectionReasons} />
       <DetailStringList title="淘汰 / 校验原因" badge="系统原因码" values={item.reasonCodes} />
       {scoreEntries.length ? <section className="stage-detail-section"><header><h3>评分拆解</h3><span>模型字段</span></header><dl className="stage-score-grid">{scoreEntries.map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{detailValue(value)}</dd></div>)}</dl></section> : null}

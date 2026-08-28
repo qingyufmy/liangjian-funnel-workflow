@@ -39,6 +39,9 @@ export interface StageDetailItem {
   pool: StagePoolId;
   theme?: string | null;
   industry?: string | null;
+  route?: string | null;
+  bottleneckStatus?: string | null;
+  factorCoverage?: Record<string, unknown> | null;
   score?: number | null;
   reasonCodes: string[];
   selectionReasons: string[];

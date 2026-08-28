@@ -7,6 +7,7 @@ import re
 import time
 from datetime import datetime, timezone
 from dataclasses import dataclass
+from email.utils import parsedate_to_datetime
 from typing import Any, Callable, Mapping, Sequence
 
 import httpx
@@ -645,10 +646,57 @@ def _retry_after_seconds(value: str | None) -> float | None:
     except ValueError:
         pass
     try:
-        parsed = datetime.strptime(clean, "%a, %d %b %Y %H:%M:%S %Z").replace(tzinfo=timezone.utc)
-    except ValueError:
+        parsed = parsedate_to_datetime(clean)
+    except (TypeError, ValueError, OverflowError):
         return None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
     return min(30.0, max(0.0, (parsed - datetime.now(timezone.utc)).total_seconds()))
+
+
+def mechanical_repair_output(output: Mapping[str, Any]) -> tuple[dict[str, Any], int]:
+    """Apply only lossless transport-shape repairs to a model object.
+
+    A few OpenAI-compatible gateways serialize ``analysis_summary`` as a
+    scalar even though the research contract declares it as an object.  The
+    value is retained verbatim under a descriptive key; no pool, score,
+    reason, or candidate is inferred here.  This helper intentionally does
+    not repair missing business fields -- those remain the responsibility of
+    the stage validator.
+    """
+
+    result = dict(output)
+    changed = 0
+    if "analysis_summary" not in result:
+        # A missing required business field is a semantic contract failure,
+        # not a transport-shape problem.  Leave it missing so the stage
+        # validator can request one bounded repair attempt or fail closed.
+        return result, 0
+
+    summary = result.get("analysis_summary")
+    if isinstance(summary, Mapping):
+        return result, 0
+    if isinstance(summary, str):
+        text = summary.strip()
+        # Some gateways double-encode an object.  Parse it only when the
+        # complete scalar is a JSON object; prose remains untouched.
+        if text.startswith("{") and text.endswith("}"):
+            try:
+                decoded = json.loads(text)
+            except (TypeError, ValueError):
+                decoded = None
+            if isinstance(decoded, Mapping):
+                result["analysis_summary"] = dict(decoded)
+                return result, 1
+        result["analysis_summary"] = {"summary": summary}
+        return result, 1
+
+    # Preserve unusual scalar/list values without allowing them to invalidate
+    # the whole response shape.  This is a type wrapper only, not a semantic
+    # default or a model conclusion.
+    result["analysis_summary"] = {"value": summary}
+    changed += 1
+    return result, changed
 
 
 def _is_output_budget_rejection(response: httpx.Response, *, requested_tokens: int) -> bool:
@@ -732,5 +780,6 @@ __all__ = [
     "OpenAICompatibleClient",
     "OpenAICompatibleModelClient",
     "StrictJSONError",
+    "mechanical_repair_output",
     "strict_json_object",
 ]

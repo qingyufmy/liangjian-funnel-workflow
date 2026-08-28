@@ -24,6 +24,10 @@ FACTOR_WEIGHTS: dict[str, float] = {
     "valuation_disconnect": 11.0,
     "catalyst_timing": 10.0,
 }
+FACTORS: tuple[str, ...] = tuple(FACTOR_WEIGHTS)
+A2_ROUTES: frozenset[str] = frozenset({"MARKET_CORE", "SUPPLY_CHAIN_ALPHA"})
+MARKET_CORE_ROUTE = "MARKET_CORE"
+SUPPLY_CHAIN_ALPHA_ROUTE = "SUPPLY_CHAIN_ALPHA"
 PENALTY_FIELDS: tuple[str, ...] = (
     "dilution_financing",
     "governance",
@@ -48,6 +52,7 @@ def deterministic_bottleneck_context(
     *,
     demand_score_0_100: float,
     timing_score_0_100: float,
+    factor_weights: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the non-speculative part of a bottleneck scorecard.
 
@@ -74,12 +79,14 @@ def deterministic_bottleneck_context(
         "evidence_quality": _to_five(confidence),
         "catalyst_timing": _to_five(timing_score_0_100),
     }
-    unknown = [factor for factor in FACTOR_WEIGHTS if factor not in known]
-    known_weight = sum(FACTOR_WEIGHTS[factor] for factor in known)
+    weights = _validated_factor_weights(factor_weights) or FACTOR_WEIGHTS
+    unknown = [factor for factor in weights if factor not in known]
+    known_weight = sum(weights[factor] for factor in known)
     weighted_points = sum(
-        known[factor] / 5.0 * FACTOR_WEIGHTS[factor]
+        known[factor] / 5.0 * weights[factor]
         for factor in known
     )
+    total_weight = sum(weights.values())
     readiness = weighted_points / known_weight * 100.0 if known_weight else 0.0
     source_refs = [
         str(value)
@@ -93,6 +100,8 @@ def deterministic_bottleneck_context(
         "known_factor_ratings_0_5": {key: round(value, 4) for key, value in known.items()},
         "unknown_factor_names": unknown,
         "known_weight_pct": round(known_weight, 4),
+        "factor_coverage_pct": round(known_weight / total_weight * 100.0, 4) if total_weight else 0.0,
+        "factor_weights": {key: round(value, 4) for key, value in weights.items()},
         "evidence_readiness_score": round(readiness, 4),
         "scarcity_claim_allowed": False,
         "source_refs": list(dict.fromkeys(source_refs)),
@@ -106,16 +115,22 @@ def deterministic_bottleneck_context(
     }
 
 
-def canonicalize_model_scorecard(scorecard: Any) -> tuple[dict[str, Any] | None, list[str]]:
+def canonicalize_model_scorecard(
+    scorecard: Any,
+    *,
+    factor_weights: Mapping[str, Any] | None = None,
+    penalty_multiplier: float = 2.0,
+) -> tuple[dict[str, Any] | None, list[str]]:
     """Validate factor ranges and recompute the 0-100 score server-side."""
 
     if not isinstance(scorecard, Mapping):
         return None, ["A2_BOTTLENECK_SCORECARD_MISSING"]
+    weights = _validated_factor_weights(factor_weights) or FACTOR_WEIGHTS
     factors = scorecard.get("factors")
-    if not isinstance(factors, Mapping) or set(factors) != set(FACTOR_WEIGHTS):
+    if not isinstance(factors, Mapping) or set(factors) != set(weights):
         return None, ["A2_BOTTLENECK_FACTORS_INVALID"]
     normalized_factors: dict[str, float] = {}
-    for name in FACTOR_WEIGHTS:
+    for name in weights:
         raw = factors.get(name)
         if isinstance(raw, bool) or raw is None:
             return None, ["A2_BOTTLENECK_FACTORS_INVALID"]
@@ -137,15 +152,23 @@ def canonicalize_model_scorecard(scorecard: Any) -> tuple[dict[str, Any] | None,
         normalized_penalties[name] = value
     raw_points = sum(
         normalized_factors[name] / 5.0 * weight
-        for name, weight in FACTOR_WEIGHTS.items()
+        for name, weight in weights.items()
     )
-    penalty_points = sum(normalized_penalties.values()) * 2.0
+    try:
+        parsed_multiplier = float(penalty_multiplier)
+    except (TypeError, ValueError):
+        parsed_multiplier = 2.0
+    if parsed_multiplier < 0.0:
+        return None, ["A2_BOTTLENECK_PENALTIES_INVALID"]
+    penalty_points = sum(normalized_penalties.values()) * parsed_multiplier
     final_score = max(0.0, min(100.0, raw_points - penalty_points))
     return {
         **dict(scorecard),
         "methodology_version": METHODOLOGY_VERSION,
         "factors": {name: round(value, 4) for name, value in normalized_factors.items()},
         "penalties": {name: round(value, 4) for name, value in normalized_penalties.items()},
+        "factor_weights": {name: round(value, 4) for name, value in weights.items()},
+        "penalty_multiplier": parsed_multiplier,
         "raw_factor_points": round(raw_points, 2),
         "penalty_points": round(penalty_points, 2),
         "final_score": round(final_score, 2),
@@ -159,6 +182,34 @@ def _number(value: Any) -> float:
     except (TypeError, ValueError):
         return 0.0
     return number
+
+
+def _validated_factor_weights(value: Mapping[str, Any] | None) -> dict[str, float] | None:
+    """Return positive configured weights without silently changing factor names.
+
+    The scorecard schema is intentionally strict about the eight factor names,
+    while callers may supply a versioned configuration with different numeric
+    weights.  We keep the configured scale (the default sums to 100) so the
+    server-side score remains auditable; only a non-positive/invalid mapping is
+    rejected and the methodology default is used by the public helpers.
+    """
+
+    if not isinstance(value, Mapping) or not value:
+        return None
+    parsed: dict[str, float] = {}
+    for name, raw in value.items():
+        if isinstance(raw, bool):
+            return None
+        try:
+            number = float(raw)
+        except (TypeError, ValueError):
+            return None
+        if number <= 0.0:
+            return None
+        parsed[str(name)] = number
+    if set(parsed) != set(FACTOR_WEIGHTS):
+        return None
+    return parsed
 
 
 def _bounded(value: float, low: float, high: float) -> float:
@@ -182,10 +233,14 @@ def _first_number(
 
 
 __all__ = [
+    "A2_ROUTES",
     "EVIDENCE_STRENGTHS",
+    "FACTORS",
     "FACTOR_WEIGHTS",
+    "MARKET_CORE_ROUTE",
     "METHODOLOGY_VERSION",
     "PENALTY_FIELDS",
+    "SUPPLY_CHAIN_ALPHA_ROUTE",
     "SUPPLY_CHAIN_ROLES",
     "canonicalize_model_scorecard",
     "deterministic_bottleneck_context",

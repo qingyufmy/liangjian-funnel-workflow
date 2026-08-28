@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from liangjian_funnel.pipeline.bottleneck import (
     FACTOR_WEIGHTS,
     canonicalize_model_scorecard,
@@ -172,3 +174,145 @@ def test_new_a2_context_keeps_a_source_backed_bottleneck_focus_item():
 
     assert changed == 0, output
     assert [row["symbol"] for row in output["focus_pool"]] == [symbol]
+
+
+def _configured_a2_case(*, capital_flow_available: bool = False) -> tuple[dict, dict, str]:
+    symbol = "600001.SH"
+    factor_scores = {
+        name: {"score": 80, "available": True, "source_ref": f"fact:{name}"}
+        for name in (
+            "breadth", "turnover_share", "leader_structure", "tier_structure",
+            "profit_effect", "catalyst_freshness", "index_chain_resonance",
+            "agent_1_quality",
+        )
+    }
+    weights = {name: 1 / 9 for name in (
+        "breadth", "turnover_share", "capital_flow", "leader_structure",
+        "tier_structure", "profit_effect", "catalyst_freshness",
+        "index_chain_resonance", "agent_1_quality",
+    )}
+    snapshot = {
+        "g0_symbols": [symbol],
+        "g0_candidates": [{"symbol": symbol, "name": "核心公司", "amount": 2_000_000_000}],
+        "FACTOR_SNAPSHOT": {symbol: {"technical_summary": {"relative_strength_score": 80}}},
+        "THEME_SCORE_WEIGHTS": weights,
+        "A2_FACTOR_COVERAGE_MINIMUM": 0.65,
+        "CAPITAL_FLOW_SNAPSHOT": {
+            "available": capital_flow_available,
+            "reason_code": "OK" if capital_flow_available else "SOURCE_NOT_CONFIGURED",
+            "by_symbol": {symbol: {"capital_flow_score": 80}} if capital_flow_available else {},
+        },
+    }
+    item = {
+        "symbol": symbol,
+        "candidate_id": f"a1:{symbol}",
+        "primary_theme": "theme-cycle",
+        "industry_chain_node": "node-cycle",
+        "structural_score": 85,
+        "data_quality_score": 90,
+        "business_exposure": {"revenue_exposure_pct": 70, "source_ref": "cninfo:600001.SH:page:1"},
+        "business_exposure_facts": [{"revenue_exposure_pct": 70, "evidence_ref": "cninfo:600001.SH:page:1"}],
+        "source_refs": ["cninfo:600001.SH:page:1"],
+        "a2_factor_scores": factor_scores,
+    }
+    return snapshot, {"active_research_pool": [item]}, symbol
+
+
+def test_a2_market_core_route_allows_missing_bottleneck_card_and_normalizes_flow_gap():
+    snapshot, upstream, symbol = _configured_a2_case()
+    result = screen_a2(snapshot, upstream, minimum_identifiability_score=60, llm_top_n_per_theme=1)
+
+    decision = result.decisions[0]
+    assert result.review_symbols == (symbol,)
+    assert decision["route"] == "MARKET_CORE"
+    assert decision["eligible_routes"] == ("MARKET_CORE",)
+    assert decision["bottleneck_status"] == "NOT_REQUIRED_FOR_MARKET_CORE"
+    assert decision["a2_factor_scores"]["capital_flow"]["available"] is False
+    assert decision["factor_coverage"]["ratio"] == pytest.approx(8 / 9)
+
+
+def test_a2_supply_chain_alpha_requires_complete_source_backed_scorecard():
+    snapshot, upstream, symbol = _configured_a2_case(capital_flow_available=True)
+    upstream["active_research_pool"][0].update({
+        "supply_chain_role": "SUPPLIES_SCARCE_LAYER",
+        "scarce_layer": "关键设备",
+        "value_chain_position": "上游设备",
+        "bottleneck_scorecard": _scorecard(),
+        "bottleneck_evidence": [
+            {"claim": "认证周期长", "source_ref": "cninfo:600001.SH:page:1", "strength": "STRONG"},
+            {"claim": "订单兑现", "source_ref": "cninfo:600001.SH:page:2", "strength": "MEDIUM"},
+        ],
+        "missing_proof": "客户集中度待更新",
+        "kill_switches": ["订单下降"],
+        "source_refs": ["cninfo:600001.SH:page:1", "cninfo:600001.SH:page:2"],
+    })
+    result = screen_a2(snapshot, upstream, minimum_identifiability_score=60, llm_top_n_per_theme=1)
+
+    decision = result.decisions[0]
+    assert set(decision["eligible_routes"]) == {"MARKET_CORE", "SUPPLY_CHAIN_ALPHA"}
+    assert decision["route_eligibility"]["SUPPLY_CHAIN_ALPHA"]["eligible"] is True
+
+
+def test_a2_factor_coverage_below_65_percent_is_watch_only_even_when_score_is_high():
+    snapshot, upstream, symbol = _configured_a2_case()
+    snapshot["THEME_SCORE_WEIGHTS"] = {
+        "breadth": 0.0625,
+        "turnover_share": 0.0625,
+        "capital_flow": 0.50,
+        "leader_structure": 0.0625,
+        "tier_structure": 0.0625,
+        "profit_effect": 0.0625,
+        "catalyst_freshness": 0.0625,
+        "index_chain_resonance": 0.0625,
+        "agent_1_quality": 0.0625,
+    }
+    result = screen_a2(snapshot, upstream, minimum_identifiability_score=60, llm_top_n_per_theme=1)
+
+    assert result.review_symbols == ()
+    assert result.monitor_symbols == (symbol,)
+    assert "A2_FACTOR_COVERAGE_BELOW_MINIMUM" in result.decisions[0]["reason_codes"]
+
+
+def test_a2_invented_capital_flow_demotes_theme_and_focus_when_source_is_unavailable():
+    weights = {
+        "breadth": 1 / 9,
+        "turnover_share": 1 / 9,
+        "capital_flow": 1 / 9,
+        "leader_structure": 1 / 9,
+        "tier_structure": 1 / 9,
+        "profit_effect": 1 / 9,
+        "catalyst_freshness": 1 / 9,
+        "index_chain_resonance": 1 / 9,
+        "agent_1_quality": 1 / 9,
+    }
+    theme = {
+        "theme_id": "theme-cycle",
+        "stage": "CONFIRMATION",
+        "new_entry_policy": "ALLOW",
+        "supporting_evidence": ["industry breadth"],
+        "contradicting_evidence": ["capital flow source unavailable"],
+        "score_breakdown": {name: 70 for name in weights},
+        "theme_score": 70,
+    }
+    focus = {
+        "symbol": "600001.SH",
+        "theme_id": "theme-cycle",
+        "market_role": "CORE_ARMY",
+        "identifiability_score": 80,
+        "theme_score": 70,
+    }
+
+    output, changed = _apply_a2_lineage_policy(
+        {"active_themes": [theme], "focus_pool": [focus], "watch_only_pool": []},
+        {"structural_themes": [{"theme_id": "theme-cycle"}]},
+        {
+            "MIN_IDENTIFIABILITY_SCORE": 60,
+            "THEME_SCORE_WEIGHTS": weights,
+            "CAPITAL_FLOW_SNAPSHOT": {"available": False, "reason_code": "SOURCE_NOT_CONFIGURED"},
+        },
+    )
+
+    assert changed == 1
+    assert output["focus_pool"] == []
+    assert "A2_CAPITAL_FLOW_SCORE_INVENTED" in output["active_themes"][0]["reason_codes"]
+    assert "A2_THEME_LINEAGE_INVALID" in output["watch_only_pool"][0]["reason_codes"]

@@ -40,6 +40,7 @@ from .facts import (
     normalize_open_news_results,
     select_cninfo_pdf_candidates,
 )
+from .evaluation.broker_gold import BrokerGoldContractError, evaluate_broker_gold, import_broker_gold
 from .pipeline.data_source import HithinkClient, HithinkFetchResult
 from .pipeline.data_sync import HithinkIncrementalSynchronizer
 from .pipeline.factors import FactorEngine
@@ -55,6 +56,7 @@ from .pipeline.prompts import PromptRepository
 from .pipeline.research import FrozenInputSnapshot as ResearchSnapshot
 from .pipeline.research import ResearchPipeline, ResearchRunResult
 from .pipeline.research_checkpoint import FileResearchCheckpointStore
+from .pipeline.research_reports import write_stage_markdown_reports
 from .pipeline.snapshot import FrozenInputSnapshot, UniverseGatePolicy, UniverseSnapshot
 from .pipeline.technical_aggregates import build_technical_aggregates
 from .redaction import digest_text, sanitize
@@ -1188,6 +1190,16 @@ class WorkflowApplication:
             )
             _progress_stdout(progress.snapshot())
             raise
+        broker_benchmark = _write_broker_gold_benchmark(
+            result,
+            as_of=current,
+            benchmark_dir=self.settings.fact_store_dir.parent / "benchmarks" / "broker_gold",
+            output_dir=self.settings.workflow_output_dir / "research",
+        )
+        stage_markdown = write_stage_markdown_reports(
+            result,
+            self.settings.workflow_output_dir / "research",
+        )
         publication = self._publish_plans(
             result,
             normalized_slot,
@@ -1200,20 +1212,24 @@ class WorkflowApplication:
             "status": result.status,
             "snapshot": prepared.as_dict(),
             "research_markdown": str(result.markdown_path) if result.markdown_path else None,
+            "stage_markdown": stage_markdown,
+            "broker_gold_benchmark": broker_benchmark,
             "plan_publication": publication,
         }
         atomic_write_json(self.settings.workflow_output_dir / "runs" / f"{run_id}.json", summary)
+        research_ready = result.status in {"READY", "READY_DEGRADED"}
+        ready_reason = "RESEARCH_READY_DEGRADED" if result.status == "READY_DEGRADED" else None
         if not historical_replay:
             self._write_research_resume_marker(
                 normalized_slot,
                 prepared,
-                status="COMPLETED" if result.status == "READY" else "RETRYABLE",
-                reason_code=None if result.status == "READY" else "RESEARCH_NOT_READY",
+                status="COMPLETED" if research_ready else "RETRYABLE",
+                reason_code=ready_reason if research_ready else "RESEARCH_NOT_READY",
             )
         progress.finish(
             status=result.status,
-            phase="COMPLETED" if result.status == "READY" else "BLOCKED",
-            reason_code=None if result.status == "READY" else "RESEARCH_NOT_READY",
+            phase="COMPLETED" if research_ready else "BLOCKED",
+            reason_code=ready_reason if research_ready else "RESEARCH_NOT_READY",
         )
         _progress_stdout(progress.snapshot())
         return summary
@@ -1902,7 +1918,7 @@ class WorkflowApplication:
         if not isinstance(tradability_flags, Mapping):
             tradability_flags = {}
         for lane in result.lanes:
-            if lane.status != "READY" or not isinstance(lane.final_output, Mapping):
+            if lane.status not in {"READY", "READY_DEGRADED"} or not isinstance(lane.final_output, Mapping):
                 blocked.append({"lane": lane.lane, "reason": "LANE_NOT_READY"})
                 continue
             plans = lane.final_output.get("core_watch_pool")
@@ -2293,6 +2309,7 @@ def _prompt_parameters(config: Mapping[str, Any]) -> dict[str, Any]:
             "structural_score": a1.get("minimum_score", 65),
             "data_quality_score": a1.get("minimum_data_quality", 75),
             "evidence_confidence": a1.get("minimum_evidence_confidence", 0.70),
+            "minimum_available_weight": a1.get("minimum_available_weight", 0.70),
         },
         "A1_DRIVER_LINEAGE_REQUIRED": True,
         "STRICT_AGENT_RULES": True,
@@ -2314,6 +2331,7 @@ def _prompt_parameters(config: Mapping[str, Any]) -> dict[str, Any]:
         "MAX_LEADERS_PER_THEME": a2_selection.get("max_leaders_per_theme", 2),
         "MIN_THEME_SCORE": a2.get("minimum_theme_score", 60),
         "THEME_SCORE_WEIGHTS": a2.get("score_weights", {}),
+        "A2_FACTOR_COVERAGE_MINIMUM": a2.get("factor_coverage_minimum", 0.65),
         "PENALTY_RULES": a2.get("penalty_rules", {}),
         "MAX_MA_BIAS": a3_ma.get("max_ma_bias_pct", 0.12),
         "MAX_ATR_EXTENSION": a3.get("max_atr_extension", 3.0),
@@ -3046,6 +3064,99 @@ def _int_or_zero(value: Any) -> int:
         return int(value or 0)
     except (TypeError, ValueError):
         return 0
+
+
+def _write_broker_gold_benchmark(
+    result: ResearchRunResult,
+    *,
+    as_of: datetime,
+    benchmark_dir: Path,
+    output_dir: Path,
+) -> dict[str, Any]:
+    """Persist a post-run broker-gold blind benchmark without mutating pools."""
+
+    month = as_of.astimezone(SHANGHAI).strftime("%Y-%m")
+    sources = (benchmark_dir / f"{month}.json", benchmark_dir / f"{month}.csv")
+    source = next((path for path in sources if path.is_file()), None)
+    lane_reports: dict[str, Any] = {}
+    status = "NOT_CONFIGURED"
+    reason_code = "BROKER_GOLD_BENCHMARK_NOT_CONFIGURED"
+    if source is not None:
+        try:
+            dataset = import_broker_gold(source, as_of=as_of)
+            for lane in result.lanes:
+                a1 = next((stage for stage in lane.stages if stage.stage == "A1"), None)
+                if a1 is None or not isinstance(a1.output, Mapping):
+                    lane_reports[lane.lane] = {
+                        "status": "A1_RESULT_UNAVAILABLE",
+                        "model": lane.model,
+                        "benchmark_not_runtime_input": True,
+                    }
+                    continue
+                lane_reports[lane.lane] = {
+                    "model": lane.model,
+                    **evaluate_broker_gold(dataset, a1.output, as_of=as_of, month=month),
+                }
+            status = "EVALUATED"
+            reason_code = "OK"
+        except (BrokerGoldContractError, OSError, UnicodeError, ValueError):
+            status = "INVALID_BENCHMARK"
+            reason_code = "BROKER_GOLD_BENCHMARK_INVALID"
+
+    payload = {
+        "schema_version": "liangjian-broker-gold-run-report/1.0.0",
+        "run_id": result.run_id,
+        "as_of": as_of.isoformat(),
+        "month": month,
+        "status": status,
+        "reason_code": reason_code,
+        "benchmark_not_runtime_input": True,
+        "source_ref": str(source) if source is not None else None,
+        "lanes": lane_reports,
+    }
+    output_dir.mkdir(parents=True, exist_ok=True)
+    json_path = output_dir / f"research_{result.run_id}_broker_benchmark.json"
+    markdown_path = output_dir / f"research_{result.run_id}_broker_benchmark.md"
+    atomic_write_json(json_path, payload)
+    lines = [
+        "# 券商月度金股盲测",
+        "",
+        "> 仅用于运行后评估，不参与A1运行时选股，不连接券商或交易账户。",
+        "",
+        f"- run_id：`{result.run_id}`",
+        f"- 月份：`{month}`",
+        f"- 状态：`{status}`",
+        f"- 原因：`{reason_code}`",
+        "- benchmark_not_runtime_input：`true`",
+    ]
+    if lane_reports:
+        lines.extend(["", "| Lane | 模型 | 金股数 | A1覆盖率 | ACTIVE覆盖率 |", "|---|---|---:|---:|---:|"])
+        for lane_id, report in lane_reports.items():
+            dataset_summary = report.get("dataset") if isinstance(report, Mapping) else {}
+            symbol_coverage = report.get("symbol_coverage") if isinstance(report, Mapping) else {}
+            active_coverage = report.get("active_coverage") if isinstance(report, Mapping) else {}
+            lines.append(
+                f"| {lane_id} | {report.get('model', '-')} | "
+                f"{dataset_summary.get('eligible_symbol_count', 0) if isinstance(dataset_summary, Mapping) else 0} | "
+                f"{_benchmark_percent(symbol_coverage)} | {_benchmark_percent(active_coverage)} |"
+            )
+    atomic_write_text(markdown_path, "\n".join(lines) + "\n")
+    return {
+        "status": status,
+        "reason_code": reason_code,
+        "benchmark_not_runtime_input": True,
+        "json_path": str(json_path),
+        "markdown_path": str(markdown_path),
+    }
+
+
+def _benchmark_percent(value: Any) -> str:
+    if not isinstance(value, Mapping):
+        return "—"
+    raw = value.get("coverage")
+    if not isinstance(raw, (int, float)):
+        return "—"
+    return f"{float(raw) * 100:.1f}%"
 
 
 def _safe_reason_code(exc: BaseException) -> str:

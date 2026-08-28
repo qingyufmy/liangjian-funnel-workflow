@@ -78,8 +78,28 @@ C10. 先排产业链层级，再排公司。每个 focus_pool 标的必须回答
      产业链位置、为什么排这里、至少两条证据、缺失证明、什么情况说明判断错了。
      供应商数量、客户认证、扩产难度、产能预约、订单、毛利率传导等结论必须引用
      冻结事实源。{{A2_BOTTLENECK_CONTEXT}} 中 scarcity_claim_allowed=false 表示
-     本地确定性层尚未证明“卡点”，你必须用证据补齐；补不齐只能 watch_only。
-     社交热度、涨幅、成交量本身不能证明产业链卡点。
+      本地确定性层尚未证明“卡点”，你必须用证据补齐；补不齐只能 watch_only。
+      社交热度、涨幅、成交量本身不能证明产业链卡点。
+
+C11. A2 只允许两条入池路线，且两条路线都必须严格继承 A1 的
+     theme_id、industry_chain_node、business_exposure 与 source_refs：
+     · MARKET_CORE：已被板块宽度/成交结构/梯队/相对强弱等市场事实确认的
+       LEADER、CORE_ARMY、TREND_CORE 或 FIRST_MOVER。该路线不要求完整
+       bottleneck_scorecard，但必须明确输出 bottleneck_status=
+       NOT_REQUIRED_FOR_MARKET_CORE，绝不可声称控制或供应稀缺环节。
+     · SUPPLY_CHAIN_ALPHA：只有具备完整 8 因子 bottleneck_scorecard、至少两条
+       冻结来源证据（至少一条 STRONG 或 MEDIUM）、scarce_layer、
+       value_chain_position、missing_proof 与 kill_switches 才能进入。
+     STORY_ONLY、LOW_IDENTITY、主营映射缺失或只有新闻/涨幅证据的标的，
+     两条路线都不得进入 focus_pool。
+
+C12. CAPITAL_FLOW_SNAPSHOT.available=false 时，capital_flow 原始分必须为 0，
+     并将 capital_flow_available=false、missing_reason 写明；禁止用成交额、换手、
+     超大单样本或新闻热度替代资金净流。此时 theme_score 仅按实际可用的
+     {{THEME_SCORE_WEIGHTS}} 权重归一计算，并记录 factor_coverage；可用权重低于
+     65% 的主题最高只能进入 watch_only_pool。若数据不可用却输出非零 capital_flow，
+     必须在 reason_codes 加入 A2_CAPITAL_FLOW_SCORE_INVENTED，不能将该主题当作
+     有效 focus 继续推进。
 
 ────────────────────────────────────────────────────────────────────────
 【六步分析流程】顺序固定
@@ -160,12 +180,14 @@ C10. 先排产业链层级，再排公司。每个 focus_pool 标的必须回答
     BENEFITS_WITH_LIMITED_CONTROL / STORY_ONLY。
   STORY_ONLY 禁止进入 focus_pool。
 
-  bottleneck_scorecard 的 8 个因子均为 0–5 原始分，服务端按固定权重重算：
+  SUPPLY_CHAIN_ALPHA 的 bottleneck_scorecard 的 8 个因子均为 0–5 原始分，服务端
+  按配置权重重算：
     demand_inflection 15、architecture_coupling 10、chokepoint_severity 15、
     supplier_concentration 12、expansion_difficulty 12、evidence_quality 15、
     valuation_disconnect 11、catalyst_timing 10。
   八类 penalty 也是 0–5，服务端每分扣 2 分。缺数据不能填 0 假装确定，
-  应将标的降为 watch_only 并在 missing_proof 明确说明。
+   应将标的降为 watch_only 并在 missing_proof 明确说明。MARKET_CORE 不得伪造
+   评分卡；应输出 bottleneck_scorecard=null，并说明其市场事实依据。
 
 第五步 · 个股市场角色  ★ 只做辨识度强的龙头与中军，坚决剔除杂毛
 
@@ -353,6 +375,8 @@ C10. 先排产业链层级，再排公司。每个 focus_pool 标的必须回答
       "symbol": "...",
       "upstream_candidate_id": "...",   // 必填，用于血缘校验
       "theme_id": "...",
+      "a2_route": "MARKET_CORE|SUPPLY_CHAIN_ALPHA",
+      "bottleneck_status": "NOT_REQUIRED_FOR_MARKET_CORE|SOURCE_BACKED|UNPROVEN",
       "market_role": "LEADER|CORE_ARMY|TREND_CORE|CHAIN_RESONANCE|
                       FIRST_MOVER|LOW_IDENTITY|EVENT_ONLY|CROWDED|AVOID",
       "leader_subtype": "EMOTION_LEADER|TREND_LEADER|null",
@@ -391,6 +415,10 @@ C10. 先排产业链层级，再排公司。每个 focus_pool 标的必须回答
       "theme_score": 0-100,
       "sentiment_score": 0-100,
       "capital_score": 0-100,
+      "capital_flow_available": true,
+      "factor_coverage": {"available_weight": 0-1, "ratio": 0-1,
+                           "missing_factors": [...]},
+      "reason_codes": ["..."],
       "crowding_score": 0-100,
       "selection_reasons": [...],
       "risk_reasons": [...],

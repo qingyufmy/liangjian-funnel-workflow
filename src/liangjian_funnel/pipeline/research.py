@@ -32,6 +32,8 @@ from ..runtime.state import RuntimeStore
 from .bottleneck import (
     EVIDENCE_STRENGTHS,
     FACTOR_WEIGHTS as BOTTLENECK_FACTOR_WEIGHTS,
+    MARKET_CORE_ROUTE,
+    SUPPLY_CHAIN_ALPHA_ROUTE,
     SUPPLY_CHAIN_ROLES,
     canonicalize_model_scorecard,
 )
@@ -47,7 +49,12 @@ from .deterministic import (
 )
 from .business_exposure import extract_business_exposure_facts
 from .feature_store import ResearchFeatureStore
-from .model_client import ModelCallResult, ModelClientError, OpenAICompatibleModelClient
+from .model_client import (
+    ModelCallResult,
+    ModelClientError,
+    OpenAICompatibleModelClient,
+    mechanical_repair_output,
+)
 from .monthly_strategy import build_monthly_strategy_context
 from .prompts import PromptBundle, PromptRepository, PromptRepositoryError
 from .research_checkpoint import (
@@ -60,6 +67,59 @@ from .research_checkpoint import (
 
 STAGES: tuple[str, ...] = ("A1", "A2", "A3")
 AGENT_BY_STAGE: Mapping[str, str] = {"A1": "AGENT_1", "A2": "AGENT_2", "A3": "AGENT_3"}
+
+# Stage outcomes are deliberately represented as strings in the audit JSON so
+# the runtime can evolve additively without rewriting historical snapshots.
+STATUS_VALIDATED = "VALIDATED"
+STATUS_VALIDATED_NO_OPPORTUNITY = "VALIDATED_NO_OPPORTUNITY"
+STATUS_VALIDATED_NO_ACTION = "VALIDATED_NO_ACTION"
+STATUS_DEGRADED_UNDERFILLED_DATA_GAP = "DEGRADED_UNDERFILLED_DATA_GAP"
+STATUS_VALIDATED_UNDERFILLED_MARKET = "VALIDATED_UNDERFILLED_MARKET"
+STATUS_VALIDATED_NO_SETUP = "VALIDATED_NO_SETUP"
+STATUS_NOT_RUN_UPSTREAM_BLOCKED = "NOT_RUN_UPSTREAM_BLOCKED"
+STATUS_BLOCKED_DATA_COVERAGE = "BLOCKED_DATA_COVERAGE"
+STATUS_BLOCKED_EVIDENCE_GAP = "BLOCKED_EVIDENCE_GAP"
+STATUS_BLOCKED_MODEL = "BLOCKED_MODEL"
+STATUS_BLOCKED_TECHNICAL_DATA = "BLOCKED_TECHNICAL_DATA"
+
+_COMPLETED_STAGE_STATUSES = frozenset(
+    {
+        STATUS_VALIDATED,
+        STATUS_VALIDATED_NO_OPPORTUNITY,
+        STATUS_VALIDATED_NO_ACTION,
+        STATUS_DEGRADED_UNDERFILLED_DATA_GAP,
+        STATUS_VALIDATED_UNDERFILLED_MARKET,
+        STATUS_VALIDATED_NO_SETUP,
+    }
+)
+_PUBLISHABLE_STAGE_STATUSES = frozenset({STATUS_VALIDATED, STATUS_VALIDATED_NO_SETUP})
+_A2_EVIDENCE_GAP_REASONS = frozenset(
+    {
+        "A2_BOTTLENECK_CONTEXT_MISSING",
+        "A2_BOTTLENECK_SCORECARD_MISSING",
+        "A2_BOTTLENECK_FACTORS_INVALID",
+        "A2_BOTTLENECK_PENALTIES_INVALID",
+        "A2_BOTTLENECK_EVIDENCE_INSUFFICIENT",
+        "A2_BOTTLENECK_STRONG_EVIDENCE_MISSING",
+        "A2_BOTTLENECK_MISSING_PROOF_UNDECLARED",
+        "A2_BOTTLENECK_KILL_SWITCH_MISSING",
+        "BOTTLENECK_UNKNOWN_FACTORS",
+        "A2_CAPITAL_FLOW_SCORE_INVENTED",
+        "A2_FACTOR_COVERAGE_BELOW_MINIMUM",
+        "A2_MARKET_FACTS_INSUFFICIENT",
+        "A2_ROUTE_MISSING_OR_INVALID",
+        "A2_EVIDENCE_COVERAGE_BELOW_MINIMUM",
+    }
+)
+_A3_TECHNICAL_DATA_REASONS = frozenset(
+    {
+        "A3_TECHNICAL_FACTORS_NOT_READY",
+        "A3_PRICE_LEVELS_NOT_READY",
+        "A3_SYMBOL_NOT_TRADABLE",
+        "A3_FACTOR_SNAPSHOT_NOT_READY",
+        "A3_PRICE_LEVELS_UNAVAILABLE",
+    }
+)
 _SYMBOL = re.compile(
     r"(?<![A-Za-z0-9_])(?:(?P<code>\d{6})\.(?P<suffix>SH|SZ|BJ)|"
     r"(?P<prefix>SHSE|SZSE|BJSE|XSHG|XSHE)\.(?P<prefix_code>\d{6}))(?![A-Za-z0-9_])",
@@ -95,6 +155,7 @@ _SAFE_OUTPUT_FIELDS = {
     "structural_themes",
     "industry_chain_graph",
     "taxonomy_links",
+    "monthly_industry_decisions",
     "local_screen_summary",
     "active_research_pool",
     "monitor_pool",
@@ -461,7 +522,11 @@ class ResearchPipeline:
                     trade_date=current.date().isoformat(),
                     slot=self.slot,
                     model=lane.model,
-                    status="READY_TO_PUBLISH" if lane.status == "READY" else "BLOCKED",
+                    status=(
+                        "READY_TO_PUBLISH"
+                        if lane.status in {"READY", "READY_DEGRADED"}
+                        else "BLOCKED"
+                    ),
                     snapshot_hash=frozen.snapshot_hash,
                     prompt_hash=prompt_hash,
                     config_hash=config_hash,
@@ -476,8 +541,15 @@ class ResearchPipeline:
                         reason_codes=stage.reason_codes,
                     )
 
-        ready_count = sum(lane.status == "READY" for lane in lanes)
-        overall = "READY" if lanes and ready_count == len(lanes) else "PARTIAL" if ready_count else "BLOCKED"
+        ready_count = sum(lane.status in {"READY", "READY_DEGRADED"} for lane in lanes)
+        if lanes and ready_count == len(lanes):
+            overall = (
+                "READY_DEGRADED"
+                if any(lane.status == "READY_DEGRADED" for lane in lanes)
+                else "READY"
+            )
+        else:
+            overall = "PARTIAL" if ready_count else "BLOCKED"
         result = ResearchRunResult(
             run_id=effective_run_id,
             generated_at=current,
@@ -807,7 +879,7 @@ class ResearchPipeline:
                 diagnostics={**dict(discovery.diagnostics or {}), "pipeline_mode": DETERMINISTIC_PIPELINE_MODE},
             )
             downstream = tuple(
-                self._blocked_stage(lane_id, model, stage, snapshot.snapshot_id, "UPSTREAM_STAGE_BLOCKED")
+                self._not_run_stage(lane_id, model, stage, snapshot.snapshot_id, "UPSTREAM_STAGE_BLOCKED")
                 for stage in ("A2", "A3")
             )
             return LaneResult(
@@ -868,9 +940,9 @@ class ResearchPipeline:
             discovery_context=frozen_discovery_context,
             gate=a1_gate,
         )
-        if a1_audit.status != "VALIDATED":
+        if not _stage_completed(a1_audit.status):
             downstream = tuple(
-                self._blocked_stage(lane_id, model, stage, snapshot.snapshot_id, "UPSTREAM_STAGE_BLOCKED")
+                self._not_run_stage(lane_id, model, stage, snapshot.snapshot_id, "UPSTREAM_STAGE_BLOCKED")
                 for stage in ("A2", "A3")
             )
             return LaneResult(
@@ -890,6 +962,8 @@ class ResearchPipeline:
                 stage="A2",
                 snapshot=snapshot,
                 upstream_output=a1_output,
+                status=STATUS_VALIDATED_NO_OPPORTUNITY,
+                outcome="NO_OPPORTUNITY_A1_POOL_EMPTY",
             )
             a3_audit = self._empty_stage(
                 lane_id=lane_id,
@@ -897,6 +971,8 @@ class ResearchPipeline:
                 stage="A3",
                 snapshot=snapshot,
                 upstream_output=a2_audit.output,
+                status=STATUS_VALIDATED_NO_ACTION,
+                outcome="NO_ACTION_UPSTREAM_NO_OPPORTUNITY",
             )
             return LaneResult(
                 lane=lane_id,
@@ -922,7 +998,7 @@ class ResearchPipeline:
                 lane=lane_id,
                 model=model,
                 status="BLOCKED",
-                stages=(a1_audit, blocked, self._blocked_stage(lane_id, model, "A3", snapshot.snapshot_id, "UPSTREAM_STAGE_BLOCKED")),
+                stages=(a1_audit, blocked, self._not_run_stage(lane_id, model, "A3", snapshot.snapshot_id, "UPSTREAM_STAGE_BLOCKED")),
                 final_output=None,
             )
         a2_gate = screen_a2(
@@ -947,8 +1023,8 @@ class ResearchPipeline:
             bundle=bundle,
             run_id=run_id,
         )
-        if a2_audit.status != "VALIDATED":
-            blocked = self._blocked_stage(lane_id, model, "A3", snapshot.snapshot_id, "UPSTREAM_STAGE_BLOCKED")
+        if not _stage_completed(a2_audit.status):
+            blocked = self._not_run_stage(lane_id, model, "A3", snapshot.snapshot_id, "UPSTREAM_STAGE_BLOCKED")
             return LaneResult(
                 lane=lane_id,
                 model=model,
@@ -960,19 +1036,28 @@ class ResearchPipeline:
         a2_output = a2_audit.output if isinstance(a2_audit.output, Mapping) else {}
         a2_symbols = set(a2_audit.symbols)
         if not a2_symbols:
-            a3_audit = self._empty_stage(
-                lane_id=lane_id,
-                model=model,
-                stage="A3",
-                snapshot=a2_snapshot,
-                upstream_output=a2_output,
-            )
+            if a2_audit.status == STATUS_BLOCKED_EVIDENCE_GAP:
+                a3_audit = self._not_run_stage(
+                    lane_id, model, "A3", snapshot.snapshot_id, "UPSTREAM_STAGE_BLOCKED"
+                )
+                lane_status = "BLOCKED"
+            else:
+                a3_audit = self._empty_stage(
+                    lane_id=lane_id,
+                    model=model,
+                    stage="A3",
+                    snapshot=a2_snapshot,
+                    upstream_output=a2_output,
+                    status=STATUS_VALIDATED_NO_ACTION,
+                    outcome="NO_ACTION_UPSTREAM_NO_OPPORTUNITY",
+                )
+                lane_status = "READY"
             return LaneResult(
                 lane=lane_id,
                 model=model,
-                status="READY",
+                status=lane_status,
                 stages=(a1_audit, a2_audit, a3_audit),
-                final_output=a3_audit.output,
+                final_output=a3_audit.output if lane_status == "READY" else None,
             )
 
         try:
@@ -1008,13 +1093,13 @@ class ResearchPipeline:
             bundle=bundle,
             run_id=run_id,
         )
-        status = "READY" if a3_audit.status == "VALIDATED" else "BLOCKED"
+        status = _lane_status_from_stages((a1_audit, a2_audit, a3_audit))
         return LaneResult(
             lane=lane_id,
             model=model,
             status=status,
             stages=(a1_audit, a2_audit, a3_audit),
-            final_output=a3_audit.output if status == "READY" else None,
+            final_output=a3_audit.output if status in {"READY", "READY_DEGRADED"} else None,
         )
 
     def _run_v2_a1_review(
@@ -1101,6 +1186,15 @@ class ResearchPipeline:
             )
         outputs = [discovery_output, *(audit.output for audit in valid_audits if isinstance(audit.output, Mapping))]
         merged = _merge_a1_outputs(outputs)
+        if isinstance(discovery_output.get("monthly_industry_decisions"), list):
+            # Monthly industry decisions belong to the one macro-discovery
+            # call.  Company mapping batches may repeat the prompt schema but
+            # cannot rewrite the frozen monthly ranking decisions.
+            merged["monthly_industry_decisions"] = [
+                dict(item)
+                for item in discovery_output["monthly_industry_decisions"]
+                if isinstance(item, Mapping)
+            ]
         merged["taxonomy_links"] = list(gate.taxonomy_links)
         merged["active_research_pool"] = _deduplicate_stage_items(
             "active_research_pool",
@@ -1138,25 +1232,31 @@ class ResearchPipeline:
             if active_count < minimum:
                 reasons = list(dict.fromkeys([*reasons, "A1_ACTIVE_COVERAGE_UNDERFILLED"]))
         approved_symbols = tuple(sorted(_approved_symbols(merged, "A1")))
+        stage_status, outcome_reasons = _classify_stage_outcome(
+            "A1", merged, reasons=reasons, gate=gate
+        )
+        reasons = list(dict.fromkeys([*reasons, *outcome_reasons]))
         self._emit_progress(
             run_id=run_id,
             lane=lane_id,
             model=model,
-            stage="A1_LLM_REVIEW",
-            completed=len(valid_audits),
-            total=len(batches),
-            status="COMPLETED" if not reasons else "FAILED",
-            attempts=sum(item.attempts for item in request_audits),
-            processed_symbols=len(gate.review_symbols),
-            total_symbols=len(gate.review_symbols),
-            selected_symbols=len(approved_symbols),
+                stage="A1_LLM_REVIEW",
+                completed=len(valid_audits),
+                total=len(batches),
+                status=_progress_status_for_stage_status(stage_status),
+                attempts=sum(item.attempts for item in request_audits),
+                processed_symbols=len(gate.review_symbols),
+                total_symbols=len(gate.review_symbols),
+                selected_symbols=len(approved_symbols),
+                reason_codes=reasons,
+                outcome=stage_status,
         )
         audits = (discovery, *request_audits)
         return StageAudit(
             lane=lane_id,
             model=model,
             stage="A1",
-            status="VALIDATED" if not reasons else "BLOCKED",
+            status=stage_status,
             snapshot_id=snapshot.snapshot_id,
             prompt_hash=_combined_digest(item.prompt_hash for item in audits),
             input_hash=_combined_digest(item.input_hash for item in audits),
@@ -1250,7 +1350,7 @@ class ResearchPipeline:
                 audit = self._blocked_stage(
                     lane_id, model, stage, snapshot.snapshot_id, "RESEARCH_DEADLINE_EXCEEDED"
                 )
-            if audit.status != "VALIDATED":
+            if not _stage_completed(audit.status):
                 self._emit_progress(
                     run_id=run_id,
                     lane=lane_id,
@@ -1262,6 +1362,7 @@ class ResearchPipeline:
                     attempts=audit.attempts,
                     processed_symbols=0,
                     total_symbols=len(review_symbols),
+                    reason_codes=audit.reason_codes,
                 )
                 return audit
             output = dict(audit.output or {})
@@ -1314,6 +1415,10 @@ class ResearchPipeline:
             snapshot_data=snapshot.data,
         )
         approved_symbols = tuple(sorted(_approved_symbols(output, stage)))
+        stage_status, outcome_reasons = _classify_stage_outcome(
+            stage, output, reasons=reasons, gate=gate
+        )
+        reasons = list(dict.fromkeys([*reasons, *outcome_reasons]))
         self._emit_progress(
             run_id=run_id,
             lane=lane_id,
@@ -1321,17 +1426,19 @@ class ResearchPipeline:
             stage=progress_stage,
             completed=1 if review_symbols else 0,
             total=1 if review_symbols else 0,
-            status="COMPLETED" if not reasons else "FAILED",
+            status=_progress_status_for_stage_status(stage_status),
             attempts=audit.attempts,
             processed_symbols=len(review_symbols),
             total_symbols=len(review_symbols),
             selected_symbols=len(approved_symbols),
+            reason_codes=reasons,
+            outcome=stage_status,
         )
         return StageAudit(
             lane=audit.lane,
             model=audit.model,
             stage=audit.stage,
-            status="VALIDATED" if not reasons else "BLOCKED",
+            status=stage_status,
             snapshot_id=audit.snapshot_id,
             prompt_hash=audit.prompt_hash,
             input_hash=audit.input_hash,
@@ -1424,6 +1531,9 @@ class ResearchPipeline:
         selected_symbols: int | None = None,
         monitor_symbols: int | None = None,
         rejected_symbols: int | None = None,
+        reason_codes: Sequence[str] | None = None,
+        outcome: str | None = None,
+        checkpoint_reused: bool | None = None,
     ) -> None:
         """Send a redacted, stable progress event to the optional observer."""
 
@@ -1450,6 +1560,18 @@ class ResearchPipeline:
             event["model"] = str(model)
         if batch_index is not None:
             event["batch_index"] = max(1, int(batch_index))
+        safe_reason_codes = _safe_progress_reason_codes(reason_codes)
+        if safe_reason_codes:
+            event["reason_codes"] = safe_reason_codes
+        if outcome:
+            safe_outcome = _safe_progress_reason_codes((outcome,))
+            if safe_outcome:
+                event["outcome"] = safe_outcome[0]
+        reused = checkpoint_reused if checkpoint_reused is not None else str(status).upper() == "REUSED"
+        if reused:
+            event["checkpoint_reused"] = True
+            if batch_index is not None:
+                event["checkpoint_batch_index"] = max(1, int(batch_index))
         for key, value in (
             ("processed_symbols", processed_symbols),
             ("total_symbols", total_symbols),
@@ -1617,7 +1739,7 @@ class ResearchPipeline:
         stored_key = record.get("key")
         if isinstance(stored_key, Mapping) and dict(stored_key) != key.as_dict():
             return None
-        if str(record.get("status") or "") != "VALIDATED":
+        if str(record.get("status") or "") not in _COMPLETED_STAGE_STATUSES:
             return None
         raw = record.get("audit", record)
         if not isinstance(raw, Mapping):
@@ -1627,6 +1749,7 @@ class ResearchPipeline:
             if not isinstance(output, Mapping):
                 return None
             output = _strip_reasoning(output)
+            output, _ = mechanical_repair_output(output)
             reasons = _validate_output(
                 output,
                 stage=stage,
@@ -1663,7 +1786,7 @@ class ResearchPipeline:
             audit.lane != lane_id
             or audit.model != model
             or audit.stage != stage
-            or audit.status != "VALIDATED"
+            or not _stage_completed(audit.status)
             or audit.snapshot_id != snapshot.snapshot_id
             or audit.prompt_hash != key.prompt_hash
             or audit.output_hash != _sha256_json(output)
@@ -1692,11 +1815,11 @@ class ResearchPipeline:
 
     def _save_checkpoint(self, *, key: ResearchCheckpointKey, audit: StageAudit) -> bool:
         store = self.checkpoint_store
-        if store is None or audit.status != "VALIDATED":
+        if store is None or not _stage_checkpointable(audit.status):
             return False
         record = {
             "key": key.as_dict(),
-            "status": "VALIDATED",
+            "status": audit.status,
             "audit": _strip_reasoning(audit.as_dict()),
         }
         try:
@@ -1766,7 +1889,7 @@ class ResearchPipeline:
             a1_discovery_context=a1_discovery_context,
             prepared_request=prepared_request,
         )
-        if key is not None and audit.status == "VALIDATED":
+        if key is not None and _stage_checkpointable(audit.status):
             self._save_checkpoint(key=key, audit=audit)
         return audit
 
@@ -1778,6 +1901,8 @@ class ResearchPipeline:
         stage: str,
         snapshot: FrozenInputSnapshot,
         upstream_output: Mapping[str, Any] | None,
+        status: str = STATUS_VALIDATED,
+        outcome: str = "NO_ACTION",
     ) -> StageAudit:
         runtime = _runtime_input(
             snapshot,
@@ -1790,7 +1915,7 @@ class ResearchPipeline:
         output: dict[str, Any] = {
             "envelope": runtime["required_envelope"],
             "analysis_summary": {
-                "outcome": "NO_ACTION",
+                "outcome": outcome,
                 "reason_codes": ["UPSTREAM_POOL_EMPTY"],
             },
             "rejected_candidates": [],
@@ -1821,7 +1946,7 @@ class ResearchPipeline:
             lane=lane_id,
             model=model,
             stage=stage,
-            status="VALIDATED",
+            status=status,
             snapshot_id=snapshot.snapshot_id,
             prompt_hash=None,
             input_hash=_sha256_json(runtime),
@@ -1832,7 +1957,11 @@ class ResearchPipeline:
             symbols=(),
             reason_codes=(),
             output=output,
-            diagnostics={"outcome_code": "NO_ACTION_UPSTREAM_POOL_EMPTY"},
+            diagnostics=(
+                {"outcome_code": "NO_ACTION_UPSTREAM_POOL_EMPTY"}
+                if status == STATUS_VALIDATED and outcome == "NO_ACTION"
+                else {"outcome_code": outcome, "upstream_pool_empty": True}
+            ),
         )
 
     def _execute_batch_plan(
@@ -1916,7 +2045,7 @@ class ResearchPipeline:
                 children: list[tuple[tuple[int, ...], set[str]]] = []
                 for order, batch_audit in results:
                     request_audits.append((order, batch_audit))
-                    if batch_audit.status == "VALIDATED":
+                    if _stage_completed(batch_audit.status):
                         valid_audits[order] = batch_audit
                         completed += 1
                         self._emit_progress(
@@ -1929,6 +2058,7 @@ class ResearchPipeline:
                             status=_progress_status(batch_audit),
                             attempts=batch_audit.attempts,
                             batch_index=order[0] + 1,
+                            reason_codes=batch_audit.reason_codes,
                         )
                         continue
                     self._emit_progress(
@@ -1941,6 +2071,7 @@ class ResearchPipeline:
                         status="FAILED",
                         attempts=batch_audit.attempts,
                         batch_index=order[0] + 1,
+                        reason_codes=batch_audit.reason_codes,
                     )
                     batch = next((candidate for candidate_order, candidate in current if candidate_order == order), set())
                     if len(batch) > 1 and splittable(batch_audit.reason_codes):
@@ -2007,7 +2138,7 @@ class ResearchPipeline:
                     lane=lane_id,
                     model=model,
                     stage="A1",
-                    status="BLOCKED",
+                    status=STATUS_BLOCKED_MODEL,
                     snapshot_id=snapshot.snapshot_id,
                     prompt_hash=discovery.prompt_hash,
                     input_hash=discovery.input_hash,
@@ -2185,7 +2316,9 @@ class ResearchPipeline:
             audit.output for audit in valid_audits if isinstance(audit.output, Mapping)
         ])
         merged, canonicalized_scores = _canonicalize_stage_scores(merged, "A2", snapshot.data)
-        merged, canonicalized_bottleneck_scores = _canonicalize_a2_bottleneck_scorecards(merged)
+        merged, canonicalized_bottleneck_scores = _canonicalize_a2_bottleneck_scorecards(
+            merged, snapshot.data
+        )
         merged, threshold_demotions = _apply_stage_threshold_policy(merged, "A2", snapshot.data)
         if snapshot.data.get("STRICT_AGENT_RULES") is True:
             merged, lineage_demotions = _apply_a2_lineage_policy(
@@ -2496,7 +2629,7 @@ class ResearchPipeline:
                     lane=lane_id,
                     model=model,
                     stage=stage,
-                    status="BLOCKED",
+                    status=STATUS_BLOCKED_MODEL,
                     snapshot_id=snapshot.snapshot_id,
                     prompt_hash=prompt_hash,
                     input_hash=input_hash,
@@ -2521,7 +2654,7 @@ class ResearchPipeline:
                     lane=lane_id,
                     model=model,
                     stage=stage,
-                    status="BLOCKED",
+                    status=STATUS_BLOCKED_MODEL,
                     snapshot_id=snapshot.snapshot_id,
                     prompt_hash=prompt_hash,
                     input_hash=input_hash,
@@ -2538,6 +2671,7 @@ class ResearchPipeline:
             aggregate_attempts += result.attempts
             variants.append(result.thinking_variant)
             output = _strip_reasoning(result.output)
+            output, canonicalized_analysis_summary = mechanical_repair_output(output)
             canonicalized_driver_context = 0
             if (
                 stage == "A1"
@@ -2553,7 +2687,9 @@ class ResearchPipeline:
             )
             canonicalized_bottleneck_scores = 0
             if stage == "A2":
-                output, canonicalized_bottleneck_scores = _canonicalize_a2_bottleneck_scorecards(output)
+                output, canonicalized_bottleneck_scores = _canonicalize_a2_bottleneck_scorecards(
+                    output, snapshot.data
+                )
             canonicalized_price_items = 0
             trend_veto_items = 0
             if stage == "A3":
@@ -2591,7 +2727,7 @@ class ResearchPipeline:
                     lane=lane_id,
                     model=model,
                     stage=stage,
-                    status="BLOCKED",
+                    status=STATUS_BLOCKED_MODEL,
                     snapshot_id=snapshot.snapshot_id,
                     prompt_hash=prompt_hash,
                     input_hash=input_hash,
@@ -2611,6 +2747,8 @@ class ResearchPipeline:
                     "trend_veto_items": trend_veto_items,
                     "pool_counts": _stage_pool_counts(output, stage),
                 }
+                if canonicalized_analysis_summary:
+                    diagnostics["canonicalized_analysis_summary"] = canonicalized_analysis_summary
                 if canonicalized_score_items:
                     diagnostics["canonicalized_score_items"] = canonicalized_score_items
                 if canonicalized_bottleneck_scores:
@@ -2725,6 +2863,26 @@ class ResearchPipeline:
             reason_codes=(reason,),
         )
 
+    def _not_run_stage(self, lane: str, model: str, stage: str, snapshot_id: str, reason: str) -> StageAudit:
+        """Persist a downstream stage that was deliberately not executed."""
+
+        return StageAudit(
+            lane=lane,
+            model=model,
+            stage=stage,
+            status=STATUS_NOT_RUN_UPSTREAM_BLOCKED,
+            snapshot_id=snapshot_id,
+            prompt_hash=None,
+            input_hash=None,
+            output_hash=None,
+            latency_ms=0,
+            attempts=0,
+            thinking_variant=None,
+            symbols=(),
+            reason_codes=(reason,),
+            diagnostics={"outcome_code": "UPSTREAM_BLOCKED", "executed": False},
+        )
+
     def _write_lane_audit(self, run_id: str, lane: LaneResult) -> Path:
         path = self.output_dir / f"research_{run_id}_{_safe_run_id(lane.lane)}.json"
         return atomic_write_json(path, lane.as_dict())
@@ -2762,6 +2920,18 @@ class ResearchPipeline:
                     f"请求次数：`{stage.attempts}`；耗时：`{latency}`"
                 )
             lines.append("")
+        lines.extend(
+            [
+                "## 分阶段明细文件",
+                "",
+                f"- A1：`research_{result.run_id}_A1.md`",
+                f"- A2：`research_{result.run_id}_A2.md`",
+                f"- A3：`research_{result.run_id}_A3.md`",
+                "",
+                "分阶段文件由工作流在本报告后原子生成；lane JSON仍是完整审计来源。",
+                "",
+            ]
+        )
         lines.extend(["", "## 最终候选/计划 JSON", ""])
         for lane in result.lanes:
             lines.extend(
@@ -3301,11 +3471,14 @@ def _stage_execution_budget(
             "watch_only_pool, rejected_candidates. Each active theme needs theme_id, stage, new_entry_policy, "
             "theme_score, score_breakdown containing every exact key from THEME_SCORE_WEIGHTS, penalties, "
             "supporting_evidence, contradicting_evidence, and rotation_overlap_ratio. Each focus item needs "
-            "symbol, upstream_candidate_id, theme_id, theme_stage, market_role, role_evidence, "
+            "symbol, upstream_candidate_id, theme_id, theme_stage, a2_route, bottleneck_status, "
+            "market_role, role_evidence, "
             "identifiability_score, identifiability_breakdown, theme_score inherited from its active theme, "
-            "selection_reasons, risk_reasons, risk_flags, supply_chain_role, scarce_layer, "
-            "value_chain_position, bottleneck_scorecard, at least two bottleneck_evidence items, "
-            "missing_proof and kill_switches. Rank scarce layers before companies; unknown bottleneck facts "
+            "selection_reasons, risk_reasons and risk_flags. MARKET_CORE requires frozen market-role evidence, "
+            "factor_coverage and bottleneck_status=NOT_REQUIRED_FOR_MARKET_CORE; it must not invent a scarcity "
+            "scorecard. SUPPLY_CHAIN_ALPHA additionally requires supply_chain_role, scarce_layer, "
+            "value_chain_position, a complete bottleneck_scorecard, at least two bottleneck_evidence items, "
+            "missing_proof and kill_switches. Rank scarce layers before companies; unknown supply-chain facts "
             "must be sent to watch_only, never scored as zero. Every supplied symbol must appear exactly once "
             "across focus_pool, watch_only_pool, and rejected_candidates."
         ),
@@ -3703,6 +3876,51 @@ def _monthly_discovery_reasons(
         coverage = len(expected_codes.intersection(covered_codes)) / len(expected_codes)
         if coverage < 0.40:
             reasons.append("A1_MONTHLY_CYCLE_COVERAGE_INSUFFICIENT")
+
+    expected_decisions = context.get("monthly_industry_decisions")
+    decision_contract = context.get("monthly_rotation_coverage")
+    if isinstance(expected_decisions, list) and isinstance(decision_contract, Mapping):
+        expected_by_code = {
+            str(item.get("industry_thscode") or "").strip().upper(): int(item.get("rank") or 0)
+            for item in expected_decisions
+            if isinstance(item, Mapping) and str(item.get("industry_thscode") or "").strip()
+        }
+        raw_decisions = output.get("monthly_industry_decisions")
+        if not isinstance(raw_decisions, list):
+            reasons.append("A1_MONTHLY_ROTATION_DECISIONS_MISSING")
+        else:
+            observed: dict[str, Mapping[str, Any]] = {}
+            duplicate = False
+            invalid = False
+            theme_ids = {
+                str(item.get("theme_id") or "").strip()
+                for item in themes or ()
+                if isinstance(item, Mapping) and str(item.get("theme_id") or "").strip()
+            }
+            for item in raw_decisions:
+                if not isinstance(item, Mapping):
+                    invalid = True
+                    continue
+                code = str(item.get("industry_thscode") or "").strip().upper()
+                decision = str(item.get("decision") or "").strip().upper()
+                if code in observed:
+                    duplicate = True
+                if code not in expected_by_code or decision not in {"INCLUDE", "EXCLUDE", "DEFER"}:
+                    invalid = True
+                mapped = item.get("mapped_theme_ids")
+                if decision == "INCLUDE" and (
+                    not isinstance(mapped, list)
+                    or not {str(value).strip() for value in mapped}.intersection(theme_ids)
+                ):
+                    invalid = True
+                observed[code] = item
+            missing_codes = set(expected_by_code).difference(observed)
+            if missing_codes:
+                reasons.append("A1_MONTHLY_ROTATION_DECISIONS_INCOMPLETE")
+            if duplicate:
+                reasons.append("A1_MONTHLY_ROTATION_DECISIONS_DUPLICATE")
+            if invalid:
+                reasons.append("A1_MONTHLY_ROTATION_DECISIONS_INVALID")
     return tuple(reasons)
 
 
@@ -4034,8 +4252,14 @@ def _canonicalize_a1_driver_context(
 
 def _canonicalize_a2_bottleneck_scorecards(
     output: Mapping[str, Any],
+    snapshot_data: Mapping[str, Any],
 ) -> tuple[dict[str, Any], int]:
-    """Recompute Serenity-style scorecards; invalid cards stay invalid for validation."""
+    """Recompute scorecards only for the strict supply-chain route.
+
+    MARKET_CORE is a market-structure route and must not be rejected merely
+    because it has no scarcity scorecard.  When a provider omits ``a2_route``,
+    the server may fill it only from the frozen deterministic route context.
+    """
 
     result = dict(output)
     changed = 0
@@ -4049,6 +4273,17 @@ def _canonicalize_a2_bottleneck_scorecards(
                 normalized.append(raw_item)
                 continue
             item = dict(raw_item)
+            symbol = _first_symbol(item)
+            route = _a2_item_route(item, snapshot_data, symbol)
+            if route and item.get("a2_route") != route:
+                item["a2_route"] = route
+                changed += 1
+            if route == MARKET_CORE_ROUTE:
+                if item.get("bottleneck_status") != "NOT_REQUIRED_FOR_MARKET_CORE":
+                    item["bottleneck_status"] = "NOT_REQUIRED_FOR_MARKET_CORE"
+                    changed += 1
+                normalized.append(item)
+                continue
             scorecard, reasons = canonicalize_model_scorecard(item.get("bottleneck_scorecard"))
             if scorecard is not None:
                 if item.get("bottleneck_scorecard") != scorecard:
@@ -4629,6 +4864,14 @@ def _a2_bottleneck_reasons(
     context = raw_context.get(symbol) if isinstance(raw_context, Mapping) else None
     if not isinstance(context, Mapping):
         reasons.append("A2_BOTTLENECK_CONTEXT_MISSING")
+    route = _a2_item_route(item, snapshot_data, symbol)
+    if route == MARKET_CORE_ROUTE:
+        if str(item.get("bottleneck_status") or "").strip().upper() != "NOT_REQUIRED_FOR_MARKET_CORE":
+            reasons.append("A2_MARKET_CORE_STATUS_INVALID")
+        return list(dict.fromkeys(reasons))
+    if route != SUPPLY_CHAIN_ALPHA_ROUTE:
+        reasons.append("A2_ROUTE_MISSING_OR_INVALID")
+        return list(dict.fromkeys(reasons))
     role = str(item.get("supply_chain_role") or "").strip()
     if role not in SUPPLY_CHAIN_ROLES or role == "STORY_ONLY":
         reasons.append("A2_SUPPLY_CHAIN_ROLE_NOT_FOCUS_ELIGIBLE")
@@ -4688,6 +4931,33 @@ def _a2_bottleneck_reasons(
     if not isinstance(kill_switches, list) or not any(str(value).strip() for value in kill_switches):
         reasons.append("A2_BOTTLENECK_KILL_SWITCH_MISSING")
     return list(dict.fromkeys(reasons))
+
+
+def _a2_item_route(
+    item: Mapping[str, Any],
+    snapshot_data: Mapping[str, Any],
+    symbol: str,
+) -> str | None:
+    """Return an explicit or deterministically inferred A2 selection route."""
+
+    explicit = str(item.get("a2_route") or item.get("selection_route") or item.get("route") or "").strip().upper()
+    if explicit in {MARKET_CORE_ROUTE, SUPPLY_CHAIN_ALPHA_ROUTE}:
+        return explicit
+    raw_context = snapshot_data.get("A2_BOTTLENECK_CONTEXT")
+    context = raw_context.get(symbol) if isinstance(raw_context, Mapping) else None
+    eligible = context.get("eligible_routes") if isinstance(context, Mapping) else None
+    if isinstance(eligible, Sequence) and not isinstance(eligible, (str, bytes, bytearray)):
+        normalized = [str(value).strip().upper() for value in eligible]
+        if MARKET_CORE_ROUTE in normalized:
+            return MARKET_CORE_ROUTE
+        if SUPPLY_CHAIN_ALPHA_ROUTE in normalized:
+            return SUPPLY_CHAIN_ALPHA_ROUTE
+    if isinstance(context, Mapping):
+        # Historical deterministic-v2 snapshots predate the dual-route field
+        # and represented only the strict bottleneck path.  Keep those frozen
+        # replays auditable instead of silently treating them as MARKET_CORE.
+        return SUPPLY_CHAIN_ALPHA_ROUTE
+    return None
 
 
 def _apply_a2_lineage_policy(
@@ -5533,11 +5803,17 @@ def _with_a2_bottleneck_context(
 ) -> FrozenInputSnapshot:
     """Attach the server-computed A2 scorecard inputs to the model view."""
 
-    context = {
-        str(item.get("symbol")): dict(item.get("bottleneck_context") or {})
-        for item in gate.decisions
-        if item.get("symbol") and isinstance(item.get("bottleneck_context"), Mapping)
-    }
+    context: dict[str, dict[str, Any]] = {}
+    for item in gate.decisions:
+        symbol = str(item.get("symbol") or "")
+        if not symbol or not isinstance(item.get("bottleneck_context"), Mapping):
+            continue
+        context[symbol] = {
+            **dict(item.get("bottleneck_context") or {}),
+            "eligible_routes": list(item.get("eligible_routes") or ()),
+            "preferred_route": item.get("route"),
+            "route_eligibility": dict(item.get("route_eligibility") or {}),
+        }
     overlay_hash = _sha256_json({
         "base_snapshot_hash": snapshot.snapshot_hash,
         "stage": "A2_BOTTLENECK_CONTEXT",
@@ -5554,10 +5830,178 @@ def _with_a2_bottleneck_context(
 
 
 def _progress_status(audit: StageAudit) -> str:
-    if audit.status != "VALIDATED":
+    if audit.status == STATUS_NOT_RUN_UPSTREAM_BLOCKED:
+        return "NOT_RUN"
+    if not _stage_completed(audit.status):
         return "FAILED"
     diagnostics = audit.diagnostics if isinstance(audit.diagnostics, Mapping) else {}
     return "REUSED" if diagnostics.get("checkpoint_reused") is True else "COMPLETED"
+
+
+def _safe_progress_reason_codes(values: Sequence[str] | None) -> list[str]:
+    """Bound progress reason codes before handing them to a user callback."""
+
+    if values is None:
+        return []
+    result: list[str] = []
+    for raw in values:
+        if not isinstance(raw, str):
+            continue
+        token = raw.strip().upper()
+        if not token or len(token) > 120:
+            continue
+        if not all(character.isalnum() or character in "_:.-" for character in token):
+            continue
+        if token not in result:
+            result.append(token)
+        if len(result) >= 20:
+            break
+    return result
+
+
+def _stage_completed(status: Any) -> bool:
+    """Return whether a stage produced a complete, self-contained outcome."""
+
+    return str(status or "") in _COMPLETED_STAGE_STATUSES
+
+
+def _stage_checkpointable(status: Any) -> bool:
+    """Only successful terminal outcomes may be reused after a restart."""
+
+    return _stage_completed(status)
+
+
+def _lane_status_from_stage(status: Any) -> str:
+    """Map a terminal A3 outcome to the lane publication state."""
+
+    text = str(status or "")
+    if text == STATUS_VALIDATED_UNDERFILLED_MARKET:
+        return "READY_DEGRADED"
+    return "READY" if _stage_completed(text) else "BLOCKED"
+
+
+def _lane_status_from_stages(stages: Sequence[StageAudit]) -> str:
+    """Expose degraded/data-gap outcomes at lane level."""
+
+    statuses = tuple(str(stage.status or "") for stage in stages)
+    if any(status == STATUS_DEGRADED_UNDERFILLED_DATA_GAP for status in statuses):
+        return "BLOCKED"
+    if any(status == STATUS_VALIDATED_UNDERFILLED_MARKET for status in statuses):
+        return "READY_DEGRADED"
+    return "READY" if statuses and all(_stage_completed(status) for status in statuses) else "BLOCKED"
+
+
+def _progress_status_for_stage_status(status: Any) -> str:
+    """Use a progress vocabulary that preserves no-op vs failure semantics."""
+
+    text = str(status or "")
+    if text == STATUS_NOT_RUN_UPSTREAM_BLOCKED:
+        return "NOT_RUN"
+    if not _stage_completed(text):
+        return "FAILED"
+    if text in {
+        STATUS_VALIDATED_NO_OPPORTUNITY,
+        STATUS_VALIDATED_NO_ACTION,
+        STATUS_VALIDATED_NO_SETUP,
+        STATUS_VALIDATED_UNDERFILLED_MARKET,
+        STATUS_DEGRADED_UNDERFILLED_DATA_GAP,
+    }:
+        return text
+    return "COMPLETED"
+
+
+def _classify_stage_outcome(
+    stage: str,
+    output: Mapping[str, Any],
+    *,
+    reasons: Sequence[str],
+    gate: Any | None = None,
+) -> tuple[str, tuple[str, ...]]:
+    """Derive detailed terminal semantics without changing model conclusions."""
+
+    validation_reasons = tuple(dict.fromkeys(str(item) for item in reasons if str(item)))
+    if validation_reasons:
+        if stage == "A1" and (
+            "A1_ACTIVE_COVERAGE_UNDERFILLED" in validation_reasons
+            or any(reason.startswith("A1_MONTHLY_") for reason in validation_reasons)
+        ):
+            return STATUS_BLOCKED_DATA_COVERAGE, ()
+        if stage == "A2" and set(validation_reasons).intersection(_A2_EVIDENCE_GAP_REASONS):
+            return STATUS_BLOCKED_EVIDENCE_GAP, ()
+        if stage == "A3" and set(validation_reasons).intersection(_A3_TECHNICAL_DATA_REASONS):
+            return STATUS_BLOCKED_TECHNICAL_DATA, ()
+        return "BLOCKED", ()
+
+    if stage == "A1":
+        if not _approved_symbols(output, "A1"):
+            return STATUS_VALIDATED_NO_OPPORTUNITY, ("A1_NO_ACTIVE_RESEARCH",)
+        return STATUS_VALIDATED, ()
+
+    if stage == "A2":
+        focus_count = len(output.get("focus_pool")) if isinstance(output.get("focus_pool"), list) else 0
+        targets = output.get("analysis_summary")
+        targets = targets if isinstance(targets, Mapping) else {}
+        target = targets.get("pool_target")
+        minimum = (
+            _safe_int(target.get("minimum"))
+            if isinstance(target, Mapping)
+            else 30
+        )
+        minimum = max(1, minimum or 30)
+        gap_reasons = _output_reason_codes(output).intersection(_A2_EVIDENCE_GAP_REASONS)
+        if focus_count == 0:
+            if gap_reasons:
+                return STATUS_BLOCKED_EVIDENCE_GAP, tuple(sorted(gap_reasons))
+            return STATUS_VALIDATED_NO_OPPORTUNITY, ("A2_NO_FOCUS_OPPORTUNITY",)
+        if focus_count < minimum:
+            if gap_reasons:
+                return STATUS_DEGRADED_UNDERFILLED_DATA_GAP, tuple(sorted(gap_reasons))
+            return STATUS_VALIDATED_UNDERFILLED_MARKET, ("A2_FOCUS_POOL_UNDERFILLED_MARKET",)
+        return STATUS_VALIDATED, ()
+
+    if stage == "A3" and not _approved_symbols(output, "A3"):
+        gate_reasons = _gate_reason_codes(gate)
+        if gate_reasons.intersection(_A3_TECHNICAL_DATA_REASONS):
+            return STATUS_BLOCKED_TECHNICAL_DATA, tuple(sorted(gate_reasons.intersection(_A3_TECHNICAL_DATA_REASONS)))
+        return STATUS_VALIDATED_NO_SETUP, ("A3_NO_TECHNICAL_SETUP",)
+    return STATUS_VALIDATED, ()
+
+
+def _output_reason_codes(output: Mapping[str, Any]) -> set[str]:
+    """Collect only explicit reason-code fields from bounded model output."""
+
+    result: set[str] = set()
+
+    def visit(value: Any) -> None:
+        if isinstance(value, Mapping):
+            raw = value.get("reason_codes")
+            if isinstance(raw, str):
+                raw = [raw]
+            if isinstance(raw, Sequence) and not isinstance(raw, (str, bytes, bytearray)):
+                result.update(str(item).strip().upper() for item in raw if isinstance(item, str) and item.strip())
+            for key, item in value.items():
+                if str(key) in {"analysis_summary", "active_themes", "focus_pool", "watch_only_pool", "core_watch_pool", "secondary_watch_pool", "rejected_candidates"}:
+                    visit(item)
+        elif isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+            for item in value:
+                visit(item)
+
+    visit(output)
+    return result
+
+
+def _gate_reason_codes(gate: Any | None) -> set[str]:
+    result: set[str] = set()
+    decisions = getattr(gate, "decisions", ()) if gate is not None else ()
+    for decision in decisions:
+        if not isinstance(decision, Mapping):
+            continue
+        raw = decision.get("reason_codes")
+        if isinstance(raw, str):
+            raw = [raw]
+        if isinstance(raw, Sequence) and not isinstance(raw, (str, bytes, bytearray)):
+            result.update(str(item).strip().upper() for item in raw if isinstance(item, str) and item.strip())
+    return result
 
 
 def _invoke_stage_snapshot_enricher(

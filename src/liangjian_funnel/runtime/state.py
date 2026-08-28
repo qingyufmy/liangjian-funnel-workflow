@@ -71,6 +71,48 @@ class MonitorAction(StrEnum):
     MONITOR_OVERRUN = "MONITOR_OVERRUN"
 
 
+class ResearchStageStatus(StrEnum):
+    """Detailed outcomes for a research stage.
+
+    ``contracts.StageStatus`` predates the deterministic funnel and only has
+    coarse outcomes.  These additive values are kept as strings in SQLite so
+    old control planes can display them without rewriting historical rows.
+    """
+
+    VALIDATED_NO_OPPORTUNITY = "VALIDATED_NO_OPPORTUNITY"
+    VALIDATED_NO_ACTION = "VALIDATED_NO_ACTION"
+    DEGRADED_UNDERFILLED_DATA_GAP = "DEGRADED_UNDERFILLED_DATA_GAP"
+    VALIDATED_UNDERFILLED_MARKET = "VALIDATED_UNDERFILLED_MARKET"
+    VALIDATED_NO_SETUP = "VALIDATED_NO_SETUP"
+    NOT_RUN_UPSTREAM_BLOCKED = "NOT_RUN_UPSTREAM_BLOCKED"
+    BLOCKED_DATA_COVERAGE = "BLOCKED_DATA_COVERAGE"
+    BLOCKED_EVIDENCE_GAP = "BLOCKED_EVIDENCE_GAP"
+    BLOCKED_MODEL = "BLOCKED_MODEL"
+    BLOCKED_TECHNICAL_DATA = "BLOCKED_TECHNICAL_DATA"
+
+
+STAGE_STATUS_VALUES = frozenset(
+    {
+        *(item.value for item in StageStatus),
+        *(item.value for item in ResearchStageStatus),
+    }
+)
+
+# These outcomes completed their own stage.  A data-gap result is allowed to
+# continue to a technical audit, but callers must keep it ineligible for
+# publication/simulation.
+STAGE_COMPLETED_VALUES = frozenset(
+    {
+        StageStatus.VALIDATED.value,
+        ResearchStageStatus.VALIDATED_NO_OPPORTUNITY.value,
+        ResearchStageStatus.VALIDATED_NO_ACTION.value,
+        ResearchStageStatus.DEGRADED_UNDERFILLED_DATA_GAP.value,
+        ResearchStageStatus.VALIDATED_UNDERFILLED_MARKET.value,
+        ResearchStageStatus.VALIDATED_NO_SETUP.value,
+    }
+)
+
+
 EFFECTIVE_ACTIONS = frozenset(
     {
         MonitorAction.BUY_SIGNAL.value,
@@ -102,9 +144,31 @@ RUN_TRANSITIONS: dict[str, frozenset[str]] = {
 }
 
 STAGE_TRANSITIONS: dict[str, frozenset[str]] = {
-    StageStatus.PENDING.value: frozenset({StageStatus.RUNNING.value, StageStatus.BLOCKED.value, StageStatus.EXPIRED.value}),
+    StageStatus.PENDING.value: frozenset(
+        {
+            StageStatus.RUNNING.value,
+            StageStatus.BLOCKED.value,
+            StageStatus.EXPIRED.value,
+            ResearchStageStatus.NOT_RUN_UPSTREAM_BLOCKED.value,
+        }
+    ),
     StageStatus.RUNNING.value: frozenset(
-        {StageStatus.VALIDATED.value, StageStatus.BLOCKED.value, StageStatus.FAILED.value, StageStatus.EXPIRED.value}
+        {
+            StageStatus.VALIDATED.value,
+            StageStatus.BLOCKED.value,
+            StageStatus.FAILED.value,
+            StageStatus.EXPIRED.value,
+            ResearchStageStatus.VALIDATED_NO_OPPORTUNITY.value,
+            ResearchStageStatus.VALIDATED_NO_ACTION.value,
+            ResearchStageStatus.DEGRADED_UNDERFILLED_DATA_GAP.value,
+            ResearchStageStatus.VALIDATED_UNDERFILLED_MARKET.value,
+            ResearchStageStatus.VALIDATED_NO_SETUP.value,
+            ResearchStageStatus.NOT_RUN_UPSTREAM_BLOCKED.value,
+            ResearchStageStatus.BLOCKED_DATA_COVERAGE.value,
+            ResearchStageStatus.BLOCKED_EVIDENCE_GAP.value,
+            ResearchStageStatus.BLOCKED_MODEL.value,
+            ResearchStageStatus.BLOCKED_TECHNICAL_DATA.value,
+        }
     ),
 }
 
@@ -498,7 +562,7 @@ class RuntimeStore:
         status = str(status)
         if stage not in {"A1", "A2", "A3"}:
             raise ValueError("invalid lane stage")
-        if status not in {item.value for item in StageStatus}:
+        if status not in STAGE_STATUS_VALUES:
             raise ValueError("invalid lane stage status")
         now = _iso(_now())
 
@@ -540,7 +604,7 @@ class RuntimeStore:
                 row = connection.execute(
                     "SELECT status FROM lane_stages WHERE run_id=? AND stage=?", (run_id, previous)
                 ).fetchone()
-                if row is None or row["status"] != StageStatus.VALIDATED.value:
+                if row is None or row["status"] not in STAGE_COMPLETED_VALUES:
                     raise StateTransitionError("STAGE_PREREQUISITE_NOT_VALIDATED")
             connection.execute(
                 "UPDATE lane_stages SET status=?,updated_at=? WHERE run_id=? AND stage=? AND status=?",
@@ -1489,7 +1553,10 @@ __all__ = [
     "PersistenceBlockedError",
     "PersistenceError",
     "PlanStatus",
+    "ResearchStageStatus",
     "RuntimeStateError",
     "RuntimeStore",
+    "STAGE_COMPLETED_VALUES",
+    "STAGE_STATUS_VALUES",
     "StateTransitionError",
 ]

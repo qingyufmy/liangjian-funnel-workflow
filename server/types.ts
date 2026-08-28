@@ -57,7 +57,7 @@ export interface StatusSnapshot {
   readonly reason: string | null;
 }
 
-export type WorkflowProgressStatus = "RUNNING" | "STALE" | "COMPLETED" | "READY" | "PARTIAL" | "BLOCKED" | "FAILED" | "IDLE" | "UNKNOWN" | "INVALID";
+export type WorkflowProgressStatus = "RUNNING" | "STALE" | "COMPLETED" | "READY" | "READY_DEGRADED" | "PARTIAL" | "BLOCKED" | "FAILED" | "IDLE" | "UNKNOWN" | "INVALID";
 
 /**
  * Fixed, non-sensitive diagnostics for an unavailable or stale progress file.
@@ -148,6 +148,9 @@ export interface ResearchStageDetailItem {
   readonly pool: ResearchPool;
   readonly theme: string | null;
   readonly industry: string | null;
+  readonly route: string | null;
+  readonly bottleneckStatus: string | null;
+  readonly factorCoverage: JsonValue | null;
   readonly score: number | null;
   readonly reasonCodes: readonly string[];
   readonly selectionReasons: readonly string[];

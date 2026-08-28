@@ -17,7 +17,9 @@ from .macro_regime import build_macro_asset_quadrant
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
-CONTEXT_VERSION = "monthly-strategy-context/1.0.0"
+CONTEXT_VERSION = "monthly-strategy-context/1.1.0"
+MONTHLY_ROTATION_DECISION_VERSION = "monthly-rotation-decision/1.0.0"
+MONTHLY_ROTATION_DECISION_LIMIT = 20
 
 
 def build_monthly_strategy_context(
@@ -65,6 +67,16 @@ def build_monthly_strategy_context(
     if not isinstance(rotations, Sequence) or isinstance(rotations, (str, bytes, bytearray)):
         rotations = history.get("persistent_mainline_candidates")
     rotations = [dict(item) for item in rotations or () if isinstance(item, Mapping)]
+    rotations = _normalise_rotations(rotations)
+    monthly_decisions, monthly_coverage = build_monthly_industry_decisions(
+        rotations,
+        minimum_appearances=_number_or_default(
+            history.get("monthly_min_top10_appearances"),
+            2,
+        ),
+        expected_count=MONTHLY_ROTATION_DECISION_LIMIT,
+        default_source_ref=_cycle_source_ref(sector_cycle, history),
+    )
 
     registry = dict(prior_registry or {})
     prior_themes = registry.get("themes") if isinstance(registry.get("themes"), list) else []
@@ -123,6 +135,8 @@ def build_monthly_strategy_context(
         "industry_profit_state": _bounded_mapping(industry_profit),
         "industry_activity_state": _bounded_mapping(industry_activity),
         "monthly_industry_rotation": rotations[:40],
+        "monthly_industry_decisions": monthly_decisions,
+        "monthly_rotation_coverage": monthly_coverage,
         "prior_theme_registry": {
             "available": bool(prior_themes),
             "as_of": registry.get("as_of"),
@@ -135,6 +149,120 @@ def build_monthly_strategy_context(
             "hardcoded_theme_allowlist_forbidden": True,
             "monthly_cycle_and_policy_must_be_reconciled": True,
             "missing_macro_must_be_reported": True,
+        },
+    }
+
+
+def build_monthly_industry_decisions(
+    rotations: Sequence[Mapping[str, Any]],
+    *,
+    minimum_appearances: float = 2,
+    expected_count: int = MONTHLY_ROTATION_DECISION_LIMIT,
+    default_source_ref: str | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Create an auditable decision for every observed monthly top industry.
+
+    The sector-cycle builder is intentionally generic and does not know about
+    thematic allow-lists.  This layer therefore only uses the frozen ranking
+    metrics.  Missing metrics result in ``DEFER`` rather than a fabricated
+    score.  ``expected_count`` describes the requested top-N view; when fewer
+    ranked industries are available the coverage object records the missing
+    ranks explicitly instead of silently presenting a partial top-20.
+    """
+
+    limit = max(1, int(expected_count))
+    rows: list[dict[str, Any]] = []
+    seen_codes: set[str] = set()
+    for rank, raw in enumerate(rotations, start=1):
+        if rank > limit or not isinstance(raw, Mapping):
+            break
+        code = str(raw.get("industry_thscode") or "").strip().upper()
+        if not code or code in seen_codes:
+            continue
+        seen_codes.add(code)
+        name = str(raw.get("industry_name") or "").strip() or None
+        metrics = {
+            key: raw.get(key)
+            for key in (
+                "return_5d", "return_10d", "return_20d",
+                "relative_strength_percentile_20d",
+                "top10_appearance_count", "top10_appearance_rate",
+                "recent_turnover", "turnover_persistence_ratio",
+            )
+            if key in raw
+        }
+        supporting_refs = _source_refs(raw)
+        if not supporting_refs and default_source_ref:
+            supporting_refs = [default_source_ref]
+        missing = [
+            key for key in ("return_20d", "relative_strength_percentile_20d")
+            if _number(raw.get(key)) is None
+        ]
+        appearances = _number(raw.get("top10_appearance_count"))
+        if appearances is None:
+            missing.append("top10_appearance_count")
+        if not supporting_refs:
+            missing.append("rotation_source_ref")
+
+        reason_codes: list[str] = []
+        contradicting_refs: list[str] = []
+        if missing:
+            decision = "DEFER"
+            reason_codes.append("MONTHLY_ROTATION_DATA_INCOMPLETE")
+            if not supporting_refs:
+                reason_codes.append("MONTHLY_ROTATION_SOURCE_REF_MISSING")
+        else:
+            return_20d = _number(raw.get("return_20d"))
+            relative = _percentile_0_100(raw.get("relative_strength_percentile_20d"))
+            enough_appearances = appearances >= max(1.0, float(minimum_appearances))
+            if return_20d is not None and return_20d > 0 and relative is not None and relative >= 60 and enough_appearances:
+                decision = "INCLUDE"
+                reason_codes.append("MONTHLY_ROTATION_POSITIVE_AND_PERSISTENT")
+            elif return_20d is not None and (return_20d <= 0 or (relative is not None and relative < 40)):
+                decision = "EXCLUDE"
+                reason_codes.append(
+                    "MONTHLY_ROTATION_NEGATIVE_RETURN"
+                    if return_20d <= 0
+                    else "MONTHLY_ROTATION_RELATIVE_STRENGTH_WEAK"
+                )
+                contradicting_refs = list(supporting_refs)
+            else:
+                decision = "DEFER"
+                reason_codes.append("MONTHLY_ROTATION_SIGNAL_MIXED")
+                if not enough_appearances:
+                    missing.append("top10_appearance_persistence")
+
+        rows.append({
+            "rank": rank,
+            "industry_thscode": code,
+            "industry_name": name,
+            "decision": decision,
+            "mapped_theme_ids": [],
+            "reason_codes": list(dict.fromkeys(reason_codes)),
+            "supporting_source_refs": supporting_refs,
+            "contradicting_source_refs": contradicting_refs,
+            "data_gaps": list(dict.fromkeys(missing)),
+            "metrics": metrics,
+            "decision_version": MONTHLY_ROTATION_DECISION_VERSION,
+        })
+
+    observed = len(rows)
+    missing_ranks = list(range(observed + 1, limit + 1))
+    top10_rows = [row for row in rows if int(row["rank"]) <= 10]
+    top10_missing = [rank for rank in range(1, min(10, limit) + 1) if rank > observed]
+    coverage_status = "READY" if observed >= limit else "INCOMPLETE"
+    return rows, {
+        "decision_version": MONTHLY_ROTATION_DECISION_VERSION,
+        "requested_top_n": limit,
+        "observed_count": observed,
+        "missing_ranks": missing_ranks,
+        "top10_observed_count": len(top10_rows),
+        "top10_missing_ranks": top10_missing,
+        "top10_complete": not top10_missing,
+        "status": coverage_status,
+        "decision_counts": {
+            decision: sum(row["decision"] == decision for row in rows)
+            for decision in ("INCLUDE", "EXCLUDE", "DEFER")
         },
     }
 
@@ -183,6 +311,69 @@ def _bounded_mapping(value: Mapping[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _normalise_rotations(values: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Keep ranking rows stable while retaining only scalar audit metrics."""
+
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw in values:
+        code = str(raw.get("industry_thscode") or "").strip().upper()
+        if not code or code in seen:
+            continue
+        seen.add(code)
+        item = dict(raw)
+        item["industry_thscode"] = code
+        if item.get("industry_name") is not None:
+            item["industry_name"] = str(item.get("industry_name") or "").strip()
+        result.append(item)
+    return result
+
+
+def _cycle_source_ref(sector_cycle: Mapping[str, Any], history: Mapping[str, Any]) -> str | None:
+    """Build a stable derived-fact reference for THS index-history metrics."""
+
+    source = str(sector_cycle.get("source") or "").strip()
+    version = str(history.get("algorithm_version") or sector_cycle.get("algorithm_version") or "").strip()
+    as_of = str(sector_cycle.get("as_of") or "").strip()
+    if not source or not version or not as_of:
+        return None
+    return f"derived:{source}:{version}:{as_of}"
+
+
+def _source_refs(value: Mapping[str, Any]) -> list[str]:
+    refs: list[str] = []
+    raw_values: list[Any] = []
+    for key in ("source_ref", "source_url", "fact_id"):
+        raw_values.append(value.get(key))
+    raw_values.extend(value.get("source_refs", ()) if isinstance(value.get("source_refs"), Sequence) and not isinstance(value.get("source_refs"), (str, bytes, bytearray)) else ())
+    for raw in raw_values:
+        if isinstance(raw, str) and raw.strip():
+            refs.append(raw.strip())
+    return list(dict.fromkeys(refs))
+
+
+def _number_or_default(value: Any, default: float) -> float:
+    number = _number(value)
+    return default if number is None else number
+
+
+def _number(value: Any) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = float(str(value).replace("%", "").replace(",", ""))
+    except (TypeError, ValueError):
+        return None
+    return number if number == number and number not in (float("inf"), float("-inf")) else None
+
+
+def _percentile_0_100(value: Any) -> float | None:
+    number = _number(value)
+    if number is None:
+        return None
+    return number * 100.0 if 0.0 <= number <= 1.0 else number
+
+
 def _parse_time(value: Any) -> datetime | None:
     try:
         parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
@@ -200,4 +391,9 @@ def _aware(value: datetime | str) -> datetime:
     return parsed.astimezone(SHANGHAI)
 
 
-__all__ = ["CONTEXT_VERSION", "build_monthly_strategy_context"]
+__all__ = [
+    "CONTEXT_VERSION",
+    "MONTHLY_ROTATION_DECISION_VERSION",
+    "build_monthly_industry_decisions",
+    "build_monthly_strategy_context",
+]

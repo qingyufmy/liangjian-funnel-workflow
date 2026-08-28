@@ -3,7 +3,10 @@ from __future__ import annotations
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from liangjian_funnel.pipeline.monthly_strategy import build_monthly_strategy_context
+from liangjian_funnel.pipeline.monthly_strategy import (
+    build_monthly_industry_decisions,
+    build_monthly_strategy_context,
+)
 from liangjian_funnel.pipeline.research import _monthly_discovery_reasons
 
 
@@ -95,3 +98,86 @@ def test_monthly_coverage_counts_taxonomy_links_nested_on_chain_nodes():
     }
 
     assert _monthly_discovery_reasons(output, context) == ()
+
+
+def test_monthly_rotation_decisions_cover_top20_without_silent_omission():
+    rotations = [
+        {
+            "industry_thscode": f"884{index:03d}.TI",
+            "industry_name": f"行业{index}",
+            "return_20d": 0.12 if index == 1 else (-0.01 if index == 2 else 0.04),
+            "relative_strength_percentile_20d": 0.82 if index == 1 else (0.25 if index == 2 else 0.55),
+            "top10_appearance_count": 3 if index != 3 else 1,
+            "source_ref": f"ths:sector:{index}",
+        }
+        for index in range(1, 21)
+    ]
+    rotations[2].pop("return_20d")
+    decisions, coverage = build_monthly_industry_decisions(rotations)
+
+    assert len(decisions) == 20
+    assert [item["rank"] for item in decisions] == list(range(1, 21))
+    assert {item["decision"] for item in decisions} == {"INCLUDE", "EXCLUDE", "DEFER"}
+    assert coverage["status"] == "READY"
+    assert coverage["top10_complete"] is True
+    assert decisions[0]["decision"] == "INCLUDE"
+    assert decisions[1]["decision"] == "EXCLUDE"
+    assert decisions[2]["decision"] == "DEFER"
+    assert "return_20d" in decisions[2]["data_gaps"]
+
+
+def test_monthly_discovery_requires_one_decision_per_frozen_rotation_row():
+    codes = [f"88400{index}.TI" for index in range(1, 4)]
+    themes = [{"theme_id": f"theme-{index}"} for index in range(6)]
+    nodes = [
+        {
+            "node_id": f"node-{index}",
+            "theme_ids": [f"theme-{index % 6}"],
+            "taxonomy_links": {"industry_thscodes": [codes[index % len(codes)]]},
+        }
+        for index in range(12)
+    ]
+    context = {
+        "g0_symbol_count": 3886,
+        "status": "READY",
+        "monthly_industry_rotation": [
+            {"industry_thscode": code} for code in codes
+        ],
+        "monthly_industry_decisions": [
+            {"rank": rank, "industry_thscode": code}
+            for rank, code in enumerate(codes, start=1)
+        ],
+        "monthly_rotation_coverage": {"decision_version": "test", "status": "INCOMPLETE"},
+    }
+    base = {
+        "structural_themes": themes,
+        "industry_chain_graph": nodes,
+        "taxonomy_links": [],
+    }
+
+    assert "A1_MONTHLY_ROTATION_DECISIONS_MISSING" in _monthly_discovery_reasons(base, context)
+
+    complete = {
+        **base,
+        "monthly_industry_decisions": [
+            {
+                "rank": 1,
+                "industry_thscode": codes[0],
+                "decision": "INCLUDE",
+                "mapped_theme_ids": ["theme-0"],
+            },
+            {
+                "rank": 2,
+                "industry_thscode": codes[1],
+                "decision": "EXCLUDE",
+                "mapped_theme_ids": [],
+            },
+            {
+                "rank": 3,
+                "industry_thscode": codes[2],
+                "decision": "DEFER",
+                "mapped_theme_ids": [],
+            },
+        ],
+    }
+    assert _monthly_discovery_reasons(complete, context) == ()

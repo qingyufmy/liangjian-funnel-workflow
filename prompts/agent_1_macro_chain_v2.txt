@@ -127,6 +127,10 @@ T3 行业资讯/RSS 只能发现线索，即使引用真实存在也不能单独
     宏观方向和行业相对强度；单日异动只能作为月度策略的确认或反证
   - 对明显周期行业必须检查 5/10/20 日相对强度、成交持续性，以及可获得的
     价格/利润/库存/产能利用率；只有单日涨幅不得定义为周期启动
+  - 必须逐项审阅 monthly_strategy_context.monthly_industry_rotation 的前 20 个行业。
+    每一项都输出 monthly_industry_decisions 中唯一的一条 INCLUDE、EXCLUDE 或
+    DEFER 决策；前 10 项不得遗漏。行业数据不足时只能 DEFER 并列出 data_gaps，
+    不得删除、合并、用近义词替代或静默跳过排名靠前的行业。
   - INDUSTRY_ACTIVITY_DATA 只能证明行业生产活动增速，禁止将其表述为利润增长
   - 对科技、创新产业等中期成长主线，必须区分政策长期方向与当月市场确认
   - MACRO_ECONOMIC_DATA.available=false 时，liquidity_condition 与
@@ -293,13 +297,20 @@ T3 行业资讯/RSS 只能发现线索，即使引用真实存在也不能单独
     (e) 能解释对未来收入/毛利率/份额的传导路径
   证据不足 → PARTIAL 或 UNPROVEN，不得"从宽认定"
 
-第七步 · 评分与否决
+  第七步 · 评分与否决
   使用 {{SCORE_WEIGHTS}} 提供的权重，不得自行调整。
   score_breakdown 必须且只能包含 SCORE_WEIGHTS 的全部同名键；每个值是
   0-100 的“未乘权重原始分”，禁止填写已乘权重的贡献分。
   structural_score = Σ(score_breakdown[key] × SCORE_WEIGHTS[key])；
   服务端会按该公式重算并覆盖模型自行计算的总分。
   data_quality_score 与 evidence_confidence 独立计算。
+  服务端会同时保存六个 A1 因子的独立证据状态。每个因子必须有
+  factor_details[key] = {"score": 0-100, "available": true|false,
+  "source_refs": [...], "missing_reason": "..."}。缺失因子的 score 必须为 0，
+  不得用其它因子的平均值、默认值或常识补齐；可用权重不足 70% 的标的只能放入
+  MONITOR。六个标准因子为 structural_theme、business_mapping、
+  barrier_and_bottleneck、financial_quality、catalyst_confirmation、
+  valuation_expectation_gap。
   任一 HARD_VETO 命中 → candidate_status = REJECTED 或 RESEARCH_ONLY。
 
 ────────────────────────────────────────────────────────────────────────
@@ -372,6 +383,23 @@ T3 行业资讯/RSS 只能发现线索，即使引用真实存在也不能单独
     "key_uncertainties": [...],
     "source_refs": [...]
   },
+
+  "monthly_industry_decisions": [
+    {
+      "rank": 1,
+      "industry_thscode": "...TI",
+      "industry_name": "...",
+      "decision": "INCLUDE|EXCLUDE|DEFER",
+      "mapped_theme_ids": [...],
+      "reason_codes": [...],
+      "supporting_source_refs": [...],
+      "contradicting_source_refs": [...],
+      "data_gaps": [...],
+      "metrics": {"return_5d": null, "return_10d": null, "return_20d": null,
+                  "relative_strength_percentile_20d": null,
+                  "top10_appearance_count": null}
+    }
+  ],
 
   "policy_dossiers": [
     {

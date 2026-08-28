@@ -147,6 +147,37 @@ def test_a1_evaluates_every_g0_and_keeps_local_research_coverage():
     assert len(local_active_items(result)) == 4
 
 
+def test_a1_missing_factor_weight_stays_monitor_and_zero_without_proxy():
+    snapshot = _snapshot(2)
+    snapshot["SCORE_WEIGHTS"] = {
+        "structural_theme": 0.20,
+        "business_mapping": 0.20,
+        "barrier_and_bottleneck": 0.15,
+        "financial_quality": 0.20,
+        "catalyst_confirmation": 0.15,
+        "valuation_expectation_gap": 0.10,
+    }
+    snapshot["A1_MINIMUMS"]["minimum_available_weight"] = 0.70
+
+    result = screen_a1(snapshot, _discovery(), local_top_n_per_node=1, llm_top_n_per_theme=1)
+    item = next(item for item in result.decisions if item["symbol"] == snapshot["g0_symbols"][0])
+
+    assert item["status"] == "LOCAL_MONITOR"
+    # This fixture deliberately makes the only themed symbol lack disclosed
+    # business evidence.  Only structural theme and financial quality remain
+    # available; missing business mapping must not be counted as coverage.
+    assert item["available_weight"] == 0.40
+    assert "A1_FACTOR_COVERAGE_BELOW_MINIMUM" in item["reason_codes"]
+    for factor_name in (
+        "barrier_and_bottleneck",
+        "catalyst_confirmation",
+        "valuation_expectation_gap",
+    ):
+        assert item["factor_details"][factor_name]["available"] is False
+        assert item["factor_details"][factor_name]["score"] == 0.0
+    assert local_active_items(result) == []
+
+
 def test_a2_and_a3_never_expand_the_upstream_pool():
     snapshot = _snapshot(4)
     a1_output = {
@@ -160,6 +191,70 @@ def test_a2_and_a3_never_expand_the_upstream_pool():
     a2_output = {"focus_pool": [{"symbol": symbol, "theme_id": "theme-compute"} for symbol in a2.review_symbols]}
     a3 = screen_a3(snapshot, a2_output)
     assert set(a3.review_symbols).issubset(set(a2.review_symbols))
+
+
+def test_a2_market_core_uses_real_local_market_factors_without_inventing_capital_flow():
+    snapshot = _snapshot(4)
+    for index, candidate in enumerate(snapshot["g0_candidates"]):
+        candidate["change_ratio_pct"] = 2.0 - index * 0.5
+    snapshot["THEME_SCORE_WEIGHTS"] = {
+        "breadth": 0.15,
+        "turnover_share": 0.12,
+        "capital_flow": 0.13,
+        "leader_structure": 0.15,
+        "tier_structure": 0.15,
+        "profit_effect": 0.10,
+        "catalyst_freshness": 0.08,
+        "index_chain_resonance": 0.07,
+        "agent_1_quality": 0.05,
+    }
+    snapshot["CAPITAL_FLOW_SNAPSHOT"] = {
+        "available": False,
+        "reason_code": "SOURCE_NOT_CONFIGURED",
+        "turnover_is_capital_flow": False,
+    }
+    snapshot["SECTOR_CYCLE_SNAPSHOT"] = {
+        "available": True,
+        "history_metrics": {
+            "monthly_rotation_candidates": [{
+                "industry_thscode": "884001.TI",
+                "relative_strength_percentile_20d": 0.9,
+                "top10_appearance_count": 8,
+            }],
+        },
+    }
+    symbol = snapshot["g0_symbols"][0]
+    snapshot["DISCLOSURE_EVENTS"] = {
+        symbol: [{
+            "announcement_title": "重大订单合同落地",
+            "source_ref": f"cninfo:{symbol}:notice:1",
+        }],
+    }
+    a1_output = {
+        "active_research_pool": [{
+            "symbol": symbol,
+            "candidate_id": f"a1:{symbol}",
+            "primary_theme": "theme-compute",
+            "industry_chain_node": "node-compute-device",
+            "structural_score": 85,
+            "data_quality_score": 90,
+            "business_exposure": {
+                "revenue_exposure_pct": 65.5,
+                "source_ref": f"cninfo:{symbol}:page:1",
+            },
+            "source_refs": [f"cninfo:{symbol}:page:1"],
+        }],
+    }
+
+    result = screen_a2(snapshot, a1_output, minimum_identifiability_score=60, llm_top_n_per_theme=2)
+    item = result.decisions[0]
+
+    assert item["status"] == "REVIEW_CANDIDATE"
+    assert "MARKET_CORE" in item["eligible_routes"]
+    assert item["factor_coverage"]["ratio"] >= 0.65
+    assert item["a2_factor_scores"]["capital_flow"]["available"] is False
+    assert item["a2_factor_scores"]["capital_flow"]["source"] == "CAPITAL_FLOW_SNAPSHOT"
+    assert item["a2_factor_scores"]["turnover_share"]["source"] == "FROZEN_G0_INDUSTRY_TURNOVER_SHARE"
 
 
 def test_feature_store_replaces_one_lane_stage_atomically(tmp_path: Path):
@@ -333,7 +428,8 @@ def test_v2_pipeline_does_not_send_the_full_g0_to_a1(tmp_path: Path):
         now=lambda: NOW,
     ).run(snapshot, run_id="run-v2", generated_at=NOW)
 
-    assert result.status == "READY"
+    assert result.status == "READY_DEGRADED"
+    assert all(lane.status == "READY_DEGRADED" for lane in result.lanes)
     for model in MODELS:
         a1_calls = [symbols for called_model, stage, symbols in client.calls if called_model == model and stage == "A1"]
         assert a1_calls[0] == ()

@@ -53,11 +53,13 @@ const PROGRESS_STATUS = new Set<WorkflowProgressStatus>([
   "STALE",
   "COMPLETED",
   "READY",
+  "READY_DEGRADED",
   "PARTIAL",
   "BLOCKED",
   "FAILED",
   "IDLE",
   "UNKNOWN",
+  "INVALID",
 ]);
 
 const PROGRESS_PHASES = new Set([
@@ -778,6 +780,9 @@ function normalizeResearchItem(
     pool,
     theme,
     industry: industryText(value),
+    route: firstString(value, ["a2_route", "selection_route", "route"]),
+    bottleneckStatus: firstString(value, ["bottleneck_status", "bottleneckStatus"]),
+    factorCoverage: asSafeJson(value.factor_coverage ?? value.factorCoverage),
     score,
     reasonCodes: collectReasonCodes(value),
     selectionReasons,

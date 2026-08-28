@@ -28,7 +28,7 @@ class WorkflowProgress:
         self._lock = threading.RLock()
         started = _aware(now or datetime.now(SHANGHAI))
         self._state: dict[str, Any] = {
-            "schema_version": 1,
+            "schema_version": 2,
             "run_id": str(run_id)[:200],
             "job": str(job)[:40],
             "status": "RUNNING",
@@ -133,6 +133,17 @@ class WorkflowProgress:
                 "total_batches": _non_negative(event.get("total_batches", event.get("total", 0))) or 0,
                 "attempts": _non_negative(event.get("attempts", 0)) or 0,
             }
+            reason_codes = _reason_codes(event.get("reason_codes"))
+            if reason_codes:
+                stage_state["reason_codes"] = reason_codes
+            if isinstance(event.get("outcome"), str) and event["outcome"].strip():
+                stage_state["outcome"] = _token(event["outcome"], 80)
+            if isinstance(event.get("checkpoint_reused"), bool):
+                stage_state["checkpoint_reused"] = event["checkpoint_reused"]
+            if event.get("checkpoint_batch_index") is not None:
+                checkpoint_batch = _non_negative(event.get("checkpoint_batch_index"))
+                if checkpoint_batch is not None:
+                    stage_state["checkpoint_batch_index"] = checkpoint_batch
             for target, *sources in (
                 ("processed_symbols", "processed_symbols", "processed"),
                 ("total_symbols", "total_symbols", "universe_total"),
@@ -208,6 +219,31 @@ def _non_negative(value: Any) -> int | None:
     except (TypeError, ValueError):
         return None
     return max(0, number)
+
+
+def _reason_codes(value: Any) -> list[str]:
+    """Keep only bounded, stable reason codes in the progress file."""
+
+    if isinstance(value, str):
+        values = [value]
+    elif isinstance(value, (list, tuple, set, frozenset)):
+        values = list(value)
+    else:
+        return []
+    result: list[str] = []
+    for raw in values:
+        if not isinstance(raw, str):
+            continue
+        token = raw.strip().upper()
+        if not token or len(token) > 120:
+            continue
+        if not all(character.isalnum() or character in "_:.-" for character in token):
+            continue
+        if token not in result:
+            result.append(token)
+        if len(result) >= 20:
+            break
+    return result
 
 
 __all__ = ["WorkflowProgress"]
