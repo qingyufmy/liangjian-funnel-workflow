@@ -59,7 +59,7 @@ from .a1_contract import (
     validate_discovery_output,
 )
 from .a1_packet import A1_PACKET_TOKEN_BUDGET, A1PacketSizeError, build_a1_research_packet
-from .feature_store import ResearchFeatureStore
+from .feature_store import FeatureGenerationError, ResearchFeatureStore
 from .model_client import (
     ModelCallResult,
     ModelClientError,
@@ -73,6 +73,14 @@ from .research_checkpoint import (
     InMemoryResearchCheckpointStore,
     ResearchCheckpointKey,
     ResearchCheckpointStore,
+)
+from .outcomes import (
+    LaneOutcome,
+    RunOutcome,
+    StageOutcome,
+    aggregate_lane_outcome,
+    aggregate_run_outcome,
+    stage_outcome_from_legacy,
 )
 
 
@@ -309,6 +317,9 @@ class StageAudit:
     output: Mapping[str, Any] | None = None
     diagnostics: Mapping[str, Any] | None = None
 
+    def outcome(self) -> StageOutcome:
+        return _stage_outcome(self)
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "lane": self.lane,
@@ -326,6 +337,7 @@ class StageAudit:
             "reason_codes": list(self.reason_codes),
             "output": dict(self.output) if isinstance(self.output, Mapping) else None,
             "diagnostics": dict(self.diagnostics) if isinstance(self.diagnostics, Mapping) else None,
+            "outcome_v2": self.outcome().as_dict(),
         }
 
 
@@ -338,6 +350,14 @@ class LaneResult:
     final_output: Mapping[str, Any] | None = None
     audit_path: Path | None = None
 
+    def outcome(self) -> LaneOutcome:
+        return aggregate_lane_outcome(
+            tuple(stage.outcome() for stage in self.stages),
+            lane_id=self.lane,
+            model=self.model,
+            legacy_status=self.status,
+        )
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "lane": self.lane,
@@ -345,6 +365,7 @@ class LaneResult:
             "status": self.status,
             "stages": [stage.as_dict() for stage in self.stages],
             "final_output": dict(self.final_output) if isinstance(self.final_output, Mapping) else None,
+            "outcome_v2": self.outcome().as_dict(),
         }
 
 
@@ -358,6 +379,15 @@ class ResearchRunResult:
     lanes: tuple[LaneResult, ...]
     audit_paths: tuple[Path, ...]
     markdown_path: Path | None
+    primary_lane_ids: tuple[str, ...] = ("lane_1",)
+
+    def outcome(self) -> RunOutcome:
+        return aggregate_run_outcome(
+            tuple(lane.outcome() for lane in self.lanes),
+            run_id=self.run_id,
+            primary_lane_ids=self.primary_lane_ids,
+            expected_lane_count=len(self.lanes),
+        )
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -369,6 +399,8 @@ class ResearchRunResult:
             "lanes": [lane.as_dict() for lane in self.lanes],
             "audit_paths": [str(path) for path in self.audit_paths],
             "markdown_path": str(self.markdown_path) if self.markdown_path else None,
+            "primary_lane_ids": list(self.primary_lane_ids),
+            "outcome_v2": self.outcome().as_dict(),
         }
 
 
@@ -429,6 +461,22 @@ class ResearchPipeline:
             if settings.research_pipeline_mode == DETERMINISTIC_PIPELINE_MODE
             else None
         )
+        self._feature_generation_id = ""
+        self._pipeline_contract_hash = _sha256_json({
+            "pipeline_mode": settings.research_pipeline_mode,
+            "stages": STAGES,
+            "primary_lane": settings.research_primary_lane_id,
+        })
+        self._feature_contract_hash = _sha256_json({
+            "schema": "feature-store/2.0.0",
+            "a2_factors": (
+                "capital_flow",
+                "tier_structure",
+                "leader_structure",
+                "index_chain_resonance",
+            ),
+        })
+        self._code_commit = str(os.environ.get("LIANGJIAN_CODE_COMMIT") or "").strip()
         self._deadline_started_monotonic: float | None = None
 
     def run(
@@ -454,26 +502,63 @@ class ResearchPipeline:
             if not g0:
                 global_reason = global_reason or "G0_UNPROVABLE"
 
+        effective_run_id = _safe_run_id(run_id or _default_run_id(current, frozen.snapshot_id))
         if self.feature_store is not None and frozen.snapshot_id != "UNKNOWN":
             try:
-                for taxonomy, field in (
-                    ("INDUSTRY", "THS_INDUSTRY_MEMBERSHIP"),
-                    ("CONCEPT", "THS_CONCEPT_MEMBERSHIP"),
-                ):
-                    value = frozen.data.get(field)
-                    if isinstance(value, Mapping):
-                        self.feature_store.replace_taxonomy_memberships(
-                            taxonomy=taxonomy,
-                            snapshot=value,
-                            as_of=frozen.as_of or current,
-                        )
-                self.feature_store.replace_business_exposure_facts(
-                    extract_business_exposure_facts(frozen.data.get("MAIN_BUSINESS_EVIDENCE"))
+                generation_id = f"feature-{frozen.snapshot_hash[:24]}"
+                generation = self.feature_store.get_feature_generation(generation_id)
+                if generation is None:
+                    self.feature_store.create_feature_generation(
+                        generation_id=generation_id,
+                        as_of=frozen.as_of or current,
+                        contract_version="feature-store/2.0.0",
+                        algorithm_version=self.settings.research_pipeline_mode,
+                        source_manifest_hash=frozen.snapshot_hash,
+                        metadata={"snapshot_id": frozen.snapshot_id},
+                    )
+                generation = self.feature_store.get_feature_generation(generation_id)
+                generation_status = str((generation or {}).get("status") or "").upper()
+                if generation_status == "STAGING":
+                    for taxonomy, field in (
+                        ("INDUSTRY", "THS_INDUSTRY_MEMBERSHIP"),
+                        ("CONCEPT", "THS_CONCEPT_MEMBERSHIP"),
+                    ):
+                        value = frozen.data.get(field)
+                        if isinstance(value, Mapping):
+                            self.feature_store.replace_taxonomy_memberships(
+                                taxonomy=taxonomy,
+                                snapshot=value,
+                                as_of=frozen.as_of or current,
+                                generation_id=generation_id,
+                            )
+                    self.feature_store.replace_business_exposure_facts(
+                        extract_business_exposure_facts(frozen.data.get("MAIN_BUSINESS_EVIDENCE")),
+                        generation_id=generation_id,
+                    )
+                    self.feature_store.validate_feature_generation(
+                        generation_id,
+                        validation={"snapshot_hash": frozen.snapshot_hash, "materialized": True},
+                    )
+                    self.feature_store.publish_feature_generation(generation_id)
+                elif generation_status == "VALIDATED":
+                    self.feature_store.publish_feature_generation(generation_id)
+                elif generation_status != "PUBLISHED":
+                    raise FeatureGenerationError(
+                        f"FEATURE_GENERATION_NOT_PUBLISHED:{generation_id}"
+                    )
+                # Bind the run to the exact snapshot generation materialised
+                # above.  Binding whatever happens to be globally active is
+                # unsafe when a historical replay and a newer maintenance
+                # generation coexist in the same store.
+                self.feature_store.bind_run_feature_generation(
+                    run_id=effective_run_id,
+                    generation_id=generation_id,
+                    contract_hash=self._feature_contract_hash,
                 )
-            except (OSError, sqlite3.Error, ValueError):
+                self._feature_generation_id = generation_id
+            except (FeatureGenerationError, OSError, sqlite3.Error, ValueError):
                 global_reason = global_reason or "FEATURE_STORE_MATERIALIZATION_FAILED"
 
-        effective_run_id = _safe_run_id(run_id or _default_run_id(current, frozen.snapshot_id))
         try:
             bundle = self.prompts.load()
         except PromptRepositoryError:
@@ -546,6 +631,7 @@ class ResearchPipeline:
                     prompt_hash=prompt_hash,
                     config_hash=config_hash,
                     reason_codes=reasons,
+                    outcome=lane.outcome().as_dict(),
                 )
                 for stage in lane.stages:
                     self.runtime_store.record_workflow_stage(
@@ -554,17 +640,16 @@ class ResearchPipeline:
                         stage=stage.stage,
                         status=stage.status,
                         reason_codes=stage.reason_codes,
+                        outcome=stage.outcome().as_dict(),
                     )
 
-        ready_count = sum(lane.status in {"READY", "READY_DEGRADED"} for lane in lanes)
-        if lanes and ready_count == len(lanes):
-            overall = (
-                "READY_DEGRADED"
-                if any(lane.status == "READY_DEGRADED" for lane in lanes)
-                else "READY"
-            )
-        else:
-            overall = "PARTIAL" if ready_count else "BLOCKED"
+        run_outcome = aggregate_run_outcome(
+            tuple(lane.outcome() for lane in lanes),
+            run_id=effective_run_id,
+            primary_lane_ids=(self.settings.research_primary_lane_id,),
+            expected_lane_count=len(models),
+        )
+        overall = run_outcome.legacy_status
         result = ResearchRunResult(
             run_id=effective_run_id,
             generated_at=current,
@@ -574,6 +659,7 @@ class ResearchPipeline:
             lanes=tuple(lanes),
             audit_paths=tuple(lane.audit_path for lane in lanes if lane.audit_path is not None),
             markdown_path=None,
+            primary_lane_ids=(self.settings.research_primary_lane_id,),
         )
         markdown_path = self._write_markdown(result)
         return ResearchRunResult(
@@ -585,6 +671,7 @@ class ResearchPipeline:
             lanes=result.lanes,
             audit_paths=result.audit_paths,
             markdown_path=markdown_path,
+            primary_lane_ids=result.primary_lane_ids,
         )
 
     def _run_lane(
@@ -1535,6 +1622,7 @@ class ResearchPipeline:
                 self.feature_store.record_fundamental_features(
                     as_of=snapshot.as_of or self.now(),
                     decisions=gate.decisions,
+                    run_id=run_id,
                 )
             elif gate.stage == "A2_LOCAL_ROLE":
                 self.feature_store.record_market_role_features(
@@ -1542,7 +1630,7 @@ class ResearchPipeline:
                     lane_id=lane_id,
                     decisions=gate.decisions,
                 )
-        except (OSError, sqlite3.Error, ValueError) as exc:
+        except (FeatureGenerationError, OSError, sqlite3.Error, ValueError) as exc:
             raise ResearchPipelineError("FEATURE_STORE_WRITE_FAILED") from exc
 
     def _emit_gate_progress(
@@ -1780,6 +1868,14 @@ class ResearchPipeline:
                 prompt_hash=prepared.prompt_hash,
                 snapshot_hash=snapshot.snapshot_hash,
                 batch_symbols_hash=_sha256_json(sorted(upstream_symbols)),
+                generation_id=self._feature_generation_id,
+                pipeline_contract_hash=self._pipeline_contract_hash,
+                feature_contract_hash=self._feature_contract_hash,
+                code_commit=self._code_commit,
+                provider_contract_hash=_sha256_json({
+                    "model": model,
+                    "base_url": self.settings.model_base_url,
+                }),
             ),
             prepared,
         )
@@ -1802,7 +1898,8 @@ class ResearchPipeline:
             if isinstance(store, Mapping):
                 record = store.get(key.digest)
             else:
-                operation = getattr(store, "load", None) or getattr(store, "get", None)
+                operation = getattr(store, "load_strict", None) if key.has_v2_identity else None
+                operation = operation or getattr(store, "load", None) or getattr(store, "get", None)
                 if operation is None:
                     return None
                 try:
@@ -4778,6 +4875,33 @@ def _stage_pool_counts(output: Mapping[str, Any], stage: str) -> dict[str, int]:
         field: len(output.get(field)) if isinstance(output.get(field), list) else 0
         for field in fields
     }
+
+
+def _stage_outcome(audit: StageAudit) -> StageOutcome:
+    """Project one audit without mistaking missing counts for zero stocks."""
+
+    counts: dict[str, int] = {"selected": len(audit.symbols)}
+    diagnostics = audit.diagnostics if isinstance(audit.diagnostics, Mapping) else {}
+    local = diagnostics.get("local_screen")
+    local = local if isinstance(local, Mapping) else {}
+    evaluated = _safe_int(local.get("evaluated_count"))
+    if evaluated > 0 or "evaluated_count" in local:
+        counts["input"] = max(0, evaluated)
+        counts["evaluated"] = max(0, evaluated)
+    data_coverage: dict[str, float | int | str | None] = {}
+    coverage = local.get("coverage_ratio")
+    if isinstance(coverage, (int, float)) and not isinstance(coverage, bool):
+        data_coverage["actual"] = float(coverage)
+    required = local.get("minimum_coverage")
+    if isinstance(required, (int, float)) and not isinstance(required, bool):
+        data_coverage["required"] = float(required)
+    return stage_outcome_from_legacy(
+        audit.status,
+        stage=audit.stage,
+        reason_codes=audit.reason_codes,
+        counts=counts,
+        data_coverage=data_coverage,
+    )
 
 
 def _refresh_analysis_counts(output: Mapping[str, Any], stage: str) -> dict[str, Any]:

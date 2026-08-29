@@ -4,7 +4,71 @@ export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue
 
 export type JsonRecord = { [key: string]: unknown };
 
-export type JobName = "morning" | "close" | "monitor";
+/**
+ * Canonical research outcome contract (research-outcome/2.0.0).
+ *
+ * ``legacy_status`` is an additive compatibility projection.  Consumers must
+ * render the four axes and reason codes supplied by Python instead of
+ * deriving business meaning from a status string.
+ */
+export type OutcomeLifecycleState = "QUEUED" | "RUNNING" | "TERMINAL";
+export type OutcomeQualityState = "VALIDATED" | "DEGRADED" | "BLOCKED" | "FAILED" | "CANCELLED";
+export type OutcomeOpportunityState = "PRESENT" | "ABSENT" | "UNKNOWN" | "NOT_APPLICABLE";
+export type OutcomePublicationState = "READY" | "NOT_APPLICABLE" | "BLOCKED" | "PUBLISHED";
+
+export interface OutcomeCounts {
+  readonly [key: string]: number;
+}
+
+export interface OutcomeDataCoverage {
+  readonly [key: string]: number | string | null;
+}
+
+export interface StageOutcomeContract {
+  readonly schema_version: "research-outcome/2.0.0";
+  readonly stage: string;
+  readonly lifecycle_state: OutcomeLifecycleState;
+  readonly quality_state: OutcomeQualityState;
+  readonly opportunity_state: OutcomeOpportunityState;
+  readonly publication_state: OutcomePublicationState;
+  readonly reason_codes: readonly string[];
+  readonly counts: OutcomeCounts;
+  readonly data_coverage: OutcomeDataCoverage;
+  readonly legacy_status: string;
+}
+
+export interface LaneOutcomeContract {
+  readonly schema_version: "research-outcome/2.0.0";
+  readonly lane_id: string;
+  readonly model: string | null;
+  readonly lifecycle_state: OutcomeLifecycleState;
+  readonly quality_state: OutcomeQualityState;
+  readonly opportunity_state: OutcomeOpportunityState;
+  readonly publication_state: OutcomePublicationState;
+  readonly reason_codes: readonly string[];
+  readonly counts: OutcomeCounts;
+  readonly data_coverage: OutcomeDataCoverage;
+  readonly legacy_status: string;
+  readonly stages: readonly StageOutcomeContract[];
+}
+
+export interface RunOutcomeContract {
+  readonly schema_version: "research-outcome/2.0.0";
+  readonly run_id: string | null;
+  readonly lifecycle_state: OutcomeLifecycleState;
+  readonly quality_state: OutcomeQualityState;
+  readonly opportunity_state: OutcomeOpportunityState;
+  readonly publication_state: OutcomePublicationState;
+  readonly reason_codes: readonly string[];
+  readonly counts: OutcomeCounts;
+  readonly data_coverage: OutcomeDataCoverage;
+  readonly legacy_status: string;
+  readonly primary_lane_ids: readonly string[];
+  readonly comparison_status: string;
+  readonly lanes: readonly LaneOutcomeContract[];
+}
+
+export type JobName = "morning" | "close" | "monitor" | "features";
 
 export type JobStatus = "running" | "succeeded" | "failed" | "skipped" | "terminated";
 
@@ -229,5 +293,7 @@ export interface ResearchStageDetail {
   readonly pageSize: number;
   readonly total: number;
   readonly reasonOptions: readonly string[];
+  /** Safe four-axis projection; absent for legacy artifacts that lack a usable status. */
+  readonly outcome?: StageOutcomeContract | null;
   readonly items: readonly ResearchStageDetailItem[];
 }

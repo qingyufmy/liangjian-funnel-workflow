@@ -93,12 +93,14 @@ def test_incremental_sync_persists_each_symbol_and_warm_run_uses_cache(tmp_path)
     assert events[-1]["processed"] == 1
     assert cache.get_coverage(symbol="600519.SH")["daily"]["rows"] == 31
     assert len(client.calls) == 5
+    assert cold.updated_symbols == ("600519.SH",)
 
     warm_client = FakeClient()
     warm = sync.sync(warm_client, ["600519.SH"], as_of=NOW)
     assert warm.cache_hits == 1
     assert warm.cache_misses == 0
     assert warm_client.calls == []
+    assert warm.updated_symbols == ()
 
 
 def test_interrupted_bootstrap_resumes_completed_symbols(tmp_path):
@@ -128,6 +130,9 @@ def test_core_statements_are_returned_when_indicators_are_missing(tmp_path):
     }
     assert "INDICATORS:BUSINESS_ERROR" in result.failures["600519.SH"]
     assert "INDICATORS:CACHE_EMPTY" in result.failures["600519.SH"]
+    # Core statements were refreshed, so the entity is dirty even though an
+    # optional enrichment dataset failed; a cache-only call is never dirty.
+    assert result.updated_symbols == ("600519.SH",)
 
 
 def test_full_market_sync_retains_only_projected_fundamentals(tmp_path):

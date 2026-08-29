@@ -33,13 +33,19 @@ import {
   DataSourceSummary,
   EffectiveEvent,
   HealthTone,
+  LaneOutcomeContract,
   LaneSummary,
   LogEntry,
   LogsResponse,
   OverviewResponse,
   RunSummary,
   RunsResponse,
+  RunOutcomeContract,
+  readLaneOutcome,
+  readRunOutcome,
+  readStageOutcome,
   StageSummary,
+  StageOutcomeContract,
   StageDetailItem,
   StageDetailPool,
   StageDetailResponse,
@@ -87,6 +93,20 @@ const EMPTY_OVERVIEW: OverviewResponse = {
 };
 
 function normalizeOverview(value: OverviewResponse): OverviewResponse {
+  const rawWorkflow = value.latestWorkflow ?? {} as OverviewResponse["latestWorkflow"];
+  const workflowOutcome = readRunOutcome(rawWorkflow.outcome ?? rawWorkflow.outcome_v2 ?? rawWorkflow.acceptance);
+  const rawLanes = Array.isArray(rawWorkflow.lanes) ? rawWorkflow.lanes : [];
+  const normalizedLanes = rawLanes.map((lane) => {
+    const outcome = readLaneOutcome(lane.outcome ?? lane.outcome_v2 ?? lane);
+    const rawStages = Array.isArray(lane.stages) ? lane.stages : [];
+    const stages = rawStages.map((stage) => ({
+      ...stage,
+      outcome: readStageOutcome(stage.outcome ?? stage.outcome_v2 ?? stage)
+        ?? outcome?.stages.find((candidate) => candidate.stage.toUpperCase() === stage.stage.toUpperCase())
+        ?? null,
+    }));
+    return { ...lane, outcome, stages };
+  });
   return {
     ...EMPTY_OVERVIEW,
     ...value,
@@ -94,8 +114,10 @@ function normalizeOverview(value: OverviewResponse): OverviewResponse {
     schedule: Array.isArray(value.schedule) ? value.schedule : [],
     latestWorkflow: {
       ...EMPTY_OVERVIEW.latestWorkflow,
-      ...(value.latestWorkflow ?? {}),
-      lanes: Array.isArray(value.latestWorkflow?.lanes) ? value.latestWorkflow.lanes : [],
+      ...rawWorkflow,
+      outcome: workflowOutcome,
+      acceptance: readRunOutcome(rawWorkflow.acceptance ?? rawWorkflow.outcome ?? rawWorkflow.outcome_v2),
+      lanes: normalizedLanes,
     },
     workflowProgress: value.workflowProgress && typeof value.workflowProgress === "object"
       ? {
@@ -120,12 +142,44 @@ function normalizeOverview(value: OverviewResponse): OverviewResponse {
   };
 }
 
+type OutcomeStatus = StageOutcomeContract | LaneOutcomeContract | RunOutcomeContract;
+
+const DATA_GAP_REASONS = new Set([
+  "DATA_COVERAGE_INSUFFICIENT",
+  "EVIDENCE_GAP",
+  "TECHNICAL_DATA_UNAVAILABLE",
+  "BLOCKED_TECHNICAL_DATA",
+]);
+const UPSTREAM_REASONS = new Set(["UPSTREAM_STAGE_BLOCKED", "UPSTREAM_POOL_EMPTY", "PRIMARY_LANE_MISSING"]);
+
+/** Convert the backend's four axes to a display vocabulary. Counts are never used to infer this. */
+function statusFromOutcome(outcome: OutcomeStatus): string {
+  if (outcome.lifecycle_state === "RUNNING") return "RUNNING";
+  if (outcome.lifecycle_state === "QUEUED") return "QUEUED";
+  const reasons = new Set(outcome.reason_codes);
+  if (outcome.quality_state === "FAILED") return "TECHNICAL_FAILURE";
+  if (outcome.quality_state === "CANCELLED") return "CANCELLED";
+  if (outcome.quality_state === "BLOCKED") {
+    if ([...reasons].some((reason) => DATA_GAP_REASONS.has(reason))) return "DATA_INSUFFICIENT";
+    if ([...reasons].some((reason) => UPSTREAM_REASONS.has(reason))) return "UPSTREAM_NOT_RUN";
+    return "BLOCKED";
+  }
+  if (outcome.quality_state === "DEGRADED") {
+    return [...reasons].some((reason) => DATA_GAP_REASONS.has(reason)) ? "DATA_INSUFFICIENT" : "READY_DEGRADED";
+  }
+  if (outcome.opportunity_state === "ABSENT") return "VALIDATED_NO_OPPORTUNITY";
+  if (outcome.publication_state === "PUBLISHED") return "PUBLISHED";
+  if (outcome.publication_state === "READY") return "READY";
+  return outcome.legacy_status || "VALIDATED";
+}
+
 function toneForStatus(status?: string | null): HealthTone {
   const normalized = (status ?? "").toUpperCase();
   if (["OK", "PASS", "HEALTHY", "READY", "READY_TO_PUBLISH", "PUBLISHED", "COMPLETED", "VALIDATED", "VALIDATED_NO_OPPORTUNITY", "VALIDATED_NO_ACTION", "VALIDATED_NO_SETUP", "ACTIVE"].includes(normalized)) return "healthy";
-  if (["RUNNING", "IN_PROGRESS", "STARTED", "RETRYING"].includes(normalized)) return "running";
-  if (["WARN", "WARNING", "DEGRADED", "READY_DEGRADED", "VALIDATED_UNDERFILLED_MARKET", "DEGRADED_UNDERFILLED_DATA_GAP", "NOT_RUN_UPSTREAM_BLOCKED", "BLOCKED", "BLOCKED_DATA_COVERAGE", "BLOCKED_EVIDENCE_GAP", "BLOCKED_MODEL", "BLOCKED_TECHNICAL_DATA", "PARTIAL", "MISSED", "STALE"].includes(normalized)) return "warning";
+  if (["RUNNING", "QUEUED", "IN_PROGRESS", "STARTED", "RETRYING"].includes(normalized)) return "running";
+  if (["WARN", "WARNING", "DEGRADED", "READY_DEGRADED", "VALIDATED_UNDERFILLED_MARKET", "DEGRADED_UNDERFILLED_DATA_GAP", "NOT_RUN_UPSTREAM_BLOCKED", "UPSTREAM_NOT_RUN", "DATA_INSUFFICIENT", "BLOCKED", "BLOCKED_DATA_COVERAGE", "BLOCKED_EVIDENCE_GAP", "BLOCKED_MODEL", "BLOCKED_TECHNICAL_DATA", "PARTIAL", "MISSED", "STALE"].includes(normalized)) return "warning";
   if (["ERROR", "FAILED", "UNHEALTHY", "STOPPED"].includes(normalized)) return "error";
+  if (["TECHNICAL_FAILURE", "CANCELLED"].includes(normalized)) return "error";
   return "unknown";
 }
 
@@ -137,12 +191,13 @@ function StatusIcon({ tone, size = 16 }: { tone: HealthTone; size?: number }) {
   return <CircleAlert size={size} aria-hidden="true" />;
 }
 
-function StatusBadge({ status, label }: { status?: string | null; label?: string }) {
-  const tone = toneForStatus(status);
+function StatusBadge({ status, label, outcome }: { status?: string | null; label?: string; outcome?: OutcomeStatus | null }) {
+  const displayStatus = outcome ? statusFromOutcome(outcome) : status;
+  const tone = toneForStatus(displayStatus);
   return (
     <span className={`status-badge status-${tone}`}>
       <StatusIcon tone={tone} size={14} />
-      {label ?? statusLabel(status)}
+      {label ?? statusLabel(displayStatus)}
     </span>
   );
 }
@@ -173,11 +228,16 @@ function statusLabel(status?: string | null): string {
     IN_PROGRESS: "进行中",
     DEGRADED: "部分降级",
     BLOCKED: "已阻断",
+    UPSTREAM_NOT_RUN: "上游未运行",
+    DATA_INSUFFICIENT: "数据不足",
+    TECHNICAL_FAILURE: "技术失败",
+    CANCELLED: "已取消",
     FAILED: "执行失败",
     ERROR: "错误",
     STOPPED: "已停止",
     UNKNOWN: "未知",
     NOT_RUN: "尚未运行",
+    QUEUED: "等待执行",
     EMPTY_SCOPE: "无有效范围",
     PASS: "通过",
     DISABLED: "已禁用",
@@ -540,7 +600,7 @@ function FunnelPanel({ workflow, onOpen }: { workflow: OverviewResponse["latestW
         <div className="workflow-meta">
           <div><span>最近运行</span><strong title={workflow.runId ?? undefined}>{workflow.runId ?? "尚未运行"}</strong></div>
           <div><span>时段</span><strong>{workflow.slot ?? "—"}</strong></div>
-          <div><span>状态</span><StatusBadge status={workflow.status} /></div>
+          <div><span>状态</span><StatusBadge status={workflow.status} outcome={workflow.outcome} /></div>
           <div><span>更新时间</span><strong>{formatDateTime(workflow.updatedAt)}</strong></div>
         </div>
         {workflow.lanes.length === 0 ? (
@@ -811,11 +871,12 @@ function ProgressStage({ stage }: { stage: WorkflowProgressStage }) {
 
 function StageCell({ stage, model, canOpen, onOpen }: { stage?: StageSummary; model: string; canOpen: boolean; onOpen: (trigger: HTMLButtonElement) => void }) {
   if (!stage) return <td><div className="stage-cell stage-unknown"><StatusBadge status="UNKNOWN" label="无记录" /><small>—</small></div></td>;
-  const countLabel = stage.symbolCount !== undefined && stage.symbolCount !== null ? `${stage.symbolCount} 只` : "数量未知";
+  const selectedCount = stage.symbolCount ?? stage.outcome?.counts.selected ?? null;
+  const countLabel = selectedCount !== null && selectedCount !== undefined ? `${selectedCount} 只` : "数量未知";
   return (
     <td className="stage-cell-table-cell">
       <button className="stage-cell-trigger" type="button" disabled={!canOpen} onClick={(event) => onOpen(event.currentTarget)} aria-label={`查看 ${model} ${STAGE_LABELS[stage.stage.toUpperCase()] ?? stage.stage} 详情，${countLabel}`}>
-        <StatusBadge status={stage.status} />
+        <StatusBadge status={stage.status} outcome={stage.outcome} />
         <span className="stage-count">{countLabel}</span>
         <small>{stage.latencyMs ? formatDuration(stage.latencyMs) : "耗时未知"}</small>
       </button>
@@ -836,6 +897,31 @@ function fallbackPools(stage: string): StageDetailPool[] {
 function stageDetailPath(target: StageDetailTarget, pool: StagePoolId, page: number, query: string, reason: string): string {
   const base = `/api/research/runs/${encodeURIComponent(target.runId)}/lanes/${encodeURIComponent(target.laneId)}/stages/${encodeURIComponent(target.stage.stage.toUpperCase())}`;
   return withQuery(base, { pool, page, pageSize: 50, q: query, reason });
+}
+
+function outcomeAxisLabel(outcome: OutcomeStatus): string {
+  const quality = outcome.quality_state === "VALIDATED"
+    ? "事实已验证"
+    : outcome.quality_state === "DEGRADED"
+      ? "证据降级"
+      : outcome.quality_state === "BLOCKED"
+        ? "已阻断"
+        : outcome.quality_state === "FAILED" ? "技术失败" : "已取消";
+  const opportunity = outcome.opportunity_state === "PRESENT"
+    ? "存在机会"
+    : outcome.opportunity_state === "ABSENT"
+      ? "已验证无机会"
+      : outcome.opportunity_state === "UNKNOWN" ? "机会未知" : "不适用";
+  const publication = outcome.publication_state === "PUBLISHED"
+    ? "已发布"
+    : outcome.publication_state === "READY" ? "可发布" : outcome.publication_state === "BLOCKED" ? "不可发布" : "不适用";
+  return `${quality} · ${opportunity} · ${publication}`;
+}
+
+function OutcomeNotice({ outcome }: { outcome: OutcomeStatus | null | undefined }) {
+  if (!outcome) return null;
+  const reasons = outcome.reason_codes.length ? `；原因码：${outcome.reason_codes.join("、")}` : "";
+  return <div className="stage-detail-notice" role="status"><strong>{outcomeAxisLabel(outcome)}</strong><span>{`生命周期：${outcome.lifecycle_state}${reasons}`}</span></div>;
 }
 
 function StageDetailDialog({ target, onDismiss }: { target: StageDetailTarget | null; onDismiss: () => void }) {
@@ -893,8 +979,9 @@ function StageDetailDialog({ target, onDismiss }: { target: StageDetailTarget | 
     setError(null);
     void apiFetch<StageDetailResponse>(stageDetailPath(target, pool, page, query, reason), controller.signal)
       .then((response) => {
-        setData(response);
-        setSelectedSymbol((current) => response.items.some((item) => item.symbol === current) ? current : response.items[0]?.symbol ?? null);
+        const normalized = { ...response, outcome: readStageOutcome(response.outcome ?? response) };
+        setData(normalized);
+        setSelectedSymbol((current) => normalized.items.some((item) => item.symbol === current) ? current : normalized.items[0]?.symbol ?? null);
       })
       .catch((caught) => {
         if (controller.signal.aborted) return;
@@ -939,11 +1026,12 @@ function StageDetailDialog({ target, onDismiss }: { target: StageDetailTarget | 
               <span title={target.runId}>{target.runId}</span>
             </div>
             <dl className="stage-detail-metrics">
-              <div><dt>状态</dt><dd><StatusBadge status={data?.status ?? target.stage.status} /></dd></div>
+              <div><dt>状态</dt><dd><StatusBadge status={data?.status ?? target.stage.status} outcome={data?.outcome ?? target.stage.outcome} /></dd></div>
               <div><dt>输入</dt><dd>{progressCount(data?.inputCount)}</dd></div>
               <div><dt>结果</dt><dd>{progressCount(data?.outputCount ?? target.stage.symbolCount)}</dd></div>
               <div><dt>耗时</dt><dd>{formatDuration(data?.latencyMs ?? target.stage.latencyMs)}</dd></div>
             </dl>
+            {data?.outcome ?? target.stage.outcome ? <OutcomeNotice outcome={data?.outcome ?? target.stage.outcome} /> : null}
             <button className="icon-button stage-detail-close" type="button" aria-label="关闭阶段详情" onClick={() => dialogRef.current?.close()}><X size={21} /></button>
           </header>
 
@@ -967,7 +1055,7 @@ function StageDetailDialog({ target, onDismiss }: { target: StageDetailTarget | 
                     <span>{item.theme || item.industry || "—"}</span>
                     <strong className="stage-stock-score">{item.score === null || item.score === undefined ? "—" : item.score}</strong>
                     <span className="stage-stock-reasons">{item.selectionReasons[0] ?? item.reasonCodes[0] ?? item.evidence[0] ?? "未提供原因"}</span>
-                    <span><StatusBadge status={item.status ?? (item.pool === "rejected" ? "BLOCKED" : "VALIDATED")} label={pools.find((entry) => entry.id === item.pool)?.label} /></span>
+                    <span><StatusBadge status={item.status} label={pools.find((entry) => entry.id === item.pool)?.label} /></span>
                   </button>
                 )) : <div className="stage-detail-state"><Database size={20} /><strong>当前筛选条件没有股票</strong><span>可切换分类或清空搜索与原因筛选。</span></div>}
               </div>
@@ -1128,7 +1216,7 @@ function DeploymentPage({ overview }: { overview: OverviewResponse }) {
   return <div className="page-stack"><PageHeading eyebrow="Node control plane" title="部署状态" detail="用于核对 Node 服务、Python 状态库和定时计划，不在页面执行部署操作。" />
     <div className="deployment-grid"><Panel title="服务状态" icon={<Server size={18} />}><dl className="definition-list"><Definition label="Node 服务" value={<StatusBadge status={service.status} />} /><Definition label="运行时长" value={formatDuration((service.uptimeSeconds ?? 0) * 1000)} /><Definition label="时区" value={service.timezone ?? "Asia/Shanghai"} /><Definition label="监听地址" value={service.host ?? "仅本机"} /><Definition label="版本" value={service.version ?? "—"} /></dl></Panel>
     <Panel title="工作流门禁" icon={<ShieldCheck size={18} />}><dl className="definition-list"><Definition label="状态库" value={<StatusBadge status={service.stateHealthy ? "HEALTHY" : service.stateHealthy === false ? "ERROR" : "UNKNOWN"} />} /><Definition label="配置就绪" value={<StatusBadge status={service.configurationReady ? "READY" : service.configurationReady === false ? "BLOCKED" : "UNKNOWN"} />} /><Definition label="部署门禁" value={<StatusBadge status={service.deploymentReady ? "READY" : service.deploymentReady === false ? "BLOCKED" : "UNKNOWN"} />} /></dl></Panel></div>
-    <Panel title="调度计划" icon={<CalendarClock size={18} />}>{overview.schedule.length === 0 ? <EmptyState title="调度信息不可用" detail="Node 调度器启动后会报告三个固定计划。" /> : <div className="schedule-list">{overview.schedule.map((item, index) => <div key={item.id ?? `${item.label}-${index}`}><div className="schedule-icon"><CalendarClock size={17} /></div><div><strong>{item.label}</strong><span>{item.cron ?? item.time ?? "—"}</span></div><StatusBadge status={item.status ?? "ACTIVE"} /><time>{item.nextRunAt ? `下次 ${formatDateTime(item.nextRunAt)}` : "由交易日历复核"}</time></div>)}</div>}</Panel>
+    <Panel title="调度计划" icon={<CalendarClock size={18} />}>{overview.schedule.length === 0 ? <EmptyState title="调度信息不可用" detail="Node 调度器启动后会报告研究、盯盘与特征维护计划。" /> : <div className="schedule-list">{overview.schedule.map((item, index) => <div key={item.id ?? `${item.label}-${index}`}><div className="schedule-icon"><CalendarClock size={17} /></div><div><strong>{item.label}</strong><span>{item.cron ?? item.time ?? "—"}</span></div><StatusBadge status={item.status ?? "ACTIVE"} /><time>{item.nextRunAt ? `下次 ${formatDateTime(item.nextRunAt)}` : "由交易日历复核"}</time></div>)}</div>}</Panel>
     {service.blockers?.length ? <Panel title="当前阻断项" icon={<TriangleAlert size={18} />}><ul className="blocker-list">{service.blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}</ul></Panel> : null}
   </div>;
 }

@@ -4,6 +4,11 @@ timezone: Asia/Shanghai
 research_slots:
   morning: "09:26"
   close: "15:10"
+feature_maintenance:
+  schedule: "03:30"
+  saturday_mode: "FULL"
+  weekday_mode: "INCREMENTAL"
+  sunday: "NOOP"
 monitor:
   model: deepseek-v4-flash-0731
   cadence_seconds: 60
@@ -53,6 +58,13 @@ data_sources:
     untrusted_text: true
     failure_action: DEGRADE_TO_OBSERVATION
     rss_catalog: config/news_sources.json
+  a2_market:
+    responsibilities: [capital_flow, tier_structure, leader_structure, chain_resonance]
+    capital_flow_source: eastmoney_public_data_endpoint
+    provider_method: VENDOR_DERIVED
+    turnover_is_capital_flow: false
+    point_in_time_cache_required: true
+    minimum_coverage: 0.90
 models:
   research:
     - deepseek-v4-pro-0813

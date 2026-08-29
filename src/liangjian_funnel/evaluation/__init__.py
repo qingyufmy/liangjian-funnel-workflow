@@ -17,6 +17,15 @@ from .broker_gold import (
     load_broker_gold_json,
     normalize_broker_gold_rows,
 )
+from .replay_window import (
+    DEFAULT_MINIMUM_DAYS,
+    PRIMARY_LANE_DEFAULT,
+    REPLAY_SCHEMA_VERSION,
+    ReplayContractError,
+    ReplayWindowContractError,
+    evaluate_replay_window,
+    write_replay_report,
+)
 
 __all__ = [
     "BROKER_GOLD_SCHEMA_VERSION",
@@ -29,4 +38,11 @@ __all__ = [
     "load_broker_gold_csv",
     "load_broker_gold_json",
     "normalize_broker_gold_rows",
+    "DEFAULT_MINIMUM_DAYS",
+    "PRIMARY_LANE_DEFAULT",
+    "REPLAY_SCHEMA_VERSION",
+    "ReplayContractError",
+    "ReplayWindowContractError",
+    "evaluate_replay_window",
+    "write_replay_report",
 ]

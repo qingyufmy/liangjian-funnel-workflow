@@ -92,6 +92,7 @@ class Settings(BaseModel):
     open_macro_cache_dir: Path
     fact_cache_db_path: Path
     feature_store_db_path: Path
+    broker_gold_dir: Path
     cninfo_pdf_cache_dir: Path
     state_db_path: Path
     workflow_progress_path: Path
@@ -120,6 +121,8 @@ class Settings(BaseModel):
     data_progress_every: int = Field(default=25, ge=1, le=500)
     fundamental_refresh_hours: int = Field(default=24, ge=1, le=24 * 31)
     daily_refresh_hours: int = Field(default=4, ge=1, le=24 * 7)
+    a2_capital_flow_enabled: bool = True
+    a2_capital_flow_minimum_coverage: float = Field(default=0.90, ge=0.50, le=1.0)
     simulation_initial_cash: float = Field(default=1_000_000.0, ge=0)
     # Thinking is an explicit capability of a client role. Research lanes
     # keep it enabled; the independent intraday monitor is intentionally
@@ -127,6 +130,8 @@ class Settings(BaseModel):
     research_thinking_enabled: bool = True
     monitor_thinking_enabled: bool = False
     research_models: tuple[str, ...] = RESEARCH_MODELS
+    research_primary_lane_id: str = "lane_1"
+    publish_comparison_lanes: bool = False
     monitor_model: str = MONITOR_MODEL
 
     @field_validator("hithink_base_url", "cninfo_base_url", "gov_policy_base_url", "model_base_url")
@@ -164,6 +169,14 @@ class Settings(BaseModel):
             raise ValueError("research_pipeline_mode must be legacy or deterministic_v2")
         return normalized
 
+    @field_validator("research_primary_lane_id")
+    @classmethod
+    def valid_primary_lane(cls, value: str) -> str:
+        normalized = str(value or "").strip().lower()
+        if normalized not in {"lane_1", "lane_2", "lane_3"}:
+            raise ValueError("research_primary_lane_id must be lane_1, lane_2 or lane_3")
+        return normalized
+
     @classmethod
     def from_env(
         cls,
@@ -184,6 +197,7 @@ class Settings(BaseModel):
         open_macro_cache_raw = env.get("LIANGJIAN_OPEN_MACRO_CACHE_DIR")
         fact_cache_db_raw = env.get("LIANGJIAN_FACT_CACHE_DB_PATH")
         feature_store_db_raw = env.get("LIANGJIAN_FEATURE_STORE_DB_PATH")
+        broker_gold_dir_raw = env.get("LIANGJIAN_BROKER_GOLD_DIR")
         cninfo_pdf_cache_raw = env.get("LIANGJIAN_CNINFO_PDF_CACHE_DIR")
         state_db_raw = env.get("LIANGJIAN_STATE_DB_PATH")
         progress_path_raw = env.get("LIANGJIAN_WORKFLOW_PROGRESS_PATH")
@@ -255,6 +269,9 @@ class Settings(BaseModel):
             feature_store_db_path=Path(feature_store_db_raw).resolve()
             if feature_store_db_raw
             else base / "storage" / "features" / "research_feature_store.sqlite3",
+            broker_gold_dir=Path(broker_gold_dir_raw).resolve()
+            if broker_gold_dir_raw
+            else base / "storage" / "benchmarks" / "broker_gold",
             cninfo_pdf_cache_dir=Path(cninfo_pdf_cache_raw).resolve()
             if cninfo_pdf_cache_raw
             else base / "storage" / "cninfo_pdfs",
@@ -302,9 +319,21 @@ class Settings(BaseModel):
             data_progress_every=int(env.get("LIANGJIAN_DATA_PROGRESS_EVERY", "25")),
             fundamental_refresh_hours=int(env.get("LIANGJIAN_FUNDAMENTAL_REFRESH_HOURS", "24")),
             daily_refresh_hours=int(env.get("LIANGJIAN_DAILY_REFRESH_HOURS", "4")),
+            a2_capital_flow_enabled=_parse_bool(
+                env.get("LIANGJIAN_A2_CAPITAL_FLOW_ENABLED"),
+                default=True,
+            ),
+            a2_capital_flow_minimum_coverage=float(
+                env.get("LIANGJIAN_A2_CAPITAL_FLOW_MINIMUM_COVERAGE", "0.90")
+            ),
             simulation_initial_cash=float(env.get("LIANGJIAN_SIMULATION_INITIAL_CASH", "1000000")),
             research_thinking_enabled=_parse_bool(env.get("LIANGJIAN_RESEARCH_THINKING_ENABLED"), default=True),
             monitor_thinking_enabled=_parse_bool(env.get("LIANGJIAN_MONITOR_THINKING_ENABLED"), default=False),
+            research_primary_lane_id=env.get("LIANGJIAN_RESEARCH_PRIMARY_LANE_ID", "lane_1"),
+            publish_comparison_lanes=_parse_bool(
+                env.get("LIANGJIAN_PUBLISH_COMPARISON_LANES"),
+                default=False,
+            ),
         )
 
     def safe_summary(self) -> dict[str, object]:
@@ -344,6 +373,7 @@ class Settings(BaseModel):
             "open_macro_cache_dir": str(self.open_macro_cache_dir),
             "fact_cache_db_path": str(self.fact_cache_db_path),
             "feature_store_db_path": str(self.feature_store_db_path),
+            "broker_gold_dir": str(self.broker_gold_dir),
             "cninfo_pdf_cache_dir": str(self.cninfo_pdf_cache_dir),
             "state_db_path": str(self.state_db_path),
             "workflow_progress_path": str(self.workflow_progress_path),
@@ -372,10 +402,14 @@ class Settings(BaseModel):
             "data_progress_every": self.data_progress_every,
             "fundamental_refresh_hours": self.fundamental_refresh_hours,
             "daily_refresh_hours": self.daily_refresh_hours,
+            "a2_capital_flow_enabled": self.a2_capital_flow_enabled,
+            "a2_capital_flow_minimum_coverage": self.a2_capital_flow_minimum_coverage,
             "simulation_initial_cash": self.simulation_initial_cash,
             "research_thinking_enabled": self.research_thinking_enabled,
             "monitor_thinking_enabled": self.monitor_thinking_enabled,
             "research_models": list(self.research_models),
+            "research_primary_lane_id": self.research_primary_lane_id,
+            "publish_comparison_lanes": self.publish_comparison_lanes,
             "monitor_model": self.monitor_model,
         }
 

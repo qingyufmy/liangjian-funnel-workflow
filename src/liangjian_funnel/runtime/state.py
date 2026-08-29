@@ -443,6 +443,8 @@ class RuntimeStore:
                 )
                 _ensure_column(connection, "scheduler_leases", "state", "TEXT NOT NULL DEFAULT 'ACTIVE'")
                 _ensure_column(connection, "scheduler_leases", "completed_at", "TEXT")
+                _ensure_column(connection, "workflow_runs", "outcome_json", "TEXT NOT NULL DEFAULT '{}'")
+                _ensure_column(connection, "workflow_stages", "outcome_json", "TEXT NOT NULL DEFAULT '{}'")
         except Exception:
             self._persistence_failed = True
             raise PersistenceError("PERSISTENCE_FAILED") from None
@@ -629,21 +631,24 @@ class RuntimeStore:
         prompt_hash: str | None = None,
         config_hash: str | None = None,
         reason_codes: Sequence[str] = (),
+        outcome: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         now = _iso(_now())
         reasons = json.dumps(list(dict.fromkeys(str(item) for item in reason_codes)), ensure_ascii=False)
+        outcome_json = _json(outcome)
 
         def operation(connection):
             connection.execute(
                 """
                 INSERT INTO workflow_runs(
                     run_id,lane_id,trade_date,slot,model,status,snapshot_hash,prompt_hash,config_hash,
-                    reason_codes_json,created_at,updated_at
-                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+                    reason_codes_json,outcome_json,created_at,updated_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(run_id,lane_id) DO UPDATE SET
                     status=excluded.status,prompt_hash=COALESCE(excluded.prompt_hash,workflow_runs.prompt_hash),
                     config_hash=COALESCE(excluded.config_hash,workflow_runs.config_hash),
-                    reason_codes_json=excluded.reason_codes_json,updated_at=excluded.updated_at
+                    reason_codes_json=excluded.reason_codes_json,outcome_json=excluded.outcome_json,
+                    updated_at=excluded.updated_at
                 """,
                 (
                     run_id,
@@ -656,6 +661,7 @@ class RuntimeStore:
                     prompt_hash,
                     config_hash,
                     reasons,
+                    outcome_json,
                     now,
                     now,
                 ),
@@ -677,21 +683,24 @@ class RuntimeStore:
         stage: str,
         status: str,
         reason_codes: Sequence[str] = (),
+        outcome: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         if stage not in {"A1", "A2", "A3"}:
             raise ValueError("invalid workflow stage")
         now = _iso(_now())
         reasons = json.dumps(list(dict.fromkeys(str(item) for item in reason_codes)), ensure_ascii=False)
+        outcome_json = _json(outcome)
 
         def operation(connection):
             connection.execute(
                 """
-                INSERT INTO workflow_stages(run_id,lane_id,stage,status,reason_codes_json,updated_at)
-                VALUES(?,?,?,?,?,?)
+                INSERT INTO workflow_stages(run_id,lane_id,stage,status,reason_codes_json,outcome_json,updated_at)
+                VALUES(?,?,?,?,?,?,?)
                 ON CONFLICT(run_id,lane_id,stage) DO UPDATE SET
-                    status=excluded.status,reason_codes_json=excluded.reason_codes_json,updated_at=excluded.updated_at
+                    status=excluded.status,reason_codes_json=excluded.reason_codes_json,
+                    outcome_json=excluded.outcome_json,updated_at=excluded.updated_at
                 """,
-                (run_id, lane_id, stage, status, reasons, now),
+                (run_id, lane_id, stage, status, reasons, outcome_json, now),
             )
             return _row_dict(
                 connection.execute(

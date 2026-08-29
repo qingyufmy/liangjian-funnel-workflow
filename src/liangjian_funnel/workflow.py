@@ -15,6 +15,7 @@ from typing import Any, Mapping
 from zoneinfo import ZoneInfo
 
 from .data.cache import MinuteBarStore
+from .data.a2_market import collect_eastmoney_capital_flow, unavailable_capital_flow_snapshot
 from .data.bse import BseClient
 from .data.cninfo import CninfoAnnouncement, CninfoClient, CninfoFetchResult
 from .data.cninfo_pdf import CninfoPdfClient, CninfoPdfEvidence
@@ -44,7 +45,9 @@ from .evaluation.broker_gold import BrokerGoldContractError, evaluate_broker_gol
 from .pipeline.data_source import HithinkClient, HithinkFetchResult
 from .pipeline.data_readiness import evaluate_data_readiness
 from .pipeline.data_sync import HithinkIncrementalSynchronizer
+from .pipeline.a2_features import build_a2_feature_snapshot
 from .pipeline.factors import FactorEngine
+from .pipeline.feature_store import ResearchFeatureStore
 from .pipeline.local_fact_cache import LocalFactCache
 from .pipeline.market_aggregates import (
     build_crowding_snapshot,
@@ -137,6 +140,11 @@ class WorkflowApplication:
         self.store = RuntimeStore(settings.state_db_path)
         self.minute_store = MinuteBarStore(settings.minute_cache_dir)
         self.fact_cache = LocalFactCache(settings.fact_cache_db_path)
+        # The feature store is a rebuildable projection cache.  Data sync only
+        # marks symbols dirty after a successful provider write; maintenance
+        # publishes a new generation separately, so a partial sync cannot
+        # contaminate the active research generation.
+        self.feature_store = ResearchFeatureStore(settings.feature_store_db_path)
         self.fact_synchronizer = HithinkIncrementalSynchronizer(
             self.fact_cache,
             fundamental_refresh_hours=settings.fundamental_refresh_hours,
@@ -814,6 +822,17 @@ class WorkflowApplication:
                 expected_symbols=len(symbols),
                 as_of=current,
             )
+            updated_symbols = tuple(result.updated_symbols)
+            dirty_source_version = f"HITHINK_FACTS_{current.isoformat()}"
+            for symbol in updated_symbols:
+                self.feature_store.mark_dirty(
+                    entity_type="STOCK",
+                    entity_id=symbol,
+                    reason_code="FACT_UPDATE",
+                    source_version=dirty_source_version,
+                    created_at=current,
+                    priority=10,
+                )
             summary = {
                 "status": (
                     "BLOCKED" if not readiness.ready
@@ -829,6 +848,9 @@ class WorkflowApplication:
                 "processed": result.processed,
                 "cache_hits": result.cache_hits,
                 "cache_misses": result.cache_misses,
+                "updated_symbols_count": len(updated_symbols),
+                "updated_symbols": list(updated_symbols),
+                "feature_dirty_marked_count": len(updated_symbols),
                 "failure_count": len(result.failures),
                 "coverage": coverage,
                 "readiness": readiness.as_dict(),
@@ -1270,7 +1292,7 @@ class WorkflowApplication:
         broker_benchmark = _write_broker_gold_benchmark(
             result,
             as_of=current,
-            benchmark_dir=self.settings.fact_store_dir.parent / "benchmarks" / "broker_gold",
+            benchmark_dir=self.settings.broker_gold_dir,
             output_dir=self.settings.workflow_output_dir / "research",
         )
         stage_markdown = write_stage_markdown_reports(
@@ -1287,6 +1309,7 @@ class WorkflowApplication:
             "run_id": run_id,
             "slot": normalized_slot,
             "status": result.status,
+            "outcome_v2": result.outcome().as_dict(),
             "snapshot": prepared.as_dict(),
             "research_markdown": str(result.markdown_path) if result.markdown_path else None,
             "stage_markdown": stage_markdown,
@@ -1884,6 +1907,42 @@ class WorkflowApplication:
             g0_symbols,
             as_of=as_of,
         )
+        if self.settings.a2_capital_flow_enabled:
+            try:
+                capital_flow = collect_eastmoney_capital_flow(
+                    as_of=as_of,
+                    expected_symbols=g0_symbols,
+                    cache_dir=self.settings.fact_store_dir / "a2_market",
+                    minimum_coverage=self.settings.a2_capital_flow_minimum_coverage,
+                )
+            except Exception:
+                capital_flow = unavailable_capital_flow_snapshot(
+                    as_of=as_of,
+                    reason_code="CAPITAL_FLOW_NORMALIZATION_FAILED",
+                    expected_symbols=g0_symbols,
+                )
+        else:
+            capital_flow = unavailable_capital_flow_snapshot(
+                as_of=as_of,
+                reason_code="SOURCE_NOT_CONFIGURED",
+                expected_symbols=g0_symbols,
+            )
+        a2_features = build_a2_feature_snapshot(
+            candidates=selected_records,
+            daily_bars={
+                key: value
+                for key, value in frozen.daily_payload.items()
+                if key in g0_symbols and isinstance(value, list)
+            },
+            industry_membership=industry_membership,
+            concept_membership=concept_membership,
+            ladder_snapshot=_available_fact(facts, "LIMIT_UP_LADDER"),
+            dragon_tiger_snapshot=dragon_tiger,
+            attention_snapshot=hot_stocks,
+            sector_cycle_snapshot=sector_cycle,
+            capital_flow_snapshot=capital_flow,
+            as_of=as_of,
+        )
         regime_config = source_config.get("market_regime")
         regime_settings = regime_config if isinstance(regime_config, Mapping) else {}
         regime, regime_evidence = _determine_market_regime(
@@ -2029,6 +2088,25 @@ class WorkflowApplication:
             "CROWDING_SNAPSHOT": crowding,
             "SECTOR_CYCLE_SNAPSHOT": sector_cycle,
             "SECTOR_PERMISSIONS": sector_permissions,
+            "CAPITAL_FLOW_SNAPSHOT": capital_flow,
+            "A2_FACTOR_SNAPSHOT": a2_features,
+            "A2_THEME_METRICS": {
+                "available": a2_features.get("available") is True,
+                "reason_code": a2_features.get("reason_code"),
+                "as_of": a2_features.get("as_of"),
+                "content_hash": a2_features.get("content_hash"),
+                "theme_metrics": a2_features.get("theme_metrics", {}),
+            },
+            "TIER_STRUCTURE_SNAPSHOT": {
+                "available": a2_features.get("available") is True,
+                "reason_code": a2_features.get("reason_code"),
+                "as_of": a2_features.get("as_of"),
+                "by_symbol": {
+                    symbol: row.get("tier_structure", {})
+                    for symbol, row in a2_features.get("by_symbol", {}).items()
+                    if isinstance(row, Mapping)
+                },
+            },
             "config_version": source_config.get("version")
             or source_config.get("funnel_version")
             or "funnel-config-v2",
@@ -2055,10 +2133,21 @@ class WorkflowApplication:
         batch: list[dict[str, Any]] = []
         blocked: list[dict[str, str]] = []
         ready_lanes: list[str] = []
+        comparison_lanes: list[dict[str, str]] = []
+        settings = getattr(self, "settings", None)
+        primary_lane = str(getattr(settings, "research_primary_lane_id", "lane_1"))
+        publish_comparisons = bool(getattr(settings, "publish_comparison_lanes", False))
         tradability_flags = snapshot_data.get("TRADABILITY_FLAGS")
         if not isinstance(tradability_flags, Mapping):
             tradability_flags = {}
         for lane in result.lanes:
+            if lane.lane != primary_lane and not publish_comparisons:
+                comparison_lanes.append({
+                    "lane": lane.lane,
+                    "status": lane.status,
+                    "publication": "COMPARISON_ONLY",
+                })
+                continue
             if lane.status not in {"READY", "READY_DEGRADED"} or not isinstance(lane.final_output, Mapping):
                 blocked.append({"lane": lane.lane, "reason": "LANE_NOT_READY"})
                 continue
@@ -2143,6 +2232,8 @@ class WorkflowApplication:
             "created": created,
             "activated": activated,
             "blocked": blocked,
+            "primary_lane": primary_lane,
+            "comparison_lanes": comparison_lanes,
         }
 
     def _a4_callback(

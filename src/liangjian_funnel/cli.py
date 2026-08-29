@@ -4,69 +4,43 @@ import argparse
 import json
 import re
 import sys
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
-from typing import Sequence
+from typing import Mapping, Sequence
+from zoneinfo import ZoneInfo
 
 from .contracts import CapabilityStatus
+from .pipeline.outcomes import aggregate_workflow_acceptance, cli_exit_code
+from .evaluation.broker_gold import import_broker_gold
 from .probes.hithink import HithinkProbe
 from .probes.models import ModelProbe
 from .probes.mootdx import MootdxProbe
 from .reporting import write_capability_report
+from .reporting import atomic_write_json
 from .settings import Settings, load_yaml
 from .workflow import WorkflowApplication, WorkflowError
 
 
 _SAFE_REASON_CODE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-_PUBLISHABLE_WORKFLOW_STATUSES = frozenset({"READY_TO_PUBLISH", "PUBLISHED"})
-
-
 def _latest_workflow_acceptance(
     workflow_runs: Sequence[dict[str, object]],
     *,
     expected_lanes: int = 3,
     required_lane_ids: Sequence[str] = ("lane_1",),
 ) -> dict[str, object]:
-    """Summarise the newest run with a required primary and optional comparisons."""
+    """Summarise the newest run through the canonical outcome reducer.
 
-    if not workflow_runs:
-        return {
-            "status": "NOT_RUN",
-            "run_id": None,
-            "expected_lanes": expected_lanes,
-            "recorded_lanes": 0,
-            "ready_lanes": 0,
-            "required_lanes": len(tuple(required_lane_ids)),
-            "ready_required_lanes": 0,
-        }
-    latest_run_id = str(workflow_runs[0].get("run_id") or "")
-    latest = tuple(row for row in workflow_runs if str(row.get("run_id") or "") == latest_run_id)
-    ready = sum(str(row.get("status") or "") in _PUBLISHABLE_WORKFLOW_STATUSES for row in latest)
-    required = {str(value) for value in required_lane_ids if str(value)}
-    ready_required = {
-        str(row.get("lane_id") or "")
-        for row in latest
-        if str(row.get("status") or "") in _PUBLISHABLE_WORKFLOW_STATUSES
-        and str(row.get("lane_id") or "") in required
-    }
-    all_recorded = len(latest) == expected_lanes
-    if all_recorded and ready == expected_lanes:
-        status = "READY"
-    elif all_recorded and required and ready_required == required:
-        status = "READY_DEGRADED"
-    elif ready:
-        status = "PARTIAL"
-    else:
-        status = "BLOCKED"
-    return {
-        "status": status,
-        "run_id": latest_run_id or None,
-        "expected_lanes": expected_lanes,
-        "recorded_lanes": len(latest),
-        "ready_lanes": ready,
-        "required_lanes": len(required),
-        "ready_required_lanes": len(ready_required),
-    }
+    The returned shape intentionally remains the pre-v2 CLI contract.  The
+    four-axis result is available to new callers through
+    :func:`aggregate_workflow_acceptance`.
+    """
+
+    return aggregate_workflow_acceptance(
+        workflow_runs,
+        expected_lanes=expected_lanes,
+        required_lane_ids=required_lane_ids,
+    ).to_legacy_acceptance()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -78,7 +52,19 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("probe-mootdx", help="run mootdx minute-history and cross-source gates")
     sub.add_parser("probe-all", help="run all external capability gates")
     sub.add_parser("prepare-snapshot", help="freeze a real full-market research snapshot")
+    broker_gold = sub.add_parser("import-broker-gold", help="validate and persist monthly broker gold benchmark data")
+    broker_gold.add_argument("source", help="strict CSV or JSON benchmark file")
+    broker_gold.add_argument("--as-of", help="point-in-time cutoff; defaults to now in Asia/Shanghai")
     sub.add_parser("sync-data", help="bootstrap or incrementally refresh the local fact cache")
+    maintain = sub.add_parser(
+        "maintain-features",
+        help="rebuild the local feature generation from the latest verified snapshot",
+    )
+    maintain.add_argument(
+        "--full",
+        action="store_true",
+        help="force a full staging rebuild; Saturday defaults to full automatically",
+    )
     research = sub.add_parser("run-research", help="run three isolated A1-A2-A3 model lanes")
     research.add_argument("--slot", choices=("morning", "close"), required=True)
     research.add_argument(
@@ -107,7 +93,7 @@ def main(argv: Sequence[str] | None = None, *, settings: Settings | None = None)
     active = settings or Settings.from_env()
     if args.command == "doctor":
         return _doctor(active)
-    if args.command in {"prepare-snapshot", "sync-data", "run-research", "monitor-once", "run-due", "run-morning", "run-close", "run-monitor", "status"}:
+    if args.command in {"prepare-snapshot", "import-broker-gold", "sync-data", "maintain-features", "run-research", "monitor-once", "run-due", "run-morning", "run-close", "run-monitor", "status"}:
         return _workflow_command(args, active)
     reports = []
     if args.command in {"probe-hithink", "probe-all"}:
@@ -196,8 +182,40 @@ def entrypoint() -> None:
 
 def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
     try:
+        if args.command == "maintain-features":
+            from .pipeline.feature_maintenance import run_feature_maintenance
+
+            payload = run_feature_maintenance(
+                settings,
+                full=bool(args.full),
+                now=datetime.now(ZoneInfo(settings.timezone)),
+            )
+            print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True, default=str))
+            return 0 if payload.get("status") in {"PUBLISHED", "NOOP"} else 2
         application = WorkflowApplication(settings)
-        if args.command == "prepare-snapshot":
+        if args.command == "import-broker-gold":
+            cutoff = datetime.fromisoformat(args.as_of) if args.as_of else datetime.now(ZoneInfo(settings.timezone))
+            if cutoff.tzinfo is None or cutoff.utcoffset() is None:
+                cutoff = cutoff.replace(tzinfo=ZoneInfo(settings.timezone))
+            dataset = import_broker_gold(Path(args.source), as_of=cutoff)
+            by_month: dict[str, list[dict[str, object]]] = defaultdict(list)
+            for record in dataset.records:
+                by_month[record.month].append(record.as_dict())
+            written: list[str] = []
+            for month, records in sorted(by_month.items()):
+                target = settings.broker_gold_dir / f"{month}.json"
+                atomic_write_json(target, {"records": records})
+                written.append(str(target))
+            payload = {
+                "status": "IMPORTED" if written else "EMPTY",
+                "benchmark_not_runtime_input": True,
+                "record_count": len(dataset.records),
+                "excluded_future_count": len(dataset.excluded_future),
+                "duplicate_count": dataset.duplicate_count,
+                "months": list(dataset.months),
+                "written": written,
+            }
+        elif args.command == "prepare-snapshot":
             payload = application.prepare_snapshot().as_dict()
         elif args.command == "sync-data":
             payload = application.sync_data_cache()
@@ -227,7 +245,12 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
             payload = application.run_scheduled(ScheduleKind.MONITOR)
         else:
             workflow_runs = application.store.list_workflow_runs(limit=12)
-            workflow_acceptance = _latest_workflow_acceptance(workflow_runs)
+            workflow_outcome = aggregate_workflow_acceptance(
+                workflow_runs,
+                expected_lanes=3,
+                required_lane_ids=(settings.research_primary_lane_id,),
+            )
+            workflow_acceptance = workflow_outcome.to_legacy_acceptance()
             configuration_ready = bool(
                 application.store.healthy
                 and settings.hithink_api_key
@@ -259,6 +282,7 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
                 "scheduler_leases": application.store.list_leases(),
                 "configuration_ready": configuration_ready,
                 "latest_workflow_acceptance": workflow_acceptance,
+                "latest_workflow_outcome_v2": workflow_outcome.as_dict(),
                 "deployment_ready": bool(
                     configuration_ready
                     and workflow_acceptance["status"] in {"READY", "READY_DEGRADED"}
@@ -281,9 +305,15 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
     except WorkflowError as exc:
         print(json.dumps({"status": "BLOCKED", "reason_code": exc.reason_code}, ensure_ascii=False))
         return 2
-    except (OSError, ValueError, KeyError, TypeError) as exc:
+    except KeyboardInterrupt:
+        print(json.dumps({"status": "CANCELLED", "reason_code": "RUN_CANCELLED"}, ensure_ascii=False))
+        return 130
+    except (ValueError, KeyError, TypeError) as exc:
         print(json.dumps({"status": "FAILED", "reason_code": type(exc).__name__}, ensure_ascii=False))
-        return 2
+        return 4
+    except OSError as exc:
+        print(json.dumps({"status": "FAILED", "reason_code": type(exc).__name__}, ensure_ascii=False))
+        return 3
     except Exception as exc:
         try:
             candidate = getattr(exc, "reason_code", None)
@@ -297,10 +327,11 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
         if not _SAFE_REASON_CODE.fullmatch(reason_code):
             reason_code = "UNEXPECTED_RUNTIME_ERROR"
         print(json.dumps({"status": "FAILED", "reason_code": reason_code}, ensure_ascii=False))
-        return 2
+        return 3
     print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True, default=str))
-    if args.command == "run-research" and payload.get("status") == "BLOCKED":
-        return 2
+    if args.command == "run-research":
+        outcome = payload.get("outcome_v2") if isinstance(payload, Mapping) else None
+        return cli_exit_code(outcome if isinstance(outcome, Mapping) else payload)
     if args.command in {"run-due", "run-morning", "run-close", "run-monitor"}:
         dispatch = payload.get("dispatch", []) if isinstance(payload, dict) else []
         if any(

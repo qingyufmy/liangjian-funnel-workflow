@@ -41,6 +41,14 @@ class ResearchCheckpointKey:
     prompt_hash: str
     snapshot_hash: str
     batch_symbols_hash: str
+    # v2 identity fields.  Defaults retain source compatibility with callers
+    # that construct the v1 key, while a caller that supplies any of them gets
+    # a strictly generation/contract-bound checkpoint namespace.
+    generation_id: str = ""
+    pipeline_contract_hash: str = ""
+    feature_contract_hash: str = ""
+    code_commit: str = ""
+    provider_contract_hash: str = ""
 
     def as_dict(self) -> dict[str, str]:
         return {
@@ -51,7 +59,44 @@ class ResearchCheckpointKey:
             "prompt_hash": self.prompt_hash,
             "snapshot_hash": self.snapshot_hash,
             "batch_symbols_hash": self.batch_symbols_hash,
+            "generation_id": self.generation_id,
+            "pipeline_contract_hash": self.pipeline_contract_hash,
+            "feature_contract_hash": self.feature_contract_hash,
+            "code_commit": self.code_commit,
+            "provider_contract_hash": self.provider_contract_hash,
         }
+
+    @property
+    def has_v2_identity(self) -> bool:
+        """Whether this key opts into strict v2 generation/contract binding."""
+
+        return any(
+            (
+                self.generation_id,
+                self.pipeline_contract_hash,
+                self.feature_contract_hash,
+                self.code_commit,
+                self.provider_contract_hash,
+            )
+        )
+
+    def legacy_as_dict(self) -> dict[str, str]:
+        """Return the v1 wire key for compatibility with old checkpoint files."""
+
+        return {
+            "run_id": self.run_id,
+            "lane": self.lane,
+            "stage": self.stage,
+            "model": self.model,
+            "prompt_hash": self.prompt_hash,
+            "snapshot_hash": self.snapshot_hash,
+            "batch_symbols_hash": self.batch_symbols_hash,
+        }
+
+    @property
+    def legacy_digest(self) -> str:
+        raw = json.dumps(self.legacy_as_dict(), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
     @property
     def digest(self) -> str:
@@ -67,11 +112,14 @@ class ResearchCheckpointStore(Protocol):
     for a different key.
     """
 
-    def load(self, key: ResearchCheckpointKey) -> Mapping[str, Any] | None:
+    def load(self, key: ResearchCheckpointKey, *, strict: bool = False) -> Mapping[str, Any] | None:
         """Load a record for ``key`` if one exists."""
 
     def save(self, key: ResearchCheckpointKey, record: Mapping[str, Any]) -> None:
         """Persist a successful record for ``key``."""
+
+    def load_strict(self, key: ResearchCheckpointKey) -> Mapping[str, Any] | None:
+        """Load only a record with an exact v2 identity."""
 
 
 class InMemoryResearchCheckpointStore:
@@ -81,14 +129,23 @@ class InMemoryResearchCheckpointStore:
         self._records: dict[str, dict[str, Any]] = {}
         self._lock = threading.RLock()
 
-    def load(self, key: ResearchCheckpointKey) -> Mapping[str, Any] | None:
+    def load(self, key: ResearchCheckpointKey, *, strict: bool = False) -> Mapping[str, Any] | None:
         with self._lock:
             record = self._records.get(key.digest)
+            if record is None and not strict and not key.has_v2_identity:
+                record = self._records.get(key.legacy_digest)
             return copy.deepcopy(record) if record is not None else None
 
     def save(self, key: ResearchCheckpointKey, record: Mapping[str, Any]) -> None:
         with self._lock:
-            self._records[key.digest] = copy.deepcopy(dict(record))
+            payload = copy.deepcopy(dict(record))
+            payload["key"] = key.as_dict()
+            self._records[key.digest] = payload
+
+    def load_strict(self, key: ResearchCheckpointKey) -> Mapping[str, Any] | None:
+        return self.load(key, strict=True)
+
+    strict_load = load_strict
 
     def __len__(self) -> int:
         with self._lock:
@@ -105,19 +162,44 @@ class FileResearchCheckpointStore:
     def _path(self, key: ResearchCheckpointKey) -> Path:
         return self.directory / f"checkpoint_{key.digest}.json"
 
-    def load(self, key: ResearchCheckpointKey) -> Mapping[str, Any] | None:
-        path = self._path(key)
-        try:
-            with self._lock:
-                raw = json.loads(path.read_text(encoding="utf-8"))
-        except (FileNotFoundError, OSError, UnicodeError, json.JSONDecodeError):
-            return None
-        if not isinstance(raw, Mapping):
-            return None
-        stored_key = raw.get("key")
-        if not isinstance(stored_key, Mapping) or dict(stored_key) != key.as_dict():
-            return None
-        return dict(raw)
+    def _legacy_path(self, key: ResearchCheckpointKey) -> Path:
+        return self.directory / f"checkpoint_{key.legacy_digest}.json"
+
+    @staticmethod
+    def _key_matches(
+        stored_key: Any,
+        key: ResearchCheckpointKey,
+        *,
+        strict: bool,
+    ) -> bool:
+        if not isinstance(stored_key, Mapping):
+            return False
+        actual = dict(stored_key)
+        expected = key.as_dict()
+        if actual == expected:
+            return True
+        # A v1 file has no extension fields.  It may be returned only for a
+        # non-strict, v1-compatible lookup; any generation/contract-bound key
+        # or explicit strict lookup must reject it.
+        return not strict and not key.has_v2_identity and actual == key.legacy_as_dict()
+
+    def load(self, key: ResearchCheckpointKey, *, strict: bool = False) -> Mapping[str, Any] | None:
+        paths = [self._path(key)]
+        if not strict and not key.has_v2_identity:
+            legacy_path = self._legacy_path(key)
+            if legacy_path != paths[0]:
+                paths.append(legacy_path)
+        with self._lock:
+            for path in paths:
+                try:
+                    raw = json.loads(path.read_text(encoding="utf-8"))
+                except (FileNotFoundError, OSError, UnicodeError, json.JSONDecodeError):
+                    continue
+                if not isinstance(raw, Mapping):
+                    continue
+                if self._key_matches(raw.get("key"), key, strict=strict):
+                    return dict(raw)
+        return None
 
     def save(self, key: ResearchCheckpointKey, record: Mapping[str, Any]) -> None:
         payload = dict(record)
@@ -126,7 +208,13 @@ class FileResearchCheckpointStore:
         # writing.  Checkpoint contents are already reasoning-free, but this
         # is a second safety boundary for custom model clients.
         with self._lock:
+            self.directory.mkdir(parents=True, exist_ok=True)
             atomic_write_json(self._path(key), payload)
+
+    def load_strict(self, key: ResearchCheckpointKey) -> Mapping[str, Any] | None:
+        return self.load(key, strict=True)
+
+    strict_load = load_strict
 
 
 JsonResearchCheckpointStore = FileResearchCheckpointStore

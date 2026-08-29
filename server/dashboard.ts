@@ -1,4 +1,4 @@
-import { ProjectFiles } from "./files.js";
+import { ProjectFiles, normalizeLaneOutcome, normalizeRunOutcome, normalizeStageOutcome } from "./files.js";
 import { LogStore } from "./logger.js";
 import { asArray, asJsonRecord, asString, sanitizeJson } from "./redaction.js";
 import { JobRunner } from "./runner.js";
@@ -24,6 +24,15 @@ function parseJsonArray(value: unknown): JsonValue | null {
   if (typeof value !== "string") return null;
   try {
     return sanitizeJson(JSON.parse(value));
+  } catch {
+    return null;
+  }
+}
+
+function parseJsonObject(value: unknown): JsonRecord | null {
+  if (typeof value !== "string") return null;
+  try {
+    return record(JSON.parse(value));
   } catch {
     return null;
   }
@@ -82,6 +91,7 @@ function normalizeStage(value: unknown): JsonValue {
     symbolCount: Array.isArray(symbols) ? symbols.length : null,
     latencyMs: typeof latency === "number" && Number.isFinite(latency) ? latency : null,
     reasonCodes,
+    outcome: normalizeStageOutcome(stage, asString(stage.stage) ?? "UNKNOWN"),
   });
 }
 
@@ -108,6 +118,12 @@ function laneOverview(laneId: string, rows: readonly JsonRecord[], payload: Json
     : null;
   const model = row ? asString(row.model) : payloadLane ? asString(payloadLane.model) : null;
   const stageStatuses = row ? parseJsonArray(row.reason_codes_json) : null;
+  const storedOutcome = row ? parseJsonObject(row.outcome_json) : null;
+  const outcome = normalizeLaneOutcome(
+    payloadLane ?? (storedOutcome ? { ...row, outcome_v2: storedOutcome } : row),
+    laneId,
+    model,
+  );
   return sanitizeJson({
     laneId,
     model,
@@ -116,6 +132,7 @@ function laneOverview(laneId: string, rows: readonly JsonRecord[], payload: Json
     slot: row ? asString(row.slot) : null,
     stages,
     reasonCodes: stageStatuses,
+    outcome,
     source: payloadLane ? "outputs/research" : row ? "state/status" : null,
   });
 }
@@ -149,23 +166,28 @@ export class DashboardData {
     }));
     const statusData = status.data;
     const acceptance = record(statusData?.latest_workflow_acceptance);
+    const storedRunOutcome = record(statusData?.latest_workflow_outcome_v2);
     const latestRun = runs.find((item) => item.runId === runId) ?? null;
     const lanes = ["lane_1", "lane_2", "lane_3"].map((laneId) => laneOverview(
       laneId,
       rows,
       laneRecords.find((item) => item.lane === laneId) ?? null,
     ));
+    const runOutcome = normalizeRunOutcome(
+      storedRunOutcome ?? (acceptance ? { ...acceptance, lanes } : { run_id: runId, lanes }),
+    );
     const latestWorkflow = runId
       ? sanitizeJson({
         runId,
         slot: rows[0] ? asString(rows[0].slot) : latestRun?.slot ?? null,
-        status: acceptance ? asString(acceptance.status) : latestRun?.status ?? null,
+        status: runOutcome?.legacy_status ?? (acceptance ? asString(acceptance.status) : latestRun?.status ?? null),
         tradeDate: rows[0] ? asString(rows[0].trade_date) : null,
         snapshotHash: rows[0] ? asString(rows[0].snapshot_hash) : null,
         createdAt: rows[0] ? asString(rows[0].created_at) : null,
         updatedAt: rows[0] ? asString(rows[0].updated_at) : null,
         researchMarkdown: latestRun?.researchMarkdown ?? null,
         acceptance: acceptance ? sanitizeJson(acceptance) : null,
+        outcome: runOutcome,
         lanes,
       })
       : null;
@@ -217,6 +239,7 @@ export class DashboardData {
           deploymentReady: statusData ? statusData.deployment_ready ?? null : null,
           blockers: statusData ? statusData.deployment_blockers ?? null : null,
           latestAcceptance: acceptance ? sanitizeJson(acceptance) : null,
+          latestOutcome: runOutcome,
         }
         : null,
       latestWorkflow,

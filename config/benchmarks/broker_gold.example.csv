@@ -1,0 +1,2 @@
+month,broker,symbol,name,publish_time,source_ref
+2026-08,REPLACE_WITH_BROKER,600000.SH,REPLACE_WITH_NAME,2026-08-01T00:00:00+08:00,https://replace-with-verifiable-source.example/report

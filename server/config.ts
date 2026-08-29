@@ -4,11 +4,13 @@ import { isAbsolute, join, resolve } from "node:path";
 import type { JobDefinition } from "./types.js";
 
 export const TIMEZONE = "Asia/Shanghai";
+export const FEATURE_MAINTENANCE_AT = "03:30";
 
 export const JOB_DEFINITIONS: readonly JobDefinition[] = [
   { name: "morning", command: "run-morning", label: "早盘复核", schedule: "09:26" },
   { name: "close", command: "run-close", label: "收盘研究", schedule: "15:10" },
   { name: "monitor", command: "run-monitor", label: "盘中盯盘", schedule: "交易时段每分钟" },
+  { name: "features", command: "maintain-features", label: "特征维护", schedule: "每日03:30（周六全量）" },
 ];
 
 export interface AppConfig {

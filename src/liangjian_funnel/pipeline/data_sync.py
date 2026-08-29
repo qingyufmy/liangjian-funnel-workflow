@@ -26,6 +26,11 @@ class SyncResult:
     total: int
     cache_hits: int
     cache_misses: int
+    # Symbols for which at least one provider response was successfully
+    # persisted during this call.  Cache-only hits and failed responses are
+    # deliberately excluded so downstream feature maintenance cannot rebuild
+    # an unchanged or incomplete entity.
+    updated_symbols: tuple[str, ...] = ()
 
 
 ProgressCallback = Callable[[Mapping[str, Any]], None]
@@ -71,6 +76,7 @@ class HithinkIncrementalSynchronizer:
         failures: dict[str, list[str]] = {}
         daily: dict[str, list[dict[str, Any]]] = {}
         fundamental: dict[str, Any] = {}
+        updated_symbols: list[str] = []
         hits = 0
         misses = 0
         start = current - timedelta(days=max(1, int(lookback_days)))
@@ -83,6 +89,7 @@ class HithinkIncrementalSynchronizer:
 
         for index, symbol in enumerate(ordered, start=1):
             symbol_hit = True
+            symbol_updated = False
             daily_ready = self._daily_ready(
                 symbol,
                 start=start,
@@ -133,6 +140,7 @@ class HithinkIncrementalSynchronizer:
                         status="READY",
                         reason=None,
                     )
+                    symbol_updated = True
                 else:
                     reason = result.reason_code if not result.ok else "NO_CLOSED_DAILY_BARS"
                     failures.setdefault(symbol, []).append(f"DAILY:{reason}")
@@ -188,6 +196,7 @@ class HithinkIncrementalSynchronizer:
                             status="READY",
                             reason=None,
                         )
+                        symbol_updated = True
                     else:
                         reason = result.reason_code if result.items or not result.ok else "EMPTY_DATA"
                         failures.setdefault(symbol, []).append(f"{dataset}:{reason}")
@@ -225,6 +234,8 @@ class HithinkIncrementalSynchronizer:
                 hits += 1
             else:
                 misses += 1
+            if symbol_updated:
+                updated_symbols.append(symbol)
             if progress is not None and (index == len(ordered) or index % self.progress_every == 0):
                 progress(
                     {
@@ -245,6 +256,7 @@ class HithinkIncrementalSynchronizer:
             total=len(ordered),
             cache_hits=hits,
             cache_misses=misses,
+            updated_symbols=tuple(updated_symbols),
         )
 
     def _daily_ready(

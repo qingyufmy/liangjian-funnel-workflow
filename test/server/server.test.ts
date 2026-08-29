@@ -10,7 +10,7 @@ import { tokenMatches } from "../../server/auth.js";
 import { createApp } from "../../server/api.js";
 import { loadConfig } from "../../server/config.js";
 import { DashboardData } from "../../server/dashboard.js";
-import { ProjectFiles, resolveWithinRoot } from "../../server/files.js";
+import { normalizeLaneOutcome, normalizeRunOutcome, normalizeStageOutcome, ProjectFiles, resolveWithinRoot } from "../../server/files.js";
 import { LogStore } from "../../server/logger.js";
 import { redactText, sanitizeJson } from "../../server/redaction.js";
 import { JobRunner, timeoutForJob, waitForProcessExit } from "../../server/runner.js";
@@ -156,6 +156,80 @@ test("requires exact bearer token and does not compare different lengths", () =>
   expect(tokenMatches(requestWithAuthorization("Basic dashboard-secret"), token)).toBe(false);
 });
 
+test("normalizes canonical outcomes and keeps validated empty opportunity distinct from unavailable data", () => {
+  const canonical = normalizeStageOutcome({
+    outcome_v2: {
+      schema_version: "research-outcome/2.0.0",
+      stage: "A2",
+      lifecycle_state: "TERMINAL",
+      quality_state: "VALIDATED",
+      opportunity_state: "ABSENT",
+      publication_state: "READY",
+      reason_codes: ["A2_NO_FOCUS_OPPORTUNITY"],
+      counts: { input: 53, evaluated: 53, selected: 0 },
+      data_coverage: { required: 53, actual: 53 },
+      legacy_status: "VALIDATED_NO_OPPORTUNITY",
+    },
+  });
+  expect(canonical).toMatchObject({
+    stage: "A2",
+    lifecycle_state: "TERMINAL",
+    quality_state: "VALIDATED",
+    opportunity_state: "ABSENT",
+    counts: { input: 53, evaluated: 53, selected: 0 },
+  });
+
+  const unavailable = normalizeStageOutcome({
+    stage: "A2",
+    status: "BLOCKED_DATA_COVERAGE",
+    input_count: 53,
+    evaluated_count: 0,
+    selected_count: 0,
+  });
+  expect(unavailable).toMatchObject({
+    quality_state: "BLOCKED",
+    opportunity_state: "UNKNOWN",
+    reason_codes: ["DATA_COVERAGE_INSUFFICIENT"],
+  });
+});
+
+test("normalizes lane and run outcomes without letting optional comparison lanes change the primary axes", () => {
+  const lane = normalizeLaneOutcome({
+    lane: "lane_1",
+    model: "fixture-model",
+    stages: [{ stage: "A1", status: "VALIDATED", symbols: ["600001.SH"] }],
+  });
+  expect(lane).toMatchObject({ lane_id: "lane_1", model: "fixture-model", opportunity_state: "PRESENT" });
+  const run = normalizeRunOutcome({
+    run_id: "fixture-run",
+    outcome_v2: {
+      schema_version: "research-outcome/2.0.0",
+      run_id: "fixture-run",
+      lifecycle_state: "TERMINAL",
+      quality_state: "VALIDATED",
+      opportunity_state: "PRESENT",
+      publication_state: "READY",
+      reason_codes: [],
+      counts: { expected_lanes: 3, recorded_lanes: 3, required_lanes: 1, ready_required_lanes: 1 },
+      data_coverage: {},
+      legacy_status: "READY_DEGRADED",
+      primary_lane_ids: ["lane_1"],
+      comparison_status: "BLOCKED",
+      lanes: [
+        { ...lane, lane_id: "lane_1" },
+        { ...lane, lane_id: "lane_2", quality_state: "FAILED", publication_state: "BLOCKED" },
+      ],
+    },
+  });
+  expect(run).toMatchObject({
+    run_id: "fixture-run",
+    quality_state: "VALIDATED",
+    publication_state: "READY",
+    comparison_status: "BLOCKED",
+    primary_lane_ids: ["lane_1"],
+  });
+});
+
 test("uses BaoTa host and port variables and supports a test-only scheduler disable", () => {
   const config = loadConfig({
     HOST: "127.0.0.2",
@@ -204,6 +278,13 @@ test("projects paginated research stage pools with names, reasons, and allow-lis
     pageSize: 1,
     total: 1,
     reasonOptions: ["QUALITY_PASS"],
+    outcome: {
+      schema_version: "research-outcome/2.0.0",
+      stage: "A1",
+      lifecycle_state: "TERMINAL",
+      quality_state: "VALIDATED",
+      opportunity_state: "PRESENT",
+    },
   });
   expect(approved?.pools).toEqual([
     { id: "approved", label: "晋级研究", count: 1 },
@@ -911,6 +992,46 @@ test("scheduler retries a research job skipped by an active monitor in the same 
   await scheduler.tick(now);
   await new Promise<void>((resolve) => setTimeout(resolve, 50));
   expect(calls).toEqual(["morning", "morning"]);
+});
+
+test("scheduler dispatches weekday incremental and Saturday full maintenance but never Sunday", async () => {
+  const calls: string[] = [];
+  const fakeRunner = {
+    run: async (job: "morning" | "close" | "monitor" | "features"): Promise<JobRunRecord> => {
+      calls.push(job);
+      return {
+        runId: job,
+        job,
+        command: job === "features" ? "maintain-features" : job,
+        startedAt: new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
+        exitCode: 0,
+        signal: null,
+        durationMs: 0,
+        status: "succeeded",
+        reason: null,
+      };
+    },
+    activeJob: (): JobRunRecord | null => null,
+  };
+  const root = await mkdtemp(join(tmpdir(), "liangjian-feature-scheduler-"));
+  const logger = new LogStore(loadConfig({ LIANGJIAN_PYTHON_BIN: "python3" }, root));
+  const scheduler = new WorkflowScheduler(fakeRunner as unknown as import("../../server/runner.js").JobRunner, logger);
+
+  // 2026-08-27T19:30Z = Friday 03:30 Asia/Shanghai.
+  await scheduler.tick(new Date("2026-08-27T19:30:10.000Z"));
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(calls).toEqual(["features"]);
+
+  // 2026-08-28T19:30Z = Saturday 03:30 Asia/Shanghai.
+  await scheduler.tick(new Date("2026-08-28T19:30:10.000Z"));
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(calls).toEqual(["features", "features"]);
+
+  // 2026-08-29T19:30Z = Sunday 03:30 Asia/Shanghai.
+  await scheduler.tick(new Date("2026-08-29T19:30:10.000Z"));
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(calls).toEqual(["features", "features"]);
 });
 
 test("process-exit wait returns after timeout so shutdown can escalate to SIGKILL", async () => {

@@ -1,4 +1,4 @@
-import { JOB_DEFINITIONS, TIMEZONE } from "./config.js";
+import { FEATURE_MAINTENANCE_AT, JOB_DEFINITIONS, TIMEZONE } from "./config.js";
 import { LogStore } from "./logger.js";
 import { JobRunner } from "./runner.js";
 import type { JobName, SchedulerSnapshot } from "./types.js";
@@ -55,6 +55,11 @@ export function isMonitorMinute(clock: ShanghaiClock): boolean {
   );
 }
 
+function isFeatureMaintenanceMinute(clock: ShanghaiClock): boolean {
+  const [hour, minute] = FEATURE_MAINTENANCE_AT.split(":").map((value) => Number(value));
+  return clock.hour === hour && clock.minute === minute;
+}
+
 export class WorkflowScheduler {
   private timer: NodeJS.Timeout | null = null;
   private running = false;
@@ -100,10 +105,17 @@ export class WorkflowScheduler {
     const clock = shanghaiClock(value);
     const key = `${clock.date}T${String(clock.hour).padStart(2, "0")}:${String(clock.minute).padStart(2, "0")}`;
     const due: JobName[] = [];
-    if (clock.weekday === 0 || clock.weekday === 6) return;
-    if (clock.hour === 9 && clock.minute === 26) due.push("morning");
-    if (clock.hour === 15 && clock.minute === 10) due.push("close");
-    if (isMonitorMinute(clock)) due.push("monitor");
+    // Sunday is a hard NOOP.  Saturday has exactly one maintenance slot;
+    // research and intraday monitoring remain trading-day-only.
+    if (clock.weekday === 0) return;
+    if (clock.weekday === 6) {
+      if (isFeatureMaintenanceMinute(clock)) due.push("features");
+    } else {
+      if (isFeatureMaintenanceMinute(clock)) due.push("features");
+      if (clock.hour === 9 && clock.minute === 26) due.push("morning");
+      if (clock.hour === 15 && clock.minute === 10) due.push("close");
+      if (isMonitorMinute(clock)) due.push("monitor");
+    }
 
     for (const job of due) {
       if (this.dispatched.get(job) === key || this.inFlight.has(job) || this.retryKeys.get(job) === key) continue;

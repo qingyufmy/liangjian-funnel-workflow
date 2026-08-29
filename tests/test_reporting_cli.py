@@ -149,7 +149,7 @@ def test_workflow_command_returns_safe_reason_for_unexpected_reason_coded_error(
 
     monkeypatch.setattr(cli_module, "WorkflowApplication", FakeApplication)
     settings = Settings.from_env({}, root=tmp_path)
-    assert main(["prepare-snapshot"], settings=settings) == 2
+    assert main(["prepare-snapshot"], settings=settings) == 3
     assert json.loads(capsys.readouterr().out) == {
         "status": "FAILED",
         "reason_code": "MINUTE_CACHE_CONFLICT",
@@ -162,6 +162,27 @@ def test_production_cli_rejects_removed_candidate_cap() -> None:
 
     with pytest.raises(SystemExit):
         build_parser().parse_args(["run-research", "--slot", "close", "--max-candidates", "20"])
+
+
+def test_import_broker_gold_validates_and_persists_monthly_non_runtime_data(tmp_path, capsys) -> None:
+    source = tmp_path / "gold.csv"
+    source.write_text(
+        "month,broker,symbol,name,publish_time,source_ref\n"
+        "2026-08,测试券商,600001.SH,甲公司,2026-08-01T00:00:00+08:00,https://example.test/report\n",
+        encoding="utf-8",
+    )
+    settings = Settings.from_env({}, root=tmp_path)
+
+    assert main(
+        ["import-broker-gold", str(source), "--as-of", "2026-08-29T18:00:00+08:00"],
+        settings=settings,
+    ) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["benchmark_not_runtime_input"] is True
+    assert payload["record_count"] == 1
+    target = settings.broker_gold_dir / "2026-08.json"
+    assert target.is_file()
+    assert json.loads(target.read_text(encoding="utf-8"))["records"][0]["symbol"] == "600001.SH"
 
 
 def test_latest_workflow_acceptance_requires_primary_lane_and_records_optional_comparisons():

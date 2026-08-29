@@ -23,6 +23,9 @@ import type {
   WorkflowProgressStage,
   WorkflowProgressStatus,
   WorkflowProgressSummary,
+  LaneOutcomeContract,
+  RunOutcomeContract,
+  StageOutcomeContract,
 } from "./types.js";
 
 const MAX_JSON_BYTES = 8 * 1024 * 1024;
@@ -271,6 +274,329 @@ async function readJson(path: string, maxBytes = MAX_JSON_BYTES): Promise<JsonRe
 
 function numberValue(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+const OUTCOME_SCHEMA_VERSION = "research-outcome/2.0.0" as const;
+const OUTCOME_LIFECYCLE = new Set(["QUEUED", "RUNNING", "TERMINAL"]);
+const OUTCOME_QUALITY = new Set(["VALIDATED", "DEGRADED", "BLOCKED", "FAILED", "CANCELLED"]);
+const OUTCOME_OPPORTUNITY = new Set(["PRESENT", "ABSENT", "UNKNOWN", "NOT_APPLICABLE"]);
+const OUTCOME_PUBLICATION = new Set(["READY", "NOT_APPLICABLE", "BLOCKED", "PUBLISHED"]);
+const OUTCOME_REASON = /^[A-Z][A-Z0-9_.:-]{0,119}$/;
+const OUTCOME_COUNT_MAX = 10_000_000;
+
+function outcomeText(value: unknown, maxLength = 200): string | null {
+  if (typeof value !== "string") return null;
+  const text = value.trim();
+  return text ? text.slice(0, maxLength) : null;
+}
+
+function outcomeToken(value: unknown, allowed: ReadonlySet<string>): string | null {
+  const token = outcomeText(value)?.toUpperCase().replaceAll("-", "_").replaceAll(" ", "_");
+  return token && allowed.has(token) ? token : null;
+}
+
+function outcomeCount(value: unknown): number | null {
+  if (typeof value === "boolean" || typeof value !== "number" || !Number.isFinite(value)) return null;
+  if (value < 0 || value > OUTCOME_COUNT_MAX) return null;
+  return Math.floor(value);
+}
+
+function outcomeCounts(value: unknown, fallbacks: JsonRecord | null = null): Record<string, number> {
+  const output: Record<string, number> = {};
+  const source = isRecord(value) ? value : null;
+  if (source) {
+    for (const [key, raw] of Object.entries(source)) {
+      const safeKey = outcomeText(key, 80);
+      const parsed = outcomeCount(raw);
+      if (safeKey && parsed !== null) output[safeKey] = parsed;
+    }
+  }
+  if (fallbacks) {
+    const aliases: Readonly<Record<string, readonly string[]>> = {
+      input: ["input", "input_count", "inputCount"],
+      evaluated: ["evaluated", "evaluated_count", "evaluatedCount"],
+      selected: ["selected", "selected_count", "selectedCount", "output_count", "outputCount"],
+    };
+    for (const [target, keys] of Object.entries(aliases)) {
+      if (output[target] !== undefined) continue;
+      for (const key of keys) {
+        const parsed = outcomeCount(fallbacks[key]);
+        if (parsed !== null) {
+          output[target] = parsed;
+          break;
+        }
+      }
+    }
+  }
+  return Object.fromEntries(Object.entries(output).sort(([left], [right]) => left.localeCompare(right)));
+}
+
+function outcomeCoverage(value: unknown): Record<string, number | string | null> {
+  if (!isRecord(value)) return {};
+  const output: Record<string, number | string | null> = {};
+  for (const [key, raw] of Object.entries(value)) {
+    const safeKey = outcomeText(key, 80);
+    if (!safeKey) continue;
+    if (raw === null) output[safeKey] = null;
+    else if (typeof raw === "string") output[safeKey] = raw.slice(0, 200);
+    else if (typeof raw === "number" && Number.isFinite(raw)) output[safeKey] = raw;
+  }
+  return Object.fromEntries(Object.entries(output).sort(([left], [right]) => left.localeCompare(right)));
+}
+
+function outcomeReasons(value: unknown): string[] {
+  const values = typeof value === "string" ? [value] : Array.isArray(value) ? value : [];
+  const output: string[] = [];
+  for (const raw of values) {
+    if (typeof raw !== "string") continue;
+    const token = raw.trim().toUpperCase();
+    if (token && OUTCOME_REASON.test(token) && !output.includes(token)) output.push(token);
+  }
+  return output;
+}
+
+function outcomeSource(value: JsonRecord): JsonRecord {
+  const nested = value.outcome_v2 ?? value.outcomeV2 ?? value.outcome;
+  return isRecord(nested) ? nested : value;
+}
+
+function outcomeLegacyStatus(value: JsonRecord, source: JsonRecord): string {
+  return (outcomeText(source.legacy_status) ?? outcomeText(source.status) ?? outcomeText(value.status) ?? "UNKNOWN").toUpperCase();
+}
+
+function outcomeDerivedReason(status: string, stage: string): string | null {
+  if (status === "VALIDATED_NO_OPPORTUNITY") return stage === "A2" ? "A2_NO_FOCUS_OPPORTUNITY" : "NO_OPPORTUNITY";
+  if (status === "VALIDATED_NO_ACTION") return "A3_NO_ACTION";
+  if (status === "VALIDATED_NO_SETUP") return "A3_NO_TECHNICAL_SETUP";
+  if (status === "VALIDATED_UNDERFILLED_MARKET") return "POOL_UNDERFILLED_MARKET";
+  if (status === "DEGRADED_UNDERFILLED_DATA_GAP" || status === "BLOCKED_DATA_COVERAGE") return "DATA_COVERAGE_INSUFFICIENT";
+  if (status === "BLOCKED_EVIDENCE_GAP") return "EVIDENCE_GAP";
+  if (["BLOCKED_MODEL", "MODEL_FAILED", "MODEL_CALL_FAILED"].includes(status)) return "MODEL_CALL_FAILED";
+  if (status === "BLOCKED_TECHNICAL_DATA") return "TECHNICAL_DATA_UNAVAILABLE";
+  if (status === "NOT_RUN_UPSTREAM_BLOCKED") return "UPSTREAM_STAGE_BLOCKED";
+  if (["CANCELLED", "CANCELED"].includes(status)) return "RUN_CANCELLED";
+  return null;
+}
+
+function outcomeIsCoverageInsufficient(counts: Readonly<Record<string, number>>, coverage: Readonly<Record<string, number | string | null>>): boolean | null {
+  const required = typeof coverage.required === "number" ? coverage.required : null;
+  const actual = typeof coverage.actual === "number" ? coverage.actual : null;
+  if (required !== null && actual !== null) return actual < required;
+  const input = counts.input;
+  const evaluated = counts.evaluated;
+  if (input !== undefined && evaluated !== undefined && input > 0) return evaluated < input;
+  return null;
+}
+
+function legacyStageOutcome(value: JsonRecord, stage: string): StageOutcomeContract {
+  const source = outcomeSource(value);
+  const legacyStatus = outcomeLegacyStatus(value, source);
+  const fallbackCounts = {
+    ...value,
+    input_count: source.input_count ?? source.inputCount,
+    evaluated_count: source.evaluated_count ?? source.evaluatedCount,
+    selected_count: source.selected_count
+      ?? source.selectedCount
+      ?? source.output_count
+      ?? source.outputCount
+      ?? (Array.isArray(value.symbols) ? value.symbols.length : undefined),
+  } satisfies JsonRecord;
+  const counts = outcomeCounts(source.counts, fallbackCounts);
+  const coverage = outcomeCoverage(source.data_coverage ?? source.dataCoverage);
+  const reasons = outcomeReasons(source.reason_codes ?? source.reasonCodes ?? value.reason_codes ?? value.reasonCodes);
+  const derived = outcomeDerivedReason(legacyStatus, stage);
+  if (derived && !reasons.includes(derived)) reasons.push(derived);
+  const queued = ["PENDING", "CREATED", "DATA_PREPARING", "DATA_BOUND", "QUEUED"].includes(legacyStatus);
+  const running = legacyStatus === "RUNNING";
+  const lifecycle = running ? "RUNNING" : queued ? "QUEUED" : "TERMINAL";
+  const failed = ["FAILED", "BLOCKED_MODEL", "MODEL_FAILED", "MODEL_CALL_FAILED"].includes(legacyStatus);
+  const blocked = ["BLOCKED", "BLOCKED_DATA_COVERAGE", "BLOCKED_EVIDENCE_GAP", "BLOCKED_TECHNICAL_DATA", "NOT_RUN_UPSTREAM_BLOCKED", "EXPIRED"].includes(legacyStatus);
+  const cancelled = ["CANCELLED", "CANCELED"].includes(legacyStatus);
+  const degraded = ["DEGRADED", "DEGRADED_UNDERFILLED_DATA_GAP", "READY_DEGRADED", "VALIDATED_UNDERFILLED_MARKET"].includes(legacyStatus);
+  const quality = cancelled ? "CANCELLED" : failed ? "FAILED" : blocked ? "BLOCKED" : degraded ? "DEGRADED" : ["PENDING", "CREATED", "DATA_PREPARING", "DATA_BOUND", "QUEUED", "RUNNING"].includes(legacyStatus) ? "DEGRADED" : "VALIDATED";
+  let opportunity: StageOutcomeContract["opportunity_state"] = "UNKNOWN";
+  if (["NOT_RUN_UPSTREAM_BLOCKED", "PENDING", "CREATED", "DATA_PREPARING", "DATA_BOUND", "QUEUED", "RUNNING"].includes(legacyStatus)) opportunity = "NOT_APPLICABLE";
+  else if (failed || blocked || cancelled) opportunity = "UNKNOWN";
+  else if (["VALIDATED_NO_OPPORTUNITY", "VALIDATED_NO_ACTION", "VALIDATED_NO_SETUP"].includes(legacyStatus)) opportunity = "ABSENT";
+  else if (["READY", "READY_DEGRADED", "READY_TO_PUBLISH", "PUBLISHED", "VALIDATED_UNDERFILLED_MARKET"].includes(legacyStatus)) opportunity = "PRESENT";
+  else if ((counts.selected ?? 0) > 0) opportunity = "PRESENT";
+  else if (counts.selected === 0 && outcomeIsCoverageInsufficient(counts, coverage) === false) opportunity = "ABSENT";
+  const publication: StageOutcomeContract["publication_state"] = legacyStatus === "PUBLISHED"
+    ? "PUBLISHED"
+    : ["READY", "READY_DEGRADED", "READY_TO_PUBLISH"].includes(legacyStatus)
+      ? "READY"
+      : failed || blocked || cancelled || legacyStatus === "NOT_RUN_UPSTREAM_BLOCKED" ? "BLOCKED" : "NOT_APPLICABLE";
+  if (["VALIDATED_NO_OPPORTUNITY", "VALIDATED_NO_ACTION", "VALIDATED_NO_SETUP"].includes(legacyStatus) && (counts.input === 0 || outcomeIsCoverageInsufficient(counts, coverage) === true)) {
+    return {
+      schema_version: OUTCOME_SCHEMA_VERSION,
+      stage,
+      lifecycle_state: lifecycle,
+      quality_state: "BLOCKED",
+      opportunity_state: "UNKNOWN",
+      publication_state: publication,
+      reason_codes: reasons.includes("DATA_COVERAGE_INSUFFICIENT") ? reasons : [...reasons, "DATA_COVERAGE_INSUFFICIENT"],
+      counts,
+      data_coverage: coverage,
+      legacy_status: legacyStatus,
+    };
+  }
+  return {
+    schema_version: OUTCOME_SCHEMA_VERSION,
+    stage,
+    lifecycle_state: lifecycle,
+    quality_state: quality,
+    opportunity_state: opportunity,
+    publication_state: publication,
+    reason_codes: reasons,
+    counts,
+    data_coverage: coverage,
+    legacy_status: legacyStatus,
+  };
+}
+
+/** Return only the safe four-axis stage outcome; legacy records are projected once here. */
+export function normalizeStageOutcome(value: unknown, fallbackStage = "UNKNOWN"): StageOutcomeContract | null {
+  if (!isRecord(value)) return null;
+  const source = outcomeSource(value);
+  const stage = outcomeText(source.stage) ?? outcomeText(value.stage) ?? fallbackStage;
+  const lifecycle = outcomeToken(source.lifecycle_state ?? source.lifecycleState, OUTCOME_LIFECYCLE);
+  const quality = outcomeToken(source.quality_state ?? source.qualityState, OUTCOME_QUALITY);
+  const opportunity = outcomeToken(source.opportunity_state ?? source.opportunityState, OUTCOME_OPPORTUNITY);
+  const publication = outcomeToken(source.publication_state ?? source.publicationState, OUTCOME_PUBLICATION);
+  if (lifecycle && quality && opportunity && publication) {
+    const counts = outcomeCounts(source.counts);
+    const coverage = outcomeCoverage(source.data_coverage ?? source.dataCoverage);
+    const reasons = outcomeReasons(source.reason_codes ?? source.reasonCodes);
+    return {
+      schema_version: OUTCOME_SCHEMA_VERSION,
+      stage,
+      lifecycle_state: lifecycle as StageOutcomeContract["lifecycle_state"],
+      quality_state: quality as StageOutcomeContract["quality_state"],
+      opportunity_state: opportunity as StageOutcomeContract["opportunity_state"],
+      publication_state: publication as StageOutcomeContract["publication_state"],
+      reason_codes: reasons,
+      counts,
+      data_coverage: coverage,
+      legacy_status: outcomeLegacyStatus(value, source),
+    };
+  }
+  const hasLegacySignal = source.status !== undefined || value.status !== undefined || source.legacy_status !== undefined || source.counts !== undefined;
+  return hasLegacySignal ? legacyStageOutcome(value, stage) : null;
+}
+
+function aggregateLegacyLaneOutcome(value: JsonRecord, laneId: string, model: string | null, stages: readonly StageOutcomeContract[]): LaneOutcomeContract {
+  const status = outcomeLegacyStatus(value, value);
+  const last = stages[stages.length - 1] ?? legacyStageOutcome(value, "A3");
+  const hasFailed = stages.some((stage) => stage.quality_state === "FAILED");
+  const hasBlocked = stages.some((stage) => stage.quality_state === "BLOCKED");
+  const hasDegraded = stages.some((stage) => stage.quality_state === "DEGRADED");
+  const quality: LaneOutcomeContract["quality_state"] = hasFailed ? "FAILED" : hasBlocked ? "BLOCKED" : hasDegraded ? "DEGRADED" : last.quality_state;
+  const lifecycle: LaneOutcomeContract["lifecycle_state"] = stages.some((stage) => stage.lifecycle_state === "RUNNING") ? "RUNNING" : stages.some((stage) => stage.lifecycle_state === "QUEUED") ? "QUEUED" : "TERMINAL";
+  const opportunity: LaneOutcomeContract["opportunity_state"] = stages.some((stage) => stage.opportunity_state === "PRESENT") ? "PRESENT" : stages.some((stage) => stage.opportunity_state === "UNKNOWN") ? "UNKNOWN" : stages.some((stage) => stage.opportunity_state === "ABSENT") ? "ABSENT" : "NOT_APPLICABLE";
+  const publication: LaneOutcomeContract["publication_state"] = quality === "FAILED" || quality === "BLOCKED" ? "BLOCKED" : stages.some((stage) => stage.publication_state === "PUBLISHED") ? "PUBLISHED" : lifecycle === "TERMINAL" ? "READY" : "NOT_APPLICABLE";
+  const reasons = outcomeReasons(value.reason_codes ?? value.reasonCodes);
+  for (const stage of stages) for (const reason of stage.reason_codes) if (!reasons.includes(reason)) reasons.push(reason);
+  return {
+    schema_version: OUTCOME_SCHEMA_VERSION,
+    lane_id: laneId,
+    model,
+    lifecycle_state: lifecycle,
+    quality_state: quality,
+    opportunity_state: opportunity,
+    publication_state: publication,
+    reason_codes: reasons,
+    counts: { stage_count: stages.length, completed_stages: stages.filter((stage) => stage.lifecycle_state === "TERMINAL").length },
+    data_coverage: {},
+    legacy_status: status || last.legacy_status,
+    stages,
+  };
+}
+
+/** Return only the safe four-axis lane outcome, preserving stage outcomes when present. */
+export function normalizeLaneOutcome(value: unknown, fallbackLaneId = "UNKNOWN", fallbackModel: string | null = null): LaneOutcomeContract | null {
+  if (!isRecord(value)) return null;
+  const source = outcomeSource(value);
+  const laneId = outcomeText(source.lane_id ?? source.laneId) ?? outcomeText(value.lane) ?? fallbackLaneId;
+  const model = outcomeText(source.model) ?? outcomeText(value.model) ?? fallbackModel;
+  const rawStages = Array.isArray(source.stages) ? source.stages : Array.isArray(value.stages) ? value.stages : [];
+  const stages = rawStages.map((item, index) => normalizeStageOutcome(item, ["A1", "A2", "A3"][index] ?? "UNKNOWN")).filter((item): item is StageOutcomeContract => item !== null);
+  const lifecycle = outcomeToken(source.lifecycle_state ?? source.lifecycleState, OUTCOME_LIFECYCLE);
+  const quality = outcomeToken(source.quality_state ?? source.qualityState, OUTCOME_QUALITY);
+  const opportunity = outcomeToken(source.opportunity_state ?? source.opportunityState, OUTCOME_OPPORTUNITY);
+  const publication = outcomeToken(source.publication_state ?? source.publicationState, OUTCOME_PUBLICATION);
+  if (lifecycle && quality && opportunity && publication) {
+    return {
+      schema_version: OUTCOME_SCHEMA_VERSION,
+      lane_id: laneId,
+      model,
+      lifecycle_state: lifecycle as LaneOutcomeContract["lifecycle_state"],
+      quality_state: quality as LaneOutcomeContract["quality_state"],
+      opportunity_state: opportunity as LaneOutcomeContract["opportunity_state"],
+      publication_state: publication as LaneOutcomeContract["publication_state"],
+      reason_codes: outcomeReasons(source.reason_codes ?? source.reasonCodes),
+      counts: outcomeCounts(source.counts),
+      data_coverage: outcomeCoverage(source.data_coverage ?? source.dataCoverage),
+      legacy_status: outcomeLegacyStatus(value, source),
+      stages,
+    };
+  }
+  const hasLegacySignal = source.status !== undefined || value.status !== undefined || source.legacy_status !== undefined || stages.length > 0;
+  return hasLegacySignal ? aggregateLegacyLaneOutcome(value, laneId, model, stages) : null;
+}
+
+/** Return only the safe four-axis run outcome; accepts both ``outcome_v2`` and legacy acceptance rows. */
+export function normalizeRunOutcome(value: unknown): RunOutcomeContract | null {
+  if (!isRecord(value)) return null;
+  const source = outcomeSource(value);
+  const rawLanes = Array.isArray(source.lanes) ? source.lanes : Array.isArray(value.lanes) ? value.lanes : [];
+  const lanes = rawLanes.map((item) => normalizeLaneOutcome(item)).filter((item): item is LaneOutcomeContract => item !== null);
+  const lifecycle = outcomeToken(source.lifecycle_state ?? source.lifecycleState, OUTCOME_LIFECYCLE);
+  const quality = outcomeToken(source.quality_state ?? source.qualityState, OUTCOME_QUALITY);
+  const opportunity = outcomeToken(source.opportunity_state ?? source.opportunityState, OUTCOME_OPPORTUNITY);
+  const publication = outcomeToken(source.publication_state ?? source.publicationState, OUTCOME_PUBLICATION);
+  if (lifecycle && quality && opportunity && publication) {
+    const primaryIds = (Array.isArray(source.primary_lane_ids) ? source.primary_lane_ids : Array.isArray(source.primaryLaneIds) ? source.primaryLaneIds : ["lane_1"])
+      .map((item) => outcomeText(item, 80)).filter((item): item is string => item !== null);
+    return {
+      schema_version: OUTCOME_SCHEMA_VERSION,
+      run_id: outcomeText(source.run_id ?? source.runId) ?? outcomeText(value.run_id ?? value.runId),
+      lifecycle_state: lifecycle as RunOutcomeContract["lifecycle_state"],
+      quality_state: quality as RunOutcomeContract["quality_state"],
+      opportunity_state: opportunity as RunOutcomeContract["opportunity_state"],
+      publication_state: publication as RunOutcomeContract["publication_state"],
+      reason_codes: outcomeReasons(source.reason_codes ?? source.reasonCodes),
+      counts: outcomeCounts(source.counts),
+      data_coverage: outcomeCoverage(source.data_coverage ?? source.dataCoverage),
+      legacy_status: outcomeLegacyStatus(value, source),
+      primary_lane_ids: primaryIds.length ? primaryIds : ["lane_1"],
+      comparison_status: outcomeText(source.comparison_status ?? source.comparisonStatus)?.toUpperCase() ?? "NOT_RUN",
+      lanes,
+    };
+  }
+  const hasLegacySignal = source.status !== undefined || value.status !== undefined || source.legacy_status !== undefined || lanes.length > 0;
+  if (!hasLegacySignal) return null;
+  const status = outcomeLegacyStatus(value, source);
+  const primary = lanes.filter((lane) => lane.lane_id === "lane_1");
+  const selected = primary[0] ?? (lanes[0] ?? null);
+  const fallbackStage = legacyStageOutcome(value, "A3");
+  const lane = selected ?? aggregateLegacyLaneOutcome(value, "lane_1", null, [fallbackStage]);
+  const reasons = outcomeReasons(source.reason_codes ?? source.reasonCodes ?? value.reason_codes ?? value.reasonCodes);
+  for (const reason of lane.reason_codes) if (!reasons.includes(reason)) reasons.push(reason);
+  return {
+    schema_version: OUTCOME_SCHEMA_VERSION,
+    run_id: outcomeText(source.run_id ?? source.runId) ?? outcomeText(value.run_id ?? value.runId),
+    lifecycle_state: lane.lifecycle_state,
+    quality_state: lane.quality_state,
+    opportunity_state: lane.opportunity_state,
+    publication_state: lane.publication_state,
+    reason_codes: reasons,
+    counts: outcomeCounts(source.counts, value),
+    data_coverage: outcomeCoverage(source.data_coverage ?? source.dataCoverage),
+    legacy_status: status,
+    primary_lane_ids: ["lane_1"],
+    comparison_status: lanes.length > 1 ? "READY" : "NOT_RUN",
+    lanes,
+  };
 }
 
 function boundedText(value: unknown): string | null {
@@ -882,6 +1208,7 @@ export interface WorkflowRunSummary {
   readonly mtimeMs: number;
   readonly snapshot: JsonValue | null;
   readonly researchMarkdown: string | null;
+  readonly outcome: RunOutcomeContract | null;
 }
 
 export interface WorkflowRunDetail extends WorkflowRunSummary {
@@ -1018,6 +1345,7 @@ export class ProjectFiles {
         mtimeMs: file.mtimeMs,
         snapshot: sanitizeJson(payload.snapshot ?? null),
         researchMarkdown: safeDisplayPath(this.config.rootDir, recordString(payload, "research_markdown")),
+        outcome: normalizeRunOutcome(payload),
       };
       summaries.push(summary);
     }
@@ -1042,7 +1370,12 @@ export class ProjectFiles {
     for (const laneFile of laneFiles) {
       if (!laneBelongsToRun(laneFile.name, runId)) continue;
       const lane = await readJson(laneFile.path, MAX_RESEARCH_JSON_BYTES);
-      if (lane) lanes.push(sanitizeJson(lane));
+      if (lane) {
+        const projected = { ...lane };
+        const outcome = normalizeLaneOutcome(lane, outcomeText(lane.lane, 80) ?? "UNKNOWN", outcomeText(lane.model));
+        if (outcome) projected.outcome_v2 = outcome;
+        lanes.push(sanitizeJson(projected));
+      }
     }
     const summary: WorkflowRunSummary = {
       runId,
@@ -1052,6 +1385,7 @@ export class ProjectFiles {
       mtimeMs,
       snapshot: sanitizeJson(payload.snapshot ?? null),
       researchMarkdown: safeDisplayPath(this.config.rootDir, recordString(payload, "research_markdown")),
+      outcome: normalizeRunOutcome(payload),
     };
     return { ...summary, payload: sanitizeJson(payload), lanes };
   }
@@ -1063,7 +1397,12 @@ export class ProjectFiles {
     for (const file of files) {
       if (!laneBelongsToRun(file.name, runId)) continue;
       const payload = await readJson(file.path, MAX_RESEARCH_JSON_BYTES);
-      if (payload) lanes.push(sanitizeJson(payload));
+      if (payload) {
+        const projected = { ...payload };
+        const outcome = normalizeLaneOutcome(payload, outcomeText(payload.lane, 80) ?? "UNKNOWN", outcomeText(payload.model));
+        if (outcome) projected.outcome_v2 = outcome;
+        lanes.push(sanitizeJson(projected));
+      }
     }
     return lanes;
   }
@@ -1210,6 +1549,7 @@ export class ProjectFiles {
       pageSize: safePageSize,
       total: filtered.length,
       reasonOptions,
+      outcome: normalizeStageOutcome(stageRecord, stageKey),
       items: filtered.slice(offset, offset + safePageSize),
     };
   }
@@ -1303,6 +1643,7 @@ export class ProjectFiles {
       pageSize: safePageSize,
       total,
       reasonOptions,
+      outcome: normalizeStageOutcome(stageMeta ?? {}, stageKey),
       items,
     };
   }

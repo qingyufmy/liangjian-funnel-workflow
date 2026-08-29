@@ -1,5 +1,194 @@
 export type HealthTone = "healthy" | "running" | "warning" | "error" | "unknown";
 
+/** Canonical backend outcome contract; the UI must not infer these axes. */
+export type OutcomeLifecycleState = "QUEUED" | "RUNNING" | "TERMINAL";
+export type OutcomeQualityState = "VALIDATED" | "DEGRADED" | "BLOCKED" | "FAILED" | "CANCELLED";
+export type OutcomeOpportunityState = "PRESENT" | "ABSENT" | "UNKNOWN" | "NOT_APPLICABLE";
+export type OutcomePublicationState = "READY" | "NOT_APPLICABLE" | "BLOCKED" | "PUBLISHED";
+
+export interface OutcomeCounts {
+  readonly [key: string]: number;
+}
+
+export interface OutcomeDataCoverage {
+  readonly [key: string]: number | string | null;
+}
+
+const OUTCOME_SCHEMA_VERSION = "research-outcome/2.0.0";
+const OUTCOME_LIFECYCLE = new Set(["QUEUED", "RUNNING", "TERMINAL"]);
+const OUTCOME_QUALITY = new Set(["VALIDATED", "DEGRADED", "BLOCKED", "FAILED", "CANCELLED"]);
+const OUTCOME_OPPORTUNITY = new Set(["PRESENT", "ABSENT", "UNKNOWN", "NOT_APPLICABLE"]);
+const OUTCOME_PUBLICATION = new Set(["READY", "NOT_APPLICABLE", "BLOCKED", "PUBLISHED"]);
+
+function outcomeRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function outcomeString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function outcomeEnum(value: unknown, allowed: ReadonlySet<string>): string | null {
+  const token = outcomeString(value)?.toUpperCase().replaceAll("-", "_").replaceAll(" ", "_");
+  return token && allowed.has(token) ? token : null;
+}
+
+function outcomeReasonCodes(value: unknown): string[] {
+  const values = typeof value === "string" ? [value] : Array.isArray(value) ? value : [];
+  return values
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim().toUpperCase())
+    .filter((item, index, all) => /^[A-Z][A-Z0-9_.:-]{0,119}$/.test(item) && all.indexOf(item) === index);
+}
+
+function outcomeCounts(value: unknown): OutcomeCounts {
+  const record = outcomeRecord(value);
+  if (!record) return {};
+  const counts: Record<string, number> = {};
+  for (const [key, raw] of Object.entries(record)) {
+    if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0) continue;
+    counts[key] = Math.floor(raw);
+  }
+  return counts;
+}
+
+function outcomeCoverage(value: unknown): OutcomeDataCoverage {
+  const record = outcomeRecord(value);
+  if (!record) return {};
+  const coverage: Record<string, number | string | null> = {};
+  for (const [key, raw] of Object.entries(record)) {
+    if (raw === null || typeof raw === "string" || (typeof raw === "number" && Number.isFinite(raw))) coverage[key] = raw;
+  }
+  return coverage;
+}
+
+/** Parse the backend projection without deriving a result from a stock count. */
+export function readStageOutcome(value: unknown): StageOutcomeContract | null {
+  const record = outcomeRecord(value);
+  const source = outcomeRecord(record?.outcome_v2) ?? outcomeRecord(record?.outcomeV2) ?? outcomeRecord(record?.outcome) ?? record;
+  if (!source) return null;
+  const lifecycle = outcomeEnum(source.lifecycle_state ?? source.lifecycleState, OUTCOME_LIFECYCLE);
+  const quality = outcomeEnum(source.quality_state ?? source.qualityState, OUTCOME_QUALITY);
+  const opportunity = outcomeEnum(source.opportunity_state ?? source.opportunityState, OUTCOME_OPPORTUNITY);
+  const publication = outcomeEnum(source.publication_state ?? source.publicationState, OUTCOME_PUBLICATION);
+  if (!lifecycle || !quality || !opportunity || !publication) return null;
+  return {
+    schema_version: OUTCOME_SCHEMA_VERSION,
+    stage: outcomeString(source.stage) ?? "UNKNOWN",
+    lifecycle_state: lifecycle as OutcomeLifecycleState,
+    quality_state: quality as OutcomeQualityState,
+    opportunity_state: opportunity as OutcomeOpportunityState,
+    publication_state: publication as OutcomePublicationState,
+    reason_codes: outcomeReasonCodes(source.reason_codes ?? source.reasonCodes),
+    counts: outcomeCounts(source.counts),
+    data_coverage: outcomeCoverage(source.data_coverage ?? source.dataCoverage),
+    legacy_status: (outcomeString(source.legacy_status) ?? outcomeString(source.status) ?? "UNKNOWN").toUpperCase(),
+  };
+}
+
+/** Parse a lane outcome and its nested stage projections, if supplied. */
+export function readLaneOutcome(value: unknown): LaneOutcomeContract | null {
+  const record = outcomeRecord(value);
+  const root = record ?? {};
+  const source = outcomeRecord(root.outcome_v2) ?? outcomeRecord(root.outcomeV2) ?? outcomeRecord(root.outcome) ?? record;
+  if (!source) return null;
+  const lifecycle = outcomeEnum(source.lifecycle_state ?? source.lifecycleState, OUTCOME_LIFECYCLE);
+  const quality = outcomeEnum(source.quality_state ?? source.qualityState, OUTCOME_QUALITY);
+  const opportunity = outcomeEnum(source.opportunity_state ?? source.opportunityState, OUTCOME_OPPORTUNITY);
+  const publication = outcomeEnum(source.publication_state ?? source.publicationState, OUTCOME_PUBLICATION);
+  if (!lifecycle || !quality || !opportunity || !publication) return null;
+  const rawStages = Array.isArray(source.stages) ? source.stages : [];
+  return {
+    schema_version: OUTCOME_SCHEMA_VERSION,
+    lane_id: outcomeString(source.lane_id ?? source.laneId) ?? outcomeString(root.lane) ?? "UNKNOWN",
+    model: outcomeString(source.model) ?? outcomeString(root.model),
+    lifecycle_state: lifecycle as OutcomeLifecycleState,
+    quality_state: quality as OutcomeQualityState,
+    opportunity_state: opportunity as OutcomeOpportunityState,
+    publication_state: publication as OutcomePublicationState,
+    reason_codes: outcomeReasonCodes(source.reason_codes ?? source.reasonCodes),
+    counts: outcomeCounts(source.counts),
+    data_coverage: outcomeCoverage(source.data_coverage ?? source.dataCoverage),
+    legacy_status: (outcomeString(source.legacy_status) ?? outcomeString(source.status) ?? "UNKNOWN").toUpperCase(),
+    stages: rawStages.map(readStageOutcome).filter((item): item is StageOutcomeContract => item !== null),
+  };
+}
+
+/** Parse a run outcome; legacy runs simply return null and retain their old status. */
+export function readRunOutcome(value: unknown): RunOutcomeContract | null {
+  const record = outcomeRecord(value);
+  const root = record ?? {};
+  const source = outcomeRecord(root.outcome_v2) ?? outcomeRecord(root.outcomeV2) ?? outcomeRecord(root.outcome) ?? record;
+  if (!source) return null;
+  const lifecycle = outcomeEnum(source.lifecycle_state ?? source.lifecycleState, OUTCOME_LIFECYCLE);
+  const quality = outcomeEnum(source.quality_state ?? source.qualityState, OUTCOME_QUALITY);
+  const opportunity = outcomeEnum(source.opportunity_state ?? source.opportunityState, OUTCOME_OPPORTUNITY);
+  const publication = outcomeEnum(source.publication_state ?? source.publicationState, OUTCOME_PUBLICATION);
+  if (!lifecycle || !quality || !opportunity || !publication) return null;
+  const rawLanes = Array.isArray(source.lanes) ? source.lanes : [];
+  const primaryIds = (Array.isArray(source.primary_lane_ids) ? source.primary_lane_ids : Array.isArray(source.primaryLaneIds) ? source.primaryLaneIds : ["lane_1"])
+    .map(outcomeString).filter((item): item is string => item !== null);
+  return {
+    schema_version: OUTCOME_SCHEMA_VERSION,
+    run_id: outcomeString(source.run_id ?? source.runId) ?? outcomeString(root.run_id ?? root.runId),
+    lifecycle_state: lifecycle as OutcomeLifecycleState,
+    quality_state: quality as OutcomeQualityState,
+    opportunity_state: opportunity as OutcomeOpportunityState,
+    publication_state: publication as OutcomePublicationState,
+    reason_codes: outcomeReasonCodes(source.reason_codes ?? source.reasonCodes),
+    counts: outcomeCounts(source.counts),
+    data_coverage: outcomeCoverage(source.data_coverage ?? source.dataCoverage),
+    legacy_status: (outcomeString(source.legacy_status) ?? outcomeString(source.status) ?? "UNKNOWN").toUpperCase(),
+    primary_lane_ids: primaryIds.length ? primaryIds : ["lane_1"],
+    comparison_status: (outcomeString(source.comparison_status ?? source.comparisonStatus) ?? "NOT_RUN").toUpperCase(),
+    lanes: rawLanes.map(readLaneOutcome).filter((item): item is LaneOutcomeContract => item !== null),
+  };
+}
+
+export interface StageOutcomeContract {
+  readonly schema_version: "research-outcome/2.0.0";
+  readonly stage: string;
+  readonly lifecycle_state: OutcomeLifecycleState;
+  readonly quality_state: OutcomeQualityState;
+  readonly opportunity_state: OutcomeOpportunityState;
+  readonly publication_state: OutcomePublicationState;
+  readonly reason_codes: readonly string[];
+  readonly counts: OutcomeCounts;
+  readonly data_coverage: OutcomeDataCoverage;
+  readonly legacy_status: string;
+}
+
+export interface LaneOutcomeContract {
+  readonly schema_version: "research-outcome/2.0.0";
+  readonly lane_id: string;
+  readonly model: string | null;
+  readonly lifecycle_state: OutcomeLifecycleState;
+  readonly quality_state: OutcomeQualityState;
+  readonly opportunity_state: OutcomeOpportunityState;
+  readonly publication_state: OutcomePublicationState;
+  readonly reason_codes: readonly string[];
+  readonly counts: OutcomeCounts;
+  readonly data_coverage: OutcomeDataCoverage;
+  readonly legacy_status: string;
+  readonly stages: readonly StageOutcomeContract[];
+}
+
+export interface RunOutcomeContract {
+  readonly schema_version: "research-outcome/2.0.0";
+  readonly run_id: string | null;
+  readonly lifecycle_state: OutcomeLifecycleState;
+  readonly quality_state: OutcomeQualityState;
+  readonly opportunity_state: OutcomeOpportunityState;
+  readonly publication_state: OutcomePublicationState;
+  readonly reason_codes: readonly string[];
+  readonly counts: OutcomeCounts;
+  readonly data_coverage: OutcomeDataCoverage;
+  readonly legacy_status: string;
+  readonly primary_lane_ids: readonly string[];
+  readonly comparison_status: string;
+  readonly lanes: readonly LaneOutcomeContract[];
+}
+
 export interface StageSummary {
   stage: string;
   label?: string;
@@ -7,6 +196,9 @@ export interface StageSummary {
   symbolCount?: number | null;
   latencyMs?: number | null;
   reasonCodes?: string[];
+  /** Canonical backend projection. Legacy ``status`` remains for compatibility only. */
+  outcome?: StageOutcomeContract | null;
+  outcome_v2?: StageOutcomeContract | null;
 }
 
 export type StagePoolId = "approved" | "watch" | "rejected";
@@ -70,6 +262,7 @@ export interface StageDetailResponse {
   pageSize: number;
   total: number;
   reasonOptions: string[];
+  outcome?: StageOutcomeContract | null;
   items: StageDetailItem[];
 }
 
@@ -79,6 +272,10 @@ export interface LaneSummary {
   status: string;
   updatedAt?: string | null;
   stages: StageSummary[];
+  reasonCodes?: string[] | null;
+  outcome?: LaneOutcomeContract | null;
+  outcome_v2?: LaneOutcomeContract | null;
+  comparison?: boolean;
 }
 
 export interface ScheduleItem {
@@ -137,6 +334,10 @@ export interface WorkflowSummary {
   selectedCount?: number | null;
   fullUniverseCount?: number | null;
   lanes: LaneSummary[];
+  /** Canonical run projection; old ``status`` is retained for compatibility. */
+  outcome?: RunOutcomeContract | null;
+  outcome_v2?: RunOutcomeContract | null;
+  acceptance?: RunOutcomeContract | null;
 }
 
 export interface ServiceSummary {
