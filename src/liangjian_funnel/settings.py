@@ -53,7 +53,10 @@ class Settings(BaseModel):
     model_api_key: SecretStr | None = Field(default=None, repr=False)
     timezone: str = "Asia/Shanghai"
     timeout_seconds: float = Field(default=30.0, gt=0, le=120)
-    model_timeout_seconds: float = Field(default=600.0, gt=0, le=600)
+    # Keep the production default at ten minutes, while permitting an explicit
+    # bounded extension for slower free-model lanes.  The research-level
+    # deadline remains the outer guard and prevents unbounded orchestration.
+    model_timeout_seconds: float = Field(default=600.0, gt=0, le=1200)
     # ``model_max_output_tokens`` is the primary request budget.  Keep the
     # legacy field/env name so existing deployments can still override it.
     # The gateway models advertise a 1M-token context, so 384K output must be

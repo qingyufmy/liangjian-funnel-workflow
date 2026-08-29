@@ -116,6 +116,17 @@ def test_model_token_budget_validation_accepts_384k_and_rejects_above_context(tm
         Settings.from_env({"LIANGJIAN_MODEL_MAX_INPUT_TOKENS": "1000001"}, root=tmp_path)
 
 
+def test_model_timeout_allows_bounded_free_model_extension(tmp_path: Path):
+    settings = Settings.from_env(
+        {"LIANGJIAN_MODEL_TIMEOUT_SECONDS": "900"},
+        root=tmp_path,
+    )
+    assert settings.model_timeout_seconds == 900
+
+    with pytest.raises(ValidationError):
+        Settings.from_env({"LIANGJIAN_MODEL_TIMEOUT_SECONDS": "1201"}, root=tmp_path)
+
+
 def test_cninfo_worker_bounds_are_configurable(tmp_path: Path):
     settings = Settings.from_env(
         {
