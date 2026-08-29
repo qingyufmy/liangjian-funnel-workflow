@@ -181,3 +181,92 @@ def test_monthly_discovery_requires_one_decision_per_frozen_rotation_row():
         ],
     }
     assert _monthly_discovery_reasons(complete, context) == ()
+
+
+def test_contract_v3_uses_explicit_industry_mappings_instead_of_legacy_node_codes():
+    codes = [f"884{index:03d}.TI" for index in range(1, 21)]
+    themes = [{"theme_id": f"theme-{index}"} for index in range(8)]
+    nodes = [
+        {
+            "node_id": f"node-{index}",
+            "theme_ids": [f"theme-{index % 8}"],
+        }
+        for index in range(40)
+    ]
+    decisions = [
+        {
+            "rank": rank,
+            "industry_thscode": code,
+            "decision": "INCLUDE",
+            "reason_codes": ["MONTHLY_RELATIVE_STRENGTH"],
+            "supporting_source_refs": [f"ths:sector:{rank}"],
+        }
+        for rank, code in enumerate(codes, start=1)
+    ]
+    output = {
+        "structural_themes": themes,
+        "industry_chain_graph": nodes,
+        "taxonomy_links": [],
+        "industry_theme_mappings": [
+            {
+                "industry_thscode": code,
+                "mapped_theme_ids": [f"theme-{(rank - 1) % 8}"],
+                "mapping_status": "MAPPED",
+                "supporting_source_refs": [f"ths:sector:{rank}"],
+                "confidence": 0.8,
+            }
+            for rank, code in enumerate(codes, start=1)
+        ],
+    }
+    context = {
+        "g0_symbol_count": 3886,
+        "status": "READY",
+        "monthly_industry_rotation": [
+            {"industry_thscode": code} for code in codes
+        ],
+        "monthly_industry_decisions": decisions,
+        "monthly_rotation_coverage": {
+            "requested_top_n": 20,
+            "observed_count": 20,
+            "status": "READY",
+        },
+    }
+
+    assert _monthly_discovery_reasons(output, context) == ()
+
+
+def test_contract_v3_rejects_partial_server_canonical_decision_set():
+    codes = [f"884{index:03d}.TI" for index in range(1, 4)]
+    themes = [{"theme_id": f"theme-{index}"} for index in range(8)]
+    nodes = [
+        {"node_id": f"node-{index}", "theme_ids": [f"theme-{index % 8}"]}
+        for index in range(40)
+    ]
+    output = {
+        "structural_themes": themes,
+        "industry_chain_graph": nodes,
+        "taxonomy_links": [],
+        "industry_theme_mappings": [
+            {
+                "industry_thscode": code,
+                "mapped_theme_ids": ["theme-0"],
+                "mapping_status": "MAPPED",
+            }
+            for code in codes
+        ],
+    }
+    context = {
+        "g0_symbol_count": 3886,
+        "status": "READY",
+        "monthly_industry_decisions": [
+            {"rank": rank, "industry_thscode": code, "decision": "EXCLUDE"}
+            for rank, code in enumerate(codes, start=1)
+        ],
+        "monthly_rotation_coverage": {
+            "requested_top_n": 20,
+            "observed_count": 3,
+            "status": "INCOMPLETE",
+        },
+    }
+
+    assert "A1_CANONICAL_MONTHLY_DECISIONS_INCOMPLETE" in _monthly_discovery_reasons(output, context)

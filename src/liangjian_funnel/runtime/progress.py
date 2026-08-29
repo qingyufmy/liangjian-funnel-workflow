@@ -46,6 +46,7 @@ class WorkflowProgress:
                 "failures": 0,
             },
             "lanes": {},
+            "resources": {},
             "reason_code": None,
         }
         self._write()
@@ -150,12 +151,44 @@ class WorkflowProgress:
                 ("selected_symbols", "selected_symbols"),
                 ("monitor_symbols", "monitor_symbols"),
                 ("rejected_symbols", "rejected_symbols"),
+                ("industry_count", "industry_count"),
+                ("monthly_decision_count", "monthly_decision_count"),
+                ("theme_count", "theme_count"),
+                ("node_count", "node_count"),
+                ("mapping_count", "mapping_count"),
             ):
                 value = next((_non_negative(event.get(source)) for source in sources if event.get(source) is not None), None)
                 if value is not None:
                     stage_state[target] = value
             stages[stage] = stage_state
             self._state["phase"] = f"RESEARCH_{stage}"[:80]
+            self._touch(now)
+
+    def update_resources(self, values: Mapping[str, Any], *, now: datetime | None = None) -> None:
+        """Publish only numeric host metrics; never process commands or paths."""
+
+        with self._lock:
+            resources: dict[str, Any] = {}
+            for key in (
+                "rss_current_mb",
+                "rss_peak_mb",
+                "system_mem_available_mb",
+                "swap_used_mb",
+                "disk_free_mb",
+                "disk_free_ratio",
+                "open_file_descriptors",
+            ):
+                raw = values.get(key)
+                if raw is None or isinstance(raw, bool):
+                    continue
+                try:
+                    number = float(raw)
+                except (TypeError, ValueError):
+                    continue
+                if number < 0 or number != number or number in {float("inf"), float("-inf")}:
+                    continue
+                resources[key] = round(number, 6)
+            self._state["resources"] = resources
             self._touch(now)
 
     def finish(

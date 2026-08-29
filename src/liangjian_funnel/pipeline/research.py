@@ -27,6 +27,7 @@ from zoneinfo import ZoneInfo
 
 from ..redaction import digest_text, safe_error
 from ..reporting import atomic_write_json, atomic_write_text
+from .result_index import snapshot_name_catalog, write_lane_result_index
 from ..settings import RESEARCH_MODELS, Settings
 from ..runtime.state import RuntimeStore
 from .bottleneck import (
@@ -48,6 +49,16 @@ from .deterministic import (
     screen_a3,
 )
 from .business_exposure import extract_business_exposure_facts
+from .a1_contract import (
+    A1_CONTRACT_VERSION,
+    A1_MONTHLY_DECISION_COUNT,
+    A1_NODE_TARGET,
+    A1_THEME_TARGET,
+    merge_a1_discovery_output,
+    render_runtime_contract,
+    validate_discovery_output,
+)
+from .a1_packet import A1_PACKET_TOKEN_BUDGET, A1PacketSizeError, build_a1_research_packet
 from .feature_store import ResearchFeatureStore
 from .model_client import (
     ModelCallResult,
@@ -155,7 +166,11 @@ _SAFE_OUTPUT_FIELDS = {
     "structural_themes",
     "industry_chain_graph",
     "taxonomy_links",
+    "industry_theme_mappings",
+    "canonical_monthly_decisions",
     "monthly_industry_decisions",
+    "monthly_rotation_coverage",
+    "a1_contract",
     "local_screen_summary",
     "active_research_pool",
     "monitor_pool",
@@ -187,7 +202,7 @@ _PERMISSION_KEYS = {
     "order_permission",
 }
 _ALLOWED_DISABLED = {False, None, "", "DISABLED", "DISABLE", "OFF", "SHADOW", "SIMULATION"}
-_PROMPT_PROJECTION_VERSION = "research-prompt-projection/1.0.0"
+_PROMPT_PROJECTION_VERSION = "research-prompt-projection/2.0.0"
 _DEFAULT_MODEL_MAX_INPUT_TOKENS = 1_000_000
 _A3_BATCH_SIZE = 16
 _STAGE_OUTPUT_BUDGETS: Mapping[str, Mapping[str, int]] = {
@@ -482,7 +497,7 @@ class ResearchPipeline:
                 run_id=effective_run_id,
                 global_reason=global_reason,
             )
-            audit_path = self._write_lane_audit(effective_run_id, lane)
+            audit_path = self._write_lane_audit(effective_run_id, lane, snapshot=frozen)
             return LaneResult(
                 lane=lane.lane,
                 model=lane.model,
@@ -812,6 +827,8 @@ class ResearchPipeline:
             batch_index=1,
             processed_symbols=0,
             total_symbols=0,
+            industry_count=len(monthly_strategy_context.get("monthly_industry_rotation") or ()),
+            monthly_decision_count=len(monthly_strategy_context.get("monthly_industry_decisions") or ()),
         )
         discovery = self._run_stage_with_checkpoint(
             lane_id=lane_id,
@@ -832,6 +849,7 @@ class ResearchPipeline:
             discovery = self._blocked_stage(
                 lane_id, model, "A1", snapshot.snapshot_id, "RESEARCH_DEADLINE_EXCEEDED"
             )
+        discovery_progress_output = discovery.output if isinstance(discovery.output, Mapping) else {}
         self._emit_progress(
             run_id=run_id,
             lane=lane_id,
@@ -844,6 +862,11 @@ class ResearchPipeline:
             batch_index=1,
             processed_symbols=0,
             total_symbols=0,
+            industry_count=len(monthly_strategy_context.get("monthly_industry_rotation") or ()),
+            monthly_decision_count=len(monthly_strategy_context.get("monthly_industry_decisions") or ()),
+            theme_count=len(discovery_progress_output.get("structural_themes") or ()),
+            node_count=len(discovery_progress_output.get("industry_chain_graph") or ()),
+            mapping_count=len(discovery_progress_output.get("industry_theme_mappings") or ()),
         )
         discovery_output = discovery.output if isinstance(discovery.output, Mapping) else {}
         monthly_discovery_reasons = _monthly_discovery_reasons(
@@ -890,6 +913,15 @@ class ResearchPipeline:
                 final_output=None,
             )
 
+        # The model response contains semantic mappings only.  Reattach the
+        # immutable server-owned monthly decisions before any deterministic
+        # A1 screen or downstream stage consumes the discovery output.
+        discovery_output = merge_a1_discovery_output(
+            discovery_output,
+            monthly_strategy_context.get("monthly_industry_decisions")
+            if isinstance(monthly_strategy_context, Mapping)
+            else None,
+        )
         themes = [item for item in discovery_output.get("structural_themes", ()) if isinstance(item, Mapping)]
         nodes = [item for item in discovery_output.get("industry_chain_graph", ()) if isinstance(item, Mapping)]
         if self.feature_store is not None:
@@ -1531,6 +1563,11 @@ class ResearchPipeline:
         selected_symbols: int | None = None,
         monitor_symbols: int | None = None,
         rejected_symbols: int | None = None,
+        industry_count: int | None = None,
+        monthly_decision_count: int | None = None,
+        theme_count: int | None = None,
+        node_count: int | None = None,
+        mapping_count: int | None = None,
         reason_codes: Sequence[str] | None = None,
         outcome: str | None = None,
         checkpoint_reused: bool | None = None,
@@ -1578,6 +1615,11 @@ class ResearchPipeline:
             ("selected_symbols", selected_symbols),
             ("monitor_symbols", monitor_symbols),
             ("rejected_symbols", rejected_symbols),
+            ("industry_count", industry_count),
+            ("monthly_decision_count", monthly_decision_count),
+            ("theme_count", theme_count),
+            ("node_count", node_count),
+            ("mapping_count", mapping_count),
         ):
             if value is not None:
                 event[key] = max(0, int(value))
@@ -1717,6 +1759,7 @@ class ResearchPipeline:
         stage: str,
         snapshot: FrozenInputSnapshot,
         upstream_symbols: set[str],
+        a1_discovery_context: Mapping[str, Any] | None = None,
     ) -> StageAudit | None:
         store = self.checkpoint_store
         if store is None:
@@ -1758,6 +1801,17 @@ class ResearchPipeline:
                 upstream_symbols=upstream_symbols,
                 snapshot_data=snapshot.data,
             )
+            # A discovery checkpoint is only reusable when it still satisfies
+            # the frozen monthly context.  The generic output validator cannot
+            # see the canonical decision rows and would otherwise accept an
+            # incomplete/old mapping response after a process restart.
+            if stage == "A1" and isinstance(a1_discovery_context, Mapping):
+                reasons.extend(_a1_discovery_context_reasons(output, a1_discovery_context))
+                if a1_discovery_context.get("mode") == "POLICY_MACRO_DISCOVERY":
+                    reasons.extend(_a1_discovery_evidence_reasons(output, snapshot.data))
+                    monthly_context = a1_discovery_context.get("monthly_strategy_context")
+                    if isinstance(monthly_context, Mapping):
+                        reasons.extend(_monthly_discovery_reasons(output, monthly_context))
             if reasons:
                 return None
             symbols = tuple(sorted(_approved_symbols(output, stage)))
@@ -1873,6 +1927,7 @@ class ResearchPipeline:
                 stage=stage,
                 snapshot=snapshot,
                 upstream_symbols=upstream_symbols,
+                a1_discovery_context=a1_discovery_context,
             )
             if reused is not None:
                 return reused
@@ -2467,6 +2522,10 @@ class ResearchPipeline:
         projection_symbols: set[str] | None = None,
         a1_discovery_context: Mapping[str, Any] | None = None,
     ) -> _PreparedStageRequest:
+        policy_macro_discovery = (
+            stage == "A1"
+            and str((a1_discovery_context or {}).get("mode") or "") == "POLICY_MACRO_DISCOVERY"
+        )
         replacements = _prompt_replacements(
             bundle,
             stage,
@@ -2478,8 +2537,19 @@ class ResearchPipeline:
         shared = bundle.render("00_shared_system_v2.txt", replacements)
         stage_prompt = bundle.render_stage(stage, replacements)
         effective_scope = projection_symbols if projection_symbols is not None else upstream_symbols
-        execution_budget = _stage_execution_budget(stage, len(effective_scope), snapshot.data)
+        execution_budget = _stage_execution_budget(
+            stage,
+            len(effective_scope),
+            snapshot.data,
+            discovery_mode=(
+                str((a1_discovery_context or {}).get("mode") or "")
+                if stage == "A1"
+                else None
+            ),
+        )
         system_content = shared + "\n\n" + stage_prompt + "\n\n" + execution_budget
+        if policy_macro_discovery:
+            system_content += "\n\n" + render_runtime_contract()
         prompt_hash = digest_text(system_content)
         runtime = _runtime_input(
             snapshot,
@@ -2492,11 +2562,29 @@ class ResearchPipeline:
         )
         runtime["prompt_projection_version"] = _PROMPT_PROJECTION_VERSION
         runtime["output_budget"] = dict(_STAGE_OUTPUT_BUDGETS[stage])
-        input_hash = _sha256_json(runtime)
+        if policy_macro_discovery:
+            packet = replacements.get("A1_RESEARCH_PACKET")
+            if isinstance(packet, Mapping):
+                runtime["a1_contract_version"] = A1_CONTRACT_VERSION
+                runtime["a1_packet_hash"] = packet.get("packet_hash")
+                runtime["a1_packet_diagnostics"] = packet.get("diagnostics")
+                runtime["a1_canonical_decision_count"] = len(packet.get("canonical_monthly_decisions", ()))
+        # Bind the request to the immutable snapshot/upstream digests without
+        # serialising a second 200+ MiB snapshot copy merely to compute a hash.
+        # The checkpoint key separately includes snapshot_hash as well.
+        runtime_for_hash = {
+            **runtime,
+            "snapshot_data": {"snapshot_hash": snapshot.snapshot_hash},
+            "upstream_output": (
+                {"output_hash": _sha256_json(upstream_output)}
+                if isinstance(upstream_output, Mapping)
+                else None
+            ),
+        }
+        input_hash = _sha256_json(runtime_for_hash)
         # Snapshot fields and upstream output are already rendered into
         # immutable stage-prompt placeholders. Sending either again in the
         # user message duplicates evidence and can exceed provider limits.
-        # Keep both in ``runtime`` for the lineage hash and audit only.
         model_runtime = {
             key: value
             for key, value in runtime.items()
@@ -2602,6 +2690,7 @@ class ResearchPipeline:
         aggregate_attempts = 0
         variants: list[str] = []
         last_reasons: list[str] = []
+        last_missing_mapping_codes: tuple[str, ...] = ()
         last_shape: dict[str, Any] = {"type": "NoneType"}
         for semantic_attempt in range(1, semantic_limit + 1):
             active_messages = list(messages)
@@ -2609,7 +2698,11 @@ class ResearchPipeline:
                 active_messages.append(
                     {
                         "role": "user",
-                        "content": _semantic_retry_instruction(stage, last_reasons),
+                        "content": _semantic_retry_instruction(
+                            stage,
+                            last_reasons,
+                            missing_mapping_codes=last_missing_mapping_codes,
+                        ),
                     }
                 )
             model_started = time.perf_counter()
@@ -2642,6 +2735,7 @@ class ResearchPipeline:
                     diagnostics={
                         "semantic_attempts": semantic_attempt,
                         "last_invalid_output_shape": last_shape,
+                        "missing_mapping_codes": list(last_missing_mapping_codes),
                         "client_diagnostics": _safe_diagnostics({
                             **dict(getattr(exc, "diagnostics", None) or {}),
                             "status_code": getattr(exc, "status_code", None),
@@ -2719,6 +2813,10 @@ class ResearchPipeline:
                     monthly_context = a1_discovery_context.get("monthly_strategy_context")
                     if isinstance(monthly_context, Mapping):
                         reasons.extend(_monthly_discovery_reasons(output, monthly_context))
+                        last_missing_mapping_codes = _a1_missing_mapping_codes(
+                            output,
+                            monthly_context,
+                        )
             envelope = output.get("envelope") if isinstance(output, Mapping) else None
             model_status = envelope.get("status") if isinstance(envelope, Mapping) else None
             if model_status == "BLOCKED":
@@ -2797,6 +2895,7 @@ class ResearchPipeline:
             diagnostics={
                 "semantic_attempts": semantic_limit,
                 "last_invalid_output_shape": last_shape,
+                "missing_mapping_codes": list(last_missing_mapping_codes),
             },
         )
 
@@ -2883,9 +2982,25 @@ class ResearchPipeline:
             diagnostics={"outcome_code": "UPSTREAM_BLOCKED", "executed": False},
         )
 
-    def _write_lane_audit(self, run_id: str, lane: LaneResult) -> Path:
+    def _write_lane_audit(
+        self,
+        run_id: str,
+        lane: LaneResult,
+        *,
+        snapshot: FrozenInputSnapshot | None = None,
+    ) -> Path:
         path = self.output_dir / f"research_{run_id}_{_safe_run_id(lane.lane)}.json"
-        return atomic_write_json(path, lane.as_dict())
+        written = atomic_write_json(path, lane.as_dict())
+        write_lane_result_index(
+            self.output_dir,
+            run_id=run_id,
+            lane_id=lane.lane,
+            stages=lane.stages,
+            model=lane.model,
+            a1_input_count=len(snapshot.data.get("g0_symbols", ())) if snapshot is not None else None,
+            name_catalog=(snapshot_name_catalog(snapshot.data) if snapshot is not None else None),
+        )
+        return written
 
     def _write_markdown(self, result: ResearchRunResult) -> Path:
         lines = [
@@ -3023,6 +3138,8 @@ def _prompt_replacements(
 ) -> dict[str, Any]:
     names = set(bundle.shared.placeholders)
     names.update(bundle.document({"A1": "agent_1_macro_chain_v2.txt", "A2": "agent_2_theme_sentiment_v2.txt", "A3": "agent_3_technical_planner_v2.txt"}[stage]).placeholders)
+    discovery_mode = str((a1_discovery_context or {}).get("mode") or "") if stage == "A1" else ""
+    policy_macro_discovery = discovery_mode == "POLICY_MACRO_DISCOVERY"
     if projection_symbols is not None:
         allowed_symbols: set[str] | None = set(projection_symbols)
     elif stage == "A1":
@@ -3032,7 +3149,53 @@ def _prompt_replacements(
     else:
         allowed_symbols = _approved_symbols(upstream_output or {}, "A2")
     replacements: dict[str, Any] = {}
+    a1_packet: Mapping[str, Any] | None = None
+    if policy_macro_discovery:
+        try:
+            a1_packet = build_a1_research_packet(
+                snapshot,
+                monthly_strategy_context=(a1_discovery_context or {}).get("monthly_strategy_context"),
+                prior_theme_registry=(a1_discovery_context or {}).get("prior_theme_registry"),
+                max_estimated_tokens=A1_PACKET_TOKEN_BUDGET,
+                raise_on_budget=True,
+            )
+        except A1PacketSizeError as exc:
+            # The caller turns this into a fail-closed ResearchPipelineError
+            # with the section-level diagnostics.  Do not silently truncate
+            # the complete research packet to satisfy a provider limit.
+            raise ResearchPipelineError(
+                "A1_PACKET_TOO_LARGE",
+                diagnostics=exc.diagnostics,
+            ) from exc
     for name in names:
+        if name == "A1_RESEARCH_PACKET":
+            replacements[name] = dict(a1_packet or {})
+            continue
+        if policy_macro_discovery and name in {
+            "MACRO_POLICY_FEED",
+            "MACRO_ECONOMIC_DATA",
+            "ASSET_ROTATION_SNAPSHOT",
+            "GLOBAL_MACRO_SNAPSHOT",
+            "CROSS_MARKET_LEAD_SNAPSHOT",
+            "BROKER_RESEARCH_CONSENSUS",
+            "INDUSTRY_NEWS_FEED",
+            "INDUSTRY_PROFIT_DATA",
+            "INDUSTRY_ACTIVITY_DATA",
+            "THS_INDUSTRY_MEMBERSHIP",
+            "EXISTING_CHAIN_GRAPH",
+            "THEME_REGISTRY",
+            "COMPANY_FUNDAMENTALS",
+            "MAIN_BUSINESS_EVIDENCE",
+            "DISCLOSURE_EVENTS",
+            "RISK_EVENTS",
+            "RESEARCH_CONSENSUS",
+            "FUND_HOLDINGS",
+        }:
+            # Raw macro/industry histories and company evidence belong to the
+            # immutable snapshot, not to the discovery model view.  The
+            # compact packet is the sole source for POLICY_MACRO_DISCOVERY.
+            replacements[name] = None
+            continue
         if name == "UPSTREAM_ACTIVE_POOL" or name == "UPSTREAM_FOCUS_POOL":
             replacements[name] = (
                 _project_upstream_output(upstream_output, allowed_symbols)
@@ -3041,7 +3204,20 @@ def _prompt_replacements(
             )
             continue
         if name == "SNAPSHOT_MANIFEST":
-            manifest = snapshot.data.get("snapshot_manifest", snapshot.data)
+            if policy_macro_discovery:
+                packet = a1_packet or {}
+                manifest = {
+                    "snapshot_id": snapshot.snapshot_id,
+                    "snapshot_hash": snapshot.snapshot_hash,
+                    "as_of": snapshot.as_of,
+                    "contract_version": A1_CONTRACT_VERSION,
+                    "packet_hash": packet.get("packet_hash"),
+                    "quality_summary": packet.get("quality_summary", {}),
+                    "coverage": packet.get("coverage", {}),
+                    "full_snapshot_retained_for_audit": True,
+                }
+            else:
+                manifest = snapshot.data.get("snapshot_manifest", snapshot.data)
             replacements[name] = _with_projection_metadata(manifest, snapshot, allowed_symbols)
             continue
         if name == "A1_POOL_TARGETS":
@@ -3067,6 +3243,29 @@ def _prompt_replacements(
             continue
         if name == "A1_BATCH_CONTEXT":
             batch_mode = str((a1_discovery_context or {}).get("mode") or "COMPANY_MAPPING")
+            if policy_macro_discovery:
+                packet = a1_packet or {}
+                monthly = (a1_discovery_context or {}).get("monthly_strategy_context")
+                monthly = monthly if isinstance(monthly, Mapping) else {}
+                replacements[name] = {
+                    "mode": batch_mode,
+                    "symbols": [],
+                    "batch_is_transport_boundary": True,
+                    "allowed_primary_source_refs": sorted(packet.get("source_index", {})),
+                    "canonical_monthly_decision_count": len(packet.get("canonical_monthly_decisions", ())),
+                    "monthly_strategy_context": {
+                        "strategy_month": monthly.get("strategy_month"),
+                        "status": monthly.get("status"),
+                        "macro_asset_quadrant": packet.get("macro_asset_quadrant", {}),
+                        "canonical_monthly_decisions": packet.get("canonical_monthly_decisions", []),
+                        "prior_theme_registry": packet.get("prior_theme_registry", {}),
+                    },
+                    "allowed_taxonomy_catalog": {
+                        "industry": _taxonomy_catalog_projection(snapshot.data).get("industry", []),
+                        "concept": [],
+                    },
+                }
+                continue
             replacements[name] = {
                 "mode": batch_mode,
                 "symbols": sorted(allowed_symbols or ()),
@@ -3423,6 +3622,8 @@ def _stage_execution_budget(
     stage: str,
     input_symbol_count: int,
     snapshot_data: Mapping[str, Any],
+    *,
+    discovery_mode: str | None = None,
 ) -> str:
     supplied = max(0, int(input_symbol_count))
     budget = dict(_STAGE_OUTPUT_BUDGETS[stage])
@@ -3446,24 +3647,28 @@ def _stage_execution_budget(
         budget["secondary_pool"] = min(supplied, max(0, total_max - core_max))
     stage_contract = {
         "A1": (
-            "Required top-level keys: envelope, analysis_summary, structural_themes, industry_chain_graph, "
-            "taxonomy_links, active_research_pool, monitor_pool, rejected_candidates. Each approved item needs symbol, "
-            "candidate_id, company_name, primary_theme, "
-            "industry_chain_node, core_thesis, bear_case, structural_score, data_quality_score, "
-            "evidence_confidence, status, source_refs, business_exposure with revenue_exposure_pct and "
-            "a snapshot-valid source_ref, and score_breakdown containing every exact key "
-            "from SCORE_WEIGHTS. structural_score must equal that configured weighted sum."
-            " primary_theme must exactly match a theme_id or display_name in structural_themes; "
-            "industry_chain_node must exactly match a node_id in industry_chain_graph. Both records need "
-            "snapshot-bound source_refs; unsupported narrative is MONITOR, never ACTIVE."
-            " Every supplied symbol must appear exactly once across active_research_pool, monitor_pool, "
-            "and rejected_candidates; the batch boundary is not a selection quota."
-            + (
-                " This is POLICY_MACRO_DISCOVERY: return at least 6 structural themes and at least 12 "
-                "industry-chain nodes. taxonomy_links is a top-level array; every entry must reuse an "
-                "allowed node_id and exact allowed_taxonomy_catalog codes. Cover at least 40 percent of "
-                "the top 10 monthly_industry_rotation industry_thscode values when at least 3 exist."
-                if supplied == 0 else ""
+            (
+                "POLICY_MACRO_DISCOVERY contract: the server owns the complete canonical_monthly_decisions "
+                "array (exactly 20 by the A1 contract). Return only envelope, analysis_summary, macro_regime, "
+                "policy_dossiers, policy_calendar, structural_themes, industry_chain_graph, taxonomy_links, "
+                "industry_theme_mappings, source_health and unresolved_questions. Do not return or rewrite "
+                "monthly_industry_decisions; map every server base_decision=INCLUDE row or declare "
+                "mapping_status=UNMAPPED with data_gaps. The canonical rows are read-only and the model cannot "
+                "change their rank, decision, reason_codes or source_refs."
+                if discovery_mode == "POLICY_MACRO_DISCOVERY"
+                else (
+                    "Required top-level keys: envelope, analysis_summary, structural_themes, industry_chain_graph, "
+                    "taxonomy_links, active_research_pool, monitor_pool, rejected_candidates. Each approved item needs symbol, "
+                    "candidate_id, company_name, primary_theme, industry_chain_node, core_thesis, bear_case, "
+                    "structural_score, data_quality_score, evidence_confidence, status, source_refs, "
+                    "business_exposure with revenue_exposure_pct and a snapshot-valid source_ref, and score_breakdown "
+                    "containing every exact key from SCORE_WEIGHTS. structural_score must equal that configured weighted sum. "
+                    "primary_theme must exactly match a theme_id or display_name in structural_themes; "
+                    "industry_chain_node must exactly match a node_id in industry_chain_graph. Both records need "
+                    "snapshot-bound source_refs; unsupported narrative is MONITOR, never ACTIVE. Every supplied symbol "
+                    "must appear exactly once across active_research_pool, monitor_pool, and rejected_candidates; "
+                    "the batch boundary is not a selection quota."
+                )
             )
         ),
         "A2": (
@@ -3811,23 +4016,29 @@ def _merge_stage_outputs(stage: str, outputs: Sequence[Mapping[str, Any]]) -> di
 
 
 def _valid_a1_discovery_output(output: Mapping[str, Any]) -> bool:
-    themes = output.get("structural_themes")
-    nodes = output.get("industry_chain_graph")
-    if not isinstance(themes, list) or not themes or not isinstance(nodes, list) or not nodes:
-        return False
-    theme_ids = {
-        str(item.get("theme_id") or "").strip()
-        for item in themes
-        if isinstance(item, Mapping) and str(item.get("theme_id") or "").strip()
-    }
-    if not theme_ids:
-        return False
-    return all(
-        isinstance(node, Mapping)
-        and str(node.get("node_id") or "").strip()
-        and isinstance(node.get("theme_ids"), list)
-        and bool(theme_ids.intersection(str(value).strip() for value in node["theme_ids"] if isinstance(value, str)))
-        for node in nodes
+    """Check the structural shape shared by discovery and company mapping.
+
+    Target counts and canonical industry mapping completeness are evaluated by
+    ``_monthly_discovery_reasons`` because that function has the frozen
+    monthly context.  Keeping this predicate structural preserves compatibility
+    with small pre-v3 fixtures and old read-only audit files.
+    """
+
+    validation = validate_discovery_output(
+        output,
+        require_targets=False,
+        canonical_decisions=None,
+    )
+    return not any(
+        reason in {
+            "A1_DISCOVERY_THEMES_MISSING",
+            "A1_DISCOVERY_CHAIN_NODES_MISSING",
+            "A1_DISCOVERY_THEME_ID_INVALID",
+            "A1_DISCOVERY_NODE_ID_INVALID",
+            "A1_DISCOVERY_NODE_INVALID",
+            "A1_DISCOVERY_NODE_THEME_LINK_INVALID",
+        }
+        for reason in validation.reason_codes
     )
 
 
@@ -3846,9 +4057,15 @@ def _monthly_discovery_reasons(
     theme_count = len(themes) if isinstance(themes, list) else 0
     node_count = len(nodes) if isinstance(nodes, list) else 0
     reasons: list[str] = []
-    if theme_count < 6:
+    # New-contract responses are held to the configured business target.  A
+    # legacy response without mappings keeps the old structural minimum so
+    # historical fixtures remain readable; it is never accepted as a new
+    # contract response by the production prompt.
+    is_new_mapping_response = isinstance(output.get("industry_theme_mappings"), list)
+    theme_minimum, node_minimum = (A1_THEME_TARGET[0], A1_NODE_TARGET[0]) if is_new_mapping_response else (6, 12)
+    if theme_count < theme_minimum:
         reasons.append("A1_MONTHLY_THEME_COVERAGE_INSUFFICIENT")
-    if node_count < 12:
+    if node_count < node_minimum:
         reasons.append("A1_MONTHLY_CHAIN_COVERAGE_INSUFFICIENT")
 
     rotations = context.get("monthly_industry_rotation")
@@ -3872,14 +4089,56 @@ def _monthly_discovery_reasons(
 
     collect_codes(output.get("taxonomy_links"))
     collect_codes(nodes)
-    if len(expected_codes) >= 3:
+    # Contract v3 replaces the old implicit "codes must be embedded in
+    # taxonomy/node objects" rule with an explicit per-industry mapping
+    # array.  Applying both rules would reject a valid response merely
+    # because it used the new canonical field.  Legacy responses continue to
+    # use the historical 40% top-ten coverage check.
+    if not is_new_mapping_response and len(expected_codes) >= 3:
         coverage = len(expected_codes.intersection(covered_codes)) / len(expected_codes)
         if coverage < 0.40:
             reasons.append("A1_MONTHLY_CYCLE_COVERAGE_INSUFFICIENT")
 
     expected_decisions = context.get("monthly_industry_decisions")
     decision_contract = context.get("monthly_rotation_coverage")
-    if isinstance(expected_decisions, list) and isinstance(decision_contract, Mapping):
+    if isinstance(output.get("industry_theme_mappings"), list) and isinstance(expected_decisions, list):
+        # The complete canonical set is a prerequisite for a v3 discovery
+        # response.  A model cannot repair a source-side shortfall by
+        # returning mappings for the few rows that happened to be present;
+        # accepting that would silently turn a top-20 run into top-3 (or any
+        # other partial ranking).  Keep this separate from mapping validation
+        # so the diagnostic points at the earliest broken layer.
+        requested = (
+            _safe_int(decision_contract.get("requested_top_n"))
+            if isinstance(decision_contract, Mapping)
+            else 0
+        )
+        observed = (
+            _safe_int(decision_contract.get("observed_count"))
+            if isinstance(decision_contract, Mapping)
+            else len(expected_decisions)
+        )
+        coverage_status = (
+            str(decision_contract.get("status") or "")
+            if isinstance(decision_contract, Mapping)
+            else ""
+        )
+        if (
+            requested != A1_MONTHLY_DECISION_COUNT
+            or observed != A1_MONTHLY_DECISION_COUNT
+            or len(expected_decisions) != A1_MONTHLY_DECISION_COUNT
+            or coverage_status != "READY"
+        ):
+            reasons.append("A1_CANONICAL_MONTHLY_DECISIONS_INCOMPLETE")
+        validation = validate_discovery_output(
+            output,
+            canonical_decisions=expected_decisions,
+            theme_target=A1_THEME_TARGET,
+            node_target=A1_NODE_TARGET,
+            require_targets=True,
+        )
+        reasons.extend(validation.reason_codes)
+    elif isinstance(expected_decisions, list) and isinstance(decision_contract, Mapping):
         expected_by_code = {
             str(item.get("industry_thscode") or "").strip().upper(): int(item.get("rank") or 0)
             for item in expected_decisions
@@ -4099,7 +4358,29 @@ def _common_text(values: Sequence[str]) -> str | None:
     return next(iter(retained)) if len(retained) == 1 else "mixed"
 
 
-def _semantic_retry_instruction(stage: str, reasons: Sequence[str]) -> str:
+def _a1_missing_mapping_codes(
+    output: Mapping[str, Any],
+    context: Mapping[str, Any],
+) -> tuple[str, ...]:
+    """Return exact missing INCLUDE codes for a field-level semantic retry."""
+
+    expected = context.get("monthly_industry_decisions")
+    if not isinstance(expected, list) or not isinstance(output.get("industry_theme_mappings"), list):
+        return ()
+    validation = validate_discovery_output(
+        output,
+        canonical_decisions=expected,
+        require_targets=False,
+    )
+    return tuple(validation.missing_industry_codes)
+
+
+def _semantic_retry_instruction(
+    stage: str,
+    reasons: Sequence[str],
+    *,
+    missing_mapping_codes: Sequence[str] = (),
+) -> str:
     safe_reasons = [
         reason
         for reason in dict.fromkeys(str(item) for item in reasons)
@@ -4109,9 +4390,23 @@ def _semantic_retry_instruction(stage: str, reasons: Sequence[str]) -> str:
         "PREVIOUS_RESPONSE_REJECTED\n"
         f"stage={stage}\n"
         f"reason_codes={_canonical_json(safe_reasons)}\n"
-        "Regenerate the complete response from the original RUNTIME_INPUT. "
-        "Copy required_envelope exactly, include every required top-level pool, "
-        "and return one JSON object only. Do not discuss or repair the previous response."
+        + (
+            f"missing_industry_theme_mapping_codes={_canonical_json(list(missing_mapping_codes)[:50])}\n"
+            "Repair only the missing industry_theme_mappings; preserve valid mappings and do not return "
+            "or rewrite server-owned monthly_industry_decisions.\n"
+            if missing_mapping_codes
+            else ""
+        )
+        + (
+            "Regenerate the discovery response from the original RUNTIME_INPUT. Copy required_envelope exactly, "
+            "preserve valid mappings, and return one JSON object only. Do not return server-owned monthly decisions."
+            if missing_mapping_codes
+            else (
+                "Regenerate the complete response from the original RUNTIME_INPUT. "
+                "Copy required_envelope exactly, include every required top-level pool, "
+                "and return one JSON object only. Do not discuss or repair the previous response."
+            )
+        )
     )
 
 
@@ -5344,8 +5639,18 @@ def _validate_output(
         reasons.append("POOL_OUTSIDE_G0" if stage == "A1" else "POOL_OUTSIDE_UPSTREAM")
     if _unprovable_candidate_pool(output):
         reasons.append("CANDIDATE_LINEAGE_UNPROVABLE")
-    reasons.extend(_validate_approved_pool(output, stage))
-    if stage == "A1":
+    # POLICY_MACRO_DISCOVERY is a semantic discovery response and deliberately
+    # has no stock pools.  The presence of mappings plus the absence of pool
+    # keys is the backwards-compatible marker used by checkpoint readers,
+    # which do not carry the discovery context separately.
+    a1_discovery_only = (
+        stage == "A1"
+        and isinstance(output.get("industry_theme_mappings"), list)
+        and not any(key in output for key in ("active_research_pool", "monitor_pool", "rejected_candidates"))
+    )
+    if not a1_discovery_only:
+        reasons.extend(_validate_approved_pool(output, stage))
+    if stage == "A1" and not a1_discovery_only:
         reasons.extend(_validate_a1_partition(output, upstream_symbols))
     elif stage == "A2" and (snapshot_data or {}).get("STRICT_AGENT_RULES") is True:
         reasons.extend(_validate_partition(

@@ -112,7 +112,7 @@ class Settings(BaseModel):
     a1_policy_lookback_days: int = Field(default=120, ge=30, le=366)
     a1_policy_document_limit: int = Field(default=60, ge=12, le=120)
     a2_llm_top_n_per_theme: int = Field(default=8, ge=1, le=30)
-    research_close_deadline_seconds: int = Field(default=3600, ge=300, le=24 * 3600)
+    research_close_deadline_seconds: int = Field(default=5400, ge=300, le=24 * 3600)
     data_sync_batch_size: int = Field(default=50, ge=1, le=500)
     data_progress_every: int = Field(default=25, ge=1, le=500)
     fundamental_refresh_hours: int = Field(default=24, ge=1, le=24 * 31)
@@ -293,7 +293,7 @@ class Settings(BaseModel):
             a1_policy_document_limit=int(env.get("LIANGJIAN_A1_POLICY_DOCUMENT_LIMIT", "60")),
             a2_llm_top_n_per_theme=int(env.get("LIANGJIAN_A2_LLM_TOP_N_PER_THEME", "8")),
             research_close_deadline_seconds=int(
-                env.get("LIANGJIAN_RESEARCH_CLOSE_DEADLINE_SECONDS", "3600")
+                env.get("LIANGJIAN_RESEARCH_CLOSE_DEADLINE_SECONDS", "5400")
             ),
             data_sync_batch_size=int(env.get("LIANGJIAN_DATA_SYNC_BATCH_SIZE", "50")),
             data_progress_every=int(env.get("LIANGJIAN_DATA_PROGRESS_EVERY", "25")),

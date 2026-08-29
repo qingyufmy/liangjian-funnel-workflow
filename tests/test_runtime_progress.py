@@ -37,10 +37,28 @@ def test_progress_is_atomic_bounded_and_does_not_retain_sensitive_payload(tmp_pa
             "selected_symbols": 36,
             "monitor_symbols": 3800,
             "rejected_symbols": 50,
+            "industry_count": 40,
+            "monthly_decision_count": 20,
+            "theme_count": 8,
+            "node_count": 40,
+            "mapping_count": 14,
             "reasoning": "must never persist",
             "api_key": "sk-must-never-persist",
         },
         now=started + timedelta(seconds=30),
+    )
+    progress.update_resources(
+        {
+            "rss_current_mb": 321.25,
+            "rss_peak_mb": 456.75,
+            "system_mem_available_mb": 1024,
+            "swap_used_mb": 88,
+            "disk_free_mb": 9000,
+            "disk_free_ratio": 0.25,
+            "open_file_descriptors": 17,
+            "command": "must never persist",
+        },
+        now=started + timedelta(seconds=31),
     )
 
     text = (tmp_path / "workflow_progress.json").read_text(encoding="utf-8")
@@ -50,7 +68,11 @@ def test_progress_is_atomic_bounded_and_does_not_retain_sensitive_payload(tmp_pa
     assert state["lanes"]["LANE_1"]["stages"]["A1"]["completed_batches"] == 2
     assert state["lanes"]["LANE_1"]["stages"]["A1"]["processed_symbols"] == 3886
     assert state["lanes"]["LANE_1"]["stages"]["A1"]["selected_symbols"] == 36
-    assert state["elapsed_seconds"] == 30
+    assert state["lanes"]["LANE_1"]["stages"]["A1"]["monthly_decision_count"] == 20
+    assert state["lanes"]["LANE_1"]["stages"]["A1"]["mapping_count"] == 14
+    assert state["elapsed_seconds"] == 31
+    assert state["resources"]["rss_current_mb"] == 321.25
+    assert state["resources"]["open_file_descriptors"] == 17.0
     assert "must never persist" not in text
     assert "sk-must-never-persist" not in text
     if os.name != "nt":

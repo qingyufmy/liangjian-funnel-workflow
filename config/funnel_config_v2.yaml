@@ -231,6 +231,7 @@ market_regime:
 # ---------------------------------------------------------------------------
 agent_1:
   id: MACRO_FUNDAMENTAL_CHAIN
+  discovery_contract_version: a1-discovery-contract/3.0.0
   institutional_pool_role: P2_CLUE_TO_P3_RESEARCH_COVERAGE
   research_unit: INDUSTRY_CHAIN_NODE       # ★ 不是单只股票
   full_rebuild_schedule: WEEKLY            # 周六
@@ -304,7 +305,9 @@ agent_1:
     monthly_theme_target: [8, 15]           # 覆盖目标，不以无证据主题凑数
     monthly_cycle_lookback_trading_days: 20
     monthly_rotation_decision_top_n: 20
-    monthly_rotation_top10_required: true
+    minimum_ready_policy_documents: 1
+    strict_pit_required_for_replay: true
+    evidence_aware_coverage: true
     require_policy_macro_cycle_reconciliation: true
     hardcoded_theme_allowlist_forbidden: true
   research_report_is_primary_evidence: false

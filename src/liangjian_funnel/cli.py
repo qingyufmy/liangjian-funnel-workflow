@@ -69,6 +69,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="historical ISO-8601 cutoff with timezone; keeps the current simulation trading day",
     )
+    research.add_argument(
+        "--snapshot-id",
+        default=None,
+        help="verified persisted snapshot id for an offline historical replay",
+    )
     sub.add_parser("monitor-once", help="run one A4 minute and paper-simulation cycle")
     sub.add_parser("run-due", help="dispatch only work due at the current Shanghai time")
     sub.add_parser("run-morning", help="dispatch only the due 09:26 morning review")
@@ -185,6 +190,7 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
                 args.slot,
                 as_of=historical_as_of,
                 historical_replay=historical_as_of is not None,
+                snapshot_id=args.snapshot_id,
             )
         elif args.command == "monitor-once":
             payload = application.monitor_once()

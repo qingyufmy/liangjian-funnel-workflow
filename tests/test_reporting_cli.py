@@ -110,11 +110,12 @@ def test_historical_research_cli_preserves_explicit_timezone_cutoff(tmp_path: Pa
         def __init__(self, _settings):
             pass
 
-        def run_research(self, slot, *, as_of=None, historical_replay=False):
+        def run_research(self, slot, *, as_of=None, historical_replay=False, snapshot_id=None):
             captured.update(
                 slot=slot,
                 as_of=as_of,
                 historical_replay=historical_replay,
+                snapshot_id=snapshot_id,
             )
             return {"status": "READY", "run_id": "historical"}
 
@@ -128,6 +129,7 @@ def test_historical_research_cli_preserves_explicit_timezone_cutoff(tmp_path: Pa
         "slot": "close",
         "as_of": datetime(2026, 8, 25, 15, 10, tzinfo=ZoneInfo("Asia/Shanghai")),
         "historical_replay": True,
+        "snapshot_id": None,
     }
     assert json.loads(capsys.readouterr().out)["run_id"] == "historical"
 

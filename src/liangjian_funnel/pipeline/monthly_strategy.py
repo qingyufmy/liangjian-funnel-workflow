@@ -13,13 +13,14 @@ from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from .a1_contract import A1_CONTRACT_VERSION, A1_MONTHLY_DECISION_COUNT
 from .macro_regime import build_macro_asset_quadrant
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 CONTEXT_VERSION = "monthly-strategy-context/1.1.0"
 MONTHLY_ROTATION_DECISION_VERSION = "monthly-rotation-decision/1.0.0"
-MONTHLY_ROTATION_DECISION_LIMIT = 20
+MONTHLY_ROTATION_DECISION_LIMIT = A1_MONTHLY_DECISION_COUNT
 
 
 def build_monthly_strategy_context(
@@ -136,7 +137,15 @@ def build_monthly_strategy_context(
         "industry_activity_state": _bounded_mapping(industry_activity),
         "monthly_industry_rotation": rotations[:40],
         "monthly_industry_decisions": monthly_decisions,
+        # This alias makes the authority boundary explicit for new packet
+        # builders while retaining the historical context key for readers.
+        "canonical_monthly_decisions": monthly_decisions,
         "monthly_rotation_coverage": monthly_coverage,
+        "a1_contract": {
+            "contract_version": A1_CONTRACT_VERSION,
+            "monthly_rotation_decision_top_n": MONTHLY_ROTATION_DECISION_LIMIT,
+            "model_owns_monthly_decisions": False,
+        },
         "prior_theme_registry": {
             "available": bool(prior_themes),
             "as_of": registry.get("as_of"),
@@ -237,9 +246,15 @@ def build_monthly_industry_decisions(
             "industry_thscode": code,
             "industry_name": name,
             "decision": decision,
+            "base_decision": decision,
             "mapped_theme_ids": [],
+            "mapping_status": "UNMAPPED",
+            "mapping_source": "SERVER",
+            "final_decision": decision,
             "reason_codes": list(dict.fromkeys(reason_codes)),
+            "base_reason_codes": list(dict.fromkeys(reason_codes)),
             "supporting_source_refs": supporting_refs,
+            "base_source_refs": supporting_refs,
             "contradicting_source_refs": contradicting_refs,
             "data_gaps": list(dict.fromkeys(missing)),
             "metrics": metrics,
@@ -252,6 +267,7 @@ def build_monthly_industry_decisions(
     top10_missing = [rank for rank in range(1, min(10, limit) + 1) if rank > observed]
     coverage_status = "READY" if observed >= limit else "INCOMPLETE"
     return rows, {
+        "contract_version": A1_CONTRACT_VERSION,
         "decision_version": MONTHLY_ROTATION_DECISION_VERSION,
         "requested_top_n": limit,
         "observed_count": observed,

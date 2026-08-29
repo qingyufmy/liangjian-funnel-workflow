@@ -42,6 +42,7 @@ from .facts import (
 )
 from .evaluation.broker_gold import BrokerGoldContractError, evaluate_broker_gold, import_broker_gold
 from .pipeline.data_source import HithinkClient, HithinkFetchResult
+from .pipeline.data_readiness import evaluate_data_readiness
 from .pipeline.data_sync import HithinkIncrementalSynchronizer
 from .pipeline.factors import FactorEngine
 from .pipeline.local_fact_cache import LocalFactCache
@@ -63,6 +64,7 @@ from .redaction import digest_text, sanitize
 from .reporting import atomic_write_json, atomic_write_json_streaming, atomic_write_text
 from .runtime.monitor import MonitorBatchResult, MonitorEngine, rebuild_effective_markdown
 from .runtime.progress import WorkflowProgress
+from .runtime.resource_guard import evaluate_resources, measure_resources
 from .runtime.calendar import ExchangeTradingCalendar, TradingCalendarError
 from .runtime.scheduler import ScheduleKind, Scheduler
 from .runtime.simulation import PaperBroker, SimulationAction, SimulationConfig
@@ -348,6 +350,23 @@ class WorkflowApplication:
                 source_failures.setdefault(symbol, []).extend(reasons)
             daily: dict[str, Any] = sync_result.daily
             fundamental: dict[str, Any] = sync_result.fundamental
+            cache_coverage = self.fact_cache.get_coverage(as_of=current)
+            data_readiness = evaluate_data_readiness(
+                {
+                    "daily": {
+                        **dict(cache_coverage.get("daily") or {}),
+                        "symbols": len(daily),
+                    },
+                    "financial": {
+                        **dict(cache_coverage.get("financial") or {}),
+                        "symbols": len(fundamental),
+                    },
+                },
+                expected_symbols=len(selected),
+                as_of=current,
+            )
+            if not data_readiness.ready:
+                raise WorkflowError(data_readiness.reason_codes[0] or "RESEARCH_DATA_NOT_READY")
             technical: dict[str, Any] = {}
 
         # A1 is a structural macro/policy layer. A six-day window only shows
@@ -621,6 +640,7 @@ class WorkflowApplication:
         fact_payload["store_relative_path"] = str(
             fact_manifest_path.relative_to(self.settings.fact_store_dir)
         )
+        fact_payload["data_readiness"] = data_readiness.as_dict()
         if progress is not None:
             progress.set_phase("OPEN_MACRO_SYNC")
             _progress_stdout(progress.snapshot())
@@ -788,9 +808,18 @@ class WorkflowApplication:
                     compact_daily_bars=30,
                     progress=on_progress,
                 )
-            coverage = self.fact_cache.get_coverage()
+            coverage = self.fact_cache.get_coverage(as_of=current)
+            readiness = evaluate_data_readiness(
+                coverage,
+                expected_symbols=len(symbols),
+                as_of=current,
+            )
             summary = {
-                "status": "READY" if not result.failures else "PARTIAL",
+                "status": (
+                    "BLOCKED" if not readiness.ready
+                    else "READY" if readiness.status == "READY" and not result.failures
+                    else "PARTIAL"
+                ),
                 "as_of": current.isoformat(),
                 "universe_count": len(universe.records),
                 "catalog_universe_count": len(universe.records),
@@ -802,13 +831,22 @@ class WorkflowApplication:
                 "cache_misses": result.cache_misses,
                 "failure_count": len(result.failures),
                 "coverage": coverage,
+                "readiness": readiness.as_dict(),
             }
             output = self.settings.workflow_output_dir / "data_sync" / f"{current.strftime('%Y%m%dT%H%M%S%z')}.json"
             atomic_write_json(output, summary)
             progress.finish(
                 status=str(summary["status"]),
-                phase="DATA_READY" if not result.failures else "DATA_PARTIAL",
-                reason_code=None if not result.failures else "SYMBOL_DATA_PARTIAL",
+                phase=(
+                    "DATA_BLOCKED" if not readiness.ready
+                    else "DATA_READY" if summary["status"] == "READY"
+                    else "DATA_PARTIAL"
+                ),
+                reason_code=(
+                    readiness.reason_codes[0] if not readiness.ready
+                    else None if summary["status"] == "READY"
+                    else "SYMBOL_DATA_PARTIAL"
+                ),
             )
             _progress_stdout(progress.snapshot())
             return {**summary, "report": str(output)}
@@ -1115,6 +1153,7 @@ class WorkflowApplication:
         *,
         as_of: datetime | None = None,
         historical_replay: bool = False,
+        snapshot_id: str | None = None,
     ) -> dict[str, Any]:
         normalized_slot = _slot(slot)
         current = _aware(as_of or datetime.now(SHANGHAI))
@@ -1123,6 +1162,8 @@ class WorkflowApplication:
                 raise WorkflowError("HISTORICAL_AS_OF_REQUIRED")
             if current.date() >= datetime.now(SHANGHAI).date():
                 raise WorkflowError("HISTORICAL_AS_OF_NOT_PAST")
+        elif snapshot_id is not None:
+            raise WorkflowError("SNAPSHOT_ID_REQUIRES_HISTORICAL_REPLAY")
         self._ensure_trading_day(current, synchronize_accounts=not historical_replay)
         if normalized_slot == "morning" and current.hour == 9 and current.minute < 26:
             time.sleep(max(0.0, (_at_time(current, 9, 26) - current).total_seconds()))
@@ -1133,11 +1174,24 @@ class WorkflowApplication:
             job=normalized_slot,
         )
         progress.set_phase("DATA_SYNC")
+        resource_decision = evaluate_resources(self.settings.root)
+        progress.update_resources(resource_decision.snapshot.as_dict())
+        _progress_stdout(progress.snapshot())
+        if not resource_decision.allowed:
+            progress.finish(
+                status="BLOCKED",
+                phase="FAILED",
+                reason_code=resource_decision.reason_codes[0],
+            )
+            _progress_stdout(progress.snapshot())
+            raise WorkflowError(resource_decision.reason_codes[0])
         _progress_stdout(progress.snapshot())
         try:
-            prepared = None if historical_replay else self._load_research_resume_snapshot(
-                normalized_slot,
-                current,
+            prepared = (
+                self._load_research_snapshot_by_id(snapshot_id, expected_date=current.date().isoformat())
+                if historical_replay and snapshot_id is not None
+                else None if historical_replay
+                else self._load_research_resume_snapshot(normalized_slot, current)
             )
             if prepared is None:
                 prepared = self.prepare_snapshot(as_of=current, progress=progress)
@@ -1149,6 +1203,7 @@ class WorkflowApplication:
                     )
             else:
                 progress.set_phase("SNAPSHOT_RESUMED")
+                progress.update_resources(measure_resources(self.settings.root).as_dict())
                 _progress_stdout(progress.snapshot())
         except Exception as exc:
             progress.finish(
@@ -1190,6 +1245,7 @@ class WorkflowApplication:
             )
             _progress_stdout(progress.snapshot())
             raise
+        progress.update_resources(measure_resources(self.settings.root).as_dict())
         broker_benchmark = _write_broker_gold_benchmark(
             result,
             as_of=current,
@@ -1233,6 +1289,70 @@ class WorkflowApplication:
         )
         _progress_stdout(progress.snapshot())
         return summary
+
+    def _load_research_snapshot_by_id(
+        self,
+        snapshot_id: str,
+        *,
+        expected_date: str,
+    ) -> PreparedSnapshot:
+        """Load one immutable snapshot for replay without fetching live facts."""
+
+        if not re.fullmatch(r"snapshot-[A-Za-z0-9+._-]{8,180}", str(snapshot_id or "")):
+            raise WorkflowError("SNAPSHOT_ID_INVALID")
+        path = (self.settings.snapshot_dir / f"{snapshot_id}.json").resolve()
+        root = self.settings.snapshot_dir.resolve()
+        if not path.is_relative_to(root) or not path.is_file():
+            raise WorkflowError("SNAPSHOT_NOT_FOUND")
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, ValueError, TypeError) as exc:
+            raise WorkflowError("SNAPSHOT_INVALID") from exc
+        if not isinstance(payload, Mapping) or not isinstance(payload.get("data"), Mapping):
+            raise WorkflowError("SNAPSHOT_INVALID")
+        data = dict(payload["data"])
+        observed_id = str(payload.get("snapshot_id") or "")
+        observed_hash = str(payload.get("snapshot_hash") or "")
+        if observed_id != snapshot_id or not observed_hash or observed_hash != _hash_json(data):
+            raise WorkflowError("SNAPSHOT_HASH_MISMATCH")
+        try:
+            frozen_at = _aware(datetime.fromisoformat(str(payload.get("as_of") or "")))
+        except (TypeError, ValueError) as exc:
+            raise WorkflowError("SNAPSHOT_AS_OF_INVALID") from exc
+        if frozen_at.date().isoformat() != expected_date:
+            raise WorkflowError("SNAPSHOT_TRADE_DATE_MISMATCH")
+        g0_symbols = data.get("g0_symbols")
+        if not isinstance(g0_symbols, list) or not g0_symbols:
+            raise WorkflowError("SNAPSHOT_G0_INVALID")
+        manifest = data.get("snapshot_manifest")
+        manifest = manifest if isinstance(manifest, Mapping) else {}
+        full_count = _positive_count(
+            manifest.get("full_universe_count"),
+            fallback=_container_length(data.get("universe_candidates")),
+        )
+        research_count = _positive_count(
+            manifest.get("research_universe_count"),
+            fallback=max(len(g0_symbols), _container_length(data.get("universe_candidates"))),
+        )
+        trade_count = _positive_count(
+            manifest.get("trade_universe_count"),
+            fallback=_container_length(data.get("trade_candidates")),
+        )
+        factor_ready = data.get("factor_ready_symbols")
+        return PreparedSnapshot(
+            snapshot=ResearchSnapshot(
+                snapshot_id=observed_id,
+                snapshot_hash=observed_hash,
+                as_of=frozen_at,
+                data=data,
+            ),
+            path=path,
+            full_universe_count=full_count,
+            research_universe_count=research_count,
+            trade_universe_count=trade_count,
+            selected_count=len(g0_symbols),
+            factor_ready_count=_container_length(factor_ready),
+        )
 
     def _research_resume_marker_path(self, slot: str, trade_date: str) -> Path:
         return self.settings.research_checkpoint_dir / "active_runs" / f"{trade_date}-{slot}.json"
@@ -3064,6 +3184,18 @@ def _int_or_zero(value: Any) -> int:
         return int(value or 0)
     except (TypeError, ValueError):
         return 0
+
+
+def _container_length(value: Any) -> int:
+    return len(value) if isinstance(value, (list, tuple, set, frozenset, Mapping)) else 0
+
+
+def _positive_count(value: Any, *, fallback: int) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        number = 0
+    return number if number > 0 else max(0, int(fallback))
 
 
 def _write_broker_gold_benchmark(
