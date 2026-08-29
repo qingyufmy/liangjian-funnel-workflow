@@ -3,7 +3,7 @@
 > 文档版本：2.0  
 > 编制日期：2026-08-29  
 > 适用项目：`liangjian_funnel_workflow`  
-> 方案状态：已实施；本地完整回归通过，待虚拟机部署与历史交易日执行验收  
+> 方案状态：主体改造已实施并部署；本地、CI 与单交易日全量 A1→A2→A3 验收通过，真实 10 日效果、正式券商金股及自然非空计划验收仍待外部数据/市场样本
 > 当前代码基线：`54b99aec9c09ccb7438cf87463b4b809265f0a06`  
 > 关联文档：`A1_ROOT_CAUSE_REMEDIATION_IMPLEMENTATION_PLAN_2026-08-29.md`、`A1_A3_WORKFLOW_REMEDIATION_PLAN_2026-08-28.md`、`DETERMINISTIC_RESEARCH_PIPELINE_V2_PLAN.md`
 

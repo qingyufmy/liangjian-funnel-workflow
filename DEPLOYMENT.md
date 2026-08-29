@@ -99,6 +99,24 @@ curl -fsS -H "Authorization: Bearer $LIANGJIAN_DASHBOARD_TOKEN" http://127.0.0.1
 
 `status.configuration_ready` checks local persistence, credentials and exchange rules. `status.deployment_ready` additionally requires the newest persisted full run to have all three lanes ready or published. A minimal model probe is not proof that a full A1 prompt is operational; perform one bounded close-sized validation before unattended use.
 
+### Manual replay and acceptance process identity
+
+BaoTa runs this application as its configured non-root application user (the current VM uses `www:www`). Any manual replay, feature rebuild or transient systemd acceptance unit **must run as that same user and group**. The workflow intentionally writes atomic result files with mode `0600`; running a replay as `root` would therefore create valid results that the Node dashboard cannot read.
+
+For the current BaoTa layout, use a transient service with the following process boundary (and keep the existing simulation-only environment):
+
+```ini
+[Service]
+Type=oneshot
+User=www
+Group=www
+WorkingDirectory=/www/wwwroot/Agu/liangjian-funnel-workflow
+EnvironmentFile=/www/wwwroot/Agu/liangjian-funnel-workflow/.env
+ExecStart=/www/wwwroot/Agu/liangjian-funnel-workflow/.venv/bin/python -m liangjian_funnel run-close
+```
+
+Do not solve a user mismatch by weakening result permissions to world-readable. If an earlier administrative replay created root-owned runtime files, stop that replay, verify the resolved project path, and restore ownership only under the application's `outputs/`, `state/` and `storage/` runtime subtrees. Never recursively change ownership of `.env`, `.git` or the whole server root.
+
 ## Logs and persistence
 
 - `outputs/node/node-YYYY-MM-DD.jsonl`: Node scheduler and child-process logs, structured and redacted.
