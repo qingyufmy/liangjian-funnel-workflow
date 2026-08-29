@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from liangjian_funnel.pipeline.deterministic import DeterministicGateResult
 from liangjian_funnel.pipeline.research import (
-    STATUS_BLOCKED_EVIDENCE_GAP,
     STATUS_BLOCKED_TECHNICAL_DATA,
     STATUS_DEGRADED_UNDERFILLED_DATA_GAP,
     STATUS_VALIDATED_NO_OPPORTUNITY,
@@ -28,7 +27,7 @@ def test_a2_zero_focus_distinguishes_data_gap_from_no_opportunity():
         _a2_output([], [{"symbol": "600000.SH", "reason_codes": ["A2_FACTOR_COVERAGE_BELOW_MINIMUM"]}]),
         reasons=(),
     )
-    assert blocked == STATUS_BLOCKED_EVIDENCE_GAP
+    assert blocked == STATUS_DEGRADED_UNDERFILLED_DATA_GAP
     assert reasons == ("A2_FACTOR_COVERAGE_BELOW_MINIMUM",)
 
     no_opportunity, reasons = _classify_stage_outcome("A2", _a2_output([]), reasons=())
@@ -85,7 +84,7 @@ def test_a2_reviewed_evidence_gap_still_blocks_zero_focus():
         reviewed_output=reviewed,
     )
 
-    assert status == STATUS_BLOCKED_EVIDENCE_GAP
+    assert status == STATUS_DEGRADED_UNDERFILLED_DATA_GAP
     assert reasons == ("A2_MARKET_FACTS_INSUFFICIENT",)
 
 

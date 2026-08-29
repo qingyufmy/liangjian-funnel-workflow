@@ -5,6 +5,8 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import pytest
+
 from liangjian_funnel.pipeline.deterministic import local_active_items, screen_a1, screen_a2, screen_a3
 from liangjian_funnel.pipeline.feature_store import ResearchFeatureStore
 from liangjian_funnel.pipeline.model_client import ModelCallResult
@@ -249,9 +251,13 @@ def test_a2_market_core_uses_real_local_market_factors_without_inventing_capital
     result = screen_a2(snapshot, a1_output, minimum_identifiability_score=60, llm_top_n_per_theme=2)
     item = result.decisions[0]
 
-    assert item["status"] == "REVIEW_CANDIDATE"
+    assert item["status"] == "DATA_GAP"
+    assert result.review_symbols == ()
+    assert result.monitor_symbols == (symbol,)
     assert "MARKET_CORE" in item["eligible_routes"]
     assert item["factor_coverage"]["ratio"] >= 0.65
+    assert item["critical_factor_coverage"]["sufficient"] is False
+    assert item["data_sufficiency_state"] == "INSUFFICIENT"
     assert item["a2_factor_scores"]["capital_flow"]["available"] is False
     assert item["a2_factor_scores"]["capital_flow"]["source"] == "CAPITAL_FLOW_SNAPSHOT"
     assert item["a2_factor_scores"]["turnover_share"]["source"] == "FROZEN_G0_INDUSTRY_TURNOVER_SHARE"
@@ -502,3 +508,101 @@ def test_empty_a3_stage_emits_terminal_no_action_progress(tmp_path: Path):
             "selected_symbols": 0,
         }
     ]
+
+
+def _complete_a2_factor_scores(score: float) -> dict[str, dict[str, float]]:
+    """Build explicit observed factors for deterministic gate boundary tests."""
+
+    return {
+        name: {"score": score}
+        for name in (
+            "breadth",
+            "turnover_share",
+            "capital_flow",
+            "leader_structure",
+            "tier_structure",
+            "profit_effect",
+            "catalyst_freshness",
+            "index_chain_resonance",
+            "agent_1_quality",
+        )
+    }
+
+
+def test_screen_a2_partitions_no_route_low_identity_and_llm_rank_overflow() -> None:
+    """A2 must preserve every A1 row while distinguishing actionable routes."""
+
+    snapshot = _snapshot(4)
+    snapshot["A2_SCORE_WEIGHTS"] = {name: 1.0 for name in _complete_a2_factor_scores(90)}
+    snapshot["CAPITAL_FLOW_SNAPSHOT"] = {
+        "available": True,
+        "source_id": "TEST_CAPITAL_FLOW",
+        "by_symbol": {
+            symbol: {"available": True, "capital_flow_score": 90}
+            for symbol in snapshot["g0_symbols"]
+        },
+    }
+    symbols = snapshot["g0_symbols"][:3]
+    rows = [
+        {
+            "symbol": symbols[0],
+            "candidate_id": "a1:high",
+            "primary_theme": "theme-core",
+            "industry_chain_node": "node-core",
+            "business_exposure": {"revenue_exposure_pct": 65, "source_ref": "cninfo:high"},
+            "a2_factor_scores": _complete_a2_factor_scores(95),
+            "data_quality_score": 95,
+        },
+        {
+            "symbol": symbols[1],
+            "candidate_id": "a1:low",
+            "primary_theme": "theme-core",
+            "industry_chain_node": "node-core",
+            "business_exposure": {"revenue_exposure_pct": 60, "source_ref": "cninfo:low"},
+            "a2_factor_scores": _complete_a2_factor_scores(65),
+            "data_quality_score": 80,
+        },
+        {
+            # Complete evidence can still be held locally when the upstream
+            # row has no theme/chain/evidence route contract.
+            "symbol": symbols[2],
+            "candidate_id": "a1:unmapped",
+            "a2_factor_scores": _complete_a2_factor_scores(80),
+            "data_quality_score": 80,
+        },
+        {"symbol": ""},  # malformed upstream row must not become a decision
+    ]
+
+    result = screen_a2(
+        snapshot,
+        {"active_research_pool": rows},
+        minimum_identifiability_score=0,
+        llm_top_n_per_theme=1,
+    )
+    by_symbol = {item["symbol"]: item for item in result.decisions}
+
+    assert set(by_symbol) == set(symbols)
+    assert by_symbol[symbols[0]]["status"] == "REVIEW_CANDIDATE"
+    assert by_symbol[symbols[0]]["sent_to_llm"] is True
+    assert by_symbol[symbols[0]]["theme_rank"] == 1
+    assert by_symbol[symbols[1]]["status"] == "LOCAL_MONITOR"
+    assert by_symbol[symbols[1]]["sent_to_llm"] is False
+    assert "A2_NOT_SENT_TO_LLM" in by_symbol[symbols[1]]["reason_codes"]
+    assert by_symbol[symbols[2]]["status"] == "LOCAL_MONITOR"
+    assert "A2_NO_ROUTE_READY" in by_symbol[symbols[2]]["reason_codes"]
+
+    # A high identity threshold is an explicit deterministic rejection, not
+    # a data-gap claim.  The same complete source contract remains auditable.
+    rejected = screen_a2(
+        snapshot,
+        {"active_research_pool": [rows[0]]},
+        minimum_identifiability_score=101,
+        llm_top_n_per_theme=1,
+    ).decisions[0]
+    assert rejected["status"] == "HARD_REJECT"
+    assert "A2_LOW_IDENTITY_EXCLUDED" in rejected["reason_codes"]
+
+
+def test_screen_a2_rejects_non_positive_review_budget() -> None:
+    with pytest.raises(ValueError, match="Top-N value must be positive"):
+        screen_a2(_snapshot(1), {"active_research_pool": []}, llm_top_n_per_theme=0)

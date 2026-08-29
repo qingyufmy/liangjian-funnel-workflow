@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
-A2_FEATURE_SCHEMA = "a2-features/2.0.0"
+A2_FEATURE_SCHEMA = "a2-features/3.0.0"
 
 
 def build_a2_feature_snapshot(
@@ -57,6 +57,7 @@ def build_a2_feature_snapshot(
     industry_by_symbol = _membership_by_symbol(industry_membership, taxonomy="INDUSTRY")
     concept_by_symbol = _membership_by_symbol(concept_membership, taxonomy="CONCEPT")
     ladder = _ladder_by_symbol(ladder_snapshot, cutoff.date())
+    ladder_observed, ladder_state, ladder_reason = _dataset_observation(ladder_snapshot)
     dragon = _event_symbols(dragon_tiger_snapshot)
     attention = _event_symbols(attention_snapshot)
     capital_by_symbol = (
@@ -66,10 +67,18 @@ def build_a2_feature_snapshot(
         else {}
     )
 
+    trend_by_symbol: dict[str, dict[str, Any]] = {}
     tier_by_symbol: dict[str, dict[str, Any]] = {}
     for symbol in symbols:
         ladder_row = ladder.get(symbol)
         relative = return_percentiles.get(symbol)
+        trend_by_symbol[symbol] = _factor(
+            relative,
+            source="LOCAL_POINT_IN_TIME_DAILY_BARS",
+            availability_state="OBSERVED_VALUE" if relative is not None else "SOURCE_FAILED",
+            reason_code="OK" if relative is not None else "A2_TREND_DAILY_BARS_MISSING",
+            extra={"trend_percentile": relative},
+        )
         if ladder_row is not None:
             height = int(_number(ladder_row.get("board_num")) or 1)
             score = min(100.0, 55.0 + height * 7.5)
@@ -81,22 +90,21 @@ def build_a2_feature_snapshot(
                 reason_code="OK",
                 extra={"tier": tier, "ladder_height": height, "trend_percentile": relative},
             )
-        elif relative is not None:
-            tier = "T1" if relative >= 90 else "T2" if relative >= 75 else "TR"
+        elif ladder_observed:
             tier_by_symbol[symbol] = _factor(
-                relative,
-                source="LOCAL_POINT_IN_TIME_DAILY_BARS",
+                0.0,
+                source="HITHINK_LIMIT_UP_LADDER",
                 availability_state="OBSERVED_ABSENT",
-                reason_code="NO_LIMIT_UP_EVENT_TREND_TIER_USED",
-                extra={"tier": tier, "ladder_height": 0, "trend_percentile": relative},
+                reason_code="NO_LIMIT_UP_EVENT",
+                extra={"tier": "NONE", "ladder_height": 0, "trend_percentile": relative},
             )
         else:
             tier_by_symbol[symbol] = _factor(
                 None,
-                source="LOCAL_POINT_IN_TIME_DAILY_BARS",
-                availability_state="SOURCE_FAILED",
-                reason_code="A2_TIER_DAILY_BARS_MISSING",
-                extra={"tier": "UNCONFIRMED", "ladder_height": None},
+                source="HITHINK_LIMIT_UP_LADDER",
+                availability_state=ladder_state,
+                reason_code=ladder_reason,
+                extra={"tier": "UNKNOWN", "ladder_height": None, "trend_percentile": relative},
             )
 
     leader_by_symbol: dict[str, dict[str, Any]] = {}
@@ -251,6 +259,10 @@ def build_a2_feature_snapshot(
         factors = {
             "capital_flow": capital_factor,
             "tier_structure": tier_by_symbol[symbol],
+            # Trend strength is useful for leader identification but is not a
+            # substitute for an observed limit-up ladder.  It deliberately
+            # remains outside the canonical A2 factor weights.
+            "trend_strength_proxy": trend_by_symbol[symbol],
             "leader_structure": leader_by_symbol[symbol],
             "index_chain_resonance": chain_by_symbol[symbol],
         }
@@ -264,13 +276,49 @@ def build_a2_feature_snapshot(
             "tier": tier_by_symbol[symbol].get("tier"),
         }
 
+    symbol_count = len(symbols)
+    daily_bar_coverage = sum(symbol in returns for symbol in symbols) / symbol_count if symbol_count else 0.0
+    identity_coverage = (
+        sum(bool(industry_by_symbol.get(symbol) or concept_by_symbol.get(symbol)) for symbol in symbols) / symbol_count
+        if symbol_count
+        else 0.0
+    )
+    factor_coverage = {
+        name: (
+            sum(by_symbol[symbol]["factors"][name].get("available") is True for symbol in symbols) / symbol_count
+            if symbol_count
+            else 0.0
+        )
+        for name in ("capital_flow", "tier_structure", "leader_structure", "index_chain_resonance")
+    }
+    critical_sufficient = bool(symbols) and all((
+        daily_bar_coverage >= 0.95,
+        identity_coverage >= 0.95,
+        factor_coverage["capital_flow"] >= 0.90,
+        factor_coverage["tier_structure"] >= 0.90,
+        factor_coverage["leader_structure"] >= 0.90,
+        factor_coverage["index_chain_resonance"] >= 0.90,
+    ))
     payload: dict[str, Any] = {
         "schema_version": A2_FEATURE_SCHEMA,
-        "available": bool(symbols) and sum(symbol in returns for symbol in symbols) / len(symbols) >= 0.80,
-        "reason_code": "OK" if symbols and sum(symbol in returns for symbol in symbols) / len(symbols) >= 0.80 else "A2_DAILY_BAR_COVERAGE_INSUFFICIENT",
+        "available": critical_sufficient,
+        "reason_code": "OK" if critical_sufficient else "A2_CRITICAL_DATA_INSUFFICIENT",
+        "data_sufficiency_state": "SUFFICIENT" if critical_sufficient else "INSUFFICIENT",
         "as_of": cutoff.isoformat(),
-        "symbol_count": len(symbols),
-        "daily_bar_coverage": round(sum(symbol in returns for symbol in symbols) / len(symbols), 6) if symbols else 0.0,
+        "symbol_count": symbol_count,
+        "daily_bar_coverage": round(daily_bar_coverage, 6),
+        "identity_coverage": round(identity_coverage, 6),
+        "factor_coverage": {key: round(value, 6) for key, value in factor_coverage.items()},
+        "coverage_thresholds": {
+            "daily_bars": 0.95,
+            "identity": 0.95,
+            "capital_flow": 0.90,
+            "tier_structure": 0.90,
+            "leader_structure": 0.90,
+            "index_chain_resonance": 0.90,
+        },
+        "ladder_dataset_state": ladder_state,
+        "ladder_dataset_reason_code": ladder_reason,
         "capital_flow_available": bool(isinstance(capital_flow_snapshot, Mapping) and capital_flow_snapshot.get("available") is True),
         "capital_flow_method": capital_flow_snapshot.get("provider_method") if isinstance(capital_flow_snapshot, Mapping) else None,
         "by_symbol": by_symbol,
@@ -348,6 +396,27 @@ def _records(value: Mapping[str, Any] | None) -> tuple[Mapping[str, Any], ...]:
         if isinstance(nested, Sequence) and not isinstance(nested, (str, bytes, bytearray)):
             return tuple(item for item in nested if isinstance(item, Mapping))
     return ()
+
+
+def _dataset_observation(value: Mapping[str, Any] | None) -> tuple[bool, str, str]:
+    """Return whether absence from a dataset is an observed fact.
+
+    An empty, successfully collected full-market event set is valid evidence
+    that a stock had no event.  A missing/malformed/failed source is not.
+    """
+
+    if not isinstance(value, Mapping):
+        return False, "NOT_CONFIGURED", "A2_TIER_SOURCE_NOT_CONFIGURED"
+    if value.get("available") is False:
+        return False, str(value.get("availability_state") or "SOURCE_FAILED"), str(
+            value.get("reason_code") or "A2_TIER_SOURCE_FAILED"
+        )
+    records = value.get("records")
+    if not isinstance(records, Sequence) or isinstance(records, (str, bytes, bytearray)):
+        return False, "SOURCE_FAILED", "A2_TIER_RECORDS_MALFORMED"
+    if any(not isinstance(item, Mapping) for item in records):
+        return False, "SOURCE_FAILED", "A2_TIER_RECORDS_MALFORMED"
+    return True, "OBSERVED_VALUE", "OK"
 
 
 def _return_20d(bars: Sequence[Mapping[str, Any]], as_of: date) -> float | None:

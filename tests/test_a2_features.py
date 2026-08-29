@@ -94,7 +94,34 @@ def test_missing_capital_flow_stays_unavailable_while_other_factors_remain_audit
     assert row["factors"]["capital_flow"]["available"] is False
     assert row["factors"]["capital_flow"]["score"] is None
     assert row["factors"]["tier_structure"]["available"] is True
+    assert row["factors"]["tier_structure"]["score"] == 0
+    assert row["factors"]["tier_structure"]["tier"] == "NONE"
+    assert row["factors"]["trend_strength_proxy"]["available"] is True
+    assert row["factors"]["tier_structure"]["source"] != row["factors"]["trend_strength_proxy"]["source"]
     assert snapshot["capital_flow_available"] is False
+    assert snapshot["data_sufficiency_state"] == "INSUFFICIENT"
+
+
+def test_failed_ladder_source_is_unknown_even_when_trend_is_available() -> None:
+    snapshot = build_a2_feature_snapshot(
+        candidates=[{"symbol": "600001.SH", "amount": 1000}],
+        daily_bars={"600001.SH": _bars(0.02)},
+        industry_membership=_membership("industry"),
+        concept_membership=None,
+        ladder_snapshot=None,
+        dragon_tiger_snapshot={"records": []},
+        attention_snapshot={"records": []},
+        sector_cycle_snapshot=None,
+        capital_flow_snapshot={"available": False, "reason_code": "SOURCE_NOT_CONFIGURED"},
+        as_of=NOW,
+    )
+
+    row = snapshot["by_symbol"]["600001.SH"]
+    assert row["factors"]["tier_structure"]["available"] is False
+    assert row["factors"]["tier_structure"]["score"] is None
+    assert row["factors"]["tier_structure"]["tier"] == "UNKNOWN"
+    assert row["factors"]["trend_strength_proxy"]["available"] is True
+    assert snapshot["ladder_dataset_state"] == "NOT_CONFIGURED"
 
 
 def test_cross_section_percentiles_average_ties() -> None:
@@ -153,3 +180,46 @@ def test_deterministic_a2_consumes_materialized_real_factor_projection() -> None
     assert decision["a2_factor_scores"]["capital_flow"]["score"] == 90
     assert decision["a2_factor_scores"]["tier_structure"]["available"] is True
     assert decision["a2_factor_scores"]["leader_structure"]["available"] is True
+
+
+def test_deterministic_a2_partitions_missing_capital_as_data_gap() -> None:
+    capital = {"available": False, "reason_code": "SOURCE_NOT_CONFIGURED", "by_symbol": {}}
+    factors = build_a2_feature_snapshot(
+        candidates=[{"symbol": "600001.SH", "amount": 1000}],
+        daily_bars={"600001.SH": _bars(0.02)},
+        industry_membership=_membership("industry"),
+        concept_membership=None,
+        ladder_snapshot={"records": []},
+        dragon_tiger_snapshot={"records": []},
+        attention_snapshot={"records": []},
+        sector_cycle_snapshot=None,
+        capital_flow_snapshot=capital,
+        as_of=NOW,
+    )
+    snapshot = {
+        "CAPITAL_FLOW_SNAPSHOT": capital,
+        "A2_FACTOR_SNAPSHOT": factors,
+        "TIER_STRUCTURE_SNAPSHOT": factors,
+        "A2_THEME_METRICS": factors["theme_metrics"],
+        "g0_candidates": [{"symbol": "600001.SH", "amount": 1000, "change_ratio_pct": 2}],
+    }
+    a1 = {
+        "active_research_pool": [{
+            "symbol": "600001.SH",
+            "candidate_id": "a1:600001.SH",
+            "primary_theme": "theme-main",
+            "structural_score": 85,
+            "data_quality_score": 90,
+            "source_refs": ["fixture:a1"],
+        }],
+    }
+
+    result = screen_a2(snapshot, a1, minimum_identifiability_score=0, llm_top_n_per_theme=1)
+    decision = result.decisions[0]
+    assert decision["status"] == "DATA_GAP"
+    assert decision["sent_to_llm"] is False
+    assert decision["data_sufficiency_state"] == "INSUFFICIENT"
+    assert "capital_flow" in decision["critical_factor_coverage"]["missing_factors"]
+    assert "A2_CRITICAL_DATA_INSUFFICIENT" in decision["reason_codes"]
+    assert result.summary["data_sufficiency_state"] == "INSUFFICIENT"
+    assert result.monitor_symbols == ("600001.SH",)

@@ -9,6 +9,7 @@ export const FEATURE_MAINTENANCE_AT = "03:30";
 export const JOB_DEFINITIONS: readonly JobDefinition[] = [
   { name: "morning", command: "run-morning", label: "早盘复核", schedule: "09:26" },
   { name: "close", command: "run-close", label: "收盘研究", schedule: "15:10" },
+  { name: "comparison", command: "run-comparison", label: "对比模型补充", schedule: "主结果发布后/重启恢复" },
   { name: "monitor", command: "run-monitor", label: "盘中盯盘", schedule: "交易时段每分钟" },
   { name: "features", command: "maintain-features", label: "特征维护", schedule: "每日03:30（周六全量）" },
 ];

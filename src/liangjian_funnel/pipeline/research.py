@@ -18,7 +18,7 @@ import sqlite3
 import time
 from concurrent.futures import ThreadPoolExecutor
 from collections.abc import Iterator, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime
 from pathlib import Path
 from types import MappingProxyType
@@ -60,6 +60,8 @@ from .a1_contract import (
 )
 from .a1_packet import A1_PACKET_TOKEN_BUDGET, A1PacketSizeError, build_a1_research_packet
 from .feature_store import FeatureGenerationError, ResearchFeatureStore
+from .feature_rebuild import validate_feature_generation as validate_generation_projection
+from .candidate_catalog import enrich_candidate_metadata
 from .model_client import (
     ModelCallResult,
     ModelClientError,
@@ -125,6 +127,9 @@ _A2_EVIDENCE_GAP_REASONS = frozenset(
         "BOTTLENECK_UNKNOWN_FACTORS",
         "A2_CAPITAL_FLOW_SCORE_INVENTED",
         "A2_FACTOR_COVERAGE_BELOW_MINIMUM",
+        "A2_CRITICAL_DATA_INSUFFICIENT",
+        "A2_DATA_GAP",
+        "A2_CAPITAL_FLOW_UNAVAILABLE",
         "A2_MARKET_FACTS_INSUFFICIENT",
         "A2_ROUTE_MISSING_OR_INVALID",
         "A2_EVIDENCE_COVERAGE_BELOW_MINIMUM",
@@ -462,6 +467,7 @@ class ResearchPipeline:
             else None
         )
         self._feature_generation_id = ""
+        self._feature_generation_owned = False
         self._pipeline_contract_hash = _sha256_json({
             "pipeline_mode": settings.research_pipeline_mode,
             "stages": STAGES,
@@ -485,8 +491,22 @@ class ResearchPipeline:
         *,
         run_id: str | None = None,
         generated_at: datetime | None = None,
+        historical_replay: bool = False,
+        models: Sequence[str] | None = None,
+        lane_start_index: int = 1,
+        primary_lane_ids: Sequence[str] | None = None,
     ) -> ResearchRunResult:
+        """Run an explicitly selected set of model lanes.
+
+        The historical/default contract remains a three-model run.  Callers
+        that need the fast primary lane or the optional comparison lanes must
+        pass the model set explicitly; lane numbering is kept stable so a
+        comparison result can be joined to its parent without rewriting the
+        primary run.
+        """
         self._deadline_started_monotonic = time.monotonic()
+        self._feature_generation_id = ""
+        self._feature_generation_owned = False
         current = generated_at or self.now()
         if current.tzinfo is None or current.utcoffset() is None:
             current = current.replace(tzinfo=ZoneInfo(self.settings.timezone))
@@ -505,7 +525,12 @@ class ResearchPipeline:
         effective_run_id = _safe_run_id(run_id or _default_run_id(current, frozen.snapshot_id))
         if self.feature_store is not None and frozen.snapshot_id != "UNKNOWN":
             try:
-                generation_id = f"feature-{frozen.snapshot_hash[:24]}"
+                # A research run owns a private, append-only projection.  It
+                # must never replace the maintenance plane's active feature
+                # generation, and two runs over the same snapshot must not
+                # share mutable deterministic decisions.
+                run_digest = hashlib.sha256(effective_run_id.encode("utf-8")).hexdigest()[:12]
+                generation_id = f"run-{frozen.snapshot_hash[:12]}-{run_digest}"
                 generation = self.feature_store.get_feature_generation(generation_id)
                 if generation is None:
                     self.feature_store.create_feature_generation(
@@ -514,48 +539,57 @@ class ResearchPipeline:
                         contract_version="feature-store/2.0.0",
                         algorithm_version=self.settings.research_pipeline_mode,
                         source_manifest_hash=frozen.snapshot_hash,
-                        metadata={"snapshot_id": frozen.snapshot_id},
+                        metadata={
+                            "snapshot_id": frozen.snapshot_id,
+                            "run_id": effective_run_id,
+                            "historical_replay": bool(historical_replay),
+                        },
+                        purpose=(
+                            "HISTORICAL_REPLAY" if historical_replay else "RUN_SNAPSHOT"
+                        ),
+                        activation_eligible=False,
                     )
                 generation = self.feature_store.get_feature_generation(generation_id)
                 generation_status = str((generation or {}).get("status") or "").upper()
-                if generation_status == "STAGING":
-                    for taxonomy, field in (
-                        ("INDUSTRY", "THS_INDUSTRY_MEMBERSHIP"),
-                        ("CONCEPT", "THS_CONCEPT_MEMBERSHIP"),
-                    ):
-                        value = frozen.data.get(field)
-                        if isinstance(value, Mapping):
-                            self.feature_store.replace_taxonomy_memberships(
-                                taxonomy=taxonomy,
-                                snapshot=value,
-                                as_of=frozen.as_of or current,
-                                generation_id=generation_id,
-                            )
-                    self.feature_store.replace_business_exposure_facts(
-                        extract_business_exposure_facts(frozen.data.get("MAIN_BUSINESS_EVIDENCE")),
+                if generation_status == "SEALED":
+                    # A checkpoint-resumed run can legitimately encounter its
+                    # already sealed private generation.  Reuse it for reads,
+                    # but never try to bind or seal it a second time.
+                    self._feature_generation_id = generation_id
+                    self._feature_generation_owned = False
+                else:
+                    if generation_status == "STAGING":
+                        for taxonomy, field in (
+                            ("INDUSTRY", "THS_INDUSTRY_MEMBERSHIP"),
+                            ("CONCEPT", "THS_CONCEPT_MEMBERSHIP"),
+                        ):
+                            value = frozen.data.get(field)
+                            if isinstance(value, Mapping):
+                                self.feature_store.replace_taxonomy_memberships(
+                                    taxonomy=taxonomy,
+                                    snapshot=value,
+                                    as_of=frozen.as_of or current,
+                                    generation_id=generation_id,
+                                )
+                        self.feature_store.replace_business_exposure_facts(
+                            extract_business_exposure_facts(frozen.data.get("MAIN_BUSINESS_EVIDENCE")),
+                            generation_id=generation_id,
+                        )
+                    if generation_status not in {"STAGING", "VALIDATED"}:
+                        raise FeatureGenerationError(
+                            f"FEATURE_RUN_GENERATION_NOT_WRITABLE:{generation_id}"
+                        )
+                    # Bind while STAGING so deterministic A1/A2/A3 projections
+                    # are written only to this run.  The binding is immutable;
+                    # the generation itself is sealed after all lanes finish.
+                    self.feature_store.bind_run_feature_generation(
+                        run_id=effective_run_id,
                         generation_id=generation_id,
+                        contract_hash=self._feature_contract_hash,
+                        allow_unpublished=True,
                     )
-                    self.feature_store.validate_feature_generation(
-                        generation_id,
-                        validation={"snapshot_hash": frozen.snapshot_hash, "materialized": True},
-                    )
-                    self.feature_store.publish_feature_generation(generation_id)
-                elif generation_status == "VALIDATED":
-                    self.feature_store.publish_feature_generation(generation_id)
-                elif generation_status != "PUBLISHED":
-                    raise FeatureGenerationError(
-                        f"FEATURE_GENERATION_NOT_PUBLISHED:{generation_id}"
-                    )
-                # Bind the run to the exact snapshot generation materialised
-                # above.  Binding whatever happens to be globally active is
-                # unsafe when a historical replay and a newer maintenance
-                # generation coexist in the same store.
-                self.feature_store.bind_run_feature_generation(
-                    run_id=effective_run_id,
-                    generation_id=generation_id,
-                    contract_hash=self._feature_contract_hash,
-                )
-                self._feature_generation_id = generation_id
+                    self._feature_generation_id = generation_id
+                    self._feature_generation_owned = True
             except (FeatureGenerationError, OSError, sqlite3.Error, ValueError):
                 global_reason = global_reason or "FEATURE_STORE_MATERIALIZATION_FAILED"
 
@@ -568,9 +602,36 @@ class ResearchPipeline:
             bundle = None
             global_reason = global_reason or "PROMPT_REPOSITORY_BLOCKED"
 
-        models = tuple(self.settings.research_models)
-        if models != RESEARCH_MODELS:
+        selected_models = tuple(
+            str(model).strip()
+            for model in (self.settings.research_models if models is None else models)
+        )
+        configured_models = tuple(self.settings.research_models)
+        if (
+            not selected_models
+            or any(not model for model in selected_models)
+            or len(set(selected_models)) != len(selected_models)
+            or any(model not in configured_models for model in selected_models)
+            or not isinstance(lane_start_index, int)
+            or isinstance(lane_start_index, bool)
+            or lane_start_index < 1
+            or lane_start_index + len(selected_models) - 1 > len(RESEARCH_MODELS)
+        ):
             global_reason = global_reason or "RESEARCH_MODEL_CONFIG_INVALID"
+        if primary_lane_ids is None:
+            selected_primary_lane_ids = (self.settings.research_primary_lane_id,)
+        else:
+            selected_primary_lane_ids = tuple(str(item).strip() for item in primary_lane_ids if str(item).strip())
+        expected_lane_ids = {
+            f"lane_{lane_start_index + offset}"
+            for offset in range(len(selected_models))
+        } if isinstance(lane_start_index, int) and not isinstance(lane_start_index, bool) else set()
+        if (
+            not selected_primary_lane_ids
+            or any(item not in expected_lane_ids for item in selected_primary_lane_ids)
+        ):
+            global_reason = global_reason or "PRIMARY_LANE_CONFIG_INVALID"
+
         def execute_lane(index: int, model: str) -> LaneResult:
             lane_id = f"lane_{index}"
             lane = self._run_lane(
@@ -582,6 +643,29 @@ class ResearchPipeline:
                 run_id=effective_run_id,
                 global_reason=global_reason,
             )
+            enriched_stage_rows: list[StageAudit] = []
+            for stage in lane.stages:
+                if isinstance(stage.output, Mapping):
+                    enriched_output = enrich_candidate_metadata(stage.output, frozen.data)
+                    enriched_stage_rows.append(
+                        replace(
+                            stage,
+                            output=enriched_output,
+                            output_hash=_sha256_json(enriched_output),
+                        )
+                    )
+                else:
+                    enriched_stage_rows.append(stage)
+            enriched_stages = tuple(enriched_stage_rows)
+            lane = replace(
+                lane,
+                stages=enriched_stages,
+                final_output=(
+                    enriched_stages[-1].output
+                    if lane.final_output is not None and enriched_stages
+                    else lane.final_output
+                ),
+            )
             audit_path = self._write_lane_audit(effective_run_id, lane, snapshot=frozen)
             return LaneResult(
                 lane=lane.lane,
@@ -592,9 +676,19 @@ class ResearchPipeline:
                 audit_path=audit_path,
             )
 
-        indexed_models = tuple(enumerate(models, start=1))
-        if self.parallel_lanes:
-            with ThreadPoolExecutor(max_workers=3, thread_name_prefix="liangjian-lane") as executor:
+        indexed_models = (
+            tuple(
+                (lane_start_index + offset, model)
+                for offset, model in enumerate(selected_models)
+            )
+            if isinstance(lane_start_index, int) and not isinstance(lane_start_index, bool)
+            else ()
+        )
+        if self.parallel_lanes and indexed_models:
+            with ThreadPoolExecutor(
+                max_workers=min(3, len(indexed_models)),
+                thread_name_prefix="liangjian-lane",
+            ) as executor:
                 lanes = list(executor.map(lambda item: execute_lane(*item), indexed_models))
         else:
             lanes = []
@@ -643,11 +737,37 @@ class ResearchPipeline:
                         outcome=stage.outcome().as_dict(),
                     )
 
+        if self.feature_store is not None and self._feature_generation_id and self._feature_generation_owned:
+            try:
+                validation_manifest = validate_generation_projection(
+                    self.feature_store,
+                    self._feature_generation_id,
+                )
+                validation_manifest = {
+                    **validation_manifest,
+                    "snapshot_hash": frozen.snapshot_hash,
+                    "run_id": effective_run_id,
+                    "historical_replay": bool(historical_replay),
+                    "lane_statuses": {lane.lane: lane.status for lane in lanes},
+                }
+                self.feature_store.validate_feature_generation(
+                    self._feature_generation_id,
+                    validation=validation_manifest,
+                )
+                self.feature_store.seal_generation(
+                    self._feature_generation_id,
+                    validation_manifest=validation_manifest,
+                    purpose=("HISTORICAL_REPLAY" if historical_replay else "RUN_SNAPSHOT"),
+                    activation_eligible=False,
+                )
+            except (FeatureGenerationError, OSError, sqlite3.Error, ValueError) as exc:
+                raise ResearchPipelineError("FEATURE_RUN_GENERATION_FINALIZATION_FAILED") from exc
+
         run_outcome = aggregate_run_outcome(
             tuple(lane.outcome() for lane in lanes),
             run_id=effective_run_id,
-            primary_lane_ids=(self.settings.research_primary_lane_id,),
-            expected_lane_count=len(models),
+            primary_lane_ids=selected_primary_lane_ids,
+            expected_lane_count=len(selected_models),
         )
         overall = run_outcome.legacy_status
         result = ResearchRunResult(
@@ -659,7 +779,7 @@ class ResearchPipeline:
             lanes=tuple(lanes),
             audit_paths=tuple(lane.audit_path for lane in lanes if lane.audit_path is not None),
             markdown_path=None,
-            primary_lane_ids=(self.settings.research_primary_lane_id,),
+            primary_lane_ids=selected_primary_lane_ids,
         )
         markdown_path = self._write_markdown(result)
         return ResearchRunResult(
@@ -1172,11 +1292,14 @@ class ResearchPipeline:
         a2_output = a2_audit.output if isinstance(a2_audit.output, Mapping) else {}
         a2_symbols = set(a2_audit.symbols)
         if not a2_symbols:
-            if a2_audit.status == STATUS_BLOCKED_EVIDENCE_GAP:
+            if a2_audit.status in {
+                STATUS_BLOCKED_EVIDENCE_GAP,
+                STATUS_DEGRADED_UNDERFILLED_DATA_GAP,
+            }:
                 a3_audit = self._not_run_stage(
-                    lane_id, model, "A3", snapshot.snapshot_id, "UPSTREAM_STAGE_BLOCKED"
+                    lane_id, model, "A3", snapshot.snapshot_id, "UPSTREAM_DATA_INSUFFICIENT"
                 )
-                lane_status = "BLOCKED"
+                lane_status = "READY_DEGRADED"
             else:
                 a3_audit = self._empty_stage(
                     run_id=run_id,
@@ -1194,7 +1317,11 @@ class ResearchPipeline:
                 model=model,
                 status=lane_status,
                 stages=(a1_audit, a2_audit, a3_audit),
-                final_output=a3_audit.output if lane_status == "READY" else None,
+                final_output=(
+                    a3_audit.output if lane_status == "READY" else a2_output
+                    if lane_status == "READY_DEGRADED"
+                    else None
+                ),
             )
 
         try:
@@ -4033,6 +4160,10 @@ def _gate_secondary_items(gate: DeterministicGateResult, stage: str) -> list[dic
             "local_decision": True,
             "sent_to_llm": False,
             "source_refs": [],
+            "data_sufficiency_state": decision.get("data_sufficiency_state"),
+            "factor_coverage": decision.get("factor_coverage"),
+            "critical_factor_coverage": decision.get("critical_factor_coverage"),
+            "local_partition": decision.get("status"),
         }
         if stage == "A2":
             item.update({
@@ -4895,6 +5026,17 @@ def _stage_outcome(audit: StageAudit) -> StageOutcome:
     required = local.get("minimum_coverage")
     if isinstance(required, (int, float)) and not isinstance(required, bool):
         data_coverage["required"] = float(required)
+    sufficiency = local.get("data_sufficiency_state")
+    if isinstance(sufficiency, str) and sufficiency:
+        data_coverage["sufficiency_state"] = sufficiency
+    critical = local.get("critical_factor_coverage")
+    if isinstance(critical, Mapping):
+        for name, value in critical.items():
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                data_coverage[f"critical_{name}"] = float(value)
+    minimum_critical = local.get("minimum_critical_factor_coverage")
+    if isinstance(minimum_critical, (int, float)) and not isinstance(minimum_critical, bool):
+        data_coverage["minimum_critical"] = float(minimum_critical)
     return stage_outcome_from_legacy(
         audit.status,
         stage=audit.stage,
@@ -6769,7 +6911,7 @@ def _lane_status_from_stages(stages: Sequence[StageAudit]) -> str:
 
     statuses = tuple(str(stage.status or "") for stage in stages)
     if any(status == STATUS_DEGRADED_UNDERFILLED_DATA_GAP for status in statuses):
-        return "BLOCKED"
+        return "READY_DEGRADED"
     if any(status == STATUS_VALIDATED_UNDERFILLED_MARKET for status in statuses):
         return "READY_DEGRADED"
     return "READY" if statuses and all(_stage_completed(status) for status in statuses) else "BLOCKED"
@@ -6819,7 +6961,9 @@ def _classify_stage_outcome(
         ):
             return STATUS_BLOCKED_DATA_COVERAGE, ()
         if stage == "A2" and set(validation_reasons).intersection(_A2_EVIDENCE_GAP_REASONS):
-            return STATUS_BLOCKED_EVIDENCE_GAP, ()
+            return STATUS_DEGRADED_UNDERFILLED_DATA_GAP, tuple(
+                sorted(set(validation_reasons).intersection(_A2_EVIDENCE_GAP_REASONS))
+            )
         if stage == "A3" and set(validation_reasons).intersection(_A3_TECHNICAL_DATA_REASONS):
             return STATUS_BLOCKED_TECHNICAL_DATA, ()
         return "BLOCKED", ()
@@ -6842,9 +6986,13 @@ def _classify_stage_outcome(
         minimum = max(1, minimum or 30)
         review_view = reviewed_output if reviewed_output is not None else output
         gap_reasons = _output_reason_codes(review_view).intersection(_A2_EVIDENCE_GAP_REASONS)
+        gate_summary = gate.summary if isinstance(gate, DeterministicGateResult) else {}
+        if gate_summary.get("data_sufficiency_state") == "INSUFFICIENT":
+            gate_gaps = _gate_reason_codes(gate).intersection(_A2_EVIDENCE_GAP_REASONS)
+            gap_reasons.update(gate_gaps or {"A2_CRITICAL_DATA_INSUFFICIENT"})
         if focus_count == 0:
             if gap_reasons:
-                return STATUS_BLOCKED_EVIDENCE_GAP, tuple(sorted(gap_reasons))
+                return STATUS_DEGRADED_UNDERFILLED_DATA_GAP, tuple(sorted(gap_reasons))
             return STATUS_VALIDATED_NO_OPPORTUNITY, ("A2_NO_FOCUS_OPPORTUNITY",)
         if focus_count < minimum:
             if gap_reasons:

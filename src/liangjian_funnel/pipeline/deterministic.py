@@ -47,6 +47,12 @@ A2_THEME_FACTORS: tuple[str, ...] = (
     "agent_1_quality",
 )
 A2_FACTOR_COVERAGE_MINIMUM = 0.65
+_A2_CRITICAL_FACTORS: tuple[str, ...] = (
+    "capital_flow",
+    "tier_structure",
+    "leader_structure",
+    "index_chain_resonance",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,7 +69,7 @@ class DeterministicGateResult:
         counts: dict[str, int] = defaultdict(int)
         for decision in self.decisions:
             counts[str(decision.get("status") or "UNKNOWN")] += 1
-        return {
+        result: dict[str, Any] = {
             "stage": self.stage,
             "pipeline_mode": PIPELINE_MODE,
             "evaluated_count": len(self.decisions),
@@ -72,6 +78,25 @@ class DeterministicGateResult:
             "rejected_count": len(self.rejected_symbols),
             "status_counts": dict(sorted(counts.items())),
         }
+        if self.stage == "A2_LOCAL_ROLE":
+            total = len(self.decisions)
+            coverage: dict[str, float] = {}
+            for name in _A2_CRITICAL_FACTORS:
+                observed = sum(
+                    isinstance(decision.get("a2_factor_scores"), Mapping)
+                    and isinstance(decision["a2_factor_scores"].get(name), Mapping)
+                    and decision["a2_factor_scores"][name].get("available") is True
+                    for decision in self.decisions
+                )
+                coverage[name] = round(observed / total, 6) if total else 0.0
+            sufficient = bool(total) and all(value >= 0.90 for value in coverage.values())
+            result.update({
+                "data_gap_count": counts.get("DATA_GAP", 0),
+                "critical_factor_coverage": coverage,
+                "minimum_critical_factor_coverage": 0.90,
+                "data_sufficiency_state": "SUFFICIENT" if sufficient else "INSUFFICIENT",
+            })
+        return result
 
 
 def screen_a1(
@@ -463,6 +488,8 @@ def screen_a2(
             local_market_factors=local_market_factors.get(symbol, {}),
         )
         score, coverage = _available_weighted_score(factor_scores, weights)
+        critical_coverage = _critical_factor_coverage(factor_scores)
+        critical_data_sufficient = critical_coverage["sufficient"] is True
         identifiability, identity_breakdown = _a2_identifiability(
             item=item,
             relative=relative,
@@ -487,8 +514,15 @@ def screen_a2(
         capital_flow = factor_scores.get("capital_flow", {})
         if capital_flow.get("available") is not True:
             reasons.append("A2_CAPITAL_FLOW_UNAVAILABLE")
+        if not critical_data_sufficient:
+            reasons.extend(("A2_CRITICAL_DATA_INSUFFICIENT", "A2_DATA_GAP"))
         status = "REVIEW_CANDIDATE"
-        if low_identity:
+        if not critical_data_sufficient:
+            # A missing critical fact is not negative evidence.  Preserve the
+            # symbol in an explicit data-gap partition instead of rejecting it
+            # or claiming the market contains no opportunity.
+            status = "DATA_GAP"
+        elif low_identity:
             status = "HARD_REJECT"
             reasons.append("A2_LOW_IDENTITY_EXCLUDED")
         elif enforce_coverage and coverage["ratio"] < coverage_minimum:
@@ -530,6 +564,8 @@ def screen_a2(
             },
             "a2_factor_scores": factor_scores,
             "factor_coverage": coverage,
+            "critical_factor_coverage": critical_coverage,
+            "data_sufficiency_state": "SUFFICIENT" if critical_data_sufficient else "INSUFFICIENT",
             "score_weight_source": weight_source,
             "bottleneck_context": bottleneck_context,
             "bottleneck_status": "NOT_REQUIRED_FOR_MARKET_CORE" if MARKET_CORE_ROUTE in eligible_routes else "UNPROVEN",
@@ -555,7 +591,11 @@ def screen_a2(
         stage="A2_LOCAL_ROLE",
         decisions=tuple(decisions),
         review_symbols=tuple(str(item["symbol"]) for item in decisions if item["status"] == "REVIEW_CANDIDATE"),
-        monitor_symbols=tuple(str(item["symbol"]) for item in decisions if item["status"] == "LOCAL_MONITOR"),
+        monitor_symbols=tuple(
+            str(item["symbol"])
+            for item in decisions
+            if item["status"] in {"LOCAL_MONITOR", "DATA_GAP"}
+        ),
         rejected_symbols=tuple(str(item["symbol"]) for item in decisions if item["status"] == "HARD_REJECT"),
     )
 
@@ -929,6 +969,30 @@ def _available_weighted_score(
         "percent": round(available_weight / total_weight * 100.0, 4) if total_weight else 0.0,
         "available_factors": available_names,
         "missing_factors": [name for name in weights if name not in available_names],
+    }
+
+
+def _critical_factor_coverage(
+    factor_scores: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
+    states = {
+        name: bool(
+            isinstance(factor_scores.get(name), Mapping)
+            and factor_scores[name].get("available") is True
+            and _number(factor_scores[name].get("score")) is not None
+        )
+        for name in _A2_CRITICAL_FACTORS
+    }
+    available = sum(states.values())
+    total = len(_A2_CRITICAL_FACTORS)
+    return {
+        "required_factors": list(_A2_CRITICAL_FACTORS),
+        "available_factors": [name for name, observed in states.items() if observed],
+        "missing_factors": [name for name, observed in states.items() if not observed],
+        "available_count": available,
+        "required_count": total,
+        "ratio": round(available / total, 6) if total else 0.0,
+        "sufficient": available == total,
     }
 
 

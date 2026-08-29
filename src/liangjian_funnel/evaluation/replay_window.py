@@ -395,7 +395,7 @@ def _stage_entries(audit: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
 
 
 def _lane_outcome_mapping(audit: Mapping[str, Any]) -> Mapping[str, Any] | None:
-    for key in ("outcome_v2", "outcome", "lane_outcome"):
+    for key in ("outcome_v3", "outcome_v2", "outcome", "lane_outcome"):
         value = audit.get(key)
         if isinstance(value, Mapping):
             return value
@@ -542,7 +542,7 @@ def _classify_stage(
     *,
     status: str = "",
 ) -> str:
-    if status in {"NOT_RUN", "UPSTREAM_STAGE_BLOCKED", "UPSTREAM_BLOCKED"} or "UPSTREAM_STAGE_BLOCKED" in reasons:
+    if status in {"NOT_RUN", "NOT_RUN_UPSTREAM_BLOCKED", "UPSTREAM_STAGE_BLOCKED", "UPSTREAM_BLOCKED"} or "UPSTREAM_STAGE_BLOCKED" in reasons:
         return "NOT_APPLICABLE"
     if axes.get("quality_state") in {"FAILED", "CANCELLED"}:
         return "EXECUTION_FAILURE"
@@ -621,7 +621,9 @@ def _evaluate_lane(
         status = _upper(stage.get("status"))
         statuses.append(status)
         selected = _stage_selected_count(stage, stage_name)
-        explicit_outcome = stage.get("outcome_v2") if isinstance(stage.get("outcome_v2"), Mapping) else None
+        explicit_outcome = stage.get("outcome_v3") if isinstance(stage.get("outcome_v3"), Mapping) else None
+        if explicit_outcome is None:
+            explicit_outcome = stage.get("outcome_v2") if isinstance(stage.get("outcome_v2"), Mapping) else None
         if explicit_outcome is None:
             explicit_outcome = stage.get("outcome") if isinstance(stage.get("outcome"), Mapping) else None
         if explicit_outcome is None:

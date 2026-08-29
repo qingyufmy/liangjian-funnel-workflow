@@ -5,70 +5,33 @@ export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue
 export type JsonRecord = { [key: string]: unknown };
 
 /**
- * Canonical research outcome contract (research-outcome/2.0.0).
+ * Canonical research outcome contract (research-outcome/3.0.0).
  *
  * ``legacy_status`` is an additive compatibility projection.  Consumers must
  * render the four axes and reason codes supplied by Python instead of
  * deriving business meaning from a status string.
  */
-export type OutcomeLifecycleState = "QUEUED" | "RUNNING" | "TERMINAL";
-export type OutcomeQualityState = "VALIDATED" | "DEGRADED" | "BLOCKED" | "FAILED" | "CANCELLED";
-export type OutcomeOpportunityState = "PRESENT" | "ABSENT" | "UNKNOWN" | "NOT_APPLICABLE";
-export type OutcomePublicationState = "READY" | "NOT_APPLICABLE" | "BLOCKED" | "PUBLISHED";
+export type {
+  LaneOutcomeContract,
+  OutcomeActionabilityState,
+  OutcomeCounts,
+  OutcomeDataCoverage,
+  OutcomeDataSufficiencyState,
+  OutcomeJobStatus,
+  OutcomeLifecycleState,
+  OutcomeOpportunityState,
+  OutcomePublicationState,
+  OutcomeQualityState,
+  RunOutcomeContract,
+  StageOutcomeContract,
+} from "./generated/research-outcome-v3.js";
 
-export interface OutcomeCounts {
-  readonly [key: string]: number;
-}
+import type {
+  OutcomeJobStatus,
+  StageOutcomeContract,
+} from "./generated/research-outcome-v3.js";
 
-export interface OutcomeDataCoverage {
-  readonly [key: string]: number | string | null;
-}
-
-export interface StageOutcomeContract {
-  readonly schema_version: "research-outcome/2.0.0";
-  readonly stage: string;
-  readonly lifecycle_state: OutcomeLifecycleState;
-  readonly quality_state: OutcomeQualityState;
-  readonly opportunity_state: OutcomeOpportunityState;
-  readonly publication_state: OutcomePublicationState;
-  readonly reason_codes: readonly string[];
-  readonly counts: OutcomeCounts;
-  readonly data_coverage: OutcomeDataCoverage;
-  readonly legacy_status: string;
-}
-
-export interface LaneOutcomeContract {
-  readonly schema_version: "research-outcome/2.0.0";
-  readonly lane_id: string;
-  readonly model: string | null;
-  readonly lifecycle_state: OutcomeLifecycleState;
-  readonly quality_state: OutcomeQualityState;
-  readonly opportunity_state: OutcomeOpportunityState;
-  readonly publication_state: OutcomePublicationState;
-  readonly reason_codes: readonly string[];
-  readonly counts: OutcomeCounts;
-  readonly data_coverage: OutcomeDataCoverage;
-  readonly legacy_status: string;
-  readonly stages: readonly StageOutcomeContract[];
-}
-
-export interface RunOutcomeContract {
-  readonly schema_version: "research-outcome/2.0.0";
-  readonly run_id: string | null;
-  readonly lifecycle_state: OutcomeLifecycleState;
-  readonly quality_state: OutcomeQualityState;
-  readonly opportunity_state: OutcomeOpportunityState;
-  readonly publication_state: OutcomePublicationState;
-  readonly reason_codes: readonly string[];
-  readonly counts: OutcomeCounts;
-  readonly data_coverage: OutcomeDataCoverage;
-  readonly legacy_status: string;
-  readonly primary_lane_ids: readonly string[];
-  readonly comparison_status: string;
-  readonly lanes: readonly LaneOutcomeContract[];
-}
-
-export type JobName = "morning" | "close" | "monitor" | "features";
+export type JobName = "morning" | "close" | "monitor" | "features" | "comparison";
 
 export type JobStatus = "running" | "succeeded" | "failed" | "skipped" | "terminated";
 
@@ -121,7 +84,7 @@ export interface StatusSnapshot {
   readonly reason: string | null;
 }
 
-export type WorkflowProgressStatus = "RUNNING" | "STALE" | "COMPLETED" | "READY" | "READY_DEGRADED" | "PARTIAL" | "BLOCKED" | "FAILED" | "IDLE" | "UNKNOWN" | "INVALID";
+export type WorkflowProgressStatus = "RUNNING" | "STALE" | "COMPLETED" | "READY" | "READY_DEGRADED" | "PARTIAL" | "BLOCKED" | "FAILED" | "SUCCEEDED" | "CANCELLED" | "VALIDATED" | "VALIDATED_NO_OPPORTUNITY" | "VALIDATED_NO_ACTION" | "VALIDATED_NO_SETUP" | "DEGRADED_UNDERFILLED_DATA_GAP" | "VALIDATED_UNDERFILLED_MARKET" | "NOT_RUN" | "IDLE" | "UNKNOWN" | "INVALID";
 
 /**
  * Fixed, non-sensitive diagnostics for an unavailable or stale progress file.
@@ -155,6 +118,7 @@ export interface WorkflowProgressDiagnostics {
 export interface WorkflowProgressStage {
   readonly stage: string;
   readonly status: string | null;
+  readonly jobStatus: OutcomeJobStatus | null;
   readonly processed: number | null;
   readonly total: number | null;
   readonly batchProcessed: number | null;
@@ -175,6 +139,7 @@ export interface WorkflowProgressLane {
   readonly laneId: string;
   readonly model: string | null;
   readonly status: string | null;
+  readonly jobStatus: OutcomeJobStatus | null;
   readonly currentStage: string | null;
   readonly processed: number | null;
   readonly total: number | null;
@@ -206,6 +171,7 @@ export interface WorkflowProgressResources {
  */
 export interface WorkflowProgressSummary {
   readonly status: WorkflowProgressStatus;
+  readonly jobStatus: OutcomeJobStatus | null;
   readonly issue: WorkflowProgressIssue | null;
   /** True when this is the last successful projection while the file is unavailable. */
   readonly stale: boolean;

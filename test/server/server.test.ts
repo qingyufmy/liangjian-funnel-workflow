@@ -159,7 +159,7 @@ test("requires exact bearer token and does not compare different lengths", () =>
 test("normalizes canonical outcomes and keeps validated empty opportunity distinct from unavailable data", () => {
   const canonical = normalizeStageOutcome({
     outcome_v2: {
-      schema_version: "research-outcome/2.0.0",
+      schema_version: "research-outcome/3.0.0",
       stage: "A2",
       lifecycle_state: "TERMINAL",
       quality_state: "VALIDATED",
@@ -203,7 +203,7 @@ test("normalizes lane and run outcomes without letting optional comparison lanes
   const run = normalizeRunOutcome({
     run_id: "fixture-run",
     outcome_v2: {
-      schema_version: "research-outcome/2.0.0",
+      schema_version: "research-outcome/3.0.0",
       run_id: "fixture-run",
       lifecycle_state: "TERMINAL",
       quality_state: "VALIDATED",
@@ -279,7 +279,7 @@ test("projects paginated research stage pools with names, reasons, and allow-lis
     total: 1,
     reasonOptions: ["QUALITY_PASS"],
     outcome: {
-      schema_version: "research-outcome/2.0.0",
+      schema_version: "research-outcome/3.0.0",
       stage: "A1",
       lifecycle_state: "TERMINAL",
       quality_state: "VALIDATED",

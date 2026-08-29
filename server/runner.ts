@@ -60,7 +60,11 @@ function definitionFor(job: JobName) {
 
 export class JobRunner {
   private readonly history: JobRunRecord[] = [];
+  // The optional comparison plane has its own child slot.  It is deliberately
+  // independent from the priority slot so a slow Kimi/GLM run cannot block the
+  // next morning/close research or the one-minute monitor.
   private active: ActiveChild | null = null;
+  private comparison: ActiveChild | null = null;
 
   public constructor(
     private readonly config: AppConfig,
@@ -68,7 +72,7 @@ export class JobRunner {
   ) {}
 
   public activeJob(): JobRunRecord | null {
-    const current = this.history.find((item) => item.runId === this.active?.runId);
+    const current = this.history.find((item) => item.runId === (this.active?.runId ?? this.comparison?.runId));
     return current ?? null;
   }
 
@@ -81,30 +85,52 @@ export class JobRunner {
     if (!definition) {
       throw new Error("unsupported job");
     }
-    if (this.active) {
-      const skipped: JobRunRecord = {
-        runId: `skipped-${randomUUID()}`,
-        job,
-        command: definition.command,
-        startedAt: new Date().toISOString(),
-        finishedAt: new Date().toISOString(),
-        exitCode: null,
-        signal: null,
-        durationMs: 0,
-        status: "skipped",
-        reason: `BUSY:${this.active.runId}`,
-      };
-      this.record(skipped);
-      this.logger.warn(`任务互斥，跳过 ${definition.command}; active=${this.active.runId}`, { job });
-      return skipped;
-    }
+    const slot = job === "comparison" ? "comparison" : "primary";
+    const current = slot === "comparison" ? this.comparison : this.active;
+    if (current) return this.skipped(job, definition.command, current.runId);
+
+    return this.runChild(job, definition.command, slot);
+  }
+
+  private skipped(job: JobName, command: string, activeRunId: string): JobRunRecord {
+    const skipped: JobRunRecord = {
+      runId: `skipped-${randomUUID()}`,
+      job,
+      command,
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+      exitCode: null,
+      signal: null,
+      durationMs: 0,
+      status: "skipped",
+      reason: `BUSY:${activeRunId}`,
+    };
+    this.record(skipped);
+    this.logger.warn(`任务互斥，跳过 ${command}; active=${activeRunId}`, { job });
+    return skipped;
+  }
+
+  private childFor(slot: "primary" | "comparison"): ActiveChild | null {
+    return slot === "comparison" ? this.comparison : this.active;
+  }
+
+  private setChild(slot: "primary" | "comparison", child: ActiveChild | null): void {
+    if (slot === "comparison") this.comparison = child;
+    else this.active = child;
+  }
+
+  private async runChild(
+    job: JobName,
+    command: string,
+    slot: "primary" | "comparison",
+  ): Promise<JobRunRecord> {
 
     const runId = `${job}-${new Date().toISOString().replace(/[:.]/g, "-")}-${randomUUID().slice(0, 8)}`;
     const startedAt = new Date();
     const started: JobRunRecord = {
       runId,
       job,
-      command: definition.command,
+      command,
       startedAt: startedAt.toISOString(),
       finishedAt: null,
       exitCode: null,
@@ -114,16 +140,16 @@ export class JobRunner {
       reason: null,
     };
     this.record(started);
-    this.logger.info(`开始执行 ${definition.command}`, { job, runId });
+    this.logger.info(`开始执行 ${command}`, { job, runId });
 
-    const child = spawn(this.config.pythonBin, ["-m", "liangjian_funnel", definition.command], {
+    const child = spawn(this.config.pythonBin, ["-m", "liangjian_funnel", command], {
       cwd: this.config.rootDir,
       env: process.env,
       shell: false,
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
     });
-    this.active = { runId, process: child };
+    this.setChild(slot, { runId, process: child });
 
     let stdoutPending = "";
     let stderrPending = "";
@@ -158,7 +184,7 @@ export class JobRunner {
         const record: JobRunRecord = {
           runId,
           job,
-          command: definition.command,
+          command,
           startedAt: startedAt.toISOString(),
           finishedAt: finishedAt.toISOString(),
           exitCode,
@@ -168,9 +194,9 @@ export class JobRunner {
           reason: timedOut ? "TIMEOUT" : exitCode === 0 ? null : "NON_ZERO_EXIT",
         };
         this.replaceRunning(record);
-        this.active = null;
+        if (this.childFor(slot)?.runId === runId) this.setChild(slot, null);
         this.logger[status === "succeeded" ? "info" : "error"](
-          `任务结束 ${definition.command} status=${status} exit=${exitCode ?? "null"} duration_ms=${durationMs}`,
+          `任务结束 ${command} status=${status} exit=${exitCode ?? "null"} duration_ms=${durationMs}`,
           { job, runId },
         );
         resolve(record);
@@ -179,18 +205,18 @@ export class JobRunner {
       if (timeoutMs !== null) {
         timer = setTimeout(() => {
           timedOut = true;
-          this.logger.error(`任务超时，终止 ${definition.command}`, { job, runId });
+          this.logger.error(`任务超时，终止 ${command}`, { job, runId });
           child.kill("SIGTERM");
           escalationTimer = setTimeout(() => {
             if (settled) return;
-            this.logger.error(`SIGTERM 未结束任务，发送 SIGKILL ${definition.command}`, { job, runId });
+            this.logger.error(`SIGTERM 未结束任务，发送 SIGKILL ${command}`, { job, runId });
             child.kill("SIGKILL");
             hardFinishTimer = setTimeout(() => finish(null, "SIGKILL"), 2_000);
           }, 10_000);
         }, timeoutMs);
       }
       child.once("error", (error: Error) => {
-        this.logger.error(`任务启动失败 ${definition.command}: ${redactText(error.message)}`, { job, runId });
+        this.logger.error(`任务启动失败 ${command}: ${redactText(error.message)}`, { job, runId });
         finish(null, null);
       });
       child.once("close", (exitCode: number | null, signal: NodeJS.Signals | null) => finish(exitCode, signal));
@@ -199,7 +225,13 @@ export class JobRunner {
   }
 
   public async stop(): Promise<void> {
-    const active = this.active;
+    await Promise.all([
+      this.stopChild(this.active),
+      this.stopChild(this.comparison),
+    ]);
+  }
+
+  private async stopChild(active: ActiveChild | null): Promise<void> {
     if (!active) return;
     this.logger.warn(`正在终止活动任务 ${active.runId}`);
     active.process.kill("SIGTERM");

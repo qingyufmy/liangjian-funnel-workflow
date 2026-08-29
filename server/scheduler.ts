@@ -68,6 +68,9 @@ export class WorkflowScheduler {
   private readonly inFlight = new Set<JobName>();
   private readonly retryKeys = new Map<JobName, string>();
   private readonly retryTimers = new Map<JobName, NodeJS.Timeout>();
+  private comparisonInFlight = false;
+  private comparisonPendingTrigger = false;
+  private comparisonRetryTimer: NodeJS.Timeout | null = null;
   private readonly now: () => Date;
   private readonly intervalMs: number;
   private readonly retryMs: number;
@@ -87,6 +90,9 @@ export class WorkflowScheduler {
     this.running = true;
     this.timer = setInterval(() => this.tick(), this.intervalMs);
     void this.tick();
+    // Recover a request committed by the primary before a Node restart.  The
+    // Python command is idempotent and never reruns the primary lane.
+    this.triggerComparison("startup");
     this.logger.info("Node 调度器已启动");
   }
 
@@ -97,6 +103,10 @@ export class WorkflowScheduler {
     this.retryTimers.clear();
     this.retryKeys.clear();
     this.inFlight.clear();
+    if (this.comparisonRetryTimer) clearTimeout(this.comparisonRetryTimer);
+    this.comparisonRetryTimer = null;
+    this.comparisonInFlight = false;
+    this.comparisonPendingTrigger = false;
     this.running = false;
     this.logger.info("Node 调度器已停止");
   }
@@ -151,6 +161,12 @@ export class WorkflowScheduler {
           this.dispatched.delete(job);
           this.scheduleResearchRetry(job, key);
         }
+        // The current morning command is the deterministic pending-plan
+        // review; the model-backed primary research hand-off is the close
+        // command.  Do not manufacture a comparison request after a review.
+        if (job === "close" && result.status === "succeeded") {
+          this.triggerComparison(`after-${job}`);
+        }
       })
       .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : "unknown scheduler error";
@@ -158,6 +174,38 @@ export class WorkflowScheduler {
       })
       .finally(() => {
         this.inFlight.delete(job);
+      });
+  }
+
+  private triggerComparison(source: string): void {
+    if (this.comparisonInFlight) {
+      // A close can finish while recovery is still processing an older
+      // request.  Remember that edge-trigger so the newly committed request
+      // is picked up as soon as the current comparison child exits.
+      this.comparisonPendingTrigger = true;
+      return;
+    }
+    this.comparisonInFlight = true;
+    this.logger.info(`检查对比模型持久请求 source=${source}`, { job: "comparison" });
+    void this.runner.run("comparison")
+      .then((result) => {
+        if (result.status === "skipped" && result.reason?.startsWith("BUSY:") === true) {
+          this.comparisonRetryTimer = setTimeout(() => {
+            this.comparisonRetryTimer = null;
+            this.triggerComparison("busy-retry");
+          }, this.retryMs);
+        }
+      })
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : "unknown comparison scheduler error";
+        this.logger.error(`对比模型恢复异常: ${message}`, { job: "comparison" });
+      })
+      .finally(() => {
+        this.comparisonInFlight = false;
+        if (this.comparisonPendingTrigger && this.running && !this.comparisonRetryTimer) {
+          this.comparisonPendingTrigger = false;
+          this.triggerComparison("after-flight");
+        }
       });
   }
 

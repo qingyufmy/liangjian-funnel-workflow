@@ -10,9 +10,11 @@ from typing import Any, Mapping
 from zoneinfo import ZoneInfo
 
 from ..reporting import atomic_write_json
+from ..pipeline.outcomes import RunOutcome, StageOutcome
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
+WORKFLOW_PROGRESS_SCHEMA_VERSION = "workflow-progress/3.0.0"
 
 # Diagnostics are intentionally a separate, much narrower contract than the
 # model/result payload.  Keep this list local to the writer so a future caller
@@ -80,10 +82,11 @@ class WorkflowProgress:
         self._lock = threading.RLock()
         started = _aware(now or datetime.now(SHANGHAI))
         self._state: dict[str, Any] = {
-            "schema_version": 2,
+            "schema_version": WORKFLOW_PROGRESS_SCHEMA_VERSION,
             "run_id": str(run_id)[:200],
             "job": str(job)[:40],
             "status": "RUNNING",
+            "job_status": "RUNNING",
             "phase": "STARTING",
             "started_at": started.isoformat(),
             "phase_started_at": started.isoformat(),
@@ -176,6 +179,7 @@ class WorkflowProgress:
             if event.get("model"):
                 lane_state["model"] = _token(event["model"], 120)
             lane_state["status"] = _token(event.get("lane_status") or "RUNNING", 40)
+            lane_state["job_status"] = _job_status(event.get("lane_job_status") or lane_state["status"])
             lane_state["current_stage"] = stage
             stages = lane_state.setdefault("stages", {})
             stage_state = {
@@ -186,6 +190,7 @@ class WorkflowProgress:
                 "total_batches": _non_negative(event.get("total_batches", event.get("total", 0))) or 0,
                 "attempts": _non_negative(event.get("attempts", 0)) or 0,
             }
+            stage_state["job_status"] = _job_status(event.get("job_status") or stage_state["status"])
             reason_codes = _reason_codes(event.get("reason_codes"))
             if reason_codes:
                 stage_state["reason_codes"] = reason_codes
@@ -194,6 +199,13 @@ class WorkflowProgress:
                 stage_state["diagnostics"] = diagnostics
             if isinstance(event.get("outcome"), str) and event["outcome"].strip():
                 stage_state["outcome"] = _token(event["outcome"], 80)
+            raw_outcome = event.get("outcome_v3")
+            if not isinstance(raw_outcome, Mapping):
+                raw_outcome = event.get("outcome") if isinstance(event.get("outcome"), Mapping) else None
+            if isinstance(raw_outcome, Mapping):
+                safe_outcome = _safe_stage_outcome(raw_outcome, stage)
+                if safe_outcome is not None:
+                    stage_state["outcome_v3"] = safe_outcome
             if isinstance(event.get("checkpoint_reused"), bool):
                 stage_state["checkpoint_reused"] = event["checkpoint_reused"]
             if event.get("checkpoint_batch_index") is not None:
@@ -252,6 +264,8 @@ class WorkflowProgress:
         status: str,
         phase: str = "COMPLETED",
         reason_code: str | None = None,
+        job_status: str | None = None,
+        outcome: Mapping[str, Any] | None = None,
         now: datetime | None = None,
     ) -> None:
         with self._lock:
@@ -259,10 +273,25 @@ class WorkflowProgress:
             self._state["phase"] = _token(phase, 80)
             self._state["eta_seconds"] = 0
             self._state["reason_code"] = _token(reason_code, 120) if reason_code else None
-            lane_status = "COMPLETED" if self._state["status"] in {"READY", "COMPLETED"} else self._state["status"]
-            for lane in self._state.get("lanes", {}).values():
-                if isinstance(lane, dict):
-                    lane["status"] = lane_status
+            self._state["job_status"] = _job_status(job_status or self._state["status"])
+            if isinstance(outcome, Mapping):
+                safe_outcome = _safe_run_outcome(outcome)
+                if safe_outcome is not None:
+                    self._state["outcome_v3"] = safe_outcome
+                    # The canonical outcome is authoritative for the job
+                    # lifecycle when it is supplied.  A legacy ``status``
+                    # such as BLOCKED describes business quality, not a
+                    # process crash.
+                    self._state["job_status"] = safe_outcome["job_status"]
+            self._touch(now)
+
+    def set_outcome(self, outcome: Mapping[str, Any], *, now: datetime | None = None) -> None:
+        """Persist a bounded canonical run outcome without changing lane state."""
+
+        with self._lock:
+            safe_outcome = _safe_run_outcome(outcome)
+            if safe_outcome is not None:
+                self._state["outcome_v3"] = safe_outcome
             self._touch(now)
 
     def snapshot(self) -> dict[str, Any]:
@@ -417,4 +446,40 @@ def _diagnostic_count(value: Any) -> int | None:
     return min(max(0, number), _MAX_PROGRESS_DIAGNOSTIC_COUNT)
 
 
-__all__ = ["WorkflowProgress"]
+def _job_status(value: Any) -> str:
+    """Normalize legacy progress statuses onto the v3 job lifecycle."""
+
+    token = str(value or "UNKNOWN").strip().upper().replace("-", "_")
+    if token in {"PENDING", "CREATED", "DATA_PREPARING", "DATA_BOUND", "QUEUED"}:
+        return "QUEUED"
+    if token in {"RUNNING", "RETRYING", "STARTED", "IN_PROGRESS"}:
+        return "RUNNING"
+    if token in {"CANCELLED", "CANCELED"}:
+        return "CANCELLED"
+    if token in {"FAILED", "MODEL_FAILED", "BLOCKED_MODEL", "MODEL_CALL_FAILED"}:
+        return "FAILED"
+    if token == "STALE":
+        return "STALE"
+    # READY/COMPLETED/READY_DEGRADED and a completed business gate all mean
+    # that the process reached a terminal point.  Business quality is carried
+    # by outcome_v3, never by this job axis.
+    return "SUCCEEDED"
+
+
+def _safe_stage_outcome(value: Mapping[str, Any], stage: str) -> dict[str, Any] | None:
+    try:
+        payload = dict(value)
+        payload.setdefault("stage", stage)
+        return StageOutcome.from_mapping(payload).as_dict()
+    except (TypeError, ValueError, KeyError):
+        return None
+
+
+def _safe_run_outcome(value: Mapping[str, Any]) -> dict[str, Any] | None:
+    try:
+        return RunOutcome.from_mapping(dict(value)).as_dict()
+    except (TypeError, ValueError, KeyError):
+        return None
+
+
+__all__ = ["WORKFLOW_PROGRESS_SCHEMA_VERSION", "WorkflowProgress"]

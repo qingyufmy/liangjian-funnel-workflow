@@ -1,0 +1,313 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://liangjian-funnel.local/contracts/research-outcome-v3.schema.json",
+  "title": "Liangjian research outcome v3",
+  "description": "Canonical status contract. Job lifecycle, evidence quality, business axes and publication are independent.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/StageOutcome"
+    },
+    {
+      "$ref": "#/$defs/LaneOutcome"
+    },
+    {
+      "$ref": "#/$defs/RunOutcome"
+    }
+  ],
+  "$defs": {
+    "SchemaVersion": {
+      "const": "research-outcome/3.0.0"
+    },
+    "LegacySchemaVersion": {
+      "const": "research-outcome/2.0.0"
+    },
+    "JobStatus": {
+      "type": "string",
+      "enum": [
+        "QUEUED",
+        "RUNNING",
+        "SUCCEEDED",
+        "FAILED",
+        "CANCELLED",
+        "STALE"
+      ]
+    },
+    "LifecycleState": {
+      "type": "string",
+      "enum": [
+        "QUEUED",
+        "RUNNING",
+        "TERMINAL"
+      ]
+    },
+    "QualityState": {
+      "type": "string",
+      "enum": [
+        "VALIDATED",
+        "DEGRADED",
+        "BLOCKED",
+        "FAILED",
+        "CANCELLED"
+      ]
+    },
+    "SufficiencyState": {
+      "type": "string",
+      "enum": [
+        "SUFFICIENT",
+        "PARTIAL",
+        "INSUFFICIENT",
+        "NOT_APPLICABLE"
+      ]
+    },
+    "OpportunityState": {
+      "type": "string",
+      "enum": [
+        "PRESENT",
+        "ABSENT",
+        "UNKNOWN",
+        "NOT_APPLICABLE"
+      ]
+    },
+    "ActionabilityState": {
+      "type": "string",
+      "enum": [
+        "ACTIONABLE",
+        "NO_ACTION",
+        "UNKNOWN",
+        "NOT_APPLICABLE"
+      ]
+    },
+    "PublicationState": {
+      "type": "string",
+      "enum": [
+        "READY",
+        "NOT_APPLICABLE",
+        "BLOCKED",
+        "PUBLISHED"
+      ]
+    },
+    "Counts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "DataCoverage": {
+      "type": "object",
+      "additionalProperties": {
+        "type": [
+          "number",
+          "string",
+          "null"
+        ]
+      }
+    },
+    "ReasonCodes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9_.:-]{0,119}$"
+      },
+      "uniqueItems": true
+    },
+    "LegacyProjection": {
+      "type": "object",
+      "description": "Read-only v2 projection; never use as the canonical business input.",
+      "properties": {
+        "schema_version": {
+          "$ref": "#/$defs/LegacySchemaVersion"
+        },
+        "lifecycle_state": {
+          "$ref": "#/$defs/LifecycleState"
+        },
+        "quality_state": {
+          "$ref": "#/$defs/QualityState"
+        },
+        "opportunity_state": {
+          "$ref": "#/$defs/OpportunityState"
+        },
+        "publication_state": {
+          "$ref": "#/$defs/PublicationState"
+        },
+        "legacy_status": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "lifecycle_state",
+        "quality_state",
+        "opportunity_state",
+        "publication_state",
+        "legacy_status"
+      ],
+      "additionalProperties": true
+    },
+    "Common": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "$ref": "#/$defs/SchemaVersion"
+        },
+        "job_status": {
+          "$ref": "#/$defs/JobStatus"
+        },
+        "lifecycle_state": {
+          "$ref": "#/$defs/LifecycleState"
+        },
+        "quality_state": {
+          "$ref": "#/$defs/QualityState"
+        },
+        "data_sufficiency_state": {
+          "$ref": "#/$defs/SufficiencyState"
+        },
+        "research_opportunity_state": {
+          "$ref": "#/$defs/OpportunityState"
+        },
+        "focus_opportunity_state": {
+          "$ref": "#/$defs/OpportunityState"
+        },
+        "actionability_state": {
+          "$ref": "#/$defs/ActionabilityState"
+        },
+        "publication_state": {
+          "$ref": "#/$defs/PublicationState"
+        },
+        "reason_codes": {
+          "$ref": "#/$defs/ReasonCodes"
+        },
+        "counts": {
+          "$ref": "#/$defs/Counts"
+        },
+        "data_coverage": {
+          "$ref": "#/$defs/DataCoverage"
+        },
+        "legacy_status": {
+          "type": "string"
+        },
+        "legacy_projection": {
+          "$ref": "#/$defs/LegacyProjection"
+        }
+      },
+      "required": [
+        "schema_version",
+        "job_status",
+        "lifecycle_state",
+        "quality_state",
+        "data_sufficiency_state",
+        "research_opportunity_state",
+        "focus_opportunity_state",
+        "actionability_state",
+        "publication_state",
+        "reason_codes",
+        "counts",
+        "data_coverage",
+        "legacy_status"
+      ]
+    },
+    "StageOutcome": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/Common"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "stage": {
+              "type": "string",
+              "minLength": 1
+            },
+            "opportunity_state": {
+              "$ref": "#/$defs/OpportunityState"
+            }
+          },
+          "required": [
+            "stage",
+            "opportunity_state"
+          ],
+          "unevaluatedProperties": false
+        }
+      ]
+    },
+    "LaneOutcome": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/Common"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "lane_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "model": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "opportunity_state": {
+              "$ref": "#/$defs/OpportunityState"
+            },
+            "stages": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/StageOutcome"
+              }
+            }
+          },
+          "required": [
+            "lane_id",
+            "model",
+            "opportunity_state",
+            "stages"
+          ],
+          "unevaluatedProperties": false
+        }
+      ]
+    },
+    "RunOutcome": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/Common"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "run_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "primary_lane_ids": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            },
+            "comparison_status": {
+              "type": "string"
+            },
+            "lanes": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/LaneOutcome"
+              }
+            }
+          },
+          "required": [
+            "run_id",
+            "primary_lane_ids",
+            "comparison_status",
+            "lanes"
+          ],
+          "unevaluatedProperties": false
+        }
+      ]
+    }
+  }
+}

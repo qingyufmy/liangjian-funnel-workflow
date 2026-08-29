@@ -18,6 +18,12 @@ from .probes.models import ModelProbe
 from .probes.mootdx import MootdxProbe
 from .reporting import write_capability_report
 from .reporting import atomic_write_json
+from .runtime.storage_governance import (
+    StorageGovernanceError,
+    backup_sqlite,
+    storage_audit,
+    storage_cleanup_plan,
+)
 from .settings import Settings, load_yaml
 from .workflow import WorkflowApplication, WorkflowError
 
@@ -77,12 +83,90 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="verified persisted snapshot id for an offline historical replay",
     )
+    research.add_argument(
+        "--primary-only",
+        action="store_true",
+        help="run only the configured primary research model and enqueue optional comparisons",
+    )
     sub.add_parser("monitor-once", help="run one A4 minute and paper-simulation cycle")
     sub.add_parser("run-due", help="dispatch only work due at the current Shanghai time")
     sub.add_parser("run-morning", help="dispatch only the due 09:26 morning review")
     sub.add_parser("run-close", help="dispatch only the due 15:10 close workflow")
     sub.add_parser("run-monitor", help="dispatch only the current due A4 minute")
+    comparison = sub.add_parser(
+        "run-comparison",
+        help="resume one durable optional-model comparison request without rerunning the primary",
+    )
+    comparison.add_argument("--parent-run-id", default=None, help="optional primary run id to process")
     sub.add_parser("status", help="show redacted local workflow state")
+    storage_audit_parser = sub.add_parser(
+        "storage-audit",
+        help="read-only disk, SQLite integrity, and retention-reference audit",
+    )
+    storage_audit_parser.add_argument(
+        "--path",
+        default=None,
+        help="filesystem path whose disk watermarks are measured (defaults to project root)",
+    )
+    storage_audit_parser.add_argument(
+        "--feature-db",
+        default=None,
+        help="Feature Store SQLite path used for active/previous/run-bound reference scanning",
+    )
+    storage_audit_parser.add_argument(
+        "--snapshot-root",
+        action="append",
+        default=[],
+        help="snapshot/manifest root to scan for generation references; repeatable",
+    )
+    storage_backup_parser = sub.add_parser(
+        "storage-backup",
+        help="verified SQLite online backup with SHA-256 manifest and restore check",
+    )
+    storage_backup_parser.add_argument(
+        "source_path",
+        nargs="?",
+        help="source SQLite database (also accepted through --source)",
+    )
+    storage_backup_parser.add_argument(
+        "--source",
+        dest="source_option",
+        default=None,
+        help="source SQLite database",
+    )
+    storage_backup_parser.add_argument(
+        "--destination",
+        "--output",
+        dest="destination",
+        default=None,
+        help="new backup file; an existing file is never overwritten",
+    )
+    storage_backup_parser.add_argument(
+        "--manifest",
+        dest="manifest",
+        default=None,
+        help="optional new manifest path (defaults to <backup>.manifest.json)",
+    )
+    storage_cleanup_parser = sub.add_parser(
+        "storage-cleanup",
+        help="produce a reference-aware dry-run cleanup plan; never deletes in this build",
+    )
+    storage_cleanup_parser.add_argument(
+        "--feature-db",
+        default=None,
+        help="Feature Store SQLite path",
+    )
+    storage_cleanup_parser.add_argument(
+        "--snapshot-root",
+        action="append",
+        default=[],
+        help="snapshot/manifest root to scan for generation references; repeatable",
+    )
+    storage_cleanup_parser.add_argument(
+        "--execute",
+        action="store_true",
+        help="reserved for a future reviewed implementation; this build refuses execution",
+    )
     return parser
 
 
@@ -93,7 +177,9 @@ def main(argv: Sequence[str] | None = None, *, settings: Settings | None = None)
     active = settings or Settings.from_env()
     if args.command == "doctor":
         return _doctor(active)
-    if args.command in {"prepare-snapshot", "import-broker-gold", "sync-data", "maintain-features", "run-research", "monitor-once", "run-due", "run-morning", "run-close", "run-monitor", "status"}:
+    if args.command in {"storage-audit", "storage-backup", "storage-cleanup"}:
+        return _storage_command(args, active)
+    if args.command in {"prepare-snapshot", "import-broker-gold", "sync-data", "maintain-features", "run-research", "run-comparison", "monitor-once", "run-due", "run-morning", "run-close", "run-monitor", "status"}:
         return _workflow_command(args, active)
     reports = []
     if args.command in {"probe-hithink", "probe-all"}:
@@ -180,6 +266,89 @@ def entrypoint() -> None:
     raise SystemExit(main())
 
 
+def _storage_command(args: argparse.Namespace, settings: Settings) -> int:
+    """Run storage governance commands without constructing the workflow.
+
+    Keeping these commands outside ``WorkflowApplication`` means a read-only
+    audit cannot acquire scheduler leases or initialize a business database.
+    The cleanup branch intentionally refuses ``--execute`` until a separately
+    reviewed implementation exists.
+    """
+
+    try:
+        if args.command == "storage-audit":
+            root = Path(args.path).resolve() if args.path else settings.root
+            feature_db = Path(args.feature_db).resolve() if args.feature_db else settings.feature_store_db_path
+            database_paths = tuple(
+                dict.fromkeys(
+                    (
+                        feature_db,
+                        settings.fact_cache_db_path,
+                        settings.state_db_path,
+                    )
+                )
+            )
+            snapshot_roots = tuple(
+                Path(item).resolve() for item in (args.snapshot_root or [str(settings.snapshot_dir)])
+            )
+            payload = storage_audit(
+                root,
+                database_paths=database_paths,
+                feature_store_db=feature_db,
+                snapshot_roots=snapshot_roots,
+            )
+            print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True, default=str))
+            return 0 if payload.get("status") in {"OK", "WARNING"} else 2
+
+        if args.command == "storage-backup":
+            source_raw = args.source_option or args.source_path
+            if not source_raw:
+                print(json.dumps({"status": "FAILED", "reason_code": "SQLITE_SOURCE_REQUIRED"}, ensure_ascii=False))
+                return 2
+            source = Path(source_raw).resolve()
+            if args.destination:
+                destination = Path(args.destination).resolve()
+            else:
+                stamp = datetime.now(ZoneInfo(settings.timezone)).strftime("%Y%m%dT%H%M%S%z")
+                destination = settings.root / "storage" / "backups" / f"{source.stem}-{stamp}.sqlite3"
+            payload = backup_sqlite(
+                source,
+                destination,
+                manifest_path=args.manifest,
+                verify_restore=True,
+            )
+            print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True, default=str))
+            return 0
+
+        # ``storage-cleanup`` is a proof-producing dry-run only.  Even an
+        # explicit --execute is rejected rather than being interpreted by a
+        # future caller as authorization to delete data.
+        feature_db = Path(args.feature_db).resolve() if args.feature_db else settings.feature_store_db_path
+        snapshot_roots = tuple(Path(item).resolve() for item in args.snapshot_root)
+        payload = storage_cleanup_plan(feature_db, snapshot_roots=snapshot_roots)
+        if args.execute:
+            payload = {
+                **payload,
+                "status": "BLOCKED",
+                "reason_code": "STORAGE_CLEANUP_EXECUTION_NOT_IMPLEMENTED",
+                "dry_run": True,
+                "deletion_allowed": False,
+            }
+            print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True, default=str))
+            return 2
+        print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True, default=str))
+        return 0
+    except StorageGovernanceError as exc:
+        reason_code = str(exc).split(":", 1)[0]
+        if not _SAFE_REASON_CODE.fullmatch(reason_code):
+            reason_code = "STORAGE_GOVERNANCE_FAILED"
+        print(json.dumps({"status": "FAILED", "reason_code": reason_code}, ensure_ascii=False))
+        return 3
+    except (OSError, ValueError, TypeError) as exc:
+        print(json.dumps({"status": "FAILED", "reason_code": type(exc).__name__}, ensure_ascii=False))
+        return 3
+
+
 def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
     try:
         if args.command == "maintain-features":
@@ -221,12 +390,16 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
             payload = application.sync_data_cache()
         elif args.command == "run-research":
             historical_as_of = datetime.fromisoformat(args.as_of) if args.as_of else None
-            payload = application.run_research(
-                args.slot,
-                as_of=historical_as_of,
-                historical_replay=historical_as_of is not None,
-                snapshot_id=args.snapshot_id,
-            )
+            research_kwargs = {
+                "as_of": historical_as_of,
+                "historical_replay": historical_as_of is not None,
+                "snapshot_id": args.snapshot_id,
+            }
+            if args.primary_only:
+                research_kwargs.update(primary_only=True, schedule_comparison=True)
+            payload = application.run_research(args.slot, **research_kwargs)
+        elif args.command == "run-comparison":
+            payload = application.run_comparison(parent_run_id=args.parent_run_id)
         elif args.command == "monitor-once":
             payload = application.monitor_once()
         elif args.command == "run-due":
@@ -339,4 +512,6 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
             for record in dispatch
         ):
             return 2
+    if args.command == "run-comparison" and isinstance(payload, Mapping) and payload.get("status") == "FAILED":
+        return 2
     return 0

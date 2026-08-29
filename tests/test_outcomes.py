@@ -4,7 +4,10 @@ import pytest
 
 from liangjian_funnel.pipeline.outcomes import (
     OUTCOME_SCHEMA_VERSION,
+    ActionabilityState,
     CliExitCode,
+    DataSufficiencyState,
+    JobLifecycleState,
     LaneOutcome,
     LifecycleState,
     OpportunityState,
@@ -245,3 +248,62 @@ def test_cli_exit_code_matrix(outcome: RunOutcome, expected: CliExitCode) -> Non
 def test_cli_exit_code_keeps_legacy_payload_compatibility() -> None:
     assert cli_exit_code({"status": "READY"}) == 0
     assert cli_exit_code({"status": "BLOCKED"}) == 2
+
+
+def test_a2_data_gap_is_degraded_and_blocks_only_a3_actionability() -> None:
+    a1 = stage_outcome_from_legacy(
+        "VALIDATED",
+        stage="A1",
+        counts={"input": 5000, "evaluated": 5000, "selected": 40},
+    )
+    a2 = stage_outcome_from_legacy(
+        "DATA_GAP",
+        stage="A2",
+        reason_codes=("A2_DATA_GAP",),
+        counts={"input": 40, "evaluated": 40, "selected": 0},
+    )
+    a3 = stage_outcome_from_legacy(
+        "NOT_RUN_UPSTREAM_BLOCKED",
+        stage="A3",
+        reason_codes=("A2_DATA_GAP",),
+    )
+
+    assert a2.quality_state is QualityState.DEGRADED
+    assert a2.data_sufficiency_state is DataSufficiencyState.INSUFFICIENT
+    assert a2.focus_opportunity_state is OpportunityState.UNKNOWN
+    assert a2.actionability_state is ActionabilityState.NOT_APPLICABLE
+    assert a2.publication_state is PublicationState.READY
+    assert a3.quality_state is QualityState.DEGRADED
+    assert a3.actionability_state is ActionabilityState.NOT_APPLICABLE
+    assert a3.publication_state is PublicationState.NOT_APPLICABLE
+    assert a3.job_status is JobLifecycleState.SUCCEEDED
+
+    lane = aggregate_lane_outcome((a1, a2, a3), lane_id="lane_1", model="primary")
+    run = aggregate_run_outcome((lane,), run_id="data-gap", expected_lane_count=1)
+    for result in (lane, run):
+        assert result.quality_state is QualityState.DEGRADED
+        assert result.publication_state is PublicationState.READY
+        assert result.focus_opportunity_state is OpportunityState.UNKNOWN
+        assert result.actionability_state is ActionabilityState.NOT_APPLICABLE
+        assert result.legacy_status == "READY_DEGRADED"
+        assert result.job_status is JobLifecycleState.SUCCEEDED
+
+
+def test_run_v3_does_not_promote_a1_research_to_a3_actionability() -> None:
+    lane = aggregate_lane_outcome(
+        (
+            stage_outcome_from_legacy("VALIDATED", stage="A1", counts={"input": 10, "evaluated": 10, "selected": 1}),
+            stage_outcome_from_legacy("VALIDATED_NO_OPPORTUNITY", stage="A2", counts={"input": 1, "evaluated": 1, "selected": 0}),
+            stage_outcome_from_legacy("NOT_RUN_UPSTREAM_BLOCKED", stage="A3", reason_codes=("UPSTREAM_STAGE_BLOCKED",)),
+        ),
+        lane_id="lane_1",
+        model="primary",
+    )
+    run = aggregate_run_outcome((lane,), run_id="axes", expected_lane_count=1)
+    assert run.research_opportunity_state is OpportunityState.PRESENT
+    assert run.focus_opportunity_state is OpportunityState.ABSENT
+    assert run.actionability_state is ActionabilityState.NOT_APPLICABLE
+    payload = run.as_dict()
+    assert payload["schema_version"] == OUTCOME_SCHEMA_VERSION
+    assert "opportunity_state" not in payload
+    assert payload["legacy_projection"]["opportunity_state"] == run.opportunity_state.value

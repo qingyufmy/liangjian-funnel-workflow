@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from liangjian_funnel.pipeline.model_client import ModelCallResult, ModelNetworkError, StrictJSONError
+from liangjian_funnel.pipeline.feature_store import ResearchFeatureStore
 from liangjian_funnel.pipeline.prompts import PROMPT_FILENAMES, PromptRepository, PromptRepositoryError
 from liangjian_funnel.pipeline.research import (
     FrozenInputSnapshot,
@@ -1796,3 +1797,41 @@ def test_empty_validated_a1_pool_yields_deterministic_no_action_downstream(tmp_p
     assert all(lane.stages[1].diagnostics == {"outcome_code": "NO_ACTION_UPSTREAM_POOL_EMPTY"} for lane in result.lanes)
     assert all(lane.stages[2].output["core_watch_pool"] == [] for lane in result.lanes)
     assert all([stage for called_model, stage, _ in client.calls if called_model == model] == ["A1"] for model in MODELS)
+
+
+def test_research_run_seals_private_generation_without_replacing_live_active(tmp_path: Path):
+    settings = _settings(tmp_path)
+    store = ResearchFeatureStore(settings.feature_store_db_path)
+    store.create_feature_generation(
+        generation_id="maintenance-live",
+        as_of=NOW,
+        contract_version="maintenance/1",
+        algorithm_version="fixture",
+        source_manifest_hash="maintenance-source",
+        purpose="LIVE_FULL",
+        activation_eligible=True,
+    )
+    store.validate_feature_generation("maintenance-live", validation={"fixture": True})
+    store.seal_generation(
+        "maintenance-live",
+        validation_manifest={"fixture": True},
+        purpose="LIVE_FULL",
+        activation_eligible=True,
+    )
+    store.activate_generation("maintenance-live", None, "fixture-bootstrap")
+
+    symbols = dict(zip(MODELS, ("600519.SH", "000001.SZ", "300750.SZ")))
+    result = ResearchPipeline(
+        settings,
+        prompt_repository=_prompt_dir(tmp_path),
+        model_client=FakeResearchClient(symbols),
+        now=lambda: NOW,
+    ).run(_snapshot(), run_id="run-private-generation", generated_at=NOW)
+
+    assert result.status == "READY"
+    assert store.get_active_feature_generation()["generation_id"] == "maintenance-live"
+    binding = store.get_run_feature_binding(run_id=result.run_id, strict=True)
+    generation = store.get_feature_generation(binding["generation_id"])
+    assert generation["status"] == "SEALED"
+    assert generation["purpose"] == "RUN_SNAPSHOT"
+    assert generation["activation_eligible"] is False

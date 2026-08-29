@@ -145,6 +145,10 @@ function normalizeOverview(value: OverviewResponse): OverviewResponse {
 type OutcomeStatus = StageOutcomeContract | LaneOutcomeContract | RunOutcomeContract;
 
 const DATA_GAP_REASONS = new Set([
+  "DATA_GAP",
+  "A2_DATA_GAP",
+  "A2_CRITICAL_DATA_INSUFFICIENT",
+  "A2_FACTOR_COVERAGE_BELOW_MINIMUM",
   "DATA_COVERAGE_INSUFFICIENT",
   "EVIDENCE_GAP",
   "TECHNICAL_DATA_UNAVAILABLE",
@@ -154,8 +158,9 @@ const UPSTREAM_REASONS = new Set(["UPSTREAM_STAGE_BLOCKED", "UPSTREAM_POOL_EMPTY
 
 /** Convert the backend's four axes to a display vocabulary. Counts are never used to infer this. */
 function statusFromOutcome(outcome: OutcomeStatus): string {
-  if (outcome.lifecycle_state === "RUNNING") return "RUNNING";
-  if (outcome.lifecycle_state === "QUEUED") return "QUEUED";
+  if (outcome.job_status === "STALE") return "STALE";
+  if (outcome.job_status === "RUNNING" || outcome.lifecycle_state === "RUNNING") return "RUNNING";
+  if (outcome.job_status === "QUEUED" || outcome.lifecycle_state === "QUEUED") return "QUEUED";
   const reasons = new Set(outcome.reason_codes);
   if (outcome.quality_state === "FAILED") return "TECHNICAL_FAILURE";
   if (outcome.quality_state === "CANCELLED") return "CANCELLED";
@@ -165,9 +170,22 @@ function statusFromOutcome(outcome: OutcomeStatus): string {
     return "BLOCKED";
   }
   if (outcome.quality_state === "DEGRADED") {
-    return [...reasons].some((reason) => DATA_GAP_REASONS.has(reason)) ? "DATA_INSUFFICIENT" : "READY_DEGRADED";
+    return outcome.data_sufficiency_state === "INSUFFICIENT" || [...reasons].some((reason) => DATA_GAP_REASONS.has(reason)) ? "DATA_INSUFFICIENT" : "READY_DEGRADED";
   }
-  if (outcome.opportunity_state === "ABSENT") return "VALIDATED_NO_OPPORTUNITY";
+  const stage = "stage" in outcome ? outcome.stage.toUpperCase() : null;
+  const opportunity = stage === "A1"
+    ? outcome.research_opportunity_state
+    : stage === "A2"
+      ? outcome.focus_opportunity_state
+      : stage === "A3"
+        ? (outcome.actionability_state === "ACTIONABLE" ? "PRESENT" : outcome.actionability_state === "NO_ACTION" ? "ABSENT" : outcome.actionability_state === "UNKNOWN" ? "UNKNOWN" : "NOT_APPLICABLE")
+        : outcome.actionability_state === "ACTIONABLE"
+          ? "PRESENT"
+          : outcome.focus_opportunity_state !== "NOT_APPLICABLE"
+            ? outcome.focus_opportunity_state
+            : outcome.research_opportunity_state;
+  if (opportunity === "ABSENT") return stage === "A3" ? "VALIDATED_NO_ACTION" : stage === "A2" ? "VALIDATED_NO_OPPORTUNITY" : "VALIDATED_NO_OPPORTUNITY";
+  if (opportunity === "UNKNOWN") return "DATA_INSUFFICIENT";
   if (outcome.publication_state === "PUBLISHED") return "PUBLISHED";
   if (outcome.publication_state === "READY") return "READY";
   return outcome.legacy_status || "VALIDATED";
@@ -907,11 +925,16 @@ function outcomeAxisLabel(outcome: OutcomeStatus): string {
       : outcome.quality_state === "BLOCKED"
         ? "已阻断"
         : outcome.quality_state === "FAILED" ? "技术失败" : "已取消";
-  const opportunity = outcome.opportunity_state === "PRESENT"
-    ? "存在机会"
-    : outcome.opportunity_state === "ABSENT"
-      ? "已验证无机会"
-      : outcome.opportunity_state === "UNKNOWN" ? "机会未知" : "不适用";
+  const stage = "stage" in outcome ? outcome.stage.toUpperCase() : null;
+  const opportunityLabel = (value: string): string => value === "PRESENT" ? "存在机会" : value === "ABSENT" ? "已验证无机会" : value === "UNKNOWN" ? "机会未知" : "不适用";
+  const actionabilityLabel = (value: string): string => value === "ACTIONABLE" ? "可行动" : value === "NO_ACTION" ? "无需行动" : value === "UNKNOWN" ? "行动未知" : "不适用";
+  const opportunity = stage === "A1"
+    ? `研究${opportunityLabel(outcome.research_opportunity_state)}`
+    : stage === "A2"
+      ? `聚焦${opportunityLabel(outcome.focus_opportunity_state)}`
+      : stage === "A3"
+        ? `行动${actionabilityLabel(outcome.actionability_state)}`
+        : `研究${opportunityLabel(outcome.research_opportunity_state)} · 聚焦${opportunityLabel(outcome.focus_opportunity_state)} · 行动${actionabilityLabel(outcome.actionability_state)}`;
   const publication = outcome.publication_state === "PUBLISHED"
     ? "已发布"
     : outcome.publication_state === "READY" ? "可发布" : outcome.publication_state === "BLOCKED" ? "不可发布" : "不适用";

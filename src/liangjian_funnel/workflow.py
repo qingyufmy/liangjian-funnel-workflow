@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -79,6 +80,10 @@ SHANGHAI = ZoneInfo("Asia/Shanghai")
 _A4_FILE = "agent_4_intraday_signal_v2.txt"
 _G0_SCOPE_CONTRACT = "CONFIGURED_RESEARCH_UNIVERSE_V1"
 _RESEARCH_RESUME_SCHEMA = "liangjian-research-resume/1.2.0"
+_COMPARISON_REQUEST_SCHEMA = "liangjian-comparison-request/1.0.0"
+_COMPARISON_REQUEST_STATUSES = frozenset({"PENDING", "RUNNING", "RETRYABLE", "SUCCEEDED", "FAILED", "CANCELLED"})
+_COMPARISON_RETRYABLE_STATUSES = frozenset({"PENDING", "RETRYABLE", "RUNNING"})
+_COMPARISON_OWNER_STALE_SECONDS = 15 * 60
 _CNINFO_PDF_PERMANENT_FAILURES = frozenset(
     {
         "CNINFO_PDF_URL_REJECTED",
@@ -1176,6 +1181,17 @@ class WorkflowApplication:
         as_of: datetime | None = None,
         historical_replay: bool = False,
         snapshot_id: str | None = None,
+        models: tuple[str, ...] | None = None,
+        lane_start_index: int = 1,
+        primary_lane_ids: tuple[str, ...] | None = None,
+        primary_only: bool = False,
+        schedule_comparison: bool = False,
+        publish_plans: bool = True,
+        comparison_run: bool = False,
+        run_id_override: str | None = None,
+        snapshot_expected_date: str | None = None,
+        snapshot_expected_hash: str | None = None,
+        record_runtime: bool = True,
     ) -> dict[str, Any]:
         normalized_slot = _slot(slot)
         current = _aware(as_of or datetime.now(SHANGHAI))
@@ -1184,15 +1200,35 @@ class WorkflowApplication:
                 raise WorkflowError("HISTORICAL_AS_OF_REQUIRED")
             if current.date() >= datetime.now(SHANGHAI).date():
                 raise WorkflowError("HISTORICAL_AS_OF_NOT_PAST")
-        elif snapshot_id is not None:
+        elif snapshot_id is not None and not comparison_run:
             raise WorkflowError("SNAPSHOT_ID_REQUIRES_HISTORICAL_REPLAY")
-        self._ensure_trading_day(current, synchronize_accounts=not historical_replay)
+        if comparison_run and not snapshot_id:
+            raise WorkflowError("COMPARISON_SNAPSHOT_REQUIRED")
+        self._ensure_trading_day(
+            current,
+            synchronize_accounts=not historical_replay and not comparison_run,
+        )
         if normalized_slot == "morning" and current.hour == 9 and current.minute < 26:
             time.sleep(max(0.0, (_at_time(current, 9, 26) - current).total_seconds()))
             current = datetime.now(SHANGHAI)
+        # A comparison is an audit child of the primary run.  It must not
+        # overwrite the single control-plane progress projection that the UI
+        # uses for the next morning/close job.  Keep a durable child progress
+        # file under workflow output instead; the child run summary remains
+        # the authoritative comparison record.
+        comparison_progress_id = re.sub(
+            r"[^A-Za-z0-9_.-]",
+            "_",
+            str(run_id_override or f"{current.date()}-{normalized_slot}-comparison"),
+        )[:180]
+        progress_path = (
+            self.settings.workflow_output_dir / "comparison_progress" / f"{comparison_progress_id}.json"
+            if comparison_run
+            else self.settings.workflow_progress_path
+        )
         progress = WorkflowProgress(
-            self.settings.workflow_progress_path,
-            run_id=f"{current.date()}-{normalized_slot}",
+            progress_path,
+            run_id=run_id_override or f"{current.date()}-{normalized_slot}",
             job=normalized_slot,
         )
         progress.set_phase("DATA_SYNC")
@@ -1210,14 +1246,17 @@ class WorkflowApplication:
         _progress_stdout(progress.snapshot())
         try:
             prepared = (
-                self._load_research_snapshot_by_id(snapshot_id, expected_date=current.date().isoformat())
-                if historical_replay and snapshot_id is not None
+                self._load_research_snapshot_by_id(
+                    snapshot_id,
+                    expected_date=snapshot_expected_date or current.date().isoformat(),
+                )
+                if snapshot_id is not None
                 else None if historical_replay
                 else self._load_research_resume_snapshot(normalized_slot, current)
             )
             if prepared is None:
                 prepared = self.prepare_snapshot(as_of=current, progress=progress)
-                if not historical_replay:
+                if not historical_replay and not comparison_run:
                     self._write_research_resume_marker(
                         normalized_slot,
                         prepared,
@@ -1227,6 +1266,8 @@ class WorkflowApplication:
                 progress.set_phase("SNAPSHOT_RESUMED")
                 progress.update_resources(measure_resources(self.settings.root).as_dict())
                 _progress_stdout(progress.snapshot())
+            if snapshot_expected_hash and prepared.snapshot.snapshot_hash != snapshot_expected_hash:
+                raise WorkflowError("COMPARISON_SNAPSHOT_HASH_MISMATCH")
         except Exception as exc:
             progress.finish(
                 status="BLOCKED",
@@ -1235,7 +1276,7 @@ class WorkflowApplication:
             )
             _progress_stdout(progress.snapshot())
             raise
-        run_id = f"{current.date()}-{normalized_slot}-{prepared.snapshot.snapshot_hash[:12]}"
+        run_id = run_id_override or f"{current.date()}-{normalized_slot}-{prepared.snapshot.snapshot_hash[:12]}"
 
         def research_progress(event: Mapping[str, Any]) -> None:
             progress.research_event(event)
@@ -1250,7 +1291,7 @@ class WorkflowApplication:
             # before the next model starts. Parallel lanes multiply the
             # 200+ MiB frozen snapshot during JSON projection.
             parallel_lanes=False,
-            runtime_store=self.store,
+            runtime_store=self.store if record_runtime else None,
             slot=normalized_slot,
             batch_workers=1,
             progress_callback=research_progress,
@@ -1276,7 +1317,29 @@ class WorkflowApplication:
         )
         heartbeat_thread.start()
         try:
-            result = pipeline.run(prepared.snapshot, run_id=run_id, generated_at=current)
+            selected_models = (
+                tuple(models)
+                if models is not None
+                else (self.settings.research_models[0],)
+                if primary_only
+                else tuple(self.settings.research_models)
+            )
+            selected_primary_lane_ids = (
+                tuple(primary_lane_ids)
+                if primary_lane_ids is not None
+                else (f"lane_{lane_start_index}",)
+                if primary_only
+                else (self.settings.research_primary_lane_id,)
+            )
+            result = pipeline.run(
+                prepared.snapshot,
+                run_id=run_id,
+                generated_at=current,
+                historical_replay=historical_replay,
+                models=selected_models,
+                lane_start_index=lane_start_index,
+                primary_lane_ids=selected_primary_lane_ids,
+            )
         except Exception as exc:
             progress.finish(
                 status="BLOCKED",
@@ -1299,16 +1362,29 @@ class WorkflowApplication:
             result,
             self.settings.workflow_output_dir / "research",
         )
-        publication = self._publish_plans(
-            result,
-            normalized_slot,
-            datetime.now(SHANGHAI),
-            snapshot_data=prepared.snapshot.data,
+        publication = (
+            self._publish_plans(
+                result,
+                normalized_slot,
+                datetime.now(SHANGHAI),
+                snapshot_data=prepared.snapshot.data,
+            )
+            if publish_plans
+            else {
+                "atomic": True,
+                "created": [],
+                "activated": [],
+                "blocked": [],
+                "publication": "COMPARISON_ONLY",
+            }
         )
         summary = {
             "run_id": run_id,
             "slot": normalized_slot,
             "status": result.status,
+            "run_role": "comparison" if comparison_run else "primary" if primary_only else "full",
+            "models": [lane.model for lane in result.lanes],
+            "primary_lane_ids": list(result.primary_lane_ids),
             "outcome_v2": result.outcome().as_dict(),
             "snapshot": prepared.as_dict(),
             "research_markdown": str(result.markdown_path) if result.markdown_path else None,
@@ -1319,7 +1395,16 @@ class WorkflowApplication:
         atomic_write_json(self.settings.workflow_output_dir / "runs" / f"{run_id}.json", summary)
         research_ready = result.status in {"READY", "READY_DEGRADED"}
         ready_reason = "RESEARCH_READY_DEGRADED" if result.status == "READY_DEGRADED" else None
-        if not historical_replay:
+        if schedule_comparison and primary_only and research_ready and not historical_replay and not comparison_run:
+            request = self._create_comparison_request(
+                parent_run_id=run_id,
+                prepared=prepared,
+                slot=normalized_slot,
+                primary_status=result.status,
+            )
+            summary["comparison_request"] = request
+            atomic_write_json(self.settings.workflow_output_dir / "runs" / f"{run_id}.json", summary)
+        if not historical_replay and not comparison_run:
             self._write_research_resume_marker(
                 normalized_slot,
                 prepared,
@@ -1333,6 +1418,290 @@ class WorkflowApplication:
         )
         _progress_stdout(progress.snapshot())
         return summary
+
+    # ------------------------------------------------------------------
+    # Optional comparison-lane queue
+    # ------------------------------------------------------------------
+    def _comparison_request_dir(self) -> Path:
+        return self.settings.workflow_output_dir / "comparison_requests"
+
+    def _comparison_request_path(self, parent_run_id: str) -> Path:
+        safe_parent = re.sub(r"[^A-Za-z0-9_.-]", "_", str(parent_run_id))[:180]
+        if not safe_parent:
+            raise WorkflowError("COMPARISON_PARENT_RUN_ID_INVALID")
+        return self._comparison_request_dir() / f"{safe_parent}.json"
+
+    def _read_comparison_request(self, path: Path) -> dict[str, Any] | None:
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, ValueError, TypeError):
+            return None
+        if not isinstance(raw, Mapping):
+            return None
+        if raw.get("schema_version") != _COMPARISON_REQUEST_SCHEMA:
+            return None
+        if not isinstance(raw.get("parent_run_id"), str) or not raw["parent_run_id"]:
+            return None
+        if str(raw.get("status") or "") not in _COMPARISON_REQUEST_STATUSES:
+            return None
+        return dict(raw)
+
+    def _create_comparison_request(
+        self,
+        *,
+        parent_run_id: str,
+        prepared: PreparedSnapshot,
+        slot: str,
+        primary_status: str,
+    ) -> dict[str, Any]:
+        """Create the idempotent durable hand-off from primary to comparison.
+
+        The primary summary and plans are written before this marker.  The
+        marker therefore acts as the durable queue commit: a restarted Node
+        process can safely discover it without re-running the primary lane.
+        """
+
+        path = self._comparison_request_path(parent_run_id)
+        existing = self._read_comparison_request(path) if path.is_file() else None
+        if existing is not None:
+            if (
+                existing.get("snapshot_id") != prepared.snapshot.snapshot_id
+                or existing.get("snapshot_hash") != prepared.snapshot.snapshot_hash
+            ):
+                raise WorkflowError("COMPARISON_REQUEST_IMMUTABLE_MISMATCH")
+            return existing
+        now = datetime.now(SHANGHAI).isoformat()
+        request = {
+            "schema_version": _COMPARISON_REQUEST_SCHEMA,
+            "request_id": str(parent_run_id),
+            "parent_run_id": str(parent_run_id),
+            "snapshot_id": prepared.snapshot.snapshot_id,
+            "snapshot_hash": prepared.snapshot.snapshot_hash,
+            "snapshot_as_of": prepared.snapshot.as_of.isoformat(),
+            "trade_date": prepared.snapshot.as_of.astimezone(SHANGHAI).date().isoformat(),
+            "slot": str(slot),
+            "models": list(self.settings.research_models[1:]),
+            "lane_start_index": 2,
+            "primary_lane_ids": ["lane_2", "lane_3"],
+            "primary_status": str(primary_status),
+            "status": "PENDING",
+            "attempts": 0,
+            "child_run_id": None,
+            "reason_code": None,
+            "owner_pid": None,
+            "created_at": now,
+            "updated_at": now,
+        }
+        atomic_write_json(path, request)
+        return request
+
+    def list_comparison_requests(
+        self,
+        *,
+        statuses: frozenset[str] | set[str] | tuple[str, ...] = _COMPARISON_RETRYABLE_STATUSES,
+    ) -> tuple[dict[str, Any], ...]:
+        """List safe, durable comparison requests for recovery/inspection."""
+
+        wanted = {str(value).upper() for value in statuses}
+        directory = self._comparison_request_dir()
+        try:
+            paths = tuple(directory.glob("*.json"))
+        except OSError:
+            return ()
+        rows = [
+            request
+            for path in paths
+            if (request := self._read_comparison_request(path)) is not None
+            and str(request.get("status") or "").upper() in wanted
+        ]
+        rows.sort(key=lambda item: str(item.get("updated_at") or item.get("created_at") or ""))
+        return tuple(rows)
+
+    @staticmethod
+    def _comparison_owner_alive(owner_pid: Any) -> bool:
+        try:
+            pid = int(owner_pid)
+        except (TypeError, ValueError):
+            return False
+        if pid <= 0 or pid == os.getpid():
+            return pid == os.getpid()
+        try:
+            os.kill(pid, 0)
+        except (OSError, ProcessLookupError):
+            return False
+        return True
+
+    def _claim_comparison_request(self, request: Mapping[str, Any]) -> tuple[Path, dict[str, Any]] | None:
+        parent_run_id = str(request.get("parent_run_id") or "")
+        path = self._comparison_request_path(parent_run_id)
+        lock_path = path.with_suffix(".claim.lock")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        lock_fd: int | None = None
+        try:
+            try:
+                lock_fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            except FileExistsError:
+                try:
+                    if datetime.now(SHANGHAI).timestamp() - lock_path.stat().st_mtime > _COMPARISON_OWNER_STALE_SECONDS:
+                        lock_path.unlink(missing_ok=True)
+                        lock_fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+                    else:
+                        return None
+                except OSError:
+                    return None
+            current = self._read_comparison_request(path)
+            if current is None:
+                return None
+            status = str(current.get("status") or "").upper()
+            if status not in _COMPARISON_RETRYABLE_STATUSES:
+                return None
+            if status == "RUNNING" and self._comparison_owner_alive(current.get("owner_pid")):
+                return None
+            try:
+                attempts = int(current.get("attempts") or 0)
+            except (TypeError, ValueError):
+                attempts = 0
+            claimed = {
+                **current,
+                "status": "RUNNING",
+                "attempts": max(0, attempts) + 1,
+                "owner_pid": os.getpid(),
+                "updated_at": datetime.now(SHANGHAI).isoformat(),
+            }
+            atomic_write_json(path, claimed)
+            return path, claimed
+        finally:
+            if lock_fd is not None:
+                try:
+                    os.close(lock_fd)
+                except OSError:
+                    pass
+                # Only the process that successfully created this lock owns
+                # its lifecycle.  A contender that observed a fresh foreign
+                # lock must never unlink it in ``finally``.
+                try:
+                    lock_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+
+    def _update_comparison_request(
+        self,
+        path: Path,
+        *,
+        status: str,
+        reason_code: str | None = None,
+        child_run_id: str | None = None,
+        expected_attempt: int | None = None,
+    ) -> dict[str, Any] | None:
+        current = self._read_comparison_request(path)
+        if current is None:
+            return None
+        if expected_attempt is not None:
+            try:
+                current_attempt = int(current.get("attempts") or 0)
+            except (TypeError, ValueError):
+                return None
+            if current_attempt != expected_attempt or not self._comparison_owner_alive(current.get("owner_pid")):
+                # A stale child must never finalize a request reclaimed by a
+                # later process.  The attempt number is the durable fencing
+                # token; PID is only an additional liveness check.
+                return None
+        updated = {
+            **current,
+            "status": str(status).upper(),
+            "reason_code": reason_code,
+            "child_run_id": child_run_id or current.get("child_run_id"),
+            "owner_pid": None,
+            "updated_at": datetime.now(SHANGHAI).isoformat(),
+        }
+        atomic_write_json(path, updated)
+        return updated
+
+    def run_comparison(self, *, parent_run_id: str | None = None) -> dict[str, Any]:
+        """Run one pending optional comparison request, never the primary lane."""
+
+        if parent_run_id:
+            path = self._comparison_request_path(parent_run_id)
+            request = self._read_comparison_request(path)
+            candidates = (
+                (request,)
+                if request is not None
+                and str(request.get("status") or "").upper() in _COMPARISON_RETRYABLE_STATUSES
+                else ()
+            )
+        else:
+            candidates = self.list_comparison_requests()
+        if not candidates or candidates[0] is None:
+            return {"status": "NOOP", "reason_code": "NO_PENDING_COMPARISON"}
+        claimed = self._claim_comparison_request(candidates[0])
+        if claimed is None:
+            return {"status": "SKIPPED", "reason_code": "COMPARISON_BUSY"}
+        path, request = claimed
+        parent = str(request["parent_run_id"])
+        attempt = int(request.get("attempts") or 1)
+        child_run_id = f"{parent}-comparison-{attempt}"
+        try:
+            snapshot_as_of = _aware(datetime.fromisoformat(str(request.get("snapshot_as_of") or "")))
+            models = tuple(str(item) for item in request.get("models", ()) if str(item).strip())
+            if len(models) != 2:
+                raise WorkflowError("COMPARISON_MODEL_SET_INVALID")
+            summary = self.run_research(
+                str(request.get("slot") or "close"),
+                as_of=snapshot_as_of,
+                snapshot_id=str(request.get("snapshot_id") or ""),
+                snapshot_expected_hash=str(request.get("snapshot_hash") or ""),
+                models=models,
+                lane_start_index=int(request.get("lane_start_index") or 2),
+                primary_lane_ids=tuple(str(item) for item in request.get("primary_lane_ids", ("lane_2", "lane_3"))),
+                publish_plans=False,
+                comparison_run=True,
+                run_id_override=child_run_id,
+                snapshot_expected_date=str(request.get("trade_date") or snapshot_as_of.date().isoformat()),
+                record_runtime=False,
+            )
+            child_path = self.settings.workflow_output_dir / "runs" / f"{child_run_id}.json"
+            summary = {**summary, "parent_run_id": parent, "comparison_request_id": parent}
+            atomic_write_json(child_path, summary)
+            result_status = str(summary.get("status") or "")
+            final_status = "SUCCEEDED" if result_status in {"READY", "READY_DEGRADED"} else "FAILED"
+            updated = self._update_comparison_request(
+                path,
+                status=final_status,
+                reason_code=None if final_status == "SUCCEEDED" else "COMPARISON_NOT_READY",
+                child_run_id=child_run_id,
+                expected_attempt=attempt,
+            )
+            return {
+                "status": final_status,
+                "parent_run_id": parent,
+                "child_run_id": child_run_id,
+                "request": updated,
+            }
+        except KeyboardInterrupt:
+            self._update_comparison_request(
+                path,
+                status="CANCELLED",
+                reason_code="RUN_CANCELLED",
+                child_run_id=child_run_id,
+                expected_attempt=attempt,
+            )
+            raise
+        except Exception as exc:
+            reason_code = _safe_reason_code(exc)
+            updated = self._update_comparison_request(
+                path,
+                status="FAILED",
+                reason_code=reason_code,
+                child_run_id=child_run_id,
+                expected_attempt=attempt,
+            )
+            return {
+                "status": "FAILED",
+                "parent_run_id": parent,
+                "child_run_id": child_run_id,
+                "reason_code": reason_code,
+                "request": updated,
+            }
 
     def _load_research_snapshot_by_id(
         self,
@@ -1823,7 +2192,12 @@ class WorkflowApplication:
             self.store,
             callbacks={
                 ScheduleKind.MORNING_0925: lambda _job: self.review_pending_morning(now=current),
-                ScheduleKind.CLOSE_1510: lambda _job: self.run_research("close", as_of=current),
+                ScheduleKind.CLOSE_1510: lambda _job: self.run_research(
+                    "close",
+                    as_of=current,
+                    primary_only=True,
+                    schedule_comparison=True,
+                ),
                 ScheduleKind.MONITOR: lambda _job: self.monitor_once(now=current),
             },
             owner="liangjian-runtime",

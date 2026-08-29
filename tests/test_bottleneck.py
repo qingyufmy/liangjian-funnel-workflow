@@ -89,7 +89,9 @@ def test_a2_gate_exposes_bottleneck_context_without_expanding_pool():
 
     result = screen_a2(snapshot, a1_output, minimum_identifiability_score=0, llm_top_n_per_theme=1)
 
-    assert result.review_symbols == (symbol,)
+    assert result.review_symbols == ()
+    assert result.monitor_symbols == (symbol,)
+    assert result.decisions[0]["status"] == "DATA_GAP"
     context = result.decisions[0]["bottleneck_context"]
     assert context["methodology_version"] == "liangjian-serenity-a2/1.0.0"
     assert context["source_refs"] == ["cninfo:600000.SH:page:1"]
@@ -223,12 +225,15 @@ def test_a2_market_core_route_allows_missing_bottleneck_card_and_normalizes_flow
     result = screen_a2(snapshot, upstream, minimum_identifiability_score=60, llm_top_n_per_theme=1)
 
     decision = result.decisions[0]
-    assert result.review_symbols == (symbol,)
+    assert result.review_symbols == ()
+    assert result.monitor_symbols == (symbol,)
+    assert decision["status"] == "DATA_GAP"
     assert decision["route"] == "MARKET_CORE"
     assert decision["eligible_routes"] == ("MARKET_CORE",)
     assert decision["bottleneck_status"] == "NOT_REQUIRED_FOR_MARKET_CORE"
     assert decision["a2_factor_scores"]["capital_flow"]["available"] is False
     assert decision["factor_coverage"]["ratio"] == pytest.approx(8 / 9)
+    assert decision["critical_factor_coverage"]["sufficient"] is False
 
 
 def test_a2_supply_chain_alpha_requires_complete_source_backed_scorecard():

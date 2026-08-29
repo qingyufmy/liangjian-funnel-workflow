@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from liangjian_funnel.runtime.progress import WorkflowProgress
+from liangjian_funnel.pipeline.outcomes import aggregate_lane_outcome, aggregate_run_outcome, stage_outcome_from_legacy
 
 
 TZ = ZoneInfo("Asia/Shanghai")
@@ -158,3 +159,17 @@ def test_progress_diagnostics_reject_unknown_shape_types_and_arbitrary_keys(tmp_
     stage = state["lanes"]["LANE_1"]["stages"]["MACRO_DISCOVERY"]
     assert "diagnostics" not in stage
     assert "private" not in (tmp_path / "workflow_progress.json").read_text(encoding="utf-8")
+
+
+def test_finish_does_not_overwrite_lane_states_and_uses_canonical_job_status(tmp_path):
+    progress = WorkflowProgress(tmp_path / "workflow_progress.json", run_id="run-outcome", job="close")
+    progress.research_event({"lane_id": "lane_1", "stage": "A1", "status": "RUNNING", "lane_status": "RUNNING"})
+    progress.research_event({"lane_id": "lane_2", "stage": "A1", "status": "FAILED", "lane_status": "FAILED"})
+    lane = aggregate_lane_outcome((), lane_id="lane_1", legacy_status="READY_DEGRADED")
+    outcome = aggregate_run_outcome((lane,), run_id="run-outcome", expected_lane_count=1)
+    progress.finish(status="BLOCKED", phase="COMPLETED", outcome=outcome.as_dict())
+    state = progress.snapshot()
+    assert state["job_status"] == "SUCCEEDED"
+    assert state["lanes"]["LANE_1"]["status"] == "RUNNING"
+    assert state["lanes"]["LANE_2"]["status"] == "FAILED"
+    assert state["outcome_v3"]["schema_version"] == "research-outcome/3.0.0"

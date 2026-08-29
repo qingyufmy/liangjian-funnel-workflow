@@ -26,6 +26,7 @@ import type {
   LaneOutcomeContract,
   RunOutcomeContract,
   StageOutcomeContract,
+  OutcomeJobStatus,
 } from "./types.js";
 
 const MAX_JSON_BYTES = 8 * 1024 * 1024;
@@ -106,6 +107,15 @@ const PROGRESS_STATUS = new Set<WorkflowProgressStatus>([
   "PARTIAL",
   "BLOCKED",
   "FAILED",
+  "SUCCEEDED",
+  "CANCELLED",
+  "VALIDATED",
+  "VALIDATED_NO_OPPORTUNITY",
+  "VALIDATED_NO_ACTION",
+  "VALIDATED_NO_SETUP",
+  "DEGRADED_UNDERFILLED_DATA_GAP",
+  "VALIDATED_UNDERFILLED_MARKET",
+  "NOT_RUN",
   "IDLE",
   "UNKNOWN",
   "INVALID",
@@ -276,10 +286,14 @@ function numberValue(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-const OUTCOME_SCHEMA_VERSION = "research-outcome/2.0.0" as const;
+const OUTCOME_SCHEMA_VERSION = "research-outcome/3.0.0" as const;
+const LEGACY_OUTCOME_SCHEMA_VERSION = "research-outcome/2.0.0" as const;
 const OUTCOME_LIFECYCLE = new Set(["QUEUED", "RUNNING", "TERMINAL"]);
+const OUTCOME_JOB_STATUS = new Set(["QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELLED", "STALE"]);
 const OUTCOME_QUALITY = new Set(["VALIDATED", "DEGRADED", "BLOCKED", "FAILED", "CANCELLED"]);
+const OUTCOME_SUFFICIENCY = new Set(["SUFFICIENT", "PARTIAL", "INSUFFICIENT", "NOT_APPLICABLE"]);
 const OUTCOME_OPPORTUNITY = new Set(["PRESENT", "ABSENT", "UNKNOWN", "NOT_APPLICABLE"]);
+const OUTCOME_ACTIONABILITY = new Set(["ACTIONABLE", "NO_ACTION", "UNKNOWN", "NOT_APPLICABLE"]);
 const OUTCOME_PUBLICATION = new Set(["READY", "NOT_APPLICABLE", "BLOCKED", "PUBLISHED"]);
 const OUTCOME_REASON = /^[A-Z][A-Z0-9_.:-]{0,119}$/;
 const OUTCOME_COUNT_MAX = 10_000_000;
@@ -356,8 +370,51 @@ function outcomeReasons(value: unknown): string[] {
 }
 
 function outcomeSource(value: JsonRecord): JsonRecord {
-  const nested = value.outcome_v2 ?? value.outcomeV2 ?? value.outcome;
+  const nested = value.outcome_v3 ?? value.outcomeV3 ?? value.outcome_v2 ?? value.outcomeV2 ?? value.outcome;
   return isRecord(nested) ? nested : value;
+}
+
+function outcomeJobStatus(status: string): "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELLED" | "STALE" {
+  if (["PENDING", "CREATED", "DATA_PREPARING", "DATA_BOUND", "QUEUED"].includes(status)) return "QUEUED";
+  if (["RUNNING", "RETRYING", "STARTED", "IN_PROGRESS"].includes(status)) return "RUNNING";
+  if (["CANCELLED", "CANCELED"].includes(status)) return "CANCELLED";
+  if (["FAILED", "BLOCKED_MODEL", "MODEL_FAILED", "MODEL_CALL_FAILED"].includes(status)) return "FAILED";
+  if (status === "STALE") return "STALE";
+  return "SUCCEEDED";
+}
+
+function outcomeSufficiency(
+  status: string,
+  counts: Readonly<Record<string, number>>,
+  coverage: Readonly<Record<string, number | string | null>>,
+  reasons: readonly string[],
+): "SUFFICIENT" | "PARTIAL" | "INSUFFICIENT" | "NOT_APPLICABLE" {
+  if (["PENDING", "CREATED", "DATA_PREPARING", "DATA_BOUND", "QUEUED", "RUNNING"].includes(status)) return "NOT_APPLICABLE";
+  if (["BLOCKED_DATA_COVERAGE", "DEGRADED_UNDERFILLED_DATA_GAP", "DATA_GAP", "BLOCKED_EVIDENCE_GAP", "BLOCKED_TECHNICAL_DATA"].includes(status)) return "INSUFFICIENT";
+  if (reasons.some((reason) => /COVERAGE|UNAVAILABLE|INSUFFICIENT|EVIDENCE_GAP|DATA_GAP/.test(reason))) return "INSUFFICIENT";
+  const coverageState = outcomeIsCoverageInsufficient(counts, coverage);
+  if (coverageState === true) return "INSUFFICIENT";
+  if (coverageState === false) return "SUFFICIENT";
+  if (["VALIDATED", "VALIDATED_NO_OPPORTUNITY", "VALIDATED_NO_ACTION", "VALIDATED_NO_SETUP", "VALIDATED_UNDERFILLED_MARKET", "READY", "READY_DEGRADED", "READY_TO_PUBLISH", "PUBLISHED"].includes(status)) return "PARTIAL";
+  return "NOT_APPLICABLE";
+}
+
+function stageHasDataGap(stage: StageOutcomeContract): boolean {
+  if (stage.quality_state === "FAILED" || stage.quality_state === "CANCELLED") return false;
+  if (stage.data_sufficiency_state === "INSUFFICIENT") return true;
+  return stage.quality_state === "BLOCKED" && stage.reason_codes.some((reason) => /COVERAGE|UNAVAILABLE|INSUFFICIENT|EVIDENCE_GAP|DATA_GAP/.test(reason));
+}
+
+function laneHasDataGap(lane: LaneOutcomeContract): boolean {
+  return lane.data_sufficiency_state === "INSUFFICIENT" && (lane.stages.some(stageHasDataGap) || lane.reason_codes.some((reason) => /COVERAGE|UNAVAILABLE|INSUFFICIENT|EVIDENCE_GAP|DATA_GAP/.test(reason)));
+}
+
+function actionabilityForOpportunity(value: StageOutcomeContract["opportunity_state"]): StageOutcomeContract["actionability_state"] {
+  return value === "PRESENT" ? "ACTIONABLE" : value === "ABSENT" ? "NO_ACTION" : value === "UNKNOWN" ? "UNKNOWN" : "NOT_APPLICABLE";
+}
+
+function opportunityForActionability(value: StageOutcomeContract["actionability_state"]): StageOutcomeContract["opportunity_state"] {
+  return value === "ACTIONABLE" ? "PRESENT" : value === "NO_ACTION" ? "ABSENT" : value === "UNKNOWN" ? "UNKNOWN" : "NOT_APPLICABLE";
 }
 
 function outcomeLegacyStatus(value: JsonRecord, source: JsonRecord): string {
@@ -370,6 +427,7 @@ function outcomeDerivedReason(status: string, stage: string): string | null {
   if (status === "VALIDATED_NO_SETUP") return "A3_NO_TECHNICAL_SETUP";
   if (status === "VALIDATED_UNDERFILLED_MARKET") return "POOL_UNDERFILLED_MARKET";
   if (status === "DEGRADED_UNDERFILLED_DATA_GAP" || status === "BLOCKED_DATA_COVERAGE") return "DATA_COVERAGE_INSUFFICIENT";
+  if (status === "DATA_GAP") return "DATA_GAP";
   if (status === "BLOCKED_EVIDENCE_GAP") return "EVIDENCE_GAP";
   if (["BLOCKED_MODEL", "MODEL_FAILED", "MODEL_CALL_FAILED"].includes(status)) return "MODEL_CALL_FAILED";
   if (status === "BLOCKED_TECHNICAL_DATA") return "TECHNICAL_DATA_UNAVAILABLE";
@@ -412,8 +470,9 @@ function legacyStageOutcome(value: JsonRecord, stage: string): StageOutcomeContr
   const failed = ["FAILED", "BLOCKED_MODEL", "MODEL_FAILED", "MODEL_CALL_FAILED"].includes(legacyStatus);
   const blocked = ["BLOCKED", "BLOCKED_DATA_COVERAGE", "BLOCKED_EVIDENCE_GAP", "BLOCKED_TECHNICAL_DATA", "NOT_RUN_UPSTREAM_BLOCKED", "EXPIRED"].includes(legacyStatus);
   const cancelled = ["CANCELLED", "CANCELED"].includes(legacyStatus);
-  const degraded = ["DEGRADED", "DEGRADED_UNDERFILLED_DATA_GAP", "READY_DEGRADED", "VALIDATED_UNDERFILLED_MARKET"].includes(legacyStatus);
-  const quality = cancelled ? "CANCELLED" : failed ? "FAILED" : blocked ? "BLOCKED" : degraded ? "DEGRADED" : ["PENDING", "CREATED", "DATA_PREPARING", "DATA_BOUND", "QUEUED", "RUNNING"].includes(legacyStatus) ? "DEGRADED" : "VALIDATED";
+  const degraded = ["DEGRADED", "DEGRADED_UNDERFILLED_DATA_GAP", "DATA_GAP", "READY_DEGRADED", "VALIDATED_UNDERFILLED_MARKET"].includes(legacyStatus);
+  const upstreamDataGap = stage === "A3" && legacyStatus === "NOT_RUN_UPSTREAM_BLOCKED" && reasons.some((reason) => /COVERAGE|UNAVAILABLE|INSUFFICIENT|EVIDENCE_GAP|DATA_GAP/.test(reason));
+  const quality = cancelled ? "CANCELLED" : failed ? "FAILED" : upstreamDataGap ? "DEGRADED" : blocked ? "BLOCKED" : degraded ? "DEGRADED" : ["PENDING", "CREATED", "DATA_PREPARING", "DATA_BOUND", "QUEUED", "RUNNING"].includes(legacyStatus) ? "DEGRADED" : "VALIDATED";
   let opportunity: StageOutcomeContract["opportunity_state"] = "UNKNOWN";
   if (["NOT_RUN_UPSTREAM_BLOCKED", "PENDING", "CREATED", "DATA_PREPARING", "DATA_BOUND", "QUEUED", "RUNNING"].includes(legacyStatus)) opportunity = "NOT_APPLICABLE";
   else if (failed || blocked || cancelled) opportunity = "UNKNOWN";
@@ -421,35 +480,40 @@ function legacyStageOutcome(value: JsonRecord, stage: string): StageOutcomeContr
   else if (["READY", "READY_DEGRADED", "READY_TO_PUBLISH", "PUBLISHED", "VALIDATED_UNDERFILLED_MARKET"].includes(legacyStatus)) opportunity = "PRESENT";
   else if ((counts.selected ?? 0) > 0) opportunity = "PRESENT";
   else if (counts.selected === 0 && outcomeIsCoverageInsufficient(counts, coverage) === false) opportunity = "ABSENT";
-  const publication: StageOutcomeContract["publication_state"] = legacyStatus === "PUBLISHED"
+  const publication: StageOutcomeContract["publication_state"] = upstreamDataGap ? "NOT_APPLICABLE" : legacyStatus === "PUBLISHED"
     ? "PUBLISHED"
-    : ["READY", "READY_DEGRADED", "READY_TO_PUBLISH"].includes(legacyStatus)
+    : ["READY", "READY_DEGRADED", "READY_TO_PUBLISH", "DATA_GAP"].includes(legacyStatus)
       ? "READY"
       : failed || blocked || cancelled || legacyStatus === "NOT_RUN_UPSTREAM_BLOCKED" ? "BLOCKED" : "NOT_APPLICABLE";
-  if (["VALIDATED_NO_OPPORTUNITY", "VALIDATED_NO_ACTION", "VALIDATED_NO_SETUP"].includes(legacyStatus) && (counts.input === 0 || outcomeIsCoverageInsufficient(counts, coverage) === true)) {
-    return {
-      schema_version: OUTCOME_SCHEMA_VERSION,
-      stage,
-      lifecycle_state: lifecycle,
-      quality_state: "BLOCKED",
-      opportunity_state: "UNKNOWN",
-      publication_state: publication,
-      reason_codes: reasons.includes("DATA_COVERAGE_INSUFFICIENT") ? reasons : [...reasons, "DATA_COVERAGE_INSUFFICIENT"],
-      counts,
-      data_coverage: coverage,
-      legacy_status: legacyStatus,
-    };
-  }
+  const explicitNoOpportunity = ["VALIDATED_NO_OPPORTUNITY", "VALIDATED_NO_ACTION", "VALIDATED_NO_SETUP"].includes(legacyStatus);
+  const missingEvaluation = counts.input === undefined || counts.evaluated === undefined;
+  const insufficient = explicitNoOpportunity && (missingEvaluation || counts.input === 0 || outcomeIsCoverageInsufficient(counts, coverage) === true);
+  const finalReasons = insufficient && !reasons.includes("DATA_COVERAGE_INSUFFICIENT")
+    ? [...reasons, "DATA_COVERAGE_INSUFFICIENT"]
+    : reasons;
+  const finalOpportunity = insufficient ? "UNKNOWN" : opportunity;
+  const finalQuality = insufficient ? "BLOCKED" : quality;
+  const finalCoverage = insufficient && Object.keys(coverage).length === 0
+    ? { sufficiency: "INSUFFICIENT" }
+    : coverage;
+  const stageOpportunity = stage === "A1" ? finalOpportunity : "NOT_APPLICABLE";
+  const focusOpportunity = stage === "A2" ? finalOpportunity : "NOT_APPLICABLE";
+  const actionability = stage === "A3" ? actionabilityForOpportunity(finalOpportunity) : "NOT_APPLICABLE";
   return {
     schema_version: OUTCOME_SCHEMA_VERSION,
     stage,
+    job_status: outcomeJobStatus(legacyStatus),
     lifecycle_state: lifecycle,
-    quality_state: quality,
-    opportunity_state: opportunity,
+    quality_state: finalQuality,
+    data_sufficiency_state: outcomeSufficiency(legacyStatus, counts, finalCoverage, finalReasons),
+    research_opportunity_state: stageOpportunity,
+    focus_opportunity_state: focusOpportunity,
+    actionability_state: actionability,
+    opportunity_state: finalOpportunity,
     publication_state: publication,
-    reason_codes: reasons,
+    reason_codes: finalReasons,
     counts,
-    data_coverage: coverage,
+    data_coverage: finalCoverage,
     legacy_status: legacyStatus,
   };
 }
@@ -461,23 +525,46 @@ export function normalizeStageOutcome(value: unknown, fallbackStage = "UNKNOWN")
   const stage = outcomeText(source.stage) ?? outcomeText(value.stage) ?? fallbackStage;
   const lifecycle = outcomeToken(source.lifecycle_state ?? source.lifecycleState, OUTCOME_LIFECYCLE);
   const quality = outcomeToken(source.quality_state ?? source.qualityState, OUTCOME_QUALITY);
-  const opportunity = outcomeToken(source.opportunity_state ?? source.opportunityState, OUTCOME_OPPORTUNITY);
+  const legacyOpportunity = outcomeToken(source.opportunity_state ?? source.opportunityState, OUTCOME_OPPORTUNITY);
+  const researchOpportunity = outcomeToken(source.research_opportunity_state ?? source.researchOpportunityState, OUTCOME_OPPORTUNITY);
+  const focusOpportunity = outcomeToken(source.focus_opportunity_state ?? source.focusOpportunityState, OUTCOME_OPPORTUNITY);
+  const actionability = outcomeToken(source.actionability_state ?? source.actionabilityState, OUTCOME_ACTIONABILITY);
   const publication = outcomeToken(source.publication_state ?? source.publicationState, OUTCOME_PUBLICATION);
-  if (lifecycle && quality && opportunity && publication) {
+  if (lifecycle && quality && publication && (legacyOpportunity || researchOpportunity || focusOpportunity || actionability)) {
     const counts = outcomeCounts(source.counts);
     const coverage = outcomeCoverage(source.data_coverage ?? source.dataCoverage);
     const reasons = outcomeReasons(source.reason_codes ?? source.reasonCodes);
+    const legacyStatus = outcomeLegacyStatus(value, source);
+    const stageOpportunity = legacyOpportunity
+      ?? (stage === "A1" ? researchOpportunity : stage === "A2" ? focusOpportunity : opportunityForActionability((actionability ?? "NOT_APPLICABLE") as StageOutcomeContract["actionability_state"]));
+    if (!stageOpportunity) return null;
+    const finalReasons = [...reasons];
+    const explicitNoOpportunity = ["VALIDATED_NO_OPPORTUNITY", "VALIDATED_NO_ACTION", "VALIDATED_NO_SETUP"].includes(legacyStatus);
+    const missingEvaluation = counts.input === undefined || counts.evaluated === undefined;
+    const insufficient = explicitNoOpportunity && (missingEvaluation || counts.input === 0 || outcomeIsCoverageInsufficient(counts, coverage) === true);
+    if (insufficient && !finalReasons.includes("DATA_COVERAGE_INSUFFICIENT")) finalReasons.push("DATA_COVERAGE_INSUFFICIENT");
+    const finalOpportunity = insufficient ? "UNKNOWN" : stageOpportunity;
+    const finalCoverage = insufficient && Object.keys(coverage).length === 0 ? { sufficiency: "INSUFFICIENT" } : coverage;
+    const dataGapOnly = quality === "BLOCKED" && (outcomeToken(source.data_sufficiency_state ?? source.dataSufficiencyState, OUTCOME_SUFFICIENCY) === "INSUFFICIENT" || finalReasons.some((reason) => /COVERAGE|UNAVAILABLE|INSUFFICIENT|EVIDENCE_GAP|DATA_GAP/.test(reason)));
+    const upstreamDataGap = stage === "A3" && legacyStatus === "NOT_RUN_UPSTREAM_BLOCKED" && finalReasons.some((reason) => /COVERAGE|UNAVAILABLE|INSUFFICIENT|EVIDENCE_GAP|DATA_GAP/.test(reason));
+    const projectedQuality = (dataGapOnly || upstreamDataGap) ? "DEGRADED" : (insufficient ? "BLOCKED" : quality);
+    const projectedPublication = upstreamDataGap ? "NOT_APPLICABLE" : dataGapOnly && publication === "BLOCKED" ? "READY" : publication;
     return {
       schema_version: OUTCOME_SCHEMA_VERSION,
       stage,
+      job_status: outcomeToken(source.job_status ?? source.jobStatus, OUTCOME_JOB_STATUS) as StageOutcomeContract["job_status"] ?? outcomeJobStatus(legacyStatus),
       lifecycle_state: lifecycle as StageOutcomeContract["lifecycle_state"],
-      quality_state: quality as StageOutcomeContract["quality_state"],
-      opportunity_state: opportunity as StageOutcomeContract["opportunity_state"],
-      publication_state: publication as StageOutcomeContract["publication_state"],
-      reason_codes: reasons,
+      quality_state: projectedQuality as StageOutcomeContract["quality_state"],
+      data_sufficiency_state: outcomeToken(source.data_sufficiency_state ?? source.dataSufficiencyState, OUTCOME_SUFFICIENCY) as StageOutcomeContract["data_sufficiency_state"] ?? outcomeSufficiency(legacyStatus, counts, finalCoverage, finalReasons),
+      research_opportunity_state: (stage === "A1" ? finalOpportunity : researchOpportunity ?? "NOT_APPLICABLE") as StageOutcomeContract["research_opportunity_state"],
+      focus_opportunity_state: (stage === "A2" ? finalOpportunity : focusOpportunity ?? "NOT_APPLICABLE") as StageOutcomeContract["focus_opportunity_state"],
+      actionability_state: (stage === "A3" ? actionabilityForOpportunity(finalOpportunity as StageOutcomeContract["opportunity_state"]) : actionability ?? "NOT_APPLICABLE") as StageOutcomeContract["actionability_state"],
+      opportunity_state: finalOpportunity as StageOutcomeContract["opportunity_state"],
+      publication_state: projectedPublication as StageOutcomeContract["publication_state"],
+      reason_codes: finalReasons,
       counts,
-      data_coverage: coverage,
-      legacy_status: outcomeLegacyStatus(value, source),
+      data_coverage: finalCoverage,
+      legacy_status: legacyStatus,
     };
   }
   const hasLegacySignal = source.status !== undefined || value.status !== undefined || source.legacy_status !== undefined || source.counts !== undefined;
@@ -488,26 +575,39 @@ function aggregateLegacyLaneOutcome(value: JsonRecord, laneId: string, model: st
   const status = outcomeLegacyStatus(value, value);
   const last = stages[stages.length - 1] ?? legacyStageOutcome(value, "A3");
   const hasFailed = stages.some((stage) => stage.quality_state === "FAILED");
-  const hasBlocked = stages.some((stage) => stage.quality_state === "BLOCKED");
+  const hasBlocked = stages.some((stage) => stage.quality_state === "BLOCKED" && !stageHasDataGap(stage));
+  const hasDataGap = stages.some(stageHasDataGap);
   const hasDegraded = stages.some((stage) => stage.quality_state === "DEGRADED");
-  const quality: LaneOutcomeContract["quality_state"] = hasFailed ? "FAILED" : hasBlocked ? "BLOCKED" : hasDegraded ? "DEGRADED" : last.quality_state;
+  const quality: LaneOutcomeContract["quality_state"] = hasFailed ? "FAILED" : hasBlocked ? "BLOCKED" : hasDegraded || hasDataGap ? "DEGRADED" : last.quality_state;
   const lifecycle: LaneOutcomeContract["lifecycle_state"] = stages.some((stage) => stage.lifecycle_state === "RUNNING") ? "RUNNING" : stages.some((stage) => stage.lifecycle_state === "QUEUED") ? "QUEUED" : "TERMINAL";
   const opportunity: LaneOutcomeContract["opportunity_state"] = stages.some((stage) => stage.opportunity_state === "PRESENT") ? "PRESENT" : stages.some((stage) => stage.opportunity_state === "UNKNOWN") ? "UNKNOWN" : stages.some((stage) => stage.opportunity_state === "ABSENT") ? "ABSENT" : "NOT_APPLICABLE";
   const publication: LaneOutcomeContract["publication_state"] = quality === "FAILED" || quality === "BLOCKED" ? "BLOCKED" : stages.some((stage) => stage.publication_state === "PUBLISHED") ? "PUBLISHED" : lifecycle === "TERMINAL" ? "READY" : "NOT_APPLICABLE";
   const reasons = outcomeReasons(value.reason_codes ?? value.reasonCodes);
   for (const stage of stages) for (const reason of stage.reason_codes) if (!reasons.includes(reason)) reasons.push(reason);
+  const a1 = stages.find((stage) => stage.stage === "A1");
+  const a2 = stages.find((stage) => stage.stage === "A2");
+  const a3 = stages.find((stage) => stage.stage === "A3");
+  const laneJobStatus: LaneOutcomeContract["job_status"] = hasFailed ? "FAILED" : stages.some((stage) => stage.job_status === "CANCELLED") ? "CANCELLED" : lifecycle === "RUNNING" ? "RUNNING" : lifecycle === "QUEUED" ? "QUEUED" : "SUCCEEDED";
+  const sufficiencies = stages.map((stage) => stage.data_sufficiency_state);
+  const dataSufficiency: LaneOutcomeContract["data_sufficiency_state"] = sufficiencies.includes("INSUFFICIENT") ? "INSUFFICIENT" : sufficiencies.includes("PARTIAL") ? "PARTIAL" : sufficiencies.includes("SUFFICIENT") ? "SUFFICIENT" : "NOT_APPLICABLE";
+  const legacyLaneStatus = quality === "DEGRADED" && status === "BLOCKED" ? "READY_DEGRADED" : status || last.legacy_status;
   return {
     schema_version: OUTCOME_SCHEMA_VERSION,
     lane_id: laneId,
     model,
+    job_status: laneJobStatus,
     lifecycle_state: lifecycle,
     quality_state: quality,
+    data_sufficiency_state: dataSufficiency,
+    research_opportunity_state: a1?.research_opportunity_state ?? "NOT_APPLICABLE",
+    focus_opportunity_state: a2?.focus_opportunity_state ?? "NOT_APPLICABLE",
+    actionability_state: a3?.actionability_state ?? "NOT_APPLICABLE",
     opportunity_state: opportunity,
     publication_state: publication,
     reason_codes: reasons,
     counts: { stage_count: stages.length, completed_stages: stages.filter((stage) => stage.lifecycle_state === "TERMINAL").length },
     data_coverage: {},
-    legacy_status: status || last.legacy_status,
+    legacy_status: legacyLaneStatus,
     stages,
   };
 }
@@ -523,20 +623,38 @@ export function normalizeLaneOutcome(value: unknown, fallbackLaneId = "UNKNOWN",
   const lifecycle = outcomeToken(source.lifecycle_state ?? source.lifecycleState, OUTCOME_LIFECYCLE);
   const quality = outcomeToken(source.quality_state ?? source.qualityState, OUTCOME_QUALITY);
   const opportunity = outcomeToken(source.opportunity_state ?? source.opportunityState, OUTCOME_OPPORTUNITY);
+  const researchOpportunity = outcomeToken(source.research_opportunity_state ?? source.researchOpportunityState, OUTCOME_OPPORTUNITY);
+  const focusOpportunity = outcomeToken(source.focus_opportunity_state ?? source.focusOpportunityState, OUTCOME_OPPORTUNITY);
+  const actionability = outcomeToken(source.actionability_state ?? source.actionabilityState, OUTCOME_ACTIONABILITY);
   const publication = outcomeToken(source.publication_state ?? source.publicationState, OUTCOME_PUBLICATION);
-  if (lifecycle && quality && opportunity && publication) {
+  if (lifecycle && quality && publication && (opportunity || researchOpportunity || focusOpportunity || actionability)) {
+    const legacyStatus = outcomeLegacyStatus(value, source);
+    const a1 = stages.find((stage) => stage.stage === "A1");
+    const a2 = stages.find((stage) => stage.stage === "A2");
+    const a3 = stages.find((stage) => stage.stage === "A3");
+    const derivedOpportunity = opportunity ?? researchOpportunity ?? a1?.research_opportunity_state ?? "NOT_APPLICABLE";
+    const dataGapOnly = quality === "BLOCKED" && stages.some(stageHasDataGap) && !stages.some((stage) => stage.quality_state === "FAILED" || stage.quality_state === "CANCELLED");
+    const projectedQuality = dataGapOnly ? "DEGRADED" : quality;
+    const projectedPublication = dataGapOnly && publication === "BLOCKED" && lifecycle === "TERMINAL" ? "READY" : publication;
+    const sufficiency = outcomeToken(source.data_sufficiency_state ?? source.dataSufficiencyState, OUTCOME_SUFFICIENCY)
+      ?? (stages.some((stage) => stage.data_sufficiency_state === "INSUFFICIENT") ? "INSUFFICIENT" : stages.some((stage) => stage.data_sufficiency_state === "PARTIAL") ? "PARTIAL" : stages.some((stage) => stage.data_sufficiency_state === "SUFFICIENT") ? "SUFFICIENT" : outcomeSufficiency(legacyStatus, outcomeCounts(source.counts), outcomeCoverage(source.data_coverage ?? source.dataCoverage), outcomeReasons(source.reason_codes ?? source.reasonCodes)));
     return {
       schema_version: OUTCOME_SCHEMA_VERSION,
       lane_id: laneId,
       model,
+      job_status: outcomeToken(source.job_status ?? source.jobStatus, OUTCOME_JOB_STATUS) as LaneOutcomeContract["job_status"] ?? (stages.some((stage) => stage.job_status === "FAILED") ? "FAILED" : lifecycle === "RUNNING" ? "RUNNING" : lifecycle === "QUEUED" ? "QUEUED" : "SUCCEEDED"),
       lifecycle_state: lifecycle as LaneOutcomeContract["lifecycle_state"],
-      quality_state: quality as LaneOutcomeContract["quality_state"],
-      opportunity_state: opportunity as LaneOutcomeContract["opportunity_state"],
-      publication_state: publication as LaneOutcomeContract["publication_state"],
+      quality_state: projectedQuality as LaneOutcomeContract["quality_state"],
+      data_sufficiency_state: sufficiency as LaneOutcomeContract["data_sufficiency_state"],
+      research_opportunity_state: (researchOpportunity ?? a1?.research_opportunity_state ?? "NOT_APPLICABLE") as LaneOutcomeContract["research_opportunity_state"],
+      focus_opportunity_state: (focusOpportunity ?? a2?.focus_opportunity_state ?? "NOT_APPLICABLE") as LaneOutcomeContract["focus_opportunity_state"],
+      actionability_state: (actionability ?? a3?.actionability_state ?? "NOT_APPLICABLE") as LaneOutcomeContract["actionability_state"],
+      opportunity_state: derivedOpportunity as LaneOutcomeContract["opportunity_state"],
+      publication_state: projectedPublication as LaneOutcomeContract["publication_state"],
       reason_codes: outcomeReasons(source.reason_codes ?? source.reasonCodes),
       counts: outcomeCounts(source.counts),
       data_coverage: outcomeCoverage(source.data_coverage ?? source.dataCoverage),
-      legacy_status: outcomeLegacyStatus(value, source),
+      legacy_status: dataGapOnly && outcomeLegacyStatus(value, source) === "BLOCKED" ? "READY_DEGRADED" : outcomeLegacyStatus(value, source),
       stages,
     };
   }
@@ -544,7 +662,7 @@ export function normalizeLaneOutcome(value: unknown, fallbackLaneId = "UNKNOWN",
   return hasLegacySignal ? aggregateLegacyLaneOutcome(value, laneId, model, stages) : null;
 }
 
-/** Return only the safe four-axis run outcome; accepts both ``outcome_v2`` and legacy acceptance rows. */
+/** Return only the safe v3 run outcome; v2/legacy rows are projected once here. */
 export function normalizeRunOutcome(value: unknown): RunOutcomeContract | null {
   if (!isRecord(value)) return null;
   const source = outcomeSource(value);
@@ -553,17 +671,32 @@ export function normalizeRunOutcome(value: unknown): RunOutcomeContract | null {
   const lifecycle = outcomeToken(source.lifecycle_state ?? source.lifecycleState, OUTCOME_LIFECYCLE);
   const quality = outcomeToken(source.quality_state ?? source.qualityState, OUTCOME_QUALITY);
   const opportunity = outcomeToken(source.opportunity_state ?? source.opportunityState, OUTCOME_OPPORTUNITY);
+  const researchOpportunity = outcomeToken(source.research_opportunity_state ?? source.researchOpportunityState, OUTCOME_OPPORTUNITY);
+  const focusOpportunity = outcomeToken(source.focus_opportunity_state ?? source.focusOpportunityState, OUTCOME_OPPORTUNITY);
+  const actionability = outcomeToken(source.actionability_state ?? source.actionabilityState, OUTCOME_ACTIONABILITY);
   const publication = outcomeToken(source.publication_state ?? source.publicationState, OUTCOME_PUBLICATION);
-  if (lifecycle && quality && opportunity && publication) {
+  if (lifecycle && quality && publication && (opportunity || researchOpportunity || focusOpportunity || actionability)) {
     const primaryIds = (Array.isArray(source.primary_lane_ids) ? source.primary_lane_ids : Array.isArray(source.primaryLaneIds) ? source.primaryLaneIds : ["lane_1"])
       .map((item) => outcomeText(item, 80)).filter((item): item is string => item !== null);
+    const primaryLane = lanes.find((lane) => primaryIds.includes(lane.lane_id));
+    const primaryResearch = researchOpportunity ?? primaryLane?.research_opportunity_state ?? "NOT_APPLICABLE";
+    const primaryFocus = focusOpportunity ?? primaryLane?.focus_opportunity_state ?? "NOT_APPLICABLE";
+    const primaryActionability = actionability ?? primaryLane?.actionability_state ?? "NOT_APPLICABLE";
+    const primaryDataGap = lanes.filter((lane) => primaryIds.includes(lane.lane_id)).some(laneHasDataGap);
+    const primaryTechnicalFailure = lanes.filter((lane) => primaryIds.includes(lane.lane_id)).some((lane) => lane.quality_state === "FAILED" || lane.quality_state === "CANCELLED");
+    const projectedQuality = quality === "BLOCKED" && primaryDataGap && !primaryTechnicalFailure ? "DEGRADED" : quality;
+    const projectedPublication = projectedQuality === "DEGRADED" && publication === "BLOCKED" && lifecycle === "TERMINAL" ? "READY" : publication;
     return {
       schema_version: OUTCOME_SCHEMA_VERSION,
       run_id: outcomeText(source.run_id ?? source.runId) ?? outcomeText(value.run_id ?? value.runId),
+      job_status: outcomeToken(source.job_status ?? source.jobStatus, OUTCOME_JOB_STATUS) as RunOutcomeContract["job_status"] ?? (quality === "FAILED" ? "FAILED" : quality === "CANCELLED" ? "CANCELLED" : lifecycle === "RUNNING" ? "RUNNING" : lifecycle === "QUEUED" ? "QUEUED" : "SUCCEEDED"),
       lifecycle_state: lifecycle as RunOutcomeContract["lifecycle_state"],
-      quality_state: quality as RunOutcomeContract["quality_state"],
-      opportunity_state: opportunity as RunOutcomeContract["opportunity_state"],
-      publication_state: publication as RunOutcomeContract["publication_state"],
+      quality_state: projectedQuality as RunOutcomeContract["quality_state"],
+      data_sufficiency_state: outcomeToken(source.data_sufficiency_state ?? source.dataSufficiencyState, OUTCOME_SUFFICIENCY) as RunOutcomeContract["data_sufficiency_state"] ?? (primaryLane?.data_sufficiency_state ?? "NOT_APPLICABLE"),
+      research_opportunity_state: primaryResearch as RunOutcomeContract["research_opportunity_state"],
+      focus_opportunity_state: primaryFocus as RunOutcomeContract["focus_opportunity_state"],
+      actionability_state: primaryActionability as RunOutcomeContract["actionability_state"],
+      publication_state: projectedPublication as RunOutcomeContract["publication_state"],
       reason_codes: outcomeReasons(source.reason_codes ?? source.reasonCodes),
       counts: outcomeCounts(source.counts),
       data_coverage: outcomeCoverage(source.data_coverage ?? source.dataCoverage),
@@ -585,8 +718,13 @@ export function normalizeRunOutcome(value: unknown): RunOutcomeContract | null {
   return {
     schema_version: OUTCOME_SCHEMA_VERSION,
     run_id: outcomeText(source.run_id ?? source.runId) ?? outcomeText(value.run_id ?? value.runId),
+    job_status: lane.job_status,
     lifecycle_state: lane.lifecycle_state,
     quality_state: lane.quality_state,
+    data_sufficiency_state: lane.data_sufficiency_state,
+    research_opportunity_state: lane.research_opportunity_state,
+    focus_opportunity_state: lane.focus_opportunity_state,
+    actionability_state: lane.actionability_state,
     opportunity_state: lane.opportunity_state,
     publication_state: lane.publication_state,
     reason_codes: reasons,
@@ -823,6 +961,11 @@ function progressStatus(value: unknown): WorkflowProgressStatus {
     : "UNKNOWN";
 }
 
+function progressJobStatus(value: unknown): OutcomeJobStatus | null {
+  const token = progressString(value)?.toUpperCase().replaceAll("-", "_").replaceAll(" ", "_");
+  return token && OUTCOME_JOB_STATUS.has(token) ? token as OutcomeJobStatus : null;
+}
+
 function progressPhase(value: unknown): string | null {
   const token = progressString(value)?.toUpperCase().replaceAll("-", "_").replaceAll(" ", "_");
   if (!token) return null;
@@ -975,7 +1118,7 @@ function normalizeProgressDiagnostics(value: unknown): WorkflowProgressDiagnosti
 }
 
 function validateProgressShape(source: JsonRecord): boolean {
-  const stringKeys = ["status", "phase", "current_phase", "run_id", "runId", "updated_at", "updatedAt", "time", "started_at", "startedAt", "phase_started_at", "phaseStartedAt"];
+  const stringKeys = ["status", "job_status", "jobStatus", "phase", "current_phase", "run_id", "runId", "updated_at", "updatedAt", "time", "started_at", "startedAt", "phase_started_at", "phaseStartedAt"];
   if (stringKeys.some((key) => key in source && typeof source[key] !== "string")) return false;
   const collection = source.lanes ?? source.lane_progress ?? source.laneProgress;
   if (!validateProgressCollection(collection, false)) return false;
@@ -1054,6 +1197,7 @@ function normalizeStage(stageKey: string | null, stage: JsonRecord): WorkflowPro
     // A completed latest batch does not mean the aggregate stage is complete.
     // Do not present an incomplete 10/248 aggregate as a completed stage.
     status: rawStatus === "COMPLETED" && hasIncompleteAggregate ? "RUNNING" : rawStatus,
+    jobStatus: progressJobStatus(stage.job_status ?? stage.jobStatus),
     processed: processed.value,
     total: total.value,
     batchProcessed: batchProcessed.value,
@@ -1095,6 +1239,7 @@ function normalizeLane(laneKey: string | null, lane: JsonRecord): WorkflowProgre
     laneId,
     model: progressString(lane.model, 120),
     status: progressString(lane.status) ? progressStatus(lane.status) : null,
+    jobStatus: progressJobStatus(lane.job_status ?? lane.jobStatus),
     currentStage: progressPhase(directStage),
     processed: processed.value ?? currentStage?.processed ?? null,
     total: total.value ?? currentStage?.total ?? null,
@@ -1113,6 +1258,7 @@ function normalizeLane(laneKey: string | null, lane: JsonRecord): WorkflowProgre
 function invalidProgress(issue: WorkflowProgressIssue): WorkflowProgressSummary {
   return {
     status: issue === "OVERSIZE" ? "BLOCKED" : "INVALID",
+    jobStatus: null,
     issue,
     stale: false,
     staleIssue: null,
@@ -1147,7 +1293,7 @@ function normalizeWorkflowProgress(source: JsonRecord): WorkflowProgressSummary 
   const nestedData = nestedRecord(source, ["data", "data_sync", "dataSync"]);
   const metricSourcesList = [source, nestedProgress, nestedData].filter((item): item is JsonRecord => item !== null);
   const hasKnownField = [
-    "status", "phase", "current_phase", "run_id", "runId", "lanes", "lane_progress", "laneProgress",
+    "status", "job_status", "jobStatus", "phase", "current_phase", "run_id", "runId", "lanes", "lane_progress", "laneProgress",
     "progress", "metrics", "data", "data_sync", "dataSync",
   ].some((key) => key in source) || [...NUMERIC_PROGRESS_KEYS].some((key) => key in source);
   if (!hasKnownField) return invalidProgress("INVALID_SHAPE");
@@ -1164,6 +1310,7 @@ function normalizeWorkflowProgress(source: JsonRecord): WorkflowProgressSummary 
     .map(({ key, value }) => normalizeLane(key, value))
     .filter((lane): lane is WorkflowProgressLane => lane !== null);
   const statusValue = source.status ?? nestedProgress?.status ?? nestedData?.status;
+  const jobStatusValue = source.job_status ?? source.jobStatus ?? nestedProgress?.job_status ?? nestedProgress?.jobStatus;
   const phaseValue = source.phase ?? source.current_phase ?? nestedProgress?.phase ?? nestedData?.phase;
   const resourceSource = nestedRecord(source, ["resources"]);
   const resourceValue = resourceSource ? {
@@ -1177,6 +1324,7 @@ function normalizeWorkflowProgress(source: JsonRecord): WorkflowProgressSummary 
   } : null;
   return {
     status: progressStatus(statusValue),
+    jobStatus: progressJobStatus(jobStatusValue),
     issue: null,
     stale: false,
     staleIssue: null,
@@ -1723,12 +1871,12 @@ export class ProjectFiles {
     const normalized = normalizeWorkflowProgress(parsed);
     if (!normalized || normalized.issue) return this.workflowProgressFailure(normalized?.issue ?? "INVALID_SHAPE");
     const mtimeMs = metadata.mtimeMs;
-    const heartbeatTimedOut = normalized.status === "RUNNING"
+    const heartbeatTimedOut = (normalized.jobStatus === "RUNNING" || normalized.status === "RUNNING")
       && typeof mtimeMs === "number"
       && Number.isFinite(mtimeMs)
       && Date.now() - mtimeMs > this.config.workflowProgressStaleMs;
     const fresh: WorkflowProgressSummary = heartbeatTimedOut
-      ? { ...normalized, status: "STALE", stale: true, staleIssue: "HEARTBEAT_TIMEOUT" }
+      ? { ...normalized, status: "STALE", jobStatus: "STALE", stale: true, staleIssue: "HEARTBEAT_TIMEOUT" }
       : { ...normalized, stale: false, staleIssue: null };
     this.lastWorkflowProgress = fresh;
     return fresh;
