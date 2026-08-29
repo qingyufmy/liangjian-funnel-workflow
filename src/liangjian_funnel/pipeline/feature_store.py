@@ -22,8 +22,22 @@ SCHEMA_VERSION = 2
 FEATURE_SCHEMA = "liangjian-research-feature-store/2.0.0"
 LEGACY_GENERATION_ID = "legacy-v1"
 DEFAULT_FEATURE_DOMAIN = "RESEARCH"
-GENERATION_STATUSES = frozenset({"STAGING", "VALIDATED", "PUBLISHED", "FAILED", "LEGACY"})
-_STRICT_GENERATION_STATUSES = frozenset({"PUBLISHED"})
+GENERATION_PURPOSES = frozenset(
+    {
+        "LIVE_FULL",
+        "LIVE_INCREMENTAL",
+        "RUN_SNAPSHOT",
+        "HISTORICAL_REPLAY",
+        "TEST_FIXTURE",
+        "UNKNOWN",
+    }
+)
+GENERATION_STATUSES = frozenset(
+    {"STAGING", "VALIDATED", "SEALED", "PUBLISHED", "FAILED", "LEGACY"}
+)
+# PUBLISHED is retained for stores created by an older v2 build.  New
+# generations always become SEALED and are read through the same strict path.
+_STRICT_GENERATION_STATUSES = frozenset({"SEALED", "PUBLISHED"})
 DIRTY_STATUSES = frozenset({"PENDING", "LEASED", "RETRY", "DEAD", "RESOLVED"})
 DEFAULT_DIRTY_MAX_ATTEMPTS = 5
 DEFAULT_DIRTY_LEASE_SECONDS = 300
@@ -111,6 +125,12 @@ class ResearchFeatureStore:
             old_schema = self._meta_value(connection, "schema")
             if legacy_tables:
                 self._migrate_legacy_tables(connection, legacy_tables)
+            # v2 originally combined validation, publication, and activation
+            # in one state transition.  Rebuild just the generation table when
+            # opening such a database so SEALED plus lifecycle metadata are
+            # enforced by SQLite as well as by the service layer.  The active
+            # pointer and all generation-scoped rows are preserved in place.
+            self._migrate_generation_lifecycle(connection)
             self._create_schema_v2(connection)
             self._ensure_legacy_generation(connection)
             if old_schema and old_schema != FEATURE_SCHEMA:
@@ -128,6 +148,11 @@ class ResearchFeatureStore:
                 "INSERT INTO feature_store_meta(key, value) VALUES('schema_version', ?) "
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                 (str(SCHEMA_VERSION),),
+            )
+            connection.execute(
+                "INSERT INTO feature_store_meta(key, value) VALUES('generation_lifecycle', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                ("3.0.0",),
             )
             connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
@@ -220,6 +245,170 @@ class ResearchFeatureStore:
                 (LEGACY_GENERATION_ID,),
             )
 
+    @classmethod
+    def _migrate_generation_lifecycle(cls, connection: sqlite3.Connection) -> None:
+        """Upgrade the original v2 generation table without moving active data.
+
+        SQLite cannot add a value to an existing CHECK constraint.  A small
+        table rebuild is therefore required for stores created before the
+        seal/bind/activate split.  ``legacy_alter_table`` keeps foreign-key
+        declarations pointing at the original table name while the old table
+        is copied and removed.  The active pointer, bindings, and all
+        generation projections remain untouched and keep their identifiers.
+        """
+
+        if not cls._table_exists(connection, "feature_generations"):
+            return
+        columns = cls._table_columns(connection, "feature_generations")
+        sql_row = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='feature_generations'"
+        ).fetchone()
+        create_sql = str(sql_row[0] or "").upper() if sql_row is not None else ""
+        required = {
+            "purpose",
+            "activation_eligible",
+            "sealed_at",
+            "validation_manifest_json",
+        }
+        if (
+            required.issubset(columns)
+            and "'SEALED'" in create_sql
+            and "'RUN_SNAPSHOT'" in create_sql
+        ):
+            return
+
+        old_name = "feature_generations_legacy_v2"
+        suffix = 2
+        while cls._table_exists(connection, old_name):
+            old_name = f"feature_generations_legacy_v2_{suffix}"
+            suffix += 1
+        rows = connection.execute("SELECT * FROM feature_generations").fetchall()
+
+        # This connection is outside an explicit transaction at initialization
+        # time.  Commit before changing PRAGMA foreign_keys, then restore it
+        # even if a malformed legacy database causes the rebuild to fail.
+        connection.commit()
+        connection.execute("PRAGMA legacy_alter_table=ON")
+        connection.execute("PRAGMA foreign_keys=OFF")
+        try:
+            connection.execute(
+                f'ALTER TABLE "feature_generations" RENAME TO "{old_name}"'
+            )
+            cls._create_generation_table(connection)
+            for row in rows:
+                record = {key: row[key] for key in row.keys()}
+                metadata = cls._parse_json(record.get("metadata_json"), {})
+                if not isinstance(metadata, dict):
+                    metadata = {}
+                purpose = cls._infer_generation_purpose(record, metadata)
+                status = str(record.get("status") or "UNKNOWN").upper()
+                # PUBLISHED was the old name for a generation that had already
+                # been validated and activated.  Preserve its identity while
+                # moving it to the immutable SEALED state.
+                if status == "PUBLISHED":
+                    status = "SEALED"
+                elif status not in {"STAGING", "VALIDATED", "SEALED", "FAILED", "LEGACY"}:
+                    status = "FAILED"
+                sealed_at = record.get("sealed_at")
+                if not sealed_at and str(record.get("status") or "").upper() == "PUBLISHED":
+                    sealed_at = record.get("published_at") or record.get("validated_at")
+                manifest = cls._parse_json(record.get("validation_manifest_json"), {})
+                if not isinstance(manifest, dict):
+                    manifest = {}
+                if not manifest and isinstance(metadata.get("validation"), Mapping):
+                    manifest = dict(metadata["validation"])
+                if not manifest and status == "SEALED":
+                    manifest = {"migrated_from": "v2"}
+                activation_eligible = bool(
+                    status == "SEALED" and purpose in {"LIVE_FULL", "LIVE_INCREMENTAL"}
+                )
+                # A legacy active row is kept exactly as-is, but unknown or
+                # replay generations are deliberately not made eligible.
+                connection.execute(
+                    """
+                    INSERT INTO feature_generations(
+                        generation_id,domain,as_of,contract_version,algorithm_version,
+                        source_manifest_hash,status,created_at,validated_at,published_at,
+                        failed_at,failure_reason,metadata_json,purpose,activation_eligible,
+                        sealed_at,validation_manifest_json
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    """,
+                    (
+                        record.get("generation_id"),
+                        record.get("domain") or DEFAULT_FEATURE_DOMAIN,
+                        record.get("as_of") or "1970-01-01T00:00:00+00:00",
+                        record.get("contract_version") or "unknown",
+                        record.get("algorithm_version") or "unknown",
+                        record.get("source_manifest_hash") or "unknown",
+                        status,
+                        record.get("created_at") or record.get("as_of") or "1970-01-01T00:00:00+00:00",
+                        record.get("validated_at"),
+                        record.get("published_at"),
+                        record.get("failed_at"),
+                        record.get("failure_reason"),
+                        record.get("metadata_json") or "{}",
+                        purpose,
+                        int(activation_eligible),
+                        sealed_at,
+                        canonical_json(manifest),
+                    ),
+                )
+            # The old index has the same name.  Remove it so the idempotent
+            # schema creator can attach a fresh index to the new table.
+            connection.execute("DROP INDEX IF EXISTS idx_feature_generations_domain_status")
+            connection.execute(f'DROP TABLE "{old_name}"')
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.execute("PRAGMA foreign_keys=ON")
+
+    @staticmethod
+    def _infer_generation_purpose(
+        record: Mapping[str, Any], metadata: Mapping[str, Any]
+    ) -> str:
+        explicit = str(record.get("purpose") or metadata.get("purpose") or "").strip().upper()
+        if explicit in GENERATION_PURPOSES:
+            return explicit
+        mode = str(metadata.get("rebuild_mode") or "").strip().upper()
+        if mode == "FULL":
+            return "LIVE_FULL"
+        if mode == "INCREMENTAL":
+            return "LIVE_INCREMENTAL"
+        # Research generations carry a snapshot id but maintenance fixtures
+        # need not.  Treat those as historical because activating one would
+        # be the unsafe behavior this migration is designed to eliminate.
+        if metadata.get("snapshot_id") or metadata.get("historical_replay"):
+            return "HISTORICAL_REPLAY"
+        return "UNKNOWN"
+
+    @staticmethod
+    def _create_generation_table(connection: sqlite3.Connection) -> None:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS feature_generations (
+                generation_id TEXT PRIMARY KEY,
+                domain TEXT NOT NULL,
+                as_of TEXT NOT NULL,
+                contract_version TEXT NOT NULL,
+                algorithm_version TEXT NOT NULL,
+                source_manifest_hash TEXT NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('STAGING','VALIDATED','SEALED','PUBLISHED','FAILED','LEGACY')),
+                created_at TEXT NOT NULL,
+                validated_at TEXT,
+                published_at TEXT,
+                failed_at TEXT,
+                failure_reason TEXT,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                purpose TEXT NOT NULL DEFAULT 'UNKNOWN' CHECK(purpose IN ('LIVE_FULL','LIVE_INCREMENTAL','RUN_SNAPSHOT','HISTORICAL_REPLAY','TEST_FIXTURE','UNKNOWN')),
+                activation_eligible INTEGER NOT NULL DEFAULT 0 CHECK(activation_eligible IN (0,1)),
+                sealed_at TEXT,
+                validation_manifest_json TEXT NOT NULL DEFAULT '{}'
+            )
+            """
+        )
+
     @staticmethod
     def _create_schema_v2(connection: sqlite3.Connection) -> None:
         connection.executescript(
@@ -236,13 +425,17 @@ class ResearchFeatureStore:
                 contract_version TEXT NOT NULL,
                 algorithm_version TEXT NOT NULL,
                 source_manifest_hash TEXT NOT NULL,
-                status TEXT NOT NULL CHECK(status IN ('STAGING','VALIDATED','PUBLISHED','FAILED','LEGACY')),
+                status TEXT NOT NULL CHECK(status IN ('STAGING','VALIDATED','SEALED','PUBLISHED','FAILED','LEGACY')),
                 created_at TEXT NOT NULL,
                 validated_at TEXT,
                 published_at TEXT,
                 failed_at TEXT,
                 failure_reason TEXT,
-                metadata_json TEXT NOT NULL DEFAULT '{}'
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                purpose TEXT NOT NULL DEFAULT 'UNKNOWN' CHECK(purpose IN ('LIVE_FULL','LIVE_INCREMENTAL','RUN_SNAPSHOT','HISTORICAL_REPLAY','TEST_FIXTURE','UNKNOWN')),
+                activation_eligible INTEGER NOT NULL DEFAULT 0 CHECK(activation_eligible IN (0,1)),
+                sealed_at TEXT,
+                validation_manifest_json TEXT NOT NULL DEFAULT '{}'
             );
             CREATE INDEX IF NOT EXISTS idx_feature_generations_domain_status
                 ON feature_generations(domain, status, created_at);
@@ -269,6 +462,50 @@ class ResearchFeatureStore:
                 FOREIGN KEY (generation_id) REFERENCES feature_generations(generation_id),
                 FOREIGN KEY (previous_generation_id) REFERENCES feature_generations(generation_id)
             );
+
+            CREATE TABLE IF NOT EXISTS feature_generation_activation_audit (
+                audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                domain TEXT NOT NULL,
+                generation_id TEXT NOT NULL,
+                previous_generation_id TEXT,
+                expected_current_id TEXT,
+                activated_at TEXT NOT NULL,
+                actor TEXT NOT NULL,
+                activation_reason TEXT NOT NULL,
+                generation_as_of TEXT NOT NULL,
+                source_manifest_hash TEXT NOT NULL,
+                activation_hash TEXT NOT NULL,
+                FOREIGN KEY (generation_id) REFERENCES feature_generations(generation_id),
+                FOREIGN KEY (previous_generation_id) REFERENCES feature_generations(generation_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_feature_generation_activation_audit_generation
+                ON feature_generation_activation_audit(generation_id, activated_at);
+
+            CREATE TRIGGER IF NOT EXISTS trg_feature_active_generation_insert_guard
+            BEFORE INSERT ON active_feature_generations
+            WHEN NOT EXISTS (
+                SELECT 1 FROM feature_generations
+                WHERE generation_id=NEW.generation_id
+                  AND activation_eligible=1
+                  AND status IN ('SEALED','PUBLISHED')
+                  AND purpose IN ('LIVE_FULL','LIVE_INCREMENTAL')
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'FEATURE_GENERATION_NOT_ACTIVATION_ELIGIBLE');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_feature_active_generation_update_guard
+            BEFORE UPDATE ON active_feature_generations
+            WHEN NOT EXISTS (
+                SELECT 1 FROM feature_generations
+                WHERE generation_id=NEW.generation_id
+                  AND activation_eligible=1
+                  AND status IN ('SEALED','PUBLISHED')
+                  AND purpose IN ('LIVE_FULL','LIVE_INCREMENTAL')
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'FEATURE_GENERATION_NOT_ACTIVATION_ELIGIBLE');
+            END;
 
             CREATE TABLE IF NOT EXISTS run_feature_bindings (
                 run_id TEXT NOT NULL,
@@ -503,6 +740,42 @@ class ResearchFeatureStore:
         return domain
 
     @staticmethod
+    def _normalise_purpose(value: str | None, *, metadata: Mapping[str, Any] | None = None) -> str:
+        explicit = str(value or "").strip().upper()
+        if explicit in GENERATION_PURPOSES:
+            return explicit
+        if explicit:
+            raise ValueError(f"invalid feature generation purpose: {explicit}")
+        details = metadata if isinstance(metadata, Mapping) else {}
+        mode = str(details.get("rebuild_mode") or "").strip().upper()
+        if mode == "FULL":
+            return "LIVE_FULL"
+        if mode == "INCREMENTAL":
+            return "LIVE_INCREMENTAL"
+        # Existing callers that create a generation without lifecycle
+        # metadata historically expected the compatibility publish wrapper to
+        # activate it.  Keep that behavior explicit as a live full build;
+        # migrated old rows are handled conservatively by
+        # _infer_generation_purpose above.
+        return "LIVE_FULL"
+
+    @staticmethod
+    def _parse_timestamp(value: Any, *, field: str = "timestamp") -> datetime:
+        if isinstance(value, datetime):
+            parsed = value
+        else:
+            text = str(value or "").strip()
+            if text.endswith("Z"):
+                text = f"{text[:-1]}+00:00"
+            try:
+                parsed = datetime.fromisoformat(text)
+            except (TypeError, ValueError) as exc:
+                raise FeatureGenerationError(f"FEATURE_GENERATION_{field.upper()}_INVALID") from exc
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+
+    @staticmethod
     def _parse_json(value: Any, fallback: Any) -> Any:
         try:
             parsed = json.loads(str(value))
@@ -538,7 +811,7 @@ class ResearchFeatureStore:
             raise FeatureGenerationError(f"FEATURE_GENERATION_NOT_PUBLISHED:{generation}")
         if for_write and status in {"FAILED", "LEGACY"} and not (status == "LEGACY" and allow_legacy):
             raise FeatureGenerationError(f"FEATURE_GENERATION_NOT_WRITABLE:{generation}")
-        if for_write and status == "PUBLISHED" and not allow_published_write:
+        if for_write and status in {"SEALED", "PUBLISHED"} and not allow_published_write:
             raise FeatureGenerationError(f"FEATURE_GENERATION_IMMUTABLE:{generation}")
         return row
 
@@ -639,10 +912,21 @@ class ResearchFeatureStore:
         generation_id: str | None = None,
         created_at: datetime | str | None = None,
         metadata: Mapping[str, Any] | None = None,
+        purpose: str | None = None,
+        activation_eligible: bool | None = None,
     ) -> str:
         """Create an isolated STAGING generation and return its identifier."""
 
         domain_name = self._normalise_domain(domain)
+        metadata_dict = dict(metadata or {})
+        purpose_name = self._normalise_purpose(purpose, metadata=metadata_dict)
+        eligible = (
+            bool(activation_eligible)
+            if activation_eligible is not None
+            else purpose_name in {"LIVE_FULL", "LIVE_INCREMENTAL"}
+        )
+        if purpose_name not in {"LIVE_FULL", "LIVE_INCREMENTAL"}:
+            eligible = False
         generation = str(generation_id or "").strip()
         if not generation:
             seed = {
@@ -663,7 +947,8 @@ class ResearchFeatureStore:
                     INSERT INTO feature_generations(
                         generation_id,domain,as_of,contract_version,algorithm_version,
                         source_manifest_hash,status,created_at,metadata_json
-                    ) VALUES(?,?,?,?,?,?,?,?,?)
+                        ,purpose,activation_eligible
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?)
                     """,
                     (
                         generation,
@@ -674,7 +959,9 @@ class ResearchFeatureStore:
                         str(source_manifest_hash),
                         "STAGING",
                         created,
-                        canonical_json(dict(metadata or {})),
+                        canonical_json(metadata_dict),
+                        purpose_name,
+                        int(eligible),
                     ),
                 )
                 connection.commit()
@@ -740,7 +1027,7 @@ class ResearchFeatureStore:
                 status = str(row["status"] or "").upper()
                 if status == "FAILED":
                     raise FeatureGenerationError("FEATURE_GENERATION_FAILED_NOT_VALIDATABLE")
-                if status == "PUBLISHED":
+                if status in {"SEALED", "PUBLISHED"}:
                     connection.commit()
                     return _generation_dict(row)
                 if status not in {"STAGING", "VALIDATED"}:
@@ -748,11 +1035,25 @@ class ResearchFeatureStore:
                 metadata = self._parse_json(row["metadata_json"], {})
                 if not isinstance(metadata, dict):
                     metadata = {}
+                validation_manifest = None
                 if validation:
-                    metadata["validation"] = dict(validation)
+                    validation_manifest = dict(validation)
+                    metadata["validation"] = validation_manifest
                 connection.execute(
-                    "UPDATE feature_generations SET status='VALIDATED', validated_at=?, metadata_json=? WHERE generation_id=?",
-                    (timestamp, canonical_json(metadata), str(generation_id)),
+                    """
+                    UPDATE feature_generations
+                    SET status='VALIDATED',
+                        validated_at=?,
+                        metadata_json=?,
+                        validation_manifest_json=COALESCE(?, validation_manifest_json)
+                    WHERE generation_id=?
+                    """,
+                    (
+                        timestamp,
+                        canonical_json(metadata),
+                        canonical_json(validation_manifest) if validation_manifest is not None else None,
+                        str(generation_id),
+                    ),
                 )
                 connection.commit()
                 updated = self._generation_row(connection, str(generation_id))
@@ -782,7 +1083,7 @@ class ResearchFeatureStore:
             try:
                 row = self._assert_generation(connection, generation_id, allow_legacy=False)
                 status = str(row["status"] or "").upper()
-                if status == "PUBLISHED":
+                if status in {"SEALED", "PUBLISHED"}:
                     raise FeatureGenerationError("FEATURE_GENERATION_PUBLISHED_NOT_FAILABLE")
                 metadata = self._parse_json(row["metadata_json"], {})
                 if not isinstance(metadata, dict):
@@ -804,48 +1105,91 @@ class ResearchFeatureStore:
 
     fail_generation = fail_feature_generation
 
-    def publish_feature_generation(
+    def seal_generation(
         self,
         generation_id: str,
+        validation_manifest: Mapping[str, Any] | None = None,
         *,
-        domain: str | None = None,
-        activated_at: datetime | str | None = None,
+        sealed_at: datetime | str | None = None,
+        purpose: str | None = None,
+        activation_eligible: bool | None = None,
     ) -> dict[str, Any]:
-        """Atomically publish a validated generation and swap the active pointer."""
+        """Seal a validated generation without changing the active pointer.
 
-        timestamp = self._timestamp(activated_at or datetime.utcnow())
+        Sealing is the durable boundary for a generation.  A sealed
+        historical replay is safe to bind to its run, but remains ineligible
+        for activation.  Only ``activate_generation`` can mutate the active
+        pointer.
+        """
+
+        timestamp = self._timestamp(sealed_at or datetime.now(timezone.utc))
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
                 row = self._assert_generation(connection, generation_id, allow_legacy=False)
                 generation = str(row["generation_id"])
-                generation_domain = str(domain or row["domain"])
-                if self._normalise_domain(generation_domain) != str(row["domain"]).upper():
-                    raise FeatureGenerationError("FEATURE_GENERATION_DOMAIN_MISMATCH")
                 status = str(row["status"] or "").upper()
                 if status == "FAILED":
-                    raise FeatureGenerationError("FEATURE_GENERATION_FAILED_NOT_PUBLISHABLE")
-                if status not in {"VALIDATED", "PUBLISHED"}:
+                    raise FeatureGenerationError("FEATURE_GENERATION_FAILED_NOT_SEALABLE")
+                if status == "PUBLISHED":
+                    # A pre-lifecycle database can still be opened while a
+                    # process is holding the old row.  Normalize it in place;
+                    # migration handles the normal startup path.
+                    status = "SEALED"
+                elif status not in {"VALIDATED", "SEALED"}:
                     raise FeatureGenerationError(f"FEATURE_GENERATION_NOT_VALIDATED:{generation}")
-                active = connection.execute(
-                    "SELECT generation_id FROM active_feature_generations WHERE domain=?",
-                    (generation_domain.upper(),),
-                ).fetchone()
-                previous = str(active[0]) if active is not None else None
-                connection.execute(
-                    "UPDATE feature_generations SET status='PUBLISHED', published_at=COALESCE(published_at, ?) WHERE generation_id=?",
-                    (timestamp, generation),
+                metadata = self._parse_json(row["metadata_json"], {})
+                if not isinstance(metadata, dict):
+                    metadata = {}
+                existing_purpose = str(row["purpose"] or "UNKNOWN").upper()
+                existing_eligible = bool(row["activation_eligible"])
+                if status == "SEALED":
+                    if purpose is not None and str(purpose).strip().upper() != existing_purpose:
+                        raise FeatureGenerationError("FEATURE_GENERATION_SEALED_IMMUTABLE")
+                    if activation_eligible is not None and bool(activation_eligible) != existing_eligible:
+                        raise FeatureGenerationError("FEATURE_GENERATION_SEALED_IMMUTABLE")
+                purpose_name = self._normalise_purpose(
+                    purpose or row["purpose"], metadata=metadata
                 )
+                if purpose_name == "HISTORICAL_REPLAY":
+                    eligible = False
+                elif activation_eligible is None:
+                    eligible = bool(row["activation_eligible"]) and purpose_name in {
+                        "LIVE_FULL",
+                        "LIVE_INCREMENTAL",
+                    }
+                else:
+                    eligible = bool(activation_eligible)
+                if purpose_name not in {"LIVE_FULL", "LIVE_INCREMENTAL"}:
+                    eligible = False
+                manifest = validation_manifest
+                if manifest is None:
+                    existing = self._parse_json(row["validation_manifest_json"], {})
+                    manifest = existing if isinstance(existing, Mapping) else {}
+                    if not manifest and isinstance(metadata.get("validation"), Mapping):
+                        manifest = metadata["validation"]
+                manifest_dict = dict(manifest or {})
+                metadata["purpose"] = purpose_name
+                metadata["activation_eligible"] = bool(eligible)
+                metadata["sealed_at"] = timestamp
                 connection.execute(
                     """
-                    INSERT INTO active_feature_generations(domain,generation_id,activated_at,previous_generation_id)
-                    VALUES(?,?,?,?)
-                    ON CONFLICT(domain) DO UPDATE SET
-                        generation_id=excluded.generation_id,
-                        activated_at=excluded.activated_at,
-                        previous_generation_id=excluded.previous_generation_id
+                    UPDATE feature_generations
+                    SET status='SEALED',
+                        purpose=?, activation_eligible=?, sealed_at=?,
+                        published_at=COALESCE(published_at, ?),
+                        metadata_json=?, validation_manifest_json=?
+                    WHERE generation_id=?
                     """,
-                    (generation_domain.upper(), generation, timestamp, previous),
+                    (
+                        purpose_name,
+                        int(eligible),
+                        timestamp,
+                        timestamp,
+                        canonical_json(metadata),
+                        canonical_json(manifest_dict),
+                        generation,
+                    ),
                 )
                 connection.commit()
                 updated = self._generation_row(connection, generation)
@@ -856,8 +1200,168 @@ class ResearchFeatureStore:
             raise FeatureGenerationError("FEATURE_GENERATION_NOT_FOUND")
         return _generation_dict(updated)
 
+    seal_feature_generation = seal_generation
+
+    def activate_generation(
+        self,
+        generation_id: str,
+        expected_current_id: str | None,
+        activation_reason: str,
+        *,
+        domain: str | None = None,
+        actor: str = "system",
+        activated_at: datetime | str | None = None,
+    ) -> dict[str, Any]:
+        """CAS-activate one eligible sealed live generation.
+
+        The compare-and-swap check and monotonic ``as_of`` check happen in a
+        single IMMEDIATE transaction.  SQLite triggers provide a second line
+        of defense against direct insertion of replay/unknown generations
+        into ``active_feature_generations``.
+        """
+
+        reason = str(activation_reason or "").strip()
+        if not reason:
+            raise ValueError("activation_reason must not be empty")
+        actor_name = str(actor or "system").strip() or "system"
+        timestamp = self._timestamp(activated_at or datetime.now(timezone.utc))
+        expected = str(expected_current_id or "").strip() or None
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                row = self._assert_generation(
+                    connection, generation_id, strict=True, allow_legacy=False
+                )
+                generation = str(row["generation_id"])
+                generation_domain = self._normalise_domain(domain or row["domain"])
+                if str(row["domain"]).upper() != generation_domain:
+                    raise FeatureGenerationError("FEATURE_GENERATION_DOMAIN_MISMATCH")
+                purpose = str(row["purpose"] or "UNKNOWN").upper()
+                if purpose not in {"LIVE_FULL", "LIVE_INCREMENTAL"}:
+                    raise FeatureGenerationError("FEATURE_GENERATION_PURPOSE_NOT_ACTIVATABLE")
+                if not bool(row["activation_eligible"]):
+                    raise FeatureGenerationError("FEATURE_GENERATION_NOT_ACTIVATION_ELIGIBLE")
+                if str(row["status"] or "").upper() not in {"SEALED", "PUBLISHED"}:
+                    raise FeatureGenerationError(f"FEATURE_GENERATION_NOT_SEALED:{generation}")
+                active = connection.execute(
+                    "SELECT generation_id FROM active_feature_generations WHERE domain=?",
+                    (generation_domain,),
+                ).fetchone()
+                actual = str(active[0]) if active is not None else None
+                if actual != expected:
+                    raise FeatureGenerationError(
+                        f"FEATURE_GENERATION_ACTIVE_CAS_MISMATCH:{expected or 'NONE'}:{actual or 'NONE'}"
+                    )
+                if actual is not None:
+                    active_generation = self._generation_row(connection, actual)
+                    if active_generation is None:
+                        raise FeatureGenerationError("FEATURE_GENERATION_ACTIVE_NOT_FOUND")
+                    if self._parse_timestamp(row["as_of"], field="as_of") < self._parse_timestamp(
+                        active_generation["as_of"], field="as_of"
+                    ):
+                        raise FeatureGenerationError("FEATURE_GENERATION_AS_OF_REGRESSION")
+                activation_hash = content_hash(
+                    {
+                        "domain": generation_domain,
+                        "generation_id": generation,
+                        "previous_generation_id": actual,
+                        "expected_current_id": expected,
+                        "activated_at": timestamp,
+                        "actor": actor_name,
+                        "activation_reason": reason,
+                        "as_of": row["as_of"],
+                        "source_manifest_hash": row["source_manifest_hash"],
+                    }
+                )
+                # The trigger on this table re-checks eligibility in SQLite.
+                connection.execute(
+                    """
+                    INSERT INTO active_feature_generations(domain,generation_id,activated_at,previous_generation_id)
+                    VALUES(?,?,?,?)
+                    ON CONFLICT(domain) DO UPDATE SET
+                        generation_id=excluded.generation_id,
+                        activated_at=excluded.activated_at,
+                        previous_generation_id=excluded.previous_generation_id
+                    """,
+                    (generation_domain, generation, timestamp, actual),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO feature_generation_activation_audit(
+                        domain,generation_id,previous_generation_id,expected_current_id,
+                        activated_at,actor,activation_reason,generation_as_of,
+                        source_manifest_hash,activation_hash
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?)
+                    """,
+                    (
+                        generation_domain,
+                        generation,
+                        actual,
+                        expected,
+                        timestamp,
+                        actor_name,
+                        reason,
+                        str(row["as_of"]),
+                        str(row["source_manifest_hash"]),
+                        activation_hash,
+                    ),
+                )
+                connection.commit()
+                updated = self._generation_row(connection, generation)
+            except Exception:
+                connection.rollback()
+                raise
+        if updated is None:  # pragma: no cover
+            raise FeatureGenerationError("FEATURE_GENERATION_NOT_FOUND")
+        result = _generation_dict(updated)
+        result["activation_hash"] = activation_hash
+        return result
+
+    activate_feature_generation = activate_generation
+
+    def publish_feature_generation(
+        self,
+        generation_id: str,
+        *,
+        domain: str | None = None,
+        activated_at: datetime | str | None = None,
+    ) -> dict[str, Any]:
+        """Deprecated compatibility wrapper for seal then CAS activation.
+
+        New callers must use ``seal_generation`` and ``activate_generation``
+        separately.  Keeping this wrapper avoids breaking older maintenance
+        integrations while ensuring even legacy calls pass the new purpose,
+        eligibility, CAS, and monotonicity checks.
+        """
+
+        row = self.get_feature_generation(generation_id)
+        if row is None:
+            raise FeatureGenerationError(f"FEATURE_GENERATION_NOT_FOUND:{generation_id}")
+        if str(row.get("status") or "").upper() == "FAILED":
+            # Preserve the legacy exception contract for callers still using
+            # publish_feature_generation while the new seal API exposes its
+            # more precise FAILED_NOT_SEALABLE code.
+            raise FeatureGenerationError("FEATURE_GENERATION_FAILED_NOT_PUBLISHABLE")
+        existing_manifest = row.get("validation_manifest")
+        sealed = self.seal_generation(
+            generation_id,
+            validation_manifest=existing_manifest
+            if isinstance(existing_manifest, Mapping) and existing_manifest
+            else None,
+            purpose=str(row.get("purpose") or "LIVE_FULL"),
+            sealed_at=activated_at,
+        )
+        active = self.get_active_feature_generation(domain or str(sealed.get("domain") or "RESEARCH"))
+        return self.activate_generation(
+            generation_id,
+            expected_current_id=(str(active["generation_id"]) if active else None),
+            activation_reason="COMPAT_PUBLISH_FEATURE_GENERATION",
+            domain=domain,
+            actor="compat.publish_feature_generation",
+            activated_at=activated_at,
+        )
+
     publish_generation = publish_feature_generation
-    activate_feature_generation = publish_feature_generation
 
     def get_active_feature_generation(self, domain: str = DEFAULT_FEATURE_DOMAIN) -> dict[str, Any] | None:
         domain_name = self._normalise_domain(domain)
@@ -876,6 +1380,36 @@ class ResearchFeatureStore:
         return _generation_dict(row)
 
     active_feature_generation = get_active_feature_generation
+
+    def list_generation_activation_audit(
+        self,
+        *,
+        domain: str | None = None,
+        generation_id: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Return append-only active-pointer transition evidence."""
+
+        clauses: list[str] = []
+        params: list[Any] = []
+        if domain:
+            clauses.append("domain=?")
+            params.append(self._normalise_domain(domain))
+        if generation_id:
+            clauses.append("generation_id=?")
+            params.append(str(generation_id))
+        params.append(max(1, min(int(limit), 1000)))
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM feature_generation_activation_audit"
+                + where
+                + " ORDER BY audit_id DESC LIMIT ?",
+                params,
+            ).fetchall()
+        return [{key: row[key] for key in row.keys()} for row in rows]
+
+    generation_activation_audit = list_generation_activation_audit
 
     def bind_run_feature_generation(
         self,
@@ -936,6 +1470,25 @@ class ResearchFeatureStore:
         return _binding_dict(row)
 
     bind_run_to_generation = bind_run_feature_generation
+
+    def bind_run_generation(
+        self,
+        run_id: str,
+        generation_id: str,
+        contract_hash: str = "",
+        *,
+        domain: str = DEFAULT_FEATURE_DOMAIN,
+        bound_at: datetime | str | None = None,
+    ) -> dict[str, Any]:
+        """Bind a run to a sealed generation using the lifecycle API name."""
+
+        return self.bind_run_feature_generation(
+            run_id=run_id,
+            generation_id=generation_id,
+            domain=domain,
+            contract_hash=contract_hash,
+            bound_at=bound_at,
+        )
 
     def bind_run_to_active_generation(
         self,
@@ -2367,6 +2920,12 @@ def _generation_dict(row: sqlite3.Row) -> dict[str, Any]:
     result = {key: row[key] for key in row.keys()}
     metadata = result.pop("metadata_json", "{}")
     result["metadata"] = ResearchFeatureStore._parse_json(metadata, {})
+    if "activation_eligible" in result:
+        result["activation_eligible"] = bool(result["activation_eligible"])
+    if "validation_manifest_json" in result:
+        result["validation_manifest"] = ResearchFeatureStore._parse_json(
+            result["validation_manifest_json"], {}
+        )
     return result
 
 
@@ -2467,6 +3026,7 @@ __all__ = [
     "DEFAULT_DIRTY_MAX_ATTEMPTS",
     "DIRTY_STATUSES",
     "FEATURE_SCHEMA",
+    "GENERATION_PURPOSES",
     "FeatureGenerationError",
     "FeatureStoreError",
     "GENERATION_STATUSES",

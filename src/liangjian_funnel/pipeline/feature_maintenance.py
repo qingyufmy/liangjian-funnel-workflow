@@ -32,6 +32,7 @@ from .feature_rebuild import (
     validate_feature_generation,
 )
 from .feature_store import ResearchFeatureStore, content_hash
+from ..runtime.storage_governance import evaluate_disk_watermark
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -224,6 +225,43 @@ class SnapshotFeatureBuilder:
         self._industries = _record_map(_mapping(data.get("THS_INDUSTRY_MEMBERSHIP")).get("records"))
         self._concepts = _record_map(_mapping(data.get("THS_CONCEPT_MEMBERSHIP")).get("records"))
         self._main_business = _symbol_map(data.get("MAIN_BUSINESS_EVIDENCE"))
+        self._taxonomy_types = tuple(
+            taxonomy
+            for taxonomy, key in (
+                ("INDUSTRY", "THS_INDUSTRY_MEMBERSHIP"),
+                ("CONCEPT", "THS_CONCEPT_MEMBERSHIP"),
+            )
+            if key in data
+        )
+
+    @property
+    def validation_contract(self) -> dict[str, Any]:
+        """Describe which durable projections this maintenance snapshot owns.
+
+        Stock members and fundamentals are always required for a live
+        maintenance generation.  Taxonomy and business are required only
+        when the snapshot carries that source namespace.  Theme/chain/role
+        projections are intentionally run-scoped and are never manufactured
+        by maintenance.
+        """
+
+        return {
+            "schema_version": "feature-maintenance-validation/1.0.0",
+            "required": {
+                "members": True,
+                "taxonomy": bool(self._taxonomy_types),
+                "business": "MAIN_BUSINESS_EVIDENCE" in self.snapshot.data,
+                "fundamental": True,
+            },
+            "taxonomy_types": list(self._taxonomy_types),
+            "applicability": {
+                "theme_registry": "RUN_SCOPED",
+                "chain_node": "RUN_SCOPED",
+                "theme_taxonomy_links": "RUN_SCOPED",
+                "market_role": "RUN_SCOPED",
+                "stage_decisions": "RUN_SCOPED",
+            },
+        }
 
     @property
     def symbols(self) -> tuple[str, ...]:
@@ -259,6 +297,64 @@ class SnapshotFeatureBuilder:
             "main_business": self._main_business.get(symbol),
         }
 
+    def _fundamental_decision(self, symbol: str) -> dict[str, Any] | None:
+        """Adapt one real snapshot fundamental into the Feature Store schema."""
+
+        raw = self._fundamentals.get(symbol)
+        if not isinstance(raw, Mapping) or not raw:
+            return None
+        financial_features = raw.get("financial_features")
+        if not isinstance(financial_features, Mapping) or not financial_features:
+            # Existing snapshots use a flat COMPANY_FUNDAMENTALS mapping.  It
+            # is still a real source payload and must be materialized rather
+            # than left only inside feature_generation_members.
+            financial_features = dict(raw)
+        source_hashes = raw.get("source_hashes")
+        if not isinstance(source_hashes, Mapping) or not source_hashes:
+            source_hashes = {
+                "snapshot_hash": self.snapshot.snapshot_hash,
+                "fundamental_payload_hash": content_hash(raw),
+            }
+        return {
+            "symbol": symbol,
+            "financial_features": dict(financial_features),
+            "financial_quality_score": raw.get("financial_quality_score"),
+            "data_quality_score": raw.get("data_quality_score", raw.get("quality_score")),
+            "liquidity_score": raw.get("liquidity_score"),
+            "score_breakdown": raw.get("score_breakdown"),
+            "source_hashes": dict(source_hashes),
+            "feature_version": str(raw.get("feature_version") or "snapshot-fundamental-v1"),
+        }
+
+    def _write_fundamental(self, generation_id: str, store: ResearchFeatureStore, symbol: str) -> None:
+        """Replace one symbol's cloned fundamental projection atomically."""
+
+        normalized = str(symbol or "").strip().upper()
+        if not normalized:
+            return
+        # The table key includes as_of, feature_version and source_hash.  A
+        # simple INSERT OR REPLACE therefore leaves old cloned revisions in
+        # place.  Delete this symbol first so an incremental generation can
+        # never expose contradictory fundamental versions.
+        with store._connect() as connection:  # noqa: SLF001 - generation-scoped maintenance
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                connection.execute(
+                    "DELETE FROM stock_fundamental_features WHERE generation_id=? AND symbol=?",
+                    (generation_id, normalized),
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        decision = self._fundamental_decision(normalized)
+        if decision is not None:
+            store.record_fundamental_features(
+                as_of=self.snapshot.as_of,
+                decisions=[decision],
+                generation_id=generation_id,
+            )
+
     def _write_entity(self, entity: Mapping[str, Any], generation_id: str, store: ResearchFeatureStore) -> None:
         entity_type = str(entity.get("entity_type") or "").strip().upper()
         entity_id = str(entity.get("entity_id") or "").strip().upper()
@@ -277,6 +373,7 @@ class SnapshotFeatureBuilder:
                     }
                 ],
             )
+            self._write_fundamental(generation_id, store, entity_id)
         elif entity_type in {"INDUSTRY", "CONCEPT"}:
             self._write_taxonomy(entity_type, generation_id, store)
         elif entity_type in {"MAIN_BUSINESS", "BUSINESS"}:
@@ -293,6 +390,17 @@ class SnapshotFeatureBuilder:
             for symbol in self.symbols
         ]
         store.record_feature_generation_members(generation_id=generation_id, members=members)
+        decisions = [
+            decision
+            for symbol in self.symbols
+            if (decision := self._fundamental_decision(symbol)) is not None
+        ]
+        if decisions:
+            store.record_fundamental_features(
+                as_of=self.snapshot.as_of,
+                decisions=decisions,
+                generation_id=generation_id,
+            )
         self._write_taxonomy("INDUSTRY", generation_id, store)
         self._write_taxonomy("CONCEPT", generation_id, store)
         self._write_business(generation_id, store)
@@ -364,6 +472,14 @@ def run_feature_maintenance(
             "snapshot_path": str(snapshot.path),
         }
     mode = "FULL" if full or current.weekday() == 5 else "INCREMENTAL"
+    storage_root = Path(
+        getattr(settings, "root", Path(settings.feature_store_db_path).parent)
+    )
+    watermark = evaluate_disk_watermark(storage_root)
+    if mode == "FULL" and not watermark.full_rebuild_allowed:
+        raise FeatureMaintenanceError("FEATURE_FULL_REBUILD_STORAGE_WATERMARK_BLOCKED")
+    if mode == "INCREMENTAL" and not watermark.incremental_write_allowed:
+        raise FeatureMaintenanceError("FEATURE_INCREMENTAL_STORAGE_WATERMARK_BLOCKED")
     store = ResearchFeatureStore(settings.feature_store_db_path)
     if mode == "INCREMENTAL" and store.get_active_feature_generation("RESEARCH") is None:
         raise FeatureMaintenanceError("FEATURE_ACTIVE_GENERATION_MISSING")
@@ -371,10 +487,14 @@ def run_feature_maintenance(
     coordinator = FeatureRebuildCoordinator(
         store,
         builder,
+        include_runtime_projections=False,
         validator=lambda feature_store, generation_id: validate_feature_generation(
             feature_store,
             generation_id,
             expected_entity_count=len(builder.symbols) if mode == "FULL" else None,
+            expected_symbols=builder.symbols,
+            purpose=("LIVE_FULL" if mode == "FULL" else "LIVE_INCREMENTAL"),
+            coverage_contract=builder.validation_contract,
         ),
     )
     if mode == "FULL":
@@ -398,6 +518,7 @@ def run_feature_maintenance(
         "snapshot_path": str(snapshot.path),
         "g0_count": len(builder.symbols),
         "maintenance_at": current.isoformat(),
+        "storage_watermark": watermark.as_dict(),
         "llm_invoked": False,
         "external_orders": False,
     }
