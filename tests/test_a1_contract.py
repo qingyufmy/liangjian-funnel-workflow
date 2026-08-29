@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import pytest
+
 from liangjian_funnel.pipeline.a1_contract import (
     A1_CONTRACT_VERSION,
     A1_MONTHLY_DECISION_COUNT,
+    A1_NODE_TARGET,
+    A1_THEME_TARGET,
     canonicalize_monthly_decisions,
     merge_a1_discovery_output,
     migrate_legacy_discovery_output,
@@ -51,6 +55,48 @@ def test_runtime_contract_has_one_complete_decision_rule():
     assert "Top10" not in rendered
     assert "top10" not in rendered.lower()
     assert "model_must_not_return" in rendered
+
+
+@pytest.mark.parametrize(
+    ("theme_count", "expected_reason"),
+    [
+        (7, "A1_MONTHLY_THEME_COVERAGE_INSUFFICIENT"),
+        (8, None),
+        (12, None),
+        (13, "A1_MONTHLY_THEME_COVERAGE_EXCEEDED"),
+    ],
+)
+def test_discovery_theme_bounds_enforce_minimum_and_maximum(theme_count: int, expected_reason: str | None):
+    validation = validate_discovery_output(
+        _discovery(theme_count=theme_count, node_count=A1_NODE_TARGET[0]),
+        theme_target=A1_THEME_TARGET,
+        node_target=A1_NODE_TARGET,
+    )
+    if expected_reason is None:
+        assert not any(reason.startswith("A1_MONTHLY_THEME_COVERAGE_") for reason in validation.reason_codes)
+    else:
+        assert expected_reason in validation.reason_codes
+
+
+@pytest.mark.parametrize(
+    ("node_count", "expected_reason"),
+    [
+        (39, "A1_MONTHLY_CHAIN_COVERAGE_INSUFFICIENT"),
+        (40, None),
+        (80, None),
+        (81, "A1_MONTHLY_CHAIN_COVERAGE_EXCEEDED"),
+    ],
+)
+def test_discovery_node_bounds_enforce_minimum_and_maximum(node_count: int, expected_reason: str | None):
+    validation = validate_discovery_output(
+        _discovery(theme_count=A1_THEME_TARGET[0], node_count=node_count),
+        theme_target=A1_THEME_TARGET,
+        node_target=A1_NODE_TARGET,
+    )
+    if expected_reason is None:
+        assert not any(reason.startswith("A1_MONTHLY_CHAIN_COVERAGE_") for reason in validation.reason_codes)
+    else:
+        assert expected_reason in validation.reason_codes
 
 
 def test_canonical_decisions_preserve_all_twenty_and_report_gaps():
@@ -116,6 +162,21 @@ def test_invalid_mapping_status_is_not_silently_coerced_to_unmapped():
 
     validation = validate_discovery_output(output, canonical_decisions=decisions)
     assert "A1_INDUSTRY_THEME_MAPPING_STATUS_INVALID" in validation.reason_codes
+
+
+def test_mapped_industry_without_supporting_evidence_fails_closed():
+    decisions = _decisions()
+    output = _discovery(
+        mappings=[
+            {
+                "industry_thscode": decisions[0]["industry_thscode"],
+                "mapped_theme_ids": ["theme-0"],
+                "mapping_status": "MAPPED",
+            }
+        ]
+    )
+    validation = validate_discovery_output(output, canonical_decisions=decisions)
+    assert "A1_INDUSTRY_THEME_MAPPING_EVIDENCE_MISSING" in validation.reason_codes
 
 
 def test_merge_keeps_server_decision_and_rank_and_only_joins_mapping():

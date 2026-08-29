@@ -302,7 +302,7 @@ agent_1:
     policy_calendar_required: true
     monthly_strategy_lookback_days: 120
     monthly_policy_document_limit: 60
-    monthly_theme_target: [8, 15]           # 覆盖目标，不以无证据主题凑数
+    monthly_theme_target: [8, 12]           # 覆盖目标，不以无证据主题凑数
     monthly_cycle_lookback_trading_days: 20
     monthly_rotation_decision_top_n: 20
     minimum_ready_policy_documents: 1

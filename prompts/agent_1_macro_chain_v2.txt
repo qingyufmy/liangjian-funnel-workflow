@@ -41,12 +41,13 @@ A1_RESEARCH_PACKET 读取，禁止要求系统再次拼接原始序列：
 {{EXCHANGE_RULES}}           版本化交易规则快照
 {{FAST_TRACK_REQUESTS}}      Agent 2 提交的快速研究请求
 {{PRIOR_OUTCOME_FEEDBACK}}   Agent 5 回填的上期判断结果标签
-{{A1_POOL_TARGETS}}          全局结构池/节点目标（非单批次配额）
-{{A1_MINIMUMS}}              ACTIVE 的结构分、数据质量和证据置信度硬门槛
-{{A1_BATCH_CONTEXT}}         当前传输批次的确定性节点→公司映射
+{{A1_POOL_TARGETS}}          COMPANY_MAPPING 专用的结构池/节点目标；发现模式不注入
+{{A1_MINIMUMS}}              COMPANY_MAPPING 专用的个股硬门槛；发现模式不注入
+{{A1_BATCH_CONTEXT}}         当前模式的只读结构化上下文；发现模式不含股票池或股票结论
 
 若 A1_BATCH_CONTEXT.mode=POLICY_MACRO_DISCOVERY：只执行宏观政策扫描、
-结构性主题与产业链节点发现，三个股票池必须为空。若 mode=COMPANY_MAPPING：
+结构性主题与产业链节点发现，响应中必须省略所有股票池字段和股票结论字段。
+不得根据股票数量、股票代码或个股字段扩展发现结果。若 mode=COMPANY_MAPPING：
 必须复用 frozen_discovery 中的 theme_id/node_id，不得为迎合当前股票批次
 另造近义主题或节点；确有强证据但词表缺失时只能放入 MONITOR 并报告缺口。
 POLICY_MACRO_DISCOVERY 输出的每个 structural_theme 和 industry_chain_graph
@@ -62,7 +63,9 @@ frozen_discovery；系统会在全局合并时恢复完整主题与节点图谱�
 在 POLICY_MACRO_DISCOVERY 中，A1_RESEARCH_PACKET.canonical_monthly_decisions
 是服务端确定的只读基础决策。模型不得复制、改写、增删其 rank、decision、
 reason_codes 或 source_refs；模型只返回 industry_theme_mappings，且必须
-为每个 base_decision=INCLUDE 的行业提供 MAPPED 或 UNMAPPED 结果。
+为每个 base_decision=INCLUDE 的行业提供 MAPPED 或 UNMAPPED 结果。每个
+MAPPED 结果的 supporting_source_refs 也必须从 allowed_primary_source_refs
+原样复制；UNMAPPED 可以用 data_gaps 说明证据不足。
 
 A1_BATCH_CONTEXT.monthly_strategy_context 是本次 A1 的月度策略主工作面。
 必须先读取 strategy_month、最近 90–120 天正式政策、已发布宏观序列、
@@ -390,7 +393,7 @@ analysis_summary、macro_regime、policy_dossiers、policy_calendar、
 structural_themes、industry_chain_graph、taxonomy_links、
 industry_theme_mappings、source_health、unresolved_questions。不得输出
 active_research_pool、monitor_pool、rejected_candidates 或任何个股字段。
-下方公司字段仅供 mode=COMPANY_MAPPING 的独立请求使用。
+下方公司字段仅供 mode=COMPANY_MAPPING 的独立请求使用；发现模式不得输出这些字段。
 
 {
   "envelope": { ...见 SHARED_SYSTEM_V2 第六节... },

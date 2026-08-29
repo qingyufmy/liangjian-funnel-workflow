@@ -15,6 +15,7 @@ from liangjian_funnel.pipeline.research import (
     _a2_batch_is_splittable,
     _a1_discovery_context_reasons,
     _a1_discovery_evidence_reasons,
+    _authorized_discovery_source_refs,
     _apply_stage_threshold_policy,
     _apply_a2_lineage_policy,
     _apply_a3_pool_limits,
@@ -27,6 +28,8 @@ from liangjian_funnel.pipeline.research import (
     _estimate_message_tokens,
     _merge_a1_outputs,
     _merge_a2_outputs,
+    _normalize_a1_discovery_source_refs,
+    _normalize_server_envelope,
     _output_shape,
     _project_disclosures,
     _project_fundamentals,
@@ -35,6 +38,7 @@ from liangjian_funnel.pipeline.research import (
     _project_news,
     _scan_symbols,
     _semantic_retry_instruction,
+    _safe_progress_diagnostics,
     _snapshot_discovery_evidence_refs,
     _stage_execution_budget,
     _validate_output,
@@ -63,6 +67,213 @@ def test_discovery_semantic_retry_restates_exact_coverage_and_evidence_contract(
     assert "40-80 industry_chain_graph nodes" in instruction
     assert "allowed_primary_source_refs" in instruction
     assert "copy at least one source_ref verbatim" in instruction
+    assert "RUNTIME_INPUT.A1_BATCH_CONTEXT" not in instruction
+    assert "RUNTIME_INPUT.a1_discovery_context.allowed_primary_source_refs" in instruction
+
+
+def test_server_envelope_normalization_preserves_explicit_blocked_and_model_extensions():
+    required = {
+        "stage_id": "AGENT_1",
+        "model_name": MODELS[0],
+        "input_snapshot_ids": ["snapshot-a1"],
+        "config_version": "funnel-config-v2",
+        "prompt_version": "research-runtime-contract-v2",
+        "market_regime": "ROTATION_NO_MAINLINE",
+        "status": "DEGRADED",
+    }
+    output, changed = _normalize_server_envelope(
+        {
+            "envelope": {
+                "stage_id": "MODEL_STAGE",
+                "model_name": "model-name",
+                "status": "blocked",
+                "external_orders": True,
+            },
+            "structural_themes": [{"theme_id": "theme-1"}],
+        },
+        required,
+    )
+
+    assert changed == 1
+    assert output["envelope"]["status"] == "BLOCKED"
+    assert output["envelope"]["stage_id"] == "AGENT_1"
+    assert output["envelope"]["model_name"] == MODELS[0]
+    assert output["envelope"]["external_orders"] is True
+    assert list(output) == ["envelope", "structural_themes"]
+
+
+def test_discovery_evidence_allowlist_is_packet_snapshot_intersection_and_rejects_expansion():
+    snapshot = {
+        "MACRO_POLICY_FEED": {
+            "official_documents": [{"fact_id": "policy-1"}],
+        },
+        "INDUSTRY_ACTIVITY_DATA": {
+            "items": [{"source_ref": "activity-1"}],
+        },
+        "DISCLOSURE_EVENTS": [{"source_ref": "company-1"}],
+    }
+    packet = {
+        "source_index": {
+            "policy-1": {"section": "policy"},
+            "company-1": {"section": "company"},
+            "packet-only": {"section": "packet"},
+        }
+    }
+    authorized = _authorized_discovery_source_refs(snapshot, packet)
+    assert authorized == ("policy-1",)
+    assert isinstance(authorized, tuple)
+
+    valid = {
+        "structural_themes": [{"theme_id": "theme-1", "source_refs": ["policy-1"]}],
+        "industry_chain_graph": [{
+            "node_id": "node-1",
+            "theme_ids": ["theme-1"],
+            "source_refs": ["policy-1"],
+        }],
+    }
+    assert _a1_discovery_evidence_reasons(valid, snapshot, authorized_source_refs=authorized) == []
+
+    expanded = {
+        "structural_themes": [{"theme_id": "theme-1", "source_refs": ["policy-1", "company-1"]}],
+        "industry_chain_graph": [{
+            "node_id": "node-1",
+            "theme_ids": ["theme-1"],
+            "source_refs": ["policy-1"],
+        }],
+    }
+    assert _a1_discovery_evidence_reasons(
+        expanded,
+        snapshot,
+        authorized_source_refs=authorized,
+    ) == ["A1_DISCOVERY_THEME_EVIDENCE_INVALID"]
+
+
+def test_discovery_scalar_source_refs_are_normalized_only_for_exact_authorized_values():
+    output = {
+        "structural_themes": [{"theme_id": "theme-1", "source_refs": "policy-1"}],
+        "industry_chain_graph": [{
+            "node_id": "node-1",
+            "theme_ids": ["theme-1"],
+            "source_ref": "policy-1",
+        }],
+    }
+    normalized, changed = _normalize_a1_discovery_source_refs(output, ("policy-1",))
+    assert changed == 2
+    assert normalized["structural_themes"][0]["source_refs"] == ["policy-1"]
+    assert normalized["industry_chain_graph"][0]["source_ref"] == "policy-1"
+    assert normalized["industry_chain_graph"][0]["source_refs"] == ["policy-1"]
+    assert _a1_discovery_evidence_reasons(
+        normalized,
+        {},
+        authorized_source_refs=("policy-1",),
+    ) == []
+
+    unknown = {
+        "structural_themes": [{"theme_id": "theme-1", "source_refs": "not-authorized"}],
+        "industry_chain_graph": [{
+            "node_id": "node-1",
+            "theme_ids": ["theme-1"],
+            "source_ref": "not-authorized",
+        }],
+    }
+    untouched, unknown_changed = _normalize_a1_discovery_source_refs(unknown, ("policy-1",))
+    assert unknown_changed == 0
+    assert untouched == unknown
+    assert set(_a1_discovery_evidence_reasons(
+        untouched,
+        {},
+        authorized_source_refs=("policy-1",),
+    )) == {"A1_DISCOVERY_THEME_EVIDENCE_INVALID", "A1_DISCOVERY_NODE_EVIDENCE_INVALID"}
+
+
+def test_discovery_mapping_evidence_must_use_same_authorized_allowlist():
+    output = {
+        "structural_themes": [{"theme_id": "theme-1", "source_refs": ["policy-1"]}],
+        "industry_chain_graph": [{
+            "node_id": "node-1",
+            "theme_ids": ["theme-1"],
+            "source_refs": ["policy-1"],
+        }],
+        "industry_theme_mappings": [{
+            "industry_thscode": "884001.TI",
+            "mapped_theme_ids": ["theme-1"],
+            "mapping_status": "MAPPED",
+            "supporting_source_refs": ["not-authorized"],
+        }],
+    }
+
+    assert _a1_discovery_evidence_reasons(
+        output,
+        {},
+        authorized_source_refs=("policy-1",),
+    ) == ["A1_INDUSTRY_THEME_MAPPING_EVIDENCE_INVALID"]
+
+    output["industry_theme_mappings"][0]["supporting_source_refs"] = ["policy-1"]
+    assert _a1_discovery_evidence_reasons(
+        output,
+        {},
+        authorized_source_refs=("policy-1",),
+    ) == []
+
+
+def test_progress_diagnostics_expose_only_safe_shape_and_counts(tmp_path: Path):
+    diagnostics = _safe_progress_diagnostics({
+        "last_invalid_output_shape": {
+            "type": "object",
+            "fields": ["envelope", "private-output-key", "structural_themes"],
+            "unknown_field_count": -3,
+            "envelope_unknown_field_count": 2,
+            "raw_model_content": "must-not-leak",
+        },
+        "semantic_attempts": 2,
+        "theme_count": 8,
+        "node_count": 40,
+        "mapping_count": 20,
+        "expected_mapping_count": 20,
+        "missing_mapping_codes": ["884001.TI", "", 123],
+        "raw_model_content": "must-not-leak",
+    })
+    assert diagnostics == {
+        "last_invalid_output_shape": {
+            "type": "object",
+            "fields": ["envelope", "structural_themes"],
+            "unknown_field_count": 0,
+            "envelope_unknown_field_count": 2,
+        },
+        "semantic_attempts": 2,
+        "theme_count": 8,
+        "node_count": 40,
+        "mapping_count": 20,
+        "expected_mapping_count": 20,
+        "missing_mapping_count": 1,
+    }
+
+    events: list[dict] = []
+    pipeline = ResearchPipeline(_settings(tmp_path), progress_callback=events.append)
+    pipeline._emit_progress(
+        run_id="run-progress",
+        lane="lane_1",
+        model=MODELS[0],
+        stage="MACRO_DISCOVERY",
+        completed=0,
+        total=1,
+        status="FAILED",
+        attempts=2,
+        diagnostics={
+            "last_invalid_output_shape": {"type": "object", "fields": ["envelope", "secret"]},
+            "theme_count": 8,
+            "node_count": 40,
+            "mapping_count": 20,
+        },
+    )
+    assert events[0]["stage"] == "MACRO_DISCOVERY"
+    assert events[0]["diagnostics"] == {
+        "last_invalid_output_shape": {"type": "object", "fields": ["envelope"]},
+        "theme_count": 8,
+        "node_count": 40,
+        "mapping_count": 20,
+    }
+    assert "secret" not in json.dumps(events[0])
 
 
 def _settings(tmp_path: Path) -> Settings:

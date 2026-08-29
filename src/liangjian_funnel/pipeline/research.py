@@ -206,7 +206,7 @@ _PROMPT_PROJECTION_VERSION = "research-prompt-projection/2.0.0"
 _DEFAULT_MODEL_MAX_INPUT_TOKENS = 1_000_000
 _A3_BATCH_SIZE = 16
 _STAGE_OUTPUT_BUDGETS: Mapping[str, Mapping[str, int]] = {
-    "A1": {"approved_pool": 5, "secondary_pool": 5, "themes": 20, "chain_nodes": 80, "evidence_per_item": 3},
+    "A1": {"approved_pool": 5, "secondary_pool": 5, "themes": 12, "chain_nodes": 80, "evidence_per_item": 3},
     "A2": {"approved_pool": 5, "secondary_pool": 5, "themes": 20, "chain_nodes": 0, "evidence_per_item": 3},
     "A3": {"approved_pool": 5, "secondary_pool": 5, "themes": 0, "chain_nodes": 0, "evidence_per_item": 3},
 }
@@ -850,6 +850,16 @@ class ResearchPipeline:
                 lane_id, model, "A1", snapshot.snapshot_id, "RESEARCH_DEADLINE_EXCEEDED"
             )
         discovery_progress_output = discovery.output if isinstance(discovery.output, Mapping) else {}
+        discovery_diagnostics = discovery.diagnostics if isinstance(discovery.diagnostics, Mapping) else {}
+        discovery_theme_count = len(discovery_progress_output.get("structural_themes") or ())
+        discovery_node_count = len(discovery_progress_output.get("industry_chain_graph") or ())
+        discovery_mapping_count = len(discovery_progress_output.get("industry_theme_mappings") or ())
+        if not discovery_theme_count:
+            discovery_theme_count = _safe_int(discovery_diagnostics.get("theme_count"))
+        if not discovery_node_count:
+            discovery_node_count = _safe_int(discovery_diagnostics.get("node_count"))
+        if not discovery_mapping_count:
+            discovery_mapping_count = _safe_int(discovery_diagnostics.get("mapping_count"))
         self._emit_progress(
             run_id=run_id,
             lane=lane_id,
@@ -864,10 +874,11 @@ class ResearchPipeline:
             total_symbols=0,
             industry_count=len(monthly_strategy_context.get("monthly_industry_rotation") or ()),
             monthly_decision_count=len(monthly_strategy_context.get("monthly_industry_decisions") or ()),
-            theme_count=len(discovery_progress_output.get("structural_themes") or ()),
-            node_count=len(discovery_progress_output.get("industry_chain_graph") or ()),
-            mapping_count=len(discovery_progress_output.get("industry_theme_mappings") or ()),
+            theme_count=discovery_theme_count,
+            node_count=discovery_node_count,
+            mapping_count=discovery_mapping_count,
             reason_codes=discovery.reason_codes,
+            diagnostics=discovery_diagnostics,
         )
         discovery_output = discovery.output if isinstance(discovery.output, Mapping) else {}
         monthly_discovery_reasons = _monthly_discovery_reasons(
@@ -1587,6 +1598,7 @@ class ResearchPipeline:
         reason_codes: Sequence[str] | None = None,
         outcome: str | None = None,
         checkpoint_reused: bool | None = None,
+        diagnostics: Mapping[str, Any] | None = None,
     ) -> None:
         """Send a redacted, stable progress event to the optional observer."""
 
@@ -1620,6 +1632,9 @@ class ResearchPipeline:
             safe_outcome = _safe_progress_reason_codes((outcome,))
             if safe_outcome:
                 event["outcome"] = safe_outcome[0]
+        safe_diagnostics = _safe_progress_diagnostics(diagnostics)
+        if safe_diagnostics:
+            event["diagnostics"] = safe_diagnostics
         reused = checkpoint_reused if checkpoint_reused is not None else str(status).upper() == "REUSED"
         if reused:
             event["checkpoint_reused"] = True
@@ -1803,12 +1818,30 @@ class ResearchPipeline:
         raw = record.get("audit", record)
         if not isinstance(raw, Mapping):
             return None
+        authorized_discovery_refs: tuple[str, ...] = (
+            tuple(a1_discovery_context.get("authorized_discovery_source_refs", ()))
+            if isinstance(a1_discovery_context, Mapping)
+            else ()
+        )
         try:
             output = raw.get("output")
             if not isinstance(output, Mapping):
                 return None
             output = _strip_reasoning(output)
             output, _ = mechanical_repair_output(output)
+            output, _ = _normalize_server_envelope(
+                output,
+                _required_envelope(snapshot, lane_id, model, stage),
+            )
+            if (
+                stage == "A1"
+                and isinstance(a1_discovery_context, Mapping)
+                and a1_discovery_context.get("mode") == "POLICY_MACRO_DISCOVERY"
+            ):
+                output, _ = _normalize_a1_discovery_source_refs(
+                    output,
+                    tuple(a1_discovery_context.get("authorized_discovery_source_refs", ())),
+                )
             reasons = _validate_output(
                 output,
                 stage=stage,
@@ -1823,8 +1856,17 @@ class ResearchPipeline:
             # incomplete/old mapping response after a process restart.
             if stage == "A1" and isinstance(a1_discovery_context, Mapping):
                 reasons.extend(_a1_discovery_context_reasons(output, a1_discovery_context))
-                if a1_discovery_context.get("mode") == "POLICY_MACRO_DISCOVERY":
-                    reasons.extend(_a1_discovery_evidence_reasons(output, snapshot.data))
+                if (
+                    a1_discovery_context.get("mode") == "POLICY_MACRO_DISCOVERY"
+                    and _a1_discovery_evidence_required(a1_discovery_context)
+                ):
+                    reasons.extend(
+                        _a1_discovery_evidence_reasons(
+                            output,
+                            snapshot.data,
+                            authorized_source_refs=authorized_discovery_refs,
+                        )
+                    )
                     monthly_context = a1_discovery_context.get("monthly_strategy_context")
                     if isinstance(monthly_context, Mapping):
                         reasons.extend(_monthly_discovery_reasons(output, monthly_context))
@@ -2604,6 +2646,25 @@ class ResearchPipeline:
                 runtime["a1_packet_hash"] = packet.get("packet_hash")
                 runtime["a1_packet_diagnostics"] = packet.get("diagnostics")
                 runtime["a1_canonical_decision_count"] = len(packet.get("canonical_monthly_decisions", ()))
+            rendered_batch_context = replacements.get("A1_BATCH_CONTEXT")
+            authorized_refs = (
+                tuple(
+                    value
+                    for value in rendered_batch_context.get("allowed_primary_source_refs", ())
+                    if isinstance(value, str) and value.strip()
+                )
+                if isinstance(rendered_batch_context, Mapping)
+                else ()
+            )
+            # Keep the exact packet/snapshot intersection in the stage context
+            # so initial prompt, semantic retry, and final validation cannot
+            # independently rebuild divergent evidence domains.
+            if isinstance(a1_discovery_context, dict):
+                a1_discovery_context["authorized_discovery_source_refs"] = authorized_refs
+            runtime["a1_discovery_context"] = {
+                "allowed_primary_source_refs": list(authorized_refs),
+                "authorized_source_refs": list(authorized_refs),
+            }
         # Bind the request to the immutable snapshot/upstream digests without
         # serialising a second 200+ MiB snapshot copy merely to compute a hash.
         # The checkpoint key separately includes snapshot_hash as well.
@@ -2728,6 +2789,11 @@ class ResearchPipeline:
         last_reasons: list[str] = []
         last_missing_mapping_codes: tuple[str, ...] = ()
         last_shape: dict[str, Any] = {"type": "NoneType"}
+        authorized_discovery_refs: tuple[str, ...] = (
+            tuple(a1_discovery_context.get("authorized_discovery_source_refs", ()))
+            if isinstance(a1_discovery_context, Mapping)
+            else ()
+        )
         for semantic_attempt in range(1, semantic_limit + 1):
             active_messages = list(messages)
             if semantic_attempt > 1:
@@ -2738,6 +2804,7 @@ class ResearchPipeline:
                             stage,
                             last_reasons,
                             missing_mapping_codes=last_missing_mapping_codes,
+                            authorized_source_refs=authorized_discovery_refs,
                         ),
                     }
                 )
@@ -2821,6 +2888,19 @@ class ResearchPipeline:
             variants.append(result.thinking_variant)
             output = _strip_reasoning(result.output)
             output, canonicalized_analysis_summary = mechanical_repair_output(output)
+            canonicalized_envelope = 0
+            canonicalized_discovery_refs = 0
+            required_envelope = _required_envelope(snapshot, lane_id, model, stage)
+            output, canonicalized_envelope = _normalize_server_envelope(output, required_envelope)
+            if (
+                stage == "A1"
+                and isinstance(a1_discovery_context, Mapping)
+                and a1_discovery_context.get("mode") == "POLICY_MACRO_DISCOVERY"
+            ):
+                output, canonicalized_discovery_refs = _normalize_a1_discovery_source_refs(
+                    output,
+                    authorized_discovery_refs,
+                )
             canonicalized_driver_context = 0
             if (
                 stage == "A1"
@@ -2863,8 +2943,19 @@ class ResearchPipeline:
             )
             if stage == "A1" and a1_discovery_context:
                 reasons.extend(_a1_discovery_context_reasons(output, a1_discovery_context))
-                if a1_discovery_context.get("mode") == "POLICY_MACRO_DISCOVERY":
-                    reasons.extend(_a1_discovery_evidence_reasons(output, snapshot.data))
+                if (
+                    a1_discovery_context.get("mode") == "POLICY_MACRO_DISCOVERY"
+                    and _a1_discovery_evidence_required(a1_discovery_context)
+                ):
+                    reasons.extend(
+                        _a1_discovery_evidence_reasons(
+                            output,
+                            snapshot.data,
+                            authorized_source_refs=tuple(
+                                a1_discovery_context.get("authorized_discovery_source_refs", ())
+                            ),
+                        )
+                    )
                     monthly_context = a1_discovery_context.get("monthly_strategy_context")
                     if isinstance(monthly_context, Mapping):
                         reasons.extend(_monthly_discovery_reasons(output, monthly_context))
@@ -2902,6 +2993,8 @@ class ResearchPipeline:
                 }
                 if canonicalized_analysis_summary:
                     diagnostics["canonicalized_analysis_summary"] = canonicalized_analysis_summary
+                if canonicalized_discovery_refs:
+                    diagnostics["canonicalized_discovery_refs"] = canonicalized_discovery_refs
                 if canonicalized_score_items:
                     diagnostics["canonicalized_score_items"] = canonicalized_score_items
                 if canonicalized_bottleneck_scores:
@@ -3276,6 +3369,12 @@ def _prompt_replacements(
             replacements[name] = _with_projection_metadata(manifest, snapshot, allowed_symbols)
             continue
         if name == "A1_POOL_TARGETS":
+            if policy_macro_discovery:
+                # Stock-pool capacity is a COMPANY_MAPPING concern.  Sending
+                # it to discovery invites the model to turn a structural scan
+                # into an implicit stock-selection task.
+                replacements[name] = None
+                continue
             found, value = _lookup_field(snapshot.data, name)
             # Snapshots frozen before this prompt parameter was introduced stay
             # replayable. New snapshots carry the configured value explicitly.
@@ -3300,13 +3399,14 @@ def _prompt_replacements(
             batch_mode = str((a1_discovery_context or {}).get("mode") or "COMPANY_MAPPING")
             if policy_macro_discovery:
                 packet = a1_packet or {}
+                authorized_refs = _authorized_discovery_source_refs(snapshot.data, packet)
                 monthly = (a1_discovery_context or {}).get("monthly_strategy_context")
                 monthly = monthly if isinstance(monthly, Mapping) else {}
                 replacements[name] = {
                     "mode": batch_mode,
                     "symbols": [],
                     "batch_is_transport_boundary": True,
-                    "allowed_primary_source_refs": sorted(packet.get("source_index", {})),
+                    "allowed_primary_source_refs": list(authorized_refs),
                     "canonical_monthly_decision_count": len(packet.get("canonical_monthly_decisions", ())),
                     "monthly_strategy_context": {
                         "strategy_month": monthly.get("strategy_month"),
@@ -3350,6 +3450,9 @@ def _prompt_replacements(
             }
             continue
         if name in {"A1_MINIMUMS", "MIN_THEME_SCORE", "MIN_TECHNICAL_SCORE"}:
+            if policy_macro_discovery and name == "A1_MINIMUMS":
+                replacements[name] = None
+                continue
             defaults: dict[str, Any] = {
                 "A1_MINIMUMS": {
                     "structural_score": 65,
@@ -4117,11 +4220,20 @@ def _monthly_discovery_reasons(
     # historical fixtures remain readable; it is never accepted as a new
     # contract response by the production prompt.
     is_new_mapping_response = isinstance(output.get("industry_theme_mappings"), list)
-    theme_minimum, node_minimum = (A1_THEME_TARGET[0], A1_NODE_TARGET[0]) if is_new_mapping_response else (6, 12)
+    if is_new_mapping_response:
+        theme_minimum, theme_maximum = A1_THEME_TARGET
+        node_minimum, node_maximum = A1_NODE_TARGET
+    else:
+        theme_minimum, theme_maximum = 6, A1_THEME_TARGET[1]
+        node_minimum, node_maximum = 12, A1_NODE_TARGET[1]
     if theme_count < theme_minimum:
         reasons.append("A1_MONTHLY_THEME_COVERAGE_INSUFFICIENT")
+    if theme_count > theme_maximum:
+        reasons.append("A1_MONTHLY_THEME_COVERAGE_EXCEEDED")
     if node_count < node_minimum:
         reasons.append("A1_MONTHLY_CHAIN_COVERAGE_INSUFFICIENT")
+    if node_count > node_maximum:
+        reasons.append("A1_MONTHLY_CHAIN_COVERAGE_EXCEEDED")
 
     rotations = context.get("monthly_industry_rotation")
     rotations = rotations if isinstance(rotations, list) else []
@@ -4235,7 +4347,7 @@ def _monthly_discovery_reasons(
                 reasons.append("A1_MONTHLY_ROTATION_DECISIONS_DUPLICATE")
             if invalid:
                 reasons.append("A1_MONTHLY_ROTATION_DECISIONS_INVALID")
-    return tuple(reasons)
+    return tuple(dict.fromkeys(reasons))
 
 
 def _a1_discovery_context_reasons(
@@ -4277,11 +4389,42 @@ def _a1_discovery_context_reasons(
     return reasons
 
 
+def _a1_discovery_evidence_required(context: Mapping[str, Any]) -> bool:
+    """Apply the strict packet evidence gate only to full discovery runs.
+
+    Tiny pre-v2 fixtures and historical checkpoints may exercise the discovery
+    shape without carrying a monthly packet. They remain readable, while any
+    real/full-market run (or a context with canonical monthly decisions) must
+    use the immutable packet/snapshot intersection and fail closed on gaps.
+    """
+
+    monthly = context.get("monthly_strategy_context")
+    source = monthly if isinstance(monthly, Mapping) else context
+    return (
+        _safe_int(source.get("g0_symbol_count")) >= 500
+        or bool(source.get("monthly_industry_decisions"))
+    )
+
+
 def _a1_discovery_evidence_reasons(
     output: Mapping[str, Any],
     snapshot_data: Mapping[str, Any],
+    authorized_source_refs: Sequence[str] | None = None,
 ) -> list[str]:
-    valid_refs = _snapshot_primary_evidence_refs(snapshot_data)
+    # The discovery request and its final validator must share the exact same
+    # immutable allowlist.  A caller that has rendered the compact packet passes
+    # the packet/snapshot intersection; the fallback is retained for old
+    # read-only callers that only have a snapshot and is intentionally limited to
+    # the discovery-source projection below.
+    valid_refs = {
+        str(value)
+        for value in (
+            authorized_source_refs
+            if authorized_source_refs is not None
+            else _snapshot_discovery_evidence_refs(snapshot_data)
+        )
+        if isinstance(value, str) and value.strip()
+    }
     reasons: list[str] = []
     for field, reason in (
         ("structural_themes", "A1_DISCOVERY_THEME_EVIDENCE_INVALID"),
@@ -4291,16 +4434,91 @@ def _a1_discovery_evidence_reasons(
         if not isinstance(records, list):
             continue
         for record in records:
-            raw_refs = record.get("source_refs") if isinstance(record, Mapping) else None
-            refs = {
-                str(value).strip()
-                for value in raw_refs
-                if isinstance(value, str) and value.strip()
-            } if isinstance(raw_refs, list) else set()
-            if not refs.intersection(valid_refs):
+            refs, malformed = _discovery_record_source_refs(record)
+            if malformed or not refs or not refs.issubset(valid_refs):
                 reasons.append(reason)
                 break
+    mappings = output.get("industry_theme_mappings")
+    if isinstance(mappings, list):
+        for mapping in mappings:
+            if not isinstance(mapping, Mapping):
+                reasons.append("A1_INDUSTRY_THEME_MAPPING_EVIDENCE_INVALID")
+                break
+            if str(mapping.get("mapping_status") or "").strip().upper() != "MAPPED":
+                continue
+            raw_refs = mapping.get("supporting_source_refs")
+            if not isinstance(raw_refs, list) or not raw_refs:
+                reasons.append("A1_INDUSTRY_THEME_MAPPING_EVIDENCE_INVALID")
+                break
+            refs = {
+                value.strip()
+                for value in raw_refs
+                if isinstance(value, str) and value.strip()
+            }
+            if len(refs) != len(raw_refs) or not refs.issubset(valid_refs):
+                reasons.append("A1_INDUSTRY_THEME_MAPPING_EVIDENCE_INVALID")
+                break
     return reasons
+
+
+def _discovery_record_source_refs(record: Any) -> tuple[set[str], bool]:
+    """Read a discovery record's source refs without accepting lossy values."""
+
+    if not isinstance(record, Mapping):
+        return set(), True
+    if "source_refs" in record:
+        raw_refs = record.get("source_refs")
+    elif "source_ref" in record:
+        raw_refs = record.get("source_ref")
+    else:
+        return set(), True
+    if isinstance(raw_refs, str):
+        clean = raw_refs.strip()
+        return ({clean} if clean else set()), not bool(clean) or clean != raw_refs
+    if not isinstance(raw_refs, list) or not raw_refs:
+        return set(), True
+    refs = {value.strip() for value in raw_refs if isinstance(value, str) and value.strip()}
+    return refs, len(refs) != len(raw_refs)
+
+
+def _normalize_a1_discovery_source_refs(
+    output: Mapping[str, Any],
+    authorized_source_refs: Sequence[str],
+) -> tuple[dict[str, Any], int]:
+    """Normalize only authorized scalar refs; never invent discovery evidence."""
+
+    authorized = frozenset(
+        str(value)
+        for value in authorized_source_refs
+        if isinstance(value, str) and value.strip()
+    )
+    result = dict(output)
+    changed = 0
+    for field in ("structural_themes", "industry_chain_graph"):
+        rows = result.get(field)
+        if not isinstance(rows, list):
+            continue
+        normalized_rows: list[Any] = []
+        for raw in rows:
+            if not isinstance(raw, Mapping):
+                normalized_rows.append(raw)
+                continue
+            item = dict(raw)
+            if "source_refs" in item and isinstance(item.get("source_refs"), str):
+                value = item["source_refs"]
+                if value == value.strip() and value in authorized:
+                    item["source_refs"] = [value]
+                    changed += 1
+            elif "source_ref" in item and isinstance(item.get("source_ref"), str):
+                value = item["source_ref"]
+                if value == value.strip() and value in authorized:
+                    # Retain the original singular field for losslessness while
+                    # supplying the canonical plural field expected by v3.
+                    item["source_refs"] = [value]
+                    changed += 1
+            normalized_rows.append(item)
+        result[field] = normalized_rows
+    return result, changed
 
 
 def _deduplicate_stage_items(key: str, values: Sequence[Any]) -> list[Any]:
@@ -4435,6 +4653,7 @@ def _semantic_retry_instruction(
     reasons: Sequence[str],
     *,
     missing_mapping_codes: Sequence[str] = (),
+    authorized_source_refs: Sequence[str] = (),
 ) -> str:
     safe_reasons = [
         reason
@@ -4454,11 +4673,20 @@ def _semantic_retry_instruction(
     if {
         "A1_DISCOVERY_THEME_EVIDENCE_INVALID",
         "A1_DISCOVERY_NODE_EVIDENCE_INVALID",
+        "A1_INDUSTRY_THEME_MAPPING_EVIDENCE_INVALID",
     }.intersection(safe_reasons):
         discovery_requirements.append(
-            "For every structural theme and every industry-chain node, copy at least one source_ref "
-            "verbatim from RUNTIME_INPUT.A1_BATCH_CONTEXT.allowed_primary_source_refs. "
-            "Do not invent, shorten, rewrite, or substitute source references."
+            "For every structural theme, every industry-chain node, and every MAPPED industry-theme "
+            "mapping, copy at least one source_ref "
+            "verbatim from RUNTIME_INPUT.a1_discovery_context.allowed_primary_source_refs. "
+            "Use only that supplied structured context; do not invent, shorten, rewrite, or substitute "
+            "source references."
+        )
+        discovery_requirements.append(
+            "authorized_discovery_source_refs="
+            + _canonical_json(list(dict.fromkeys(
+                value for value in authorized_source_refs if isinstance(value, str) and value.strip()
+            )))
         )
     discovery_retry = "\n".join(discovery_requirements)
     return (
@@ -5216,7 +5444,34 @@ def _snapshot_discovery_evidence_refs(snapshot_data: Mapping[str, Any]) -> set[s
 
     for key in ("MACRO_POLICY_FEED", "INDUSTRY_ACTIVITY_DATA", "INDUSTRY_PROFIT_DATA"):
         visit(snapshot_data.get(key))
-    return refs or _snapshot_primary_evidence_refs(snapshot_data)
+    # An empty discovery-source domain is meaningful: allowing a fallback to
+    # company disclosures would let a model manufacture a macro/industry theme
+    # from evidence that was never supplied for discovery.
+    return refs
+
+
+def _authorized_discovery_source_refs(
+    snapshot_data: Mapping[str, Any],
+    packet: Mapping[str, Any] | None,
+) -> tuple[str, ...]:
+    """Return the immutable packet-source ∩ snapshot-discovery allowlist."""
+
+    packet_index = packet.get("source_index") if isinstance(packet, Mapping) else None
+    if isinstance(packet_index, Mapping):
+        packet_refs = {
+            str(value).strip()
+            for value in packet_index
+            if isinstance(value, str) and value.strip()
+        }
+    elif isinstance(packet_index, (list, tuple, set, frozenset)):
+        packet_refs = {
+            str(value).strip()
+            for value in packet_index
+            if isinstance(value, str) and value.strip()
+        }
+    else:
+        packet_refs = set()
+    return tuple(sorted(packet_refs.intersection(_snapshot_discovery_evidence_refs(snapshot_data))))
 
 
 def _a2_bottleneck_reasons(
@@ -5655,24 +5910,72 @@ def _runtime_input(
         "lane": lane,
         "model_name": model,
         "stage": stage,
-        "required_envelope": {
-            "stage_id": AGENT_BY_STAGE[stage],
-            "model_name": model,
-            "input_snapshot_ids": [snapshot.snapshot_id],
-            "config_version": snapshot.data.get("config_version", "funnel-config-v2"),
-            "prompt_version": "research-runtime-contract-v2",
-            "market_regime": (
-                snapshot.data.get("MARKET_REGIME_SNAPSHOT", {}).get("regime", "ROTATION_NO_MAINLINE")
-                if isinstance(snapshot.data.get("MARKET_REGIME_SNAPSHOT"), Mapping)
-                else "ROTATION_NO_MAINLINE"
-            ),
-            "status": "DEGRADED",
-        },
+        "required_envelope": _required_envelope(snapshot, lane, model, stage),
         "g0_symbols": sorted(scope_symbols if scope_symbols is not None else _extract_g0(snapshot.data)),
         "upstream_symbols": sorted(upstream_symbols),
         "upstream_output": upstream_output,
         "snapshot_data": snapshot.data,
     }
+
+
+def _required_envelope(
+    snapshot: FrozenInputSnapshot,
+    lane: str,
+    model: str,
+    stage: str,
+) -> dict[str, Any]:
+    """Build the server-owned envelope metadata for one immutable request."""
+
+    del lane  # The lane is persisted in the outer runtime input, not the envelope.
+    return {
+        "stage_id": AGENT_BY_STAGE[stage],
+        "model_name": model,
+        "input_snapshot_ids": [snapshot.snapshot_id],
+        "config_version": snapshot.data.get("config_version", "funnel-config-v2"),
+        "prompt_version": "research-runtime-contract-v2",
+        "market_regime": (
+            snapshot.data.get("MARKET_REGIME_SNAPSHOT", {}).get("regime", "ROTATION_NO_MAINLINE")
+            if isinstance(snapshot.data.get("MARKET_REGIME_SNAPSHOT"), Mapping)
+            else "ROTATION_NO_MAINLINE"
+        ),
+        "status": "DEGRADED",
+    }
+
+
+def _normalize_server_envelope(
+    output: Mapping[str, Any],
+    required_envelope: Mapping[str, Any],
+) -> tuple[dict[str, Any], int]:
+    """Normalize only server-owned envelope metadata supplied by the runtime.
+
+    The model may communicate a valid status, including an explicit BLOCKED;
+    all other envelope fields come from the immutable request context.  Missing
+    or malformed envelopes are left untouched so the normal validator can fail
+    closed.  No discovery, mapping, or stock-pool field is created here.
+    """
+
+    result = dict(output)
+    raw_envelope = output.get("envelope")
+    if not isinstance(raw_envelope, Mapping) or not isinstance(required_envelope, Mapping):
+        return result, 0
+    # Keep model-owned envelope extensions visible to the generic permission
+    # validator. Only server-owned fields are overwritten below; dropping
+    # unknown fields here would turn an escalation such as
+    # ``external_orders=true`` into a silently accepted response.
+    normalized = dict(raw_envelope)
+    normalized.update(dict(required_envelope))
+    if "status" in raw_envelope:
+        status = raw_envelope.get("status")
+        if isinstance(status, str) and status.strip().upper() in {"OK", "DEGRADED", "BLOCKED"}:
+            normalized["status"] = status.strip().upper()
+        else:
+            # Keep an explicit invalid status visible to the validator rather
+            # than silently turning it into a successful/degraded response.
+            normalized["status"] = status
+    if normalized == dict(raw_envelope):
+        return result, 0
+    result["envelope"] = normalized
+    return result, 1
 
 
 def _lookup_field(data: Mapping[str, Any], name: str) -> tuple[bool, Any]:
@@ -6237,6 +6540,48 @@ def _safe_progress_reason_codes(values: Sequence[str] | None) -> list[str]:
             result.append(token)
         if len(result) >= 20:
             break
+    return result
+
+
+def _safe_progress_diagnostics(value: Any) -> dict[str, Any]:
+    """Expose bounded shape/count diagnostics, never model payload text."""
+
+    if not isinstance(value, Mapping):
+        return {}
+    result: dict[str, Any] = {}
+    shape = value.get("last_invalid_output_shape")
+    if isinstance(shape, Mapping):
+        safe_shape: dict[str, Any] = {}
+        shape_type = shape.get("type")
+        if isinstance(shape_type, str):
+            safe_shape["type"] = shape_type[:40]
+        fields = shape.get("fields")
+        if isinstance(fields, list):
+            safe_shape["fields"] = [
+                field for field in fields
+                if isinstance(field, str) and field in _SAFE_OUTPUT_FIELDS
+            ][:20]
+        for key in ("unknown_field_count", "envelope_unknown_field_count"):
+            raw = shape.get(key)
+            if isinstance(raw, int) and not isinstance(raw, bool):
+                safe_shape[key] = max(0, raw)
+        if safe_shape:
+            result["last_invalid_output_shape"] = safe_shape
+    for key in (
+        "semantic_attempts",
+        "theme_count",
+        "node_count",
+        "mapping_count",
+        "expected_mapping_count",
+    ):
+        raw = value.get(key)
+        if isinstance(raw, int) and not isinstance(raw, bool):
+            result[key] = max(0, raw)
+    missing = value.get("missing_mapping_codes")
+    if isinstance(missing, (list, tuple, set, frozenset)):
+        result["missing_mapping_count"] = sum(
+            isinstance(item, str) and bool(item.strip()) for item in missing
+        )
     return result
 
 

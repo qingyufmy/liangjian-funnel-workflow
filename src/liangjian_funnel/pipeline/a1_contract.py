@@ -20,9 +20,9 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
 
-A1_CONTRACT_VERSION = "a1-discovery-contract/3.0.0"
+A1_CONTRACT_VERSION = "a1-discovery-contract/3.1.0"
 A1_MONTHLY_DECISION_COUNT = 20
-A1_THEME_TARGET: tuple[int, int] = (8, 15)
+A1_THEME_TARGET: tuple[int, int] = (8, 12)
 A1_NODE_TARGET: tuple[int, int] = (40, 80)
 A1_MINIMUM_READY_POLICY_DOCUMENTS = 1
 
@@ -347,12 +347,16 @@ def validate_discovery_output(
     if len(node_ids) != len(node_rows):
         reasons.append("A1_DISCOVERY_NODE_ID_INVALID")
     if require_targets:
-        minimum_themes = _target_pair(theme_target, A1_THEME_TARGET)[0]
-        minimum_nodes = _target_pair(node_target, A1_NODE_TARGET)[0]
+        minimum_themes, maximum_themes = _target_pair(theme_target, A1_THEME_TARGET)
+        minimum_nodes, maximum_nodes = _target_pair(node_target, A1_NODE_TARGET)
         if len(theme_rows) < minimum_themes:
             reasons.append("A1_MONTHLY_THEME_COVERAGE_INSUFFICIENT")
+        if len(theme_rows) > maximum_themes:
+            reasons.append("A1_MONTHLY_THEME_COVERAGE_EXCEEDED")
         if len(node_rows) < minimum_nodes:
             reasons.append("A1_MONTHLY_CHAIN_COVERAGE_INSUFFICIENT")
+        if len(node_rows) > maximum_nodes:
+            reasons.append("A1_MONTHLY_CHAIN_COVERAGE_EXCEEDED")
     for node in node_rows:
         if not isinstance(node, Mapping):
             reasons.append("A1_DISCOVERY_NODE_INVALID")
@@ -393,6 +397,8 @@ def validate_discovery_output(
             reasons.append("A1_INDUSTRY_THEME_MAPPING_THEME_MISSING")
         if mapping.mapping_status == "MAPPED" and not set(mapping.mapped_theme_ids).intersection(theme_ids):
             reasons.append("A1_INDUSTRY_THEME_MAPPING_THEME_UNKNOWN")
+        if mapping.mapping_status == "MAPPED" and not mapping.supporting_source_refs:
+            reasons.append("A1_INDUSTRY_THEME_MAPPING_EVIDENCE_MISSING")
         if mapping.confidence is not None and not 0.0 <= mapping.confidence <= 1.0:
             reasons.append("A1_INDUSTRY_THEME_MAPPING_CONFIDENCE_INVALID")
     missing_codes = sorted(required_codes.difference(observed_codes))
