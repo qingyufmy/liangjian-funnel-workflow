@@ -677,6 +677,30 @@ function discoveryMetricLabel(value: number | null, suffix: string): string {
   return value === null ? `${suffix}待返回` : `${value} ${suffix}`;
 }
 
+function progressDiagnosticLabel(diagnostics: WorkflowProgressStage["diagnostics"] | null | undefined): string | null {
+  if (!diagnostics) return null;
+  const details: string[] = [];
+  const shape = diagnostics.lastInvalidOutputShape;
+  if (shape) {
+    const shapeDetails = [`返回结构 ${shape.type ?? "未知"}`, `已识别字段 ${shape.fields.length} 个`];
+    if (shape.unknownFieldCount !== null && shape.unknownFieldCount > 0) shapeDetails.push(`未识别字段 ${progressCount(shape.unknownFieldCount)} 个`);
+    if (shape.envelopeUnknownFieldCount !== null && shape.envelopeUnknownFieldCount > 0) shapeDetails.push(`外层未识别字段 ${progressCount(shape.envelopeUnknownFieldCount)} 个`);
+    details.push(shapeDetails.join(" · "));
+  }
+  if (diagnostics.semanticAttempts !== null) details.push(`语义尝试 ${progressCount(diagnostics.semanticAttempts)} 次`);
+  if (diagnostics.themeCount !== null) details.push(`主题 ${progressCount(diagnostics.themeCount)}`);
+  if (diagnostics.nodeCount !== null) details.push(`节点 ${progressCount(diagnostics.nodeCount)}`);
+  if (diagnostics.mappingCount !== null && diagnostics.expectedMappingCount !== null) {
+    details.push(`映射 ${progressCount(diagnostics.mappingCount)} / ${progressCount(diagnostics.expectedMappingCount)}`);
+  } else if (diagnostics.mappingCount !== null) {
+    details.push(`映射 ${progressCount(diagnostics.mappingCount)}`);
+  } else if (diagnostics.expectedMappingCount !== null) {
+    details.push(`应有映射 ${progressCount(diagnostics.expectedMappingCount)}`);
+  }
+  if (diagnostics.missingMappingCount !== null) details.push(`缺失映射 ${progressCount(diagnostics.missingMappingCount)}`);
+  return details.length ? `安全诊断：${details.join("；")}` : null;
+}
+
 function progressPercent(processed: number | null, total: number | null): number | null {
   if (processed === null || total === null || total <= 0) return null;
   return Math.max(0, Math.min(100, (processed / total) * 100));
@@ -781,7 +805,8 @@ function ProgressStage({ stage }: { stage: WorkflowProgressStage }) {
     stage.monitor !== null ? `观察 ${progressCount(stage.monitor)}` : null,
     stage.rejected !== null ? `淘汰 ${progressCount(stage.rejected)}` : null,
   ].filter(Boolean).join(" · ");
-  return <li><div><strong>{progressPhaseLabel(stage.stage)}</strong><StatusBadge status={stage.status} /></div><span>{metricLabel}</span>{funnelCounts ? <span>{funnelCounts}</span> : null}{displayMeasure ? <ProgressBar processed={displayMeasure.processed} total={displayMeasure.total} compact /> : <span className="progress-no-value">暂无可用进度</span>}</li>;
+  const diagnosticLabel = progressDiagnosticLabel(stage.diagnostics);
+  return <li><div><strong>{progressPhaseLabel(stage.stage)}</strong><StatusBadge status={stage.status} /></div><span>{metricLabel}</span>{funnelCounts ? <span>{funnelCounts}</span> : null}{diagnosticLabel ? <span className="progress-diagnostics">{diagnosticLabel}</span> : null}{displayMeasure ? <ProgressBar processed={displayMeasure.processed} total={displayMeasure.total} compact /> : <span className="progress-no-value">暂无可用进度</span>}</li>;
 }
 
 function StageCell({ stage, model, canOpen, onOpen }: { stage?: StageSummary; model: string; canOpen: boolean; onOpen: (trigger: HTMLButtonElement) => void }) {

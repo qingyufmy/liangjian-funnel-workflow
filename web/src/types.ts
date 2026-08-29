@@ -175,7 +175,25 @@ export interface WorkflowProgressStage {
   themeCount: number | null;
   nodeCount: number | null;
   mappingCount: number | null;
+  diagnostics: WorkflowProgressDiagnostics | null;
   updatedAt: string | null;
+}
+
+export interface WorkflowProgressDiagnosticShape {
+  type: string | null;
+  fields: string[];
+  unknownFieldCount: number | null;
+  envelopeUnknownFieldCount: number | null;
+}
+
+export interface WorkflowProgressDiagnostics {
+  lastInvalidOutputShape: WorkflowProgressDiagnosticShape | null;
+  semanticAttempts: number | null;
+  themeCount: number | null;
+  nodeCount: number | null;
+  mappingCount: number | null;
+  expectedMappingCount: number | null;
+  missingMappingCount: number | null;
 }
 
 export interface WorkflowProgressLane {

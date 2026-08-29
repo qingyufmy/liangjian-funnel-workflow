@@ -18,6 +18,7 @@ import type {
   ResearchStageDetailPool,
   StatusSnapshot,
   WorkflowProgressIssue,
+  WorkflowProgressDiagnostics,
   WorkflowProgressLane,
   WorkflowProgressStage,
   WorkflowProgressStatus,
@@ -33,6 +34,48 @@ const SAFE_SNAPSHOT_ID = /^[A-Za-z0-9][A-Za-z0-9._+\-]{0,200}$/;
 const SAFE_PROGRESS_TOKEN = /^[\p{L}\p{N}][\p{L}\p{N} ._:/+\-]{0,119}$/u;
 const MAX_PROGRESS_COUNT = 10_000_000;
 const MAX_PROGRESS_DURATION_MS = 10 ** 12;
+const MAX_PROGRESS_DIAGNOSTIC_FIELDS = 20;
+const MAX_PROGRESS_DIAGNOSTIC_ITEMS = 10_000;
+const SAFE_PROGRESS_DIAGNOSTIC_FIELDS = new Set([
+  "envelope",
+  "analysis_summary",
+  "structural_themes",
+  "industry_chain_graph",
+  "taxonomy_links",
+  "industry_theme_mappings",
+  "canonical_monthly_decisions",
+  "monthly_industry_decisions",
+  "monthly_rotation_coverage",
+  "a1_contract",
+  "local_screen_summary",
+  "active_research_pool",
+  "monitor_pool",
+  "active_themes",
+  "focus_pool",
+  "watch_only_pool",
+  "core_watch_pool",
+  "secondary_watch_pool",
+  "rejected_candidates",
+  "source_health",
+  "unresolved_questions",
+]);
+const SAFE_PROGRESS_DIAGNOSTIC_TYPES = new Set([
+  "object",
+  "array",
+  "list",
+  "dict",
+  "tuple",
+  "string",
+  "str",
+  "number",
+  "int",
+  "float",
+  "boolean",
+  "bool",
+  "null",
+  "none",
+  "nonetype",
+]);
 
 const RESEARCH_LANE_IDS = new Set(["lane_1", "lane_2", "lane_3"]);
 const RESEARCH_STAGES = new Set<ResearchStage>(["A1", "A2", "A3"]);
@@ -529,6 +572,82 @@ function nestedRecord(source: JsonRecord | null, keys: readonly string[]): JsonR
   return null;
 }
 
+function progressDiagnosticType(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const candidate = value.trim().toLowerCase();
+  return SAFE_PROGRESS_DIAGNOSTIC_TYPES.has(candidate) ? candidate : null;
+}
+
+function progressDiagnosticFields(value: unknown): string[] {
+  const values = asArray(value);
+  if (!values) return [];
+  const fields: string[] = [];
+  for (const item of values) {
+    if (typeof item !== "string") continue;
+    const field = item.trim();
+    if (!SAFE_PROGRESS_DIAGNOSTIC_FIELDS.has(field) || fields.includes(field)) continue;
+    fields.push(field);
+    if (fields.length >= MAX_PROGRESS_DIAGNOSTIC_FIELDS) break;
+  }
+  return fields;
+}
+
+function progressDiagnosticCount(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  return Math.min(MAX_PROGRESS_COUNT, Math.max(0, Math.floor(value)));
+}
+
+function normalizeProgressDiagnostics(value: unknown): WorkflowProgressDiagnostics | null {
+  if (!isRecord(value)) return null;
+
+  const rawShape = isRecord(value.last_invalid_output_shape)
+    ? value.last_invalid_output_shape
+    : isRecord(value.lastInvalidOutputShape) ? value.lastInvalidOutputShape : null;
+  let lastInvalidOutputShape: WorkflowProgressDiagnostics["lastInvalidOutputShape"] = null;
+  if (rawShape) {
+    const fields = progressDiagnosticFields(rawShape.fields);
+    const shape = {
+      type: progressDiagnosticType(rawShape.type),
+      fields,
+      unknownFieldCount: progressDiagnosticCount(rawShape.unknown_field_count ?? rawShape.unknownFieldCount),
+      envelopeUnknownFieldCount: progressDiagnosticCount(rawShape.envelope_unknown_field_count ?? rawShape.envelopeUnknownFieldCount),
+    };
+    if (shape.type !== null || fields.length > 0 || shape.unknownFieldCount !== null || shape.envelopeUnknownFieldCount !== null) {
+      lastInvalidOutputShape = shape;
+    }
+  }
+
+  const semanticAttempts = progressDiagnosticCount(value.semantic_attempts ?? value.semanticAttempts);
+  const themeCount = progressDiagnosticCount(value.theme_count ?? value.themeCount);
+  const nodeCount = progressDiagnosticCount(value.node_count ?? value.nodeCount);
+  const mappingCount = progressDiagnosticCount(value.mapping_count ?? value.mappingCount);
+  const expectedMappingCount = progressDiagnosticCount(value.expected_mapping_count ?? value.expectedMappingCount);
+  let missingMappingCount = progressDiagnosticCount(value.missing_mapping_count ?? value.missingMappingCount);
+  if (missingMappingCount === null) {
+    const codes = asArray(value.missing_mapping_codes ?? value.missingMappingCodes);
+    if (codes) {
+      let count = 0;
+      for (let index = 0; index < Math.min(codes.length, MAX_PROGRESS_DIAGNOSTIC_ITEMS); index += 1) {
+        const code = codes[index];
+        if (typeof code === "string" && code.trim()) count += 1;
+      }
+      missingMappingCount = count;
+    }
+  }
+  const hasSafeValue = lastInvalidOutputShape !== null
+    || [semanticAttempts, themeCount, nodeCount, mappingCount, expectedMappingCount, missingMappingCount].some((item) => item !== null);
+  if (!hasSafeValue) return null;
+  return {
+    lastInvalidOutputShape,
+    semanticAttempts,
+    themeCount,
+    nodeCount,
+    mappingCount,
+    expectedMappingCount,
+    missingMappingCount,
+  };
+}
+
 function validateProgressShape(source: JsonRecord): boolean {
   const stringKeys = ["status", "phase", "current_phase", "run_id", "runId", "updated_at", "updatedAt", "time", "started_at", "startedAt", "phase_started_at", "phaseStartedAt"];
   if (stringKeys.some((key) => key in source && typeof source[key] !== "string")) return false;
@@ -597,6 +716,7 @@ function normalizeStage(stageKey: string | null, stage: JsonRecord): WorkflowPro
   const themeCount = metricFromSources(sources, ["theme_count"], "count");
   const nodeCount = metricFromSources(sources, ["node_count"], "count");
   const mappingCount = metricFromSources(sources, ["mapping_count"], "count");
+  const diagnostics = normalizeProgressDiagnostics(stage.diagnostics);
   const rawStatus = progressString(stage.status) ? progressStatus(stage.status) : null;
   const hasIncompleteAggregate = (
     processed.value !== null && total.value !== null && total.value > 0 && processed.value < total.value
@@ -620,6 +740,7 @@ function normalizeStage(stageKey: string | null, stage: JsonRecord): WorkflowPro
     themeCount: themeCount.value,
     nodeCount: nodeCount.value,
     mappingCount: mappingCount.value,
+    diagnostics,
     updatedAt: progressTime(stage.updated_at ?? stage.updatedAt ?? stage.time),
   };
 }

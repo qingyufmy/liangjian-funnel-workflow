@@ -89,3 +89,72 @@ def test_progress_finish_records_only_stable_reason_code(tmp_path):
     assert state["phase"] == "FAILED"
     assert state["reason_code"] == "LOCAL_FACT_CACHE_NOT_READY"
     assert state["eta_seconds"] == 0
+
+
+def test_progress_diagnostics_keep_only_bounded_structural_counts(tmp_path):
+    progress = WorkflowProgress(tmp_path / "workflow_progress.json", run_id="run-diagnostics", job="close")
+    progress.research_event({
+        "lane": "lane_1",
+        "model": "fixture-model",
+        "stage": "MACRO_DISCOVERY",
+        "status": "FAILED",
+        "diagnostics": {
+            "last_invalid_output_shape": {
+                "type": "object",
+                "fields": ["envelope", "secret_field", "structural_themes", "structural_themes"],
+                "unknown_field_count": 99_999_999,
+                "envelope_unknown_field_count": -4,
+                "raw_model_content": "must-not-persist",
+            },
+            "semantic_attempts": 99_999_999,
+            "theme_count": 8,
+            "node_count": 40,
+            "mapping_count": 14,
+            "expected_mapping_count": 20,
+            "missing_mapping_codes": ["884001.TI", "", 123, "secret-code"],
+            "provider_response": "must-not-persist",
+        },
+    })
+
+    state = progress.snapshot()
+    diagnostics = state["lanes"]["LANE_1"]["stages"]["MACRO_DISCOVERY"]["diagnostics"]
+    assert diagnostics == {
+        "last_invalid_output_shape": {
+            "type": "object",
+            "fields": ["envelope", "structural_themes"],
+            "unknown_field_count": 10_000_000,
+            "envelope_unknown_field_count": 0,
+        },
+        "semantic_attempts": 10_000_000,
+        "theme_count": 8,
+        "node_count": 40,
+        "mapping_count": 14,
+        "expected_mapping_count": 20,
+        "missing_mapping_count": 2,
+    }
+    serialized = (tmp_path / "workflow_progress.json").read_text(encoding="utf-8")
+    assert "secret_field" not in serialized
+    assert "raw_model_content" not in serialized
+    assert "provider_response" not in serialized
+    assert "884001.TI" not in serialized
+
+
+def test_progress_diagnostics_reject_unknown_shape_types_and_arbitrary_keys(tmp_path):
+    progress = WorkflowProgress(tmp_path / "workflow_progress.json", run_id="run-diagnostics-unknown", job="close")
+    progress.research_event({
+        "lane": "lane_1",
+        "stage": "MACRO_DISCOVERY",
+        "status": "FAILED",
+        "diagnostics": {
+            "last_invalid_output_shape": {
+                "type": "ProviderPrivateType",
+                "fields": ["not-a-contract-field"],
+            },
+            "arbitrary": {"model": "private"},
+        },
+    })
+
+    state = progress.snapshot()
+    stage = state["lanes"]["LANE_1"]["stages"]["MACRO_DISCOVERY"]
+    assert "diagnostics" not in stage
+    assert "private" not in (tmp_path / "workflow_progress.json").read_text(encoding="utf-8")

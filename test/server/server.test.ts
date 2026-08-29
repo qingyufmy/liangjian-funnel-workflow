@@ -405,6 +405,67 @@ test("projects a valid workflow progress document without exposing unknown field
   expect(JSON.stringify(progress)).not.toContain("private model output");
 });
 
+test("projects only safe bounded stage diagnostics without exposing model content", async () => {
+  const root = await mkdtemp(join(tmpdir(), "liangjian-progress-diagnostics-"));
+  await mkdir(join(root, "state"), { recursive: true });
+  await writeFile(join(root, "state", "workflow_progress.json"), JSON.stringify({
+    run_id: "diagnostics-run",
+    status: "RUNNING",
+    phase: "RESEARCH_MACRO_DISCOVERY",
+    lanes: {
+      LANE_1: {
+        model: "fixture-model",
+        status: "FAILED",
+        current_stage: "MACRO_DISCOVERY",
+        stages: {
+          MACRO_DISCOVERY: {
+            status: "FAILED",
+            diagnostics: {
+              last_invalid_output_shape: {
+                type: "object",
+                fields: ["envelope", "private_field", "structural_themes"],
+                unknown_field_count: 99_999_999,
+                envelope_unknown_field_count: -4,
+                raw_model_content: "must-not-appear",
+              },
+              semantic_attempts: 2,
+              theme_count: 8,
+              node_count: 40,
+              mapping_count: 14,
+              expected_mapping_count: 20,
+              missing_mapping_codes: ["884001.TI", "", "private-mapping-code"],
+              arbitrary: "must-not-appear",
+            },
+          },
+        },
+      },
+    },
+  }));
+  const config = loadConfig({ LIANGJIAN_PYTHON_BIN: "python3" }, root);
+  const files = new ProjectFiles(config, new LogStore(config));
+
+  const progress = await files.workflowProgress();
+  expect(progress?.lanes[0]?.stages[0]?.diagnostics).toEqual({
+    lastInvalidOutputShape: {
+      type: "object",
+      fields: ["envelope", "structural_themes"],
+      unknownFieldCount: 10_000_000,
+      envelopeUnknownFieldCount: 0,
+    },
+    semanticAttempts: 2,
+    themeCount: 8,
+    nodeCount: 40,
+    mappingCount: 14,
+    expectedMappingCount: 20,
+    missingMappingCount: 2,
+  });
+  const serialized = JSON.stringify(progress);
+  expect(serialized).not.toContain("private_field");
+  expect(serialized).not.toContain("raw_model_content");
+  expect(serialized).not.toContain("private-mapping-code");
+  expect(serialized).not.toContain("must-not-appear");
+});
+
 test("marks a running progress file as stale when its filesystem heartbeat times out", async () => {
   const root = await mkdtemp(join(tmpdir(), "liangjian-progress-heartbeat-timeout-"));
   await mkdir(join(root, "state"), { recursive: true });

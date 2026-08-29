@@ -850,7 +850,10 @@ class ResearchPipeline:
                 lane_id, model, "A1", snapshot.snapshot_id, "RESEARCH_DEADLINE_EXCEEDED"
             )
         discovery_progress_output = discovery.output if isinstance(discovery.output, Mapping) else {}
-        discovery_diagnostics = discovery.diagnostics if isinstance(discovery.diagnostics, Mapping) else {}
+        discovery_diagnostics = _discovery_progress_diagnostics(
+            discovery.diagnostics,
+            monthly_strategy_context,
+        )
         discovery_theme_count = len(discovery_progress_output.get("structural_themes") or ())
         discovery_node_count = len(discovery_progress_output.get("industry_chain_graph") or ())
         discovery_mapping_count = len(discovery_progress_output.get("industry_theme_mappings") or ())
@@ -6581,6 +6584,37 @@ def _safe_progress_diagnostics(value: Any) -> dict[str, Any]:
     if isinstance(missing, (list, tuple, set, frozenset)):
         result["missing_mapping_count"] = sum(
             isinstance(item, str) and bool(item.strip()) for item in missing
+        )
+    return result
+
+
+def _discovery_progress_diagnostics(
+    diagnostics: Any,
+    monthly_context: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Convert safe output-shape lengths into durable discovery counters."""
+
+    result = dict(diagnostics) if isinstance(diagnostics, Mapping) else {}
+    invalid_shape = result.get("last_invalid_output_shape")
+    array_lengths = invalid_shape.get("array_lengths") if isinstance(invalid_shape, Mapping) else None
+    if isinstance(array_lengths, Mapping):
+        for diagnostic_key, output_key in (
+            ("theme_count", "structural_themes"),
+            ("node_count", "industry_chain_graph"),
+            ("mapping_count", "industry_theme_mappings"),
+        ):
+            if output_key in array_lengths:
+                result.setdefault(diagnostic_key, _safe_int(array_lengths.get(output_key)))
+    canonical_decisions = monthly_context.get("monthly_industry_decisions")
+    if isinstance(canonical_decisions, list):
+        result.setdefault(
+            "expected_mapping_count",
+            sum(
+                1
+                for item in canonical_decisions
+                if isinstance(item, Mapping)
+                and str(item.get("base_decision") or item.get("decision") or "").strip().upper() == "INCLUDE"
+            ),
         )
     return result
 

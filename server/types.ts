@@ -66,6 +66,28 @@ export type WorkflowProgressStatus = "RUNNING" | "STALE" | "COMPLETED" | "READY"
  */
 export type WorkflowProgressIssue = "OVERSIZE" | "UNREADABLE" | "INVALID_JSON" | "INVALID_SHAPE" | "HEARTBEAT_TIMEOUT";
 
+export interface WorkflowProgressDiagnosticShape {
+  readonly type: string | null;
+  readonly fields: readonly string[];
+  readonly unknownFieldCount: number | null;
+  readonly envelopeUnknownFieldCount: number | null;
+}
+
+/**
+ * Safe, bounded diagnostics emitted by the Python progress writer.  This is
+ * intentionally a structural projection; it never contains model text,
+ * mapping codes, or arbitrary provider fields.
+ */
+export interface WorkflowProgressDiagnostics {
+  readonly lastInvalidOutputShape: WorkflowProgressDiagnosticShape | null;
+  readonly semanticAttempts: number | null;
+  readonly themeCount: number | null;
+  readonly nodeCount: number | null;
+  readonly mappingCount: number | null;
+  readonly expectedMappingCount: number | null;
+  readonly missingMappingCount: number | null;
+}
+
 export interface WorkflowProgressStage {
   readonly stage: string;
   readonly status: string | null;
@@ -81,6 +103,7 @@ export interface WorkflowProgressStage {
   readonly themeCount: number | null;
   readonly nodeCount: number | null;
   readonly mappingCount: number | null;
+  readonly diagnostics: WorkflowProgressDiagnostics | null;
   readonly updatedAt: string | null;
 }
 

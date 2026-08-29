@@ -25,6 +25,7 @@ from liangjian_funnel.pipeline.research import (
     _canonicalize_a1_driver_context,
     _canonicalize_stage_scores,
     _canonicalize_stage_pool_fields,
+    _discovery_progress_diagnostics,
     _estimate_message_tokens,
     _merge_a1_outputs,
     _merge_a2_outputs,
@@ -274,6 +275,41 @@ def test_progress_diagnostics_expose_only_safe_shape_and_counts(tmp_path: Path):
         "mapping_count": 20,
     }
     assert "secret" not in json.dumps(events[0])
+
+
+def test_discovery_progress_diagnostics_derive_only_counts_from_safe_shape():
+    diagnostics = _discovery_progress_diagnostics(
+        {
+            "last_invalid_output_shape": {
+                "array_lengths": {
+                    "structural_themes": 12,
+                    "industry_chain_graph": 44,
+                    "industry_theme_mappings": 17,
+                    "private_payload": 999,
+                },
+                "fields": ["structural_themes"],
+            },
+            "semantic_attempts": 2,
+        },
+        {
+            "monthly_industry_decisions": [
+                {"base_decision": "INCLUDE"},
+                {"decision": "INCLUDE"},
+                {"base_decision": "EXCLUDE"},
+            ]
+        },
+    )
+
+    assert diagnostics["theme_count"] == 12
+    assert diagnostics["node_count"] == 44
+    assert diagnostics["mapping_count"] == 17
+    assert diagnostics["expected_mapping_count"] == 2
+    safe = _safe_progress_diagnostics(diagnostics)
+    assert safe["theme_count"] == 12
+    assert safe["node_count"] == 44
+    assert safe["mapping_count"] == 17
+    assert safe["expected_mapping_count"] == 2
+    assert "private_payload" not in json.dumps(safe)
 
 
 def _settings(tmp_path: Path) -> Settings:

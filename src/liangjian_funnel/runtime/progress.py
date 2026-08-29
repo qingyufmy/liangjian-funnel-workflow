@@ -14,13 +14,65 @@ from ..reporting import atomic_write_json
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 
+# Diagnostics are intentionally a separate, much narrower contract than the
+# model/result payload.  Keep this list local to the writer so a future caller
+# cannot make an arbitrary output field appear in the durable progress file.
+_SAFE_PROGRESS_OUTPUT_FIELDS = frozenset(
+    {
+        "envelope",
+        "analysis_summary",
+        "structural_themes",
+        "industry_chain_graph",
+        "taxonomy_links",
+        "industry_theme_mappings",
+        "canonical_monthly_decisions",
+        "monthly_industry_decisions",
+        "monthly_rotation_coverage",
+        "a1_contract",
+        "local_screen_summary",
+        "active_research_pool",
+        "monitor_pool",
+        "active_themes",
+        "focus_pool",
+        "watch_only_pool",
+        "core_watch_pool",
+        "secondary_watch_pool",
+        "rejected_candidates",
+        "source_health",
+        "unresolved_questions",
+    }
+)
+_SAFE_PROGRESS_SHAPE_TYPES = frozenset(
+    {
+        "object",
+        "array",
+        "list",
+        "dict",
+        "tuple",
+        "string",
+        "str",
+        "number",
+        "int",
+        "float",
+        "boolean",
+        "bool",
+        "null",
+        "none",
+        "nonetype",
+    }
+)
+_MAX_PROGRESS_DIAGNOSTIC_COUNT = 10_000_000
+_MAX_PROGRESS_DIAGNOSTIC_FIELDS = 20
+_MAX_PROGRESS_DIAGNOSTIC_ITEMS = 10_000
+
 
 class WorkflowProgress:
     """Atomically publish bounded workflow progress across process restarts.
 
     The progress file is presentation state, not an execution authority.  It
-    deliberately contains counters and stable reason codes only; prompts,
-    provider responses, API credentials and model reasoning never enter it.
+    deliberately contains counters and stable reason codes plus an explicit,
+    bounded diagnostic schema; prompts, provider responses, API credentials
+    and model reasoning never enter it.
     """
 
     def __init__(self, path: Path, *, run_id: str, job: str, now: datetime | None = None) -> None:
@@ -137,6 +189,9 @@ class WorkflowProgress:
             reason_codes = _reason_codes(event.get("reason_codes"))
             if reason_codes:
                 stage_state["reason_codes"] = reason_codes
+            diagnostics = _progress_diagnostics(event.get("diagnostics"))
+            if diagnostics:
+                stage_state["diagnostics"] = diagnostics
             if isinstance(event.get("outcome"), str) and event["outcome"].strip():
                 stage_state["outcome"] = _token(event["outcome"], 80)
             if isinstance(event.get("checkpoint_reused"), bool):
@@ -277,6 +332,89 @@ def _reason_codes(value: Any) -> list[str]:
         if len(result) >= 20:
             break
     return result
+
+
+def _progress_diagnostics(value: Any) -> dict[str, Any]:
+    """Return only the durable progress diagnostic contract.
+
+    The research pipeline already redacts its callback payload, but the
+    progress writer is a second trust boundary: callers can be added later or
+    invoke ``research_event`` directly.  Never copy arbitrary diagnostic keys,
+    field names, mapping codes, or response content into the progress file.
+    """
+
+    if not isinstance(value, Mapping):
+        return {}
+
+    result: dict[str, Any] = {}
+    shape = value.get("last_invalid_output_shape")
+    if isinstance(shape, Mapping):
+        safe_shape: dict[str, Any] = {}
+        shape_type = shape.get("type")
+        if isinstance(shape_type, str):
+            normalized_type = shape_type.strip().lower()
+            if normalized_type in _SAFE_PROGRESS_SHAPE_TYPES:
+                safe_shape["type"] = normalized_type
+
+        raw_fields = shape.get("fields")
+        if isinstance(raw_fields, (list, tuple, set, frozenset)):
+            fields: list[str] = []
+            for raw_field in raw_fields:
+                if not isinstance(raw_field, str):
+                    continue
+                field = raw_field.strip()
+                if field not in _SAFE_PROGRESS_OUTPUT_FIELDS or field in fields:
+                    continue
+                fields.append(field)
+                if len(fields) >= _MAX_PROGRESS_DIAGNOSTIC_FIELDS:
+                    break
+            if fields:
+                safe_shape["fields"] = fields
+
+        for key in ("unknown_field_count", "envelope_unknown_field_count"):
+            count = _diagnostic_count(shape.get(key))
+            if count is not None:
+                safe_shape[key] = count
+        if safe_shape:
+            result["last_invalid_output_shape"] = safe_shape
+
+    for key in (
+        "semantic_attempts",
+        "theme_count",
+        "node_count",
+        "mapping_count",
+        "expected_mapping_count",
+        "missing_mapping_count",
+    ):
+        count = _diagnostic_count(value.get(key))
+        if count is not None:
+            result[key] = count
+
+    # Older pipeline callbacks provide mapping codes, while newer callbacks
+    # may provide the already-counted form.  Persist the count only; never the
+    # codes themselves.  Limit iteration as a final guard against a hostile
+    # or accidentally unbounded callback value.
+    if "missing_mapping_count" not in result:
+        missing = value.get("missing_mapping_codes")
+        if isinstance(missing, (list, tuple, set, frozenset)):
+            count = 0
+            for index, item in enumerate(missing):
+                if index >= _MAX_PROGRESS_DIAGNOSTIC_ITEMS:
+                    break
+                if isinstance(item, str) and item.strip():
+                    count += 1
+            result["missing_mapping_count"] = min(count, _MAX_PROGRESS_DIAGNOSTIC_COUNT)
+    return result
+
+
+def _diagnostic_count(value: Any) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = int(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return min(max(0, number), _MAX_PROGRESS_DIAGNOSTIC_COUNT)
 
 
 __all__ = ["WorkflowProgress"]
