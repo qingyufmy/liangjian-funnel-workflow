@@ -24,17 +24,17 @@
 
 | ID | 问题 | 当前状态 | 本地验证 | CI验证 | VM验证 | 业务验收 |
 |---|---|---|---|---|---|---|
-| R1 | 历史回放污染active generation | VERIFIED_LOCAL | 回放隔离、CAS、绑定测试通过 | 待CI | 待部署验证 | 不适用 |
-| R2 | A2数据不足误报无机会 | VERIFIED_LOCAL | 数据不足/真实空源/脏数据矩阵通过 | 待CI | 待真实源验证 | 待真实样本 |
-| R3 | 六端状态不一致 | VERIFIED_LOCAL | v3合同、生成类型、Python/Node/UI测试通过 | 待CI | 待部署验证 | 不适用 |
-| R4 | run opportunity语义混淆 | VERIFIED_LOCAL | 作业、充分性、研究/焦点/行动/发布轴测试通过 | 待CI | 待真实运行 | 待真实样本 |
-| R5 | primary仍等待comparison | VERIFIED_LOCAL | 主任务先发布、comparison子运行和租约隔离通过 | 待CI | 待真实运行 | 不适用 |
-| R6 | 趋势代理冒充真实梯队 | VERIFIED_LOCAL | 真实梯队、观察为空、UNKNOWN与趋势代理分离测试通过 | 待CI | 待真实源验证 | 待真实样本 |
-| R7 | Feature Store物化不完整 | VERIFIED_LOCAL | full/incremental manifest和基本面物化测试通过 | 待CI | 待迁移验证 | 待真实覆盖 |
-| R8 | A1候选元数据丢失 | VERIFIED_LOCAL | 各阶段代码/名称/行业/主题/映射缺口测试通过 | 待CI | 待真实结果 | 待真实样本 |
-| R9 | 关键模块覆盖率不足 | VERIFIED_LOCAL | 711项；整体行81.74%；六组关键行/分支均≥90% | 待CI | 不适用 | 不适用 |
-| R10 | 存储与恢复合同缺失 | VERIFIED_LOCAL | 在线备份、完整性、引用保留、只读清理测试通过 | 待CI | 待备份恢复验证 | 不适用 |
-| R11 | 验收报告数值手工漂移 | VERIFIED_LOCAL | 验收报告由持久化manifest/API/SQLite生成测试通过 | 待CI | 待生成VM报告 | 不适用 |
+| R1 | 历史回放污染active generation | VERIFIED_CI | 回放隔离、CAS、绑定测试通过 | 通过 | 待部署验证 | 不适用 |
+| R2 | A2数据不足误报无机会 | VERIFIED_CI | 数据不足/真实空源/脏数据矩阵通过 | 通过 | 待真实源验证 | 待真实样本 |
+| R3 | 六端状态不一致 | VERIFIED_CI | v3合同、生成类型、Python/Node/UI测试通过 | 通过 | 待部署验证 | 不适用 |
+| R4 | run opportunity语义混淆 | VERIFIED_CI | 作业、充分性、研究/焦点/行动/发布轴测试通过 | 通过 | 待真实运行 | 待真实样本 |
+| R5 | primary仍等待comparison | VERIFIED_CI | 主任务先发布、comparison子运行和租约隔离通过 | 通过 | 待真实运行 | 不适用 |
+| R6 | 趋势代理冒充真实梯队 | VERIFIED_CI | 真实梯队、观察为空、UNKNOWN与趋势代理分离测试通过 | 通过 | 待真实源验证 | 待真实样本 |
+| R7 | Feature Store物化不完整 | VERIFIED_CI | full/incremental manifest和基本面物化测试通过 | 通过 | 待迁移验证 | 待真实覆盖 |
+| R8 | A1候选元数据丢失 | VERIFIED_CI | 各阶段代码/名称/行业/主题/映射缺口测试通过 | 通过 | 待真实结果 | 待真实样本 |
+| R9 | 关键模块覆盖率不足 | VERIFIED_LOCAL | 711项；整体行81.74%；六组关键行/分支均≥90% | 旧CI通过；新门待workflow权限 | 不适用 | 不适用 |
+| R10 | 存储与恢复合同缺失 | VERIFIED_CI | 在线备份、完整性、引用保留、只读清理测试通过 | 通过 | 待备份恢复验证 | 不适用 |
+| R11 | 验收报告数值手工漂移 | VERIFIED_CI | 验收报告由持久化manifest/API/SQLite生成测试通过 | 通过 | 待生成VM报告 | 不适用 |
 | R12 | 真实10日、金股、自然计划不足 | PENDING_BUSINESS_ACCEPTANCE | 工具已有 | 工具已有 | 单日样本 | 待外部样本 |
 
 ## 本地硬验收结果
@@ -45,7 +45,9 @@
 - Node：`36 passed`；TypeScript 类型检查和生产构建通过。
 - `research-outcome/3.0.0` JSON Schema 与生成 TypeScript 无漂移，schema SHA-256 前缀为 `fe14e7d01c0614db`。
 - 并发 CAS 压力复测通过；对比任务租约只允许实际持有者释放。
-- 当前结论是 `VERIFIED_LOCAL`，不等于 CI、虚拟机或真实业务验收完成。
+- 当前工程功能结论为 `VERIFIED_CI`；R9 新覆盖率门仍为 `VERIFIED_LOCAL`。这不等于虚拟机或真实业务验收完成。
+
+GitHub Actions 运行 `33260682107` 已成功完成。当前仓库凭据缺少修改 `.github/workflows` 所需的 `workflow` scope，因此 GitHub 仍运行原有全套测试/类型检查/构建工作流；新的 80%/关键90%门禁脚本已纳入仓库并在本地通过，但尚未接入远端工作流。此项不得误报为 `VERIFIED_CI`。
 
 ## 发布阻断门
 
