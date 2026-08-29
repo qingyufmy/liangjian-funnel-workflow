@@ -1,5 +1,7 @@
 # A 股研究工作流十项整改实施与验收报告
 
+> **历史报告，已被复核替代。** 本文记录提交 `eb442d57` 时的阶段性结果，不能作为当前最终验收结论。当前整改与验收以 `WORKFLOW_REVIEW_MASTER_REMEDIATION_PLAN_2026-08-29.md`、`REMEDIATION_TRACEABILITY_2026-08-29.md` 及自动生成的最新验收报告为准。
+
 > 验收日期：2026-08-29  
 > 验收环境：本地 Windows + GitHub Actions + 虚拟机 `192.168.1.254`  
 > 部署目录：`/www/wwwroot/Agu/liangjian-funnel-workflow`  

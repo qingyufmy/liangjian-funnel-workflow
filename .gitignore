@@ -13,6 +13,8 @@ __pycache__/
 .pytest_cache/
 .coverage
 .coverage.*
+coverage.json
+coverage-critical.json
 htmlcov/
 .mypy_cache/
 .ruff_cache/
