@@ -871,6 +871,44 @@ test("does not label an incomplete aggregate stage as completed", async () => {
   expect(progress?.lanes[0]?.stages[0]).toMatchObject({ status: "RUNNING", batchProcessed: 10, batchTotal: 248 });
 });
 
+test("projects stale running lanes as terminal when the overall progress is complete", async () => {
+  const root = await mkdtemp(join(tmpdir(), "liangjian-progress-terminal-lane-"));
+  await mkdir(join(root, "state"), { recursive: true });
+  await writeFile(join(root, "state", "workflow_progress.json"), JSON.stringify({
+    run_id: "terminal-lane",
+    status: "READY_DEGRADED",
+    job_status: "RUNNING",
+    phase: "COMPLETED",
+    lanes: {
+      LANE_1: {
+        model: "deepseek-v4-pro-0813",
+        status: "RUNNING",
+        job_status: "RUNNING",
+        current_stage: "A2_LLM_REVIEW",
+        stages: {
+          A1_LLM_REVIEW: { status: "COMPLETED", completed_batches: 10, total_batches: 248 },
+          A2_LLM_REVIEW: { status: "DEGRADED_UNDERFILLED_DATA_GAP", reason_codes: ["A2_FACTOR_COVERAGE_BELOW_MINIMUM"] },
+        },
+      },
+    },
+  }));
+  const config = loadConfig({ LIANGJIAN_PYTHON_BIN: "python3" }, root);
+  const files = new ProjectFiles(config, new LogStore(config));
+
+  const progress = await files.workflowProgress();
+  expect(progress).toMatchObject({ status: "READY_DEGRADED", jobStatus: "SUCCEEDED", phase: "COMPLETED" });
+  expect(progress?.lanes[0]).toMatchObject({
+    laneId: "lane_1",
+    status: "READY_DEGRADED",
+    jobStatus: "SUCCEEDED",
+    currentStage: null,
+  });
+  expect(progress?.lanes[0]?.stages).toEqual(expect.arrayContaining([
+    expect.objectContaining({ stage: "A1_LLM_REVIEW", status: "PARTIAL", jobStatus: "SUCCEEDED" }),
+    expect.objectContaining({ stage: "A2_LLM_REVIEW", status: "DEGRADED_UNDERFILLED_DATA_GAP", jobStatus: "SUCCEEDED" }),
+  ]));
+});
+
 test("projects allow-listed CNINFO PDF progress without exposing document payloads", async () => {
   const root = await mkdtemp(join(tmpdir(), "liangjian-progress-cninfo-pdf-"));
   await mkdir(join(root, "state"), { recursive: true });

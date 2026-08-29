@@ -161,7 +161,7 @@ def test_progress_diagnostics_reject_unknown_shape_types_and_arbitrary_keys(tmp_
     assert "private" not in (tmp_path / "workflow_progress.json").read_text(encoding="utf-8")
 
 
-def test_finish_does_not_overwrite_lane_states_and_uses_canonical_job_status(tmp_path):
+def test_finish_closes_lane_states_and_uses_canonical_job_status(tmp_path):
     progress = WorkflowProgress(tmp_path / "workflow_progress.json", run_id="run-outcome", job="close")
     progress.research_event({"lane_id": "lane_1", "stage": "A1", "status": "RUNNING", "lane_status": "RUNNING"})
     progress.research_event({"lane_id": "lane_2", "stage": "A1", "status": "FAILED", "lane_status": "FAILED"})
@@ -170,6 +170,31 @@ def test_finish_does_not_overwrite_lane_states_and_uses_canonical_job_status(tmp
     progress.finish(status="BLOCKED", phase="COMPLETED", outcome=outcome.as_dict())
     state = progress.snapshot()
     assert state["job_status"] == "SUCCEEDED"
-    assert state["lanes"]["LANE_1"]["status"] == "RUNNING"
+    assert state["lanes"]["LANE_1"]["status"] == "READY_DEGRADED"
+    assert state["lanes"]["LANE_1"]["job_status"] == "SUCCEEDED"
+    assert state["lanes"]["LANE_1"]["current_stage"] is None
     assert state["lanes"]["LANE_2"]["status"] == "FAILED"
+    assert state["lanes"]["LANE_2"]["job_status"] == "FAILED"
+    assert state["lanes"]["LANE_2"]["current_stage"] is None
     assert state["outcome_v3"]["schema_version"] == "research-outcome/3.0.0"
+
+
+def test_finish_closes_lane_without_rewriting_stage_batch_facts(tmp_path):
+    progress = WorkflowProgress(tmp_path / "workflow_progress.json", run_id="run-partial", job="close")
+    progress.research_event({
+        "lane_id": "lane_1",
+        "stage": "A1_LLM_REVIEW",
+        "status": "COMPLETED",
+        "completed_batches": 10,
+        "total_batches": 248,
+        "lane_status": "RUNNING",
+    })
+    progress.finish(status="READY_DEGRADED", phase="COMPLETED")
+    state = progress.snapshot()
+    lane = state["lanes"]["LANE_1"]
+    assert lane["status"] == "READY_DEGRADED"
+    assert lane["job_status"] == "SUCCEEDED"
+    assert lane["current_stage"] is None
+    assert lane["stages"]["A1_LLM_REVIEW"]["status"] == "COMPLETED"
+    assert lane["stages"]["A1_LLM_REVIEW"]["completed_batches"] == 10
+    assert lane["stages"]["A1_LLM_REVIEW"]["total_batches"] == 248

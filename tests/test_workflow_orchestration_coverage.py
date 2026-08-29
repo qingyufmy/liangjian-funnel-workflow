@@ -94,7 +94,7 @@ def test_research_rejects_invalid_historical_and_comparison_inputs(tmp_path: Pat
     with pytest.raises(WorkflowError, match="HISTORICAL_AS_OF_REQUIRED"):
         app.run_research("close", historical_replay=True)
     with pytest.raises(WorkflowError, match="HISTORICAL_AS_OF_NOT_PAST"):
-        app.run_research("close", as_of=NOW, historical_replay=True)
+        app.run_research("close", as_of=datetime.now(TZ), historical_replay=True)
     with pytest.raises(WorkflowError, match="SNAPSHOT_ID_REQUIRES_HISTORICAL_REPLAY"):
         app.run_research("close", as_of=NOW, snapshot_id="snapshot-orchestration-1")
     with pytest.raises(WorkflowError, match="COMPARISON_SNAPSHOT_REQUIRED"):

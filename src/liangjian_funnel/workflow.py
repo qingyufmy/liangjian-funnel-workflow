@@ -1415,6 +1415,11 @@ class WorkflowApplication:
             status=result.status,
             phase="COMPLETED" if research_ready else "BLOCKED",
             reason_code=ready_reason if research_ready else "RESEARCH_NOT_READY",
+            # Persist the canonical lane outcomes at the same lifecycle
+            # boundary as the run status.  Without this, the last per-stage
+            # event can leave a lane presented as RUNNING after the result has
+            # already been written and published.
+            outcome=result.outcome().as_dict(),
         )
         _progress_stdout(progress.snapshot())
         return summary

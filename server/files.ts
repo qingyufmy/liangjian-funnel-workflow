@@ -980,6 +980,46 @@ function progressPhase(value: unknown): string | null {
   return PROGRESS_PHASES.has(token) || PROGRESS_PHASES.has(canonical) ? canonical : "UNKNOWN";
 }
 
+const TERMINAL_PROGRESS_STATUSES = new Set<WorkflowProgressStatus>([
+  "COMPLETED",
+  "READY",
+  "READY_DEGRADED",
+  "PARTIAL",
+  "BLOCKED",
+  "FAILED",
+  "SUCCEEDED",
+  "CANCELLED",
+  "VALIDATED",
+  "VALIDATED_NO_OPPORTUNITY",
+  "VALIDATED_NO_ACTION",
+  "VALIDATED_NO_SETUP",
+  "DEGRADED_UNDERFILLED_DATA_GAP",
+  "VALIDATED_UNDERFILLED_MARKET",
+  "NOT_RUN",
+]);
+
+interface ProgressTerminalContext {
+  readonly terminal: boolean;
+  readonly status: WorkflowProgressStatus;
+  readonly jobStatus: OutcomeJobStatus | null;
+}
+
+function terminalProgressJobStatus(
+  status: WorkflowProgressStatus,
+  jobStatus: OutcomeJobStatus | null,
+  phase: string | null,
+): OutcomeJobStatus | null {
+  if (jobStatus && jobStatus !== "RUNNING" && jobStatus !== "QUEUED") return jobStatus;
+  if (status === "FAILED" || (status === "BLOCKED" && phase === "FAILED")) return "FAILED";
+  if (status === "CANCELLED") return "CANCELLED";
+  if (TERMINAL_PROGRESS_STATUSES.has(status)) return "SUCCEEDED";
+  return jobStatus;
+}
+
+function terminalProgressStatus(status: WorkflowProgressStatus): WorkflowProgressStatus {
+  return status === "RUNNING" ? "COMPLETED" : status;
+}
+
 function progressTime(value: unknown): string | null {
   if (typeof value !== "string" || value.length > 80) return null;
   const parsed = Date.parse(value);
@@ -1169,7 +1209,11 @@ function collectionEntries(value: unknown): Array<{ readonly key: string | null;
     .flatMap(([key, item]) => isRecord(item) ? [{ key, value: item }] : []);
 }
 
-function normalizeStage(stageKey: string | null, stage: JsonRecord): WorkflowProgressStage {
+function normalizeStage(
+  stageKey: string | null,
+  stage: JsonRecord,
+  terminalContext: ProgressTerminalContext | null = null,
+): WorkflowProgressStage {
   const stageName = progressPhase(stage.stage ?? stage.stage_id ?? stage.stageId ?? stage.name ?? stageKey) ?? "UNKNOWN";
   const nested = nestedRecord(stage, ["progress", "batch", "batch_progress", "batchProgress", "counts"]);
   const sources = nested ? [stage, nested] : [stage];
@@ -1192,12 +1236,23 @@ function normalizeStage(stageKey: string | null, stage: JsonRecord): WorkflowPro
   ) || (
     batchProcessed.value !== null && batchTotal.value !== null && batchTotal.value > 0 && batchProcessed.value < batchTotal.value
   );
+  const rawStageStatus = rawStatus;
+  const stageStatus = rawStageStatus === "COMPLETED" && hasIncompleteAggregate
+    ? terminalContext?.terminal ? "PARTIAL" : "RUNNING"
+    : terminalContext?.terminal && rawStageStatus === "RUNNING"
+      ? terminalProgressStatus(terminalContext.status)
+      : rawStageStatus;
+  const rawStageJobStatus = progressJobStatus(stage.job_status ?? stage.jobStatus);
+  const stageJobStatus = terminalContext?.terminal
+    && (rawStageJobStatus === null || rawStageJobStatus === "RUNNING" || rawStageJobStatus === "QUEUED")
+    ? terminalContext.jobStatus
+    : rawStageJobStatus;
   return {
     stage: stageName,
     // A completed latest batch does not mean the aggregate stage is complete.
     // Do not present an incomplete 10/248 aggregate as a completed stage.
-    status: rawStatus === "COMPLETED" && hasIncompleteAggregate ? "RUNNING" : rawStatus,
-    jobStatus: progressJobStatus(stage.job_status ?? stage.jobStatus),
+    status: stageStatus,
+    jobStatus: stageJobStatus,
     processed: processed.value,
     total: total.value,
     batchProcessed: batchProcessed.value,
@@ -1215,7 +1270,11 @@ function normalizeStage(stageKey: string | null, stage: JsonRecord): WorkflowPro
   };
 }
 
-function normalizeLane(laneKey: string | null, lane: JsonRecord): WorkflowProgressLane | null {
+function normalizeLane(
+  laneKey: string | null,
+  lane: JsonRecord,
+  terminalContext: ProgressTerminalContext | null = null,
+): WorkflowProgressLane | null {
   const laneId = progressLaneId(lane.lane_id ?? lane.laneId ?? lane.id ?? laneKey);
   if (!laneId) return null;
   const nested = nestedRecord(lane, ["progress", "batch", "batch_progress", "batchProgress", "counts"]);
@@ -1226,7 +1285,7 @@ function normalizeLane(laneKey: string | null, lane: JsonRecord): WorkflowProgre
   const batchTotal = metricFromSources(sources, ["batch_total", "batch_count", "total_batches", "total"], "count");
   const stageCollection = lane.stages ?? lane.stage_progress ?? lane.stageProgress;
   const stages = collectionEntries(stageCollection)
-    .map(({ key, value }) => normalizeStage(key, value))
+    .map(({ key, value }) => normalizeStage(key, value, terminalContext))
     .filter((stage, index, all) => all.findIndex((item) => item.stage === stage.stage) === index)
     .slice(0, 16);
   const directStage = lane.current_stage ?? lane.currentStage ?? lane.stage;
@@ -1235,12 +1294,24 @@ function normalizeLane(laneKey: string | null, lane: JsonRecord): WorkflowProgre
   }
   const currentStageName = progressPhase(directStage);
   const currentStage = stages.find((stage) => stage.stage === currentStageName) ?? stages[0];
+  const rawLaneStatus = progressString(lane.status) ? progressStatus(lane.status) : null;
+  const rawLaneJobStatus = progressJobStatus(lane.job_status ?? lane.jobStatus);
+  const laneStatus = terminalContext?.terminal
+    && (rawLaneStatus === null || rawLaneStatus === "RUNNING")
+    ? terminalProgressStatus(terminalContext.status)
+    : rawLaneStatus;
+  const laneJobStatus = terminalContext?.terminal
+    && (rawLaneJobStatus === null || rawLaneJobStatus === "RUNNING" || rawLaneJobStatus === "QUEUED")
+    ? terminalContext.jobStatus
+    : rawLaneJobStatus;
   return {
     laneId,
     model: progressString(lane.model, 120),
-    status: progressString(lane.status) ? progressStatus(lane.status) : null,
-    jobStatus: progressJobStatus(lane.job_status ?? lane.jobStatus),
-    currentStage: progressPhase(directStage),
+    status: laneStatus,
+    jobStatus: laneJobStatus,
+    // A terminal top-level run has no active lane stage, even if the last
+    // progress event was emitted before the final outcome was persisted.
+    currentStage: terminalContext?.terminal ? null : progressPhase(directStage),
     processed: processed.value ?? currentStage?.processed ?? null,
     total: total.value ?? currentStage?.total ?? null,
     batchProcessed: batchProcessed.value ?? currentStage?.batchProcessed ?? null,
@@ -1306,12 +1377,20 @@ function normalizeWorkflowProgress(source: JsonRecord): WorkflowProgressSummary 
   const documentsFailed = metricFromSources(metricSourcesList, ["documents_failed", "documentsFailed"], "count");
   const elapsedMs = durationFromSources(metricSourcesList, ["elapsed_ms", "elapsedMs", "elapsed"], ["elapsed_seconds"]);
   const etaMs = durationFromSources(metricSourcesList, ["eta_ms", "etaMs", "remaining_ms", "estimated_remaining_ms"], ["eta_seconds"]);
-  const lanes = collectionEntries(source.lanes ?? source.lane_progress ?? source.laneProgress)
-    .map(({ key, value }) => normalizeLane(key, value))
-    .filter((lane): lane is WorkflowProgressLane => lane !== null);
   const statusValue = source.status ?? nestedProgress?.status ?? nestedData?.status;
   const jobStatusValue = source.job_status ?? source.jobStatus ?? nestedProgress?.job_status ?? nestedProgress?.jobStatus;
   const phaseValue = source.phase ?? source.current_phase ?? nestedProgress?.phase ?? nestedData?.phase;
+  const status = progressStatus(statusValue);
+  const jobStatus = progressJobStatus(jobStatusValue);
+  const phase = progressPhase(phaseValue);
+  const terminalContext: ProgressTerminalContext = {
+    terminal: TERMINAL_PROGRESS_STATUSES.has(status),
+    status,
+    jobStatus: terminalProgressJobStatus(status, jobStatus, phase),
+  };
+  const lanes = collectionEntries(source.lanes ?? source.lane_progress ?? source.laneProgress)
+    .map(({ key, value }) => normalizeLane(key, value, terminalContext))
+    .filter((lane): lane is WorkflowProgressLane => lane !== null);
   const resourceSource = nestedRecord(source, ["resources"]);
   const resourceValue = resourceSource ? {
     rssCurrentMb: metricFromSources([resourceSource], ["rss_current_mb"], "duration").value,
@@ -1323,13 +1402,13 @@ function normalizeWorkflowProgress(source: JsonRecord): WorkflowProgressSummary 
     openFileDescriptors: metricFromSources([resourceSource], ["open_file_descriptors"], "count").value,
   } : null;
   return {
-    status: progressStatus(statusValue),
-    jobStatus: progressJobStatus(jobStatusValue),
+    status,
+    jobStatus: terminalContext.terminal ? terminalContext.jobStatus : jobStatus,
     issue: null,
     stale: false,
     staleIssue: null,
     runId: progressId(source.run_id ?? source.runId),
-    phase: progressPhase(phaseValue),
+    phase,
     processed: processed.value,
     total: total.value,
     cacheHits: cacheHits.value,

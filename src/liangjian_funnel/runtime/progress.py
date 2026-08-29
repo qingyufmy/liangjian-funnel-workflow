@@ -273,7 +273,11 @@ class WorkflowProgress:
             self._state["phase"] = _token(phase, 80)
             self._state["eta_seconds"] = 0
             self._state["reason_code"] = _token(reason_code, 120) if reason_code else None
-            self._state["job_status"] = _job_status(job_status or self._state["status"])
+            self._state["job_status"] = _terminal_job_status(
+                job_status or self._state["status"],
+                phase=self._state["phase"],
+            )
+            safe_outcome: dict[str, Any] | None = None
             if isinstance(outcome, Mapping):
                 safe_outcome = _safe_run_outcome(outcome)
                 if safe_outcome is not None:
@@ -282,8 +286,49 @@ class WorkflowProgress:
                     # lifecycle when it is supplied.  A legacy ``status``
                     # such as BLOCKED describes business quality, not a
                     # process crash.
-                    self._state["job_status"] = safe_outcome["job_status"]
+                    self._state["job_status"] = _terminal_job_status(
+                        safe_outcome["job_status"],
+                        phase=self._state["phase"],
+                    )
+            self._finalize_lanes(safe_outcome)
             self._touch(now)
+
+    def _finalize_lanes(
+        self,
+        outcome: Mapping[str, Any] | None,
+    ) -> None:
+        """Close the lane lifecycle without rewriting detailed stage facts."""
+
+        canonical_lanes: dict[str, Mapping[str, Any]] = {}
+        raw_outcomes = outcome.get("lanes") if isinstance(outcome, Mapping) else None
+        if isinstance(raw_outcomes, list):
+            for item in raw_outcomes:
+                if isinstance(item, Mapping):
+                    key = _lane_key(item.get("lane_id") or item.get("lane"))
+                    if key:
+                        canonical_lanes[key] = item
+        lanes = self._state.get("lanes")
+        if not isinstance(lanes, dict):
+            return
+        for lane_id, lane in lanes.items():
+            if not isinstance(lane, dict):
+                continue
+            canonical = canonical_lanes.get(_lane_key(lane_id) or "")
+            if canonical is not None:
+                lane["status"] = _token(
+                    canonical.get("legacy_status")
+                    or canonical.get("status")
+                    or canonical.get("quality_state")
+                    or self._state["status"],
+                    40,
+                )
+                lane["job_status"] = _terminal_job_status(
+                    canonical.get("job_status"), phase=self._state["phase"]
+                )
+            elif _job_status(lane.get("job_status") or lane.get("status")) in {"RUNNING", "QUEUED"}:
+                lane["status"] = _token(self._state["status"], 40)
+                lane["job_status"] = self._state["job_status"]
+            lane["current_stage"] = None
 
     def set_outcome(self, outcome: Mapping[str, Any], *, now: datetime | None = None) -> None:
         """Persist a bounded canonical run outcome without changing lane state."""
@@ -444,6 +489,22 @@ def _diagnostic_count(value: Any) -> int | None:
     except (TypeError, ValueError, OverflowError):
         return None
     return min(max(0, number), _MAX_PROGRESS_DIAGNOSTIC_COUNT)
+
+
+def _lane_key(value: Any) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return value.strip().upper().replace("-", "_")
+
+
+def _terminal_job_status(value: Any, *, phase: Any) -> str:
+    status = _job_status(value)
+    phase_token = str(phase or "").strip().upper().replace("-", "_")
+    if phase_token == "FAILED" and status == "SUCCEEDED":
+        return "FAILED"
+    if status in {"RUNNING", "QUEUED"}:
+        return "FAILED" if phase_token == "FAILED" else "SUCCEEDED"
+    return status
 
 
 def _job_status(value: Any) -> str:
