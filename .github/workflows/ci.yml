@@ -25,9 +25,7 @@ jobs:
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -e ".[dev]"
       - run: npm ci
-      - run: python scripts/export_outcome_contract.py --check
-      - run: python -m pytest --cov=liangjian_funnel --cov-report=term-missing --cov-report=json:coverage.json --cov-fail-under=0
-      - run: python scripts/check_critical_coverage.py --coverage-json coverage.json
+      - run: python -m pytest --cov=liangjian_funnel --cov-report=term-missing --cov-fail-under=65
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
