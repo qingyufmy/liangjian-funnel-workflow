@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from threading import RLock
+from threading import Event, RLock, Thread
 from typing import Any, Mapping
 from zoneinfo import ZoneInfo
 
@@ -1235,6 +1235,24 @@ class WorkflowApplication:
             checkpoint_store=self.research_checkpoints,
             stage_snapshot_enricher=self._stage_snapshot_enricher,
         )
+        heartbeat_stop = Event()
+
+        def progress_heartbeat() -> None:
+            while not heartbeat_stop.wait(55.0):
+                try:
+                    progress.update_resources(measure_resources(self.settings.root).as_dict())
+                    _progress_stdout(progress.snapshot())
+                except Exception:
+                    # Observability is deliberately best-effort and must not
+                    # affect model decisions or the fail-closed pipeline.
+                    continue
+
+        heartbeat_thread = Thread(
+            target=progress_heartbeat,
+            name="liangjian-progress-heartbeat",
+            daemon=True,
+        )
+        heartbeat_thread.start()
         try:
             result = pipeline.run(prepared.snapshot, run_id=run_id, generated_at=current)
         except Exception as exc:
@@ -1245,6 +1263,9 @@ class WorkflowApplication:
             )
             _progress_stdout(progress.snapshot())
             raise
+        finally:
+            heartbeat_stop.set()
+            heartbeat_thread.join(timeout=2.0)
         progress.update_resources(measure_resources(self.settings.root).as_dict())
         broker_benchmark = _write_broker_gold_benchmark(
             result,

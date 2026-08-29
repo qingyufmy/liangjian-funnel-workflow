@@ -457,3 +457,48 @@ def test_v2_pipeline_does_not_send_the_full_g0_to_a1(tmp_path: Path):
             event["lane"] == lane_id and event["stage"] == "A1"
             for event in progress_events
         )
+
+
+def test_empty_a3_stage_emits_terminal_no_action_progress(tmp_path: Path):
+    events: list[dict] = []
+    settings = Settings.from_env({"LIANGJIAN_MODEL_API_KEY": "test"}, root=tmp_path)
+    snapshot = FrozenInputSnapshot("snapshot-empty-a3", _snapshot(1), as_of=NOW)
+    pipeline = ResearchPipeline(
+        settings,
+        progress_callback=events.append,
+        now=lambda: NOW,
+    )
+
+    audit = pipeline._empty_stage(
+        run_id="run-empty-a3",
+        lane_id="lane_1",
+        model="deepseek-v4-pro-0813",
+        stage="A3",
+        snapshot=snapshot,
+        upstream_output={"focus_pool": []},
+        status="VALIDATED_NO_ACTION",
+        outcome="NO_ACTION_UPSTREAM_NO_OPPORTUNITY",
+    )
+
+    assert audit.status == "VALIDATED_NO_ACTION"
+    assert events == [
+        {
+            "run_id": "run-empty-a3",
+            "lane": "lane_1",
+            "stage": "A3_LLM_REVIEW",
+            "batch": {"completed": 0, "total": 0},
+            "completed": 0,
+            "total": 0,
+            "batch_completed": 0,
+            "batch_total": 0,
+            "completed_batches": 0,
+            "total_batches": 0,
+            "status": "VALIDATED_NO_ACTION",
+            "attempts": 0,
+            "model": "deepseek-v4-pro-0813",
+            "outcome": "VALIDATED_NO_ACTION",
+            "processed_symbols": 0,
+            "total_symbols": 0,
+            "selected_symbols": 0,
+        }
+    ]

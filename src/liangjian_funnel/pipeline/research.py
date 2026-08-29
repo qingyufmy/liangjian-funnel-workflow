@@ -990,6 +990,7 @@ class ResearchPipeline:
         a1_symbols = set(a1_audit.symbols)
         if not a1_symbols:
             a2_audit = self._empty_stage(
+                run_id=run_id,
                 lane_id=lane_id,
                 model=model,
                 stage="A2",
@@ -999,6 +1000,7 @@ class ResearchPipeline:
                 outcome="NO_OPPORTUNITY_A1_POOL_EMPTY",
             )
             a3_audit = self._empty_stage(
+                run_id=run_id,
                 lane_id=lane_id,
                 model=model,
                 stage="A3",
@@ -1076,6 +1078,7 @@ class ResearchPipeline:
                 lane_status = "BLOCKED"
             else:
                 a3_audit = self._empty_stage(
+                    run_id=run_id,
                     lane_id=lane_id,
                     model=model,
                     stage="A3",
@@ -1964,6 +1967,7 @@ class ResearchPipeline:
     def _empty_stage(
         self,
         *,
+        run_id: str | None = None,
         lane_id: str,
         model: str,
         stage: str,
@@ -2010,7 +2014,7 @@ class ResearchPipeline:
                 snapshot.snapshot_id,
                 "EMPTY_STAGE_CONTRACT_INVALID",
             )
-        return StageAudit(
+        audit = StageAudit(
             lane=lane_id,
             model=model,
             stage=stage,
@@ -2031,6 +2035,22 @@ class ResearchPipeline:
                 else {"outcome_code": outcome, "upstream_pool_empty": True}
             ),
         )
+        if run_id is not None:
+            self._emit_progress(
+                run_id=run_id,
+                lane=lane_id,
+                model=model,
+                stage=f"{stage}_LLM_REVIEW",
+                completed=0,
+                total=0,
+                status=_progress_status_for_stage_status(status),
+                attempts=0,
+                processed_symbols=0,
+                total_symbols=0,
+                selected_symbols=0,
+                outcome=status,
+            )
+        return audit
 
     def _execute_batch_plan(
         self,
