@@ -209,6 +209,21 @@ class SnapshotFeatureBuilder:
         self.snapshot = snapshot
         self.mode = str(mode).upper()
         self._bulk_generations: set[str] = set()
+        data = snapshot.data
+        self._candidates = {
+            str(item.get("symbol") or "").strip().upper(): dict(item)
+            for item in data.get("g0_candidates", ())
+            if isinstance(item, Mapping) and item.get("symbol")
+        }
+        self._daily_bars = _symbol_map(data.get("RECENT_DAILY_BARS"))
+        self._fundamentals = _symbol_map(data.get("COMPANY_FUNDAMENTALS"))
+        self._factors = _symbol_map(data.get("FACTOR_SNAPSHOT"))
+        self._a2_factors = _symbol_map(data.get("A2_FACTOR_SNAPSHOT"))
+        self._liquidity = _symbol_map(data.get("LIQUIDITY_SNAPSHOT"))
+        self._tradability = _symbol_map(data.get("TRADABILITY_FLAGS"))
+        self._industries = _record_map(_mapping(data.get("THS_INDUSTRY_MEMBERSHIP")).get("records"))
+        self._concepts = _record_map(_mapping(data.get("THS_CONCEPT_MEMBERSHIP")).get("records"))
+        self._main_business = _symbol_map(data.get("MAIN_BUSINESS_EVIDENCE"))
 
     @property
     def symbols(self) -> tuple[str, ...]:
@@ -226,30 +241,22 @@ class SnapshotFeatureBuilder:
         self._write_entity(entity, generation_id, store)
 
     def _stock_payload(self, symbol: str) -> dict[str, Any]:
-        data = self.snapshot.data
-        candidates = {
-            str(item.get("symbol") or "").strip().upper(): dict(item)
-            for item in data.get("g0_candidates", ())
-            if isinstance(item, Mapping) and item.get("symbol")
-        }
-        industries = _record_map(_mapping(data.get("THS_INDUSTRY_MEMBERSHIP")).get("records"))
-        concepts = _record_map(_mapping(data.get("THS_CONCEPT_MEMBERSHIP")).get("records"))
         return {
             "schema_version": "feature-inputs/1.0.0",
             "symbol": symbol,
             "snapshot_id": self.snapshot.snapshot_id,
             "snapshot_hash": self.snapshot.snapshot_hash,
             "as_of": self.snapshot.as_of.isoformat(),
-            "candidate": candidates.get(symbol, {"symbol": symbol}),
-            "daily_bars": _symbol_map(data.get("RECENT_DAILY_BARS")).get(symbol, []),
-            "fundamentals": _symbol_map(data.get("COMPANY_FUNDAMENTALS")).get(symbol),
-            "factor": _symbol_map(data.get("FACTOR_SNAPSHOT")).get(symbol),
-            "a2_factor": _symbol_map(data.get("A2_FACTOR_SNAPSHOT")).get(symbol),
-            "liquidity": _symbol_map(data.get("LIQUIDITY_SNAPSHOT")).get(symbol),
-            "tradability": _symbol_map(data.get("TRADABILITY_FLAGS")).get(symbol),
-            "industry_membership": industries.get(symbol),
-            "concept_membership": concepts.get(symbol),
-            "main_business": _symbol_map(data.get("MAIN_BUSINESS_EVIDENCE")).get(symbol),
+            "candidate": self._candidates.get(symbol, {"symbol": symbol}),
+            "daily_bars": self._daily_bars.get(symbol, []),
+            "fundamentals": self._fundamentals.get(symbol),
+            "factor": self._factors.get(symbol),
+            "a2_factor": self._a2_factors.get(symbol),
+            "liquidity": self._liquidity.get(symbol),
+            "tradability": self._tradability.get(symbol),
+            "industry_membership": self._industries.get(symbol),
+            "concept_membership": self._concepts.get(symbol),
+            "main_business": self._main_business.get(symbol),
         }
 
     def _write_entity(self, entity: Mapping[str, Any], generation_id: str, store: ResearchFeatureStore) -> None:
@@ -308,9 +315,12 @@ class SnapshotFeatureBuilder:
         *,
         symbols: Iterable[str] | None = None,
     ) -> None:
-        source = _symbol_map(self.snapshot.data.get("MAIN_BUSINESS_EVIDENCE"))
         selected = tuple(symbols) if symbols is not None else self.symbols
-        facts = [fact for symbol in selected for fact in _business_facts(symbol, source.get(symbol))]
+        facts = [
+            fact
+            for symbol in selected
+            for fact in _business_facts(symbol, self._main_business.get(symbol))
+        ]
         # Incremental generations are cloned from the active generation.  A
         # changed business fact must replace the symbol's old rows rather than
         # leave contradictory revisions visible in the new generation.  Do
