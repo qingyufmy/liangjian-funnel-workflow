@@ -20,11 +20,11 @@ export interface ReadOnlyCommandResult {
 }
 
 export function timeoutForJob(job: JobName, configuredTimeoutMs: number): number | null {
-  // The close workflow must traverse the complete G0 universe. Its transport
-  // and model calls retain their own bounded timeouts, but the orchestration
-  // process must not be killed merely because all batches take more than the
-  // control-plane default. Morning review and minute monitoring stay bounded.
-  return job === "close" ? null : configuredTimeoutMs;
+  // Research is checkpointed and must have a wall-clock boundary; unlimited
+  // orchestration previously left stale close processes blocking every later
+  // schedule. Minute monitoring has a much tighter deadline so it releases
+  // the single worker before the 09:26/15:10 research protection windows.
+  return job === "monitor" ? Math.min(configuredTimeoutMs, 55_000) : configuredTimeoutMs;
 }
 
 export function waitForProcessExit(child: ChildProcess, timeoutMs: number): Promise<boolean> {

@@ -1,5 +1,7 @@
+import { createReadStream } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, resolve, sep, win32 } from "node:path";
+import { createInterface } from "node:readline";
 
 import type { AppConfig } from "./config.js";
 import { asArray, asJsonRecord, asString, redactText, sanitizeJson } from "./redaction.js";
@@ -47,6 +49,7 @@ const RESEARCH_POOL_KEYS: Record<ResearchStage, Record<ResearchPool, string>> = 
 };
 const DETAIL_PAGE_SIZE_MAX = 100;
 const DETAIL_TEXT_MAX_LENGTH = 1_000;
+const DETAIL_INDEX_LINE_MAX = 1024 * 1024;
 
 const PROGRESS_STATUS = new Set<WorkflowProgressStatus>([
   "RUNNING",
@@ -125,6 +128,11 @@ const NUMERIC_PROGRESS_KEYS = new Set([
   "selected_symbols",
   "monitor_symbols",
   "rejected_symbols",
+  "industry_count",
+  "monthly_decision_count",
+  "theme_count",
+  "node_count",
+  "mapping_count",
   "cache_hits",
   "cacheHit",
   "hits",
@@ -153,6 +161,13 @@ const NUMERIC_PROGRESS_KEYS = new Set([
   "batch_total",
   "batch_count",
   "total_batches",
+  "rss_current_mb",
+  "rss_peak_mb",
+  "system_mem_available_mb",
+  "swap_used_mb",
+  "disk_free_mb",
+  "disk_free_ratio",
+  "open_file_descriptors",
 ]);
 
 type MetricKind = "count" | "duration";
@@ -519,7 +534,7 @@ function validateProgressShape(source: JsonRecord): boolean {
   if (stringKeys.some((key) => key in source && typeof source[key] !== "string")) return false;
   const collection = source.lanes ?? source.lane_progress ?? source.laneProgress;
   if (!validateProgressCollection(collection, false)) return false;
-  for (const key of ["progress", "metrics", "data", "data_sync", "dataSync"]) {
+  for (const key of ["progress", "metrics", "data", "data_sync", "dataSync", "resources"]) {
     if (key in source && !isRecord(source[key])) return false;
     if (isRecord(source[key]) && !validateProgressMetrics(source[key])) return false;
   }
@@ -577,6 +592,11 @@ function normalizeStage(stageKey: string | null, stage: JsonRecord): WorkflowPro
   const selected = metricFromSources(sources, ["selected_symbols"], "count");
   const monitor = metricFromSources(sources, ["monitor_symbols"], "count");
   const rejected = metricFromSources(sources, ["rejected_symbols"], "count");
+  const industryCount = metricFromSources(sources, ["industry_count"], "count");
+  const monthlyDecisionCount = metricFromSources(sources, ["monthly_decision_count"], "count");
+  const themeCount = metricFromSources(sources, ["theme_count"], "count");
+  const nodeCount = metricFromSources(sources, ["node_count"], "count");
+  const mappingCount = metricFromSources(sources, ["mapping_count"], "count");
   const rawStatus = progressString(stage.status) ? progressStatus(stage.status) : null;
   const hasIncompleteAggregate = (
     processed.value !== null && total.value !== null && total.value > 0 && processed.value < total.value
@@ -595,6 +615,11 @@ function normalizeStage(stageKey: string | null, stage: JsonRecord): WorkflowPro
     selected: selected.value,
     monitor: monitor.value,
     rejected: rejected.value,
+    industryCount: industryCount.value,
+    monthlyDecisionCount: monthlyDecisionCount.value,
+    themeCount: themeCount.value,
+    nodeCount: nodeCount.value,
+    mappingCount: mappingCount.value,
     updatedAt: progressTime(stage.updated_at ?? stage.updatedAt ?? stage.time),
   };
 }
@@ -628,6 +653,11 @@ function normalizeLane(laneKey: string | null, lane: JsonRecord): WorkflowProgre
     total: total.value ?? currentStage?.total ?? null,
     batchProcessed: batchProcessed.value ?? currentStage?.batchProcessed ?? null,
     batchTotal: batchTotal.value ?? currentStage?.batchTotal ?? null,
+    industryCount: currentStage?.industryCount ?? null,
+    monthlyDecisionCount: currentStage?.monthlyDecisionCount ?? null,
+    themeCount: currentStage?.themeCount ?? null,
+    nodeCount: currentStage?.nodeCount ?? null,
+    mappingCount: currentStage?.mappingCount ?? null,
     updatedAt: progressTime(lane.updated_at ?? lane.updatedAt ?? lane.time),
     stages,
   };
@@ -655,6 +685,7 @@ function invalidProgress(issue: WorkflowProgressIssue): WorkflowProgressSummary 
     phaseStartedAt: null,
     updatedAt: null,
     lanes: [],
+    resources: null,
   };
 }
 
@@ -687,6 +718,16 @@ function normalizeWorkflowProgress(source: JsonRecord): WorkflowProgressSummary 
     .filter((lane): lane is WorkflowProgressLane => lane !== null);
   const statusValue = source.status ?? nestedProgress?.status ?? nestedData?.status;
   const phaseValue = source.phase ?? source.current_phase ?? nestedProgress?.phase ?? nestedData?.phase;
+  const resourceSource = nestedRecord(source, ["resources"]);
+  const resourceValue = resourceSource ? {
+    rssCurrentMb: metricFromSources([resourceSource], ["rss_current_mb"], "duration").value,
+    rssPeakMb: metricFromSources([resourceSource], ["rss_peak_mb"], "duration").value,
+    systemMemAvailableMb: metricFromSources([resourceSource], ["system_mem_available_mb"], "duration").value,
+    swapUsedMb: metricFromSources([resourceSource], ["swap_used_mb"], "duration").value,
+    diskFreeMb: metricFromSources([resourceSource], ["disk_free_mb"], "duration").value,
+    diskFreeRatio: metricFromSources([resourceSource], ["disk_free_ratio"], "duration").value,
+    openFileDescriptors: metricFromSources([resourceSource], ["open_file_descriptors"], "count").value,
+  } : null;
   return {
     status: progressStatus(statusValue),
     issue: null,
@@ -708,6 +749,7 @@ function normalizeWorkflowProgress(source: JsonRecord): WorkflowProgressSummary 
     phaseStartedAt: progressTime(source.phase_started_at ?? source.phaseStartedAt),
     updatedAt: progressTime(source.updated_at ?? source.updatedAt ?? source.time ?? nestedProgress?.updated_at ?? nestedData?.updated_at),
     lanes,
+    resources: resourceValue,
   };
 }
 
@@ -984,6 +1026,8 @@ export class ProjectFiles {
     reason = "",
   ): Promise<ResearchStageDetail | null> {
     if (!SAFE_ID.test(runId) || !isResearchLaneId(laneId) || !isResearchStage(stage) || !isResearchPool(pool)) return null;
+    const indexed = await this.indexedResearchStageDetail(runId, laneId, stage, pool, page, pageSize, query, reason);
+    if (indexed) return indexed;
     const lane = await this.researchLane(runId, laneId);
     if (!lane) return null;
     const stages = rawArray(lane.stages);
@@ -1046,6 +1090,99 @@ export class ProjectFiles {
       total: filtered.length,
       reasonOptions,
       items: filtered.slice(offset, offset + safePageSize),
+    };
+  }
+
+  private async indexedResearchStageDetail(
+    runId: string,
+    laneId: string,
+    stage: string,
+    pool: string,
+    page: number,
+    pageSize: number,
+    query: string,
+    reason: string,
+  ): Promise<ResearchStageDetail | null> {
+    const stem = `research_${runId}_${laneId}`;
+    const manifestPath = resolveWithinRoot(this.config.rootDir, join("outputs/research", `${stem}.decisions.json`));
+    const dataPath = resolveWithinRoot(this.config.rootDir, join("outputs/research", `${stem}.decisions.ndjson`));
+    if (!manifestPath || !dataPath) return null;
+    const manifest = await readJson(manifestPath);
+    if (
+      !manifest
+      || manifest.schema_version !== "research-stage-decision-index/1.0.0"
+      || manifest.run_id !== runId
+      || manifest.lane_id !== laneId
+      || manifest.data_file !== `${stem}.decisions.ndjson`
+    ) return null;
+    try {
+      const metadata = await stat(dataPath);
+      if (!metadata.isFile()) return null;
+    } catch {
+      return null;
+    }
+    const stageKey = stage as ResearchStage;
+    const poolKey = pool as ResearchPool;
+    const counts = optionalRecord(optionalRecord(manifest.counts)?.[stageKey]);
+    const allPools: ResearchStageDetailPool[] = (["approved", "watch", "rejected"] as const).map((candidatePool) => ({
+      id: candidatePool,
+      label: RESEARCH_POOL_LABELS[stageKey][candidatePool],
+      count: numberValue(counts?.[candidatePool]) ?? 0,
+    }));
+    const optionsRecord = optionalRecord(optionalRecord(manifest.reason_options)?.[stageKey]);
+    const reasonOptions = rawArray(optionsRecord?.[poolKey])
+      .map((value) => boundedText(value))
+      .filter((value): value is string => Boolean(value));
+    const safePage = Number.isSafeInteger(page) && page > 0 ? page : 1;
+    const safePageSize = Number.isSafeInteger(pageSize) && pageSize > 0 ? Math.min(pageSize, DETAIL_PAGE_SIZE_MAX) : 50;
+    const offset = (safePage - 1) * safePageSize;
+    const search = boundedText(query)?.toLocaleLowerCase() ?? "";
+    const reasonFilter = boundedText(reason) ?? "";
+    const items: ResearchStageDetailItem[] = [];
+    let total = 0;
+    const input = createReadStream(dataPath, { encoding: "utf8" });
+    const lines = createInterface({ input, crlfDelay: Infinity });
+    try {
+      for await (const line of lines) {
+        if (!line || Buffer.byteLength(line, "utf8") > DETAIL_INDEX_LINE_MAX) continue;
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        if (!isRecord(parsed) || parsed.stage !== stageKey || parsed.pool !== poolKey || !isRecord(parsed.item)) continue;
+        const normalized = normalizeResearchItem(parsed.item, poolKey, stageKey, new Map());
+        if (!normalized) continue;
+        const queryMatch = !search
+          || normalized.symbol.toLocaleLowerCase().includes(search)
+          || (normalized.name?.toLocaleLowerCase().includes(search) ?? false);
+        const reasonMatch = !reasonFilter || normalized.reasonCodes.includes(reasonFilter);
+        if (!queryMatch || !reasonMatch) continue;
+        if (total >= offset && items.length < safePageSize) items.push(normalized);
+        total += 1;
+      }
+    } finally {
+      lines.close();
+      input.destroy();
+    }
+    const stageMeta = optionalRecord(optionalRecord(manifest.stages)?.[stageKey]);
+    return {
+      runId,
+      laneId,
+      model: boundedText(manifest.model),
+      stage: stageKey,
+      status: boundedText(stageMeta?.status),
+      latencyMs: numberValue(stageMeta?.latency_ms),
+      inputCount: numberValue(stageMeta?.input_count),
+      outputCount: numberValue(stageMeta?.output_count),
+      pools: allPools,
+      pool: poolKey,
+      page: safePage,
+      pageSize: safePageSize,
+      total,
+      reasonOptions,
+      items,
     };
   }
 

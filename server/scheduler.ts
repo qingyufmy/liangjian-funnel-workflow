@@ -47,8 +47,12 @@ export function shanghaiClock(value: Date): ShanghaiClock {
 
 export function isMonitorMinute(clock: ShanghaiClock): boolean {
   const minuteOfDay = clock.hour * 60 + clock.minute;
-  return (minuteOfDay >= 9 * 60 + 25 && minuteOfDay <= 11 * 60 + 30)
-    || (minuteOfDay >= 13 * 60 && minuteOfDay <= 15 * 60);
+  const researchProtection = (minuteOfDay >= 9 * 60 + 25 && minuteOfDay <= 9 * 60 + 27)
+    || (minuteOfDay >= 15 * 60 + 8 && minuteOfDay <= 15 * 60 + 11);
+  return !researchProtection && (
+    (minuteOfDay >= 9 * 60 + 25 && minuteOfDay <= 11 * 60 + 30)
+    || (minuteOfDay >= 13 * 60 && minuteOfDay <= 15 * 60)
+  );
 }
 
 export class WorkflowScheduler {
@@ -154,10 +158,12 @@ export class WorkflowScheduler {
       this.retryKeys.delete(job);
       const current = this.now();
       const clock = shanghaiClock(current);
-      const currentKey = `${clock.date}T${String(clock.hour).padStart(2, "0")}:${String(clock.minute).padStart(2, "0")}`;
-      const stillDue = (job === "morning" && clock.hour === 9 && clock.minute === 26)
-        || (job === "close" && clock.hour === 15 && clock.minute === 10);
-      if (currentKey === key && stillDue && clock.weekday !== 0 && clock.weekday !== 6) {
+      const dueMinute = job === "morning" ? 9 * 60 + 26 : 15 * 60 + 10;
+      const currentMinute = clock.hour * 60 + clock.minute;
+      const withinRecoveryWindow = clock.date === key.slice(0, 10)
+        && currentMinute >= dueMinute
+        && currentMinute <= dueMinute + 10;
+      if (withinRecoveryWindow && clock.weekday !== 0 && clock.weekday !== 6) {
         this.dispatch(job, key, current);
       }
     }, this.retryMs);

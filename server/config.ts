@@ -75,7 +75,7 @@ export function loadConfig(
     nodeLogDir: resolve(resolvedRoot, "outputs", "node"),
     timezone: TIMEZONE,
     dashboardToken: env.LIANGJIAN_DASHBOARD_TOKEN?.trim() || null,
-    jobTimeoutMs: positiveInteger(env.LIANGJIAN_JOB_TIMEOUT_MS, 5 * 60 * 60 * 1000),
+    jobTimeoutMs: positiveInteger(env.LIANGJIAN_JOB_TIMEOUT_MS, 90 * 60 * 1000),
     statusTimeoutMs: positiveInteger(env.LIANGJIAN_STATUS_TIMEOUT_MS, 20_000),
     statusCacheMs: positiveInteger(env.LIANGJIAN_STATUS_CACHE_MS, 15_000),
     workflowProgressStaleMs: positiveInteger(env.LIANGJIAN_WORKFLOW_PROGRESS_STALE_MS, 15 * 60 * 1000),

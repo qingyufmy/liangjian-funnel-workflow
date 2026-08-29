@@ -76,6 +76,11 @@ export interface WorkflowProgressStage {
   readonly selected: number | null;
   readonly monitor: number | null;
   readonly rejected: number | null;
+  readonly industryCount: number | null;
+  readonly monthlyDecisionCount: number | null;
+  readonly themeCount: number | null;
+  readonly nodeCount: number | null;
+  readonly mappingCount: number | null;
   readonly updatedAt: string | null;
 }
 
@@ -88,8 +93,23 @@ export interface WorkflowProgressLane {
   readonly total: number | null;
   readonly batchProcessed: number | null;
   readonly batchTotal: number | null;
+  readonly industryCount: number | null;
+  readonly monthlyDecisionCount: number | null;
+  readonly themeCount: number | null;
+  readonly nodeCount: number | null;
+  readonly mappingCount: number | null;
   readonly updatedAt: string | null;
   readonly stages: readonly WorkflowProgressStage[];
+}
+
+export interface WorkflowProgressResources {
+  readonly rssCurrentMb: number | null;
+  readonly rssPeakMb: number | null;
+  readonly systemMemAvailableMb: number | null;
+  readonly swapUsedMb: number | null;
+  readonly diskFreeMb: number | null;
+  readonly diskFreeRatio: number | null;
+  readonly openFileDescriptors: number | null;
 }
 
 /**
@@ -120,6 +140,7 @@ export interface WorkflowProgressSummary {
   readonly phaseStartedAt: string | null;
   readonly updatedAt: string | null;
   readonly lanes: readonly WorkflowProgressLane[];
+  readonly resources: WorkflowProgressResources | null;
 }
 
 export type ResearchStage = "A1" | "A2" | "A3";

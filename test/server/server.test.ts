@@ -260,6 +260,52 @@ test("projects paginated research stage pools with names, reasons, and allow-lis
   expect(replay?.items[0]).toMatchObject({ symbol: "600004.SH", name: "回放快照名称", nameSource: "snapshot" });
 });
 
+test("streams the stage decision index without reading the full lane or snapshot", async () => {
+  const root = await mkdtemp(join(tmpdir(), "liangjian-stage-index-"));
+  const researchDir = join(root, "outputs", "research");
+  await mkdir(researchDir, { recursive: true });
+  const stem = "research_index-run_lane_1";
+  const rows = Array.from({ length: 250 }, (_, index) => JSON.stringify({
+    stage: "A1",
+    pool: "rejected",
+    symbol: `${String(index + 1).padStart(6, "0")}.SZ`,
+    item: {
+      symbol: `${String(index + 1).padStart(6, "0")}.SZ`,
+      name: `股票${index + 1}`,
+      reason_codes: [index % 2 ? "LOW_SCORE" : "NO_EVIDENCE"],
+    },
+  })).join("\n") + "\n";
+  await writeFile(join(researchDir, `${stem}.decisions.ndjson`), rows);
+  await writeFile(join(researchDir, `${stem}.decisions.json`), JSON.stringify({
+    schema_version: "research-stage-decision-index/1.0.0",
+    run_id: "index-run",
+    lane_id: "lane_1",
+    model: "fixture-model",
+    data_file: `${stem}.decisions.ndjson`,
+    counts: { A1: { approved: 0, watch: 0, rejected: 250 } },
+    stages: { A1: { status: "VALIDATED", latency_ms: 55, input_count: 4017, output_count: 120 } },
+    reason_options: { A1: { approved: [], watch: [], rejected: ["LOW_SCORE", "NO_EVIDENCE"] } },
+  }));
+  const config = loadConfig({ LIANGJIAN_PYTHON_BIN: "python3" }, root);
+  const files = new ProjectFiles(config, new LogStore(config));
+  const detail = await files.researchStageDetail(
+    "index-run", "lane_1", "A1", "rejected", 2, 10, "股票", "LOW_SCORE",
+  );
+  expect(detail).toMatchObject({
+    model: "fixture-model",
+    status: "VALIDATED",
+    latencyMs: 55,
+    inputCount: 4017,
+    outputCount: 120,
+    total: 125,
+    page: 2,
+    pageSize: 10,
+    reasonOptions: ["LOW_SCORE", "NO_EVIDENCE"],
+  });
+  expect(detail?.items).toHaveLength(10);
+  expect(detail?.items[0]).toMatchObject({ symbol: "000022.SZ", name: "股票22", reasonCodes: ["LOW_SCORE"] });
+});
+
 test("rejects invalid stage detail parameters and preserves dashboard authentication", async () => {
   const root = await createResearchDetailFixture();
   const config = loadConfig({ LIANGJIAN_PYTHON_BIN: "python3", LIANGJIAN_DASHBOARD_TOKEN: "fixture-token" }, root);
@@ -597,6 +643,70 @@ test("projects deterministic V2 stock counters separately from model batches", a
   });
 });
 
+test("projects macro discovery industry, decision, theme, node and mapping counters", async () => {
+  const root = await mkdtemp(join(tmpdir(), "liangjian-progress-macro-discovery-"));
+  await mkdir(join(root, "state"), { recursive: true });
+  await writeFile(join(root, "state", "workflow_progress.json"), JSON.stringify({
+    run_id: "close-contract-v3",
+    status: "RUNNING",
+    phase: "RESEARCH_MACRO_DISCOVERY",
+    resources: {
+      rss_current_mb: 612.5,
+      rss_peak_mb: 820.25,
+      system_mem_available_mb: 1450,
+      swap_used_mb: 118,
+      disk_free_mb: 9216,
+      disk_free_ratio: 0.24,
+      open_file_descriptors: 31,
+    },
+    lanes: {
+      LANE_1: {
+        model: "deepseek-v4-pro-0813",
+        status: "RUNNING",
+        current_stage: "MACRO_DISCOVERY",
+        stages: {
+          MACRO_DISCOVERY: {
+            status: "RUNNING",
+            completed_batches: 0,
+            total_batches: 1,
+            industry_count: 40,
+            monthly_decision_count: 20,
+            theme_count: 8,
+            node_count: 40,
+            mapping_count: 14,
+          },
+        },
+      },
+    },
+  }));
+  const config = loadConfig({ LIANGJIAN_PYTHON_BIN: "python3" }, root);
+  const files = new ProjectFiles(config, new LogStore(config));
+
+  const progress = await files.workflowProgress();
+  expect(progress?.lanes[0]).toMatchObject({
+    currentStage: "MACRO_DISCOVERY",
+    industryCount: 40,
+    monthlyDecisionCount: 20,
+    themeCount: 8,
+    nodeCount: 40,
+    mappingCount: 14,
+  });
+  expect(progress?.lanes[0]?.stages[0]).toMatchObject({
+    industryCount: 40,
+    monthlyDecisionCount: 20,
+    themeCount: 8,
+    nodeCount: 40,
+    mappingCount: 14,
+  });
+  expect(progress?.resources).toMatchObject({
+    rssCurrentMb: 612.5,
+    rssPeakMb: 820.25,
+    systemMemAvailableMb: 1450,
+    diskFreeMb: 9216,
+    openFileDescriptors: 31,
+  });
+});
+
 test("does not label an incomplete aggregate stage as completed", async () => {
   const root = await mkdtemp(join(tmpdir(), "liangjian-progress-incomplete-stage-"));
   await mkdir(join(root, "state"), { recursive: true });
@@ -666,7 +776,7 @@ test("projects allow-listed CNINFO PDF progress without exposing document payloa
   expect(JSON.stringify(progress)).not.toContain("private PDF contents");
 });
 
-test("scheduler dispatches each due minute once", async () => {
+test("scheduler gives research exclusive dispatch in its protection minute", async () => {
   const calls: string[] = [];
   const fakeRunner = {
     run: async (job: "morning" | "close" | "monitor"): Promise<JobRunRecord> => {
@@ -692,7 +802,7 @@ test("scheduler dispatches each due minute once", async () => {
   await scheduler.tick(new Date("2026-08-26T01:26:10.000Z"));
   await scheduler.tick(new Date("2026-08-26T01:26:30.000Z"));
   await new Promise<void>((resolve) => setImmediate(resolve));
-  expect(calls).toEqual(["morning", "monitor"]);
+  expect(calls).toEqual(["morning"]);
 });
 
 test("scheduler retries a research job skipped by an active monitor in the same minute", async () => {
@@ -739,7 +849,7 @@ test("scheduler retries a research job skipped by an active monitor in the same 
   });
   await scheduler.tick(now);
   await new Promise<void>((resolve) => setTimeout(resolve, 50));
-  expect(calls).toEqual(["morning", "monitor", "morning"]);
+  expect(calls).toEqual(["morning", "morning"]);
 });
 
 test("process-exit wait returns after timeout so shutdown can escalate to SIGKILL", async () => {
@@ -750,8 +860,9 @@ test("process-exit wait returns after timeout so shutdown can escalate to SIGKIL
   expect(await waitForProcessExit(child, 2_000)).toBe(true);
 });
 
-test("full-market close research has no control-plane total timeout", () => {
-  expect(timeoutForJob("close", 1234)).toBeNull();
+test("all jobs have a bounded control-plane timeout", () => {
+  expect(timeoutForJob("close", 1234)).toBe(1234);
   expect(timeoutForJob("morning", 1234)).toBe(1234);
   expect(timeoutForJob("monitor", 1234)).toBe(1234);
+  expect(timeoutForJob("monitor", 90_000)).toBe(55_000);
 });

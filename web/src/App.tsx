@@ -104,6 +104,7 @@ function normalizeOverview(value: OverviewResponse): OverviewResponse {
         stale: value.workflowProgress.stale === true,
         staleIssue: value.workflowProgress.staleIssue ?? null,
         lanes: Array.isArray(value.workflowProgress.lanes) ? value.workflowProgress.lanes : [],
+        resources: value.workflowProgress.resources ?? null,
       }
       : null,
     monitor: {
@@ -668,6 +669,14 @@ function isResearchPhase(phase?: string | null): boolean {
   return phase?.startsWith("RESEARCH_") === true;
 }
 
+function isMacroDiscoveryPhase(phase?: string | null): boolean {
+  return phase?.includes("MACRO_DISCOVERY") === true;
+}
+
+function discoveryMetricLabel(value: number | null, suffix: string): string {
+  return value === null ? `${suffix}待返回` : `${value} ${suffix}`;
+}
+
 function progressPercent(processed: number | null, total: number | null): number | null {
   if (processed === null || total === null || total <= 0) return null;
   return Math.max(0, Math.min(100, (processed / total) * 100));
@@ -694,6 +703,14 @@ function WorkflowProgressPanel({ progress }: { progress: WorkflowProgressSummary
   const hasBlockingIssue = Boolean(progress?.issue && !progress.stale);
   const overallMeasure = progress ? progressMeasure(progress.processed, progress.total, null, null) : null;
   const researchWithoutOverallCount = progress ? isResearchPhase(progress.phase) && !overallMeasure : false;
+  const resourceSummary = progress?.resources
+    ? [
+      progress.resources.rssCurrentMb !== null ? `RSS ${Math.round(progress.resources.rssCurrentMb)} MB` : null,
+      progress.resources.rssPeakMb !== null ? `峰值 ${Math.round(progress.resources.rssPeakMb)} MB` : null,
+      progress.resources.systemMemAvailableMb !== null ? `可用内存 ${Math.round(progress.resources.systemMemAvailableMb)} MB` : null,
+      progress.resources.diskFreeMb !== null ? `磁盘可用 ${Math.round(progress.resources.diskFreeMb / 1024)} GB` : null,
+    ].filter(Boolean).join(" · ")
+    : "";
   return (
     <Panel title="执行进度" icon={<Activity size={18} />} className="workflow-progress-panel">
       {!progress ? <EmptyState title="暂无持久化进度" detail="首次初始化或研究任务开始后，Python 会将阶段进度写入控制台。" icon={<Activity size={22} />} /> : hasBlockingIssue ? (
@@ -722,7 +739,7 @@ function WorkflowProgressPanel({ progress }: { progress: WorkflowProgressSummary
             ? progress.staleIssue === "HEARTBEAT_TIMEOUT"
               ? `最后更新时间 ${formatDateTime(progress.updatedAt)}；超过阈值未更新，任务可能退出或卡住，请查看日志。`
               : `更新暂时延迟，正在重试；以下为最近一次成功读取的安全汇总（${formatDateTime(progress.updatedAt)}）。`
-            : `最近更新时间 ${formatDateTime(progress.updatedAt)}；此处只显示安全的汇总进度，不展示模型原文。`}</span></div>
+            : `最近更新时间 ${formatDateTime(progress.updatedAt)}；此处只显示安全的汇总进度，不展示模型原文。`}{resourceSummary ? ` 资源：${resourceSummary}。` : ""}</span></div>
         </>
       )}
     </Panel>
@@ -730,21 +747,31 @@ function WorkflowProgressPanel({ progress }: { progress: WorkflowProgressSummary
 }
 
 function ProgressLane({ lane }: { lane: WorkflowProgressLane }) {
+  const macroDiscovery = isMacroDiscoveryPhase(lane.currentStage);
   const stockMeasure = hasMeaningfulProgress(lane.processed, lane.total);
   const batchMeasure = hasMeaningfulProgress(lane.batchProcessed, lane.batchTotal);
   const displayMeasure = progressMeasure(lane.processed, lane.total, lane.batchProcessed, lane.batchTotal);
+  const discoveryPrimary = `行业 ${progressCount(lane.industryCount)} · 月度决策 ${progressCount(lane.monthlyDecisionCount)}`;
+  const discoverySecondary = [
+    discoveryMetricLabel(lane.themeCount, "主题"),
+    discoveryMetricLabel(lane.nodeCount, "节点"),
+    discoveryMetricLabel(lane.mappingCount, "映射"),
+  ].join(" · ");
   return <article className="progress-lane"><header><div><strong>{MODEL_LABELS[lane.laneId] ?? lane.laneId}</strong><small>{lane.model ?? "模型未标注"}</small></div><StatusBadge status={lane.status} label={lane.currentStage ? progressPhaseLabel(lane.currentStage) : statusLabel(lane.status)} /></header>
-    <div className="progress-lane-meta"><span>{stockMeasure ? `股票 ${progressPair(lane.processed, lane.total)}` : "股票计数未提供"}</span><span>{batchMeasure ? `批次 ${progressPair(lane.batchProcessed, lane.batchTotal)}` : "批次数据未提供"}</span></div>
+    <div className="progress-lane-meta"><span>{macroDiscovery ? discoveryPrimary : stockMeasure ? `股票 ${progressPair(lane.processed, lane.total)}` : "等待股票阶段"}</span><span>{macroDiscovery ? discoverySecondary : batchMeasure ? `批次 ${progressPair(lane.batchProcessed, lane.batchTotal)}` : "等待批次信息"}</span></div>
     {displayMeasure ? <ProgressBar processed={displayMeasure.processed} total={displayMeasure.total} compact /> : <span className="progress-no-value">暂无可用进度</span>}
     {lane.stages.length ? <ul className="progress-stage-list">{lane.stages.map((stage) => <ProgressStage key={stage.stage} stage={stage} />)}</ul> : null}
   </article>;
 }
 
 function ProgressStage({ stage }: { stage: WorkflowProgressStage }) {
+  const macroDiscovery = isMacroDiscoveryPhase(stage.stage);
   const stockMeasure = hasMeaningfulProgress(stage.processed, stage.total);
   const batchMeasure = hasMeaningfulProgress(stage.batchProcessed, stage.batchTotal);
   const displayMeasure = progressMeasure(stage.processed, stage.total, stage.batchProcessed, stage.batchTotal);
-  const metricLabel = stockMeasure
+  const metricLabel = macroDiscovery
+    ? `行业 ${progressCount(stage.industryCount)} · 月度决策 ${progressCount(stage.monthlyDecisionCount)} · ${discoveryMetricLabel(stage.themeCount, "主题")} · ${discoveryMetricLabel(stage.nodeCount, "节点")} · ${discoveryMetricLabel(stage.mappingCount, "映射")}`
+    : stockMeasure
     ? `股票 ${progressPair(stage.processed, stage.total)}${batchMeasure ? ` · 批次 ${progressPair(stage.batchProcessed, stage.batchTotal)}` : " · 批次数据未提供"}`
     : batchMeasure
       ? `股票计数未提供 · 批次 ${progressPair(stage.batchProcessed, stage.batchTotal)}`

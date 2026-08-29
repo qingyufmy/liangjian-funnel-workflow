@@ -170,6 +170,11 @@ export interface WorkflowProgressStage {
   selected: number | null;
   monitor: number | null;
   rejected: number | null;
+  industryCount: number | null;
+  monthlyDecisionCount: number | null;
+  themeCount: number | null;
+  nodeCount: number | null;
+  mappingCount: number | null;
   updatedAt: string | null;
 }
 
@@ -182,8 +187,23 @@ export interface WorkflowProgressLane {
   total: number | null;
   batchProcessed: number | null;
   batchTotal: number | null;
+  industryCount: number | null;
+  monthlyDecisionCount: number | null;
+  themeCount: number | null;
+  nodeCount: number | null;
+  mappingCount: number | null;
   updatedAt: string | null;
   stages: WorkflowProgressStage[];
+}
+
+export interface WorkflowProgressResources {
+  rssCurrentMb: number | null;
+  rssPeakMb: number | null;
+  systemMemAvailableMb: number | null;
+  swapUsedMb: number | null;
+  diskFreeMb: number | null;
+  diskFreeRatio: number | null;
+  openFileDescriptors: number | null;
 }
 
 export interface WorkflowProgressSummary {
@@ -207,6 +227,7 @@ export interface WorkflowProgressSummary {
   phaseStartedAt: string | null;
   updatedAt: string | null;
   lanes: WorkflowProgressLane[];
+  resources: WorkflowProgressResources | null;
 }
 
 export interface OverviewResponse {
