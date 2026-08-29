@@ -3,7 +3,7 @@
 > 验收日期：2026-08-29  
 > 验收环境：本地 Windows + GitHub Actions + 虚拟机 `192.168.1.254`  
 > 部署目录：`/www/wwwroot/Agu/liangjian-funnel-workflow`  
-> 工程代码验收基线：`eb442d57c01c7281661f30068fa2bb5b6df0b410`  
+> 工程代码验收基线：`eb442d57c01c7281661f30068fa2bb5b6df0b410`
 > 安全边界：只运行研究与隔离模拟流程，不连接券商、不提交真实订单
 
 ## 1. 验收结论
