@@ -184,12 +184,21 @@ def test_future_point_in_time_data_is_rejected_and_not_counted(tmp_path: Path) -
 
 def test_duplicate_primary_run_same_day_is_not_counted_as_another_day(tmp_path: Path) -> None:
     runs, audits = _write_fixture(tmp_path, count=10)
-    duplicate = json.loads(next(runs.glob("*.json")).read_text(encoding="utf-8"))
+    # Select the source run deterministically and derive its audit from that
+    # run id.  ``Path.glob`` iteration order is filesystem-dependent; picking
+    # the two files independently can accidentally pair different trading
+    # days and exercise the identity-mismatch guard instead of duplicate-day
+    # detection.
+    source_run_path = sorted(runs.glob("*.json"))[0]
+    source_run = json.loads(source_run_path.read_text(encoding="utf-8"))
+    source_run_id = source_run["run_id"]
+    duplicate = source_run.copy()
     duplicate["run_id"] = "duplicate-same-day"
     (runs / "duplicate-same-day.json").write_text(json.dumps(duplicate), encoding="utf-8")
-    # Point the duplicate to the same day but a different audit would still
-    # violate the one-primary-run-per-day contract before any result counting.
-    duplicate_audit = json.loads(next(audits.glob("*.json")).read_text(encoding="utf-8"))
+    # Use the audit belonging to the same source run, so both summaries
+    # resolve to the same snapshot/date before duplicate-day validation.
+    source_audit_path = audits / f"research_{source_run_id}_lane_1.json"
+    duplicate_audit = json.loads(source_audit_path.read_text(encoding="utf-8"))
     (audits / "research_duplicate-same-day_lane_1.json").write_text(json.dumps(duplicate_audit), encoding="utf-8")
 
     report = evaluate_replay_window(runs, audit_dir=audits, cutoff=CUTOFF)
