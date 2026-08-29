@@ -22,9 +22,12 @@ _PUBLISHABLE_WORKFLOW_STATUSES = frozenset({"READY_TO_PUBLISH", "PUBLISHED"})
 
 
 def _latest_workflow_acceptance(
-    workflow_runs: Sequence[dict[str, object]], *, expected_lanes: int = 3
+    workflow_runs: Sequence[dict[str, object]],
+    *,
+    expected_lanes: int = 3,
+    required_lane_ids: Sequence[str] = ("lane_1",),
 ) -> dict[str, object]:
-    """Summarise only the newest persisted run without blending older lanes."""
+    """Summarise the newest run with a required primary and optional comparisons."""
 
     if not workflow_runs:
         return {
@@ -33,12 +36,24 @@ def _latest_workflow_acceptance(
             "expected_lanes": expected_lanes,
             "recorded_lanes": 0,
             "ready_lanes": 0,
+            "required_lanes": len(tuple(required_lane_ids)),
+            "ready_required_lanes": 0,
         }
     latest_run_id = str(workflow_runs[0].get("run_id") or "")
     latest = tuple(row for row in workflow_runs if str(row.get("run_id") or "") == latest_run_id)
     ready = sum(str(row.get("status") or "") in _PUBLISHABLE_WORKFLOW_STATUSES for row in latest)
-    if len(latest) == expected_lanes and ready == expected_lanes:
+    required = {str(value) for value in required_lane_ids if str(value)}
+    ready_required = {
+        str(row.get("lane_id") or "")
+        for row in latest
+        if str(row.get("status") or "") in _PUBLISHABLE_WORKFLOW_STATUSES
+        and str(row.get("lane_id") or "") in required
+    }
+    all_recorded = len(latest) == expected_lanes
+    if all_recorded and ready == expected_lanes:
         status = "READY"
+    elif all_recorded and required and ready_required == required:
+        status = "READY_DEGRADED"
     elif ready:
         status = "PARTIAL"
     else:
@@ -49,6 +64,8 @@ def _latest_workflow_acceptance(
         "expected_lanes": expected_lanes,
         "recorded_lanes": len(latest),
         "ready_lanes": ready,
+        "required_lanes": len(required),
+        "ready_required_lanes": len(ready_required),
     }
 
 
@@ -243,7 +260,8 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
                 "configuration_ready": configuration_ready,
                 "latest_workflow_acceptance": workflow_acceptance,
                 "deployment_ready": bool(
-                    configuration_ready and workflow_acceptance["status"] == "READY"
+                    configuration_ready
+                    and workflow_acceptance["status"] in {"READY", "READY_DEGRADED"}
                 ),
                 "deployment_blockers": [
                     reason
@@ -252,7 +270,10 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
                         (settings.hithink_api_key is None, "HITHINK_API_KEY_MISSING"),
                         (settings.model_api_key is None, "MODEL_API_KEY_MISSING"),
                         (not settings.exchange_rules_path.is_file(), "EXCHANGE_RULE_SNAPSHOT_MISSING"),
-                        (workflow_acceptance["status"] != "READY", "LATEST_WORKFLOW_NOT_READY"),
+                        (
+                            workflow_acceptance["status"] not in {"READY", "READY_DEGRADED"},
+                            "LATEST_WORKFLOW_NOT_READY",
+                        ),
                     )
                     if blocked
                 ],

@@ -164,7 +164,7 @@ def test_production_cli_rejects_removed_candidate_cap() -> None:
         build_parser().parse_args(["run-research", "--slot", "close", "--max-candidates", "20"])
 
 
-def test_latest_workflow_acceptance_requires_three_lanes_from_same_run():
+def test_latest_workflow_acceptance_requires_primary_lane_and_records_optional_comparisons():
     assert _latest_workflow_acceptance([])["status"] == "NOT_RUN"
     ready = [
         {"run_id": "new", "lane_id": "lane_1", "status": "READY_TO_PUBLISH"},
@@ -178,6 +178,8 @@ def test_latest_workflow_acceptance_requires_three_lanes_from_same_run():
         "expected_lanes": 3,
         "recorded_lanes": 3,
         "ready_lanes": 3,
+        "required_lanes": 1,
+        "ready_required_lanes": 1,
     }
 
     partial = [
@@ -185,8 +187,22 @@ def test_latest_workflow_acceptance_requires_three_lanes_from_same_run():
         {"run_id": "new", "lane_id": "lane_2", "status": "BLOCKED"},
         {"run_id": "new", "lane_id": "lane_3", "status": "BLOCKED"},
     ]
-    assert _latest_workflow_acceptance(partial)["status"] == "PARTIAL"
+    assert _latest_workflow_acceptance(partial)["status"] == "READY_DEGRADED"
     assert _latest_workflow_acceptance(partial)["ready_lanes"] == 1
+    assert _latest_workflow_acceptance(partial)["ready_required_lanes"] == 1
+
+    missing_comparisons = [
+        {"run_id": "new", "lane_id": "lane_1", "status": "READY_TO_PUBLISH"},
+    ]
+    assert _latest_workflow_acceptance(missing_comparisons)["status"] == "PARTIAL"
+
+    optional_only = [
+        {"run_id": "new", "lane_id": "lane_1", "status": "BLOCKED"},
+        {"run_id": "new", "lane_id": "lane_2", "status": "PUBLISHED"},
+        {"run_id": "new", "lane_id": "lane_3", "status": "BLOCKED"},
+    ]
+    assert _latest_workflow_acceptance(optional_only)["status"] == "PARTIAL"
+    assert _latest_workflow_acceptance(optional_only)["ready_required_lanes"] == 0
 
     blocked = [
         {"run_id": "new", "lane_id": "lane_1", "status": "BLOCKED"},
