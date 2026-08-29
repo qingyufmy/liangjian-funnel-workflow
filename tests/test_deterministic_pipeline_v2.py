@@ -446,3 +446,14 @@ def test_v2_pipeline_does_not_send_the_full_g0_to_a1(tmp_path: Path):
         assert discovery_events[0]["completed"] == 0
         assert discovery_events[-1]["status"] == "COMPLETED"
         assert discovery_events[-1]["completed"] == 1
+        review_events = [
+            event
+            for event in progress_events
+            if event["lane"] == lane_id and event["stage"] == "A1_LLM_REVIEW"
+        ]
+        assert review_events[0]["status"] == "RUNNING"
+        assert review_events[-1]["completed"] == review_events[-1]["total"]
+        assert not any(
+            event["lane"] == lane_id and event["stage"] == "A1"
+            for event in progress_events
+        )

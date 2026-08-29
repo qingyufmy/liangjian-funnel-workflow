@@ -36,6 +36,59 @@ def test_a2_zero_focus_distinguishes_data_gap_from_no_opportunity():
     assert reasons == ("A2_NO_FOCUS_OPPORTUNITY",)
 
 
+def test_a2_gate_local_evidence_gap_does_not_block_model_no_opportunity():
+    reviewed = _a2_output([])
+    output = _a2_output(
+        [],
+        [
+            {
+                "symbol": "600000.SH",
+                "local_decision": True,
+                "sent_to_llm": False,
+                "reason_codes": ["A2_FACTOR_COVERAGE_BELOW_MINIMUM"],
+            }
+        ],
+    )
+
+    status, reasons = _classify_stage_outcome(
+        "A2",
+        output,
+        reasons=(),
+        reviewed_output=reviewed,
+    )
+
+    assert status == STATUS_VALIDATED_NO_OPPORTUNITY
+    assert reasons == ("A2_NO_FOCUS_OPPORTUNITY",)
+
+
+def test_a2_reviewed_evidence_gap_still_blocks_zero_focus():
+    reviewed = _a2_output(
+        [],
+        [{"symbol": "600000.SH", "reason_codes": ["A2_MARKET_FACTS_INSUFFICIENT"]}],
+    )
+    output = _a2_output(
+        [],
+        [
+            {
+                "symbol": "600000.SH",
+                "local_decision": True,
+                "sent_to_llm": False,
+                "reason_codes": ["A2_FACTOR_COVERAGE_BELOW_MINIMUM"],
+            }
+        ],
+    )
+
+    status, reasons = _classify_stage_outcome(
+        "A2",
+        output,
+        reasons=(),
+        reviewed_output=reviewed,
+    )
+
+    assert status == STATUS_BLOCKED_EVIDENCE_GAP
+    assert reasons == ("A2_MARKET_FACTS_INSUFFICIENT",)
+
+
 def test_a2_underfilled_distinguishes_market_from_data_gap():
     market, _ = _classify_stage_outcome(
         "A2",

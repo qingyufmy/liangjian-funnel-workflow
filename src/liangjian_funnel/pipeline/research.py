@@ -867,6 +867,7 @@ class ResearchPipeline:
             theme_count=len(discovery_progress_output.get("structural_themes") or ()),
             node_count=len(discovery_progress_output.get("industry_chain_graph") or ()),
             mapping_count=len(discovery_progress_output.get("industry_theme_mappings") or ()),
+            reason_codes=discovery.reason_codes,
         )
         discovery_output = discovery.output if isinstance(discovery.output, Mapping) else {}
         monthly_discovery_reasons = _monthly_discovery_reasons(
@@ -1171,6 +1172,7 @@ class ResearchPipeline:
                 lane_id=lane_id,
                 model=model,
                 stage="A1",
+                progress_stage="A1_LLM_REVIEW",
                 run_id=run_id,
                 snapshot_id=snapshot.snapshot_id,
                 runner=lambda batch: self._run_stage_with_checkpoint(
@@ -1422,6 +1424,13 @@ class ResearchPipeline:
                 output=output,
                 diagnostics={},
             )
+        # Keep the provider-reviewed partition separate from deterministic
+        # local rows appended below.  A2 local monitor rows intentionally
+        # carry evidence-gap reasons (for example
+        # ``A2_FACTOR_COVERAGE_BELOW_MINIMUM``), but those rows were not
+        # reviewed by the model and must not turn a valid zero-focus model
+        # response into a stage-level evidence block.
+        reviewed_output = dict(output)
         if stage == "A2":
             output["watch_only_pool"] = _deduplicate_stage_items(
                 "watch_only_pool",
@@ -1448,7 +1457,11 @@ class ResearchPipeline:
         )
         approved_symbols = tuple(sorted(_approved_symbols(output, stage)))
         stage_status, outcome_reasons = _classify_stage_outcome(
-            stage, output, reasons=reasons, gate=gate
+            stage,
+            output,
+            reasons=reasons,
+            gate=gate,
+            reviewed_output=reviewed_output,
         )
         reasons = list(dict.fromkeys([*reasons, *outcome_reasons]))
         self._emit_progress(
@@ -2026,6 +2039,7 @@ class ResearchPipeline:
         lane_id: str,
         model: str,
         stage: str,
+        progress_stage: str | None = None,
         run_id: str,
         snapshot_id: str,
         runner: Callable[[set[str]], StageAudit],
@@ -2040,6 +2054,7 @@ class ResearchPipeline:
         parallel case deterministic at merge time.
         """
 
+        emitted_stage = progress_stage or stage
         pending: list[tuple[tuple[int, ...], set[str]]] = [
             ((index,), set(batch)) for index, batch in enumerate(batches)
         ]
@@ -2107,7 +2122,7 @@ class ResearchPipeline:
                             run_id=run_id,
                             lane=lane_id,
                             model=model,
-                            stage=stage,
+                            stage=emitted_stage,
                             completed=completed,
                             total=total,
                             status=_progress_status(batch_audit),
@@ -2120,7 +2135,7 @@ class ResearchPipeline:
                         run_id=run_id,
                         lane=lane_id,
                         model=model,
-                        stage=stage,
+                        stage=emitted_stage,
                         completed=completed,
                         total=total,
                         status="FAILED",
@@ -6221,8 +6236,16 @@ def _classify_stage_outcome(
     *,
     reasons: Sequence[str],
     gate: Any | None = None,
+    reviewed_output: Mapping[str, Any] | None = None,
 ) -> tuple[str, tuple[str, ...]]:
-    """Derive detailed terminal semantics without changing model conclusions."""
+    """Derive detailed terminal semantics without changing model conclusions.
+
+    ``output`` may include deterministic gate rows that are appended after the
+    model review.  For A2, only evidence-gap codes in ``reviewed_output`` are
+    attributable to the model review and may block a zero-focus result.  The
+    optional argument keeps direct callers and legacy tests backwards
+    compatible; production downstream review passes the pre-append view.
+    """
 
     validation_reasons = tuple(dict.fromkeys(str(item) for item in reasons if str(item)))
     if validation_reasons:
@@ -6253,7 +6276,8 @@ def _classify_stage_outcome(
             else 30
         )
         minimum = max(1, minimum or 30)
-        gap_reasons = _output_reason_codes(output).intersection(_A2_EVIDENCE_GAP_REASONS)
+        review_view = reviewed_output if reviewed_output is not None else output
+        gap_reasons = _output_reason_codes(review_view).intersection(_A2_EVIDENCE_GAP_REASONS)
         if focus_count == 0:
             if gap_reasons:
                 return STATUS_BLOCKED_EVIDENCE_GAP, tuple(sorted(gap_reasons))
