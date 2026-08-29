@@ -221,3 +221,5 @@ def test_concurrent_generation_creation_and_publication_does_not_cross_contamina
     active = store.get_active_feature_generation()
     assert active["generation_id"] in generations
     assert {item["generation_id"] for item in store.list_feature_generations(domain="RESEARCH")} >= set(generations)
+    audits = store.list_generation_activation_audit(domain="RESEARCH", limit=1000)
+    assert {item["generation_id"] for item in audits} >= set(generations)

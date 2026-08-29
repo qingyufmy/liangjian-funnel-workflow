@@ -407,6 +407,31 @@ def test_compat_publish_active_binding_and_generation_filters(tmp_path: Path):
     assert store.list_feature_generations(domain="research", statuses=["FAILED"], limit=0) == []
 
 
+def test_compat_publish_retries_only_internally_derived_cas_conflict(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    store = ResearchFeatureStore(tmp_path / "features.sqlite3")
+    generation = _generation(store, "compat-publish-race")
+    store.validate_feature_generation(generation, validated_at=NOW)
+    original_activate = store.activate_generation
+    calls = 0
+
+    def activate_with_one_race(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise FeatureGenerationError(
+                "FEATURE_GENERATION_ACTIVE_CAS_MISMATCH:NONE:concurrent-generation"
+            )
+        return original_activate(*args, **kwargs)
+
+    monkeypatch.setattr(store, "activate_generation", activate_with_one_race)
+    published = store.publish_feature_generation(generation, activated_at=NOW)
+
+    assert published["generation_id"] == generation
+    assert calls == 2
+
+
 def test_generation_timestamp_and_directory_path_validation(tmp_path: Path):
     directory_store = ResearchFeatureStore(tmp_path / "directory-store")
     generation = directory_store.create_feature_generation(

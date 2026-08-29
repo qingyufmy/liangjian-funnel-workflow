@@ -1351,15 +1351,31 @@ class ResearchFeatureStore:
             purpose=str(row.get("purpose") or "LIVE_FULL"),
             sealed_at=activated_at,
         )
-        active = self.get_active_feature_generation(domain or str(sealed.get("domain") or "RESEARCH"))
-        return self.activate_generation(
-            generation_id,
-            expected_current_id=(str(active["generation_id"]) if active else None),
-            activation_reason="COMPAT_PUBLISH_FEATURE_GENERATION",
-            domain=domain,
-            actor="compat.publish_feature_generation",
-            activated_at=activated_at,
-        )
+        generation_domain = domain or str(sealed.get("domain") or "RESEARCH")
+        # This legacy helper owns discovery of the current generation, so it
+        # must also absorb a race between that read and the strict CAS write.
+        # Keep ``activate_generation`` fail-closed for explicit callers; only
+        # the compatibility wrapper refreshes its internally-derived expected
+        # value and retries.
+        last_cas_error: FeatureGenerationError | None = None
+        for _attempt in range(16):
+            active = self.get_active_feature_generation(generation_domain)
+            try:
+                return self.activate_generation(
+                    generation_id,
+                    expected_current_id=(str(active["generation_id"]) if active else None),
+                    activation_reason="COMPAT_PUBLISH_FEATURE_GENERATION",
+                    domain=domain,
+                    actor="compat.publish_feature_generation",
+                    activated_at=activated_at,
+                )
+            except FeatureGenerationError as exc:
+                if not str(exc).startswith("FEATURE_GENERATION_ACTIVE_CAS_MISMATCH:"):
+                    raise
+                last_cas_error = exc
+        raise FeatureGenerationError(
+            "FEATURE_GENERATION_COMPAT_PUBLISH_RETRY_EXHAUSTED"
+        ) from last_cas_error
 
     publish_generation = publish_feature_generation
 
