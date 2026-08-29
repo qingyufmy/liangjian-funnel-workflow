@@ -440,13 +440,32 @@ def _decode_model_response(
     if "text/event-stream" in content_type:
         return _decode_sse_response(response, deadline=deadline, clock=clock)
 
+    # Some OpenAI-compatible gateways honor ``stream=true`` but label the
+    # chunked body as application/json.  ``response.read()`` would then wait
+    # for the entire body and enforce the total deadline only after completion,
+    # allowing a continuously arriving multi-megabyte response to run forever.
+    # Read every response shape incrementally so the same wall-clock contract
+    # applies regardless of the provider's Content-Type header.
+    raw_parts: list[bytes] = []
+    raw_size = 0
     try:
-        raw = response.read()
+        for chunk in response.iter_bytes():
+            _enforce_stream_deadline(deadline, clock)
+            if not isinstance(chunk, bytes):
+                raise StrictJSONError("RESPONSE_JSON_INVALID")
+            raw_size += len(chunk)
+            if raw_size > 64 * 1024 * 1024:
+                raise StrictJSONError(
+                    "RESPONSE_BODY_TOO_LARGE",
+                    diagnostics={"response_bytes_over_limit": True},
+                )
+            raw_parts.append(chunk)
+    except StrictJSONError:
+        raise
     except (TypeError, ValueError) as exc:
         raise StrictJSONError("RESPONSE_JSON_INVALID") from exc
-    if not isinstance(raw, bytes):
-        raise StrictJSONError("RESPONSE_JSON_INVALID")
     _enforce_stream_deadline(deadline, clock)
+    raw = b"".join(raw_parts)
 
     try:
         text = raw.decode("utf-8")

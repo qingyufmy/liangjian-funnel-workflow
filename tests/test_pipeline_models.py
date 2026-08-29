@@ -448,6 +448,32 @@ def test_continuous_sse_is_bounded_by_total_wall_clock(tmp_path: Path):
     assert exc_info.value.attempts == 1
 
 
+def test_chunked_json_content_type_is_bounded_by_total_wall_clock(tmp_path: Path):
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = b'{"choices":[{"message":{"content":"{\\"ok\\":true}"}}]}'
+        return httpx.Response(
+            200,
+            headers={"content-type": "application/json"},
+            stream=_ChunkedByteStream([body[:16], body[16:]]),
+            request=request,
+        )
+
+    ticks = iter((0.0, 0.5, 0.75, 2.0, 2.1))
+    settings = _settings(tmp_path).model_copy(update={"model_timeout_seconds": 1.0})
+    client = OpenAICompatibleModelClient(
+        settings,
+        transport=httpx.MockTransport(handler),
+        sleep=lambda _: None,
+        monotonic=lambda: next(ticks, 2.1),
+        max_attempts=1,
+    )
+
+    with pytest.raises(ModelNetworkError) as exc_info:
+        client.complete("z-ai/glm-5.3-free", [{"role": "user", "content": "{}"}])
+
+    assert exc_info.value.attempts == 1
+
+
 def test_unsupported_thinking_variant_falls_back_without_changing_model(tmp_path: Path):
     variants: list[str] = []
 
