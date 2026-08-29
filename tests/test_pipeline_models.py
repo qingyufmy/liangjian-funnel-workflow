@@ -448,6 +448,36 @@ def test_continuous_sse_is_bounded_by_total_wall_clock(tmp_path: Path):
     assert exc_info.value.attempts == 1
 
 
+def test_call_timeout_override_cannot_exceed_remaining_stage_budget(tmp_path: Path):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return _sse_response(
+            request,
+            [
+                {"choices": [{"delta": {"content": "{"}}]},
+                {"choices": [{"delta": {"content": '"ok":true}'}}]},
+                "[DONE]",
+            ],
+        )
+
+    ticks = iter((0.0, 0.5, 2.0, 2.1))
+    client = OpenAICompatibleModelClient(
+        _settings(tmp_path),
+        transport=httpx.MockTransport(handler),
+        sleep=lambda _: None,
+        monotonic=lambda: next(ticks, 2.1),
+        max_attempts=1,
+    )
+
+    with pytest.raises(ModelNetworkError) as exc_info:
+        client.complete(
+            "deepseek-v4-pro-0813",
+            [{"role": "user", "content": "{}"}],
+            timeout_seconds=1.0,
+        )
+
+    assert exc_info.value.attempts == 1
+
+
 def test_chunked_json_content_type_is_bounded_by_total_wall_clock(tmp_path: Path):
     def handler(request: httpx.Request) -> httpx.Response:
         body = b'{"choices":[{"message":{"content":"{\\"ok\\":true}"}}]}'

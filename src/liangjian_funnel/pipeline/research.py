@@ -2721,6 +2721,7 @@ class ResearchPipeline:
             )
 
         semantic_limit = 2
+        semantic_deadline = time.perf_counter() + self.settings.model_timeout_seconds
         aggregate_latency_ms = 0
         aggregate_attempts = 0
         variants: list[str] = []
@@ -2741,6 +2742,24 @@ class ResearchPipeline:
                     }
                 )
             model_started = time.perf_counter()
+            remaining_seconds = semantic_deadline - model_started
+            if remaining_seconds <= 0:
+                return StageAudit(
+                    lane=lane_id,
+                    model=model,
+                    stage=stage,
+                    status=STATUS_BLOCKED_MODEL,
+                    snapshot_id=snapshot.snapshot_id,
+                    prompt_hash=prompt_hash,
+                    input_hash=input_hash,
+                    output_hash=None,
+                    latency_ms=aggregate_latency_ms,
+                    attempts=aggregate_attempts,
+                    thinking_variant=_common_text(variants),
+                    symbols=(),
+                    reason_codes=("MODEL_TOTAL_DEADLINE_EXCEEDED",),
+                    diagnostics={"semantic_attempts": semantic_attempt - 1},
+                )
             try:
                 result = self._call_model(
                     model,
@@ -2749,6 +2768,7 @@ class ResearchPipeline:
                     input_hash=input_hash,
                     snapshot_id=snapshot.snapshot_id,
                     stage=stage,
+                    timeout_seconds=remaining_seconds,
                 )
             except ModelClientError as exc:
                 aggregate_latency_ms += int((time.perf_counter() - model_started) * 1000)
@@ -4421,6 +4441,26 @@ def _semantic_retry_instruction(
         for reason in dict.fromkeys(str(item) for item in reasons)
         if re.fullmatch(r"[A-Z0-9_:.-]{1,120}", reason)
     ][:20]
+    discovery_requirements: list[str] = []
+    if "A1_MONTHLY_THEME_COVERAGE_INSUFFICIENT" in safe_reasons:
+        discovery_requirements.append(
+            "Return 8-12 structural_themes with unique valid theme_id values."
+        )
+    if "A1_MONTHLY_CHAIN_COVERAGE_INSUFFICIENT" in safe_reasons:
+        discovery_requirements.append(
+            "Return 40-80 industry_chain_graph nodes with unique valid node_id values; "
+            "each node must reference an existing theme_id."
+        )
+    if {
+        "A1_DISCOVERY_THEME_EVIDENCE_INVALID",
+        "A1_DISCOVERY_NODE_EVIDENCE_INVALID",
+    }.intersection(safe_reasons):
+        discovery_requirements.append(
+            "For every structural theme and every industry-chain node, copy at least one source_ref "
+            "verbatim from RUNTIME_INPUT.A1_BATCH_CONTEXT.allowed_primary_source_refs. "
+            "Do not invent, shorten, rewrite, or substitute source references."
+        )
+    discovery_retry = "\n".join(discovery_requirements)
     return (
         "PREVIOUS_RESPONSE_REJECTED\n"
         f"stage={stage}\n"
@@ -4432,6 +4472,7 @@ def _semantic_retry_instruction(
             if missing_mapping_codes
             else ""
         )
+        + (f"DISCOVERY_CONTRACT_REPAIR\n{discovery_retry}\n" if discovery_retry else "")
         + (
             "Regenerate the discovery response from the original RUNTIME_INPUT. Copy required_envelope exactly, "
             "preserve valid mappings, and return one JSON object only. Do not return server-owned monthly decisions."

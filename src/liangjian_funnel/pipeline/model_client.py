@@ -157,6 +157,7 @@ class OpenAICompatibleModelClient:
         input_hash: str | None = None,
         snapshot_id: str | None = None,
         stage: str | None = None,
+        timeout_seconds: float | None = None,
     ) -> ModelCallResult:
         del snapshot_id, stage  # metadata is retained by the pipeline audit, not sent as secrets
         if model not in ALL_MODELS:
@@ -166,16 +167,28 @@ class OpenAICompatibleModelClient:
         if not isinstance(messages, Sequence) or isinstance(messages, (str, bytes)) or not messages:
             raise ModelClientError("MESSAGES_INVALID")
 
+        call_timeout = self.settings.model_timeout_seconds
+        if timeout_seconds is not None:
+            if isinstance(timeout_seconds, bool):
+                raise ModelClientError("MODEL_TIMEOUT_INVALID")
+            try:
+                requested_timeout = float(timeout_seconds)
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise ModelClientError("MODEL_TIMEOUT_INVALID") from exc
+            if requested_timeout <= 0 or requested_timeout != requested_timeout:
+                raise ModelClientError("MODEL_TOTAL_DEADLINE_EXCEEDED")
+            call_timeout = min(call_timeout, requested_timeout)
+
         safe_messages = [dict(message) for message in messages]
         started_all = time.perf_counter()
-        overall_deadline = self.monotonic() + self.settings.model_timeout_seconds
+        overall_deadline = self.monotonic() + call_timeout
         total_attempts = 0
         last_variant = self.thinking_variants[0][0]
         strict_json_retry = False
         last_strict_error: StrictJSONError | None = None
         with httpx.Client(
             base_url=self.settings.model_base_url,
-            timeout=self.settings.model_timeout_seconds,
+            timeout=call_timeout,
             transport=self.transport,
             trust_env=False,
             headers={

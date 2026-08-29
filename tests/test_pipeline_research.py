@@ -34,6 +34,7 @@ from liangjian_funnel.pipeline.research import (
     _project_macro_policy,
     _project_news,
     _scan_symbols,
+    _semantic_retry_instruction,
     _snapshot_discovery_evidence_refs,
     _stage_execution_budget,
     _validate_output,
@@ -45,6 +46,23 @@ from liangjian_funnel.settings import Settings
 
 NOW = datetime(2026, 8, 24, 15, 10, tzinfo=ZoneInfo("Asia/Shanghai"))
 MODELS = ("deepseek-v4-pro-0813", "moonshotai/kimi-k3-free", "z-ai/glm-5.3-free")
+
+
+def test_discovery_semantic_retry_restates_exact_coverage_and_evidence_contract():
+    instruction = _semantic_retry_instruction(
+        "A1",
+        (
+            "A1_DISCOVERY_THEME_EVIDENCE_INVALID",
+            "A1_DISCOVERY_NODE_EVIDENCE_INVALID",
+            "A1_MONTHLY_THEME_COVERAGE_INSUFFICIENT",
+            "A1_MONTHLY_CHAIN_COVERAGE_INSUFFICIENT",
+        ),
+    )
+
+    assert "8-12 structural_themes" in instruction
+    assert "40-80 industry_chain_graph nodes" in instruction
+    assert "allowed_primary_source_refs" in instruction
+    assert "copy at least one source_ref verbatim" in instruction
 
 
 def _settings(tmp_path: Path) -> Settings:
