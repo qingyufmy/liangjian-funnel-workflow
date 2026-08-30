@@ -20,6 +20,7 @@ from liangjian_funnel.pipeline.research import (
     _a1_discovery_evidence_reasons,
     _authorized_discovery_source_refs,
     _a3_semantic_price_reasons,
+    _a3_secondary_probe_contract_reasons,
     _a3_watch_only_candidate_eligible,
     _apply_stage_threshold_policy,
     _apply_a2_lineage_policy,
@@ -1612,6 +1613,42 @@ def test_a3_semantic_veto_contradicting_frozen_reward_is_retry_reason():
         },
     )
     assert reasons == ["A3_REWARD_RISK_REJECTION_CONTRADICTS_FROZEN_FACTS"]
+
+
+def test_a3_secondary_probe_missing_score_breakdown_is_retryable_not_silent_no_entry():
+    output = {
+        "secondary_watch_pool": [
+            {
+                "symbol": "002156.SZ",
+                "candidate_origin": "WATCH_ONLY",
+                "risk_unit": "PROBE",
+                "setup_type": "TREND_PULLBACK",
+                "confirmation_conditions": ["FIVE_MIN_HIGHER_LOW"],
+                "scenarios": {"normal_open_plan": {}, "weak_open_plan": {},
+                              "high_gap_no_chase_plan": {}, "invalidation_plan": {}},
+                "plan_expiry": "2026-08-31T15:00:00+08:00",
+                "technical_score": 70,
+            }
+        ]
+    }
+    snapshot = {
+        "TECHNICAL_SCORE_WEIGHTS": {
+            "higher_timeframe_trend": 0.2,
+            "structure_quality": 0.2,
+            "volume_price": 0.15,
+            "relative_strength": 0.1,
+            "location_and_extension": 0.15,
+            "room_and_reward_risk": 0.15,
+            "liquidity": 0.05,
+        }
+    }
+    assert _a3_secondary_probe_contract_reasons(output, snapshot) == [
+        "A3_SECONDARY_PROBE_FIELDS_MISSING"
+    ]
+    output["secondary_watch_pool"][0]["score_breakdown"] = {}
+    assert _a3_secondary_probe_contract_reasons(output, snapshot) == [
+        "A3_SCORE_BREAKDOWN_MISSING"
+    ]
 
 
 def test_a3_global_pool_limits_are_applied_after_batch_merge():

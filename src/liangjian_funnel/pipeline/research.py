@@ -3180,6 +3180,15 @@ class ResearchPipeline:
                 output, canonicalized_price_items, trend_veto_items = _canonicalize_a3_price_fields(
                     output, snapshot.data
                 )
+                # An executable secondary PROBE is not allowed to disappear
+                # into NO_ENTRY merely because the model omitted its scoring
+                # contract. Surface the omission as a semantic error before
+                # threshold policy demotes the row, so the bounded model retry
+                # can repair the JSON while all numeric/risk gates remain
+                # unchanged.
+                a3_semantic_reasons.extend(
+                    _a3_secondary_probe_contract_reasons(output, snapshot.data)
+                )
             output, policy_demotions = _apply_stage_threshold_policy(output, stage, snapshot.data)
             if stage == "A1" and projection_symbols is None:
                 output = _annotate_a1_pool_target(output, snapshot.data)
@@ -5820,6 +5829,55 @@ def _a3_semantic_price_reasons(
                 reasons.append("A3_REWARD_RISK_REJECTION_CONTRADICTS_FROZEN_FACTS")
             if stop_veto and 0 < expected_stop <= maximum_stop:
                 reasons.append("A3_STOP_REJECTION_CONTRADICTS_FROZEN_FACTS")
+    return list(dict.fromkeys(reasons))
+
+
+def _a3_secondary_probe_contract_reasons(
+    output: Mapping[str, Any],
+    snapshot_data: Mapping[str, Any],
+) -> list[str]:
+    """Require a complete score/execution contract before PROBE demotion.
+
+    This runs after server price canonicalization but before threshold policy.
+    It therefore distinguishes a provider JSON omission (retryable) from a
+    genuine deterministic threshold failure (which is demoted/rejected).
+    """
+
+    secondary = output.get("secondary_watch_pool")
+    if not isinstance(secondary, list):
+        return []
+    reasons: list[str] = []
+    required_fields = (
+        "setup_type",
+        "confirmation_conditions",
+        "scenarios",
+        "plan_expiry",
+        "technical_score",
+        "score_breakdown",
+    )
+    weights = snapshot_data.get("TECHNICAL_SCORE_WEIGHTS")
+    expected_score_keys = {
+        str(key) for key in weights
+    } if isinstance(weights, Mapping) else set()
+    for raw_item in secondary:
+        if not isinstance(raw_item, Mapping):
+            continue
+        if str(raw_item.get("risk_unit") or "").upper() != "PROBE":
+            continue
+        # The new retry contract is scoped to the explicit A2 watch-only
+        # publication route. Legacy FOCUS secondary rows may remain shadow
+        # observations and are still handled by the existing threshold policy.
+        if str(raw_item.get("candidate_origin") or "FOCUS").upper() != "WATCH_ONLY":
+            continue
+        if any(raw_item.get(field) is None for field in required_fields):
+            reasons.append("A3_SECONDARY_PROBE_FIELDS_MISSING")
+            continue
+        breakdown = raw_item.get("score_breakdown")
+        if not isinstance(breakdown, Mapping) or not breakdown:
+            reasons.append("A3_SCORE_BREAKDOWN_MISSING")
+            continue
+        if expected_score_keys and {str(key) for key in breakdown} != expected_score_keys:
+            reasons.append("A3_SCORE_BREAKDOWN_INVALID")
     return list(dict.fromkeys(reasons))
 
 

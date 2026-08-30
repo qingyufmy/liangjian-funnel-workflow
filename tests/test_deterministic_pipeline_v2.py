@@ -388,9 +388,27 @@ class V2Client:
                         "symbol": symbol,
                         "parent_candidate_id": f"{model}:a2:{symbol}",
                         "technical_score": 80,
+                        "score_breakdown": {
+                            "higher_timeframe_trend": 80,
+                            "structure_quality": 80,
+                            "volume_price": 80,
+                            "relative_strength": 80,
+                            "location_and_extension": 80,
+                            "room_and_reward_risk": 80,
+                            "liquidity": 80,
+                        },
                         "reward_risk": 3.0,
                         "stop_distance_pct": 0.05,
                         "risk_unit": "STANDARD",
+                        "setup_type": "TREND_PULLBACK",
+                        "confirmation_conditions": ["FIVE_MIN_HIGHER_LOW"],
+                        "scenarios": {
+                            "normal_open_plan": {},
+                            "weak_open_plan": {},
+                            "high_gap_no_chase_plan": {},
+                            "invalidation_plan": {},
+                        },
+                        "plan_expiry": "2026-08-25T15:00:00+08:00",
                     }
                     for symbol in symbols
                 ],
