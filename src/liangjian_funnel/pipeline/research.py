@@ -7188,6 +7188,13 @@ def _classify_stage_outcome(
     """
 
     validation_reasons = tuple(dict.fromkeys(str(item) for item in reasons if str(item)))
+    # A3 is evaluated per symbol.  A technical-data gap on one rejected row
+    # must not be promoted into a lane-wide outage when the deterministic gate
+    # produced reviewable rows for the rest of the focus pool.
+    if stage == "A3" and _gate_has_reviewable_symbols(gate):
+        validation_reasons = tuple(
+            reason for reason in validation_reasons if reason not in _A3_TECHNICAL_DATA_REASONS
+        )
     if validation_reasons:
         if stage == "A1" and (
             "A1_ACTIVE_COVERAGE_UNDERFILLED" in validation_reasons
@@ -7236,7 +7243,10 @@ def _classify_stage_outcome(
 
     if stage == "A3" and not _approved_symbols(output, "A3"):
         gate_reasons = _gate_reason_codes(gate)
-        if gate_reasons.intersection(_A3_TECHNICAL_DATA_REASONS):
+        if (
+            gate_reasons.intersection(_A3_TECHNICAL_DATA_REASONS)
+            and not _gate_has_reviewable_symbols(gate)
+        ):
             return STATUS_BLOCKED_TECHNICAL_DATA, tuple(sorted(gate_reasons.intersection(_A3_TECHNICAL_DATA_REASONS)))
         return STATUS_VALIDATED_NO_SETUP, ("A3_NO_TECHNICAL_SETUP",)
     return STATUS_VALIDATED, ()
@@ -7277,6 +7287,15 @@ def _gate_reason_codes(gate: Any | None) -> set[str]:
         if isinstance(raw, Sequence) and not isinstance(raw, (str, bytes, bytearray)):
             result.update(str(item).strip().upper() for item in raw if isinstance(item, str) and item.strip())
     return result
+
+
+def _gate_has_reviewable_symbols(gate: Any | None) -> bool:
+    if gate is None:
+        return False
+    return bool(
+        tuple(getattr(gate, "review_symbols", ()) or ())
+        or tuple(getattr(gate, "monitor_symbols", ()) or ())
+    )
 
 
 def _invoke_stage_snapshot_enricher(

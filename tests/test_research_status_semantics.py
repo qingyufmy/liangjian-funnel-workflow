@@ -165,3 +165,36 @@ def test_a3_zero_plan_distinguishes_missing_technical_data_from_no_setup():
     no_setup, reasons = _classify_stage_outcome("A3", output, reasons=(), gate=valid_gate)
     assert no_setup == STATUS_VALIDATED_NO_SETUP
     assert reasons == ("A3_NO_TECHNICAL_SETUP",)
+
+
+def test_a3_partial_symbol_data_gap_does_not_block_reviewable_pool():
+    output = {
+        "core_watch_pool": [],
+        "secondary_watch_pool": [{"symbol": "600001.SH"}],
+        "rejected_candidates": [
+            {
+                "symbol": "600000.SH",
+                "reason_codes": ["A3_TECHNICAL_FACTORS_NOT_READY"],
+            }
+        ],
+    }
+    partial_gate = DeterministicGateResult(
+        stage="A3_LOCAL_TECHNICAL",
+        decisions=(
+            {"symbol": "600001.SH", "reason_codes": ["REWARD_RISK_BELOW_MIN"]},
+            {"symbol": "600000.SH", "reason_codes": ["A3_TECHNICAL_FACTORS_NOT_READY"]},
+        ),
+        review_symbols=("600001.SH",),
+        monitor_symbols=(),
+        rejected_symbols=("600000.SH",),
+    )
+
+    status, reasons = _classify_stage_outcome(
+        "A3",
+        output,
+        reasons=("A3_TECHNICAL_FACTORS_NOT_READY",),
+        gate=partial_gate,
+    )
+
+    assert status == STATUS_VALIDATED_NO_SETUP
+    assert reasons == ("A3_NO_TECHNICAL_SETUP",)
