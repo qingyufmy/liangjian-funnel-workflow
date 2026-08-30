@@ -1890,6 +1890,13 @@ class WorkflowApplication:
             return None
         current = _aware(snapshot.as_of or datetime.now(SHANGHAI))
         if stage == "A2":
+            # Historical replay must remain bound to its immutable snapshot.
+            # The open-news endpoints are current-only and cannot answer an
+            # arbitrary prior trade date, so querying them here would mix
+            # today's articles into a point-in-time A2 result.  The frozen
+            # market/news facts remain available in the base snapshot.
+            if current.date() != datetime.now(SHANGHAI).date():
+                return None
             stage_current = datetime.now(SHANGHAI)
             results = self._collect_open_news(
                 sorted(upstream_symbols),

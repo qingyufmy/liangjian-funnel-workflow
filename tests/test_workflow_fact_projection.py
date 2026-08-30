@@ -6,12 +6,38 @@ from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 from liangjian_funnel.pipeline.snapshot import FrozenInputSnapshot, UniverseSnapshot
+from liangjian_funnel.pipeline.research import FrozenInputSnapshot as ResearchSnapshot
 from liangjian_funnel.settings import Settings
 from liangjian_funnel.workflow import WorkflowApplication, _compact_fundamental_rows
 
 
 TZ = ZoneInfo("Asia/Shanghai")
 NOW = datetime(2026, 8, 25, 9, 26, tzinfo=TZ)
+
+
+def test_historical_a2_enrichment_never_fetches_current_news() -> None:
+    app = SimpleNamespace(
+        _collect_open_news=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("historical A2 must not fetch current news")
+        )
+    )
+    snapshot = ResearchSnapshot(
+        snapshot_id="snapshot-historical-fixture",
+        snapshot_hash="f" * 64,
+        as_of=NOW,
+        data={"NEWS_HEAT_SNAPSHOT": {"available": True, "items": []}},
+    )
+
+    result = WorkflowApplication._stage_snapshot_enricher(
+        app,
+        stage="A2",
+        lane_id="lane_1",
+        model="model",
+        upstream_symbols=frozenset({"600519.SH"}),
+        snapshot=snapshot,
+    )
+
+    assert result is None
 
 
 def test_compact_fundamentals_expose_deterministic_dataset_coverage() -> None:
