@@ -182,6 +182,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("run-due", help="dispatch only work due at the current Shanghai time")
     sub.add_parser("run-morning", help="dispatch only the due 09:26 morning review")
     sub.add_parser("run-close", help="dispatch only the due 15:10 close workflow")
+    sub.add_parser(
+        "run-next-session-prep",
+        help="prepare one clean close A1-A3 run for the nearest next trading session",
+    )
     sub.add_parser("run-monitor", help="dispatch only the current due A4 minute")
     comparison = sub.add_parser(
         "run-comparison",
@@ -269,7 +273,7 @@ def main(argv: Sequence[str] | None = None, *, settings: Settings | None = None)
         return _doctor(active)
     if args.command in {"storage-audit", "storage-backup", "storage-cleanup"}:
         return _storage_command(args, active)
-    if args.command in {"prepare-snapshot", "import-broker-gold", "sync-data", "maintain-features", "run-research", "run-comparison", "monitor-once", "run-due", "run-morning", "run-close", "run-monitor", "status"}:
+    if args.command in {"prepare-snapshot", "import-broker-gold", "sync-data", "maintain-features", "run-research", "run-comparison", "monitor-once", "run-due", "run-morning", "run-close", "run-next-session-prep", "run-monitor", "status"}:
         return _workflow_command(args, active)
     reports = []
     if args.command in {"probe-hithink", "probe-all"}:
@@ -505,6 +509,8 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
             from .runtime.scheduler import ScheduleKind
 
             payload = application.run_scheduled(ScheduleKind.CLOSE_1510)
+        elif args.command == "run-next-session-prep":
+            payload = application.run_next_session_prep()
         elif args.command == "run-monitor":
             from .runtime.scheduler import ScheduleKind
 
@@ -611,7 +617,7 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
         print(json.dumps({"status": "FAILED", "reason_code": reason_code}, ensure_ascii=False))
         return 3
     print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True, default=str))
-    if args.command == "run-research":
+    if args.command in {"run-research", "run-next-session-prep"}:
         outcome = payload.get("outcome_v2") if isinstance(payload, Mapping) else None
         return cli_exit_code(outcome if isinstance(outcome, Mapping) else payload)
     if args.command in {"run-due", "run-morning", "run-close", "run-monitor"}:

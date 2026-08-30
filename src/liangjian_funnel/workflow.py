@@ -9,7 +9,7 @@ import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from threading import Event, RLock, Thread
 from typing import Any, Mapping
@@ -795,6 +795,55 @@ class WorkflowApplication:
             factor_ready_count=len(factor_ready),
         )
 
+    def run_next_session_prep(self, *, now: datetime | None = None) -> dict[str, Any]:
+        """Prepare one clean close run for the nearest future session.
+
+        This is the only supported path for a weekend/holiday pre-open run.
+        Facts are collected at the wall-clock timestamp supplied by the caller,
+        while the execution horizon is explicitly bound to the next exchange
+        session.  It never starts a paper trading day, performs historical
+        replay, accepts a persisted snapshot id, or queues comparison lanes.
+        """
+
+        source_as_of = _aware(now or datetime.now(SHANGHAI))
+        try:
+            if self.trading_calendar.is_trading_day(source_as_of.date()):
+                raise WorkflowError("NEXT_SESSION_PREP_REQUIRES_NON_TRADING_DAY")
+            target_trade_date = self.trading_calendar.next_trading_day(source_as_of.date())
+        except TradingCalendarError as exc:
+            raise WorkflowError(exc.reason_code) from exc
+
+        # One deterministic receipt per target session makes a second command
+        # invocation safe: it cannot publish a second pending plan set for the
+        # same morning review.  A blocked/incomplete run has no receipt and may
+        # be retried through the same entry point.
+        run_id = f"next-session-prep-{target_trade_date.isoformat()}"
+        summary_path = self.settings.workflow_output_dir / "runs" / f"{run_id}.json"
+        try:
+            existing = json.loads(summary_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, ValueError, TypeError):
+            existing = None
+        if (
+            isinstance(existing, Mapping)
+            and existing.get("preparation_mode") == "NEXT_SESSION_PRODUCTION_PREP"
+            and str(existing.get("status") or "").upper() in {"READY", "READY_DEGRADED"}
+        ):
+            raise WorkflowError("NEXT_SESSION_PREP_ALREADY_COMPLETED")
+
+        return self.run_research(
+            "close",
+            as_of=source_as_of,
+            historical_replay=False,
+            snapshot_id=None,
+            primary_only=True,
+            schedule_comparison=False,
+            publish_plans=True,
+            run_id_override=run_id,
+            target_trade_date=target_trade_date,
+            allow_non_trading_source=True,
+            reuse_resume_snapshot=False,
+        )
+
     def sync_data_cache(self, *, as_of: datetime | None = None) -> dict[str, Any]:
         """Bootstrap or incrementally refresh reusable daily/fundamental facts."""
 
@@ -1219,9 +1268,40 @@ class WorkflowApplication:
         snapshot_expected_date: str | None = None,
         snapshot_expected_hash: str | None = None,
         record_runtime: bool = True,
+        target_trade_date: date | None = None,
+        allow_non_trading_source: bool = False,
+        reuse_resume_snapshot: bool = True,
     ) -> dict[str, Any]:
         normalized_slot = _slot(slot)
         current = _aware(as_of or datetime.now(SHANGHAI))
+        next_session_prep = target_trade_date is not None or allow_non_trading_source
+        if next_session_prep:
+            # This escape hatch is intentionally private to the dedicated
+            # next-session preparation entry point.  It must not become a way
+            # for normal close/morning calls to bypass the exchange calendar,
+            # historical isolation, or the publication gate.
+            if (
+                normalized_slot != "close"
+                or not allow_non_trading_source
+                or target_trade_date is None
+                or isinstance(target_trade_date, datetime)
+                or not isinstance(target_trade_date, date)
+                or historical_replay
+                or snapshot_id is not None
+                or comparison_run
+                or not primary_only
+                or schedule_comparison
+                or not publish_plans
+            ):
+                raise WorkflowError("NEXT_SESSION_PREP_ARGUMENTS_INVALID")
+            try:
+                if self.trading_calendar.is_trading_day(current.date()):
+                    raise WorkflowError("NEXT_SESSION_PREP_REQUIRES_NON_TRADING_DAY")
+                expected_target = self.trading_calendar.next_trading_day(current.date())
+            except TradingCalendarError as exc:
+                raise WorkflowError(exc.reason_code) from exc
+            if target_trade_date != expected_target:
+                raise WorkflowError("NEXT_SESSION_PREP_TARGET_INVALID")
         if historical_replay:
             if as_of is None:
                 raise WorkflowError("HISTORICAL_AS_OF_REQUIRED")
@@ -1231,10 +1311,11 @@ class WorkflowApplication:
             raise WorkflowError("SNAPSHOT_ID_REQUIRES_HISTORICAL_REPLAY")
         if comparison_run and not snapshot_id:
             raise WorkflowError("COMPARISON_SNAPSHOT_REQUIRED")
-        self._ensure_trading_day(
-            current,
-            synchronize_accounts=not historical_replay and not comparison_run,
-        )
+        if not next_session_prep:
+            self._ensure_trading_day(
+                current,
+                synchronize_accounts=not historical_replay and not comparison_run,
+            )
         if normalized_slot == "morning" and current.hour == 9 and current.minute < 26:
             time.sleep(max(0.0, (_at_time(current, 9, 26) - current).total_seconds()))
             current = datetime.now(SHANGHAI)
@@ -1278,7 +1359,7 @@ class WorkflowApplication:
                     expected_date=snapshot_expected_date or current.date().isoformat(),
                 )
                 if snapshot_id is not None
-                else None if historical_replay
+                else None if historical_replay or not reuse_resume_snapshot
                 else self._load_research_resume_snapshot(normalized_slot, current)
             )
             if prepared is None:
@@ -1395,6 +1476,7 @@ class WorkflowApplication:
                 normalized_slot,
                 datetime.now(SHANGHAI),
                 snapshot_data=prepared.snapshot.data,
+                minimum_trade_date=target_trade_date,
             )
             if publish_plans
             else {
@@ -1412,6 +1494,13 @@ class WorkflowApplication:
             "run_role": "comparison" if comparison_run else "primary" if primary_only else "full",
             "models": [lane.model for lane in result.lanes],
             "primary_lane_ids": list(result.primary_lane_ids),
+            "source_as_of": current.isoformat(),
+            "target_trade_date": (
+                target_trade_date.isoformat() if target_trade_date is not None else None
+            ),
+            "preparation_mode": (
+                "NEXT_SESSION_PRODUCTION_PREP" if next_session_prep else None
+            ),
             "outcome_v2": result.outcome().as_dict(),
             "snapshot": prepared.as_dict(),
             "research_markdown": str(result.markdown_path) if result.markdown_path else None,
@@ -2643,6 +2732,7 @@ class WorkflowApplication:
         now: datetime,
         *,
         snapshot_data: Mapping[str, Any],
+        minimum_trade_date: date | None = None,
     ) -> dict[str, Any]:
         batch: list[dict[str, Any]] = []
         blocked: list[dict[str, str]] = []
@@ -2740,7 +2830,12 @@ class WorkflowApplication:
                                 "lane_id": lane.lane,
                                 "symbol": symbol,
                                 "status": PlanStatus.PENDING_MORNING_REVIEW.value,
-                                "expires_at": _plan_expiry(payload.get("plan_expiry"), now, slot),
+                                "expires_at": _plan_expiry(
+                                    payload.get("plan_expiry"),
+                                    now,
+                                    slot,
+                                    minimum_trade_date=minimum_trade_date,
+                                ),
                                 "payload": payload,
                             }
                         )
@@ -2759,7 +2854,12 @@ class WorkflowApplication:
                             "symbol": symbol,
                             "status": PlanStatus.ACTIVE_TODAY.value,
                             "valid_from": _at_time(now, 9, 32),
-                            "expires_at": _plan_expiry(payload.get("plan_expiry"), now, slot),
+                            "expires_at": _plan_expiry(
+                                payload.get("plan_expiry"),
+                                now,
+                                slot,
+                                minimum_trade_date=minimum_trade_date,
+                            ),
                             "payload": payload,
                             "parent_plan_id": str(parent["plan_id"]),
                         }
@@ -3792,9 +3892,23 @@ def _float_or_none(value: Any) -> float | None:
         return None
 
 
-def _plan_expiry(value: Any, now: datetime, slot: str) -> datetime:
+def _plan_expiry(
+    value: Any,
+    now: datetime,
+    slot: str,
+    *,
+    minimum_trade_date: date | None = None,
+) -> datetime:
     current = _aware(now)
-    minimum_day = current.date() if slot == "morning" else (current + timedelta(days=1)).date()
+    if minimum_trade_date is not None and (
+        isinstance(minimum_trade_date, datetime) or not isinstance(minimum_trade_date, date)
+    ):
+        raise ValueError("minimum trade date must be a date")
+    minimum_day = (
+        minimum_trade_date
+        if minimum_trade_date is not None
+        else current.date() if slot == "morning" else (current + timedelta(days=1)).date()
+    )
     while minimum_day.weekday() >= 5:
         minimum_day += timedelta(days=1)
     minimum = datetime(

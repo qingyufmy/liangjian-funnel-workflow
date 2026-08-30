@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import os
 import time
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
@@ -88,6 +88,21 @@ def _resources(allowed: bool) -> SimpleNamespace:
     )
 
 
+class _PrepCalendar:
+    def __init__(self, *, trading_day: bool = False, target: date = date(2026, 8, 31)):
+        self.trading_day = trading_day
+        self.target = target
+        self.calls: list[date] = []
+
+    def is_trading_day(self, value: date) -> bool:
+        self.calls.append(value)
+        return self.trading_day
+
+    def next_trading_day(self, value: date) -> date:
+        self.calls.append(value)
+        return self.target
+
+
 def test_research_rejects_invalid_historical_and_comparison_inputs(tmp_path: Path) -> None:
     app = _app(tmp_path)
 
@@ -99,6 +114,71 @@ def test_research_rejects_invalid_historical_and_comparison_inputs(tmp_path: Pat
         app.run_research("close", as_of=NOW, snapshot_id="snapshot-orchestration-1")
     with pytest.raises(WorkflowError, match="COMPARISON_SNAPSHOT_REQUIRED"):
         app.run_research("close", as_of=NOW, comparison_run=True)
+
+
+def test_next_session_prep_binds_wall_clock_source_and_calendar_target(tmp_path: Path) -> None:
+    app = _app(tmp_path)
+    app.trading_calendar = _PrepCalendar()
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    def run_research(slot: str, **kwargs: object) -> dict[str, object]:
+        calls.append((slot, kwargs))
+        return {
+            "status": "READY",
+            "source_as_of": kwargs["as_of"].isoformat(),
+            "target_trade_date": kwargs["target_trade_date"].isoformat(),
+            "preparation_mode": "NEXT_SESSION_PRODUCTION_PREP",
+        }
+
+    app.run_research = run_research
+    source = datetime(2026, 8, 30, 20, 0, tzinfo=TZ)
+    summary = app.run_next_session_prep(now=source)
+    assert summary["target_trade_date"] == "2026-08-31"
+    assert calls and calls[0][0] == "close"
+    kwargs = calls[0][1]
+    assert kwargs["as_of"] == source
+    assert kwargs["historical_replay"] is False
+    assert kwargs["snapshot_id"] is None
+    assert kwargs["primary_only"] is True
+    assert kwargs["schedule_comparison"] is False
+    assert kwargs["publish_plans"] is True
+    assert kwargs["allow_non_trading_source"] is True
+    assert kwargs["reuse_resume_snapshot"] is False
+
+
+def test_next_session_prep_rejects_trading_day_and_completed_receipt(tmp_path: Path) -> None:
+    app = _app(tmp_path)
+    app.trading_calendar = _PrepCalendar(trading_day=True)
+    with pytest.raises(WorkflowError, match="NEXT_SESSION_PREP_REQUIRES_NON_TRADING_DAY"):
+        app.run_next_session_prep(now=datetime(2026, 8, 31, 8, 0, tzinfo=TZ))
+
+    app.trading_calendar = _PrepCalendar()
+    receipt = app.settings.workflow_output_dir / "runs" / "next-session-prep-2026-08-31.json"
+    receipt.parent.mkdir(parents=True, exist_ok=True)
+    receipt.write_text(
+        json.dumps({
+            "status": "READY",
+            "preparation_mode": "NEXT_SESSION_PRODUCTION_PREP",
+        }),
+        encoding="utf-8",
+    )
+    with pytest.raises(WorkflowError, match="NEXT_SESSION_PREP_ALREADY_COMPLETED"):
+        app.run_next_session_prep(now=datetime(2026, 8, 30, 8, 0, tzinfo=TZ))
+
+
+def test_next_session_prep_contract_cannot_be_used_to_bypass_publication_gate(tmp_path: Path) -> None:
+    app = _app(tmp_path)
+    app.trading_calendar = _PrepCalendar()
+    source = datetime(2026, 8, 30, 20, 0, tzinfo=TZ)
+    with pytest.raises(WorkflowError, match="NEXT_SESSION_PREP_ARGUMENTS_INVALID"):
+        app.run_research(
+            "close",
+            as_of=source,
+            primary_only=True,
+            publish_plans=False,
+            target_trade_date=date(2026, 8, 31),
+            allow_non_trading_source=True,
+        )
 
 
 def test_resource_gate_finishes_progress_and_does_not_start_pipeline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

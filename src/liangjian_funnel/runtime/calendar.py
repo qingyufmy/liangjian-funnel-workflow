@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import date
+from datetime import date, datetime, timedelta
 from typing import Any
 
 
@@ -51,7 +51,7 @@ class ExchangeTradingCalendar:
         return calendar
 
     def is_trading_day(self, value: date) -> bool:
-        if not isinstance(value, date):
+        if isinstance(value, datetime) or not isinstance(value, date):
             raise TypeError("trading day must be a date")
         try:
             return bool(self._calendar(value.year).is_session(value.isoformat()))
@@ -59,6 +59,24 @@ class ExchangeTradingCalendar:
             raise
         except Exception as exc:
             raise TradingCalendarError("TRADING_CALENDAR_DATE_UNSUPPORTED") from exc
+
+    def next_trading_day(self, value: date) -> date:
+        """Return the first exchange session strictly after ``value``.
+
+        The workflow uses this for publication horizons and for preparing a
+        non-trading-day session.  It deliberately delegates every candidate
+        date to :meth:`is_trading_day`, so weekends and exchange holidays are
+        handled by the versioned XSHG calendar rather than a weekday shortcut.
+        """
+
+        if isinstance(value, datetime) or not isinstance(value, date):
+            raise TypeError("trading day must be a date")
+        candidate = value + timedelta(days=1)
+        for _ in range(370):
+            if self.is_trading_day(candidate):
+                return candidate
+            candidate += timedelta(days=1)
+        raise TradingCalendarError("TRADING_CALENDAR_NEXT_SESSION_UNAVAILABLE")
 
 
 __all__ = ["ExchangeTradingCalendar", "TradingCalendarError"]

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from threading import Lock, RLock
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
@@ -106,6 +106,12 @@ def test_workflow_plan_helpers_are_fail_closed():
         datetime(2026, 8, 28, 15, 10, tzinfo=TZ),
         "close",
     ) == datetime(2026, 8, 31, 15, 0, tzinfo=TZ)
+    assert _plan_expiry(
+        "2026-10-01T09:15:00+08:00",
+        datetime(2026, 9, 30, 15, 10, tzinfo=TZ),
+        "close",
+        minimum_trade_date=date(2026, 10, 8),
+    ) == datetime(2026, 10, 8, 15, 0, tzinfo=TZ)
     compact = _compact_factor({"symbol": "600519.SH", "timeframes": {"5m": {"bars": [1, 2], "latest": {"close": 10}, "moving_averages": {"ma5": 9}, "ready": True}}})
     assert "bars" not in compact["timeframes"]["5m"]
 

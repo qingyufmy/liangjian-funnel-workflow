@@ -46,6 +46,9 @@ class _FakeApplication:
     def run_research(self, *args: object, **kwargs: object):
         return self._invoke("run_research", *args, **kwargs)
 
+    def run_next_session_prep(self, *args: object, **kwargs: object):
+        return self._invoke("run_next_session_prep", *args, **kwargs)
+
     def run_comparison(self, *args: object, **kwargs: object):
         return self._invoke("run_comparison", *args, **kwargs)
 
@@ -116,6 +119,27 @@ def test_cli_primary_only_stable_mode_does_not_enqueue_comparison(
     _name, _args, kwargs = _FakeApplication.calls[0]
     assert kwargs["primary_only"] is True
     assert kwargs["schedule_comparison"] is False
+
+
+def test_cli_next_session_prep_uses_dedicated_application_entrypoint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(cli, "WorkflowApplication", _FakeApplication)
+    _FakeApplication.response = {
+        "status": "READY",
+        "source_as_of": "2026-08-30T20:00:00+08:00",
+        "target_trade_date": "2026-08-31",
+        "preparation_mode": "NEXT_SESSION_PRODUCTION_PREP",
+        "outcome_v2": project_run_status("READY", run_id="next-session-prep-2026-08-31").as_dict(),
+    }
+    assert cli.main(["run-next-session-prep"], settings=_settings(tmp_path)) == 0
+    name, args, kwargs = _FakeApplication.calls[0]
+    assert (name, args, kwargs) == ("run_next_session_prep", (), {})
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["source_as_of"].startswith("2026-08-30T20:00:00")
+    assert printed["target_trade_date"] == "2026-08-31"
 
 
 def test_cli_historical_research_parses_as_of_and_snapshot_without_mutating_runtime(
