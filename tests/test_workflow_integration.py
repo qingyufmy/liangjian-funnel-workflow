@@ -18,6 +18,7 @@ from liangjian_funnel.pipeline.research import (
 from liangjian_funnel.pipeline.research import _approved_symbols, _runtime_input
 from liangjian_funnel.workflow import (
     WorkflowApplication,
+    _a4_prompt_plan,
     _canonical_symbol,
     _compact_factor,
     _intraday_market_context,
@@ -595,3 +596,30 @@ def test_a4_context_contains_independent_closed_1m_5m_15m_ma_and_vwap():
     assert len(context["closed_bars"]["15m"]) == 2
     assert context["moving_averages"]["1m"]["ma20"] is not None
     assert context["moving_averages"]["5m"]["vwap"] == 10
+
+
+def test_a4_prompt_plan_excludes_full_research_lineage():
+    projected = _a4_prompt_plan(
+        {
+            "plan_id": "plan-1",
+            "lane_id": "lane_1",
+            "symbol": "600519.SH",
+            "status": "ACTIVE_TODAY",
+            "valid_from": "2026-08-31T09:32:00+08:00",
+            "expires_at": "2026-08-31T15:00:00+08:00",
+            "payload_json": __import__("json").dumps(
+                {
+                    "name": "贵州茅台",
+                    "trigger_low": 10,
+                    "trigger_high": 11,
+                    "stop_level": 9,
+                    "confirmation_bars": 2,
+                    "full_research_evidence": "x" * 100_000,
+                }
+            ),
+        }
+    )
+    assert projected["plan_id"] == "plan-1"
+    assert projected["trigger_low"] == 10
+    assert "full_research_evidence" not in projected
+    assert len(str(projected)) < 2_000

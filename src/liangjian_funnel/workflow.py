@@ -90,7 +90,7 @@ from .settings import Settings, load_yaml
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
-_A4_FILE = "agent_4_intraday_signal_v2.txt"
+_A4_FILE = "agent_4_intraday_veto_v3.txt"
 _G0_SCOPE_CONTRACT = "CONFIGURED_RESEARCH_UNIVERSE_V1"
 _RESEARCH_RESUME_SCHEMA = "liangjian-research-resume/1.2.0"
 _COMPARISON_REQUEST_SCHEMA = "liangjian-comparison-request/1.0.0"
@@ -180,7 +180,14 @@ class WorkflowApplication:
             thinking_enabled=settings.research_thinking_enabled,
         )
         self.monitor_model_client = OpenAICompatibleModelClient(
-            settings.model_copy(update={"model_timeout_seconds": 45.0}),
+            settings.model_copy(
+                update={
+                    "model_timeout_seconds": 45.0,
+                    "model_max_output_tokens": 2_048,
+                    "model_fallback_output_tokens": 1_024,
+                    "model_secondary_fallback_output_tokens": 1_024,
+                }
+            ),
             max_attempts=2,
             thinking_enabled=settings.monitor_thinking_enabled,
         )
@@ -2791,54 +2798,22 @@ class WorkflowApplication:
 
         def callback(context: Mapping[str, Any]) -> Mapping[str, Any]:
             contexts = context.get("plans") if isinstance(context.get("plans"), (list, tuple)) else [context]
-            replacements = {name: None for name in bundle.shared.placeholders + bundle.document(_A4_FILE).placeholders}
+            replacements = {name: None for name in bundle.document(_A4_FILE).placeholders}
+            prompt_plans = [_a4_prompt_plan(plan) for plan in plans]
             replacements.update(
                 {
-                    "EXECUTION_PLANS": list(plans),
+                    "EXECUTION_PLANS": prompt_plans,
                     "TRIGGER_ENGINE_RESULT": contexts,
-                    "REALTIME_QUOTE": {
-                        key: value.get("realtime_quote") for key, value in market_context.items()
-                    },
-                    "CLOSED_BARS": {
-                        key: value.get("closed_bars") for key, value in market_context.items()
-                    },
-                    "REALTIME_MA": {
-                        key: value.get("moving_averages") for key, value in market_context.items()
-                    },
-                    "OPEN_SIGNAL_STATE": {"lane_id": lane_id},
                     "MARKET_CONTEXT": {
                         "time": now.isoformat(),
                         "minute_snapshot_id": context.get("minute_snapshot_id"),
                         "symbols": market_context,
                     },
-                    "SECTOR_CONTEXT": {
-                        "available": any(
-                            isinstance(plan_by_id.get(str(item.get("plan_id"))), Mapping)
-                            and bool(plan_by_id[str(item.get("plan_id"))].get("sector_context"))
-                            for item in contexts
-                            if isinstance(item, Mapping) and item.get("plan_id")
-                        ),
-                        "by_plan": {
-                            plan_id: plan.get("sector_context")
-                            for plan_id, plan in plan_by_id.items()
-                            if plan.get("sector_context") is not None
-                        },
-                    },
-                    "TRADABILITY_FLAGS": {
-                        key: value.get("tradability") for key, value in market_context.items()
-                    },
                     "EXCHANGE_RULES": _exchange_rules_for(self.settings.exchange_rules_path, now),
                     "CURRENT_TIME": now.isoformat(),
-                    "PRIOR_OUTCOME_FEEDBACK": None,
-                    "TIGHTEN_AFTER": "13:45:00",
-                    "NO_NEW_ENTRY_AFTER": "14:45:00",
-                    "AFTER_HOURS_ENTRY_ENABLED": False,
-                    "REQUIRED_CONFIRMATIONS": 2,
-                    "CONFIRMATION_MINUTES": 2,
-                    "DATA_SLA_POLICY": {"closed_bars_only": True, "fail_closed": True},
                 }
             )
-            system = bundle.render("00_shared_system_v2.txt", replacements) + "\n\n" + bundle.render(_A4_FILE, replacements)
+            system = bundle.render(_A4_FILE, replacements)
             model_result: ModelCallResult = self.monitor_model_client.complete(
                 self.settings.monitor_model,
                 [
@@ -2927,6 +2902,40 @@ class WorkflowApplication:
         if synchronize_accounts:
             for broker in self.brokers.values():
                 broker.start_trading_day(current.date())
+
+
+def _a4_prompt_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
+    """Project one durable plan into the bounded A4 veto contract.
+
+    The state row may contain the full A1-A3 lineage in ``payload_json``.
+    A4 needs only immutable execution constraints and compact sector context;
+    sending the complete research payload increases latency without granting
+    the veto model any additional authority.
+    """
+
+    try:
+        payload = json.loads(str(plan.get("payload_json") or "{}"))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        payload = {}
+    if not isinstance(payload, Mapping):
+        payload = {}
+    return {
+        "plan_id": str(plan.get("plan_id") or ""),
+        "lane_id": str(plan.get("lane_id") or ""),
+        "symbol": str(plan.get("symbol") or payload.get("symbol") or ""),
+        "name": str(payload.get("name") or ""),
+        "status": str(plan.get("status") or ""),
+        "valid_from": plan.get("valid_from"),
+        "expires_at": plan.get("expires_at"),
+        "setup_type": payload.get("setup_type"),
+        "trigger_low": payload.get("trigger_low"),
+        "trigger_high": payload.get("trigger_high"),
+        "stop_level": payload.get("stop_level"),
+        "no_chase": payload.get("no_chase"),
+        "confirmation_bars": payload.get("confirmation_bars", payload.get("confirm_bars")),
+        "confirmation_conditions": payload.get("confirmation_conditions"),
+        "sector_context": payload.get("sector_context"),
+    }
 
 
 def _next_closed_minute(value: datetime) -> datetime:

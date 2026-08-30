@@ -183,6 +183,7 @@ def run_a4_replay(
                 "name": plan.get("name"),
                 "action": row.get("action"),
                 "reason_code": row.get("reason_code"),
+                "diagnostic_code": payload.get("diagnostic_code"),
                 "llm_veto": bool(payload.get("llm_veto")),
             }
         )

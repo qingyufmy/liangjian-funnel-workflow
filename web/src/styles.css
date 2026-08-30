@@ -409,6 +409,7 @@ button, a, input, select { -webkit-tap-highlight-color: transparent; }
 .monitor-detail-summary > div:last-child { border-right: 0; }
 .monitor-detail-summary span, .monitor-detail-section dt { color: var(--color-muted); font-size: var(--text-caption); }
 .monitor-detail-summary strong { font-size: var(--text-label); overflow-wrap: anywhere; }
+.monitor-detail-summary small { color: var(--color-warning-text); font-family: var(--font-mono); font-size: var(--text-caption); overflow-wrap: anywhere; }
 .monitor-detail-section { padding: 18px 0; border-top: 1px solid var(--color-border); }
 .monitor-detail-section > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .monitor-detail-section h3 { margin: 0; font-size: var(--text-ui); }

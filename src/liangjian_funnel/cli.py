@@ -120,6 +120,7 @@ def _monitor_event_projection(
         "name": plan.get("name"),
         "action": event.get("action"),
         "reason_code": event.get("reason_code"),
+        "diagnostic_code": payload.get("diagnostic_code"),
         "effective": bool(event.get("effective")),
         "llm_veto": bool(payload.get("llm_veto")),
         "plan": plan or None,

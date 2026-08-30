@@ -93,7 +93,14 @@ def main() -> int:
         callback_host = SimpleNamespace(
             prompts=PromptRepository(settings.prompt_dir),
             monitor_model_client=OpenAICompatibleModelClient(
-                settings.model_copy(update={"model_timeout_seconds": 45.0}),
+                settings.model_copy(
+                    update={
+                        "model_timeout_seconds": 45.0,
+                        "model_max_output_tokens": 2_048,
+                        "model_fallback_output_tokens": 1_024,
+                        "model_secondary_fallback_output_tokens": 1_024,
+                    }
+                ),
                 max_attempts=2,
                 thinking_enabled=False,
             ),

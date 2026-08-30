@@ -22,6 +22,7 @@ PROMPT_FILENAMES: tuple[str, ...] = (
     "agent_2_theme_sentiment_v2.txt",
     "agent_3_technical_planner_v2.txt",
     "agent_4_intraday_signal_v2.txt",
+    "agent_4_intraday_veto_v3.txt",
     "agent_5_review_calibrator_v2.txt",
 )
 
@@ -62,7 +63,7 @@ class PromptDocument:
 
 @dataclass(frozen=True, slots=True)
 class PromptBundle:
-    """The six immutable prompt documents and their aggregate digest."""
+    """The immutable prompt documents and their aggregate digest."""
 
     directory: Path
     documents: Mapping[str, PromptDocument]

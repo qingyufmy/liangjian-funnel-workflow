@@ -316,6 +316,7 @@ class MonitorEngine:
         # with trigger_pass=False can never become eligible here.
         vetoes: dict[str, bool] = {}
         llm_failed = False
+        llm_error_code: str | None = None
         if self.llm_veto is not None and pending_veto:
             model_called = True
             context = {
@@ -327,8 +328,13 @@ class MonitorEngine:
             try:
                 response = self.llm_veto(context)
                 vetoes = self._batch_veto(response, pending_veto)
-            except Exception:
+            except Exception as exc:
                 llm_failed = True
+                candidate = str(getattr(exc, "reason_code", "") or "")[:80]
+                if candidate and all(character == "_" or character.isdigit() or character.isupper() for character in candidate):
+                    llm_error_code = candidate
+                else:
+                    llm_error_code = "LLM_CALLBACK_FAILED"
 
         overrun = model_called and time.monotonic() - started > self.max_seconds
         if overrun:
@@ -341,7 +347,17 @@ class MonitorEngine:
                 events.append(self._emit_effective(lane_id, plan, minute, minute_snapshot_id, MonitorAction.DATA_BLOCK.value, "MONITOR_OVERRUN"))
                 continue
             if llm_failed or self.llm_veto is None:
-                events.append(self._emit_effective(lane_id, plan, minute, minute_snapshot_id, MonitorAction.DATA_BLOCK.value, "LLM_UNAVAILABLE"))
+                events.append(
+                    self._emit_effective(
+                        lane_id,
+                        plan,
+                        minute,
+                        minute_snapshot_id,
+                        MonitorAction.DATA_BLOCK.value,
+                        "LLM_UNAVAILABLE",
+                        diagnostic_code=llm_error_code or "LLM_CALLBACK_MISSING",
+                    )
+                )
                 continue
             veto = bool(vetoes.get(plan_id, False))
             action = MonitorAction.LLM_VETO.value if veto else item["action"]
@@ -539,6 +555,7 @@ class MonitorEngine:
         reason: str,
         *,
         llm_veto: bool = False,
+        diagnostic_code: str | None = None,
     ) -> MonitorEvent:
         plan_id = str(plan["plan_id"])
         symbol = str(plan["symbol"])
@@ -557,6 +574,7 @@ class MonitorEngine:
                 "plan_id": plan_id,
                 "symbol": symbol,
                 "llm_veto": bool(llm_veto),
+                "diagnostic_code": diagnostic_code,
             },
         )
         if not inserted:

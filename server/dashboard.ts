@@ -77,6 +77,7 @@ function normalizeMonitorEvent(value: unknown): JsonValue {
     planId: event.planId ?? event.plan_id ?? null,
     llmVeto: event.llmVeto ?? event.llm_veto ?? false,
     reasonCode: event.reasonCode ?? event.reason_code ?? null,
+    diagnosticCode: event.diagnosticCode ?? event.diagnostic_code ?? null,
     plan: normalizeMonitorPlan(event.plan),
     simulation: normalizeSimulation(event.simulation),
   });
