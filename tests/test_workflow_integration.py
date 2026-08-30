@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import time
 from datetime import datetime, timedelta
+from threading import Lock, RLock
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
@@ -96,6 +98,13 @@ def test_workflow_plan_helpers_are_fail_closed():
     assert not _tightens(parent, {"trigger_low": 9.9, "trigger_high": 11.1, "risk_unit": "STANDARD"})
     expiry = _plan_expiry("not-a-time", datetime(2026, 8, 28, 15, 10, tzinfo=TZ), "close")
     assert expiry.weekday() == 0
+    # A model-proposed Monday morning expiry is floored by the server to the
+    # next trading day close, so an Aug-28 close plan remains usable for Aug-31.
+    assert _plan_expiry(
+        "2026-08-31T09:15:00+08:00",
+        datetime(2026, 8, 28, 15, 10, tzinfo=TZ),
+        "close",
+    ) == datetime(2026, 8, 31, 15, 0, tzinfo=TZ)
     compact = _compact_factor({"symbol": "600519.SH", "timeframes": {"5m": {"bars": [1, 2], "latest": {"close": 10}, "moving_averages": {"ma5": 9}, "ready": True}}})
     assert "bars" not in compact["timeframes"]["5m"]
 
@@ -152,6 +161,224 @@ def test_plan_publication_blocks_symbols_without_trade_permission(tmp_path):
         (item.get("symbol"), item["reason"])
         for item in publication["blocked"]
     } == {("600519.SH", "PLAN_SYMBOL_NOT_TRADABLE")}
+
+
+def test_plan_publication_allows_only_complete_secondary_probe(tmp_path):
+    store = RuntimeStore(tmp_path / "runtime-secondary.sqlite3")
+    current = datetime(2026, 8, 28, 15, 10, tzinfo=TZ)
+    secondary_probe = {
+        "plan_id": "watch-probe",
+        "symbol": "002957.SZ",
+        "candidate_origin": "WATCH_ONLY",
+        "risk_unit": "PROBE",
+        "setup_type": "BREAKOUT_RETEST",
+        "trigger_zone": {"low": 10.0, "high": 10.2},
+        "invalidation_level": 9.8,
+        "stop_distance_pct": 0.02,
+        "first_resistance": 11.0,
+        "reward_risk": 2.5,
+        "technical_score": 80,
+        "score_breakdown": {},
+        "confirmation_conditions": ["5m_close_above_trigger"],
+        "scenarios": {"normal_open_plan": {}, "weak_open_plan": {}, "high_gap_no_chase_plan": {}, "invalidation_plan": {}},
+        "plan_expiry": "2026-08-31T15:00:00+08:00",
+    }
+    secondary_no_entry = {
+        "symbol": "000001.SZ",
+        "candidate_origin": "WATCH_ONLY",
+        "risk_unit": "NO_ENTRY",
+        "reason_codes": ["A3_TECHNICAL_SCORE_BELOW_MINIMUM"],
+    }
+    result = ResearchRunResult(
+        run_id="run-secondary-probe",
+        generated_at=current,
+        snapshot_id="snapshot-secondary",
+        snapshot_hash="b" * 64,
+        status="READY",
+        lanes=(LaneResult(
+            "lane_1",
+            "model",
+            "READY",
+            (),
+            {"core_watch_pool": [], "secondary_watch_pool": [secondary_probe, secondary_no_entry]},
+        ),),
+        audit_paths=(),
+        markdown_path=None,
+    )
+    app = SimpleNamespace(store=store)
+    publication = WorkflowApplication._publish_plans(
+        app,
+        result,
+        "close",
+        current,
+        snapshot_data={
+            "TRADABILITY_FLAGS": {
+                "002957.SZ": {"tradable": True},
+                "000001.SZ": {"tradable": True},
+            },
+            "PRICE_LEVELS": {
+                "002957.SZ": {
+                    "available": True,
+                    "trigger_zone": {"low": 10.0, "high": 10.2},
+                    "invalidation": 9.8,
+                    "stop_distance_pct": 0.02,
+                    "first_resistance": 11.0,
+                    "reward_risk": 2.5,
+                }
+            },
+            "MIN_REWARD_RISK": 2.0,
+            "MAX_STOP_DISTANCE": 0.06,
+            "MIN_TECHNICAL_SCORE": 70,
+        },
+    )
+    assert len(publication["created"]) == 1
+    assert store.list_execution_plans(lane_id="lane_1")[0]["symbol"] == "002957.SZ"
+    assert ("000001.SZ", "SECONDARY_NOT_PROBE") in {
+        (item.get("symbol"), item["reason"]) for item in publication["blocked"]
+    }
+
+
+def test_secondary_probe_uses_stage_canonical_hash_when_base_snapshot_has_no_price_levels(tmp_path):
+    store = RuntimeStore(tmp_path / "runtime-secondary-stage-overlay.sqlite3")
+    current = datetime(2026, 8, 30, 12, 0, tzinfo=TZ)
+    price_contract = {
+        "trigger_zone": {"low": 10.0, "high": 10.2},
+        "invalidation_level": 9.8,
+        "stop_distance_pct": 0.02,
+        "first_resistance": 11.0,
+        "reward_risk": 2.5,
+    }
+    from liangjian_funnel.workflow import _hash_json
+
+    secondary_probe = {
+        "plan_id": "stage-overlay-probe",
+        "symbol": "002957.SZ",
+        "candidate_origin": "WATCH_ONLY",
+        "risk_unit": "PROBE",
+        "setup_type": "BREAKOUT_RETEST",
+        **price_contract,
+        "technical_score": 80,
+        "score_breakdown": {},
+        "confirmation_conditions": ["5m_close_above_trigger"],
+        "scenarios": {
+            "normal_open_plan": {},
+            "weak_open_plan": {},
+            "high_gap_no_chase_plan": {},
+            "invalidation_plan": {},
+        },
+        "plan_expiry": "2026-08-31T15:00:00+08:00",
+        "server_price_levels_hash": _hash_json(price_contract),
+    }
+    result = ResearchRunResult(
+        run_id="run-stage-overlay-probe",
+        generated_at=current,
+        snapshot_id="snapshot-stage-overlay",
+        snapshot_hash="d" * 64,
+        status="READY",
+        lanes=(LaneResult(
+            "lane_1", "model", "READY", (),
+            {"core_watch_pool": [], "secondary_watch_pool": [secondary_probe]},
+        ),),
+        audit_paths=(),
+        markdown_path=None,
+    )
+    publication = WorkflowApplication._publish_plans(
+        SimpleNamespace(store=store),
+        result,
+        "close",
+        current,
+        snapshot_data={
+            "TRADABILITY_FLAGS": {"002957.SZ": {"tradable": True}},
+            "PRICE_LEVELS": {},
+            "MIN_REWARD_RISK": 2.0,
+            "MAX_STOP_DISTANCE": 0.06,
+            "MIN_TECHNICAL_SCORE": 70,
+        },
+    )
+    assert len(publication["created"]) == 1
+    assert store.list_execution_plans(lane_id="lane_1")[0]["symbol"] == "002957.SZ"
+
+
+def test_a3_minute_cache_writes_are_serialized_but_fetches_overlap(monkeypatch):
+    import liangjian_funnel.workflow as workflow_module
+
+    as_of = datetime(2026, 8, 28, 15, 10, tzinfo=TZ)
+    write_state = {"active": 0, "overlaps": 0}
+    state_lock = Lock()
+    fetch_state = {"active": 0, "max": 0}
+    fetch_lock = Lock()
+
+    class MinuteStore:
+        def load_latest(self, *_args, **_kwargs):
+            return []
+
+        def write(self, _bars):
+            with state_lock:
+                if write_state["active"]:
+                    write_state["overlaps"] += 1
+                write_state["active"] += 1
+            time.sleep(0.02)
+            with state_lock:
+                write_state["active"] -= 1
+
+    class FactCache:
+        def query_daily_bars(self, *_args, **_kwargs):
+            return []
+
+    class Mootdx:
+        def fetch_bars(self, symbol, *_args, **_kwargs):
+            with fetch_lock:
+                fetch_state["active"] += 1
+                fetch_state["max"] = max(fetch_state["max"], fetch_state["active"])
+            time.sleep(0.02)
+            with fetch_lock:
+                fetch_state["active"] -= 1
+            return SimpleNamespace(complete=True, bars=[])
+
+    class Factor:
+        def __init__(self, symbol):
+            self.symbol = symbol
+
+        def compute(self, **_kwargs):
+            return SimpleNamespace(
+                model_dump=lambda mode="json": {
+                    "symbol": self.symbol,
+                    "ready": True,
+                    "timeframes": {},
+                }
+            )
+
+    monkeypatch.setattr(workflow_module, "FactorEngine", Factor)
+    monkeypatch.setattr(
+        workflow_module,
+        "build_technical_aggregates",
+        lambda _factor: {"KLINE_PATTERNS": {}, "PRICE_LEVELS": {"available": True}},
+    )
+    app = SimpleNamespace(
+        settings=SimpleNamespace(mootdx_history_5m_required_bars=1),
+        fact_cache=FactCache(),
+        minute_store=MinuteStore(),
+        mootdx=Mootdx(),
+        _stage_technical_cache={},
+        _stage_technical_lock=RLock(),
+    )
+    snapshot = ResearchSnapshot(
+        snapshot_id="snapshot-minute-lock",
+        snapshot_hash="c" * 64,
+        data={},
+        as_of=as_of,
+    )
+    enriched = WorkflowApplication._stage_snapshot_enricher(
+        app,
+        stage="A3",
+        lane_id="lane_1",
+        model="model",
+        upstream_symbols=frozenset({"002957.SZ", "300661.SZ"}),
+        snapshot=snapshot,
+    )
+    assert set(enriched["A3_TECHNICAL_READY"]) == {"002957.SZ", "300661.SZ"}
+    assert write_state["overlaps"] == 0
+    assert fetch_state["max"] >= 2
 
 
 def test_workflow_progress_is_emitted_for_node_log_stream(capsys):

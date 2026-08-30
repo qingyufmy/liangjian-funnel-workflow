@@ -19,11 +19,15 @@ from liangjian_funnel.pipeline.research import (
     _a1_discovery_context_reasons,
     _a1_discovery_evidence_reasons,
     _authorized_discovery_source_refs,
+    _a3_semantic_price_reasons,
+    _a3_watch_only_candidate_eligible,
     _apply_stage_threshold_policy,
     _apply_a2_lineage_policy,
+    _apply_a3_candidate_origin_policy,
     _apply_a3_pool_limits,
     _annotate_a2_pool_target,
     _build_a2_theme_batches,
+    _build_a3_candidate_domain,
     _canonicalize_a3_price_fields,
     _canonicalize_a1_driver_context,
     _canonicalize_stage_scores,
@@ -1471,6 +1475,143 @@ def test_factor_projection_removes_duplicate_summary_and_raw_bar_payload():
     assert "technical_summary" not in factor
     assert "volume" not in factor["timeframes"]["120m"]["latest"]
     assert factor["timeframes"]["120m"]["ma_alignment"] == "BULL_PARTIAL"
+
+
+def test_a3_candidate_domain_includes_only_eligible_watch_only_roles():
+    projected, origins = _build_a3_candidate_domain(
+        {
+            "focus_pool": [{"symbol": "600519.SH", "market_role": "INSTITUTIONAL_CORE"}],
+            "watch_only_pool": [
+                {
+                    "symbol": "002957.SZ",
+                    "market_role": "LEADER",
+                    "reason_codes": ["A2_THEME_SCORE_BELOW_MINIMUM"],
+                    # An empty/missing route alias is resolved again by A3;
+                    # it is not itself a hard data gap.
+                    "eligible_routes": [],
+                },
+                {
+                    "symbol": "300661.SZ",
+                    "role": "CORE_ARMY",
+                    "reason_codes": ["A2_NOT_SENT_TO_LLM", "A2_CAPITAL_FLOW_WEAK"],
+                },
+                {
+                    "symbol": "000001.SZ",
+                    "market_role": "TREND_CORE",
+                    "reason_codes": ["A2_DATA_GAP"],
+                },
+                {
+                    "symbol": "000002.SZ",
+                    "market_role": "LOW_IDENTITY",
+                    "reason_codes": ["A2_WATCH_ONLY"],
+                },
+                {
+                    "symbol": "000003.SZ",
+                    "market_role": "EMOTION_LEADER",
+                    "eligible_routes": ["UNSUPPORTED_ROUTE"],
+                },
+                {
+                    "symbol": "000004.SZ",
+                    "market_role": "EMOTION_LEADER",
+                    "a2_route": "NO_ROUTE_READY",
+                },
+            ],
+        }
+    )
+
+    assert set(origins) == {"600519.SH", "002957.SZ", "300661.SZ"}
+    assert origins["002957.SZ"] == "WATCH_ONLY"
+    assert {item["symbol"] for item in projected["focus_pool"]} == set(origins)
+    assert projected["watch_only_pool"] == []
+    assert _a3_watch_only_candidate_eligible({
+        "market_role": "TREND_CORE",
+        "reason_codes": ["A2_NO_TIER"],
+    })
+
+
+def test_a3_watch_only_core_is_server_demoted_to_probe_secondary():
+    output, changed = _apply_a3_candidate_origin_policy(
+        {
+            "core_watch_pool": [
+                {"symbol": "002957.SZ", "risk_unit": "STANDARD"},
+            ],
+            "secondary_watch_pool": [
+                {"symbol": "600519.SH", "risk_unit": "NO_ENTRY"},
+            ],
+        },
+        {"A3_CANDIDATE_ORIGIN": {"002957.SZ": "WATCH_ONLY"}},
+    )
+
+    assert changed > 0
+    assert output["core_watch_pool"] == []
+    demoted = next(item for item in output["secondary_watch_pool"] if item["symbol"] == "002957.SZ")
+    assert demoted["candidate_origin"] == "WATCH_ONLY"
+    assert demoted["risk_unit"] == "PROBE"
+    assert "A3_WATCH_ONLY_CORE_DEMOTED" in demoted["reason_codes"]
+
+
+def test_a3_secondary_probe_is_canonicalized_and_thresholded():
+    raw = {
+        "secondary_watch_pool": [
+            {
+                "symbol": "002957.SZ",
+                "risk_unit": "PROBE",
+                "trigger_zone": {"low": 9.9, "high": 10.1},
+                "invalidation_level": 9.5,
+                "stop_distance_pct": 0.05,
+                "first_resistance": 11.0,
+                "reward_risk": 2.0,
+                "technical_score": 80,
+            }
+        ]
+    }
+    frozen = {
+        "PRICE_LEVELS": {
+            "002957.SZ": {
+                "available": True,
+                "trigger_zone": {"low": 10.0, "high": 10.2},
+                "invalidation": 9.8,
+                "stop_distance_pct": 0.02,
+                "first_resistance": 11.0,
+                "reward_risk": 2.5,
+            }
+        },
+        "MIN_REWARD_RISK": 2.0,
+        "MAX_STOP_DISTANCE": 0.06,
+    }
+    canonical, count, _ = _canonicalize_a3_price_fields(raw, frozen)
+    assert count == 1
+    assert canonical["secondary_watch_pool"][0]["reward_risk"] == 2.5
+    assert canonical["secondary_watch_pool"][0]["stop_distance_pct"] == 0.02
+
+    thresholded, changed = _apply_stage_threshold_policy(canonical, "A3", frozen)
+    assert changed == 0
+    assert thresholded["secondary_watch_pool"][0]["risk_unit"] == "PROBE"
+
+
+def test_a3_semantic_veto_contradicting_frozen_reward_is_retry_reason():
+    reasons = _a3_semantic_price_reasons(
+        {
+            "rejected_candidates": [
+                {
+                    "symbol": "002957.SZ",
+                    "reason_codes": ["A3_REWARD_RISK_BELOW_MINIMUM"],
+                }
+            ]
+        },
+        {
+            "PRICE_LEVELS": {
+                "002957.SZ": {
+                    "available": True,
+                    "reward_risk": 2.5,
+                    "stop_distance_pct": 0.02,
+                }
+            },
+            "MIN_REWARD_RISK": 2.0,
+            "MAX_STOP_DISTANCE": 0.06,
+        },
+    )
+    assert reasons == ["A3_REWARD_RISK_REJECTION_CONTRADICTS_FROZEN_FACTS"]
 
 
 def test_a3_global_pool_limits_are_applied_after_batch_merge():

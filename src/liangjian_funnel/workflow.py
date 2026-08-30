@@ -1961,7 +1961,12 @@ class WorkflowApplication:
                 minutes = self.mootdx.fetch_bars(symbol, "5m", required_bars, as_of=current)
                 if not minutes.complete:
                     return symbol, None
-                self.minute_store.write(minutes.bars)
+                # Keep network enrichment concurrent, but serialize the
+                # SQLite write.  Multiple A3 workers sharing one minute cache
+                # otherwise race on the same connection/page and surface
+                # ``database is locked`` despite independent symbols.
+                with self._stage_technical_lock:
+                    self.minute_store.write(minutes.bars)
                 minute_bars = minutes.bars
             factor = FactorEngine(symbol).compute(
                 daily_bars=daily_bars,
@@ -2626,71 +2631,105 @@ class WorkflowApplication:
             if lane.status not in {"READY", "READY_DEGRADED"} or not isinstance(lane.final_output, Mapping):
                 blocked.append({"lane": lane.lane, "reason": "LANE_NOT_READY"})
                 continue
-            plans = lane.final_output.get("core_watch_pool")
-            if not isinstance(plans, list):
-                blocked.append({"lane": lane.lane, "reason": "CORE_WATCH_POOL_MISSING"})
+            core_plans = lane.final_output.get("core_watch_pool")
+            secondary_plans = lane.final_output.get("secondary_watch_pool")
+            if not isinstance(core_plans, list) and not isinstance(secondary_plans, list):
+                blocked.append({"lane": lane.lane, "reason": "A3_PLAN_POOLS_MISSING"})
                 continue
             ready_lanes.append(lane.lane)
             previous = {
                 str(item["symbol"]): item
                 for item in self.store.list_execution_plans(lane_id=lane.lane, status=PlanStatus.PENDING_MORNING_REVIEW)
             }
-            for raw in plans:
-                if not isinstance(raw, Mapping):
+            raw_origins = snapshot_data.get("A3_CANDIDATE_ORIGIN")
+            candidate_origins = raw_origins if isinstance(raw_origins, Mapping) else {}
+            for pool_name, plans in (
+                ("core_watch_pool", core_plans),
+                ("secondary_watch_pool", secondary_plans),
+            ):
+                if not isinstance(plans, list):
                     continue
-                payload = _plan_payload(raw)
-                symbol = payload.get("symbol")
-                if (
-                    not symbol
-                    or payload.get("risk_unit") == "NO_ENTRY"
-                    or payload.get("trigger_low") is None
-                    or payload.get("trigger_high") is None
-                    or payload.get("stop_level") is None
-                ):
-                    blocked.append({"lane": lane.lane, "symbol": symbol or "-", "reason": "PLAN_NOT_EXECUTABLE"})
-                    continue
-                flag = tradability_flags.get(symbol)
-                if not isinstance(flag, Mapping):
-                    blocked.append(
-                        {"lane": lane.lane, "symbol": symbol, "reason": "PLAN_TRADABILITY_EVIDENCE_MISSING"}
-                    )
-                    continue
-                if flag.get("tradable") is not True:
-                    blocked.append({"lane": lane.lane, "symbol": symbol, "reason": "PLAN_SYMBOL_NOT_TRADABLE"})
-                    continue
-                logical = str(raw.get("plan_id") or _hash_json(raw)[:16])
-                plan_id = f"{result.run_id}:{lane.lane}:{logical}"
-                if slot == "close":
+                for raw in plans:
+                    if not isinstance(raw, Mapping):
+                        continue
+                    payload = _plan_payload(raw)
+                    symbol = payload.get("symbol")
+                    origin = str(
+                        candidate_origins.get(symbol)
+                        or raw.get("candidate_origin")
+                        or "FOCUS"
+                    ).strip().upper()
+                    if pool_name == "core_watch_pool" and origin == "WATCH_ONLY":
+                        blocked.append({
+                            "lane": lane.lane,
+                            "symbol": symbol or "-",
+                            "reason": "WATCH_ONLY_CORE_NOT_ALLOWED",
+                        })
+                        continue
+                    if pool_name == "secondary_watch_pool":
+                        secondary_reason = _secondary_plan_rejection_reason(
+                            raw,
+                            payload,
+                            snapshot_data,
+                        )
+                        if secondary_reason:
+                            blocked.append({
+                                "lane": lane.lane,
+                                "symbol": symbol or "-",
+                                "reason": secondary_reason,
+                            })
+                            continue
+                    if (
+                        not symbol
+                        or payload.get("risk_unit") == "NO_ENTRY"
+                        or payload.get("trigger_low") is None
+                        or payload.get("trigger_high") is None
+                        or payload.get("stop_level") is None
+                    ):
+                        blocked.append({"lane": lane.lane, "symbol": symbol or "-", "reason": "PLAN_NOT_EXECUTABLE"})
+                        continue
+                    flag = tradability_flags.get(symbol)
+                    if not isinstance(flag, Mapping):
+                        blocked.append(
+                            {"lane": lane.lane, "symbol": symbol, "reason": "PLAN_TRADABILITY_EVIDENCE_MISSING"}
+                        )
+                        continue
+                    if flag.get("tradable") is not True:
+                        blocked.append({"lane": lane.lane, "symbol": symbol, "reason": "PLAN_SYMBOL_NOT_TRADABLE"})
+                        continue
+                    logical = str(raw.get("plan_id") or _hash_json(raw)[:16])
+                    plan_id = f"{result.run_id}:{lane.lane}:{logical}"
+                    if slot == "close":
+                        batch.append(
+                            {
+                                "plan_id": plan_id,
+                                "lane_id": lane.lane,
+                                "symbol": symbol,
+                                "status": PlanStatus.PENDING_MORNING_REVIEW.value,
+                                "expires_at": _plan_expiry(payload.get("plan_expiry"), now, slot),
+                                "payload": payload,
+                            }
+                        )
+                        continue
+                    parent = previous.get(symbol)
+                    if now.time().replace(tzinfo=None) > datetime.strptime("09:40", "%H:%M").time():
+                        blocked.append({"lane": lane.lane, "symbol": symbol, "reason": "MORNING_PUBLICATION_DEADLINE"})
+                        continue
+                    if parent is None or not _tightens(parent, payload):
+                        blocked.append({"lane": lane.lane, "symbol": symbol, "reason": "MORNING_NOT_TIGHTEN_ONLY"})
+                        continue
                     batch.append(
                         {
                             "plan_id": plan_id,
                             "lane_id": lane.lane,
                             "symbol": symbol,
-                            "status": PlanStatus.PENDING_MORNING_REVIEW.value,
+                            "status": PlanStatus.ACTIVE_TODAY.value,
+                            "valid_from": _at_time(now, 9, 32),
                             "expires_at": _plan_expiry(payload.get("plan_expiry"), now, slot),
                             "payload": payload,
+                            "parent_plan_id": str(parent["plan_id"]),
                         }
                     )
-                    continue
-                parent = previous.get(symbol)
-                if now.time().replace(tzinfo=None) > datetime.strptime("09:40", "%H:%M").time():
-                    blocked.append({"lane": lane.lane, "symbol": symbol, "reason": "MORNING_PUBLICATION_DEADLINE"})
-                    continue
-                if parent is None or not _tightens(parent, payload):
-                    blocked.append({"lane": lane.lane, "symbol": symbol, "reason": "MORNING_NOT_TIGHTEN_ONLY"})
-                    continue
-                batch.append(
-                    {
-                        "plan_id": plan_id,
-                        "lane_id": lane.lane,
-                        "symbol": symbol,
-                        "status": PlanStatus.ACTIVE_TODAY.value,
-                        "valid_from": _at_time(now, 9, 32),
-                        "expires_at": _plan_expiry(payload.get("plan_expiry"), now, slot),
-                        "payload": payload,
-                        "parent_plan_id": str(parent["plan_id"]),
-                    }
-                )
         published = self.store.publish_plan_batch(
             batch,
             expire_active_lanes=ready_lanes if slot == "close" else (),
@@ -3081,6 +3120,109 @@ def _plan_payload(raw: Mapping[str, Any]) -> dict[str, Any]:
         "confirmation_bars": 2,
         "action": MonitorAction.BUY_SIGNAL.value,
     }
+
+
+def _workflow_float(value: Any) -> float | None:
+    try:
+        result = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return result if result == result and abs(result) != float("inf") else None
+
+
+def _same_plan_number(left: Any, right: Any) -> bool:
+    first = _workflow_float(left)
+    second = _workflow_float(right)
+    if first is None or second is None:
+        return first is None and second is None
+    return abs(first - second) <= max(1e-9, abs(second) * 1e-9)
+
+
+def _secondary_plan_rejection_reason(
+    raw: Mapping[str, Any],
+    payload: Mapping[str, Any],
+    snapshot_data: Mapping[str, Any],
+) -> str | None:
+    """Return a publication veto for a secondary row that is not executable.
+
+    Secondary rows are useful for audit and monitoring, but only a complete
+    deterministic-price-backed PROBE can become a simulated execution plan.
+    This final check protects the persistence boundary even if a caller builds
+    a ``ResearchRunResult`` without going through the normal pipeline.
+    """
+
+    if str(raw.get("risk_unit") or payload.get("risk_unit") or "").upper() != "PROBE":
+        return "SECONDARY_NOT_PROBE"
+    zone = raw.get("trigger_zone")
+    required = (
+        "invalidation_level",
+        "stop_distance_pct",
+        "first_resistance",
+        "reward_risk",
+        "technical_score",
+        "score_breakdown",
+        "setup_type",
+        "confirmation_conditions",
+        "scenarios",
+        "plan_expiry",
+    )
+    if (
+        not isinstance(zone, Mapping)
+        or zone.get("low") is None
+        or zone.get("high") is None
+        or any(raw.get(field) is None for field in required)
+        or not isinstance(raw.get("score_breakdown"), Mapping)
+        or not isinstance(raw.get("scenarios"), Mapping)
+    ):
+        return "SECONDARY_PLAN_NOT_EXECUTABLE"
+    symbol = str(payload.get("symbol") or "")
+    levels = snapshot_data.get("PRICE_LEVELS")
+    expected = levels.get(symbol) if isinstance(levels, Mapping) else None
+    if isinstance(expected, Mapping) and expected.get("available") is True:
+        expected_zone = expected.get("trigger_zone")
+        if not isinstance(expected_zone, Mapping) or any(
+            not _same_plan_number(zone.get(key), expected_zone.get(key))
+            for key in ("low", "high")
+        ):
+            return "SECONDARY_PRICE_LEVELS_MISMATCH"
+        for actual_key, expected_key in (
+            ("invalidation_level", "invalidation"),
+            ("stop_distance_pct", "stop_distance_pct"),
+            ("first_resistance", "first_resistance"),
+            ("reward_risk", "reward_risk"),
+        ):
+            if not _same_plan_number(raw.get(actual_key), expected.get(expected_key)):
+                return "SECONDARY_PRICE_LEVELS_MISMATCH"
+    else:
+        # Historical/full-market publication receives the immutable base
+        # snapshot; A3's minute-derived PRICE_LEVELS live only in its stage
+        # overlay.  Require the content hash added by the server canonicalizer
+        # instead of trusting a model-authored executable payload.
+        price_contract = {
+            "trigger_zone": dict(zone),
+            "invalidation_level": raw.get("invalidation_level"),
+            "stop_distance_pct": raw.get("stop_distance_pct"),
+            "first_resistance": raw.get("first_resistance"),
+            "reward_risk": raw.get("reward_risk"),
+        }
+        marker = str(raw.get("server_price_levels_hash") or "")
+        if not marker:
+            return "SECONDARY_PRICE_LEVELS_EVIDENCE_MISSING"
+        if marker != _hash_json(price_contract):
+            return "SECONDARY_PRICE_LEVELS_MISMATCH"
+    reward_risk = _workflow_float(raw.get("reward_risk"))
+    stop_distance = _workflow_float(raw.get("stop_distance_pct"))
+    technical_score = _workflow_float(raw.get("technical_score"))
+    minimum_reward_risk = _workflow_float(snapshot_data.get("MIN_REWARD_RISK", 2.0)) or 2.0
+    maximum_stop = _workflow_float(snapshot_data.get("MAX_STOP_DISTANCE", 0.06)) or 0.06
+    minimum_technical = _workflow_float(snapshot_data.get("MIN_TECHNICAL_SCORE", 70)) or 70.0
+    if reward_risk is None or reward_risk < minimum_reward_risk:
+        return "SECONDARY_REWARD_RISK_BELOW_MINIMUM"
+    if stop_distance is None or stop_distance <= 0 or stop_distance > maximum_stop:
+        return "SECONDARY_STOP_DISTANCE_OUTSIDE_LIMIT"
+    if technical_score is None or technical_score < minimum_technical:
+        return "SECONDARY_TECHNICAL_SCORE_BELOW_MINIMUM"
+    return None
 
 
 def _tightens(parent: Mapping[str, Any], new_payload: Mapping[str, Any]) -> bool:
@@ -3602,17 +3744,31 @@ def _float_or_none(value: Any) -> float | None:
 
 
 def _plan_expiry(value: Any, now: datetime, slot: str) -> datetime:
+    current = _aware(now)
+    minimum_day = current.date() if slot == "morning" else (current + timedelta(days=1)).date()
+    while minimum_day.weekday() >= 5:
+        minimum_day += timedelta(days=1)
+    minimum = datetime(
+        minimum_day.year,
+        minimum_day.month,
+        minimum_day.day,
+        15,
+        0,
+        tzinfo=SHANGHAI,
+    )
     if isinstance(value, str):
         try:
             parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-            if parsed.tzinfo is not None and parsed.utcoffset() is not None and parsed > now:
-                return parsed.astimezone(SHANGHAI)
+            if parsed.tzinfo is not None and parsed.utcoffset() is not None:
+                parsed = parsed.astimezone(SHANGHAI)
+                # A model may propose a same-day/overnight expiry.  The
+                # server owns the publication horizon: close plans remain
+                # valid through the next trading day at 15:00 at minimum.
+                if parsed > current and parsed >= minimum:
+                    return parsed
         except ValueError:
             pass
-    day = now.date() if slot == "morning" else (now + timedelta(days=1)).date()
-    while day.weekday() >= 5:
-        day += timedelta(days=1)
-    return datetime(day.year, day.month, day.day, 15, 0, tzinfo=SHANGHAI)
+    return minimum
 
 
 def _hash_json(value: Any) -> str:

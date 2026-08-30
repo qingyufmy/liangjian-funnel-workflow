@@ -143,6 +143,29 @@ _A3_TECHNICAL_DATA_REASONS = frozenset(
         "A3_PRICE_LEVELS_UNAVAILABLE",
     }
 )
+_A3_WATCH_ONLY_ROLES = frozenset({
+    "LEADER",
+    "CORE_ARMY",
+    "TREND_CORE",
+    "EMOTION_LEADER",
+})
+# A2 may retain a symbol as a watch-only candidate for a soft shortfall (for
+# example a theme score below the model target or ``A2_NOT_SENT_TO_LLM``).  It
+# must not be used to bypass a hard evidence/tradability gate when it enters
+# the explicit A3 PROBE_ONLY route.
+_A3_WATCH_ONLY_HARD_REASON_MARKERS = (
+    "DATA_GAP",
+    "CRITICAL",
+    "COVERAGE_BELOW_MINIMUM",
+    "MARKET_FACTS_INSUFFICIENT",
+    "NO_ROUTE",
+    "ROUTE_MISSING",
+    "LOW_IDENTITY",
+    "IDENTIFIABILITY_BELOW",
+    "NOT_TRADABLE",
+    "TRADABILITY",
+    "SYMBOL_NOT_TRADABLE",
+)
 _SYMBOL = re.compile(
     r"(?<![A-Za-z0-9_])(?:(?P<code>\d{6})\.(?P<suffix>SH|SZ|BJ)|"
     r"(?P<prefix>SHSE|SZSE|BJSE|XSHG|XSHE)\.(?P<prefix_code>\d{6}))(?![A-Za-z0-9_])",
@@ -1289,8 +1312,13 @@ class ResearchPipeline:
             )
 
         a2_output = a2_audit.output if isinstance(a2_audit.output, Mapping) else {}
-        a2_symbols = set(a2_audit.symbols)
-        if not a2_symbols:
+        # A3 is allowed to inspect the A2 focus pool plus a deterministic,
+        # explicitly PROBE_ONLY subset of watch-only rows.  Keep the original
+        # A2 output unchanged for audit purposes; the projected copy is the
+        # only upstream view sent to A3.
+        a3_upstream_output, a3_origins = _build_a3_candidate_domain(a2_output)
+        a3_symbols = set(a3_origins)
+        if not a3_symbols:
             if a2_audit.status in {
                 STATUS_BLOCKED_EVIDENCE_GAP,
                 STATUS_DEGRADED_UNDERFILLED_DATA_GAP,
@@ -1328,7 +1356,7 @@ class ResearchPipeline:
                 stage="A3",
                 lane_id=lane_id,
                 model=model,
-                upstream_symbols=a2_symbols,
+                upstream_symbols=a3_symbols,
                 snapshot=a2_snapshot,
             ) if self.stage_snapshot_enricher is not None else a2_snapshot
         except Exception:
@@ -1342,7 +1370,8 @@ class ResearchPipeline:
                 stages=(a1_audit, a2_audit, a3_audit),
                 final_output=None,
             )
-        a3_gate = screen_a3(a3_snapshot.data, a2_output)
+        a3_snapshot = _with_a3_candidate_context(a3_snapshot, a3_origins)
+        a3_gate = screen_a3(a3_snapshot.data, a3_upstream_output)
         self._persist_gate(run_id, lane_id, a3_gate, a3_snapshot)
         self._emit_gate_progress(run_id, lane_id, model, a3_gate)
         a3_audit = self._run_v2_downstream_review(
@@ -1350,8 +1379,8 @@ class ResearchPipeline:
             model=model,
             stage="A3",
             snapshot=a3_snapshot,
-            upstream_output=a2_output,
-            full_upstream_symbols=a2_symbols,
+            upstream_output=a3_upstream_output,
+            full_upstream_symbols=a3_symbols,
             gate=a3_gate,
             bundle=bundle,
             run_id=run_id,
@@ -3125,6 +3154,18 @@ class ResearchPipeline:
                     output, a1_discovery_context
                 )
             output, canonicalized_pool_fields = _canonicalize_stage_pool_fields(output, stage)
+            canonicalized_a3_origins = 0
+            a3_semantic_reasons: list[str] = []
+            if stage == "A3":
+                # Check explicit model vetoes before replacing rounded price
+                # fields with their frozen server values. A model may round a
+                # number harmlessly, but it may not claim a frozen threshold
+                # failed when immutable PRICE_LEVELS says it passed.
+                a3_semantic_reasons = _a3_semantic_price_reasons(output, snapshot.data)
+                output, canonicalized_a3_origins = _apply_a3_candidate_origin_policy(
+                    output,
+                    snapshot.data,
+                )
             output, canonicalized_score_items = _canonicalize_stage_scores(
                 output, stage, snapshot.data
             )
@@ -3155,6 +3196,8 @@ class ResearchPipeline:
                 upstream_symbols=upstream_symbols,
                 snapshot_data=snapshot.data,
             )
+            if stage == "A3" and a3_semantic_reasons:
+                reasons.extend(a3_semantic_reasons)
             if stage == "A1" and a1_discovery_context:
                 reasons.extend(_a1_discovery_context_reasons(output, a1_discovery_context))
                 if (
@@ -3217,6 +3260,8 @@ class ResearchPipeline:
                     diagnostics["canonicalized_driver_context"] = canonicalized_driver_context
                 if canonicalized_pool_fields:
                     diagnostics["canonicalized_pool_fields"] = canonicalized_pool_fields
+                if canonicalized_a3_origins:
+                    diagnostics["canonicalized_a3_origins"] = canonicalized_a3_origins
                 if policy_demotions:
                     diagnostics["policy_demotions"] = policy_demotions
                 return StageAudit(
@@ -4259,8 +4304,12 @@ def _stage_execution_budget(
             "Required top-level keys: envelope, analysis_summary, core_watch_pool, secondary_watch_pool, "
             "rejected_candidates. Each core item must copy deterministic PRICE_LEVELS values for symbol, "
             "risk_unit, trigger_zone, invalidation_level, stop_distance_pct, first_resistance and reward_risk, "
-            "then add concise scenarios and confirmation_conditions. score_breakdown must contain every "
-            "exact key from TECHNICAL_SCORE_WEIGHTS, and technical_score must equal that weighted sum."
+            "then add concise scenarios and confirmation_conditions. Every WATCH_ONLY candidate must never "
+            "enter core_watch_pool; it may enter secondary_watch_pool only as risk_unit=PROBE. A secondary "
+            "PROBE must contain the same complete executable fields as core, including deterministic price "
+            "levels, setup_type, confirmation_conditions, scenarios, technical_score, score_breakdown and "
+            "plan_expiry. Shadow/NO_ENTRY secondary rows are non-publishable. score_breakdown must contain "
+            "every exact key from TECHNICAL_SCORE_WEIGHTS, and technical_score must equal that weighted sum."
         ),
     }[stage]
     return (
@@ -4336,6 +4385,7 @@ def _gate_secondary_items(gate: DeterministicGateResult, stage: str) -> list[dic
         item = {
             "symbol": decision.get("symbol"),
             "company_name": decision.get("name"),
+            "candidate_origin": decision.get("candidate_origin") or "FOCUS",
             "theme_id": decision.get("theme_id"),
             "industry_chain_node": decision.get("node_id"),
             "status": "WATCH_ONLY" if stage == "A2" else "REJECTED",
@@ -4352,10 +4402,138 @@ def _gate_secondary_items(gate: DeterministicGateResult, stage: str) -> list[dic
             item.update({
                 "theme_score": decision.get("score"),
                 "identifiability_score": decision.get("identifiability_score"),
-                "market_role": decision.get("role", "LOW_IDENTITY"),
+                "market_role": decision.get("market_role") or decision.get("role") or "LOW_IDENTITY",
+                # Preserve the deterministic route context when a row was not
+                # sent to the model (for example A2_NOT_SENT_TO_LLM).  A3's
+                # watch-only candidate selector must be able to distinguish a
+                # soft ranking shortfall from a missing route.
+                "a2_route": decision.get("route"),
+                "eligible_routes": list(decision.get("eligible_routes") or ()),
+                "route_eligibility": dict(decision.get("route_eligibility") or {}),
+                "trade_eligible": decision.get("trade_eligible"),
             })
         items.append(item)
     return items
+
+
+def _build_a3_candidate_domain(
+    a2_output: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, str]]:
+    """Build the server-owned A3 domain from A2 focus and eligible watch rows.
+
+    A2's focus pool remains the ordinary A3 input.  A watch-only row can enter
+    the technical review only through the explicit PROBE_ONLY route and only
+    when its role/route/tradability facts are still usable.  This is a domain
+    expansion, not a quota: every eligible row is retained and no symbol is
+    selected by code or by a fixed count.
+    """
+
+    focus_rows = a2_output.get("focus_pool")
+    watch_rows = a2_output.get("watch_only_pool")
+    focus_rows = focus_rows if isinstance(focus_rows, list) else []
+    watch_rows = watch_rows if isinstance(watch_rows, list) else []
+
+    selected: dict[str, dict[str, Any]] = {}
+    origins: dict[str, str] = {}
+
+    for raw in focus_rows:
+        if not isinstance(raw, Mapping):
+            continue
+        symbols = _scan_symbols(raw.get("symbol"))
+        if len(symbols) != 1:
+            continue
+        symbol = next(iter(symbols))
+        item = dict(raw)
+        item["symbol"] = symbol
+        item["candidate_origin"] = "FOCUS"
+        selected[symbol] = item
+        origins[symbol] = "FOCUS"
+
+    for raw in watch_rows:
+        if not isinstance(raw, Mapping):
+            continue
+        symbols = _scan_symbols(raw.get("symbol"))
+        if len(symbols) != 1:
+            continue
+        symbol = next(iter(symbols))
+        if symbol in selected:
+            # A symbol in focus wins deterministically if a provider repeated
+            # it in both A2 partitions.
+            continue
+        if not _a3_watch_only_candidate_eligible(raw):
+            continue
+        item = dict(raw)
+        item["symbol"] = symbol
+        item["candidate_origin"] = "WATCH_ONLY"
+        selected[symbol] = item
+        origins[symbol] = "WATCH_ONLY"
+
+    # Present the candidate domain through the existing A3 upstream placeholder
+    # (which is named UPSTREAM_FOCUS_POOL for compatibility).  The candidate
+    # origin travels with each row and is also persisted in the immutable A3
+    # snapshot context below for server-side policy enforcement.
+    rows = [selected[symbol] for symbol in sorted(selected)]
+    projected = dict(a2_output)
+    projected["focus_pool"] = rows
+    projected["watch_only_pool"] = []
+    return projected, origins
+
+
+def _a3_watch_only_candidate_eligible(item: Mapping[str, Any]) -> bool:
+    role = str(
+        item.get("market_role")
+        or item.get("role")
+        or item.get("a2_role")
+        or item.get("deterministic_market_role")
+        or ""
+    ).strip().upper()
+    if role not in _A3_WATCH_ONLY_ROLES:
+        return False
+
+    reasons = item.get("reason_codes")
+    reason_values = (
+        [str(value).strip().upper() for value in reasons if isinstance(value, str)]
+        if isinstance(reasons, Sequence) and not isinstance(reasons, (str, bytes, bytearray))
+        else []
+    )
+    if any(
+        any(marker in reason for marker in _A3_WATCH_ONLY_HARD_REASON_MARKERS)
+        for reason in reason_values
+    ):
+        return False
+
+    sufficiency = str(item.get("data_sufficiency_state") or "").strip().upper()
+    if sufficiency in {"INSUFFICIENT", "UNAVAILABLE", "MISSING", "DATA_GAP"}:
+        return False
+
+    # Existing A2 payloads use either trade_eligible or tradable.  Missing is
+    # not treated as false here because the A3 technical gate will re-check the
+    # immutable TRADABILITY_FLAGS contract before model review.
+    for key in ("trade_eligible", "tradable", "is_tradable"):
+        if key in item and item.get(key) is False:
+            return False
+
+    explicit_route = str(
+        item.get("a2_route") or item.get("route") or item.get("selection_route") or ""
+    ).strip().upper()
+    eligible_routes = item.get("eligible_routes")
+    route_values = {
+        str(value).strip().upper()
+        for value in eligible_routes
+        if isinstance(value, str) and value.strip()
+    } if isinstance(eligible_routes, Sequence) and not isinstance(eligible_routes, (str, bytes, bytearray)) else set()
+    # Some A2 model rows carry a valid role but omit the route alias.  That is
+    # not itself a hard data gap; A3 will still enforce its own deterministic
+    # factor/price/tradability contract.  Reject only an explicit route veto
+    # or an explicitly populated route list with no usable route.
+    if explicit_route in {"NO_ROUTE", "NO_ROUTE_READY", "A2_NO_ROUTE_READY", "INVALID", "UNAVAILABLE"}:
+        return False
+    if route_values and not route_values.intersection({
+        MARKET_CORE_ROUTE,
+        SUPPLY_CHAIN_ALPHA_ROUTE,
+    }):
+        return False
+    return True
 
 
 def _build_a2_theme_batches(
@@ -5104,6 +5282,14 @@ def _semantic_retry_instruction(
                 value for value in authorized_source_refs if isinstance(value, str) and value.strip()
             )))
         )
+    if stage == "A3" and {
+        "A3_REWARD_RISK_REJECTION_CONTRADICTS_FROZEN_FACTS",
+        "A3_STOP_REJECTION_CONTRADICTS_FROZEN_FACTS",
+    }.intersection(safe_reasons):
+        discovery_requirements.append(
+            "Do not veto reward/risk or stop distance when immutable PRICE_LEVELS meets the configured thresholds; "
+            "copy the frozen canonical values exactly and reserve rejection for a real deterministic failure."
+        )
     discovery_retry = "\n".join(discovery_requirements)
     return (
         "PREVIOUS_RESPONSE_REJECTED\n"
@@ -5505,6 +5691,138 @@ def _a2_available_theme_weights(
     return available, sum(available.values()), tuple(unavailable)
 
 
+def _apply_a3_candidate_origin_policy(
+    output: Mapping[str, Any],
+    snapshot_data: Mapping[str, Any],
+) -> tuple[dict[str, Any], int]:
+    """Apply the server-owned FOCUS/WATCH_ONLY policy to A3 pools.
+
+    The model may classify a candidate, but it cannot promote an A2
+    watch-only row into the executable core pool.  The origin map is attached
+    to the immutable A3 snapshot by the pipeline; a response field is only a
+    backwards-compatible fallback for lightweight replay callers.
+    """
+
+    result = dict(output)
+    raw_origins = snapshot_data.get("A3_CANDIDATE_ORIGIN")
+    origins = {
+        _first_symbol(symbol): str(origin).strip().upper()
+        for symbol, origin in raw_origins.items()
+        if _first_symbol(symbol) and str(origin).strip().upper() in {"FOCUS", "WATCH_ONLY"}
+    } if isinstance(raw_origins, Mapping) else {}
+    core = list(output.get("core_watch_pool")) if isinstance(output.get("core_watch_pool"), list) else None
+    secondary = (
+        list(output.get("secondary_watch_pool"))
+        if isinstance(output.get("secondary_watch_pool"), list)
+        else None
+    )
+    if core is None and secondary is None:
+        return result, 0
+
+    changed = 0
+    demoted: list[Any] = []
+
+    def normalize(raw_item: Any, pool: str) -> Any:
+        nonlocal changed
+        if not isinstance(raw_item, Mapping):
+            return raw_item
+        item = dict(raw_item)
+        symbol = _first_symbol(item)
+        origin = origins.get(symbol) or str(item.get("candidate_origin") or "FOCUS").strip().upper()
+        # Unknown/malformed origins are not allowed to become a new routing
+        # class.  Treat old responses without the additive field as FOCUS;
+        # the deterministic candidate map remains authoritative in production.
+        if origin not in {"FOCUS", "WATCH_ONLY"}:
+            origin = "FOCUS"
+        if item.get("candidate_origin") != origin:
+            item["candidate_origin"] = origin
+            changed += 1
+        if origin == "WATCH_ONLY" and pool == "core_watch_pool":
+            if item.get("risk_unit") != "PROBE":
+                item["risk_unit"] = "PROBE"
+                changed += 1
+            existing = item.get("reason_codes") if isinstance(item.get("reason_codes"), list) else []
+            codes = list(dict.fromkeys([*existing, "A3_WATCH_ONLY_CORE_DEMOTED"]))
+            if codes != existing:
+                item["reason_codes"] = codes
+                changed += 1
+            demoted.append(item)
+        elif origin == "WATCH_ONLY" and pool == "secondary_watch_pool":
+            # A watch-only item is a PROBE candidate at most.  NO_ENTRY is
+            # retained when a later deterministic threshold already applied;
+            # such an item is intentionally non-publishable.
+            if item.get("risk_unit") != "NO_ENTRY" and item.get("risk_unit") != "PROBE":
+                item["risk_unit"] = "PROBE"
+                changed += 1
+        return item
+
+    if core is not None:
+        normalized_core = [normalize(item, "core_watch_pool") for item in core]
+        result["core_watch_pool"] = [item for item in normalized_core if not (
+            isinstance(item, Mapping)
+            and str(item.get("candidate_origin") or "").upper() == "WATCH_ONLY"
+        )]
+    if secondary is not None:
+        normalized_secondary = [normalize(item, "secondary_watch_pool") for item in secondary]
+        result["secondary_watch_pool"] = [*normalized_secondary, *demoted]
+    elif demoted:
+        result["secondary_watch_pool"] = demoted
+    return result, changed
+
+
+def _a3_semantic_price_reasons(
+    output: Mapping[str, Any],
+    snapshot_data: Mapping[str, Any],
+) -> list[str]:
+    """Detect an explicit model threshold veto that contradicts frozen facts.
+
+    Price levels are canonicalized after this check, so harmless decimal
+    rounding remains accepted while an explicit ``rejected_candidates`` veto
+    cannot override a deterministic reward/risk or stop-distance result.
+    """
+
+    raw_levels = snapshot_data.get("PRICE_LEVELS")
+    if not isinstance(raw_levels, Mapping):
+        return []
+    minimum_reward_risk = _safe_float(snapshot_data.get("MIN_REWARD_RISK", 2.0))
+    maximum_stop = _safe_float(snapshot_data.get("MAX_STOP_DISTANCE", 0.06))
+    reasons: list[str] = []
+    for pool_name in ("core_watch_pool", "secondary_watch_pool", "rejected_candidates"):
+        raw_items = output.get(pool_name)
+        if not isinstance(raw_items, list):
+            continue
+        for raw_item in raw_items:
+            if not isinstance(raw_item, Mapping):
+                continue
+            symbol = _first_symbol(raw_item)
+            expected = raw_levels.get(symbol)
+            if not symbol or not isinstance(expected, Mapping) or expected.get("available") is not True:
+                continue
+            codes = raw_item.get("reason_codes")
+            codes = {
+                str(value).strip().upper()
+                for value in codes
+                if isinstance(value, str) and value.strip()
+            } if isinstance(codes, Sequence) and not isinstance(codes, (str, bytes, bytearray)) else set()
+            expected_reward_risk = _safe_float(expected.get("reward_risk"))
+            expected_stop = _safe_float(expected.get("stop_distance_pct"))
+            reward_veto = any(
+                "REWARD_RISK" in code
+                and any(marker in code for marker in ("BELOW", "OUTSIDE", "MINIMUM", "INSUFFICIENT"))
+                for code in codes
+            )
+            stop_veto = any(
+                "STOP_DISTANCE" in code
+                and any(marker in code for marker in ("OUTSIDE", "ABOVE", "LIMIT", "MAXIMUM"))
+                for code in codes
+            )
+            if reward_veto and expected_reward_risk >= minimum_reward_risk:
+                reasons.append("A3_REWARD_RISK_REJECTION_CONTRADICTS_FROZEN_FACTS")
+            if stop_veto and 0 < expected_stop <= maximum_stop:
+                reasons.append("A3_STOP_REJECTION_CONTRADICTS_FROZEN_FACTS")
+    return list(dict.fromkeys(reasons))
+
+
 def _apply_stage_threshold_policy(
     output: Mapping[str, Any],
     stage: str,
@@ -5657,8 +5975,42 @@ def _apply_stage_threshold_policy(
                 changed += 1
                 continue
             retained.append(item)
+        # Secondary rows are a watch/PROBE publication surface, not a way to
+        # bypass the same frozen technical thresholds.  Existing NO_ENTRY
+        # rows remain visible for audit but are deliberately not re-evaluated;
+        # only rows explicitly eligible for a probe need executable numbers.
+        normalized_secondary: list[Any] = []
+        for raw_item in secondary:
+            if not isinstance(raw_item, Mapping) or raw_item.get("risk_unit") != "PROBE":
+                normalized_secondary.append(raw_item)
+                continue
+            item = dict(raw_item)
+            hard_reasons: list[str] = []
+            if _safe_float(item.get("reward_risk")) < minimum_reward_risk:
+                hard_reasons.append("A3_REWARD_RISK_BELOW_MINIMUM")
+            stop_distance = _safe_float(item.get("stop_distance_pct"))
+            if stop_distance <= 0 or stop_distance > maximum_stop:
+                hard_reasons.append("A3_STOP_DISTANCE_OUTSIDE_LIMIT")
+            score_reasons = _weighted_score_reasons(
+                item,
+                weights=snapshot_data.get("TECHNICAL_SCORE_WEIGHTS"),
+                score_field="technical_score",
+                missing_reason="A3_SCORE_BREAKDOWN_MISSING",
+                invalid_reason="A3_SCORE_BREAKDOWN_INVALID",
+                mismatch_reason="A3_TECHNICAL_SCORE_MISMATCH",
+            )
+            if score_reasons:
+                hard_reasons.extend(score_reasons)
+            if _safe_float(item.get("technical_score")) < minimum_technical:
+                hard_reasons.append("A3_TECHNICAL_SCORE_BELOW_MINIMUM")
+            if hard_reasons:
+                existing = item.get("reason_codes") if isinstance(item.get("reason_codes"), list) else []
+                item["reason_codes"] = list(dict.fromkeys([*existing, *hard_reasons]))
+                item["risk_unit"] = "NO_ENTRY"
+                changed += 1
+            normalized_secondary.append(item)
         result["core_watch_pool"] = retained
-        result["secondary_watch_pool"] = _deduplicate_stage_items("secondary_watch_pool", secondary)
+        result["secondary_watch_pool"] = _deduplicate_stage_items("secondary_watch_pool", normalized_secondary)
         result["rejected_candidates"] = _deduplicate_stage_items("rejected_candidates", rejected)
         result, limit_changes = _apply_a3_pool_limits(result, snapshot_data)
         changed += limit_changes
@@ -6635,9 +6987,6 @@ def _validate_partition(
 
 
 def _validate_a3_provenance(output: Mapping[str, Any], snapshot_data: Mapping[str, Any]) -> list[str]:
-    pool = output.get("core_watch_pool")
-    if not isinstance(pool, list) or not pool:
-        return []
     raw_levels = snapshot_data.get("PRICE_LEVELS")
     # Lightweight/offline callers may not provide computed price levels.  In
     # the production workflow the key is always present; only validate exact
@@ -6646,45 +6995,75 @@ def _validate_a3_provenance(output: Mapping[str, Any], snapshot_data: Mapping[st
         return []
     levels = raw_levels
     reasons: list[str] = []
-    for item in pool:
-        if not isinstance(item, Mapping):
+    for pool_name in ("core_watch_pool", "secondary_watch_pool"):
+        pool = output.get(pool_name)
+        if not isinstance(pool, list) or not pool:
             continue
-        scanned = _scan_symbols(item.get("symbol"))
-        if len(scanned) != 1:
-            continue
-        symbol = next(iter(scanned))
-        expected = levels.get(symbol)
-        if not isinstance(expected, Mapping) or expected.get("available") is not True:
-            reasons.append("A3_PRICE_LEVELS_UNAVAILABLE")
-            continue
-        risk_unit = item.get("risk_unit")
-        if risk_unit not in {"PROBE", "STANDARD", "NO_ENTRY"}:
-            reasons.append("A3_RISK_UNIT_INVALID")
-        actual_zone = item.get("trigger_zone")
-        expected_zone = expected.get("trigger_zone")
-        if not isinstance(actual_zone, Mapping) or not isinstance(expected_zone, Mapping):
-            reasons.append("A3_TRIGGER_ZONE_PROVENANCE_MISMATCH")
-        else:
-            for key in ("low", "high"):
-                if not _same_number(actual_zone.get(key), expected_zone.get(key)):
-                    reasons.append("A3_TRIGGER_ZONE_PROVENANCE_MISMATCH")
-                    break
-        for actual_key, expected_key, reason in (
-            ("invalidation_level", "invalidation", "A3_INVALIDATION_PROVENANCE_MISMATCH"),
-            ("stop_distance_pct", "stop_distance_pct", "A3_STOP_DISTANCE_PROVENANCE_MISMATCH"),
-            ("first_resistance", "first_resistance", "A3_RESISTANCE_PROVENANCE_MISMATCH"),
-            ("reward_risk", "reward_risk", "A3_REWARD_RISK_PROVENANCE_MISMATCH"),
-        ):
-            if not _same_number(item.get(actual_key), expected.get(expected_key)):
-                reasons.append(reason)
-        if snapshot_data.get("STRICT_AGENT_RULES") is True:
-            reasons.extend(_a3_factor_contract_reasons(symbol, snapshot_data))
-            scenarios = item.get("scenarios")
-            required_scenarios = {
-                "normal_open_plan", "weak_open_plan", "high_gap_no_chase_plan", "invalidation_plan"
-            }
-            if not isinstance(scenarios, Mapping) or not required_scenarios.issubset(str(key) for key in scenarios):
-                reasons.append("A3_SCENARIO_SET_INCOMPLETE")
+        for item in pool:
+            if not isinstance(item, Mapping):
+                continue
+            risk_unit = str(item.get("risk_unit") or "").upper()
+            # Secondary shadow/NO_ENTRY rows are intentionally non-executable;
+            # they remain auditable without pretending to have a frozen plan.
+            # A secondary PROBE, however, has exactly the same evidence and
+            # numeric provenance obligations as a core plan.
+            if pool_name == "secondary_watch_pool" and risk_unit != "PROBE":
+                continue
+            scanned = _scan_symbols(item.get("symbol"))
+            if len(scanned) != 1:
+                continue
+            symbol = next(iter(scanned))
+            expected = levels.get(symbol)
+            if not isinstance(expected, Mapping) or expected.get("available") is not True:
+                reasons.append("A3_PRICE_LEVELS_UNAVAILABLE")
+                continue
+            if risk_unit not in {"PROBE", "STANDARD", "NO_ENTRY"}:
+                reasons.append("A3_RISK_UNIT_INVALID")
+            if (
+                pool_name == "secondary_watch_pool"
+                and risk_unit == "PROBE"
+                and snapshot_data.get("STRICT_AGENT_RULES") is True
+            ):
+                required_fields = (
+                    "trigger_zone",
+                    "invalidation_level",
+                    "stop_distance_pct",
+                    "first_resistance",
+                    "reward_risk",
+                    "technical_score",
+                    "score_breakdown",
+                    "setup_type",
+                    "confirmation_conditions",
+                    "scenarios",
+                    "plan_expiry",
+                )
+                if any(field not in item or item.get(field) is None for field in required_fields):
+                    reasons.append("A3_SECONDARY_PROBE_FIELDS_MISSING")
+            actual_zone = item.get("trigger_zone")
+            expected_zone = expected.get("trigger_zone")
+            if not isinstance(actual_zone, Mapping) or not isinstance(expected_zone, Mapping):
+                reasons.append("A3_TRIGGER_ZONE_PROVENANCE_MISMATCH")
+            else:
+                for key in ("low", "high"):
+                    if not _same_number(actual_zone.get(key), expected_zone.get(key)):
+                        reasons.append("A3_TRIGGER_ZONE_PROVENANCE_MISMATCH")
+                        break
+            for actual_key, expected_key, reason in (
+                ("invalidation_level", "invalidation", "A3_INVALIDATION_PROVENANCE_MISMATCH"),
+                ("stop_distance_pct", "stop_distance_pct", "A3_STOP_DISTANCE_PROVENANCE_MISMATCH"),
+                ("first_resistance", "first_resistance", "A3_RESISTANCE_PROVENANCE_MISMATCH"),
+                ("reward_risk", "reward_risk", "A3_REWARD_RISK_PROVENANCE_MISMATCH"),
+            ):
+                if not _same_number(item.get(actual_key), expected.get(expected_key)):
+                    reasons.append(reason)
+            if snapshot_data.get("STRICT_AGENT_RULES") is True:
+                reasons.extend(_a3_factor_contract_reasons(symbol, snapshot_data))
+                scenarios = item.get("scenarios")
+                required_scenarios = {
+                    "normal_open_plan", "weak_open_plan", "high_gap_no_chase_plan", "invalidation_plan"
+                }
+                if not isinstance(scenarios, Mapping) or not required_scenarios.issubset(str(key) for key in scenarios):
+                    reasons.append("A3_SCENARIO_SET_INCOMPLETE")
     return reasons
 
 
@@ -6718,59 +7097,75 @@ def _canonicalize_a3_price_fields(
     """Replace model-rounded A3 prices with the frozen deterministic values."""
 
     result = dict(output)
-    pool = output.get("core_watch_pool")
     levels = snapshot_data.get("PRICE_LEVELS")
-    if not isinstance(pool, list) or not isinstance(levels, Mapping):
+    if not isinstance(levels, Mapping):
         return result, 0, 0
-    canonical_pool: list[Any] = []
     count = 0
     trend_veto_count = 0
-    for raw_item in pool:
-        if not isinstance(raw_item, Mapping):
-            canonical_pool.append(raw_item)
+    for pool_name in ("core_watch_pool", "secondary_watch_pool"):
+        pool = output.get(pool_name)
+        if not isinstance(pool, list):
             continue
-        item = dict(raw_item)
-        symbols = _scan_symbols(item.get("symbol"))
-        symbol = next(iter(symbols)) if len(symbols) == 1 else ""
-        expected = levels.get(symbol)
-        if not isinstance(expected, Mapping) or expected.get("available") is not True:
+        canonical_pool: list[Any] = []
+        for raw_item in pool:
+            if not isinstance(raw_item, Mapping):
+                canonical_pool.append(raw_item)
+                continue
+            item = dict(raw_item)
+            symbols = _scan_symbols(item.get("symbol"))
+            symbol = next(iter(symbols)) if len(symbols) == 1 else ""
+            expected = levels.get(symbol)
+            if not isinstance(expected, Mapping) or expected.get("available") is not True:
+                canonical_pool.append(item)
+                continue
+            replacements = {
+                "trigger_zone": expected.get("trigger_zone"),
+                "invalidation_level": expected.get("invalidation"),
+                "stop_distance_pct": expected.get("stop_distance_pct"),
+                "first_resistance": expected.get("first_resistance"),
+                "reward_risk": expected.get("reward_risk"),
+            }
+            factor_snapshot = snapshot_data.get("FACTOR_SNAPSHOT")
+            factor = factor_snapshot.get(symbol) if isinstance(factor_snapshot, Mapping) else None
+            if isinstance(factor, Mapping):
+                replacements["ma_analysis"] = _canonical_ma_analysis(factor)
+                replacements["factor_snapshot_hash"] = _sha256_json(factor)
+            for key, value in replacements.items():
+                item[key] = value
+            # Publication receives the immutable base snapshot, while these
+            # stage-specific technical levels are computed by the A3 overlay.
+            # Persist a server-generated content hash with the canonical
+            # fields so the final persistence boundary can verify that an
+            # executable secondary PROBE passed this code path without having
+            # to retain the complete per-stage snapshot in memory.
+            item["server_price_levels_hash"] = _sha256_json({
+                "trigger_zone": replacements["trigger_zone"],
+                "invalidation_level": replacements["invalidation_level"],
+                "stop_distance_pct": replacements["stop_distance_pct"],
+                "first_resistance": replacements["first_resistance"],
+                "reward_risk": replacements["reward_risk"],
+            })
+            if _major_trend_repair_required(symbol, snapshot_data):
+                item["risk_unit"] = "NO_ENTRY"
+                codes = item.get("reason_codes") if isinstance(item.get("reason_codes"), list) else []
+                item["reason_codes"] = list(dict.fromkeys([*codes, "MAJOR_TREND_REPAIR_REQUIRED"]))
+                scenarios = item.get("scenarios")
+                if isinstance(scenarios, Mapping):
+                    suspended: dict[str, Any] = {}
+                    for name, raw_scenario in scenarios.items():
+                        if not isinstance(raw_scenario, Mapping) or name == "invalidation_plan":
+                            suspended[str(name)] = raw_scenario
+                            continue
+                        scenario = dict(raw_scenario)
+                        scenario["action"] = "NO_ENTRY"
+                        if "risk_unit" in scenario:
+                            scenario["risk_unit"] = "NO_ENTRY"
+                        suspended[str(name)] = scenario
+                    item["scenarios"] = suspended
+                trend_veto_count += 1
             canonical_pool.append(item)
-            continue
-        replacements = {
-            "trigger_zone": expected.get("trigger_zone"),
-            "invalidation_level": expected.get("invalidation"),
-            "stop_distance_pct": expected.get("stop_distance_pct"),
-            "first_resistance": expected.get("first_resistance"),
-            "reward_risk": expected.get("reward_risk"),
-        }
-        factor_snapshot = snapshot_data.get("FACTOR_SNAPSHOT")
-        factor = factor_snapshot.get(symbol) if isinstance(factor_snapshot, Mapping) else None
-        if isinstance(factor, Mapping):
-            replacements["ma_analysis"] = _canonical_ma_analysis(factor)
-            replacements["factor_snapshot_hash"] = _sha256_json(factor)
-        for key, value in replacements.items():
-            item[key] = value
-        if _major_trend_repair_required(symbol, snapshot_data):
-            item["risk_unit"] = "NO_ENTRY"
-            codes = item.get("reason_codes") if isinstance(item.get("reason_codes"), list) else []
-            item["reason_codes"] = list(dict.fromkeys([*codes, "MAJOR_TREND_REPAIR_REQUIRED"]))
-            scenarios = item.get("scenarios")
-            if isinstance(scenarios, Mapping):
-                suspended: dict[str, Any] = {}
-                for name, raw_scenario in scenarios.items():
-                    if not isinstance(raw_scenario, Mapping) or name == "invalidation_plan":
-                        suspended[str(name)] = raw_scenario
-                        continue
-                    scenario = dict(raw_scenario)
-                    scenario["action"] = "NO_ENTRY"
-                    if "risk_unit" in scenario:
-                        scenario["risk_unit"] = "NO_ENTRY"
-                    suspended[str(name)] = scenario
-                item["scenarios"] = suspended
-            trend_veto_count += 1
-        canonical_pool.append(item)
-        count += 1
-    result["core_watch_pool"] = canonical_pool
+            count += 1
+        result[pool_name] = canonical_pool
     return result, count, trend_veto_count
 
 
@@ -7010,6 +7405,33 @@ def _with_a2_bottleneck_context(
     data["A2_BOTTLENECK_CONTEXT"] = context
     return FrozenInputSnapshot(
         snapshot_id=f"{snapshot.snapshot_id}:a2-bottleneck:{overlay_hash[:12]}",
+        data=data,
+        snapshot_hash=overlay_hash,
+        as_of=snapshot.as_of,
+    )
+
+
+def _with_a3_candidate_context(
+    snapshot: FrozenInputSnapshot,
+    origins: Mapping[str, str],
+) -> FrozenInputSnapshot:
+    """Attach the immutable A3 candidate-origin map to a stage snapshot."""
+
+    normalized = {
+        str(symbol): str(origin).upper()
+        for symbol, origin in origins.items()
+        if str(symbol) and str(origin).upper() in {"FOCUS", "WATCH_ONLY"}
+    }
+    overlay_hash = _sha256_json({
+        "base_snapshot_hash": snapshot.snapshot_hash,
+        "stage": "A3_CANDIDATE_CONTEXT",
+        "origins": normalized,
+    })
+    data = dict(snapshot.data)
+    data["A3_CANDIDATE_ORIGIN"] = dict(sorted(normalized.items()))
+    data["A3_CANDIDATE_SCOPE"] = sorted(normalized)
+    return FrozenInputSnapshot(
+        snapshot_id=f"{snapshot.snapshot_id}:a3-candidates:{overlay_hash[:12]}",
         data=data,
         snapshot_hash=overlay_hash,
         as_of=snapshot.as_of,

@@ -1712,6 +1712,7 @@ def screen_a3(snapshot: Mapping[str, Any], a2_output: Mapping[str, Any]) -> Dete
         decisions.append({
             "symbol": symbol,
             "name": item.get("company_name") or item.get("name"),
+            "candidate_origin": item.get("candidate_origin") or "FOCUS",
             "stage": "A3_LOCAL_TECHNICAL",
             "status": status,
             "score": round(score, 4),
