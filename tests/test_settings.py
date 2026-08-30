@@ -39,7 +39,7 @@ def test_exact_models_and_safe_summary_do_not_leak_keys(tmp_path: Path):
     assert settings.open_macro_cache_dir == tmp_path / "storage" / "facts" / "open_macro"
     assert settings.research_thinking_enabled is True
     assert settings.monitor_thinking_enabled is False
-    assert settings.comparison_enabled is True
+    assert settings.comparison_enabled is False
 
 
 def test_thinking_flags_are_explicit_and_strict(tmp_path: Path):

@@ -23,7 +23,13 @@ GLM = "z-ai/glm-5.3-free"
 
 
 def _settings(tmp_path: Path) -> Settings:
-    return Settings.from_env({"LIANGJIAN_MODEL_API_KEY": "model-secret"}, root=tmp_path)
+    return Settings.from_env(
+        {
+            "LIANGJIAN_MODEL_API_KEY": "model-secret",
+            "LIANGJIAN_COMPARISON_ENABLED": "true",
+        },
+        root=tmp_path,
+    )
 
 
 def _prompt_dir(tmp_path: Path) -> Path:

@@ -71,6 +71,15 @@ test("stable mode never starts optional comparison on startup or after close", a
   scheduler.stop();
 });
 
+test("Node configuration is stable-mode fail-closed unless comparison is explicit", async () => {
+  const root = await mkdtemp(join(tmpdir(), "liangjian-stable-config-"));
+  expect(loadConfig({ LIANGJIAN_PYTHON_BIN: "python3" }, root).comparisonEnabled).toBe(false);
+  expect(loadConfig({
+    LIANGJIAN_PYTHON_BIN: "python3",
+    LIANGJIAN_COMPARISON_ENABLED: "true",
+  }, root).comparisonEnabled).toBe(true);
+});
+
 test("scheduler startup recovery requests only the optional comparison command", async () => {
   const calls: JobName[] = [];
   const fakeRunner = {

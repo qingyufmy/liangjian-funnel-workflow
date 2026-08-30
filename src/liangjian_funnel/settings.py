@@ -135,7 +135,7 @@ class Settings(BaseModel):
     # Optional comparison lanes are an audit plane, never a production
     # dependency.  Stable deployments disable this flag so the primary
     # DeepSeek lane owns A1 -> A2 -> A3 without Kimi/GLM consuming runtime.
-    comparison_enabled: bool = True
+    comparison_enabled: bool = False
     publish_comparison_lanes: bool = False
     monitor_model: str = MONITOR_MODEL
 
@@ -338,7 +338,7 @@ class Settings(BaseModel):
             research_primary_lane_id=env.get("LIANGJIAN_RESEARCH_PRIMARY_LANE_ID", "lane_1"),
             comparison_enabled=_parse_bool(
                 env.get("LIANGJIAN_COMPARISON_ENABLED"),
-                default=True,
+                default=False,
             ),
             publish_comparison_lanes=_parse_bool(
                 env.get("LIANGJIAN_PUBLISH_COMPARISON_LANES"),

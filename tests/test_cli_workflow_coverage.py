@@ -72,9 +72,18 @@ def test_cli_primary_only_forwards_explicit_lane_contract_and_returns_success(
 ) -> None:
     monkeypatch.setattr(cli, "WorkflowApplication", _FakeApplication)
     _FakeApplication.response = _ready_response()
+    enabled_settings = Settings.from_env(
+        {
+            "LIANGJIAN_MODEL_API_KEY": "model-test-key",
+            "HITHINK_FINANCE_API_KEY": "hithink-test-key",
+            "LIANGJIAN_RESEARCH_PIPELINE_MODE": "legacy",
+            "LIANGJIAN_COMPARISON_ENABLED": "true",
+        },
+        root=tmp_path,
+    )
     result = cli.main(
         ["run-research", "--slot", "close", "--primary-only"],
-        settings=_settings(tmp_path),
+        settings=enabled_settings,
     )
     assert result == 0
     name, args, kwargs = _FakeApplication.calls[0]
