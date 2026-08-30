@@ -16,6 +16,7 @@ import type {
   ResearchStageDetailItem,
   ResearchStageDetailPlan,
   ResearchStageDetailPool,
+  ResearchDecisionFacts,
   StatusSnapshot,
   WorkflowProgressIssue,
   WorkflowProgressDiagnostics,
@@ -744,13 +745,59 @@ function boundedText(value: unknown): string | null {
 }
 
 function boundedStringList(value: unknown): string[] {
-  const values = typeof value === "string" ? [value] : Array.isArray(value) ? value : [];
   const output: string[] = [];
-  for (const item of values) {
-    const text = boundedText(item);
-    if (text && !output.includes(text)) output.push(text);
-  }
+  const visit = (item: unknown, depth: number): void => {
+    if (depth > 2 || output.length >= 100) return;
+    if (typeof item === "string") {
+      const text = boundedText(item);
+      if (text && !output.includes(text)) output.push(text);
+      return;
+    }
+    // Prompt fields are allowed to be either a scalar string or an array of
+    // strings.  Flatten one extra array level for hand-authored/legacy
+    // artifacts, but never stringify arbitrary objects into the response.
+    if (Array.isArray(item)) {
+      for (const child of item) visit(child, depth + 1);
+    }
+  };
+  visit(value, 0);
   return output;
+}
+
+function hasAnyKey(value: JsonRecord, keys: readonly string[]): boolean {
+  return keys.some((key) => Object.prototype.hasOwnProperty.call(value, key));
+}
+
+function hasPresentKey(value: JsonRecord, keys: readonly string[]): boolean {
+  return keys.some((key) => Object.prototype.hasOwnProperty.call(value, key) && value[key] !== null && value[key] !== undefined);
+}
+
+function boundedJsonValue(value: unknown): JsonValue | null {
+  if (value === undefined) return null;
+  const safe = sanitizeJson(value);
+  const limit = (item: JsonValue, depth: number): JsonValue => {
+    if (depth > 5) return "[TRUNCATED]";
+    if (typeof item === "string") return item.slice(0, DETAIL_TEXT_MAX_LENGTH);
+    if (Array.isArray(item)) return item.slice(0, 50).map((child) => limit(child, depth + 1));
+    if (item !== null && typeof item === "object") {
+      const result: JsonRecord = {};
+      for (const [key, child] of Object.entries(item).slice(0, 40)) {
+        result[key.slice(0, 120)] = limit(child as JsonValue, depth + 1);
+      }
+      return result as JsonValue;
+    }
+    return item;
+  };
+  return limit(safe, 0);
+}
+
+function firstJsonValue(record: JsonRecord, keys: readonly string[]): JsonValue | null {
+  for (const key of keys) {
+    if (!Object.prototype.hasOwnProperty.call(record, key)) continue;
+    const value = boundedJsonValue(record[key]);
+    if (value !== null) return value;
+  }
+  return null;
 }
 
 function firstString(record: JsonRecord, keys: readonly string[]): string | null {
@@ -796,7 +843,16 @@ function industryText(value: JsonRecord): string | null {
 }
 
 function collectReasonCodes(value: JsonRecord): string[] {
-  return boundedStringList(value.reason_codes ?? value.reasonCodes);
+  return collectTextFields(value, [
+    "reason_codes",
+    "reasonCodes",
+    "reason_code",
+    "reasonCode",
+    "system_reason_codes",
+    "systemReasonCodes",
+    "decision_reason_codes",
+    "decisionReasonCodes",
+  ]);
 }
 
 function collectTextFields(value: JsonRecord, keys: readonly string[]): string[] {
@@ -809,30 +865,64 @@ function collectTextFields(value: JsonRecord, keys: readonly string[]): string[]
   return output;
 }
 
+function collectStructuredTextFields(
+  value: JsonRecord,
+  keys: readonly string[],
+  objectKeys: readonly string[] = ["text", "summary", "reason", "description", "claim", "condition", "evidence"],
+): string[] {
+  const output = collectTextFields(value, keys);
+  for (const key of keys) {
+    const values = rawArray(value[key]);
+    for (const item of values) {
+      if (!isRecord(item)) continue;
+      for (const objectKey of objectKeys) {
+        for (const text of boundedStringList(item[objectKey])) {
+          if (!output.includes(text)) output.push(text);
+        }
+      }
+    }
+  }
+  return output.slice(0, 100);
+}
+
 function optionalRecord(value: unknown): JsonRecord | null {
   return isRecord(value) ? value : null;
 }
 
 function lineageValue(value: JsonRecord): JsonValue | null {
   const fields: JsonRecord = {};
+  const sources = [value, optionalRecord(value.lineage)].filter((item): item is JsonRecord => Boolean(item));
   const mappings: readonly [string, readonly string[]][] = [
     ["candidateId", ["candidate_id", "candidateId"]],
+    ["upstreamCandidateId", ["upstream_candidate_id", "upstreamCandidateId"]],
     ["parentCandidateId", ["parent_candidate_id", "parentCandidateId"]],
+    ["candidateOrigin", ["candidate_origin", "candidateOrigin", "origin"]],
     ["origin", ["origin"]],
     ["themeId", ["theme_id", "themeId"]],
     ["parentThemeId", ["parent_theme_id", "parentThemeId"]],
+    ["nodeId", ["node_id", "nodeId", "industry_chain_node", "industryChainNode"]],
     ["marketRole", ["market_role", "marketRole"]],
+    ["route", ["a2_route", "selection_route", "route"]],
   ];
   for (const [outputKey, keys] of mappings) {
-    const field = firstString(value, keys);
-    if (field) fields[outputKey] = field;
+    for (const source of sources) {
+      const field = firstString(source, keys);
+      if (field) {
+        fields[outputKey] = field;
+        break;
+      }
+    }
   }
   return Object.keys(fields).length ? sanitizeJson(fields) : null;
 }
 
 function timeframeStates(value: JsonRecord): JsonValue | null {
   const states: JsonRecord = {};
-  const stateKeys = ["weekly_state", "daily_state", "m120_state", "m15_state", "m5_state", "weekly", "daily", "m120", "m15", "m5"] as const;
+  const stateKeys = [
+    "weekly_state", "daily_state", "m120_state", "m15_state", "m5_state",
+    "state_120m", "state_15m", "state_m120", "state_m15", "state_m5",
+    "weekly", "daily", "m120", "m15", "m5",
+  ] as const;
   for (const key of stateKeys) {
     if (value[key] !== undefined) states[key] = value[key];
   }
@@ -841,28 +931,47 @@ function timeframeStates(value: JsonRecord): JsonValue | null {
 }
 
 function planValue(value: JsonRecord): ResearchStageDetailPlan | null {
-  const trigger = optionalRecord(value.trigger_zone ?? value.triggerZone);
+  const source = optionalRecord(value.plan) ?? value;
+  const trigger = optionalRecord(source.trigger_zone ?? source.triggerZone);
   const triggerZone = trigger
     ? sanitizeJson({ low: numberValue(trigger.low), high: numberValue(trigger.high) })
     : null;
-  const confirmationConditions = collectTextFields(value, ["confirmation_conditions", "confirmationConditions"]);
-  const scenarios = value.scenarios === undefined ? null : asSafeJson(value.scenarios);
-  const timeframe = timeframeStates(value);
+  const confirmationConditions = collectStructuredTextFields(source, ["confirmation_conditions", "confirmationConditions"]);
+  const scenarios = source.scenarios === undefined ? null : asSafeJson(source.scenarios);
+  const timeframe = timeframeStates(source);
   const plan: ResearchStageDetailPlan = {
-    setupType: firstString(value, ["setup_type", "setupType"]),
+    setupType: firstString(source, ["setup_type", "setupType"]),
+    planHash: firstString(source, ["plan_hash", "planHash"]),
     triggerZone,
-    invalidationLevel: firstNumber(value, ["invalidation_level", "invalidationLevel"]),
-    rewardRisk: firstNumber(value, ["reward_risk", "rewardRisk"]),
-    stopDistancePct: firstNumber(value, ["stop_distance_pct", "stopDistancePct"]),
-    riskUnit: firstNumber(value, ["risk_unit", "riskUnit"]),
-    planId: firstString(value, ["plan_id", "planId"]),
-    planExpiry: firstString(value, ["plan_expiry", "planExpiry"]),
+    invalidationLevel: firstNumber(source, ["invalidation_level", "invalidationLevel"]),
+    rewardRisk: firstNumber(source, ["reward_risk", "rewardRisk"]),
+    stopDistancePct: firstNumber(source, ["stop_distance_pct", "stopDistancePct"]),
+    riskUnit: firstNumber(source, ["risk_unit", "riskUnit"]) ?? firstString(source, ["risk_unit", "riskUnit"]),
+    firstResistance: firstNumber(source, ["first_resistance", "firstResistance"]),
+    noChaseCondition: firstString(source, ["no_chase_condition", "noChaseCondition"]),
+    technicalScore: firstNumber(source, ["technical_score", "technicalScore"]),
+    counterTrendProbe: typeof source.counter_trend_probe === "boolean" ? source.counter_trend_probe : typeof source.counterTrendProbe === "boolean" ? source.counterTrendProbe : null,
+    overExtended: typeof source.over_extended === "boolean" ? source.over_extended : typeof source.overExtended === "boolean" ? source.overExtended : null,
+    atrExtension: firstNumber(source, ["atr_extension", "atrExtension"]),
+    maBiasMax: firstNumber(source, ["ma_bias_max", "maBiasMax"]),
+    relativeStrengthRank: firstNumber(source, ["relative_strength_rank", "relativeStrengthRank"]),
+    allowedTimeWindows: asSafeJson(source.allowed_time_windows ?? source.allowedTimeWindows),
+    maAnalysis: asSafeJson(source.ma_analysis ?? source.maAnalysis),
+    klinePattern: firstString(source, ["kline_pattern", "klinePattern"]),
+    factorSnapshotHash: firstString(source, ["factor_snapshot_hash", "factorSnapshotHash"]),
+    configHash: firstString(source, ["config_hash", "configHash"]),
+    planId: firstString(source, ["plan_id", "planId"]),
+    planExpiry: firstString(source, ["plan_expiry", "planExpiry"]),
     confirmationConditions,
     scenarios,
     timeframeStates: timeframe,
   };
-  return plan.setupType || plan.triggerZone || plan.invalidationLevel !== null || plan.rewardRisk !== null
-    || plan.stopDistancePct !== null || plan.riskUnit !== null || plan.planId || plan.planExpiry
+  return plan.setupType || plan.planHash || plan.triggerZone || plan.invalidationLevel !== null || plan.rewardRisk !== null
+    || plan.stopDistancePct !== null || plan.riskUnit !== null || plan.firstResistance !== null
+    || plan.noChaseCondition || plan.technicalScore !== null || plan.counterTrendProbe !== null
+    || plan.overExtended !== null || plan.atrExtension !== null || plan.maBiasMax !== null
+    || plan.relativeStrengthRank !== null || plan.allowedTimeWindows || plan.maAnalysis || plan.klinePattern
+    || plan.factorSnapshotHash || plan.configHash || plan.planId || plan.planExpiry
     || plan.confirmationConditions.length || plan.scenarios || plan.timeframeStates
     ? plan
     : null;
@@ -871,6 +980,8 @@ function planValue(value: JsonRecord): ResearchStageDetailPlan | null {
 interface NameCatalogEntry {
   readonly name: string;
   readonly source: "lane_a1" | "snapshot";
+  readonly theme: string | null;
+  readonly industry: string | null;
 }
 
 function addNamesFromArray(catalog: Map<string, NameCatalogEntry>, value: unknown, source: NameCatalogEntry["source"]): void {
@@ -878,8 +989,237 @@ function addNamesFromArray(catalog: Map<string, NameCatalogEntry>, value: unknow
     if (!isRecord(item)) continue;
     const symbol = normalizedSymbol(item);
     const name = firstString(item, ["company_name", "name", "sec_name"]);
-    if (symbol && name && !catalog.has(symbol)) catalog.set(symbol, { name, source });
+    if (!symbol || !name) continue;
+    const entry: NameCatalogEntry = {
+      name,
+      source,
+      theme: firstString(item, ["primary_theme", "theme", "theme_id", "themeId"]),
+      industry: industryText(item),
+    };
+    const previous = catalog.get(symbol);
+    if (!previous) {
+      catalog.set(symbol, entry);
+    } else if ((!previous.theme && entry.theme) || (!previous.industry && entry.industry)) {
+      catalog.set(symbol, {
+        ...previous,
+        theme: previous.theme ?? entry.theme,
+        industry: previous.industry ?? entry.industry,
+      });
+    }
   }
+}
+
+type FactField = readonly [string, readonly string[]];
+
+const FACTOR_CONTAINERS = ["a2_factor_scores", "factor_scores", "factors", "factor_details"] as const;
+
+function firstFact(value: JsonRecord, keys: readonly string[], nestedKeys: readonly string[] = []): JsonValue | null {
+  const direct = firstJsonValue(value, keys);
+  if (direct !== null) return direct;
+  if (!nestedKeys.length) return null;
+  for (const containerKey of FACTOR_CONTAINERS) {
+    const container = optionalRecord(value[containerKey]);
+    if (!container) continue;
+    const nested = firstJsonValue(container, nestedKeys);
+    if (nested !== null) return nested;
+  }
+  return null;
+}
+
+function factObject(value: JsonRecord, fields: readonly FactField[]): JsonValue | null {
+  const result: JsonRecord = {};
+  for (const [outputKey, keys] of fields) {
+    const fact = firstJsonValue(value, keys);
+    if (fact !== null) result[outputKey] = fact;
+  }
+  return Object.keys(result).length ? result as JsonValue : null;
+}
+
+/**
+ * Project only decision facts that the UI and audit contract understand.
+ * Keeping this list explicit is important: lane artifacts may contain model
+ * payloads, but those payloads must never become an accidental API surface.
+ */
+function decisionFactsValue(value: JsonRecord): ResearchDecisionFacts {
+  const industryChainRole = firstFact(
+    value,
+    ["industry_chain_role", "industryChainRole", "chain_role", "chainRole"],
+    ["industry_chain_role", "chain_role"],
+  ) ?? factObject(value, [
+    ["nodeId", ["industry_chain_node", "industryChainNode", "node_id", "nodeId"]],
+    ["valueChainPosition", ["value_chain_position", "valueChainPosition"]],
+    ["route", ["a2_route", "selection_route", "route"]],
+  ]);
+  const marketRole = firstFact(value, ["market_role", "marketRole", "leader_role", "leaderRole"] , ["market_role", "leader_role"]);
+  const supplyChainRole = firstFact(value, ["supply_chain_role", "supplyChainRole", "value_chain_position", "valueChainPosition"]);
+  const businessExposure = firstFact(
+    value,
+    ["business_exposure", "businessExposure", "business_exposure_facts", "businessExposureFacts", "revenue_exposure_pct", "revenueExposurePct", "gross_profit_exposure_pct", "grossProfitExposurePct", "maximum_revenue_exposure_pct", "maximumRevenueExposurePct", "business_purity", "businessPurity"],
+  );
+  const financialTransmission = firstFact(value, ["financial_transmission", "financialTransmission", "financial_features", "financialFeatures"]);
+  const capitalFlow = firstFact(
+    value,
+    ["capital_flow", "capitalFlow", "fund_flow", "fundFlow", "capital_flow_score", "capitalFlowScore", "capital_score", "capitalScore", "fund_flow_score", "fundFlowScore", "net_inflow", "netInflow", "main_net_inflow", "mainNetInflow"],
+    ["capital_flow", "fund_flow", "capital_score"],
+  );
+  const tierStructure = firstFact(
+    value,
+    ["tier_structure", "tierStructure", "tier_position", "tierPosition", "tier", "ladder", "tier_table", "tierTable", "tier_height", "tierHeight", "tier_width", "tierWidth", "consecutive_limit_ups", "consecutiveLimitUps", "limit_up_count", "limitUpCount"],
+    ["tier_structure", "tier", "ladder"],
+  );
+  const leaderStructure = firstFact(
+    value,
+    ["leader_structure", "leaderStructure", "leader_subtype", "leaderSubtype", "identifiability_score", "identifiabilityScore"],
+    ["leader_structure", "leader_subtype", "identifiability_score"],
+  );
+  const crowding = firstFact(
+    value,
+    ["crowding", "crowding_score", "crowdingScore", "chase_risk_level", "chaseRiskLevel", "crowding_flags", "crowdingFlags", "overcrowding", "overCrowding"],
+    ["crowding", "crowding_score"],
+  );
+  const technicalCycle = firstFact(
+    value,
+    ["technical_cycle", "technicalCycle", "technical_state", "technicalState"],
+    ["technical_cycle", "technical_state"],
+  ) ?? factObject(value, [
+    ["technicalScore", ["technical_score", "technicalScore"]],
+    ["maAnalysis", ["ma_analysis", "maAnalysis"]],
+    ["klinePattern", ["kline_pattern", "klinePattern"]],
+    ["weekly", ["weekly_state", "weeklyState", "weekly"]],
+    ["daily", ["daily_state", "dailyState", "daily"]],
+    ["m120", ["state_120m", "state120m", "m120_state", "m120State", "m120"]],
+    ["m15", ["state_15m", "state15m", "m15_state", "m15State", "m15"]],
+    ["m5", ["m5_state", "m5State", "m5"]],
+  ]);
+  const weeklyConfirmation = firstFact(
+    value,
+    ["weekly_confirmation", "weeklyConfirmation", "weekly_confirmation_score", "weeklyConfirmationScore", "weekly_momentum_state", "weeklyMomentumState", "weekly_state", "weeklyState"],
+    ["weekly_confirmation", "weekly_confirmation_score"],
+  );
+  const indexChainResonance = firstFact(
+    value,
+    ["index_chain_resonance", "indexChainResonance", "index_chain_resonance_score", "indexChainResonanceScore", "chain_resonance_score", "chainResonanceScore"],
+    ["index_chain_resonance", "chain_resonance_score"],
+  );
+  return {
+    industryChainRole,
+    marketRole,
+    supplyChainRole,
+    businessExposure,
+    financialTransmission,
+    capitalFlow,
+    tierStructure,
+    leaderStructure,
+    crowding,
+    technicalCycle,
+    weeklyConfirmation,
+    indexChainResonance,
+  };
+}
+
+function sourceReferenceValues(value: JsonRecord): JsonValue[] {
+  const output: JsonValue[] = [];
+  const seen = new Set<string>();
+  const keys = [
+    "source_refs", "sourceRefs", "source_ref", "sourceRef",
+    "supporting_source_refs", "supportingSourceRefs", "base_source_refs", "baseSourceRefs",
+    "theme_source_refs", "themeSourceRefs", "node_source_refs", "nodeSourceRefs",
+    "evidence_ref", "evidenceRef",
+  ] as const;
+  const append = (raw: unknown, depth: number): void => {
+    if (depth > 2 || output.length >= 100) return;
+    if (Array.isArray(raw)) {
+      for (const child of raw) append(child, depth + 1);
+      return;
+    }
+    const safe = boundedJsonValue(raw);
+    if (safe === null) return;
+    const key = JSON.stringify(safe);
+    if (key && !seen.has(key)) {
+      seen.add(key);
+      output.push(safe);
+    }
+  };
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(value, key)) append(value[key], 0);
+  }
+  return output;
+}
+
+function detailMissingFields(
+  value: JsonRecord,
+  stage: ResearchStage,
+  pool: ResearchPool,
+  item: {
+    readonly name: string | null;
+    readonly theme: string | null;
+    readonly industry: string | null;
+    readonly score: number | null;
+    readonly selectionReasons: readonly string[];
+    readonly reasonCodes: readonly string[];
+    readonly evidence: readonly string[];
+    readonly risks: readonly string[];
+    readonly invalidation: readonly string[];
+    readonly sourceRefs: readonly JsonValue[];
+    readonly lineage: JsonValue | null;
+    readonly decisionFacts: ResearchDecisionFacts;
+    readonly plan: ResearchStageDetailPlan | null;
+  },
+): string[] {
+  const missing: string[] = [];
+  const mark = (field: string, available: boolean): void => {
+    if (!available && !missing.includes(field)) missing.push(field);
+  };
+  if (pool === "rejected") {
+    mark("name", Boolean(item.name));
+    mark("reasonCodes", item.reasonCodes.length > 0 || hasAnyKey(value, [
+      "reason_codes", "reasonCodes", "reason_code", "reasonCode", "system_reason_codes", "systemReasonCodes",
+      "veto_triggered", "vetoTriggered",
+    ]));
+    return missing;
+  }
+  // These are display/audit fields, not eligibility gates.  A missing value
+  // is surfaced to the UI instead of being replaced with a guess.
+  mark("name", Boolean(item.name));
+  mark("themeOrIndustry", Boolean(item.theme || item.industry));
+  mark("score", item.score !== null);
+  mark("selectionReasonsOrReasonCodes", item.selectionReasons.length > 0 || item.reasonCodes.length > 0);
+  if (stage === "A1") {
+    if (hasAnyKey(value, ["business_exposure", "businessExposure", "business_exposure_facts", "businessExposureFacts"])) {
+      mark("decisionFacts.businessExposure", item.decisionFacts.businessExposure !== null);
+    }
+    if (hasAnyKey(value, ["financial_transmission", "financialTransmission", "financial_features", "financialFeatures"])) {
+      mark("decisionFacts.financialTransmission", item.decisionFacts.financialTransmission !== null);
+    }
+    if (hasAnyKey(value, [
+      "source_refs", "sourceRefs", "source_ref", "sourceRef", "supporting_source_refs", "supportingSourceRefs",
+      "base_source_refs", "baseSourceRefs", "theme_source_refs", "themeSourceRefs", "node_source_refs", "nodeSourceRefs",
+      "evidence_ref", "evidenceRef",
+    ])) mark("sourceRefs", item.sourceRefs.length > 0 || hasPresentKey(value, [
+      "source_refs", "sourceRefs", "source_ref", "sourceRef", "supporting_source_refs", "supportingSourceRefs",
+      "base_source_refs", "baseSourceRefs", "theme_source_refs", "themeSourceRefs", "node_source_refs", "nodeSourceRefs",
+      "evidence_ref", "evidenceRef",
+    ]));
+  }
+  if (stage === "A2") {
+    mark("industry", Boolean(item.industry));
+    mark("decisionFacts.marketRole", item.decisionFacts.marketRole !== null);
+    mark("decisionFacts.supplyChainRole", item.decisionFacts.supplyChainRole !== null);
+    mark("decisionFacts.capitalFlow", item.decisionFacts.capitalFlow !== null);
+    mark("decisionFacts.tierStructure", item.decisionFacts.tierStructure !== null);
+    mark("decisionFacts.leaderStructure", item.decisionFacts.leaderStructure !== null);
+    mark("decisionFacts.crowding", item.decisionFacts.crowding !== null);
+    mark("decisionFacts.indexChainResonance", item.decisionFacts.indexChainResonance !== null);
+  }
+  if (stage === "A3") {
+    mark("decisionFacts.technicalCycle", item.decisionFacts.technicalCycle !== null);
+    mark("decisionFacts.weeklyConfirmation", item.decisionFacts.weeklyConfirmation !== null);
+  }
+  // Only an A3 approved row is expected to contain an executable plan.  A3
+  // watch/rejected rows are valid without one and remain auditable through
+  // their reason/evidence fields.
+  if (stage === "A3" && pool === "approved") mark("plan", item.plan !== null);
+  return missing;
 }
 
 function rootChild(rootDir: string, candidate: string): string | null {
@@ -1460,46 +1800,62 @@ function normalizeResearchItem(
   if (!isRecord(value)) return null;
   const symbol = normalizedSymbol(value);
   if (!symbol) return null;
-  const modelName = firstString(value, ["company_name", "name", "sec_name"]);
+  const modelName = firstString(value, ["company_name", "companyName", "name", "sec_name", "secName", "stock_name", "stockName", "security_name", "securityName"]);
   const catalogName = names.get(symbol);
   const name = modelName ?? catalogName?.name ?? null;
+  const declaredNameSource = firstString(value, ["name_source", "nameSource"]);
+  const declaredSource = declaredNameSource
+    ? ({
+      model: "model",
+      lane_a1: "lane_a1",
+      snapshot: "snapshot",
+      snapshot_index: "snapshot",
+      index: "snapshot",
+    } as const)[declaredNameSource.toLocaleLowerCase()]
+    : undefined;
   const nameSource: ResearchStageDetailItem["nameSource"] = modelName
-    ? "model"
+    ? declaredSource ?? "model"
     : catalogName?.source ?? "unavailable";
   const score = stage === "A1"
-    ? firstNumber(value, ["structural_score", "score"])
+    ? firstNumber(value, ["structural_score", "structuralScore", "score"])
     : stage === "A2"
-      ? firstNumber(value, ["theme_score", "score"])
-      : firstNumber(value, ["technical_score", "score"]);
+      ? firstNumber(value, ["theme_score", "themeScore", "identifiability_score", "identifiabilityScore", "score"])
+      : firstNumber(value, ["technical_score", "technicalScore", "score"]);
   const selectionReasons = stage === "A1"
-    ? collectTextFields(value, ["core_thesis", "selection_reasons", "supporting_evidence"])
+    ? collectStructuredTextFields(value, ["core_thesis", "coreThesis", "selection_reasons", "selectionReasons", "supporting_evidence", "supportingEvidence", "why_selected", "whySelected", "rationale"])
     : stage === "A2"
-      ? collectTextFields(value, ["selection_reasons", "role_evidence", "supporting_evidence"])
-      : collectTextFields(value, ["selection_reasons", "confirmation_conditions", "setup_type"]);
+      ? collectStructuredTextFields(value, ["selection_reasons", "selectionReasons", "role_evidence", "roleEvidence", "supporting_evidence", "supportingEvidence", "why_selected", "whySelected", "rationale"])
+      : collectStructuredTextFields(value, ["selection_reasons", "selectionReasons", "confirmation_conditions", "confirmationConditions", "setup_type", "setupType", "ma_context", "maContext", "why_selected", "whySelected", "rationale"]);
   const riskReasons = stage === "A1"
-    ? collectTextFields(value, ["bear_case", "risk_reasons", "risk_flags"])
+    ? collectStructuredTextFields(value, ["bear_case", "bearCase", "risk_reasons", "riskReasons", "risk_flags", "riskFlags", "risk_warnings", "riskWarnings"])
     : stage === "A2"
-      ? collectTextFields(value, ["risk_reasons", "riskReasons", "risk_flags", "contradicting_evidence"])
-      : collectTextFields(value, ["risk_reasons", "riskReasons", "risk_flags", "veto_triggered"]);
-  const evidence = collectTextFields(value, ["evidence", "role_evidence", "supporting_evidence", "core_thesis"]);
-  const risks = collectTextFields(value, ["bear_case", "risk_reasons", "riskReasons", "risk_flags", "contradicting_evidence"]);
-  const invalidation = collectTextFields(value, ["invalidation_conditions", "invalidation", "veto_triggered"]);
-  const sourceRefs = asSafeJson(value.source_refs ?? value.sourceRefs ?? []) ?? [];
+      ? collectStructuredTextFields(value, ["risk_reasons", "riskReasons", "risk_flags", "riskFlags", "risk_warnings", "riskWarnings", "contradicting_evidence", "contradictingEvidence"])
+      : collectStructuredTextFields(value, ["risk_reasons", "riskReasons", "risk_flags", "riskFlags", "risk_warnings", "riskWarnings", "veto_triggered", "vetoTriggered"]);
+  const evidence = collectStructuredTextFields(value, ["evidence", "role_evidence", "roleEvidence", "supporting_evidence", "supportingEvidence", "core_thesis", "coreThesis", "bottleneck_evidence", "bottleneckEvidence"]);
+  const risks = collectStructuredTextFields(value, ["bear_case", "bearCase", "risk_reasons", "riskReasons", "risk_flags", "riskFlags", "risk_warnings", "riskWarnings", "contradicting_evidence", "contradictingEvidence"]);
+  const invalidation = collectStructuredTextFields(value, ["invalidation_conditions", "invalidationConditions", "invalidation", "veto_triggered", "vetoTriggered"]);
+  const sourceRefs = sourceReferenceValues(value);
   const scoreBreakdown = asSafeJson(value.score_breakdown ?? value.scoreBreakdown);
-  const theme = firstString(value, ["primary_theme", "theme", "theme_id", "themeId"]);
+  const factorCoverage = asSafeJson(value.factor_coverage ?? value.factorCoverage ?? value.critical_factor_coverage ?? value.criticalFactorCoverage);
+  const theme = firstString(value, ["primary_theme", "primaryTheme", "theme", "theme_id", "themeId"])
+    ?? catalogName?.theme
+    ?? null;
+  const industry = industryText(value) ?? catalogName?.industry ?? null;
   const lineage = lineageValue(value);
   const plan = planValue(value);
-  return {
+  const item: ResearchStageDetailItem = {
     symbol,
     name,
     nameSource,
-    status: firstString(value, ["status", "state"]),
+    detailState: "PARTIAL",
+    missingFields: [],
+    status: firstString(value, ["status", "state", "decision_status", "decisionStatus"]),
     pool,
     theme,
-    industry: industryText(value),
-    route: firstString(value, ["a2_route", "selection_route", "route"]),
+    industry,
+    route: firstString(value, ["a2_route", "a2Route", "selection_route", "selectionRoute", "route"]),
     bottleneckStatus: firstString(value, ["bottleneck_status", "bottleneckStatus"]),
-    factorCoverage: asSafeJson(value.factor_coverage ?? value.factorCoverage),
+    factorCoverage,
     score,
     reasonCodes: collectReasonCodes(value),
     selectionReasons,
@@ -1510,7 +1866,14 @@ function normalizeResearchItem(
     scoreBreakdown,
     sourceRefs,
     lineage,
+    decisionFacts: decisionFactsValue(value),
     plan,
+  };
+  const missingFields = detailMissingFields(value, stage, pool, item);
+  return {
+    ...item,
+    detailState: missingFields.length ? "PARTIAL" : "COMPLETE",
+    missingFields,
   };
 }
 
@@ -1661,6 +2024,7 @@ export class ProjectFiles {
         if (!source) continue;
         addNamesFromArray(catalog, source.trade_candidates, "snapshot");
         addNamesFromArray(catalog, source.universe_candidates, "snapshot");
+        addNamesFromArray(catalog, source.g0_candidates, "snapshot");
       }
     }
     return catalog;
@@ -1826,6 +2190,12 @@ export class ProjectFiles {
     const offset = (safePage - 1) * safePageSize;
     const search = boundedText(query)?.toLocaleLowerCase() ?? "";
     const reasonFilter = boundedText(reason) ?? "";
+    // Use the same lane/snapshot name catalog as the legacy path.  The index
+    // is an acceleration layer, not a separate response contract; rows that
+    // omit a name must resolve identically regardless of which artifact was
+    // selected.
+    const lane = await this.researchLane(runId, laneId);
+    const names = lane ? await this.researchNameCatalog(runId, lane) : new Map<string, NameCatalogEntry>();
     const items: ResearchStageDetailItem[] = [];
     let total = 0;
     const input = createReadStream(dataPath, { encoding: "utf8" });
@@ -1840,7 +2210,7 @@ export class ProjectFiles {
           continue;
         }
         if (!isRecord(parsed) || parsed.stage !== stageKey || parsed.pool !== poolKey || !isRecord(parsed.item)) continue;
-        const normalized = normalizeResearchItem(parsed.item, poolKey, stageKey, new Map());
+        const normalized = normalizeResearchItem(parsed.item, poolKey, stageKey, names);
         if (!normalized) continue;
         const queryMatch = !search
           || normalized.symbol.toLocaleLowerCase().includes(search)

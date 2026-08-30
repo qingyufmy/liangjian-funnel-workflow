@@ -78,7 +78,21 @@ async function createResearchDetailFixture(): Promise<string> {
         latency_ms: 456,
         symbols: ["600001.SH", "600002.SZ"],
         output: {
-          focus_pool: [{ symbol: "600001.SH", theme_score: 72, selection_reasons: ["主题强度"] }],
+          focus_pool: [{
+            symbol: "600001.SH",
+            theme_score: 72,
+            industry: "软件开发",
+            industry_chain_role: "BOTTLENECK_NODE",
+            market_role: "CORE_ARMY",
+            supply_chain_role: "SUPPLIES_SCARCE_LAYER",
+            capital_flow_score: 80,
+            tier_structure: "COMPLETE",
+            leader_structure: "CORE_ARMY",
+            crowding_score: 40,
+            index_chain_resonance_score: 75,
+            selection_reasons: ["主题强度"],
+            source_refs: ["a2-source"],
+          }],
           watch_only_pool: [{ symbol: "600002.SZ", reason_codes: ["WAIT_CONFIRMATION"] }],
           rejected_candidates: [{ symbol: "600003.SH", reason_codes: ["THEME_WEAK"] }],
         },
@@ -93,6 +107,8 @@ async function createResearchDetailFixture(): Promise<string> {
             symbol: "600001.SH",
             technical_score: 81,
             setup_type: "BREAKOUT_RETEST",
+            technical_cycle: "UPTREND",
+            weekly_confirmation: { score: 80, state: "PERSISTENT" },
             trigger_zone: { low: 10, high: 11 },
             invalidation_level: 9.5,
             reward_risk: 2.4,
@@ -100,6 +116,10 @@ async function createResearchDetailFixture(): Promise<string> {
             risk_unit: 0.01,
             plan_id: "fixture-plan",
             plan_expiry: "2026-08-27T15:00:00+08:00",
+            plan_hash: "fixture-plan-hash",
+            first_resistance: 11.5,
+            no_chase_condition: "高开超过5%不追",
+            allowed_time_windows: [{ from: "09:32", to: "14:45" }],
             confirmation_conditions: ["VWAP_RECLAIM"],
             daily_state: "UPTREND",
             m5_state: "BREAKOUT",
@@ -301,6 +321,19 @@ test("projects paginated research stage pools with names, reasons, and allow-lis
     reasonCodes: ["QUALITY_PASS"],
     selectionReasons: ["收入增长", "现金流改善"],
     riskReasons: ["估值偏高"],
+    detailState: "COMPLETE",
+    missingFields: [],
+    decisionFacts: {
+      industryChainRole: null,
+      businessExposure: null,
+      capitalFlow: null,
+      tierStructure: null,
+      leaderStructure: null,
+      crowding: null,
+      technicalCycle: null,
+      weeklyConfirmation: null,
+      indexChainResonance: null,
+    },
   });
   expect(JSON.stringify(approved)).not.toContain("raw");
 
@@ -309,7 +342,23 @@ test("projects paginated research stage pools with names, reasons, and allow-lis
 
   const laneName = await files.researchStageDetail("fixture-run", "lane_1", "A2", "approved", 1, 50, "600001", "");
   expect(laneName).toMatchObject({ inputCount: 3, outputCount: 2, reasonOptions: [] });
-  expect(laneName?.items[0]).toMatchObject({ symbol: "600001.SH", name: "模型名称", nameSource: "lane_a1" });
+  expect(laneName?.items[0]).toMatchObject({
+    symbol: "600001.SH",
+    name: "模型名称",
+    nameSource: "lane_a1",
+    detailState: "COMPLETE",
+    missingFields: [],
+    decisionFacts: {
+      industryChainRole: "BOTTLENECK_NODE",
+      marketRole: "CORE_ARMY",
+      supplyChainRole: "SUPPLIES_SCARCE_LAYER",
+      capitalFlow: 80,
+      tierStructure: "COMPLETE",
+      leaderStructure: "CORE_ARMY",
+      crowding: 40,
+      indexChainResonance: 75,
+    },
+  });
   expect(laneName?.pools).toEqual([
     { id: "approved", label: "聚焦候选", count: 1 },
     { id: "watch", label: "仅观察", count: 1 },
@@ -325,11 +374,21 @@ test("projects paginated research stage pools with names, reasons, and allow-lis
   ]);
   expect(a3?.items[0]).toMatchObject({
     symbol: "600001.SH",
+    detailState: "COMPLETE",
+    missingFields: [],
+    decisionFacts: {
+      technicalCycle: "UPTREND",
+      weeklyConfirmation: { score: 80, state: "PERSISTENT" },
+    },
     plan: {
       setupType: "BREAKOUT_RETEST",
+      planHash: "fixture-plan-hash",
       triggerZone: { low: 10, high: 11 },
       invalidationLevel: 9.5,
       rewardRisk: 2.4,
+      firstResistance: 11.5,
+      noChaseCondition: "高开超过5%不追",
+      allowedTimeWindows: [{ from: "09:32", to: "14:45" }],
       stopDistancePct: 4.5,
       planId: "fixture-plan",
       timeframeStates: { daily_state: "UPTREND", m5_state: "BREAKOUT" },

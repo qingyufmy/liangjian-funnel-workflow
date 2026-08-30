@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { FormEvent, KeyboardEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch, getStoredToken, saveToken, withQuery } from "./api";
+import { collectWorkbenchIssues, WorkbenchIssue, WorkbenchIssueSeverity } from "./issues";
 import {
   AccountSummary,
   ApiError,
@@ -55,13 +56,14 @@ import {
   WorkflowProgressSummary,
 } from "./types";
 
-type ViewId = "overview" | "funnel" | "monitor" | "accounts" | "logs" | "deployment";
+type ViewId = "overview" | "funnel" | "monitor" | "accounts" | "issues" | "logs" | "deployment";
 
 const NAVIGATION: Array<{ id: ViewId; label: string; icon: typeof LayoutDashboard }> = [
   { id: "overview", label: "总览", icon: LayoutDashboard },
   { id: "funnel", label: "研究漏斗", icon: GitBranch },
   { id: "monitor", label: "盘中盯盘", icon: MonitorDot },
   { id: "accounts", label: "模拟账户", icon: WalletCards },
+  { id: "issues", label: "问题跟踪", icon: CircleAlert },
   { id: "logs", label: "运行日志", icon: ScrollText },
   { id: "deployment", label: "部署状态", icon: Server },
 ];
@@ -497,6 +499,9 @@ export function App() {
     };
   }, [unauthorized]);
 
+  const issues = useMemo(() => collectWorkbenchIssues(overview, logs), [overview, logs]);
+  const openIssueCount = issues.filter((issue) => issue.status === "OPEN").length;
+
   if (unauthorized) {
     return <AuthGate onAuthenticated={() => void load()} />;
   }
@@ -518,6 +523,7 @@ export function App() {
               <button key={item.id} type="button" className={item.id === view ? "nav-item nav-item-active" : "nav-item"} onClick={() => { setView(item.id); setSidebarOpen(false); }}>
                 <Icon size={18} aria-hidden="true" />
                 <span>{item.label}</span>
+                {item.id === "issues" && openIssueCount > 0 ? <span className="nav-count" aria-label={`${openIssueCount} 个待处理问题`}>{openIssueCount}</span> : null}
               </button>
             );
           })}
@@ -549,10 +555,11 @@ export function App() {
           ) : null}
           {loading ? <LoadingScreen /> : (
             <>
-              {view === "overview" ? <OverviewPage overview={overview} logs={logs} onNavigate={setView} /> : null}
+              {view === "overview" ? <OverviewPage overview={overview} logs={logs} issues={issues} onNavigate={setView} /> : null}
               {view === "funnel" ? <FunnelPage overview={overview} runs={runs} /> : null}
               {view === "monitor" ? <MonitorPage overview={overview} /> : null}
               {view === "accounts" ? <AccountsPage overview={overview} /> : null}
+              {view === "issues" ? <IssuesPage issues={issues} /> : null}
               {view === "logs" ? <LogsPage logs={logs} streamConnected={streamConnected} /> : null}
               {view === "deployment" ? <DeploymentPage overview={overview} /> : null}
             </>
@@ -564,7 +571,7 @@ export function App() {
   );
 }
 
-function OverviewPage({ overview, logs, onNavigate }: { overview: OverviewResponse; logs: LogEntry[]; onNavigate: (view: ViewId) => void }) {
+function OverviewPage({ overview, logs, issues, onNavigate }: { overview: OverviewResponse; logs: LogEntry[]; issues: WorkbenchIssue[]; onNavigate: (view: ViewId) => void }) {
   const headline = serviceHeadline(overview);
   return (
     <div className="page-stack">
@@ -583,6 +590,8 @@ function OverviewPage({ overview, logs, onNavigate }: { overview: OverviewRespon
       </div>
 
       <WorkflowProgressPanel progress={overview.workflowProgress} />
+
+      <IssuePanel issues={issues} onOpen={() => onNavigate("issues")} />
 
       <LogPanel logs={logs.slice(0, 10)} onOpen={() => onNavigate("logs")} />
     </div>
@@ -944,7 +953,10 @@ function outcomeAxisLabel(outcome: OutcomeStatus): string {
 function OutcomeNotice({ outcome }: { outcome: OutcomeStatus | null | undefined }) {
   if (!outcome) return null;
   const reasons = outcome.reason_codes.length ? `；原因码：${outcome.reason_codes.join("、")}` : "";
-  return <div className="stage-detail-notice" role="status"><strong>{outcomeAxisLabel(outcome)}</strong><span>{`生命周期：${outcome.lifecycle_state}${reasons}`}</span></div>;
+  const tone = outcome.quality_state === "FAILED" || outcome.quality_state === "CANCELLED" ? "error"
+    : outcome.quality_state === "BLOCKED" || outcome.quality_state === "DEGRADED" || outcome.opportunity_state === "UNKNOWN" ? "warning"
+      : "healthy";
+  return <div className={`stage-detail-outcome outcome-${tone}`} role="status"><StatusIcon tone={tone} size={15} /><strong>{outcomeAxisLabel(outcome)}</strong><span>{`生命周期：${outcome.lifecycle_state}${reasons}`}</span></div>;
 }
 
 function StageDetailDialog({ target, onDismiss }: { target: StageDetailTarget | null; onDismiss: () => void }) {
@@ -1078,7 +1090,7 @@ function StageDetailDialog({ target, onDismiss }: { target: StageDetailTarget | 
                     <span>{item.theme || item.industry || "—"}</span>
                     <strong className="stage-stock-score">{item.score === null || item.score === undefined ? "—" : item.score}</strong>
                     <span className="stage-stock-reasons">{item.selectionReasons[0] ?? item.reasonCodes[0] ?? item.evidence[0] ?? "未提供原因"}</span>
-                    <span><StatusBadge status={item.status} label={pools.find((entry) => entry.id === item.pool)?.label} /></span>
+                    <span className="stage-stock-result-status"><StatusBadge status={item.status} label={pools.find((entry) => entry.id === item.pool)?.label} />{item.detailState ? <small className={item.detailState === "COMPLETE" ? "detail-completeness detail-complete" : "detail-completeness detail-partial"}>{item.detailState === "COMPLETE" ? "明细完整" : `缺 ${item.missingFields?.length ?? 0} 项`}</small> : null}</span>
                   </button>
                 )) : <div className="stage-detail-state"><Database size={20} /><strong>当前筛选条件没有股票</strong><span>可切换分类或清空搜索与原因筛选。</span></div>}
               </div>
@@ -1105,25 +1117,43 @@ function DetailStringList({ title, badge, values }: { title: string; badge: stri
   return <section className="stage-detail-section"><header><h3>{title}</h3><span>{badge}</span></header><ul>{values.map((value, index) => <li key={`${value}-${index}`}>{value}</li>)}</ul></section>;
 }
 
+const DECISION_FACT_LABELS: Record<string, string> = {
+  industryChainRole: "产业链角色", marketRole: "市场角色", supplyChainRole: "供应链位置", businessExposure: "业务暴露",
+  financialTransmission: "财务传导", capitalFlow: "资金流", tierStructure: "梯队结构", leaderStructure: "龙头结构",
+  crowding: "拥挤度", technicalCycle: "技术周期", weeklyConfirmation: "周线确认", indexChainResonance: "指数 / 产业链共振",
+};
+
+const MISSING_FIELD_LABELS: Record<string, string> = {
+  name: "股票名称", themeOrIndustry: "主题或行业", industry: "行业", score: "阶段评分", selectionReasons: "筛选依据", selectionReasonsOrReasonCodes: "筛选依据或系统原因码", reasonCodes: "系统原因码",
+  evidence: "事实证据", risks: "风险说明", invalidation: "失效条件", sourceRefs: "事实来源", lineage: "上游追溯", plan: "A3 计划",
+  "decisionFacts.industryChainRole": "产业链角色", "decisionFacts.marketRole": "市场角色", "decisionFacts.supplyChainRole": "供应链位置",
+  "decisionFacts.businessExposure": "业务暴露", "decisionFacts.financialTransmission": "财务传导", "decisionFacts.capitalFlow": "资金流",
+  "decisionFacts.tierStructure": "梯队结构", "decisionFacts.leaderStructure": "龙头结构", "decisionFacts.crowding": "拥挤度",
+  "decisionFacts.technicalCycle": "技术周期", "decisionFacts.weeklyConfirmation": "周线确认", "decisionFacts.indexChainResonance": "指数 / 产业链共振",
+};
+
 function StageStockDetail({ item, onBack }: { item: StageDetailItem | null; onBack: () => void }) {
   if (!item) return <aside className="stage-stock-detail"><div className="stage-detail-state"><CircleAlert size={21} /><strong>选择一只股票查看详情</strong><span>模型判断、系统原因码与事实证据会分开展示。</span></div></aside>;
   const scoreEntries = Object.entries(item.scoreBreakdown ?? {});
+  const decisionFactEntries = Object.entries(item.decisionFacts ?? {}).filter(([, value]) => value !== null && value !== undefined);
   const plan = item.plan;
   return (
     <aside className="stage-stock-detail" aria-label={`${item.symbol} 详情`}>
       <button className="stage-detail-back text-button" type="button" onClick={onBack}><ChevronLeft size={17} />返回股票列表</button>
       <header className="stage-stock-detail-heading"><div><h3>{item.name || "名称未提供"}</h3><span>{item.symbol} · {item.theme || item.industry || "行业主题未提供"}</span></div>{item.score !== null && item.score !== undefined ? <strong>{item.score}<small>分</small></strong> : null}</header>
+      {item.detailState === "PARTIAL" ? <div className="stage-detail-notice"><CircleAlert size={16} /><div><strong>明细字段不完整</strong><span>未提供：{(item.missingFields ?? []).map((field) => MISSING_FIELD_LABELS[field] ?? field).join("、") || "未标明字段"}。页面不会推测填充。</span></div></div> : item.detailState === "COMPLETE" ? <div className="stage-detail-complete-note"><CheckCircle2 size={16} />本阶段要求的股票明细字段完整。</div> : null}
       {item.nameSource === "unavailable" ? <div className="stage-detail-notice"><CircleAlert size={16} />冻结快照和模型结果均未提供名称，页面没有推测填充。</div> : null}
       {item.route || item.bottleneckStatus || item.factorCoverage ? <section className="stage-detail-section"><header><h3>A2 入池通道</h3><span>确定性门禁</span></header><dl className="stage-definition-grid"><div><dt>路线</dt><dd>{detailValue(item.route)}</dd></div><div><dt>瓶颈状态</dt><dd>{detailValue(item.bottleneckStatus)}</dd></div><div><dt>事实覆盖</dt><dd>{detailValue(item.factorCoverage)}</dd></div></dl></section> : null}
       <DetailStringList title="入选逻辑" badge="模型判断" values={item.selectionReasons} />
       <DetailStringList title="淘汰 / 校验原因" badge="系统原因码" values={item.reasonCodes} />
+      {decisionFactEntries.length ? <section className="stage-detail-section"><header><h3>关键决策事实</h3><span>持久化事实</span></header><dl className="stage-definition-grid stage-decision-grid">{decisionFactEntries.map(([key, value]) => <div key={key}><dt>{DECISION_FACT_LABELS[key] ?? key}</dt><dd>{detailValue(value)}</dd></div>)}</dl></section> : null}
       {scoreEntries.length ? <section className="stage-detail-section"><header><h3>评分拆解</h3><span>模型字段</span></header><dl className="stage-score-grid">{scoreEntries.map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{detailValue(value)}</dd></div>)}</dl></section> : null}
       <DetailStringList title="证据与依据" badge="模型证据" values={item.evidence} />
       {item.sourceRefs.length ? <section className="stage-detail-section"><header><h3>事实来源</h3><span>source refs</span></header><ul className="stage-source-refs">{item.sourceRefs.map((source, index) => <li key={index}>{detailValue(source)}</li>)}</ul></section> : null}
       <DetailStringList title="风险提示" badge="模型风险" values={[...new Set([...item.riskReasons, ...item.risks])]} />
       <DetailStringList title="失效条件" badge="约束条件" values={item.invalidation} />
       {item.lineage && Object.keys(item.lineage).length ? <section className="stage-detail-section"><header><h3>上游追溯</h3><span>lineage</span></header><dl className="stage-definition-grid">{Object.entries(item.lineage).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{detailValue(value)}</dd></div>)}</dl></section> : null}
-      {plan ? <section className="stage-detail-section stage-plan-section"><header><h3>A3 技术计划</h3><span>只读计划</span></header><dl className="stage-definition-grid"><div><dt>形态</dt><dd>{detailValue(plan.setupType)}</dd></div><div><dt>触发区间</dt><dd>{plan.triggerZone ? `${detailValue(plan.triggerZone.low)} – ${detailValue(plan.triggerZone.high)}` : "—"}</dd></div><div><dt>失效价</dt><dd>{detailValue(plan.invalidationLevel)}</dd></div><div><dt>盈亏比</dt><dd>{detailValue(plan.rewardRisk)}</dd></div><div><dt>止损距离原始值</dt><dd>{detailValue(plan.stopDistancePct)}</dd></div><div><dt>风险单位</dt><dd>{detailValue(plan.riskUnit)}</dd></div><div><dt>计划 ID</dt><dd>{detailValue(plan.planId)}</dd></div><div><dt>有效期</dt><dd>{detailValue(plan.planExpiry)}</dd></div></dl>{plan.timeframeStates && Object.keys(plan.timeframeStates).length ? <section className="stage-detail-section"><header><h3>周期状态</h3><span>timeframes</span></header><dl className="stage-definition-grid">{Object.entries(plan.timeframeStates).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{detailValue(value)}</dd></div>)}</dl></section> : null}{plan.scenarios ? <section className="stage-detail-section"><header><h3>情景计划</h3><span>scenarios</span></header><p className="stage-detail-raw-value">{detailValue(plan.scenarios)}</p></section> : null}{plan.confirmationConditions?.length ? <DetailStringList title="确认条件" badge="触发约束" values={plan.confirmationConditions} /> : null}</section> : null}
+      {plan ? <section className="stage-detail-section stage-plan-section"><header><h3>A3 技术计划</h3><span>只读计划</span></header><dl className="stage-definition-grid"><div><dt>形态</dt><dd>{detailValue(plan.setupType)}</dd></div><div><dt>触发区间</dt><dd>{plan.triggerZone ? `${detailValue(plan.triggerZone.low)} – ${detailValue(plan.triggerZone.high)}` : "—"}</dd></div><div><dt>失效价</dt><dd>{detailValue(plan.invalidationLevel)}</dd></div><div><dt>第一阻力位</dt><dd>{detailValue(plan.firstResistance)}</dd></div><div><dt>盈亏比</dt><dd>{detailValue(plan.rewardRisk)}</dd></div><div><dt>止损距离原始值</dt><dd>{detailValue(plan.stopDistancePct)}</dd></div><div><dt>风险单位</dt><dd>{detailValue(plan.riskUnit)}</dd></div><div><dt>技术分</dt><dd>{detailValue(plan.technicalScore)}</dd></div><div><dt>相对强度排名</dt><dd>{detailValue(plan.relativeStrengthRank)}</dd></div><div><dt>ATR 延伸</dt><dd>{detailValue(plan.atrExtension)}</dd></div><div><dt>最大均线偏离</dt><dd>{detailValue(plan.maBiasMax)}</dd></div><div><dt>禁止追价条件</dt><dd>{detailValue(plan.noChaseCondition)}</dd></div><div><dt>K 线形态</dt><dd>{detailValue(plan.klinePattern)}</dd></div><div><dt>反趋势试探</dt><dd>{detailValue(plan.counterTrendProbe)}</dd></div><div><dt>过度延伸</dt><dd>{detailValue(plan.overExtended)}</dd></div><div><dt>允许时间窗</dt><dd>{detailValue(plan.allowedTimeWindows)}</dd></div><div><dt>均线分析</dt><dd>{detailValue(plan.maAnalysis)}</dd></div><div><dt>计划 ID</dt><dd>{detailValue(plan.planId)}</dd></div><div><dt>计划哈希</dt><dd>{detailValue(plan.planHash)}</dd></div><div><dt>因子快照哈希</dt><dd>{detailValue(plan.factorSnapshotHash)}</dd></div><div><dt>配置哈希</dt><dd>{detailValue(plan.configHash)}</dd></div><div><dt>有效期</dt><dd>{detailValue(plan.planExpiry)}</dd></div></dl>{plan.timeframeStates && Object.keys(plan.timeframeStates).length ? <section className="stage-detail-section"><header><h3>周期状态</h3><span>timeframes</span></header><dl className="stage-definition-grid">{Object.entries(plan.timeframeStates).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{detailValue(value)}</dd></div>)}</dl></section> : null}{plan.scenarios ? <section className="stage-detail-section"><header><h3>情景计划</h3><span>scenarios</span></header><p className="stage-detail-raw-value">{detailValue(plan.scenarios)}</p></section> : null}{plan.confirmationConditions?.length ? <DetailStringList title="确认条件" badge="触发约束" values={plan.confirmationConditions} /> : null}</section> : null}
     </aside>
   );
 }
@@ -1156,6 +1186,70 @@ function DataSourcesPanel({ sources, onOpen }: { sources: DataSourceSummary[]; o
       )}
     </Panel>
   );
+}
+
+const ISSUE_SEVERITY_LABELS: Record<WorkbenchIssueSeverity, string> = { CRITICAL: "严重", WARNING: "警告", INFO: "提示" };
+const ISSUE_SOURCE_LABELS: Record<WorkbenchIssue["source"], string> = { DEPLOYMENT: "部署", WORKFLOW: "工作流", DATA_SOURCE: "数据源", RUNTIME: "运行时", PLAN: "计划" };
+
+function IssueSeverityBadge({ severity }: { severity: WorkbenchIssueSeverity }) {
+  return <span className={`issue-severity issue-${severity.toLowerCase()}`}><span aria-hidden="true" />{ISSUE_SEVERITY_LABELS[severity]}</span>;
+}
+
+function issueLocation(issue: WorkbenchIssue): string {
+  return [issue.runId, issue.laneId, issue.stage].filter(Boolean).join(" · ") || ISSUE_SOURCE_LABELS[issue.source];
+}
+
+function IssuePanel({ issues, onOpen }: { issues: WorkbenchIssue[]; onOpen: () => void }) {
+  const open = issues.filter((issue) => issue.status === "OPEN");
+  const visible = (open.length ? open : issues).slice(0, 5);
+  return (
+    <Panel title="问题跟踪" icon={<CircleAlert size={18} />} action={<button className="text-button" type="button" onClick={onOpen}>查看全部问题</button>}>
+      {visible.length === 0 ? (
+        <EmptyState title="当前没有待跟踪问题" detail="工作流、数据源、部署门禁与近期运行日志均未报告异常。" icon={<CheckCircle2 size={22} />} />
+      ) : (
+        <div className="issue-list">
+          {visible.map((issue) => <article key={issue.id} className="issue-row">
+            <IssueSeverityBadge severity={issue.severity} />
+            <div><strong>{issue.title}</strong><span>{issue.detail}</span><small>{issueLocation(issue)} · {issue.code}</small></div>
+            <div className="issue-row-meta"><span>{issue.status === "OPEN" ? "待处理" : "观察中"}</span><time>{formatDateTime(issue.lastSeenAt)}</time></div>
+          </article>)}
+        </div>
+      )}
+      <div className="panel-footnote"><CircleDotDashed size={14} /><span>待处理来自当前持久化状态；观察中来自近期日志或当前无计划状态，恢复后会自动退出当前清单。</span></div>
+    </Panel>
+  );
+}
+
+function IssuesPage({ issues }: { issues: WorkbenchIssue[] }) {
+  const [severity, setSeverity] = useState<"ALL" | WorkbenchIssueSeverity>("ALL");
+  const [status, setStatus] = useState<"ALL" | WorkbenchIssue["status"]>("ALL");
+  const filtered = useMemo(() => issues.filter((issue) => (severity === "ALL" || issue.severity === severity) && (status === "ALL" || issue.status === status)), [issues, severity, status]);
+  const counts = {
+    open: issues.filter((issue) => issue.status === "OPEN").length,
+    critical: issues.filter((issue) => issue.severity === "CRITICAL").length,
+    warning: issues.filter((issue) => issue.severity === "WARNING").length,
+    observing: issues.filter((issue) => issue.status === "OBSERVING").length,
+  };
+  return <div className="page-stack">
+    <PageHeading eyebrow="Traceable operations" title="问题跟踪" detail="统一汇总部署门禁、工作流验收、数据源健康度与近期运行异常；当前状态恢复后会自动从待处理清单移除。" />
+    <div className="summary-strip"><SummaryItem label="待处理" value={String(counts.open)} /><SummaryItem label="严重" value={String(counts.critical)} /><SummaryItem label="警告" value={String(counts.warning)} /><SummaryItem label="观察中" value={String(counts.observing)} /></div>
+    <Panel title="当前问题" icon={<CircleAlert size={18} />}>
+      <div className="issue-toolbar">
+        <label><span>严重度</span><select value={severity} onChange={(event) => setSeverity(event.target.value as "ALL" | WorkbenchIssueSeverity)}><option value="ALL">全部</option><option value="CRITICAL">严重</option><option value="WARNING">警告</option><option value="INFO">提示</option></select></label>
+        <label><span>状态</span><select value={status} onChange={(event) => setStatus(event.target.value as "ALL" | WorkbenchIssue["status"])}><option value="ALL">全部</option><option value="OPEN">待处理</option><option value="OBSERVING">观察中</option></select></label>
+        <span>{filtered.length} 项</span>
+      </div>
+      {filtered.length === 0 ? <EmptyState title="当前筛选条件下没有问题" detail="可切换严重度或状态查看其它项目。" icon={<CheckCircle2 size={22} />} /> : <div className="data-table-wrap"><table className="data-table issue-table"><thead><tr><th>严重度</th><th>状态</th><th>问题</th><th>定位</th><th>首次 / 最近</th><th>次数</th></tr></thead><tbody>{filtered.map((issue) => <tr key={issue.id}>
+        <td><IssueSeverityBadge severity={issue.severity} /></td>
+        <td><span className={`issue-status issue-status-${issue.status.toLowerCase()}`}>{issue.status === "OPEN" ? "待处理" : "观察中"}</span></td>
+        <td className="issue-description"><strong>{issue.title}</strong><span>{issue.detail}</span><code>{issue.code}</code></td>
+        <td className="mono-cell">{issueLocation(issue)}</td>
+        <td><time>{formatDateTime(issue.firstSeenAt)}</time><span className="issue-time-separator"> / </span><time>{formatDateTime(issue.lastSeenAt)}</time></td>
+        <td>{issue.occurrenceCount}</td>
+      </tr>)}</tbody></table></div>}
+      <div className="panel-footnote"><ShieldCheck size={14} /><span>该页面只做只读聚合，不会自动重试、重启、放宽研究门槛或连接外部交易。</span></div>
+    </Panel>
+  </div>;
 }
 
 function LogPanel({ logs, onOpen }: { logs: LogEntry[]; onOpen: () => void }) {

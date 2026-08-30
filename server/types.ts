@@ -200,13 +200,58 @@ export type ResearchStage = "A1" | "A2" | "A3";
 
 export type ResearchPool = "approved" | "watch" | "rejected";
 
+/**
+ * Completeness of the safe stock-detail projection.
+ *
+ * This is deliberately separate from the research/pool status: a rejected
+ * row can have a complete audit detail, while an approved row can be missing
+ * a source or an upstream fact.  ``PARTIAL`` never means that a value was
+ * inferred; see ``missingFields`` on the item.
+ */
+export type ResearchDetailState = "COMPLETE" | "PARTIAL";
+
+/**
+ * Allow-listed, symbol-level facts that may be rendered by the control plane.
+ * The values are sanitized projections of persisted deterministic/model
+ * fields; arbitrary provider payloads and private model reasoning are never
+ * copied into this object.
+ */
+export interface ResearchDecisionFacts {
+  readonly industryChainRole: JsonValue | null;
+  readonly marketRole: JsonValue | null;
+  readonly supplyChainRole: JsonValue | null;
+  readonly businessExposure: JsonValue | null;
+  readonly financialTransmission: JsonValue | null;
+  readonly capitalFlow: JsonValue | null;
+  readonly tierStructure: JsonValue | null;
+  readonly leaderStructure: JsonValue | null;
+  readonly crowding: JsonValue | null;
+  readonly technicalCycle: JsonValue | null;
+  readonly weeklyConfirmation: JsonValue | null;
+  readonly indexChainResonance: JsonValue | null;
+}
+
 export interface ResearchStageDetailPlan {
   readonly setupType: string | null;
+  readonly planHash: string | null;
   readonly triggerZone: JsonValue | null;
   readonly invalidationLevel: number | null;
   readonly rewardRisk: number | null;
   readonly stopDistancePct: number | null;
-  readonly riskUnit: number | null;
+  readonly riskUnit: string | number | null;
+  readonly firstResistance: number | null;
+  readonly noChaseCondition: string | null;
+  readonly technicalScore: number | null;
+  readonly counterTrendProbe: boolean | null;
+  readonly overExtended: boolean | null;
+  readonly atrExtension: number | null;
+  readonly maBiasMax: number | null;
+  readonly relativeStrengthRank: number | null;
+  readonly allowedTimeWindows: JsonValue | null;
+  readonly maAnalysis: JsonValue | null;
+  readonly klinePattern: string | null;
+  readonly factorSnapshotHash: string | null;
+  readonly configHash: string | null;
   readonly planId: string | null;
   readonly planExpiry: string | null;
   readonly confirmationConditions: readonly string[];
@@ -218,6 +263,8 @@ export interface ResearchStageDetailItem {
   readonly symbol: string;
   readonly name: string | null;
   readonly nameSource: "model" | "lane_a1" | "snapshot" | "unavailable";
+  readonly detailState: ResearchDetailState;
+  readonly missingFields: readonly string[];
   readonly status: string | null;
   readonly pool: ResearchPool;
   readonly theme: string | null;
@@ -233,8 +280,9 @@ export interface ResearchStageDetailItem {
   readonly risks: readonly string[];
   readonly invalidation: readonly string[];
   readonly scoreBreakdown: JsonValue | null;
-  readonly sourceRefs: JsonValue;
+  readonly sourceRefs: readonly JsonValue[];
   readonly lineage: JsonValue | null;
+  readonly decisionFacts: ResearchDecisionFacts;
   readonly plan: ResearchStageDetailPlan | null;
 }
 

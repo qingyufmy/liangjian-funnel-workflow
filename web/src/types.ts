@@ -390,11 +390,25 @@ export interface StageDetailPool {
 
 export interface StageDetailPlan {
   setupType?: string | null;
+  planHash?: string | null;
   triggerZone?: { low?: number | null; high?: number | null } | null;
   invalidationLevel?: number | null;
   rewardRisk?: number | null;
   stopDistancePct?: number | null;
-  riskUnit?: number | null;
+  riskUnit?: string | number | null;
+  firstResistance?: number | null;
+  noChaseCondition?: string | null;
+  technicalScore?: number | null;
+  counterTrendProbe?: boolean | null;
+  overExtended?: boolean | null;
+  atrExtension?: number | null;
+  maBiasMax?: number | null;
+  relativeStrengthRank?: number | null;
+  allowedTimeWindows?: unknown;
+  maAnalysis?: unknown;
+  klinePattern?: string | null;
+  factorSnapshotHash?: string | null;
+  configHash?: string | null;
   planId?: string | null;
   planExpiry?: string | null;
   confirmationConditions?: string[];
@@ -402,10 +416,27 @@ export interface StageDetailPlan {
   timeframeStates?: Record<string, unknown>;
 }
 
+export interface StageDetailDecisionFacts {
+  industryChainRole?: unknown;
+  marketRole?: unknown;
+  supplyChainRole?: unknown;
+  businessExposure?: unknown;
+  financialTransmission?: unknown;
+  capitalFlow?: unknown;
+  tierStructure?: unknown;
+  leaderStructure?: unknown;
+  crowding?: unknown;
+  technicalCycle?: unknown;
+  weeklyConfirmation?: unknown;
+  indexChainResonance?: unknown;
+}
+
 export interface StageDetailItem {
   symbol: string;
   name?: string | null;
   nameSource?: string | null;
+  detailState?: "COMPLETE" | "PARTIAL";
+  missingFields?: string[];
   status?: string | null;
   pool: StagePoolId;
   theme?: string | null;
@@ -423,6 +454,7 @@ export interface StageDetailItem {
   scoreBreakdown?: Record<string, unknown> | null;
   sourceRefs: unknown[];
   lineage?: Record<string, unknown> | null;
+  decisionFacts?: StageDetailDecisionFacts | null;
   plan?: StageDetailPlan | null;
 }
 
