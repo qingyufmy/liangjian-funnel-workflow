@@ -62,6 +62,16 @@ def test_a2_zero_focus_distinguishes_data_gap_from_no_opportunity():
     assert reasons == ("A2_NO_FOCUS_OPPORTUNITY",)
 
 
+def test_a2_optional_capital_flow_gap_does_not_masquerade_as_data_insufficiency():
+    status, reasons = _classify_stage_outcome(
+        "A2",
+        _a2_output([], [{"symbol": "600000.SH", "reason_codes": ["A2_CAPITAL_FLOW_UNAVAILABLE"]}]),
+        reasons=(),
+    )
+    assert status == STATUS_VALIDATED_NO_OPPORTUNITY
+    assert reasons == ("A2_NO_FOCUS_OPPORTUNITY",)
+
+
 def test_a2_gate_local_evidence_gap_does_not_block_model_no_opportunity():
     reviewed = _a2_output([])
     output = _a2_output(

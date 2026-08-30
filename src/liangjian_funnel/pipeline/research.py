@@ -129,7 +129,6 @@ _A2_EVIDENCE_GAP_REASONS = frozenset(
         "A2_FACTOR_COVERAGE_BELOW_MINIMUM",
         "A2_CRITICAL_DATA_INSUFFICIENT",
         "A2_DATA_GAP",
-        "A2_CAPITAL_FLOW_UNAVAILABLE",
         "A2_MARKET_FACTS_INSUFFICIENT",
         "A2_ROUTE_MISSING_OR_INVALID",
         "A2_EVIDENCE_COVERAGE_BELOW_MINIMUM",
@@ -4352,7 +4351,7 @@ def _gate_secondary_items(gate: DeterministicGateResult, stage: str) -> list[dic
         if stage == "A2":
             item.update({
                 "theme_score": decision.get("score"),
-                "identifiability_score": decision.get("score"),
+                "identifiability_score": decision.get("identifiability_score"),
                 "market_role": decision.get("role", "LOW_IDENTITY"),
             })
         items.append(item)
@@ -5432,14 +5431,33 @@ def _canonicalize_stage_scores(
                 item["score_breakdown"] = {
                     key: round(values[key], 6) for key in weights
                 }
-            computed = max(
-                0.0,
-                min(100.0, sum(values[key] * weights[key] for key in weights) + penalty_points),
-            )
+            score_weights = weights
+            available_weight = sum(weights.values())
+            unavailable_factors: tuple[str, ...] = ()
+            if stage == "A2":
+                score_weights, available_weight, unavailable_factors = _a2_available_theme_weights(
+                    snapshot_data,
+                    weights,
+                )
+            weighted_total = sum(values[key] * score_weights.get(key, 0.0) for key in weights)
+            normalized_total = weighted_total / available_weight if available_weight > 0 else 0.0
+            computed = max(0.0, min(100.0, normalized_total + penalty_points))
             canonical_score = round(computed, 2)
             if contribution_mode or abs(canonical_score - _safe_float(item.get(score_field))) > 0.005:
                 item[score_field] = canonical_score
                 changed += 1
+            if stage == "A2":
+                total_weight = sum(weights.values())
+                factor_coverage = {
+                    "ratio": round(available_weight / max(total_weight, 1e-12), 6),
+                    "available_weight": round(available_weight, 6),
+                    "total_weight": round(total_weight, 6),
+                    "unavailable_factors": list(unavailable_factors),
+                    "normalized_over_available_weight": True,
+                }
+                if item.get("factor_coverage") != factor_coverage:
+                    item["factor_coverage"] = factor_coverage
+                    changed += 1
             normalized_items.append(item)
         result[pool] = normalized_items
 
@@ -5468,6 +5486,23 @@ def _canonicalize_stage_scores(
                 normalized_items.append(item)
             result[pool] = normalized_items
     return result, changed
+
+
+def _a2_available_theme_weights(
+    snapshot_data: Mapping[str, Any],
+    weights: Mapping[str, float],
+) -> tuple[dict[str, float], float, tuple[str, ...]]:
+    """Return A2 weights that are factually available for theme scoring."""
+
+    available = dict(weights)
+    unavailable: list[str] = []
+    capital_flow = snapshot_data.get("CAPITAL_FLOW_SNAPSHOT")
+    if "capital_flow" in available and (
+        not isinstance(capital_flow, Mapping) or capital_flow.get("available") is not True
+    ):
+        available.pop("capital_flow", None)
+        unavailable.append("capital_flow")
+    return available, sum(available.values()), tuple(unavailable)
 
 
 def _apply_stage_threshold_policy(
@@ -6259,7 +6294,10 @@ def _a2_theme_reasons(theme: Mapping[str, Any], snapshot_data: Mapping[str, Any]
                     for item in penalties
                     if isinstance(item, Mapping)
                 ) if isinstance(penalties, list) else 0.0
-                computed = max(0.0, min(100.0, sum(values[key] * weights[key] for key in weights) + penalty_points))
+                score_weights, available_weight, _ = _a2_available_theme_weights(snapshot_data, weights)
+                weighted_total = sum(values[key] * score_weights.get(key, 0.0) for key in weights)
+                normalized_total = weighted_total / available_weight if available_weight > 0 else 0.0
+                computed = max(0.0, min(100.0, normalized_total + penalty_points))
                 if abs(computed - _safe_float(theme.get("theme_score"))) > 0.51:
                     reasons.append("A2_THEME_SCORE_MISMATCH")
                 capital_flow = snapshot_data.get("CAPITAL_FLOW_SNAPSHOT")
@@ -6949,6 +6987,16 @@ def _with_a2_bottleneck_context(
             continue
         context[symbol] = {
             **dict(item.get("bottleneck_context") or {}),
+            "deterministic_score": item.get("score"),
+            "deterministic_market_role": item.get("role"),
+            "identifiability_score": item.get("identifiability_score"),
+            "identifiability_breakdown": dict(item.get("role_breakdown") or {}),
+            "a2_factor_scores": dict(item.get("a2_factor_scores") or {}),
+            "factor_coverage": dict(item.get("factor_coverage") or {}),
+            "critical_factor_coverage": dict(item.get("critical_factor_coverage") or {}),
+            "data_sufficiency_state": item.get("data_sufficiency_state"),
+            "missing_optional_factors": list(item.get("missing_optional_factors") or ()),
+            "deterministic_reason_codes": list(item.get("reason_codes") or ()),
             "eligible_routes": list(item.get("eligible_routes") or ()),
             "preferred_route": item.get("route"),
             "route_eligibility": dict(item.get("route_eligibility") or {}),

@@ -16,7 +16,8 @@ Agent 2 · ThemeSentimentSelectorAgent
 ────────────────────────────────────────────────────────────────────────
 
 {{UPSTREAM_ACTIVE_POOL}}     Agent 1 的 ACTIVE 池（你的唯一选股域）
-{{A2_BOTTLENECK_CONTEXT}}    服务端按个股计算的产业链卡点证据就绪度；
+{{A2_BOTTLENECK_CONTEXT}}    服务端按个股计算的 A2 确定性上下文，包含市场角色、
+                             因子分、覆盖率、合法路线与产业链卡点证据就绪度；
                              unknown_factor_names 必须查证，禁止把未知填成 0
 {{MARKET_REGIME_SNAPSHOT}}   市场状态机（确定性判定）
 {{MARKET_EMOTION_SNAPSHOT}}  情绪综合强度、涨跌家数、涨跌停、炸板、
@@ -99,7 +100,16 @@ C12. CAPITAL_FLOW_SNAPSHOT.available=false 时，capital_flow 原始分必须为
      {{THEME_SCORE_WEIGHTS}} 权重归一计算，并记录 factor_coverage；可用权重低于
      65% 的主题最高只能进入 watch_only_pool。若数据不可用却输出非零 capital_flow，
      必须在 reason_codes 加入 A2_CAPITAL_FLOW_SCORE_INVENTED，不能将该主题当作
-     有效 focus 继续推进。
+     有效 focus 继续推进。资本流缺失本身不是 MARKET_CORE 的否决项：当
+     A2_BOTTLENECK_CONTEXT 中 factor_coverage.ratio >= 0.65、
+     critical_factor_coverage.sufficient=true 且其它角色证据满足时，必须按可用权重
+     继续判断，禁止仅以 A2_CAPITAL_FLOW_UNAVAILABLE 将标的降级。
+
+C13. A2_BOTTLENECK_CONTEXT 中 deterministic_market_role、a2_factor_scores、
+     factor_coverage、critical_factor_coverage、eligible_routes 均为服务端确定性结果，
+     必须原样引用，不得重新猜测或用缺失的可选因子推翻。模型仍负责主题阶段、
+     正反证据、风险解释和最终 focus/watch 判断；但若否决服务端已就绪的
+     MARKET_CORE，必须给出资本流缺失以外的具体反证。
 
 ────────────────────────────────────────────────────────────────────────
 【六步分析流程】顺序固定

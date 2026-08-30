@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from liangjian_funnel.pipeline.model_client import ModelCallResult, ModelNetworkError, StrictJSONError
+from liangjian_funnel.pipeline.deterministic import DeterministicGateResult
 from liangjian_funnel.pipeline.feature_store import ResearchFeatureStore
 from liangjian_funnel.pipeline.prompts import PROMPT_FILENAMES, PromptRepository, PromptRepositoryError
 from liangjian_funnel.pipeline.research import (
@@ -14,6 +15,7 @@ from liangjian_funnel.pipeline.research import (
     ResearchPipelineError,
     _a1_batch_is_splittable,
     _a2_batch_is_splittable,
+    _a2_theme_reasons,
     _a1_discovery_context_reasons,
     _a1_discovery_evidence_reasons,
     _authorized_discovery_source_refs,
@@ -48,6 +50,7 @@ from liangjian_funnel.pipeline.research import (
     _stage_execution_budget,
     _validate_output,
     _valid_a1_discovery_output,
+    _with_a2_bottleneck_context,
 )
 from liangjian_funnel.pipeline.snapshot import FrozenInputSnapshot as CanonicalFrozenInputSnapshot
 from liangjian_funnel.settings import Settings
@@ -1229,11 +1232,98 @@ def test_a2_score_is_recomputed_with_penalties_and_propagated_to_candidates():
             "watch_only_pool": [],
         },
         "A2",
-        {"THEME_SCORE_WEIGHTS": {"breadth": 0.5, "capital_flow": 0.5}},
+        {
+            "THEME_SCORE_WEIGHTS": {"breadth": 0.5, "capital_flow": 0.5},
+            "CAPITAL_FLOW_SNAPSHOT": {"available": True},
+        },
     )
-    assert changed == 2
+    assert changed == 3
     assert output["active_themes"][0]["theme_score"] == 40
+    assert output["active_themes"][0]["factor_coverage"] == {
+        "ratio": 1.0,
+        "available_weight": 1.0,
+        "total_weight": 1.0,
+        "unavailable_factors": [],
+        "normalized_over_available_weight": True,
+    }
     assert output["focus_pool"][0]["theme_score"] == 40
+
+
+def test_a2_missing_optional_capital_flow_normalizes_over_available_weight():
+    snapshot = {
+        "THEME_SCORE_WEIGHTS": {"breadth": 0.87, "capital_flow": 0.13},
+        "CAPITAL_FLOW_SNAPSHOT": {"available": False, "reason_code": "SOURCE_UNAVAILABLE"},
+    }
+    output, changed = _canonicalize_stage_scores(
+        {
+            "active_themes": [{
+                "theme_id": "theme-agri",
+                "theme_score": 60.9,
+                "score_breakdown": {"breadth": 70, "capital_flow": 0},
+                "penalties": [],
+                "supporting_evidence": ["breadth"],
+                "contradicting_evidence": ["capital flow unavailable"],
+                "stage": "ACCELERATION",
+                "new_entry_policy": "PROBE_ONLY",
+                "rotation_overlap_ratio": 0,
+            }],
+            "focus_pool": [{"symbol": "600001.SH", "theme_id": "theme-agri", "theme_score": 60.9}],
+            "watch_only_pool": [],
+        },
+        "A2",
+        snapshot,
+    )
+
+    theme = output["active_themes"][0]
+    assert changed >= 2
+    assert theme["theme_score"] == 70
+    assert theme["factor_coverage"] == {
+        "ratio": 0.87,
+        "available_weight": 0.87,
+        "total_weight": 1.0,
+        "unavailable_factors": ["capital_flow"],
+        "normalized_over_available_weight": True,
+    }
+    assert output["focus_pool"][0]["theme_score"] == 70
+    assert "A2_THEME_SCORE_MISMATCH" not in _a2_theme_reasons(theme, snapshot)
+
+
+def test_a2_deterministic_context_exposes_role_and_optional_gap_without_invention():
+    snapshot = FrozenInputSnapshot(
+        snapshot_id="a2-context",
+        snapshot_hash="a" * 64,
+        data={"g0_symbols": ["600001.SH"]},
+    )
+    gate = DeterministicGateResult(
+        stage="A2_LOCAL_ROLE",
+        decisions=({
+            "symbol": "600001.SH",
+            "score": 72,
+            "role": "CORE_ARMY",
+            "identifiability_score": 81,
+            "role_breakdown": {"liquidity_capacity": 90},
+            "a2_factor_scores": {"capital_flow": {"available": False, "score": None}},
+            "factor_coverage": {"ratio": 0.87},
+            "critical_factor_coverage": {"sufficient": True},
+            "data_sufficiency_state": "DEGRADED",
+            "missing_optional_factors": ["capital_flow"],
+            "reason_codes": ["A2_CAPITAL_FLOW_UNAVAILABLE", "A2_OPTIONAL_FACTS_DEGRADED"],
+            "bottleneck_context": {"scarcity_claim_allowed": False},
+            "eligible_routes": ["MARKET_CORE"],
+            "route": "MARKET_CORE",
+            "route_eligibility": {"MARKET_CORE": {"eligible": True}},
+        },),
+        review_symbols=("600001.SH",),
+        monitor_symbols=(),
+        rejected_symbols=(),
+    )
+
+    enriched = _with_a2_bottleneck_context(snapshot, gate)
+    context = enriched.data["A2_BOTTLENECK_CONTEXT"]["600001.SH"]
+    assert context["deterministic_market_role"] == "CORE_ARMY"
+    assert context["factor_coverage"] == {"ratio": 0.87}
+    assert context["critical_factor_coverage"] == {"sufficient": True}
+    assert context["eligible_routes"] == ["MARKET_CORE"]
 
 
 def test_a1_company_batches_cannot_invent_themes_after_discovery():
@@ -1304,7 +1394,7 @@ def test_a2_focus_must_reuse_a1_theme_and_cannot_invent_missing_capital_flow():
         "supporting_evidence": ["sector breadth"],
         "contradicting_evidence": ["capital flow unavailable"],
         "score_breakdown": {"breadth": 80, "capital_flow": 0},
-        "theme_score": 40,
+        "theme_score": 80,
         "rotation_overlap_ratio": 0.2,
         "penalties": [],
     }
@@ -1313,7 +1403,7 @@ def test_a2_focus_must_reuse_a1_theme_and_cannot_invent_missing_capital_flow():
         "theme_id": "theme-policy",
         "market_role": "CORE_ARMY",
         "identifiability_score": 80,
-        "theme_score": 40,
+        "theme_score": 80,
     }
     snapshot = {
         "MIN_IDENTIFIABILITY_SCORE": 60,
