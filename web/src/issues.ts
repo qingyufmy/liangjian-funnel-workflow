@@ -103,6 +103,19 @@ export function collectWorkbenchIssues(overview: OverviewResponse, logs: LogEntr
     for (const stage of lane.stages) {
       const outcome = stage.outcome;
       if (!outcome || outcome.lifecycle_state !== "TERMINAL") continue;
+      const marketUnderfilled = outcome.data_sufficiency_state === "SUFFICIENT"
+        && outcome.opportunity_state !== "UNKNOWN"
+        && outcome.reason_codes.some((reason) => reason.includes("UNDERFILLED_MARKET"));
+      if (marketUnderfilled) {
+        const selected = outcome.counts.selected ?? stage.symbolCount ?? 0;
+        issues.push({
+          id: issueId(["workflow", runId, lane.laneId, stage.stage, "MARKET_OPPORTUNITY_UNDERFILLED"]), severity: "INFO", status: "OBSERVING", source: "WORKFLOW",
+          code: "MARKET_OPPORTUNITY_UNDERFILLED", title: `${stage.stage} 市场机会少于目标数量`,
+          detail: `事实覆盖充分，当前筛选得到 ${selected} 只；这是市场截面结果，不是数据或执行故障。`, runId,
+          laneId: lane.laneId, stage: stage.stage, lastSeenAt: overview.latestWorkflow.updatedAt, occurrenceCount: 1,
+        });
+        continue;
+      }
       const hasQualityIssue = ["FAILED", "BLOCKED", "DEGRADED"].includes(outcome.quality_state);
       const hasDataIssue = outcome.data_sufficiency_state === "INSUFFICIENT"
         || (outcome.data_sufficiency_state === "PARTIAL" && outcome.opportunity_state === "UNKNOWN");

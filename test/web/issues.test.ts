@@ -82,4 +82,17 @@ describe("collectWorkbenchIssues", () => {
     const [issue] = collectWorkbenchIssues(value, []);
     expect(issue).toMatchObject({ code: "NO_ACTIVE_A3_PLAN", severity: "INFO", status: "OBSERVING" });
   });
+
+  test("keeps a sufficient underfilled market result out of the open fault count", () => {
+    const value = overview(stageOutcome({
+      quality_state: "DEGRADED",
+      data_sufficiency_state: "SUFFICIENT",
+      opportunity_state: "PRESENT",
+      focus_opportunity_state: "PRESENT",
+      reason_codes: ["A2_FOCUS_POOL_UNDERFILLED_MARKET"],
+      counts: { input: 90, evaluated: 90, selected: 6 },
+    }));
+    const [issue] = collectWorkbenchIssues(value, []);
+    expect(issue).toMatchObject({ code: "MARKET_OPPORTUNITY_UNDERFILLED", severity: "INFO", status: "OBSERVING" });
+  });
 });
