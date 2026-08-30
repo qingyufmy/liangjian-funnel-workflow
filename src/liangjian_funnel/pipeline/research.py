@@ -1484,18 +1484,6 @@ class ResearchPipeline:
             upstream_symbols=g0,
             snapshot_data=snapshot.data,
         )
-        if len(g0) >= 500:
-            raw_targets = snapshot.data.get("A1_POOL_TARGETS")
-            targets = raw_targets if isinstance(raw_targets, Mapping) else {}
-            target = targets.get("active_research_target")
-            minimum = (
-                max(0, _safe_int(target[0]))
-                if isinstance(target, list) and target
-                else 100
-            )
-            active_count = len(merged.get("active_research_pool", ()))
-            if active_count < minimum:
-                reasons = list(dict.fromkeys([*reasons, "A1_ACTIVE_COVERAGE_UNDERFILLED"]))
         approved_symbols = tuple(sorted(_approved_symbols(merged, "A1")))
         stage_status, outcome_reasons = _classify_stage_outcome(
             "A1", merged, reasons=reasons, gate=gate

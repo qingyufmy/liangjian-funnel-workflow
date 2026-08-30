@@ -4,9 +4,11 @@ from liangjian_funnel.pipeline.deterministic import DeterministicGateResult
 from liangjian_funnel.pipeline.research import (
     STATUS_BLOCKED_TECHNICAL_DATA,
     STATUS_DEGRADED_UNDERFILLED_DATA_GAP,
+    STATUS_VALIDATED,
     STATUS_VALIDATED_NO_OPPORTUNITY,
     STATUS_VALIDATED_NO_SETUP,
     STATUS_VALIDATED_UNDERFILLED_MARKET,
+    _annotate_a1_pool_target,
     _classify_stage_outcome,
 )
 
@@ -19,6 +21,31 @@ def _a2_output(focus: list[dict], watch: list[dict] | None = None) -> dict:
         "watch_only_pool": watch or [],
         "rejected_candidates": [],
     }
+
+
+def test_a1_research_target_underfill_is_diagnostic_not_a_downstream_blocker():
+    output = _annotate_a1_pool_target(
+        {
+            "analysis_summary": {},
+            "active_research_pool": [{"symbol": "600000.SH"}],
+            "monitor_pool": [],
+            "rejected_candidates": [],
+        },
+        {
+            "A1_POOL_TARGETS": {
+                "active_research_target": [100, 250],
+                "clue_pool_target": [300, 800],
+            }
+        },
+    )
+
+    assert output["analysis_summary"]["reason_codes"] == [
+        "A1_ACTIVE_TARGET_UNDERFILLED",
+        "A1_CLUE_TARGET_UNDERFILLED",
+    ]
+    status, reasons = _classify_stage_outcome("A1", output, reasons=())
+    assert status == STATUS_VALIDATED
+    assert reasons == ()
 
 
 def test_a2_zero_focus_distinguishes_data_gap_from_no_opportunity():
