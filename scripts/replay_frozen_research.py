@@ -11,7 +11,20 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from liangjian_funnel.data.open_macro import OpenMacroDataCollector
-from liangjian_funnel.pipeline.research import FrozenInputSnapshot, ResearchPipeline
+from liangjian_funnel.pipeline.deterministic import screen_a3
+from liangjian_funnel.pipeline.research import (
+    FrozenInputSnapshot,
+    LaneResult,
+    ResearchPipeline,
+    ResearchRunResult,
+    StageAudit,
+    _build_a3_candidate_domain,
+    _lane_status_from_stages,
+    _stage_completed,
+    _with_a3_candidate_context,
+    enrich_candidate_metadata,
+)
+from liangjian_funnel.pipeline.research_reports import write_stage_markdown_reports
 from liangjian_funnel.reporting import atomic_write_json
 from liangjian_funnel.runtime.state import RuntimeStore
 from liangjian_funnel.settings import Settings
@@ -54,10 +67,10 @@ def main() -> int:
     parser.add_argument(
         "--publish",
         action="store_true",
-        help="publish plans and write the normal outputs/runs summary after a full replay",
+        help="publish validated plans and write the normal outputs/runs summary",
     )
     parser.add_argument("--resume-audit", help="validated lane audit under outputs/research")
-    parser.add_argument("--stage", choices=("A2", "A3"), help="single downstream stage to replay")
+    parser.add_argument("--stage", choices=("A3",), help="resume A3 from a validated A1/A2 lane audit")
     parser.add_argument(
         "--enable-deterministic-v2-overlay",
         action="store_true",
@@ -150,16 +163,30 @@ def main() -> int:
     )
     if bool(args.resume_audit) != bool(args.stage):
         raise SystemExit("RESUME_AUDIT_AND_STAGE_REQUIRED_TOGETHER")
-    if args.publish and args.resume_audit:
-        raise SystemExit("PUBLISH_REQUIRES_FULL_REPLAY")
     if args.resume_audit:
-        return _resume_stage(pipeline, snapshot, settings, args.resume_audit, args.stage, run_id)
+        return _resume_stage(
+            application,
+            pipeline,
+            snapshot,
+            settings,
+            args.resume_audit,
+            args.stage,
+            run_id,
+            slot=args.slot,
+            publish=args.publish,
+            generated_at=current,
+        )
 
     result = pipeline.run(snapshot, run_id=run_id, generated_at=current)
     publication = None
     run_summary_path = None
     if args.publish:
-        publication = application._publish_plans(result, args.slot, current)
+        publication = application._publish_plans(
+            result,
+            args.slot,
+            current,
+            snapshot_data=snapshot.data,
+        )
         summary = {
             "run_id": run_id,
             "slot": args.slot,
@@ -229,12 +256,17 @@ def _pool_counts(output: object, stage: str) -> dict[str, int]:
 
 
 def _resume_stage(
+    application: WorkflowApplication,
     pipeline: ResearchPipeline,
     snapshot: FrozenInputSnapshot,
     settings: Settings,
     requested_audit: str,
     stage: str,
     run_id: str,
+    *,
+    slot: str,
+    publish: bool,
+    generated_at: datetime,
 ) -> int:
     audit_root = (settings.workflow_output_dir / "research").resolve()
     audit_path = Path(requested_audit).expanduser().resolve()
@@ -255,29 +287,149 @@ def _resume_stage(
         ),
         None,
     )
-    if (
-        not isinstance(previous, dict)
-        or previous.get("status") != "VALIDATED"
-        or not isinstance(previous.get("output"), dict)
-        or not isinstance(previous.get("symbols"), list)
-        or not previous["symbols"]
-    ):
+    if not isinstance(previous, dict) or not _stage_completed(str(previous.get("status") or "")):
         raise SystemExit("RESUME_UPSTREAM_STAGE_NOT_VALIDATED")
-    if previous.get("snapshot_id") != snapshot.snapshot_id:
+    if not isinstance(previous.get("output"), dict):
+        raise SystemExit("RESUME_UPSTREAM_OUTPUT_MISSING")
+    if not str(previous.get("snapshot_id") or "").startswith(snapshot.snapshot_id):
         raise SystemExit("RESUME_SNAPSHOT_LINEAGE_MISMATCH")
+    if stage != "A3":
+        raise SystemExit("DETERMINISTIC_RESUME_SUPPORTS_A3_ONLY")
 
-    audit = pipeline._run_stage(
-        lane_id=str(raw.get("lane") or ""),
-        model=str(raw["model"]),
-        stage=stage,
-        snapshot=snapshot,
-        upstream_output=previous["output"],
-        upstream_symbols={str(symbol) for symbol in previous["symbols"]},
+    lane_id = str(raw.get("lane") or "")
+    model = str(raw["model"])
+    upstream_output, origins = _build_a3_candidate_domain(previous["output"])
+    upstream_symbols = set(origins)
+    if not upstream_symbols:
+        raise SystemExit("RESUME_A3_CANDIDATE_DOMAIN_EMPTY")
+
+    try:
+        stage_snapshot = pipeline._enrich_stage_snapshot(
+            stage="A3",
+            lane_id=lane_id,
+            model=model,
+            upstream_symbols=upstream_symbols,
+            snapshot=snapshot,
+        )
+    except Exception as exc:
+        raise SystemExit("RESUME_A3_SNAPSHOT_ENRICHMENT_FAILED") from exc
+    stage_snapshot = _with_a3_candidate_context(stage_snapshot, origins)
+    gate = screen_a3(stage_snapshot.data, upstream_output)
+    pipeline._emit_gate_progress(run_id, lane_id, model, gate)
+    audit = pipeline._run_v2_downstream_review(
+        lane_id=lane_id,
+        model=model,
+        stage="A3",
+        snapshot=stage_snapshot,
+        upstream_output=upstream_output,
+        full_upstream_symbols=upstream_symbols,
+        gate=gate,
         bundle=pipeline.prompts.load(),
         run_id=run_id,
     )
-    output_path = audit_root / f"research_{run_id}_{raw.get('lane')}_{stage.lower()}_replay.json"
-    atomic_write_json(output_path, audit.as_dict())
+    if isinstance(audit.output, dict):
+        enriched_output = enrich_candidate_metadata(audit.output, stage_snapshot.data)
+        audit = StageAudit(
+            lane=audit.lane,
+            model=audit.model,
+            stage=audit.stage,
+            status=audit.status,
+            snapshot_id=audit.snapshot_id,
+            prompt_hash=audit.prompt_hash,
+            input_hash=audit.input_hash,
+            output_hash=_canonical_hash(enriched_output),
+            latency_ms=audit.latency_ms,
+            attempts=audit.attempts,
+            thinking_variant=audit.thinking_variant,
+            symbols=audit.symbols,
+            reason_codes=audit.reason_codes,
+            output=enriched_output,
+            diagnostics=audit.diagnostics,
+        )
+
+    previous_stages = tuple(
+        _stage_audit_from_dict(item)
+        for item in raw.get("stages", ())
+        if isinstance(item, dict) and item.get("stage") in {"A1", "A2"}
+    )
+    if tuple(item.stage for item in previous_stages) != ("A1", "A2"):
+        raise SystemExit("RESUME_AUDIT_STAGE_LINEAGE_INVALID")
+    stages = (*previous_stages, audit)
+    lane_status = _lane_status_from_stages(stages)
+    lane = LaneResult(
+        lane=lane_id,
+        model=model,
+        status=lane_status,
+        stages=stages,
+        final_output=audit.output if lane_status in {"READY", "READY_DEGRADED"} else None,
+    )
+    lane_path = pipeline._write_lane_audit(run_id, lane, snapshot=snapshot)
+    lane = LaneResult(
+        lane=lane.lane,
+        model=lane.model,
+        status=lane.status,
+        stages=lane.stages,
+        final_output=lane.final_output,
+        audit_path=lane_path,
+    )
+    result = ResearchRunResult(
+        run_id=run_id,
+        generated_at=generated_at,
+        snapshot_id=snapshot.snapshot_id,
+        snapshot_hash=snapshot.snapshot_hash,
+        status=lane_status,
+        lanes=(lane,),
+        audit_paths=(lane_path,),
+        markdown_path=None,
+        primary_lane_ids=(lane_id,),
+    )
+    markdown_path = pipeline._write_markdown(result)
+    result = ResearchRunResult(
+        run_id=result.run_id,
+        generated_at=result.generated_at,
+        snapshot_id=result.snapshot_id,
+        snapshot_hash=result.snapshot_hash,
+        status=result.status,
+        lanes=result.lanes,
+        audit_paths=result.audit_paths,
+        markdown_path=markdown_path,
+        primary_lane_ids=result.primary_lane_ids,
+    )
+    stage_markdown = write_stage_markdown_reports(result, audit_root)
+    publication = (
+        application._publish_plans(
+            result,
+            slot,
+            generated_at,
+            snapshot_data=stage_snapshot.data,
+        )
+        if publish
+        else None
+    )
+    run_summary_path = settings.workflow_output_dir / "runs" / f"{run_id}.json"
+    atomic_write_json(
+        run_summary_path,
+        {
+            "run_id": run_id,
+            "slot": slot,
+            "status": result.status,
+            "run_role": "A3_RESUME",
+            "models": [model],
+            "primary_lane_ids": [lane_id],
+            "outcome_v2": result.outcome().as_dict(),
+            "snapshot": {
+                "snapshot_id": snapshot.snapshot_id,
+                "snapshot_hash": snapshot.snapshot_hash,
+                "as_of": snapshot.as_of,
+            },
+            "research_markdown": str(markdown_path),
+            "stage_markdown": stage_markdown,
+            "plan_publication": publication,
+            "resume_source_audit": str(audit_path),
+            "a3_candidate_count": len(upstream_symbols),
+            "a3_gate_summary": gate.summary,
+        },
+    )
     print(
         json.dumps(
             {
@@ -290,12 +442,41 @@ def _resume_stage(
                 "latency_ms": audit.latency_ms,
                 "attempts": audit.attempts,
                 "symbol_count": len(audit.symbols),
-                "audit_path": str(output_path),
+                "pool_counts": _pool_counts(audit.output, "A3"),
+                "candidate_count": len(upstream_symbols),
+                "gate_summary": gate.summary,
+                "audit_path": str(lane_path),
+                "run_summary": str(run_summary_path),
+                "plan_publication": publication,
             },
             ensure_ascii=False,
         )
     )
-    return 0 if audit.status == "VALIDATED" else 2
+    return 0 if result.status in {"READY", "READY_DEGRADED"} else 2
+
+
+def _stage_audit_from_dict(raw: dict[str, object]) -> StageAudit:
+    output = raw.get("output") if isinstance(raw.get("output"), dict) else None
+    diagnostics = raw.get("diagnostics") if isinstance(raw.get("diagnostics"), dict) else None
+    return StageAudit(
+        lane=str(raw.get("lane") or ""),
+        model=str(raw.get("model") or ""),
+        stage=str(raw.get("stage") or ""),
+        status=str(raw.get("status") or ""),
+        snapshot_id=str(raw.get("snapshot_id") or ""),
+        prompt_hash=str(raw.get("prompt_hash") or "") or None,
+        input_hash=str(raw.get("input_hash") or "") or None,
+        output_hash=str(raw.get("output_hash") or "") or None,
+        latency_ms=int(raw["latency_ms"]) if isinstance(raw.get("latency_ms"), int) else None,
+        attempts=int(raw.get("attempts") or 0),
+        thinking_variant=str(raw.get("thinking_variant") or "unknown"),
+        symbols=tuple(str(value) for value in raw.get("symbols", ()) if isinstance(value, str)),
+        reason_codes=tuple(
+            str(value) for value in raw.get("reason_codes", ()) if isinstance(value, str)
+        ),
+        output=output,
+        diagnostics=diagnostics,
+    )
 
 
 if __name__ == "__main__":
