@@ -420,7 +420,7 @@ def _resume_stage(
             "snapshot": {
                 "snapshot_id": snapshot.snapshot_id,
                 "snapshot_hash": snapshot.snapshot_hash,
-                "as_of": snapshot.as_of,
+                "as_of": snapshot.as_of.isoformat() if snapshot.as_of else None,
             },
             "research_markdown": str(markdown_path),
             "stage_markdown": stage_markdown,

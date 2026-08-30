@@ -3024,7 +3024,12 @@ class ResearchPipeline:
                 diagnostics=exc.diagnostics,
             )
 
-        semantic_limit = 2
+        # A3 combines executable price/risk fields with a seven-factor score
+        # contract.  In practice one repair can fix the JSON shape while a
+        # second repair is still needed to remove a stale model-side numeric
+        # veto.  Keep A1/A2 at the established two attempts, but give A3 one
+        # additional bounded semantic repair inside the same total deadline.
+        semantic_limit = 3 if stage == "A3" else 2
         semantic_deadline = time.perf_counter() + self.settings.model_timeout_seconds
         aggregate_latency_ms = 0
         aggregate_attempts = 0
