@@ -65,6 +65,10 @@ def main() -> int:
     parser.add_argument("--slot", choices=("morning", "close"), default="close")
     parser.add_argument("--run-id", help="optional stable audit run id")
     parser.add_argument(
+        "--model",
+        help="optional configured model override for an isolated A3 comparison",
+    )
+    parser.add_argument(
         "--publish",
         action="store_true",
         help="publish validated plans and write the normal outputs/runs summary",
@@ -175,6 +179,7 @@ def main() -> int:
             slot=args.slot,
             publish=args.publish,
             generated_at=current,
+            model_override=args.model,
         )
 
     result = pipeline.run(snapshot, run_id=run_id, generated_at=current)
@@ -267,6 +272,7 @@ def _resume_stage(
     slot: str,
     publish: bool,
     generated_at: datetime,
+    model_override: str | None,
 ) -> int:
     audit_root = (settings.workflow_output_dir / "research").resolve()
     audit_path = Path(requested_audit).expanduser().resolve()
@@ -297,7 +303,9 @@ def _resume_stage(
         raise SystemExit("DETERMINISTIC_RESUME_SUPPORTS_A3_ONLY")
 
     lane_id = str(raw.get("lane") or "")
-    model = str(raw["model"])
+    model = str(model_override or raw["model"]).strip()
+    if model not in settings.research_models:
+        raise SystemExit("RESUME_MODEL_NOT_CONFIGURED")
     upstream_output, origins = _build_a3_candidate_domain(previous["output"])
     upstream_symbols = set(origins)
     if not upstream_symbols:
