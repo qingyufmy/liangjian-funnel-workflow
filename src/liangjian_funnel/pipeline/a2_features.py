@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
-A2_FEATURE_SCHEMA = "a2-features/3.0.0"
+A2_FEATURE_SCHEMA = "a2-features/3.1.0"
 
 
 def build_a2_feature_snapshot(
@@ -41,12 +41,20 @@ def build_a2_feature_snapshot(
         if (symbol := _symbol(row))
     }
     symbols = tuple(sorted(candidate_by_symbol))
-    returns = {
-        symbol: value
-        for symbol in symbols
-        if (value := _return_20d(daily_bars.get(symbol, ()), cutoff.date())) is not None
+    returns_by_window = {
+        window: {
+            symbol: value
+            for symbol in symbols
+            if (value := _return_nd(daily_bars.get(symbol, ()), cutoff.date(), window)) is not None
+        }
+        for window in (5, 10, 20)
     }
-    return_percentiles = _percentiles(returns)
+    returns = returns_by_window[20]
+    return_percentiles_by_window = {
+        window: _percentiles(values)
+        for window, values in returns_by_window.items()
+    }
+    return_percentiles = return_percentiles_by_window[20]
     liquidity_values = {
         symbol: value
         for symbol, row in candidate_by_symbol.items()
@@ -239,7 +247,11 @@ def build_a2_feature_snapshot(
     theme_metrics: dict[str, dict[str, Any]] = {}
     for key, members in sorted(group_members.items()):
         observed_returns = [returns[symbol] for symbol in members if symbol in returns]
+        observed_returns_5d = [returns_by_window[5][symbol] for symbol in members if symbol in returns_by_window[5]]
+        observed_returns_10d = [returns_by_window[10][symbol] for symbol in members if symbol in returns_by_window[10]]
         observed_relative = [return_percentiles[symbol] for symbol in members if symbol in return_percentiles]
+        observed_relative_5d = [return_percentiles_by_window[5][symbol] for symbol in members if symbol in return_percentiles_by_window[5]]
+        observed_relative_10d = [return_percentiles_by_window[10][symbol] for symbol in members if symbol in return_percentiles_by_window[10]]
         observed_capital = [
             float(row["capital_flow_score"])
             for symbol in members
@@ -250,7 +262,11 @@ def build_a2_feature_snapshot(
         ladder_count = sum(symbol in ladder for symbol in members)
         dragon_count = sum(symbol in dragon for symbol in members)
         breadth = sum(value > 0 for value in observed_returns) / len(observed_returns) if observed_returns else None
+        breadth_5d = sum(value > 0 for value in observed_returns_5d) / len(observed_returns_5d) if observed_returns_5d else None
+        breadth_10d = sum(value > 0 for value in observed_returns_10d) / len(observed_returns_10d) if observed_returns_10d else None
         relative_mean = sum(observed_relative) / len(observed_relative) if observed_relative else None
+        relative_mean_5d = sum(observed_relative_5d) / len(observed_relative_5d) if observed_relative_5d else None
+        relative_mean_10d = sum(observed_relative_10d) / len(observed_relative_10d) if observed_relative_10d else None
         sector_capital = sector_capital_by_group.get(key)
         sector_capital_score = _number(sector_capital.get("score")) if isinstance(sector_capital, Mapping) else None
         capital_mean = (
@@ -279,6 +295,24 @@ def build_a2_feature_snapshot(
         if cycle_score is not None:
             components.append((cycle_score, 0.15))
         score = _weighted(components)
+        weekly_components: list[tuple[float, float]] = []
+        if relative_mean_5d is not None:
+            weekly_components.append((relative_mean_5d, 0.30))
+        if relative_mean_10d is not None:
+            weekly_components.append((relative_mean_10d, 0.15))
+        if relative_mean is not None:
+            weekly_components.append((relative_mean, 0.20))
+        if breadth_5d is not None:
+            weekly_components.append((breadth_5d * 100.0, 0.20))
+        if capital_mean is not None:
+            weekly_components.append((capital_mean, 0.15))
+        weekly_confirmation_score = _weighted(weekly_components)
+        weekly_state = _weekly_theme_state(
+            _mean(observed_returns_5d),
+            _mean(observed_returns_10d),
+            _mean(observed_returns),
+            breadth_5d,
+        )
         coverage = len(observed_returns) / len(members) if members else 0.0
         theme_metrics[key] = {
             **group_meta[key],
@@ -289,7 +323,13 @@ def build_a2_feature_snapshot(
             "member_count": len(members),
             "return_coverage": round(coverage, 6),
             "breadth": round(breadth, 6) if breadth is not None else None,
+            "breadth_5d": round(breadth_5d, 6) if breadth_5d is not None else None,
+            "breadth_10d": round(breadth_10d, 6) if breadth_10d is not None else None,
             "relative_strength_mean": round(relative_mean, 4) if relative_mean is not None else None,
+            "relative_strength_mean_5d": round(relative_mean_5d, 4) if relative_mean_5d is not None else None,
+            "relative_strength_mean_10d": round(relative_mean_10d, 4) if relative_mean_10d is not None else None,
+            "weekly_confirmation_score": round(weekly_confirmation_score, 4) if weekly_confirmation_score is not None else None,
+            "weekly_momentum_state": weekly_state,
             "turnover_share": round(group_turnover / total_turnover, 6) if total_turnover > 0 else None,
             "capital_flow_mean": round(capital_mean, 4) if capital_mean is not None else None,
             "capital_flow_coverage": round(len(observed_capital) / len(members), 6) if members else 0.0,
@@ -301,6 +341,7 @@ def build_a2_feature_snapshot(
         }
 
     chain_by_symbol: dict[str, dict[str, Any]] = {}
+    weekly_by_symbol: dict[str, dict[str, Any]] = {}
     breadth_by_symbol: dict[str, dict[str, Any]] = {}
     turnover_by_symbol: dict[str, dict[str, Any]] = {}
     for symbol in symbols:
@@ -334,6 +375,18 @@ def build_a2_feature_snapshot(
                 "taxonomy": best.get("taxonomy") if best else None,
                 "taxonomy_code": best.get("taxonomy_code") if best else None,
                 "taxonomy_name": best.get("taxonomy_name") if best else None,
+            },
+        )
+        weekly_by_symbol[symbol] = _factor(
+            _number(best.get("weekly_confirmation_score")) if best else None,
+            source="POINT_IN_TIME_WEEKLY_TAXONOMY_AGGREGATE",
+            availability_state="OBSERVED_VALUE" if best and _number(best.get("weekly_confirmation_score")) is not None else "SOURCE_FAILED",
+            reason_code="OK" if best and _number(best.get("weekly_confirmation_score")) is not None else "A2_WEEKLY_CONFIRMATION_MISSING",
+            extra={
+                "taxonomy_code": best.get("taxonomy_code") if best else None,
+                "weekly_momentum_state": best.get("weekly_momentum_state") if best else "UNKNOWN",
+                "breadth_5d": best.get("breadth_5d") if best else None,
+                "relative_strength_mean_5d": best.get("relative_strength_mean_5d") if best else None,
             },
         )
 
@@ -388,6 +441,7 @@ def build_a2_feature_snapshot(
             "trend_strength_proxy": trend_by_symbol[symbol],
             "leader_structure": leader_by_symbol[symbol],
             "index_chain_resonance": chain_by_symbol[symbol],
+            "weekly_confirmation": weekly_by_symbol[symbol],
         }
         by_symbol[symbol] = {
             "symbol": symbol,
@@ -412,7 +466,7 @@ def build_a2_feature_snapshot(
             if symbol_count
             else 0.0
         )
-        for name in ("capital_flow", "tier_structure", "leader_structure", "index_chain_resonance")
+        for name in ("capital_flow", "tier_structure", "leader_structure", "index_chain_resonance", "weekly_confirmation")
     }
     # Capital flow, event ladders and attention feeds are optional evidence
     # families.  They must remain individually auditable, but one unavailable
@@ -424,10 +478,10 @@ def build_a2_feature_snapshot(
     base_sufficient = bool(symbols) and daily_bar_coverage >= 0.95 and identity_coverage >= 0.95
     optional_missing = [
         name
-        for name in ("capital_flow", "tier_structure", "leader_structure", "index_chain_resonance")
+        for name in ("capital_flow", "tier_structure", "leader_structure", "index_chain_resonance", "weekly_confirmation")
         if factor_coverage[name] < 0.90
     ]
-    market_factor_names = ("breadth", "turnover_share", "leader_structure", "tier_structure", "index_chain_resonance")
+    market_factor_names = ("breadth", "turnover_share", "leader_structure", "tier_structure", "index_chain_resonance", "weekly_confirmation")
     market_fact_counts = {
         symbol: sum(
             by_symbol[symbol]["factors"].get(name, {}).get("available") is True
@@ -475,7 +529,7 @@ def build_a2_feature_snapshot(
     route_sufficiency = {
         "MARKET_CORE": {
             "required_facts": ["daily_bars", "taxonomy_identity", "market_facts_minimum_2"],
-            "optional_facts": ["capital_flow", "tier_structure", "leader_structure", "index_chain_resonance", "attention", "dragon_tiger"],
+            "optional_facts": ["capital_flow", "tier_structure", "leader_structure", "index_chain_resonance", "weekly_confirmation", "attention", "dragon_tiger"],
             "available": base_sufficient and market_projection_available,
             "missing_facts": market_missing_facts,
             "data_sufficiency_state": (
@@ -500,7 +554,7 @@ def build_a2_feature_snapshot(
         },
         "SUPPLY_CHAIN_ALPHA": {
             "required_facts": ["daily_bars", "taxonomy_identity"],
-            "optional_facts": ["capital_flow", "tier_structure", "leader_structure", "index_chain_resonance"],
+            "optional_facts": ["capital_flow", "tier_structure", "leader_structure", "index_chain_resonance", "weekly_confirmation"],
             "available": base_sufficient,
             "missing_facts": [
                 *(["daily_bars"] if daily_bar_coverage < 0.95 else []),
@@ -528,6 +582,7 @@ def build_a2_feature_snapshot(
             "tier_structure": 0.90,
             "leader_structure": 0.90,
             "index_chain_resonance": 0.90,
+            "weekly_confirmation": 0.90,
         },
         "ladder_dataset_state": ladder_state,
         "ladder_dataset_reason_code": ladder_reason,
@@ -642,7 +697,7 @@ def _dataset_observation(value: Mapping[str, Any] | None) -> tuple[bool, str, st
     return True, "OBSERVED_VALUE", "OK"
 
 
-def _return_20d(bars: Sequence[Mapping[str, Any]], as_of: date) -> float | None:
+def _return_nd(bars: Sequence[Mapping[str, Any]], as_of: date, window: int) -> float | None:
     usable: list[tuple[int, float]] = []
     cutoff = int(datetime.combine(as_of, datetime.max.time(), tzinfo=SHANGHAI).timestamp() * 1000)
     for index, row in enumerate(bars):
@@ -651,10 +706,46 @@ def _return_20d(bars: Sequence[Mapping[str, Any]], as_of: date) -> float | None:
         if close is not None and close > 0 and day <= cutoff:
             usable.append((day, close))
     usable.sort()
-    if len(usable) < 21:
+    horizon = max(1, int(window))
+    if len(usable) < horizon + 1:
         return None
-    first, last = usable[-21][1], usable[-1][1]
+    first, last = usable[-(horizon + 1)][1], usable[-1][1]
     return (last / first - 1.0) * 100.0 if first > 0 else None
+
+
+def _return_20d(bars: Sequence[Mapping[str, Any]], as_of: date) -> float | None:
+    """Compatibility wrapper retained for external callers and old tests."""
+
+    return _return_nd(bars, as_of, 20)
+
+
+def _mean(values: Sequence[float]) -> float | None:
+    return sum(values) / len(values) if values else None
+
+
+def _weekly_theme_state(
+    return_5d: float | None,
+    return_10d: float | None,
+    return_20d: float | None,
+    breadth_5d: float | None,
+) -> str:
+    if return_5d is None or return_20d is None or breadth_5d is None:
+        return "UNKNOWN"
+    if return_20d <= 0 < return_5d and breadth_5d >= 0.5:
+        return "EARLY_REVERSAL"
+    if return_20d > 0 and return_5d <= 0:
+        return "COOLING"
+    if return_20d <= 0 and return_5d <= 0:
+        return "WEAK"
+    if (
+        return_10d is not None
+        and return_5d / 5.0 > return_10d / 10.0 > return_20d / 20.0 > 0
+        and breadth_5d >= 0.6
+    ):
+        return "ACCELERATING"
+    if return_5d > 0 and return_20d > 0 and breadth_5d >= 0.5:
+        return "PERSISTENT"
+    return "MIXED"
 
 
 def _sector_capital_flow_by_group(

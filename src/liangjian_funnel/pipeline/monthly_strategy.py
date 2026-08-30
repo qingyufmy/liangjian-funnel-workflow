@@ -15,10 +15,11 @@ from zoneinfo import ZoneInfo
 
 from .a1_contract import A1_CONTRACT_VERSION, A1_MONTHLY_DECISION_COUNT
 from .macro_regime import build_macro_asset_quadrant
+from .weekly_strategy import build_weekly_strategy_context
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
-CONTEXT_VERSION = "monthly-strategy-context/1.1.0"
+CONTEXT_VERSION = "monthly-strategy-context/1.2.0"
 MONTHLY_ROTATION_DECISION_VERSION = "monthly-rotation-decision/1.0.0"
 MONTHLY_ROTATION_DECISION_LIMIT = A1_MONTHLY_DECISION_COUNT
 
@@ -100,6 +101,14 @@ def build_monthly_strategy_context(
         for item in selected_documents
     )
     bodies = Counter(str(item.get("issuing_body") or "UNKNOWN") for item in selected_documents)
+    macro_asset_quadrant = build_macro_asset_quadrant(snapshot)
+    weekly_strategy_context = build_weekly_strategy_context(
+        snapshot,
+        as_of=cutoff,
+        monthly_rotations=rotations,
+        policy_documents=selected_documents,
+        macro_asset_quadrant=macro_asset_quadrant,
+    )
     return {
         "version": CONTEXT_VERSION,
         "strategy_month": cutoff.strftime("%Y-%m"),
@@ -122,7 +131,8 @@ def build_monthly_strategy_context(
             "official_documents": selected_documents,
         },
         "macro_economic_state": _bounded_mapping(macro),
-        "macro_asset_quadrant": build_macro_asset_quadrant(snapshot),
+        "macro_asset_quadrant": macro_asset_quadrant,
+        "weekly_strategy_context": weekly_strategy_context,
         "cross_market_leads": _bounded_mapping(
             snapshot.get("CROSS_MARKET_LEAD_SNAPSHOT")
             if isinstance(snapshot.get("CROSS_MARKET_LEAD_SNAPSHOT"), Mapping)
@@ -158,6 +168,8 @@ def build_monthly_strategy_context(
             "hardcoded_theme_allowlist_forbidden": True,
             "monthly_cycle_and_policy_must_be_reconciled": True,
             "missing_macro_must_be_reported": True,
+            "weekly_overlay_cannot_override_monthly_domain": True,
+            "subjective_targets_and_named_recommendations_are_not_facts": True,
         },
     }
 

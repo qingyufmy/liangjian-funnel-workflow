@@ -82,6 +82,11 @@ def _context() -> dict:
         ],
         "monthly_rotation_coverage": {"requested_top_n": 20, "status": "READY"},
         "macro_asset_quadrant": {"regime": "EQUITY_PREFERENCE"},
+        "weekly_strategy_context": {
+            "schema_version": "weekly-strategy-context/1.0.0",
+            "status": "READY",
+            "industry_rotation": [{"industry_thscode": "881001.TI", "weekly_state": "PERSISTENT"}],
+        },
         "policy_window": {"official_documents": [{"fact_id": "policy-1", "title": "测试政策", "summary": "摘要", "source_url": "gov:1"}]},
         "prior_theme_registry": {"themes": [{"theme_id": "prior"}], "nodes": []},
     }
@@ -96,6 +101,8 @@ def test_packet_has_complete_industry_and_decision_coverage_without_raw_history(
     assert "'series':" not in serialized
     assert "'items':" not in serialized
     assert packet["coverage"]["raw_history_projected_out"] is True
+    assert packet["coverage"]["weekly_strategy_status"] == "READY"
+    assert packet["weekly_strategy_context"]["industry_rotation"][0]["weekly_state"] == "PERSISTENT"
     assert packet["diagnostics"]["section_chars"]["industry_features"] > 0
 
 

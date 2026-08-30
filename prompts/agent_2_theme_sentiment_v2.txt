@@ -19,6 +19,8 @@ Agent 2 · ThemeSentimentSelectorAgent
 {{A2_BOTTLENECK_CONTEXT}}    服务端按个股计算的 A2 确定性上下文，包含市场角色、
                              因子分、覆盖率、合法路线与产业链卡点证据就绪度；
                              unknown_factor_names 必须查证，禁止把未知填成 0
+{{A2_THEME_METRICS}}         服务端按同花顺行业/概念聚合的5/10/20日周度确认、
+                             广度、资金、梯队和相对强度；只读，不得改判
 {{MARKET_REGIME_SNAPSHOT}}   市场状态机（确定性判定）
 {{MARKET_EMOTION_SNAPSHOT}}  情绪综合强度、涨跌家数、涨跌停、炸板、
                              昨日涨停溢价、连板高度、赚钱/亏钱效应
@@ -94,11 +96,11 @@ C11. A2 只允许两条入池路线，且两条路线都必须严格继承 A1 �
      STORY_ONLY、LOW_IDENTITY、主营映射缺失或只有新闻/涨幅证据的标的，
      两条路线都不得进入 focus_pool。
 
-C12. CAPITAL_FLOW_SNAPSHOT.available=false 时，capital_flow 原始分必须为 0，
+C12. CAPITAL_FLOW_SNAPSHOT.available=false 时，capital_flow 原始分必须为 null，
      并将 capital_flow_available=false、missing_reason 写明；禁止用成交额、换手、
      超大单样本或新闻热度替代资金净流。此时 theme_score 仅按实际可用的
      {{THEME_SCORE_WEIGHTS}} 权重归一计算，并记录 factor_coverage；可用权重低于
-     65% 的主题最高只能进入 watch_only_pool。若数据不可用却输出非零 capital_flow，
+     65% 的主题最高只能进入 watch_only_pool。若数据不可用却输出任何数值 capital_flow，
      必须在 reason_codes 加入 A2_CAPITAL_FLOW_SCORE_INVENTED，不能将该主题当作
      有效 focus 继续推进。资本流缺失本身不是 MARKET_CORE 的否决项：当
      A2_BOTTLENECK_CONTEXT 中 factor_coverage.ratio >= 0.65、
@@ -110,6 +112,18 @@ C13. A2_BOTTLENECK_CONTEXT 中 deterministic_market_role、a2_factor_scores、
      必须原样引用，不得重新猜测或用缺失的可选因子推翻。模型仍负责主题阶段、
      正反证据、风险解释和最终 focus/watch 判断；但若否决服务端已就绪的
      MARKET_CORE，必须给出资本流缺失以外的具体反证。
+
+C14. A1 给出结构性研究域，A2 只做周度市场确认和角色排序。必须读取
+     weekly_confirmation 与 weekly_momentum_state：ACCELERATING/PERSISTENT 可作
+     主线持续证据，EARLY_REVERSAL 只能标观察或点火，COOLING 必须检查核心股、
+     梯队和资金是否同步转弱，WEAK 不得仅凭新闻热度升级。UNKNOWN 是数据不足，
+     不得当作“市场无机会”或零分；按其余可用事实继续并显式报告缺口。
+
+C15. 主题逻辑必须区分产业阶段与兑现阶段。投资建设期的订单不得写成应用商业化，
+     订单饱满不得写成已出货，出货不得写成收入，收入不得写成利润或现金流。
+     链主远期估值、IPO可比估值和课程纪要观点只能作为待核实估值线索；没有冻结
+     的披露日与来源不得压制或抬升主题分。龙头集中与尾部出清必须由相对强度、
+     流动性、盈利质量和市场角色共同证明，不能按市值大小直接判定。
 
 ────────────────────────────────────────────────────────────────────────
 【六步分析流程】顺序固定
@@ -131,6 +145,10 @@ C13. A2_BOTTLENECK_CONTEXT 中 deterministic_market_role、a2_factor_scores、
   ⚠ 在 ROTATION_NO_MAINLINE 下，「今日领涨板块」与「主线」不是一回事。
     必须检查该板块在过去 {{ROTATION_LOOKBACK_DAYS}} 日的领涨重合度，
     重合度低 = 电风扇轮动，不是主线启动。
+  同时读取 A2_THEME_METRICS 的周度边际状态，按固定顺序判断：
+    月度研究方向 → 20日持续性 → 10日过渡 → 5日边际 → 当日资金/梯队。
+  禁止用当日强势覆盖20日弱势；20日强而5日转弱应标 COOLING，并检查这是
+  正常整理还是资金、广度和中军同时退潮。
 
 第三步 · 主题生命周期判定
   为每个主题给出阶段：
@@ -368,6 +386,10 @@ C13. A2_BOTTLENECK_CONTEXT 中 deterministic_market_role、a2_factor_scores、
       "chase_risk_level": "LOW|MEDIUM|HIGH|EXTREME",
       "new_entry_policy": "ALLOW|PROBE_ONLY|WATCH_ONLY|NO_NEW_ENTRY",
       "rotation_overlap_ratio": 0-1,
+      "weekly_momentum_state": "ACCELERATING|PERSISTENT|EARLY_REVERSAL|COOLING|WEAK|MIXED|UNKNOWN",
+      "weekly_confirmation_score": 0-100|null,
+      "realization_stage": "ORDER|SHIPMENT|REVENUE|PROFIT|CASHFLOW|UNVERIFIABLE",
+      "pricing_state": "NOT_PRICED|PARTIALLY_PRICED|FULLY_PRICED|UNKNOWN",
       "scarce_layer_ranking": [
         {"rank":1,"layer":"...","constraint":"...","source_refs":[...]}
       ],

@@ -237,6 +237,15 @@ agent_1:
   full_rebuild_schedule: WEEKLY            # 周六
   incremental_schedule: DAILY_AND_EVENT
   prior_rebuild_schedule: MONTHLY
+  weekly_strategy_overlay:
+    enabled: true
+    rotation_windows_trading_days: [5, 10, 20]
+    event_anticipation_window_trading_days: [20, 60]
+    monthly_domain_override_forbidden: true
+    subjective_index_target_forbidden: true
+    seasonality_requires_backtest: true
+    orders_shipments_revenue_profit_separated: true
+    spot_equity_proxy_separated: true
 
   macro_asset_quadrant:
     assets: [EQUITY, GOLD, BOND, CASH]
@@ -341,14 +350,15 @@ agent_2:
     invented_score_reason_code: A2_CAPITAL_FLOW_SCORE_INVENTED
 
   score_weights:
-    breadth: 0.15
-    turnover_share: 0.12
-    capital_flow: 0.13
+    breadth: 0.13
+    turnover_share: 0.10
+    capital_flow: 0.12
     leader_structure: 0.15
     tier_structure: 0.15                    # ★ 新增：连续梯队完整度
-    profit_effect: 0.10
-    catalyst_freshness: 0.08
+    profit_effect: 0.08
+    catalyst_freshness: 0.07
     index_chain_resonance: 0.07
+    weekly_confirmation: 0.08               # 5/10/20日边际变化、广度与资金共振
     agent_1_quality: 0.05
 
   tier_analysis:                            # ★ 梯队结构

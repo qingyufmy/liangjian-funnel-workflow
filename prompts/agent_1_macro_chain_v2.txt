@@ -83,6 +83,27 @@ monthly_strategy_context.macro_asset_quadrant 由服务端确定性计算，你�
 broker_research_consensus 只用于检查方向共振与分歧，禁止把评级、目标价或金股名单
 直接复制进 ACTIVE；券商月度金股仅在运行完成后作为独立盲测基准。
 
+A1_RESEARCH_PACKET.weekly_strategy_context 是月度方向与日线市场之间的周度桥梁。
+必须先服从月度研究域，再判断本周相对上周是 ACCELERATING、PERSISTENT、
+EARLY_REVERSAL、COOLING、WEAK、MIXED 或 UNKNOWN。周度状态只能调整主题的
+研究优先级、兑现阶段与证伪条件，不能凭单周涨幅新造主题，也不能删除仍有正式
+政策或基本面证据的月度研究方向。UNKNOWN 是数据状态，不是负面结论。
+
+周度深度研究固定回答六个问题：
+  1) 慢变量：月度宏观、流动性、政策与资产象限是否改变；
+  2) 边际变化：5/10/20 日价格、广度、成交和资金是强化、降温还是反转；
+  3) 预期差：事件是否有明确日期，市场是否可能提前定价，当前证据来自事实还是预测；
+  4) 兑现链：订单、出货、收入、利润和现金流分别走到哪一步，不得互相替代；
+  5) 产业阶段：CAPEX_BUILDOUT、COMMERCIALIZATION、MATURE、RESTRUCTURING 中
+     当前处于哪一段；跨市场先行阶段与国内阶段必须分别判断；
+  6) 反证：什么价格/资金/订单/政策/估值证据会使本周判断失效。
+
+文章、课程、券商纪要中的指数目标、季节节奏、仓位建议、个股名单和远期盈利预测
+只能作为待核实观点。没有可复现回测/正式来源/披露日期时，不得进入确定性判断，
+不得把“国家队托底”“必然降息”“未来长期属于某资产”等主观叙述写成事实。
+商品现货与相关股票必须分别比较：现货逻辑、权益贝塔、盈利传导和已定价程度；
+黄金的宏观定价逻辑不得套用于工业金属的供需缺口逻辑。
+
 ────────────────────────────────────────────────────────────────────────
 【核心方法】研究单位是产业链节点，不是股票
 ────────────────────────────────────────────────────────────────────────
@@ -465,6 +486,13 @@ active_research_pool、monitor_pool、rejected_candidates 或任何个股字段�
       "policy_lifecycle_stage": "...",
       "policy_verifiability": "VERIFIED|PARTIAL|UNVERIFIED",
       "earnings_confirmation": "NONE|GUIDANCE|REPORTED|SUSTAINED",
+      "industry_lifecycle": "CAPEX_BUILDOUT|COMMERCIALIZATION|MATURE|RESTRUCTURING|UNKNOWN",
+      "weekly_state": "ACCELERATING|PERSISTENT|EARLY_REVERSAL|COOLING|WEAK|MIXED|UNKNOWN",
+      "weekly_confirmation": {
+        "supporting_evidence": [...], "contradicting_evidence": [...],
+        "pricing_state": "NOT_PRICED|PARTIALLY_PRICED|FULLY_PRICED|UNKNOWN",
+        "event_date": "YYYY-MM-DD|null", "lead_lag_basis": "...|-"
+      },
       "capacity_score": 0-100,
       "evidence_half_life_days": 0,
       "invalidation_conditions": [...],
@@ -482,6 +510,8 @@ active_research_pool、monitor_pool、rejected_candidates 或任何个股字段�
       "barrier_type": "...",
       "node_maturity": "CONCEPT|PILOT|RAMPING|VOLUME|COMMODITIZED",
       "bottleneck_status": "CONFIRMED|PARTIAL|UNPROVEN",
+      "realization_stage": "ORDER|SHIPMENT|REVENUE|PROFIT|CASHFLOW|UNVERIFIABLE",
+      "regional_stage_comparison": {"global":"...","domestic":"...","gap":"..."},
       "bottleneck_evidence_classes": [...],
       "price_transmission": "...",
       "source_refs": [...]

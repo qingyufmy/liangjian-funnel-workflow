@@ -25,7 +25,7 @@ from .feature_store import content_hash
 
 
 PIPELINE_MODE = "deterministic_v2"
-FEATURE_VERSION = "deterministic-features/2.1.0"
+FEATURE_VERSION = "deterministic-features/2.2.0"
 _A1_DEFAULT_WEIGHTS: dict[str, float] = {
     "structural_theme": 0.20,
     "business_mapping": 0.20,
@@ -44,6 +44,7 @@ A2_THEME_FACTORS: tuple[str, ...] = (
     "profit_effect",
     "catalyst_freshness",
     "index_chain_resonance",
+    "weekly_confirmation",
     "agent_1_quality",
 )
 A2_FACTOR_COVERAGE_MINIMUM = 0.65
@@ -792,6 +793,7 @@ def _a2_factor_scores(
         "profit_effect": ("profit_effect_score", "profit_effect", "earning_effect_score"),
         "catalyst_freshness": ("catalyst_freshness_score", "catalyst_score", "event_freshness_score"),
         "index_chain_resonance": ("index_chain_resonance_score", "chain_resonance_score", "relative_strength_score"),
+        "weekly_confirmation": ("weekly_confirmation_score", "weekly_score", "weekly_rotation_score"),
         "agent_1_quality": ("agent_1_quality_score", "a1_quality_score", "data_quality_score"),
     }
     for name in A2_THEME_FACTORS:
@@ -1416,6 +1418,7 @@ def _read_snapshot_factor(
         "profit_effect": ("A2_FACTOR_SNAPSHOT", "A2_THEME_METRICS", "MARKET_EMOTION_SNAPSHOT"),
         "catalyst_freshness": ("A2_FACTOR_SNAPSHOT", "A2_THEME_METRICS", "DISCLOSURE_EVENTS", "NEWS_HEAT_SNAPSHOT"),
         "index_chain_resonance": ("A2_FACTOR_SNAPSHOT", "A2_THEME_METRICS", "SECTOR_CYCLE_SNAPSHOT"),
+        "weekly_confirmation": ("A2_FACTOR_SNAPSHOT", "A2_THEME_METRICS", "SECTOR_CYCLE_SNAPSHOT"),
         "agent_1_quality": ("A2_FACTOR_SNAPSHOT",),
     }
     symbol_only = name in {"capital_flow", "tier_structure", "leader_structure", "agent_1_quality"}
@@ -1525,8 +1528,12 @@ def _read_metric_payload(
                 number = _number(raw.get(key))
                 if number is not None:
                     ratio = ratio_hint or key in {"percentile", "ratio"}
-                    return _factor_result(number * 100.0 if ratio and 0.0 <= number <= 1.0 else number, source, _payload_source_refs(raw) or source_refs, "OK")
-        return _factor_result(None, source, _payload_source_refs(raw) or source_refs, "A2_FACTOR_VALUE_MISSING")
+                    result = _factor_result(number * 100.0 if ratio and 0.0 <= number <= 1.0 else number, source, _payload_source_refs(raw) or source_refs, "OK")
+                    return _with_factor_metadata(result, raw)
+        return _with_factor_metadata(
+            _factor_result(None, source, _payload_source_refs(raw) or source_refs, "A2_FACTOR_VALUE_MISSING"),
+            raw,
+        )
     number = _number(raw)
     if number is None:
         return None
@@ -1535,6 +1542,20 @@ def _read_metric_payload(
     if number < 0.0 or number > 100.0:
         return _factor_result(None, source, source_refs, "A2_FACTOR_VALUE_INVALID")
     return _factor_result(number, source, source_refs, "OK") if available else _factor_result(None, source, source_refs, "A2_FACTOR_UNAVAILABLE")
+
+
+def _with_factor_metadata(result: dict[str, Any], raw: Mapping[str, Any]) -> dict[str, Any]:
+    """Retain bounded deterministic context needed to explain one factor."""
+
+    for key in (
+        "weekly_momentum_state",
+        "taxonomy_code",
+        "breadth_5d",
+        "relative_strength_mean_5d",
+    ):
+        if key in raw:
+            result[key] = raw.get(key)
+    return result
 
 
 def _factor_result(

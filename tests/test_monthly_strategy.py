@@ -57,6 +57,9 @@ def test_monthly_strategy_filters_future_and_keeps_cycle_and_prior_registry():
     assert context["pillar_availability"]["industry_cycle_fundamentals"] is True
     assert context["industry_activity_state"]["metric_scope"] == "INDUSTRIAL_VALUE_ADDED_GROWTH_NOT_PROFIT"
     assert context["runtime_contract"]["stock_selection_forbidden"] is True
+    assert context["weekly_strategy_context"]["status"] == "DEGRADED"
+    assert context["weekly_strategy_context"]["industry_rotation"][0]["weekly_state"] == "UNKNOWN"
+    assert context["runtime_contract"]["weekly_overlay_cannot_override_monthly_domain"] is True
 
 
 def test_monthly_strategy_reports_missing_macro_instead_of_substituting_news():

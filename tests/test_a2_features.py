@@ -74,6 +74,10 @@ def test_a2_features_materialize_tier_leader_and_chain_without_heat_as_leader() 
     # Attention is only a bounded confirmation.  It cannot overwrite the
     # cross-sectional role with an artificial leader label.
     assert snapshot["by_symbol"]["000002.SZ"]["leader_role"] != "EMOTION_LEADER"
+    weekly = snapshot["theme_metrics"]["INDUSTRY:881001.TI"]
+    assert weekly["weekly_momentum_state"] == "PERSISTENT"
+    assert weekly["weekly_confirmation_score"] is not None
+    assert first["factors"]["weekly_confirmation"]["available"] is True
 
 
 def test_missing_capital_flow_stays_unavailable_while_other_factors_remain_auditable() -> None:
@@ -391,6 +395,8 @@ def test_deterministic_a2_consumes_materialized_real_factor_projection() -> None
     assert decision["a2_factor_scores"]["capital_flow"]["score"] == 90
     assert decision["a2_factor_scores"]["tier_structure"]["available"] is True
     assert decision["a2_factor_scores"]["leader_structure"]["available"] is True
+    assert decision["a2_factor_scores"]["weekly_confirmation"]["available"] is True
+    assert decision["a2_factor_scores"]["weekly_confirmation"]["weekly_momentum_state"] == "PERSISTENT"
 
 
 def test_deterministic_a2_keeps_missing_capital_as_degraded_optional_fact() -> None:

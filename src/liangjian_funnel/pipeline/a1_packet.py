@@ -26,7 +26,7 @@ from .a1_contract import (
 )
 
 
-A1_RESEARCH_PACKET_SCHEMA_VERSION = "a1-research-packet/1.0.0"
+A1_RESEARCH_PACKET_SCHEMA_VERSION = "a1-research-packet/1.1.0"
 A1_PACKET_TOKEN_BUDGET = 100_000
 _MACRO_WINDOWS = (1, 3, 6, 12)
 _INDUSTRY_METRIC_KEYS = (
@@ -117,6 +117,12 @@ def build_a1_research_packet(
             context.get("macro_asset_quadrant") or data.get("ASSET_ROTATION_SNAPSHOT"),
             24,
         ),
+        "weekly_strategy_context": _project_bounded(
+            context.get("weekly_strategy_context")
+            if isinstance(context.get("weekly_strategy_context"), Mapping)
+            else {},
+            48,
+        ),
         "macro_features": macro_features,
         "policy_dossiers": policy_dossiers,
         "cross_market_leads": cross_market,
@@ -133,6 +139,11 @@ def build_a1_research_packet(
             "canonical_decision_count": len(decisions),
             "canonical_decision_requested": decision_coverage.get("requested_top_n", A1_MONTHLY_DECISION_COUNT),
             "canonical_decision_status": decision_coverage.get("status", "INCOMPLETE"),
+            "weekly_strategy_status": (
+                context.get("weekly_strategy_context", {}).get("status")
+                if isinstance(context.get("weekly_strategy_context"), Mapping)
+                else "BLOCKED"
+            ),
             "full_snapshot_retained": True,
             "raw_history_projected_out": True,
         },
