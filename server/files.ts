@@ -2245,10 +2245,12 @@ export class ProjectFiles {
     };
   }
 
-  public async monitor(): Promise<{ readonly latest: JsonValue | null; readonly effectiveSignals: string | null; readonly events: readonly JsonValue[] }> {
+  public async monitor(): Promise<{ readonly latest: JsonValue | null; readonly effectiveSignals: string | null; readonly events: readonly JsonValue[]; readonly replay: JsonValue | null }> {
     const latestPath = resolveWithinRoot(this.config.rootDir, "outputs/monitor/latest.json");
     const signalPath = resolveWithinRoot(this.config.rootDir, "outputs/monitor/effective_signals.md");
+    const replayPath = resolveWithinRoot(this.config.rootDir, "outputs/evaluation/a4_replay_latest.json");
     const latest = latestPath ? await readJson(latestPath) : null;
+    const replay = replayPath ? await readJson(replayPath) : null;
     let effectiveSignals: string | null = null;
     if (signalPath) {
       try {
@@ -2270,7 +2272,7 @@ export class ProjectFiles {
         }
       }
     }
-    return { latest: sanitizeJson(latest), effectiveSignals: effectiveSignals ? effectiveSignals : null, events };
+    return { latest: sanitizeJson(latest), effectiveSignals: effectiveSignals ? effectiveSignals : null, events, replay: sanitizeJson(replay) };
   }
 
   private workflowProgressFailure(issue: WorkflowProgressIssue): WorkflowProgressSummary {

@@ -14,7 +14,7 @@ import { normalizeLaneOutcome, normalizeRunOutcome, normalizeStageOutcome, Proje
 import { LogStore } from "../../server/logger.js";
 import { redactText, sanitizeJson } from "../../server/redaction.js";
 import { JobRunner, timeoutForJob, waitForProcessExit } from "../../server/runner.js";
-import { WorkflowScheduler } from "../../server/scheduler.js";
+import { isMonitorMinute, WorkflowScheduler } from "../../server/scheduler.js";
 import type { JobRunRecord } from "../../server/types.js";
 
 async function createResearchDetailFixture(): Promise<string> {
@@ -262,6 +262,15 @@ test("uses BaoTa host and port variables and supports a test-only scheduler disa
   expect(config.schedulerEnabled).toBe(false);
 });
 
+test("starts A4 only when a continuous-auction minute bar can be closed", () => {
+  const clock = (hour: number, minute: number) => ({ date: "2026-08-31", weekday: 1, hour, minute, second: 0 });
+  expect(isMonitorMinute(clock(9, 30))).toBe(false);
+  expect(isMonitorMinute(clock(9, 31))).toBe(true);
+  expect(isMonitorMinute(clock(13, 0))).toBe(false);
+  expect(isMonitorMinute(clock(13, 1))).toBe(true);
+  expect(isMonitorMinute(clock(15, 0))).toBe(true);
+});
+
 test("reads and sorts fixed workflow run files without accepting arbitrary paths", async () => {
   const root = await mkdtemp(join(tmpdir(), "liangjian-control-plane-"));
   await mkdir(join(root, "outputs", "runs"), { recursive: true });
@@ -277,6 +286,27 @@ test("reads and sorts fixed workflow run files without accepting arbitrary paths
   const runs = await files.listRuns(10);
   expect(runs.map((run) => run.runId)).toEqual(["new", "old"]);
   expect(await files.getRun("../old")).toBeNull();
+});
+
+test("reads the bounded A4 replay artifact separately from live monitor events", async () => {
+  const root = await mkdtemp(join(tmpdir(), "liangjian-a4-monitor-"));
+  await mkdir(join(root, "outputs", "monitor"), { recursive: true });
+  await mkdir(join(root, "outputs", "evaluation"), { recursive: true });
+  await writeFile(join(root, "outputs", "monitor", "latest.json"), JSON.stringify({
+    time: "2026-08-28T10:00:00+08:00",
+    lanes: [{ events: [{ effective: true, symbol: "600001.SH", action: "BUY_SIGNAL" }] }],
+  }));
+  await writeFile(join(root, "outputs", "evaluation", "a4_replay_latest.json"), JSON.stringify({
+    schema_version: "liangjian-a4-replay/1.0.0",
+    mode: "TEST_ONLY_COUNTERFACTUAL",
+    trade_date: "2026-08-28",
+    effective_events: [{ effective: true, symbol: "000859.SZ", action: "LLM_VETO" }],
+  }));
+  const config = loadConfig({ LIANGJIAN_PYTHON_BIN: "python3" }, root);
+  const files = new ProjectFiles(config, new LogStore(config));
+  const monitor = await files.monitor();
+  expect(monitor.events).toHaveLength(1);
+  expect(monitor.replay).toMatchObject({ mode: "TEST_ONLY_COUNTERFACTUAL", trade_date: "2026-08-28" });
 });
 
 test("projects paginated research stage pools with names, reasons, and allow-listed detail", async () => {

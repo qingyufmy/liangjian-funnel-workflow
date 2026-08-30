@@ -74,7 +74,84 @@ function normalizeMonitorEvent(value: unknown): JsonValue {
     time: event.time ?? event.minute_end ?? null,
     minuteEnd: event.minuteEnd ?? event.minute_end ?? null,
     laneId: event.laneId ?? event.lane_id ?? null,
+    planId: event.planId ?? event.plan_id ?? null,
+    llmVeto: event.llmVeto ?? event.llm_veto ?? false,
     reasonCode: event.reasonCode ?? event.reason_code ?? null,
+    plan: normalizeMonitorPlan(event.plan),
+    simulation: normalizeSimulation(event.simulation),
+  });
+}
+
+function normalizeMonitorPlan(value: unknown): JsonValue | null {
+  const plan = record(value);
+  if (!plan) return null;
+  return sanitizeJson({
+    planId: plan.planId ?? plan.plan_id ?? null,
+    laneId: plan.laneId ?? plan.lane_id ?? null,
+    symbol: plan.symbol ?? null,
+    name: plan.name ?? null,
+    status: plan.status ?? null,
+    validFrom: plan.validFrom ?? plan.valid_from ?? null,
+    expiresAt: plan.expiresAt ?? plan.expires_at ?? null,
+    setupType: plan.setupType ?? plan.setup_type ?? null,
+    triggerLow: plan.triggerLow ?? plan.trigger_low ?? null,
+    triggerHigh: plan.triggerHigh ?? plan.trigger_high ?? null,
+    stopLevel: plan.stopLevel ?? plan.stop_level ?? null,
+    riskUnit: plan.riskUnit ?? plan.risk_unit ?? null,
+    sourceRunId: plan.sourceRunId ?? plan.source_run_id ?? null,
+    selectionReasons: plan.selectionReasons ?? plan.selection_reasons ?? [],
+  });
+}
+
+function normalizeSimulation(value: unknown): JsonValue | null {
+  const simulation = record(value);
+  if (!simulation) return null;
+  return sanitizeJson({
+    status: simulation.status ?? null,
+    action: simulation.action ?? null,
+    qty: simulation.qty ?? null,
+    price: simulation.price ?? null,
+    fee: simulation.fee ?? null,
+    barEnd: simulation.barEnd ?? simulation.bar_end ?? null,
+  });
+}
+
+function normalizeA4Replay(value: unknown): JsonValue | null {
+  const replay = record(value);
+  if (!replay) return null;
+  const plan = record(replay.test_plan);
+  const coverage = record(replay.bar_coverage);
+  return sanitizeJson({
+    schemaVersion: replay.schema_version ?? null,
+    status: replay.status ?? null,
+    mode: replay.mode ?? null,
+    modelMode: replay.model_mode ?? null,
+    tradeDate: replay.trade_date ?? null,
+    sourceRunId: replay.source_run_id ?? null,
+    officialA3PlanCount: replay.official_a3_plan_count ?? null,
+    productionPathExpected: replay.production_path_expected ?? null,
+    modelCalls: replay.model_calls ?? null,
+    testPlan: plan ? {
+      planId: plan.plan_id ?? null,
+      symbol: plan.symbol ?? null,
+      name: plan.name ?? null,
+      sourcePool: plan.source_pool ?? null,
+      sourceRiskUnit: plan.source_risk_unit ?? null,
+      testRiskUnit: plan.test_risk_unit ?? null,
+      triggerLow: plan.trigger_low ?? null,
+      triggerHigh: plan.trigger_high ?? null,
+      stopLevel: plan.stop_level ?? null,
+      testOnlyPromotion: plan.test_only_promotion ?? null,
+    } : null,
+    barCoverage: coverage ? {
+      source: coverage.source ?? null,
+      count: coverage.count ?? null,
+      first: coverage.first ?? null,
+      last: coverage.last ?? null,
+    } : null,
+    effectiveEvents: arrayField(replay, "effective_events").map((event) => normalizeMonitorEvent(event)),
+    fills: arrayField(replay, "fills").map((fill) => normalizeSimulation(fill)).filter(Boolean),
+    invariants: replay.invariants ?? null,
   });
 }
 
@@ -202,7 +279,12 @@ export class DashboardData {
     const monitorEvents = monitorRecord
       ? monitorLanes.flatMap((lane) => arrayField(lane, "events").map((event) => normalizeMonitorEvent(event)))
       : [];
-    const effectiveEvents = monitor.events.map((event) => normalizeMonitorEvent(event));
+    const persistedEffectiveEvents = statusData ? arrayField(statusData, "recent_effective_events") : [];
+    const effectiveEvents = (persistedEffectiveEvents.length ? persistedEffectiveEvents : monitor.events)
+      .map((event) => normalizeMonitorEvent(event));
+    const monitorPlans = statusData
+      ? arrayField(statusData, "monitor_plans").map((plan) => normalizeMonitorPlan(plan)).filter(Boolean)
+      : [];
     const serviceHealthy = status.availability === "ok"
       && statusData?.configuration_ready !== false
       && statusData?.state_healthy !== false;
@@ -254,6 +336,8 @@ export class DashboardData {
         latest: monitor.latest,
         effectiveSignals: monitor.effectiveSignals,
         laneCount: monitorLanes.length,
+        plans: monitorPlans,
+        replay: normalizeA4Replay(monitor.replay),
       },
       accounts,
       positions: statusData ? statusData.positions ?? null : null,

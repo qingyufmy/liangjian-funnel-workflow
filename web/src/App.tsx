@@ -38,6 +38,7 @@ import {
   LaneSummary,
   LogEntry,
   LogsResponse,
+  MonitorPlan,
   OverviewResponse,
   RunSummary,
   RunsResponse,
@@ -1163,7 +1164,7 @@ function MonitorPanel({ overview, onOpen }: { overview: OverviewResponse; onOpen
   return (
     <Panel title="盘中盯盘" icon={<MonitorDot size={18} />} action={<button className="text-button" type="button" onClick={onOpen}>查看详情</button>}>
       <div className="rail-summary"><StatusBadge status={overview.monitor.status} /><span>{formatDateTime(overview.monitor.checkedAt)}</span></div>
-      {effective.length === 0 ? <EmptyState title="暂无有效事件" detail="A4 会继续复核已有计划；NO_ACTION 不会写入有效结果。" icon={<MonitorDot size={21} />} /> : (
+      {effective.length === 0 ? <EmptyState title="暂无有效事件" detail={overview.monitor.activePlanCount ? "A4 正在复核已有计划；NO_ACTION 不会写入有效结果。" : "当前没有正式 A3 活动计划，A4 不会自行创建候选。"} icon={<MonitorDot size={21} />} /> : (
         <ul className="event-list">{effective.slice(0, 4).map((event, index) => <EventRow key={`${event.minuteEnd}-${event.laneId}-${index}`} event={event} />)}</ul>
       )}
       <dl className="compact-stats"><div><dt>有效事件</dt><dd>{overview.monitor.effectiveEventCount ?? effective.length}</dd></div><div><dt>活动计划</dt><dd>{overview.monitor.activePlanCount ?? overview.planCounts.ACTIVE_TODAY ?? 0}</dd></div></dl>
@@ -1172,7 +1173,67 @@ function MonitorPanel({ overview, onOpen }: { overview: OverviewResponse; onOpen
 }
 
 function EventRow({ event }: { event: EffectiveEvent }) {
-  return <li><div><strong>{event.action ?? "有效事件"}</strong><span>{event.symbol ?? event.laneId ?? "—"}</span></div><time>{formatDateTime(event.minuteEnd ?? event.time)}</time></li>;
+  return <li><div><strong>{monitorActionLabel(event.action)}</strong><span>{event.name ? `${event.name} · ${event.symbol}` : event.symbol ?? event.laneId ?? "—"}</span></div><time>{formatDateTime(event.minuteEnd ?? event.time)}</time></li>;
+}
+
+const MONITOR_ACTION_LABELS: Record<string, string> = {
+  BUY_SIGNAL: "模拟入场",
+  ADD_SIGNAL: "模拟加仓",
+  SELL_SIGNAL: "模拟离场",
+  REDUCE_SIGNAL: "模拟减仓",
+  FORCED_RISK_EXIT: "硬止损离场",
+  LLM_VETO: "模型否决",
+  PLAN_INVALIDATED: "计划失效",
+  DATA_BLOCK: "数据阻断",
+};
+
+const MONITOR_REASON_LABELS: Record<string, string> = {
+  DETERMINISTIC_TRIGGER_PASS: "确定性触发通过，模型未否决",
+  DETERMINISTIC_EXIT_TRIGGER: "确定性离场条件触发",
+  LLM_VETO: "Flash 模型否决本次触发",
+  HARD_STOP: "价格触及硬止损",
+  MINUTE_DATA_GAP: "分钟线存在缺口",
+  MINUTE_DATA_UNAVAILABLE: "当前分钟线不可用",
+  BAR_MISSING: "计划股票缺少当前分钟线",
+  BAR_NOT_CURRENT_1M: "不是当前闭合1分钟K线",
+  MONITOR_OVERRUN: "本分钟处理超时",
+  LLM_UNAVAILABLE: "盯盘模型不可用",
+  PLAN_INVALIDATED: "A3计划已失效",
+};
+
+function monitorActionLabel(action?: string | null): string {
+  return action ? MONITOR_ACTION_LABELS[action] ?? action : "有效事件";
+}
+
+function monitorReasonLabel(reason?: string | null): string {
+  return reason ? MONITOR_REASON_LABELS[reason] ?? reason : "未提供原因";
+}
+
+function priceRange(plan?: MonitorPlan | null): string {
+  if (plan?.triggerLow === null || plan?.triggerLow === undefined || plan?.triggerHigh === null || plan?.triggerHigh === undefined) return "—";
+  return `${detailValue(plan.triggerLow)} – ${detailValue(plan.triggerHigh)}`;
+}
+
+function MonitorEventDialog({ event, onClose }: { event: EffectiveEvent | null; onClose: () => void }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const dialog = ref.current;
+    if (!dialog) return;
+    if (event && !dialog.open) dialog.showModal();
+    if (!event && dialog.open) dialog.close();
+  }, [event]);
+  const plan = event?.plan;
+  return <dialog ref={ref} className="monitor-detail-dialog" onClose={onClose} onCancel={(e) => { e.preventDefault(); onClose(); }}>
+    {event ? <div className="monitor-detail-shell">
+      <header className="monitor-detail-header"><div><span className="monitor-detail-mode">正式模拟信号</span><h2>{event.name || "名称未提供"}<small>{event.symbol || "代码未提供"}</small></h2><p>{monitorActionLabel(event.action)} · {formatDateTime(event.minuteEnd ?? event.time)}</p></div><button className="icon-button" type="button" aria-label="关闭信号详情" onClick={onClose}><X size={19} /></button></header>
+      <div className="monitor-detail-body">
+        <section className="monitor-detail-summary"><div><span>动作</span><strong>{monitorActionLabel(event.action)}</strong></div><div><span>触发原因</span><strong>{monitorReasonLabel(event.reasonCode)}</strong></div><div><span>Lane</span><strong>{event.laneId || "—"}</strong></div><div><span>模拟结果</span><strong>{event.simulation?.status === "FILLED" ? "已成交" : event.action === "LLM_VETO" ? "已否决" : "未成交 / 不适用"}</strong></div></section>
+        <section className="monitor-detail-section"><header><h3>A3 计划约束</h3><span>只读</span></header>{plan ? <dl className="monitor-detail-grid"><div><dt>计划 ID</dt><dd>{plan.planId || event.planId || "—"}</dd></div><div><dt>形态</dt><dd>{plan.setupType || "—"}</dd></div><div><dt>触发区间</dt><dd>{priceRange(plan)}</dd></div><div><dt>失效价</dt><dd>{detailValue(plan.stopLevel)}</dd></div><div><dt>风险单位</dt><dd>{detailValue(plan.riskUnit)}</dd></div><div><dt>有效期</dt><dd>{formatDateTime(plan.expiresAt)}</dd></div></dl> : <p className="monitor-detail-empty">该事件没有可用的计划明细，页面不会推测补齐。</p>}</section>
+        {plan?.selectionReasons?.length ? <section className="monitor-detail-section"><header><h3>入选依据</h3><span>持久化结果</span></header><ul>{plan.selectionReasons.map((reason, index) => <li key={`${reason}-${index}`}>{reason}</li>)}</ul></section> : null}
+        <section className="monitor-detail-section"><header><h3>模拟成交</h3><span>内部账户</span></header>{event.simulation ? <dl className="monitor-detail-grid"><div><dt>状态</dt><dd>{event.simulation.status || "—"}</dd></div><div><dt>方向</dt><dd>{event.simulation.action || "—"}</dd></div><div><dt>数量</dt><dd>{detailValue(event.simulation.qty)}</dd></div><div><dt>价格</dt><dd>{detailValue(event.simulation.price)}</dd></div><div><dt>费用</dt><dd>{detailValue(event.simulation.fee)}</dd></div><div><dt>成交K线</dt><dd>{formatDateTime(event.simulation.barEnd)}</dd></div></dl> : <p className="monitor-detail-empty">该事件未产生模拟成交；模型否决、数据阻断和计划失效均不会下单。</p>}</section>
+      </div>
+    </div> : null}
+  </dialog>;
 }
 
 function DataSourcesPanel({ sources, onOpen }: { sources: DataSourceSummary[]; onOpen: () => void }) {
@@ -1298,11 +1359,33 @@ function RunsTable({ runs }: { runs: RunSummary[] }) {
 
 function MonitorPage({ overview }: { overview: OverviewResponse }) {
   const events = overview.recentEffectiveEvents.length ? overview.recentEffectiveEvents : overview.monitor.events.filter((event) => event.effective);
-  return <div className="page-stack"><PageHeading eyebrow="A4 · veto only" title="盘中盯盘" detail="只复核已有 A3 计划；无权新增候选、放宽触发价或连接真实账户。" />
-    <div className="summary-strip"><SummaryItem label="最新检查" value={formatDateTime(overview.monitor.checkedAt)} /><SummaryItem label="有效事件" value={String(overview.monitor.effectiveEventCount ?? events.length)} /><SummaryItem label="活动计划" value={String(overview.monitor.activePlanCount ?? overview.planCounts.ACTIVE_TODAY ?? 0)} /><SummaryItem label="当前状态" value={statusLabel(overview.monitor.status)} /></div>
-    <Panel title="有效事件" icon={<MonitorDot size={18} />}>
-      {events.length === 0 ? <EmptyState title="目前没有有效盯盘事件" detail="这是合法结果。系统不会把每分钟的 NO_ACTION 写入最终结果。" icon={<MonitorDot size={22} />} /> : <div className="data-table-wrap"><table className="data-table"><thead><tr><th>时间</th><th>Lane</th><th>股票</th><th>动作</th><th>原因</th></tr></thead><tbody>{events.map((event, index) => <tr key={`${event.minuteEnd}-${index}`}><td>{formatDateTime(event.minuteEnd ?? event.time)}</td><td>{event.laneId ?? "—"}</td><td>{event.symbol ?? "—"}</td><td>{event.action ?? "—"}</td><td>{event.reasonCode ?? "—"}</td></tr>)}</tbody></table></div>}
-    </Panel></div>;
+  const plans = overview.monitor.plans ?? [];
+  const activePlanCount = overview.monitor.activePlanCount ?? overview.planCounts.ACTIVE_TODAY ?? plans.filter((plan) => plan.status === "ACTIVE_TODAY").length;
+  const filledCount = events.filter((event) => event.simulation?.status === "FILLED").length;
+  const [selectedEvent, setSelectedEvent] = useState<EffectiveEvent | null>(null);
+  const replay = overview.monitor.replay;
+  return <div className="page-stack"><PageHeading eyebrow="A4 · veto only" title="盘中盯盘" detail="确定性规则先触发，Flash 只允许否决；全部结果进入本地模拟账户，不连接真实交易。" />
+    <div className="summary-strip monitor-summary-strip"><SummaryItem label="最新检查" value={formatDateTime(overview.monitor.checkedAt)} /><SummaryItem label="正式活动计划" value={String(activePlanCount)} /><SummaryItem label="有效事件" value={String(overview.monitor.effectiveEventCount ?? events.length)} /><SummaryItem label="模拟成交" value={String(filledCount)} /><SummaryItem label="当前状态" value={statusLabel(overview.monitor.status)} /></div>
+    {activePlanCount === 0 ? <section className="monitor-readiness monitor-readiness-blocked"><TriangleAlert size={19} /><div><strong>当前没有正式 A3 活动计划</strong><p>A4 会保持空范围并继续运行，但不会自行创建候选或产生模拟入场。测试回放与正式信号严格分开。</p></div></section> : <section className="monitor-readiness"><CheckCircle2 size={19} /><div><strong>{activePlanCount} 个正式计划已进入盯盘范围</strong><p>09:31 起使用闭合1分钟K线；入场触发需连续确认，模型仅能否决。</p></div></section>}
+
+    <Panel title="正式实时信号" icon={<MonitorDot size={18} />}>
+      {events.length === 0 ? <EmptyState title="目前没有有效盯盘事件" detail={activePlanCount ? "这是合法结果。系统不会把每分钟的 NO_ACTION 写入最终结果。" : "没有正式活动计划，因此生产路径应保持 EMPTY_SCOPE。"} icon={<MonitorDot size={22} />} /> : <div className="data-table-wrap"><table className="data-table monitor-event-table"><thead><tr><th>时间</th><th>股票</th><th>信号</th><th>模拟结果</th><th>原因</th><th><span className="sr-only">详情</span></th></tr></thead><tbody>{events.map((event, index) => <tr key={`${event.minuteEnd}-${event.planId}-${index}`}><td>{formatDateTime(event.minuteEnd ?? event.time)}</td><td><span className="monitor-stock"><strong>{event.name || "名称未提供"}</strong><small>{event.symbol || "代码未提供"}</small></span></td><td><span className={`monitor-action monitor-action-${(event.action || "unknown").toLowerCase()}`}>{monitorActionLabel(event.action)}</span></td><td>{event.simulation?.status === "FILLED" ? <span className="monitor-fill-status monitor-fill-success">已成交 · {detailValue(event.simulation.qty)}股</span> : event.action === "LLM_VETO" ? <span className="monitor-fill-status">未成交 · 模型否决</span> : <span className="monitor-fill-status">不适用</span>}</td><td className="monitor-reason">{monitorReasonLabel(event.reasonCode)}</td><td><button className="monitor-detail-button" type="button" onClick={() => setSelectedEvent(event)}>查看<ChevronRight size={16} /></button></td></tr>)}</tbody></table></div>}
+    </Panel>
+
+    <Panel title="A3 计划观察池" icon={<FileClock size={18} />}>
+      {plans.length === 0 ? <EmptyState title="当前没有待复核或活动计划" detail="A3 只有发布可执行计划后，A4 才会接管对应股票。" icon={<FileClock size={22} />} /> : <div className="data-table-wrap"><table className="data-table monitor-plan-table"><thead><tr><th>股票</th><th>状态</th><th>技术形态</th><th>触发区间</th><th>失效价</th><th>有效期</th><th>核心依据</th></tr></thead><tbody>{plans.map((plan) => <tr key={plan.planId || `${plan.laneId}-${plan.symbol}`}><td><span className="monitor-stock"><strong>{plan.name || "名称未提供"}</strong><small>{plan.symbol || "代码未提供"}</small></span></td><td><StatusBadge status={plan.status} /></td><td>{plan.setupType || "—"}</td><td className="mono-cell">{priceRange(plan)}</td><td className="mono-cell">{detailValue(plan.stopLevel)}</td><td>{formatDateTime(plan.expiresAt)}</td><td className="monitor-plan-reason">{plan.selectionReasons?.[0] || "未提供筛选依据"}</td></tr>)}</tbody></table></div>}
+    </Panel>
+
+    <Panel title="A4 回放验收" icon={<ShieldCheck size={18} />} action={replay ? <span className="monitor-test-badge">测试回放 · 非正式信号</span> : undefined}>
+      {!replay ? <EmptyState title="尚未生成 A4 回放报告" detail="运行隔离回放后，这里会显示分钟线覆盖、模型调用、有效事件与模拟成交验收结果。" icon={<ShieldCheck size={22} />} /> : <div className="monitor-replay">
+        <div className="monitor-replay-head"><div><strong>{replay.testPlan?.name || "名称未提供"}<small>{replay.testPlan?.symbol || "代码未提供"}</small></strong><span>{replay.tradeDate} · {replay.modelMode === "LIVE_DEEPSEEK_FLASH_VETO_ONLY" ? "真实 Flash 否决边界" : "确定性放行路径"}</span></div><StatusBadge status={replay.status} /></div>
+        <dl className="monitor-replay-metrics"><div><dt>闭合1分钟线</dt><dd>{replay.barCoverage?.count ?? "—"} 根</dd></div><div><dt>模型调用</dt><dd>{replay.modelCalls ?? "—"} 次</dd></div><div><dt>有效事件</dt><dd>{replay.effectiveEvents?.length ?? 0} 条</dd></div><div><dt>模拟成交</dt><dd>{replay.fills?.length ?? 0} 笔</dd></div><div><dt>正式 A3 计划</dt><dd>{replay.officialA3PlanCount ?? "—"} 个</dd></div></dl>
+        <div className="monitor-replay-contract"><CircleAlert size={17} /><p>该回放把 A3 观察行临时提升为 TEST_ONLY PROBE，只验证盘前复核、触发、模型否决和模拟成交链路；不等于8月28日真实推荐，也不会写入正式状态库。</p></div>
+        {replay.effectiveEvents?.length ? <div className="monitor-replay-events">{replay.effectiveEvents.map((event, index) => <button type="button" key={`${event.minuteEnd}-${index}`} onClick={() => setSelectedEvent(event)}><span>{formatDateTime(event.minuteEnd)}</span><strong>{monitorActionLabel(event.action)}</strong><small>{monitorReasonLabel(event.reasonCode)}</small><ChevronRight size={16} /></button>)}</div> : null}
+      </div>}
+    </Panel>
+    <MonitorEventDialog event={selectedEvent} onClose={() => setSelectedEvent(null)} />
+  </div>;
 }
 
 function AccountsPage({ overview }: { overview: OverviewResponse }) {

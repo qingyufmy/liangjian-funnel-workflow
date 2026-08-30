@@ -60,22 +60,29 @@ def test_nonempty_plan_morning_a4_entry_and_next_day_exit(tmp_path) -> None:
     )
 
     class Market:
-        def fetch_bars(self, symbol, interval, required_bars, *, as_of):
-            bars = (_bar(as_of - timedelta(minutes=1)), _bar(as_of))
-            return FetchResult(
+        def fetch_quote(self, symbol, *, as_of):
+            from liangjian_funnel.data.tencent_minute import MarketQuote, QuoteResult
+
+            return QuoteResult(
                 symbol=symbol,
-                interval=interval,
-                requested_bars=required_bars,
-                returned_bars=len(bars),
-                bars=bars,
                 reason_code="OK",
                 complete=True,
+                quote=MarketQuote(
+                    symbol=symbol,
+                    name="测试股票",
+                    quote_time=as_of,
+                    price=10.5,
+                    open=10.5,
+                    previous_close=10.4,
+                    volume=1_000,
+                    amount=10_500,
+                ),
             )
 
     app = SimpleNamespace(
         store=store,
         brokers={"lane_1": broker},
-        mootdx=Market(),
+        market_data=Market(),
         minute_store=SimpleNamespace(write=lambda _bars: None),
         settings=SimpleNamespace(workflow_output_dir=tmp_path / "outputs"),
         _ensure_trading_day=lambda _current: None,

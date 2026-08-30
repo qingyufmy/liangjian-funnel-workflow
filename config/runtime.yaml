@@ -14,8 +14,8 @@ monitor:
   cadence_seconds: 60
   max_seconds: 50
   sessions:
-    - ["09:25", "11:30"]
-    - ["13:00", "15:00"]
+    - ["09:31", "11:30"]
+    - ["13:01", "15:00"]
 data_sources:
   hithink:
     responsibilities:

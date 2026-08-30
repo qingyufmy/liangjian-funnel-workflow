@@ -208,6 +208,9 @@ class Scheduler:
         morning = _at(day, datetime_time(9, 26))
         if current <= morning:
             return self._job(ScheduleKind.MORNING_0925, morning, current)
+        first_monitor = _at(day, datetime_time(9, 31))
+        if current < first_monitor:
+            return self._job(ScheduleKind.MONITOR, first_monitor, current)
         if current <= _at(day, datetime_time(11, 30)):
             return self._job(ScheduleKind.MONITOR, self._ceil_minute(current), current)
         afternoon = _at(day, datetime_time(13, 0))
@@ -226,9 +229,9 @@ class Scheduler:
         morning = _at(day, datetime_time(9, 26))
         if current >= morning and current < _at(day, datetime_time(15, 10)):
             jobs.append(self._job(ScheduleKind.MORNING_0925, morning, current))
-        if datetime_time(9, 25) <= current.time().replace(tzinfo=None) <= datetime_time(11, 30):
+        if datetime_time(9, 31) <= current.time().replace(tzinfo=None) <= datetime_time(11, 30):
             jobs.append(self._job(ScheduleKind.MONITOR, self._floor_minute(current), current))
-        if datetime_time(13, 0) <= current.time().replace(tzinfo=None) <= datetime_time(15, 0):
+        if datetime_time(13, 1) <= current.time().replace(tzinfo=None) <= datetime_time(15, 0):
             jobs.append(self._job(ScheduleKind.MONITOR, self._floor_minute(current), current))
         close = _at(day, datetime_time(15, 10))
         if current >= close and current <= _at(day, datetime_time(20, 30)):

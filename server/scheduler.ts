@@ -51,8 +51,8 @@ export function isMonitorMinute(clock: ShanghaiClock): boolean {
   const researchProtection = (minuteOfDay >= 9 * 60 + 25 && minuteOfDay <= 9 * 60 + 27)
     || (minuteOfDay >= 15 * 60 + 8 && minuteOfDay <= 15 * 60 + 11);
   return !researchProtection && (
-    (minuteOfDay >= 9 * 60 + 25 && minuteOfDay <= 11 * 60 + 30)
-    || (minuteOfDay >= 13 * 60 && minuteOfDay <= 15 * 60)
+    (minuteOfDay >= 9 * 60 + 31 && minuteOfDay <= 11 * 60 + 30)
+    || (minuteOfDay >= 13 * 60 + 1 && minuteOfDay <= 15 * 60)
   );
 }
 

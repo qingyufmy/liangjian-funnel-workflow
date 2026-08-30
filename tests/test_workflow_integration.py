@@ -77,7 +77,7 @@ def test_monitor_confirmation_survives_new_process_instance(tmp_path):
     first = MonitorEngine(store, llm_veto=lambda value: first_calls.append(value) or {"vetoes": {"plan-1": False}})
     one = first.process_minute("lane_1", [_bar(start)], minute_snapshot_id="m1", now=start)
     assert any(event.action == "START_CONFIRMATION" for event in one.events)
-    assert len(first_calls) == 1
+    assert len(first_calls) == 0
 
     second_calls = []
     second = MonitorEngine(store, llm_veto=lambda value: second_calls.append(value) or {"vetoes": {"plan-1": False}})
@@ -490,6 +490,37 @@ def test_sell_and_reduce_monitor_events_reach_next_bar_simulation(tmp_path):
     assert store.get_position("paper:lane_1", "600519.SH") is None
 
 
+def test_simulation_does_not_retry_a_signal_after_its_only_next_bar(tmp_path):
+    store = RuntimeStore(tmp_path / "runtime.sqlite3")
+    at = datetime(2026, 8, 24, 10, 0, tzinfo=TZ)
+    store.create_execution_plan(
+        "plan-late",
+        "lane_1",
+        "600519.SH",
+        status=PlanStatus.PENDING_MORNING_REVIEW,
+        expires_at=at.replace(hour=15),
+        payload={"trigger_low": 10, "trigger_high": 11, "stop_level": 9},
+    )
+    store.activate_plan("plan-late", valid_from=at)
+    store.record_monitor_event(
+        event_key="effective:late",
+        lane_id="lane_1",
+        minute_end=at,
+        action=MonitorAction.BUY_SIGNAL,
+        effective=True,
+        payload={"plan_id": "plan-late", "symbol": "600519.SH"},
+    )
+    broker = PaperBroker(store, account_id="paper:lane_1", model="TEST_ONLY")
+    app = SimpleNamespace(store=store, brokers={"lane_1": broker})
+    assert WorkflowApplication._settle_prior_signals(
+        app,
+        "lane_1",
+        "600519.SH",
+        _bar(at + timedelta(minutes=2)),
+    ) == []
+    assert store.list_fills("paper:lane_1") == ()
+
+
 def test_morning_review_activates_pending_plans_without_research_models(tmp_path):
     store = RuntimeStore(tmp_path / "runtime.sqlite3")
     current = datetime(2026, 8, 24, 9, 26, tzinfo=TZ)
@@ -501,25 +532,31 @@ def test_morning_review_activates_pending_plans_without_research_models(tmp_path
         expires_at=current.replace(hour=15, minute=0),
         payload={"trigger_low": 10, "trigger_high": 11, "stop_level": 9},
     )
-    bars = (_bar(current - timedelta(minutes=1)), _bar(current))
-
     class Market:
-        def fetch_bars(self, symbol, interval, required_bars, *, as_of):
-            assert (symbol, interval, required_bars, as_of) == ("600519.SH", "1m", 2, current)
-            return FetchResult(
+        def fetch_quote(self, symbol, *, as_of):
+            from liangjian_funnel.data.tencent_minute import MarketQuote, QuoteResult
+
+            assert (symbol, as_of) == ("600519.SH", current)
+            return QuoteResult(
                 symbol=symbol,
-                interval=interval,
-                requested_bars=2,
-                returned_bars=2,
-                bars=bars,
                 reason_code="OK",
                 complete=True,
+                quote=MarketQuote(
+                    symbol=symbol,
+                    name="贵州茅台",
+                    quote_time=current,
+                    price=10.5,
+                    open=10.5,
+                    previous_close=10.4,
+                    volume=1_000,
+                    amount=10_500,
+                ),
             )
 
     app = SimpleNamespace(
         store=store,
         brokers={"lane_1": object()},
-        mootdx=Market(),
+        market_data=Market(),
         minute_store=SimpleNamespace(write=lambda _bars: None),
         settings=SimpleNamespace(workflow_output_dir=tmp_path / "outputs"),
         _ensure_trading_day=lambda _current: None,

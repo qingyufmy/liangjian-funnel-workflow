@@ -27,7 +27,8 @@ from .data.bse import BseClient
 from .data.cninfo import CninfoAnnouncement, CninfoClient, CninfoFetchResult
 from .data.cninfo_pdf import CninfoPdfClient, CninfoPdfEvidence
 from .data.gov_policy import GovPolicyClient
-from .data.mootdx import MootdxAdapter, MootdxNode, MinuteBar, map_symbol
+from .data.mootdx import MootdxAdapter, MootdxNode, MinuteBar, detect_missing_bars, map_symbol
+from .data.tencent_minute import ResilientIntradayAdapter, TencentIntradayAdapter
 from .data.open_news import OpenNewsClient, OpenNewsFetchResult
 from .data.open_macro import OpenMacroDataCollector
 from .data.ths_industry import (
@@ -184,12 +185,19 @@ class WorkflowApplication:
             thinking_enabled=settings.monitor_thinking_enabled,
         )
         self.trading_calendar = ExchangeTradingCalendar()
-        self.mootdx = MootdxAdapter(
+        mootdx = MootdxAdapter(
             tuple(MootdxNode(host=host, port=port) for host, port in settings.mootdx_servers),
             page_size=settings.mootdx_page_size,
             max_pages=settings.mootdx_max_pages,
             timeout_seconds=settings.mootdx_timeout_seconds,
         )
+        self.market_data = ResilientIntradayAdapter(
+            mootdx,
+            TencentIntradayAdapter(timeout_seconds=min(12.0, settings.timeout_seconds)),
+        )
+        # Compatibility alias for existing probes/tests.  All workflow call
+        # sites now receive the same primary/fallback behavior.
+        self.mootdx = self.market_data
         self.brokers = {
             f"lane_{index}": PaperBroker(
                 self.store,
@@ -2044,8 +2052,8 @@ class WorkflowApplication:
         all_symbols = sorted(set().union(*lane_scopes.values())) if lane_scopes else []
 
         def fetch_symbol(symbol: str) -> tuple[str, dict[str, Any]]:
-            one = self.mootdx.fetch_bars(symbol, "1m", 21, as_of=current)
-            five = self.mootdx.fetch_bars(symbol, "5m", 60, as_of=current)
+            one = self.market_data.fetch_bars(symbol, "1m", 21, as_of=current)
+            five = self.market_data.fetch_bars(symbol, "5m", 60, as_of=current)
             return symbol, {"1m": one, "5m": five}
 
         if all_symbols:
@@ -2071,7 +2079,8 @@ class WorkflowApplication:
                 five = fetched.get("5m")
                 one_bars = tuple(one.bars) if one is not None else ()
                 five_bars = tuple(five.bars) if five is not None else ()
-                if not one_bars or one_bars[-1].bar_end != current:
+                one_gaps = detect_missing_bars(one_bars, "1m", as_of=current) if one_bars else ()
+                if not one_bars or one_bars[-1].bar_end != current or one_gaps:
                     data_ok = False
                 else:
                     bars[symbol] = one_bars[-1]
@@ -2152,17 +2161,15 @@ class WorkflowApplication:
         evidence: dict[str, Any] = {}
         symbols = sorted({str(plan["symbol"]) for plan in pending})
         for symbol in symbols:
-            fetched = self.mootdx.fetch_bars(symbol, "1m", 2, as_of=current)
-            if fetched.bars:
-                self.minute_store.write(fetched.bars)
-            if not fetched.complete or not fetched.bars or fetched.bars[-1].bar_end != current:
-                failures.append({"symbol": symbol, "reason_code": "CURRENT_1M_BAR_UNAVAILABLE"})
+            # 09:26 is still the auction phase; the first closed continuous
+            # 1m bar does not exist until 09:31.  Review the provider-owned,
+            # timestamped auction quote instead of requiring an impossible
+            # 09:26 minute bar.
+            quote_result = self.market_data.fetch_quote(symbol, as_of=current)
+            if not quote_result.complete or quote_result.quote is None:
+                failures.append({"symbol": symbol, "reason_code": quote_result.reason_code})
                 continue
-            bar = fetched.bars[-1]
-            if bar.volume <= 0:
-                failures.append({"symbol": symbol, "reason_code": "CURRENT_1M_BAR_ZERO_VOLUME"})
-                continue
-            evidence[symbol] = bar.model_dump(mode="json")
+            evidence[symbol] = quote_result.quote.model_dump(mode="json")
 
         for plan in pending:
             symbol = str(plan["symbol"])
@@ -2172,7 +2179,7 @@ class WorkflowApplication:
                 payload = json.loads(str(plan.get("payload_json") or "{}"))
                 stop_level = float(payload["stop_level"])
                 trigger_high = float(payload["trigger_high"])
-                price = float(evidence[symbol]["close"])
+                price = float(evidence[symbol]["price"])
             except (KeyError, TypeError, ValueError, json.JSONDecodeError):
                 failures.append({"symbol": symbol, "reason_code": "PLAN_PRICE_CONTRACT_INVALID"})
                 continue
@@ -2886,7 +2893,7 @@ class WorkflowApplication:
                 MonitorAction.FORCED_RISK_EXIT.value: "FORCED_RISK_EXIT",
             }[str(event["action"])]
             signal_time = datetime.fromisoformat(str(event["minute_end"]))
-            if bar.bar_end <= signal_time:
+            if bar.bar_end != _next_closed_minute(signal_time):
                 continue
             simulation_action = SimulationAction(
                 account_id=f"paper:{lane_id}",
@@ -2903,6 +2910,9 @@ class WorkflowApplication:
                 risk_unit=0.33 if plan_payload.get("risk_unit") == "PROBE" else 1.0,
                 plan_id=payload.get("plan_id"),
             )
+            intent_key = f"{simulation_action.account_id}:{simulation_action.signal_id}:{simulation_action.action.value}"
+            if self.store.get_fill_by_intent_key(intent_key) is not None:
+                continue
             outcome = broker.apply(simulation_action, bar)
             results.append(outcome.model_dump(mode="json"))
         return results
@@ -2917,6 +2927,16 @@ class WorkflowApplication:
         if synchronize_accounts:
             for broker in self.brokers.values():
                 broker.start_trading_day(current.date())
+
+
+def _next_closed_minute(value: datetime) -> datetime:
+    """Return the only bar eligible to settle an A4 signal."""
+
+    current = _aware(value).replace(second=0, microsecond=0)
+    clock = current.time().replace(tzinfo=None)
+    if clock == datetime.strptime("11:30", "%H:%M").time():
+        return current.replace(hour=13, minute=1)
+    return current + timedelta(minutes=1)
 
 
 def _intraday_market_context(

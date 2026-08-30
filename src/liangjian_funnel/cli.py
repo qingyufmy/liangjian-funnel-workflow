@@ -24,6 +24,7 @@ from .runtime.storage_governance import (
     storage_audit,
     storage_cleanup_plan,
 )
+from .runtime.state import PlanStatus
 from .settings import Settings, load_yaml
 from .workflow import WorkflowApplication, WorkflowError
 
@@ -63,6 +64,78 @@ def _latest_workflow_acceptance(
         expected_lanes=expected_lanes,
         required_lane_ids=required_lane_ids,
     ).to_legacy_acceptance()
+
+
+def _monitor_plan_projection(plan: Mapping[str, object]) -> dict[str, object]:
+    try:
+        payload = json.loads(str(plan.get("payload_json") or "{}"))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        payload = {}
+    if not isinstance(payload, Mapping):
+        payload = {}
+    reasons = payload.get("selection_reasons")
+    if not isinstance(reasons, list):
+        reasons = payload.get("reason_codes") if isinstance(payload.get("reason_codes"), list) else []
+    return {
+        "plan_id": str(plan.get("plan_id") or ""),
+        "lane_id": str(plan.get("lane_id") or ""),
+        "symbol": str(plan.get("symbol") or ""),
+        "name": str(payload.get("name") or ""),
+        "status": str(plan.get("status") or ""),
+        "valid_from": plan.get("valid_from"),
+        "expires_at": plan.get("expires_at"),
+        "setup_type": payload.get("setup_type"),
+        "trigger_low": payload.get("trigger_low"),
+        "trigger_high": payload.get("trigger_high"),
+        "stop_level": payload.get("stop_level"),
+        "risk_unit": payload.get("risk_unit"),
+        "source_run_id": payload.get("source_run_id"),
+        "selection_reasons": [str(item)[:500] for item in reasons[:6]],
+    }
+
+
+def _monitor_event_projection(
+    event: Mapping[str, object],
+    *,
+    plans: Mapping[str, Mapping[str, object]],
+    fills: Mapping[str, Mapping[str, object]],
+) -> dict[str, object]:
+    try:
+        payload = json.loads(str(event.get("payload_json") or "{}"))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        payload = {}
+    if not isinstance(payload, Mapping):
+        payload = {}
+    plan_id = str(payload.get("plan_id") or "")
+    plan = plans.get(plan_id, {})
+    event_key = str(event.get("event_key") or "")
+    fill = fills.get(event_key)
+    return {
+        "event_id": event.get("event_id"),
+        "event_key": event_key,
+        "minute_end": event.get("minute_end"),
+        "lane_id": event.get("lane_id"),
+        "plan_id": plan_id or None,
+        "symbol": payload.get("symbol") or plan.get("symbol"),
+        "name": plan.get("name"),
+        "action": event.get("action"),
+        "reason_code": event.get("reason_code"),
+        "effective": bool(event.get("effective")),
+        "llm_veto": bool(payload.get("llm_veto")),
+        "plan": plan or None,
+        "simulation": (
+            {
+                "status": "FILLED",
+                "action": fill.get("action"),
+                "qty": fill.get("qty"),
+                "price": fill.get("price"),
+                "fee": fill.get("fee"),
+                "bar_end": fill.get("bar_end"),
+            }
+            if fill is not None
+            else None
+        ),
+    }
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -450,6 +523,18 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
                 and settings.model_api_key
                 and settings.exchange_rules_path.is_file()
             )
+            monitor_plans = tuple(
+                _monitor_plan_projection(plan)
+                for status in (PlanStatus.ACTIVE_TODAY, PlanStatus.PENDING_MORNING_REVIEW)
+                for plan in application.store.list_execution_plans(status=status)
+            )
+            plan_by_id = {str(plan["plan_id"]): plan for plan in monitor_plans}
+            recent_fills = tuple(application.store.list_fills())[-100:]
+            fill_by_signal = {str(fill.get("signal_id") or ""): fill for fill in recent_fills}
+            recent_effective_events = tuple(
+                _monitor_event_projection(event, plans=plan_by_id, fills=fill_by_signal)
+                for event in application.store.list_monitor_events(effective_only=True)[-100:]
+            )
             payload = {
                 "state_db": str(settings.state_db_path),
                 "state_healthy": application.store.healthy,
@@ -471,6 +556,9 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
                     )
                 },
                 "effective_event_count": len(application.store.list_monitor_events(effective_only=True)),
+                "monitor_plans": monitor_plans,
+                "recent_effective_events": recent_effective_events,
+                "recent_fills": recent_fills,
                 "latest_workflow_runs": workflow_runs,
                 "scheduler_leases": application.store.list_leases(),
                 "configuration_ready": configuration_ready,

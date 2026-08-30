@@ -153,3 +153,23 @@ npm start
 ```
 
 默认只监听 `127.0.0.1:3210`。生产环境建议设置 `LIANGJIAN_DASHBOARD_TOKEN`，并通过宝塔 Nginx、IP 白名单或 VPN 访问。Node 调度启用后，不要再同时安装 Windows 计划任务、systemd timer 或 cron。完整参数见 [DEPLOYMENT.md](DEPLOYMENT.md) 和 [deploy/baota/README.md](deploy/baota/README.md)。
+
+### A4 盘中链路回放
+
+A4 只接管 A3 已发布的正式计划；没有正式活动计划时，生产路径必须保持 `EMPTY_SCOPE`。为验证分钟线、09:26 集合竞价复核、确定性触发、Flash 仅否决和本地模拟成交，可将一条 A3 次级观察项提升为独立的 `TEST_ONLY` 探针，并使用单独的 SQLite 状态库回放。该操作不会改写生产状态，也不会连接真实交易。
+
+```bash
+.venv/bin/python scripts/replay_a4_intraday.py \
+  --trade-date 2026-08-28 \
+  --source outputs/research/research_2026-08-28-close-ade0425-primary_lane_1.json \
+  --symbol 000859.SZ
+
+# 额外验证已配置的 DeepSeek Flash veto-only 调用边界
+.venv/bin/python scripts/replay_a4_intraday.py \
+  --trade-date 2026-08-28 \
+  --source outputs/research/research_2026-08-28-close-ade0425-primary_lane_1.json \
+  --symbol 000859.SZ \
+  --live-model
+```
+
+回放要求恰好 240 根连续交易 1 分钟线，结果写入 `outputs/evaluation/a4-replay-*`，并生成工作台读取的 `a4_replay_latest.json` 与 `a4_replay_latest.md`。盘中短窗口优先读取腾讯分钟线并以 MootDX 为独立回退；长历史仍交由 MootDX，避免有限窗口数据冒充 A3 历史行情。

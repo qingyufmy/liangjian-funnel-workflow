@@ -118,6 +118,7 @@ class MonitorEngine:
                 for position in positions
             )
         events: list[MonitorEvent] = []
+        durable_events = self.store.list_monitor_events(lane_id=lane_id)
         if not self._in_session(minute):
             return MonitorBatchResult(lane_id=lane_id, minute_snapshot_id=minute_snapshot_id, events=(), model_called=False)
 
@@ -222,6 +223,28 @@ class MonitorEngine:
                 events.append(self._emit_internal(lane_id, minute, minute_snapshot_id, MonitorAction.NO_ACTION.value, "TRIGGER_NOT_MET", plan_id, symbol))
                 continue
 
+            if self._resolved_trigger_episode(
+                durable_events,
+                plan_id=plan_id,
+                minute=minute,
+                action=str(payload.get("action", MonitorAction.BUY_SIGNAL.value)),
+            ):
+                trigger_results.append(
+                    {"plan_id": plan_id, "symbol": symbol, "trigger_pass": True, "eligible": False, "action_candidate": "NO_ACTION"}
+                )
+                events.append(
+                    self._emit_internal(
+                        lane_id,
+                        minute,
+                        minute_snapshot_id,
+                        MonitorAction.NO_ACTION.value,
+                        "SIGNAL_ALREADY_EMITTED",
+                        plan_id,
+                        symbol,
+                    )
+                )
+                continue
+
             required = max(1, int(payload.get("confirmation_bars", payload.get("confirm_bars", 1))))
             previous = self._confirmations.get(key)
             if previous is None:
@@ -293,7 +316,7 @@ class MonitorEngine:
         # with trigger_pass=False can never become eligible here.
         vetoes: dict[str, bool] = {}
         llm_failed = False
-        if self.llm_veto is not None and plans:
+        if self.llm_veto is not None and pending_veto:
             model_called = True
             context = {
                 "lane_id": lane_id,
@@ -390,7 +413,9 @@ class MonitorEngine:
     @staticmethod
     def _in_session(value: datetime) -> bool:
         current = value.time().replace(tzinfo=None)
-        return datetime_time(9, 25) <= current <= datetime_time(11, 30) or datetime_time(13, 0) <= current <= datetime_time(15, 0)
+        # 09:30 is the opening-auction print.  The first closed continuous 1m
+        # bar is 09:31, so A4 cannot make a bar-based decision before then.
+        return datetime_time(9, 31) <= current <= datetime_time(11, 30) or datetime_time(13, 1) <= current <= datetime_time(15, 0)
 
     @staticmethod
     def _buy_allowed(value: datetime) -> bool:
@@ -428,6 +453,59 @@ class MonitorEngine:
             count += 1
             expected -= timedelta(minutes=1)
         return count
+
+    @staticmethod
+    def _resolved_trigger_episode(
+        events: tuple[dict[str, Any], ...],
+        *,
+        plan_id: str,
+        minute: datetime,
+        action: str,
+    ) -> bool:
+        """Recover the in-range de-duplication state after process restart.
+
+        A filled/accepted action is terminal for that plan.  A veto only
+        suppresses the same uninterrupted trigger episode; once a persisted
+        ``TRIGGER_NOT_MET`` breaks the episode, a later re-entry may be
+        evaluated again.
+        """
+
+        previous_minute = minute - timedelta(minutes=1)
+        latest: tuple[datetime, str, str] | None = None
+        # An accepted deterministic action is terminal for this plan even
+        # across lunch, restarts and scheduler gaps.
+        for event in events:
+            if not bool(event.get("effective")) or str(event.get("action") or "") != action:
+                continue
+            try:
+                payload = json.loads(event.get("payload_json") or "{}")
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if payload.get("plan_id") == plan_id:
+                return True
+        for event in reversed(events):
+            try:
+                payload = json.loads(event.get("payload_json") or "{}")
+                event_minute = _local(datetime.fromisoformat(str(event["minute_end"])))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                continue
+            if payload.get("plan_id") != plan_id:
+                continue
+            event_action = str(event.get("action") or "")
+            reason = str(event.get("reason_code") or "")
+            if latest is None:
+                latest = (event_minute, event_action, reason)
+            # Rows are ordered by minute.  No older row can describe the
+            # immediately preceding episode once we moved before it.
+            if event_minute < previous_minute:
+                break
+        if latest is None or latest[0] != previous_minute:
+            return False
+        _, latest_action, latest_reason = latest
+        return latest_action == MonitorAction.LLM_VETO.value or (
+            latest_action == MonitorAction.NO_ACTION.value
+            and latest_reason in {"SIGNAL_ALREADY_EMITTED", "DUPLICATE_EFFECTIVE_STATE"}
+        )
 
     def _emit_internal(
         self,

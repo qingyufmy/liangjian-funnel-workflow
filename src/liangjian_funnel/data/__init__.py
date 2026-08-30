@@ -51,6 +51,12 @@ from .gov_policy import (
     GovPolicyDocument,
     GovPolicyFetchResult,
 )
+from .tencent_minute import (
+    MarketQuote,
+    QuoteResult,
+    ResilientIntradayAdapter,
+    TencentIntradayAdapter,
+)
 
 __all__ = [
     "DEFAULT_NODES",
@@ -88,12 +94,16 @@ __all__ = [
     "GovPolicyFetchResult",
     "FetchResult",
     "MinuteBar",
+    "MarketQuote",
     "MootdxAdapter",
     "MootdxError",
     "MootdxNode",
     "MinuteBarStore",
     "NodeAttempt",
     "PriceCrossCheck",
+    "QuoteResult",
+    "ResilientIntradayAdapter",
+    "TencentIntradayAdapter",
     "compare_prices",
     "detect_missing_bars",
     "map_symbol",

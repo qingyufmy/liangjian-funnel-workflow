@@ -516,6 +516,64 @@ export interface EffectiveEvent {
   action?: string | null;
   reasonCode?: string | null;
   effective?: boolean;
+  name?: string | null;
+  planId?: string | null;
+  llmVeto?: boolean;
+  plan?: MonitorPlan | null;
+  simulation?: MonitorSimulation | null;
+}
+
+export interface MonitorPlan {
+  planId?: string | null;
+  laneId?: string | null;
+  symbol?: string | null;
+  name?: string | null;
+  status?: string | null;
+  validFrom?: string | null;
+  expiresAt?: string | null;
+  setupType?: string | null;
+  triggerLow?: number | null;
+  triggerHigh?: number | null;
+  stopLevel?: number | null;
+  riskUnit?: string | number | null;
+  sourceRunId?: string | null;
+  selectionReasons?: string[];
+}
+
+export interface MonitorSimulation {
+  status?: string | null;
+  action?: string | null;
+  qty?: number | null;
+  price?: number | null;
+  fee?: number | null;
+  barEnd?: string | null;
+}
+
+export interface A4ReplaySummary {
+  schemaVersion?: string | null;
+  status?: string | null;
+  mode?: string | null;
+  modelMode?: string | null;
+  tradeDate?: string | null;
+  sourceRunId?: string | null;
+  officialA3PlanCount?: number | null;
+  productionPathExpected?: string | null;
+  modelCalls?: number | null;
+  testPlan?: MonitorPlan & {
+    sourcePool?: string | null;
+    sourceRiskUnit?: string | null;
+    testRiskUnit?: string | null;
+    testOnlyPromotion?: boolean | null;
+  };
+  barCoverage?: {
+    source?: string | null;
+    count?: number | null;
+    first?: string | null;
+    last?: string | null;
+  } | null;
+  effectiveEvents?: EffectiveEvent[];
+  fills?: MonitorSimulation[];
+  invariants?: Record<string, unknown> | null;
 }
 
 export interface DataSourceSummary {
@@ -570,6 +628,8 @@ export interface MonitorSummary {
   effectiveEventCount?: number;
   activePlanCount?: number;
   events: EffectiveEvent[];
+  plans?: MonitorPlan[];
+  replay?: A4ReplaySummary | null;
 }
 
 export interface WorkflowProgressStage {
