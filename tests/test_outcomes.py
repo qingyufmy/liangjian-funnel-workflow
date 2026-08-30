@@ -202,6 +202,24 @@ def test_workflow_acceptance_distinguishes_primary_ready_from_all_comparisons_mi
     assert result.to_legacy_acceptance()["ready_required_lanes"] == 1
 
 
+def test_cli_deployment_gate_uses_primary_publication_not_optional_comparison_coverage() -> None:
+    from liangjian_funnel.cli import _primary_workflow_publishable
+
+    primary_only = aggregate_workflow_acceptance(
+        ({"run_id": "stable", "lane_id": "lane_1", "status": "READY_TO_PUBLISH"},),
+        expected_lanes=3,
+    )
+    missing_primary = aggregate_workflow_acceptance(
+        ({"run_id": "broken", "lane_id": "lane_2", "status": "READY_TO_PUBLISH"},),
+        expected_lanes=3,
+    )
+
+    assert primary_only.legacy_status == "PARTIAL"
+    assert _primary_workflow_publishable(primary_only) is True
+    assert missing_primary.publication_state is PublicationState.BLOCKED
+    assert _primary_workflow_publishable(missing_primary) is False
+
+
 def test_no_rows_is_queued_not_a_fake_blocked_failure() -> None:
     result = aggregate_workflow_acceptance((), expected_lanes=3)
     assert result.lifecycle_state is LifecycleState.QUEUED

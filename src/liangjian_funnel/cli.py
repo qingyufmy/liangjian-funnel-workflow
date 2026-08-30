@@ -11,7 +11,7 @@ from typing import Mapping, Sequence
 from zoneinfo import ZoneInfo
 
 from .contracts import CapabilityStatus
-from .pipeline.outcomes import aggregate_workflow_acceptance, cli_exit_code
+from .pipeline.outcomes import PublicationState, RunOutcome, aggregate_workflow_acceptance, cli_exit_code
 from .evaluation.broker_gold import import_broker_gold
 from .probes.hithink import HithinkProbe
 from .probes.models import ModelProbe
@@ -29,6 +29,22 @@ from .workflow import WorkflowApplication, WorkflowError
 
 
 _SAFE_REASON_CODE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _primary_workflow_publishable(outcome: RunOutcome) -> bool:
+    """Return whether the required primary lane is safe to publish.
+
+    Optional comparison lanes deliberately remain visible through
+    ``comparison_status`` and the legacy acceptance projection, but they must
+    not turn a production-ready primary lane into a deployment blocker.
+    """
+
+    return outcome.publication_state in {
+        PublicationState.READY,
+        PublicationState.PUBLISHED,
+    }
+
+
 def _latest_workflow_acceptance(
     workflow_runs: Sequence[dict[str, object]],
     *,
@@ -427,6 +443,7 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
                 required_lane_ids=(settings.research_primary_lane_id,),
             )
             workflow_acceptance = workflow_outcome.to_legacy_acceptance()
+            primary_workflow_publishable = _primary_workflow_publishable(workflow_outcome)
             configuration_ready = bool(
                 application.store.healthy
                 and settings.hithink_api_key
@@ -461,7 +478,7 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
                 "latest_workflow_outcome_v2": workflow_outcome.as_dict(),
                 "deployment_ready": bool(
                     configuration_ready
-                    and workflow_acceptance["status"] in {"READY", "READY_DEGRADED"}
+                    and primary_workflow_publishable
                 ),
                 "deployment_blockers": [
                     reason
@@ -471,7 +488,7 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
                         (settings.model_api_key is None, "MODEL_API_KEY_MISSING"),
                         (not settings.exchange_rules_path.is_file(), "EXCHANGE_RULE_SNAPSHOT_MISSING"),
                         (
-                            workflow_acceptance["status"] not in {"READY", "READY_DEGRADED"},
+                            not primary_workflow_publishable,
                             "LATEST_WORKFLOW_NOT_READY",
                         ),
                     )
