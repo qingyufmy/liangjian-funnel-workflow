@@ -327,6 +327,8 @@ def test_stage_outcome_and_batch_split_policies_are_fail_closed() -> None:
     assert reasons == ("A2_NO_FOCUS_OPPORTUNITY",)
     assert _lane_status_from_stages((_audit("A1"), _audit("A2", status=STATUS_DEGRADED_UNDERFILLED_DATA_GAP))) == "READY_DEGRADED"
     assert _a1_batch_is_splittable(("MODEL_PROMPT_TOO_LARGE",)) is True
+    assert _a1_batch_is_splittable(("OUTPUT_BUDGET_FALLBACK_REJECTED",)) is True
     assert _a1_batch_is_splittable(("MODEL_CALL_FAILED",)) is False
     assert _a2_batch_is_splittable(("MODEL_PROMPT_TOO_LARGE",)) is True
+    assert _a2_batch_is_splittable(("OUTPUT_BUDGET_FALLBACK_REJECTED",)) is True
     assert _a2_batch_is_splittable(("A2_CRITICAL_DATA_INSUFFICIENT",)) is False

@@ -4801,6 +4801,7 @@ def _estimate_message_tokens(messages: Sequence[Mapping[str, Any]]) -> int:
 def _a1_batch_is_splittable(reasons: Sequence[str]) -> bool:
     retryable_prefixes = (
         "MODEL_PROMPT_TOO_LARGE",
+        "OUTPUT_BUDGET_",
         "NETWORK_",
         "MODEL_TOTAL_DEADLINE_",
         "STRICT_JSON_",
@@ -4820,6 +4821,7 @@ def _a1_batch_is_splittable(reasons: Sequence[str]) -> bool:
 def _a2_batch_is_splittable(reasons: Sequence[str]) -> bool:
     retryable_prefixes = (
         "MODEL_PROMPT_TOO_LARGE",
+        "OUTPUT_BUDGET_",
         "NETWORK_",
         "MODEL_TOTAL_DEADLINE_",
         "STRICT_JSON_",
