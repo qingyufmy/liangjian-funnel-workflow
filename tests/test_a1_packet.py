@@ -87,6 +87,13 @@ def _context() -> dict:
             "status": "READY",
             "industry_rotation": [{"industry_thscode": "881001.TI", "weekly_state": "PERSISTENT"}],
         },
+        "broker_research_consensus": {
+            "available": True,
+            "evidence_tier": "T2",
+            "primary_evidence": False,
+            "viewpoint_only": True,
+            "documents": [{"document_id": "sept-view", "effective_month": "2026-09"}],
+        },
         "policy_window": {"official_documents": [{"fact_id": "policy-1", "title": "测试政策", "summary": "摘要", "source_url": "gov:1"}]},
         "prior_theme_registry": {"themes": [{"theme_id": "prior"}], "nodes": []},
     }
@@ -103,6 +110,8 @@ def test_packet_has_complete_industry_and_decision_coverage_without_raw_history(
     assert packet["coverage"]["raw_history_projected_out"] is True
     assert packet["coverage"]["weekly_strategy_status"] == "READY"
     assert packet["weekly_strategy_context"]["industry_rotation"][0]["weekly_state"] == "PERSISTENT"
+    assert packet["broker_research_consensus"]["documents"][0]["effective_month"] == "2026-09"
+    assert packet["broker_research_consensus"]["primary_evidence"] is False
     assert packet["diagnostics"]["section_chars"]["industry_features"] > 0
 
 

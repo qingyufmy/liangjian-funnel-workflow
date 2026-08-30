@@ -31,6 +31,13 @@ def test_monthly_strategy_filters_future_and_keeps_cycle_and_prior_registry():
                 "metric_scope": "INDUSTRIAL_VALUE_ADDED_GROWTH_NOT_PROFIT",
                 "items": [{"industry": "煤炭开采和洗选业", "yoy": 4.2}],
             },
+            "BROKER_RESEARCH_CONSENSUS": {
+                "available": True,
+                "evidence_tier": "T2",
+                "primary_evidence": False,
+                "viewpoint_only": True,
+                "documents": [{"document_id": "sept-view", "effective_month": "2026-09"}],
+            },
             "SECTOR_CYCLE_SNAPSHOT": {
                 "available": True,
                 "history_metrics": {
@@ -60,6 +67,8 @@ def test_monthly_strategy_filters_future_and_keeps_cycle_and_prior_registry():
     assert context["weekly_strategy_context"]["status"] == "DEGRADED"
     assert context["weekly_strategy_context"]["industry_rotation"][0]["weekly_state"] == "UNKNOWN"
     assert context["runtime_contract"]["weekly_overlay_cannot_override_monthly_domain"] is True
+    assert context["broker_research_consensus"]["documents"][0]["document_id"] == "sept-view"
+    assert context["broker_research_consensus"]["primary_evidence"] is False
 
 
 def test_monthly_strategy_reports_missing_macro_instead_of_substituting_news():

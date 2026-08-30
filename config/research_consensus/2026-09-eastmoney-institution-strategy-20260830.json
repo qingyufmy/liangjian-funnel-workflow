@@ -1,0 +1,276 @@
+{
+  "schema_version": "institution-strategy-consensus/1.0.0",
+  "document_id": "eastmoney-research-center-20260830-september-outlook",
+  "title": "十大机构论市：二次探底兑现后 市场反弹可能持续到9月下旬",
+  "source_type": "PUBLIC_INSTITUTION_STRATEGY_AGGREGATION",
+  "source_url": "https://finance.eastmoney.com/a/202608303859443558.html",
+  "publisher": "东方财富研究中心",
+  "publish_time": "2026-08-30T18:00:00+08:00",
+  "effective_month": "2026-09",
+  "institutions": [
+    {
+      "institution_id": "SHENWAN_HONGYUAN",
+      "institution_name": "申万宏源策略",
+      "market_view": "二次探底后反弹仍可能延续，但九月更接近修复窗口而非无条件趋势加速；AI重新创新高需要更强产业催化和后续业绩消化估值。",
+      "style_tilts": ["EARNINGS_VALIDATION", "VALUATION_DISCIPLINE", "BUY_ON_VERIFIED_WEAKNESS"],
+      "industry_tilts": [
+        {
+          "theme": "AI产业链",
+          "stance": "SELECTIVE",
+          "conditions": ["三季报盈利继续兑现", "出现能扩展远期商业化空间的产业催化"]
+        }
+      ],
+      "conditions": ["反弹期间政策预期和中长期乐观预期继续发酵"],
+      "risks": ["九月无法创新高后进入新的调整波段", "科技估值消化时间可能达到季度级别"]
+    },
+    {
+      "institution_id": "CITIC",
+      "institution_name": "中信策略",
+      "market_view": "盈利上修广度不足使高轮动可能延续，机会更偏向有业绩支撑的估值修复，而不是只依赖短期动量。",
+      "style_tilts": ["LOW_VALUATION", "PB_ROE", "EARNINGS_SUPPORTED_REPAIR"],
+      "industry_tilts": [
+        {
+          "theme": "AI与能化杠铃",
+          "stance": "BALANCED",
+          "conditions": ["AI需求增长由订单和盈利继续验证", "能源化工景气出现持续升温证据"]
+        }
+      ],
+      "conditions": ["估值与盈利质量匹配", "出海链汇兑和贸易风险可控"],
+      "risks": ["快速轮动伤害纯动量策略", "贸易摩擦和汇兑损益压制出海估值"]
+    },
+    {
+      "institution_id": "CHINA_GALAXY",
+      "institution_name": "中国银河策略",
+      "market_view": "九月定价围绕政策效果、盈利持续性和海外扰动三条线索展开，前期成长与资源景气需要从半年报继续过渡到三季报和全年预期验证。",
+      "style_tilts": ["POLICY_EFFECT_VERIFICATION", "EARNINGS_CONTINUITY", "VALUATION_MATCH"],
+      "industry_tilts": [
+        {
+          "theme": "电子、有色金属、非银金融",
+          "stance": "POSITIVE_IF_CONFIRMED",
+          "conditions": ["盈利增速继续领先", "后续盈利预期没有明显下修"]
+        }
+      ],
+      "conditions": ["财政资金到位、重大项目开工和设备招标形成可核实进展"],
+      "risks": ["海外利率高位压制高估值成长", "油价和地缘事件扰动通胀与风险偏好"]
+    },
+    {
+      "institution_id": "INDUSTRIAL_SECURITIES",
+      "institution_name": "兴证策略",
+      "market_view": "科技和高端制造景气可能通过财富效应与需求外溢，推动地产链、服务消费和高端消费出现更广泛的基本面修复。",
+      "style_tilts": ["FUNDAMENTAL_BROADENING", "DOMESTIC_DEMAND_RECOVERY"],
+      "industry_tilts": [
+        {
+          "theme": "地产链与服务消费",
+          "stance": "EARLY_CONFIRMATION",
+          "conditions": ["中报盈利改善能延续", "内需和服务消费高频数据同步改善"]
+        }
+      ],
+      "conditions": ["科技制造对内需的景气传导继续扩大"],
+      "risks": ["盈利改善仅是低基数或一次性因素", "地产销售和消费数据没有跟随"]
+    },
+    {
+      "institution_id": "ZHONGTAI",
+      "institution_name": "中泰策略",
+      "market_view": "调整可能进入筑底后半程，长线资金承接改善，但短期仍可能震荡，外部地缘与油价仍是主要扰动。",
+      "style_tilts": ["BOTTOMING_CONFIRMATION", "LONG_TERM_FLOW_SUPPORT"],
+      "industry_tilts": [
+        {
+          "theme": "黄金与有色金属",
+          "stance": "POSITIVE",
+          "conditions": ["海外紧缩预期不再上修", "商品与权益盈利传导仍有效"]
+        }
+      ],
+      "conditions": ["成长类宽基ETF继续获得下跌承接"],
+      "risks": ["油价持续上冲重新推高紧缩预期", "外部局势升级"]
+    },
+    {
+      "institution_id": "GUOSEN",
+      "institution_name": "国信策略",
+      "market_view": "中期趋势尚未破坏，但再平衡仍是主题，应以均衡配置应对政策、流动性和外部利率的不确定性。",
+      "style_tilts": ["REBALANCING", "BALANCED_ALLOCATION"],
+      "industry_tilts": [],
+      "conditions": ["流动性没有持续收紧", "宏观环境没有明显走弱", "市场估值和情绪未进入极端过热"],
+      "risks": ["海外政策不确定性上升", "国内基本面修复弱于预期"]
+    },
+    {
+      "institution_id": "SINOLINK",
+      "institution_name": "国金策略",
+      "market_view": "短期驱动力和主线不够清晰，应以防御思维等待新催化，并在能源、资源、红利和具备竞争力的出口制造之间保持条件性配置。",
+      "style_tilts": ["DEFENSIVE", "HIGH_DIVIDEND", "STABLE_CASH_FLOW"],
+      "industry_tilts": [
+        {
+          "theme": "煤炭、石油、油运与炼化",
+          "stance": "POSITIVE",
+          "conditions": ["全球能源补库需求有订单和库存证据"]
+        },
+        {
+          "theme": "铜、金、铝",
+          "stance": "WAIT_FOR_MACRO_CONFIRMATION",
+          "conditions": ["海外利率和美元压制缓解"]
+        },
+        {
+          "theme": "高股息低波动",
+          "stance": "POSITIVE",
+          "conditions": ["现金流和分红能力稳定"]
+        }
+      ],
+      "conditions": ["新催化出现前控制组合波动"],
+      "risks": ["能源补库不及预期", "全球制造复苏继续受紧缩逆风影响"]
+    },
+    {
+      "institution_id": "HUAJIN",
+      "institution_name": "华金策略",
+      "market_view": "九月可能震荡偏强，成长风格相对占优，但判断依赖政策、外部关系、经济盈利和流动性四方面同时改善。",
+      "style_tilts": ["GROWTH", "LIQUIDITY_SENSITIVE"],
+      "industry_tilts": [],
+      "conditions": ["政策继续偏积极", "外部环境边际改善", "经济和盈利延续修复", "宏观与股市流动性保持宽松"],
+      "risks": ["外部事件未改善", "地产投资拖累超预期", "资金流入未出现边际改善"]
+    },
+    {
+      "institution_id": "ZHESHANG",
+      "institution_name": "浙商策略",
+      "market_view": "市场支撑经过回踩测试后，中线仍偏向区间震荡、重心抬升，短线更适合在回踩时参与而非追涨。",
+      "style_tilts": ["RANGE_REBOUND", "BUY_ON_PULLBACK"],
+      "industry_tilts": [
+        {
+          "theme": "创新药、证券、传媒、计算机、有色与中字头",
+          "stance": "SELECTIVE_ON_PULLBACK",
+          "conditions": ["回踩后资金与相对强度重新确认"]
+        },
+        {
+          "theme": "地产与农林牧渔",
+          "stance": "WATCH",
+          "conditions": ["政策和供需事件转化为可核实基本面变化"]
+        }
+      ],
+      "conditions": ["指数支撑继续有效"],
+      "risks": ["高位方向追涨风险", "区间下沿失守"]
+    },
+    {
+      "institution_id": "KAIYUAN",
+      "institution_name": "开源策略",
+      "market_view": "短期交易拥挤仍需消化，再平衡优先；中期科技主线未结束，但收益更依赖内部筛选和盈利验证。",
+      "style_tilts": ["REBALANCING", "SMALL_CAP", "EARNINGS_SURPRISE", "DIVIDEND_HEDGE"],
+      "industry_tilts": [
+        {
+          "theme": "电子、国防军工、计算机、石油石化、有色与非银金融",
+          "stance": "EARNINGS_SURPRISE_FOCUS",
+          "conditions": ["净利润增速超预期得到正式财报确认"]
+        },
+        {
+          "theme": "AI材料、国产算力、PCB与光模块上游、AI应用、电力设备、能源金属与液冷",
+          "stance": "SELECTIVE",
+          "conditions": ["出现二次催化并具备产业叙事与盈利传导"]
+        }
+      ],
+      "conditions": ["科技内部重新筛选而非全面普涨"],
+      "risks": ["交易拥挤继续压制高弹性方向", "盈利增速不及预期"]
+    }
+  ],
+  "consensus_axes": [
+    {
+      "axis": "MARKET_REGIME",
+      "stance": "RANGE_TO_REBOUND_WITH_HIGH_ROTATION",
+      "confidence": "MEDIUM",
+      "supporting_institutions": ["SHENWAN_HONGYUAN", "ZHONGTAI", "GUOSEN", "HUAJIN", "ZHESHANG"],
+      "conditions": ["指数回踩支撑有效", "政策和长线资金承接可验证"],
+      "counter_signals": ["主要指数跌破近期支撑且成交放大", "流动性持续收紧"]
+    },
+    {
+      "axis": "STYLE_SELECTION",
+      "stance": "EARNINGS_AND_VALUATION_OVER_PURE_MOMENTUM",
+      "confidence": "HIGH",
+      "supporting_institutions": ["SHENWAN_HONGYUAN", "CITIC", "CHINA_GALAXY", "KAIYUAN"],
+      "conditions": ["盈利持续兑现", "估值与ROE、现金流匹配"],
+      "counter_signals": ["盈利预测下修", "估值扩张显著快于利润增长"]
+    },
+    {
+      "axis": "TECHNOLOGY",
+      "stance": "MEDIUM_TERM_MAINLINE_BUT_INTERNAL_SELECTION",
+      "confidence": "HIGH",
+      "supporting_institutions": ["SHENWAN_HONGYUAN", "CITIC", "CHINA_GALAXY", "INDUSTRIAL_SECURITIES", "KAIYUAN"],
+      "conditions": ["订单、资本开支、收入和利润继续兑现", "出现能扩展商业化空间的新催化"],
+      "counter_signals": ["产业订单与盈利不再增长", "拥挤度上升但业绩没有同步改善"]
+    },
+    {
+      "axis": "ENERGY_AND_RESOURCES",
+      "stance": "POSITIVE_WITH_MACRO_AND_SUPPLY_DEMAND_CONFIRMATION",
+      "confidence": "HIGH",
+      "supporting_institutions": ["CITIC", "CHINA_GALAXY", "ZHONGTAI", "SINOLINK", "ZHESHANG", "KAIYUAN"],
+      "conditions": ["价格、库存、产能、订单与盈利传导相互验证", "美元和海外利率不再形成更强压制"],
+      "counter_signals": ["商品上涨但权益盈利未传导", "库存和订单转弱"]
+    },
+    {
+      "axis": "DOMESTIC_RECOVERY_BROADENING",
+      "stance": "EARLY_AND_CONDITIONAL",
+      "confidence": "MEDIUM",
+      "supporting_institutions": ["CHINA_GALAXY", "INDUSTRIAL_SECURITIES", "GUOSEN", "ZHESHANG"],
+      "conditions": ["财政资金、重大项目、地产销售和消费高频数据改善", "行业盈利改善不是一次性项目"],
+      "counter_signals": ["内需数据继续走弱", "政策只有表态没有资金和项目落地"]
+    },
+    {
+      "axis": "DEFENSIVE_HEDGE",
+      "stance": "DIVIDEND_AND_STABLE_CASH_FLOW_AS_PORTFOLIO_HEDGE",
+      "confidence": "MEDIUM",
+      "supporting_institutions": ["GUOSEN", "SINOLINK", "KAIYUAN"],
+      "conditions": ["市场维持高波动", "分红和自由现金流质量稳定"],
+      "counter_signals": ["风险偏好和盈利广度显著扩张", "高股息资产现金流或分红能力恶化"]
+    }
+  ],
+  "disagreements": [
+    {
+      "topic": "九月行情强度与持续时间",
+      "positions": [
+        {"stance": "反弹可能延续至九月下旬后再观察高点", "institutions": ["SHENWAN_HONGYUAN"]},
+        {"stance": "九月震荡偏强、成长占优", "institutions": ["HUAJIN"]},
+        {"stance": "短期缺乏明确驱动力，以防御等待催化", "institutions": ["SINOLINK"]}
+      ],
+      "resolution_evidence": ["指数趋势与成交广度", "政策落地强度", "ETF和机构资金流", "海外利率变化"]
+    },
+    {
+      "topic": "科技行情再加速的时间",
+      "positions": [
+        {"stance": "需要三季报和更高等级产业催化后才能重回全面强势", "institutions": ["SHENWAN_HONGYUAN"]},
+        {"stance": "中期仍是主线，但九月必须做内部筛选", "institutions": ["CITIC", "CHINA_GALAXY", "KAIYUAN"]}
+      ],
+      "resolution_evidence": ["全球AI资本开支", "国内订单和收入兑现", "三季报盈利预期", "科技内部相对强度与拥挤度"]
+    },
+    {
+      "topic": "组合风格",
+      "positions": [
+        {"stance": "低估值PB-ROE和业绩修复优先", "institutions": ["CITIC"]},
+        {"stance": "成长相对占优", "institutions": ["HUAJIN"]},
+        {"stance": "红利低波和稳定现金流优先", "institutions": ["SINOLINK"]},
+        {"stance": "小微盘与再平衡并重", "institutions": ["KAIYUAN"]}
+      ],
+      "resolution_evidence": ["大小盘相对强度", "盈利上修广度", "波动率", "主力与ETF资金流"]
+    }
+  ],
+  "verification_plan": [
+    {
+      "question": "政策预期是否转化为基本面支持",
+      "required_facts": ["财政资金到位", "重大项目开工", "设备招标", "地产销售", "社零和服务消费高频数据"],
+      "decision_rule": "只有正式资金、项目、招标或经营数据改善时，政策方向才可从研究观察升级。"
+    },
+    {
+      "question": "科技主线是否具备九月再加速条件",
+      "required_facts": ["AI资本开支", "产业订单", "收入与利润", "三季报盈利预期", "拥挤度和相对强度"],
+      "decision_rule": "订单和盈利至少一项加速、估值与拥挤度未恶化且价格资金确认时，才提高研究优先级。"
+    },
+    {
+      "question": "能化与金属是否从价格交易进入盈利传导",
+      "required_facts": ["现货价格", "库存", "产能利用率", "订单", "主营收入", "利润和经营现金流"],
+      "decision_rule": "商品价格、供需和权益盈利必须分别验证；只有价格上涨不得判定公司基本面兑现。"
+    },
+    {
+      "question": "基本面修复是否向内需和金融扩散",
+      "required_facts": ["盈利改善行业广度", "地产链经营数据", "服务消费数据", "非银金融盈利", "行业资金流"],
+      "decision_rule": "至少两类独立经营数据改善并获得20日行业相对强度确认，才定义为扩散。"
+    },
+    {
+      "question": "高轮动是否下降并形成可持续主线",
+      "required_facts": ["行业Top10持续出现次数", "20日相对强度", "成交持续性", "资金流", "盈利上修广度"],
+      "decision_rule": "连续多周保持相对强度和资金、盈利共振，才从轮动交易升级为月度主线。"
+    }
+  ]
+}

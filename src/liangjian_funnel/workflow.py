@@ -68,6 +68,7 @@ from .pipeline.prompts import PromptRepository
 from .pipeline.research import FrozenInputSnapshot as ResearchSnapshot
 from .pipeline.research import ResearchPipeline, ResearchRunResult
 from .pipeline.research_checkpoint import FileResearchCheckpointStore
+from .pipeline.research_consensus import load_research_consensus, unavailable_research_consensus
 from .pipeline.research_reports import write_stage_markdown_reports
 from .pipeline.snapshot import FrozenInputSnapshot, UniverseGatePolicy, UniverseSnapshot
 from .pipeline.technical_aggregates import build_technical_aggregates
@@ -2257,6 +2258,19 @@ class WorkflowApplication:
         ]
         trade_records = [item for item in selected_records if item.get("trade_eligible") is True]
         missing = {"available": False, "reason_code": "SOURCE_NOT_CONFIGURED"}
+        try:
+            broker_research_consensus = load_research_consensus(
+                self.settings.research_consensus_dir,
+                as_of=as_of,
+            )
+        except Exception:
+            # Institutional strategy views are optional T2 context.  A malformed
+            # or temporarily unreadable directory must not block the frozen
+            # snapshot or get substituted with news/model prose.
+            broker_research_consensus = unavailable_research_consensus(
+                as_of=as_of,
+                source_dir=getattr(self.settings, "research_consensus_dir", None),
+            )
         facts = frozen.fact_payload.get("facts", {})
         if not isinstance(facts, Mapping):
             facts = {}
@@ -2559,11 +2573,7 @@ class WorkflowApplication:
                 "reason_code": "SOURCE_NOT_CONFIGURED",
                 "metric_scope": "INDUSTRIAL_VALUE_ADDED_GROWTH_NOT_PROFIT",
             },
-            "BROKER_RESEARCH_CONSENSUS": {
-                "available": False,
-                "reason_code": "AUTHORIZED_RESEARCH_SOURCE_NOT_CONFIGURED",
-                "primary_evidence": False,
-            },
+            "BROKER_RESEARCH_CONSENSUS": broker_research_consensus,
             "INDUSTRY_NEWS_FEED": industry_news_feed,
             "NEWS_HEAT_SNAPSHOT": news_heat,
             "CROWDING_SNAPSHOT": crowding,

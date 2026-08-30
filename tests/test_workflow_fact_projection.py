@@ -68,7 +68,10 @@ def _fact(count: int) -> dict:
     }
 
 
-def test_research_input_projects_phase_one_facts_without_semantic_substitution(tmp_path: Path) -> None:
+def test_research_input_projects_phase_one_facts_without_semantic_substitution(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
     config_dir = tmp_path / "config"
     config_dir.mkdir()
     config_dir.joinpath("exchange_rules.yaml").write_text(
@@ -230,6 +233,18 @@ def test_research_input_projects_phase_one_facts_without_semantic_substitution(t
         },
         max_candidates=2,
     )
+    consensus = {
+        "available": True,
+        "evidence_tier": "T2",
+        "primary_evidence": False,
+        "viewpoint_only": True,
+        "direct_stock_selection_allowed": False,
+        "documents": [{"document_id": "sept-view"}],
+    }
+    monkeypatch.setattr(
+        "liangjian_funnel.workflow.load_research_consensus",
+        lambda *_args, **_kwargs: consensus,
+    )
     app = SimpleNamespace(settings=Settings.from_env({}, root=tmp_path))
 
     result = WorkflowApplication._research_input(
@@ -264,6 +279,7 @@ def test_research_input_projects_phase_one_facts_without_semantic_substitution(t
     assert result["MACRO_POLICY_FEED"]["direct_stock_mapping_allowed"] is False
     assert result["MACRO_ECONOMIC_DATA"]["values"]["PMI"] == 49.2
     assert result["ASSET_ROTATION_SNAPSHOT"]["assets"]["EQUITY"]["momentum_20d_percentile"] == 75
+    assert result["BROKER_RESEARCH_CONSENSUS"] == consensus
     assert result["snapshot_manifest"]["open_macro"]["content_hash"] == "b" * 64
     assert result["A2_SECTOR_HEALTH_SNAPSHOT"]["available"] is True
     assert result["A2_SECTOR_HEALTH_SNAPSHOT"]["data_sufficiency_state"] == "PARTIAL"

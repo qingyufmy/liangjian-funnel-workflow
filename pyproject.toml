@@ -40,6 +40,7 @@ include-package-data = true
   "THIRD_PARTY_NOTICES.md",
 ]
 "share/liangjian-funnel/config" = ["config/*.yaml", "config/*.json"]
+"share/liangjian-funnel/config/research_consensus" = ["config/research_consensus/*.json"]
 "share/liangjian-funnel/prompts" = ["prompts/*.txt"]
 
 [tool.setuptools.packages.find]
