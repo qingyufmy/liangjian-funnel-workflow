@@ -34,10 +34,13 @@ from liangjian_funnel.pipeline.research import (
     _normalize_server_envelope,
     _output_shape,
     _project_disclosures,
+    _project_capital_flow,
+    _project_crowding,
     _project_fundamentals,
     _project_factor_snapshot,
     _project_macro_policy,
     _project_news,
+    _project_sector_cycle,
     _scan_symbols,
     _semantic_retry_instruction,
     _safe_progress_diagnostics,
@@ -1592,6 +1595,80 @@ def test_prompt_projection_bounds_history_and_filters_upstream_symbols():
     assert projected_news["full_item_count"] == 2
     assert set(projected_news["by_symbol"]) == {"600519.SH"}
     assert len(projected_news["items"][0]["body"]) <= 801
+
+
+def test_a2_prompt_projection_filters_market_maps_and_preserves_batch_sector_evidence():
+    symbols = {"600519.SH"}
+    capital = _project_capital_flow(
+        {"available": True, "by_symbol": {"600519.SH": {"score": 1}, "000001.SZ": {"score": 2}}},
+        symbols,
+    )
+    assert set(capital["by_symbol"]) == symbols
+    assert capital["prompt_symbol_count"] == 1
+    assert capital["full_symbol_count"] == 2
+
+    crowding = _project_crowding(
+        {
+            "scope_symbols": ["600519.SH", "000001.SZ"],
+            "dragon_tiger_component": {
+                "records": [{"symbol": "600519.SH"}, {"symbol": "000001.SZ"}]
+            },
+            "market_attention_component": {
+                "records": [{"symbol": "600519.SH"}, {"symbol": "000001.SZ"}]
+            },
+        },
+        symbols,
+    )
+    assert crowding["scope_symbols"] == ["600519.SH"]
+    assert crowding["dragon_tiger_component"]["records"] == [{"symbol": "600519.SH"}]
+    assert crowding["market_attention_component"]["prompt_record_count"] == 1
+
+    def sector(code: str, *, percentile: float, returns: list[float]) -> dict:
+        return {
+            "taxonomy_code": code,
+            "taxonomy_name": code,
+            "health_state": "HEALTHY",
+            "relative_strength_percentile": percentile,
+            "breadth": 0.8,
+            "strength": {"amount_total": 100},
+            "history": {"return_5d": 0.1, "returns": returns},
+        }
+
+    cycle = _project_sector_cycle(
+        {
+            "available": True,
+            "sector_health_snapshot": {
+                "by_taxonomy": {"duplicated": True},
+                "industry": {
+                    "sector_count": 3,
+                    "healthy_sectors": [sector("I1", percentile=99, returns=[1])],
+                    "sectors": [
+                        sector("I1", percentile=99, returns=[1, 2]),
+                        sector("I2", percentile=98, returns=[3, 4]),
+                        sector("I3", percentile=1, returns=[5, 6]),
+                    ],
+                },
+                "concept": {"sector_count": 0, "sectors": []},
+            },
+        },
+        symbols,
+        {
+            "THS_INDUSTRY_MEMBERSHIP": {
+                "records": [{
+                    "thscode": "600519.SH",
+                    "memberships": [{"industry_thscode": "I3"}],
+                }]
+            },
+            "THS_CONCEPT_MEMBERSHIP": {"records": []},
+        },
+        global_sector_limit=1,
+    )
+    health = cycle["sector_health_snapshot"]
+    assert "by_taxonomy" not in health
+    assert {item["taxonomy_code"] for item in health["industry"]["sectors"]} == {"I1", "I3"}
+    assert all("returns" not in item["history"] for item in health["industry"]["sectors"])
+    assert health["industry"]["full_sector_count"] == 3
+    assert health["industry"]["batch_linked_sector_count"] == 1
 
 
 def test_disclosure_projection_prioritizes_full_report_pdf_business_evidence():

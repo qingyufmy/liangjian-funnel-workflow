@@ -3681,7 +3681,16 @@ def _prompt_replacements(
             replacements[name] = value if found else defaults[name]
             continue
         found, value = _lookup_field(snapshot.data, name)
-        replacements[name] = _project_prompt_value(name, value, allowed_symbols) if found else None
+        replacements[name] = (
+            _project_prompt_value(
+                name,
+                value,
+                allowed_symbols,
+                snapshot_data=snapshot.data,
+            )
+            if found
+            else None
+        )
     return replacements
 
 
@@ -3702,7 +3711,13 @@ def _with_projection_metadata(
     return result
 
 
-def _project_prompt_value(name: str, value: Any, symbols: set[str] | None) -> Any:
+def _project_prompt_value(
+    name: str,
+    value: Any,
+    symbols: set[str] | None,
+    *,
+    snapshot_data: Mapping[str, Any] | None = None,
+) -> Any:
     """Return a bounded, deterministic model view without mutating evidence.
 
     The persisted snapshot and its input hash remain full fidelity.  This view
@@ -3723,6 +3738,12 @@ def _project_prompt_value(name: str, value: Any, symbols: set[str] | None) -> An
         return _project_news(value, item_limit=8)
     if name == "NEWS_HEAT_SNAPSHOT":
         return _project_news(value, item_limit=40, symbols=symbols)
+    if name == "CAPITAL_FLOW_SNAPSHOT":
+        return _project_capital_flow(value, symbols)
+    if name == "SECTOR_CYCLE_SNAPSHOT":
+        return _project_sector_cycle(value, symbols, snapshot_data or {})
+    if name == "CROWDING_SNAPSHOT":
+        return _project_crowding(value, symbols)
     if name in {
         "KLINE_PATTERNS",
         "PRICE_LEVELS",
@@ -3737,9 +3758,184 @@ def _project_prompt_value(name: str, value: Any, symbols: set[str] | None) -> An
         return _project_disclosures(value, symbols)
     if name == "THS_INDUSTRY_MEMBERSHIP":
         return _project_membership(value, symbols)
-    if name in {"CROWDING_SNAPSHOT", "FUND_HOLDINGS"}:
+    if name == "FUND_HOLDINGS":
         return _filter_nested_symbol_data(value, symbols)
     return value
+
+
+def _project_capital_flow(value: Any, symbols: set[str] | None) -> Any:
+    """Project the full-market capital-flow cache to the current model batch."""
+
+    if not isinstance(value, Mapping):
+        return value
+    result = dict(value)
+    by_symbol = value.get("by_symbol")
+    if isinstance(by_symbol, Mapping) and symbols is not None:
+        result["by_symbol"] = _filter_symbol_mapping(by_symbol, symbols)
+        result["prompt_symbol_count"] = len(result["by_symbol"])
+        result["full_symbol_count"] = len(by_symbol)
+    return result
+
+
+def _project_crowding(value: Any, symbols: set[str] | None) -> Any:
+    """Keep only batch-scoped crowding records while preserving source health."""
+
+    if not isinstance(value, Mapping) or symbols is None:
+        return value
+    result = dict(value)
+    scope_symbols = value.get("scope_symbols")
+    if isinstance(scope_symbols, list):
+        result["scope_symbols"] = sorted(set(str(item) for item in scope_symbols).intersection(symbols))
+        result["full_scope_symbol_count"] = len(scope_symbols)
+        result["prompt_scope_symbol_count"] = len(result["scope_symbols"])
+    for key in ("dragon_tiger_component", "market_attention_component"):
+        component = value.get(key)
+        if not isinstance(component, Mapping):
+            continue
+        projected = dict(component)
+        records = component.get("records")
+        if isinstance(records, list):
+            projected["records"] = [
+                dict(item)
+                for item in records
+                if isinstance(item, Mapping) and _scan_symbols(item).intersection(symbols)
+            ]
+            projected["full_record_count"] = len(records)
+            projected["prompt_record_count"] = len(projected["records"])
+        result[key] = projected
+    return result
+
+
+def _project_sector_cycle(
+    value: Any,
+    symbols: set[str] | None,
+    snapshot_data: Mapping[str, Any],
+    *,
+    global_sector_limit: int = 40,
+) -> Any:
+    """Build a compact all-market benchmark plus complete batch-sector view.
+
+    The immutable snapshot retains every sector.  The model receives all
+    sectors linked to the current symbols plus a deterministic global top set
+    for comparison.  Duplicate ``by_taxonomy`` payloads and raw daily-return
+    arrays are omitted only from the transport projection.
+    """
+
+    if not isinstance(value, Mapping) or symbols is None:
+        return value
+    result = dict(value)
+    health = value.get("sector_health_snapshot")
+    if not isinstance(health, Mapping):
+        return result
+    projected_health = {
+        key: item
+        for key, item in health.items()
+        if key not in {"by_taxonomy", "industry", "concept"}
+    }
+    projection_counts: dict[str, dict[str, int]] = {}
+    for taxonomy in ("industry", "concept"):
+        raw_taxonomy = health.get(taxonomy)
+        if not isinstance(raw_taxonomy, Mapping):
+            continue
+        raw_sectors = raw_taxonomy.get("sectors")
+        sectors = [item for item in raw_sectors if isinstance(item, Mapping)] if isinstance(raw_sectors, list) else []
+        relevant_codes = _membership_codes_for_symbols(snapshot_data, taxonomy, symbols)
+        globally_ranked = sorted(sectors, key=_sector_prompt_rank, reverse=True)
+        global_codes = {
+            str(item.get("taxonomy_code") or "")
+            for item in globally_ranked[: max(0, global_sector_limit)]
+        }
+        selected_codes = relevant_codes.union(global_codes)
+        selected = [
+            _compact_sector_prompt_row(item)
+            for item in sectors
+            if str(item.get("taxonomy_code") or "") in selected_codes
+        ]
+        selected.sort(key=lambda item: str(item.get("taxonomy_code") or ""))
+        projected_taxonomy = {
+            key: item
+            for key, item in raw_taxonomy.items()
+            if key not in {"sectors", "healthy_sectors"}
+        }
+        projected_taxonomy.update({
+            "sectors": selected,
+            "prompt_sector_count": len(selected),
+            "full_sector_count": len(sectors),
+            "batch_linked_sector_count": sum(
+                1 for item in selected if str(item.get("taxonomy_code") or "") in relevant_codes
+            ),
+            "global_benchmark_limit": max(0, global_sector_limit),
+        })
+        projected_health[taxonomy] = projected_taxonomy
+        projection_counts[taxonomy] = {
+            "prompt": len(selected),
+            "full": len(sectors),
+            "batch_linked": projected_taxonomy["batch_linked_sector_count"],
+        }
+    projected_health["prompt_projection"] = {
+        "symbol_count": len(symbols),
+        "taxonomy_counts": projection_counts,
+        "full_snapshot_retained_for_audit": True,
+    }
+    result["sector_health_snapshot"] = projected_health
+    return result
+
+
+def _membership_codes_for_symbols(
+    snapshot_data: Mapping[str, Any],
+    taxonomy: str,
+    symbols: set[str],
+) -> set[str]:
+    source_key = "THS_INDUSTRY_MEMBERSHIP" if taxonomy == "industry" else "THS_CONCEPT_MEMBERSHIP"
+    raw = snapshot_data.get(source_key)
+    records = raw.get("records") if isinstance(raw, Mapping) else None
+    if not isinstance(records, list):
+        return set()
+    result: set[str] = set()
+    for record in records:
+        if not isinstance(record, Mapping) or str(record.get("thscode") or "") not in symbols:
+            continue
+        memberships = record.get("memberships")
+        if not isinstance(memberships, list):
+            continue
+        for membership in memberships:
+            if not isinstance(membership, Mapping):
+                continue
+            code = str(
+                membership.get("taxonomy_code")
+                or membership.get(f"{taxonomy}_thscode")
+                or ""
+            ).strip().upper()
+            if code:
+                result.add(code)
+    return result
+
+
+def _sector_prompt_rank(item: Mapping[str, Any]) -> tuple[float, float, float, float, str]:
+    health = str(item.get("health_state") or "").upper()
+    health_rank = {
+        "MAINLINE": 5.0,
+        "STRONG": 4.0,
+        "HEALTHY": 3.0,
+        "REPAIR": 2.0,
+        "WEAK": 1.0,
+    }.get(health, 0.0)
+    strength = item.get("strength") if isinstance(item.get("strength"), Mapping) else {}
+    return (
+        health_rank,
+        _safe_float(item.get("relative_strength_percentile")),
+        _safe_float(item.get("breadth")),
+        _safe_float(strength.get("amount_total")),
+        str(item.get("taxonomy_code") or ""),
+    )
+
+
+def _compact_sector_prompt_row(item: Mapping[str, Any]) -> dict[str, Any]:
+    result = dict(item)
+    history = item.get("history")
+    if isinstance(history, Mapping):
+        result["history"] = {key: value for key, value in history.items() if key != "returns"}
+    return result
 
 
 def _project_factor_snapshot(value: Any, symbols: set[str] | None) -> Any:
