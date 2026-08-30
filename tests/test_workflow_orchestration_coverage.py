@@ -102,6 +102,10 @@ class _PrepCalendar:
         self.calls.append(value)
         return self.target
 
+    def previous_trading_day(self, value: date) -> date:
+        self.calls.append(value)
+        return date(2026, 8, 28)
+
 
 def test_research_rejects_invalid_historical_and_comparison_inputs(tmp_path: Path) -> None:
     app = _app(tmp_path)
@@ -142,6 +146,7 @@ def test_next_session_prep_binds_wall_clock_source_and_calendar_target(tmp_path:
     assert kwargs["primary_only"] is True
     assert kwargs["schedule_comparison"] is False
     assert kwargs["publish_plans"] is True
+    assert kwargs["market_data_as_of"] == datetime(2026, 8, 28, 15, 10, tzinfo=TZ)
     assert kwargs["allow_non_trading_source"] is True
     assert kwargs["reuse_resume_snapshot"] is False
 
@@ -177,6 +182,7 @@ def test_next_session_prep_contract_cannot_be_used_to_bypass_publication_gate(tm
             primary_only=True,
             publish_plans=False,
             target_trade_date=date(2026, 8, 31),
+            market_data_as_of=datetime(2026, 8, 28, 15, 10, tzinfo=TZ),
             allow_non_trading_source=True,
         )
 

@@ -78,5 +78,23 @@ class ExchangeTradingCalendar:
             candidate += timedelta(days=1)
         raise TradingCalendarError("TRADING_CALENDAR_NEXT_SESSION_UNAVAILABLE")
 
+    def previous_trading_day(self, value: date) -> date:
+        """Return the last exchange session strictly before ``value``.
+
+        This is intentionally the inverse of :meth:`next_trading_day`, rather
+        than a weekday calculation.  It is used when a non-trading-day
+        preparation run needs the latest completed market session (for
+        example, Sunday 2026-08-30 resolves to Friday 2026-08-28).
+        """
+
+        if isinstance(value, datetime) or not isinstance(value, date):
+            raise TypeError("trading day must be a date")
+        candidate = value - timedelta(days=1)
+        for _ in range(370):
+            if self.is_trading_day(candidate):
+                return candidate
+            candidate -= timedelta(days=1)
+        raise TradingCalendarError("TRADING_CALENDAR_PREVIOUS_SESSION_UNAVAILABLE")
+
 
 __all__ = ["ExchangeTradingCalendar", "TradingCalendarError"]

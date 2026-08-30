@@ -219,12 +219,16 @@ class WorkflowApplication:
         self,
         *,
         as_of: datetime | None = None,
+        market_data_as_of: datetime | None = None,
         progress: WorkflowProgress | None = None,
     ) -> PreparedSnapshot:
         current = _aware(as_of or datetime.now(SHANGHAI))
+        market_current = _aware(market_data_as_of or current)
         wall_now = datetime.now(SHANGHAI)
         if abs((current - wall_now).total_seconds()) > 600:
             raise WorkflowError("LIVE_FACTS_POINT_IN_TIME_UNSUPPORTED")
+        if market_current > current:
+            raise WorkflowError("MARKET_DATA_AS_OF_IN_FUTURE")
 
         source_config = load_yaml(self.settings.source_config_path)
         gate_config = source_config.get("universe_gate", {})
@@ -380,7 +384,7 @@ class WorkflowApplication:
             sync_result = self.fact_synchronizer.sync(
                 client,
                 [candidate.symbol for candidate in selected],
-                as_of=current,
+                as_of=market_current,
                 lookback_days=800,
                 compact_daily_bars=30,
                 fundamental_projector=_compact_fundamental_rows,
@@ -390,7 +394,7 @@ class WorkflowApplication:
                 source_failures.setdefault(symbol, []).extend(reasons)
             daily: dict[str, Any] = sync_result.daily
             fundamental: dict[str, Any] = sync_result.fundamental
-            cache_coverage = self.fact_cache.get_coverage(as_of=current)
+            cache_coverage = self.fact_cache.get_coverage(as_of=market_current)
             data_readiness = evaluate_data_readiness(
                 {
                     "daily": {
@@ -403,7 +407,7 @@ class WorkflowApplication:
                     },
                 },
                 expected_symbols=len(selected),
-                as_of=current,
+                as_of=market_current,
             )
             if not data_readiness.ready:
                 raise WorkflowError(data_readiness.reason_codes[0] or "RESEARCH_DATA_NOT_READY")
@@ -810,8 +814,17 @@ class WorkflowApplication:
             if self.trading_calendar.is_trading_day(source_as_of.date()):
                 raise WorkflowError("NEXT_SESSION_PREP_REQUIRES_NON_TRADING_DAY")
             target_trade_date = self.trading_calendar.next_trading_day(source_as_of.date())
+            market_trade_date = self.trading_calendar.previous_trading_day(source_as_of.date())
         except TradingCalendarError as exc:
             raise WorkflowError(exc.reason_code) from exc
+        market_data_as_of = datetime(
+            market_trade_date.year,
+            market_trade_date.month,
+            market_trade_date.day,
+            15,
+            10,
+            tzinfo=SHANGHAI,
+        )
 
         # One deterministic receipt per target session makes a second command
         # invocation safe: it cannot publish a second pending plan set for the
@@ -840,6 +853,7 @@ class WorkflowApplication:
             publish_plans=True,
             run_id_override=run_id,
             target_trade_date=target_trade_date,
+            market_data_as_of=market_data_as_of,
             allow_non_trading_source=True,
             reuse_resume_snapshot=False,
         )
@@ -1269,6 +1283,7 @@ class WorkflowApplication:
         snapshot_expected_hash: str | None = None,
         record_runtime: bool = True,
         target_trade_date: date | None = None,
+        market_data_as_of: datetime | None = None,
         allow_non_trading_source: bool = False,
         reuse_resume_snapshot: bool = True,
     ) -> dict[str, Any]:
@@ -1284,6 +1299,7 @@ class WorkflowApplication:
                 normalized_slot != "close"
                 or not allow_non_trading_source
                 or target_trade_date is None
+                or market_data_as_of is None
                 or isinstance(target_trade_date, datetime)
                 or not isinstance(target_trade_date, date)
                 or historical_replay
@@ -1298,10 +1314,16 @@ class WorkflowApplication:
                 if self.trading_calendar.is_trading_day(current.date()):
                     raise WorkflowError("NEXT_SESSION_PREP_REQUIRES_NON_TRADING_DAY")
                 expected_target = self.trading_calendar.next_trading_day(current.date())
+                expected_market_date = self.trading_calendar.previous_trading_day(current.date())
             except TradingCalendarError as exc:
                 raise WorkflowError(exc.reason_code) from exc
             if target_trade_date != expected_target:
                 raise WorkflowError("NEXT_SESSION_PREP_TARGET_INVALID")
+            market_cutoff = _aware(market_data_as_of)
+            if market_cutoff.date() != expected_market_date or market_cutoff > current:
+                raise WorkflowError("NEXT_SESSION_PREP_MARKET_DATE_INVALID")
+        elif market_data_as_of is not None:
+            raise WorkflowError("MARKET_DATA_AS_OF_REQUIRES_NEXT_SESSION_PREP")
         if historical_replay:
             if as_of is None:
                 raise WorkflowError("HISTORICAL_AS_OF_REQUIRED")
@@ -1363,7 +1385,11 @@ class WorkflowApplication:
                 else self._load_research_resume_snapshot(normalized_slot, current)
             )
             if prepared is None:
-                prepared = self.prepare_snapshot(as_of=current, progress=progress)
+                prepared = self.prepare_snapshot(
+                    as_of=current,
+                    market_data_as_of=market_data_as_of,
+                    progress=progress,
+                )
                 if not historical_replay and not comparison_run:
                     self._write_research_resume_marker(
                         normalized_slot,
@@ -1497,6 +1523,16 @@ class WorkflowApplication:
             "source_as_of": current.isoformat(),
             "target_trade_date": (
                 target_trade_date.isoformat() if target_trade_date is not None else None
+            ),
+            "market_trade_date": (
+                market_data_as_of.astimezone(SHANGHAI).date().isoformat()
+                if market_data_as_of is not None
+                else current.date().isoformat()
+            ),
+            "market_data_as_of": (
+                market_data_as_of.astimezone(SHANGHAI).isoformat()
+                if market_data_as_of is not None
+                else current.isoformat()
             ),
             "preparation_mode": (
                 "NEXT_SESSION_PRODUCTION_PREP" if next_session_prep else None
