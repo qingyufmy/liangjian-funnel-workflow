@@ -58,8 +58,11 @@ _BOARD_PERIODS: Mapping[str, tuple[str, str, str, str | None]] = {
 }
 _BOARD_FS = {"industry": "m:90+t:2", "concept": "m:90+t:3", "region": "m:90+t:1"}
 _EASTMONEY_URLS = (
-    "https://push2.eastmoney.com/api/qt/clist/get",
+    # The delayed host is the stable equivalent clist contract on the
+    # deployment network.  Try it first so a dead TLS path cannot consume the
+    # retry budget for every board/window page.
     "https://push2delay.eastmoney.com/api/qt/clist/get",
+    "https://push2.eastmoney.com/api/qt/clist/get",
 )
 _EASTMONEY_UNIVERSE = "m:0+t:6+f:!2,m:0+t:13+f:!2,m:0+t:80+f:!2,m:1+t:2+f:!2,m:1+t:23+f:!2,m:0+t:7+f:!2,m:1+t:3+f:!2"
 _EASTMONEY_PAGE_SIZE = 5000
