@@ -48,11 +48,43 @@ A2_THEME_FACTORS: tuple[str, ...] = (
 )
 A2_FACTOR_COVERAGE_MINIMUM = 0.65
 _A2_CRITICAL_FACTORS: tuple[str, ...] = (
+    "breadth",
+    "turnover_share",
+    "leader_structure",
+    "tier_structure",
+    "index_chain_resonance",
+)
+_A2_CRITICAL_MIN_AVAILABLE = 2
+_A2_MARKET_FACTORS: tuple[str, ...] = (
+    "breadth",
+    "turnover_share",
+    "leader_structure",
+    "tier_structure",
+    "index_chain_resonance",
+)
+_A2_MARKET_OPTIONAL_FACTORS: tuple[str, ...] = (
     "capital_flow",
     "tier_structure",
     "leader_structure",
     "index_chain_resonance",
 )
+_A2_ROUTE_DATA_GAP_REASONS: frozenset[str] = frozenset({
+    "A1_THEME_MISSING",
+    "A1_CHAIN_NODE_MISSING",
+    "A1_BUSINESS_EVIDENCE_MISSING",
+    "A2_MARKET_FACTS_INSUFFICIENT",
+    "A2_FACTOR_COVERAGE_BELOW_MINIMUM",
+    "A2_SUPPLY_CHAIN_ROLE_NOT_FOCUS_ELIGIBLE",
+    "A2_SCARCE_LAYER_MISSING",
+    "A2_VALUE_CHAIN_POSITION_MISSING",
+    "A2_BOTTLENECK_FACTORS_INVALID",
+    "A2_BOTTLENECK_SCORECARD_MISSING",
+    "A2_BOTTLENECK_EVIDENCE_INSUFFICIENT",
+    "A2_BOTTLENECK_STRONG_EVIDENCE_MISSING",
+    "A2_BOTTLENECK_MISSING_PROOF_UNDECLARED",
+    "A2_BOTTLENECK_KILL_SWITCH_MISSING",
+    "A2_SCARCITY_AUTHORIZATION_INVALID",
+})
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,12 +121,47 @@ class DeterministicGateResult:
                     for decision in self.decisions
                 )
                 coverage[name] = round(observed / total, 6) if total else 0.0
-            sufficient = bool(total) and all(value >= 0.90 for value in coverage.values())
+            route_counts: dict[str, int] = {}
+            route_coverage: dict[str, float] = {}
+            for route in (MARKET_CORE_ROUTE, SUPPLY_CHAIN_ALPHA_ROUTE):
+                observed = sum(
+                    isinstance(decision.get("route_eligibility"), Mapping)
+                    and isinstance(decision["route_eligibility"].get(route), Mapping)
+                    and decision["route_eligibility"][route].get("eligible") is True
+                    for decision in self.decisions
+                )
+                route_counts[route] = observed
+                route_coverage[route] = round(observed / total, 6) if total else 0.0
+            route_ready = any(route_counts.values())
+            has_data_gap = counts.get("DATA_GAP", 0) > 0 or any(
+                _decision_has_route_data_gap(decision)
+                for decision in self.decisions
+            )
+            has_degraded = any(
+                str(decision.get("data_sufficiency_state") or "").upper() == "DEGRADED"
+                for decision in self.decisions
+            )
+            if not total or not route_ready:
+                # A completely unavailable route is an evidence gap only when
+                # rows explicitly carry missing facts.  Low identity and
+                # other deterministic exclusions are not silently relabelled
+                # as a market-wide data failure.
+                sufficiency_state = "INSUFFICIENT" if has_data_gap or not total else "SUFFICIENT"
+            else:
+                sufficiency_state = "DEGRADED" if has_data_gap or has_degraded else "SUFFICIENT"
             result.update({
                 "data_gap_count": counts.get("DATA_GAP", 0),
                 "critical_factor_coverage": coverage,
                 "minimum_critical_factor_coverage": 0.90,
-                "data_sufficiency_state": "SUFFICIENT" if sufficient else "INSUFFICIENT",
+                "data_sufficiency_state": sufficiency_state,
+                "route_sufficiency": {
+                    route: {
+                        "eligible_count": route_counts[route],
+                        "coverage": route_coverage[route],
+                        "available": route_counts[route] > 0,
+                    }
+                    for route in (MARKET_CORE_ROUTE, SUPPLY_CHAIN_ALPHA_ROUTE)
+                },
             })
         return result
 
@@ -409,8 +476,14 @@ def screen_a2(
 
     rows = _mapping_list(a1_output.get("active_research_pool"))
     candidates = _candidate_map(snapshot)
-    factors = snapshot.get("FACTOR_SNAPSHOT")
+    # A2 is fed by its own materialized feature contract.  The legacy
+    # FACTOR_SNAPSHOT is the technical/A3 projection and is only a fallback
+    # for older replay fixtures; never let it shadow a symbol-scoped A2 row.
+    factors = snapshot.get("A2_FACTOR_SNAPSHOT")
+    factors = factors if isinstance(factors, Mapping) else snapshot.get("FACTOR_SNAPSHOT")
     factors = factors if isinstance(factors, Mapping) else {}
+    tier_snapshot = snapshot.get("TIER_STRUCTURE_SNAPSHOT")
+    tier_snapshot = tier_snapshot if isinstance(tier_snapshot, Mapping) else {}
     recent_bars = snapshot.get("RECENT_DAILY_BARS")
     recent_bars = recent_bars if isinstance(recent_bars, Mapping) else {}
     industry_membership = _membership_map(snapshot.get("THS_INDUSTRY_MEMBERSHIP"), taxonomy="INDUSTRY")
@@ -453,8 +526,13 @@ def screen_a2(
         theme_id = str(item.get("primary_theme") or item.get("theme_id") or "UNMAPPED")
         candidate = candidates.get(symbol, {})
         amount = max(0.0, _number(candidate.get("amount")) or _number(candidate.get("turnover")) or 0.0)
-        factor = factors.get(symbol)
-        factor = factor if isinstance(factor, Mapping) else {}
+        factor = _symbol_scoped_row(factors, symbol)
+        # Older snapshots may carry only the technical symbol map.  Keep this
+        # fallback symbol-scoped as well; never consume a theme-level value as
+        # an individual stock factor.
+        technical_factor = _symbol_scoped_row(snapshot.get("FACTOR_SNAPSHOT"), symbol)
+        if not factor:
+            factor = technical_factor
         explicit_relative = _relative_strength_score(factor, default=None)
         relative = explicit_relative if explicit_relative is not None else _percentile_score(
             bar_returns.get(symbol), return_distribution
@@ -480,6 +558,7 @@ def screen_a2(
             theme_id=theme_id,
             snapshot=snapshot,
             factor=factor,
+            tier_snapshot=tier_snapshot,
             relative=relative,
             liquidity=liquidity,
             cycle_score=cycle_score,
@@ -489,7 +568,6 @@ def screen_a2(
         )
         score, coverage = _available_weighted_score(factor_scores, weights)
         critical_coverage = _critical_factor_coverage(factor_scores)
-        critical_data_sufficient = critical_coverage["sufficient"] is True
         identifiability, identity_breakdown = _a2_identifiability(
             item=item,
             relative=relative,
@@ -498,38 +576,82 @@ def screen_a2(
             attention=symbol in attention,
             dragon=symbol in dragon,
         )
-        eligible_routes = _a2_route_eligibility(
+        role = _role(identifiability, liquidity, relative)
+        route_results = _a2_route_results(
             item=item,
             identifiability=identifiability,
             minimum_identifiability_score=minimum_identifiability_score,
             factor_scores=factor_scores,
             bottleneck_context=bottleneck_context,
+            role=role,
+            coverage=coverage,
+            enforce_coverage=enforce_coverage,
+            coverage_minimum=coverage_minimum,
+            weights=weights,
         )
+        eligible_routes = tuple(
+            route for route, route_result in route_results.items()
+            if route_result.get("eligible") is True
+        )
+        route_data_gap_reasons = {
+            str(reason)
+            for route_result in route_results.values()
+            for reason in route_result.get("missing_reason_codes", ())
+            if str(reason) in _A2_ROUTE_DATA_GAP_REASONS
+        }
+        has_route = bool(eligible_routes)
         reasons: list[str] = []
         low_identity = identifiability < minimum_identifiability_score
         if low_identity:
             reasons.append("A2_IDENTIFIABILITY_BELOW_MINIMUM")
-        if enforce_coverage and coverage["ratio"] < coverage_minimum:
+        market_result = route_results[MARKET_CORE_ROUTE]
+        core_route_data_gap_reasons = {
+            str(reason)
+            for reason in market_result.get("missing_reason_codes", ())
+            if str(reason) in _A2_ROUTE_DATA_GAP_REASONS
+        }
+        route_coverage_below_minimum = "A2_FACTOR_COVERAGE_BELOW_MINIMUM" in market_result.get("missing_reason_codes", ())
+        if route_coverage_below_minimum:
             reasons.append("A2_FACTOR_COVERAGE_BELOW_MINIMUM")
         capital_flow = factor_scores.get("capital_flow", {})
         if capital_flow.get("available") is not True:
             reasons.append("A2_CAPITAL_FLOW_UNAVAILABLE")
-        if not critical_data_sufficient:
+        missing_optional_factors = [
+            name for name in _A2_MARKET_OPTIONAL_FACTORS
+            if not (
+                isinstance(factor_scores.get(name), Mapping)
+                and factor_scores[name].get("available") is True
+                and _number(factor_scores[name].get("score")) is not None
+            )
+        ]
+        if missing_optional_factors and has_route:
+            reasons.append("A2_OPTIONAL_FACTS_DEGRADED")
+        if route_data_gap_reasons and not has_route:
             reasons.extend(("A2_CRITICAL_DATA_INSUFFICIENT", "A2_DATA_GAP"))
+            reasons.extend(sorted(route_data_gap_reasons))
+        if not has_route:
+            reasons.append("A2_NO_ROUTE_READY")
+        data_sufficiency_state = (
+            "DEGRADED" if missing_optional_factors or route_coverage_below_minimum or route_data_gap_reasons
+            else "SUFFICIENT"
+        )
         status = "REVIEW_CANDIDATE"
-        if not critical_data_sufficient:
-            # A missing critical fact is not negative evidence.  Preserve the
+        if low_identity and not core_route_data_gap_reasons:
+            status = "HARD_REJECT"
+            reasons.append("A2_LOW_IDENTITY_EXCLUDED")
+        elif not has_route and route_data_gap_reasons:
+            # A missing required fact is not negative evidence.  Preserve the
             # symbol in an explicit data-gap partition instead of rejecting it
             # or claiming the market contains no opportunity.
             status = "DATA_GAP"
+            data_sufficiency_state = "INSUFFICIENT"
         elif low_identity:
             status = "HARD_REJECT"
             reasons.append("A2_LOW_IDENTITY_EXCLUDED")
-        elif enforce_coverage and coverage["ratio"] < coverage_minimum:
+        elif route_coverage_below_minimum:
             status = "LOCAL_MONITOR"
-        elif not eligible_routes and enforce_coverage:
+        elif not has_route:
             status = "LOCAL_MONITOR"
-            reasons.append("A2_NO_ROUTE_READY")
         elif not configured_weights:
             reasons.append("A2_SCORE_WEIGHTS_FALLBACK")
         decision = {
@@ -547,13 +669,10 @@ def screen_a2(
             "business_exposure": item.get("business_exposure"),
             "business_exposure_facts": item.get("business_exposure_facts", []),
             "source_refs": list(item.get("source_refs") or ()) if isinstance(item.get("source_refs"), Sequence) and not isinstance(item.get("source_refs"), (str, bytes, bytearray)) else [],
-            "role": _role(identifiability, liquidity, relative),
+            "role": role,
             "route": eligible_routes[0] if eligible_routes else None,
             "eligible_routes": eligible_routes,
-            "route_eligibility": {
-                MARKET_CORE_ROUTE: _market_core_route_result(item, identifiability, minimum_identifiability_score, factor_scores, coverage, enforce_coverage, coverage_minimum),
-                SUPPLY_CHAIN_ALPHA_ROUTE: _supply_chain_route_result(item, bottleneck_context),
-            },
+            "route_eligibility": route_results,
             "role_breakdown": {
                 "relative_strength": round(relative, 4),
                 "liquidity_capacity": round(liquidity, 4),
@@ -565,7 +684,8 @@ def screen_a2(
             "a2_factor_scores": factor_scores,
             "factor_coverage": coverage,
             "critical_factor_coverage": critical_coverage,
-            "data_sufficiency_state": "SUFFICIENT" if critical_data_sufficient else "INSUFFICIENT",
+            "data_sufficiency_state": data_sufficiency_state,
+            "missing_optional_factors": missing_optional_factors,
             "score_weight_source": weight_source,
             "bottleneck_context": bottleneck_context,
             "bottleneck_status": "NOT_REQUIRED_FOR_MARKET_CORE" if MARKET_CORE_ROUTE in eligible_routes else "UNPROVEN",
@@ -654,6 +774,7 @@ def _a2_factor_scores(
     theme_id: str,
     snapshot: Mapping[str, Any],
     factor: Mapping[str, Any],
+    tier_snapshot: Mapping[str, Any],
     relative: float,
     liquidity: float,
     cycle_score: float | None,
@@ -680,6 +801,20 @@ def _a2_factor_scores(
             value = _capital_flow_unavailable(snapshot)
         else:
             value = _read_item_factor(item, name, aliases[name])
+            if value is None and name == "tier_structure":
+                # TIER_STRUCTURE_SNAPSHOT is the authoritative point-in-time
+                # ladder projection.  It is deliberately read before the
+                # broader A2 bundle so an old/technical row cannot overwrite
+                # it.
+                value = _read_snapshot_factor(tier_snapshot, symbol, theme_id, name, aliases[name])
+            if value is None and _is_a2_factor_row(factor):
+                value = _read_factor_row(
+                    factor,
+                    name,
+                    aliases[name],
+                    source="A2_FACTOR_SNAPSHOT",
+                    source_refs=_payload_source_refs(factor),
+                )
             if value is None:
                 value = _read_snapshot_factor(snapshot, symbol, theme_id, name, aliases[name])
             if value is None and isinstance(local_market_factors.get(name), Mapping):
@@ -698,6 +833,70 @@ def _a2_factor_scores(
             if quality is not None:
                 value = _factor_result(quality, "A1_ACTIVE_RESEARCH_POOL", _item_source_refs(item), "OK")
         result[name] = value or _factor_result(None, "UNAVAILABLE", (), "A2_FACTOR_UNAVAILABLE")
+    return result
+
+
+def _is_a2_factor_row(value: Mapping[str, Any]) -> bool:
+    return isinstance(value, Mapping) and any(
+        key in value
+        for key in (
+            "factors",
+            "factor_scores",
+            "tier_structure",
+            "leader_structure",
+            "trend_strength_proxy",
+            "index_chain_resonance",
+        )
+    )
+
+
+def _read_factor_row(
+    row: Mapping[str, Any],
+    name: str,
+    aliases: Sequence[str],
+    *,
+    source: str,
+    source_refs: Sequence[str],
+) -> dict[str, Any] | None:
+    if "score" in row and not any(key in row for key in ("factors", "factor_scores", "metrics")):
+        result = _read_metric_payload(
+            row,
+            source=source,
+            source_refs=source_refs,
+            ratio_hint=name in {"breadth", "turnover_share"},
+        )
+        if result is not None:
+            return result
+    result = _read_metric_fields(row, aliases, source=source, source_refs=source_refs, ratio_hint=name in {"breadth", "turnover_share"})
+    if result is not None:
+        return result
+    for container_name in ("factors", "factor_scores", "metrics"):
+        container = row.get(container_name)
+        if not isinstance(container, Mapping):
+            continue
+        result = _read_metric_payload(
+            container.get(name),
+            source=source,
+            source_refs=source_refs,
+            ratio_hint=name in {"breadth", "turnover_share"},
+        )
+        if result is not None:
+            return result
+        result = _read_metric_fields(
+            container,
+            aliases,
+            source=source,
+            source_refs=source_refs,
+            ratio_hint=name in {"breadth", "turnover_share"},
+        )
+        if result is not None:
+            return result
+    result = _read_metric_payload(
+        row.get(name),
+        source=source,
+        source_refs=source_refs,
+        ratio_hint=name in {"breadth", "turnover_share"},
+    )
     return result
 
 
@@ -779,12 +978,11 @@ def _build_a2_local_market_factors(
                     "OK",
                 )
 
-        relative = _relative_strength_score(
-            snapshot.get("FACTOR_SNAPSHOT", {}).get(symbol, {})
-            if isinstance(snapshot.get("FACTOR_SNAPSHOT"), Mapping)
-            else {},
-            default=None,
-        )
+        a2_factor_row = _symbol_scoped_row(snapshot.get("A2_FACTOR_SNAPSHOT"), symbol)
+        technical_factor_row = _symbol_scoped_row(snapshot.get("FACTOR_SNAPSHOT"), symbol)
+        relative = _relative_strength_score(a2_factor_row, default=None)
+        if relative is None:
+            relative = _relative_strength_score(technical_factor_row, default=None)
         amount = max(0.0, _number(candidate.get("amount")) or _number(candidate.get("turnover")) or 0.0)
         if relative is not None and amount > 0:
             symbol_factors["leader_structure"] = _factor_result(
@@ -849,27 +1047,61 @@ def _a2_route_eligibility(
     minimum_identifiability_score: float,
     factor_scores: Mapping[str, Mapping[str, Any]],
     bottleneck_context: Mapping[str, Any],
+    role: str | None = None,
+    coverage: Mapping[str, Any] | None = None,
+    enforce_coverage: bool = False,
+    coverage_minimum: float = A2_FACTOR_COVERAGE_MINIMUM,
+    weights: Mapping[str, float] | None = None,
 ) -> tuple[str, ...]:
-    if identifiability < minimum_identifiability_score:
-        return ()
+    results = _a2_route_results(
+        item=item,
+        identifiability=identifiability,
+        minimum_identifiability_score=minimum_identifiability_score,
+        factor_scores=factor_scores,
+        bottleneck_context=bottleneck_context,
+        role=role,
+        coverage=coverage,
+        enforce_coverage=enforce_coverage,
+        coverage_minimum=coverage_minimum,
+        weights=weights,
+    )
+    return tuple(
+        route
+        for route, result in results.items()
+        if result.get("eligible") is True
+    )
+
+
+def _a2_route_results(
+    *,
+    item: Mapping[str, Any],
+    identifiability: float,
+    minimum_identifiability_score: float,
+    factor_scores: Mapping[str, Mapping[str, Any]],
+    bottleneck_context: Mapping[str, Any],
+    role: str | None = None,
+    coverage: Mapping[str, Any] | None = None,
+    enforce_coverage: bool = False,
+    coverage_minimum: float = A2_FACTOR_COVERAGE_MINIMUM,
+    weights: Mapping[str, float] | None = None,
+) -> dict[str, dict[str, Any]]:
+    route_coverage = coverage or {"ratio": _factor_coverage_ratio(factor_scores)}
     market = _market_core_route_result(
         item,
         identifiability,
         minimum_identifiability_score,
         factor_scores,
-        {"ratio": _factor_coverage_ratio(factor_scores)},
-        False,
-        A2_FACTOR_COVERAGE_MINIMUM,
+        route_coverage,
+        enforce_coverage,
+        coverage_minimum,
+        market_role=role,
+        weights=weights,
     )
     supply = _supply_chain_route_result(item, bottleneck_context)
-    return tuple(
-        route
-        for route, result in (
-            (MARKET_CORE_ROUTE, market),
-            (SUPPLY_CHAIN_ALPHA_ROUTE, supply),
-        )
-        if result.get("eligible") is True
-    )
+    return {
+        MARKET_CORE_ROUTE: market,
+        SUPPLY_CHAIN_ALPHA_ROUTE: supply,
+    }
 
 
 def _market_core_route_result(
@@ -880,6 +1112,9 @@ def _market_core_route_result(
     coverage: Mapping[str, Any],
     enforce_coverage: bool,
     coverage_minimum: float,
+    *,
+    market_role: str | None = None,
+    weights: Mapping[str, float] | None = None,
 ) -> dict[str, Any]:
     missing: list[str] = []
     if identifiability < minimum_identifiability_score:
@@ -890,21 +1125,74 @@ def _market_core_route_result(
         missing.append("A1_CHAIN_NODE_MISSING")
     if not _has_business_evidence(item):
         missing.append("A1_BUSINESS_EVIDENCE_MISSING")
-    market_factor_names = ("breadth", "turnover_share", "leader_structure", "tier_structure", "index_chain_resonance")
+    # ``market_role`` is derived by the deterministic identity scorer when
+    # the A1 row does not carry a role.  It is descriptive output, not an
+    # upstream assertion.  Treating the derived LOW_IDENTITY label as an
+    # explicit route veto made otherwise valid rows fail closed whenever a
+    # test/configuration intentionally lowered the identity threshold.  Only
+    # a role explicitly supplied by the upstream row is a route contract.
+    explicit_role = str(
+        item.get("market_role")
+        or item.get("role")
+        or item.get("a2_role")
+        or ""
+    ).strip().upper()
+    accepted_roles = {
+        "LEADER",
+        "CORE_ARMY",
+        "TREND_CORE",
+        "FIRST_MOVER",
+        # A2 feature materialization emits these more specific role labels;
+        # they remain MARKET_CORE sub-roles, not new top-level routes.
+        "EMOTION_LEADER",
+        "TREND_LEADER",
+        "INSTITUTIONAL_CORE",
+        "CAPACITY_CORE",
+    }
+    if explicit_role and explicit_role not in accepted_roles:
+        missing.append("A2_MARKET_ROLE_NOT_FOCUS_ELIGIBLE")
+    market_factor_names = _A2_MARKET_FACTORS
     market_fact_count = sum(
-        factor_scores.get(name, {}).get("available") is True
+        isinstance(factor_scores.get(name), Mapping)
+        and factor_scores.get(name, {}).get("available") is True
+        and _number(factor_scores.get(name, {}).get("score")) is not None
         for name in market_factor_names
     )
-    if enforce_coverage and _safe_float(coverage.get("ratio")) < coverage_minimum:
+    # The global weighted denominator contains optional capital-flow and event
+    # families.  Calculate the minimum against non-capital evidence so one
+    # unavailable source cannot veto a market-core route.  Missing required
+    # market evidence still remains a deterministic data gap.
+    route_ratio = _route_required_coverage(
+        factor_scores,
+        coverage,
+        optional=("capital_flow",),
+        weights=weights,
+        required_names=_A2_MARKET_FACTORS,
+    )
+    if enforce_coverage and route_ratio < coverage_minimum:
         missing.append("A2_FACTOR_COVERAGE_BELOW_MINIMUM")
-    if enforce_coverage and market_fact_count < 2:
+    if market_fact_count < 2:
         missing.append("A2_MARKET_FACTS_INSUFFICIENT")
+    sufficiency = "SUFFICIENT" if not missing else "DATA_GAP"
+    missing_optional = [
+        name for name in _A2_MARKET_OPTIONAL_FACTORS
+        if not (
+            isinstance(factor_scores.get(name), Mapping)
+            and factor_scores[name].get("available") is True
+            and _number(factor_scores[name].get("score")) is not None
+        )
+    ]
+    if not missing and missing_optional:
+        sufficiency = "DEGRADED"
     return {
         "eligible": not missing,
         "route": MARKET_CORE_ROUTE,
         "missing_reason_codes": list(dict.fromkeys(missing)),
+        "missing_optional_factors": missing_optional,
+        "data_sufficiency_state": sufficiency,
         "bottleneck_status": "NOT_REQUIRED_FOR_MARKET_CORE",
         "market_fact_count": market_fact_count,
+        "route_coverage_ratio": round(route_ratio, 6),
     }
 
 
@@ -940,6 +1228,8 @@ def _supply_chain_route_result(item: Mapping[str, Any], bottleneck_context: Mapp
         "eligible": not missing and scorecard is not None,
         "route": SUPPLY_CHAIN_ALPHA_ROUTE,
         "missing_reason_codes": list(dict.fromkeys(missing)),
+        "missing_optional_factors": [],
+        "data_sufficiency_state": "SUFFICIENT" if not missing and scorecard is not None else "DATA_GAP",
         "bottleneck_status": "SOURCE_BACKED" if not missing and scorecard is not None else "UNPROVEN",
         "evidence_count": len(valid_evidence),
     }
@@ -986,14 +1276,96 @@ def _critical_factor_coverage(
     available = sum(states.values())
     total = len(_A2_CRITICAL_FACTORS)
     return {
-        "required_factors": list(_A2_CRITICAL_FACTORS),
+        "candidate_factors": list(_A2_CRITICAL_FACTORS),
         "available_factors": [name for name, observed in states.items() if observed],
         "missing_factors": [name for name, observed in states.items() if not observed],
         "available_count": available,
-        "required_count": total,
+        "required_count": _A2_CRITICAL_MIN_AVAILABLE,
+        "candidate_count": total,
         "ratio": round(available / total, 6) if total else 0.0,
-        "sufficient": available == total,
+        "sufficient": available >= _A2_CRITICAL_MIN_AVAILABLE,
     }
+
+
+def _route_required_coverage(
+    factor_scores: Mapping[str, Mapping[str, Any]],
+    coverage: Mapping[str, Any],
+    *,
+    optional: Sequence[str],
+    weights: Mapping[str, float] | None,
+    required_names: Sequence[str] | None = None,
+) -> float:
+    """Return coverage for a route after removing explicitly optional facts.
+
+    ``coverage`` is retained for legacy snapshots, but it cannot identify the
+    weight of one missing factor.  When the frozen weights are available,
+    recompute the route denominator.  Otherwise fall back to the aggregate
+    ratio, except that an otherwise complete route is not penalised solely by
+    an unavailable optional source.
+    """
+
+    optional_names = {str(name) for name in optional}
+    scoped_names = {
+        str(name)
+        for name in (required_names or factor_scores.keys())
+        if str(name) not in optional_names
+    }
+    if isinstance(weights, Mapping) and weights:
+        required = {
+            str(name): _number(value)
+            for name, value in weights.items()
+            if str(name) in scoped_names and (_number(value) or 0.0) > 0
+        }
+        # A configured weight file may omit a newly introduced route factor;
+        # retain that factor in the route denominator at an equal weight rather
+        # than silently making the route easier to satisfy.
+        for name in scoped_names:
+            if name not in required:
+                required[name] = 1.0
+        total = sum(float(value or 0.0) for value in required.values())
+        available = sum(
+            float(value or 0.0)
+            for name, value in required.items()
+            if isinstance(factor_scores.get(name), Mapping)
+            and factor_scores[name].get("available") is True
+            and _number(factor_scores[name].get("score")) is not None
+        )
+        if total > 0:
+            return available / total
+    if scoped_names:
+        observed = sum(
+            isinstance(factor_scores.get(name), Mapping)
+            and factor_scores[name].get("available") is True
+            and _number(factor_scores[name].get("score")) is not None
+            for name in scoped_names
+        )
+        return observed / len(scoped_names)
+    ratio = _safe_float(coverage.get("ratio"))
+    if ratio < 1.0:
+        missing_required = [
+            name for name, value in factor_scores.items()
+            if name in scoped_names
+            and not (
+                isinstance(value, Mapping)
+                and value.get("available") is True
+                and _number(value.get("score")) is not None
+            )
+        ]
+        if not missing_required:
+            return 1.0
+    return ratio
+
+
+def _decision_has_route_data_gap(decision: Mapping[str, Any]) -> bool:
+    routes = decision.get("route_eligibility")
+    if not isinstance(routes, Mapping):
+        return str(decision.get("status") or "") == "DATA_GAP"
+    return any(
+        str(reason) in _A2_ROUTE_DATA_GAP_REASONS
+        for result in routes.values()
+        if isinstance(result, Mapping)
+        for reason in result.get("missing_reason_codes", ())
+    )
 
 
 def _factor_coverage_ratio(factor_scores: Mapping[str, Mapping[str, Any]]) -> float:
@@ -1021,6 +1393,13 @@ def _read_item_factor(item: Mapping[str, Any], name: str, aliases: Sequence[str]
     return _read_metric_fields(item, aliases, source="A1_ACTIVE_RESEARCH_POOL", source_refs=_item_source_refs(item), ratio_hint=False)
 
 
+def _symbol_scoped_row(value: Any, symbol: str) -> Mapping[str, Any]:
+    """Return only the row belonging to ``symbol`` from a snapshot map."""
+
+    payloads = _scoped_payloads(value, symbol, "", include_theme=False)
+    return payloads[0] if payloads else {}
+
+
 def _read_snapshot_factor(
     snapshot: Mapping[str, Any],
     symbol: str,
@@ -1039,11 +1418,23 @@ def _read_snapshot_factor(
         "index_chain_resonance": ("A2_FACTOR_SNAPSHOT", "A2_THEME_METRICS", "SECTOR_CYCLE_SNAPSHOT"),
         "agent_1_quality": ("A2_FACTOR_SNAPSHOT",),
     }
+    symbol_only = name in {"capital_flow", "tier_structure", "leader_structure", "agent_1_quality"}
     for source_name in source_names.get(name, ("A2_FACTOR_SNAPSHOT",)):
         root = snapshot.get(source_name)
         if name == "capital_flow" and (not isinstance(root, Mapping) or root.get("available") is not True):
             continue
-        for payload in _scoped_payloads(root, symbol, theme_id):
+        if name == "tier_structure" and (not isinstance(root, Mapping) or root.get("available") is False):
+            continue
+        for payload in _scoped_payloads(root, symbol, theme_id, include_theme=not symbol_only):
+            if symbol_only and "score" in payload:
+                result = _read_metric_payload(
+                    payload,
+                    source=source_name,
+                    source_refs=_payload_source_refs(payload),
+                    ratio_hint=name in {"breadth", "turnover_share"},
+                )
+                if result is not None:
+                    return result
             result = _read_metric_fields(payload, aliases, source=source_name, source_refs=_payload_source_refs(payload), ratio_hint=name in {"breadth", "turnover_share"})
             if result is not None:
                 return result
@@ -1053,6 +1444,18 @@ def _read_snapshot_factor(
             result = _read_metric_payload(nested, source=source_name, source_refs=_payload_source_refs(payload), ratio_hint=name in {"breadth", "turnover_share"})
             if result is not None:
                 return result
+            for container_name in ("factors", "factor_scores", "metrics"):
+                container = payload.get(container_name) if isinstance(payload, Mapping) else None
+                if not isinstance(container, Mapping):
+                    continue
+                result = _read_metric_payload(
+                    container.get(name),
+                    source=source_name,
+                    source_refs=_payload_source_refs(payload),
+                    ratio_hint=name in {"breadth", "turnover_share"},
+                )
+                if result is not None:
+                    return result
     return None
 
 
@@ -1061,6 +1464,9 @@ def _capital_flow_unavailable(snapshot: Mapping[str, Any]) -> dict[str, Any]:
     reason = "SOURCE_NOT_CONFIGURED"
     if isinstance(source, Mapping):
         reason = str(source.get("reason_code") or "SOURCE_UNAVAILABLE")
+    board_source = snapshot.get("BOARD_CAPITAL_FLOW_SNAPSHOT")
+    if isinstance(board_source, Mapping) and board_source.get("reason_code"):
+        reason = f"SYMBOL:{reason};SECTOR:{board_source.get('reason_code')}"
     return _factor_result(
         None,
         "CAPITAL_FLOW_SNAPSHOT",
@@ -1072,7 +1478,10 @@ def _capital_flow_unavailable(snapshot: Mapping[str, Any]) -> dict[str, Any]:
 
 def _capital_flow_available(snapshot: Mapping[str, Any]) -> bool:
     source = snapshot.get("CAPITAL_FLOW_SNAPSHOT")
-    return isinstance(source, Mapping) and source.get("available") is True
+    if isinstance(source, Mapping) and source.get("available") is True:
+        return True
+    board_source = snapshot.get("BOARD_CAPITAL_FLOW_SNAPSHOT")
+    return isinstance(board_source, Mapping) and board_source.get("available") is True
 
 
 def _read_metric_fields(
@@ -1145,22 +1554,45 @@ def _factor_result(
     }
 
 
-def _scoped_payloads(value: Any, symbol: str, theme_id: str) -> list[Mapping[str, Any]]:
+def _scoped_payloads(
+    value: Any,
+    symbol: str,
+    theme_id: str,
+    *,
+    include_theme: bool = True,
+) -> list[Mapping[str, Any]]:
     if not isinstance(value, Mapping):
         return []
     result: list[Mapping[str, Any]] = []
 
+    seen: set[int] = set()
+
     def add_mapping(mapping: Any) -> None:
         if isinstance(mapping, Mapping):
+            identity = id(mapping)
+            if identity in seen:
+                return
+            seen.add(identity)
             result.append(mapping)
 
-    add_mapping(value.get(symbol))
-    add_mapping(value.get(theme_id))
+    def add_keyed(mapping: Mapping[Any, Any], key: str) -> None:
+        add_mapping(mapping.get(key))
+        # Providers occasionally return bare six-digit keys.  Normalising the
+        # key here keeps the lookup symbol-scoped without weakening source
+        # availability semantics.
+        for actual, payload in mapping.items():
+            if _symbol(actual) == symbol:
+                add_mapping(payload)
+
+    add_keyed(value, symbol)
+    if include_theme:
+        add_mapping(value.get(theme_id))
     for key in ("by_symbol", "symbols", "by_theme", "themes", "theme_metrics", "metrics", "records", "items", "payload", "data"):
         nested = value.get(key)
         if isinstance(nested, Mapping):
-            add_mapping(nested.get(symbol))
-            add_mapping(nested.get(theme_id))
+            add_keyed(nested, symbol)
+            if include_theme:
+                add_mapping(nested.get(theme_id))
         elif isinstance(nested, Sequence) and not isinstance(nested, (str, bytes, bytearray)):
             for row in nested:
                 if not isinstance(row, Mapping):
@@ -1168,7 +1600,7 @@ def _scoped_payloads(value: Any, symbol: str, theme_id: str) -> list[Mapping[str
                 row_symbol = _symbol(row.get("symbol") or row.get("thscode"))
                 row_theme = str(row.get("theme_id") or row.get("primary_theme") or "")
                 row_industry = str(row.get("industry_thscode") or row.get("industry_code") or "")
-                if row_symbol == symbol or row_theme == theme_id or row_industry == theme_id:
+                if row_symbol == symbol or (include_theme and (row_theme == theme_id or row_industry == theme_id)):
                     add_mapping(row)
     return result
 
@@ -1965,18 +2397,36 @@ def _weighted_score(breakdown: Mapping[str, float], weights: Mapping[str, Any]) 
 
 
 def _relative_strength_score(factor: Mapping[str, Any], *, default: float | None = 45.0) -> float | None:
-    summary = factor.get("technical_summary")
-    summary = summary if isinstance(summary, Mapping) else factor
-    for key in ("relative_strength_score", "relative_strength", "rs_score"):
-        value = _number(summary.get(key))
-        if value is not None:
-            return max(0.0, min(100.0, value))
-    frames = factor.get("timeframes")
-    if isinstance(frames, Mapping):
-        daily = frames.get("daily")
-        if isinstance(daily, Mapping):
-            alignment = str(daily.get("ma_alignment") or "")
-            return {"BULL_STACK": 90.0, "BULL_PARTIAL": 72.0, "ENTANGLED": 50.0, "BEAR_PARTIAL": 30.0, "BEAR_STACK": 10.0}.get(alignment, 45.0)
+    if not isinstance(factor, Mapping):
+        return default
+    candidates: list[Mapping[str, Any]] = [factor]
+    for key in ("technical_summary", "trend_strength_proxy", "leader_structure", "factors", "factor_scores"):
+        nested = factor.get(key)
+        if isinstance(nested, Mapping):
+            candidates.append(nested)
+            if key in {"factors", "factor_scores"}:
+                candidates.extend(
+                    value for value in nested.values()
+                    if isinstance(value, Mapping)
+                )
+    for summary in candidates:
+        for key in ("relative_strength_score", "relative_strength", "rs_score", "relative_strength_percentile"):
+            value = _number(summary.get(key))
+            if value is not None:
+                # Percentile fields are commonly persisted as a 0..1 ratio.
+                if "percentile" in key and 0.0 <= value <= 1.0:
+                    value *= 100.0
+                return max(0.0, min(100.0, value))
+        frames = summary.get("timeframes")
+        if isinstance(frames, Mapping):
+            daily = frames.get("daily")
+            if isinstance(daily, Mapping):
+                alignment = str(daily.get("ma_alignment") or "")
+                return {"BULL_STACK": 90.0, "BULL_PARTIAL": 72.0, "ENTANGLED": 50.0, "BEAR_PARTIAL": 30.0, "BEAR_STACK": 10.0}.get(alignment, 45.0)
+        score = _number(summary.get("score"))
+        source = str(summary.get("source") or "")
+        if score is not None and any(token in source.lower() for token in ("trend", "relative", "daily_bars")):
+            return max(0.0, min(100.0, score))
     return default
 
 

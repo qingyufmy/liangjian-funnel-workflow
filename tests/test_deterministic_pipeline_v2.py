@@ -251,13 +251,13 @@ def test_a2_market_core_uses_real_local_market_factors_without_inventing_capital
     result = screen_a2(snapshot, a1_output, minimum_identifiability_score=60, llm_top_n_per_theme=2)
     item = result.decisions[0]
 
-    assert item["status"] == "DATA_GAP"
-    assert result.review_symbols == ()
-    assert result.monitor_symbols == (symbol,)
+    assert item["status"] == "REVIEW_CANDIDATE"
+    assert result.review_symbols == (symbol,)
+    assert result.monitor_symbols == ()
     assert "MARKET_CORE" in item["eligible_routes"]
     assert item["factor_coverage"]["ratio"] >= 0.65
-    assert item["critical_factor_coverage"]["sufficient"] is False
-    assert item["data_sufficiency_state"] == "INSUFFICIENT"
+    assert item["critical_factor_coverage"]["sufficient"] is True
+    assert item["data_sufficiency_state"] == "DEGRADED"
     assert item["a2_factor_scores"]["capital_flow"]["available"] is False
     assert item["a2_factor_scores"]["capital_flow"]["source"] == "CAPITAL_FLOW_SNAPSHOT"
     assert item["a2_factor_scores"]["turnover_share"]["source"] == "FROZEN_G0_INDUSTRY_TURNOVER_SHARE"
@@ -588,7 +588,7 @@ def test_screen_a2_partitions_no_route_low_identity_and_llm_rank_overflow() -> N
     assert by_symbol[symbols[1]]["status"] == "LOCAL_MONITOR"
     assert by_symbol[symbols[1]]["sent_to_llm"] is False
     assert "A2_NOT_SENT_TO_LLM" in by_symbol[symbols[1]]["reason_codes"]
-    assert by_symbol[symbols[2]]["status"] == "LOCAL_MONITOR"
+    assert by_symbol[symbols[2]]["status"] == "DATA_GAP"
     assert "A2_NO_ROUTE_READY" in by_symbol[symbols[2]]["reason_codes"]
 
     # A high identity threshold is an explicit deterministic rejection, not

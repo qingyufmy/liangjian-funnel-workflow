@@ -239,3 +239,6 @@ def test_research_input_projects_phase_one_facts_without_semantic_substitution(t
     assert result["MACRO_ECONOMIC_DATA"]["values"]["PMI"] == 49.2
     assert result["ASSET_ROTATION_SNAPSHOT"]["assets"]["EQUITY"]["momentum_20d_percentile"] == 75
     assert result["snapshot_manifest"]["open_macro"]["content_hash"] == "b" * 64
+    assert result["A2_SECTOR_HEALTH_SNAPSHOT"]["available"] is True
+    assert result["A2_SECTOR_HEALTH_SNAPSHOT"]["data_sufficiency_state"] == "PARTIAL"
+    assert result["SECTOR_CYCLE_SNAPSHOT"]["sector_health_snapshot"] == result["A2_SECTOR_HEALTH_SNAPSHOT"]

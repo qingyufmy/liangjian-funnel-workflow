@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import math
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime, timedelta
@@ -14,8 +15,10 @@ from pydantic import BaseModel
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 EMOTION_ALGORITHM = "market-emotion/1.0.0"
 SECTOR_CYCLE_ALGORITHM = "sector-cycle/2.0.0"
+SECTOR_HEALTH_ALGORITHM = "sector-health/1.0.0"
 _MONTHLY_OBSERVATION_BARS = 21  # 20 return periods require 21 closes.
 _MONTHLY_TOP10_MIN_APPEARANCES = 2
+_SECTOR_SEQUENCE_MIN_BARS = 4
 
 
 def build_market_emotion(
@@ -239,6 +242,852 @@ def build_sector_cycle_and_permissions(
         },
     }
     return cycle, permissions
+
+
+def build_sector_health_snapshot(
+    facts: Mapping[str, Any],
+    g0_quotes: Sequence[Any] | Mapping[str, Any],
+    *,
+    as_of: datetime,
+    symbols: Sequence[str] | None = None,
+    board_capital_flow_snapshot: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build the deterministic, point-in-time A2 sector health view.
+
+    This aggregate deliberately has a narrower contract than a stock selector:
+    it describes the state of every THS industry/concept represented by the
+    frozen G0 quote set.  It combines member breadth and current strength with
+    available industry index history and the latest eligible limit-up facts.
+    Missing history is represented as ``UNKNOWN``; it is never filled from
+    today's value or from a future bar.  In particular, turnover/amount is
+    retained only as a price-volume proxy and is never exposed as capital flow.
+
+    ``facts`` may be either the ``facts`` mapping itself or the complete fact
+    payload returned by ``manifest_projection``.  ``g0_quotes`` accepts the
+    frozen ``SecurityRecord`` sequence as well as a symbol-keyed mapping, which
+    keeps replay and production call sites on the same path.
+    """
+
+    cutoff = _aware(as_of)
+    fact_map = _fact_mapping(facts)
+    wanted = _normalise_symbols(symbols) if symbols is not None else None
+    quotes = _quote_map(g0_quotes, wanted)
+    scope_symbols = sorted(wanted if wanted is not None else set(quotes))
+
+    membership_by_taxonomy: dict[str, dict[str, list[dict[str, str]]]] = {}
+    taxonomy_status: dict[str, dict[str, Any]] = {}
+    for taxonomy in ("industry", "concept"):
+        membership_key = f"THS_{taxonomy.upper()}_MEMBERSHIP"
+        catalog_key = f"THS_{taxonomy.upper()}_CATALOG"
+        membership_value, membership_reason = _available_fact(fact_map.get(membership_key), cutoff)
+        membership_rows = _records_any(membership_value)
+        catalog_value, catalog_reason = _available_fact(fact_map.get(catalog_key), cutoff)
+        catalog_rows = _records_any(catalog_value)
+        catalog_names = _taxonomy_catalog_names(catalog_rows, taxonomy)
+        member_map = _taxonomy_memberships(
+            membership_rows,
+            taxonomy=taxonomy,
+            wanted=set(scope_symbols),
+            catalog_names=catalog_names,
+        )
+        membership_by_taxonomy[taxonomy] = member_map
+        taxonomy_status[taxonomy] = {
+            "available": membership_rows is not None,
+            "reason_code": "OK" if membership_rows is not None else membership_reason,
+            "catalog_available": catalog_rows is not None,
+            "catalog_reason_code": "OK" if catalog_rows is not None else catalog_reason,
+            "catalog_count": len(catalog_rows) if catalog_rows is not None else None,
+            "membership_row_count": len(membership_rows) if membership_rows is not None else None,
+            "mapped_symbol_count": len(member_map),
+            "membership_coverage": len(member_map) / len(scope_symbols) if scope_symbols else 1.0,
+        }
+
+    history_value, history_reason = _available_fact(fact_map.get("THS_INDUSTRY_HISTORY"), cutoff)
+    history_rows = _records_any(history_value)
+    history_by_code, future_history_dropped = _sector_history_series(history_rows or (), cutoff)
+    history_available = history_rows is not None and bool(history_by_code)
+    history_reason_code = "OK" if history_available else history_reason or "HISTORY_RECORDS_UNUSABLE"
+    history_sequence_available = any(
+        item.get("sequence_valid") is True for item in history_by_code.values()
+    )
+
+    pool_value, pool_reason = _available_fact(fact_map.get("LIMIT_UP_POOL"), cutoff)
+    pool_rows = _records_any(pool_value)
+    pool_symbols = {
+        symbol
+        for row in (pool_rows or ())
+        if (symbol := _row_symbol(row)) is not None and symbol in set(scope_symbols)
+    }
+    ladder_value, ladder_reason = _available_fact(fact_map.get("LIMIT_UP_LADDER"), cutoff)
+    ladder_rows = _records_any(ladder_value)
+    ladder_by_symbol, ladder_meta = _latest_ladder_events(ladder_rows or (), cutoff)
+    ladder_available = ladder_rows is not None and bool(ladder_meta.get("latest_date"))
+    board_flow = _board_capital_flow_index(board_capital_flow_snapshot)
+
+    result_by_taxonomy: dict[str, dict[str, Any]] = {}
+    all_missing: list[str] = []
+    if not quotes:
+        all_missing.append("G0_QUOTES")
+    mapped_symbols = {
+        symbol
+        for member_map in membership_by_taxonomy.values()
+        for symbol in member_map
+    }
+    mapped_quote_coverage = (
+        len(mapped_symbols.intersection(quotes)) / len(mapped_symbols)
+        if mapped_symbols
+        else 0.0
+    )
+    if mapped_symbols and mapped_quote_coverage < 0.80:
+        all_missing.append("G0_QUOTE_COVERAGE")
+    for taxonomy in ("industry", "concept"):
+        member_map = membership_by_taxonomy[taxonomy]
+        sectors = _build_sector_health_rows(
+            taxonomy=taxonomy,
+            member_map=member_map,
+            quotes=quotes,
+            history_by_code=history_by_code if taxonomy == "industry" else {},
+            pool_symbols=pool_symbols,
+            ladder_by_symbol=ladder_by_symbol,
+            board_flow=board_flow.get(taxonomy, {}),
+        )
+        strength_values = [
+            _finite(item.get("strength", {}).get("relative_strength_value"))
+            for item in sectors
+            if isinstance(item.get("strength"), Mapping)
+        ]
+        for item in sectors:
+            strength = item.get("strength")
+            relative_value = _finite(strength.get("relative_strength_value")) if isinstance(strength, Mapping) else None
+            item["relative_strength_percentile"] = _cross_section_percentile(relative_value, strength_values)
+            item["relative_strength"] = {
+                "value": relative_value,
+                "percentile": item["relative_strength_percentile"],
+                "source": strength.get("relative_strength_source") if isinstance(strength, Mapping) else None,
+            }
+        healthy = [item for item in sectors if item.get("health_state") == "HEALTHY"]
+        status = taxonomy_status[taxonomy]
+        if status["available"] is not True:
+            all_missing.append(f"{taxonomy.upper()}_MEMBERSHIP")
+        elif scope_symbols and status["membership_coverage"] < 0.80:
+            all_missing.append(f"{taxonomy.upper()}_MEMBERSHIP_COVERAGE")
+        if taxonomy == "industry":
+            if not history_available:
+                all_missing.append("THS_INDUSTRY_HISTORY")
+            elif not history_sequence_available:
+                all_missing.append("THS_INDUSTRY_HISTORY_SEQUENCE")
+        result_by_taxonomy[taxonomy] = {
+            **status,
+            "sectors": sectors,
+            "sector_count": len(sectors),
+            "healthy_sector_count": len(healthy),
+            "healthy_sectors": [
+                {
+                    "taxonomy_code": item.get("taxonomy_code"),
+                    "taxonomy_name": item.get("taxonomy_name"),
+                    "health_state": item.get("health_state"),
+                }
+                for item in healthy
+            ],
+        }
+
+    if pool_rows is None:
+        all_missing.append("LIMIT_UP_POOL")
+    if not ladder_available:
+        all_missing.append("LIMIT_UP_LADDER")
+    missing_components = list(dict.fromkeys(all_missing))
+    sector_count = sum(int(item.get("sector_count") or 0) for item in result_by_taxonomy.values())
+    healthy_count = sum(int(item.get("healthy_sector_count") or 0) for item in result_by_taxonomy.values())
+    has_membership = any(item.get("mapped_symbol_count", 0) > 0 for item in taxonomy_status.values())
+    available = bool(quotes) and has_membership
+    mapped_flow_count = sum(
+        1
+        for taxonomy in result_by_taxonomy.values()
+        for row in taxonomy.get("sectors", ())
+        if isinstance(row, Mapping) and row.get("capital_flow_available") is True
+    )
+    capital_flow_available = mapped_flow_count > 0
+    data_sufficiency_state = "SUFFICIENT" if available and not missing_components else "PARTIAL"
+    return {
+        "available": available,
+        "reason_code": "OK" if available and not missing_components else "PARTIAL_FACTS" if available else "SECTOR_HEALTH_NOT_READY",
+        "source": "THS_TAXONOMY_FROZEN_G0_QUOTES",
+        "algorithm_version": SECTOR_HEALTH_ALGORITHM,
+        "as_of": cutoff.isoformat(),
+        "scope": {
+            "symbol_count": len(scope_symbols),
+            "symbols_hash": _symbols_digest(scope_symbols),
+            "g0_only": True,
+            "mapped_symbol_count": len(mapped_symbols),
+            "mapped_quote_coverage": mapped_quote_coverage,
+        },
+        "data_sufficiency_state": data_sufficiency_state,
+        "by_taxonomy": result_by_taxonomy,
+        # Flat aliases make the contract convenient for existing prompt and
+        # dashboard consumers while ``by_taxonomy`` remains canonical.
+        "industry": result_by_taxonomy["industry"],
+        "concept": result_by_taxonomy["concept"],
+        "sector_count": sector_count,
+        "healthy_sector_count": healthy_count,
+        "limit_up_pool": {
+            "available": pool_rows is not None,
+            "reason_code": "OK" if pool_rows is not None else pool_reason,
+            "member_count": len(pool_symbols),
+            "symbols": sorted(pool_symbols),
+        },
+        "limit_up_ladder": {
+            "available": ladder_available,
+            "reason_code": "OK" if ladder_available else ladder_reason or "LADDER_DATE_MISSING",
+            **ladder_meta,
+        },
+        "history": {
+            "industry_available": history_available,
+            "valid_sequence_available": history_sequence_available,
+            "reason_code": history_reason_code,
+            "future_bars_dropped": future_history_dropped,
+            "return_flow_requires_valid_sequence": True,
+        },
+        "capital_flow_available": capital_flow_available,
+        "capital_flow_reason_code": (
+            "OK"
+            if capital_flow_available
+            else str((board_capital_flow_snapshot or {}).get("reason_code") or "SOURCE_NOT_INCLUDED")
+        ),
+        "capital_flow_mapped_sector_count": mapped_flow_count,
+        "turnover_is_capital_flow": False,
+        "turnover_metric_role": "PRICE_VOLUME_PROXY_ONLY",
+        "missing_components": missing_components,
+    }
+
+
+# The longer name is useful to callers that treat all A2 aggregates as an
+# explicit namespace.  Keep both names as aliases so replay code can migrate
+# without changing its fact contract.
+build_a2_sector_health_snapshot = build_sector_health_snapshot
+
+
+def _board_capital_flow_index(
+    snapshot: Mapping[str, Any] | None,
+) -> dict[str, dict[str, dict[str, Any]]]:
+    """Normalize the persisted Eastmoney board ranks for sector joins.
+
+    Eastmoney and THS use different board identifiers, so an exact normalized
+    name is the authoritative cross-vendor join when codes do not match.  Rank
+    percentiles are vendor-derived relative flow scores; raw amounts and
+    percentages remain attached for audit and are never synthesized from
+    turnover.
+    """
+
+    result: dict[str, dict[str, dict[str, Any]]] = {"industry": {}, "concept": {}}
+    if not isinstance(snapshot, Mapping):
+        return result
+    by_taxonomy = snapshot.get("by_taxonomy")
+    if not isinstance(by_taxonomy, Mapping):
+        return result
+    period_weights = {"today": 0.50, "5d": 0.30, "10d": 0.20}
+    for taxonomy in ("industry", "concept"):
+        periods = by_taxonomy.get(taxonomy)
+        if not isinstance(periods, Mapping):
+            continue
+        aggregates: dict[str, dict[str, Any]] = {}
+        for period, weight in period_weights.items():
+            period_snapshot = periods.get(period)
+            if not isinstance(period_snapshot, Mapping) or period_snapshot.get("available") is not True:
+                continue
+            records = period_snapshot.get("records")
+            if not isinstance(records, Sequence) or isinstance(records, (str, bytes, bytearray)):
+                continue
+            rows = [row for row in records if isinstance(row, Mapping)]
+            count = len(rows)
+            for ordinal, row in enumerate(rows, start=1):
+                code = str(row.get("code") or "").strip().upper()
+                name = str(row.get("name") or "").strip()
+                name_key = _sector_name_key(name)
+                identity = code or name_key
+                if not identity:
+                    continue
+                rank = _integer(row.get("rank")) or ordinal
+                rank_score = 50.0 if count <= 1 else max(0.0, min(100.0, (count - rank) / (count - 1) * 100.0))
+                item = aggregates.setdefault(identity, {
+                    "code": code,
+                    "name": name,
+                    "weighted_score": 0.0,
+                    "available_weight": 0.0,
+                    "windows": {},
+                })
+                item["weighted_score"] += rank_score * weight
+                item["available_weight"] += weight
+                item["windows"][period] = {
+                    "rank": rank,
+                    "rank_percentile": round(rank_score, 4),
+                    "main_net_cny": _finite(row.get("main_net_cny")),
+                    "main_pct": _finite(row.get("main_pct")),
+                    "change_pct": _finite(row.get("change_pct")),
+                    "leader": row.get("leader"),
+                    "source_hash": period_snapshot.get("content_hash"),
+                }
+        for item in aggregates.values():
+            weight = float(item["available_weight"])
+            if weight <= 0:
+                continue
+            normalized = {
+                "available": True,
+                "availability_state": "OBSERVED_VALUE",
+                "reason_code": "OK",
+                "score": round(float(item["weighted_score"]) / weight, 4),
+                "source": "EASTMONEY_BOARD_CAPITAL_FLOW",
+                "source_scope": "SECTOR",
+                "provider_method": "VENDOR_DERIVED_RANK_PERCENTILE",
+                "available_weight": round(weight, 4),
+                "code": item["code"],
+                "name": item["name"],
+                "windows": item["windows"],
+            }
+            if item["code"]:
+                result[taxonomy][str(item["code"])] = normalized
+            if item["name"]:
+                result[taxonomy][_sector_name_key(item["name"])] = normalized
+    return result
+
+
+def _sector_name_key(value: Any) -> str:
+    return "".join(character.lower() for character in str(value or "").strip() if character.isalnum())
+
+
+def _build_sector_health_rows(
+    *,
+    taxonomy: str,
+    member_map: Mapping[str, Sequence[Mapping[str, str]]],
+    quotes: Mapping[str, Mapping[str, Any]],
+    history_by_code: Mapping[str, Mapping[str, Any]],
+    pool_symbols: set[str],
+    ladder_by_symbol: Mapping[str, Sequence[Mapping[str, Any]]],
+    board_flow: Mapping[str, Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    grouped: dict[str, dict[str, Any]] = {}
+    for symbol, memberships in member_map.items():
+        quote = quotes.get(symbol)
+        for membership in memberships:
+            code = str(membership.get("taxonomy_code") or "").strip().upper()
+            if not code:
+                continue
+            name = str(membership.get("taxonomy_name") or "").strip()
+            group = grouped.setdefault(
+                code,
+                {
+                    "taxonomy": taxonomy,
+                    "taxonomy_code": code,
+                    "taxonomy_name": name,
+                    "members": set(),
+                    "observed_changes": [],
+                    "amounts": [],
+                    "pool_members": set(),
+                    "ladder_members": set(),
+                    "boards": [],
+                },
+            )
+            if not group["taxonomy_name"] and name:
+                group["taxonomy_name"] = name
+            group["members"].add(symbol)
+            if symbol in pool_symbols:
+                group["pool_members"].add(symbol)
+            for event in ladder_by_symbol.get(symbol, ()):
+                group["ladder_members"].add(symbol)
+                board = _integer(event.get("board_num"))
+                if board is not None and board > 0:
+                    group["boards"].append(board)
+            if quote is None:
+                continue
+            change = _quote_change(quote)
+            if change is not None:
+                group["observed_changes"].append(change)
+            amount = _quote_amount(quote)
+            if amount is not None and amount >= 0:
+                group["amounts"].append(amount)
+
+    rows: list[dict[str, Any]] = []
+    for code, group in sorted(grouped.items(), key=lambda item: (str(item[1]["taxonomy_name"]), item[0])):
+        members = group["members"]
+        changes = group["observed_changes"]
+        advances = sum(value > 0 for value in changes)
+        declines = sum(value < 0 for value in changes)
+        flats = len(changes) - advances - declines
+        observed = len(changes)
+        member_count = len(members)
+        quote_coverage = observed / member_count if member_count else 0.0
+        breadth = advances / observed if observed else None
+        balance = (advances - declines) / observed if observed else None
+        average_change = _mean(changes)
+        median_change = _median(changes)
+        history = dict(history_by_code.get(code, {}))
+        historical_strength = _finite(history.get("return_5d"))
+        if historical_strength is None:
+            historical_strength = _finite(history.get("lookback_return"))
+        relative_strength_value = historical_strength if historical_strength is not None else average_change
+        relative_strength_source = (
+            "THS_INDUSTRY_HISTORY"
+            if historical_strength is not None
+            else "G0_MEMBER_PRICE_CHANGE"
+        )
+        persistence = _persistence_from_history(history)
+        return_flow_state = _return_flow_state(history)
+        health_state = _sector_health_state(
+            breadth=breadth,
+            average_change=average_change,
+            quote_coverage=quote_coverage,
+            persistence=persistence,
+        )
+        flow = board_flow.get(code) or board_flow.get(_sector_name_key(group["taxonomy_name"]))
+        flow = dict(flow) if isinstance(flow, Mapping) else None
+        rows.append({
+            "taxonomy": taxonomy,
+            "taxonomy_code": code,
+            "taxonomy_name": group["taxonomy_name"],
+            "member_count": member_count,
+            "quote_count": observed,
+            "quote_coverage": quote_coverage,
+            "advances": advances,
+            "declines": declines,
+            "flats": flats,
+            "breadth": breadth,
+            "breadth_balance": balance,
+            "strength": {
+                "average_change_pct": average_change,
+                "median_change_pct": median_change,
+                "historical_return_1d": history.get("return_1d"),
+                "historical_return_5d": history.get("return_5d"),
+                "historical_lookback_return": history.get("lookback_return"),
+                "relative_strength_value": relative_strength_value,
+                "relative_strength_source": relative_strength_source,
+                "amount_total": sum(group["amounts"]) if group["amounts"] else None,
+                "amount_is_price_volume_proxy": True,
+            },
+            "persistence": persistence,
+            "return_flow_state": return_flow_state,
+            "ladder_count": len(group["ladder_members"]),
+            "max_board": max(group["boards"]) if group["boards"] else None,
+            "limit_up_count": len(group["pool_members"]),
+            "ladder_member_symbols": sorted(group["ladder_members"]),
+            "limit_up_member_symbols": sorted(group["pool_members"]),
+            "health_state": health_state,
+            "capital_flow_available": flow is not None,
+            "capital_flow_reason_code": "OK" if flow is not None else "SECTOR_NOT_IN_BOARD_FLOW_RANKING",
+            "capital_flow": flow or {
+                "available": False,
+                "availability_state": "OBSERVED_ABSENT" if board_flow else "SOURCE_UNAVAILABLE",
+                "reason_code": "SECTOR_NOT_IN_BOARD_FLOW_RANKING" if board_flow else "SOURCE_UNAVAILABLE",
+                "score": None,
+                "source": "EASTMONEY_BOARD_CAPITAL_FLOW",
+            },
+            "turnover_is_capital_flow": False,
+            "history": history,
+        })
+    return rows
+
+
+def _sector_health_state(
+    *,
+    breadth: float | None,
+    average_change: float | None,
+    quote_coverage: float,
+    persistence: Mapping[str, Any],
+) -> str:
+    if breadth is None or average_change is None or quote_coverage <= 0:
+        return "UNKNOWN"
+    # The deterministic health label is intentionally descriptive, not an
+    # entry signal.  Low quote coverage remains visible as DEGRADED instead of
+    # silently turning missing members into flat prices.
+    if quote_coverage < 0.5:
+        return "DEGRADED"
+    if breadth >= 0.50 and average_change > 0:
+        return "HEALTHY"
+    if breadth >= 0.50 and average_change >= 0 and persistence.get("state") in {"PERSISTENT", "REPAIR", "UNKNOWN"}:
+        return "REPAIR"
+    return "WEAK"
+
+
+def _persistence_from_history(history: Mapping[str, Any]) -> dict[str, Any]:
+    if not history.get("sequence_valid"):
+        return {
+            "state": "UNKNOWN",
+            "available": False,
+            "observed_bars": int(history.get("observed_bars") or 0),
+            "positive_day_rate": None,
+            "consecutive_positive_bars": None,
+        }
+    positive_rate = _finite(history.get("positive_day_rate"))
+    return {
+        "state": "PERSISTENT" if positive_rate is not None and positive_rate >= 0.60 else "REPAIR" if positive_rate is not None and positive_rate >= 0.40 else "WEAK",
+        "available": True,
+        "observed_bars": int(history.get("observed_bars") or 0),
+        "positive_day_rate": positive_rate,
+        "consecutive_positive_bars": history.get("consecutive_positive_bars"),
+    }
+
+
+def _return_flow_state(history: Mapping[str, Any]) -> str:
+    # No sequence means no directional reflow claim.  Current breadth or
+    # turnover can never upgrade UNKNOWN to WEAK_TO_STRONG.
+    if not history.get("sequence_valid"):
+        return "UNKNOWN"
+    returns = history.get("returns")
+    if not isinstance(returns, Sequence) or isinstance(returns, (str, bytes, bytearray)) or len(returns) < 3:
+        return "UNKNOWN"
+    values = [value for value in (_finite(item) for item in returns) if value is not None]
+    if len(values) < 3:
+        return "UNKNOWN"
+    split = max(1, len(values) // 2)
+    prior = _mean(values[:split])
+    recent = _mean(values[split:])
+    if prior is None or recent is None:
+        return "UNKNOWN"
+    if prior <= 0 and recent > 0:
+        return "WEAK_TO_STRONG"
+    if prior >= 0 and recent < 0:
+        return "STRONG_TO_WEAK"
+    if recent > prior:
+        return "IMPROVING"
+    if recent < prior:
+        return "DETERIORATING"
+    return "STABLE"
+
+
+def _sector_history_series(
+    rows: Sequence[Mapping[str, Any]],
+    cutoff: datetime,
+) -> tuple[dict[str, dict[str, Any]], int]:
+    cutoff_ms = int(cutoff.timestamp() * 1000)
+    by_code: dict[str, dict[str, Any]] = {}
+    future_dropped = 0
+    for raw in rows:
+        code = _taxonomy_code(raw, "industry")
+        if not code:
+            continue
+        name = _taxonomy_name(raw, "industry")
+        bars = raw.get("bars")
+        if not isinstance(bars, Sequence) or isinstance(bars, (str, bytes, bytearray)):
+            continue
+        parsed: dict[int, float] = {}
+        for bar in bars:
+            if not isinstance(bar, Mapping):
+                continue
+            day = _bar_epoch_ms(bar)
+            close = _finite(bar.get("close_price") if "close_price" in bar else bar.get("close"))
+            if day is None or close is None or close <= 0:
+                continue
+            if day > cutoff_ms:
+                future_dropped += 1
+                continue
+            parsed[day] = close
+        ordered = sorted(parsed.items())
+        if not ordered:
+            continue
+        closes = [close for _day, close in ordered]
+        returns = [closes[index] / closes[index - 1] - 1.0 for index in range(1, len(closes)) if closes[index - 1] > 0]
+        if not returns:
+            sequence_valid = False
+        else:
+            sequence_valid = len(ordered) >= _SECTOR_SEQUENCE_MIN_BARS and all(
+                ordered[index][0] > ordered[index - 1][0] for index in range(1, len(ordered))
+            )
+        positive = [value > 0 for value in returns]
+        consecutive = 0
+        for value in reversed(positive):
+            if not value:
+                break
+            consecutive += 1
+        by_code[code] = {
+            "taxonomy_code": code,
+            "taxonomy_name": name,
+            "sequence_valid": sequence_valid,
+            "observed_bars": len(ordered),
+            "returns": returns,
+            "return_1d": returns[-1] if returns else None,
+            "return_5d": _period_return([{"close": close} for close in closes], 5),
+            "lookback_return": closes[-1] / closes[0] - 1.0 if len(closes) >= 2 else None,
+            "positive_day_rate": sum(positive) / len(positive) if positive else None,
+            "consecutive_positive_bars": consecutive if returns else None,
+        }
+    return by_code, future_dropped
+
+
+def _latest_ladder_events(
+    rows: Sequence[Mapping[str, Any]],
+    cutoff: datetime,
+) -> tuple[dict[str, list[dict[str, Any]]], dict[str, Any]]:
+    cutoff_day = cutoff.date()
+    dated: list[tuple[date, Mapping[str, Any]]] = []
+    future_dropped = 0
+    for record in rows:
+        day = _record_day(record)
+        if day is None:
+            continue
+        if day > cutoff_day:
+            future_dropped += 1
+            continue
+        dated.append((day, record))
+    if not dated:
+        return {}, {"latest_date": None, "event_count": 0, "future_records_dropped": future_dropped}
+    latest_day = max(day for day, _record in dated)
+    events: dict[str, list[dict[str, Any]]] = {}
+    for day, record in dated:
+        if day != latest_day:
+            continue
+        for row in _ladder_rows(record):
+            symbol = _row_symbol(row)
+            if symbol is None:
+                continue
+            event = {
+                "date": day.isoformat(),
+                "board_num": _integer(row.get("board_num")),
+                "seal_nextday": row.get("seal_nextday") if isinstance(row.get("seal_nextday"), bool) else None,
+            }
+            events.setdefault(symbol, []).append(event)
+    return events, {
+        "latest_date": latest_day.isoformat(),
+        "event_count": sum(len(items) for items in events.values()),
+        "symbol_count": len(events),
+        "future_records_dropped": future_dropped,
+    }
+
+
+def _ladder_rows(record: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    rows: list[Mapping[str, Any]] = []
+    if _row_symbol(record) is not None:
+        rows.append(record)
+    boards = record.get("boards")
+    if isinstance(boards, Mapping):
+        for board_rows in boards.values():
+            if isinstance(board_rows, Mapping):
+                board_rows = [board_rows]
+            if not isinstance(board_rows, Sequence) or isinstance(board_rows, (str, bytes, bytearray)):
+                continue
+            for raw in board_rows:
+                if isinstance(raw, Mapping):
+                    rows.append(raw)
+    nested = record.get("items") or record.get("records")
+    if isinstance(nested, Sequence) and not isinstance(nested, (str, bytes, bytearray)):
+        for raw in nested:
+            if isinstance(raw, Mapping):
+                rows.extend(_ladder_rows(raw))
+    return rows
+
+
+def _taxonomy_memberships(
+    rows: Sequence[Mapping[str, Any]] | None,
+    *,
+    taxonomy: str,
+    wanted: set[str],
+    catalog_names: Mapping[str, str],
+) -> dict[str, list[dict[str, str]]]:
+    result: dict[str, list[dict[str, str]]] = {}
+    if rows is None:
+        return result
+    for raw in rows:
+        symbol = _row_symbol(raw)
+        if symbol is None or symbol not in wanted:
+            continue
+        memberships = raw.get("memberships")
+        if isinstance(memberships, Mapping):
+            memberships = [memberships]
+        if not isinstance(memberships, Sequence) or isinstance(memberships, (str, bytes, bytearray)):
+            # A reverse membership row normally has ``thscode`` for the stock
+            # and no taxonomy code of its own.  Do not mistake that stock code
+            # for a sector when the nested membership list is absent.
+            raw_code = raw.get(f"{taxonomy}_thscode") or raw.get("taxonomy_code")
+            memberships = [raw] if raw_code is not None and str(raw_code).strip() else []
+        for membership in memberships:
+            if not isinstance(membership, Mapping):
+                continue
+            code = _taxonomy_code(membership, taxonomy)
+            if not code:
+                continue
+            name = _taxonomy_name(membership, taxonomy) or catalog_names.get(code, "")
+            item = {"taxonomy_code": code, "taxonomy_name": name}
+            existing = result.setdefault(symbol, [])
+            if item not in existing:
+                existing.append(item)
+    for values in result.values():
+        values.sort(key=lambda item: (item["taxonomy_code"], item["taxonomy_name"]))
+    return result
+
+
+def _taxonomy_catalog_names(rows: Sequence[Mapping[str, Any]] | None, taxonomy: str) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for row in rows or ():
+        code = _taxonomy_code(row, taxonomy)
+        if code:
+            result[code] = _taxonomy_name(row, taxonomy)
+    return result
+
+
+def _taxonomy_code(row: Mapping[str, Any], taxonomy: str) -> str:
+    keys = (
+        f"{taxonomy}_thscode",
+        "taxonomy_code",
+        "thscode",
+        "code",
+    )
+    for key in keys:
+        value = row.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip().upper()
+    return ""
+
+
+def _taxonomy_name(row: Mapping[str, Any], taxonomy: str) -> str:
+    for key in (f"{taxonomy}_name", "taxonomy_name", "name"):
+        value = row.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return ""
+
+
+def _fact_mapping(facts: Mapping[str, Any]) -> Mapping[str, Any]:
+    nested = facts.get("facts") if isinstance(facts, Mapping) else None
+    return nested if isinstance(nested, Mapping) else facts
+
+
+def _records_any(value: Mapping[str, Any] | None) -> list[Mapping[str, Any]] | None:
+    if value is None:
+        return None
+    for key in ("records", "items", "memberships"):
+        records = value.get(key)
+        if isinstance(records, Sequence) and not isinstance(records, (str, bytes, bytearray)):
+            normalized = [item for item in records if isinstance(item, Mapping)]
+            if len(normalized) == len(records):
+                declared = value.get("record_count")
+                if isinstance(declared, int) and not isinstance(declared, bool) and declared != len(normalized):
+                    continue
+                return normalized
+    payload = value.get("payload")
+    if isinstance(payload, Mapping):
+        return _records_any(payload)
+    return None
+
+
+def _quote_map(
+    values: Sequence[Any] | Mapping[str, Any],
+    wanted: set[str] | None,
+) -> dict[str, dict[str, Any]]:
+    rows: list[tuple[str | None, Any]] = []
+    if isinstance(values, Mapping):
+        if any(key in values for key in ("records", "items")):
+            raw_rows = values.get("records") or values.get("items") or []
+            if isinstance(raw_rows, Sequence) and not isinstance(raw_rows, (str, bytes, bytearray)):
+                rows.extend((None, item) for item in raw_rows)
+        else:
+            rows.extend((str(key), item) for key, item in values.items())
+    elif isinstance(values, Sequence) and not isinstance(values, (str, bytes, bytearray)):
+        rows.extend((None, item) for item in values)
+    result: dict[str, dict[str, Any]] = {}
+    for fallback, raw in rows:
+        row = _mapping(raw)
+        symbol = _row_symbol(row) or _normalise_symbol(fallback)
+        if symbol is None or (wanted is not None and symbol not in wanted):
+            continue
+        result[symbol] = row
+    return result
+
+
+def _row_symbol(row: Mapping[str, Any] | None) -> str | None:
+    if not isinstance(row, Mapping):
+        return None
+    # ``code`` is also used for taxonomy codes by some normalized edge
+    # payloads, so stock-specific keys must win before that generic fallback.
+    for key in ("thscode", "symbol", "ticker", "member_thscode", "stock_code", "code"):
+        symbol = _normalise_symbol(row.get(key))
+        if symbol:
+            return symbol
+    return None
+
+
+def _normalise_symbols(values: Sequence[str] | set[str] | None) -> set[str]:
+    return {symbol for value in (values or ()) if (symbol := _normalise_symbol(value)) is not None}
+
+
+def _normalise_symbol(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip().upper()
+    return text or None
+
+
+def _quote_change(row: Mapping[str, Any]) -> float | None:
+    for key in ("change_ratio_pct", "price_change_ratio_pct", "pct_chg", "change_pct", "change_ratio", "change"):
+        value = _finite(row.get(key))
+        if value is not None:
+            return value
+    return None
+
+
+def _quote_amount(row: Mapping[str, Any]) -> float | None:
+    for key in ("amount", "turnover", "turnover_amount", "成交额"):
+        value = _finite(row.get(key))
+        if value is not None:
+            return value
+    return None
+
+
+def _bar_epoch_ms(row: Mapping[str, Any]) -> int | None:
+    value = row.get("date_ms")
+    if value is None:
+        value = row.get("timestamp") or row.get("time_ms") or row.get("date")
+    if isinstance(value, str):
+        text = value.strip()
+        for pattern in ("%Y-%m-%d", "%Y%m%d", "%Y-%m-%d %H:%M:%S"):
+            try:
+                return int(datetime.strptime(text, pattern).replace(tzinfo=SHANGHAI).timestamp() * 1000)
+            except ValueError:
+                continue
+    integer = _integer(value)
+    if integer is None:
+        return None
+    if 10_000_000 <= integer < 100_000_000:
+        try:
+            return int(datetime.strptime(str(integer), "%Y%m%d").replace(tzinfo=SHANGHAI).timestamp() * 1000)
+        except ValueError:
+            pass
+    return integer if integer >= 10_000_000_000 else integer * 1000
+
+
+def _record_day(row: Mapping[str, Any]) -> date | None:
+    value = row.get("date") or row.get("trade_date") or row.get("trade_date_ms")
+    if isinstance(value, datetime):
+        return _aware(value).date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        for pattern in ("%Y-%m-%d", "%Y%m%d", "%Y/%m/%d"):
+            try:
+                return datetime.strptime(text[:10] if pattern != "%Y%m%d" else text[:8], pattern).date()
+            except ValueError:
+                continue
+    integer = _integer(value)
+    if integer is not None:
+        try:
+            if 10_000_000 <= integer < 100_000_000:
+                return datetime.strptime(str(integer), "%Y%m%d").date()
+            seconds = integer / 1000 if integer >= 10_000_000_000 else integer
+            return datetime.fromtimestamp(seconds, tz=SHANGHAI).date()
+        except (OSError, OverflowError, ValueError):
+            return None
+    return None
+
+
+def _median(values: Sequence[Any]) -> float | None:
+    numbers = sorted(value for value in (_finite(item) for item in values) if value is not None)
+    if not numbers:
+        return None
+    middle = len(numbers) // 2
+    if len(numbers) % 2:
+        return numbers[middle]
+    return (numbers[middle - 1] + numbers[middle]) / 2.0
+
+
+def _symbols_digest(symbols: Sequence[str]) -> str:
+    return hashlib.sha256("|".join(sorted(symbols)).encode("utf-8")).hexdigest()
 
 
 def _sector_history_metrics(
@@ -756,8 +1605,10 @@ def _unavailable(name: str, as_of: datetime, reason: str) -> dict[str, Any]:
 
 
 __all__ = [
+    "build_a2_sector_health_snapshot",
     "build_crowding_snapshot",
     "build_market_emotion",
     "build_news_heat_snapshot",
+    "build_sector_health_snapshot",
     "build_sector_cycle_and_permissions",
 ]

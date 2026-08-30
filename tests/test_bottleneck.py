@@ -225,15 +225,17 @@ def test_a2_market_core_route_allows_missing_bottleneck_card_and_normalizes_flow
     result = screen_a2(snapshot, upstream, minimum_identifiability_score=60, llm_top_n_per_theme=1)
 
     decision = result.decisions[0]
-    assert result.review_symbols == ()
-    assert result.monitor_symbols == (symbol,)
-    assert decision["status"] == "DATA_GAP"
+    assert result.review_symbols == (symbol,)
+    assert result.monitor_symbols == ()
+    assert decision["status"] == "REVIEW_CANDIDATE"
     assert decision["route"] == "MARKET_CORE"
     assert decision["eligible_routes"] == ("MARKET_CORE",)
     assert decision["bottleneck_status"] == "NOT_REQUIRED_FOR_MARKET_CORE"
     assert decision["a2_factor_scores"]["capital_flow"]["available"] is False
     assert decision["factor_coverage"]["ratio"] == pytest.approx(8 / 9)
-    assert decision["critical_factor_coverage"]["sufficient"] is False
+    assert decision["critical_factor_coverage"]["sufficient"] is True
+    assert decision["data_sufficiency_state"] == "DEGRADED"
+    assert "A2_OPTIONAL_FACTS_DEGRADED" in decision["reason_codes"]
 
 
 def test_a2_supply_chain_alpha_requires_complete_source_backed_scorecard():
@@ -273,9 +275,10 @@ def test_a2_factor_coverage_below_65_percent_is_watch_only_even_when_score_is_hi
     }
     result = screen_a2(snapshot, upstream, minimum_identifiability_score=60, llm_top_n_per_theme=1)
 
-    assert result.review_symbols == ()
-    assert result.monitor_symbols == (symbol,)
-    assert "A2_FACTOR_COVERAGE_BELOW_MINIMUM" in result.decisions[0]["reason_codes"]
+    assert result.review_symbols == (symbol,)
+    assert result.monitor_symbols == ()
+    assert "A2_FACTOR_COVERAGE_BELOW_MINIMUM" not in result.decisions[0]["reason_codes"]
+    assert result.decisions[0]["data_sufficiency_state"] == "DEGRADED"
 
 
 def test_a2_invented_capital_flow_demotes_theme_and_focus_when_source_is_unavailable():

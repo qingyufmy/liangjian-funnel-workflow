@@ -60,12 +60,18 @@ def build_a2_feature_snapshot(
     ladder_observed, ladder_state, ladder_reason = _dataset_observation(ladder_snapshot)
     dragon = _event_symbols(dragon_tiger_snapshot)
     attention = _event_symbols(attention_snapshot)
-    capital_by_symbol = (
+    raw_capital_by_symbol = (
         capital_flow_snapshot.get("by_symbol", {})
         if isinstance(capital_flow_snapshot, Mapping)
         and isinstance(capital_flow_snapshot.get("by_symbol"), Mapping)
         else {}
     )
+    capital_by_symbol = {
+        normalized: value
+        for key, value in raw_capital_by_symbol.items()
+        if (normalized := _symbol(key)) and isinstance(value, Mapping)
+    }
+    sector_capital_by_group = _sector_capital_flow_by_group(sector_cycle_snapshot)
 
     trend_by_symbol: dict[str, dict[str, Any]] = {}
     tier_by_symbol: dict[str, dict[str, Any]] = {}
@@ -107,33 +113,80 @@ def build_a2_feature_snapshot(
                 extra={"tier": "UNKNOWN", "ladder_height": None, "trend_percentile": relative},
             )
 
+    # A stock without a limit-up event is not evidence that its sector has no
+    # ladder.  Keep the stock-level tier as OBSERVED_ABSENT, while separately
+    # recording whether one of its point-in-time industry/concept groups has a
+    # ladder member.  That sector context can confirm a core/army role together
+    # with relative strength and liquidity without fabricating an individual
+    # tier score.
+    ladder_members_by_group: dict[str, set[str]] = defaultdict(set)
+    for member_symbol in ladder:
+        for membership in (*industry_by_symbol.get(member_symbol, ()), *concept_by_symbol.get(member_symbol, ())):
+            code = str(membership.get("taxonomy_code") or "").strip().upper()
+            taxonomy = str(membership.get("taxonomy") or "").strip().upper()
+            if code and taxonomy:
+                ladder_members_by_group[f"{taxonomy}:{code}"].add(member_symbol)
+    sector_ladder_support: dict[str, list[str]] = defaultdict(list)
+    for symbol in symbols:
+        groups = {
+            f"{str(membership.get('taxonomy') or '').strip().upper()}:{str(membership.get('taxonomy_code') or '').strip().upper()}"
+            for membership in (*industry_by_symbol.get(symbol, ()), *concept_by_symbol.get(symbol, ()))
+            if str(membership.get("taxonomy_code") or "").strip()
+        }
+        sector_ladder_support[symbol] = sorted(
+            group for group in groups
+            if group in ladder_members_by_group
+            and ladder_members_by_group[group]
+        )
+        tier_by_symbol[symbol].update({
+            "sector_ladder_support": bool(sector_ladder_support[symbol]),
+            "sector_ladder_groups": list(sector_ladder_support[symbol]),
+        })
+
     leader_by_symbol: dict[str, dict[str, Any]] = {}
     for symbol in symbols:
         components: list[tuple[float, float]] = []
         relative = return_percentiles.get(symbol)
         liquidity = liquidity_percentiles.get(symbol)
         tier_score = _number(tier_by_symbol[symbol].get("score"))
+        tier_height = int(_number(tier_by_symbol[symbol].get("ladder_height")) or 0)
         capital_row = capital_by_symbol.get(symbol)
         capital_score = _number(capital_row.get("capital_flow_score")) if isinstance(capital_row, Mapping) else None
         if relative is not None:
             components.append((relative, 0.45))
         if liquidity is not None:
             components.append((liquidity, 0.30))
-        if tier_score is not None:
+        # A zero score with OBSERVED_ABSENT means the stock had no ladder; it
+        # is not an individual tier observation.  Let a sector ladder combine
+        # with relative strength/liquidity for a CORE_ARMY confirmation while
+        # preserving the stock-level absence in ``tier_structure``.
+        if tier_score is not None and tier_height > 0:
             components.append((tier_score, 0.15))
+        elif sector_ladder_support.get(symbol):
+            # This is a sector-level confirmation component, not an individual
+            # limit-up/tier observation.  Its provenance is retained below.
+            support_score = _weighted([
+                (relative, 0.60) for relative in (relative,) if relative is not None
+            ] + [
+                (liquidity, 0.40) for liquidity in (liquidity,) if liquidity is not None
+            ])
+            if support_score is not None:
+                components.append((support_score, 0.15))
         if capital_score is not None and isinstance(capital_row, Mapping) and capital_row.get("available") is True:
             components.append((capital_score, 0.10))
         score = _weighted(components)
         if score is not None:
             confirmation = int(symbol in dragon) * 6 + int(symbol in attention) * 4
             score = min(100.0, score + confirmation)
-        height = int(_number(tier_by_symbol[symbol].get("ladder_height")) or 0)
+        height = tier_height
         if height >= 2:
             role = "EMOTION_LEADER"
         elif relative is not None and relative >= 85:
             role = "TREND_LEADER"
         elif liquidity is not None and liquidity >= 80 and capital_score is not None and capital_score >= 60:
             role = "INSTITUTIONAL_CORE"
+        elif sector_ladder_support.get(symbol) and relative is not None and relative >= 65 and liquidity is not None and liquidity >= 70:
+            role = "CORE_ARMY"
         elif liquidity is not None and liquidity >= 80:
             role = "CAPACITY_CORE"
         elif score is not None:
@@ -153,6 +206,15 @@ def build_a2_feature_snapshot(
                 "capital_flow_score": capital_score,
                 "dragon_tiger_confirmation": symbol in dragon,
                 "attention_confirmation": symbol in attention,
+                "sector_ladder_support": bool(sector_ladder_support.get(symbol)),
+                "sector_ladder_groups": list(sector_ladder_support.get(symbol, ())),
+                "tier_confirmation_mode": (
+                    "DIRECT_STOCK_LADDER"
+                    if tier_height > 0
+                    else "SECTOR_LADDER_RELATIVE_LIQUIDITY"
+                    if sector_ladder_support.get(symbol)
+                    else "NONE"
+                ),
             },
         )
 
@@ -170,6 +232,10 @@ def build_a2_feature_snapshot(
                 "taxonomy_code": code,
                 "taxonomy_name": str(item.get("taxonomy_name") or ""),
             }
+    total_turnover = sum(
+        max(0.0, _number(candidate_by_symbol.get(symbol, {}).get("amount")) or _number(candidate_by_symbol.get(symbol, {}).get("turnover")) or _number(candidate_by_symbol.get(symbol, {}).get("daily_turnover")) or 0.0)
+        for symbol in symbols
+    )
     theme_metrics: dict[str, dict[str, Any]] = {}
     for key, members in sorted(group_members.items()):
         observed_returns = [returns[symbol] for symbol in members if symbol in returns]
@@ -185,9 +251,19 @@ def build_a2_feature_snapshot(
         dragon_count = sum(symbol in dragon for symbol in members)
         breadth = sum(value > 0 for value in observed_returns) / len(observed_returns) if observed_returns else None
         relative_mean = sum(observed_relative) / len(observed_relative) if observed_relative else None
-        capital_mean = sum(observed_capital) / len(observed_capital) if observed_capital else None
+        sector_capital = sector_capital_by_group.get(key)
+        sector_capital_score = _number(sector_capital.get("score")) if isinstance(sector_capital, Mapping) else None
+        capital_mean = (
+            sum(observed_capital) / len(observed_capital)
+            if observed_capital
+            else sector_capital_score
+        )
         ladder_ratio = ladder_count / len(members) if members else None
         dragon_ratio = dragon_count / len(members) if members else None
+        group_turnover = sum(
+            max(0.0, _number(candidate_by_symbol.get(symbol, {}).get("amount")) or _number(candidate_by_symbol.get(symbol, {}).get("turnover")) or _number(candidate_by_symbol.get(symbol, {}).get("daily_turnover")) or 0.0)
+            for symbol in members
+        )
         cycle_score = _cycle_score(sector_cycle_snapshot, group_meta[key]["taxonomy_code"])
         components: list[tuple[float, float]] = []
         if breadth is not None:
@@ -214,14 +290,19 @@ def build_a2_feature_snapshot(
             "return_coverage": round(coverage, 6),
             "breadth": round(breadth, 6) if breadth is not None else None,
             "relative_strength_mean": round(relative_mean, 4) if relative_mean is not None else None,
+            "turnover_share": round(group_turnover / total_turnover, 6) if total_turnover > 0 else None,
             "capital_flow_mean": round(capital_mean, 4) if capital_mean is not None else None,
             "capital_flow_coverage": round(len(observed_capital) / len(members), 6) if members else 0.0,
+            "capital_flow_scope": "SYMBOL" if observed_capital else "SECTOR" if sector_capital_score is not None else None,
+            "capital_flow_source": sector_capital.get("source") if isinstance(sector_capital, Mapping) else None,
             "ladder_member_count": ladder_count,
             "dragon_tiger_member_count": dragon_count,
             "cycle_score": cycle_score,
         }
 
     chain_by_symbol: dict[str, dict[str, Any]] = {}
+    breadth_by_symbol: dict[str, dict[str, Any]] = {}
+    turnover_by_symbol: dict[str, dict[str, Any]] = {}
     for symbol in symbols:
         keys = []
         for item in (*industry_by_symbol.get(symbol, ()), *concept_by_symbol.get(symbol, ())):
@@ -230,6 +311,20 @@ def build_a2_feature_snapshot(
                 keys.append(f"{item.get('taxonomy')}:{code}")
         available_rows = [theme_metrics[key] for key in keys if key in theme_metrics and theme_metrics[key].get("available") is True]
         best = max(available_rows, key=lambda row: float(row.get("score") or 0.0), default=None)
+        breadth_by_symbol[symbol] = _factor(
+            _number(best.get("breadth")) * 100.0 if best and _number(best.get("breadth")) is not None else None,
+            source="POINT_IN_TIME_TAXONOMY_AGGREGATE",
+            availability_state="OBSERVED_VALUE" if best and _number(best.get("breadth")) is not None else "SOURCE_FAILED",
+            reason_code="OK" if best and _number(best.get("breadth")) is not None else "A2_BREADTH_MAPPING_OR_COVERAGE_MISSING",
+            extra={"taxonomy_code": best.get("taxonomy_code") if best else None},
+        )
+        turnover_by_symbol[symbol] = _factor(
+            _number(best.get("turnover_share")) * 100.0 if best and _number(best.get("turnover_share")) is not None else None,
+            source="POINT_IN_TIME_TAXONOMY_AGGREGATE",
+            availability_state="OBSERVED_VALUE" if best and _number(best.get("turnover_share")) is not None else "SOURCE_FAILED",
+            reason_code="OK" if best and _number(best.get("turnover_share")) is not None else "A2_TURNOVER_MAPPING_OR_COVERAGE_MISSING",
+            extra={"taxonomy_code": best.get("taxonomy_code") if best else None},
+        )
         chain_by_symbol[symbol] = _factor(
             _number(best.get("score")) if best else None,
             source="POINT_IN_TIME_TAXONOMY_AGGREGATE",
@@ -245,18 +340,46 @@ def build_a2_feature_snapshot(
     by_symbol: dict[str, dict[str, Any]] = {}
     for symbol in symbols:
         capital = capital_by_symbol.get(symbol)
+        if not isinstance(capital, Mapping):
+            sector_candidates = [
+                sector_capital_by_group.get(
+                    f"{str(item.get('taxonomy') or '').strip().upper()}:{str(item.get('taxonomy_code') or '').strip().upper()}"
+                )
+                for item in (*industry_by_symbol.get(symbol, ()), *concept_by_symbol.get(symbol, ()))
+            ]
+            sector_candidates = [
+                item
+                for item in sector_candidates
+                if isinstance(item, Mapping) and _number(item.get("score")) is not None
+            ]
+            if sector_candidates:
+                capital = max(sector_candidates, key=lambda item: float(_number(item.get("score")) or 0.0))
         capital_factor = (
             _factor(
-                _number(capital.get("capital_flow_score")),
-                source=str(capital_flow_snapshot.get("source_id") or "CAPITAL_FLOW_SNAPSHOT"),
+                _number(capital.get("capital_flow_score")) if _number(capital.get("capital_flow_score")) is not None else _number(capital.get("score")),
+                source=str(
+                    capital.get("source")
+                    or (
+                        capital_flow_snapshot.get("source_id")
+                        if isinstance(capital_flow_snapshot, Mapping)
+                        else None
+                    )
+                    or "CAPITAL_FLOW_SNAPSHOT"
+                ),
                 availability_state=str(capital.get("availability_state") or "OBSERVED_VALUE"),
                 reason_code=str(capital.get("reason_code") or "OK"),
-                extra={"source_refs": list(capital.get("source_refs") or ())},
+                extra={
+                    "source_refs": list(capital.get("source_refs") or ()),
+                    "source_scope": str(capital.get("source_scope") or "SYMBOL"),
+                    "provider_method": capital.get("provider_method"),
+                },
             )
             if isinstance(capital, Mapping)
             else _factor(None, source="CAPITAL_FLOW_SNAPSHOT", availability_state="NOT_CONFIGURED", reason_code="A2_CAPITAL_FLOW_UNAVAILABLE")
         )
         factors = {
+            "breadth": breadth_by_symbol[symbol],
+            "turnover_share": turnover_by_symbol[symbol],
             "capital_flow": capital_factor,
             "tier_structure": tier_by_symbol[symbol],
             # Trend strength is useful for leader identification but is not a
@@ -291,24 +414,113 @@ def build_a2_feature_snapshot(
         )
         for name in ("capital_flow", "tier_structure", "leader_structure", "index_chain_resonance")
     }
-    critical_sufficient = bool(symbols) and all((
-        daily_bar_coverage >= 0.95,
-        identity_coverage >= 0.95,
-        factor_coverage["capital_flow"] >= 0.90,
-        factor_coverage["tier_structure"] >= 0.90,
-        factor_coverage["leader_structure"] >= 0.90,
-        factor_coverage["index_chain_resonance"] >= 0.90,
-    ))
+    # Capital flow, event ladders and attention feeds are optional evidence
+    # families.  They must remain individually auditable, but one unavailable
+    # family must not make an otherwise reproducible market-role projection
+    # look like a market-wide absence of opportunity.  Daily bars and point-in-
+    # time taxonomy identity are the minimum materialization contract; the
+    # market-role and chain projections are derived from those facts and may be
+    # enriched by the optional feeds.
+    base_sufficient = bool(symbols) and daily_bar_coverage >= 0.95 and identity_coverage >= 0.95
+    optional_missing = [
+        name
+        for name in ("capital_flow", "tier_structure", "leader_structure", "index_chain_resonance")
+        if factor_coverage[name] < 0.90
+    ]
+    market_factor_names = ("breadth", "turnover_share", "leader_structure", "tier_structure", "index_chain_resonance")
+    market_fact_counts = {
+        symbol: sum(
+            by_symbol[symbol]["factors"].get(name, {}).get("available") is True
+            and _number(by_symbol[symbol]["factors"].get(name, {}).get("score")) is not None
+            for name in market_factor_names
+        )
+        for symbol in symbols
+    }
+    market_projection_available = any(count >= 2 for count in market_fact_counts.values())
+    market_missing_facts: list[str] = []
+    if daily_bar_coverage < 0.95:
+        market_missing_facts.append("daily_bars")
+    if identity_coverage < 0.95:
+        market_missing_facts.append("taxonomy_identity")
+    if not market_projection_available:
+        market_missing_facts.append("market_facts_minimum_2")
+    data_state = (
+        "INSUFFICIENT"
+        if not base_sufficient
+        else "DEGRADED"
+        if optional_missing
+        else "SUFFICIENT"
+    )
+    critical_sufficient = data_state != "INSUFFICIENT"
+    emotion_leader_sufficiency = {
+        "required_facts": ["tier_structure", "leader_structure"],
+        "optional_facts": ["capital_flow", "dragon_tiger", "attention"],
+        "available": factor_coverage["tier_structure"] >= 0.90 and factor_coverage["leader_structure"] >= 0.90,
+        "missing_facts": [
+            name
+            for name in ("tier_structure", "leader_structure")
+            if factor_coverage[name] < 0.90
+        ],
+        "data_sufficiency_state": (
+            "SUFFICIENT"
+            if factor_coverage["tier_structure"] >= 0.90 and factor_coverage["leader_structure"] >= 0.90 and not optional_missing
+            else "DEGRADED"
+            if factor_coverage["tier_structure"] > 0 or factor_coverage["leader_structure"] > 0
+            else "INSUFFICIENT"
+        ),
+    }
+    # EMOTION_LEADER is a role/evidence path inside MARKET_CORE.  It is not a
+    # third top-level route and therefore cannot create an independent focus
+    # pool or bypass the two configured route contracts.
+    route_sufficiency = {
+        "MARKET_CORE": {
+            "required_facts": ["daily_bars", "taxonomy_identity", "market_facts_minimum_2"],
+            "optional_facts": ["capital_flow", "tier_structure", "leader_structure", "index_chain_resonance", "attention", "dragon_tiger"],
+            "available": base_sufficient and market_projection_available,
+            "missing_facts": market_missing_facts,
+            "data_sufficiency_state": (
+                "SUFFICIENT"
+                if base_sufficient and market_projection_available and not optional_missing
+                else "DEGRADED"
+                if base_sufficient
+                else "INSUFFICIENT"
+            ),
+            "market_fact_coverage": {
+                name: round(
+                    sum(
+                        by_symbol[symbol]["factors"].get(name, {}).get("available") is True
+                        and _number(by_symbol[symbol]["factors"].get(name, {}).get("score")) is not None
+                        for symbol in symbols
+                    ) / symbol_count if symbol_count else 0.0,
+                    6,
+                )
+                for name in market_factor_names
+            },
+            "role_sufficiency": {"EMOTION_LEADER": emotion_leader_sufficiency},
+        },
+        "SUPPLY_CHAIN_ALPHA": {
+            "required_facts": ["daily_bars", "taxonomy_identity"],
+            "optional_facts": ["capital_flow", "tier_structure", "leader_structure", "index_chain_resonance"],
+            "available": base_sufficient,
+            "missing_facts": [
+                *(["daily_bars"] if daily_bar_coverage < 0.95 else []),
+                *(["taxonomy_identity"] if identity_coverage < 0.95 else []),
+            ],
+            "data_sufficiency_state": "SUFFICIENT" if base_sufficient and not optional_missing else "DEGRADED" if base_sufficient else "INSUFFICIENT",
+        },
+    }
     payload: dict[str, Any] = {
         "schema_version": A2_FEATURE_SCHEMA,
         "available": critical_sufficient,
-        "reason_code": "OK" if critical_sufficient else "A2_CRITICAL_DATA_INSUFFICIENT",
-        "data_sufficiency_state": "SUFFICIENT" if critical_sufficient else "INSUFFICIENT",
+        "reason_code": "OK" if data_state == "SUFFICIENT" else "A2_OPTIONAL_FACTS_DEGRADED" if data_state == "DEGRADED" else "A2_CRITICAL_DATA_INSUFFICIENT",
+        "data_sufficiency_state": data_state,
         "as_of": cutoff.isoformat(),
         "symbol_count": symbol_count,
         "daily_bar_coverage": round(daily_bar_coverage, 6),
         "identity_coverage": round(identity_coverage, 6),
         "factor_coverage": {key: round(value, 6) for key, value in factor_coverage.items()},
+        "optional_missing_factors": optional_missing,
+        "route_sufficiency": route_sufficiency,
         "coverage_thresholds": {
             "daily_bars": 0.95,
             "identity": 0.95,
@@ -319,8 +531,17 @@ def build_a2_feature_snapshot(
         },
         "ladder_dataset_state": ladder_state,
         "ladder_dataset_reason_code": ladder_reason,
-        "capital_flow_available": bool(isinstance(capital_flow_snapshot, Mapping) and capital_flow_snapshot.get("available") is True),
-        "capital_flow_method": capital_flow_snapshot.get("provider_method") if isinstance(capital_flow_snapshot, Mapping) else None,
+        "capital_flow_available": bool(
+            (isinstance(capital_flow_snapshot, Mapping) and capital_flow_snapshot.get("available") is True)
+            or sector_capital_by_group
+        ),
+        "capital_flow_method": (
+            capital_flow_snapshot.get("provider_method")
+            if isinstance(capital_flow_snapshot, Mapping) and capital_flow_snapshot.get("available") is True
+            else "VENDOR_DERIVED_SECTOR_RANK_PERCENTILE"
+            if sector_capital_by_group
+            else None
+        ),
         "by_symbol": by_symbol,
         "theme_metrics": theme_metrics,
     }
@@ -412,6 +633,8 @@ def _dataset_observation(value: Mapping[str, Any] | None) -> tuple[bool, str, st
             value.get("reason_code") or "A2_TIER_SOURCE_FAILED"
         )
     records = value.get("records")
+    if records is None and isinstance(value.get("payload"), Mapping):
+        records = value["payload"].get("records")
     if not isinstance(records, Sequence) or isinstance(records, (str, bytes, bytearray)):
         return False, "SOURCE_FAILED", "A2_TIER_RECORDS_MALFORMED"
     if any(not isinstance(item, Mapping) for item in records):
@@ -432,6 +655,39 @@ def _return_20d(bars: Sequence[Mapping[str, Any]], as_of: date) -> float | None:
         return None
     first, last = usable[-21][1], usable[-1][1]
     return (last / first - 1.0) * 100.0 if first > 0 else None
+
+
+def _sector_capital_flow_by_group(
+    value: Mapping[str, Any] | None,
+) -> dict[str, dict[str, Any]]:
+    if not isinstance(value, Mapping):
+        return {}
+    health = value.get("sector_health_snapshot")
+    if not isinstance(health, Mapping):
+        health = value.get("A2_SECTOR_HEALTH_SNAPSHOT")
+    if not isinstance(health, Mapping):
+        return {}
+    by_taxonomy = health.get("by_taxonomy")
+    if not isinstance(by_taxonomy, Mapping):
+        return {}
+    result: dict[str, dict[str, Any]] = {}
+    for taxonomy in ("industry", "concept"):
+        section = by_taxonomy.get(taxonomy)
+        rows = section.get("sectors") if isinstance(section, Mapping) else None
+        if not isinstance(rows, Sequence) or isinstance(rows, (str, bytes, bytearray)):
+            continue
+        for row in rows:
+            if not isinstance(row, Mapping):
+                continue
+            code = str(row.get("taxonomy_code") or "").strip().upper()
+            flow = row.get("capital_flow")
+            if not code or not isinstance(flow, Mapping) or flow.get("available") is not True:
+                continue
+            score = _number(flow.get("score"))
+            if score is None:
+                continue
+            result[f"{taxonomy.upper()}:{code}"] = dict(flow)
+    return result
 
 
 def _cycle_score(value: Mapping[str, Any] | None, taxonomy_code: str) -> float | None:

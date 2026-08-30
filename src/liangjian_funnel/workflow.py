@@ -16,7 +16,11 @@ from typing import Any, Mapping
 from zoneinfo import ZoneInfo
 
 from .data.cache import MinuteBarStore
-from .data.a2_market import collect_eastmoney_capital_flow, unavailable_capital_flow_snapshot
+from .data.a2_market import (
+    collect_eastmoney_board_flow,
+    collect_eastmoney_capital_flow,
+    unavailable_capital_flow_snapshot,
+)
 from .data.bse import BseClient
 from .data.cninfo import CninfoAnnouncement, CninfoClient, CninfoFetchResult
 from .data.cninfo_pdf import CninfoPdfClient, CninfoPdfEvidence
@@ -54,6 +58,7 @@ from .pipeline.market_aggregates import (
     build_crowding_snapshot,
     build_market_emotion,
     build_news_heat_snapshot,
+    build_sector_health_snapshot,
     build_sector_cycle_and_permissions,
 )
 from .pipeline.model_client import ModelCallResult, OpenAICompatibleModelClient
@@ -2306,6 +2311,61 @@ class WorkflowApplication:
                 reason_code="SOURCE_NOT_CONFIGURED",
                 expected_symbols=g0_symbols,
             )
+        board_capital_flow: dict[str, Any] = {
+            "schema_version": "a2-board-capital-flow-bundle/1.0.0",
+            "as_of": as_of.isoformat(),
+            "source_id": "EASTMONEY_BOARD_CAPITAL_FLOW",
+            "available": False,
+            "reason_code": "SOURCE_NOT_CONFIGURED",
+            "by_taxonomy": {},
+        }
+        if self.settings.a2_capital_flow_enabled:
+            observed = 0
+            failures: list[str] = []
+            for taxonomy in ("industry", "concept"):
+                periods: dict[str, Any] = {}
+                for period in ("today", "5d", "10d"):
+                    try:
+                        snapshot = collect_eastmoney_board_flow(
+                            as_of=as_of,
+                            board_type=taxonomy,
+                            period=period,
+                            cache_dir=self.settings.fact_store_dir / "a2_market",
+                        )
+                    except Exception:
+                        snapshot = {
+                            "available": False,
+                            "availability_state": "SOURCE_UNAVAILABLE",
+                            "reason_code": "BOARD_CAPITAL_FLOW_NORMALIZATION_FAILED",
+                            "records": [],
+                        }
+                    periods[period] = snapshot
+                    if snapshot.get("available") is True and snapshot.get("records"):
+                        observed += 1
+                    elif snapshot.get("available") is not True:
+                        failures.append(f"{taxonomy}:{period}:{snapshot.get('reason_code') or 'SOURCE_UNAVAILABLE'}")
+                board_capital_flow["by_taxonomy"][taxonomy] = periods
+            board_capital_flow.update({
+                "available": observed > 0,
+                "reason_code": "OK" if observed == 6 else "PARTIAL_FACTS" if observed > 0 else "SOURCE_UNAVAILABLE",
+                "observed_period_count": observed,
+                "expected_period_count": 6,
+                "failures": failures,
+            })
+        sector_health = build_sector_health_snapshot(
+            facts,
+            selected_records,
+            as_of=as_of,
+            symbols=g0_symbols,
+            board_capital_flow_snapshot=board_capital_flow,
+        )
+        # Keep the existing A2 prompt placeholder authoritative while exposing
+        # the new normalized contract as a separate frozen field.  No model or
+        # selector is allowed to recompute these facts from a different scope.
+        sector_cycle = {
+            **sector_cycle,
+            "sector_health_snapshot": sector_health,
+        }
         a2_features = build_a2_feature_snapshot(
             candidates=selected_records,
             daily_bars={
@@ -2466,8 +2526,10 @@ class WorkflowApplication:
             "NEWS_HEAT_SNAPSHOT": news_heat,
             "CROWDING_SNAPSHOT": crowding,
             "SECTOR_CYCLE_SNAPSHOT": sector_cycle,
+            "A2_SECTOR_HEALTH_SNAPSHOT": sector_health,
             "SECTOR_PERMISSIONS": sector_permissions,
             "CAPITAL_FLOW_SNAPSHOT": capital_flow,
+            "BOARD_CAPITAL_FLOW_SNAPSHOT": board_capital_flow,
             "A2_FACTOR_SNAPSHOT": a2_features,
             "A2_THEME_METRICS": {
                 "available": a2_features.get("available") is True,
@@ -2495,7 +2557,7 @@ class WorkflowApplication:
             "MACRO_POLICY_FEED", "MACRO_ECONOMIC_DATA", "ASSET_ROTATION_SNAPSHOT", "GLOBAL_MACRO_SNAPSHOT", "CROSS_MARKET_LEAD_SNAPSHOT", "BROKER_RESEARCH_CONSENSUS", "INDUSTRY_NEWS_FEED", "INDUSTRY_ACTIVITY_DATA", "INDUSTRY_PROFIT_DATA", "THS_INDUSTRY_MEMBERSHIP", "THS_CONCEPT_MEMBERSHIP", "EXISTING_CHAIN_GRAPH",
             "THEME_REGISTRY", "DISCLOSURE_EVENTS", "RISK_EVENTS", "RESEARCH_CONSENSUS", "FUND_HOLDINGS",
             "FAST_TRACK_REQUESTS", "PRIOR_OUTCOME_FEEDBACK", "SECTOR_CYCLE_SNAPSHOT", "CAPITAL_FLOW_SNAPSHOT",
-            "NEWS_HEAT_SNAPSHOT", "CROWDING_SNAPSHOT", "AUCTION_SNAPSHOT", "SECTOR_PERMISSIONS",
+            "NEWS_HEAT_SNAPSHOT", "CROWDING_SNAPSHOT", "A2_SECTOR_HEALTH_SNAPSHOT", "BOARD_CAPITAL_FLOW_SNAPSHOT", "AUCTION_SNAPSHOT", "SECTOR_PERMISSIONS",
         ):
             values.setdefault(key, missing)
         values.update(_prompt_parameters(source_config))

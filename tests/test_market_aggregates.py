@@ -6,9 +6,11 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from liangjian_funnel.pipeline.market_aggregates import (
+    build_a2_sector_health_snapshot,
     build_crowding_snapshot,
     build_market_emotion,
     build_news_heat_snapshot,
+    build_sector_health_snapshot,
     build_sector_cycle_and_permissions,
 )
 
@@ -130,6 +132,204 @@ def test_sector_history_proves_persistent_mainline_without_calling_turnover_capi
     assert cycle["history_metrics"]["top3_daily_overlap"] == 1.0
     assert cycle["history_metrics"]["persistent_mainline_candidates"][0]["industry_thscode"] == "881101.TI"
     assert permissions["by_symbol"] == {"600519.SH": "STANDARD"}
+
+
+def test_sector_health_aggregates_industry_and_concept_point_in_time_evidence() -> None:
+    as_of = datetime(2026, 8, 28, 15, 10, tzinfo=TZ)
+    fact = lambda records: _fact(records, when=as_of)
+    facts = _facts()
+    facts["THS_INDUSTRY_CATALOG"] = fact([
+        {"thscode": "881001.TI", "name": "化工"},
+        {"thscode": "881002.TI", "name": "农业种植"},
+    ])
+    facts["THS_CONCEPT_CATALOG"] = fact([
+        {"taxonomy_code": "885001.TI", "taxonomy_name": "粮食概念"},
+        {"taxonomy_code": "885002.TI", "taxonomy_name": "化工新材料"},
+    ])
+    facts["THS_INDUSTRY_MEMBERSHIP"] = fact([
+        {
+            "thscode": "600001.SH",
+            "mapping_status": "MAPPED",
+            "memberships": [{"industry_thscode": "881001.TI", "industry_name": "化工"}],
+        },
+        {
+            "thscode": "600002.SH",
+            "mapping_status": "MAPPED",
+            "memberships": [{"industry_thscode": "881002.TI", "industry_name": "农业种植"}],
+        },
+        {
+            "thscode": "600003.SH",
+            "mapping_status": "MAPPED",
+            "memberships": [{"industry_thscode": "881002.TI", "industry_name": "农业种植"}],
+        },
+    ])
+    facts["THS_CONCEPT_MEMBERSHIP"] = fact([
+        {
+            "symbol": "600001.SH",
+            "memberships": [{"concept_thscode": "885002.TI", "concept_name": "化工新材料"}],
+        },
+        {
+            "symbol": "600002.SH",
+            "memberships": [{"concept_thscode": "885001.TI", "concept_name": "粮食概念"}],
+        },
+        {
+            "symbol": "600003.SH",
+            "memberships": [{"concept_thscode": "885001.TI", "concept_name": "粮食概念"}],
+        },
+    ])
+    facts["THS_INDUSTRY_HISTORY"] = fact([
+        {
+            "industry_thscode": "881001.TI",
+            "industry_name": "化工",
+            "bars": [
+                {"date_ms": int((as_of - timedelta(days=4 - index)).timestamp() * 1000), "close_price": close}
+                for index, close in enumerate((10.0, 9.0, 9.0, 10.0, 11.0))
+            ]
+            + [{"date_ms": int((as_of + timedelta(days=1)).timestamp() * 1000), "close_price": 99.0}],
+        },
+        {
+            "industry_thscode": "881002.TI",
+            "industry_name": "农业种植",
+            "bars": [
+                {"date_ms": int((as_of - timedelta(days=4 - index)).timestamp() * 1000), "close_price": 10.0 + index}
+                for index in range(5)
+            ],
+        },
+    ])
+    facts["LIMIT_UP_POOL"] = fact([
+        {"thscode": "600001.SH"},
+        {"thscode": "600002.SH"},
+    ])
+    facts["LIMIT_UP_LADDER"] = fact([
+        {
+            "date": as_of.date().isoformat(),
+            "boards": {
+                "three_board": [{"thscode": "600001.SH", "board_num": 3}],
+                "two_board": [{"thscode": "600002.SH", "board_num": 2}],
+            },
+        },
+        {
+            "date": (as_of - timedelta(days=1)).date().isoformat(),
+            "boards": {"one_board": [{"thscode": "600003.SH", "board_num": 1}]},
+        },
+    ])
+
+    snapshot = build_a2_sector_health_snapshot(
+        facts,
+        [
+            {"symbol": "600001.SH", "change_ratio_pct": 3.0, "amount": 100.0},
+            {"symbol": "600002.SH", "change_ratio_pct": 2.0, "amount": 200.0},
+            {"symbol": "600003.SH", "change_ratio_pct": -1.0, "amount": 150.0},
+        ],
+        symbols=["600001.SH", "600002.SH", "600003.SH"],
+        as_of=as_of,
+    )
+
+    assert snapshot["available"] is True
+    assert snapshot["data_sufficiency_state"] == "SUFFICIENT"
+    assert snapshot["capital_flow_available"] is False
+    assert snapshot["turnover_is_capital_flow"] is False
+    assert snapshot["history"]["future_bars_dropped"] == 1
+    assert snapshot["limit_up_ladder"]["latest_date"] == as_of.date().isoformat()
+
+    industry = snapshot["by_taxonomy"]["industry"]["sectors"]
+    agriculture = next(item for item in industry if item["taxonomy_code"] == "881002.TI")
+    chemical = next(item for item in industry if item["taxonomy_code"] == "881001.TI")
+    assert agriculture["health_state"] == "HEALTHY"
+    assert agriculture["breadth"] == pytest.approx(0.5)
+    assert agriculture["limit_up_count"] == 1
+    assert agriculture["ladder_count"] == 1
+    assert agriculture["max_board"] == 2
+    assert chemical["return_flow_state"] == "WEAK_TO_STRONG"
+    assert chemical["max_board"] == 3
+
+    concept = snapshot["by_taxonomy"]["concept"]["sectors"]
+    grain = next(item for item in concept if item["taxonomy_code"] == "885001.TI")
+    assert grain["health_state"] == "HEALTHY"
+    assert grain["return_flow_state"] == "UNKNOWN"
+    assert grain["relative_strength_percentile"] is not None
+
+
+def test_sector_health_never_infers_reflow_from_a_single_current_quote() -> None:
+    facts = _facts()
+    facts["THS_INDUSTRY_CATALOG"] = _fact([{"thscode": "881001.TI", "name": "化工"}])
+    facts["THS_INDUSTRY_MEMBERSHIP"] = _fact([{
+        "thscode": "600001.SH",
+        "memberships": [{"industry_thscode": "881001.TI", "industry_name": "化工"}],
+    }])
+    result = build_sector_health_snapshot(
+        facts,
+        [{"symbol": "600001.SH", "change_ratio_pct": 4.0}],
+        symbols=["600001.SH"],
+        as_of=NOW,
+    )
+    sector = result["industry"]["sectors"][0]
+    assert sector["return_flow_state"] == "UNKNOWN"
+    assert sector["persistence"]["state"] == "UNKNOWN"
+
+
+def test_sector_health_joins_real_board_flow_by_exact_cross_vendor_name() -> None:
+    facts = _facts()
+    facts["THS_INDUSTRY_CATALOG"] = _fact([
+        {"thscode": "881001.TI", "name": "化工"},
+        {"thscode": "881002.TI", "name": "农业种植"},
+    ])
+    facts["THS_INDUSTRY_MEMBERSHIP"] = _fact([
+        {
+            "thscode": "600001.SH",
+            "memberships": [{"industry_thscode": "881001.TI", "industry_name": "化工"}],
+        },
+        {
+            "thscode": "600002.SH",
+            "memberships": [{"industry_thscode": "881002.TI", "industry_name": "农业种植"}],
+        },
+    ])
+    board_flow = {
+        "available": True,
+        "reason_code": "OK",
+        "by_taxonomy": {
+            "industry": {
+                "today": {
+                    "available": True,
+                    "content_hash": "today-hash",
+                    "records": [
+                        {"rank": 1, "code": "BK0477", "name": "化工", "main_net_cny": 8_000_000, "main_pct": 3.2},
+                        {"rank": 2, "code": "BK0910", "name": "农业种植", "main_net_cny": 3_000_000, "main_pct": 1.4},
+                    ],
+                },
+                "5d": {
+                    "available": True,
+                    "content_hash": "5d-hash",
+                    "records": [
+                        {"rank": 1, "code": "BK0910", "name": "农业种植", "main_net_cny": 20_000_000, "main_pct": 5.0},
+                        {"rank": 2, "code": "BK0477", "name": "化工", "main_net_cny": 10_000_000, "main_pct": 2.0},
+                    ],
+                },
+            },
+            "concept": {},
+        },
+    }
+
+    result = build_sector_health_snapshot(
+        facts,
+        [
+            {"symbol": "600001.SH", "change_ratio_pct": 2.0, "amount": 100.0},
+            {"symbol": "600002.SH", "change_ratio_pct": 1.0, "amount": 80.0},
+        ],
+        symbols=["600001.SH", "600002.SH"],
+        as_of=NOW,
+        board_capital_flow_snapshot=board_flow,
+    )
+
+    assert result["capital_flow_available"] is True
+    assert result["capital_flow_mapped_sector_count"] == 2
+    chemical = next(row for row in result["industry"]["sectors"] if row["taxonomy_name"] == "化工")
+    agriculture = next(row for row in result["industry"]["sectors"] if row["taxonomy_name"] == "农业种植")
+    assert chemical["capital_flow"]["source_scope"] == "SECTOR"
+    assert chemical["capital_flow"]["windows"]["today"]["main_net_cny"] == 8_000_000
+    assert agriculture["capital_flow"]["windows"]["5d"]["main_pct"] == 5.0
+    assert chemical["capital_flow"]["score"] != agriculture["capital_flow"]["score"]
+    assert result["turnover_is_capital_flow"] is False
 
 
 def test_monthly_rotation_keeps_persistent_sector_and_rejects_one_day_pulse() -> None:

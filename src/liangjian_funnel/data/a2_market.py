@@ -25,6 +25,35 @@ SHANGHAI = ZoneInfo("Asia/Shanghai")
 CAPITAL_FLOW_SCHEMA = "a2-capital-flow/1.0.0"
 CAPITAL_FLOW_PROVIDER = "EASTMONEY_CAPITAL_FLOW_RANK"
 PROVIDER_METHOD = "VENDOR_DERIVED"
+# A2 facts are point-in-time observations.  These states are intentionally
+# narrower than a boolean ``available`` flag: an empty limit-up set is useful
+# evidence, while an unavailable provider must never be interpreted as zero.
+OBSERVED_VALUE = "OBSERVED_VALUE"
+OBSERVED_EMPTY = "OBSERVED_EMPTY"
+SOURCE_UNAVAILABLE = "SOURCE_UNAVAILABLE"
+STALE = "STALE"
+MALFORMED = "MALFORMED"
+OUTSIDE_SCOPE = "OUTSIDE_SCOPE"
+
+A2_MARKET_FACT_SCHEMA = "a2-market-fact/1.0.0"
+BOARD_FLOW_SCHEMA = "a2-board-capital-flow/1.0.0"
+BOARD_FLOW_PROVIDER = "EASTMONEY_BOARD_CAPITAL_FLOW"
+_A2_FACT_STATES = frozenset({
+    OBSERVED_VALUE,
+    OBSERVED_EMPTY,
+    SOURCE_UNAVAILABLE,
+    STALE,
+    MALFORMED,
+    OUTSIDE_SCOPE,
+})
+_DATASET_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,80}")
+_BOARD_TYPES = frozenset({"industry", "concept", "region"})
+_BOARD_PERIODS: Mapping[str, tuple[str, str, str, str | None]] = {
+    "today": ("f62", "f184", "f3", "f204"),
+    "5d": ("f164", "f165", "f109", "f257"),
+    "10d": ("f174", "f175", "f160", None),
+}
+_BOARD_FS = {"industry": "m:90+t:2", "concept": "m:90+t:3", "region": "m:90+t:1"}
 _EASTMONEY_URL = "https://push2.eastmoney.com/api/qt/clist/get"
 _EASTMONEY_UNIVERSE = "m:0+t:6+f:!2,m:0+t:13+f:!2,m:0+t:80+f:!2,m:1+t:2+f:!2,m:1+t:23+f:!2,m:0+t:7+f:!2,m:1+t:3+f:!2"
 _EASTMONEY_PAGE_SIZE = 5000
@@ -54,6 +83,7 @@ def collect_eastmoney_capital_flow(
     fetch_rank: Callable[[str], Any] | None = None,
     now: datetime | None = None,
     minimum_coverage: float = 0.90,
+    cache_max_age_seconds: float | None = None,
 ) -> dict[str, Any]:
     """Load one cached trade date or collect the current all-market ranking.
 
@@ -65,13 +95,24 @@ def collect_eastmoney_capital_flow(
     cutoff = _aware(as_of)
     current = _aware(now or datetime.now(SHANGHAI))
     root = Path(cache_dir)
-    cached = load_capital_flow_snapshot(root, cutoff.date().isoformat())
+    cached, cache_state = _load_capital_flow_cache_state(
+        root,
+        cutoff.date().isoformat(),
+        now=current,
+        max_age_seconds=cache_max_age_seconds,
+    )
     if cached is not None:
         return cached
     if cutoff.date() != current.date():
         return unavailable_capital_flow_snapshot(
             as_of=cutoff,
-            reason_code="HISTORICAL_CAPITAL_FLOW_CACHE_MISSING",
+            reason_code=(
+                "HISTORICAL_CAPITAL_FLOW_CACHE_STALE"
+                if cache_state == STALE
+                else "HISTORICAL_CAPITAL_FLOW_CACHE_MALFORMED"
+                if cache_state == MALFORMED
+                else "HISTORICAL_CAPITAL_FLOW_CACHE_MISSING"
+            ),
             expected_symbols=expected_symbols,
         )
 
@@ -113,7 +154,17 @@ def build_capital_flow_snapshot(
     window_diagnostics: dict[str, Any] = {}
     failures = dict(failures or {})
     for key, _indicator, _weight in WINDOWS:
-        rows = _records(frames.get(key)) if key in frames else ()
+        source_present = key in frames
+        raw_frame = frames.get(key)
+        source_malformed = False
+        if source_present:
+            try:
+                rows = _records(raw_frame)
+            except CapitalFlowError:
+                rows = ()
+                source_malformed = True
+        else:
+            rows = ()
         by_symbol: dict[str, dict[str, Any]] = {}
         invalid_rows = 0
         for row in rows:
@@ -147,10 +198,27 @@ def build_capital_flow_snapshot(
         normalized[key] = by_symbol
         observed_expected = len(set(expected).intersection(by_symbol))
         coverage = observed_expected / len(expected) if expected else 1.0
+        if key in failures:
+            availability_state = _failure_state(failures[key])
+            window_reason = failures[key]
+        elif not source_present:
+            availability_state = SOURCE_UNAVAILABLE
+            window_reason = "SOURCE_NOT_PROVIDED"
+        elif source_malformed or (rows and not by_symbol):
+            availability_state = MALFORMED
+            window_reason = "SOURCE_ROWS_MALFORMED"
+        elif not rows:
+            # Eastmoney's successful empty response is a real observation of
+            # an empty ranking, not evidence that every stock had zero flow.
+            availability_state = OBSERVED_EMPTY
+            window_reason = "SOURCE_EMPTY"
+        else:
+            availability_state = OBSERVED_VALUE
+            window_reason = "OK"
         window_diagnostics[key] = {
             "available": bool(by_symbol),
-            "availability_state": "OBSERVED_VALUE" if by_symbol else "SOURCE_FAILED",
-            "reason_code": "OK" if by_symbol else failures.get(key, "SOURCE_EMPTY"),
+            "availability_state": availability_state,
+            "reason_code": window_reason,
             "provider_record_count": len(by_symbol),
             "invalid_row_count": invalid_rows,
             "eligible_universe_count": len(expected),
@@ -172,6 +240,9 @@ def build_capital_flow_snapshot(
                     # eligible symbol therefore does not prove zero flow or
                     # an observed absence; it means the supposedly complete
                     # provider cross-section cannot support this symbol.
+                    # Keep the legacy per-symbol state for ranking rows: a
+                    # missing symbol cannot prove zero flow.  The enclosing
+                    # window diagnostics carries the precise source state.
                     "availability_state": "SOURCE_FAILED",
                     "reason_code": failures.get(key, "SYMBOL_MISSING_FROM_PROVIDER_CROSS_SECTION"),
                 }
@@ -199,9 +270,23 @@ def build_capital_flow_snapshot(
     today_coverage = float(window_diagnostics.get("today", {}).get("coverage_ratio") or 0.0)
     available = bool(normalized.get("today")) and today_coverage >= minimum_coverage
     reason = "OK" if available and not failures else "PARTIAL_WINDOWS" if available else "CAPITAL_FLOW_COVERAGE_INSUFFICIENT"
+    states = {str(item.get("availability_state")) for item in window_diagnostics.values()}
+    if any(state == MALFORMED for state in states):
+        snapshot_state = MALFORMED
+    elif any(state == SOURCE_UNAVAILABLE for state in states):
+        snapshot_state = SOURCE_UNAVAILABLE
+    elif any(state == STALE for state in states):
+        snapshot_state = STALE
+    elif any(state == OBSERVED_VALUE for state in states):
+        snapshot_state = OBSERVED_VALUE
+    elif any(state == OBSERVED_EMPTY for state in states):
+        snapshot_state = OBSERVED_EMPTY
+    else:
+        snapshot_state = SOURCE_UNAVAILABLE
     payload: dict[str, Any] = {
         "schema_version": CAPITAL_FLOW_SCHEMA,
         "available": available,
+        "availability_state": snapshot_state,
         "reason_code": reason,
         "source_id": CAPITAL_FLOW_PROVIDER,
         "source_tier": "T2",
@@ -227,9 +312,11 @@ def unavailable_capital_flow_snapshot(
     expected_symbols: Sequence[str],
 ) -> dict[str, Any]:
     cutoff = _aware(as_of)
+    availability_state = _state_for_reason(reason_code)
     payload: dict[str, Any] = {
         "schema_version": CAPITAL_FLOW_SCHEMA,
         "available": False,
+        "availability_state": availability_state,
         "reason_code": reason_code,
         "source_id": CAPITAL_FLOW_PROVIDER,
         "source_tier": "T2",
@@ -244,7 +331,13 @@ def unavailable_capital_flow_snapshot(
             symbol: {
                 "symbol": symbol,
                 "available": False,
-                "availability_state": "NOT_CONFIGURED" if reason_code == "SOURCE_NOT_CONFIGURED" else "SOURCE_FAILED",
+                # Preserve NOT_CONFIGURED for existing callers while making
+                # actual provider/cache failures distinguishable.
+                "availability_state": (
+                    "NOT_CONFIGURED"
+                    if reason_code == "SOURCE_NOT_CONFIGURED"
+                    else availability_state
+                ),
                 "reason_code": reason_code,
                 "capital_flow_score": None,
                 "source_refs": [],
@@ -268,22 +361,714 @@ def write_capital_flow_snapshot(cache_dir: str | Path, snapshot: Mapping[str, An
     return path
 
 
-def load_capital_flow_snapshot(cache_dir: str | Path, trade_date: str) -> dict[str, Any] | None:
+def load_capital_flow_snapshot(
+    cache_dir: str | Path,
+    trade_date: str,
+    *,
+    now: datetime | None = None,
+    max_age_seconds: float | None = None,
+) -> dict[str, Any] | None:
+    """Load a hash-validated capital-flow snapshot.
+
+    ``max_age_seconds`` is opt-in for compatibility.  A historical replay
+    should normally omit it because a cache is bound to its trade date; a
+    same-day caller may provide it to reject an old partial/current response.
+    Invalid and stale files return ``None`` and are never used as fresh data.
+    ``collect_eastmoney_capital_flow`` uses the private status-aware reader so
+    it can report ``STALE`` versus ``MALFORMED`` without networking on a
+    historical date.
+    """
+
+    payload, state = _load_capital_flow_cache_state(
+        cache_dir,
+        trade_date,
+        now=now,
+        max_age_seconds=max_age_seconds,
+    )
+    # A valid cache can be an observed empty/failed observation.  It still
+    # must be returned so callers do not repeatedly hit the provider and so
+    # the exact source status remains replayable.  Only stale/malformed files
+    # are rejected here.
+    return payload if state not in {STALE, MALFORMED, None} else None
+
+
+def _load_capital_flow_cache_state(
+    cache_dir: str | Path,
+    trade_date: str,
+    *,
+    now: datetime | None = None,
+    max_age_seconds: float | None = None,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Return ``(payload, state)`` while retaining cache failure semantics."""
+
     path = Path(cache_dir) / f"capital-flow-{trade_date}.json"
     if not path.is_file():
-        return None
+        return None, None
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return None
+        return None, MALFORMED
     if not isinstance(payload, dict) or payload.get("schema_version") != CAPITAL_FLOW_SCHEMA:
-        return None
+        return None, MALFORMED
     expected = str(payload.get("content_hash") or "")
     body = dict(payload)
     body.pop("content_hash", None)
     if not expected or expected != _content_hash(body):
-        return None
+        return None, MALFORMED
+    if str(payload.get("trade_date") or "") != str(trade_date):
+        return None, MALFORMED
+    if max_age_seconds is not None:
+        if isinstance(max_age_seconds, bool) or float(max_age_seconds) < 0:
+            raise ValueError("max_age_seconds must be non-negative")
+        reference = _aware(now or datetime.now(SHANGHAI))
+        ingested = _parse_datetime(payload.get("ingested_at"))
+        if ingested is None:
+            return None, MALFORMED
+        if (reference - ingested).total_seconds() > float(max_age_seconds):
+            return None, STALE
+    return payload, str(payload.get("availability_state") or OBSERVED_VALUE)
+
+
+def write_trade_date_fact(
+    cache_dir: str | Path,
+    dataset: str,
+    trade_date: str,
+    payload: Any,
+    *,
+    source_id: str,
+    source_kind: str,
+    published_scope: str = "FULL_MARKET",
+    availability_state: str | None = None,
+    reason_code: str = "OK",
+    as_of: datetime | None = None,
+    event_time: datetime | None = None,
+    fetch_time: datetime | None = None,
+    ingested_at: datetime | None = None,
+    metadata: Mapping[str, Any] | None = None,
+) -> Path:
+    """Persist one A2 fact under a validated dataset/date key.
+
+    The file is an immutable point-in-time envelope from the workflow's
+    perspective: a later collection for the same date may replace a failed
+    current observation, but historical readers only ever open the exact
+    requested date.  ``atomic_write_json`` prevents readers from observing a
+    partially written JSON document.
+    """
+
+    dataset_name = _validate_dataset(dataset)
+    date_text = _validate_trade_date(trade_date)
+    raw_payload = _jsonable(payload)
+    if isinstance(raw_payload, Mapping):
+        payload_body = dict(raw_payload)
+        records = payload_body.get("records")
+    elif isinstance(raw_payload, Sequence) and not isinstance(raw_payload, (str, bytes, bytearray)):
+        payload_body = {"records": list(raw_payload)}
+        records = payload_body["records"]
+    else:
+        payload_body = {"value": raw_payload}
+        records = None
+    if records is not None and (
+        not isinstance(records, list)
+        or any(not isinstance(item, Mapping) for item in records)
+    ):
+        raise ValueError("trade-date fact records must be a list of objects")
+    state = availability_state or _infer_fact_state(payload_body, reason_code=reason_code)
+    if state not in _A2_FACT_STATES:
+        raise ValueError(f"unsupported A2 fact availability_state: {state}")
+    cutoff = _aware(as_of or datetime.now(SHANGHAI))
+    fetched = _aware(fetch_time or cutoff)
+    ingested = _aware(ingested_at or fetched)
+    event = _aware(event_time or cutoff)
+    envelope: dict[str, Any] = {
+        "schema_version": A2_MARKET_FACT_SCHEMA,
+        "dataset": dataset_name,
+        "trade_date": date_text,
+        "as_of": cutoff.isoformat(),
+        "event_time": event.isoformat(),
+        "fetch_time": fetched.isoformat(),
+        "ingested_at": ingested.isoformat(),
+        "source_id": str(source_id or "UNKNOWN"),
+        "source_kind": str(source_kind or "UNKNOWN"),
+        "published_scope": str(published_scope or "SYMBOL"),
+        "availability_state": state,
+        "available": state in {OBSERVED_VALUE, OBSERVED_EMPTY},
+        "reason_code": str(reason_code or ("OK" if state in {OBSERVED_VALUE, OBSERVED_EMPTY} else state)),
+        "records": records if records is not None else [],
+        "payload": payload_body,
+        "metadata": dict(metadata or {}),
+    }
+    envelope["content_hash"] = _content_hash(envelope)
+    root = Path(cache_dir)
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / f"{dataset_name}-{date_text}.json"
+    atomic_write_json(path, envelope)
+    return path
+
+
+def inspect_trade_date_fact(
+    cache_dir: str | Path,
+    dataset: str,
+    trade_date: str,
+    *,
+    now: datetime | None = None,
+    max_age_seconds: float | None = None,
+) -> dict[str, Any]:
+    """Inspect a date-bound cache without turning failures into empty data."""
+
+    dataset_name = _validate_dataset(dataset)
+    date_text = _validate_trade_date(trade_date)
+    path = Path(cache_dir) / f"{dataset_name}-{date_text}.json"
+    payload, state, reason = _read_trade_date_fact(
+        path,
+        dataset=dataset_name,
+        trade_date=date_text,
+        now=now,
+        max_age_seconds=max_age_seconds,
+    )
+    return {
+        "path": str(path),
+        "exists": path.is_file(),
+        "available": payload is not None,
+        "availability_state": state,
+        "reason_code": reason,
+        "fact": payload,
+    }
+
+
+def load_trade_date_fact(
+    cache_dir: str | Path,
+    dataset: str,
+    trade_date: str,
+    *,
+    now: datetime | None = None,
+    max_age_seconds: float | None = None,
+) -> dict[str, Any] | None:
+    """Read only the requested trade date's hash-validated fact envelope."""
+
+    inspected = inspect_trade_date_fact(
+        cache_dir,
+        dataset,
+        trade_date,
+        now=now,
+        max_age_seconds=max_age_seconds,
+    )
+    return inspected["fact"] if inspected["available"] else None
+
+
+def collect_trade_date_fact(
+    *,
+    cache_dir: str | Path,
+    dataset: str,
+    as_of: datetime,
+    fetch: Callable[[], Any] | None = None,
+    source_id: str = "UNKNOWN",
+    source_kind: str = "UNKNOWN",
+    published_scope: str = "FULL_MARKET",
+    now: datetime | None = None,
+    max_age_seconds: float | None = None,
+) -> dict[str, Any]:
+    """Load/cache/collect a point-in-time fact with historical no-network guard.
+
+    ``fetch`` is called only for today's Shanghai date.  For any historical
+    date, a valid cache is returned; a missing, stale, or malformed cache is
+    represented by a status envelope and the callback is never invoked.
+    """
+
+    cutoff = _aware(as_of)
+    current = _aware(now or datetime.now(SHANGHAI))
+    date_text = cutoff.date().isoformat()
+    inspected = inspect_trade_date_fact(
+        cache_dir,
+        dataset,
+        date_text,
+        now=current,
+        max_age_seconds=max_age_seconds,
+    )
+    if inspected["available"]:
+        return dict(inspected["fact"])
+    if cutoff.date() != current.date():
+        return _unavailable_trade_date_fact(
+            dataset=dataset,
+            trade_date=date_text,
+            as_of=cutoff,
+            source_id=source_id,
+            source_kind=source_kind,
+            published_scope=published_scope,
+            state=inspected["availability_state"] or SOURCE_UNAVAILABLE,
+            reason_code=inspected["reason_code"] or "HISTORICAL_CACHE_MISSING",
+        )
+    if fetch is None:
+        result = _unavailable_trade_date_fact(
+            dataset=dataset,
+            trade_date=date_text,
+            as_of=cutoff,
+            source_id=source_id,
+            source_kind=source_kind,
+            published_scope=published_scope,
+            state=SOURCE_UNAVAILABLE,
+            reason_code="SOURCE_NOT_CONFIGURED",
+        )
+        write_trade_date_fact(
+            cache_dir,
+            dataset,
+            date_text,
+            result,
+            source_id=source_id,
+            source_kind=source_kind,
+            published_scope=published_scope,
+            availability_state=SOURCE_UNAVAILABLE,
+            reason_code="SOURCE_NOT_CONFIGURED",
+            as_of=cutoff,
+            ingested_at=current,
+        )
+        return result
+    try:
+        fetched_result = fetch()
+        result = _normalize_collected_fact(
+            fetched_result,
+            dataset=dataset,
+            trade_date=date_text,
+            as_of=cutoff,
+            source_id=source_id,
+            source_kind=source_kind,
+            published_scope=published_scope,
+            ingested_at=current,
+        )
+    except Exception as exc:  # provider boundary; never leak response text
+        result = _unavailable_trade_date_fact(
+            dataset=dataset,
+            trade_date=date_text,
+            as_of=cutoff,
+            source_id=source_id,
+            source_kind=source_kind,
+            published_scope=published_scope,
+            state=_failure_state(type(exc).__name__),
+            reason_code=type(exc).__name__.upper(),
+        )
+    write_trade_date_fact(
+        cache_dir,
+        dataset,
+        date_text,
+        result,
+        source_id=source_id,
+        source_kind=source_kind,
+        published_scope=published_scope,
+        availability_state=str(result.get("availability_state") or SOURCE_UNAVAILABLE),
+        reason_code=str(result.get("reason_code") or "UNKNOWN"),
+        as_of=cutoff,
+        event_time=_parse_datetime(result.get("event_time")) or cutoff,
+        fetch_time=_parse_datetime(result.get("fetch_time")) or current,
+        ingested_at=current,
+    )
+    persisted = load_trade_date_fact(cache_dir, dataset, date_text)
+    return persisted if persisted is not None else result
+
+
+def persist_ths_market_fact(
+    cache_dir: str | Path,
+    dataset: str,
+    result: Any,
+    *,
+    as_of: datetime,
+    published_scope: str = "FULL_MARKET",
+    source_id: str = "HITHINK",
+    source_kind: str = "THS",
+    ingested_at: datetime | None = None,
+) -> Path:
+    """Persist a HiThink endpoint result as a replayable A2 fact envelope."""
+
+    normalized = _normalize_collected_fact(
+        result,
+        dataset=dataset,
+        trade_date=_aware(as_of).date().isoformat(),
+        as_of=_aware(as_of),
+        source_id=source_id,
+        source_kind=source_kind,
+        published_scope=published_scope,
+        ingested_at=_aware(ingested_at or as_of),
+    )
+    return write_trade_date_fact(
+        cache_dir,
+        dataset,
+        normalized["trade_date"],
+        normalized,
+        source_id=source_id,
+        source_kind=source_kind,
+        published_scope=published_scope,
+        availability_state=normalized["availability_state"],
+        reason_code=normalized["reason_code"],
+        as_of=_aware(as_of),
+        event_time=_parse_datetime(normalized.get("event_time")) or _aware(as_of),
+        fetch_time=_parse_datetime(normalized.get("fetch_time")) or _aware(as_of),
+        ingested_at=_aware(ingested_at or as_of),
+    )
+
+
+def collect_ths_market_fact(
+    *,
+    cache_dir: str | Path,
+    dataset: str,
+    as_of: datetime,
+    fetch: Callable[[], Any] | None,
+    now: datetime | None = None,
+    published_scope: str = "FULL_MARKET",
+    max_age_seconds: float | None = None,
+) -> dict[str, Any]:
+    """Convenience wrapper for THS ladder/membership/market fact collectors."""
+
+    return collect_trade_date_fact(
+        cache_dir=cache_dir,
+        dataset=dataset,
+        as_of=as_of,
+        fetch=fetch,
+        source_id="HITHINK",
+        source_kind="THS",
+        published_scope=published_scope,
+        now=now,
+        max_age_seconds=max_age_seconds,
+    )
+
+
+def build_board_capital_flow_snapshot(
+    rows: Any,
+    *,
+    as_of: datetime,
+    board_type: str,
+    period: str,
+    source_id: str = BOARD_FLOW_PROVIDER,
+    ingested_at: datetime | None = None,
+) -> dict[str, Any]:
+    """Normalize Eastmoney industry/concept/region flow rows by trade date."""
+
+    if board_type not in _BOARD_TYPES:
+        raise ValueError(f"unsupported board_type: {board_type}")
+    if period not in _BOARD_PERIODS:
+        raise ValueError(f"unsupported board flow period: {period}")
+    cutoff = _aware(as_of)
+    ingested = _aware(ingested_at or cutoff)
+    extracted, provider_total, malformed = _board_records(rows)
+    normalized: list[dict[str, Any]] = []
+    for row in extracted:
+        code = str(_pick(row, "code", "板块代码", "f12", "index_code") or "").strip()
+        name = str(_pick(row, "name", "板块名称", "f14", "index_name") or "").strip()
+        if not code and not name:
+            malformed += 1
+            continue
+        normalized.append({
+            "rank": int(_number(_pick(row, "rank", "排名")) or len(normalized) + 1),
+            "code": code,
+            "name": name,
+            "change_pct": _number(_pick(row, "change_pct", "涨跌幅", "f3", "f109", "f160")),
+            "main_net_cny": _number(_pick(row, "main_net", "main_net_cny", "主力净流入", "f62", "f164", "f174")),
+            "main_pct": _number(_pick(row, "main_pct", "主力净占比", "f184", "f165", "f175")),
+            "leader": str(_pick(row, "leader", "领涨股", "f204", "f257") or ""),
+            "super_large_net_cny": _number(_pick(row, "super_large_net", "超大单净流入", "f66")),
+            "large_net_cny": _number(_pick(row, "large_net", "大单净流入", "f72")),
+            "medium_net_cny": _number(_pick(row, "medium_net", "中单净流入", "f78")),
+            "small_net_cny": _number(_pick(row, "small_net", "小单净流入", "f84")),
+        })
+    # Stable ordering protects the hash and makes a replay diff meaningful.
+    normalized.sort(key=lambda item: (int(item.get("rank") or 0), item["code"], item["name"]))
+    if malformed and not normalized:
+        state, reason = MALFORMED, "BOARD_FLOW_ROWS_MALFORMED"
+    elif not normalized:
+        state, reason = OBSERVED_EMPTY, "SOURCE_EMPTY"
+    else:
+        state, reason = OBSERVED_VALUE, "OK"
+    payload: dict[str, Any] = {
+        "schema_version": BOARD_FLOW_SCHEMA,
+        "dataset": "BOARD_CAPITAL_FLOW",
+        "board_type": board_type,
+        "period": period,
+        "trade_date": cutoff.date().isoformat(),
+        "as_of": cutoff.isoformat(),
+        "ingested_at": ingested.isoformat(),
+        "source_id": source_id,
+        "source_kind": "EASTMONEY_VENDOR_DERIVED",
+        "availability_state": state,
+        "available": state in {OBSERVED_VALUE, OBSERVED_EMPTY},
+        "reason_code": reason,
+        "provider_record_count": len(normalized),
+        "provider_total": provider_total,
+        "malformed_row_count": malformed,
+        "records": normalized,
+    }
+    payload["content_hash"] = _content_hash(payload)
     return payload
+
+
+def write_board_capital_flow_snapshot(cache_dir: str | Path, snapshot: Mapping[str, Any]) -> Path:
+    """Atomically persist one board-flow period under its trade date."""
+
+    board_type = str(snapshot.get("board_type") or "")
+    period = str(snapshot.get("period") or "")
+    trade_date = _validate_trade_date(snapshot.get("trade_date"))
+    if board_type not in _BOARD_TYPES or period not in _BOARD_PERIODS:
+        raise ValueError("board-flow snapshot identity is invalid")
+    root = Path(cache_dir)
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / f"board-flow-{board_type}-{period}-{trade_date}.json"
+    atomic_write_json(path, dict(snapshot))
+    return path
+
+
+def load_board_capital_flow_snapshot(
+    cache_dir: str | Path,
+    board_type: str,
+    period: str,
+    trade_date: str,
+    *,
+    now: datetime | None = None,
+    max_age_seconds: float | None = None,
+) -> dict[str, Any] | None:
+    """Load a hash-bound board flow cache; stale/malformed files are rejected."""
+
+    inspected = inspect_board_capital_flow_snapshot(
+        cache_dir,
+        board_type,
+        period,
+        trade_date,
+        now=now,
+        max_age_seconds=max_age_seconds,
+    )
+    return inspected["snapshot"] if inspected["available"] else None
+
+
+def inspect_board_capital_flow_snapshot(
+    cache_dir: str | Path,
+    board_type: str,
+    period: str,
+    trade_date: str,
+    *,
+    now: datetime | None = None,
+    max_age_seconds: float | None = None,
+) -> dict[str, Any]:
+    if board_type not in _BOARD_TYPES or period not in _BOARD_PERIODS:
+        raise ValueError("board-flow identity is invalid")
+    date_text = _validate_trade_date(trade_date)
+    path = Path(cache_dir) / f"board-flow-{board_type}-{period}-{date_text}.json"
+    if not path.is_file():
+        return {"path": str(path), "exists": False, "available": False, "availability_state": None, "reason_code": None, "snapshot": None}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError):
+        return {"path": str(path), "exists": True, "available": False, "availability_state": MALFORMED, "reason_code": "BOARD_FLOW_CACHE_JSON_MALFORMED", "snapshot": None}
+    state = str(payload.get("availability_state") or "") if isinstance(payload, Mapping) else MALFORMED
+    reason = str(payload.get("reason_code") or "OK") if isinstance(payload, Mapping) else "BOARD_FLOW_CACHE_ENVELOPE_MALFORMED"
+    body = dict(payload) if isinstance(payload, Mapping) else {}
+    expected = str(body.pop("content_hash", ""))
+    valid = (
+        isinstance(payload, Mapping)
+        and payload.get("schema_version") == BOARD_FLOW_SCHEMA
+        and payload.get("board_type") == board_type
+        and payload.get("period") == period
+        and payload.get("trade_date") == date_text
+        and state in _A2_FACT_STATES
+        and expected
+        and expected == _content_hash(body)
+        and isinstance(payload.get("records"), list)
+        and all(isinstance(item, Mapping) for item in payload["records"])
+    )
+    if not valid:
+        return {"path": str(path), "exists": True, "available": False, "availability_state": MALFORMED, "reason_code": "BOARD_FLOW_CACHE_INVALID", "snapshot": None}
+    if max_age_seconds is not None:
+        if isinstance(max_age_seconds, bool) or float(max_age_seconds) < 0:
+            raise ValueError("max_age_seconds must be non-negative")
+        ingested = _parse_datetime(payload.get("ingested_at"))
+        if ingested is None:
+            return {"path": str(path), "exists": True, "available": False, "availability_state": MALFORMED, "reason_code": "BOARD_FLOW_CACHE_TIMESTAMP_MALFORMED", "snapshot": None}
+        reference = _aware(now or datetime.now(SHANGHAI))
+        if (reference - ingested).total_seconds() > float(max_age_seconds):
+            return {"path": str(path), "exists": True, "available": False, "availability_state": STALE, "reason_code": "BOARD_FLOW_CACHE_STALE", "snapshot": None}
+    return {"path": str(path), "exists": True, "available": True, "availability_state": state, "reason_code": reason, "snapshot": dict(payload)}
+
+
+def collect_eastmoney_board_flow(
+    *,
+    as_of: datetime,
+    board_type: str,
+    period: str,
+    cache_dir: str | Path,
+    fetch_board: Callable[[str, str], Any] | None = None,
+    now: datetime | None = None,
+    max_age_seconds: float | None = None,
+) -> dict[str, Any]:
+    """Collect one board-flow period; historical dates are cache-only."""
+
+    if board_type not in _BOARD_TYPES or period not in _BOARD_PERIODS:
+        raise ValueError("board-flow identity is invalid")
+    cutoff = _aware(as_of)
+    current = _aware(now or datetime.now(SHANGHAI))
+    date_text = cutoff.date().isoformat()
+    inspected = inspect_board_capital_flow_snapshot(
+        cache_dir,
+        board_type,
+        period,
+        date_text,
+        now=current,
+        max_age_seconds=max_age_seconds,
+    )
+    if inspected["available"]:
+        return dict(inspected["snapshot"])
+    if cutoff.date() != current.date():
+        return _unavailable_board_flow_snapshot(
+            as_of=cutoff,
+            board_type=board_type,
+            period=period,
+            state=inspected["availability_state"] or SOURCE_UNAVAILABLE,
+            reason_code=inspected["reason_code"] or "HISTORICAL_BOARD_FLOW_CACHE_MISSING",
+        )
+    fetch = fetch_board or _eastmoney_board_flow_fetcher
+    try:
+        raw = fetch(board_type, period)
+        snapshot = build_board_capital_flow_snapshot(
+            raw,
+            as_of=cutoff,
+            board_type=board_type,
+            period=period,
+            ingested_at=current,
+        )
+    except Exception as exc:  # provider boundary
+        snapshot = _unavailable_board_flow_snapshot(
+            as_of=cutoff,
+            board_type=board_type,
+            period=period,
+            state=_failure_state(type(exc).__name__),
+            reason_code=type(exc).__name__.upper(),
+        )
+    write_board_capital_flow_snapshot(cache_dir, snapshot)
+    return snapshot
+
+
+def _unavailable_board_flow_snapshot(
+    *,
+    as_of: datetime,
+    board_type: str,
+    period: str,
+    state: str,
+    reason_code: str,
+) -> dict[str, Any]:
+    cutoff = _aware(as_of)
+    state = state if state in _A2_FACT_STATES else SOURCE_UNAVAILABLE
+    payload: dict[str, Any] = {
+        "schema_version": BOARD_FLOW_SCHEMA,
+        "dataset": "BOARD_CAPITAL_FLOW",
+        "board_type": board_type,
+        "period": period,
+        "trade_date": cutoff.date().isoformat(),
+        "as_of": cutoff.isoformat(),
+        "ingested_at": cutoff.isoformat(),
+        "source_id": BOARD_FLOW_PROVIDER,
+        "source_kind": "EASTMONEY_VENDOR_DERIVED",
+        "availability_state": state,
+        "available": False,
+        "reason_code": reason_code,
+        "provider_record_count": 0,
+        "provider_total": None,
+        "malformed_row_count": 0,
+        "records": [],
+    }
+    payload["content_hash"] = _content_hash(payload)
+    return payload
+
+
+def _eastmoney_board_flow_fetcher(board_type: str, period: str) -> dict[str, Any]:
+    """Fetch all requested board rows from Eastmoney's public clist endpoint."""
+
+    if board_type not in _BOARD_TYPES or period not in _BOARD_PERIODS:
+        raise ValueError("board-flow identity is invalid")
+    import requests
+    from requests.adapters import HTTPAdapter
+    from urllib3.util.retry import Retry
+
+    fid, _pct_field, change_field, leader_field = _BOARD_PERIODS[period]
+    fields = ["f12", "f14", change_field, fid, _pct_field]
+    if leader_field:
+        fields.append(leader_field)
+    if period == "today":
+        fields.extend(("f66", "f72", "f78", "f84"))
+    retry = Retry(
+        total=3,
+        connect=3,
+        read=3,
+        backoff_factor=0.5,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=frozenset({"GET"}),
+    )
+    session = requests.Session()
+    session.mount("https://", HTTPAdapter(max_retries=retry))
+    rows: list[dict[str, Any]] = []
+    page = 1
+    total: int | None = None
+    while total is None or len(rows) < total:
+        response = session.get(
+            _EASTMONEY_URL,
+            params={
+                "pz": "200",
+                "po": "1",
+                "np": "1",
+                "pn": str(page),
+                "fltt": "2",
+                "invt": "2",
+                "fid": fid,
+                "fs": _BOARD_FS[board_type],
+                "fields": ",".join(dict.fromkeys(fields)),
+            },
+            headers={"User-Agent": "Mozilla/5.0 (compatible; LiangjianResearch/2.0)", "Referer": "https://data.eastmoney.com/"},
+            timeout=(5, 20),
+        )
+        response.raise_for_status()
+        body = response.json()
+        data = body.get("data") if isinstance(body, Mapping) else None
+        if not isinstance(data, Mapping) or not isinstance(data.get("diff"), list):
+            raise CapitalFlowError("board capital-flow provider envelope invalid")
+        total = int(data.get("total") or 0)
+        page_rows = [item for item in data["diff"] if isinstance(item, Mapping)]
+        if not page_rows and len(rows) < total:
+            raise CapitalFlowError("board capital-flow provider page incomplete")
+        for item in page_rows:
+            rows.append({
+                "code": item.get("f12"),
+                "name": item.get("f14"),
+                "change_pct": item.get(change_field),
+                "main_net": item.get(fid),
+                "main_pct": item.get(_pct_field),
+                "leader": item.get(leader_field) if leader_field else "",
+                "super_large_net": item.get("f66"),
+                "large_net": item.get("f72"),
+                "medium_net": item.get("f78"),
+                "small_net": item.get("f84"),
+            })
+        page += 1
+        if page > 100:
+            raise CapitalFlowError("board capital-flow provider page bound exceeded")
+        if not page_rows:
+            break
+    return {"rows": rows, "total": total or len(rows)}
+
+
+def _board_records(value: Any) -> tuple[list[Mapping[str, Any]], int | None, int]:
+    if value is None:
+        return [], None, 0
+    raw = _jsonable(value)
+    provider_total: int | None = None
+    if isinstance(raw, Mapping):
+        provider_total = int(_number(raw.get("total")) or 0) or None
+        records = raw.get("rows")
+        if records is None:
+            records = raw.get("records")
+        if records is None and isinstance(raw.get("data"), Mapping):
+            data = raw["data"]
+            provider_total = int(_number(data.get("total")) or provider_total or 0) or None
+            records = data.get("diff")
+        if not isinstance(records, Sequence) or isinstance(records, (str, bytes, bytearray)):
+            return [], provider_total, 1
+    elif isinstance(raw, Sequence) and not isinstance(raw, (str, bytes, bytearray)):
+        records = raw
+    else:
+        return [], provider_total, 1
+    parsed = [item for item in records if isinstance(item, Mapping)]
+    return parsed, provider_total, len(records) - len(parsed)
 
 
 def _eastmoney_rank_fetcher(indicator: str) -> list[dict[str, Any]]:
@@ -457,6 +1242,279 @@ def _aware(value: datetime) -> datetime:
     return value.astimezone(SHANGHAI)
 
 
+def _parse_datetime(value: Any) -> datetime | None:
+    """Parse a persisted timestamp without ever assuming a local timezone."""
+
+    if isinstance(value, datetime):
+        candidate = value
+    elif isinstance(value, str) and value.strip():
+        try:
+            candidate = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    else:
+        return None
+    if candidate.tzinfo is None or candidate.utcoffset() is None:
+        return None
+    return candidate.astimezone(SHANGHAI)
+
+
+def _validate_dataset(value: Any) -> str:
+    dataset = str(value or "").strip()
+    if not _DATASET_RE.fullmatch(dataset):
+        raise ValueError("A2 fact dataset must be a safe filename component")
+    return dataset
+
+
+def _validate_trade_date(value: Any) -> str:
+    text = str(value or "").strip()
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
+        raise ValueError("A2 fact trade_date must be an ISO date")
+    try:
+        datetime.strptime(text, "%Y-%m-%d")
+    except ValueError as exc:
+        raise ValueError("A2 fact trade_date must be a calendar date") from exc
+    return text
+
+
+def _jsonable(value: Any) -> Any:
+    """Convert provider/Pydantic rows to JSON-compatible values safely."""
+
+    if hasattr(value, "model_dump"):
+        try:
+            return value.model_dump(mode="json")
+        except TypeError:
+            return value.model_dump()
+    if isinstance(value, Mapping):
+        return {str(key): _jsonable(item) for key, item in value.items()}
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        return [_jsonable(item) for item in value]
+    if isinstance(value, datetime):
+        return _aware(value).isoformat()
+    return value
+
+
+def _infer_fact_state(payload: Mapping[str, Any], *, reason_code: str = "OK") -> str:
+    explicit = str(payload.get("availability_state") or "").strip().upper()
+    if explicit in _A2_FACT_STATES:
+        return explicit
+    available = payload.get("available")
+    records = payload.get("records")
+    if available is False:
+        return _state_for_reason(reason_code)
+    if isinstance(records, list):
+        return OBSERVED_VALUE if records else OBSERVED_EMPTY
+    if available is True:
+        return OBSERVED_VALUE
+    return MALFORMED
+
+
+def _unavailable_trade_date_fact(
+    *,
+    dataset: str,
+    trade_date: str,
+    as_of: datetime,
+    source_id: str,
+    source_kind: str,
+    published_scope: str,
+    state: str,
+    reason_code: str,
+) -> dict[str, Any]:
+    safe_dataset = _validate_dataset(dataset)
+    safe_date = _validate_trade_date(trade_date)
+    state = state if state in _A2_FACT_STATES else SOURCE_UNAVAILABLE
+    payload: dict[str, Any] = {
+        "schema_version": A2_MARKET_FACT_SCHEMA,
+        "dataset": safe_dataset,
+        "trade_date": safe_date,
+        "as_of": _aware(as_of).isoformat(),
+        "event_time": _aware(as_of).isoformat(),
+        "fetch_time": None,
+        "ingested_at": None,
+        "source_id": str(source_id or "UNKNOWN"),
+        "source_kind": str(source_kind or "UNKNOWN"),
+        "published_scope": str(published_scope or "SYMBOL"),
+        "availability_state": state,
+        "available": state in {OBSERVED_VALUE, OBSERVED_EMPTY},
+        "reason_code": str(reason_code or state),
+        "records": [],
+        "payload": {},
+        "metadata": {"historical_read_only": True},
+    }
+    payload["content_hash"] = _content_hash(payload)
+    return payload
+
+
+def _normalize_collected_fact(
+    result: Any,
+    *,
+    dataset: str,
+    trade_date: str,
+    as_of: datetime,
+    source_id: str,
+    source_kind: str,
+    published_scope: str,
+    ingested_at: datetime,
+) -> dict[str, Any]:
+    raw = _jsonable(result)
+    metadata: dict[str, Any] = {}
+    fetched = ingested_at
+    event = _aware(as_of)
+    if isinstance(raw, Mapping):
+        raw_map = dict(raw)
+        metadata_value = raw_map.get("metadata")
+        metadata = dict(metadata_value) if isinstance(metadata_value, Mapping) else {}
+        fetched = _parse_datetime(raw_map.get("fetch_time")) or _parse_datetime(raw_map.get("fetched_at")) or fetched
+        event = _parse_datetime(raw_map.get("event_time")) or _parse_datetime(raw_map.get("as_of")) or event
+        records_value = raw_map.get("records")
+        if records_value is None:
+            records_value = raw_map.get("items")
+        if records_value is None:
+            records_value = raw_map.get("rows")
+        if records_value is None and isinstance(raw_map.get("payload"), Mapping):
+            records_value = raw_map["payload"].get("records")
+        if records_value is None:
+            records: list[dict[str, Any]] | None = None
+        elif isinstance(records_value, Sequence) and not isinstance(records_value, (str, bytes, bytearray)):
+            records = [dict(item) for item in records_value if isinstance(item, Mapping)]
+            if len(records) != len(records_value):
+                return _unavailable_trade_date_fact(
+                    dataset=dataset,
+                    trade_date=trade_date,
+                    as_of=as_of,
+                    source_id=source_id,
+                    source_kind=source_kind,
+                    published_scope=published_scope,
+                    state=MALFORMED,
+                    reason_code="FACT_RECORDS_MALFORMED",
+                )
+        else:
+            return _unavailable_trade_date_fact(
+                dataset=dataset,
+                trade_date=trade_date,
+                as_of=as_of,
+                source_id=source_id,
+                source_kind=source_kind,
+                published_scope=published_scope,
+                state=MALFORMED,
+                reason_code="FACT_RECORDS_MALFORMED",
+            )
+        ok = raw_map.get("ok")
+        complete = raw_map.get("complete")
+        if ok is False or complete is False or raw_map.get("available") is False:
+            state = _state_for_reason(raw_map.get("reason_code") or "SOURCE_UNAVAILABLE")
+            # Hithink may expose rows from pages fetched before a later page
+            # failed.  Keep the failure metadata, but do not let partial rows
+            # enter a downstream sector join as if they were complete facts.
+            records = []
+        elif records is None:
+            return _unavailable_trade_date_fact(
+                dataset=dataset,
+                trade_date=trade_date,
+                as_of=as_of,
+                source_id=source_id,
+                source_kind=source_kind,
+                published_scope=published_scope,
+                state=MALFORMED,
+                reason_code="FACT_RECORDS_MISSING",
+            )
+        else:
+            state = OBSERVED_VALUE if records else OBSERVED_EMPTY
+        reason_code = str(raw_map.get("reason_code") or ("OK" if state in {OBSERVED_VALUE, OBSERVED_EMPTY} else state))
+        if state in {OBSERVED_VALUE, OBSERVED_EMPTY} and raw_map.get("availability_state") in _A2_FACT_STATES:
+            state = str(raw_map["availability_state"])
+    elif isinstance(raw, Sequence) and not isinstance(raw, (str, bytes, bytearray)):
+        records = [dict(item) for item in raw if isinstance(item, Mapping)]
+        if len(records) != len(raw):
+            state, reason_code = MALFORMED, "FACT_RECORDS_MALFORMED"
+        else:
+            state = OBSERVED_VALUE if records else OBSERVED_EMPTY
+            reason_code = "OK" if records else "SOURCE_EMPTY"
+    else:
+        state, reason_code, records = MALFORMED, "FACT_PAYLOAD_MALFORMED", []
+    return {
+        "schema_version": A2_MARKET_FACT_SCHEMA,
+        "dataset": _validate_dataset(dataset),
+        "trade_date": _validate_trade_date(trade_date),
+        "as_of": _aware(as_of).isoformat(),
+        "event_time": event.isoformat(),
+        "fetch_time": fetched.isoformat(),
+        "ingested_at": _aware(ingested_at).isoformat(),
+        "source_id": str(source_id or "UNKNOWN"),
+        "source_kind": str(source_kind or "UNKNOWN"),
+        "published_scope": str(published_scope or "SYMBOL"),
+        "availability_state": state,
+        "available": state in {OBSERVED_VALUE, OBSERVED_EMPTY},
+        "reason_code": reason_code,
+        "records": records,
+        "payload": raw if isinstance(raw, Mapping) else {"records": records},
+        "metadata": metadata,
+    }
+
+
+def _read_trade_date_fact(
+    path: Path,
+    *,
+    dataset: str,
+    trade_date: str,
+    now: datetime | None,
+    max_age_seconds: float | None,
+) -> tuple[dict[str, Any] | None, str | None, str | None]:
+    if not path.is_file():
+        return None, None, None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError):
+        return None, MALFORMED, "FACT_CACHE_JSON_MALFORMED"
+    if not isinstance(payload, dict):
+        return None, MALFORMED, "FACT_CACHE_ENVELOPE_MALFORMED"
+    if (
+        payload.get("schema_version") != A2_MARKET_FACT_SCHEMA
+        or payload.get("dataset") != dataset
+        or payload.get("trade_date") != trade_date
+    ):
+        return None, MALFORMED, "FACT_CACHE_IDENTITY_MISMATCH"
+    state = str(payload.get("availability_state") or OBSERVED_VALUE)
+    if state not in _A2_FACT_STATES:
+        return None, MALFORMED, "FACT_CACHE_STATE_MALFORMED"
+    records = payload.get("records")
+    if not isinstance(records, list) or any(not isinstance(item, Mapping) for item in records):
+        return None, MALFORMED, "FACT_CACHE_RECORDS_MALFORMED"
+    expected = str(payload.get("content_hash") or "")
+    body = dict(payload)
+    body.pop("content_hash", None)
+    if not expected or expected != _content_hash(body):
+        return None, MALFORMED, "FACT_CACHE_HASH_MISMATCH"
+    if max_age_seconds is not None:
+        if isinstance(max_age_seconds, bool) or float(max_age_seconds) < 0:
+            raise ValueError("max_age_seconds must be non-negative")
+        ingested = _parse_datetime(payload.get("ingested_at"))
+        if ingested is None:
+            return None, MALFORMED, "FACT_CACHE_TIMESTAMP_MALFORMED"
+        reference = _aware(now or datetime.now(SHANGHAI))
+        if (reference - ingested).total_seconds() > float(max_age_seconds):
+            return None, STALE, "FACT_CACHE_STALE"
+    return payload, state, str(payload.get("reason_code") or "OK")
+
+
+def _failure_state(reason_code: Any) -> str:
+    reason = str(reason_code or "").upper()
+    if any(token in reason for token in ("MALFORM", "INVALID", "ENVELOPE")):
+        return MALFORMED
+    if "STALE" in reason:
+        return STALE
+    return SOURCE_UNAVAILABLE
+
+
+def _state_for_reason(reason_code: Any) -> str:
+    reason = str(reason_code or "").upper()
+    if reason in {"SOURCE_EMPTY", "OBSERVED_EMPTY", "NO_RECORDS"}:
+        return OBSERVED_EMPTY
+    if reason == "SOURCE_NOT_CONFIGURED":
+        return SOURCE_UNAVAILABLE
+    return _failure_state(reason)
+
+
 def _content_hash(value: Mapping[str, Any]) -> str:
     body = dict(value)
     body.pop("content_hash", None)
@@ -465,12 +1523,32 @@ def _content_hash(value: Mapping[str, Any]) -> str:
 
 
 __all__ = [
+    "A2_MARKET_FACT_SCHEMA",
+    "BOARD_FLOW_PROVIDER",
+    "BOARD_FLOW_SCHEMA",
     "CAPITAL_FLOW_PROVIDER",
     "CAPITAL_FLOW_SCHEMA",
     "CapitalFlowError",
+    "MALFORMED",
+    "OBSERVED_EMPTY",
+    "OBSERVED_VALUE",
+    "OUTSIDE_SCOPE",
+    "SOURCE_UNAVAILABLE",
+    "STALE",
+    "build_board_capital_flow_snapshot",
     "build_capital_flow_snapshot",
+    "collect_eastmoney_board_flow",
     "collect_eastmoney_capital_flow",
+    "collect_ths_market_fact",
+    "collect_trade_date_fact",
+    "inspect_board_capital_flow_snapshot",
+    "inspect_trade_date_fact",
+    "load_board_capital_flow_snapshot",
     "load_capital_flow_snapshot",
+    "load_trade_date_fact",
+    "persist_ths_market_fact",
     "unavailable_capital_flow_snapshot",
+    "write_board_capital_flow_snapshot",
     "write_capital_flow_snapshot",
+    "write_trade_date_fact",
 ]
