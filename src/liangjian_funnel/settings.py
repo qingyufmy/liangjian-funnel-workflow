@@ -123,6 +123,7 @@ class Settings(BaseModel):
     daily_refresh_hours: int = Field(default=4, ge=1, le=24 * 7)
     a2_capital_flow_enabled: bool = True
     a2_capital_flow_minimum_coverage: float = Field(default=0.90, ge=0.50, le=1.0)
+    a2_capital_flow_workers: int = Field(default=16, ge=1, le=32)
     simulation_initial_cash: float = Field(default=1_000_000.0, ge=0)
     # Thinking is an explicit capability of a client role. Research lanes
     # keep it enabled; the independent intraday monitor is intentionally
@@ -326,6 +327,7 @@ class Settings(BaseModel):
             a2_capital_flow_minimum_coverage=float(
                 env.get("LIANGJIAN_A2_CAPITAL_FLOW_MINIMUM_COVERAGE", "0.90")
             ),
+            a2_capital_flow_workers=int(env.get("LIANGJIAN_A2_CAPITAL_FLOW_WORKERS", "16")),
             simulation_initial_cash=float(env.get("LIANGJIAN_SIMULATION_INITIAL_CASH", "1000000")),
             research_thinking_enabled=_parse_bool(env.get("LIANGJIAN_RESEARCH_THINKING_ENABLED"), default=True),
             monitor_thinking_enabled=_parse_bool(env.get("LIANGJIAN_MONITOR_THINKING_ENABLED"), default=False),
@@ -404,6 +406,7 @@ class Settings(BaseModel):
             "daily_refresh_hours": self.daily_refresh_hours,
             "a2_capital_flow_enabled": self.a2_capital_flow_enabled,
             "a2_capital_flow_minimum_coverage": self.a2_capital_flow_minimum_coverage,
+            "a2_capital_flow_workers": self.a2_capital_flow_workers,
             "simulation_initial_cash": self.simulation_initial_cash,
             "research_thinking_enabled": self.research_thinking_enabled,
             "monitor_thinking_enabled": self.monitor_thinking_enabled,

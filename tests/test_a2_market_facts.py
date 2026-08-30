@@ -183,3 +183,50 @@ def test_current_board_flow_is_cached_and_historical_read_is_exact_date(tmp_path
     )
     assert calls == [("industry", "today")]
     assert replay == current
+
+
+def test_historical_board_flow_recovers_only_from_exact_provider_date(tmp_path: Path) -> None:
+    provider_timestamp = int(AS_OF.timestamp())
+
+    recovered = collect_eastmoney_board_flow(
+        as_of=AS_OF,
+        now=AS_OF + timedelta(days=1),
+        board_type="industry",
+        period="today",
+        cache_dir=tmp_path,
+        fetch_board=lambda *_: {
+            "rows": [{
+                "code": "BK0001",
+                "name": "基础化工",
+                "main_net": 10,
+                "provider_timestamp": provider_timestamp,
+            }]
+        },
+        allow_historical_recovery=True,
+    )
+
+    assert recovered["available"] is True
+    assert recovered["historical_recovery"] is True
+    assert recovered["provider_trade_date_verified"] is True
+
+
+def test_historical_board_flow_rejects_provider_date_mismatch(tmp_path: Path) -> None:
+    recovered = collect_eastmoney_board_flow(
+        as_of=AS_OF - timedelta(days=1),
+        now=AS_OF,
+        board_type="industry",
+        period="today",
+        cache_dir=tmp_path,
+        fetch_board=lambda *_: {
+            "rows": [{
+                "code": "BK0001",
+                "name": "基础化工",
+                "main_net": 10,
+                "provider_timestamp": int(AS_OF.timestamp()),
+            }]
+        },
+        allow_historical_recovery=True,
+    )
+
+    assert recovered["available"] is False
+    assert recovered["reason_code"] == "HISTORICAL_BOARD_FLOW_PROVIDER_DATE_MISMATCH"

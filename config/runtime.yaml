@@ -60,11 +60,16 @@ data_sources:
     rss_catalog: config/news_sources.json
   a2_market:
     responsibilities: [capital_flow, tier_structure, leader_structure, chain_resonance]
-    capital_flow_source: eastmoney_public_data_endpoint
+    structure_primary_source: hithink_ths
+    capital_flow_primary_source: tencent_qq_finance_today_fund_flow
+    capital_flow_fallback_source: eastmoney_delayed_public_data_endpoint
+    price_volume_validation_source: mootdx_tdx
+    capital_flow_unsupported_sources: [hithink_ths_official_api, mootdx_tdx]
     provider_method: VENDOR_DERIVED
     turnover_is_capital_flow: false
     point_in_time_cache_required: true
     minimum_coverage: 0.90
+    capital_flow_workers: 16
 models:
   research:
     - deepseek-v4-pro-0813

@@ -1,9 +1,9 @@
 """Point-in-time A2 market facts that remain separate from price proxies.
 
-The current free implementation uses Eastmoney's published all-market capital
-flow ranking through its public data endpoint.  The values are vendor derived,
-not exchange-reported facts.  A missing row is never replaced with turnover,
-return or attention data.
+Tencent's order-size fund-flow fields are the primary free stock-level source.
+Eastmoney remains a bounded fallback and the board-flow source.  Both are
+vendor-derived rather than exchange-reported facts.  A missing row is never
+replaced with turnover, return, attention, or ordinary OHLCV data.
 """
 
 from __future__ import annotations
@@ -12,9 +12,11 @@ import hashlib
 import json
 import math
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections.abc import Callable, Mapping, Sequence
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
+from threading import local
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -24,6 +26,7 @@ from ..reporting import atomic_write_json
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 CAPITAL_FLOW_SCHEMA = "a2-capital-flow/1.0.0"
 CAPITAL_FLOW_PROVIDER = "EASTMONEY_CAPITAL_FLOW_RANK"
+TENCENT_CAPITAL_FLOW_PROVIDER = "TENCENT_QQ_FINANCE_FUND_FLOW"
 PROVIDER_METHOD = "VENDOR_DERIVED"
 # A2 facts are point-in-time observations.  These states are intentionally
 # narrower than a boolean ``available`` flag: an empty limit-up set is useful
@@ -54,7 +57,10 @@ _BOARD_PERIODS: Mapping[str, tuple[str, str, str, str | None]] = {
     "10d": ("f174", "f175", "f160", None),
 }
 _BOARD_FS = {"industry": "m:90+t:2", "concept": "m:90+t:3", "region": "m:90+t:1"}
-_EASTMONEY_URL = "https://push2.eastmoney.com/api/qt/clist/get"
+_EASTMONEY_URLS = (
+    "https://push2.eastmoney.com/api/qt/clist/get",
+    "https://push2delay.eastmoney.com/api/qt/clist/get",
+)
 _EASTMONEY_UNIVERSE = "m:0+t:6+f:!2,m:0+t:13+f:!2,m:0+t:80+f:!2,m:1+t:2+f:!2,m:1+t:23+f:!2,m:0+t:7+f:!2,m:1+t:3+f:!2"
 _EASTMONEY_PAGE_SIZE = 5000
 _EASTMONEY_FIELDS: Mapping[str, tuple[str, str, str, str, str, str, str]] = {
@@ -69,6 +75,7 @@ WINDOWS: tuple[tuple[str, str, float], ...] = (
     ("5d", "5日", 0.25),
     ("10d", "10日", 0.15),
 )
+_TENCENT_THREAD_LOCAL = local()
 
 
 class CapitalFlowError(RuntimeError):
@@ -84,6 +91,7 @@ def collect_eastmoney_capital_flow(
     now: datetime | None = None,
     minimum_coverage: float = 0.90,
     cache_max_age_seconds: float | None = None,
+    allow_historical_recovery: bool = False,
 ) -> dict[str, Any]:
     """Load one cached trade date or collect the current all-market ranking.
 
@@ -103,7 +111,8 @@ def collect_eastmoney_capital_flow(
     )
     if cached is not None:
         return cached
-    if cutoff.date() != current.date():
+    historical_recovery = cutoff.date() != current.date()
+    if historical_recovery and not allow_historical_recovery:
         return unavailable_capital_flow_snapshot(
             as_of=cutoff,
             reason_code=(
@@ -124,6 +133,17 @@ def collect_eastmoney_capital_flow(
             frames[key] = fetch(indicator)
         except Exception as exc:  # provider boundary; error text is not persisted
             failures[key] = type(exc).__name__.upper()
+    provider_dates = _capital_flow_provider_dates(frames)
+    if historical_recovery and not _provider_dates_prove_trade_date(
+        provider_dates,
+        cutoff.date(),
+        require_today=True,
+    ):
+        return unavailable_capital_flow_snapshot(
+            as_of=cutoff,
+            reason_code="HISTORICAL_CAPITAL_FLOW_PROVIDER_DATE_MISMATCH",
+            expected_symbols=expected_symbols,
+        )
     snapshot = build_capital_flow_snapshot(
         frames,
         as_of=cutoff,
@@ -132,8 +152,140 @@ def collect_eastmoney_capital_flow(
         failures=failures,
         ingested_at=current,
     )
+    snapshot = _with_provider_date_proof(
+        snapshot,
+        provider_dates=provider_dates,
+        target_date=cutoff.date(),
+        historical_recovery=historical_recovery,
+    )
     # Persist partial and failed observations too.  The reason code and hash
     # are required to reproduce why A2 was blocked on that trade date.
+    write_capital_flow_snapshot(root, snapshot)
+    return snapshot
+
+
+def collect_tencent_capital_flow(
+    *,
+    as_of: datetime,
+    expected_symbols: Sequence[str],
+    cache_dir: str | Path,
+    fetch_symbol: Callable[[str], Any] | None = None,
+    fetch_trade_timestamp: Callable[[], Any] | None = None,
+    now: datetime | None = None,
+    minimum_coverage: float = 0.90,
+    workers: int = 16,
+    cache_max_age_seconds: float | None = None,
+    allow_historical_recovery: bool = False,
+) -> dict[str, Any]:
+    """Collect Tencent's actual order-size fund-flow fields cross-sectionally.
+
+    Tencent exposes one symbol per request. Collection is bounded and
+    concurrent, then normalized by the same cross-sectional percentile
+    contract as other vendors. A paired Tencent quote timestamp proves the
+    trade date; price or turnover is never converted into capital flow.
+    """
+
+    cutoff = _aware(as_of)
+    current = _aware(now or datetime.now(SHANGHAI))
+    root = Path(cache_dir)
+    cached, cache_state = _load_capital_flow_cache_state(
+        root,
+        cutoff.date().isoformat(),
+        now=current,
+        max_age_seconds=cache_max_age_seconds,
+    )
+    if cached is not None:
+        return cached
+    historical_recovery = cutoff.date() != current.date()
+    if historical_recovery and not allow_historical_recovery:
+        return unavailable_capital_flow_snapshot(
+            as_of=cutoff,
+            reason_code=(
+                "HISTORICAL_CAPITAL_FLOW_CACHE_STALE"
+                if cache_state == STALE
+                else "HISTORICAL_CAPITAL_FLOW_CACHE_MALFORMED"
+                if cache_state == MALFORMED
+                else "HISTORICAL_CAPITAL_FLOW_CACHE_MISSING"
+            ),
+            expected_symbols=expected_symbols,
+            source_id=TENCENT_CAPITAL_FLOW_PROVIDER,
+        )
+    if isinstance(workers, bool) or not 1 <= int(workers) <= 32:
+        raise ValueError("Tencent capital-flow workers must be between 1 and 32")
+    trade_timestamp_fetch = fetch_trade_timestamp or _tencent_trade_timestamp_fetcher
+    provider_timestamp = trade_timestamp_fetch()
+    provider_date = _provider_timestamp_date(provider_timestamp)
+    if provider_date is None or provider_date != cutoff.date():
+        return unavailable_capital_flow_snapshot(
+            as_of=cutoff,
+            reason_code=(
+                "HISTORICAL_CAPITAL_FLOW_PROVIDER_DATE_MISMATCH"
+                if historical_recovery
+                else "CAPITAL_FLOW_PROVIDER_DATE_MISMATCH"
+            ),
+            expected_symbols=expected_symbols,
+            source_id=TENCENT_CAPITAL_FLOW_PROVIDER,
+        )
+
+    symbols = tuple(dict.fromkeys(
+        normalized
+        for value in expected_symbols
+        if (normalized := _normalize_symbol(value))
+    ))
+    fetch = fetch_symbol or _tencent_symbol_flow_fetcher
+    rows: list[Mapping[str, Any]] = []
+    failed_symbols: list[str] = []
+    with ThreadPoolExecutor(max_workers=int(workers), thread_name_prefix="tencent-flow") as executor:
+        futures = {executor.submit(fetch, symbol): symbol for symbol in symbols}
+        for future in as_completed(futures):
+            symbol = futures[future]
+            try:
+                raw = future.result()
+            except Exception:
+                failed_symbols.append(symbol)
+                continue
+            if not isinstance(raw, Mapping):
+                failed_symbols.append(symbol)
+                continue
+            row = dict(raw)
+            row.setdefault("symbol", symbol)
+            row["provider_timestamp"] = provider_timestamp
+            rows.append(row)
+
+    failures = {
+        "3d": "TENCENT_WINDOW_UNAVAILABLE",
+        "5d": "TENCENT_WINDOW_UNAVAILABLE",
+        "10d": "TENCENT_WINDOW_UNAVAILABLE",
+    }
+    if not rows:
+        failures["today"] = "TENCENT_FLOW_UNAVAILABLE"
+    snapshot = build_capital_flow_snapshot(
+        {"today": rows},
+        as_of=cutoff,
+        expected_symbols=symbols,
+        minimum_coverage=minimum_coverage,
+        failures=failures,
+        ingested_at=current,
+        source_id=TENCENT_CAPITAL_FLOW_PROVIDER,
+        source_ref_prefix="tencent",
+    )
+    snapshot = _with_provider_date_proof(
+        snapshot,
+        provider_dates={"today": (provider_date,)},
+        target_date=cutoff.date(),
+        historical_recovery=historical_recovery,
+    )
+    snapshot.pop("content_hash", None)
+    snapshot["provider_capabilities"] = {
+        "today": True,
+        "3d": False,
+        "5d": False,
+        "10d": False,
+    }
+    snapshot["requested_symbol_count"] = len(symbols)
+    snapshot["failed_symbol_count"] = len(failed_symbols)
+    snapshot["failed_symbols_sample"] = sorted(failed_symbols)[:100]
+    snapshot["content_hash"] = _content_hash(snapshot)
     write_capital_flow_snapshot(root, snapshot)
     return snapshot
 
@@ -146,6 +298,8 @@ def build_capital_flow_snapshot(
     minimum_coverage: float = 0.90,
     failures: Mapping[str, str] | None = None,
     ingested_at: datetime | None = None,
+    source_id: str = CAPITAL_FLOW_PROVIDER,
+    source_ref_prefix: str = "eastmoney",
 ) -> dict[str, Any]:
     cutoff = _aware(as_of)
     ingested = _aware(ingested_at or cutoff)
@@ -186,6 +340,7 @@ def build_capital_flow_snapshot(
                 "net_inflow_ratio_pct": ratio,
                 "large_inflow_ratio_pct": large_ratio,
                 "super_inflow_ratio_pct": super_ratio,
+                "provider_timestamp": _pick(row, "provider_timestamp", "f124"),
             }
         ratios = {
             symbol: values["net_inflow_ratio_pct"]
@@ -252,7 +407,7 @@ def build_capital_flow_snapshot(
             if score is not None:
                 weighted += score * weight
                 available_weight += weight
-                source_refs.append(f"eastmoney:capital-flow:{cutoff.date().isoformat()}:{key}")
+                source_refs.append(f"{source_ref_prefix}:capital-flow:{cutoff.date().isoformat()}:{key}")
         today = metrics.get("today", {})
         today_observed = today.get("availability_state") == "OBSERVED_VALUE"
         score = weighted / available_weight if today_observed and available_weight > 0 else None
@@ -271,7 +426,12 @@ def build_capital_flow_snapshot(
     available = bool(normalized.get("today")) and today_coverage >= minimum_coverage
     reason = "OK" if available and not failures else "PARTIAL_WINDOWS" if available else "CAPITAL_FLOW_COVERAGE_INSUFFICIENT"
     states = {str(item.get("availability_state")) for item in window_diagnostics.values()}
-    if any(state == MALFORMED for state in states):
+    if available:
+        # Tencent intentionally exposes only today's order-size split. Missing
+        # optional history is a capability declaration, not a contradiction
+        # of the fully covered today cross-section.
+        snapshot_state = OBSERVED_VALUE
+    elif any(state == MALFORMED for state in states):
         snapshot_state = MALFORMED
     elif any(state == SOURCE_UNAVAILABLE for state in states):
         snapshot_state = SOURCE_UNAVAILABLE
@@ -288,7 +448,7 @@ def build_capital_flow_snapshot(
         "available": available,
         "availability_state": snapshot_state,
         "reason_code": reason,
-        "source_id": CAPITAL_FLOW_PROVIDER,
+        "source_id": source_id,
         "source_tier": "T2",
         "provider_method": PROVIDER_METHOD,
         "authority_class": "VENDOR_DERIVED_NOT_EXCHANGE_FACT",
@@ -305,11 +465,38 @@ def build_capital_flow_snapshot(
     return payload
 
 
+def with_capital_flow_provider_attempts(
+    snapshot: Mapping[str, Any],
+    attempts: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Attach redacted provider-routing evidence and preserve hash integrity."""
+
+    result = dict(snapshot)
+    result.pop("content_hash", None)
+    result["provider_attempts"] = [
+        {
+            "source_id": str(item.get("source_id") or "UNKNOWN"),
+            "available": item.get("available") is True,
+            "availability_state": str(item.get("availability_state") or "UNKNOWN"),
+            "reason_code": str(item.get("reason_code") or "UNKNOWN"),
+            "today_coverage_ratio": float(
+                ((item.get("coverage_by_window") or {}).get("today") or {}).get("coverage_ratio")
+                or 0.0
+            ),
+        }
+        for item in attempts
+        if isinstance(item, Mapping)
+    ]
+    result["content_hash"] = _content_hash(result)
+    return result
+
+
 def unavailable_capital_flow_snapshot(
     *,
     as_of: datetime,
     reason_code: str,
     expected_symbols: Sequence[str],
+    source_id: str = CAPITAL_FLOW_PROVIDER,
 ) -> dict[str, Any]:
     cutoff = _aware(as_of)
     availability_state = _state_for_reason(reason_code)
@@ -318,7 +505,7 @@ def unavailable_capital_flow_snapshot(
         "available": False,
         "availability_state": availability_state,
         "reason_code": reason_code,
-        "source_id": CAPITAL_FLOW_PROVIDER,
+        "source_id": source_id,
         "source_tier": "T2",
         "provider_method": PROVIDER_METHOD,
         "authority_class": "VENDOR_DERIVED_NOT_EXCHANGE_FACT",
@@ -766,6 +953,7 @@ def build_board_capital_flow_snapshot(
             "large_net_cny": _number(_pick(row, "large_net", "大单净流入", "f72")),
             "medium_net_cny": _number(_pick(row, "medium_net", "中单净流入", "f78")),
             "small_net_cny": _number(_pick(row, "small_net", "小单净流入", "f84")),
+            "provider_timestamp": _pick(row, "provider_timestamp", "f124"),
         })
     # Stable ordering protects the hash and makes a replay diff meaningful.
     normalized.sort(key=lambda item: (int(item.get("rank") or 0), item["code"], item["name"]))
@@ -892,6 +1080,7 @@ def collect_eastmoney_board_flow(
     fetch_board: Callable[[str, str], Any] | None = None,
     now: datetime | None = None,
     max_age_seconds: float | None = None,
+    allow_historical_recovery: bool = False,
 ) -> dict[str, Any]:
     """Collect one board-flow period; historical dates are cache-only."""
 
@@ -910,7 +1099,8 @@ def collect_eastmoney_board_flow(
     )
     if inspected["available"]:
         return dict(inspected["snapshot"])
-    if cutoff.date() != current.date():
+    historical_recovery = cutoff.date() != current.date()
+    if historical_recovery and not allow_historical_recovery:
         return _unavailable_board_flow_snapshot(
             as_of=cutoff,
             board_type=board_type,
@@ -921,12 +1111,30 @@ def collect_eastmoney_board_flow(
     fetch = fetch_board or _eastmoney_board_flow_fetcher
     try:
         raw = fetch(board_type, period)
+        provider_dates = _board_flow_provider_dates(raw)
+        if historical_recovery and not _provider_dates_prove_trade_date(
+            {period: provider_dates},
+            cutoff.date(),
+        ):
+            return _unavailable_board_flow_snapshot(
+                as_of=cutoff,
+                board_type=board_type,
+                period=period,
+                state=SOURCE_UNAVAILABLE,
+                reason_code="HISTORICAL_BOARD_FLOW_PROVIDER_DATE_MISMATCH",
+            )
         snapshot = build_board_capital_flow_snapshot(
             raw,
             as_of=cutoff,
             board_type=board_type,
             period=period,
             ingested_at=current,
+        )
+        snapshot = _with_provider_date_proof(
+            snapshot,
+            provider_dates={period: provider_dates},
+            target_date=cutoff.date(),
+            historical_recovery=historical_recovery,
         )
     except Exception as exc:  # provider boundary
         snapshot = _unavailable_board_flow_snapshot(
@@ -982,7 +1190,7 @@ def _eastmoney_board_flow_fetcher(board_type: str, period: str) -> dict[str, Any
     from urllib3.util.retry import Retry
 
     fid, _pct_field, change_field, leader_field = _BOARD_PERIODS[period]
-    fields = ["f12", "f14", change_field, fid, _pct_field]
+    fields = ["f12", "f14", change_field, fid, _pct_field, "f124"]
     if leader_field:
         fields.append(leader_field)
     if period == "today":
@@ -1001,9 +1209,7 @@ def _eastmoney_board_flow_fetcher(board_type: str, period: str) -> dict[str, Any
     page = 1
     total: int | None = None
     while total is None or len(rows) < total:
-        response = session.get(
-            _EASTMONEY_URL,
-            params={
+        params = {
                 "pz": "200",
                 "po": "1",
                 "np": "1",
@@ -1013,12 +1219,12 @@ def _eastmoney_board_flow_fetcher(board_type: str, period: str) -> dict[str, Any
                 "fid": fid,
                 "fs": _BOARD_FS[board_type],
                 "fields": ",".join(dict.fromkeys(fields)),
-            },
+            }
+        body, provider_url = _eastmoney_get_json(
+            session,
+            params=params,
             headers={"User-Agent": "Mozilla/5.0 (compatible; LiangjianResearch/2.0)", "Referer": "https://data.eastmoney.com/"},
-            timeout=(5, 20),
         )
-        response.raise_for_status()
-        body = response.json()
         data = body.get("data") if isinstance(body, Mapping) else None
         if not isinstance(data, Mapping) or not isinstance(data.get("diff"), list):
             raise CapitalFlowError("board capital-flow provider envelope invalid")
@@ -1038,6 +1244,8 @@ def _eastmoney_board_flow_fetcher(board_type: str, period: str) -> dict[str, Any
                 "large_net": item.get("f72"),
                 "medium_net": item.get("f78"),
                 "small_net": item.get("f84"),
+                "provider_timestamp": item.get("f124"),
+                "provider_host": provider_url,
             })
         page += 1
         if page > 100:
@@ -1045,6 +1253,36 @@ def _eastmoney_board_flow_fetcher(board_type: str, period: str) -> dict[str, Any
         if not page_rows:
             break
     return {"rows": rows, "total": total or len(rows)}
+
+
+def _eastmoney_get_json(
+    session: Any,
+    *,
+    params: Mapping[str, Any],
+    headers: Mapping[str, str],
+) -> tuple[Mapping[str, Any], str]:
+    """Read one Eastmoney payload through an ordered, equivalent host set.
+
+    Some deployment networks terminate ``push2`` while the vendor's delayed
+    public host remains reachable. Both hosts expose the same clist contract;
+    the selected URL is retained in normalized rows for audit.
+    """
+
+    for url in _EASTMONEY_URLS:
+        try:
+            response = session.get(
+                url,
+                params=dict(params),
+                headers=dict(headers),
+                timeout=(5, 20),
+            )
+            response.raise_for_status()
+            payload = response.json()
+            if isinstance(payload, Mapping):
+                return payload, url
+        except Exception:
+            continue
+    raise CapitalFlowError("eastmoney public hosts unavailable")
 
 
 def _board_records(value: Any) -> tuple[list[Mapping[str, Any]], int | None, int]:
@@ -1087,6 +1325,7 @@ def _eastmoney_rank_fetcher(indicator: str) -> list[dict[str, Any]]:
     if key is None:
         raise CapitalFlowError("unsupported capital-flow window")
     fid, fields, amount_field, ratio_field, large_amount_field, large_ratio_field, super_ratio_field = _EASTMONEY_FIELDS[key]
+    fields = ",".join(dict.fromkeys([*fields.split(","), "f124"]))
     retry = Retry(
         total=3,
         connect=3,
@@ -1105,9 +1344,7 @@ def _eastmoney_rank_fetcher(indicator: str) -> list[dict[str, Any]]:
     page = 1
     total = None
     while total is None or len(rows) < total:
-        response = session.get(
-            _EASTMONEY_URL,
-            params={
+        params = {
                 "fid": fid,
                 "po": "1",
                 # The endpoint accepts a large bounded page.  A full A-share
@@ -1122,12 +1359,12 @@ def _eastmoney_rank_fetcher(indicator: str) -> list[dict[str, Any]]:
                 "ut": "b2884a393a59ad64002292a3e90d46a5",
                 "fs": _EASTMONEY_UNIVERSE,
                 "fields": fields,
-            },
+            }
+        payload, provider_url = _eastmoney_get_json(
+            session,
+            params=params,
             headers=headers,
-            timeout=(5, 20),
         )
-        response.raise_for_status()
-        payload = response.json()
         data = payload.get("data") if isinstance(payload, Mapping) else None
         if not isinstance(data, Mapping) or not isinstance(data.get("diff"), list):
             raise CapitalFlowError("capital-flow provider envelope invalid")
@@ -1144,11 +1381,158 @@ def _eastmoney_rank_fetcher(indicator: str) -> list[dict[str, Any]]:
                 "large_inflow_amount": item.get(large_amount_field),
                 "large_inflow_ratio": item.get(large_ratio_field),
                 "super_inflow_ratio": item.get(super_ratio_field),
+                "provider_timestamp": item.get("f124"),
+                "provider_host": provider_url,
             })
         page += 1
         if page > 100:
             raise CapitalFlowError("capital-flow provider page bound exceeded")
     return rows
+
+
+def _tencent_trade_timestamp_fetcher() -> str:
+    """Return Tencent's own quote timestamp for point-in-time date proof."""
+
+    session = _tencent_http_session()
+    response = session.get(
+        "https://qt.gtimg.cn/q=sh000001",
+        timeout=(5, 12),
+        headers={
+            "User-Agent": "Mozilla/5.0 (compatible; LiangjianResearch/2.0)",
+            "Referer": "https://gu.qq.com/",
+        },
+    )
+    response.raise_for_status()
+    response.encoding = "gbk"
+    return _parse_tencent_quote_timestamp(response.text)
+
+
+def _tencent_symbol_flow_fetcher(symbol: str) -> dict[str, Any]:
+    """Fetch and normalize one Tencent todayFundFlow record."""
+
+    provider_symbol = _tencent_symbol(symbol)
+    session = _tencent_http_session()
+    response = session.get(
+        "https://proxy.finance.qq.com/cgi/cgi-bin/fundflow/hsfundtab",
+        params={
+            "code": provider_symbol,
+            "type": "todayFundFlow",
+            "klineNeedDay": "1",
+        },
+        timeout=(5, 12),
+        headers={
+            "User-Agent": "Mozilla/5.0 (compatible; LiangjianResearch/2.0)",
+            "Referer": f"https://gu.qq.com/{provider_symbol}/gp",
+        },
+    )
+    response.raise_for_status()
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise CapitalFlowError("Tencent capital-flow response is not JSON") from exc
+    return _parse_tencent_flow_payload(payload, expected_symbol=symbol)
+
+
+def _tencent_http_session() -> Any:
+    """Reuse one bounded retrying session per worker thread."""
+
+    session = getattr(_TENCENT_THREAD_LOCAL, "session", None)
+    if session is not None:
+        return session
+    import requests  # lazy: cached replays remain network-free
+    from requests.adapters import HTTPAdapter
+    from urllib3.util.retry import Retry
+
+    retry = Retry(
+        total=2,
+        connect=2,
+        read=2,
+        backoff_factor=0.25,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=frozenset({"GET"}),
+        raise_on_status=False,
+    )
+    session = requests.Session()
+    session.mount("https://", HTTPAdapter(max_retries=retry, pool_connections=1, pool_maxsize=1))
+    _TENCENT_THREAD_LOCAL.session = session
+    return session
+
+
+def _parse_tencent_quote_timestamp(raw: Any) -> str:
+    text = str(raw or "").strip()
+    match = re.search(r'=\s*"([^"]*)"', text)
+    if not match:
+        raise CapitalFlowError("Tencent quote envelope invalid")
+    fields = match.group(1).split("~")
+    if len(fields) <= 30 or not re.fullmatch(r"\d{14}", fields[30].strip()):
+        raise CapitalFlowError("Tencent quote timestamp missing")
+    return fields[30].strip()
+
+
+def _parse_tencent_flow_payload(
+    payload: Any,
+    *,
+    expected_symbol: str,
+) -> dict[str, Any]:
+    if not isinstance(payload, Mapping):
+        raise CapitalFlowError("Tencent capital-flow envelope invalid")
+    data = payload.get("data")
+    today = data.get("todayFundFlow") if isinstance(data, Mapping) else None
+    if not isinstance(today, Mapping):
+        raise CapitalFlowError("Tencent today capital-flow row missing")
+
+    actual_symbol = _normalize_symbol(today.get("stockCode") or expected_symbol)
+    normalized_expected = _normalize_symbol(expected_symbol)
+    if not actual_symbol or actual_symbol != normalized_expected:
+        raise CapitalFlowError("Tencent capital-flow symbol mismatch")
+
+    main_net = _number(today.get("mainNetIn"))
+    main_in = _number(today.get("mainIn"))
+    main_out = _number(today.get("mainOut"))
+    retail_in = _number(today.get("retailIn"))
+    retail_out = _number(today.get("retailOut"))
+    super_net = _number(today.get("superFlow"))
+    big_net = _number(today.get("bigFlow"))
+    if main_net is None:
+        raise CapitalFlowError("Tencent main net inflow missing")
+
+    # Tencent documents main/retail as mutually exclusive order-size buckets.
+    # Their gross sum is therefore a vendor flow denominator, not turnover or
+    # a value reconstructed from OHLCV. Preserve amounts even when a ratio
+    # cannot be computed.
+    gross_values = (main_in, main_out, retail_in, retail_out)
+    gross_flow = (
+        sum(float(value) for value in gross_values if value is not None)
+        if all(value is not None and value >= 0 for value in gross_values)
+        else None
+    )
+    denominator = gross_flow if gross_flow is not None and gross_flow > 0 else None
+    return {
+        "symbol": normalized_expected,
+        "name": "",
+        "net_inflow_amount": main_net,
+        "net_inflow_ratio": main_net / denominator * 100.0 if denominator else None,
+        "large_inflow_amount": big_net,
+        "large_inflow_ratio": big_net / denominator * 100.0 if denominator and big_net is not None else None,
+        "super_inflow_ratio": (
+            super_net / denominator * 100.0
+            if denominator and super_net is not None
+            else None
+        ),
+        "provider_symbol": str(today.get("stockCode") or ""),
+        "vendor_rank": str(today.get("rank") or ""),
+    }
+
+
+def _tencent_symbol(value: Any) -> str:
+    symbol = _normalize_symbol(value)
+    if not symbol:
+        raise CapitalFlowError("Tencent capital-flow symbol invalid")
+    code, exchange = symbol.split(".", 1)
+    prefix = {"SH": "sh", "SZ": "sz", "BJ": "bj"}.get(exchange)
+    if prefix is None:
+        raise CapitalFlowError("Tencent capital-flow exchange unsupported")
+    return f"{prefix}{code}"
 
 
 def _records(value: Any) -> tuple[Mapping[str, Any], ...]:
@@ -1257,6 +1641,105 @@ def _parse_datetime(value: Any) -> datetime | None:
     if candidate.tzinfo is None or candidate.utcoffset() is None:
         return None
     return candidate.astimezone(SHANGHAI)
+
+
+def _provider_timestamp_date(value: Any) -> date | None:
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        timestamp = float(value)
+        if not math.isfinite(timestamp) or timestamp <= 0:
+            return None
+        if timestamp > 100_000_000_000:
+            timestamp /= 1000.0
+        try:
+            return datetime.fromtimestamp(timestamp, SHANGHAI).date()
+        except (OverflowError, OSError, ValueError):
+            return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if re.fullmatch(r"\d{14}", text):
+        try:
+            return datetime.strptime(text, "%Y%m%d%H%M%S").replace(tzinfo=SHANGHAI).date()
+        except ValueError:
+            return None
+    if re.fullmatch(r"\d+(?:\.\d+)?", text):
+        try:
+            return _provider_timestamp_date(float(text))
+        except ValueError:
+            return None
+    parsed = _parse_datetime(text)
+    if parsed is not None:
+        return parsed.date()
+    try:
+        return date.fromisoformat(text[:10])
+    except ValueError:
+        return None
+
+
+def _capital_flow_provider_dates(frames: Mapping[str, Any]) -> dict[str, tuple[date, ...]]:
+    result: dict[str, tuple[date, ...]] = {}
+    for window, raw in frames.items():
+        try:
+            rows = _records(raw)
+        except CapitalFlowError:
+            continue
+        dates = {
+            parsed
+            for row in rows
+            if (parsed := _provider_timestamp_date(_pick(row, "provider_timestamp", "f124")))
+            is not None
+        }
+        if dates:
+            result[str(window)] = tuple(sorted(dates))
+    return result
+
+
+def _board_flow_provider_dates(raw: Any) -> tuple[date, ...]:
+    rows, _total, _malformed = _board_records(raw)
+    dates = {
+        parsed
+        for row in rows
+        if (parsed := _provider_timestamp_date(_pick(row, "provider_timestamp", "f124")))
+        is not None
+    }
+    return tuple(sorted(dates))
+
+
+def _provider_dates_prove_trade_date(
+    provider_dates: Mapping[str, Sequence[date]],
+    target_date: date,
+    *,
+    require_today: bool = False,
+) -> bool:
+    if require_today and not provider_dates.get("today"):
+        return False
+    observed = [item for dates in provider_dates.values() for item in dates]
+    return bool(observed) and all(item == target_date for item in observed)
+
+
+def _with_provider_date_proof(
+    snapshot: Mapping[str, Any],
+    *,
+    provider_dates: Mapping[str, Sequence[date]],
+    target_date: date,
+    historical_recovery: bool,
+) -> dict[str, Any]:
+    result = dict(snapshot)
+    result.pop("content_hash", None)
+    result["provider_trade_dates"] = {
+        key: [item.isoformat() for item in dates]
+        for key, dates in sorted(provider_dates.items())
+    }
+    result["provider_trade_date_verified"] = _provider_dates_prove_trade_date(
+        provider_dates,
+        target_date,
+        require_today="today" in provider_dates,
+    )
+    result["historical_recovery"] = bool(historical_recovery)
+    result["content_hash"] = _content_hash(result)
+    return result
 
 
 def _validate_dataset(value: Any) -> str:
@@ -1539,6 +2022,7 @@ __all__ = [
     "build_capital_flow_snapshot",
     "collect_eastmoney_board_flow",
     "collect_eastmoney_capital_flow",
+    "collect_tencent_capital_flow",
     "collect_ths_market_fact",
     "collect_trade_date_fact",
     "inspect_board_capital_flow_snapshot",
@@ -1548,6 +2032,7 @@ __all__ = [
     "load_trade_date_fact",
     "persist_ths_market_fact",
     "unavailable_capital_flow_snapshot",
+    "with_capital_flow_provider_attempts",
     "write_board_capital_flow_snapshot",
     "write_capital_flow_snapshot",
     "write_trade_date_fact",

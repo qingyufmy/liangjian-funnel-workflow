@@ -28,6 +28,7 @@ def test_enrichment_uses_snapshot_metadata_without_overwriting_model_fields() ->
     )
 
     row = result["active_research_pool"][0]
+    assert row["name"] == "甲公司"
     assert row["company_name"] == "甲公司"
     assert row["core_thesis"] == "模型逻辑"
     assert row["ths_industries"] == [{"industry_thscode": "881001.TI", "industry_name": "行业甲"}]

@@ -34,6 +34,7 @@ def test_exact_models_and_safe_summary_do_not_leak_keys(tmp_path: Path):
     assert settings.cninfo_pdf_workers == 2
     assert settings.fundamental_refresh_hours == 24
     assert settings.daily_refresh_hours == 4
+    assert settings.a2_capital_flow_workers == 16
     assert settings.open_macro_enabled is True
     assert settings.open_macro_cache_dir == tmp_path / "storage" / "facts" / "open_macro"
     assert settings.research_thinking_enabled is True
@@ -142,6 +143,15 @@ def test_cninfo_worker_bounds_are_configurable(tmp_path: Path):
         Settings.from_env({"LIANGJIAN_CNINFO_WORKERS": "0"}, root=tmp_path)
     with pytest.raises(ValidationError):
         Settings.from_env({"LIANGJIAN_CNINFO_PDF_WORKERS": "5"}, root=tmp_path)
+
+
+def test_a2_capital_flow_workers_are_bounded(tmp_path: Path):
+    settings = Settings.from_env({"LIANGJIAN_A2_CAPITAL_FLOW_WORKERS": "24"}, root=tmp_path)
+    assert settings.a2_capital_flow_workers == 24
+    assert settings.safe_summary()["a2_capital_flow_workers"] == 24
+
+    with pytest.raises(ValidationError):
+        Settings.from_env({"LIANGJIAN_A2_CAPITAL_FLOW_WORKERS": "33"}, root=tmp_path)
 
 
 def test_only_https_endpoints_are_allowed(tmp_path: Path):

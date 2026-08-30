@@ -61,8 +61,11 @@ def enrich_candidate_metadata(
                 enriched.append(row)
                 continue
             row["symbol"] = symbol
-            if not row.get("company_name") and not row.get("name"):
-                row["company_name"] = metadata.get("company_name")
+            canonical_name = metadata.get("company_name")
+            if canonical_name and not row.get("name"):
+                row["name"] = canonical_name
+            if canonical_name and not row.get("company_name"):
+                row["company_name"] = canonical_name
             if row.get("company_name") or row.get("name"):
                 named += 1
             if not row.get("ths_industries"):

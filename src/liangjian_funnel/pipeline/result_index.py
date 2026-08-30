@@ -195,7 +195,7 @@ def _symbol(value: Mapping[str, Any]) -> str:
 
 
 def _name(value: Mapping[str, Any]) -> str:
-    for key in ("name", "stock_name", "security_name"):
+    for key in ("name", "company_name", "stock_name", "security_name"):
         raw = value.get(key)
         if isinstance(raw, str) and raw.strip():
             return raw.strip()

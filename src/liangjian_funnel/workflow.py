@@ -19,7 +19,9 @@ from .data.cache import MinuteBarStore
 from .data.a2_market import (
     collect_eastmoney_board_flow,
     collect_eastmoney_capital_flow,
+    collect_tencent_capital_flow,
     unavailable_capital_flow_snapshot,
+    with_capital_flow_provider_attempts,
 )
 from .data.bse import BseClient
 from .data.cninfo import CninfoAnnouncement, CninfoClient, CninfoFetchResult
@@ -2299,19 +2301,44 @@ class WorkflowApplication:
             as_of=as_of,
         )
         if self.settings.a2_capital_flow_enabled:
+            capital_attempts: list[dict[str, Any]] = []
             try:
-                capital_flow = collect_eastmoney_capital_flow(
+                capital_flow = collect_tencent_capital_flow(
                     as_of=as_of,
                     expected_symbols=g0_symbols,
-                    cache_dir=self.settings.fact_store_dir / "a2_market",
+                    cache_dir=self.settings.fact_store_dir / "a2_market" / "tencent",
                     minimum_coverage=self.settings.a2_capital_flow_minimum_coverage,
+                    workers=self.settings.a2_capital_flow_workers,
                 )
             except Exception:
                 capital_flow = unavailable_capital_flow_snapshot(
                     as_of=as_of,
-                    reason_code="CAPITAL_FLOW_NORMALIZATION_FAILED",
+                    reason_code="TENCENT_CAPITAL_FLOW_NORMALIZATION_FAILED",
                     expected_symbols=g0_symbols,
+                    source_id="TENCENT_QQ_FINANCE_FUND_FLOW",
                 )
+            capital_attempts.append(capital_flow)
+            if capital_flow.get("available") is not True:
+                try:
+                    eastmoney_fallback = collect_eastmoney_capital_flow(
+                        as_of=as_of,
+                        expected_symbols=g0_symbols,
+                        # Preserve the established point-in-time cache path;
+                        # Tencent uses its own subdirectory so provider files
+                        # can never overwrite each other.
+                        cache_dir=self.settings.fact_store_dir / "a2_market",
+                        minimum_coverage=self.settings.a2_capital_flow_minimum_coverage,
+                    )
+                except Exception:
+                    eastmoney_fallback = unavailable_capital_flow_snapshot(
+                        as_of=as_of,
+                        reason_code="EASTMONEY_CAPITAL_FLOW_NORMALIZATION_FAILED",
+                        expected_symbols=g0_symbols,
+                    )
+                capital_attempts.append(eastmoney_fallback)
+                if eastmoney_fallback.get("available") is True:
+                    capital_flow = eastmoney_fallback
+            capital_flow = with_capital_flow_provider_attempts(capital_flow, capital_attempts)
         else:
             capital_flow = unavailable_capital_flow_snapshot(
                 as_of=as_of,

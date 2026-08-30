@@ -87,7 +87,7 @@ data_sources:
     earnings_consensus: ths
     dragon_tiger: exchange_official
     lockup_release: eastmoney
-    capital_flow: eastmoney
+    capital_flow: tencent_qq_finance
     margin_balance: exchange_official
     news_flash: cls
     news_flash_backup: eastmoney_7x24
@@ -100,7 +100,7 @@ data_sources:
     daily_ohlcv: [sina, gm, akshare]
     financial_statements: [ths, sina, mootdx]
     dragon_tiger: [eastmoney, akshare]
-    capital_flow: [baidu_stock]
+    capital_flow: [eastmoney_delayed, baidu_stock]
 
   akshare:
     role: VALIDATOR_AND_NONCRITICAL_OPEN_AGGREGATOR
