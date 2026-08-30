@@ -25,6 +25,7 @@ SCHEMA_VERSION = "institution-strategy-consensus/1.0.0"
 # normalizing every accepted document to the public contract above.
 _SUPPORTED_SCHEMA_VERSIONS = frozenset({SCHEMA_VERSION, "research-consensus/1.0.0"})
 SOURCE_TYPE = "PUBLIC_INSTITUTION_STRATEGY_AGGREGATION"
+PRIVATE_ATTACHMENT_SOURCE_TYPE = "PRIVATE_RESEARCH_ATTACHMENT"
 EVIDENCE_TIER = "T2"
 
 MAX_DOCUMENTS = 12
@@ -49,7 +50,6 @@ _REQUIRED_DOCUMENT_FIELDS = frozenset(
         "schema_version",
         "document_id",
         "title",
-        "source_url",
         "publisher",
         "publish_time",
         "effective_month",
@@ -59,7 +59,12 @@ _REQUIRED_DOCUMENT_FIELDS = frozenset(
         "verification_plan",
     }
 )
-_ALLOWED_DOCUMENT_FIELDS = _REQUIRED_DOCUMENT_FIELDS | {"source_type"}
+_ALLOWED_DOCUMENT_FIELDS = _REQUIRED_DOCUMENT_FIELDS | {
+    "source_type",
+    "source_url",
+    "source_ref",
+    "source_label",
+}
 _INSTITUTION_FIELDS = frozenset(
     {
         "institution_id",
@@ -100,6 +105,8 @@ _CODE_EXEMPT_KEYS = frozenset(
         "schema_version",
         "document_id",
         "source_url",
+        "source_ref",
+        "source_label",
         "publish_time",
         "effective_month",
         "source_type",
@@ -181,6 +188,71 @@ def unavailable_research_consensus(
         documents=(),
         invalid_documents=(),
     )
+
+
+def project_a2_research_hypotheses(bundle: Mapping[str, Any]) -> dict[str, Any]:
+    """Project T2 strategy views into a compact, non-scoring A2 input.
+
+    A2 receives only theme hypotheses, conditions, counter-signals and
+    verification questions.  It never receives authority to change the
+    deterministic factor snapshot, create an out-of-A1 symbol, or treat a
+    viewpoint as a fact.  Keeping this projection small also avoids repeating
+    the full monthly research packet in every A2 model batch.
+    """
+
+    documents_raw = bundle.get("documents")
+    documents = documents_raw if isinstance(documents_raw, list) else []
+    projected_documents: list[dict[str, Any]] = []
+    for document in documents[:MAX_DOCUMENTS]:
+        if not isinstance(document, Mapping):
+            continue
+        hypotheses: list[dict[str, Any]] = []
+        institutions = document.get("institutions")
+        if isinstance(institutions, list):
+            for institution in institutions:
+                if not isinstance(institution, Mapping):
+                    continue
+                tilts = institution.get("industry_tilts")
+                if not isinstance(tilts, list):
+                    continue
+                for tilt in tilts:
+                    if not isinstance(tilt, Mapping) or len(hypotheses) >= MAX_INDUSTRY_TILTS:
+                        continue
+                    hypotheses.append(
+                        {
+                            "theme": tilt.get("theme"),
+                            "stance": tilt.get("stance"),
+                            "conditions": list(tilt.get("conditions") or ())[:MAX_LIST_ITEMS],
+                        }
+                    )
+        projected_documents.append(
+            {
+                "document_id": document.get("document_id"),
+                "publish_time": document.get("publish_time"),
+                "effective_month": document.get("effective_month"),
+                "source_type": document.get("source_type"),
+                "source_ref": document.get("source_ref") or document.get("source_url"),
+                "theme_hypotheses": hypotheses,
+                "consensus_axes": list(document.get("consensus_axes") or ())[:MAX_AXES],
+                "disagreements": list(document.get("disagreements") or ())[:MAX_DISAGREEMENTS],
+                "verification_plan": list(document.get("verification_plan") or ())[:MAX_VERIFICATION_ITEMS],
+            }
+        )
+    payload = {
+        "schema_version": "a2-research-hypotheses/1.0.0",
+        "available": bundle.get("available") is True and bool(projected_documents),
+        "reason_code": bundle.get("reason_code"),
+        "as_of": bundle.get("as_of"),
+        "evidence_tier": EVIDENCE_TIER,
+        "viewpoint_only": True,
+        "untrusted_text": True,
+        "deterministic_score_influence_allowed": False,
+        "fact_substitution_allowed": False,
+        "out_of_a1_selection_allowed": False,
+        "documents": projected_documents,
+    }
+    payload["content_hash"] = _canonical_hash(payload)
+    return payload
 
 
 @dataclass(frozen=True, slots=True)
@@ -278,9 +350,9 @@ def _contract(
     # filesystem paths belong in operational configuration summaries, never
     # in research evidence.
     source_refs = list(dict.fromkeys(
-        str(document["source_url"])
+        str(document.get("source_ref") or document.get("source_url"))
         for document in projected_documents
-        if isinstance(document.get("source_url"), str)
+        if isinstance(document.get("source_ref") or document.get("source_url"), str)
     ))
     if window_start is None or window_end is None:
         window_start, window_end = _effective_month_window(cutoff)
@@ -386,14 +458,21 @@ def _validate_document(raw: Any, path: Path) -> _ValidatedDocument:
         raise ResearchConsensusValidationError("MISSING_REQUIRED_FIELD")
     if raw.get("schema_version") not in _SUPPORTED_SCHEMA_VERSIONS:
         raise ResearchConsensusValidationError("INVALID_SCHEMA_VERSION")
-    source_type = raw.get("source_type")
-    if source_type is not None and source_type != SOURCE_TYPE:
+    source_type = raw.get("source_type") or SOURCE_TYPE
+    if source_type not in {SOURCE_TYPE, PRIVATE_ATTACHMENT_SOURCE_TYPE}:
         raise ResearchConsensusValidationError("INVALID_SOURCE_TYPE")
 
     document_id = _text(raw.get("document_id"), MAX_DOCUMENT_ID_LENGTH, "INVALID_DOCUMENT_ID")
     title = _text(raw.get("title"), MAX_TITLE_LENGTH, "INVALID_TITLE")
     publisher = _text(raw.get("publisher"), MAX_PUBLISHER_LENGTH, "INVALID_PUBLISHER")
-    source_url = _https_url(raw.get("source_url"))
+    source_url: str | None = None
+    source_label: str | None = None
+    if source_type == SOURCE_TYPE:
+        source_url = _https_url(raw.get("source_url"))
+        source_ref = source_url
+    else:
+        source_ref = _attachment_source_ref(raw.get("source_ref"))
+        source_label = _source_label(raw.get("source_label"))
     publish_time = _parse_aware_datetime(raw.get("publish_time"), "INVALID_PUBLISH_TIME")
     effective_month = _effective_month(raw.get("effective_month"))
 
@@ -429,16 +508,20 @@ def _validate_document(raw: Any, path: Path) -> _ValidatedDocument:
         "schema_version": SCHEMA_VERSION,
         "document_id": document_id,
         "title": title,
-        "source_url": source_url,
+        "source_ref": source_ref,
         "publisher": publisher,
         "publish_time": publish_time.isoformat(),
         "effective_month": effective_month,
-        "source_type": SOURCE_TYPE,
+        "source_type": source_type,
         "institutions": institutions,
         "consensus_axes": axes,
         "disagreements": disagreements,
         "verification_plan": verification_plan,
     }
+    if source_url is not None:
+        payload["source_url"] = source_url
+    if source_label is not None:
+        payload["source_label"] = source_label
     return _ValidatedDocument(payload, path, publish_time, effective_month)
 
 
@@ -604,6 +687,20 @@ def _https_url(value: Any) -> str:
     return url
 
 
+def _attachment_source_ref(value: Any) -> str:
+    source_ref = _text(value, 96, "INVALID_ATTACHMENT_SOURCE_REF").casefold()
+    if not re.fullmatch(r"attachment-sha256:[0-9a-f]{64}", source_ref):
+        raise ResearchConsensusValidationError("INVALID_ATTACHMENT_SOURCE_REF")
+    return source_ref
+
+
+def _source_label(value: Any) -> str:
+    label = _text(value, MAX_TITLE_LENGTH, "INVALID_SOURCE_LABEL")
+    if Path(label).name != label or "/" in label or "\\" in label:
+        raise ResearchConsensusValidationError("INVALID_SOURCE_LABEL")
+    return label
+
+
 def _parse_aware_datetime(value: Any, reason_code: str) -> datetime:
     if not isinstance(value, str):
         raise ResearchConsensusValidationError(reason_code)
@@ -674,11 +771,13 @@ __all__ = [
     "MAX_DOCUMENTS",
     "MAX_INSTITUTIONS",
     "MAX_VERIFICATION_ITEMS",
+    "PRIVATE_ATTACHMENT_SOURCE_TYPE",
     "ResearchConsensusLoader",
     "ResearchConsensusValidationError",
     "SCHEMA_VERSION",
     "SOURCE_TYPE",
     "load_research_consensus",
     "load_research_consensus_bundle",
+    "project_a2_research_hypotheses",
     "unavailable_research_consensus",
 ]

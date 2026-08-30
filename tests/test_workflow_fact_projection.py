@@ -280,6 +280,9 @@ def test_research_input_projects_phase_one_facts_without_semantic_substitution(
     assert result["MACRO_ECONOMIC_DATA"]["values"]["PMI"] == 49.2
     assert result["ASSET_ROTATION_SNAPSHOT"]["assets"]["EQUITY"]["momentum_20d_percentile"] == 75
     assert result["BROKER_RESEARCH_CONSENSUS"] == consensus
+    assert result["A2_RESEARCH_HYPOTHESES"]["evidence_tier"] == "T2"
+    assert result["A2_RESEARCH_HYPOTHESES"]["deterministic_score_influence_allowed"] is False
+    assert result["A2_RESEARCH_HYPOTHESES"]["out_of_a1_selection_allowed"] is False
     assert result["snapshot_manifest"]["open_macro"]["content_hash"] == "b" * 64
     assert result["A2_SECTOR_HEALTH_SNAPSHOT"]["available"] is True
     assert result["A2_SECTOR_HEALTH_SNAPSHOT"]["data_sufficiency_state"] == "PARTIAL"

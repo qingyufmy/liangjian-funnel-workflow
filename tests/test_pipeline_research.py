@@ -47,6 +47,7 @@ from liangjian_funnel.pipeline.research import (
     _project_factor_snapshot,
     _project_macro_policy,
     _project_news,
+    _prompt_replacements,
     _project_sector_cycle,
     _scan_symbols,
     _semantic_retry_instruction,
@@ -793,6 +794,36 @@ def test_discovery_evidence_catalog_excludes_company_only_disclosures():
         "DISCLOSURE_EVENTS": {"600519.SH": [{"fact_id": "company-only"}]},
     })
     assert refs == {"policy-1", "https://stats.example/industry"}
+
+
+def test_a2_prompt_receives_non_scoring_research_hypotheses(tmp_path: Path):
+    prompt_dir = Path(__file__).resolve().parents[1] / "prompts"
+    bundle = PromptRepository(prompt_dir).bundle()
+    hypotheses = {
+        "schema_version": "a2-research-hypotheses/1.0.0",
+        "available": True,
+        "evidence_tier": "T2",
+        "viewpoint_only": True,
+        "deterministic_score_influence_allowed": False,
+        "documents": [{"document_id": "weekly-private"}],
+    }
+    snapshot = FrozenInputSnapshot(
+        snapshot_id="a2-research",
+        data={"A2_RESEARCH_HYPOTHESES": hypotheses},
+    )
+
+    replacements = _prompt_replacements(
+        bundle,
+        "A2",
+        snapshot,
+        {"active_research_pool": []},
+        projection_symbols=set(),
+    )
+    rendered = bundle.render_stage("A2", replacements)
+
+    assert replacements["A2_RESEARCH_HYPOTHESES"] == hypotheses
+    assert '"document_id":"weekly-private"' in rendered
+    assert "不参与确定性打分" in rendered
 
 
 def test_prompt_budget_failure_reports_real_size_before_model_call(tmp_path: Path):

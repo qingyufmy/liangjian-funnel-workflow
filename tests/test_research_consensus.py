@@ -9,9 +9,11 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from liangjian_funnel.pipeline.research_consensus import (
+    PRIVATE_ATTACHMENT_SOURCE_TYPE,
     SCHEMA_VERSION,
     SOURCE_TYPE,
     load_research_consensus,
+    project_a2_research_hypotheses,
 )
 from liangjian_funnel.settings import Settings
 
@@ -190,3 +192,67 @@ def test_settings_default_and_environment_override(tmp_path: Path) -> None:
         root=tmp_path,
     )
     assert overridden.research_consensus_dir == override.resolve()
+
+
+def test_private_attachment_uses_digest_provenance_without_local_path(tmp_path: Path) -> None:
+    payload = _document("private-weekly")
+    payload.pop("source_url")
+    payload["source_type"] = PRIVATE_ATTACHMENT_SOURCE_TYPE
+    payload["source_ref"] = "attachment-sha256:" + "a" * 64
+    payload["source_label"] = "weekly-research-20260830.pdf"
+    _write(tmp_path, "private.json", payload)
+
+    result = load_research_consensus(tmp_path, as_of=AS_OF)
+
+    assert result["available"] is True
+    assert result["source_refs"] == ["attachment-sha256:" + "a" * 64]
+    document = result["documents"][0]
+    assert document["source_type"] == PRIVATE_ATTACHMENT_SOURCE_TYPE
+    assert document["source_label"] == "weekly-research-20260830.pdf"
+    assert "source_url" not in document
+
+
+@pytest.mark.parametrize(
+    ("source_ref", "source_label"),
+    [
+        ("attachment-sha256:bad", "weekly.pdf"),
+        ("attachment-sha256:" + "a" * 64, "../weekly.pdf"),
+    ],
+)
+def test_private_attachment_rejects_unverifiable_or_path_provenance(
+    tmp_path: Path,
+    source_ref: str,
+    source_label: str,
+) -> None:
+    payload = _document("private-invalid")
+    payload.pop("source_url")
+    payload["source_type"] = PRIVATE_ATTACHMENT_SOURCE_TYPE
+    payload["source_ref"] = source_ref
+    payload["source_label"] = source_label
+    _write(tmp_path, "private.json", payload)
+
+    result = load_research_consensus(tmp_path, as_of=AS_OF)
+
+    assert result["available"] is False
+    assert result["reason_code"] == "NO_VALID_DOCUMENTS"
+
+
+def test_a2_projection_is_compact_and_has_no_scoring_authority(tmp_path: Path) -> None:
+    _write(tmp_path, "sept.json", _document("sept"))
+    bundle = load_research_consensus(tmp_path, as_of=AS_OF)
+
+    result = project_a2_research_hypotheses(bundle)
+
+    assert result["available"] is True
+    assert result["evidence_tier"] == "T2"
+    assert result["deterministic_score_influence_allowed"] is False
+    assert result["fact_substitution_allowed"] is False
+    assert result["out_of_a1_selection_allowed"] is False
+    assert result["documents"][0]["theme_hypotheses"] == [
+        {
+            "theme": "先进制造",
+            "stance": "SELECTIVE",
+            "conditions": ["订单改善"],
+        }
+    ]
+    assert "market_view" not in json.dumps(result, ensure_ascii=False)

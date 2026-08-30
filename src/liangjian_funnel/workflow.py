@@ -68,7 +68,11 @@ from .pipeline.prompts import PromptRepository
 from .pipeline.research import FrozenInputSnapshot as ResearchSnapshot
 from .pipeline.research import ResearchPipeline, ResearchRunResult
 from .pipeline.research_checkpoint import FileResearchCheckpointStore
-from .pipeline.research_consensus import load_research_consensus, unavailable_research_consensus
+from .pipeline.research_consensus import (
+    load_research_consensus,
+    project_a2_research_hypotheses,
+    unavailable_research_consensus,
+)
 from .pipeline.research_reports import write_stage_markdown_reports
 from .pipeline.snapshot import FrozenInputSnapshot, UniverseGatePolicy, UniverseSnapshot
 from .pipeline.technical_aggregates import build_technical_aggregates
@@ -2574,6 +2578,9 @@ class WorkflowApplication:
                 "metric_scope": "INDUSTRIAL_VALUE_ADDED_GROWTH_NOT_PROFIT",
             },
             "BROKER_RESEARCH_CONSENSUS": broker_research_consensus,
+            "A2_RESEARCH_HYPOTHESES": project_a2_research_hypotheses(
+                broker_research_consensus
+            ),
             "INDUSTRY_NEWS_FEED": industry_news_feed,
             "NEWS_HEAT_SNAPSHOT": news_heat,
             "CROWDING_SNAPSHOT": crowding,
@@ -2606,7 +2613,7 @@ class WorkflowApplication:
             "config_hash": config_hash,
         }
         for key in (
-            "MACRO_POLICY_FEED", "MACRO_ECONOMIC_DATA", "ASSET_ROTATION_SNAPSHOT", "GLOBAL_MACRO_SNAPSHOT", "CROSS_MARKET_LEAD_SNAPSHOT", "BROKER_RESEARCH_CONSENSUS", "INDUSTRY_NEWS_FEED", "INDUSTRY_ACTIVITY_DATA", "INDUSTRY_PROFIT_DATA", "THS_INDUSTRY_MEMBERSHIP", "THS_CONCEPT_MEMBERSHIP", "EXISTING_CHAIN_GRAPH",
+            "MACRO_POLICY_FEED", "MACRO_ECONOMIC_DATA", "ASSET_ROTATION_SNAPSHOT", "GLOBAL_MACRO_SNAPSHOT", "CROSS_MARKET_LEAD_SNAPSHOT", "BROKER_RESEARCH_CONSENSUS", "A2_RESEARCH_HYPOTHESES", "INDUSTRY_NEWS_FEED", "INDUSTRY_ACTIVITY_DATA", "INDUSTRY_PROFIT_DATA", "THS_INDUSTRY_MEMBERSHIP", "THS_CONCEPT_MEMBERSHIP", "EXISTING_CHAIN_GRAPH",
             "THEME_REGISTRY", "DISCLOSURE_EVENTS", "RISK_EVENTS", "RESEARCH_CONSENSUS", "FUND_HOLDINGS",
             "FAST_TRACK_REQUESTS", "PRIOR_OUTCOME_FEEDBACK", "SECTOR_CYCLE_SNAPSHOT", "CAPITAL_FLOW_SNAPSHOT",
             "NEWS_HEAT_SNAPSHOT", "CROWDING_SNAPSHOT", "A2_SECTOR_HEALTH_SNAPSHOT", "BOARD_CAPITAL_FLOW_SNAPSHOT", "AUCTION_SNAPSHOT", "SECTOR_PERMISSIONS",

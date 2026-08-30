@@ -1,0 +1,218 @@
+{
+  "schema_version": "institution-strategy-consensus/1.0.0",
+  "document_id": "private-fund-manager-weekly-20260830",
+  "title": "百亿基金经理内参：每周机构会谈（2026年8月30日）",
+  "source_type": "PRIVATE_RESEARCH_ATTACHMENT",
+  "source_ref": "attachment-sha256:31911058b6bc4f45821d883d46bfa0605159faad807d1e1d8e55c31292c94ced",
+  "source_label": "百亿基金经理内参20260830.pdf",
+  "publisher": "用户提供的周度研究附件",
+  "publish_time": "2026-08-30T19:12:52+08:00",
+  "effective_month": "2026-09",
+  "institutions": [
+    {
+      "institution_id": "FUND_MANAGER_WEEKLY_PANEL",
+      "institution_name": "百亿基金经理周度会谈整理",
+      "market_view": "市场分歧和流动性压力仍在，短期更适合等待放量或回撤后的事实确认；研究重点继续放在业绩景气较好的科技、周期、医药与中长期红利方向。",
+      "style_tilts": [
+        "EARNINGS_VALIDATION",
+        "BUY_AFTER_CONFIRMATION",
+        "CORE_BOTTLENECK_OVER_BROAD_HARDWARE",
+        "CYCLICAL_RESTOCKING",
+        "EXPORT_RISK_DIFFERENTIATION"
+      ],
+      "industry_tilts": [
+        {
+          "theme": "光通信与光互联",
+          "stance": "POSITIVE_IF_ORDER_AND_POLICY_CONFIRMED",
+          "conditions": [
+            "海外算力资本开支和网络架构升级由正式指引确认",
+            "小光向大光切换以及Scale-Across增量由订单、认证或出货数据确认",
+            "出口限制的适用范围和影响由正式规则核实"
+          ]
+        },
+        {
+          "theme": "半导体设备与国产替代",
+          "stance": "WAIT_FOR_CAPACITY_AND_ORDER_CONFIRMATION",
+          "conditions": [
+            "扩产进度、设备招标和在手订单继续超预期",
+            "收入和利润兑现而非仅依赖国产替代叙事"
+          ]
+        },
+        {
+          "theme": "AI硬件核心卡点",
+          "stance": "SELECTIVE",
+          "conditions": [
+            "技术难度、供应商集中度或客户认证构成可验证壁垒",
+            "订单、交付、收入和利润形成连续传导",
+            "排除重复建设和只有远期估值支撑的尾部环节"
+          ]
+        },
+        {
+          "theme": "炼化与基础化工",
+          "stance": "POSITIVE_IF_RESTOCKING_CONFIRMED",
+          "conditions": [
+            "供给端被动去产能或开工约束可验证",
+            "下游库存回补、采购恢复和价差扩张同步出现",
+            "三季度利润环比改善得到财务数据确认"
+          ]
+        },
+        {
+          "theme": "原油、油运与炼化链",
+          "stance": "TACTICAL_WITH_SUPPLY_DEMAND_CHECK",
+          "conditions": [
+            "原油库存下降和运输距离变化由权威数据确认",
+            "运力供给、补库需求与运价形成共振",
+            "高油价没有显著破坏终端需求"
+          ]
+        },
+        {
+          "theme": "铜与工业金属",
+          "stance": "PREFER_AFTER_PULLBACK",
+          "conditions": [
+            "库存、下游开工和真实需求维持改善",
+            "相对估值与盈利弹性优于贵金属权益",
+            "海外利率和美元压力未进一步恶化"
+          ]
+        },
+        {
+          "theme": "黄金与贵金属",
+          "stance": "LONG_TERM_HEDGE_BUT_SHORT_TERM_RATE_SENSITIVE",
+          "conditions": [
+            "长期信用溢价逻辑仍在",
+            "短期需等待海外利率、通胀和就业数据确认",
+            "区分现货黄金逻辑与黄金权益估值"
+          ]
+        },
+        {
+          "theme": "创新药、CXO与非银金融",
+          "stance": "EARNINGS_AND_FLOW_CONFIRMATION",
+          "conditions": [
+            "创新药和CXO订单、利润或现金流延续改善",
+            "证券行业盈利改善获得成交活跃度与资金流验证"
+          ]
+        },
+        {
+          "theme": "出口制造与电网设备",
+          "stance": "DIFFERENTIATE_REAL_EXPOSURE",
+          "conditions": [
+            "美国和欧洲审查、关税或贸易限制由正式文件确认",
+            "按产品、客户、产能所在地和订单暴露逐项判断",
+            "不得把行业级政策风险等同于所有公司经营受损"
+          ]
+        },
+        {
+          "theme": "房地产销售新规",
+          "stance": "SHORT_TERM_PRESSURE_LONG_TERM_RESTRUCTURING",
+          "conditions": [
+            "新规实施细则、预售监管和库存变化可验证",
+            "销售、拿地、现金流和地方财政影响分别跟踪"
+          ]
+        }
+      ],
+      "conditions": [
+        "市场放量或回撤后出现价格、资金和盈利共振",
+        "中报结论能够延续到三季报预期",
+        "产业催化必须由正式会议、规则、订单或经营数据核实"
+      ],
+      "risks": [
+        "附件为单一周度会谈整理，代表观点而非多机构统计共识",
+        "海外政策、利率和贸易限制存在较强时点不确定性",
+        "产业链远期叙事可能已被估值提前计价",
+        "原文包含主观价格区间和公司判断，系统不采纳为事实或标的依据"
+      ]
+    }
+  ],
+  "consensus_axes": [
+    {
+      "axis": "MARKET_CONFIRMATION",
+      "stance": "WAIT_FOR_VOLUME_OR_PULLBACK_CONFIRMATION",
+      "confidence": "MEDIUM",
+      "supporting_institutions": ["FUND_MANAGER_WEEKLY_PANEL"],
+      "conditions": ["成交广度改善", "增量资金出现", "业绩景气方向保持相对强度"],
+      "counter_signals": ["流动性继续收缩", "放量下跌", "盈利预期普遍下修"]
+    },
+    {
+      "axis": "AI_HARDWARE_DIFFERENTIATION",
+      "stance": "BOTTLENECK_AND_PROFIT_OVER_BROAD_BETA",
+      "confidence": "HIGH",
+      "supporting_institutions": ["FUND_MANAGER_WEEKLY_PANEL"],
+      "conditions": ["技术壁垒或供应稀缺可证明", "订单到利润传导可验证"],
+      "counter_signals": ["重复建设", "只有远期估值", "业绩不及预期"]
+    },
+    {
+      "axis": "OPTICAL_INTERCONNECT",
+      "stance": "STRUCTURAL_ROLE_MAY_EXPAND",
+      "confidence": "MEDIUM",
+      "supporting_institutions": ["FUND_MANAGER_WEEKLY_PANEL"],
+      "conditions": ["网络架构升级", "光替代电和铜的比例提升", "客户认证与订单确认"],
+      "counter_signals": ["资本开支下修", "政策限制扩大", "订单和交付不兑现"]
+    },
+    {
+      "axis": "CYCLICAL_RESTOCKING",
+      "stance": "CHEMICAL_AND_REFINING_REQUIRE_INVENTORY_AND_MARGIN_CONFIRMATION",
+      "confidence": "MEDIUM",
+      "supporting_institutions": ["FUND_MANAGER_WEEKLY_PANEL"],
+      "conditions": ["库存回补", "开工改善", "价差和盈利同步扩张"],
+      "counter_signals": ["终端需求疲弱", "库存继续去化", "价差未改善"]
+    },
+    {
+      "axis": "COPPER_VERSUS_GOLD",
+      "stance": "COPPER_RELATIVE_VALUE_AFTER_PULLBACK",
+      "confidence": "MEDIUM",
+      "supporting_institutions": ["FUND_MANAGER_WEEKLY_PANEL"],
+      "conditions": ["铜库存和需求改善", "黄金仍受实际利率压制"],
+      "counter_signals": ["工业需求转弱", "避险冲击显著上升", "美元和利率超预期上行"]
+    },
+    {
+      "axis": "EXPORT_POLICY_DIFFERENTIATION",
+      "stance": "VERIFY_COMPANY_LEVEL_EXPOSURE",
+      "confidence": "HIGH",
+      "supporting_institutions": ["FUND_MANAGER_WEEKLY_PANEL"],
+      "conditions": ["正式政策文本", "产品和客户暴露", "产能转移与认证进度"],
+      "counter_signals": ["把行业调查直接等同于全部企业受损", "只有情绪反应没有经营影响"]
+    }
+  ],
+  "disagreements": [],
+  "verification_plan": [
+    {
+      "question": "光通信结构升级是否已从产业叙事进入订单兑现",
+      "required_facts": ["海外算力资本开支", "会议正式议程", "客户认证", "订单", "交付", "收入和利润"],
+      "decision_rule": "至少订单或认证与价格资金共振，才能把结构升级作为A2支持证据；只有会议预期时保持观察。"
+    },
+    {
+      "question": "AI硬件是否正在从广泛贝塔转向核心卡点",
+      "required_facts": ["供应商数量", "技术难度", "扩产周期", "订单可见度", "毛利率", "现金流"],
+      "decision_rule": "只有壁垒、订单和盈利传导同时存在时才能进入SUPPLY_CHAIN_ALPHA；单一远期估值无效。"
+    },
+    {
+      "question": "炼化和化工是否进入补库与价差扩张阶段",
+      "required_facts": ["库存", "开工率", "采购量", "产品价差", "主营利润", "经营现金流"],
+      "decision_rule": "库存回补、开工或采购改善与价差扩张至少两项共振，才允许从研究假设升级。"
+    },
+    {
+      "question": "油运逻辑是否由真实运力缺口和补库需求支撑",
+      "required_facts": ["原油库存", "运距", "有效运力", "运价", "订单", "全球补库需求"],
+      "decision_rule": "运力或运距与运价、需求同时确认才构成A2产业支持；只有原油高位不能确认。"
+    },
+    {
+      "question": "铜相对黄金的性价比判断是否得到市场和盈利数据验证",
+      "required_facts": ["铜金相对强度", "库存", "下游开工", "实际利率", "美元", "盈利预期"],
+      "decision_rule": "相对强度、供需和盈利至少两类改善且黄金权益估值未继续扩张，才提高铜链优先级。"
+    },
+    {
+      "question": "创新药、CXO与非银的业绩改善能否形成周度主线",
+      "required_facts": ["正式财报", "订单", "利润和现金流", "行业广度", "成交持续性", "资金流"],
+      "decision_rule": "经营数据和周度市场确认同时满足才可升级；财报单点超预期或成交脉冲不足以形成主线。"
+    },
+    {
+      "question": "出口审查是否构成实际经营冲击而非短期情绪冲击",
+      "required_facts": ["正式规则", "产品适用范围", "客户收入暴露", "产能所在地", "订单取消或延迟", "替代方案"],
+      "decision_rule": "必须按具体产品和经营暴露判断；无法证明实际影响时只能记录政策风险，不能否决整个行业。"
+    },
+    {
+      "question": "房地产销售新规的短期压力和长期重构是否开始兑现",
+      "required_facts": ["正式实施细则", "预售资金监管", "新房供应", "销售", "拿地", "开发商现金流"],
+      "decision_rule": "A1只记录政策传导假设；A2仅在经营和资金数据出现连续变化后评估相关市场角色。"
+    }
+  ]
+}
