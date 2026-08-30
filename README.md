@@ -103,6 +103,11 @@ cd D:\dev_A股\liangjian_funnel_workflow
 - `LiangjianAStockResearchClose`：每天 15:10。
 - `LiangjianAStockMonitor`：每天 09:25 起每分钟一次，15:00 停止；内部用交易所日历跳过法定休市日、午休、重复任务和过期补买。15:10 收盘研究不再与盯盘任务竞争。
 
+生产稳定模式设置 `LIANGJIAN_COMPARISON_ENABLED=false`。此时收盘研究只由主 lane 的
+`deepseek-v4-pro-0813` 连续执行 A1→A2→A3，Kimi/GLM 不会在 Node 启动或主结果发布后
+自动运行；它们仍保留在模型清单中，供显式离线对比使用。稳定模式不改变选股门槛、
+A3 发布门禁或 A4 的“仅否决、不创设计划”边界。
+
 重新安装或卸载：
 
 ```powershell

@@ -45,6 +45,32 @@ test("successful close dispatch starts comparison without changing the primary d
   expect(calls).toEqual(["close", "comparison"]);
 });
 
+test("stable mode never starts optional comparison on startup or after close", async () => {
+  const calls: JobName[] = [];
+  const fakeRunner = {
+    run: async (job: JobName): Promise<JobRunRecord> => {
+      calls.push(job);
+      return result(job);
+    },
+    activeJob: (): JobRunRecord | null => null,
+  };
+  const root = await mkdtemp(join(tmpdir(), "liangjian-stable-primary-"));
+  const logger = new LogStore(loadConfig({ LIANGJIAN_PYTHON_BIN: "python3" }, root));
+  const scheduler = new WorkflowScheduler(fakeRunner as unknown as import("../../server/runner.js").JobRunner, logger, {
+    now: () => new Date("2026-08-30T00:00:00.000Z"),
+    intervalMs: 60_000,
+    comparisonEnabled: false,
+  });
+
+  scheduler.start();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  await scheduler.tick(new Date("2026-08-31T07:10:10.000Z")); // 15:10 Asia/Shanghai
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(calls).toEqual(["close"]);
+  expect(scheduler.snapshot().jobs.find((job) => job.job === "comparison")?.enabled).toBe(false);
+  scheduler.stop();
+});
+
 test("scheduler startup recovery requests only the optional comparison command", async () => {
   const calls: JobName[] = [];
   const fakeRunner = {

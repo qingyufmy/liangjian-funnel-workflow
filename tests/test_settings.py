@@ -39,6 +39,7 @@ def test_exact_models_and_safe_summary_do_not_leak_keys(tmp_path: Path):
     assert settings.open_macro_cache_dir == tmp_path / "storage" / "facts" / "open_macro"
     assert settings.research_thinking_enabled is True
     assert settings.monitor_thinking_enabled is False
+    assert settings.comparison_enabled is True
 
 
 def test_thinking_flags_are_explicit_and_strict(tmp_path: Path):
@@ -54,6 +55,17 @@ def test_thinking_flags_are_explicit_and_strict(tmp_path: Path):
 
     with pytest.raises(ValueError, match="boolean"):
         Settings.from_env({"LIANGJIAN_MONITOR_THINKING_ENABLED": "maybe"}, root=tmp_path)
+
+
+def test_stable_mode_can_disable_optional_comparison_without_changing_models(tmp_path: Path):
+    settings = Settings.from_env(
+        {"LIANGJIAN_COMPARISON_ENABLED": "false"},
+        root=tmp_path,
+    )
+
+    assert settings.comparison_enabled is False
+    assert settings.research_models == RESEARCH_MODELS
+    assert settings.safe_summary()["comparison_enabled"] is False
 
 
 def test_research_batch_workers_cannot_reenable_parallel_production_requests(tmp_path: Path):

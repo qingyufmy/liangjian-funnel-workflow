@@ -1632,6 +1632,9 @@ class WorkflowApplication:
     def run_comparison(self, *, parent_run_id: str | None = None) -> dict[str, Any]:
         """Run one pending optional comparison request, never the primary lane."""
 
+        if not self.settings.comparison_enabled:
+            return {"status": "NOOP", "reason_code": "COMPARISON_DISABLED_STABLE_MODE"}
+
         if parent_run_id:
             path = self._comparison_request_path(parent_run_id)
             request = self._read_comparison_request(path)
@@ -2220,7 +2223,7 @@ class WorkflowApplication:
                     "close",
                     as_of=current,
                     primary_only=True,
-                    schedule_comparison=True,
+                    schedule_comparison=self.settings.comparison_enabled,
                 ),
                 ScheduleKind.MONITOR: lambda _job: self.monitor_once(now=current),
             },

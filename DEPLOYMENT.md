@@ -70,6 +70,12 @@ All schedules use `Asia/Shanghai`:
 - 15:10 on weekdays: `python -m liangjian_funnel run-close`
 - each minute in 09:25-11:30 and 13:00-15:00 on weekdays: `python -m liangjian_funnel run-monitor`
 
+For production stable mode, set `LIANGJIAN_COMPARISON_ENABLED=false`. The
+scheduled A1→A2→A3 primary path remains DeepSeek-only and serial; optional
+Kimi/GLM comparisons are not recovered on Node startup and are not enqueued
+after a successful close run. This flag does not permit real orders and does
+not relax any A3/A4 gate.
+
 The Node runner uses a strict allow-list, single-process overlap protection, bounded child-process handling and graceful shutdown. The Python commands still enforce the actual exchange trading calendar, dispatch key and SQLite lease. `run-monitor` legitimately returns empty scope when no active A3 plan exists.
 
 For UI/API diagnostics that must not dispatch scheduled work, start a temporary instance with `LIANGJIAN_SCHEDULER_ENABLED=false`. Do not use that value for unattended production.

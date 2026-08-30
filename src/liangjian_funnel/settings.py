@@ -132,6 +132,10 @@ class Settings(BaseModel):
     monitor_thinking_enabled: bool = False
     research_models: tuple[str, ...] = RESEARCH_MODELS
     research_primary_lane_id: str = "lane_1"
+    # Optional comparison lanes are an audit plane, never a production
+    # dependency.  Stable deployments disable this flag so the primary
+    # DeepSeek lane owns A1 -> A2 -> A3 without Kimi/GLM consuming runtime.
+    comparison_enabled: bool = True
     publish_comparison_lanes: bool = False
     monitor_model: str = MONITOR_MODEL
 
@@ -332,6 +336,10 @@ class Settings(BaseModel):
             research_thinking_enabled=_parse_bool(env.get("LIANGJIAN_RESEARCH_THINKING_ENABLED"), default=True),
             monitor_thinking_enabled=_parse_bool(env.get("LIANGJIAN_MONITOR_THINKING_ENABLED"), default=False),
             research_primary_lane_id=env.get("LIANGJIAN_RESEARCH_PRIMARY_LANE_ID", "lane_1"),
+            comparison_enabled=_parse_bool(
+                env.get("LIANGJIAN_COMPARISON_ENABLED"),
+                default=True,
+            ),
             publish_comparison_lanes=_parse_bool(
                 env.get("LIANGJIAN_PUBLISH_COMPARISON_LANES"),
                 default=False,
@@ -412,6 +420,7 @@ class Settings(BaseModel):
             "monitor_thinking_enabled": self.monitor_thinking_enabled,
             "research_models": list(self.research_models),
             "research_primary_lane_id": self.research_primary_lane_id,
+            "comparison_enabled": self.comparison_enabled,
             "publish_comparison_lanes": self.publish_comparison_lanes,
             "monitor_model": self.monitor_model,
         }

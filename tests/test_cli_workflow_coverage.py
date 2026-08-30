@@ -87,6 +87,28 @@ def test_cli_primary_only_forwards_explicit_lane_contract_and_returns_success(
     assert printed["status"] == "READY"
 
 
+def test_cli_primary_only_stable_mode_does_not_enqueue_comparison(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli, "WorkflowApplication", _FakeApplication)
+    _FakeApplication.response = _ready_response()
+    settings = Settings.from_env(
+        {
+            "LIANGJIAN_MODEL_API_KEY": "model-test-key",
+            "HITHINK_FINANCE_API_KEY": "hithink-test-key",
+            "LIANGJIAN_RESEARCH_PIPELINE_MODE": "legacy",
+            "LIANGJIAN_COMPARISON_ENABLED": "false",
+        },
+        root=tmp_path,
+    )
+
+    assert cli.main(["run-research", "--slot", "close", "--primary-only"], settings=settings) == 0
+    _name, _args, kwargs = _FakeApplication.calls[0]
+    assert kwargs["primary_only"] is True
+    assert kwargs["schedule_comparison"] is False
+
+
 def test_cli_historical_research_parses_as_of_and_snapshot_without_mutating_runtime(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -15,6 +15,7 @@ export interface SchedulerOptions {
   readonly now?: () => Date;
   readonly intervalMs?: number;
   readonly retryMs?: number;
+  readonly comparisonEnabled?: boolean;
 }
 
 export function shanghaiClock(value: Date): ShanghaiClock {
@@ -74,6 +75,7 @@ export class WorkflowScheduler {
   private readonly now: () => Date;
   private readonly intervalMs: number;
   private readonly retryMs: number;
+  private readonly comparisonEnabled: boolean;
 
   public constructor(
     private readonly runner: JobRunner,
@@ -83,6 +85,7 @@ export class WorkflowScheduler {
     this.now = options.now ?? (() => new Date());
     this.intervalMs = options.intervalMs ?? 1_000;
     this.retryMs = options.retryMs ?? 5_000;
+    this.comparisonEnabled = options.comparisonEnabled ?? true;
   }
 
   public start(): void {
@@ -92,7 +95,7 @@ export class WorkflowScheduler {
     void this.tick();
     // Recover a request committed by the primary before a Node restart.  The
     // Python command is idempotent and never reruns the primary lane.
-    this.triggerComparison("startup");
+    if (this.comparisonEnabled) this.triggerComparison("startup");
     this.logger.info("Node 调度器已启动");
   }
 
@@ -141,7 +144,7 @@ export class WorkflowScheduler {
         job: definition.name,
         label: definition.label,
         schedule: definition.schedule,
-        enabled: this.running,
+        enabled: this.running && (definition.name !== "comparison" || this.comparisonEnabled),
         lastDispatchAt: this.lastDispatch.get(definition.name) ?? null,
       })),
     };
@@ -164,7 +167,7 @@ export class WorkflowScheduler {
         // The current morning command is the deterministic pending-plan
         // review; the model-backed primary research hand-off is the close
         // command.  Do not manufacture a comparison request after a review.
-        if (job === "close" && result.status === "succeeded") {
+        if (this.comparisonEnabled && job === "close" && result.status === "succeeded") {
           this.triggerComparison(`after-${job}`);
         }
       })
@@ -178,6 +181,7 @@ export class WorkflowScheduler {
   }
 
   private triggerComparison(source: string): void {
+    if (!this.comparisonEnabled) return;
     if (this.comparisonInFlight) {
       // A close can finish while recovery is still processing an older
       // request.  Remember that edge-trigger so the newly committed request

@@ -22,7 +22,9 @@ export async function startServer(): Promise<RunningControlPlane> {
   const startedAt = Date.now();
   const logger = new LogStore(config);
   const runner = new JobRunner(config, logger);
-  const scheduler = new WorkflowScheduler(runner, logger);
+  const scheduler = new WorkflowScheduler(runner, logger, {
+    comparisonEnabled: config.comparisonEnabled,
+  });
   const files = new ProjectFiles(config, logger);
   const dashboard = new DashboardData(config, files, runner, scheduler, logger);
   const app = createApp({ config, dashboard, runner, scheduler, logger, startedAt });

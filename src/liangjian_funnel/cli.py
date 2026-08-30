@@ -396,7 +396,10 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
                 "snapshot_id": args.snapshot_id,
             }
             if args.primary_only:
-                research_kwargs.update(primary_only=True, schedule_comparison=True)
+                research_kwargs.update(
+                    primary_only=True,
+                    schedule_comparison=settings.comparison_enabled,
+                )
             payload = application.run_research(args.slot, **research_kwargs)
         elif args.command == "run-comparison":
             payload = application.run_comparison(parent_run_id=args.parent_run_id)

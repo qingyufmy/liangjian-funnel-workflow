@@ -30,6 +30,7 @@ export interface AppConfig {
   readonly maxLogLineLength: number;
   readonly maxMemoryLogs: number;
   readonly schedulerEnabled: boolean;
+  readonly comparisonEnabled: boolean;
 }
 
 function positiveInteger(value: string | undefined, fallback: number): number {
@@ -85,5 +86,6 @@ export function loadConfig(
     maxLogLineLength: positiveInteger(env.LIANGJIAN_MAX_LOG_LINE_LENGTH, 16_384),
     maxMemoryLogs: positiveInteger(env.LIANGJIAN_MAX_MEMORY_LOGS, 1_000),
     schedulerEnabled: booleanValue(env.LIANGJIAN_SCHEDULER_ENABLED, true),
+    comparisonEnabled: booleanValue(env.LIANGJIAN_COMPARISON_ENABLED, true),
   };
 }
