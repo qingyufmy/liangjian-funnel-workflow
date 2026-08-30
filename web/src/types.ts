@@ -516,6 +516,7 @@ export interface EffectiveEvent {
   action?: string | null;
   reasonCode?: string | null;
   diagnosticCode?: string | null;
+  testOnly?: boolean;
   effective?: boolean;
   name?: string | null;
   planId?: string | null;

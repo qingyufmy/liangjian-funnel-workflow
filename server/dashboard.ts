@@ -117,11 +117,43 @@ function normalizeSimulation(value: unknown): JsonValue | null {
   });
 }
 
-function normalizeA4Replay(value: unknown): JsonValue | null {
+export function normalizeA4Replay(value: unknown): JsonValue | null {
   const replay = record(value);
   if (!replay) return null;
   const plan = record(replay.test_plan);
   const coverage = record(replay.bar_coverage);
+  const testPlan = plan ? {
+    planId: plan.plan_id ?? null,
+    symbol: plan.symbol ?? null,
+    name: plan.name ?? null,
+    status: "TEST_ONLY",
+    setupType: plan.setup_type ?? null,
+    expiresAt: plan.expires_at ?? null,
+    riskUnit: plan.test_risk_unit ?? null,
+    selectionReasons: plan.selection_reasons ?? [],
+    sourcePool: plan.source_pool ?? null,
+    sourceRiskUnit: plan.source_risk_unit ?? null,
+    testRiskUnit: plan.test_risk_unit ?? null,
+    triggerLow: plan.trigger_low ?? null,
+    triggerHigh: plan.trigger_high ?? null,
+    stopLevel: plan.stop_level ?? null,
+    testOnlyPromotion: plan.test_only_promotion ?? null,
+  } : null;
+  const fillRows = arrayField(replay, "fills").map((fill) => record(fill)).filter((fill): fill is JsonRecord => fill !== null);
+  const fills = fillRows.map((fill) => normalizeSimulation({ ...fill, status: "FILLED" })).filter(Boolean);
+  const effectiveEvents = arrayField(replay, "effective_events").map((event) => {
+    const normalized = record(normalizeMonitorEvent(event)) ?? {};
+    const action = asString(normalized.action);
+    const fill = action && ["BUY_SIGNAL", "ADD_SIGNAL", "SELL_SIGNAL", "REDUCE_SIGNAL", "FORCED_RISK_EXIT"].includes(action)
+      ? fillRows.find((item) => item.symbol === normalized.symbol)
+      : null;
+    return {
+      ...normalized,
+      testOnly: true,
+      plan: testPlan,
+      simulation: fill ? normalizeSimulation({ ...fill, status: "FILLED" }) : null,
+    };
+  });
   return sanitizeJson({
     schemaVersion: replay.schema_version ?? null,
     status: replay.status ?? null,
@@ -132,26 +164,15 @@ function normalizeA4Replay(value: unknown): JsonValue | null {
     officialA3PlanCount: replay.official_a3_plan_count ?? null,
     productionPathExpected: replay.production_path_expected ?? null,
     modelCalls: replay.model_calls ?? null,
-    testPlan: plan ? {
-      planId: plan.plan_id ?? null,
-      symbol: plan.symbol ?? null,
-      name: plan.name ?? null,
-      sourcePool: plan.source_pool ?? null,
-      sourceRiskUnit: plan.source_risk_unit ?? null,
-      testRiskUnit: plan.test_risk_unit ?? null,
-      triggerLow: plan.trigger_low ?? null,
-      triggerHigh: plan.trigger_high ?? null,
-      stopLevel: plan.stop_level ?? null,
-      testOnlyPromotion: plan.test_only_promotion ?? null,
-    } : null,
+    testPlan,
     barCoverage: coverage ? {
       source: coverage.source ?? null,
       count: coverage.count ?? null,
       first: coverage.first ?? null,
       last: coverage.last ?? null,
     } : null,
-    effectiveEvents: arrayField(replay, "effective_events").map((event) => normalizeMonitorEvent(event)),
-    fills: arrayField(replay, "fills").map((fill) => normalizeSimulation(fill)).filter(Boolean),
+    effectiveEvents,
+    fills,
     invariants: replay.invariants ?? null,
   });
 }

@@ -9,7 +9,7 @@ import type { Request } from "express";
 import { tokenMatches } from "../../server/auth.js";
 import { createApp } from "../../server/api.js";
 import { loadConfig } from "../../server/config.js";
-import { DashboardData } from "../../server/dashboard.js";
+import { DashboardData, normalizeA4Replay } from "../../server/dashboard.js";
 import { normalizeLaneOutcome, normalizeRunOutcome, normalizeStageOutcome, ProjectFiles, resolveWithinRoot } from "../../server/files.js";
 import { LogStore } from "../../server/logger.js";
 import { redactText, sanitizeJson } from "../../server/redaction.js";
@@ -307,6 +307,34 @@ test("reads the bounded A4 replay artifact separately from live monitor events",
   const monitor = await files.monitor();
   expect(monitor.events).toHaveLength(1);
   expect(monitor.replay).toMatchObject({ mode: "TEST_ONLY_COUNTERFACTUAL", trade_date: "2026-08-28" });
+});
+
+test("joins A4 replay event, test plan, and matching paper fill for the workbench", () => {
+  const replay = normalizeA4Replay({
+    schema_version: "liangjian-a4-replay/1.0.0",
+    mode: "TEST_ONLY_COUNTERFACTUAL",
+    test_plan: {
+      plan_id: "test-plan",
+      symbol: "000859.SZ",
+      name: "国风新材",
+      test_risk_unit: "PROBE",
+      trigger_low: 9.04,
+      trigger_high: 9.05,
+      stop_level: 8.68,
+    },
+    effective_events: [{
+      plan_id: "test-plan",
+      symbol: "000859.SZ",
+      action: "BUY_SIGNAL",
+      reason_code: "DETERMINISTIC_TRIGGER_PASS",
+    }],
+    fills: [{ symbol: "000859.SZ", action: "BUY", qty: 9100, price: 9.049, bar_end: "2026-08-28T09:51:00+08:00" }],
+  }) as Record<string, unknown>;
+  expect(replay.effectiveEvents).toMatchObject([{
+    testOnly: true,
+    plan: { planId: "test-plan", name: "国风新材", riskUnit: "PROBE" },
+    simulation: { status: "FILLED", action: "BUY", qty: 9100, price: 9.049 },
+  }]);
 });
 
 test("projects paginated research stage pools with names, reasons, and allow-listed detail", async () => {

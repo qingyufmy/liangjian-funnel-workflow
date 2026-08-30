@@ -224,6 +224,9 @@ def run_a4_replay(
             "trigger_low": plan["trigger_low"],
             "trigger_high": plan["trigger_high"],
             "stop_level": plan["stop_level"],
+            "setup_type": plan.get("setup_type"),
+            "expires_at": plan.get("expires_at"),
+            "selection_reasons": list(plan.get("selection_reasons") or plan.get("reason_codes") or [])[:6],
             "test_only_promotion": True,
         },
         "bar_coverage": {
