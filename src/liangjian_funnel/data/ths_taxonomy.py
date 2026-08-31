@@ -146,7 +146,8 @@ def collect_ths_taxonomy_membership(
         total=len(projected),
         fetch_time=fetched_at,
         metadata={
-            "timestamp": int(fetched_at.timestamp() * 1000),
+            "timestamp": cutoff.isoformat(),
+            "event_time_basis": "REQUESTED_REFERENCE_CUTOFF",
             "taxonomy": taxonomy.upper(),
             "catalog_hash": catalog_hash,
             "catalog_count": len(catalog_rows),

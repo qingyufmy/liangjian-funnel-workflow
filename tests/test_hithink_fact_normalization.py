@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 from liangjian_funnel.facts import collect_market_results, manifest_projection, normalize_hithink_results
 from liangjian_funnel.facts import FactSnapshotManifest
 from liangjian_funnel.pipeline.data_source import HithinkFetchResult, HithinkRow
+from liangjian_funnel.workflow import _bind_reference_fact_event_time
 
 
 TZ = ZoneInfo("Asia/Shanghai")
@@ -106,6 +107,25 @@ def test_historical_fact_keeps_cutoff_event_time_when_fetch_finishes_later() -> 
 
     assert manifest.facts[0].event_time == NOW
     assert manifest.facts[0].fetch_time == NOW + timedelta(minutes=10)
+    assert manifest.as_of == NOW
+
+
+def test_reference_fact_keeps_cutoff_event_time_when_request_finishes_later() -> None:
+    result = _bind_reference_fact_event_time(
+        _result().model_copy(update={"fetch_time": NOW + timedelta(seconds=5)}),
+        as_of=NOW,
+    )
+
+    manifest = normalize_hithink_results(
+        {"THS_INDUSTRY_CATALOG": result},
+        base_url="https://fuyao.aicubes.cn",
+        as_of=NOW,
+        ingest_time=NOW + timedelta(seconds=6),
+    )
+
+    fact = manifest.facts[0]
+    assert fact.event_time == NOW
+    assert fact.fetch_time == NOW + timedelta(seconds=5)
     assert manifest.as_of == NOW
 
 

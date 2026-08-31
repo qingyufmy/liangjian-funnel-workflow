@@ -434,8 +434,18 @@ class WorkflowApplication:
             # securities remain research-only after passing the same quality
             # gate; execution permission is enforced at plan publication.
             research_records = _research_universe_records(universe)
-            industry_catalog = client.ths_index_catalog(tag="industry")
-            concept_catalog = client.ths_index_catalog(tag="cn_concept")
+            # THS taxonomy rows do not carry row-level effective timestamps.
+            # Bind their event time to the requested frozen cutoff while
+            # retaining the later HTTP fetch_time for provenance. Otherwise a
+            # normal multi-second request is misclassified as future data.
+            industry_catalog = _bind_reference_fact_event_time(
+                client.ths_index_catalog(tag="industry"),
+                as_of=current,
+            )
+            concept_catalog = _bind_reference_fact_event_time(
+                client.ths_index_catalog(tag="cn_concept"),
+                as_of=current,
+            )
             full_membership = collect_ths_industry_membership(
                 client,
                 industry_catalog,
@@ -5009,6 +5019,30 @@ def _aware(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
         raise WorkflowError("TIMEZONE_REQUIRED")
     return value.astimezone(SHANGHAI)
+
+
+def _bind_reference_fact_event_time(
+    result: HithinkFetchResult,
+    *,
+    as_of: datetime,
+) -> HithinkFetchResult:
+    """Bind undated reference data to its requested point-in-time cutoff.
+
+    ``fetch_time`` remains the actual response time. This helper is limited to
+    reference snapshots such as taxonomy catalogs; timestamped market facts
+    must continue to use their provider event timestamps.
+    """
+
+    cutoff = _aware(as_of)
+    return result.model_copy(
+        update={
+            "metadata": {
+                **dict(result.metadata),
+                "timestamp": cutoff.isoformat(),
+                "event_time_basis": "REQUESTED_REFERENCE_CUTOFF",
+            }
+        }
+    )
 
 
 def _at_time(value: datetime, hour: int, minute: int) -> datetime:

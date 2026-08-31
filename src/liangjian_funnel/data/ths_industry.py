@@ -149,7 +149,11 @@ def collect_ths_industry_membership(
         total=len(projected),
         fetch_time=fetched_at,
         metadata={
-            "timestamp": int(fetched_at.timestamp() * 1000),
+            # Membership edges are an undated reference snapshot requested for
+            # ``cutoff``. Keep the actual network/cache time in fetch_time,
+            # never reinterpret it as a later market event.
+            "timestamp": cutoff.isoformat(),
+            "event_time_basis": "REQUESTED_REFERENCE_CUTOFF",
             "taxonomy": "THS",
             "catalog_hash": catalog_hash,
             "industry_count": len(catalog_rows),

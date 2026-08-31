@@ -65,6 +65,8 @@ def test_membership_builds_reverse_map_and_reuses_complete_daily_cache(tmp_path)
     )
 
     assert first.ok and first.complete
+    assert first.metadata["timestamp"] == NOW.isoformat()
+    assert first.metadata["event_time_basis"] == "REQUESTED_REFERENCE_CUTOFF"
     assert first_client.calls == ["881101.TI", "884001.TI"]
     rows = {row.model_dump()["thscode"]: row.model_dump() for row in first.items}
     assert rows["600519.SH"]["mapping_status"] == "MAPPED"
