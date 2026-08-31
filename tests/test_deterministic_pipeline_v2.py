@@ -728,6 +728,84 @@ def test_screen_a2_partitions_no_route_low_identity_and_llm_rank_overflow() -> N
     assert "A2_LOW_IDENTITY_EXCLUDED" in rejected["reason_codes"]
 
 
+def test_screen_a2_review_all_eligible_bypasses_legacy_theme_top_n() -> None:
+    snapshot = _snapshot(4)
+    snapshot["A2_SCORE_WEIGHTS"] = {name: 1.0 for name in _complete_a2_factor_scores(90)}
+    snapshot["CAPITAL_FLOW_SNAPSHOT"] = {
+        "available": True,
+        "source_id": "TEST_CAPITAL_FLOW",
+        "by_symbol": {
+            symbol: {"available": True, "capital_flow_score": 90}
+            for symbol in snapshot["g0_symbols"]
+        },
+    }
+    symbols = snapshot["g0_symbols"][:3]
+    rows = [
+        {
+            "symbol": symbol,
+            "candidate_id": f"a1:{symbol}",
+            "primary_theme": "theme-core",
+            "industry_chain_node": "node-core",
+            "business_exposure": {"revenue_exposure_pct": 65, "source_ref": f"cninfo:{symbol}"},
+            "a2_factor_scores": _complete_a2_factor_scores(80),
+            "data_quality_score": 90,
+        }
+        for symbol in symbols
+    ]
+
+    result = screen_a2(
+        snapshot,
+        {"active_research_pool": rows},
+        minimum_identifiability_score=0,
+        llm_top_n_per_theme=1,
+        review_all_eligible=True,
+    )
+
+    assert result.review_symbols == tuple(sorted(symbols))
+    assert all(item["status"] == "REVIEW_CANDIDATE" for item in result.decisions)
+    assert [item["theme_rank"] for item in result.decisions] == [1, 2, 3]
+    assert all("A2_NOT_SENT_TO_LLM" not in item["reason_codes"] for item in result.decisions)
+
+
+def test_screen_a2_market_core_needs_only_two_hard_facts_when_optional_facts_missing() -> None:
+    snapshot = _snapshot(1)
+    snapshot["A2_SCORE_WEIGHTS"] = {name: 1.0 for name in _complete_a2_factor_scores(90)}
+    snapshot["CAPITAL_FLOW_SNAPSHOT"] = {"available": False, "reason_code": "SOURCE_FAILED"}
+    symbol = snapshot["g0_symbols"][0]
+    # Remove the fixture's technical relative-strength proxy so this boundary
+    # exercises exactly two hard facts: breadth and turnover share.
+    snapshot["FACTOR_SNAPSHOT"] = {symbol: {}}
+    row = {
+        "symbol": symbol,
+        "candidate_id": f"a1:{symbol}",
+        "primary_theme": "theme-core",
+        "industry_chain_node": "node-core",
+        "business_exposure": {"revenue_exposure_pct": 65, "source_ref": f"cninfo:{symbol}"},
+        "a2_factor_scores": {
+            "breadth": {"score": 80},
+            "turnover_share": {"score": 80},
+        },
+        "data_quality_score": 90,
+    }
+
+    result = screen_a2(
+        snapshot,
+        {"active_research_pool": [row]},
+        minimum_identifiability_score=0,
+        llm_top_n_per_theme=1,
+        review_all_eligible=True,
+    )
+    decision = result.decisions[0]
+
+    assert decision["route"] == "MARKET_CORE"
+    assert decision["status"] == "REVIEW_CANDIDATE"
+    assert result.review_symbols == (symbol,)
+    assert decision["critical_factor_coverage"]["sufficient"] is True
+    assert "capital_flow" in decision["missing_optional_factors"]
+    assert "tier_structure" in decision["missing_optional_factors"]
+    assert "index_chain_resonance" in decision["missing_optional_factors"]
+
+
 def test_screen_a2_rejects_non_positive_review_budget() -> None:
     with pytest.raises(ValueError, match="Top-N value must be positive"):
         screen_a2(_snapshot(1), {"active_research_pool": []}, llm_top_n_per_theme=0)

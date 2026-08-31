@@ -56,17 +56,18 @@ _A2_CRITICAL_FACTORS: tuple[str, ...] = (
     "index_chain_resonance",
 )
 _A2_CRITICAL_MIN_AVAILABLE = 2
+# MARKET_CORE is primarily a theme/emotion plus role decision. These are the
+# minimum local market-structure facts used to prove a live, liquid direction.
+# Other feeds remain valuable enrichments and are surfaced as degradation when
+# unavailable instead of becoming an implicit veto.
 _A2_MARKET_FACTORS: tuple[str, ...] = (
     "breadth",
     "turnover_share",
     "leader_structure",
-    "tier_structure",
-    "index_chain_resonance",
 )
 _A2_MARKET_OPTIONAL_FACTORS: tuple[str, ...] = (
     "capital_flow",
     "tier_structure",
-    "leader_structure",
     "index_chain_resonance",
 )
 # A2 roles are a single server-owned vocabulary.  These labels are emitted by
@@ -475,6 +476,7 @@ def screen_a2(
     *,
     minimum_identifiability_score: float = 60.0,
     llm_top_n_per_theme: int = 5,
+    review_all_eligible: bool = False,
 ) -> DeterministicGateResult:
     """Build the A2 market-core and supply-chain review routes locally.
 
@@ -483,7 +485,10 @@ def screen_a2(
     chain node and business evidence forward.  Scores are calculated from the
     configured semantic factors.  A missing capital-flow source removes that
     dimension from the denominator; turnover is never used as a capital-flow
-    substitute.
+    substitute. ``review_all_eligible`` is the production wide-entry switch:
+    it keeps every route-eligible candidate in the model review set while
+    preserving ``theme_rank`` for audit and downstream ordering. The default
+    remains ``False`` so legacy callers retain the historical Top-N behavior.
     """
 
     if llm_top_n_per_theme < 1:
@@ -732,7 +737,7 @@ def screen_a2(
         values.sort(key=lambda item: (-float(item["score"]), -float(item["identifiability_score"]), str(item["symbol"])))
         for rank, item in enumerate(values, start=1):
             item["theme_rank"] = rank
-            if rank > llm_top_n_per_theme:
+            if not review_all_eligible and rank > llm_top_n_per_theme:
                 item["status"] = "LOCAL_MONITOR"
                 item["reason_codes"].append("A2_NOT_SENT_TO_LLM")
             else:
@@ -1284,16 +1289,20 @@ def _market_core_route_result(
         and _number(factor_scores.get(name, {}).get("score")) is not None
         for name in market_factor_names
     )
-    # The global weighted denominator contains optional capital-flow and event
-    # families.  Calculate the minimum against non-capital evidence so one
-    # unavailable source cannot veto a market-core route.  Missing required
+    # MARKET_CORE coverage is deliberately scoped to the hard three market
+    # facts. The global weighted denominator contains additional optional
+    # families, but an unavailable capital-flow/ladder/resonance feed must not
+    # veto an otherwise valid theme/emotion + role candidate. Missing hard
     # market evidence still remains a deterministic data gap.
-    route_ratio = _route_required_coverage(
-        factor_scores,
-        coverage,
-        optional=("capital_flow",),
-        weights=weights,
-        required_names=_A2_MARKET_FACTORS,
+    # The route contract is a fact-count contract (at least two of the hard
+    # three), not a weighted-score contract.  Using configured theme weights
+    # here would let one unusually large optional weight make two observed
+    # hard facts look insufficient.  Keep the ratio in the audit payload so
+    # callers can still see the exact hard-fact coverage.
+    route_ratio = (
+        market_fact_count / len(_A2_MARKET_FACTORS)
+        if _A2_MARKET_FACTORS
+        else 0.0
     )
     if enforce_coverage and route_ratio < coverage_minimum:
         missing.append("A2_FACTOR_COVERAGE_BELOW_MINIMUM")

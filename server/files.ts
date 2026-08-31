@@ -196,6 +196,12 @@ const NUMERIC_PROGRESS_KEYS = new Set([
   "cache_misses",
   "cacheMisses",
   "misses",
+  "daily_updates",
+  "dailyUpdates",
+  "financial_refreshes",
+  "financialRefreshes",
+  "deferred_financial_refreshes",
+  "deferredFinancialRefreshes",
   "failures",
   "failed",
   "failure_count",
@@ -1680,6 +1686,9 @@ function invalidProgress(issue: WorkflowProgressIssue): WorkflowProgressSummary 
     total: null,
     cacheHits: null,
     cacheMisses: null,
+    dailyUpdates: null,
+    financialRefreshes: null,
+    deferredFinancialRefreshes: null,
     failures: null,
     currentSymbol: null,
     currentDocument: null,
@@ -1713,6 +1722,9 @@ function normalizeWorkflowProgress(source: JsonRecord): WorkflowProgressSummary 
   const total = metricFromSources(metricSourcesList, ["total", "total_count", "universe_total"], "count");
   const cacheHits = metricFromSources(metricSourcesList, ["cache_hits", "cacheHit", "hits"], "count");
   const cacheMisses = metricFromSources(metricSourcesList, ["cache_misses", "cacheMisses", "misses"], "count");
+  const dailyUpdates = metricFromSources(metricSourcesList, ["daily_updates", "dailyUpdates"], "count");
+  const financialRefreshes = metricFromSources(metricSourcesList, ["financial_refreshes", "financialRefreshes"], "count");
+  const deferredFinancialRefreshes = metricFromSources(metricSourcesList, ["deferred_financial_refreshes", "deferredFinancialRefreshes"], "count");
   const failures = metricFromSources(metricSourcesList, ["failures", "failed", "failure_count"], "count");
   const documentsSucceeded = metricFromSources(metricSourcesList, ["documents_succeeded", "documentsSucceeded"], "count");
   const documentsFailed = metricFromSources(metricSourcesList, ["documents_failed", "documentsFailed"], "count");
@@ -1755,6 +1767,9 @@ function normalizeWorkflowProgress(source: JsonRecord): WorkflowProgressSummary 
     total: total.value,
     cacheHits: cacheHits.value,
     cacheMisses: cacheMisses.value,
+    dailyUpdates: dailyUpdates.value,
+    financialRefreshes: financialRefreshes.value,
+    deferredFinancialRefreshes: deferredFinancialRefreshes.value,
     failures: failures.value,
     currentSymbol: progressString(nestedData?.current_symbol ?? nestedData?.currentSymbol, 32),
     currentDocument: progressString(nestedData?.current_document ?? nestedData?.currentDocument, 120),

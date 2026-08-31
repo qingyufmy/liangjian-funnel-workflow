@@ -190,3 +190,51 @@ def test_daily_cache_uses_closed_bar_watermark_instead_of_wall_clock_ttl(tmp_pat
     request_start = datetime.fromtimestamp(refreshed.history_kwargs[0]["start"] / 1000, tz=TZ)
     assert request_start >= NOW - timedelta(days=8)
     assert all(dataset == "DAILY" for dataset, _symbol in refreshed.calls)
+
+
+def test_stale_fundamentals_rotate_oldest_without_reducing_research_coverage(tmp_path):
+    cache = LocalFactCache(tmp_path / "facts.sqlite3")
+    initial = HithinkIncrementalSynchronizer(cache, progress_every=1)
+    symbols = ["600519.SH", "000001.SZ", "300750.SZ"]
+    initial.sync(FakeClient(), symbols, as_of=NOW)
+
+    events = []
+    client = FakeClient()
+    rotating = HithinkIncrementalSynchronizer(
+        cache,
+        fundamental_refresh_hours=24,
+        fundamental_refresh_symbols_per_run=1,
+        progress_every=1,
+    )
+    result = rotating.sync(
+        client,
+        symbols,
+        as_of=NOW + timedelta(hours=25),
+        progress=events.append,
+    )
+
+    financial_calls = [(dataset, symbol) for dataset, symbol in client.calls if dataset != "DAILY"]
+    assert len({symbol for _dataset, symbol in financial_calls}) == 1
+    assert len(financial_calls) == len(FINANCIAL_DATASETS)
+    assert {symbol for dataset, symbol in client.calls if dataset == "DAILY"} == set(symbols)
+    assert set(result.fundamental) == set(symbols)
+    assert result.financial_refreshes == 1
+    assert result.deferred_financial_refreshes == 2
+    assert result.daily_updates == 3
+    assert events[-1]["financial_refreshes"] == 1
+    assert events[-1]["deferred_financial_refreshes"] == 2
+
+
+def test_missing_core_fundamentals_bypass_zero_rotation_budget(tmp_path):
+    cache = LocalFactCache(tmp_path / "facts.sqlite3")
+    sync = HithinkIncrementalSynchronizer(
+        cache,
+        fundamental_refresh_symbols_per_run=0,
+        progress_every=1,
+    )
+
+    result = sync.sync(FakeClient(), ["600519.SH"], as_of=NOW)
+
+    assert "600519.SH" in result.fundamental
+    assert result.financial_refreshes == 1
+    assert result.deferred_financial_refreshes == 0

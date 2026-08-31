@@ -846,6 +846,7 @@ function progressRate(progress: WorkflowProgressSummary): string {
 
 function WorkflowProgressPanel({ progress }: { progress: WorkflowProgressSummary | null }) {
   const isPdfProgress = progress?.phase === "CNINFO_PDF_SYNC";
+  const isMarketFactProgress = progress?.phase === "MARKET_FACT_SYNC";
   const hasBlockingIssue = Boolean(progress?.issue && !progress.stale);
   const overallMeasure = progress ? progressMeasure(progress.processed, progress.total, null, null) : null;
   const researchWithoutOverallCount = progress ? isResearchPhase(progress.phase) && !overallMeasure : false;
@@ -867,7 +868,7 @@ function WorkflowProgressPanel({ progress }: { progress: WorkflowProgressSummary
           <div className="progress-summary-grid">
             <div><span>当前阶段</span><strong>{progressPhaseLabel(progress.phase)}</strong><StatusBadge status={progress.status} /></div>
             <div><span>{isPdfProgress ? "PDF 文档处理" : researchWithoutOverallCount ? "研究批次（按模型）" : "总体处理"}</span><strong>{overallMeasure ? progressPair(overallMeasure.processed, overallMeasure.total) : researchWithoutOverallCount ? "按下方模型批次" : "暂无可用计数"}</strong>{overallMeasure ? <ProgressBar processed={overallMeasure.processed} total={overallMeasure.total} /> : <span className="progress-no-value">{researchWithoutOverallCount ? "各 lane 分别统计" : "暂未提供"}</span>}</div>
-            <div><span>{isPdfProgress ? "PDF 缓存命中 / 未命中" : "缓存命中 / 未命中"}</span><strong>{progressPair(progress.cacheHits, progress.cacheMisses)}</strong></div>
+            <div><span>{isPdfProgress ? "PDF 缓存命中 / 未命中" : isMarketFactProgress ? "纯缓存 / 有增量" : "缓存命中 / 未命中"}</span><strong>{progressPair(progress.cacheHits, progress.cacheMisses)}</strong></div>
             <div><span>{isPdfProgress ? "PDF 失败数" : "失败数"}</span><strong className={progress.failures ? "progress-danger" : ""}>{progressCount(progress.failures)}</strong></div>
             <div><span>已用时间</span><strong>{formatDuration(progress.elapsedMs)}</strong></div>
             <div><span>预计剩余</span><strong>{formatDuration(progress.etaMs)}</strong></div>
@@ -878,6 +879,14 @@ function WorkflowProgressPanel({ progress }: { progress: WorkflowProgressSummary
               <div><span>最近完成文档</span><strong title={progress.currentDocument ?? undefined}>{progress.currentDocument ?? "正在生成并行任务"}</strong></div>
               <div><span>成功 / 失败</span><strong>{progressPair(progress.documentsSucceeded, progress.documentsFailed)}</strong></div>
               <div><span>处理速度</span><strong>{progressRate(progress)}</strong></div>
+            </div>
+          ) : null}
+          {isMarketFactProgress ? (
+            <div className="progress-current-task" aria-live="polite">
+              <div><span>最近处理股票</span><strong>{progress.currentSymbol ?? "等待首支完成"}</strong></div>
+              <div><span>日线尾部增量</span><strong>{progressCount(progress.dailyUpdates)}</strong></div>
+              <div><span>财务轮换刷新</span><strong>{progressCount(progress.financialRefreshes)}</strong></div>
+              <div><span>延期财务刷新</span><strong>{progressCount(progress.deferredFinancialRefreshes)}</strong></div>
             </div>
           ) : null}
           {progress.lanes.length === 0 ? <div className="progress-empty-lanes">当前阶段尚未产生模型 lane 批次。</div> : <div className="progress-lanes">{progress.lanes.map((lane) => <ProgressLane key={lane.laneId} lane={lane} />)}</div>}

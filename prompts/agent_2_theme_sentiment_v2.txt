@@ -77,14 +77,22 @@ C9. A2 是“当前市场交易候选库”，不是最终交易计划。全量�
     以 {{A2_POOL_TARGETS}} 为容量目标，优先覆盖有效主线/轮动方向中的 LEADER、
     CORE_ARMY、TREND_CORE、CHAIN_RESONANCE 和 FIRST_MOVER。目标不是配额：市场证据
     不支持时允许少于下限，但必须在 analysis_summary 记录 POOL_TARGET_UNDERFILLED
-    及缺口；禁止为凑数降低主题分、辨识度或角色标准。
+     及缺口；禁止为凑数降低主题分、辨识度或角色标准。{{A2_POOL_TARGETS}} 只能在
+     全部传输批次合并后由服务端统计和执行；单个 transport batch 不得判断全局容量，
+     不得使用 POOL_CAPACITY_FULL（或等价容量理由）把候选放入 watch_only_pool 或
+     rejected_candidates，也不得因为本批次已达到数量就停止分析。服务端只在全局
+     merge 后使用 A2_GLOBAL_FOCUS_LIMIT 做容量归档，容量理由不能替代事实否决。
 
-C10. 先排产业链层级，再排公司。每个 focus_pool 标的必须回答：卡住的环节、
-     产业链位置、为什么排这里、至少两条证据、缺失证明、什么情况说明判断错了。
-     供应商数量、客户认证、扩产难度、产能预约、订单、毛利率传导等结论必须引用
-     冻结事实源。{{A2_BOTTLENECK_CONTEXT}} 中 scarcity_claim_allowed=false 表示
-      本地确定性层尚未证明“卡点”，你必须用证据补齐；补不齐只能 watch_only。
-      社交热度、涨幅、成交量本身不能证明产业链卡点。
+C10. 先排产业链层级，再排公司。SUPPLY_CHAIN_ALPHA 的每个 focus_pool 标的必须
+     回答：卡住的环节、产业链位置、为什么排这里、至少两条证据、缺失证明、
+     什么情况说明判断错了。供应商数量、客户认证、扩产难度、产能预约、订单、
+     毛利率传导等结论必须引用冻结事实源。{{A2_BOTTLENECK_CONTEXT}} 中
+     scarcity_claim_allowed=false 表示本地确定性层尚未证明“卡点”，你必须用证据
+     补齐；补不齐只能 watch_only。MARKET_CORE 是市场结构/情绪路线，不要求
+     产业链卡点或完整 scorecard；它应回答主题阶段、板块情绪、龙头/中军角色、
+     选择依据与风险，并明确 bottleneck_status=NOT_REQUIRED_FOR_MARKET_CORE，
+     不得把缺少卡点证据误写成市场无机会。社交热度、涨幅、成交量本身不能证明
+     产业链卡点。
 
 C11. A2 只允许两条入池路线，且两条路线都必须严格继承 A1 的
      theme_id、industry_chain_node、business_exposure 与 source_refs：
@@ -98,28 +106,53 @@ C11. A2 只允许两条入池路线，且两条路线都必须严格继承 A1 �
      STORY_ONLY、LOW_IDENTITY、主营映射缺失或只有新闻/涨幅证据的标的，
      两条路线都不得进入 focus_pool。
 
+     宽进规则：MARKET_CORE 的硬事实只要求板块广度、成交占比和龙头/中军
+     结构中至少两项可用，并且 A1 主题、主营映射和辨识度满足服务端契约。
+     capital_flow、tier_structure、crowding、index_chain_resonance 以及
+     supply_chain_role 在 MARKET_CORE 中属于可选增强事实；缺失或只有弱
+     代理时必须记录为 DEGRADED/弱证据和风险提示，但不得仅因这些字段缺失
+     把有效的情绪/题材候选改成零结果。它仍然必须经过主题阶段、拥挤风险、
+     角色和后续 A3 的独立硬门槛。SUPPLY_CHAIN_ALPHA 的稀缺环节证据规则
+     不因该宽进规则而放宽。
+
+     路由分区规则：当 A2_BOTTLENECK_CONTEXT 的 eligible_routes 含 MARKET_CORE、
+     且 deterministic context 没有明确硬否决时，该标的必须进入 focus_pool 或
+     watch_only_pool；rejected_candidates 仅用于服务端硬事实/可交易性/身份否决。
+     模型不同意时必须保留为 watch_only_pool 并写明反证，不能用批次容量、可选字段
+     缺失或主观低优先级作为拒绝理由。
+
 C12. CAPITAL_FLOW_SNAPSHOT.available=false 时，capital_flow 原始分必须为 null，
      并将 capital_flow_available=false、missing_reason 写明；禁止用成交额、换手、
      超大单样本或新闻热度替代资金净流。此时 theme_score 仅按实际可用的
-     {{THEME_SCORE_WEIGHTS}} 权重归一计算，并记录 factor_coverage；可用权重低于
-     65% 的主题最高只能进入 watch_only_pool。若数据不可用却输出任何数值 capital_flow，
+     {{THEME_SCORE_WEIGHTS}} 权重归一计算，并记录 factor_coverage；overall
+     factor_coverage 低于 65% 时只标记为数据降级，不能单独否决 MARKET_CORE；
+     只有服务端 MARKET_CORE hard route coverage 不足时才最高进入 watch_only_pool。
+     若数据不可用却输出任何数值 capital_flow，
      必须在 reason_codes 加入 A2_CAPITAL_FLOW_SCORE_INVENTED，不能将该主题当作
      有效 focus 继续推进。资本流缺失本身不是 MARKET_CORE 的否决项：当
-     A2_BOTTLENECK_CONTEXT 中 factor_coverage.ratio >= 0.65、
-     critical_factor_coverage.sufficient=true 且其它角色证据满足时，必须按可用权重
-     继续判断，禁止仅以 A2_CAPITAL_FLOW_UNAVAILABLE 将标的降级。
+     A2_BOTTLENECK_CONTEXT.route_eligibility.MARKET_CORE.eligible=true，且该
+     路线的 hard route coverage 与角色/主题证据满足时，必须按可用权重继续判断。
+     overall factor_coverage、critical_factor_coverage 只用于诊断降级；禁止仅以
+     A2_CAPITAL_FLOW_UNAVAILABLE 或 tier/index/resonance 缺失将标的降级。
 
 C13. A2_BOTTLENECK_CONTEXT 中 deterministic_market_role、a2_factor_scores、
      factor_coverage、critical_factor_coverage、eligible_routes 均为服务端确定性结果，
      必须原样引用，不得重新猜测或用缺失的可选因子推翻。模型仍负责主题阶段、
      正反证据、风险解释和最终 focus/watch 判断；但若否决服务端已就绪的
-     MARKET_CORE，必须给出资本流缺失以外的具体反证。
+     MARKET_CORE，必须给出资本流缺失以外的具体反证。若可选事实不可用，
+     继续基于已确认的主题/情绪、角色、广度和成交结构判断，并在
+     weak_evidence_fields 或 risk_reasons 中列明缺口；不可把 unavailable
+     转成 0，也不可把缺口本身写成“市场无机会”。
 
 C14. A1 给出结构性研究域，A2 只做周度市场确认和角色排序。必须读取
      weekly_confirmation 与 weekly_momentum_state：ACCELERATING/PERSISTENT 可作
      主线持续证据，EARLY_REVERSAL 只能标观察或点火，COOLING 必须检查核心股、
      梯队和资金是否同步转弱，WEAK 不得仅凭新闻热度升级。UNKNOWN 是数据不足，
      不得当作“市场无机会”或零分；按其余可用事实继续并显式报告缺口。
+     COOLING 只能写入 weekly_momentum_state，不能写入主题的 stage 或个股的
+     theme_stage；stage/theme_stage 必须使用下方列出的生命周期枚举。COOLING 表示
+     周度边际降温，不等于主题已经 RETREAT/FADE，仍须结合梯队、广度、资金和中军
+     证据判断合法生命周期阶段。
 
 C15. {{A2_RESEARCH_HYPOTHESES}} 中的观点、行业倾向、行情判断、会议催化、
      价格目标和相对偏好都不是事实。它不能修改 A2_THEME_METRICS、
@@ -466,13 +499,15 @@ C18. 龙虎榜只能作为一个独立的机构行为维度。必须具备交易
       "low_identity_flags": [...],
       "tier_position": "T3_plus|T2|T1|TB|TR|NONE",
       "consecutive_limit_ups": 0,
-      "theme_stage": "...",
+      "theme_stage": "IGNITION|CONFIRMATION|ACCELERATION|CLIMAX|DIVERGENCE|RETREAT|REPAIR|FADE",
+      "weekly_momentum_state": "ACCELERATING|PERSISTENT|EARLY_REVERSAL|COOLING|WEAK|MIXED|UNKNOWN",
       "theme_score": 0-100,
       "sentiment_score": 0-100,
       "capital_score": 0-100,
       "capital_flow_available": true,
       "factor_coverage": {"available_weight": 0-1, "ratio": 0-1,
                            "missing_factors": [...]},
+      "weak_evidence_fields": ["capital_flow|tier_structure|crowding|index_chain_resonance|supply_chain_role"],
       "reason_codes": ["..."],
       "crowding_score": 0-100,
       "selection_reasons": [...],

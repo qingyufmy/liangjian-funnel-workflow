@@ -21,6 +21,9 @@ def test_progress_is_atomic_bounded_and_does_not_retain_sensitive_payload(tmp_pa
         cache_misses=5,
         failures=1,
         current_symbol="600519.SH",
+        daily_updates=21,
+        financial_refreshes=4,
+        deferred_financial_refreshes=96,
         eta_seconds=100,
         now=started + timedelta(seconds=20),
     )
@@ -66,6 +69,9 @@ def test_progress_is_atomic_bounded_and_does_not_retain_sensitive_payload(tmp_pa
     state = progress.snapshot()
     assert state["phase"] == "RESEARCH_A1"
     assert state["data"]["processed"] == 25
+    assert state["data"]["daily_updates"] == 21
+    assert state["data"]["financial_refreshes"] == 4
+    assert state["data"]["deferred_financial_refreshes"] == 96
     assert state["lanes"]["LANE_1"]["stages"]["A1"]["completed_batches"] == 2
     assert state["lanes"]["LANE_1"]["stages"]["A1"]["processed_symbols"] == 3886
     assert state["lanes"]["LANE_1"]["stages"]["A1"]["selected_symbols"] == 36

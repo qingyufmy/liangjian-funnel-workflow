@@ -137,6 +137,9 @@ class WorkflowProgress:
         current_document: str | None = None,
         documents_succeeded: int | None = None,
         documents_failed: int | None = None,
+        daily_updates: int | None = None,
+        financial_refreshes: int | None = None,
+        deferred_financial_refreshes: int | None = None,
         eta_seconds: int | None = None,
         now: datetime | None = None,
     ) -> None:
@@ -156,6 +159,14 @@ class WorkflowProgress:
                 payload["documents_succeeded"] = _non_negative(documents_succeeded) or 0
             if documents_failed is not None:
                 payload["documents_failed"] = _non_negative(documents_failed) or 0
+            if daily_updates is not None:
+                payload["daily_updates"] = _non_negative(daily_updates) or 0
+            if financial_refreshes is not None:
+                payload["financial_refreshes"] = _non_negative(financial_refreshes) or 0
+            if deferred_financial_refreshes is not None:
+                payload["deferred_financial_refreshes"] = (
+                    _non_negative(deferred_financial_refreshes) or 0
+                )
             self._state["data"] = payload
             computed_eta = _non_negative(eta_seconds)
             if computed_eta is None and payload["processed"] > 0 and payload["total"] > payload["processed"]:

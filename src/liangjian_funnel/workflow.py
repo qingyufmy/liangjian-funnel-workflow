@@ -175,6 +175,7 @@ class WorkflowApplication:
         self.fact_synchronizer = HithinkIncrementalSynchronizer(
             self.fact_cache,
             fundamental_refresh_hours=settings.fundamental_refresh_hours,
+            fundamental_refresh_symbols_per_run=settings.fundamental_refresh_symbols_per_run,
             daily_refresh_hours=settings.daily_refresh_hours,
             progress_every=settings.data_progress_every,
             batch_size=settings.data_sync_batch_size,
@@ -387,6 +388,11 @@ class WorkflowApplication:
                     cache_misses=int(event.get("cache_misses") or 0),
                     failures=int(event.get("failures") or 0),
                     current_symbol=str(event.get("current_symbol") or "") or None,
+                    daily_updates=int(event.get("daily_updates") or 0),
+                    financial_refreshes=int(event.get("financial_refreshes") or 0),
+                    deferred_financial_refreshes=int(
+                        event.get("deferred_financial_refreshes") or 0
+                    ),
                 )
                 _progress_stdout(progress.snapshot())
 

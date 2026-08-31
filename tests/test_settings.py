@@ -33,6 +33,7 @@ def test_exact_models_and_safe_summary_do_not_leak_keys(tmp_path: Path):
     assert settings.cninfo_workers == 4
     assert settings.cninfo_pdf_workers == 2
     assert settings.fundamental_refresh_hours == 24
+    assert settings.fundamental_refresh_symbols_per_run == 100
     assert settings.daily_refresh_hours == 4
     assert settings.a2_capital_flow_workers == 16
     assert settings.open_macro_enabled is True
@@ -40,6 +41,21 @@ def test_exact_models_and_safe_summary_do_not_leak_keys(tmp_path: Path):
     assert settings.research_thinking_enabled is True
     assert settings.monitor_thinking_enabled is False
     assert settings.comparison_enabled is False
+
+
+def test_fundamental_refresh_budget_is_bounded_without_limiting_research_pool(tmp_path: Path):
+    settings = Settings.from_env(
+        {"LIANGJIAN_FUNDAMENTAL_REFRESH_SYMBOLS_PER_RUN": "250"},
+        root=tmp_path,
+    )
+    assert settings.fundamental_refresh_symbols_per_run == 250
+    assert settings.safe_summary()["fundamental_refresh_symbols_per_run"] == 250
+
+    with pytest.raises(ValidationError):
+        Settings.from_env(
+            {"LIANGJIAN_FUNDAMENTAL_REFRESH_SYMBOLS_PER_RUN": "1001"},
+            root=tmp_path,
+        )
 
 
 def test_thinking_flags_are_explicit_and_strict(tmp_path: Path):
@@ -66,6 +82,18 @@ def test_stable_mode_can_disable_optional_comparison_without_changing_models(tmp
     assert settings.comparison_enabled is False
     assert settings.research_models == RESEARCH_MODELS
     assert settings.safe_summary()["comparison_enabled"] is False
+
+
+def test_a2_review_all_eligible_defaults_on_and_supports_legacy_rollback(tmp_path: Path):
+    settings = Settings.from_env({}, root=tmp_path)
+    assert settings.a2_review_all_eligible is True
+    assert settings.safe_summary()["a2_review_all_eligible"] is True
+
+    legacy = Settings.from_env(
+        {"LIANGJIAN_A2_REVIEW_ALL_ELIGIBLE": "false"},
+        root=tmp_path,
+    )
+    assert legacy.a2_review_all_eligible is False
 
 
 def test_research_batch_workers_cannot_reenable_parallel_production_requests(tmp_path: Path):

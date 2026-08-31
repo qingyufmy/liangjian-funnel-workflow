@@ -184,6 +184,9 @@ export interface WorkflowProgressSummary {
   readonly total: number | null;
   readonly cacheHits: number | null;
   readonly cacheMisses: number | null;
+  readonly dailyUpdates: number | null;
+  readonly financialRefreshes: number | null;
+  readonly deferredFinancialRefreshes: number | null;
   readonly failures: number | null;
   readonly currentSymbol: string | null;
   readonly currentDocument: string | null;

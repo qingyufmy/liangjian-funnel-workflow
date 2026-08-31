@@ -710,6 +710,9 @@ export interface WorkflowProgressSummary {
   total: number | null;
   cacheHits: number | null;
   cacheMisses: number | null;
+  dailyUpdates: number | null;
+  financialRefreshes: number | null;
+  deferredFinancialRefreshes: number | null;
   failures: number | null;
   currentSymbol: string | null;
   currentDocument: string | null;

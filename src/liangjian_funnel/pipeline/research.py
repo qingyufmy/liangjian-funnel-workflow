@@ -195,6 +195,20 @@ _A2_LLM_REJECT_HARD_MARKERS = (
     "NOT_TRADABLE",
     "TRADABILITY",
 )
+_A2_THEME_LIFECYCLE_STAGES = frozenset({
+    "IGNITION",
+    "CONFIRMATION",
+    "ACCELERATION",
+    "CLIMAX",
+    "DIVERGENCE",
+    "RETREAT",
+    "REPAIR",
+    "FADE",
+})
+_A2_CAPACITY_REASON_CODES = frozenset({"POOL_CAPACITY_FULL"})
+_A2_CAPACITY_REASON_IGNORED = "A2_BATCH_CAPACITY_REASON_IGNORED"
+_A2_COOLING_STAGE_NORMALIZED = "A2_THEME_STAGE_CANONICALIZED_FROM_COOLING"
+_A2_COOLING_FALLBACK_STAGE = "DIVERGENCE"
 _SYMBOL = re.compile(
     r"(?<![A-Za-z0-9_])(?:(?P<code>\d{6})\.(?P<suffix>SH|SZ|BJ)|"
     r"(?P<prefix>SHSE|SZSE|BJSE|XSHG|XSHE)\.(?P<prefix_code>\d{6}))(?![A-Za-z0-9_])",
@@ -1315,6 +1329,7 @@ class ResearchPipeline:
                 a2_snapshot.data.get("MIN_IDENTIFIABILITY_SCORE") or 60.0
             ),
             llm_top_n_per_theme=self.settings.a2_llm_top_n_per_theme,
+            review_all_eligible=self.settings.a2_review_all_eligible,
         )
         a2_snapshot = _with_a2_bottleneck_context(a2_snapshot, a2_gate)
         self._persist_gate(run_id, lane_id, a2_gate, a2_snapshot)
@@ -1737,6 +1752,8 @@ class ResearchPipeline:
                 upstream_output,
                 snapshot.data,
             )
+            if stage == "A2":
+                output, _ = _enrich_a2_decision_facts(output, snapshot.data)
         output["local_screen_summary"] = gate.summary
         output = _refresh_analysis_counts(output, stage)
         reasons = _validate_output(
@@ -2122,6 +2139,8 @@ class ResearchPipeline:
                 output,
                 _required_envelope(snapshot, lane_id, model, stage),
             )
+            if stage == "A2":
+                output, _ = _canonicalize_a2_contract_semantics(output)
             if stage in {"A2", "A3"}:
                 output, _ = _canonicalize_stage_lineage(
                     output,
@@ -2747,6 +2766,7 @@ class ResearchPipeline:
         merged = _merge_a2_outputs([
             audit.output for audit in valid_audits if isinstance(audit.output, Mapping)
         ])
+        merged, canonicalized_a2_semantics = _canonicalize_a2_contract_semantics(merged)
         merged, canonicalized_lineage = _canonicalize_stage_lineage(
             merged,
             "A2",
@@ -2772,6 +2792,7 @@ class ResearchPipeline:
             snapshot.data,
         )
         canonicalized_lineage += post_policy_lineage
+        merged, enriched_decision_facts = _enrich_a2_decision_facts(merged, snapshot.data)
         merged = _annotate_a2_pool_target(merged, snapshot.data)
         merged = _refresh_analysis_counts(merged, "A2")
         reasons = _validate_output(
@@ -2804,6 +2825,8 @@ class ResearchPipeline:
                 "split_count": split_count,
                 "canonicalized_score_items": canonicalized_scores,
                 "canonicalized_bottleneck_scorecards": canonicalized_bottleneck_scores,
+                "canonicalized_a2_semantics": canonicalized_a2_semantics,
+                "enriched_decision_facts": enriched_decision_facts,
                 "canonicalized_lineage": canonicalized_lineage,
                 "a2_llm_reject_demotions": a2_llm_reject_demotions,
                 "policy_demotions": threshold_demotions + lineage_demotions,
@@ -3249,6 +3272,9 @@ class ResearchPipeline:
                     output, a1_discovery_context
                 )
             output, canonicalized_pool_fields = _canonicalize_stage_pool_fields(output, stage)
+            canonicalized_a2_semantics = 0
+            if stage == "A2":
+                output, canonicalized_a2_semantics = _canonicalize_a2_contract_semantics(output)
             canonicalized_lineage = 0
             a2_llm_reject_demotions = 0
             if stage in {"A2", "A3"}:
@@ -3312,6 +3338,8 @@ class ResearchPipeline:
                     snapshot.data,
                 )
                 canonicalized_lineage += post_policy_lineage
+                if stage == "A2":
+                    output, _ = _enrich_a2_decision_facts(output, snapshot.data)
                 output = _refresh_analysis_counts(output, stage)
             if stage == "A2" and projection_symbols is None:
                 output = _annotate_a2_pool_target(output, snapshot.data)
@@ -3387,6 +3415,8 @@ class ResearchPipeline:
                     diagnostics["canonicalized_driver_context"] = canonicalized_driver_context
                 if canonicalized_pool_fields:
                     diagnostics["canonicalized_pool_fields"] = canonicalized_pool_fields
+                if canonicalized_a2_semantics:
+                    diagnostics["canonicalized_a2_semantics"] = canonicalized_a2_semantics
                 if canonicalized_lineage:
                     diagnostics["canonicalized_lineage"] = canonicalized_lineage
                 if a2_llm_reject_demotions:
@@ -6097,6 +6127,286 @@ def _canonicalize_a2_bottleneck_scorecards(
     return result, changed
 
 
+def _canonicalize_a2_contract_semantics(
+    output: Mapping[str, Any],
+) -> tuple[dict[str, Any], int]:
+    """Normalize provider-owned A2 vocabulary without changing selection facts.
+
+    A2 requests are sent in transport batches, but the capacity target belongs
+    to the globally merged result.  Providers sometimes apply that target to
+    one batch and emit ``POOL_CAPACITY_FULL`` as if it were a symbol-level
+    veto.  Remove that false reason and leave an explicit server audit reason;
+    the row stays in its original partition and the global policy remains the
+    only code allowed to apply capacity.
+
+    ``COOLING`` is a weekly momentum state, not a theme lifecycle stage.  A
+    provider response that puts it in ``stage``/``theme_stage`` is repaired to
+    ``DIVERGENCE`` while preserving the cooling state for downstream
+    explanation.  That is the nearest non-terminal lifecycle state: it keeps
+    the candidate observable but cannot misrepresent weakening momentum as a
+    fresh confirmation.  Other invalid lifecycle values are intentionally
+    left for the normal validator rather than guessed.
+    """
+
+    result = dict(output)
+    changed = 0
+
+    def append_reason(item: dict[str, Any], reason: str) -> None:
+        nonlocal changed
+        raw = item.get("reason_codes")
+        if isinstance(raw, str):
+            reasons = [raw]
+        elif isinstance(raw, Sequence) and not isinstance(raw, (str, bytes, bytearray)):
+            reasons = [value for value in raw]
+        else:
+            reasons = []
+        if reason in reasons:
+            return
+        item["reason_codes"] = [*reasons, reason]
+        changed += 1
+
+    def normalize_reason_codes(item: dict[str, Any]) -> None:
+        nonlocal changed
+        raw = item.get("reason_codes")
+        if isinstance(raw, str):
+            values = [raw]
+        elif isinstance(raw, Sequence) and not isinstance(raw, (str, bytes, bytearray)):
+            values = list(raw)
+        else:
+            return
+        ignored = [
+            value for value in values
+            if isinstance(value, str) and value.strip().upper() in _A2_CAPACITY_REASON_CODES
+        ]
+        if not ignored:
+            return
+        retained = [
+            value for value in values
+            if not (isinstance(value, str) and value.strip().upper() in _A2_CAPACITY_REASON_CODES)
+        ]
+        item["reason_codes"] = retained
+        changed += 1
+        append_reason(item, _A2_CAPACITY_REASON_IGNORED)
+
+    def normalize_stage(item: dict[str, Any], field: str) -> None:
+        nonlocal changed
+        raw_stage = item.get(field)
+        stage = str(raw_stage or "").strip().upper()
+        if stage != "COOLING":
+            return
+        if item.get("weekly_momentum_state") != "COOLING":
+            item["weekly_momentum_state"] = "COOLING"
+            changed += 1
+        if item.get(field) != _A2_COOLING_FALLBACK_STAGE:
+            item[field] = _A2_COOLING_FALLBACK_STAGE
+            changed += 1
+        append_reason(item, _A2_COOLING_STAGE_NORMALIZED)
+
+    active_themes = result.get("active_themes")
+    if isinstance(active_themes, list):
+        normalized_themes: list[Any] = []
+        for raw_theme in active_themes:
+            if not isinstance(raw_theme, Mapping):
+                normalized_themes.append(raw_theme)
+                continue
+            theme = dict(raw_theme)
+            normalize_stage(theme, "stage")
+            normalize_reason_codes(theme)
+            normalized_themes.append(theme)
+        result["active_themes"] = normalized_themes
+
+    for pool in _STAGE_LINEAGE_POOLS["A2"]:
+        raw_items = result.get(pool)
+        if not isinstance(raw_items, list):
+            continue
+        normalized_items: list[Any] = []
+        for raw_item in raw_items:
+            if not isinstance(raw_item, Mapping):
+                normalized_items.append(raw_item)
+                continue
+            item = dict(raw_item)
+            normalize_stage(item, "theme_stage")
+            # Accept the provider's occasional row-level alias as well.  The
+            # canonical A2 row field remains theme_stage; normalizing stage
+            # here prevents a non-contract COOLING value from leaking through.
+            normalize_stage(item, "stage")
+            normalize_reason_codes(item)
+            normalized_items.append(item)
+        result[pool] = normalized_items
+
+    summary = result.get("analysis_summary")
+    if isinstance(summary, Mapping):
+        normalized_summary = dict(summary)
+        normalize_reason_codes(normalized_summary)
+        result["analysis_summary"] = normalized_summary
+    return result, changed
+
+
+def _enrich_a2_decision_facts(
+    output: Mapping[str, Any],
+    snapshot_data: Mapping[str, Any],
+) -> tuple[dict[str, Any], int]:
+    """Attach explicit A2 fact states to model pool rows.
+
+    The deterministic gate already has symbol-scoped factor results, but the
+    provider response historically exposed only a subset of them.  That made
+    the workbench report several facts as ``missing`` even when the server had
+    an observed value (or had an explicit unavailable state).  Fill only
+    missing fields from ``A2_BOTTLENECK_CONTEXT`` and never replace a non-empty
+    model value.  Optional facts remain visibly unavailable instead of being
+    represented by a fabricated zero.
+    """
+
+    result = dict(output)
+    raw_context = snapshot_data.get("A2_BOTTLENECK_CONTEXT")
+    contexts = raw_context if isinstance(raw_context, Mapping) else {}
+    if not contexts:
+        return result, 0
+
+    changed = 0
+    factor_aliases: Mapping[str, tuple[str, ...]] = {
+        "capital_flow": ("capital_flow", "fund_flow", "capital_score", "capital_flow_score"),
+        "tier_structure": ("tier_structure", "tier_position", "tier", "ladder", "tier_table"),
+        "leader_structure": ("leader_structure", "leader_subtype", "leader_role", "identifiability_score"),
+        "index_chain_resonance": (
+            "index_chain_resonance",
+            "index_chain_resonance_score",
+            "chain_resonance_score",
+        ),
+    }
+
+    def has_fact(item: Mapping[str, Any], names: Sequence[str]) -> bool:
+        return any(_a2_fact_value_present(item.get(name)) for name in names)
+
+    for pool in ("focus_pool", "watch_only_pool"):
+        raw_items = result.get(pool)
+        if not isinstance(raw_items, list):
+            continue
+        normalized: list[Any] = []
+        for raw_item in raw_items:
+            if not isinstance(raw_item, Mapping):
+                normalized.append(raw_item)
+                continue
+            item = dict(raw_item)
+            symbol = _first_symbol(item)
+            context = contexts.get(symbol) if symbol else None
+            if not isinstance(context, Mapping):
+                normalized.append(item)
+                continue
+
+            factors = context.get("a2_factor_scores")
+            factors = factors if isinstance(factors, Mapping) else {}
+            weak_fields = _a2_fact_name_list(item.get("weak_evidence_fields"))
+            for name, aliases in factor_aliases.items():
+                factor = factors.get(name)
+                if isinstance(factor, Mapping):
+                    available = factor.get("available") is True and _a2_number_present(factor.get("score"))
+                    if not has_fact(item, aliases):
+                        item[name] = dict(factor)
+                        changed += 1
+                    if name == "capital_flow" and "capital_flow_available" not in item:
+                        # A boolean availability flag is safe to expose even
+                        # when the score itself is intentionally null.
+                        item["capital_flow_available"] = available
+                        changed += 1
+                    if not available:
+                        weak_fields.append(name)
+
+            route = str(
+                context.get("preferred_route")
+                or context.get("deterministic_route")
+                or context.get("route")
+                or item.get("a2_route")
+                or ""
+            ).strip().upper()
+            # MARKET_CORE is intentionally not a supply-chain scarcity claim.
+            # Still expose an explicit state so the UI can distinguish
+            # "not required for this route" from an omitted model field.
+            if route == MARKET_CORE_ROUTE and not _a2_fact_value_present(item.get("supply_chain_role")):
+                item["supply_chain_role"] = {
+                    "available": False,
+                    "score": None,
+                    "source": "A2_BOTTLENECK_CONTEXT",
+                    "reason_code": "NOT_REQUIRED_FOR_MARKET_CORE",
+                }
+                changed += 1
+                weak_fields.append("supply_chain_role")
+
+            if not has_fact(item, ("crowding", "crowding_score", "chase_risk_level", "crowding_flags")):
+                item["crowding"] = _a2_unavailable_crowding_fact(snapshot_data)
+                changed += 1
+                weak_fields.append("crowding")
+
+            coverage = context.get("factor_coverage")
+            if isinstance(coverage, Mapping) and not _a2_fact_value_present(item.get("factor_coverage")):
+                item["factor_coverage"] = dict(coverage)
+                changed += 1
+            missing_optional = context.get("missing_optional_factors")
+            if isinstance(missing_optional, Sequence) and not isinstance(missing_optional, (str, bytes, bytearray)):
+                deterministic_missing = [str(value) for value in missing_optional if str(value).strip()]
+                if deterministic_missing:
+                    weak_fields.extend(deterministic_missing)
+                    existing_missing = _a2_fact_name_list(item.get("missing_optional_factors"))
+                    merged_missing = list(dict.fromkeys([*existing_missing, *deterministic_missing]))
+                    if item.get("missing_optional_factors") != merged_missing:
+                        item["missing_optional_factors"] = merged_missing
+                        changed += 1
+
+            deterministic_state = context.get("data_sufficiency_state")
+            if deterministic_state and item.get("deterministic_data_sufficiency_state") != deterministic_state:
+                item["deterministic_data_sufficiency_state"] = deterministic_state
+                changed += 1
+            normalized_weak = list(dict.fromkeys(weak_fields))
+            if normalized_weak and item.get("weak_evidence_fields") != normalized_weak:
+                item["weak_evidence_fields"] = normalized_weak
+                changed += 1
+            normalized.append(item)
+        result[pool] = normalized
+    return result, changed
+
+
+def _a2_fact_value_present(value: Any) -> bool:
+    """Whether a row already contains an explicit, non-empty fact value."""
+
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (Mapping, Sequence)) and not isinstance(value, (str, bytes, bytearray)):
+        return bool(value)
+    return True
+
+
+def _a2_number_present(value: Any) -> bool:
+    if value is None or isinstance(value, bool):
+        return False
+    try:
+        return bool(float(value) == float(value))
+    except (TypeError, ValueError, OverflowError):
+        return False
+
+
+def _a2_fact_name_list(value: Any) -> list[str]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
+def _a2_unavailable_crowding_fact(snapshot_data: Mapping[str, Any]) -> dict[str, Any]:
+    """Return an explicit optional-crowding state without inventing a score."""
+
+    raw = snapshot_data.get("CROWDING_SNAPSHOT")
+    source = raw.get("source") if isinstance(raw, Mapping) else None
+    reason = raw.get("reason_code") if isinstance(raw, Mapping) else None
+    return {
+        "available": False,
+        "score": None,
+        "source": str(source or "CROWDING_SNAPSHOT"),
+        "reason_code": "A2_CROWDING_OPTIONAL_UNAVAILABLE",
+        "upstream_reason_code": str(reason or "SOURCE_UNAVAILABLE"),
+    }
+
+
 def _canonicalize_stage_scores(
     output: Mapping[str, Any],
     stage: str,
@@ -7258,10 +7568,7 @@ def _target_pair(value: Any, default: tuple[int, int]) -> tuple[int, int]:
 
 def _a2_theme_reasons(theme: Mapping[str, Any], snapshot_data: Mapping[str, Any]) -> list[str]:
     reasons: list[str] = []
-    if str(theme.get("stage") or "") not in {
-        "IGNITION", "CONFIRMATION", "ACCELERATION", "CLIMAX",
-        "DIVERGENCE", "RETREAT", "REPAIR", "FADE",
-    }:
+    if str(theme.get("stage") or "") not in _A2_THEME_LIFECYCLE_STAGES:
         reasons.append("A2_THEME_STAGE_INVALID")
     if str(theme.get("new_entry_policy") or "") not in {
         "ALLOW", "PROBE_ONLY", "WATCH_ONLY", "NO_NEW_ENTRY",

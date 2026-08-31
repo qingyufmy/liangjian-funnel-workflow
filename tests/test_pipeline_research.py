@@ -31,10 +31,12 @@ from liangjian_funnel.pipeline.research import (
     _build_a3_candidate_domain,
     _canonicalize_a3_price_fields,
     _canonicalize_a1_driver_context,
+    _canonicalize_a2_contract_semantics,
     _canonicalize_stage_scores,
     _canonicalize_stage_pool_fields,
     _canonicalize_stage_lineage,
     _demote_a2_llm_rejects,
+    _enrich_a2_decision_facts,
     _gate_rejected_items,
     _gate_secondary_items,
     _move_a2_hard_rejects_to_rejected,
@@ -1367,6 +1369,157 @@ def test_a2_deterministic_context_exposes_role_and_optional_gap_without_inventio
     assert context["factor_coverage"] == {"ratio": 0.87}
     assert context["critical_factor_coverage"] == {"sufficient": True}
     assert context["eligible_routes"] == ["MARKET_CORE"]
+
+
+def test_a2_decision_fact_enrichment_preserves_model_values_and_explicitly_fills_gaps():
+    snapshot = {
+        "A2_BOTTLENECK_CONTEXT": {
+            "600001.SH": {
+                "preferred_route": "MARKET_CORE",
+                "a2_factor_scores": {
+                    "capital_flow": {
+                        "available": False,
+                        "score": None,
+                        "source": "CAPITAL_FLOW_SNAPSHOT",
+                        "reason_code": "A2_CAPITAL_FLOW_UNAVAILABLE",
+                    },
+                    "tier_structure": {
+                        "available": True,
+                        "score": 72,
+                        "source": "TIER_STRUCTURE_SNAPSHOT",
+                    },
+                    "leader_structure": {
+                        "available": True,
+                        "score": 84,
+                        "source": "A2_FACTOR_SNAPSHOT",
+                    },
+                    "index_chain_resonance": {
+                        "available": False,
+                        "score": None,
+                        "source": "A2_THEME_METRICS",
+                        "reason_code": "A2_FACTOR_UNAVAILABLE",
+                    },
+                },
+                "factor_coverage": {"ratio": 0.72},
+                "missing_optional_factors": ["capital_flow", "index_chain_resonance"],
+                "data_sufficiency_state": "DEGRADED",
+            },
+            "600002.SH": {
+                "preferred_route": "MARKET_CORE",
+                "a2_factor_scores": {},
+                "factor_coverage": {"ratio": 0.70},
+                "data_sufficiency_state": "DEGRADED",
+            },
+        },
+        "CROWDING_SNAPSHOT": {
+            "available": False,
+            "reason_code": "PARTIAL_PROXY_ONLY",
+            "source": "DETERMINISTIC_FROZEN_FACTS",
+        },
+    }
+    model_capital = {"available": True, "score": 91, "source": "MODEL"}
+    output = {
+        "focus_pool": [{"symbol": "600001.SH", "capital_flow": model_capital}],
+        "watch_only_pool": [{"symbol": "600002.SH"}],
+    }
+
+    enriched, changed = _enrich_a2_decision_facts(output, snapshot)
+    focus = enriched["focus_pool"][0]
+    watch = enriched["watch_only_pool"][0]
+
+    assert changed > 0
+    assert focus["capital_flow"] == model_capital
+    assert focus["capital_flow_available"] is False
+    assert focus["tier_structure"]["score"] == 72
+    assert focus["leader_structure"]["score"] == 84
+    assert focus["index_chain_resonance"]["available"] is False
+    assert focus["supply_chain_role"]["reason_code"] == "NOT_REQUIRED_FOR_MARKET_CORE"
+    assert focus["crowding"]["available"] is False
+    assert focus["crowding"]["score"] is None
+    assert set(focus["weak_evidence_fields"]) >= {
+        "capital_flow",
+        "index_chain_resonance",
+        "supply_chain_role",
+        "crowding",
+    }
+    assert watch["supply_chain_role"]["reason_code"] == "NOT_REQUIRED_FOR_MARKET_CORE"
+    assert watch["factor_coverage"] == {"ratio": 0.70}
+
+
+def test_a2_contract_normalizes_cooling_to_weekly_state_and_legal_lifecycle_stage():
+    original = {
+        "active_themes": [{
+            "theme_id": "theme-policy",
+            "stage": "COOLING",
+            "weekly_momentum_state": "PERSISTENT",
+        }],
+        "focus_pool": [{"symbol": "600001.SH", "theme_stage": "COOLING"}],
+        "watch_only_pool": [{"symbol": "600002.SH", "stage": "cooling"}],
+        "rejected_candidates": [],
+    }
+
+    normalized, changed = _canonicalize_a2_contract_semantics(original)
+
+    assert changed >= 6
+    assert original["active_themes"][0]["stage"] == "COOLING"
+    assert normalized["active_themes"][0]["stage"] == "DIVERGENCE"
+    assert normalized["active_themes"][0]["weekly_momentum_state"] == "COOLING"
+    assert normalized["active_themes"][0]["reason_codes"] == [
+        "A2_THEME_STAGE_CANONICALIZED_FROM_COOLING",
+    ]
+    assert normalized["focus_pool"][0]["theme_stage"] == "DIVERGENCE"
+    assert normalized["focus_pool"][0]["weekly_momentum_state"] == "COOLING"
+    assert normalized["watch_only_pool"][0]["stage"] == "DIVERGENCE"
+    assert normalized["watch_only_pool"][0]["weekly_momentum_state"] == "COOLING"
+
+
+def test_a2_batch_capacity_reason_is_ignored_without_promoting_the_row():
+    output = {
+        "active_themes": [],
+        "focus_pool": [{"symbol": "600001.SH", "reason_codes": ["POOL_CAPACITY_FULL"]}],
+        "watch_only_pool": [{"symbol": "600002.SH", "reason_codes": ["POOL_CAPACITY_FULL", "MODEL_WEAK"]}],
+        "rejected_candidates": [{"symbol": "600003.SH", "reason_codes": ["POOL_CAPACITY_FULL"]}],
+    }
+
+    normalized, changed = _canonicalize_a2_contract_semantics(output)
+
+    assert changed == 6
+    assert [item["symbol"] for item in normalized["focus_pool"]] == ["600001.SH"]
+    assert [item["symbol"] for item in normalized["watch_only_pool"]] == ["600002.SH"]
+    assert [item["symbol"] for item in normalized["rejected_candidates"]] == ["600003.SH"]
+    for pool in ("focus_pool", "watch_only_pool", "rejected_candidates"):
+        for item in normalized[pool]:
+            assert "POOL_CAPACITY_FULL" not in item["reason_codes"]
+            assert "A2_BATCH_CAPACITY_REASON_IGNORED" in item["reason_codes"]
+
+
+def test_a2_market_core_model_reject_remains_watch_only_when_route_is_eligible():
+    snapshot = {
+        "A2_BOTTLENECK_CONTEXT": {
+            "600001.SH": {
+                "deterministic_status": "REVIEW_CANDIDATE",
+                "preferred_route": "MARKET_CORE",
+                "eligible_routes": ["MARKET_CORE"],
+                "deterministic_reason_codes": [],
+            },
+        },
+    }
+    output, _ = _canonicalize_a2_contract_semantics({
+        "focus_pool": [],
+        "watch_only_pool": [],
+        "rejected_candidates": [{
+            "symbol": "600001.SH",
+            "reason_codes": ["POOL_CAPACITY_FULL"],
+        }],
+    })
+
+    demoted, changed = _demote_a2_llm_rejects(output, snapshot)
+
+    assert changed == 1
+    assert demoted["rejected_candidates"] == []
+    assert demoted["watch_only_pool"][0]["status"] == "WATCH_ONLY"
+    assert "POOL_CAPACITY_FULL" not in demoted["watch_only_pool"][0]["reason_codes"]
+    assert "A2_BATCH_CAPACITY_REASON_IGNORED" in demoted["watch_only_pool"][0]["reason_codes"]
 
 
 def test_stage_lineage_is_server_owned_for_a2_and_locks_model_identity():

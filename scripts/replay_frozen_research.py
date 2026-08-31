@@ -11,7 +11,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from liangjian_funnel.data.open_macro import OpenMacroDataCollector
-from liangjian_funnel.pipeline.deterministic import screen_a3
+from liangjian_funnel.pipeline.deterministic import screen_a2, screen_a3
 from liangjian_funnel.pipeline.research import (
     FrozenInputSnapshot,
     LaneResult,
@@ -21,6 +21,7 @@ from liangjian_funnel.pipeline.research import (
     _build_a3_candidate_domain,
     _lane_status_from_stages,
     _stage_completed,
+    _with_a2_bottleneck_context,
     _with_a3_candidate_context,
     enrich_candidate_metadata,
 )
@@ -66,7 +67,7 @@ def main() -> int:
     parser.add_argument("--run-id", help="optional stable audit run id")
     parser.add_argument(
         "--model",
-        help="optional configured model override for an isolated A3 comparison",
+        help="optional configured model override for an isolated A2/A3 comparison",
     )
     parser.add_argument(
         "--publish",
@@ -74,7 +75,11 @@ def main() -> int:
         help="publish validated plans and write the normal outputs/runs summary",
     )
     parser.add_argument("--resume-audit", help="validated lane audit under outputs/research")
-    parser.add_argument("--stage", choices=("A3",), help="resume A3 from a validated A1/A2 lane audit")
+    parser.add_argument(
+        "--stage",
+        choices=("A2", "A3"),
+        help="resume only A2 from validated A1, or A3 from validated A2",
+    )
     parser.add_argument(
         "--enable-deterministic-v2-overlay",
         action="store_true",
@@ -299,13 +304,26 @@ def _resume_stage(
         raise SystemExit("RESUME_UPSTREAM_OUTPUT_MISSING")
     if not str(previous.get("snapshot_id") or "").startswith(snapshot.snapshot_id):
         raise SystemExit("RESUME_SNAPSHOT_LINEAGE_MISMATCH")
-    if stage != "A3":
-        raise SystemExit("DETERMINISTIC_RESUME_SUPPORTS_A3_ONLY")
-
     lane_id = str(raw.get("lane") or "")
     model = str(model_override or raw["model"]).strip()
     if model not in settings.research_models:
         raise SystemExit("RESUME_MODEL_NOT_CONFIGURED")
+    if stage == "A2":
+        if publish:
+            raise SystemExit("ISOLATED_A2_REPLAY_CANNOT_PUBLISH")
+        return _resume_a2(
+            pipeline=pipeline,
+            snapshot=snapshot,
+            settings=settings,
+            previous=previous,
+            audit_path=audit_path,
+            lane_id=lane_id,
+            model=model,
+            run_id=run_id,
+            slot=slot,
+            generated_at=generated_at,
+        )
+
     upstream_output, origins = _build_a3_candidate_domain(previous["output"])
     upstream_symbols = set(origins)
     if not upstream_symbols:
@@ -461,6 +479,146 @@ def _resume_stage(
         )
     )
     return 0 if result.status in {"READY", "READY_DEGRADED"} else 2
+
+
+def _resume_a2(
+    *,
+    pipeline: ResearchPipeline,
+    snapshot: FrozenInputSnapshot,
+    settings: Settings,
+    previous: dict[str, object],
+    audit_path: Path,
+    lane_id: str,
+    model: str,
+    run_id: str,
+    slot: str,
+    generated_at: datetime,
+) -> int:
+    """Replay only A2 from one validated A1 artifact.
+
+    The replay is deliberately non-publishable.  It writes an isolated audit
+    instead of replacing the normal A1-A3 lane result, so the dashboard and
+    next-session plans cannot mistake an A2 experiment for a complete run.
+    """
+
+    upstream_output = previous.get("output")
+    if not isinstance(upstream_output, dict):
+        raise SystemExit("RESUME_UPSTREAM_OUTPUT_MISSING")
+    upstream_symbols = {
+        str(item.get("symbol") or item.get("code") or "").strip().upper()
+        for item in upstream_output.get("active_research_pool", ())
+        if isinstance(item, dict)
+        and str(item.get("symbol") or item.get("code") or "").strip()
+    }
+    if not upstream_symbols:
+        upstream_symbols = {
+            str(value).strip().upper()
+            for value in previous.get("symbols", ())
+            if isinstance(value, str) and value.strip()
+        }
+    if not upstream_symbols:
+        raise SystemExit("RESUME_A2_CANDIDATE_DOMAIN_EMPTY")
+
+    try:
+        stage_snapshot = pipeline._enrich_stage_snapshot(
+            stage="A2",
+            lane_id=lane_id,
+            model=model,
+            upstream_symbols=upstream_symbols,
+            snapshot=snapshot,
+        )
+    except Exception as exc:
+        raise SystemExit("RESUME_A2_SNAPSHOT_ENRICHMENT_FAILED") from exc
+    gate = screen_a2(
+        stage_snapshot.data,
+        upstream_output,
+        minimum_identifiability_score=float(
+            stage_snapshot.data.get("MIN_IDENTIFIABILITY_SCORE") or 60.0
+        ),
+        llm_top_n_per_theme=settings.a2_llm_top_n_per_theme,
+        review_all_eligible=settings.a2_review_all_eligible,
+    )
+    stage_snapshot = _with_a2_bottleneck_context(stage_snapshot, gate)
+    pipeline._emit_gate_progress(run_id, lane_id, model, gate)
+    audit = pipeline._run_v2_downstream_review(
+        lane_id=lane_id,
+        model=model,
+        stage="A2",
+        snapshot=stage_snapshot,
+        upstream_output=upstream_output,
+        full_upstream_symbols=upstream_symbols,
+        gate=gate,
+        bundle=pipeline.prompts.load(),
+        run_id=run_id,
+    )
+    if isinstance(audit.output, dict):
+        enriched_output = enrich_candidate_metadata(audit.output, stage_snapshot.data)
+        audit = StageAudit(
+            lane=audit.lane,
+            model=audit.model,
+            stage=audit.stage,
+            status=audit.status,
+            snapshot_id=audit.snapshot_id,
+            prompt_hash=audit.prompt_hash,
+            input_hash=audit.input_hash,
+            output_hash=_canonical_hash(enriched_output),
+            latency_ms=audit.latency_ms,
+            attempts=audit.attempts,
+            thinking_variant=audit.thinking_variant,
+            symbols=audit.symbols,
+            reason_codes=audit.reason_codes,
+            output=enriched_output,
+            diagnostics=audit.diagnostics,
+        )
+
+    isolated_path = (
+        settings.workflow_output_dir
+        / "research"
+        / f"research_{run_id}_{lane_id}_A2_ONLY.json"
+    )
+    payload = {
+        "run_id": run_id,
+        "run_role": "A2_ISOLATED_REPLAY",
+        "slot": slot,
+        "generated_at": generated_at.isoformat(),
+        "lane": lane_id,
+        "model": model,
+        "status": audit.status,
+        "snapshot": {
+            "snapshot_id": snapshot.snapshot_id,
+            "snapshot_hash": snapshot.snapshot_hash,
+            "as_of": snapshot.as_of.isoformat() if snapshot.as_of else None,
+        },
+        "resume_source_audit": str(audit_path),
+        "upstream_a1_count": len(upstream_symbols),
+        "a2_gate_summary": gate.summary,
+        "a2_stage": audit.as_dict(),
+        "publishable": False,
+    }
+    atomic_write_json(isolated_path, payload)
+    print(
+        json.dumps(
+            {
+                "run_id": run_id,
+                "run_role": "A2_ISOLATED_REPLAY",
+                "lane": lane_id,
+                "model": model,
+                "stage": "A2",
+                "status": audit.status,
+                "reason_codes": list(audit.reason_codes),
+                "latency_ms": audit.latency_ms,
+                "attempts": audit.attempts,
+                "symbol_count": len(audit.symbols),
+                "pool_counts": _pool_counts(audit.output, "A2"),
+                "candidate_count": len(upstream_symbols),
+                "gate_summary": gate.summary,
+                "audit_path": str(isolated_path),
+                "publishable": False,
+            },
+            ensure_ascii=False,
+        )
+    )
+    return 0 if _stage_completed(audit.status) else 2
 
 
 def _stage_audit_from_dict(raw: dict[str, object]) -> StageAudit:

@@ -117,6 +117,10 @@ class Settings(BaseModel):
     a1_llm_representatives_per_theme: int = Field(default=8, ge=1, le=30)
     a1_policy_lookback_days: int = Field(default=120, ge=30, le=366)
     a1_policy_document_limit: int = Field(default=60, ge=12, le=120)
+    # Production A2 is a funnel stage, so every deterministic route-eligible
+    # symbol should reach the model. The legacy per-theme Top-N remains
+    # available for explicit rollback and small offline fixtures.
+    a2_review_all_eligible: bool = True
     a2_llm_top_n_per_theme: int = Field(default=8, ge=1, le=30)
     research_close_deadline_seconds: int = Field(default=5400, ge=300, le=24 * 3600)
     data_sync_batch_size: int = Field(default=50, ge=1, le=500)
@@ -126,6 +130,10 @@ class Settings(BaseModel):
     feature_maintenance_enabled: bool = True
     feature_source_batch_size: int = Field(default=50, ge=25, le=200)
     fundamental_refresh_hours: int = Field(default=24, ge=1, le=24 * 31)
+    # Normal research always reads every symbol from the durable cache, while
+    # only the oldest due fundamentals are refreshed over the network.  This
+    # bounds provider work without reducing the research universe.
+    fundamental_refresh_symbols_per_run: int = Field(default=100, ge=0, le=1000)
     daily_refresh_hours: int = Field(default=4, ge=1, le=24 * 7)
     a2_capital_flow_enabled: bool = True
     a2_capital_flow_minimum_coverage: float = Field(default=0.90, ge=0.50, le=1.0)
@@ -330,6 +338,10 @@ class Settings(BaseModel):
             ),
             a1_policy_lookback_days=int(env.get("LIANGJIAN_A1_POLICY_LOOKBACK_DAYS", "120")),
             a1_policy_document_limit=int(env.get("LIANGJIAN_A1_POLICY_DOCUMENT_LIMIT", "60")),
+            a2_review_all_eligible=_parse_bool(
+                env.get("LIANGJIAN_A2_REVIEW_ALL_ELIGIBLE"),
+                default=True,
+            ),
             a2_llm_top_n_per_theme=int(env.get("LIANGJIAN_A2_LLM_TOP_N_PER_THEME", "8")),
             research_close_deadline_seconds=int(
                 env.get("LIANGJIAN_RESEARCH_CLOSE_DEADLINE_SECONDS", "5400")
@@ -344,6 +356,9 @@ class Settings(BaseModel):
                 env.get("LIANGJIAN_FEATURE_SOURCE_BATCH_SIZE", "50")
             ),
             fundamental_refresh_hours=int(env.get("LIANGJIAN_FUNDAMENTAL_REFRESH_HOURS", "24")),
+            fundamental_refresh_symbols_per_run=int(
+                env.get("LIANGJIAN_FUNDAMENTAL_REFRESH_SYMBOLS_PER_RUN", "100")
+            ),
             daily_refresh_hours=int(env.get("LIANGJIAN_DAILY_REFRESH_HOURS", "4")),
             a2_capital_flow_enabled=_parse_bool(
                 env.get("LIANGJIAN_A2_CAPITAL_FLOW_ENABLED"),
@@ -429,6 +444,7 @@ class Settings(BaseModel):
             "a1_llm_representatives_per_theme": self.a1_llm_representatives_per_theme,
             "a1_policy_lookback_days": self.a1_policy_lookback_days,
             "a1_policy_document_limit": self.a1_policy_document_limit,
+            "a2_review_all_eligible": self.a2_review_all_eligible,
             "a2_llm_top_n_per_theme": self.a2_llm_top_n_per_theme,
             "research_close_deadline_seconds": self.research_close_deadline_seconds,
             "data_sync_batch_size": self.data_sync_batch_size,
@@ -436,6 +452,7 @@ class Settings(BaseModel):
             "feature_maintenance_enabled": self.feature_maintenance_enabled,
             "feature_source_batch_size": self.feature_source_batch_size,
             "fundamental_refresh_hours": self.fundamental_refresh_hours,
+            "fundamental_refresh_symbols_per_run": self.fundamental_refresh_symbols_per_run,
             "daily_refresh_hours": self.daily_refresh_hours,
             "a2_capital_flow_enabled": self.a2_capital_flow_enabled,
             "a2_capital_flow_minimum_coverage": self.a2_capital_flow_minimum_coverage,
