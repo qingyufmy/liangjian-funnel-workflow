@@ -224,7 +224,25 @@ function runIdFromStatus(status: StatusSnapshot): string | null {
   return first ? asString(first.run_id) : null;
 }
 
-function laneOverview(laneId: string, rows: readonly JsonRecord[], payload: JsonRecord | null): JsonValue {
+function laneOverview(
+  laneId: string,
+  rows: readonly JsonRecord[],
+  payload: JsonRecord | null,
+  disabled = false,
+): JsonValue {
+  if (disabled) {
+    return sanitizeJson({
+      laneId,
+      model: null,
+      status: "DISABLED",
+      runId: null,
+      slot: null,
+      stages: [],
+      reasonCodes: ["COMPARISON_DISABLED"],
+      outcome: null,
+      source: "configuration",
+    });
+  }
   const row = rows.find((item) => item.lane_id === laneId) ?? null;
   const payloadLane = payload && stringField(payload, "lane") === laneId ? payload : null;
   const stages = payloadLane
@@ -269,6 +287,7 @@ export class DashboardData {
       .map((item) => record(item))
       .filter((item): item is JsonRecord => item !== null);
     const rows = latestRows(status);
+    const currentRows = rows.filter((item) => asString(item.run_id) === runId);
     const monitor = await this.files.monitor();
     const workflowProgress = await this.files.workflowProgress();
     const dataSources = (await this.files.dataSources()).map((source) => ({
@@ -284,8 +303,9 @@ export class DashboardData {
     const latestRun = runs.find((item) => item.runId === runId) ?? null;
     const lanes = ["lane_1", "lane_2", "lane_3"].map((laneId) => laneOverview(
       laneId,
-      rows,
+      currentRows,
       laneRecords.find((item) => item.lane === laneId) ?? null,
+      !this.config.comparisonEnabled && laneId !== this.config.researchPrimaryLaneId,
     ));
     const runOutcome = normalizeRunOutcome(
       storedRunOutcome ?? (acceptance ? { ...acceptance, lanes } : { run_id: runId, lanes }),
@@ -293,12 +313,12 @@ export class DashboardData {
     const latestWorkflow = runId
       ? sanitizeJson({
         runId,
-        slot: rows[0] ? asString(rows[0].slot) : latestRun?.slot ?? null,
+        slot: currentRows[0] ? asString(currentRows[0].slot) : latestRun?.slot ?? null,
         status: runOutcome?.legacy_status ?? (acceptance ? asString(acceptance.status) : latestRun?.status ?? null),
-        tradeDate: rows[0] ? asString(rows[0].trade_date) : null,
-        snapshotHash: rows[0] ? asString(rows[0].snapshot_hash) : null,
-        createdAt: rows[0] ? asString(rows[0].created_at) : null,
-        updatedAt: rows[0] ? asString(rows[0].updated_at) : null,
+        tradeDate: currentRows[0] ? asString(currentRows[0].trade_date) : null,
+        snapshotHash: currentRows[0] ? asString(currentRows[0].snapshot_hash) : null,
+        createdAt: currentRows[0] ? asString(currentRows[0].created_at) : null,
+        updatedAt: currentRows[0] ? asString(currentRows[0].updated_at) : null,
         researchMarkdown: latestRun?.researchMarkdown ?? null,
         acceptance: acceptance ? sanitizeJson(acceptance) : null,
         outcome: runOutcome,

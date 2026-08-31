@@ -35,6 +35,7 @@ export interface AppConfig {
   readonly schedulerEnabled: boolean;
   readonly featureMaintenanceEnabled: boolean;
   readonly comparisonEnabled: boolean;
+  readonly researchPrimaryLaneId: string;
 }
 
 function positiveInteger(value: string | undefined, fallback: number): number {
@@ -93,5 +94,6 @@ export function loadConfig(
     schedulerEnabled: booleanValue(env.LIANGJIAN_SCHEDULER_ENABLED, true),
     featureMaintenanceEnabled: booleanValue(env.LIANGJIAN_FEATURE_MAINTENANCE_ENABLED, true),
     comparisonEnabled: booleanValue(env.LIANGJIAN_COMPARISON_ENABLED, false),
+    researchPrimaryLaneId: env.LIANGJIAN_RESEARCH_PRIMARY_LANE_ID?.trim() || "lane_1",
   };
 }

@@ -216,6 +216,7 @@ def test_latest_workflow_acceptance_requires_primary_lane_and_records_optional_c
         {"run_id": "new", "lane_id": "lane_1", "status": "READY_TO_PUBLISH"},
     ]
     assert _latest_workflow_acceptance(missing_comparisons)["status"] == "PARTIAL"
+    assert _latest_workflow_acceptance(missing_comparisons, expected_lanes=1)["status"] == "READY"
 
     optional_only = [
         {"run_id": "new", "lane_id": "lane_1", "status": "BLOCKED"},

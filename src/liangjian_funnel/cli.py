@@ -566,9 +566,14 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
             payload = application.run_scheduled(ScheduleKind.MONITOR)
         else:
             workflow_runs = application.store.list_workflow_runs(limit=12)
+            expected_workflow_lanes = (
+                len(settings.research_models)
+                if settings.comparison_enabled
+                else 1
+            )
             workflow_outcome = aggregate_workflow_acceptance(
                 workflow_runs,
-                expected_lanes=3,
+                expected_lanes=expected_workflow_lanes,
                 required_lane_ids=(settings.research_primary_lane_id,),
             )
             workflow_acceptance = workflow_outcome.to_legacy_acceptance()
