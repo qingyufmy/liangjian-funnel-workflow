@@ -40,6 +40,21 @@ def _snapshot() -> dict:
             ],
         },
         "MACRO_POLICY_FEED": {"available": True},
+        "A1_RESEARCH_SOURCE_CONTEXT": {
+            "schema_version": "a1-research-source-context/1.0.0",
+            "available": True,
+            "source_count": 10,
+            "usable_source_count": 3,
+            "sources": [
+                {
+                    "source_id": "cninfo",
+                    "status": "ACTIVE_AUTOMATED",
+                    "usable_for_a1": True,
+                    "direct_stock_selection_allowed": False,
+                }
+            ],
+            "governance": {"homepage_is_not_evidence": True},
+        },
         "INDUSTRY_ACTIVITY_DATA": {
             "available": True,
             "items": [
@@ -112,6 +127,8 @@ def test_packet_has_complete_industry_and_decision_coverage_without_raw_history(
     assert packet["weekly_strategy_context"]["industry_rotation"][0]["weekly_state"] == "PERSISTENT"
     assert packet["broker_research_consensus"]["documents"][0]["effective_month"] == "2026-09"
     assert packet["broker_research_consensus"]["primary_evidence"] is False
+    assert packet["research_source_context"]["source_count"] == 10
+    assert packet["coverage"]["usable_research_source_count"] == 3
     assert packet["diagnostics"]["section_chars"]["industry_features"] > 0
 
 

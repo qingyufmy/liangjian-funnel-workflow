@@ -24,6 +24,7 @@ export async function startServer(): Promise<RunningControlPlane> {
   const runner = new JobRunner(config, logger);
   const scheduler = new WorkflowScheduler(runner, logger, {
     comparisonEnabled: config.comparisonEnabled,
+    featureMaintenanceEnabled: config.featureMaintenanceEnabled,
   });
   const files = new ProjectFiles(config, logger);
   const dashboard = new DashboardData(config, files, runner, scheduler, logger);

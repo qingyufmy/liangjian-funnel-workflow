@@ -191,12 +191,18 @@ export class JobRunner {
           signal,
           durationMs,
           status,
-          reason: timedOut ? "TIMEOUT" : exitCode === 0 ? null : "NON_ZERO_EXIT",
+          reason: timedOut
+            ? "TIMEOUT"
+            : exitCode === 0
+              ? null
+              : signal
+                ? `SIGNAL_KILLED:${signal}`
+                : "NON_ZERO_EXIT",
         };
         this.replaceRunning(record);
         if (this.childFor(slot)?.runId === runId) this.setChild(slot, null);
         this.logger[status === "succeeded" ? "info" : "error"](
-          `任务结束 ${command} status=${status} exit=${exitCode ?? "null"} duration_ms=${durationMs}`,
+          `任务结束 ${command} status=${status} exit=${exitCode ?? "null"} signal=${signal ?? "none"} duration_ms=${durationMs}`,
           { job, runId },
         );
         resolve(record);

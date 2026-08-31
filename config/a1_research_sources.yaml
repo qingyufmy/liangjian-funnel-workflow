@@ -1,0 +1,151 @@
+schema_version: a1-research-source-registry/1.0.0
+sources:
+  - source_id: iwencai
+    label: 同花顺问财
+    host: iwencai.10jqka.com.cn
+    host_aliases: [iwencai.com]
+    access_mode: PUBLIC_WEB
+    ingestion_mode: REFERENCE_ONLY
+    evidence_tier: T3
+    roles: [INDUSTRY_ROTATION, CAPITAL_FLOW_CROSS_CHECK]
+    snapshot_contracts: []
+    fact_authority: false
+    viewpoint_only: true
+    direct_stock_selection_allowed: false
+    activation_requirement: 仅在获得同花顺正式接口授权后启用自动取数；网页查询结果只作人工交叉验证。
+
+  - source_id: cninfo
+    label: 巨潮资讯
+    host: cninfo.com.cn
+    access_mode: OFFICIAL_PUBLIC
+    ingestion_mode: AUTOMATED_CONTRACT
+    evidence_tier: T1
+    roles: [OFFICIAL_DISCLOSURE, FUNDAMENTAL_CROSS_CHECK]
+    snapshot_contracts: [DISCLOSURE_EVENTS, RISK_EVENTS]
+    fact_authority: true
+    viewpoint_only: false
+    direct_stock_selection_allowed: false
+    activation_requirement: 使用现有公告元数据与按需PDF证据适配器，保留公告日期、页码和内容哈希。
+
+  - source_id: mybbond
+    label: 迈博汇金
+    host: mybbond.com
+    host_aliases: [hibor.com.cn]
+    access_mode: PAID_CONTENT
+    ingestion_mode: MANUAL_REVIEWED_EXPORT
+    evidence_tier: T2
+    roles: [BROKER_RESEARCH, INDUSTRY_ROTATION]
+    snapshot_contracts: []
+    fact_authority: false
+    viewpoint_only: true
+    direct_stock_selection_allowed: false
+    activation_requirement: 仅接收用户有权使用并人工审阅的研报摘要或导出文件，不自动下载付费研报。
+
+  - source_id: jisilu
+    label: 集思录
+    host: jisilu.cn
+    access_mode: PAID_CONTENT
+    ingestion_mode: AUTOMATION_FORBIDDEN
+    evidence_tier: T3
+    roles: [FUND_VEHICLE, FUNDAMENTAL_CROSS_CHECK]
+    snapshot_contracts: []
+    fact_authority: false
+    viewpoint_only: true
+    direct_stock_selection_allowed: false
+    activation_requirement: 服务协议禁止爬虫和数据挖掘；只能人工核对或使用另行获得的书面授权数据。
+
+  - source_id: stockstar
+    label: 证券之星
+    host: stockstar.com
+    access_mode: PUBLIC_WEB
+    ingestion_mode: REFERENCE_ONLY
+    evidence_tier: T3
+    roles: [FUNDAMENTAL_CROSS_CHECK, CAPITAL_FLOW_CROSS_CHECK]
+    snapshot_contracts: []
+    fact_authority: false
+    viewpoint_only: true
+    direct_stock_selection_allowed: false
+    activation_requirement: 无正式数据API授权前只作人工复核；龙虎榜优先回到交易所或巨潮等原始披露。
+
+  - source_id: xingqiao
+    label: 星桥财经课
+    host: xingqiao-advisor.vercel.app
+    access_mode: PAID_CONTENT
+    ingestion_mode: MANUAL_REVIEWED_EXPORT
+    evidence_tier: T2
+    roles: [OFFICIAL_MACRO, INDUSTRY_ROTATION, BROKER_RESEARCH]
+    snapshot_contracts: []
+    fact_authority: false
+    viewpoint_only: true
+    direct_stock_selection_allowed: false
+    activation_requirement: 周报和纪要仅以用户授权的本地附件进入观点层，不复制会员原文，不替代官方宏观事实。
+
+  - source_id: nbs
+    label: 国家统计局
+    host: stats.gov.cn
+    access_mode: OFFICIAL_PUBLIC
+    ingestion_mode: AUTOMATED_CONTRACT
+    evidence_tier: T1
+    roles: [OFFICIAL_MACRO, INDUSTRY_ROTATION]
+    snapshot_contracts: [MACRO_ECONOMIC_DATA, INDUSTRY_ACTIVITY_DATA]
+    fact_authority: true
+    viewpoint_only: false
+    provenance_mode: INDIRECT
+    direct_stock_selection_allowed: false
+    activation_requirement: 当前由可审计的开放数据适配层转运；后续若获得正式接口，切换为直接官方取数并保留发布时间。
+
+  - source_id: ifind
+    label: 同花顺iFinD
+    host: ifind.10jqka.com.cn
+    host_aliases: [quantapi.51ifind.com]
+    access_mode: LICENSED_API
+    ingestion_mode: AUTHORIZED_API_ONLY
+    evidence_tier: T2
+    roles: [OFFICIAL_MACRO, INDUSTRY_ROTATION, CAPITAL_FLOW_CROSS_CHECK]
+    snapshot_contracts: []
+    fact_authority: false
+    viewpoint_only: false
+    direct_stock_selection_allowed: false
+    activation_requirement: 需要独立的iFinD数据接口账号、数据权限和HTTP或SDK授权；现有扶摇API密钥不能视为iFinD授权。
+
+  - source_id: eastmoney
+    label: 东方财富
+    host: eastmoney.com
+    access_mode: PUBLIC_WEB
+    ingestion_mode: AUTOMATED_CONTRACT
+    evidence_tier: T3
+    roles: [BROKER_RESEARCH, MARKET_SENTIMENT, CAPITAL_FLOW_CROSS_CHECK]
+    snapshot_contracts: [BROKER_RESEARCH_CONSENSUS]
+    contract_requires_matching_document: true
+    fact_authority: false
+    viewpoint_only: true
+    direct_stock_selection_allowed: false
+    activation_requirement: 只作T3资讯、情绪和延迟资金流备选；任何方向必须与T1/T2事实交叉验证。
+
+  - source_id: datayes_robo
+    label: 萝卜投研
+    host: robo.datayes.com
+    host_aliases: [m-robo.datayes.com, datayes.com]
+    access_mode: PAID_CONTENT
+    ingestion_mode: AUTOMATION_FORBIDDEN
+    evidence_tier: T2
+    roles: [BROKER_RESEARCH, INDUSTRY_ROTATION, FUNDAMENTAL_CROSS_CHECK]
+    snapshot_contracts: []
+    fact_authority: false
+    viewpoint_only: true
+    direct_stock_selection_allowed: false
+    activation_requirement: 会员协议禁止机器人、蜘蛛和爬虫；仅允许用户有权使用的人工摘要或经平台书面授权的接口数据。
+
+  - source_id: cnfinancewatch_x
+    label: 华尔街观察 Xtrader 盘前分析
+    host: x.com
+    host_aliases: [twitter.com]
+    access_mode: PUBLIC_WEB
+    ingestion_mode: REFERENCE_ONLY
+    evidence_tier: T3
+    roles: [MACRO_POLICY, INDUSTRY_ROTATION, BROKER_RESEARCH, MARKET_SENTIMENT, CAPITAL_FLOW_CROSS_CHECK]
+    snapshot_contracts: []
+    fact_authority: false
+    viewpoint_only: true
+    direct_stock_selection_allowed: false
+    activation_requirement: 仅作人工审阅的方法论与盘前假设参考；复合稿件中的新闻、研报、龙虎榜和行情必须回到原始发布页及冻结时点核验，文中个股名单不得直接进入A1或A2。

@@ -125,6 +125,7 @@ function normalizeOverview(value: OverviewResponse): OverviewResponse {
     workflowProgress: value.workflowProgress && typeof value.workflowProgress === "object"
       ? {
         ...value.workflowProgress,
+        reasonCode: value.workflowProgress.reasonCode ?? null,
         issue: value.workflowProgress.issue ?? null,
         stale: value.workflowProgress.stale === true,
         staleIssue: value.workflowProgress.staleIssue ?? null,
@@ -196,10 +197,10 @@ function statusFromOutcome(outcome: OutcomeStatus): string {
 
 function toneForStatus(status?: string | null): HealthTone {
   const normalized = (status ?? "").toUpperCase();
-  if (["OK", "PASS", "HEALTHY", "READY", "READY_TO_PUBLISH", "PUBLISHED", "COMPLETED", "VALIDATED", "VALIDATED_NO_OPPORTUNITY", "VALIDATED_NO_ACTION", "VALIDATED_NO_SETUP", "ACTIVE"].includes(normalized)) return "healthy";
+  if (["OK", "PASS", "HEALTHY", "READY", "READY_TO_PUBLISH", "PUBLISHED", "NOOP", "NOOP_NO_DIRTY", "COMPLETED", "VALIDATED", "VALIDATED_NO_OPPORTUNITY", "VALIDATED_NO_ACTION", "VALIDATED_NO_SETUP", "ACTIVE"].includes(normalized)) return "healthy";
   if (["RUNNING", "QUEUED", "IN_PROGRESS", "STARTED", "RETRYING"].includes(normalized)) return "running";
-  if (["WARN", "WARNING", "DEGRADED", "READY_DEGRADED", "VALIDATED_UNDERFILLED_MARKET", "DEGRADED_UNDERFILLED_DATA_GAP", "NOT_RUN_UPSTREAM_BLOCKED", "UPSTREAM_NOT_RUN", "DATA_INSUFFICIENT", "BLOCKED", "BLOCKED_DATA_COVERAGE", "BLOCKED_EVIDENCE_GAP", "BLOCKED_MODEL", "BLOCKED_TECHNICAL_DATA", "PARTIAL", "MISSED", "STALE"].includes(normalized)) return "warning";
-  if (["ERROR", "FAILED", "UNHEALTHY", "STOPPED"].includes(normalized)) return "error";
+  if (["WARN", "WARNING", "DEGRADED", "READY_DEGRADED", "VALIDATED_UNDERFILLED_MARKET", "DEGRADED_UNDERFILLED_DATA_GAP", "NOT_RUN_UPSTREAM_BLOCKED", "UPSTREAM_NOT_RUN", "DATA_INSUFFICIENT", "BLOCKED", "BLOCKED_SOURCE_GENERATION", "BLOCKED_DATA_COVERAGE", "BLOCKED_EVIDENCE_GAP", "BLOCKED_MODEL", "BLOCKED_TECHNICAL_DATA", "PARTIAL", "MISSED", "STALE"].includes(normalized)) return "warning";
+  if (["ERROR", "FAILED", "FAILED_RESOURCE", "UNHEALTHY", "STOPPED"].includes(normalized)) return "error";
   if (["TECHNICAL_FAILURE", "CANCELLED"].includes(normalized)) return "error";
   return "unknown";
 }
@@ -230,6 +231,10 @@ function statusLabel(status?: string | null): string {
     READY: "就绪",
     READY_TO_PUBLISH: "待发布",
     PUBLISHED: "已发布",
+    NOOP: "无需执行",
+    NOOP_NO_DIRTY: "无待更新数据",
+    BLOCKED_SOURCE_GENERATION: "源代际阻断",
+    FAILED_RESOURCE: "资源失败",
     COMPLETED: "已完成",
     VALIDATED: "已验证",
     VALIDATED_NO_OPPORTUNITY: "已验证·当前无机会",
@@ -678,6 +683,13 @@ function progressPhaseLabel(phase?: string | null): string {
     OPEN_MACRO_SYNC: "宏观与大类资产数据",
     DATA_SYNC: "数据同步",
     SNAPSHOT: "冻结快照",
+    FEATURE_SOURCE_GENERATION: "特征源代际物化",
+    FEATURE_MAINTENANCE_PRECHECK: "特征维护预检",
+    FEATURE_MAINTENANCE_SOURCE_SELECT: "选择特征源代际",
+    FEATURE_MAINTENANCE_BUILD: "特征代际构建",
+    FEATURE_MAINTENANCE_VALIDATE: "特征代际校验",
+    FEATURE_MAINTENANCE_PUBLISH: "特征代际发布",
+    FEATURE_MAINTENANCE_NOOP: "特征维护无需执行",
     SNAPSHOT_RESUMED: "恢复已冻结快照",
     MACRO_DISCOVERY: "宏观与产业链发现",
     RESEARCH_MACRO_DISCOVERY: "宏观与产业链发现",
@@ -730,6 +742,28 @@ function progressIssueLabel(issue?: WorkflowProgressSummary["issue"]): string {
   if (issue === "INVALID_SHAPE") return "进度文件结构无效，已停止展示原文";
   if (issue === "HEARTBEAT_TIMEOUT") return "超过阈值未更新，任务可能退出或卡住，请查看日志";
   return "";
+}
+
+function progressReasonLabel(reason?: string | null): string | null {
+  if (!reason) return null;
+  const labels: Record<string, string> = {
+    NOOP_NO_DIRTY: "无待更新数据，未读取历史大快照",
+    NON_MAINTENANCE_DAY: "非维护日，无需执行",
+    FEATURE_MAINTENANCE_DISABLED: "特征维护已独立禁用",
+    FEATURE_MAINTENANCE_BUSY: "已有特征维护进程运行，本次未重复启动",
+    FEATURE_SOURCE_GENERATION_MISSING: "缺少可用的特征源代际",
+    FEATURE_SOURCE_GENERATION_AMBIGUOUS: "最新特征源代际存在歧义",
+    FEATURE_SOURCE_MARKET_DATA_STALE: "特征源行情日期未达到要求",
+    LIVE_SOURCE_NOT_AVAILABLE: "缺少已封存且验证通过的特征源代际",
+    LIVE_SOURCE_AMBIGUOUS: "同一时点存在相互冲突的特征源代际",
+    LIVE_SOURCE_INCOMPATIBLE: "特征源版本尚未覆盖本次增量更新",
+    FEATURE_ACTIVE_GENERATION_MISSING: "缺少可供增量更新的活动特征代际",
+    FEATURE_FULL_REBUILD_STORAGE_WATERMARK_BLOCKED: "磁盘水位不足，已阻止全量特征重建",
+    FEATURE_INCREMENTAL_STORAGE_WATERMARK_BLOCKED: "磁盘水位不足，已阻止增量特征更新",
+    FAILED_RESOURCE: "进程因资源限制失败",
+    PUBLISHED: "新特征代际已校验并发布",
+  };
+  return labels[reason] ?? reason;
 }
 
 type ProgressMeasure = {
@@ -851,7 +885,7 @@ function WorkflowProgressPanel({ progress }: { progress: WorkflowProgressSummary
             ? progress.staleIssue === "HEARTBEAT_TIMEOUT"
               ? `最后更新时间 ${formatDateTime(progress.updatedAt)}；超过阈值未更新，任务可能退出或卡住，请查看日志。`
               : `更新暂时延迟，正在重试；以下为最近一次成功读取的安全汇总（${formatDateTime(progress.updatedAt)}）。`
-            : `最近更新时间 ${formatDateTime(progress.updatedAt)}；此处只显示安全的汇总进度，不展示模型原文。`}{resourceSummary ? ` 资源：${resourceSummary}。` : ""}</span></div>
+            : `最近更新时间 ${formatDateTime(progress.updatedAt)}；此处只显示安全的汇总进度，不展示模型原文。`}{progressReasonLabel(progress.reasonCode) ? ` 结果：${progressReasonLabel(progress.reasonCode)}。` : ""}{resourceSummary ? ` 资源：${resourceSummary}。` : ""}</span></div>
         </>
       )}
     </Panel>

@@ -26,6 +26,10 @@ GENERATION_PURPOSES = frozenset(
     {
         "LIVE_FULL",
         "LIVE_INCREMENTAL",
+        # A frozen, validated source snapshot used only to feed maintenance
+        # generations.  It is deliberately not eligible for the active
+        # research pointer (see create/seal/activation guards below).
+        "LIVE_SOURCE",
         "RUN_SNAPSHOT",
         "HISTORICAL_REPLAY",
         "TEST_FIXTURE",
@@ -42,6 +46,7 @@ DIRTY_STATUSES = frozenset({"PENDING", "LEASED", "RETRY", "DEAD", "RESOLVED"})
 DEFAULT_DIRTY_MAX_ATTEMPTS = 5
 DEFAULT_DIRTY_LEASE_SECONDS = 300
 DEFAULT_DIRTY_BACKOFF_SECONDS = 30
+DEFAULT_FEATURE_MEMBER_BATCH_SIZE = 50
 
 
 class FeatureStoreError(RuntimeError):
@@ -273,6 +278,7 @@ class ResearchFeatureStore:
         if (
             required.issubset(columns)
             and "'SEALED'" in create_sql
+            and "'LIVE_SOURCE'" in create_sql
             and "'RUN_SNAPSHOT'" in create_sql
         ):
             return
@@ -401,7 +407,7 @@ class ResearchFeatureStore:
                 failed_at TEXT,
                 failure_reason TEXT,
                 metadata_json TEXT NOT NULL DEFAULT '{}',
-                purpose TEXT NOT NULL DEFAULT 'UNKNOWN' CHECK(purpose IN ('LIVE_FULL','LIVE_INCREMENTAL','RUN_SNAPSHOT','HISTORICAL_REPLAY','TEST_FIXTURE','UNKNOWN')),
+                purpose TEXT NOT NULL DEFAULT 'UNKNOWN' CHECK(purpose IN ('LIVE_FULL','LIVE_INCREMENTAL','LIVE_SOURCE','RUN_SNAPSHOT','HISTORICAL_REPLAY','TEST_FIXTURE','UNKNOWN')),
                 activation_eligible INTEGER NOT NULL DEFAULT 0 CHECK(activation_eligible IN (0,1)),
                 sealed_at TEXT,
                 validation_manifest_json TEXT NOT NULL DEFAULT '{}'
@@ -432,13 +438,15 @@ class ResearchFeatureStore:
                 failed_at TEXT,
                 failure_reason TEXT,
                 metadata_json TEXT NOT NULL DEFAULT '{}',
-                purpose TEXT NOT NULL DEFAULT 'UNKNOWN' CHECK(purpose IN ('LIVE_FULL','LIVE_INCREMENTAL','RUN_SNAPSHOT','HISTORICAL_REPLAY','TEST_FIXTURE','UNKNOWN')),
+                purpose TEXT NOT NULL DEFAULT 'UNKNOWN' CHECK(purpose IN ('LIVE_FULL','LIVE_INCREMENTAL','LIVE_SOURCE','RUN_SNAPSHOT','HISTORICAL_REPLAY','TEST_FIXTURE','UNKNOWN')),
                 activation_eligible INTEGER NOT NULL DEFAULT 0 CHECK(activation_eligible IN (0,1)),
                 sealed_at TEXT,
                 validation_manifest_json TEXT NOT NULL DEFAULT '{}'
             );
             CREATE INDEX IF NOT EXISTS idx_feature_generations_domain_status
                 ON feature_generations(domain, status, created_at);
+            CREATE INDEX IF NOT EXISTS idx_feature_generations_live_source
+                ON feature_generations(domain, purpose, status, as_of, created_at);
 
             CREATE TABLE IF NOT EXISTS feature_generation_members (
                 generation_id TEXT NOT NULL,
@@ -972,6 +980,300 @@ class ResearchFeatureStore:
                 connection.rollback()
                 raise
         return generation
+
+    @staticmethod
+    def _normalise_source_hashes(
+        source_manifest_hash: str | None,
+        source_hash: str | None,
+    ) -> tuple[str, str]:
+        """Return one source hash while rejecting conflicting aliases.
+
+        A live source is identified by both the frozen snapshot hash and the
+        hash of the upstream source manifest.  Some callers historically use
+        ``source_hash`` while the generation schema calls the same value
+        ``source_manifest_hash``; accepting both keeps the boundary explicit
+        without allowing one caller to silently overwrite the other.
+        """
+
+        manifest = str(source_manifest_hash or "").strip()
+        alias = str(source_hash or "").strip()
+        if manifest and alias and manifest != alias:
+            raise FeatureGenerationError("LIVE_SOURCE_SOURCE_HASH_MISMATCH")
+        selected = manifest or alias
+        if not selected:
+            raise ValueError("source_manifest_hash must not be empty")
+        return selected, selected
+
+    @classmethod
+    def _live_source_metadata(cls, row: sqlite3.Row) -> tuple[str, str, dict[str, Any]] | None:
+        """Extract the immutable identity fields from a LIVE_SOURCE row."""
+
+        metadata = cls._parse_json(row["metadata_json"], {})
+        if not isinstance(metadata, dict):
+            return None
+        snapshot_hash = str(metadata.get("snapshot_hash") or "").strip()
+        source_manifest_hash = str(row["source_manifest_hash"] or "").strip()
+        metadata_source_hash = str(
+            metadata.get("source_manifest_hash") or metadata.get("source_hash") or ""
+        ).strip()
+        # A malformed or partially-written identity cannot be selected as a
+        # source.  The generation remains available for audit and can be
+        # marked failed by its producer, but never becomes a hidden fallback.
+        if not snapshot_hash or not source_manifest_hash:
+            return None
+        if metadata_source_hash and metadata_source_hash != source_manifest_hash:
+            return None
+        return snapshot_hash, source_manifest_hash, metadata
+
+    @classmethod
+    def _live_source_validation_ready(cls, row: sqlite3.Row) -> bool:
+        """Return whether the durable source validation manifest is READY."""
+
+        manifest = cls._parse_json(row["validation_manifest_json"], {})
+        if not isinstance(manifest, Mapping):
+            return False
+        if str(manifest.get("status") or "").strip().upper() != "READY":
+            return False
+        failures = manifest.get("failures")
+        return not failures
+
+    @staticmethod
+    def _live_source_result(row: sqlite3.Row) -> dict[str, Any]:
+        result = _generation_dict(row)
+        identity = ResearchFeatureStore._live_source_metadata(row)
+        if identity is not None:
+            result["snapshot_hash"] = identity[0]
+            result["source_hash"] = identity[1]
+        return result
+
+    def create_or_get_live_source(
+        self,
+        *,
+        snapshot_hash: str,
+        source_manifest_hash: str | None = None,
+        source_hash: str | None = None,
+        as_of: datetime | str,
+        contract_version: str,
+        algorithm_version: str,
+        metadata: Mapping[str, Any] | None = None,
+        generation_id: str | None = None,
+        created_at: datetime | str | None = None,
+        domain: str = DEFAULT_FEATURE_DOMAIN,
+    ) -> dict[str, Any]:
+        """Create or locate an immutable, non-activatable live source.
+
+        The operation is idempotent under SQLite's ``BEGIN IMMEDIATE`` lock.
+        A snapshot hash paired with a different source hash is an ambiguity,
+        not a reason to choose whichever row happened to be inserted last.
+        ``LIVE_SOURCE`` rows hold only the frozen source projections; the
+        active research generation remains governed by the normal CAS API.
+        """
+
+        snapshot = str(snapshot_hash or "").strip()
+        if not snapshot:
+            raise ValueError("snapshot_hash must not be empty")
+        source, _ = self._normalise_source_hashes(source_manifest_hash, source_hash)
+        domain_name = self._normalise_domain(domain)
+        metadata_dict = dict(metadata or {})
+        existing_snapshot = str(metadata_dict.get("snapshot_hash") or "").strip()
+        if existing_snapshot and existing_snapshot != snapshot:
+            raise FeatureGenerationError("LIVE_SOURCE_SNAPSHOT_HASH_MISMATCH")
+        for key in ("source_manifest_hash", "source_hash"):
+            existing_source = str(metadata_dict.get(key) or "").strip()
+            if existing_source and existing_source != source:
+                raise FeatureGenerationError("LIVE_SOURCE_SOURCE_HASH_MISMATCH")
+        metadata_dict.update(
+            {
+                "snapshot_hash": snapshot,
+                "source_manifest_hash": source,
+                "source_hash": source,
+                "source_kind": "LIVE_SOURCE",
+            }
+        )
+        created = self._timestamp(created_at or as_of)
+        generation = str(generation_id or "").strip()
+        if not generation:
+            generation = f"feature-live-source-{content_hash({'snapshot_hash': snapshot, 'source_manifest_hash': source})[:24]}"
+
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                rows = connection.execute(
+                    "SELECT * FROM feature_generations "
+                    "WHERE domain=? AND purpose='LIVE_SOURCE'",
+                    (domain_name,),
+                ).fetchall()
+                same_snapshot: list[sqlite3.Row] = []
+                conflicting_snapshot = False
+                for row in rows:
+                    identity = self._live_source_metadata(row)
+                    metadata = self._parse_json(row["metadata_json"], {})
+                    row_snapshot = (
+                        str(metadata.get("snapshot_hash") or "").strip()
+                        if isinstance(metadata, Mapping)
+                        else ""
+                    )
+                    if row_snapshot != snapshot:
+                        continue
+                    row_source = str(row["source_manifest_hash"] or "").strip()
+                    if row_source != source:
+                        conflicting_snapshot = True
+                    elif identity is not None:
+                        same_snapshot.append(row)
+                if conflicting_snapshot:
+                    raise FeatureGenerationError(
+                        f"LIVE_SOURCE_AMBIGUOUS:{snapshot}"
+                    )
+                if same_snapshot:
+                    # Duplicate rows with the exact same immutable identity
+                    # can exist after an interrupted legacy migration.  Prefer
+                    # the most complete lifecycle state, then newest creation,
+                    # but never mutate either row.
+                    status_rank = {
+                        "SEALED": 0,
+                        "PUBLISHED": 0,
+                        "VALIDATED": 1,
+                        "STAGING": 2,
+                        "FAILED": 3,
+                    }
+                    same_snapshot.sort(
+                        key=lambda row: (
+                            str(row["created_at"] or ""),
+                            str(row["generation_id"] or ""),
+                        ),
+                        reverse=True,
+                    )
+                    same_snapshot.sort(
+                        key=lambda row: status_rank.get(str(row["status"] or "").upper(), 9)
+                    )
+                    selected = same_snapshot[0]
+                    connection.commit()
+                    return self._live_source_result(selected)
+                connection.execute(
+                    """
+                    INSERT INTO feature_generations(
+                        generation_id,domain,as_of,contract_version,algorithm_version,
+                        source_manifest_hash,status,created_at,metadata_json,
+                        purpose,activation_eligible
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?)
+                    """,
+                    (
+                        generation,
+                        domain_name,
+                        self._timestamp(as_of),
+                        str(contract_version),
+                        str(algorithm_version),
+                        source,
+                        "STAGING",
+                        created,
+                        canonical_json(metadata_dict),
+                        "LIVE_SOURCE",
+                        0,
+                    ),
+                )
+                connection.commit()
+                created_row = self._generation_row(connection, generation)
+            except sqlite3.IntegrityError as exc:
+                connection.rollback()
+                raise FeatureGenerationError(
+                    f"FEATURE_GENERATION_ALREADY_EXISTS:{generation}"
+                ) from exc
+            except Exception:
+                connection.rollback()
+                raise
+        if created_row is None:  # pragma: no cover - guarded by insert above
+            raise FeatureGenerationError("FEATURE_GENERATION_NOT_WRITTEN")
+        return self._live_source_result(created_row)
+
+    def select_latest_live_source(
+        self,
+        *,
+        as_of: datetime | str | None = None,
+        snapshot_hash: str | None = None,
+        source_manifest_hash: str | None = None,
+        source_hash: str | None = None,
+        market_trade_date: str | None = None,
+        require_sealed: bool = True,
+        domain: str = DEFAULT_FEATURE_DOMAIN,
+    ) -> dict[str, Any] | None:
+        """Select one unambiguous source generation without JSON payload loads.
+
+        Only the small generation metadata row is parsed.  The source
+        projection tables remain in SQLite and are copied with SQL by
+        ``feature_rebuild``.  If multiple candidates share the newest
+        timestamp but have different source hashes, selection fails closed.
+        """
+
+        requested_snapshot = str(snapshot_hash or "").strip() or None
+        requested_source: str | None = None
+        if source_manifest_hash is not None or source_hash is not None:
+            requested_source, _ = self._normalise_source_hashes(
+                source_manifest_hash, source_hash
+            )
+        cutoff = self._parse_timestamp(as_of, field="as_of") if as_of is not None else None
+        statuses = {"SEALED", "PUBLISHED"} if require_sealed else {
+            "STAGING", "VALIDATED", "SEALED", "PUBLISHED"
+        }
+        domain_name = self._normalise_domain(domain)
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM feature_generations "
+                "WHERE domain=? AND purpose='LIVE_SOURCE'",
+                (domain_name,),
+            ).fetchall()
+        candidates: list[tuple[sqlite3.Row, datetime, str, str, dict[str, Any]]] = []
+        for row in rows:
+            if str(row["status"] or "").upper() not in statuses:
+                continue
+            if bool(row["activation_eligible"]):
+                continue
+            if not self._live_source_validation_ready(row):
+                continue
+            identity = self._live_source_metadata(row)
+            if identity is None:
+                continue
+            row_snapshot, row_source, metadata = identity
+            if requested_snapshot is not None and row_snapshot != requested_snapshot:
+                continue
+            if requested_source is not None and row_source != requested_source:
+                continue
+            if market_trade_date is not None and str(
+                metadata.get("market_trade_date") or ""
+            ).strip() != str(market_trade_date).strip():
+                continue
+            try:
+                parsed_as_of = self._parse_timestamp(row["as_of"], field="as_of")
+            except FeatureGenerationError:
+                continue
+            if cutoff is not None and parsed_as_of > cutoff:
+                continue
+            candidates.append((row, parsed_as_of, row_snapshot, row_source, metadata))
+        if not candidates:
+            return None
+        newest = max(item[1] for item in candidates)
+        newest_candidates = [item for item in candidates if item[1] == newest]
+        if len({item[3] for item in newest_candidates}) > 1:
+            raise FeatureGenerationError(
+                f"LIVE_SOURCE_AMBIGUOUS_MAX_AS_OF:{newest.isoformat()}"
+            )
+        status_rank = {
+            "SEALED": 0,
+            "PUBLISHED": 0,
+            "VALIDATED": 1,
+            "STAGING": 2,
+        }
+        newest_candidates.sort(
+            key=lambda item: (
+                str(item[0]["created_at"] or ""),
+                str(item[0]["generation_id"] or ""),
+            ),
+            reverse=True,
+        )
+        newest_candidates.sort(
+            key=lambda item: status_rank.get(str(item[0]["status"] or "").upper(), 9)
+        )
+        selected = newest_candidates[0]
+        return self._live_source_result(selected[0])
 
     # Short aliases make the lifecycle API convenient for maintenance scripts
     # while keeping the descriptive names used by the public contract.
@@ -1553,43 +1855,173 @@ class ResearchFeatureStore:
         generation_id: str,
         members: Sequence[Mapping[str, Any]],
     ) -> int:
-        """Write generation manifest rows without touching another generation."""
+        """Write generation manifest rows without touching another generation.
 
-        rows: list[tuple[Any, ...]] = []
+        This compatibility method keeps the historical all-or-nothing
+        transaction.  Maintenance code that receives a stream should use
+        :meth:`record_feature_generation_members_batched`, which commits
+        bounded batches and therefore does not retain a full-universe Python
+        list or one unbounded SQLite write transaction.
+        """
+
+        return self._record_feature_generation_members(
+            generation_id=generation_id,
+            members=members,
+            batch_size=DEFAULT_FEATURE_MEMBER_BATCH_SIZE,
+            atomic=True,
+        )
+
+    def record_feature_generation_members_batched(
+        self,
+        *,
+        generation_id: str,
+        members: Iterable[Mapping[str, Any]],
+        batch_size: int = DEFAULT_FEATURE_MEMBER_BATCH_SIZE,
+    ) -> int:
+        """Stream generation members into bounded SQLite transactions.
+
+        The iterator is consumed once and at most ``batch_size`` serialized
+        rows are retained at a time.  A failed batch leaves the generation in
+        STAGING with its already committed prefix intact; its producer must
+        fail/seal it through the normal lifecycle and may safely retry into a
+        fresh generation.  No source generation is modified.
+        """
+
+        return self._record_feature_generation_members(
+            generation_id=generation_id,
+            members=members,
+            batch_size=batch_size,
+            atomic=False,
+        )
+
+    def _record_feature_generation_members(
+        self,
+        *,
+        generation_id: str,
+        members: Iterable[Mapping[str, Any]],
+        batch_size: int,
+        atomic: bool,
+    ) -> int:
+        try:
+            size = int(batch_size)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("batch_size must be a positive integer") from exc
+        if size <= 0:
+            raise ValueError("batch_size must be a positive integer")
+        generation = str(generation_id or "").strip()
+        if not generation:
+            raise FeatureGenerationError("FEATURE_GENERATION_MISSING")
+        insert_sql = """
+            INSERT OR REPLACE INTO feature_generation_members(
+                generation_id,entity_type,entity_id,partition_name,content_hash,row_count,payload_json
+            ) VALUES(?,?,?,?,?,?,?)
+        """
+        total = 0
+        batch: list[tuple[Any, ...]] = []
         with self._connect() as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            try:
-                self._assert_generation(connection, generation_id, for_write=True)
-                for item in members:
-                    entity_type = str(item.get("entity_type") or "").strip().upper()
-                    entity_id = str(item.get("entity_id") or "").strip()
-                    if not entity_type or not entity_id:
-                        continue
-                    payload = item.get("payload") if isinstance(item.get("payload"), Mapping) else dict(item)
-                    rows.append(
-                        (
-                            str(generation_id),
-                            entity_type,
-                            entity_id,
-                            str(item.get("partition") or item.get("partition_name") or ""),
-                            str(item.get("content_hash") or content_hash(payload)),
-                            max(0, _optional_int(item.get("row_count")) or 0),
-                            canonical_json(payload),
+            if atomic:
+                connection.execute("BEGIN IMMEDIATE")
+                try:
+                    self._assert_generation(connection, generation, for_write=True)
+                    for item in members:
+                        if not isinstance(item, Mapping):
+                            continue
+                        entity_type = str(item.get("entity_type") or "").strip().upper()
+                        entity_id = str(item.get("entity_id") or "").strip()
+                        if not entity_type or not entity_id:
+                            continue
+                        payload = (
+                            item.get("payload")
+                            if isinstance(item.get("payload"), Mapping)
+                            else dict(item)
                         )
-                    )
-                connection.executemany(
-                    """
-                    INSERT OR REPLACE INTO feature_generation_members(
-                        generation_id,entity_type,entity_id,partition_name,content_hash,row_count,payload_json
-                    ) VALUES(?,?,?,?,?,?,?)
-                    """,
-                    rows,
+                        batch.append(
+                            (
+                                generation,
+                                entity_type,
+                                entity_id,
+                                str(item.get("partition") or item.get("partition_name") or ""),
+                                str(item.get("content_hash") or content_hash(payload)),
+                                max(0, _optional_int(item.get("row_count")) or 0),
+                                canonical_json(payload),
+                            )
+                        )
+                        if len(batch) >= size:
+                            connection.executemany(insert_sql, batch)
+                            total += len(batch)
+                            batch.clear()
+                    if batch:
+                        connection.executemany(insert_sql, batch)
+                        total += len(batch)
+                        batch.clear()
+                    connection.commit()
+                except Exception:
+                    connection.rollback()
+                    raise
+                return total
+
+            iterator = iter(members)
+            while True:
+                try:
+                    item = next(iterator)
+                except StopIteration:
+                    break
+                if not isinstance(item, Mapping):
+                    continue
+                entity_type = str(item.get("entity_type") or "").strip().upper()
+                entity_id = str(item.get("entity_id") or "").strip()
+                if not entity_type or not entity_id:
+                    continue
+                payload = (
+                    item.get("payload")
+                    if isinstance(item.get("payload"), Mapping)
+                    else dict(item)
                 )
-                connection.commit()
-            except Exception:
-                connection.rollback()
-                raise
-        return len(rows)
+                batch.append(
+                    (
+                        generation,
+                        entity_type,
+                        entity_id,
+                        str(item.get("partition") or item.get("partition_name") or ""),
+                        str(item.get("content_hash") or content_hash(payload)),
+                        max(0, _optional_int(item.get("row_count")) or 0),
+                        canonical_json(payload),
+                    )
+                )
+                if len(batch) < size:
+                    continue
+                connection.execute("BEGIN IMMEDIATE")
+                try:
+                    self._assert_generation(connection, generation, for_write=True)
+                    connection.executemany(insert_sql, batch)
+                    connection.commit()
+                except Exception:
+                    connection.rollback()
+                    raise
+                total += len(batch)
+                batch.clear()
+            if batch:
+                connection.execute("BEGIN IMMEDIATE")
+                try:
+                    self._assert_generation(connection, generation, for_write=True)
+                    connection.executemany(insert_sql, batch)
+                    connection.commit()
+                except Exception:
+                    connection.rollback()
+                    raise
+                total += len(batch)
+                batch.clear()
+            if total == 0:
+                # Preserve the old API's validation behavior for an empty
+                # iterator: a missing/sealed generation must not look valid.
+                connection.execute("BEGIN IMMEDIATE")
+                try:
+                    self._assert_generation(connection, generation, for_write=True)
+                    connection.commit()
+                except Exception:
+                    connection.rollback()
+                    raise
+        return total
 
     record_generation_members = record_feature_generation_members
 
@@ -3037,6 +3469,7 @@ def _dirty_dict(row: sqlite3.Row) -> dict[str, Any]:
 
 __all__ = [
     "DEFAULT_FEATURE_DOMAIN",
+    "DEFAULT_FEATURE_MEMBER_BATCH_SIZE",
     "DEFAULT_DIRTY_BACKOFF_SECONDS",
     "DEFAULT_DIRTY_LEASE_SECONDS",
     "DEFAULT_DIRTY_MAX_ATTEMPTS",

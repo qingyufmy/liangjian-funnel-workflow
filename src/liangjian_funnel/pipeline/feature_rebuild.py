@@ -63,6 +63,25 @@ _RUN_SCOPED_TABLES: tuple[str, ...] = (
     "deterministic_stage_decisions",
 )
 FEATURE_VALIDATION_SCHEMA = "feature-validation/2.0.0"
+DEFAULT_COPY_BATCH_SIZE = 50
+
+# LIVE_SOURCE contains only source projections.  Runtime projections are
+# intentionally opt-in and are never required for maintenance coverage.
+_LIVE_SOURCE_ENTITY_TABLES: tuple[str, ...] = (
+    "feature_generation_members",
+    "taxonomy_membership_versions",
+    "business_exposure_facts",
+    "stock_fundamental_features",
+)
+_ENTITY_SYMBOL_TABLES: frozenset[str] = frozenset(
+    {
+        "taxonomy_membership_versions",
+        "business_exposure_facts",
+        "stock_fundamental_features",
+        "stock_market_role_features",
+        "deterministic_stage_decisions",
+    }
+)
 
 
 class EntityBuilder(Protocol):
@@ -92,6 +111,17 @@ class DependencyExpander(Protocol):
     def __call__(
         self, items: Iterable[Mapping[str, Any]], max_depth: int = 8
     ) -> Iterable[Mapping[str, Any]]:
+        ...
+
+
+class SourceCompatibilityValidator(Protocol):
+    """Validate a claimed dirty scope against one selected live source."""
+
+    def __call__(
+        self,
+        batch: "ClaimedDirtyBatch",
+        source: Mapping[str, Any],
+    ) -> bool | None:
         ...
 
 
@@ -134,6 +164,38 @@ class FeatureRebuildResult:
         """Allow compatibility with callers that expect a result mapping."""
 
         return self.as_dict()[key]
+
+
+@dataclass(frozen=True, slots=True)
+class ClaimedDirtyBatch:
+    """A durable boundary between queue leasing and source selection.
+
+    ``claimed`` contains the rows leased directly from the queue;
+    ``expanded`` contains the de-duplicated rebuild scope (including those
+    rows and any persisted dependencies); ``all_claimed`` is the exact set
+    that must be completed or retried.  Keeping this object explicit prevents
+    callers from selecting a source before the lease exists.
+    """
+
+    worker_id: str
+    claimed: tuple[dict[str, Any], ...] = ()
+    expanded: tuple[dict[str, Any], ...] = ()
+    all_claimed: tuple[dict[str, Any], ...] = ()
+
+    @property
+    def empty(self) -> bool:
+        return not self.claimed
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "worker_id": self.worker_id,
+            "claimed": [dict(item) for item in self.claimed],
+            "expanded": [dict(item) for item in self.expanded],
+            "all_claimed": [dict(item) for item in self.all_claimed],
+            "claimed_count": len(self.claimed),
+            "expanded_count": len(self.expanded),
+            "all_claimed_count": len(self.all_claimed),
+        }
 
 
 def _now(value: datetime | str | None = None) -> datetime:
@@ -211,6 +273,32 @@ def _invoke(callback: Callable[..., Any], *args: Any) -> Any:
     return callback(*args[: len(positional)])
 
 
+_STABLE_ERROR_PREFIXES: tuple[str, ...] = (
+    "LIVE_SOURCE_AMBIGUOUS",
+    "LIVE_SOURCE_NOT_AVAILABLE",
+    "LIVE_SOURCE_NOT_READY",
+    "LIVE_SOURCE_ACTIVATION_ELIGIBILITY_INVALID",
+    "LIVE_SOURCE_INCOMPATIBLE",
+    "FEATURE_ACTIVE_GENERATION_MISSING",
+    "FEATURE_INCREMENTAL_STORAGE_WATERMARK_BLOCKED",
+    "FEATURE_FULL_REBUILD_STORAGE_WATERMARK_BLOCKED",
+    "FEATURE_SOURCE_GENERATION_INVALID",
+    "FEATURE_SOURCE_MARKET_DATA_STALE",
+    "FEATURE_GENERATION_ACTIVE_CAS_MISMATCH",
+    "FEATURE_GENERATION_VALIDATION_FAILED",
+)
+
+
+def _stable_error_code(error: BaseException) -> str:
+    """Map lifecycle errors to durable queue/result reason codes."""
+
+    message = str(error or "").strip().upper()
+    for prefix in _STABLE_ERROR_PREFIXES:
+        if message.startswith(prefix):
+            return prefix
+    return f"{type(error).__name__.upper()}"
+
+
 def clone_feature_generation(
     store: ResearchFeatureStore,
     source_generation_id: str,
@@ -270,6 +358,352 @@ def clone_feature_generation(
             connection.rollback()
             raise
     return counts
+
+
+def _copy_generation_table_sql(
+    connection: Any,
+    table: str,
+    source_generation_id: str,
+    target_generation_id: str,
+    *,
+    where_sql: str = "",
+    where_params: Sequence[Any] = (),
+    clear_target: bool = False,
+) -> int:
+    """Copy one generation projection using SQLite only.
+
+    The table names come exclusively from module constants above.  Values are
+    always parameters, so this helper never interpolates source data and never
+    deserializes a payload JSON column in Python.
+    """
+
+    columns = [
+        str(row[1])
+        for row in connection.execute(f'PRAGMA table_info("{table}")').fetchall()
+    ]
+    if "generation_id" not in columns:
+        return 0
+    copied_columns = ",".join(f'"{column}"' for column in columns)
+    select_columns = ",".join(
+        "?" if column == "generation_id" else f'"{column}"'
+        for column in columns
+    )
+    source_clause = "generation_id=?" + (f" {where_sql}" if where_sql else "")
+    if clear_target:
+        connection.execute(
+            f'DELETE FROM "{table}" WHERE generation_id=?',
+            (str(target_generation_id),),
+        )
+    cursor = connection.execute(
+        f'INSERT OR REPLACE INTO "{table}" ({copied_columns}) '
+        f'SELECT {select_columns} FROM "{table}" WHERE {source_clause}',
+        (str(target_generation_id), str(source_generation_id), *where_params),
+    )
+    return int(cursor.rowcount if cursor.rowcount >= 0 else 0)
+
+
+def _assert_live_source_copy_pair(
+    store: ResearchFeatureStore,
+    connection: Any,
+    source_generation_id: str,
+    target_generation_id: str,
+) -> tuple[Any, Any]:
+    source = store._assert_generation(  # noqa: SLF001 - lifecycle boundary
+        connection,
+        source_generation_id,
+        strict=True,
+        allow_legacy=False,
+    )
+    target = store._assert_generation(  # noqa: SLF001 - lifecycle boundary
+        connection,
+        target_generation_id,
+        strict=False,
+        allow_legacy=False,
+        for_write=True,
+    )
+    if str(source["purpose"] or "").upper() != "LIVE_SOURCE":
+        raise FeatureGenerationError("LIVE_SOURCE_REQUIRED")
+    if bool(source["activation_eligible"]):
+        raise FeatureGenerationError("LIVE_SOURCE_ACTIVATION_ELIGIBILITY_INVALID")
+    validation_manifest = ResearchFeatureStore._parse_json(  # noqa: SLF001
+        source["validation_manifest_json"], {}
+    )
+    if not isinstance(validation_manifest, Mapping) or str(
+        validation_manifest.get("status") or ""
+    ).strip().upper() != "READY" or validation_manifest.get("failures"):
+        raise FeatureGenerationError("LIVE_SOURCE_NOT_READY")
+    if str(target["purpose"] or "").upper() not in {
+        "LIVE_FULL",
+        "LIVE_INCREMENTAL",
+    }:
+        raise FeatureGenerationError("LIVE_SOURCE_TARGET_PURPOSE_INVALID")
+    if str(target["status"] or "").upper() != "STAGING":
+        raise FeatureGenerationError("LIVE_SOURCE_TARGET_NOT_STAGING")
+    return source, target
+
+
+def copy_live_source_generation(
+    store: ResearchFeatureStore,
+    source_generation_id: str,
+    target_generation_id: str,
+    *,
+    include_runtime_projections: bool = False,
+    batch_size: int = DEFAULT_COPY_BATCH_SIZE,
+) -> dict[str, int]:
+    """Copy a sealed LIVE_SOURCE into a fresh target generation in SQLite.
+
+    This is intended for a new staging generation.  Target maintenance tables
+    are cleared first so a retried staging id cannot retain stale entities;
+    the source and active generation are never modified.  Runtime tables are
+    opt-in for compatibility but are normally empty on LIVE_SOURCE rows.
+    """
+
+    source = str(source_generation_id or "").strip()
+    target = str(target_generation_id or "").strip()
+    if not source or not target or source == target:
+        raise ValueError("source and target generation ids must be distinct")
+    try:
+        size = int(batch_size)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("batch_size must be a positive integer <= 500") from exc
+    if size <= 0 or size > 500:
+        raise ValueError("batch_size must be a positive integer <= 500")
+    tables = _GENERATION_TABLES if include_runtime_projections else _LIVE_SOURCE_ENTITY_TABLES
+    counts: dict[str, int] = {}
+    if not include_runtime_projections:
+        # Clear the fresh target in a short transaction, then copy stock rows
+        # by keyset-paginated entity batches.  Payload JSON stays inside
+        # SQLite and neither Python memory nor one rollback journal grows with
+        # the full market universe.
+        with store._connect() as connection:  # noqa: SLF001
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                _assert_live_source_copy_pair(store, connection, source, target)
+                for table in tables:
+                    connection.execute(
+                        f'DELETE FROM "{table}" WHERE generation_id=?',
+                        (target,),
+                    )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        counts = {table: 0 for table in tables}
+        last_entity_id = ""
+        while True:
+            with store._connect() as connection:  # noqa: SLF001
+                rows = connection.execute(
+                    "SELECT DISTINCT entity_id FROM feature_generation_members "
+                    "WHERE generation_id=? AND entity_type='STOCK' AND entity_id>? "
+                    "ORDER BY entity_id LIMIT ?",
+                    (source, last_entity_id, size),
+                ).fetchall()
+            entity_ids = tuple(str(row[0]) for row in rows if str(row[0] or ""))
+            if not entity_ids:
+                break
+            batch_counts = _copy_live_source_entity_batch(
+                store,
+                source,
+                target,
+                entity_ids,
+                entity_type="STOCK",
+                tables=tables,
+            )
+            for table, count in batch_counts.items():
+                counts[table] = counts.get(table, 0) + int(count)
+            last_entity_id = entity_ids[-1]
+        return counts
+
+    with store._connect() as connection:  # noqa: SLF001 - lifecycle helper
+        connection.execute("BEGIN IMMEDIATE")
+        try:
+            _assert_live_source_copy_pair(store, connection, source, target)
+            for table in tables:
+                counts[table] = _copy_generation_table_sql(
+                    connection,
+                    table,
+                    source,
+                    target,
+                    clear_target=True,
+                )
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+    return counts
+
+
+def _normalise_entity_id_batch(
+    entities: Iterable[Mapping[str, Any] | Sequence[Any]],
+    *,
+    entity_type: str,
+    batch_size: int,
+) -> Iterable[tuple[str, ...]]:
+    """Yield de-duplicated entity ids in bounded batches."""
+
+    seen: set[str] = set()
+    batch: list[str] = []
+    for raw in entities:
+        try:
+            normalized = _normalize_entity(raw)
+        except (TypeError, ValueError):
+            continue
+        if normalized["entity_type"] != entity_type:
+            continue
+        entity_id = normalized["entity_id"]
+        if entity_id in seen:
+            continue
+        seen.add(entity_id)
+        batch.append(entity_id)
+        if len(batch) >= batch_size:
+            yield tuple(batch)
+            batch.clear()
+    if batch:
+        yield tuple(batch)
+
+
+def _copy_live_source_entity_batch(
+    store: ResearchFeatureStore,
+    source_generation_id: str,
+    target_generation_id: str,
+    entity_ids: Sequence[str],
+    *,
+    entity_type: str,
+    tables: Sequence[str],
+) -> dict[str, int]:
+    """Replace one bounded entity batch with parameterized SQL statements."""
+
+    if not entity_ids:
+        return {table: 0 for table in tables}
+    placeholders = ",".join("?" for _ in entity_ids)
+    counts: dict[str, int] = {}
+    with store._connect() as connection:  # noqa: SLF001
+        connection.execute("BEGIN IMMEDIATE")
+        try:
+            _assert_live_source_copy_pair(
+                store,
+                connection,
+                source_generation_id,
+                target_generation_id,
+            )
+            for table in tables:
+                if table == "feature_generation_members":
+                    where_sql = f"AND entity_type=? AND entity_id IN ({placeholders})"
+                    where_params: tuple[Any, ...] = (entity_type, *entity_ids)
+                    delete_cursor = connection.execute(
+                        f'DELETE FROM "{table}" WHERE generation_id=? '
+                        f"AND entity_type=? AND entity_id IN ({placeholders})",
+                        (str(target_generation_id), entity_type, *entity_ids),
+                    )
+                elif table in _ENTITY_SYMBOL_TABLES:
+                    where_sql = f"AND symbol IN ({placeholders})"
+                    where_params = tuple(entity_ids)
+                    delete_cursor = connection.execute(
+                        f'DELETE FROM "{table}" WHERE generation_id=? '
+                        f"AND symbol IN ({placeholders})",
+                        (str(target_generation_id), *entity_ids),
+                    )
+                else:
+                    # Theme/chain registry rows have no stock entity key and
+                    # cannot be safely replaced by an entity-scoped copy.
+                    counts[table] = 0
+                    continue
+                counts[table] = _copy_generation_table_sql(
+                    connection,
+                    table,
+                    source_generation_id,
+                    target_generation_id,
+                    where_sql=where_sql,
+                    where_params=where_params,
+                )
+                # Keep the local variable meaningful for debuggers and make
+                # it explicit that a missing source row intentionally leaves
+                # the target entity absent after the delete.
+                _ = delete_cursor
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+    return counts
+
+
+def copy_live_source_entities(
+    store: ResearchFeatureStore,
+    source_generation_id: str,
+    target_generation_id: str,
+    entities: Iterable[Mapping[str, Any] | Sequence[Any]] | None,
+    *,
+    entity_type: str = "STOCK",
+    batch_size: int = DEFAULT_COPY_BATCH_SIZE,
+    include_runtime_projections: bool = False,
+) -> dict[str, int]:
+    """Replace selected entities from a LIVE_SOURCE using bounded SQL.
+
+    ``entities`` may be a generator.  At most ``batch_size`` identifiers and
+    the corresponding SQL parameters are held at a time; JSON payloads never
+    cross the Python boundary.  Missing source rows remove stale target rows
+    for that entity, which is required for deterministic incremental updates.
+    """
+
+    source = str(source_generation_id or "").strip()
+    target = str(target_generation_id or "").strip()
+    if not source or not target or source == target:
+        raise ValueError("source and target generation ids must be distinct")
+    normalized_type = str(entity_type or "").strip().upper()
+    if not normalized_type:
+        raise ValueError("entity_type must not be empty")
+    try:
+        size = int(batch_size)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("batch_size must be a positive integer <= 500") from exc
+    if size <= 0 or size > 500:
+        raise ValueError("batch_size must be a positive integer <= 500")
+    tables = (
+        _GENERATION_TABLES
+        if include_runtime_projections
+        else _LIVE_SOURCE_ENTITY_TABLES
+    )
+    if entities is None:
+        return copy_live_source_generation(
+            store,
+            source,
+            target,
+            include_runtime_projections=include_runtime_projections,
+            batch_size=size,
+        )
+    # Validate the immutable source and writable staging target even when the
+    # input iterator yields no valid entities.  An empty result must not hide
+    # a bad generation id or a sealed target behind a zero-count return.
+    with store._connect() as connection:  # noqa: SLF001
+        connection.execute("BEGIN IMMEDIATE")
+        try:
+            _assert_live_source_copy_pair(
+                store,
+                connection,
+                source,
+                target,
+            )
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+    totals = {table: 0 for table in tables}
+    for batch in _normalise_entity_id_batch(
+        entities,
+        entity_type=normalized_type,
+        batch_size=size,
+    ):
+        counts = _copy_live_source_entity_batch(
+            store,
+            source,
+            target,
+            batch,
+            entity_type=normalized_type,
+            tables=tables,
+        )
+        for table, count in counts.items():
+            totals[table] = totals.get(table, 0) + int(count)
+    return totals
 
 
 def _normalise_symbols(values: Iterable[Any] | None) -> tuple[str, ...] | None:
@@ -694,7 +1128,7 @@ class FeatureRebuildCoordinator:
         error: BaseException,
         worker_id: str,
     ) -> FeatureRebuildResult:
-        error_code = f"{type(error).__name__.upper()}"
+        error_code = _stable_error_code(error)
         if generation_id:
             current = self.store.get_feature_generation(generation_id)
             if current is not None and str(current.get("status") or "").upper() not in {"SEALED", "PUBLISHED"}:
@@ -747,6 +1181,336 @@ class FeatureRebuildCoordinator:
             dead_count=dead_count,
             reason_code=error_code,
             error=str(error)[:500],
+        )
+
+    def _retry_items(
+        self,
+        items: Iterable[Mapping[str, Any]],
+        *,
+        worker_id: str,
+        error: BaseException,
+    ) -> None:
+        """Return leased queue items to the retry lifecycle best-effort."""
+
+        error_code = _stable_error_code(error)
+        for item in items:
+            try:
+                self.store.retry_dirty(
+                    entity_type=str(item["entity_type"]),
+                    entity_id=str(item["entity_id"]),
+                    reason_code=str(item["reason_code"]),
+                    source_version=str(item["source_version"]),
+                    error_code=error_code,
+                    now=self._timestamp(),
+                    worker_id=worker_id,
+                )
+            except Exception:
+                # A later claim can recover an expired lease.  Do not mask the
+                # original expansion/source error with a queue diagnostic.
+                continue
+
+    def claim_incremental_batch(
+        self,
+        *,
+        worker_id: str,
+        limit: int = 100,
+        lease_seconds: int = DEFAULT_DIRTY_LEASE_SECONDS,
+        now: datetime | str | None = None,
+        max_dependency_depth: int = 8,
+    ) -> ClaimedDirtyBatch:
+        """Lease and expand dirty work before any source-generation lookup.
+
+        This method intentionally performs no feature reads.  If dependency
+        expansion itself fails, the directly leased rows are moved to RETRY
+        before the error is re-raised, so a caller cannot strand work merely by
+        probing the maintenance source after a claim.
+        """
+
+        owner = str(worker_id or "").strip()
+        if not owner:
+            raise ValueError("worker_id must not be empty")
+        claim_now = now if now is not None else self._timestamp()
+        claimed = self.store.claim_dirty(
+            worker_id=owner,
+            limit=limit,
+            now=claim_now,
+            lease_seconds=lease_seconds,
+        )
+        if not claimed:
+            return ClaimedDirtyBatch(worker_id=owner)
+        additional: list[dict[str, Any]] = []
+        try:
+            if self.dependency_expander is None:
+                expanded = _dedupe_entities(
+                    self.store.expand_dirty_dependencies(
+                        claimed, max_depth=max_dependency_depth
+                    )
+                )
+            else:
+                expanded = _dedupe_entities(
+                    _invoke(self.dependency_expander, claimed, max_dependency_depth)
+                )
+            additional = self.store.claim_dirty_items(
+                items=expanded,
+                worker_id=owner,
+                now=claim_now,
+                lease_seconds=lease_seconds,
+            )
+            all_claimed = _dedupe_queue_items([*claimed, *additional])
+            return ClaimedDirtyBatch(
+                worker_id=owner,
+                claimed=tuple(dict(item) for item in claimed),
+                expanded=tuple(dict(item) for item in expanded),
+                all_claimed=tuple(dict(item) for item in all_claimed),
+            )
+        except Exception as error:
+            self._retry_items([*claimed, *additional], worker_id=owner, error=error)
+            raise
+
+    @staticmethod
+    def _source_generation_id(value: Mapping[str, Any] | str | None) -> str | None:
+        if isinstance(value, Mapping):
+            selected = value.get("generation_id")
+        else:
+            selected = value
+        text = str(selected or "").strip()
+        return text or None
+
+    def run_incremental_claimed(
+        self,
+        batch: ClaimedDirtyBatch,
+        *,
+        as_of: datetime | str,
+        source_generation_id: str | None = None,
+        source_selector: Callable[[], Mapping[str, Any] | str | None] | None = None,
+        builder: EntityBuilder | None = None,
+        validator: GenerationValidator | None = None,
+        source_compatibility_validator: SourceCompatibilityValidator | None = None,
+        contract_version: str = FEATURE_REBUILD_CONTRACT,
+        algorithm_version: str = FEATURE_REBUILD_ALGORITHM,
+        source_manifest_hash: str = "",
+        copy_batch_size: int = DEFAULT_COPY_BATCH_SIZE,
+    ) -> FeatureRebuildResult:
+        """Execute an already-claimed batch through source/copy/CAS order.
+
+        ``source_selector`` is invoked here, after the caller has obtained a
+        lease.  Source ambiguity or absence therefore returns every leased
+        item to RETRY via the common failure path and never creates an active
+        generation.  An optional builder can augment copied source rows for
+        compatibility with existing feature providers.
+        """
+
+        if not isinstance(batch, ClaimedDirtyBatch):
+            raise TypeError("batch must be a ClaimedDirtyBatch")
+        owner = str(batch.worker_id or "").strip()
+        if not owner:
+            raise ValueError("batch.worker_id must not be empty")
+        claimed = [dict(item) for item in (batch.all_claimed or batch.claimed)]
+        expanded = [dict(item) for item in batch.expanded]
+        if not claimed:
+            return FeatureRebuildResult(mode="INCREMENTAL", status="NOOP")
+        generation_id: str | None = None
+        previous_generation_id: str | None = None
+        processed_count = 0
+        try:
+            selected_source: Mapping[str, Any] | str | None
+            if source_selector is not None:
+                selected_source = _invoke(source_selector)
+            else:
+                selected_source = source_generation_id
+            selected_source_id = self._source_generation_id(selected_source)
+            if not selected_source_id:
+                raise FeatureGenerationError("LIVE_SOURCE_NOT_AVAILABLE")
+            source_metadata = (
+                dict(selected_source)
+                if isinstance(selected_source, Mapping)
+                else self.store.get_feature_generation(selected_source_id)
+            )
+            if source_metadata is None:
+                raise FeatureGenerationError("LIVE_SOURCE_NOT_AVAILABLE")
+            if source_compatibility_validator is not None:
+                compatible = _invoke(
+                    source_compatibility_validator,
+                    batch,
+                    source_metadata,
+                )
+                if compatible is False:
+                    raise FeatureGenerationError("LIVE_SOURCE_INCOMPATIBLE")
+            effective_source_hash = str(
+                source_manifest_hash
+                or source_metadata.get("source_manifest_hash")
+                or source_metadata.get("source_hash")
+                or ""
+            ).strip()
+            active = self.store.get_active_feature_generation("RESEARCH")
+            if active is None:
+                # An incremental claim must never silently turn into a full
+                # bootstrap.  The caller should schedule a separate explicit
+                # full rebuild; this batch is returned to RETRY here.
+                raise FeatureGenerationError("FEATURE_ACTIVE_GENERATION_MISSING")
+            previous_generation_id = (
+                str(active["generation_id"]) if active is not None else None
+            )
+            generation_id = self._create_generation(
+                mode="INCREMENTAL",
+                as_of=as_of,
+                contract_version=contract_version,
+                algorithm_version=algorithm_version,
+                source_manifest_hash=effective_source_hash,
+                worker_id=owner,
+                metadata={
+                    "claimed_count": len(claimed),
+                    "expanded_count": len(expanded),
+                    "previous_generation_id": previous_generation_id,
+                    "live_source_generation_id": selected_source_id,
+                    "source_generation_id": selected_source_id,
+                },
+            )
+            if previous_generation_id:
+                clone_feature_generation(
+                    self.store,
+                    previous_generation_id,
+                    generation_id,
+                    include_runtime_projections=self.include_runtime_projections,
+                )
+                copy_live_source_entities(
+                    self.store,
+                    selected_source_id,
+                    generation_id,
+                    expanded,
+                    batch_size=copy_batch_size,
+                    include_runtime_projections=False,
+                )
+            else:
+                copy_live_source_generation(
+                    self.store,
+                    selected_source_id,
+                    generation_id,
+                    include_runtime_projections=False,
+                )
+            if builder is not None:
+                for entity in expanded:
+                    _invoke(builder, entity, generation_id, self.store)
+            processed_count = len(expanded)
+            validation_result = _invoke(
+                validator or self.validator,
+                self.store,
+                generation_id,
+            )
+            validation_metadata = dict(validation_result or {})
+            if validation_metadata.get("activation_eligible") is False:
+                raise FeatureGenerationError(
+                    "FEATURE_GENERATION_VALIDATION_FAILED:REQUIRED_COVERAGE"
+                )
+            self.store.validate_feature_generation(
+                generation_id,
+                validated_at=self._timestamp(),
+                validation=validation_metadata,
+            )
+            self.store.seal_generation(
+                generation_id,
+                validation_manifest=validation_metadata,
+                purpose="LIVE_INCREMENTAL",
+                activation_eligible=True,
+                sealed_at=self._timestamp(),
+            )
+            self.store.activate_generation(
+                generation_id,
+                expected_current_id=previous_generation_id,
+                activation_reason="INCREMENTAL_FEATURE_REBUILD",
+                domain="RESEARCH",
+                actor=owner,
+                activated_at=self._timestamp(),
+            )
+            resolved_count = sum(
+                int(
+                    self.store.complete_dirty(
+                        entity_type=str(item["entity_type"]),
+                        entity_id=str(item["entity_id"]),
+                        reason_code=str(item["reason_code"]),
+                        source_version=str(item["source_version"]),
+                        resolved_at=self._timestamp(),
+                        worker_id=owner,
+                    )
+                )
+                for item in claimed
+            )
+            return FeatureRebuildResult(
+                mode="INCREMENTAL",
+                status="PUBLISHED",
+                generation_id=generation_id,
+                previous_generation_id=previous_generation_id,
+                claimed_count=len(claimed),
+                expanded_count=len(expanded),
+                processed_count=processed_count,
+                resolved_count=resolved_count,
+                validation=validation_metadata,
+            )
+        except Exception as error:
+            return self._failure(
+                mode="INCREMENTAL",
+                generation_id=generation_id,
+                previous_generation_id=previous_generation_id,
+                claimed=claimed,
+                expanded_count=len(expanded),
+                processed_count=processed_count,
+                error=error,
+                worker_id=owner,
+            )
+
+    def run_incremental_from_live_source(
+        self,
+        *,
+        as_of: datetime | str,
+        worker_id: str,
+        source_generation_id: str | None = None,
+        source_selector: Callable[[], Mapping[str, Any] | str | None] | None = None,
+        limit: int = 100,
+        lease_seconds: int = DEFAULT_DIRTY_LEASE_SECONDS,
+        contract_version: str = FEATURE_REBUILD_CONTRACT,
+        algorithm_version: str = FEATURE_REBUILD_ALGORITHM,
+        source_manifest_hash: str = "",
+        now: datetime | str | None = None,
+        max_dependency_depth: int = 8,
+        builder: EntityBuilder | None = None,
+        validator: GenerationValidator | None = None,
+        source_compatibility_validator: SourceCompatibilityValidator | None = None,
+        copy_batch_size: int = DEFAULT_COPY_BATCH_SIZE,
+    ) -> FeatureRebuildResult:
+        """Claim first, then select/copy a LIVE_SOURCE with retry semantics."""
+
+        try:
+            batch = self.claim_incremental_batch(
+                worker_id=worker_id,
+                limit=limit,
+                lease_seconds=lease_seconds,
+                now=now,
+                max_dependency_depth=max_dependency_depth,
+            )
+        except Exception as error:
+            return FeatureRebuildResult(
+                mode="INCREMENTAL",
+                status="FAILED",
+                reason_code=_stable_error_code(error),
+                error=str(error)[:500],
+            )
+        if batch.empty:
+            return FeatureRebuildResult(mode="INCREMENTAL", status="NOOP")
+        effective_selector = source_selector
+        if effective_selector is None and source_generation_id is None:
+            effective_selector = lambda: self.store.select_latest_live_source(as_of=as_of)
+        return self.run_incremental_claimed(
+            batch,
+            as_of=as_of,
+            source_generation_id=source_generation_id,
+            source_selector=effective_selector,
+            builder=builder,
+            validator=validator,
+            source_compatibility_validator=source_compatibility_validator,
+            contract_version=contract_version,
+            algorithm_version=algorithm_version,
+            source_manifest_hash=source_manifest_hash,
+            copy_batch_size=copy_batch_size,
         )
 
     def run_incremental(
@@ -886,6 +1650,141 @@ class FeatureRebuildCoordinator:
                 worker_id=owner,
             )
 
+    def run_full_from_live_source(
+        self,
+        *,
+        as_of: datetime | str,
+        worker_id: str = "live-source-full-rebuild",
+        source_generation_id: str | None = None,
+        source_selector: Callable[[], Mapping[str, Any] | str | None] | None = None,
+        validator: GenerationValidator | None = None,
+        contract_version: str = FEATURE_REBUILD_CONTRACT,
+        algorithm_version: str = FEATURE_REBUILD_ALGORITHM,
+        source_manifest_hash: str = "",
+        copy_batch_size: int = DEFAULT_COPY_BATCH_SIZE,
+    ) -> FeatureRebuildResult:
+        """Publish a full live generation from one sealed LIVE_SOURCE.
+
+        The source is selected before staging starts, then copied entirely by
+        SQL.  No Python entity list is materialized or iterated, which keeps
+        the weekly/full path independent of the frozen snapshot payload size.
+        """
+
+        owner = str(worker_id or "").strip()
+        if not owner:
+            raise ValueError("worker_id must not be empty")
+        generation_id: str | None = None
+        previous_generation_id: str | None = None
+        processed_count = 0
+        try:
+            selected_source: Mapping[str, Any] | str | None
+            if source_selector is not None:
+                selected_source = _invoke(source_selector)
+            elif source_generation_id is not None:
+                selected_source = source_generation_id
+            else:
+                selected_source = self.store.select_latest_live_source(as_of=as_of)
+            selected_source_id = self._source_generation_id(selected_source)
+            if not selected_source_id:
+                raise FeatureGenerationError("LIVE_SOURCE_NOT_AVAILABLE")
+            source_metadata = (
+                dict(selected_source)
+                if isinstance(selected_source, Mapping)
+                else self.store.get_feature_generation(selected_source_id)
+            )
+            if source_metadata is None:
+                raise FeatureGenerationError("LIVE_SOURCE_NOT_AVAILABLE")
+            active = self.store.get_active_feature_generation("RESEARCH")
+            previous_generation_id = (
+                str(active["generation_id"]) if active is not None else None
+            )
+            effective_source_hash = str(
+                source_manifest_hash
+                or source_metadata.get("source_manifest_hash")
+                or source_metadata.get("source_hash")
+                or ""
+            ).strip()
+            source_details = source_metadata.get("metadata")
+            if not isinstance(source_details, Mapping):
+                source_details = {}
+            generation_id = self._create_generation(
+                mode="FULL",
+                as_of=as_of,
+                contract_version=contract_version,
+                algorithm_version=algorithm_version,
+                source_manifest_hash=effective_source_hash,
+                worker_id=owner,
+                metadata={
+                    "source_generation_id": selected_source_id,
+                    "live_source_generation_id": selected_source_id,
+                    "previous_generation_id": previous_generation_id,
+                    "source_snapshot_hash": source_metadata.get("snapshot_hash")
+                    or source_details.get("snapshot_hash"),
+                },
+            )
+            copy_live_source_generation(
+                self.store,
+                selected_source_id,
+                generation_id,
+                include_runtime_projections=False,
+                batch_size=copy_batch_size,
+            )
+            validation_result = _invoke(
+                validator or self.validator,
+                self.store,
+                generation_id,
+            )
+            validation_metadata = dict(validation_result or {})
+            if validation_metadata.get("activation_eligible") is False:
+                raise FeatureGenerationError(
+                    "FEATURE_GENERATION_VALIDATION_FAILED:REQUIRED_COVERAGE"
+                )
+            processed_count = int(
+                validation_metadata.get("entity_count")
+                or validation_metadata.get("table_counts", {}).get(
+                    "feature_generation_members", 0
+                )
+            )
+            self.store.validate_feature_generation(
+                generation_id,
+                validated_at=self._timestamp(),
+                validation=validation_metadata,
+            )
+            self.store.seal_generation(
+                generation_id,
+                validation_manifest=validation_metadata,
+                purpose="LIVE_FULL",
+                activation_eligible=True,
+                sealed_at=self._timestamp(),
+            )
+            self.store.activate_generation(
+                generation_id,
+                expected_current_id=previous_generation_id,
+                activation_reason="FULL_FEATURE_REBUILD_FROM_LIVE_SOURCE",
+                domain="RESEARCH",
+                actor=owner,
+                activated_at=self._timestamp(),
+            )
+            return FeatureRebuildResult(
+                mode="FULL",
+                status="PUBLISHED",
+                generation_id=generation_id,
+                previous_generation_id=previous_generation_id,
+                processed_count=processed_count,
+                validation=validation_metadata,
+            )
+        except Exception as error:
+            return self._failure(
+                mode="FULL",
+                generation_id=generation_id,
+                previous_generation_id=previous_generation_id,
+                claimed=(),
+                expanded_count=0,
+                processed_count=processed_count,
+                error=error,
+                worker_id=owner,
+            )
+
     def run_full(
         self,
         *,
@@ -992,6 +1891,8 @@ def _dedupe_queue_items(items: Iterable[Mapping[str, Any]]) -> list[dict[str, An
 
 
 __all__ = [
+    "ClaimedDirtyBatch",
+    "DEFAULT_COPY_BATCH_SIZE",
     "DependencyExpander",
     "EntityBuilder",
     "FEATURE_REBUILD_ALGORITHM",
@@ -1002,7 +1903,10 @@ __all__ = [
     "FeatureStoreRebuilder",
     "FEATURE_VALIDATION_SCHEMA",
     "GenerationValidator",
+    "SourceCompatibilityValidator",
     "build_validation_manifest",
     "clone_feature_generation",
+    "copy_live_source_entities",
+    "copy_live_source_generation",
     "validate_feature_generation",
 ]

@@ -58,6 +58,12 @@ data_sources:
     untrusted_text: true
     failure_action: DEGRADE_TO_OBSERVATION
     rss_catalog: config/news_sources.json
+  a1_research_sources:
+    registry: config/a1_research_sources.yaml
+    responsibilities: [source_authorization, source_role_coverage, reviewed_evidence_binding]
+    homepage_is_evidence: false
+    paid_content_auto_scrape: false
+    direct_stock_selection_allowed: false
   a2_market:
     responsibilities: [capital_flow, tier_structure, leader_structure, chain_resonance]
     structure_primary_source: hithink_ths

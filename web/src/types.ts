@@ -705,6 +705,7 @@ export interface WorkflowProgressSummary {
   staleIssue: "OVERSIZE" | "UNREADABLE" | "INVALID_JSON" | "INVALID_SHAPE" | "HEARTBEAT_TIMEOUT" | null;
   runId: string | null;
   phase: string | null;
+  reasonCode: string | null;
   processed: number | null;
   total: number | null;
   cacheHits: number | null;

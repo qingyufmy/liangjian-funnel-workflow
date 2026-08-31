@@ -54,8 +54,15 @@ from .pipeline.data_source import HithinkClient, HithinkFetchResult
 from .pipeline.data_readiness import evaluate_data_readiness
 from .pipeline.data_sync import HithinkIncrementalSynchronizer
 from .pipeline.a2_features import build_a2_feature_snapshot
+from .pipeline.a1_sources import (
+    A1SourceRegistryError,
+    build_a1_source_context,
+    load_a1_source_registry,
+    unavailable_a1_source_context,
+)
 from .pipeline.factors import FactorEngine
 from .pipeline.feature_store import ResearchFeatureStore
+from .pipeline.feature_maintenance import materialize_live_source
 from .pipeline.local_fact_cache import LocalFactCache
 from .pipeline.market_aggregates import (
     build_crowding_snapshot,
@@ -136,6 +143,7 @@ class PreparedSnapshot:
     trade_universe_count: int
     selected_count: int
     factor_ready_count: int
+    feature_source: Mapping[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -147,6 +155,7 @@ class PreparedSnapshot:
             "trade_universe_count": self.trade_universe_count,
             "selected_count": self.selected_count,
             "factor_ready_count": self.factor_ready_count,
+            "feature_source": dict(self.feature_source or {}),
         }
 
 
@@ -790,6 +799,46 @@ class WorkflowApplication:
                 "data": data,
             },
         )
+        if progress is not None:
+            progress.set_phase("FEATURE_SOURCE_GENERATION")
+            progress.update_resources(measure_resources(self.settings.root).as_dict())
+            _progress_stdout(progress.snapshot())
+        if self.settings.feature_maintenance_enabled:
+            try:
+                feature_source = materialize_live_source(
+                    self.feature_store,
+                    snapshot_id=snapshot.snapshot_id,
+                    snapshot_hash=snapshot.snapshot_hash,
+                    as_of=current,
+                    market_trade_date=market_current.date().isoformat(),
+                    data=data,
+                    batch_size=self.settings.feature_source_batch_size,
+                ).as_dict()
+            except Exception as exc:
+                # Source materialisation is a maintenance-plane result.  The
+                # already frozen research snapshot remains valid, while the
+                # maintenance capability fails closed and reports a stable
+                # reason instead of rerunning from the large JSON artifact.
+                feature_source = {
+                    "status": "BLOCKED_SOURCE_GENERATION",
+                    "generation_id": None,
+                    "snapshot_id": snapshot.snapshot_id,
+                    "snapshot_hash": snapshot.snapshot_hash,
+                    "market_trade_date": market_current.date().isoformat(),
+                    "reason_code": getattr(exc, "reason_code", type(exc).__name__.upper()),
+                }
+        else:
+            feature_source = {
+                "status": "DISABLED",
+                "generation_id": None,
+                "snapshot_id": snapshot.snapshot_id,
+                "snapshot_hash": snapshot.snapshot_hash,
+                "market_trade_date": market_current.date().isoformat(),
+                "reason_code": "FEATURE_MAINTENANCE_DISABLED",
+            }
+        if progress is not None:
+            progress.update_resources(measure_resources(self.settings.root).as_dict())
+            _progress_stdout(progress.snapshot())
         return PreparedSnapshot(
             snapshot=snapshot,
             path=path,
@@ -798,6 +847,7 @@ class WorkflowApplication:
             trade_universe_count=len(universe.trade_candidates),
             selected_count=len(g0_symbols),
             factor_ready_count=len(factor_ready),
+            feature_source=feature_source,
         )
 
     def run_next_session_prep(self, *, now: datetime | None = None) -> dict[str, Any]:
@@ -1926,6 +1976,7 @@ class WorkflowApplication:
             trade_universe_count=trade_count,
             selected_count=len(g0_symbols),
             factor_ready_count=_container_length(factor_ready),
+            feature_source=None,
         )
 
     def _research_resume_marker_path(self, slot: str, trade_date: str) -> Path:
@@ -2021,6 +2072,11 @@ class WorkflowApplication:
                 trade_universe_count=int(raw["trade_universe_count"]),
                 selected_count=selected_count,
                 factor_ready_count=int(raw["factor_ready_count"]),
+                feature_source=(
+                    dict(raw["feature_source"])
+                    if isinstance(raw.get("feature_source"), Mapping)
+                    else None
+                ),
             )
         except (OSError, ValueError, TypeError, KeyError):
             return None
@@ -2431,6 +2487,18 @@ class WorkflowApplication:
                 as_of=as_of,
                 source_dir=getattr(self.settings, "research_consensus_dir", None),
             )
+        try:
+            a1_source_registry = load_a1_source_registry(
+                self.settings.a1_research_source_registry_path
+            )
+        except A1SourceRegistryError as exc:
+            a1_source_registry = None
+            a1_source_context_error = exc.reason_code
+        except Exception:
+            a1_source_registry = None
+            a1_source_context_error = "A1_SOURCE_REGISTRY_LOAD_FAILED"
+        else:
+            a1_source_context_error = None
         facts = frozen.fact_payload.get("facts", {})
         if not isinstance(facts, Mapping):
             facts = {}
@@ -2770,8 +2838,27 @@ class WorkflowApplication:
             or "funnel-config-v2",
             "config_hash": config_hash,
         }
+        if a1_source_registry is None:
+            values["A1_RESEARCH_SOURCE_CONTEXT"] = unavailable_a1_source_context(
+                a1_source_context_error or "A1_SOURCE_REGISTRY_LOAD_FAILED"
+            )
+        else:
+            values["A1_RESEARCH_SOURCE_CONTEXT"] = build_a1_source_context(
+                a1_source_registry,
+                snapshot=values,
+                research_consensus=broker_research_consensus,
+            )
+        values["snapshot_manifest"]["a1_research_sources"] = {
+            "schema_version": values["A1_RESEARCH_SOURCE_CONTEXT"].get("schema_version"),
+            "content_hash": values["A1_RESEARCH_SOURCE_CONTEXT"].get("content_hash"),
+            "reason_code": values["A1_RESEARCH_SOURCE_CONTEXT"].get("reason_code"),
+            "source_count": values["A1_RESEARCH_SOURCE_CONTEXT"].get("source_count", 0),
+            "usable_source_count": values["A1_RESEARCH_SOURCE_CONTEXT"].get(
+                "usable_source_count", 0
+            ),
+        }
         for key in (
-            "MACRO_POLICY_FEED", "MACRO_ECONOMIC_DATA", "ASSET_ROTATION_SNAPSHOT", "GLOBAL_MACRO_SNAPSHOT", "CROSS_MARKET_LEAD_SNAPSHOT", "BROKER_RESEARCH_CONSENSUS", "A2_RESEARCH_HYPOTHESES", "INDUSTRY_NEWS_FEED", "INDUSTRY_ACTIVITY_DATA", "INDUSTRY_PROFIT_DATA", "THS_INDUSTRY_MEMBERSHIP", "THS_CONCEPT_MEMBERSHIP", "EXISTING_CHAIN_GRAPH",
+            "MACRO_POLICY_FEED", "MACRO_ECONOMIC_DATA", "ASSET_ROTATION_SNAPSHOT", "GLOBAL_MACRO_SNAPSHOT", "CROSS_MARKET_LEAD_SNAPSHOT", "BROKER_RESEARCH_CONSENSUS", "A1_RESEARCH_SOURCE_CONTEXT", "A2_RESEARCH_HYPOTHESES", "INDUSTRY_NEWS_FEED", "INDUSTRY_ACTIVITY_DATA", "INDUSTRY_PROFIT_DATA", "THS_INDUSTRY_MEMBERSHIP", "THS_CONCEPT_MEMBERSHIP", "EXISTING_CHAIN_GRAPH",
             "THEME_REGISTRY", "DISCLOSURE_EVENTS", "RISK_EVENTS", "RESEARCH_CONSENSUS", "FUND_HOLDINGS",
             "FAST_TRACK_REQUESTS", "PRIOR_OUTCOME_FEEDBACK", "SECTOR_CYCLE_SNAPSHOT", "CAPITAL_FLOW_SNAPSHOT",
             "NEWS_HEAT_SNAPSHOT", "CROWDING_SNAPSHOT", "A2_SECTOR_HEALTH_SNAPSHOT", "BOARD_CAPITAL_FLOW_SNAPSHOT", "AUCTION_SNAPSHOT", "SECTOR_PERMISSIONS",

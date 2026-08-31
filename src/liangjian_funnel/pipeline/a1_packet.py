@@ -26,7 +26,7 @@ from .a1_contract import (
 )
 
 
-A1_RESEARCH_PACKET_SCHEMA_VERSION = "a1-research-packet/1.1.0"
+A1_RESEARCH_PACKET_SCHEMA_VERSION = "a1-research-packet/1.2.0"
 A1_PACKET_TOKEN_BUDGET = 100_000
 _MACRO_WINDOWS = (1, 3, 6, 12)
 _INDUSTRY_METRIC_KEYS = (
@@ -106,6 +106,7 @@ def build_a1_research_packet(
         if isinstance(prior_theme_registry, Mapping)
         else context.get("prior_theme_registry")
     )
+    research_sources = _project_bounded(data.get("A1_RESEARCH_SOURCE_CONTEXT"), 64)
     packet: dict[str, Any] = {
         "schema_version": A1_RESEARCH_PACKET_SCHEMA_VERSION,
         "contract_version": A1_CONTRACT_VERSION,
@@ -127,6 +128,10 @@ def build_a1_research_packet(
         "policy_dossiers": policy_dossiers,
         "cross_market_leads": cross_market,
         "broker_research_consensus": broker,
+        # This is a permissions-and-availability plane, not research content.
+        # A homepage without an active frozen contract or a reviewed document
+        # never becomes evidence merely because it appears in this registry.
+        "research_source_context": research_sources,
         "industry_features": industry_features,
         "canonical_monthly_decisions": decisions,
         "prior_theme_registry": prior,
@@ -135,6 +140,14 @@ def build_a1_research_packet(
             "macro_feature_count": len(macro_features),
             "policy_document_count": len(policy_dossiers),
             "cross_market_lead_count": _container_count(cross_market),
+            "configured_research_source_count": _safe_int(
+                research_sources.get("source_count") if isinstance(research_sources, Mapping) else 0,
+                0,
+            ),
+            "usable_research_source_count": _safe_int(
+                research_sources.get("usable_source_count") if isinstance(research_sources, Mapping) else 0,
+                0,
+            ),
             "industry_count": len(industry_features),
             "canonical_decision_count": len(decisions),
             "canonical_decision_requested": decision_coverage.get("requested_top_n", A1_MONTHLY_DECISION_COUNT),

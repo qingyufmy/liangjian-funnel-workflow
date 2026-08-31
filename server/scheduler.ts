@@ -16,6 +16,7 @@ export interface SchedulerOptions {
   readonly intervalMs?: number;
   readonly retryMs?: number;
   readonly comparisonEnabled?: boolean;
+  readonly featureMaintenanceEnabled?: boolean;
 }
 
 export function shanghaiClock(value: Date): ShanghaiClock {
@@ -76,6 +77,7 @@ export class WorkflowScheduler {
   private readonly intervalMs: number;
   private readonly retryMs: number;
   private readonly comparisonEnabled: boolean;
+  private readonly featureMaintenanceEnabled: boolean;
 
   public constructor(
     private readonly runner: JobRunner,
@@ -86,6 +88,7 @@ export class WorkflowScheduler {
     this.intervalMs = options.intervalMs ?? 1_000;
     this.retryMs = options.retryMs ?? 5_000;
     this.comparisonEnabled = options.comparisonEnabled ?? true;
+    this.featureMaintenanceEnabled = options.featureMaintenanceEnabled ?? true;
   }
 
   public start(): void {
@@ -131,6 +134,7 @@ export class WorkflowScheduler {
     }
 
     for (const job of due) {
+      if (job === "features" && !this.featureMaintenanceEnabled) continue;
       if (this.dispatched.get(job) === key || this.inFlight.has(job) || this.retryKeys.get(job) === key) continue;
       this.dispatch(job, key, value);
     }
@@ -144,7 +148,9 @@ export class WorkflowScheduler {
         job: definition.name,
         label: definition.label,
         schedule: definition.schedule,
-        enabled: this.running && (definition.name !== "comparison" || this.comparisonEnabled),
+        enabled: this.running
+          && (definition.name !== "comparison" || this.comparisonEnabled)
+          && (definition.name !== "features" || this.featureMaintenanceEnabled),
         lastDispatchAt: this.lastDispatch.get(definition.name) ?? null,
       })),
     };

@@ -1,5 +1,20 @@
 # Third-party notices
 
+## A1 research websites
+
+`config/a1_research_sources.yaml` records source roles and access constraints;
+it does not grant redistribution, scraping, API, or commercial-use rights.
+CNINFO and public government facts are consumed through bounded point-in-time
+adapters. Jisilu and Datayes/Robo automated collection is disabled because
+their published service terms prohibit crawler/robot use. Paid research from
+Mybbond/Hibor, Xingqiao, Datayes/Robo, or any similar service may enter only as
+an operator-reviewed export the operator is authorized to use. iFinD remains
+disabled until a separately licensed data-interface account is configured.
+Public X posts from `cnfinancewatch` are recorded only as manually reviewed T3
+methodology references. The workflow does not automate X collection, reproduce
+the posts as a data feed, or treat their quoted news, research, market data,
+position suggestions, or named stocks as verified facts or selection authority.
+
 ## Vibe-Research
 
 The open-news source catalog and the design of the RSS/news adapters are

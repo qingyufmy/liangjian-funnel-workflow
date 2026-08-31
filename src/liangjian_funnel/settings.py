@@ -100,6 +100,7 @@ class Settings(BaseModel):
     research_checkpoint_dir: Path
     prompt_dir: Path
     source_config_path: Path
+    a1_research_source_registry_path: Path
     exchange_rules_path: Path
     news_source_config_path: Path
     open_news_timeout_seconds: float = Field(default=15.0, gt=0, le=60)
@@ -120,6 +121,10 @@ class Settings(BaseModel):
     research_close_deadline_seconds: int = Field(default=5400, ge=300, le=24 * 3600)
     data_sync_batch_size: int = Field(default=50, ge=1, le=500)
     data_progress_every: int = Field(default=25, ge=1, le=500)
+    # The maintenance plane is independently switchable.  Disabling it must
+    # never disable research or the intraday monitor.
+    feature_maintenance_enabled: bool = True
+    feature_source_batch_size: int = Field(default=50, ge=25, le=200)
     fundamental_refresh_hours: int = Field(default=24, ge=1, le=24 * 31)
     daily_refresh_hours: int = Field(default=4, ge=1, le=24 * 7)
     a2_capital_flow_enabled: bool = True
@@ -211,6 +216,7 @@ class Settings(BaseModel):
         checkpoint_dir_raw = env.get("LIANGJIAN_RESEARCH_CHECKPOINT_DIR")
         prompt_raw = env.get("LIANGJIAN_PROMPT_DIR")
         source_config_raw = env.get("LIANGJIAN_SOURCE_CONFIG_PATH")
+        a1_source_registry_raw = env.get("LIANGJIAN_A1_SOURCE_REGISTRY_PATH")
         exchange_rules_raw = env.get("LIANGJIAN_EXCHANGE_RULES_PATH")
         news_source_config_raw = env.get("LIANGJIAN_NEWS_SOURCE_CONFIG_PATH")
         default_prompt = base / "prompts"
@@ -296,6 +302,9 @@ class Settings(BaseModel):
             source_config_path=Path(source_config_raw).resolve()
             if source_config_raw
             else base / "config" / "funnel_config_v2.yaml",
+            a1_research_source_registry_path=Path(a1_source_registry_raw).resolve()
+            if a1_source_registry_raw
+            else base / "config" / "a1_research_sources.yaml",
             exchange_rules_path=Path(exchange_rules_raw).resolve()
             if exchange_rules_raw
             else base / "config" / "exchange_rules.yaml",
@@ -327,6 +336,13 @@ class Settings(BaseModel):
             ),
             data_sync_batch_size=int(env.get("LIANGJIAN_DATA_SYNC_BATCH_SIZE", "50")),
             data_progress_every=int(env.get("LIANGJIAN_DATA_PROGRESS_EVERY", "25")),
+            feature_maintenance_enabled=_parse_bool(
+                env.get("LIANGJIAN_FEATURE_MAINTENANCE_ENABLED"),
+                default=True,
+            ),
+            feature_source_batch_size=int(
+                env.get("LIANGJIAN_FEATURE_SOURCE_BATCH_SIZE", "50")
+            ),
             fundamental_refresh_hours=int(env.get("LIANGJIAN_FUNDAMENTAL_REFRESH_HOURS", "24")),
             daily_refresh_hours=int(env.get("LIANGJIAN_DAILY_REFRESH_HOURS", "4")),
             a2_capital_flow_enabled=_parse_bool(
@@ -396,6 +412,7 @@ class Settings(BaseModel):
             "research_checkpoint_dir": str(self.research_checkpoint_dir),
             "prompt_dir": str(self.prompt_dir),
             "source_config_path": str(self.source_config_path),
+            "a1_research_source_registry_path": str(self.a1_research_source_registry_path),
             "exchange_rules_path": str(self.exchange_rules_path),
             "news_source_config_path": str(self.news_source_config_path),
             "open_news_timeout_seconds": self.open_news_timeout_seconds,
@@ -416,6 +433,8 @@ class Settings(BaseModel):
             "research_close_deadline_seconds": self.research_close_deadline_seconds,
             "data_sync_batch_size": self.data_sync_batch_size,
             "data_progress_every": self.data_progress_every,
+            "feature_maintenance_enabled": self.feature_maintenance_enabled,
+            "feature_source_batch_size": self.feature_source_batch_size,
             "fundamental_refresh_hours": self.fundamental_refresh_hours,
             "daily_refresh_hours": self.daily_refresh_hours,
             "a2_capital_flow_enabled": self.a2_capital_flow_enabled,

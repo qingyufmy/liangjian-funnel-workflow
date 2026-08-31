@@ -14,9 +14,11 @@ from liangjian_funnel.runtime.storage_governance import (
     backup_sqlite,
     evaluate_disk_watermark,
     inspect_sqlite,
+    live_source_storage_projection,
     scan_reference_plan,
     storage_cleanup_plan,
 )
+from liangjian_funnel.pipeline.feature_store import ResearchFeatureStore
 from liangjian_funnel.settings import Settings
 
 
@@ -191,6 +193,65 @@ def test_cleanup_plan_is_always_dry_run_and_does_not_change_database(tmp_path: P
     assert payload["deletion_allowed"] is False
     assert payload["reference_plan"]["candidates"][0]["action"] == "REVIEW_ONLY"
     assert database.read_bytes() == before
+
+
+def test_retention_protects_latest_two_live_sources_and_staging_reference(tmp_path: Path) -> None:
+    database = tmp_path / "features.sqlite3"
+    store = ResearchFeatureStore(database)
+    source_ids: list[str] = []
+    for day in range(1, 5):
+        row = store.create_or_get_live_source(
+            snapshot_hash=f"snapshot-{day}",
+            source_manifest_hash=f"source-{day}",
+            as_of=f"2026-08-0{day}T15:10:00+08:00",
+            contract_version="live-source-generation/1.0.0",
+            algorithm_version="test",
+            metadata={"market_trade_date": f"2026-08-0{day}"},
+        )
+        generation_id = str(row["generation_id"])
+        store.record_feature_generation_members_batched(
+            generation_id=generation_id,
+            members=[{
+                "entity_type": "STOCK",
+                "entity_id": "600000.SH",
+                "partition_name": "snapshot-inputs",
+                "payload": {"symbol": "600000.SH", "day": day},
+            }],
+        )
+        validation = {"status": "READY", "activation_eligible": False}
+        store.validate_feature_generation(generation_id, validation=validation)
+        store.seal_generation(
+            generation_id,
+            validation_manifest=validation,
+            purpose="LIVE_SOURCE",
+            activation_eligible=False,
+        )
+        source_ids.append(generation_id)
+    target = store.create_feature_generation(
+        as_of="2026-08-05T03:30:00+08:00",
+        contract_version="test",
+        algorithm_version="test",
+        source_manifest_hash="target-source",
+        metadata={"source_generation_id": source_ids[0]},
+        purpose="LIVE_FULL",
+        activation_eligible=True,
+    )
+
+    plan = scan_reference_plan(database)
+
+    assert set(plan["protected_live_source_generation_ids"]) == {
+        source_ids[0], source_ids[2], source_ids[3],
+    }
+    assert plan["staging_source_refs"] == [{
+        "kind": "staging_source",
+        "generation_id": source_ids[0],
+        "target_generation_id": target,
+    }]
+    assert source_ids[1] in {item["generation_id"] for item in plan["candidates"]}
+    projection = live_source_storage_projection(database)
+    assert projection["source_count"] == 4
+    assert projection["average_bytes"] > 0
+    assert projection["projected_14d_bytes"] == projection["average_bytes"] * 14
 
 
 def test_cli_storage_cleanup_refuses_execute_and_storage_backup_is_explicit(tmp_path: Path, capsys) -> None:

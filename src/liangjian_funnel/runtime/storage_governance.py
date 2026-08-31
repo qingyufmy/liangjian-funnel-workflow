@@ -527,9 +527,18 @@ def _database_references(path: Path) -> tuple[list[dict[str, Any]], list[dict[st
     try:
         connection = _connect_readonly(path)
         if _table_exists(connection, "feature_generations"):
+            generation_columns = _columns(connection, "feature_generations")
+            generation_fields = [
+                name
+                for name in (
+                    "generation_id", "domain", "status", "purpose", "as_of", "created_at",
+                    "metadata_json", "validation_manifest_json",
+                )
+                if name in generation_columns
+            ]
             generations = _rows_as_dict(
                 connection,
-                "SELECT generation_id,domain,status,purpose,as_of,created_at "
+                f"SELECT {','.join(generation_fields)} "
                 "FROM feature_generations ORDER BY created_at,generation_id",
             )
         if _table_exists(connection, "active_feature_generations"):
@@ -567,6 +576,92 @@ def _database_references(path: Path) -> tuple[list[dict[str, Any]], list[dict[st
         if connection is not None:
             connection.close()
     return active, previous, run_bound, generations
+
+
+def _safe_json_object(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    try:
+        parsed = json.loads(str(value or "{}"))
+    except (TypeError, ValueError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _live_source_references(generations: Sequence[dict[str, Any]]) -> tuple[set[str], list[dict[str, Any]]]:
+    ready_sources = []
+    staging_references: list[dict[str, Any]] = []
+    for row in generations:
+        generation_id = str(row.get("generation_id") or "")
+        purpose = str(row.get("purpose") or "").upper()
+        status = str(row.get("status") or "").upper()
+        metadata = _safe_json_object(row.get("metadata_json"))
+        validation = _safe_json_object(row.get("validation_manifest_json"))
+        if purpose == "LIVE_SOURCE" and status in {"SEALED", "PUBLISHED"} and validation.get("status") == "READY":
+            ready_sources.append(row)
+        if status in {"STAGING", "VALIDATED"}:
+            source_id = str(
+                metadata.get("source_generation_id")
+                or metadata.get("live_source_generation_id")
+                or ""
+            ).strip()
+            if source_id:
+                staging_references.append(
+                    {
+                        "kind": "staging_source",
+                        "generation_id": source_id,
+                        "target_generation_id": generation_id,
+                    }
+                )
+    ready_sources.sort(
+        key=lambda row: (str(row.get("as_of") or ""), str(row.get("created_at") or ""), str(row.get("generation_id") or "")),
+        reverse=True,
+    )
+    protected = {
+        str(row.get("generation_id"))
+        for row in ready_sources[:2]
+        if row.get("generation_id")
+    }
+    protected.update(str(item["generation_id"]) for item in staging_references)
+    return protected, staging_references
+
+
+def live_source_storage_projection(feature_store_db: str | Path) -> dict[str, Any]:
+    """Estimate 7/14-day LIVE_SOURCE growth without mutating the store."""
+
+    path = Path(feature_store_db).resolve()
+    if not path.is_file():
+        return {"source_count": 0, "average_bytes": 0, "projected_7d_bytes": 0, "projected_14d_bytes": 0}
+    connection: sqlite3.Connection | None = None
+    try:
+        connection = _connect_readonly(path)
+        rows = connection.execute(
+            """
+            SELECT g.generation_id,
+                   COALESCE((SELECT SUM(LENGTH(payload_json)) FROM feature_generation_members m WHERE m.generation_id=g.generation_id),0)
+                 + COALESCE((SELECT SUM(LENGTH(payload_json)) FROM stock_fundamental_features f WHERE f.generation_id=g.generation_id),0)
+                 + COALESCE((SELECT SUM(LENGTH(payload_json)) FROM taxonomy_membership_versions t WHERE t.generation_id=g.generation_id),0)
+                 + COALESCE((SELECT SUM(LENGTH(payload_json)) FROM business_exposure_facts b WHERE b.generation_id=g.generation_id),0) AS payload_bytes
+            FROM feature_generations g
+            WHERE g.purpose='LIVE_SOURCE' AND g.status IN ('SEALED','PUBLISHED')
+            ORDER BY g.as_of DESC, g.created_at DESC
+            LIMIT 14
+            """
+        ).fetchall()
+        sizes = [max(0, int(row[1] or 0)) for row in rows]
+    except sqlite3.Error:
+        sizes = []
+    finally:
+        if connection is not None:
+            connection.close()
+    average = int(sum(sizes) / len(sizes)) if sizes else 0
+    return {
+        "source_count": len(sizes),
+        "average_bytes": average,
+        "projected_7d_bytes": average * 7,
+        "projected_14d_bytes": average * 14,
+        "basis": "PAYLOAD_LENGTH_LAST_14_READY_SOURCES",
+    }
 
 
 def _iter_reference_files(roots: Iterable[str | Path]) -> Iterable[Path]:
@@ -659,7 +754,8 @@ def scan_reference_plan(
     previous_ids = {str(row["generation_id"]) for row in previous if row.get("generation_id")}
     run_ids = {str(row["generation_id"]) for row in run_bound if row.get("generation_id")}
     snapshot_ids = {str(row["generation_id"]) for row in snapshot_refs if row.get("generation_id")}
-    referenced_ids = active_ids | previous_ids | run_ids | snapshot_ids
+    live_source_ids, staging_source_refs = _live_source_references(generations)
+    referenced_ids = active_ids | previous_ids | run_ids | snapshot_ids | live_source_ids
     candidates = []
     for row in generations:
         generation_id = str(row.get("generation_id") or "")
@@ -677,6 +773,8 @@ def scan_reference_plan(
                     "previous_generation_id",
                     "run_feature_bindings",
                     "snapshot_roots",
+                    "latest_two_live_sources",
+                    "staging_source_generation_id",
                 ],
                 "deletion_allowed": False,
                 "action": "REVIEW_ONLY",
@@ -689,6 +787,9 @@ def scan_reference_plan(
         "previous": previous,
         "run_bound": run_bound,
         "snapshot_refs": snapshot_refs,
+        "staging_source_refs": staging_source_refs,
+        "protected_live_source_generation_ids": sorted(live_source_ids),
+        "live_source_growth": live_source_storage_projection(database_path),
         "referenced_generation_ids": sorted(referenced_ids),
         "candidates": candidates,
         "deletion_allowed": False,
@@ -778,6 +879,7 @@ __all__ = [
     "disk_watermark",
     "evaluate_disk_watermark",
     "inspect_sqlite",
+    "live_source_storage_projection",
     "scan_reference_plan",
     "sqlite_integrity_check",
     "storage_audit",

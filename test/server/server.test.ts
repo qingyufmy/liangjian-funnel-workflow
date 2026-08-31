@@ -15,7 +15,7 @@ import { LogStore } from "../../server/logger.js";
 import { redactText, sanitizeJson } from "../../server/redaction.js";
 import { JobRunner, timeoutForJob, waitForProcessExit } from "../../server/runner.js";
 import { isMonitorMinute, WorkflowScheduler } from "../../server/scheduler.js";
-import type { JobRunRecord } from "../../server/types.js";
+import type { JobName, JobRunRecord } from "../../server/types.js";
 
 async function createResearchDetailFixture(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "liangjian-stage-detail-"));
@@ -1187,6 +1187,46 @@ test("scheduler dispatches weekday incremental and Saturday full maintenance but
   await scheduler.tick(new Date("2026-08-29T19:30:10.000Z"));
   await new Promise<void>((resolve) => setImmediate(resolve));
   expect(calls).toEqual(["features", "features"]);
+});
+
+test("feature maintenance flag disables only the 03:30 job", async () => {
+  const calls: string[] = [];
+  const fakeRunner = {
+    run: async (job: JobName): Promise<JobRunRecord> => {
+      calls.push(job);
+      return {
+        runId: job,
+        job,
+        command: job,
+        startedAt: new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
+        exitCode: 0,
+        signal: null,
+        durationMs: 0,
+        status: "succeeded",
+        reason: null,
+      };
+    },
+    activeJob: (): JobRunRecord | null => null,
+  };
+  const root = await mkdtemp(join(tmpdir(), "liangjian-feature-disabled-"));
+  const logger = new LogStore(loadConfig({ LIANGJIAN_PYTHON_BIN: "python3" }, root));
+  const scheduler = new WorkflowScheduler(fakeRunner as unknown as JobRunner, logger, {
+    featureMaintenanceEnabled: false,
+    comparisonEnabled: false,
+    now: () => new Date("2026-08-31T00:00:00.000Z"),
+    intervalMs: 60_000,
+  });
+  scheduler.start();
+
+  await scheduler.tick(new Date("2026-08-27T19:30:10.000Z"));
+  await scheduler.tick(new Date("2026-08-31T01:26:10.000Z"));
+  await new Promise<void>((resolve) => setImmediate(resolve));
+
+  expect(calls).toEqual(["morning"]);
+  expect(scheduler.snapshot().jobs.find((job) => job.job === "features")?.enabled).toBe(false);
+  expect(scheduler.snapshot().jobs.find((job) => job.job === "morning")?.enabled).toBe(true);
+  scheduler.stop();
 });
 
 test("process-exit wait returns after timeout so shutdown can escalate to SIGKILL", async () => {

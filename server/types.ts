@@ -179,6 +179,7 @@ export interface WorkflowProgressSummary {
   readonly staleIssue: WorkflowProgressIssue | null;
   readonly runId: string | null;
   readonly phase: string | null;
+  readonly reasonCode: string | null;
   readonly processed: number | null;
   readonly total: number | null;
   readonly cacheHits: number | null;
