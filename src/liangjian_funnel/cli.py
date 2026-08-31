@@ -194,6 +194,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="timezone-aware execution timestamp; defaults to current Asia/Shanghai time",
     )
+    a1_maintenance.add_argument(
+        "--snapshot-id",
+        default=None,
+        help="reuse one verified same-day frozen snapshot after a model-only A1 failure",
+    )
     research = sub.add_parser("run-research", help="run three isolated A1-A2-A3 model lanes")
     research.add_argument("--slot", choices=("morning", "close"), required=True)
     research.add_argument(
@@ -496,6 +501,7 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
             payload = application.run_a1_maintenance(
                 now=maintenance_at,
                 mode=args.mode,
+                snapshot_id=args.snapshot_id,
             )
             print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True, default=str))
             return 0 if payload.get("status") in {"PUBLISHED", "NOOP", "NOT_DUE"} else 2

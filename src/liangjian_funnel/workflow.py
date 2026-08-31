@@ -1482,6 +1482,7 @@ class WorkflowApplication:
         now: datetime | None = None,
         mode: str | None = None,
         run_id: str | None = None,
+        snapshot_id: str | None = None,
     ) -> dict[str, Any]:
         """Build and atomically publish the monthly/weekly A1 generation."""
 
@@ -1533,11 +1534,26 @@ class WorkflowApplication:
                 "time": current.isoformat(),
             }
         try:
-            prepared = self.prepare_snapshot(
-                as_of=current,
-                market_data_as_of=current,
-                progress=progress,
-            )
+            if snapshot_id is not None:
+                progress.set_phase("SNAPSHOT_REUSE")
+                prepared = self._load_research_snapshot_by_id(
+                    snapshot_id,
+                    expected_date=current.date().isoformat(),
+                )
+                progress.update_data(
+                    processed=prepared.selected_count,
+                    total=prepared.selected_count,
+                    cache_hits=prepared.selected_count,
+                    cache_misses=0,
+                    failures=0,
+                )
+                _progress_stdout(progress.snapshot())
+            else:
+                prepared = self.prepare_snapshot(
+                    as_of=current,
+                    market_data_as_of=current,
+                    progress=progress,
+                )
         except Exception as exc:
             reason = _safe_reason_code(exc)
             progress.finish(status="BLOCKED", phase="FAILED", reason_code=reason)

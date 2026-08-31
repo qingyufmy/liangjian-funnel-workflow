@@ -138,6 +138,8 @@ def test_cli_a1_maintenance_forwards_mode_and_timezone_aware_cutoff(
             "full",
             "--as-of",
             "2026-06-01T18:00:00+08:00",
+            "--snapshot-id",
+            "snapshot-20260601-retry",
         ],
         settings=_settings(tmp_path),
     ) == 0
@@ -145,6 +147,7 @@ def test_cli_a1_maintenance_forwards_mode_and_timezone_aware_cutoff(
     assert name == "run_a1_maintenance"
     assert args == ()
     assert kwargs["mode"] == "full"
+    assert kwargs["snapshot_id"] == "snapshot-20260601-retry"
     assert kwargs["now"].isoformat() == "2026-06-01T18:00:00+08:00"
     assert json.loads(capsys.readouterr().out)["generation_id"] == "a1-full-1"
 
