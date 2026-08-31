@@ -1933,6 +1933,7 @@ def test_a3_candidate_domain_includes_only_eligible_watch_only_roles():
                     "symbol": "000001.SZ",
                     "market_role": "TREND_CORE",
                     "reason_codes": ["A2_DATA_GAP"],
+                    "local_decision": True,
                 },
                 {
                     "symbol": "000002.SZ",
@@ -1960,6 +1961,15 @@ def test_a3_candidate_domain_includes_only_eligible_watch_only_roles():
     assert _a3_watch_only_candidate_eligible({
         "market_role": "TREND_CORE",
         "reason_codes": ["A2_NO_TIER"],
+    })
+    assert _a3_watch_only_candidate_eligible({
+        "market_role": "TREND_CORE",
+        "reason_codes": ["A2_IDENTIFIABILITY_BELOW_THRESHOLD"],
+        "llm_decision": "REJECT",
+    })
+    assert not _a3_watch_only_candidate_eligible({
+        "market_role": "TREND_CORE",
+        "deterministic_reason_codes": ["A2_IDENTIFIABILITY_BELOW_THRESHOLD"],
     })
 
 

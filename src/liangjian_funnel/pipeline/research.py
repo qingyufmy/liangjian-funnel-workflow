@@ -5457,12 +5457,23 @@ def _a3_watch_only_candidate_eligible(item: Mapping[str, Any]) -> bool:
     if role not in _A3_WATCH_ONLY_ROLES:
         return False
 
-    reasons = item.get("reason_codes")
-    reason_values = (
-        [str(value).strip().upper() for value in reasons if isinstance(value, str)]
-        if isinstance(reasons, Sequence) and not isinstance(reasons, (str, bytes, bytearray))
-        else []
-    )
+    # Only server-owned reasons may remove an A2 watch row from A3's
+    # deterministic technical review domain. The model-facing ``reason_codes``
+    # are advisory unless the row is explicitly marked as a local decision;
+    # otherwise model wording such as IDENTIFIABILITY_BELOW would make the A3
+    # universe nondeterministic across identical frozen snapshots.
+    reason_values: list[str] = []
+    reason_keys = ["deterministic_reason_codes", "hard_reason_codes"]
+    if item.get("local_decision") is True:
+        reason_keys.append("reason_codes")
+    for key in reason_keys:
+        values = item.get(key)
+        if isinstance(values, Sequence) and not isinstance(values, (str, bytes, bytearray)):
+            reason_values.extend(
+                str(value).strip().upper()
+                for value in values
+                if isinstance(value, str) and str(value).strip()
+            )
     if any(
         any(marker in reason for marker in _A3_WATCH_ONLY_HARD_REASON_MARKERS)
         for reason in reason_values
