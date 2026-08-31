@@ -526,6 +526,11 @@ class WorkflowApplication:
                 base_url=self.settings.hithink_base_url,
                 as_of=market_current,
             )
+            market_current = _advance_live_market_cutoff(
+                market_as_of=market_current,
+                research_as_of=current,
+                included_fact_as_of=hithink_manifest.as_of,
+            )
             current = max(current, hithink_manifest.as_of)
             def sync_progress(event: Mapping[str, Any]) -> None:
                 if progress is None:
@@ -5043,6 +5048,27 @@ def _bind_reference_fact_event_time(
             }
         }
     )
+
+
+def _advance_live_market_cutoff(
+    *,
+    market_as_of: datetime,
+    research_as_of: datetime,
+    included_fact_as_of: datetime,
+) -> datetime:
+    """Advance a same-session live cutoff to the latest included event.
+
+    A request-start timestamp is not a valid upper bound for facts returned a
+    few seconds later. Historical and next-session runs retain their explicit
+    completed-session cutoff; only a live same-date collection may advance.
+    """
+
+    market = _aware(market_as_of)
+    research = _aware(research_as_of)
+    included = _aware(included_fact_as_of)
+    if market.date() == research.date() == included.date():
+        return max(market, included)
+    return market
 
 
 def _at_time(value: datetime, hour: int, minute: int) -> datetime:

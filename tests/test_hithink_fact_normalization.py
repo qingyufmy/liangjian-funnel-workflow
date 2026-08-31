@@ -6,7 +6,10 @@ from zoneinfo import ZoneInfo
 from liangjian_funnel.facts import collect_market_results, manifest_projection, normalize_hithink_results
 from liangjian_funnel.facts import FactSnapshotManifest
 from liangjian_funnel.pipeline.data_source import HithinkFetchResult, HithinkRow
-from liangjian_funnel.workflow import _bind_reference_fact_event_time
+from liangjian_funnel.workflow import (
+    _advance_live_market_cutoff,
+    _bind_reference_fact_event_time,
+)
 
 
 TZ = ZoneInfo("Asia/Shanghai")
@@ -127,6 +130,23 @@ def test_reference_fact_keeps_cutoff_event_time_when_request_finishes_later() ->
     assert fact.event_time == NOW
     assert fact.fetch_time == NOW + timedelta(seconds=5)
     assert manifest.as_of == NOW
+
+
+def test_live_market_cutoff_advances_to_latest_included_fact() -> None:
+    assert _advance_live_market_cutoff(
+        market_as_of=NOW,
+        research_as_of=NOW,
+        included_fact_as_of=NOW + timedelta(seconds=5),
+    ) == NOW + timedelta(seconds=5)
+
+
+def test_historical_market_cutoff_does_not_advance_to_research_day() -> None:
+    prior_session = NOW - timedelta(days=1)
+    assert _advance_live_market_cutoff(
+        market_as_of=prior_session,
+        research_as_of=NOW,
+        included_fact_as_of=NOW + timedelta(seconds=5),
+    ) == prior_session
 
 
 def test_manifest_projection_preserves_duplicate_fact_types() -> None:
