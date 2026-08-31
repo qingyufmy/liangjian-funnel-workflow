@@ -303,13 +303,19 @@ def test_primary_only_publishes_before_idempotent_comparison_enqueue(
         lambda _root: SimpleNamespace(as_dict=lambda: {"rss": 1, "available_memory_mb": 512}),
     )
     app._load_research_resume_snapshot = lambda *_args, **_kwargs: prepared
-    app._publish_plans = lambda *_args, **_kwargs: {
-        "atomic": True,
-        "created": ["plan-primary"],
-        "activated": [],
-        "blocked": [],
-        "publication": "PRIMARY",
-    }
+    publication_calls: list[tuple[object, ...]] = []
+
+    def publish(*args, **_kwargs):
+        publication_calls.append(args)
+        return {
+            "atomic": True,
+            "created": ["plan-primary"],
+            "activated": [],
+            "blocked": [],
+            "publication": "PRIMARY",
+        }
+
+    app._publish_plans = publish
     comparison_calls: list[dict[str, object]] = []
 
     def enqueue(**kwargs):
@@ -358,6 +364,7 @@ def test_primary_only_publishes_before_idempotent_comparison_enqueue(
     assert summary["run_role"] == "primary"
     assert summary["models"] == [DEEPSEEK]
     assert summary["plan_publication"]["created"] == ["plan-primary"]
+    assert publication_calls[0][2] == NOW
     assert len(comparison_calls) == 1
     assert comparison_calls[0]["slot"] == "close"
     run_kwargs = pipeline_calls[-1]["run"]

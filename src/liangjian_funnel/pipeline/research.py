@@ -3829,6 +3829,9 @@ class ResearchPipeline:
                 # number harmlessly, but it may not claim a frozen threshold
                 # failed when immutable PRICE_LEVELS says it passed.
                 a3_semantic_reasons = _a3_semantic_price_reasons(output, snapshot.data)
+                a3_semantic_reasons.extend(
+                    _a3_origin_only_veto_reasons(output, snapshot.data)
+                )
                 output, canonicalized_a3_origins = _apply_a3_candidate_origin_policy(
                     output,
                     snapshot.data,
@@ -5191,8 +5194,9 @@ def _stage_execution_budget(
             "required_conditions, met_conditions, unmet_conditions and veto_conditions. Each executable core "
             "item copies deterministic PRICE_LEVELS values for trigger_zone, invalidation_level, "
             "stop_distance_pct, first_resistance, reward_risk and no_chase_price, then adds only concise model "
-            "review evidence. The model may veto or report DATA_GAP, but cannot promote, reroute, rescore or "
-            "change any price. WATCH_ONLY never enters core and is non-executable in this contract. Do not "
+            "review evidence. The model may veto or report DATA_GAP, but cannot reroute, rescore or "
+            "change any price. candidate_origin is provenance only: a WATCH_ONLY row with server eligibility "
+            "QUALIFIED enters core as PROBE unless an independent evidence risk justifies VETO/DATA_GAP. Do not "
             "return technical_score or score_breakdown; A3 has no weighted-score decision path."
         ),
     }[stage]
@@ -7297,12 +7301,13 @@ def _apply_a3_candidate_origin_policy(
     output: Mapping[str, Any],
     snapshot_data: Mapping[str, Any],
 ) -> tuple[dict[str, Any], int]:
-    """Apply the server-owned FOCUS/WATCH_ONLY policy to A3 pools.
+    """Preserve A2 provenance without overriding A3 technical qualification.
 
-    The model may classify a candidate, but it cannot promote an A2
-    watch-only row into the executable core pool.  The origin map is attached
-    to the immutable A3 snapshot by the pipeline; a response field is only a
-    backwards-compatible fallback for lightweight replay callers.
+    ``WATCH_ONLY`` is an upstream A2 confidence label, not a permanent
+    execution veto. When the server-owned A3 strategy context is QUALIFIED,
+    the row may remain in the executable core pool, but its risk unit is
+    conservatively capped at ``PROBE``. The model can still veto the row for
+    an independently evidenced technical, event or tradability risk.
     """
 
     result = dict(output)
@@ -7322,8 +7327,6 @@ def _apply_a3_candidate_origin_policy(
         return result, 0
 
     changed = 0
-    demoted: list[Any] = []
-
     def normalize(raw_item: Any, pool: str) -> Any:
         nonlocal changed
         if not isinstance(raw_item, Mapping):
@@ -7344,32 +7347,80 @@ def _apply_a3_candidate_origin_policy(
                 item["risk_unit"] = "PROBE"
                 changed += 1
             existing = item.get("reason_codes") if isinstance(item.get("reason_codes"), list) else []
-            codes = list(dict.fromkeys([*existing, "A3_WATCH_ONLY_CORE_DEMOTED"]))
+            codes = list(dict.fromkeys([*existing, "A3_WATCH_ONLY_TECHNICALLY_QUALIFIED_PROBE"]))
             if codes != existing:
                 item["reason_codes"] = codes
                 changed += 1
-            demoted.append(item)
         elif origin == "WATCH_ONLY" and pool == "secondary_watch_pool":
-            # A watch-only item is a PROBE candidate at most.  NO_ENTRY is
-            # retained when a later deterministic threshold already applied;
-            # such an item is intentionally non-publishable.
+            # A secondary row remains non-executable. The origin alone does
+            # not explain why it is secondary; review_status/reason_codes must
+            # carry an independent veto or data-gap reason.
             if item.get("risk_unit") != "NO_ENTRY" and item.get("risk_unit") != "PROBE":
                 item["risk_unit"] = "PROBE"
                 changed += 1
         return item
 
     if core is not None:
-        normalized_core = [normalize(item, "core_watch_pool") for item in core]
-        result["core_watch_pool"] = [item for item in normalized_core if not (
-            isinstance(item, Mapping)
-            and str(item.get("candidate_origin") or "").upper() == "WATCH_ONLY"
-        )]
+        result["core_watch_pool"] = [normalize(item, "core_watch_pool") for item in core]
     if secondary is not None:
-        normalized_secondary = [normalize(item, "secondary_watch_pool") for item in secondary]
-        result["secondary_watch_pool"] = [*normalized_secondary, *demoted]
-    elif demoted:
-        result["secondary_watch_pool"] = demoted
+        result["secondary_watch_pool"] = [normalize(item, "secondary_watch_pool") for item in secondary]
     return result, changed
+
+
+def _a3_origin_only_veto_reasons(
+    output: Mapping[str, Any],
+    snapshot_data: Mapping[str, Any],
+) -> list[str]:
+    """Reject model vetoes that merely repeat an A2 WATCH_ONLY label.
+
+    A3 is the technical planning authority. A model may veto a deterministic
+    QUALIFIED setup only with an independent risk/data reason; otherwise a
+    bounded retry is required instead of silently reporting no setup.
+    """
+
+    raw_contexts = snapshot_data.get("A3_DETERMINISTIC_CONTEXT")
+    contexts = raw_contexts if isinstance(raw_contexts, Mapping) else {}
+    raw_origins = snapshot_data.get("A3_CANDIDATE_ORIGIN")
+    origins = raw_origins if isinstance(raw_origins, Mapping) else {}
+    origin_only_codes = {
+        "A2_LLM_REJECT_DEMOTED_TO_WATCH",
+        "A3_WATCH_ONLY_CORE_DEMOTED",
+        "A3_WATCH_ONLY_NON_EXECUTABLE",
+        "CANDIDATE_ORIGIN_WATCH_ONLY_NON_EXECUTABLE",
+        "WATCH_ONLY",
+    }
+    reasons: list[str] = []
+    for pool_name in ("secondary_watch_pool", "rejected_candidates"):
+        raw_items = output.get(pool_name)
+        if not isinstance(raw_items, list):
+            continue
+        for raw_item in raw_items:
+            if not isinstance(raw_item, Mapping):
+                continue
+            symbol = _first_symbol(raw_item)
+            context = contexts.get(symbol)
+            context = context if isinstance(context, Mapping) else {}
+            origin = str(origins.get(symbol) or raw_item.get("candidate_origin") or "").strip().upper()
+            eligibility = str(context.get("eligibility") or raw_item.get("eligibility") or "").strip().upper()
+            if origin != "WATCH_ONLY" or eligibility != "QUALIFIED":
+                continue
+            review_status = str(raw_item.get("review_status") or "VETO").strip().upper()
+            if review_status not in {"VETO", "DATA_GAP"}:
+                continue
+            raw_codes = raw_item.get("reason_codes")
+            codes = {
+                str(code).strip().upper()
+                for code in raw_codes
+                if isinstance(code, str) and str(code).strip()
+            } if isinstance(raw_codes, list) else set()
+            independent = {
+                code
+                for code in codes
+                if code not in origin_only_codes and "WATCH_ONLY" not in code
+            }
+            if not independent:
+                reasons.append("A3_ORIGIN_ONLY_VETO_CONTRADICTS_TECHNICAL_QUALIFICATION")
+    return list(dict.fromkeys(reasons))
 
 
 def _a3_semantic_price_reasons(
@@ -7563,8 +7614,6 @@ def _apply_stage_threshold_policy(
             review_status = str(item.get("review_status") or "PASS").upper()
             if review_status in {"VETO", "DATA_GAP"}:
                 hard_reasons.append(f"A3_LLM_{review_status}")
-            if str(item.get("candidate_origin") or context.get("candidate_origin") or "FOCUS").upper() == "WATCH_ONLY":
-                hard_reasons.append("A3_WATCH_ONLY_NON_EXECUTABLE")
             stop_distance = _safe_float(item.get("stop_distance_pct"))
             if stop_distance <= 0 or stop_distance > maximum_stop:
                 hard_reasons.append("A3_STOP_DISTANCE_OUTSIDE_LIMIT")

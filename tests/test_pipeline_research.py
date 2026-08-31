@@ -20,6 +20,7 @@ from liangjian_funnel.pipeline.research import (
     _a1_discovery_evidence_reasons,
     _authorized_discovery_source_refs,
     _a3_semantic_price_reasons,
+    _a3_origin_only_veto_reasons,
     _a3_secondary_probe_contract_reasons,
     _a3_watch_only_candidate_eligible,
     _apply_stage_threshold_policy,
@@ -1962,7 +1963,7 @@ def test_a3_candidate_domain_includes_only_eligible_watch_only_roles():
     })
 
 
-def test_a3_watch_only_core_is_server_demoted_to_probe_secondary():
+def test_a3_watch_only_core_remains_executable_but_is_capped_to_probe():
     output, changed = _apply_a3_candidate_origin_policy(
         {
             "core_watch_pool": [
@@ -1976,11 +1977,60 @@ def test_a3_watch_only_core_is_server_demoted_to_probe_secondary():
     )
 
     assert changed > 0
-    assert output["core_watch_pool"] == []
-    demoted = next(item for item in output["secondary_watch_pool"] if item["symbol"] == "002957.SZ")
-    assert demoted["candidate_origin"] == "WATCH_ONLY"
-    assert demoted["risk_unit"] == "PROBE"
-    assert "A3_WATCH_ONLY_CORE_DEMOTED" in demoted["reason_codes"]
+    retained = output["core_watch_pool"][0]
+    assert retained["candidate_origin"] == "WATCH_ONLY"
+    assert retained["risk_unit"] == "PROBE"
+    assert "A3_WATCH_ONLY_TECHNICALLY_QUALIFIED_PROBE" in retained["reason_codes"]
+    assert [item["symbol"] for item in output["secondary_watch_pool"]] == ["600519.SH"]
+
+
+def test_a3_watch_only_origin_cannot_be_the_only_model_veto_for_qualified_setup():
+    reasons = _a3_origin_only_veto_reasons(
+        {
+            "secondary_watch_pool": [
+                {
+                    "symbol": "002957.SZ",
+                    "candidate_origin": "WATCH_ONLY",
+                    "review_status": "VETO",
+                    "reason_codes": [
+                        "A2_LLM_REJECT_DEMOTED_TO_WATCH",
+                        "CANDIDATE_ORIGIN_WATCH_ONLY_NON_EXECUTABLE",
+                    ],
+                }
+            ]
+        },
+        {
+            "A3_CANDIDATE_ORIGIN": {"002957.SZ": "WATCH_ONLY"},
+            "A3_DETERMINISTIC_CONTEXT": {
+                "002957.SZ": {"eligibility": "QUALIFIED", "strategy_profile": "TREND_MA5"}
+            },
+        },
+    )
+
+    assert reasons == ["A3_ORIGIN_ONLY_VETO_CONTRADICTS_TECHNICAL_QUALIFICATION"]
+
+
+def test_a3_watch_only_model_veto_with_independent_risk_remains_valid():
+    reasons = _a3_origin_only_veto_reasons(
+        {
+            "secondary_watch_pool": [
+                {
+                    "symbol": "002957.SZ",
+                    "candidate_origin": "WATCH_ONLY",
+                    "review_status": "VETO",
+                    "reason_codes": ["HIGH_VOLUME_DISTRIBUTION"],
+                }
+            ]
+        },
+        {
+            "A3_CANDIDATE_ORIGIN": {"002957.SZ": "WATCH_ONLY"},
+            "A3_DETERMINISTIC_CONTEXT": {
+                "002957.SZ": {"eligibility": "QUALIFIED", "strategy_profile": "TREND_MA5"}
+            },
+        },
+    )
+
+    assert reasons == []
 
 
 def test_a3_secondary_probe_is_canonicalized_and_thresholded():

@@ -176,6 +176,57 @@ def test_plan_publication_blocks_symbols_without_trade_permission(tmp_path):
     } == {("600519.SH", "PLAN_SYMBOL_NOT_TRADABLE")}
 
 
+def test_plan_publication_allows_qualified_a2_watch_origin_as_probe(tmp_path):
+    store = RuntimeStore(tmp_path / "runtime-watch-core.sqlite3")
+    source_close = datetime(2026, 8, 31, 23, 40, tzinfo=TZ)
+    output = {
+        "core_watch_pool": [
+            {
+                "plan_id": "qualified-watch-probe",
+                "symbol": "000713.SZ",
+                "candidate_origin": "WATCH_ONLY",
+                "risk_unit": "PROBE",
+                "strategy_profile": "TREND_MA5",
+                "eligibility": "QUALIFIED",
+                "review_status": "PASS",
+                "trigger_zone": {"low": 6.418, "high": 6.4822},
+                "invalidation_level": 6.4,
+                "reward_risk": 4.23,
+                "stop_distance_pct": 0.013,
+            }
+        ],
+        "secondary_watch_pool": [],
+    }
+    result = ResearchRunResult(
+        run_id="run-qualified-watch-core",
+        generated_at=source_close,
+        snapshot_id="snapshot-qualified-watch-core",
+        snapshot_hash="e" * 64,
+        status="READY",
+        lanes=(LaneResult("lane_1", "model", "READY", (), output),),
+        audit_paths=(),
+        markdown_path=None,
+    )
+
+    publication = WorkflowApplication._publish_plans(
+        SimpleNamespace(store=store),
+        result,
+        "close",
+        source_close,
+        snapshot_data={
+            "A3_CANDIDATE_ORIGIN": {"000713.SZ": "WATCH_ONLY"},
+            "TRADABILITY_FLAGS": {"000713.SZ": {"tradable": True}},
+        },
+    )
+
+    assert len(publication["created"]) == 1
+    assert publication["blocked"] == []
+    plan = store.list_execution_plans(lane_id="lane_1")[0]
+    assert plan["symbol"] == "000713.SZ"
+    assert plan["status"] == PlanStatus.PENDING_MORNING_REVIEW.value
+    assert datetime.fromisoformat(str(plan["expires_at"])) == datetime(2026, 9, 1, 15, 0, tzinfo=TZ)
+
+
 def test_plan_publication_allows_only_complete_secondary_probe(tmp_path):
     store = RuntimeStore(tmp_path / "runtime-secondary.sqlite3")
     current = datetime(2026, 8, 28, 15, 10, tzinfo=TZ)

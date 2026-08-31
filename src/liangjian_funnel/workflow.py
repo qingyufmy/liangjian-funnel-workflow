@@ -2106,7 +2106,7 @@ class WorkflowApplication:
             self._publish_plans(
                 result,
                 normalized_slot,
-                datetime.now(SHANGHAI),
+                current,
                 snapshot_data=prepared.snapshot.data,
                 minimum_trade_date=target_trade_date,
             )
@@ -3553,8 +3553,6 @@ class WorkflowApplication:
                 str(item["symbol"]): item
                 for item in self.store.list_execution_plans(lane_id=lane.lane, status=PlanStatus.PENDING_MORNING_REVIEW)
             }
-            raw_origins = snapshot_data.get("A3_CANDIDATE_ORIGIN")
-            candidate_origins = raw_origins if isinstance(raw_origins, Mapping) else {}
             for pool_name, plans in (
                 ("core_watch_pool", core_plans),
                 ("secondary_watch_pool", secondary_plans),
@@ -3566,18 +3564,6 @@ class WorkflowApplication:
                         continue
                     payload = _plan_payload(raw)
                     symbol = payload.get("symbol")
-                    origin = str(
-                        candidate_origins.get(symbol)
-                        or raw.get("candidate_origin")
-                        or "FOCUS"
-                    ).strip().upper()
-                    if pool_name == "core_watch_pool" and origin == "WATCH_ONLY":
-                        blocked.append({
-                            "lane": lane.lane,
-                            "symbol": symbol or "-",
-                            "reason": "WATCH_ONLY_CORE_NOT_ALLOWED",
-                        })
-                        continue
                     if pool_name == "secondary_watch_pool":
                         blocked.append({
                             "lane": lane.lane,
