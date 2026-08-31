@@ -1,0 +1,260 @@
+from __future__ import annotations
+
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
+import pytest
+
+from liangjian_funnel.runtime.strategies import (
+    A4Action,
+    StrategyProfile,
+    StrategyEvaluation,
+    aggregate_closed_bars,
+    evaluate_a4_plan,
+    evaluate_strategy,
+)
+
+
+TZ = ZoneInfo("Asia/Shanghai")
+
+
+def _bar(at: datetime, *, close: float, open_: float | None = None, low: float | None = None, high: float | None = None, volume: float = 100.0, closed: bool = True) -> dict[str, object]:
+    open_price = close - 0.2 if open_ is None else open_
+    return {
+        "symbol": "600001.SH",
+        "interval": "1m",
+        "bar_end": at,
+        "open": open_price,
+        "high": close + 0.2 if high is None else high,
+        "low": close - 0.2 if low is None else low,
+        "close": close,
+        "volume": volume,
+        "amount": close * volume,
+        "closed": closed,
+    }
+
+
+def _bars(*, count: int = 30, start: datetime = datetime(2026, 8, 31, 9, 31, tzinfo=TZ), close: float = 10.5) -> list[dict[str, object]]:
+    return [_bar(start + timedelta(minutes=index), close=close + index * 0.01) for index in range(count)]
+
+
+def _base(profile: str, **extra: object) -> dict[str, object]:
+    return {
+        "symbol": "600001.SH",
+        "strategy_profile": profile,
+        "trade_date": "2026-08-31",
+        "trigger_zone": {"low": 10.0, "high": 12.0},
+        "invalidation_level": 8.0,
+        **extra,
+    }
+
+
+def _leader_bars() -> list[dict[str, object]]:
+    result: list[dict[str, object]] = []
+    start = datetime(2026, 8, 31, 9, 31, tzinfo=TZ)
+    for index in range(15):
+        result.append(_bar(start + timedelta(minutes=index), close=10.0, open_=9.8, low=9.7, high=10.2))
+    for index in range(15, 30):
+        close = 11.0 + (index - 15) * 0.02
+        result.append(_bar(start + timedelta(minutes=index), close=close, open_=close - 0.15, low=close - 0.2, high=close + 0.2))
+    return result
+
+
+def test_each_strategy_has_a_deterministic_valid_entry() -> None:
+    leader = evaluate_a4_plan(
+        _base(
+            StrategyProfile.LEADER_INTRADAY.value,
+            leader_context={"valid": True, "theme_stage": "IGNITION", "ladder_intact": True, "market_role": "LEADER", "board_count": 2},
+        ),
+        _leader_bars(),
+    )
+    swing = evaluate_a4_plan(
+        _base(
+            StrategyProfile.MA520_SWING.value,
+            daily_indicators={"ma5": 11.0, "ma20": 10.0, "close": 11.2},
+        ),
+        _bars(),
+    )
+    trend = evaluate_a4_plan(
+        _base(
+            StrategyProfile.TREND_MA5.value,
+            daily_indicators={"ma5": 11.0, "ma10": 10.7, "ma20": 10.2, "ma60": 9.5, "close": 11.3},
+        ),
+        _bars(),
+    )
+    assert leader["action"] == A4Action.BUY_SIGNAL.value
+    assert swing["action"] == A4Action.BUY_SIGNAL.value
+    assert trend["action"] == A4Action.BUY_SIGNAL.value
+    for result in (leader, swing, trend):
+        assert result["closed_5m_end"] == "2026-08-31T10:00:00+08:00"
+        assert result["closed_15m_end"] == "2026-08-31T10:00:00+08:00"
+        assert result["veto_conditions"] == []
+
+
+def test_leader_requires_context_and_520_requires_daily_snapshot() -> None:
+    leader = evaluate_a4_plan(_base(StrategyProfile.LEADER_INTRADAY.value), _leader_bars())
+    swing = evaluate_a4_plan(_base(StrategyProfile.MA520_SWING.value), _bars())
+    assert leader["action"] == A4Action.START_CONFIRMATION.value
+    assert "LEADER_CONTEXT_MISSING" in leader["reason_codes"]
+    assert swing["action"] == A4Action.START_CONFIRMATION.value
+    assert "MA520_DAILY_SNAPSHOT_MISSING" in swing["reason_codes"]
+
+
+def test_trend_requires_daily_maintrend_and_520_requires_two_5m_confirmations() -> None:
+    trend = evaluate_a4_plan(
+        _base(StrategyProfile.TREND_MA5.value, daily_indicators={"ma5": 10.0, "ma10": 10.5, "ma20": 10.2, "ma60": 9.5, "close": 10.8}),
+        _bars(),
+    )
+    weak_520_bars = _bars(count=15)
+    for index in range(10, 15):
+        at = weak_520_bars[index]["bar_end"]
+        weak_520_bars[index] = _bar(at, close=9.5, open_=10.0, low=9.3, high=10.1)
+    swing = evaluate_a4_plan(
+        _base(StrategyProfile.MA520_SWING.value, daily_indicators={"ma5": 11.0, "ma20": 10.0, "close": 11.2}),
+        weak_520_bars,
+    )
+    assert "TREND_DAILY_NOT_MAIN_UPTREND" in trend["reason_codes"]
+    assert swing["action"] != A4Action.BUY_SIGNAL.value
+    assert "MA520_TWO_CLOSED_5M_CONFIRMATIONS" in swing["unmet_conditions"]
+
+
+def test_unclosed_bucket_and_future_bar_never_trigger() -> None:
+    partial = evaluate_a4_plan(
+        _base(StrategyProfile.TREND_MA5.value, daily_indicators={"ma5": 11, "ma10": 10.7, "ma20": 10.2, "ma60": 9.5, "close": 11.3}),
+        _bars(count=4),
+    )
+    assert partial["action"] == A4Action.DATA_BLOCK.value
+    assert "NO_CLOSED_5M" in partial["reason_codes"]
+
+    bars = _bars(count=5)
+    future = evaluate_a4_plan(
+        _base(StrategyProfile.TREND_MA5.value, daily_indicators={"ma5": 11, "ma10": 10.7, "ma20": 10.2, "ma60": 9.5, "close": 11.3}),
+        bars,
+        as_of=datetime(2026, 8, 31, 9, 34, tzinfo=TZ),
+    )
+    assert future["action"] == A4Action.DATA_BLOCK.value
+    assert future["reason_codes"] == ["FUTURE_BAR_DETECTED"]
+
+
+def test_lunch_break_is_not_aggregated_across_sessions() -> None:
+    bars = _bars(count=15)
+    afternoon = datetime(2026, 8, 31, 13, 1, tzinfo=TZ)
+    bars.extend(_bar(afternoon + timedelta(minutes=index), close=11.0 + index * 0.01) for index in range(15))
+    result = aggregate_closed_bars(bars)
+    assert [item["bar_end"] for item in result["5m"]] == [
+        "2026-08-31T09:35:00+08:00",
+        "2026-08-31T09:40:00+08:00",
+        "2026-08-31T09:45:00+08:00",
+        "2026-08-31T13:05:00+08:00",
+        "2026-08-31T13:10:00+08:00",
+        "2026-08-31T13:15:00+08:00",
+    ]
+    assert [item["bar_end"] for item in result["15m"]] == [
+        "2026-08-31T09:45:00+08:00",
+        "2026-08-31T13:15:00+08:00",
+    ]
+
+
+def test_hard_stop_is_1m_safety_and_locked_limit_up_cannot_buy() -> None:
+    bars = _bars()
+    bars[-1] = _bar(bars[-1]["bar_end"], close=10.5, low=7.5)
+    stopped = evaluate_a4_plan(
+        _base(StrategyProfile.TREND_MA5.value, stop_level=8.0, daily_indicators={"ma5": 11, "ma10": 10.7, "ma20": 10.2, "ma60": 9.5, "close": 11.3}),
+        bars,
+    )
+    assert stopped["action"] == A4Action.FORCED_RISK_EXIT.value
+    assert stopped["reason_codes"] == ["HARD_STOP"]
+
+    locked_bars = _bars()
+    locked_bars[-1] = _bar(locked_bars[-1]["bar_end"], close=10.0, open_=10.0, low=10.0, high=10.0)
+    locked = evaluate_a4_plan(
+        _base(StrategyProfile.TREND_MA5.value, upper_limit=10.0, daily_indicators={"ma5": 11, "ma10": 10.7, "ma20": 10.2, "ma60": 9.5, "close": 11.3}),
+        locked_bars,
+    )
+    assert locked["action"] != A4Action.BUY_SIGNAL.value
+    assert "LOCKED_LIMIT_UP" in locked["reason_codes"]
+
+
+def test_unknown_profile_and_data_gap_fail_closed_per_plan() -> None:
+    unknown = evaluate_a4_plan({"symbol": "600001.SH", "strategy_profile": "NOT_A_STRATEGY"}, _bars())
+    assert unknown["action"] == A4Action.DATA_BLOCK.value
+    assert unknown["veto_conditions"] == ["UNKNOWN_STRATEGY_PROFILE"]
+    blocked = evaluate_a4_plan(_base(StrategyProfile.TREND_MA5.value, data_gap=True), _bars())
+    assert blocked["action"] == A4Action.DATA_BLOCK.value
+    assert blocked["reason_codes"] == ["PLAN_DATA_GAP"]
+
+
+def test_520_does_not_use_intraday_ma5_ma20_and_trend_add_cannot_average_down() -> None:
+    result = evaluate_a4_plan(
+        _base(
+            StrategyProfile.MA520_SWING.value,
+            daily_indicators={"ma5": 11.0, "ma20": 10.0, "close": 11.2},
+            intraday={"moving_averages": {"ma5": 999, "ma20": 1}},
+        ),
+        _bars(),
+    )
+    assert "DAILY_MA5_MA20_ONLY" in result["met_conditions"]
+    assert result["action"] == A4Action.BUY_SIGNAL.value
+
+    add = evaluate_a4_plan(
+        _base(
+            StrategyProfile.TREND_MA5.value,
+            action=A4Action.ADD_SIGNAL.value,
+            position_open=True,
+            entry_price=20.0,
+            daily_indicators={"ma5": 11.0, "ma10": 10.7, "ma20": 10.2, "ma60": 9.5, "close": 11.3},
+        ),
+        _bars(),
+    )
+    assert add["action"] != A4Action.ADD_SIGNAL.value
+    assert "TREND_ADD_REQUIRES_PROFIT" in add["reason_codes"]
+
+
+def test_invalid_1m_and_missing_data_are_data_blocked() -> None:
+    unclosed = evaluate_a4_plan(_base(StrategyProfile.TREND_MA5.value), [_bar(datetime(2026, 8, 31, 9, 31, tzinfo=TZ), close=10, closed=False)])
+    assert unclosed["action"] == A4Action.DATA_BLOCK.value
+    assert unclosed["reason_codes"] == ["UNFINISHED_1M_BAR"]
+    missing = evaluate_a4_plan(_base(StrategyProfile.TREND_MA5.value), [])
+    assert missing["action"] == A4Action.DATA_BLOCK.value
+    assert missing["reason_codes"] == ["NO_1M_BARS"]
+
+
+def test_public_entry_returns_frozen_pydantic_result_and_accepts_overlays() -> None:
+    result = evaluate_strategy(
+        _base(StrategyProfile.TREND_MA5.value, daily_indicators={"ma5": 11, "ma10": 10.7, "ma20": 10.2, "ma60": 9.5, "close": 11.3}),
+        _bars(),
+        now=datetime(2026, 8, 31, 10, 0, tzinfo=TZ),
+        position={"quantity": 0},
+        market_context={"market_shock": False},
+    )
+    assert isinstance(result, StrategyEvaluation)
+    assert result.action == A4Action.BUY_SIGNAL.value
+    assert result["symbol"] == "600001.SH"
+    assert result.model_dump(mode="json")["closed_5m_end"] == "2026-08-31T10:00:00+08:00"
+    with pytest.raises(Exception):
+        result.action = A4Action.NO_ACTION.value
+
+
+def test_a3_compact_plan_fields_are_accepted_without_recomputing_daily_facts() -> None:
+    plan = _base(
+        StrategyProfile.TREND_MA5.value,
+        daily_ma={"ma5": 11.0, "ma10": 10.7, "ma20": 10.2, "ma60": 9.5},
+        strategy_facts={"daily_close": 11.3, "daily_moving_averages": {"ma5": 1, "ma20": 1}},
+        entry_reference_zone={"low": 10.0, "high": 12.0},
+        daily_invalidation=8.0,
+    )
+    plan.pop("daily_indicators", None)
+    plan.pop("trigger_zone", None)
+    result = evaluate_strategy(
+        plan,
+        _bars(),
+        now=datetime(2026, 8, 31, 10, 0, tzinfo=TZ),
+    )
+    assert result.action == A4Action.BUY_SIGNAL.value
+
+
+@pytest.mark.parametrize("profile", [item.value for item in StrategyProfile])
+def test_contract_always_contains_required_fields(profile: str) -> None:
+    result = evaluate_a4_plan(_base(profile), _bars(count=4))
+    assert set(("state", "action", "reason_codes", "met_conditions", "unmet_conditions", "veto_conditions", "closed_5m_end", "closed_15m_end")) <= set(result)
+    assert result["action"] in {item.value for item in A4Action}

@@ -5138,11 +5138,11 @@ def _stage_execution_budget(
         budget["approved_pool"] = min(supplied, focus_max)
         budget["secondary_pool"] = supplied
     elif stage == "A3":
-        agent = regime.get("agent_3") if isinstance(regime.get("agent_3"), Mapping) else {}
-        core_max = max(0, _safe_int(agent.get("core_watch_max", supplied)))
-        total_max = max(core_max, _safe_int(agent.get("total_watch_max", supplied)))
-        budget["approved_pool"] = min(supplied, core_max)
-        budget["secondary_pool"] = min(supplied, max(0, total_max - core_max))
+        # A3 eligibility is determined per symbol by the server-owned strategy
+        # router.  Transport budgets must not silently crop a valid plan or
+        # turn an advisory pool size into a trading rule.
+        budget["approved_pool"] = supplied
+        budget["secondary_pool"] = supplied
     stage_contract = {
         "A1": (
             (
@@ -5187,14 +5187,13 @@ def _stage_execution_budget(
         ),
         "A3": (
             "Required top-level keys: envelope, analysis_summary, core_watch_pool, secondary_watch_pool, "
-            "rejected_candidates. Each core item must copy deterministic PRICE_LEVELS values for symbol, "
-            "risk_unit, trigger_zone, invalidation_level, stop_distance_pct, first_resistance and reward_risk, "
-            "then add concise scenarios and confirmation_conditions. Every WATCH_ONLY candidate must never "
-            "enter core_watch_pool; it may enter secondary_watch_pool only as risk_unit=PROBE. A secondary "
-            "PROBE must contain the same complete executable fields as core, including deterministic price "
-            "levels, setup_type, confirmation_conditions, scenarios, technical_score, score_breakdown and "
-            "plan_expiry. Shadow/NO_ENTRY secondary rows are non-publishable. score_breakdown must contain "
-            "every exact key from TECHNICAL_SCORE_WEIGHTS, and technical_score must equal that weighted sum."
+            "rejected_candidates. Every row must preserve the server-owned strategy_profile, eligibility, "
+            "required_conditions, met_conditions, unmet_conditions and veto_conditions. Each executable core "
+            "item copies deterministic PRICE_LEVELS values for trigger_zone, invalidation_level, "
+            "stop_distance_pct, first_resistance, reward_risk and no_chase_price, then adds only concise model "
+            "review evidence. The model may veto or report DATA_GAP, but cannot promote, reroute, rescore or "
+            "change any price. WATCH_ONLY never enters core and is non-executable in this contract. Do not "
+            "return technical_score or score_breakdown; A3 has no weighted-score decision path."
         ),
     }[stage]
     return (
@@ -6625,16 +6624,26 @@ def _canonicalize_stage_lineage(
             canonical["parent_candidate_id"] = upstream_id
             canonical["candidate_origin"] = candidate_origin
             if technical_context:
-                canonical["deterministic_technical_score"] = technical_context.get("technical_score")
-                canonical["deterministic_score_breakdown"] = technical_context.get("technical_score_breakdown")
-                canonical["deterministic_score_coverage"] = technical_context.get("technical_score_coverage")
+                canonical["deterministic_strategy_profile"] = technical_context.get("strategy_profile")
+                canonical["deterministic_eligibility"] = technical_context.get("eligibility")
+                canonical["deterministic_required_conditions"] = list(
+                    technical_context.get("required_conditions") or ()
+                )
+                canonical["deterministic_met_conditions"] = list(
+                    technical_context.get("met_conditions") or ()
+                )
+                canonical["deterministic_unmet_conditions"] = list(
+                    technical_context.get("unmet_conditions") or ()
+                )
+                canonical["deterministic_veto_conditions"] = list(
+                    technical_context.get("veto_conditions") or ()
+                )
                 canonical["deterministic_gate_status"] = technical_context.get("status")
                 canonical["deterministic_reason_codes"] = list(technical_context.get("reason_codes") or ())
                 canonical["deterministic_price_evidence"] = {
                     "reward_risk": technical_context.get("reward_risk"),
                     "stop_distance_pct": technical_context.get("stop_distance_pct"),
                     "minimum_reward_risk": technical_context.get("minimum_reward_risk"),
-                    "minimum_technical_score": technical_context.get("minimum_technical_score"),
                     "maximum_stop_distance_pct": technical_context.get("maximum_stop_distance_pct"),
                     "price_levels_hash": technical_context.get("price_levels_hash"),
                     "factor_snapshot_hash": technical_context.get("factor_snapshot_hash"),
@@ -7146,15 +7155,14 @@ def _canonicalize_stage_scores(
     """
 
     result = dict(output)
+    if stage == "A3":
+        # A3 is a condition/route contract.  Retain legacy score fields only
+        # as inert historical payload; never canonicalize or use them for a
+        # current decision.
+        return result, 0
     specs = {
         "A1": ("SCORE_WEIGHTS", "structural_score", ("active_research_pool",), False),
         "A2": ("THEME_SCORE_WEIGHTS", "theme_score", ("active_themes",), True),
-        "A3": (
-            "TECHNICAL_SCORE_WEIGHTS",
-            "technical_score",
-            ("core_watch_pool", "secondary_watch_pool"),
-            False,
-        ),
     }
     weight_field, score_field, pools, include_penalties = specs[stage]
     raw_weights = snapshot_data.get(weight_field)
@@ -7421,49 +7429,14 @@ def _a3_secondary_probe_contract_reasons(
     output: Mapping[str, Any],
     snapshot_data: Mapping[str, Any],
 ) -> list[str]:
-    """Require a complete score/execution contract before PROBE demotion.
+    """A3 secondary rows are intentionally non-executable in v3.
 
-    This runs after server price canonicalization but before threshold policy.
-    It therefore distinguishes a provider JSON omission (retryable) from a
-    genuine deterministic threshold failure (which is demoted/rejected).
+    The model no longer repairs or supplies a weighted-score contract.  The
+    threshold policy below forces every secondary row to ``NO_ENTRY``.
     """
 
-    secondary = output.get("secondary_watch_pool")
-    if not isinstance(secondary, list):
-        return []
-    reasons: list[str] = []
-    required_fields = (
-        "setup_type",
-        "confirmation_conditions",
-        "scenarios",
-        "plan_expiry",
-        "technical_score",
-        "score_breakdown",
-    )
-    weights = snapshot_data.get("TECHNICAL_SCORE_WEIGHTS")
-    expected_score_keys = {
-        str(key) for key in weights
-    } if isinstance(weights, Mapping) else set()
-    for raw_item in secondary:
-        if not isinstance(raw_item, Mapping):
-            continue
-        if str(raw_item.get("risk_unit") or "").upper() != "PROBE":
-            continue
-        # The new retry contract is scoped to the explicit A2 watch-only
-        # publication route. Legacy FOCUS secondary rows may remain shadow
-        # observations and are still handled by the existing threshold policy.
-        if str(raw_item.get("candidate_origin") or "FOCUS").upper() != "WATCH_ONLY":
-            continue
-        if any(raw_item.get(field) is None for field in required_fields):
-            reasons.append("A3_SECONDARY_PROBE_FIELDS_MISSING")
-            continue
-        breakdown = raw_item.get("score_breakdown")
-        if not isinstance(breakdown, Mapping) or not breakdown:
-            reasons.append("A3_SCORE_BREAKDOWN_MISSING")
-            continue
-        if expected_score_keys and {str(key) for key in breakdown} != expected_score_keys:
-            reasons.append("A3_SCORE_BREAKDOWN_INVALID")
-    return list(dict.fromkeys(reasons))
+    del output, snapshot_data
+    return []
 
 
 def _apply_stage_threshold_policy(
@@ -7549,9 +7522,12 @@ def _apply_stage_threshold_policy(
         return result, changed
 
     if stage == "A3":
-        minimum_technical = _safe_float(snapshot_data.get("MIN_TECHNICAL_SCORE", 70))
-        minimum_reward_risk = _safe_float(snapshot_data.get("MIN_REWARD_RISK", 2.0))
+        if snapshot_data.get("DETERMINISTIC_RESEARCH_V2_ENABLED") is not True:
+            return result, 0
         maximum_stop = _safe_float(snapshot_data.get("MAX_STOP_DISTANCE", 0.06))
+        minimum_reward_risk = _safe_float(snapshot_data.get("MIN_REWARD_RISK", 2.0))
+        raw_context = snapshot_data.get("A3_DETERMINISTIC_CONTEXT")
+        contexts = raw_context if isinstance(raw_context, Mapping) else {}
         core = result.get("core_watch_pool")
         secondary = (
             list(result.get("secondary_watch_pool"))
@@ -7572,42 +7548,35 @@ def _apply_stage_threshold_policy(
                 retained.append(raw_item)
                 continue
             item = dict(raw_item)
+            symbol = _first_symbol(item)
+            context = contexts.get(symbol)
+            context = context if isinstance(context, Mapping) else {}
             hard_reasons: list[str] = []
-            if _safe_float(item.get("reward_risk")) < minimum_reward_risk:
-                hard_reasons.append("A3_REWARD_RISK_BELOW_MINIMUM")
+            eligibility = str(context.get("eligibility") or item.get("eligibility") or "DATA_GAP").upper()
+            strategy_profile = str(context.get("strategy_profile") or item.get("strategy_profile") or "").upper()
+            if not context:
+                hard_reasons.append("A3_STRATEGY_CONTEXT_MISSING")
+            elif eligibility != "QUALIFIED":
+                hard_reasons.append(f"A3_NOT_QUALIFIED:{eligibility}")
+            if strategy_profile not in {"LEADER_INTRADAY", "MA520_SWING", "TREND_MA5"}:
+                hard_reasons.append("A3_STRATEGY_PROFILE_INVALID")
+            review_status = str(item.get("review_status") or "PASS").upper()
+            if review_status in {"VETO", "DATA_GAP"}:
+                hard_reasons.append(f"A3_LLM_{review_status}")
+            if str(item.get("candidate_origin") or context.get("candidate_origin") or "FOCUS").upper() == "WATCH_ONLY":
+                hard_reasons.append("A3_WATCH_ONLY_NON_EXECUTABLE")
             stop_distance = _safe_float(item.get("stop_distance_pct"))
             if stop_distance <= 0 or stop_distance > maximum_stop:
                 hard_reasons.append("A3_STOP_DISTANCE_OUTSIDE_LIMIT")
+            reward_risk = _safe_float(item.get("reward_risk"))
+            if reward_risk < minimum_reward_risk:
+                hard_reasons.append("A3_REWARD_RISK_BELOW_MINIMUM")
             if hard_reasons:
-                rejected.append(
-                    {
-                        "symbol": _first_symbol(item),
-                        "parent_candidate_id": item.get("parent_candidate_id"),
-                        "reason_codes": hard_reasons,
-                        "veto_triggered": "SERVER_THRESHOLD_POLICY",
-                    }
-                )
-                changed += 1
-                continue
-            score_reasons = _weighted_score_reasons(
-                item,
-                weights=snapshot_data.get("TECHNICAL_SCORE_WEIGHTS"),
-                score_field="technical_score",
-                missing_reason="A3_SCORE_BREAKDOWN_MISSING",
-                invalid_reason="A3_SCORE_BREAKDOWN_INVALID",
-                mismatch_reason="A3_TECHNICAL_SCORE_MISMATCH",
-            )
-            if score_reasons:
                 existing = item.get("reason_codes") if isinstance(item.get("reason_codes"), list) else []
-                item["reason_codes"] = list(dict.fromkeys([*existing, *score_reasons]))
+                item["reason_codes"] = list(dict.fromkeys([*existing, *hard_reasons]))
                 item["risk_unit"] = "NO_ENTRY"
-                secondary.append(item)
-                changed += 1
-                continue
-            if _safe_float(item.get("technical_score")) < minimum_technical:
-                existing = item.get("reason_codes") if isinstance(item.get("reason_codes"), list) else []
-                item["reason_codes"] = list(dict.fromkeys([*existing, "A3_TECHNICAL_SCORE_BELOW_MINIMUM"]))
-                item["risk_unit"] = "NO_ENTRY"
+                item["eligibility"] = eligibility
+                item["strategy_profile"] = strategy_profile or "NO_NEXT_DAY_PLAN"
                 secondary.append(item)
                 changed += 1
                 continue
@@ -7617,40 +7586,22 @@ def _apply_stage_threshold_policy(
                 secondary.append(item)
                 changed += 1
                 continue
+            item["strategy_profile"] = strategy_profile
+            item["eligibility"] = "QUALIFIED"
             retained.append(item)
-        # Secondary rows are a watch/PROBE publication surface, not a way to
-        # bypass the same frozen technical thresholds.  Existing NO_ENTRY
-        # rows remain visible for audit but are deliberately not re-evaluated;
-        # only rows explicitly eligible for a probe need executable numbers.
+        # Secondary is an audit/watch surface.  It cannot bypass deterministic
+        # qualification or become an executable PROBE through model prose.
         normalized_secondary: list[Any] = []
         for raw_item in secondary:
-            if not isinstance(raw_item, Mapping) or raw_item.get("risk_unit") != "PROBE":
+            if not isinstance(raw_item, Mapping):
                 normalized_secondary.append(raw_item)
                 continue
             item = dict(raw_item)
-            hard_reasons: list[str] = []
-            if _safe_float(item.get("reward_risk")) < minimum_reward_risk:
-                hard_reasons.append("A3_REWARD_RISK_BELOW_MINIMUM")
-            stop_distance = _safe_float(item.get("stop_distance_pct"))
-            if stop_distance <= 0 or stop_distance > maximum_stop:
-                hard_reasons.append("A3_STOP_DISTANCE_OUTSIDE_LIMIT")
-            score_reasons = _weighted_score_reasons(
-                item,
-                weights=snapshot_data.get("TECHNICAL_SCORE_WEIGHTS"),
-                score_field="technical_score",
-                missing_reason="A3_SCORE_BREAKDOWN_MISSING",
-                invalid_reason="A3_SCORE_BREAKDOWN_INVALID",
-                mismatch_reason="A3_TECHNICAL_SCORE_MISMATCH",
-            )
-            if score_reasons:
-                hard_reasons.extend(score_reasons)
-            if _safe_float(item.get("technical_score")) < minimum_technical:
-                hard_reasons.append("A3_TECHNICAL_SCORE_BELOW_MINIMUM")
-            if hard_reasons:
+            if str(item.get("risk_unit") or "").upper() != "NO_ENTRY":
                 existing = item.get("reason_codes") if isinstance(item.get("reason_codes"), list) else []
-                item["reason_codes"] = list(dict.fromkeys([*existing, *hard_reasons]))
-                item["risk_unit"] = "NO_ENTRY"
+                item["reason_codes"] = list(dict.fromkeys([*existing, "A3_SECONDARY_NON_EXECUTABLE"]))
                 changed += 1
+            item["risk_unit"] = "NO_ENTRY"
             normalized_secondary.append(item)
         result["core_watch_pool"] = retained
         result["secondary_watch_pool"] = _deduplicate_stage_items("secondary_watch_pool", normalized_secondary)
@@ -7668,55 +7619,11 @@ def _apply_a3_pool_limits(
     output: Mapping[str, Any],
     snapshot_data: Mapping[str, Any],
 ) -> tuple[dict[str, Any], int]:
-    result = dict(output)
-    params = snapshot_data.get("REGIME_PARAM_SET")
-    agent = params.get("agent_3") if isinstance(params, Mapping) else None
-    if not isinstance(agent, Mapping):
-        return result, 0
-    core_max = max(0, _safe_int(agent.get("core_watch_max", 0)))
-    total_max = max(core_max, _safe_int(agent.get("total_watch_max", core_max)))
-    core = list(result.get("core_watch_pool")) if isinstance(result.get("core_watch_pool"), list) else []
-    secondary = list(result.get("secondary_watch_pool")) if isinstance(result.get("secondary_watch_pool"), list) else []
-    rejected = list(result.get("rejected_candidates")) if isinstance(result.get("rejected_candidates"), list) else []
-
-    def ranking(item: Any) -> tuple[float, str]:
-        return (
-            -_safe_float(item.get("technical_score")) if isinstance(item, Mapping) else 0.0,
-            _first_symbol(item) if isinstance(item, Mapping) else _canonical_json(item),
-        )
-
-    ordered_core = sorted(core, key=ranking)
-    retained_core = ordered_core[:core_max]
-    overflow_core: list[Any] = []
-    for raw_item in ordered_core[core_max:]:
-        if not isinstance(raw_item, Mapping):
-            overflow_core.append(raw_item)
-            continue
-        item = dict(raw_item)
-        codes = item.get("reason_codes") if isinstance(item.get("reason_codes"), list) else []
-        item["reason_codes"] = list(dict.fromkeys([*codes, "A3_GLOBAL_CORE_LIMIT"]))
-        item["risk_unit"] = "NO_ENTRY"
-        overflow_core.append(item)
-    ordered_secondary = sorted([*secondary, *overflow_core], key=ranking)
-    secondary_max = max(0, total_max - len(retained_core))
-    retained_secondary = ordered_secondary[:secondary_max]
-    overflow_secondary = ordered_secondary[secondary_max:]
-    for raw_item in overflow_secondary:
-        symbol = _first_symbol(raw_item) if isinstance(raw_item, Mapping) else ""
-        rejected.append({
-            "symbol": symbol,
-            "parent_candidate_id": raw_item.get("parent_candidate_id") if isinstance(raw_item, Mapping) else None,
-            "reason_codes": ["A3_GLOBAL_WATCH_LIMIT"],
-            "veto_triggered": "SERVER_POOL_LIMIT",
-        })
-    result["core_watch_pool"] = retained_core
-    result["secondary_watch_pool"] = _deduplicate_stage_items("secondary_watch_pool", retained_secondary)
-    result["rejected_candidates"] = _deduplicate_stage_items("rejected_candidates", rejected)
-    changed_tokens = {
-        _first_symbol(item) if isinstance(item, Mapping) else _canonical_json(item)
-        for item in [*overflow_core, *overflow_secondary]
-    }
-    return result, len(changed_tokens)
+    del snapshot_data
+    # Pool sizes remain observable/advisory.  A valid deterministic strategy
+    # plan must never disappear because an arbitrary core/watch capacity was
+    # reached; execution risk is handled later by the simulator/governor.
+    return dict(output), 0
 
 
 def _a1_business_evidence_reasons(
@@ -8672,6 +8579,8 @@ def _validate_a3_provenance(output: Mapping[str, Any], snapshot_data: Mapping[st
     if not isinstance(raw_levels, Mapping):
         return []
     levels = raw_levels
+    raw_contexts = snapshot_data.get("A3_DETERMINISTIC_CONTEXT")
+    contexts = raw_contexts if isinstance(raw_contexts, Mapping) else {}
     reasons: list[str] = []
     for pool_name in ("core_watch_pool", "secondary_watch_pool"):
         pool = output.get(pool_name)
@@ -8691,6 +8600,19 @@ def _validate_a3_provenance(output: Mapping[str, Any], snapshot_data: Mapping[st
             if len(scanned) != 1:
                 continue
             symbol = next(iter(scanned))
+            strategy_context = contexts.get(symbol)
+            strategy_context = strategy_context if isinstance(strategy_context, Mapping) else {}
+            if isinstance(raw_contexts, Mapping) and not strategy_context:
+                reasons.append("A3_STRATEGY_CONTEXT_MISSING")
+            elif strategy_context:
+                if str(item.get("strategy_profile") or "").upper() != str(
+                    strategy_context.get("strategy_profile") or ""
+                ).upper():
+                    reasons.append("A3_STRATEGY_PROFILE_PROVENANCE_MISMATCH")
+                if pool_name == "core_watch_pool" and str(
+                    strategy_context.get("eligibility") or ""
+                ).upper() != "QUALIFIED":
+                    reasons.append("A3_CORE_ELIGIBILITY_PROVENANCE_MISMATCH")
             expected = levels.get(symbol)
             if not isinstance(expected, Mapping) or expected.get("available") is not True:
                 reasons.append("A3_PRICE_LEVELS_UNAVAILABLE")
@@ -8702,21 +8624,7 @@ def _validate_a3_provenance(output: Mapping[str, Any], snapshot_data: Mapping[st
                 and risk_unit == "PROBE"
                 and snapshot_data.get("STRICT_AGENT_RULES") is True
             ):
-                required_fields = (
-                    "trigger_zone",
-                    "invalidation_level",
-                    "stop_distance_pct",
-                    "first_resistance",
-                    "reward_risk",
-                    "technical_score",
-                    "score_breakdown",
-                    "setup_type",
-                    "confirmation_conditions",
-                    "scenarios",
-                    "plan_expiry",
-                )
-                if any(field not in item or item.get(field) is None for field in required_fields):
-                    reasons.append("A3_SECONDARY_PROBE_FIELDS_MISSING")
+                reasons.append("A3_SECONDARY_PROBE_NOT_ALLOWED")
             actual_zone = item.get("trigger_zone")
             expected_zone = expected.get("trigger_zone")
             if not isinstance(actual_zone, Mapping) or not isinstance(expected_zone, Mapping):
@@ -8729,11 +8637,18 @@ def _validate_a3_provenance(output: Mapping[str, Any], snapshot_data: Mapping[st
             for actual_key, expected_key, reason in (
                 ("invalidation_level", "invalidation", "A3_INVALIDATION_PROVENANCE_MISMATCH"),
                 ("stop_distance_pct", "stop_distance_pct", "A3_STOP_DISTANCE_PROVENANCE_MISMATCH"),
-                ("first_resistance", "first_resistance", "A3_RESISTANCE_PROVENANCE_MISMATCH"),
                 ("reward_risk", "reward_risk", "A3_REWARD_RISK_PROVENANCE_MISMATCH"),
             ):
                 if not _same_number(item.get(actual_key), expected.get(expected_key)):
                     reasons.append(reason)
+            # Price-discovery trends legitimately have no historic overhead
+            # resistance.  In every other case the frozen value must match.
+            if not (
+                expected.get("price_discovery") is True
+                and item.get("first_resistance") is None
+                and expected.get("first_resistance") is None
+            ) and not _same_number(item.get("first_resistance"), expected.get("first_resistance")):
+                reasons.append("A3_RESISTANCE_PROVENANCE_MISMATCH")
             if snapshot_data.get("STRICT_AGENT_RULES") is True:
                 reasons.extend(_a3_factor_contract_reasons(symbol, snapshot_data))
                 scenarios = item.get("scenarios")
@@ -8749,13 +8664,20 @@ def _a3_factor_contract_reasons(symbol: str, snapshot_data: Mapping[str, Any]) -
     factors = snapshot_data.get("FACTOR_SNAPSHOT")
     factor = factors.get(symbol) if isinstance(factors, Mapping) else None
     frames = factor.get("timeframes") if isinstance(factor, Mapping) else None
-    if not isinstance(factor, Mapping) or factor.get("ready") is not True or not isinstance(frames, Mapping):
+    if not isinstance(factor, Mapping) or factor.get("a3_ready") is not True or not isinstance(frames, Mapping):
         return ["A3_FACTOR_SNAPSHOT_NOT_READY"]
     reasons: list[str] = []
-    for timeframe in ("weekly", "daily", "120m", "15m", "5m"):
+    # A3 owns only formal monthly/weekly/daily facts.  Intraday frames belong
+    # to A4 and can never block tomorrow's daily plan.
+    for timeframe in ("monthly", "weekly", "daily"):
         frame = frames.get(timeframe)
-        if not isinstance(frame, Mapping) or frame.get("ready") is not True:
+        if not isinstance(frame, Mapping) or not isinstance(frame.get("latest"), Mapping):
             reasons.append(f"A3_FACTOR_FRAME_NOT_READY:{timeframe}")
+            continue
+        # Monthly/weekly formal frames can be useful with fewer than 60 bars;
+        # their frame-level legacy ``ready`` flag still asks for MA60.  The
+        # independent top-level ``a3_ready`` contract owns that sufficiency.
+        if timeframe != "daily":
             continue
         if frame.get("ma_alignment") not in {
             "BULL_STACK", "BULL_PARTIAL", "ENTANGLED", "BEAR_PARTIAL", "BEAR_STACK"
@@ -8776,6 +8698,8 @@ def _canonicalize_a3_price_fields(
 
     result = dict(output)
     levels = snapshot_data.get("PRICE_LEVELS")
+    raw_contexts = snapshot_data.get("A3_DETERMINISTIC_CONTEXT")
+    contexts = raw_contexts if isinstance(raw_contexts, Mapping) else {}
     if not isinstance(levels, Mapping):
         return result, 0, 0
     count = 0
@@ -8793,6 +8717,8 @@ def _canonicalize_a3_price_fields(
             symbols = _scan_symbols(item.get("symbol"))
             symbol = next(iter(symbols)) if len(symbols) == 1 else ""
             expected = levels.get(symbol)
+            strategy_context = contexts.get(symbol)
+            strategy_context = strategy_context if isinstance(strategy_context, Mapping) else {}
             if not isinstance(expected, Mapping) or expected.get("available") is not True:
                 canonical_pool.append(item)
                 continue
@@ -8803,6 +8729,50 @@ def _canonicalize_a3_price_fields(
                 "first_resistance": expected.get("first_resistance"),
                 "reward_risk": expected.get("reward_risk"),
             }
+            for key in (
+                "strategy_profile",
+                "strategy_version",
+                "eligibility",
+                "candidate_origin",
+                "market_role",
+                "market_regime",
+                "theme_stage",
+                "monthly_state",
+                "monthly_partial_observation",
+                "weekly_closed_state",
+                "weekly_partial_observation",
+                "daily_state",
+                "daily_ma",
+                "daily_macd",
+                "daily_volume_state",
+                "relative_strength",
+                "entry_reference_zone",
+                "no_chase_price",
+                "price_discovery",
+                "daily_invalidation",
+                "plan_premises",
+                "a4_required_entry_rules",
+                "a4_exit_rules",
+                "plan_mode",
+                "plan_expiry",
+                "required_conditions",
+                "met_conditions",
+                "unmet_conditions",
+                "veto_conditions",
+                "strategy_facts",
+            ):
+                if key in strategy_context:
+                    replacements[key] = strategy_context.get(key)
+            if strategy_context.get("entry_reference_zone") is not None:
+                replacements["trigger_zone"] = strategy_context.get("entry_reference_zone")
+            if strategy_context.get("daily_invalidation") is not None:
+                replacements["invalidation_level"] = strategy_context.get("daily_invalidation")
+            if strategy_context.get("strategy_profile") is not None:
+                replacements["setup_type"] = strategy_context.get("strategy_profile")
+            if strategy_context.get("a4_required_entry_rules") is not None:
+                replacements["confirmation_conditions"] = strategy_context.get(
+                    "a4_required_entry_rules"
+                )
             factor_snapshot = snapshot_data.get("FACTOR_SNAPSHOT")
             factor = factor_snapshot.get(symbol) if isinstance(factor_snapshot, Mapping) else None
             if isinstance(factor, Mapping):
@@ -9130,19 +9100,44 @@ def _with_a3_deterministic_context(
     snapshot: FrozenInputSnapshot,
     gate: DeterministicGateResult,
 ) -> FrozenInputSnapshot:
-    """Persist A3's server-owned score and veto evidence for every pool."""
+    """Persist A3's server-owned strategy and condition evidence."""
 
     keys = (
         "symbol",
         "status",
-        "technical_score",
-        "technical_score_breakdown",
-        "technical_score_coverage",
-        "technical_score_authoritative",
+        "strategy_profile",
+        "strategy_version",
+        "eligibility",
+        "candidate_origin",
+        "market_role",
+        "market_regime",
+        "theme_stage",
+        "monthly_state",
+        "monthly_partial_observation",
+        "weekly_closed_state",
+        "weekly_partial_observation",
+        "daily_state",
+        "daily_ma",
+        "daily_macd",
+        "daily_volume_state",
+        "relative_strength",
+        "entry_reference_zone",
+        "no_chase_price",
+        "price_discovery",
+        "daily_invalidation",
+        "plan_premises",
+        "a4_required_entry_rules",
+        "a4_exit_rules",
+        "plan_mode",
+        "plan_expiry",
+        "required_conditions",
+        "met_conditions",
+        "unmet_conditions",
+        "veto_conditions",
+        "strategy_facts",
         "reward_risk",
         "stop_distance_pct",
         "minimum_reward_risk",
-        "minimum_technical_score",
         "maximum_stop_distance_pct",
         "price_levels_hash",
         "factor_snapshot_hash",
@@ -9159,6 +9154,33 @@ def _with_a3_deterministic_context(
         "context": context,
     })
     data = dict(snapshot.data)
+    raw_factors = data.get("FACTOR_SNAPSHOT")
+    if isinstance(raw_factors, Mapping):
+        bounded_factors: dict[str, Any] = {}
+        for symbol, raw_factor in raw_factors.items():
+            if not isinstance(raw_factor, Mapping):
+                continue
+            factor = dict(raw_factor)
+            frames = raw_factor.get("timeframes")
+            if isinstance(frames, Mapping):
+                factor["timeframes"] = {
+                    name: value
+                    for name, value in frames.items()
+                    if str(name) in {"monthly", "weekly", "daily"}
+                }
+            summary = raw_factor.get("technical_summary")
+            if isinstance(summary, Mapping):
+                summary_copy = dict(summary)
+                summary_frames = summary.get("timeframes")
+                if isinstance(summary_frames, Mapping):
+                    summary_copy["timeframes"] = {
+                        name: value
+                        for name, value in summary_frames.items()
+                        if str(name) in {"monthly", "weekly", "daily"}
+                    }
+                factor["technical_summary"] = summary_copy
+            bounded_factors[str(symbol)] = factor
+        data["FACTOR_SNAPSHOT"] = bounded_factors
     data["A3_DETERMINISTIC_CONTEXT"] = context
     return FrozenInputSnapshot(
         snapshot_id=f"{snapshot.snapshot_id}:a3-gate:{overlay_hash[:12]}",

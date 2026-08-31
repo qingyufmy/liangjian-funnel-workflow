@@ -389,6 +389,10 @@ export interface StageDetailPool {
 }
 
 export interface StageDetailPlan {
+  /** Deterministic A3 route selected before any optional model review. */
+  strategyProfile?: string | null;
+  /** Route eligibility, e.g. QUALIFIED, WATCH_ONLY, DATA_GAP or REJECTED. */
+  eligibility?: string | null;
   setupType?: string | null;
   planHash?: string | null;
   triggerZone?: { low?: number | null; high?: number | null } | null;
@@ -398,6 +402,8 @@ export interface StageDetailPlan {
   riskUnit?: string | number | null;
   firstResistance?: number | null;
   noChaseCondition?: string | null;
+  noChasePrice?: number | null;
+  priceDiscovery?: boolean | null;
   technicalScore?: number | null;
   counterTrendProbe?: boolean | null;
   overExtended?: boolean | null;
@@ -412,6 +418,10 @@ export interface StageDetailPlan {
   planId?: string | null;
   planExpiry?: string | null;
   confirmationConditions?: string[];
+  requiredConditions?: string[];
+  metConditions?: string[];
+  unmetConditions?: string[];
+  vetoConditions?: string[];
   scenarios?: unknown;
   timeframeStates?: Record<string, unknown>;
 }
@@ -520,6 +530,9 @@ export interface EffectiveEvent {
   effective?: boolean;
   name?: string | null;
   planId?: string | null;
+  strategyProfile?: string | null;
+  eligibility?: string | null;
+  reasonCodes?: string[];
   llmVeto?: boolean;
   plan?: MonitorPlan | null;
   simulation?: MonitorSimulation | null;
@@ -533,11 +546,18 @@ export interface MonitorPlan {
   status?: string | null;
   validFrom?: string | null;
   expiresAt?: string | null;
+  strategyProfile?: string | null;
+  eligibility?: string | null;
   setupType?: string | null;
   triggerLow?: number | null;
   triggerHigh?: number | null;
   stopLevel?: number | null;
   riskUnit?: string | number | null;
+  noChasePrice?: number | null;
+  requiredConditions?: string[];
+  metConditions?: string[];
+  unmetConditions?: string[];
+  vetoConditions?: string[];
   sourceRunId?: string | null;
   selectionReasons?: string[];
 }

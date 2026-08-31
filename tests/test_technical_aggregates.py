@@ -8,7 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 from liangjian_funnel.pipeline.factors import FactorEngine, OHLCVBar, TechnicalFactorSnapshot, TimeframeFactors
-from liangjian_funnel.pipeline.technical_aggregates import build_technical_aggregates
+from liangjian_funnel.pipeline.technical_aggregates import build_price_levels, build_technical_aggregates
 
 
 TZ = ZoneInfo("Asia/Shanghai")
@@ -158,6 +158,86 @@ def test_price_constraints_use_effective_regime_thresholds() -> None:
 
     assert price["planning_constraints"]["minimum_reward_risk"] == 2.5
     assert price["planning_constraints"]["max_stop_distance_pct"] == 0.04
+
+
+def test_price_planning_is_daily_only_and_ignores_minute_observation_changes() -> None:
+    rows = [
+        _daily_bar(index, close=100.0 + index, high=101.0 + index, low=99.0 + index)
+        for index in range(80)
+    ]
+    first_minute = [{
+        "symbol": "600519.SH",
+        "interval": "5m",
+        "bar_end": datetime(2026, 3, 21, 14, 55, tzinfo=TZ),
+        "open": 150,
+        "high": 151,
+        "low": 149,
+        "close": 150,
+        "volume": 1,
+        "amount": 150,
+    }]
+    second_minute = [{
+        "symbol": "600519.SH",
+        "interval": "5m",
+        "bar_end": datetime(2026, 3, 21, 14, 55, tzinfo=TZ),
+        "open": 50,
+        "high": 500,
+        "low": 1,
+        "close": 400,
+        "volume": 999999,
+        "amount": 999999,
+    }]
+    first = build_technical_aggregates(
+        _snapshot(daily=rows, minute=first_minute, as_of=datetime(2027, 1, 1, 15, tzinfo=TZ))
+    )["PRICE_LEVELS"]
+    second = build_technical_aggregates(
+        _snapshot(daily=rows, minute=second_minute, as_of=datetime(2027, 1, 1, 15, tzinfo=TZ))
+    )["PRICE_LEVELS"]
+
+    for key in (
+        "trigger_zone",
+        "invalidation",
+        "stop_distance_pct",
+        "first_resistance",
+        "reward_risk",
+        "max_chase_price",
+        "price_discovery",
+        "observation_target",
+        "planning_ready",
+    ):
+        assert first[key] == second[key]
+    assert first["planning_provenance"] == "DAILY_ONLY"
+    assert first["level_provenance"]["minute_inputs_affect_plan"] is False
+    assert first["recent_5m_high"] != second["recent_5m_high"]
+
+
+def test_price_discovery_trend_has_r_multiple_plan_without_resistance() -> None:
+    rows = [
+        _daily_bar(index, close=100.0 + index, high=101.0 + index, low=99.0 + index)
+        for index in range(255)
+    ]
+    price = build_price_levels(
+        _snapshot(daily=rows, as_of=datetime(2027, 1, 1, 15, tzinfo=TZ))
+    )
+
+    assert price["available"] is True
+    assert price["price_discovery"] is True
+    assert price["first_resistance"] is None
+    assert price["observation_target_multiple"] == 2.0
+    assert price["observation_target"] is not None
+    assert price["reward_risk"] is not None
+    assert price["reward_risk"] >= 2.0
+    assert price["max_chase"] == price["max_chase_price"]
+    assert price["planning_ready"] is True
+    assert price["planning_provenance"] == "DAILY_ONLY"
+
+    stricter = build_price_levels(
+        _snapshot(daily=rows, as_of=datetime(2027, 1, 1, 15, tzinfo=TZ)),
+        minimum_reward_risk=3.0,
+    )
+    assert stricter["observation_target_multiple"] == 3.0
+    assert stricter["reward_risk"] >= 3.0
+    assert stricter["planning_constraints"]["passes_reward_risk"] is True
 
 
 def test_malformed_ohlc_geometry_is_rejected_before_aggregation() -> None:

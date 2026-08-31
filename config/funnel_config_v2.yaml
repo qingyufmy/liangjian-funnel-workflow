@@ -481,60 +481,32 @@ agent_3:
   institutional_pool_role: P7_TACTICAL_TO_P8_DAILY_AND_P8_5_SHADOW
   core_watch_target: [5, 10]
   shadow_watch_target: [3, 8]
-  minimum_technical_score: 70
   minimum_reward_risk: 2.0
   max_stop_distance_pct: 0.06
-  max_atr_extension: 3.0
-  require_weekly_daily_120m_15m: true
+  strategy_version: a3-a4-three-strategy/1.0.0
+  decision_timeframes: [MONTHLY_CLOSED, WEEKLY_CLOSED, DAILY_CLOSED]
+  partial_period_role: OBSERVATION_ONLY
+  llm_permission: VETO_ONLY
+  one_strategy_per_symbol_per_day: true
+  allowed_strategy_profiles: [LEADER_INTRADAY, MA520_SWING, TREND_MA5]
+  secondary_watch_executable: false
 
-  moving_average_system:                    # ★ 核心技术框架
+  moving_average_system:
     enabled: true
     periods:
-      weekly:  [5, 20, 60]
-      daily:   [5, 20, 60]
-      m120:    [5, 20, 99, 128, 255]        # ★ 主框架
-      m15:     [5, 20, 60]
-      m5:      [5, 20, 99, 128, 255]        # ★ 触发精修
+      monthly: [5, 10, 20]
+      weekly:  [5, 10, 20, 60]
+      daily:   [5, 10, 20, 60]
     alignment_states: [BULL_STACK, BULL_PARTIAL, ENTANGLED,
                        BEAR_PARTIAL, BEAR_STACK]
-    max_ma_bias_pct: 0.12
-    entangled_downgrade_setups: [PLATFORM_BREAKOUT, BREAKOUT_RETEST]
-    entangled_downgrade_to: PROBE
-    below_m120_ma255_max_risk_unit: PROBE   # 逆势试仓，须显式标注
-    m120_regime_driver: MA_SYSTEM           # 120m 状态由均线主导判定
-    m5_role: CONFIRMATION_ONLY              # 5m 均线不可作独立买入依据
-    kline_requires_ma_context: true         # ★ 形态必须附均线位置
+    innovation_high_route: PRICE_DISCOVERY_TREND
   closed_bars_only: true
   support_touch_alone_is_buy: false
-
-  score_weights:
-    higher_timeframe_trend: 0.20
-    structure_quality: 0.20
-    volume_price: 0.15
-    relative_strength: 0.10
-    location_and_extension: 0.15
-    room_and_reward_risk: 0.15
-    liquidity: 0.05
-
-  allowed_setups:
-    - BREAKOUT_RETEST
-    - TREND_PULLBACK
-    - PLATFORM_BREAKOUT
-    - VOLUME_CONTRACTION_PULLBACK
-    - BOTTOM_REVERSAL_OBSERVATION
   hard_veto_states:
     - REGIME_UNKNOWN
     - MID_AIR
     - FAILED_BREAKOUT
     - DISTRIBUTION
-
-  required_confirmations:
-    - PRICE_WITHIN_TRIGGER_ZONE
-    - VWAP_RECLAIM_AND_HOLD
-    - FIVE_MIN_HIGHER_LOW
-    - SECTOR_NOT_WEAKENING
-    - NO_MARKET_SHOCK
-    - SPREAD_WITHIN_LIMIT
 
   risk_units:
     PROBE: 0.33
@@ -547,7 +519,7 @@ agent_3:
     days_after: 1
     action: FORCE_PROBE
 
-  scenario_completeness_required: true      # A/B/C/D 四情景缺一不可
+  scenario_completeness_required: true
 
 # ---------------------------------------------------------------------------
 # Agent 4

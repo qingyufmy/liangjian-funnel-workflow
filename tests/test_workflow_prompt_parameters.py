@@ -20,6 +20,9 @@ def test_prompt_parameters_are_derived_from_versioned_funnel_config() -> None:
     assert parameters["ROTATION_LOOKBACK_DAYS"] == config["market_regime"]["rotation_lookback_days"]
     assert parameters["LEADER_MIN_CRITERIA"] == config["agent_2"]["stock_selection"]["leader_min_criteria"]
     assert parameters["CLIMAX_NEW_ENTRY_POLICY"] == config["agent_2"]["climax_new_entry_policy"]
-    assert parameters["MAX_MA_BIAS"] == config["agent_3"]["moving_average_system"]["max_ma_bias_pct"]
-    assert parameters["REQUIRED_CONFIRMATIONS"] == config["agent_3"]["required_confirmations"]
-    assert parameters["TECHNICAL_SCORE_WEIGHTS"] == config["agent_3"]["score_weights"]
+    assert parameters["A3_STRATEGY_VERSION"] == config["agent_3"]["strategy_version"]
+    assert parameters["A3_ALLOWED_STRATEGIES"] == config["agent_3"]["allowed_strategy_profiles"]
+    assert parameters["A3_DECISION_TIMEFRAMES"] == config["agent_3"]["decision_timeframes"]
+    assert "MIN_TECHNICAL_SCORE" not in parameters
+    assert "TECHNICAL_SCORE_WEIGHTS" not in parameters
+    assert "REQUIRED_CONFIRMATIONS" not in parameters

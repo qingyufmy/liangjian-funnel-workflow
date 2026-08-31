@@ -125,6 +125,9 @@ def test_plan_publication_blocks_symbols_without_trade_permission(tmp_path):
                 "plan_id": "blocked-plan",
                 "symbol": "600519.SH",
                 "risk_unit": "STANDARD",
+                "strategy_profile": "TREND_MA5",
+                "eligibility": "QUALIFIED",
+                "review_status": "PASS",
                 "trigger_zone": {"low": 10, "high": 11},
                 "invalidation_level": 9,
             },
@@ -132,6 +135,9 @@ def test_plan_publication_blocks_symbols_without_trade_permission(tmp_path):
                 "plan_id": "allowed-plan",
                 "symbol": "000001.SZ",
                 "risk_unit": "STANDARD",
+                "strategy_profile": "MA520_SWING",
+                "eligibility": "QUALIFIED",
+                "review_status": "PASS",
                 "trigger_zone": {"low": 10, "high": 11},
                 "invalidation_level": 9,
             },
@@ -238,9 +244,12 @@ def test_plan_publication_allows_only_complete_secondary_probe(tmp_path):
             "MIN_TECHNICAL_SCORE": 70,
         },
     )
-    assert len(publication["created"]) == 1
-    assert store.list_execution_plans(lane_id="lane_1")[0]["symbol"] == "002957.SZ"
-    assert ("000001.SZ", "SECONDARY_NOT_PROBE") in {
+    assert publication["created"] == []
+    assert store.list_execution_plans(lane_id="lane_1") == ()
+    assert ("000001.SZ", "A3_SECONDARY_NON_EXECUTABLE") in {
+        (item.get("symbol"), item["reason"]) for item in publication["blocked"]
+    }
+    assert ("002957.SZ", "A3_SECONDARY_NON_EXECUTABLE") in {
         (item.get("symbol"), item["reason"]) for item in publication["blocked"]
     }
 
@@ -302,8 +311,8 @@ def test_secondary_probe_uses_stage_canonical_hash_when_base_snapshot_has_no_pri
             "MIN_TECHNICAL_SCORE": 70,
         },
     )
-    assert len(publication["created"]) == 1
-    assert store.list_execution_plans(lane_id="lane_1")[0]["symbol"] == "002957.SZ"
+    assert publication["created"] == []
+    assert store.list_execution_plans(lane_id="lane_1") == ()
 
 
 def test_a3_minute_cache_writes_are_serialized_but_fetches_overlap(monkeypatch):

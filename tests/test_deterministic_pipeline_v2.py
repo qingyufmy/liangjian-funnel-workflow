@@ -19,13 +19,16 @@ NOW = datetime(2026, 8, 27, 15, 10, tzinfo=ZoneInfo("Asia/Shanghai"))
 MODELS = ("deepseek-v4-pro-0813", "moonshotai/kimi-k3-free", "z-ai/glm-5.3-free")
 
 
-def _frame() -> dict:
+def _frame(*, daily: bool = False) -> dict:
     return {
         "ready": True,
+        "latest": {"close": 10.4, "low": 10.0, "closed": True},
         "ma_alignment": "BULL_STACK",
-        "ma_event": "NONE",
+        "ma_event": "GOLDEN_CROSS" if daily else "NONE",
         "ma_bias": {"close_vs_ma20_pct": 0.02},
-        "moving_averages": {"ma5": 11, "ma20": 10},
+        "moving_averages": {"ma5": 10.3, "ma10": 10.2, "ma20": 10.0, "ma60": 9.5},
+        "previous_moving_averages": {"ma5": 10.2, "ma10": 10.1, "ma20": 9.9, "ma60": 9.4},
+        "ma_slopes": {"ma5": 0.01, "ma10": 0.01, "ma20": 0.01, "ma60": 0.01},
     }
 
 
@@ -66,7 +69,16 @@ def _snapshot(symbol_count: int = 8) -> dict:
         }
         factors[symbol] = {
             "ready": True,
-            "timeframes": {name: _frame() for name in ("weekly", "daily", "120m", "15m", "5m")},
+            "a3_ready": True,
+            "a3_reasons": [],
+            "timeframes": {
+                "monthly": _frame(),
+                "weekly": _frame(),
+                "daily": _frame(daily=True),
+                "120m": _frame(),
+                "15m": _frame(),
+                "5m": _frame(),
+            },
             "technical_summary": {"relative_strength_score": 80 - index},
         }
         levels[symbol] = {
@@ -76,6 +88,7 @@ def _snapshot(symbol_count: int = 8) -> dict:
             "stop_distance_pct": 0.05,
             "first_resistance": 12,
             "reward_risk": 3.0,
+            "no_chase_price": 10.8,
         }
         flags[symbol] = {"available": True, "tradable": True, "exclusion_reasons": []}
     return {
@@ -195,7 +208,7 @@ def test_a2_and_a3_never_expand_the_upstream_pool():
     assert set(a3.review_symbols).issubset(set(a2.review_symbols))
 
 
-def test_a3_server_score_uses_frozen_factors_and_enforces_effective_risk_floor():
+def test_a3_server_strategy_uses_frozen_factors_and_enforces_effective_risk_floor():
     snapshot = _snapshot(2)
     snapshot["TECHNICAL_SCORE_WEIGHTS"] = {
         "higher_timeframe_trend": 0.20,
@@ -240,10 +253,9 @@ def test_a3_server_score_uses_frozen_factors_and_enforces_effective_risk_floor()
     weak = next(item for item in result.decisions if item["symbol"] == weak_symbol)
 
     assert ready["status"] == "REVIEW_CANDIDATE"
-    assert ready["technical_score_authoritative"] is True
-    assert ready["technical_score"] >= 70
-    assert ready["technical_score_coverage"] == 1.0
-    assert set(ready["technical_score_breakdown"]) == set(snapshot["TECHNICAL_SCORE_WEIGHTS"])
+    assert ready["strategy_profile"] == "TREND_MA5"
+    assert ready["eligibility"] == "QUALIFIED"
+    assert "technical_score" not in ready
     assert weak["status"] == "HARD_REJECT"
     assert "A3_REWARD_RISK_BELOW_MINIMUM" in weak["reason_codes"]
 

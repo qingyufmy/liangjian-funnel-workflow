@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ..data.mootdx import MinuteBar
 from ..reporting import atomic_write_text
+from .strategies import STRATEGY_PROFILES, evaluate_strategy
 from .state import EFFECTIVE_ACTIONS, MonitorAction, PersistenceError, RuntimeStore
 
 
@@ -84,6 +85,8 @@ class MonitorEngine:
         gap_detected: bool = False,
         snapshot_contiguous: bool = True,
         gap: bool | None = None,
+        bar_histories: Mapping[str, tuple[MinuteBar, ...] | list[MinuteBar]] | None = None,
+        market_contexts: Mapping[str, Mapping[str, Any]] | None = None,
     ) -> MonitorBatchResult:
         """Process one frozen minute; no historical catch-up is performed."""
 
@@ -211,6 +214,163 @@ class MonitorEngine:
                         "HARD_STOP",
                     )
                 )
+                continue
+
+            strategy_profile = str(payload.get("strategy_profile") or "").strip().upper()
+            if strategy_profile in STRATEGY_PROFILES:
+                history_map = bar_histories or {}
+                history = (
+                    history_map.get(symbol)
+                    or history_map.get(symbol.split(".")[0])
+                    or [bar]
+                )
+                context_map = market_contexts or {}
+                strategy_result = evaluate_strategy(
+                    payload,
+                    history,
+                    now=minute,
+                    position=position,
+                    market_context=(
+                        context_map.get(symbol)
+                        or context_map.get(symbol.split(".")[0])
+                    ),
+                ).model_dump(mode="json")
+                action = str(strategy_result.get("action") or MonitorAction.NO_ACTION.value)
+                reason_codes = strategy_result.get("reason_codes")
+                reason = (
+                    str(reason_codes[0])
+                    if isinstance(reason_codes, (list, tuple)) and reason_codes
+                    else "STRATEGY_WAITING"
+                )
+                key = (lane_id, plan_id)
+                trigger_record = {
+                    "plan_id": plan_id,
+                    "symbol": symbol,
+                    "strategy_profile": strategy_profile,
+                    "strategy_state": strategy_result.get("state"),
+                    "action_candidate": action,
+                    "reason_codes": reason_codes or [],
+                    "met_conditions": strategy_result.get("met_conditions") or [],
+                    "unmet_conditions": strategy_result.get("unmet_conditions") or [],
+                    "veto_conditions": strategy_result.get("veto_conditions") or [],
+                    "closed_5m_end": strategy_result.get("closed_5m_end"),
+                    "closed_15m_end": strategy_result.get("closed_15m_end"),
+                    "trigger_pass": action in {
+                        MonitorAction.BUY_SIGNAL.value,
+                        MonitorAction.ADD_SIGNAL.value,
+                        MonitorAction.SELL_SIGNAL.value,
+                        MonitorAction.REDUCE_SIGNAL.value,
+                        MonitorAction.FORCED_RISK_EXIT.value,
+                    },
+                    "eligible": action in {
+                        MonitorAction.BUY_SIGNAL.value,
+                        MonitorAction.ADD_SIGNAL.value,
+                    },
+                }
+                trigger_results.append(trigger_record)
+                if action == MonitorAction.DATA_BLOCK.value:
+                    self._reset_confirmation(lane_id, plan_id)
+                    if reason in {"NO_CLOSED_5M", "NO_CLOSED_15M"}:
+                        events.append(self._emit_internal(
+                            lane_id, minute, minute_snapshot_id,
+                            MonitorAction.START_CONFIRMATION.value,
+                            "A4_SESSION_WARMUP",
+                            plan_id, symbol, strategy_result=strategy_result,
+                        ))
+                        continue
+                    events.append(self._emit_effective(
+                        lane_id, plan, minute, minute_snapshot_id,
+                        MonitorAction.DATA_BLOCK.value, reason,
+                        strategy_result=strategy_result,
+                    ))
+                    continue
+                if str(strategy_result.get("state") or "") == "PLAN_INVALIDATED":
+                    self._reset_confirmation(lane_id, plan_id)
+                    events.append(self._emit_effective(
+                        lane_id, plan, minute, minute_snapshot_id,
+                        MonitorAction.PLAN_INVALIDATED.value, reason,
+                        strategy_result=strategy_result,
+                    ))
+                    continue
+                if action in {MonitorAction.NO_ACTION.value, MonitorAction.START_CONFIRMATION.value}:
+                    self._reset_confirmation(lane_id, plan_id)
+                    events.append(self._emit_internal(
+                        lane_id, minute, minute_snapshot_id, action, reason,
+                        plan_id, symbol, strategy_result=strategy_result,
+                    ))
+                    continue
+                if self._resolved_trigger_episode(
+                    durable_events,
+                    plan_id=plan_id,
+                    minute=minute,
+                    action=action,
+                ) or key in self._condition_active:
+                    events.append(self._emit_internal(
+                        lane_id, minute, minute_snapshot_id,
+                        MonitorAction.NO_ACTION.value, "SIGNAL_ALREADY_EMITTED",
+                        plan_id, symbol, strategy_result=strategy_result,
+                    ))
+                    continue
+                if action == MonitorAction.FORCED_RISK_EXIT.value:
+                    if position is None:
+                        self._reset_confirmation(lane_id, plan_id)
+                        events.append(self._emit_effective(
+                            lane_id, plan, minute, minute_snapshot_id,
+                            MonitorAction.PLAN_INVALIDATED.value,
+                            "HARD_STOP_BEFORE_ENTRY",
+                            strategy_result=strategy_result,
+                        ))
+                        continue
+                    self._condition_active.add(key)
+                    events.append(self._emit_effective(
+                        lane_id, plan, minute, minute_snapshot_id,
+                        action, reason, strategy_result=strategy_result,
+                    ))
+                    continue
+                if action in {MonitorAction.SELL_SIGNAL.value, MonitorAction.REDUCE_SIGNAL.value}:
+                    if position is None or int(position.get("sellable_qty", 0)) <= 0:
+                        events.append(self._emit_internal(
+                            lane_id, minute, minute_snapshot_id,
+                            MonitorAction.NO_ACTION.value,
+                            "EXIT_WITHOUT_SELLABLE_POSITION",
+                            plan_id, symbol, strategy_result=strategy_result,
+                        ))
+                        continue
+                    self._condition_active.add(key)
+                    events.append(self._emit_effective(
+                        lane_id, plan, minute, minute_snapshot_id,
+                        action, reason, strategy_result=strategy_result,
+                    ))
+                    continue
+                if action == MonitorAction.BUY_SIGNAL.value and position is not None:
+                    events.append(self._emit_internal(
+                        lane_id, minute, minute_snapshot_id,
+                        MonitorAction.NO_ACTION.value, "POSITION_ALREADY_OPEN",
+                        plan_id, symbol, strategy_result=strategy_result,
+                    ))
+                    continue
+                if action == MonitorAction.ADD_SIGNAL.value and position is None:
+                    events.append(self._emit_internal(
+                        lane_id, minute, minute_snapshot_id,
+                        MonitorAction.NO_ACTION.value, "ADD_WITHOUT_POSITION",
+                        plan_id, symbol, strategy_result=strategy_result,
+                    ))
+                    continue
+                if not self._buy_allowed(minute):
+                    events.append(self._emit_internal(
+                        lane_id, minute, minute_snapshot_id,
+                        MonitorAction.NO_ACTION.value, "BUY_TIME_CUTOFF",
+                        plan_id, symbol, strategy_result=strategy_result,
+                    ))
+                    continue
+                pending_veto.append({
+                    "plan": plan,
+                    "plan_id": plan_id,
+                    "symbol": symbol,
+                    "action": action,
+                    "key": key,
+                    "strategy_result": strategy_result,
+                })
                 continue
 
             trigger = self._deterministic_trigger(payload, bar)
@@ -362,7 +522,16 @@ class MonitorEngine:
             veto = bool(vetoes.get(plan_id, False))
             action = MonitorAction.LLM_VETO.value if veto else item["action"]
             self._condition_active.add(item["key"])
-            events.append(self._emit_effective(lane_id, plan, minute, minute_snapshot_id, action, "LLM_VETO" if veto else "DETERMINISTIC_TRIGGER_PASS", llm_veto=veto))
+            events.append(self._emit_effective(
+                lane_id,
+                plan,
+                minute,
+                minute_snapshot_id,
+                action,
+                "LLM_VETO" if veto else "DETERMINISTIC_TRIGGER_PASS",
+                llm_veto=veto,
+                strategy_result=item.get("strategy_result"),
+            ))
         return MonitorBatchResult(
             lane_id=lane_id,
             minute_snapshot_id=minute_snapshot_id,
@@ -532,6 +701,8 @@ class MonitorEngine:
         reason: str,
         plan_id: str | None = None,
         symbol: str | None = None,
+        *,
+        strategy_result: Mapping[str, Any] | None = None,
     ) -> MonitorEvent:
         key = f"internal:{lane_id}:{plan_id or '-'}:{minute.isoformat()}:{action}:{reason}"
         self.store.record_monitor_event(
@@ -541,7 +712,12 @@ class MonitorEngine:
             action=action,
             reason_code=reason,
             effective=False,
-            payload={"minute_snapshot_id": snapshot_id, "plan_id": plan_id, "symbol": symbol},
+            payload={
+                "minute_snapshot_id": snapshot_id,
+                "plan_id": plan_id,
+                "symbol": symbol,
+                "strategy": dict(strategy_result) if isinstance(strategy_result, Mapping) else None,
+            },
         )
         return MonitorEvent(lane_id=lane_id, plan_id=plan_id, symbol=symbol, minute_end=minute, action=action, reason_code=reason)
 
@@ -556,6 +732,7 @@ class MonitorEngine:
         *,
         llm_veto: bool = False,
         diagnostic_code: str | None = None,
+        strategy_result: Mapping[str, Any] | None = None,
     ) -> MonitorEvent:
         plan_id = str(plan["plan_id"])
         symbol = str(plan["symbol"])
@@ -575,6 +752,7 @@ class MonitorEngine:
                 "symbol": symbol,
                 "llm_veto": bool(llm_veto),
                 "diagnostic_code": diagnostic_code,
+                "strategy": dict(strategy_result) if isinstance(strategy_result, Mapping) else None,
             },
         )
         if not inserted:

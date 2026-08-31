@@ -776,7 +776,7 @@ def test_stage_execution_budget_keeps_a1_broad_and_uses_downstream_regime_caps()
     a3 = _stage_execution_budget("A3", 20, regime)
     assert "approved pool <= 20; secondary/watch pool <= 20" in a1
     assert "approved pool <= 12; secondary/watch pool <= 20" in a2
-    assert "approved pool <= 5; secondary/watch pool <= 3" in a3
+    assert "approved pool <= 20; secondary/watch pool <= 20" in a3
     assert "business_exposure with revenue_exposure_pct" in a1
     assert "identifiability_score, identifiability_breakdown" in a2
     assert "Every supplied symbol must appear exactly once" in a2
@@ -1018,9 +1018,9 @@ def test_institutional_scale_funnel_keeps_1000_a1_200_a2_then_filters_in_a3(tmp_
         }
         assert lane.stages[1].output["analysis_summary"]["pool_target_underfilled_by"] == 0
         assert lane.stages[2].diagnostics["pool_counts"] == {
-            "core_watch_pool": 12,
-            "secondary_watch_pool": 8,
-            "rejected_candidates": 180,
+            "core_watch_pool": 200,
+            "secondary_watch_pool": 0,
+            "rejected_candidates": 0,
         }
 
 
@@ -1623,13 +1623,15 @@ def test_a3_lineage_locks_all_partitions_to_a2_upstream_and_origin_map():
         "A3_DETERMINISTIC_CONTEXT": {
             "600001.SH": {
                 "status": "REVIEW_CANDIDATE",
-                "technical_score": 82.5,
-                "technical_score_breakdown": {"higher_timeframe_trend": 90},
-                "technical_score_coverage": 1.0,
+                "strategy_profile": "TREND_MA5",
+                "eligibility": "QUALIFIED",
+                "required_conditions": ["MONTH_CLOSED", "WEEK_CLOSED"],
+                "met_conditions": ["MONTH_CLOSED", "WEEK_CLOSED"],
+                "unmet_conditions": [],
+                "veto_conditions": [],
                 "reward_risk": 2.8,
                 "stop_distance_pct": 0.04,
                 "minimum_reward_risk": 2.5,
-                "minimum_technical_score": 70,
                 "maximum_stop_distance_pct": 0.06,
                 "price_levels_hash": "p" * 64,
                 "factor_snapshot_hash": "f" * 64,
@@ -1655,7 +1657,9 @@ def test_a3_lineage_locks_all_partitions_to_a2_upstream_and_origin_map():
         assert item["parent_candidate_id"] == "a1:600001.SH"
         assert item["candidate_origin"] == "FOCUS"
         assert item["lineage_status"] == "COMPLETE"
-        assert item["deterministic_technical_score"] == 82.5
+        assert item["deterministic_strategy_profile"] == "TREND_MA5"
+        assert item["deterministic_eligibility"] == "QUALIFIED"
+        assert item["deterministic_met_conditions"] == ["MONTH_CLOSED", "WEEK_CLOSED"]
         assert item["deterministic_gate_status"] == "REVIEW_CANDIDATE"
         assert item["deterministic_price_evidence"]["minimum_reward_risk"] == 2.5
 
@@ -2070,13 +2074,9 @@ def test_a3_secondary_probe_missing_score_breakdown_is_retryable_not_silent_no_e
             "liquidity": 0.05,
         }
     }
-    assert _a3_secondary_probe_contract_reasons(output, snapshot) == [
-        "A3_SECONDARY_PROBE_FIELDS_MISSING"
-    ]
+    assert _a3_secondary_probe_contract_reasons(output, snapshot) == []
     output["secondary_watch_pool"][0]["score_breakdown"] = {}
-    assert _a3_secondary_probe_contract_reasons(output, snapshot) == [
-        "A3_SCORE_BREAKDOWN_MISSING"
-    ]
+    assert _a3_secondary_probe_contract_reasons(output, snapshot) == []
 
 
 def test_a3_global_pool_limits_are_applied_after_batch_merge():
@@ -2088,10 +2088,12 @@ def test_a3_global_pool_limits_are_applied_after_batch_merge():
         {"core_watch_pool": core, "secondary_watch_pool": [], "rejected_candidates": []},
         {"REGIME_PARAM_SET": {"agent_3": {"core_watch_max": 2, "total_watch_max": 3}}},
     )
-    assert changed == 3
-    assert [item["symbol"] for item in limited["core_watch_pool"]] == ["600700.SH", "600701.SH"]
-    assert [item["symbol"] for item in limited["secondary_watch_pool"]] == ["600702.SH"]
-    assert {item["symbol"] for item in limited["rejected_candidates"]} == {"600703.SH", "600704.SH"}
+    assert changed == 0
+    assert [item["symbol"] for item in limited["core_watch_pool"]] == [
+        "600700.SH", "600701.SH", "600702.SH", "600703.SH", "600704.SH"
+    ]
+    assert limited["secondary_watch_pool"] == []
+    assert limited["rejected_candidates"] == []
 
 
 def test_server_threshold_policy_demotes_low_theme_score_and_rejects_bad_a3_payoff():
@@ -2130,15 +2132,22 @@ def test_server_threshold_policy_demotes_low_theme_score_and_rejects_bad_a3_payo
             "secondary_watch_pool": [],
             "rejected_candidates": [],
         },
-        "A3",
-        {},
-    )
-    assert a3_changed == 2
-    assert a3["core_watch_pool"] == []
-    assert a3["rejected_candidates"][0]["reason_codes"] == ["A3_REWARD_RISK_BELOW_MINIMUM"]
+            "A3",
+            {
+                "DETERMINISTIC_RESEARCH_V2_ENABLED": True,
+                "MIN_REWARD_RISK": 2.0,
+                "A3_DETERMINISTIC_CONTEXT": {
+                    "600183.SH": {"eligibility": "QUALIFIED", "strategy_profile": "TREND_MA5"},
+                    "300502.SZ": {"eligibility": "QUALIFIED", "strategy_profile": "MA520_SWING"},
+                },
+            },
+        )
+    assert a3_changed == 1
+    assert [item["symbol"] for item in a3["core_watch_pool"]] == ["300502.SZ"]
     assert a3["secondary_watch_pool"][0]["risk_unit"] == "NO_ENTRY"
-    assert "A3_TECHNICAL_SCORE_BELOW_MINIMUM" in a3["secondary_watch_pool"][0]["reason_codes"]
-    assert a3["analysis_summary"]["pool_counts"]["core_watch_pool"] == 0
+    assert "A3_REWARD_RISK_BELOW_MINIMUM" in a3["secondary_watch_pool"][0]["reason_codes"]
+    assert "A3_TECHNICAL_SCORE_BELOW_MINIMUM" not in a3["secondary_watch_pool"][0]["reason_codes"]
+    assert a3["analysis_summary"]["pool_counts"]["core_watch_pool"] == 1
 
 
 def test_a1_partition_reads_only_declared_symbol_not_evidence_references():

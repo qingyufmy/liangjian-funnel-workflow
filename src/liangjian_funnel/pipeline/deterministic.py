@@ -22,6 +22,7 @@ from .bottleneck import (
 )
 from .business_exposure import extract_business_exposure_facts
 from .feature_store import content_hash
+from .a3_strategy import Eligibility, evaluate_a3_strategy
 
 
 PIPELINE_MODE = "deterministic_v2"
@@ -1848,9 +1849,31 @@ def _has_business_evidence(item: Mapping[str, Any]) -> bool:
 
 
 def screen_a3(snapshot: Mapping[str, Any], a2_output: Mapping[str, Any]) -> DeterministicGateResult:
-    """Fail closed on missing server-computed technical contracts before A3."""
+    """Route A2 candidates by explicit daily strategy conditions.
+
+    A3 has no weighted technical score.  Only a ``QUALIFIED`` deterministic
+    route is sent to the veto-only model review; WATCH/REJECTED/DATA_GAP rows
+    remain visible without entering the executable plan path.
+    """
 
     rows = _mapping_list(a2_output.get("focus_pool"))
+    if snapshot.get("DETERMINISTIC_RESEARCH_V2_ENABLED") is not True:
+        # Historical/legacy replay fixtures predate the A3 strategy contract.
+        # Keep their model-review scope intact, but do not invent a strategy,
+        # eligibility or executable plan.  Production deterministic_v2 always
+        # takes the explicit route below.
+        legacy = tuple({
+            "symbol": symbol,
+            "stage": "A3_LEGACY_MODEL_REVIEW",
+            "status": "REVIEW_CANDIDATE",
+            "sent_to_llm": True,
+            "reason_codes": ["LEGACY_A3_STRATEGY_CONTEXT_UNAVAILABLE"],
+        } for item in rows if (symbol := _symbol(item.get("symbol"))))
+        return DeterministicGateResult(
+            stage="A3_LEGACY_MODEL_REVIEW",
+            decisions=legacy,
+            review_symbols=tuple(str(item["symbol"]) for item in legacy),
+        )
     factors = snapshot.get("FACTOR_SNAPSHOT")
     factors = factors if isinstance(factors, Mapping) else {}
     levels = snapshot.get("PRICE_LEVELS")
@@ -1861,9 +1884,14 @@ def screen_a3(snapshot: Mapping[str, Any], a2_output: Mapping[str, Any]) -> Dete
     kline_patterns = kline_patterns if isinstance(kline_patterns, Mapping) else {}
     a2_context = snapshot.get("A2_BOTTLENECK_CONTEXT")
     a2_context = a2_context if isinstance(a2_context, Mapping) else {}
-    minimum_technical = _number(snapshot.get("MIN_TECHNICAL_SCORE")) or 70.0
-    minimum_reward_risk = _number(snapshot.get("MIN_REWARD_RISK")) or 2.0
-    maximum_stop = _number(snapshot.get("MAX_STOP_DISTANCE")) or 0.06
+    raw_regime = snapshot.get("MARKET_REGIME_SNAPSHOT")
+    market_regime = (
+        str(raw_regime.get("regime") or raw_regime.get("state") or raw_regime.get("market_regime") or "")
+        if isinstance(raw_regime, Mapping)
+        else str(raw_regime or "")
+    )
+    raw_permissions = snapshot.get("SECTOR_PERMISSIONS")
+    permissions = raw_permissions if isinstance(raw_permissions, Mapping) else {}
     source_hashes = _source_hashes(snapshot)
     decisions: list[dict[str, Any]] = []
     for item in rows:
@@ -1880,62 +1908,67 @@ def screen_a3(snapshot: Mapping[str, Any], a2_output: Mapping[str, Any]) -> Dete
         kline = kline if isinstance(kline, Mapping) else {}
         context = a2_context.get(symbol)
         context = context if isinstance(context, Mapping) else {}
-        reasons: list[str] = []
-        if factor.get("ready") is not True:
-            reasons.append("A3_TECHNICAL_FACTORS_NOT_READY")
-        if price_level.get("available") is False or not price_level:
-            reasons.append("A3_PRICE_LEVELS_NOT_READY")
-        if flags.get("tradable") is not True:
-            reasons.append("A3_SYMBOL_NOT_TRADABLE")
-        technical = _deterministic_a3_score(
-            snapshot,
+        theme = str(item.get("theme_id") or item.get("primary_theme") or "")
+        raw_permission = permissions.get(symbol) or permissions.get(theme)
+        sector_permission = (
+            str(raw_permission.get("permission") or raw_permission.get("state") or "")
+            if isinstance(raw_permission, Mapping)
+            else str(raw_permission or "")
+        )
+        strategy = evaluate_a3_strategy(
+            item,
             factor=factor,
-            price_level=price_level,
+            price_levels=price_level,
+            tradability=flags,
             kline=kline,
             a2_context=context,
-        )
-        score = technical.get("score")
+            market_regime=market_regime or None,
+            sector_permission=sector_permission or None,
+        ).model_dump(mode="json")
+        eligibility = str(strategy["eligibility"])
+        minimum_reward_risk = _number(snapshot.get("MIN_REWARD_RISK")) or 2.0
+        maximum_stop_distance = _number(snapshot.get("MAX_STOP_DISTANCE")) or 0.06
         reward_risk = _number(price_level.get("reward_risk"))
         stop_distance = _number(price_level.get("stop_distance_pct"))
-        if price_level and price_level.get("available") is not False:
-            if reward_risk is None:
-                reasons.append("A3_REWARD_RISK_NOT_READY")
-            elif reward_risk < minimum_reward_risk:
-                reasons.append("A3_REWARD_RISK_BELOW_MINIMUM")
-            if stop_distance is None or stop_distance <= 0 or stop_distance > maximum_stop:
-                reasons.append("A3_STOP_DISTANCE_OUTSIDE_LIMIT")
-        if technical.get("authoritative") is True:
-            if technical.get("coverage", 0.0) < 0.70:
-                reasons.append("A3_TECHNICAL_SCORE_COVERAGE_INSUFFICIENT")
-            elif score is None or float(score) < minimum_technical:
-                reasons.append("A3_TECHNICAL_SCORE_BELOW_MINIMUM")
-        labels = kline.get("labels")
-        if isinstance(labels, Sequence) and not isinstance(labels, (str, bytes, bytearray)):
-            if "FAILED_BREAKOUT_20" in {str(value).upper() for value in labels}:
-                reasons.append("A3_FAILED_BREAKOUT")
-        readiness_score = _technical_readiness_score(factor, price_level, flags)
-        status = "REVIEW_CANDIDATE" if not reasons else "HARD_REJECT"
+        risk_reasons: list[str] = []
+        if eligibility == Eligibility.QUALIFIED.value:
+            if reward_risk is None or reward_risk < minimum_reward_risk:
+                risk_reasons.append("A3_REWARD_RISK_BELOW_MINIMUM")
+            if stop_distance is None or stop_distance <= 0 or stop_distance > maximum_stop_distance:
+                risk_reasons.append("A3_STOP_DISTANCE_OUTSIDE_LIMIT")
+        if risk_reasons:
+            eligibility = Eligibility.REJECTED.value
+            strategy["eligibility"] = eligibility
+            strategy["strategy_profile"] = "NO_NEXT_DAY_PLAN"
+            strategy["reason_codes"] = list(dict.fromkeys([
+                *strategy.get("reason_codes", []),
+                *risk_reasons,
+            ]))
+            strategy["veto_conditions"] = list(dict.fromkeys([
+                *strategy.get("veto_conditions", []),
+                *risk_reasons,
+            ]))
+        status = {
+            Eligibility.QUALIFIED.value: "REVIEW_CANDIDATE",
+            Eligibility.WATCH.value: "LOCAL_MONITOR",
+            Eligibility.DATA_GAP.value: "DATA_GAP",
+            Eligibility.REJECTED.value: "HARD_REJECT",
+        }[eligibility]
         decisions.append({
+            **strategy,
             "symbol": symbol,
             "name": item.get("company_name") or item.get("name"),
             "candidate_origin": item.get("candidate_origin") or "FOCUS",
             "stage": "A3_LOCAL_TECHNICAL",
             "status": status,
-            "score": round(float(score), 4) if score is not None else round(readiness_score, 4),
-            "technical_score": round(float(score), 4) if score is not None else None,
-            "technical_score_breakdown": technical.get("breakdown", {}),
-            "technical_score_coverage": technical.get("coverage"),
-            "technical_score_authoritative": technical.get("authoritative") is True,
             "reward_risk": reward_risk,
             "stop_distance_pct": stop_distance,
             "minimum_reward_risk": minimum_reward_risk,
-            "minimum_technical_score": minimum_technical,
-            "maximum_stop_distance_pct": maximum_stop,
+            "maximum_stop_distance_pct": maximum_stop_distance,
             "price_levels_hash": content_hash(price_level) if price_level else None,
             "factor_snapshot_hash": content_hash(factor) if factor else None,
             "theme_id": item.get("theme_id"),
             "node_id": item.get("industry_chain_node"),
-            "reason_codes": reasons,
             "sent_to_llm": status == "REVIEW_CANDIDATE",
             "feature_version": FEATURE_VERSION,
             "source_hashes": source_hashes,
@@ -1945,146 +1978,9 @@ def screen_a3(snapshot: Mapping[str, Any], a2_output: Mapping[str, Any]) -> Dete
         stage="A3_LOCAL_TECHNICAL",
         decisions=tuple(decisions),
         review_symbols=tuple(str(item["symbol"]) for item in decisions if item["status"] == "REVIEW_CANDIDATE"),
-        monitor_symbols=(),
-        rejected_symbols=tuple(str(item["symbol"]) for item in decisions if item["status"] == "HARD_REJECT"),
+        monitor_symbols=tuple(str(item["symbol"]) for item in decisions if item["status"] == "LOCAL_MONITOR"),
+        rejected_symbols=tuple(str(item["symbol"]) for item in decisions if item["status"] in {"HARD_REJECT", "DATA_GAP"}),
     )
-
-
-def _deterministic_a3_score(
-    snapshot: Mapping[str, Any],
-    *,
-    factor: Mapping[str, Any],
-    price_level: Mapping[str, Any],
-    kline: Mapping[str, Any],
-    a2_context: Mapping[str, Any],
-) -> dict[str, Any]:
-    """Compute the documented A3 factor score from frozen numeric facts.
-
-    The model may explain or veto a setup, but it does not own these seven
-    configured factor values.  Missing factors are omitted from the weighted
-    denominator and surfaced through ``coverage``; they are never filled with
-    invented zeros.
-    """
-
-    raw_weights = snapshot.get("TECHNICAL_SCORE_WEIGHTS")
-    if not isinstance(raw_weights, Mapping) or not raw_weights:
-        return {"score": None, "breakdown": {}, "coverage": 0.0, "authoritative": False}
-    weights = {str(key): _number(value) for key, value in raw_weights.items()}
-    if (
-        any(value is None or value <= 0 for value in weights.values())
-        or abs(sum(float(value) for value in weights.values() if value is not None) - 1.0) > 1e-6
-    ):
-        return {"score": None, "breakdown": {}, "coverage": 0.0, "authoritative": False}
-
-    frames = factor.get("timeframes")
-    frames = frames if isinstance(frames, Mapping) else {}
-    alignments = [
-        _alignment_score(frames.get(name))
-        for name in ("weekly", "daily", "120m")
-    ]
-    higher_timeframe = _mean_available(alignments)
-
-    daily = frames.get("daily")
-    daily_alignment = _alignment_score(daily)
-    structure = daily_alignment
-    labels = kline.get("labels")
-    label_values = {
-        str(value).upper()
-        for value in labels
-    } if isinstance(labels, Sequence) and not isinstance(labels, (str, bytes, bytearray)) else set()
-    breakout = kline.get("breakout_20")
-    if isinstance(breakout, Mapping) and breakout.get("up") is True:
-        structure = min(100.0, (structure if structure is not None else 50.0) + 15.0)
-    if "BULLISH_ENGULFING" in label_values:
-        structure = min(100.0, (structure if structure is not None else 50.0) + 10.0)
-    if "FAILED_BREAKOUT_20" in label_values:
-        structure = 0.0
-
-    volume_percentile = _number(kline.get("volume_percentile_60"))
-    if volume_percentile is not None and 0.0 <= volume_percentile <= 1.0:
-        volume_percentile *= 100.0
-    direction = str(kline.get("direction") or "").upper()
-    direction_score = {"BULLISH": 80.0, "DOJI": 50.0, "BEARISH": 25.0}.get(direction)
-    volume_price = _mean_available((volume_percentile, direction_score))
-
-    factor_scores = a2_context.get("a2_factor_scores")
-    factor_scores = factor_scores if isinstance(factor_scores, Mapping) else {}
-    relative_row = factor_scores.get("relative_strength")
-    relative_row = relative_row if isinstance(relative_row, Mapping) else {}
-    relative_strength = _number(relative_row.get("score"))
-    role_breakdown = a2_context.get("role_breakdown")
-    role_breakdown = role_breakdown if isinstance(role_breakdown, Mapping) else {}
-    if relative_strength is None:
-        relative_strength = _number(role_breakdown.get("relative_strength"))
-    liquidity = _number(role_breakdown.get("liquidity_capacity"))
-
-    positive_biases: list[float] = []
-    for name in ("daily", "120m", "5m"):
-        frame = frames.get(name)
-        bias = frame.get("ma_bias") if isinstance(frame, Mapping) else None
-        if not isinstance(bias, Mapping):
-            continue
-        for key in ("close_vs_ma20_pct", "close_vs_ma99_pct"):
-            value = _number(bias.get(key))
-            if value is not None and value > 0:
-                positive_biases.append(value)
-    extension = max(positive_biases, default=0.0)
-    location_extension = (
-        100.0 if extension <= 0.03
-        else 85.0 if extension <= 0.06
-        else 65.0 if extension <= 0.12
-        else 35.0 if extension <= 0.20
-        else 10.0
-    )
-    reward_risk = _number(price_level.get("reward_risk"))
-    room_reward = min(100.0, max(0.0, reward_risk / 3.0 * 100.0)) if reward_risk is not None else None
-
-    components: dict[str, float | None] = {
-        "higher_timeframe_trend": higher_timeframe,
-        "structure_quality": structure,
-        "volume_price": volume_price,
-        "relative_strength": relative_strength,
-        "location_and_extension": location_extension,
-        "room_and_reward_risk": room_reward,
-        "liquidity": liquidity,
-    }
-    # A config change must not silently reuse an unrelated factor.  Unknown
-    # names stay unavailable and reduce coverage until explicitly implemented.
-    weighted = 0.0
-    available_weight = 0.0
-    breakdown: dict[str, float | None] = {}
-    for name, weight in weights.items():
-        value = components.get(name)
-        breakdown[name] = round(value, 4) if value is not None else None
-        if value is None:
-            continue
-        resolved_weight = float(weight)
-        weighted += max(0.0, min(100.0, value)) * resolved_weight
-        available_weight += resolved_weight
-    score = weighted / available_weight if available_weight > 0 else None
-    return {
-        "score": round(score, 4) if score is not None else None,
-        "breakdown": breakdown,
-        "coverage": round(available_weight, 6),
-        "authoritative": True,
-    }
-
-
-def _alignment_score(value: Any) -> float | None:
-    if not isinstance(value, Mapping):
-        return None
-    return {
-        "BULL_STACK": 100.0,
-        "BULL_PARTIAL": 75.0,
-        "ENTANGLED": 50.0,
-        "BEAR_PARTIAL": 25.0,
-        "BEAR_STACK": 0.0,
-    }.get(str(value.get("ma_alignment") or "").upper())
-
-
-def _mean_available(values: Sequence[float | None]) -> float | None:
-    available = [float(value) for value in values if value is not None]
-    return sum(available) / len(available) if available else None
 
 
 def local_monitor_items(result: DeterministicGateResult) -> list[dict[str, Any]]:

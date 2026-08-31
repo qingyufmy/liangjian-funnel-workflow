@@ -16,15 +16,25 @@ from ..data.mootdx import MinuteBar
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
-MA_PERIODS = (5, 20, 60, 99, 128, 255)
-TIMEFRAMES = ("weekly", "daily", "120m", "15m", "5m")
+MA_PERIODS = (5, 10, 20, 60, 99, 128, 255)
+# ``monthly``/``weekly`` are the formal A3 background frames.  The minute
+# frames remain in this tuple for compatibility with the A4 and legacy
+# consumers; their readiness is deliberately *not* part of ``a3_ready``.
+TIMEFRAMES = ("monthly", "weekly", "daily", "120m", "15m", "5m")
+LEGACY_TIMEFRAMES = ("weekly", "daily", "120m", "15m", "5m")
+A3_TIMEFRAMES = ("monthly", "weekly", "daily")
 _TIMEFRAME_REQUIRED: dict[str, tuple[int, ...]] = {
+    "monthly": (5, 20, 60),
     "weekly": (5, 20, 60),
-    "daily": (5, 20, 60),
+    "daily": (5, 10, 20, 60),
     "120m": (5, 20, 99, 128, 255),
     "15m": (5, 20, 60),
     "5m": (5, 20, 99, 128, 255),
 }
+# A3 needs enough formal background to describe direction, but it must not
+# demand 60 monthly bars (which would make a normal 2--4 year daily history
+# unusable).  The daily MA60 is the actual minimum daily technical sample.
+_A3_MIN_CLOSED_BARS = {"monthly": 2, "weekly": 2, "daily": 60}
 
 
 class OHLCVBar(BaseModel):
@@ -40,6 +50,9 @@ class OHLCVBar(BaseModel):
     close: float
     volume: float | None = None
     amount: float | None = None
+    # This is source metadata only.  Never infer qfq/hfq/raw when a provider
+    # omitted it; ``None`` is surfaced as UNKNOWN in the summary.
+    adjust_mode: str | None = None
     closed: Literal[True] = True
 
     @field_validator("start", "end")
@@ -78,11 +91,18 @@ class TimeframeFactors(BaseModel):
     timeframe: str
     bars: tuple[OHLCVBar, ...] = ()
     latest: OHLCVBar | None = None
+    # A current month/week is kept separately as observation-only data.  It
+    # must not enter formal moving averages or trend conclusions.
+    partial_bars: tuple[OHLCVBar, ...] = ()
+    latest_partial: OHLCVBar | None = None
     moving_averages: dict[str, float | None] = Field(default_factory=dict)
+    previous_moving_averages: dict[str, float | None] = Field(default_factory=dict)
+    ma_slopes: dict[str, float | None] = Field(default_factory=dict)
     ma_alignment: str | None = None
     ma_event: str | None = None
     ma_bias: dict[str, float | None] = Field(default_factory=dict)
     vwap: float | None = None
+    adjust_mode: str | None = None
     ready: bool = False
     reasons: tuple[str, ...] = ()
 
@@ -93,6 +113,10 @@ class TechnicalFactorSnapshot(BaseModel):
     symbol: str
     as_of: datetime
     ready: bool = False
+    # A3 readiness is a separate contract from the historical all-timeframe
+    # ``ready`` flag.  It only considers formal monthly/weekly/daily bars.
+    a3_ready: bool = False
+    a3_reasons: tuple[str, ...] = ()
     reasons: tuple[str, ...] = ()
     timeframes: dict[str, TimeframeFactors] = Field(default_factory=dict)
     technical_summary: dict[str, Any] = Field(default_factory=dict)
@@ -107,6 +131,12 @@ class TechnicalFactorSnapshot(BaseModel):
     @property
     def summary(self) -> dict[str, Any]:
         return self.technical_summary
+
+    @property
+    def high_timeframe_ready(self) -> bool:
+        """Alias used by callers that do not name the A3 stage explicitly."""
+
+        return self.a3_ready
 
 
 FactorSnapshot = TechnicalFactorSnapshot
@@ -133,7 +163,8 @@ class FactorEngine:
         reasons: list[str] = []
         daily, daily_reasons = _daily_bars(daily_bars, resolved_symbol, cutoff)
         reasons.extend(daily_reasons)
-        weekly = _aggregate_daily_weekly(daily, resolved_symbol)
+        monthly, monthly_partial = _aggregate_daily_monthly(daily, resolved_symbol)
+        weekly, weekly_partial = _aggregate_daily_weekly_with_partial(daily, resolved_symbol)
         minute, minute_reasons = _minute_base(minute_bars, resolved_symbol, cutoff)
         reasons.extend(minute_reasons)
         base5 = tuple(bar for bar in minute if bar.timeframe == "5m")
@@ -145,6 +176,7 @@ class FactorEngine:
             # missing minute data remains explicit below.
             base5 = ()
         bars_by_tf: dict[str, tuple[OHLCVBar, ...]] = {
+            "monthly": monthly,
             "weekly": weekly,
             "daily": daily,
             "5m": base5,
@@ -152,17 +184,43 @@ class FactorEngine:
             "120m": _aggregate_minutes(base5, width=120, timeframe="120m", symbol=resolved_symbol),
         }
         frames: dict[str, TimeframeFactors] = {}
+        partial_by_tf = {
+            "monthly": monthly_partial,
+            "weekly": weekly_partial,
+        }
         for timeframe in TIMEFRAMES:
-            frame = _calculate_frame(timeframe, bars_by_tf.get(timeframe, ()))
+            frame = _calculate_frame(
+                timeframe,
+                bars_by_tf.get(timeframe, ()),
+                partial_bars=partial_by_tf.get(timeframe, ()),
+            )
             frames[timeframe] = frame
             reasons.extend(f"{timeframe.upper()}_{reason}" for reason in frame.reasons)
-        ready = bool(daily and all(frames[name].ready for name in TIMEFRAMES)) and not reasons
-        summary = _technical_summary(resolved_symbol, cutoff, frames, ready, tuple(dict.fromkeys(reasons)))
+        # Preserve the old all-timeframe readiness flag for compatibility.
+        # It is intentionally stricter than the A3 contract and still
+        # includes minute data and its reasons.
+        legacy_reasons = [*daily_reasons, *minute_reasons]
+        for name in LEGACY_TIMEFRAMES:
+            legacy_reasons.extend(f"{name.upper()}_{reason}" for reason in frames[name].reasons)
+        ready = bool(daily and all(frames[name].ready for name in LEGACY_TIMEFRAMES)) and not legacy_reasons
+        a3_ready, a3_reasons = _a3_readiness(frames)
+        all_reasons = tuple(dict.fromkeys(reasons))
+        summary = _technical_summary(
+            resolved_symbol,
+            cutoff,
+            frames,
+            ready,
+            all_reasons,
+            a3_ready=a3_ready,
+            a3_reasons=a3_reasons,
+        )
         return TechnicalFactorSnapshot(
             symbol=resolved_symbol,
             as_of=cutoff,
             ready=ready,
-            reasons=tuple(dict.fromkeys(reasons)),
+            a3_ready=a3_ready,
+            a3_reasons=a3_reasons,
+            reasons=all_reasons,
             timeframes=frames,
             technical_summary=summary,
         )
@@ -182,8 +240,14 @@ class FactorEngine:
         return cls(symbol).compute(daily_bars=daily_bars, minute_bars=minute_bars, as_of=as_of)
 
 
-def _calculate_frame(timeframe: str, bars: Sequence[OHLCVBar]) -> TimeframeFactors:
+def _calculate_frame(
+    timeframe: str,
+    bars: Sequence[OHLCVBar],
+    *,
+    partial_bars: Sequence[OHLCVBar] = (),
+) -> TimeframeFactors:
     ordered = tuple(sorted((bar for bar in bars if bar.closed), key=lambda item: item.end))
+    partial = tuple(sorted((bar for bar in partial_bars if bar.closed), key=lambda item: item.end))
     moving: dict[str, float | None] = {}
     closes = [bar.close for bar in ordered]
     for period in MA_PERIODS:
@@ -203,6 +267,14 @@ def _calculate_frame(timeframe: str, bars: Sequence[OHLCVBar]) -> TimeframeFacto
         f"ma{period}": _moving_average(closes[:-1], period)
         for period in required_periods
     }
+    slopes = {
+        key: (
+            (float(moving[key]) - float(previous)) / abs(float(previous))
+            if moving.get(key) is not None and previous not in {None, 0}
+            else None
+        )
+        for key, previous in previous_moving.items()
+    }
     alignment = _ma_alignment(moving, required_periods, ordered[-1].close if ordered else None)
     event = _ma_event(
         ordered,
@@ -215,11 +287,16 @@ def _calculate_frame(timeframe: str, bars: Sequence[OHLCVBar]) -> TimeframeFacto
         timeframe=timeframe,
         bars=ordered,
         latest=ordered[-1] if ordered else None,
+        partial_bars=partial,
+        latest_partial=partial[-1] if partial else None,
         moving_averages=moving,
+        previous_moving_averages=previous_moving,
+        ma_slopes=slopes,
         ma_alignment=alignment,
         ma_event=event,
         ma_bias=bias,
         vwap=vwap,
+        adjust_mode=_common_adjust_mode(ordered),
         ready=ready,
         reasons=tuple(dict.fromkeys(reasons)),
     )
@@ -356,16 +433,67 @@ def _daily_bars(
     return tuple(sorted(result, key=lambda item: item.end)), tuple(dict.fromkeys(reasons))
 
 
+def _aggregate_daily_monthly(
+    bars: Sequence[OHLCVBar],
+    symbol: str,
+) -> tuple[tuple[OHLCVBar, ...], tuple[OHLCVBar, ...]]:
+    """Aggregate daily bars and keep the current month observation separate.
+
+    A period is formal only when a later period is present in the same
+    point-in-time input.  This deliberately does not assume that Friday or
+    the calendar month-end was a trading day; a missing next-period bar leaves
+    the latest period partial.
+    """
+
+    return _aggregate_daily_period(bars, symbol, period="monthly")
+
+
+def _aggregate_daily_weekly_with_partial(
+    bars: Sequence[OHLCVBar],
+    symbol: str,
+) -> tuple[tuple[OHLCVBar, ...], tuple[OHLCVBar, ...]]:
+    """Aggregate daily bars and keep the current week observation separate."""
+
+    return _aggregate_daily_period(bars, symbol, period="weekly")
+
+
 def _aggregate_daily_weekly(bars: Sequence[OHLCVBar], symbol: str) -> tuple[OHLCVBar, ...]:
+    """Backward-compatible closed-week-only aggregation helper."""
+
+    closed, _partial = _aggregate_daily_weekly_with_partial(bars, symbol)
+    return closed
+
+
+def _aggregate_daily_period(
+    bars: Sequence[OHLCVBar],
+    symbol: str,
+    *,
+    period: str,
+) -> tuple[tuple[OHLCVBar, ...], tuple[OHLCVBar, ...]]:
     groups: dict[tuple[int, int], list[OHLCVBar]] = defaultdict(list)
     for bar in bars:
-        iso = bar.end.isocalendar()
-        groups[(iso.year, iso.week)].append(bar)
-    result: list[OHLCVBar] = []
-    for grouped in groups.values():
+        if period == "weekly":
+            iso = bar.end.isocalendar()
+            key = (int(iso.year), int(iso.week))
+            timeframe = "weekly"
+        elif period == "monthly":
+            key = (bar.end.year, bar.end.month)
+            timeframe = "monthly"
+        else:  # pragma: no cover - internal callers use the two supported periods
+            raise ValueError(f"unsupported daily aggregation period: {period}")
+        groups[key].append(bar)
+
+    ordered_groups = sorted(groups.items(), key=lambda item: min(bar.end for bar in item[1]))
+    closed: list[OHLCVBar] = []
+    partial: list[OHLCVBar] = []
+    for index, (_key, grouped) in enumerate(ordered_groups):
         ordered = sorted(grouped, key=lambda item: item.end)
-        result.append(_aggregate_group(ordered, timeframe="weekly", symbol=symbol))
-    return tuple(sorted(result, key=lambda item: item.end))
+        aggregate = _aggregate_group(ordered, timeframe=timeframe, symbol=symbol)
+        # Only a following group proves that this group ended.  The latest
+        # group is an observation even when its date happens to be Friday or
+        # the last calendar day of a month.
+        (closed if index < len(ordered_groups) - 1 else partial).append(aggregate)
+    return tuple(closed), tuple(partial)
 
 
 def _minute_base(
@@ -388,6 +516,7 @@ def _minute_base(
                 "close": row.close,
                 "volume": row.volume,
                 "amount": row.amount,
+                "adjust_mode": row.adjust_mode,
             }
         else:
             data = _mapping(row)
@@ -491,6 +620,7 @@ def _aggregate_group(
         close=ordered[-1].close,
         volume=sum(volumes) if all(value is not None for value in volumes) else None,
         amount=sum(amounts) if all(value is not None for value in amounts) else None,
+        adjust_mode=_common_adjust_mode(ordered),
     )
 
 
@@ -503,8 +633,10 @@ def _make_bar(*, symbol: str, timeframe: str, start: datetime, end: datetime, da
         "close": ("close", "close_price", "last", "last_price", "收盘", "最新价"),
         "volume": ("volume", "vol", "成交量"),
         "amount": ("amount", "turnover", "成交额"),
+        "adjust_mode": ("adjust_mode", "adjust", "adjustment", "复权方式"),
     }.items():
-        values[name] = _number(_first(data, keys))
+        raw_value = _first(data, keys)
+        values[name] = raw_value if name == "adjust_mode" else _number(raw_value)
     if any(values[name] is None for name in ("open", "high", "low", "close")):
         return None
     try:
@@ -620,28 +752,160 @@ def _infer_symbol(minute: Sequence[Any], daily: Sequence[Any]) -> str | None:
     return None
 
 
-def _technical_summary(symbol: str, as_of: datetime, frames: Mapping[str, TimeframeFactors], ready: bool, reasons: tuple[str, ...]) -> dict[str, Any]:
-    summary: dict[str, Any] = {"symbol": symbol, "as_of": as_of.isoformat(), "ready": ready, "reasons": list(reasons), "timeframes": {}}
+def _technical_summary(
+    symbol: str,
+    as_of: datetime,
+    frames: Mapping[str, TimeframeFactors],
+    ready: bool,
+    reasons: tuple[str, ...],
+    *,
+    a3_ready: bool | None = None,
+    a3_reasons: tuple[str, ...] | None = None,
+) -> dict[str, Any]:
+    if a3_ready is None or a3_reasons is None:
+        a3_ready, a3_reasons = _a3_readiness(frames)
+    monthly_frame = frames.get("monthly")
+    weekly_frame = frames.get("weekly")
+    summary: dict[str, Any] = {
+        "symbol": symbol,
+        "as_of": as_of.isoformat(),
+        "ready": ready,
+        "a3_ready": a3_ready,
+        "a3_reasons": list(a3_reasons),
+        "monthly_closed": bool(monthly_frame and monthly_frame.bars),
+        "weekly_closed": bool(weekly_frame and weekly_frame.bars),
+        "monthly_formal_latest_end": (
+            monthly_frame.latest.end.isoformat() if monthly_frame and monthly_frame.latest else None
+        ),
+        "weekly_formal_latest_end": (
+            weekly_frame.latest.end.isoformat() if weekly_frame and weekly_frame.latest else None
+        ),
+        "monthly_current_period_closed": bool(monthly_frame and monthly_frame.bars and not monthly_frame.partial_bars),
+        "weekly_current_period_closed": bool(weekly_frame and weekly_frame.bars and not weekly_frame.partial_bars),
+        "period_state": {
+            "monthly": "PARTIAL" if monthly_frame and monthly_frame.partial_bars else "CLOSED" if monthly_frame and monthly_frame.bars else "UNKNOWN",
+            "weekly": "PARTIAL" if weekly_frame and weekly_frame.partial_bars else "CLOSED" if weekly_frame and weekly_frame.bars else "UNKNOWN",
+        },
+        "partial_observations": {
+            name: _partial_observation(frames.get(name))
+            for name in ("monthly", "weekly")
+        },
+        "price_series": {
+            "daily_adjust_mode": _summary_adjust_mode(frames.get("daily")),
+            "calculation_basis": _calculation_basis(frames.get("daily")),
+        },
+        "reasons": list(reasons),
+        "timeframes": {},
+    }
     for timeframe in TIMEFRAMES:
-        frame = frames[timeframe]
+        frame = frames.get(timeframe) or TimeframeFactors(timeframe=timeframe)
         summary["timeframes"][timeframe] = {
             "bar_count": len(frame.bars),
+            "partial_bar_count": len(frame.partial_bars),
             "latest_end": frame.latest.end.isoformat() if frame.latest else None,
+            "latest_partial_end": frame.latest_partial.end.isoformat() if frame.latest_partial else None,
             "latest_close": frame.latest.close if frame.latest else None,
             "ma": dict(frame.moving_averages),
+            "previous_ma": dict(frame.previous_moving_averages),
+            "ma_slopes": dict(frame.ma_slopes),
             "ma_alignment": frame.ma_alignment,
             "ma_event": frame.ma_event,
             "ma_bias": dict(frame.ma_bias),
             "vwap": frame.vwap,
+            "adjust_mode": _summary_adjust_mode(frame),
             "ready": frame.ready,
             "reasons": list(frame.reasons),
         }
     return summary
 
 
+def _a3_readiness(frames: Mapping[str, TimeframeFactors]) -> tuple[bool, tuple[str, ...]]:
+    """Return the independent A3 high-timeframe readiness contract.
+
+    Minute frame shortages, VWAP absence, and legacy frame readiness are not
+    considered here.  They remain visible in ``TechnicalFactorSnapshot.ready``
+    and per-frame reasons for consumers that still need them.
+    """
+
+    reasons: list[str] = []
+    for timeframe, minimum in _A3_MIN_CLOSED_BARS.items():
+        frame = frames.get(timeframe)
+        bars = frame.bars if frame is not None else ()
+        if len(bars) < minimum:
+            reasons.append(f"INSUFFICIENT_{timeframe.upper()}_CLOSED_BARS")
+    daily = frames.get("daily")
+    if daily is not None:
+        for period in (5, 10, 20, 60):
+            if daily.moving_averages.get(f"ma{period}") is None:
+                reasons.append(f"INSUFFICIENT_DAILY_MA{period}")
+    else:
+        reasons.append("NO_DAILY_FRAME")
+    return not reasons, tuple(dict.fromkeys(reasons))
+
+
+def _partial_observation(frame: TimeframeFactors | None) -> dict[str, Any] | None:
+    if frame is None or frame.latest_partial is None:
+        return None
+    bar = frame.latest_partial
+    return {
+        "available": True,
+        "observation_only": True,
+        "period_end": bar.end.isoformat(),
+        "bar": {
+            "open": bar.open,
+            "high": bar.high,
+            "low": bar.low,
+            "close": bar.close,
+            "volume": bar.volume,
+            "amount": bar.amount,
+        },
+        "adjust_mode": bar.adjust_mode or "UNKNOWN",
+    }
+
+
+def _common_adjust_mode(bars: Sequence[OHLCVBar]) -> str | None:
+    if not bars:
+        return None
+    raw_modes = [str(bar.adjust_mode).strip().lower() if bar.adjust_mode and str(bar.adjust_mode).strip() else None for bar in bars]
+    modes = {mode for mode in raw_modes if mode is not None}
+    if not modes:
+        return None
+    if any(mode is None for mode in raw_modes):
+        return "mixed"
+    return next(iter(modes)) if len(modes) == 1 else "mixed"
+
+
+def _summary_adjust_mode(frame: TimeframeFactors | None) -> str:
+    if frame is None or frame.adjust_mode is None:
+        return "UNKNOWN"
+    return str(frame.adjust_mode)
+
+
+def _is_forward_adjusted(frame: TimeframeFactors | None) -> bool:
+    if frame is None or frame.adjust_mode is None:
+        return False
+    return str(frame.adjust_mode).strip().lower() in {
+        "qfq",
+        "front_adjusted",
+        "forward_adjusted",
+        "前复权",
+    }
+
+
+def _calculation_basis(frame: TimeframeFactors | None) -> str:
+    if _is_forward_adjusted(frame):
+        return "ADJUSTED_CONFIRMED"
+    mode = _summary_adjust_mode(frame).strip().lower()
+    if mode in {"none", "raw", "unadjusted", "不复权"}:
+        return "UNADJUSTED_CONFIRMED"
+    return "UNKNOWN"
+
+
 __all__ = [
+    "A3_TIMEFRAMES",
     "FactorEngine",
     "FactorSnapshot",
+    "LEGACY_TIMEFRAMES",
     "MA_PERIODS",
     "OHLCVBar",
     "TechnicalFactorSnapshot",

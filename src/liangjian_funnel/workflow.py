@@ -2793,7 +2793,10 @@ class WorkflowApplication:
         all_symbols = sorted(set().union(*lane_scopes.values())) if lane_scopes else []
 
         def fetch_symbol(symbol: str) -> tuple[str, dict[str, Any]]:
-            one = self.market_data.fetch_bars(symbol, "1m", 21, as_of=current)
+            # A4 derives closed 5m/15m structure from the complete current
+            # session.  This remains bounded to one trading day per active
+            # plan; it is not a full-market history refresh.
+            one = self.market_data.fetch_bars(symbol, "1m", 240, as_of=current)
             five = self.market_data.fetch_bars(symbol, "5m", 60, as_of=current)
             return symbol, {"1m": one, "5m": five}
 
@@ -2809,22 +2812,33 @@ class WorkflowApplication:
                             self.minute_store.write(result.bars)
 
         simulation: list[dict[str, Any]] = []
-        lane_inputs: dict[str, tuple[dict[str, MinuteBar], bool, dict[str, Any]]] = {}
+        lane_inputs: dict[
+            str,
+            tuple[dict[str, MinuteBar], bool, dict[str, Any], dict[str, tuple[MinuteBar, ...]]],
+        ] = {}
         for lane_id, scope_symbols in lane_scopes.items():
             bars: dict[str, MinuteBar] = {}
             contexts: dict[str, Any] = {}
+            histories: dict[str, tuple[MinuteBar, ...]] = {}
             data_ok = True
             for symbol in sorted(scope_symbols):
                 fetched = market.get(symbol, {})
                 one = fetched.get("1m")
                 five = fetched.get("5m")
-                one_bars = tuple(one.bars) if one is not None else ()
-                five_bars = tuple(five.bars) if five is not None else ()
+                one_bars = tuple(
+                    bar for bar in (tuple(one.bars) if one is not None else ())
+                    if bar.bar_end.astimezone(SHANGHAI).date() == current.date()
+                )
+                five_bars = tuple(
+                    bar for bar in (tuple(five.bars) if five is not None else ())
+                    if bar.bar_end.astimezone(SHANGHAI).date() == current.date()
+                )
                 one_gaps = detect_missing_bars(one_bars, "1m", as_of=current) if one_bars else ()
                 if not one_bars or one_bars[-1].bar_end != current or one_gaps:
                     data_ok = False
                 else:
                     bars[symbol] = one_bars[-1]
+                    histories[symbol] = one_bars
                     simulation.extend(self._settle_prior_signals(lane_id, symbol, one_bars[-1]))
                 contexts[symbol] = _intraday_market_context(
                     symbol,
@@ -2832,11 +2846,11 @@ class WorkflowApplication:
                     five_bars,
                     current=current,
                 )
-            lane_inputs[lane_id] = (bars, data_ok, contexts)
+            lane_inputs[lane_id] = (bars, data_ok, contexts, histories)
 
         def process_lane(lane_id: str) -> tuple[str, MonitorBatchResult]:
             plans = lane_plans[lane_id]
-            bars, data_ok, contexts = lane_inputs[lane_id]
+            bars, data_ok, contexts, histories = lane_inputs[lane_id]
             engine = MonitorEngine(
                 self.store,
                 llm_veto=self._a4_callback(lane_id, plans, contexts, current),
@@ -2849,6 +2863,8 @@ class WorkflowApplication:
                 now=current,
                 data_ok=data_ok,
                 snapshot_contiguous=data_ok,
+                bar_histories=histories,
+                market_contexts=contexts,
             )
             return lane_id, batch
 
@@ -3532,18 +3548,24 @@ class WorkflowApplication:
                         })
                         continue
                     if pool_name == "secondary_watch_pool":
-                        secondary_reason = _secondary_plan_rejection_reason(
-                            raw,
-                            payload,
-                            snapshot_data,
-                        )
-                        if secondary_reason:
-                            blocked.append({
-                                "lane": lane.lane,
-                                "symbol": symbol or "-",
-                                "reason": secondary_reason,
-                            })
-                            continue
+                        blocked.append({
+                            "lane": lane.lane,
+                            "symbol": symbol or "-",
+                            "reason": "A3_SECONDARY_NON_EXECUTABLE",
+                        })
+                        continue
+                    strategy_profile = str(raw.get("strategy_profile") or "").strip().upper()
+                    if (
+                        str(raw.get("eligibility") or "").strip().upper() != "QUALIFIED"
+                        or strategy_profile not in {"LEADER_INTRADAY", "MA520_SWING", "TREND_MA5"}
+                        or str(raw.get("review_status") or "PASS").strip().upper() != "PASS"
+                    ):
+                        blocked.append({
+                            "lane": lane.lane,
+                            "symbol": symbol or "-",
+                            "reason": "A3_STRATEGY_CONTRACT_NOT_EXECUTABLE",
+                        })
+                        continue
                     if (
                         not symbol
                         or payload.get("risk_unit") == "NO_ENTRY"
@@ -3769,12 +3791,21 @@ def _a4_prompt_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
         "valid_from": plan.get("valid_from"),
         "expires_at": plan.get("expires_at"),
         "setup_type": payload.get("setup_type"),
+        "strategy_profile": payload.get("strategy_profile"),
+        "strategy_version": payload.get("strategy_version"),
+        "eligibility": payload.get("eligibility"),
         "trigger_low": payload.get("trigger_low"),
         "trigger_high": payload.get("trigger_high"),
         "stop_level": payload.get("stop_level"),
-        "no_chase": payload.get("no_chase"),
+        "no_chase": payload.get("no_chase", payload.get("no_chase_price")),
         "confirmation_bars": payload.get("confirmation_bars", payload.get("confirm_bars")),
         "confirmation_conditions": payload.get("confirmation_conditions"),
+        "required_conditions": payload.get("required_conditions"),
+        "met_conditions": payload.get("met_conditions"),
+        "unmet_conditions": payload.get("unmet_conditions"),
+        "veto_conditions": payload.get("veto_conditions"),
+        "a4_required_entry_rules": payload.get("a4_required_entry_rules"),
+        "a4_exit_rules": payload.get("a4_exit_rules"),
         "sector_context": payload.get("sector_context"),
     }
 
@@ -3969,12 +4000,17 @@ def _prompt_parameters(config: Mapping[str, Any]) -> dict[str, Any]:
         "THEME_SCORE_WEIGHTS": a2.get("score_weights", {}),
         "A2_FACTOR_COVERAGE_MINIMUM": a2.get("factor_coverage_minimum", 0.65),
         "PENALTY_RULES": a2.get("penalty_rules", {}),
-        "MAX_MA_BIAS": a3_ma.get("max_ma_bias_pct", 0.12),
-        "MAX_ATR_EXTENSION": a3.get("max_atr_extension", 3.0),
         "MIN_REWARD_RISK": a3.get("minimum_reward_risk", 2.0),
         "MAX_STOP_DISTANCE": a3.get("max_stop_distance_pct", 0.06),
-        "MIN_TECHNICAL_SCORE": a3.get("minimum_technical_score", 70),
-        "TECHNICAL_SCORE_WEIGHTS": a3.get("score_weights", {}),
+        "A3_STRATEGY_VERSION": a3.get("strategy_version", "a3-a4-three-strategy/1.0.0"),
+        "A3_ALLOWED_STRATEGIES": a3.get(
+            "allowed_strategy_profiles",
+            ["LEADER_INTRADAY", "MA520_SWING", "TREND_MA5"],
+        ),
+        "A3_DECISION_TIMEFRAMES": a3.get(
+            "decision_timeframes",
+            ["MONTHLY_CLOSED", "WEEKLY_CLOSED", "DAILY_CLOSED"],
+        ),
         "EARNINGS_BLACKOUT": {
             "days_before": a3_blackout.get("days_before", 3),
             "days_after": a3_blackout.get("days_after", 1),
@@ -3982,7 +4018,6 @@ def _prompt_parameters(config: Mapping[str, Any]) -> dict[str, Any]:
         },
         "NORMAL_GAP_RANGE": [-0.02, 0.03],
         "NO_CHASE_THRESHOLD": 0.05,
-        "REQUIRED_CONFIRMATIONS": a3.get("required_confirmations", []),
     }
 
 
@@ -4023,7 +4058,11 @@ def _plan_payload(raw: Mapping[str, Any]) -> dict[str, Any]:
         "trigger_low": _float_or_none(zone.get("low")),
         "trigger_high": _float_or_none(zone.get("high")),
         "stop_level": _float_or_none(raw.get("invalidation_level")),
-        "confirmation_bars": 2,
+        "no_chase": _float_or_none(raw.get("no_chase_price")),
+        # Strategy plans own confirmation at closed 15m/5m granularity.  The
+        # legacy consecutive-1m counter is retained only for old plans that
+        # have no strategy_profile.
+        "confirmation_bars": 1 if raw.get("strategy_profile") else 2,
         "action": MonitorAction.BUY_SIGNAL.value,
     }
 
@@ -4034,101 +4073,6 @@ def _workflow_float(value: Any) -> float | None:
     except (TypeError, ValueError, OverflowError):
         return None
     return result if result == result and abs(result) != float("inf") else None
-
-
-def _same_plan_number(left: Any, right: Any) -> bool:
-    first = _workflow_float(left)
-    second = _workflow_float(right)
-    if first is None or second is None:
-        return first is None and second is None
-    return abs(first - second) <= max(1e-9, abs(second) * 1e-9)
-
-
-def _secondary_plan_rejection_reason(
-    raw: Mapping[str, Any],
-    payload: Mapping[str, Any],
-    snapshot_data: Mapping[str, Any],
-) -> str | None:
-    """Return a publication veto for a secondary row that is not executable.
-
-    Secondary rows are useful for audit and monitoring, but only a complete
-    deterministic-price-backed PROBE can become a simulated execution plan.
-    This final check protects the persistence boundary even if a caller builds
-    a ``ResearchRunResult`` without going through the normal pipeline.
-    """
-
-    if str(raw.get("risk_unit") or payload.get("risk_unit") or "").upper() != "PROBE":
-        return "SECONDARY_NOT_PROBE"
-    zone = raw.get("trigger_zone")
-    required = (
-        "invalidation_level",
-        "stop_distance_pct",
-        "first_resistance",
-        "reward_risk",
-        "technical_score",
-        "score_breakdown",
-        "setup_type",
-        "confirmation_conditions",
-        "scenarios",
-        "plan_expiry",
-    )
-    if (
-        not isinstance(zone, Mapping)
-        or zone.get("low") is None
-        or zone.get("high") is None
-        or any(raw.get(field) is None for field in required)
-        or not isinstance(raw.get("score_breakdown"), Mapping)
-        or not isinstance(raw.get("scenarios"), Mapping)
-    ):
-        return "SECONDARY_PLAN_NOT_EXECUTABLE"
-    symbol = str(payload.get("symbol") or "")
-    levels = snapshot_data.get("PRICE_LEVELS")
-    expected = levels.get(symbol) if isinstance(levels, Mapping) else None
-    if isinstance(expected, Mapping) and expected.get("available") is True:
-        expected_zone = expected.get("trigger_zone")
-        if not isinstance(expected_zone, Mapping) or any(
-            not _same_plan_number(zone.get(key), expected_zone.get(key))
-            for key in ("low", "high")
-        ):
-            return "SECONDARY_PRICE_LEVELS_MISMATCH"
-        for actual_key, expected_key in (
-            ("invalidation_level", "invalidation"),
-            ("stop_distance_pct", "stop_distance_pct"),
-            ("first_resistance", "first_resistance"),
-            ("reward_risk", "reward_risk"),
-        ):
-            if not _same_plan_number(raw.get(actual_key), expected.get(expected_key)):
-                return "SECONDARY_PRICE_LEVELS_MISMATCH"
-    else:
-        # Historical/full-market publication receives the immutable base
-        # snapshot; A3's minute-derived PRICE_LEVELS live only in its stage
-        # overlay.  Require the content hash added by the server canonicalizer
-        # instead of trusting a model-authored executable payload.
-        price_contract = {
-            "trigger_zone": dict(zone),
-            "invalidation_level": raw.get("invalidation_level"),
-            "stop_distance_pct": raw.get("stop_distance_pct"),
-            "first_resistance": raw.get("first_resistance"),
-            "reward_risk": raw.get("reward_risk"),
-        }
-        marker = str(raw.get("server_price_levels_hash") or "")
-        if not marker:
-            return "SECONDARY_PRICE_LEVELS_EVIDENCE_MISSING"
-        if marker != _hash_json(price_contract):
-            return "SECONDARY_PRICE_LEVELS_MISMATCH"
-    reward_risk = _workflow_float(raw.get("reward_risk"))
-    stop_distance = _workflow_float(raw.get("stop_distance_pct"))
-    technical_score = _workflow_float(raw.get("technical_score"))
-    minimum_reward_risk = _workflow_float(snapshot_data.get("MIN_REWARD_RISK", 2.0)) or 2.0
-    maximum_stop = _workflow_float(snapshot_data.get("MAX_STOP_DISTANCE", 0.06)) or 0.06
-    minimum_technical = _workflow_float(snapshot_data.get("MIN_TECHNICAL_SCORE", 70)) or 70.0
-    if reward_risk is None or reward_risk < minimum_reward_risk:
-        return "SECONDARY_REWARD_RISK_BELOW_MINIMUM"
-    if stop_distance is None or stop_distance <= 0 or stop_distance > maximum_stop:
-        return "SECONDARY_STOP_DISTANCE_OUTSIDE_LIMIT"
-    if technical_score is None or technical_score < minimum_technical:
-        return "SECONDARY_TECHNICAL_SCORE_BELOW_MINIMUM"
-    return None
 
 
 def _tightens(parent: Mapping[str, Any], new_payload: Mapping[str, Any]) -> bool:
@@ -4716,7 +4660,11 @@ def _compact_factor(value: Mapping[str, Any]) -> dict[str, Any]:
                 continue
             compact_frames[str(name)] = {
                 "latest": raw.get("latest"),
+                "latest_partial": raw.get("latest_partial"),
+                "partial_bars": raw.get("partial_bars"),
                 "moving_averages": raw.get("moving_averages"),
+                "previous_moving_averages": raw.get("previous_moving_averages"),
+                "ma_slopes": raw.get("ma_slopes"),
                 "ma_alignment": raw.get("ma_alignment"),
                 "ma_event": raw.get("ma_event"),
                 "ma_bias": raw.get("ma_bias"),
@@ -4728,8 +4676,11 @@ def _compact_factor(value: Mapping[str, Any]) -> dict[str, Any]:
         "symbol": value.get("symbol"),
         "as_of": value.get("as_of"),
         "ready": value.get("ready"),
+        "a3_ready": value.get("a3_ready"),
+        "a3_reasons": value.get("a3_reasons"),
         "reasons": value.get("reasons"),
         "timeframes": compact_frames,
+        "technical_summary": value.get("technical_summary"),
     }
 
 

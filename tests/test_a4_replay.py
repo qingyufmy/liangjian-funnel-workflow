@@ -49,6 +49,8 @@ def test_a4_replay_isolated_full_day_reaches_one_next_bar_fill(tmp_path) -> None
             "trigger_zone": {"low": 10.0, "high": 11.0},
             "invalidation_level": 9.0,
             "risk_unit": "NO_ENTRY",
+            "strategy_profile": "MA520_SWING",
+            "daily_indicators": {"ma5": 10.4, "ma20": 10.0, "close": 10.5},
         },
         bars=_bars(),
         state_db_path=tmp_path / "replay.sqlite3",

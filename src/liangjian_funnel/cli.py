@@ -85,11 +85,18 @@ def _monitor_plan_projection(plan: Mapping[str, object]) -> dict[str, object]:
         "status": str(plan.get("status") or ""),
         "valid_from": plan.get("valid_from"),
         "expires_at": plan.get("expires_at"),
+        "strategy_profile": payload.get("strategy_profile"),
+        "eligibility": payload.get("eligibility"),
         "setup_type": payload.get("setup_type"),
         "trigger_low": payload.get("trigger_low"),
         "trigger_high": payload.get("trigger_high"),
         "stop_level": payload.get("stop_level"),
         "risk_unit": payload.get("risk_unit"),
+        "no_chase_price": payload.get("no_chase_price", payload.get("max_chase_price")),
+        "required_conditions": payload.get("required_conditions") if isinstance(payload.get("required_conditions"), list) else [],
+        "met_conditions": payload.get("met_conditions") if isinstance(payload.get("met_conditions"), list) else [],
+        "unmet_conditions": payload.get("unmet_conditions") if isinstance(payload.get("unmet_conditions"), list) else [],
+        "veto_conditions": payload.get("veto_conditions") if isinstance(payload.get("veto_conditions"), list) else [],
         "source_run_id": payload.get("source_run_id"),
         "selection_reasons": [str(item)[:500] for item in reasons[:6]],
     }
@@ -109,6 +116,8 @@ def _monitor_event_projection(
         payload = {}
     plan_id = str(payload.get("plan_id") or "")
     plan = plans.get(plan_id, {})
+    strategy = payload.get("strategy")
+    strategy = strategy if isinstance(strategy, Mapping) else {}
     event_key = str(event.get("event_key") or "")
     fill = fills.get(event_key)
     return {
@@ -122,6 +131,14 @@ def _monitor_event_projection(
         "action": event.get("action"),
         "reason_code": event.get("reason_code"),
         "diagnostic_code": payload.get("diagnostic_code"),
+        "strategy_profile": strategy.get("strategy_profile") or plan.get("strategy_profile"),
+        "eligibility": plan.get("eligibility"),
+        "reason_codes": strategy.get("reason_codes") if isinstance(strategy.get("reason_codes"), list) else [],
+        "met_conditions": strategy.get("met_conditions") if isinstance(strategy.get("met_conditions"), list) else [],
+        "unmet_conditions": strategy.get("unmet_conditions") if isinstance(strategy.get("unmet_conditions"), list) else [],
+        "veto_conditions": strategy.get("veto_conditions") if isinstance(strategy.get("veto_conditions"), list) else [],
+        "closed_5m_end": strategy.get("closed_5m_end"),
+        "closed_15m_end": strategy.get("closed_15m_end"),
         "effective": bool(event.get("effective")),
         "llm_veto": bool(payload.get("llm_veto")),
         "plan": plan or None,

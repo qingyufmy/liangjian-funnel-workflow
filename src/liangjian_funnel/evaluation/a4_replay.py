@@ -22,6 +22,7 @@ from ..data.mootdx import MinuteBar
 from ..data.tencent_minute import MarketQuote, QuoteResult
 from ..reporting import atomic_write_json, atomic_write_text
 from ..runtime.monitor import MonitorEngine
+from ..runtime.strategies import STRATEGY_PROFILES
 from ..runtime.simulation import PaperBroker, SimulationConfig
 from ..runtime.state import MonitorAction, PlanStatus, RuntimeStore
 from ..workflow import WorkflowApplication
@@ -42,6 +43,9 @@ def _safe_plan(raw: Mapping[str, Any], *, trade_date: date, source_run_id: str) 
     symbol = str(raw.get("symbol") or "").strip().upper()
     if not symbol:
         raise ValueError("A4_REPLAY_SYMBOL_MISSING")
+    strategy_profile = str(raw.get("strategy_profile") or "").strip().upper()
+    if strategy_profile not in STRATEGY_PROFILES:
+        raise ValueError("A4_REPLAY_STRATEGY_PROFILE_INVALID")
     logical = hashlib.sha256(
         json.dumps(
             {"source_run_id": source_run_id, "symbol": symbol, "trade_date": trade_date.isoformat()},
@@ -55,7 +59,9 @@ def _safe_plan(raw: Mapping[str, Any], *, trade_date: date, source_run_id: str) 
         "trigger_low": low,
         "trigger_high": high,
         "stop_level": stop,
-        "confirmation_bars": 2,
+        "strategy_profile": strategy_profile,
+        "eligibility": "QUALIFIED",
+        "confirmation_bars": 1,
         "action": MonitorAction.BUY_SIGNAL.value,
         "risk_unit": "PROBE",
         "source_risk_unit": raw.get("risk_unit"),
@@ -165,6 +171,7 @@ def run_a4_replay(
             now=bar.bar_end,
             data_ok=True,
             snapshot_contiguous=True,
+            bar_histories={symbol: day_bars[: index + 1]},
         )
         model_calls += int(batch.model_called)
 
@@ -225,6 +232,7 @@ def run_a4_replay(
             "trigger_high": plan["trigger_high"],
             "stop_level": plan["stop_level"],
             "setup_type": plan.get("setup_type"),
+            "strategy_profile": plan.get("strategy_profile"),
             "expires_at": plan.get("expires_at"),
             "selection_reasons": list(plan.get("selection_reasons") or plan.get("reason_codes") or [])[:6],
             "test_only_promotion": True,
@@ -246,6 +254,8 @@ def run_a4_replay(
             "real_trading_connected": False,
             "official_a3_zero_not_overridden": official_a3_plan_count == 0,
             "closed_1m_coverage_complete": len(day_bars) == 240,
+            "closed_15m_and_5m_strategy_routing": plan.get("strategy_profile") in STRATEGY_PROFILES,
+            "no_future_bars": True,
             "llm_is_veto_only": True,
             "next_bar_fill_only": next_bar_fill if fills else True,
             "duplicate_fills": max(0, len(fills) - len({str(item["signal_id"]) for item in fills})),

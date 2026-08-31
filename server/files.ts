@@ -943,9 +943,15 @@ function planValue(value: JsonRecord): ResearchStageDetailPlan | null {
     ? sanitizeJson({ low: numberValue(trigger.low), high: numberValue(trigger.high) })
     : null;
   const confirmationConditions = collectStructuredTextFields(source, ["confirmation_conditions", "confirmationConditions"]);
+  const requiredConditions = collectStructuredTextFields(source, ["required_conditions", "requiredConditions"]);
+  const metConditions = collectStructuredTextFields(source, ["met_conditions", "metConditions"]);
+  const unmetConditions = collectStructuredTextFields(source, ["unmet_conditions", "unmetConditions"]);
+  const vetoConditions = collectStructuredTextFields(source, ["veto_conditions", "vetoConditions"]);
   const scenarios = source.scenarios === undefined ? null : asSafeJson(source.scenarios);
   const timeframe = timeframeStates(source);
   const plan: ResearchStageDetailPlan = {
+    strategyProfile: firstString(source, ["strategy_profile", "strategyProfile"]),
+    eligibility: firstString(source, ["eligibility"]),
     setupType: firstString(source, ["setup_type", "setupType"]),
     planHash: firstString(source, ["plan_hash", "planHash"]),
     triggerZone,
@@ -955,6 +961,8 @@ function planValue(value: JsonRecord): ResearchStageDetailPlan | null {
     riskUnit: firstNumber(source, ["risk_unit", "riskUnit"]) ?? firstString(source, ["risk_unit", "riskUnit"]),
     firstResistance: firstNumber(source, ["first_resistance", "firstResistance"]),
     noChaseCondition: firstString(source, ["no_chase_condition", "noChaseCondition"]),
+    noChasePrice: firstNumber(source, ["no_chase_price", "noChasePrice", "max_chase_price", "maxChasePrice"]),
+    priceDiscovery: typeof source.price_discovery === "boolean" ? source.price_discovery : typeof source.priceDiscovery === "boolean" ? source.priceDiscovery : null,
     technicalScore: firstNumber(source, ["technical_score", "technicalScore"]),
     counterTrendProbe: typeof source.counter_trend_probe === "boolean" ? source.counter_trend_probe : typeof source.counterTrendProbe === "boolean" ? source.counterTrendProbe : null,
     overExtended: typeof source.over_extended === "boolean" ? source.over_extended : typeof source.overExtended === "boolean" ? source.overExtended : null,
@@ -969,16 +977,21 @@ function planValue(value: JsonRecord): ResearchStageDetailPlan | null {
     planId: firstString(source, ["plan_id", "planId"]),
     planExpiry: firstString(source, ["plan_expiry", "planExpiry"]),
     confirmationConditions,
+    requiredConditions,
+    metConditions,
+    unmetConditions,
+    vetoConditions,
     scenarios,
     timeframeStates: timeframe,
   };
-  return plan.setupType || plan.planHash || plan.triggerZone || plan.invalidationLevel !== null || plan.rewardRisk !== null
+  return plan.strategyProfile || plan.eligibility || plan.setupType || plan.planHash || plan.triggerZone || plan.invalidationLevel !== null || plan.rewardRisk !== null
     || plan.stopDistancePct !== null || plan.riskUnit !== null || plan.firstResistance !== null
-    || plan.noChaseCondition || plan.technicalScore !== null || plan.counterTrendProbe !== null
+    || plan.noChaseCondition || plan.noChasePrice !== null || plan.priceDiscovery !== null || plan.technicalScore !== null || plan.counterTrendProbe !== null
     || plan.overExtended !== null || plan.atrExtension !== null || plan.maBiasMax !== null
     || plan.relativeStrengthRank !== null || plan.allowedTimeWindows || plan.maAnalysis || plan.klinePattern
     || plan.factorSnapshotHash || plan.configHash || plan.planId || plan.planExpiry
-    || plan.confirmationConditions.length || plan.scenarios || plan.timeframeStates
+    || plan.confirmationConditions.length || plan.requiredConditions.length || plan.metConditions.length
+    || plan.unmetConditions.length || plan.vetoConditions.length || plan.scenarios || plan.timeframeStates
     ? plan
     : null;
 }

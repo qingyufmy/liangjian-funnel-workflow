@@ -4,7 +4,10 @@ This module deliberately does not fetch data or infer missing bars.  It is a
 small, pure projection over :class:`TechnicalFactorSnapshot`, which means the
 same frozen input always produces the same JSON-ready result.  The two
 projections are kept separate so a missing minute feed cannot silently turn a
-daily K-line result into a price-level claim (or vice versa).
+daily K-line result into a price-level claim (or vice versa).  ``PRICE_LEVELS``
+is an A3 daily planning contract: minute bars may be exposed as legacy
+observations, but they cannot affect a trigger, invalidation, or reward/risk
+value.
 """
 
 from __future__ import annotations
@@ -50,6 +53,25 @@ _PRICE_FIELDS = (
     "max_chase_price",
     "source_bar_time",
 )
+_PRICE_PLAN_FIELDS = (
+    "latest_close",
+    "previous_day_high",
+    "previous_day_low",
+    "rolling_20_high",
+    "rolling_20_low",
+    "rolling_60_high",
+    "rolling_60_low",
+    "ma5",
+    "ma10",
+    "ma20",
+    "ma60",
+    "atr14",
+    "trigger_zone",
+    "invalidation",
+    "stop_distance_pct",
+    "max_chase_price",
+    "source_bar_time",
+)
 
 
 def build_technical_aggregates(
@@ -91,7 +113,12 @@ def build_price_levels(
     minimum_reward_risk: float = 2.0,
     max_stop_distance_pct: float = 0.06,
 ) -> dict[str, Any]:
-    """Build only the daily/5-minute closed-bar price-level projection."""
+    """Build only the daily closed-bar A3 price-level projection.
+
+    ``recent_5m_high`` and ``recent_5m_low`` are retained for old readers as
+    non-authoritative observations.  They are not part of the planning
+    calculation or readiness contract.
+    """
 
     return _build_price_levels(
         snapshot,
@@ -210,8 +237,22 @@ def _build_price_levels(
 ) -> dict[str, Any]:
     base = _base(snapshot, available=False, reason_code="NO_CLOSED_BARS")
     base.update({field: None for field in _PRICE_FIELDS})
+    base.update({
+        "ma5": None,
+        "ma10": None,
+        "price_discovery": False,
+        "observation_target": None,
+        "observation_target_multiple": None,
+        "no_chase_price": None,
+        "max_chase": None,
+        "planning_provenance": "DAILY_ONLY",
+        "level_provenance": None,
+        "recent_5m_provenance": "NON_AUTHORITATIVE_OBSERVATION",
+        "daily_adjust_mode": "UNKNOWN",
+        "actual_price_provenance": "SOURCE_SERIES_UNSPECIFIED",
+    })
     if future is not None:
-        return _fail_closed(base, reason_code="FUTURE_BAR_DETECTED", missing=_PRICE_FIELDS)
+        return _fail_closed(base, reason_code="FUTURE_BAR_DETECTED", missing=(*_PRICE_FIELDS, "ma5", "ma10"))
 
     daily = _closed_bars(snapshot, "daily")
     minute5 = _closed_bars(snapshot, "5m")
@@ -220,7 +261,7 @@ def _build_price_levels(
 
     closes = [bar.close for bar in daily]
     latest = daily[-1]
-    values: dict[str, float | None] = {
+    values: dict[str, Any] = {
         "latest_close": _number(latest.close),
         "previous_day_high": _number(daily[-2].high) if len(daily) >= 2 else None,
         "previous_day_low": _number(daily[-2].low) if len(daily) >= 2 else None,
@@ -228,6 +269,8 @@ def _build_price_levels(
         "rolling_20_low": _window_extreme(daily, 20, high=False),
         "rolling_60_high": _window_extreme(daily, 60, high=True),
         "rolling_60_low": _window_extreme(daily, 60, high=False),
+        "ma5": _moving_average(closes, 5),
+        "ma10": _moving_average(closes, 10),
         "ma20": _moving_average(closes, 20),
         "ma60": _moving_average(closes, 60),
         "ma255": _moving_average(closes, 255),
@@ -236,39 +279,60 @@ def _build_price_levels(
         "recent_5m_low": _number(minute5[-1].low) if minute5 else None,
     }
     daily_frame = snapshot.timeframes.get("daily")
-    five_frame = snapshot.timeframes.get("5m")
     daily_ma = dict(daily_frame.moving_averages) if daily_frame is not None else {}
-    five_ma = dict(five_frame.moving_averages) if five_frame is not None else {}
+    # Prefer the factor engine's daily values when available.  The fallback
+    # above keeps direct/legacy snapshots deterministic and still daily-only.
+    for name in ("ma5", "ma10", "ma20", "ma60", "ma255"):
+        candidate = _number(daily_ma.get(name))
+        if candidate is not None:
+            values[name] = candidate
     support_candidates = [
         _number(values.get("previous_day_low")),
         _number(values.get("rolling_20_low")),
+        _number(values.get("rolling_60_low")),
+        _number(values.get("ma5")),
+        _number(values.get("ma10")),
         _number(daily_ma.get("ma20")),
         _number(daily_ma.get("ma60")),
-        _number(five_ma.get("ma20")),
-        _number(five_ma.get("ma99")),
-        _number(five_ma.get("ma128")),
-        _number(five_ma.get("ma255")),
-        _number(values.get("recent_5m_low")),
+        _number(values.get("ma20")),
+        _number(values.get("ma60")),
     ]
     supports = [value for value in support_candidates if value is not None and value <= latest.close]
     support = max(supports, default=None)
+    # Resistance is a prior-day/prior-window reference.  Including the latest
+    # bar would make every new high appear to have a resistance above it and
+    # would incorrectly reject price-discovery trends.
+    prior_daily = daily[:-1]
+    prior_20_high = _window_extreme(prior_daily, 20, high=True)
+    prior_60_high = _window_extreme(prior_daily, 60, high=True)
     resistance_candidates = [
         _number(values.get("previous_day_high")),
-        _number(values.get("rolling_20_high")),
-        _number(values.get("rolling_60_high")),
+        prior_20_high,
+        prior_60_high,
     ]
     resistances = [value for value in resistance_candidates if value is not None and value > latest.close]
     resistance = min(resistances, default=None)
+    reference_highs = [value for value in (prior_20_high, prior_60_high) if value is not None]
+    price_discovery = bool(reference_highs and resistance is None and latest.close >= max(reference_highs))
     atr = values.get("atr14")
     trigger_zone: dict[str, float] | None = None
     invalidation: float | None = None
     stop_distance: float | None = None
     reward_risk: float | None = None
     max_chase: float | None = None
+    observation_target: float | None = None
+    observation_target_multiple: float | None = None
     if support is not None and latest.close > 0:
         trigger_low = _price(support)
         trigger_high = _price(min(latest.close, support * 1.01))
         if trigger_high is not None and trigger_low is not None and trigger_high >= trigger_low:
+            trigger_zone = {"low": trigger_low, "high": trigger_high}
+    elif price_discovery and atr is not None and atr > 0:
+        # With no nearby support, a discovery trend is observed around the
+        # latest close rather than rejected for lacking a fabricated level.
+        trigger_low = _price(max(latest.close - atr * 0.5, latest.close * 0.97))
+        trigger_high = _price(latest.close)
+        if trigger_low is not None and trigger_high is not None and trigger_high >= trigger_low:
             trigger_zone = {"low": trigger_low, "high": trigger_high}
     if trigger_zone is not None and atr is not None and atr > 0:
         floor_candidates = [
@@ -286,8 +350,18 @@ def _build_price_levels(
         stop_distance = _number(risk / trigger_zone["high"])
         if resistance is not None and resistance > trigger_zone["high"]:
             reward_risk = _number((resistance - trigger_zone["high"]) / risk)
+        elif price_discovery:
+            configured_rr = _number(minimum_reward_risk)
+            observation_target_multiple = max(2.0, configured_rr) if configured_rr is not None else 2.0
+            observation_target = _price(trigger_zone["high"] + risk * observation_target_multiple)
+            if observation_target is not None:
+                reward_risk = _number((observation_target - trigger_zone["high"]) / risk)
     if resistance is not None:
         max_chase = _price(min(resistance, latest.close * 1.03))
+    elif price_discovery:
+        max_chase = _price(latest.close * 1.03)
+    daily_adjust_mode = _summary_adjust_mode(daily_frame)
+    actual_price_provenance = _actual_price_provenance(daily_adjust_mode)
     planning = {
         "trigger_zone": trigger_zone,
         "invalidation": invalidation,
@@ -295,21 +369,61 @@ def _build_price_levels(
         "first_resistance": _price(resistance),
         "reward_risk": reward_risk,
         "max_chase_price": max_chase,
+        "no_chase_price": max_chase,
+        "max_chase": max_chase,
+        "price_discovery": price_discovery,
+        "observation_target": observation_target,
+        "observation_target_multiple": observation_target_multiple,
         "source_bar_time": latest.end.isoformat(),
     }
     values.update(planning)
-    missing = [field for field in _PRICE_FIELDS if values.get(field) is None]
+    # Minute observations are intentionally excluded from this list.  In a
+    # price-discovery trend ``first_resistance`` is legitimately None and the
+    # observation target is the auditable substitute.
+    optional_fields = {"recent_5m_high", "recent_5m_low"}
+    if price_discovery:
+        optional_fields.add("first_resistance")
+    missing = [field for field in _PRICE_FIELDS if field not in optional_fields and values.get(field) is None]
+    planning_missing = [field for field in _PRICE_PLAN_FIELDS if values.get(field) is None]
+    if price_discovery:
+        # A missing historical resistance is expected in discovery mode; the
+        # R-multiple observation target is required instead.
+        planning_missing = [field for field in planning_missing if field != "first_resistance"]
     base.update(values)
     base.update({
         "available": True,
         "reason_code": "OK" if not missing else "PARTIAL_SAMPLE",
         "missing_fields": missing,
-        "planning_ready": all(planning[field] is not None for field in planning),
+        "planning_ready": not planning_missing and (price_discovery or resistance is not None),
+        "planning_missing_fields": planning_missing,
+        "planning_provenance": "DAILY_ONLY",
+        "level_provenance": {
+            "timeframe": "daily",
+            "basis": "CLOSED_DAILY_BARS",
+            "inputs": [
+                "previous_day_high",
+                "previous_day_low",
+                "rolling_20_high",
+                "rolling_20_low",
+                "rolling_60_high",
+                "rolling_60_low",
+                "ma5",
+                "ma10",
+                "ma20",
+                "ma60",
+                "atr14",
+            ],
+            "minute_inputs_affect_plan": False,
+        },
+        "recent_5m_provenance": "NON_AUTHORITATIVE_OBSERVATION",
+        "daily_adjust_mode": daily_adjust_mode,
+        "actual_price_provenance": actual_price_provenance,
         "planning_constraints": {
             "max_stop_distance_pct": max_stop_distance_pct,
             "minimum_reward_risk": minimum_reward_risk,
             "passes_stop_distance": stop_distance is not None and stop_distance <= max_stop_distance_pct,
             "passes_reward_risk": reward_risk is not None and reward_risk >= minimum_reward_risk,
+            "price_discovery": price_discovery,
         },
     })
     return base
@@ -468,6 +582,20 @@ def _position(price: float, moving_average: Any) -> str | None:
 def _price(value: Any) -> float | None:
     number = _number(value)
     return round(number, 4) if number is not None and number > 0 else None
+
+
+def _summary_adjust_mode(frame: Any) -> str:
+    mode = getattr(frame, "adjust_mode", None)
+    return str(mode) if mode else "UNKNOWN"
+
+
+def _actual_price_provenance(adjust_mode: str) -> str:
+    normalized = str(adjust_mode).strip().lower()
+    if normalized in {"none", "raw", "unadjusted", "不复权"}:
+        return "UNADJUSTED_SOURCE"
+    if normalized in {"qfq", "front_adjusted", "forward_adjusted", "前复权"}:
+        return "ADJUSTED_SOURCE_NOT_RAW"
+    return "SOURCE_SERIES_UNSPECIFIED"
 
 
 def _finite_positive(value: float) -> bool:

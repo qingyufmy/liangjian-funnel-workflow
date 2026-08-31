@@ -81,6 +81,19 @@ const STAGE_LABELS: Record<string, string> = {
   A3: "A3 技术计划",
 };
 
+const STRATEGY_PROFILE_LABELS: Record<string, string> = {
+  LEADER_INTRADAY: "龙头战法",
+  MA520_SWING: "520 均线波段",
+  TREND_MA5: "趋势 5 日线",
+};
+
+const ELIGIBILITY_LABELS: Record<string, string> = {
+  QUALIFIED: "可形成计划",
+  WATCH_ONLY: "仅观察",
+  DATA_GAP: "数据不足",
+  REJECTED: "不符合",
+};
+
 const EMPTY_OVERVIEW: OverviewResponse = {
   generatedAt: "",
   service: { status: "unknown" },
@@ -1078,6 +1091,7 @@ function StageDetailDialog({ target, onDismiss }: { target: StageDetailTarget | 
   const pools = data?.pools ?? fallbackPools(target?.stage.stage ?? "A1");
   const selected = data?.items.find((item) => item.symbol === selectedSymbol) ?? data?.items[0] ?? null;
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
+  const isA3 = target?.stage.stage.toUpperCase() === "A3";
 
   function selectPool(nextPool: StagePoolId): void {
     setPool(nextPool);
@@ -1128,13 +1142,13 @@ function StageDetailDialog({ target, onDismiss }: { target: StageDetailTarget | 
 
           <div className="stage-detail-content" id="stage-detail-panel" role="tabpanel" aria-labelledby={`stage-tab-${pool}`}>
             <section className="stage-stock-master" aria-label="股票列表">
-              <div className="stage-stock-grid stage-stock-grid-head" aria-hidden="true"><span>股票</span><span>主题 / 行业</span><span>评分</span><span>主要原因</span><span>状态</span></div>
+               <div className="stage-stock-grid stage-stock-grid-head" aria-hidden="true"><span>股票</span><span>主题 / 行业</span><span>{isA3 ? "策略 / 资格" : "评分"}</span><span>主要原因</span><span>状态</span></div>
               <div className="stage-stock-list">
                 {error ? <div className="stage-detail-state stage-detail-error"><TriangleAlert size={20} /><strong>明细读取失败</strong><span>{error}</span></div> : loading && !data ? <div className="stage-detail-state"><RefreshCw className="spin" size={20} /><strong>正在读取持久化结果</strong></div> : data?.items.length ? data.items.map((item) => (
                   <button key={item.symbol} type="button" className={item.symbol === selected?.symbol ? "stage-stock-grid stage-stock-row stage-stock-row-selected" : "stage-stock-grid stage-stock-row"} aria-pressed={item.symbol === selected?.symbol} onClick={() => { setSelectedSymbol(item.symbol); setMobileDetailOpen(true); }}>
                     <span className="stage-stock-identity"><strong>{item.name || "名称未提供"}</strong><small>{item.symbol}</small></span>
                     <span>{item.theme || item.industry || "—"}</span>
-                    <strong className="stage-stock-score">{item.score === null || item.score === undefined ? "—" : item.score}</strong>
+                     <strong className="stage-stock-score">{isA3 ? <>{strategyProfileLabel(item.plan?.strategyProfile)}<small>{eligibilityLabel(item.plan?.eligibility)}</small></> : item.score === null || item.score === undefined ? "—" : item.score}</strong>
                     <span className="stage-stock-reasons">{item.selectionReasons[0] ?? item.reasonCodes[0] ?? item.evidence[0] ?? "未提供原因"}</span>
                     <span className="stage-stock-result-status"><StatusBadge status={item.status} label={pools.find((entry) => entry.id === item.pool)?.label} />{item.detailState ? <small className={item.detailState === "COMPLETE" ? "detail-completeness detail-complete" : "detail-completeness detail-partial"}>{item.detailState === "COMPLETE" ? "明细完整" : `缺 ${item.missingFields?.length ?? 0} 项`}</small> : null}</span>
                   </button>
@@ -1143,7 +1157,7 @@ function StageDetailDialog({ target, onDismiss }: { target: StageDetailTarget | 
               <footer className="stage-stock-pagination"><span>第 {data?.page ?? page} / {totalPages} 页</span><div><button className="icon-button" type="button" aria-label="上一页" disabled={!data || data.page <= 1 || loading} onClick={() => setPage((current) => Math.max(1, current - 1))}><ChevronLeft size={18} /></button><button className="icon-button" type="button" aria-label="下一页" disabled={!data || data.page >= totalPages || loading} onClick={() => setPage((current) => current + 1)}><ChevronRight size={18} /></button></div></footer>
             </section>
 
-            <StageStockDetail item={selected} onBack={() => setMobileDetailOpen(false)} />
+             <StageStockDetail item={selected} stage={target?.stage.stage} onBack={() => setMobileDetailOpen(false)} />
           </div>
         </div>
       ) : null}
@@ -1156,6 +1170,18 @@ function detailValue(value: unknown): string {
   if (typeof value === "number") return new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 4 }).format(value);
   if (typeof value === "string" || typeof value === "boolean") return String(value);
   try { return JSON.stringify(value); } catch { return String(value); }
+}
+
+function strategyProfileLabel(value?: string | null): string {
+  if (!value) return "未提供策略";
+  const key = value.trim().toUpperCase().replaceAll("-", "_").replaceAll(" ", "_");
+  return STRATEGY_PROFILE_LABELS[key] ?? value;
+}
+
+function eligibilityLabel(value?: string | null): string {
+  if (!value) return "未提供资格";
+  const key = value.trim().toUpperCase().replaceAll("-", "_").replaceAll(" ", "_");
+  return ELIGIBILITY_LABELS[key] ?? value;
 }
 
 function DetailStringList({ title, badge, values }: { title: string; badge: string; values: string[] }) {
@@ -1178,15 +1204,19 @@ const MISSING_FIELD_LABELS: Record<string, string> = {
   "decisionFacts.technicalCycle": "技术周期", "decisionFacts.weeklyConfirmation": "周线确认", "decisionFacts.indexChainResonance": "指数 / 产业链共振",
 };
 
-function StageStockDetail({ item, onBack }: { item: StageDetailItem | null; onBack: () => void }) {
+function StageStockDetail({ item, stage, onBack }: { item: StageDetailItem | null; stage?: string; onBack: () => void }) {
   if (!item) return <aside className="stage-stock-detail"><div className="stage-detail-state"><CircleAlert size={21} /><strong>选择一只股票查看详情</strong><span>模型判断、系统原因码与事实证据会分开展示。</span></div></aside>;
-  const scoreEntries = Object.entries(item.scoreBreakdown ?? {});
+  const isA3 = stage?.toUpperCase() === "A3";
+  // A3 uses deterministic route eligibility and conditions; do not surface the
+  // legacy composite technical score as if it were part of the new contract.
+  const scoreEntries = isA3 ? [] : Object.entries(item.scoreBreakdown ?? {});
   const decisionFactEntries = Object.entries(item.decisionFacts ?? {}).filter(([, value]) => value !== null && value !== undefined);
   const plan = item.plan;
+  const hasPlanRoute = Boolean(plan && (plan.strategyProfile || plan.eligibility || plan.noChasePrice !== null && plan.noChasePrice !== undefined || plan.priceDiscovery !== null && plan.priceDiscovery !== undefined));
   return (
     <aside className="stage-stock-detail" aria-label={`${item.symbol} 详情`}>
       <button className="stage-detail-back text-button" type="button" onClick={onBack}><ChevronLeft size={17} />返回股票列表</button>
-      <header className="stage-stock-detail-heading"><div><h3>{item.name || "名称未提供"}</h3><span>{item.symbol} · {item.theme || item.industry || "行业主题未提供"}</span></div>{item.score !== null && item.score !== undefined ? <strong>{item.score}<small>分</small></strong> : null}</header>
+      <header className="stage-stock-detail-heading"><div><h3>{item.name || "名称未提供"}</h3><span>{item.symbol} · {item.theme || item.industry || "行业主题未提供"}</span></div>{!isA3 && item.score !== null && item.score !== undefined ? <strong>{item.score}<small>分</small></strong> : null}</header>
       {item.detailState === "PARTIAL" ? <div className="stage-detail-notice"><CircleAlert size={16} /><div><strong>明细字段不完整</strong><span>未提供：{(item.missingFields ?? []).map((field) => MISSING_FIELD_LABELS[field] ?? field).join("、") || "未标明字段"}。页面不会推测填充。</span></div></div> : item.detailState === "COMPLETE" ? <div className="stage-detail-complete-note"><CheckCircle2 size={16} />本阶段要求的股票明细字段完整。</div> : null}
       {item.nameSource === "unavailable" ? <div className="stage-detail-notice"><CircleAlert size={16} />冻结快照和模型结果均未提供名称，页面没有推测填充。</div> : null}
       {item.route || item.bottleneckStatus || item.factorCoverage ? <section className="stage-detail-section"><header><h3>A2 入池通道</h3><span>确定性门禁</span></header><dl className="stage-definition-grid"><div><dt>路线</dt><dd>{detailValue(item.route)}</dd></div><div><dt>瓶颈状态</dt><dd>{detailValue(item.bottleneckStatus)}</dd></div><div><dt>事实覆盖</dt><dd>{detailValue(item.factorCoverage)}</dd></div></dl></section> : null}
@@ -1199,7 +1229,45 @@ function StageStockDetail({ item, onBack }: { item: StageDetailItem | null; onBa
       <DetailStringList title="风险提示" badge="模型风险" values={[...new Set([...item.riskReasons, ...item.risks])]} />
       <DetailStringList title="失效条件" badge="约束条件" values={item.invalidation} />
       {item.lineage && Object.keys(item.lineage).length ? <section className="stage-detail-section"><header><h3>上游追溯</h3><span>lineage</span></header><dl className="stage-definition-grid">{Object.entries(item.lineage).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{detailValue(value)}</dd></div>)}</dl></section> : null}
-      {plan ? <section className="stage-detail-section stage-plan-section"><header><h3>A3 技术计划</h3><span>只读计划</span></header><dl className="stage-definition-grid"><div><dt>形态</dt><dd>{detailValue(plan.setupType)}</dd></div><div><dt>触发区间</dt><dd>{plan.triggerZone ? `${detailValue(plan.triggerZone.low)} – ${detailValue(plan.triggerZone.high)}` : "—"}</dd></div><div><dt>失效价</dt><dd>{detailValue(plan.invalidationLevel)}</dd></div><div><dt>第一阻力位</dt><dd>{detailValue(plan.firstResistance)}</dd></div><div><dt>盈亏比</dt><dd>{detailValue(plan.rewardRisk)}</dd></div><div><dt>止损距离原始值</dt><dd>{detailValue(plan.stopDistancePct)}</dd></div><div><dt>风险单位</dt><dd>{detailValue(plan.riskUnit)}</dd></div><div><dt>技术分</dt><dd>{detailValue(plan.technicalScore)}</dd></div><div><dt>相对强度排名</dt><dd>{detailValue(plan.relativeStrengthRank)}</dd></div><div><dt>ATR 延伸</dt><dd>{detailValue(plan.atrExtension)}</dd></div><div><dt>最大均线偏离</dt><dd>{detailValue(plan.maBiasMax)}</dd></div><div><dt>禁止追价条件</dt><dd>{detailValue(plan.noChaseCondition)}</dd></div><div><dt>K 线形态</dt><dd>{detailValue(plan.klinePattern)}</dd></div><div><dt>反趋势试探</dt><dd>{detailValue(plan.counterTrendProbe)}</dd></div><div><dt>过度延伸</dt><dd>{detailValue(plan.overExtended)}</dd></div><div><dt>允许时间窗</dt><dd>{detailValue(plan.allowedTimeWindows)}</dd></div><div><dt>均线分析</dt><dd>{detailValue(plan.maAnalysis)}</dd></div><div><dt>计划 ID</dt><dd>{detailValue(plan.planId)}</dd></div><div><dt>计划哈希</dt><dd>{detailValue(plan.planHash)}</dd></div><div><dt>因子快照哈希</dt><dd>{detailValue(plan.factorSnapshotHash)}</dd></div><div><dt>配置哈希</dt><dd>{detailValue(plan.configHash)}</dd></div><div><dt>有效期</dt><dd>{detailValue(plan.planExpiry)}</dd></div></dl>{plan.timeframeStates && Object.keys(plan.timeframeStates).length ? <section className="stage-detail-section"><header><h3>周期状态</h3><span>timeframes</span></header><dl className="stage-definition-grid">{Object.entries(plan.timeframeStates).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{detailValue(value)}</dd></div>)}</dl></section> : null}{plan.scenarios ? <section className="stage-detail-section"><header><h3>情景计划</h3><span>scenarios</span></header><p className="stage-detail-raw-value">{detailValue(plan.scenarios)}</p></section> : null}{plan.confirmationConditions?.length ? <DetailStringList title="确认条件" badge="触发约束" values={plan.confirmationConditions} /> : null}</section> : null}
+       {plan ? <section className="stage-detail-section stage-plan-section">
+         <header><h3>A3 技术计划</h3><span>确定性路线 · 只读计划</span></header>
+         {hasPlanRoute ? <dl className="stage-definition-grid">
+           <div><dt>策略路线</dt><dd>{strategyProfileLabel(plan.strategyProfile)}</dd></div>
+           <div><dt>计划资格</dt><dd>{eligibilityLabel(plan.eligibility)}</dd></div>
+           <div><dt>禁止追价价位</dt><dd>{detailValue(plan.noChasePrice)}</dd></div>
+           <div><dt>价格发现</dt><dd>{plan.priceDiscovery === null || plan.priceDiscovery === undefined ? "—" : plan.priceDiscovery ? "是 · 趋势强度票" : "否"}</dd></div>
+         </dl> : null}
+         <dl className="stage-definition-grid">
+           <div><dt>形态</dt><dd>{detailValue(plan.setupType)}</dd></div>
+           <div><dt>触发区间</dt><dd>{plan.triggerZone ? `${detailValue(plan.triggerZone.low)} – ${detailValue(plan.triggerZone.high)}` : "—"}</dd></div>
+           <div><dt>失效价</dt><dd>{detailValue(plan.invalidationLevel)}</dd></div>
+           <div><dt>第一阻力位</dt><dd>{detailValue(plan.firstResistance)}</dd></div>
+           <div><dt>盈亏比</dt><dd>{detailValue(plan.rewardRisk)}</dd></div>
+           <div><dt>止损距离原始值</dt><dd>{detailValue(plan.stopDistancePct)}</dd></div>
+           <div><dt>风险单位</dt><dd>{detailValue(plan.riskUnit)}</dd></div>
+           <div><dt>相对强度排名</dt><dd>{detailValue(plan.relativeStrengthRank)}</dd></div>
+           <div><dt>ATR 延伸</dt><dd>{detailValue(plan.atrExtension)}</dd></div>
+           <div><dt>最大均线偏离</dt><dd>{detailValue(plan.maBiasMax)}</dd></div>
+           <div><dt>禁止追价条件</dt><dd>{detailValue(plan.noChaseCondition)}</dd></div>
+           <div><dt>K 线形态</dt><dd>{detailValue(plan.klinePattern)}</dd></div>
+           <div><dt>反趋势试探</dt><dd>{detailValue(plan.counterTrendProbe)}</dd></div>
+           <div><dt>过度延伸</dt><dd>{detailValue(plan.overExtended)}</dd></div>
+           <div><dt>允许时间窗</dt><dd>{detailValue(plan.allowedTimeWindows)}</dd></div>
+           <div><dt>均线分析</dt><dd>{detailValue(plan.maAnalysis)}</dd></div>
+           <div><dt>计划 ID</dt><dd>{detailValue(plan.planId)}</dd></div>
+           <div><dt>计划哈希</dt><dd>{detailValue(plan.planHash)}</dd></div>
+           <div><dt>因子快照哈希</dt><dd>{detailValue(plan.factorSnapshotHash)}</dd></div>
+           <div><dt>配置哈希</dt><dd>{detailValue(plan.configHash)}</dd></div>
+           <div><dt>有效期</dt><dd>{detailValue(plan.planExpiry)}</dd></div>
+         </dl>
+         {plan.timeframeStates && Object.keys(plan.timeframeStates).length ? <section className="stage-detail-section"><header><h3>周期状态</h3><span>timeframes</span></header><dl className="stage-definition-grid">{Object.entries(plan.timeframeStates).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{detailValue(value)}</dd></div>)}</dl></section> : null}
+         {plan.scenarios ? <section className="stage-detail-section"><header><h3>情景计划</h3><span>scenarios</span></header><p className="stage-detail-raw-value">{detailValue(plan.scenarios)}</p></section> : null}
+         {plan.confirmationConditions?.length ? <DetailStringList title="确认条件" badge="触发约束" values={plan.confirmationConditions} /> : null}
+         <DetailStringList title="必备条件" badge="确定性门槛" values={plan.requiredConditions ?? []} />
+         <DetailStringList title="已满足条件" badge="确定性事实" values={plan.metConditions ?? []} />
+         <DetailStringList title="未满足条件" badge="当前不执行" values={plan.unmetConditions ?? []} />
+         <DetailStringList title="模型否决边界" badge="A4 仍需复核" values={plan.vetoConditions ?? []} />
+       </section> : null}
     </aside>
   );
 }
@@ -1222,6 +1290,8 @@ function EventRow({ event }: { event: EffectiveEvent }) {
 }
 
 const MONITOR_ACTION_LABELS: Record<string, string> = {
+  NO_ACTION: "继续观察",
+  START_CONFIRMATION: "开始确认",
   BUY_SIGNAL: "模拟入场",
   ADD_SIGNAL: "模拟加仓",
   SELL_SIGNAL: "模拟离场",
@@ -1244,6 +1314,11 @@ const MONITOR_REASON_LABELS: Record<string, string> = {
   MONITOR_OVERRUN: "本分钟处理超时",
   LLM_UNAVAILABLE: "盯盘模型不可用",
   PLAN_INVALIDATED: "A3计划已失效",
+  DETERMINISTIC_STRATEGY_CONFIRMATION: "策略条件已满足，等待模型复核",
+  STRATEGY_TRIGGER_NOT_MET: "策略触发条件尚未满足",
+  PLAN_DATA_GAP: "计划数据不足",
+  NO_CLOSED_5M: "缺少闭合5分钟线",
+  NO_CLOSED_15M: "缺少闭合15分钟结构",
 };
 
 function monitorActionLabel(action?: string | null): string {
@@ -1268,12 +1343,16 @@ function MonitorEventDialog({ event, onClose }: { event: EffectiveEvent | null; 
     if (!event && dialog.open) dialog.close();
   }, [event]);
   const plan = event?.plan;
+  const strategyProfile = event?.strategyProfile ?? plan?.strategyProfile;
+  const eligibility = event?.eligibility ?? plan?.eligibility;
+  const hasPlanConditions = Boolean(plan && [plan.requiredConditions, plan.metConditions, plan.unmetConditions, plan.vetoConditions].some((values) => values?.length));
   return <dialog ref={ref} className="monitor-detail-dialog" onClose={onClose} onCancel={(e) => { e.preventDefault(); onClose(); }}>
     {event ? <div className="monitor-detail-shell">
       <header className="monitor-detail-header"><div><span className="monitor-detail-mode">{event.testOnly ? "测试回放信号" : "正式模拟信号"}</span><h2>{event.name || "名称未提供"}<small>{event.symbol || "代码未提供"}</small></h2><p>{monitorActionLabel(event.action)} · {formatDateTime(event.minuteEnd ?? event.time)}</p></div><button className="icon-button" type="button" aria-label="关闭信号详情" onClick={onClose}><X size={19} /></button></header>
       <div className="monitor-detail-body">
-        <section className="monitor-detail-summary"><div><span>动作</span><strong>{monitorActionLabel(event.action)}</strong></div><div><span>触发原因</span><strong>{monitorReasonLabel(event.reasonCode)}</strong>{event.diagnosticCode ? <small>{event.diagnosticCode}</small> : null}</div><div><span>Lane</span><strong>{event.laneId || "—"}</strong></div><div><span>模拟结果</span><strong>{event.simulation?.status === "FILLED" ? "已成交" : event.action === "LLM_VETO" ? "已否决" : "未成交 / 不适用"}</strong></div></section>
-        <section className="monitor-detail-section"><header><h3>A3 计划约束</h3><span>只读</span></header>{plan ? <dl className="monitor-detail-grid"><div><dt>计划 ID</dt><dd>{plan.planId || event.planId || "—"}</dd></div><div><dt>形态</dt><dd>{plan.setupType || "—"}</dd></div><div><dt>触发区间</dt><dd>{priceRange(plan)}</dd></div><div><dt>失效价</dt><dd>{detailValue(plan.stopLevel)}</dd></div><div><dt>风险单位</dt><dd>{detailValue(plan.riskUnit)}</dd></div><div><dt>有效期</dt><dd>{formatDateTime(plan.expiresAt)}</dd></div></dl> : <p className="monitor-detail-empty">该事件没有可用的计划明细，页面不会推测补齐。</p>}</section>
+         <section className="monitor-detail-summary"><div><span>动作</span><strong>{monitorActionLabel(event.action)}</strong></div><div><span>触发原因</span><strong>{monitorReasonLabel(event.reasonCode)}</strong>{event.diagnosticCode ? <small>{event.diagnosticCode}</small> : null}</div><div><span>策略</span><strong>{strategyProfileLabel(strategyProfile)}</strong></div><div><span>资格</span><strong>{eligibilityLabel(eligibility)}</strong></div><div><span>Lane</span><strong>{event.laneId || "—"}</strong></div><div><span>模拟结果</span><strong>{event.simulation?.status === "FILLED" ? "已成交" : event.action === "LLM_VETO" ? "已否决" : "未成交 / 不适用"}</strong></div></section>
+         <section className="monitor-detail-section"><header><h3>A3 计划约束</h3><span>只读</span></header>{plan ? <dl className="monitor-detail-grid"><div><dt>计划 ID</dt><dd>{plan.planId || event.planId || "—"}</dd></div><div><dt>策略路线</dt><dd>{strategyProfileLabel(strategyProfile)}</dd></div><div><dt>计划资格</dt><dd>{eligibilityLabel(eligibility)}</dd></div><div><dt>形态</dt><dd>{plan.setupType || "—"}</dd></div><div><dt>触发区间</dt><dd>{priceRange(plan)}</dd></div><div><dt>失效价</dt><dd>{detailValue(plan.stopLevel)}</dd></div><div><dt>禁止追价价位</dt><dd>{detailValue(plan.noChasePrice)}</dd></div><div><dt>风险单位</dt><dd>{detailValue(plan.riskUnit)}</dd></div><div><dt>有效期</dt><dd>{formatDateTime(plan.expiresAt)}</dd></div></dl> : <p className="monitor-detail-empty">该事件没有可用的计划明细，页面不会推测补齐。</p>}</section>
+         {hasPlanConditions ? <section className="monitor-detail-section"><header><h3>确定性条件</h3><span>15m / 5m</span></header><dl className="monitor-detail-grid"><div><dt>必备条件</dt><dd>{detailValue(plan?.requiredConditions)}</dd></div><div><dt>已满足条件</dt><dd>{detailValue(plan?.metConditions)}</dd></div><div><dt>未满足条件</dt><dd>{detailValue(plan?.unmetConditions)}</dd></div><div><dt>模型否决边界</dt><dd>{detailValue(plan?.vetoConditions)}</dd></div></dl></section> : null}
         {plan?.selectionReasons?.length ? <section className="monitor-detail-section"><header><h3>入选依据</h3><span>持久化结果</span></header><ul>{plan.selectionReasons.map((reason, index) => <li key={`${reason}-${index}`}>{reason}</li>)}</ul></section> : null}
         <section className="monitor-detail-section"><header><h3>模拟成交</h3><span>内部账户</span></header>{event.simulation ? <dl className="monitor-detail-grid"><div><dt>状态</dt><dd>{event.simulation.status || "—"}</dd></div><div><dt>方向</dt><dd>{event.simulation.action || "—"}</dd></div><div><dt>数量</dt><dd>{detailValue(event.simulation.qty)}</dd></div><div><dt>价格</dt><dd>{detailValue(event.simulation.price)}</dd></div><div><dt>费用</dt><dd>{detailValue(event.simulation.fee)}</dd></div><div><dt>成交K线</dt><dd>{formatDateTime(event.simulation.barEnd)}</dd></div></dl> : <p className="monitor-detail-empty">该事件未产生模拟成交；模型否决、数据阻断和计划失效均不会下单。</p>}</section>
       </div>
@@ -1411,20 +1490,20 @@ function MonitorPage({ overview }: { overview: OverviewResponse }) {
   const replay = overview.monitor.replay;
   return <div className="page-stack"><PageHeading eyebrow="A4 · veto only" title="盘中盯盘" detail="确定性规则先触发，Flash 只允许否决；全部结果进入本地模拟账户，不连接真实交易。" />
     <div className="summary-strip monitor-summary-strip"><SummaryItem label="最新检查" value={formatDateTime(overview.monitor.checkedAt)} /><SummaryItem label="正式活动计划" value={String(activePlanCount)} /><SummaryItem label="有效事件" value={String(overview.monitor.effectiveEventCount ?? events.length)} /><SummaryItem label="模拟成交" value={String(filledCount)} /><SummaryItem label="当前状态" value={statusLabel(overview.monitor.status)} /></div>
-    {activePlanCount === 0 ? <section className="monitor-readiness monitor-readiness-blocked"><TriangleAlert size={19} /><div><strong>当前没有正式 A3 活动计划</strong><p>A4 会保持空范围并继续运行，但不会自行创建候选或产生模拟入场。测试回放与正式信号严格分开。</p></div></section> : <section className="monitor-readiness"><CheckCircle2 size={19} /><div><strong>{activePlanCount} 个正式计划已进入盯盘范围</strong><p>09:31 起使用闭合1分钟K线；入场触发需连续确认，模型仅能否决。</p></div></section>}
+     {activePlanCount === 0 ? <section className="monitor-readiness monitor-readiness-blocked"><TriangleAlert size={19} /><div><strong>当前没有正式 A3 活动计划</strong><p>A4 会保持空范围并继续运行，但不会自行创建候选或产生模拟入场。测试回放与正式信号严格分开。</p></div></section> : <section className="monitor-readiness"><CheckCircle2 size={19} /><div><strong>{activePlanCount} 个正式计划已进入盯盘范围</strong><p>09:31 起先核验闭合15分钟结构，再用闭合5分钟K线确认触发；1分钟线仅用于安全检查与新鲜度校验，模型仅能否决。</p></div></section>}
 
     <Panel title="正式实时信号" icon={<MonitorDot size={18} />}>
-      {events.length === 0 ? <EmptyState title="目前没有有效盯盘事件" detail={activePlanCount ? "这是合法结果。系统不会把每分钟的 NO_ACTION 写入最终结果。" : "没有正式活动计划，因此生产路径应保持 EMPTY_SCOPE。"} icon={<MonitorDot size={22} />} /> : <div className="data-table-wrap"><table className="data-table monitor-event-table"><thead><tr><th>时间</th><th>股票</th><th>信号</th><th>模拟结果</th><th>原因</th><th><span className="sr-only">详情</span></th></tr></thead><tbody>{events.map((event, index) => <tr key={`${event.minuteEnd}-${event.planId}-${index}`}><td>{formatDateTime(event.minuteEnd ?? event.time)}</td><td><span className="monitor-stock"><strong>{event.name || "名称未提供"}</strong><small>{event.symbol || "代码未提供"}</small></span></td><td><span className={`monitor-action monitor-action-${(event.action || "unknown").toLowerCase()}`}>{monitorActionLabel(event.action)}</span></td><td>{event.simulation?.status === "FILLED" ? <span className="monitor-fill-status monitor-fill-success">已成交 · {detailValue(event.simulation.qty)}股</span> : event.action === "LLM_VETO" ? <span className="monitor-fill-status">未成交 · 模型否决</span> : <span className="monitor-fill-status">不适用</span>}</td><td className="monitor-reason">{monitorReasonLabel(event.reasonCode)}</td><td><button className="monitor-detail-button" type="button" onClick={() => setSelectedEvent(event)}>查看<ChevronRight size={16} /></button></td></tr>)}</tbody></table></div>}
+      {events.length === 0 ? <EmptyState title="目前没有有效盯盘事件" detail={activePlanCount ? "这是合法结果。系统不会把每分钟的 NO_ACTION 写入最终结果。" : "没有正式活动计划，因此生产路径应保持 EMPTY_SCOPE。"} icon={<MonitorDot size={22} />} /> : <div className="data-table-wrap"><table className="data-table monitor-event-table"><thead><tr><th>时间</th><th>股票</th><th>策略</th><th>信号</th><th>模拟结果</th><th>原因</th><th><span className="sr-only">详情</span></th></tr></thead><tbody>{events.map((event, index) => <tr key={`${event.minuteEnd}-${event.planId}-${index}`}><td>{formatDateTime(event.minuteEnd ?? event.time)}</td><td><span className="monitor-stock"><strong>{event.name || "名称未提供"}</strong><small>{event.symbol || "代码未提供"}</small></span></td><td>{strategyProfileLabel(event.strategyProfile ?? event.plan?.strategyProfile)}</td><td><span className={`monitor-action monitor-action-${(event.action || "unknown").toLowerCase()}`}>{monitorActionLabel(event.action)}</span></td><td>{event.simulation?.status === "FILLED" ? <span className="monitor-fill-status monitor-fill-success">已成交 · {detailValue(event.simulation.qty)}股</span> : event.action === "LLM_VETO" ? <span className="monitor-fill-status">未成交 · 模型否决</span> : <span className="monitor-fill-status">不适用</span>}</td><td className="monitor-reason">{monitorReasonLabel(event.reasonCode)}</td><td><button className="monitor-detail-button" type="button" onClick={() => setSelectedEvent(event)}>查看<ChevronRight size={16} /></button></td></tr>)}</tbody></table></div>}
     </Panel>
 
     <Panel title="A3 计划观察池" icon={<FileClock size={18} />}>
-      {plans.length === 0 ? <EmptyState title="当前没有待复核或活动计划" detail="A3 只有发布可执行计划后，A4 才会接管对应股票。" icon={<FileClock size={22} />} /> : <div className="data-table-wrap"><table className="data-table monitor-plan-table"><thead><tr><th>股票</th><th>状态</th><th>技术形态</th><th>触发区间</th><th>失效价</th><th>有效期</th><th>核心依据</th></tr></thead><tbody>{plans.map((plan) => <tr key={plan.planId || `${plan.laneId}-${plan.symbol}`}><td><span className="monitor-stock"><strong>{plan.name || "名称未提供"}</strong><small>{plan.symbol || "代码未提供"}</small></span></td><td><StatusBadge status={plan.status} /></td><td>{plan.setupType || "—"}</td><td className="mono-cell">{priceRange(plan)}</td><td className="mono-cell">{detailValue(plan.stopLevel)}</td><td>{formatDateTime(plan.expiresAt)}</td><td className="monitor-plan-reason">{plan.selectionReasons?.[0] || "未提供筛选依据"}</td></tr>)}</tbody></table></div>}
+      {plans.length === 0 ? <EmptyState title="当前没有待复核或活动计划" detail="A3 只有发布可执行计划后，A4 才会接管对应股票。" icon={<FileClock size={22} />} /> : <div className="data-table-wrap"><table className="data-table monitor-plan-table"><thead><tr><th>股票</th><th>状态</th><th>策略</th><th>技术形态</th><th>触发区间</th><th>失效价</th><th>有效期</th><th>核心依据</th></tr></thead><tbody>{plans.map((plan) => <tr key={plan.planId || `${plan.laneId}-${plan.symbol}`}><td><span className="monitor-stock"><strong>{plan.name || "名称未提供"}</strong><small>{plan.symbol || "代码未提供"}</small></span></td><td><StatusBadge status={plan.status} /></td><td>{strategyProfileLabel(plan.strategyProfile)}</td><td>{plan.setupType || "—"}</td><td className="mono-cell">{priceRange(plan)}</td><td className="mono-cell">{detailValue(plan.stopLevel)}</td><td>{formatDateTime(plan.expiresAt)}</td><td className="monitor-plan-reason">{plan.selectionReasons?.[0] || "未提供筛选依据"}</td></tr>)}</tbody></table></div>}
     </Panel>
 
     <Panel title="A4 回放验收" icon={<ShieldCheck size={18} />} action={replay ? <span className="monitor-test-badge">测试回放 · 非正式信号</span> : undefined}>
       {!replay ? <EmptyState title="尚未生成 A4 回放报告" detail="运行隔离回放后，这里会显示分钟线覆盖、模型调用、有效事件与模拟成交验收结果。" icon={<ShieldCheck size={22} />} /> : <div className="monitor-replay">
         <div className="monitor-replay-head"><div><strong>{replay.testPlan?.name || "名称未提供"}<small>{replay.testPlan?.symbol || "代码未提供"}</small></strong><span>{replay.tradeDate} · {replay.modelMode === "LIVE_DEEPSEEK_FLASH_VETO_ONLY" ? "真实 Flash 否决边界" : "确定性放行路径"}</span></div><StatusBadge status={replay.status} /></div>
-        <dl className="monitor-replay-metrics"><div><dt>闭合1分钟线</dt><dd>{replay.barCoverage?.count ?? "—"} 根</dd></div><div><dt>模型调用</dt><dd>{replay.modelCalls ?? "—"} 次</dd></div><div><dt>有效事件</dt><dd>{replay.effectiveEvents?.length ?? 0} 条</dd></div><div><dt>模拟成交</dt><dd>{replay.fills?.length ?? 0} 笔</dd></div><div><dt>正式 A3 计划</dt><dd>{replay.officialA3PlanCount ?? "—"} 个</dd></div></dl>
+        <dl className="monitor-replay-metrics"><div><dt>1分钟安全/新鲜度线</dt><dd>{replay.barCoverage?.count ?? "—"} 根</dd></div><div><dt>模型调用</dt><dd>{replay.modelCalls ?? "—"} 次</dd></div><div><dt>有效事件</dt><dd>{replay.effectiveEvents?.length ?? 0} 条</dd></div><div><dt>模拟成交</dt><dd>{replay.fills?.length ?? 0} 笔</dd></div><div><dt>正式 A3 计划</dt><dd>{replay.officialA3PlanCount ?? "—"} 个</dd></div></dl>
         <div className="monitor-replay-contract"><CircleAlert size={17} /><p>该回放把 A3 观察行临时提升为 TEST_ONLY PROBE，只验证盘前复核、触发、模型否决和模拟成交链路；不等于8月28日真实推荐，也不会写入正式状态库。</p></div>
         {replay.effectiveEvents?.length ? <div className="monitor-replay-events">{replay.effectiveEvents.map((event, index) => <button type="button" key={`${event.minuteEnd}-${index}`} onClick={() => setSelectedEvent(event)}><span>{formatDateTime(event.minuteEnd)}</span><strong>{monitorActionLabel(event.action)}</strong><small>{monitorReasonLabel(event.reasonCode)}</small><ChevronRight size={16} /></button>)}</div> : null}
       </div>}

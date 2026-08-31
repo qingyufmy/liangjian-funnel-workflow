@@ -236,6 +236,8 @@ export interface ResearchDecisionFacts {
 }
 
 export interface ResearchStageDetailPlan {
+  readonly strategyProfile: string | null;
+  readonly eligibility: string | null;
   readonly setupType: string | null;
   readonly planHash: string | null;
   readonly triggerZone: JsonValue | null;
@@ -245,6 +247,8 @@ export interface ResearchStageDetailPlan {
   readonly riskUnit: string | number | null;
   readonly firstResistance: number | null;
   readonly noChaseCondition: string | null;
+  readonly noChasePrice: number | null;
+  readonly priceDiscovery: boolean | null;
   readonly technicalScore: number | null;
   readonly counterTrendProbe: boolean | null;
   readonly overExtended: boolean | null;
@@ -259,6 +263,10 @@ export interface ResearchStageDetailPlan {
   readonly planId: string | null;
   readonly planExpiry: string | null;
   readonly confirmationConditions: readonly string[];
+  readonly requiredConditions: readonly string[];
+  readonly metConditions: readonly string[];
+  readonly unmetConditions: readonly string[];
+  readonly vetoConditions: readonly string[];
   readonly scenarios: JsonValue | null;
   readonly timeframeStates: JsonValue | null;
 }

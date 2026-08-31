@@ -122,6 +122,66 @@ def test_one_flash_batch_per_nonempty_lane_contains_all_trigger_results(tmp_path
     assert calls[1]["lane_id"] == "lane-b"
 
 
+def test_strategy_plan_uses_closed_15m_and_5m_not_legacy_1m_zone(tmp_path):
+    store = RuntimeStore(tmp_path / "strategy.sqlite3")
+    store.create_execution_plan(
+        "p-strategy",
+        "lane-a",
+        "600519.SH",
+        status=PlanStatus.PENDING_MORNING_REVIEW,
+        payload={
+            "strategy_profile": "TREND_MA5",
+            "eligibility": "QUALIFIED",
+            # Deliberately excludes the current price.  A strategy plan must
+            # not fall back to the retired one-minute trigger-zone check.
+            "trigger_low": 1.0,
+            "trigger_high": 2.0,
+            "entry_reference_zone": {"low": 10.0, "high": 12.0},
+            "invalidation_level": 8.0,
+            "stop_level": 8.0,
+            "daily_indicators": {
+                "ma5": 11.0,
+                "ma10": 10.7,
+                "ma20": 10.2,
+                "ma60": 9.5,
+                "close": 11.3,
+            },
+        },
+    )
+    store.activate_plan("p-strategy")
+    start = datetime(2026, 8, 24, 9, 31, tzinfo=TZ)
+    history = tuple(
+        MinuteBar(
+            symbol="600519",
+            interval="1m",
+            bar_end=start + timedelta(minutes=index),
+            open=10.3 + index * 0.01,
+            high=10.7 + index * 0.01,
+            low=10.3 + index * 0.01,
+            close=10.5 + index * 0.01,
+            volume=1_000,
+            amount=(10.5 + index * 0.01) * 1_000,
+            source_id="MOOTDX:127.0.0.1:7709",
+        )
+        for index in range(30)
+    )
+    calls = []
+    engine = MonitorEngine(store, llm_veto=lambda context: calls.append(context) or False)
+    result = engine.process_minute(
+        "lane-a",
+        {"600519.SH": history[-1]},
+        minute_snapshot_id="strategy-1000",
+        now=history[-1].bar_end,
+        bar_histories={"600519.SH": history},
+    )
+    assert result.model_called is True
+    assert result.events[-1].action == MonitorAction.BUY_SIGNAL.value
+    assert calls[0]["plans"][0]["strategy_profile"] == "TREND_MA5"
+    persisted = store.list_monitor_events(lane_id="lane-a", effective_only=True)[-1]
+    payload = __import__("json").loads(persisted["payload_json"])
+    assert payload["strategy"]["closed_15m_end"].endswith("10:00:00+08:00")
+
+
 def test_restart_does_not_recall_model_during_same_trigger_episode(tmp_path):
     store = setup_store(tmp_path)
     calls = []
