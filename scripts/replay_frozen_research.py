@@ -27,6 +27,7 @@ from liangjian_funnel.pipeline.research import (
 )
 from liangjian_funnel.pipeline.research_reports import write_stage_markdown_reports
 from liangjian_funnel.reporting import atomic_write_json
+from liangjian_funnel.runtime.progress import WorkflowProgress
 from liangjian_funnel.runtime.state import RuntimeStore
 from liangjian_funnel.settings import Settings
 from liangjian_funnel.workflow import WorkflowApplication
@@ -157,6 +158,18 @@ def main() -> int:
         data=snapshot_data,
     )
     run_id = args.run_id or f"{current.date()}-{args.slot}-replay-{expected_hash[:12]}"
+    progress = WorkflowProgress(
+        settings.workflow_progress_path,
+        run_id=run_id,
+        job=f"replay-{str(args.stage or 'research').lower()}",
+        now=current,
+    )
+    if args.stage:
+        progress.set_phase(f"RESEARCH_{args.stage}", now=current)
+
+    def research_progress(event: dict[str, object]) -> None:
+        progress.research_event(event)
+
     application = WorkflowApplication(settings)
     pipeline = ResearchPipeline(
         settings,
@@ -167,25 +180,36 @@ def main() -> int:
         runtime_store=RuntimeStore(settings.state_db_path),
         slot=args.slot,
         batch_workers=settings.research_batch_workers,
+        progress_callback=research_progress,
         checkpoint_store=application.research_checkpoints,
         stage_snapshot_enricher=application._stage_snapshot_enricher,
     )
     if bool(args.resume_audit) != bool(args.stage):
         raise SystemExit("RESUME_AUDIT_AND_STAGE_REQUIRED_TOGETHER")
     if args.resume_audit:
-        return _resume_stage(
-            application,
-            pipeline,
-            snapshot,
-            settings,
-            args.resume_audit,
-            args.stage,
-            run_id,
-            slot=args.slot,
-            publish=args.publish,
-            generated_at=current,
-            model_override=args.model,
+        try:
+            exit_code = _resume_stage(
+                application,
+                pipeline,
+                snapshot,
+                settings,
+                args.resume_audit,
+                args.stage,
+                run_id,
+                slot=args.slot,
+                publish=args.publish,
+                generated_at=current,
+                model_override=args.model,
+            )
+        except BaseException:
+            progress.finish(status="FAILED", phase="FAILED", reason_code="REPLAY_STAGE_FAILED")
+            raise
+        progress.finish(
+            status="COMPLETED" if exit_code == 0 else "BLOCKED",
+            phase="COMPLETED" if exit_code == 0 else "FAILED",
+            reason_code=None if exit_code == 0 else "REPLAY_STAGE_BLOCKED",
         )
+        return exit_code
 
     result = pipeline.run(snapshot, run_id=run_id, generated_at=current)
     publication = None
@@ -248,7 +272,13 @@ def main() -> int:
             ensure_ascii=False,
         )
     )
-    return 0 if result.status == "READY" else 2
+    exit_code = 0 if result.status == "READY" else 2
+    progress.finish(
+        status="COMPLETED" if exit_code == 0 else "BLOCKED",
+        phase="COMPLETED" if exit_code == 0 else "FAILED",
+        reason_code=None if exit_code == 0 else "REPLAY_RESEARCH_BLOCKED",
+    )
+    return exit_code
 
 
 def _pool_counts(output: object, stage: str) -> dict[str, int]:
