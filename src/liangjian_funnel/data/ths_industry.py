@@ -399,6 +399,11 @@ def collect_ths_industry_history(
             total=len(rows),
             fetch_time=fetched_at,
             metadata={
+                # The bars are explicitly requested and filtered through the
+                # point-in-time cutoff.  ``fetch_time`` may be later when a
+                # same-day cache is reused; it is audit metadata, not the
+                # market event timestamp.
+                "timestamp": cutoff.isoformat(),
                 "taxonomy": "THS",
                 "cache_hit": True,
                 "trade_date": cutoff.date().isoformat(),
@@ -460,6 +465,10 @@ def collect_ths_industry_history(
         total=len(rows),
         fetch_time=fetched_at,
         metadata={
+            # Keep event time bound to the requested history cutoff.  Using
+            # the transport completion time here makes a valid historical
+            # sequence look like a future fact during close research.
+            "timestamp": cutoff.isoformat(),
             "taxonomy": "THS",
             "cache_hit": False,
             "trade_date": cutoff.date().isoformat(),

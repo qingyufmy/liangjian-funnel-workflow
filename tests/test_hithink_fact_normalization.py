@@ -88,6 +88,27 @@ def test_realtime_manifest_cutoff_includes_latest_event_time() -> None:
     assert manifest_projection(manifest)["as_of"] == manifest.as_of.isoformat()
 
 
+def test_historical_fact_keeps_cutoff_event_time_when_fetch_finishes_later() -> None:
+    result = _result().model_copy(
+        update={
+            "endpoint": "/api/a-share-index/prices/historical",
+            "fetch_time": NOW + timedelta(minutes=10),
+            "metadata": {"timestamp": NOW.isoformat(), "cache_hit": True},
+        }
+    )
+
+    manifest = normalize_hithink_results(
+        {"THS_INDUSTRY_HISTORY": result},
+        base_url="https://fuyao.aicubes.cn",
+        as_of=NOW,
+        ingest_time=NOW + timedelta(minutes=11),
+    )
+
+    assert manifest.facts[0].event_time == NOW
+    assert manifest.facts[0].fetch_time == NOW + timedelta(minutes=10)
+    assert manifest.as_of == NOW
+
+
 def test_manifest_projection_preserves_duplicate_fact_types() -> None:
     first = normalize_hithink_results(
         {"DUPLICATE_TYPE": _result()},

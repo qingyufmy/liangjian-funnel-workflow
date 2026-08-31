@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
@@ -166,7 +166,9 @@ def test_industry_history_collects_broad_indices_and_reuses_daily_cache(tmp_path
         def index_history_1d(self, thscode: str, *, start: int, end: int) -> HithinkFetchResult:
             assert end > start
             self.calls.append(thscode)
-            return _result("/history", bars)
+            return _result("/history", bars).model_copy(
+                update={"fetch_time": NOW + timedelta(minutes=10)}
+            )
 
     first_client = HistoryClient()
     first = collect_ths_industry_history(
@@ -180,6 +182,8 @@ def test_industry_history_collects_broad_indices_and_reuses_daily_cache(tmp_path
     assert first_client.calls == ["881101.TI", "881102.TI"]
     assert len(first.items) == 2
     assert len(first.items[0].model_dump()["bars"]) == 5
+    assert first.fetch_time == NOW + timedelta(minutes=10)
+    assert first.metadata["timestamp"] == NOW.isoformat()
 
     second_client = HistoryClient()
     second = collect_ths_industry_history(
@@ -189,6 +193,8 @@ def test_industry_history_collects_broad_indices_and_reuses_daily_cache(tmp_path
         as_of=NOW,
     )
     assert second.ok and second.metadata["cache_hit"] is True
+    assert second.fetch_time == NOW + timedelta(minutes=10)
+    assert second.metadata["timestamp"] == NOW.isoformat()
     assert second_client.calls == []
 
 
