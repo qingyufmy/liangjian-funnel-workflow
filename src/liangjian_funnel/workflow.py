@@ -3562,7 +3562,10 @@ class WorkflowApplication:
                 for raw in plans:
                     if not isinstance(raw, Mapping):
                         continue
-                    payload = _plan_payload(raw)
+                    payload = {
+                        **_plan_payload(raw),
+                        "source_run_id": result.run_id,
+                    }
                     symbol = payload.get("symbol")
                     if pool_name == "secondary_watch_pool":
                         blocked.append({

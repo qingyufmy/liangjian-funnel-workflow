@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from liangjian_funnel.cli import _latest_workflow_acceptance, build_parser, main
+from liangjian_funnel.cli import _latest_workflow_acceptance, _monitor_plan_projection, build_parser, main
 import liangjian_funnel.cli as cli_module
 from liangjian_funnel.contracts import CapabilityCheck, CapabilityReport, CapabilityStatus
 from liangjian_funnel.reporting import write_capability_report
@@ -218,6 +218,19 @@ def test_latest_workflow_acceptance_requires_primary_lane_and_records_optional_c
     assert _latest_workflow_acceptance(missing_comparisons)["status"] == "PARTIAL"
     assert _latest_workflow_acceptance(missing_comparisons, expected_lanes=1)["status"] == "READY"
 
+    degraded_primary = [{
+        "run_id": "new",
+        "lane_id": "lane_1",
+        "status": "PUBLISHED",
+        "outcome": {
+            "lane_id": "lane_1",
+            "quality_state": "DEGRADED",
+            "publication_state": "PUBLISHED",
+            "lifecycle_state": "TERMINAL",
+        },
+    }]
+    assert _latest_workflow_acceptance(degraded_primary, expected_lanes=1)["status"] == "READY_DEGRADED"
+
     optional_only = [
         {"run_id": "new", "lane_id": "lane_1", "status": "BLOCKED"},
         {"run_id": "new", "lane_id": "lane_2", "status": "PUBLISHED"},
@@ -232,3 +245,15 @@ def test_latest_workflow_acceptance_requires_primary_lane_and_records_optional_c
         {"run_id": "new", "lane_id": "lane_3", "status": "BLOCKED"},
     ]
     assert _latest_workflow_acceptance(blocked)["status"] == "BLOCKED"
+
+
+def test_monitor_plan_projection_recovers_source_run_id_from_plan_identity():
+    projected = _monitor_plan_projection({
+        "plan_id": "2026-08-31-close-example:lane_1:abc123",
+        "lane_id": "lane_1",
+        "symbol": "000001.SZ",
+        "status": "PENDING_MORNING_REVIEW",
+        "payload_json": '{"name":"平安银行","strategy_profile":"TREND_MA5"}',
+    })
+
+    assert projected["source_run_id"] == "2026-08-31-close-example"

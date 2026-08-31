@@ -77,9 +77,15 @@ def _monitor_plan_projection(plan: Mapping[str, object]) -> dict[str, object]:
     reasons = payload.get("selection_reasons")
     if not isinstance(reasons, list):
         reasons = payload.get("reason_codes") if isinstance(payload.get("reason_codes"), list) else []
+    plan_id = str(plan.get("plan_id") or "")
+    lane_id = str(plan.get("lane_id") or "")
+    source_run_id = payload.get("source_run_id")
+    lineage_marker = f":{lane_id}:" if lane_id else ""
+    if not source_run_id and lineage_marker and lineage_marker in plan_id:
+        source_run_id = plan_id.split(lineage_marker, 1)[0]
     return {
-        "plan_id": str(plan.get("plan_id") or ""),
-        "lane_id": str(plan.get("lane_id") or ""),
+        "plan_id": plan_id,
+        "lane_id": lane_id,
         "symbol": str(plan.get("symbol") or ""),
         "name": str(payload.get("name") or ""),
         "status": str(plan.get("status") or ""),
@@ -97,7 +103,7 @@ def _monitor_plan_projection(plan: Mapping[str, object]) -> dict[str, object]:
         "met_conditions": payload.get("met_conditions") if isinstance(payload.get("met_conditions"), list) else [],
         "unmet_conditions": payload.get("unmet_conditions") if isinstance(payload.get("unmet_conditions"), list) else [],
         "veto_conditions": payload.get("veto_conditions") if isinstance(payload.get("veto_conditions"), list) else [],
-        "source_run_id": payload.get("source_run_id"),
+        "source_run_id": source_run_id,
         "selection_reasons": [str(item)[:500] for item in reasons[:6]],
     }
 

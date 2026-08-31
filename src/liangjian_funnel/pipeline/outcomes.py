@@ -1519,7 +1519,11 @@ def aggregate_workflow_acceptance(
     ready_required_count = sum(_ready(lane) and lane.lane_id in required for lane in lanes)
     all_recorded = len(lanes) == expected_lanes
     if all_recorded and ready_count == expected_lanes:
-        legacy = "READY"
+        legacy = (
+            "READY_DEGRADED"
+            if outcome.quality_state is QualityState.DEGRADED
+            else "READY"
+        )
     elif all_recorded and required and ready_required_count == len(required):
         legacy = "READY_DEGRADED"
     elif ready_count:
