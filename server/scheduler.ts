@@ -1,4 +1,4 @@
-import { FEATURE_MAINTENANCE_AT, JOB_DEFINITIONS, TIMEZONE } from "./config.js";
+import { A1_MAINTENANCE_AT, FEATURE_MAINTENANCE_AT, JOB_DEFINITIONS, TIMEZONE } from "./config.js";
 import { LogStore } from "./logger.js";
 import { JobRunner } from "./runner.js";
 import type { JobName, SchedulerSnapshot } from "./types.js";
@@ -59,6 +59,11 @@ export function isMonitorMinute(clock: ShanghaiClock): boolean {
 
 function isFeatureMaintenanceMinute(clock: ShanghaiClock): boolean {
   const [hour, minute] = FEATURE_MAINTENANCE_AT.split(":").map((value) => Number(value));
+  return clock.hour === hour && clock.minute === minute;
+}
+
+function isA1MaintenanceMinute(clock: ShanghaiClock): boolean {
+  const [hour, minute] = A1_MAINTENANCE_AT.split(":").map((value) => Number(value));
   return clock.hour === hour && clock.minute === minute;
 }
 
@@ -130,6 +135,10 @@ export class WorkflowScheduler {
       if (isFeatureMaintenanceMinute(clock)) due.push("features");
       if (clock.hour === 9 && clock.minute === 26) due.push("morning");
       if (clock.hour === 15 && clock.minute === 10) due.push("close");
+      // Node provides a cheap weekday wake-up. Python owns the exchange
+      // calendar and decides whether this date is the monthly full or weekly
+      // incremental A1 maintenance boundary; ordinary weekdays are a NOOP.
+      if (isA1MaintenanceMinute(clock)) due.push("a1");
       if (isMonitorMinute(clock)) due.push("monitor");
     }
 
@@ -163,7 +172,7 @@ export class WorkflowScheduler {
     this.logger.info(`触发调度 ${job} at=${key}`, { job });
     void this.runner.run(job)
       .then((result) => {
-        const shouldRetry = (job === "morning" || job === "close")
+        const shouldRetry = (job === "morning" || job === "close" || job === "a1")
           && result.status === "skipped"
           && result.reason?.startsWith("BUSY:") === true;
         if (shouldRetry) {
@@ -228,11 +237,15 @@ export class WorkflowScheduler {
       this.retryKeys.delete(job);
       const current = this.now();
       const clock = shanghaiClock(current);
-      const dueMinute = job === "morning" ? 9 * 60 + 26 : 15 * 60 + 10;
+      const dueMinute = job === "morning"
+        ? 9 * 60 + 26
+        : job === "close"
+          ? 15 * 60 + 10
+          : 18 * 60;
       const currentMinute = clock.hour * 60 + clock.minute;
       const withinRecoveryWindow = clock.date === key.slice(0, 10)
         && currentMinute >= dueMinute
-        && currentMinute <= dueMinute + 10;
+        && currentMinute <= dueMinute + (job === "a1" ? 5 * 60 : 10);
       if (withinRecoveryWindow && clock.weekday !== 0 && clock.weekday !== 6) {
         this.dispatch(job, key, current);
       }

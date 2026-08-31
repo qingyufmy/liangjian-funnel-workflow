@@ -344,8 +344,10 @@ export class DashboardData {
           blockers: statusData ? statusData.deployment_blockers ?? null : null,
           latestAcceptance: acceptance ? sanitizeJson(acceptance) : null,
           latestOutcome: runOutcome,
+          a1Generation: statusData ? statusData.a1_generation ?? null : null,
         }
         : null,
+      a1Generation: statusData ? statusData.a1_generation ?? null : null,
       latestWorkflow,
       workflowProgress,
       lanes,

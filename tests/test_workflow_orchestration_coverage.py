@@ -149,6 +149,7 @@ def test_next_session_prep_binds_wall_clock_source_and_calendar_target(tmp_path:
     assert kwargs["market_data_as_of"] == datetime(2026, 8, 28, 15, 10, tzinfo=TZ)
     assert kwargs["allow_non_trading_source"] is True
     assert kwargs["reuse_resume_snapshot"] is False
+    assert kwargs["from_active_a1"] is True
 
 
 def test_next_session_prep_rejects_trading_day_and_completed_receipt(tmp_path: Path) -> None:

@@ -58,6 +58,9 @@ class _FakeApplication:
     def run_scheduled(self, *args: object, **kwargs: object):
         return self._invoke("run_scheduled", *args, **kwargs)
 
+    def run_a1_maintenance(self, *args: object, **kwargs: object):
+        return self._invoke("run_a1_maintenance", *args, **kwargs)
+
 
 def _ready_response() -> dict[str, object]:
     outcome = project_run_status("READY", run_id="cli-run").as_dict()
@@ -119,6 +122,31 @@ def test_cli_primary_only_stable_mode_does_not_enqueue_comparison(
     _name, _args, kwargs = _FakeApplication.calls[0]
     assert kwargs["primary_only"] is True
     assert kwargs["schedule_comparison"] is False
+
+
+def test_cli_a1_maintenance_forwards_mode_and_timezone_aware_cutoff(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(cli, "WorkflowApplication", _FakeApplication)
+    _FakeApplication.response = {"status": "PUBLISHED", "generation_id": "a1-full-1"}
+    assert cli.main(
+        [
+            "run-a1-maintenance",
+            "--mode",
+            "full",
+            "--as-of",
+            "2026-06-01T18:00:00+08:00",
+        ],
+        settings=_settings(tmp_path),
+    ) == 0
+    name, args, kwargs = _FakeApplication.calls[0]
+    assert name == "run_a1_maintenance"
+    assert args == ()
+    assert kwargs["mode"] == "full"
+    assert kwargs["now"].isoformat() == "2026-06-01T18:00:00+08:00"
+    assert json.loads(capsys.readouterr().out)["generation_id"] == "a1-full-1"
 
 
 def test_cli_next_session_prep_uses_dedicated_application_entrypoint(

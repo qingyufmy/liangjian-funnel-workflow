@@ -560,6 +560,10 @@ class ResearchPipeline:
         models: Sequence[str] | None = None,
         lane_start_index: int = 1,
         primary_lane_ids: Sequence[str] | None = None,
+        a1_only: bool = False,
+        active_a1: Mapping[str, Any] | Any | None = None,
+        a1_generation_id: str | None = None,
+        a1_scope_symbols: Sequence[str] | None = None,
     ) -> ResearchRunResult:
         """Run an explicitly selected set of model lanes.
 
@@ -572,6 +576,10 @@ class ResearchPipeline:
         self._deadline_started_monotonic = time.monotonic()
         self._feature_generation_id = ""
         self._feature_generation_owned = False
+        if isinstance(a1_only, bool) is False:
+            raise ValueError("a1_only must be a boolean")
+        if a1_only and active_a1 is not None:
+            raise ResearchPipelineError("A1_ONLY_ACTIVE_INPUT_CONFLICT")
         current = generated_at or self.now()
         if current.tzinfo is None or current.utcoffset() is None:
             current = current.replace(tzinfo=ZoneInfo(self.settings.timezone))
@@ -658,6 +666,10 @@ class ResearchPipeline:
             except (FeatureGenerationError, OSError, sqlite3.Error, ValueError):
                 global_reason = global_reason or "FEATURE_STORE_MATERIALIZATION_FAILED"
 
+        active_a1_payload = _coerce_active_a1_payload(active_a1)
+        if active_a1 is not None and active_a1_payload is None:
+            global_reason = global_reason or "A1_ACTIVE_GENERATION_INVALID"
+
         try:
             bundle = self.prompts.load()
         except PromptRepositoryError:
@@ -699,15 +711,40 @@ class ResearchPipeline:
 
         def execute_lane(index: int, model: str) -> LaneResult:
             lane_id = f"lane_{index}"
-            lane = self._run_lane(
-                lane_id=lane_id,
-                model=model,
-                snapshot=frozen,
-                g0=g0,
-                bundle=bundle,
-                run_id=effective_run_id,
-                global_reason=global_reason,
-            )
+            lane_snapshot = frozen
+            lane_g0 = set(g0)
+            if a1_only and a1_scope_symbols is not None:
+                requested_scope = {
+                    str(symbol).strip().upper()
+                    for symbol in a1_scope_symbols
+                    if str(symbol).strip()
+                }
+                lane_g0.intersection_update(requested_scope)
+                lane_snapshot = _restrict_snapshot_to_symbols(frozen, lane_g0)
+            if active_a1_payload is not None:
+                active_lane = _active_a1_lane(active_a1_payload, lane_id, model)
+                lane = self._run_lane_from_active_a1(
+                    lane_id=lane_id,
+                    model=model,
+                    snapshot=lane_snapshot,
+                    g0=lane_g0,
+                    bundle=bundle,
+                    run_id=effective_run_id,
+                    global_reason=global_reason,
+                    active_lane=active_lane,
+                    generation_id=a1_generation_id or str(active_a1_payload.get("generation_id") or "").strip(),
+                )
+            else:
+                lane = self._run_lane(
+                    lane_id=lane_id,
+                    model=model,
+                    snapshot=lane_snapshot,
+                    g0=lane_g0,
+                    bundle=bundle,
+                    run_id=effective_run_id,
+                    global_reason=global_reason,
+                    stop_after_a1=a1_only,
+                )
             enriched_stage_rows: list[StageAudit] = []
             for stage in lane.stages:
                 if isinstance(stage.output, Mapping):
@@ -859,6 +896,67 @@ class ResearchPipeline:
             primary_lane_ids=result.primary_lane_ids,
         )
 
+    def run_a1_only(
+        self,
+        snapshot: FrozenInputSnapshot | Mapping[str, Any] | Any,
+        *,
+        run_id: str | None = None,
+        generated_at: datetime | None = None,
+        historical_replay: bool = False,
+        models: Sequence[str] | None = None,
+        lane_start_index: int = 1,
+        primary_lane_ids: Sequence[str] | None = None,
+        scope_symbols: Sequence[str] | None = None,
+    ) -> ResearchRunResult:
+        """Run only A1 for maintenance.
+
+        ``scope_symbols`` is an explicit incremental boundary.  The caller
+        still owns the full snapshot and generation manifest; the pipeline
+        only sends this bounded symbol set through the A1 company review.
+        """
+
+        return self.run(
+            snapshot,
+            run_id=run_id,
+            generated_at=generated_at,
+            historical_replay=historical_replay,
+            models=models,
+            lane_start_index=lane_start_index,
+            primary_lane_ids=primary_lane_ids,
+            a1_only=True,
+            a1_scope_symbols=scope_symbols,
+        )
+
+    def run_from_active_a1(
+        self,
+        snapshot: FrozenInputSnapshot | Mapping[str, Any] | Any,
+        active_a1: Mapping[str, Any] | Any,
+        *,
+        run_id: str | None = None,
+        generated_at: datetime | None = None,
+        historical_replay: bool = False,
+        models: Sequence[str] | None = None,
+        lane_start_index: int = 1,
+        primary_lane_ids: Sequence[str] | None = None,
+        generation_id: str | None = None,
+    ) -> ResearchRunResult:
+        """Run A2→A3 using a previously sealed A1; never execute A1."""
+
+        payload = _coerce_active_a1_payload(active_a1)
+        if payload is None:
+            raise ResearchPipelineError("A1_ACTIVE_GENERATION_INVALID")
+        return self.run(
+            snapshot,
+            run_id=run_id,
+            generated_at=generated_at,
+            historical_replay=historical_replay,
+            models=models,
+            lane_start_index=lane_start_index,
+            primary_lane_ids=primary_lane_ids,
+            active_a1=payload,
+            a1_generation_id=generation_id,
+        )
+
     def _run_lane(
         self,
         *,
@@ -869,6 +967,7 @@ class ResearchPipeline:
         bundle: PromptBundle | None,
         run_id: str,
         global_reason: str | None,
+        stop_after_a1: bool = False,
     ) -> LaneResult:
         if (
             self.settings.research_pipeline_mode == DETERMINISTIC_PIPELINE_MODE
@@ -882,11 +981,13 @@ class ResearchPipeline:
                 bundle=bundle,
                 run_id=run_id,
                 global_reason=global_reason,
+                stop_after_a1=stop_after_a1,
             )
         audits: list[StageAudit] = []
         upstream_output: Mapping[str, Any] | None = None
         upstream_symbols = set(g0)
-        for stage in STAGES:
+        stages_to_run = ("A1",) if stop_after_a1 else STAGES
+        for stage in stages_to_run:
             if global_reason:
                 audits.append(self._blocked_stage(lane_id, model, stage, snapshot.snapshot_id, global_reason))
                 self._emit_progress(
@@ -1032,9 +1133,253 @@ class ResearchPipeline:
                 upstream_output = audit.output
                 upstream_symbols = set(audit.symbols)
 
-        status = "READY" if len(audits) == 3 and all(item.status == "VALIDATED" for item in audits) else "BLOCKED"
+        status = "READY" if audits and all(_stage_completed(item.status) for item in audits) else "BLOCKED"
         final_output = audits[-1].output if status == "READY" else None
         return LaneResult(lane=lane_id, model=model, status=status, stages=tuple(audits), final_output=final_output)
+
+    def _run_lane_from_active_a1(
+        self,
+        *,
+        lane_id: str,
+        model: str,
+        snapshot: FrozenInputSnapshot,
+        g0: set[str],
+        bundle: PromptBundle | None,
+        run_id: str,
+        global_reason: str | None,
+        active_lane: Mapping[str, Any] | None,
+        generation_id: str,
+    ) -> LaneResult:
+        """Reuse a sealed A1 and execute only the downstream stages."""
+
+        if global_reason:
+            stages = tuple(
+                self._blocked_stage(lane_id, model, stage, snapshot.snapshot_id, global_reason)
+                for stage in STAGES
+            )
+            return LaneResult(lane=lane_id, model=model, status="BLOCKED", stages=stages, final_output=None)
+        if active_lane is None:
+            stages = (
+                self._blocked_stage(lane_id, model, "A1", snapshot.snapshot_id, "A1_ACTIVE_LANE_MISSING"),
+                self._not_run_stage(lane_id, model, "A2", snapshot.snapshot_id, "UPSTREAM_STAGE_BLOCKED"),
+                self._not_run_stage(lane_id, model, "A3", snapshot.snapshot_id, "UPSTREAM_STAGE_BLOCKED"),
+            )
+            return LaneResult(lane=lane_id, model=model, status="BLOCKED", stages=stages, final_output=None)
+        raw_output = active_lane.get("output") if isinstance(active_lane.get("output"), Mapping) else active_lane
+        if not isinstance(raw_output, Mapping):
+            stages = (
+                self._blocked_stage(lane_id, model, "A1", snapshot.snapshot_id, "A1_ACTIVE_OUTPUT_INVALID"),
+                self._not_run_stage(lane_id, model, "A2", snapshot.snapshot_id, "UPSTREAM_STAGE_BLOCKED"),
+                self._not_run_stage(lane_id, model, "A3", snapshot.snapshot_id, "UPSTREAM_STAGE_BLOCKED"),
+            )
+            return LaneResult(lane=lane_id, model=model, status="BLOCKED", stages=stages, final_output=None)
+        a1_output = dict(raw_output)
+        active_model = str(active_lane.get("model") or "").strip()
+        # A1 is the single canonical research pool, not a per-downstream-model
+        # prediction. Optional A2/A3 comparison models must consume this exact
+        # immutable pool instead of rerunning A1. Preserve the source model in
+        # diagnostics for auditability; it need not equal the A2/A3 model.
+        expected_output_hash = str(active_lane.get("output_hash") or "").strip()
+        actual_output_hash = _sha256_json(a1_output)
+        if expected_output_hash and expected_output_hash != actual_output_hash:
+            stages = (
+                self._blocked_stage(lane_id, model, "A1", snapshot.snapshot_id, "A1_ACTIVE_OUTPUT_HASH_MISMATCH"),
+                self._not_run_stage(lane_id, model, "A2", snapshot.snapshot_id, "UPSTREAM_STAGE_BLOCKED"),
+                self._not_run_stage(lane_id, model, "A3", snapshot.snapshot_id, "UPSTREAM_STAGE_BLOCKED"),
+            )
+            return LaneResult(lane=lane_id, model=model, status="BLOCKED", stages=stages, final_output=None)
+        if any(
+            not isinstance(a1_output.get(partition), (list, tuple))
+            for partition in ("active_research_pool", "monitor_pool", "rejected_candidates")
+        ):
+            stages = (
+                self._blocked_stage(lane_id, model, "A1", snapshot.snapshot_id, "A1_ACTIVE_PARTITION_INVALID"),
+                self._not_run_stage(lane_id, model, "A2", snapshot.snapshot_id, "UPSTREAM_STAGE_BLOCKED"),
+                self._not_run_stage(lane_id, model, "A3", snapshot.snapshot_id, "UPSTREAM_STAGE_BLOCKED"),
+            )
+            return LaneResult(lane=lane_id, model=model, status="BLOCKED", stages=stages, final_output=None)
+        original_symbols = set(_approved_symbols(a1_output, "A1"))
+        current_symbols = original_symbols.intersection(g0)
+        filtered_symbols = original_symbols.difference(current_symbols)
+        scope_filtered = bool(filtered_symbols)
+        if scope_filtered:
+            # Current G0 contains daily turnover/suspension qualification.  An
+            # active A1 row that dropped out today is not a generation defect:
+            # remove it from this run's A2 scope and retain the active pointer.
+            a1_output = _filter_a1_output_to_symbols(a1_output, current_symbols)
+        a1_symbols = set(_approved_symbols(a1_output, "A1"))
+        raw_status = str(active_lane.get("status") or "VALIDATED").upper()
+        if not _stage_completed(raw_status):
+            a1_audit = self._blocked_stage(
+                lane_id,
+                model,
+                "A1",
+                snapshot.snapshot_id,
+                "A1_ACTIVE_GENERATION_NOT_VALIDATED",
+            )
+            return LaneResult(
+                lane=lane_id,
+                model=model,
+                status="BLOCKED",
+                stages=(
+                    a1_audit,
+                    self._not_run_stage(lane_id, model, "A2", snapshot.snapshot_id, "UPSTREAM_STAGE_BLOCKED"),
+                    self._not_run_stage(lane_id, model, "A3", snapshot.snapshot_id, "UPSTREAM_STAGE_BLOCKED"),
+                ),
+                final_output=None,
+            )
+        a1_status = STATUS_VALIDATED_NO_OPPORTUNITY if not a1_symbols else raw_status
+        active_reasons = [
+            *(str(item) for item in active_lane.get("reason_codes", ()) if str(item)),
+            *(["A1_ACTIVE_SCOPE_FILTERED"] if scope_filtered else []),
+        ]
+        a1_audit = StageAudit(
+            lane=lane_id,
+            model=model,
+            stage="A1",
+            status=a1_status,
+            snapshot_id=snapshot.snapshot_id,
+            prompt_hash=str(active_lane.get("prompt_hash") or "") or None,
+            input_hash=str(active_lane.get("input_hash") or "") or _sha256_json({"generation_id": generation_id}),
+            output_hash=_sha256_json(a1_output),
+            latency_ms=0,
+            attempts=0,
+            thinking_variant="active_generation",
+            symbols=tuple(sorted(a1_symbols)),
+            reason_codes=tuple(dict.fromkeys([*active_reasons, "A1_ACTIVE_REUSED"])),
+            output=a1_output,
+            diagnostics={
+                **(
+                    dict(active_lane.get("diagnostics"))
+                    if isinstance(active_lane.get("diagnostics"), Mapping)
+                    else {}
+                ),
+                "active_generation_id": generation_id or None,
+                "active_a1_source_model": active_model or None,
+                "reused": True,
+                "executed": False,
+                "scope_filtered_count": len(filtered_symbols),
+                "original_active_symbol_count": len(original_symbols),
+                "current_g0_symbol_count": len(g0),
+            },
+        )
+        if not a1_symbols:
+            a2_audit = self._empty_stage(
+                run_id=run_id,
+                lane_id=lane_id,
+                model=model,
+                stage="A2",
+                snapshot=snapshot,
+                upstream_output=a1_output,
+                status=STATUS_VALIDATED_NO_OPPORTUNITY,
+                outcome="NO_OPPORTUNITY_A1_POOL_EMPTY",
+            )
+            a3_audit = self._empty_stage(
+                run_id=run_id,
+                lane_id=lane_id,
+                model=model,
+                stage="A3",
+                snapshot=snapshot,
+                upstream_output=a2_audit.output,
+                status=STATUS_VALIDATED_NO_ACTION,
+                outcome="NO_ACTION_UPSTREAM_NO_OPPORTUNITY",
+            )
+            return LaneResult(
+                lane=lane_id,
+                model=model,
+                status="READY",
+                stages=(a1_audit, a2_audit, a3_audit),
+                final_output=a3_audit.output,
+            )
+        if (
+            self.settings.research_pipeline_mode == DETERMINISTIC_PIPELINE_MODE
+            and snapshot.data.get("DETERMINISTIC_RESEARCH_V2_ENABLED") is True
+        ):
+            return self._run_v2_downstream_from_active_a1(
+                lane_id=lane_id,
+                model=model,
+                snapshot=snapshot,
+                a1_audit=a1_audit,
+                bundle=bundle,
+                run_id=run_id,
+            )
+        return self._run_legacy_downstream_from_active_a1(
+            lane_id=lane_id,
+            model=model,
+            snapshot=snapshot,
+            a1_audit=a1_audit,
+            bundle=bundle,
+            run_id=run_id,
+        )
+
+    def _run_legacy_downstream_from_active_a1(
+        self,
+        *,
+        lane_id: str,
+        model: str,
+        snapshot: FrozenInputSnapshot,
+        a1_audit: StageAudit,
+        bundle: PromptBundle | None,
+        run_id: str,
+    ) -> LaneResult:
+        """Legacy-mode A2/A3 transport for an active A1 generation."""
+
+        if bundle is None:
+            blocked = self._blocked_stage(lane_id, model, "A2", snapshot.snapshot_id, "PROMPT_REPOSITORY_BLOCKED")
+            return LaneResult(
+                lane=lane_id,
+                model=model,
+                status="BLOCKED",
+                stages=(a1_audit, blocked, self._not_run_stage(lane_id, model, "A3", snapshot.snapshot_id, "UPSTREAM_STAGE_BLOCKED")),
+                final_output=None,
+            )
+        upstream_output: Mapping[str, Any] = a1_audit.output or {}
+        upstream_symbols = set(a1_audit.symbols)
+        audits: list[StageAudit] = [a1_audit]
+        for stage in ("A2", "A3"):
+            stage_snapshot = snapshot
+            if self.stage_snapshot_enricher is not None:
+                try:
+                    stage_snapshot = self._enrich_stage_snapshot(
+                        stage=stage,
+                        lane_id=lane_id,
+                        model=model,
+                        upstream_symbols=upstream_symbols,
+                        snapshot=snapshot,
+                    )
+                except Exception:
+                    audit = self._blocked_stage(
+                        lane_id, model, stage, snapshot.snapshot_id, "STAGE_SNAPSHOT_ENRICHMENT_FAILED"
+                    )
+                    audits.append(audit)
+                    if stage == "A2":
+                        audits.append(self._not_run_stage(lane_id, model, "A3", snapshot.snapshot_id, "UPSTREAM_STAGE_BLOCKED"))
+                    return LaneResult(lane=lane_id, model=model, status="BLOCKED", stages=tuple(audits), final_output=None)
+            audit = self._run_stage_with_checkpoint(
+                lane_id=lane_id,
+                model=model,
+                stage=stage,
+                snapshot=stage_snapshot,
+                upstream_output=upstream_output,
+                upstream_symbols=upstream_symbols,
+                bundle=bundle,
+                run_id=run_id,
+            )
+            audits.append(audit)
+            if not _stage_completed(audit.status):
+                if stage == "A2":
+                    audits.append(self._not_run_stage(lane_id, model, "A3", snapshot.snapshot_id, "UPSTREAM_STAGE_BLOCKED"))
+                return LaneResult(lane=lane_id, model=model, status="BLOCKED", stages=tuple(audits), final_output=None)
+            upstream_output = audit.output or {}
+            upstream_symbols = set(audit.symbols)
+        status = _lane_status_from_stages(tuple(audits))
+        return LaneResult(
+            lane=lane_id,
+            model=model,
+            status=status,
+            stages=tuple(audits),
+            final_output=audits[-1].output if status in {"READY", "READY_DEGRADED"} else None,
+        )
 
     def _run_lane_v2(
         self,
@@ -1046,6 +1391,7 @@ class ResearchPipeline:
         bundle: PromptBundle | None,
         run_id: str,
         global_reason: str | None,
+        stop_after_a1: bool = False,
     ) -> LaneResult:
         """Run local full-market gates followed by bounded LLM reviews."""
 
@@ -1273,6 +1619,17 @@ class ResearchPipeline:
             )
 
         a1_output = a1_audit.output if isinstance(a1_audit.output, Mapping) else {}
+        if stop_after_a1:
+            # Maintenance owns the A1 generation lifecycle.  Stop before any
+            # A2/A3 gate or model request so an A1-only invocation cannot
+            # accidentally become a full research run.
+            return LaneResult(
+                lane=lane_id,
+                model=model,
+                status="READY",
+                stages=(a1_audit,),
+                final_output=a1_output,
+            )
         a1_symbols = set(a1_audit.symbols)
         if not a1_symbols:
             a2_audit = self._empty_stage(
@@ -1414,6 +1771,181 @@ class ResearchPipeline:
                 stages=(a1_audit, a2_audit, a3_audit),
                 final_output=None,
             )
+        a3_snapshot = _with_a3_candidate_context(a3_snapshot, a3_origins)
+        a3_gate = screen_a3(a3_snapshot.data, a3_upstream_output)
+        a3_snapshot = _with_a3_deterministic_context(a3_snapshot, a3_gate)
+        self._persist_gate(run_id, lane_id, a3_gate, a3_snapshot)
+        self._emit_gate_progress(run_id, lane_id, model, a3_gate)
+        a3_audit = self._run_v2_downstream_review(
+            lane_id=lane_id,
+            model=model,
+            stage="A3",
+            snapshot=a3_snapshot,
+            upstream_output=a3_upstream_output,
+            full_upstream_symbols=a3_symbols,
+            gate=a3_gate,
+            bundle=bundle,
+            run_id=run_id,
+        )
+        status = _lane_status_from_stages((a1_audit, a2_audit, a3_audit))
+        return LaneResult(
+            lane=lane_id,
+            model=model,
+            status=status,
+            stages=(a1_audit, a2_audit, a3_audit),
+            final_output=a3_audit.output if status in {"READY", "READY_DEGRADED"} else None,
+        )
+
+    def _run_v2_downstream_from_active_a1(
+        self,
+        *,
+        lane_id: str,
+        model: str,
+        snapshot: FrozenInputSnapshot,
+        a1_audit: StageAudit,
+        bundle: PromptBundle | None,
+        run_id: str,
+    ) -> LaneResult:
+        """Shared deterministic A2/A3 path for an already sealed A1."""
+
+        if bundle is None:
+            blocked = self._blocked_stage(lane_id, model, "A2", snapshot.snapshot_id, "PROMPT_REPOSITORY_BLOCKED")
+            return LaneResult(
+                lane=lane_id,
+                model=model,
+                status="BLOCKED",
+                stages=(a1_audit, blocked, self._not_run_stage(lane_id, model, "A3", snapshot.snapshot_id, "UPSTREAM_STAGE_BLOCKED")),
+                final_output=None,
+            )
+        a1_output = a1_audit.output if isinstance(a1_audit.output, Mapping) else {}
+        a1_symbols = set(a1_audit.symbols)
+        if not _stage_completed(a1_audit.status):
+            return LaneResult(
+                lane=lane_id,
+                model=model,
+                status="BLOCKED",
+                stages=(
+                    a1_audit,
+                    self._not_run_stage(lane_id, model, "A2", snapshot.snapshot_id, "UPSTREAM_STAGE_BLOCKED"),
+                    self._not_run_stage(lane_id, model, "A3", snapshot.snapshot_id, "UPSTREAM_STAGE_BLOCKED"),
+                ),
+                final_output=None,
+            )
+        if not a1_symbols:
+            a2_audit = self._empty_stage(
+                run_id=run_id,
+                lane_id=lane_id,
+                model=model,
+                stage="A2",
+                snapshot=snapshot,
+                upstream_output=a1_output,
+                status=STATUS_VALIDATED_NO_OPPORTUNITY,
+                outcome="NO_OPPORTUNITY_A1_POOL_EMPTY",
+            )
+            a3_audit = self._empty_stage(
+                run_id=run_id,
+                lane_id=lane_id,
+                model=model,
+                stage="A3",
+                snapshot=snapshot,
+                upstream_output=a2_audit.output,
+                status=STATUS_VALIDATED_NO_ACTION,
+                outcome="NO_ACTION_UPSTREAM_NO_OPPORTUNITY",
+            )
+            return LaneResult(
+                lane=lane_id,
+                model=model,
+                status="READY",
+                stages=(a1_audit, a2_audit, a3_audit),
+                final_output=a3_audit.output,
+            )
+        try:
+            a2_snapshot = self._enrich_stage_snapshot(
+                stage="A2",
+                lane_id=lane_id,
+                model=model,
+                upstream_symbols=a1_symbols,
+                snapshot=snapshot,
+            ) if self.stage_snapshot_enricher is not None else snapshot
+        except Exception:
+            blocked = self._blocked_stage(
+                lane_id, model, "A2", snapshot.snapshot_id, "STAGE_SNAPSHOT_ENRICHMENT_FAILED"
+            )
+            return LaneResult(
+                lane=lane_id,
+                model=model,
+                status="BLOCKED",
+                stages=(a1_audit, blocked, self._not_run_stage(lane_id, model, "A3", snapshot.snapshot_id, "UPSTREAM_STAGE_BLOCKED")),
+                final_output=None,
+            )
+        a2_gate = screen_a2(
+            a2_snapshot.data,
+            a1_output,
+            minimum_identifiability_score=float(a2_snapshot.data.get("MIN_IDENTIFIABILITY_SCORE") or 60.0),
+            llm_top_n_per_theme=self.settings.a2_llm_top_n_per_theme,
+            review_all_eligible=self.settings.a2_review_all_eligible,
+        )
+        a2_snapshot = _with_a2_bottleneck_context(a2_snapshot, a2_gate)
+        self._persist_gate(run_id, lane_id, a2_gate, a2_snapshot)
+        self._emit_gate_progress(run_id, lane_id, model, a2_gate)
+        a2_audit = self._run_v2_downstream_review(
+            lane_id=lane_id,
+            model=model,
+            stage="A2",
+            snapshot=a2_snapshot,
+            upstream_output=a1_output,
+            full_upstream_symbols=a1_symbols,
+            gate=a2_gate,
+            bundle=bundle,
+            run_id=run_id,
+        )
+        if not _stage_completed(a2_audit.status):
+            return LaneResult(
+                lane=lane_id,
+                model=model,
+                status="BLOCKED",
+                stages=(a1_audit, a2_audit, self._not_run_stage(lane_id, model, "A3", snapshot.snapshot_id, "UPSTREAM_STAGE_BLOCKED")),
+                final_output=None,
+            )
+        a2_output = a2_audit.output if isinstance(a2_audit.output, Mapping) else {}
+        a3_upstream_output, a3_origins = _build_a3_candidate_domain(a2_output)
+        a3_symbols = set(a3_origins)
+        if not a3_symbols:
+            if a2_audit.status in {STATUS_BLOCKED_EVIDENCE_GAP, STATUS_DEGRADED_UNDERFILLED_DATA_GAP}:
+                a3_audit = self._not_run_stage(lane_id, model, "A3", snapshot.snapshot_id, "UPSTREAM_DATA_INSUFFICIENT")
+                lane_status = "READY_DEGRADED"
+            else:
+                a3_audit = self._empty_stage(
+                    run_id=run_id,
+                    lane_id=lane_id,
+                    model=model,
+                    stage="A3",
+                    snapshot=a2_snapshot,
+                    upstream_output=a2_output,
+                    status=STATUS_VALIDATED_NO_ACTION,
+                    outcome="NO_ACTION_UPSTREAM_NO_OPPORTUNITY",
+                )
+                lane_status = "READY"
+            return LaneResult(
+                lane=lane_id,
+                model=model,
+                status=lane_status,
+                stages=(a1_audit, a2_audit, a3_audit),
+                final_output=a3_audit.output if lane_status == "READY" else a2_output if lane_status == "READY_DEGRADED" else None,
+            )
+        try:
+            a3_snapshot = self._enrich_stage_snapshot(
+                stage="A3",
+                lane_id=lane_id,
+                model=model,
+                upstream_symbols=a3_symbols,
+                snapshot=a2_snapshot,
+            ) if self.stage_snapshot_enricher is not None else a2_snapshot
+        except Exception:
+            a3_audit = self._blocked_stage(
+                lane_id, model, "A3", snapshot.snapshot_id, "STAGE_SNAPSHOT_ENRICHMENT_FAILED"
+            )
+            return LaneResult(lane=lane_id, model=model, status="BLOCKED", stages=(a1_audit, a2_audit, a3_audit), final_output=None)
         a3_snapshot = _with_a3_candidate_context(a3_snapshot, a3_origins)
         a3_gate = screen_a3(a3_snapshot.data, a3_upstream_output)
         a3_snapshot = _with_a3_deterministic_context(a3_snapshot, a3_gate)
@@ -3657,6 +4189,198 @@ def _coerce_snapshot(snapshot: FrozenInputSnapshot | Mapping[str, Any] | Any) ->
         snapshot_hash=str(provided_hash) if provided_hash else _sha256_json(data),
         as_of=raw.get("as_of") or data.get("as_of"),
     )
+
+
+def _coerce_active_a1_payload(active_a1: Mapping[str, Any] | Any | None) -> dict[str, Any] | None:
+    """Normalize an A1 registry record or payload for pipeline consumption."""
+
+    if active_a1 is None:
+        return None
+    if isinstance(active_a1, Mapping):
+        raw = dict(active_a1)
+    else:
+        raw_payload = getattr(active_a1, "payload", None)
+        if not isinstance(raw_payload, Mapping):
+            return None
+        raw = dict(raw_payload)
+        generation_id = getattr(active_a1, "generation_id", None)
+        if generation_id and "generation_id" not in raw:
+            raw["generation_id"] = str(generation_id)
+    nested = raw.get("payload")
+    if isinstance(nested, Mapping) and not isinstance(raw.get("lanes"), Mapping):
+        payload = dict(nested)
+        for key in ("generation_id", "snapshot_id", "snapshot_hash", "as_of", "manifest"):
+            if key in raw and key not in payload:
+                payload[key] = raw[key]
+        raw = payload
+    lanes = raw.get("lanes")
+    if isinstance(lanes, Sequence) and not isinstance(lanes, (str, bytes, bytearray)):
+        normalized_lanes: dict[str, Any] = {}
+        for item in lanes:
+            if not isinstance(item, Mapping):
+                continue
+            lane_id = str(item.get("lane") or item.get("lane_id") or "").strip()
+            if lane_id:
+                normalized_lanes[lane_id] = dict(item)
+        lanes = normalized_lanes
+    if not isinstance(lanes, Mapping):
+        # A direct one-lane payload is useful for small integrations and tests.
+        if any(key in raw for key in ("active_research_pool", "monitor_pool", "rejected_candidates")):
+            return {"lanes": {"lane_1": {"model": raw.get("model"), "output": raw}}}
+        return None
+    normalized = dict(raw)
+    normalized["lanes"] = {str(key): value for key, value in lanes.items() if isinstance(value, Mapping)}
+    return normalized if normalized["lanes"] else None
+
+
+def _active_a1_lane(payload: Mapping[str, Any], lane_id: str, model: str) -> Mapping[str, Any] | None:
+    lanes = payload.get("lanes")
+    if not isinstance(lanes, Mapping):
+        return None
+    item = lanes.get(lane_id)
+    if isinstance(item, Mapping):
+        return item
+    # A production registry intentionally contains one canonical primary A1
+    # lane. Optional A2/A3 comparison models must consume that same upstream
+    # pool; otherwise enabling comparisons would force A1 to run again and
+    # violate the cadence boundary.
+    if len(lanes) == 1:
+        only = next(iter(lanes.values()))
+        if isinstance(only, Mapping):
+            return only
+    # Multi-lane legacy registries still require an exact model match.
+    for candidate in lanes.values():
+        if not isinstance(candidate, Mapping):
+            continue
+        candidate_model = str(candidate.get("model") or "").strip()
+        if candidate_model and candidate_model == model:
+            return candidate
+    return None
+
+
+def _restrict_snapshot_to_symbols(
+    snapshot: FrozenInputSnapshot,
+    symbols: set[str],
+) -> FrozenInputSnapshot:
+    """Project only the requested A1 delta while retaining global context."""
+
+    allowed = {str(symbol).strip().upper() for symbol in symbols if str(symbol).strip()}
+    data = dict(snapshot.data)
+    data["g0_symbols"] = sorted(allowed)
+    for key in ("g0_candidates", "universe_candidates", "trade_candidates", "research_candidates"):
+        value = data.get(key)
+        if isinstance(value, Mapping):
+            data[key] = {
+                str(symbol): item
+                for symbol, item in value.items()
+                if str(symbol).strip().upper() in allowed
+            }
+        elif isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+            data[key] = [
+                item
+                for item in value
+                if isinstance(item, Mapping)
+                and str(item.get("symbol") or item.get("security_symbol") or item.get("ticker") or "").strip().upper() in allowed
+            ]
+    for key in ("COMPANY_FUNDAMENTALS", "MAIN_BUSINESS_EVIDENCE"):
+        value = data.get(key)
+        if isinstance(value, Mapping):
+            records = value.get("records")
+            if isinstance(records, Sequence) and not isinstance(records, (str, bytes, bytearray)):
+                projected = dict(value)
+                projected["records"] = [
+                    item
+                    for item in records
+                    if isinstance(item, Mapping) and _scan_symbols(item).intersection(allowed)
+                ]
+                data[key] = projected
+            else:
+                data[key] = {
+                    str(symbol): item
+                    for symbol, item in value.items()
+                    if str(symbol).strip().upper() in allowed
+                }
+        elif isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+            data[key] = [
+                item
+                for item in value
+                if isinstance(item, Mapping) and _scan_symbols(item).intersection(allowed)
+            ]
+    for key in (
+        "FACTOR_SNAPSHOT",
+        "TRADABILITY_FLAGS",
+        "LIQUIDITY_SNAPSHOT",
+        "RECENT_DAILY_BARS",
+        "KLINE_PATTERNS",
+        "PRICE_LEVELS",
+    ):
+        value = data.get(key)
+        if isinstance(value, Mapping):
+            data[key] = {
+                str(symbol): item
+                for symbol, item in value.items()
+                if str(symbol).strip().upper() in allowed
+            }
+    for key in ("RISK_EVENTS", "DISCLOSURE_EVENTS"):
+        value = data.get(key)
+        if isinstance(value, Mapping):
+            records = value.get("records")
+            if isinstance(records, Sequence) and not isinstance(records, (str, bytes, bytearray)):
+                projected = dict(value)
+                projected["records"] = [
+                    item
+                    for item in records
+                    if isinstance(item, Mapping) and _scan_symbols(item).intersection(allowed)
+                ]
+                data[key] = projected
+            else:
+                data[key] = {
+                    str(symbol): item
+                    for symbol, item in value.items()
+                    if str(symbol).strip().upper() in allowed
+                }
+        elif isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+            data[key] = [item for item in value if isinstance(item, Mapping) and _scan_symbols(item).intersection(allowed)]
+    for key in ("THS_INDUSTRY_MEMBERSHIP", "THS_CONCEPT_MEMBERSHIP"):
+        value = data.get(key)
+        if isinstance(value, Mapping):
+            projected = dict(value)
+            records = value.get("records")
+            if isinstance(records, list):
+                projected["records"] = [
+                    item for item in records
+                    if isinstance(item, Mapping)
+                    and str(item.get("symbol") or item.get("thscode") or "").strip().upper() in allowed
+                ]
+            data[key] = projected
+    data["A1_SCOPE_SYMBOLS"] = sorted(allowed)
+    return FrozenInputSnapshot(
+        snapshot_id=snapshot.snapshot_id,
+        data=data,
+        snapshot_hash=snapshot.snapshot_hash,
+        as_of=snapshot.as_of,
+    )
+
+
+def _filter_a1_output_to_symbols(
+    output: Mapping[str, Any],
+    symbols: set[str],
+) -> dict[str, Any]:
+    """Drop stale active-A1 rows before the current run enters A2."""
+
+    allowed = {str(symbol).strip().upper() for symbol in symbols if str(symbol).strip()}
+    result = dict(output)
+    for partition in ("active_research_pool", "monitor_pool", "rejected_candidates"):
+        rows = output.get(partition)
+        if not isinstance(rows, (list, tuple)):
+            continue
+        result[partition] = [
+            dict(item)
+            for item in rows
+            if isinstance(item, Mapping)
+            and bool(_scan_symbols(item).intersection(allowed))
+        ]
+    return result
 
 
 def _extract_g0(data: Mapping[str, Any]) -> set[str]:

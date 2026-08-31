@@ -19,12 +19,18 @@ export interface ReadOnlyCommandResult {
   readonly timedOut: boolean;
 }
 
-export function timeoutForJob(job: JobName, configuredTimeoutMs: number): number | null {
+export function timeoutForJob(
+  job: JobName,
+  configuredTimeoutMs: number,
+  a1TimeoutMs: number = configuredTimeoutMs,
+): number | null {
   // Research is checkpointed and must have a wall-clock boundary; unlimited
   // orchestration previously left stale close processes blocking every later
   // schedule. Minute monitoring has a much tighter deadline so it releases
   // the single worker before the 09:26/15:10 research protection windows.
-  return job === "monitor" ? Math.min(configuredTimeoutMs, 55_000) : configuredTimeoutMs;
+  if (job === "monitor") return Math.min(configuredTimeoutMs, 55_000);
+  if (job === "a1") return a1TimeoutMs;
+  return configuredTimeoutMs;
 }
 
 export function waitForProcessExit(child: ChildProcess, timeoutMs: number): Promise<boolean> {
@@ -207,7 +213,7 @@ export class JobRunner {
         );
         resolve(record);
       };
-      const timeoutMs = timeoutForJob(job, this.config.jobTimeoutMs);
+      const timeoutMs = timeoutForJob(job, this.config.jobTimeoutMs, this.config.a1JobTimeoutMs);
       if (timeoutMs !== null) {
         timer = setTimeout(() => {
           timedOut = true;

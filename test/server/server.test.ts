@@ -260,6 +260,7 @@ test("uses BaoTa host and port variables and supports a test-only scheduler disa
   expect(config.host).toBe("127.0.0.2");
   expect(config.port).toBe(4321);
   expect(config.schedulerEnabled).toBe(false);
+  expect(config.a1JobTimeoutMs).toBe(6 * 60 * 60 * 1000);
 });
 
 test("starts A4 only when a continuous-auction minute bar can be closed", () => {
@@ -1158,7 +1159,7 @@ test("scheduler retries a research job skipped by an active monitor in the same 
 test("scheduler dispatches weekday incremental and Saturday full maintenance but never Sunday", async () => {
   const calls: string[] = [];
   const fakeRunner = {
-    run: async (job: "morning" | "close" | "monitor" | "features"): Promise<JobRunRecord> => {
+    run: async (job: JobName): Promise<JobRunRecord> => {
       calls.push(job);
       return {
         runId: job,
@@ -1235,6 +1236,41 @@ test("feature maintenance flag disables only the 03:30 job", async () => {
   scheduler.stop();
 });
 
+test("scheduler wakes the Python-owned A1 cadence gate at 18:00 on weekdays only", async () => {
+  const calls: JobName[] = [];
+  const fakeRunner = {
+    run: async (job: JobName): Promise<JobRunRecord> => {
+      calls.push(job);
+      return {
+        runId: job,
+        job,
+        command: job,
+        startedAt: new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
+        exitCode: 0,
+        signal: null,
+        durationMs: 0,
+        status: "succeeded",
+        reason: null,
+      };
+    },
+    activeJob: (): JobRunRecord | null => null,
+  };
+  const root = await mkdtemp(join(tmpdir(), "liangjian-a1-scheduler-"));
+  const logger = new LogStore(loadConfig({ LIANGJIAN_PYTHON_BIN: "python3" }, root));
+  const scheduler = new WorkflowScheduler(fakeRunner as unknown as JobRunner, logger, {
+    comparisonEnabled: false,
+  });
+
+  await scheduler.tick(new Date("2026-08-31T10:00:05.000Z")); // Monday 18:00 Asia/Shanghai
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(calls).toEqual(["a1"]);
+
+  await scheduler.tick(new Date("2026-09-05T10:00:05.000Z")); // Saturday
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(calls).toEqual(["a1"]);
+});
+
 test("process-exit wait returns after timeout so shutdown can escalate to SIGKILL", async () => {
   const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 1000)"], { stdio: "ignore", windowsHide: true });
   const exited = await waitForProcessExit(child, 5);
@@ -1248,4 +1284,5 @@ test("all jobs have a bounded control-plane timeout", () => {
   expect(timeoutForJob("morning", 1234)).toBe(1234);
   expect(timeoutForJob("monitor", 1234)).toBe(1234);
   expect(timeoutForJob("monitor", 90_000)).toBe(55_000);
+  expect(timeoutForJob("a1", 90_000, 6 * 60 * 60 * 1000)).toBe(6 * 60 * 60 * 1000);
 });

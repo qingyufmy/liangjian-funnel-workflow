@@ -316,8 +316,10 @@ function nextScheduleLabel(overview: OverviewResponse): string {
   const minuteOfDay = hour * 60 + minute;
   const morning = overview.schedule.find((item) => item.id === "morning");
   const close = overview.schedule.find((item) => item.id === "close");
+  const a1 = overview.schedule.find((item) => item.id === "a1");
   if (minuteOfDay < 9 * 60 + 26 && morning) return `09:26 ${morning.label}`;
   if (minuteOfDay < 15 * 60 + 10 && close) return `15:10 ${close.label}`;
+  if (minuteOfDay < 18 * 60 && a1) return `18:00 ${a1.label}（到点后由交易日历判定是否执行）`;
   return morning ? `下一工作日 09:26 ${morning.label}` : "等待调度信息";
 }
 
@@ -1456,10 +1458,12 @@ function LogsPage({ logs, streamConnected }: { logs: LogEntry[]; streamConnected
 
 function DeploymentPage({ overview }: { overview: OverviewResponse }) {
   const service = overview.service;
+  const a1 = overview.a1Generation;
   return <div className="page-stack"><PageHeading eyebrow="Node control plane" title="部署状态" detail="用于核对 Node 服务、Python 状态库和定时计划，不在页面执行部署操作。" />
     <div className="deployment-grid"><Panel title="服务状态" icon={<Server size={18} />}><dl className="definition-list"><Definition label="Node 服务" value={<StatusBadge status={service.status} />} /><Definition label="运行时长" value={formatDuration((service.uptimeSeconds ?? 0) * 1000)} /><Definition label="时区" value={service.timezone ?? "Asia/Shanghai"} /><Definition label="监听地址" value={service.host ?? "仅本机"} /><Definition label="版本" value={service.version ?? "—"} /></dl></Panel>
     <Panel title="工作流门禁" icon={<ShieldCheck size={18} />}><dl className="definition-list"><Definition label="状态库" value={<StatusBadge status={service.stateHealthy ? "HEALTHY" : service.stateHealthy === false ? "ERROR" : "UNKNOWN"} />} /><Definition label="配置就绪" value={<StatusBadge status={service.configurationReady ? "READY" : service.configurationReady === false ? "BLOCKED" : "UNKNOWN"} />} /><Definition label="部署门禁" value={<StatusBadge status={service.deploymentReady ? "READY" : service.deploymentReady === false ? "BLOCKED" : "UNKNOWN"} />} /></dl></Panel></div>
     <Panel title="调度计划" icon={<CalendarClock size={18} />}>{overview.schedule.length === 0 ? <EmptyState title="调度信息不可用" detail="Node 调度器启动后会报告研究、盯盘与特征维护计划。" /> : <div className="schedule-list">{overview.schedule.map((item, index) => <div key={item.id ?? `${item.label}-${index}`}><div className="schedule-icon"><CalendarClock size={17} /></div><div><strong>{item.label}</strong><span>{item.cron ?? item.time ?? "—"}</span></div><StatusBadge status={item.status ?? "ACTIVE"} /><time>{item.nextRunAt ? `下次 ${formatDateTime(item.nextRunAt)}` : "由交易日历复核"}</time></div>)}</div>}</Panel>
+    <Panel title="A1 活跃研究池" icon={<Database size={18} />}><dl className="definition-list"><Definition label="状态" value={<StatusBadge status={a1?.status ?? "MISSING"} />} /><Definition label="维护模式" value={a1?.mode ?? "—"} /><Definition label="数据时点" value={a1?.as_of ? formatDateTime(a1.as_of) : "尚未完成首次全量"} /><Definition label="代际" value={a1?.generation_id ?? "—"} /></dl></Panel>
     {service.blockers?.length ? <Panel title="当前阻断项" icon={<TriangleAlert size={18} />}><ul className="blocker-list">{service.blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}</ul></Panel> : null}
   </div>;
 }

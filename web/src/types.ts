@@ -744,6 +744,18 @@ export interface OverviewResponse {
   dataSources: DataSourceSummary[];
   recentEffectiveEvents: EffectiveEvent[];
   recentLogs: LogEntry[];
+  a1Generation?: {
+    status?: string | null;
+    generation_id?: string | null;
+    mode?: string | null;
+    as_of?: string | null;
+    activated_at?: string | null;
+    age_seconds?: number | null;
+    degraded?: boolean | null;
+    reason_code?: string | null;
+    snapshot_id?: string | null;
+    base_generation_id?: string | null;
+  } | null;
 }
 
 export interface RunSummary {

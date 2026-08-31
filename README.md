@@ -73,18 +73,19 @@ cd D:\dev_A股\liangjian_funnel_workflow
 .\.venv\Scripts\python.exe -m liangjian_funnel run-due
 .\.venv\Scripts\python.exe -m liangjian_funnel run-morning
 .\.venv\Scripts\python.exe -m liangjian_funnel run-close
+.\.venv\Scripts\python.exe -m liangjian_funnel run-a1-maintenance
 .\.venv\Scripts\python.exe -m liangjian_funnel run-monitor
 .\.venv\Scripts\python.exe -m liangjian_funnel status
 ```
 
-历史收盘研究使用同一条 A1→A2→A3 主链和正式状态库，但不会把模拟账户交易日回退：
+历史回放仍可显式执行完整 A1→A2→A3 主链，但不会把模拟账户交易日回退：
 
 ```bash
 .venv/bin/python -m liangjian_funnel run-research --slot close --as-of 2026-08-25T15:10:00+08:00
 ```
 
 正式流程从同花顺完整证券目录开始，先执行配置化质量门得到 G0，再按 881*/884* 行业节点均衡编排；节点内仅按流动性确定传输顺序，不执行 Top-N 截断。系统完整冻结 G0 的日线、基本面与正式证据；事实源失败的单票仍保留在 G0/A1 并写入失败清单。符合质量门的北交所标的保留在 G0/A1，但在 A3 计划发布前因 `trade_eligible=false` 失败关闭。个股资讯到 A2 才仅按 A1 `ACTIVE` 子集抓取；5 分钟长历史到 A3 才仅按 A2 `focus_pool` 读取和计算。
-完整 A1 默认按产业节点每 20 只一批（`LIANGJIAN_A1_BATCH_SIZE`），A2 按 A1 主题每 40 只一批（`LIANGJIAN_A2_BATCH_SIZE`）并在合并后执行全局排名。模型阶段默认总时限 600 秒，输出预算按 `393216 → 262144 → 131072` tokens 三级降档；只有网关明确拒绝容量（或最终思考参数变体返回兼容网关的通用容量错误）时才降档。这些限制只影响模型投影；完整冻结快照与哈希不会被截断。
+完整 A1 默认按产业节点每 20 只一批（`LIANGJIAN_A1_BATCH_SIZE`），A2 按 A1 主题每 40 只一批（`LIANGJIAN_A2_BATCH_SIZE`）并在合并后执行全局排名。生产调度不再每天重跑 A1：每月首个交易日 18:00 构建 FULL 代际，每周最后一个交易日 18:00 只对新增、低频事实变化、主题影响及已有研究池宏观复核范围执行 INCREMENTAL；首次部署无基线时，任一交易日 18:00 自动执行一次引导 FULL。每个代际必须完整、互斥地覆盖当期 G0，密封成功后才以 SQLite CAS 原子切换 active；失败继续保留上一个 active。每日 15:10 只读取当前有效 active A1，执行 A2→A3，不会隐式回退为全量 A1。模型阶段默认总时限 600 秒，输出预算按 `393216 → 262144 → 131072` tokens 三级降档；只有网关明确拒绝容量（或最终思考参数变体返回兼容网关的通用容量错误）时才降档。这些限制只影响模型投影；完整冻结快照与哈希不会被截断。
 
 对已冻结快照重放或从已验证的上游阶段恢复：
 
@@ -100,11 +101,12 @@ cd D:\dev_A股\liangjian_funnel_workflow
 已安装三个 Windows 计划任务：
 
 - `LiangjianAStockResearchMorning`：每天 09:26；只冻结最新闭合行情，对前一收盘 A3 计划执行失效/追高门禁后原子激活，不再重跑完整三模型漏斗。
-- `LiangjianAStockResearchClose`：每天 15:10。
+- `LiangjianAStockResearchClose`：每天 15:10；消费 active A1，只执行 A2→A3。
+- Node 常驻调度：工作日 18:00 唤醒 `run-a1-maintenance`；Python 交易日历决定月度 FULL、周度 INCREMENTAL或普通日期 NOOP。
 - `LiangjianAStockMonitor`：每天 09:25 起每分钟一次，15:00 停止；内部用交易所日历跳过法定休市日、午休、重复任务和过期补买。15:10 收盘研究不再与盯盘任务竞争。
 
 生产稳定模式设置 `LIANGJIAN_COMPARISON_ENABLED=false`。此时收盘研究只由主 lane 的
-`deepseek-v4-pro-0813` 连续执行 A1→A2→A3，Kimi/GLM 不会在 Node 启动或主结果发布后
+`deepseek-v4-pro-0813` 维护唯一的 active A1，并在每日收盘连续执行 A2→A3；Kimi/GLM 不会在 Node 启动或主结果发布后
 自动运行；它们仍保留在模型清单中，供显式离线对比使用。稳定模式不改变选股门槛、
 A3 发布门禁或 A4 的“仅否决、不创设计划”边界。
 
@@ -115,7 +117,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\install_schedu
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\uninstall_scheduled_tasks.ps1
 ```
 
-Linux、systemd/cron、容器、部署门禁和回滚步骤见 [DEPLOYMENT.md](DEPLOYMENT.md)。生产调度分别调用 `run-morning`、`run-close`、`run-monitor`，不会让三种任务在同一 `run-due` 进程中争抢执行权。
+Linux、systemd/cron、容器、部署门禁和回滚步骤见 [DEPLOYMENT.md](DEPLOYMENT.md)。生产调度分别调用 `run-morning`、`run-close`、`run-a1-maintenance`、`run-monitor`，Node 主任务槽保证它们不并发争抢执行权。
 
 ## 结果位置
 

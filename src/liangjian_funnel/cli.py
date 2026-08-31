@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 
 from .contracts import CapabilityStatus
 from .pipeline.outcomes import PublicationState, RunOutcome, aggregate_workflow_acceptance, cli_exit_code
+from .pipeline.a1_registry import A1RegistryError, DEFAULT_A1_DEGRADED_AFTER, DEFAULT_A1_MAX_AGE
 from .evaluation.broker_gold import import_broker_gold
 from .probes.hithink import HithinkProbe
 from .probes.models import ModelProbe
@@ -161,6 +162,21 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="force a full staging rebuild; Saturday defaults to full automatically",
     )
+    a1_maintenance = sub.add_parser(
+        "run-a1-maintenance",
+        help="run the due 18:00 monthly-full or weekly-incremental A1 maintenance",
+    )
+    a1_maintenance.add_argument(
+        "--mode",
+        choices=("full", "incremental"),
+        default=None,
+        help="explicit maintenance mode; omit to apply the exchange-calendar schedule",
+    )
+    a1_maintenance.add_argument(
+        "--as-of",
+        default=None,
+        help="timezone-aware execution timestamp; defaults to current Asia/Shanghai time",
+    )
     research = sub.add_parser("run-research", help="run three isolated A1-A2-A3 model lanes")
     research.add_argument("--slot", choices=("morning", "close"), required=True)
     research.add_argument(
@@ -273,7 +289,7 @@ def main(argv: Sequence[str] | None = None, *, settings: Settings | None = None)
         return _doctor(active)
     if args.command in {"storage-audit", "storage-backup", "storage-cleanup"}:
         return _storage_command(args, active)
-    if args.command in {"prepare-snapshot", "import-broker-gold", "sync-data", "maintain-features", "run-research", "run-comparison", "monitor-once", "run-due", "run-morning", "run-close", "run-next-session-prep", "run-monitor", "status"}:
+    if args.command in {"prepare-snapshot", "import-broker-gold", "sync-data", "maintain-features", "run-a1-maintenance", "run-research", "run-comparison", "monitor-once", "run-due", "run-morning", "run-close", "run-next-session-prep", "run-monitor", "status"}:
         return _workflow_command(args, active)
     reports = []
     if args.command in {"probe-hithink", "probe-all"}:
@@ -456,6 +472,16 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
             print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True, default=str))
             return 0 if payload.get("status") in {"PUBLISHED", "NOOP"} else 2
         application = WorkflowApplication(settings)
+        if args.command == "run-a1-maintenance":
+            maintenance_at = datetime.fromisoformat(args.as_of) if args.as_of else None
+            if maintenance_at is not None and (maintenance_at.tzinfo is None or maintenance_at.utcoffset() is None):
+                maintenance_at = maintenance_at.replace(tzinfo=ZoneInfo(settings.timezone))
+            payload = application.run_a1_maintenance(
+                now=maintenance_at,
+                mode=args.mode,
+            )
+            print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True, default=str))
+            return 0 if payload.get("status") in {"PUBLISHED", "NOOP", "NOT_DUE"} else 2
         if args.command == "import-broker-gold":
             cutoff = datetime.fromisoformat(args.as_of) if args.as_of else datetime.now(ZoneInfo(settings.timezone))
             if cutoff.tzinfo is None or cutoff.utcoffset() is None:
@@ -542,6 +568,65 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
                 _monitor_event_projection(event, plans=plan_by_id, fills=fill_by_signal)
                 for event in application.store.list_monitor_events(effective_only=True)[-100:]
             )
+            a1_registry = getattr(application, "a1_registry", None)
+            status_now = datetime.now(ZoneInfo(settings.timezone))
+            active_a1 = None
+            a1_reason_code = None
+            try:
+                active_a1 = a1_registry.get_active_generation() if a1_registry is not None else None
+                if a1_registry is not None and active_a1 is not None:
+                    a1_registry.require_active(as_of=status_now, max_age=DEFAULT_A1_MAX_AGE)
+            except A1RegistryError as exc:
+                a1_reason_code = exc.reason_code
+            a1_age_seconds = (
+                max(0, int((status_now - active_a1.as_of).total_seconds()))
+                if active_a1 is not None
+                else None
+            )
+            a1_ready = active_a1 is not None and active_a1.is_sealed and a1_reason_code is None
+            raw_a1_delta = (
+                active_a1.manifest.get("delta")
+                if active_a1 is not None and isinstance(active_a1.manifest.get("delta"), Mapping)
+                else {}
+            )
+            safe_a1_delta = {
+                key: raw_a1_delta.get(key)
+                for key in (
+                    "processed_count",
+                    "added_count",
+                    "changed_count",
+                    "theme_affected_count",
+                    "removed_count",
+                    "unchanged_count",
+                    "macro_revalidation_count",
+                    "global_input_changed",
+                )
+                if key in raw_a1_delta
+            }
+            a1_generation = (
+                {
+                    "status": "ACTIVE" if a1_ready else "BLOCKED",
+                    "generation_id": active_a1.generation_id,
+                    "mode": active_a1.mode,
+                    "as_of": active_a1.as_of.isoformat(),
+                    "activated_at": active_a1.activated_at.isoformat() if active_a1.activated_at else None,
+                    "age_seconds": a1_age_seconds,
+                    "degraded": bool(
+                        a1_age_seconds is not None
+                        and a1_age_seconds > int(DEFAULT_A1_DEGRADED_AFTER.total_seconds())
+                    ),
+                    "reason_code": a1_reason_code,
+                    "snapshot_id": active_a1.snapshot_id,
+                    "base_generation_id": active_a1.base_generation_id,
+                    "delta": safe_a1_delta,
+                }
+                if active_a1 is not None
+                else {
+                    "status": "MISSING" if a1_reason_code is None else "BLOCKED",
+                    "generation_id": None,
+                    "reason_code": a1_reason_code or "A1_ACTIVE_MISSING",
+                }
+            )
             payload = {
                 "state_db": str(settings.state_db_path),
                 "state_healthy": application.store.healthy,
@@ -568,12 +653,14 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
                 "recent_fills": recent_fills,
                 "latest_workflow_runs": workflow_runs,
                 "scheduler_leases": application.store.list_leases(),
+                "a1_generation": a1_generation,
                 "configuration_ready": configuration_ready,
                 "latest_workflow_acceptance": workflow_acceptance,
                 "latest_workflow_outcome_v2": workflow_outcome.as_dict(),
                 "deployment_ready": bool(
                     configuration_ready
                     and primary_workflow_publishable
+                    and a1_ready
                 ),
                 "deployment_blockers": [
                     reason
@@ -582,6 +669,7 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
                         (settings.hithink_api_key is None, "HITHINK_API_KEY_MISSING"),
                         (settings.model_api_key is None, "MODEL_API_KEY_MISSING"),
                         (not settings.exchange_rules_path.is_file(), "EXCHANGE_RULE_SNAPSHOT_MISSING"),
+                        (not a1_ready, "A1_ACTIVE_MISSING"),
                         (
                             not primary_workflow_publishable,
                             "LATEST_WORKFLOW_NOT_READY",

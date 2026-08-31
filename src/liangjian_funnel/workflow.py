@@ -60,6 +60,19 @@ from .pipeline.a1_sources import (
     load_a1_source_registry,
     unavailable_a1_source_context,
 )
+from .pipeline.a1_registry import (
+    A1_FULL,
+    A1_INCREMENTAL,
+    DEFAULT_A1_DEGRADED_AFTER,
+    DEFAULT_A1_MAX_AGE,
+    A1Generation,
+    A1Registry,
+    A1RegistryError,
+    build_a1_manifest,
+    compute_incremental_scope,
+    default_a1_registry_path,
+    merge_a1_partitions,
+)
 from .pipeline.factors import FactorEngine
 from .pipeline.feature_store import ResearchFeatureStore
 from .pipeline.feature_maintenance import materialize_live_source
@@ -100,6 +113,9 @@ SHANGHAI = ZoneInfo("Asia/Shanghai")
 _A4_FILE = "agent_4_intraday_veto_v3.txt"
 _G0_SCOPE_CONTRACT = "CONFIGURED_RESEARCH_UNIVERSE_V1"
 _RESEARCH_RESUME_SCHEMA = "liangjian-research-resume/1.2.0"
+_A1_MAX_AGE = DEFAULT_A1_MAX_AGE
+_A1_DEGRADED_AFTER = DEFAULT_A1_DEGRADED_AFTER
+_A1_MAINTENANCE_TIME = (18, 0)
 _COMPARISON_REQUEST_SCHEMA = "liangjian-comparison-request/1.0.0"
 _COMPARISON_REQUEST_STATUSES = frozenset({"PENDING", "RUNNING", "RETRYABLE", "SUCCEEDED", "FAILED", "CANCELLED"})
 _COMPARISON_RETRYABLE_STATUSES = frozenset({"PENDING", "RETRYABLE", "RUNNING"})
@@ -159,6 +175,125 @@ class PreparedSnapshot:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class A1MaintenancePlan:
+    """One due 18:00 A1 maintenance slot."""
+
+    mode: str
+    trade_date: date
+    due: datetime
+    dispatch_key: str
+    reason_code: str
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "mode": self.mode,
+            "trade_date": self.trade_date.isoformat(),
+            "due": self.due.isoformat(),
+            "dispatch_key": self.dispatch_key,
+            "reason_code": self.reason_code,
+        }
+
+
+def decide_a1_maintenance(
+    now: datetime,
+    trading_day: Any,
+    *,
+    has_active_generation: bool = True,
+    active_full_period: str | None = None,
+) -> A1MaintenancePlan | None:
+    """Return the bootstrap/monthly/weekly A1 slot, if due."""
+
+    current = _aware(now)
+    if current.hour < _A1_MAINTENANCE_TIME[0] or (
+        current.hour == _A1_MAINTENANCE_TIME[0] and current.minute < _A1_MAINTENANCE_TIME[1]
+    ):
+        return None
+    try:
+        if not bool(trading_day(current.date())):
+            return None
+        first = date(current.year, current.month, 1)
+        while first.month == current.month and not trading_day(first):
+            first += timedelta(days=1)
+        is_first = current.date() == first
+        # The next Monday is exclusive.  No later session means this is the
+        # last exchange session of the current week (including holiday weeks).
+        days_to_monday = 7 - current.weekday()
+        next_day = current.date() + timedelta(days=1)
+        next_monday = current.date() + timedelta(days=days_to_monday)
+        is_last_week_session = not any(
+            bool(trading_day(next_day + timedelta(days=offset)))
+            for offset in range(max(0, (next_monday - next_day).days))
+        )
+    except Exception as exc:
+        raise WorkflowError("TRADING_CALENDAR_UNAVAILABLE") from exc
+    if not has_active_generation:
+        due = current.replace(hour=18, minute=0, second=0, microsecond=0)
+        return A1MaintenancePlan(
+            mode=A1_FULL,
+            trade_date=current.date(),
+            due=due,
+            dispatch_key=f"a1-maintenance:{current.date().isoformat()}:bootstrap-full",
+            reason_code="A1_BOOTSTRAP_FULL_DUE",
+        )
+    current_period = f"{current.year:04d}-{current.month:02d}"
+    if active_full_period is not None and str(active_full_period).strip() != current_period:
+        due = current.replace(hour=18, minute=0, second=0, microsecond=0)
+        return A1MaintenancePlan(
+            mode=A1_FULL,
+            trade_date=current.date(),
+            due=due,
+            dispatch_key=f"a1-maintenance:{current.date().isoformat()}:monthly-full-catchup",
+            reason_code="A1_MONTHLY_FULL_CATCHUP_DUE",
+        )
+    if not (is_first or is_last_week_session):
+        return None
+    mode = A1_FULL if is_first else A1_INCREMENTAL
+    reason = "A1_MONTHLY_FULL_DUE" if is_first else "A1_WEEKLY_INCREMENTAL_DUE"
+    due = current.replace(hour=18, minute=0, second=0, microsecond=0)
+    return A1MaintenancePlan(
+        mode=mode,
+        trade_date=current.date(),
+        due=due,
+        dispatch_key=f"a1-maintenance:{current.date().isoformat()}:{mode.lower()}",
+        reason_code=reason,
+    )
+
+
+def _primary_model_for_settings(settings: Settings) -> tuple[str, int, str]:
+    """Resolve the configured primary model and its stable lane index."""
+
+    lane_id = str(getattr(settings, "research_primary_lane_id", "lane_1") or "lane_1")
+    try:
+        lane_index = int(lane_id.rsplit("_", 1)[-1])
+    except (TypeError, ValueError):
+        lane_index = 1
+        lane_id = "lane_1"
+    models = tuple(getattr(settings, "research_models", ()) or ())
+    model_index = lane_index - 1
+    if not (0 <= model_index < len(models)):
+        model_index = 0
+        lane_index = 1
+        lane_id = "lane_1"
+    if not models:
+        raise WorkflowError("RESEARCH_MODEL_CONFIG_INVALID")
+    return str(models[model_index]), lane_index, lane_id
+
+
+def _a1_full_period(generation: A1Generation | None) -> str | None:
+    if generation is None:
+        return None
+    explicit = str(generation.manifest.get("last_full_period") or "").strip()
+    if explicit:
+        return explicit
+    if generation.mode == A1_FULL:
+        return f"{generation.as_of.year:04d}-{generation.as_of.month:02d}"
+    # An older incremental generation without this marker cannot prove that
+    # the current month's mandatory FULL was published. Fail safe by making
+    # the next 18:00 wake-up a monthly catch-up.
+    return "UNKNOWN"
+
+
 class WorkflowApplication:
     """Join data, research, A4 and paper simulation without external orders."""
 
@@ -167,6 +302,10 @@ class WorkflowApplication:
         self.store = RuntimeStore(settings.state_db_path)
         self.minute_store = MinuteBarStore(settings.minute_cache_dir)
         self.fact_cache = LocalFactCache(settings.fact_cache_db_path)
+        # A1 maintenance has an independent immutable registry.  The feature
+        # store remains a deterministic projection cache and must not be used
+        # as the close workflow's A1 source of truth.
+        self.a1_registry = A1Registry(default_a1_registry_path(settings))
         # The feature store is a rebuildable projection cache.  Data sync only
         # marks symbols dirty after a successful provider write; maintenance
         # publishes a new generation separately, so a partial sync cannot
@@ -913,6 +1052,7 @@ class WorkflowApplication:
             market_data_as_of=market_data_as_of,
             allow_non_trading_source=True,
             reuse_resume_snapshot=False,
+            from_active_a1=True,
         )
 
     def sync_data_cache(self, *, as_of: datetime | None = None) -> dict[str, Any]:
@@ -1321,6 +1461,327 @@ class WorkflowApplication:
                     results[result.source_id] = result
         return results
 
+    def run_a1_maintenance(
+        self,
+        *,
+        now: datetime | None = None,
+        mode: str | None = None,
+        run_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Build and atomically publish the monthly/weekly A1 generation."""
+
+        current = _aware(now or datetime.now(SHANGHAI))
+        normalized_mode = str(mode or "").strip().upper()
+        active = self.a1_registry.get_active_generation()
+        plan: A1MaintenancePlan | None = None
+        if not normalized_mode:
+            plan = decide_a1_maintenance(
+                current,
+                self.trading_calendar.is_trading_day,
+                has_active_generation=active is not None,
+                active_full_period=_a1_full_period(active),
+            )
+            if plan is None:
+                return {
+                    "status": "NOT_DUE",
+                    "reason_code": "A1_MAINTENANCE_NOT_DUE",
+                    "time": current.isoformat(),
+                }
+            normalized_mode = plan.mode
+        if normalized_mode not in {A1_FULL, A1_INCREMENTAL}:
+            raise WorkflowError("A1_MAINTENANCE_MODE_INVALID")
+        if normalized_mode == A1_INCREMENTAL and active is None:
+            return {
+                "status": "BLOCKED",
+                "mode": normalized_mode,
+                "reason_code": "A1_INCREMENTAL_BASELINE_MISSING",
+                "time": current.isoformat(),
+            }
+        maintenance_run_id = run_id or f"{current.date()}-a1-{normalized_mode.lower()}"
+        progress = WorkflowProgress(
+            self.settings.workflow_progress_path,
+            run_id=maintenance_run_id,
+            job="a1",
+        )
+        progress.set_phase("DATA_SYNC")
+        resource_decision = evaluate_resources(self.settings.root)
+        progress.update_resources(resource_decision.snapshot.as_dict())
+        _progress_stdout(progress.snapshot())
+        if not resource_decision.allowed:
+            reason = resource_decision.reason_codes[0]
+            progress.finish(status="BLOCKED", phase="FAILED", reason_code=reason)
+            _progress_stdout(progress.snapshot())
+            return {
+                "status": "FAILED",
+                "mode": normalized_mode,
+                "reason_code": reason,
+                "time": current.isoformat(),
+            }
+        try:
+            prepared = self.prepare_snapshot(
+                as_of=current,
+                market_data_as_of=current,
+                progress=progress,
+            )
+        except Exception as exc:
+            reason = _safe_reason_code(exc)
+            progress.finish(status="BLOCKED", phase="FAILED", reason_code=reason)
+            _progress_stdout(progress.snapshot())
+            return {
+                "status": "FAILED",
+                "mode": normalized_mode,
+                "reason_code": reason,
+                "time": current.isoformat(),
+            }
+        base_payload = dict(active.payload) if active is not None else {}
+        base_outputs = _a1_outputs_by_lane(base_payload)
+        scope = None
+        maintenance_scope_symbols: tuple[str, ...] | None = None
+        macro_revalidation_symbols: tuple[str, ...] = ()
+        if normalized_mode == A1_INCREMENTAL:
+            if active is None or not isinstance(active.manifest, Mapping):
+                return {
+                    "status": "BLOCKED",
+                    "mode": normalized_mode,
+                    "reason_code": "A1_INCREMENTAL_BASELINE_INVALID",
+                    "time": current.isoformat(),
+                }
+            scope = compute_incremental_scope(
+                prepared.snapshot.data,
+                active.manifest,
+                base_output=next(iter(base_outputs.values()), None),
+                changed_theme_ids=prepared.snapshot.data.get("A1_CHANGED_THEME_IDS"),
+                new_theme_ids=prepared.snapshot.data.get("A1_NEW_THEME_IDS"),
+            )
+            if not scope.symbols and not scope.global_input_changed:
+                return {
+                    "status": "NOOP",
+                    "mode": normalized_mode,
+                    "reason_code": "A1_INCREMENTAL_NO_CHANGES",
+                    "base_generation_id": active.generation_id if active else None,
+                    "delta": scope.as_dict(),
+                    "snapshot_id": prepared.snapshot.snapshot_id,
+                    "snapshot_hash": prepared.snapshot.snapshot_hash,
+                }
+            maintenance_scope = set(scope.symbols)
+            if scope.global_input_changed:
+                # A weekly policy/macro change must revalidate the existing
+                # research and monitor pools, even when no company's
+                # low-frequency facts changed.  Rejected outsiders remain a
+                # monthly-full responsibility; this keeps the weekly job a
+                # genuine delta instead of silently widening back to G0.
+                current_g0 = {
+                    str(symbol).strip().upper()
+                    for symbol in prepared.snapshot.data.get("g0_symbols", ())
+                    if str(symbol).strip()
+                }
+                prior_research = set()
+                for output in base_outputs.values():
+                    prior_research.update(
+                        _a1_output_partition_symbols(
+                            output,
+                            ("active_research_pool", "monitor_pool"),
+                        )
+                    )
+                macro_revalidation_symbols = tuple(sorted(prior_research.intersection(current_g0)))
+                maintenance_scope.update(macro_revalidation_symbols)
+            maintenance_scope_symbols = tuple(sorted(maintenance_scope))
+        primary_model, primary_lane_index, primary_lane_id = _primary_model_for_settings(self.settings)
+        generation = self.a1_registry.create_generation(
+            mode=normalized_mode,
+            snapshot_id=prepared.snapshot.snapshot_id,
+            snapshot_hash=prepared.snapshot.snapshot_hash,
+            as_of=current,
+            base_generation_id=active.generation_id if active is not None else None,
+            manifest={
+                "schema_version": "liangjian-a1-registry/1.0.0",
+                "status": "STAGING",
+                "mode": normalized_mode,
+                "snapshot_id": prepared.snapshot.snapshot_id,
+            },
+            payload={"schema_version": "liangjian-a1-registry/1.0.0", "lanes": {}},
+        )
+        try:
+            def research_progress(event: Mapping[str, Any]) -> None:
+                progress.research_event(event)
+                _progress_stdout(progress.snapshot())
+
+            pipeline = ResearchPipeline(
+                self.settings,
+                prompt_repository=self.prompts,
+                model_client=self.model_client,
+                output_dir=self.settings.workflow_output_dir / "research",
+                parallel_lanes=False,
+                runtime_store=self.store,
+                slot="A1_MAINTENANCE",
+                batch_workers=1,
+                checkpoint_store=self.research_checkpoints,
+                stage_snapshot_enricher=self._stage_snapshot_enricher,
+                progress_callback=research_progress,
+            )
+            heartbeat_stop = Event()
+
+            def progress_heartbeat() -> None:
+                while not heartbeat_stop.wait(55.0):
+                    try:
+                        progress.update_resources(measure_resources(self.settings.root).as_dict())
+                        _progress_stdout(progress.snapshot())
+                    except Exception:
+                        continue
+
+            heartbeat_thread = Thread(
+                target=progress_heartbeat,
+                name="liangjian-a1-progress-heartbeat",
+                daemon=True,
+            )
+            heartbeat_thread.start()
+            try:
+                result = pipeline.run_a1_only(
+                    prepared.snapshot,
+                    run_id=maintenance_run_id,
+                    generated_at=current,
+                    models=(primary_model,),
+                    lane_start_index=primary_lane_index,
+                    primary_lane_ids=(primary_lane_id,),
+                    scope_symbols=maintenance_scope_symbols,
+                )
+            finally:
+                heartbeat_stop.set()
+                heartbeat_thread.join(timeout=2.0)
+            if result.status not in {"READY", "READY_DEGRADED"}:
+                raise WorkflowError("A1_MAINTENANCE_RESULT_BLOCKED")
+            delta_outputs = _a1_outputs_by_result(result)
+            merged_outputs: dict[str, dict[str, Any]] = {}
+            updated_symbols = maintenance_scope_symbols if scope is not None else tuple(prepared.snapshot.data.get("g0_symbols", ()))
+            removed_symbols = scope.removed_symbols if scope is not None else ()
+            for lane_id, delta_output in delta_outputs.items():
+                if normalized_mode == A1_INCREMENTAL:
+                    base_output = base_outputs.get(lane_id)
+                    if not isinstance(base_output, Mapping):
+                        raise WorkflowError("A1_INCREMENTAL_BASELINE_LANE_MISSING")
+                    merged_outputs[lane_id] = merge_a1_partitions(
+                        base_output,
+                        delta_output,
+                        updated_symbols=updated_symbols,
+                        removed_symbols=removed_symbols,
+                    )
+                else:
+                    merged_outputs[lane_id] = dict(delta_output)
+            if normalized_mode == A1_INCREMENTAL:
+                # Maintenance is intentionally primary-only.  Preserve any
+                # optional comparison lanes from a pre-existing generation so
+                # a primary refresh cannot erase their complete partitions;
+                # they are never used by the close primary lane.
+                for lane_id, base_output in base_outputs.items():
+                    if lane_id not in merged_outputs:
+                        merged_outputs[lane_id] = dict(base_output)
+            if not merged_outputs:
+                raise WorkflowError("A1_MAINTENANCE_OUTPUT_EMPTY")
+            delta_payload = scope.as_dict() if scope is not None else {
+                "processed_count": len(updated_symbols),
+                "added_count": len(updated_symbols),
+                "changed_count": 0,
+                "theme_affected_count": 0,
+                "removed_count": 0,
+                "unchanged_count": 0,
+            }
+            if scope is not None:
+                delta_payload.update(
+                    {
+                        "processed_symbols": list(updated_symbols),
+                        "processed_count": len(updated_symbols),
+                        "macro_revalidation_symbols": list(macro_revalidation_symbols),
+                        "macro_revalidation_count": len(macro_revalidation_symbols),
+                    }
+                )
+            manifest = build_a1_manifest(
+                prepared.snapshot.data,
+                merged_outputs,
+                mode=normalized_mode,
+                snapshot_id=prepared.snapshot.snapshot_id,
+                snapshot_hash=prepared.snapshot.snapshot_hash,
+                as_of=current,
+                base_generation_id=active.generation_id if active is not None else None,
+                delta=delta_payload,
+            )
+            manifest["last_full_period"] = (
+                f"{current.year:04d}-{current.month:02d}"
+                if normalized_mode == A1_FULL
+                else _a1_full_period(active)
+            )
+            iso_year, iso_week, _ = current.date().isocalendar()
+            manifest["maintenance_week"] = f"{iso_year:04d}-W{iso_week:02d}"
+            base_lane_records = base_payload.get("lanes") if isinstance(base_payload.get("lanes"), Mapping) else {}
+            lane_records: dict[str, Mapping[str, Any]] = {}
+            for lane_id, output in merged_outputs.items():
+                if lane_id in delta_outputs:
+                    lane_records[lane_id] = _a1_lane_record(result, lane_id, output)
+                    continue
+                raw_lane = base_lane_records.get(lane_id) if isinstance(base_lane_records, Mapping) else None
+                if isinstance(raw_lane, Mapping):
+                    preserved_lane = dict(raw_lane)
+                    preserved_lane["output"] = dict(output)
+                    lane_records[lane_id] = preserved_lane
+                else:
+                    lane_records[lane_id] = _a1_lane_record(result, lane_id, output)
+            payload = {
+                "schema_version": "liangjian-a1-registry/1.0.0",
+                "generation_id": generation.generation_id,
+                "mode": normalized_mode,
+                "snapshot_id": prepared.snapshot.snapshot_id,
+                "snapshot_hash": prepared.snapshot.snapshot_hash,
+                "as_of": current.isoformat(),
+                "base_generation_id": active.generation_id if active is not None else None,
+                "delta": delta_payload,
+                "lanes": dict(lane_records),
+            }
+            sealed = self.a1_registry.seal_generation(
+                generation.generation_id,
+                manifest=manifest,
+                payload=payload,
+                sealed_at=current,
+            )
+            activated = self.a1_registry.activate_generation(
+                sealed.generation_id,
+                expected_current_id=active.generation_id if active is not None else None,
+                activated_at=current,
+            )
+            progress.update_resources(measure_resources(self.settings.root).as_dict())
+            progress.finish(
+                status=result.status,
+                phase="COMPLETED",
+                reason_code=("RESEARCH_READY_DEGRADED" if result.status == "READY_DEGRADED" else None),
+                outcome=result.outcome().as_dict(),
+            )
+            _progress_stdout(progress.snapshot())
+            return {
+                "status": "PUBLISHED",
+                "mode": normalized_mode,
+                "generation_id": activated.generation_id,
+                "previous_generation_id": active.generation_id if active is not None else None,
+                "snapshot_id": prepared.snapshot.snapshot_id,
+                "snapshot_hash": prepared.snapshot.snapshot_hash,
+                "delta": delta_payload,
+                "plan": plan.as_dict() if plan is not None else None,
+                "research_run_id": result.run_id,
+            }
+        except Exception as exc:
+            reason = _safe_reason_code(exc)
+            try:
+                self.a1_registry.fail_generation(generation.generation_id, reason, failed_at=current)
+            except Exception:
+                pass
+            progress.finish(status="BLOCKED", phase="FAILED", reason_code=reason)
+            _progress_stdout(progress.snapshot())
+            return {
+                "status": "FAILED",
+                "mode": normalized_mode,
+                "generation_id": generation.generation_id,
+                "previous_generation_id": active.generation_id if active is not None else None,
+                "reason_code": reason,
+                "plan": plan.as_dict() if plan is not None else None,
+            }
+
     def run_research(
         self,
         slot: str,
@@ -1343,6 +1804,8 @@ class WorkflowApplication:
         market_data_as_of: datetime | None = None,
         allow_non_trading_source: bool = False,
         reuse_resume_snapshot: bool = True,
+        from_active_a1: bool = False,
+        active_a1_generation_id: str | None = None,
     ) -> dict[str, Any]:
         normalized_slot = _slot(slot)
         current = _aware(as_of or datetime.now(SHANGHAI))
@@ -1390,6 +1853,13 @@ class WorkflowApplication:
             raise WorkflowError("SNAPSHOT_ID_REQUIRES_HISTORICAL_REPLAY")
         if comparison_run and not snapshot_id:
             raise WorkflowError("COMPARISON_SNAPSHOT_REQUIRED")
+        if not isinstance(from_active_a1, bool):
+            raise WorkflowError("ACTIVE_A1_ARGUMENTS_INVALID")
+        if from_active_a1 and (
+            historical_replay
+            or (comparison_run and not active_a1_generation_id)
+        ):
+            raise WorkflowError("ACTIVE_A1_ARGUMENTS_INVALID")
         if not next_session_prep:
             self._ensure_trading_day(
                 current,
@@ -1431,6 +1901,35 @@ class WorkflowApplication:
             _progress_stdout(progress.snapshot())
             raise WorkflowError(resource_decision.reason_codes[0])
         _progress_stdout(progress.snapshot())
+        active_a1_generation: A1Generation | None = None
+        a1_reuse_degraded = False
+        a1_reuse_age_seconds: int | None = None
+        if from_active_a1:
+            try:
+                # Check the immutable pointer before preparing any new
+                # snapshot.  A close without a current A1 must fail closed
+                # rather than doing work that could be mistaken for an
+                # implicit A1 refresh.
+                if active_a1_generation_id:
+                    active_a1_generation = self.a1_registry.get_generation(
+                        active_a1_generation_id
+                    )
+                    if active_a1_generation is None or not active_a1_generation.is_sealed:
+                        raise A1RegistryError("A1_REQUESTED_GENERATION_INVALID")
+                else:
+                    active_a1_generation = self.a1_registry.require_active(
+                        as_of=current,
+                        max_age=_A1_MAX_AGE,
+                    )
+                a1_reuse_age_seconds = max(
+                    0,
+                    int((current - active_a1_generation.as_of).total_seconds()),
+                )
+                a1_reuse_degraded = current - active_a1_generation.as_of > _A1_DEGRADED_AFTER
+            except A1RegistryError as exc:
+                progress.finish(status="BLOCKED", phase="FAILED", reason_code=exc.reason_code)
+                _progress_stdout(progress.snapshot())
+                raise WorkflowError(exc.reason_code) from exc
         try:
             prepared = (
                 self._load_research_snapshot_by_id(
@@ -1508,29 +2007,48 @@ class WorkflowApplication:
         )
         heartbeat_thread.start()
         try:
+            primary_model, primary_lane_index, primary_lane_id = _primary_model_for_settings(self.settings)
             selected_models = (
                 tuple(models)
                 if models is not None
-                else (self.settings.research_models[0],)
+                else (primary_model,)
                 if primary_only
                 else tuple(self.settings.research_models)
+            )
+            selected_lane_start_index = (
+                primary_lane_index
+                if primary_only and models is None
+                else lane_start_index
             )
             selected_primary_lane_ids = (
                 tuple(primary_lane_ids)
                 if primary_lane_ids is not None
-                else (f"lane_{lane_start_index}",)
+                else (primary_lane_id,)
                 if primary_only
                 else (self.settings.research_primary_lane_id,)
             )
-            result = pipeline.run(
-                prepared.snapshot,
-                run_id=run_id,
-                generated_at=current,
-                historical_replay=historical_replay,
-                models=selected_models,
-                lane_start_index=lane_start_index,
-                primary_lane_ids=selected_primary_lane_ids,
-            )
+            if from_active_a1:
+                result = pipeline.run_from_active_a1(
+                    prepared.snapshot,
+                    active_a1_generation,
+                    run_id=run_id,
+                    generated_at=current,
+                    historical_replay=historical_replay,
+                    models=selected_models,
+                    lane_start_index=selected_lane_start_index,
+                    primary_lane_ids=selected_primary_lane_ids,
+                    generation_id=active_a1_generation.generation_id if active_a1_generation else None,
+                )
+            else:
+                result = pipeline.run(
+                    prepared.snapshot,
+                    run_id=run_id,
+                    generated_at=current,
+                    historical_replay=historical_replay,
+                    models=selected_models,
+                    lane_start_index=selected_lane_start_index,
+                    primary_lane_ids=selected_primary_lane_ids,
+                )
         except Exception as exc:
             progress.finish(
                 status="BLOCKED",
@@ -1594,6 +2112,11 @@ class WorkflowApplication:
             "preparation_mode": (
                 "NEXT_SESSION_PRODUCTION_PREP" if next_session_prep else None
             ),
+            "a1_generation_id": active_a1_generation.generation_id if active_a1_generation else None,
+            "a1_reused": bool(active_a1_generation),
+            "a1_reuse_age_seconds": a1_reuse_age_seconds,
+            "a1_reuse_degraded": a1_reuse_degraded,
+            "a1_reuse_reason_code": "A1_ACTIVE_STALE_DEGRADED" if a1_reuse_degraded else None,
             "outcome_v2": result.outcome().as_dict(),
             "snapshot": prepared.as_dict(),
             "research_markdown": str(result.markdown_path) if result.markdown_path else None,
@@ -1605,11 +2128,16 @@ class WorkflowApplication:
         research_ready = result.status in {"READY", "READY_DEGRADED"}
         ready_reason = "RESEARCH_READY_DEGRADED" if result.status == "READY_DEGRADED" else None
         if schedule_comparison and primary_only and research_ready and not historical_replay and not comparison_run:
+            comparison_request_kwargs: dict[str, Any] = {
+                "parent_run_id": run_id,
+                "prepared": prepared,
+                "slot": normalized_slot,
+                "primary_status": result.status,
+            }
+            if active_a1_generation is not None:
+                comparison_request_kwargs["a1_generation_id"] = active_a1_generation.generation_id
             request = self._create_comparison_request(
-                parent_run_id=run_id,
-                prepared=prepared,
-                slot=normalized_slot,
-                primary_status=result.status,
+                **comparison_request_kwargs,
             )
             summary["comparison_request"] = request
             atomic_write_json(self.settings.workflow_output_dir / "runs" / f"{run_id}.json", summary)
@@ -1667,6 +2195,7 @@ class WorkflowApplication:
         prepared: PreparedSnapshot,
         slot: str,
         primary_status: str,
+        a1_generation_id: str | None = None,
     ) -> dict[str, Any]:
         """Create the idempotent durable hand-off from primary to comparison.
 
@@ -1681,6 +2210,10 @@ class WorkflowApplication:
             if (
                 existing.get("snapshot_id") != prepared.snapshot.snapshot_id
                 or existing.get("snapshot_hash") != prepared.snapshot.snapshot_hash
+                or (
+                    a1_generation_id is not None
+                    and existing.get("a1_generation_id") != a1_generation_id
+                )
             ):
                 raise WorkflowError("COMPARISON_REQUEST_IMMUTABLE_MISMATCH")
             return existing
@@ -1698,6 +2231,7 @@ class WorkflowApplication:
             "lane_start_index": 2,
             "primary_lane_ids": ["lane_2", "lane_3"],
             "primary_status": str(primary_status),
+            "a1_generation_id": str(a1_generation_id or "") or None,
             "status": "PENDING",
             "attempts": 0,
             "child_run_id": None,
@@ -1875,6 +2409,12 @@ class WorkflowApplication:
                 run_id_override=child_run_id,
                 snapshot_expected_date=str(request.get("trade_date") or snapshot_as_of.date().isoformat()),
                 record_runtime=False,
+                from_active_a1=bool(request.get("a1_generation_id")),
+                active_a1_generation_id=(
+                    str(request.get("a1_generation_id"))
+                    if request.get("a1_generation_id")
+                    else None
+                ),
             )
             child_path = self.settings.workflow_output_dir / "runs" / f"{child_run_id}.json"
             summary = {**summary, "parent_run_id": parent, "comparison_request_id": parent}
@@ -2436,18 +2976,66 @@ class WorkflowApplication:
                     "close",
                     as_of=current,
                     primary_only=True,
-                    schedule_comparison=self.settings.comparison_enabled,
+                    # The close slot is a downstream-only consumer.  A1 is
+                    # maintained at 18:00 and must be present/within TTL;
+                    # this callback may never fall back to an implicit A1.
+                    schedule_comparison=False,
+                    from_active_a1=True,
                 ),
                 ScheduleKind.MONITOR: lambda _job: self.monitor_once(now=current),
             },
             owner="liangjian-runtime",
             trading_day=self.trading_calendar.is_trading_day,
         )
+        maintenance_payload: dict[str, Any] | None = None
+        # A1 has a separate 18:00 maintenance slot and therefore does not
+        # become another ``ScheduleKind`` in the intraday scheduler.  Attach a
+        # leased maintenance receipt only for the all-due command; explicit
+        # run-close/run-monitor calls remain isolated to their requested job.
+        if kind is None:
+            active_a1 = self.a1_registry.get_active_generation()
+            plan = decide_a1_maintenance(
+                current,
+                self.trading_calendar.is_trading_day,
+                has_active_generation=active_a1 is not None,
+                active_full_period=_a1_full_period(active_a1),
+            )
+            if plan is not None:
+                lease_name = "scheduler:a1-maintenance"
+                acquired = self.store.acquire_lease(
+                    lease_name,
+                    "liangjian-runtime",
+                    now=current,
+                    ttl_seconds=90.0,
+                    dispatch_key=plan.dispatch_key,
+                )
+                if not acquired:
+                    maintenance_payload = {
+                        "status": "LEASE_BUSY",
+                        "mode": plan.mode,
+                        "reason_code": "A1_MAINTENANCE_LEASE_BUSY",
+                        "plan": plan.as_dict(),
+                    }
+                else:
+                    maintenance = self.run_a1_maintenance(now=current, mode=plan.mode)
+                    maintenance_payload = maintenance
+                    if maintenance.get("status") in {"PUBLISHED", "NOOP"}:
+                        self.store.complete_lease(
+                            lease_name,
+                            "liangjian-runtime",
+                            dispatch_key=plan.dispatch_key,
+                            now=current,
+                        )
+                    else:
+                        self.store.release_lease(lease_name, "liangjian-runtime")
         records = scheduler.dispatch_once(current, kinds=(kind,) if kind is not None else None)
-        return {
+        payload: dict[str, Any] = {
             "time": current.isoformat(),
             "dispatch": [record.model_dump(mode="json") for record in records],
         }
+        if maintenance_payload is not None:
+            payload["a1_maintenance"] = maintenance_payload
+        return payload
 
     def _research_input(
         self,
@@ -3627,6 +4215,98 @@ def _research_universe_records(universe: UniverseSnapshot) -> tuple[Any, ...]:
     return records
 
 
+def _a1_outputs_by_lane(payload: Mapping[str, Any] | None) -> dict[str, Mapping[str, Any]]:
+    """Read lane A1 outputs from the registry payload shape."""
+
+    if not isinstance(payload, Mapping):
+        return {}
+    lanes = payload.get("lanes")
+    if not isinstance(lanes, Mapping):
+        return {}
+    result: dict[str, Mapping[str, Any]] = {}
+    for lane_id, raw in lanes.items():
+        if not isinstance(raw, Mapping):
+            continue
+        output = raw.get("output")
+        if isinstance(output, Mapping):
+            result[str(lane_id)] = dict(output)
+    return result
+
+
+def _a1_stage_completed(status: Any) -> bool:
+    return str(status or "").upper() in {
+        "VALIDATED",
+        "VALIDATED_NO_OPPORTUNITY",
+        "VALIDATED_NO_ACTION",
+        "DEGRADED_UNDERFILLED_DATA_GAP",
+        "VALIDATED_UNDERFILLED_MARKET",
+        "VALIDATED_NO_SETUP",
+    }
+
+
+def _a1_output_partition_symbols(
+    output: Mapping[str, Any],
+    partitions: tuple[str, ...],
+) -> tuple[str, ...]:
+    symbols = {
+        str(item.get("symbol") or "").strip().upper()
+        for partition in partitions
+        for item in (
+            output.get(partition)
+            if isinstance(output.get(partition), (list, tuple))
+            else ()
+        )
+        if isinstance(item, Mapping)
+        and str(item.get("symbol") or "").strip()
+    }
+    return tuple(sorted(symbols))
+
+
+def _a1_output_symbols(output: Mapping[str, Any]) -> tuple[str, ...]:
+    return _a1_output_partition_symbols(output, ("active_research_pool",))
+
+
+def _a1_outputs_by_result(result: ResearchRunResult) -> dict[str, Mapping[str, Any]]:
+    outputs: dict[str, Mapping[str, Any]] = {}
+    for lane in result.lanes:
+        stage = next((item for item in lane.stages if item.stage == "A1"), None)
+        if stage is not None and isinstance(stage.output, Mapping) and _a1_stage_completed(stage.status):
+            outputs[str(lane.lane)] = dict(stage.output)
+    return outputs
+
+
+def _a1_lane_record(
+    result: ResearchRunResult,
+    lane_id: str,
+    output: Mapping[str, Any],
+) -> dict[str, Any]:
+    lane = next((item for item in result.lanes if item.lane == lane_id), None)
+    stage = next((item for item in lane.stages if item.stage == "A1"), None) if lane else None
+    if stage is None:
+        return {
+            "lane": lane_id,
+            "model": lane.model if lane else None,
+            "status": "VALIDATED",
+            "symbols": list(_a1_output_symbols(output)),
+            "output": dict(output),
+        }
+    return {
+        "lane": lane_id,
+        "model": stage.model,
+        "status": stage.status,
+        "prompt_hash": stage.prompt_hash,
+        "input_hash": stage.input_hash,
+        "output_hash": _hash_json(output),
+        "latency_ms": stage.latency_ms,
+        "attempts": stage.attempts,
+        "thinking_variant": stage.thinking_variant,
+        "symbols": list(_a1_output_symbols(output)),
+        "reason_codes": list(stage.reason_codes),
+        "diagnostics": dict(stage.diagnostics or {}),
+        "output": dict(output),
+    }
+
+
 def _determine_market_regime(
     market_emotion: Mapping[str, Any],
     sector_cycle: Mapping[str, Any],
@@ -4391,4 +5071,10 @@ def _slot(value: str) -> str:
     return normalized
 
 
-__all__ = ["PreparedSnapshot", "WorkflowApplication", "WorkflowError"]
+__all__ = [
+    "A1MaintenancePlan",
+    "PreparedSnapshot",
+    "WorkflowApplication",
+    "WorkflowError",
+    "decide_a1_maintenance",
+]

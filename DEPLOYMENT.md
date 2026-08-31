@@ -67,11 +67,12 @@ Use [deploy/baota/nginx.conf.example](deploy/baota/nginx.conf.example) for the r
 All schedules use `Asia/Shanghai`:
 
 - 09:26 on weekdays: `python -m liangjian_funnel run-morning`
-- 15:10 on weekdays: `python -m liangjian_funnel run-close`
+- 15:10 on weekdays: `python -m liangjian_funnel run-close` (active A1 → A2 → A3)
+- 18:00 on weekdays: `python -m liangjian_funnel run-a1-maintenance`; Python publishes a monthly FULL on the first exchange session, a weekly INCREMENTAL on the last exchange session, and returns NOOP otherwise. A fresh deployment with no active generation performs one bootstrap FULL.
 - each minute in 09:25-11:30 and 13:00-15:00 on weekdays: `python -m liangjian_funnel run-monitor`
 
 For production stable mode, set `LIANGJIAN_COMPARISON_ENABLED=false`. The
-scheduled A1→A2→A3 primary path remains DeepSeek-only and serial; optional
+scheduled active-A1 → A2→A3 primary path remains DeepSeek-only and serial; optional
 Kimi/GLM comparisons are not recovered on Node startup and are not enqueued
 after a successful close run. This flag does not permit real orders and does
 not relax any A3/A4 gate.
@@ -134,7 +135,7 @@ Do not solve a user mismatch by weakening result permissions to world-readable. 
 
 The dashboard never returns `.env`, authorization headers or model reasoning text. Keep Nginx access logs and BaoTa process logs under normal rotation as a separate infrastructure layer.
 
-Back up `state/workflow.sqlite3`, `storage/` and `outputs/` together. Keep `.env` in a separately encrypted backup. The four application directories must survive code releases and container replacement.
+Back up `state/workflow.sqlite3`, `state/a1_registry.sqlite3`, `storage/` and `outputs/` together. Keep `.env` in a separately encrypted backup. The application runtime directories must survive code releases and container replacement.
 
 ## Upgrade and rollback
 
