@@ -69,6 +69,20 @@ _A2_MARKET_OPTIONAL_FACTORS: tuple[str, ...] = (
     "leader_structure",
     "index_chain_resonance",
 )
+# A2 roles are a single server-owned vocabulary.  These labels are emitted by
+# the deterministic identity projection and are all MARKET_CORE sub-roles;
+# they must not drift between route eligibility and the strict output policy.
+A2_FOCUS_ROLES: frozenset[str] = frozenset({
+    "LEADER",
+    "CORE_ARMY",
+    "TREND_CORE",
+    "CHAIN_RESONANCE",
+    "FIRST_MOVER",
+    "EMOTION_LEADER",
+    "TREND_LEADER",
+    "INSTITUTIONAL_CORE",
+    "CAPACITY_CORE",
+})
 _A2_ROUTE_DATA_GAP_REASONS: frozenset[str] = frozenset({
     "A1_THEME_MISSING",
     "A1_CHAIN_NODE_MISSING",
@@ -534,6 +548,13 @@ def screen_a2(
         technical_factor = _symbol_scoped_row(snapshot.get("FACTOR_SNAPSHOT"), symbol)
         if not factor:
             factor = technical_factor
+        factor, taxonomy_binding = _bind_a2_factor_to_a1_lineage(
+            snapshot,
+            a1_output,
+            item,
+            symbol,
+            factor,
+        )
         explicit_relative = _relative_strength_score(factor, default=None)
         relative = explicit_relative if explicit_relative is not None else _percentile_score(
             bar_returns.get(symbol), return_distribution
@@ -594,24 +615,32 @@ def screen_a2(
             route for route, route_result in route_results.items()
             if route_result.get("eligible") is True
         )
-        route_data_gap_reasons = {
-            str(reason)
-            for route_result in route_results.values()
-            for reason in route_result.get("missing_reason_codes", ())
-            if str(reason) in _A2_ROUTE_DATA_GAP_REASONS
-        }
+        # A route that was not selected is not evidence against the route that
+        # was selected.  In particular, MARKET_CORE must remain usable when
+        # the optional SUPPLY_CHAIN_ALPHA scorecard is unavailable.  Only when
+        # no route is eligible do the route failures form a data-gap reason
+        # set for this symbol.
+        route_data_gap_reasons = _selected_route_data_gap_reasons(
+            route_results,
+            eligible_routes,
+        )
         has_route = bool(eligible_routes)
         reasons: list[str] = []
         low_identity = identifiability < minimum_identifiability_score
         if low_identity:
             reasons.append("A2_IDENTIFIABILITY_BELOW_MINIMUM")
         market_result = route_results[MARKET_CORE_ROUTE]
-        core_route_data_gap_reasons = {
-            str(reason)
-            for reason in market_result.get("missing_reason_codes", ())
-            if str(reason) in _A2_ROUTE_DATA_GAP_REASONS
-        }
-        route_coverage_below_minimum = "A2_FACTOR_COVERAGE_BELOW_MINIMUM" in market_result.get("missing_reason_codes", ())
+        core_route_data_gap_reasons = set()
+        if not eligible_routes or MARKET_CORE_ROUTE in eligible_routes:
+            core_route_data_gap_reasons = {
+                str(reason)
+                for reason in market_result.get("missing_reason_codes", ())
+                if str(reason) in _A2_ROUTE_DATA_GAP_REASONS
+            }
+        route_coverage_below_minimum = (
+            (not eligible_routes or MARKET_CORE_ROUTE in eligible_routes)
+            and "A2_FACTOR_COVERAGE_BELOW_MINIMUM" in market_result.get("missing_reason_codes", ())
+        )
         if route_coverage_below_minimum:
             reasons.append("A2_FACTOR_COVERAGE_BELOW_MINIMUM")
         capital_flow = factor_scores.get("capital_flow", {})
@@ -683,6 +712,7 @@ def screen_a2(
                 "identifiability": identity_breakdown,
             },
             "a2_factor_scores": factor_scores,
+            "a2_taxonomy_binding": taxonomy_binding,
             "factor_coverage": coverage,
             "critical_factor_coverage": critical_coverage,
             "data_sufficiency_state": data_sufficiency_state,
@@ -719,6 +749,112 @@ def screen_a2(
         ),
         rejected_symbols=tuple(str(item["symbol"]) for item in decisions if item["status"] == "HARD_REJECT"),
     )
+
+
+def _bind_a2_factor_to_a1_lineage(
+    snapshot: Mapping[str, Any],
+    a1_output: Mapping[str, Any],
+    item: Mapping[str, Any],
+    symbol: str,
+    factor: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Bind taxonomy aggregates to the A1 theme/node selected for a stock.
+
+    ``A2_FACTOR_SNAPSHOT`` contains every industry/concept membership and its
+    historical strongest group for general exploration.  Once A1 has selected
+    a concrete industry-chain node, A2 must not borrow a stronger unrelated
+    concept.  This projection replaces only taxonomy-derived factors; stock
+    flow, ladder and leader facts remain symbol-scoped.
+    """
+
+    node_id = str(item.get("industry_chain_node") or item.get("node_id") or "").strip()
+    if not node_id:
+        return dict(factor), {"status": "UNBOUND_LEGACY", "reason_code": "A1_CHAIN_NODE_MISSING"}
+    allowed: set[str] = set()
+    for link in _mapping_list(a1_output.get("taxonomy_links")):
+        if str(link.get("node_id") or "").strip() != node_id:
+            continue
+        taxonomy = str(link.get("taxonomy") or "").strip().upper()
+        code = str(link.get("taxonomy_code") or "").strip().upper()
+        if taxonomy in {"INDUSTRY", "CONCEPT"} and code:
+            allowed.add(f"{taxonomy}:{code}")
+        for key, label in (("industry_thscodes", "INDUSTRY"), ("concept_thscodes", "CONCEPT")):
+            values = link.get(key)
+            if isinstance(values, Sequence) and not isinstance(values, (str, bytes, bytearray)):
+                allowed.update(f"{label}:{str(value).strip().upper()}" for value in values if str(value).strip())
+    if not allowed:
+        return dict(factor), {"status": "UNBOUND_LEGACY", "reason_code": "A1_TAXONOMY_LINK_MISSING"}
+
+    memberships: set[str] = set()
+    for key, taxonomy in (("THS_INDUSTRY_MEMBERSHIP", "INDUSTRY"), ("THS_CONCEPT_MEMBERSHIP", "CONCEPT")):
+        for membership in _membership_map(snapshot.get(key), taxonomy=taxonomy).get(symbol, ()):
+            code = str(membership.get("taxonomy_code") or "").strip().upper()
+            if code:
+                memberships.add(f"{taxonomy}:{code}")
+    matched = sorted(allowed.intersection(memberships))
+    metrics_contract = snapshot.get("A2_THEME_METRICS")
+    metrics = metrics_contract.get("theme_metrics") if isinstance(metrics_contract, Mapping) else None
+    metrics = metrics if isinstance(metrics, Mapping) else {}
+    rows = [
+        metrics[key]
+        for key in matched
+        if isinstance(metrics.get(key), Mapping) and metrics[key].get("available") is True
+    ]
+    best = max(rows, key=lambda row: float(_number(row.get("score")) or 0.0), default=None)
+    result = dict(factor)
+    raw_factors = result.get("factors")
+    bound_factors = dict(raw_factors) if isinstance(raw_factors, Mapping) else {}
+    if best is None:
+        for name in ("breadth", "turnover_share", "index_chain_resonance", "weekly_confirmation"):
+            bound_factors[name] = _factor_result(
+                None,
+                "A1_BOUND_TAXONOMY_AGGREGATE",
+                (),
+                "A2_A1_TAXONOMY_METRIC_MISSING",
+            )
+        result["factors"] = bound_factors
+        result.update(bound_factors)
+        return result, {
+            "status": "MISSING",
+            "reason_code": "A2_A1_TAXONOMY_METRIC_MISSING",
+            "node_id": node_id,
+            "allowed_taxonomies": sorted(allowed),
+            "matched_taxonomies": matched,
+        }
+
+    taxonomy_code = str(best.get("taxonomy_code") or "")
+    source_refs = tuple(str(value) for value in best.get("source_refs", ()) if str(value))
+    values = {
+        "breadth": (_number(best.get("breadth")) * 100.0 if _number(best.get("breadth")) is not None else None),
+        "turnover_share": (_number(best.get("turnover_share")) * 100.0 if _number(best.get("turnover_share")) is not None else None),
+        "index_chain_resonance": _number(best.get("score")),
+        "weekly_confirmation": _number(best.get("weekly_confirmation_score")),
+    }
+    for name, value in values.items():
+        row = _factor_result(
+            value,
+            "A1_BOUND_TAXONOMY_AGGREGATE",
+            source_refs,
+            "OK" if value is not None else "A2_A1_TAXONOMY_METRIC_MISSING",
+        )
+        row.update({
+            "taxonomy": best.get("taxonomy"),
+            "taxonomy_code": taxonomy_code,
+            "taxonomy_name": best.get("taxonomy_name"),
+            "a1_node_id": node_id,
+        })
+        bound_factors[name] = row
+    result["factors"] = bound_factors
+    result.update(bound_factors)
+    return result, {
+        "status": "BOUND",
+        "reason_code": "OK",
+        "node_id": node_id,
+        "taxonomy": best.get("taxonomy"),
+        "taxonomy_code": taxonomy_code,
+        "taxonomy_name": best.get("taxonomy_name"),
+        "matched_taxonomies": matched,
+    }
 
 
 def _a2_weights(snapshot: Mapping[str, Any]) -> tuple[dict[str, float], str, bool]:
@@ -1139,19 +1275,7 @@ def _market_core_route_result(
         or item.get("a2_role")
         or ""
     ).strip().upper()
-    accepted_roles = {
-        "LEADER",
-        "CORE_ARMY",
-        "TREND_CORE",
-        "FIRST_MOVER",
-        # A2 feature materialization emits these more specific role labels;
-        # they remain MARKET_CORE sub-roles, not new top-level routes.
-        "EMOTION_LEADER",
-        "TREND_LEADER",
-        "INSTITUTIONAL_CORE",
-        "CAPACITY_CORE",
-    }
-    if explicit_role and explicit_role not in accepted_roles:
+    if explicit_role and explicit_role not in A2_FOCUS_ROLES:
         missing.append("A2_MARKET_ROLE_NOT_FOCUS_ELIGIBLE")
     market_factor_names = _A2_MARKET_FACTORS
     market_fact_count = sum(
@@ -1362,12 +1486,47 @@ def _decision_has_route_data_gap(decision: Mapping[str, Any]) -> bool:
     routes = decision.get("route_eligibility")
     if not isinstance(routes, Mapping):
         return str(decision.get("status") or "") == "DATA_GAP"
-    return any(
-        str(reason) in _A2_ROUTE_DATA_GAP_REASONS
-        for result in routes.values()
-        if isinstance(result, Mapping)
-        for reason in result.get("missing_reason_codes", ())
-    )
+    eligible = tuple(
+        str(route).strip().upper()
+        for route in (decision.get("eligible_routes") or ())
+        if str(route).strip()
+    ) if isinstance(decision.get("eligible_routes"), Sequence) and not isinstance(
+        decision.get("eligible_routes"), (str, bytes, bytearray)
+    ) else ()
+    return bool(_selected_route_data_gap_reasons(routes, eligible))
+
+
+def _selected_route_data_gap_reasons(
+    route_results: Mapping[str, Any],
+    eligible_routes: Sequence[str] = (),
+) -> set[str]:
+    """Return gaps for the actually selected A2 route only.
+
+    MARKET_CORE is the normal route.  SUPPLY_CHAIN_ALPHA is an independent
+    optional route and its missing scorecard/evidence is not negative evidence
+    for a MARKET_CORE candidate.  If no route is eligible, retaining all route
+    gap codes is useful because the symbol genuinely has no usable path.
+    """
+
+    selected = {
+        str(route).strip().upper()
+        for route in eligible_routes
+        if str(route).strip()
+    }
+    reasons: set[str] = set()
+    selected_results = [
+        route_results.get(route)
+        for route in selected
+    ] if selected else list(route_results.values())
+    for result in selected_results:
+        if not isinstance(result, Mapping):
+            continue
+        reasons.update(
+            str(reason)
+            for reason in result.get("missing_reason_codes", ())
+            if str(reason) in _A2_ROUTE_DATA_GAP_REASONS
+        )
+    return reasons
 
 
 def _factor_coverage_ratio(factor_scores: Mapping[str, Mapping[str, Any]]) -> float:
@@ -1520,18 +1679,19 @@ def _read_metric_payload(
 ) -> dict[str, Any] | None:
     available = True
     if isinstance(raw, Mapping):
+        resolved_source = str(raw.get("source") or source)
         if raw.get("available") is False:
-            return _factor_result(None, source, source_refs, "A2_FACTOR_UNAVAILABLE")
+            return _factor_result(None, resolved_source, source_refs, "A2_FACTOR_UNAVAILABLE")
         available = raw.get("available") is not False
         for key in ("score", "normalized_score", "percentile", "value", "raw_value"):
             if key in raw:
                 number = _number(raw.get(key))
                 if number is not None:
                     ratio = ratio_hint or key in {"percentile", "ratio"}
-                    result = _factor_result(number * 100.0 if ratio and 0.0 <= number <= 1.0 else number, source, _payload_source_refs(raw) or source_refs, "OK")
+                    result = _factor_result(number * 100.0 if ratio and 0.0 <= number <= 1.0 else number, resolved_source, _payload_source_refs(raw) or source_refs, "OK")
                     return _with_factor_metadata(result, raw)
         return _with_factor_metadata(
-            _factor_result(None, source, _payload_source_refs(raw) or source_refs, "A2_FACTOR_VALUE_MISSING"),
+            _factor_result(None, resolved_source, _payload_source_refs(raw) or source_refs, "A2_FACTOR_VALUE_MISSING"),
             raw,
         )
     number = _number(raw)
@@ -1688,6 +1848,13 @@ def screen_a3(snapshot: Mapping[str, Any], a2_output: Mapping[str, Any]) -> Dete
     levels = levels if isinstance(levels, Mapping) else {}
     tradability = snapshot.get("TRADABILITY_FLAGS")
     tradability = tradability if isinstance(tradability, Mapping) else {}
+    kline_patterns = snapshot.get("KLINE_PATTERNS")
+    kline_patterns = kline_patterns if isinstance(kline_patterns, Mapping) else {}
+    a2_context = snapshot.get("A2_BOTTLENECK_CONTEXT")
+    a2_context = a2_context if isinstance(a2_context, Mapping) else {}
+    minimum_technical = _number(snapshot.get("MIN_TECHNICAL_SCORE")) or 70.0
+    minimum_reward_risk = _number(snapshot.get("MIN_REWARD_RISK")) or 2.0
+    maximum_stop = _number(snapshot.get("MAX_STOP_DISTANCE")) or 0.06
     source_hashes = _source_hashes(snapshot)
     decisions: list[dict[str, Any]] = []
     for item in rows:
@@ -1700,6 +1867,10 @@ def screen_a3(snapshot: Mapping[str, Any], a2_output: Mapping[str, Any]) -> Dete
         price_level = price_level if isinstance(price_level, Mapping) else {}
         flags = tradability.get(symbol)
         flags = flags if isinstance(flags, Mapping) else {}
+        kline = kline_patterns.get(symbol)
+        kline = kline if isinstance(kline, Mapping) else {}
+        context = a2_context.get(symbol)
+        context = context if isinstance(context, Mapping) else {}
         reasons: list[str] = []
         if factor.get("ready") is not True:
             reasons.append("A3_TECHNICAL_FACTORS_NOT_READY")
@@ -1707,7 +1878,33 @@ def screen_a3(snapshot: Mapping[str, Any], a2_output: Mapping[str, Any]) -> Dete
             reasons.append("A3_PRICE_LEVELS_NOT_READY")
         if flags.get("tradable") is not True:
             reasons.append("A3_SYMBOL_NOT_TRADABLE")
-        score = _technical_readiness_score(factor, price_level, flags)
+        technical = _deterministic_a3_score(
+            snapshot,
+            factor=factor,
+            price_level=price_level,
+            kline=kline,
+            a2_context=context,
+        )
+        score = technical.get("score")
+        reward_risk = _number(price_level.get("reward_risk"))
+        stop_distance = _number(price_level.get("stop_distance_pct"))
+        if price_level and price_level.get("available") is not False:
+            if reward_risk is None:
+                reasons.append("A3_REWARD_RISK_NOT_READY")
+            elif reward_risk < minimum_reward_risk:
+                reasons.append("A3_REWARD_RISK_BELOW_MINIMUM")
+            if stop_distance is None or stop_distance <= 0 or stop_distance > maximum_stop:
+                reasons.append("A3_STOP_DISTANCE_OUTSIDE_LIMIT")
+        if technical.get("authoritative") is True:
+            if technical.get("coverage", 0.0) < 0.70:
+                reasons.append("A3_TECHNICAL_SCORE_COVERAGE_INSUFFICIENT")
+            elif score is None or float(score) < minimum_technical:
+                reasons.append("A3_TECHNICAL_SCORE_BELOW_MINIMUM")
+        labels = kline.get("labels")
+        if isinstance(labels, Sequence) and not isinstance(labels, (str, bytes, bytearray)):
+            if "FAILED_BREAKOUT_20" in {str(value).upper() for value in labels}:
+                reasons.append("A3_FAILED_BREAKOUT")
+        readiness_score = _technical_readiness_score(factor, price_level, flags)
         status = "REVIEW_CANDIDATE" if not reasons else "HARD_REJECT"
         decisions.append({
             "symbol": symbol,
@@ -1715,7 +1912,18 @@ def screen_a3(snapshot: Mapping[str, Any], a2_output: Mapping[str, Any]) -> Dete
             "candidate_origin": item.get("candidate_origin") or "FOCUS",
             "stage": "A3_LOCAL_TECHNICAL",
             "status": status,
-            "score": round(score, 4),
+            "score": round(float(score), 4) if score is not None else round(readiness_score, 4),
+            "technical_score": round(float(score), 4) if score is not None else None,
+            "technical_score_breakdown": technical.get("breakdown", {}),
+            "technical_score_coverage": technical.get("coverage"),
+            "technical_score_authoritative": technical.get("authoritative") is True,
+            "reward_risk": reward_risk,
+            "stop_distance_pct": stop_distance,
+            "minimum_reward_risk": minimum_reward_risk,
+            "minimum_technical_score": minimum_technical,
+            "maximum_stop_distance_pct": maximum_stop,
+            "price_levels_hash": content_hash(price_level) if price_level else None,
+            "factor_snapshot_hash": content_hash(factor) if factor else None,
             "theme_id": item.get("theme_id"),
             "node_id": item.get("industry_chain_node"),
             "reason_codes": reasons,
@@ -1731,6 +1939,143 @@ def screen_a3(snapshot: Mapping[str, Any], a2_output: Mapping[str, Any]) -> Dete
         monitor_symbols=(),
         rejected_symbols=tuple(str(item["symbol"]) for item in decisions if item["status"] == "HARD_REJECT"),
     )
+
+
+def _deterministic_a3_score(
+    snapshot: Mapping[str, Any],
+    *,
+    factor: Mapping[str, Any],
+    price_level: Mapping[str, Any],
+    kline: Mapping[str, Any],
+    a2_context: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Compute the documented A3 factor score from frozen numeric facts.
+
+    The model may explain or veto a setup, but it does not own these seven
+    configured factor values.  Missing factors are omitted from the weighted
+    denominator and surfaced through ``coverage``; they are never filled with
+    invented zeros.
+    """
+
+    raw_weights = snapshot.get("TECHNICAL_SCORE_WEIGHTS")
+    if not isinstance(raw_weights, Mapping) or not raw_weights:
+        return {"score": None, "breakdown": {}, "coverage": 0.0, "authoritative": False}
+    weights = {str(key): _number(value) for key, value in raw_weights.items()}
+    if (
+        any(value is None or value <= 0 for value in weights.values())
+        or abs(sum(float(value) for value in weights.values() if value is not None) - 1.0) > 1e-6
+    ):
+        return {"score": None, "breakdown": {}, "coverage": 0.0, "authoritative": False}
+
+    frames = factor.get("timeframes")
+    frames = frames if isinstance(frames, Mapping) else {}
+    alignments = [
+        _alignment_score(frames.get(name))
+        for name in ("weekly", "daily", "120m")
+    ]
+    higher_timeframe = _mean_available(alignments)
+
+    daily = frames.get("daily")
+    daily_alignment = _alignment_score(daily)
+    structure = daily_alignment
+    labels = kline.get("labels")
+    label_values = {
+        str(value).upper()
+        for value in labels
+    } if isinstance(labels, Sequence) and not isinstance(labels, (str, bytes, bytearray)) else set()
+    breakout = kline.get("breakout_20")
+    if isinstance(breakout, Mapping) and breakout.get("up") is True:
+        structure = min(100.0, (structure if structure is not None else 50.0) + 15.0)
+    if "BULLISH_ENGULFING" in label_values:
+        structure = min(100.0, (structure if structure is not None else 50.0) + 10.0)
+    if "FAILED_BREAKOUT_20" in label_values:
+        structure = 0.0
+
+    volume_percentile = _number(kline.get("volume_percentile_60"))
+    if volume_percentile is not None and 0.0 <= volume_percentile <= 1.0:
+        volume_percentile *= 100.0
+    direction = str(kline.get("direction") or "").upper()
+    direction_score = {"BULLISH": 80.0, "DOJI": 50.0, "BEARISH": 25.0}.get(direction)
+    volume_price = _mean_available((volume_percentile, direction_score))
+
+    factor_scores = a2_context.get("a2_factor_scores")
+    factor_scores = factor_scores if isinstance(factor_scores, Mapping) else {}
+    relative_row = factor_scores.get("relative_strength")
+    relative_row = relative_row if isinstance(relative_row, Mapping) else {}
+    relative_strength = _number(relative_row.get("score"))
+    role_breakdown = a2_context.get("role_breakdown")
+    role_breakdown = role_breakdown if isinstance(role_breakdown, Mapping) else {}
+    if relative_strength is None:
+        relative_strength = _number(role_breakdown.get("relative_strength"))
+    liquidity = _number(role_breakdown.get("liquidity_capacity"))
+
+    positive_biases: list[float] = []
+    for name in ("daily", "120m", "5m"):
+        frame = frames.get(name)
+        bias = frame.get("ma_bias") if isinstance(frame, Mapping) else None
+        if not isinstance(bias, Mapping):
+            continue
+        for key in ("close_vs_ma20_pct", "close_vs_ma99_pct"):
+            value = _number(bias.get(key))
+            if value is not None and value > 0:
+                positive_biases.append(value)
+    extension = max(positive_biases, default=0.0)
+    location_extension = (
+        100.0 if extension <= 0.03
+        else 85.0 if extension <= 0.06
+        else 65.0 if extension <= 0.12
+        else 35.0 if extension <= 0.20
+        else 10.0
+    )
+    reward_risk = _number(price_level.get("reward_risk"))
+    room_reward = min(100.0, max(0.0, reward_risk / 3.0 * 100.0)) if reward_risk is not None else None
+
+    components: dict[str, float | None] = {
+        "higher_timeframe_trend": higher_timeframe,
+        "structure_quality": structure,
+        "volume_price": volume_price,
+        "relative_strength": relative_strength,
+        "location_and_extension": location_extension,
+        "room_and_reward_risk": room_reward,
+        "liquidity": liquidity,
+    }
+    # A config change must not silently reuse an unrelated factor.  Unknown
+    # names stay unavailable and reduce coverage until explicitly implemented.
+    weighted = 0.0
+    available_weight = 0.0
+    breakdown: dict[str, float | None] = {}
+    for name, weight in weights.items():
+        value = components.get(name)
+        breakdown[name] = round(value, 4) if value is not None else None
+        if value is None:
+            continue
+        resolved_weight = float(weight)
+        weighted += max(0.0, min(100.0, value)) * resolved_weight
+        available_weight += resolved_weight
+    score = weighted / available_weight if available_weight > 0 else None
+    return {
+        "score": round(score, 4) if score is not None else None,
+        "breakdown": breakdown,
+        "coverage": round(available_weight, 6),
+        "authoritative": True,
+    }
+
+
+def _alignment_score(value: Any) -> float | None:
+    if not isinstance(value, Mapping):
+        return None
+    return {
+        "BULL_STACK": 100.0,
+        "BULL_PARTIAL": 75.0,
+        "ENTANGLED": 50.0,
+        "BEAR_PARTIAL": 25.0,
+        "BEAR_STACK": 0.0,
+    }.get(str(value.get("ma_alignment") or "").upper())
+
+
+def _mean_available(values: Sequence[float | None]) -> float | None:
+    available = [float(value) for value in values if value is not None]
+    return sum(available) / len(available) if available else None
 
 
 def local_monitor_items(result: DeterministicGateResult) -> list[dict[str, Any]]:

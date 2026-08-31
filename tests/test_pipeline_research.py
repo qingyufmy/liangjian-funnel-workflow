@@ -33,6 +33,13 @@ from liangjian_funnel.pipeline.research import (
     _canonicalize_a1_driver_context,
     _canonicalize_stage_scores,
     _canonicalize_stage_pool_fields,
+    _canonicalize_stage_lineage,
+    _demote_a2_llm_rejects,
+    _gate_rejected_items,
+    _gate_secondary_items,
+    _move_a2_hard_rejects_to_rejected,
+    _refresh_analysis_counts,
+    _a2_item_route,
     _discovery_progress_diagnostics,
     _estimate_message_tokens,
     _merge_a1_outputs,
@@ -1360,6 +1367,243 @@ def test_a2_deterministic_context_exposes_role_and_optional_gap_without_inventio
     assert context["factor_coverage"] == {"ratio": 0.87}
     assert context["critical_factor_coverage"] == {"sufficient": True}
     assert context["eligible_routes"] == ["MARKET_CORE"]
+
+
+def test_stage_lineage_is_server_owned_for_a2_and_locks_model_identity():
+    upstream = {
+        "active_research_pool": [{
+            "symbol": "600001.SH",
+            "candidate_id": "a1:600001.SH",
+            "company_name": "上游名称",
+            "primary_theme": "theme-policy",
+            "industry_chain_node": "node-material",
+        }],
+    }
+    snapshot = {
+        "A2_BOTTLENECK_CONTEXT": {
+            "600001.SH": {
+                "company_name": "服务器名称",
+                "theme_id": "theme-policy",
+                "industry_chain_node": "node-material",
+                "upstream_candidate_id": "a1:600001.SH",
+                "preferred_route": "MARKET_CORE",
+                "eligible_routes": ["MARKET_CORE"],
+                "deterministic_market_role": "INSTITUTIONAL_CORE",
+            },
+        },
+    }
+    canonical, changed = _canonicalize_stage_lineage(
+        {
+            "focus_pool": [{
+                "symbol": "600001.SH",
+                "company_name": "模型伪造名称",
+                "theme_id": "model-theme",
+                "industry_chain_node": "model-node",
+                "a2_route": "SUPPLY_CHAIN_ALPHA",
+                "market_role": "LEADER",
+                "upstream_candidate_id": "model-id",
+            }],
+            "watch_only_pool": [],
+            "rejected_candidates": [],
+        },
+        "A2",
+        upstream,
+        snapshot,
+    )
+
+    item = canonical["focus_pool"][0]
+    assert changed > 0
+    assert item["company_name"] == "服务器名称"
+    assert item["theme_id"] == "theme-policy"
+    assert item["industry_chain_node"] == "node-material"
+    assert item["a2_route"] == "MARKET_CORE"
+    assert item["market_role"] == "INSTITUTIONAL_CORE"
+    assert item["upstream_candidate_id"] == "a1:600001.SH"
+    assert item["lineage_status"] == "COMPLETE"
+    assert item["lineage_missing_fields"] == []
+
+
+def test_stage_lineage_marks_missing_v2_fields_instead_of_accepting_model_values():
+    canonical, _ = _canonicalize_stage_lineage(
+        {
+            "focus_pool": [{
+                "symbol": "600001.SH",
+                "company_name": "模型名称",
+                "theme_id": "模型主题",
+                "industry_chain_node": "模型节点",
+                "a2_route": "MARKET_CORE",
+                "market_role": "LEADER",
+                "upstream_candidate_id": "模型ID",
+            }],
+            "watch_only_pool": [],
+            "rejected_candidates": [],
+        },
+        "A2",
+        {"active_research_pool": [{"symbol": "600001.SH"}]},
+        {"A2_BOTTLENECK_CONTEXT": {"600001.SH": {"eligible_routes": []}}},
+    )
+
+    item = canonical["focus_pool"][0]
+    assert item["route"] is None
+    assert item["market_role"] is None
+    assert item["upstream_candidate_id"] is None
+    assert "route" in item["lineage_missing_fields"]
+    assert "market_role" in item["lineage_missing_fields"]
+    assert "upstream_candidate_id" in item["lineage_missing_fields"]
+    assert "A2_STAGE_LINEAGE_MISSING" in item["reason_codes"]
+
+
+def test_a3_lineage_locks_all_partitions_to_a2_upstream_and_origin_map():
+    upstream = {
+        "focus_pool": [{
+            "symbol": "600001.SH",
+            "upstream_candidate_id": "a1:600001.SH",
+            "company_name": "A2名称",
+            "theme_id": "theme-policy",
+            "industry_chain_node": "node-material",
+            "a2_route": "MARKET_CORE",
+            "market_role": "TREND_LEADER",
+        }],
+    }
+    snapshot = {
+        "A3_CANDIDATE_ORIGIN": {"600001.SH": "FOCUS"},
+        "A3_DETERMINISTIC_CONTEXT": {
+            "600001.SH": {
+                "status": "REVIEW_CANDIDATE",
+                "technical_score": 82.5,
+                "technical_score_breakdown": {"higher_timeframe_trend": 90},
+                "technical_score_coverage": 1.0,
+                "reward_risk": 2.8,
+                "stop_distance_pct": 0.04,
+                "minimum_reward_risk": 2.5,
+                "minimum_technical_score": 70,
+                "maximum_stop_distance_pct": 0.06,
+                "price_levels_hash": "p" * 64,
+                "factor_snapshot_hash": "f" * 64,
+                "reason_codes": [],
+            },
+        },
+    }
+    output = {
+        "core_watch_pool": [{"symbol": "600001.SH", "company_name": "模型名称"}],
+        "secondary_watch_pool": [{"symbol": "600001.SH", "theme_id": "模型主题"}],
+        "rejected_candidates": [{"symbol": "600001.SH", "parent_candidate_id": "模型ID"}],
+    }
+    canonical, _ = _canonicalize_stage_lineage(output, "A3", upstream, snapshot)
+
+    for pool in ("core_watch_pool", "secondary_watch_pool", "rejected_candidates"):
+        item = canonical[pool][0]
+        assert item["company_name"] == "A2名称"
+        assert item["theme_id"] == "theme-policy"
+        assert item["industry_chain_node"] == "node-material"
+        assert item["a2_route"] == "MARKET_CORE"
+        assert item["market_role"] == "TREND_LEADER"
+        assert item["upstream_candidate_id"] == "a1:600001.SH"
+        assert item["parent_candidate_id"] == "a1:600001.SH"
+        assert item["candidate_origin"] == "FOCUS"
+        assert item["lineage_status"] == "COMPLETE"
+        assert item["deterministic_technical_score"] == 82.5
+        assert item["deterministic_gate_status"] == "REVIEW_CANDIDATE"
+        assert item["deterministic_price_evidence"]["minimum_reward_risk"] == 2.5
+
+
+def test_a2_model_reject_is_demoted_only_for_soft_deterministic_context():
+    output, changed = _demote_a2_llm_rejects(
+        {
+            "focus_pool": [],
+            "watch_only_pool": [],
+            "rejected_candidates": [
+                {"symbol": "600001.SH", "reason_codes": ["MODEL_THEME_WEAK"]},
+                {"symbol": "600002.SH", "reason_codes": ["A2_MARKET_ROLE_NOT_FOCUS_ELIGIBLE"]},
+            ],
+        },
+        {
+            "A2_BOTTLENECK_CONTEXT": {
+                "600001.SH": {
+                    "deterministic_status": "REVIEW_CANDIDATE",
+                    "deterministic_reason_codes": ["A2_OPTIONAL_FACTS_DEGRADED"],
+                },
+                "600002.SH": {
+                    "deterministic_status": "REVIEW_CANDIDATE",
+                    "deterministic_reason_codes": ["A2_MARKET_ROLE_NOT_FOCUS_ELIGIBLE"],
+                },
+            },
+        },
+    )
+
+    assert changed == 1
+    assert output["rejected_candidates"][0]["symbol"] == "600002.SH"
+    demoted = output["watch_only_pool"][0]
+    assert demoted["symbol"] == "600001.SH"
+    assert "MODEL_THEME_WEAK" in demoted["reason_codes"]
+    assert "A2_LLM_REJECT_DEMOTED_TO_WATCH" in demoted["reason_codes"]
+    assert demoted["status"] == "WATCH_ONLY"
+
+
+def test_a2_gate_hard_reject_is_not_projected_as_watch_only():
+    gate = DeterministicGateResult(
+        stage="A2_LOCAL_ROLE",
+        decisions=(
+            {"symbol": "600001.SH", "status": "HARD_REJECT", "reason_codes": ["A2_LOW_IDENTITY_EXCLUDED"]},
+            {"symbol": "600002.SH", "status": "LOCAL_MONITOR", "reason_codes": ["A2_NOT_SENT_TO_LLM"]},
+        ),
+        review_symbols=(),
+        monitor_symbols=("600002.SH",),
+        rejected_symbols=("600001.SH",),
+    )
+
+    assert [item["symbol"] for item in _gate_secondary_items(gate, "A2")] == ["600002.SH"]
+    rejected = _gate_rejected_items(gate, "A2")
+    assert [item["symbol"] for item in rejected] == ["600001.SH"]
+    assert rejected[0]["status"] == "REJECTED"
+
+
+def test_a2_provider_hard_reject_is_repaired_into_rejected_partition():
+    gate = DeterministicGateResult(
+        stage="A2_LOCAL_ROLE",
+        decisions=({
+            "symbol": "600001.SH",
+            "status": "HARD_REJECT",
+            "name": "服务器名称",
+            "theme_id": "theme-policy",
+            "node_id": "node-material",
+            "role": "LOW_IDENTITY",
+            "reason_codes": ["A2_LOW_IDENTITY_EXCLUDED"],
+        },),
+        review_symbols=(),
+        monitor_symbols=(),
+        rejected_symbols=("600001.SH",),
+    )
+    repaired, changed = _move_a2_hard_rejects_to_rejected(
+        {"focus_pool": [{"symbol": "600001.SH", "theme_id": "模型主题"}], "rejected_candidates": []},
+        gate,
+    )
+
+    assert changed == 1
+    assert repaired["focus_pool"] == []
+    rejected = repaired["rejected_candidates"][0]
+    assert rejected["status"] == "REJECTED"
+    assert rejected["theme_id"] == "theme-policy"
+    assert "A2_DETERMINISTIC_HARD_REJECT" in rejected["reason_codes"]
+
+
+def test_refresh_analysis_counts_replaces_stale_nested_pool_counts():
+    refreshed = _refresh_analysis_counts(
+        {
+            "focus_pool": [{"symbol": "600001.SH"}],
+            "watch_only_pool": [{"symbol": "600002.SH"}, {"symbol": "600003.SH"}],
+            "rejected_candidates": [],
+            "analysis_summary": {
+                "pool_counts": {"focus_pool": 99, "watch_only_pool": 99, "rejected_candidates": 99},
+            },
+        },
+        "A2",
+    )
+    assert refreshed["analysis_summary"]["pool_counts"] == {
+        "focus_pool": 1,
+        "watch_only_pool": 2,
+        "rejected_candidates": 0,
+    }
 
 
 def test_a1_company_batches_cannot_invent_themes_after_discovery():

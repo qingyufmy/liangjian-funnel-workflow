@@ -8,7 +8,11 @@ from zoneinfo import ZoneInfo
 from liangjian_funnel.pipeline.snapshot import FrozenInputSnapshot, UniverseSnapshot
 from liangjian_funnel.pipeline.research import FrozenInputSnapshot as ResearchSnapshot
 from liangjian_funnel.settings import Settings
-from liangjian_funnel.workflow import WorkflowApplication, _compact_fundamental_rows
+from liangjian_funnel.workflow import (
+    WorkflowApplication,
+    _apply_effective_regime_parameters,
+    _compact_fundamental_rows,
+)
 
 
 TZ = ZoneInfo("Asia/Shanghai")
@@ -55,6 +59,21 @@ def test_compact_fundamentals_expose_deterministic_dataset_coverage() -> None:
         "missing_datasets": ["INDICATORS"],
     }
     assert compact["indicators"] == []
+
+
+def test_regime_reward_risk_override_is_effective_and_never_loosens_base() -> None:
+    values = {"MIN_REWARD_RISK": 2.0}
+    _apply_effective_regime_parameters(
+        values,
+        {"agent_3": {"minimum_reward_risk": 2.5}},
+    )
+    assert values["MIN_REWARD_RISK"] == 2.5
+
+    _apply_effective_regime_parameters(
+        values,
+        {"agent_3": {"minimum_reward_risk": 1.5}},
+    )
+    assert values["MIN_REWARD_RISK"] == 2.5
 
 
 def _fact(count: int) -> dict:
@@ -247,6 +266,7 @@ def test_research_input_projects_phase_one_facts_without_semantic_substitution(
     )
     app = SimpleNamespace(settings=Settings.from_env({}, root=tmp_path))
 
+    research_as_of = NOW + timedelta(days=5)
     result = WorkflowApplication._research_input(
         app,
         frozen=frozen,
@@ -255,7 +275,8 @@ def test_research_input_projects_phase_one_facts_without_semantic_substitution(
         g0_symbols=["600519.SH", "000001.SZ"],
         source_failures={},
         raw_snapshot_path=tmp_path / "raw.json",
-        as_of=NOW,
+        as_of=research_as_of,
+        market_data_as_of=NOW,
     )
 
     emotion = result["MARKET_EMOTION_SNAPSHOT"]
@@ -284,6 +305,12 @@ def test_research_input_projects_phase_one_facts_without_semantic_substitution(
     assert result["A2_RESEARCH_HYPOTHESES"]["deterministic_score_influence_allowed"] is False
     assert result["A2_RESEARCH_HYPOTHESES"]["out_of_a1_selection_allowed"] is False
     assert result["snapshot_manifest"]["open_macro"]["content_hash"] == "b" * 64
+    assert result["snapshot_manifest"]["as_of"] == research_as_of.isoformat()
+    assert result["snapshot_manifest"]["market_data_as_of"] == NOW.isoformat()
+    assert result["MARKET_DATA_AS_OF"] == NOW.isoformat()
+    assert result["MARKET_EMOTION_SNAPSHOT"]["as_of"] == NOW.isoformat()
+    assert result["CAPITAL_FLOW_SNAPSHOT"]["as_of"] == NOW.isoformat()
+    assert result["BOARD_CAPITAL_FLOW_SNAPSHOT"]["as_of"] == NOW.isoformat()
     assert result["A2_SECTOR_HEALTH_SNAPSHOT"]["available"] is True
     assert result["A2_SECTOR_HEALTH_SNAPSHOT"]["data_sufficiency_state"] == "PARTIAL"
     assert result["SECTOR_CYCLE_SNAPSHOT"]["sector_health_snapshot"] == result["A2_SECTOR_HEALTH_SNAPSHOT"]

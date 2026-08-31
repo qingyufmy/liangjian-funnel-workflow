@@ -365,7 +365,7 @@ class WorkflowApplication:
             hithink_manifest = normalize_hithink_results(
                 market_fact_results,
                 base_url=self.settings.hithink_base_url,
-                as_of=current,
+                as_of=market_current,
             )
             current = max(current, hithink_manifest.as_of)
             def sync_progress(event: Mapping[str, Any]) -> None:
@@ -770,6 +770,7 @@ class WorkflowApplication:
             },
             raw_snapshot_path=raw_path,
             as_of=current,
+            market_data_as_of=market_current,
         ))
         snapshot_hash = _hash_json(data)
         snapshot_id = f"snapshot-{current.strftime('%Y%m%dT%H%M%S%z')}-{snapshot_hash[:12]}"
@@ -2121,7 +2122,13 @@ class WorkflowApplication:
                 minute_bars=minute_bars,
                 as_of=current,
             )
-            aggregates = build_technical_aggregates(factor)
+            minimum_reward_risk = _workflow_float(snapshot.data.get("MIN_REWARD_RISK", 2.0)) or 2.0
+            max_stop_distance = _workflow_float(snapshot.data.get("MAX_STOP_DISTANCE", 0.06)) or 0.06
+            aggregates = build_technical_aggregates(
+                factor,
+                minimum_reward_risk=minimum_reward_risk,
+                max_stop_distance_pct=max_stop_distance,
+            )
             value = {
                 **_compact_factor(factor.model_dump(mode="json")),
                 "kline_patterns": aggregates["KLINE_PATTERNS"],
@@ -2390,8 +2397,18 @@ class WorkflowApplication:
         source_failures: Mapping[str, Any],
         raw_snapshot_path: Path,
         as_of: datetime,
+        market_data_as_of: datetime | None = None,
         g0_selection: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
+        # Research/text evidence is allowed to use the wall-clock ``as_of``.
+        # Every quote, flow, ladder, breadth and technical aggregate must bind
+        # to the latest completed market session instead.  This distinction is
+        # material during weekend/holiday next-session preparation: labelling
+        # Friday provider rows as Sunday observations creates false point-in-
+        # time evidence and bypasses the valid Friday cache.
+        market_as_of = _aware(market_data_as_of or as_of)
+        if market_as_of > _aware(as_of):
+            raise WorkflowError("MARKET_DATA_AS_OF_IN_FUTURE")
         source_config = load_yaml(self.settings.source_config_path) if self.settings.source_config_path.is_file() else {}
         config_hash = digest_text(json.dumps(source_config, ensure_ascii=False, sort_keys=True, default=str))
         selected_records = [
@@ -2419,11 +2436,11 @@ class WorkflowApplication:
             facts = {}
         open_macro_bundle = frozen.fact_payload.get("open_macro_bundle")
         open_macro_bundle = open_macro_bundle if isinstance(open_macro_bundle, Mapping) else {}
-        market_emotion = build_market_emotion(universe.records, facts, as_of=as_of)
+        market_emotion = build_market_emotion(universe.records, facts, as_of=market_as_of)
         if market_emotion.get("available") is not True:
             raise WorkflowError("MARKET_EMOTION_AGGREGATE_NOT_READY")
         breadth = float(market_emotion["breadth"])
-        auction = _available_fact(facts, "AUCTION_FINAL") if _auction_window(as_of) else None
+        auction = _available_fact(facts, "AUCTION_FINAL") if _auction_window(market_as_of) else None
         dragon_tiger = _available_fact(facts, "DRAGON_TIGER_LIST")
         hot_stocks = _available_fact(facts, "HOT_STOCK_LIST")
         industry_catalog = _available_fact(facts, "THS_INDUSTRY_CATALOG")
@@ -2459,17 +2476,17 @@ class WorkflowApplication:
                 if isinstance(item, Mapping) and item.get("fact_type") == "INDUSTRY_RSS_ITEM"
             ],
         }
-        crowding = build_crowding_snapshot(facts, g0_symbols, as_of=as_of)
+        crowding = build_crowding_snapshot(facts, g0_symbols, as_of=market_as_of)
         sector_cycle, sector_permissions = build_sector_cycle_and_permissions(
             facts,
             g0_symbols,
-            as_of=as_of,
+            as_of=market_as_of,
         )
         if self.settings.a2_capital_flow_enabled:
             capital_attempts: list[dict[str, Any]] = []
             try:
                 capital_flow = collect_tencent_capital_flow(
-                    as_of=as_of,
+                    as_of=market_as_of,
                     expected_symbols=g0_symbols,
                     cache_dir=self.settings.fact_store_dir / "a2_market" / "tencent",
                     minimum_coverage=self.settings.a2_capital_flow_minimum_coverage,
@@ -2477,7 +2494,7 @@ class WorkflowApplication:
                 )
             except Exception:
                 capital_flow = unavailable_capital_flow_snapshot(
-                    as_of=as_of,
+                    as_of=market_as_of,
                     reason_code="TENCENT_CAPITAL_FLOW_NORMALIZATION_FAILED",
                     expected_symbols=g0_symbols,
                     source_id="TENCENT_QQ_FINANCE_FUND_FLOW",
@@ -2486,7 +2503,7 @@ class WorkflowApplication:
             if capital_flow.get("available") is not True:
                 try:
                     eastmoney_fallback = collect_eastmoney_capital_flow(
-                        as_of=as_of,
+                        as_of=market_as_of,
                         expected_symbols=g0_symbols,
                         # Preserve the established point-in-time cache path;
                         # Tencent uses its own subdirectory so provider files
@@ -2496,7 +2513,7 @@ class WorkflowApplication:
                     )
                 except Exception:
                     eastmoney_fallback = unavailable_capital_flow_snapshot(
-                        as_of=as_of,
+                        as_of=market_as_of,
                         reason_code="EASTMONEY_CAPITAL_FLOW_NORMALIZATION_FAILED",
                         expected_symbols=g0_symbols,
                     )
@@ -2506,13 +2523,13 @@ class WorkflowApplication:
             capital_flow = with_capital_flow_provider_attempts(capital_flow, capital_attempts)
         else:
             capital_flow = unavailable_capital_flow_snapshot(
-                as_of=as_of,
+                as_of=market_as_of,
                 reason_code="SOURCE_NOT_CONFIGURED",
                 expected_symbols=g0_symbols,
             )
         board_capital_flow: dict[str, Any] = {
             "schema_version": "a2-board-capital-flow-bundle/1.0.0",
-            "as_of": as_of.isoformat(),
+            "as_of": market_as_of.isoformat(),
             "source_id": "EASTMONEY_BOARD_CAPITAL_FLOW",
             "available": False,
             "reason_code": "SOURCE_NOT_CONFIGURED",
@@ -2526,7 +2543,7 @@ class WorkflowApplication:
                 for period in ("today", "5d", "10d"):
                     try:
                         snapshot = collect_eastmoney_board_flow(
-                            as_of=as_of,
+                            as_of=market_as_of,
                             board_type=taxonomy,
                             period=period,
                             cache_dir=self.settings.fact_store_dir / "a2_market",
@@ -2554,7 +2571,7 @@ class WorkflowApplication:
         sector_health = build_sector_health_snapshot(
             facts,
             selected_records,
-            as_of=as_of,
+            as_of=market_as_of,
             symbols=g0_symbols,
             board_capital_flow_snapshot=board_capital_flow,
         )
@@ -2579,7 +2596,7 @@ class WorkflowApplication:
             attention_snapshot=hot_stocks,
             sector_cycle_snapshot=sector_cycle,
             capital_flow_snapshot=capital_flow,
-            as_of=as_of,
+            as_of=market_as_of,
         )
         regime_config = source_config.get("market_regime")
         regime_settings = regime_config if isinstance(regime_config, Mapping) else {}
@@ -2601,6 +2618,7 @@ class WorkflowApplication:
             "research_pipeline_mode": self.settings.research_pipeline_mode,
             "snapshot_manifest": {
                 "as_of": as_of.isoformat(),
+                "market_data_as_of": market_as_of.isoformat(),
                 "frozen": True,
                 "full_universe_count": len(universe.records),
                 "research_universe_count": len(universe.research_candidates),
@@ -2676,9 +2694,10 @@ class WorkflowApplication:
                 if key in g0_symbols and isinstance(value, Mapping)
             },
             "MARKET_CONTEXT": {"regime": regime, "breadth": breadth, "regime_evidence": regime_evidence},
+            "MARKET_DATA_AS_OF": market_as_of.isoformat(),
             "AUCTION_SNAPSHOT": auction or {
                 "available": False,
-                "reason_code": "OUTSIDE_0926_REVIEW_WINDOW" if not _auction_window(as_of) else "SOURCE_UNAVAILABLE",
+                "reason_code": "OUTSIDE_0926_REVIEW_WINDOW" if not _auction_window(market_as_of) else "SOURCE_UNAVAILABLE",
             },
             "THS_INDUSTRY_CATALOG": industry_catalog or missing,
             "THS_INDUSTRY_MEMBERSHIP": industry_membership or missing,
@@ -2759,6 +2778,11 @@ class WorkflowApplication:
         ):
             values.setdefault(key, missing)
         values.update(_prompt_parameters(source_config))
+        # Regime parameters are executable policy, not prompt-only metadata.
+        # Apply the stricter per-regime A3 floor to the server-owned technical
+        # gate so the model, deterministic scorer and published constraints all
+        # evaluate the same reward/risk contract.
+        _apply_effective_regime_parameters(values, regime_parameters)
         return values
 
     def _publish_plans(
@@ -3291,6 +3315,22 @@ def _pool_targets(value: Any, *, default: tuple[int, int]) -> dict[str, Any]:
     if minimum < 0 or maximum < minimum:
         minimum, maximum = default
     return {"pool_min": minimum, "pool_max": maximum, "quota_forbidden": True}
+
+
+def _apply_effective_regime_parameters(
+    values: dict[str, Any],
+    regime_parameters: Mapping[str, Any],
+) -> None:
+    """Project stricter regime policy into server-owned execution fields."""
+
+    agent_3_regime = regime_parameters.get("agent_3")
+    if not isinstance(agent_3_regime, Mapping):
+        return
+    regime_minimum_rr = _workflow_float(agent_3_regime.get("minimum_reward_risk"))
+    if regime_minimum_rr is None or regime_minimum_rr <= 0:
+        return
+    base_minimum_rr = _workflow_float(values.get("MIN_REWARD_RISK")) or 2.0
+    values["MIN_REWARD_RISK"] = max(base_minimum_rr, regime_minimum_rr)
 
 
 def _plan_payload(raw: Mapping[str, Any]) -> dict[str, Any]:

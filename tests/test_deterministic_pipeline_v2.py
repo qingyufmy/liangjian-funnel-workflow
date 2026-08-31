@@ -195,6 +195,59 @@ def test_a2_and_a3_never_expand_the_upstream_pool():
     assert set(a3.review_symbols).issubset(set(a2.review_symbols))
 
 
+def test_a3_server_score_uses_frozen_factors_and_enforces_effective_risk_floor():
+    snapshot = _snapshot(2)
+    snapshot["TECHNICAL_SCORE_WEIGHTS"] = {
+        "higher_timeframe_trend": 0.20,
+        "structure_quality": 0.20,
+        "volume_price": 0.15,
+        "relative_strength": 0.10,
+        "location_and_extension": 0.15,
+        "room_and_reward_risk": 0.15,
+        "liquidity": 0.05,
+    }
+    snapshot["MIN_TECHNICAL_SCORE"] = 70
+    snapshot["MIN_REWARD_RISK"] = 2.5
+    snapshot["MAX_STOP_DISTANCE"] = 0.06
+    snapshot["KLINE_PATTERNS"] = {
+        symbol: {
+            "available": True,
+            "direction": "BULLISH",
+            "labels": ["BULLISH_ENGULFING"],
+            "volume_percentile_60": 0.90,
+            "breakout_20": {"up": True},
+        }
+        for symbol in snapshot["g0_symbols"]
+    }
+    snapshot["A2_BOTTLENECK_CONTEXT"] = {
+        symbol: {
+            "a2_factor_scores": {"relative_strength": {"score": 90}},
+            "role_breakdown": {"relative_strength": 90, "liquidity_capacity": 90},
+        }
+        for symbol in snapshot["g0_symbols"]
+    }
+    weak_symbol = snapshot["g0_symbols"][1]
+    snapshot["PRICE_LEVELS"][weak_symbol]["reward_risk"] = 2.4
+    a2_output = {
+        "focus_pool": [
+            {"symbol": symbol, "theme_id": "theme-compute"}
+            for symbol in snapshot["g0_symbols"]
+        ],
+    }
+
+    result = screen_a3(snapshot, a2_output)
+    ready = next(item for item in result.decisions if item["symbol"] == snapshot["g0_symbols"][0])
+    weak = next(item for item in result.decisions if item["symbol"] == weak_symbol)
+
+    assert ready["status"] == "REVIEW_CANDIDATE"
+    assert ready["technical_score_authoritative"] is True
+    assert ready["technical_score"] >= 70
+    assert ready["technical_score_coverage"] == 1.0
+    assert set(ready["technical_score_breakdown"]) == set(snapshot["TECHNICAL_SCORE_WEIGHTS"])
+    assert weak["status"] == "HARD_REJECT"
+    assert "A3_REWARD_RISK_BELOW_MINIMUM" in weak["reason_codes"]
+
+
 def test_a2_market_core_uses_real_local_market_factors_without_inventing_capital_flow():
     snapshot = _snapshot(4)
     for index, candidate in enumerate(snapshot["g0_candidates"]):
@@ -255,12 +308,66 @@ def test_a2_market_core_uses_real_local_market_factors_without_inventing_capital
     assert result.review_symbols == (symbol,)
     assert result.monitor_symbols == ()
     assert "MARKET_CORE" in item["eligible_routes"]
+    # The unavailable optional supply-chain scorecard must not turn an
+    # otherwise usable MARKET_CORE route into a market-wide data gap.
+    assert "A2_DATA_GAP" not in item["reason_codes"]
+    assert "A2_CRITICAL_DATA_INSUFFICIENT" not in item["reason_codes"]
     assert item["factor_coverage"]["ratio"] >= 0.65
     assert item["critical_factor_coverage"]["sufficient"] is True
     assert item["data_sufficiency_state"] == "DEGRADED"
     assert item["a2_factor_scores"]["capital_flow"]["available"] is False
     assert item["a2_factor_scores"]["capital_flow"]["source"] == "CAPITAL_FLOW_SNAPSHOT"
     assert item["a2_factor_scores"]["turnover_share"]["source"] == "FROZEN_G0_INDUSTRY_TURNOVER_SHARE"
+
+
+def test_a2_taxonomy_aggregates_are_bound_to_the_a1_chain_node():
+    snapshot = _snapshot(2)
+    symbol = snapshot["g0_symbols"][0]
+    snapshot["A2_FACTOR_SNAPSHOT"] = {
+        symbol: {
+            "factors": {
+                name: {"available": True, "score": 99, "source": "UNRELATED_STRONGEST_CONCEPT"}
+                for name in ("breadth", "turnover_share", "index_chain_resonance", "weekly_confirmation")
+            },
+        },
+    }
+    snapshot["A2_THEME_METRICS"] = {
+        "theme_metrics": {
+            "INDUSTRY:884001.TI": {
+                "available": True,
+                "taxonomy": "INDUSTRY",
+                "taxonomy_code": "884001.TI",
+                "taxonomy_name": "算力设备",
+                "score": 55,
+                "breadth": 0.40,
+                "turnover_share": 0.10,
+                "weekly_confirmation_score": 50,
+            },
+        },
+    }
+    a1_output = {
+        "taxonomy_links": [{
+            "node_id": "node-compute-device",
+            "industry_thscodes": ["884001.TI"],
+            "concept_thscodes": [],
+        }],
+        "active_research_pool": [{
+            "symbol": symbol,
+            "candidate_id": f"a1:{symbol}",
+            "primary_theme": "theme-compute",
+            "industry_chain_node": "node-compute-device",
+            "structural_score": 80,
+        }],
+    }
+
+    result = screen_a2(snapshot, a1_output, minimum_identifiability_score=40, llm_top_n_per_theme=2)
+    item = result.decisions[0]
+
+    assert item["a2_taxonomy_binding"]["status"] == "BOUND"
+    assert item["a2_taxonomy_binding"]["taxonomy_code"] == "884001.TI"
+    assert item["a2_factor_scores"]["breadth"]["score"] == 40.0
+    assert item["a2_factor_scores"]["breadth"]["source"] == "A1_BOUND_TAXONOMY_AGGREGATE"
+    assert item["a2_factor_scores"]["index_chain_resonance"]["score"] == 55.0
 
 
 def test_feature_store_replaces_one_lane_stage_atomically(tmp_path: Path):

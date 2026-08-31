@@ -359,7 +359,7 @@ def test_a3_minute_cache_writes_are_serialized_but_fetches_overlap(monkeypatch):
     monkeypatch.setattr(
         workflow_module,
         "build_technical_aggregates",
-        lambda _factor: {"KLINE_PATTERNS": {}, "PRICE_LEVELS": {"available": True}},
+        lambda _factor, **_kwargs: {"KLINE_PATTERNS": {}, "PRICE_LEVELS": {"available": True}},
     )
     app = SimpleNamespace(
         settings=SimpleNamespace(mootdx_history_5m_required_bars=1),

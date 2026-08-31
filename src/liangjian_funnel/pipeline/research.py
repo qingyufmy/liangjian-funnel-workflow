@@ -39,6 +39,7 @@ from .bottleneck import (
     canonicalize_model_scorecard,
 )
 from .deterministic import (
+    A2_FOCUS_ROLES,
     PIPELINE_MODE as DETERMINISTIC_PIPELINE_MODE,
     DeterministicGateResult,
     local_active_items,
@@ -165,6 +166,34 @@ _A3_WATCH_ONLY_HARD_REASON_MARKERS = (
     "NOT_TRADABLE",
     "TRADABILITY",
     "SYMBOL_NOT_TRADABLE",
+)
+# Stage lineage is server-owned.  The model may add narrative, scores and
+# reasons, but it must not rename a security, move it to another A1 theme or
+# rewrite the route/role chosen by the deterministic gate.  Keep this contract
+# additive so old output files remain readable while new runs expose an
+# explicit missing-field audit when an upstream row is incomplete.
+_STAGE_LINEAGE_SCHEMA = "stage-lineage/1.0.0"
+_STAGE_LINEAGE_POOLS: Mapping[str, tuple[str, ...]] = {
+    "A1": ("active_research_pool", "monitor_pool", "rejected_candidates"),
+    "A2": ("focus_pool", "watch_only_pool", "crowded_pool", "low_identity_pool", "rejected_candidates"),
+    "A3": ("core_watch_pool", "secondary_watch_pool", "rejected_candidates"),
+}
+_STAGE_LINEAGE_REASON = {
+    "A2": "A2_STAGE_LINEAGE_MISSING",
+    "A3": "A3_STAGE_LINEAGE_MISSING",
+}
+_A2_LLM_REJECT_HARD_MARKERS = (
+    # These are deterministic fact/identity vetoes.  DATA_GAP and optional
+    # source degradation deliberately do not appear here: missing data must
+    # remain visible as a watch row rather than being turned into a rejection.
+    "A2_LOW_IDENTITY_EXCLUDED",
+    "A2_IDENTIFIABILITY_BELOW",
+    "A2_MARKET_ROLE_NOT_FOCUS_ELIGIBLE",
+    "A2_RISK_EVENT",
+    "A1_RISK_EVENT",
+    "RISK_EVENT_PRESENT",
+    "NOT_TRADABLE",
+    "TRADABILITY",
 )
 _SYMBOL = re.compile(
     r"(?<![A-Za-z0-9_])(?:(?P<code>\d{6})\.(?P<suffix>SH|SZ|BJ)|"
@@ -1372,6 +1401,7 @@ class ResearchPipeline:
             )
         a3_snapshot = _with_a3_candidate_context(a3_snapshot, a3_origins)
         a3_gate = screen_a3(a3_snapshot.data, a3_upstream_output)
+        a3_snapshot = _with_a3_deterministic_context(a3_snapshot, a3_gate)
         self._persist_gate(run_id, lane_id, a3_gate, a3_snapshot)
         self._emit_gate_progress(run_id, lane_id, model, a3_gate)
         a3_audit = self._run_v2_downstream_review(
@@ -1679,9 +1709,14 @@ class ResearchPipeline:
         # response into a stage-level evidence block.
         reviewed_output = dict(output)
         if stage == "A2":
+            output, _ = _move_a2_hard_rejects_to_rejected(output, gate)
             output["watch_only_pool"] = _deduplicate_stage_items(
                 "watch_only_pool",
                 [*output.get("watch_only_pool", []), *_gate_secondary_items(gate, stage)],
+            )
+            output["rejected_candidates"] = _deduplicate_stage_items(
+                "rejected_candidates",
+                [*output.get("rejected_candidates", []), *_gate_rejected_items(gate, stage)],
             )
             output.setdefault("crowded_pool", [])
             output.setdefault("low_identity_pool", [])
@@ -1692,6 +1727,16 @@ class ResearchPipeline:
                 [*output.get("rejected_candidates", []), *_gate_secondary_items(gate, stage)],
             )
             output.setdefault("secondary_watch_pool", [])
+        if stage in {"A2", "A3"}:
+            # Local gate rows appended above must receive the same canonical
+            # lineage lock as model-reviewed rows.  This also covers A3
+            # rejected rows, which previously lost their A2 metadata.
+            output, _ = _canonicalize_stage_lineage(
+                output,
+                stage,
+                upstream_output,
+                snapshot.data,
+            )
         output["local_screen_summary"] = gate.summary
         output = _refresh_analysis_counts(output, stage)
         reasons = _validate_output(
@@ -2032,6 +2077,7 @@ class ResearchPipeline:
         stage: str,
         snapshot: FrozenInputSnapshot,
         upstream_symbols: set[str],
+        upstream_output: Mapping[str, Any] | None = None,
         a1_discovery_context: Mapping[str, Any] | None = None,
     ) -> StageAudit | None:
         store = self.checkpoint_store
@@ -2076,6 +2122,16 @@ class ResearchPipeline:
                 output,
                 _required_envelope(snapshot, lane_id, model, stage),
             )
+            if stage in {"A2", "A3"}:
+                output, _ = _canonicalize_stage_lineage(
+                    output,
+                    stage,
+                    upstream_output,
+                    snapshot.data,
+                )
+                if stage == "A2":
+                    output, _ = _demote_a2_llm_rejects(output, snapshot.data)
+                output = _refresh_analysis_counts(output, stage)
             if (
                 stage == "A1"
                 and isinstance(a1_discovery_context, Mapping)
@@ -2228,6 +2284,7 @@ class ResearchPipeline:
                 stage=stage,
                 snapshot=snapshot,
                 upstream_symbols=upstream_symbols,
+                upstream_output=upstream_output,
                 a1_discovery_context=a1_discovery_context,
             )
             if reused is not None:
@@ -2690,6 +2747,13 @@ class ResearchPipeline:
         merged = _merge_a2_outputs([
             audit.output for audit in valid_audits if isinstance(audit.output, Mapping)
         ])
+        merged, canonicalized_lineage = _canonicalize_stage_lineage(
+            merged,
+            "A2",
+            upstream_output,
+            snapshot.data,
+        )
+        merged, a2_llm_reject_demotions = _demote_a2_llm_rejects(merged, snapshot.data)
         merged, canonicalized_scores = _canonicalize_stage_scores(merged, "A2", snapshot.data)
         merged, canonicalized_bottleneck_scores = _canonicalize_a2_bottleneck_scorecards(
             merged, snapshot.data
@@ -2701,7 +2765,15 @@ class ResearchPipeline:
             )
         else:
             lineage_demotions = 0
+        merged, post_policy_lineage = _canonicalize_stage_lineage(
+            merged,
+            "A2",
+            upstream_output,
+            snapshot.data,
+        )
+        canonicalized_lineage += post_policy_lineage
         merged = _annotate_a2_pool_target(merged, snapshot.data)
+        merged = _refresh_analysis_counts(merged, "A2")
         reasons = _validate_output(
             merged,
             stage="A2",
@@ -2732,6 +2804,8 @@ class ResearchPipeline:
                 "split_count": split_count,
                 "canonicalized_score_items": canonicalized_scores,
                 "canonicalized_bottleneck_scorecards": canonicalized_bottleneck_scores,
+                "canonicalized_lineage": canonicalized_lineage,
+                "a2_llm_reject_demotions": a2_llm_reject_demotions,
                 "policy_demotions": threshold_demotions + lineage_demotions,
                 "pool_counts": _stage_pool_counts(merged, "A2"),
             },
@@ -2798,7 +2872,22 @@ class ResearchPipeline:
             "A3",
             [audit.output for audit in valid_audits if isinstance(audit.output, Mapping)],
         )
+        merged, canonicalized_lineage = _canonicalize_stage_lineage(
+            merged,
+            "A3",
+            upstream_output,
+            snapshot.data,
+        )
+        merged = _refresh_analysis_counts(merged, "A3")
         merged, _ = _apply_a3_pool_limits(merged, snapshot.data)
+        merged, post_limit_lineage = _canonicalize_stage_lineage(
+            merged,
+            "A3",
+            upstream_output,
+            snapshot.data,
+        )
+        canonicalized_lineage += post_limit_lineage
+        merged = _refresh_analysis_counts(merged, "A3")
         reasons = _validate_output(
             merged,
             stage="A3",
@@ -2825,6 +2914,7 @@ class ResearchPipeline:
             diagnostics={
                 "batch_count": len(batches),
                 "completed_batches": len(valid_audits),
+                "canonicalized_lineage": canonicalized_lineage,
                 "pool_counts": _stage_pool_counts(merged, "A3"),
             },
         )
@@ -3159,6 +3249,20 @@ class ResearchPipeline:
                     output, a1_discovery_context
                 )
             output, canonicalized_pool_fields = _canonicalize_stage_pool_fields(output, stage)
+            canonicalized_lineage = 0
+            a2_llm_reject_demotions = 0
+            if stage in {"A2", "A3"}:
+                output, canonicalized_lineage = _canonicalize_stage_lineage(
+                    output,
+                    stage,
+                    upstream_output,
+                    snapshot.data,
+                )
+                if stage == "A2":
+                    output, a2_llm_reject_demotions = _demote_a2_llm_rejects(
+                        output,
+                        snapshot.data,
+                    )
             canonicalized_a3_origins = 0
             a3_semantic_reasons: list[str] = []
             if stage == "A3":
@@ -3200,6 +3304,15 @@ class ResearchPipeline:
             if stage == "A2" and snapshot.data.get("STRICT_AGENT_RULES") is True:
                 output, a2_demotions = _apply_a2_lineage_policy(output, upstream_output or {}, snapshot.data)
                 policy_demotions += a2_demotions
+            if stage in {"A2", "A3"}:
+                output, post_policy_lineage = _canonicalize_stage_lineage(
+                    output,
+                    stage,
+                    upstream_output,
+                    snapshot.data,
+                )
+                canonicalized_lineage += post_policy_lineage
+                output = _refresh_analysis_counts(output, stage)
             if stage == "A2" and projection_symbols is None:
                 output = _annotate_a2_pool_target(output, snapshot.data)
             reasons = _validate_output(
@@ -3274,6 +3387,10 @@ class ResearchPipeline:
                     diagnostics["canonicalized_driver_context"] = canonicalized_driver_context
                 if canonicalized_pool_fields:
                     diagnostics["canonicalized_pool_fields"] = canonicalized_pool_fields
+                if canonicalized_lineage:
+                    diagnostics["canonicalized_lineage"] = canonicalized_lineage
+                if a2_llm_reject_demotions:
+                    diagnostics["a2_llm_reject_demotions"] = a2_llm_reject_demotions
                 if canonicalized_a3_origins:
                     diagnostics["canonicalized_a3_origins"] = canonicalized_a3_origins
                 if policy_demotions:
@@ -4394,40 +4511,119 @@ def _chunk_symbol_sets(symbols: Sequence[str], size: int) -> list[set[str]]:
 def _gate_secondary_items(gate: DeterministicGateResult, stage: str) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     for decision in gate.decisions:
-        if decision.get("status") == "REVIEW_CANDIDATE":
+        status = str(decision.get("status") or "").upper()
+        if status == "REVIEW_CANDIDATE":
             continue
-        item = {
-            "symbol": decision.get("symbol"),
-            "company_name": decision.get("name"),
-            "candidate_origin": decision.get("candidate_origin") or "FOCUS",
-            "theme_id": decision.get("theme_id"),
-            "industry_chain_node": decision.get("node_id"),
-            "status": "WATCH_ONLY" if stage == "A2" else "REJECTED",
-            "reason_codes": list(decision.get("reason_codes", ())),
-            "local_decision": True,
-            "sent_to_llm": False,
-            "source_refs": [],
-            "data_sufficiency_state": decision.get("data_sufficiency_state"),
-            "factor_coverage": decision.get("factor_coverage"),
-            "critical_factor_coverage": decision.get("critical_factor_coverage"),
-            "local_partition": decision.get("status"),
-        }
-        if stage == "A2":
-            item.update({
-                "theme_score": decision.get("score"),
-                "identifiability_score": decision.get("identifiability_score"),
-                "market_role": decision.get("market_role") or decision.get("role") or "LOW_IDENTITY",
-                # Preserve the deterministic route context when a row was not
-                # sent to the model (for example A2_NOT_SENT_TO_LLM).  A3's
-                # watch-only candidate selector must be able to distinguish a
-                # soft ranking shortfall from a missing route.
-                "a2_route": decision.get("route"),
-                "eligible_routes": list(decision.get("eligible_routes") or ()),
-                "route_eligibility": dict(decision.get("route_eligibility") or {}),
-                "trade_eligible": decision.get("trade_eligible"),
-            })
-        items.append(item)
+        # A deterministic HARD_REJECT is a fact-level partition.  It must not
+        # be made look like a recoverable A2 watch row merely because it was
+        # not sent to the model.
+        if stage == "A2" and status == "HARD_REJECT":
+            continue
+        items.append(_gate_item_from_decision(decision, stage, "WATCH_ONLY" if stage == "A2" else "REJECTED"))
     return items
+
+
+def _gate_item_from_decision(
+    decision: Mapping[str, Any],
+    stage: str,
+    status: str,
+) -> dict[str, Any]:
+    """Project one deterministic gate row without model-owned identity."""
+
+    item = {
+        "symbol": decision.get("symbol"),
+        "company_name": decision.get("name"),
+        "candidate_origin": decision.get("candidate_origin") or (
+            "WATCH_ONLY" if stage == "A2" and status == "WATCH_ONLY" else "FOCUS"
+        ),
+        "theme_id": decision.get("theme_id"),
+        "industry_chain_node": decision.get("node_id"),
+        "status": status,
+        "reason_codes": list(decision.get("reason_codes", ())),
+        "local_decision": True,
+        "sent_to_llm": False,
+        "source_refs": [],
+        "data_sufficiency_state": decision.get("data_sufficiency_state"),
+        "factor_coverage": decision.get("factor_coverage"),
+        "critical_factor_coverage": decision.get("critical_factor_coverage"),
+        "local_partition": decision.get("status"),
+    }
+    if stage == "A2":
+        item.update({
+            "theme_score": decision.get("score"),
+            "identifiability_score": decision.get("identifiability_score"),
+            "market_role": decision.get("market_role") or decision.get("role") or "LOW_IDENTITY",
+            # Preserve the deterministic route context when a row was not
+            # sent to the model (for example A2_NOT_SENT_TO_LLM).  A3's
+            # watch-only candidate selector must be able to distinguish a
+            # soft ranking shortfall from a missing route.
+            "a2_route": decision.get("route"),
+            "eligible_routes": list(decision.get("eligible_routes") or ()),
+            "route_eligibility": dict(decision.get("route_eligibility") or {}),
+            "trade_eligible": decision.get("trade_eligible"),
+        })
+    return item
+
+
+def _gate_rejected_items(gate: DeterministicGateResult, stage: str) -> list[dict[str, Any]]:
+    """Project deterministic HARD_REJECT rows into the rejected partition."""
+
+    if stage != "A2":
+        return []
+    return [
+        _gate_item_from_decision(decision, stage, "REJECTED")
+        for decision in gate.decisions
+        if str(decision.get("status") or "").upper() == "HARD_REJECT"
+    ]
+
+
+def _move_a2_hard_rejects_to_rejected(
+    output: Mapping[str, Any],
+    gate: DeterministicGateResult,
+) -> tuple[dict[str, Any], int]:
+    """Repair a provider partition that placed deterministic hard rejects elsewhere."""
+
+    hard_symbols = {str(symbol) for symbol in gate.rejected_symbols}
+    if not hard_symbols:
+        return dict(output), 0
+    gate_by_symbol = {
+        str(decision.get("symbol")): decision
+        for decision in gate.decisions
+        if str(decision.get("symbol")) in hard_symbols
+    }
+    result = dict(output)
+    moved: list[Any] = []
+    changed = 0
+    for pool in ("focus_pool", "watch_only_pool", "crowded_pool", "low_identity_pool"):
+        values = result.get(pool)
+        if not isinstance(values, list):
+            continue
+        retained: list[Any] = []
+        for raw in values:
+            symbol = _first_symbol(raw.get("symbol")) if isinstance(raw, Mapping) else ""
+            if symbol not in hard_symbols:
+                retained.append(raw)
+                continue
+            row = dict(raw) if isinstance(raw, Mapping) else {"symbol": symbol}
+            decision = gate_by_symbol.get(symbol)
+            authoritative = _gate_item_from_decision(decision, "A2", "REJECTED") if decision else {}
+            merged = {**row, **authoritative}
+            existing_reasons = row.get("reason_codes") if isinstance(row.get("reason_codes"), list) else []
+            reasons = list(dict.fromkeys([
+                *existing_reasons,
+                *list(authoritative.get("reason_codes") or ()),
+                "A2_DETERMINISTIC_HARD_REJECT",
+            ]))
+            merged["reason_codes"] = reasons
+            moved.append(merged)
+            changed += 1
+        result[pool] = retained
+    if moved:
+        result["rejected_candidates"] = _deduplicate_stage_items(
+            "rejected_candidates",
+            [*(result.get("rejected_candidates") or []), *moved],
+        )
+    return result, changed
 
 
 def _build_a3_candidate_domain(
@@ -4750,6 +4946,7 @@ def _merge_a2_outputs(outputs: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         "outcome": "A2_BATCHES_MERGED",
         "batch_count": len(outputs),
         **_stage_pool_counts(merged, "A2"),
+        "pool_counts": _stage_pool_counts(merged, "A2"),
     }
     return merged
 
@@ -5438,6 +5635,11 @@ def _refresh_analysis_counts(output: Mapping[str, Any], stage: str) -> dict[str,
     summary = dict(result.get("analysis_summary")) if isinstance(result.get("analysis_summary"), Mapping) else {}
     counts = _stage_pool_counts(result, stage)
     summary.update(counts)
+    # Keep one canonical representation for consumers that read the nested
+    # summary object (the frontend and persisted audit viewers do so).  Older
+    # responses could leave this object stale while top-level counters were
+    # refreshed, producing contradictory pool totals.
+    summary["pool_counts"] = dict(counts)
     if stage == "A1":
         summary.update({
             "approved_count": counts["active_research_pool"],
@@ -5458,6 +5660,350 @@ def _refresh_analysis_counts(output: Mapping[str, Any], stage: str) -> dict[str,
         })
     result["analysis_summary"] = summary
     return result
+
+
+def _lineage_text(value: Any, *keys: str) -> str | None:
+    """Read one non-empty textual lineage field from an upstream row."""
+
+    if not isinstance(value, Mapping):
+        return None
+    for key in keys:
+        raw = value.get(key)
+        if isinstance(raw, str) and raw.strip():
+            return raw.strip()
+    return None
+
+
+def _lineage_rows(output: Mapping[str, Any] | None, stage: str) -> dict[str, Mapping[str, Any]]:
+    """Index upstream rows by one canonical symbol without trusting free text."""
+
+    result: dict[str, Mapping[str, Any]] = {}
+    if not isinstance(output, Mapping):
+        return result
+    for pool in _STAGE_LINEAGE_POOLS.get(stage, ()):
+        values = output.get(pool)
+        if not isinstance(values, list):
+            continue
+        for raw in values:
+            if not isinstance(raw, Mapping):
+                continue
+            symbol = _first_symbol(raw.get("symbol"))
+            if symbol and symbol not in result:
+                result[symbol] = raw
+    return result
+
+
+def _lineage_context_rows(snapshot_data: Mapping[str, Any], key: str) -> dict[str, Mapping[str, Any]]:
+    raw = snapshot_data.get(key)
+    if not isinstance(raw, Mapping):
+        return {}
+    result: dict[str, Mapping[str, Any]] = {}
+    for raw_symbol, value in raw.items():
+        if not isinstance(value, Mapping):
+            continue
+        symbol = _first_symbol(raw_symbol) or _first_symbol(value.get("symbol"))
+        if symbol:
+            result[symbol] = value
+    return result
+
+
+def _lineage_origin_rows(snapshot_data: Mapping[str, Any]) -> dict[str, str]:
+    raw = snapshot_data.get("A3_CANDIDATE_ORIGIN")
+    if not isinstance(raw, Mapping):
+        return {}
+    result: dict[str, str] = {}
+    for raw_symbol, value in raw.items():
+        symbol = _first_symbol(raw_symbol)
+        origin = str(value).strip().upper()
+        if symbol and origin in {"FOCUS", "WATCH_ONLY"}:
+            result[symbol] = origin
+    return result
+
+
+def _lineage_catalog_name(snapshot_data: Mapping[str, Any], symbol: str) -> str | None:
+    """Use the immutable universe catalog only as a name fallback.
+
+    Theme, node, route and role remain stage-owned fields and are never
+    guessed from a catalog.  This fallback keeps rows displayable when an old
+    A1 checkpoint omitted ``company_name`` while the server still has the G0
+    directory name.
+    """
+
+    for key in ("g0_candidates", "universe_candidates", "trade_candidates"):
+        values = snapshot_data.get(key)
+        if not isinstance(values, Sequence) or isinstance(values, (str, bytes, bytearray)):
+            continue
+        for raw in values:
+            if isinstance(raw, Mapping) and _first_symbol(raw.get("symbol")) == symbol:
+                return _lineage_text(raw, "company_name", "name", "sec_name")
+    return None
+
+
+def _canonicalize_stage_lineage(
+    output: Mapping[str, Any],
+    stage: str,
+    upstream_output: Mapping[str, Any] | None,
+    snapshot_data: Mapping[str, Any] | None,
+) -> tuple[dict[str, Any], int]:
+    """Lock A2/A3 row lineage to the server-owned upstream context.
+
+    The model can provide explanatory fields, but the identity and routing
+    fields below are copied from the preceding stage and deterministic gate.
+    A missing source is represented explicitly instead of falling back to a
+    model-provided value.  The function is intentionally pure so it can be
+    applied both to fresh responses and to checkpoint replays.
+    """
+
+    if stage not in _STAGE_LINEAGE_POOLS:
+        return dict(output), 0
+    frozen = snapshot_data if isinstance(snapshot_data, Mapping) else {}
+    upstream_rows = _lineage_rows(upstream_output, "A1" if stage == "A2" else "A2")
+    context_rows = _lineage_context_rows(frozen, "A2_BOTTLENECK_CONTEXT")
+    a3_context_rows = _lineage_context_rows(frozen, "A3_DETERMINISTIC_CONTEXT")
+    origins = _lineage_origin_rows(frozen)
+    result = dict(output)
+    changed = 0
+
+    def canonicalize(raw_item: Any) -> Any:
+        nonlocal changed
+        if not isinstance(raw_item, Mapping):
+            return raw_item
+        item = dict(raw_item)
+        symbol = _first_symbol(item.get("symbol"))
+        if not symbol:
+            return item
+        source = upstream_rows.get(symbol, {})
+        context = context_rows.get(symbol, {})
+        v2_context_contract = "A2_BOTTLENECK_CONTEXT" in frozen
+
+        company_name = (
+            # The immutable G0 directory is the strongest name authority.  The
+            # deterministic gate context/upstream row are fallbacks for old
+            # snapshots that did not persist the directory name.
+            _lineage_catalog_name(frozen, symbol)
+            or _lineage_text(context, "company_name", "name", "sec_name")
+            or _lineage_text(source, "company_name", "name", "sec_name")
+        )
+        theme_id = (
+            _lineage_text(context, "theme_id", "primary_theme")
+            or _lineage_text(source, "primary_theme", "theme_id")
+        )
+        node_id = (
+            _lineage_text(context, "industry_chain_node", "node_id")
+            or _lineage_text(source, "industry_chain_node", "node_id")
+        )
+        # Old replay fixtures did not have a deterministic-v2 context.  Keep
+        # their existing response fields readable, but mark the row as legacy
+        # lineage below; production v2 snapshots always take the locked path.
+        if not v2_context_contract and stage == "A2":
+            company_name = company_name or _lineage_text(item, "company_name", "name", "sec_name")
+            theme_id = theme_id or _lineage_text(item, "theme_id", "primary_theme")
+            node_id = node_id or _lineage_text(item, "industry_chain_node", "node_id")
+        if stage == "A2":
+            route = _a2_item_route(source, frozen, symbol)
+            if not v2_context_contract:
+                route = route or _lineage_text(item, "a2_route", "selection_route", "route")
+            market_role = (
+                _lineage_text(context, "deterministic_market_role", "deterministic_role", "market_role", "role")
+                or _lineage_text(source, "market_role", "role", "a2_role")
+            )
+            if not v2_context_contract:
+                market_role = market_role or _lineage_text(item, "market_role", "role", "a2_role")
+            upstream_id = _lineage_text(
+                context,
+                "upstream_candidate_id",
+                "candidate_id",
+                "parent_candidate_id",
+            ) or _lineage_text(source, "candidate_id", "upstream_candidate_id", "parent_candidate_id")
+        else:
+            route = _lineage_text(source, "a2_route", "selection_route", "route")
+            if route:
+                route = route.upper()
+            market_role = _lineage_text(source, "market_role", "role", "a2_role")
+            if market_role:
+                market_role = market_role.upper()
+            upstream_id = _lineage_text(
+                source,
+                "upstream_candidate_id",
+                "candidate_id",
+                "parent_candidate_id",
+            )
+
+        if market_role:
+            market_role = market_role.upper()
+        if route:
+            route = route.upper()
+
+        candidate_origin: str | None = None
+        if stage == "A3":
+            candidate_origin = origins.get(symbol)
+            if candidate_origin not in {"FOCUS", "WATCH_ONLY"}:
+                candidate_origin = _lineage_text(source, "candidate_origin")
+                candidate_origin = candidate_origin.upper() if candidate_origin else None
+            if candidate_origin not in {"FOCUS", "WATCH_ONLY"} and "A3_CANDIDATE_ORIGIN" not in frozen:
+                candidate_origin = _lineage_text(item, "candidate_origin")
+                candidate_origin = candidate_origin.upper() if candidate_origin else None
+            if candidate_origin not in {"FOCUS", "WATCH_ONLY"}:
+                candidate_origin = None
+            technical_context = a3_context_rows.get(symbol, {})
+        else:
+            technical_context = {}
+
+        canonical = {
+            "symbol": symbol,
+            "company_name": company_name,
+            "name": company_name,
+            "theme_id": theme_id,
+            "primary_theme": theme_id,
+            "industry_chain_node": node_id,
+            "node_id": node_id,
+            "route": route,
+            "a2_route": route,
+            "selection_route": route,
+            "market_role": market_role,
+            "role": market_role,
+            "a2_role": market_role,
+        }
+        if stage == "A2":
+            canonical["upstream_candidate_id"] = upstream_id
+        else:
+            canonical["upstream_candidate_id"] = upstream_id
+            canonical["parent_candidate_id"] = upstream_id
+            canonical["candidate_origin"] = candidate_origin
+            if technical_context:
+                canonical["deterministic_technical_score"] = technical_context.get("technical_score")
+                canonical["deterministic_score_breakdown"] = technical_context.get("technical_score_breakdown")
+                canonical["deterministic_score_coverage"] = technical_context.get("technical_score_coverage")
+                canonical["deterministic_gate_status"] = technical_context.get("status")
+                canonical["deterministic_reason_codes"] = list(technical_context.get("reason_codes") or ())
+                canonical["deterministic_price_evidence"] = {
+                    "reward_risk": technical_context.get("reward_risk"),
+                    "stop_distance_pct": technical_context.get("stop_distance_pct"),
+                    "minimum_reward_risk": technical_context.get("minimum_reward_risk"),
+                    "minimum_technical_score": technical_context.get("minimum_technical_score"),
+                    "maximum_stop_distance_pct": technical_context.get("maximum_stop_distance_pct"),
+                    "price_levels_hash": technical_context.get("price_levels_hash"),
+                    "factor_snapshot_hash": technical_context.get("factor_snapshot_hash"),
+                }
+
+        required_values = [
+            ("company_name", company_name),
+            ("theme_id", theme_id),
+            ("industry_chain_node", node_id),
+            ("route", route),
+            ("market_role", market_role),
+            ("upstream_candidate_id", upstream_id),
+        ]
+        if stage == "A3":
+            required_values.append(("candidate_origin", candidate_origin))
+        missing = [
+            field for field, value in required_values
+            if not value
+        ]
+        for key, value in canonical.items():
+            if key not in item or item.get(key) != value:
+                item[key] = value
+                changed += 1
+        required_count = len(required_values)
+        status = "COMPLETE" if not missing else "PARTIAL" if len(missing) < required_count else "MISSING"
+        if item.get("lineage_status") != status:
+            item["lineage_status"] = status
+            changed += 1
+        if item.get("lineage_missing_fields") != missing:
+            item["lineage_missing_fields"] = missing
+            changed += 1
+        if item.get("lineage_source_stage") != ("A1_UPSTREAM" if stage == "A2" else "A2_UPSTREAM"):
+            item["lineage_source_stage"] = "A1_UPSTREAM" if stage == "A2" else "A2_UPSTREAM"
+            changed += 1
+        if item.get("lineage_schema_version") != _STAGE_LINEAGE_SCHEMA:
+            item["lineage_schema_version"] = _STAGE_LINEAGE_SCHEMA
+            changed += 1
+        if missing:
+            existing = item.get("reason_codes") if isinstance(item.get("reason_codes"), list) else []
+            reasons = list(dict.fromkeys([*existing, _STAGE_LINEAGE_REASON[stage]]))
+            if item.get("reason_codes") != reasons:
+                item["reason_codes"] = reasons
+                changed += 1
+        return item
+
+    for pool in _STAGE_LINEAGE_POOLS[stage]:
+        values = result.get(pool)
+        if isinstance(values, list):
+            result[pool] = [canonicalize(item) for item in values]
+    return result, changed
+
+
+def _a2_rejection_has_hard_fact_veto(
+    item: Mapping[str, Any],
+    context: Mapping[str, Any],
+) -> bool:
+    reason_values: list[str] = []
+    # Only server/deterministic context can constitute a hard factual veto.
+    # A model must not prevent its own rejection from being demoted simply by
+    # echoing a hard-looking reason code in the response.
+    for source in (context,):
+        for key in ("reason_codes", "deterministic_reason_codes", "hard_reason_codes"):
+            values = source.get(key)
+            if isinstance(values, Sequence) and not isinstance(values, (str, bytes, bytearray)):
+                reason_values.extend(str(value).strip().upper() for value in values if str(value).strip())
+    return any(
+        any(marker in reason for marker in _A2_LLM_REJECT_HARD_MARKERS)
+        for reason in reason_values
+    )
+
+
+def _demote_a2_llm_rejects(
+    output: Mapping[str, Any],
+    snapshot_data: Mapping[str, Any] | None,
+) -> tuple[dict[str, Any], int]:
+    """Keep soft model rejects visible as A2 watch-only rows.
+
+    Deterministic hard rejects and locally created rows are left untouched.
+    This separates a model opinion from a fact-level veto while preserving the
+    original model reasons for later review.
+    """
+
+    frozen = snapshot_data if isinstance(snapshot_data, Mapping) else {}
+    contexts = _lineage_context_rows(frozen, "A2_BOTTLENECK_CONTEXT")
+    result = dict(output)
+    rejected = result.get("rejected_candidates")
+    if not isinstance(rejected, list):
+        return result, 0
+    watch = list(result.get("watch_only_pool")) if isinstance(result.get("watch_only_pool"), list) else []
+    retained: list[Any] = []
+    changed = 0
+    for raw in rejected:
+        if not isinstance(raw, Mapping):
+            retained.append(raw)
+            continue
+        symbol = _first_symbol(raw.get("symbol"))
+        context = contexts.get(symbol, {})
+        deterministic_status = str(
+            context.get("deterministic_status")
+            or context.get("status")
+            or context.get("local_partition")
+            or ""
+        ).strip().upper()
+        if (
+            symbol
+            and raw.get("local_decision") is not True
+            and deterministic_status in {"REVIEW_CANDIDATE", "LOCAL_MONITOR"}
+            and not _a2_rejection_has_hard_fact_veto(raw, context)
+        ):
+            demoted = dict(raw)
+            reasons = demoted.get("reason_codes") if isinstance(demoted.get("reason_codes"), list) else []
+            demoted["reason_codes"] = list(dict.fromkeys([*reasons, "A2_LLM_REJECT_DEMOTED_TO_WATCH"]))
+            demoted["status"] = "WATCH_ONLY"
+            demoted["local_partition"] = "LLM_REJECT_DEMOTED_TO_WATCH"
+            demoted["llm_decision"] = "REJECT"
+            watch.append(demoted)
+            changed += 1
+        else:
+            retained.append(raw)
+    if changed:
+        result["watch_only_pool"] = _deduplicate_stage_items("watch_only_pool", watch)
+        result["rejected_candidates"] = _deduplicate_stage_items("rejected_candidates", retained)
+    return result, changed
 
 
 def _canonicalize_stage_pool_fields(
@@ -6469,25 +7015,64 @@ def _a2_item_route(
     snapshot_data: Mapping[str, Any],
     symbol: str,
 ) -> str | None:
-    """Return an explicit or deterministically inferred A2 selection route."""
+    """Return the server-owned A2 route for one symbol.
 
+    A deterministic-v2 snapshot carries ``eligible_routes`` and a preferred
+    route in ``A2_BOTTLENECK_CONTEXT``.  Those fields are authoritative and
+    take precedence over a model response.  An empty v2 route list means that
+    no route is available; it must never be silently inferred as
+    ``SUPPLY_CHAIN_ALPHA``.  Explicit item routes are retained only for old
+    snapshots that predate the route context contract.
+    """
+
+    raw_context = snapshot_data.get("A2_BOTTLENECK_CONTEXT")
+    context = raw_context.get(symbol) if isinstance(raw_context, Mapping) else None
+    if isinstance(context, Mapping):
+        preferred = str(
+            context.get("preferred_route")
+            or context.get("deterministic_route")
+            or context.get("route")
+            or ""
+        ).strip().upper()
+        eligible = context.get("eligible_routes")
+        if isinstance(eligible, Sequence) and not isinstance(eligible, (str, bytes, bytearray)):
+            normalized = [str(value).strip().upper() for value in eligible if str(value).strip()]
+            if preferred in normalized:
+                return preferred
+            if MARKET_CORE_ROUTE in normalized:
+                return MARKET_CORE_ROUTE
+            if SUPPLY_CHAIN_ALPHA_ROUTE in normalized:
+                return SUPPLY_CHAIN_ALPHA_ROUTE
+            # v2 explicitly says there is no usable route.  Do not inspect
+            # model-supplied fields below this return.
+            return None
+        # A legacy snapshot may explicitly mark the route as such.  This is
+        # intentionally opt-in for any context that has a route vocabulary;
+        # merely having a v2 context mapping is no longer enough to infer the
+        # supply-chain route.
+        legacy_route = str(
+            context.get("legacy_route")
+            or context.get("legacy_selection_route")
+            or ""
+        ).strip().upper()
+        if legacy_route in {MARKET_CORE_ROUTE, SUPPLY_CHAIN_ALPHA_ROUTE}:
+            return legacy_route
+        if context.get("legacy_route_inference") is True:
+            return SUPPLY_CHAIN_ALPHA_ROUTE
+        if "eligible_routes" not in context and not context.get("route_context_schema"):
+            # Old bottleneck snapshots exposed only source references and had
+            # no route vocabulary at all.  Their shape is the explicit legacy
+            # compatibility signal.  A v2 snapshot always writes the schema
+            # and an eligible_routes list (including an empty list).
+            return SUPPLY_CHAIN_ALPHA_ROUTE
+        return None
+
+    # Pre-v2 callers/checkpoints may carry only an item-level route.  Keep this
+    # compatibility path explicit and deterministic; it is not used by the
+    # production v2 context created in ``_with_a2_bottleneck_context``.
     explicit = str(item.get("a2_route") or item.get("selection_route") or item.get("route") or "").strip().upper()
     if explicit in {MARKET_CORE_ROUTE, SUPPLY_CHAIN_ALPHA_ROUTE}:
         return explicit
-    raw_context = snapshot_data.get("A2_BOTTLENECK_CONTEXT")
-    context = raw_context.get(symbol) if isinstance(raw_context, Mapping) else None
-    eligible = context.get("eligible_routes") if isinstance(context, Mapping) else None
-    if isinstance(eligible, Sequence) and not isinstance(eligible, (str, bytes, bytearray)):
-        normalized = [str(value).strip().upper() for value in eligible]
-        if MARKET_CORE_ROUTE in normalized:
-            return MARKET_CORE_ROUTE
-        if SUPPLY_CHAIN_ALPHA_ROUTE in normalized:
-            return SUPPLY_CHAIN_ALPHA_ROUTE
-    if isinstance(context, Mapping):
-        # Historical deterministic-v2 snapshots predate the dual-route field
-        # and represented only the strict bottleneck path.  Keep those frozen
-        # replays auditable instead of silently treating them as MARKET_CORE.
-        return SUPPLY_CHAIN_ALPHA_ROUTE
     return None
 
 
@@ -6547,8 +7132,7 @@ def _apply_a2_lineage_policy(
         if theme_id not in valid_active_themes:
             reasons.append("A2_THEME_LINEAGE_INVALID")
         role = str(item.get("market_role") or "").strip()
-        focus_roles = {"LEADER", "CORE_ARMY", "TREND_CORE", "CHAIN_RESONANCE", "FIRST_MOVER"}
-        if role not in focus_roles:
+        if role not in A2_FOCUS_ROLES:
             reasons.append("A2_MARKET_ROLE_NOT_FOCUS_ELIGIBLE")
         if _safe_float(item.get("identifiability_score")) < minimum_identity:
             reasons.append("A2_IDENTIFIABILITY_BELOW_MINIMUM")
@@ -7445,10 +8029,19 @@ def _with_a2_bottleneck_context(
             continue
         context[symbol] = {
             **dict(item.get("bottleneck_context") or {}),
+            # These fields are emitted by the deterministic gate and are
+            # authoritative for every later A2/A3 model response.
+            "company_name": item.get("name"),
+            "theme_id": item.get("theme_id"),
+            "industry_chain_node": item.get("node_id"),
+            "upstream_candidate_id": item.get("upstream_candidate_id"),
+            "deterministic_status": item.get("status"),
+            "deterministic_route": item.get("route"),
             "deterministic_score": item.get("score"),
             "deterministic_market_role": item.get("role"),
             "identifiability_score": item.get("identifiability_score"),
             "identifiability_breakdown": dict(item.get("role_breakdown") or {}),
+            "role_breakdown": dict(item.get("role_breakdown") or {}),
             "a2_factor_scores": dict(item.get("a2_factor_scores") or {}),
             "factor_coverage": dict(item.get("factor_coverage") or {}),
             "critical_factor_coverage": dict(item.get("critical_factor_coverage") or {}),
@@ -7458,6 +8051,7 @@ def _with_a2_bottleneck_context(
             "eligible_routes": list(item.get("eligible_routes") or ()),
             "preferred_route": item.get("route"),
             "route_eligibility": dict(item.get("route_eligibility") or {}),
+            "route_context_schema": "a2-route-lineage/1",
         }
     overlay_hash = _sha256_json({
         "base_snapshot_hash": snapshot.snapshot_hash,
@@ -7495,6 +8089,48 @@ def _with_a3_candidate_context(
     data["A3_CANDIDATE_SCOPE"] = sorted(normalized)
     return FrozenInputSnapshot(
         snapshot_id=f"{snapshot.snapshot_id}:a3-candidates:{overlay_hash[:12]}",
+        data=data,
+        snapshot_hash=overlay_hash,
+        as_of=snapshot.as_of,
+    )
+
+
+def _with_a3_deterministic_context(
+    snapshot: FrozenInputSnapshot,
+    gate: DeterministicGateResult,
+) -> FrozenInputSnapshot:
+    """Persist A3's server-owned score and veto evidence for every pool."""
+
+    keys = (
+        "symbol",
+        "status",
+        "technical_score",
+        "technical_score_breakdown",
+        "technical_score_coverage",
+        "technical_score_authoritative",
+        "reward_risk",
+        "stop_distance_pct",
+        "minimum_reward_risk",
+        "minimum_technical_score",
+        "maximum_stop_distance_pct",
+        "price_levels_hash",
+        "factor_snapshot_hash",
+        "reason_codes",
+    )
+    context = {
+        str(item.get("symbol")): {key: item.get(key) for key in keys}
+        for item in gate.decisions
+        if str(item.get("symbol") or "")
+    }
+    overlay_hash = _sha256_json({
+        "base_snapshot_hash": snapshot.snapshot_hash,
+        "stage": "A3_DETERMINISTIC_CONTEXT",
+        "context": context,
+    })
+    data = dict(snapshot.data)
+    data["A3_DETERMINISTIC_CONTEXT"] = context
+    return FrozenInputSnapshot(
+        snapshot_id=f"{snapshot.snapshot_id}:a3-gate:{overlay_hash[:12]}",
         data=data,
         snapshot_hash=overlay_hash,
         as_of=snapshot.as_of,

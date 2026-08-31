@@ -52,7 +52,12 @@ _PRICE_FIELDS = (
 )
 
 
-def build_technical_aggregates(snapshot: TechnicalFactorSnapshot) -> dict[str, Any]:
+def build_technical_aggregates(
+    snapshot: TechnicalFactorSnapshot,
+    *,
+    minimum_reward_risk: float = 2.0,
+    max_stop_distance_pct: float = 0.06,
+) -> dict[str, Any]:
     """Build the deterministic ``KLINE_PATTERNS`` and ``PRICE_LEVELS`` maps.
 
     ``TechnicalFactorSnapshot`` normally contains only bars at or before
@@ -65,7 +70,12 @@ def build_technical_aggregates(snapshot: TechnicalFactorSnapshot) -> dict[str, A
     future = _future_bar(snapshot)
     return {
         "KLINE_PATTERNS": _build_kline(snapshot, future=future),
-        "PRICE_LEVELS": _build_price_levels(snapshot, future=future),
+        "PRICE_LEVELS": _build_price_levels(
+            snapshot,
+            future=future,
+            minimum_reward_risk=minimum_reward_risk,
+            max_stop_distance_pct=max_stop_distance_pct,
+        ),
     }
 
 
@@ -75,10 +85,20 @@ def build_kline_patterns(snapshot: TechnicalFactorSnapshot) -> dict[str, Any]:
     return _build_kline(snapshot, future=_future_bar(snapshot))
 
 
-def build_price_levels(snapshot: TechnicalFactorSnapshot) -> dict[str, Any]:
+def build_price_levels(
+    snapshot: TechnicalFactorSnapshot,
+    *,
+    minimum_reward_risk: float = 2.0,
+    max_stop_distance_pct: float = 0.06,
+) -> dict[str, Any]:
     """Build only the daily/5-minute closed-bar price-level projection."""
 
-    return _build_price_levels(snapshot, future=_future_bar(snapshot))
+    return _build_price_levels(
+        snapshot,
+        future=_future_bar(snapshot),
+        minimum_reward_risk=minimum_reward_risk,
+        max_stop_distance_pct=max_stop_distance_pct,
+    )
 
 
 def _build_kline(snapshot: TechnicalFactorSnapshot, *, future: OHLCVBar | None) -> dict[str, Any]:
@@ -181,7 +201,13 @@ def _build_kline(snapshot: TechnicalFactorSnapshot, *, future: OHLCVBar | None) 
     return base
 
 
-def _build_price_levels(snapshot: TechnicalFactorSnapshot, *, future: OHLCVBar | None) -> dict[str, Any]:
+def _build_price_levels(
+    snapshot: TechnicalFactorSnapshot,
+    *,
+    future: OHLCVBar | None,
+    minimum_reward_risk: float,
+    max_stop_distance_pct: float,
+) -> dict[str, Any]:
     base = _base(snapshot, available=False, reason_code="NO_CLOSED_BARS")
     base.update({field: None for field in _PRICE_FIELDS})
     if future is not None:
@@ -280,10 +306,10 @@ def _build_price_levels(snapshot: TechnicalFactorSnapshot, *, future: OHLCVBar |
         "missing_fields": missing,
         "planning_ready": all(planning[field] is not None for field in planning),
         "planning_constraints": {
-            "max_stop_distance_pct": 0.06,
-            "minimum_reward_risk": 2.0,
-            "passes_stop_distance": stop_distance is not None and stop_distance <= 0.06,
-            "passes_reward_risk": reward_risk is not None and reward_risk >= 2.0,
+            "max_stop_distance_pct": max_stop_distance_pct,
+            "minimum_reward_risk": minimum_reward_risk,
+            "passes_stop_distance": stop_distance is not None and stop_distance <= max_stop_distance_pct,
+            "passes_reward_risk": reward_risk is not None and reward_risk >= minimum_reward_risk,
         },
     })
     return base

@@ -148,6 +148,18 @@ def test_same_snapshot_has_stable_json_projection() -> None:
     assert first == second
 
 
+def test_price_constraints_use_effective_regime_thresholds() -> None:
+    snapshot = _snapshot(daily=[_daily_bar(index) for index in range(25)])
+    price = build_technical_aggregates(
+        snapshot,
+        minimum_reward_risk=2.5,
+        max_stop_distance_pct=0.04,
+    )["PRICE_LEVELS"]
+
+    assert price["planning_constraints"]["minimum_reward_risk"] == 2.5
+    assert price["planning_constraints"]["max_stop_distance_pct"] == 0.04
+
+
 def test_malformed_ohlc_geometry_is_rejected_before_aggregation() -> None:
     with pytest.raises(ValidationError, match="OHLC geometry"):
         OHLCVBar(
