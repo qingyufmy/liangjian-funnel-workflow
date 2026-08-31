@@ -1395,7 +1395,7 @@ def _frame_low(frame: Mapping[str, Any]) -> float | None:
 def _period_status(frame: Mapping[str, Any], *, require_explicit: bool) -> str:
     if not frame:
         return "UNKNOWN"
-    if frame.get("available") is False or frame.get("ready") is False:
+    if frame.get("available") is False:
         return "UNKNOWN"
     explicit: Any = None
     for key in ("closed", "completed", "is_closed", "is_completed"):
@@ -1420,6 +1420,15 @@ def _period_status(frame: Mapping[str, Any], *, require_explicit: bool) -> str:
     # unknown.  This is explicit evidence even for the strict A3 contract.
     if _latest_closed(frame):
         return "CLOSED"
+    # ``ready`` describes indicator completeness (for example whether a
+    # monthly MA60 can be calculated), not whether a formal period bar has
+    # closed.  A compact A3 factor can therefore legitimately carry
+    # ``ready=false`` together with a hash-bound ``latest.closed=true``.
+    # Only use readiness as a fallback after the explicit bar evidence above;
+    # never let a long-history indicator requirement turn every otherwise
+    # valid monthly frame into a DATA_GAP.
+    if frame.get("ready") is False:
+        return "UNKNOWN"
     if not require_explicit and _truthy(frame.get("ready")):
         return "CLOSED"
     return "UNKNOWN"

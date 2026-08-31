@@ -141,6 +141,25 @@ def test_formal_closed_period_remains_valid_while_current_period_is_observation_
     assert result.weekly_partial_observation["observation_only"] is True
 
 
+def test_closed_period_is_not_a_data_gap_when_long_ma_is_not_ready() -> None:
+    factor = _factor()
+    factor["timeframes"]["monthly"] = {
+        "ready": False,
+        "latest": {"closed": True, "close": 10.0},
+        "latest_partial": {"closed": True, "close": 10.8},
+        "moving_averages": {"ma5": 9.8, "ma20": 9.5, "ma60": None},
+        "reasons": ["INSUFFICIENT_MA60"],
+    }
+    result = _common(
+        {"symbol": "600017.SH", "market_role": "TREND_CORE"},
+        factor=factor,
+        a2={"market_role": "TREND_CORE", "relative_strength": {"percentile": 80}},
+    )
+    assert result.eligibility is Eligibility.QUALIFIED
+    assert result.strategy_facts["monthly_status"] == "CLOSED"
+    assert "MONTH_NOT_CLOSED" not in result.reason_codes
+
+
 def test_missing_daily_price_or_tradability_is_data_gap() -> None:
     result = evaluate_a3_strategy(
         {"symbol": "600007.SH", "market_role": "TREND_CORE"},
