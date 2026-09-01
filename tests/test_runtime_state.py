@@ -174,6 +174,90 @@ def test_plan_batch_conflict_rolls_back_every_insert(tmp_path):
     assert store.list_execution_plans() == ()
 
 
+def test_close_plan_replacement_invalidates_old_pending_but_preserves_current_and_active(tmp_path):
+    store = RuntimeStore(tmp_path / "runtime.sqlite3")
+    expires = datetime(2026, 9, 2, 15, 0, tzinfo=TZ)
+    store.publish_plan_batch(
+        [
+            {
+                "plan_id": "old-pending",
+                "lane_id": "lane-a",
+                "symbol": "600519.SH",
+                "status": PlanStatus.PENDING_MORNING_REVIEW.value,
+                "expires_at": expires,
+                "payload": {"source_run_id": "old"},
+            },
+            {
+                "plan_id": "old-active",
+                "lane_id": "lane-a",
+                "symbol": "000001.SZ",
+                "status": PlanStatus.ACTIVE_TODAY.value,
+                "expires_at": expires,
+                "payload": {"source_run_id": "old"},
+            },
+            {
+                "plan_id": "other-lane-pending",
+                "lane_id": "lane-b",
+                "symbol": "300001.SZ",
+                "status": PlanStatus.PENDING_MORNING_REVIEW.value,
+                "expires_at": expires,
+                "payload": {"source_run_id": "old"},
+            },
+        ]
+    )
+
+    current = {
+        "plan_id": "new-pending",
+        "lane_id": "lane-a",
+        "symbol": "600000.SH",
+        "status": PlanStatus.PENDING_MORNING_REVIEW.value,
+        "expires_at": expires,
+        "payload": {"source_run_id": "new"},
+    }
+    published = store.publish_plan_batch([current], invalidate_pending_lanes=("lane-a",))
+
+    assert [item["plan_id"] for item in published] == ["new-pending"]
+    assert store.get_execution_plan("old-pending")["status"] == PlanStatus.INVALIDATED.value
+    assert store.get_execution_plan("old-active")["status"] == PlanStatus.ACTIVE_TODAY.value
+    assert store.get_execution_plan("new-pending")["status"] == PlanStatus.PENDING_MORNING_REVIEW.value
+    assert store.get_execution_plan("other-lane-pending")["status"] == PlanStatus.PENDING_MORNING_REVIEW.value
+
+    # Re-publishing the same immutable plan is idempotent and must not retire
+    # the plan itself merely because it is in the replacement scope.
+    repeated = store.publish_plan_batch([current], invalidate_pending_lanes=("lane-a",))
+    assert [item["plan_id"] for item in repeated] == ["new-pending"]
+    assert store.get_execution_plan("new-pending")["status"] == PlanStatus.PENDING_MORNING_REVIEW.value
+
+
+def test_empty_close_plan_replacement_clears_pending_without_touching_active(tmp_path):
+    store = RuntimeStore(tmp_path / "runtime-empty.sqlite3")
+    expires = datetime(2026, 9, 2, 15, 0, tzinfo=TZ)
+    store.publish_plan_batch(
+        [
+            {
+                "plan_id": "stale-pending",
+                "lane_id": "lane-a",
+                "symbol": "600519.SH",
+                "status": PlanStatus.PENDING_MORNING_REVIEW.value,
+                "expires_at": expires,
+                "payload": {"source_run_id": "old"},
+            },
+            {
+                "plan_id": "live-active",
+                "lane_id": "lane-a",
+                "symbol": "000001.SZ",
+                "status": PlanStatus.ACTIVE_TODAY.value,
+                "expires_at": expires,
+                "payload": {"source_run_id": "old"},
+            },
+        ]
+    )
+
+    assert store.publish_plan_batch([], invalidate_pending_lanes=("lane-a",)) == ()
+    assert store.get_execution_plan("stale-pending")["status"] == PlanStatus.INVALIDATED.value
+    assert store.get_execution_plan("live-active")["status"] == PlanStatus.ACTIVE_TODAY.value
+
+
 def test_workflow_lane_state_and_real_trading_day_are_durable(tmp_path):
     store = RuntimeStore(tmp_path / "runtime.sqlite3")
     store.ensure_virtual_account("paper:lane-a", "model-a")

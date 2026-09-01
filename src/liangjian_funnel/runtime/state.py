@@ -1544,8 +1544,17 @@ class RuntimeStore:
         plans: Sequence[Mapping[str, Any]],
         *,
         expire_active_lanes: Sequence[str] = (),
+        invalidate_pending_lanes: Sequence[str] = (),
     ) -> tuple[dict[str, Any], ...]:
-        """Publish a validated multi-lane plan set in one SQLite transaction."""
+        """Publish a validated multi-lane plan set in one SQLite transaction.
+
+        ``invalidate_pending_lanes`` is used by a close publication to make
+        the new A3 result authoritative for the next morning.  Only older
+        ``PENDING_MORNING_REVIEW`` rows in those lanes are retired; the plan
+        ids in the current batch are explicitly preserved so an idempotent
+        re-publication cannot invalidate itself.  No ``ACTIVE_TODAY`` row is
+        touched by this replacement operation.
+        """
 
         normalized: list[dict[str, Any]] = []
         allowed_statuses = {PlanStatus.PENDING_MORNING_REVIEW.value, PlanStatus.ACTIVE_TODAY.value}
@@ -1562,6 +1571,10 @@ class RuntimeStore:
             normalized.append(item)
         now = _iso(_now())
         lanes = tuple(dict.fromkeys(str(item) for item in expire_active_lanes))
+        pending_lanes = tuple(dict.fromkeys(str(item) for item in invalidate_pending_lanes))
+        current_plan_ids_by_lane: dict[str, set[str]] = {}
+        for item in normalized:
+            current_plan_ids_by_lane.setdefault(str(item["lane_id"]), set()).add(str(item["plan_id"]))
 
         def operation(connection):
             for lane_id in lanes:
@@ -1569,6 +1582,29 @@ class RuntimeStore:
                     "UPDATE execution_plans SET status=?,updated_at=? WHERE lane_id=? AND status=?",
                     (PlanStatus.EXPIRED.value, now, lane_id, PlanStatus.ACTIVE_TODAY.value),
                 )
+            # A close result is a complete replacement for the next-session
+            # pending scope, including the valid-empty case.  Fetching the
+            # ids first lets us exclude every plan id in the current batch
+            # without constructing unbounded SQL placeholders.  The whole
+            # operation remains inside this BEGIN IMMEDIATE transaction.
+            for lane_id in pending_lanes:
+                protected_ids = current_plan_ids_by_lane.get(lane_id, set())
+                pending_rows = connection.execute(
+                    "SELECT plan_id FROM execution_plans WHERE lane_id=? AND status=?",
+                    (lane_id, PlanStatus.PENDING_MORNING_REVIEW.value),
+                ).fetchall()
+                for row in pending_rows:
+                    if str(row["plan_id"]) in protected_ids:
+                        continue
+                    connection.execute(
+                        "UPDATE execution_plans SET status=?,updated_at=? WHERE plan_id=? AND status=?",
+                        (
+                            PlanStatus.INVALIDATED.value,
+                            now,
+                            str(row["plan_id"]),
+                            PlanStatus.PENDING_MORNING_REVIEW.value,
+                        ),
+                    )
             rows: list[dict[str, Any]] = []
             for item in normalized:
                 existing = connection.execute(

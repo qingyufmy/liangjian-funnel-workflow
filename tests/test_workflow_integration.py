@@ -243,6 +243,58 @@ def test_plan_publication_allows_qualified_a2_watch_origin_as_probe(tmp_path):
     assert datetime.fromisoformat(str(plan["expires_at"])) == datetime(2026, 9, 1, 15, 0, tzinfo=TZ)
 
 
+def test_close_publication_replaces_pending_scope_even_when_new_a3_is_empty(tmp_path):
+    store = RuntimeStore(tmp_path / "runtime-replacement.sqlite3")
+    current = datetime(2026, 9, 1, 10, 12, tzinfo=TZ)
+    expiry = datetime(2026, 9, 2, 15, 0, tzinfo=TZ)
+    store.create_execution_plan(
+        "stale-pending",
+        "lane_1",
+        "600519.SH",
+        status=PlanStatus.PENDING_MORNING_REVIEW,
+        expires_at=expiry,
+        payload={"source_run_id": "old"},
+    )
+    store.create_execution_plan(
+        "active-today",
+        "lane_1",
+        "000001.SZ",
+        status=PlanStatus.ACTIVE_TODAY,
+        expires_at=expiry,
+        payload={"source_run_id": "old"},
+    )
+    result = ResearchRunResult(
+        run_id="new-close-empty",
+        generated_at=current,
+        snapshot_id="snapshot-empty",
+        snapshot_hash="a" * 64,
+        status="READY",
+        lanes=(
+            LaneResult(
+                "lane_1",
+                "model",
+                "READY",
+                (),
+                {"core_watch_pool": [], "secondary_watch_pool": []},
+            ),
+        ),
+        audit_paths=(),
+        markdown_path=None,
+    )
+
+    publication = WorkflowApplication._publish_plans(
+        SimpleNamespace(store=store),
+        result,
+        "close",
+        current,
+        snapshot_data={},
+    )
+
+    assert publication["created"] == []
+    assert store.get_execution_plan("stale-pending")["status"] == PlanStatus.INVALIDATED.value
+    assert store.get_execution_plan("active-today")["status"] == PlanStatus.ACTIVE_TODAY.value
+
+
 def test_plan_publication_allows_only_complete_secondary_probe(tmp_path):
     store = RuntimeStore(tmp_path / "runtime-secondary.sqlite3")
     current = datetime(2026, 8, 28, 15, 10, tzinfo=TZ)

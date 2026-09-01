@@ -4420,6 +4420,7 @@ class WorkflowApplication:
         published = self.store.publish_plan_batch(
             batch,
             expire_active_lanes=ready_lanes if formal_close else (),
+            invalidate_pending_lanes=ready_lanes if slot == "close" else (),
         )
         self.store.mark_workflow_runs_published(result.run_id, ready_lanes)
         created = [str(item["plan_id"]) for item in published]
