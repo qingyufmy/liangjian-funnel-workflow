@@ -4296,7 +4296,7 @@ def _active_a1_downstream_scope(payload: Mapping[str, Any] | None) -> tuple[str,
         symbols.update(
             _a1_output_partition_symbols(
                 output,
-                ("active_research_pool", "monitor_pool"),
+                ("active_research_pool",),
             )
         )
     return tuple(sorted(symbols))

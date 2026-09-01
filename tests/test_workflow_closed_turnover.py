@@ -134,7 +134,7 @@ def test_latest_closed_market_trade_date_uses_previous_session_before_close():
     ).isoformat() == "2026-08-28"
 
 
-def test_active_a1_downstream_scope_excludes_rejected_candidates():
+def test_active_a1_downstream_scope_excludes_monitor_and_rejected_candidates():
     payload = {
         "lanes": {
             "lane_1": {
@@ -155,7 +155,5 @@ def test_active_a1_downstream_scope_excludes_rejected_candidates():
     }
 
     assert _active_a1_downstream_scope(payload) == (
-        "000001.SZ",
         "600519.SH",
-        "688981.SH",
     )
