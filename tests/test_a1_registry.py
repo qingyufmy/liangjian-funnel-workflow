@@ -17,11 +17,29 @@ from liangjian_funnel.pipeline.model_client import ModelCallResult
 from liangjian_funnel.pipeline.prompts import PROMPT_FILENAMES
 from liangjian_funnel.pipeline.research import FrozenInputSnapshot, ResearchPipeline, _restrict_snapshot_to_symbols
 from liangjian_funnel.settings import Settings
-from liangjian_funnel.workflow import WorkflowApplication, WorkflowError, decide_a1_maintenance
+from liangjian_funnel.workflow import (
+    WorkflowApplication,
+    WorkflowError,
+    _a1_maintenance_run_id,
+    decide_a1_maintenance,
+)
 
 
 TZ = ZoneInfo("Asia/Shanghai")
 MODELS = ("deepseek-v4-pro-0813", "moonshotai/kimi-k3-free", "z-ai/glm-5.3-free")
+
+
+def test_a1_maintenance_attempt_ids_do_not_reuse_same_day_feature_binding() -> None:
+    first = datetime(2026, 9, 1, 18, 0, 0, 100, tzinfo=TZ)
+    retry = datetime(2026, 9, 1, 21, 45, 0, 200, tzinfo=TZ)
+
+    first_id = _a1_maintenance_run_id(first, "FULL")
+    retry_id = _a1_maintenance_run_id(retry, "FULL")
+
+    assert first_id != retry_id
+    assert first_id.startswith("2026-09-01-a1-full-")
+    assert retry_id.startswith("2026-09-01-a1-full-")
+    assert _a1_maintenance_run_id(retry, "FULL", explicit_run_id="operator-retry") == "operator-retry"
 
 
 def _settings(tmp_path: Path) -> Settings:

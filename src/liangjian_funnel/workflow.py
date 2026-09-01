@@ -1545,7 +1545,11 @@ class WorkflowApplication:
                 "reason_code": "A1_INCREMENTAL_BASELINE_MISSING",
                 "time": current.isoformat(),
             }
-        maintenance_run_id = run_id or f"{current.date()}-a1-{normalized_mode.lower()}"
+        maintenance_run_id = _a1_maintenance_run_id(
+            current,
+            normalized_mode,
+            explicit_run_id=run_id,
+        )
         progress = WorkflowProgress(
             self.settings.workflow_progress_path,
             run_id=maintenance_run_id,
@@ -5973,6 +5977,27 @@ def _safe_reason_code(exc: BaseException) -> str:
         return candidate
     name = type(exc).__name__.upper()
     return re.sub(r"[^A-Z0-9_]+", "_", name)[:120] or "UNEXPECTED_RUNTIME_ERROR"
+
+
+def _a1_maintenance_run_id(
+    current: datetime,
+    mode: str,
+    *,
+    explicit_run_id: str | None = None,
+) -> str:
+    """Return an attempt-unique A1 run id without weakening registry CAS.
+
+    A feature-store run binding is immutable.  Reusing a date-only id for a
+    second full/incremental attempt on the same day therefore binds the new
+    snapshot to the previous attempt and correctly fails.  The A1 registry
+    remains the owner of publication idempotency and atomic activation; this
+    identifier only separates append-only research/feature attempt records.
+    """
+
+    if explicit_run_id:
+        return str(explicit_run_id)
+    attempt = _aware(current).strftime("%Y%m%dT%H%M%S%f%z")
+    return f"{current.date()}-a1-{str(mode).strip().lower()}-{attempt}"
 
 
 def _aware(value: datetime) -> datetime:
