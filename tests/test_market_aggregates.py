@@ -68,6 +68,27 @@ def test_market_emotion_is_complete_and_deterministic() -> None:
     assert first["ladder_height"] == 5
     assert first["previous_day_promotion_rate"] == pytest.approx(0.5)
     assert first["temperature"] == "STRONG"
+    assert first["emotion_cycle_stage"] == "ACCELERATION"
+    assert first["new_long_permission"] == "ALLOW_CORE"
+    assert first["emotion_cycle_evidence"]["scoring_used"] is False
+
+
+def test_market_emotion_blocks_new_leader_plans_at_climax_and_retreat() -> None:
+    climax_records = [{"change_ratio_pct": 1.0}] * 80 + [{"change_ratio_pct": -1.0}] * 20
+    climax_facts = _facts()
+    climax_facts["LIMIT_UP_POOL"] = _fact([{"thscode": f"600{i:03d}.SH"} for i in range(80)])
+    climax_facts["LIMIT_BREAK_POOL"] = _fact([])
+    climax = build_market_emotion(climax_records, climax_facts, as_of=NOW)
+
+    assert climax["temperature"] == "OVERHEATED"
+    assert climax["emotion_cycle_stage"] == "CLIMAX"
+    assert climax["new_long_permission"] == "NO_NEW_ENTRY"
+
+    retreat_records = [{"change_ratio_pct": 1.0}] * 30 + [{"change_ratio_pct": -1.0}] * 70
+    retreat = build_market_emotion(retreat_records, _facts(), as_of=NOW)
+
+    assert retreat["emotion_cycle_stage"] in {"ICE_POINT", "RETREAT"}
+    assert retreat["new_long_permission"] == "NO_NEW_ENTRY"
 
 
 def test_market_emotion_rejects_future_and_low_breadth_coverage() -> None:

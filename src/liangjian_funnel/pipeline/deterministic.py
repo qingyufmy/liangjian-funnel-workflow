@@ -22,6 +22,8 @@ from .bottleneck import (
 )
 from .business_exposure import extract_business_exposure_facts
 from .feature_store import content_hash
+from .a1_selection_logic import FUNDAMENTAL, build_a1_selection_evidence
+from .a2_role_logic import UNRESOLVED as A2_BEHAVIOR_UNRESOLVED, classify_a2_stock
 from .a3_strategy import Eligibility, evaluate_a3_strategy
 
 
@@ -85,6 +87,7 @@ _A2_ATTRIBUTION_GATES: tuple[str, ...] = (
     "LOCAL_ELIGIBILITY",
     "THEME_SCORE_MIN",
     "IDENTIFIABILITY_MIN",
+    "BEHAVIOR_TYPE_RESOLVED",
     "LEADER_MIN_CRITERIA",
     "MAX_LEADERS_PER_THEME",
     "TIER_STRUCTURE",
@@ -264,7 +267,8 @@ def screen_a1(
     structured_exposure: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for fact in extract_business_exposure_facts(business):
         structured_exposure[str(fact["symbol"])].append(fact)
-    risk_symbols = _hard_risk_symbols(snapshot.get("RISK_EVENTS"))
+    hard_risk_events = _hard_risk_events(snapshot.get("RISK_EVENTS"))
+    risk_symbols = set(hard_risk_events)
     tradability = snapshot.get("TRADABILITY_FLAGS")
     tradability = tradability if isinstance(tradability, Mapping) else {}
     weights = snapshot.get("SCORE_WEIGHTS")
@@ -295,10 +299,18 @@ def screen_a1(
     institutional_contract = institutional_contract if isinstance(institutional_contract, Mapping) else {}
     institutional_symbols = institutional_contract.get("symbols")
     institutional_symbols = institutional_symbols if isinstance(institutional_symbols, Mapping) else {}
+    market_regime = snapshot.get("MARKET_REGIME_SNAPSHOT")
+    market_regime = market_regime if isinstance(market_regime, Mapping) else {}
+    pullback_evidence = snapshot.get("A1_PULLBACK_EVIDENCE")
+    pullback_evidence = pullback_evidence if isinstance(pullback_evidence, Mapping) else {}
+    minimum_financial_coverage = _number(minimums.get("minimum_financial_coverage", 0.60))
+    if minimum_financial_coverage is None or not 0 < minimum_financial_coverage <= 1:
+        minimum_financial_coverage = 0.60
 
     decisions: list[dict[str, Any]] = []
     provisional: dict[str, list[dict[str, Any]]] = defaultdict(list)
     source_hashes = _source_hashes(snapshot)
+    snapshot_as_of = _snapshot_as_of(snapshot)
     for symbol in symbols:
         memberships = (*industry.get(symbol, ()), *concept.get(symbol, ()))
         matched = _matched_links(memberships, links_by_code)
@@ -340,6 +352,33 @@ def screen_a1(
         primary_link = matched[0] if matched else {}
         primary_theme = theme_by_id.get(str(primary_link.get("theme_id") or ""), {}) if matched else {}
         primary_node = node_by_id.get(str(primary_link.get("node_id") or ""), {}) if matched else {}
+        a1_selection_evidence = build_a1_selection_evidence(
+            market_regime=market_regime,
+            company={
+                "industry": candidate.get("industry") or candidate.get("industry_name"),
+                "sector": primary_theme.get("display_name") or primary_theme.get("theme_id"),
+                "theme": primary_node.get("display_name") or primary_node.get("node_id"),
+                "style": candidate.get("style"),
+            },
+            pullback=(
+                pullback_evidence.get(symbol)
+                if isinstance(pullback_evidence.get(symbol), Mapping)
+                else None
+            ),
+            financial_metrics=financial_details,
+            required_financial_metrics=(
+                "revenue_growth",
+                "profit_growth",
+                "cashflow_quality",
+                "roe",
+                "debt_ratio",
+            ),
+        )
+        financial_coverage = _number(
+            a1_selection_evidence.get("financial_quality", {}).get("coverage_ratio")
+            if isinstance(a1_selection_evidence.get("financial_quality"), Mapping)
+            else None
+        ) or 0.0
         factor_details = _a1_factor_details(
             snapshot,
             symbol=symbol,
@@ -374,6 +413,12 @@ def screen_a1(
         if symbol in risk_symbols:
             hard_reject = True
             reason_codes.append("A1_RISK_EVENT_PRESENT")
+        if (
+            isinstance(a1_selection_evidence.get("pullback"), Mapping)
+            and a1_selection_evidence["pullback"].get("classification") == FUNDAMENTAL
+        ):
+            hard_reject = True
+            reason_codes.append("A1_FUNDAMENTAL_PULLBACK_HARD_REJECT")
         if not matched:
             status = "OUTSIDE_THEME"
             reason_codes.append("A1_OUTSIDE_DISCOVERED_THEME")
@@ -409,8 +454,27 @@ def screen_a1(
             reason_codes.append("A1_BUSINESS_EXPOSURE_UNSTRUCTURED")
         if institutional_seed:
             reason_codes.append("A1_INSTITUTIONAL_COVERAGE_SEED")
+        if financial_coverage < minimum_financial_coverage:
+            # The existing A1 factor-coverage gate remains authoritative.
+            # Subfactor coverage is preserved as a degradation signal instead
+            # of introducing a second overlapping veto that would shrink the
+            # research pool before the archetype-specific profiles are fully
+            # populated by the data layer.
+            reason_codes.append("A1_FINANCIAL_SUBFACTOR_COVERAGE_DEGRADED")
+        reason_codes.extend(
+            str(code)
+            for code in a1_selection_evidence.get("reason_codes", ())
+            if str(code)
+        )
 
         decision = {
+            "decision_id": content_hash({
+                "stage": "A1_LOCAL_SCREEN",
+                "symbol": symbol,
+                "as_of": snapshot_as_of,
+                "feature_version": FEATURE_VERSION,
+                "source_hashes": source_hashes,
+            })[:24],
             "symbol": symbol,
             "name": str(candidate.get("name") or candidate.get("security_name") or "") or None,
             "stage": "A1_LOCAL_SCREEN",
@@ -438,6 +502,20 @@ def screen_a1(
                 if not isinstance(value, Mapping) or value.get("available") is not True
             ],
             "financial_features": financial_details,
+            "financial_subfactor_coverage": round(financial_coverage, 6),
+            "minimum_financial_subfactor_coverage": round(minimum_financial_coverage, 6),
+            "company_archetype": (
+                a1_selection_evidence.get("archetype", {}).get("classification")
+                if isinstance(a1_selection_evidence.get("archetype"), Mapping)
+                else "UNCLASSIFIED"
+            ),
+            "pullback_cause": (
+                a1_selection_evidence.get("pullback", {}).get("classification")
+                if isinstance(a1_selection_evidence.get("pullback"), Mapping)
+                else "UNKNOWN"
+            ),
+            "hard_risk_events": hard_risk_events.get(symbol, []),
+            "a1_selection_evidence": a1_selection_evidence,
             "business_exposure_facts": exposure_facts,
             "maximum_revenue_exposure_pct": maximum_exposure if exposure_facts else None,
             "amount": amount,
@@ -448,6 +526,7 @@ def screen_a1(
             "sent_to_llm": False,
             "feature_version": FEATURE_VERSION,
             "source_hashes": source_hashes,
+            "as_of": snapshot_as_of,
         }
         decisions.append(decision)
         if status == "LOCAL_CANDIDATE":
@@ -661,6 +740,11 @@ def screen_a2(
     enforce_coverage = configured_weights or "CAPITAL_FLOW_SNAPSHOT" in snapshot
     coverage_minimum = _a2_coverage_minimum(snapshot)
     source_hashes = _source_hashes(snapshot)
+    snapshot_as_of = _snapshot_as_of(snapshot)
+    raw_market_emotion = snapshot.get("MARKET_EMOTION_SNAPSHOT")
+    market_emotion = raw_market_emotion if isinstance(raw_market_emotion, Mapping) else {}
+    raw_market_funding = snapshot.get("MARKET_FUNDING_SNAPSHOT")
+    market_funding = raw_market_funding if isinstance(raw_market_funding, Mapping) else {}
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     decisions: list[dict[str, Any]] = []
     for item in rows:
@@ -727,10 +811,26 @@ def screen_a2(
             attention=symbol in attention,
             dragon=symbol in dragon,
         )
-        role = _specialize_market_role(
+        legacy_role = _specialize_market_role(
             _role(identifiability, liquidity, relative),
             factor_scores,
         )
+        behavior_decision = classify_a2_stock(
+            symbol=symbol,
+            name=item.get("company_name") or item.get("name") or candidate.get("name"),
+            as_of=_snapshot_as_of(snapshot),
+            evidence=_a2_behavior_evidence(
+                item=item,
+                factor_scores=factor_scores,
+                identifiability=identifiability,
+                minimum_identifiability_score=minimum_identifiability_score,
+                relative=relative,
+                liquidity=liquidity,
+                legacy_role=legacy_role,
+                as_of=_snapshot_as_of(snapshot),
+            ),
+        )
+        role = str(behavior_decision.get("market_role") or A2_BEHAVIOR_UNRESOLVED)
         route_results = _a2_route_results(
             item=item,
             identifiability=identifiability,
@@ -793,6 +893,7 @@ def screen_a2(
             reasons.extend(sorted(route_data_gap_reasons))
         if not has_route:
             reasons.append("A2_NO_ROUTE_READY")
+        reasons.extend(str(code) for code in behavior_decision.get("reason_codes", ()) if str(code))
         data_sufficiency_state = (
             "DEGRADED" if missing_optional_factors or route_coverage_below_minimum or route_data_gap_reasons
             else "SUFFICIENT"
@@ -817,6 +918,13 @@ def screen_a2(
         elif not configured_weights:
             reasons.append("A2_SCORE_WEIGHTS_FALLBACK")
         decision = {
+            "decision_id": content_hash({
+                "stage": "A2_LOCAL_ROLE",
+                "symbol": symbol,
+                "as_of": snapshot_as_of,
+                "feature_version": FEATURE_VERSION,
+                "source_hashes": source_hashes,
+            })[:24],
             "symbol": symbol,
             "name": item.get("company_name") or item.get("name") or candidate.get("name"),
             "stage": "A2_LOCAL_ROLE",
@@ -837,6 +945,27 @@ def screen_a2(
             "business_exposure_facts": item.get("business_exposure_facts", []),
             "source_refs": list(item.get("source_refs") or ()) if isinstance(item.get("source_refs"), Sequence) and not isinstance(item.get("source_refs"), (str, bytes, bytearray)) else [],
             "role": role,
+            "legacy_market_role": legacy_role,
+            "stock_behavior_type": behavior_decision.get("stock_behavior_type"),
+            "route_permission": list(behavior_decision.get("route_permission") or ()),
+            "behavior_type_decision": behavior_decision,
+            "market_emotion_cycle": {
+                "available": market_emotion.get("available") is True,
+                "stage": market_emotion.get("emotion_cycle_stage"),
+                "new_long_permission": market_emotion.get("new_long_permission"),
+                "as_of": market_emotion.get("as_of"),
+                "reason_codes": list(market_emotion.get("emotion_cycle_reason_codes") or ()),
+            },
+            "market_funding": {
+                "available": market_funding.get("available") is True,
+                "state": market_funding.get("state") or "UNRESOLVED",
+                "amount_ratio": market_funding.get("amount_ratio"),
+                "coverage": market_funding.get("coverage"),
+                "latest_trade_date": market_funding.get("latest_trade_date"),
+                "reason_codes": list(market_funding.get("reason_codes") or ()),
+                "turnover_is_capital_flow": False,
+                "execution_context_only": True,
+            },
             "route": eligible_routes[0] if eligible_routes else None,
             "eligible_routes": eligible_routes,
             "route_eligibility": route_results,
@@ -861,6 +990,7 @@ def screen_a2(
             "sent_to_llm": False,
             "feature_version": FEATURE_VERSION,
             "source_hashes": source_hashes,
+            "as_of": snapshot_as_of,
         }
         decisions.append(decision)
         if status == "REVIEW_CANDIDATE":
@@ -929,6 +1059,158 @@ def screen_a2(
         ),
         rejected_symbols=tuple(str(item["symbol"]) for item in decisions if item["status"] == "HARD_REJECT"),
     )
+
+
+def _a2_behavior_evidence(
+    *,
+    item: Mapping[str, Any],
+    factor_scores: Mapping[str, Mapping[str, Any]],
+    identifiability: float,
+    minimum_identifiability_score: float,
+    relative: float,
+    liquidity: float,
+    legacy_role: str,
+    as_of: str | None,
+) -> dict[str, Any]:
+    """Adapt frozen A2 facts to the strict emotion/trend contract.
+
+    Thresholds here only translate existing deterministic observations into a
+    boolean fact.  They do not create another aggregate score.  Every adapter
+    keeps source, value and availability so a missing feed cannot become a
+    bearish observation.
+    """
+
+    def factor_fact(
+        name: str,
+        *,
+        threshold: float,
+        value: Any = None,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        factor = factor_scores.get(name)
+        factor = factor if isinstance(factor, Mapping) else {}
+        score = _number(factor.get("score"))
+        available = factor.get("available") is True and score is not None
+        refs = _payload_source_refs(factor)
+        source = str(factor.get("source") or "").strip()
+        if source:
+            refs.append(source)
+        return {
+            "available": available,
+            "met": score >= threshold if available else None,
+            "value": value if value is not None else {"score": score, "threshold": threshold},
+            "source_refs": list(dict.fromkeys(refs)),
+            "as_of": as_of,
+            "reason": reason or (str(factor.get("reason_code") or "A2_FACTOR_OBSERVED") if available else str(factor.get("reason_code") or "A2_FACTOR_UNAVAILABLE")),
+        }
+
+    node_id = item.get("industry_chain_node") or item.get("node_id")
+    theme_id = item.get("primary_theme") or item.get("theme_id")
+    business_facts = [
+        fact for fact in item.get("business_exposure_facts", ())
+        if isinstance(fact, Mapping)
+    ]
+    supply_available = bool(node_id and theme_id and business_facts)
+    supply_refs = list(dict.fromkeys(
+        str(fact.get("evidence_ref") or fact.get("source_ref") or "")
+        for fact in business_facts
+        if str(fact.get("evidence_ref") or fact.get("source_ref") or "")
+    ))
+    supply = {
+        "available": supply_available,
+        "met": True if supply_available else None,
+        "value": {
+            "theme_id": theme_id,
+            "node_id": node_id,
+            "industry_logic": True if supply_available else None,
+        },
+        "source_refs": supply_refs,
+        "as_of": as_of,
+        "reason": "A2_A1_CHAIN_AND_BUSINESS_LINEAGE_CONFIRMED" if supply_available else "A2_A1_CHAIN_OR_BUSINESS_LINEAGE_MISSING",
+    }
+
+    tier = factor_scores.get("tier_structure")
+    tier = tier if isinstance(tier, Mapping) else {}
+    ladder_height = _number(tier.get("ladder_height"))
+    ladder_available = tier.get("available") is True and (
+        ladder_height is not None or str(tier.get("availability_state") or "").upper() == "OBSERVED_ABSENT"
+    )
+    ladder_refs = _payload_source_refs(tier)
+    tier_source = str(tier.get("source") or "").strip()
+    if tier_source:
+        ladder_refs.append(tier_source)
+    ladder = {
+        "available": ladder_available,
+        "met": (
+            ladder_height is not None and ladder_height >= 2
+        ) if ladder_available else None,
+        "value": {
+            "ladder_height": ladder_height,
+            "tier": tier.get("tier"),
+            "market_role": legacy_role,
+        },
+        "source_refs": list(dict.fromkeys(ladder_refs)),
+        "as_of": as_of,
+        "reason": "A2_LADDER_OBSERVED" if ladder_available else str(tier.get("reason_code") or "A2_LADDER_UNAVAILABLE"),
+    }
+
+    weekly = factor_scores.get("weekly_confirmation")
+    weekly = weekly if isinstance(weekly, Mapping) else {}
+    trend_proxy = factor_scores.get("trend_strength_proxy")
+    trend_proxy = trend_proxy if isinstance(trend_proxy, Mapping) else {}
+    medium_source = weekly if weekly.get("available") is True else trend_proxy
+    medium_name = "weekly_confirmation" if medium_source is weekly else "trend_strength_proxy"
+    medium_score = _number(medium_source.get("score"))
+    medium_available = medium_source.get("available") is True and medium_score is not None
+    medium_refs = _payload_source_refs(medium_source)
+    if str(medium_source.get("source") or ""):
+        medium_refs.append(str(medium_source.get("source")))
+
+    return {
+        "supply_chain_position": supply,
+        "capital_flow": factor_fact("capital_flow", threshold=50.0),
+        "ladder_structure": ladder,
+        # No authoritative crowding feed is currently frozen.  Keep the gap
+        # explicit rather than reusing turnover or capital flow as a proxy.
+        "crowding": {
+            "available": False,
+            "met": None,
+            "value": None,
+            "source_refs": [],
+            "as_of": as_of,
+            "reason": "A2_CROWDING_SOURCE_UNAVAILABLE",
+        },
+        "index_chain_resonance": factor_fact("index_chain_resonance", threshold=50.0),
+        "identifiability_liquidity": {
+            "available": True,
+            "met": identifiability >= minimum_identifiability_score and liquidity > 0,
+            "value": {
+                "identifiability": round(identifiability, 4),
+                "threshold": round(minimum_identifiability_score, 4),
+                "liquidity": round(liquidity, 4),
+            },
+            "source_refs": ["A2_DETERMINISTIC_IDENTITY_AND_LIQUIDITY"],
+            "as_of": as_of,
+            "reason": "A2_IDENTIFIABILITY_AND_LIQUIDITY_OBSERVED",
+        },
+        "medium_term_trend": {
+            "available": medium_available,
+            "met": medium_score >= 50.0 if medium_available else None,
+            "value": {"score": medium_score, "threshold": 50.0, "source_factor": medium_name},
+            "source_refs": list(dict.fromkeys(medium_refs)),
+            "as_of": as_of,
+            "reason": str(medium_source.get("reason_code") or "A2_MEDIUM_TERM_TREND_OBSERVED") if medium_available else "A2_MEDIUM_TERM_TREND_UNAVAILABLE",
+        },
+        "relative_strength": {
+            "available": True,
+            "met": relative >= 60.0,
+            "value": {"score": round(relative, 4), "threshold": 60.0},
+            "source_refs": ["A2_FROZEN_RELATIVE_STRENGTH"],
+            "as_of": as_of,
+            "reason": "A2_RELATIVE_STRENGTH_OBSERVED",
+        },
+        "industry_logic": supply,
+    }
 
 
 def _a2_attribution_record(
@@ -1105,6 +1387,23 @@ def _a2_attribution_gates(
                 if identifiability >= minimum_identifiability_score
                 else "A2_IDENTIFIABILITY_BELOW_MINIMUM"
             ),
+        ),
+        "BEHAVIOR_TYPE_RESOLVED": _a2_attribution_record(
+            available=bool(item.get("stock_behavior_type")),
+            value=item.get("stock_behavior_type"),
+            threshold=["EMOTION", "TREND"],
+            passed=item.get("stock_behavior_type") in {"EMOTION", "TREND"},
+            applied=True,
+            # A2 remains a broad research funnel.  Unresolved type is visible
+            # here and becomes a hard publication gate in A3; it must not
+            # erase the candidate before richer technical evidence is read.
+            blocks_decision=False,
+            reason_code=(
+                "A2_BEHAVIOR_TYPE_RESOLVED"
+                if item.get("stock_behavior_type") in {"EMOTION", "TREND"}
+                else "A2_BEHAVIOR_TYPE_UNRESOLVED"
+            ),
+            route_permission=list(item.get("route_permission") or ()),
         ),
         "LEADER_MIN_CRITERIA": _a2_attribution_record(
             available=leader_value is not None and leader_threshold is not None,
@@ -2365,6 +2664,25 @@ def screen_a3(snapshot: Mapping[str, Any], a2_output: Mapping[str, Any]) -> Dete
     )
     raw_permissions = snapshot.get("SECTOR_PERMISSIONS")
     permissions = raw_permissions if isinstance(raw_permissions, Mapping) else {}
+    raw_market_emotion = snapshot.get("MARKET_EMOTION_SNAPSHOT")
+    market_emotion = (
+        raw_market_emotion
+        if isinstance(raw_market_emotion, Mapping)
+        else {
+            "available": False,
+            "reason_code": "MARKET_EMOTION_SNAPSHOT_MISSING",
+        }
+    )
+    raw_market_funding = snapshot.get("MARKET_FUNDING_SNAPSHOT")
+    market_funding = (
+        raw_market_funding
+        if isinstance(raw_market_funding, Mapping)
+        else {
+            "available": False,
+            "state": "UNRESOLVED",
+            "reason_codes": ["MARKET_FUNDING_SNAPSHOT_MISSING"],
+        }
+    )
     source_hashes = _source_hashes(snapshot)
     decisions: list[dict[str, Any]] = []
     for item in rows:
@@ -2397,6 +2715,8 @@ def screen_a3(snapshot: Mapping[str, Any], a2_output: Mapping[str, Any]) -> Dete
             a2_context=context,
             market_regime=market_regime or None,
             sector_permission=sector_permission or None,
+            market_emotion=market_emotion,
+            market_funding=market_funding,
         ).model_dump(mode="json")
         eligibility = str(strategy["eligibility"])
         minimum_reward_risk = _number(snapshot.get("MIN_REWARD_RISK")) or 2.0
@@ -2413,6 +2733,8 @@ def screen_a3(snapshot: Mapping[str, Any], a2_output: Mapping[str, Any]) -> Dete
             eligibility = Eligibility.REJECTED.value
             strategy["eligibility"] = eligibility
             strategy["strategy_profile"] = "NO_NEXT_DAY_PLAN"
+            strategy["route_permission"] = "BLOCKED"
+            strategy["publication_state"] = "BLOCKED"
             strategy["reason_codes"] = list(dict.fromkeys([
                 *strategy.get("reason_codes", []),
                 *risk_reasons,
@@ -2429,6 +2751,13 @@ def screen_a3(snapshot: Mapping[str, Any], a2_output: Mapping[str, Any]) -> Dete
         }[eligibility]
         decisions.append({
             **strategy,
+            "decision_id": content_hash({
+                "stage": "A3_LOCAL_TECHNICAL",
+                "symbol": symbol,
+                "as_of": _snapshot_as_of(snapshot),
+                "strategy_version": strategy.get("strategy_version"),
+                "source_hashes": source_hashes,
+            })[:24],
             "symbol": symbol,
             "name": item.get("company_name") or item.get("name"),
             "candidate_origin": item.get("candidate_origin") or "FOCUS",
@@ -2445,6 +2774,7 @@ def screen_a3(snapshot: Mapping[str, Any], a2_output: Mapping[str, Any]) -> Dete
             "sent_to_llm": status == "REVIEW_CANDIDATE",
             "feature_version": FEATURE_VERSION,
             "source_hashes": source_hashes,
+            "as_of": _snapshot_as_of(snapshot),
         })
     decisions.sort(key=lambda item: str(item["symbol"]))
     return DeterministicGateResult(
@@ -2466,6 +2796,10 @@ def local_monitor_items(result: DeterministicGateResult) -> list[dict[str, Any]]
             "structural_score": item.get("score"),
             "data_quality_score": item.get("data_quality_score"),
             "factor_details": item.get("factor_details", {}),
+            "decision_id": item.get("decision_id"),
+            "company_archetype": item.get("company_archetype"),
+            "pullback_cause": item.get("pullback_cause"),
+            "a1_selection_evidence": dict(item.get("a1_selection_evidence") or {}),
             "available_weight": item.get("available_weight"),
             "available_weight_pct": item.get("available_weight_pct"),
             "missing_factors": item.get("missing_factors", []),
@@ -2518,6 +2852,7 @@ def local_active_items(result: DeterministicGateResult) -> list[dict[str, Any]]:
         projected.append({
             "symbol": item["symbol"],
             "candidate_id": f"a1-local:{item['symbol']}",
+            "decision_id": item.get("decision_id"),
             "company_name": item.get("name"),
             "primary_theme": item.get("theme_id"),
             "secondary_themes": [],
@@ -2543,10 +2878,17 @@ def local_active_items(result: DeterministicGateResult) -> list[dict[str, Any]]:
             },
             "score_breakdown": dict(item.get("score_breakdown") or {}),
             "factor_details": dict(item.get("factor_details") or {}),
+            "company_archetype": item.get("company_archetype"),
+            "pullback_cause": item.get("pullback_cause"),
+            "a1_selection_evidence": dict(item.get("a1_selection_evidence") or {}),
+            "financial_subfactor_coverage": item.get("financial_subfactor_coverage"),
             "available_weight": item.get("available_weight"),
             "available_weight_pct": item.get("available_weight_pct"),
             "missing_factors": list(item.get("missing_factors") or ()),
-            "reason_codes": ["A1_DETERMINISTIC_MONTHLY_RESEARCH_ELIGIBLE"],
+            "reason_codes": list(dict.fromkeys([
+                *[str(code) for code in item.get("reason_codes", ()) if str(code)],
+                "A1_DETERMINISTIC_MONTHLY_RESEARCH_ELIGIBLE",
+            ])),
             "coverage_origin": item.get("coverage_origin"),
             "autonomous_status": item.get("autonomous_status"),
             "institutional_coverage": item.get("institutional_coverage"),
@@ -3104,8 +3446,13 @@ def _valuation_factor(
     )
     if pe is not None and pe > 0:
         if expected_growth is not None:
-            growth = abs(expected_growth)
-            return max(0.0, min(100.0, 100.0 - pe / max(1.0, growth) * 2.0)), True, refs, ""
+            # Negative or zero expected growth is not a growth-adjusted
+            # valuation advantage.  Preserving the sign prevents a shrinking
+            # company from receiving the same PEG-like treatment as a growing
+            # one merely because their absolute percentages match.
+            if expected_growth <= 0:
+                return max(0.0, min(100.0, 50.0 - pe)), True, refs, "A1_EXPECTED_GROWTH_NON_POSITIVE"
+            return max(0.0, min(100.0, 100.0 - pe / max(1.0, expected_growth) * 2.0)), True, refs, ""
         return max(0.0, min(100.0, 100.0 - pe)), True, refs, ""
     return 0.0, False, refs, "A1_VALUATION_DATA_MISSING"
 
@@ -3294,7 +3641,11 @@ def _event_symbols(value: Any) -> set[str]:
 
 
 def _hard_risk_symbols(value: Any) -> set[str]:
-    result: set[str] = set()
+    return set(_hard_risk_events(value))
+
+
+def _hard_risk_events(value: Any) -> dict[str, list[dict[str, Any]]]:
+    result: dict[str, list[dict[str, Any]]] = defaultdict(list)
     hard_tokens = (
         "退市风险",
         "财务造假",
@@ -3305,6 +3656,10 @@ def _hard_risk_symbols(value: Any) -> set[str]:
         "FRAUD",
         "ADVERSE_AUDIT",
         "DISCLAIMER_OF_OPINION",
+        "大幅减持",
+        "重大减持",
+        "MAJOR_SHAREHOLDER_REDUCTION",
+        "MATERIAL_REDUCTION",
     )
     for row in _fact_records(value):
         severity = str(row.get("severity") or row.get("risk_level") or "").upper()
@@ -3316,7 +3671,16 @@ def _hard_risk_symbols(value: Any) -> set[str]:
             continue
         symbol = _symbol(row.get("symbol") or row.get("thscode"))
         if symbol:
-            result.add(symbol)
+            result[symbol].append({
+                "event_type": row.get("event_type"),
+                "reason_code": row.get("reason_code"),
+                "severity": row.get("severity") or row.get("risk_level"),
+                "title": row.get("title") or row.get("announcement_title"),
+                "publish_time": row.get("publish_time") or row.get("event_time"),
+                "source_id": row.get("source_id"),
+                "source_url": row.get("source_url"),
+                "fact_id": row.get("fact_id"),
+            })
     return result
 
 
@@ -3330,6 +3694,19 @@ def _fact_records(value: Any) -> list[Mapping[str, Any]]:
     records = value.get("records")
     if isinstance(records, Sequence) and not isinstance(records, (str, bytes, bytearray)):
         return [item for item in records if isinstance(item, Mapping)]
+    by_symbol = value.get("by_symbol")
+    if isinstance(by_symbol, Mapping):
+        flattened: list[Mapping[str, Any]] = []
+        for symbol, rows in by_symbol.items():
+            if not isinstance(rows, Sequence) or isinstance(rows, (str, bytes, bytearray)):
+                continue
+            for raw in rows:
+                if not isinstance(raw, Mapping):
+                    continue
+                item = dict(raw)
+                item.setdefault("symbol", str(symbol))
+                flattened.append(item)
+        return flattened
     payload = value.get("payload")
     if isinstance(payload, Mapping):
         return _fact_records(payload)

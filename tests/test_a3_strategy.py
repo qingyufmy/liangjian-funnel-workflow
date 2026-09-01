@@ -104,6 +104,81 @@ def test_leader_has_priority_over_trend_and_520() -> None:
     assert result.strategy_profile != StrategyProfile.MA520_SWING
 
 
+def test_market_emotion_cycle_blocks_new_leader_at_climax_but_not_trend_route() -> None:
+    leader = evaluate_a3_strategy(
+        {
+            "symbol": "600110.SH",
+            "market_role": "EMOTION_LEADER",
+            "theme_stage": "CONFIRMATION",
+            "ladder_height": 3,
+            "ladder_intact": True,
+        },
+        factor=_factor(),
+        price_levels=_prices(),
+        tradability={"tradable": True},
+        kline={"labels": []},
+        a2_context={
+            "market_role": "EMOTION_LEADER",
+            "theme_stage": "CONFIRMATION",
+            "ladder_height": 3,
+            "ladder_intact": True,
+        },
+        market_emotion={
+            "available": True,
+            "emotion_cycle_stage": "CLIMAX",
+            "new_long_permission": "NO_NEW_ENTRY",
+        },
+    )
+    trend = evaluate_a3_strategy(
+        {"symbol": "600111.SH", "market_role": "TREND_CORE"},
+        factor=_factor(),
+        price_levels=_prices(),
+        tradability={"tradable": True},
+        kline={"labels": ["PLATFORM_BREAKOUT"]},
+        a2_context={"market_role": "TREND_CORE"},
+        market_emotion={
+            "available": True,
+            "emotion_cycle_stage": "CLIMAX",
+            "new_long_permission": "NO_NEW_ENTRY",
+        },
+    )
+
+    assert leader.eligibility is Eligibility.REJECTED
+    assert leader.route_permission.value == "BLOCKED"
+    assert "MARKET_EMOTION_CYCLE_NO_NEW_LEADER" in leader.reason_codes
+    assert trend.eligibility is Eligibility.QUALIFIED
+    assert trend.route_permission.value == "ALLOW_A4"
+    assert trend.cycle_alignment["emotion_cycle"]["owned_by"] == "CONTEXT_ONLY"
+
+
+def test_market_funding_is_traceable_context_not_an_a3_gate() -> None:
+    result = evaluate_a3_strategy(
+        {"symbol": "600112.SH", "market_role": "TREND_CORE"},
+        factor=_factor(),
+        price_levels=_prices(),
+        tradability={"tradable": True},
+        kline={"labels": ["PLATFORM_BREAKOUT"]},
+        a2_context={"market_role": "TREND_CORE", "relative_strength": {"percentile": 82}},
+        market_funding={
+            "available": True,
+            "state": "EXISTING_FUNDS_ROTATION",
+            "amount_ratio": 1.01,
+            "coverage": 0.96,
+        },
+    )
+
+    assert result.eligibility is Eligibility.QUALIFIED
+    assert result.market_funding_state == "EXISTING_FUNDS_ROTATION"
+    assert result.cycle_alignment["market_funding"] == {
+        "state": "EXISTING_FUNDS_ROTATION",
+        "available": True,
+        "amount_ratio": 1.01,
+        "coverage": 0.96,
+        "turnover_is_capital_flow": False,
+        "owned_by": "MARKET_CONTEXT_ONLY",
+    }
+
+
 def test_price_discovery_trend_does_not_require_first_resistance() -> None:
     result = _common(
         {"symbol": "600005.SH", "market_role": "TREND_CORE", "innovation_high": True},
@@ -625,3 +700,199 @@ def test_route_alias_returns_same_explicit_contract() -> None:
     assert isinstance(result, dict)
     assert result["strategy_profile"] == "MA520_SWING"
     assert result["eligibility"] == "QUALIFIED"
+
+
+def test_behavior_route_contract_and_holding_windows_are_explicit() -> None:
+    leader = _common(
+        {
+            "symbol": "600101.SH",
+            "market_role": "EMOTION_LEADER",
+            "theme_stage": "CONFIRMATION",
+            "ladder_height": 2,
+            "ladder_intact": True,
+        },
+        a2={
+            "market_role": "EMOTION_LEADER",
+            "theme_stage": "CONFIRMATION",
+            "ladder_height": 2,
+            "ladder_intact": True,
+        },
+    )
+    trend = _common(
+        {"symbol": "600102.SH", "market_role": "TREND_CORE"},
+        a2={"market_role": "TREND_CORE"},
+    )
+    ma520 = _common(
+        {"symbol": "600103.SH", "market_role": "FOLLOWER"},
+        factor=_factor(
+            ma5=10.2,
+            ma10=10.3,
+            ma20=10.0,
+            ma60=9.5,
+            close=10.25,
+            low=9.95,
+            ma_event="PULLBACK_HOLD_MA20",
+        ),
+        kline={"labels": []},
+    )
+
+    assert leader.stock_behavior_type.value == "EMOTION"
+    assert leader.route_permission.value == "ALLOW_A4"
+    assert leader.expected_holding_sessions == {"min": 1, "max": 3}
+    assert leader.time_stop_sessions == 3
+    assert leader.setup_pattern == "LADDER_CONTINUATION"
+
+    assert trend.stock_behavior_type.value == "TREND"
+    assert trend.route_permission.value == "ALLOW_A4"
+    assert trend.expected_holding_sessions == {"min": 3, "max": 10}
+    assert trend.time_stop_sessions == 7
+    assert ma520.stock_behavior_type.value == "TREND"
+    assert ma520.expected_holding_sessions == {"min": 5, "max": 20}
+    assert ma520.time_stop_sessions == 7
+    for result in (leader, trend, ma520):
+        assert result.cycle_alignment["all_three_bullish_required"] is False
+        assert result.cycle_alignment["intraday_timeframes_owned_by"] == "A4_15M_5M"
+        assert result.strategy_facts["decision_style"] == "EXPLICIT_CONDITIONS_NO_COMPOSITE_SCORE"
+
+
+def test_holding_window_can_be_overridden_without_changing_route() -> None:
+    result = _common(
+        {
+            "symbol": "600104.SH",
+            "market_role": "TREND_CORE",
+            "expected_holding_sessions": "2-6",
+            "time_stop_sessions": 4,
+        },
+        a2={"market_role": "TREND_CORE"},
+    )
+    assert result.eligibility is Eligibility.QUALIFIED
+    assert result.route_permission.value == "ALLOW_A4"
+    assert result.expected_holding_sessions == {"min": 2, "max": 6}
+    assert result.time_stop_sessions == 4
+    assert result.strategy_facts["holding_contract_source"] == "candidate"
+
+
+def test_explicit_behavior_route_conflict_is_blocked() -> None:
+    result = _common(
+        {
+            "symbol": "600105.SH",
+            "market_role": "TREND_CORE",
+            "stock_behavior_type": "EMOTION",
+        },
+        a2={"market_role": "TREND_CORE"},
+    )
+    assert result.stock_behavior_type.value == "EMOTION"
+    assert result.strategy_profile is StrategyProfile.NO_NEXT_DAY_PLAN
+    assert result.route_permission.value == "BLOCKED"
+    assert result.plan_mode is None
+    assert "BEHAVIOR_ROUTE_CONFLICT" in result.reason_codes
+    assert result.strategy_facts["routed_profile_before_behavior_gate"] == "TREND_MA5"
+
+
+def test_explicit_unresolved_behavior_cannot_publish_a_plan() -> None:
+    result = _common(
+        {
+            "symbol": "600106.SH",
+            "market_role": "TREND_CORE",
+            "stock_behavior_type": "UNRESOLVED",
+        },
+        a2={"market_role": "TREND_CORE"},
+    )
+    assert result.stock_behavior_type.value == "UNRESOLVED"
+    assert result.route_permission.value == "BLOCKED"
+    assert result.plan_mode is None
+    assert result.strategy_profile is StrategyProfile.NO_NEXT_DAY_PLAN
+    assert "STOCK_BEHAVIOR_UNRESOLVED" in result.reason_codes
+
+
+def test_pattern_aliases_are_auditable_and_do_not_create_composite_scores() -> None:
+    result = _common(
+        {"symbol": "600107.SH", "market_role": "TREND_CORE"},
+        kline={"labels": ["W底", "箱体突破"]},
+    )
+    assert result.setup_pattern == "W_BOTTOM"
+    assert result.strategy_facts["kline_labels"][:2] == ["BOX_BREAKOUT", "W_BOTTOM"]
+    assert "composite_score" not in result.strategy_facts
+
+
+def test_reversal_pattern_label_does_not_authorize_left_side_entry() -> None:
+    result = _common(
+        {"symbol": "600109.SH", "market_role": "FOLLOWER"},
+        factor=_factor(close=9.5, ma5=10.0, ma10=10.2, ma20=10.4, ma60=10.8),
+        kline={"labels": ["W_BOTTOM"]},
+    )
+    assert result.setup_pattern == "W_BOTTOM"
+    assert result.strategy_profile is StrategyProfile.NO_NEXT_DAY_PLAN
+    assert result.route_permission.value == "BLOCKED"
+
+
+def test_missing_market_role_and_no_route_remain_unresolved_and_blocked() -> None:
+    result = _common(
+        {"symbol": "600108.SH"},
+        factor=_factor(
+            close=8.5,
+            ma5=8.0,
+            ma10=9.0,
+            ma20=10.0,
+            ma60=11.0,
+        ),
+        kline={"labels": []},
+    )
+    assert result.stock_behavior_type.value == "UNRESOLVED"
+    assert result.route_permission.value == "BLOCKED"
+    assert result.strategy_profile is StrategyProfile.NO_NEXT_DAY_PLAN
+
+
+def test_emotion_top_fact_blocks_only_the_emotion_route_with_auditable_signal() -> None:
+    result = _common(
+        {
+            "symbol": "600110.SH",
+            "market_role": "EMOTION_LEADER",
+            "theme_stage": "CONFIRMATION",
+            "ladder_height": 2,
+            "ladder_intact": True,
+        },
+        a2={
+            "market_role": "EMOTION_LEADER",
+            "theme_stage": "CONFIRMATION",
+            "ladder_height": 2,
+            "ladder_intact": True,
+        },
+        kline={"labels": ["炸板"]},
+    )
+
+    assert result.stock_behavior_type.value == "EMOTION"
+    assert result.route_permission.value == "BLOCKED"
+    assert "EMOTION_TOP_RISK_CONFIRMED" in result.veto_conditions
+    assert result.behavior_risk["emotion_top"]["signals"] == ["FAILED_SEAL"]
+    assert result.behavior_risk["trend_top"]["confirmed"] is False
+
+
+def test_confirmed_trend_top_pattern_blocks_trend_route_without_composite_score() -> None:
+    result = _common(
+        {"symbol": "600111.SH", "market_role": "TREND_CORE"},
+        a2={"market_role": "TREND_CORE"},
+        kline={"labels": ["头肩顶"]},
+    )
+
+    assert result.stock_behavior_type.value == "TREND"
+    assert result.route_permission.value == "BLOCKED"
+    assert "TREND_TOP_RISK_CONFIRMED" in result.veto_conditions
+    assert result.behavior_risk["trend_top"]["signals"] == ["HEAD_SHOULDERS_TOP"]
+    assert result.behavior_risk["scoring_used"] is False
+
+
+def test_model_side_free_form_top_label_does_not_become_server_owned_top_fact() -> None:
+    result = _common(
+        {
+            "symbol": "600112.SH",
+            "market_role": "TREND_CORE",
+            "labels": ["头肩顶"],
+        },
+        a2={"market_role": "TREND_CORE"},
+        kline={"labels": []},
+    )
+
+    assert result.eligibility is Eligibility.QUALIFIED
+    assert result.route_permission.value == "ALLOW_A4"
+    assert result.behavior_risk["trend_top"]["confirmed"] is False

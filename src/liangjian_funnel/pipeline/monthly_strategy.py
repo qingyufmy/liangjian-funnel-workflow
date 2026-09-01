@@ -227,6 +227,8 @@ def build_monthly_industry_decisions(
 
         reason_codes: list[str] = []
         contradicting_refs: list[str] = []
+        structural_status = "INSUFFICIENT"
+        timing_state = "UNKNOWN"
         if missing:
             decision = "DEFER"
             reason_codes.append("MONTHLY_ROTATION_DATA_INCOMPLETE")
@@ -236,20 +238,47 @@ def build_monthly_industry_decisions(
             return_20d = _number(raw.get("return_20d"))
             relative = _percentile_0_100(raw.get("relative_strength_percentile_20d"))
             enough_appearances = appearances >= max(1.0, float(minimum_appearances))
-            if return_20d is not None and return_20d > 0 and relative is not None and relative >= 60 and enough_appearances:
-                decision = "INCLUDE"
-                reason_codes.append("MONTHLY_ROTATION_POSITIVE_AND_PERSISTENT")
+            structural_status = "SUPPORTED" if enough_appearances and supporting_refs else "INSUFFICIENT"
+            if return_20d is not None and return_20d > 0 and relative is not None and relative >= 60:
+                timing_state = "ACCELERATING"
+            elif return_20d is not None and return_20d > 0 and relative is not None and relative >= 40:
+                timing_state = "PERSISTENT"
             elif return_20d is not None and (return_20d <= 0 or (relative is not None and relative < 40)):
+                timing_state = "COOLING"
+            else:
+                timing_state = "MIXED"
+
+            if structural_status == "SUPPORTED" and timing_state in {"ACCELERATING", "PERSISTENT"}:
+                decision = "INCLUDE"
+                reason_codes.extend((
+                    "MONTHLY_STRUCTURE_SUPPORTED",
+                    "MONTHLY_TIMING_POSITIVE",
+                ))
+            elif structural_status == "SUPPORTED" and timing_state == "COOLING":
+                # A cooling 20-day window is a timing observation.  It cannot
+                # erase a persistent monthly structural domain by itself.
+                decision = "DEFER"
+                reason_codes.extend((
+                    "MONTHLY_STRUCTURE_SUPPORTED",
+                    "MONTHLY_TIMING_COOLING",
+                    "MONTHLY_STRUCTURE_RETAINED_WAIT_TIMING",
+                ))
+                contradicting_refs = list(supporting_refs)
+            elif structural_status == "INSUFFICIENT" and timing_state == "COOLING":
                 decision = "EXCLUDE"
-                reason_codes.append(
-                    "MONTHLY_ROTATION_NEGATIVE_RETURN"
-                    if return_20d <= 0
-                    else "MONTHLY_ROTATION_RELATIVE_STRENGTH_WEAK"
-                )
+                reason_codes.extend((
+                    "MONTHLY_STRUCTURE_EVIDENCE_INSUFFICIENT",
+                    "MONTHLY_TIMING_COOLING",
+                ))
                 contradicting_refs = list(supporting_refs)
             else:
                 decision = "DEFER"
-                reason_codes.append("MONTHLY_ROTATION_SIGNAL_MIXED")
+                reason_codes.extend((
+                    "MONTHLY_STRUCTURE_EVIDENCE_INSUFFICIENT"
+                    if structural_status == "INSUFFICIENT"
+                    else "MONTHLY_STRUCTURE_SUPPORTED",
+                    "MONTHLY_TIMING_MIXED",
+                ))
                 if not enough_appearances:
                     missing.append("top10_appearance_persistence")
 
@@ -270,6 +299,8 @@ def build_monthly_industry_decisions(
             "contradicting_source_refs": contradicting_refs,
             "data_gaps": list(dict.fromkeys(missing)),
             "metrics": metrics,
+            "structural_status": structural_status,
+            "timing_state": timing_state,
             "decision_version": MONTHLY_ROTATION_DECISION_VERSION,
         })
 

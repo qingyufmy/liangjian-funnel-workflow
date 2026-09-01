@@ -5413,7 +5413,8 @@ def _stage_execution_budget(
             "theme_score, score_breakdown containing every exact key from THEME_SCORE_WEIGHTS, penalties, "
             "supporting_evidence, contradicting_evidence, and rotation_overlap_ratio. Each focus item needs "
             "symbol, upstream_candidate_id, theme_id, theme_stage, a2_route, bottleneck_status, "
-            "market_role, role_evidence, "
+            "market_role, role_evidence, stock_behavior_type and route_permission copied from the "
+            "deterministic behavior decision, "
             "identifiability_score, identifiability_breakdown, theme_score inherited from its active theme, "
             "selection_reasons, risk_reasons and risk_flags. MARKET_CORE requires frozen market-role evidence, "
             "factor_coverage and bottleneck_status=NOT_REQUIRED_FOR_MARKET_CORE; it must not invent a scarcity "
@@ -5426,6 +5427,8 @@ def _stage_execution_budget(
         "A3": (
             "Required top-level keys: envelope, analysis_summary, core_watch_pool, secondary_watch_pool, "
             "rejected_candidates. Every row must preserve the server-owned strategy_profile, eligibility, "
+            "stock_behavior_type, route_permission, expected_holding_sessions, time_stop_sessions, setup_pattern, "
+            "cycle_alignment, emotion_cycle_stage, market_environment, market_funding_state and behavior_risk, "
             "required_conditions, met_conditions, unmet_conditions and veto_conditions. Each executable core "
             "item copies deterministic PRICE_LEVELS values for trigger_zone, invalidation_level, "
             "stop_distance_pct, first_resistance, reward_risk and no_chase_price, then adds only concise model "
@@ -5538,6 +5541,8 @@ def _gate_item_from_decision(
         "data_sufficiency_state": decision.get("data_sufficiency_state"),
         "factor_coverage": decision.get("factor_coverage"),
         "critical_factor_coverage": decision.get("critical_factor_coverage"),
+        "decision_id": decision.get("decision_id"),
+        "decision_as_of": decision.get("as_of"),
         "local_partition": decision.get("status"),
     }
     if stage == "A2":
@@ -5548,6 +5553,9 @@ def _gate_item_from_decision(
             "top_rotation_theme": decision.get("top_rotation_theme"),
             "identifiability_score": decision.get("identifiability_score"),
             "market_role": decision.get("market_role") or decision.get("role") or "LOW_IDENTITY",
+            "stock_behavior_type": decision.get("stock_behavior_type"),
+            "route_permission": list(decision.get("route_permission") or ()),
+            "behavior_type_decision": dict(decision.get("behavior_type_decision") or {}),
             # Preserve the deterministic route context when a row was not
             # sent to the model (for example A2_NOT_SENT_TO_LLM).  A3's
             # watch-only candidate selector must be able to distinguish a
@@ -6830,6 +6838,7 @@ def _canonicalize_stage_lineage(
                 market_role = market_role.upper()
             upstream_id = _lineage_text(
                 source,
+                "decision_id",
                 "upstream_candidate_id",
                 "candidate_id",
                 "parent_candidate_id",
@@ -6855,6 +6864,37 @@ def _canonicalize_stage_lineage(
         else:
             technical_context = {}
 
+        behavior_source = technical_context if stage == "A3" else context
+        stock_behavior_type = _lineage_text(
+            behavior_source,
+            "stock_behavior_type",
+            "behavior_type",
+        ) or _lineage_text(source, "stock_behavior_type", "behavior_type")
+        if stock_behavior_type:
+            stock_behavior_type = stock_behavior_type.upper()
+        raw_route_permission = behavior_source.get("route_permission")
+        if raw_route_permission is None:
+            raw_route_permission = source.get("route_permission")
+        if stage == "A2":
+            if isinstance(raw_route_permission, Sequence) and not isinstance(
+                raw_route_permission, (str, bytes, bytearray)
+            ):
+                route_permission: Any = [
+                    str(value).strip().upper()
+                    for value in raw_route_permission
+                    if str(value).strip()
+                ]
+            else:
+                route_permission = []
+        else:
+            route_permission = (
+                str(raw_route_permission).strip().upper()
+                if isinstance(raw_route_permission, str) and raw_route_permission.strip()
+                else None
+            )
+        decision_id = _lineage_text(behavior_source, "decision_id")
+        decision_as_of = _lineage_text(behavior_source, "as_of")
+
         canonical = {
             "symbol": symbol,
             "company_name": company_name,
@@ -6869,6 +6909,10 @@ def _canonicalize_stage_lineage(
             "market_role": market_role,
             "role": market_role,
             "a2_role": market_role,
+            "stock_behavior_type": stock_behavior_type,
+            "route_permission": route_permission,
+            "decision_id": decision_id,
+            "decision_as_of": decision_as_of,
         }
         if stage == "A2":
             canonical["upstream_candidate_id"] = upstream_id
@@ -6877,6 +6921,15 @@ def _canonicalize_stage_lineage(
             canonical["parent_candidate_id"] = upstream_id
             canonical["candidate_origin"] = candidate_origin
             if technical_context:
+                for key in (
+                    "expected_holding_sessions",
+                    "time_stop_sessions",
+                    "setup_pattern",
+                    "cycle_alignment",
+                    "emotion_cycle_stage",
+                    "market_environment",
+                ):
+                    canonical[key] = technical_context.get(key)
                 canonical["deterministic_strategy_profile"] = technical_context.get("strategy_profile")
                 canonical["deterministic_eligibility"] = technical_context.get("eligibility")
                 canonical["deterministic_required_conditions"] = list(
@@ -6910,6 +6963,20 @@ def _canonicalize_stage_lineage(
             ("market_role", market_role),
             ("upstream_candidate_id", upstream_id),
         ]
+        behavior_contract_required = (
+            str(context.get("route_context_schema") or "") == "a2-route-lineage/2"
+            if stage == "A2"
+            else any(
+                key in technical_context
+                for key in ("stock_behavior_type", "route_permission", "decision_id")
+            )
+        )
+        if behavior_contract_required:
+            required_values.extend((
+                ("stock_behavior_type", stock_behavior_type),
+                ("route_permission", route_permission),
+                ("decision_id", decision_id),
+            ))
         if stage == "A3":
             required_values.append(("candidate_origin", candidate_origin))
         missing = [
@@ -7894,12 +7961,33 @@ def _apply_stage_threshold_policy(
             hard_reasons: list[str] = []
             eligibility = str(context.get("eligibility") or item.get("eligibility") or "DATA_GAP").upper()
             strategy_profile = str(context.get("strategy_profile") or item.get("strategy_profile") or "").upper()
+            stock_behavior_type = str(
+                context.get("stock_behavior_type") or item.get("stock_behavior_type") or ""
+            ).upper()
+            route_permission = str(
+                context.get("route_permission") or item.get("route_permission") or ""
+            ).upper()
+            behavior_route_compatible = (
+                stock_behavior_type == "EMOTION" and strategy_profile == "LEADER_INTRADAY"
+            ) or (
+                stock_behavior_type == "TREND"
+                and strategy_profile in {"MA520_SWING", "TREND_MA5"}
+            )
+            behavior_contract_required = (
+                str(context.get("strategy_version") or "") == "a3-a4-three-strategy/1.3.0"
+                or "stock_behavior_type" in context
+                or "route_permission" in context
+            )
             if not context:
                 hard_reasons.append("A3_STRATEGY_CONTEXT_MISSING")
             elif eligibility != "QUALIFIED":
                 hard_reasons.append(f"A3_NOT_QUALIFIED:{eligibility}")
             if strategy_profile not in {"LEADER_INTRADAY", "MA520_SWING", "TREND_MA5"}:
                 hard_reasons.append("A3_STRATEGY_PROFILE_INVALID")
+            if behavior_contract_required and route_permission != "ALLOW_A4":
+                hard_reasons.append("A3_ROUTE_PERMISSION_NOT_EXECUTABLE")
+            if behavior_contract_required and not behavior_route_compatible:
+                hard_reasons.append("A3_BEHAVIOR_ROUTE_CONFLICT")
             review_status = str(item.get("review_status") or "PASS").upper()
             if review_status in {"VETO", "DATA_GAP"}:
                 hard_reasons.append(f"A3_LLM_{review_status}")
@@ -7915,6 +8003,9 @@ def _apply_stage_threshold_policy(
                 item["risk_unit"] = "NO_ENTRY"
                 item["eligibility"] = eligibility
                 item["strategy_profile"] = strategy_profile or "NO_NEXT_DAY_PLAN"
+                if behavior_contract_required:
+                    item["stock_behavior_type"] = stock_behavior_type or "UNRESOLVED"
+                    item["route_permission"] = "BLOCKED"
                 secondary.append(item)
                 changed += 1
                 continue
@@ -7925,6 +8016,9 @@ def _apply_stage_threshold_policy(
                 changed += 1
                 continue
             item["strategy_profile"] = strategy_profile
+            if behavior_contract_required:
+                item["stock_behavior_type"] = stock_behavior_type
+                item["route_permission"] = route_permission
             item["eligibility"] = "QUALIFIED"
             retained.append(item)
         # Secondary is an audit/watch surface.  It cannot bypass deterministic
@@ -8950,6 +9044,14 @@ def _validate_a3_provenance(output: Mapping[str, Any], snapshot_data: Mapping[st
                     strategy_context.get("strategy_profile") or ""
                 ).upper():
                     reasons.append("A3_STRATEGY_PROFILE_PROVENANCE_MISMATCH")
+                if str(item.get("stock_behavior_type") or "").upper() != str(
+                    strategy_context.get("stock_behavior_type") or ""
+                ).upper():
+                    reasons.append("A3_BEHAVIOR_TYPE_PROVENANCE_MISMATCH")
+                if str(item.get("route_permission") or "").upper() != str(
+                    strategy_context.get("route_permission") or ""
+                ).upper():
+                    reasons.append("A3_ROUTE_PERMISSION_PROVENANCE_MISMATCH")
                 if pool_name == "core_watch_pool" and str(
                     strategy_context.get("eligibility") or ""
                 ).upper() != "QUALIFIED":
@@ -9076,6 +9178,18 @@ def _canonicalize_a3_price_fields(
                 "eligibility",
                 "candidate_origin",
                 "market_role",
+                "stock_behavior_type",
+                "route_permission",
+                "expected_holding_sessions",
+                "time_stop_sessions",
+                "setup_pattern",
+                "cycle_alignment",
+                "emotion_cycle_stage",
+                "market_environment",
+                "behavior_risk",
+                "market_funding_state",
+                "decision_id",
+                "as_of",
                 "market_regime",
                 "theme_stage",
                 "monthly_state",
@@ -9392,6 +9506,12 @@ def _with_a2_bottleneck_context(
             "theme_rotation_score": item.get("theme_rotation_score"),
             "top_rotation_theme": item.get("top_rotation_theme"),
             "deterministic_market_role": item.get("role"),
+            "stock_behavior_type": item.get("stock_behavior_type"),
+            "route_permission": list(item.get("route_permission") or ()),
+            "behavior_type_decision": dict(item.get("behavior_type_decision") or {}),
+            "market_emotion_cycle": dict(item.get("market_emotion_cycle") or {}),
+            "decision_id": item.get("decision_id"),
+            "as_of": item.get("as_of"),
             "identifiability_score": item.get("identifiability_score"),
             "identifiability_breakdown": dict(item.get("role_breakdown") or {}),
             "role_breakdown": dict(item.get("role_breakdown") or {}),
@@ -9407,7 +9527,7 @@ def _with_a2_bottleneck_context(
             "gate_results": dict(item.get("gate_results") or {}),
             "first_blocking_gate": item.get("first_blocking_gate"),
             "all_failed_gates": list(item.get("all_failed_gates") or ()),
-            "route_context_schema": "a2-route-lineage/1",
+            "route_context_schema": "a2-route-lineage/2",
         }
     overlay_hash = _sha256_json({
         "base_snapshot_hash": snapshot.snapshot_hash,
@@ -9465,6 +9585,18 @@ def _with_a3_deterministic_context(
         "eligibility",
         "candidate_origin",
         "market_role",
+        "stock_behavior_type",
+        "route_permission",
+        "expected_holding_sessions",
+        "time_stop_sessions",
+        "setup_pattern",
+        "cycle_alignment",
+        "emotion_cycle_stage",
+        "market_environment",
+        "behavior_risk",
+        "market_funding_state",
+        "decision_id",
+        "as_of",
         "market_regime",
         "theme_stage",
         "monthly_state",

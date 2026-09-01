@@ -11,6 +11,7 @@ import yaml
 from liangjian_funnel.pipeline.deterministic import (
     _read_metric_payload,
     _specialize_market_role,
+    _valuation_factor,
     local_active_items,
     screen_a1,
     screen_a2,
@@ -26,6 +27,24 @@ from liangjian_funnel.settings import Settings
 
 NOW = datetime(2026, 8, 27, 15, 10, tzinfo=ZoneInfo("Asia/Shanghai"))
 MODELS = ("deepseek-v4-pro-0813", "moonshotai/kimi-k3-free", "z-ai/glm-5.3-free")
+
+
+def test_a1_negative_expected_growth_does_not_receive_positive_growth_valuation_credit() -> None:
+    fundamentals = {
+        "600001.SH": {
+            "indicators": [
+                {"index_id": "pe_ttm", "value": 20},
+                {"index_id": "expected_growth", "value": -25},
+            ],
+            "source_refs": ["cninfo:600001:2026q2"],
+        }
+    }
+
+    score, available, _, reason = _valuation_factor(fundamentals, "600001.SH", {})
+
+    assert available is True
+    assert score == 30.0
+    assert reason == "A1_EXPECTED_GROWTH_NON_POSITIVE"
 
 
 def test_a2_ladder_fact_metadata_survives_deterministic_projection() -> None:
@@ -1033,6 +1052,7 @@ def test_screen_a2_records_all_effective_gate_failures_without_short_circuiting(
         "LOCAL_ELIGIBILITY",
         "THEME_SCORE_MIN",
         "IDENTIFIABILITY_MIN",
+        "BEHAVIOR_TYPE_RESOLVED",
         "LEADER_MIN_CRITERIA",
         "MAX_LEADERS_PER_THEME",
         "TIER_STRUCTURE",
@@ -1149,3 +1169,27 @@ def test_screen_a2_gate_attribution_preserves_review_and_monitor_symbol_sets():
 def test_screen_a2_rejects_non_positive_review_budget() -> None:
     with pytest.raises(ValueError, match="Top-N value must be positive"):
         screen_a2(_snapshot(1), {"active_research_pool": []}, llm_top_n_per_theme=0)
+
+
+def test_material_shareholder_reduction_is_an_a1_hard_risk_fact() -> None:
+    from liangjian_funnel.pipeline.deterministic import _hard_risk_events, _hard_risk_symbols
+
+    risks = {
+        "available": True,
+        "source": "CNINFO_PUBLIC_ANNOUNCEMENTS",
+        "by_symbol": {
+            "600001.SH": [{
+                "symbol": "600001.SH",
+                "event_type": "股东大幅减持",
+                "event_time": "2026-09-01T15:00:00+08:00",
+            }],
+            "600002.SH": [{
+                "symbol": "600002.SH",
+                "event_type": "常规减持进展",
+                "event_time": "2026-09-01T15:00:00+08:00",
+            }],
+        },
+    }
+
+    assert _hard_risk_symbols(risks) == {"600001.SH"}
+    assert _hard_risk_events(risks)["600001.SH"][0]["publish_time"] == "2026-09-01T15:00:00+08:00"

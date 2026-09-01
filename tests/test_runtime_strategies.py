@@ -261,6 +261,15 @@ def test_unknown_profile_and_data_gap_fail_closed_per_plan() -> None:
     unknown = evaluate_a4_plan({"symbol": "600001.SH", "strategy_profile": "NOT_A_STRATEGY"}, _bars())
     assert unknown["action"] == A4Action.DATA_BLOCK.value
     assert unknown["veto_conditions"] == ["UNKNOWN_STRATEGY_PROFILE"]
+    behavior_conflict = evaluate_a4_plan(
+        {
+            **_base(StrategyProfile.TREND_MA5.value),
+            "stock_behavior_type": "EMOTION",
+        },
+        _bars(),
+    )
+    assert behavior_conflict["action"] == A4Action.DATA_BLOCK.value
+    assert behavior_conflict["veto_conditions"] == ["A4_BEHAVIOR_ROUTE_CONFLICT"]
     blocked = evaluate_a4_plan(_base(StrategyProfile.TREND_MA5.value, data_gap=True), _bars())
     assert blocked["action"] == A4Action.DATA_BLOCK.value
     assert blocked["reason_codes"] == ["PLAN_DATA_GAP"]
@@ -341,3 +350,78 @@ def test_contract_always_contains_required_fields(profile: str) -> None:
     result = evaluate_a4_plan(_base(profile), _bars(count=4))
     assert set(("state", "action", "reason_codes", "met_conditions", "unmet_conditions", "veto_conditions", "closed_5m_end", "closed_15m_end")) <= set(result)
     assert result["action"] in {item.value for item in A4Action}
+
+
+def test_type_specific_top_risk_cancels_entry_and_exits_matching_position() -> None:
+    emotion_risk = {
+        "emotion_top": {"confirmed": True, "signals": ["FAILED_SEAL"]},
+        "trend_top": {"confirmed": False, "signals": []},
+    }
+    cancelled = evaluate_a4_plan(
+        _base(
+            StrategyProfile.LEADER_INTRADAY.value,
+            stock_behavior_type="EMOTION",
+            behavior_risk=emotion_risk,
+            leader_context={
+                "theme_stage": "CONFIRMATION",
+                "ladder_intact": True,
+                "board_count": 2,
+            },
+        ),
+        _leader_bars(),
+    )
+    exited = evaluate_a4_plan(
+        _base(
+            StrategyProfile.LEADER_INTRADAY.value,
+            stock_behavior_type="EMOTION",
+            position_open=True,
+            behavior_risk=emotion_risk,
+            leader_context={
+                "theme_stage": "CONFIRMATION",
+                "ladder_intact": True,
+                "board_count": 2,
+            },
+        ),
+        _leader_bars(),
+    )
+
+    assert cancelled["state"] == "CANCELLED"
+    assert cancelled["action"] == A4Action.NO_ACTION.value
+    assert cancelled["reason_codes"] == ["A4_EMOTION_TOP_RISK_CONFIRMED"]
+    assert exited["state"] == "EXIT_READY"
+    assert exited["action"] == A4Action.SELL_SIGNAL.value
+
+
+def test_intraday_market_context_blocks_new_entry_in_bear_or_emotion_retreat() -> None:
+    trend = evaluate_strategy(
+        _base(
+            StrategyProfile.TREND_MA5.value,
+            stock_behavior_type="TREND",
+            daily_indicators={"ma5": 11, "ma10": 10.7, "ma20": 10.2, "ma60": 9.5, "close": 11.3},
+        ),
+        _bars(),
+        now=datetime(2026, 8, 31, 10, 0, tzinfo=TZ),
+        market_context={"market_environment": "BEAR_RISK"},
+    )
+    leader = evaluate_strategy(
+        _base(
+            StrategyProfile.LEADER_INTRADAY.value,
+            stock_behavior_type="EMOTION",
+            leader_context={
+                "theme_stage": "CONFIRMATION",
+                "ladder_intact": True,
+                "board_count": 2,
+            },
+        ),
+        _leader_bars(),
+        now=datetime(2026, 8, 31, 10, 0, tzinfo=TZ),
+        market_context={
+            "market_environment": "ROTATION_MIXED",
+            "market_emotion": {"new_long_permission": "NO_NEW_ENTRY"},
+        },
+    )
+
+    assert trend.action == A4Action.NO_ACTION.value
+    assert trend.reason_codes == ("A4_MARKET_BEAR_NO_NEW_ENTRY",)
+    assert leader.action == A4Action.NO_ACTION.value
+    assert leader.reason_codes == ("A4_EMOTION_CYCLE_NO_NEW_LEADER",)

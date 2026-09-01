@@ -16,6 +16,7 @@ contracts themselves.
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime
 from enum import StrEnum
@@ -24,7 +25,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 
-STRATEGY_VERSION = "a3-a4-three-strategy/1.2.0"
+STRATEGY_VERSION = "a3-a4-three-strategy/1.3.0"
 
 
 class StrategyProfile(StrEnum):
@@ -43,6 +44,29 @@ class Eligibility(StrEnum):
     WATCH = "WATCH"
     REJECTED = "REJECTED"
     DATA_GAP = "DATA_GAP"
+
+
+class StockBehaviorType(StrEnum):
+    """The behavior regime that owns the A3-to-A4 route.
+
+    ``EMOTION`` is a short-lived, theme/ladder driven behavior and can only
+    use the leader intraday playbook.  ``TREND`` is the right-side daily
+    behavior and can use the MA5 or MA520 playbooks.  ``UNRESOLVED`` is a
+    deliberate fail-closed value: a candidate without enough evidence must
+    not be turned into a next-day plan by a convenient default.
+    """
+
+    EMOTION = "EMOTION"
+    TREND = "TREND"
+    UNRESOLVED = "UNRESOLVED"
+
+
+class RoutePermission(StrEnum):
+    """Whether this A3 decision may be consumed by the A4 planner."""
+
+    ALLOW_A4 = "ALLOW_A4"
+    WATCH_ONLY = "WATCH_ONLY"
+    BLOCKED = "BLOCKED"
 
 
 class A3GateResult(BaseModel):
@@ -79,7 +103,16 @@ class A3StrategyDecision(BaseModel):
     name: str | None = None
     candidate_origin: str | None = None
     market_role: str | None = None
+    stock_behavior_type: StockBehaviorType = StockBehaviorType.UNRESOLVED
+    route_permission: RoutePermission = RoutePermission.BLOCKED
+    expected_holding_sessions: dict[str, int] | None = None
+    time_stop_sessions: int | None = None
+    setup_pattern: str | None = None
+    cycle_alignment: dict[str, Any] = Field(default_factory=dict)
+    emotion_cycle_stage: str | None = None
+    market_environment: str | None = None
     market_regime: str | None = None
+    market_funding_state: str | None = None
     theme_stage: str | None = None
     monthly_state: str | None = None
     monthly_partial_observation: Any = None
@@ -237,6 +270,98 @@ _TREND_PULLBACK_LABELS = {
     "趋势回踩",
 }
 
+# These are descriptive setup labels, not scores.  A label can make a route
+# easier to audit and lets A4 select the matching confirmation procedure; it
+# never creates a plan on its own.
+_PATTERN_ALIASES = {
+    "W底": "W_BOTTOM",
+    "双底": "W_BOTTOM",
+    "W底形态": "W_BOTTOM",
+    "W_BOTTOM_PATTERN": "W_BOTTOM",
+    "DOUBLE_BOTTOM": "W_BOTTOM",
+    "FLAG_PATTERN": "FLAG",
+    "旗形": "FLAG",
+    "旗形整理": "FLAG",
+    "BOX_BREAKOUT_PATTERN": "BOX_BREAKOUT",
+    "箱体突破": "BOX_BREAKOUT",
+    "箱体突破形态": "BOX_BREAKOUT",
+    "PLATFORM_BREAKOUT_PATTERN": "PLATFORM_BREAKOUT",
+    "平台突破": "PLATFORM_BREAKOUT",
+    "创新高": "NEW_HIGH",
+    "INNOVATION_HIGH": "NEW_HIGH",
+    "PRICE_DISCOVERY": "NEW_HIGH",
+    "回踩5日线": "MA5_PULLBACK",
+    "回踩MA5": "MA5_PULLBACK",
+    "趋势回踩": "MA5_PULLBACK",
+    "回踩20日线": "MA20_PULLBACK",
+    "回踩MA20": "MA20_PULLBACK",
+    "MA20回踩": "MA20_PULLBACK",
+    "收复20日线": "MA20_RECLAIM",
+    "MA20收复": "MA20_RECLAIM",
+    "金叉": "MA520_GOLDEN_CROSS",
+    "MA5上穿MA20": "MA520_GOLDEN_CROSS",
+    "炸板": "FAILED_SEAL",
+    "断板": "BROKEN_BOARD",
+    "炸板断板": "BROKEN_BOARD",
+    "高开低走": "HIGH_OPEN_LOW_CLOSE",
+    "大阴包小阳": "LARGE_BEARISH_ENGULFING",
+    "无人接力": "NO_RELAY",
+    "天地板": "EARTH_SKY_BOARD",
+    "放量长上影": "HIGH_VOLUME_UPPER_SHADOW",
+    "箱体跌破": "BOX_BREAKDOWN",
+    "跌破箱体": "BOX_BREAKDOWN",
+    "头肩顶": "HEAD_SHOULDERS_TOP",
+    "三重顶": "TRIPLE_TOP",
+    "多重顶": "TRIPLE_TOP",
+    "MACD顶背离": "MACD_TOP_DIVERGENCE",
+    "顶背离": "MACD_TOP_DIVERGENCE",
+    "跌破MA20": "MA20_BREAKDOWN",
+    "跌破20日线": "MA20_BREAKDOWN",
+    "跌破MA60": "MA60_BREAKDOWN",
+    "跌破60日线": "MA60_BREAKDOWN",
+    "死叉": "MA_DEATH_CROSS",
+}
+_TREND_PATTERN_PRIORITY = (
+    "W_BOTTOM",
+    "FLAG",
+    "BOX_BREAKOUT",
+    "PLATFORM_BREAKOUT",
+    "NEW_HIGH",
+    "MA5_PULLBACK",
+    "MAIN_RISE",
+    "TREND_PULLBACK",
+)
+_LEADER_PATTERN_LABELS = {
+    "LEADER_REACCELERATION",
+    "LADDER_CONTINUATION",
+    "FIRST_RELAY",
+    "SECOND_BOARD",
+    "THIRD_BOARD_CONFIRMATION",
+}
+_EMOTION_TOP_LABELS = {
+    "FAILED_SEAL",
+    "BROKEN_BOARD",
+    "HIGH_OPEN_LOW_CLOSE",
+    "LARGE_BEARISH_ENGULFING",
+    "NO_RELAY",
+    "EARTH_SKY_BOARD",
+    "HIGH_VOLUME_UPPER_SHADOW",
+}
+_TREND_TOP_LABELS = {
+    "BOX_BREAKDOWN",
+    "HEAD_SHOULDERS_TOP",
+    "TRIPLE_TOP",
+    "MACD_TOP_DIVERGENCE",
+    "MA20_BREAKDOWN",
+    "MA60_BREAKDOWN",
+    "MA_DEATH_CROSS",
+}
+_ROUTE_HOLDING_DEFAULTS: dict[StrategyProfile, tuple[int, int, int]] = {
+    StrategyProfile.LEADER_INTRADAY: (1, 3, 3),
+    StrategyProfile.TREND_MA5: (3, 10, 7),
+    StrategyProfile.MA520_SWING: (5, 20, 7),
+}
+
 
 def evaluate_a3_candidate(
     candidate: Mapping[str, Any] | None,
@@ -317,6 +442,31 @@ def evaluate_a3_candidate(
         or _first(context, "market_regime", "market_state", "regime")
         or _first(source_snapshot, "MARKET_REGIME", "market_regime")
     ) or "NEUTRAL"
+    market_emotion = _mapping(
+        _first(merged_a2, "market_emotion", "market_emotion_snapshot")
+        or _first(context, "market_emotion", "market_emotion_snapshot")
+    )
+    market_emotion_supplied = bool(market_emotion)
+    emotion_cycle_stage = _normalize_state(
+        _first(market_emotion, "emotion_cycle_stage", "cycle_stage", "stage")
+    ) or "UNKNOWN"
+    emotion_new_long_permission = _normalize_state(
+        _first(market_emotion, "new_long_permission", "entry_permission")
+    ) or "UNKNOWN"
+    market_funding = _mapping(
+        _first(merged_a2, "market_funding", "market_funding_snapshot")
+        or _first(context, "market_funding", "market_funding_snapshot")
+    )
+    market_funding_state = _normalize_state(
+        _first(market_funding, "state", "funding_state")
+    ) or "UNRESOLVED"
+    market_environment = (
+        "BEAR_RISK"
+        if market_regime in _RISK_OFF_STATES
+        else "BULL_TREND"
+        if market_regime == "TREND_MAINLINE"
+        else "ROTATION_MIXED"
+    )
     theme_stage = _normalize_state(
         _first(merged_a2, "theme_stage", "sector_stage", "stage")
         or _first(context, "theme_stage", "sector_stage", "stage")
@@ -350,6 +500,13 @@ def evaluate_a3_candidate(
     distribution = _has_distribution(raw_candidate, merged_a2, kline, labels)
     overextended = _is_overextended(raw_candidate, merged_a2, daily, daily_ma, daily_close, context)
     locked = _is_locked(raw_candidate, merged_a2, kline, labels)
+    behavior_risk = _behavior_risk_facts(
+        a2_context,
+        context,
+        raw_kline=raw_kline,
+        distribution=distribution,
+        daily_event=daily_event,
+    )
 
     ladder_height = _number(ladder.get("height"))
     ladder_availability = _normalize_state(ladder.get("availability_state"))
@@ -420,6 +577,38 @@ def evaluate_a3_candidate(
     elif ma520_route:
         profile = StrategyProfile.MA520_SWING
     else:
+        profile = StrategyProfile.NO_NEXT_DAY_PLAN
+
+    # Classify the stock's behavior before any plan can be published.  The
+    # route remains driven by the deterministic daily setup above, but an
+    # explicit behavior declaration is authoritative for compatibility: an
+    # emotion stock must use the leader route and a trend stock must use one
+    # of the two right-side trend routes.  Historical snapshots often do not
+    # carry this new field, so the helper makes a conservative inference from
+    # the existing market role/route and records how it did so.
+    routed_profile_before_behavior = profile
+    stock_behavior_type, behavior_source, behavior_conflict = _resolve_behavior_type(
+        raw_candidate,
+        a2_context,
+        merged_a2,
+        context,
+        market_role=market_role,
+        routed_profile=profile,
+    )
+    behavior_route_compatible = _behavior_route_compatible(
+        stock_behavior_type,
+        profile,
+    )
+    if (
+        not behavior_conflict
+        and routed_profile_before_behavior is not StrategyProfile.NO_NEXT_DAY_PLAN
+        and stock_behavior_type is not StockBehaviorType.UNRESOLVED
+        and not behavior_route_compatible
+    ):
+        # An explicit style that asks for the wrong playbook is a known
+        # contract conflict, not a benign data gap.
+        behavior_conflict = True
+    if behavior_conflict or not behavior_route_compatible:
         profile = StrategyProfile.NO_NEXT_DAY_PLAN
 
     required: list[str] = []
@@ -528,6 +717,34 @@ def evaluate_a3_candidate(
         kind="ROUTE",
         available=True,
     )
+
+    if behavior_conflict:
+        _append_unique(vetoes, "BEHAVIOR_ROUTE_CONFLICT")
+        _append_unique(reason_codes, "BEHAVIOR_ROUTE_CONFLICT")
+        record_gate(
+            "BEHAVIOR_ROUTE_COMPATIBLE",
+            met=False,
+            reason="BEHAVIOR_ROUTE_CONFLICT",
+            kind="VETO",
+            available=True,
+        )
+    elif stock_behavior_type is StockBehaviorType.UNRESOLVED:
+        _append_unique(reason_codes, "STOCK_BEHAVIOR_UNRESOLVED")
+        record_gate(
+            "STOCK_BEHAVIOR_RESOLVED",
+            met=False,
+            reason="STOCK_BEHAVIOR_UNRESOLVED",
+            kind="DATA",
+            available=False,
+        )
+    else:
+        record_gate(
+            "BEHAVIOR_ROUTE_COMPATIBLE",
+            met=behavior_route_compatible,
+            reason="OK" if behavior_route_compatible else "BEHAVIOR_ROUTE_INCOMPATIBLE",
+            kind="ROUTE",
+            available=True,
+        )
 
     conditional_probe = False
     higher_timeframe_risk = "ALIGNED_OR_NEUTRAL"
@@ -638,6 +855,9 @@ def evaluate_a3_candidate(
                 daily_state=daily_state,
                 raw_candidate=raw_candidate,
                 merged_a2=merged_a2,
+                emotion_cycle_stage=emotion_cycle_stage,
+                emotion_new_long_permission=emotion_new_long_permission,
+                market_emotion_supplied=market_emotion_supplied,
             )
         elif profile is StrategyProfile.TREND_MA5:
             _evaluate_trend(
@@ -694,6 +914,16 @@ def evaluate_a3_candidate(
         # opportunity.
         if distribution:
             veto("HIGH_VOLUME_DISTRIBUTION")
+        if (
+            stock_behavior_type is StockBehaviorType.EMOTION
+            and behavior_risk["emotion_top"]["confirmed"] is True
+        ):
+            veto("EMOTION_TOP_RISK_CONFIRMED")
+        if (
+            stock_behavior_type is StockBehaviorType.TREND
+            and behavior_risk["trend_top"]["confirmed"] is True
+        ):
+            veto("TREND_TOP_RISK_CONFIRMED")
         # A high-acceleration/overextended close is never an A4 plan merely
         # because the route is labelled LEADER or MA520.  It must show a
         # concrete daily MA5 retest that held (A4 still confirms the intraday
@@ -736,6 +966,64 @@ def evaluate_a3_candidate(
         eligibility = Eligibility.WATCH
     else:
         eligibility = Eligibility.QUALIFIED
+
+    # Keep the attempted route in the audit artifact when a new behavior
+    # contract blocks publication.  This makes a conflict diagnosable without
+    # allowing the conflicting route to leak into A4.
+    metadata_profile = (
+        routed_profile_before_behavior
+        if profile is StrategyProfile.NO_NEXT_DAY_PLAN
+        and routed_profile_before_behavior is not StrategyProfile.NO_NEXT_DAY_PLAN
+        else profile
+    )
+    expected_holding_sessions, time_stop_sessions, holding_source = _holding_contract(
+        metadata_profile,
+        raw_candidate,
+        merged_a2,
+        context,
+    )
+    setup_pattern = _setup_pattern(
+        metadata_profile,
+        labels=labels,
+        setup=setup,
+        trend_paths=trend_paths,
+        daily_event=daily_event,
+        ladder=ladder,
+    )
+    cycle_alignment = _cycle_alignment(
+        metadata_profile,
+        monthly_state=monthly_state,
+        weekly_state=weekly_state,
+        daily_state=daily_state,
+        monthly_status=_period_status(monthly, require_explicit=True),
+        weekly_status=_period_status(weekly, require_explicit=True),
+        daily_status=_period_status(daily, require_explicit=False),
+    )
+    cycle_alignment["market_environment"] = market_environment
+    cycle_alignment["emotion_cycle"] = {
+        "stage": emotion_cycle_stage,
+        "new_long_permission": emotion_new_long_permission,
+        "owned_by": "LEADER_INTRADAY" if metadata_profile is StrategyProfile.LEADER_INTRADAY else "CONTEXT_ONLY",
+    }
+    cycle_alignment["market_funding"] = {
+        "state": market_funding_state,
+        "available": market_funding.get("available") is True,
+        "amount_ratio": _number(market_funding.get("amount_ratio")),
+        "coverage": _number(market_funding.get("coverage")),
+        "turnover_is_capital_flow": False,
+        "owned_by": "MARKET_CONTEXT_ONLY",
+    }
+    route_permission = _route_permission(
+        eligibility,
+        stock_behavior_type=stock_behavior_type,
+        profile=profile,
+        behavior_conflict=behavior_conflict,
+    )
+    publication_state = {
+        RoutePermission.ALLOW_A4: "PUBLISHED_A4_PLAN",
+        RoutePermission.WATCH_ONLY: "WATCH_ONLY",
+        RoutePermission.BLOCKED: "BLOCKED",
+    }[route_permission]
 
     plan_mode = _plan_mode(
         profile,
@@ -807,7 +1095,17 @@ def evaluate_a3_candidate(
         "name": _text(_first(raw_candidate, "name", "company_name", "security_name")) or None,
         "candidate_origin": _text(_first(raw_candidate, "candidate_origin", "origin")) or "A2",
         "market_role": market_role or None,
+        "stock_behavior_type": stock_behavior_type.value,
+        "route_permission": route_permission.value,
+        "expected_holding_sessions": expected_holding_sessions,
+        "time_stop_sessions": time_stop_sessions,
+        "setup_pattern": setup_pattern,
+        "cycle_alignment": cycle_alignment,
+        "emotion_cycle_stage": emotion_cycle_stage,
+        "market_environment": market_environment,
+        "behavior_risk": behavior_risk,
         "market_regime": market_regime,
+        "market_funding_state": market_funding_state,
         "theme_stage": theme_stage,
         "monthly_state": monthly_state,
         "monthly_partial_observation": monthly_partial_observation,
@@ -847,6 +1145,21 @@ def evaluate_a3_candidate(
         "llm_review": {"status": llm_status, "reason_codes": _dedupe(vetoes + data_gaps)},
         "strategy_facts": facts,
     }
+    facts["stock_behavior_type"] = stock_behavior_type.value
+    facts["behavior_type_source"] = behavior_source
+    facts["behavior_type_conflict"] = bool(behavior_conflict)
+    facts["routed_profile_before_behavior_gate"] = routed_profile_before_behavior.value
+    facts["route_permission"] = route_permission.value
+    facts["expected_holding_sessions"] = expected_holding_sessions
+    facts["time_stop_sessions"] = time_stop_sessions
+    facts["holding_contract_source"] = holding_source
+    facts["setup_pattern"] = setup_pattern
+    facts["cycle_alignment"] = cycle_alignment
+    facts["emotion_cycle_stage"] = emotion_cycle_stage
+    facts["emotion_new_long_permission"] = emotion_new_long_permission
+    facts["market_environment"] = market_environment
+    facts["behavior_risk"] = behavior_risk
+    facts["publication_state"] = publication_state
     _apply_a3_ablation(
         result,
         gate_order=gate_order,
@@ -963,6 +1276,7 @@ def _apply_a3_ablation(
     result["ablation_shadow_eligibility"] = shadow_eligibility
     result["eligibility"] = Eligibility.DATA_GAP.value
     result["publication_state"] = "BLOCKED"
+    result["route_permission"] = RoutePermission.BLOCKED.value
     result["plan_mode"] = None
     result["reason_codes"] = _dedupe([
         *(result.get("reason_codes") or []),
@@ -983,6 +1297,7 @@ def _apply_a3_ablation(
         facts["ablation_gates"] = list(selected)
         facts["ablation_shadow_eligibility"] = shadow_eligibility
         facts["publication_state"] = "BLOCKED"
+        facts["route_permission"] = RoutePermission.BLOCKED.value
 
 
 def route_a3_strategy(
@@ -1020,6 +1335,8 @@ def evaluate_a3_strategy(
     a2_context: Mapping[str, Any] | None = None,
     market_regime: str | None = None,
     sector_permission: str | None = None,
+    market_emotion: Mapping[str, Any] | None = None,
+    market_funding: Mapping[str, Any] | None = None,
     ablation: Mapping[str, Any] | None = None,
 ) -> A3StrategyDecision:
     """Evaluate a candidate through the stable keyword-only A3 contract.
@@ -1035,12 +1352,21 @@ def evaluate_a3_strategy(
     context = _mapping(factor)
     # Do not mutate a caller-owned frozen snapshot/model dump.  These values
     # are optional context overrides supplied by the caller, not model votes.
-    if market_regime is not None or sector_permission is not None:
+    if (
+        market_regime is not None
+        or sector_permission is not None
+        or market_emotion is not None
+        or market_funding is not None
+    ):
         context = dict(context)
         if market_regime is not None:
             context["market_regime"] = market_regime
         if sector_permission is not None:
             context["sector_permission"] = sector_permission
+        if market_emotion is not None:
+            context["market_emotion"] = dict(_mapping(market_emotion))
+        if market_funding is not None:
+            context["market_funding"] = dict(_mapping(market_funding))
 
     candidate_map = dict(_mapping(candidate))
     if a2_context is not None:
@@ -1093,10 +1419,31 @@ def _evaluate_leader(
     daily_state: str,
     raw_candidate: Mapping[str, Any],
     merged_a2: Mapping[str, Any],
+    emotion_cycle_stage: str,
+    emotion_new_long_permission: str,
+    market_emotion_supplied: bool,
 ) -> None:
     condition("A2_LEADER_ROLE_CONFIRMED", market_role in _LEADER_ROLES, missing=not bool(market_role), reason="A2_LEADER_ROLE_MISSING" if not market_role else None)
     if theme_stage in _BAD_LEADER_STAGES or theme_stage in _RISK_OFF_STATES:
         veto("LEADER_THEME_RETREAT_OR_CLIMAX")
+    if market_emotion_supplied and (
+        emotion_cycle_stage in {"CLIMAX", "DIVERGENCE", "RETREAT", "ICE_POINT"}
+        or emotion_new_long_permission == "NO_NEW_ENTRY"
+    ):
+        veto("MARKET_EMOTION_CYCLE_NO_NEW_LEADER")
+    if market_emotion_supplied:
+        condition(
+            "MARKET_EMOTION_CYCLE_ALLOWS_NEW_LEADER",
+            emotion_new_long_permission in {"ALLOW_CORE", "PROBE_ONLY"},
+            missing=emotion_new_long_permission == "UNKNOWN",
+            reason=(
+                "MARKET_EMOTION_CYCLE_MISSING"
+                if emotion_new_long_permission == "UNKNOWN"
+                else "MARKET_EMOTION_CYCLE_NO_NEW_LEADER"
+                if emotion_new_long_permission not in {"ALLOW_CORE", "PROBE_ONLY"}
+                else None
+            ),
+        )
     condition(
         "THEME_IN_EARLY_CYCLE",
         theme_stage in _LEADER_STAGES,
@@ -1427,6 +1774,12 @@ def _trend_path_signals(
     )
 
     platform_breakout = _platform_evidence(candidate, daily, kline, labels, price_discovery)
+    # A named reversal/continuation pattern is evidence, not a left-side
+    # permission.  Require the daily close to hold MA5 before it can support
+    # the trend route; A4 still performs the intraday confirmation.
+    pattern_labels = {"W_BOTTOM", "FLAG", "BOX_BREAKOUT"}
+    if labels & pattern_labels and not price_holds_ma5:
+        platform_breakout = False
 
     # A strong daily MA5 pullback requires actual price geometry.  Merely
     # carrying an A2 label is enough to identify the route only when a valid
@@ -1533,6 +1886,444 @@ def _strategy_facts(
         "kline_labels": sorted(labels),
         "condition_details": dict(condition_details),
         "decision_style": "EXPLICIT_CONDITIONS_NO_COMPOSITE_SCORE",
+    }
+
+
+def _resolve_behavior_type(
+    candidate: Mapping[str, Any],
+    a2_context: Mapping[str, Any],
+    merged_a2: Mapping[str, Any],
+    context: Mapping[str, Any],
+    *,
+    market_role: str,
+    routed_profile: StrategyProfile,
+) -> tuple[StockBehaviorType, str, bool]:
+    """Resolve the behavior owner of a route without inventing evidence.
+
+    New snapshots may explicitly carry a behavior type in A1/A2 output.  Old
+    snapshots do not, so the fallback is intentionally narrow: only clearly
+    emotional roles, clearly trend-oriented roles, or an already deterministic
+    A3 route may fill the missing field.  ``LEADER`` alone is ambiguous and is
+    therefore resolved by the actual ladder-driven route, not by its name.
+    """
+
+    source_rows = (
+        ("candidate", candidate),
+        ("a2", a2_context),
+        ("technical", context),
+    )
+    explicit: list[tuple[str, StockBehaviorType]] = []
+    for source_name, source in source_rows:
+        raw = _behavior_value(source)
+        if raw is None:
+            continue
+        explicit.append((source_name, raw))
+
+    values = {value for _, value in explicit if value is not StockBehaviorType.UNRESOLVED}
+    has_unresolved = any(value is StockBehaviorType.UNRESOLVED for _, value in explicit)
+    conflict = len(values) > 1 or (bool(values) and has_unresolved)
+    if conflict:
+        return StockBehaviorType.UNRESOLVED, "+".join(name for name, _ in explicit), True
+    if explicit:
+        return explicit[0][1], explicit[0][0], False
+
+    role = _normalize_state(market_role)
+    if role in {"EMOTION_LEADER", "MARKET_LEADER", "THEME_LEADER"}:
+        return StockBehaviorType.EMOTION, "market_role", False
+    if role in {"TREND_CORE", "TREND_LEADER", "INSTITUTIONAL_CORE", "CORE_ARMY"}:
+        return StockBehaviorType.TREND, "market_role", False
+    if routed_profile is StrategyProfile.LEADER_INTRADAY:
+        return StockBehaviorType.EMOTION, "a3_route", False
+    if routed_profile in {StrategyProfile.TREND_MA5, StrategyProfile.MA520_SWING}:
+        return StockBehaviorType.TREND, "a3_route", False
+    return StockBehaviorType.UNRESOLVED, "unresolved", False
+
+
+def _behavior_value(source: Mapping[str, Any]) -> StockBehaviorType | None:
+    if not source:
+        return None
+    raw = _first(
+        source,
+        "stock_behavior_type",
+        "behavior_type",
+        "stock_behavior",
+        "behavior",
+        "trade_style",
+        "trade_type",
+        "stock_type",
+        "style",
+    )
+    if isinstance(raw, Mapping):
+        raw = _first(raw, "stock_behavior_type", "behavior_type", "type", "style", "value", "name")
+    if raw is None:
+        nested = _mapping(_first(source, "classification", "behavior_classification"))
+        raw = _first(nested, "stock_behavior_type", "behavior_type", "type", "style", "value")
+    if raw is None:
+        return None
+    token = _normalize_token(raw)
+    if token in {
+        "EMOTION",
+        "EMOTIONAL",
+        "SENTIMENT",
+        "SENTIMENTAL",
+        "SPECULATION",
+        "SPECULATIVE",
+        "SHORT_TERM_EMOTION",
+        "情绪",
+        "情绪型",
+    } or "EMOTION" in token or "情绪" in token:
+        return StockBehaviorType.EMOTION
+    if token in {
+        "TREND",
+        "TRENDING",
+        "TREND_FOLLOW",
+        "TREND_FOLLOWING",
+        "QUALITY_TREND",
+        "INVESTMENT",
+        "趋势",
+        "趋势型",
+    } or "TREND" in token or "趋势" in token:
+        return StockBehaviorType.TREND
+    if token in {
+        "UNRESOLVED",
+        "UNKNOWN",
+        "UNCLASSIFIED",
+        "UNDEFINED",
+        "DATA_GAP",
+        "未定",
+        "未知",
+    }:
+        return StockBehaviorType.UNRESOLVED
+    # A supplied but unrecognised classification is not silently converted to
+    # a trend route.  It is a missing/invalid fact that remains visible.
+    return StockBehaviorType.UNRESOLVED
+
+
+def _behavior_route_compatible(
+    behavior: StockBehaviorType,
+    profile: StrategyProfile,
+) -> bool:
+    if behavior is StockBehaviorType.EMOTION:
+        return profile is StrategyProfile.LEADER_INTRADAY
+    if behavior is StockBehaviorType.TREND:
+        return profile in {StrategyProfile.TREND_MA5, StrategyProfile.MA520_SWING}
+    return False
+
+
+def _route_permission(
+    eligibility: Eligibility,
+    *,
+    stock_behavior_type: StockBehaviorType,
+    profile: StrategyProfile,
+    behavior_conflict: bool,
+) -> RoutePermission:
+    if (
+        eligibility is Eligibility.QUALIFIED
+        and not behavior_conflict
+        and stock_behavior_type is not StockBehaviorType.UNRESOLVED
+        and _behavior_route_compatible(stock_behavior_type, profile)
+    ):
+        return RoutePermission.ALLOW_A4
+    if eligibility is Eligibility.WATCH and not behavior_conflict:
+        return RoutePermission.WATCH_ONLY
+    return RoutePermission.BLOCKED
+
+
+def _behavior_risk_facts(
+    a2_context: Mapping[str, Any],
+    context: Mapping[str, Any],
+    *,
+    raw_kline: Any,
+    distribution: bool,
+    daily_event: str,
+) -> dict[str, Any]:
+    """Separate fast emotion-top facts from slow trend-top facts.
+
+    Only frozen K-line labels, explicit ``*_confirmed`` facts and already
+    deterministic MA/distribution observations can confirm a risk.  Free-form
+    model prose is intentionally excluded: the model may veto through its
+    normal cited review contract, but it cannot manufacture a server-owned
+    structure label here.
+    """
+
+    kline_labels = _normalize_labels(raw_kline, {}, {})
+    emotion_signals = sorted(kline_labels.intersection(_EMOTION_TOP_LABELS))
+    trend_signals = sorted(kline_labels.intersection(_TREND_TOP_LABELS))
+    sources: list[str] = []
+    if kline_labels:
+        sources.append("KLINE_PATTERNS")
+
+    explicit_emotion = {
+        "FAILED_SEAL": ("failed_seal_confirmed", "broken_board_confirmed"),
+        "HIGH_OPEN_LOW_CLOSE": ("high_open_low_close_confirmed",),
+        "LARGE_BEARISH_ENGULFING": ("bearish_engulfing_confirmed",),
+        "NO_RELAY": ("no_relay_confirmed", "ladder_broken"),
+        "EARTH_SKY_BOARD": ("earth_sky_board_confirmed",),
+    }
+    explicit_trend = {
+        "BOX_BREAKDOWN": ("box_breakdown_confirmed",),
+        "HEAD_SHOULDERS_TOP": ("head_shoulders_top_confirmed",),
+        "TRIPLE_TOP": ("triple_top_confirmed",),
+        "MACD_TOP_DIVERGENCE": ("macd_top_divergence_confirmed",),
+    }
+    for source_name, source in (
+        ("A2_CONTEXT", a2_context),
+        ("TECHNICAL_CONTEXT", context),
+    ):
+        for signal, keys in explicit_emotion.items():
+            if any(_truthy(source.get(key)) for key in keys):
+                _append_unique(emotion_signals, signal)
+                _append_unique(sources, source_name)
+        for signal, keys in explicit_trend.items():
+            if any(_truthy(source.get(key)) for key in keys):
+                _append_unique(trend_signals, signal)
+                _append_unique(sources, source_name)
+
+    if distribution:
+        _append_unique(emotion_signals, "HIGH_VOLUME_DISTRIBUTION")
+        _append_unique(trend_signals, "HIGH_VOLUME_DISTRIBUTION")
+        _append_unique(sources, "DETERMINISTIC_DISTRIBUTION")
+    event = _normalize_event(daily_event)
+    if event in _DEAD_CROSS_EVENTS:
+        _append_unique(trend_signals, "MA_DEATH_CROSS")
+        _append_unique(sources, "DAILY_MA_EVENT")
+    # A close below an average is not, by itself, a top pattern: it can also
+    # describe a still-unconfirmed reversal candidate.  Existing route gates
+    # own that daily geometry.  This classifier only records an explicit
+    # breakdown/dead-cross event or a confirmed point-in-time pattern.
+
+    return {
+        "schema": "behavior-risk/1.0.0",
+        "emotion_top": {
+            "confirmed": bool(emotion_signals),
+            "signals": emotion_signals,
+            "response": "NO_NEW_ENTRY_OR_FAST_EXIT" if emotion_signals else "NONE",
+        },
+        "trend_top": {
+            "confirmed": bool(trend_signals),
+            "signals": trend_signals,
+            "response": "BLOCK_OR_TREND_EXIT" if trend_signals else "NONE",
+        },
+        "source_refs": sources,
+        "scoring_used": False,
+        "complex_patterns_require_confirmed_point_in_time_fact": True,
+    }
+
+
+def _holding_contract(
+    profile: StrategyProfile,
+    candidate: Mapping[str, Any],
+    merged_a2: Mapping[str, Any],
+    context: Mapping[str, Any],
+) -> tuple[dict[str, int] | None, int | None, str]:
+    """Return a bounded holding range and explicit time stop for a route."""
+
+    defaults = _ROUTE_HOLDING_DEFAULTS.get(profile)
+    if defaults is None:
+        return None, None, "no_route"
+    minimum, maximum, default_time_stop = defaults
+    range_value: Any = None
+    stop_value: Any = None
+    source = "default"
+    # Apply low-priority context first and let the explicit candidate override
+    # it.  ``merged_a2`` already contains candidate keys, so iterating it
+    # after the candidate would misreport the provenance as ``a2``.
+    for source_name, mapping in (("technical", context), ("a2", merged_a2), ("candidate", candidate)):
+        value = _first(
+            mapping,
+            "expected_holding_sessions",
+            "holding_sessions",
+            "holding_period_sessions",
+            "plan_horizon_sessions",
+            "holding_period",
+        )
+        if value is not None:
+            range_value = value
+            source = source_name
+        value = _first(
+            mapping,
+            "time_stop_sessions",
+            "time_stop",
+            "max_holding_sessions",
+            "time_stop_days",
+        )
+        if value is not None:
+            stop_value = value
+            source = source_name
+
+    parsed_range = _parse_session_range(range_value)
+    if parsed_range is not None:
+        minimum, maximum = parsed_range
+    else:
+        if range_value is not None:
+            source = f"{source}:invalid_range_defaulted"
+    parsed_stop = _parse_positive_sessions(stop_value)
+    time_stop = parsed_stop if parsed_stop is not None else default_time_stop
+    if stop_value is not None and parsed_stop is None:
+        source = f"{source}:invalid_stop_defaulted"
+    return {"min": minimum, "max": maximum}, time_stop, source
+
+
+def _parse_session_range(value: Any) -> tuple[int, int] | None:
+    if value is None:
+        return None
+    if isinstance(value, Mapping):
+        low = _first(value, "min", "minimum", "low", "from", "min_sessions")
+        high = _first(value, "max", "maximum", "high", "to", "max_sessions")
+        if low is None and high is None:
+            nested = _first(value, "range", "sessions", "value")
+            if nested is not value:
+                return _parse_session_range(nested)
+        low_value = _parse_positive_sessions(low)
+        high_value = _parse_positive_sessions(high)
+        if low_value is None and high_value is not None:
+            low_value = high_value
+        if high_value is None and low_value is not None:
+            high_value = low_value
+        if low_value is None or high_value is None or low_value > high_value:
+            return None
+        return low_value, high_value
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        values = list(value)
+        if len(values) >= 2:
+            low_value = _parse_positive_sessions(values[0])
+            high_value = _parse_positive_sessions(values[1])
+            if low_value is not None and high_value is not None and low_value <= high_value:
+                return low_value, high_value
+        if len(values) == 1:
+            parsed = _parse_positive_sessions(values[0])
+            return (parsed, parsed) if parsed is not None else None
+        return None
+    if isinstance(value, str):
+        numbers = re.findall(r"\d+", value)
+        if len(numbers) >= 2:
+            low_value, high_value = int(numbers[0]), int(numbers[1])
+            if low_value > 0 and low_value <= high_value:
+                return low_value, high_value
+        if len(numbers) == 1:
+            parsed = int(numbers[0])
+            return (parsed, parsed) if parsed > 0 else None
+        return None
+    parsed = _parse_positive_sessions(value)
+    return (parsed, parsed) if parsed is not None else None
+
+
+def _parse_positive_sessions(value: Any) -> int | None:
+    number = _number(value)
+    if number is None or number <= 0 or not number.is_integer():
+        return None
+    return int(number)
+
+
+def _setup_pattern(
+    profile: StrategyProfile,
+    *,
+    labels: set[str],
+    setup: Mapping[str, bool],
+    trend_paths: Mapping[str, bool],
+    daily_event: str,
+    ladder: Mapping[str, Any],
+) -> str | None:
+    canonical = {_canonical_pattern(label) for label in labels if _text(label)}
+    if profile is StrategyProfile.LEADER_INTRADAY:
+        for pattern in ("LEADER_REACCELERATION", "LADDER_CONTINUATION", "THIRD_BOARD_CONFIRMATION", "SECOND_BOARD"):
+            if pattern in canonical:
+                return pattern
+        height = _number(ladder.get("height"))
+        if height is not None and height >= 2:
+            return "LADDER_CONTINUATION"
+        return "LEADER_INTRADAY_SETUP"
+    if profile is StrategyProfile.TREND_MA5:
+        for pattern in _TREND_PATTERN_PRIORITY:
+            if pattern in canonical:
+                return pattern
+        if trend_paths.get("daily_main_rise"):
+            return "MAIN_RISE"
+        if trend_paths.get("strong_pullback"):
+            return "MA5_PULLBACK"
+        if trend_paths.get("price_discovery"):
+            return "NEW_HIGH"
+        return "TREND_DAILY_SETUP"
+    if profile is StrategyProfile.MA520_SWING:
+        if setup.get("golden_cross") or _normalize_event(daily_event) in _GOLDEN_CROSS_EVENTS:
+            return "MA520_GOLDEN_CROSS"
+        if setup.get("reclaim"):
+            return "MA20_RECLAIM"
+        if setup.get("pullback_hold"):
+            return "MA20_PULLBACK"
+        for pattern in ("W_BOTTOM", "FLAG", "BOX_BREAKOUT"):
+            if pattern in canonical:
+                return pattern
+        return "MA520_SETUP"
+    for pattern in _TREND_PATTERN_PRIORITY:
+        if pattern in canonical:
+            return pattern
+    return None
+
+
+def _cycle_alignment(
+    profile: StrategyProfile,
+    *,
+    monthly_state: str,
+    weekly_state: str,
+    daily_state: str,
+    monthly_status: str,
+    weekly_status: str,
+    daily_status: str,
+) -> dict[str, Any]:
+    matrix = {
+        StrategyProfile.LEADER_INTRADAY: {
+            "name": "EMOTION_DAILY_WITH_MONTH_WEEK_CONTEXT",
+            "monthly_requirement": "CONTEXT_ONLY",
+            "weekly_requirement": "CONTEXT_ONLY",
+            "daily_requirement": "DAILY_NOT_BEARISH",
+        },
+        StrategyProfile.TREND_MA5: {
+            "name": "TREND_DAILY_MA5_WITH_CYCLE_CONTEXT",
+            "monthly_requirement": "CONTEXT_ONLY",
+            "weekly_requirement": "PREFER_NOT_HARD_BEAR",
+            "daily_requirement": "DAILY_RIGHT_SIDE_MA5",
+        },
+        StrategyProfile.MA520_SWING: {
+            "name": "MA520_DAILY_REVERSAL_WITH_CYCLE_CONTEXT",
+            "monthly_requirement": "CONTEXT_ONLY",
+            "weekly_requirement": "PREFER_NOT_HARD_BEAR",
+            "daily_requirement": "MA520_RIGHT_SIDE",
+        },
+    }.get(
+        profile,
+        {
+            "name": "NO_ROUTE",
+            "monthly_requirement": "N_A",
+            "weekly_requirement": "N_A",
+            "daily_requirement": "N_A",
+        },
+    )
+    hard_weekly_bear_daily_bear = (
+        weekly_status == "CLOSED"
+        and _is_hard_bear_state(weekly_state)
+        and _is_bear_state(daily_state)
+    )
+    return {
+        "matrix": matrix["name"],
+        "monthly": {
+            "state": monthly_state,
+            "status": monthly_status,
+            "requirement": matrix["monthly_requirement"],
+        },
+        "weekly": {
+            "state": weekly_state,
+            "status": weekly_status,
+            "requirement": matrix["weekly_requirement"],
+        },
+        "daily": {
+            "state": daily_state,
+            "status": daily_status,
+            "requirement": matrix["daily_requirement"],
+        },
+        "all_three_bullish_required": False,
+        "hard_weekly_bear_daily_bear_block": hard_weekly_bear_daily_bear,
+        "intraday_timeframes_owned_by": "A4_15M_5M",
     }
 
 
@@ -1741,25 +2532,40 @@ def _normalize_price_contract(value: Mapping[str, Any] | None) -> dict[str, Any]
 def _normalize_labels(value: Any, candidate: Mapping[str, Any], context: Mapping[str, Any]) -> set[str]:
     rows: list[Any] = []
     if isinstance(value, Mapping):
-        for key in ("labels", "tags", "kline_labels", "pattern_labels"):
+        for key in ("labels", "tags", "kline_labels", "pattern_labels", "setup_pattern", "pattern", "formation"):
             raw = value.get(key)
             if isinstance(raw, Sequence) and not isinstance(raw, (str, bytes, bytearray)):
                 rows.extend(raw)
             elif raw is not None:
                 rows.append(raw)
-        for key in ("new_high", "innovation_high", "price_discovery", "distribution", "overextended", "locked_limit_up"):
+        for key in (
+            "new_high",
+            "innovation_high",
+            "price_discovery",
+            "distribution",
+            "overextended",
+            "locked_limit_up",
+            "w_bottom",
+            "flag",
+            "box_breakout",
+        ):
             if value.get(key) is True:
                 rows.append(key)
     elif isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
         rows.extend(value)
     for source in (candidate, context):
-        for key in ("labels", "tags", "kline_labels", "pattern_labels"):
+        for key in ("labels", "tags", "kline_labels", "pattern_labels", "setup_pattern", "pattern", "formation"):
             raw = source.get(key)
             if isinstance(raw, Sequence) and not isinstance(raw, (str, bytes, bytearray)):
                 rows.extend(raw)
             elif raw is not None:
                 rows.append(raw)
-    return {_normalize_token(item) for item in rows if _text(item)}
+    return {_canonical_pattern(item) for item in rows if _text(item)}
+
+
+def _canonical_pattern(value: Any) -> str:
+    token = _normalize_token(value)
+    return _PATTERN_ALIASES.get(token, _PATTERN_ALIASES.get(_text(value), token))
 
 
 def _kline_context(value: Any, candidate: Mapping[str, Any], context: Mapping[str, Any]) -> dict[str, Any]:
@@ -1921,7 +2727,17 @@ def _platform_evidence(candidate: Mapping[str, Any], daily: Mapping[str, Any], k
         return True
     if _truthy(_first(candidate, "platform_breakout", "main_rise", "maintrend_confirmed", "trend_confirmed")):
         return True
-    if labels & {"PLATFORM_BREAKOUT", "BREAKOUT", "MAIN_RISE", "UPTREND", "主升", "平台突破"}:
+    if labels & {
+        "PLATFORM_BREAKOUT",
+        "BREAKOUT",
+        "BOX_BREAKOUT",
+        "FLAG",
+        "W_BOTTOM",
+        "MAIN_RISE",
+        "UPTREND",
+        "主升",
+        "平台突破",
+    }:
         return True
     breakout = _mapping(_first(kline, "breakout_20"))
     return breakout.get("up") is True or _truthy(_first(kline, "breakout_20_up"))
@@ -2231,6 +3047,8 @@ __all__ = [
     "STRATEGY_VERSION",
     "StrategyProfile",
     "Eligibility",
+    "StockBehaviorType",
+    "RoutePermission",
     "A3GateResult",
     "A3Decision",
     "A3StrategyDecision",

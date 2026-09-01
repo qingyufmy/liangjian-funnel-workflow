@@ -86,6 +86,7 @@ from .pipeline.market_aggregates import (
     build_sector_health_snapshot,
     build_sector_cycle_and_permissions,
 )
+from .pipeline.market_funding import build_market_funding_regime
 from .pipeline.model_client import ModelCallResult, OpenAICompatibleModelClient
 from .pipeline.prompts import PromptRepository
 from .pipeline.research import FrozenInputSnapshot as ResearchSnapshot
@@ -3857,6 +3858,21 @@ class WorkflowApplication:
         market_emotion = build_market_emotion(universe.records, facts, as_of=market_as_of)
         if market_emotion.get("available") is not True:
             raise WorkflowError("MARKET_EMOTION_AGGREGATE_NOT_READY")
+        regime_config = source_config.get("market_regime")
+        regime_settings = regime_config if isinstance(regime_config, Mapping) else {}
+        market_funding = build_market_funding_regime(
+            universe.records,
+            {
+                key: value
+                for key, value in frozen.daily_payload.items()
+                if isinstance(value, list)
+            },
+            as_of=market_as_of,
+            lookback_sessions=int(regime_settings.get("funding_lookback_sessions", 5)),
+            min_coverage=float(regime_settings.get("funding_min_coverage", 0.85)),
+            expansion_ratio=float(regime_settings.get("funding_expansion_ratio", 1.08)),
+            contraction_ratio=float(regime_settings.get("funding_contraction_ratio", 0.92)),
+        )
         breadth = float(market_emotion["breadth"])
         auction = _available_fact(facts, "AUCTION_FINAL") if _auction_window(market_as_of) else None
         dragon_tiger = _available_fact(facts, "DRAGON_TIGER_LIST")
@@ -4016,13 +4032,23 @@ class WorkflowApplication:
             capital_flow_snapshot=capital_flow,
             as_of=market_as_of,
         )
-        regime_config = source_config.get("market_regime")
-        regime_settings = regime_config if isinstance(regime_config, Mapping) else {}
         regime, regime_evidence = _determine_market_regime(
             market_emotion,
             sector_cycle,
             rotation_overlap_threshold=float(regime_settings.get("rotation_overlap_threshold", 0.40)),
         )
+        regime_evidence = {
+            **regime_evidence,
+            "market_funding": {
+                "available": market_funding.get("available") is True,
+                "state": market_funding.get("state"),
+                "amount_ratio": market_funding.get("amount_ratio"),
+                "coverage": market_funding.get("coverage"),
+                "latest_trade_date": market_funding.get("latest_trade_date"),
+                "reason_codes": list(market_funding.get("reason_codes") or ()),
+                "execution_context_only": True,
+            },
+        }
         regime_matrix = source_config.get("regime_parameter_matrix")
         if not isinstance(regime_matrix, Mapping):
             regime_matrix = source_config.get("regime_overrides", {})
@@ -4086,6 +4112,7 @@ class WorkflowApplication:
                 "evidence": regime_evidence,
             },
             "MARKET_EMOTION_SNAPSHOT": market_emotion,
+            "MARKET_FUNDING_SNAPSHOT": market_funding,
             "LIQUIDITY_SNAPSHOT": {item.symbol: {"turnover": item.amount} for item in universe.records if item.symbol in g0_symbols},
             "TRADABILITY_FLAGS": {
                 item.symbol: {
@@ -4111,7 +4138,12 @@ class WorkflowApplication:
                 for key, value in technical.items()
                 if key in g0_symbols and isinstance(value, Mapping)
             },
-            "MARKET_CONTEXT": {"regime": regime, "breadth": breadth, "regime_evidence": regime_evidence},
+            "MARKET_CONTEXT": {
+                "regime": regime,
+                "breadth": breadth,
+                "market_funding_state": market_funding.get("state"),
+                "regime_evidence": regime_evidence,
+            },
             "MARKET_DATA_AS_OF": market_as_of.isoformat(),
             "AUCTION_SNAPSHOT": auction or {
                 "available": False,
@@ -4286,9 +4318,24 @@ class WorkflowApplication:
                         })
                         continue
                     strategy_profile = str(raw.get("strategy_profile") or "").strip().upper()
+                    stock_behavior_type = str(raw.get("stock_behavior_type") or "").strip().upper()
+                    route_permission = str(raw.get("route_permission") or "").strip().upper()
+                    behavior_contract_required = (
+                        str(raw.get("strategy_version") or "").strip() == "a3-a4-three-strategy/1.3.0"
+                        or "stock_behavior_type" in raw
+                        or "route_permission" in raw
+                    )
+                    behavior_route_compatible = (
+                        stock_behavior_type == "EMOTION" and strategy_profile == "LEADER_INTRADAY"
+                    ) or (
+                        stock_behavior_type == "TREND"
+                        and strategy_profile in {"MA520_SWING", "TREND_MA5"}
+                    )
                     if (
                         str(raw.get("eligibility") or "").strip().upper() != "QUALIFIED"
                         or strategy_profile not in {"LEADER_INTRADAY", "MA520_SWING", "TREND_MA5"}
+                        or (behavior_contract_required and route_permission != "ALLOW_A4")
+                        or (behavior_contract_required and not behavior_route_compatible)
                         or str(raw.get("review_status") or "PASS").strip().upper() != "PASS"
                     ):
                         blocked.append({
@@ -4580,6 +4627,15 @@ def _a4_prompt_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
         "expires_at": plan.get("expires_at"),
         "setup_type": payload.get("setup_type"),
         "strategy_profile": payload.get("strategy_profile"),
+        "stock_behavior_type": payload.get("stock_behavior_type"),
+        "route_permission": payload.get("route_permission"),
+        "expected_holding_sessions": payload.get("expected_holding_sessions"),
+        "time_stop_sessions": payload.get("time_stop_sessions"),
+        "setup_pattern": payload.get("setup_pattern"),
+        "market_environment": payload.get("market_environment"),
+        "behavior_risk": payload.get("behavior_risk"),
+        "market_funding_state": payload.get("market_funding_state"),
+        "emotion_cycle_stage": payload.get("emotion_cycle_stage"),
         "strategy_version": payload.get("strategy_version"),
         "eligibility": payload.get("eligibility"),
         "trigger_low": payload.get("trigger_low"),
@@ -4797,7 +4853,7 @@ def _prompt_parameters(config: Mapping[str, Any]) -> dict[str, Any]:
         "PENALTY_RULES": a2.get("penalty_rules", {}),
         "MIN_REWARD_RISK": a3.get("minimum_reward_risk", 2.0),
         "MAX_STOP_DISTANCE": a3.get("max_stop_distance_pct", 0.06),
-        "A3_STRATEGY_VERSION": a3.get("strategy_version", "a3-a4-three-strategy/1.2.0"),
+        "A3_STRATEGY_VERSION": a3.get("strategy_version", "a3-a4-three-strategy/1.3.0"),
         "A3_ALLOWED_STRATEGIES": a3.get(
             "allowed_strategy_profiles",
             ["LEADER_INTRADAY", "MA520_SWING", "TREND_MA5"],

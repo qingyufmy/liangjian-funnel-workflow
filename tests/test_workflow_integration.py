@@ -140,6 +140,19 @@ def test_plan_publication_blocks_symbols_without_trade_permission(tmp_path):
                 "trigger_zone": {"low": 10, "high": 11},
                 "invalidation_level": 9,
             },
+            {
+                "plan_id": "behavior-conflict-plan",
+                "symbol": "600000.SH",
+                "risk_unit": "STANDARD",
+                "strategy_profile": "TREND_MA5",
+                "strategy_version": "a3-a4-three-strategy/1.3.0",
+                "stock_behavior_type": "EMOTION",
+                "route_permission": "ALLOW_A4",
+                "eligibility": "QUALIFIED",
+                "review_status": "PASS",
+                "trigger_zone": {"low": 10, "high": 11},
+                "invalidation_level": 9,
+            },
         ]
     }
     result = ResearchRunResult(
@@ -163,6 +176,7 @@ def test_plan_publication_blocks_symbols_without_trade_permission(tmp_path):
             "TRADABILITY_FLAGS": {
                 "600519.SH": {"tradable": False, "exclusion_reasons": ["ST_RISK"]},
                 "000001.SZ": {"tradable": True, "exclusion_reasons": []},
+                "600000.SH": {"tradable": True, "exclusion_reasons": []},
             }
         },
     )
@@ -172,7 +186,10 @@ def test_plan_publication_blocks_symbols_without_trade_permission(tmp_path):
     assert {
         (item.get("symbol"), item["reason"])
         for item in publication["blocked"]
-    } == {("600519.SH", "PLAN_SYMBOL_NOT_TRADABLE")}
+    } == {
+        ("600519.SH", "PLAN_SYMBOL_NOT_TRADABLE"),
+        ("600000.SH", "A3_STRATEGY_CONTRACT_NOT_EXECUTABLE"),
+    }
 
 
 def test_plan_publication_allows_qualified_a2_watch_origin_as_probe(tmp_path):

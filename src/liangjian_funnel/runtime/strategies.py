@@ -163,6 +163,24 @@ def evaluate_a4_plan(
             veto=["UNKNOWN_STRATEGY_PROFILE"],
         )
 
+    behavior = str(_lookup(plan, ("stock_behavior_type",), ("behavior_type",)) or "").strip().upper()
+    if behavior:
+        compatible = (
+            behavior == "EMOTION" and profile is StrategyProfile.LEADER_INTRADAY
+        ) or (
+            behavior == "TREND"
+            and profile in {StrategyProfile.MA520_SWING, StrategyProfile.TREND_MA5}
+        )
+        if not compatible:
+            return _finish(
+                base,
+                state="DATA_BLOCKED",
+                action=A4Action.DATA_BLOCK,
+                reasons=["A4_BEHAVIOR_ROUTE_CONFLICT"],
+                unmet=["BEHAVIOR_ROUTE_COMPATIBLE"],
+                veto=["A4_BEHAVIOR_ROUTE_CONFLICT"],
+            )
+
     try:
         normalized = _normalize_bars(bars, plan)
     except _BarError as exc:
@@ -329,6 +347,42 @@ def evaluate_a4_plan(
             action=A4Action.SELL_SIGNAL,
         )
 
+    behavior_risk_reason = _runtime_behavior_risk_reason(plan, profile)
+    if behavior_risk_reason is not None:
+        return _exit_or_cancel(
+            base,
+            plan,
+            reason=behavior_risk_reason,
+            position_open=position_open,
+            action=A4Action.SELL_SIGNAL,
+        )
+
+    market_environment = _runtime_market_environment(plan)
+    if not position_open and market_environment in {
+        "BEAR_RISK",
+        "RISK_OFF",
+        "RISK_OFF_RETREAT",
+    }:
+        return _exit_or_cancel(
+            base,
+            plan,
+            reason="A4_MARKET_BEAR_NO_NEW_ENTRY",
+            position_open=False,
+            action=A4Action.SELL_SIGNAL,
+        )
+    if (
+        not position_open
+        and profile is StrategyProfile.LEADER_INTRADAY
+        and _runtime_emotion_permission(plan) == "NO_NEW_ENTRY"
+    ):
+        return _exit_or_cancel(
+            base,
+            plan,
+            reason="A4_EMOTION_CYCLE_NO_NEW_LEADER",
+            position_open=False,
+            action=A4Action.SELL_SIGNAL,
+        )
+
     locked, upper_limit = _locked_limit_up(plan, current_bar, bars_5m[-1])
     if locked:
         # A locked limit-up bar has no executable price.  It is a veto for
@@ -370,6 +424,7 @@ def evaluate_strategy(
     if position is not None:
         payload["position"] = dict(position)
     if market_context is not None:
+        payload["market_context"] = dict(market_context)
         for key in (
             "leader_context",
             "ladder_context",
@@ -380,6 +435,10 @@ def evaluate_strategy(
             "market_shock",
             "sector_data_as_of",
             "sector_as_of",
+            "market_environment",
+            "market_emotion",
+            "emotion_cycle",
+            "behavior_risk",
         ):
             if (key not in payload or payload.get(key) is None) and key in market_context:
                 payload[key] = market_context[key]
@@ -1289,6 +1348,60 @@ def _locked_limit_up(plan: Mapping[str, Any], current: _Bar | None, latest5: _Ba
 
 def _plan_invalidated(plan: Mapping[str, Any]) -> bool:
     return _bool_value(_lookup(plan, ("plan_invalidated",), ("invalidated",), ("cancelled",))) is True
+
+
+def _runtime_behavior_risk_reason(
+    plan: Mapping[str, Any],
+    profile: StrategyProfile,
+) -> str | None:
+    """Read a type-specific top-risk fact without cross-applying routes."""
+
+    sources: list[Mapping[str, Any]] = []
+    market_context = _lookup(plan, ("market_context",))
+    if isinstance(market_context, Mapping):
+        dynamic = market_context.get("behavior_risk")
+        if isinstance(dynamic, Mapping):
+            sources.append(dynamic)
+    for path in (("behavior_risk",), ("strategy_facts", "behavior_risk")):
+        value = _lookup(plan, path)
+        if isinstance(value, Mapping):
+            sources.append(value)
+
+    section_name = "emotion_top" if profile is StrategyProfile.LEADER_INTRADAY else "trend_top"
+    reason = (
+        "A4_EMOTION_TOP_RISK_CONFIRMED"
+        if profile is StrategyProfile.LEADER_INTRADAY
+        else "A4_TREND_TOP_RISK_CONFIRMED"
+    )
+    for source in sources:
+        section = source.get(section_name)
+        if isinstance(section, Mapping) and _bool_value(section.get("confirmed")) is True:
+            return reason
+    return None
+
+
+def _runtime_market_environment(plan: Mapping[str, Any]) -> str:
+    value = _lookup(
+        plan,
+        ("market_context", "market_environment"),
+        ("market_environment",),
+        ("strategy_facts", "market_environment"),
+        ("market_context", "market_regime"),
+        ("market_regime",),
+    )
+    return str(value or "").strip().upper()
+
+
+def _runtime_emotion_permission(plan: Mapping[str, Any]) -> str:
+    value = _lookup(
+        plan,
+        ("market_context", "market_emotion", "new_long_permission"),
+        ("market_context", "emotion_cycle", "new_long_permission"),
+        ("market_emotion", "new_long_permission"),
+        ("emotion_cycle", "new_long_permission"),
+        ("strategy_facts", "emotion_new_long_permission"),
+    )
+    return str(value or "").strip().upper()
 
 
 def _position_open(plan: Mapping[str, Any]) -> bool:

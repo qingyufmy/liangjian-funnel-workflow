@@ -129,13 +129,33 @@ def test_monthly_rotation_decisions_cover_top20_without_silent_omission():
 
     assert len(decisions) == 20
     assert [item["rank"] for item in decisions] == list(range(1, 21))
-    assert {item["decision"] for item in decisions} == {"INCLUDE", "EXCLUDE", "DEFER"}
+    assert {item["decision"] for item in decisions} == {"INCLUDE", "DEFER"}
     assert coverage["status"] == "READY"
     assert coverage["top10_complete"] is True
     assert decisions[0]["decision"] == "INCLUDE"
-    assert decisions[1]["decision"] == "EXCLUDE"
+    assert decisions[1]["decision"] == "DEFER"
+    assert decisions[1]["structural_status"] == "SUPPORTED"
+    assert decisions[1]["timing_state"] == "COOLING"
+    assert "MONTHLY_STRUCTURE_RETAINED_WAIT_TIMING" in decisions[1]["reason_codes"]
     assert decisions[2]["decision"] == "DEFER"
     assert "return_20d" in decisions[2]["data_gaps"]
+
+
+def test_monthly_rotation_excludes_only_when_structure_is_unproven_and_timing_is_cooling():
+    decisions, _ = build_monthly_industry_decisions([
+        {
+            "industry_thscode": "884999.TI",
+            "industry_name": "弱结构行业",
+            "return_20d": -0.08,
+            "relative_strength_percentile_20d": 0.22,
+            "top10_appearance_count": 1,
+            "source_ref": "ths:sector:weak",
+        }
+    ])
+
+    assert decisions[0]["decision"] == "EXCLUDE"
+    assert decisions[0]["structural_status"] == "INSUFFICIENT"
+    assert decisions[0]["timing_state"] == "COOLING"
 
 
 def test_monthly_discovery_requires_one_decision_per_frozen_rotation_row():

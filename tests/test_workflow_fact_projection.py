@@ -309,6 +309,13 @@ def test_research_input_projects_phase_one_facts_without_semantic_substitution(
     assert result["snapshot_manifest"]["market_data_as_of"] == NOW.isoformat()
     assert result["MARKET_DATA_AS_OF"] == NOW.isoformat()
     assert result["MARKET_EMOTION_SNAPSHOT"]["as_of"] == NOW.isoformat()
+    assert result["MARKET_FUNDING_SNAPSHOT"]["state"] in {
+        "INCREMENTAL_EXPANSION",
+        "EXISTING_FUNDS_ROTATION",
+        "LIQUIDITY_CONTRACTION",
+        "UNRESOLVED",
+    }
+    assert result["MARKET_FUNDING_SNAPSHOT"]["turnover_is_capital_flow"] is False
     assert result["CAPITAL_FLOW_SNAPSHOT"]["as_of"] == NOW.isoformat()
     assert result["BOARD_CAPITAL_FLOW_SNAPSHOT"]["as_of"] == NOW.isoformat()
     assert result["A2_SECTOR_HEALTH_SNAPSHOT"]["available"] is True

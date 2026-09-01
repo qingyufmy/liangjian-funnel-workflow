@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
-EMOTION_ALGORITHM = "market-emotion/1.0.0"
+EMOTION_ALGORITHM = "market-emotion/1.1.0"
 SECTOR_CYCLE_ALGORITHM = "sector-cycle/2.0.0"
 SECTOR_HEALTH_ALGORITHM = "sector-health/1.0.0"
 _MONTHLY_OBSERVATION_BARS = 21  # 20 return periods require 21 closes.
@@ -71,6 +71,14 @@ def build_market_emotion(
         break_rate=break_rate,
         ladder_height=ladder_height,
     )
+    emotion_cycle = _emotion_cycle_contract(
+        temperature=temperature,
+        breadth=breadth,
+        limit_up=up_count,
+        limit_down=down_count,
+        break_rate=break_rate,
+        ladder_height=ladder_height,
+    )
     missing_fields = []
     if promotion_rate is None:
         missing_fields.append("previous_day_promotion_rate")
@@ -82,6 +90,10 @@ def build_market_emotion(
         "algorithm_version": EMOTION_ALGORITHM,
         "as_of": cutoff.isoformat(),
         "temperature": temperature,
+        "emotion_cycle_stage": emotion_cycle["stage"],
+        "new_long_permission": emotion_cycle["new_long_permission"],
+        "emotion_cycle_reason_codes": emotion_cycle["reason_codes"],
+        "emotion_cycle_evidence": emotion_cycle["evidence"],
         "advances": advances,
         "declines": declines,
         "flats": flats,
@@ -1545,6 +1557,74 @@ def _temperature(*, breadth: float, limit_up: int, limit_down: int, break_rate: 
     if breadth >= 0.58 and limit_up >= 40 and rate <= 0.30:
         return "STRONG"
     return "RECOVERY"
+
+
+def _emotion_cycle_contract(
+    *,
+    temperature: str,
+    breadth: float,
+    limit_up: int,
+    limit_down: int,
+    break_rate: float | None,
+    ladder_height: int | None,
+) -> dict[str, Any]:
+    """Translate existing market facts into an execution permission.
+
+    This is intentionally not another score.  It reuses the already-audited
+    market-temperature states and only distinguishes the points where the
+    short-term emotion playbook changes materially: probe during ignition,
+    follow the core during confirmation/acceleration, and stop creating new
+    leader plans during climax, divergence, retreat or ice point.
+    """
+
+    height = ladder_height or 0
+    mapping = {
+        "ICE": ("ICE_POINT", "NO_NEW_ENTRY", ["MARKET_ICE_POINT"]),
+        "WEAK": ("RETREAT", "NO_NEW_ENTRY", ["MARKET_RETREAT"]),
+        "DIVERGING_WEAK": (
+            "DIVERGENCE",
+            "NO_NEW_ENTRY",
+            ["HIGH_BREAK_RATE_DIVERGENCE"],
+        ),
+        "OVERHEATED": (
+            "CLIMAX",
+            "NO_NEW_ENTRY",
+            ["OVERHEATED_CLIMAX_NO_NEW_LEADER"],
+        ),
+        "STRONG": (
+            "ACCELERATION" if height >= 2 else "CONFIRMATION",
+            "ALLOW_CORE",
+            ["HEALTHY_BREADTH_AND_LADDER"],
+        ),
+    }
+    if temperature in mapping:
+        stage, permission, reason_codes = mapping[temperature]
+    elif limit_up > limit_down and breadth >= 0.45 and height >= 1:
+        stage, permission, reason_codes = (
+            "IGNITION",
+            "PROBE_ONLY",
+            ["RECOVERY_WITH_LADDER_SEED"],
+        )
+    else:
+        stage, permission, reason_codes = (
+            "MIXED",
+            "WATCH_ONLY",
+            ["EMOTION_CYCLE_NOT_CONFIRMED"],
+        )
+    return {
+        "stage": stage,
+        "new_long_permission": permission,
+        "reason_codes": reason_codes,
+        "evidence": {
+            "temperature": temperature,
+            "breadth": breadth,
+            "limit_up_count": limit_up,
+            "limit_down_count": limit_down,
+            "break_rate": break_rate,
+            "ladder_height": ladder_height,
+            "scoring_used": False,
+        },
+    }
 
 
 def _filter_symbols(rows: Sequence[Mapping[str, Any]], wanted: set[str]) -> list[dict[str, Any]]:
