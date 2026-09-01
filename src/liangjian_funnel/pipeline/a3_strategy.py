@@ -24,7 +24,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 
-STRATEGY_VERSION = "a3-a4-three-strategy/1.0.0"
+STRATEGY_VERSION = "a3-a4-three-strategy/1.1.0"
 
 
 class StrategyProfile(StrEnum):
@@ -295,7 +295,18 @@ def evaluate_a3_candidate(
     overextended = _is_overextended(raw_candidate, merged_a2, daily, daily_ma, daily_close, context)
     locked = _is_locked(raw_candidate, merged_a2, kline, labels)
 
-    leader_route = market_role in _LEADER_ROLES
+    ladder_height = _number(ladder.get("height"))
+    ladder_availability = _normalize_state(ladder.get("availability_state"))
+    leader_route = (
+        market_role == "EMOTION_LEADER"
+        or (
+            market_role in _LEADER_ROLES
+            and (
+                (ladder_height is not None and ladder_height >= 2)
+                or ladder_availability in {"SOURCE_FAILED", "NOT_CONFIGURED", "UNAVAILABLE", "UNKNOWN"}
+            )
+        )
+    )
     trend_route = _trend_route_signal(
         merged_a2,
         daily_ma=daily_ma,
@@ -312,8 +323,14 @@ def evaluate_a3_candidate(
         setup=setup,
         merged_a2=merged_a2,
     )
+    trend_structure_confirmed = (
+        _ordered_above(daily_ma.get("ma5"), daily_ma.get("ma10"), daily_ma.get("ma20"))
+        and _above(daily_close, daily_ma.get("ma60"))
+    ) or price_discovery
     if leader_route:
         profile = StrategyProfile.LEADER_INTRADAY
+    elif ma520_route and not trend_structure_confirmed:
+        profile = StrategyProfile.MA520_SWING
     elif trend_route:
         profile = StrategyProfile.TREND_MA5
     elif ma520_route:
@@ -359,6 +376,8 @@ def evaluate_a3_candidate(
     if not symbol:
         data_gaps.append("SYMBOL_MISSING")
 
+    conditional_probe = False
+    higher_timeframe_risk = "ALIGNED_OR_NEUTRAL"
     if profile is not StrategyProfile.NO_NEXT_DAY_PLAN:
         month_status = _period_status(monthly, require_explicit=True)
         week_status = _period_status(weekly, require_explicit=True)
@@ -398,13 +417,29 @@ def evaluate_a3_candidate(
             reason="DAILY_CLOSE_MISSING" if daily_close is None else None,
         )
         higher_timeframe_bear = _is_bear_state(monthly_state) or _is_bear_state(weekly_state)
-        if higher_timeframe_bear:
-            veto("HIGHER_TIMEFRAME_BEARISH")
-        condition(
-            "HIGHER_TIMEFRAME_NOT_BEARISH",
-            not higher_timeframe_bear,
-            reason="HIGHER_TIMEFRAME_BEARISH" if higher_timeframe_bear else None,
+        higher_timeframe_hard_bear = (
+            _is_hard_bear_state(monthly_state) or _is_hard_bear_state(weekly_state)
         )
+        daily_bear_for_cycle = _is_bear_state(daily_state)
+        if higher_timeframe_hard_bear and daily_bear_for_cycle:
+            higher_timeframe_risk = "HARD_BEAR_WITH_DAILY_CONFIRMATION"
+            veto("HIGHER_TIMEFRAME_BEARISH")
+            condition(
+                "HIGHER_TIMEFRAME_NOT_BEARISH",
+                False,
+                reason="HIGHER_TIMEFRAME_BEARISH",
+            )
+        elif higher_timeframe_bear:
+            # A partial/lagging weekly stack is context, not an entry signal.
+            # Keep the candidate as a probe and let A4 demand a fresh 15m/5m
+            # confirmation.  This does not bypass daily, price, risk or
+            # tradability gates below.
+            higher_timeframe_risk = "CONDITIONAL_PROBE"
+            conditional_probe = True
+            _append_unique(reason_codes, "HIGHER_TIMEFRAME_CONDITIONAL_PROBE")
+            condition("HIGHER_TIMEFRAME_RISK_CLASSIFIED", True)
+        else:
+            condition("HIGHER_TIMEFRAME_NOT_BEARISH", True)
         if market_regime in _RISK_OFF_STATES:
             veto("MARKET_RISK_OFF")
         condition(
@@ -524,7 +559,13 @@ def evaluate_a3_candidate(
     else:
         eligibility = Eligibility.QUALIFIED
 
-    plan_mode = _plan_mode(profile, eligibility, ladder, setup)
+    plan_mode = _plan_mode(
+        profile,
+        eligibility,
+        ladder,
+        setup,
+        conditional_probe=conditional_probe,
+    )
     zone = price["entry_reference_zone"] if price["geometry_valid"] else None
     no_chase = price["no_chase_price"] if price["geometry_valid"] else None
     invalidation = price["daily_invalidation"] if price["geometry_valid"] else None
@@ -553,6 +594,8 @@ def evaluate_a3_candidate(
         labels=labels,
         condition_details=condition_details,
     )
+    facts["higher_timeframe_risk"] = higher_timeframe_risk
+    facts["conditional_probe"] = conditional_probe
     if price_discovery and zone is not None and invalidation is not None:
         risk_unit = zone["high"] - invalidation
         if risk_unit > 0:
@@ -778,7 +821,12 @@ def _evaluate_trend(
     condition("DAILY_MA5_ABOVE_MA10_ABOVE_MA20", stack, missing=any(value is None for value in (ma5, ma10, ma20)), reason="DAILY_MA_STACK_NOT_BULL" if not stack else None)
     condition("DAILY_MA_SLOPE_NOT_DOWN", slope_ok, missing=slope_missing, reason="DAILY_MA_SLOPE_MISSING" if slope_missing else "DAILY_MA_SLOPE_DOWN" if not slope_ok else None)
     condition("RELATIVE_STRENGTH_CONFIRMED", rs_ok, missing=rs_missing, reason="RELATIVE_STRENGTH_MISSING" if rs_missing else "RELATIVE_STRENGTH_WEAK" if not rs_ok else None)
-    condition("PLATFORM_OR_MAIN_RISE_CONFIRMED", platform, missing=not platform, reason="MAIN_RISE_EVIDENCE_MISSING" if not platform else None)
+    condition(
+        "PLATFORM_OR_MAIN_RISE_CONFIRMED",
+        platform,
+        reason="MAIN_RISE_EVIDENCE_MISSING" if not platform else None,
+        watch=not platform,
+    )
     extension_known = _extension_known(merged_a2, daily, context, daily_close, daily_ma)
     condition("EXTENSION_DATA_OBSERVED", extension_known, missing=not extension_known, reason="EXTENSION_DATA_MISSING" if not extension_known else None)
     condition("NOT_OVEREXTENDED", not overextended, reason="TREND_OVEREXTENDED" if overextended else None)
@@ -989,9 +1037,13 @@ def _plan_mode(
     eligibility: Eligibility,
     ladder: Mapping[str, Any],
     setup: Mapping[str, bool],
+    *,
+    conditional_probe: bool = False,
 ) -> str | None:
     if eligibility is not Eligibility.QUALIFIED:
         return None
+    if conditional_probe:
+        return "PROBE"
     if profile is StrategyProfile.LEADER_INTRADAY and (_number(ladder.get("height")) or 0) >= 3:
         return "PROBE"
     if profile is StrategyProfile.MA520_SWING and setup.get("reclaim") and not setup.get("golden_cross"):
@@ -1270,16 +1322,55 @@ def _is_locked(candidate: Mapping[str, Any], a2: Mapping[str, Any], kline: Mappi
 
 
 def _ladder_info(a2: Mapping[str, Any]) -> dict[str, Any]:
+    factor_scores = _mapping(_first(a2, "a2_factor_scores", "factor_scores"))
+    deterministic_tier = _mapping(factor_scores.get("tier_structure"))
+    deterministic_leader = _mapping(factor_scores.get("leader_structure"))
     nested = _mapping(_first(a2, "ladder", "tier_structure", "leader_structure"))
+    # Prefer the server-owned factor record.  Model output may contain only a
+    # reduced score/source object and must not erase ladder_height or the
+    # observed-absent/source-failed distinction.
+    sources = (deterministic_tier, nested, deterministic_leader, a2)
     height = _number(
-        _first(a2, "ladder_height", "board_num", "board_count", "consecutive_boards")
-        or _first(nested, "ladder_height", "board_num", "height", "boards")
+        next(
+            (
+                value
+                for source in sources
+                if (
+                    value := _first(
+                        source,
+                        "ladder_height",
+                        "board_num",
+                        "board_count",
+                        "consecutive_boards",
+                        "height",
+                        "boards",
+                    )
+                ) is not None
+            ),
+            None,
+        )
     )
-    state = _normalize_state(_first(a2, "ladder_state", "ladder_status", "tier_state") or _first(nested, "state", "status")) or "UNKNOWN"
-    intact = _first(a2, "ladder_intact", "ladder_unbroken", "not_broken")
-    if intact is None:
-        intact = _first(nested, "intact", "unbroken", "not_broken")
-    return {"height": int(height) if height is not None and height >= 0 else None, "state": state, "intact": intact}
+    state = "UNKNOWN"
+    intact: Any = None
+    availability_state = "UNKNOWN"
+    for source in sources:
+        if state == "UNKNOWN":
+            state = _normalize_state(
+                _first(source, "ladder_state", "ladder_status", "tier_state", "state", "status")
+            ) or "UNKNOWN"
+        if intact is None:
+            intact = _first(source, "ladder_intact", "ladder_unbroken", "not_broken", "intact", "unbroken")
+        if availability_state == "UNKNOWN":
+            availability_state = _normalize_state(
+                _first(source, "availability_state", "data_state", "source_state")
+            ) or "UNKNOWN"
+    return {
+        "height": int(height) if height is not None and height >= 0 else None,
+        "state": state,
+        "intact": intact,
+        "availability_state": availability_state,
+        "source": _text(_first(deterministic_tier, "source") or _first(nested, "source")) or None,
+    }
 
 
 def _relative_strength(a2: Mapping[str, Any], context: Mapping[str, Any]) -> dict[str, Any]:
@@ -1497,6 +1588,27 @@ def _tradable_state(value: Mapping[str, Any]) -> bool | None:
 def _is_bear_state(value: str) -> bool:
     normalized = _normalize_state(value)
     return normalized in _BEAR_STATES or any(token in normalized for token in ("BEAR", "DISTRIBUTION", "RETREAT", "FADE"))
+
+
+def _is_hard_bear_state(value: str) -> bool:
+    """Return only a confirmed higher-cycle bear regime.
+
+    ``BEAR_PARTIAL`` is deliberately excluded: it describes an incomplete MA
+    stack and is handled as a conditional A4 probe when all daily/risk facts
+    remain valid. Explicit risk-off/retreat states remain hard.
+    """
+
+    return _normalize_state(value) in {
+        "BEAR",
+        "BEARISH",
+        "BEAR_STACK",
+        "DOWN",
+        "DOWNTREND",
+        "RETREAT",
+        "FADE",
+        "RISK_OFF",
+        "RISK_OFF_RETREAT",
+    }
 
 
 def _mapping(value: Any) -> dict[str, Any]:

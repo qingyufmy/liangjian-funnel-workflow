@@ -2735,21 +2735,19 @@ class WorkflowApplication:
                 descending=True,
             )
             daily_bars = [dict(item["payload"]) for item in reversed(daily_rows)]
+            # A3 is a monthly/weekly/daily planning stage.  Five-minute bars
+            # are useful only as a legacy observation and must never make the
+            # high-timeframe factor unavailable or trigger an N-symbol network
+            # backfill.  A4 owns live intraday data acquisition.  Reuse an
+            # already complete local minute window when present; otherwise
+            # compute the A3 contract from the persisted daily history alone.
             required_bars = self.settings.mootdx_history_5m_required_bars
             cached_bars = self.minute_store.load_latest(symbol, "5m", limit=required_bars)
-            if _minute_cache_ready(cached_bars, required_bars=required_bars, as_of=current):
-                minute_bars = cached_bars
-            else:
-                minutes = self.mootdx.fetch_bars(symbol, "5m", required_bars, as_of=current)
-                if not minutes.complete:
-                    return symbol, None
-                # Keep network enrichment concurrent, but serialize the
-                # SQLite write.  Multiple A3 workers sharing one minute cache
-                # otherwise race on the same connection/page and surface
-                # ``database is locked`` despite independent symbols.
-                with self._stage_technical_lock:
-                    self.minute_store.write(minutes.bars)
-                minute_bars = minutes.bars
+            minute_bars = (
+                cached_bars
+                if _minute_cache_ready(cached_bars, required_bars=required_bars, as_of=current)
+                else []
+            )
             factor = FactorEngine(symbol).compute(
                 daily_bars=daily_bars,
                 minute_bars=minute_bars,
@@ -4022,7 +4020,7 @@ def _prompt_parameters(config: Mapping[str, Any]) -> dict[str, Any]:
         "PENALTY_RULES": a2.get("penalty_rules", {}),
         "MIN_REWARD_RISK": a3.get("minimum_reward_risk", 2.0),
         "MAX_STOP_DISTANCE": a3.get("max_stop_distance_pct", 0.06),
-        "A3_STRATEGY_VERSION": a3.get("strategy_version", "a3-a4-three-strategy/1.0.0"),
+        "A3_STRATEGY_VERSION": a3.get("strategy_version", "a3-a4-three-strategy/1.1.0"),
         "A3_ALLOWED_STRATEGIES": a3.get(
             "allowed_strategy_profiles",
             ["LEADER_INTRADAY", "MA520_SWING", "TREND_MA5"],

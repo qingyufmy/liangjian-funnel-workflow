@@ -1372,11 +1372,12 @@ def test_a2_deterministic_context_exposes_role_and_optional_gap_without_inventio
     assert context["eligible_routes"] == ["MARKET_CORE"]
 
 
-def test_a2_decision_fact_enrichment_preserves_model_values_and_explicitly_fills_gaps():
+def test_a2_decision_fact_enrichment_canonicalizes_server_facts_and_fills_gaps():
     snapshot = {
         "A2_BOTTLENECK_CONTEXT": {
             "600001.SH": {
                 "preferred_route": "MARKET_CORE",
+                "deterministic_market_role": "TREND_LEADER",
                 "a2_factor_scores": {
                     "capital_flow": {
                         "available": False,
@@ -1388,6 +1389,9 @@ def test_a2_decision_fact_enrichment_preserves_model_values_and_explicitly_fills
                         "available": True,
                         "score": 72,
                         "source": "TIER_STRUCTURE_SNAPSHOT",
+                        "availability_state": "OBSERVED_VALUE",
+                        "ladder_height": 2,
+                        "tier": "T2",
                     },
                     "leader_structure": {
                         "available": True,
@@ -1420,7 +1424,11 @@ def test_a2_decision_fact_enrichment_preserves_model_values_and_explicitly_fills
     }
     model_capital = {"available": True, "score": 91, "source": "MODEL"}
     output = {
-        "focus_pool": [{"symbol": "600001.SH", "capital_flow": model_capital}],
+        "focus_pool": [{
+            "symbol": "600001.SH",
+            "market_role": "LEADER",
+            "capital_flow": model_capital,
+        }],
         "watch_only_pool": [{"symbol": "600002.SH"}],
     }
 
@@ -1429,9 +1437,14 @@ def test_a2_decision_fact_enrichment_preserves_model_values_and_explicitly_fills
     watch = enriched["watch_only_pool"][0]
 
     assert changed > 0
-    assert focus["capital_flow"] == model_capital
+    assert focus["capital_flow"] != model_capital
+    assert focus["capital_flow"]["source"] == "CAPITAL_FLOW_SNAPSHOT"
+    assert focus["capital_flow"]["available"] is False
     assert focus["capital_flow_available"] is False
+    assert focus["market_role"] == "TREND_LEADER"
     assert focus["tier_structure"]["score"] == 72
+    assert focus["tier_structure"]["ladder_height"] == 2
+    assert focus["tier_structure"]["availability_state"] == "OBSERVED_VALUE"
     assert focus["leader_structure"]["score"] == 84
     assert focus["index_chain_resonance"]["available"] is False
     assert focus["supply_chain_role"]["reason_code"] == "NOT_REQUIRED_FOR_MARKET_CORE"

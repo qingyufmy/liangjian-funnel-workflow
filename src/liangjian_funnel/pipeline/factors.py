@@ -24,17 +24,20 @@ TIMEFRAMES = ("monthly", "weekly", "daily", "120m", "15m", "5m")
 LEGACY_TIMEFRAMES = ("weekly", "daily", "120m", "15m", "5m")
 A3_TIMEFRAMES = ("monthly", "weekly", "daily")
 _TIMEFRAME_REQUIRED: dict[str, tuple[int, ...]] = {
-    "monthly": (5, 20, 60),
-    "weekly": (5, 20, 60),
+    # Monthly direction uses the conventional 5/20-month cycle. Requiring a
+    # 60-month average both duplicates a five-year regime model and made the
+    # normal 2--4 year point-in-time cache return no monthly direction at all.
+    "monthly": (5, 20),
+    "weekly": (5, 10, 20),
     "daily": (5, 10, 20, 60),
     "120m": (5, 20, 99, 128, 255),
     "15m": (5, 20, 60),
     "5m": (5, 20, 99, 128, 255),
 }
-# A3 needs enough formal background to describe direction, but it must not
-# demand 60 monthly bars (which would make a normal 2--4 year daily history
-# unusable).  The daily MA60 is the actual minimum daily technical sample.
-_A3_MIN_CLOSED_BARS = {"monthly": 2, "weekly": 2, "daily": 60}
+# A3 needs enough formal background to calculate every declared cycle. Twenty
+# closed months are required for the monthly 5/20 regime; two bars would only
+# prove that a period closed, not that the monthly trend was computable.
+_A3_MIN_CLOSED_BARS = {"monthly": 20, "weekly": 20, "daily": 60}
 
 
 class OHLCVBar(BaseModel):

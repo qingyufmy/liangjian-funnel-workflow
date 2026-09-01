@@ -6999,10 +6999,10 @@ def _enrich_a2_decision_facts(
     The deterministic gate already has symbol-scoped factor results, but the
     provider response historically exposed only a subset of them.  That made
     the workbench report several facts as ``missing`` even when the server had
-    an observed value (or had an explicit unavailable state).  Fill only
-    missing fields from ``A2_BOTTLENECK_CONTEXT`` and never replace a non-empty
-    model value.  Optional facts remain visibly unavailable instead of being
-    represented by a fabricated zero.
+    an observed value (or had an explicit unavailable state).  These facts are
+    server-owned, so copy the complete deterministic record even when a model
+    returned a smaller object with the same alias.  Optional facts remain
+    visibly unavailable instead of being represented by a fabricated zero.
     """
 
     result = dict(output)
@@ -7045,11 +7045,29 @@ def _enrich_a2_decision_facts(
             factors = context.get("a2_factor_scores")
             factors = factors if isinstance(factors, Mapping) else {}
             weak_fields = _a2_fact_name_list(item.get("weak_evidence_fields"))
+            deterministic_role = str(
+                context.get("deterministic_market_role")
+                or context.get("market_role")
+                or ""
+            ).strip().upper()
+            if deterministic_role and item.get("market_role") != deterministic_role:
+                # Market role is a deterministic classification, not a model
+                # vote. Leaving a historical generic LEADER in place would
+                # shadow TREND_LEADER/EMOTION_LEADER and route a non-ladder
+                # stock into the A3 leader strategy.
+                item["market_role"] = deterministic_role
+                changed += 1
             for name, aliases in factor_aliases.items():
                 factor = factors.get(name)
                 if isinstance(factor, Mapping):
                     available = factor.get("available") is True and _a2_number_present(factor.get("score"))
-                    if not has_fact(item, aliases):
+                    # The model-facing schema historically kept only
+                    # available/score/source and silently discarded fields
+                    # such as ladder_height and availability_state.  A3 needs
+                    # the complete point-in-time fact contract; the server copy
+                    # is authoritative and must not be shadowed by that lossy
+                    # projection.
+                    if item.get(name) != factor:
                         item[name] = dict(factor)
                         changed += 1
                     if name == "capital_flow" and "capital_flow_available" not in item:

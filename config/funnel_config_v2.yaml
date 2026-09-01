@@ -483,7 +483,7 @@ agent_3:
   shadow_watch_target: [3, 8]
   minimum_reward_risk: 2.0
   max_stop_distance_pct: 0.06
-  strategy_version: a3-a4-three-strategy/1.0.0
+  strategy_version: a3-a4-three-strategy/1.1.0
   decision_timeframes: [MONTHLY_CLOSED, WEEKLY_CLOSED, DAILY_CLOSED]
   partial_period_role: OBSERVATION_ONLY
   llm_permission: VETO_ONLY

@@ -7,7 +7,14 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from liangjian_funnel.pipeline.deterministic import local_active_items, screen_a1, screen_a2, screen_a3
+from liangjian_funnel.pipeline.deterministic import (
+    _read_metric_payload,
+    _specialize_market_role,
+    local_active_items,
+    screen_a1,
+    screen_a2,
+    screen_a3,
+)
 from liangjian_funnel.pipeline.feature_store import ResearchFeatureStore
 from liangjian_funnel.pipeline.model_client import ModelCallResult
 from liangjian_funnel.pipeline.prompts import PROMPT_FILENAMES
@@ -17,6 +24,41 @@ from liangjian_funnel.settings import Settings
 
 NOW = datetime(2026, 8, 27, 15, 10, tzinfo=ZoneInfo("Asia/Shanghai"))
 MODELS = ("deepseek-v4-pro-0813", "moonshotai/kimi-k3-free", "z-ai/glm-5.3-free")
+
+
+def test_a2_ladder_fact_metadata_survives_deterministic_projection() -> None:
+    projected = _read_metric_payload(
+        {
+            "available": True,
+            "score": 0,
+            "source": "HITHINK_LIMIT_UP_LADDER",
+            "availability_state": "OBSERVED_ABSENT",
+            "ladder_height": 0,
+            "tier": "NONE",
+        },
+        source="TIER_STRUCTURE_SNAPSHOT",
+        source_refs=(),
+        ratio_hint=False,
+    )
+
+    assert projected is not None
+    assert projected["available"] is True
+    assert projected["ladder_height"] == 0
+    assert projected["availability_state"] == "OBSERVED_ABSENT"
+    assert _specialize_market_role("LEADER", {"tier_structure": projected}) == "TREND_LEADER"
+
+
+def test_a2_observed_two_board_specializes_to_emotion_leader() -> None:
+    assert _specialize_market_role(
+        "LEADER",
+        {
+            "tier_structure": {
+                "available": True,
+                "availability_state": "OBSERVED_VALUE",
+                "ladder_height": 2,
+            }
+        },
+    ) == "EMOTION_LEADER"
 
 
 def _frame(*, daily: bool = False) -> dict:

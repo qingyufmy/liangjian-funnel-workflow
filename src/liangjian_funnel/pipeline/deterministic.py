@@ -604,7 +604,10 @@ def screen_a2(
             attention=symbol in attention,
             dragon=symbol in dragon,
         )
-        role = _role(identifiability, liquidity, relative)
+        role = _specialize_market_role(
+            _role(identifiability, liquidity, relative),
+            factor_scores,
+        )
         route_results = _a2_route_results(
             item=item,
             identifiability=identifiability,
@@ -1691,7 +1694,15 @@ def _read_metric_payload(
     if isinstance(raw, Mapping):
         resolved_source = str(raw.get("source") or source)
         if raw.get("available") is False:
-            return _factor_result(None, resolved_source, source_refs, "A2_FACTOR_UNAVAILABLE")
+            return _with_factor_metadata(
+                _factor_result(
+                    None,
+                    resolved_source,
+                    _payload_source_refs(raw) or source_refs,
+                    str(raw.get("reason_code") or "A2_FACTOR_UNAVAILABLE"),
+                ),
+                raw,
+            )
         available = raw.get("available") is not False
         for key in ("score", "normalized_score", "percentile", "value", "raw_value"):
             if key in raw:
@@ -1722,6 +1733,13 @@ def _with_factor_metadata(result: dict[str, Any], raw: Mapping[str, Any]) -> dic
         "taxonomy_code",
         "breadth_5d",
         "relative_strength_mean_5d",
+        "availability_state",
+        "ladder_height",
+        "tier",
+        "sector_ladder_support",
+        "sector_ladder_groups",
+        "role",
+        "tier_confirmation_mode",
     ):
         if key in raw:
             result[key] = raw.get(key)
@@ -2749,6 +2767,33 @@ def _role(score: float, liquidity: float, relative: float) -> str:
     if score >= 65:
         return "TREND_CORE"
     return "LOW_IDENTITY"
+
+
+def _specialize_market_role(
+    role: str,
+    factor_scores: Mapping[str, Mapping[str, Any]],
+) -> str:
+    """Separate an emotion leader from a cross-sectional trend leader.
+
+    ``LEADER`` used to mean only "high identifiability plus high relative
+    strength" in A2, while A3 interpreted the same token as a confirmed
+    limit-up/ladder leader.  That vocabulary collision sent every strong trend
+    stock through the intraday-leader route and then failed it for a missing
+    board height.  Only a source-observed two-plus board is an emotion leader;
+    a strong stock without that fact remains a trend leader.
+    """
+
+    if role != "LEADER":
+        return role
+    tier = factor_scores.get("tier_structure")
+    tier = tier if isinstance(tier, Mapping) else {}
+    height = _number(tier.get("ladder_height"))
+    if tier.get("available") is True and height is not None and height >= 2:
+        return "EMOTION_LEADER"
+    # OBSERVED_ABSENT is real data, not a ladder data gap.  SOURCE_FAILED and
+    # other unknown states remain visible in the tier factor itself, but they
+    # cannot manufacture an emotion-leader identity.
+    return "TREND_LEADER"
 
 
 def _cycle_rotation_score(value: Mapping[str, Any]) -> float:

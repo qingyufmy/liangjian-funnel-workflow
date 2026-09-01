@@ -105,11 +105,14 @@ def test_ma_alignment_event_and_bias_are_deterministic_closed_bar_factors():
 
 
 def test_a3_ready_uses_formal_month_week_day_only_when_minutes_are_missing():
-    rows = daily_rows(140)
+    cutoff = datetime(2026, 8, 24, 15, tzinfo=TZ)
+    rows = daily_rows(800)
+    for index, row in enumerate(rows):
+        row["date"] = (cutoff - timedelta(days=799 - index)).date().isoformat()
     result = FactorEngine("600519.SH").compute(
         daily_bars=rows,
         minute_bars=[],
-        as_of=datetime(2026, 8, 24, 15, tzinfo=TZ),
+        as_of=cutoff,
     )
 
     # The legacy flag still reports missing minute readiness, while the A3
@@ -122,6 +125,9 @@ def test_a3_ready_uses_formal_month_week_day_only_when_minutes_are_missing():
     assert result.technical_summary["monthly_current_period_closed"] is False
     assert result.technical_summary["weekly_current_period_closed"] is False
     assert result.timeframes["daily"].moving_averages["ma10"] is not None
+    assert result.timeframes["monthly"].moving_averages["ma20"] is not None
+    assert result.timeframes["monthly"].ma_alignment is not None
+    assert result.timeframes["weekly"].moving_averages["ma20"] is not None
 
 
 def test_month_and_week_latest_periods_are_partial_until_a_following_period_exists():

@@ -160,6 +160,81 @@ def test_closed_period_is_not_a_data_gap_when_long_ma_is_not_ready() -> None:
     assert "MONTH_NOT_CLOSED" not in result.reason_codes
 
 
+def test_partial_weekly_bear_is_a_probe_not_a_hard_veto() -> None:
+    factor = _factor()
+    factor["timeframes"]["weekly"]["state"] = "BEAR_PARTIAL"
+    result = _common(
+        {"symbol": "600018.SH", "market_role": "TREND_CORE"},
+        factor=factor,
+        a2={"market_role": "TREND_CORE", "relative_strength": {"percentile": 80}},
+    )
+
+    assert result.eligibility is Eligibility.QUALIFIED
+    assert result.plan_mode == "PROBE"
+    assert "HIGHER_TIMEFRAME_CONDITIONAL_PROBE" in result.reason_codes
+    assert "HIGHER_TIMEFRAME_BEARISH" not in result.veto_conditions
+    assert result.strategy_facts["higher_timeframe_risk"] == "CONDITIONAL_PROBE"
+
+
+def test_confirmed_weekly_bear_with_daily_bear_remains_rejected() -> None:
+    factor = _factor(daily_state="BEAR_STACK")
+    factor["timeframes"]["weekly"]["state"] = "BEAR_STACK"
+    result = _common(
+        {"symbol": "600019.SH", "market_role": "TREND_CORE"},
+        factor=factor,
+        a2={"market_role": "TREND_CORE", "relative_strength": {"percentile": 80}},
+    )
+
+    assert result.eligibility is Eligibility.REJECTED
+    assert "HIGHER_TIMEFRAME_BEARISH" in result.veto_conditions
+    assert "DAILY_TREND_WEAK" in result.veto_conditions
+
+
+def test_generic_cross_section_leader_with_observed_no_board_uses_trend_route() -> None:
+    result = _common(
+        {"symbol": "600020.SH", "market_role": "LEADER"},
+        a2={
+            "market_role": "LEADER",
+            "relative_strength": {"percentile": 90},
+            "a2_factor_scores": {
+                "tier_structure": {
+                    "available": True,
+                    "availability_state": "OBSERVED_ABSENT",
+                    "ladder_height": 0,
+                    "score": 0,
+                    "source": "HITHINK_LIMIT_UP_LADDER",
+                }
+            },
+        },
+    )
+
+    assert result.strategy_profile is StrategyProfile.TREND_MA5
+    assert result.eligibility is Eligibility.QUALIFIED
+    assert "LADDER_HEIGHT_MISSING" not in result.reason_codes
+    assert result.strategy_facts["ladder"]["height"] == 0
+    assert result.strategy_facts["ladder"]["availability_state"] == "OBSERVED_ABSENT"
+
+
+def test_520_setup_is_not_shadowed_by_a2_trend_role_without_full_trend_stack() -> None:
+    result = _common(
+        {"symbol": "600021.SH", "market_role": "TREND_CORE"},
+        factor=_factor(
+            close=10.15,
+            ma5=10.2,
+            ma10=10.3,
+            ma20=10.0,
+            ma60=9.5,
+            low=9.95,
+            ma_event="PULLBACK_HOLD_MA20",
+        ),
+        kline={"labels": []},
+        a2={"market_role": "TREND_CORE", "relative_strength": {"percentile": 80}},
+    )
+
+    assert result.strategy_profile is StrategyProfile.MA520_SWING
+    assert result.eligibility is Eligibility.QUALIFIED
+
+
 def test_missing_daily_price_or_tradability_is_data_gap() -> None:
     result = evaluate_a3_strategy(
         {"symbol": "600007.SH", "market_role": "TREND_CORE"},

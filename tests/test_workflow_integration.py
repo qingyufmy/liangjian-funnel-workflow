@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import time
 from datetime import date, datetime, timedelta
-from threading import Lock, RLock
+from threading import RLock
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
@@ -366,41 +365,27 @@ def test_secondary_probe_uses_stage_canonical_hash_when_base_snapshot_has_no_pri
     assert store.list_execution_plans(lane_id="lane_1") == ()
 
 
-def test_a3_minute_cache_writes_are_serialized_but_fetches_overlap(monkeypatch):
+def test_a3_uses_minute_cache_only_as_optional_observation(monkeypatch):
     import liangjian_funnel.workflow as workflow_module
 
     as_of = datetime(2026, 8, 28, 15, 10, tzinfo=TZ)
-    write_state = {"active": 0, "overlaps": 0}
-    state_lock = Lock()
-    fetch_state = {"active": 0, "max": 0}
-    fetch_lock = Lock()
+    calls = {"writes": 0, "fetches": 0}
 
     class MinuteStore:
         def load_latest(self, *_args, **_kwargs):
             return []
 
         def write(self, _bars):
-            with state_lock:
-                if write_state["active"]:
-                    write_state["overlaps"] += 1
-                write_state["active"] += 1
-            time.sleep(0.02)
-            with state_lock:
-                write_state["active"] -= 1
+            calls["writes"] += 1
 
     class FactCache:
         def query_daily_bars(self, *_args, **_kwargs):
             return []
 
     class Mootdx:
-        def fetch_bars(self, symbol, *_args, **_kwargs):
-            with fetch_lock:
-                fetch_state["active"] += 1
-                fetch_state["max"] = max(fetch_state["max"], fetch_state["active"])
-            time.sleep(0.02)
-            with fetch_lock:
-                fetch_state["active"] -= 1
-            return SimpleNamespace(complete=True, bars=[])
+        def fetch_bars(self, *_args, **_kwargs):
+            calls["fetches"] += 1
+            raise AssertionError("A3 must not fetch minute history")
 
     class Factor:
         def __init__(self, symbol):
@@ -444,8 +429,7 @@ def test_a3_minute_cache_writes_are_serialized_but_fetches_overlap(monkeypatch):
         snapshot=snapshot,
     )
     assert set(enriched["A3_TECHNICAL_READY"]) == {"002957.SZ", "300661.SZ"}
-    assert write_state["overlaps"] == 0
-    assert fetch_state["max"] >= 2
+    assert calls == {"writes": 0, "fetches": 0}
 
 
 def test_workflow_progress_is_emitted_for_node_log_stream(capsys):
