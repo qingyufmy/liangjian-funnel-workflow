@@ -234,8 +234,8 @@ agent_1:
   discovery_contract_version: a1-discovery-contract/3.0.0
   institutional_pool_role: P2_CLUE_TO_P3_RESEARCH_COVERAGE
   research_unit: INDUSTRY_CHAIN_NODE       # ★ 不是单只股票
-  full_rebuild_schedule: WEEKLY            # 周六
-  incremental_schedule: DAILY_AND_EVENT
+  full_rebuild_schedule: MONTHLY           # 月初重建宏观、政策、研报与机构覆盖
+  incremental_schedule: WEEKLY_AND_EVENT   # 周度只更新变化，不在每日收盘重复全量 A1
   prior_rebuild_schedule: MONTHLY
   weekly_strategy_overlay:
     enabled: true
@@ -261,6 +261,12 @@ agent_1:
     evidence_tier: T2
     primary_evidence: false
     benchmark_not_runtime_input: true
+    institutional_coverage_runtime:
+      enabled: true
+      role: T2_RESEARCH_COVERAGE_SEED
+      direct_approval_forbidden: true
+      every_symbol_traceable: true
+      autonomous_benchmark_remains_independent: true
 
   node_count_target: [40, 80]
   top_n_per_node: 15                       # 本地可审计线索池
@@ -268,7 +274,7 @@ agent_1:
   pool_min: 300
   pool_max: 1000
   clue_pool_target: [300, 800]              # ACTIVE + MONITOR，容量目标而非配额
-  active_research_target: [100, 250]        # 可持续研究覆盖层，证据不足可低于下限
+  active_research_target: [200, 500]        # 可持续研究覆盖层，证据不足可低于下限
 
   minimum_score: 65
   minimum_data_quality: 75
@@ -338,7 +344,10 @@ agent_2:
   institutional_pool_role: P3_CURRENT_MARKET_CANDIDATES
   minimum_theme_score: 60
   opening_review_mode: TIGHTEN_ONLY
-  candidate_pool_target: [30, 80]           # 当前市场可执行研究候选；观察池另计
+  candidate_pool_target: [20, 60]           # TOP3 轮动方向候选；观察池另计
+  rotation_theme_count: 3                   # 服务端按冻结市场事实选择前三方向
+  focus_per_rotation_theme: [5, 12]         # 健康区间，不是凑数配额
+  watch_per_rotation_theme: [5, 15]
 
   routes:                                  # A2 合法入池路线；两条路线均继承 A1 血缘
     - MARKET_CORE
@@ -479,11 +488,11 @@ agent_2:
 agent_3:
   id: TECHNICAL_SETUP_PLANNER
   institutional_pool_role: P7_TACTICAL_TO_P8_DAILY_AND_P8_5_SHADOW
-  core_watch_target: [5, 10]
+  core_watch_target: [5, 20]
   shadow_watch_target: [3, 8]
   minimum_reward_risk: 2.0
   max_stop_distance_pct: 0.06
-  strategy_version: a3-a4-three-strategy/1.1.0
+  strategy_version: a3-a4-three-strategy/1.2.0
   decision_timeframes: [MONTHLY_CLOSED, WEEKLY_CLOSED, DAILY_CLOSED]
   partial_period_role: OBSERVATION_ONLY
   llm_permission: VETO_ONLY

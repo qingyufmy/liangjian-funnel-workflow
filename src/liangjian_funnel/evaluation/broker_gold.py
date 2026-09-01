@@ -579,6 +579,33 @@ def evaluate_broker_gold(
         gold_by_symbol[record.symbol].append(record)
     gold_symbols = set(gold_by_symbol)
 
+    institutional_projection = (
+        a1_rows.get("institutional_coverage_pool")
+        if isinstance(a1_rows, Mapping)
+        else None
+    )
+    institutional_projection = (
+        institutional_projection
+        if isinstance(institutional_projection, Sequence)
+        and not isinstance(institutional_projection, (str, bytes, bytearray))
+        else ()
+    )
+    autonomous_selected_symbols = {
+        str(row.get("symbol") or "").strip().upper()
+        for row in institutional_projection
+        if isinstance(row, Mapping)
+        and str(row.get("autonomous_partition") or "").strip().upper()
+        in {"LOCAL_ACTIVE_CANDIDATE", "REVIEW_CANDIDATE"}
+        and str(row.get("symbol") or "").strip()
+    }
+    runtime_seed_symbols = {
+        str(row.get("symbol") or "").strip().upper()
+        for row in institutional_projection
+        if isinstance(row, Mapping)
+        and str(row.get("coverage_origin") or "").strip().upper() == "BROKER_GOLD_T2"
+        and str(row.get("symbol") or "").strip()
+    }
+
     all_rows = _as_a1_rows(a1_rows)
     all_by_symbol: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in all_rows:
@@ -758,6 +785,15 @@ def evaluate_broker_gold(
         "symbol_coverage": symbol_coverage,
         "active_coverage": active_coverage,
         "monitor_coverage": monitor_coverage,
+        "autonomous_research_coverage": {
+            **_coverage(autonomous_selected_symbols, gold_symbols),
+            "definition": "DETERMINISTIC_A1_SELECTED_WITHOUT_INSTITUTIONAL_SEED_OVERRIDE",
+        },
+        "institutional_runtime_traceability": {
+            **_coverage(runtime_seed_symbols, gold_symbols),
+            "definition": "T2_COVERAGE_SEED_TRACED_THROUGH_A1",
+            "not_a_blind_hit_rate": True,
+        },
         "by_broker": by_broker,
         "broker_consensus": consensus,
         "consensus_summary": {

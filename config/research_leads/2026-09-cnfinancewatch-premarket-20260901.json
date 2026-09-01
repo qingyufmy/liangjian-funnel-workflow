@@ -1,0 +1,91 @@
+{
+  "schema_version": "reviewed-public-research-lead/1.0.0",
+  "document_id": "cnfinancewatch-premarket-20260901",
+  "title": "A股盘前分析报告人工审阅版",
+  "publisher": "华尔街观察 Xtrader",
+  "source_urls": [
+    "https://x.com/cnfinancewatch/status/2094591596859973893",
+    "https://x.com/cnfinancewatch/status/2094591602958450915",
+    "https://x.com/cnfinancewatch/status/2094591609065320458"
+  ],
+  "publish_time": "2026-09-01T09:02:00+08:00",
+  "claimed_data_cutoff": "2026-09-01T08:30:47+08:00",
+  "valid_until": "2026-09-08T09:30:00+08:00",
+  "methodology_axes": [
+    {
+      "axis": "EVENT_TO_THEME_CAUSAL_CHAIN",
+      "method": "把最近二十四小时事件先分为政策、宏观、产业、公司和海外映射，再写出传导路径；主题只能作为假设，不能由新闻点评直接成立。",
+      "required_inputs": ["原始事件链接与发布时间", "正式政策或公告", "产业链层级", "同花顺行业和概念映射"],
+      "failure_modes": ["二手转述冒充原始事实", "把相关性写成因果", "从事件直接跳到公司名单"]
+    },
+    {
+      "axis": "INDEPENDENT_EVIDENCE_RESONANCE",
+      "method": "把券商观点、市场价格结构、资金行为和公司经营兑现作为不同证据域；只有原始来源彼此独立且方向一致，才允许称为共振。",
+      "required_inputs": ["券商研报原文或授权摘要", "冻结行情和板块广度", "资金流与梯队", "公告、订单、收入或利润"],
+      "failure_modes": ["同一复合稿重复转述被重复计数", "单日龙虎榜替代持续资金", "观点替代经营事实"]
+    },
+    {
+      "axis": "THEME_TO_MARKET_ROLE",
+      "method": "先确认主题阶段与板块宽度，再区分龙头、中军、趋势核心和产业链弹性；角色必须由市场数据和主营映射共同确认。",
+      "required_inputs": ["五日十日二十日相对强度", "板块成交持续性", "涨停梯队与承接", "主营纯度与产业链位置"],
+      "failure_modes": ["把涨停或小市值等同于龙头", "把代表公司等同于盈利敏感度最高", "池外公司借热点进入漏斗"]
+    },
+    {
+      "axis": "PREMARKET_TIME_CUTOFF",
+      "method": "盘前必须按市场分别绑定时间戳；开盘集合竞价前不得出现当日A股高开、个股当日涨跌或当日资金已经选择等结论。",
+      "required_inputs": ["报告声称的数据截止时间", "交易所交易时段", "上一交易日收盘快照", "集合竞价快照"],
+      "failure_modes": ["未来数据穿越", "上一交易日行情被标成今日", "海外已开市行情与A股未开市行情混用"]
+    }
+  ],
+  "theme_hypotheses": [
+    {
+      "theme": "AI算力硬件与关键配套",
+      "stance": "VERIFY_CONTINUATION_AND_DIFFUSION",
+      "rationale": ["公开稿把海外算力资本开支、券商产业观点和上一交易日异常交易共同指向服务器、光互联、模拟芯片与液冷等配套环节"],
+      "required_facts": ["海外链主资本开支或正式订单", "国内订单、认证、出货和盈利传导", "板块五日十日二十日强度与广度", "资金和梯队持续性", "拥挤度与估值消化"],
+      "counter_signals": ["资本开支或订单下修", "板块只有单日脉冲且梯队断层", "后排扩散但核心股和资金同步转弱", "经营兑现落后于估值扩张"]
+    },
+    {
+      "theme": "AI应用与内容商业化",
+      "stance": "IGNITION_REQUIRES_BUSINESS_VALIDATION",
+      "rationale": ["公开稿观察到内容方向的短期异常交易，并尝试从硬件主线向应用端扩散"],
+      "required_facts": ["付费用户、合同或收入等商业化数据", "应用主题板块广度与成交持续性", "龙头和中军角色", "异常交易后续承接"],
+      "counter_signals": ["只有舆情和单日涨停", "收入或现金流没有改善", "板块无梯队或次日快速退潮"]
+    },
+    {
+      "theme": "锂资源与新能源供需再定价",
+      "stance": "VERIFY_INVENTORY_PRICE_PROFIT_CHAIN",
+      "rationale": ["公开稿引用供给扰动与库存去化观点，提出资源价格可能从远期预期转向短期供需定价"],
+      "required_facts": ["权威产量、库存与复产进度", "现货和长协价格", "公司主营暴露与成本曲线", "价格到利润和现金流的传导", "行业资金和相对强度"],
+      "counter_signals": ["复产快于预期且库存回升", "商品反弹未传导到权益盈利", "综合业务公司资源纯度不足", "板块价格和资金继续走弱"]
+    },
+    {
+      "theme": "房地产政策向银行与内需链传导",
+      "stance": "POLICY_EFFECT_REQUIRES_OPERATING_DATA",
+      "rationale": ["公开稿尝试把住房政策变化向贷款投放、资产质量和银行估值修复传导"],
+      "required_facts": ["正式政策文件和生效范围", "房地产销售与融资数据", "银行贷款投放和资产质量", "地产链订单与现金流", "板块广度、资金和持续性"],
+      "counter_signals": ["只有政策表态没有经营改善", "销售和信用数据继续恶化", "银行或地产板块无持续市场确认"]
+    },
+    {
+      "theme": "稳投资与重大基础设施网络",
+      "stance": "VERIFY_POLICY_TO_PHYSICAL_WORKLOAD",
+      "rationale": ["公开稿关注稳投资信号及重大基础设施网络和重大项目抓手，适合作为政策向实物工作量传导的验证问题"],
+      "required_facts": ["正式政策文件", "财政和专项债资金到位", "项目开工与招标", "设备材料订单", "行业收入利润和现金流", "板块相对强度与资金"],
+      "counter_signals": ["政策只有表态没有资金", "开工招标持续低于预期", "订单无法转成收入和现金流", "市场结构无持续确认"]
+    },
+    {
+      "theme": "分红质量与资本市场资金扩容",
+      "stance": "SEPARATE_DECLARED_DIVIDENDS_FROM_NEW_LIQUIDITY",
+      "rationale": ["公开稿把中期分红计划和公募规模变化放在同一盘前框架，适合用于检验现金流质量和潜在增量资金，但两者不能直接等同于市场净流入"],
+      "required_facts": ["正式分红方案和实施进度", "自由现金流与分红覆盖", "基金份额和净申赎", "ETF及机构资金流", "红利与非银板块广度和持续性"],
+      "counter_signals": ["高分红依赖举债或一次性收益", "基金规模增长来自净值而非净申购", "资金流和板块强度没有改善"]
+    }
+  ],
+  "quality_flags": [
+    "PREOPEN_CURRENT_SESSION_QUOTE_CONFLICT",
+    "COMPOSITE_REPORT_PRIMARY_SOURCE_REFS_MISSING",
+    "BROKER_REPORT_PRIMARY_URLS_MISSING",
+    "LHB_PROVENANCE_INCOMPLETE",
+    "REPRESENTATIVE_COMPANIES_REMOVED_FROM_REVIEWED_LEAD"
+  ]
+}

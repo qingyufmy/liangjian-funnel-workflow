@@ -821,6 +821,92 @@ def test_screen_a2_review_all_eligible_bypasses_legacy_theme_top_n() -> None:
     assert all("A2_NOT_SENT_TO_LLM" not in item["reason_codes"] for item in result.decisions)
 
 
+def test_a1_broker_gold_seed_is_traceable_without_bypassing_g0_or_theme_mapping() -> None:
+    snapshot = _snapshot(2)
+    in_g0 = snapshot["g0_symbols"][-1]
+    snapshot["BROKER_GOLD_COVERAGE_POOL"] = {
+        "available": True,
+        "month": "2026-09",
+        "symbols": {
+            in_g0: {
+                "symbol": in_g0,
+                "name": "食品金股",
+                "brokers": ["券商甲"],
+                "source_refs": ["broker:甲"],
+            },
+            "000001.SZ": {
+                "symbol": "000001.SZ",
+                "name": "池外金股",
+                "brokers": ["券商乙"],
+                "source_refs": ["broker:乙"],
+            },
+        },
+    }
+
+    result = screen_a1(snapshot, _discovery(), local_top_n_per_node=2, llm_top_n_per_theme=1)
+    by_symbol = {item["symbol"]: item for item in result.decisions}
+
+    assert by_symbol[in_g0]["status"] == "LOCAL_MONITOR"
+    assert "A1_INSTITUTIONAL_THEME_MAPPING_REQUIRED" in by_symbol[in_g0]["reason_codes"]
+    assert by_symbol[in_g0]["coverage_origin"] == "BROKER_GOLD_T2"
+    assert by_symbol["000001.SZ"]["status"] == "OUTSIDE_G0"
+    assert "A1_INSTITUTIONAL_OUTSIDE_G0" in by_symbol["000001.SZ"]["reason_codes"]
+    assert set(result.monitor_symbols) >= {in_g0, "000001.SZ"}
+
+
+def test_screen_a2_only_sends_market_strength_top_three_themes_to_review() -> None:
+    snapshot = _snapshot(8)
+    snapshot["A2_SCORE_WEIGHTS"] = {name: 1.0 for name in _complete_a2_factor_scores(90)}
+    snapshot["CAPITAL_FLOW_SNAPSHOT"] = {
+        "available": True,
+        "source_id": "TEST_CAPITAL_FLOW",
+        "by_symbol": {
+            symbol: {"available": True, "capital_flow_score": 90}
+            for symbol in snapshot["g0_symbols"]
+        },
+    }
+    theme_scores = {
+        "theme-first": 95,
+        "theme-second": 85,
+        "theme-third": 75,
+        "theme-fourth": 65,
+    }
+    rows = []
+    for index, symbol in enumerate(snapshot["g0_symbols"]):
+        theme = list(theme_scores)[index // 2]
+        rows.append({
+            "symbol": symbol,
+            "candidate_id": f"a1:{symbol}",
+            "primary_theme": theme,
+            "industry_chain_node": f"node:{theme}",
+            "business_exposure": {"revenue_exposure_pct": 65, "source_ref": f"cninfo:{symbol}"},
+            "a2_factor_scores": _complete_a2_factor_scores(theme_scores[theme]),
+            "data_quality_score": 90,
+        })
+
+    result = screen_a2(
+        snapshot,
+        {"active_research_pool": rows},
+        minimum_identifiability_score=0,
+        llm_top_n_per_theme=1,
+        review_all_eligible=True,
+        rotation_theme_count=3,
+    )
+    by_theme: dict[str, list[dict]] = {}
+    for item in result.decisions:
+        by_theme.setdefault(item["theme_id"], []).append(item)
+
+    assert {item["theme_id"] for item in result.decisions if item["top_rotation_theme"]} == {
+        "theme-first",
+        "theme-second",
+        "theme-third",
+    }
+    assert all(item["sent_to_llm"] for theme in ("theme-first", "theme-second", "theme-third") for item in by_theme[theme])
+    assert all(item["status"] == "LOCAL_MONITOR" for item in by_theme["theme-fourth"])
+    assert all("A2_OUTSIDE_ROTATION_TOP_THEMES" in item["reason_codes"] for item in by_theme["theme-fourth"])
+    assert {item["theme_rotation_rank"] for item in by_theme["theme-fourth"]} == {4}
+
+
 def test_screen_a2_market_core_needs_only_two_hard_facts_when_optional_facts_missing() -> None:
     snapshot = _snapshot(1)
     snapshot["A2_SCORE_WEIGHTS"] = {name: 1.0 for name in _complete_a2_factor_scores(90)}

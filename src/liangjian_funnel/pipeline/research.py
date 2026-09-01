@@ -149,6 +149,8 @@ _A3_WATCH_ONLY_ROLES = frozenset({
     "CORE_ARMY",
     "TREND_CORE",
     "EMOTION_LEADER",
+    "CHAIN_RESONANCE",
+    "FIRST_MOVER",
 })
 # A2 may retain a symbol as a watch-only candidate for a soft shortfall (for
 # example a theme score below the model target or ``A2_NOT_SENT_TO_LLM``).  It
@@ -1687,6 +1689,7 @@ class ResearchPipeline:
             ),
             llm_top_n_per_theme=self.settings.a2_llm_top_n_per_theme,
             review_all_eligible=self.settings.a2_review_all_eligible,
+            rotation_theme_count=int(a2_snapshot.data.get("A2_ROTATION_THEME_COUNT") or 3),
         )
         a2_snapshot = _with_a2_bottleneck_context(a2_snapshot, a2_gate)
         self._persist_gate(run_id, lane_id, a2_gate, a2_snapshot)
@@ -1884,6 +1887,7 @@ class ResearchPipeline:
             minimum_identifiability_score=float(a2_snapshot.data.get("MIN_IDENTIFIABILITY_SCORE") or 60.0),
             llm_top_n_per_theme=self.settings.a2_llm_top_n_per_theme,
             review_all_eligible=self.settings.a2_review_all_eligible,
+            rotation_theme_count=int(a2_snapshot.data.get("A2_ROTATION_THEME_COUNT") or 3),
         )
         a2_snapshot = _with_a2_bottleneck_context(a2_snapshot, a2_gate)
         self._persist_gate(run_id, lane_id, a2_gate, a2_snapshot)
@@ -2078,6 +2082,36 @@ class ResearchPipeline:
             "rejected_candidates",
             [*merged.get("rejected_candidates", []), *local_rejected_items(gate)],
         )
+        institutional_rows = [
+            {
+                "symbol": decision.get("symbol"),
+                "company_name": decision.get("name"),
+                "coverage_origin": decision.get("coverage_origin"),
+                "local_partition": decision.get("status"),
+                "autonomous_partition": decision.get("autonomous_status"),
+                "theme_id": decision.get("theme_id"),
+                "industry_chain_node": decision.get("node_id"),
+                "reason_codes": list(decision.get("reason_codes") or ()),
+                "institutional_coverage": decision.get("institutional_coverage"),
+            }
+            for decision in gate.decisions
+            if decision.get("coverage_origin") == "BROKER_GOLD_T2"
+        ]
+        merged["institutional_coverage_pool"] = institutional_rows
+        merged["institutional_coverage_summary"] = {
+            "symbol_count": len(institutional_rows),
+            "active_count": sum(
+                row.get("local_partition") in {"LOCAL_ACTIVE_CANDIDATE", "REVIEW_CANDIDATE"}
+                for row in institutional_rows
+            ),
+            "monitor_count": sum(
+                row.get("local_partition") in {"LOCAL_MONITOR", "OUTSIDE_THEME", "OUTSIDE_G0"}
+                for row in institutional_rows
+            ),
+            "rejected_count": sum(row.get("local_partition") == "HARD_REJECT" for row in institutional_rows),
+            "direct_approval_forbidden": True,
+            "autonomous_benchmark_remains_independent": True,
+        }
         merged["local_screen_summary"] = gate.summary
         merged = _refresh_analysis_counts(merged, "A1")
         merged = _annotate_a1_pool_target(merged, snapshot.data)
@@ -4542,6 +4576,18 @@ def _prompt_replacements(
                 "quota_forbidden": True,
             }
             continue
+        if name == "BROKER_GOLD_COVERAGE_POOL" and policy_macro_discovery:
+            found, value = _lookup_field(snapshot.data, name)
+            value = value if found and isinstance(value, Mapping) else {}
+            replacements[name] = {
+                key: value.get(key)
+                for key in (
+                    "schema_version", "available", "reason_code", "month", "as_of",
+                    "record_count", "symbol_count", "content_hash", "runtime_role",
+                    "direct_approval_forbidden", "benchmark_evaluation_remains_independent",
+                )
+            }
+            continue
         if name == "A1_BATCH_CONTEXT":
             batch_mode = str((a1_discovery_context or {}).get("mode") or "COMPANY_MAPPING")
             if policy_macro_discovery:
@@ -4672,6 +4718,8 @@ def _project_prompt_value(
         return _project_news(value, item_limit=40, symbols=symbols)
     if name == "CAPITAL_FLOW_SNAPSHOT":
         return _project_capital_flow(value, symbols)
+    if name == "BROKER_GOLD_COVERAGE_POOL":
+        return _project_broker_gold_coverage(value, symbols)
     if name == "SECTOR_CYCLE_SNAPSHOT":
         return _project_sector_cycle(value, symbols, snapshot_data or {})
     if name == "CROWDING_SNAPSHOT":
@@ -4693,6 +4741,23 @@ def _project_prompt_value(
     if name == "FUND_HOLDINGS":
         return _filter_nested_symbol_data(value, symbols)
     return value
+
+
+def _project_broker_gold_coverage(value: Any, symbols: set[str] | None) -> Any:
+    if not isinstance(value, Mapping):
+        return value
+    result = dict(value)
+    raw_symbols = value.get("symbols")
+    if isinstance(raw_symbols, Mapping) and symbols is not None:
+        allowed = {str(symbol).strip().upper() for symbol in symbols}
+        result["symbols"] = {
+            str(symbol): dict(row)
+            for symbol, row in raw_symbols.items()
+            if str(symbol).strip().upper() in allowed and isinstance(row, Mapping)
+        }
+        result["prompt_symbol_count"] = len(result["symbols"])
+        result["full_symbol_count"] = len(raw_symbols)
+    return result
 
 
 def _project_capital_flow(value: Any, symbols: set[str] | None) -> Any:
@@ -5308,6 +5373,9 @@ def _gate_item_from_decision(
     if stage == "A2":
         item.update({
             "theme_score": decision.get("score"),
+            "theme_rotation_rank": decision.get("theme_rotation_rank"),
+            "theme_rotation_score": decision.get("theme_rotation_score"),
+            "top_rotation_theme": decision.get("top_rotation_theme"),
             "identifiability_score": decision.get("identifiability_score"),
             "market_role": decision.get("market_role") or decision.get("role") or "LOW_IDENTITY",
             # Preserve the deterministic route context when a row was not
@@ -9117,6 +9185,9 @@ def _with_a2_bottleneck_context(
             "deterministic_status": item.get("status"),
             "deterministic_route": item.get("route"),
             "deterministic_score": item.get("score"),
+            "theme_rotation_rank": item.get("theme_rotation_rank"),
+            "theme_rotation_score": item.get("theme_rotation_score"),
+            "top_rotation_theme": item.get("top_rotation_theme"),
             "deterministic_market_role": item.get("role"),
             "identifiability_score": item.get("identifiability_score"),
             "identifiability_breakdown": dict(item.get("role_breakdown") or {}),

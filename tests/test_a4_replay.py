@@ -51,6 +51,7 @@ def test_a4_replay_isolated_full_day_reaches_one_next_bar_fill(tmp_path) -> None
             "risk_unit": "NO_ENTRY",
             "strategy_profile": "MA520_SWING",
             "daily_indicators": {"ma5": 10.4, "ma20": 10.0, "close": 10.5},
+            "strategy_facts": {"ma520_setup": {"second_wave_restart": True}},
         },
         bars=_bars(),
         state_db_path=tmp_path / "replay.sqlite3",

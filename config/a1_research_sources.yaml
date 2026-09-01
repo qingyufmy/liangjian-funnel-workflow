@@ -148,4 +148,4 @@ sources:
     fact_authority: false
     viewpoint_only: true
     direct_stock_selection_allowed: false
-    activation_requirement: 仅作人工审阅的方法论与盘前假设参考；复合稿件中的新闻、研报、龙虎榜和行情必须回到原始发布页及冻结时点核验，文中个股名单不得直接进入A1或A2。
+    activation_requirement: 仅作人工审阅的方法论与盘前假设参考；只有通过 config/research_leads 的严格 T3 契约、时点和禁选股校验后才能进入模型验证清单。复合稿件中的新闻、研报、龙虎榜和行情必须回到原始发布页及冻结时点核验，文中个股名单不得直接进入A1或A2。

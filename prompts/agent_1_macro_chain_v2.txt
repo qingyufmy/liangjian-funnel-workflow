@@ -26,6 +26,7 @@ A1_RESEARCH_PACKET 读取，禁止要求系统再次拼接原始序列：
 {{GLOBAL_MACRO_SNAPSHOT}}    美元、海内外利率与流动性预期
 {{CROSS_MARKET_LEAD_SNAPSHOT}} 美/韩/台/日先行行业与已验证产业映射
 {{BROKER_RESEARCH_CONSENSUS}} 合法授权券商研究方向共识（T2，非事实真值）
+{{BROKER_GOLD_COVERAGE_POOL}} 当月券商金股研究覆盖种子（T2，不是买入名单）
 {{INDUSTRY_NEWS_FEED}}       行业媒体/RSS资讯线索（T3，不得直接证明基本面）
 {{INDUSTRY_PROFIT_DATA}}     分行业营收、利润、产能利用率、价格指数
 {{INDUSTRY_ACTIVITY_DATA}}   国家统计局分行业工业增加值同比/累计增速；不是利润数据
@@ -80,8 +81,12 @@ monthly_industry_rotation 中的候选不是答案，但每个排名靠前的候
 monthly_strategy_context.macro_asset_quadrant 由服务端确定性计算，你不得改判；
 它决定本月研究方向的风险预算语境，但不能直接生成股票。cross_market_leads 只能
 用于发现时间差和产业链线索，必须再由国内政策、同花顺行业、公告或主营证据验证。
-broker_research_consensus 只用于检查方向共振与分歧，禁止把评级、目标价或金股名单
-直接复制进 ACTIVE；券商月度金股仅在运行完成后作为独立盲测基准。
+broker_research_consensus 用于梳理本月机构共同关注、分歧和风险假设；评级与目标价
+不得作为事实或买入依据。BROKER_GOLD_COVERAGE_POOL 是当月 A1 必须逐只可追踪的
+机构研究覆盖种子，而不是 ACTIVE 审批名单：每只股票必须最终落在 ACTIVE、MONITOR
+或 REJECTED 之一并说明主题映射、主营/财务证据和排除理由，禁止无理由消失。
+服务端仍会在运行完成后独立计算“未借助金股种子的自主覆盖率”，不得用运行时覆盖
+冒充盲测命中率，也不得因为券商推荐绕过 G0、风险事件、主营映射或数据缺口。
 
 A1_RESEARCH_PACKET.research_source_context 是数据源权限、可用性和证据覆盖清单，
 不是研究内容。必须遵守其中 governance 与每个 source 的 ingestion_mode：
@@ -108,6 +113,15 @@ ACTION_HYPOTHESIS（待 A2/A3 验证的行动假设）；禁止把四层压缩�
 “今日沪强深弱”或“今日成长承压”。海外已开市行情可以使用，但每个市场必须带
 独立时间戳。复合稿中的个股名单、仓位建议和涨停预期不得进入 structural_themes、
 industry_chain_graph 或任何公司池，只能转成 required_facts 与反证问题。
+
+A1_RESEARCH_PACKET.reviewed_public_research_leads 是人工审阅后、按时点冻结的 T3
+研究线索，不是券商共识或事实源。只能吸收其中 methodology_axes、theme_hypotheses、
+required_facts 和 counter_signals；quality_flags 必须原样保留。若存在
+PREOPEN_CURRENT_SESSION_QUOTE_CONFLICT，稿件中所有当日 A 股指数/个股涨跌、
+“高开”“资金已经选择”等结论一律作废，不得降格为 previous_close 后继续使用。
+同一复合稿内对新闻、研报、龙虎榜的多次转述仍只算一个 T3 来源；只有解析到彼此
+独立的原始 source_ref，才能认定多源共振。主题方向只能生成验证问题，必须回到
+T1/T2 原始证据、月度行业决策和同花顺分类后才能进入结构研究域。
 
 A1_RESEARCH_PACKET.weekly_strategy_context 是月度方向与日线市场之间的周度桥梁。
 必须先服从月度研究域，再判断本周相对上周是 ACCELERATING、PERSISTENT、

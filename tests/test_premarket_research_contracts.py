@@ -14,6 +14,9 @@ def test_a1_premarket_contract_separates_fact_hypothesis_and_stale_quote() -> No
     assert "ACTION_HYPOTHESIS" in prompt
     assert "previous_close/as_of_previous_session" in prompt
     assert "复合稿中的个股名单、仓位建议和涨停预期不得进入" in prompt
+    assert "reviewed_public_research_leads" in prompt
+    assert "PREOPEN_CURRENT_SESSION_QUOTE_CONFLICT" in prompt
+    assert "同一复合稿内对新闻、研报、龙虎榜的多次转述仍只算一个 T3 来源" in prompt
 
 
 def test_a2_premarket_contract_requires_full_lineage_and_lhb_provenance() -> None:
@@ -23,6 +26,9 @@ def test_a2_premarket_contract_requires_full_lineage_and_lhb_provenance() -> Non
     assert "LHB_PROVENANCE_INCOMPLETE" in prompt
     assert "单日净买入不能证明中期机构建仓" in prompt
     assert "09:30 前的 A 股" in prompt
+    assert "{{REVIEWED_PUBLIC_RESEARCH_LEADS}}" in prompt
+    assert "不得按引用条数或重复转述次数加分" in prompt
+    assert "PREOPEN_CURRENT_SESSION_QUOTE_CONFLICT" in prompt
 
 
 def test_a2_contract_allows_degraded_optional_facts_on_market_core() -> None:

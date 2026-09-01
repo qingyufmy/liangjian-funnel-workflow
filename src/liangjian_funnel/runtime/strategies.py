@@ -715,6 +715,20 @@ def _evaluate_520(
         reasons.append(volume_reason)
         veto.append(volume_reason)
 
+    # A3 owns the daily MA520 route decision.  Daily averages alone describe
+    # a left-side setup and must not become an executable A4 entry when an
+    # older/partial plan did not carry the deterministic right-side evidence.
+    # Keep this as a separate condition so the missing frozen field remains
+    # visible in the per-plan DATA_BLOCK result and cannot be mistaken for a
+    # live-data opportunity.
+    right_side_confirmed = _ma520_right_side_confirmed(plan)
+    if right_side_confirmed:
+        met.append("A3_RIGHT_SIDE_CONFIRMATION")
+    else:
+        unmet.append("A3_RIGHT_SIDE_CONFIRMATION")
+        reasons.append("A3_RIGHT_SIDE_CONFIRMATION_MISSING")
+        veto.append("A3_RIGHT_SIDE_CONFIRMATION_MISSING")
+
     # A 5m MA5/MA20 supplied by a caller is intentionally ignored.  This
     # marker makes the separation auditable without turning intraday averages
     # into a hidden daily 520 signal.
@@ -725,7 +739,16 @@ def _evaluate_520(
         veto.append("LOCKED_LIMIT_UP")
     if position_open and (ma5 is not None and ma20 is not None and (ma5 < ma20 or (daily_close is not None and daily_close <= ma20))):
         return _exit_or_cancel_decision(position_open, "MA520_DAILY_BREAKDOWN", met, unmet, reasons, veto, action=A4Action.SELL_SIGNAL)
-    if all(name in met for name in ("DAILY_MA5_ABOVE_MA20", "DAILY_CLOSE_ABOVE_MA20", "MA520_15M_STABLE", "MA520_5M_HIGHER_LOW", "MA520_5M_VWAP_RECLAIM", "MA520_TWO_CLOSED_5M_CONFIRMATIONS", "MA520_VOLUME_NOT_OVERHEATED")) and not locked:
+    if not right_side_confirmed:
+        return {
+            "state": "DATA_BLOCKED",
+            "action": A4Action.DATA_BLOCK.value,
+            "reason_codes": _unique(reasons),
+            "met_conditions": _unique(met),
+            "unmet_conditions": _unique(unmet),
+            "veto_conditions": _unique(veto),
+        }
+    if all(name in met for name in ("DAILY_MA5_ABOVE_MA20", "DAILY_CLOSE_ABOVE_MA20", "MA520_15M_STABLE", "MA520_5M_HIGHER_LOW", "MA520_5M_VWAP_RECLAIM", "MA520_TWO_CLOSED_5M_CONFIRMATIONS", "MA520_VOLUME_NOT_OVERHEATED", "A3_RIGHT_SIDE_CONFIRMATION")) and not locked:
         if _price_zone_met(plan, latest5.close):
             met.append("A3_TRIGGER_ZONE")
             return _entry_decision(plan, met, unmet, reasons, veto)
@@ -954,6 +977,43 @@ def _daily_context(plan: Mapping[str, Any]) -> Mapping[str, Any]:
             if result.get("close") is None and source.get(key) is not None:
                 result["close"] = source[key]
     return result
+
+
+def _ma520_right_side_confirmed(plan: Mapping[str, Any]) -> bool:
+    """Read an explicit frozen A3 right-side confirmation for MA520.
+
+    The current A3 payload projects the computed paths under
+    ``strategy_facts.ma520_right_side``.  ``ma520_setup.second_wave_restart``
+    and ``trend_reversal_confirmed`` are also accepted as explicit markers
+    for compatible plans.  No MA5/MA20 or intraday facts are inferred here:
+    a missing marker is a data contract failure, not a negative trading
+    signal that A4 may reinterpret.
+    """
+
+    facts = _lookup(plan, ("strategy_facts",))
+    if isinstance(facts, Mapping):
+        setup = facts.get("ma520_setup")
+        if isinstance(setup, Mapping) and any(
+            _bool_value(setup.get(key)) is True
+            for key in ("second_wave_restart", "trend_reversal_confirmed")
+        ):
+            return True
+
+        # This is the shape emitted by the current A3 pipeline.  ``confirmed``
+        # is scoped to this right-side object; a generic top-level ``confirmed``
+        # field is deliberately not accepted as an equivalent marker.
+        right_side = facts.get("ma520_right_side")
+        if isinstance(right_side, Mapping) and any(
+            _bool_value(right_side.get(key)) is True
+            for key in ("second_wave_restart", "trend_reversal_confirmed", "confirmed")
+        ):
+            return True
+
+    # The current A3 schema does not project a top-level
+    # ``trend_reversal_confirmed`` field.  Do not accept arbitrary flattened
+    # markers here: adding such a compatibility path would let an old caller
+    # bypass the frozen A3 contract without an explicitly supported schema.
+    return False
 
 
 def _leader_context(plan: Mapping[str, Any]) -> Mapping[str, Any] | None:

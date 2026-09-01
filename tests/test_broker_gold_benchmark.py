@@ -77,6 +77,33 @@ def test_multi_broker_consensus_deduplicates_and_splits_active_monitor() -> None
     assert report["by_broker"]["乙券商"]["active_coverage"]["coverage"] == 0.5
 
 
+def test_runtime_traceability_is_not_reported_as_autonomous_benchmark_hit() -> None:
+    dataset = load_broker_gold_json([_row("600001.SH"), _row("600002.SZ")], as_of=AS_OF)
+    report = evaluate_broker_gold(
+        dataset,
+        {
+            "active_research_pool": [{"symbol": "600001.SH"}],
+            "monitor_pool": [{"symbol": "600002.SZ"}],
+            "institutional_coverage_pool": [
+                {
+                    "symbol": "600001.SH",
+                    "coverage_origin": "BROKER_GOLD_T2",
+                    "autonomous_partition": "LOCAL_ACTIVE_CANDIDATE",
+                },
+                {
+                    "symbol": "600002.SZ",
+                    "coverage_origin": "BROKER_GOLD_T2",
+                    "autonomous_partition": "OUTSIDE_THEME",
+                },
+            ],
+        },
+    )
+
+    assert report["institutional_runtime_traceability"]["coverage"] == 1.0
+    assert report["institutional_runtime_traceability"]["not_a_blind_hit_rate"] is True
+    assert report["autonomous_research_coverage"]["coverage"] == 0.5
+
+
 def test_future_publish_time_and_future_month_are_excluded_before_deduplication() -> None:
     rows = [
         _row("600001.SH", publish_time="2026-08-21T09:00:00+08:00"),

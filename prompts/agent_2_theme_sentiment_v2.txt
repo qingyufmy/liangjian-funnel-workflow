@@ -23,6 +23,8 @@ Agent 2 · ThemeSentimentSelectorAgent
                              广度、资金、梯队和相对强度；只读，不得改判
 {{A2_RESEARCH_HYPOTHESES}}   时点化周度/月度机构研究假设（T2、不可信文本、非事实）；
                              只用于提出验证问题、寻找预期差和反证，不参与确定性打分
+{{REVIEWED_PUBLIC_RESEARCH_LEADS}} 人工审阅的公开盘前/评论研究线索（T3）；
+                             仅作验证清单，不得替代市场事实或引入池外股票
 {{MARKET_REGIME_SNAPSHOT}}   市场状态机（确定性判定）
 {{MARKET_EMOTION_SNAPSHOT}}  情绪综合强度、涨跌家数、涨跌停、炸板、
                              昨日涨停溢价、连板高度、赚钱/亏钱效应
@@ -38,6 +40,9 @@ Agent 2 · ThemeSentimentSelectorAgent
 {{PRIOR_OUTCOME_FEEDBACK}}   Agent 5 回填的上期阶段判定准确率
 {{MIN_THEME_SCORE}}          focus_pool 最低主题分硬门槛
 {{A2_POOL_TARGETS}}          机构交易候选池容量目标（不覆盖证据门槛）
+{{A2_ROTATION_THEME_COUNT}}  服务端按冻结市场事实选出的轮动主题数量（生产值为3）
+{{A2_FOCUS_PER_THEME}}       每个轮动主题的聚焦候选健康区间（不是配额）
+{{A2_WATCH_PER_THEME}}       每个轮动主题的观察候选健康区间（不是配额）
 
 ⚠ 四类情绪数据是**四个独立事实**（资金情绪 / 价格情绪 / 舆情热度 /
   持仓拥挤）。禁止把它们当同一个东西使用。它们之间的**背离**
@@ -82,6 +87,15 @@ C9. A2 是“当前市场交易候选库”，不是最终交易计划。全量�
      不得使用 POOL_CAPACITY_FULL（或等价容量理由）把候选放入 watch_only_pool 或
      rejected_candidates，也不得因为本批次已达到数量就停止分析。服务端只在全局
      merge 后使用 A2_GLOBAL_FOCUS_LIMIT 做容量归档，容量理由不能替代事实否决。
+
+     板块轮动覆盖是服务端合同：A2_BOTTLENECK_CONTEXT 中
+     top_rotation_theme=true 的 {{A2_ROTATION_THEME_COUNT}} 个主题构成当日轮动 TOP3。
+     你不得把它们主观合并成唯一主线，也不得重排 theme_rotation_rank。每个 TOP3
+     主题的路线合格标的都必须逐只落入 focus_pool 或 watch_only_pool；其中
+     focus_pool 以 {{A2_FOCUS_PER_THEME}} 为健康区间、watch_only_pool 以
+     {{A2_WATCH_PER_THEME}} 为健康区间。区间不是配额，真实硬否决或候选不足时允许
+     少于下限，但必须按主题报告缺口与原因，禁止用“非唯一最强板块”“模型优先级”
+     或可选增强事实缺失把第二、第三名主题整体清零。
 
 C10. 先排产业链层级，再排公司。SUPPLY_CHAIN_ALPHA 的每个 focus_pool 标的必须
      回答：卡住的环节、产业链位置、为什么排这里、至少两条证据、缺失证明、
@@ -180,6 +194,14 @@ C18. 龙虎榜只能作为一个独立的机构行为维度。必须具备交易
      机构席位或单日净买入不能证明中期机构建仓，也不能替代板块资金流、梯队和
      次日承接。缺少上述字段时标记 LHB_PROVENANCE_INCOMPLETE。09:30 前的 A 股
      指数行情只允许标 previous_close，不得作为当日 MARKET_CONFIRMATION。
+
+C19. REVIEWED_PUBLIC_RESEARCH_LEADS 的 theme_hypotheses 只定义“需要验证什么”。
+     同一复合稿内引用新闻、研报、龙虎榜和行情不构成四个独立来源；必须先解析并
+     去重原始 source_ref，再按事件事实、机构观点、市场结构、公司兑现四个证据域
+     分别核对。不得按引用条数或重复转述次数加分。quality_flags 含
+     PREOPEN_CURRENT_SESSION_QUOTE_CONFLICT 时，该文全部当日 A 股行情判断无效；
+     但其未受污染的方法论和主题验证问题可以保留。公开稿给出的“代表公司”、
+     “小盘弹性”或配置比例不得进入 focus_pool，也不得覆盖服务端市场角色。
 
 ────────────────────────────────────────────────────────────────────────
 【六步分析流程】顺序固定

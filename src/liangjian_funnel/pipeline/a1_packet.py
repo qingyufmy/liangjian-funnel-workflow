@@ -26,7 +26,7 @@ from .a1_contract import (
 )
 
 
-A1_RESEARCH_PACKET_SCHEMA_VERSION = "a1-research-packet/1.2.0"
+A1_RESEARCH_PACKET_SCHEMA_VERSION = "a1-research-packet/1.3.0"
 A1_PACKET_TOKEN_BUDGET = 100_000
 _MACRO_WINDOWS = (1, 3, 6, 12)
 _INDUSTRY_METRIC_KEYS = (
@@ -107,6 +107,10 @@ def build_a1_research_packet(
         else context.get("prior_theme_registry")
     )
     research_sources = _project_bounded(data.get("A1_RESEARCH_SOURCE_CONTEXT"), 64)
+    reviewed_public_leads = _project_bounded(
+        data.get("REVIEWED_PUBLIC_RESEARCH_LEADS"),
+        24,
+    )
     packet: dict[str, Any] = {
         "schema_version": A1_RESEARCH_PACKET_SCHEMA_VERSION,
         "contract_version": A1_CONTRACT_VERSION,
@@ -128,6 +132,7 @@ def build_a1_research_packet(
         "policy_dossiers": policy_dossiers,
         "cross_market_leads": cross_market,
         "broker_research_consensus": broker,
+        "reviewed_public_research_leads": reviewed_public_leads,
         # This is a permissions-and-availability plane, not research content.
         # A homepage without an active frozen contract or a reviewed document
         # never becomes evidence merely because it appears in this registry.
@@ -146,6 +151,12 @@ def build_a1_research_packet(
             ),
             "usable_research_source_count": _safe_int(
                 research_sources.get("usable_source_count") if isinstance(research_sources, Mapping) else 0,
+                0,
+            ),
+            "reviewed_public_research_lead_count": _safe_int(
+                len(reviewed_public_leads.get("documents", ()))
+                if isinstance(reviewed_public_leads, Mapping)
+                else 0,
                 0,
             ),
             "industry_count": len(industry_features),

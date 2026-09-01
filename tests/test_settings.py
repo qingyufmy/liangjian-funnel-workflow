@@ -38,6 +38,10 @@ def test_exact_models_and_safe_summary_do_not_leak_keys(tmp_path: Path):
     assert settings.a2_capital_flow_workers == 16
     assert settings.open_macro_enabled is True
     assert settings.open_macro_cache_dir == tmp_path / "storage" / "facts" / "open_macro"
+    assert settings.reviewed_research_leads_dir == tmp_path / "config" / "research_leads"
+    assert settings.safe_summary()["reviewed_research_leads_dir"] == str(
+        tmp_path / "config" / "research_leads"
+    )
     assert settings.research_thinking_enabled is True
     assert settings.monitor_thinking_enabled is False
     assert settings.comparison_enabled is False
@@ -112,6 +116,15 @@ def test_open_macro_can_be_disabled_without_changing_other_sources(tmp_path: Pat
     )
     assert settings.open_macro_enabled is False
     assert settings.safe_summary()["open_macro_enabled"] is False
+
+
+def test_reviewed_research_leads_directory_can_be_overridden(tmp_path: Path):
+    override = tmp_path / "reviewed-leads"
+    settings = Settings.from_env(
+        {"LIANGJIAN_REVIEWED_RESEARCH_LEADS_DIR": str(override)},
+        root=tmp_path,
+    )
+    assert settings.reviewed_research_leads_dir == override.resolve()
 
 
 def test_model_token_budgets_are_configurable_and_legacy_primary_env_is_preserved(tmp_path: Path):

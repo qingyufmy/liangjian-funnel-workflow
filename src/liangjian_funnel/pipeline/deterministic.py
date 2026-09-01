@@ -239,6 +239,10 @@ def screen_a1(
         target_values = []
     active_target_min = max(1, target_values[0] if target_values else 100)
     active_target_max = max(active_target_min, target_values[1] if len(target_values) > 1 else 250)
+    institutional_contract = snapshot.get("BROKER_GOLD_COVERAGE_POOL")
+    institutional_contract = institutional_contract if isinstance(institutional_contract, Mapping) else {}
+    institutional_symbols = institutional_contract.get("symbols")
+    institutional_symbols = institutional_symbols if isinstance(institutional_symbols, Mapping) else {}
 
     decisions: list[dict[str, Any]] = []
     provisional: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -304,6 +308,9 @@ def screen_a1(
         liquidity_score = _liquidity_score(amount)
         flags = tradability.get(symbol)
         flags = flags if isinstance(flags, Mapping) else {}
+        institutional = institutional_symbols.get(symbol)
+        institutional = institutional if isinstance(institutional, Mapping) else {}
+        institutional_seed = bool(institutional)
         reason_codes: list[str] = []
         hard_reject = False
         if flags.get("available") is True and flags.get("tradable") is False:
@@ -337,6 +344,10 @@ def screen_a1(
             reason_codes.append("A1_LOCAL_SCORE_BELOW_MINIMUM")
         else:
             status = "LOCAL_CANDIDATE"
+        autonomous_status = status
+        if institutional_seed and status == "OUTSIDE_THEME":
+            status = "LOCAL_MONITOR"
+            reason_codes.append("A1_INSTITUTIONAL_THEME_MAPPING_REQUIRED")
         if matched and not hard_reject and available_weight < minimum_available_weight:
             # Preserve every independent data-gap reason even when an earlier
             # fail-closed branch (for example missing business evidence) has
@@ -344,6 +355,8 @@ def screen_a1(
             reason_codes.append("A1_FACTOR_COVERAGE_BELOW_MINIMUM")
         if raw_evidence_available and not structured_exposure_available:
             reason_codes.append("A1_BUSINESS_EXPOSURE_UNSTRUCTURED")
+        if institutional_seed:
+            reason_codes.append("A1_INSTITUTIONAL_COVERAGE_SEED")
 
         decision = {
             "symbol": symbol,
@@ -373,6 +386,9 @@ def screen_a1(
             "maximum_revenue_exposure_pct": maximum_exposure if exposure_facts else None,
             "amount": amount,
             "reason_codes": list(dict.fromkeys(reason_codes)),
+            "coverage_origin": "BROKER_GOLD_T2" if institutional_seed else "AUTONOMOUS_RESEARCH",
+            "autonomous_status": autonomous_status,
+            "institutional_coverage": dict(institutional) if institutional_seed else None,
             "sent_to_llm": False,
             "feature_version": FEATURE_VERSION,
             "source_hashes": source_hashes,
@@ -380,6 +396,45 @@ def screen_a1(
         decisions.append(decision)
         if status == "LOCAL_CANDIDATE":
             provisional[str(decision.get("node_id") or "UNMAPPED")].append(decision)
+
+    # A current-month institutional seed outside G0 must remain visible as an
+    # unresolved coverage row.  It cannot be injected into the research or
+    # trading universe because G0 owns listing/tradability/quality eligibility.
+    g0_set = set(symbols)
+    for symbol, raw_institutional in institutional_symbols.items():
+        normalized = _symbol(symbol)
+        if not normalized or normalized in g0_set or not isinstance(raw_institutional, Mapping):
+            continue
+        decisions.append({
+            "symbol": normalized,
+            "name": raw_institutional.get("name"),
+            "stage": "A1_LOCAL_SCREEN",
+            "status": "OUTSIDE_G0",
+            "score": 0.0,
+            "data_quality_score": 0.0,
+            "financial_quality_score": 0.0,
+            "liquidity_score": 0.0,
+            "theme_id": None,
+            "node_id": None,
+            "taxonomy_matches": [],
+            "score_breakdown": {},
+            "factor_details": {},
+            "available_weight": 0.0,
+            "available_weight_pct": 0.0,
+            "minimum_available_weight": round(minimum_available_weight, 6),
+            "missing_factors": [],
+            "financial_features": {},
+            "business_exposure_facts": [],
+            "maximum_revenue_exposure_pct": None,
+            "amount": 0.0,
+            "reason_codes": ["A1_INSTITUTIONAL_COVERAGE_SEED", "A1_INSTITUTIONAL_OUTSIDE_G0"],
+            "coverage_origin": "BROKER_GOLD_T2",
+            "autonomous_status": "OUTSIDE_G0",
+            "institutional_coverage": dict(raw_institutional),
+            "sent_to_llm": False,
+            "feature_version": FEATURE_VERSION,
+            "source_hashes": source_hashes,
+        })
 
     local_eligible: list[dict[str, Any]] = []
     for node_id, node_decisions in provisional.items():
@@ -451,6 +506,10 @@ def screen_a1(
             item["reason_codes"].append("A1_ADAPTIVE_COVERAGE_EXPANSION")
             local_active_count += 1
 
+    for item in decisions:
+        if item.get("autonomous_status") == "LOCAL_CANDIDATE":
+            item["autonomous_status"] = item.get("status")
+
     decisions.sort(key=lambda item: str(item["symbol"]))
     review = tuple(
         str(item["symbol"])
@@ -459,7 +518,11 @@ def screen_a1(
             key=lambda item: (str(item.get("node_id") or ""), int(item.get("node_rank") or 0), str(item["symbol"])),
         )
     )
-    monitor = tuple(str(item["symbol"]) for item in decisions if item["status"] in {"LOCAL_MONITOR", "OUTSIDE_THEME"})
+    monitor = tuple(
+        str(item["symbol"])
+        for item in decisions
+        if item["status"] in {"LOCAL_MONITOR", "OUTSIDE_THEME", "OUTSIDE_G0"}
+    )
     rejected = tuple(str(item["symbol"]) for item in decisions if item["status"] == "HARD_REJECT")
     return DeterministicGateResult(
         stage="A1_LOCAL_SCREEN",
@@ -478,6 +541,7 @@ def screen_a2(
     minimum_identifiability_score: float = 60.0,
     llm_top_n_per_theme: int = 5,
     review_all_eligible: bool = False,
+    rotation_theme_count: int = 3,
 ) -> DeterministicGateResult:
     """Build the A2 market-core and supply-chain review routes locally.
 
@@ -492,7 +556,7 @@ def screen_a2(
     remains ``False`` so legacy callers retain the historical Top-N behavior.
     """
 
-    if llm_top_n_per_theme < 1:
+    if llm_top_n_per_theme < 1 or rotation_theme_count < 1:
         raise ValueError("A2 Top-N value must be positive")
 
     rows = _mapping_list(a1_output.get("active_research_pool"))
@@ -737,11 +801,34 @@ def screen_a2(
         decisions.append(decision)
         if status == "REVIEW_CANDIDATE":
             grouped[theme_id].append(decision)
+    theme_strength: dict[str, float] = {}
     for theme_id, values in grouped.items():
         values.sort(key=lambda item: (-float(item["score"]), -float(item["identifiability_score"]), str(item["symbol"])))
+        # Theme strength is an aggregation of the already-audited A2 score,
+        # not a new factor family.  Averaging the strongest five members avoids
+        # letting one isolated spike outrank a broad, tradeable rotation.
+        leaders = values[:5]
+        theme_strength[theme_id] = round(
+            sum(float(item["score"]) for item in leaders) / len(leaders),
+            4,
+        )
+    ranked_themes = sorted(
+        theme_strength,
+        key=lambda theme_id: (-theme_strength[theme_id], -len(grouped[theme_id]), theme_id),
+    )
+    top_theme_ids = set(ranked_themes[:rotation_theme_count])
+    theme_rotation_rank = {theme_id: rank for rank, theme_id in enumerate(ranked_themes, start=1)}
+
+    for theme_id, values in grouped.items():
         for rank, item in enumerate(values, start=1):
             item["theme_rank"] = rank
-            if not review_all_eligible and rank > llm_top_n_per_theme:
+            item["theme_rotation_rank"] = theme_rotation_rank[theme_id]
+            item["theme_rotation_score"] = theme_strength[theme_id]
+            item["top_rotation_theme"] = theme_id in top_theme_ids
+            if theme_id not in top_theme_ids:
+                item["status"] = "LOCAL_MONITOR"
+                item["reason_codes"].append("A2_OUTSIDE_ROTATION_TOP_THEMES")
+            elif not review_all_eligible and rank > llm_top_n_per_theme:
                 item["status"] = "LOCAL_MONITOR"
                 item["reason_codes"].append("A2_NOT_SENT_TO_LLM")
             else:
@@ -2017,6 +2104,9 @@ def local_monitor_items(result: DeterministicGateResult) -> list[dict[str, Any]]
             "evidence_confidence": 0.0,
             "status": "MONITOR",
             "reason_codes": item.get("reason_codes", []),
+            "coverage_origin": item.get("coverage_origin"),
+            "autonomous_status": item.get("autonomous_status"),
+            "institutional_coverage": item.get("institutional_coverage"),
             "local_decision": True,
             "sent_to_llm": False,
             "source_refs": list(dict.fromkeys(
@@ -2028,7 +2118,7 @@ def local_monitor_items(result: DeterministicGateResult) -> list[dict[str, Any]]
             )),
         }
         for item in result.decisions
-        if item.get("status") in {"LOCAL_MONITOR", "OUTSIDE_THEME"}
+        if item.get("status") in {"LOCAL_MONITOR", "OUTSIDE_THEME", "OUTSIDE_G0"}
     ]
 
 
@@ -2087,6 +2177,9 @@ def local_active_items(result: DeterministicGateResult) -> list[dict[str, Any]]:
             "available_weight_pct": item.get("available_weight_pct"),
             "missing_factors": list(item.get("missing_factors") or ()),
             "reason_codes": ["A1_DETERMINISTIC_MONTHLY_RESEARCH_ELIGIBLE"],
+            "coverage_origin": item.get("coverage_origin"),
+            "autonomous_status": item.get("autonomous_status"),
+            "institutional_coverage": item.get("institutional_coverage"),
             "local_decision": True,
             "sent_to_llm": False,
         })

@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from liangjian_funnel.pipeline.a3_strategy import evaluate_a3_strategy
 from liangjian_funnel.runtime.strategies import (
     A4Action,
     StrategyProfile,
@@ -72,6 +73,7 @@ def test_each_strategy_has_a_deterministic_valid_entry() -> None:
         _base(
             StrategyProfile.MA520_SWING.value,
             daily_indicators={"ma5": 11.0, "ma20": 10.0, "close": 11.2},
+            strategy_facts={"ma520_setup": {"second_wave_restart": True}},
         ),
         _bars(),
     )
@@ -96,8 +98,9 @@ def test_leader_requires_context_and_520_requires_daily_snapshot() -> None:
     swing = evaluate_a4_plan(_base(StrategyProfile.MA520_SWING.value), _bars())
     assert leader["action"] == A4Action.START_CONFIRMATION.value
     assert "LEADER_CONTEXT_MISSING" in leader["reason_codes"]
-    assert swing["action"] == A4Action.START_CONFIRMATION.value
+    assert swing["action"] == A4Action.DATA_BLOCK.value
     assert "MA520_DAILY_SNAPSHOT_MISSING" in swing["reason_codes"]
+    assert "A3_RIGHT_SIDE_CONFIRMATION_MISSING" in swing["reason_codes"]
 
 
 def test_trend_requires_daily_maintrend_and_520_requires_two_5m_confirmations() -> None:
@@ -116,6 +119,85 @@ def test_trend_requires_daily_maintrend_and_520_requires_two_5m_confirmations() 
     assert "TREND_DAILY_NOT_MAIN_UPTREND" in trend["reason_codes"]
     assert swing["action"] != A4Action.BUY_SIGNAL.value
     assert "MA520_TWO_CLOSED_5M_CONFIRMATIONS" in swing["unmet_conditions"]
+
+
+def test_ma520_without_frozen_right_side_evidence_is_data_blocked() -> None:
+    result = evaluate_a4_plan(
+        _base(
+            StrategyProfile.MA520_SWING.value,
+            daily_indicators={"ma5": 11.0, "ma20": 10.0, "close": 11.2},
+        ),
+        _bars(),
+    )
+    assert result["action"] == A4Action.DATA_BLOCK.value
+    assert result["state"] == "DATA_BLOCKED"
+    assert "A3_RIGHT_SIDE_CONFIRMATION_MISSING" in result["reason_codes"]
+    assert "A3_RIGHT_SIDE_CONFIRMATION" in result["unmet_conditions"]
+    assert "A3_RIGHT_SIDE_CONFIRMATION_MISSING" in result["veto_conditions"]
+
+
+def test_ma520_explicit_right_side_evidence_can_continue_to_entry() -> None:
+    result = evaluate_a4_plan(
+        _base(
+            StrategyProfile.MA520_SWING.value,
+            daily_indicators={"ma5": 11.0, "ma20": 10.0, "close": 11.2},
+            strategy_facts={"ma520_setup": {"second_wave_restart": True}},
+        ),
+        _bars(),
+    )
+    assert result["action"] == A4Action.BUY_SIGNAL.value
+    assert "A3_RIGHT_SIDE_CONFIRMATION" in result["met_conditions"]
+
+
+def test_a3_ma520_payload_preserves_right_side_evidence_into_a4() -> None:
+    factor = {
+        "timeframes": {
+            "monthly": {"closed": True, "state": "BULL"},
+            "weekly": {"closed": True, "state": "BULL"},
+            "daily": {
+                "closed": True,
+                "state": "BULL",
+                "close": 10.25,
+                "low": 9.95,
+                "moving_averages": {"ma5": 10.2, "ma10": 10.3, "ma20": 10.0, "ma60": 9.5},
+                "ma_slopes": {"ma5": 0.0, "ma10": -0.01, "ma20": -0.02},
+                "ma_event": "PULLBACK_HOLD_MA20",
+            },
+        }
+    }
+    a3 = evaluate_a3_strategy(
+        {"symbol": "600001.SH", "name": "520"},
+        factor=factor,
+        price_levels={"trigger_zone": {"low": 10.0, "high": 12.0}, "invalidation": 8.0, "max_chase_price": 13.0},
+        tradability={"tradable": True},
+        kline={"labels": []},
+        a2_context={},
+    )
+    plan = a3.model_dump(mode="json")
+    plan["trade_date"] = "2026-08-31"
+
+    result = evaluate_a4_plan(plan, _bars())
+
+    assert a3.strategy_profile.value == StrategyProfile.MA520_SWING.value
+    assert a3.strategy_facts["ma520_right_side"]["second_wave_restart"] is True
+    assert result["action"] == A4Action.BUY_SIGNAL.value
+    assert "A3_RIGHT_SIDE_CONFIRMATION" in result["met_conditions"]
+
+
+def test_ma520_right_side_guard_does_not_suppress_hard_stop_exit() -> None:
+    bars = _bars()
+    bars[-1] = _bar(bars[-1]["bar_end"], close=10.5, low=7.5)
+    result = evaluate_a4_plan(
+        _base(
+            StrategyProfile.MA520_SWING.value,
+            position_open=True,
+            stop_level=8.0,
+            daily_indicators={"ma5": 11.0, "ma20": 10.0, "close": 11.2},
+        ),
+        bars,
+    )
+    assert result["action"] == A4Action.FORCED_RISK_EXIT.value
+    assert result["reason_codes"] == ["HARD_STOP"]
 
 
 def test_unclosed_bucket_and_future_bar_never_trigger() -> None:
@@ -189,6 +271,7 @@ def test_520_does_not_use_intraday_ma5_ma20_and_trend_add_cannot_average_down() 
         _base(
             StrategyProfile.MA520_SWING.value,
             daily_indicators={"ma5": 11.0, "ma20": 10.0, "close": 11.2},
+            strategy_facts={"ma520_setup": {"second_wave_restart": True}},
             intraday={"moving_averages": {"ma5": 999, "ma20": 1}},
         ),
         _bars(),

@@ -98,6 +98,7 @@ class Settings(BaseModel):
     feature_store_db_path: Path
     broker_gold_dir: Path
     research_consensus_dir: Path
+    reviewed_research_leads_dir: Path
     cninfo_pdf_cache_dir: Path
     state_db_path: Path
     workflow_progress_path: Path
@@ -222,6 +223,7 @@ class Settings(BaseModel):
         feature_store_db_raw = env.get("LIANGJIAN_FEATURE_STORE_DB_PATH")
         broker_gold_dir_raw = env.get("LIANGJIAN_BROKER_GOLD_DIR")
         research_consensus_dir_raw = env.get("LIANGJIAN_RESEARCH_CONSENSUS_DIR")
+        reviewed_research_leads_dir_raw = env.get("LIANGJIAN_REVIEWED_RESEARCH_LEADS_DIR")
         cninfo_pdf_cache_raw = env.get("LIANGJIAN_CNINFO_PDF_CACHE_DIR")
         state_db_raw = env.get("LIANGJIAN_STATE_DB_PATH")
         progress_path_raw = env.get("LIANGJIAN_WORKFLOW_PROGRESS_PATH")
@@ -302,6 +304,9 @@ class Settings(BaseModel):
             research_consensus_dir=Path(research_consensus_dir_raw).resolve()
             if research_consensus_dir_raw
             else base / "config" / "research_consensus",
+            reviewed_research_leads_dir=Path(reviewed_research_leads_dir_raw).resolve()
+            if reviewed_research_leads_dir_raw
+            else base / "config" / "research_leads",
             cninfo_pdf_cache_dir=Path(cninfo_pdf_cache_raw).resolve()
             if cninfo_pdf_cache_raw
             else base / "storage" / "cninfo_pdfs",
@@ -429,6 +434,7 @@ class Settings(BaseModel):
             "feature_store_db_path": str(self.feature_store_db_path),
             "broker_gold_dir": str(self.broker_gold_dir),
             "research_consensus_dir": str(self.research_consensus_dir),
+            "reviewed_research_leads_dir": str(self.reviewed_research_leads_dir),
             "cninfo_pdf_cache_dir": str(self.cninfo_pdf_cache_dir),
             "state_db_path": str(self.state_db_path),
             "workflow_progress_path": str(self.workflow_progress_path),

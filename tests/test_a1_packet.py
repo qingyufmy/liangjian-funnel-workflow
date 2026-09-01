@@ -55,6 +55,20 @@ def _snapshot() -> dict:
             ],
             "governance": {"homepage_is_not_evidence": True},
         },
+        "REVIEWED_PUBLIC_RESEARCH_LEADS": {
+            "schema_version": "reviewed-public-research-leads/1.0.0",
+            "available": True,
+            "evidence_tier": "T3",
+            "viewpoint_only": True,
+            "deterministic_score_influence_allowed": False,
+            "documents": [
+                {
+                    "document_id": "premarket-review",
+                    "quality_flags": ["PREOPEN_CURRENT_SESSION_QUOTE_CONFLICT"],
+                    "theme_hypotheses": [{"theme": "先进制造", "stance": "VERIFY"}],
+                }
+            ],
+        },
         "INDUSTRY_ACTIVITY_DATA": {
             "available": True,
             "items": [
@@ -128,6 +142,8 @@ def test_packet_has_complete_industry_and_decision_coverage_without_raw_history(
     assert packet["broker_research_consensus"]["documents"][0]["effective_month"] == "2026-09"
     assert packet["broker_research_consensus"]["primary_evidence"] is False
     assert packet["research_source_context"]["source_count"] == 10
+    assert packet["reviewed_public_research_leads"]["evidence_tier"] == "T3"
+    assert packet["coverage"]["reviewed_public_research_lead_count"] == 1
     assert packet["coverage"]["usable_research_source_count"] == 3
     assert packet["diagnostics"]["section_chars"]["industry_features"] > 0
 

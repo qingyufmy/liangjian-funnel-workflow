@@ -77,6 +77,7 @@ from .pipeline.a1_registry import (
 from .pipeline.factors import FactorEngine
 from .pipeline.feature_store import ResearchFeatureStore
 from .pipeline.feature_maintenance import materialize_live_source
+from .pipeline.institutional_coverage import load_broker_gold_coverage
 from .pipeline.local_fact_cache import LocalFactCache
 from .pipeline.market_aggregates import (
     build_crowding_snapshot,
@@ -94,6 +95,10 @@ from .pipeline.research_consensus import (
     load_research_consensus,
     project_a2_research_hypotheses,
     unavailable_research_consensus,
+)
+from .pipeline.reviewed_research_leads import (
+    load_reviewed_research_leads,
+    unavailable_reviewed_research_leads,
 )
 from .pipeline.research_reports import write_stage_markdown_reports
 from .pipeline.snapshot import FrozenInputSnapshot, UniverseGatePolicy, UniverseSnapshot
@@ -3673,6 +3678,21 @@ class WorkflowApplication:
                 as_of=as_of,
                 source_dir=getattr(self.settings, "research_consensus_dir", None),
             )
+        broker_gold_coverage = load_broker_gold_coverage(
+            self.settings.broker_gold_dir,
+            as_of=as_of,
+        )
+        try:
+            reviewed_research_leads = load_reviewed_research_leads(
+                self.settings.reviewed_research_leads_dir,
+                as_of=as_of,
+            )
+        except Exception:
+            # Hand-reviewed public commentary is an optional T3 hypothesis
+            # plane.  It must never block research or fall back to raw web text.
+            reviewed_research_leads = unavailable_reviewed_research_leads(
+                as_of=as_of,
+            )
         try:
             a1_source_registry = load_a1_source_registry(
                 self.settings.a1_research_source_registry_path
@@ -3990,9 +4010,11 @@ class WorkflowApplication:
                 "metric_scope": "INDUSTRIAL_VALUE_ADDED_GROWTH_NOT_PROFIT",
             },
             "BROKER_RESEARCH_CONSENSUS": broker_research_consensus,
+            "BROKER_GOLD_COVERAGE_POOL": broker_gold_coverage,
             "A2_RESEARCH_HYPOTHESES": project_a2_research_hypotheses(
                 broker_research_consensus
             ),
+            "REVIEWED_PUBLIC_RESEARCH_LEADS": reviewed_research_leads,
             "INDUSTRY_NEWS_FEED": industry_news_feed,
             "NEWS_HEAT_SNAPSHOT": news_heat,
             "CROWDING_SNAPSHOT": crowding,
@@ -4044,7 +4066,7 @@ class WorkflowApplication:
             ),
         }
         for key in (
-            "MACRO_POLICY_FEED", "MACRO_ECONOMIC_DATA", "ASSET_ROTATION_SNAPSHOT", "GLOBAL_MACRO_SNAPSHOT", "CROSS_MARKET_LEAD_SNAPSHOT", "BROKER_RESEARCH_CONSENSUS", "A1_RESEARCH_SOURCE_CONTEXT", "A2_RESEARCH_HYPOTHESES", "INDUSTRY_NEWS_FEED", "INDUSTRY_ACTIVITY_DATA", "INDUSTRY_PROFIT_DATA", "THS_INDUSTRY_MEMBERSHIP", "THS_CONCEPT_MEMBERSHIP", "EXISTING_CHAIN_GRAPH",
+            "MACRO_POLICY_FEED", "MACRO_ECONOMIC_DATA", "ASSET_ROTATION_SNAPSHOT", "GLOBAL_MACRO_SNAPSHOT", "CROSS_MARKET_LEAD_SNAPSHOT", "BROKER_RESEARCH_CONSENSUS", "BROKER_GOLD_COVERAGE_POOL", "A1_RESEARCH_SOURCE_CONTEXT", "A2_RESEARCH_HYPOTHESES", "REVIEWED_PUBLIC_RESEARCH_LEADS", "INDUSTRY_NEWS_FEED", "INDUSTRY_ACTIVITY_DATA", "INDUSTRY_PROFIT_DATA", "THS_INDUSTRY_MEMBERSHIP", "THS_CONCEPT_MEMBERSHIP", "EXISTING_CHAIN_GRAPH",
             "THEME_REGISTRY", "DISCLOSURE_EVENTS", "RISK_EVENTS", "RESEARCH_CONSENSUS", "FUND_HOLDINGS",
             "FAST_TRACK_REQUESTS", "PRIOR_OUTCOME_FEEDBACK", "SECTOR_CYCLE_SNAPSHOT", "CAPITAL_FLOW_SNAPSHOT",
             "NEWS_HEAT_SNAPSHOT", "CROWDING_SNAPSHOT", "A2_SECTOR_HEALTH_SNAPSHOT", "BOARD_CAPITAL_FLOW_SNAPSHOT", "AUCTION_SNAPSHOT", "SECTOR_PERMISSIONS",
@@ -4541,6 +4563,9 @@ def _prompt_parameters(config: Mapping[str, Any]) -> dict[str, Any]:
             "quota_forbidden": True,
         },
         "A2_POOL_TARGETS": _pool_targets(a2.get("candidate_pool_target"), default=(100, 200)),
+        "A2_ROTATION_THEME_COUNT": a2.get("rotation_theme_count", 3),
+        "A2_FOCUS_PER_THEME": _pool_targets(a2.get("focus_per_rotation_theme"), default=(5, 12)),
+        "A2_WATCH_PER_THEME": _pool_targets(a2.get("watch_per_rotation_theme"), default=(5, 15)),
         "A3_POOL_TARGETS": {
             "core_watch": _pool_targets(a3.get("core_watch_target"), default=(5, 10)),
             "shadow_watch": _pool_targets(a3.get("shadow_watch_target"), default=(3, 8)),
@@ -4575,7 +4600,7 @@ def _prompt_parameters(config: Mapping[str, Any]) -> dict[str, Any]:
         "PENALTY_RULES": a2.get("penalty_rules", {}),
         "MIN_REWARD_RISK": a3.get("minimum_reward_risk", 2.0),
         "MAX_STOP_DISTANCE": a3.get("max_stop_distance_pct", 0.06),
-        "A3_STRATEGY_VERSION": a3.get("strategy_version", "a3-a4-three-strategy/1.1.0"),
+        "A3_STRATEGY_VERSION": a3.get("strategy_version", "a3-a4-three-strategy/1.2.0"),
         "A3_ALLOWED_STRATEGIES": a3.get(
             "allowed_strategy_profiles",
             ["LEADER_INTRADAY", "MA520_SWING", "TREND_MA5"],

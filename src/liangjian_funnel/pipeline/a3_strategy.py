@@ -24,7 +24,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 
-STRATEGY_VERSION = "a3-a4-three-strategy/1.1.0"
+STRATEGY_VERSION = "a3-a4-three-strategy/1.2.0"
 
 
 class StrategyProfile(StrEnum):
@@ -188,6 +188,22 @@ _LOCKED_TOKENS = {
     "锁板",
     "一字板",
 }
+_TREND_MAIN_RISE_STATES = {
+    "MAIN_RISE",
+    "UPTREND",
+    "BULL_STACK",
+    "STRONG_UPTREND",
+    "TRENDING_UP",
+}
+_TREND_PULLBACK_LABELS = {
+    "MA5_PULLBACK",
+    "PULLBACK_HOLD_MA5",
+    "STRONG_PULLBACK",
+    "TREND_PULLBACK",
+    "回踩MA5",
+    "回踩5日线",
+    "趋势回踩",
+}
 
 
 def evaluate_a3_candidate(
@@ -290,6 +306,13 @@ def evaluate_a3_candidate(
         kline=kline,
         context=context,
     )
+    ma520_right_side = _ma520_right_side_paths(
+        daily_ma=daily_ma,
+        daily_close=daily_close,
+        daily=daily,
+        setup=setup,
+        context=context,
+    )
     price_discovery = _is_price_discovery(raw_candidate, merged_a2, kline, labels)
     distribution = _has_distribution(raw_candidate, merged_a2, kline, labels)
     overextended = _is_overextended(raw_candidate, merged_a2, daily, daily_ma, daily_close, context)
@@ -323,13 +346,41 @@ def evaluate_a3_candidate(
         setup=setup,
         merged_a2=merged_a2,
     )
-    trend_structure_confirmed = (
-        _ordered_above(daily_ma.get("ma5"), daily_ma.get("ma10"), daily_ma.get("ma20"))
-        and _above(daily_close, daily_ma.get("ma60"))
-    ) or price_discovery
+    trend_paths = _trend_path_signals(
+        merged_a2,
+        daily_ma=daily_ma,
+        daily_close=daily_close,
+        daily=daily,
+        price_discovery=price_discovery,
+        labels=labels,
+        kline=kline,
+        daily_state=daily_state,
+    )
+    ma520_setup_present = any(
+        bool(setup.get(key, False))
+        for key in ("dead_cross", "golden_cross", "pullback_hold", "reclaim")
+    )
+    # A clear main-rise/platform/price-discovery path belongs to TREND_MA5.
+    # A MA5 retest that is also carrying a fresh MA520 setup remains MA520 so
+    # a repair/crossover candidate is not silently relabeled as a mature
+    # trend merely because its close touched MA5.  A standalone MA5 retest
+    # still routes to TREND_MA5.
+    trend_structure_confirmed = any(
+        trend_paths.get(key, False)
+        for key in ("daily_main_rise", "platform_breakout", "price_discovery")
+    ) or (trend_paths.get("strong_pullback", False) and not ma520_route)
+    # Keep an explicit MA520 setup in its own route when its right-side
+    # confirmation is absent.  Otherwise a broad daily trend hint could
+    # silently relabel a falling-knife MA20 touch as TREND_MA5 and bypass the
+    # MA520 right-side gate.  A confirmed MA520 setup may still share a mature
+    # trend route when the daily trend path is independently authoritative.
+    ma520_route_preferred = ma520_route and (
+        not trend_structure_confirmed
+        or (ma520_setup_present and not ma520_right_side.get("confirmed", False))
+    )
     if leader_route:
         profile = StrategyProfile.LEADER_INTRADAY
-    elif ma520_route and not trend_structure_confirmed:
+    elif ma520_route_preferred:
         profile = StrategyProfile.MA520_SWING
     elif trend_route:
         profile = StrategyProfile.TREND_MA5
@@ -400,14 +451,17 @@ def evaluate_a3_candidate(
             missing=True,
             reason="DAILY_NOT_CLOSED" if day_status != "CLOSED" else None,
         )
+        tradable = _tradable_state(tradability)
+        if tradable is False:
+            veto("NOT_TRADABLE")
         condition(
             "TRADABLE",
-            _tradable_state(tradability) is True,
-            missing=_tradable_state(tradability) is None,
+            tradable is True,
+            missing=tradable is None,
             reason=(
                 "TRADABILITY_DATA_MISSING"
-                if _tradable_state(tradability) is None
-                else "NOT_TRADABLE" if _tradable_state(tradability) is False else None
+                if tradable is None
+                else "NOT_TRADABLE" if tradable is False else None
             ),
         )
         condition(
@@ -417,8 +471,15 @@ def evaluate_a3_candidate(
             reason="DAILY_CLOSE_MISSING" if daily_close is None else None,
         )
         higher_timeframe_bear = _is_bear_state(monthly_state) or _is_bear_state(weekly_state)
+        # Monthly/weekly frames are background context for A3.  A monthly
+        # decline is never enough to veto a valid daily setup; it is carried
+        # as a PROBE risk and A4 must demand fresh intraday confirmation.  A
+        # hard higher-cycle veto requires the formally closed *weekly* frame
+        # and an independently weak daily frame.  This prevents an incomplete
+        # or stale higher-timeframe stack from collapsing the whole funnel.
         higher_timeframe_hard_bear = (
-            _is_hard_bear_state(monthly_state) or _is_hard_bear_state(weekly_state)
+            week_status == "CLOSED"
+            and _is_hard_bear_state(weekly_state)
         )
         daily_bear_for_cycle = _is_bear_state(daily_state)
         if higher_timeframe_hard_bear and daily_bear_for_cycle:
@@ -493,6 +554,7 @@ def evaluate_a3_candidate(
                 kline=kline,
                 setup=setup,
                 price=price,
+                trend_paths=trend_paths,
             )
         else:
             _evaluate_520(
@@ -504,6 +566,7 @@ def evaluate_a3_candidate(
                 context=context,
                 daily_event=daily_event,
                 setup=setup,
+                right_side=ma520_right_side,
                 distribution=distribution,
                 labels=labels,
             )
@@ -529,8 +592,21 @@ def evaluate_a3_candidate(
         # opportunity.
         if distribution:
             veto("HIGH_VOLUME_DISTRIBUTION")
-        if profile is StrategyProfile.TREND_MA5 and overextended:
-            veto("TREND_OVEREXTENDED")
+        # A high-acceleration/overextended close is never an A4 plan merely
+        # because the route is labelled LEADER or MA520.  It must show a
+        # concrete daily MA5 retest that held (A4 still confirms the intraday
+        # leg).  This keeps trend/new-high strength from turning into a
+        # top-of-the-mountain entry while preserving a valid repair path.
+        if (
+            profile is not StrategyProfile.NO_NEXT_DAY_PLAN
+            and overextended
+            and not trend_paths.get("strong_pullback_geometry", False)
+        ):
+            veto("OVEREXTENDED_WITHOUT_RETEST")
+            if profile is StrategyProfile.TREND_MA5:
+                # Keep the historical, route-specific reason for existing
+                # audit consumers while exposing the shared hard boundary.
+                veto("TREND_OVEREXTENDED")
         if profile is StrategyProfile.MA520_SWING and setup["dead_cross"]:
             veto("MA520_DEAD_CROSS")
         if profile is not StrategyProfile.LEADER_INTRADAY:
@@ -591,6 +667,8 @@ def evaluate_a3_candidate(
         locked=locked,
         price=price,
         setup=setup,
+        ma520_right_side=ma520_right_side,
+        trend_paths=trend_paths,
         labels=labels,
         condition_details=condition_details,
     )
@@ -804,48 +882,52 @@ def _evaluate_trend(
     kline: Mapping[str, Any],
     setup: Mapping[str, Any],
     price: Mapping[str, Any],
+    trend_paths: Mapping[str, bool],
 ) -> None:
     ma5 = daily_ma.get("ma5")
-    ma10 = daily_ma.get("ma10")
-    ma20 = daily_ma.get("ma20")
-    ma60 = daily_ma.get("ma60")
-    stack = _ordered_above(ma5, ma10, ma20)
-    above60 = _above(daily_close, ma60)
-    slopes = _ma_slopes(daily, context)
-    slope_ok = _slope_not_down(slopes, ("ma5", "ma10"))
-    slope_missing = any(_number(slopes.get(key)) is None for key in ("ma5", "ma10"))
-    rs_ok = _relative_strength_is_strong(relative_strength)
-    rs_missing = not bool(relative_strength)
-    platform = _platform_evidence(merged_a2, daily, kline, labels, price_discovery)
-    condition("DAILY_CLOSE_ABOVE_MA60", above60, missing=ma60 is None or daily_close is None, reason="CLOSE_NOT_ABOVE_MA60" if not above60 else None)
-    condition("DAILY_MA5_ABOVE_MA10_ABOVE_MA20", stack, missing=any(value is None for value in (ma5, ma10, ma20)), reason="DAILY_MA_STACK_NOT_BULL" if not stack else None)
-    condition("DAILY_MA_SLOPE_NOT_DOWN", slope_ok, missing=slope_missing, reason="DAILY_MA_SLOPE_MISSING" if slope_missing else "DAILY_MA_SLOPE_DOWN" if not slope_ok else None)
-    condition("RELATIVE_STRENGTH_CONFIRMED", rs_ok, missing=rs_missing, reason="RELATIVE_STRENGTH_MISSING" if rs_missing else "RELATIVE_STRENGTH_WEAK" if not rs_ok else None)
-    condition(
-        "PLATFORM_OR_MAIN_RISE_CONFIRMED",
-        platform,
-        reason="MAIN_RISE_EVIDENCE_MISSING" if not platform else None,
-        watch=not platform,
+    # The trend route is a choice among independent daily setups.  MA60,
+    # complete MA5/10/20 stacking, relative strength and A2/platform evidence
+    # remain useful observations, but requiring all of them here made a valid
+    # daily main-rise or pullback disappear from the funnel.  A4 owns the
+    # intraday confirmation, so A3 only needs one explicit daily path plus the
+    # common data/risk gates surrounding this function.
+    path_confirmed = any(
+        trend_paths.get(key, False)
+        for key in ("daily_main_rise", "platform_breakout", "strong_pullback", "price_discovery")
     )
-    extension_known = _extension_known(merged_a2, daily, context, daily_close, daily_ma)
-    condition("EXTENSION_DATA_OBSERVED", extension_known, missing=not extension_known, reason="EXTENSION_DATA_MISSING" if not extension_known else None)
-    condition("NOT_OVEREXTENDED", not overextended, reason="TREND_OVEREXTENDED" if overextended else None)
+    condition(
+        "TREND_DAILY_PATH_CONFIRMED",
+        path_confirmed,
+        missing=ma5 is None or daily_close is None,
+        reason="TREND_DAILY_PATH_MISSING" if not path_confirmed else None,
+    )
+    condition(
+        "DAILY_MA5_AVAILABLE_FOR_A4",
+        ma5 is not None,
+        missing=True,
+        reason="DAILY_MA5_MISSING" if ma5 is None else None,
+    )
+
+    # Keep the established hard risk boundary.  An overextended close can be
+    # published only when the same daily bar proves a reasonable MA5 retest;
+    # otherwise a strong trend/innovation-high flag must not put a plan on the
+    # top of the mountain.  The global evaluator adds TREND_OVEREXTENDED as a
+    # veto when this retest geometry is absent.
+    retest_geometry = bool(trend_paths.get("strong_pullback_geometry", False))
+    condition(
+        "NOT_OVEREXTENDED_OR_RETEST_CONFIRMED",
+        not overextended or retest_geometry,
+        reason="TREND_OVEREXTENDED" if overextended and not retest_geometry else None,
+    )
     condition("NOT_DISTRIBUTION", not distribution, reason="HIGH_VOLUME_DISTRIBUTION" if distribution else None)
     if price_discovery:
         condition("PRICE_DISCOVERY_TREND", True)
         # This is the explicit exception: absence of first resistance is not
         # a data gap when the daily close is making price discovery.
         condition("RESISTANCE_NOT_REQUIRED_FOR_NEW_HIGH", True)
-    else:
-        first_resistance = _number(_first(kline, "first_resistance"))
-        if first_resistance is None:
-            first_resistance = _number(price.get("first_resistance"))
-        condition(
-            "FIRST_RESISTANCE_AVAILABLE",
-            first_resistance is not None or _first(kline, "resistance_not_required") is True,
-            missing=first_resistance is None,
-            reason="FIRST_RESISTANCE_MISSING" if first_resistance is None and _first(kline, "resistance_not_required") is not True else None,
-        )
+    # A3 already has a bounded trigger zone, invalidation and no-chase line
+    # from PRICE_GEOMETRY_VALID.  A missing historical resistance is therefore
+    # an observation, not a second data gate.
     # These observations are deliberately explanatory, not an extra score or
     # a hidden weighted gate.  A4 performs the actual pullback confirmation.
     condition("A4_WILL_CONFIRM_DAILY_MA5_PULLBACK", True)
@@ -861,26 +943,35 @@ def _evaluate_520(
     context: Mapping[str, Any],
     daily_event: str,
     setup: Mapping[str, Any],
+    right_side: Mapping[str, bool],
     distribution: bool,
     labels: set[str],
 ) -> None:
     ma5 = daily_ma.get("ma5")
     ma20 = daily_ma.get("ma20")
-    slopes = _ma_slopes(daily, context)
-    ma20_slope = _number(slopes.get("ma20"))
-    slope_ok = ma20_slope is not None and ma20_slope >= 0
     if setup["dead_cross"]:
         veto("MA520_DEAD_CROSS")
     condition("DAILY_MA5_MA20_AVAILABLE", ma5 is not None and ma20 is not None, missing=True, reason="MA520_VALUES_MISSING" if ma5 is None or ma20 is None else None)
-    condition("DAILY_MA5_NOT_BELOW_MA20", _above_or_equal(ma5, ma20), reason="MA5_BELOW_MA20" if not _above_or_equal(ma5, ma20) else None)
-    condition("DAILY_MA20_SLOPE_NOT_DOWN", slope_ok, missing=ma20_slope is None, reason="MA20_SLOPE_MISSING" if ma20_slope is None else "MA20_SLOPE_DOWN" if not slope_ok else None)
-    condition("DAILY_CLOSE_ABOVE_MA20", _above(daily_close, ma20), missing=daily_close is None or ma20 is None, reason="CLOSE_NOT_ABOVE_MA20" if not _above(daily_close, ma20) else None)
     setup_confirmed = setup["golden_cross"] or setup["pullback_hold"] or setup["reclaim"]
     # A known dead cross is a real veto, not a missing-data condition.  Only
     # call an absent setup a data gap when the underlying MA/event evidence is
     # itself unavailable.
     setup_missing = not setup_confirmed and not daily_event and (ma5 is None or ma20 is None)
     condition("MA520_SETUP_CONFIRMED", setup_confirmed, missing=setup_missing, reason="MA520_SETUP_NOT_CONFIRMED" if not setup_confirmed else None)
+    right_side_missing = bool(right_side.get("data_missing", False))
+    condition(
+        "MA520_RIGHT_SIDE_CONFIRMED",
+        bool(right_side.get("confirmed", False)),
+        missing=right_side_missing,
+        reason=(
+            "MA520_RIGHT_SIDE_DATA_MISSING"
+            if right_side_missing
+            else "MA520_RIGHT_SIDE_NOT_CONFIRMED"
+            if not right_side.get("confirmed", False)
+            else None
+        ),
+        watch=not right_side_missing,
+    )
     condition("NOT_HIGH_VOLUME_DISTRIBUTION", not distribution, reason="HIGH_VOLUME_DISTRIBUTION" if distribution else None)
     if setup["reclaim"] and not setup["golden_cross"] and not setup["pullback_hold"]:
         condition("RECLAIM_IS_PROBE_ONLY", True)
@@ -934,6 +1025,75 @@ def _technical_setup(
     }
 
 
+def _ma520_right_side_paths(
+    *,
+    daily_ma: Mapping[str, float | None],
+    daily_close: float | None,
+    daily: Mapping[str, Any],
+    setup: Mapping[str, bool],
+    context: Mapping[str, Any],
+) -> dict[str, bool]:
+    """Return deterministic right-side paths allowed for MA520.
+
+    A MA20 touch or named reclaim is only a setup observation.  It becomes
+    executable after the daily close and MA5 slope show a recovery.  A fresh
+    MA5/MA20 golden cross is the one reversal path that does not need a slope
+    value, provided price is above both averages.
+    """
+
+    ma5 = daily_ma.get("ma5")
+    ma20 = daily_ma.get("ma20")
+    slopes = _ma_slopes(daily, context)
+    ma5_slope = _number(slopes.get("ma5"))
+    close_above_ma5 = _above(daily_close, ma5)
+    close_above_ma20 = _above(daily_close, ma20)
+    ma5_at_or_above_ma20 = _above_or_equal(ma5, ma20)
+    setup_golden = bool(setup.get("golden_cross", False))
+    setup_pullback = bool(setup.get("pullback_hold", False))
+    setup_reclaim = bool(setup.get("reclaim", False))
+
+    second_wave_restart = (
+        setup_pullback
+        and ma5_at_or_above_ma20
+        and close_above_ma5
+        and ma5_slope is not None
+        and ma5_slope >= 0
+    )
+    golden_cross_reversal = (
+        setup_golden
+        and _above(ma5, ma20)
+        and close_above_ma5
+        and close_above_ma20
+    )
+    reclaim_reversal = (
+        setup_reclaim
+        and close_above_ma5
+        and close_above_ma20
+        and ma5_slope is not None
+        and ma5_slope > 0
+    )
+    trend_reversal_confirmed = golden_cross_reversal or reclaim_reversal
+    confirmed = second_wave_restart or trend_reversal_confirmed
+    setup_present = setup_golden or setup_pullback or setup_reclaim
+    # Slope is not needed for the golden-cross path.  For pullback/reclaim
+    # paths its absence prevents a false right-side confirmation and is a
+    # data gap rather than an executable negative signal.
+    data_missing = (
+        ma5 is None
+        or ma20 is None
+        or daily_close is None
+        or (setup_present and not setup_golden and ma5_slope is None)
+    )
+    return {
+        "second_wave_restart": bool(second_wave_restart),
+        "golden_cross_reversal": bool(golden_cross_reversal),
+        "reclaim_reversal": bool(reclaim_reversal),
+        "trend_reversal_confirmed": bool(trend_reversal_confirmed),
+        "confirmed": bool(confirmed),
+        "data_missing": bool(data_missing),
+    }
+
+
 def _trend_route_signal(
     candidate: Mapping[str, Any],
     *,
@@ -947,10 +1107,91 @@ def _trend_route_signal(
     role = _normalize_role(candidate)
     explicit = _truthy(_first(candidate, "trend_core", "trend_candidate", "trend_ma5", "main_rise"))
     role_signal = role in {"TREND_CORE", "TREND_LEADER", "INSTITUTIONAL_CORE", "CORE_ARMY"}
-    stack = _ordered_above(daily_ma.get("ma5"), daily_ma.get("ma10"), daily_ma.get("ma20"))
-    above60 = _above(daily_close, daily_ma.get("ma60"))
-    label_signal = bool(labels & {"PLATFORM_BREAKOUT", "BREAKOUT", "MAIN_RISE", "UPTREND", "主升", "平台突破"})
-    return explicit or role_signal or (stack and above60) or price_discovery or label_signal
+    paths = _trend_path_signals(
+        candidate,
+        daily_ma=daily_ma,
+        daily_close=daily_close,
+        daily=daily,
+        price_discovery=price_discovery,
+        labels=labels,
+        kline=kline,
+        daily_state=_text(_first(daily, "state", "trend_state", "technical_state", "ma_alignment")),
+    )
+    return explicit or role_signal or any(paths.values())
+
+
+def _trend_path_signals(
+    candidate: Mapping[str, Any],
+    *,
+    daily_ma: Mapping[str, float | None],
+    daily_close: float | None,
+    daily: Mapping[str, Any],
+    price_discovery: bool,
+    labels: set[str],
+    kline: Mapping[str, Any],
+    daily_state: str,
+) -> dict[str, bool]:
+    """Return independent daily paths that can route the trend playbook.
+
+    A3 needs one defensible daily setup, not a simultaneous MA60/MA-stack/RS
+    checklist.  The path flags intentionally contain no weights or aggregate
+    score.  ``strong_pullback_geometry`` is kept separate because it is the
+    only condition that can make an explicitly overextended close publishable.
+    """
+
+    ma5 = daily_ma.get("ma5")
+    ma10 = daily_ma.get("ma10")
+    daily_low = _frame_low(daily)
+    slopes = _ma_slopes(daily, {})
+    ma5_slope = _number(slopes.get("ma5"))
+    state = _normalize_state(daily_state)
+    explicit_main_rise = _truthy(
+        _first(
+            candidate,
+            "main_rise",
+            "trend_confirmed",
+            "maintrend_confirmed",
+            "trend_ma5",
+        )
+    )
+    # A state label is only a route hint.  The authoritative daily price
+    # still has to hold above MA5; otherwise a stacked set of moving averages
+    # with a falling close would be mistaken for a main-rise setup.
+    price_holds_ma5 = _above_or_equal(daily_close, ma5)
+    main_rise = price_holds_ma5 and (
+        explicit_main_rise
+        or state in _TREND_MAIN_RISE_STATES
+        or (
+            (ma10 is None or _above_or_equal(ma5, ma10))
+            and (ma5_slope is None or ma5_slope >= 0)
+        )
+    )
+
+    platform_breakout = _platform_evidence(candidate, daily, kline, labels, price_discovery)
+
+    # A strong daily MA5 pullback requires actual price geometry.  Merely
+    # carrying an A2 label is enough to identify the route only when a valid
+    # MA5 test is observable; this keeps labels explanatory rather than a
+    # substitute for a price series.
+    ma5_tested_and_held = (
+        ma5 is not None
+        and daily_close is not None
+        and daily_low is not None
+        and daily_low <= ma5 <= daily_close
+        and daily_close <= ma5 * 1.05
+        and (ma5_slope is None or ma5_slope >= 0)
+    )
+    explicit_pullback = bool(labels & {_normalize_token(value) for value in _TREND_PULLBACK_LABELS})
+    strong_pullback_geometry = ma5_tested_and_held
+    strong_pullback = ma5_tested_and_held or explicit_pullback
+
+    return {
+        "daily_main_rise": bool(main_rise),
+        "platform_breakout": bool(platform_breakout),
+        "strong_pullback": bool(strong_pullback),
+        "strong_pullback_geometry": bool(strong_pullback_geometry),
+        "price_discovery": bool(price_discovery),
+    }
 
 
 def _ma520_route_signal(
@@ -1000,6 +1241,8 @@ def _strategy_facts(
     locked: bool,
     price: Mapping[str, Any],
     setup: Mapping[str, bool],
+    ma520_right_side: Mapping[str, bool],
+    trend_paths: Mapping[str, bool],
     labels: set[str],
     condition_details: Mapping[str, Any],
 ) -> dict[str, Any]:
@@ -1026,6 +1269,8 @@ def _strategy_facts(
         "price_source": price.get("source"),
         "price_contract_available": price.get("available"),
         "ma520_setup": dict(setup),
+        "ma520_right_side": dict(ma520_right_side),
+        "trend_paths": dict(trend_paths),
         "kline_labels": sorted(labels),
         "condition_details": dict(condition_details),
         "decision_style": "EXPLICIT_CONDITIONS_NO_COMPOSITE_SCORE",
@@ -1417,11 +1662,6 @@ def _platform_evidence(candidate: Mapping[str, Any], daily: Mapping[str, Any], k
         return True
     if _truthy(_first(candidate, "platform_breakout", "main_rise", "maintrend_confirmed", "trend_confirmed")):
         return True
-    # A2's explicit trend-core role is already a cross-sectional confirmation
-    # that the stock is not an arbitrary MA stack.  It is not a numeric score
-    # and does not replace the A3 daily MA/price gates below.
-    if _normalize_role(candidate) in {"TREND_CORE", "TREND_LEADER", "INSTITUTIONAL_CORE"}:
-        return True
     if labels & {"PLATFORM_BREAKOUT", "BREAKOUT", "MAIN_RISE", "UPTREND", "主升", "平台突破"}:
         return True
     breakout = _mapping(_first(kline, "breakout_20"))
@@ -1455,7 +1695,10 @@ def _ma_slopes(daily: Mapping[str, Any], context: Mapping[str, Any]) -> dict[str
         raw = _mapping(_first(context, "ma_slopes", "moving_average_slopes", "slopes"))
     result: dict[str, float | None] = {}
     for period in (5, 10, 20, 60):
-        value = _number(_first(raw, f"ma{period}", f"MA{period}", str(period)) or _first(daily, f"ma{period}_slope", f"slope_ma{period}"))
+        raw_value = _first(raw, f"ma{period}", f"MA{period}", str(period))
+        if raw_value is None:
+            raw_value = _first(daily, f"ma{period}_slope", f"slope_ma{period}")
+        value = _number(raw_value)
         if value is not None:
             result[f"ma{period}"] = value
     return result

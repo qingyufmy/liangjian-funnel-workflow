@@ -75,7 +75,7 @@ def test_each_strategy_has_a_single_qualified_route() -> None:
     )
     ma520 = _common(
         {"symbol": "600003.SH", "name": "520", "market_role": "FOLLOWER"},
-        factor=_factor(ma5=10.2, ma10=10.3, ma20=10.0, ma60=9.5, close=10.15, low=9.95, ma_event="PULLBACK_HOLD_MA20"),
+        factor=_factor(ma5=10.2, ma10=10.3, ma20=10.0, ma60=9.5, close=10.25, low=9.95, ma_event="PULLBACK_HOLD_MA20"),
         kline={"labels": []},
     )
 
@@ -85,6 +85,13 @@ def test_each_strategy_has_a_single_qualified_route() -> None:
     assert all(item.eligibility is Eligibility.QUALIFIED for item in (leader, trend, ma520))
     assert leader.strategy_profile != trend.strategy_profile != ma520.strategy_profile
     assert not any(key in trend.model_dump() for key in ("score", "weight", "composite_score"))
+    assert ma520.strategy_facts["ma520_right_side"]["second_wave_restart"] is True
+    for decision in (leader, trend, ma520):
+        assert decision.strategy_profile is not StrategyProfile.NO_NEXT_DAY_PLAN
+        assert decision.entry_reference_zone is not None
+        assert decision.no_chase_price is not None
+        assert decision.daily_invalidation is not None
+        assert decision.a4_required_entry_rules
 
 
 def test_leader_has_priority_over_trend_and_520() -> None:
@@ -139,6 +146,242 @@ def test_formal_closed_period_remains_valid_while_current_period_is_observation_
     assert result.monthly_state == "BULL"
     assert result.monthly_partial_observation["observation_only"] is True
     assert result.weekly_partial_observation["observation_only"] is True
+
+
+def test_trend_main_rise_does_not_require_ma60_stack_or_relative_strength() -> None:
+    factor = _factor(
+        close=10.5,
+        ma5=10.1,
+        ma10=9.9,
+        ma20=10.3,
+        ma60=11.5,
+        low=10.4,
+        slopes={"ma5": 0.03, "ma10": -0.01, "ma20": -0.02},
+    )
+    factor["timeframes"]["monthly"]["state"] = "BEAR_STACK"
+    factor["timeframes"]["weekly"]["state"] = "ENTANGLED"
+    result = _common(
+        {"symbol": "600022.SH", "market_role": "TREND_CORE"},
+        factor=factor,
+        kline={"labels": []},
+    )
+
+    assert result.strategy_profile is StrategyProfile.TREND_MA5
+    assert result.eligibility is Eligibility.QUALIFIED
+    assert result.plan_mode == "PROBE"
+    assert result.strategy_facts["trend_paths"]["daily_main_rise"] is True
+    assert "CLOSE_NOT_ABOVE_MA60" not in result.reason_codes
+    assert "DAILY_MA_STACK_NOT_BULL" not in result.reason_codes
+    assert "RELATIVE_STRENGTH_MISSING" not in result.reason_codes
+    assert result.entry_reference_zone is not None
+    assert result.no_chase_price is not None
+    assert result.daily_invalidation is not None
+    assert result.a4_required_entry_rules
+
+
+def test_trend_platform_breakout_can_qualify_without_full_bull_stack() -> None:
+    factor = _factor(
+        close=10.3,
+        ma5=10.0,
+        ma10=10.5,
+        ma20=10.4,
+        ma60=12.0,
+        low=10.25,
+        slopes={"ma5": 0.02, "ma10": -0.01, "ma20": -0.02},
+    )
+    result = _common(
+        {"symbol": "600023.SH", "market_role": "FOLLOWER"},
+        factor=factor,
+        kline={"labels": ["PLATFORM_BREAKOUT"]},
+    )
+
+    assert result.strategy_profile is StrategyProfile.TREND_MA5
+    assert result.eligibility is Eligibility.QUALIFIED
+    assert result.strategy_facts["trend_paths"]["platform_breakout"] is True
+
+
+def test_trend_strong_ma5_pullback_is_a_single_daily_path() -> None:
+    factor = _factor(
+        close=10.1,
+        ma5=10.0,
+        ma10=10.5,
+        ma20=10.4,
+        ma60=12.0,
+        low=9.95,
+        slopes={"ma5": 0.02, "ma10": 0.0, "ma20": -0.02},
+    )
+    result = _common(
+        {"symbol": "600024.SH", "market_role": "FOLLOWER", "trend_candidate": True},
+        factor=factor,
+        kline={"labels": []},
+    )
+
+    assert result.strategy_profile is StrategyProfile.TREND_MA5
+    assert result.eligibility is Eligibility.QUALIFIED
+    assert result.strategy_facts["trend_paths"]["strong_pullback"] is True
+    assert result.strategy_facts["trend_paths"]["strong_pullback_geometry"] is True
+
+
+def test_bull_stack_label_below_ma5_does_not_create_main_rise_plan() -> None:
+    factor = _factor(
+        close=9.5,
+        ma5=10.0,
+        ma10=9.2,
+        ma20=8.8,
+        ma60=8.0,
+        low=9.2,
+        daily_state="BULL_STACK",
+    )
+    result = _common(
+        {"symbol": "600030.SH", "market_role": "TREND_CORE"},
+        factor=factor,
+        kline={"labels": []},
+    )
+
+    assert result.strategy_profile is StrategyProfile.TREND_MA5
+    assert result.eligibility is Eligibility.WATCH
+    assert result.strategy_facts["trend_paths"]["daily_main_rise"] is False
+    assert "TREND_DAILY_PATH_CONFIRMED" in result.unmet_conditions
+
+
+def test_ma520_accepts_golden_cross_without_ma20_slope_gate() -> None:
+    factor = _factor(
+        close=9.9,
+        ma5=9.8,
+        ma10=10.0,
+        ma20=9.6,
+        ma60=9.0,
+        low=9.85,
+        ma_event="GOLDEN_CROSS_SHORT",
+        slopes={"ma5": 0.02, "ma10": -0.01, "ma20": -0.05},
+    )
+    result = _common(
+        {"symbol": "600025.SH", "market_role": "FOLLOWER"},
+        factor=factor,
+        kline={"labels": []},
+    )
+
+    assert result.strategy_profile is StrategyProfile.MA520_SWING
+    assert result.eligibility is Eligibility.QUALIFIED
+    assert result.strategy_facts["ma520_setup"]["golden_cross"] is True
+    assert result.strategy_facts["ma520_right_side"]["golden_cross_reversal"] is True
+    assert result.strategy_facts["ma520_right_side"]["trend_reversal_confirmed"] is True
+
+
+def test_ma520_accepts_ma20_reclaim_as_probe_even_when_ma5_lags() -> None:
+    factor = _factor(
+        close=10.1,
+        ma5=9.8,
+        ma10=10.0,
+        ma20=10.0,
+        ma60=9.0,
+        low=9.9,
+        ma_event="RECLAIM_MA20",
+        slopes={"ma5": 0.01, "ma10": -0.01, "ma20": -0.05},
+    )
+    factor["timeframes"]["daily"]["previous_close"] = 9.8
+    result = _common(
+        {"symbol": "600026.SH", "market_role": "FOLLOWER"},
+        factor=factor,
+        kline={"labels": []},
+    )
+
+    assert result.strategy_profile is StrategyProfile.MA520_SWING
+    assert result.eligibility is Eligibility.QUALIFIED
+    assert result.plan_mode == "PROBE"
+    assert result.strategy_facts["ma520_setup"]["reclaim"] is True
+    assert result.strategy_facts["ma520_right_side"]["reclaim_reversal"] is True
+    assert result.strategy_facts["ma520_right_side"]["trend_reversal_confirmed"] is True
+
+
+def test_ma520_second_wave_requires_close_above_ma5_and_nonnegative_slope() -> None:
+    result = _common(
+        {"symbol": "600031.SH", "market_role": "FOLLOWER"},
+        factor=_factor(
+            close=10.25,
+            ma5=10.2,
+            ma10=10.3,
+            ma20=10.0,
+            ma60=9.5,
+            low=9.95,
+            ma_event="PULLBACK_HOLD_MA20",
+            slopes={"ma5": 0.0, "ma10": -0.01, "ma20": -0.02},
+        ),
+        kline={"labels": []},
+    )
+
+    assert result.strategy_profile is StrategyProfile.MA520_SWING
+    assert result.eligibility is Eligibility.QUALIFIED
+    assert result.strategy_facts["ma520_right_side"]["second_wave_restart"] is True
+
+
+def test_ma520_falling_knife_stays_watch_only() -> None:
+    result = _common(
+        {"symbol": "600032.SH", "market_role": "FOLLOWER"},
+        factor=_factor(
+            close=10.1,
+            ma5=10.2,
+            ma10=10.3,
+            ma20=10.0,
+            ma60=9.5,
+            low=9.95,
+            ma_event="PULLBACK_HOLD_MA20",
+            slopes={"ma5": -0.05, "ma10": -0.01, "ma20": -0.02},
+        ),
+        kline={"labels": []},
+    )
+
+    assert result.strategy_profile is StrategyProfile.MA520_SWING
+    assert result.eligibility is Eligibility.WATCH
+    assert result.plan_mode is None
+    assert result.strategy_facts["ma520_right_side"]["confirmed"] is False
+    assert "MA520_RIGHT_SIDE_NOT_CONFIRMED" in result.reason_codes
+
+
+def test_ma520_bare_reclaim_with_falling_ma5_stays_watch_only() -> None:
+    factor = _factor(
+        close=10.1,
+        ma5=10.2,
+        ma10=10.3,
+        ma20=10.0,
+        ma60=9.5,
+        low=10.05,
+        ma_event="RECLAIM_MA20",
+        slopes={"ma5": -0.01, "ma10": -0.01, "ma20": -0.02},
+    )
+    factor["timeframes"]["daily"]["previous_close"] = 9.8
+    result = _common(
+        {"symbol": "600033.SH", "market_role": "FOLLOWER"},
+        factor=factor,
+        kline={"labels": []},
+    )
+
+    assert result.strategy_profile is StrategyProfile.MA520_SWING
+    assert result.eligibility is Eligibility.WATCH
+    assert result.strategy_facts["ma520_right_side"]["confirmed"] is False
+    assert "MA520_RIGHT_SIDE_NOT_CONFIRMED" in result.reason_codes
+
+
+def test_ma520_bare_ma20_touch_is_not_relabelled_as_trend() -> None:
+    result = _common(
+        {"symbol": "600034.SH", "market_role": "FOLLOWER"},
+        factor=_factor(
+            close=10.1,
+            ma5=9.8,
+            ma10=9.4,
+            ma20=10.0,
+            ma60=9.0,
+            low=9.9,
+            ma_event="PULLBACK_HOLD_MA20",
+            slopes={"ma5": 0.01, "ma10": 0.01, "ma20": -0.01},
+        ),
+        kline={"labels": []},
+    )
+
+    assert result.strategy_profile is StrategyProfile.MA520_SWING
+    assert result.eligibility is Eligibility.WATCH
+    assert result.strategy_facts["ma520_right_side"]["second_wave_restart"] is False
+    assert "MA520_RIGHT_SIDE_NOT_CONFIRMED" in result.reason_codes
 
 
 def test_closed_period_is_not_a_data_gap_when_long_ma_is_not_ready() -> None:
@@ -219,7 +462,7 @@ def test_520_setup_is_not_shadowed_by_a2_trend_role_without_full_trend_stack() -
     result = _common(
         {"symbol": "600021.SH", "market_role": "TREND_CORE"},
         factor=_factor(
-            close=10.15,
+            close=10.25,
             ma5=10.2,
             ma10=10.3,
             ma20=10.0,
@@ -248,6 +491,21 @@ def test_missing_daily_price_or_tradability_is_data_gap() -> None:
     assert "DAILY_CLOSE_MISSING" in result.reason_codes
     assert "TRADABILITY_DATA_MISSING" in result.reason_codes
     assert result.entry_reference_zone is None
+
+
+def test_non_tradable_candidate_is_hard_rejected() -> None:
+    # Pass the explicit contract to exercise the non-tradable veto without
+    # changing any other evidence.
+    result = evaluate_a3_strategy(
+        {"symbol": "600027.SH", "market_role": "TREND_CORE"},
+        factor=_factor(),
+        price_levels=_prices(),
+        tradability={"tradable": False},
+        kline={"labels": []},
+        a2_context={"market_role": "TREND_CORE"},
+    )
+    assert result.eligibility is Eligibility.REJECTED
+    assert "NOT_TRADABLE" in result.veto_conditions
 
 
 def test_leader_first_board_four_plus_and_locked_are_watch_only() -> None:
@@ -299,6 +557,44 @@ def test_trend_overextension_and_520_dead_cross_are_rejected() -> None:
     assert "MA520_DEAD_CROSS" in dead.veto_conditions
 
 
+def test_trend_overextension_with_a_reasonable_ma5_retest_can_be_published() -> None:
+    result = _common(
+        {"symbol": "600028.SH", "market_role": "TREND_CORE", "overextended": True},
+        factor=_factor(close=10.2, ma5=10.0, ma10=9.8, ma20=9.6, ma60=9.0, low=9.95),
+        kline={"labels": []},
+    )
+
+    assert result.strategy_profile is StrategyProfile.TREND_MA5
+    assert result.eligibility is Eligibility.QUALIFIED
+    assert result.strategy_facts["trend_paths"]["strong_pullback_geometry"] is True
+    assert "TREND_OVEREXTENDED" not in result.veto_conditions
+
+
+def test_overextension_without_retest_rejects_leader_route() -> None:
+    result = _common(
+        {
+            "symbol": "600029.SH",
+            "market_role": "EMOTION_LEADER",
+            "theme_stage": "CONFIRMATION",
+            "ladder_height": 2,
+            "ladder_intact": True,
+            "overextended": True,
+        },
+        factor=_factor(close=13.0, ma5=10.0, ma10=9.8, ma20=9.4, ma60=8.7, low=12.5),
+        kline={"labels": []},
+        a2={
+            "market_role": "EMOTION_LEADER",
+            "theme_stage": "CONFIRMATION",
+            "ladder_height": 2,
+            "ladder_intact": True,
+        },
+    )
+
+    assert result.strategy_profile is StrategyProfile.LEADER_INTRADAY
+    assert result.eligibility is Eligibility.REJECTED
+    assert "OVEREXTENDED_WITHOUT_RETEST" in result.veto_conditions
+
+
 def test_invalid_price_geometry_is_data_gap_and_no_strategy_is_explicit() -> None:
     invalid = _common(
         {"symbol": "600013.SH", "market_role": "TREND_CORE"},
@@ -321,7 +617,7 @@ def test_invalid_price_geometry_is_data_gap_and_no_strategy_is_explicit() -> Non
 def test_route_alias_returns_same_explicit_contract() -> None:
     result = route_a3_strategy(
         {"symbol": "600015.SH", "market_role": "FOLLOWER"},
-        _factor(ma5=10.2, ma10=10.3, ma20=10.0, ma60=9.5, close=10.15, low=9.95, ma_event="PULLBACK_HOLD_MA20"),
+        _factor(ma5=10.2, ma10=10.3, ma20=10.0, ma60=9.5, close=10.25, low=9.95, ma_event="PULLBACK_HOLD_MA20"),
         _prices(),
         {"tradable": True},
         {"labels": []},
