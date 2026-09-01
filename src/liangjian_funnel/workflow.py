@@ -370,6 +370,7 @@ class WorkflowApplication:
         as_of: datetime | None = None,
         market_data_as_of: datetime | None = None,
         progress: WorkflowProgress | None = None,
+        candidate_symbols: tuple[str, ...] | None = None,
     ) -> PreparedSnapshot:
         current = _aware(as_of or datetime.now(SHANGHAI))
         market_current = _aware(market_data_as_of or current)
@@ -434,6 +435,19 @@ class WorkflowApplication:
             # securities remain research-only after passing the same quality
             # gate; execution permission is enforced at plan publication.
             research_records = _research_universe_records(universe)
+            if candidate_symbols is not None:
+                requested_symbols = {
+                    str(symbol).strip().upper()
+                    for symbol in candidate_symbols
+                    if str(symbol).strip()
+                }
+                research_records = tuple(
+                    candidate
+                    for candidate in research_records
+                    if candidate.symbol in requested_symbols
+                )
+                if not research_records:
+                    raise WorkflowError("ACTIVE_A1_DAILY_SCOPE_EMPTY")
             # THS taxonomy rows do not carry row-level effective timestamps.
             # Bind their event time to the requested frozen cutoff while
             # retaining the later HTTP fetch_time for provenance. Otherwise a
@@ -1937,6 +1951,7 @@ class WorkflowApplication:
             raise WorkflowError(resource_decision.reason_codes[0])
         _progress_stdout(progress.snapshot())
         active_a1_generation: A1Generation | None = None
+        active_a1_scope_symbols: tuple[str, ...] | None = None
         a1_reuse_degraded = False
         a1_reuse_age_seconds: int | None = None
         if from_active_a1:
@@ -1961,6 +1976,11 @@ class WorkflowApplication:
                     int((current - active_a1_generation.as_of).total_seconds()),
                 )
                 a1_reuse_degraded = current - active_a1_generation.as_of > _A1_DEGRADED_AFTER
+                active_a1_scope_symbols = _active_a1_downstream_scope(
+                    active_a1_generation.payload,
+                )
+                if not active_a1_scope_symbols:
+                    raise A1RegistryError("A1_ACTIVE_DOWNSTREAM_SCOPE_EMPTY")
             except A1RegistryError as exc:
                 progress.finish(status="BLOCKED", phase="FAILED", reason_code=exc.reason_code)
                 _progress_stdout(progress.snapshot())
@@ -1980,6 +2000,7 @@ class WorkflowApplication:
                     as_of=current,
                     market_data_as_of=market_data_as_of,
                     progress=progress,
+                    candidate_symbols=active_a1_scope_symbols,
                 )
                 if not historical_replay and not comparison_run:
                     self._write_research_resume_marker(
@@ -4259,6 +4280,25 @@ def _a1_output_partition_symbols(
         if isinstance(item, Mapping)
         and str(item.get("symbol") or "").strip()
     }
+    return tuple(sorted(symbols))
+
+
+def _active_a1_downstream_scope(payload: Mapping[str, Any] | None) -> tuple[str, ...]:
+    """Return only the sealed A1 pools that are eligible to enter A2.
+
+    Rejected A1 candidates remain a monthly/weekly maintenance concern.  A
+    daily A2→A3 run must not rescan their company announcements or financial
+    statements merely to discard them again.
+    """
+
+    symbols: set[str] = set()
+    for output in _a1_outputs_by_lane(payload).values():
+        symbols.update(
+            _a1_output_partition_symbols(
+                output,
+                ("active_research_pool", "monitor_pool"),
+            )
+        )
     return tuple(sorted(symbols))
 
 

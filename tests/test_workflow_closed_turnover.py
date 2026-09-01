@@ -5,6 +5,7 @@ from liangjian_funnel.pipeline.data_source import HithinkFetchResult, HithinkRow
 from liangjian_funnel.pipeline.local_fact_cache import LocalFactCache
 from liangjian_funnel.pipeline.snapshot import UniverseGatePolicy, UniverseSnapshot
 from liangjian_funnel.workflow import (
+    _active_a1_downstream_scope,
     _latest_closed_market_trade_date,
     _market_snapshot_with_closed_turnover,
 )
@@ -131,3 +132,30 @@ def test_latest_closed_market_trade_date_uses_previous_session_before_close():
         datetime(2026, 8, 30, 10, 0, tzinfo=TZ),
         calendar,
     ).isoformat() == "2026-08-28"
+
+
+def test_active_a1_downstream_scope_excludes_rejected_candidates():
+    payload = {
+        "lanes": {
+            "lane_1": {
+                "output": {
+                    "active_research_pool": [{"symbol": "600519.SH"}],
+                    "monitor_pool": [{"symbol": "000001.SZ"}],
+                    "rejected_candidates": [{"symbol": "000002.SZ"}],
+                }
+            },
+            "lane_2": {
+                "output": {
+                    "active_research_pool": [{"symbol": "600519.SH"}],
+                    "monitor_pool": [{"symbol": "688981.SH"}],
+                    "rejected_candidates": [],
+                }
+            },
+        }
+    }
+
+    assert _active_a1_downstream_scope(payload) == (
+        "000001.SZ",
+        "600519.SH",
+        "688981.SH",
+    )
