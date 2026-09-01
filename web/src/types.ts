@@ -571,6 +571,32 @@ export interface MonitorSimulation {
   barEnd?: string | null;
 }
 
+export type MonitorDispatchStatus =
+  | "RUNNING"
+  | "SUCCEEDED_NO_ACTION"
+  | "EMPTY_SCOPE"
+  | "DATA_BLOCK"
+  | "FAILED"
+  | "EFFECTIVE_SIGNAL"
+  | "UNKNOWN";
+
+export interface MonitorDispatchSummary {
+  status: MonitorDispatchStatus;
+  checkedAt?: string | null;
+  latestRunId?: string | null;
+  latestAttemptAt?: string | null;
+  latestCompletedAt?: string | null;
+  lastSuccessAt?: string | null;
+  lastFailureAt?: string | null;
+  lastReasonCode?: string | null;
+  lastDiagnosticCode?: string | null;
+  affectedPlanCount?: number | null;
+  affectedSymbols?: string[];
+  attemptCount?: number;
+  successCount?: number;
+  failureCount?: number;
+}
+
 export interface A4ReplaySummary {
   schemaVersion?: string | null;
   status?: string | null;
@@ -649,8 +675,15 @@ export interface MonitorSummary {
   checkedAt?: string | null;
   effectiveEventCount?: number;
   activePlanCount?: number;
+  pendingPlanCount?: number;
   events: EffectiveEvent[];
   plans?: MonitorPlan[];
+  activePlans?: MonitorPlan[];
+  pendingPlans?: MonitorPlan[];
+  latestA3Plans?: MonitorPlan[];
+  latestA3RunId?: string | null;
+  latestA3PublishedAt?: string | null;
+  dispatch?: MonitorDispatchSummary | null;
   replay?: A4ReplaySummary | null;
 }
 

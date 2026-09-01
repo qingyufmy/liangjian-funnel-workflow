@@ -57,6 +57,16 @@ export function isMonitorMinute(clock: ShanghaiClock): boolean {
   );
 }
 
+/**
+ * Providers may publish the next minute's forming row a few seconds before
+ * its close.  Wait for a small, deterministic settling window before asking
+ * Python to freeze the minute snapshot.  The dispatch key remains the same
+ * minute, so this is not catch-up or a second business attempt.
+ */
+export function isMonitorDispatchReady(clock: ShanghaiClock): boolean {
+  return clock.second >= 3;
+}
+
 function isFeatureMaintenanceMinute(clock: ShanghaiClock): boolean {
   const [hour, minute] = FEATURE_MAINTENANCE_AT.split(":").map((value) => Number(value));
   return clock.hour === hour && clock.minute === minute;
@@ -139,7 +149,7 @@ export class WorkflowScheduler {
       // calendar and decides whether this date is the monthly full or weekly
       // incremental A1 maintenance boundary; ordinary weekdays are a NOOP.
       if (isA1MaintenanceMinute(clock)) due.push("a1");
-      if (isMonitorMinute(clock)) due.push("monitor");
+      if (isMonitorMinute(clock) && isMonitorDispatchReady(clock)) due.push("monitor");
     }
 
     for (const job of due) {

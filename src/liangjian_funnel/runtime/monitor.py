@@ -82,6 +82,7 @@ class MonitorEngine:
         minute_snapshot_id: str,
         now: datetime | None = None,
         data_ok: bool = True,
+        data_errors: Mapping[str, str] | None = None,
         gap_detected: bool = False,
         snapshot_contiguous: bool = True,
         gap: bool | None = None,
@@ -103,6 +104,11 @@ class MonitorEngine:
         if minute is None:
             raise ValueError("minute timestamp is required when bars are empty")
         bars_by_symbol = self._bar_map(bars)
+        symbol_data_errors = {
+            str(symbol): str(reason)
+            for symbol, reason in (data_errors or {}).items()
+            if str(reason).strip()
+        }
         if gap is not None:
             gap_detected = gap
         plans = self.store.list_active_plans(lane_id, at=minute)
@@ -141,20 +147,13 @@ class MonitorEngine:
             events.append(event)
             return MonitorBatchResult(lane_id=lane_id, minute_snapshot_id=minute_snapshot_id, events=tuple(events))
 
+        # A missing/gapped bar is normally a symbol-level issue and is passed
+        # through ``data_errors`` with ``data_ok=True``.  ``data_ok=False``
+        # or a non-contiguous snapshot is reserved for a system-wide
+        # persistence/integrity failure and blocks every plan in the lane.
+        global_data_reason = None
         if not data_ok or not snapshot_contiguous or gap_detected:
-            self._reset_lane(lane_id)
-            for plan in plans:
-                events.append(
-                    self._emit_effective(
-                        lane_id,
-                        plan,
-                        minute,
-                        minute_snapshot_id,
-                        MonitorAction.DATA_BLOCK.value,
-                        "MINUTE_DATA_GAP" if gap_detected else "MINUTE_DATA_UNAVAILABLE",
-                    )
-                )
-            return MonitorBatchResult(lane_id=lane_id, minute_snapshot_id=minute_snapshot_id, events=tuple(events), blocked=True)
+            global_data_reason = "MINUTE_DATA_GAP" if gap_detected else "MINUTE_DATA_UNAVAILABLE"
 
         model_called = False
         started = time.monotonic()
@@ -163,6 +162,37 @@ class MonitorEngine:
         for plan in plans:
             plan_id = str(plan["plan_id"])
             symbol = str(plan["symbol"])
+            symbol_reason = symbol_data_errors.get(symbol) or symbol_data_errors.get(symbol.split(".")[0])
+            # If a map is present, it is a complete per-symbol readiness
+            # projection.  Only the named plan is blocked; other symbols can
+            # continue through deterministic trigger evaluation.
+            # ``data_ok=False`` / a non-contiguous snapshot is a lane-level
+            # persistence or snapshot-integrity failure and must fail closed
+            # for every plan.  A healthy lane may still carry a per-symbol
+            # ``data_errors`` map; those entries block only their own plan.
+            if global_data_reason or symbol_reason:
+                self._reset_confirmation(lane_id, plan_id)
+                reason = symbol_reason or global_data_reason or "MINUTE_DATA_UNAVAILABLE"
+                trigger_results.append(
+                    {
+                        "plan_id": plan_id,
+                        "symbol": symbol,
+                        "trigger_pass": False,
+                        "eligible": False,
+                        "action_candidate": MonitorAction.DATA_BLOCK.value,
+                    }
+                )
+                events.append(
+                    self._emit_effective(
+                        lane_id,
+                        plan,
+                        minute,
+                        minute_snapshot_id,
+                        MonitorAction.DATA_BLOCK.value,
+                        reason,
+                    )
+                )
+                continue
             bar = bars_by_symbol.get(symbol) or bars_by_symbol.get(symbol.split(".")[0])
             if bar is None:
                 self._reset_confirmation(lane_id, plan_id)

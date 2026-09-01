@@ -95,4 +95,27 @@ describe("collectWorkbenchIssues", () => {
     const [issue] = collectWorkbenchIssues(value, []);
     expect(issue).toMatchObject({ code: "MARKET_OPPORTUNITY_UNDERFILLED", severity: "INFO", status: "OBSERVING" });
   });
+
+  test("tracks an A4 dispatch failure separately from empty scope", () => {
+    const value = overview();
+    value.monitor.dispatch = {
+      status: "FAILED",
+      latestRunId: "monitor-1",
+      lastFailureAt: "2026-08-31T09:32:00+08:00",
+      lastReasonCode: "MINUTE_CACHE_CONFLICT",
+      affectedPlanCount: 2,
+      affectedSymbols: ["000713.SZ"],
+      failureCount: 3,
+    };
+    const [issue] = collectWorkbenchIssues(value, []);
+    expect(issue).toMatchObject({
+      source: "RUNTIME",
+      code: "MINUTE_CACHE_CONFLICT",
+      severity: "CRITICAL",
+      status: "OPEN",
+      runId: "monitor-1",
+      occurrenceCount: 3,
+    });
+    expect(issue.detail).toContain("不会把该状态误记为 EMPTY_SCOPE");
+  });
 });

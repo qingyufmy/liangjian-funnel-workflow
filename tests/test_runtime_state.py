@@ -137,3 +137,72 @@ def test_workflow_lane_state_and_real_trading_day_are_durable(tmp_path):
     assert store.start_account_trading_day("paper:lane-a", date(2026, 8, 24)) is False
     with pytest.raises(StateTransitionError, match="TRADING_DAY_REGRESSION"):
         store.start_account_trading_day("paper:lane-a", date(2026, 8, 23))
+
+
+def test_latest_a3_activation_is_atomic_idempotent_and_overrides_session_expiry(tmp_path):
+    store = RuntimeStore(tmp_path / "a3-activation.sqlite3")
+    expiry = datetime(2026, 9, 2, 15, 0, tzinfo=TZ)
+    source = "close-2026-08-28-a3"
+    payload = {
+        "source_run_id": source,
+        "trigger_high": 11,
+        "stop_level": 9,
+    }
+    store.publish_plan_batch(
+        [
+            {
+                "plan_id": "a3-valid",
+                "lane_id": "lane-a",
+                "symbol": "600519.SH",
+                "status": PlanStatus.PENDING_MORNING_REVIEW.value,
+                "expires_at": expiry,
+                "payload": payload,
+            },
+            {
+                "plan_id": "a3-invalid",
+                "lane_id": "lane-a",
+                "symbol": "000001.SZ",
+                "status": PlanStatus.PENDING_MORNING_REVIEW.value,
+                "expires_at": expiry,
+                "payload": payload,
+            },
+        ]
+    )
+    as_of = datetime(2026, 9, 1, 14, 0, tzinfo=TZ)
+    session_expiry = datetime(2026, 9, 1, 15, 0, tzinfo=TZ)
+    first = store.activate_latest_a3_plan_batch(
+        ["a3-valid"],
+        invalidated_plan_ids=["a3-invalid"],
+        valid_from=datetime(2026, 9, 1, 9, 32, tzinfo=TZ),
+        as_of=as_of,
+        session_expires_at=session_expiry,
+        source_run_id=source,
+    )
+    assert {row["status"] for row in first} == {
+        PlanStatus.ACTIVE_TODAY.value,
+        PlanStatus.INVALIDATED.value,
+    }
+    assert store.get_execution_plan("a3-valid")["expires_at"] == session_expiry.isoformat()
+    assert store.get_execution_plan("a3-invalid")["status"] == PlanStatus.INVALIDATED.value
+
+    # A retry sees the same terminal states, performs no second transition,
+    # and remains valid only for the same immutable A3 source.
+    second = store.activate_latest_a3_plan_batch(
+        ["a3-valid"],
+        invalidated_plan_ids=["a3-invalid"],
+        valid_from=datetime(2026, 9, 1, 9, 32, tzinfo=TZ),
+        as_of=as_of,
+        session_expires_at=session_expiry,
+        source_run_id=source,
+    )
+    assert [row["status"] for row in second] == [
+        PlanStatus.ACTIVE_TODAY.value,
+        PlanStatus.INVALIDATED.value,
+    ]
+    with pytest.raises(StateTransitionError, match="A3_PLAN_SOURCE_MISMATCH"):
+        store.activate_latest_a3_plan_batch(
+            ["a3-valid"],
+            valid_from=datetime(2026, 9, 1, 9, 32, tzinfo=TZ),
+            as_of=as_of,
+            source_run_id="different-source",
+        )

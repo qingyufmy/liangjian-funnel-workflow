@@ -39,6 +39,7 @@ import {
   LogEntry,
   LogsResponse,
   MonitorPlan,
+  MonitorDispatchSummary,
   OverviewResponse,
   RunSummary,
   RunsResponse,
@@ -150,6 +151,11 @@ function normalizeOverview(value: OverviewResponse): OverviewResponse {
       ...EMPTY_OVERVIEW.monitor,
       ...(value.monitor ?? {}),
       events: Array.isArray(value.monitor?.events) ? value.monitor.events : [],
+      plans: Array.isArray(value.monitor?.plans) ? value.monitor.plans : [],
+      activePlans: Array.isArray(value.monitor?.activePlans) ? value.monitor.activePlans : [],
+      pendingPlans: Array.isArray(value.monitor?.pendingPlans) ? value.monitor.pendingPlans : [],
+      latestA3Plans: Array.isArray(value.monitor?.latestA3Plans) ? value.monitor.latestA3Plans : [],
+      dispatch: value.monitor?.dispatch ?? null,
     },
     accounts: Array.isArray(value.accounts) ? value.accounts : [],
     planCounts: value.planCounts ?? {},
@@ -278,6 +284,9 @@ function statusLabel(status?: string | null): string {
     NOT_RUN: "尚未运行",
     QUEUED: "等待执行",
     EMPTY_SCOPE: "无有效范围",
+    SUCCEEDED_NO_ACTION: "已完成·无动作",
+    DATA_BLOCK: "数据阻断",
+    EFFECTIVE_SIGNAL: "产生有效信号",
     PASS: "通过",
     DISABLED: "已禁用",
   };
@@ -1274,9 +1283,11 @@ function StageStockDetail({ item, stage, onBack }: { item: StageDetailItem | nul
 
 function MonitorPanel({ overview, onOpen }: { overview: OverviewResponse; onOpen: () => void }) {
   const effective = overview.recentEffectiveEvents.length ? overview.recentEffectiveEvents : overview.monitor.events.filter((event) => event.effective);
+  const dispatch = overview.monitor.dispatch;
   return (
     <Panel title="盘中盯盘" icon={<MonitorDot size={18} />} action={<button className="text-button" type="button" onClick={onOpen}>查看详情</button>}>
       <div className="rail-summary"><StatusBadge status={overview.monitor.status} /><span>{formatDateTime(overview.monitor.checkedAt)}</span></div>
+      {dispatch && dispatch.status !== "SUCCEEDED_NO_ACTION" && dispatch.status !== "EFFECTIVE_SIGNAL" ? <p className={`monitor-dispatch-inline monitor-dispatch-inline-${dispatch.status.toLowerCase()}`}>{monitorDispatchDetail(dispatch)}</p> : null}
       {effective.length === 0 ? <EmptyState title="暂无有效事件" detail={overview.monitor.activePlanCount ? "A4 正在复核已有计划；NO_ACTION 不会写入有效结果。" : "当前没有正式 A3 活动计划，A4 不会自行创建候选。"} icon={<MonitorDot size={21} />} /> : (
         <ul className="event-list">{effective.slice(0, 4).map((event, index) => <EventRow key={`${event.minuteEnd}-${event.laneId}-${index}`} event={event} />)}</ul>
       )}
@@ -1300,6 +1311,7 @@ const MONITOR_ACTION_LABELS: Record<string, string> = {
   LLM_VETO: "模型否决",
   PLAN_INVALIDATED: "计划失效",
   DATA_BLOCK: "数据阻断",
+  EMPTY_SCOPE: "空范围",
 };
 
 const MONITOR_REASON_LABELS: Record<string, string> = {
@@ -1319,6 +1331,9 @@ const MONITOR_REASON_LABELS: Record<string, string> = {
   PLAN_DATA_GAP: "计划数据不足",
   NO_CLOSED_5M: "缺少闭合5分钟线",
   NO_CLOSED_15M: "缺少闭合15分钟结构",
+  EMPTY_SCOPE: "当前没有 ACTIVE_TODAY 计划",
+  MINUTE_CACHE_CONFLICT: "分钟缓存发生版本冲突",
+  DATA_BLOCK: "数据门禁阻断本次检查",
 };
 
 function monitorActionLabel(action?: string | null): string {
@@ -1327,6 +1342,33 @@ function monitorActionLabel(action?: string | null): string {
 
 function monitorReasonLabel(reason?: string | null): string {
   return reason ? MONITOR_REASON_LABELS[reason] ?? reason : "未提供原因";
+}
+
+function monitorDispatchLabel(status?: string | null): string {
+  return statusLabel(status);
+}
+
+function monitorDispatchDetail(dispatch?: MonitorDispatchSummary | null): string {
+  if (!dispatch) return "尚未读取到 A4 调度结果。";
+  const attemptTime = dispatch.latestAttemptAt ? `最近尝试 ${formatDateTime(dispatch.latestAttemptAt)}` : "";
+  if (dispatch.status === "RUNNING") return `本分钟任务正在执行${dispatch.latestRunId ? `（${dispatch.latestRunId}）` : ""}${attemptTime ? `，${attemptTime}` : ""}。`;
+  if (dispatch.status === "FAILED") {
+    const reason = dispatch.lastReasonCode ? `原因码 ${dispatch.lastReasonCode}` : "原因码未提供";
+    const symbols = dispatch.affectedSymbols?.length ? `，影响 ${dispatch.affectedSymbols.join("、")}` : "";
+    const failedAt = dispatch.lastFailureAt ?? dispatch.latestCompletedAt ?? dispatch.latestAttemptAt;
+    return `最近一次 A4 调度失败（${formatDateTime(failedAt)}），${reason}${symbols}。失败不会被显示为空范围。`;
+  }
+  if (dispatch.status === "DATA_BLOCK") return `任务已执行（${formatDateTime(dispatch.latestCompletedAt ?? dispatch.latestAttemptAt)}），但分钟线或计划事实未通过数据门禁；未产生交易信号。`;
+  if (dispatch.status === "EMPTY_SCOPE") return `任务已执行（${formatDateTime(dispatch.latestCompletedAt ?? dispatch.latestAttemptAt)}），但当前没有 ACTIVE_TODAY 计划；下一日待复核计划不会进入本次盯盘。`;
+  if (dispatch.status === "EFFECTIVE_SIGNAL") return `任务已执行并产生有效盯盘事件（${formatDateTime(dispatch.latestCompletedAt ?? dispatch.latestAttemptAt)}），详见下方正式实时信号。`;
+  if (dispatch.status === "SUCCEEDED_NO_ACTION") return `任务已完成（${formatDateTime(dispatch.lastSuccessAt ?? dispatch.latestCompletedAt ?? dispatch.latestAttemptAt)}），本分钟确定性条件未触发有效动作。`;
+  return "尚未形成可判定的 A4 调度状态。";
+}
+
+function monitorPlanNames(plans: MonitorPlan[] | undefined): string {
+  if (!plans?.length) return "—";
+  const values = plans.slice(0, 12).map((plan) => `${plan.name || "名称未提供"}（${plan.symbol || "代码未提供"}）`);
+  return plans.length > values.length ? `${values.join("、")} 等 ${plans.length} 只` : values.join("、");
 }
 
 function priceRange(plan?: MonitorPlan | null): string {
@@ -1484,19 +1526,30 @@ function RunsTable({ runs }: { runs: RunSummary[] }) {
 function MonitorPage({ overview }: { overview: OverviewResponse }) {
   const events = overview.recentEffectiveEvents.length ? overview.recentEffectiveEvents : overview.monitor.events.filter((event) => event.effective);
   const plans = overview.monitor.plans ?? [];
-  const activePlanCount = overview.monitor.activePlanCount ?? overview.planCounts.ACTIVE_TODAY ?? plans.filter((plan) => plan.status === "ACTIVE_TODAY").length;
+  const activePlans = overview.monitor.activePlans ?? plans.filter((plan) => plan.status === "ACTIVE_TODAY");
+  const pendingPlans = overview.monitor.pendingPlans ?? plans.filter((plan) => plan.status === "PENDING_MORNING_REVIEW");
+  const latestA3Plans = overview.monitor.latestA3Plans ?? plans;
+  const activePlanCount = overview.monitor.activePlanCount ?? overview.planCounts.ACTIVE_TODAY ?? activePlans.length;
+  const pendingPlanCount = overview.monitor.pendingPlanCount ?? overview.planCounts.PENDING_MORNING_REVIEW ?? pendingPlans.length;
   const filledCount = events.filter((event) => event.simulation?.status === "FILLED").length;
   const [selectedEvent, setSelectedEvent] = useState<EffectiveEvent | null>(null);
   const replay = overview.monitor.replay;
+  const dispatch = overview.monitor.dispatch;
+  const dispatchStatus = dispatch?.status ?? overview.monitor.status;
   return <div className="page-stack"><PageHeading eyebrow="A4 · veto only" title="盘中盯盘" detail="确定性规则先触发，Flash 只允许否决；全部结果进入本地模拟账户，不连接真实交易。" />
-    <div className="summary-strip monitor-summary-strip"><SummaryItem label="最新检查" value={formatDateTime(overview.monitor.checkedAt)} /><SummaryItem label="正式活动计划" value={String(activePlanCount)} /><SummaryItem label="有效事件" value={String(overview.monitor.effectiveEventCount ?? events.length)} /><SummaryItem label="模拟成交" value={String(filledCount)} /><SummaryItem label="当前状态" value={statusLabel(overview.monitor.status)} /></div>
-     {activePlanCount === 0 ? <section className="monitor-readiness monitor-readiness-blocked"><TriangleAlert size={19} /><div><strong>当前没有正式 A3 活动计划</strong><p>A4 会保持空范围并继续运行，但不会自行创建候选或产生模拟入场。测试回放与正式信号严格分开。</p></div></section> : <section className="monitor-readiness"><CheckCircle2 size={19} /><div><strong>{activePlanCount} 个正式计划已进入盯盘范围</strong><p>09:31 起先核验闭合15分钟结构，再用闭合5分钟K线确认触发；1分钟线仅用于安全检查与新鲜度校验，模型仅能否决。</p></div></section>}
+    <div className="summary-strip monitor-summary-strip"><SummaryItem label="最新检查" value={formatDateTime(overview.monitor.checkedAt)} /><SummaryItem label="正式活动计划" value={String(activePlanCount)} /><SummaryItem label="下一日待复核" value={String(pendingPlanCount)} /><SummaryItem label="有效事件 / 模拟成交" value={`${overview.monitor.effectiveEventCount ?? events.length} / ${filledCount}`} /><SummaryItem label="当前状态" value={monitorDispatchLabel(dispatchStatus)} /></div>
+    <section className={`monitor-readiness ${dispatchStatus === "FAILED" || dispatchStatus === "DATA_BLOCK" ? "monitor-readiness-blocked" : ""}`}>
+      {dispatchStatus === "FAILED" || dispatchStatus === "DATA_BLOCK" || dispatchStatus === "EMPTY_SCOPE" ? <TriangleAlert size={19} /> : dispatchStatus === "RUNNING" ? <CircleDotDashed size={19} /> : <CheckCircle2 size={19} />}
+      <div><strong>A4 调度：{monitorDispatchLabel(dispatchStatus)}</strong><p>{monitorDispatchDetail(dispatch)}</p></div>
+    </section>
 
     <Panel title="正式实时信号" icon={<MonitorDot size={18} />}>
       {events.length === 0 ? <EmptyState title="目前没有有效盯盘事件" detail={activePlanCount ? "这是合法结果。系统不会把每分钟的 NO_ACTION 写入最终结果。" : "没有正式活动计划，因此生产路径应保持 EMPTY_SCOPE。"} icon={<MonitorDot size={22} />} /> : <div className="data-table-wrap"><table className="data-table monitor-event-table"><thead><tr><th>时间</th><th>股票</th><th>策略</th><th>信号</th><th>模拟结果</th><th>原因</th><th><span className="sr-only">详情</span></th></tr></thead><tbody>{events.map((event, index) => <tr key={`${event.minuteEnd}-${event.planId}-${index}`}><td>{formatDateTime(event.minuteEnd ?? event.time)}</td><td><span className="monitor-stock"><strong>{event.name || "名称未提供"}</strong><small>{event.symbol || "代码未提供"}</small></span></td><td>{strategyProfileLabel(event.strategyProfile ?? event.plan?.strategyProfile)}</td><td><span className={`monitor-action monitor-action-${(event.action || "unknown").toLowerCase()}`}>{monitorActionLabel(event.action)}</span></td><td>{event.simulation?.status === "FILLED" ? <span className="monitor-fill-status monitor-fill-success">已成交 · {detailValue(event.simulation.qty)}股</span> : event.action === "LLM_VETO" ? <span className="monitor-fill-status">未成交 · 模型否决</span> : <span className="monitor-fill-status">不适用</span>}</td><td className="monitor-reason">{monitorReasonLabel(event.reasonCode)}</td><td><button className="monitor-detail-button" type="button" onClick={() => setSelectedEvent(event)}>查看<ChevronRight size={16} /></button></td></tr>)}</tbody></table></div>}
     </Panel>
 
     <Panel title="A3 计划观察池" icon={<FileClock size={18} />}>
+      <dl className="compact-stats monitor-plan-counts"><div><dt>最新 A3 已发布</dt><dd>{latestA3Plans.length}</dd></div><div><dt>ACTIVE_TODAY（本次盯盘）</dt><dd>{activePlanCount}</dd></div><div><dt>PENDING_MORNING_REVIEW（下一日）</dt><dd>{pendingPlanCount}</dd></div><div><dt>来源运行</dt><dd className="mono-cell">{overview.monitor.latestA3RunId || "—"}</dd></div></dl>
+      {latestA3Plans.length ? <p className="monitor-plan-roster"><strong>最新 A3 标的</strong>{monitorPlanNames(latestA3Plans)}</p> : null}
       {plans.length === 0 ? <EmptyState title="当前没有待复核或活动计划" detail="A3 只有发布可执行计划后，A4 才会接管对应股票。" icon={<FileClock size={22} />} /> : <div className="data-table-wrap"><table className="data-table monitor-plan-table"><thead><tr><th>股票</th><th>状态</th><th>策略</th><th>技术形态</th><th>触发区间</th><th>失效价</th><th>有效期</th><th>核心依据</th></tr></thead><tbody>{plans.map((plan) => <tr key={plan.planId || `${plan.laneId}-${plan.symbol}`}><td><span className="monitor-stock"><strong>{plan.name || "名称未提供"}</strong><small>{plan.symbol || "代码未提供"}</small></span></td><td><StatusBadge status={plan.status} /></td><td>{strategyProfileLabel(plan.strategyProfile)}</td><td>{plan.setupType || "—"}</td><td className="mono-cell">{priceRange(plan)}</td><td className="mono-cell">{detailValue(plan.stopLevel)}</td><td>{formatDateTime(plan.expiresAt)}</td><td className="monitor-plan-reason">{plan.selectionReasons?.[0] || "未提供筛选依据"}</td></tr>)}</tbody></table></div>}
     </Panel>
 

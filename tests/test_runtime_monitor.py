@@ -247,6 +247,55 @@ def test_gap_resets_confirmation_and_no_action_is_not_markdown(tmp_path):
     assert "NO_ACTION" not in md.read_text(encoding="utf-8")
 
 
+def test_symbol_data_block_does_not_stop_healthy_plan(tmp_path):
+    store = setup_store(tmp_path)
+    store.create_execution_plan(
+        "p-bad-data",
+        "lane-a",
+        "000001.SZ",
+        status=PlanStatus.PENDING_MORNING_REVIEW,
+        payload={"trigger_low": 10, "trigger_high": 11},
+    )
+    store.activate_plan("p-bad-data")
+    now = datetime(2026, 8, 24, 9, 32, tzinfo=TZ)
+    engine = MonitorEngine(store, llm_veto=lambda _context: False)
+    result = engine.process_minute(
+        "lane-a",
+        {"600519.SH": bar(now)},
+        minute_snapshot_id="mixed-data-1",
+        now=now,
+        data_ok=True,
+        data_errors={"000001.SZ": "MINUTE_DATA_GAP"},
+        snapshot_contiguous=True,
+    )
+    by_symbol = {event.symbol: event for event in result.events if event.symbol}
+    assert by_symbol["000001.SZ"].action == MonitorAction.DATA_BLOCK.value
+    assert by_symbol["000001.SZ"].reason_code == "MINUTE_DATA_GAP"
+    assert by_symbol["600519.SH"].action == MonitorAction.START_CONFIRMATION.value
+    assert result.blocked is True
+
+    system_store = setup_store(tmp_path / "system")
+    system_store.create_execution_plan(
+        "p-bad-system",
+        "lane-a",
+        "000001.SZ",
+        status=PlanStatus.PENDING_MORNING_REVIEW,
+        payload={"trigger_low": 10, "trigger_high": 11},
+    )
+    system_store.activate_plan("p-bad-system")
+    system_failure = MonitorEngine(system_store, llm_veto=lambda _context: False).process_minute(
+        "lane-a",
+        {"600519.SH": bar(now)},
+        minute_snapshot_id="mixed-data-system-failure",
+        now=now,
+        data_ok=False,
+        data_errors={"000001.SZ": "MINUTE_DATA_GAP"},
+    )
+    system_by_symbol = {event.symbol: event for event in system_failure.events if event.symbol}
+    assert system_by_symbol["600519.SH"].action == MonitorAction.DATA_BLOCK.value
+    assert system_by_symbol["000001.SZ"].action == MonitorAction.DATA_BLOCK.value
+
+
 def test_after_cutoff_buy_is_blocked_and_forced_exit_survives(tmp_path):
     store = setup_store(tmp_path)
     md = tmp_path / "effective.md"

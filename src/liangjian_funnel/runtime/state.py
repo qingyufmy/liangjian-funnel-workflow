@@ -988,6 +988,125 @@ class RuntimeStore:
 
         return self._write(operation)
 
+    def activate_latest_a3_plan_batch(
+        self,
+        plan_ids: Sequence[str],
+        *,
+        invalidated_plan_ids: Sequence[str] = (),
+        valid_from: datetime,
+        as_of: datetime | None = None,
+        session_expires_at: datetime | None = None,
+        source_run_id: str,
+    ) -> tuple[dict[str, Any], ...]:
+        """Idempotently activate one already-published A3 plan set.
+
+        This is a narrow recovery/entry point for the current A4 session.  A
+        caller must identify the published A3 source run and perform the
+        provider quote, stop and no-chase checks before calling it.  The
+        method itself still enforces the immutable source lineage, current
+        validity horizon and atomic state transition.  Existing active rows
+        are returned unchanged, so repeated monitor ticks cannot create a
+        second activation or re-run the morning transition.
+        """
+
+        activation_ids = tuple(dict.fromkeys(str(item) for item in plan_ids))
+        invalidation_ids = tuple(dict.fromkeys(str(item) for item in invalidated_plan_ids))
+        ids = tuple(dict.fromkeys((*activation_ids, *invalidation_ids)))
+        source = str(source_run_id).strip()
+        if not ids:
+            return ()
+        if not source:
+            raise ValueError("A3 source run id is required")
+        if valid_from.tzinfo is None or valid_from.utcoffset() is None:
+            raise ValueError("valid_from must be timezone-aware")
+        effective_at = as_of or valid_from
+        if effective_at.tzinfo is None or effective_at.utcoffset() is None:
+            raise ValueError("as_of must be timezone-aware")
+        if session_expires_at is not None and (
+            session_expires_at.tzinfo is None or session_expires_at.utcoffset() is None
+        ):
+            raise ValueError("session_expires_at must be timezone-aware")
+        stamp = _iso(valid_from)
+        check_at = _iso(effective_at)
+        session_expiry = _iso(session_expires_at)
+        if session_expiry is not None and session_expiry < check_at:
+            raise ValueError("session_expires_at must not precede as_of")
+        now = _iso(_now())
+
+        def operation(connection):
+            rows: list[sqlite3.Row] = []
+            for plan_id in ids:
+                row = connection.execute(
+                    "SELECT * FROM execution_plans WHERE plan_id=?",
+                    (plan_id,),
+                ).fetchone()
+                if row is None:
+                    raise StateTransitionError("PLAN_NOT_FOUND")
+                if row["status"] == PlanStatus.ACTIVE_TODAY.value:
+                    if plan_id in invalidation_ids:
+                        raise StateTransitionError("A3_ACTIVE_PLAN_CANNOT_INVALIDATE")
+                    if row["expires_at"] is not None and row["expires_at"] < check_at:
+                        raise StateTransitionError("A3_PLAN_EXPIRED")
+                    try:
+                        payload = json.loads(str(row["payload_json"] or "{}"))
+                    except (TypeError, ValueError, json.JSONDecodeError):
+                        raise StateTransitionError("A3_PLAN_PAYLOAD_INVALID") from None
+                    if not isinstance(payload, Mapping) or str(payload.get("source_run_id") or "") != source:
+                        raise StateTransitionError("A3_PLAN_SOURCE_MISMATCH")
+                    rows.append(row)
+                    continue
+                if row["status"] == PlanStatus.INVALIDATED.value:
+                    if plan_id not in invalidation_ids:
+                        raise StateTransitionError("A3_PLAN_NOT_PENDING_MORNING_REVIEW")
+                    try:
+                        payload = json.loads(str(row["payload_json"] or "{}"))
+                    except (TypeError, ValueError, json.JSONDecodeError):
+                        raise StateTransitionError("A3_PLAN_PAYLOAD_INVALID") from None
+                    if not isinstance(payload, Mapping) or str(payload.get("source_run_id") or "") != source:
+                        raise StateTransitionError("A3_PLAN_SOURCE_MISMATCH")
+                    rows.append(row)
+                    continue
+                if row["status"] != PlanStatus.PENDING_MORNING_REVIEW.value:
+                    raise StateTransitionError("PLAN_NOT_PENDING_MORNING_REVIEW")
+                if row["expires_at"] is None or row["expires_at"] < check_at:
+                    raise StateTransitionError("A3_PLAN_EXPIRED")
+                try:
+                    payload = json.loads(str(row["payload_json"] or "{}"))
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    raise StateTransitionError("A3_PLAN_PAYLOAD_INVALID") from None
+                if not isinstance(payload, Mapping) or str(payload.get("source_run_id") or "") != source:
+                    raise StateTransitionError("A3_PLAN_SOURCE_MISMATCH")
+                rows.append(row)
+            for row in rows:
+                if row["status"] != PlanStatus.PENDING_MORNING_REVIEW.value:
+                    continue
+                target = (
+                    PlanStatus.INVALIDATED.value
+                    if row["plan_id"] in invalidation_ids
+                    else PlanStatus.ACTIVE_TODAY.value
+                )
+                connection.execute(
+                    "UPDATE execution_plans SET status=?,valid_from=?,expires_at=COALESCE(?,expires_at),updated_at=? WHERE plan_id=? AND status=?",
+                    (
+                        target,
+                        stamp if target == PlanStatus.ACTIVE_TODAY.value else row["valid_from"],
+                        session_expiry if target == PlanStatus.ACTIVE_TODAY.value else None,
+                        now,
+                        row["plan_id"],
+                        PlanStatus.PENDING_MORNING_REVIEW.value,
+                    ),
+                )
+            return tuple(
+                _row_dict(
+                    connection.execute(
+                        "SELECT * FROM execution_plans WHERE plan_id=?", (plan_id,)
+                    ).fetchone()
+                )
+                for plan_id in ids
+            )
+
+        return self._write(operation)
+
     def list_active_plans(self, lane_id: str, *, at: datetime | None = None) -> tuple[dict[str, Any], ...]:
         stamp = _iso(at or _now())
 

@@ -1,4 +1,5 @@
-from datetime import datetime
+import sqlite3
+from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -83,3 +84,42 @@ def test_invalid_load_contract_is_rejected(tmp_path: Path):
         store.load_latest("600519", "15m", limit=1)
     with pytest.raises(ValueError, match="positive"):
         store.load_latest("600519", "1m", limit=0)
+
+
+def test_live_overlap_keeps_canonical_bar_and_deduplicates_audit(tmp_path: Path):
+    store = MinuteBarStore(tmp_path)
+    as_of = datetime(2026, 8, 24, 9, 31, tzinfo=ZONE)
+    original = _bar(31)
+    store.write((original,))
+    revised = original.model_copy(update={"close": 10.2, "high": 10.2, "source_id": "TENCENT:ifzq.gtimg.cn"})
+    forming = _bar(32)
+
+    first = store.write_live((revised, forming), as_of=as_of)
+    assert first.overlap_conflicts == 1
+    assert first.skipped_future == 1
+    assert store.load_latest("600519.SH", "1m", limit=1)[0].close == 10.0
+    with sqlite3.connect(store.path) as connection:
+        audit_count = connection.execute("SELECT COUNT(*) FROM minute_bar_audit").fetchone()[0]
+    second = store.write_live((revised, forming), as_of=as_of)
+    assert second.overlap_conflicts == 1
+    assert second.skipped_future == 1
+    with sqlite3.connect(store.path) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM minute_bar_audit").fetchone()[0] == audit_count
+
+
+def test_explicit_current_day_revision_is_audited_but_history_stays_immutable(tmp_path: Path):
+    store = MinuteBarStore(tmp_path)
+    original = _bar(31)
+    store.write((original,))
+    revised = original.model_copy(update={"close": 10.2, "high": 10.2})
+    result = store.write(
+        (revised,),
+        allow_revisions_for=date(2026, 8, 24),
+        observed_at=datetime(2026, 8, 24, 9, 32, tzinfo=ZONE),
+    )
+    assert result.revised == 1
+    assert store.load_latest("600519.SH", "1m", limit=1)[0].close == 10.2
+    with sqlite3.connect(store.path) as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM minute_bar_audit WHERE event_type='REVISION'"
+        ).fetchone()[0] == 1

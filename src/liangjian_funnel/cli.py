@@ -223,6 +223,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="run only the configured primary research model and enqueue optional comparisons",
     )
     sub.add_parser("monitor-once", help="run one A4 minute and paper-simulation cycle")
+    activate_a3 = sub.add_parser(
+        "activate-latest-a3-for-a4",
+        help="explicitly bind the latest published A3 plans to the current A4 session",
+    )
+    activate_a3.add_argument(
+        "--as-of",
+        default=None,
+        help="timezone-aware operator timestamp; defaults to current Asia/Shanghai time",
+    )
     sub.add_parser("run-due", help="dispatch only work due at the current Shanghai time")
     sub.add_parser("run-morning", help="dispatch only the due 09:26 morning review")
     sub.add_parser("run-close", help="dispatch only the due 15:10 close workflow")
@@ -317,7 +326,7 @@ def main(argv: Sequence[str] | None = None, *, settings: Settings | None = None)
         return _doctor(active)
     if args.command in {"storage-audit", "storage-backup", "storage-cleanup"}:
         return _storage_command(args, active)
-    if args.command in {"prepare-snapshot", "import-broker-gold", "sync-data", "maintain-features", "run-a1-maintenance", "run-research", "run-comparison", "monitor-once", "run-due", "run-morning", "run-close", "run-next-session-prep", "run-monitor", "status"}:
+    if args.command in {"prepare-snapshot", "import-broker-gold", "sync-data", "maintain-features", "run-a1-maintenance", "run-research", "run-comparison", "monitor-once", "activate-latest-a3-for-a4", "run-due", "run-morning", "run-close", "run-next-session-prep", "run-monitor", "status"}:
         return _workflow_command(args, active)
     reports = []
     if args.command in {"probe-hithink", "probe-all"}:
@@ -554,6 +563,11 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
             payload = application.run_comparison(parent_run_id=args.parent_run_id)
         elif args.command == "monitor-once":
             payload = application.monitor_once()
+        elif args.command == "activate-latest-a3-for-a4":
+            activation_at = datetime.fromisoformat(args.as_of) if args.as_of else None
+            if activation_at is not None and (activation_at.tzinfo is None or activation_at.utcoffset() is None):
+                activation_at = activation_at.replace(tzinfo=ZoneInfo(settings.timezone))
+            payload = application.activate_latest_a3_for_a4(now=activation_at)
         elif args.command == "run-due":
             payload = application.run_due()
         elif args.command == "run-morning":
@@ -749,6 +763,8 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
             for record in dispatch
         ):
             return 2
+    if args.command == "activate-latest-a3-for-a4" and isinstance(payload, Mapping) and payload.get("status") == "BLOCKED":
+        return 2
     if args.command == "run-comparison" and isinstance(payload, Mapping) and payload.get("status") == "FAILED":
         return 2
     return 0

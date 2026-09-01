@@ -32,6 +32,8 @@ const CODE_TITLES: Record<string, string> = {
   OVERSIZE: "进度文件超过读取上限",
   UNREADABLE: "进度文件无法读取",
   NO_ACTIVE_A3_PLAN: "当前没有可执行 A3 计划",
+  A4_DISPATCH_FAILED: "A4 盘中调度失败",
+  A4_DATA_BLOCK: "A4 盘中数据阻断",
 };
 
 function token(value: unknown, fallback: string): string {
@@ -138,6 +140,30 @@ export function collectWorkbenchIssues(overview: OverviewResponse, logs: LogEntr
       id: issueId(["data", source.id]), severity: token(source.status, "UNKNOWN").includes("FAIL") || token(source.status, "UNKNOWN").includes("BLOCK") ? "CRITICAL" : "WARNING",
       status: "OPEN", source: "DATA_SOURCE", code, title: `${source.label} 数据源${source.status || "状态未知"}`,
       detail: source.detail || "数据源未报告可用状态。", lastSeenAt: source.checkedAt, occurrenceCount: 1,
+    });
+  }
+
+  const monitorDispatch = overview.monitor.dispatch;
+  if (monitorDispatch?.status === "FAILED" || monitorDispatch?.status === "DATA_BLOCK") {
+    const isFailure = monitorDispatch.status === "FAILED";
+    const code = token(monitorDispatch.lastReasonCode, isFailure ? "A4_DISPATCH_FAILED" : "A4_DATA_BLOCK");
+    const symbols = monitorDispatch.affectedSymbols?.length
+      ? `；影响标的 ${monitorDispatch.affectedSymbols.slice(0, 8).join("、")}`
+      : "";
+    const count = typeof monitorDispatch.affectedPlanCount === "number"
+      ? `；影响计划 ${monitorDispatch.affectedPlanCount} 个`
+      : "";
+    issues.push({
+      id: issueId(["runtime", "monitor", code]),
+      severity: isFailure ? "CRITICAL" : "WARNING",
+      status: "OPEN",
+      source: "RUNTIME",
+      code,
+      title: titleFor(code, isFailure ? "A4 盘中调度失败" : "A4 盘中数据阻断"),
+      detail: `最近一次 A4 调度${isFailure ? "未完成" : "未通过数据门禁"}；${monitorDispatch.lastDiagnosticCode ? `诊断码 ${monitorDispatch.lastDiagnosticCode}` : "未提供诊断码"}${symbols}${count}。系统不会把该状态误记为 EMPTY_SCOPE。`,
+      runId: monitorDispatch.latestRunId,
+      lastSeenAt: monitorDispatch.lastFailureAt ?? monitorDispatch.latestCompletedAt,
+      occurrenceCount: Math.max(1, monitorDispatch.failureCount ?? 1),
     });
   }
 

@@ -4,7 +4,15 @@ import { asArray, asJsonRecord, asString, sanitizeJson } from "./redaction.js";
 import { JobRunner } from "./runner.js";
 import { WorkflowScheduler } from "./scheduler.js";
 import type { AppConfig } from "./config.js";
-import type { JsonRecord, JsonValue, StatusSnapshot } from "./types.js";
+import type {
+  JobRunRecord,
+  JsonRecord,
+  JsonValue,
+  LogEvent,
+  MonitorDispatchStatus,
+  MonitorDispatchSummary,
+  StatusSnapshot,
+} from "./types.js";
 
 function record(value: unknown): JsonRecord | null {
   return asJsonRecord(value);
@@ -130,6 +138,187 @@ function normalizeSimulation(value: unknown): JsonValue | null {
     fee: simulation.fee ?? null,
     barEnd: simulation.barEnd ?? simulation.bar_end ?? null,
   });
+}
+
+const MONITOR_LOG_LIMIT = 1_000;
+const SAFE_MONITOR_CODE = /^[A-Z][A-Z0-9_]{0,95}$/;
+const SAFE_MONITOR_SYMBOL = /^\d{6}\.(?:SH|SZ|BJ)$/;
+
+interface MonitorAttempt {
+  readonly runId: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  nodeStatus: "running" | "succeeded" | "failed" | "terminated" | "skipped" | null;
+  pythonStatus: string | null;
+  reasonCode: string | null;
+  diagnosticCode: string | null;
+  affectedPlanCount: number | null;
+  affectedSymbols: Set<string>;
+}
+
+function safeMonitorCode(value: string | null): string | null {
+  if (!value) return null;
+  const normalized = value.trim().toUpperCase();
+  return SAFE_MONITOR_CODE.test(normalized) ? normalized : null;
+}
+
+function safeMonitorSymbol(value: string | null): string | null {
+  if (!value) return null;
+  const normalized = value.trim().toUpperCase();
+  return SAFE_MONITOR_SYMBOL.test(normalized) ? normalized : null;
+}
+
+function logJsonString(message: string, key: string): string | null {
+  const match = new RegExp(`"${key}"\\s*:\\s*"([^"\\r\\n]{1,160})"`).exec(message);
+  return match?.[1] ?? null;
+}
+
+function logJsonNumber(message: string, key: string): number | null {
+  const match = new RegExp(`"${key}"\\s*:\\s*(-?\\d+(?:\\.\\d+)?)`).exec(message);
+  if (!match) return null;
+  const value = Number(match[1]);
+  return Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+function monitorStateFromLatest(
+  latest: JsonRecord | null,
+  activePlanCount: number,
+): MonitorDispatchStatus {
+  if (!latest) return "UNKNOWN";
+  const explicitStatus = asString(latest.status)?.toUpperCase();
+  if (explicitStatus === "FAILED") return "FAILED";
+  if (explicitStatus === "DATA_BLOCK" || explicitStatus === "BLOCKED") return "DATA_BLOCK";
+  if (explicitStatus === "EMPTY_SCOPE") return "EMPTY_SCOPE";
+  if (explicitStatus === "EFFECTIVE_SIGNAL") return "EFFECTIVE_SIGNAL";
+  if (explicitStatus === "SUCCEEDED_NO_ACTION" || explicitStatus === "NO_ACTION") return "SUCCEEDED_NO_ACTION";
+  const lanes = arrayField(latest, "lanes");
+  const events = lanes.flatMap((lane) => arrayField(lane, "events"));
+  const eventRecords = events.map((event) => record(event)).filter((event): event is JsonRecord => event !== null);
+  if (eventRecords.some((event) => event.effective === true && asString(event.action)?.toUpperCase() !== "EMPTY_SCOPE")) {
+    return "EFFECTIVE_SIGNAL";
+  }
+  if (eventRecords.some((event) => {
+    const action = asString(event.action)?.toUpperCase();
+    const reason = asString(event.reason_code ?? event.reasonCode)?.toUpperCase() ?? "";
+    return action === "DATA_BLOCK" || reason.startsWith("DATA_") || reason.startsWith("MINUTE_DATA_");
+  }) || lanes.some((lane) => record(lane)?.blocked === true)) {
+    return "DATA_BLOCK";
+  }
+  if (eventRecords.length > 0 && eventRecords.every((event) => asString(event.action)?.toUpperCase() === "EMPTY_SCOPE")) {
+    return "EMPTY_SCOPE";
+  }
+  if (activePlanCount === 0 && eventRecords.length > 0) return "EMPTY_SCOPE";
+  return "SUCCEEDED_NO_ACTION";
+}
+
+function attemptSortKey(attempt: MonitorAttempt): number {
+  const value = attempt.finishedAt ?? attempt.startedAt;
+  const timestamp = value ? Date.parse(value) : Number.NaN;
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function ensureMonitorAttempt(attempts: Map<string, MonitorAttempt>, runId: string): MonitorAttempt {
+  const existing = attempts.get(runId);
+  if (existing) return existing;
+  const created: MonitorAttempt = {
+    runId,
+    startedAt: null,
+    finishedAt: null,
+    nodeStatus: null,
+    pythonStatus: null,
+    reasonCode: null,
+    diagnosticCode: null,
+    affectedPlanCount: null,
+    affectedSymbols: new Set<string>(),
+  };
+  attempts.set(runId, created);
+  return created;
+}
+
+function incorporateMonitorLog(attempts: Map<string, MonitorAttempt>, log: LogEvent): void {
+  if (log.job !== "monitor" || !log.runId) return;
+  const attempt = ensureMonitorAttempt(attempts, log.runId);
+  if (log.message.includes("开始执行 run-monitor")) {
+    if (!attempt.startedAt || log.timestamp < attempt.startedAt) attempt.startedAt = log.timestamp;
+  }
+  const end = /任务结束 run-monitor status=(running|succeeded|failed|terminated|skipped)\b/i.exec(log.message);
+  if (end) {
+    attempt.nodeStatus = end[1]?.toLowerCase() as MonitorAttempt["nodeStatus"];
+    attempt.finishedAt = log.timestamp;
+  }
+  const pythonStatus = logJsonString(log.message, "status")?.toUpperCase();
+  if (pythonStatus) attempt.pythonStatus = pythonStatus;
+  const reason = safeMonitorCode(logJsonString(log.message, "reason_code"));
+  if (reason) attempt.reasonCode = reason;
+  const diagnostic = safeMonitorCode(logJsonString(log.message, "diagnostic_code"));
+  if (diagnostic) attempt.diagnosticCode = diagnostic;
+  const symbol = safeMonitorSymbol(logJsonString(log.message, "symbol"));
+  if (symbol) attempt.affectedSymbols.add(symbol);
+  const planCount = logJsonNumber(log.message, "plan_count");
+  if (planCount !== null) attempt.affectedPlanCount = planCount;
+}
+
+function incorporateMonitorRun(attempts: Map<string, MonitorAttempt>, run: JobRunRecord): void {
+  if (run.job !== "monitor") return;
+  const attempt = ensureMonitorAttempt(attempts, run.runId);
+  attempt.startedAt = run.startedAt;
+  attempt.finishedAt = run.finishedAt;
+  attempt.nodeStatus = run.status;
+}
+
+/**
+ * Project monitor process logs and latest output into one stable business
+ * status.  The latest JSON file contains successful monitor output only, so
+ * a newer failed dispatch must take precedence and must not look like an
+ * empty scope in the workbench.
+ */
+export function summarizeMonitorDispatch(input: {
+  readonly latest: unknown;
+  readonly logs?: readonly LogEvent[];
+  readonly runs?: readonly JobRunRecord[];
+  readonly activePlanCount?: number;
+}): MonitorDispatchSummary {
+  const latest = record(input.latest);
+  const checkedAt = latest ? asString(latest.time) : null;
+  const attempts = new Map<string, MonitorAttempt>();
+  for (const log of input.logs ?? []) incorporateMonitorLog(attempts, log);
+  for (const run of input.runs ?? []) incorporateMonitorRun(attempts, run);
+  const ordered = [...attempts.values()].sort((left, right) => attemptSortKey(right) - attemptSortKey(left));
+  const running = ordered.find((attempt) => attempt.nodeStatus === "running" || (attempt.startedAt !== null && attempt.finishedAt === null));
+  const latestAttempt = ordered[0] ?? null;
+  const latestOutputMs = checkedAt ? Date.parse(checkedAt) : Number.NaN;
+  const latestAttemptMs = latestAttempt ? attemptSortKey(latestAttempt) : Number.NaN;
+  const latestAttemptFailed = latestAttempt !== null
+    && (latestAttempt.nodeStatus === "failed" || latestAttempt.nodeStatus === "terminated" || latestAttempt.pythonStatus === "FAILED")
+    && (!Number.isFinite(latestOutputMs) || latestAttemptMs >= latestOutputMs);
+  const latestState = monitorStateFromLatest(latest, input.activePlanCount ?? 0);
+  const status: MonitorDispatchStatus = running
+    ? "RUNNING"
+    : latestAttemptFailed
+      ? "FAILED"
+      : latestState;
+  const successfulAttempts = ordered.filter((attempt) => attempt.nodeStatus === "succeeded").length;
+  const failedAttempts = ordered.filter((attempt) => attempt.nodeStatus === "failed" || attempt.nodeStatus === "terminated" || attempt.pythonStatus === "FAILED").length;
+  const success = ordered.find((attempt) => attempt.nodeStatus === "succeeded");
+  const failure = ordered.find((attempt) => attempt.nodeStatus === "failed" || attempt.nodeStatus === "terminated" || attempt.pythonStatus === "FAILED");
+  const affectedSymbols = [...new Set((latestAttempt?.affectedSymbols ?? new Set<string>()).values())].sort();
+  const affectedPlanCount = latestAttempt?.affectedPlanCount ?? (status === "FAILED" ? input.activePlanCount ?? null : null);
+  return {
+    status,
+    checkedAt,
+    latestRunId: latestAttempt?.runId ?? null,
+    latestAttemptAt: latestAttempt?.startedAt ?? latestAttempt?.finishedAt ?? checkedAt,
+    latestCompletedAt: latestAttempt?.finishedAt ?? null,
+    lastSuccessAt: success?.finishedAt ?? null,
+    lastFailureAt: failure?.finishedAt ?? null,
+    lastReasonCode: (latestAttemptFailed ? latestAttempt?.reasonCode : null) ?? failure?.reasonCode ?? null,
+    lastDiagnosticCode: (latestAttemptFailed ? latestAttempt?.diagnosticCode : null) ?? failure?.diagnosticCode ?? null,
+    affectedPlanCount,
+    affectedSymbols,
+    attemptCount: ordered.length,
+    successCount: successfulAttempts,
+    failureCount: failedAttempts,
+  };
 }
 
 export function normalizeA4Replay(value: unknown): JsonValue | null {
@@ -327,9 +516,6 @@ export class DashboardData {
       : null;
     const monitorRecord = record(monitor.latest);
     const monitorLanes = monitorRecord ? arrayField(monitorRecord, "lanes") : [];
-    const monitorStatus = monitor.latest === null
-      ? null
-      : monitorLanes.some((lane) => record(lane)?.blocked === true) ? "blocked" : "ok";
     const scheduleSnapshot = this.scheduler.snapshot();
     const accounts = statusData ? normalizeAccounts(statusData) : null;
     const planCounts = statusData ? statusData.plan_counts ?? null : null;
@@ -342,6 +528,39 @@ export class DashboardData {
     const monitorPlans = statusData
       ? arrayField(statusData, "monitor_plans").map((plan) => normalizeMonitorPlan(plan)).filter(Boolean)
       : [];
+    const monitorPlanRecords = monitorPlans
+      .map((plan) => record(plan))
+      .filter((plan): plan is JsonRecord => plan !== null);
+    const activePlans = monitorPlanRecords.filter((plan) => asString(plan.status) === "ACTIVE_TODAY");
+    const pendingPlans = monitorPlanRecords.filter((plan) => asString(plan.status) === "PENDING_MORNING_REVIEW");
+    // Newer Python status payloads may provide a complete latest A3 plan
+    // projection.  Keep the fallback to the existing monitor_plans field so
+    // old deployments remain readable during a rolling update.
+    const latestA3Raw = statusData
+      ? arrayField(statusData, "latest_a3_plans").length
+        ? arrayField(statusData, "latest_a3_plans")
+        : arrayField(statusData, "latest_published_a3_plans").length
+          ? arrayField(statusData, "latest_published_a3_plans")
+          : monitorPlans
+      : [];
+    const latestA3Plans = latestA3Raw.map((plan) => normalizeMonitorPlan(plan)).filter(Boolean);
+    const monitorLogs = await this.logger.list(MONITOR_LOG_LIMIT, undefined, "monitor");
+    const activePlanCount = planCount(statusData, "ACTIVE_TODAY") ?? activePlans.length;
+    const pendingPlanCount = planCount(statusData, "PENDING_MORNING_REVIEW") ?? pendingPlans.length;
+    const monitorDispatch = summarizeMonitorDispatch({
+      latest: monitor.latest,
+      logs: monitorLogs,
+      runs: this.runner.recentRuns(MONITOR_LOG_LIMIT),
+      activePlanCount,
+    });
+    const latestA3RunId = statusData
+      ? asString(statusData.latest_a3_run_id)
+        ?? asString(statusData.latest_published_a3_run_id)
+        ?? (record(latestA3Plans[0]) ? asString(record(latestA3Plans[0])?.sourceRunId) : null)
+      : null;
+    const latestA3PublishedAt = statusData
+      ? asString(statusData.latest_a3_published_at) ?? asString(statusData.latest_published_a3_at)
+      : null;
     const serviceHealthy = status.availability === "ok"
       && statusData?.configuration_ready !== false
       && statusData?.state_healthy !== false;
@@ -387,15 +606,22 @@ export class DashboardData {
       workflowProgress,
       lanes,
       monitor: {
-        status: monitorStatus,
+        status: monitorDispatch.status,
         checkedAt: monitorRecord ? asString(monitorRecord.time) : null,
         effectiveEventCount: monitor.events.length,
-        activePlanCount: planCount(statusData, "ACTIVE_TODAY"),
+        activePlanCount,
+        pendingPlanCount,
         events: monitorEvents,
         latest: monitor.latest,
         effectiveSignals: monitor.effectiveSignals,
         laneCount: monitorLanes.length,
         plans: monitorPlans,
+        activePlans,
+        pendingPlans,
+        latestA3Plans,
+        latestA3RunId,
+        latestA3PublishedAt,
+        dispatch: monitorDispatch,
         replay: normalizeA4Replay(monitor.replay),
       },
       accounts,

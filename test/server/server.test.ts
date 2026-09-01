@@ -9,12 +9,12 @@ import type { Request } from "express";
 import { tokenMatches } from "../../server/auth.js";
 import { createApp } from "../../server/api.js";
 import { loadConfig } from "../../server/config.js";
-import { DashboardData, normalizeA4Replay } from "../../server/dashboard.js";
+import { DashboardData, normalizeA4Replay, summarizeMonitorDispatch } from "../../server/dashboard.js";
 import { normalizeLaneOutcome, normalizeRunOutcome, normalizeStageOutcome, ProjectFiles, resolveWithinRoot } from "../../server/files.js";
 import { LogStore } from "../../server/logger.js";
 import { redactText, sanitizeJson } from "../../server/redaction.js";
 import { JobRunner, timeoutForJob, waitForProcessExit } from "../../server/runner.js";
-import { isMonitorMinute, WorkflowScheduler } from "../../server/scheduler.js";
+import { isMonitorDispatchReady, isMonitorMinute, WorkflowScheduler } from "../../server/scheduler.js";
 import type { JobName, JobRunRecord } from "../../server/types.js";
 
 async function createResearchDetailFixture(): Promise<string> {
@@ -272,6 +272,15 @@ test("starts A4 only when a continuous-auction minute bar can be closed", () => 
   expect(isMonitorMinute(clock(15, 0))).toBe(true);
 });
 
+test("delays each A4 minute dispatch until the provider settling window", () => {
+  const clock = (second: number) => ({ date: "2026-08-31", weekday: 1, hour: 13, minute: 58, second });
+  expect(isMonitorMinute(clock(0))).toBe(true);
+  expect(isMonitorDispatchReady(clock(0))).toBe(false);
+  expect(isMonitorDispatchReady(clock(2))).toBe(false);
+  expect(isMonitorDispatchReady(clock(3))).toBe(true);
+  expect(isMonitorDispatchReady(clock(59))).toBe(true);
+});
+
 test("reads and sorts fixed workflow run files without accepting arbitrary paths", async () => {
   const root = await mkdtemp(join(tmpdir(), "liangjian-control-plane-"));
   await mkdir(join(root, "outputs", "runs"), { recursive: true });
@@ -336,6 +345,45 @@ test("joins A4 replay event, test plan, and matching paper fill for the workbenc
     plan: { planId: "test-plan", name: "国风新材", riskUnit: "PROBE" },
     simulation: { status: "FILLED", action: "BUY", qty: 9100, price: 9.049 },
   }]);
+});
+
+test("keeps a newer monitor failure visible instead of projecting the stale latest file as empty scope", () => {
+  const runId = "monitor-failed";
+  const logs = [
+    { id: 1, timestamp: "2026-09-01T01:32:00.000Z", level: "info" as const, job: "monitor" as const, runId, stream: "node" as const, message: "开始执行 run-monitor" },
+    { id: 2, timestamp: "2026-09-01T01:32:00.100Z", level: "info" as const, job: "monitor" as const, runId, stream: "stdout" as const, message: '        "reason_code": "MINUTE_CACHE_CONFLICT",' },
+    { id: 3, timestamp: "2026-09-01T01:32:00.100Z", level: "info" as const, job: "monitor" as const, runId, stream: "stdout" as const, message: '        "symbol": "000713.SZ"' },
+    { id: 4, timestamp: "2026-09-01T01:32:00.100Z", level: "info" as const, job: "monitor" as const, runId, stream: "stdout" as const, message: '      "status": "FAILED"' },
+    { id: 5, timestamp: "2026-09-01T01:32:00.200Z", level: "error" as const, job: "monitor" as const, runId, stream: "node" as const, message: "任务结束 run-monitor status=failed exit=2 signal=none duration_ms=200" },
+  ];
+  const summary = summarizeMonitorDispatch({
+    latest: {
+      time: "2026-09-01T09:31:00+08:00",
+      lanes: [{ blocked: false, events: [{ action: "EMPTY_SCOPE", effective: false, reason_code: "EMPTY_SCOPE" }] }],
+    },
+    logs,
+    activePlanCount: 2,
+  });
+  expect(summary).toMatchObject({
+    status: "FAILED",
+    latestRunId: runId,
+    lastReasonCode: "MINUTE_CACHE_CONFLICT",
+    affectedPlanCount: 2,
+    affectedSymbols: ["000713.SZ"],
+    failureCount: 1,
+  });
+});
+
+test("classifies a successful monitor with no trigger separately from an empty scope", () => {
+  const summary = summarizeMonitorDispatch({
+    latest: {
+      time: "2026-09-01T05:32:00+08:00",
+      lanes: [{ blocked: false, events: [{ action: "NO_ACTION", effective: false, reason_code: "STRATEGY_TRIGGER_NOT_MET" }] }],
+    },
+    logs: [],
+    activePlanCount: 1,
+  });
+  expect(summary.status).toBe("SUCCEEDED_NO_ACTION");
 });
 
 test("projects paginated research stage pools with names, reasons, and allow-listed detail", async () => {
@@ -1107,6 +1155,41 @@ test("scheduler gives research exclusive dispatch in its protection minute", asy
   await scheduler.tick(new Date("2026-08-26T01:26:30.000Z"));
   await new Promise<void>((resolve) => setImmediate(resolve));
   expect(calls).toEqual(["morning"]);
+});
+
+test("dispatches A4 once at the settled second without catch-up", async () => {
+  const calls: string[] = [];
+  const fakeRunner = {
+    run: async (job: "morning" | "close" | "monitor"): Promise<JobRunRecord> => {
+      calls.push(job);
+      return {
+        runId: `${job}-1`,
+        job,
+        command: job,
+        startedAt: new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
+        exitCode: 0,
+        signal: null,
+        durationMs: 0,
+        status: "succeeded",
+        reason: null,
+      };
+    },
+    activeJob: (): JobRunRecord | null => null,
+  };
+  const root = await mkdtemp(join(tmpdir(), "liangjian-monitor-settle-"));
+  const logger = new LogStore(loadConfig({ LIANGJIAN_PYTHON_BIN: "python3" }, root));
+  const scheduler = new WorkflowScheduler(fakeRunner as unknown as import("../../server/runner.js").JobRunner, logger, { comparisonEnabled: false });
+
+  // 2026-08-31T05:58Z = 13:58 Asia/Shanghai. The minute key is the same
+  // across the settling window; second zero must not dispatch or catch up.
+  await scheduler.tick(new Date("2026-08-31T05:58:00.000Z"));
+  expect(calls).toEqual([]);
+  await scheduler.tick(new Date("2026-08-31T05:58:03.000Z"));
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  await scheduler.tick(new Date("2026-08-31T05:58:04.000Z"));
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(calls).toEqual(["monitor"]);
 });
 
 test("scheduler retries a research job skipped by an active monitor in the same minute", async () => {

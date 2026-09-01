@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import time
@@ -15,7 +16,7 @@ from threading import Event, RLock, Thread
 from typing import Any, Mapping
 from zoneinfo import ZoneInfo
 
-from .data.cache import MinuteBarStore
+from .data.cache import CacheConflictError, MinuteBarStore
 from .data.a2_market import (
     collect_eastmoney_board_flow,
     collect_eastmoney_capital_flow,
@@ -2823,10 +2824,374 @@ class WorkflowApplication:
             "A3_TECHNICAL_READY": sorted(technical),
         }
 
+    def _fetch_live_bars(
+        self,
+        symbol: str,
+        interval: str,
+        required_bars: int,
+        current: datetime,
+    ) -> Any:
+        """Fetch only the bounded current-session window used by A4.
+
+        ``ResilientIntradayAdapter`` intentionally falls back to MootDX for
+        general callers.  A4 must not turn a short opening-window response
+        into a multi-day overlap, so use its bounded Tencent provider
+        directly when it is available and fail closed on a shortage.
+        """
+
+        provider = getattr(self.market_data, "fallback", None)
+        if provider is not None and callable(getattr(provider, "fetch_bars", None)):
+            return provider.fetch_bars(symbol, interval, required_bars, as_of=current)
+        return self.market_data.fetch_bars(symbol, interval, required_bars, as_of=current)
+
+    def activate_latest_a3_for_monitor(self, *, now: datetime | None = None) -> dict[str, Any]:
+        """Recover the latest current-session A3 plans for A4, safely.
+
+        This recovery is deliberately limited to the 09:26--09:40 morning
+        review window.  It selects only already-published plans whose server
+        expiry is today, checks each quote independently, and then applies a
+        single atomic state transition.  It cannot create plans, revive an
+        expired plan, or bypass stop/no-chase checks.
+        """
+
+        current = _aware(now or datetime.now(SHANGHAI)).replace(second=0, microsecond=0)
+        clock = current.time().replace(tzinfo=None)
+        window_start = datetime.strptime("09:26", "%H:%M").time()
+        window_end = datetime.strptime("09:40", "%H:%M").time()
+        if clock < window_start or clock > window_end:
+            return {
+                "status": "NOT_APPLICABLE",
+                "reason_code": "A3_SCOPE_ACTIVATION_WINDOW_CLOSED",
+                "as_of": current.isoformat(),
+                "activated": [],
+                "invalidated": [],
+            }
+
+        candidates: list[dict[str, Any]] = []
+        for lane_id in self.brokers:
+            if self.store.list_active_plans(lane_id, at=current):
+                continue
+            pending = self.store.list_execution_plans(
+                lane_id=lane_id,
+                status=PlanStatus.PENDING_MORNING_REVIEW,
+            )
+            by_source: dict[str, list[dict[str, Any]]] = {}
+            for plan in pending:
+                expires_at = plan.get("expires_at")
+                try:
+                    expiry = datetime.fromisoformat(str(expires_at)) if expires_at else None
+                except ValueError:
+                    expiry = None
+                if expiry is None or expiry.astimezone(SHANGHAI).date() != current.date() or expiry < current:
+                    continue
+                try:
+                    payload = json.loads(str(plan.get("payload_json") or "{}"))
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    continue
+                source = str(payload.get("source_run_id") or "").strip() if isinstance(payload, Mapping) else ""
+                if source:
+                    by_source.setdefault(source, []).append(plan)
+            if not by_source:
+                continue
+            latest_source, latest_plans = max(
+                by_source.items(),
+                key=lambda item: (
+                    max(str(row.get("created_at") or "") for row in item[1]),
+                    item[0],
+                ),
+            )
+            for plan in latest_plans:
+                candidates.append({"plan": plan, "source_run_id": latest_source})
+
+        if not candidates:
+            return {
+                "status": "READY",
+                "reason_code": "NO_CURRENT_A3_PLAN",
+                "as_of": current.isoformat(),
+                "activated": [],
+                "invalidated": [],
+            }
+
+        quote_by_symbol: dict[str, Any] = {}
+        quote_failures: list[dict[str, str]] = []
+        for symbol in sorted({str(item["plan"]["symbol"]) for item in candidates}):
+            try:
+                quote = self.market_data.fetch_quote(symbol, as_of=current)
+            except Exception:
+                quote = None
+            if quote is None or not getattr(quote, "complete", False) or getattr(quote, "quote", None) is None:
+                quote_failures.append(
+                    {
+                        "symbol": symbol,
+                        "reason_code": str(getattr(quote, "reason_code", "QUOTE_UNAVAILABLE")),
+                    }
+                )
+                continue
+            quote_by_symbol[symbol] = quote.quote
+
+        valid_by_group: dict[tuple[str, str], list[str]] = {}
+        invalidated_by_group: dict[tuple[str, str], list[str]] = {}
+        invalidated_reasons: list[dict[str, str]] = []
+        for item in candidates:
+            plan = item["plan"]
+            plan_id = str(plan["plan_id"])
+            source = str(item["source_run_id"])
+            group = (str(plan["lane_id"]), source)
+            symbol = str(plan["symbol"])
+            quote = quote_by_symbol.get(symbol)
+            if quote is None:
+                continue
+            try:
+                payload = json.loads(str(plan.get("payload_json") or "{}"))
+                stop_level = float(payload["stop_level"])
+                trigger_high = float(payload["trigger_high"])
+                price = float(quote.price)
+                no_chase = float(payload.get("no_chase")) if payload.get("no_chase") is not None else trigger_high * 1.05
+                if not _a4_price_contract_valid(price, stop_level, trigger_high, no_chase):
+                    raise ValueError("A4 price contract invalid")
+            except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                invalidated_by_group.setdefault(group, []).append(plan_id)
+                invalidated_reasons.append({"plan_id": plan_id, "symbol": symbol, "reason_code": "PLAN_PRICE_CONTRACT_INVALID"})
+                continue
+            if price <= stop_level:
+                invalidated_by_group.setdefault(group, []).append(plan_id)
+                invalidated_reasons.append({"plan_id": plan_id, "symbol": symbol, "reason_code": "PLAN_INVALIDATED_AT_OPEN"})
+            elif price > no_chase:
+                invalidated_by_group.setdefault(group, []).append(plan_id)
+                invalidated_reasons.append({"plan_id": plan_id, "symbol": symbol, "reason_code": "OPEN_PRICE_CHASE_BLOCK"})
+            else:
+                valid_by_group.setdefault(group, []).append(plan_id)
+
+        if not valid_by_group and not invalidated_by_group:
+            return {
+                "status": "BLOCKED",
+                "reason_code": "A3_QUOTE_UNAVAILABLE",
+                "as_of": current.isoformat(),
+                "activated": [],
+                "invalidated": [],
+                "failures": quote_failures,
+            }
+
+        activated: list[str] = []
+        invalidated: list[str] = []
+        source_ids: list[str] = []
+        for group in sorted(set(valid_by_group) | set(invalidated_by_group)):
+            _lane_id, source = group
+            valid_ids = valid_by_group.get(group, [])
+            invalidated_ids = invalidated_by_group.get(group, [])
+            rows = self.store.activate_latest_a3_plan_batch(
+                valid_ids,
+                invalidated_plan_ids=invalidated_ids,
+                valid_from=max(current, _at_time(current, 9, 32)),
+                as_of=current,
+                source_run_id=source,
+            )
+            row_by_id = {str(row["plan_id"]): row for row in rows}
+            activated.extend(
+                plan_id
+                for plan_id in valid_ids
+                if row_by_id.get(plan_id, {}).get("status") == PlanStatus.ACTIVE_TODAY.value
+            )
+            invalidated.extend(
+                plan_id
+                for plan_id in invalidated_ids
+                if row_by_id.get(plan_id, {}).get("status") == PlanStatus.INVALIDATED.value
+            )
+            source_ids.append(source)
+        return {
+            "status": "READY" if activated else "BLOCKED",
+            "reason_code": "A3_SCOPE_ACTIVATED" if activated else "A3_PLANS_INVALIDATED",
+            "as_of": current.isoformat(),
+            "source_run_id": source_ids[0] if len(set(source_ids)) == 1 and source_ids else None,
+            "activated": activated,
+            "invalidated": invalidated,
+            "failures": quote_failures + invalidated_reasons,
+        }
+
+    def activate_latest_a3_for_a4(self, *, now: datetime | None = None) -> dict[str, Any]:
+        """Explicitly bind the latest A3 publication to today's A4 session.
+
+        This is an operator/CLI entry point for recovering a missed morning
+        review after a newer close A3 publication is available.  It is not
+        called as an unrestricted hourly fallback: the valid window ends at
+        14:50, all candidates must still be unexpired, and each quote is
+        checked independently before an atomic activate/invalidate batch.
+        """
+
+        current = _aware(now or datetime.now(SHANGHAI)).replace(second=0, microsecond=0)
+        clock = current.time().replace(tzinfo=None)
+        start = datetime.strptime("09:26", "%H:%M").time()
+        end = datetime.strptime("14:50", "%H:%M").time()
+        if clock < start or clock > end:
+            return {
+                "status": "BLOCKED",
+                "reason_code": "A3_A4_ACTIVATION_WINDOW_CLOSED",
+                "as_of": current.isoformat(),
+                "activated": [],
+                "invalidated": [],
+            }
+
+        candidates: list[dict[str, Any]] = []
+        for lane_id in self.brokers:
+            pending = self.store.list_execution_plans(
+                lane_id=lane_id,
+                status=PlanStatus.PENDING_MORNING_REVIEW,
+            )
+            by_source: dict[str, list[dict[str, Any]]] = {}
+            for plan in pending:
+                expires_at = plan.get("expires_at")
+                try:
+                    expiry = datetime.fromisoformat(str(expires_at)) if expires_at else None
+                except ValueError:
+                    expiry = None
+                if expiry is None or expiry.astimezone(SHANGHAI) < current:
+                    continue
+                try:
+                    payload = json.loads(str(plan.get("payload_json") or "{}"))
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    continue
+                source = str(payload.get("source_run_id") or "").strip() if isinstance(payload, Mapping) else ""
+                if source:
+                    by_source.setdefault(source, []).append(plan)
+            if not by_source:
+                continue
+            latest_source, latest_plans = max(
+                by_source.items(),
+                key=lambda item: (
+                    max(str(row.get("created_at") or "") for row in item[1]),
+                    item[0],
+                ),
+            )
+            candidates.extend(
+                {"plan": plan, "source_run_id": latest_source} for plan in latest_plans
+            )
+
+        if not candidates:
+            return {
+                "status": "READY",
+                "reason_code": "NO_LATEST_A3_PENDING_PLAN",
+                "as_of": current.isoformat(),
+                "activated": [],
+                "invalidated": [],
+            }
+
+        quote_by_symbol: dict[str, Any] = {}
+        failures: list[dict[str, str]] = []
+        for symbol in sorted({str(item["plan"]["symbol"]) for item in candidates}):
+            try:
+                result = self.market_data.fetch_quote(symbol, as_of=current)
+            except Exception:
+                result = None
+            quote = getattr(result, "quote", None) if result is not None else None
+            if result is None or not getattr(result, "complete", False) or quote is None:
+                failures.append({
+                    "symbol": symbol,
+                    "reason_code": str(getattr(result, "reason_code", "QUOTE_UNAVAILABLE")),
+                })
+                continue
+            quote_by_symbol[symbol] = quote
+
+        valid_by_group: dict[tuple[str, str], list[str]] = {}
+        invalidated_by_group: dict[tuple[str, str], list[str]] = {}
+        invalidation_reasons: list[dict[str, str]] = []
+        for item in candidates:
+            plan = item["plan"]
+            plan_id = str(plan["plan_id"])
+            lane_id = str(plan["lane_id"])
+            source = str(item["source_run_id"])
+            group = (lane_id, source)
+            quote = quote_by_symbol.get(str(plan["symbol"]))
+            if quote is None:
+                continue
+            try:
+                payload = json.loads(str(plan.get("payload_json") or "{}"))
+                stop_level = float(payload["stop_level"])
+                trigger_high = float(payload["trigger_high"])
+                raw_price = getattr(quote, "price", None)
+                if raw_price is None and isinstance(quote, Mapping):
+                    raw_price = quote.get("price")
+                price = float(raw_price)
+                proposed_no_chase = payload.get("no_chase")
+                no_chase = float(proposed_no_chase) if proposed_no_chase is not None else trigger_high * 1.05
+                if not _a4_price_contract_valid(price, stop_level, trigger_high, no_chase):
+                    raise ValueError("A4 price contract invalid")
+            except (AttributeError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+                invalidated_by_group.setdefault(group, []).append(plan_id)
+                invalidation_reasons.append({
+                    "plan_id": plan_id,
+                    "symbol": str(plan["symbol"]),
+                    "reason_code": "PLAN_PRICE_CONTRACT_INVALID",
+                })
+                continue
+            if price <= stop_level:
+                invalidated_by_group.setdefault(group, []).append(plan_id)
+                invalidation_reasons.append({
+                    "plan_id": plan_id,
+                    "symbol": str(plan["symbol"]),
+                    "reason_code": "PLAN_INVALIDATED_AT_OPEN",
+                })
+            elif price > no_chase:
+                invalidated_by_group.setdefault(group, []).append(plan_id)
+                invalidation_reasons.append({
+                    "plan_id": plan_id,
+                    "symbol": str(plan["symbol"]),
+                    "reason_code": "OPEN_PRICE_CHASE_BLOCK",
+                })
+            else:
+                valid_by_group.setdefault(group, []).append(plan_id)
+
+        if not valid_by_group and not invalidated_by_group:
+            return {
+                "status": "BLOCKED",
+                "reason_code": "A3_QUOTE_UNAVAILABLE",
+                "as_of": current.isoformat(),
+                "activated": [],
+                "invalidated": [],
+                "failures": failures,
+            }
+
+        activated: list[str] = []
+        invalidated: list[str] = []
+        session_expiry = current.replace(hour=15, minute=0)
+        for group in sorted(set(valid_by_group) | set(invalidated_by_group)):
+            _lane_id, source = group
+            valid_ids = valid_by_group.get(group, [])
+            invalidated_ids = invalidated_by_group.get(group, [])
+            rows = self.store.activate_latest_a3_plan_batch(
+                valid_ids,
+                invalidated_plan_ids=invalidated_ids,
+                valid_from=current,
+                as_of=current,
+                session_expires_at=session_expiry,
+                source_run_id=source,
+            )
+            by_id = {str(row["plan_id"]): row for row in rows}
+            activated.extend(
+                plan_id for plan_id in valid_ids
+                if by_id.get(plan_id, {}).get("status") == PlanStatus.ACTIVE_TODAY.value
+            )
+            invalidated.extend(
+                plan_id for plan_id in invalidated_ids
+                if by_id.get(plan_id, {}).get("status") == PlanStatus.INVALIDATED.value
+            )
+        return {
+            "status": "READY" if activated else "BLOCKED",
+            "reason_code": "A3_A4_SCOPE_ACTIVATED" if activated else "A3_PLANS_INVALIDATED",
+            "as_of": current.isoformat(),
+            "activated": activated,
+            "invalidated": invalidated,
+            "failures": failures + invalidation_reasons,
+        }
+
     def monitor_once(self, *, now: datetime | None = None) -> dict[str, Any]:
         current = _aware(now or datetime.now(SHANGHAI)).replace(second=0, microsecond=0)
         self._ensure_trading_day(current)
         minute_snapshot_id = f"minute-{current.strftime('%Y%m%dT%H%M%S%z')}"
+        # A missed 09:26 callback can still be recovered during the bounded
+        # morning window.  This only activates the latest already-published
+        # A3 rows after the same quote/stop/no-chase checks; it never invents
+        # a plan and becomes fail-closed after the window.
+        a3_scope_activation = self.activate_latest_a3_for_monitor(now=current)
         lane_plans = {
             lane_id: self.store.list_active_plans(lane_id, at=current)
             for lane_id in self.brokers
@@ -2841,55 +3206,146 @@ class WorkflowApplication:
             lane_scopes[lane_id] = scope
 
         # Market data is frozen once per symbol/minute and shared by every
-        # isolated lane.  The two intervals are fetched together per symbol;
-        # no lane can observe a later quote than another lane.
+        # isolated lane.  A4 requests only the closed bars that can exist in
+        # the current session.  This avoids falling back to a multi-day
+        # overlap window during the opening minutes.
         market: dict[str, dict[str, Any]] = {}
         all_symbols = sorted(set().union(*lane_scopes.values())) if lane_scopes else []
+        cache_stats: dict[str, Any] = {
+            "inserted": 0,
+            "unchanged": 0,
+            "revised": 0,
+            "overlap_conflicts": 0,
+            "skipped_future": 0,
+            "errors": [],
+        }
+        cache_system_error = False
 
         def fetch_symbol(symbol: str) -> tuple[str, dict[str, Any]]:
-            # A4 derives closed 5m/15m structure from the complete current
-            # session.  This remains bounded to one trading day per active
-            # plan; it is not a full-market history refresh.
-            one = self.market_data.fetch_bars(symbol, "1m", 240, as_of=current)
-            five = self.market_data.fetch_bars(symbol, "5m", 60, as_of=current)
+            one_required = _a4_required_bars(current, "1m")
+            five_required = _a4_required_bars(current, "5m")
+            one = self._fetch_live_bars(symbol, "1m", one_required, current) if one_required else None
+            # Before the first closed 5m bar, absence is a normal warm-up
+            # state.  Do not ask the resilient adapter for an artificial
+            # historical window merely to fill this slot.
+            five = self._fetch_live_bars(symbol, "5m", five_required, current) if five_required else None
             return symbol, {"1m": one, "5m": five}
 
         if all_symbols:
             with ThreadPoolExecutor(max_workers=min(8, len(all_symbols))) as executor:
-                futures = [executor.submit(fetch_symbol, symbol) for symbol in all_symbols]
+                futures = {
+                    executor.submit(fetch_symbol, symbol): symbol for symbol in all_symbols
+                }
                 for future in as_completed(futures):
-                    symbol, fetched = future.result()
+                    submitted_symbol = futures[future]
+                    try:
+                        symbol, fetched = future.result()
+                    except Exception:
+                        # Keep the failure at the affected symbol.  The
+                        # monitor engine persists DATA_BLOCK per plan and
+                        # healthy symbols in the same lane can continue.
+                        symbol = submitted_symbol
+                        market[symbol] = {"fetch_error": "MINUTE_DATA_FETCH_FAILED"}
+                        continue
                     market[symbol] = fetched
                     for interval in ("1m", "5m"):
                         result = fetched[interval]
-                        if result.bars:
-                            self.minute_store.write(result.bars)
+                        if result is None or not result.bars:
+                            continue
+                        live_bars = tuple(
+                            bar
+                            for bar in result.bars
+                            if bar.bar_end.astimezone(SHANGHAI).date() == current.date()
+                            and bar.bar_end <= current
+                        )
+                        if not live_bars:
+                            continue
+                        try:
+                            write_result = self.minute_store.write_live(live_bars, as_of=current)
+                            for field in (
+                                "inserted",
+                                "unchanged",
+                                "revised",
+                                "overlap_conflicts",
+                                "skipped_future",
+                            ):
+                                cache_stats[field] += int(getattr(write_result, field, 0))
+                        except CacheConflictError as exc:
+                            # Strict/replay conflicts should not normally be
+                            # raised by write_live, but retain a stable audit
+                            # reason if a custom store does raise one.
+                            cache_stats["errors"].append({
+                                **exc.diagnostics,
+                                "mode": "live",
+                            })
+                        except Exception:
+                            cache_system_error = True
+                            cache_stats["errors"].append({
+                                "symbol": symbol,
+                                "interval": interval,
+                                "reason_code": "MINUTE_CACHE_WRITE_FAILED",
+                            })
 
         simulation: list[dict[str, Any]] = []
         lane_inputs: dict[
             str,
-            tuple[dict[str, MinuteBar], bool, dict[str, Any], dict[str, tuple[MinuteBar, ...]]],
+            tuple[
+                dict[str, MinuteBar],
+                bool,
+                dict[str, Any],
+                dict[str, tuple[MinuteBar, ...]],
+                dict[str, str],
+            ],
         ] = {}
         for lane_id, scope_symbols in lane_scopes.items():
             bars: dict[str, MinuteBar] = {}
             contexts: dict[str, Any] = {}
             histories: dict[str, tuple[MinuteBar, ...]] = {}
-            data_ok = True
+            data_errors: dict[str, str] = {}
             for symbol in sorted(scope_symbols):
                 fetched = market.get(symbol, {})
                 one = fetched.get("1m")
                 five = fetched.get("5m")
+                if fetched.get("fetch_error"):
+                    data_errors[symbol] = str(fetched["fetch_error"])
                 one_bars = tuple(
                     bar for bar in (tuple(one.bars) if one is not None else ())
-                    if bar.bar_end.astimezone(SHANGHAI).date() == current.date()
+                    if bar.bar_end.astimezone(SHANGHAI).date() == current.date() and bar.bar_end <= current
                 )
                 five_bars = tuple(
                     bar for bar in (tuple(five.bars) if five is not None else ())
-                    if bar.bar_end.astimezone(SHANGHAI).date() == current.date()
+                    if bar.bar_end.astimezone(SHANGHAI).date() == current.date() and bar.bar_end <= current
                 )
+                # After a live overlap conflict, the local SQLite row is the
+                # canonical observation.  Do not feed a conflicting provider
+                # value to the strategy just because it was fetched first.
+                for interval, required in (("1m", _a4_required_bars(current, "1m")), ("5m", _a4_required_bars(current, "5m"))):
+                    result = fetched.get(interval)
+                    if result is None or not getattr(result, "complete", False) or required <= 0:
+                        continue
+                    try:
+                        canonical = self.minute_store.load_latest(symbol, interval, limit=required)
+                    except Exception:
+                        canonical = ()
+                    canonical = tuple(
+                        bar for bar in canonical
+                        if bar.bar_end.astimezone(SHANGHAI).date() == current.date() and bar.bar_end <= current
+                    )
+                    if len(canonical) >= required:
+                        if interval == "1m":
+                            one_bars = canonical[-required:]
+                        else:
+                            five_bars = canonical[-required:]
+                if one is not None and not getattr(one, "complete", False):
+                    data_errors.setdefault(symbol, str(getattr(one, "reason_code", "MINUTE_DATA_UNAVAILABLE")))
                 one_gaps = detect_missing_bars(one_bars, "1m", as_of=current) if one_bars else ()
-                if not one_bars or one_bars[-1].bar_end != current or one_gaps:
-                    data_ok = False
+                expected_one = _a4_required_bars(current, "1m")
+                if not one_bars:
+                    data_errors.setdefault(symbol, "MINUTE_DATA_UNAVAILABLE")
+                elif expected_one > 0 and (len(one_bars) < expected_one or one_bars[-1].bar_end != current):
+                    data_errors.setdefault(symbol, "MINUTE_DATA_NOT_CURRENT")
+                elif one_gaps:
+                    data_errors.setdefault(symbol, "MINUTE_DATA_GAP")
                 else:
                     bars[symbol] = one_bars[-1]
                     histories[symbol] = one_bars
@@ -2900,11 +3356,20 @@ class WorkflowApplication:
                     five_bars,
                     current=current,
                 )
-            lane_inputs[lane_id] = (bars, data_ok, contexts, histories)
+            # A cache/database write failure is a system-level boundary: the
+            # entire lane must fail closed.  Provider gaps/fetch failures are
+            # retained in ``data_errors`` and only block their own symbols.
+            lane_inputs[lane_id] = (
+                bars,
+                not cache_system_error,
+                contexts,
+                histories,
+                {} if cache_system_error else data_errors,
+            )
 
         def process_lane(lane_id: str) -> tuple[str, MonitorBatchResult]:
             plans = lane_plans[lane_id]
-            bars, data_ok, contexts, histories = lane_inputs[lane_id]
+            bars, data_ok, contexts, histories, data_errors = lane_inputs[lane_id]
             engine = MonitorEngine(
                 self.store,
                 llm_veto=self._a4_callback(lane_id, plans, contexts, current),
@@ -2916,6 +3381,7 @@ class WorkflowApplication:
                 minute_snapshot_id=minute_snapshot_id,
                 now=current,
                 data_ok=data_ok,
+                data_errors=data_errors,
                 snapshot_contiguous=data_ok,
                 bar_histories=histories,
                 market_contexts=contexts,
@@ -2936,6 +3402,8 @@ class WorkflowApplication:
         payload = {
             "minute_snapshot_id": minute_snapshot_id,
             "time": current.isoformat(),
+            "a3_scope_activation": a3_scope_activation,
+            "minute_cache": cache_stats,
             "lanes": results,
             "simulation": simulation,
         }
@@ -3670,9 +4138,17 @@ class WorkflowApplication:
                             "parent_plan_id": str(parent["plan_id"]),
                         }
                     )
+        # A late/preview close rerun is not a day switch and must not mutate
+        # an active A4 scope.  The formal 15:10 close is the explicit daily
+        # boundary: retire that day's ACTIVE_TODAY rows atomically before
+        # publishing the next-session pending plans.
+        formal_close = (
+            slot == "close"
+            and now.time().replace(tzinfo=None) >= datetime.strptime("15:10", "%H:%M").time()
+        )
         published = self.store.publish_plan_batch(
             batch,
-            expire_active_lanes=ready_lanes if slot == "close" else (),
+            expire_active_lanes=ready_lanes if formal_close else (),
         )
         self.store.mark_workflow_runs_published(result.run_id, ready_lanes)
         created = [str(item["plan_id"]) for item in published]
@@ -4759,6 +5235,52 @@ def _latest_required_5m_end(value: datetime) -> datetime | None:
         minutes = min(120, ((current.hour * 60 + current.minute) - (9 * 60 + 30)) // 5 * 5)
         return datetime.combine(day, datetime.strptime("09:30", "%H:%M").time(), SHANGHAI) + timedelta(minutes=minutes)
     return None
+
+
+def _a4_required_bars(value: datetime, interval: str) -> int:
+    """Return the number of closed current-session bars available to A4.
+
+    MootDX/Tencent timestamps are bar-end timestamps.  The calculation keeps
+    the opening auction and lunch break out of the sequence and never asks a
+    live provider for a prior-day overlap just to satisfy a fixed count.
+    """
+
+    if interval not in {"1m", "5m"}:
+        raise ValueError("interval must be 1m or 5m")
+    current = _aware(value).astimezone(SHANGHAI)
+    step = 1 if interval == "1m" else 5
+    starts = (
+        datetime(current.year, current.month, current.day, 9, 30 + step, tzinfo=SHANGHAI),
+        datetime(current.year, current.month, current.day, 13, step, tzinfo=SHANGHAI),
+    )
+    ends = (
+        datetime(current.year, current.month, current.day, 11, 30, tzinfo=SHANGHAI),
+        datetime(current.year, current.month, current.day, 15, 0, tzinfo=SHANGHAI),
+    )
+    total = 0
+    for start, end in zip(starts, ends):
+        if current < start:
+            continue
+        capped = min(current, end)
+        total += int((capped - start).total_seconds() // (step * 60)) + 1
+    return max(0, total)
+
+
+def _a4_price_contract_valid(
+    price: float,
+    stop_level: float,
+    trigger_high: float,
+    no_chase: float,
+) -> bool:
+    """Validate the numeric entry contract before any comparison is made."""
+
+    return (
+        all(math.isfinite(value) for value in (price, stop_level, trigger_high, no_chase))
+        and price > 0
+        and stop_level > 0
+        and trigger_high > stop_level
+        and no_chase >= trigger_high
+    )
 
 
 def _batch_dict(batch: MonitorBatchResult) -> dict[str, Any]:

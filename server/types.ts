@@ -77,6 +77,38 @@ export interface SchedulerSnapshot {
   }[];
 }
 
+/**
+ * Business state of the latest one-minute A4 dispatch.  This is deliberately
+ * separate from Node's process status: a successfully started command may
+ * still report a data block or an empty trading scope.
+ */
+export type MonitorDispatchStatus =
+  | "RUNNING"
+  | "SUCCEEDED_NO_ACTION"
+  | "EMPTY_SCOPE"
+  | "DATA_BLOCK"
+  | "FAILED"
+  | "EFFECTIVE_SIGNAL"
+  | "UNKNOWN";
+
+/** Safe, bounded observability projection for the A4 minute dispatcher. */
+export interface MonitorDispatchSummary {
+  readonly status: MonitorDispatchStatus;
+  readonly checkedAt: string | null;
+  readonly latestRunId: string | null;
+  readonly latestAttemptAt: string | null;
+  readonly latestCompletedAt: string | null;
+  readonly lastSuccessAt: string | null;
+  readonly lastFailureAt: string | null;
+  readonly lastReasonCode: string | null;
+  readonly lastDiagnosticCode: string | null;
+  readonly affectedPlanCount: number | null;
+  readonly affectedSymbols: readonly string[];
+  readonly attemptCount: number;
+  readonly successCount: number;
+  readonly failureCount: number;
+}
+
 export interface StatusSnapshot {
   readonly availability: "ok" | "degraded";
   readonly data: JsonRecord | null;
