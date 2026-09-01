@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Mapping, Sequence
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 from urllib.parse import urljoin
 from zoneinfo import ZoneInfo
@@ -191,17 +191,36 @@ def manifest_projection(manifest: FactSnapshotManifest) -> dict[str, Any]:
 def collect_market_results(
     client: Any,
     symbols: Sequence[str],
+    *,
+    market_trade_date: date | None = None,
 ) -> dict[str, HithinkFetchResult]:
     """Fetch the Phase-1 market facts; each endpoint retains its own status."""
+
+    pool_kwargs: dict[str, Any] = {}
+    dragon_tiger_kwargs: dict[str, Any] = {}
+    if market_trade_date is not None:
+        # The pool endpoints default to the wall-clock date.  Before the
+        # market has closed that date is either empty or only partially
+        # formed, so A2 must explicitly bind to the latest closed session.
+        pool_kwargs["date_ms"] = int(
+            datetime(
+                market_trade_date.year,
+                market_trade_date.month,
+                market_trade_date.day,
+                tzinfo=SHANGHAI,
+            ).timestamp()
+            * 1000
+        )
+        dragon_tiger_kwargs["date"] = market_trade_date.isoformat()
 
     results = {
         "THS_INDUSTRY_CATALOG": client.ths_index_catalog(tag="industry"),
         "THS_CONCEPT_CATALOG": client.ths_index_catalog(tag="cn_concept"),
-        "LIMIT_UP_POOL": client.limit_up_pool(),
-        "LIMIT_DOWN_POOL": client.limit_down_pool(),
-        "LIMIT_BREAK_POOL": client.limit_break_pool(),
+        "LIMIT_UP_POOL": client.limit_up_pool(**pool_kwargs),
+        "LIMIT_DOWN_POOL": client.limit_down_pool(**pool_kwargs),
+        "LIMIT_BREAK_POOL": client.limit_break_pool(**pool_kwargs),
         "LIMIT_UP_LADDER": client.limit_up_ladder(),
-        "DRAGON_TIGER_LIST": client.dragon_tiger_list(),
+        "DRAGON_TIGER_LIST": client.dragon_tiger_list(**dragon_tiger_kwargs),
         "HOT_STOCK_LIST": client.hot_stock_list(period="hour"),
     }
     if symbols:

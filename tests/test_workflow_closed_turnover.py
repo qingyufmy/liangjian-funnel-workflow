@@ -4,7 +4,10 @@ from zoneinfo import ZoneInfo
 from liangjian_funnel.pipeline.data_source import HithinkFetchResult, HithinkRow
 from liangjian_funnel.pipeline.local_fact_cache import LocalFactCache
 from liangjian_funnel.pipeline.snapshot import UniverseGatePolicy, UniverseSnapshot
-from liangjian_funnel.workflow import _market_snapshot_with_closed_turnover
+from liangjian_funnel.workflow import (
+    _latest_closed_market_trade_date,
+    _market_snapshot_with_closed_turnover,
+)
 
 
 TZ = ZoneInfo("Asia/Shanghai")
@@ -99,3 +102,32 @@ def test_intraday_market_snapshot_uses_latest_closed_daily_turnover(tmp_path):
     assert universe.ready is True
     assert {item.symbol for item in universe.trade_candidates} == {"000001.SZ", "600519.SH"}
     assert universe.lineage.excluded_by_reason["INVALID_PRICE"] == 1
+
+
+class _Calendar:
+    def is_trading_day(self, value):
+        return value.weekday() < 5
+
+    def previous_trading_day(self, value):
+        candidate = value
+        while True:
+            candidate = candidate.fromordinal(candidate.toordinal() - 1)
+            if self.is_trading_day(candidate):
+                return candidate
+
+
+def test_latest_closed_market_trade_date_uses_previous_session_before_close():
+    calendar = _Calendar()
+
+    assert _latest_closed_market_trade_date(
+        datetime(2026, 9, 1, 9, 20, tzinfo=TZ),
+        calendar,
+    ).isoformat() == "2026-08-31"
+    assert _latest_closed_market_trade_date(
+        datetime(2026, 9, 1, 15, 10, tzinfo=TZ),
+        calendar,
+    ).isoformat() == "2026-09-01"
+    assert _latest_closed_market_trade_date(
+        datetime(2026, 8, 30, 10, 0, tzinfo=TZ),
+        calendar,
+    ).isoformat() == "2026-08-28"

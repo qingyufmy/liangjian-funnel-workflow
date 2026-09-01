@@ -239,3 +239,41 @@ def test_market_fact_auction_requests_are_batched_and_merged_without_loss() -> N
     assert {row.model_dump()["thscode"] for row in auction.items} == set(symbols)
     assert auction.metadata["batch_count"] == 3
     assert auction.metadata["missing_symbol_count"] == 0
+
+
+def test_market_facts_bind_pools_and_dragon_tiger_to_closed_trade_date() -> None:
+    requested: dict[str, object] = {}
+
+    class Client:
+        def ths_index_catalog(self, *, tag: str) -> HithinkFetchResult:
+            return _result()
+
+        def limit_up_pool(self, **kwargs: object) -> HithinkFetchResult:
+            requested["limit_up"] = kwargs
+            return _result()
+
+        def limit_down_pool(self, **kwargs: object) -> HithinkFetchResult:
+            requested["limit_down"] = kwargs
+            return _result()
+
+        def limit_break_pool(self, **kwargs: object) -> HithinkFetchResult:
+            requested["limit_break"] = kwargs
+            return _result()
+
+        def limit_up_ladder(self) -> HithinkFetchResult:
+            return _result()
+
+        def dragon_tiger_list(self, **kwargs: object) -> HithinkFetchResult:
+            requested["dragon_tiger"] = kwargs
+            return _result()
+
+        def hot_stock_list(self, *, period: str) -> HithinkFetchResult:
+            return _result()
+
+    collect_market_results(Client(), (), market_trade_date=datetime(2026, 8, 31).date())
+
+    expected_ms = int(datetime(2026, 8, 31, tzinfo=TZ).timestamp() * 1000)
+    assert requested["limit_up"] == {"date_ms": expected_ms}
+    assert requested["limit_down"] == {"date_ms": expected_ms}
+    assert requested["limit_break"] == {"date_ms": expected_ms}
+    assert requested["dragon_tiger"] == {"date": "2026-08-31"}

@@ -477,6 +477,10 @@ class WorkflowApplication:
             market_fact_results = collect_market_results(
                 client,
                 [candidate.symbol for candidate in selected] if _auction_window(current) else [],
+                market_trade_date=_latest_closed_market_trade_date(
+                    current,
+                    self.trading_calendar,
+                ),
             )
             market_fact_results["THS_INDUSTRY_CATALOG"] = industry_catalog
             market_fact_results["THS_CONCEPT_CATALOG"] = concept_catalog
@@ -4353,6 +4357,26 @@ def _determine_market_regime(
 def _auction_window(value: datetime) -> bool:
     local = _aware(value)
     return local.hour == 9 and 26 <= local.minute <= 30
+
+
+def _latest_closed_market_trade_date(
+    value: datetime,
+    calendar: ExchangeTradingCalendar,
+) -> date:
+    """Return the session whose close facts are complete at ``value``.
+
+    A same-day pool is not a closed-session fact before 15:00: it may be
+    empty before the open and remains mutable during trading.  The auction is
+    collected separately and therefore does not weaken this boundary.
+    """
+
+    local = _aware(value)
+    try:
+        if calendar.is_trading_day(local.date()) and (local.hour, local.minute) >= (15, 0):
+            return local.date()
+        return calendar.previous_trading_day(local.date())
+    except TradingCalendarError as exc:
+        raise WorkflowError(exc.reason_code) from exc
 
 
 def _available_fact(facts: Mapping[str, Any], key: str) -> dict[str, Any] | None:
