@@ -31,7 +31,7 @@ import type {
   StageOutcomeContract,
 } from "./generated/research-outcome-v3.js";
 
-export type JobName = "morning" | "close" | "a1" | "monitor" | "features" | "comparison";
+export type JobName = "premarket" | "morning" | "close" | "a1" | "monitor" | "features" | "comparison";
 
 export type JobStatus = "running" | "succeeded" | "failed" | "skipped" | "terminated";
 

@@ -26,6 +26,10 @@ _SAFE_DIFFERING_FIELDS = frozenset(
 
 
 class ScheduleKind(StrEnum):
+    # The 08:30 report is a read-only projection of the previous close A3
+    # publication.  It deliberately has its own lease and deadline so it
+    # cannot be confused with the 09:26 auction review/activation lease.
+    PREMARKET_0830 = "premarket_0830"
     MORNING_0925 = "morning_0925"
     CLOSE_1510 = "close_1510"
     MONITOR = "monitor"
@@ -205,6 +209,9 @@ class Scheduler:
         return tuple(records)
 
     def _next_on_day(self, day: date, current: datetime) -> ScheduledJob | None:
+        premarket = _at(day, datetime_time(8, 30))
+        if current <= premarket:
+            return self._job(ScheduleKind.PREMARKET_0830, premarket, current)
         morning = _at(day, datetime_time(9, 26))
         if current <= morning:
             return self._job(ScheduleKind.MORNING_0925, morning, current)
@@ -226,6 +233,9 @@ class Scheduler:
     def _due_jobs(self, current: datetime) -> tuple[ScheduledJob, ...]:
         day = current.date()
         jobs: list[ScheduledJob] = []
+        premarket = _at(day, datetime_time(8, 30))
+        if current >= premarket and current < _at(day, datetime_time(9, 26)):
+            jobs.append(self._job(ScheduleKind.PREMARKET_0830, premarket, current))
         morning = _at(day, datetime_time(9, 26))
         if current >= morning and current < _at(day, datetime_time(15, 10)):
             jobs.append(self._job(ScheduleKind.MORNING_0925, morning, current))
@@ -254,6 +264,11 @@ class Scheduler:
 
     @staticmethod
     def _is_missed(job: ScheduledJob, current: datetime) -> bool:
+        if job.kind is ScheduleKind.PREMARKET_0830:
+            # A late wake-up may still deliver before the auction review, but
+            # after 09:20 the report is no longer timely enough to publish as
+            # a pre-auction snapshot.
+            return current > _at(current.date(), datetime_time(9, 20))
         if job.kind is ScheduleKind.MORNING_0925:
             return current > _at(current.date(), datetime_time(9, 40))
         if job.kind is ScheduleKind.CLOSE_1510:

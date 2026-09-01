@@ -125,6 +125,41 @@ def test_a4_only_sends_effective_event_with_condition_logic(tmp_path):
     assert "NO_ACTION" not in body
 
 
+def test_a3_premarket_analysis_is_distinct_from_auction_activation(tmp_path):
+    store = RuntimeStore(tmp_path / "state.sqlite3")
+    publisher = WorkflowLarkPublisher(
+        store,
+        "https://open.larksuite.com/open-apis/bot/v2/hook/test-token",
+    )
+    fake = FakeNotifier()
+    publisher.notifier = fake
+    now = datetime(2026, 9, 2, 8, 30, tzinfo=SHANGHAI)
+    plans = [_plan(1)]
+
+    first = publisher.publish_a3_premarket_analysis(
+        plans,
+        analyzed_at=now,
+        source_run_id="run-close-1",
+    )
+    second = publisher.publish_a3_premarket_analysis(
+        plans,
+        analyzed_at=now,
+        source_run_id="run-close-1",
+    )
+
+    assert first[0]["status"] == "SENT"
+    assert second[0]["duplicate"] is True
+    assert fake.calls[0][0].startswith("A股 A3 盘前分析")
+    body = "\n".join(fake.calls[0][1])
+    assert "不读取 09:26 竞价" in body
+    assert "不激活 A4" in body
+    assert "测试股票1" in body
+    assert "000001.SZ" in body
+    assert "run-close-1" in body
+    assert store.list_notification_deliveries(kind="PREMARKET_A3_ANALYSIS")
+    assert not store.list_notification_deliveries(kind="PREMARKET_A3")
+
+
 def test_missing_webhook_is_disabled_without_delivery_row(tmp_path):
     store = RuntimeStore(tmp_path / "state.sqlite3")
     publisher = WorkflowLarkPublisher(store, None)

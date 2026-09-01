@@ -340,13 +340,15 @@ function nextScheduleLabel(overview: OverviewResponse): string {
   const hour = Number(parts.find((part) => part.type === "hour")?.value ?? "0");
   const minute = Number(parts.find((part) => part.type === "minute")?.value ?? "0");
   const minuteOfDay = hour * 60 + minute;
+  const premarket = overview.schedule.find((item) => item.id === "premarket");
   const morning = overview.schedule.find((item) => item.id === "morning");
   const close = overview.schedule.find((item) => item.id === "close");
   const a1 = overview.schedule.find((item) => item.id === "a1");
+  if (minuteOfDay < 8 * 60 + 30 && premarket) return `08:30 ${premarket.label}`;
   if (minuteOfDay < 9 * 60 + 26 && morning) return `09:26 ${morning.label}`;
   if (minuteOfDay < 15 * 60 + 10 && close) return `15:10 ${close.label}`;
   if (minuteOfDay < 18 * 60 && a1) return `18:00 ${a1.label}（到点后由交易日历判定是否执行）`;
-  return morning ? `下一工作日 09:26 ${morning.label}` : "等待调度信息";
+  return premarket ? `下一工作日 08:30 ${premarket.label}` : morning ? `下一工作日 09:26 ${morning.label}` : "等待调度信息";
 }
 
 function serviceHeadline(overview: OverviewResponse): { title: string; detail: string; tone: HealthTone } {
@@ -1376,6 +1378,7 @@ function monitorPlanNames(plans: MonitorPlan[] | undefined): string {
 }
 
 function larkNotificationKindLabel(kind?: string | null): string {
+  if (kind === "PREMARKET_A3_ANALYSIS") return "A3 盘前分析";
   if (kind === "PREMARKET_A3") return "盘前 A3 计划";
   if (kind === "A4_EFFECTIVE") return "A4 有效事件";
   return "系统通知";

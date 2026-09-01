@@ -836,6 +836,31 @@ def test_a2_prompt_receives_non_scoring_research_hypotheses(tmp_path: Path):
     assert "不参与确定性打分" in rendered
 
 
+def test_a3_prompt_names_the_full_candidate_domain_without_focus_pool_alias():
+    prompt_dir = Path(__file__).resolve().parents[1] / "prompts"
+    bundle = PromptRepository(prompt_dir).bundle()
+    upstream = {
+        "focus_pool": [
+            {"symbol": "600001.SH", "candidate_origin": "FOCUS"},
+            {"symbol": "600002.SH", "candidate_origin": "WATCH_ONLY"},
+        ]
+    }
+    snapshot = FrozenInputSnapshot(snapshot_id="a3-candidate-domain", data={})
+
+    replacements = _prompt_replacements(
+        bundle,
+        "A3",
+        snapshot,
+        upstream,
+        projection_symbols={"600001.SH", "600002.SH"},
+    )
+    rendered = bundle.render_stage("A3", replacements)
+
+    assert "A3_CANDIDATE_POOL" in replacements
+    assert "UPSTREAM_FOCUS_POOL" not in bundle.document("agent_3_technical_planner_v2.txt").placeholders
+    assert '"candidate_origin":"WATCH_ONLY"' in rendered
+
+
 def test_prompt_budget_failure_reports_real_size_before_model_call(tmp_path: Path):
     settings = _settings(tmp_path).model_copy(update={"model_max_input_tokens": 16})
     pipeline = ResearchPipeline(
@@ -1408,6 +1433,15 @@ def test_a2_decision_fact_enrichment_canonicalizes_server_facts_and_fills_gaps()
                 "factor_coverage": {"ratio": 0.72},
                 "missing_optional_factors": ["capital_flow", "index_chain_resonance"],
                 "data_sufficiency_state": "DEGRADED",
+                "gate_results": {
+                    "IDENTIFIABILITY_MIN": {
+                        "available": True,
+                        "passed": False,
+                        "blocks_decision": True,
+                    }
+                },
+                "first_blocking_gate": "IDENTIFIABILITY_MIN",
+                "all_failed_gates": ["IDENTIFIABILITY_MIN"],
             },
             "600002.SH": {
                 "preferred_route": "MARKET_CORE",
@@ -1458,6 +1492,11 @@ def test_a2_decision_fact_enrichment_canonicalizes_server_facts_and_fills_gaps()
     }
     assert watch["supply_chain_role"]["reason_code"] == "NOT_REQUIRED_FOR_MARKET_CORE"
     assert watch["factor_coverage"] == {"ratio": 0.70}
+    assert focus["first_blocking_gate"] == "IDENTIFIABILITY_MIN"
+    assert focus["all_failed_gates"] == ["IDENTIFIABILITY_MIN"]
+    assert enriched["analysis_summary"]["gate_block_counts"] == {
+        "IDENTIFIABILITY_MIN": 1
+    }
 
 
 def test_a2_contract_normalizes_cooling_to_weekly_state_and_legal_lifecycle_stage():

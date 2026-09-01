@@ -31,7 +31,7 @@ def test_doctor_is_offline_and_does_not_print_key(tmp_path: Path, capsys):
         "schema_version: liangjian-runtime/1.0.0\n"
         "mode: PHASE0_CAPABILITY_ONLY\n"
         "timezone: Asia/Shanghai\n"
-            "research_slots: {morning: '09:26', close: '15:10'}\n"
+            "research_slots: {premarket: '08:30', morning: '09:26', close: '15:10'}\n"
         "monitor: {cadence_seconds: 60}\n"
         "models:\n  research:\n    - deepseek-v4-pro-0813\n    - moonshotai/kimi-k3-free\n    - z-ai/glm-5.3-free\n  monitor: deepseek-v4-flash-0731\n"
         "permissions: {external_orders: false, gm_fallback: false, live_trading: false, fast_track: false}\n",
@@ -101,6 +101,24 @@ def test_run_due_ignores_lease_busy_and_skipped_statuses(tmp_path: Path, monkeyp
     settings = Settings.from_env({}, root=tmp_path)
     assert main(["run-due"], settings=settings) == 0
     assert json.loads(capsys.readouterr().out)["dispatch"][0]["status"] == "LEASE_BUSY"
+
+
+def test_run_premarket_dispatches_dedicated_schedule_kind(tmp_path: Path, monkeypatch, capsys):
+    captured = {}
+
+    class FakeApplication:
+        def __init__(self, _settings):
+            pass
+
+        def run_scheduled(self, kind):
+            captured["kind"] = kind
+            return {"status": "READY", "dispatch": []}
+
+    monkeypatch.setattr(cli_module, "WorkflowApplication", FakeApplication)
+    settings = Settings.from_env({}, root=tmp_path)
+    assert main(["run-premarket"], settings=settings) == 0
+    assert captured["kind"].value == "premarket_0830"
+    assert json.loads(capsys.readouterr().out)["status"] == "READY"
 
 
 def test_historical_research_cli_preserves_explicit_timezone_cutoff(tmp_path: Path, monkeypatch, capsys):

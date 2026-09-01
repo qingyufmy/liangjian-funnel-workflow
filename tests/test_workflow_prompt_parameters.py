@@ -26,3 +26,15 @@ def test_prompt_parameters_are_derived_from_versioned_funnel_config() -> None:
     assert "MIN_TECHNICAL_SCORE" not in parameters
     assert "TECHNICAL_SCORE_WEIGHTS" not in parameters
     assert "REQUIRED_CONFIRMATIONS" not in parameters
+
+
+def test_a4_config_documents_strategy_specific_runtime_contract() -> None:
+    config_path = Path(__file__).parents[1] / "config" / "funnel_config_v2.yaml"
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+
+    agent_4 = config["agent_4"]
+    assert "required_buy_confirmations" not in agent_4
+    contract = agent_4["strategy_entry_confirmations"]
+    assert contract["authority"] == "DETERMINISTIC_SERVER"
+    assert set(contract["routes"]) == {"LEADER_INTRADAY", "MA520_SWING", "TREND_MA5"}
+    assert contract["llm_can_promote"] is False

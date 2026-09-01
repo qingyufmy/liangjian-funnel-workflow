@@ -143,6 +143,7 @@ export class WorkflowScheduler {
       if (isFeatureMaintenanceMinute(clock)) due.push("features");
     } else {
       if (isFeatureMaintenanceMinute(clock)) due.push("features");
+      if (clock.hour === 8 && clock.minute === 30) due.push("premarket");
       if (clock.hour === 9 && clock.minute === 26) due.push("morning");
       if (clock.hour === 15 && clock.minute === 10) due.push("close");
       // Node provides a cheap weekday wake-up. Python owns the exchange
@@ -182,7 +183,7 @@ export class WorkflowScheduler {
     this.logger.info(`触发调度 ${job} at=${key}`, { job });
     void this.runner.run(job)
       .then((result) => {
-        const shouldRetry = (job === "morning" || job === "close" || job === "a1")
+        const shouldRetry = (job === "premarket" || job === "morning" || job === "close" || job === "a1")
           && result.status === "skipped"
           && result.reason?.startsWith("BUSY:") === true;
         if (shouldRetry) {
@@ -247,7 +248,9 @@ export class WorkflowScheduler {
       this.retryKeys.delete(job);
       const current = this.now();
       const clock = shanghaiClock(current);
-      const dueMinute = job === "morning"
+      const dueMinute = job === "premarket"
+        ? 8 * 60 + 30
+        : job === "morning"
         ? 9 * 60 + 26
         : job === "close"
           ? 15 * 60 + 10
@@ -255,7 +258,7 @@ export class WorkflowScheduler {
       const currentMinute = clock.hour * 60 + clock.minute;
       const withinRecoveryWindow = clock.date === key.slice(0, 10)
         && currentMinute >= dueMinute
-        && currentMinute <= dueMinute + (job === "a1" ? 5 * 60 : 10);
+        && currentMinute <= dueMinute + (job === "premarket" ? 50 : job === "a1" ? 5 * 60 : 10);
       if (withinRecoveryWindow && clock.weekday !== 0 && clock.weekday !== 6) {
         this.dispatch(job, key, current);
       }

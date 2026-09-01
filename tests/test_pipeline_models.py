@@ -1,4 +1,7 @@
 from pathlib import Path
+import socket
+import threading
+import time
 
 import httpx
 import pytest
@@ -446,6 +449,45 @@ def test_continuous_sse_is_bounded_by_total_wall_clock(tmp_path: Path):
         client.complete("deepseek-v4-pro-0813", [{"role": "user", "content": "{}"}])
 
     assert exc_info.value.attempts == 1
+
+
+def test_silent_socket_is_interrupted_by_remaining_wall_clock_budget(tmp_path: Path):
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    host, port = listener.getsockname()
+    release = threading.Event()
+
+    def accept_without_responding() -> None:
+        connection = None
+        try:
+            connection, _ = listener.accept()
+            release.wait(timeout=2.0)
+        finally:
+            if connection is not None:
+                connection.close()
+
+    thread = threading.Thread(target=accept_without_responding, daemon=True)
+    thread.start()
+    settings = _settings(tmp_path).model_copy(
+        update={
+            "model_base_url": f"http://{host}:{port}/v1",
+            "model_timeout_seconds": 0.2,
+        }
+    )
+    client = OpenAICompatibleModelClient(settings, max_attempts=1)
+    started = time.monotonic()
+    try:
+        with pytest.raises(ModelNetworkError) as exc_info:
+            client.complete("deepseek-v4-pro-0813", [{"role": "user", "content": "{}"}])
+    finally:
+        release.set()
+        listener.close()
+        thread.join(timeout=1.0)
+
+    assert exc_info.value.reason_code == "MODEL_WALL_CLOCK_TIMEOUT"
+    assert time.monotonic() - started < 1.0
 
 
 def test_call_timeout_override_cannot_exceed_remaining_stage_budget(tmp_path: Path):

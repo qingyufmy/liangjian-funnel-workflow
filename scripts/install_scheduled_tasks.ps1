@@ -13,9 +13,11 @@ if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
 }
 
 $morningCommand = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$runner`" -Command run-morning"
+$premarketCommand = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$runner`" -Command run-premarket"
 $closeCommand = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$runner`" -Command run-close"
 $monitorCommand = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$runner`" -Command run-monitor"
 $definitions = @(
+    @('/Create', '/F', '/TN', 'LiangjianAStockResearchPremarket', '/TR', $premarketCommand, '/SC', 'DAILY', '/ST', '08:30'),
     @('/Create', '/F', '/TN', 'LiangjianAStockResearchMorning', '/TR', $morningCommand, '/SC', 'DAILY', '/ST', '09:26'),
     @('/Create', '/F', '/TN', 'LiangjianAStockResearchClose', '/TR', $closeCommand, '/SC', 'DAILY', '/ST', '15:10'),
     @('/Create', '/F', '/TN', 'LiangjianAStockMonitor', '/TR', $monitorCommand, '/SC', 'DAILY', '/ST', '09:25')

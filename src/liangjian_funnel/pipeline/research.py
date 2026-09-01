@@ -27,6 +27,7 @@ from zoneinfo import ZoneInfo
 
 from ..redaction import digest_text, safe_error
 from ..reporting import atomic_write_json, atomic_write_text
+from ..evaluation.outcome_labels import record_stage_decisions
 from .result_index import snapshot_name_catalog, write_lane_result_index
 from ..settings import RESEARCH_MODELS, Settings
 from ..runtime.state import RuntimeStore
@@ -805,6 +806,12 @@ class ResearchPipeline:
         if self.runtime_store is not None:
             config_hash = str(frozen.data.get("config_hash") or "") or None
             for lane in lanes:
+                self._record_lane_outcome_labels(
+                    run_id=effective_run_id,
+                    lane=lane,
+                    snapshot=frozen,
+                    config_hash=config_hash or self._pipeline_contract_hash,
+                )
                 reasons = tuple(
                     reason
                     for stage in lane.stages
@@ -2082,6 +2089,41 @@ class ResearchPipeline:
             "rejected_candidates",
             [*merged.get("rejected_candidates", []), *local_rejected_items(gate)],
         )
+        # selection_basis is a server-owned provenance label.  Model batches
+        # may return the same symbol first during de-duplication, so reattach
+        # the frozen local decision after the merge instead of trusting or
+        # requiring the model to echo this field.
+        basis_by_symbol = {
+            str(item.get("symbol")): str(item.get("selection_basis"))
+            for item in gate.decisions
+            if item.get("symbol") and item.get("selection_basis")
+        }
+        for partition in ("active_research_pool", "monitor_pool", "rejected_candidates"):
+            rows = merged.get(partition)
+            if not isinstance(rows, list):
+                continue
+            enriched: list[Any] = []
+            for raw in rows:
+                if not isinstance(raw, Mapping):
+                    enriched.append(raw)
+                    continue
+                item = dict(raw)
+                symbol = _first_symbol(item)
+                if symbol in basis_by_symbol:
+                    item["selection_basis"] = basis_by_symbol[symbol]
+                enriched.append(item)
+            merged[partition] = enriched
+        basis_counts = {basis: 0 for basis in ("LLM_REVIEWED", "DETERMINISTIC_SCORE", "QUOTA_FILL")}
+        for item in merged.get("active_research_pool", ()):
+            if not isinstance(item, Mapping):
+                continue
+            basis = str(item.get("selection_basis") or "")
+            if basis in basis_counts:
+                basis_counts[basis] += 1
+        summary = dict(merged.get("analysis_summary")) if isinstance(merged.get("analysis_summary"), Mapping) else {}
+        summary["selection_basis_counts"] = basis_counts
+        summary["selection_basis_total"] = sum(basis_counts.values())
+        merged["analysis_summary"] = summary
         institutional_rows = [
             {
                 "symbol": decision.get("symbol"),
@@ -2403,6 +2445,133 @@ class ResearchPipeline:
                 )
         except (FeatureGenerationError, OSError, sqlite3.Error, ValueError) as exc:
             raise ResearchPipelineError("FEATURE_STORE_WRITE_FAILED") from exc
+
+    def _record_lane_outcome_labels(
+        self,
+        *,
+        run_id: str,
+        lane: LaneResult,
+        snapshot: FrozenInputSnapshot,
+        config_hash: str,
+    ) -> None:
+        """Persist completed A1--A3 decisions without changing funnel behavior.
+
+        Local deterministic decisions are the complete stage domain.  The
+        validated stage output supplies the final PASSED membership after the
+        model's veto-only/partition review.  A failed infrastructure or model
+        stage is deliberately not converted into thousands of false strategy
+        rejections.
+        """
+
+        if self.runtime_store is None or self.feature_store is None:
+            return
+        audit_by_stage = {stage.stage: stage for stage in lane.stages}
+        gate_stage = {
+            "A1": "A1_LOCAL_SCREEN",
+            "A2": "A2_LOCAL_ROLE",
+            "A3": "A3_LOCAL_TECHNICAL",
+        }
+        market_as_of = snapshot.data.get("MARKET_DATA_AS_OF")
+        try:
+            trade_date = datetime.fromisoformat(
+                str(market_as_of).replace("Z", "+00:00")
+            ).astimezone(ZoneInfo(self.settings.timezone)).date()
+        except (TypeError, ValueError):
+            trade_date = (snapshot.as_of or self.now()).astimezone(
+                ZoneInfo(self.settings.timezone)
+            ).date()
+
+        for stage_name, local_stage in gate_stage.items():
+            audit = audit_by_stage.get(stage_name)
+            if audit is None or not _stage_completed(audit.status):
+                continue
+            local_rows: list[dict[str, Any]] = []
+            offset = 0
+            while True:
+                page = self.feature_store.stage_decisions(
+                    run_id,
+                    lane.lane,
+                    local_stage,
+                    limit=5000,
+                    offset=offset,
+                    generation_id=self._feature_generation_id or None,
+                )
+                local_rows.extend(page)
+                if len(page) < 5000:
+                    break
+                offset += len(page)
+            if not local_rows:
+                continue
+
+            passed_symbols = set(audit.symbols)
+            output_rows: dict[str, Mapping[str, Any]] = {}
+            output = audit.output if isinstance(audit.output, Mapping) else {}
+            for pool_name in _STAGE_LINEAGE_POOLS.get(stage_name, ()):
+                pool = output.get(pool_name)
+                if not isinstance(pool, list):
+                    continue
+                for raw in pool:
+                    if not isinstance(raw, Mapping):
+                        continue
+                    symbol = _first_symbol(raw)
+                    if symbol:
+                        output_rows[symbol] = raw
+
+            decisions: list[dict[str, Any]] = []
+            for raw in local_rows:
+                item = dict(raw)
+                symbol = _first_symbol(item)
+                if not symbol:
+                    continue
+                reason_codes = {
+                    str(value).strip().upper()
+                    for value in item.get("reason_codes", ())
+                    if str(value).strip()
+                }
+                failed_gates = {
+                    str(value).strip().upper()
+                    for value in item.get("all_failed_gates", ())
+                    if str(value).strip()
+                }
+                transport_truncated = (
+                    "SENT_TO_LLM" in failed_gates
+                    or "A2_NOT_SENT_TO_LLM" in reason_codes
+                    or "A1_NOT_SENT_TO_LLM" in reason_codes
+                )
+                item["decision"] = (
+                    "PASSED"
+                    if symbol in passed_symbols
+                    else "NOT_SENT_TO_LLM"
+                    if transport_truncated
+                    else "REJECTED"
+                )
+                final_row = output_rows.get(symbol)
+                if final_row is not None:
+                    for key in (
+                        "industry",
+                        "industry_code",
+                        "industry_name",
+                        "ths_industry",
+                        "market_cap",
+                        "market_value",
+                        "volatility",
+                        "volatility_20d",
+                        "candidate_origin",
+                    ):
+                        if key not in item and key in final_row:
+                            item[key] = final_row[key]
+                decisions.append(item)
+
+            record_stage_decisions(
+                self.runtime_store,
+                trade_date=trade_date,
+                stage=stage_name,
+                decisions=decisions,
+                snapshot_id=snapshot.snapshot_id,
+                config_hash=config_hash,
+                run_id=run_id,
+                lane_id=lane.lane,
+            )
 
     def _emit_gate_progress(
         self,
@@ -4525,7 +4694,7 @@ def _prompt_replacements(
             # compact packet is the sole source for POLICY_MACRO_DISCOVERY.
             replacements[name] = None
             continue
-        if name == "UPSTREAM_ACTIVE_POOL" or name == "UPSTREAM_FOCUS_POOL":
+        if name in {"UPSTREAM_ACTIVE_POOL", "UPSTREAM_FOCUS_POOL", "A3_CANDIDATE_POOL"}:
             replacements[name] = (
                 _project_upstream_output(upstream_output, allowed_symbols)
                 if upstream_output is not None
@@ -4565,7 +4734,8 @@ def _prompt_replacements(
                 "clue_pool_target": [300, 800],
                 "active_research_target": [100, 250],
                 "node_count_target": [40, 80],
-                "quota_forbidden": True,
+                "quota_fill_enabled": False,
+                "quota_fill_observation": "COHORT_OBSERVATION_ONLY",
             }
             continue
         if name == "A2_POOL_TARGETS":
@@ -5503,10 +5673,10 @@ def _build_a3_candidate_domain(
         selected[symbol] = item
         origins[symbol] = "WATCH_ONLY"
 
-    # Present the candidate domain through the existing A3 upstream placeholder
-    # (which is named UPSTREAM_FOCUS_POOL for compatibility).  The candidate
-    # origin travels with each row and is also persisted in the immutable A3
-    # snapshot context below for server-side policy enforcement.
+    # The A3 candidate domain deliberately contains both A2 focus candidates
+    # and server-qualified WATCH_ONLY candidates.  Preserve candidate_origin
+    # on each row so neither the model nor operators can mistake this for the
+    # narrower A2 focus pool.
     rows = [selected[symbol] for symbol in sorted(selected)]
     projected = dict(a2_output)
     projected["focus_pool"] = rows
@@ -7190,12 +7360,34 @@ def _enrich_a2_decision_facts(
             if deterministic_state and item.get("deterministic_data_sufficiency_state") != deterministic_state:
                 item["deterministic_data_sufficiency_state"] = deterministic_state
                 changed += 1
+            for field in ("gate_results", "first_blocking_gate", "all_failed_gates"):
+                expected = context.get(field)
+                if item.get(field) == expected:
+                    continue
+                if isinstance(expected, Mapping):
+                    item[field] = dict(expected)
+                elif isinstance(expected, Sequence) and not isinstance(expected, (str, bytes, bytearray)):
+                    item[field] = list(expected)
+                else:
+                    item[field] = expected
+                changed += 1
             normalized_weak = list(dict.fromkeys(weak_fields))
             if normalized_weak and item.get("weak_evidence_fields") != normalized_weak:
                 item["weak_evidence_fields"] = normalized_weak
                 changed += 1
             normalized.append(item)
         result[pool] = normalized
+    block_counts: dict[str, int] = {}
+    for context in contexts.values():
+        if not isinstance(context, Mapping):
+            continue
+        for gate_name in context.get("all_failed_gates") or ():
+            name = str(gate_name)
+            if name:
+                block_counts[name] = block_counts.get(name, 0) + 1
+    summary = dict(result.get("analysis_summary")) if isinstance(result.get("analysis_summary"), Mapping) else {}
+    summary["gate_block_counts"] = dict(sorted(block_counts.items()))
+    result["analysis_summary"] = summary
     return result, changed
 
 
@@ -8325,7 +8517,10 @@ def _annotate_a1_pool_target(
         "clue_pool_count": clue_count,
         "active_research_target": {"minimum": active_min, "maximum": active_max},
         "clue_pool_target": {"minimum": clue_min, "maximum": clue_max},
-        "quota_forbidden": True,
+        "quota_fill_enabled": bool(targets.get("quota_fill_enabled", False)),
+        "quota_fill_observation": str(
+            targets.get("quota_fill_observation") or "COHORT_OBSERVATION_ONLY"
+        ),
         "reason_codes": list(dict.fromkeys(reason_codes)),
     })
     result["analysis_summary"] = summary
@@ -8905,6 +9100,14 @@ def _canonicalize_a3_price_fields(
                 "met_conditions",
                 "unmet_conditions",
                 "veto_conditions",
+                "gate_results",
+                "first_blocking_gate",
+                "all_failed_gates",
+                "publication_state",
+                "A3_ABLATION_MODE",
+                "a3_ablation_mode",
+                "ablation_gates",
+                "ablation_shadow_eligibility",
                 "strategy_facts",
             ):
                 if key in strategy_context:
@@ -9201,6 +9404,9 @@ def _with_a2_bottleneck_context(
             "eligible_routes": list(item.get("eligible_routes") or ()),
             "preferred_route": item.get("route"),
             "route_eligibility": dict(item.get("route_eligibility") or {}),
+            "gate_results": dict(item.get("gate_results") or {}),
+            "first_blocking_gate": item.get("first_blocking_gate"),
+            "all_failed_gates": list(item.get("all_failed_gates") or ()),
             "route_context_schema": "a2-route-lineage/1",
         }
     overlay_hash = _sha256_json({
@@ -9283,6 +9489,14 @@ def _with_a3_deterministic_context(
         "met_conditions",
         "unmet_conditions",
         "veto_conditions",
+        "gate_results",
+        "first_blocking_gate",
+        "all_failed_gates",
+        "publication_state",
+        "A3_ABLATION_MODE",
+        "a3_ablation_mode",
+        "ablation_gates",
+        "ablation_shadow_eligibility",
         "strategy_facts",
         "reward_risk",
         "stop_distance_pct",

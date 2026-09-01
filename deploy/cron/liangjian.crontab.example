@@ -1,6 +1,7 @@
 # Replace /opt/liangjian-funnel-workflow with the actual absolute deployment path.
 # The application checks the exchange calendar, acquires a durable lease, and
 # propagates business failures as a non-zero exit code on every invocation.
+30 8 * * 1-5 cd /opt/liangjian-funnel-workflow && ./.venv/bin/liangjian-funnel run-premarket >> outputs/scheduler/cron.log 2>&1
 26 9 * * 1-5 cd /opt/liangjian-funnel-workflow && ./.venv/bin/liangjian-funnel run-morning >> outputs/scheduler/cron.log 2>&1
 10 15 * * 1-5 cd /opt/liangjian-funnel-workflow && ./.venv/bin/liangjian-funnel run-close >> outputs/scheduler/cron.log 2>&1
 25-59 9 * * 1-5 cd /opt/liangjian-funnel-workflow && ./.venv/bin/liangjian-funnel run-monitor >> outputs/scheduler/cron.log 2>&1

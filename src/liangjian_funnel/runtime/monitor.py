@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from collections.abc import Callable, Mapping
 from datetime import datetime, time as datetime_time, timedelta
@@ -29,6 +30,7 @@ class MonitorEvent(BaseModel):
     reason_code: str
     effective: bool = False
     llm_veto: bool = False
+    llm_reason_code: str | None = None
 
 
 class MonitorBatchResult(BaseModel):
@@ -505,6 +507,7 @@ class MonitorEngine:
         # minute.  The callback may only return veto flags; trigger_results
         # with trigger_pass=False can never become eligible here.
         vetoes: dict[str, bool] = {}
+        veto_reasons: dict[str, str] = {}
         llm_failed = False
         llm_error_code: str | None = None
         if self.llm_veto is not None and pending_veto:
@@ -517,7 +520,16 @@ class MonitorEngine:
             }
             try:
                 response = self.llm_veto(context)
-                vetoes = self._batch_veto(response, pending_veto)
+                veto_details = self._batch_veto_details(response, pending_veto)
+                vetoes = {
+                    plan_id: detail[0]
+                    for plan_id, detail in veto_details.items()
+                }
+                veto_reasons = {
+                    plan_id: detail[1]
+                    for plan_id, detail in veto_details.items()
+                    if detail[1]
+                }
             except Exception as exc:
                 llm_failed = True
                 candidate = str(getattr(exc, "reason_code", "") or "")[:80]
@@ -534,9 +546,24 @@ class MonitorEngine:
             plan = item["plan"]
             plan_id = item["plan_id"]
             if overrun:
-                events.append(self._emit_effective(lane_id, plan, minute, minute_snapshot_id, MonitorAction.DATA_BLOCK.value, "MONITOR_OVERRUN"))
+                strategy_result = _with_llm_observability(
+                    item.get("strategy_result"),
+                    llm_veto=False,
+                    llm_reason_code="MONITOR_OVERRUN",
+                )
+                events.append(self._emit_effective(
+                    lane_id,
+                    plan,
+                    minute,
+                    minute_snapshot_id,
+                    MonitorAction.DATA_BLOCK.value,
+                    "MONITOR_OVERRUN",
+                    llm_reason_code="MONITOR_OVERRUN",
+                    strategy_result=strategy_result,
+                ))
                 continue
             if llm_failed or self.llm_veto is None:
+                unavailable_code = llm_error_code or "LLM_CALLBACK_MISSING"
                 events.append(
                     self._emit_effective(
                         lane_id,
@@ -545,12 +572,24 @@ class MonitorEngine:
                         minute_snapshot_id,
                         MonitorAction.DATA_BLOCK.value,
                         "LLM_UNAVAILABLE",
-                        diagnostic_code=llm_error_code or "LLM_CALLBACK_MISSING",
+                        diagnostic_code=unavailable_code,
+                        llm_reason_code=unavailable_code,
+                        strategy_result=_with_llm_observability(
+                            item.get("strategy_result"),
+                            llm_veto=False,
+                            llm_reason_code=unavailable_code,
+                        ),
                     )
                 )
                 continue
             veto = bool(vetoes.get(plan_id, False))
             action = MonitorAction.LLM_VETO.value if veto else item["action"]
+            llm_reason_code = veto_reasons.get(plan_id) or ("LLM_VETO" if veto else "LLM_PASS")
+            strategy_result = _with_llm_observability(
+                item.get("strategy_result"),
+                llm_veto=veto,
+                llm_reason_code=llm_reason_code,
+            )
             self._condition_active.add(item["key"])
             events.append(self._emit_effective(
                 lane_id,
@@ -560,7 +599,8 @@ class MonitorEngine:
                 action,
                 "LLM_VETO" if veto else "DETERMINISTIC_TRIGGER_PASS",
                 llm_veto=veto,
-                strategy_result=item.get("strategy_result"),
+                llm_reason_code=llm_reason_code,
+                strategy_result=strategy_result,
             ))
         return MonitorBatchResult(
             lane_id=lane_id,
@@ -605,25 +645,88 @@ class MonitorEngine:
         price or quantity is intentionally ignored.
         """
 
+        return {
+            plan_id: detail[0]
+            for plan_id, detail in MonitorEngine._batch_veto_details(response, pending).items()
+        }
+
+    @staticmethod
+    def _batch_veto_details(
+        response: Any,
+        pending: list[dict[str, Any]],
+    ) -> dict[str, tuple[bool, str | None]]:
+        """Extract veto flags plus safe reason codes from one model response.
+
+        Only explicit boolean veto fields are authoritative.  ``thinking``,
+        free-form explanations, proposed actions and prices are ignored.  The
+        legacy ``_batch_veto`` method remains a bool-only compatibility
+        wrapper, so adding diagnostics cannot change trigger semantics.
+        """
+
         plan_ids = [str(item["plan_id"]) for item in pending]
+
+        def reason_from(value: Any) -> str | None:
+            if not isinstance(value, Mapping):
+                return None
+            for key in ("reason_code", "veto_reason_code", "reason"):
+                code = _safe_reason_code(value.get(key))
+                if code:
+                    return code
+            codes = value.get("reason_codes")
+            if isinstance(codes, (list, tuple)):
+                for code in codes:
+                    safe = _safe_reason_code(code)
+                    if safe:
+                        return safe
+            return None
+
         if isinstance(response, bool):
-            return {plan_id: response for plan_id in plan_ids}
+            default = "LLM_VETO" if response else "LLM_PASS"
+            return {plan_id: (response, default) for plan_id in plan_ids}
         if not isinstance(response, Mapping):
             return {}
+
         global_veto = response.get("llm_veto")
         if isinstance(global_veto, bool):
-            return {plan_id: global_veto for plan_id in plan_ids}
+            default = "LLM_VETO" if global_veto else "LLM_PASS"
+            reason = reason_from(response) or default
+            return {plan_id: (global_veto, reason) for plan_id in plan_ids}
+
         raw = response.get("vetoes")
         if isinstance(raw, Mapping):
-            return {plan_id: bool(raw.get(plan_id, False)) for plan_id in plan_ids}
+            reasons = response.get("veto_reasons")
+            result: dict[str, tuple[bool, str | None]] = {}
+            for plan_id in plan_ids:
+                value = raw.get(plan_id, False)
+                # Preserve the legacy bool(value) interpretation for the
+                # existing veto map contract; mapping values were never
+                # action-bearing input and are not reinterpreted here.
+                veto = bool(value)
+                reason = reason_from(value)
+                if reason is None and isinstance(reasons, Mapping):
+                    reason = _safe_reason_code(reasons.get(plan_id))
+                result[plan_id] = (veto, reason or ("LLM_VETO" if veto else "LLM_PASS"))
+            return result
+
         records = response.get("signals")
         if isinstance(records, (list, tuple)):
-            result: dict[str, bool] = {}
+            result = {}
             for record in records:
                 if isinstance(record, Mapping) and record.get("plan_id") in plan_ids:
-                    result[str(record["plan_id"])] = bool(record.get("llm_veto", False) or record.get("veto", False))
+                    veto = bool(record.get("llm_veto", False) or record.get("veto", False))
+                    result[str(record["plan_id"])] = (
+                        veto,
+                        reason_from(record) or ("LLM_VETO" if veto else "LLM_PASS"),
+                    )
             return result
-        return {plan_id: bool(response.get(plan_id, False)) for plan_id in plan_ids}
+
+        return {
+            plan_id: (
+                bool(response.get(plan_id, False)),
+                "LLM_VETO" if bool(response.get(plan_id, False)) else "LLM_PASS",
+            )
+            for plan_id in plan_ids
+        }
 
     @staticmethod
     def _in_session(value: datetime) -> bool:
@@ -761,6 +864,7 @@ class MonitorEngine:
         reason: str,
         *,
         llm_veto: bool = False,
+        llm_reason_code: str | None = None,
         diagnostic_code: str | None = None,
         strategy_result: Mapping[str, Any] | None = None,
     ) -> MonitorEvent:
@@ -781,6 +885,7 @@ class MonitorEngine:
                 "plan_id": plan_id,
                 "symbol": symbol,
                 "llm_veto": bool(llm_veto),
+                "llm_reason_code": _safe_reason_code(llm_reason_code),
                 "diagnostic_code": diagnostic_code,
                 "strategy": dict(strategy_result) if isinstance(strategy_result, Mapping) else None,
             },
@@ -794,6 +899,7 @@ class MonitorEngine:
                 action=MonitorAction.NO_ACTION.value,
                 reason_code="DUPLICATE_EFFECTIVE_STATE",
                 effective=False,
+                llm_reason_code=_safe_reason_code(llm_reason_code),
             )
         if inserted and self.effective_md_path is not None:
             self._append_markdown(record)
@@ -806,6 +912,7 @@ class MonitorEngine:
             reason_code=reason,
             effective=True,
             llm_veto=llm_veto,
+            llm_reason_code=_safe_reason_code(llm_reason_code),
         )
 
     def _append_markdown(self, record: Mapping[str, Any]) -> None:
@@ -841,6 +948,35 @@ def rebuild_effective_markdown(store: RuntimeStore, path: str | Path) -> Path:
         )
     atomic_write_text(target, "\n".join(lines) + "\n")
     return target
+
+
+_SAFE_REASON_CODE = re.compile(r"^[A-Z][A-Z0-9_\-]{0,79}$")
+
+
+def _safe_reason_code(value: Any) -> str | None:
+    """Return only a bounded enum-like code; never persist model prose."""
+
+    if not isinstance(value, str):
+        return None
+    candidate = value.strip().upper()
+    return candidate if _SAFE_REASON_CODE.fullmatch(candidate) else None
+
+
+def _with_llm_observability(
+    strategy_result: Any,
+    *,
+    llm_veto: bool,
+    llm_reason_code: str,
+) -> dict[str, Any] | None:
+    """Copy only safe LLM outcome fields into the nested strategy payload."""
+
+    if not isinstance(strategy_result, Mapping):
+        return None
+    return {
+        **dict(strategy_result),
+        "llm_veto": bool(llm_veto),
+        "llm_reason_code": _safe_reason_code(llm_reason_code),
+    }
 
 
 __all__ = ["MonitorBatchResult", "MonitorEngine", "MonitorEvent", "rebuild_effective_markdown"]

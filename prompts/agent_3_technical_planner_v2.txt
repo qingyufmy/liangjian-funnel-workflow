@@ -18,7 +18,7 @@ Agent 3 · DailyTechnicalPlanVerifier
 【冻结输入】
 ────────────────────────────────────────────────────────────────────────
 
-{{UPSTREAM_FOCUS_POOL}}      服务端已通过资格门、允许模型复核的唯一候选域
+{{A3_CANDIDATE_POOL}}        服务端已通过资格门、允许模型复核的唯一候选域；逐项保留 FOCUS/WATCH_ONLY 来源
 {{A3_DETERMINISTIC_CONTEXT}} 每只股票的唯一策略、资格和条件级原因码
 {{MARKET_REGIME_SNAPSHOT}}   市场环境
 {{SECTOR_PERMISSIONS}}       板块权限

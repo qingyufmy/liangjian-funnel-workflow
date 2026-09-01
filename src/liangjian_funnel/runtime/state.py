@@ -9,6 +9,7 @@ No table in this module contains model reasoning text.
 from __future__ import annotations
 
 import json
+import math
 import sqlite3
 import threading
 import uuid
@@ -42,6 +43,18 @@ class PersistenceError(RuntimeStateError):
 
 
 class PersistenceBlockedError(PersistenceError):
+    pass
+
+
+class OutcomeLabelConflictError(StateTransitionError):
+    """An outcome label tried to change an immutable decision fact.
+
+    Forward-performance fields are append-only measurements, but the
+    decision identity, source hashes and decision itself are immutable.  A
+    separate public exception makes that boundary visible to offline
+    evaluators without weakening the normal state conflict contract.
+    """
+
     pass
 
 
@@ -146,6 +159,12 @@ NOTIFICATION_CARD_COLORS: tuple[str, ...] = (
 )
 
 NOTIFICATION_STATUSES = frozenset({"SENT", "FAILED"})
+
+OUTCOME_STAGES = frozenset({"G0", "A1", "A2", "A3", "A4"})
+OUTCOME_DECISIONS = frozenset({"PASSED", "REJECTED", "NOT_SENT_TO_LLM"})
+OUTCOME_SELECTION_BASES = frozenset(
+    {"LLM_REVIEWED", "DETERMINISTIC_SCORE", "QUOTA_FILL"}
+)
 
 
 RUN_TRANSITIONS: dict[str, frozenset[str]] = {
@@ -276,6 +295,159 @@ def _ensure_column(connection: sqlite3.Connection, table: str, column: str, decl
     existing = {str(row[1]) for row in connection.execute(f"PRAGMA table_info({table})").fetchall()}
     if column not in existing:
         connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
+
+
+def _migrate_outcome_label_identity(connection: sqlite3.Connection) -> None:
+    """Migrate an early date-only outcome table without losing rows.
+
+    The first draft of T0 used ``(trade_date, stage, symbol)`` as its unique
+    key.  That cannot represent same-day reruns or comparison lanes.  If such
+    a table is encountered, preserve every row under a stable legacy run/lane
+    identity before the new composite index is created.  Fresh databases do
+    not enter this branch.
+    """
+
+    table_info = connection.execute("PRAGMA table_info(astock_outcome_labels)").fetchall()
+    columns = {str(row[1]) for row in table_info}
+    if not columns:
+        return
+
+    # The first draft used a date-only unique key.  A later draft added the
+    # identity columns but could still have the old table-level constraint.
+    # Detect both forms before the indexes are created below; otherwise an old
+    # database would either fail on the new index (missing columns) or keep
+    # rejecting same-day reruns (stale UNIQUE(trade_date, stage, symbol)).
+    has_bad_unique = False
+    for index in connection.execute("PRAGMA index_list(astock_outcome_labels)").fetchall():
+        index_name = str(index[1])
+        is_unique = bool(index[2])
+        if not is_unique:
+            continue
+        index_columns = tuple(
+            str(item[2])
+            for item in connection.execute(f"PRAGMA index_info({index_name})").fetchall()
+        )
+        if set(index_columns) == {"trade_date", "stage", "symbol"} and len(index_columns) == 3:
+            has_bad_unique = True
+            break
+    if {"run_id", "lane_id"}.issubset(columns) and not has_bad_unique:
+        return
+
+    # Keep any prior migration backup instead of silently deleting it.  This
+    # matters when an interrupted/manual migration left a table with that
+    # name; source rows remain inspectable and the renamed table cannot block
+    # the new composite identity.
+    legacy_table = "astock_outcome_labels_legacy_migration"
+    suffix = 1
+    existing_tables = {
+        str(row[0])
+        for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+    }
+    while legacy_table in existing_tables:
+        suffix += 1
+        legacy_table = f"astock_outcome_labels_legacy_migration_{suffix}"
+    connection.execute(f"ALTER TABLE astock_outcome_labels RENAME TO {legacy_table}")
+    connection.executescript(
+        """
+        CREATE TABLE astock_outcome_labels (
+            label_id TEXT PRIMARY KEY,
+            run_id TEXT NOT NULL,
+            lane_id TEXT NOT NULL,
+            trade_date TEXT NOT NULL,
+            stage TEXT NOT NULL CHECK(stage IN ('G0','A1','A2','A3','A4')),
+            symbol TEXT NOT NULL,
+            decision TEXT NOT NULL CHECK(decision IN ('PASSED','REJECTED','NOT_SENT_TO_LLM')),
+            reason_codes TEXT NOT NULL DEFAULT '[]',
+            selection_basis TEXT,
+            score REAL,
+            snapshot_id TEXT NOT NULL,
+            config_hash TEXT NOT NULL,
+            fwd_return_1d REAL,
+            fwd_return_3d REAL,
+            fwd_return_5d REAL,
+            fwd_return_10d REAL,
+            mfe_5d REAL,
+            mae_5d REAL,
+            benchmark_return_5d REAL,
+            excess_return_5d REAL,
+            labeled_at TEXT,
+            baseline_status TEXT NOT NULL DEFAULT 'PENDING',
+            baseline_sample_size INTEGER,
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            UNIQUE(run_id, lane_id, stage, symbol)
+        )
+        """
+    )
+    rows = connection.execute(f"SELECT rowid,* FROM {legacy_table} ORDER BY rowid").fetchall()
+    copied_identities: set[tuple[str, str, str, str]] = set()
+    for row in rows:
+        data = {key: row[key] for key in row.keys()}
+        label_id = str(data.get("label_id") or "").strip()
+        if not label_id:
+            label_id = uuid.uuid5(
+                uuid.NAMESPACE_URL,
+                f"liangjian-outcome:legacy:{data.get('rowid')}",
+            ).hex
+        snapshot_id = str(data.get("snapshot_id") or "legacy").strip() or "legacy"
+        run_id = str(data.get("run_id") or f"legacy:{snapshot_id}").strip()
+        lane_id = str(data.get("lane_id") or f"legacy:{data.get('rowid')}").strip()
+        stage = str(data.get("stage") or "").strip().upper()
+        decision = str(data.get("decision") or "").strip().upper()
+        if stage not in OUTCOME_STAGES or decision not in OUTCOME_DECISIONS:
+            # The old draft had no checks.  Invalid legacy rows remain
+            # inspectable in the migration backup table and are excluded from
+            # the typed ledger rather than blocking initialization.
+            continue
+        identity = (run_id, lane_id, stage, str(data.get("symbol") or "").upper())
+        if identity in copied_identities:
+            # A partially migrated table may have populated run/lane columns
+            # with the same default for every legacy row.  Preserve all rows
+            # by assigning only the colliding lane a stable row-id suffix.
+            lane_id = f"{lane_id}:legacy:{data.get('rowid')}"
+            identity = (run_id, lane_id, stage, identity[3])
+            while identity in copied_identities:
+                lane_id = f"{lane_id}:x"
+                identity = (run_id, lane_id, stage, identity[3])
+        copied_identities.add(identity)
+        connection.execute(
+            """
+            INSERT INTO astock_outcome_labels(
+                label_id,run_id,lane_id,trade_date,stage,symbol,decision,reason_codes,
+                selection_basis,score,snapshot_id,config_hash,fwd_return_1d,fwd_return_3d,
+                fwd_return_5d,fwd_return_10d,mfe_5d,mae_5d,benchmark_return_5d,
+                excess_return_5d,labeled_at,baseline_status,baseline_sample_size,metadata_json
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                label_id,
+                run_id,
+                lane_id,
+                str(data.get("trade_date") or ""),
+                stage,
+                str(data.get("symbol") or "").upper(),
+                decision,
+                str(data.get("reason_codes") or "[]"),
+                data.get("selection_basis"),
+                data.get("score"),
+                snapshot_id,
+                str(data.get("config_hash") or "legacy"),
+                data.get("fwd_return_1d"),
+                data.get("fwd_return_3d"),
+                data.get("fwd_return_5d"),
+                data.get("fwd_return_10d"),
+                data.get("mfe_5d"),
+                data.get("mae_5d"),
+                data.get("benchmark_return_5d"),
+                data.get("excess_return_5d"),
+                data.get("labeled_at"),
+                data.get("baseline_status") or "PENDING",
+                data.get("baseline_sample_size"),
+                data.get("metadata_json") or "{}",
+            ),
+        )
+    # Deliberately retain the renamed source table as a migration archive.
+    # It is outside the live table/index namespace and can be removed by a
+    # separately reviewed storage-retention operation after verification.
 
 
 class RuntimeStore:
@@ -520,12 +692,60 @@ class RuntimeStore:
                         PRIMARY KEY(run_id, lane_id, stage),
                         FOREIGN KEY(run_id, lane_id) REFERENCES workflow_runs(run_id, lane_id)
                     );
+                    CREATE TABLE IF NOT EXISTS astock_outcome_labels (
+                        label_id TEXT PRIMARY KEY,
+                        run_id TEXT NOT NULL,
+                        lane_id TEXT NOT NULL,
+                        trade_date TEXT NOT NULL,
+                        stage TEXT NOT NULL CHECK(stage IN ('G0','A1','A2','A3','A4')),
+                        symbol TEXT NOT NULL,
+                        decision TEXT NOT NULL CHECK(decision IN ('PASSED','REJECTED','NOT_SENT_TO_LLM')),
+                        reason_codes TEXT NOT NULL DEFAULT '[]',
+                        selection_basis TEXT,
+                        score REAL,
+                        snapshot_id TEXT NOT NULL,
+                        config_hash TEXT NOT NULL,
+                        fwd_return_1d REAL,
+                        fwd_return_3d REAL,
+                        fwd_return_5d REAL,
+                        fwd_return_10d REAL,
+                        mfe_5d REAL,
+                        mae_5d REAL,
+                        benchmark_return_5d REAL,
+                        excess_return_5d REAL,
+                        labeled_at TEXT,
+                        baseline_status TEXT NOT NULL DEFAULT 'PENDING',
+                        baseline_sample_size INTEGER,
+                        metadata_json TEXT NOT NULL DEFAULT '{}',
+                        UNIQUE(run_id, lane_id, stage, symbol)
+                    );
                     """
                 )
+                _migrate_outcome_label_identity(connection)
                 _ensure_column(connection, "scheduler_leases", "state", "TEXT NOT NULL DEFAULT 'ACTIVE'")
                 _ensure_column(connection, "scheduler_leases", "completed_at", "TEXT")
                 _ensure_column(connection, "workflow_runs", "outcome_json", "TEXT NOT NULL DEFAULT '{}'")
                 _ensure_column(connection, "workflow_stages", "outcome_json", "TEXT NOT NULL DEFAULT '{}'")
+                _ensure_column(connection, "astock_outcome_labels", "run_id", "TEXT NOT NULL DEFAULT ''")
+                _ensure_column(connection, "astock_outcome_labels", "lane_id", "TEXT NOT NULL DEFAULT ''")
+                _ensure_column(connection, "astock_outcome_labels", "baseline_status", "TEXT NOT NULL DEFAULT 'PENDING'")
+                _ensure_column(connection, "astock_outcome_labels", "baseline_sample_size", "INTEGER")
+                _ensure_column(connection, "astock_outcome_labels", "metadata_json", "TEXT NOT NULL DEFAULT '{}'")
+                # Create secondary indexes only after migrations have added
+                # the identity columns.  This keeps first-open upgrades from
+                # failing on the original date-only table.
+                connection.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_astock_outcome_labels_stage_date_v2 "
+                    "ON astock_outcome_labels(stage, trade_date, decision, run_id, lane_id)"
+                )
+                connection.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_astock_outcome_labels_unlabeled_v2 "
+                    "ON astock_outcome_labels(labeled_at, trade_date)"
+                )
+                connection.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_astock_outcome_labels_identity_v2 "
+                    "ON astock_outcome_labels(run_id, lane_id, stage, symbol)"
+                )
         except Exception:
             self._persistence_failed = True
             raise PersistenceError("PERSISTENCE_FAILED") from None
@@ -824,6 +1044,391 @@ class RuntimeStore:
             return updated
 
         return int(self._write(operation))
+
+    # ------------------------------------------------------------------
+    # Deterministic outcome-label ledger
+    # ------------------------------------------------------------------
+    def record_outcome_labels(self, labels: Sequence[Mapping[str, Any]]) -> tuple[dict[str, Any], ...]:
+        """Insert immutable stage decisions, idempotently.
+
+        The natural identity is ``(run_id, lane_id, stage, symbol)``.  Replaying
+        the same decision is a no-op; attempting to change any decision fact
+        (including its source hashes) raises ``OUTCOME_LABEL_IMMUTABLE_CONFLICT``.
+        Performance measurements are deliberately not accepted on this path;
+        they are appended later by :meth:`update_outcome_label_metrics`.
+        """
+
+        if isinstance(labels, (str, bytes, bytearray)):
+            raise TypeError("outcome labels must be a sequence of mappings")
+        prepared: list[dict[str, Any]] = []
+        for raw in labels:
+            if not isinstance(raw, Mapping):
+                raise TypeError("outcome label must be a mapping")
+            run_id = str(raw.get("run_id") or raw.get("decision_run_id") or "default").strip()
+            lane_id = str(raw.get("lane_id") or "default").strip()
+            if not run_id or not lane_id:
+                raise ValueError("outcome label run_id and lane_id must not be empty")
+            trade_date = str(raw.get("trade_date") or "").strip()
+            try:
+                date.fromisoformat(trade_date)
+            except ValueError as exc:
+                raise ValueError("outcome label trade_date must be YYYY-MM-DD") from exc
+            stage = str(raw.get("stage") or "").strip().upper()
+            if stage not in OUTCOME_STAGES:
+                raise ValueError("invalid outcome label stage")
+            symbol = str(raw.get("symbol") or "").strip().upper()
+            if not symbol:
+                raise ValueError("outcome label symbol must not be empty")
+            decision = str(raw.get("decision") or "").strip().upper()
+            if decision not in OUTCOME_DECISIONS:
+                raise ValueError("invalid outcome label decision")
+            snapshot_id = str(raw.get("snapshot_id") or "").strip()
+            config_hash = str(raw.get("config_hash") or "").strip()
+            if not snapshot_id or not config_hash:
+                raise ValueError("outcome label snapshot_id and config_hash are required")
+            selection_basis = raw.get("selection_basis")
+            if selection_basis is not None:
+                selection_basis = str(selection_basis).strip().upper() or None
+                if selection_basis not in OUTCOME_SELECTION_BASES:
+                    raise ValueError("invalid outcome label selection_basis")
+            score = raw.get("score")
+            if score is not None:
+                if isinstance(score, bool):
+                    raise ValueError("outcome label score must be finite")
+                try:
+                    score = float(score)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError("outcome label score must be finite") from exc
+                if not math.isfinite(score):
+                    raise ValueError("outcome label score must be finite")
+            reasons = raw.get("reason_codes", raw.get("reasons", ()))
+            if reasons is None:
+                reasons = []
+            elif isinstance(reasons, str):
+                reasons = [reasons] if reasons.strip() else []
+            elif isinstance(reasons, Mapping):
+                reasons = dict(reasons)
+            elif isinstance(reasons, Sequence):
+                reasons = list(reasons)
+            else:
+                reasons = [str(reasons)]
+            reason_json = json.dumps(
+                reasons,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                default=str,
+            )
+            metadata = raw.get("metadata", raw.get("context", {}))
+            if metadata is None:
+                metadata = {}
+            if not isinstance(metadata, Mapping):
+                raise TypeError("outcome label metadata must be a mapping")
+            metadata_json = _json(metadata)
+            label_id = str(raw.get("label_id") or "").strip()
+            expected_label_id = uuid.uuid5(
+                uuid.NAMESPACE_URL,
+                f"liangjian-outcome:{run_id}:{lane_id}:{trade_date}:{stage}:{symbol}",
+            ).hex
+            if label_id and label_id != expected_label_id:
+                raise ValueError("outcome label_id does not match natural identity")
+            prepared.append(
+                {
+                    "label_id": expected_label_id,
+                    "run_id": run_id,
+                    "lane_id": lane_id,
+                    "trade_date": trade_date,
+                    "stage": stage,
+                    "symbol": symbol,
+                    "decision": decision,
+                    "reason_codes": reason_json,
+                    "selection_basis": selection_basis,
+                    "score": score,
+                    "snapshot_id": snapshot_id,
+                    "config_hash": config_hash,
+                    "metadata_json": metadata_json,
+                }
+            )
+        if not prepared:
+            return ()
+        immutable_fields = (
+            "label_id",
+            "run_id",
+            "lane_id",
+            "trade_date",
+            "stage",
+            "symbol",
+            "decision",
+            "reason_codes",
+            "selection_basis",
+            "score",
+            "snapshot_id",
+            "config_hash",
+            "metadata_json",
+        )
+
+        def operation(connection):
+            result: list[dict[str, Any]] = []
+            for item in prepared:
+                existing = connection.execute(
+                    "SELECT * FROM astock_outcome_labels WHERE run_id=? AND lane_id=? AND stage=? AND symbol=?",
+                    (item["run_id"], item["lane_id"], item["stage"], item["symbol"]),
+                ).fetchone()
+                if existing is not None:
+                    for field in immutable_fields:
+                        if existing[field] != item[field]:
+                            raise OutcomeLabelConflictError("OUTCOME_LABEL_IMMUTABLE_CONFLICT")
+                    result.append(_row_dict(existing) or {})
+                    continue
+                connection.execute(
+                    """
+                    INSERT INTO astock_outcome_labels(
+                        label_id,run_id,lane_id,trade_date,stage,symbol,decision,reason_codes,
+                        selection_basis,score,snapshot_id,config_hash,metadata_json
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    """,
+                    (
+                        item["label_id"],
+                        item["run_id"],
+                        item["lane_id"],
+                        item["trade_date"],
+                        item["stage"],
+                        item["symbol"],
+                        item["decision"],
+                        item["reason_codes"],
+                        item["selection_basis"],
+                        item["score"],
+                        item["snapshot_id"],
+                        item["config_hash"],
+                        item["metadata_json"],
+                    ),
+                )
+                row = connection.execute(
+                    "SELECT * FROM astock_outcome_labels WHERE label_id=?",
+                    (item["label_id"],),
+                ).fetchone()
+                result.append(_row_dict(row) or {})
+            return tuple(result)
+
+        return tuple(self._write(operation))
+
+    def record_outcome_label(self, label: Mapping[str, Any]) -> dict[str, Any]:
+        """Singular convenience wrapper around :meth:`record_outcome_labels`."""
+
+        rows = self.record_outcome_labels((label,))
+        return rows[0]
+
+    def update_outcome_label_metrics(
+        self,
+        updates: Sequence[Mapping[str, Any]],
+    ) -> tuple[dict[str, Any], ...]:
+        """Append forward measurements without rewriting immutable facts.
+
+        A non-null measurement cannot be replaced by a different value.  A
+        null incoming value never erases a previously observed value.  This
+        makes retries safe while still allowing a short window (1/3/5 days)
+        to be completed before the 10-day label is closed.
+        """
+
+        if isinstance(updates, (str, bytes, bytearray)):
+            raise TypeError("outcome metric updates must be a sequence of mappings")
+        fields = (
+            "fwd_return_1d",
+            "fwd_return_3d",
+            "fwd_return_5d",
+            "fwd_return_10d",
+            "mfe_5d",
+            "mae_5d",
+            "benchmark_return_5d",
+            "excess_return_5d",
+            "labeled_at",
+            "baseline_status",
+            "baseline_sample_size",
+        )
+        prepared: list[dict[str, Any]] = []
+        for raw in updates:
+            if not isinstance(raw, Mapping):
+                raise TypeError("outcome metric update must be a mapping")
+            item = {field: raw.get(field) for field in fields if field in raw}
+            if not item:
+                continue
+            if raw.get("label_id"):
+                item["label_id"] = str(raw["label_id"])
+                item["identity"] = ("label_id", item["label_id"])
+            else:
+                identity = (
+                    str(raw.get("run_id") or raw.get("decision_run_id") or "").strip(),
+                    str(raw.get("lane_id") or "").strip(),
+                    str(raw.get("trade_date") or "").strip(),
+                    str(raw.get("stage") or "").strip().upper(),
+                    str(raw.get("symbol") or "").strip().upper(),
+                )
+                # The run/lane pair is mandatory whenever the natural key is
+                # used.  A legacy three-field lookup is retained only when it
+                # is unambiguous; same-day reruns must never silently update
+                # an arbitrary lane.
+                if bool(identity[0]) != bool(identity[1]):
+                    raise ValueError("outcome metric run_id and lane_id must be supplied together")
+                if not all(identity):
+                    if all(identity[2:]):
+                        item["identity"] = ("legacy_natural", *identity[2:])
+                    else:
+                        raise ValueError("outcome metric update identity is required")
+                else:
+                    item["identity"] = ("natural", *identity)
+            for field in fields:
+                if field not in item or item[field] is None or field in {"labeled_at", "baseline_status"}:
+                    continue
+                if field == "baseline_sample_size":
+                    if isinstance(item[field], bool) or not isinstance(item[field], int) or item[field] < 0:
+                        raise ValueError("baseline_sample_size must be a non-negative integer")
+                    continue
+                try:
+                    number = float(item[field])
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(f"{field} must be finite") from exc
+                if not math.isfinite(number):
+                    raise ValueError(f"{field} must be finite")
+                item[field] = number
+            if item.get("baseline_status") is not None:
+                item["baseline_status"] = str(item["baseline_status"]).strip().upper()
+                if not item["baseline_status"]:
+                    raise ValueError("baseline_status must not be empty")
+            prepared.append(item)
+        if not prepared:
+            return ()
+
+        def operation(connection):
+            output: list[dict[str, Any]] = []
+            for item in prepared:
+                if item["identity"][0] == "label_id":
+                    current = connection.execute(
+                        "SELECT * FROM astock_outcome_labels WHERE label_id=?",
+                        (item["identity"][1],),
+                    ).fetchone()
+                elif item["identity"][0] == "legacy_natural":
+                    matches = connection.execute(
+                        "SELECT * FROM astock_outcome_labels WHERE trade_date=? AND stage=? AND symbol=?",
+                        item["identity"][1:],
+                    ).fetchall()
+                    if len(matches) > 1:
+                        raise OutcomeLabelConflictError("OUTCOME_LABEL_IDENTITY_REQUIRED")
+                    current = matches[0] if matches else None
+                else:
+                    current = connection.execute(
+                        "SELECT * FROM astock_outcome_labels "
+                        "WHERE run_id=? AND lane_id=? AND trade_date=? AND stage=? AND symbol=?",
+                        item["identity"][1:],
+                    ).fetchone()
+                if current is None:
+                    raise StateTransitionError("OUTCOME_LABEL_NOT_FOUND")
+                assignments: list[str] = []
+                values: list[Any] = []
+                for field in fields:
+                    if field not in item or item[field] is None:
+                        continue
+                    old = current[field]
+                    new = item[field]
+                    # Baseline availability can improve as the same
+                    # snapshot's peer rows arrive.  It is an observation
+                    # status, not an immutable decision fact.
+                    if field in {"baseline_status", "baseline_sample_size"}:
+                        if old != new:
+                            assignments.append(f"{field}=?")
+                            values.append(new)
+                        continue
+                    if old is not None and old != new:
+                        raise OutcomeLabelConflictError("OUTCOME_LABEL_METRIC_CONFLICT")
+                    if old is None:
+                        assignments.append(f"{field}=?")
+                        values.append(new)
+                if assignments:
+                    values.append(current["label_id"])
+                    connection.execute(
+                        f"UPDATE astock_outcome_labels SET {','.join(assignments)} WHERE label_id=?",
+                        values,
+                    )
+                row = connection.execute(
+                    "SELECT * FROM astock_outcome_labels WHERE label_id=?",
+                    (current["label_id"],),
+                ).fetchone()
+                output.append(_row_dict(row) or {})
+            return tuple(output)
+
+        return tuple(self._write(operation))
+
+    def update_outcome_label(self, label_id: str, **metrics: Any) -> dict[str, Any]:
+        """Singular convenience wrapper for deterministic backfill callers."""
+
+        rows = self.update_outcome_label_metrics(({"label_id": label_id, **metrics},))
+        return rows[0]
+
+    def get_outcome_label(self, label_id: str) -> dict[str, Any] | None:
+        return self._read(
+            lambda connection: _row_dict(
+                connection.execute(
+                    "SELECT * FROM astock_outcome_labels WHERE label_id=?",
+                    (str(label_id),),
+                ).fetchone()
+            )
+        )
+
+    def list_outcome_labels(
+        self,
+        *,
+        run_id: str | None = None,
+        lane_id: str | None = None,
+        trade_date: str | None = None,
+        stage: str | None = None,
+        symbol: str | None = None,
+        decision: str | None = None,
+        labeled_only: bool = False,
+    ) -> tuple[dict[str, Any], ...]:
+        """Read labels in deterministic identity order for offline evaluation."""
+
+        clauses: list[str] = []
+        args: list[Any] = []
+        if run_id is not None:
+            clauses.append("run_id=?")
+            args.append(str(run_id).strip())
+        if lane_id is not None:
+            clauses.append("lane_id=?")
+            args.append(str(lane_id).strip())
+        if trade_date is not None:
+            clauses.append("trade_date=?")
+            args.append(str(trade_date).strip())
+        if stage is not None:
+            value = str(stage).strip().upper()
+            if value not in OUTCOME_STAGES:
+                raise ValueError("invalid outcome label stage")
+            clauses.append("stage=?")
+            args.append(value)
+        if symbol is not None:
+            clauses.append("symbol=?")
+            args.append(str(symbol).strip().upper())
+        if decision is not None:
+            value = str(decision).strip().upper()
+            if value not in OUTCOME_DECISIONS:
+                raise ValueError("invalid outcome label decision")
+            clauses.append("decision=?")
+            args.append(value)
+        if labeled_only:
+            clauses.append("labeled_at IS NOT NULL")
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        return self._read(
+            lambda connection: tuple(
+                _row_dict(row)
+                for row in connection.execute(
+                    "SELECT * FROM astock_outcome_labels"
+                    f"{where} ORDER BY trade_date, CASE stage WHEN 'G0' THEN 0 WHEN 'A1' THEN 1 "
+                    "WHEN 'A2' THEN 2 WHEN 'A3' THEN 3 WHEN 'A4' THEN 4 END, run_id, lane_id, symbol",
+                    args,
+                ).fetchall()
+            )
+        )
+
+    def count_outcome_labels(self, **filters: Any) -> int:
+        return len(self.list_outcome_labels(**filters))
 
     # ------------------------------------------------------------------
     # Execution plans and monitor event ledger
@@ -1936,6 +2541,10 @@ __all__ = [
     "MonitorAction",
     "NOTIFICATION_CARD_COLORS",
     "NOTIFICATION_STATUSES",
+    "OUTCOME_DECISIONS",
+    "OUTCOME_SELECTION_BASES",
+    "OUTCOME_STAGES",
+    "OutcomeLabelConflictError",
     "PersistenceBlockedError",
     "PersistenceError",
     "PlanStatus",

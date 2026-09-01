@@ -573,7 +573,7 @@ export interface MonitorSimulation {
 
 export interface LarkNotificationSummary {
   deliveryId?: string | null;
-  kind?: "PREMARKET_A3" | "A4_EFFECTIVE" | string | null;
+  kind?: "PREMARKET_A3_ANALYSIS" | "PREMARKET_A3" | "A4_EFFECTIVE" | string | null;
   sourceId?: string | null;
   status?: "SENT" | "FAILED" | string | null;
   title?: string | null;

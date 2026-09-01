@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('run-due', 'run-morning', 'run-close', 'run-monitor')]
+    [ValidateSet('run-due', 'run-premarket', 'run-morning', 'run-close', 'run-monitor')]
     [string]$Command = 'run-due'
 )
 

@@ -25,6 +25,13 @@ runtime:
   fail_closed: true
   downstream_symbol_expansion: false
   after_hours_entry_enabled: false   # 盘后固定价 15:05–15:30，验证前禁用
+  premarket_a3_analysis:
+    enabled: true
+    time: "08:30"
+    deadline: "09:20"
+    source_status: PENDING_MORNING_REVIEW
+    primary_lane_only: true
+    activates_a4: false
 
 # ---------------------------------------------------------------------------
 # 交易规则快照（不在此处写规则本体，只声明来源与校验策略）
@@ -275,6 +282,8 @@ agent_1:
   pool_max: 1000
   clue_pool_target: [300, 800]              # ACTIVE + MONITOR，容量目标而非配额
   active_research_target: [200, 500]        # 可持续研究覆盖层，证据不足可低于下限
+  quota_fill_enabled: true                  # 临时覆盖观测机制；不降低证据门、不改变 G0 范围
+  quota_fill_observation: COHORT_OBSERVATION_ONLY  # 非随机分组观测；不能宣称因果 A/B 结论
 
   minimum_score: 65
   minimum_data_quality: 75
@@ -499,6 +508,10 @@ agent_3:
   one_strategy_per_symbol_per_day: true
   allowed_strategy_profiles: [LEADER_INTRADAY, MA520_SWING, TREND_MA5]
   secondary_watch_executable: false
+  ablation:
+    enabled: false
+    mode: OFFLINE_ONLY
+    disabled_gates: []
 
   moving_average_system:
     enabled: true
@@ -567,15 +580,15 @@ agent_4:
   signal_strength_levels: [WEAK, NORMAL, STRONG]
   signal_strength_is_not_position_advice: true
 
-  required_buy_confirmations:
-    - PRICE_WITHIN_TRIGGER_ZONE
-    - M5_RECLAIM_MA20_AND_HOLD              # ★ 均线精修
-    - M5_MA5_CROSS_ABOVE_MA20
-    - VWAP_RECLAIM_AND_HOLD
-    - FIVE_MIN_HIGHER_LOW_ABOVE_MA20
-    - SECTOR_TIER_NOT_BROKEN                # ★ 梯队未断层
-    - LEADER_AND_CORE_ARMY_NOT_WEAKENING    # ★ 龙头中军未转弱
-    - NO_MARKET_SHOCK
+  # Runtime entry confirmation is strategy-specific.  This section documents
+  # the three deterministic routes; it is not a single eight-condition AND
+  # gate and does not grant the model authority to promote a signal.
+  strategy_entry_confirmations:
+    authority: DETERMINISTIC_SERVER
+    runtime_source: src/liangjian_funnel/runtime/strategies.py
+    routes: [LEADER_INTRADAY, MA520_SWING, TREND_MA5]
+    result_fields: [confirmation_results, all_failed_confirmations]
+    llm_can_promote: false
 
   exit_signal_types:
     - STRUCTURE_BREAK

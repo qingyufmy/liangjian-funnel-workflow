@@ -1,0 +1,20 @@
+[Unit]
+Description=Liangjian A-share A3 premarket analysis (read-only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=liangjian
+Group=liangjian
+WorkingDirectory=/opt/liangjian-funnel-workflow
+EnvironmentFile=/opt/liangjian-funnel-workflow/.env
+ExecStart=/opt/liangjian-funnel-workflow/.venv/bin/liangjian-funnel run-premarket
+TimeoutStartSec=10m
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/liangjian-funnel-workflow/outputs /opt/liangjian-funnel-workflow/state
+
+# This task only projects the latest pending A3 plans. It does not read the
+# auction quote, change plan status, or activate the A4 monitor scope.

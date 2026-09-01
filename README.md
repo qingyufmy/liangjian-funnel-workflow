@@ -10,8 +10,8 @@
   → G0 按一级行业/细分产业节点均衡排序（不做 Top-N 裁剪）
   → 全市场日线/财务和正式事实本地落盘，冻结 A1 快照
   → 确定性市场情绪、K线形态、触发区/失效位/盈亏比
-  → deepseek / kimi / glm 三个并行隔离 lane
-  → 每 lane 严格 A1(全量 G0) → A2(仅 A1 ACTIVE) → A3(仅 A2 focus)
+  → 生产主 lane 使用 DeepSeek；Kimi/GLM 仅在显式开启比较模式时作为隔离对照 lane
+  → 每 lane 严格 A1(全量 G0) → A2(仅 A1 ACTIVE) → A3(A2 focus + 确定性合格 WATCH_ONLY)
   → 仅在 A3 为上游子集按需读取 5m 长历史并计算技术因子
   → 收盘计划待次日早盘 tighten-only 复核
   → Flash 每分钟每非空 lane 一次批量 veto-only
@@ -25,10 +25,12 @@
 
 - **A1 宏观/产业链/基本面**：G0 先按配置过滤日成交额低于 5000 万、ST、停牌/新股限制和价格/成交量/成交额无效标的；符合同一质量门的北交所标的保留研究，但不进入模拟交易。A1 AI 必须按“官方政策/宏观变化 → 结构性主题 → 产业链节点 → 公司主营与财务传导”选择 `ACTIVE`。单批 20 只只是模型传输边界，不是全局名额；已通过 G0 质量门的股票不得再因性能上限被静默裁剪。
 - **A2 主题/情绪/市场角色**：只在 A1 `ACTIVE` 内按主题分批判断市场正在交易什么，先排产业链卡点层级，再评估板块宽度、资金、梯队、周期与龙头/中军辨识度。每个 `focus_pool` 标的都要给出卡住的环节、产业链位置、至少两条冻结证据、缺失证明和证伪条件；全量交易候选池目标为 100–200 只，但证据门槛优先，禁止为凑数放宽标准。
-- **A3 技术设置/次日计划**：只在 A2 聚焦池内检查周线、日线、120m、15m 与 5m 确认，由确定性引擎回填触发区、失效位、止损距离和盈亏比，产出条件计划，不能越级新增标的。
-- **A4 盘中信号复核**：对已有 A3 计划做分钟级确认；确定性触发先行，Flash 只有否决权，无权创建候选、放宽价位或提高风险单位。
+- **A3 技术设置/次日计划**：候选域由 A2 `focus_pool` 与服务器判定合格的 `WATCH_ONLY` 合并而成，并保留 `candidate_origin`；A3 只使用已闭合月线、周线和日线选择龙头、520 或趋势策略，由确定性引擎回填触发区、失效位、止损距离和盈亏比。模型只能核对或否决，不能越级新增标的。
+- **A4 盘中信号复核**：对已有 A3 计划按对应策略使用闭合 15 分钟结构和闭合 5 分钟触发择时，1 分钟数据只做聚合、新鲜度与安全校验；确定性触发先行，Flash 只有否决权，无权创建候选、放宽价位或提高风险单位。
 
-因此，G0 的行业均衡只用于防止候选域被当日成交热点污染，绝不代表 A1 已完成选股。A1 数量少不应通过降低证据标准来“凑数”；正确处理是保留足够宽的 G0 输入，由 AI 严格执行政策/宏观传导，并把证据不足标的明确放入 `MONITOR` 或 `REJECT`，再由 A2/A3 完成市场主线与技术面收窄。
+因此，G0 的行业均衡只用于防止候选域被当日成交热点污染，绝不代表 A1 已完成选股。A1 决策行会显式记录 `selection_basis`：`LLM_REVIEWED` 表示进入模型复核的代表样本，`DETERMINISTIC_SCORE` 表示通过正常本地评分层，`QUOTA_FILL` 表示在不降低既有证据门槛的前提下，由临时覆盖扩展机制补齐研究覆盖。`QUOTA_FILL` 不是静默裁剪或永久配额，而是配置中明确标记的分组观测机制；它不是随机化 A/B 实验，结论必须结合后续样本和混杂因素审慎解释。`analysis_summary.selection_basis_counts` 只统计最终 ACTIVE 研究池，并与 ACTIVE 总数相等。证据不足的标的仍明确保留在 `MONITOR` 或 `REJECT`，再由 A2/A3 完成市场主线与技术面收窄。
+
+A2 的确定性行同时保留 `gate_results`、`first_blocking_gate` 和 `all_failed_gates`。门能够从冻结输入计算时才记录实际值、阈值和通过状态；尚未由当前确定性引擎应用或缺少事实源的门标记 `available=false`，不会被当成通过或否决。`LOCAL_DATA_SUFFICIENCY` 与 `LOCAL_ELIGIBILITY` 先解释本地数据/资格阻断；`SENT_TO_LLM` 只有原本可送审、后来因主题或排名预算截断时才算传输阻断，硬拒或数据缺口不会伪装成“未送模型”。`analysis_summary.gate_block_counts` 只统计实际可用且确实参与决策的失败门，便于区分真实无机会、数据不足和传输范围限制。
 
 对应主观私募的分层带宽，本项目采用以下职责映射（均为容量目标，不是强制配额）：
 
@@ -37,9 +39,9 @@
 | 全市场目录 | P0 母池 | 当日完整目录，通常 5,000+ | 进入确定性质量门 |
 | 质量过滤后 G0 | P1 可研究池 | 当前实测 3,886（含 70 只北交所） | 全部进入 A1 |
 | G0 + A1 `ACTIVE/MONITOR` | P2 线索池 | 输入为完整 G0；有效线索目标 300–800 | 仅 A1 `ACTIVE` 下传 |
-| A1 `ACTIVE` | P3 研究覆盖池 | 100–250 | 下传 A2 |
+| A1 `ACTIVE` | P3 研究覆盖池 | 200–500 | 下传 A2 |
 | A2 `focus_pool` | 当期主线/轮动与龙头中军候选 | 100–200 | 下传 A3 |
-| A3 `core_watch_pool` | P8 日前正式计划池 | 5–10 | 可发布给 A4 |
+| A3 `core_watch_pool` | P8 日前正式计划池 | 5–20 | 可发布给 A4 |
 | A3 `secondary_watch_pool` | P8.5 影子信号池 | 3–8 | 不发布订单，只留痕复盘 |
 | A4 活动计划 | P9 盘中行动池 | 新候选 2–5；连同持仓重点处理通常不超过 8 | 只做条件确认 |
 
@@ -71,6 +73,7 @@ cd D:\dev_A股\liangjian_funnel_workflow
 .\.venv\Scripts\python.exe -m liangjian_funnel run-research --slot morning
 .\.venv\Scripts\python.exe -m liangjian_funnel monitor-once
 .\.venv\Scripts\python.exe -m liangjian_funnel run-due
+.\.venv\Scripts\python.exe -m liangjian_funnel run-premarket
 .\.venv\Scripts\python.exe -m liangjian_funnel run-morning
 .\.venv\Scripts\python.exe -m liangjian_funnel run-close
 .\.venv\Scripts\python.exe -m liangjian_funnel run-a1-maintenance
@@ -98,8 +101,9 @@ cd D:\dev_A股\liangjian_funnel_workflow
 
 ## 自动运行
 
-已安装三个 Windows 计划任务：
+已安装四个 Windows 计划任务：
 
+- `LiangjianAStockResearchPremarket`：交易日 08:30；只读取最新 primary lane 的上一收盘 A3 `PENDING_MORNING_REVIEW` 计划，按最新 `source_run_id` 生成盘前分析并幂等推送；不读取竞价、不改变计划状态、不激活 A4。
 - `LiangjianAStockResearchMorning`：每天 09:26；只冻结最新闭合行情，对前一收盘 A3 计划执行失效/追高门禁后原子激活，不再重跑完整三模型漏斗。
 - `LiangjianAStockResearchClose`：每天 15:10；消费 active A1，只执行 A2→A3。
 - Node 常驻调度：工作日 18:00 唤醒 `run-a1-maintenance`；Python 交易日历决定月度 FULL、周度 INCREMENTAL或普通日期 NOOP。
@@ -117,7 +121,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\install_schedu
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\uninstall_scheduled_tasks.ps1
 ```
 
-Linux、systemd/cron、容器、部署门禁和回滚步骤见 [DEPLOYMENT.md](DEPLOYMENT.md)。生产调度分别调用 `run-morning`、`run-close`、`run-a1-maintenance`、`run-monitor`，Node 主任务槽保证它们不并发争抢执行权。
+Linux、systemd/cron、容器、部署门禁和回滚步骤见 [DEPLOYMENT.md](DEPLOYMENT.md)。生产调度分别调用 `run-premarket`、`run-morning`、`run-close`、`run-a1-maintenance`、`run-monitor`，Node 主任务槽保证它们不并发争抢执行权。
 
 ## 结果位置
 

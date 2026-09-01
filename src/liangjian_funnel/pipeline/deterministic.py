@@ -35,6 +35,11 @@ _A1_DEFAULT_WEIGHTS: dict[str, float] = {
     "catalyst_confirmation": 0.15,
     "valuation_expectation_gap": 0.10,
 }
+_A1_SELECTION_BASES: tuple[str, ...] = (
+    "LLM_REVIEWED",
+    "DETERMINISTIC_SCORE",
+    "QUOTA_FILL",
+)
 _TOKEN = re.compile(r"[^0-9A-Za-z\u3400-\u9fff]+")
 A2_THEME_FACTORS: tuple[str, ...] = (
     "breadth",
@@ -70,6 +75,22 @@ _A2_MARKET_OPTIONAL_FACTORS: tuple[str, ...] = (
     "capital_flow",
     "tier_structure",
     "index_chain_resonance",
+)
+# These are the named A2 decisions that the runtime can expose to operators.
+# The list is deliberately broader than the currently implemented route gate:
+# an unavailable/non-implemented check is recorded as ``available=False`` (or
+# ``applied=False``) instead of being silently treated as a pass or a veto.
+_A2_ATTRIBUTION_GATES: tuple[str, ...] = (
+    "LOCAL_DATA_SUFFICIENCY",
+    "LOCAL_ELIGIBILITY",
+    "THEME_SCORE_MIN",
+    "IDENTIFIABILITY_MIN",
+    "LEADER_MIN_CRITERIA",
+    "MAX_LEADERS_PER_THEME",
+    "TIER_STRUCTURE",
+    "ROUTE_REQUIREMENT",
+    "SENT_TO_LLM",
+    "FREE_FLOAT_CAP",
 )
 # A2 roles are a single server-owned vocabulary.  These labels are emitted by
 # the deterministic identity projection and are all MARKET_CORE sub-roles;
@@ -127,6 +148,22 @@ class DeterministicGateResult:
             "rejected_count": len(self.rejected_symbols),
             "status_counts": dict(sorted(counts.items())),
         }
+        if self.stage == "A1_LOCAL_SCREEN":
+            # This is intentionally scoped to the research layer that can be
+            # handed downstream.  Monitor/rejected rows still carry a
+            # selection_basis on their individual decision records, but
+            # including them here would make this aggregate look like an
+            # ACTIVE-source mix and would not reconcile with the A1 pool count.
+            active_statuses = {"LOCAL_ACTIVE_CANDIDATE", "REVIEW_CANDIDATE"}
+            basis_counts = {basis: 0 for basis in _A1_SELECTION_BASES}
+            for decision in self.decisions:
+                if decision.get("status") not in active_statuses:
+                    continue
+                basis = str(decision.get("selection_basis") or "")
+                if basis in basis_counts:
+                    basis_counts[basis] += 1
+            result["selection_basis_counts"] = basis_counts
+            result["selection_basis_total"] = sum(basis_counts.values())
         if self.stage == "A2_LOCAL_ROLE":
             total = len(self.decisions)
             coverage: dict[str, float] = {}
@@ -158,6 +195,17 @@ class DeterministicGateResult:
                 str(decision.get("data_sufficiency_state") or "").upper() == "DEGRADED"
                 for decision in self.decisions
             )
+            gate_block_counts = {
+                gate_name: sum(
+                    isinstance(decision.get("gate_results"), Mapping)
+                    and isinstance(decision["gate_results"].get(gate_name), Mapping)
+                    and decision["gate_results"][gate_name].get("available") is True
+                    and decision["gate_results"][gate_name].get("passed") is False
+                    and decision["gate_results"][gate_name].get("blocks_decision") is True
+                    for decision in self.decisions
+                )
+                for gate_name in _A2_ATTRIBUTION_GATES
+            }
             if not total or not route_ready:
                 # A completely unavailable route is an evidence gap only when
                 # rows explicitly carry missing facts.  Low identity and
@@ -179,6 +227,7 @@ class DeterministicGateResult:
                     }
                     for route in (MARKET_CORE_ROUTE, SUPPLY_CHAIN_ALPHA_ROUTE)
                 },
+                "gate_block_counts": gate_block_counts,
             })
         return result
 
@@ -239,6 +288,9 @@ def screen_a1(
         target_values = []
     active_target_min = max(1, target_values[0] if target_values else 100)
     active_target_max = max(active_target_min, target_values[1] if len(target_values) > 1 else 250)
+    # Frozen snapshots created before the flag existed preserve the historical
+    # expansion behavior.  New runs receive the explicit versioned setting.
+    quota_fill_enabled = targets.get("quota_fill_enabled", True) is True
     institutional_contract = snapshot.get("BROKER_GOLD_COVERAGE_POOL")
     institutional_contract = institutional_contract if isinstance(institutional_contract, Mapping) else {}
     institutional_symbols = institutional_contract.get("symbols")
@@ -363,6 +415,10 @@ def screen_a1(
             "name": str(candidate.get("name") or candidate.get("security_name") or "") or None,
             "stage": "A1_LOCAL_SCREEN",
             "status": status,
+            # Every deterministic row has an explicit provenance.  The value
+            # is changed below only when the row is actually sent to the LLM
+            # or promoted by the temporary coverage mechanism.
+            "selection_basis": "DETERMINISTIC_SCORE",
             "score": round(score, 4),
             "data_quality_score": round(data_quality, 4),
             "financial_quality_score": round(financial_quality, 4),
@@ -410,6 +466,7 @@ def screen_a1(
             "name": raw_institutional.get("name"),
             "stage": "A1_LOCAL_SCREEN",
             "status": "OUTSIDE_G0",
+            "selection_basis": "DETERMINISTIC_SCORE",
             "score": 0.0,
             "data_quality_score": 0.0,
             "financial_quality_score": 0.0,
@@ -467,6 +524,7 @@ def screen_a1(
         ))
         for item in values[:llm_top_n_per_theme]:
             item["status"] = "REVIEW_CANDIDATE"
+            item["selection_basis"] = "LLM_REVIEWED"
             item["sent_to_llm"] = True
             item["reason_codes"] = [
                 code for code in item.get("reason_codes", ())
@@ -478,7 +536,7 @@ def screen_a1(
     # research layer is met.  The maximum remains a research-capacity target,
     # never a G0 scan limit; every non-selected symbol retains a decision row.
     local_active_count = sum(item.get("status") == "LOCAL_ACTIVE_CANDIDATE" for item in decisions)
-    if local_active_count < active_target_min:
+    if quota_fill_enabled and local_active_count < active_target_min:
         expandable = sorted(
             (
                 item for item in decisions
@@ -499,6 +557,7 @@ def screen_a1(
             if local_active_count >= min(active_target_min, active_target_max):
                 break
             item["status"] = "LOCAL_ACTIVE_CANDIDATE"
+            item["selection_basis"] = "QUOTA_FILL"
             item["reason_codes"] = [
                 code for code in item.get("reason_codes", ())
                 if code not in {"A1_OUTSIDE_LOCAL_TOP_N", "A1_REQUIRES_LLM_EXPOSURE_REVIEW"}
@@ -762,6 +821,11 @@ def screen_a2(
             "name": item.get("company_name") or item.get("name") or candidate.get("name"),
             "stage": "A2_LOCAL_ROLE",
             "status": status,
+            # Keep the pre-ranking deterministic outcome so transport
+            # attribution can distinguish a locally ineligible row from a
+            # review candidate that was later clipped by theme/rank budget.
+            "local_eligibility_status": status,
+            "local_eligible_for_review": status == "REVIEW_CANDIDATE",
             "score": round(score, 4),
             "identifiability_score": round(identifiability, 4),
             "theme_id": theme_id,
@@ -833,6 +897,26 @@ def screen_a2(
                 item["reason_codes"].append("A2_NOT_SENT_TO_LLM")
             else:
                 item["sent_to_llm"] = True
+
+    # Attribution is deliberately computed after theme ranking and transport
+    # selection.  This records the final ``SENT_TO_LLM`` state while leaving
+    # every status/partition decision above untouched.
+    for item in decisions:
+        gate_results = _a2_attribution_gates(
+            snapshot,
+            item=item,
+            candidate=candidates.get(str(item.get("symbol") or ""), {}),
+            theme_rotation_score=item.get("theme_rotation_score"),
+            identifiability=float(item.get("identifiability_score") or 0.0),
+            minimum_identifiability_score=minimum_identifiability_score,
+            factor_scores=item.get("a2_factor_scores") if isinstance(item.get("a2_factor_scores"), Mapping) else {},
+            eligible_routes=item.get("eligible_routes") if isinstance(item.get("eligible_routes"), Sequence) and not isinstance(item.get("eligible_routes"), (str, bytes, bytearray)) else (),
+            sent_to_llm=item.get("sent_to_llm") is True,
+        )
+        item["gate_results"] = gate_results
+        failures = _a2_gate_failures(gate_results)
+        item["all_failed_gates"] = failures
+        item["first_blocking_gate"] = failures[0] if failures else None
     decisions.sort(key=lambda item: str(item["symbol"]))
     return DeterministicGateResult(
         stage="A2_LOCAL_ROLE",
@@ -845,6 +929,290 @@ def screen_a2(
         ),
         rejected_symbols=tuple(str(item["symbol"]) for item in decisions if item["status"] == "HARD_REJECT"),
     )
+
+
+def _a2_attribution_record(
+    *,
+    available: bool,
+    value: Any,
+    threshold: Any,
+    passed: bool | None,
+    applied: bool,
+    blocks_decision: bool,
+    reason_code: str,
+    **extra: Any,
+) -> dict[str, Any]:
+    """Build one auditable A2 gate record.
+
+    ``available`` describes whether the frozen input contains enough facts to
+    evaluate the check.  A source that is unavailable, or a check that is only
+    configured but not implemented by this deterministic gate, uses
+    ``passed=None`` and ``blocks_decision=False``.  This prevents an absent
+    feed from becoming either an implicit pass or an invented rejection.
+    """
+
+    result: dict[str, Any] = {
+        "available": bool(available),
+        "value": value if available else None,
+        "threshold": threshold,
+        "passed": passed if available else None,
+        "applied": bool(applied),
+        "blocks_decision": bool(blocks_decision) if available else False,
+        "reason_code": str(reason_code),
+    }
+    result.update(extra)
+    return result
+
+
+def _a2_attribution_gates(
+    snapshot: Mapping[str, Any],
+    *,
+    item: Mapping[str, Any],
+    candidate: Mapping[str, Any],
+    theme_rotation_score: Any,
+    identifiability: float,
+    minimum_identifiability_score: float,
+    factor_scores: Mapping[str, Mapping[str, Any]],
+    eligible_routes: Sequence[str],
+    sent_to_llm: bool,
+) -> dict[str, dict[str, Any]]:
+    """Return the complete A2 attribution contract without changing routing.
+
+    Some names are part of the wider A2/model contract but are not gates in the
+    current deterministic implementation (for example leader criteria and
+    free-float cap).  Those checks are deliberately represented as unavailable
+    unless their actual per-symbol facts and an applied rule exist.  The
+    distinction is important: operators must be able to tell a missing
+    implementation/data source from a failed market condition.
+    """
+
+    theme_threshold = _number(snapshot.get("MIN_THEME_SCORE"))
+    theme_value = _number(theme_rotation_score)
+    theme_available = theme_threshold is not None and theme_value is not None
+
+    leader_threshold = _number(snapshot.get("LEADER_MIN_CRITERIA"))
+    max_leaders_threshold = _number(snapshot.get("MAX_LEADERS_PER_THEME"))
+    free_float_threshold = _number(snapshot.get("MIN_FREE_FLOAT_CAP"))
+
+    tier = factor_scores.get("tier_structure")
+    tier_score = _number(tier.get("score")) if isinstance(tier, Mapping) else None
+    tier_available = (
+        isinstance(tier, Mapping)
+        and tier.get("available") is True
+        and tier_score is not None
+    )
+
+    # The existing deterministic implementation does not apply these three
+    # configuration checks.  Preserve any raw input value for inspection when
+    # it is present, but never label it as an effective blocking gate.
+    leader_value = _first_number(
+        item,
+        "leader_criteria_count",
+        "leader_criteria_met",
+        "leader_min_criteria_value",
+    )
+    max_leaders_value = _first_number(
+        item,
+        "leaders_in_theme",
+        "leader_count_in_theme",
+    )
+    free_float_value = _first_number(
+        item,
+        "free_float_cap_cny",
+        "free_float_market_cap_cny",
+        "free_float_cap",
+    )
+    if free_float_value is None:
+        free_float_value = _first_number(
+            candidate,
+            "free_float_cap_cny",
+            "free_float_market_cap_cny",
+            "free_float_cap",
+        )
+
+    data_sufficiency_state = str(item.get("data_sufficiency_state") or "").upper()
+    data_sufficiency_available = data_sufficiency_state in {
+        "SUFFICIENT",
+        "DEGRADED",
+        "INSUFFICIENT",
+    }
+    data_sufficiency_passed = data_sufficiency_state in {"SUFFICIENT", "DEGRADED"}
+    local_eligibility_status = str(item.get("local_eligibility_status") or "").upper()
+    local_eligibility_available = local_eligibility_status in {
+        "REVIEW_CANDIDATE",
+        "LOCAL_MONITOR",
+        "DATA_GAP",
+        "HARD_REJECT",
+    }
+    local_eligible_for_review = item.get("local_eligible_for_review") is True
+
+    gates: dict[str, dict[str, Any]] = {
+        "LOCAL_DATA_SUFFICIENCY": _a2_attribution_record(
+            available=data_sufficiency_available,
+            value=data_sufficiency_state or None,
+            threshold=["SUFFICIENT", "DEGRADED"],
+            passed=data_sufficiency_passed if data_sufficiency_available else None,
+            applied=data_sufficiency_available,
+            blocks_decision=data_sufficiency_state == "INSUFFICIENT",
+            reason_code=(
+                "A2_LOCAL_DATA_SUFFICIENT"
+                if data_sufficiency_state == "SUFFICIENT"
+                else "A2_LOCAL_DATA_DEGRADED"
+                if data_sufficiency_state == "DEGRADED"
+                else "A2_LOCAL_DATA_INSUFFICIENT"
+                if data_sufficiency_state == "INSUFFICIENT"
+                else "A2_LOCAL_DATA_SUFFICIENCY_UNAVAILABLE"
+            ),
+            accepted_states=["SUFFICIENT", "DEGRADED"],
+        ),
+        "LOCAL_ELIGIBILITY": _a2_attribution_record(
+            available=local_eligibility_available,
+            value=local_eligibility_status or None,
+            threshold="REVIEW_CANDIDATE",
+            passed=local_eligible_for_review if local_eligibility_available else None,
+            applied=local_eligibility_available,
+            blocks_decision=local_eligibility_available and not local_eligible_for_review,
+            reason_code=(
+                "A2_LOCAL_ELIGIBLE_FOR_REVIEW"
+                if local_eligible_for_review
+                else f"A2_LOCAL_NOT_ELIGIBLE_{local_eligibility_status or 'UNKNOWN'}"
+            ),
+            eligible_for_review=local_eligible_for_review,
+        ),
+        "THEME_SCORE_MIN": _a2_attribution_record(
+            available=theme_available,
+            value=round(theme_value, 4) if theme_value is not None else None,
+            threshold=round(theme_threshold, 4) if theme_threshold is not None else None,
+            passed=theme_value >= theme_threshold if theme_available else None,
+            applied=False,
+            blocks_decision=False,
+            reason_code=(
+                "A2_THEME_SCORE_OBSERVED_NOT_APPLIED"
+                if theme_available
+                else "A2_THEME_SCORE_UNAVAILABLE"
+            ),
+            evaluation="OBSERVATION_ONLY_NOT_A_DETERMINISTIC_GATE",
+        ),
+        "IDENTIFIABILITY_MIN": _a2_attribution_record(
+            available=True,
+            value=round(identifiability, 4),
+            threshold=round(minimum_identifiability_score, 4),
+            passed=identifiability >= minimum_identifiability_score,
+            applied=True,
+            blocks_decision=identifiability < minimum_identifiability_score,
+            reason_code=(
+                "A2_IDENTIFIABILITY_MEETS_MINIMUM"
+                if identifiability >= minimum_identifiability_score
+                else "A2_IDENTIFIABILITY_BELOW_MINIMUM"
+            ),
+        ),
+        "LEADER_MIN_CRITERIA": _a2_attribution_record(
+            available=leader_value is not None and leader_threshold is not None,
+            value=leader_value,
+            threshold=leader_threshold,
+            passed=leader_value >= leader_threshold if leader_value is not None and leader_threshold is not None else None,
+            applied=False,
+            blocks_decision=False,
+            reason_code=(
+                "A2_LEADER_CRITERIA_OBSERVED_NOT_APPLIED"
+                if leader_value is not None and leader_threshold is not None
+                else "A2_LEADER_CRITERIA_UNAVAILABLE"
+            ),
+            evaluation="NO_DETERMINISTIC_LEADER_CRITERIA_GATE",
+        ),
+        "MAX_LEADERS_PER_THEME": _a2_attribution_record(
+            available=max_leaders_value is not None and max_leaders_threshold is not None,
+            value=max_leaders_value,
+            threshold=max_leaders_threshold,
+            passed=max_leaders_value <= max_leaders_threshold if max_leaders_value is not None and max_leaders_threshold is not None else None,
+            applied=False,
+            blocks_decision=False,
+            reason_code=(
+                "A2_MAX_LEADERS_OBSERVED_NOT_APPLIED"
+                if max_leaders_value is not None and max_leaders_threshold is not None
+                else "A2_MAX_LEADERS_UNAVAILABLE"
+            ),
+            evaluation="NO_DETERMINISTIC_MAX_LEADERS_GATE",
+        ),
+        "TIER_STRUCTURE": _a2_attribution_record(
+            available=tier_available,
+            value=round(tier_score, 4) if tier_score is not None else None,
+            threshold=None,
+            passed=None,
+            applied=False,
+            blocks_decision=False,
+            reason_code=(
+                "A2_TIER_STRUCTURE_OBSERVATION_ONLY"
+                if tier_available
+                else "A2_TIER_STRUCTURE_UNAVAILABLE"
+            ),
+            evaluation="OPTIONAL_FACTOR_NOT_A_MARKET_CORE_VETO",
+            availability_state=(tier.get("availability_state") if isinstance(tier, Mapping) else None),
+        ),
+        "ROUTE_REQUIREMENT": _a2_attribution_record(
+            available=True,
+            value=len(eligible_routes),
+            threshold=1,
+            passed=bool(eligible_routes),
+            applied=True,
+            blocks_decision=not eligible_routes,
+            reason_code=(
+                "A2_ROUTE_REQUIREMENT_SATISFIED"
+                if eligible_routes
+                else "A2_ROUTE_REQUIREMENT_UNSATISFIED"
+            ),
+            eligible_routes=list(eligible_routes),
+        ),
+        "SENT_TO_LLM": _a2_attribution_record(
+            available=True,
+            value=bool(sent_to_llm),
+            threshold=True,
+            # A row that never qualified for local review does not fail a
+            # transport gate.  Only a locally eligible review row clipped by
+            # theme/rank selection is a real NOT_SENT_TO_LLM failure.
+            passed=bool(sent_to_llm) if local_eligible_for_review else None,
+            applied=local_eligible_for_review,
+            blocks_decision=local_eligible_for_review and not sent_to_llm,
+            reason_code=(
+                "A2_SENT_TO_LLM"
+                if sent_to_llm
+                else "A2_NOT_SENT_TO_LLM"
+                if local_eligible_for_review
+                else "A2_NOT_SENT_NOT_REQUIRED"
+            ),
+            applicable=local_eligible_for_review,
+        ),
+        "FREE_FLOAT_CAP": _a2_attribution_record(
+            available=free_float_value is not None and free_float_threshold is not None,
+            value=free_float_value,
+            threshold=free_float_threshold,
+            passed=free_float_value >= free_float_threshold if free_float_value is not None and free_float_threshold is not None else None,
+            applied=False,
+            blocks_decision=False,
+            reason_code=(
+                "A2_FREE_FLOAT_OBSERVED_NOT_APPLIED"
+                if free_float_value is not None and free_float_threshold is not None
+                else "A2_FREE_FLOAT_UNAVAILABLE"
+            ),
+            evaluation="NO_DETERMINISTIC_FREE_FLOAT_GATE",
+        ),
+    }
+    return gates
+
+
+def _a2_gate_failures(
+    gate_results: Mapping[str, Mapping[str, Any]],
+) -> list[str]:
+    """Return only effective, available failures in canonical gate order."""
+
+    return [
+        gate_name
+        for gate_name in _A2_ATTRIBUTION_GATES
+        if isinstance(gate_results.get(gate_name), Mapping)
+        and gate_results[gate_name].get("available") is True
+        and gate_results[gate_name].get("passed") is False
+        and gate_results[gate_name].get("blocks_decision") is True
+    ]
 
 
 def _bind_a2_factor_to_a1_lineage(
@@ -2103,6 +2471,7 @@ def local_monitor_items(result: DeterministicGateResult) -> list[dict[str, Any]]
             "missing_factors": item.get("missing_factors", []),
             "evidence_confidence": 0.0,
             "status": "MONITOR",
+            "selection_basis": item.get("selection_basis") or "DETERMINISTIC_SCORE",
             "reason_codes": item.get("reason_codes", []),
             "coverage_origin": item.get("coverage_origin"),
             "autonomous_status": item.get("autonomous_status"),
@@ -2162,6 +2531,7 @@ def local_active_items(result: DeterministicGateResult) -> list[dict[str, Any]]:
                 float(item.get("data_quality_score") or 0.0) / 100.0,
             ),
             "status": "ACTIVE",
+            "selection_basis": item.get("selection_basis") or "DETERMINISTIC_SCORE",
             "source_refs": source_refs,
             "business_exposure": {
                 "business_name": exposure.get("business_name"),
@@ -2190,6 +2560,7 @@ def local_rejected_items(result: DeterministicGateResult) -> list[dict[str, Any]
     return [
         {
             "symbol": item["symbol"],
+            "selection_basis": item.get("selection_basis") or "DETERMINISTIC_SCORE",
             "reason_codes": item.get("reason_codes", []),
             "evidence": "DETERMINISTIC_LOCAL_GATE",
             "local_decision": True,
@@ -3012,6 +3383,16 @@ def _number(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return number if math.isfinite(number) else None
+
+
+def _first_number(value: Mapping[str, Any], *keys: str) -> float | None:
+    """Read the first finite numeric value from a symbol-scoped record."""
+
+    for key in keys:
+        number = _number(value.get(key))
+        if number is not None:
+            return number
+    return None
 
 
 def _safe_float(value: Any) -> float:

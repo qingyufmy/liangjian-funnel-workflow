@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Liangjian A3 premarket analysis at 08:30 Asia/Shanghai
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 08:30:00 Asia/Shanghai
+Persistent=false
+Unit=liangjian-premarket.service
+
+[Install]
+WantedBy=timers.target

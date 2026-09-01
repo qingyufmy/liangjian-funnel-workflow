@@ -45,6 +45,28 @@ test("successful close dispatch starts comparison without changing the primary d
   expect(calls).toEqual(["close", "comparison"]);
 });
 
+test("scheduler dispatches the read-only A3 premarket job once at 08:30", async () => {
+  const calls: JobName[] = [];
+  const fakeRunner = {
+    run: async (job: JobName): Promise<JobRunRecord> => {
+      calls.push(job);
+      return result(job);
+    },
+    activeJob: (): JobRunRecord | null => null,
+  };
+  const root = await mkdtemp(join(tmpdir(), "liangjian-premarket-scheduler-"));
+  const logger = new LogStore(loadConfig({ LIANGJIAN_PYTHON_BIN: "python3" }, root));
+  const scheduler = new WorkflowScheduler(fakeRunner as unknown as import("../../server/runner.js").JobRunner, logger, {
+    comparisonEnabled: false,
+  });
+
+  await scheduler.tick(new Date("2026-08-31T00:30:00.000Z")); // 08:30 Asia/Shanghai
+  await scheduler.tick(new Date("2026-08-31T00:30:30.000Z"));
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(calls).toEqual(["premarket"]);
+  expect(scheduler.snapshot().jobs.find((job) => job.job === "premarket")?.schedule).toBe("08:30");
+});
+
 test("stable mode never starts optional comparison on startup or after close", async () => {
   const calls: JobName[] = [];
   const fakeRunner = {

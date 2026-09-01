@@ -63,7 +63,8 @@ def test_lunch_and_non_trading_day_are_skipped_close_can_run_until_2030(tmp_path
 def test_next_due_respects_lunch_and_close_slot(tmp_path):
     store = RuntimeStore(tmp_path / "runtime.sqlite3")
     scheduler = Scheduler(store, trading_day=lambda _day: True)
-    assert scheduler.next_due_at(datetime(2026, 8, 24, 8, 0, tzinfo=TZ)).time().strftime("%H:%M") == "09:26"
+    assert scheduler.next_due_at(datetime(2026, 8, 24, 8, 0, tzinfo=TZ)).time().strftime("%H:%M") == "08:30"
+    assert scheduler.next_due_at(datetime(2026, 8, 24, 8, 31, tzinfo=TZ)).time().strftime("%H:%M") == "09:26"
     assert scheduler.next_due_at(datetime(2026, 8, 24, 12, 0, tzinfo=TZ)).time().strftime("%H:%M") == "13:00"
     assert scheduler.next_due_at(datetime(2026, 8, 24, 15, 1, tzinfo=TZ)).time().strftime("%H:%M") == "15:10"
 
@@ -211,3 +212,32 @@ def test_business_block_is_scheduler_failure_and_dedicated_kind_isolated(tmp_pat
     assert records[0].status is DispatchStatus.FAILED
     assert records[0].reason_code == "WORKFLOW_BLOCKED"
     assert calls == ["morning"]
+
+
+def test_premarket_has_independent_lease_and_deadline(tmp_path):
+    store = RuntimeStore(tmp_path / "runtime.sqlite3")
+    calls = []
+    scheduler = Scheduler(
+        store,
+        callbacks={"premarket_0830": lambda job: calls.append(job.kind)},
+        trading_day=lambda _day: True,
+    )
+    first = scheduler.dispatch_once(datetime(2026, 8, 24, 8, 30, tzinfo=TZ))
+    second = scheduler.dispatch_once(datetime(2026, 8, 24, 8, 30, tzinfo=TZ))
+    assert any(record.kind is ScheduleKind.PREMARKET_0830 and record.status is DispatchStatus.DISPATCHED for record in first)
+    assert any(record.kind is ScheduleKind.PREMARKET_0830 and record.status is DispatchStatus.LEASE_BUSY for record in second)
+    assert calls == [ScheduleKind.PREMARKET_0830]
+    assert store.get_lease("scheduler:premarket_0830") is not None
+
+
+def test_premarket_is_missed_after_read_only_deadline(tmp_path):
+    store = RuntimeStore(tmp_path / "runtime.sqlite3")
+    called = []
+    scheduler = Scheduler(
+        store,
+        callbacks={"premarket_0830": lambda _job: called.append(True)},
+        trading_day=lambda _day: True,
+    )
+    records = scheduler.dispatch_once(datetime(2026, 8, 24, 9, 21, tzinfo=TZ))
+    assert any(record.kind is ScheduleKind.PREMARKET_0830 and record.status is DispatchStatus.MISSED for record in records)
+    assert called == []

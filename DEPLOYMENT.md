@@ -66,7 +66,8 @@ Use [deploy/baota/nginx.conf.example](deploy/baota/nginx.conf.example) for the r
 
 All schedules use `Asia/Shanghai`:
 
-- 09:26 on weekdays: `python -m liangjian_funnel run-morning`
+- 08:30 on weekdays: `python -m liangjian_funnel run-premarket` (read-only A3 premarket analysis; no auction quote or A4 activation)
+- 09:26 on weekdays: `python -m liangjian_funnel run-morning` (auction review and A4 activation)
 - 15:10 on weekdays: `python -m liangjian_funnel run-close` (active A1 → A2 → A3)
 - 18:00 on weekdays: `python -m liangjian_funnel run-a1-maintenance`; Python publishes a monthly FULL on the first exchange session, a weekly INCREMENTAL on the last exchange session, and returns NOOP otherwise. A fresh deployment with no active generation performs one bootstrap FULL.
 - each minute in 09:25-11:30 and 13:00-15:00 on weekdays: `python -m liangjian_funnel run-monitor`

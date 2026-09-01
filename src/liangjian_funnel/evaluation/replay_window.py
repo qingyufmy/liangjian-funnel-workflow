@@ -54,6 +54,8 @@ _LIFECYCLE = frozenset({"QUEUED", "RUNNING", "TERMINAL"})
 _QUALITY = frozenset({"VALIDATED", "DEGRADED", "BLOCKED", "FAILED", "CANCELLED"})
 _OPPORTUNITY = frozenset({"PRESENT", "ABSENT", "UNKNOWN", "NOT_APPLICABLE"})
 _PUBLICATION = frozenset({"READY", "NOT_APPLICABLE", "BLOCKED", "PUBLISHED"})
+ATTRIBUTION_BOOTSTRAP_SAMPLES = 2000
+ATTRIBUTION_MIN_SAMPLE = 2
 
 
 class ReplayWindowContractError(ValueError):
@@ -1113,12 +1115,332 @@ def evaluate_replay_window(
     return report
 
 
+# ---------------------------------------------------------------------------
+# Outcome-label attribution
+# ---------------------------------------------------------------------------
+def _attribution_rows(labels: Any) -> tuple[dict[str, Any], ...]:
+    """Read label rows from a store, a sequence, or a report mapping."""
+
+    if hasattr(labels, "list_outcome_labels") and callable(labels.list_outcome_labels):
+        labels = labels.list_outcome_labels(labeled_only=False)
+    elif isinstance(labels, Mapping):
+        labels = labels.get("labels", labels.get("rows", labels.get("data", ())))
+    if not isinstance(labels, Sequence) or isinstance(labels, (str, bytes, bytearray)):
+        return ()
+    normalized: list[dict[str, Any]] = []
+    for raw in labels:
+        if not isinstance(raw, Mapping):
+            continue
+        stage = _upper(raw.get("stage"))
+        if stage not in {"G0", "A1", "A2", "A3", "A4"}:
+            continue
+        decision = _upper(raw.get("decision"))
+        if decision in {"PASS", "ACTIVE", "QUALIFIED"}:
+            decision = "PASSED"
+        elif decision in {"NOT_SENT", "UNSENT", "NOT_REVIEWED"}:
+            decision = "NOT_SENT_TO_LLM"
+        elif decision != "PASSED":
+            decision = "REJECTED"
+        excess = _as_number(raw.get("excess_return_5d"))
+        if excess is None:
+            fwd = _as_number(raw.get("fwd_return_5d"))
+            benchmark = _as_number(raw.get("benchmark_return_5d"))
+            if fwd is not None and benchmark is not None:
+                excess = fwd - benchmark
+        normalized.append(
+            {
+                **dict(raw),
+                "stage": stage,
+                "decision": decision,
+                "trade_date": _text(raw.get("trade_date")),
+                "symbol": _text(raw.get("symbol")).upper(),
+                "excess_return_5d": excess,
+            }
+        )
+    return tuple(normalized)
+
+
+def _bootstrap_mean_ci(
+    values: Sequence[float],
+    *,
+    seed_material: str,
+    samples: int = ATTRIBUTION_BOOTSTRAP_SAMPLES,
+) -> dict[str, Any] | None:
+    if not values:
+        return None
+    if isinstance(samples, bool) or not isinstance(samples, int) or samples <= 0:
+        raise ValueError("bootstrap samples must be a positive integer")
+    digest = hashlib.sha256(seed_material.encode("utf-8")).digest()
+    rng = __import__("random").Random(int.from_bytes(digest[:8], "big"))
+    count = len(values)
+    estimates = [
+        sum(values[rng.randrange(count)] for _ in range(count)) / count
+        for _ in range(samples)
+    ]
+    estimates.sort()
+    low_position = (samples - 1) * 0.025
+    high_position = (samples - 1) * 0.975
+
+    def percentile(position: float) -> float:
+        left = int(math.floor(position))
+        right = int(math.ceil(position))
+        if left == right:
+            return float(estimates[left])
+        fraction = position - left
+        return float(estimates[left] + (estimates[right] - estimates[left]) * fraction)
+
+    return {
+        "low": percentile(low_position),
+        "high": percentile(high_position),
+        "confidence": 0.95,
+        "samples": samples,
+        "observations": count,
+    }
+
+
+def _bootstrap_difference_ci(
+    left: Sequence[float],
+    right: Sequence[float],
+    *,
+    seed_material: str,
+    samples: int = ATTRIBUTION_BOOTSTRAP_SAMPLES,
+) -> dict[str, Any] | None:
+    if not left or not right:
+        return None
+    if isinstance(samples, bool) or not isinstance(samples, int) or samples <= 0:
+        raise ValueError("bootstrap samples must be a positive integer")
+    digest = hashlib.sha256(seed_material.encode("utf-8")).digest()
+    rng = __import__("random").Random(int.from_bytes(digest[:8], "big"))
+    left_n = len(left)
+    right_n = len(right)
+    estimates = [
+        sum(left[rng.randrange(left_n)] for _ in range(left_n)) / left_n
+        - sum(right[rng.randrange(right_n)] for _ in range(right_n)) / right_n
+        for _ in range(samples)
+    ]
+    estimates.sort()
+    low_position = (samples - 1) * 0.025
+    high_position = (samples - 1) * 0.975
+
+    def percentile(position: float) -> float:
+        left_index = int(math.floor(position))
+        right_index = int(math.ceil(position))
+        if left_index == right_index:
+            return float(estimates[left_index])
+        fraction = position - left_index
+        return float(estimates[left_index] + (estimates[right_index] - estimates[left_index]) * fraction)
+
+    return {
+        "low": percentile(low_position),
+        "high": percentile(high_position),
+        "confidence": 0.95,
+        "samples": samples,
+        "left_observations": left_n,
+        "right_observations": right_n,
+    }
+
+
+def _mean(values: Sequence[float]) -> float | None:
+    return float(sum(values) / len(values)) if values else None
+
+
+def _core_distribution(rows: Sequence[Mapping[str, Any]], runs: Any) -> dict[str, Any]:
+    counts: dict[str, int] = {}
+    for row in rows:
+        if row.get("stage") != "A3" or row.get("decision") != "PASSED":
+            continue
+        day = _text(row.get("trade_date"))
+        if day:
+            counts[day] = counts.get(day, 0) + 1
+    if isinstance(runs, Mapping):
+        runs = runs.get("runs", runs.get("days", ()))
+    run_counts: dict[str, int] = {}
+    if isinstance(runs, Sequence) and not isinstance(runs, (str, bytes, bytearray)):
+        for run in runs:
+            if not isinstance(run, Mapping):
+                continue
+            day = _text(run.get("trade_date"))
+            if not day:
+                continue
+            stage = run.get("stage")
+            stage_data = run.get("stages")
+            if isinstance(stage_data, Mapping):
+                stage_data = stage_data.get("A3")
+            if not isinstance(stage_data, Mapping) and _upper(stage) == "A3":
+                stage_data = run
+            if isinstance(stage_data, Mapping):
+                count = _as_nonnegative_int(
+                    stage_data.get("core_watch_pool_count", stage_data.get("selected_count"))
+                )
+                if count is not None:
+                    # A run summary is the authoritative count for its
+                    # trading date.  Label rows may be filtered or partial
+                    # (for example, only one A3 result has a forward label),
+                    # so they must not undercount the core pool.
+                    run_counts[day] = count
+    counts.update(run_counts)
+    values = sorted(counts.values())
+    if not values:
+        return {"status": "INSUFFICIENT_SAMPLE", "sample": 0, "counts_by_trade_date": {}}
+
+    def quantile(fraction: float) -> float:
+        position = (len(values) - 1) * fraction
+        left = int(math.floor(position))
+        right = int(math.ceil(position))
+        if left == right:
+            return float(values[left])
+        weight = position - left
+        return float(values[left] + (values[right] - values[left]) * weight)
+
+    return {
+        "status": "READY" if len(values) >= ATTRIBUTION_MIN_SAMPLE else "INSUFFICIENT_SAMPLE",
+        "sample": len(values),
+        "counts_by_trade_date": dict(sorted(counts.items())),
+        "min": min(values),
+        "max": max(values),
+        "mean": _mean(values),
+        "p25": quantile(0.25),
+        "median": quantile(0.5),
+        "p75": quantile(0.75),
+    }
+
+
+def layer_attribution(
+    runs: Any,
+    labels: Any,
+    *,
+    bootstrap_samples: int = ATTRIBUTION_BOOTSTRAP_SAMPLES,
+    minimum_sample: int = ATTRIBUTION_MIN_SAMPLE,
+) -> dict[str, Any]:
+    """Attribute forward excess returns to each funnel layer.
+
+    ``runs`` is used only for optional stage/count context; the calculation is
+    driven by the complete label ledger.  ``NOT_SENT_TO_LLM`` remains a
+    separate decision class: it contributes to the denominator but not to
+    pass or rejected-loss means.  If a layer lacks enough observations, its
+    result is explicitly ``INSUFFICIENT_SAMPLE`` and numeric conclusions are
+    omitted.
+    """
+
+    if isinstance(minimum_sample, bool) or not isinstance(minimum_sample, int) or minimum_sample <= 0:
+        raise ValueError("minimum_sample must be a positive integer")
+    rows = _attribution_rows(labels)
+    previous_stage = {"A1": "G0", "A2": "A1", "A3": "A2", "A4": "A3"}
+    layer_reports: dict[str, dict[str, Any]] = {}
+    insufficient_layers: list[str] = []
+    for stage in ("G0", "A1", "A2", "A3", "A4"):
+        current = [row for row in rows if row["stage"] == stage]
+        passed = [row for row in current if row["decision"] == "PASSED"]
+        rejected = [row for row in current if row["decision"] == "REJECTED"]
+        not_sent = [row for row in current if row["decision"] == "NOT_SENT_TO_LLM"]
+        passed_values = [float(row["excess_return_5d"]) for row in passed if row.get("excess_return_5d") is not None]
+        rejected_values = [float(row["excess_return_5d"]) for row in rejected if row.get("excess_return_5d") is not None]
+        previous_values = [
+            float(row["excess_return_5d"])
+            for row in rows
+            if row["stage"] == previous_stage.get(stage, "")
+            and row["decision"] == "PASSED"
+            and row.get("excess_return_5d") is not None
+        ]
+        sample = len(current)
+        status = "READY" if sample >= minimum_sample else "INSUFFICIENT_SAMPLE"
+        if status != "READY":
+            insufficient_layers.append(stage)
+        # A below-minimum layer is descriptive only.  Do not expose a point
+        # estimate that a caller could mistake for an actionable conclusion.
+        pass_rate = len(passed) / sample if sample >= minimum_sample else None
+        pass_rate_ci = (
+            _bootstrap_mean_ci(
+                [1.0 if row["decision"] == "PASSED" else 0.0 for row in current],
+                seed_material=f"pass-rate|{stage}|{','.join(sorted(_text(row.get('trade_date')) for row in current))}",
+                samples=bootstrap_samples,
+            )
+            if sample >= minimum_sample
+            else None
+        )
+        gain = (
+            _mean(passed_values) - _mean(previous_values)
+            if status == "READY" and passed_values and previous_values
+            else None
+        )
+        gain_ci = (
+            _bootstrap_difference_ci(
+                passed_values,
+                previous_values,
+                seed_material=f"gain|{stage}|{len(passed_values)}|{len(previous_values)}",
+                samples=bootstrap_samples,
+            )
+            if status == "READY" and passed_values and previous_values
+            else None
+        )
+        loss = _mean(rejected_values) if status == "READY" and rejected_values else None
+        loss_ci = (
+            _bootstrap_mean_ci(
+                rejected_values,
+                seed_material=f"loss|{stage}|{len(rejected_values)}",
+                samples=bootstrap_samples,
+            )
+            if status == "READY" and rejected_values
+            else None
+        )
+        report: dict[str, Any] = {
+            "status": status,
+            "sample": sample,
+            "sample_count": sample,
+            "passed_count": len(passed),
+            "rejected_count": len(rejected),
+            "not_sent_count": len(not_sent),
+            "pass_rate": pass_rate,
+            "gain": gain,
+            "loss": loss,
+            "gain_ci": gain_ci,
+            "loss_ci": loss_ci,
+            "pass_rate_ci": pass_rate_ci,
+            "bootstrap_ci": {
+                "gain": gain_ci,
+                "loss": loss_ci,
+                "pass_rate": pass_rate_ci,
+            },
+            "excess_sample": {
+                "passed": len(passed_values),
+                "rejected": len(rejected_values),
+                "previous": len(previous_values),
+            },
+        }
+        if stage == "G0":
+            report["reason_code"] = "NO_PREVIOUS_LAYER"
+        elif gain is None:
+            report["reason_code"] = "PREVIOUS_OR_PASSED_EXCESS_INSUFFICIENT"
+        layer_reports[stage] = report
+    distribution = _core_distribution(rows, runs)
+    overall_status = "INSUFFICIENT_SAMPLE" if insufficient_layers else "READY"
+    result: dict[str, Any] = {
+        "schema_version": "liangjian-layer-attribution/1.0.0",
+        "status": overall_status,
+        "minimum_sample": minimum_sample,
+        "bootstrap_samples": bootstrap_samples,
+        "insufficient_layers": insufficient_layers,
+        "layers": layer_reports,
+        "core_count_distribution": distribution,
+        "network_used": False,
+        "models_called": False,
+        "runtime_mutation": False,
+    }
+    # Direct stage aliases keep the report convenient for CLI/JSON consumers
+    # without hiding the canonical ``layers`` object.
+    result.update(layer_reports)
+    return result
+
+
 __all__ = [
+    "ATTRIBUTION_BOOTSTRAP_SAMPLES",
+    "ATTRIBUTION_MIN_SAMPLE",
     "DEFAULT_MINIMUM_DAYS",
     "PRIMARY_LANE_DEFAULT",
     "REPLAY_SCHEMA_VERSION",
     "ReplayContractError",
     "ReplayWindowContractError",
     "evaluate_replay_window",
+    "layer_attribution",
     "write_replay_report",
 ]

@@ -28,7 +28,7 @@ from enum import StrEnum
 from typing import Any, Literal, TypeAlias
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -75,6 +75,9 @@ class StrategyEvaluation(BaseModel):
     met_conditions: tuple[str, ...] = ()
     unmet_conditions: tuple[str, ...] = ()
     veto_conditions: tuple[str, ...] = ()
+    confirmation_results: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    all_failed_confirmations: tuple[str, ...] = ()
+    sector_data_lag_s: float | None = None
     closed_5m_end: str | None = None
     closed_15m_end: str | None = None
 
@@ -375,6 +378,8 @@ def evaluate_strategy(
             "weekly_state",
             "monthly_state",
             "market_shock",
+            "sector_data_as_of",
+            "sector_as_of",
         ):
             if (key not in payload or payload.get(key) is None) and key in market_context:
                 payload[key] = market_context[key]
@@ -415,6 +420,10 @@ def _base_result(profile: StrategyProfile | None, plan: Mapping[str, Any]) -> di
         "met_conditions": [],
         "unmet_conditions": [],
         "veto_conditions": [],
+        "confirmation_results": {},
+        "all_failed_confirmations": [],
+        "sector_data_lag_s": None,
+        "_sector_data_timestamp": _sector_data_timestamp(plan),
         "closed_5m_end": None,
         "closed_15m_end": None,
     }
@@ -450,7 +459,106 @@ def _finish(
             result[key] = _unique(values)
     if as_of is not None:
         result["as_of"] = as_of.isoformat()
+    _finalize_observability(result, as_of=as_of)
     return result
+
+
+def _finalize_observability(result: dict[str, Any], *, as_of: datetime | None) -> None:
+    """Project the conditions actually used by a strategy into an audit map.
+
+    The strategy functions intentionally keep their existing three lists.  A
+    confirmation entry is derived only from those lists, so a leader plan does
+    not acquire MA520 requirements (and vice versa) merely because a global
+    config mentions them.  This function is called for every return path,
+    including data blocks and exits.
+    """
+
+    reasons = result.get("reason_codes") or []
+    reason_list = [str(value) for value in reasons if str(value).strip()]
+    confirmations: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+
+    def add(
+        name: Any,
+        *,
+        met: bool,
+        kind: str,
+        reason: str | None = None,
+    ) -> None:
+        key = str(name)
+        if not key:
+            return
+        if key not in confirmations:
+            order.append(key)
+        selected_reason = str(reason or _confirmation_reason(key, reason_list, met=met))
+        confirmations[key] = {
+            "met": bool(met),
+            "reason": selected_reason or ("OK" if met else "NOT_MET"),
+            "kind": kind,
+            "available": _confirmation_available(
+                selected_reason or ("OK" if met else "NOT_MET"),
+                result,
+                met=met,
+            ),
+        }
+
+    for name in result.get("met_conditions") or []:
+        add(name, met=True, kind="CONDITION")
+    for name in result.get("unmet_conditions") or []:
+        add(name, met=False, kind="CONDITION")
+    for name in result.get("veto_conditions") or []:
+        add(name, met=False, kind="VETO", reason=str(name))
+
+    result["confirmation_results"] = {name: confirmations[name] for name in order}
+    result["all_failed_confirmations"] = [
+        name for name in order if not bool(confirmations[name].get("met"))
+    ]
+
+    timestamp = result.pop("_sector_data_timestamp", None)
+    result["sector_data_lag_s"] = _sector_data_lag_seconds(timestamp, as_of)
+
+
+def _confirmation_reason(name: str, reasons: Sequence[str], *, met: bool) -> str:
+    if met:
+        return "OK"
+    normalized = name.upper()
+    best: tuple[int, str] | None = None
+    for reason in reasons:
+        candidate = reason.upper()
+        if candidate == normalized or normalized in candidate or candidate in normalized:
+            return reason
+        name_tokens = {token for token in normalized.split("_") if token not in {"NOT", "NO"}}
+        reason_tokens = {token for token in candidate.split("_") if token not in {"NOT", "NO"}}
+        overlap = len(name_tokens & reason_tokens)
+        if overlap >= 2 and (best is None or overlap > best[0]):
+            best = (overlap, reason)
+    return best[1] if best is not None else "NOT_MET"
+
+
+def _confirmation_available(reason: str, result: Mapping[str, Any], *, met: bool) -> bool:
+    if met:
+        return True
+    if str(result.get("state") or "").upper() == "DATA_BLOCKED":
+        return False
+    token = str(reason or "").upper()
+    return not any(
+        marker in token
+        for marker in ("MISSING", "UNAVAILABLE", "NO_1M", "NO_CLOSED", "STALE", "FUTURE", "DATA_GAP")
+    )
+
+
+def _sector_data_lag_seconds(timestamp: Any, as_of: datetime | None) -> float | None:
+    """Return lag only for an explicit, timezone-aware sector timestamp."""
+
+    if timestamp is None or as_of is None:
+        return None
+    parsed = _parse_timestamp(timestamp)
+    if parsed is None:
+        return None
+    lag = (as_of.astimezone(SHANGHAI) - parsed).total_seconds()
+    # A future-dated fact cannot be called a negative lag.  Keep it unknown so
+    # callers never mistake a clock/data-quality problem for freshness.
+    return round(lag, 3) if lag >= 0 else None
 
 
 def _parse_profile(value: Any) -> StrategyProfile | None:
@@ -1224,6 +1332,16 @@ def _requested_action(plan: Mapping[str, Any]) -> A4Action:
 
 
 def _plan_data_gap(plan: Mapping[str, Any]) -> str | None:
+    if _bool_value(
+        _lookup(
+            plan,
+            ("A3_ABLATION_MODE",),
+            ("a3_ablation_mode",),
+            ("strategy_facts", "A3_ABLATION_MODE"),
+            ("strategy_facts", "a3_ablation_mode"),
+        )
+    ) is True:
+        return "A3_ABLATION_MODE"
     for path in (("data_gap",), ("data_unavailable",)):
         value = _lookup(plan, path)
         if _bool_value(value) is True:
@@ -1235,6 +1353,29 @@ def _plan_data_gap(plan: Mapping[str, Any]) -> str | None:
     value = _lookup(plan, ("data_gap_reason",), ("data", "reason_code"))
     if value:
         return _safe_reason(str(value), "PLAN_DATA_GAP")
+    return None
+
+
+def _sector_data_timestamp(plan: Mapping[str, Any]) -> datetime | None:
+    """Find an explicit sector-fact timestamp; never use the bar timestamp."""
+
+    for path in (
+        ("sector_data_as_of",),
+        ("sector_as_of",),
+        ("sector_context", "data_as_of"),
+        ("sector_context", "fact_as_of"),
+        ("sector_context", "as_of"),
+        ("sector_context", "updated_at"),
+        ("sector_context", "observed_at"),
+        ("sector_context", "timestamp"),
+        ("market_context", "sector_data_as_of"),
+        ("market_context", "sector_as_of"),
+        ("strategy_facts", "sector_data_as_of"),
+        ("strategy_facts", "sector_as_of"),
+    ):
+        parsed = _parse_timestamp(_lookup(plan, path))
+        if parsed is not None:
+            return parsed
     return None
 
 
@@ -1279,6 +1420,39 @@ def _parse_datetime(value: Any) -> datetime | None:
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         return None
     return parsed.astimezone(SHANGHAI).replace(second=0, microsecond=0)
+
+
+def _parse_timestamp(value: Any) -> datetime | None:
+    """Parse an explicit timestamp while retaining seconds precision.
+
+    Naive values are rejected because assigning a timezone would be a guess.
+    Numeric epoch seconds are accepted only when they are unambiguously in a
+    modern Unix timestamp range.
+    """
+
+    if isinstance(value, datetime):
+        if value.tzinfo is None or value.utcoffset() is None:
+            return None
+        return value.astimezone(SHANGHAI)
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        try:
+            number = float(value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if 1_000_000_000 <= number <= 4_000_000_000:
+            return datetime.fromtimestamp(number, tz=SHANGHAI)
+        if 1_000_000_000_000 <= number <= 4_000_000_000_000:
+            return datetime.fromtimestamp(number / 1000.0, tz=SHANGHAI)
+        return None
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
+    return parsed.astimezone(SHANGHAI)
 
 
 def _bar_dict(bar: _Bar, interval: str) -> dict[str, Any]:

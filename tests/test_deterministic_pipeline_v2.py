@@ -6,6 +6,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
+import yaml
 
 from liangjian_funnel.pipeline.deterministic import (
     _read_metric_payload,
@@ -19,6 +20,7 @@ from liangjian_funnel.pipeline.feature_store import ResearchFeatureStore
 from liangjian_funnel.pipeline.model_client import ModelCallResult
 from liangjian_funnel.pipeline.prompts import PROMPT_FILENAMES
 from liangjian_funnel.pipeline.research import FrozenInputSnapshot, ResearchPipeline
+from liangjian_funnel.runtime.state import RuntimeStore
 from liangjian_funnel.settings import Settings
 
 
@@ -202,6 +204,50 @@ def test_a1_evaluates_every_g0_and_keeps_local_research_coverage():
     # four rows with exact disclosed business exposure stay in the local A1
     # research layer instead of being discarded by the review budget.
     assert len(local_active_items(result)) == 4
+
+
+def test_a1_selection_basis_is_explicit_and_does_not_change_active_symbols():
+    snapshot = _snapshot(8)
+
+    first = screen_a1(snapshot, _discovery(), local_top_n_per_node=2, llm_top_n_per_theme=1)
+    second = screen_a1(snapshot, _discovery(), local_top_n_per_node=2, llm_top_n_per_theme=1)
+
+    active_statuses = {"LOCAL_ACTIVE_CANDIDATE", "REVIEW_CANDIDATE"}
+    first_active = {
+        item["symbol"] for item in first.decisions if item.get("status") in active_statuses
+    }
+    second_active = {
+        item["symbol"] for item in second.decisions if item.get("status") in active_statuses
+    }
+    assert first_active == second_active
+
+    active = [item for item in first.decisions if item.get("status") in active_statuses]
+    assert {item["selection_basis"] for item in active} == {
+        "LLM_REVIEWED",
+        "DETERMINISTIC_SCORE",
+        "QUOTA_FILL",
+    }
+    assert first.summary["selection_basis_total"] == len(active)
+    assert sum(first.summary["selection_basis_counts"].values()) == len(active)
+    assert first.summary["selection_basis_counts"] == {
+        "LLM_REVIEWED": 1,
+        "DETERMINISTIC_SCORE": 1,
+        "QUOTA_FILL": 4,
+    }
+
+    local_active = local_active_items(first)
+    assert all(item["selection_basis"] in {"DETERMINISTIC_SCORE", "QUOTA_FILL"} for item in local_active)
+    assert any(item["selection_basis"] == "QUOTA_FILL" for item in local_active)
+
+
+def test_a1_quota_fill_is_explicitly_configured_as_observation_only():
+    config_path = Path(__file__).parents[1] / "config" / "funnel_config_v2.yaml"
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    agent_1 = config["agent_1"]
+
+    assert "quota_forbidden" not in agent_1
+    assert agent_1["quota_fill_enabled"] is True
+    assert agent_1["quota_fill_observation"] == "COHORT_OBSERVATION_ONLY"
 
 
 def test_a1_missing_factor_weight_stays_monitor_and_zero_without_proxy():
@@ -601,6 +647,7 @@ def test_v2_pipeline_does_not_send_the_full_g0_to_a1(tmp_path: Path):
     )
     client = V2Client()
     progress_events: list[dict] = []
+    runtime_store = RuntimeStore(settings.state_db_path)
     snapshot_data = _snapshot(8)
     snapshot_data["A1_DRIVER_LINEAGE_REQUIRED"] = True
     snapshot = FrozenInputSnapshot("snapshot-v2", snapshot_data, as_of=NOW)
@@ -611,6 +658,7 @@ def test_v2_pipeline_does_not_send_the_full_g0_to_a1(tmp_path: Path):
         output_dir=tmp_path / "outputs",
         progress_callback=progress_events.append,
         now=lambda: NOW,
+        runtime_store=runtime_store,
     ).run(snapshot, run_id="run-v2", generated_at=NOW)
 
     assert result.status == "READY_DEGRADED"
@@ -621,6 +669,15 @@ def test_v2_pipeline_does_not_send_the_full_g0_to_a1(tmp_path: Path):
         assert max(map(len, a1_calls[1:])) <= 2
         assert all(len(symbols) < len(snapshot_data["g0_symbols"]) for symbols in a1_calls)
     assert all(lane.stages[0].diagnostics["local_screen"]["evaluated_count"] == 8 for lane in result.lanes)
+    for lane_id in ("lane_1", "lane_2", "lane_3"):
+        a1_labels = runtime_store.list_outcome_labels(
+            run_id="run-v2",
+            lane_id=lane_id,
+            stage="A1",
+        )
+        assert len(a1_labels) == 8
+        assert {row["decision"] for row in a1_labels}.issubset({"PASSED", "REJECTED"})
+        assert all(row["snapshot_id"] == "snapshot-v2" for row in a1_labels)
     for lane_id in ("lane_1", "lane_2", "lane_3"):
         discovery_events = [
             event
@@ -944,6 +1001,149 @@ def test_screen_a2_market_core_needs_only_two_hard_facts_when_optional_facts_mis
     assert "capital_flow" in decision["missing_optional_factors"]
     assert "tier_structure" in decision["missing_optional_factors"]
     assert "index_chain_resonance" in decision["missing_optional_factors"]
+
+
+def test_screen_a2_records_all_effective_gate_failures_without_short_circuiting():
+    snapshot = _snapshot(1)
+    symbol = snapshot["g0_symbols"][0]
+    snapshot["FACTOR_SNAPSHOT"] = {symbol: {}}
+    snapshot["A2_FACTOR_SNAPSHOT"] = {symbol: {}}
+    snapshot["MIN_IDENTIFIABILITY_SCORE"] = 101
+    snapshot["MIN_THEME_SCORE"] = 60
+    snapshot["LEADER_MIN_CRITERIA"] = 4
+    snapshot["MAX_LEADERS_PER_THEME"] = 2
+    snapshot["MIN_FREE_FLOAT_CAP"] = 3_000_000_000
+    row = {
+        "symbol": symbol,
+        "candidate_id": f"a1:{symbol}",
+        # Missing A1 lineage and market facts intentionally exercise several
+        # independent failures in the same row.
+    }
+
+    result = screen_a2(
+        snapshot,
+        {"active_research_pool": [row]},
+        minimum_identifiability_score=101,
+        llm_top_n_per_theme=1,
+        review_all_eligible=True,
+    )
+    decision = result.decisions[0]
+    expected_gates = {
+        "LOCAL_DATA_SUFFICIENCY",
+        "LOCAL_ELIGIBILITY",
+        "THEME_SCORE_MIN",
+        "IDENTIFIABILITY_MIN",
+        "LEADER_MIN_CRITERIA",
+        "MAX_LEADERS_PER_THEME",
+        "TIER_STRUCTURE",
+        "ROUTE_REQUIREMENT",
+        "SENT_TO_LLM",
+        "FREE_FLOAT_CAP",
+    }
+
+    assert set(decision["gate_results"]) == expected_gates
+    assert {
+        "LOCAL_DATA_SUFFICIENCY",
+        "LOCAL_ELIGIBILITY",
+        "IDENTIFIABILITY_MIN",
+        "ROUTE_REQUIREMENT",
+    }.issubset(
+        decision["all_failed_gates"]
+    )
+    assert "SENT_TO_LLM" not in decision["all_failed_gates"]
+    assert decision["first_blocking_gate"] == "LOCAL_DATA_SUFFICIENCY"
+    data_gate = decision["gate_results"]["LOCAL_DATA_SUFFICIENCY"]
+    assert data_gate["value"] == "INSUFFICIENT"
+    assert data_gate["passed"] is False
+    assert data_gate["blocks_decision"] is True
+    eligibility_gate = decision["gate_results"]["LOCAL_ELIGIBILITY"]
+    assert eligibility_gate["value"] == "DATA_GAP"
+    assert eligibility_gate["passed"] is False
+    assert eligibility_gate["blocks_decision"] is True
+    identity_gate = decision["gate_results"]["IDENTIFIABILITY_MIN"]
+    assert identity_gate["available"] is True
+    assert identity_gate["value"] < identity_gate["threshold"] == 101.0
+    assert identity_gate["passed"] is False
+    assert identity_gate["applied"] is True
+    assert identity_gate["blocks_decision"] is True
+    assert identity_gate["reason_code"] == "A2_IDENTIFIABILITY_BELOW_MINIMUM"
+    # Missing/unimplemented facts remain explicit but cannot become a hidden
+    # veto or a false positive.
+    assert decision["gate_results"]["TIER_STRUCTURE"]["available"] is False
+    assert decision["gate_results"]["TIER_STRUCTURE"]["passed"] is None
+    assert "TIER_STRUCTURE" not in decision["all_failed_gates"]
+    assert decision["gate_results"]["LEADER_MIN_CRITERIA"]["available"] is False
+    assert decision["gate_results"]["FREE_FLOAT_CAP"]["available"] is False
+
+    counts = result.summary["gate_block_counts"]
+    assert set(counts) == expected_gates
+    assert all(
+        counts[name] >= 1
+        for name in (
+            "LOCAL_DATA_SUFFICIENCY",
+            "LOCAL_ELIGIBILITY",
+            "IDENTIFIABILITY_MIN",
+            "ROUTE_REQUIREMENT",
+        )
+    )
+    assert counts["SENT_TO_LLM"] == 0
+    assert sum(counts.values()) >= result.summary["rejected_count"]
+
+
+def test_screen_a2_gate_attribution_preserves_review_and_monitor_symbol_sets():
+    snapshot = _snapshot(4)
+    snapshot["A2_SCORE_WEIGHTS"] = {name: 1.0 for name in _complete_a2_factor_scores(90)}
+    snapshot["CAPITAL_FLOW_SNAPSHOT"] = {
+        "available": True,
+        "source_id": "TEST_CAPITAL_FLOW",
+        "by_symbol": {
+            symbol: {"available": True, "capital_flow_score": 90}
+            for symbol in snapshot["g0_symbols"]
+        },
+    }
+    rows = [
+        {
+            "symbol": symbol,
+            "candidate_id": f"a1:{symbol}",
+            "primary_theme": "theme-core",
+            "industry_chain_node": "node-core",
+            "business_exposure": {"revenue_exposure_pct": 65, "source_ref": f"cninfo:{symbol}"},
+            "a2_factor_scores": _complete_a2_factor_scores(80 - index),
+            "data_quality_score": 90,
+        }
+        for index, symbol in enumerate(snapshot["g0_symbols"][:3])
+    ]
+
+    before = screen_a2(
+        snapshot,
+        {"active_research_pool": rows},
+        minimum_identifiability_score=0,
+        llm_top_n_per_theme=1,
+        review_all_eligible=False,
+    )
+    after = screen_a2(
+        snapshot,
+        {"active_research_pool": rows},
+        minimum_identifiability_score=0,
+        llm_top_n_per_theme=1,
+        review_all_eligible=False,
+    )
+
+    assert set(before.review_symbols) == set(after.review_symbols)
+    assert set(before.monitor_symbols) == set(after.monitor_symbols)
+    assert set(before.rejected_symbols) == set(after.rejected_symbols)
+
+    clipped = [
+        item for item in after.decisions
+        if item.get("status") == "LOCAL_MONITOR"
+        and item.get("gate_results", {}).get("SENT_TO_LLM", {}).get("reason_code")
+        == "A2_NOT_SENT_TO_LLM"
+    ]
+    assert clipped
+    for item in clipped:
+        assert item["gate_results"]["LOCAL_ELIGIBILITY"]["passed"] is True
+        assert item["gate_results"]["SENT_TO_LLM"]["blocks_decision"] is True
+        assert "SENT_TO_LLM" in item["all_failed_gates"]
 
 
 def test_screen_a2_rejects_non_positive_review_budget() -> None:

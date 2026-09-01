@@ -45,6 +45,24 @@ class Eligibility(StrEnum):
     DATA_GAP = "DATA_GAP"
 
 
+class A3GateResult(BaseModel):
+    """One auditable A3 gate outcome.
+
+    ``available`` describes whether the input needed to evaluate the gate was
+    present.  It is deliberately separate from ``met``: a known negative is
+    not the same thing as a missing fact.  The four fields are kept small and
+    stable so the result can be consumed by the UI, replay reports and SQL
+    projections without exposing model prose.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    met: bool
+    reason: str
+    kind: str
+    available: bool
+
+
 class A3StrategyDecision(BaseModel):
     """Frozen, JSON-serializable A3 decision returned by the public entry.
 
@@ -86,9 +104,23 @@ class A3StrategyDecision(BaseModel):
     met_conditions: list[str] = Field(default_factory=list)
     unmet_conditions: list[str] = Field(default_factory=list)
     veto_conditions: list[str] = Field(default_factory=list)
+    gate_results: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    first_blocking_gate: str | None = None
+    all_failed_gates: list[str] = Field(default_factory=list)
+    publication_state: str | None = None
+    A3_ABLATION_MODE: bool = False
+    a3_ablation_mode: bool = False
+    ablation_gates: list[str] = Field(default_factory=list)
+    ablation_shadow_eligibility: str | None = None
     reason_codes: list[str] = Field(default_factory=list)
     llm_review: dict[str, Any] = Field(default_factory=dict)
     strategy_facts: dict[str, Any] = Field(default_factory=dict)
+
+
+# Short descriptive alias for consumers that refer to the stage as
+# ``A3Decision``.  Keeping the existing class name preserves the public import
+# used by the current pipeline and replay fixtures.
+A3Decision = A3StrategyDecision
 
 
 _CLOSED_STATES = {"CLOSED", "COMPLETE", "COMPLETED", "FINAL", "FINALIZED"}
@@ -215,6 +247,7 @@ def evaluate_a3_candidate(
     *,
     snapshot: Mapping[str, Any] | None = None,
     as_of: datetime | date | str | None = None,
+    ablation: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Evaluate one A2 candidate against the A3 daily strategy contract.
 
@@ -395,8 +428,50 @@ def evaluate_a3_candidate(
     vetoes: list[str] = []
     reason_codes: list[str] = []
     condition_details: dict[str, dict[str, Any]] = {}
+    gate_order: list[str] = []
+    gate_results: dict[str, dict[str, Any]] = {}
     data_gaps: list[str] = []
     watch_reasons: list[str] = []
+
+    def record_gate(
+        name: str,
+        *,
+        met: bool,
+        reason: str,
+        kind: str,
+        available: bool,
+    ) -> None:
+        """Record every evaluated gate without changing decision lists.
+
+        A3 historically exposed separate condition/veto arrays.  This
+        projection is additive: duplicate condition/veto notifications are
+        merged under their first-seen name, while a later veto takes
+        precedence over a positive condition with the same name.  The
+        evaluator continues executing all callers after a failed gate; this
+        helper only records the result.
+        """
+
+        key = str(name)
+        if key not in gate_results:
+            gate_order.append(key)
+            gate_results[key] = {
+                "met": bool(met),
+                "reason": str(reason or ("OK" if met else "NOT_MET")),
+                "kind": str(kind),
+                "available": bool(available),
+            }
+            return
+        previous = gate_results[key]
+        if not met or str(kind).upper() == "VETO":
+            previous["met"] = bool(met)
+            previous["reason"] = str(reason or ("OK" if met else "NOT_MET"))
+        if str(kind).upper() == "VETO":
+            previous["kind"] = str(kind)
+            # A veto is a known negative, even if an earlier condition with
+            # the same name was missing.
+            previous["available"] = True
+        else:
+            previous["available"] = bool(previous.get("available", True) and available)
 
     def condition(
         name: str,
@@ -409,6 +484,13 @@ def evaluate_a3_candidate(
         required.append(name)
         detail = {"met": bool(ok), "reason": reason or ("OK" if ok else "NOT_MET")}
         condition_details[name] = detail
+        record_gate(
+            name,
+            met=bool(ok),
+            reason=detail["reason"],
+            kind="CONDITION",
+            available=not missing,
+        )
         if ok:
             met.append(name)
             return
@@ -423,9 +505,29 @@ def evaluate_a3_candidate(
     def veto(code: str) -> None:
         _append_unique(vetoes, code)
         _append_unique(reason_codes, code)
+        record_gate(code, met=False, reason=code, kind="VETO", available=True)
 
     if not symbol:
         data_gaps.append("SYMBOL_MISSING")
+        record_gate(
+            "SYMBOL_PRESENT",
+            met=False,
+            reason="SYMBOL_MISSING",
+            kind="DATA",
+            available=False,
+        )
+
+    record_gate(
+        "STRATEGY_ROUTE_APPLICABLE",
+        met=profile is not StrategyProfile.NO_NEXT_DAY_PLAN,
+        reason=(
+            "OK"
+            if profile is not StrategyProfile.NO_NEXT_DAY_PLAN
+            else "NO_APPLICABLE_STRATEGY"
+        ),
+        kind="ROUTE",
+        available=True,
+    )
 
     conditional_probe = False
     higher_timeframe_risk = "ALIGNED_OR_NEUTRAL"
@@ -694,7 +796,11 @@ def evaluate_a3_candidate(
     if eligibility is Eligibility.REJECTED and vetoes:
         llm_status = "VETO"
 
-    return {
+    failed_gates = [
+        name for name in gate_order if not bool(gate_results[name].get("met"))
+    ]
+
+    result = {
         "strategy_profile": profile.value,
         "strategy_version": STRATEGY_VERSION,
         "symbol": symbol or None,
@@ -726,10 +832,157 @@ def evaluate_a3_candidate(
         "met_conditions": _dedupe(met),
         "unmet_conditions": _dedupe(unmet),
         "veto_conditions": _dedupe(vetoes),
+        "gate_results": {
+            name: {
+                "met": bool(detail.get("met")),
+                "reason": str(detail.get("reason") or ("OK" if detail.get("met") else "NOT_MET")),
+                "kind": str(detail.get("kind") or "CONDITION").upper(),
+                "available": bool(detail.get("available", True)),
+            }
+            for name, detail in gate_results.items()
+        },
+        "first_blocking_gate": failed_gates[0] if failed_gates else None,
+        "all_failed_gates": failed_gates,
         "reason_codes": _dedupe(reason_codes + data_gaps + watch_reasons),
         "llm_review": {"status": llm_status, "reason_codes": _dedupe(vetoes + data_gaps)},
         "strategy_facts": facts,
     }
+    _apply_a3_ablation(
+        result,
+        gate_order=gate_order,
+        ablation=_resolve_ablation(ablation, source_snapshot, source_context),
+    )
+    return result
+
+
+def _resolve_ablation(
+    explicit: Mapping[str, Any] | None,
+    snapshot: Mapping[str, Any],
+    context: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    """Resolve an opt-in offline ablation declaration at the API boundary."""
+
+    if isinstance(explicit, Mapping):
+        return explicit
+    for source in (snapshot, context):
+        nested = source.get("agent_3") if isinstance(source, Mapping) else None
+        if isinstance(nested, Mapping) and isinstance(nested.get("ablation"), Mapping):
+            return nested["ablation"]
+        value = source.get("A3_ABLATION_CONFIG") if isinstance(source, Mapping) else None
+        if isinstance(value, Mapping):
+            return value
+    return {}
+
+
+def _apply_a3_ablation(
+    result: dict[str, Any],
+    *,
+    gate_order: Sequence[str],
+    ablation: Mapping[str, Any],
+) -> None:
+    """Apply an explicitly requested offline gate ablation and fail closed.
+
+    Ablation is an experiment projection, never a publication mode.  Selected
+    gates are labelled ``ABLATED`` and treated as met only for the simulated
+    failure analysis.  The returned artifact is still marked with the exact
+    ``A3_ABLATION_MODE`` flag and forced to ``DATA_GAP`` so callers cannot
+    create a production plan from it.
+    """
+
+    enabled = _truthy(
+        _first(ablation, "enabled", "enable", "A3_ABLATION_MODE")
+    )
+    if not enabled:
+        return
+
+    raw_gates = _first(
+        ablation,
+        "disabled_gates",
+        "gates",
+        "gate_names",
+        "disable_gates",
+    )
+    if isinstance(raw_gates, str):
+        selected = [raw_gates.strip()] if raw_gates.strip() else []
+    elif isinstance(raw_gates, Sequence) and not isinstance(raw_gates, (str, bytes)):
+        selected = [str(value).strip() for value in raw_gates if str(value).strip()]
+    else:
+        selected = []
+    selected = list(dict.fromkeys(selected))
+
+    gates = result.get("gate_results")
+    if not isinstance(gates, dict):
+        gates = {}
+        result["gate_results"] = gates
+    for name in selected:
+        detail = gates.get(name)
+        if not isinstance(detail, dict):
+            detail = {
+                "met": False,
+                "reason": "ABLATED_UNKNOWN_GATE",
+                "kind": "ABLATED",
+                "available": False,
+            }
+            gates[name] = detail
+        else:
+            detail["met"] = True
+            detail["reason"] = "ABLATED"
+            detail["kind"] = "ABLATED"
+        if name not in gate_order:
+            gate_order = (*gate_order, name)
+
+    # Keep the simulated gate projection ordered by the original evaluator
+    # order.  Unknown configured names appear after known gates, making a bad
+    # experiment declaration visible without affecting real decisions.
+    ordered_names = list(gate_order)
+    ordered_names.extend(name for name in gates if name not in ordered_names)
+    result["gate_results"] = {name: gates[name] for name in ordered_names if name in gates}
+    failed = [
+        name for name, detail in result["gate_results"].items()
+        if not bool(detail.get("met"))
+    ]
+    result["all_failed_gates"] = failed
+    result["first_blocking_gate"] = failed[0] if failed else None
+
+    has_data_failure = any(
+        str(detail.get("kind") or "").upper() == "DATA"
+        or detail.get("available") is False
+        for name, detail in result["gate_results"].items()
+        if name in failed
+    )
+    shadow_eligibility = (
+        Eligibility.QUALIFIED.value
+        if not failed
+        else Eligibility.DATA_GAP.value
+        if has_data_failure
+        else Eligibility.WATCH.value
+    )
+    result["A3_ABLATION_MODE"] = True
+    result["a3_ablation_mode"] = True
+    result["ablation_gates"] = selected
+    result["ablation_shadow_eligibility"] = shadow_eligibility
+    result["eligibility"] = Eligibility.DATA_GAP.value
+    result["publication_state"] = "BLOCKED"
+    result["plan_mode"] = None
+    result["reason_codes"] = _dedupe([
+        *(result.get("reason_codes") or []),
+        "A3_ABLATION_MODE",
+    ])
+    result["llm_review"] = {
+        **(_mapping(result.get("llm_review"))),
+        "status": "DATA_GAP",
+        "reason_codes": _dedupe([
+            *(_mapping(result.get("llm_review"))).get("reason_codes", []),
+            "A3_ABLATION_MODE",
+        ]),
+    }
+    facts = result.get("strategy_facts")
+    if isinstance(facts, dict):
+        facts["A3_ABLATION_MODE"] = True
+        facts["a3_ablation_mode"] = True
+        facts["ablation_gates"] = list(selected)
+        facts["ablation_shadow_eligibility"] = shadow_eligibility
+        facts["publication_state"] = "BLOCKED"
 
 
 def route_a3_strategy(
@@ -741,6 +994,7 @@ def route_a3_strategy(
     *,
     snapshot: Mapping[str, Any] | None = None,
     as_of: datetime | date | str | None = None,
+    ablation: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Alias emphasizing that A3 chooses one and only one strategy route."""
 
@@ -752,6 +1006,7 @@ def route_a3_strategy(
         kline_labels,
         snapshot=snapshot,
         as_of=as_of,
+        ablation=ablation,
     )
 
 
@@ -765,6 +1020,7 @@ def evaluate_a3_strategy(
     a2_context: Mapping[str, Any] | None = None,
     market_regime: str | None = None,
     sector_permission: str | None = None,
+    ablation: Mapping[str, Any] | None = None,
 ) -> A3StrategyDecision:
     """Evaluate a candidate through the stable keyword-only A3 contract.
 
@@ -795,6 +1051,7 @@ def evaluate_a3_strategy(
         _mapping(price_levels),
         _mapping(tradability),
         kline,
+        ablation=ablation,
     )
     return A3StrategyDecision.model_validate(result)
 
@@ -808,6 +1065,7 @@ def build_a3_strategy_decision(
     *,
     snapshot: Mapping[str, Any] | None = None,
     as_of: datetime | date | str | None = None,
+    ablation: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Descriptive alias used by replay callers."""
 
@@ -819,6 +1077,7 @@ def build_a3_strategy_decision(
         kline_labels,
         snapshot=snapshot,
         as_of=as_of,
+        ablation=ablation,
     )
 
 
@@ -1972,6 +2231,8 @@ __all__ = [
     "STRATEGY_VERSION",
     "StrategyProfile",
     "Eligibility",
+    "A3GateResult",
+    "A3Decision",
     "A3StrategyDecision",
     "evaluate_a3_strategy",
     "evaluate_a3_candidate",

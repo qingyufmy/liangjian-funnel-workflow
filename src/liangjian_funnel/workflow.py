@@ -3555,6 +3555,149 @@ class WorkflowApplication:
         )
         return payload
 
+    def publish_a3_premarket_analysis(self, *, now: datetime | None = None) -> dict[str, Any]:
+        """Publish a read-only 08:30 report for the latest primary A3 batch.
+
+        This runs before the auction review. It reads only durable pending A3
+        rows from the configured primary lane, selects one newest
+        ``source_run_id`` batch, and never fetches a quote or mutates a plan.
+        The 09:26 ``review_pending_morning`` method remains the sole owner of
+        auction checks and A4 activation.
+        """
+
+        current = _aware(now or datetime.now(SHANGHAI)).replace(second=0, microsecond=0)
+        self._ensure_trading_day(current, synchronize_accounts=False)
+        clock = current.time().replace(tzinfo=None)
+        start = datetime.strptime("08:30", "%H:%M").time()
+        deadline = datetime.strptime("09:20", "%H:%M").time()
+        if clock < start:
+            raise WorkflowError("PREMARKET_ANALYSIS_BEFORE_SCHEDULE")
+        if clock > deadline:
+            raise WorkflowError("PREMARKET_ANALYSIS_DEADLINE_MISSED")
+
+        primary_lane = str(getattr(self.settings, "research_primary_lane_id", "lane_1"))
+        pending = tuple(
+            self.store.list_execution_plans(
+                lane_id=primary_lane,
+                status=PlanStatus.PENDING_MORNING_REVIEW,
+            )
+        )
+        candidates: dict[str, list[dict[str, Any]]] = {}
+        sourceless = 0
+        for plan in pending:
+            expires_at = plan.get("expires_at")
+            try:
+                expiry = datetime.fromisoformat(str(expires_at)) if expires_at else None
+                if expiry is not None and (expiry.tzinfo is None or expiry.utcoffset() is None):
+                    expiry = expiry.replace(tzinfo=SHANGHAI)
+                if expiry is None or expiry.astimezone(SHANGHAI) < current:
+                    continue
+                if expiry.astimezone(SHANGHAI).date() != current.date():
+                    continue
+            except (TypeError, ValueError):
+                continue
+            try:
+                raw = json.loads(str(plan.get("payload_json") or "{}"))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                raw = {}
+            source = str(raw.get("source_run_id") or "").strip() if isinstance(raw, Mapping) else ""
+            if not source:
+                sourceless += 1
+                continue
+            candidates.setdefault(source, []).append(plan)
+
+        output_path = self.settings.workflow_output_dir / "runs" / f"{current.date()}-a3-premarket.json"
+        if not pending:
+            payload = {
+                "status": "EMPTY_SCOPE",
+                "reason_code": "NO_PENDING_A3_PLANS",
+                "analyzed_at": current.isoformat(),
+                "lane_id": primary_lane,
+                "plan_count": 0,
+                "plans": [],
+                "notifications": [],
+            }
+            atomic_write_json(output_path, payload)
+            atomic_write_text(output_path.with_suffix(".md"), _a3_premarket_markdown(payload))
+            return payload
+        if not candidates:
+            payload = {
+                "status": "BLOCKED",
+                "reason_code": "A3_PENDING_PLAN_SOURCE_UNAVAILABLE" if sourceless else "NO_CURRENT_A3_PLANS",
+                "analyzed_at": current.isoformat(),
+                "lane_id": primary_lane,
+                "plan_count": 0,
+                "plans": [],
+                "notifications": [],
+            }
+            atomic_write_json(output_path, payload)
+            atomic_write_text(output_path.with_suffix(".md"), _a3_premarket_markdown(payload))
+            return payload
+
+        source_run_id, selected = max(
+            candidates.items(),
+            key=lambda item: (
+                max(str(row.get("created_at") or "") for row in item[1]),
+                item[0],
+            ),
+        )
+        plans = tuple(sorted(selected, key=lambda row: (str(row.get("symbol") or ""), str(row.get("plan_id") or ""))))
+        publisher = getattr(self, "lark_publisher", None)
+        try:
+            notifications = (
+                publisher.publish_a3_premarket_analysis(
+                    plans,
+                    analyzed_at=current,
+                    source_run_id=source_run_id,
+                )
+                if publisher is not None
+                else []
+            )
+        except Exception:
+            notifications = [{"status": "FAILED", "reason_code": "LARK_NOTIFICATION_FAILED"}]
+        plan_summaries: list[dict[str, Any]] = []
+        for plan in plans:
+            try:
+                raw = json.loads(str(plan.get("payload_json") or "{}"))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                raw = {}
+            if not isinstance(raw, Mapping):
+                raw = {}
+            plan_summaries.append(
+                {
+                    "plan_id": str(plan.get("plan_id") or ""),
+                    "symbol": str(plan.get("symbol") or ""),
+                    "name": raw.get("name"),
+                    "strategy_profile": raw.get("strategy_profile"),
+                    "selection_reasons": raw.get("selection_reasons") or raw.get("reason_codes") or [],
+                    "trigger_low": raw.get("trigger_low"),
+                    "trigger_high": raw.get("trigger_high"),
+                    "stop_level": raw.get("stop_level") or raw.get("daily_invalidation"),
+                    "no_chase_price": raw.get("no_chase") or raw.get("no_chase_price") or raw.get("max_chase_price"),
+                    "required_conditions": raw.get("required_conditions") or [],
+                    "overnight_invalidators": raw.get("overnight_invalidators") or raw.get("invalidation_conditions") or [],
+                }
+            )
+        payload = {
+            "status": "READY",
+            "reason_code": "A3_PREMARKET_ANALYSIS_READY",
+            "analyzed_at": current.isoformat(),
+            "lane_id": primary_lane,
+            "source_run_id": source_run_id,
+            "plan_count": len(plans),
+            "plans": plan_summaries,
+            "activation_deferred_to": "09:26",
+            "notifications": notifications,
+        }
+        atomic_write_json(output_path, payload)
+        atomic_write_text(output_path.with_suffix(".md"), _a3_premarket_markdown(payload))
+        return payload
+
+    def run_premarket(self, *, now: datetime | None = None) -> dict[str, Any]:
+        """Command-facing alias for the read-only A3 premarket report."""
+
+        return self.publish_a3_premarket_analysis(now=now)
+
     def run_due(self, *, now: datetime | None = None) -> dict[str, Any]:
         return self.run_scheduled(now=now)
 
@@ -3568,6 +3711,7 @@ class WorkflowApplication:
         scheduler = Scheduler(
             self.store,
             callbacks={
+                ScheduleKind.PREMARKET_0830: lambda _job: self.publish_a3_premarket_analysis(now=current),
                 ScheduleKind.MORNING_0925: lambda _job: self.review_pending_morning(now=current),
                 ScheduleKind.CLOSE_1510: lambda _job: self.run_research(
                     "close",
@@ -4362,6 +4506,55 @@ class WorkflowApplication:
                 broker.start_trading_day(current.date())
 
 
+def _a3_premarket_markdown(payload: Mapping[str, Any]) -> str:
+    """Render the durable human-readable companion to the 08:30 JSON receipt."""
+
+    status = str(payload.get("status") or "UNKNOWN")
+    reason = str(payload.get("reason_code") or "-")
+    lines = [
+        "# A3 盘前分析",
+        "",
+        f"- 分析时间：`{payload.get('analyzed_at') or '-'}`",
+        f"- 状态：`{status}`",
+        f"- 原因码：`{reason}`",
+        f"- 主模型批次：`{payload.get('source_run_id') or '-'}`",
+        f"- 计划数量：`{payload.get('plan_count') or 0}`",
+        "- 数据边界：仅使用上一收盘已持久化的 A3 计划；不读取当日竞价或盘中行情。",
+        "- 执行边界：09:26 竞价复核前不会激活 A4。",
+    ]
+    plans = payload.get("plans")
+    if not isinstance(plans, (list, tuple)) or not plans:
+        lines.extend(["", "当前没有可发布的 A3 盘前计划。"])
+        return "\n".join(lines) + "\n"
+
+    lines.extend(["", "## A3 计划明细", ""])
+    for item in plans:
+        if not isinstance(item, Mapping):
+            continue
+        reasons = item.get("selection_reasons")
+        conditions = item.get("required_conditions")
+        invalidators = item.get("overnight_invalidators")
+        reason_text = "；".join(str(value) for value in reasons[:6]) if isinstance(reasons, list) else "-"
+        condition_text = "；".join(str(value) for value in conditions[:6]) if isinstance(conditions, list) else "-"
+        invalidator_text = "；".join(str(value) for value in invalidators[:6]) if isinstance(invalidators, list) else "-"
+        lines.extend(
+            [
+                f"### {item.get('name') or '名称未提供'}｜{item.get('symbol') or '代码未提供'}",
+                "",
+                f"- 策略：`{item.get('strategy_profile') or '-'}`",
+                f"- 入选逻辑：{reason_text or '-'}",
+                f"- 触发区：`{item.get('trigger_low')}` – `{item.get('trigger_high')}`",
+                f"- 止损/失效：`{item.get('stop_level')}`",
+                f"- 禁止追价：`{item.get('no_chase_price')}`",
+                f"- 必要条件：{condition_text or '-'}",
+                f"- 隔夜失效项：{invalidator_text or '-'}",
+                "",
+            ]
+        )
+    lines.append("> 仅用于本地模拟研究，不连接真实交易，不构成投资建议。")
+    return "\n".join(lines) + "\n"
+
+
 def _a4_prompt_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
     """Project one durable plan into the bounded A4 veto contract.
 
@@ -4560,7 +4753,11 @@ def _prompt_parameters(config: Mapping[str, Any]) -> dict[str, Any]:
             "clue_pool_target": a1.get("clue_pool_target", [300, 800]),
             "active_research_target": a1.get("active_research_target", [100, 250]),
             "node_count_target": a1.get("node_count_target", [40, 80]),
-            "quota_forbidden": True,
+            "quota_fill_enabled": bool(a1.get("quota_fill_enabled", False)),
+            "quota_fill_observation": a1.get(
+                "quota_fill_observation",
+                "COHORT_OBSERVATION_ONLY",
+            ),
         },
         "A2_POOL_TARGETS": _pool_targets(a2.get("candidate_pool_target"), default=(100, 200)),
         "A2_ROTATION_THEME_COUNT": a2.get("rotation_theme_count", 3),

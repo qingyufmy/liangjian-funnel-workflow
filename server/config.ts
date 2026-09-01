@@ -8,6 +8,7 @@ export const FEATURE_MAINTENANCE_AT = "03:30";
 export const A1_MAINTENANCE_AT = "18:00";
 
 export const JOB_DEFINITIONS: readonly JobDefinition[] = [
+  { name: "premarket", command: "run-premarket", label: "A3 盘前分析", schedule: "08:30" },
   { name: "morning", command: "run-morning", label: "早盘复核", schedule: "09:26" },
   { name: "close", command: "run-close", label: "收盘 A2→A3", schedule: "15:10（交易日）" },
   { name: "a1", command: "run-a1-maintenance", label: "A1 研究池维护", schedule: "18:00（月度全量 / 周度增量）" },

@@ -5,7 +5,7 @@ import json
 import re
 import sys
 from collections import defaultdict
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Mapping, Sequence
 from zoneinfo import ZoneInfo
@@ -14,6 +14,8 @@ from .contracts import CapabilityStatus
 from .pipeline.outcomes import PublicationState, RunOutcome, aggregate_workflow_acceptance, cli_exit_code
 from .pipeline.a1_registry import A1RegistryError, DEFAULT_A1_DEGRADED_AFTER, DEFAULT_A1_MAX_AGE
 from .evaluation.broker_gold import import_broker_gold
+from .evaluation.outcome_labels import OutcomeLabelError, backfill_forward_returns
+from .evaluation.replay_window import layer_attribution
 from .probes.hithink import HithinkProbe
 from .probes.models import ModelProbe
 from .probes.mootdx import MootdxProbe
@@ -25,7 +27,7 @@ from .runtime.storage_governance import (
     storage_audit,
     storage_cleanup_plan,
 )
-from .runtime.state import PlanStatus
+from .runtime.state import PlanStatus, RuntimeStateError, RuntimeStore
 from .settings import Settings, load_yaml
 from .workflow import WorkflowApplication, WorkflowError
 
@@ -233,6 +235,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="timezone-aware operator timestamp; defaults to current Asia/Shanghai time",
     )
     sub.add_parser("run-due", help="dispatch only work due at the current Shanghai time")
+    sub.add_parser("run-premarket", help="dispatch only the due 08:30 A3 premarket analysis")
     sub.add_parser("run-morning", help="dispatch only the due 09:26 morning review")
     sub.add_parser("run-close", help="dispatch only the due 15:10 close workflow")
     sub.add_parser(
@@ -240,6 +243,26 @@ def build_parser() -> argparse.ArgumentParser:
         help="prepare one clean close A1-A3 run for the nearest next trading session",
     )
     sub.add_parser("run-monitor", help="dispatch only the current due A4 minute")
+    outcomes = sub.add_parser(
+        "label-outcomes",
+        help="backfill deterministic forward outcome labels from local prices",
+    )
+    outcomes.add_argument(
+        "--as-of",
+        required=True,
+        help="latest local market date allowed for forward-return backfill (YYYY-MM-DD)",
+    )
+    outcomes.add_argument(
+        "--price-source",
+        default=None,
+        help="local JSON/CSV or SQLite daily-bar source; defaults to the fact cache",
+    )
+    attribution = sub.add_parser(
+        "layer-attribution",
+        help="calculate deterministic funnel-layer outcome attribution",
+    )
+    attribution.add_argument("--from", dest="from_date", required=True, help="first trade date (YYYY-MM-DD)")
+    attribution.add_argument("--to", dest="to_date", required=True, help="last trade date (YYYY-MM-DD)")
     comparison = sub.add_parser(
         "run-comparison",
         help="resume one durable optional-model comparison request without rerunning the primary",
@@ -326,7 +349,9 @@ def main(argv: Sequence[str] | None = None, *, settings: Settings | None = None)
         return _doctor(active)
     if args.command in {"storage-audit", "storage-backup", "storage-cleanup"}:
         return _storage_command(args, active)
-    if args.command in {"prepare-snapshot", "import-broker-gold", "sync-data", "maintain-features", "run-a1-maintenance", "run-research", "run-comparison", "monitor-once", "activate-latest-a3-for-a4", "run-due", "run-morning", "run-close", "run-next-session-prep", "run-monitor", "status"}:
+    if args.command in {"label-outcomes", "layer-attribution"}:
+        return _evaluation_command(args, active)
+    if args.command in {"prepare-snapshot", "import-broker-gold", "sync-data", "maintain-features", "run-a1-maintenance", "run-research", "run-comparison", "monitor-once", "activate-latest-a3-for-a4", "run-due", "run-premarket", "run-morning", "run-close", "run-next-session-prep", "run-monitor", "status"}:
         return _workflow_command(args, active)
     reports = []
     if args.command in {"probe-hithink", "probe-all"}:
@@ -361,7 +386,7 @@ def _doctor(settings: Settings) -> int:
             runtime.get("schema_version") == "liangjian-runtime/1.0.0"
             and runtime.get("mode") in {"PHASE0_CAPABILITY_ONLY", "SIMULATION_WORKFLOW"}
             and runtime.get("timezone") == "Asia/Shanghai"
-            and runtime.get("research_slots") == {"morning": "09:26", "close": "15:10"}
+            and runtime.get("research_slots") == {"premarket": "08:30", "morning": "09:26", "close": "15:10"}
             and runtime.get("monitor", {}).get("cadence_seconds") == 60
             and runtime.get("permissions") == {
                 "external_orders": False,
@@ -496,6 +521,80 @@ def _storage_command(args: argparse.Namespace, settings: Settings) -> int:
         return 3
 
 
+def _evaluation_command(args: argparse.Namespace, settings: Settings) -> int:
+    """Run deterministic outcome evaluation without constructing the workflow.
+
+    These commands intentionally have no ``WorkflowApplication`` path: they
+    only read/write the local SQLite outcome ledger and local price source.
+    In particular, they cannot acquire a scheduler lease, call a model, or
+    create a research/monitoring plan as a side effect.
+    """
+
+    try:
+        store = RuntimeStore(settings.state_db_path)
+        if args.command == "label-outcomes":
+            source = (
+                Path(args.price_source).expanduser().resolve()
+                if args.price_source
+                else settings.fact_cache_db_path
+            )
+            payload = backfill_forward_returns(
+                store,
+                as_of_date=args.as_of,
+                price_source=source,
+            )
+            print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True, default=str))
+            return 0 if not payload.get("source_errors") else 2
+
+        try:
+            from_date = date.fromisoformat(str(args.from_date))
+            to_date = date.fromisoformat(str(args.to_date))
+        except ValueError:
+            print(json.dumps({"status": "FAILED", "reason_code": "DATE_INVALID"}, ensure_ascii=False))
+            return 3
+        if from_date > to_date:
+            print(json.dumps({"status": "FAILED", "reason_code": "DATE_RANGE_INVALID"}, ensure_ascii=False))
+            return 3
+        labels = tuple(
+            row
+            for row in store.list_outcome_labels(labeled_only=False)
+            if from_date <= date.fromisoformat(str(row["trade_date"])) <= to_date
+        )
+        runs = tuple(
+            row
+            for row in store.list_workflow_runs(limit=200)
+            if _date_in_range(row.get("trade_date"), from_date, to_date)
+        )
+        payload = layer_attribution(runs, labels)
+        payload = {
+            **payload,
+            "from_date": from_date.isoformat(),
+            "to_date": to_date.isoformat(),
+            "label_count": len(labels),
+        }
+        print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True, default=str))
+        return 0 if payload.get("status") == "READY" else 2
+    except OutcomeLabelError as exc:
+        reason_code = exc.reason_code if _SAFE_REASON_CODE.fullmatch(exc.reason_code) else "OUTCOME_EVALUATION_FAILED"
+        print(json.dumps({"status": "FAILED", "reason_code": reason_code}, ensure_ascii=False))
+        return 3
+    except RuntimeStateError as exc:
+        reason_code = exc.reason_code if _SAFE_REASON_CODE.fullmatch(exc.reason_code) else "RUNTIME_STATE_FAILED"
+        print(json.dumps({"status": "FAILED", "reason_code": reason_code}, ensure_ascii=False))
+        return 3
+    except (OSError, ValueError, TypeError) as exc:
+        print(json.dumps({"status": "FAILED", "reason_code": type(exc).__name__}, ensure_ascii=False))
+        return 3
+
+
+def _date_in_range(value: object, start: date, end: date) -> bool:
+    try:
+        parsed = date.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return False
+    return start <= parsed <= end
+
+
 def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
     try:
         if args.command == "maintain-features":
@@ -570,6 +669,10 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
             payload = application.activate_latest_a3_for_a4(now=activation_at)
         elif args.command == "run-due":
             payload = application.run_due()
+        elif args.command == "run-premarket":
+            from .runtime.scheduler import ScheduleKind
+
+            payload = application.run_scheduled(ScheduleKind.PREMARKET_0830)
         elif args.command == "run-morning":
             from .runtime.scheduler import ScheduleKind
 
@@ -757,7 +860,7 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
     if args.command in {"run-research", "run-next-session-prep"}:
         outcome = payload.get("outcome_v2") if isinstance(payload, Mapping) else None
         return cli_exit_code(outcome if isinstance(outcome, Mapping) else payload)
-    if args.command in {"run-due", "run-morning", "run-close", "run-monitor"}:
+    if args.command in {"run-due", "run-premarket", "run-morning", "run-close", "run-monitor"}:
         dispatch = payload.get("dispatch", []) if isinstance(payload, dict) else []
         if any(
             isinstance(record, dict) and record.get("status") in {"FAILED", "MISSED"}

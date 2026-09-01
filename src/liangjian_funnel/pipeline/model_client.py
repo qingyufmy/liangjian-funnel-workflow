@@ -218,7 +218,8 @@ class OpenAICompatibleModelClient:
                 while variant_attempts < self.max_attempts:
                     variant_attempts += 1
                     total_attempts += 1
-                    if self.monotonic() >= overall_deadline:
+                    remaining_timeout = overall_deadline - self.monotonic()
+                    if remaining_timeout <= 0:
                         raise ModelNetworkError("MODEL_TOTAL_DEADLINE_EXCEEDED", attempts=total_attempts)
                     attempt_deadline = overall_deadline
                     body: dict[str, Any] = {
@@ -246,7 +247,16 @@ class OpenAICompatibleModelClient:
                         **thinking_payload,
                     }
                     try:
-                        with client.stream("POST", "/chat/completions", json=body) as response:
+                        # Bound every transport phase by the remaining stage
+                        # budget.  A fresh retry must never receive the full
+                        # original timeout after earlier attempts/backoff have
+                        # already consumed part of the wall-clock deadline.
+                        with client.stream(
+                            "POST",
+                            "/chat/completions",
+                            json=body,
+                            timeout=remaining_timeout,
+                        ) as response:
                             status = response.status_code
                             if status == 429 or status >= 500:
                                 if variant_attempts < self.max_attempts:
@@ -326,7 +336,12 @@ class OpenAICompatibleModelClient:
                             attempts=total_attempts,
                             diagnostics=exc.diagnostics,
                         ) from exc
-                    except (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError, httpx.HTTPError) as exc:
+                    except httpx.TimeoutException as exc:
+                        raise ModelNetworkError(
+                            "MODEL_WALL_CLOCK_TIMEOUT",
+                            attempts=total_attempts,
+                        ) from exc
+                    except (httpx.NetworkError, httpx.RemoteProtocolError, httpx.HTTPError) as exc:
                         if variant_attempts < self.max_attempts:
                             self._backoff(variant_attempts, deadline=overall_deadline)
                             continue
