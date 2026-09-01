@@ -1110,6 +1110,34 @@ def _a2_behavior_evidence(
         fact for fact in item.get("business_exposure_facts", ())
         if isinstance(fact, Mapping)
     ]
+    # A1's production projection historically persisted the normalized
+    # ``business_exposure`` object but omitted the additive
+    # ``business_exposure_facts`` list.  That object is still a server-owned,
+    # point-in-time business-lineage fact (including its source_ref), so it
+    # must be accepted as the equivalent single fact here.  Treating the
+    # missing convenience list as a data gap made otherwise confirmed trend
+    # candidates fail the A2 industry facet and become UNRESOLVED with no
+    # route.  Do not infer a positive fact from arbitrary text: only the
+    # normalized mapping is eligible for this compatibility projection.
+    if not business_facts:
+        exposure = item.get("business_exposure")
+        # ``evidence_basis`` is intentionally part of this compatibility
+        # contract.  A theme/node pair alone proves no company exposure, and
+        # a source URL without a declared business-disclosure basis is not
+        # enough to promote a trend route.  Keep the accepted values aligned
+        # with the A1 prompt enum; ``-`` is an explicit absence of evidence.
+        evidence_basis = str(exposure.get("evidence_basis") or "").strip().upper() if isinstance(exposure, Mapping) else ""
+        source_ref = str(exposure.get("source_ref") or exposure.get("evidence_ref") or "").strip() if isinstance(exposure, Mapping) else ""
+        if (
+            isinstance(exposure, Mapping)
+            and evidence_basis in {"MAIN_BUSINESS_BREAKDOWN", "COMPANY_DISCLOSURE"}
+            and source_ref
+            and (
+                _number(exposure.get("revenue_exposure_pct")) is not None
+                or _number(exposure.get("gross_profit_exposure_pct")) is not None
+            )
+        ):
+            business_facts = [exposure]
     supply_available = bool(node_id and theme_id and business_facts)
     supply_refs = list(dict.fromkeys(
         str(fact.get("evidence_ref") or fact.get("source_ref") or "")

@@ -1629,6 +1629,67 @@ def test_stage_lineage_is_server_owned_for_a2_and_locks_model_identity():
     assert item["lineage_missing_fields"] == []
 
 
+def test_a2_lineage_overlay_publishes_server_behavior_contract_over_model_unresolved():
+    """A2 model rows cannot erase a deterministic TREND route contract."""
+
+    upstream = {
+        "active_research_pool": [{
+            "symbol": "000998.SZ",
+            "candidate_id": "a1:000998.SZ",
+            "company_name": "隆平高科",
+            "primary_theme": "TH_AGRI_FOREST",
+            "industry_chain_node": "node-agri",
+        }],
+    }
+    snapshot = {
+        "A2_BOTTLENECK_CONTEXT": {
+            "000998.SZ": {
+                "route_context_schema": "a2-route-lineage/2",
+                "company_name": "隆平高科",
+                "theme_id": "TH_AGRI_FOREST",
+                "industry_chain_node": "node-agri",
+                "upstream_candidate_id": "a1:000998.SZ",
+                "preferred_route": "MARKET_CORE",
+                "eligible_routes": ["MARKET_CORE"],
+                "deterministic_market_role": "TREND_LEADER",
+                "stock_behavior_type": "TREND",
+                "route_permission": ["TREND_MA5", "MA520_SWING"],
+                "decision_id": "a2:000998.SZ:decision",
+            },
+        },
+    }
+
+    canonical, changed = _canonicalize_stage_lineage(
+        {
+            "focus_pool": [{
+                "symbol": "000998.SZ",
+                "company_name": "模型名称",
+                "theme_id": "模型主题",
+                "industry_chain_node": "模型节点",
+                "a2_route": "SUPPLY_CHAIN_ALPHA",
+                "market_role": "UNRESOLVED",
+                "stock_behavior_type": "UNRESOLVED",
+                "route_permission": [],
+                "upstream_candidate_id": "模型ID",
+            }],
+            "watch_only_pool": [],
+            "rejected_candidates": [],
+        },
+        "A2",
+        upstream,
+        snapshot,
+    )
+
+    item = canonical["focus_pool"][0]
+    assert changed > 0
+    assert item["market_role"] == "TREND_LEADER"
+    assert item["stock_behavior_type"] == "TREND"
+    assert item["route_permission"] == ["TREND_MA5", "MA520_SWING"]
+    assert item["lineage_status"] == "COMPLETE"
+    assert item["lineage_missing_fields"] == []
+    assert "A2_STAGE_LINEAGE_MISSING" not in item.get("reason_codes", [])
+
+
 def test_stage_lineage_marks_missing_v2_fields_instead_of_accepting_model_values():
     canonical, _ = _canonicalize_stage_lineage(
         {

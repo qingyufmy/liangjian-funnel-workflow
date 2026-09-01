@@ -445,3 +445,97 @@ def test_deterministic_a2_keeps_missing_capital_as_degraded_optional_fact() -> N
     assert "A2_OPTIONAL_FACTS_DEGRADED" in decision["reason_codes"]
     assert result.summary["data_sufficiency_state"] == "DEGRADED"
     assert result.monitor_symbols == ()
+
+
+def test_a2_trend_route_accepts_canonical_business_exposure_without_fact_list() -> None:
+    """The production A1 projection may carry only canonical exposure data.
+
+    ``business_exposure_facts`` is an additive storage projection, not a
+    prerequisite for a valid A1 business disclosure.  A source-backed
+    ``business_exposure`` with an allowed ``evidence_basis`` must therefore
+    supply A2's industry-logic facet and let the medium-term/right-strength
+    evidence resolve the stock as TREND.
+    """
+
+    symbols = ("600001.SH", "000002.SZ", "300003.SZ", "600004.SH")
+    growth = (0.10, 0.08, 0.06, 0.04)
+    bars = {
+        symbol: [
+            {
+                "date_ms": int((NOW - timedelta(days=30 - index)).timestamp() * 1000),
+                "close_price": 10 * (1 + rate) ** index,
+            }
+            for index in range(31)
+        ]
+        for symbol, rate in zip(symbols, growth, strict=True)
+    }
+    membership = {
+        "available": True,
+        "records": [
+            {
+                "thscode": symbol,
+                "memberships": [{"industry_thscode": "881001.TI", "industry_name": "主线"}],
+            }
+            for symbol in symbols
+        ],
+    }
+    features = build_a2_feature_snapshot(
+        candidates=[
+            {"symbol": symbol, "amount": 100_000_000 * index}
+            for index, symbol in enumerate(symbols, start=1)
+        ],
+        daily_bars=bars,
+        industry_membership=membership,
+        concept_membership=None,
+        ladder_snapshot={"records": []},
+        dragon_tiger_snapshot={"records": []},
+        attention_snapshot={"records": []},
+        sector_cycle_snapshot=None,
+        capital_flow_snapshot={"available": False, "reason_code": "SOURCE_NOT_CONFIGURED"},
+        as_of=NOW,
+    )
+    snapshot = {
+        "g0_candidates": [
+            {"symbol": symbol, "amount": 100_000_000 * index}
+            for index, symbol in enumerate(symbols, start=1)
+        ],
+        "A2_FACTOR_SNAPSHOT": features,
+        "TIER_STRUCTURE_SNAPSHOT": features,
+        "CAPITAL_FLOW_SNAPSHOT": {"available": False, "reason_code": "SOURCE_NOT_CONFIGURED"},
+        "THS_INDUSTRY_MEMBERSHIP": membership,
+        "A2_THEME_METRICS": features["theme_metrics"],
+        "SECTOR_CYCLE_SNAPSHOT": features.get("sector_cycle_snapshot", {}),
+    }
+    a1 = {
+        "active_research_pool": [
+            {
+                "symbol": symbol,
+                "candidate_id": f"a1:{symbol}",
+                "primary_theme": "theme-main",
+                "industry_chain_node": "node-main",
+                "business_exposure": {
+                    "business_name": "主营业务",
+                    "revenue_exposure_pct": 80,
+                    "evidence_basis": "MAIN_BUSINESS_BREAKDOWN",
+                    "source_ref": f"fixture:business:{symbol}",
+                },
+                "source_refs": [f"fixture:a1:{symbol}"],
+            }
+            for symbol in symbols
+        ],
+    }
+
+    result = screen_a2(
+        snapshot,
+        a1,
+        minimum_identifiability_score=0,
+        llm_top_n_per_theme=len(symbols),
+    )
+    by_symbol = {decision["symbol"]: decision for decision in result.decisions}
+    trend = by_symbol["600001.SH"]
+
+    assert trend["status"] == "REVIEW_CANDIDATE"
+    assert trend["stock_behavior_type"] == "TREND"
+    assert trend["route_permission"] == ["TREND_MA5", "MA520_SWING"]
+    assert trend["behavior_type_decision"]["decision_basis"]["trend_qualified"] is True
+    assert "A2_DATA_GAP_INDUSTRY_LOGIC" not in trend["behavior_type_decision"]["data_gaps"]
