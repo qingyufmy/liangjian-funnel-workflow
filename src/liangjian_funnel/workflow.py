@@ -4124,7 +4124,14 @@ def _market_snapshot_with_closed_turnover(
     cache: LocalFactCache,
     cutoff: datetime,
 ) -> HithinkFetchResult:
-    """Use the prior closed daily amount for a research run started intraday."""
+    """Bind an intraday research universe to the latest closed daily bar.
+
+    Daily turnover is always used so a partial session cannot pass or fail the
+    liquidity gate by accident.  Before the opening auction HiThink returns a
+    complete full-market page whose price/volume fields are zero.  In that
+    specific uninitialized state, reuse the persisted closed price and volume
+    as well.  A positive live price is authoritative and is never overwritten.
+    """
 
     symbols: list[str] = []
     row_symbols: list[str | None] = []
@@ -4141,24 +4148,51 @@ def _market_snapshot_with_closed_turnover(
             symbols.append(symbol)
     closed = cache.latest_daily_bars_before(symbols, end=cutoff, adjust="none")
     updated = []
-    overrides = 0
+    turnover_overrides = 0
+    price_overrides = 0
+    volume_overrides = 0
     for row, symbol in zip(market.items, row_symbols, strict=True):
         bar = closed.get(symbol or "")
         payload = bar.get("payload") if isinstance(bar, Mapping) else None
         turnover = payload.get("turnover") if isinstance(payload, Mapping) else None
-        if not isinstance(turnover, (int, float)) or isinstance(turnover, bool) or turnover < 0:
+        if not isinstance(payload, Mapping):
             updated.append(row)
             continue
         data = row.model_dump(mode="python")
-        data["amount"] = float(turnover)
-        data["turnover"] = float(turnover)
+        if isinstance(turnover, (int, float)) and not isinstance(turnover, bool) and turnover >= 0:
+            data["amount"] = float(turnover)
+            data["turnover"] = float(turnover)
+            turnover_overrides += 1
+
+        live_price = _workflow_float(
+            next(
+                (
+                    data.get(key)
+                    for key in ("price", "current", "last", "last_price", "close", "close_price")
+                    if data.get(key) is not None
+                ),
+                None,
+            )
+        )
+        if live_price is None or live_price <= 0:
+            closed_price = _workflow_float(payload.get("close_price") or payload.get("close"))
+            if closed_price is not None and closed_price > 0:
+                data["price"] = closed_price
+                data["last_price"] = closed_price
+                price_overrides += 1
+                closed_volume = _workflow_float(payload.get("volume"))
+                if closed_volume is not None and closed_volume >= 0:
+                    data["volume"] = closed_volume
+                    volume_overrides += 1
         updated.append(row.__class__.model_validate(data))
-        overrides += 1
     metadata = {
         **market.metadata,
         "turnover_metric": "LATEST_CLOSED_DAILY_BAR",
         "turnover_cutoff": cutoff.isoformat(),
-        "turnover_override_count": overrides,
+        "turnover_override_count": turnover_overrides,
+        "preopen_price_metric": "LATEST_CLOSED_DAILY_BAR_IF_LIVE_PRICE_INVALID",
+        "preopen_price_override_count": price_overrides,
+        "preopen_volume_override_count": volume_overrides,
     }
     return market.model_copy(update={"items": tuple(updated), "metadata": metadata})
 
