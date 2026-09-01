@@ -51,6 +51,10 @@ class Settings(BaseModel):
     model_base_url: str = "https://ai-api.finpoints.tech/v1"
     hithink_api_key: SecretStr | None = Field(default=None, repr=False)
     model_api_key: SecretStr | None = Field(default=None, repr=False)
+    # The webhook itself lives in a gitignored, owner-readable local file so
+    # the control plane can replace it without restarting Python or Node.
+    lark_webhook_path: Path
+    lark_timeout_seconds: float = Field(default=8.0, gt=0, le=30)
     timezone: str = "Asia/Shanghai"
     timeout_seconds: float = Field(default=30.0, gt=0, le=120)
     # Keep the production default at ten minutes, while permitting an explicit
@@ -236,6 +240,8 @@ class Settings(BaseModel):
             model_base_url=env.get("LIANGJIAN_MODEL_BASE_URL", "https://ai-api.finpoints.tech/v1"),
             hithink_api_key=_secret(env.get("HITHINK_FINANCE_API_KEY")),
             model_api_key=_secret(env.get("LIANGJIAN_MODEL_API_KEY")),
+            lark_webhook_path=base / "state" / "lark_webhook.json",
+            lark_timeout_seconds=float(env.get("LIANGJIAN_LARK_TIMEOUT_SECONDS", "8")),
             timezone=env.get("LIANGJIAN_TIMEZONE", "Asia/Shanghai"),
             timeout_seconds=float(env.get("LIANGJIAN_HTTP_TIMEOUT_SECONDS", "30")),
             model_timeout_seconds=float(env.get("LIANGJIAN_MODEL_TIMEOUT_SECONDS", "600")),
@@ -391,6 +397,8 @@ class Settings(BaseModel):
             "model_base_url": self.model_base_url,
             "hithink_key_present": self.hithink_api_key is not None,
             "model_key_present": self.model_api_key is not None,
+            "lark_webhook_present": self.lark_webhook_path.is_file(),
+            "lark_timeout_seconds": self.lark_timeout_seconds,
             "timezone": self.timezone,
             "timeout_seconds": self.timeout_seconds,
             "model_timeout_seconds": self.model_timeout_seconds,

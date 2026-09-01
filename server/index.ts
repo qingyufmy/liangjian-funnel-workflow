@@ -6,6 +6,7 @@ import { loadConfig } from "./config.js";
 import { DashboardData } from "./dashboard.js";
 import { ProjectFiles } from "./files.js";
 import { LogStore } from "./logger.js";
+import { LarkSettingsStore } from "./lark-settings.js";
 import { JobRunner } from "./runner.js";
 import { WorkflowScheduler } from "./scheduler.js";
 
@@ -28,7 +29,8 @@ export async function startServer(): Promise<RunningControlPlane> {
   });
   const files = new ProjectFiles(config, logger);
   const dashboard = new DashboardData(config, files, runner, scheduler, logger);
-  const app = createApp({ config, dashboard, runner, scheduler, logger, startedAt });
+  const larkSettings = new LarkSettingsStore(config.rootDir);
+  const app = createApp({ config, dashboard, runner, scheduler, logger, larkSettings, startedAt });
   const server = createServer(app);
   await new Promise<void>((resolve, reject) => {
     const onError = (error: Error): void => {

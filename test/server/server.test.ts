@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, utimes, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, stat, utimes, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,6 +12,7 @@ import { loadConfig } from "../../server/config.js";
 import { DashboardData, normalizeA4Replay, summarizeMonitorDispatch } from "../../server/dashboard.js";
 import { normalizeLaneOutcome, normalizeRunOutcome, normalizeStageOutcome, ProjectFiles, resolveWithinRoot } from "../../server/files.js";
 import { LogStore } from "../../server/logger.js";
+import { LarkSettingsStore } from "../../server/lark-settings.js";
 import { redactText, sanitizeJson } from "../../server/redaction.js";
 import { JobRunner, timeoutForJob, waitForProcessExit } from "../../server/runner.js";
 import { isMonitorDispatchReady, isMonitorMinute, WorkflowScheduler } from "../../server/scheduler.js";
@@ -174,6 +175,21 @@ test("requires exact bearer token and does not compare different lengths", () =>
   expect(tokenMatches(requestWithAuthorization(`Bearer ${token}`), token)).toBe(true);
   expect(tokenMatches(requestWithAuthorization("Bearer dashboard-secre"), token)).toBe(false);
   expect(tokenMatches(requestWithAuthorization("Basic dashboard-secret"), token)).toBe(false);
+});
+
+test("stores Lark webhook locally while returning only masked status", async () => {
+  const root = await mkdtemp(join(tmpdir(), "liangjian-lark-settings-"));
+  const store = new LarkSettingsStore(root);
+  const webhook = "https://open.larksuite.com/open-apis/bot/v2/hook/test-runtime-token";
+  const status = await store.save(webhook);
+
+  expect(status).toMatchObject({ configured: true, masked: "••••oken" });
+  expect(JSON.stringify(status)).not.toContain(webhook);
+  expect(await readFile(store.path, "utf8")).toContain(webhook);
+  if (process.platform !== "win32") expect((await stat(store.path)).mode & 0o777).toBe(0o600);
+
+  await expect(store.save("https://example.test/hook/secret")).rejects.toThrow("Webhook 格式无效");
+  await expect(store.clear()).resolves.toEqual({ configured: false, masked: null, updatedAt: null });
 });
 
 test("normalizes canonical outcomes and keeps validated empty opportunity distinct from unavailable data", () => {
@@ -560,7 +576,8 @@ test("rejects invalid stage detail parameters and preserves dashboard authentica
   const runner = new JobRunner(config, logger);
   const scheduler = new WorkflowScheduler(runner, logger);
   const dashboard = new DashboardData(config, new ProjectFiles(config, logger), runner, scheduler, logger);
-  const server = createServer(createApp({ config, dashboard, runner, scheduler, logger, startedAt: Date.now() }));
+  const larkSettings = new LarkSettingsStore(root);
+  const server = createServer(createApp({ config, dashboard, runner, scheduler, logger, larkSettings, startedAt: Date.now() }));
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(0, "127.0.0.1", () => resolve());
@@ -571,6 +588,17 @@ test("rejects invalid stage detail parameters and preserves dashboard authentica
   try {
     const unauthorized = await fetch(`${base}/api/research/runs/fixture-run/lanes/lane_1/stages/A1?pool=approved`);
     expect(unauthorized.status).toBe(401);
+    const unauthorizedSettings = await fetch(`${base}/api/settings/lark`);
+    expect(unauthorizedSettings.status).toBe(401);
+    const configured = await fetch(`${base}/api/settings/lark`, {
+      method: "PUT",
+      headers: { Authorization: "Bearer fixture-token", "Content-Type": "application/json" },
+      body: JSON.stringify({ webhookUrl: "https://open.larksuite.com/open-apis/bot/v2/hook/api-fixture-token" }),
+    });
+    expect(configured.status).toBe(200);
+    const configuredBody = await configured.json() as Record<string, unknown>;
+    expect(configuredBody).toMatchObject({ configured: true, masked: "••••oken" });
+    expect(JSON.stringify(configuredBody)).not.toContain("api-fixture-token");
     const invalidLane = await fetch(`${base}/api/research/runs/fixture-run/lanes/lane_9/stages/A1?pool=approved`, {
       headers: { Authorization: "Bearer fixture-token" },
     });

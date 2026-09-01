@@ -101,6 +101,7 @@ from .pipeline.technical_aggregates import build_technical_aggregates
 from .redaction import digest_text, sanitize
 from .reporting import atomic_write_json, atomic_write_json_streaming, atomic_write_text
 from .runtime.monitor import MonitorBatchResult, MonitorEngine, rebuild_effective_markdown
+from .runtime.lark_notifications import WorkflowLarkPublisher
 from .runtime.progress import WorkflowProgress
 from .runtime.resource_guard import evaluate_resources, measure_resources
 from .runtime.calendar import ExchangeTradingCalendar, TradingCalendarError
@@ -301,6 +302,12 @@ class WorkflowApplication:
     def __init__(self, settings: Settings):
         self.settings = settings
         self.store = RuntimeStore(settings.state_db_path)
+        self.lark_publisher = WorkflowLarkPublisher(
+            self.store,
+            None,
+            webhook_path=settings.lark_webhook_path,
+            timeout_seconds=settings.lark_timeout_seconds,
+        )
         self.minute_store = MinuteBarStore(settings.minute_cache_dir)
         self.fact_cache = LocalFactCache(settings.fact_cache_db_path)
         # A1 maintenance has an independent immutable registry.  The feature
@@ -3399,6 +3406,36 @@ class WorkflowApplication:
             self.store,
             self.settings.workflow_output_dir / "monitor" / "effective_signals.md",
         )
+        primary_lane_id = getattr(self.settings, "research_primary_lane_id", "lane_1")
+        effective_keys = {
+            f"effective:{event.lane_id}:{event.plan_id}:{event.action}"
+            for batch in lane_batches.values()
+            for event in batch.events
+            if event.effective
+            and event.plan_id
+            and event.lane_id == primary_lane_id
+        }
+        durable_events = [
+            row
+            for row in self.store.list_monitor_events(
+                lane_id=primary_lane_id,
+                effective_only=True,
+            )
+            if str(row.get("event_key") or "") in effective_keys
+        ]
+        primary_plans = {
+            str(plan.get("plan_id") or ""): plan
+            for plan in lane_plans.get(primary_lane_id, ())
+        }
+        publisher = getattr(self, "lark_publisher", None)
+        try:
+            notifications = publisher.publish_a4_events(
+                durable_events,
+                plans=primary_plans,
+                now=current,
+            ) if publisher is not None else []
+        except Exception:
+            notifications = [{"status": "FAILED", "reason_code": "LARK_NOTIFICATION_FAILED"}]
         payload = {
             "minute_snapshot_id": minute_snapshot_id,
             "time": current.isoformat(),
@@ -3406,6 +3443,7 @@ class WorkflowApplication:
             "minute_cache": cache_stats,
             "lanes": results,
             "simulation": simulation,
+            "notifications": notifications,
         }
         atomic_write_json(self.settings.workflow_output_dir / "monitor" / "latest.json", payload)
         return payload
@@ -3483,12 +3521,28 @@ class WorkflowApplication:
             [str(plan["plan_id"]) for plan in pending],
             valid_from=_at_time(current, 9, 32),
         )
+        primary_lane_id = getattr(self.settings, "research_primary_lane_id", "lane_1")
+        primary_activated = [
+            plan
+            for plan in activated
+            if str(plan.get("lane_id") or "") == primary_lane_id
+        ]
+        publisher = getattr(self, "lark_publisher", None)
+        try:
+            notifications = publisher.publish_premarket(
+                primary_activated,
+                reviewed_at=current,
+                evidence=evidence,
+            ) if publisher is not None else []
+        except Exception:
+            notifications = [{"status": "FAILED", "reason_code": "LARK_NOTIFICATION_FAILED"}]
         payload = {
             "status": "READY",
             "reviewed_at": current.isoformat(),
             "atomic": True,
             "activated": [str(plan["plan_id"]) for plan in activated],
             "evidence_symbols": symbols,
+            "notifications": notifications,
         }
         atomic_write_json(
             self.settings.workflow_output_dir / "runs" / f"{current.date()}-morning-review.json",

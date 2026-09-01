@@ -18,6 +18,7 @@ import {
   RefreshCw,
   Search,
   ScrollText,
+  Send,
   Server,
   ShieldCheck,
   TriangleAlert,
@@ -26,7 +27,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { FormEvent, KeyboardEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { apiFetch, getStoredToken, saveToken, withQuery } from "./api";
+import { apiFetch, apiMutation, getStoredToken, saveToken, withQuery } from "./api";
 import { collectWorkbenchIssues, WorkbenchIssue, WorkbenchIssueSeverity } from "./issues";
 import {
   AccountSummary,
@@ -37,6 +38,8 @@ import {
   LaneOutcomeContract,
   LaneSummary,
   LogEntry,
+  LarkNotificationSummary,
+  LarkSettingsStatus,
   LogsResponse,
   MonitorPlan,
   MonitorDispatchSummary,
@@ -155,6 +158,7 @@ function normalizeOverview(value: OverviewResponse): OverviewResponse {
       activePlans: Array.isArray(value.monitor?.activePlans) ? value.monitor.activePlans : [],
       pendingPlans: Array.isArray(value.monitor?.pendingPlans) ? value.monitor.pendingPlans : [],
       latestA3Plans: Array.isArray(value.monitor?.latestA3Plans) ? value.monitor.latestA3Plans : [],
+      notifications: Array.isArray(value.monitor?.notifications) ? value.monitor.notifications : [],
       dispatch: value.monitor?.dispatch ?? null,
     },
     accounts: Array.isArray(value.accounts) ? value.accounts : [],
@@ -1371,6 +1375,92 @@ function monitorPlanNames(plans: MonitorPlan[] | undefined): string {
   return plans.length > values.length ? `${values.join("、")} 等 ${plans.length} 只` : values.join("、");
 }
 
+function larkNotificationKindLabel(kind?: string | null): string {
+  if (kind === "PREMARKET_A3") return "盘前 A3 计划";
+  if (kind === "A4_EFFECTIVE") return "A4 有效事件";
+  return "系统通知";
+}
+
+function larkNotificationStatusLabel(status?: string | null): string {
+  if (status === "SENT") return "已送达";
+  if (status === "FAILED") return "发送失败";
+  return "状态未知";
+}
+
+function larkColorClass(color?: string | null): string {
+  const allowed = new Set(["blue", "wathet", "turquoise", "green", "yellow", "orange", "red", "carmine", "violet", "purple", "indigo", "lime", "grey"]);
+  return allowed.has(color || "") ? `lark-color-${color}` : "lark-color-grey";
+}
+
+function LarkNotificationPanel({ notifications }: { notifications: LarkNotificationSummary[] }) {
+  const [settings, setSettings] = useState<LarkSettingsStatus | null>(null);
+  const [webhookUrl, setWebhookUrl] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [feedback, setFeedback] = useState<{ tone: "success" | "error"; message: string } | null>(null);
+
+  useEffect(() => {
+    let disposed = false;
+    void apiFetch<LarkSettingsStatus>("/api/settings/lark")
+      .then((status) => { if (!disposed) setSettings(status); })
+      .catch((error: unknown) => { if (!disposed) setFeedback({ tone: "error", message: error instanceof Error ? error.message : "无法读取 Lark 配置" }); });
+    return () => { disposed = true; };
+  }, []);
+
+  async function saveWebhook(event: FormEvent): Promise<void> {
+    event.preventDefault();
+    setSaving(true);
+    setFeedback(null);
+    try {
+      const status = await apiMutation<LarkSettingsStatus>("/api/settings/lark", {
+        method: "PUT",
+        body: JSON.stringify({ webhookUrl }),
+      });
+      setSettings(status);
+      setWebhookUrl("");
+      setFeedback({ tone: "success", message: "Webhook 已安全保存，下一次 A3/A4 推送立即生效。" });
+    } catch (error) {
+      setFeedback({ tone: "error", message: error instanceof Error ? error.message : "保存失败" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function clearWebhook(): Promise<void> {
+    setSaving(true);
+    setFeedback(null);
+    try {
+      const status = await apiMutation<LarkSettingsStatus>("/api/settings/lark", { method: "DELETE" });
+      setSettings(status);
+      setWebhookUrl("");
+      setFeedback({ tone: "success", message: "Webhook 已移除，研究与盯盘仍会正常运行，但不再发送 Lark 通知。" });
+    } catch (error) {
+      setFeedback({ tone: "error", message: error instanceof Error ? error.message : "移除失败" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return <Panel title="Lark 推送记录" icon={<Send size={18} />} action={<span className="lark-delivery-note">仅展示安全摘要</span>}>
+    <div className="lark-settings">
+      <div className="lark-settings-status">
+        <span className={settings?.configured ? "lark-configured" : "lark-unconfigured"}>{settings === null ? "读取中" : settings.configured ? "已配置" : "未配置"}</span>
+        <strong>{settings?.masked ?? "Webhook 不会回传到浏览器"}</strong>
+        <small>{settings?.updatedAt ? `${formatDateTime(settings.updatedAt)} 更新` : "保存在服务器本机，不写入 .env、日志或推送记录"}</small>
+      </div>
+      <form className="lark-settings-form" onSubmit={(event) => void saveWebhook(event)}>
+        <label htmlFor="lark-webhook">Lark 自定义机器人 Webhook</label>
+        <div className="lark-settings-controls">
+          <input id="lark-webhook" type="password" autoComplete="off" spellCheck={false} placeholder={settings?.configured ? "输入新地址以替换现有配置" : "https://open.larksuite.com/open-apis/bot/v2/hook/…"} value={webhookUrl} onChange={(event) => setWebhookUrl(event.target.value)} required />
+          <button className="primary-button" type="submit" disabled={saving || !webhookUrl.trim()}>{saving ? "保存中" : settings?.configured ? "替换" : "保存"}</button>
+          {settings?.configured ? <button className="secondary-button" type="button" onClick={() => void clearWebhook()} disabled={saving}>移除</button> : null}
+        </div>
+        {feedback ? <p className={`lark-settings-feedback lark-settings-feedback-${feedback.tone}`} role={feedback.tone === "error" ? "alert" : "status"}>{feedback.message}</p> : null}
+      </form>
+    </div>
+    {notifications.length === 0 ? <EmptyState title="暂无推送记录" detail="盘前 A3 计划通过复核，或 A4 产生有效状态变化后，这里会显示投递结果；NO_ACTION 不会推送。" icon={<Send size={22} />} /> : <div className="data-table-wrap"><table className="data-table lark-delivery-table"><thead><tr><th>时间</th><th>类型</th><th>卡片</th><th>状态</th><th>尝试</th><th>异常</th></tr></thead><tbody>{notifications.map((item, index) => <tr key={item.deliveryId || `${item.sourceId}-${index}`}><td>{formatDateTime(item.sentAt ?? item.updatedAt ?? item.createdAt)}</td><td>{larkNotificationKindLabel(item.kind)}</td><td><span className="lark-card-title"><i className={larkColorClass(item.color)} aria-hidden="true" /><strong>{item.title || "未命名通知"}</strong></span></td><td><span className={`lark-delivery-status lark-delivery-status-${(item.status || "unknown").toLowerCase()}`}>{larkNotificationStatusLabel(item.status)}</span></td><td>{item.attemptCount ?? 0}</td><td className="monitor-reason">{item.lastReasonCode || "—"}</td></tr>)}</tbody></table></div>}
+  </Panel>;
+}
+
 function priceRange(plan?: MonitorPlan | null): string {
   if (plan?.triggerLow === null || plan?.triggerLow === undefined || plan?.triggerHigh === null || plan?.triggerHigh === undefined) return "—";
   return `${detailValue(plan.triggerLow)} – ${detailValue(plan.triggerHigh)}`;
@@ -1536,6 +1626,7 @@ function MonitorPage({ overview }: { overview: OverviewResponse }) {
   const replay = overview.monitor.replay;
   const dispatch = overview.monitor.dispatch;
   const dispatchStatus = dispatch?.status ?? overview.monitor.status;
+  const notifications = overview.monitor.notifications ?? [];
   return <div className="page-stack"><PageHeading eyebrow="A4 · veto only" title="盘中盯盘" detail="确定性规则先触发，Flash 只允许否决；全部结果进入本地模拟账户，不连接真实交易。" />
     <div className="summary-strip monitor-summary-strip"><SummaryItem label="最新检查" value={formatDateTime(overview.monitor.checkedAt)} /><SummaryItem label="正式活动计划" value={String(activePlanCount)} /><SummaryItem label="下一日待复核" value={String(pendingPlanCount)} /><SummaryItem label="有效事件 / 模拟成交" value={`${overview.monitor.effectiveEventCount ?? events.length} / ${filledCount}`} /><SummaryItem label="当前状态" value={monitorDispatchLabel(dispatchStatus)} /></div>
     <section className={`monitor-readiness ${dispatchStatus === "FAILED" || dispatchStatus === "DATA_BLOCK" ? "monitor-readiness-blocked" : ""}`}>
@@ -1546,6 +1637,8 @@ function MonitorPage({ overview }: { overview: OverviewResponse }) {
     <Panel title="正式实时信号" icon={<MonitorDot size={18} />}>
       {events.length === 0 ? <EmptyState title="目前没有有效盯盘事件" detail={activePlanCount ? "这是合法结果。系统不会把每分钟的 NO_ACTION 写入最终结果。" : "没有正式活动计划，因此生产路径应保持 EMPTY_SCOPE。"} icon={<MonitorDot size={22} />} /> : <div className="data-table-wrap"><table className="data-table monitor-event-table"><thead><tr><th>时间</th><th>股票</th><th>策略</th><th>信号</th><th>模拟结果</th><th>原因</th><th><span className="sr-only">详情</span></th></tr></thead><tbody>{events.map((event, index) => <tr key={`${event.minuteEnd}-${event.planId}-${index}`}><td>{formatDateTime(event.minuteEnd ?? event.time)}</td><td><span className="monitor-stock"><strong>{event.name || "名称未提供"}</strong><small>{event.symbol || "代码未提供"}</small></span></td><td>{strategyProfileLabel(event.strategyProfile ?? event.plan?.strategyProfile)}</td><td><span className={`monitor-action monitor-action-${(event.action || "unknown").toLowerCase()}`}>{monitorActionLabel(event.action)}</span></td><td>{event.simulation?.status === "FILLED" ? <span className="monitor-fill-status monitor-fill-success">已成交 · {detailValue(event.simulation.qty)}股</span> : event.action === "LLM_VETO" ? <span className="monitor-fill-status">未成交 · 模型否决</span> : <span className="monitor-fill-status">不适用</span>}</td><td className="monitor-reason">{monitorReasonLabel(event.reasonCode)}</td><td><button className="monitor-detail-button" type="button" onClick={() => setSelectedEvent(event)}>查看<ChevronRight size={16} /></button></td></tr>)}</tbody></table></div>}
     </Panel>
+
+    <LarkNotificationPanel notifications={notifications} />
 
     <Panel title="A3 计划观察池" icon={<FileClock size={18} />}>
       <dl className="compact-stats monitor-plan-counts"><div><dt>最新 A3 已发布</dt><dd>{latestA3Plans.length}</dd></div><div><dt>ACTIVE_TODAY（本次盯盘）</dt><dd>{activePlanCount}</dd></div><div><dt>PENDING_MORNING_REVIEW（下一日）</dt><dd>{pendingPlanCount}</dd></div><div><dt>来源运行</dt><dd className="mono-cell">{overview.monitor.latestA3RunId || "—"}</dd></div></dl>

@@ -36,6 +36,25 @@ export async function apiFetch<T>(path: string, signal?: AbortSignal): Promise<T
   return (await response.json()) as T;
 }
 
+export async function apiMutation<T>(path: string, init: RequestInit): Promise<T> {
+  const token = getStoredToken();
+  const headers = new Headers(init.headers);
+  headers.set("Content-Type", "application/json");
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const response = await fetch(path, { ...init, headers, cache: "no-store" });
+  if (!response.ok) {
+    let message = `请求失败（HTTP ${response.status}）`;
+    try {
+      const body = (await response.json()) as { error?: string; message?: string };
+      message = body.message ?? body.error ?? message;
+    } catch {
+      // Keep the status-based message when the body is not JSON.
+    }
+    throw new ApiError(message, response.status);
+  }
+  return (await response.json()) as T;
+}
+
 export function withQuery(path: string, values: Record<string, string | number | undefined>): string {
   const query = new URLSearchParams();
   Object.entries(values).forEach(([key, value]) => {

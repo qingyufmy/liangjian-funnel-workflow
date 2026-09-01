@@ -126,6 +126,27 @@ EFFECTIVE_ACTIONS = frozenset(
     }
 )
 
+# Lark card header templates accepted by the interactive-card webhook.  The
+# sequence is intentionally stable: notification colors are derived from a
+# durable SQLite sequence rather than process memory, so a restart cannot
+# accidentally reuse the previous card color.
+NOTIFICATION_CARD_COLORS: tuple[str, ...] = (
+    "blue",
+    "wathet",
+    "turquoise",
+    "green",
+    "yellow",
+    "orange",
+    "red",
+    "carmine",
+    "violet",
+    "purple",
+    "indigo",
+    "grey",
+)
+
+NOTIFICATION_STATUSES = frozenset({"SENT", "FAILED"})
+
 
 RUN_TRANSITIONS: dict[str, frozenset[str]] = {
     RunStatus.CREATED.value: frozenset({RunStatus.DATA_PREPARING.value}),
@@ -198,6 +219,47 @@ def _json(value: Mapping[str, Any] | None) -> str:
     if forbidden.intersection(str(key).lower() for key in value):
         raise ValueError("model reasoning text is not persistable")
     return json.dumps(dict(value), ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def _notify_stamp(value: datetime | str | None = None) -> str:
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value)
+        except ValueError:
+            raise ValueError("notification timestamp must be ISO-8601") from None
+    if value is not None and (not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None):
+        raise ValueError("notification timestamp must be timezone-aware")
+    return _iso(value or _now()) or ""
+
+
+def _notify_text(value: str, field: str, limit: int = 512) -> str:
+    text = value.strip() if isinstance(value, str) else ""
+    if not text or len(text) > limit:
+        raise ValueError(f"notification {field} invalid")
+    return text
+
+
+def _notify_payload(value: Mapping[str, Any] | None) -> str:
+    if value is not None and not isinstance(value, Mapping):
+        raise ValueError("notification payload invalid")
+    forbidden = {"analysis", "api_key", "kline", "model_output", "prompt", "raw", "response", "secret", "token", "webhook"}
+    if value is not None and any(
+        marker in str(key).lower()
+        for key in value
+        for marker in forbidden
+    ):
+        raise ValueError("unsafe notification payload")
+    result = _json(value)
+    if len(result.encode("utf-8")) > 32 * 1024:
+        raise ValueError("notification payload too large")
+    return result
+
+
+def _notify_reason(value: str | None) -> str | None:
+    if not value:
+        return None
+    text = str(value).strip().upper()
+    return text if text and len(text) <= 64 and all(char.isalnum() or char == "_" for char in text) else "LARK_DELIVERY_FAILED"
 
 
 def _row_dict(row: sqlite3.Row | tuple[Any, ...] | None, columns: tuple[str, ...] | None = None) -> dict[str, Any] | None:
@@ -319,6 +381,25 @@ class RuntimeStore:
                         payload_json TEXT NOT NULL DEFAULT '{}',
                         created_at TEXT NOT NULL
                     );
+                    CREATE TABLE IF NOT EXISTS notification_deliveries (
+                        delivery_id TEXT PRIMARY KEY,
+                        delivery_key TEXT NOT NULL UNIQUE,
+                        kind TEXT NOT NULL,
+                        source_id TEXT NOT NULL,
+                        status TEXT NOT NULL CHECK(status IN ('SENT','FAILED')),
+                        title TEXT NOT NULL,
+                        color TEXT NOT NULL,
+                        attempt_count INTEGER NOT NULL DEFAULT 1 CHECK(attempt_count >= 0),
+                        last_reason_code TEXT,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        sent_at TEXT,
+                        payload_json TEXT NOT NULL DEFAULT '{}'
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_notification_deliveries_created
+                        ON notification_deliveries(created_at DESC, delivery_id DESC);
+                    CREATE INDEX IF NOT EXISTS idx_notification_deliveries_status
+                        ON notification_deliveries(status, updated_at DESC);
                     CREATE TABLE IF NOT EXISTS virtual_accounts (
                         account_id TEXT PRIMARY KEY,
                         model TEXT NOT NULL UNIQUE,
@@ -1174,6 +1255,181 @@ class RuntimeStore:
         return self._read(operation)
 
     # ------------------------------------------------------------------
+    # Lark notification delivery ledger
+    # ------------------------------------------------------------------
+    def next_notification_color(self) -> str:
+        """Return the next durable card color without creating a row.
+
+        The workflow sends synchronously and records the outcome afterwards.
+        This read lets the caller build the exact card that will be recorded;
+        the single scheduler lease serializes normal production callers.  The
+        ledger itself also prevents duplicate keys from creating a second
+        color slot.
+        """
+
+        def operation(connection):
+            row = connection.execute(
+                "SELECT color FROM notification_deliveries ORDER BY created_at DESC, rowid DESC LIMIT 1"
+            ).fetchone()
+            if row is None:
+                return NOTIFICATION_CARD_COLORS[0]
+            previous = str(row["color"] or "")
+            try:
+                index = NOTIFICATION_CARD_COLORS.index(previous)
+            except ValueError:
+                index = -1
+            return NOTIFICATION_CARD_COLORS[(index + 1) % len(NOTIFICATION_CARD_COLORS)]
+
+        return str(self._read(operation))
+
+    def record_delivery(
+        self,
+        *,
+        delivery_key: str,
+        kind: str,
+        source_id: str,
+        title: str,
+        status: str,
+        color: str | None = None,
+        attempt_count: int = 1,
+        last_reason_code: str | None = None,
+        payload: Mapping[str, Any] | None = None,
+        created_at: datetime | str | None = None,
+        sent_at: datetime | str | None = None,
+    ) -> tuple[dict[str, Any], bool]:
+        """Record one synchronous Lark delivery outcome idempotently.
+
+        ``delivery_key`` is the business idempotency key (for example,
+        ``premarket:<date>:<run>:<page>`` or ``a4:<event_id>``).  The caller
+        checks the existing row before sending; this method is the durable
+        last line of defence and never creates a second row for the same key.
+        Only a safe, pre-built summary is accepted as ``payload``.
+        """
+
+        key = _notify_text(delivery_key, field="delivery key", limit=512)
+        kind_value = _notify_text(kind, field="kind", limit=64)
+        source = _notify_text(source_id, field="source id", limit=256)
+        title_value = _notify_text(title, field="title", limit=512)
+        status_value = str(status).strip().upper()
+        if status_value not in NOTIFICATION_STATUSES:
+            raise ValueError("invalid notification delivery status")
+        try:
+            attempts = int(attempt_count)
+        except (TypeError, ValueError):
+            raise ValueError("notification attempt count must be an integer") from None
+        if attempts < 0:
+            raise ValueError("notification attempt count must be non-negative")
+        payload_json = _notify_payload(payload)
+        reason = _notify_reason(last_reason_code)
+        stamp = _notify_stamp(created_at)
+        sent_stamp = _notify_stamp(sent_at) if sent_at is not None else None
+        delivery_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"liangjian-lark-delivery:{key}"))
+
+        def operation(connection):
+            existing = connection.execute(
+                "SELECT * FROM notification_deliveries WHERE delivery_key=?", (key,)
+            ).fetchone()
+            if existing is not None:
+                return _row_dict(existing), False
+
+            latest = connection.execute(
+                "SELECT color FROM notification_deliveries ORDER BY created_at DESC, rowid DESC LIMIT 1"
+            ).fetchone()
+            previous = str(latest["color"] or "") if latest is not None else ""
+            requested = str(color or "").strip().lower()
+            if requested not in NOTIFICATION_CARD_COLORS:
+                requested = ""
+            # A supplied color is allowed for semantic grouping, but adjacent
+            # cards must still be visually distinguishable.  Invalid or
+            # repeated colors use the same durable rotation as the default.
+            if not requested or requested == previous:
+                try:
+                    index = NOTIFICATION_CARD_COLORS.index(previous)
+                except ValueError:
+                    index = -1
+                requested = NOTIFICATION_CARD_COLORS[(index + 1) % len(NOTIFICATION_CARD_COLORS)]
+            if status_value == "SENT":
+                effective_sent_at = sent_stamp or stamp
+            else:
+                effective_sent_at = None
+            connection.execute(
+                """
+                INSERT INTO notification_deliveries(
+                    delivery_id,delivery_key,kind,source_id,status,title,color,
+                    attempt_count,last_reason_code,created_at,updated_at,sent_at,payload_json
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    delivery_id,
+                    key,
+                    kind_value,
+                    source,
+                    status_value,
+                    title_value,
+                    requested,
+                    attempts,
+                    reason,
+                    stamp,
+                    stamp,
+                    effective_sent_at,
+                    payload_json,
+                ),
+            )
+            return (
+                _row_dict(
+                    connection.execute(
+                        "SELECT * FROM notification_deliveries WHERE delivery_id=?", (delivery_id,)
+                    ).fetchone()
+                ),
+                True,
+            )
+
+        return self._write(operation)
+
+    def get_delivery_by_key(self, delivery_key: str) -> dict[str, Any] | None:
+        key = _notify_text(delivery_key, field="delivery key", limit=512)
+        return self._read(
+            lambda connection: _row_dict(
+                connection.execute(
+                    "SELECT * FROM notification_deliveries WHERE delivery_key=?", (key,)
+                ).fetchone()
+            )
+        )
+
+    def list_notification_deliveries(
+        self,
+        *,
+        limit: int = 50,
+        kind: str | None = None,
+        status: str | None = None,
+    ) -> tuple[dict[str, Any], ...]:
+        bounded = max(1, min(int(limit), 200))
+        kind_value = _notify_text(kind, field="kind", limit=64) if kind is not None else None
+        status_value = str(status).strip().upper() if status is not None else None
+        if status_value is not None and status_value not in NOTIFICATION_STATUSES:
+            raise ValueError("invalid notification delivery status")
+
+        def operation(connection):
+            clauses: list[str] = []
+            args: list[Any] = []
+            if kind_value is not None:
+                clauses.append("kind=?")
+                args.append(kind_value)
+            if status_value is not None:
+                clauses.append("status=?")
+                args.append(status_value)
+            where = " WHERE " + " AND ".join(clauses) if clauses else ""
+            rows = connection.execute(
+                "SELECT * FROM notification_deliveries"
+                + where
+                + " ORDER BY created_at DESC, rowid DESC LIMIT ?",
+                (*args, bounded),
+            ).fetchall()
+            return tuple(_row_dict(row) for row in rows)
+
+        return self._read(operation)
+
+    # ------------------------------------------------------------------
     # Virtual account/position/fill ledger
     # ------------------------------------------------------------------
     def ensure_virtual_account(self, account_id: str, model: str, initial_cash: float = 1_000_000.0) -> dict[str, Any]:
@@ -1678,6 +1934,8 @@ class RuntimeStore:
 __all__ = [
     "EFFECTIVE_ACTIONS",
     "MonitorAction",
+    "NOTIFICATION_CARD_COLORS",
+    "NOTIFICATION_STATUSES",
     "PersistenceBlockedError",
     "PersistenceError",
     "PlanStatus",

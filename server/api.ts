@@ -5,6 +5,7 @@ import { dashboardAuth } from "./auth.js";
 import { DashboardData } from "./dashboard.js";
 import { isResearchLaneId, isResearchPool, isResearchStage } from "./files.js";
 import { LogStore } from "./logger.js";
+import { LarkSettingsStore, LarkSettingsValidationError } from "./lark-settings.js";
 import { asString } from "./redaction.js";
 import { JobRunner } from "./runner.js";
 import { WorkflowScheduler } from "./scheduler.js";
@@ -17,6 +18,7 @@ export interface ApiDependencies {
   readonly runner: JobRunner;
   readonly scheduler: WorkflowScheduler;
   readonly logger: LogStore;
+  readonly larkSettings: LarkSettingsStore;
   readonly startedAt: number;
 }
 
@@ -65,6 +67,27 @@ export function createApp(deps: ApiDependencies): Express {
   });
 
   app.use("/api", dashboardAuth(deps.config.dashboardToken));
+  app.use("/api/settings/lark", express.json({ limit: "4kb", strict: true }));
+  app.get("/api/settings/lark", asyncRoute(async (_request, response) => {
+    response.setHeader("Cache-Control", "no-store");
+    response.json(await deps.larkSettings.status());
+  }));
+  app.put("/api/settings/lark", asyncRoute(async (request, response) => {
+    response.setHeader("Cache-Control", "no-store");
+    try {
+      response.json(await deps.larkSettings.save((request.body as { webhookUrl?: unknown } | undefined)?.webhookUrl));
+    } catch (error) {
+      if (error instanceof LarkSettingsValidationError) {
+        response.status(400).json({ error: error.reasonCode, message: error.message });
+        return;
+      }
+      throw error;
+    }
+  }));
+  app.delete("/api/settings/lark", asyncRoute(async (_request, response) => {
+    response.setHeader("Cache-Control", "no-store");
+    response.json(await deps.larkSettings.clear());
+  }));
   app.get("/api/overview", asyncRoute(async (_request, response) => {
     response.setHeader("Cache-Control", "no-store");
     response.json(await deps.dashboard.overview());

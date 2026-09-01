@@ -571,6 +571,26 @@ export interface MonitorSimulation {
   barEnd?: string | null;
 }
 
+export interface LarkNotificationSummary {
+  deliveryId?: string | null;
+  kind?: "PREMARKET_A3" | "A4_EFFECTIVE" | string | null;
+  sourceId?: string | null;
+  status?: "SENT" | "FAILED" | string | null;
+  title?: string | null;
+  color?: string | null;
+  attemptCount?: number | null;
+  lastReasonCode?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  sentAt?: string | null;
+}
+
+export interface LarkSettingsStatus {
+  configured: boolean;
+  masked: string | null;
+  updatedAt: string | null;
+}
+
 export type MonitorDispatchStatus =
   | "RUNNING"
   | "SUCCEEDED_NO_ACTION"
@@ -685,6 +705,7 @@ export interface MonitorSummary {
   latestA3PublishedAt?: string | null;
   dispatch?: MonitorDispatchSummary | null;
   replay?: A4ReplaySummary | null;
+  notifications?: LarkNotificationSummary[];
 }
 
 export interface WorkflowProgressStage {

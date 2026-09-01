@@ -85,6 +85,62 @@ def test_plan_event_and_account_keys_are_idempotent(tmp_path):
     assert store.ensure_virtual_account("paper:model-a", "model-a", 3)["cash"] == 1_000_000
 
 
+def test_notification_delivery_is_idempotent_and_rotates_colors(tmp_path):
+    store = RuntimeStore(tmp_path / "notifications.sqlite3")
+    first, inserted = store.record_delivery(
+        delivery_key="premarket:2026-08-28:run-a:1",
+        kind="PREMARKET_A3",
+        source_id="run-a",
+        title="盘前计划",
+        status="SENT",
+        payload={"symbol": "600519.SH", "reason": "A3 trend"},
+        created_at=datetime(2026, 8, 28, 9, 26, tzinfo=TZ),
+    )
+    assert inserted is True
+    assert first["status"] == "SENT"
+    assert first["sent_at"] == first["created_at"]
+    same, inserted = store.record_delivery(
+        delivery_key="premarket:2026-08-28:run-a:1",
+        kind="PREMARKET_A3",
+        source_id="run-a",
+        title="should not replace",
+        status="FAILED",
+    )
+    assert inserted is False
+    assert same["delivery_id"] == first["delivery_id"]
+    assert same["title"] == "盘前计划"
+    second, inserted = store.record_delivery(
+        delivery_key="a4:event-1",
+        kind="A4_EFFECTIVE",
+        source_id="event-1",
+        title="A4有效信号",
+        status="FAILED",
+        last_reason_code="LARK_HTTP_RETRYABLE",
+        attempt_count=2,
+        payload={"action": "BUY_SIGNAL", "condition": "trend confirmed"},
+        created_at=datetime(2026, 8, 28, 9, 27, tzinfo=TZ),
+    )
+    assert inserted is True
+    assert second["color"] != first["color"]
+    assert second["sent_at"] is None
+    assert store.next_notification_color() not in {first["color"], second["color"]}
+    assert len(store.list_notification_deliveries(kind="A4_EFFECTIVE")) == 1
+    assert store.get_delivery_by_key("a4:event-1")["status"] == "FAILED"
+
+
+def test_notification_payload_rejects_raw_fields(tmp_path):
+    store = RuntimeStore(tmp_path / "notifications-safe.sqlite3")
+    with pytest.raises(ValueError, match="unsafe"):
+        store.record_delivery(
+            delivery_key="a4:unsafe",
+            kind="A4_EFFECTIVE",
+            source_id="event-unsafe",
+            title="A4",
+            payload={"raw_response": "model output"},
+            status="SENT",
+        )
+
+
 def test_persistence_failure_blocks_new_writes(tmp_path):
     store = RuntimeStore(tmp_path / "runtime.sqlite3")
     store.mark_persistence_failed()

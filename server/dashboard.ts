@@ -140,6 +140,24 @@ function normalizeSimulation(value: unknown): JsonValue | null {
   });
 }
 
+function normalizeNotification(value: unknown): JsonValue | null {
+  const notification = record(value);
+  if (!notification) return null;
+  return sanitizeJson({
+    deliveryId: notification.deliveryId ?? notification.delivery_id ?? null,
+    kind: notification.kind ?? null,
+    sourceId: notification.sourceId ?? notification.source_id ?? null,
+    status: notification.status ?? null,
+    title: notification.title ?? null,
+    color: notification.color ?? null,
+    attemptCount: notification.attemptCount ?? notification.attempt_count ?? 0,
+    lastReasonCode: notification.lastReasonCode ?? notification.last_reason_code ?? null,
+    createdAt: notification.createdAt ?? notification.created_at ?? null,
+    updatedAt: notification.updatedAt ?? notification.updated_at ?? null,
+    sentAt: notification.sentAt ?? notification.sent_at ?? null,
+  });
+}
+
 const MONITOR_LOG_LIMIT = 1_000;
 const SAFE_MONITOR_CODE = /^[A-Z][A-Z0-9_]{0,95}$/;
 const SAFE_MONITOR_SYMBOL = /^\d{6}\.(?:SH|SZ|BJ)$/;
@@ -528,6 +546,9 @@ export class DashboardData {
     const monitorPlans = statusData
       ? arrayField(statusData, "monitor_plans").map((plan) => normalizeMonitorPlan(plan)).filter(Boolean)
       : [];
+    const recentNotifications = statusData
+      ? arrayField(statusData, "recent_notifications").map((item) => normalizeNotification(item)).filter(Boolean)
+      : [];
     const monitorPlanRecords = monitorPlans
       .map((plan) => record(plan))
       .filter((plan): plan is JsonRecord => plan !== null);
@@ -623,6 +644,7 @@ export class DashboardData {
         latestA3PublishedAt,
         dispatch: monitorDispatch,
         replay: normalizeA4Replay(monitor.replay),
+        notifications: recentNotifications,
       },
       accounts,
       positions: statusData ? statusData.positions ?? null : null,

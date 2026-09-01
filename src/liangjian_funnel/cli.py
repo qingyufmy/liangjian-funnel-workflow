@@ -698,6 +698,7 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
                 "effective_event_count": len(application.store.list_monitor_events(effective_only=True)),
                 "monitor_plans": monitor_plans,
                 "recent_effective_events": recent_effective_events,
+                "recent_notifications": application.store.list_notification_deliveries(limit=50),
                 "recent_fills": recent_fills,
                 "latest_workflow_runs": workflow_runs,
                 "scheduler_leases": application.store.list_leases(),
