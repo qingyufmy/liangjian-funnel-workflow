@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sqlite3
+import gzip
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -16,6 +19,7 @@ from liangjian_funnel.runtime.storage_governance import (
     inspect_sqlite,
     live_source_storage_projection,
     scan_reference_plan,
+    storage_cleanup_execute,
     storage_cleanup_plan,
 )
 from liangjian_funnel.pipeline.feature_store import ResearchFeatureStore
@@ -254,7 +258,7 @@ def test_retention_protects_latest_two_live_sources_and_staging_reference(tmp_pa
     assert projection["projected_14d_bytes"] == projection["average_bytes"] * 14
 
 
-def test_cli_storage_cleanup_refuses_execute_and_storage_backup_is_explicit(tmp_path: Path, capsys) -> None:
+def test_cli_storage_cleanup_requires_explicit_execute_scope_and_storage_backup_is_explicit(tmp_path: Path, capsys) -> None:
     database = tmp_path / "features.sqlite3"
     _make_feature_db(database)
     settings = Settings.from_env({}, root=tmp_path)
@@ -272,7 +276,7 @@ def test_cli_storage_cleanup_refuses_execute_and_storage_backup_is_explicit(tmp_
         settings=settings,
     ) == 2
     refused = json.loads(capsys.readouterr().out)
-    assert refused["reason_code"] == "STORAGE_CLEANUP_EXECUTION_NOT_IMPLEMENTED"
+    assert refused["reason_code"] == "STORAGE_CLEANUP_ROOT_REQUIRED"
     assert database.is_file()
 
     destination = tmp_path / "backup.sqlite3"
@@ -283,3 +287,72 @@ def test_cli_storage_cleanup_refuses_execute_and_storage_backup_is_explicit(tmp_
     backup_output = json.loads(capsys.readouterr().out)
     assert Path(backup_output["manifest_path"]).is_file()
     assert destination.is_file()
+
+
+def _write_retention_file(root: Path, relative: str, content: str, *, age_hours: int, now: datetime) -> Path:
+    path = root / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    stamp = (now - timedelta(hours=age_hours)).timestamp()
+    os.utime(path, (stamp, stamp))
+    return path
+
+
+def test_retention_plan_protects_recent_patterns_and_run_ids_then_archives_idempotently(tmp_path: Path) -> None:
+    now = datetime(2026, 9, 2, tzinfo=timezone.utc)
+    old = _write_retention_file(tmp_path, "outputs/research/old.json", "old", age_hours=72, now=now)
+    recent = _write_retention_file(tmp_path, "storage/snapshots/recent.json", "recent", age_hours=2, now=now)
+    named = _write_retention_file(tmp_path, "storage/facts/snapshots/keep.json", "named", age_hours=72, now=now)
+    run_bound = _write_retention_file(tmp_path, "storage/snapshots/run-123/result.json", "run", age_hours=72, now=now)
+
+    plan = storage_cleanup_plan(
+        root=tmp_path,
+        cutoff_hours=48,
+        protected_patterns=("keep",),
+        protected_run_ids=("run-123",),
+        now=now,
+    )
+
+    assert [item["relative_path"] for item in plan["candidates"]] == ["outputs/research/old.json"]
+    assert {item["relative_path"] for item in plan["files"] if item["protected"]} == {
+        recent.relative_to(tmp_path).as_posix(), named.relative_to(tmp_path).as_posix(), run_bound.relative_to(tmp_path).as_posix(),
+    }
+    audit = storage_cleanup_execute(plan, root=tmp_path, policy=plan["policy"], confirmation_token=plan["plan_id"], now=now)
+    archive = Path(audit["items"][0]["archived_path"])
+    assert not old.exists()
+    with gzip.open(archive, "rt", encoding="utf-8") as handle:
+        assert handle.read() == "old"
+    assert audit["items"][0]["raw_sha256"] == plan["candidates"][0]["sha256"]
+    second = storage_cleanup_execute(plan, root=tmp_path, policy=plan["policy"], confirmation_token=plan["plan_id"], now=now)
+    assert second["status"] == "IDEMPOTENT"
+
+
+def test_retention_execute_requires_token_and_rejects_plan_drift_and_traversal(tmp_path: Path) -> None:
+    now = datetime(2026, 9, 2, tzinfo=timezone.utc)
+    source = _write_retention_file(tmp_path, "outputs/research/drift.json", "before", age_hours=72, now=now)
+    plan = storage_cleanup_plan(root=tmp_path, cutoff_hours=48, now=now)
+    with pytest.raises(StorageGovernanceError, match="CONFIRMATION_REQUIRED"):
+        storage_cleanup_execute(plan, root=tmp_path, policy=plan["policy"])
+
+    source.write_text("after", encoding="utf-8")
+    with pytest.raises(StorageGovernanceError, match="PLAN_DRIFT"):
+        storage_cleanup_execute(plan, root=tmp_path, policy=plan["policy"], confirmation_token=plan["plan_id"], now=now)
+    assert source.exists()
+
+    tampered = dict(plan)
+    tampered["candidates"] = [dict(plan["candidates"][0], relative_path="../escape.json", path=str(tmp_path / "escape.json"))]
+    with pytest.raises(StorageGovernanceError, match="MANIFEST_HASH_MISMATCH"):
+        storage_cleanup_execute(tampered, root=tmp_path, policy=plan["policy"], confirmation_token=plan["plan_id"], now=now)
+
+
+def test_retention_plan_rejects_symlinked_allowed_tree(tmp_path: Path) -> None:
+    outside = tmp_path.parent / f"{tmp_path.name}-outside"
+    outside.mkdir()
+    (tmp_path / "outputs").mkdir()
+    try:
+        (tmp_path / "outputs" / "research").symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks are unavailable on this platform")
+
+    with pytest.raises(StorageGovernanceError, match="SYMLINK_REJECTED"):
+        storage_cleanup_plan(root=tmp_path, cutoff_hours=48)

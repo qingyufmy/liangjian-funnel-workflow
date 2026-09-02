@@ -22,9 +22,11 @@ from .probes.mootdx import MootdxProbe
 from .reporting import write_capability_report
 from .reporting import atomic_write_json
 from .runtime.storage_governance import (
+    RETENTION_DEFAULT_KEEP_DAYS,
     StorageGovernanceError,
     backup_sqlite,
     storage_audit,
+    storage_cleanup_execute,
     storage_cleanup_plan,
 )
 from .runtime.state import PlanStatus, RuntimeStateError, RuntimeStore
@@ -319,7 +321,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     storage_cleanup_parser = sub.add_parser(
         "storage-cleanup",
-        help="produce a reference-aware dry-run cleanup plan; never deletes in this build",
+        help="plan or execute a guarded gzip-archive retention pass",
+    )
+    storage_cleanup_parser.add_argument(
+        "--root",
+        default=None,
+        help="explicit project root (required with --execute)",
     )
     storage_cleanup_parser.add_argument(
         "--feature-db",
@@ -333,9 +340,60 @@ def build_parser() -> argparse.ArgumentParser:
         help="snapshot/manifest root to scan for generation references; repeatable",
     )
     storage_cleanup_parser.add_argument(
+        "--manifest",
+        default=None,
+        help="plan manifest to write in dry-run or read during --execute",
+    )
+    storage_cleanup_parser.add_argument(
+        "--policy",
+        default=None,
+        help="retention policy identifier; required with --execute",
+    )
+    storage_cleanup_parser.add_argument(
+        "--cutoff-hours",
+        type=float,
+        default=None,
+        help=f"age cutoff in hours (dry-run default: {RETENTION_DEFAULT_KEEP_DAYS * 24})",
+    )
+    storage_cleanup_parser.add_argument(
+        "--keep-days",
+        type=float,
+        default=None,
+        help="compatibility alias for --cutoff-hours/24",
+    )
+    storage_cleanup_parser.add_argument(
+        "--protected-pattern",
+        action="append",
+        default=[],
+        help="case-insensitive filename/path pattern to protect; repeatable",
+    )
+    storage_cleanup_parser.add_argument(
+        "--protected-run-id",
+        action="append",
+        default=[],
+        help="run id whose files must be protected; repeatable",
+    )
+    storage_cleanup_parser.add_argument(
+        "--confirm-token",
+        "--confirmation-token",
+        dest="confirm_token",
+        default=None,
+        help="exact plan_id returned by the dry-run manifest",
+    )
+    storage_cleanup_parser.add_argument(
+        "--confirm-manifest",
+        default=None,
+        help="optional explicit confirmation JSON containing plan_id and confirmed=true",
+    )
+    storage_cleanup_parser.add_argument(
+        "--purge",
+        action="store_true",
+        help="reserved; permanent deletion is intentionally unavailable",
+    )
+    storage_cleanup_parser.add_argument(
         "--execute",
         action="store_true",
-        help="reserved for a future reviewed implementation; this build refuses execution",
+        help="execute a previously written plan after explicit root/policy/token confirmation",
     )
     return parser
 
@@ -443,8 +501,9 @@ def _storage_command(args: argparse.Namespace, settings: Settings) -> int:
 
     Keeping these commands outside ``WorkflowApplication`` means a read-only
     audit cannot acquire scheduler leases or initialize a business database.
-    The cleanup branch intentionally refuses ``--execute`` until a separately
-    reviewed implementation exists.
+    Cleanup is deliberately kept outside ``WorkflowApplication``.  Planning
+    reads only the configured state/progress files, while execution consumes a
+    previously written plan and never opens a writable SQLite connection.
     """
 
     try:
@@ -492,22 +551,58 @@ def _storage_command(args: argparse.Namespace, settings: Settings) -> int:
             print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True, default=str))
             return 0
 
-        # ``storage-cleanup`` is a proof-producing dry-run only.  Even an
-        # explicit --execute is rejected rather than being interpreted by a
-        # future caller as authorization to delete data.
-        feature_db = Path(args.feature_db).resolve() if args.feature_db else settings.feature_store_db_path
-        snapshot_roots = tuple(Path(item).resolve() for item in args.snapshot_root)
-        payload = storage_cleanup_plan(feature_db, snapshot_roots=snapshot_roots)
-        if args.execute:
-            payload = {
-                **payload,
+        if args.purge:
+            print(json.dumps({
                 "status": "BLOCKED",
-                "reason_code": "STORAGE_CLEANUP_EXECUTION_NOT_IMPLEMENTED",
-                "dry_run": True,
-                "deletion_allowed": False,
-            }
-            print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True, default=str))
+                "reason_code": "STORAGE_CLEANUP_PURGE_NOT_IMPLEMENTED",
+            }, ensure_ascii=False))
             return 2
+        if args.execute:
+            missing = (
+                "STORAGE_CLEANUP_ROOT_REQUIRED" if not args.root else
+                "STORAGE_CLEANUP_POLICY_REQUIRED" if not args.policy else
+                "STORAGE_CLEANUP_MANIFEST_REQUIRED" if not args.manifest else
+                "STORAGE_CLEANUP_CONFIRMATION_REQUIRED"
+                if not args.confirm_token and not args.confirm_manifest else None
+            )
+            if missing:
+                print(json.dumps({"status": "BLOCKED", "reason_code": missing}, ensure_ascii=False))
+                return 2
+            payload = storage_cleanup_execute(
+                args.manifest,
+                root=Path(args.root),
+                policy=args.policy,
+                confirmation_token=args.confirm_token,
+                confirmation_manifest=args.confirm_manifest,
+            )
+            print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True, default=str))
+            return 0 if payload.get("status") in {"EXECUTED", "IDEMPOTENT", "NOOP"} else 2
+
+        feature_db = Path(args.feature_db).resolve() if args.feature_db else settings.feature_store_db_path
+        # Keep the raw root for storage-governance symlink checks; resolving it
+        # here would hide a symlink before the safety boundary sees it.
+        root = Path(args.root) if args.root else settings.root
+        snapshot_roots = tuple(
+            Path(item).resolve() for item in (args.snapshot_root or [str(root / "storage" / "snapshots")])
+        )
+        cutoff_hours = args.cutoff_hours
+        if args.keep_days is not None:
+            keep_cutoff = float(args.keep_days) * 24.0
+            if cutoff_hours is not None and float(cutoff_hours) != keep_cutoff:
+                print(json.dumps({"status": "FAILED", "reason_code": "STORAGE_RETENTION_CUTOFF_CONFLICT"}, ensure_ascii=False))
+                return 3
+            cutoff_hours = keep_cutoff
+        payload = storage_cleanup_plan(
+            feature_db,
+            root=root,
+            snapshot_roots=snapshot_roots,
+            workflow_progress_path=settings.workflow_progress_path,
+            cutoff_hours=cutoff_hours,
+            policy=args.policy,
+            protected_patterns=tuple(args.protected_pattern),
+            protected_run_ids=tuple(args.protected_run_id),
+            manifest_path=args.manifest,
+        )
         print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True, default=str))
         return 0
     except StorageGovernanceError as exc:
