@@ -192,13 +192,18 @@ class DeterministicGateResult:
                 route_counts[route] = observed
                 route_coverage[route] = round(observed / total, 6) if total else 0.0
             route_ready = any(route_counts.values())
+            surviving_scope = tuple(
+                decision
+                for decision in self.decisions
+                if str(decision.get("status") or "").upper() != "HARD_REJECT"
+            )
             has_data_gap = counts.get("DATA_GAP", 0) > 0 or any(
                 _decision_has_route_data_gap(decision)
-                for decision in self.decisions
+                for decision in surviving_scope
             )
             has_degraded = any(
                 str(decision.get("data_sufficiency_state") or "").upper() == "DEGRADED"
-                for decision in self.decisions
+                for decision in surviving_scope
             )
             gate_block_counts = {
                 gate_name: sum(
@@ -880,7 +885,6 @@ def screen_a2(
             continue
         upstream_research_route = str(item.get("research_route") or "").strip().upper()
         upstream_research_only = item.get("downstream_trade_eligible") is False
-        theme_id = str(item.get("primary_theme") or item.get("theme_id") or "UNMAPPED")
         candidate = candidates.get(symbol, {})
         amount = max(0.0, _number(candidate.get("amount")) or _number(candidate.get("turnover")) or 0.0)
         factor = _symbol_scoped_row(factors, symbol)
@@ -890,6 +894,7 @@ def screen_a2(
         technical_factor = _symbol_scoped_row(snapshot.get("FACTOR_SNAPSHOT"), symbol)
         if not factor:
             factor = technical_factor
+        theme_id = _a2_rotation_theme_id(item, factor)
         factor, taxonomy_binding = _bind_a2_factor_to_a1_lineage(
             snapshot,
             a1_output,
@@ -1280,10 +1285,17 @@ def _a2_behavior_evidence(
         # enough to promote a trend route.  Keep the accepted values aligned
         # with the A1 prompt enum; ``-`` is an explicit absence of evidence.
         evidence_basis = str(exposure.get("evidence_basis") or "").strip().upper() if isinstance(exposure, Mapping) else ""
+        extraction_method = str(exposure.get("extraction_method") or "").strip().upper() if isinstance(exposure, Mapping) else ""
         source_ref = str(exposure.get("source_ref") or exposure.get("evidence_ref") or "").strip() if isinstance(exposure, Mapping) else ""
         if (
             isinstance(exposure, Mapping)
-            and evidence_basis in {"MAIN_BUSINESS_BREAKDOWN", "COMPANY_DISCLOSURE"}
+            and (
+                evidence_basis in {"MAIN_BUSINESS_BREAKDOWN", "COMPANY_DISCLOSURE"}
+                or extraction_method in {
+                    "REVENUE_COMPOSITION_TABLE_分行业".upper(),
+                    "REVENUE_COMPOSITION_TABLE_分产品".upper(),
+                }
+            )
             and source_ref
             and (
                 _number(exposure.get("revenue_exposure_pct")) is not None
@@ -1347,6 +1359,33 @@ def _a2_behavior_evidence(
     if str(medium_source.get("source") or ""):
         medium_refs.append(str(medium_source.get("source")))
 
+    resonance = factor_scores.get("index_chain_resonance")
+    resonance = resonance if isinstance(resonance, Mapping) else {}
+    resonance_score = _number(resonance.get("score"))
+    resonance_available = resonance.get("available") is True and resonance_score is not None
+    resonance_refs = _payload_source_refs(resonance)
+    resonance_source = str(resonance.get("source") or "").strip()
+    if resonance_source:
+        resonance_refs.append(resonance_source)
+    industry_logic = {
+        "available": resonance_available,
+        "met": resonance_score >= 50.0 if resonance_available else None,
+        "value": {
+            "score": resonance_score,
+            "threshold": 50.0,
+            "taxonomy": resonance.get("taxonomy"),
+            "taxonomy_code": resonance.get("taxonomy_code"),
+            "taxonomy_name": resonance.get("taxonomy_name"),
+        },
+        "source_refs": list(dict.fromkeys(resonance_refs)),
+        "as_of": as_of,
+        "reason": (
+            str(resonance.get("reason_code") or "A2_TAXONOMY_RESONANCE_OBSERVED")
+            if resonance_available
+            else str(resonance.get("reason_code") or "A2_INDUSTRY_LOGIC_UNAVAILABLE")
+        ),
+    }
+
     return {
         "supply_chain_position": supply,
         "capital_flow": factor_fact("capital_flow", threshold=50.0),
@@ -1390,7 +1429,11 @@ def _a2_behavior_evidence(
             "as_of": as_of,
             "reason": "A2_RELATIVE_STRENGTH_OBSERVED",
         },
-        "industry_logic": supply,
+        # Industry/theme resonance is a market-structure fact and must remain
+        # independent from the stricter company-level supply-chain proof.
+        # This lets MARKET_CORE classify a real trend while
+        # SUPPLY_CHAIN_ALPHA still requires explicit business exposure.
+        "industry_logic": industry_logic,
     }
 
 
@@ -1799,6 +1842,34 @@ def _bind_a2_factor_to_a1_lineage(
         "taxonomy_name": best.get("taxonomy_name"),
         "matched_taxonomies": matched,
     }
+
+
+def _a2_rotation_theme_id(
+    item: Mapping[str, Any],
+    factor: Mapping[str, Any],
+) -> str:
+    """Return an A1 theme or a source-backed market taxonomy fallback.
+
+    Broker-gold direct rows can legitimately enter A1 before a monthly
+    structural theme is mapped.  A2 still has a real THS taxonomy aggregate
+    for the symbol.  Use that exact taxonomy as the rotation bucket instead
+    of collapsing every such row into ``UNMAPPED``.  No name/text inference is
+    allowed here.
+    """
+
+    explicit = str(item.get("primary_theme") or item.get("theme_id") or "").strip()
+    if explicit and explicit.upper() != "UNMAPPED":
+        return explicit
+
+    raw_factors = factor.get("factors")
+    factors = raw_factors if isinstance(raw_factors, Mapping) else factor
+    resonance = factors.get("index_chain_resonance")
+    resonance = resonance if isinstance(resonance, Mapping) else {}
+    taxonomy = str(resonance.get("taxonomy") or "").strip().upper()
+    code = str(resonance.get("taxonomy_code") or "").strip().upper()
+    if taxonomy in {"INDUSTRY", "CONCEPT"} and code:
+        return f"{taxonomy}:{code}"
+    return "UNMAPPED"
 
 
 def _a2_weights(snapshot: Mapping[str, Any]) -> tuple[dict[str, float], str, bool]:

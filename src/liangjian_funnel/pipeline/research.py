@@ -5494,7 +5494,10 @@ def _stage_execution_budget(
             "scorecard. SUPPLY_CHAIN_ALPHA additionally requires supply_chain_role, scarce_layer, "
             "value_chain_position, a complete bottleneck_scorecard, at least two bottleneck_evidence items, "
             "missing_proof and kill_switches. Rank scarce layers before companies; unknown supply-chain facts "
-            "must be sent to watch_only, never scored as zero. Every supplied symbol must appear exactly once "
+            "must be sent to watch_only, never scored as zero. A TOP3 MARKET_CORE row that is otherwise route- "
+            "and role-eligible remains in A2 focus even when theme new_entry_policy is WATCH_ONLY/NO_NEW_ENTRY; "
+            "preserve that risk context for A3/A4 instead of treating A2 focus as permission to trade. "
+            "Every supplied symbol must appear exactly once "
             "across focus_pool, watch_only_pool, and rejected_candidates."
         ),
         "A3": (
@@ -7161,7 +7164,6 @@ def _canonicalize_stage_lineage(
         if behavior_contract_required:
             required_values.extend((
                 ("stock_behavior_type", stock_behavior_type),
-                ("route_permission", route_permission),
                 ("decision_id", decision_id),
             ))
         if stage == "A3":
@@ -7170,6 +7172,15 @@ def _canonicalize_stage_lineage(
             field for field, value in required_values
             if not value
         ]
+        # An empty route-permission list is a valid, explicit outcome for an
+        # UNRESOLVED behavior decision.  It means "do not route to A3/A4", not
+        # that lineage was lost.  Only an absent/non-sequence value is a
+        # lineage defect in the A2 v2 contract.
+        if behavior_contract_required and not (
+            isinstance(raw_route_permission, Sequence)
+            and not isinstance(raw_route_permission, (str, bytes, bytearray))
+        ):
+            missing.append("route_permission")
         for key, value in canonical.items():
             if key not in item or item.get(key) != value:
                 item[key] = value
@@ -8813,6 +8824,35 @@ def _apply_a2_lineage_policy(
             if theme_id:
                 allowed_theme_ids.add(theme_id)
 
+    # A1 deliberately has multiple entry routes.  Fundamental-baseline and
+    # broker-gold rows may carry a real THS industry theme that is not one of
+    # the monthly macro discovery IDs.  A2 may rotate among those themes, but
+    # only when the theme is already attached to an actual A1 ACTIVE row or
+    # was produced by the server-owned deterministic A2 context for that row.
+    # This expands lineage authority, not the candidate universe.
+    upstream_symbols: set[str] = set()
+    upstream_pool = upstream_output.get("active_research_pool")
+    if isinstance(upstream_pool, list):
+        for raw_item in upstream_pool:
+            if not isinstance(raw_item, Mapping):
+                continue
+            symbol = _first_symbol(raw_item)
+            if symbol:
+                upstream_symbols.add(symbol)
+            for key in ("primary_theme", "theme_id"):
+                theme_id = str(raw_item.get(key) or "").strip()
+                if theme_id and theme_id.upper() != "UNMAPPED":
+                    allowed_theme_ids.add(theme_id)
+    raw_contexts = snapshot_data.get("A2_BOTTLENECK_CONTEXT")
+    if isinstance(raw_contexts, Mapping):
+        for raw_symbol, raw_context in raw_contexts.items():
+            symbol = _first_symbol(raw_symbol)
+            if symbol not in upstream_symbols or not isinstance(raw_context, Mapping):
+                continue
+            theme_id = str(raw_context.get("theme_id") or "").strip()
+            if theme_id and theme_id.upper() != "UNMAPPED":
+                allowed_theme_ids.add(theme_id)
+
     active_themes = result.get("active_themes")
     valid_active_themes: set[str] = set()
     if isinstance(active_themes, list):
@@ -8863,10 +8903,10 @@ def _apply_a2_lineage_policy(
         if isinstance(active_theme, Mapping):
             if abs(_safe_float(item.get("theme_score")) - _safe_float(active_theme.get("theme_score"))) > 0.51:
                 reasons.append("A2_THEME_SCORE_LINEAGE_MISMATCH")
-            stage = str(active_theme.get("stage") or "")
-            policy = str(active_theme.get("new_entry_policy") or "")
-            if stage in {"CLIMAX", "DIVERGENCE", "RETREAT", "FADE"} or policy in {"WATCH_ONLY", "NO_NEW_ENTRY"}:
-                reasons.append("A2_THEME_STAGE_NOT_FOCUS_ELIGIBLE")
+            # A2 is the broad rotation/research funnel.  Theme-stage and
+            # new-entry policy remain visible on the active theme, but they
+            # are consumed as A3/A4 risk context rather than erasing a TOP3
+            # market-core candidate before daily technical evaluation.
         if not reasons:
             retained.append(item)
             continue
@@ -10264,14 +10304,24 @@ def _classify_stage_outcome(
         gap_reasons: set[str] = set()
         output_states: set[str] = set()
         for view in output_views:
-            gap_reasons.update(_output_reason_codes(view).intersection(_A2_EVIDENCE_GAP_REASONS))
-            output_states.update(_output_data_sufficiency_states(view))
+            # Rejected rows are outside the surviving A2 research scope.  A
+            # low-identity hard reject may also lack the optional supply-chain
+            # route, but that per-row fact must not downgrade valid MARKET_CORE
+            # candidates or make the whole stage look operationally incomplete.
+            gap_reasons.update(
+                _output_reason_codes(view, include_rejected=False).intersection(
+                    _A2_EVIDENCE_GAP_REASONS
+                )
+            )
+            output_states.update(
+                _output_data_sufficiency_states(view, include_rejected=False)
+            )
 
         gate_summary = getattr(gate, "summary", {}) if gate is not None else {}
         if not isinstance(gate_summary, Mapping):
             gate_summary = {}
         gate_state = str(gate_summary.get("data_sufficiency_state") or "").strip().upper()
-        gate_reasons = _gate_reason_codes(gate)
+        gate_reasons = _gate_reason_codes(gate, include_hard_rejects=False)
         gate_reasons.update(_output_reason_codes(gate_summary).intersection(_A2_EVIDENCE_GAP_REASONS))
         # An explicit INSUFFICIENT state is itself a critical gap even when a
         # provider omitted per-row reason_codes.  A DEGRADED state is likewise
@@ -10317,7 +10367,11 @@ def _classify_stage_outcome(
     return STATUS_VALIDATED, ()
 
 
-def _output_reason_codes(output: Mapping[str, Any]) -> set[str]:
+def _output_reason_codes(
+    output: Mapping[str, Any],
+    *,
+    include_rejected: bool = True,
+) -> set[str]:
     """Collect only explicit reason-code fields from bounded model output."""
 
     result: set[str] = set()
@@ -10330,7 +10384,17 @@ def _output_reason_codes(output: Mapping[str, Any]) -> set[str]:
             if isinstance(raw, Sequence) and not isinstance(raw, (str, bytes, bytearray)):
                 result.update(str(item).strip().upper() for item in raw if isinstance(item, str) and item.strip())
             for key, item in value.items():
-                if str(key) in {"analysis_summary", "active_themes", "focus_pool", "watch_only_pool", "core_watch_pool", "secondary_watch_pool", "rejected_candidates"}:
+                sections = {
+                    "analysis_summary",
+                    "active_themes",
+                    "focus_pool",
+                    "watch_only_pool",
+                    "core_watch_pool",
+                    "secondary_watch_pool",
+                }
+                if include_rejected:
+                    sections.add("rejected_candidates")
+                if str(key) in sections:
                     visit(item)
         elif isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
             for item in value:
@@ -10340,7 +10404,11 @@ def _output_reason_codes(output: Mapping[str, Any]) -> set[str]:
     return result
 
 
-def _output_data_sufficiency_states(output: Mapping[str, Any]) -> set[str]:
+def _output_data_sufficiency_states(
+    output: Mapping[str, Any],
+    *,
+    include_rejected: bool = True,
+) -> set[str]:
     """Collect explicit A2 data-state markers from a canonical output view.
 
     Model output may expose the state on a pool row or on ``analysis_summary``
@@ -10357,8 +10425,9 @@ def _output_data_sufficiency_states(output: Mapping[str, Any]) -> set[str]:
         "watch_only_pool",
         "crowded_pool",
         "low_identity_pool",
-        "rejected_candidates",
     }
+    if include_rejected:
+        sections.add("rejected_candidates")
 
     def visit(value: Any) -> None:
         if isinstance(value, Mapping):
@@ -10387,7 +10456,7 @@ def _a2_optional_gap_only(views: Sequence[Mapping[str, Any]]) -> bool:
 
     reasons: set[str] = set()
     for view in views:
-        reasons.update(_output_reason_codes(view))
+        reasons.update(_output_reason_codes(view, include_rejected=False))
     return bool(reasons) and reasons.issubset(_A2_OPTIONAL_EVIDENCE_GAP_REASONS)
 
 
@@ -10397,7 +10466,7 @@ def _a2_gate_optional_gap_only(
 ) -> bool:
     """Recognize a gate DEGRADED state caused only by optional enrichment."""
 
-    reasons = _gate_reason_codes(gate)
+    reasons = _gate_reason_codes(gate, include_hard_rejects=False)
     reasons.update(_output_reason_codes(summary))
     if reasons and not reasons.issubset(_A2_OPTIONAL_EVIDENCE_GAP_REASONS):
         return False
@@ -10411,11 +10480,17 @@ def _a2_gate_optional_gap_only(
     return bool(reasons)
 
 
-def _gate_reason_codes(gate: Any | None) -> set[str]:
+def _gate_reason_codes(
+    gate: Any | None,
+    *,
+    include_hard_rejects: bool = True,
+) -> set[str]:
     result: set[str] = set()
     decisions = getattr(gate, "decisions", ()) if gate is not None else ()
     for decision in decisions:
         if not isinstance(decision, Mapping):
+            continue
+        if not include_hard_rejects and str(decision.get("status") or "").upper() == "HARD_REJECT":
             continue
         raw = decision.get("reason_codes")
         if isinstance(raw, str):

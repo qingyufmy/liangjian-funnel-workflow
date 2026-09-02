@@ -208,6 +208,60 @@ def test_a2_underfilled_distinguishes_market_from_data_gap():
     assert reasons == ("A2_MARKET_FACTS_INSUFFICIENT",)
 
 
+def test_a2_hard_reject_data_gap_does_not_downgrade_surviving_market_core_scope():
+    """Per-row gaps on an already rejected symbol are not a lane outage."""
+
+    output = _a2_output(
+        [{"symbol": "600000.SH", "data_sufficiency_state": "SUFFICIENT"}],
+    )
+    output["rejected_candidates"] = [{
+        "symbol": "000001.SZ",
+        "status": "REJECTED",
+        "data_sufficiency_state": "INSUFFICIENT",
+        "reason_codes": [
+            "A2_BOTTLENECK_SCORECARD_MISSING",
+            "A2_CRITICAL_DATA_INSUFFICIENT",
+        ],
+    }]
+    gate = DeterministicGateResult(
+        stage="A2_LOCAL_ROLE",
+        decisions=(
+            {
+                "symbol": "600000.SH",
+                "status": "REVIEW_CANDIDATE",
+                "data_sufficiency_state": "SUFFICIENT",
+                "reason_codes": [],
+                "route_eligibility": {"MARKET_CORE": {"eligible": True}},
+                "eligible_routes": ["MARKET_CORE"],
+            },
+            {
+                "symbol": "000001.SZ",
+                "status": "HARD_REJECT",
+                "data_sufficiency_state": "INSUFFICIENT",
+                "reason_codes": [
+                    "A2_BOTTLENECK_SCORECARD_MISSING",
+                    "A2_CRITICAL_DATA_INSUFFICIENT",
+                ],
+                "route_eligibility": {"MARKET_CORE": {"eligible": False}},
+                "eligible_routes": [],
+            },
+        ),
+        review_symbols=("600000.SH",),
+        monitor_symbols=(),
+        rejected_symbols=("000001.SZ",),
+    )
+
+    status, reasons = _classify_stage_outcome(
+        "A2",
+        output,
+        reasons=(),
+        gate=gate,
+    )
+
+    assert status == STATUS_VALIDATED_UNDERFILLED_MARKET
+    assert reasons == ("A2_FOCUS_POOL_UNDERFILLED_MARKET",)
+
+
 def test_a3_zero_plan_distinguishes_missing_technical_data_from_no_setup():
     output = {"core_watch_pool": [], "secondary_watch_pool": [], "rejected_candidates": []}
     blocked_gate = DeterministicGateResult(

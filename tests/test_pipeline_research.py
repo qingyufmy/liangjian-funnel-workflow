@@ -1786,6 +1786,54 @@ def test_a2_lineage_overlay_publishes_server_behavior_contract_over_model_unreso
     assert "A2_STAGE_LINEAGE_MISSING" not in item.get("reason_codes", [])
 
 
+def test_a2_lineage_treats_explicit_empty_route_permission_as_resolved_no_route():
+    """UNRESOLVED is a complete fail-closed decision, not missing lineage."""
+
+    upstream = {
+        "active_research_pool": [{
+            "symbol": "000998.SZ",
+            "candidate_id": "a1:000998.SZ",
+            "company_name": "隆平高科",
+            "primary_theme": "TH_AGRI_FOREST",
+            "industry_chain_node": "node-agri",
+        }],
+    }
+    snapshot = {
+        "A2_BOTTLENECK_CONTEXT": {
+            "000998.SZ": {
+                "route_context_schema": "a2-route-lineage/2",
+                "company_name": "隆平高科",
+                "theme_id": "TH_AGRI_FOREST",
+                "industry_chain_node": "node-agri",
+                "upstream_candidate_id": "a1:000998.SZ",
+                "preferred_route": "MARKET_CORE",
+                "eligible_routes": ["MARKET_CORE"],
+                "deterministic_market_role": "UNRESOLVED",
+                "stock_behavior_type": "UNRESOLVED",
+                "route_permission": [],
+                "decision_id": "a2:000998.SZ:unresolved",
+            },
+        },
+    }
+
+    canonical, _ = _canonicalize_stage_lineage(
+        {
+            "focus_pool": [{"symbol": "000998.SZ"}],
+            "watch_only_pool": [],
+            "rejected_candidates": [],
+        },
+        "A2",
+        upstream,
+        snapshot,
+    )
+
+    item = canonical["focus_pool"][0]
+    assert item["route_permission"] == []
+    assert item["lineage_status"] == "COMPLETE"
+    assert item["lineage_missing_fields"] == []
+    assert "A2_STAGE_LINEAGE_MISSING" not in item.get("reason_codes", [])
+
+
 def test_stage_lineage_marks_missing_v2_fields_instead_of_accepting_model_values():
     canonical, _ = _canonicalize_stage_lineage(
         {
@@ -2093,6 +2141,63 @@ def test_a2_focus_must_reuse_a1_theme_and_cannot_invent_missing_capital_flow():
     assert invalid_stage_changed == 1
     assert invalid_stage["active_themes"][0]["reason_codes"] == ["A2_THEME_STAGE_INVALID"]
     assert "A2_THEME_LINEAGE_INVALID" in invalid_stage["watch_only_pool"][0]["reason_codes"]
+
+
+def test_a2_lineage_accepts_server_owned_active_row_theme_and_defers_entry_policy():
+    """A baseline industry theme in A1 ACTIVE may reach A3 for risk review."""
+
+    symbol = "002827.SZ"
+    theme_id = "INDUSTRY:881109.TI"
+    upstream = {
+        "structural_themes": [{"theme_id": "TH_CHEMICAL"}],
+        "active_research_pool": [{
+            "symbol": symbol,
+            "candidate_id": f"a1:{symbol}",
+            "primary_theme": theme_id,
+            "industry_chain_node": "BASELINE:881109.TI",
+        }],
+    }
+    snapshot = {
+        "MIN_IDENTIFIABILITY_SCORE": 60,
+        "A2_BOTTLENECK_CONTEXT": {
+            symbol: {
+                "theme_id": theme_id,
+                "preferred_route": "MARKET_CORE",
+                "eligible_routes": ["MARKET_CORE"],
+            },
+        },
+    }
+    active_theme = {
+        "theme_id": theme_id,
+        "stage": "RETREAT",
+        "new_entry_policy": "NO_NEW_ENTRY",
+        "supporting_evidence": ["server-owned rotation facts"],
+        "contradicting_evidence": ["risk-off"],
+        "theme_score": 70,
+    }
+    candidate = {
+        "symbol": symbol,
+        "theme_id": theme_id,
+        "market_role": "TREND_LEADER",
+        "identifiability_score": 80,
+        "theme_score": 70,
+        "bottleneck_status": "NOT_REQUIRED_FOR_MARKET_CORE",
+    }
+
+    output, changed = _apply_a2_lineage_policy(
+        {
+            "active_themes": [active_theme],
+            "focus_pool": [candidate],
+            "watch_only_pool": [],
+        },
+        upstream,
+        snapshot,
+    )
+
+    assert changed == 0
+    assert output["focus_pool"] == [candidate]
+    assert output["watch_only_pool"] == []
+    assert "A2_THEME_OUTSIDE_A1" not in output["active_themes"][0].get("reason_codes", [])
 
 
 def test_factor_projection_removes_duplicate_summary_and_raw_bar_payload():

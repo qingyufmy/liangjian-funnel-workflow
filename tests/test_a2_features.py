@@ -7,7 +7,7 @@ import pytest
 
 from liangjian_funnel.pipeline.a2_features import build_a2_feature_snapshot
 from liangjian_funnel.pipeline.a2_features import _percentiles
-from liangjian_funnel.pipeline.deterministic import screen_a2
+from liangjian_funnel.pipeline.deterministic import _a2_behavior_evidence, screen_a2
 
 
 TZ = ZoneInfo("Asia/Shanghai")
@@ -520,7 +520,18 @@ def test_deterministic_a2_keeps_missing_capital_as_degraded_optional_fact() -> N
     assert result.monitor_symbols == ()
 
 
-def test_a2_trend_route_accepts_canonical_business_exposure_without_fact_list() -> None:
+@pytest.mark.parametrize(
+    "exposure_provenance",
+    [
+        {"evidence_basis": "MAIN_BUSINESS_BREAKDOWN"},
+        {"extraction_method": "REVENUE_COMPOSITION_TABLE_分行业"},
+        {"extraction_method": "REVENUE_COMPOSITION_TABLE_分产品"},
+    ],
+    ids=("evidence-basis", "cninfo-industry-table", "cninfo-product-table"),
+)
+def test_a2_trend_route_accepts_canonical_business_exposure_without_fact_list(
+    exposure_provenance: dict[str, str],
+) -> None:
     """The production A1 projection may carry only canonical exposure data.
 
     ``business_exposure_facts`` is an additive storage projection, not a
@@ -589,8 +600,8 @@ def test_a2_trend_route_accepts_canonical_business_exposure_without_fact_list() 
                 "business_exposure": {
                     "business_name": "主营业务",
                     "revenue_exposure_pct": 80,
-                    "evidence_basis": "MAIN_BUSINESS_BREAKDOWN",
                     "source_ref": f"fixture:business:{symbol}",
+                    **exposure_provenance,
                 },
                 "source_refs": [f"fixture:a1:{symbol}"],
             }
@@ -612,3 +623,92 @@ def test_a2_trend_route_accepts_canonical_business_exposure_without_fact_list() 
     assert trend["route_permission"] == ["TREND_MA5", "MA520_SWING"]
     assert trend["behavior_type_decision"]["decision_basis"]["trend_qualified"] is True
     assert "A2_DATA_GAP_INDUSTRY_LOGIC" not in trend["behavior_type_decision"]["data_gaps"]
+
+
+def test_a2_unmapped_broker_gold_uses_symbol_taxonomy_as_rotation_theme() -> None:
+    symbol = "600001.SH"
+    membership = {
+        "available": True,
+        "records": [{
+            "thscode": symbol,
+            "memberships": [{"industry_thscode": "881001.TI", "industry_name": "真实行业"}],
+        }],
+    }
+    features = build_a2_feature_snapshot(
+        candidates=[{"symbol": symbol, "amount": 1_000_000_000}],
+        daily_bars={symbol: _bars(0.03)},
+        industry_membership=membership,
+        concept_membership=None,
+        ladder_snapshot={"records": []},
+        dragon_tiger_snapshot={"records": []},
+        attention_snapshot={"records": []},
+        sector_cycle_snapshot=None,
+        capital_flow_snapshot={"available": False, "reason_code": "SOURCE_NOT_CONFIGURED"},
+        as_of=NOW,
+    )
+    result = screen_a2(
+        {
+            "g0_candidates": [{"symbol": symbol, "amount": 1_000_000_000}],
+            "A2_FACTOR_SNAPSHOT": features,
+            "TIER_STRUCTURE_SNAPSHOT": features,
+            "CAPITAL_FLOW_SNAPSHOT": {"available": False, "reason_code": "SOURCE_NOT_CONFIGURED"},
+            "THS_INDUSTRY_MEMBERSHIP": membership,
+            "A2_THEME_METRICS": features["theme_metrics"],
+        },
+        {
+            "active_research_pool": [{
+                "symbol": symbol,
+                "candidate_id": f"a1:{symbol}",
+                "primary_theme": "UNMAPPED",
+                "research_route": "BROKER_GOLD_DIRECT",
+                "downstream_trade_eligible": True,
+            }],
+        },
+        minimum_identifiability_score=0,
+        llm_top_n_per_theme=1,
+    )
+
+    decision = result.decisions[0]
+    assert decision["theme_id"] == "INDUSTRY:881001.TI"
+    assert decision["top_rotation_theme"] is True
+    assert decision["sent_to_llm"] is True
+
+
+def test_a2_rejects_unproven_business_text_but_keeps_market_industry_fact_independent() -> None:
+    evidence = _a2_behavior_evidence(
+        item={
+            "primary_theme": "TH_AI",
+            "industry_chain_node": "node-ai",
+            "business_exposure": {
+                "business_name": "模型生成描述",
+                "revenue_exposure_pct": 90,
+                "extraction_method": "MODEL_NARRATIVE",
+            },
+        },
+        factor_scores={
+            "index_chain_resonance": {
+                "available": True,
+                "score": 72,
+                "taxonomy": "INDUSTRY",
+                "taxonomy_code": "881001.TI",
+                "source": "POINT_IN_TIME_TAXONOMY_AGGREGATE",
+            },
+            "weekly_confirmation": {
+                "available": True,
+                "score": 65,
+                "source": "POINT_IN_TIME_WEEKLY_TAXONOMY_AGGREGATE",
+            },
+            "tier_structure": {"available": True, "availability_state": "OBSERVED_ABSENT", "ladder_height": 0},
+        },
+        identifiability=80,
+        minimum_identifiability_score=60,
+        relative=75,
+        liquidity=80,
+        legacy_role="TREND_LEADER",
+        as_of=NOW.isoformat(),
+    )
+
+    assert evidence["supply_chain_position"]["available"] is False
+    assert evidence["industry_logic"]["available"] is True
+    assert evidence["industry_logic"]["met"] is True
+    assert evidence["industry_logic"]["value"]["taxonomy_code"] == "881001.TI"
