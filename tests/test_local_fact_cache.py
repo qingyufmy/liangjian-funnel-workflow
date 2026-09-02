@@ -141,6 +141,35 @@ def test_latest_daily_bars_before_returns_closed_watermark_in_batches(tmp_path: 
     assert rows["000001.SZ"]["payload"]["close"] == 12
 
 
+def test_latest_daily_bar_windows_before_bounds_each_symbol_and_revision(tmp_path: Path):
+    cache = LocalFactCache(tmp_path)
+    rows = [
+        daily(symbol, minute, fetched_at=T0, close=float(minute))
+        for symbol in ("600519.SH", "000001.SZ")
+        for minute in range(31, 36)
+    ]
+    rows.append(
+        daily(
+            "600519.SH",
+            34,
+            fetched_at=datetime(2026, 8, 26, tzinfo=UTC),
+            close=99,
+        )
+    )
+    cache.upsert_daily_bars(rows)
+
+    windows = cache.latest_daily_bar_windows_before(
+        ["600519.SH", "000001.SZ"],
+        end="2026-08-25T09:36:00+00:00",
+        per_symbol_limit=3,
+        as_of="2026-08-26T23:59:59+00:00",
+        batch_size=1,
+    )
+
+    assert [row["payload"]["close"] for row in windows["600519.SH"]] == [33.0, 99, 35.0]
+    assert [row["payload"]["close"] for row in windows["000001.SZ"]] == [33.0, 34.0, 35.0]
+
+
 def test_financial_revisions_are_retained_and_as_of_is_strict(tmp_path: Path):
     cache = LocalFactCache(tmp_path)
     original = financial(

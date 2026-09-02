@@ -72,7 +72,7 @@ def test_a2_optional_capital_flow_gap_does_not_masquerade_as_data_insufficiency(
     assert reasons == ("A2_NO_FOCUS_OPPORTUNITY",)
 
 
-def test_a2_gate_local_evidence_gap_does_not_block_model_no_opportunity():
+def test_a2_final_canonical_evidence_gap_blocks_even_when_reviewed_output_is_empty():
     reviewed = _a2_output([])
     output = _a2_output(
         [],
@@ -93,8 +93,8 @@ def test_a2_gate_local_evidence_gap_does_not_block_model_no_opportunity():
         reviewed_output=reviewed,
     )
 
-    assert status == STATUS_VALIDATED_NO_OPPORTUNITY
-    assert reasons == ("A2_NO_FOCUS_OPPORTUNITY",)
+    assert status == STATUS_DEGRADED_UNDERFILLED_DATA_GAP
+    assert reasons == ("A2_FACTOR_COVERAGE_BELOW_MINIMUM",)
 
 
 def test_a2_reviewed_evidence_gap_still_blocks_zero_focus():
@@ -122,7 +122,73 @@ def test_a2_reviewed_evidence_gap_still_blocks_zero_focus():
     )
 
     assert status == STATUS_DEGRADED_UNDERFILLED_DATA_GAP
-    assert reasons == ("A2_MARKET_FACTS_INSUFFICIENT",)
+    assert reasons == ("A2_FACTOR_COVERAGE_BELOW_MINIMUM", "A2_MARKET_FACTS_INSUFFICIENT")
+
+
+def _a2_gate(
+    data_sufficiency_state: str,
+    reason_codes: list[str] | None = None,
+    *,
+    route_ready: bool = True,
+) -> DeterministicGateResult:
+    decision = {
+        "symbol": "600000.SH",
+        "status": "REVIEW_CANDIDATE" if route_ready else "DATA_GAP",
+        "data_sufficiency_state": data_sufficiency_state,
+        "reason_codes": reason_codes or [],
+        "route_eligibility": (
+            {"MARKET_CORE": {"eligible": True}}
+            if route_ready
+            else {"MARKET_CORE": {"eligible": False}}
+        ),
+    }
+    return DeterministicGateResult(
+        stage="A2_LOCAL_ROLE",
+        decisions=(decision,),
+        review_symbols=("600000.SH",) if route_ready else (),
+        monitor_symbols=(),
+        rejected_symbols=("600000.SH",) if not route_ready else (),
+    )
+
+
+def test_a2_gate_summary_degraded_blocks_zero_focus():
+    gate = _a2_gate("DEGRADED")
+
+    status, reasons = _classify_stage_outcome("A2", _a2_output([]), reasons=(), gate=gate)
+
+    assert status == STATUS_DEGRADED_UNDERFILLED_DATA_GAP
+    assert reasons == ("A2_DATA_GAP",)
+
+
+def test_a2_gate_summary_insufficient_blocks_zero_focus():
+    gate = _a2_gate(
+        "INSUFFICIENT",
+        ["A2_CRITICAL_DATA_INSUFFICIENT", "A2_DATA_GAP"],
+        route_ready=False,
+    )
+
+    status, reasons = _classify_stage_outcome("A2", _a2_output([]), reasons=(), gate=gate)
+
+    assert status == STATUS_DEGRADED_UNDERFILLED_DATA_GAP
+    assert reasons == ("A2_CRITICAL_DATA_INSUFFICIENT", "A2_DATA_GAP")
+
+
+def test_a2_gate_summary_sufficient_zero_focus_is_true_no_opportunity():
+    gate = _a2_gate("SUFFICIENT")
+
+    status, reasons = _classify_stage_outcome("A2", _a2_output([]), reasons=(), gate=gate)
+
+    assert status == STATUS_VALIDATED_NO_OPPORTUNITY
+    assert reasons == ("A2_NO_FOCUS_OPPORTUNITY",)
+
+
+def test_a2_optional_capital_flow_degraded_gate_does_not_become_critical_gap():
+    gate = _a2_gate("DEGRADED", ["A2_CAPITAL_FLOW_UNAVAILABLE"])
+
+    status, reasons = _classify_stage_outcome("A2", _a2_output([]), reasons=(), gate=gate)
+
+    assert status == STATUS_VALIDATED_NO_OPPORTUNITY
+    assert reasons == ("A2_NO_FOCUS_OPPORTUNITY",)
 
 
 def test_a2_underfilled_distinguishes_market_from_data_gap():

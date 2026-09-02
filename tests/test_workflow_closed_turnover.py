@@ -1,12 +1,17 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+import pytest
+
 from liangjian_funnel.pipeline.data_source import HithinkFetchResult, HithinkRow
 from liangjian_funnel.pipeline.local_fact_cache import LocalFactCache
 from liangjian_funnel.pipeline.snapshot import UniverseGatePolicy, UniverseSnapshot
 from liangjian_funnel.workflow import (
+    WorkflowError,
     _active_a1_downstream_scope,
+    _ensure_formal_close_cutoff,
     _latest_closed_market_trade_date,
+    _load_a2_reference_daily_bars,
     _market_snapshot_with_closed_turnover,
 )
 
@@ -132,6 +137,41 @@ def test_latest_closed_market_trade_date_uses_previous_session_before_close():
         datetime(2026, 8, 30, 10, 0, tzinfo=TZ),
         calendar,
     ).isoformat() == "2026-08-28"
+
+
+def test_formal_close_cutoff_rejects_mixed_intraday_and_d1_inputs():
+    with pytest.raises(WorkflowError, match="CLOSE_SESSION_NOT_SETTLED"):
+        _ensure_formal_close_cutoff(datetime(2026, 9, 2, 11, 41, tzinfo=TZ))
+
+    _ensure_formal_close_cutoff(datetime(2026, 9, 2, 15, 10, tzinfo=TZ))
+
+
+def test_a2_reference_bars_use_local_cache_and_latest_closed_session(tmp_path):
+    cache = LocalFactCache(tmp_path / "facts.sqlite3")
+    fetched = datetime(2026, 9, 2, 15, 5, tzinfo=TZ)
+    rows = []
+    for symbol in ("600001.SH", "000002.SZ"):
+        for day in range(1, 35):
+            rows.append({
+                "symbol": symbol,
+                "timestamp": datetime(2026, 7, day if day <= 31 else day - 31, tzinfo=TZ),
+                "adjust": "none",
+                "fetched_at": fetched,
+                "payload": {"close_price": 10 + day, "turnover": 100_000_000 + day},
+            })
+    cache.upsert_daily_bars(rows)
+
+    result = _load_a2_reference_daily_bars(
+        cache,
+        ("600001.SH", "000002.SZ", "300003.SZ"),
+        as_of=datetime(2026, 9, 2, 15, 10, tzinfo=TZ),
+        market_as_of=datetime(2026, 9, 2, 15, 10, tzinfo=TZ),
+        calendar=_Calendar(),
+    )
+
+    assert set(result) == {"600001.SH", "000002.SZ"}
+    assert all(len(values) == 21 for values in result.values())
+    assert all("date_ms" in item for values in result.values() for item in values)
 
 
 def test_active_a1_downstream_scope_excludes_monitor_and_rejected_candidates():

@@ -25,6 +25,8 @@ def build_a2_feature_snapshot(
     *,
     candidates: Sequence[Mapping[str, Any]],
     daily_bars: Mapping[str, Sequence[Mapping[str, Any]]],
+    reference_candidates: Sequence[Mapping[str, Any]] | None = None,
+    reference_daily_bars: Mapping[str, Sequence[Mapping[str, Any]]] | None = None,
     industry_membership: Mapping[str, Any] | None,
     concept_membership: Mapping[str, Any] | None,
     ladder_snapshot: Mapping[str, Any] | None,
@@ -41,15 +43,32 @@ def build_a2_feature_snapshot(
         if (symbol := _symbol(row))
     }
     symbols = tuple(sorted(candidate_by_symbol))
+    # Candidates are the only rows materialized into ``by_symbol``.  An
+    # explicit reference universe is used for market-wide cross-sectional
+    # denominators; omitting it preserves the historical candidate-scope
+    # behavior exactly.
+    reference_scope_explicit = reference_candidates is not None
+    reference_by_symbol = {
+        symbol: dict(row)
+        for row in (reference_candidates if reference_scope_explicit else candidates)
+        if (symbol := _symbol(row))
+    }
+    reference_symbols = tuple(sorted(reference_by_symbol))
+    reference_bars = reference_daily_bars if reference_daily_bars is not None else daily_bars
     returns_by_window = {
         window: {
             symbol: value
-            for symbol in symbols
-            if (value := _return_nd(daily_bars.get(symbol, ()), cutoff.date(), window)) is not None
+            for symbol in reference_symbols
+            if (value := _return_nd(reference_bars.get(symbol, ()), cutoff.date(), window)) is not None
         }
         for window in (5, 10, 20)
     }
     returns = returns_by_window[20]
+    candidate_returns = {
+        symbol: value
+        for symbol in symbols
+        if (value := _return_nd(daily_bars.get(symbol, ()), cutoff.date(), 20)) is not None
+    }
     return_percentiles_by_window = {
         window: _percentiles(values)
         for window, values in returns_by_window.items()
@@ -57,13 +76,29 @@ def build_a2_feature_snapshot(
     return_percentiles = return_percentiles_by_window[20]
     liquidity_values = {
         symbol: value
-        for symbol, row in candidate_by_symbol.items()
+        for symbol, row in reference_by_symbol.items()
         if (value := _number(row.get("amount") or row.get("turnover") or row.get("daily_turnover"))) is not None
         and value >= 0
     }
     liquidity_percentiles = _percentiles(liquidity_values)
-    industry_by_symbol = _membership_by_symbol(industry_membership, taxonomy="INDUSTRY")
-    concept_by_symbol = _membership_by_symbol(concept_membership, taxonomy="CONCEPT")
+    all_industry_by_symbol = _membership_by_symbol(industry_membership, taxonomy="INDUSTRY")
+    all_concept_by_symbol = _membership_by_symbol(concept_membership, taxonomy="CONCEPT")
+    industry_by_symbol = {
+        symbol: all_industry_by_symbol.get(symbol, ())
+        for symbol in symbols
+    }
+    concept_by_symbol = {
+        symbol: all_concept_by_symbol.get(symbol, ())
+        for symbol in symbols
+    }
+    reference_industry_by_symbol = {
+        symbol: all_industry_by_symbol.get(symbol, ())
+        for symbol in reference_symbols
+    }
+    reference_concept_by_symbol = {
+        symbol: all_concept_by_symbol.get(symbol, ())
+        for symbol in reference_symbols
+    }
     ladder = _ladder_by_symbol(ladder_snapshot, cutoff.date())
     ladder_observed, ladder_state, ladder_reason = _dataset_observation(ladder_snapshot)
     dragon = _event_symbols(dragon_tiger_snapshot)
@@ -128,8 +163,18 @@ def build_a2_feature_snapshot(
     # with relative strength and liquidity without fabricating an individual
     # tier score.
     ladder_members_by_group: dict[str, set[str]] = defaultdict(set)
+    ladder_industry_by_symbol = (
+        reference_industry_by_symbol
+        if reference_scope_explicit
+        else all_industry_by_symbol
+    )
+    ladder_concept_by_symbol = (
+        reference_concept_by_symbol
+        if reference_scope_explicit
+        else all_concept_by_symbol
+    )
     for member_symbol in ladder:
-        for membership in (*industry_by_symbol.get(member_symbol, ()), *concept_by_symbol.get(member_symbol, ())):
+        for membership in (*ladder_industry_by_symbol.get(member_symbol, ()), *ladder_concept_by_symbol.get(member_symbol, ())):
             code = str(membership.get("taxonomy_code") or "").strip().upper()
             taxonomy = str(membership.get("taxonomy") or "").strip().upper()
             if code and taxonomy:
@@ -226,10 +271,14 @@ def build_a2_feature_snapshot(
             },
         )
 
+    # Theme metrics are market aggregates.  Their denominator must come from
+    # the explicit reference universe; keep candidate membership separately so
+    # the UI/LLM can audit how much of each theme reached A2.
     group_members: dict[str, set[str]] = defaultdict(set)
+    candidate_group_members: dict[str, set[str]] = defaultdict(set)
     group_meta: dict[str, dict[str, str]] = {}
-    for symbol in symbols:
-        for item in (*industry_by_symbol.get(symbol, ()), *concept_by_symbol.get(symbol, ())):
+    for symbol in reference_symbols:
+        for item in (*reference_industry_by_symbol.get(symbol, ()), *reference_concept_by_symbol.get(symbol, ())):
             code = str(item.get("taxonomy_code") or "").strip().upper()
             if not code:
                 continue
@@ -240,9 +289,16 @@ def build_a2_feature_snapshot(
                 "taxonomy_code": code,
                 "taxonomy_name": str(item.get("taxonomy_name") or ""),
             }
+    for symbol in symbols:
+        for item in (*industry_by_symbol.get(symbol, ()), *concept_by_symbol.get(symbol, ())):
+            code = str(item.get("taxonomy_code") or "").strip().upper()
+            if not code:
+                continue
+            key = f"{item.get('taxonomy')}:{code}"
+            candidate_group_members[key].add(symbol)
     total_turnover = sum(
-        max(0.0, _number(candidate_by_symbol.get(symbol, {}).get("amount")) or _number(candidate_by_symbol.get(symbol, {}).get("turnover")) or _number(candidate_by_symbol.get(symbol, {}).get("daily_turnover")) or 0.0)
-        for symbol in symbols
+        max(0.0, _number(reference_by_symbol.get(symbol, {}).get("amount")) or _number(reference_by_symbol.get(symbol, {}).get("turnover")) or _number(reference_by_symbol.get(symbol, {}).get("daily_turnover")) or 0.0)
+        for symbol in reference_symbols
     )
     theme_metrics: dict[str, dict[str, Any]] = {}
     for key, members in sorted(group_members.items()):
@@ -277,7 +333,7 @@ def build_a2_feature_snapshot(
         ladder_ratio = ladder_count / len(members) if members else None
         dragon_ratio = dragon_count / len(members) if members else None
         group_turnover = sum(
-            max(0.0, _number(candidate_by_symbol.get(symbol, {}).get("amount")) or _number(candidate_by_symbol.get(symbol, {}).get("turnover")) or _number(candidate_by_symbol.get(symbol, {}).get("daily_turnover")) or 0.0)
+            max(0.0, _number(reference_by_symbol.get(symbol, {}).get("amount")) or _number(reference_by_symbol.get(symbol, {}).get("turnover")) or _number(reference_by_symbol.get(symbol, {}).get("daily_turnover")) or 0.0)
             for symbol in members
         )
         cycle_score = _cycle_score(sector_cycle_snapshot, group_meta[key]["taxonomy_code"])
@@ -314,13 +370,18 @@ def build_a2_feature_snapshot(
             breadth_5d,
         )
         coverage = len(observed_returns) / len(members) if members else 0.0
+        candidate_members = candidate_group_members.get(key, set())
         theme_metrics[key] = {
             **group_meta[key],
             "available": score is not None and coverage >= 0.80,
             "availability_state": "OBSERVED_VALUE" if score is not None and coverage >= 0.80 else "SOURCE_FAILED",
             "reason_code": "OK" if score is not None and coverage >= 0.80 else "A2_CHAIN_MEMBER_COVERAGE_INSUFFICIENT",
             "score": round(score, 4) if score is not None else None,
+            # ``member_count`` remains for compatibility and now explicitly
+            # denotes the reference-universe member count.
             "member_count": len(members),
+            "reference_member_count": len(members),
+            "candidate_member_count": len(candidate_members),
             "return_coverage": round(coverage, 6),
             "breadth": round(breadth, 6) if breadth is not None else None,
             "breadth_5d": round(breadth_5d, 6) if breadth_5d is not None else None,
@@ -454,10 +515,22 @@ def build_a2_feature_snapshot(
         }
 
     symbol_count = len(symbols)
-    daily_bar_coverage = sum(symbol in returns for symbol in symbols) / symbol_count if symbol_count else 0.0
+    daily_bar_coverage = sum(symbol in candidate_returns for symbol in symbols) / symbol_count if symbol_count else 0.0
     identity_coverage = (
         sum(bool(industry_by_symbol.get(symbol) or concept_by_symbol.get(symbol)) for symbol in symbols) / symbol_count
         if symbol_count
+        else 0.0
+    )
+    reference_symbol_count = len(reference_symbols)
+    reference_daily_bar_coverage = (
+        sum(symbol in returns for symbol in reference_symbols) / reference_symbol_count
+        if reference_symbol_count
+        else 0.0
+    )
+    reference_identity_coverage = (
+        sum(bool(reference_industry_by_symbol.get(symbol) or reference_concept_by_symbol.get(symbol)) for symbol in reference_symbols)
+        / reference_symbol_count
+        if reference_symbol_count
         else 0.0
     )
     factor_coverage = {
@@ -475,7 +548,18 @@ def build_a2_feature_snapshot(
     # time taxonomy identity are the minimum materialization contract; the
     # market-role and chain projections are derived from those facts and may be
     # enriched by the optional feeds.
-    base_sufficient = bool(symbols) and daily_bar_coverage >= 0.95 and identity_coverage >= 0.95
+    candidate_base_sufficient = bool(symbols) and daily_bar_coverage >= 0.95 and identity_coverage >= 0.95
+    # An explicit market reference is itself part of the materialization
+    # contract.  Never let a well-covered 50-row candidate slice claim full
+    # market sufficiency when its reference bars or taxonomy are missing.
+    base_sufficient = candidate_base_sufficient and (
+        not reference_scope_explicit
+        or (
+            bool(reference_symbols)
+            and reference_daily_bar_coverage >= 0.95
+            and reference_identity_coverage >= 0.95
+        )
+    )
     optional_missing = [
         name
         for name in ("capital_flow", "tier_structure", "leader_structure", "index_chain_resonance", "weekly_confirmation")
@@ -496,6 +580,10 @@ def build_a2_feature_snapshot(
         market_missing_facts.append("daily_bars")
     if identity_coverage < 0.95:
         market_missing_facts.append("taxonomy_identity")
+    if reference_scope_explicit and reference_daily_bar_coverage < 0.95:
+        market_missing_facts.append("reference_daily_bars")
+    if reference_scope_explicit and reference_identity_coverage < 0.95:
+        market_missing_facts.append("reference_taxonomy_identity")
     if not market_projection_available:
         market_missing_facts.append("market_facts_minimum_2")
     data_state = (
@@ -578,6 +666,8 @@ def build_a2_feature_snapshot(
         "coverage_thresholds": {
             "daily_bars": 0.95,
             "identity": 0.95,
+            "reference_daily_bars": 0.95,
+            "reference_identity": 0.95,
             "capital_flow": 0.90,
             "tier_structure": 0.90,
             "leader_structure": 0.90,
@@ -599,6 +689,15 @@ def build_a2_feature_snapshot(
         ),
         "by_symbol": by_symbol,
         "theme_metrics": theme_metrics,
+        "candidate_symbol_count": symbol_count,
+        "reference_symbol_count": reference_symbol_count,
+        "reference_daily_bar_coverage": round(reference_daily_bar_coverage, 6),
+        "reference_identity_coverage": round(reference_identity_coverage, 6),
+        "denominator_scope": (
+            "FULL_MARKET_REFERENCE"
+            if reference_scope_explicit
+            else "CANDIDATE_SCOPE_FALLBACK"
+        ),
     }
     payload["content_hash"] = _hash(payload)
     return payload

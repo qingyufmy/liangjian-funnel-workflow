@@ -448,7 +448,11 @@ class WorkflowApplication:
             # uses the configured quality-filtered research universe. Beijing
             # securities remain research-only after passing the same quality
             # gate; execution permission is enforced at plan publication.
-            research_records = _research_universe_records(universe)
+            all_research_records = _research_universe_records(universe)
+            all_research_symbols = tuple(
+                candidate.symbol for candidate in all_research_records
+            )
+            research_records = all_research_records
             if candidate_symbols is not None:
                 requested_symbols = {
                     str(symbol).strip().upper()
@@ -477,7 +481,7 @@ class WorkflowApplication:
             full_membership = collect_ths_industry_membership(
                 client,
                 industry_catalog,
-                [candidate.symbol for candidate in research_records],
+                all_research_symbols,
                 cache_dir=self.settings.fact_store_dir / "ths_industry",
                 as_of=current,
             )
@@ -518,17 +522,14 @@ class WorkflowApplication:
                 cache_dir=self.settings.fact_store_dir / "ths_industry",
                 as_of=current,
             )
-            market_fact_results["THS_INDUSTRY_MEMBERSHIP"] = collect_ths_industry_membership(
-                client,
-                industry_catalog,
-                [candidate.symbol for candidate in selected],
-                cache_dir=self.settings.fact_store_dir / "ths_industry",
-                as_of=current,
-            )
+            # Reuse the already complete full-market projection. Re-projecting
+            # the same graph here doubles both allocation and JSON work on the
+            # VM without changing a byte of evidence.
+            market_fact_results["THS_INDUSTRY_MEMBERSHIP"] = full_membership
             market_fact_results["THS_CONCEPT_MEMBERSHIP"] = collect_ths_taxonomy_membership(
                 client,
                 concept_catalog,
-                [candidate.symbol for candidate in selected],
+                all_research_symbols,
                 taxonomy="concept",
                 cache_dir=self.settings.fact_store_dir / "ths_taxonomy",
                 as_of=current,
@@ -1920,6 +1921,8 @@ class WorkflowApplication:
             raise WorkflowError("SNAPSHOT_ID_REQUIRES_HISTORICAL_REPLAY")
         if comparison_run and not snapshot_id:
             raise WorkflowError("COMPARISON_SNAPSHOT_REQUIRED")
+        if normalized_slot == "close" and not next_session_prep and not comparison_run:
+            _ensure_formal_close_cutoff(current)
         if not isinstance(from_active_a1, bool):
             raise WorkflowError("ACTIVE_A1_ARGUMENTS_INVALID")
         if from_active_a1 and (
@@ -2162,6 +2165,14 @@ class WorkflowApplication:
                 "publication": "COMPARISON_ONLY",
             }
         )
+        summary_calendar = getattr(self, "trading_calendar", None)
+        closed_market_trade_date = (
+            market_data_as_of.astimezone(SHANGHAI).date()
+            if market_data_as_of is not None
+            else _latest_closed_market_trade_date(current, summary_calendar)
+            if summary_calendar is not None
+            else current.date()
+        )
         summary = {
             "run_id": run_id,
             "slot": normalized_slot,
@@ -2174,9 +2185,7 @@ class WorkflowApplication:
                 target_trade_date.isoformat() if target_trade_date is not None else None
             ),
             "market_trade_date": (
-                market_data_as_of.astimezone(SHANGHAI).date().isoformat()
-                if market_data_as_of is not None
-                else current.date().isoformat()
+                closed_market_trade_date.isoformat()
             ),
             "market_data_as_of": (
                 market_data_as_of.astimezone(SHANGHAI).isoformat()
@@ -2205,9 +2214,7 @@ class WorkflowApplication:
                 primary_lane_id=primary_lane_id,
                 source_as_of=current,
                 market_trade_date=(
-                    market_data_as_of.astimezone(SHANGHAI).date().isoformat()
-                    if market_data_as_of is not None
-                    else current.date().isoformat()
+                    closed_market_trade_date.isoformat()
                 ),
                 target_trade_date=(
                     target_trade_date.isoformat() if target_trade_date is not None else None
@@ -3866,6 +3873,32 @@ class WorkflowApplication:
             for item in frozen.g0_candidates
             if item.symbol in set(g0_symbols)
         ]
+        reference_records = [
+            item.model_dump(mode="json") for item in universe.research_candidates
+        ]
+        reference_symbols = tuple(
+            str(item.get("symbol") or "").strip().upper()
+            for item in reference_records
+            if str(item.get("symbol") or "").strip()
+        )
+        reference_cache = getattr(self, "fact_cache", None)
+        reference_calendar = getattr(self, "trading_calendar", None)
+        reference_daily_bars = (
+            _load_a2_reference_daily_bars(
+                reference_cache,
+                reference_symbols,
+                as_of=as_of,
+                market_as_of=market_as_of,
+                calendar=reference_calendar,
+            )
+            if isinstance(reference_cache, LocalFactCache)
+            and reference_calendar is not None
+            else {
+                key: value
+                for key, value in frozen.daily_payload.items()
+                if key in set(reference_symbols) and isinstance(value, list)
+            }
+        )
         trade_records = [item for item in selected_records if item.get("trade_eligible") is True]
         missing = {"available": False, "reason_code": "SOURCE_NOT_CONFIGURED"}
         try:
@@ -3919,12 +3952,8 @@ class WorkflowApplication:
         regime_config = source_config.get("market_regime")
         regime_settings = regime_config if isinstance(regime_config, Mapping) else {}
         market_funding = build_market_funding_regime(
-            universe.records,
-            {
-                key: value
-                for key, value in frozen.daily_payload.items()
-                if isinstance(value, list)
-            },
+            universe.research_candidates,
+            reference_daily_bars,
             as_of=market_as_of,
             lookback_sessions=int(regime_settings.get("funding_lookback_sessions", 5)),
             min_coverage=float(regime_settings.get("funding_min_coverage", 0.85)),
@@ -4081,6 +4110,8 @@ class WorkflowApplication:
                 for key, value in frozen.daily_payload.items()
                 if key in g0_symbols and isinstance(value, list)
             },
+            reference_candidates=reference_records,
+            reference_daily_bars=reference_daily_bars,
             industry_membership=industry_membership,
             concept_membership=concept_membership,
             ladder_snapshot=_available_fact(facts, "LIMIT_UP_LADDER"),
@@ -4146,7 +4177,18 @@ class WorkflowApplication:
             "g0_symbols": g0_symbols,
             "g0_candidates": selected_records,
             "trade_candidates": trade_records,
-            "universe_candidates": selected_records,
+            # Keep the candidate funnel scoped by ``g0_symbols`` while
+            # retaining the complete immutable identity catalog.  A daily
+            # A2/A3 run may intentionally prepare only the active A1 subset;
+            # collapsing ``universe_candidates`` to that subset made the
+            # reused A1 monitor/reject rows lose their canonical names and
+            # taxonomy lineage in the UI/audit output.
+            "universe_candidates": [
+                item.model_dump(mode="json") for item in universe.records
+            ],
+            "research_candidates": [
+                item.model_dump(mode="json") for item in universe.research_candidates
+            ],
             "RECENT_DAILY_BARS": {
                 key: value[-30:]
                 for key, value in frozen.daily_payload.items()
@@ -4258,6 +4300,27 @@ class WorkflowApplication:
             "CAPITAL_FLOW_SNAPSHOT": capital_flow,
             "BOARD_CAPITAL_FLOW_SNAPSHOT": board_capital_flow,
             "A2_FACTOR_SNAPSHOT": a2_features,
+            "A2_MARKET_REFERENCE": {
+                "schema_version": "a2-market-reference/1.0.0",
+                "source": "LOCAL_POINT_IN_TIME_DAILY_CACHE",
+                "as_of": market_as_of.isoformat(),
+                "market_trade_date": (
+                    _latest_closed_market_trade_date(
+                        market_as_of,
+                        reference_calendar,
+                    ).isoformat()
+                    if reference_calendar is not None
+                    else market_as_of.date().isoformat()
+                ),
+                "symbol_count": len(reference_symbols),
+                "daily_bar_symbol_count": len(reference_daily_bars),
+                "daily_bar_coverage": round(
+                    len(reference_daily_bars) / len(reference_symbols),
+                    6,
+                ) if reference_symbols else 0.0,
+                "content_hash": _hash_json(reference_daily_bars),
+                "candidate_scope_separate": True,
+            },
             "A2_THEME_METRICS": {
                 "available": a2_features.get("available") is True,
                 "reason_code": a2_features.get("reason_code"),
@@ -5612,6 +5675,22 @@ def _auction_window(value: datetime) -> bool:
     return local.hour == 9 and 26 <= local.minute <= 30
 
 
+def _ensure_formal_close_cutoff(value: datetime) -> None:
+    """Reject a production ``close`` run until the 15:10 settlement boundary.
+
+    A snapshot collected before the close can contain live breadth/turnover
+    while its daily bars still end at D-1.  Publishing that mixed state under
+    the formal CLOSE label is a point-in-time contract violation, not a
+    degraded research result.  Historical replays use the same explicit
+    boundary; dedicated non-trading next-session preparation is validated by
+    its separate market-data cutoff contract before this helper is reached.
+    """
+
+    local = _aware(value)
+    if (local.hour, local.minute) < (15, 10):
+        raise WorkflowError("CLOSE_SESSION_NOT_SETTLED")
+
+
 def _latest_closed_market_trade_date(
     value: datetime,
     calendar: ExchangeTradingCalendar,
@@ -5630,6 +5709,65 @@ def _latest_closed_market_trade_date(
         return calendar.previous_trading_day(local.date())
     except TradingCalendarError as exc:
         raise WorkflowError(exc.reason_code) from exc
+
+
+def _load_a2_reference_daily_bars(
+    cache: LocalFactCache,
+    symbols: tuple[str, ...],
+    *,
+    as_of: datetime,
+    market_as_of: datetime,
+    calendar: ExchangeTradingCalendar,
+) -> dict[str, list[dict[str, Any]]]:
+    """Load a bounded full-market A2 cross-section from the local fact cache.
+
+    Daily A2/A3 runs intentionally refresh expensive disclosures and
+    fundamentals only for the active A1 subset.  Industry breadth, relative
+    strength and funding state nevertheless require an eligible-market
+    denominator.  This reader reuses the durable daily cache, stops at the
+    latest completed session and keeps only the 21 bars needed by A2's longest
+    20-session return.  It performs no network request and never fills a
+    missing symbol with a synthetic row.
+    """
+
+    allowed = frozenset(str(symbol).strip().upper() for symbol in symbols if str(symbol).strip())
+    if not allowed:
+        return {}
+    closed_date = _latest_closed_market_trade_date(market_as_of, calendar)
+    end = datetime.combine(
+        closed_date + timedelta(days=1),
+        datetime.min.time(),
+        tzinfo=SHANGHAI,
+    )
+    windows = cache.latest_daily_bar_windows_before(
+        tuple(sorted(allowed)),
+        end=end,
+        per_symbol_limit=21,
+        adjust="none",
+        as_of=as_of,
+    )
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for symbol, rows in windows.items():
+        for row in rows:
+            payload = row.get("payload")
+            if not isinstance(payload, Mapping):
+                continue
+            item = dict(payload)
+            if not any(key in item for key in ("date_ms", "timestamp", "time")):
+                try:
+                    parsed = datetime.fromisoformat(str(row.get("timestamp") or "").replace("Z", "+00:00"))
+                except (TypeError, ValueError):
+                    parsed = None
+                if parsed is not None:
+                    if parsed.tzinfo is None or parsed.utcoffset() is None:
+                        parsed = parsed.replace(tzinfo=SHANGHAI)
+                    item["date_ms"] = int(parsed.timestamp() * 1000)
+            grouped.setdefault(symbol, []).append(item)
+    return {
+        symbol: values[-21:]
+        for symbol, values in grouped.items()
+        if values
+    }
 
 
 def _available_fact(facts: Mapping[str, Any], key: str) -> dict[str, Any] | None:

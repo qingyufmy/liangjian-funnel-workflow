@@ -667,6 +667,63 @@ class LocalFactCache:
                 output[item["symbol"]] = item
         return output
 
+    def latest_daily_bar_windows_before(
+        self,
+        symbols: Sequence[str],
+        *,
+        end: datetime | str,
+        per_symbol_limit: int = 21,
+        adjust: str = "none",
+        as_of: datetime | str | None = None,
+        batch_size: int = DEFAULT_BATCH_SIZE,
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Return bounded latest-bar windows for a market cross-section.
+
+        The ranking first resolves point-in-time revisions per natural bar and
+        then limits rows per symbol.  This avoids deserializing an arbitrary
+        calendar range for all 4,000+ A2 reference symbols while preserving
+        the exact 21 closed sessions needed for a 20-session return.
+        """
+
+        if not isinstance(per_symbol_limit, int) or isinstance(per_symbol_limit, bool) or per_symbol_limit < 1:
+            raise ValueError("per_symbol_limit must be a positive integer")
+        ordered = tuple(dict.fromkeys(_symbol({"symbol": symbol}) for symbol in symbols))
+        if not ordered:
+            return {}
+        cutoff = _timestamp(end)
+        knowledge_cutoff = _timestamp(as_of) if as_of is not None else None
+        mode = str(adjust).strip().lower()
+        output: dict[str, list[dict[str, Any]]] = {}
+        for symbol_batch in _chunks(ordered, min(_batch_size(batch_size), 500)):
+            placeholders = ",".join("?" for _ in symbol_batch)
+            knowledge_clause = " AND fetched_at<=?" if knowledge_cutoff is not None else ""
+            query = (
+                "WITH revisions AS ("
+                " SELECT symbol, bar_timestamp, adjust, fetched_at, content_hash, payload_json,"
+                " ROW_NUMBER() OVER (PARTITION BY symbol, bar_timestamp, adjust"
+                " ORDER BY fetched_at DESC, content_hash DESC) AS revision_rank"
+                f" FROM daily_bars WHERE symbol IN ({placeholders})"
+                " AND adjust=? AND bar_timestamp<?"
+                f"{knowledge_clause}"
+                "), ranked AS ("
+                " SELECT symbol, bar_timestamp, adjust, fetched_at, content_hash, payload_json,"
+                " ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY bar_timestamp DESC) AS bar_rank"
+                " FROM revisions WHERE revision_rank=1"
+                ") SELECT symbol, bar_timestamp, adjust, fetched_at, content_hash, payload_json"
+                " FROM ranked WHERE bar_rank<=?"
+                " ORDER BY symbol ASC, bar_timestamp ASC"
+            )
+            params: list[Any] = [*symbol_batch, mode, cutoff]
+            if knowledge_cutoff is not None:
+                params.append(knowledge_cutoff)
+            params.append(per_symbol_limit)
+            with self._connect() as connection:
+                rows = connection.execute(query, params).fetchall()
+            for row in rows:
+                item = self._daily_output(row)
+                output.setdefault(item["symbol"], []).append(item)
+        return output
+
     def upsert_financial_facts(
         self, rows: Iterable[Mapping[str, Any]], *, batch_size: int = DEFAULT_BATCH_SIZE
     ) -> dict[str, int]:

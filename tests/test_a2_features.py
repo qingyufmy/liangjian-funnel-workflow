@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+import pytest
+
 from liangjian_funnel.pipeline.a2_features import build_a2_feature_snapshot
 from liangjian_funnel.pipeline.a2_features import _percentiles
 from liangjian_funnel.pipeline.deterministic import screen_a2
@@ -180,6 +182,77 @@ def test_cross_section_percentiles_average_ties() -> None:
 
     assert scores["600001.SH"] == scores["000002.SZ"] == 25.0
     assert scores["300003.SZ"] == 100.0
+
+
+def test_explicit_reference_universe_drives_market_denominators() -> None:
+    """A2 candidates are scored against the full reference cross-section."""
+
+    reference_symbols = ("600001.SH", "000002.SZ", "300003.SZ")
+    snapshot = build_a2_feature_snapshot(
+        candidates=[{"symbol": reference_symbols[0], "amount": 300}],
+        daily_bars={reference_symbols[0]: _bars(0.02)},
+        reference_candidates=[
+            {"symbol": reference_symbols[0], "amount": 300},
+            {"symbol": reference_symbols[1], "amount": 200},
+            {"symbol": reference_symbols[2], "amount": 100},
+        ],
+        reference_daily_bars={
+            symbol: _bars(growth)
+            for symbol, growth in zip(reference_symbols, (0.02, 0.01, -0.01), strict=True)
+        },
+        industry_membership=_membership("industry"),
+        concept_membership=None,
+        ladder_snapshot={"available": True, "records": []},
+        dragon_tiger_snapshot={"records": []},
+        attention_snapshot={"records": []},
+        sector_cycle_snapshot=None,
+        capital_flow_snapshot={"available": False, "reason_code": "SOURCE_NOT_CONFIGURED"},
+        as_of=NOW,
+    )
+
+    assert snapshot["symbol_count"] == snapshot["candidate_symbol_count"] == 1
+    assert snapshot["reference_symbol_count"] == 3
+    assert snapshot["denominator_scope"] == "FULL_MARKET_REFERENCE"
+    # The strongest candidate ranks first among all three reference symbols;
+    # a one-symbol candidate-only denominator would incorrectly return 50.
+    candidate = snapshot["by_symbol"][reference_symbols[0]]
+    assert candidate["factors"]["trend_strength_proxy"]["trend_percentile"] == 100.0
+    assert candidate["factors"]["leader_structure"]["liquidity_percentile"] == 100.0
+    metric = snapshot["theme_metrics"]["INDUSTRY:881001.TI"]
+    assert metric["member_count"] == metric["reference_member_count"] == 3
+    assert metric["candidate_member_count"] == 1
+
+
+def test_explicit_reference_coverage_cannot_claim_sufficient() -> None:
+    reference_symbols = ("600001.SH", "000002.SZ", "300003.SZ")
+    snapshot = build_a2_feature_snapshot(
+        candidates=[{"symbol": reference_symbols[0], "amount": 300}],
+        daily_bars={reference_symbols[0]: _bars(0.02)},
+        reference_candidates=[
+            {"symbol": symbol, "amount": 100}
+            for symbol in reference_symbols
+        ],
+        # Only one of three reference bars is available.
+        reference_daily_bars={reference_symbols[0]: _bars(0.02)},
+        # Only one of three reference identities is available.
+        industry_membership={
+            "available": True,
+            "records": [{"thscode": reference_symbols[0], "memberships": [{"industry_thscode": "881001.TI", "industry_name": "主线"}]}],
+        },
+        concept_membership=None,
+        ladder_snapshot={"available": True, "records": []},
+        dragon_tiger_snapshot={"records": []},
+        attention_snapshot={"records": []},
+        sector_cycle_snapshot=None,
+        capital_flow_snapshot={"available": False, "reason_code": "SOURCE_NOT_CONFIGURED"},
+        as_of=NOW,
+    )
+
+    assert snapshot["reference_daily_bar_coverage"] == pytest.approx(1 / 3, rel=1e-6)
+    assert snapshot["reference_identity_coverage"] == pytest.approx(1 / 3, rel=1e-6)
+    assert snapshot["data_sufficiency_state"] in {"DEGRADED", "INSUFFICIENT"}
+    assert snapshot["data_sufficiency_state"] != "SUFFICIENT"
+    assert snapshot["available"] is False
 
 
 def test_20260828_grain_agriculture_chemical_fixture_keeps_sector_core_candidates_without_capital_flow() -> None:

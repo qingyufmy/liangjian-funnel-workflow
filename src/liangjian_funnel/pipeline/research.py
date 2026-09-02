@@ -136,6 +136,16 @@ _A2_EVIDENCE_GAP_REASONS = frozenset(
         "A2_EVIDENCE_COVERAGE_BELOW_MINIMUM",
     }
 )
+# These reasons describe optional enrichment only.  They are intentionally
+# kept outside ``_A2_EVIDENCE_GAP_REASONS``: the absence of capital-flow (or
+# another optional feed) must not be relabelled as proof that the market has
+# no usable opportunity.
+_A2_OPTIONAL_EVIDENCE_GAP_REASONS = frozenset(
+    {
+        "A2_CAPITAL_FLOW_UNAVAILABLE",
+        "A2_OPTIONAL_FACTS_DEGRADED",
+    }
+)
 _A3_TECHNICAL_DATA_REASONS = frozenset(
     {
         "A3_TECHNICAL_FACTORS_NOT_READY",
@@ -2353,11 +2363,10 @@ class ResearchPipeline:
                 diagnostics={},
             )
         # Keep the provider-reviewed partition separate from deterministic
-        # local rows appended below.  A2 local monitor rows intentionally
-        # carry evidence-gap reasons (for example
-        # ``A2_FACTOR_COVERAGE_BELOW_MINIMUM``), but those rows were not
-        # reviewed by the model and must not turn a valid zero-focus model
-        # response into a stage-level evidence block.
+        # local rows appended below.  The distinction is still needed for
+        # attribution, but the final canonical output remains authoritative
+        # for stage classification: deterministic rows with a critical
+        # evidence gap must be considered as well.
         reviewed_output = dict(output)
         if stage == "A2":
             output, _ = _move_a2_hard_rejects_to_rejected(output, gate)
@@ -10152,10 +10161,12 @@ def _classify_stage_outcome(
     """Derive detailed terminal semantics without changing model conclusions.
 
     ``output`` may include deterministic gate rows that are appended after the
-    model review.  For A2, only evidence-gap codes in ``reviewed_output`` are
-    attributable to the model review and may block a zero-focus result.  The
-    optional argument keeps direct callers and legacy tests backwards
-    compatible; production downstream review passes the pre-append view.
+    model review.  ``reviewed_output`` is retained for attribution, while the
+    final canonical output remains authoritative for whether a zero/underfilled
+    A2 result is actually supported by evidence.  The gate summary is checked
+    as a third, independent source of data sufficiency.  The optional argument
+    keeps direct callers and legacy tests backwards compatible; production
+    downstream review passes the pre-append view.
     """
 
     validation_reasons = tuple(dict.fromkeys(str(item) for item in reasons if str(item)))
@@ -10196,12 +10207,48 @@ def _classify_stage_outcome(
             else 30
         )
         minimum = max(1, minimum or 30)
-        review_view = reviewed_output if reviewed_output is not None else output
-        gap_reasons = _output_reason_codes(review_view).intersection(_A2_EVIDENCE_GAP_REASONS)
-        gate_summary = gate.summary if isinstance(gate, DeterministicGateResult) else {}
-        if gate_summary.get("data_sufficiency_state") == "INSUFFICIENT":
-            gate_gaps = _gate_reason_codes(gate).intersection(_A2_EVIDENCE_GAP_REASONS)
-            gap_reasons.update(gate_gaps or {"A2_CRITICAL_DATA_INSUFFICIENT"})
+        # Check both views.  ``output`` is the final canonical partition after
+        # local gate rows are appended; checking only ``reviewed_output`` can
+        # incorrectly turn a deterministic data-gap partition into
+        # VALIDATED_NO_OPPORTUNITY.
+        output_views = [output]
+        if reviewed_output is not None:
+            output_views.append(reviewed_output)
+        gap_reasons: set[str] = set()
+        output_states: set[str] = set()
+        for view in output_views:
+            gap_reasons.update(_output_reason_codes(view).intersection(_A2_EVIDENCE_GAP_REASONS))
+            output_states.update(_output_data_sufficiency_states(view))
+
+        gate_summary = getattr(gate, "summary", {}) if gate is not None else {}
+        if not isinstance(gate_summary, Mapping):
+            gate_summary = {}
+        gate_state = str(gate_summary.get("data_sufficiency_state") or "").strip().upper()
+        gate_reasons = _gate_reason_codes(gate)
+        gate_reasons.update(_output_reason_codes(gate_summary).intersection(_A2_EVIDENCE_GAP_REASONS))
+        # An explicit INSUFFICIENT state is itself a critical gap even when a
+        # provider omitted per-row reason_codes.  A DEGRADED state is likewise
+        # not a valid no-op proof unless the only supplied explanation is the
+        # already-known optional enrichment gap.
+        if "INSUFFICIENT" in output_states:
+            gap_reasons.add("A2_CRITICAL_DATA_INSUFFICIENT")
+        if "DEGRADED" in output_states and not _a2_optional_gap_only(output_views):
+            gap_reasons.add("A2_DATA_GAP")
+        gate_optional_degraded = (
+            gate_state == "DEGRADED"
+            and _a2_gate_optional_gap_only(gate, gate_summary)
+        )
+        if gate_state == "INSUFFICIENT" or (
+            gate_state == "DEGRADED" and not gate_optional_degraded
+        ):
+            gap_reasons.update(gate_reasons.intersection(_A2_EVIDENCE_GAP_REASONS))
+            gap_reasons.add(
+                "A2_CRITICAL_DATA_INSUFFICIENT"
+                if gate_state == "INSUFFICIENT"
+                else "A2_DATA_GAP"
+            )
+        else:
+            gap_reasons.update(gate_reasons.intersection(_A2_EVIDENCE_GAP_REASONS))
         if focus_count == 0:
             if gap_reasons:
                 return STATUS_DEGRADED_UNDERFILLED_DATA_GAP, tuple(sorted(gap_reasons))
@@ -10244,6 +10291,77 @@ def _output_reason_codes(output: Mapping[str, Any]) -> set[str]:
 
     visit(output)
     return result
+
+
+def _output_data_sufficiency_states(output: Mapping[str, Any]) -> set[str]:
+    """Collect explicit A2 data-state markers from a canonical output view.
+
+    Model output may expose the state on a pool row or on ``analysis_summary``
+    rather than emitting a reason code.  Only the bounded, stage-owned output
+    sections are visited so arbitrary nested evidence text cannot affect stage
+    classification.
+    """
+
+    result: set[str] = set()
+    sections = {
+        "analysis_summary",
+        "active_themes",
+        "focus_pool",
+        "watch_only_pool",
+        "crowded_pool",
+        "low_identity_pool",
+        "rejected_candidates",
+    }
+
+    def visit(value: Any) -> None:
+        if isinstance(value, Mapping):
+            state = str(value.get("data_sufficiency_state") or "").strip().upper()
+            if state in {"SUFFICIENT", "DEGRADED", "INSUFFICIENT"}:
+                result.add(state)
+            for key, item in value.items():
+                if str(key) in sections:
+                    visit(item)
+        elif isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+            for item in value:
+                visit(item)
+
+    visit(output)
+    return result
+
+
+def _a2_optional_gap_only(views: Sequence[Mapping[str, Any]]) -> bool:
+    """Return whether all explicit output gap markers are optional enrichment.
+
+    This narrow exception preserves the existing contract that missing
+    optional capital-flow data alone is not a critical A2 evidence failure.
+    An unqualified DEGRADED/INSUFFICIENT marker is treated conservatively as a
+    real gap because its cause cannot be established from the output.
+    """
+
+    reasons: set[str] = set()
+    for view in views:
+        reasons.update(_output_reason_codes(view))
+    return bool(reasons) and reasons.issubset(_A2_OPTIONAL_EVIDENCE_GAP_REASONS)
+
+
+def _a2_gate_optional_gap_only(
+    gate: Any | None,
+    summary: Mapping[str, Any],
+) -> bool:
+    """Recognize a gate DEGRADED state caused only by optional enrichment."""
+
+    reasons = _gate_reason_codes(gate)
+    reasons.update(_output_reason_codes(summary))
+    if reasons and not reasons.issubset(_A2_OPTIONAL_EVIDENCE_GAP_REASONS):
+        return False
+    missing = summary.get("optional_missing_factors")
+    if isinstance(missing, Sequence) and not isinstance(missing, (str, bytes, bytearray)):
+        names = {str(item).strip().lower() for item in missing if str(item).strip()}
+        if names and names.issubset({"capital_flow", "capital-flow", "capitalflow"}):
+            return True
+    # An explicit optional-only reason set is sufficient.  With no reason at
+    # all we cannot prove the degraded state is optional, so fail closed.
+    return bool(reasons)
 
 
 def _gate_reason_codes(gate: Any | None) -> set[str]:
