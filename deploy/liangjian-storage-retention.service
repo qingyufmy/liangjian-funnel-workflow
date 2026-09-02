@@ -1,0 +1,13 @@
+[Unit]
+Description=Liangjian recoverable storage retention
+After=local-fs.target
+ConditionPathIsDirectory=/www/wwwroot/Agu/liangjian-funnel-workflow
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/sbin/liangjian-storage-retention
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+

@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily Liangjian recoverable storage retention
+
+[Timer]
+OnCalendar=*-*-* 03:35:00 Asia/Shanghai
+RandomizedDelaySec=10m
+Persistent=true
+Unit=liangjian-storage-retention.service
+
+[Install]
+WantedBy=timers.target
+
