@@ -55,6 +55,15 @@ def _number(value: Any) -> str:
         return "—"
 
 
+def _plan_sort_key(row: Mapping[str, Any]) -> tuple[int, str, str]:
+    payload = _payload(row)
+    rank = {"P1": 0, "P2": 1, "P3": 2}.get(
+        str(payload.get("plan_priority") or "").strip().upper(),
+        3,
+    )
+    return rank, str(row.get("symbol") or ""), str(row.get("plan_id") or "")
+
+
 def _monthly_line(value: Mapping[str, Any]) -> str:
     name = _text(value.get("name") or value.get("code"), limit=30)
     strength = _number(value.get("relative_strength_percentile_20d"))
@@ -235,10 +244,7 @@ class WorkflowLarkPublisher:
 
         if not plans:
             return []
-        ordered = sorted(
-            plans,
-            key=lambda row: (str(row.get("symbol") or ""), str(row.get("plan_id") or "")),
-        )
+        ordered = sorted(plans, key=_plan_sort_key)
         plan_ids = [str(row.get("plan_id") or "") for row in ordered]
         batch_hash = hashlib.sha256(
             f"{source_run_id or ''}|{'|'.join(plan_ids)}".encode("utf-8")
@@ -334,10 +340,12 @@ class WorkflowLarkPublisher:
                     ]
                 lines.extend(
                     [
-                        f"---\n**{name}｜{symbol}**　{strategy}",
+                        f"---\n**{name}｜{symbol}**　{_text(payload.get('plan_priority'), limit=4)}｜{strategy}",
                         f"**类型 / 角色 / 主题** {_text(payload.get('stock_behavior_type'), limit=30)}｜{_text(payload.get('market_role'), limit=30)}｜{_text(payload.get('theme_name') or payload.get('theme') or payload.get('theme_id') or payload.get('industry'), limit=50)}",
+                        f"**优先级依据** {'；'.join(_items(payload.get('priority_reasons'), limit=4)) or '按确定性计划成熟度'}",
                         f"**A1-A3 入选链** {'；'.join(reasons) if reasons else '已通过确定性日线技术计划'}",
-                        f"**次日触发区** {_number(payload.get('trigger_low'))}–{_number(payload.get('trigger_high'))}｜**止损/失效** {_number(payload.get('stop_level') or payload.get('daily_invalidation'))}｜**禁止追价** {_number(payload.get('no_chase') or payload.get('no_chase_price') or payload.get('max_chase_price'))}",
+                        f"**参考收盘** {_number(payload.get('reference_price'))}（{_text(payload.get('reference_price_as_of'), limit=32)}）｜**次日触发区** {_number(payload.get('trigger_low'))}–{_number(payload.get('trigger_high'))}",
+                        f"**止损/失效** {_number(payload.get('stop_level') or payload.get('daily_invalidation'))}｜**禁止追价** {_number(payload.get('no_chase') or payload.get('no_chase_price') or payload.get('max_chase_price'))}｜**压力/减仓参考** {_number(payload.get('pressure_reduce_price'))}（{_text(payload.get('pressure_basis'), limit=32)}）",
                         f"**必要条件** {'；'.join(conditions) if conditions else '按 A3 计划条件，待 09:26 复核'}",
                         f"**隔夜失效项** {'；'.join(invalidators)}",
                         f"**三情景** 强：不超过禁追价仍等 A4 确认｜中：进入触发区且条件成立｜弱：跌破失效价则计划作废",

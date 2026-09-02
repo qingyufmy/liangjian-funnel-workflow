@@ -271,7 +271,11 @@ export interface ResearchStageDetailPlan {
   readonly strategyProfile: string | null;
   readonly eligibility: string | null;
   readonly setupType: string | null;
+  readonly planPriority: string | null;
+  readonly priorityReasons: readonly string[];
   readonly planHash: string | null;
+  readonly referencePrice: number | null;
+  readonly referencePriceAsOf: string | null;
   readonly triggerZone: JsonValue | null;
   readonly invalidationLevel: number | null;
   readonly rewardRisk: number | null;
@@ -280,6 +284,8 @@ export interface ResearchStageDetailPlan {
   readonly firstResistance: number | null;
   readonly noChaseCondition: string | null;
   readonly noChasePrice: number | null;
+  readonly pressureReducePrice: number | null;
+  readonly pressureBasis: string | null;
   readonly priceDiscovery: boolean | null;
   readonly technicalScore: number | null;
   readonly counterTrendProbe: boolean | null;

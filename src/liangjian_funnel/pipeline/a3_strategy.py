@@ -131,6 +131,12 @@ class A3StrategyDecision(BaseModel):
     a4_required_entry_rules: list[str] = Field(default_factory=list)
     a4_exit_rules: list[str] = Field(default_factory=list)
     plan_mode: str | None = None
+    plan_priority: str | None = None
+    priority_reasons: list[str] = Field(default_factory=list)
+    reference_price: float | None = None
+    reference_price_as_of: str | None = None
+    pressure_reduce_price: float | None = None
+    pressure_basis: str | None = None
     plan_expiry: Any = None
     eligibility: Eligibility
     required_conditions: list[str] = Field(default_factory=list)
@@ -1074,6 +1080,27 @@ def evaluate_a3_candidate(
                 "target_basis": "R_MULTIPLE_NO_RESISTANCE_REQUIRED",
             }
 
+    plan_priority, priority_reasons = _plan_priority(
+        profile,
+        eligibility=eligibility,
+        plan_mode=plan_mode,
+        setup_pattern=setup_pattern,
+        higher_timeframe_risk=higher_timeframe_risk,
+        overextended=overextended,
+        distribution=distribution,
+    )
+    pressure_reduce_price, pressure_basis = _pressure_reference(
+        price,
+        zone=zone,
+        strategy_facts=facts,
+    )
+    reference_price_as_of = _reference_price_as_of(
+        daily,
+        context,
+        source_snapshot,
+        explicit_as_of=as_of,
+    )
+
     plan_expiry = _first(raw_candidate, "plan_expiry", "expiry", "valid_until")
     if plan_expiry is None:
         plan_expiry = _first(context, "plan_expiry", "expiry", "valid_until")
@@ -1124,6 +1151,12 @@ def evaluate_a3_candidate(
         "a4_required_entry_rules": _a4_entry_rules(profile),
         "a4_exit_rules": _a4_exit_rules(profile),
         "plan_mode": plan_mode,
+        "plan_priority": plan_priority,
+        "priority_reasons": priority_reasons,
+        "reference_price": _round(daily_close),
+        "reference_price_as_of": reference_price_as_of,
+        "pressure_reduce_price": pressure_reduce_price,
+        "pressure_basis": pressure_basis,
         "plan_expiry": plan_expiry,
         "eligibility": eligibility.value,
         "required_conditions": _dedupe(required),
@@ -1160,6 +1193,12 @@ def evaluate_a3_candidate(
     facts["market_environment"] = market_environment
     facts["behavior_risk"] = behavior_risk
     facts["publication_state"] = publication_state
+    facts["plan_priority"] = plan_priority
+    facts["priority_reasons"] = priority_reasons
+    facts["reference_price"] = _round(daily_close)
+    facts["reference_price_as_of"] = reference_price_as_of
+    facts["pressure_reduce_price"] = pressure_reduce_price
+    facts["pressure_basis"] = pressure_basis
     _apply_a3_ablation(
         result,
         gate_order=gate_order,
@@ -2346,6 +2385,111 @@ def _plan_mode(
     if profile in {StrategyProfile.LEADER_INTRADAY, StrategyProfile.TREND_MA5, StrategyProfile.MA520_SWING}:
         return "STANDARD"
     return None
+
+
+def _plan_priority(
+    profile: StrategyProfile,
+    *,
+    eligibility: Eligibility,
+    plan_mode: str | None,
+    setup_pattern: str | None,
+    higher_timeframe_risk: str,
+    overextended: bool,
+    distribution: bool,
+) -> tuple[str | None, list[str]]:
+    """Return a small, deterministic maturity tier for an executable plan.
+
+    Priority is deliberately ordinal rather than another composite score.  It
+    never upgrades eligibility and therefore cannot bypass the A3/A4 gates.
+    """
+
+    if eligibility is not Eligibility.QUALIFIED or profile is StrategyProfile.NO_NEXT_DAY_PLAN:
+        return None, []
+    if plan_mode == "PROBE" or higher_timeframe_risk == "CONDITIONAL_PROBE":
+        reasons = ["QUALIFIED_PROBE"]
+        if higher_timeframe_risk == "CONDITIONAL_PROBE":
+            reasons.append("HIGHER_TIMEFRAME_CONDITIONAL_PROBE")
+        elif profile is StrategyProfile.LEADER_INTRADAY:
+            reasons.append("LEADER_ADVANCED_BOARD_PROBE")
+        elif profile is StrategyProfile.MA520_SWING:
+            reasons.append("MA520_RECLAIM_PROBE")
+        else:
+            reasons.append("STRATEGY_PROBE_MODE")
+        return "P3", reasons
+
+    strong_patterns = {
+        StrategyProfile.LEADER_INTRADAY: {
+            "LEADER_REACCELERATION",
+            "LADDER_CONTINUATION",
+            "SECOND_BOARD",
+        },
+        StrategyProfile.TREND_MA5: {
+            "MAIN_RISE",
+            "MA5_PULLBACK",
+            "NEW_HIGH",
+            "PLATFORM_BREAKOUT",
+            "BOX_BREAKOUT",
+        },
+        StrategyProfile.MA520_SWING: {"MA520_GOLDEN_CROSS"},
+    }
+    pattern = str(setup_pattern or "").upper()
+    if (
+        plan_mode == "STANDARD"
+        and pattern in strong_patterns.get(profile, set())
+        and not overextended
+        and not distribution
+        and higher_timeframe_risk == "ALIGNED_OR_NEUTRAL"
+    ):
+        return "P1", ["QUALIFIED_STANDARD", f"STRONG_SETUP:{pattern}", "HIGHER_TIMEFRAME_ALIGNED"]
+    return "P2", ["QUALIFIED_STANDARD", f"SETUP:{pattern or 'ROUTE_CONFIRMED'}"]
+
+
+def _pressure_reference(
+    price: Mapping[str, Any],
+    *,
+    zone: Mapping[str, Any] | None,
+    strategy_facts: Mapping[str, Any],
+) -> tuple[float | None, str | None]:
+    """Choose an auditable pressure/reduction reference without inventing TP.
+
+    A real resistance level wins.  A price-discovery plan may fall back to the
+    already-computed 2R observation level.  Missing evidence stays missing.
+    """
+
+    if not isinstance(zone, Mapping):
+        return None, None
+    entry_high = _number(zone.get("high"))
+    if entry_high is None:
+        return None, None
+    resistance = _number(price.get("first_resistance"))
+    if resistance is not None and resistance > entry_high:
+        return _round(resistance), "FIRST_RESISTANCE"
+    targets = _mapping(strategy_facts.get("observation_targets"))
+    r2 = _number(targets.get("r2"))
+    if r2 is not None and r2 > entry_high:
+        return _round(r2), "R2_OBSERVATION"
+    return None, None
+
+
+def _reference_price_as_of(
+    daily: Mapping[str, Any],
+    context: Mapping[str, Any],
+    snapshot: Mapping[str, Any],
+    *,
+    explicit_as_of: datetime | date | str | None,
+) -> str | None:
+    for source in (daily, context, snapshot):
+        value = _first(
+            source,
+            "bar_end",
+            "trade_date",
+            "date",
+            "as_of",
+            "timestamp",
+        )
+        if value is not None:
+            return _iso(value)
+    return _iso(explicit_as_of) if explicit_as_of is not None else None
 
 
 def _plan_premises(profile: StrategyProfile) -> list[str]:

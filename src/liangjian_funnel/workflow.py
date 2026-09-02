@@ -3670,7 +3670,7 @@ class WorkflowApplication:
                 item[0],
             ),
         )
-        plans = tuple(sorted(selected, key=lambda row: (str(row.get("symbol") or ""), str(row.get("plan_id") or ""))))
+        plans = tuple(sorted(selected, key=_published_plan_sort_key))
         research_context = WorkflowApplication._load_premarket_research_context(
             self,
             source_run_id,
@@ -3706,6 +3706,8 @@ class WorkflowApplication:
                     "symbol": str(plan.get("symbol") or ""),
                     "name": raw.get("name"),
                     "strategy_profile": raw.get("strategy_profile"),
+                    "plan_priority": raw.get("plan_priority"),
+                    "priority_reasons": raw.get("priority_reasons") or [],
                     "stock_behavior_type": raw.get("stock_behavior_type"),
                     "setup_type": raw.get("setup_type"),
                     "theme_id": raw.get("theme_id"),
@@ -3715,10 +3717,14 @@ class WorkflowApplication:
                     "market_funding_state": raw.get("market_funding_state"),
                     "emotion_cycle_stage": raw.get("emotion_cycle_stage"),
                     "selection_reasons": raw.get("selection_reasons") or raw.get("reason_codes") or [],
+                    "reference_price": raw.get("reference_price"),
+                    "reference_price_as_of": raw.get("reference_price_as_of"),
                     "trigger_low": raw.get("trigger_low"),
                     "trigger_high": raw.get("trigger_high"),
                     "stop_level": raw.get("stop_level") or raw.get("daily_invalidation"),
                     "no_chase_price": raw.get("no_chase") or raw.get("no_chase_price") or raw.get("max_chase_price"),
+                    "pressure_reduce_price": raw.get("pressure_reduce_price"),
+                    "pressure_basis": raw.get("pressure_basis"),
                     "required_conditions": raw.get("required_conditions") or [],
                     "overnight_invalidators": raw.get("overnight_invalidators") or raw.get("invalidation_conditions") or [],
                 }
@@ -4534,6 +4540,13 @@ class WorkflowApplication:
             slot == "close"
             and now.time().replace(tzinfo=None) >= datetime.strptime("15:10", "%H:%M").time()
         )
+        batch.sort(
+            key=lambda item: (
+                _plan_priority_rank((item.get("payload") or {}).get("plan_priority")),
+                str(item.get("symbol") or ""),
+                str(item.get("plan_id") or ""),
+            )
+        )
         published = self.store.publish_plan_batch(
             batch,
             expire_active_lanes=ready_lanes if formal_close else (),
@@ -5030,11 +5043,14 @@ def _a3_premarket_markdown(payload: Mapping[str, Any]) -> str:
             [
                 f"### {item.get('name') or '名称未提供'}｜{item.get('symbol') or '代码未提供'}",
                 "",
-                f"- 类型 / 策略：`{item.get('stock_behavior_type') or '-'}` / `{item.get('strategy_profile') or '-'}`；角色 `{item.get('market_role') or '-'}`；主题 `{item.get('theme_name') or item.get('theme_id') or '-'}`。",
+                f"- 优先级 / 类型 / 策略：`{item.get('plan_priority') or '-'}` / `{item.get('stock_behavior_type') or '-'}` / `{item.get('strategy_profile') or '-'}`；角色 `{item.get('market_role') or '-'}`；主题 `{item.get('theme_name') or item.get('theme_id') or '-'}`。",
+                f"- 优先级依据：{'；'.join(str(value) for value in item.get('priority_reasons', [])[:4]) or '-'}",
                 f"- 入选逻辑：{reason_text or '-'}",
+                f"- 参考收盘价：`{item.get('reference_price')}`（截至 `{item.get('reference_price_as_of') or '-'}`）",
                 f"- 触发区：`{item.get('trigger_low')}` – `{item.get('trigger_high')}`",
                 f"- 止损/失效：`{item.get('stop_level')}`",
                 f"- 禁止追价：`{item.get('no_chase_price')}`",
+                f"- 压力/减仓参考：`{item.get('pressure_reduce_price')}`（依据 `{item.get('pressure_basis') or '未提供'}`；仅作观察，不是保证止盈价）",
                 f"- 必要条件：{condition_text or '-'}",
                 f"- 隔夜失效项：{invalidator_text or '-'}",
                 f"- 强势情景：开盘高于触发区但不超过 `{item.get('no_chase_price')}`，仍须等待对应 A4 策略确认，禁止直接追高。",
@@ -5095,6 +5111,8 @@ def _a4_prompt_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
         "expires_at": plan.get("expires_at"),
         "setup_type": payload.get("setup_type"),
         "strategy_profile": payload.get("strategy_profile"),
+        "plan_priority": payload.get("plan_priority"),
+        "priority_reasons": payload.get("priority_reasons"),
         "stock_behavior_type": payload.get("stock_behavior_type"),
         "route_permission": payload.get("route_permission"),
         "expected_holding_sessions": payload.get("expected_holding_sessions"),
@@ -5110,6 +5128,10 @@ def _a4_prompt_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
         "trigger_high": payload.get("trigger_high"),
         "stop_level": payload.get("stop_level"),
         "no_chase": payload.get("no_chase", payload.get("no_chase_price")),
+        "reference_price": payload.get("reference_price"),
+        "reference_price_as_of": payload.get("reference_price_as_of"),
+        "pressure_reduce_price": payload.get("pressure_reduce_price"),
+        "pressure_basis": payload.get("pressure_basis"),
         "confirmation_bars": payload.get("confirmation_bars", payload.get("confirm_bars")),
         "confirmation_conditions": payload.get("confirmation_conditions"),
         "required_conditions": payload.get("required_conditions"),
@@ -5387,6 +5409,24 @@ def _plan_payload(raw: Mapping[str, Any]) -> dict[str, Any]:
         "confirmation_bars": 1 if raw.get("strategy_profile") else 2,
         "action": MonitorAction.BUY_SIGNAL.value,
     }
+
+
+def _plan_priority_rank(value: Any) -> int:
+    return {"P1": 0, "P2": 1, "P3": 2}.get(str(value or "").strip().upper(), 3)
+
+
+def _published_plan_sort_key(row: Mapping[str, Any]) -> tuple[int, str, str]:
+    try:
+        payload = json.loads(str(row.get("payload_json") or "{}"))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        payload = {}
+    if not isinstance(payload, Mapping):
+        payload = {}
+    return (
+        _plan_priority_rank(payload.get("plan_priority")),
+        str(row.get("symbol") or payload.get("symbol") or ""),
+        str(row.get("plan_id") or ""),
+    )
 
 
 def _workflow_float(value: Any) -> float | None:

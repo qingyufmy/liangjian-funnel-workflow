@@ -35,11 +35,17 @@ def _plan(index: int) -> dict[str, object]:
                 "source_run_id": "run-close-1",
                 "theme": "AI算力",
                 "strategy_profile": "TREND_MA5",
+                "plan_priority": "P1" if index == 2 else "P2",
+                "priority_reasons": ["QUALIFIED_STANDARD", "STRONG_SETUP:MAIN_RISE"],
                 "selection_reasons": ["周日趋势保持多头", "板块与个股共振"],
+                "reference_price": 10.2 + index,
+                "reference_price_as_of": "2026-09-01T15:00:00+08:00",
                 "trigger_low": 10 + index,
                 "trigger_high": 10.5 + index,
                 "stop_level": 9.5 + index,
                 "no_chase_price": 10.8 + index,
+                "pressure_reduce_price": 12.0 + index,
+                "pressure_basis": "FIRST_RESISTANCE",
                 "required_conditions": ["5分钟趋势确认", "成交量不背离"],
             },
             ensure_ascii=False,
@@ -134,7 +140,7 @@ def test_a3_premarket_analysis_is_distinct_from_auction_activation(tmp_path):
     fake = FakeNotifier()
     publisher.notifier = fake
     now = datetime(2026, 9, 2, 8, 30, tzinfo=SHANGHAI)
-    plans = [_plan(1)]
+    plans = [_plan(1), _plan(2)]
 
     first = publisher.publish_a3_premarket_analysis(
         plans,
@@ -208,6 +214,10 @@ def test_a3_premarket_analysis_is_distinct_from_auction_activation(tmp_path):
     assert "000001.SZ" in plan_body
     assert "run-close-1" in plan_body
     assert "三情景" in plan_body
+    assert "P2" in plan_body
+    assert plan_body.index("测试股票2") < plan_body.index("测试股票1")
+    assert "参考收盘" in plan_body
+    assert "压力/减仓参考" in plan_body
     assert store.list_notification_deliveries(kind="PREMARKET_A3_ANALYSIS")
     assert not store.list_notification_deliveries(kind="PREMARKET_A3")
 

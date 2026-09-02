@@ -394,7 +394,11 @@ export interface StageDetailPlan {
   /** Route eligibility, e.g. QUALIFIED, WATCH_ONLY, DATA_GAP or REJECTED. */
   eligibility?: string | null;
   setupType?: string | null;
+  planPriority?: string | null;
+  priorityReasons?: string[];
   planHash?: string | null;
+  referencePrice?: number | null;
+  referencePriceAsOf?: string | null;
   triggerZone?: { low?: number | null; high?: number | null } | null;
   invalidationLevel?: number | null;
   rewardRisk?: number | null;
@@ -403,6 +407,8 @@ export interface StageDetailPlan {
   firstResistance?: number | null;
   noChaseCondition?: string | null;
   noChasePrice?: number | null;
+  pressureReducePrice?: number | null;
+  pressureBasis?: string | null;
   priceDiscovery?: boolean | null;
   technicalScore?: number | null;
   counterTrendProbe?: boolean | null;
@@ -547,6 +553,8 @@ export interface MonitorPlan {
   validFrom?: string | null;
   expiresAt?: string | null;
   strategyProfile?: string | null;
+  planPriority?: string | null;
+  priorityReasons?: string[];
   eligibility?: string | null;
   setupType?: string | null;
   triggerLow?: number | null;
@@ -554,6 +562,10 @@ export interface MonitorPlan {
   stopLevel?: number | null;
   riskUnit?: string | number | null;
   noChasePrice?: number | null;
+  referencePrice?: number | null;
+  referencePriceAsOf?: string | null;
+  pressureReducePrice?: number | null;
+  pressureBasis?: string | null;
   requiredConditions?: string[];
   metConditions?: string[];
   unmetConditions?: string[];

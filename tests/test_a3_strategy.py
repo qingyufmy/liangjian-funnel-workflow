@@ -94,6 +94,90 @@ def test_each_strategy_has_a_single_qualified_route() -> None:
         assert decision.a4_required_entry_rules
 
 
+def test_plan_priority_is_ordinal_and_does_not_change_eligibility() -> None:
+    p1 = _common(
+        {"symbol": "600101.SH", "market_role": "TREND_CORE"},
+        a2={"market_role": "TREND_CORE", "relative_strength": {"percentile": 85}},
+        kline={"labels": ["PLATFORM_BREAKOUT"]},
+    )
+    p2 = _common(
+        {"symbol": "600102.SH", "market_role": "FOLLOWER"},
+        factor=_factor(
+            ma5=10.2,
+            ma10=10.3,
+            ma20=10.0,
+            ma60=9.5,
+            close=10.25,
+            low=9.95,
+            ma_event="PULLBACK_HOLD_MA20",
+        ),
+        kline={"labels": []},
+    )
+    p3 = _common(
+        {
+            "symbol": "600103.SH",
+            "market_role": "EMOTION_LEADER",
+            "theme_stage": "CONFIRMATION",
+            "ladder_height": 3,
+            "ladder_intact": True,
+        },
+        a2={
+            "market_role": "EMOTION_LEADER",
+            "theme_stage": "CONFIRMATION",
+            "ladder_height": 3,
+            "ladder_intact": True,
+        },
+    )
+
+    assert [p1.plan_priority, p2.plan_priority, p3.plan_priority] == ["P1", "P2", "P3"]
+    assert all(item.eligibility is Eligibility.QUALIFIED for item in (p1, p2, p3))
+    assert all(item.priority_reasons for item in (p1, p2, p3))
+
+
+def test_plan_price_advice_uses_only_auditable_levels() -> None:
+    factor = _factor()
+    factor["as_of"] = "2026-09-01T15:00:00+08:00"
+    resistance = _common(
+        {"symbol": "600104.SH", "market_role": "TREND_CORE"},
+        factor=factor,
+        a2={"market_role": "TREND_CORE", "relative_strength": {"percentile": 85}},
+    )
+    discovery = _common(
+        {"symbol": "600105.SH", "market_role": "TREND_CORE", "price_discovery": True},
+        prices=_prices(resistance=None),
+        kline={"labels": ["NEW_HIGH"]},
+        a2={"market_role": "TREND_CORE", "relative_strength": {"percentile": 90}},
+    )
+    no_pressure = _common(
+        {"symbol": "600106.SH", "market_role": "TREND_CORE"},
+        prices=_prices(resistance=None),
+        a2={"market_role": "TREND_CORE", "relative_strength": {"percentile": 85}},
+    )
+
+    assert resistance.reference_price == 10.5
+    assert resistance.reference_price_as_of == "2026-09-01T15:00:00+08:00"
+    assert resistance.pressure_reduce_price == 12.0
+    assert resistance.pressure_basis == "FIRST_RESISTANCE"
+    assert discovery.pressure_reduce_price is not None
+    assert discovery.pressure_basis == "R2_OBSERVATION"
+    assert no_pressure.pressure_reduce_price is None
+    assert no_pressure.pressure_basis is None
+
+
+def test_non_executable_candidate_has_no_priority() -> None:
+    result = evaluate_a3_strategy(
+        {"symbol": "600107.SH", "market_role": "TREND_CORE"},
+        factor=_factor(),
+        price_levels=_prices(),
+        tradability={"tradable": False},
+        kline={"labels": ["PLATFORM_BREAKOUT"]},
+        a2_context={"market_role": "TREND_CORE", "relative_strength": {"percentile": 85}},
+    )
+    assert result.eligibility is Eligibility.REJECTED
+    assert result.plan_priority is None
+    assert result.priority_reasons == []
+
+
 def test_leader_has_priority_over_trend_and_520() -> None:
     result = _common(
         {"symbol": "600004.SH", "market_role": "LEADER", "theme_stage": "IGNITION", "ladder_height": 2, "ladder_intact": True},

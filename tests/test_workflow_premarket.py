@@ -39,7 +39,7 @@ def _app(tmp_path):
     return app, store, publisher
 
 
-def _plan(store, plan_id, symbol, source):
+def _plan(store, plan_id, symbol, source, *, priority="P2"):
     return store.create_execution_plan(
         plan_id,
         "lane_1",
@@ -50,11 +50,17 @@ def _plan(store, plan_id, symbol, source):
             "name": symbol,
             "source_run_id": source,
             "strategy_profile": "TREND_MA5",
+            "plan_priority": priority,
+            "priority_reasons": ["QUALIFIED_STANDARD"],
             "selection_reasons": ["日线趋势右侧确认"],
+            "reference_price": 10.2,
+            "reference_price_as_of": "2026-09-01T15:00:00+08:00",
             "trigger_low": 10,
             "trigger_high": 10.5,
             "stop_level": 9.5,
             "no_chase_price": 10.8,
+            "pressure_reduce_price": 12.0,
+            "pressure_basis": "FIRST_RESISTANCE",
             "required_conditions": ["回踩不破 5 日线"],
             "overnight_invalidators": ["跌破日线失效价"],
         },
@@ -93,6 +99,9 @@ def test_a3_premarket_selects_latest_primary_batch_without_quote_or_activation(t
     report = tmp_path / "outputs" / "runs" / "2026-09-02-a3-premarket.json"
     saved = json.loads(report.read_text(encoding="utf-8"))
     assert saved["activation_deferred_to"] == "09:26"
+    assert saved["plans"][0]["plan_priority"] == "P2"
+    assert saved["plans"][0]["reference_price"] == 10.2
+    assert saved["plans"][0]["pressure_reduce_price"] == 12.0
     markdown = report.with_suffix(".md").read_text(encoding="utf-8")
     assert "000002.SZ" in markdown
     assert "09:26 竞价复核前不会激活 A4" in markdown

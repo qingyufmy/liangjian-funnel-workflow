@@ -1193,6 +1193,16 @@ function strategyProfileLabel(value?: string | null): string {
   return STRATEGY_PROFILE_LABELS[key] ?? value;
 }
 
+function planPriorityLabel(value?: string | null): string {
+  const key = value?.trim().toUpperCase();
+  return key === "P1" ? "P1 · 优先" : key === "P2" ? "P2 · 常规" : key === "P3" ? "P3 · 试探" : "未提供优先级";
+}
+
+function planPriorityRank(value?: string | null): number {
+  const key = value?.trim().toUpperCase();
+  return key === "P1" ? 0 : key === "P2" ? 1 : key === "P3" ? 2 : 3;
+}
+
 function eligibilityLabel(value?: string | null): string {
   if (!value) return "未提供资格";
   const key = value.trim().toUpperCase().replaceAll("-", "_").replaceAll(" ", "_");
@@ -1248,14 +1258,17 @@ function StageStockDetail({ item, stage, onBack }: { item: StageDetailItem | nul
          <header><h3>A3 技术计划</h3><span>确定性路线 · 只读计划</span></header>
          {hasPlanRoute ? <dl className="stage-definition-grid">
            <div><dt>策略路线</dt><dd>{strategyProfileLabel(plan.strategyProfile)}</dd></div>
+           <div><dt>计划优先级</dt><dd>{planPriorityLabel(plan.planPriority)}</dd></div>
            <div><dt>计划资格</dt><dd>{eligibilityLabel(plan.eligibility)}</dd></div>
            <div><dt>禁止追价价位</dt><dd>{detailValue(plan.noChasePrice)}</dd></div>
            <div><dt>价格发现</dt><dd>{plan.priceDiscovery === null || plan.priceDiscovery === undefined ? "—" : plan.priceDiscovery ? "是 · 趋势强度票" : "否"}</dd></div>
          </dl> : null}
          <dl className="stage-definition-grid">
            <div><dt>形态</dt><dd>{detailValue(plan.setupType)}</dd></div>
+           <div><dt>参考收盘价</dt><dd>{detailValue(plan.referencePrice)}{plan.referencePriceAsOf ? <small>截至 {plan.referencePriceAsOf}</small> : null}</dd></div>
            <div><dt>触发区间</dt><dd>{plan.triggerZone ? `${detailValue(plan.triggerZone.low)} – ${detailValue(plan.triggerZone.high)}` : "—"}</dd></div>
            <div><dt>失效价</dt><dd>{detailValue(plan.invalidationLevel)}</dd></div>
+           <div><dt>压力 / 减仓参考</dt><dd>{detailValue(plan.pressureReducePrice)}{plan.pressureBasis ? <small>{plan.pressureBasis}</small> : null}</dd></div>
            <div><dt>第一阻力位</dt><dd>{detailValue(plan.firstResistance)}</dd></div>
            <div><dt>盈亏比</dt><dd>{detailValue(plan.rewardRisk)}</dd></div>
            <div><dt>止损距离原始值</dt><dd>{detailValue(plan.stopDistancePct)}</dd></div>
@@ -1275,6 +1288,7 @@ function StageStockDetail({ item, stage, onBack }: { item: StageDetailItem | nul
            <div><dt>配置哈希</dt><dd>{detailValue(plan.configHash)}</dd></div>
            <div><dt>有效期</dt><dd>{detailValue(plan.planExpiry)}</dd></div>
          </dl>
+         {plan.priorityReasons?.length ? <DetailStringList title="优先级依据" badge="确定性档位" values={plan.priorityReasons} /> : null}
          {plan.timeframeStates && Object.keys(plan.timeframeStates).length ? <section className="stage-detail-section"><header><h3>周期状态</h3><span>timeframes</span></header><dl className="stage-definition-grid">{Object.entries(plan.timeframeStates).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{detailValue(value)}</dd></div>)}</dl></section> : null}
          {plan.scenarios ? <section className="stage-detail-section"><header><h3>情景计划</h3><span>scenarios</span></header><p className="stage-detail-raw-value">{detailValue(plan.scenarios)}</p></section> : null}
          {plan.confirmationConditions?.length ? <DetailStringList title="确认条件" badge="触发约束" values={plan.confirmationConditions} /> : null}
@@ -1486,7 +1500,7 @@ function MonitorEventDialog({ event, onClose }: { event: EffectiveEvent | null; 
       <header className="monitor-detail-header"><div><span className="monitor-detail-mode">{event.testOnly ? "测试回放信号" : "正式模拟信号"}</span><h2>{event.name || "名称未提供"}<small>{event.symbol || "代码未提供"}</small></h2><p>{monitorActionLabel(event.action)} · {formatDateTime(event.minuteEnd ?? event.time)}</p></div><button className="icon-button" type="button" aria-label="关闭信号详情" onClick={onClose}><X size={19} /></button></header>
       <div className="monitor-detail-body">
          <section className="monitor-detail-summary"><div><span>动作</span><strong>{monitorActionLabel(event.action)}</strong></div><div><span>触发原因</span><strong>{monitorReasonLabel(event.reasonCode)}</strong>{event.diagnosticCode ? <small>{event.diagnosticCode}</small> : null}</div><div><span>策略</span><strong>{strategyProfileLabel(strategyProfile)}</strong></div><div><span>资格</span><strong>{eligibilityLabel(eligibility)}</strong></div><div><span>Lane</span><strong>{event.laneId || "—"}</strong></div><div><span>模拟结果</span><strong>{event.simulation?.status === "FILLED" ? "已成交" : event.action === "LLM_VETO" ? "已否决" : "未成交 / 不适用"}</strong></div></section>
-         <section className="monitor-detail-section"><header><h3>A3 计划约束</h3><span>只读</span></header>{plan ? <dl className="monitor-detail-grid"><div><dt>计划 ID</dt><dd>{plan.planId || event.planId || "—"}</dd></div><div><dt>策略路线</dt><dd>{strategyProfileLabel(strategyProfile)}</dd></div><div><dt>计划资格</dt><dd>{eligibilityLabel(eligibility)}</dd></div><div><dt>形态</dt><dd>{plan.setupType || "—"}</dd></div><div><dt>触发区间</dt><dd>{priceRange(plan)}</dd></div><div><dt>失效价</dt><dd>{detailValue(plan.stopLevel)}</dd></div><div><dt>禁止追价价位</dt><dd>{detailValue(plan.noChasePrice)}</dd></div><div><dt>风险单位</dt><dd>{detailValue(plan.riskUnit)}</dd></div><div><dt>有效期</dt><dd>{formatDateTime(plan.expiresAt)}</dd></div></dl> : <p className="monitor-detail-empty">该事件没有可用的计划明细，页面不会推测补齐。</p>}</section>
+         <section className="monitor-detail-section"><header><h3>A3 计划约束</h3><span>只读</span></header>{plan ? <dl className="monitor-detail-grid"><div><dt>计划 ID</dt><dd>{plan.planId || event.planId || "—"}</dd></div><div><dt>优先级</dt><dd>{planPriorityLabel(plan.planPriority)}</dd></div><div><dt>策略路线</dt><dd>{strategyProfileLabel(strategyProfile)}</dd></div><div><dt>计划资格</dt><dd>{eligibilityLabel(eligibility)}</dd></div><div><dt>形态</dt><dd>{plan.setupType || "—"}</dd></div><div><dt>参考收盘价</dt><dd>{detailValue(plan.referencePrice)}</dd></div><div><dt>触发区间</dt><dd>{priceRange(plan)}</dd></div><div><dt>失效价</dt><dd>{detailValue(plan.stopLevel)}</dd></div><div><dt>禁止追价价位</dt><dd>{detailValue(plan.noChasePrice)}</dd></div><div><dt>压力 / 减仓参考</dt><dd>{detailValue(plan.pressureReducePrice)}</dd></div><div><dt>风险单位</dt><dd>{detailValue(plan.riskUnit)}</dd></div><div><dt>有效期</dt><dd>{formatDateTime(plan.expiresAt)}</dd></div></dl> : <p className="monitor-detail-empty">该事件没有可用的计划明细，页面不会推测补齐。</p>}</section>
          {hasPlanConditions ? <section className="monitor-detail-section"><header><h3>确定性条件</h3><span>15m / 5m</span></header><dl className="monitor-detail-grid"><div><dt>必备条件</dt><dd>{detailValue(plan?.requiredConditions)}</dd></div><div><dt>已满足条件</dt><dd>{detailValue(plan?.metConditions)}</dd></div><div><dt>未满足条件</dt><dd>{detailValue(plan?.unmetConditions)}</dd></div><div><dt>模型否决边界</dt><dd>{detailValue(plan?.vetoConditions)}</dd></div></dl></section> : null}
         {plan?.selectionReasons?.length ? <section className="monitor-detail-section"><header><h3>入选依据</h3><span>持久化结果</span></header><ul>{plan.selectionReasons.map((reason, index) => <li key={`${reason}-${index}`}>{reason}</li>)}</ul></section> : null}
         <section className="monitor-detail-section"><header><h3>模拟成交</h3><span>内部账户</span></header>{event.simulation ? <dl className="monitor-detail-grid"><div><dt>状态</dt><dd>{event.simulation.status || "—"}</dd></div><div><dt>方向</dt><dd>{event.simulation.action || "—"}</dd></div><div><dt>数量</dt><dd>{detailValue(event.simulation.qty)}</dd></div><div><dt>价格</dt><dd>{detailValue(event.simulation.price)}</dd></div><div><dt>费用</dt><dd>{detailValue(event.simulation.fee)}</dd></div><div><dt>成交K线</dt><dd>{formatDateTime(event.simulation.barEnd)}</dd></div></dl> : <p className="monitor-detail-empty">该事件未产生模拟成交；模型否决、数据阻断和计划失效均不会下单。</p>}</section>
@@ -1646,7 +1660,7 @@ function MonitorPage({ overview }: { overview: OverviewResponse }) {
     <Panel title="A3 计划观察池" icon={<FileClock size={18} />}>
       <dl className="compact-stats monitor-plan-counts"><div><dt>最新 A3 已发布</dt><dd>{latestA3Plans.length}</dd></div><div><dt>ACTIVE_TODAY（本次盯盘）</dt><dd>{activePlanCount}</dd></div><div><dt>PENDING_MORNING_REVIEW（下一日）</dt><dd>{pendingPlanCount}</dd></div><div><dt>来源运行</dt><dd className="mono-cell">{overview.monitor.latestA3RunId || "—"}</dd></div></dl>
       {latestA3Plans.length ? <p className="monitor-plan-roster"><strong>最新 A3 标的</strong>{monitorPlanNames(latestA3Plans)}</p> : null}
-      {plans.length === 0 ? <EmptyState title="当前没有待复核或活动计划" detail="A3 只有发布可执行计划后，A4 才会接管对应股票。" icon={<FileClock size={22} />} /> : <div className="data-table-wrap"><table className="data-table monitor-plan-table"><thead><tr><th>股票</th><th>状态</th><th>策略</th><th>技术形态</th><th>触发区间</th><th>失效价</th><th>有效期</th><th>核心依据</th></tr></thead><tbody>{plans.map((plan) => <tr key={plan.planId || `${plan.laneId}-${plan.symbol}`}><td><span className="monitor-stock"><strong>{plan.name || "名称未提供"}</strong><small>{plan.symbol || "代码未提供"}</small></span></td><td><StatusBadge status={plan.status} /></td><td>{strategyProfileLabel(plan.strategyProfile)}</td><td>{plan.setupType || "—"}</td><td className="mono-cell">{priceRange(plan)}</td><td className="mono-cell">{detailValue(plan.stopLevel)}</td><td>{formatDateTime(plan.expiresAt)}</td><td className="monitor-plan-reason">{plan.selectionReasons?.[0] || "未提供筛选依据"}</td></tr>)}</tbody></table></div>}
+      {plans.length === 0 ? <EmptyState title="当前没有待复核或活动计划" detail="A3 只有发布可执行计划后，A4 才会接管对应股票。" icon={<FileClock size={22} />} /> : <div className="data-table-wrap"><table className="data-table monitor-plan-table"><thead><tr><th>股票</th><th>优先级</th><th>状态</th><th>策略</th><th>技术形态</th><th>参考价</th><th>触发区间</th><th>失效价</th><th>压力/减仓</th><th>有效期</th><th>核心依据</th></tr></thead><tbody>{[...plans].sort((left, right) => planPriorityRank(left.planPriority) - planPriorityRank(right.planPriority) || String(left.symbol || "").localeCompare(String(right.symbol || ""))).map((plan) => <tr key={plan.planId || `${plan.laneId}-${plan.symbol}`}><td><span className="monitor-stock"><strong>{plan.name || "名称未提供"}</strong><small>{plan.symbol || "代码未提供"}</small></span></td><td>{planPriorityLabel(plan.planPriority)}</td><td><StatusBadge status={plan.status} /></td><td>{strategyProfileLabel(plan.strategyProfile)}</td><td>{plan.setupType || "—"}</td><td className="mono-cell">{detailValue(plan.referencePrice)}</td><td className="mono-cell">{priceRange(plan)}</td><td className="mono-cell">{detailValue(plan.stopLevel)}</td><td className="mono-cell">{detailValue(plan.pressureReducePrice)}</td><td>{formatDateTime(plan.expiresAt)}</td><td className="monitor-plan-reason">{plan.selectionReasons?.[0] || "未提供筛选依据"}</td></tr>)}</tbody></table></div>}
     </Panel>
 
     <Panel title="A4 回放验收" icon={<ShieldCheck size={18} />} action={replay ? <span className="monitor-test-badge">测试回放 · 非正式信号</span> : undefined}>

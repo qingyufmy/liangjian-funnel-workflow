@@ -5502,6 +5502,8 @@ def _stage_execution_budget(
             "rejected_candidates. Every row must preserve the server-owned strategy_profile, eligibility, "
             "stock_behavior_type, route_permission, expected_holding_sessions, time_stop_sessions, setup_pattern, "
             "cycle_alignment, emotion_cycle_stage, market_environment, market_funding_state and behavior_risk, "
+            "plan_priority, priority_reasons, reference_price, reference_price_as_of, pressure_reduce_price and "
+            "pressure_basis, "
             "required_conditions, met_conditions, unmet_conditions and veto_conditions. Each executable core "
             "item copies deterministic PRICE_LEVELS values for trigger_zone, invalidation_level, "
             "stop_distance_pct, first_resistance, reward_risk and no_chase_price, then adds only concise model "
@@ -7107,6 +7109,12 @@ def _canonicalize_stage_lineage(
                     "cycle_alignment",
                     "emotion_cycle_stage",
                     "market_environment",
+                    "plan_priority",
+                    "priority_reasons",
+                    "reference_price",
+                    "reference_price_as_of",
+                    "pressure_reduce_price",
+                    "pressure_basis",
                 ):
                     canonical[key] = technical_context.get(key)
                 canonical["deterministic_strategy_profile"] = technical_context.get("strategy_profile")
@@ -9547,6 +9555,12 @@ def _canonicalize_a3_price_fields(
                 "a4_required_entry_rules",
                 "a4_exit_rules",
                 "plan_mode",
+                "plan_priority",
+                "priority_reasons",
+                "reference_price",
+                "reference_price_as_of",
+                "pressure_reduce_price",
+                "pressure_basis",
                 "plan_expiry",
                 "required_conditions",
                 "met_conditions",
@@ -9954,6 +9968,12 @@ def _with_a3_deterministic_context(
         "a4_required_entry_rules",
         "a4_exit_rules",
         "plan_mode",
+        "plan_priority",
+        "priority_reasons",
+        "reference_price",
+        "reference_price_as_of",
+        "pressure_reduce_price",
+        "pressure_basis",
         "plan_expiry",
         "required_conditions",
         "met_conditions",

@@ -953,7 +953,11 @@ function planValue(value: JsonRecord): ResearchStageDetailPlan | null {
     strategyProfile: firstString(source, ["strategy_profile", "strategyProfile"]),
     eligibility: firstString(source, ["eligibility"]),
     setupType: firstString(source, ["setup_type", "setupType"]),
+    planPriority: firstString(source, ["plan_priority", "planPriority"]),
+    priorityReasons: collectStructuredTextFields(source, ["priority_reasons", "priorityReasons"]),
     planHash: firstString(source, ["plan_hash", "planHash"]),
+    referencePrice: firstNumber(source, ["reference_price", "referencePrice"]),
+    referencePriceAsOf: firstString(source, ["reference_price_as_of", "referencePriceAsOf"]),
     triggerZone,
     invalidationLevel: firstNumber(source, ["invalidation_level", "invalidationLevel"]),
     rewardRisk: firstNumber(source, ["reward_risk", "rewardRisk"]),
@@ -962,6 +966,8 @@ function planValue(value: JsonRecord): ResearchStageDetailPlan | null {
     firstResistance: firstNumber(source, ["first_resistance", "firstResistance"]),
     noChaseCondition: firstString(source, ["no_chase_condition", "noChaseCondition"]),
     noChasePrice: firstNumber(source, ["no_chase_price", "noChasePrice", "max_chase_price", "maxChasePrice"]),
+    pressureReducePrice: firstNumber(source, ["pressure_reduce_price", "pressureReducePrice"]),
+    pressureBasis: firstString(source, ["pressure_basis", "pressureBasis"]),
     priceDiscovery: typeof source.price_discovery === "boolean" ? source.price_discovery : typeof source.priceDiscovery === "boolean" ? source.priceDiscovery : null,
     technicalScore: firstNumber(source, ["technical_score", "technicalScore"]),
     counterTrendProbe: typeof source.counter_trend_probe === "boolean" ? source.counter_trend_probe : typeof source.counterTrendProbe === "boolean" ? source.counterTrendProbe : null,
@@ -984,9 +990,9 @@ function planValue(value: JsonRecord): ResearchStageDetailPlan | null {
     scenarios,
     timeframeStates: timeframe,
   };
-  return plan.strategyProfile || plan.eligibility || plan.setupType || plan.planHash || plan.triggerZone || plan.invalidationLevel !== null || plan.rewardRisk !== null
+  return plan.strategyProfile || plan.eligibility || plan.setupType || plan.planPriority || plan.priorityReasons.length || plan.planHash || plan.referencePrice !== null || plan.referencePriceAsOf || plan.triggerZone || plan.invalidationLevel !== null || plan.rewardRisk !== null
     || plan.stopDistancePct !== null || plan.riskUnit !== null || plan.firstResistance !== null
-    || plan.noChaseCondition || plan.noChasePrice !== null || plan.priceDiscovery !== null || plan.technicalScore !== null || plan.counterTrendProbe !== null
+    || plan.noChaseCondition || plan.noChasePrice !== null || plan.pressureReducePrice !== null || plan.pressureBasis || plan.priceDiscovery !== null || plan.technicalScore !== null || plan.counterTrendProbe !== null
     || plan.overExtended !== null || plan.atrExtension !== null || plan.maBiasMax !== null
     || plan.relativeStrengthRank !== null || plan.allowedTimeWindows || plan.maAnalysis || plan.klinePattern
     || plan.factorSnapshotHash || plan.configHash || plan.planId || plan.planExpiry
