@@ -264,6 +264,46 @@ def _mapping_list(value: Any) -> list[dict[str, Any]]:
     return [dict(item) for item in value if isinstance(item, Mapping)]
 
 
+def _verified_outside_g0_symbols(
+    output: Mapping[str, Any],
+    g0_symbols: set[str],
+) -> tuple[str, ...]:
+    """Return research-only broker-gold rows that may extend an A1 partition.
+
+    The exception is deliberately narrow: the symbol must be backed by the
+    server-built institutional coverage pool, be a verified T2 broker-gold
+    entry, and remain ineligible for downstream trading.  Merely emitting an
+    unknown symbol in one of the three partitions never widens the registry
+    domain.
+    """
+
+    verified: set[str] = set()
+    for row in _mapping_list(output.get("institutional_coverage_pool")):
+        symbol = _symbol_from_item(row)
+        coverage = row.get("institutional_coverage")
+        raw_reason_codes = row.get("reason_codes", ())
+        reason_codes = {
+            str(code).strip().upper()
+            for code in raw_reason_codes
+            if str(code).strip()
+        } if isinstance(raw_reason_codes, Sequence) and not isinstance(
+            raw_reason_codes, (str, bytes, bytearray)
+        ) else set()
+        if (
+            symbol
+            and symbol not in g0_symbols
+            and str(row.get("autonomous_partition") or "").strip().upper() == "OUTSIDE_G0"
+            and str(row.get("coverage_origin") or "").strip().upper() == "BROKER_GOLD_T2"
+            and "A1_INSTITUTIONAL_DIRECT_ENTRY" in reason_codes
+            and "A1_INSTITUTIONAL_OUTSIDE_G0" in reason_codes
+            and isinstance(coverage, Mapping)
+            and str(coverage.get("evidence_tier") or "").strip().upper() == "T2"
+            and coverage.get("direct_research_entry") is True
+        ):
+            verified.add(symbol)
+    return tuple(sorted(verified))
+
+
 def _candidate_map(snapshot_data: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
     raw = snapshot_data.get("g0_candidates", snapshot_data.get("universe_candidates", ()))
     if isinstance(raw, Mapping):
@@ -560,6 +600,14 @@ def build_a1_manifest(
         if isinstance(raw, Mapping):
             theme_fingerprints.update({str(k): content_hash(v) for k, v in raw.items() if str(k).strip()})
     global_input_hash = a1_global_input_hash(snapshot_data)
+    partition_symbols_by_lane: dict[str, list[str]] = {}
+    outside_g0_research_symbols_by_lane: dict[str, list[str]] = {}
+    g0_set = set(symbols)
+    for lane_id, output in outputs_by_lane.items():
+        outside = list(_verified_outside_g0_symbols(output, g0_set))
+        normalized_lane = str(lane_id)
+        outside_g0_research_symbols_by_lane[normalized_lane] = outside
+        partition_symbols_by_lane[normalized_lane] = sorted(g0_set.union(outside))
     manifest: dict[str, Any] = {
         "schema_version": A1_REGISTRY_SCHEMA,
         "mode": normalized_mode,
@@ -575,6 +623,13 @@ def build_a1_manifest(
         "a1_global_input_hash": global_input_hash,
         "lane_ids": sorted(str(key) for key in outputs_by_lane),
         "partition_names": list(A1_OUTPUT_PARTITIONS),
+        # A1 normally partitions G0 exactly.  Verified current-month broker
+        # gold rows may additionally enter research outside G0, but are
+        # explicitly research-only and are declared per lane for strict
+        # registry validation.  Older manifests without these fields retain
+        # the original G0-only contract.
+        "partition_symbols_by_lane": partition_symbols_by_lane,
+        "outside_g0_research_symbols_by_lane": outside_g0_research_symbols_by_lane,
         "base_generation_id": base_generation_id,
         "delta": dict(delta or {}),
     }
@@ -733,10 +788,11 @@ def validate_a1_generation_contract(
 ) -> None:
     """Reject a generation that cannot safely become the daily A2 input.
 
-    A1 is a complete partition of the deterministic G0 universe for every
+    A1 is a complete partition of the deterministic G0 universe plus any
+    explicitly declared, verified broker-gold research-only rows for every
     published lane.  Enforcing that invariant at the registry boundary keeps
-    a partial model response, an interrupted incremental merge, or mismatched
-    metadata from ever becoming the active pointer.
+    a partial model response, an interrupted incremental merge, a hallucinated
+    symbol, or mismatched metadata from ever becoming the active pointer.
     """
 
     if manifest.get("schema_version") != A1_REGISTRY_SCHEMA:
@@ -780,12 +836,39 @@ def validate_a1_generation_contract(
     if manifest_lanes != payload_lanes:
         raise A1RegistryError("A1_GENERATION_LANES_MISMATCH")
 
+    declared_partitions = manifest.get("partition_symbols_by_lane")
+    declared_outside = manifest.get("outside_g0_research_symbols_by_lane")
+    if declared_partitions is not None and not isinstance(declared_partitions, Mapping):
+        raise A1RegistryError("A1_PARTITION_DOMAIN_INVALID")
+    if declared_outside is not None and not isinstance(declared_outside, Mapping):
+        raise A1RegistryError("A1_PARTITION_DOMAIN_INVALID")
+
     for lane_id, lane in lanes.items():
         if not isinstance(lane, Mapping) or not isinstance(lane.get("output"), Mapping):
             raise A1RegistryError("A1_LANE_OUTPUT_INVALID", diagnostics={"lane_id": str(lane_id)})
         if not str(lane.get("status") or "").strip().upper().startswith("VALIDATED"):
             raise A1RegistryError("A1_LANE_STATUS_INVALID", diagnostics={"lane_id": str(lane_id)})
         output = lane["output"]
+        normalized_lane = str(lane_id).strip()
+        verified_outside = set(_verified_outside_g0_symbols(output, g0_set))
+        manifest_outside = (
+            set(_symbols(declared_outside.get(normalized_lane)))
+            if isinstance(declared_outside, Mapping)
+            else set()
+        )
+        if manifest_outside != verified_outside:
+            raise A1RegistryError(
+                "A1_OUTSIDE_G0_RESEARCH_CONTRACT_INVALID",
+                diagnostics={"lane_id": normalized_lane},
+            )
+        expected_symbols = g0_set.union(verified_outside)
+        if isinstance(declared_partitions, Mapping):
+            declared_symbols = set(_symbols(declared_partitions.get(normalized_lane)))
+            if declared_symbols != expected_symbols:
+                raise A1RegistryError(
+                    "A1_PARTITION_DOMAIN_INVALID",
+                    diagnostics={"lane_id": normalized_lane},
+                )
         seen: set[str] = set()
         for partition in A1_OUTPUT_PARTITIONS:
             rows = output.get(partition)
@@ -798,10 +881,20 @@ def validate_a1_generation_contract(
                 if not isinstance(row, Mapping):
                     raise A1RegistryError("A1_PARTITION_ROW_INVALID")
                 symbol = _symbol_from_item(row)
-                if not symbol or symbol not in g0_set:
+                if not symbol or symbol not in expected_symbols:
                     raise A1RegistryError(
                         "A1_PARTITION_SYMBOL_INVALID",
                         diagnostics={"lane_id": str(lane_id), "partition": partition, "symbol": symbol},
+                    )
+                if symbol in verified_outside and (
+                    partition != "active_research_pool"
+                    or str(row.get("selection_basis") or row.get("research_route") or "").strip().upper()
+                    != "BROKER_GOLD_DIRECT"
+                    or row.get("downstream_trade_eligible") is not False
+                ):
+                    raise A1RegistryError(
+                        "A1_OUTSIDE_G0_RESEARCH_CONTRACT_INVALID",
+                        diagnostics={"lane_id": normalized_lane, "partition": partition, "symbol": symbol},
                     )
                 if symbol in seen:
                     raise A1RegistryError(
@@ -809,14 +902,14 @@ def validate_a1_generation_contract(
                         diagnostics={"lane_id": str(lane_id), "symbol": symbol},
                     )
                 seen.add(symbol)
-        if seen != g0_set:
+        if seen != expected_symbols:
             raise A1RegistryError(
                 "A1_PARTITION_COVERAGE_INCOMPLETE",
                 diagnostics={
                     "lane_id": str(lane_id),
-                    "expected_count": len(g0_set),
+                    "expected_count": len(expected_symbols),
                     "actual_count": len(seen),
-                    "missing_count": len(g0_set - seen),
+                    "missing_count": len(expected_symbols - seen),
                 },
             )
 

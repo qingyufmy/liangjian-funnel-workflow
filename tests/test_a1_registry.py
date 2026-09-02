@@ -212,6 +212,154 @@ def test_a1_registry_rejects_an_incomplete_partition(tmp_path: Path):
         registry.seal_generation(generation.generation_id, payload=payload, sealed_at=now)
 
 
+def test_a1_registry_allows_verified_broker_gold_research_outside_g0(tmp_path: Path):
+    registry = A1Registry(tmp_path / "a1.sqlite3")
+    now = datetime(2026, 9, 2, 18, 0, tzinfo=TZ)
+    outside_symbol = "002293.SZ"
+    institutional_row = {
+        "symbol": outside_symbol,
+        "autonomous_partition": "OUTSIDE_G0",
+        "coverage_origin": "BROKER_GOLD_T2",
+        "reason_codes": [
+            "A1_INSTITUTIONAL_DIRECT_ENTRY",
+            "A1_INSTITUTIONAL_OUTSIDE_G0",
+        ],
+        "institutional_coverage": {
+            "evidence_tier": "T2",
+            "direct_research_entry": True,
+        },
+    }
+    output = {
+        "active_research_pool": [
+            {"symbol": "600519.SH"},
+            {
+                "symbol": outside_symbol,
+                "selection_basis": "BROKER_GOLD_DIRECT",
+                "downstream_trade_eligible": False,
+            },
+        ],
+        "monitor_pool": [],
+        "rejected_candidates": [],
+        "institutional_coverage_pool": [institutional_row],
+    }
+    manifest = build_a1_manifest(
+        {
+            "g0_symbols": ["600519.SH"],
+            "g0_candidates": [{"symbol": "600519.SH", "research_eligible": True}],
+        },
+        {"lane_1": output},
+        mode="FULL",
+        snapshot_id="snapshot-broker",
+        snapshot_hash="b" * 64,
+        as_of=now,
+    )
+    payload = {
+        "schema_version": "liangjian-a1-registry/1.0.0",
+        "mode": "FULL",
+        "snapshot_id": "snapshot-broker",
+        "snapshot_hash": "b" * 64,
+        "lanes": {
+            "lane_1": {
+                "lane": "lane_1",
+                "model": "deepseek-v4-pro-0813",
+                "status": "VALIDATED",
+                "output": output,
+            }
+        },
+    }
+    generation = registry.create_generation(
+        mode="FULL",
+        snapshot_id="snapshot-broker",
+        snapshot_hash="b" * 64,
+        as_of=now,
+        manifest=manifest,
+        payload=payload,
+    )
+    payload["generation_id"] = generation.generation_id
+    sealed = registry.seal_generation(generation.generation_id, payload=payload, sealed_at=now)
+    assert sealed.manifest["outside_g0_research_symbols_by_lane"] == {
+        "lane_1": [outside_symbol]
+    }
+
+
+def test_a1_registry_still_rejects_undeclared_symbol_outside_g0(tmp_path: Path):
+    registry = A1Registry(tmp_path / "a1.sqlite3")
+    now = datetime(2026, 9, 2, 18, 0, tzinfo=TZ)
+    manifest, payload = _generation_contract(["600519.SH"], snapshot_id="snapshot-unknown")
+    payload["snapshot_id"] = "snapshot-unknown"
+    payload["lanes"]["lane_1"]["output"]["active_research_pool"].append(
+        {"symbol": "002293.SZ"}
+    )
+    generation = registry.create_generation(
+        mode="FULL",
+        snapshot_id="snapshot-unknown",
+        snapshot_hash="a" * 64,
+        as_of=now,
+        manifest=manifest,
+        payload=payload,
+    )
+    payload["generation_id"] = generation.generation_id
+    with pytest.raises(A1RegistryError, match="A1_PARTITION_SYMBOL_INVALID"):
+        registry.seal_generation(generation.generation_id, payload=payload, sealed_at=now)
+
+
+def test_a1_registry_rejects_broker_gold_outside_g0_when_marked_trade_eligible(tmp_path: Path):
+    registry = A1Registry(tmp_path / "a1.sqlite3")
+    now = datetime(2026, 9, 2, 18, 0, tzinfo=TZ)
+    outside_symbol = "002293.SZ"
+    output = {
+        "active_research_pool": [
+            {"symbol": "600519.SH"},
+            {
+                "symbol": outside_symbol,
+                "selection_basis": "BROKER_GOLD_DIRECT",
+                "downstream_trade_eligible": True,
+            },
+        ],
+        "monitor_pool": [],
+        "rejected_candidates": [],
+        "institutional_coverage_pool": [{
+            "symbol": outside_symbol,
+            "autonomous_partition": "OUTSIDE_G0",
+            "coverage_origin": "BROKER_GOLD_T2",
+            "reason_codes": [
+                "A1_INSTITUTIONAL_DIRECT_ENTRY",
+                "A1_INSTITUTIONAL_OUTSIDE_G0",
+            ],
+            "institutional_coverage": {
+                "evidence_tier": "T2",
+                "direct_research_entry": True,
+            },
+        }],
+    }
+    manifest = build_a1_manifest(
+        {"g0_symbols": ["600519.SH"]},
+        {"lane_1": output},
+        mode="FULL",
+        snapshot_id="snapshot-unsafe-broker",
+        snapshot_hash="c" * 64,
+        as_of=now,
+    )
+    payload = {
+        "schema_version": "liangjian-a1-registry/1.0.0",
+        "mode": "FULL",
+        "snapshot_id": "snapshot-unsafe-broker",
+        "snapshot_hash": "c" * 64,
+        "lanes": {"lane_1": {"status": "VALIDATED", "output": output}},
+    }
+    generation = registry.create_generation(
+        mode="FULL",
+        snapshot_id="snapshot-unsafe-broker",
+        snapshot_hash="c" * 64,
+        as_of=now,
+        manifest=manifest,
+        payload=payload,
+    )
+    payload["generation_id"] = generation.generation_id
+    with pytest.raises(A1RegistryError, match="A1_OUTSIDE_G0_RESEARCH_CONTRACT_INVALID"):
+        registry.seal_generation(generation.generation_id, payload=payload, sealed_at=now)
+
+
 def test_incremental_scope_and_merge_preserve_unmodified_partitions(tmp_path: Path):
     old_data = {
         "g0_symbols": ["600519.SH", "000001.SZ", "300750.SZ"],
