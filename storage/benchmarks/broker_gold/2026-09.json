@@ -1135,6 +1135,78 @@
       "name": "恺英网络",
       "publish_time": "2026-08-31T00:00:00+08:00",
       "source_ref": "https://www.fxbaogao.com/detail/5663794"
+    },
+    {
+      "month": "2026-09",
+      "broker": "开源证券",
+      "symbol": "688025.SH",
+      "name": "杰普特",
+      "publish_time": "2026-08-30T12:04:00+08:00",
+      "source_ref": "https://finance.sina.com.cn/roll/2026-08-30/doc-iniqakft8280727.shtml"
+    },
+    {
+      "month": "2026-09",
+      "broker": "开源证券",
+      "symbol": "600246.SH",
+      "name": "万通发展",
+      "publish_time": "2026-08-30T12:04:00+08:00",
+      "source_ref": "https://finance.sina.com.cn/roll/2026-08-30/doc-iniqakft8280727.shtml"
+    },
+    {
+      "month": "2026-09",
+      "broker": "开源证券",
+      "symbol": "300750.SZ",
+      "name": "宁德时代",
+      "publish_time": "2026-08-30T12:04:00+08:00",
+      "source_ref": "https://finance.sina.com.cn/roll/2026-08-30/doc-iniqakft8280727.shtml"
+    },
+    {
+      "month": "2026-09",
+      "broker": "开源证券",
+      "symbol": "603259.SH",
+      "name": "药明康德",
+      "publish_time": "2026-08-30T12:04:00+08:00",
+      "source_ref": "https://finance.sina.com.cn/roll/2026-08-30/doc-iniqakft8280727.shtml"
+    },
+    {
+      "month": "2026-09",
+      "broker": "开源证券",
+      "symbol": "688169.SH",
+      "name": "石头科技",
+      "publish_time": "2026-08-30T12:04:00+08:00",
+      "source_ref": "https://finance.sina.com.cn/roll/2026-08-30/doc-iniqakft8280727.shtml"
+    },
+    {
+      "month": "2026-09",
+      "broker": "开源证券",
+      "symbol": "601233.SH",
+      "name": "桐昆股份",
+      "publish_time": "2026-08-30T12:04:00+08:00",
+      "source_ref": "https://finance.sina.com.cn/roll/2026-08-30/doc-iniqakft8280727.shtml"
+    },
+    {
+      "month": "2026-09",
+      "broker": "开源证券",
+      "symbol": "601688.SH",
+      "name": "华泰证券",
+      "publish_time": "2026-08-30T12:04:00+08:00",
+      "source_ref": "https://finance.sina.com.cn/roll/2026-08-30/doc-iniqakft8280727.shtml"
+    },
+    {
+      "month": "2026-09",
+      "broker": "开源证券",
+      "symbol": "002966.SZ",
+      "name": "苏州银行",
+      "publish_time": "2026-08-30T12:04:00+08:00",
+      "source_ref": "https://finance.sina.com.cn/roll/2026-08-30/doc-iniqakft8280727.shtml"
+    },
+    {
+      "month": "2026-09",
+      "broker": "开源证券",
+      "symbol": "601168.SH",
+      "name": "西部矿业",
+      "publish_time": "2026-08-30T12:04:00+08:00",
+      "source_ref": "https://finance.sina.com.cn/roll/2026-08-30/doc-iniqakft8280727.shtml"
     }
   ]
 }

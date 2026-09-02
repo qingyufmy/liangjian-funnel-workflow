@@ -20,11 +20,11 @@ def test_september_2026_public_broker_gold_dataset_is_strict_and_traceable() -> 
     symbols = {record.symbol for record in records}
 
     assert dataset.months == ("2026-09",)
-    assert len({record.broker for record in records}) == 16
-    assert len(records) == 142
-    assert len(symbols) == 117
-    assert Counter(record.symbol for record in records)["603259.SH"] == 3
-    assert Counter(record.symbol for record in records)["300750.SZ"] == 4
+    assert len({record.broker for record in records}) == 17
+    assert len(records) == 151
+    assert len(symbols) == 121
+    assert Counter(record.symbol for record in records)["603259.SH"] == 4
+    assert Counter(record.symbol for record in records)["300750.SZ"] == 5
     assert "920403.BJ" in symbols
     assert all(record.name for record in records)
     assert all(SYMBOL_RE.fullmatch(record.symbol) for record in records)
