@@ -1,0 +1,56 @@
+{
+  "schema_version": "reviewed-public-research-lead/1.0.0",
+  "document_id": "cnfinancewatch-premarket-20260902",
+  "title": "A股盘前三方向研究假设人工审阅版",
+  "publisher": "华尔街观察 Xtrader",
+  "source_urls": [
+    "https://x.com/cnfinancewatch/status/2094947749536145473",
+    "https://x.com/cnfinancewatch/status/2094947754959323470",
+    "https://x.com/cnfinancewatch/status/2094947763427705196"
+  ],
+  "publish_time": "2026-09-02T08:37:20+08:00",
+  "claimed_data_cutoff": "2026-09-02T08:30:47+08:00",
+  "valid_until": "2026-09-09T09:30:00+08:00",
+  "methodology_axes": [
+    {
+      "axis": "THREE_DIRECTION_COVERAGE",
+      "method": "盘前先形成约三个彼此独立的候选方向，再分别核验政策或产业催化、板块强度、资金承接和代表性角色；不得把相对最强方向等同于唯一有效方向。",
+      "required_inputs": ["冻结行业与概念强度", "板块广度和成交持续性", "资金流和梯队结构", "机构观点与原始事件", "主营业务和财务兑现"],
+      "failure_modes": ["只保留唯一冠军方向", "用复合稿转述冒充原始事实", "以代表个股名单替代全板块验证", "把单日涨幅直接写成可持续主线"]
+    },
+    {
+      "axis": "RELATIVE_TOP3_NOT_FIXED_LIST",
+      "method": "三个方向是待当日市场事实验证的相对候选，不是固定行业白名单；若证据不足必须明确观察或否决，若有其他方向强度更高也应按同一规则替换。",
+      "required_inputs": ["相对主题排名", "行业和概念映射", "独立证据来源", "主题阶段与追高风险"],
+      "failure_modes": ["硬编码农业科技金融", "为凑足三个方向放宽数据门槛", "第二第三方向因低于固定绝对分被整体清零"]
+    }
+  ],
+  "theme_hypotheses": [
+    {
+      "theme": "农业种植与种业政策催化",
+      "stance": "VERIFY_PRICE_POLICY_AND_MARKET_RESONANCE",
+      "rationale": ["公开盘前稿把农产品价格变化、政策预期和上一交易日农业板块热度联系为短期催化假设"],
+      "required_facts": ["农产品期货或现货原始价格", "正式农业政策", "同花顺板块广度与成交持续性", "资金流和梯队", "公司品种审定、销量、收入与利润"],
+      "counter_signals": ["价格催化无法回到原始来源", "板块仅单日脉冲且次日无承接", "高位一致后梯队断裂", "经营兑现与题材叙事脱节"]
+    },
+    {
+      "theme": "AI应用、国产算力与芯片产业链",
+      "stance": "VERIFY_GLOBAL_CATALYST_TO_DOMESTIC_EARNINGS",
+      "rationale": ["公开盘前稿把海外AI产业事件、开源模型需求和国内算力、芯片、应用链条作为可能继续扩散的科技方向"],
+      "required_facts": ["海外链主公告或财报", "国内订单、认证、出货与商业化收入", "AI应用和硬件板块广度", "资金与核心角色", "估值和拥挤风险"],
+      "counter_signals": ["海外事件未经原始来源确认", "国内只有概念映射没有订单或收入", "板块核心和资金同步转弱", "拥挤上升但盈利预期下修"]
+    },
+    {
+      "theme": "银行保险与红利资产",
+      "stance": "VERIFY_DEFENSIVE_FLOW_AND_EARNINGS_REPAIR",
+      "rationale": ["公开盘前稿把险资配置、红利风格与银行保险估值修复作为高轮动环境下的防御和接力假设"],
+      "required_facts": ["保险资金配置或上市公司披露", "银行资产质量和信贷投放", "自由现金流与分红覆盖", "银行保险板块广度和资金", "趋势持续性与相对强度"],
+      "counter_signals": ["观点没有正式披露或原始研报支持", "资产质量恶化", "高分红依赖举债或一次性收益", "板块仅权重脉冲且无持续资金"]
+    }
+  ],
+  "quality_flags": [
+    "PREOPEN_CURRENT_SESSION_QUOTE_CONFLICT",
+    "COMPOSITE_REPORT_PRIMARY_SOURCE_REFS_MISSING",
+    "REPRESENTATIVE_COMPANIES_REMOVED_FROM_REVIEWED_LEAD"
+  ]
+}

@@ -2196,6 +2196,23 @@ class WorkflowApplication:
             "research_markdown": str(result.markdown_path) if result.markdown_path else None,
             "stage_markdown": stage_markdown,
             "broker_gold_benchmark": broker_benchmark,
+            # Keep the 08:30 report independent from the large lane audit
+            # files.  The digest is produced while stage outputs are already
+            # resident and is the only A1-A3 research projection the
+            # premarket publisher needs on the following session.
+            "premarket_research_context": _build_premarket_research_context(
+                result,
+                primary_lane_id=primary_lane_id,
+                source_as_of=current,
+                market_trade_date=(
+                    market_data_as_of.astimezone(SHANGHAI).date().isoformat()
+                    if market_data_as_of is not None
+                    else current.date().isoformat()
+                ),
+                target_trade_date=(
+                    target_trade_date.isoformat() if target_trade_date is not None else None
+                ),
+            ),
             "plan_publication": publication,
         }
         atomic_write_json(self.settings.workflow_output_dir / "runs" / f"{run_id}.json", summary)
@@ -3647,6 +3664,13 @@ class WorkflowApplication:
             ),
         )
         plans = tuple(sorted(selected, key=lambda row: (str(row.get("symbol") or ""), str(row.get("plan_id") or ""))))
+        research_context = WorkflowApplication._load_premarket_research_context(
+            self,
+            source_run_id,
+            plans=plans,
+        )
+        if not research_context.get("target_trade_date"):
+            research_context["target_trade_date"] = current.date().isoformat()
         publisher = getattr(self, "lark_publisher", None)
         try:
             notifications = (
@@ -3654,6 +3678,7 @@ class WorkflowApplication:
                     plans,
                     analyzed_at=current,
                     source_run_id=source_run_id,
+                    research_context=research_context,
                 )
                 if publisher is not None
                 else []
@@ -3674,6 +3699,14 @@ class WorkflowApplication:
                     "symbol": str(plan.get("symbol") or ""),
                     "name": raw.get("name"),
                     "strategy_profile": raw.get("strategy_profile"),
+                    "stock_behavior_type": raw.get("stock_behavior_type"),
+                    "setup_type": raw.get("setup_type"),
+                    "theme_id": raw.get("theme_id"),
+                    "theme_name": raw.get("theme_name") or raw.get("theme") or raw.get("industry"),
+                    "market_role": raw.get("market_role"),
+                    "market_environment": raw.get("market_environment"),
+                    "market_funding_state": raw.get("market_funding_state"),
+                    "emotion_cycle_stage": raw.get("emotion_cycle_stage"),
                     "selection_reasons": raw.get("selection_reasons") or raw.get("reason_codes") or [],
                     "trigger_low": raw.get("trigger_low"),
                     "trigger_high": raw.get("trigger_high"),
@@ -3691,12 +3724,33 @@ class WorkflowApplication:
             "source_run_id": source_run_id,
             "plan_count": len(plans),
             "plans": plan_summaries,
+            "research_context": research_context,
             "activation_deferred_to": "09:26",
             "notifications": notifications,
         }
         atomic_write_json(output_path, payload)
         atomic_write_text(output_path.with_suffix(".md"), _a3_premarket_markdown(payload))
         return payload
+
+    def _load_premarket_research_context(
+        self,
+        source_run_id: str,
+        *,
+        plans: tuple[Mapping[str, Any], ...],
+    ) -> dict[str, Any]:
+        """Load only the compact run digest; never reopen a large lane audit."""
+
+        if re.fullmatch(r"[A-Za-z0-9_.-]{1,180}", source_run_id):
+            path = self.settings.workflow_output_dir / "runs" / f"{source_run_id}.json"
+            try:
+                if path.is_file() and path.stat().st_size <= 2_000_000:
+                    raw = json.loads(path.read_text(encoding="utf-8"))
+                    context = raw.get("premarket_research_context") if isinstance(raw, Mapping) else None
+                    if isinstance(context, Mapping):
+                        return dict(context)
+            except (OSError, TypeError, ValueError, json.JSONDecodeError):
+                pass
+        return _fallback_premarket_research_context(source_run_id, plans)
 
     def run_premarket(self, *, now: datetime | None = None) -> dict[str, Any]:
         """Command-facing alias for the read-only A3 premarket report."""
@@ -4558,28 +4612,348 @@ class WorkflowApplication:
                 broker.start_trading_day(current.date())
 
 
+def _build_premarket_research_context(
+    result: ResearchRunResult,
+    *,
+    primary_lane_id: str,
+    source_as_of: datetime,
+    market_trade_date: str,
+    target_trade_date: str | None,
+) -> dict[str, Any]:
+    """Project the primary A1-A3 lane into a small, auditable report digest."""
+
+    lane = next((item for item in result.lanes if str(item.lane) == primary_lane_id), None)
+    if lane is None:
+        return {
+            "schema_version": "liangjian-premarket-context/2.0.0",
+            "status": "UNAVAILABLE",
+            "reason_codes": ["PRIMARY_RESEARCH_LANE_UNAVAILABLE"],
+            "source_run_id": result.run_id,
+            "source_as_of": source_as_of.isoformat(),
+            "market_trade_date": market_trade_date,
+            "target_trade_date": target_trade_date,
+        }
+    stages = {str(stage.stage): stage for stage in lane.stages}
+    a1_stage = stages.get("A1")
+    a2_stage = stages.get("A2")
+    a3_stage = stages.get("A3")
+    a1 = dict(a1_stage.output) if a1_stage is not None and isinstance(a1_stage.output, Mapping) else {}
+    a2 = dict(a2_stage.output) if a2_stage is not None and isinstance(a2_stage.output, Mapping) else {}
+    a3 = dict(a3_stage.output) if a3_stage is not None and isinstance(a3_stage.output, Mapping) else {}
+
+    theme_names = {
+        str(item.get("theme_id") or ""): str(item.get("display_name") or item.get("theme_name") or "")
+        for item in _mapping_rows(a1.get("structural_themes"))
+        if str(item.get("theme_id") or "").strip()
+    }
+    a1_summary = a1.get("analysis_summary") if isinstance(a1.get("analysis_summary"), Mapping) else {}
+    macro = a1.get("macro_regime") if isinstance(a1.get("macro_regime"), Mapping) else {}
+    monthly = sorted(
+        (
+            item
+            for item in _mapping_rows(a1.get("monthly_industry_decisions"))
+            if str(item.get("final_decision") or item.get("decision") or "").upper() == "INCLUDE"
+        ),
+        key=lambda item: (_safe_float(item.get("rank"), 9999.0), str(item.get("industry_name") or "")),
+    )[:6]
+    structural = sorted(
+        _mapping_rows(a1.get("structural_themes")),
+        key=lambda item: (-_safe_float(item.get("capacity_score"), 0.0), str(item.get("theme_id") or "")),
+    )[:6]
+    policy = sorted(
+        _mapping_rows(a1.get("policy_dossiers")),
+        key=lambda item: (str(item.get("published_at") or ""), _safe_float(item.get("policy_stage_score"), 0.0)),
+        reverse=True,
+    )[:5]
+
+    a2_summary = a2.get("analysis_summary") if isinstance(a2.get("analysis_summary"), Mapping) else {}
+    active_themes = sorted(
+        _mapping_rows(a2.get("active_themes")),
+        key=lambda item: (-_safe_float(item.get("theme_score"), 0.0), str(item.get("theme_id") or "")),
+    )[:5]
+    focus_rows = _mapping_rows(a2.get("focus_pool"))[:12]
+    a3_summary = a3.get("analysis_summary") if isinstance(a3.get("analysis_summary"), Mapping) else {}
+    market_constraints = a3.get("market_open_constraints") if isinstance(a3.get("market_open_constraints"), Mapping) else {}
+
+    reason_codes: list[str] = []
+    for stage in (a1_stage, a2_stage, a3_stage):
+        if stage is None:
+            reason_codes.append("RESEARCH_STAGE_CONTEXT_MISSING")
+            continue
+        if not _a1_stage_completed(getattr(stage, "status", None)):
+            reason_codes.append("RESEARCH_STAGE_CONTEXT_NOT_VALIDATED")
+        reason_codes.extend(
+            str(code)
+            for code in getattr(stage, "reason_codes", ())
+            if str(code).strip()
+        )
+    context_ready = bool(a1 and a2 and a3) and all(
+        stage is not None and _a1_stage_completed(getattr(stage, "status", None))
+        for stage in (a1_stage, a2_stage, a3_stage)
+    )
+    return {
+        "schema_version": "liangjian-premarket-context/2.0.0",
+        "status": "READY" if context_ready else "DEGRADED",
+        "reason_codes": list(dict.fromkeys(reason_codes)),
+        "source_run_id": result.run_id,
+        "source_as_of": source_as_of.isoformat(),
+        "market_trade_date": market_trade_date,
+        "target_trade_date": target_trade_date,
+        "lane_id": lane.lane,
+        "model": lane.model,
+        "a1": {
+            "status": getattr(a1_stage, "status", "NOT_AVAILABLE"),
+            "active_count": a1_summary.get("active_research_count", a1_summary.get("active_research_pool")),
+            "monitor_count": a1_summary.get("monitor_count", a1_summary.get("monitor_pool")),
+            "macro": {
+                "liquidity_condition": macro.get("liquidity_condition"),
+                "profit_cycle_position": macro.get("profit_cycle_position"),
+                "policy_direction": _bounded_texts(macro.get("policy_direction"), 5),
+                "key_uncertainties": _bounded_texts(macro.get("key_uncertainties"), 5),
+                "source_refs": _bounded_texts(macro.get("source_refs"), 4),
+            },
+            "monthly_industries": [
+                {
+                    "name": item.get("industry_name"),
+                    "code": item.get("industry_thscode"),
+                    "rank": item.get("rank"),
+                    "theme_ids": _bounded_texts(item.get("mapped_theme_ids"), 4),
+                    "return_5d": _nested_value(item, "metrics", "return_5d"),
+                    "return_20d": _nested_value(item, "metrics", "return_20d"),
+                    "relative_strength_percentile_20d": _nested_value(item, "metrics", "relative_strength_percentile_20d"),
+                    "source_refs": _bounded_texts(item.get("supporting_source_refs") or item.get("base_source_refs"), 3),
+                }
+                for item in monthly
+            ],
+            "structural_themes": [
+                {
+                    "theme_id": item.get("theme_id"),
+                    "name": item.get("display_name") or item.get("theme_name"),
+                    "capacity_score": item.get("capacity_score"),
+                    "weekly_state": item.get("weekly_state"),
+                    "industry_lifecycle": item.get("industry_lifecycle"),
+                    "pricing_state": _nested_value(item, "weekly_confirmation", "pricing_state"),
+                    "supporting_evidence": _bounded_texts(_nested_value(item, "weekly_confirmation", "supporting_evidence"), 3),
+                    "contradicting_evidence": _bounded_texts(_nested_value(item, "weekly_confirmation", "contradicting_evidence"), 3),
+                    "source_refs": _bounded_texts(item.get("source_refs"), 3),
+                }
+                for item in structural
+            ],
+            "policy_catalysts": [
+                {
+                    "title": item.get("title"),
+                    "published_at": item.get("published_at"),
+                    "issuing_body": item.get("issuing_body"),
+                    "verifiability": item.get("policy_verifiability"),
+                    "theme_ids": _bounded_texts(item.get("affected_theme_ids"), 4),
+                    "source_refs": _bounded_texts(item.get("source_refs"), 2),
+                }
+                for item in policy
+            ],
+        },
+        "a2": {
+            "status": getattr(a2_stage, "status", "NOT_AVAILABLE"),
+            "focus_count": a2_summary.get("focus_pool", a2_summary.get("approved_count")),
+            "watch_count": a2_summary.get("watch_only_pool", a2_summary.get("monitor_count")),
+            "rejected_count": a2_summary.get("rejected_candidates", a2_summary.get("rejected_count")),
+            "active_themes": [
+                {
+                    "theme_id": item.get("theme_id"),
+                    "name": theme_names.get(str(item.get("theme_id") or "")) or item.get("theme_name"),
+                    "score": item.get("theme_score"),
+                    "stage": item.get("stage"),
+                    "weekly_state": item.get("weekly_momentum_state"),
+                    "new_entry_policy": item.get("new_entry_policy"),
+                    "chase_risk_level": item.get("chase_risk_level"),
+                    "breadth": _nested_value(item, "score_breakdown", "breadth"),
+                    "capital_flow": _nested_value(item, "score_breakdown", "capital_flow"),
+                    "leader_structure": _nested_value(item, "score_breakdown", "leader_structure"),
+                    "tier_structure": _nested_value(item, "score_breakdown", "tier_structure"),
+                    "index_chain_resonance": _nested_value(item, "score_breakdown", "index_chain_resonance"),
+                    "supporting_evidence": _bounded_texts(item.get("supporting_evidence"), 3),
+                    "contradicting_evidence": _bounded_texts(item.get("contradicting_evidence"), 3),
+                }
+                for item in active_themes
+            ],
+            "focus_stocks": [
+                {
+                    "symbol": item.get("symbol"),
+                    "name": item.get("name") or item.get("company_name"),
+                    "theme_id": item.get("theme_id"),
+                    "theme_name": theme_names.get(str(item.get("theme_id") or "")),
+                    "market_role": item.get("market_role"),
+                    "identifiability_score": item.get("identifiability_score"),
+                    "selection_reasons": _bounded_texts(item.get("selection_reasons"), 3),
+                    "risk_reasons": _bounded_texts(item.get("risk_reasons"), 3),
+                }
+                for item in focus_rows
+            ],
+        },
+        "a3": {
+            "status": getattr(a3_stage, "status", "NOT_AVAILABLE"),
+            "approved_count": a3_summary.get("core_watch_pool", a3_summary.get("approved_count")),
+            "secondary_count": a3_summary.get("secondary_watch_pool", a3_summary.get("monitor_count")),
+            "rejected_count": a3_summary.get("rejected_candidates", a3_summary.get("rejected_count")),
+            "market_open_constraints": dict(market_constraints),
+        },
+    }
+
+
+def _fallback_premarket_research_context(
+    source_run_id: str,
+    plans: tuple[Mapping[str, Any], ...],
+) -> dict[str, Any]:
+    """Describe a legacy run honestly without reopening its large audit."""
+
+    environments: list[str] = []
+    funding_states: list[str] = []
+    for plan in plans:
+        try:
+            raw = json.loads(str(plan.get("payload_json") or "{}"))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            raw = {}
+        if not isinstance(raw, Mapping):
+            continue
+        for target, key in ((environments, "market_environment"), (funding_states, "market_funding_state")):
+            value = str(raw.get(key) or "").strip()
+            if value and value not in target:
+                target.append(value)
+    return {
+        "schema_version": "liangjian-premarket-context/2.0.0",
+        "status": "DEGRADED",
+        "reason_codes": ["PREMARKET_RESEARCH_CONTEXT_NOT_PERSISTED"],
+        "source_run_id": source_run_id,
+        "a1": {"status": "NOT_AVAILABLE", "macro": {}},
+        "a2": {"status": "NOT_AVAILABLE", "active_themes": []},
+        "a3": {
+            "status": "PLANS_ONLY",
+            "market_environments": environments,
+            "market_funding_states": funding_states,
+        },
+    }
+
+
+def _mapping_rows(value: Any) -> list[Mapping[str, Any]]:
+    return [item for item in value if isinstance(item, Mapping)] if isinstance(value, (list, tuple)) else []
+
+
+def _bounded_texts(value: Any, limit: int) -> list[str]:
+    if not isinstance(value, (list, tuple)):
+        return []
+    return [str(item).strip()[:300] for item in value[:limit] if str(item or "").strip()]
+
+
+def _nested_value(value: Mapping[str, Any], first: str, second: str) -> Any:
+    nested = value.get(first)
+    return nested.get(second) if isinstance(nested, Mapping) else None
+
+
+def _safe_float(value: Any, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _a3_premarket_markdown(payload: Mapping[str, Any]) -> str:
-    """Render the durable human-readable companion to the 08:30 JSON receipt."""
+    """Render an auditable A1-A3 premarket brief, not a plan-only receipt."""
 
     status = str(payload.get("status") or "UNKNOWN")
     reason = str(payload.get("reason_code") or "-")
+    context = payload.get("research_context") if isinstance(payload.get("research_context"), Mapping) else {}
+    a1 = context.get("a1") if isinstance(context.get("a1"), Mapping) else {}
+    a2 = context.get("a2") if isinstance(context.get("a2"), Mapping) else {}
+    a3 = context.get("a3") if isinstance(context.get("a3"), Mapping) else {}
+    macro = a1.get("macro") if isinstance(a1.get("macro"), Mapping) else {}
     lines = [
-        "# A3 盘前分析",
+        "# 量见 A 股专业盘前研究",
         "",
         f"- 分析时间：`{payload.get('analyzed_at') or '-'}`",
-        f"- 状态：`{status}`",
-        f"- 原因码：`{reason}`",
+        f"- 状态 / 原因码：`{status}` / `{reason}`",
         f"- 主模型批次：`{payload.get('source_run_id') or '-'}`",
+        f"- 研究上下文：`{context.get('status') or 'UNAVAILABLE'}`（模型 `{context.get('model') or '-'}`）",
+        f"- 数据时点：source_as_of=`{context.get('source_as_of') or '-'}`，market_trade_date=`{context.get('market_trade_date') or '-'}`，target_trade_date=`{context.get('target_trade_date') or '-'}`",
         f"- 计划数量：`{payload.get('plan_count') or 0}`",
-        "- 数据边界：仅使用上一收盘已持久化的 A3 计划；不读取当日竞价或盘中行情。",
+        "- 数据边界：仅使用上一收盘已持久化的 A1-A3 事实与计划；不读取当日竞价或盘中行情。",
         "- 执行边界：09:26 竞价复核前不会激活 A4。",
+        "",
+        "## 一、盘前结论与市场边界",
+        "",
+        f"- A1：`{a1.get('status') or 'NOT_AVAILABLE'}`；研究池 `{a1.get('active_count')}`，观察池 `{a1.get('monitor_count')}`。",
+        f"- A2：`{a2.get('status') or 'NOT_AVAILABLE'}`；聚焦 `{a2.get('focus_count')}`，观察 `{a2.get('watch_count')}`，淘汰 `{a2.get('rejected_count')}`。",
+        f"- A3：`{a3.get('status') or 'NOT_AVAILABLE'}`；最终次日计划 `{payload.get('plan_count') or 0}`。",
+        f"- 流动性 / 盈利周期：`{macro.get('liquidity_condition') or 'UNAVAILABLE'}` / `{macro.get('profit_cycle_position') or 'UNAVAILABLE'}`。",
     ]
+    context_reasons = _bounded_texts(context.get("reason_codes"), 8)
+    if context_reasons:
+        lines.append(f"- 上下文降级/风险码：{'；'.join(context_reasons)}。")
+
+    lines.extend(["", "## 二、A1 宏观、政策与月度主线", ""])
+    directions = _bounded_texts(macro.get("policy_direction"), 5)
+    uncertainties = _bounded_texts(macro.get("key_uncertainties"), 5)
+    lines.append(f"- 政策方向：{'；'.join(directions) if directions else '未提供可核验方向'}。")
+    lines.append(f"- 核心不确定性：{'；'.join(uncertainties) if uncertainties else '未提供'}。")
+    monthly = _mapping_rows(a1.get("monthly_industries"))
+    if monthly:
+        lines.extend(["", "| 月度排名 | 行业 | 5日 | 20日 | 20日强度分位 |", "|---:|---|---:|---:|---:|"])
+        for item in monthly[:6]:
+            lines.append(
+                f"| {item.get('rank') or '-'} | {item.get('name') or item.get('code') or '-'} | "
+                f"{_ratio_text(item.get('return_5d'))} | {_ratio_text(item.get('return_20d'))} | "
+                f"{_plain_number(item.get('relative_strength_percentile_20d'))} |"
+            )
+    catalysts = _mapping_rows(a1.get("policy_catalysts"))
+    if catalysts:
+        lines.extend(["", "**已落库政策催化（不等同于交易信号）**"])
+        for item in catalysts[:4]:
+            lines.append(
+                f"- {item.get('published_at') or '-'}｜{item.get('title') or '-'}｜"
+                f"{item.get('issuing_body') or '-'}｜可核验性 `{item.get('verifiability') or 'UNKNOWN'}`"
+            )
+
+    lines.extend(["", "## 三、A2 板块轮动与资金结构", ""])
+    themes = _mapping_rows(a2.get("active_themes"))
+    if themes:
+        lines.extend(
+            [
+                "| 排名 | 主题 | 强度 | 周状态 | 新开仓 | 广度 | 资金 | 龙头 | 梯队 | 产业链共振 | 追高风险 |",
+                "|---:|---|---:|---|---|---:|---:|---:|---:|---:|---|",
+            ]
+        )
+        for index, item in enumerate(themes[:5], start=1):
+            lines.append(
+                f"| {index} | {item.get('name') or item.get('theme_id') or '-'} | {_plain_number(item.get('score'))} | "
+                f"{item.get('weekly_state') or '-'} | {item.get('new_entry_policy') or '-'} | "
+                f"{_plain_number(item.get('breadth'))} | {_plain_number(item.get('capital_flow'))} | "
+                f"{_plain_number(item.get('leader_structure'))} | {_plain_number(item.get('tier_structure'))} | "
+                f"{_plain_number(item.get('index_chain_resonance'))} | {item.get('chase_risk_level') or '-'} |"
+            )
+            evidence = _bounded_texts(item.get("supporting_evidence"), 2)
+            contradiction = _bounded_texts(item.get("contradicting_evidence"), 2)
+            if evidence:
+                lines.append(f"  - 证据：{'；'.join(evidence)}")
+            if contradiction:
+                lines.append(f"  - 反证：{'；'.join(contradiction)}")
+    else:
+        lines.append("- A2 主题上下文未持久化；不得把空白解释为市场无机会。")
+
+    constraints = a3.get("market_open_constraints") if isinstance(a3.get("market_open_constraints"), Mapping) else {}
+    lines.extend(
+        [
+            "",
+            "## 四、A1 × A2 × A3 决策链",
+            "",
+            "- A1 决定月度可研究方向；A2 用当日板块强度、资金、龙头和梯队结构做轮动确认；A3 只按日/周/月技术形态生成可供 A4 复核的次日计划。",
+            f"- 市场环境：`{constraints.get('regime') or 'UNAVAILABLE'}`；允许新开仓：`{constraints.get('new_entry_allowed')}`；总仓位上限：`{constraints.get('total_position_cap_pct')}`。",
+            "- 24h 隔夜新闻、当日竞价、实时龙虎榜若未在研究上下文中落库，则本报告不推演、不补造；09:26 再以独立竞价事实做激活复核。",
+        ]
+    )
     plans = payload.get("plans")
     if not isinstance(plans, (list, tuple)) or not plans:
-        lines.extend(["", "当前没有可发布的 A3 盘前计划。"])
+        lines.extend(["", "## 五、A3 次日计划", "", "当前没有可发布的 A3 盘前计划。"])
         return "\n".join(lines) + "\n"
 
-    lines.extend(["", "## A3 计划明细", ""])
+    lines.extend(["", "## 五、A3 次日计划与三情景", ""])
     for item in plans:
         if not isinstance(item, Mapping):
             continue
@@ -4593,18 +4967,44 @@ def _a3_premarket_markdown(payload: Mapping[str, Any]) -> str:
             [
                 f"### {item.get('name') or '名称未提供'}｜{item.get('symbol') or '代码未提供'}",
                 "",
-                f"- 策略：`{item.get('strategy_profile') or '-'}`",
+                f"- 类型 / 策略：`{item.get('stock_behavior_type') or '-'}` / `{item.get('strategy_profile') or '-'}`；角色 `{item.get('market_role') or '-'}`；主题 `{item.get('theme_name') or item.get('theme_id') or '-'}`。",
                 f"- 入选逻辑：{reason_text or '-'}",
                 f"- 触发区：`{item.get('trigger_low')}` – `{item.get('trigger_high')}`",
                 f"- 止损/失效：`{item.get('stop_level')}`",
                 f"- 禁止追价：`{item.get('no_chase_price')}`",
                 f"- 必要条件：{condition_text or '-'}",
                 f"- 隔夜失效项：{invalidator_text or '-'}",
+                f"- 强势情景：开盘高于触发区但不超过 `{item.get('no_chase_price')}`，仍须等待对应 A4 策略确认，禁止直接追高。",
+                f"- 中性情景：进入 `{item.get('trigger_low')}`–`{item.get('trigger_high')}` 且必要条件成立，09:26 后才允许进入 A4 监测。",
+                f"- 弱势情景：跌破 `{item.get('stop_level')}` 或出现隔夜失效项，计划作废，不做左侧接飞刀。",
                 "",
             ]
         )
-    lines.append("> 仅用于本地模拟研究，不连接真实交易，不构成投资建议。")
+    lines.extend(
+        [
+            "## 六、风险与执行纪律",
+            "",
+            "- 未触发不交易；超过禁止追价位不追；跌破失效价不等待模型解释。",
+            "- 本报告不连接真实账户，不发送真实委托；A4 仍由确定性策略和模拟账户执行。",
+            "",
+            "> 仅用于本地模拟研究，不构成投资建议。",
+        ]
+    )
     return "\n".join(lines) + "\n"
+
+
+def _plain_number(value: Any) -> str:
+    try:
+        return f"{float(value):.1f}"
+    except (TypeError, ValueError):
+        return "-"
+
+
+def _ratio_text(value: Any) -> str:
+    try:
+        return f"{float(value) * 100:.1f}%"
+    except (TypeError, ValueError):
+        return "-"
 
 
 def _a4_prompt_plan(plan: Mapping[str, Any]) -> dict[str, Any]:

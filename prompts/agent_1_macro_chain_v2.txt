@@ -82,7 +82,9 @@ monthly_strategy_context.macro_asset_quadrant 由服务端确定性计算，你�
 它决定本月研究方向的风险预算语境，但不能直接生成股票。cross_market_leads 只能
 用于发现时间差和产业链线索，必须再由国内政策、同花顺行业、公告或主营证据验证。
 broker_research_consensus 用于梳理本月机构共同关注、分歧和风险假设；评级与目标价
-不得作为事实或买入依据。BROKER_GOLD_COVERAGE_POOL 是当月 A1 必须逐只可追踪的
+不得作为事实或买入依据。它可以用 origin=RESEARCH_CONSENSUS 建立待 A1 公司证据和
+A2 市场结构继续确认的研究主题，但不得直接生成 ACTIVE 股票或跳过主营/财务门槛。
+BROKER_GOLD_COVERAGE_POOL 是当月 A1 必须逐只可追踪的
 机构研究覆盖种子，而不是 ACTIVE 审批名单：每只股票必须最终落在 ACTIVE、MONITOR
 或 REJECTED 之一并说明主题映射、主营/财务证据和排除理由，禁止无理由消失。
 服务端仍会在运行完成后独立计算“未借助金股种子的自主覆盖率”，不得用运行时覆盖
@@ -122,6 +124,11 @@ PREOPEN_CURRENT_SESSION_QUOTE_CONFLICT，稿件中所有当日 A 股指数/个�
 同一复合稿内对新闻、研报、龙虎榜的多次转述仍只算一个 T3 来源；只有解析到彼此
 独立的原始 source_ref，才能认定多源共振。主题方向只能生成验证问题，必须回到
 T1/T2 原始证据、月度行业决策和同花顺分类后才能进入结构研究域。
+每一个有效 document 的每一个 theme_hypotheses 项都必须在 unresolved_questions
+中输出且仅输出一条处置记录，document_id 与 hypothesis_theme 必须逐字复制：
+disposition 只能是 MAPPED、MONITOR 或 REJECTED。MAPPED 必须填写已存在且由独立
+T1/T2 或冻结市场事实支持的 matched_theme_ids；MONITOR/REJECTED 必须写明 reason、
+needed_data 与 blocking。T3 线索本身不得新造主题或选股，但也不得被静默遗漏。
 
 A1_RESEARCH_PACKET.weekly_strategy_context 是月度方向与日线市场之间的周度桥梁。
 必须先服从月度研究域，再判断本周相对上周是 ACCELERATING、PERSISTENT、
@@ -481,6 +488,18 @@ active_research_pool、monitor_pool、rejected_candidates 或任何个股字段�
 
   // monthly_industry_decisions 由服务器在模型响应后合并生成；模型不得返回该字段。
 
+  "unresolved_questions": [
+    {
+      "document_id": "...从 reviewed_public_research_leads 原样复制...",
+      "hypothesis_theme": "...从 theme_hypotheses.theme 原样复制...",
+      "disposition": "MAPPED|MONITOR|REJECTED",
+      "matched_theme_ids": [...],
+      "reason": "...",
+      "needed_data": "...",
+      "blocking": false
+    }
+  ],
+
   "policy_dossiers": [
     {
       "policy_id": "...",
@@ -521,7 +540,7 @@ active_research_pool、monitor_pool、rejected_candidates 或任何个股字段�
     {
       "theme_id": "...",
       "display_name": "...",
-      "origin": "POLICY_PRIOR|MARKET_DISCOVERED|EARNINGS_DRIVEN|EVENT_DRIVEN",
+      "origin": "POLICY_PRIOR|MARKET_DISCOVERED|EARNINGS_DRIVEN|EVENT_DRIVEN|RESEARCH_CONSENSUS",
       "policy_prior_score": 0-10,
       "policy_lifecycle_stage": "...",
       "policy_verifiability": "VERIFIED|PARTIAL|UNVERIFIED",

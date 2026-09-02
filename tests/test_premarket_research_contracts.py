@@ -34,6 +34,8 @@ def test_a2_premarket_contract_requires_full_lineage_and_lhb_provenance() -> Non
 def test_a2_contract_allows_degraded_optional_facts_on_market_core() -> None:
     prompt = (ROOT / "prompts" / "agent_2_theme_sentiment_v2.txt").read_text(encoding="utf-8")
     assert "宽进规则" in prompt
+    assert "A2_RELATIVE_TOP3_BELOW_STRONG_CONFIRMATION" in prompt
+    assert "强确认参考线" in prompt
     assert "MARKET_CORE hard route coverage" in prompt
     assert "overall factor_coverage、critical_factor_coverage 只用于诊断降级" in prompt
     assert "SUPPLY_CHAIN_ALPHA 的稀缺环节证据规则" in prompt

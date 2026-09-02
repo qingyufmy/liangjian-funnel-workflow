@@ -29,7 +29,7 @@ def _decisions(count: int = 20) -> list[dict]:
     ]
 
 
-def _discovery(*, mappings: list[dict] | None = None, theme_count: int = 8, node_count: int = 40) -> dict:
+def _discovery(*, mappings: list[dict] | None = None, theme_count: int = 12, node_count: int = 40) -> dict:
     themes = [{"theme_id": f"theme-{index}", "source_refs": ["policy-1"]} for index in range(theme_count)]
     nodes = [
         {
@@ -60,10 +60,10 @@ def test_runtime_contract_has_one_complete_decision_rule():
 @pytest.mark.parametrize(
     ("theme_count", "expected_reason"),
     [
-        (7, "A1_MONTHLY_THEME_COVERAGE_INSUFFICIENT"),
-        (8, None),
+        (11, "A1_MONTHLY_THEME_COVERAGE_INSUFFICIENT"),
         (12, None),
-        (13, "A1_MONTHLY_THEME_COVERAGE_EXCEEDED"),
+        (18, None),
+        (19, "A1_MONTHLY_THEME_COVERAGE_EXCEEDED"),
     ],
 )
 def test_discovery_theme_bounds_enforce_minimum_and_maximum(theme_count: int, expected_reason: str | None):

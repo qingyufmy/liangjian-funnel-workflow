@@ -140,22 +140,74 @@ def test_a3_premarket_analysis_is_distinct_from_auction_activation(tmp_path):
         plans,
         analyzed_at=now,
         source_run_id="run-close-1",
+        research_context={
+            "status": "READY",
+            "model": "deepseek-v4-pro-0813",
+            "market_trade_date": "2026-09-01",
+            "target_trade_date": "2026-09-02",
+            "a1": {
+                "status": "VALIDATED",
+                "active_count": 106,
+                "macro": {
+                    "liquidity_condition": "NEUTRAL",
+                    "profit_cycle_position": "RECOVERY",
+                    "policy_direction": ["科技自立", "能源资源安全"],
+                    "key_uncertainties": ["海外流动性扰动"],
+                },
+                "monthly_industries": [
+                    {"name": "农业种植", "return_5d": 0.08, "relative_strength_percentile_20d": 95}
+                ],
+            },
+            "a2": {
+                "status": "VALIDATED",
+                "active_themes": [
+                    {
+                        "name": "农业种植",
+                        "score": 88,
+                        "weekly_state": "ACCELERATING",
+                        "new_entry_policy": "ALLOW",
+                        "breadth": 82,
+                        "capital_flow": 76,
+                        "leader_structure": 90,
+                        "tier_structure": 70,
+                        "index_chain_resonance": 85,
+                        "chase_risk_level": "MEDIUM",
+                    }
+                ],
+            },
+            "a3": {
+                "status": "VALIDATED",
+                "market_open_constraints": {
+                    "regime": "ROTATION",
+                    "new_entry_allowed": True,
+                    "total_position_cap_pct": 0.5,
+                },
+            },
+        },
     )
     second = publisher.publish_a3_premarket_analysis(
         plans,
         analyzed_at=now,
         source_run_id="run-close-1",
+        research_context={"status": "READY"},
     )
 
+    assert len(first) == 2
     assert first[0]["status"] == "SENT"
+    assert first[1]["status"] == "SENT"
     assert second[0]["duplicate"] is True
-    assert fake.calls[0][0].startswith("A股 A3 盘前分析")
+    assert second[1]["duplicate"] is True
+    assert fake.calls[0][0].startswith("A股专业盘前研究")
     body = "\n".join(fake.calls[0][1])
-    assert "不读取 09:26 竞价" in body
-    assert "不激活 A4" in body
-    assert "测试股票1" in body
-    assert "000001.SZ" in body
-    assert "run-close-1" in body
+    plan_body = "\n".join(fake.calls[1][1])
+    assert "09:26 独立竞价复核" in body
+    assert "科技自立" in body
+    assert "农业种植" in body
+    assert "梯队 70" in body
+    assert "测试股票1" in plan_body
+    assert "000001.SZ" in plan_body
+    assert "run-close-1" in plan_body
+    assert "三情景" in plan_body
     assert store.list_notification_deliveries(kind="PREMARKET_A3_ANALYSIS")
     assert not store.list_notification_deliveries(kind="PREMARKET_A3")
 

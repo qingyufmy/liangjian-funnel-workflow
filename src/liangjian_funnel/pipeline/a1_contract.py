@@ -20,9 +20,9 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
 
-A1_CONTRACT_VERSION = "a1-discovery-contract/3.1.0"
+A1_CONTRACT_VERSION = "a1-discovery-contract/3.2.0"
 A1_MONTHLY_DECISION_COUNT = 20
-A1_THEME_TARGET: tuple[int, int] = (8, 12)
+A1_THEME_TARGET: tuple[int, int] = (12, 18)
 A1_NODE_TARGET: tuple[int, int] = (40, 80)
 A1_MINIMUM_READY_POLICY_DOCUMENTS = 1
 

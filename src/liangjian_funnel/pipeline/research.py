@@ -198,6 +198,34 @@ _A2_LLM_REJECT_HARD_MARKERS = (
     "NOT_TRADABLE",
     "TRADABILITY",
 )
+# A2's absolute theme score is a strong-confirmation reference, not a second
+# rotation ranking.  These markers are the deterministic facts that still
+# prevent a relative TOP3 MARKET_CORE row from using that reference-line
+# exception.  Optional source degradation and the reference-line reason itself
+# deliberately do not appear here.
+_A2_RELATIVE_TOP3_HARD_VETO_MARKERS = (
+    "DATA_GAP",
+    "CRITICAL_DATA",
+    "MARKET_FACTS_INSUFFICIENT",
+    "COVERAGE_BELOW_MINIMUM",
+    "NO_ROUTE",
+    "ROUTE_MISSING",
+    "LOW_IDENTITY",
+    "IDENTIFIABILITY_BELOW",
+    "MARKET_ROLE_NOT_FOCUS",
+    "ROLE_EVIDENCE_INSUFFICIENT",
+    "ROLE_KNOWN_NEGATIVE",
+    "BUSINESS_PURITY_INSUFFICIENT",
+    "KNOWN_NEGATIVE",
+    "MAIN_BUSINESS_EVIDENCE_MISSING",
+    "THEME_MISSING",
+    "CHAIN_NODE_MISSING",
+    "RISK_EVENT",
+    "NOT_TRADABLE",
+    "TRADABILITY",
+)
+_A2_RELATIVE_TOP3_SOFT_SCORE_REASON = "A2_RELATIVE_TOP3_BELOW_STRONG_CONFIRMATION"
+_A2_THEME_SCORE_REFERENCE_REASON = "A2_THEME_SCORE_BELOW_MINIMUM"
 _A2_THEME_LIFECYCLE_STAGES = frozenset({
     "IGNITION",
     "CONFIRMATION",
@@ -287,7 +315,7 @@ _PROMPT_PROJECTION_VERSION = "research-prompt-projection/2.0.0"
 _DEFAULT_MODEL_MAX_INPUT_TOKENS = 1_000_000
 _A3_BATCH_SIZE = 16
 _STAGE_OUTPUT_BUDGETS: Mapping[str, Mapping[str, int]] = {
-    "A1": {"approved_pool": 5, "secondary_pool": 5, "themes": 12, "chain_nodes": 80, "evidence_per_item": 3},
+    "A1": {"approved_pool": 5, "secondary_pool": 5, "themes": 18, "chain_nodes": 80, "evidence_per_item": 3},
     "A2": {"approved_pool": 5, "secondary_pool": 5, "themes": 20, "chain_nodes": 0, "evidence_per_item": 3},
     "A3": {"approved_pool": 5, "secondary_pool": 5, "themes": 0, "chain_nodes": 0, "evidence_per_item": 3},
 }
@@ -2923,6 +2951,9 @@ class ResearchPipeline:
                     monthly_context = a1_discovery_context.get("monthly_strategy_context")
                     if isinstance(monthly_context, Mapping):
                         reasons.extend(_monthly_discovery_reasons(output, monthly_context))
+                    reasons.extend(
+                        _a1_reviewed_hypothesis_coverage_reasons(output, snapshot.data)
+                    )
             if reasons:
                 return None
             symbols = tuple(sorted(_approved_symbols(output, stage)))
@@ -4113,6 +4144,9 @@ class ResearchPipeline:
                             output,
                             monthly_context,
                         )
+                    reasons.extend(
+                        _a1_reviewed_hypothesis_coverage_reasons(output, snapshot.data)
+                    )
             envelope = output.get("envelope") if isinstance(output, Mapping) else None
             model_status = envelope.get("status") if isinstance(envelope, Mapping) else None
             if model_status == "BLOCKED":
@@ -5390,7 +5424,10 @@ def _stage_execution_budget(
                 "industry_theme_mappings, source_health and unresolved_questions. Do not return or rewrite "
                 "monthly_industry_decisions; map every server base_decision=INCLUDE row or declare "
                 "mapping_status=UNMAPPED with data_gaps. The canonical rows are read-only and the model cannot "
-                "change their rank, decision, reason_codes or source_refs."
+                "change their rank, decision, reason_codes or source_refs. Every active reviewed public "
+                "theme hypothesis must have one exact unresolved_questions disposition row; it may map to "
+                "an independently evidenced structural theme, remain MONITOR, or be REJECTED, but it may not "
+                "silently disappear."
                 if discovery_mode == "POLICY_MACRO_DISCOVERY"
                 else (
                     "Required top-level keys: envelope, analysis_summary, structural_themes, industry_chain_graph, "
@@ -6206,6 +6243,95 @@ def _a1_discovery_context_reasons(
     return reasons
 
 
+def _a1_reviewed_hypothesis_coverage_reasons(
+    output: Mapping[str, Any],
+    snapshot_data: Mapping[str, Any],
+) -> list[str]:
+    """Require an explicit disposition for every active reviewed A1 hypothesis.
+
+    Reviewed public research is a T3 question plane, not a stock selector and
+    not primary evidence.  The model may map a hypothesis to an independently
+    evidenced structural theme, keep it under observation, or reject it.  It
+    may not silently omit the hypothesis: that previously allowed bank/insurance
+    and AI-application research questions to disappear even though they were
+    present in the frozen A1 packet.
+
+    Dispositions live in ``unresolved_questions`` so the discovery top-level
+    contract stays backward compatible.  Production packets identify each row
+    by the exact ``document_id`` and exact hypothesis text supplied by the
+    server; semantic aliases are deliberately not guessed here.
+    """
+
+    contract = snapshot_data.get("REVIEWED_PUBLIC_RESEARCH_LEADS")
+    if not isinstance(contract, Mapping) or contract.get("available") is not True:
+        return []
+    documents = contract.get("documents")
+    if not isinstance(documents, list):
+        return []
+
+    expected: set[tuple[str, str]] = set()
+    for document in documents:
+        if not isinstance(document, Mapping):
+            continue
+        document_id = str(document.get("document_id") or "").strip()
+        hypotheses = document.get("theme_hypotheses")
+        if not document_id or not isinstance(hypotheses, list):
+            continue
+        for hypothesis in hypotheses:
+            if not isinstance(hypothesis, Mapping):
+                continue
+            theme = str(hypothesis.get("theme") or "").strip()
+            if theme:
+                expected.add((document_id, theme))
+    if not expected:
+        return []
+
+    theme_ids = {
+        str(item.get("theme_id") or "").strip()
+        for item in output.get("structural_themes", ())
+        if isinstance(item, Mapping) and str(item.get("theme_id") or "").strip()
+    } if isinstance(output.get("structural_themes"), list) else set()
+    questions = output.get("unresolved_questions")
+    questions = questions if isinstance(questions, list) else []
+    observed: dict[tuple[str, str], Mapping[str, Any]] = {}
+    reasons: list[str] = []
+    for raw in questions:
+        if not isinstance(raw, Mapping):
+            continue
+        document_id = str(raw.get("document_id") or "").strip()
+        hypothesis_theme = str(raw.get("hypothesis_theme") or "").strip()
+        if not document_id or not hypothesis_theme:
+            continue
+        key = (document_id, hypothesis_theme)
+        if key in observed:
+            reasons.append("A1_REVIEWED_HYPOTHESIS_DISPOSITION_DUPLICATE")
+            continue
+        observed[key] = raw
+        if key not in expected:
+            reasons.append("A1_REVIEWED_HYPOTHESIS_DISPOSITION_UNKNOWN")
+            continue
+        disposition = str(raw.get("disposition") or "").strip().upper()
+        if disposition not in {"MAPPED", "MONITOR", "REJECTED"}:
+            reasons.append("A1_REVIEWED_HYPOTHESIS_DISPOSITION_INVALID")
+            continue
+        mapped = raw.get("matched_theme_ids")
+        mapped_ids = {
+            str(value).strip()
+            for value in mapped
+            if isinstance(value, str) and value.strip()
+        } if isinstance(mapped, list) else set()
+        if disposition == "MAPPED" and (
+            not mapped_ids or not mapped_ids.issubset(theme_ids)
+        ):
+            reasons.append("A1_REVIEWED_HYPOTHESIS_THEME_MAPPING_INVALID")
+        if not str(raw.get("reason") or "").strip():
+            reasons.append("A1_REVIEWED_HYPOTHESIS_REASON_MISSING")
+
+    if expected.difference(observed):
+        reasons.append("A1_REVIEWED_HYPOTHESIS_COVERAGE_INCOMPLETE")
+    return list(dict.fromkeys(reasons))
+
+
 def _a1_discovery_evidence_required(context: Mapping[str, Any]) -> bool:
     """Apply the strict packet evidence gate only to full discovery runs.
 
@@ -6482,7 +6608,7 @@ def _semantic_retry_instruction(
     discovery_requirements: list[str] = []
     if "A1_MONTHLY_THEME_COVERAGE_INSUFFICIENT" in safe_reasons:
         discovery_requirements.append(
-            "Return 8-12 structural_themes with unique valid theme_id values."
+            "Return 12-18 structural_themes with unique valid theme_id values."
         )
     if "A1_MONTHLY_CHAIN_COVERAGE_INSUFFICIENT" in safe_reasons:
         discovery_requirements.append(
@@ -6506,6 +6632,14 @@ def _semantic_retry_instruction(
             + _canonical_json(list(dict.fromkeys(
                 value for value in authorized_source_refs if isinstance(value, str) and value.strip()
             )))
+        )
+    if any(code.startswith("A1_REVIEWED_HYPOTHESIS_") for code in safe_reasons):
+        discovery_requirements.append(
+            "For every reviewed_public_research_leads document/theme_hypothesis, add exactly one "
+            "unresolved_questions disposition row. Copy document_id and hypothesis_theme exactly; "
+            "set disposition=MAPPED|MONITOR|REJECTED, matched_theme_ids, reason, needed_data and blocking. "
+            "MAPPED requires an existing independently evidenced structural theme. T3 commentary alone "
+            "cannot create a theme or select a stock. Do not silently omit any reviewed hypothesis."
         )
     if stage == "A3" and {
         "A3_REWARD_RISK_REJECTION_CONTRADICTS_FROZEN_FACTS",
@@ -6916,6 +7050,15 @@ def _canonicalize_stage_lineage(
         }
         if stage == "A2":
             canonical["upstream_candidate_id"] = upstream_id
+            if v2_context_contract:
+                # These ranking fields are deterministic projections of the
+                # frozen A2 market facts.  Preserve them on the model row so
+                # the relative-TOP3 score policy and the workbench inspect
+                # the same server-owned decision even when the model omits or
+                # rewrites the fields.
+                canonical["theme_rotation_rank"] = context.get("theme_rotation_rank")
+                canonical["theme_rotation_score"] = context.get("theme_rotation_score")
+                canonical["top_rotation_theme"] = context.get("top_rotation_theme") is True
         else:
             canonical["upstream_candidate_id"] = upstream_id
             canonical["parent_candidate_id"] = upstream_id
@@ -7846,6 +7989,126 @@ def _a3_secondary_probe_contract_reasons(
     return []
 
 
+def _a2_relative_top3_market_core_exception(
+    item: Mapping[str, Any],
+    snapshot_data: Mapping[str, Any],
+) -> bool:
+    """Return whether the A2 score line is advisory for this focus row.
+
+    ``screen_a2`` chooses up to three themes from frozen market facts before
+    the model sees them.  The old post-model policy treated ``MIN_THEME_SCORE``
+    as an unconditional veto, so a relative second/third theme was silently
+    removed even when its MARKET_CORE route was valid.  This helper keeps the
+    exception narrow: the frozen context must identify the row as a TOP3
+    theme, the row must have passed the local review route, and no deterministic
+    identity/tradability/data veto may be present.  A missing context never
+    creates an exception for a new v2 snapshot.
+    """
+
+    symbol = _first_symbol(item)
+    raw_contexts = snapshot_data.get("A2_BOTTLENECK_CONTEXT")
+    context = raw_contexts.get(symbol) if isinstance(raw_contexts, Mapping) and symbol else None
+
+    # Production v2 rows are authoritative only when their symbol-scoped
+    # deterministic context is present.  Legacy direct callers can still use
+    # the explicit item fields, preserving replay compatibility without making
+    # a missing v2 context look like evidence.
+    if isinstance(raw_contexts, Mapping):
+        if not isinstance(context, Mapping):
+            return False
+        top_rotation_theme = context.get("top_rotation_theme") is True
+        local_status = str(
+            context.get("deterministic_status")
+            or context.get("status")
+            or context.get("local_partition")
+            or ""
+        ).strip().upper()
+        if local_status != "REVIEW_CANDIDATE":
+            return False
+        eligible_routes = context.get("eligible_routes")
+        route_values = {
+            str(value).strip().upper()
+            for value in eligible_routes
+            if isinstance(value, str) and value.strip()
+        } if isinstance(eligible_routes, Sequence) and not isinstance(
+            eligible_routes, (str, bytes, bytearray)
+        ) else set()
+        if MARKET_CORE_ROUTE not in route_values:
+            return False
+        route_eligibility = context.get("route_eligibility")
+        if isinstance(route_eligibility, Mapping):
+            market_route = route_eligibility.get(MARKET_CORE_ROUTE)
+            if not isinstance(market_route, Mapping) or market_route.get("eligible") is not True:
+                return False
+        context_reasons: list[str] = []
+        for key in ("deterministic_reason_codes", "hard_reason_codes", "reason_codes"):
+            values = context.get(key)
+            if isinstance(values, str):
+                values = [values]
+            if isinstance(values, Sequence) and not isinstance(values, (str, bytes, bytearray)):
+                context_reasons.extend(
+                    str(value).strip().upper()
+                    for value in values
+                    if isinstance(value, str) and value.strip()
+                )
+        failed_gates = context.get("all_failed_gates")
+        if isinstance(failed_gates, str):
+            failed_gates = [failed_gates]
+        if isinstance(failed_gates, Sequence) and not isinstance(failed_gates, (str, bytes, bytearray)):
+            # THEME_SCORE_MIN is intentionally observation-only in the
+            # deterministic gate.  It is the one score check this helper is
+            # allowed to bypass; every other effective failed gate remains a
+            # hard veto.
+            hard_failed_gates = {
+                str(value).strip().upper()
+                for value in failed_gates
+                if isinstance(value, str) and value.strip()
+            } - {"THEME_SCORE_MIN"}
+            if hard_failed_gates:
+                return False
+        if any(
+            any(marker in reason for marker in _A2_RELATIVE_TOP3_HARD_VETO_MARKERS)
+            for reason in context_reasons
+        ):
+            return False
+    else:
+        top_rotation_theme = item.get("top_rotation_theme") is True
+        eligible_routes = item.get("eligible_routes")
+        route_values = {
+            str(value).strip().upper()
+            for value in eligible_routes
+            if isinstance(value, str) and value.strip()
+        } if isinstance(eligible_routes, Sequence) and not isinstance(
+            eligible_routes, (str, bytes, bytearray)
+        ) else set()
+        explicit_route = str(
+            item.get("a2_route") or item.get("route") or item.get("selection_route") or ""
+        ).strip().upper()
+        if explicit_route == MARKET_CORE_ROUTE:
+            route_values.add(MARKET_CORE_ROUTE)
+        if MARKET_CORE_ROUTE not in route_values:
+            return False
+
+    if not top_rotation_theme:
+        return False
+
+    # Model-owned fields may explain or veto a candidate, but cannot turn a
+    # deterministic hard fact into a pass.  The score/reference-line and
+    # optional-fact reasons are deliberately excluded from this marker check.
+    item_reasons = item.get("reason_codes")
+    if isinstance(item_reasons, str):
+        item_reasons = [item_reasons]
+    if isinstance(item_reasons, Sequence) and not isinstance(item_reasons, (str, bytes, bytearray)):
+        for raw_reason in item_reasons:
+            reason = str(raw_reason).strip().upper()
+            if any(marker in reason for marker in _A2_RELATIVE_TOP3_HARD_VETO_MARKERS):
+                return False
+    review_status = str(item.get("review_status") or "").strip().upper()
+    if review_status in {"VETO", "REJECT", "REJECTED"}:
+        return False
+    return True
+
+
 def _apply_stage_threshold_policy(
     output: Mapping[str, Any],
     stage: str,
@@ -7913,19 +8176,49 @@ def _apply_stage_threshold_policy(
             return result, 0
         retained = []
         changed = 0
+        demotions = 0
+        soft_observations = 0
         for raw_item in focus:
             if not isinstance(raw_item, Mapping) or _safe_float(raw_item.get("theme_score")) >= minimum:
                 retained.append(raw_item)
                 continue
+            if _a2_relative_top3_market_core_exception(raw_item, snapshot_data):
+                item = dict(raw_item)
+                existing = item.get("reason_codes") if isinstance(item.get("reason_codes"), list) else []
+                existing = [
+                    code for code in existing
+                    if str(code).strip().upper() not in {
+                        _A2_THEME_SCORE_REFERENCE_REASON,
+                        "A2_THEME_SCORE_BELOW_FOCUS_THRESHOLD",
+                    }
+                ]
+                item["reason_codes"] = list(dict.fromkeys([
+                    *existing,
+                    _A2_RELATIVE_TOP3_SOFT_SCORE_REASON,
+                ]))
+                # Keep the row in focus: this is a below-reference-line
+                # observation, not a deterministic rejection.  A3 still
+                # applies its independent strategy, price, and risk gates.
+                retained.append(item)
+                soft_observations += 1
+                continue
             item = dict(raw_item)
             existing = item.get("reason_codes") if isinstance(item.get("reason_codes"), list) else []
-            item["reason_codes"] = list(dict.fromkeys([*existing, "A2_THEME_SCORE_BELOW_MINIMUM"]))
+            item["reason_codes"] = list(dict.fromkeys([*existing, _A2_THEME_SCORE_REFERENCE_REASON]))
             watch.append(item)
             changed += 1
+            demotions += 1
         result["focus_pool"] = retained
         result["watch_only_pool"] = _deduplicate_stage_items("watch_only_pool", watch)
-        if changed:
-            result["analysis_summary"] = _policy_summary(result, stage, changed)
+        if changed or soft_observations:
+            summary = _policy_summary(result, stage, demotions)
+            if soft_observations:
+                summary["a2_theme_score_reference"] = {
+                    "strong_confirmation_score": minimum,
+                    "below_reference_observations": soft_observations,
+                    "relative_top3_exception": True,
+                }
+            result["analysis_summary"] = summary
         return result, changed
 
     if stage == "A3":
@@ -8243,12 +8536,14 @@ def _snapshot_primary_evidence_refs(snapshot_data: Mapping[str, Any]) -> set[str
 
 
 def _snapshot_discovery_evidence_refs(snapshot_data: Mapping[str, Any]) -> set[str]:
-    """Return a bounded-source domain suitable for macro/chain discovery.
+    """Return the bounded evidence domain suitable for A1 research discovery.
 
-    Discovery should cite policy or formal industry-operating evidence, not a
-    random company PDF from the much larger company-mapping snapshot.  The
-    returned identifiers are copied verbatim into the prompt as an allowlist;
-    the ordinary primary-evidence validator remains the final authority.
+    Discovery may use official policy/industry facts, frozen THS sector-cycle
+    facts, and validated broker-research consensus to open a *research* theme.
+    Reviewed public commentary remains a T3 question plane and is deliberately
+    excluded here; company PDFs also belong to the later company-mapping call.
+    A research-consensus theme still has no stock-selection authority: A1
+    company evidence and A2 market confirmation remain independent gates.
     """
 
     refs: set[str] = set()
@@ -8266,7 +8561,14 @@ def _snapshot_discovery_evidence_refs(snapshot_data: Mapping[str, Any]) -> set[s
             for item in value:
                 visit(item)
 
-    for key in ("MACRO_POLICY_FEED", "INDUSTRY_ACTIVITY_DATA", "INDUSTRY_PROFIT_DATA"):
+    for key in (
+        "MACRO_POLICY_FEED",
+        "INDUSTRY_ACTIVITY_DATA",
+        "INDUSTRY_PROFIT_DATA",
+        "SECTOR_CYCLE_SNAPSHOT",
+        "THS_INDUSTRY_CATALOG",
+        "BROKER_RESEARCH_CONSENSUS",
+    ):
         visit(snapshot_data.get(key))
     # An empty discovery-source domain is meaningful: allowing a fallback to
     # company disclosures would let a model manufacture a macro/industry theme

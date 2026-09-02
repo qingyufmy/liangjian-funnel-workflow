@@ -55,6 +55,16 @@ def _number(value: Any) -> str:
         return "—"
 
 
+def _monthly_line(value: Mapping[str, Any]) -> str:
+    name = _text(value.get("name") or value.get("code"), limit=30)
+    strength = _number(value.get("relative_strength_percentile_20d"))
+    try:
+        return_5d = f"{float(value.get('return_5d')) * 100:.1f}%"
+    except (TypeError, ValueError):
+        return_5d = "—"
+    return f"{name}(5日 {return_5d} / 强度分位 {strength})"
+
+
 class WorkflowLarkPublisher:
     """Send synchronously, then persist only a safe delivery summary."""
 
@@ -212,14 +222,15 @@ class WorkflowLarkPublisher:
         *,
         analyzed_at: datetime,
         source_run_id: str | None = None,
+        research_context: Mapping[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
-        """Publish the read-only 08:30 analysis of the latest A3 plans.
+        """Publish a professional read-only A1-A3 premarket brief.
 
         This is intentionally separate from :meth:`publish_premarket`, which
         is called by the 09:26 auction review after plans are activated.  No
-        auction quote or current-session fact is accepted here; the card is a
-        projection of persisted A3 constraints only and explicitly says that
-        A4 activation remains the later review's responsibility.
+        auction quote or current-session fact is accepted here.  The compact
+        context was persisted by the source research run, so this task never
+        reopens a large model audit or performs an implicit data sync.
         """
 
         if not plans:
@@ -232,12 +243,69 @@ class WorkflowLarkPublisher:
         batch_hash = hashlib.sha256(
             f"{source_run_id or ''}|{'|'.join(plan_ids)}".encode("utf-8")
         ).hexdigest()[:16]
+        context = dict(research_context) if isinstance(research_context, Mapping) else {}
+        a1 = context.get("a1") if isinstance(context.get("a1"), Mapping) else {}
+        a2 = context.get("a2") if isinstance(context.get("a2"), Mapping) else {}
+        a3 = context.get("a3") if isinstance(context.get("a3"), Mapping) else {}
+        macro = a1.get("macro") if isinstance(a1.get("macro"), Mapping) else {}
+        constraints = a3.get("market_open_constraints") if isinstance(a3.get("market_open_constraints"), Mapping) else {}
+        directions = _items(macro.get("policy_direction"), limit=4)
+        uncertainties = _items(macro.get("key_uncertainties"), limit=4)
+        monthly = [item for item in a1.get("monthly_industries", ()) if isinstance(item, Mapping)] if isinstance(a1.get("monthly_industries"), (list, tuple)) else []
+        themes = [item for item in a2.get("active_themes", ()) if isinstance(item, Mapping)] if isinstance(a2.get("active_themes"), (list, tuple)) else []
+        reason_codes = _items(context.get("reason_codes"), limit=6)
+        context_lines = [
+            f"**一、盘前总览** {analyzed_at.date().isoformat()} {analyzed_at.strftime('%H:%M')}｜A3 计划 {len(ordered)} 只｜上下文 {_text(context.get('status'), limit=30, fallback='UNAVAILABLE')}",
+            f"**数据时点** 收盘事实 {_text(context.get('market_trade_date'), limit=20)}｜目标交易日 {_text(context.get('target_trade_date'), limit=20)}｜主模型 {_text(context.get('model'), limit=50)}",
+            f"**A1 宏观** 流动性 {_text(macro.get('liquidity_condition'), limit=30)}｜盈利周期 {_text(macro.get('profit_cycle_position'), limit=30)}｜研究池 {_number(a1.get('active_count'))}",
+            f"**政策方向** {'；'.join(directions) if directions else '未提供可核验方向'}",
+            f"**月度行业前列** {'；'.join(_monthly_line(item) for item in monthly[:5]) if monthly else '未持久化'}",
+            "---\n**二、A2 板块轮动 TOP**",
+        ]
+        if themes:
+            for index, item in enumerate(themes[:5], start=1):
+                context_lines.append(
+                    f"**{index}. {_text(item.get('name') or item.get('theme_id'), limit=40)}**｜强度 {_number(item.get('score'))}｜周 {_text(item.get('weekly_state'), limit=24)}｜新开仓 {_text(item.get('new_entry_policy'), limit=24)}\n"
+                    f"广度 {_number(item.get('breadth'))}｜资金 {_number(item.get('capital_flow'))}｜龙头 {_number(item.get('leader_structure'))}｜梯队 {_number(item.get('tier_structure'))}｜产业链共振 {_number(item.get('index_chain_resonance'))}｜追高风险 {_text(item.get('chase_risk_level'), limit=20)}"
+                )
+                contradiction = _items(item.get("contradicting_evidence"), limit=1)
+                if contradiction:
+                    context_lines.append(f"反证：{contradiction[0]}")
+        else:
+            context_lines.append("A2 主题上下文未持久化；此处空白不解释为市场无机会。")
+        context_lines.extend(
+            [
+                "---\n**三、A1→A2→A3 决策链** A1 定月度研究方向；A2 以板块强度、资金、龙头、梯队与产业链共振确认轮动；A3 以日/周/月技术生成次日计划。",
+                f"**市场边界** 环境 {_text(constraints.get('regime'), limit=40)}｜允许新开仓 {_text(constraints.get('new_entry_allowed'), limit=12)}｜仓位上限 {_number(constraints.get('total_position_cap_pct'))}",
+                f"**核心不确定性** {'；'.join(uncertainties) if uncertainties else '未提供'}",
+                f"**上下文风险码** {'；'.join(reason_codes) if reason_codes else '无'}",
+                "**事实边界** 未落库的24h新闻、竞价和实时龙虎榜不推演、不补造；09:26 独立竞价复核前不激活 A4。",
+            ]
+        )
         chunks = [ordered[index : index + 4] for index in range(0, len(ordered), 4)]
-        outputs: list[dict[str, Any]] = []
+        outputs: list[dict[str, Any]] = [
+            self._send(
+                delivery_key=f"a3-premarket-professional-v2:{analyzed_at.date().isoformat()}:{batch_hash}:overview",
+                kind="PREMARKET_A3_ANALYSIS",
+                source_id=source_run_id or f"a3-premarket-{analyzed_at.date().isoformat()}",
+                title=f"A股专业盘前研究｜{analyzed_at.date().isoformat()}｜总览",
+                lines=context_lines,
+                summary={
+                    "trade_date": analyzed_at.date().isoformat(),
+                    "source_run_id": source_run_id,
+                    "plan_count": len(ordered),
+                    "context_status": context.get("status"),
+                    "market_trade_date": context.get("market_trade_date"),
+                    "target_trade_date": context.get("target_trade_date"),
+                    "card": "overview",
+                },
+                now=analyzed_at,
+            )
+        ]
         for page, chunk in enumerate(chunks, start=1):
             lines = [
-                f"**一、A3 盘前分析** {analyzed_at.date().isoformat()} {analyzed_at.strftime('%H:%M')}；本卡 {page}/{len(chunks)}。",
-                f"**数据边界** 仅使用已落地的上一收盘 A3 计划（批次 {_text(source_run_id, limit=160, fallback='未提供')}）；本任务不读取 09:26 竞价、不改变计划状态、不激活 A4。",
+                f"**四、A3 次日计划** {analyzed_at.date().isoformat()}｜本卡 {page}/{len(chunks)}｜共 {len(ordered)} 只。",
+                f"**来源与边界** 批次 {_text(source_run_id, limit=160, fallback='未提供')}；09:26 前不读取竞价、不改变计划状态、不激活 A4。",
             ]
             symbols: list[str] = []
             for row in chunk:
@@ -266,20 +334,22 @@ class WorkflowLarkPublisher:
                     ]
                 lines.extend(
                     [
-                        f"---\n**二、A3 个股计划｜{name}｜{symbol}**　{strategy}",
-                        f"**A3 入选逻辑** {'；'.join(reasons) if reasons else '已通过确定性日线技术计划'}",
+                        f"---\n**{name}｜{symbol}**　{strategy}",
+                        f"**类型 / 角色 / 主题** {_text(payload.get('stock_behavior_type'), limit=30)}｜{_text(payload.get('market_role'), limit=30)}｜{_text(payload.get('theme_name') or payload.get('theme') or payload.get('theme_id') or payload.get('industry'), limit=50)}",
+                        f"**A1-A3 入选链** {'；'.join(reasons) if reasons else '已通过确定性日线技术计划'}",
                         f"**次日触发区** {_number(payload.get('trigger_low'))}–{_number(payload.get('trigger_high'))}｜**止损/失效** {_number(payload.get('stop_level') or payload.get('daily_invalidation'))}｜**禁止追价** {_number(payload.get('no_chase') or payload.get('no_chase_price') or payload.get('max_chase_price'))}",
                         f"**必要条件** {'；'.join(conditions) if conditions else '按 A3 计划条件，待 09:26 复核'}",
                         f"**隔夜失效项** {'；'.join(invalidators)}",
+                        f"**三情景** 强：不超过禁追价仍等 A4 确认｜中：进入触发区且条件成立｜弱：跌破失效价则计划作废",
                     ]
                 )
-            lines.append("---\n**三、执行边界** 08:30 仅供盘前研究与准备；09:26 由独立竞价复核决定是否激活 A4，未满足条件不交易。")
+            lines.append("---\n**五、执行纪律** 未触发不交易；超过禁止追价位不追；跌破失效价不等待模型解释。仅用于本地模拟研究。")
             outputs.append(
                 self._send(
-                    delivery_key=f"a3-premarket-analysis:{analyzed_at.date().isoformat()}:{batch_hash}:{page}",
+                    delivery_key=f"a3-premarket-professional-v2:{analyzed_at.date().isoformat()}:{batch_hash}:plans:{page}",
                     kind="PREMARKET_A3_ANALYSIS",
                     source_id=source_run_id or f"a3-premarket-{analyzed_at.date().isoformat()}",
-                    title=f"A股 A3 盘前分析｜{analyzed_at.date().isoformat()}｜{page}/{len(chunks)}",
+                    title=f"A股专业盘前研究｜A3计划｜{page}/{len(chunks)}",
                     lines=lines,
                     summary={
                         "trade_date": analyzed_at.date().isoformat(),
@@ -287,6 +357,7 @@ class WorkflowLarkPublisher:
                         "symbols": symbols,
                         "plan_count": len(ordered),
                         "page": page,
+                        "card": "plans",
                         "activation_deferred_to": "09:26",
                     },
                     now=analyzed_at,

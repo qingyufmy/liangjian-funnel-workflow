@@ -7,6 +7,7 @@ from liangjian_funnel.pipeline.monthly_strategy import (
     build_monthly_industry_decisions,
     build_monthly_strategy_context,
 )
+from liangjian_funnel.pipeline.a1_contract import A1_THEME_TARGET
 from liangjian_funnel.pipeline.research import _monthly_discovery_reasons
 
 
@@ -217,11 +218,12 @@ def test_monthly_discovery_requires_one_decision_per_frozen_rotation_row():
 
 def test_contract_v3_uses_explicit_industry_mappings_instead_of_legacy_node_codes():
     codes = [f"884{index:03d}.TI" for index in range(1, 21)]
-    themes = [{"theme_id": f"theme-{index}"} for index in range(8)]
+    theme_count = A1_THEME_TARGET[0]
+    themes = [{"theme_id": f"theme-{index}"} for index in range(theme_count)]
     nodes = [
         {
             "node_id": f"node-{index}",
-            "theme_ids": [f"theme-{index % 8}"],
+            "theme_ids": [f"theme-{index % theme_count}"],
         }
         for index in range(40)
     ]
@@ -242,7 +244,7 @@ def test_contract_v3_uses_explicit_industry_mappings_instead_of_legacy_node_code
         "industry_theme_mappings": [
             {
                 "industry_thscode": code,
-                "mapped_theme_ids": [f"theme-{(rank - 1) % 8}"],
+                "mapped_theme_ids": [f"theme-{(rank - 1) % theme_count}"],
                 "mapping_status": "MAPPED",
                 "supporting_source_refs": [f"ths:sector:{rank}"],
                 "confidence": 0.8,
@@ -269,9 +271,10 @@ def test_contract_v3_uses_explicit_industry_mappings_instead_of_legacy_node_code
 
 def test_contract_v3_rejects_partial_server_canonical_decision_set():
     codes = [f"884{index:03d}.TI" for index in range(1, 4)]
-    themes = [{"theme_id": f"theme-{index}"} for index in range(8)]
+    theme_count = A1_THEME_TARGET[0]
+    themes = [{"theme_id": f"theme-{index}"} for index in range(theme_count)]
     nodes = [
-        {"node_id": f"node-{index}", "theme_ids": [f"theme-{index % 8}"]}
+        {"node_id": f"node-{index}", "theme_ids": [f"theme-{index % theme_count}"]}
         for index in range(40)
     ]
     output = {

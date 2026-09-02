@@ -18,6 +18,7 @@ from liangjian_funnel.pipeline.research import (
     _a2_theme_reasons,
     _a1_discovery_context_reasons,
     _a1_discovery_evidence_reasons,
+    _a1_reviewed_hypothesis_coverage_reasons,
     _authorized_discovery_source_refs,
     _a3_semantic_price_reasons,
     _a3_origin_only_veto_reasons,
@@ -87,12 +88,95 @@ def test_discovery_semantic_retry_restates_exact_coverage_and_evidence_contract(
         ),
     )
 
-    assert "8-12 structural_themes" in instruction
+    assert "12-18 structural_themes" in instruction
     assert "40-80 industry_chain_graph nodes" in instruction
     assert "allowed_primary_source_refs" in instruction
     assert "copy at least one source_ref verbatim" in instruction
     assert "RUNTIME_INPUT.A1_BATCH_CONTEXT" not in instruction
     assert "RUNTIME_INPUT.a1_discovery_context.allowed_primary_source_refs" in instruction
+
+
+def test_discovery_semantic_retry_requires_reviewed_hypothesis_dispositions():
+    instruction = _semantic_retry_instruction(
+        "A1",
+        ("A1_REVIEWED_HYPOTHESIS_COVERAGE_INCOMPLETE",),
+    )
+
+    assert "document_id and hypothesis_theme exactly" in instruction
+    assert "MAPPED|MONITOR|REJECTED" in instruction
+    assert "cannot create a theme or select a stock" in instruction
+
+
+def test_reviewed_hypotheses_cannot_silently_disappear_from_a1_discovery():
+    snapshot = {
+        "REVIEWED_PUBLIC_RESEARCH_LEADS": {
+            "available": True,
+            "documents": [
+                {
+                    "document_id": "premarket-20260902",
+                    "theme_hypotheses": [
+                        {"theme": "AI应用与国产算力"},
+                        {"theme": "银行保险与红利资产"},
+                    ],
+                }
+            ],
+        }
+    }
+    output = {
+        "structural_themes": [{"theme_id": "TH_AI", "display_name": "AI产业链"}],
+        "unresolved_questions": [
+            {
+                "document_id": "premarket-20260902",
+                "hypothesis_theme": "AI应用与国产算力",
+                "disposition": "MAPPED",
+                "matched_theme_ids": ["TH_AI"],
+                "reason": "独立产业与市场事实已验证",
+                "needed_data": "后续订单与盈利",
+                "blocking": False,
+            }
+        ],
+    }
+
+    assert _a1_reviewed_hypothesis_coverage_reasons(output, snapshot) == [
+        "A1_REVIEWED_HYPOTHESIS_COVERAGE_INCOMPLETE"
+    ]
+
+    output["unresolved_questions"].append({
+        "document_id": "premarket-20260902",
+        "hypothesis_theme": "银行保险与红利资产",
+        "disposition": "MONITOR",
+        "matched_theme_ids": [],
+        "reason": "等待资金与行业强度确认",
+        "needed_data": "板块资金、广度与资产质量",
+        "blocking": False,
+    })
+    assert _a1_reviewed_hypothesis_coverage_reasons(output, snapshot) == []
+
+
+def test_reviewed_hypothesis_mapped_disposition_requires_existing_theme():
+    snapshot = {
+        "REVIEWED_PUBLIC_RESEARCH_LEADS": {
+            "available": True,
+            "documents": [{
+                "document_id": "lead-1",
+                "theme_hypotheses": [{"theme": "农业种植"}],
+            }],
+        }
+    }
+    output = {
+        "structural_themes": [{"theme_id": "TH_OTHER"}],
+        "unresolved_questions": [{
+            "document_id": "lead-1",
+            "hypothesis_theme": "农业种植",
+            "disposition": "MAPPED",
+            "matched_theme_ids": ["TH_MISSING"],
+            "reason": "声称已映射",
+        }],
+    }
+
+    assert _a1_reviewed_hypothesis_coverage_reasons(output, snapshot) == [
+        "A1_REVIEWED_HYPOTHESIS_THEME_MAPPING_INVALID"
+    ]
 
 
 def test_server_envelope_normalization_preserves_explicit_blocked_and_model_extensions():
@@ -134,17 +218,29 @@ def test_discovery_evidence_allowlist_is_packet_snapshot_intersection_and_reject
         "INDUSTRY_ACTIVITY_DATA": {
             "items": [{"source_ref": "activity-1"}],
         },
+        "SECTOR_CYCLE_SNAPSHOT": {
+            "source_ref": "ths-cycle-1",
+        },
+        "BROKER_RESEARCH_CONSENSUS": {
+            "documents": [{"source_url": "broker-consensus-1"}],
+        },
+        "REVIEWED_PUBLIC_RESEARCH_LEADS": {
+            "documents": [{"source_url": "t3-lead-1"}],
+        },
         "DISCLOSURE_EVENTS": [{"source_ref": "company-1"}],
     }
     packet = {
         "source_index": {
             "policy-1": {"section": "policy"},
+            "ths-cycle-1": {"section": "industry"},
+            "broker-consensus-1": {"section": "broker"},
+            "t3-lead-1": {"section": "reviewed_public_leads"},
             "company-1": {"section": "company"},
             "packet-only": {"section": "packet"},
         }
     }
     authorized = _authorized_discovery_source_refs(snapshot, packet)
-    assert authorized == ("policy-1",)
+    assert authorized == ("broker-consensus-1", "policy-1", "ths-cycle-1")
     assert isinstance(authorized, tuple)
 
     valid = {
@@ -2321,6 +2417,85 @@ def test_server_threshold_policy_demotes_low_theme_score_and_rejects_bad_a3_payo
     assert "A3_REWARD_RISK_BELOW_MINIMUM" in a3["secondary_watch_pool"][0]["reason_codes"]
     assert "A3_TECHNICAL_SCORE_BELOW_MINIMUM" not in a3["secondary_watch_pool"][0]["reason_codes"]
     assert a3["analysis_summary"]["pool_counts"]["core_watch_pool"] == 1
+
+
+def test_a2_relative_top3_below_strong_confirmation_stays_focus_without_padding():
+    symbols = ["600001.SH", "600002.SH", "600003.SH", "600004.SH"]
+    output, changed = _apply_stage_threshold_policy(
+        {
+            "focus_pool": [
+                {"symbol": symbols[0], "theme_id": "theme-first", "theme_score": 74},
+                {
+                    "symbol": symbols[1],
+                    "theme_id": "theme-second",
+                    "theme_score": 58,
+                    "reason_codes": ["A2_THEME_SCORE_BELOW_FOCUS_THRESHOLD"],
+                },
+                {"symbol": symbols[2], "theme_id": "theme-third", "theme_score": 55},
+                {"symbol": symbols[3], "theme_id": "theme-fourth", "theme_score": 54},
+            ],
+            "watch_only_pool": [],
+        },
+        "A2",
+        {
+            "MIN_THEME_SCORE": 60,
+            "A2_BOTTLENECK_CONTEXT": {
+                symbol: {
+                    "top_rotation_theme": index < 3,
+                    "deterministic_status": "REVIEW_CANDIDATE",
+                    "eligible_routes": ["MARKET_CORE"],
+                    "route_eligibility": {"MARKET_CORE": {"eligible": True}},
+                    "deterministic_reason_codes": [],
+                    "all_failed_gates": [],
+                }
+                for index, symbol in enumerate(symbols)
+            },
+        },
+    )
+
+    assert changed == 1  # only the fourth-theme row is actually demoted
+    assert [item["symbol"] for item in output["focus_pool"]] == symbols[:3]
+    assert all(
+        "A2_RELATIVE_TOP3_BELOW_STRONG_CONFIRMATION" in item["reason_codes"]
+        for item in output["focus_pool"][1:]
+    )
+    assert "A2_THEME_SCORE_BELOW_FOCUS_THRESHOLD" not in output["focus_pool"][1]["reason_codes"]
+    assert "reason_codes" not in output["focus_pool"][0]
+    assert [item["symbol"] for item in output["watch_only_pool"]] == [symbols[3]]
+    assert output["watch_only_pool"][0]["reason_codes"] == ["A2_THEME_SCORE_BELOW_MINIMUM"]
+    assert output["analysis_summary"]["policy_demotions"] == 1
+    assert output["analysis_summary"]["a2_theme_score_reference"] == {
+        "strong_confirmation_score": 60.0,
+        "below_reference_observations": 2,
+        "relative_top3_exception": True,
+    }
+
+
+def test_a2_relative_top3_score_exception_never_bypasses_hard_veto():
+    output, changed = _apply_stage_threshold_policy(
+        {
+            "focus_pool": [{"symbol": "600001.SH", "theme_score": 55}],
+            "watch_only_pool": [],
+        },
+        "A2",
+        {
+            "MIN_THEME_SCORE": 60,
+            "A2_BOTTLENECK_CONTEXT": {
+                "600001.SH": {
+                    "top_rotation_theme": True,
+                    "deterministic_status": "REVIEW_CANDIDATE",
+                    "eligible_routes": ["MARKET_CORE"],
+                    "route_eligibility": {"MARKET_CORE": {"eligible": True}},
+                    "deterministic_reason_codes": ["A2_IDENTIFIABILITY_BELOW_MINIMUM"],
+                    "all_failed_gates": ["IDENTIFIABILITY_MIN"],
+                }
+            },
+        },
+    )
+
+    assert changed == 1
+    assert output["focus_pool"] == []
+    assert output["watch_only_pool"][0]["reason_codes"] == ["A2_THEME_SCORE_BELOW_MINIMUM"]
 
 
 def test_a1_partition_reads_only_declared_symbol_not_evidence_references():

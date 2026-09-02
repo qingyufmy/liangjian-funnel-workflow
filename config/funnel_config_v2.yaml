@@ -243,7 +243,7 @@ market_regime:
 # ---------------------------------------------------------------------------
 agent_1:
   id: MACRO_FUNDAMENTAL_CHAIN
-  discovery_contract_version: a1-discovery-contract/3.0.0
+  discovery_contract_version: a1-discovery-contract/3.2.0
   institutional_pool_role: P2_CLUE_TO_P3_RESEARCH_COVERAGE
   research_unit: INDUSTRY_CHAIN_NODE       # ★ 不是单只股票
   full_rebuild_schedule: MONTHLY           # 月初重建宏观、政策、研报与机构覆盖
@@ -331,7 +331,7 @@ agent_1:
     policy_calendar_required: true
     monthly_strategy_lookback_days: 120
     monthly_policy_document_limit: 60
-    monthly_theme_target: [8, 12]           # 覆盖目标，不以无证据主题凑数
+    monthly_theme_target: [12, 18]          # 月度宽研究域；不以无证据主题凑数
     monthly_cycle_lookback_trading_days: 20
     monthly_rotation_decision_top_n: 20
     minimum_ready_policy_documents: 1
@@ -356,7 +356,7 @@ agent_1:
 agent_2:
   id: THEME_SENTIMENT_SELECTOR
   institutional_pool_role: P3_CURRENT_MARKET_CANDIDATES
-  minimum_theme_score: 60
+  minimum_theme_score: 60                     # 强确认参考线；相对 TOP3 MARKET_CORE 不作单独否决
   opening_review_mode: TIGHTEN_ONLY
   candidate_pool_target: [20, 60]           # TOP3 轮动方向候选；观察池另计
   rotation_theme_count: 3                   # 服务端按冻结市场事实选择前三方向

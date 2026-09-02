@@ -76,7 +76,15 @@ C6. 数据缺失时不得用新闻语气补全。
 C7. 主题达到 CLIMAX 或 DIVERGENCE 时，必须单独评估追高风险，
     并按 {{CLIMAX_NEW_ENTRY_POLICY}} / {{DIVERGENCE_NEW_ENTRY_POLICY}} 执行。
 
-C8. focus_pool 的 theme_score 必须大于等于 {{MIN_THEME_SCORE}}；低于门槛只能进入 watch_only_pool。
+C8. {{MIN_THEME_SCORE}} 是“强确认参考线”，不是与服务端相对轮动排名
+重复的硬否决。对于服务端冻结上下文明确标记
+top_rotation_theme=true、MARKET_CORE 路线 eligible=true、且没有确定性身份、
+交易性、关键事实或风险事件硬否决的标的，即使 theme_score 低于该参考线，
+仍可保留在 focus_pool；必须加入 reason_codes=
+A2_RELATIVE_TOP3_BELOW_STRONG_CONFIRMATION，并在 risk_reasons/weak_evidence_fields
+中说明低于强确认线的事实缺口或不确定性。只有低于参考线且不属于服务端相对
+TOP3，或存在上述硬否决，才进入 watch_only_pool/rejected_candidates。不得借此
+放宽主营映射、辨识度、交易性、主题阶段、追高风险或 A3 的独立技术门槛。
 
 C9. A2 是“当前市场交易候选库”，不是最终交易计划。全量合并后的 focus_pool
     以 {{A2_POOL_TARGETS}} 为容量目标，优先覆盖有效主线/轮动方向中的 LEADER、
