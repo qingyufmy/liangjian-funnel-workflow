@@ -25,24 +25,23 @@ python_bin=".venv/bin/python"
 install -o www -g www -m 0640 /dev/null "$plan_log"
 install -o www -g www -m 0640 /dev/null "$execute_log"
 
-runuser -u www -- "$python_bin" -m liangjian_funnel storage-cleanup \
+runuser -u www -- env PYTHONPATH="$project_root/src" "$python_bin" -m liangjian_funnel storage-cleanup \
   --root "$project_root" \
   --policy "$policy" \
   --cutoff-hours "$cutoff_hours" \
   --manifest "$plan_path" >"$plan_log"
 
-plan_id="$(runuser -u www -- "$python_bin" -c \
+plan_id="$(runuser -u www -- env PYTHONPATH="$project_root/src" "$python_bin" -c \
   'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["plan_id"])' \
   "$plan_path")"
 
-runuser -u www -- "$python_bin" -m liangjian_funnel storage-cleanup \
+runuser -u www -- env PYTHONPATH="$project_root/src" "$python_bin" -m liangjian_funnel storage-cleanup \
   --execute \
   --root "$project_root" \
   --policy "$policy" \
   --manifest "$plan_path" \
   --confirm-token "$plan_id" >"$execute_log"
 
-runuser -u www -- "$python_bin" -c \
+runuser -u www -- env PYTHONPATH="$project_root/src" "$python_bin" -c \
   'import json,sys; p=json.load(open(sys.argv[1], encoding="utf-8")); print(json.dumps({"status":p.get("status"),"plan_id":p.get("plan_id"),"archive_count":p.get("archive_count"),"raw_bytes":sum(int(x.get("raw_size_bytes",0)) for x in p.get("items",[])),"compressed_bytes":sum(int(x.get("compressed_size_bytes",0)) for x in p.get("items",[]))}, ensure_ascii=False))' \
   "$execute_log"
-
