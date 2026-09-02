@@ -32,6 +32,8 @@ def unavailable_broker_gold_coverage(
         "reason_code": reason_code,
         "month": month,
         "record_count": 0,
+        "broker_count": 0,
+        "source_count": 0,
         "symbol_count": 0,
         "symbols": {},
         "runtime_role": "T2_RESEARCH_COVERAGE_SEED",
@@ -95,6 +97,9 @@ def load_broker_gold_coverage(
             "direct_approval_forbidden": True,
         }
 
+    eligible_records = [record for record in dataset.records if record.month == month]
+    brokers = sorted({record.broker for record in eligible_records})
+    source_refs = sorted({record.source_ref for record in eligible_records})
     canonical = json.dumps(symbols, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return {
         "schema_version": SCHEMA_VERSION,
@@ -102,7 +107,14 @@ def load_broker_gold_coverage(
         "reason_code": "OK" if symbols else "BROKER_GOLD_COVERAGE_EMPTY",
         "month": month,
         "as_of": as_of.isoformat(),
-        "record_count": sum(len(records) for records in grouped.values()),
+        "record_count": len(eligible_records),
+        "broker_count": len(brokers),
+        "source_count": len(source_refs),
+        "brokers": brokers,
+        # This describes only the verified rows present in the local monthly
+        # dataset.  It deliberately does not claim that every brokerage in the
+        # market has published, or that a public aggregator exposed every row.
+        "coverage_scope": "VERIFIED_INPUT_ROWS",
         "symbol_count": len(symbols),
         "excluded_future_count": len(dataset.excluded_future),
         "duplicate_count": dataset.duplicate_count,

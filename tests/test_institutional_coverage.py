@@ -42,6 +42,11 @@ def test_current_month_broker_gold_is_projected_as_t2_coverage(tmp_path) -> None
     result = load_broker_gold_coverage(tmp_path, as_of=AS_OF)
 
     assert result["available"] is True
+    assert result["record_count"] == 2
+    assert result["broker_count"] == 2
+    assert result["source_count"] == 2
+    assert result["brokers"] == ["券商乙", "券商甲"]
+    assert result["coverage_scope"] == "VERIFIED_INPUT_ROWS"
     assert result["symbol_count"] == 1
     assert result["excluded_future_count"] == 1
     assert result["symbols"]["600000.SH"]["broker_count"] == 2
@@ -54,4 +59,6 @@ def test_missing_month_is_observable_but_does_not_block_a1(tmp_path) -> None:
 
     assert result["available"] is False
     assert result["reason_code"] == "BROKER_GOLD_COVERAGE_NOT_CONFIGURED"
+    assert result["broker_count"] == 0
+    assert result["source_count"] == 0
     assert result["symbols"] == {}

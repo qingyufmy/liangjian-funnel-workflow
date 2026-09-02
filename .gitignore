@@ -31,4 +31,9 @@ outputs/capabilities/*
 storage/cninfo_pdfs/*
 !storage/cninfo_pdfs/.gitkeep
 storage/*
+!storage/benchmarks/
+storage/benchmarks/*
+!storage/benchmarks/broker_gold/
+storage/benchmarks/broker_gold/*
+!storage/benchmarks/broker_gold/*.json
 tmp/
