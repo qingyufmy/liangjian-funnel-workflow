@@ -263,6 +263,56 @@ def test_market_funding_is_traceable_context_not_an_a3_gate() -> None:
     }
 
 
+def test_market_risk_off_is_a3_context_and_a4_route_stays_available() -> None:
+    qualified = evaluate_a3_strategy(
+        {"symbol": "600113.SH", "market_role": "TREND_CORE"},
+        factor=_factor(),
+        price_levels=_prices(),
+        tradability={"tradable": True},
+        kline={"labels": ["PLATFORM_BREAKOUT"]},
+        a2_context={"market_role": "TREND_CORE", "relative_strength": {"percentile": 82}},
+        market_regime="RISK_OFF",
+    )
+
+    assert qualified.eligibility is Eligibility.QUALIFIED
+    assert qualified.route_permission.value == "ALLOW_A4"
+    assert qualified.market_environment == "BEAR_RISK"
+    assert qualified.gate_results["MARKET_RISK_CLASSIFIED"] == {
+        "met": True,
+        "reason": "MARKET_RISK_OFF_CONTEXT_ONLY",
+        "kind": "CONDITION",
+        "available": True,
+    }
+    assert "MARKET_RISK_OFF" not in qualified.gate_results
+    assert "MARKET_RISK_OFF" in qualified.reason_codes
+    assert "MARKET_RISK_OFF" not in qualified.required_conditions
+    assert "MARKET_RISK_OFF" not in qualified.unmet_conditions
+    assert "MARKET_RISK_OFF" not in qualified.veto_conditions
+    assert "MARKET_RISK_OFF" not in qualified.all_failed_gates
+    assert qualified.strategy_facts["market_risk_context"] == {
+        "regime": "RISK_OFF",
+        "risk_off": True,
+        "a3_gate": "OBSERVATION_ONLY",
+        "a4_entry_gate": "HARD_BLOCK_NEW_ENTRY_IN_RISK_OFF",
+    }
+
+    technical_failure = evaluate_a3_strategy(
+        {"symbol": "600114.SH", "market_role": "TREND_CORE"},
+        factor=_factor(daily_state="BEAR"),
+        price_levels=_prices(),
+        tradability={"tradable": True},
+        kline={"labels": ["PLATFORM_BREAKOUT"]},
+        a2_context={"market_role": "TREND_CORE", "relative_strength": {"percentile": 82}},
+        market_regime="RISK_OFF",
+    )
+
+    assert technical_failure.eligibility is Eligibility.REJECTED
+    assert technical_failure.route_permission.value == "BLOCKED"
+    assert "DAILY_TREND_WEAK" in technical_failure.veto_conditions
+    assert "MARKET_RISK_OFF" not in technical_failure.veto_conditions
+    assert "MARKET_RISK_OFF" not in technical_failure.all_failed_gates
+
+
 def test_price_discovery_trend_does_not_require_first_resistance() -> None:
     result = _common(
         {"symbol": "600005.SH", "market_role": "TREND_CORE", "innovation_high": True},

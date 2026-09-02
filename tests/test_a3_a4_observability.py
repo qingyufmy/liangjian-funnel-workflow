@@ -99,7 +99,6 @@ def test_a3_gate_projection_keeps_all_failures_and_reason_kinds() -> None:
     assert result.eligibility is Eligibility.DATA_GAP
     assert result.first_blocking_gate is not None
     assert {
-        "MARKET_NOT_RISK_OFF",
         "SECTOR_PERMISSION",
         "PRICE_GEOMETRY_VALID",
         "DAILY_NOT_BEARISH",
@@ -108,7 +107,16 @@ def test_a3_gate_projection_keeps_all_failures_and_reason_kinds() -> None:
         assert set(detail) == {"met", "reason", "kind", "available"}
         assert detail["kind"] == str(detail["kind"]).upper()
         assert detail["kind"] in {"CONDITION", "VETO", "DATA", "ROUTE", "ABLATED"}
-    assert result.gate_results["MARKET_RISK_OFF"]["kind"] == "VETO"
+    assert result.gate_results["MARKET_RISK_CLASSIFIED"] == {
+        "met": True,
+        "reason": "MARKET_RISK_OFF_CONTEXT_ONLY",
+        "kind": "CONDITION",
+        "available": True,
+    }
+    assert "MARKET_RISK_OFF" not in result.gate_results
+    assert "MARKET_RISK_OFF" in result.reason_codes
+    assert "MARKET_RISK_OFF" not in result.all_failed_gates
+    assert "MARKET_RISK_OFF" not in result.veto_conditions
     assert result.gate_results["PRICE_GEOMETRY_VALID"]["available"] is False
 
 

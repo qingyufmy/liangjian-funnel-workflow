@@ -826,12 +826,25 @@ def evaluate_a3_candidate(
             condition("HIGHER_TIMEFRAME_RISK_CLASSIFIED", True)
         else:
             condition("HIGHER_TIMEFRAME_NOT_BEARISH", True)
-        if market_regime in _RISK_OFF_STATES:
-            veto("MARKET_RISK_OFF")
-        condition(
-            "MARKET_NOT_RISK_OFF",
-            market_regime not in _RISK_OFF_STATES,
-            reason="MARKET_RISK_OFF" if market_regime in _RISK_OFF_STATES else None,
+        # Market risk is a session-level context, not a per-symbol A3
+        # qualification gate.  A technically valid daily setup must still be
+        # available to A4 so that the intraday risk authority can apply the
+        # preserved session-risk context before any entry.  Keep the negative
+        # observation in reason codes and the standard positive gate
+        # projection, but do not append it to the veto/required/unmet
+        # collections.  This avoids turning a valid setup into a false A3
+        # rejection.  A4 continues to
+        # consume the existing ``market_environment=BEAR_RISK`` value and
+        # hard-blocks a new entry in a risk-off market.
+        risk_off = market_regime in _RISK_OFF_STATES
+        if risk_off:
+            _append_unique(reason_codes, "MARKET_RISK_OFF")
+        record_gate(
+            "MARKET_RISK_CLASSIFIED",
+            met=True,
+            reason="MARKET_RISK_OFF_CONTEXT_ONLY" if risk_off else "OK",
+            kind="CONDITION",
+            available=True,
         )
         if permission in _NO_ENTRY_PERMISSIONS:
             veto("SECTOR_NO_NEW_ENTRY")
@@ -1912,6 +1925,12 @@ def _strategy_facts(
         "monthly_status": monthly_status,
         "weekly_status": weekly_status,
         "market_regime": market_regime,
+        "market_risk_context": {
+            "regime": market_regime,
+            "risk_off": market_regime in _RISK_OFF_STATES,
+            "a3_gate": "OBSERVATION_ONLY",
+            "a4_entry_gate": "HARD_BLOCK_NEW_ENTRY_IN_RISK_OFF",
+        },
         "relative_strength_observation": dict(relative_strength),
         "price_discovery": price_discovery,
         "overextended": overextended,
