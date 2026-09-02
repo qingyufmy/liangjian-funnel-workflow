@@ -1,9 +1,9 @@
-"""Point-in-time institutional coverage inputs for A1.
+"""Point-in-time institutional research inputs for A1.
 
-The monthly broker-gold dataset remains an independent post-run benchmark.
-This module creates a separate, bounded projection for research coverage: a
-broker recommendation is a T2 clue that must be researched, never proof that a
-company belongs in the executable funnel.
+The monthly broker-gold dataset remains independently measurable after a run,
+but its verified point-in-time rows are also an explicit A1 research route.
+Direct entry means research coverage only: it never grants A2/A3/A4 trading
+permission and it never bypasses their market, technical or risk checks.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from typing import Any
 from ..evaluation.broker_gold import BrokerGoldContractError, import_broker_gold
 
 
-SCHEMA_VERSION = "liangjian-institutional-coverage/1.0.0"
+SCHEMA_VERSION = "liangjian-institutional-coverage/1.1.0"
 
 
 def unavailable_broker_gold_coverage(
@@ -36,8 +36,9 @@ def unavailable_broker_gold_coverage(
         "source_count": 0,
         "symbol_count": 0,
         "symbols": {},
-        "runtime_role": "T2_RESEARCH_COVERAGE_SEED",
-        "direct_approval_forbidden": True,
+        "runtime_role": "P1_INSTITUTIONAL_DIRECT_RESEARCH",
+        "direct_research_entry": True,
+        "direct_approval_forbidden": False,
     }
 
 
@@ -94,7 +95,8 @@ def load_broker_gold_coverage(
             "source_refs": source_refs,
             "latest_publish_time": latest_publish_time.isoformat() if latest_publish_time else None,
             "evidence_tier": "T2",
-            "direct_approval_forbidden": True,
+            "direct_research_entry": True,
+            "direct_approval_forbidden": False,
         }
 
     eligible_records = [record for record in dataset.records if record.month == month]
@@ -120,8 +122,9 @@ def load_broker_gold_coverage(
         "duplicate_count": dataset.duplicate_count,
         "content_hash": sha256(canonical.encode("utf-8")).hexdigest(),
         "symbols": symbols,
-        "runtime_role": "T2_RESEARCH_COVERAGE_SEED",
-        "direct_approval_forbidden": True,
+        "runtime_role": "P1_INSTITUTIONAL_DIRECT_RESEARCH",
+        "direct_research_entry": True,
+        "direct_approval_forbidden": False,
         "benchmark_evaluation_remains_independent": True,
     }
 

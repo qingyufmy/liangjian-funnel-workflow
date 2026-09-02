@@ -28,7 +28,7 @@
 - **A3 技术设置/次日计划**：候选域由 A2 `focus_pool` 与服务器判定合格的 `WATCH_ONLY` 合并而成，并保留 `candidate_origin`；A3 只使用已闭合月线、周线和日线选择龙头、520 或趋势策略，由确定性引擎回填触发区、失效位、止损距离和盈亏比。模型只能核对或否决，不能越级新增标的。
 - **A4 盘中信号复核**：对已有 A3 计划按对应策略使用闭合 15 分钟结构和闭合 5 分钟触发择时，1 分钟数据只做聚合、新鲜度与安全校验；确定性触发先行，Flash 只有否决权，无权创建候选、放宽价位或提高风险单位。
 
-因此，G0 的行业均衡只用于防止候选域被当日成交热点污染，绝不代表 A1 已完成选股。A1 决策行会显式记录 `selection_basis`：`LLM_REVIEWED` 表示进入模型复核的代表样本，`DETERMINISTIC_SCORE` 表示通过正常本地评分层，`QUOTA_FILL` 表示在不降低既有证据门槛的前提下，由临时覆盖扩展机制补齐研究覆盖。`QUOTA_FILL` 不是静默裁剪或永久配额，而是配置中明确标记的分组观测机制；它不是随机化 A/B 实验，结论必须结合后续样本和混杂因素审慎解释。`analysis_summary.selection_basis_counts` 只统计最终 ACTIVE 研究池，并与 ACTIVE 总数相等。证据不足的标的仍明确保留在 `MONITOR` 或 `REJECT`，再由 A2/A3 完成市场主线与技术面收窄。
+因此，G0 的行业均衡只用于防止候选域被当日成交热点污染，绝不代表 A1 已完成选股。A1 现在有三个独立入口：当月券商金股以 `BROKER_GOLD_DIRECT` 直接进入研究池；月度政策和产业主线通过 `DETERMINISTIC_SCORE`/`LLM_REVIEWED` 进入；当研究覆盖仍低于目标时，以已冻结的财务质量、数据质量和流动性事实按行业分散形成 `FUNDAMENTAL_BASELINE`。`QUOTA_FILL` 只保留给旧快照兼容。机构直通只是研究资格，不是买入或交易放行；原始风险标签会继续传递，A2/A3/A4 独立执行市场、技术和风险判断。`analysis_summary.selection_basis_counts` 只统计最终 ACTIVE 研究池，并与 ACTIVE 总数相等。证据不足的其他标的仍明确保留在 `MONITOR` 或 `REJECT`。
 
 A2 的确定性行同时保留 `gate_results`、`first_blocking_gate` 和 `all_failed_gates`。门能够从冻结输入计算时才记录实际值、阈值和通过状态；尚未由当前确定性引擎应用或缺少事实源的门标记 `available=false`，不会被当成通过或否决。`LOCAL_DATA_SUFFICIENCY` 与 `LOCAL_ELIGIBILITY` 先解释本地数据/资格阻断；`SENT_TO_LLM` 只有原本可送审、后来因主题或排名预算截断时才算传输阻断，硬拒或数据缺口不会伪装成“未送模型”。`analysis_summary.gate_block_counts` 只统计实际可用且确实参与决策的失败门，便于区分真实无机会、数据不足和传输范围限制。
 
@@ -39,7 +39,7 @@ A2 的确定性行同时保留 `gate_results`、`first_blocking_gate` 和 `all_f
 | 全市场目录 | P0 母池 | 当日完整目录，通常 5,000+ | 进入确定性质量门 |
 | 质量过滤后 G0 | P1 可研究池 | 当前实测 3,886（含 70 只北交所） | 全部进入 A1 |
 | G0 + A1 `ACTIVE/MONITOR` | P2 线索池 | 输入为完整 G0；有效线索目标 300–800 | 仅 A1 `ACTIVE` 下传 |
-| A1 `ACTIVE` | P3 研究覆盖池 | 200–500 | 下传 A2 |
+| A1 `ACTIVE` | 机构直通 + 月度主线 + 基本面基准研究池 | 200–500 | 下传 A2；交易资格另行判断 |
 | A2 `focus_pool` | 当期主线/轮动与龙头中军候选 | 100–200 | 下传 A3 |
 | A3 `core_watch_pool` | P8 日前正式计划池 | 5–20 | 可发布给 A4 |
 | A3 `secondary_watch_pool` | P8.5 影子信号池 | 3–8 | 不发布订单，只留痕复盘 |

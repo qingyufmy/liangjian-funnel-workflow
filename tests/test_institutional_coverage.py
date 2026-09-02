@@ -50,7 +50,9 @@ def test_current_month_broker_gold_is_projected_as_t2_coverage(tmp_path) -> None
     assert result["symbol_count"] == 1
     assert result["excluded_future_count"] == 1
     assert result["symbols"]["600000.SH"]["broker_count"] == 2
-    assert result["symbols"]["600000.SH"]["direct_approval_forbidden"] is True
+    assert result["symbols"]["600000.SH"]["direct_research_entry"] is True
+    assert result["symbols"]["600000.SH"]["direct_approval_forbidden"] is False
+    assert result["runtime_role"] == "P1_INSTITUTIONAL_DIRECT_RESEARCH"
     assert result["benchmark_evaluation_remains_independent"] is True
 
 

@@ -41,6 +41,8 @@ _A1_SELECTION_BASES: tuple[str, ...] = (
     "LLM_REVIEWED",
     "DETERMINISTIC_SCORE",
     "QUOTA_FILL",
+    "BROKER_GOLD_DIRECT",
+    "FUNDAMENTAL_BASELINE",
 )
 _TOKEN = re.compile(r"[^0-9A-Za-z\u3400-\u9fff]+")
 A2_THEME_FACTORS: tuple[str, ...] = (
@@ -295,6 +297,33 @@ def screen_a1(
     # Frozen snapshots created before the flag existed preserve the historical
     # expansion behavior.  New runs receive the explicit versioned setting.
     quota_fill_enabled = targets.get("quota_fill_enabled", True) is True
+    # The fundamental baseline is a versioned replacement for the old quota
+    # expansion path.  Older frozen snapshots do not have this contract, so
+    # the safe compatibility default is disabled; current production snapshots
+    # receive the explicit mapping from ``funnel_config_v2.yaml``.
+    raw_baseline = targets.get("fundamental_baseline")
+    baseline_config = raw_baseline if isinstance(raw_baseline, Mapping) else {}
+    baseline_enabled = baseline_config.get("enabled") is True
+    baseline_minimum_quality = _number(
+        baseline_config.get("minimum_data_quality", minimum_quality)
+    )
+    if baseline_minimum_quality is None or baseline_minimum_quality < 0:
+        baseline_minimum_quality = minimum_quality
+    baseline_minimum_financial_quality = _number(
+        baseline_config.get("minimum_financial_quality", 60.0)
+    )
+    if baseline_minimum_financial_quality is None or baseline_minimum_financial_quality < 0:
+        baseline_minimum_financial_quality = 60.0
+    baseline_minimum_liquidity = _number(
+        baseline_config.get("minimum_liquidity_score", 50.0)
+    )
+    if baseline_minimum_liquidity is None or baseline_minimum_liquidity < 0:
+        baseline_minimum_liquidity = 50.0
+    baseline_maximum_per_industry = _number(
+        baseline_config.get("maximum_per_industry", 12)
+    )
+    if baseline_maximum_per_industry is None or baseline_maximum_per_industry < 1:
+        baseline_maximum_per_industry = 12.0
     institutional_contract = snapshot.get("BROKER_GOLD_COVERAGE_POOL")
     institutional_contract = institutional_contract if isinstance(institutional_contract, Mapping) else {}
     institutional_symbols = institutional_contract.get("symbols")
@@ -419,11 +448,11 @@ def screen_a1(
         ):
             hard_reject = True
             reason_codes.append("A1_FUNDAMENTAL_PULLBACK_HARD_REJECT")
-        if not matched:
+        if hard_reject:
+            status = "HARD_REJECT"
+        elif not matched:
             status = "OUTSIDE_THEME"
             reason_codes.append("A1_OUTSIDE_DISCOVERED_THEME")
-        elif hard_reject:
-            status = "HARD_REJECT"
         elif not raw_evidence_available:
             status = "LOCAL_MONITOR"
             reason_codes.append("A1_MAIN_BUSINESS_EVIDENCE_MISSING")
@@ -442,9 +471,15 @@ def screen_a1(
         else:
             status = "LOCAL_CANDIDATE"
         autonomous_status = status
-        if institutional_seed and status == "OUTSIDE_THEME":
-            status = "LOCAL_MONITOR"
-            reason_codes.append("A1_INSTITUTIONAL_THEME_MAPPING_REQUIRED")
+        if institutional_seed:
+            # A current-month broker-gold row is a first-class A1 research
+            # route once it is inside G0.  The local risk/tradability result is
+            # retained in ``autonomous_status`` and reason codes; it only
+            # controls whether the row can flow into the trading stages.
+            if status == "OUTSIDE_THEME":
+                reason_codes.append("A1_INSTITUTIONAL_THEME_MAPPING_REQUIRED")
+            status = "LOCAL_ACTIVE_CANDIDATE"
+            reason_codes.append("A1_INSTITUTIONAL_DIRECT_ENTRY")
         if matched and not hard_reject and available_weight < minimum_available_weight:
             # Preserve every independent data-gap reason even when an earlier
             # fail-closed branch (for example missing business evidence) has
@@ -482,7 +517,7 @@ def screen_a1(
             # Every deterministic row has an explicit provenance.  The value
             # is changed below only when the row is actually sent to the LLM
             # or promoted by the temporary coverage mechanism.
-            "selection_basis": "DETERMINISTIC_SCORE",
+            "selection_basis": "BROKER_GOLD_DIRECT" if institutional_seed else "DETERMINISTIC_SCORE",
             "score": round(score, 4),
             "data_quality_score": round(data_quality, 4),
             "financial_quality_score": round(financial_quality, 4),
@@ -492,6 +527,10 @@ def screen_a1(
             "taxonomy_matches": matched,
             "theme_source_refs": list(theme_by_id.get(str(primary_link.get("theme_id") or ""), {}).get("source_refs") or ()),
             "node_source_refs": list(node_by_id.get(str(primary_link.get("node_id") or ""), {}).get("source_refs") or ()),
+            "source_refs": _source_refs_from_values(
+                institutional if institutional_seed else None,
+                factor_details,
+            ),
             "score_breakdown": score_breakdown,
             "factor_details": factor_details,
             "available_weight": round(available_weight, 6),
@@ -523,6 +562,8 @@ def screen_a1(
             "coverage_origin": "BROKER_GOLD_T2" if institutional_seed else "AUTONOMOUS_RESEARCH",
             "autonomous_status": autonomous_status,
             "institutional_coverage": dict(institutional) if institutional_seed else None,
+            "research_route": "BROKER_GOLD_DIRECT" if institutional_seed else ("MONTHLY_THEME" if matched else None),
+            "downstream_trade_eligible": not hard_reject,
             "sent_to_llm": False,
             "feature_version": FEATURE_VERSION,
             "source_hashes": source_hashes,
@@ -532,9 +573,10 @@ def screen_a1(
         if status == "LOCAL_CANDIDATE":
             provisional[str(decision.get("node_id") or "UNMAPPED")].append(decision)
 
-    # A current-month institutional seed outside G0 must remain visible as an
-    # unresolved coverage row.  It cannot be injected into the research or
-    # trading universe because G0 owns listing/tradability/quality eligibility.
+    # A verified current-month broker-gold row is an A1 research obligation
+    # even when it is outside today's G0.  It remains explicitly research-only
+    # so A2 blocks it before model review; this widens research coverage without
+    # widening the executable universe.
     g0_set = set(symbols)
     for symbol, raw_institutional in institutional_symbols.items():
         normalized = _symbol(symbol)
@@ -544,8 +586,8 @@ def screen_a1(
             "symbol": normalized,
             "name": raw_institutional.get("name"),
             "stage": "A1_LOCAL_SCREEN",
-            "status": "OUTSIDE_G0",
-            "selection_basis": "DETERMINISTIC_SCORE",
+            "status": "LOCAL_ACTIVE_CANDIDATE",
+            "selection_basis": "BROKER_GOLD_DIRECT",
             "score": 0.0,
             "data_quality_score": 0.0,
             "financial_quality_score": 0.0,
@@ -553,6 +595,9 @@ def screen_a1(
             "theme_id": None,
             "node_id": None,
             "taxonomy_matches": [],
+            "theme_source_refs": [],
+            "node_source_refs": [],
+            "source_refs": _source_refs_from_values(raw_institutional),
             "score_breakdown": {},
             "factor_details": {},
             "available_weight": 0.0,
@@ -563,10 +608,16 @@ def screen_a1(
             "business_exposure_facts": [],
             "maximum_revenue_exposure_pct": None,
             "amount": 0.0,
-            "reason_codes": ["A1_INSTITUTIONAL_COVERAGE_SEED", "A1_INSTITUTIONAL_OUTSIDE_G0"],
+            "reason_codes": [
+                "A1_INSTITUTIONAL_COVERAGE_SEED",
+                "A1_INSTITUTIONAL_DIRECT_ENTRY",
+                "A1_INSTITUTIONAL_OUTSIDE_G0",
+            ],
             "coverage_origin": "BROKER_GOLD_T2",
             "autonomous_status": "OUTSIDE_G0",
             "institutional_coverage": dict(raw_institutional),
+            "research_route": "BROKER_GOLD_DIRECT",
+            "downstream_trade_eligible": False,
             "sent_to_llm": False,
             "feature_version": FEATURE_VERSION,
             "source_hashes": source_hashes,
@@ -610,12 +661,85 @@ def screen_a1(
                 if code != "A1_REQUIRES_LLM_EXPOSURE_REVIEW"
             ]
 
-    # Coverage is an acceptance contract.  When enough structured evidence is
-    # available, expand beyond the per-node diversity seed until the minimum
-    # research layer is met.  The maximum remains a research-capacity target,
-    # never a G0 scan limit; every non-selected symbol retains a decision row.
+    # The fundamental baseline is a separate, auditable research route.  It
+    # widens A1 beyond the monthly theme allow-list without weakening G0 or
+    # silently turning missing evidence into a positive signal.  Only rows
+    # which are still outside the active/review partitions can enter it.
     local_active_count = sum(item.get("status") == "LOCAL_ACTIVE_CANDIDATE" for item in decisions)
-    if quota_fill_enabled and local_active_count < active_target_min:
+    if baseline_enabled and local_active_count < active_target_min:
+        baseline_candidates: list[tuple[dict[str, Any], str, str]] = []
+        for item in decisions:
+            if item.get("status") not in {"LOCAL_MONITOR", "OUTSIDE_THEME"}:
+                continue
+            if item.get("coverage_origin") == "BROKER_GOLD_T2":
+                continue
+            if item.get("status") in {"HARD_REJECT", "OUTSIDE_G0"}:
+                continue
+            symbol = str(item.get("symbol") or "")
+            taxonomy_code, taxonomy_name = _baseline_industry_binding(
+                symbol,
+                industry,
+                candidates.get(symbol, {}),
+            )
+            if not taxonomy_code:
+                item["reason_codes"] = list(dict.fromkeys([
+                    *[str(code) for code in item.get("reason_codes", ()) if str(code)],
+                    "A1_FUNDAMENTAL_BASELINE_INDUSTRY_MISSING",
+                ]))
+                continue
+            if _safe_float(item.get("data_quality_score")) < baseline_minimum_quality:
+                continue
+            if _safe_float(item.get("financial_quality_score")) < baseline_minimum_financial_quality:
+                continue
+            if _safe_float(item.get("liquidity_score")) < baseline_minimum_liquidity:
+                continue
+            rank_score = _fundamental_baseline_score(item)
+            baseline_candidates.append((item, taxonomy_code, taxonomy_name))
+            item["baseline_rank_score"] = rank_score
+
+        baseline_candidates.sort(
+            key=lambda value: (
+                -_safe_float(value[0].get("baseline_rank_score")),
+                -_safe_float(value[0].get("financial_quality_score")),
+                -_safe_float(value[0].get("data_quality_score")),
+                -_safe_float(value[0].get("liquidity_score")),
+                -_safe_float(value[0].get("amount")),
+                str(value[0].get("symbol") or ""),
+            )
+        )
+        industry_counts: dict[str, int] = defaultdict(int)
+        for item, taxonomy_code, taxonomy_name in baseline_candidates:
+            if local_active_count >= active_target_max or local_active_count >= active_target_min:
+                break
+            if industry_counts[taxonomy_code] >= int(baseline_maximum_per_industry):
+                continue
+            if not item.get("taxonomy_matches"):
+                item["theme_id"] = f"INDUSTRY:{taxonomy_code}"
+                item["node_id"] = f"BASELINE:{taxonomy_code}"
+                item["theme_source_refs"] = []
+                item["node_source_refs"] = []
+                item["taxonomy_matches"] = [{
+                    "taxonomy": "INDUSTRY",
+                    "taxonomy_code": taxonomy_code,
+                    "taxonomy_name": taxonomy_name,
+                    "match_method": "FUNDAMENTAL_BASELINE_INDUSTRY",
+                    "confidence": 1.0,
+                }]
+            item["status"] = "LOCAL_ACTIVE_CANDIDATE"
+            item["selection_basis"] = "FUNDAMENTAL_BASELINE"
+            item["research_route"] = "FUNDAMENTAL_BASELINE"
+            item["downstream_trade_eligible"] = True
+            item["reason_codes"] = list(dict.fromkeys([
+                *[str(code) for code in item.get("reason_codes", ()) if str(code)],
+                "A1_FUNDAMENTAL_BASELINE_ENTRY",
+            ]))
+            industry_counts[taxonomy_code] += 1
+            local_active_count += 1
+
+    # Compatibility path for old snapshots without the explicit baseline
+    # contract.  New production snapshots use the baseline route above; this
+    # path remains bounded and retains the historical provenance label.
+    if quota_fill_enabled and not baseline_enabled and local_active_count < active_target_min:
         expandable = sorted(
             (
                 item for item in decisions
@@ -645,7 +769,10 @@ def screen_a1(
             local_active_count += 1
 
     for item in decisions:
-        if item.get("autonomous_status") == "LOCAL_CANDIDATE":
+        if (
+            item.get("autonomous_status") == "LOCAL_CANDIDATE"
+            and item.get("selection_basis") != "BROKER_GOLD_DIRECT"
+        ):
             item["autonomous_status"] = item.get("status")
 
     decisions.sort(key=lambda item: str(item["symbol"]))
@@ -751,6 +878,8 @@ def screen_a2(
         symbol = _symbol(item.get("symbol"))
         if not symbol:
             continue
+        upstream_research_route = str(item.get("research_route") or "").strip().upper()
+        upstream_research_only = item.get("downstream_trade_eligible") is False
         theme_id = str(item.get("primary_theme") or item.get("theme_id") or "UNMAPPED")
         candidate = candidates.get(symbol, {})
         amount = max(0.0, _number(candidate.get("amount")) or _number(candidate.get("turnover")) or 0.0)
@@ -843,6 +972,22 @@ def screen_a2(
             coverage_minimum=coverage_minimum,
             weights=weights,
         )
+        if upstream_research_only:
+            # A1 may retain a broker-gold row with a known hard risk for
+            # research traceability.  It must not receive an A2 route or be
+            # sent to an LLM, even if its market facts happen to be complete.
+            blocked_routes: dict[str, dict[str, Any]] = {}
+            for route_name, raw_route in route_results.items():
+                route = dict(raw_route) if isinstance(raw_route, Mapping) else {}
+                route["eligible"] = False
+                route["blocked_by_upstream"] = True
+                route["missing_reason_codes"] = list(dict.fromkeys([
+                    *[str(code) for code in route.get("missing_reason_codes", ()) if str(code)],
+                    "A2_UPSTREAM_RESEARCH_ONLY",
+                ]))
+                route["data_sufficiency_state"] = "BLOCKED_UPSTREAM"
+                blocked_routes[route_name] = route
+            route_results = blocked_routes
         eligible_routes = tuple(
             route for route, route_result in route_results.items()
             if route_result.get("eligible") is True
@@ -878,6 +1023,8 @@ def screen_a2(
         capital_flow = factor_scores.get("capital_flow", {})
         if capital_flow.get("available") is not True:
             reasons.append("A2_CAPITAL_FLOW_UNAVAILABLE")
+        if upstream_research_route in {"BROKER_GOLD_DIRECT", "FUNDAMENTAL_BASELINE"} and not _has_business_evidence(item):
+            reasons.append("A2_UPSTREAM_RESEARCH_ROUTE_WITHOUT_BUSINESS_EXPOSURE")
         missing_optional_factors = [
             name for name in _A2_MARKET_OPTIONAL_FACTORS
             if not (
@@ -891,7 +1038,7 @@ def screen_a2(
         if route_data_gap_reasons and not has_route:
             reasons.extend(("A2_CRITICAL_DATA_INSUFFICIENT", "A2_DATA_GAP"))
             reasons.extend(sorted(route_data_gap_reasons))
-        if not has_route:
+        if not has_route and not upstream_research_only:
             reasons.append("A2_NO_ROUTE_READY")
         reasons.extend(str(code) for code in behavior_decision.get("reason_codes", ()) if str(code))
         data_sufficiency_state = (
@@ -917,6 +1064,10 @@ def screen_a2(
             status = "LOCAL_MONITOR"
         elif not configured_weights:
             reasons.append("A2_SCORE_WEIGHTS_FALLBACK")
+        if upstream_research_only:
+            status = "HARD_REJECT"
+            data_sufficiency_state = "SUFFICIENT"
+            reasons.append("A2_UPSTREAM_RESEARCH_ONLY")
         decision = {
             "decision_id": content_hash({
                 "stage": "A2_LOCAL_ROLE",
@@ -943,6 +1094,8 @@ def screen_a2(
             "upstream_candidate_id": item.get("candidate_id") or item.get("upstream_candidate_id"),
             "business_exposure": item.get("business_exposure"),
             "business_exposure_facts": item.get("business_exposure_facts", []),
+            "research_route": upstream_research_route or None,
+            "downstream_trade_eligible": item.get("downstream_trade_eligible", True) is True,
             "source_refs": list(item.get("source_refs") or ()) if isinstance(item.get("source_refs"), Sequence) and not isinstance(item.get("source_refs"), (str, bytes, bytearray)) else [],
             "role": role,
             "legacy_market_role": legacy_role,
@@ -2046,14 +2199,31 @@ def _market_core_route_result(
     weights: Mapping[str, float] | None = None,
 ) -> dict[str, Any]:
     missing: list[str] = []
+    diagnostics: list[str] = []
+    research_route = str(item.get("research_route") or "").strip().upper()
+    research_route_qualified = research_route in {"BROKER_GOLD_DIRECT", "FUNDAMENTAL_BASELINE"}
     if identifiability < minimum_identifiability_score:
         missing.append("A2_IDENTIFIABILITY_BELOW_MINIMUM")
     if not str(item.get("primary_theme") or item.get("theme_id") or "").strip():
-        missing.append("A1_THEME_MISSING")
+        if research_route_qualified:
+            diagnostics.append("A2_UPSTREAM_RESEARCH_ROUTE_WITHOUT_STRUCTURAL_MAPPING")
+        else:
+            missing.append("A1_THEME_MISSING")
     if not str(item.get("industry_chain_node") or item.get("node_id") or "").strip():
-        missing.append("A1_CHAIN_NODE_MISSING")
+        if research_route_qualified:
+            if "A2_UPSTREAM_RESEARCH_ROUTE_WITHOUT_STRUCTURAL_MAPPING" not in diagnostics:
+                diagnostics.append("A2_UPSTREAM_RESEARCH_ROUTE_WITHOUT_STRUCTURAL_MAPPING")
+        else:
+            missing.append("A1_CHAIN_NODE_MISSING")
     if not _has_business_evidence(item):
-        missing.append("A1_BUSINESS_EVIDENCE_MISSING")
+        if research_route_qualified:
+            # These A1 routes are allowed to establish a broad market/emotion
+            # candidate without pretending that a revenue split proves a
+            # supply-chain position.  A2 keeps the gap as a diagnostic; the
+            # stricter SUPPLY_CHAIN_ALPHA route still requires its own facts.
+            diagnostics.append("A2_UPSTREAM_RESEARCH_ROUTE_WITHOUT_BUSINESS_EXPOSURE")
+        else:
+            missing.append("A1_BUSINESS_EVIDENCE_MISSING")
     # ``market_role`` is derived by the deterministic identity scorer when
     # the A1 row does not carry a role.  It is descriptive output, not an
     # upstream assertion.  Treating the derived LOW_IDENTITY label as an
@@ -2109,6 +2279,7 @@ def _market_core_route_result(
         "eligible": not missing,
         "route": MARKET_CORE_ROUTE,
         "missing_reason_codes": list(dict.fromkeys(missing)),
+        "diagnostic_reason_codes": list(dict.fromkeys(diagnostics)),
         "missing_optional_factors": missing_optional,
         "data_sufficiency_state": sufficiency,
         "bottleneck_status": "NOT_REQUIRED_FOR_MARKET_CORE",
@@ -2861,13 +3032,26 @@ def local_active_items(result: DeterministicGateResult) -> list[dict[str, Any]]:
         if item.get("status") != "LOCAL_ACTIVE_CANDIDATE":
             continue
         facts = [fact for fact in item.get("business_exposure_facts", ()) if isinstance(fact, Mapping)]
-        if not facts:
+        research_route = str(item.get("research_route") or "").strip().upper()
+        research_only_route = research_route in {"BROKER_GOLD_DIRECT", "FUNDAMENTAL_BASELINE"}
+        if not facts and not research_only_route:
             continue
-        exposure = max(facts, key=lambda fact: float(fact.get("revenue_exposure_pct") or 0.0))
-        source_ref = str(exposure.get("evidence_ref") or "")
-        source_refs = list(dict.fromkeys([
+        exposure = (
+            max(facts, key=lambda fact: float(fact.get("revenue_exposure_pct") or 0.0))
+            if facts
+            else None
+        )
+        source_ref = str((exposure or {}).get("evidence_ref") or "")
+        institutional_refs = (
+            _source_refs_from_values(item.get("institutional_coverage"))
+            if isinstance(item.get("institutional_coverage"), Mapping)
+            else []
+        )
+        source_refs = [ref for ref in dict.fromkeys([
+            *[str(value) for value in item.get("source_refs", ()) if str(value)],
             *[str(value) for value in item.get("theme_source_refs", ()) if str(value)],
             *[str(value) for value in item.get("node_source_refs", ()) if str(value)],
+            *institutional_refs,
             source_ref,
             *[
                 str(ref)
@@ -2876,7 +3060,7 @@ def local_active_items(result: DeterministicGateResult) -> list[dict[str, Any]]:
                 for ref in (factor.get("source_refs") or ())
                 if str(ref)
             ],
-        ]))
+        ]) if ref]
         projected.append({
             "symbol": item["symbol"],
             "candidate_id": f"a1-local:{item['symbol']}",
@@ -2885,25 +3069,44 @@ def local_active_items(result: DeterministicGateResult) -> list[dict[str, Any]]:
             "primary_theme": item.get("theme_id"),
             "secondary_themes": [],
             "industry_chain_node": item.get("node_id"),
-            "core_thesis": "MONTHLY_THEME_AND_DISCLOSED_BUSINESS_MAPPING_CONFIRMED",
-            "bear_case": "MONTHLY_THEME_WEAKENS_OR_DISCLOSED_BUSINESS_TRANSMISSION_FAILS",
+            "core_thesis": (
+                "BROKER_GOLD_MONTHLY_RESEARCH_COVERAGE"
+                if research_route == "BROKER_GOLD_DIRECT"
+                else "FUNDAMENTAL_BASELINE_RESEARCH_COVERAGE"
+                if research_route == "FUNDAMENTAL_BASELINE"
+                else "MONTHLY_THEME_AND_DISCLOSED_BUSINESS_MAPPING_CONFIRMED"
+            ),
+            "bear_case": (
+                "BROKER_GOLD_RESEARCH_THESIS_INVALIDATED_OR_UPSTREAM_RISK_CONFIRMED"
+                if research_route == "BROKER_GOLD_DIRECT"
+                else "FUNDAMENTAL_BASELINE_FINANCIAL_OR_LIQUIDITY_FACTS_DETERIORATE"
+                if research_route == "FUNDAMENTAL_BASELINE"
+                else "MONTHLY_THEME_WEAKENS_OR_DISCLOSED_BUSINESS_TRANSMISSION_FAILS"
+            ),
             "structural_score": item.get("score"),
             "data_quality_score": item.get("data_quality_score"),
             "evidence_confidence": min(
-                float(exposure.get("confidence") or 0.0),
+                float((exposure or {}).get("confidence") or 0.0) if exposure else 0.0,
                 float(item.get("data_quality_score") or 0.0) / 100.0,
             ),
             "status": "ACTIVE",
             "selection_basis": item.get("selection_basis") or "DETERMINISTIC_SCORE",
             "source_refs": source_refs,
-            "business_exposure": {
-                "business_name": exposure.get("business_name"),
-                "revenue_exposure_pct": exposure.get("revenue_exposure_pct"),
-                "source_ref": source_ref,
-                "page_number": exposure.get("page_number"),
-                "report_period": exposure.get("report_period"),
-                "extraction_method": exposure.get("extraction_method"),
-            },
+            # A research-only route may have no revenue-split evidence.  Keep
+            # it explicitly absent; never manufacture a percentage from the
+            # route or from a factor score.
+            "business_exposure": (
+                {
+                    "business_name": exposure.get("business_name"),
+                    "revenue_exposure_pct": exposure.get("revenue_exposure_pct"),
+                    "source_ref": source_ref,
+                    "page_number": exposure.get("page_number"),
+                    "report_period": exposure.get("report_period"),
+                    "extraction_method": exposure.get("extraction_method"),
+                }
+                if exposure
+                else None
+            ),
             "score_breakdown": dict(item.get("score_breakdown") or {}),
             "factor_details": dict(item.get("factor_details") or {}),
             "company_archetype": item.get("company_archetype"),
@@ -2920,6 +3123,8 @@ def local_active_items(result: DeterministicGateResult) -> list[dict[str, Any]]:
             "coverage_origin": item.get("coverage_origin"),
             "autonomous_status": item.get("autonomous_status"),
             "institutional_coverage": item.get("institutional_coverage"),
+            "research_route": research_route or None,
+            "downstream_trade_eligible": item.get("downstream_trade_eligible", True) is True,
             "local_decision": True,
             "sent_to_llm": False,
         })
@@ -2984,6 +3189,57 @@ def _membership_map(value: Any, *, taxonomy: str) -> dict[str, tuple[dict[str, A
             if code:
                 result[symbol].append({"taxonomy": taxonomy, "taxonomy_code": code, "taxonomy_name": name})
     return {symbol: tuple(items) for symbol, items in result.items()}
+
+
+def _baseline_industry_binding(
+    symbol: str,
+    industry: Mapping[str, Sequence[Mapping[str, Any]]],
+    candidate: Mapping[str, Any],
+) -> tuple[str, str]:
+    """Return one stable 同花顺 industry identity for baseline dispersion.
+
+    Industry memberships are an input fact, not a model-generated theme.  A
+    symbol can have several memberships, so the lexical first code/name pair
+    is used as the deterministic primary bucket.  The candidate fallback keeps
+    hand-authored/replay snapshots usable when only a symbol-level industry
+    field was frozen.
+    """
+
+    memberships = [
+        item for item in industry.get(symbol, ())
+        if isinstance(item, Mapping) and str(item.get("taxonomy_code") or "").strip()
+    ]
+    if memberships:
+        primary = sorted(
+            memberships,
+            key=lambda item: (
+                str(item.get("taxonomy_code") or "").strip().upper(),
+                str(item.get("taxonomy_name") or "").strip(),
+            ),
+        )[0]
+        return (
+            str(primary.get("taxonomy_code") or "").strip().upper(),
+            str(primary.get("taxonomy_name") or "").strip(),
+        )
+    code = str(
+        candidate.get("industry_taxonomy_code")
+        or candidate.get("industry_thscode")
+        or candidate.get("industry_code")
+        or ""
+    ).strip().upper()
+    name = str(candidate.get("industry_name") or candidate.get("industry") or "").strip()
+    return code, name
+
+
+def _fundamental_baseline_score(item: Mapping[str, Any]) -> float:
+    """Build the auditable baseline rank from already-frozen A1 facts."""
+
+    return round(
+        0.55 * _safe_float(item.get("financial_quality_score"))
+        + 0.30 * _safe_float(item.get("data_quality_score"))
+        + 0.15 * _safe_float(item.get("liquidity_score")),
+        6,
+    )
 
 
 def _taxonomy_links(

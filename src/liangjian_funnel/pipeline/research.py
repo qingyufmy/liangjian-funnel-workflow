@@ -2151,7 +2151,16 @@ class ResearchPipeline:
                     item["selection_basis"] = basis_by_symbol[symbol]
                 enriched.append(item)
             merged[partition] = enriched
-        basis_counts = {basis: 0 for basis in ("LLM_REVIEWED", "DETERMINISTIC_SCORE", "QUOTA_FILL")}
+        basis_counts = {
+            basis: 0
+            for basis in (
+                "LLM_REVIEWED",
+                "DETERMINISTIC_SCORE",
+                "QUOTA_FILL",
+                "BROKER_GOLD_DIRECT",
+                "FUNDAMENTAL_BASELINE",
+            )
+        }
         for item in merged.get("active_research_pool", ()):
             if not isinstance(item, Mapping):
                 continue
@@ -2189,18 +2198,28 @@ class ResearchPipeline:
                 for row in institutional_rows
             ),
             "rejected_count": sum(row.get("local_partition") == "HARD_REJECT" for row in institutional_rows),
-            "direct_approval_forbidden": True,
+            "direct_research_entry": True,
+            "direct_approval_forbidden": False,
             "autonomous_benchmark_remains_independent": True,
         }
         merged["local_screen_summary"] = gate.summary
         merged = _refresh_analysis_counts(merged, "A1")
         merged = _annotate_a1_pool_target(merged, snapshot.data)
+        # The A1 research universe is G0 plus verified institutional direct
+        # rows.  Rows outside G0 remain downstream_trade_eligible=false and A2
+        # rejects them deterministically; treating them as a partition error
+        # here would contradict the direct-research contract.
+        a1_research_universe = {
+            str(item.get("symbol"))
+            for item in gate.decisions
+            if item.get("symbol")
+        }
         reasons = _validate_output(
             merged,
             stage="A1",
             model=model,
             snapshot_id=snapshot.snapshot_id,
-            upstream_symbols=g0,
+            upstream_symbols=a1_research_universe,
             snapshot_data=snapshot.data,
         )
         approved_symbols = tuple(sorted(_approved_symbols(merged, "A1")))
@@ -4779,6 +4798,13 @@ def _prompt_replacements(
                 "node_count_target": [40, 80],
                 "quota_fill_enabled": False,
                 "quota_fill_observation": "COHORT_OBSERVATION_ONLY",
+                "fundamental_baseline": {
+                    "enabled": True,
+                    "minimum_financial_quality": 60,
+                    "minimum_data_quality": 75,
+                    "minimum_liquidity_score": 50,
+                    "maximum_per_industry": 12,
+                },
             }
             continue
         if name == "A2_POOL_TARGETS":
@@ -4797,7 +4823,8 @@ def _prompt_replacements(
                 for key in (
                     "schema_version", "available", "reason_code", "month", "as_of",
                     "record_count", "symbol_count", "content_hash", "runtime_role",
-                    "direct_approval_forbidden", "benchmark_evaluation_remains_independent",
+                    "direct_research_entry", "direct_approval_forbidden",
+                    "benchmark_evaluation_remains_independent",
                 )
             }
             continue
@@ -8917,7 +8944,7 @@ def _annotate_a1_pool_target(
     if clue_count < clue_min:
         reason_codes = [*reason_codes, "A1_CLUE_TARGET_UNDERFILLED"]
     summary.update({
-        "institutional_pool_role": "P2_CLUE_TO_P3_RESEARCH_COVERAGE",
+        "institutional_pool_role": "P1_INSTITUTIONAL_DIRECT_RESEARCH",
         "active_research_count": active_count,
         "clue_pool_count": clue_count,
         "active_research_target": {"minimum": active_min, "maximum": active_max},

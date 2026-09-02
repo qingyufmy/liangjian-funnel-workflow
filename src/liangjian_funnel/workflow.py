@@ -5282,6 +5282,9 @@ def _prompt_parameters(config: Mapping[str, Any]) -> dict[str, Any]:
                 "quota_fill_observation",
                 "COHORT_OBSERVATION_ONLY",
             ),
+            "fundamental_baseline": dict(a1.get("fundamental_baseline", {}))
+            if isinstance(a1.get("fundamental_baseline"), Mapping)
+            else {},
         },
         "A2_POOL_TARGETS": _pool_targets(a2.get("candidate_pool_target"), default=(100, 200)),
         "A2_ROTATION_THEME_COUNT": a2.get("rotation_theme_count", 3),

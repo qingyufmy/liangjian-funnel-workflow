@@ -252,6 +252,8 @@ def test_a1_selection_basis_is_explicit_and_does_not_change_active_symbols():
         "LLM_REVIEWED": 1,
         "DETERMINISTIC_SCORE": 1,
         "QUOTA_FILL": 4,
+        "BROKER_GOLD_DIRECT": 0,
+        "FUNDAMENTAL_BASELINE": 0,
     }
 
     local_active = local_active_items(first)
@@ -897,7 +899,7 @@ def test_screen_a2_review_all_eligible_bypasses_legacy_theme_top_n() -> None:
     assert all("A2_NOT_SENT_TO_LLM" not in item["reason_codes"] for item in result.decisions)
 
 
-def test_a1_broker_gold_seed_is_traceable_without_bypassing_g0_or_theme_mapping() -> None:
+def test_a1_broker_gold_direct_research_entry_preserves_downstream_risk_boundary() -> None:
     snapshot = _snapshot(2)
     in_g0 = snapshot["g0_symbols"][-1]
     snapshot["BROKER_GOLD_COVERAGE_POOL"] = {
@@ -918,16 +920,232 @@ def test_a1_broker_gold_seed_is_traceable_without_bypassing_g0_or_theme_mapping(
             },
         },
     }
+    snapshot["MAIN_BUSINESS_EVIDENCE"][in_g0] = {"available": False, "evidence": []}
 
     result = screen_a1(snapshot, _discovery(), local_top_n_per_node=2, llm_top_n_per_theme=1)
     by_symbol = {item["symbol"]: item for item in result.decisions}
 
-    assert by_symbol[in_g0]["status"] == "LOCAL_MONITOR"
-    assert "A1_INSTITUTIONAL_THEME_MAPPING_REQUIRED" in by_symbol[in_g0]["reason_codes"]
+    assert by_symbol[in_g0]["status"] == "LOCAL_ACTIVE_CANDIDATE"
+    assert by_symbol[in_g0]["selection_basis"] == "BROKER_GOLD_DIRECT"
+    assert by_symbol[in_g0]["research_route"] == "BROKER_GOLD_DIRECT"
+    assert by_symbol[in_g0]["downstream_trade_eligible"] is True
+    projected_by_symbol = {item["symbol"]: item for item in local_active_items(result)}
+    assert projected_by_symbol[in_g0]["selection_basis"] == "BROKER_GOLD_DIRECT"
+    assert projected_by_symbol[in_g0]["source_refs"] == ["broker:甲"]
+    assert projected_by_symbol[in_g0]["business_exposure"] is None
+    assert "A1_INSTITUTIONAL_DIRECT_ENTRY" in by_symbol[in_g0]["reason_codes"]
     assert by_symbol[in_g0]["coverage_origin"] == "BROKER_GOLD_T2"
-    assert by_symbol["000001.SZ"]["status"] == "OUTSIDE_G0"
+    assert by_symbol["000001.SZ"]["status"] == "LOCAL_ACTIVE_CANDIDATE"
+    assert by_symbol["000001.SZ"]["selection_basis"] == "BROKER_GOLD_DIRECT"
+    assert by_symbol["000001.SZ"]["downstream_trade_eligible"] is False
     assert "A1_INSTITUTIONAL_OUTSIDE_G0" in by_symbol["000001.SZ"]["reason_codes"]
-    assert set(result.monitor_symbols) >= {in_g0, "000001.SZ"}
+    assert "000001.SZ" not in result.monitor_symbols
+    assert in_g0 not in result.monitor_symbols
+
+
+def test_a1_broker_gold_hard_risk_still_enters_research_but_not_downstream() -> None:
+    snapshot = _snapshot(1)
+    symbol = snapshot["g0_symbols"][0]
+    snapshot["BROKER_GOLD_COVERAGE_POOL"] = {
+        "available": True,
+        "month": "2026-09",
+        "symbols": {
+            symbol: {
+                "symbol": symbol,
+                "name": "风险金股",
+                "brokers": ["券商甲"],
+                "source_refs": ["broker:risk"],
+            },
+        },
+    }
+    snapshot["MAIN_BUSINESS_EVIDENCE"][symbol] = {"available": False, "evidence": []}
+    snapshot["RISK_EVENTS"] = {
+        "available": True,
+        "records": [{"symbol": symbol, "severity": "HIGH", "event_type": "FRAUD"}],
+    }
+
+    result = screen_a1(snapshot, _discovery(), local_top_n_per_node=1, llm_top_n_per_theme=1)
+    item = result.decisions[0]
+
+    assert item["status"] == "LOCAL_ACTIVE_CANDIDATE"
+    assert item["autonomous_status"] == "HARD_REJECT"
+    assert item["selection_basis"] == "BROKER_GOLD_DIRECT"
+    assert item["downstream_trade_eligible"] is False
+    assert "A1_RISK_EVENT_PRESENT" in item["reason_codes"]
+    assert "A1_INSTITUTIONAL_DIRECT_ENTRY" in item["reason_codes"]
+    assert local_active_items(result)[0]["business_exposure"] is None
+
+
+def test_a1_fundamental_baseline_fills_minimum_with_industry_dispersion() -> None:
+    snapshot = _snapshot(10)
+    symbols = snapshot["g0_symbols"]
+    snapshot["A1_POOL_TARGETS"] = {
+        "active_research_target": [5, 6],
+        "quota_fill_enabled": True,
+        "fundamental_baseline": {
+            "enabled": True,
+            "minimum_data_quality": 75,
+            "minimum_financial_quality": 60,
+            "minimum_liquidity_score": 50,
+            "maximum_per_industry": 1,
+        },
+    }
+    # Keep every row outside the monthly discovery mapping so the test proves
+    # that the baseline is not a disguised theme route.
+    snapshot["THS_INDUSTRY_MEMBERSHIP"]["records"] = [
+        {
+            "thscode": symbol,
+            "mapping_status": "MAPPED",
+            "memberships": [{
+                "industry_thscode": f"IND{index:03d}.TI",
+                "industry_name": f"行业{index}",
+            }],
+        }
+        for index, symbol in enumerate(symbols)
+    ]
+    # Financial statements and indicators remain available, while business
+    # extraction is intentionally absent.  Baseline eligibility must not
+    # invent a revenue percentage to compensate.
+    snapshot["MAIN_BUSINESS_EVIDENCE"] = {
+        symbol: {"available": False, "evidence": []}
+        for symbol in symbols
+    }
+    snapshot["BROKER_GOLD_COVERAGE_POOL"] = {
+        "available": True,
+        "month": "2026-09",
+        "symbols": {
+            symbols[-1]: {
+                "symbol": symbols[-1],
+                "name": "机构金股",
+                "brokers": ["券商甲"],
+                "source_refs": ["broker:direct"],
+            },
+        },
+    }
+    snapshot["RISK_EVENTS"] = {
+        "available": True,
+        "records": [{"symbol": symbols[1], "severity": "HIGH", "event_type": "FRAUD"}],
+    }
+
+    result = screen_a1(snapshot, _discovery(), local_top_n_per_node=1, llm_top_n_per_theme=1)
+    active = [item for item in result.decisions if item["status"] == "LOCAL_ACTIVE_CANDIDATE"]
+    projected = local_active_items(result)
+    baseline = [item for item in active if item["selection_basis"] == "FUNDAMENTAL_BASELINE"]
+    direct = next(item for item in active if item["selection_basis"] == "BROKER_GOLD_DIRECT")
+
+    assert len(active) == 5
+    assert len(projected) == 5
+    assert len(baseline) == 4
+    assert direct["downstream_trade_eligible"] is True
+    assert all(item["research_route"] == "FUNDAMENTAL_BASELINE" for item in baseline)
+    assert all(item["theme_id"].startswith("INDUSTRY:") for item in baseline)
+    assert all(item["node_id"].startswith("BASELINE:") for item in baseline)
+    assert all(item["business_exposure"] is None for item in projected if item["selection_basis"] == "FUNDAMENTAL_BASELINE")
+    assert len({item["node_id"] for item in baseline}) == len(baseline)
+    assert symbols[1] not in {item["symbol"] for item in active}
+    assert result.summary["selection_basis_counts"] == {
+        "LLM_REVIEWED": 0,
+        "DETERMINISTIC_SCORE": 0,
+        "QUOTA_FILL": 0,
+        "BROKER_GOLD_DIRECT": 1,
+        "FUNDAMENTAL_BASELINE": 4,
+    }
+
+
+def test_a2_upstream_research_only_is_hard_rejected_without_llm() -> None:
+    snapshot = _snapshot(1)
+    symbol = snapshot["g0_symbols"][0]
+    row = {
+        "symbol": symbol,
+        "candidate_id": "a1:research-only",
+        "primary_theme": "theme-compute",
+        "industry_chain_node": "node-compute-device",
+        "research_route": "BROKER_GOLD_DIRECT",
+        "downstream_trade_eligible": False,
+        "a2_factor_scores": _complete_a2_factor_scores(90),
+        "data_quality_score": 95,
+    }
+
+    result = screen_a2(
+        snapshot,
+        {"active_research_pool": [row]},
+        minimum_identifiability_score=0,
+        llm_top_n_per_theme=1,
+    )
+    decision = result.decisions[0]
+
+    assert decision["status"] == "HARD_REJECT"
+    assert result.review_symbols == ()
+    assert decision["downstream_trade_eligible"] is False
+    assert "A2_UPSTREAM_RESEARCH_ONLY" in decision["reason_codes"]
+    assert "A2_UPSTREAM_RESEARCH_ROUTE_WITHOUT_BUSINESS_EXPOSURE" in decision["reason_codes"]
+    assert all(not route["eligible"] for route in decision["route_eligibility"].values())
+    assert all(route.get("blocked_by_upstream") is True for route in decision["route_eligibility"].values())
+
+
+def test_a2_market_core_allows_research_route_without_business_exposure() -> None:
+    snapshot = _snapshot(1)
+    symbol = snapshot["g0_symbols"][0]
+    row = {
+        "symbol": symbol,
+        "candidate_id": "a1:baseline",
+        "primary_theme": "INDUSTRY:884001.TI",
+        "industry_chain_node": "BASELINE:884001.TI",
+        "research_route": "FUNDAMENTAL_BASELINE",
+        "downstream_trade_eligible": True,
+        "a2_factor_scores": _complete_a2_factor_scores(90),
+        "data_quality_score": 95,
+        "source_refs": ["cninfo:baseline:2026q2"],
+    }
+
+    result = screen_a2(
+        snapshot,
+        {"active_research_pool": [row]},
+        minimum_identifiability_score=0,
+        llm_top_n_per_theme=1,
+        review_all_eligible=True,
+    )
+    decision = result.decisions[0]
+
+    assert decision["status"] == "REVIEW_CANDIDATE"
+    assert "MARKET_CORE" in decision["eligible_routes"]
+    assert "A1_BUSINESS_EVIDENCE_MISSING" not in decision["route_eligibility"]["MARKET_CORE"]["missing_reason_codes"]
+    assert "A2_UPSTREAM_RESEARCH_ROUTE_WITHOUT_BUSINESS_EXPOSURE" in decision["reason_codes"]
+    assert "A2_UPSTREAM_RESEARCH_ROUTE_WITHOUT_BUSINESS_EXPOSURE" in decision["route_eligibility"]["MARKET_CORE"]["diagnostic_reason_codes"]
+
+
+def test_a2_market_core_uses_research_route_when_direct_entry_has_no_theme_mapping() -> None:
+    snapshot = _snapshot(1)
+    symbol = snapshot["g0_symbols"][0]
+    row = {
+        "symbol": symbol,
+        "candidate_id": "a1:broker-direct-no-theme",
+        "research_route": "BROKER_GOLD_DIRECT",
+        "downstream_trade_eligible": True,
+        "a2_factor_scores": _complete_a2_factor_scores(90),
+        "data_quality_score": 95,
+        "source_refs": ["broker:direct:2026-09"],
+    }
+
+    result = screen_a2(
+        snapshot,
+        {"active_research_pool": [row]},
+        minimum_identifiability_score=0,
+        llm_top_n_per_theme=1,
+        review_all_eligible=True,
+    )
+    decision = result.decisions[0]
+    market = decision["route_eligibility"]["MARKET_CORE"]
+    supply = decision["route_eligibility"]["SUPPLY_CHAIN_ALPHA"]
+
+    assert decision["status"] == "REVIEW_CANDIDATE"
+    assert "MARKET_CORE" in decision["eligible_routes"]
+    assert "A1_THEME_MISSING" not in market["missing_reason_codes"]
+    assert "A1_CHAIN_NODE_MISSING" not in market["missing_reason_codes"]
+    assert "A2_UPSTREAM_RESEARCH_ROUTE_WITHOUT_STRUCTURAL_MAPPING" in market["diagnostic_reason_codes"]
+    assert "A2_UPSTREAM_RESEARCH_ROUTE_WITHOUT_BUSINESS_EXPOSURE" in market["diagnostic_reason_codes"]
+    assert supply["eligible"] is False
+    assert "A2_BOTTLENECK_EVIDENCE_INSUFFICIENT" in supply["missing_reason_codes"]
 
 
 def test_screen_a2_only_sends_market_strength_top_three_themes_to_review() -> None:

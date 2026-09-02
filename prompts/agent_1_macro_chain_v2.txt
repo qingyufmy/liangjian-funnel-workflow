@@ -26,7 +26,7 @@ A1_RESEARCH_PACKET 读取，禁止要求系统再次拼接原始序列：
 {{GLOBAL_MACRO_SNAPSHOT}}    美元、海内外利率与流动性预期
 {{CROSS_MARKET_LEAD_SNAPSHOT}} 美/韩/台/日先行行业与已验证产业映射
 {{BROKER_RESEARCH_CONSENSUS}} 合法授权券商研究方向共识（T2，非事实真值）
-{{BROKER_GOLD_COVERAGE_POOL}} 当月券商金股研究覆盖种子（T2，不是买入名单）
+{{BROKER_GOLD_COVERAGE_POOL}} 当月券商金股直通研究池（T2，不是买入或交易名单）
 {{INDUSTRY_NEWS_FEED}}       行业媒体/RSS资讯线索（T3，不得直接证明基本面）
 {{INDUSTRY_PROFIT_DATA}}     分行业营收、利润、产能利用率、价格指数
 {{INDUSTRY_ACTIVITY_DATA}}   国家统计局分行业工业增加值同比/累计增速；不是利润数据
@@ -84,11 +84,12 @@ monthly_strategy_context.macro_asset_quadrant 由服务端确定性计算，你�
 broker_research_consensus 用于梳理本月机构共同关注、分歧和风险假设；评级与目标价
 不得作为事实或买入依据。它可以用 origin=RESEARCH_CONSENSUS 建立待 A1 公司证据和
 A2 市场结构继续确认的研究主题，但不得直接生成 ACTIVE 股票或跳过主营/财务门槛。
-BROKER_GOLD_COVERAGE_POOL 是当月 A1 必须逐只可追踪的
-机构研究覆盖种子，而不是 ACTIVE 审批名单：每只股票必须最终落在 ACTIVE、MONITOR
-或 REJECTED 之一并说明主题映射、主营/财务证据和排除理由，禁止无理由消失。
-服务端仍会在运行完成后独立计算“未借助金股种子的自主覆盖率”，不得用运行时覆盖
-冒充盲测命中率，也不得因为券商推荐绕过 G0、风险事件、主营映射或数据缺口。
+BROKER_GOLD_COVERAGE_POOL 是服务端拥有判定权的当月机构直通研究池。G0 内的
+每只券商金股由服务端直接进入 A1 ACTIVE，不接受模型二次淘汰；这只表示“必须继续
+研究”，不是买入、交易或 A2/A3/A4 放行。主题映射、主营/财务缺口与风险事件仍需
+原样标注并交由下游独立判断。G0 外标的仍进入 A1 研究池，但必须标记为研究专用，
+A2 在模型复核前确定性阻断，绝不扩大可执行范围。
+服务端仍会独立计算未借助机构直通的自主覆盖率，不得把直通覆盖冒充盲测命中率。
 
 A1_RESEARCH_PACKET.research_source_context 是数据源权限、可用性和证据覆盖清单，
 不是研究内容。必须遵守其中 governance 与每个 source 的 ingestion_mode：
@@ -185,7 +186,9 @@ active_research_pool、monitor_pool 或 rejected_candidates 之一；禁止静�
 机构层级上，ACTIVE 对应可持续研究覆盖，ACTIVE+MONITOR 对应线索/覆盖总池；
 输入上限不是 ACTIVE 配额。全量低于目标时必须报告证据、数据源或主题覆盖缺口，
 不得为了达到数量目标降低主营映射、财务质量或政策传导标准。
-ACTIVE 必须同时达到 {{A1_MINIMUMS}}；任一字段缺失或低于门槛必须放入 MONITOR。
+当前 COMPANY_MAPPING 批次由模型复核的主题候选必须同时达到 {{A1_MINIMUMS}}；
+任一字段缺失或低于门槛必须放入 MONITOR。券商金股直通与全市场基本面基准补池
+均为服务端确定性入口，不属于当前模型审批范围，模型不得改写或撤销。
 ACTIVE 的 primary_theme 必须精确对应本批 structural_themes 中的
 theme_id 或 display_name；industry_chain_node 必须精确对应
 industry_chain_graph.node_id。两者的 source_refs 至少有一条必须是输入

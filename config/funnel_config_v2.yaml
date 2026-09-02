@@ -244,7 +244,7 @@ market_regime:
 agent_1:
   id: MACRO_FUNDAMENTAL_CHAIN
   discovery_contract_version: a1-discovery-contract/3.2.0
-  institutional_pool_role: P2_CLUE_TO_P3_RESEARCH_COVERAGE
+  institutional_pool_role: P1_INSTITUTIONAL_DIRECT_RESEARCH
   research_unit: INDUSTRY_CHAIN_NODE       # ★ 不是单只股票
   full_rebuild_schedule: MONTHLY           # 月初重建宏观、政策、研报与机构覆盖
   incremental_schedule: WEEKLY_AND_EVENT   # 周度只更新变化，不在每日收盘重复全量 A1
@@ -272,11 +272,12 @@ agent_1:
     preferred_groups: [CITIC, CICC, ZHONGTAI, HUATAI]
     evidence_tier: T2
     primary_evidence: false
-    benchmark_not_runtime_input: true
+    benchmark_evaluation_independent: true
     institutional_coverage_runtime:
       enabled: true
-      role: T2_RESEARCH_COVERAGE_SEED
-      direct_approval_forbidden: true
+      role: P1_INSTITUTIONAL_DIRECT_RESEARCH
+      direct_research_entry: true
+      direct_approval_forbidden: false
       every_symbol_traceable: true
       autonomous_benchmark_remains_independent: true
 
@@ -289,6 +290,15 @@ agent_1:
   active_research_target: [200, 500]        # 可持续研究覆盖层，证据不足可低于下限
   quota_fill_enabled: true                  # 临时覆盖观测机制；不降低证据门、不改变 G0 范围
   quota_fill_observation: COHORT_OBSERVATION_ONLY  # 非随机分组观测；不能宣称因果 A/B 结论
+
+  # 全市场基本面基准入口：当机构直通池与月度主题池仍不足时，使用已落地
+  # 财务、数据质量、流动性事实进行确定性补池；不依赖主题命中，不随机凑数。
+  fundamental_baseline:
+    enabled: true
+    minimum_financial_quality: 60
+    minimum_data_quality: 75
+    minimum_liquidity_score: 50
+    maximum_per_industry: 12
 
   minimum_score: 65
   minimum_data_quality: 75
