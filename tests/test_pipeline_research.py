@@ -1882,6 +1882,9 @@ def test_a3_lineage_locks_all_partitions_to_a2_upstream_and_origin_map():
             "600001.SH": {
                 "status": "REVIEW_CANDIDATE",
                 "strategy_profile": "TREND_MA5",
+                "stock_behavior_type": "TREND",
+                "route_permission": "ALLOW_A4",
+                "decision_id": "a3:600001.SH:trend-ma5",
                 "eligibility": "QUALIFIED",
                 "required_conditions": ["MONTH_CLOSED", "WEEK_CLOSED"],
                 "met_conditions": ["MONTH_CLOSED", "WEEK_CLOSED"],
@@ -1915,6 +1918,8 @@ def test_a3_lineage_locks_all_partitions_to_a2_upstream_and_origin_map():
         assert item["parent_candidate_id"] == "a1:600001.SH"
         assert item["candidate_origin"] == "FOCUS"
         assert item["lineage_status"] == "COMPLETE"
+        assert item["route_permission"] == "ALLOW_A4"
+        assert item["decision_id"] == "a3:600001.SH:trend-ma5"
         assert item["deterministic_strategy_profile"] == "TREND_MA5"
         assert item["deterministic_eligibility"] == "QUALIFIED"
         assert item["deterministic_met_conditions"] == ["MONTH_CLOSED", "WEEK_CLOSED"]

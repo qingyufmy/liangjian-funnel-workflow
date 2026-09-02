@@ -7166,6 +7166,11 @@ def _canonicalize_stage_lineage(
                 ("stock_behavior_type", stock_behavior_type),
                 ("decision_id", decision_id),
             ))
+            if stage == "A3":
+                # A3 owns a scalar execution permission (ALLOW_A4/BLOCKED),
+                # while A2 owns a list of eligible strategy routes.  Keep the
+                # two contracts distinct when validating lineage.
+                required_values.append(("route_permission", route_permission))
         if stage == "A3":
             required_values.append(("candidate_origin", candidate_origin))
         missing = [
@@ -7176,7 +7181,7 @@ def _canonicalize_stage_lineage(
         # UNRESOLVED behavior decision.  It means "do not route to A3/A4", not
         # that lineage was lost.  Only an absent/non-sequence value is a
         # lineage defect in the A2 v2 contract.
-        if behavior_contract_required and not (
+        if stage == "A2" and behavior_contract_required and not (
             isinstance(raw_route_permission, Sequence)
             and not isinstance(raw_route_permission, (str, bytes, bytearray))
         ):
