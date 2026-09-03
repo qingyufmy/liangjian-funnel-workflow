@@ -877,6 +877,7 @@ def screen_a2(
     market_emotion = raw_market_emotion if isinstance(raw_market_emotion, Mapping) else {}
     raw_market_funding = snapshot.get("MARKET_FUNDING_SNAPSHOT")
     market_funding = raw_market_funding if isinstance(raw_market_funding, Mapping) else {}
+    taxonomy_theme_map = _a2_taxonomy_theme_map(a1_output)
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     decisions: list[dict[str, Any]] = []
     for item in rows:
@@ -894,13 +895,19 @@ def screen_a2(
         technical_factor = _symbol_scoped_row(snapshot.get("FACTOR_SNAPSHOT"), symbol)
         if not factor:
             factor = technical_factor
-        theme_id = _a2_rotation_theme_id(item, factor)
+        source_theme_id = _a2_rotation_theme_id(item, factor)
         factor, taxonomy_binding = _bind_a2_factor_to_a1_lineage(
             snapshot,
             a1_output,
             item,
             symbol,
             factor,
+        )
+        rotation_direction_id = _a2_rotation_direction_id(
+            item,
+            factor,
+            taxonomy_theme_map,
+            fallback=source_theme_id,
         )
         explicit_relative = _relative_strength_score(factor, default=None)
         relative = explicit_relative if explicit_relative is not None else _percentile_score(
@@ -924,7 +931,7 @@ def screen_a2(
         factor_scores = _a2_factor_scores(
             item=item,
             symbol=symbol,
-            theme_id=theme_id,
+            theme_id=rotation_direction_id,
             snapshot=snapshot,
             factor=factor,
             tier_snapshot=tier_snapshot,
@@ -1092,8 +1099,9 @@ def screen_a2(
             "local_eligible_for_review": status == "REVIEW_CANDIDATE",
             "score": round(score, 4),
             "identifiability_score": round(identifiability, 4),
-            "theme_id": theme_id,
-            "primary_theme": theme_id,
+            "theme_id": source_theme_id,
+            "primary_theme": item.get("primary_theme") or source_theme_id,
+            "rotation_direction_id": rotation_direction_id,
             "node_id": item.get("industry_chain_node") or item.get("node_id"),
             "industry_chain_node": item.get("industry_chain_node") or item.get("node_id"),
             "upstream_candidate_id": item.get("candidate_id") or item.get("upstream_candidate_id"),
@@ -1152,16 +1160,18 @@ def screen_a2(
         }
         decisions.append(decision)
         if status == "REVIEW_CANDIDATE":
-            grouped[theme_id].append(decision)
+            grouped[rotation_direction_id].append(decision)
     theme_strength: dict[str, float] = {}
     for theme_id, values in grouped.items():
         values.sort(key=lambda item: (-float(item["score"]), -float(item["identifiability_score"]), str(item["symbol"])))
-        # Theme strength is an aggregation of the already-audited A2 score,
-        # not a new factor family.  Averaging the strongest five members avoids
-        # letting one isolated spike outrank a broad, tradeable rotation.
+        # Direction strength is an aggregation of the already-audited A2
+        # score, not a new factor family.  Keep five fixed breadth slots so a
+        # one-stock taxonomy spike cannot outrank a broad, tradeable rotation.
+        # Empty slots contribute zero; once five names exist this becomes the
+        # ordinary mean of the five leaders.
         leaders = values[:5]
         theme_strength[theme_id] = round(
-            sum(float(item["score"]) for item in leaders) / len(leaders),
+            sum(float(item["score"]) for item in leaders) / 5.0,
             4,
         )
     ranked_themes = sorted(
@@ -1870,6 +1880,78 @@ def _a2_rotation_theme_id(
     if taxonomy in {"INDUSTRY", "CONCEPT"} and code:
         return f"{taxonomy}:{code}"
     return "UNMAPPED"
+
+
+def _a2_taxonomy_theme_map(a1_output: Mapping[str, Any]) -> dict[str, str]:
+    """Return source-backed taxonomy-to-A1-theme mappings for A2 rotation.
+
+    A1 can admit institutional direct-research rows before assigning a
+    ``primary_theme``.  Those rows still carry an audited THS taxonomy.  A2
+    must aggregate them into the matching A1 structural direction instead of
+    treating every raw industry/concept code as an independent rotation.
+
+    Conflicting mappings are resolved deterministically by confidence and
+    then by theme id.  No name matching or semantic inference is performed.
+    """
+
+    ranked: dict[str, tuple[float, str]] = {}
+
+    def retain(code: Any, theme: Any, confidence: Any) -> None:
+        taxonomy_code = str(code or "").strip().upper()
+        theme_id = str(theme or "").strip()
+        if not taxonomy_code or not theme_id or theme_id.upper() == "UNMAPPED":
+            return
+        score = _number(confidence)
+        candidate = (score if score is not None else 0.0, theme_id)
+        current = ranked.get(taxonomy_code)
+        if current is None or candidate[0] > current[0] or (
+            candidate[0] == current[0] and candidate[1] < current[1]
+        ):
+            ranked[taxonomy_code] = candidate
+
+    raw_links = a1_output.get("taxonomy_links")
+    if isinstance(raw_links, Sequence) and not isinstance(raw_links, (str, bytes, bytearray)):
+        for raw in raw_links:
+            if not isinstance(raw, Mapping):
+                continue
+            retain(raw.get("taxonomy_code"), raw.get("theme_id"), raw.get("confidence"))
+
+    raw_mappings = a1_output.get("industry_theme_mappings")
+    if isinstance(raw_mappings, Sequence) and not isinstance(raw_mappings, (str, bytes, bytearray)):
+        for raw in raw_mappings:
+            if not isinstance(raw, Mapping):
+                continue
+            themes = raw.get("mapped_theme_ids")
+            if not isinstance(themes, Sequence) or isinstance(themes, (str, bytes, bytearray)):
+                continue
+            for theme_id in themes:
+                retain(raw.get("industry_thscode"), theme_id, raw.get("confidence"))
+
+    return {code: value[1] for code, value in ranked.items()}
+
+
+def _a2_rotation_direction_id(
+    item: Mapping[str, Any],
+    factor: Mapping[str, Any],
+    taxonomy_theme_map: Mapping[str, str],
+    *,
+    fallback: str,
+) -> str:
+    """Resolve the canonical direction used only for rotation aggregation."""
+
+    explicit = str(item.get("primary_theme") or item.get("theme_id") or "").strip()
+    if explicit and explicit.upper() != "UNMAPPED":
+        return explicit
+
+    raw_factors = factor.get("factors")
+    factors = raw_factors if isinstance(raw_factors, Mapping) else factor
+    resonance = factors.get("index_chain_resonance")
+    resonance = resonance if isinstance(resonance, Mapping) else {}
+    code = str(resonance.get("taxonomy_code") or "").strip().upper()
+    mapped = str(taxonomy_theme_map.get(code) or "").strip()
+    if mapped:
+        return mapped
+    return fallback
 
 
 def _a2_weights(snapshot: Mapping[str, Any]) -> tuple[dict[str, float], str, bool]:

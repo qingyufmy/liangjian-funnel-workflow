@@ -1012,6 +1012,23 @@ def test_a2_theme_batches_preserve_scope_and_pool_target_is_advisory():
     assert annotated["analysis_summary"]["pool_target_underfilled_by"] == 55
     assert annotated["analysis_summary"]["reason_codes"] == ["POOL_TARGET_UNDERFILLED"]
 
+    effective = _annotate_a2_pool_target(
+        {
+            "analysis_summary": {},
+            "focus_pool": active[:3],
+            "watch_only_pool": active[3:],
+            "rejected_candidates": [{"symbol": "600000.SH"}],
+        },
+        {"A2_POOL_TARGETS": {"pool_min": 30, "pool_max": 80}},
+    )
+    summary = effective["analysis_summary"]
+    assert summary["focus_pool_count"] == 3
+    assert summary["watch_only_pool_count"] == 42
+    assert summary["effective_research_pool_count"] == 45
+    assert summary["rejected_candidate_count"] == 1
+    assert summary["pool_target_underfilled_by"] == 0
+    assert "POOL_TARGET_UNDERFILLED" not in summary["reason_codes"]
+
 
 def test_a2_batch_merge_has_no_hidden_small_global_cap():
     envelope = _envelope(MODELS[0], "A2", "snap")

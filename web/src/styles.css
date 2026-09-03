@@ -141,6 +141,7 @@ button, a, input, select { -webkit-tap-highlight-color: transparent; }
 .stage-cell-trigger .status-badge { grid-column: 1 / -1; }
 .stage-cell-trigger .stage-count { color: var(--color-accent-strong); font-size: var(--text-ui); font-weight: 700; font-variant-numeric: tabular-nums lining-nums; }
 .stage-cell-trigger small { justify-self: end; color: var(--color-muted); font-size: var(--text-caption); }
+.stage-cell-trigger .stage-count-breakdown { grid-column: 1 / -1; overflow: hidden; color: var(--color-muted); font-size: var(--text-caption); line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
 .status-badge { width: max-content; max-width: 100%; display: inline-flex; align-items: center; gap: 8px; color: var(--color-muted); font-size: var(--text-caption); font-weight: 700; white-space: nowrap; }
 .status-badge.status-healthy { color: var(--color-success); }
 .status-badge.status-running { color: var(--color-accent); }

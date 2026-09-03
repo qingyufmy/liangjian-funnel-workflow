@@ -674,6 +674,79 @@ def test_a2_unmapped_broker_gold_uses_symbol_taxonomy_as_rotation_theme() -> Non
     assert decision["sent_to_llm"] is True
 
 
+def test_a2_maps_direct_research_taxonomies_into_canonical_rotation_directions() -> None:
+    symbols = ["600001.SH", "600002.SH", "600003.SH", "600004.SH"]
+    industry_codes = ["881001.TI", "881002.TI", "881003.TI", "881004.TI"]
+    membership = {
+        "available": True,
+        "records": [
+            {
+                "thscode": symbol,
+                "memberships": [{"industry_thscode": code, "industry_name": code}],
+            }
+            for symbol, code in zip(symbols, industry_codes, strict=True)
+        ],
+    }
+    features = build_a2_feature_snapshot(
+        candidates=[{"symbol": symbol, "amount": 1_000_000_000} for symbol in symbols],
+        daily_bars={
+            symbol: _bars(0.30 if symbol == symbols[-1] else 0.01)
+            for symbol in symbols
+        },
+        industry_membership=membership,
+        concept_membership=None,
+        ladder_snapshot={"records": []},
+        dragon_tiger_snapshot={"records": []},
+        attention_snapshot={"records": []},
+        sector_cycle_snapshot=None,
+        capital_flow_snapshot={"available": False, "reason_code": "SOURCE_NOT_CONFIGURED"},
+        as_of=NOW,
+    )
+    a1 = {
+        "active_research_pool": [
+            {
+                "symbol": symbol,
+                "candidate_id": f"a1:{symbol}",
+                "primary_theme": "UNMAPPED",
+                "research_route": "BROKER_GOLD_DIRECT",
+                "downstream_trade_eligible": True,
+            }
+            for symbol in symbols
+        ],
+        "industry_theme_mappings": [
+            {
+                "industry_thscode": code,
+                "mapped_theme_ids": ["TH_AI" if index < 3 else "TH_OTHER"],
+                "confidence": 0.9,
+            }
+            for index, code in enumerate(industry_codes)
+        ],
+    }
+
+    result = screen_a2(
+        {
+            "g0_candidates": [{"symbol": symbol, "amount": 1_000_000_000} for symbol in symbols],
+            "A2_FACTOR_SNAPSHOT": features,
+            "TIER_STRUCTURE_SNAPSHOT": features,
+            "CAPITAL_FLOW_SNAPSHOT": {"available": False, "reason_code": "SOURCE_NOT_CONFIGURED"},
+            "THS_INDUSTRY_MEMBERSHIP": membership,
+            "A2_THEME_METRICS": features["theme_metrics"],
+        },
+        a1,
+        minimum_identifiability_score=0,
+        llm_top_n_per_theme=4,
+        review_all_eligible=True,
+        rotation_theme_count=1,
+    )
+
+    by_symbol = {decision["symbol"]: decision for decision in result.decisions}
+    assert set(result.review_symbols) == set(symbols[:3])
+    assert {by_symbol[symbol]["rotation_direction_id"] for symbol in symbols[:3]} == {"TH_AI"}
+    assert by_symbol["600004.SH"]["rotation_direction_id"] == "TH_OTHER"
+    assert by_symbol["600004.SH"]["status"] == "LOCAL_MONITOR"
+    assert by_symbol["600001.SH"]["theme_id"] == "INDUSTRY:881001.TI"
+
+
 def test_a2_rejects_unproven_business_text_but_keeps_market_industry_fact_independent() -> None:
     evidence = _a2_behavior_evidence(
         item={

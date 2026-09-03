@@ -373,6 +373,14 @@ export interface StageSummary {
   label?: string;
   status: string;
   symbolCount?: number | null;
+  poolCounts?: {
+    approved: number;
+    watch: number;
+    rejected: number;
+    effectiveResearch: number;
+    a3Candidates?: number | null;
+    rotationDirections?: number | null;
+  } | null;
   latencyMs?: number | null;
   reasonCodes?: string[];
   /** Canonical backend projection. Legacy ``status`` remains for compatibility only. */

@@ -68,8 +68,20 @@ def test_a2_optional_capital_flow_gap_does_not_masquerade_as_data_insufficiency(
         _a2_output([], [{"symbol": "600000.SH", "reason_codes": ["A2_CAPITAL_FLOW_UNAVAILABLE"]}]),
         reasons=(),
     )
-    assert status == STATUS_VALIDATED_NO_OPPORTUNITY
-    assert reasons == ("A2_NO_FOCUS_OPPORTUNITY",)
+    assert status == STATUS_VALIDATED_UNDERFILLED_MARKET
+    assert reasons == ("A2_EFFECTIVE_POOL_UNDERFILLED_MARKET",)
+
+
+def test_a2_effective_pool_uses_focus_plus_eligible_watch_rows():
+    output = _a2_output(
+        [{"symbol": f"600{index:03d}.SH"} for index in range(3)],
+        [{"symbol": f"000{index:03d}.SZ", "data_sufficiency_state": "SUFFICIENT"} for index in range(29)],
+    )
+
+    status, reasons = _classify_stage_outcome("A2", output, reasons=())
+
+    assert status == STATUS_VALIDATED
+    assert reasons == ()
 
 
 def test_a2_final_canonical_evidence_gap_blocks_even_when_reviewed_output_is_empty():
@@ -259,7 +271,7 @@ def test_a2_hard_reject_data_gap_does_not_downgrade_surviving_market_core_scope(
     )
 
     assert status == STATUS_VALIDATED_UNDERFILLED_MARKET
-    assert reasons == ("A2_FOCUS_POOL_UNDERFILLED_MARKET",)
+    assert reasons == ("A2_EFFECTIVE_POOL_UNDERFILLED_MARKET",)
 
 
 def test_a3_zero_plan_distinguishes_missing_technical_data_from_no_setup():

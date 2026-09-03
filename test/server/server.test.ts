@@ -9,7 +9,7 @@ import type { Request } from "express";
 import { tokenMatches } from "../../server/auth.js";
 import { createApp } from "../../server/api.js";
 import { loadConfig } from "../../server/config.js";
-import { DashboardData, normalizeA4Replay, summarizeMonitorDispatch } from "../../server/dashboard.js";
+import { DashboardData, normalizeA4Replay, normalizeStagePoolCounts, summarizeMonitorDispatch } from "../../server/dashboard.js";
 import { normalizeLaneOutcome, normalizeRunOutcome, normalizeStageOutcome, ProjectFiles, resolveWithinRoot } from "../../server/files.js";
 import { LogStore } from "../../server/logger.js";
 import { LarkSettingsStore } from "../../server/lark-settings.js";
@@ -165,6 +165,26 @@ test("redacts bearer, API keys, and private reasoning fields", () => {
   expect(text).not.toContain("sk-test_123");
   const safe = sanitizeJson({ token: "sk-hidden", reasoning_content: "private", nested: "Bearer hidden" });
   expect(safe).toEqual({ token: "[REDACTED]", nested: "Bearer [REDACTED]" });
+});
+
+test("reports the complete A2 research pool instead of only the strict focus subset", () => {
+  expect(normalizeStagePoolCounts({
+    stage: "A2",
+    output: {
+      active_themes: [{ theme_id: "AI" }, { theme_id: "AGRI" }, { theme_id: "FINANCE" }],
+      focus_pool: [{ symbol: "000001.SZ" }, { symbol: "000002.SZ" }, { symbol: "000003.SZ" }],
+      watch_only_pool: Array.from({ length: 99 }, (_, index) => ({ symbol: String(index + 4) })),
+      rejected_candidates: Array.from({ length: 114 }, (_, index) => ({ symbol: `R${index}` })),
+      analysis_summary: { a3_candidate_count: 48 },
+    },
+  })).toEqual({
+    approved: 3,
+    watch: 99,
+    rejected: 114,
+    effectiveResearch: 102,
+    a3Candidates: 48,
+    rotationDirections: 3,
+  });
 });
 
 test("rejects path traversal and accepts only paths inside root", () => {

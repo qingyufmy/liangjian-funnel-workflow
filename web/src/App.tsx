@@ -652,6 +652,7 @@ interface StageDetailTarget {
   model: string;
   modelLabel: string;
   stage: StageSummary;
+  downstreamInputCount?: number | null;
 }
 
 function FunnelPanel({ workflow, onOpen }: { workflow: OverviewResponse["latestWorkflow"]; onOpen: () => void }) {
@@ -689,9 +690,12 @@ function FunnelPanel({ workflow, onOpen }: { workflow: OverviewResponse["latestW
                   <th scope="row"><span className="model-name">{modelLabel(lane)}</span><small>独立研究模型</small></th>
                   {stages.map((stage) => {
                     const summary = lane.stages.find((item) => item.stage.toUpperCase() === stage);
-                    return <StageCell key={stage} stage={summary} model={modelLabel(lane)} canOpen={Boolean(workflow.runId && summary)} onOpen={(trigger) => {
+                    const downstreamInputCount = stage === "A2"
+                      ? lane.stages.find((item) => item.stage.toUpperCase() === "A3")?.outcome?.counts.input ?? null
+                      : null;
+                    return <StageCell key={stage} stage={summary} model={modelLabel(lane)} downstreamInputCount={downstreamInputCount} canOpen={Boolean(workflow.runId && summary)} onOpen={(trigger) => {
                       if (!workflow.runId || !summary) return;
-                      openStageDetail({ runId: workflow.runId, laneId: lane.laneId, model: lane.model, modelLabel: modelLabel(lane), stage: summary }, trigger);
+                      openStageDetail({ runId: workflow.runId, laneId: lane.laneId, model: lane.model, modelLabel: modelLabel(lane), stage: summary, downstreamInputCount }, trigger);
                     }} />;
                   })}
                 </tr>
@@ -973,25 +977,57 @@ function ProgressStage({ stage }: { stage: WorkflowProgressStage }) {
     : batchMeasure
       ? `股票计数未提供 · 批次 ${progressPair(stage.batchProcessed, stage.batchTotal)}`
       : "股票计数未提供 · 批次数据未提供";
-  const funnelCounts = [
-    stage.selected !== null ? `送模型 ${progressCount(stage.selected)}` : null,
-    stage.monitor !== null ? `观察 ${progressCount(stage.monitor)}` : null,
-    stage.rejected !== null ? `淘汰 ${progressCount(stage.rejected)}` : null,
-  ].filter(Boolean).join(" · ");
+  const isA2Stage = stage.stage.toUpperCase().includes("A2");
+  const effectiveA2Count = isA2Stage && stage.selected !== null && stage.monitor !== null
+    ? stage.selected + stage.monitor
+    : null;
+  const funnelCounts = isA2Stage
+    ? [
+        effectiveA2Count !== null ? `有效研究池 ${progressCount(effectiveA2Count)}` : null,
+        stage.selected !== null ? `核心聚焦 ${progressCount(stage.selected)}` : null,
+        stage.monitor !== null ? `扩展观察 ${progressCount(stage.monitor)}` : null,
+        stage.rejected !== null ? `硬性淘汰 ${progressCount(stage.rejected)}` : null,
+      ].filter(Boolean).join(" · ")
+    : [
+        stage.selected !== null ? `送模型 ${progressCount(stage.selected)}` : null,
+        stage.monitor !== null ? `观察 ${progressCount(stage.monitor)}` : null,
+        stage.rejected !== null ? `淘汰 ${progressCount(stage.rejected)}` : null,
+      ].filter(Boolean).join(" · ");
   const diagnosticLabel = progressDiagnosticLabel(stage.diagnostics);
   return <li><div><strong>{progressPhaseLabel(stage.stage)}</strong><StatusBadge status={stage.status} /></div><span>{metricLabel}</span>{funnelCounts ? <span>{funnelCounts}</span> : null}{diagnosticLabel ? <span className="progress-diagnostics">{diagnosticLabel}</span> : null}{displayMeasure ? <ProgressBar processed={displayMeasure.processed} total={displayMeasure.total} compact /> : <span className="progress-no-value">暂无可用进度</span>}</li>;
 }
 
-function StageCell({ stage, model, canOpen, onOpen }: { stage?: StageSummary; model: string; canOpen: boolean; onOpen: (trigger: HTMLButtonElement) => void }) {
+function StageCell({ stage, model, downstreamInputCount, canOpen, onOpen }: { stage?: StageSummary; model: string; downstreamInputCount?: number | null; canOpen: boolean; onOpen: (trigger: HTMLButtonElement) => void }) {
   if (!stage) return <td><div className="stage-cell stage-unknown"><StatusBadge status="UNKNOWN" label="无记录" /><small>—</small></div></td>;
+  const stageName = stage.stage.toUpperCase();
   const selectedCount = stage.symbolCount ?? stage.outcome?.counts.selected ?? null;
-  const countLabel = selectedCount !== null && selectedCount !== undefined ? `${selectedCount} 只` : "数量未知";
+  const effectiveCount = stageName === "A2"
+    ? stage.poolCounts?.effectiveResearch ?? stage.outcome?.counts.effective_research_pool ?? selectedCount
+    : selectedCount;
+  const countLabel = effectiveCount !== null && effectiveCount !== undefined
+    ? stageName === "A2" ? `有效研究 ${progressCount(effectiveCount)} 只` : `${progressCount(effectiveCount)} 只`
+    : "数量未知";
+  const breakdown = stageName === "A2" && stage.poolCounts
+    ? [
+        stage.poolCounts.rotationDirections !== null && stage.poolCounts.rotationDirections !== undefined
+          ? `${stage.poolCounts.rotationDirections} 个方向`
+          : null,
+        `聚焦 ${stage.poolCounts.approved}`,
+        `观察 ${stage.poolCounts.watch}`,
+        stage.poolCounts.a3Candidates !== null && stage.poolCounts.a3Candidates !== undefined
+          ? `进入 A3 ${stage.poolCounts.a3Candidates}`
+          : downstreamInputCount !== null && downstreamInputCount !== undefined
+            ? `进入 A3 ${downstreamInputCount}`
+          : null,
+      ].filter(Boolean).join(" · ")
+    : null;
   return (
     <td className="stage-cell-table-cell">
       <button className="stage-cell-trigger" type="button" disabled={!canOpen} onClick={(event) => onOpen(event.currentTarget)} aria-label={`查看 ${model} ${STAGE_LABELS[stage.stage.toUpperCase()] ?? stage.stage} 详情，${countLabel}`}>
         <StatusBadge status={stage.status} outcome={stage.outcome} />
         <span className="stage-count">{countLabel}</span>
         <small>{stage.latencyMs ? formatDuration(stage.latencyMs) : "耗时未知"}</small>
+        {breakdown ? <span className="stage-count-breakdown">{breakdown}</span> : null}
       </button>
     </td>
   );
@@ -1119,6 +1155,10 @@ function StageDetailDialog({ target, onDismiss }: { target: StageDetailTarget | 
   const selected = data?.items.find((item) => item.symbol === selectedSymbol) ?? data?.items[0] ?? null;
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
   const isA3 = target?.stage.stage.toUpperCase() === "A3";
+  const isA2 = target?.stage.stage.toUpperCase() === "A2";
+  const stageResultCount = isA2
+    ? target?.stage.poolCounts?.effectiveResearch ?? target?.stage.outcome?.counts.effective_research_pool ?? data?.outputCount ?? target?.stage.symbolCount
+    : data?.outputCount ?? target?.stage.symbolCount;
 
   function selectPool(nextPool: StagePoolId): void {
     setPool(nextPool);
@@ -1150,7 +1190,7 @@ function StageDetailDialog({ target, onDismiss }: { target: StageDetailTarget | 
             <dl className="stage-detail-metrics">
               <div><dt>状态</dt><dd><StatusBadge status={data?.status ?? target.stage.status} outcome={data?.outcome ?? target.stage.outcome} /></dd></div>
               <div><dt>输入</dt><dd>{progressCount(data?.inputCount)}</dd></div>
-              <div><dt>结果</dt><dd>{progressCount(data?.outputCount ?? target.stage.symbolCount)}</dd></div>
+              <div><dt>{isA2 ? "有效研究池" : "结果"}</dt><dd>{progressCount(stageResultCount)}</dd></div>
               <div><dt>耗时</dt><dd>{formatDuration(data?.latencyMs ?? target.stage.latencyMs)}</dd></div>
             </dl>
             {data?.outcome ?? target.stage.outcome ? <OutcomeNotice outcome={data?.outcome ?? target.stage.outcome} /> : null}

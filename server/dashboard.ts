@@ -28,6 +28,48 @@ function arrayField(value: unknown, key: string): readonly unknown[] {
   return source ? asArray(source[key]) ?? [] : [];
 }
 
+function safeCount(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? Math.floor(value)
+    : null;
+}
+
+export function normalizeStagePoolCounts(stage: JsonRecord): JsonValue | null {
+  const stageName = asString(stage.stage)?.toUpperCase();
+  const output = record(stage.output);
+  if (!stageName || !output) return null;
+
+  const poolNames = stageName === "A1"
+    ? { approved: "active_research_pool", watch: "monitor_pool", rejected: "rejected_candidates" }
+    : stageName === "A2"
+      ? { approved: "focus_pool", watch: "watch_only_pool", rejected: "rejected_candidates" }
+      : stageName === "A3"
+        ? { approved: "core_watch_pool", watch: "secondary_watch_pool", rejected: "rejected_candidates" }
+        : null;
+  if (!poolNames) return null;
+
+  const approved = arrayField(output, poolNames.approved).length;
+  const watch = arrayField(output, poolNames.watch).length;
+  const rejected = arrayField(output, poolNames.rejected).length;
+  const summary = record(output.analysis_summary);
+  const effectiveResearch = stageName === "A2"
+    ? safeCount(summary?.effective_research_pool_count) ?? approved + watch
+    : approved;
+  const a3Candidates = stageName === "A2" ? safeCount(summary?.a3_candidate_count) : null;
+  const rotationDirections = stageName === "A2"
+    ? safeCount(summary?.rotation_direction_count) ?? arrayField(output, "active_themes").length
+    : null;
+
+  return sanitizeJson({
+    approved,
+    watch,
+    rejected,
+    effectiveResearch,
+    a3Candidates,
+    rotationDirections,
+  });
+}
+
 function parseJsonArray(value: unknown): JsonValue | null {
   if (typeof value !== "string") return null;
   try {
@@ -416,6 +458,7 @@ function normalizeStage(value: unknown): JsonValue {
     stage: asString(stage.stage),
     status: asString(stage.status),
     symbolCount: Array.isArray(symbols) ? symbols.length : null,
+    poolCounts: normalizeStagePoolCounts(stage),
     latencyMs: typeof latency === "number" && Number.isFinite(latency) ? latency : null,
     reasonCodes,
     outcome: normalizeStageOutcome(stage, asString(stage.stage) ?? "UNKNOWN"),

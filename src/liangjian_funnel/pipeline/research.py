@@ -5626,6 +5626,7 @@ def _gate_item_from_decision(
     if stage == "A2":
         item.update({
             "theme_score": decision.get("score"),
+            "rotation_direction_id": decision.get("rotation_direction_id"),
             "theme_rotation_rank": decision.get("theme_rotation_rank"),
             "theme_rotation_score": decision.get("theme_rotation_score"),
             "top_rotation_theme": decision.get("top_rotation_theme"),
@@ -7100,6 +7101,7 @@ def _canonicalize_stage_lineage(
                 canonical["theme_rotation_rank"] = context.get("theme_rotation_rank")
                 canonical["theme_rotation_score"] = context.get("theme_rotation_score")
                 canonical["top_rotation_theme"] = context.get("top_rotation_theme") is True
+                canonical["rotation_direction_id"] = context.get("rotation_direction_id")
         else:
             canonical["upstream_candidate_id"] = upstream_id
             canonical["parent_candidate_id"] = upstream_id
@@ -8954,7 +8956,14 @@ def _annotate_a2_pool_target(
     output: Mapping[str, Any],
     snapshot_data: Mapping[str, Any],
 ) -> dict[str, Any]:
-    """Report institutional pool capacity without manufacturing candidates."""
+    """Report A2 research capacity without manufacturing candidates.
+
+    ``focus_pool`` is deliberately narrow: it represents the strongest names
+    in the leading rotation directions.  A2's usable downstream research
+    scope also includes ``watch_only_pool``; A3 applies its own deterministic
+    eligibility checks before technical review.  Treating focus alone as the
+    A2 result made a healthy 3 + 99 partition appear to contain only 3 stocks.
+    """
 
     result = dict(output)
     raw_targets = snapshot_data.get("A2_POOL_TARGETS")
@@ -8962,18 +8971,61 @@ def _annotate_a2_pool_target(
     minimum = max(0, _safe_int(targets.get("pool_min", 100)))
     maximum = max(minimum, _safe_int(targets.get("pool_max", 200)))
     focus_count = len(result.get("focus_pool")) if isinstance(result.get("focus_pool"), list) else 0
+    watch_rows = result.get("watch_only_pool") if isinstance(result.get("watch_only_pool"), list) else []
+    watch_count = len(watch_rows)
+    effective_watch_rows = [
+        item for item in watch_rows
+        if isinstance(item, Mapping) and _a2_watch_row_research_eligible(item)
+    ]
+    rejected_count = len(result.get("rejected_candidates")) if isinstance(result.get("rejected_candidates"), list) else 0
+    effective_count = focus_count + len(effective_watch_rows)
+    a3_candidate_count = focus_count + sum(
+        1 for item in effective_watch_rows if _a3_watch_only_candidate_eligible(item)
+    )
+    direction_ids: set[str] = set()
+    for item in result.get("focus_pool") or ():
+        if not isinstance(item, Mapping):
+            continue
+        direction_id = str(
+            item.get("rotation_direction_id")
+            or item.get("theme_id")
+            or item.get("primary_theme")
+            or ""
+        ).strip()
+        if direction_id:
+            direction_ids.add(direction_id)
     summary = dict(result.get("analysis_summary")) if isinstance(result.get("analysis_summary"), Mapping) else {}
     reason_codes = summary.get("reason_codes") if isinstance(summary.get("reason_codes"), list) else []
-    if focus_count < minimum:
+    reason_codes = [str(code) for code in reason_codes if str(code) != "POOL_TARGET_UNDERFILLED"]
+    if effective_count < minimum:
         reason_codes = list(dict.fromkeys([*reason_codes, "POOL_TARGET_UNDERFILLED"]))
+    notes = summary.get("notes") if isinstance(summary.get("notes"), list) else []
+    summary["notes"] = [note for note in notes if str(note).strip() != "POOL_TARGET_UNDERFILLED"]
     summary.update({
         "focus_pool_count": focus_count,
+        "watch_only_pool_count": watch_count,
+        "effective_research_pool_count": effective_count,
+        "a3_candidate_count": a3_candidate_count,
+        "rejected_candidate_count": rejected_count,
+        "rotation_direction_count": len(direction_ids),
         "pool_target": {"minimum": minimum, "maximum": maximum, "quota_forbidden": True},
-        "pool_target_underfilled_by": max(0, minimum - focus_count),
+        "pool_target_underfilled_by": max(0, minimum - effective_count),
         "reason_codes": reason_codes,
     })
     result["analysis_summary"] = summary
     return result
+
+
+def _a2_watch_row_research_eligible(item: Mapping[str, Any]) -> bool:
+    """Return whether an A2 watch row remains part of the effective pool."""
+
+    status = str(item.get("status") or "").strip().upper()
+    if status in {"REJECTED", "HARD_REJECT", "DATA_GAP"}:
+        return False
+    sufficiency = str(item.get("data_sufficiency_state") or "").strip().upper()
+    if sufficiency in {"INSUFFICIENT", "UNAVAILABLE", "MISSING", "DATA_GAP"}:
+        return False
+    return not bool(_output_reason_codes({"watch_only_pool": [item]}).intersection(_A2_EVIDENCE_GAP_REASONS))
 
 
 def _annotate_a1_pool_target(
@@ -9894,6 +9946,7 @@ def _with_a2_bottleneck_context(
             # authoritative for every later A2/A3 model response.
             "company_name": item.get("name"),
             "theme_id": item.get("theme_id"),
+            "rotation_direction_id": item.get("rotation_direction_id"),
             "industry_chain_node": item.get("node_id"),
             "upstream_candidate_id": item.get("upstream_candidate_id"),
             "deterministic_status": item.get("status"),
@@ -10290,8 +10343,16 @@ def _classify_stage_outcome(
 
     if stage == "A2":
         focus_count = len(output.get("focus_pool")) if isinstance(output.get("focus_pool"), list) else 0
+        watch_rows = output.get("watch_only_pool") if isinstance(output.get("watch_only_pool"), list) else []
+        watch_count = sum(
+            1 for item in watch_rows
+            if isinstance(item, Mapping) and _a2_watch_row_research_eligible(item)
+        )
         targets = output.get("analysis_summary")
         targets = targets if isinstance(targets, Mapping) else {}
+        # Recompute from canonical pools.  Never trust a persisted summary to
+        # inflate completion after rows were removed or a prior run was reused.
+        effective_count = focus_count + watch_count
         target = targets.get("pool_target")
         minimum = (
             _safe_int(target.get("minimum"))
@@ -10351,14 +10412,14 @@ def _classify_stage_outcome(
             )
         else:
             gap_reasons.update(gate_reasons.intersection(_A2_EVIDENCE_GAP_REASONS))
-        if focus_count == 0:
+        if effective_count == 0:
             if gap_reasons:
                 return STATUS_DEGRADED_UNDERFILLED_DATA_GAP, tuple(sorted(gap_reasons))
             return STATUS_VALIDATED_NO_OPPORTUNITY, ("A2_NO_FOCUS_OPPORTUNITY",)
-        if focus_count < minimum:
+        if effective_count < minimum:
             if gap_reasons:
                 return STATUS_DEGRADED_UNDERFILLED_DATA_GAP, tuple(sorted(gap_reasons))
-            return STATUS_VALIDATED_UNDERFILLED_MARKET, ("A2_FOCUS_POOL_UNDERFILLED_MARKET",)
+            return STATUS_VALIDATED_UNDERFILLED_MARKET, ("A2_EFFECTIVE_POOL_UNDERFILLED_MARKET",)
         return STATUS_VALIDATED, ()
 
     if stage == "A3" and not _approved_symbols(output, "A3"):
