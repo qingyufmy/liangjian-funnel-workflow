@@ -3799,7 +3799,10 @@ class WorkflowApplication:
                     "emotion_cycle_stage": raw.get("emotion_cycle_stage"),
                     "selection_reasons": raw.get("selection_reasons") or raw.get("reason_codes") or [],
                     "reference_price": raw.get("reference_price"),
-                    "reference_price_as_of": raw.get("reference_price_as_of"),
+                    "reference_price_as_of": _normalize_reference_price_as_of(
+                        raw.get("reference_price_as_of"),
+                        research_context.get("market_trade_date"),
+                    ),
                     "trigger_low": raw.get("trigger_low"),
                     "trigger_high": raw.get("trigger_high"),
                     "stop_level": raw.get("stop_level") or raw.get("daily_invalidation"),
@@ -5249,6 +5252,17 @@ def _plain_number(value: Any) -> str:
         return f"{float(value):.1f}"
     except (TypeError, ValueError):
         return "-"
+
+
+def _normalize_reference_price_as_of(value: Any, market_trade_date: Any) -> str | None:
+    """Repair only a recovery-time/date mismatch in report projections."""
+
+    raw = str(value or "").strip()
+    market_date = str(market_trade_date or "").strip()
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", market_date):
+        if not raw or raw[:10] != market_date:
+            return f"{market_date}T15:00:00+08:00"
+    return raw or None
 
 
 def _ratio_text(value: Any) -> str:

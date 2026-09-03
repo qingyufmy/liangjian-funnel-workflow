@@ -164,6 +164,23 @@ def test_plan_price_advice_uses_only_auditable_levels() -> None:
     assert no_pressure.pressure_basis is None
 
 
+def test_explicit_market_close_wins_over_recovery_wall_clock() -> None:
+    factor = _factor()
+    factor["as_of"] = "2026-09-03T10:04:58+08:00"
+
+    result = evaluate_a3_strategy(
+        {"symbol": "600107.SH", "market_role": "TREND_CORE"},
+        factor=factor,
+        price_levels=_prices(),
+        tradability={"tradable": True},
+        kline={"labels": ["PLATFORM_BREAKOUT"]},
+        a2_context={"market_role": "TREND_CORE", "relative_strength": {"percentile": 85}},
+        as_of="2026-09-02T15:00:00+08:00",
+    )
+
+    assert result.reference_price_as_of == "2026-09-02T15:00:00+08:00"
+
+
 def test_non_executable_candidate_has_no_priority() -> None:
     result = evaluate_a3_strategy(
         {"symbol": "600107.SH", "market_role": "TREND_CORE"},

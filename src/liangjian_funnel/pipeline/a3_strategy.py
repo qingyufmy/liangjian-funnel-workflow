@@ -1405,6 +1405,7 @@ def evaluate_a3_strategy(
     sector_permission: str | None = None,
     market_emotion: Mapping[str, Any] | None = None,
     market_funding: Mapping[str, Any] | None = None,
+    as_of: datetime | date | str | None = None,
     ablation: Mapping[str, Any] | None = None,
 ) -> A3StrategyDecision:
     """Evaluate a candidate through the stable keyword-only A3 contract.
@@ -1445,6 +1446,7 @@ def evaluate_a3_strategy(
         _mapping(price_levels),
         _mapping(tradability),
         kline,
+        as_of=as_of,
         ablation=ablation,
     )
     return A3StrategyDecision.model_validate(result)
@@ -2508,18 +2510,39 @@ def _reference_price_as_of(
     *,
     explicit_as_of: datetime | date | str | None,
 ) -> str | None:
-    for source in (daily, context, snapshot):
+    # Generic factor ``as_of`` fields describe when the feature was computed,
+    # not when the reference close traded.  Prefer a bar/date identity, then
+    # the caller's explicitly frozen market-close timestamp.  This prevents a
+    # same-day recovery from labeling yesterday's close with today's wall
+    # clock while leaving the price itself unchanged.
+    for source in (daily,):
         value = _first(
             source,
             "bar_end",
             "trade_date",
             "date",
-            "as_of",
             "timestamp",
         )
         if value is not None:
             return _iso(value)
-    return _iso(explicit_as_of) if explicit_as_of is not None else None
+    if explicit_as_of is not None:
+        return _iso(explicit_as_of)
+    # Retain the legacy factor timestamp only as a final compatibility
+    # fallback.  Production callers now pass the frozen market-close time
+    # explicitly, so a recovery wall clock can no longer win over it.
+    value = _first(context, "as_of")
+    if value is not None:
+        return _iso(value)
+    for source in (context, snapshot):
+        value = _first(
+            source,
+            "market_trade_date",
+            "latest_trade_date",
+            "trade_date",
+        )
+        if value is not None:
+            return _iso(value)
+    return None
 
 
 def _plan_premises(profile: StrategyProfile) -> list[str]:

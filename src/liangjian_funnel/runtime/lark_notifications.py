@@ -55,6 +55,26 @@ def _number(value: Any) -> str:
         return "—"
 
 
+def _reference_price_as_of(
+    payload: Mapping[str, Any],
+    context: Mapping[str, Any],
+) -> str:
+    """Project a daily reference price onto its frozen market date.
+
+    Historical recovery plans created before the source fix may carry the
+    recovery wall clock even though ``reference_price`` is the previous close.
+    Correct only that cross-date mismatch at the presentation boundary; keep a
+    same-date stock-specific bar timestamp unchanged.
+    """
+
+    raw = str(payload.get("reference_price_as_of") or "").strip()
+    market_date = str(context.get("market_trade_date") or "").strip()
+    if len(market_date) == 10 and market_date[4:5] == "-" and market_date[7:8] == "-":
+        if not raw or raw[:10] != market_date:
+            return f"{market_date}T15:00:00+08:00"
+    return raw or "—"
+
+
 def _plan_sort_key(row: Mapping[str, Any]) -> tuple[int, str, str]:
     payload = _payload(row)
     rank = {"P1": 0, "P2": 1, "P3": 2}.get(
@@ -300,7 +320,7 @@ class WorkflowLarkPublisher:
         chunks = [ordered[index : index + 4] for index in range(0, len(ordered), 4)]
         outputs: list[dict[str, Any]] = [
             self._send(
-                delivery_key=f"a3-premarket-professional-v2:{analyzed_at.date().isoformat()}:{batch_hash}:overview",
+                delivery_key=f"a3-premarket-professional-v3:{analyzed_at.date().isoformat()}:{batch_hash}:overview",
                 kind="PREMARKET_A3_ANALYSIS",
                 source_id=source_run_id or f"a3-premarket-{analyzed_at.date().isoformat()}",
                 title=f"A股专业盘前研究｜{analyzed_at.date().isoformat()}｜总览",
@@ -360,7 +380,7 @@ class WorkflowLarkPublisher:
                         f"**类型 / 角色 / 主题** {_text(payload.get('stock_behavior_type'), limit=30)}｜{_text(payload.get('market_role'), limit=30)}｜{_text(payload.get('theme_name') or payload.get('theme') or payload.get('theme_id') or payload.get('industry'), limit=50)}",
                         f"**优先级依据** {'；'.join(_items(payload.get('priority_reasons'), limit=4)) or '按确定性计划成熟度'}",
                         f"**A1-A3 入选链** {'；'.join(reasons) if reasons else '已通过确定性日线技术计划'}",
-                        f"**参考收盘** {_number(payload.get('reference_price'))}（{_text(payload.get('reference_price_as_of'), limit=32)}）｜**次日触发区** {_number(payload.get('trigger_low'))}–{_number(payload.get('trigger_high'))}",
+                        f"**参考收盘** {_number(payload.get('reference_price'))}（{_text(_reference_price_as_of(payload, context), limit=32)}）｜**次日触发区** {_number(payload.get('trigger_low'))}–{_number(payload.get('trigger_high'))}",
                         f"**止损/失效** {_number(payload.get('stop_level') or payload.get('daily_invalidation'))}｜**禁止追价** {_number(payload.get('no_chase') or payload.get('no_chase_price') or payload.get('max_chase_price'))}｜**压力/减仓参考** {_number(payload.get('pressure_reduce_price'))}（{_text(payload.get('pressure_basis'), limit=32)}）",
                         f"**必要条件** {'；'.join(conditions) if conditions else ('按 A3 计划条件，由 A4 继续监测' if active_session else '按 A3 计划条件，待 09:26 复核')}",
                         f"**隔夜失效项** {'；'.join(invalidators)}",
@@ -370,7 +390,7 @@ class WorkflowLarkPublisher:
             lines.append("---\n**五、执行纪律** 未触发不交易；超过禁止追价位不追；跌破失效价不等待模型解释。仅用于本地模拟研究。")
             outputs.append(
                 self._send(
-                    delivery_key=f"a3-premarket-professional-v2:{analyzed_at.date().isoformat()}:{batch_hash}:plans:{page}",
+                    delivery_key=f"a3-premarket-professional-v3:{analyzed_at.date().isoformat()}:{batch_hash}:plans:{page}",
                     kind="PREMARKET_A3_ANALYSIS",
                     source_id=source_run_id or f"a3-premarket-{analyzed_at.date().isoformat()}",
                     title=f"A股专业盘前研究｜A3计划｜{page}/{len(chunks)}",

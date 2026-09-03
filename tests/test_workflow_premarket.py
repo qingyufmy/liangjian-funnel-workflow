@@ -49,7 +49,15 @@ def _app(tmp_path):
     return app, store, publisher
 
 
-def _plan(store, plan_id, symbol, source, *, priority="P2"):
+def _plan(
+    store,
+    plan_id,
+    symbol,
+    source,
+    *,
+    priority="P2",
+    reference_price_as_of="2026-09-01T15:00:00+08:00",
+):
     return store.create_execution_plan(
         plan_id,
         "lane_1",
@@ -64,7 +72,7 @@ def _plan(store, plan_id, symbol, source, *, priority="P2"):
             "priority_reasons": ["QUALIFIED_STANDARD"],
             "selection_reasons": ["日线趋势右侧确认"],
             "reference_price": 10.2,
-            "reference_price_as_of": "2026-09-01T15:00:00+08:00",
+            "reference_price_as_of": reference_price_as_of,
             "trigger_low": 10,
             "trigger_high": 10.5,
             "stop_level": 9.5,
@@ -133,7 +141,32 @@ def test_a3_premarket_empty_scope_is_explicit_and_does_not_notify(tmp_path):
 
 def test_a3_premarket_recovery_resend_uses_current_active_scope(tmp_path):
     app, store, publisher = _app(tmp_path)
-    created = _plan(store, "active-plan", "000002.SZ", "run-active")
+    created = _plan(
+        store,
+        "active-plan",
+        "000002.SZ",
+        "run-active",
+        reference_price_as_of="2026-09-02T10:04:58+08:00",
+    )
+    run_dir = tmp_path / "outputs" / "runs"
+    run_dir.mkdir(parents=True)
+    (run_dir / "run-active.json").write_text(
+        json.dumps(
+            {
+                "premarket_research_context": {
+                    "schema_version": "liangjian-premarket-context/2.0.0",
+                    "status": "READY",
+                    "market_trade_date": "2026-09-01",
+                    "target_trade_date": "2026-09-02",
+                    "a1": {"status": "VALIDATED", "macro": {}},
+                    "a2": {"status": "VALIDATED", "active_themes": []},
+                    "a3": {"status": "VALIDATED", "market_open_constraints": {}},
+                }
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
     store.activate_plan(created["plan_id"], valid_from=datetime(2026, 9, 2, 9, 32, tzinfo=TZ))
 
     result = WorkflowApplication.publish_a3_premarket_analysis(
@@ -147,11 +180,14 @@ def test_a3_premarket_recovery_resend_uses_current_active_scope(tmp_path):
     assert result["plan_count"] == 1
     assert result["activation_deferred_to"] == "ALREADY_ACTIVE"
     assert result["report_mode"] == "RECOVERY_RESEND"
+    assert result["plans"][0]["reference_price_as_of"] == "2026-09-01T15:00:00+08:00"
     assert publisher.activation_states == ["ACTIVE_CURRENT_SESSION"]
     markdown = tmp_path / "outputs" / "runs" / "2026-09-02-a3-premarket.md"
     body = markdown.read_text(encoding="utf-8")
     assert "本次为盘中补发" in body
     assert "不回填竞价或已错过的盘中信号" in body
+    assert "2026-09-01T15:00:00+08:00" in body
+    assert "2026-09-02T10:04:58+08:00" not in body
 
 
 def test_a3_premarket_loads_compact_source_context_without_lane_audit(tmp_path):

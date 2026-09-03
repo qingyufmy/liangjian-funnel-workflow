@@ -2954,6 +2954,17 @@ def screen_a3(snapshot: Mapping[str, Any], a2_output: Mapping[str, Any]) -> Dete
         }
     )
     source_hashes = _source_hashes(snapshot)
+    market_reference = snapshot.get("A2_MARKET_REFERENCE")
+    market_trade_date = (
+        str(market_reference.get("market_trade_date") or "").strip()
+        if isinstance(market_reference, Mapping)
+        else ""
+    )
+    reference_close_as_of = (
+        f"{market_trade_date}T15:00:00+08:00"
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", market_trade_date)
+        else None
+    )
     decisions: list[dict[str, Any]] = []
     for item in rows:
         symbol = _symbol(item.get("symbol"))
@@ -2987,6 +2998,7 @@ def screen_a3(snapshot: Mapping[str, Any], a2_output: Mapping[str, Any]) -> Dete
             sector_permission=sector_permission or None,
             market_emotion=market_emotion,
             market_funding=market_funding,
+            as_of=reference_close_as_of,
         ).model_dump(mode="json")
         eligibility = str(strategy["eligibility"])
         minimum_reward_risk = _number(snapshot.get("MIN_REWARD_RISK")) or 2.0

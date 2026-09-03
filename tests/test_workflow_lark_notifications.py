@@ -222,6 +222,40 @@ def test_a3_premarket_analysis_is_distinct_from_auction_activation(tmp_path):
     assert not store.list_notification_deliveries(kind="PREMARKET_A3")
 
 
+def test_a3_premarket_repairs_cross_date_recovery_timestamp(tmp_path):
+    store = RuntimeStore(tmp_path / "state.sqlite3")
+    publisher = WorkflowLarkPublisher(
+        store,
+        "https://open.larksuite.com/open-apis/bot/v2/hook/test-token",
+    )
+    fake = FakeNotifier()
+    publisher.notifier = fake
+    plan = _plan(1)
+    payload = json.loads(str(plan["payload_json"]))
+    payload["reference_price_as_of"] = "2026-09-02T10:04:58+08:00"
+    plan["payload_json"] = json.dumps(payload, ensure_ascii=False)
+
+    result = publisher.publish_a3_premarket_analysis(
+        [plan],
+        analyzed_at=datetime(2026, 9, 2, 10, 20, tzinfo=SHANGHAI),
+        source_run_id="run-close-1",
+        research_context={
+            "status": "READY",
+            "market_trade_date": "2026-09-01",
+            "target_trade_date": "2026-09-02",
+            "a1": {"macro": {}},
+            "a2": {"active_themes": []},
+            "a3": {"market_open_constraints": {}},
+        },
+        activation_state="ACTIVE_CURRENT_SESSION",
+    )
+
+    assert [item["status"] for item in result] == ["SENT", "SENT"]
+    plan_body = "\n".join(fake.calls[1][1])
+    assert "2026-09-01T15:00:00+08:00" in plan_body
+    assert "2026-09-02T10:04:58+08:00" not in plan_body
+
+
 def test_missing_webhook_is_disabled_without_delivery_row(tmp_path):
     store = RuntimeStore(tmp_path / "state.sqlite3")
     publisher = WorkflowLarkPublisher(store, None)
