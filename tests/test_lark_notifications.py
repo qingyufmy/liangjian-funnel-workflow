@@ -49,6 +49,14 @@ def test_card_shape_is_bounded_and_secret_safe():
         LarkNotifier.build_card("x", "https://open.larksuite.com/open-apis/bot/v2/hook/token")
 
 
+def test_card_allows_blank_paragraph_separators_but_not_an_empty_body():
+    card = LarkNotifier.build_card("盘后复盘", ["复盘结论", "", "分层验收"], "blue")
+
+    assert card["card"]["elements"][0]["text"]["content"] == "复盘结论\n\n分层验收"
+    with pytest.raises(ValueError, match="LARK_CARD_BODY_INVALID"):
+        LarkNotifier.build_card("盘后复盘", ["", "  "], "blue")
+
+
 def test_http_429_retries_once_then_succeeds_without_response_text():
     calls: list[int] = []
 

@@ -138,8 +138,17 @@ class LarkNotifier:
         if isinstance(body, str):
             body_text = _text(body, 16_000, "LARK_CARD_BODY_INVALID")
         elif isinstance(body, Sequence):
-            body_text = "\n".join(_text(item, 2_000, "LARK_CARD_BODY_INVALID") for item in body)
-            if not body_text:
+            parts: list[str] = []
+            for item in body:
+                # Empty strings are intentional paragraph separators in the
+                # structured cards. Every non-empty line still uses the same
+                # type, size, and secret validation below.
+                if isinstance(item, str) and not item.strip():
+                    parts.append("")
+                    continue
+                parts.append(_text(item, 2_000, "LARK_CARD_BODY_INVALID"))
+            body_text = "\n".join(parts)
+            if not body_text.strip():
                 raise ValueError("LARK_CARD_BODY_INVALID")
         else:
             raise ValueError("LARK_CARD_BODY_INVALID")
