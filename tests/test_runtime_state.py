@@ -128,6 +128,65 @@ def test_notification_delivery_is_idempotent_and_rotates_colors(tmp_path):
     assert store.get_delivery_by_key("a4:event-1")["status"] == "FAILED"
 
 
+def test_observable_invalidated_plans_are_read_only_and_current_day_bounded(tmp_path):
+    store = RuntimeStore(tmp_path / "invalidated-observation.sqlite3")
+    current = datetime(2026, 9, 3, 10, 0, tzinfo=TZ)
+    expiry = datetime(2026, 9, 3, 15, 0, tzinfo=TZ)
+    store.create_execution_plan(
+        "invalidated-current",
+        "lane-a",
+        "600176.SH",
+        status=PlanStatus.INVALIDATED,
+        valid_from=datetime(2026, 9, 3, 9, 32, tzinfo=TZ),
+        expires_at=expiry,
+        payload={"plan_invalidated": True},
+    )
+    store.create_execution_plan(
+        "invalidated-expired",
+        "lane-a",
+        "000001.SZ",
+        status=PlanStatus.INVALIDATED,
+        valid_from=datetime(2026, 9, 3, 9, 32, tzinfo=TZ),
+        expires_at=datetime(2026, 9, 3, 9, 59, tzinfo=TZ),
+    )
+    store.create_execution_plan(
+        "invalidated-yesterday",
+        "lane-a",
+        "000002.SZ",
+        status=PlanStatus.INVALIDATED,
+        expires_at=datetime(2026, 9, 2, 15, 0, tzinfo=TZ),
+    )
+    store.create_execution_plan(
+        "active-current",
+        "lane-a",
+        "000003.SZ",
+        status=PlanStatus.ACTIVE_TODAY,
+        expires_at=expiry,
+    )
+    store.create_execution_plan(
+        "invalidated-not-started",
+        "lane-a",
+        "000004.SZ",
+        status=PlanStatus.INVALIDATED,
+        valid_from=datetime(2026, 9, 3, 10, 1, tzinfo=TZ),
+        expires_at=expiry,
+    )
+
+    rows = store.list_observable_invalidated_plans("lane-a", at=current)
+
+    assert [item["plan_id"] for item in rows] == ["invalidated-current"]
+    assert store.get_execution_plan("invalidated-current")["status"] == PlanStatus.INVALIDATED.value
+    assert store.list_observable_invalidated_plans(
+        "lane-a",
+        at=datetime(2026, 9, 4, 10, 0, tzinfo=TZ),
+    ) == ()
+    with pytest.raises(ValueError, match="timezone-aware"):
+        store.list_observable_invalidated_plans(
+            "lane-a",
+            at=datetime(2026, 9, 3, 10, 0),
+        )
+
+
 def test_notification_payload_rejects_raw_fields(tmp_path):
     store = RuntimeStore(tmp_path / "notifications-safe.sqlite3")
     with pytest.raises(ValueError, match="unsafe"):

@@ -3314,6 +3314,19 @@ class WorkflowApplication:
             lane_id: self.store.list_active_plans(lane_id, at=current)
             for lane_id in self.brokers
         }
+        # Invalidated plans are terminal and never enter the A4 decision
+        # engine.  Keep a separate, read-only archive scope so same-session
+        # minute bars remain available to A5 even after a morning stop/no-
+        # chase invalidation (for example 600176 on 2026-09-03).
+        list_invalidated = getattr(self.store, "list_observable_invalidated_plans", None)
+        lane_archive_plans = {
+            lane_id: (
+                tuple(list_invalidated(lane_id, at=current))
+                if callable(list_invalidated)
+                else ()
+            )
+            for lane_id in self.brokers
+        }
         lane_scopes: dict[str, set[str]] = {}
         for lane_id, plans in lane_plans.items():
             scope = {str(plan["symbol"]) for plan in plans}
@@ -3322,6 +3335,13 @@ class WorkflowApplication:
                 for position in self.store.list_positions(f"paper:{lane_id}")
             )
             lane_scopes[lane_id] = scope
+        lane_archive_scopes = {
+            lane_id: {str(plan["symbol"]) for plan in plans}
+            for lane_id, plans in lane_archive_plans.items()
+        }
+        decision_symbols = set().union(*lane_scopes.values()) if lane_scopes else set()
+        archive_symbols = set().union(*lane_archive_scopes.values()) if lane_archive_scopes else set()
+        archive_only_symbols = sorted(archive_symbols - decision_symbols)
         # A4's entry authority must come from today's market, never from the
         # prior-session market label frozen into an A3 plan.  Collect one
         # shared five-minute market state for all lanes; the provider itself
@@ -3348,7 +3368,7 @@ class WorkflowApplication:
         # the current session.  This avoids falling back to a multi-day
         # overlap window during the opening minutes.
         market: dict[str, dict[str, Any]] = {}
-        all_symbols = sorted(set().union(*lane_scopes.values())) if lane_scopes else []
+        all_symbols = sorted(decision_symbols | archive_symbols)
         cache_stats: dict[str, Any] = {
             "inserted": 0,
             "unchanged": 0,
@@ -3580,19 +3600,35 @@ class WorkflowApplication:
             for plan in lane_plans.get(primary_lane_id, ())
         }
         publisher = getattr(self, "lark_publisher", None)
+        system_notifications: list[dict[str, Any]] = []
+        publish_system_health = getattr(publisher, "publish_a4_system_health", None)
+        if callable(publish_system_health):
+            try:
+                system_notifications = publish_system_health(
+                    live_market_state,
+                    affected_plan_count=sum(len(plans) for plans in lane_plans.values()),
+                    now=current,
+                ) or []
+            except Exception:
+                # Notification failure is observability-only and must never
+                # interrupt minute data collection or the fail-closed A4
+                # decision path.
+                system_notifications = [{"status": "FAILED", "reason_code": "LARK_NOTIFICATION_FAILED"}]
         try:
-            notifications = publisher.publish_a4_events(
+            event_notifications = publisher.publish_a4_events(
                 durable_events,
                 plans=primary_plans,
                 now=current,
             ) if publisher is not None else []
         except Exception:
-            notifications = [{"status": "FAILED", "reason_code": "LARK_NOTIFICATION_FAILED"}]
+            event_notifications = [{"status": "FAILED", "reason_code": "LARK_NOTIFICATION_FAILED"}]
+        notifications = [*system_notifications, *event_notifications]
         payload = {
             "minute_snapshot_id": minute_snapshot_id,
             "live_market_state": live_market_state,
             "time": current.isoformat(),
             "a3_scope_activation": a3_scope_activation,
+            "archive_only_symbols": archive_only_symbols,
             "minute_cache": cache_stats,
             "lanes": results,
             "simulation": simulation,

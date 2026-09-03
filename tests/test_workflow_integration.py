@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 from datetime import date, datetime, timedelta
 from threading import RLock
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
+from liangjian_funnel.data.cache import MinuteBarStore
 from liangjian_funnel.data.mootdx import FetchResult, MinuteBar
 from liangjian_funnel.runtime.monitor import MonitorEngine
 from liangjian_funnel.runtime.simulation import PaperBroker, SimulationAction, SimulationConfig
@@ -89,6 +91,92 @@ def test_monitor_confirmation_survives_new_process_instance(tmp_path):
     )
     assert any(event.action == "BUY_SIGNAL" for event in two.events)
     assert len(second_calls) == 1
+
+
+def test_monitor_archives_invalidated_plan_without_returning_it_to_a4(tmp_path):
+    current = datetime(2026, 9, 3, 10, 0, tzinfo=TZ)
+    store = RuntimeStore(tmp_path / "archive-only.sqlite3")
+    store.create_execution_plan(
+        "invalidated-plan",
+        "lane_1",
+        "600176.SH",
+        status=PlanStatus.INVALIDATED,
+        expires_at=datetime(2026, 9, 3, 15, 0, tzinfo=TZ),
+        payload={"name": "中国巨石"},
+    )
+
+    class Provider:
+        def __init__(self):
+            self.calls: list[tuple[str, str, int]] = []
+
+        def fetch_bars(self, symbol, interval, required_bars, *, as_of):
+            self.calls.append((symbol, interval, required_bars))
+            step = 1 if interval == "1m" else 5
+            bars = tuple(
+                MinuteBar(
+                    symbol=symbol,
+                    interval=interval,
+                    bar_end=as_of - timedelta(minutes=step * (required_bars - index - 1)),
+                    open=10,
+                    high=10.2,
+                    low=9.9,
+                    close=10.1,
+                    volume=1_000,
+                    amount=10_000,
+                    source_id="TENCENT:test",
+                    adjust_mode="none",
+                )
+                for index in range(required_bars)
+            )
+            return FetchResult(
+                symbol=symbol,
+                interval=interval,
+                requested_bars=required_bars,
+                returned_bars=len(bars),
+                bars=bars,
+                reason_code="OK",
+                complete=True,
+            )
+
+    provider = Provider()
+    app = object.__new__(WorkflowApplication)
+    app.settings = SimpleNamespace(
+        fact_store_dir=tmp_path / "facts",
+        workflow_output_dir=tmp_path / "outputs",
+        research_primary_lane_id="lane_1",
+    )
+    app.store = store
+    app.minute_store = MinuteBarStore(tmp_path / "minute")
+    app.market_data = SimpleNamespace(fallback=provider)
+    app.brokers = {"lane_1": object()}
+    app.lark_publisher = None
+    app._ensure_trading_day = lambda _current: None
+    app._expire_missed_a4_entries = lambda _current: None
+    app.activate_latest_a3_for_monitor = lambda *, now: {
+        "status": "NOT_APPLICABLE",
+        "reason_code": "A3_SCOPE_ACTIVATION_WINDOW_CLOSED",
+        "as_of": now.isoformat(),
+        "activated": [],
+        "invalidated": [],
+    }
+
+    result = app.monitor_once(now=current)
+
+    assert result["archive_only_symbols"] == ["600176.SH"]
+    assert {call[:2] for call in provider.calls} == {
+        ("600176.SH", "1m"),
+        ("600176.SH", "5m"),
+    }
+    archived = app.minute_store.load_latest("600176.SH", "1m", limit=240)
+    assert archived
+    assert archived[-1].bar_end == current
+    # The terminal plan remains terminal and never appears in an A4 decision
+    # event, signal lifecycle, or position.
+    assert store.get_execution_plan("invalidated-plan")["status"] == PlanStatus.INVALIDATED.value
+    assert store.get_position("paper:lane_1", "600176.SH") is None
+    for event in store.list_monitor_events(lane_id="lane_1"):
+        payload = json.loads(str(event.get("payload_json") or "{}"))
+        assert payload.get("symbol") != "600176.SH"
 
 
 def test_workflow_plan_helpers_are_fail_closed():

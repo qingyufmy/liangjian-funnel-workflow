@@ -135,6 +135,118 @@ def test_a4_only_sends_effective_event_with_condition_logic(tmp_path):
     assert "NO_ACTION" not in body
 
 
+def _a4_health_state(
+    now: datetime,
+    *,
+    status: str,
+    recovered_after_retry: bool = False,
+) -> dict[str, object]:
+    ready = status in {"READY", "READY_DEGRADED"}
+    return {
+        "status": status,
+        "source": "HITHINK_FULL_MARKET" if ready else "TENCENT_INDEX_FALLBACK",
+        "reason_code": "A4_LIVE_MARKET_CAUTION" if ready else "A4_LIVE_MARKET_SOURCE_UNAVAILABLE",
+        "as_of": now.isoformat(),
+        "trade_date": now.date().isoformat(),
+        "cache_bucket": now.replace(minute=now.minute - now.minute % 5).isoformat(),
+        "diagnostics": {
+            "total_attempts": 2,
+            "recovered_after_retry": recovered_after_retry,
+            "attempts": [
+                {
+                    "attempt": 2,
+                    "full_market": {
+                        "status": "READY" if ready else "DATA_BLOCKED",
+                        "reason_code": "OK" if ready else "A4_LIVE_MARKET_FULL_REQUEST_FAILED",
+                        "observed_count": 5_549 if ready else 0,
+                        "expected_count": 5_566 if ready else 0,
+                    },
+                    "index_fallback": {
+                        "status": "NOT_ATTEMPTED" if ready else "DATA_BLOCKED",
+                        "reason_code": "FULL_MARKET_READY" if ready else "A4_LIVE_MARKET_SOURCE_UNAVAILABLE",
+                        "observed_count": 0,
+                        "expected_count": 4,
+                    },
+                }
+            ],
+        },
+    }
+
+
+def test_a4_system_health_alert_is_aggregated_idempotent_and_recovers_once(tmp_path):
+    store = RuntimeStore(tmp_path / "system-health.sqlite3")
+    publisher = WorkflowLarkPublisher(
+        store,
+        "https://open.larksuite.com/open-apis/bot/v2/hook/test-token",
+    )
+    fake = FakeNotifier()
+    publisher.notifier = fake
+    blocked_at = datetime(2026, 9, 3, 14, 45, tzinfo=SHANGHAI)
+    blocked = _a4_health_state(blocked_at, status="DATA_BLOCKED")
+
+    first = publisher.publish_a4_system_health(blocked, affected_plan_count=5, now=blocked_at)
+    duplicate = publisher.publish_a4_system_health(blocked, affected_plan_count=5, now=blocked_at)
+
+    assert first[0]["status"] == "SENT"
+    assert duplicate[0]["duplicate"] is True
+    assert len(fake.calls) == 1
+    title, lines, _color = fake.calls[0]
+    body = "\n".join(lines)
+    assert "系统告警" in title
+    assert "受影响计划：5 只" in body
+    assert "同花顺全市场行情" in body
+    assert "腾讯指数兜底行情" in body
+    assert "A4_LIVE" not in body
+
+    # Five plans blocked by the same market state must not produce five more
+    # stock cards; the aggregate system card above is the only alert.
+    events = [
+        {
+            "event_key": f"effective:lane_1:plan-{index}:DATA_BLOCK",
+            "lane_id": "lane_1",
+            "minute_end": blocked_at.isoformat(),
+            "action": "DATA_BLOCK",
+            "reason_code": "LIVE_MARKET_STATE_NOT_READY",
+            "effective": 1,
+            "payload_json": json.dumps({"plan_id": f"plan-{index}", "symbol": f"00000{index}.SZ"}),
+        }
+        for index in range(1, 6)
+    ]
+    assert publisher.publish_a4_events(events, plans={}, now=blocked_at) == []
+    assert len(fake.calls) == 1
+
+    recovered_at = datetime(2026, 9, 3, 14, 50, tzinfo=SHANGHAI)
+    recovered = _a4_health_state(recovered_at, status="READY")
+    recovery = publisher.publish_a4_system_health(recovered, affected_plan_count=5, now=recovered_at)
+    assert recovery[0]["status"] == "SENT"
+    assert "系统恢复" in fake.calls[-1][0]
+
+    later_at = datetime(2026, 9, 3, 14, 55, tzinfo=SHANGHAI)
+    later = _a4_health_state(later_at, status="READY")
+    assert publisher.publish_a4_system_health(later, affected_plan_count=5, now=later_at) == []
+    assert len(fake.calls) == 2
+
+
+def test_a4_system_health_reports_same_run_retry_recovery_once(tmp_path):
+    store = RuntimeStore(tmp_path / "retry-recovery.sqlite3")
+    publisher = WorkflowLarkPublisher(
+        store,
+        "https://open.larksuite.com/open-apis/bot/v2/hook/test-token",
+    )
+    fake = FakeNotifier()
+    publisher.notifier = fake
+    now = datetime(2026, 9, 3, 10, 5, tzinfo=SHANGHAI)
+    ready = _a4_health_state(now, status="READY", recovered_after_retry=True)
+
+    first = publisher.publish_a4_system_health(ready, affected_plan_count=3, now=now)
+    duplicate = publisher.publish_a4_system_health(ready, affected_plan_count=3, now=now)
+
+    assert first[0]["status"] == "SENT"
+    assert duplicate[0]["duplicate"] is True
+    assert len(fake.calls) == 1
+    assert "重试后恢复" in "\n".join(fake.calls[0][1])
+
+
 def test_a5_review_card_is_structured_chinese_and_idempotent(tmp_path):
     store = RuntimeStore(tmp_path / "state.sqlite3")
     publisher = WorkflowLarkPublisher(

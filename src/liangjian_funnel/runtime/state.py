@@ -2226,6 +2226,56 @@ class RuntimeStore:
 
         return self._read(operation)
 
+    def list_observable_invalidated_plans(
+        self,
+        lane_id: str,
+        *,
+        at: datetime | None = None,
+    ) -> tuple[dict[str, Any], ...]:
+        """Return today's still-observable invalidated plans for archiving.
+
+        An invalidated A3 plan is terminal and must never be passed back to
+        the A4 decision engine.  It may nevertheless need its same-session
+        minute bars retained for A5 evidence.  This read path is deliberately
+        narrower than :meth:`list_execution_plans`: it accepts only
+        ``INVALIDATED`` rows whose explicit expiry is on the current Shanghai
+        trading date, has not elapsed, and whose observation window has
+        started.  No state transition or plan revival is performed.
+        """
+
+        current = at or _now()
+        if not isinstance(current, datetime) or current.tzinfo is None or current.utcoffset() is None:
+            # Match the other timestamp-aware state APIs: a naive timestamp is
+            # a caller error, not a reason to widen the archive scope.
+            raise ValueError("at must be timezone-aware")
+        stamp = _iso(current)
+        if stamp is None:
+            return ()
+        trade_date = current.astimezone(SHANGHAI).date().isoformat()
+
+        def operation(connection):
+            rows = connection.execute(
+                """
+                SELECT * FROM execution_plans
+                WHERE lane_id=? AND status=?
+                  AND expires_at IS NOT NULL
+                  AND substr(expires_at, 1, 10)=?
+                  AND expires_at>=?
+                  AND (valid_from IS NULL OR valid_from<=?)
+                ORDER BY symbol, plan_id
+                """,
+                (
+                    lane_id,
+                    PlanStatus.INVALIDATED.value,
+                    trade_date,
+                    stamp,
+                    stamp,
+                ),
+            ).fetchall()
+            return tuple(_row_dict(row) for row in rows)
+
+        return self._read(operation)
+
     # ------------------------------------------------------------------
     # A4 signal lifecycle ledger
     # ------------------------------------------------------------------

@@ -55,6 +55,28 @@ _A5_PROPOSAL_LABELS = {
     "SHADOW_TEST": "影子验证",
 }
 
+_LIVE_MARKET_STATUS_LABELS = {
+    "READY": "资料完整",
+    "READY_DEGRADED": "降级可用",
+    "DATA_BLOCKED": "数据阻断",
+    "DATA_BLOCK": "数据阻断",
+    "NOT_ATTEMPTED": "未执行",
+}
+_LIVE_MARKET_SOURCE_LABELS = {
+    "HITHINK_FULL_MARKET": "同花顺全市场行情",
+    "TENCENT_INDEX_FALLBACK": "腾讯指数兜底行情",
+    "NONE": "未取得行情源",
+}
+_LIVE_MARKET_REASON_LABELS = {
+    "A4_LIVE_MARKET_COVERAGE_INSUFFICIENT": "全市场行情覆盖不足",
+    "A4_LIVE_MARKET_SOURCE_UNAVAILABLE": "全市场与指数行情均不可用",
+    "A4_LIVE_MARKET_FULL_REQUEST_FAILED": "全市场行情请求失败",
+    "A4_LIVE_MARKET_INDEX_REQUEST_FAILED": "指数兜底请求失败",
+    "FULL_MARKET_READY": "全市场行情已就绪",
+    "A4_LIVE_INDEX_CAUTION": "指数显示市场偏弱轮动",
+    "A4_LIVE_INDEX_SYSTEMIC_SELL_OFF": "指数确认系统性下跌",
+}
+
 _DISPLAY_LABELS = {
     "READY": "资料完整",
     "DEGRADED": "部分资料待完善",
@@ -911,6 +933,12 @@ class WorkflowLarkPublisher:
             if not bool(event.get("effective")):
                 continue
             event_payload = _payload(event)
+            # A shared live-market outage is reported once by
+            # ``publish_a4_system_health``.  Suppress the five equivalent
+            # per-plan DATA_BLOCK cards it would otherwise produce.  A
+            # symbol-level minute-data block keeps its existing card.
+            if _is_system_data_block(event, event_payload):
+                continue
             strategy_result = event_payload.get("strategy") if isinstance(event_payload.get("strategy"), Mapping) else {}
             action = str(event.get("action") or "")
             plan_id = str(event.get("plan_id") or event_payload.get("plan_id") or "")
@@ -953,6 +981,185 @@ class WorkflowLarkPublisher:
                 )
             )
         return outputs
+
+    def publish_a4_system_health(
+        self,
+        live_market_state: Mapping[str, Any] | None,
+        *,
+        affected_plan_count: int,
+        now: datetime,
+    ) -> list[dict[str, Any]]:
+        """Publish one aggregate A4 market-health alert or recovery.
+
+        The key is scoped to the current five-minute bucket.  A blocked state
+        therefore produces at most one card for the bucket even when several
+        plans receive the same fail-closed DATA_BLOCK result.  Recovery is
+        emitted after an in-call retry or after the first later READY state
+        following a durable system-health alert.
+        """
+
+        state = dict(live_market_state or {})
+        status = str(state.get("status") or "").strip().upper()
+        if status not in {"DATA_BLOCKED", "READY", "READY_DEGRADED"}:
+            return []
+        trade_date = _trade_date_label(state, now)
+        bucket = _health_bucket_label(state, now)
+        diagnostics = state.get("diagnostics")
+        diagnostics = dict(diagnostics) if isinstance(diagnostics, Mapping) else {}
+        attempt_rows = diagnostics.get("attempts")
+        attempt_rows = list(attempt_rows) if isinstance(attempt_rows, (list, tuple)) else []
+        total_attempts = _bounded_count(
+            diagnostics.get("total_attempts"),
+            default=len(attempt_rows) or 1,
+        )
+        recovered_after_retry = bool(diagnostics.get("recovered_after_retry"))
+        affected = max(0, _bounded_count(affected_plan_count, default=0))
+        last_attempt = attempt_rows[-1] if attempt_rows and isinstance(attempt_rows[-1], Mapping) else {}
+        full = last_attempt.get("full_market") if isinstance(last_attempt.get("full_market"), Mapping) else {}
+        index = last_attempt.get("index_fallback") if isinstance(last_attempt.get("index_fallback"), Mapping) else {}
+        full_status = str(full.get("status") or (state.get("status") if state.get("source") == "HITHINK_FULL_MARKET" else "NOT_ATTEMPTED")).upper()
+        index_status = str(index.get("status") or (state.get("status") if state.get("source") == "TENCENT_INDEX_FALLBACK" else "NOT_ATTEMPTED")).upper()
+        full_reason = str(full.get("reason_code") or (state.get("reason_code") if state.get("source") == "HITHINK_FULL_MARKET" else "FULL_MARKET_READY"))
+        index_reason = str(index.get("reason_code") or "FULL_MARKET_READY")
+        full_observed = _bounded_count(full.get("observed_count"), default=0)
+        full_expected = _bounded_count(full.get("expected_count"), default=0)
+        index_observed = _bounded_count(index.get("observed_count"), default=0)
+        index_expected = _bounded_count(index.get("expected_count"), default=4)
+        summary = {
+            "trade_date": trade_date,
+            "bucket": bucket,
+            "state": status,
+            "affected_plan_count": affected,
+            "total_attempts": total_attempts,
+            "recovered_after_retry": recovered_after_retry,
+            "full_market_status": full_status,
+            "full_market_reason_code": full_reason,
+            "full_market_observed_count": full_observed,
+            "full_market_expected_count": full_expected,
+            "index_fallback_status": index_status,
+            "index_fallback_reason_code": index_reason,
+            "index_fallback_observed_count": index_observed,
+            "index_fallback_expected_count": index_expected,
+        }
+
+        if status == "DATA_BLOCKED":
+            delivery_key = f"a4-system-health:blocked:{trade_date}:{bucket}"
+            lines = [
+                "**A4盘中系统告警**",
+                f"• 发生时间：{_time_label(state.get('as_of') or now.isoformat())}",
+                f"• 受影响计划：{affected} 只；本次已停止新开仓判断。",
+                f"• {_LIVE_MARKET_SOURCE_LABELS['HITHINK_FULL_MARKET']}：{_live_market_status(full_status)}；观察 {full_observed}/{full_expected}；{_live_market_reason(full_reason)}。",
+                f"• {_LIVE_MARKET_SOURCE_LABELS['TENCENT_INDEX_FALLBACK']}：{_live_market_status(index_status)}；观察 {index_observed}/{index_expected}；{_live_market_reason(index_reason)}。",
+                f"• 总尝试次数：{total_attempts} 次。",
+                f"• 最终原因：{_live_market_reason(state.get('reason_code'))}。",
+                "• 处理：保持失败关闭，行情恢复并重新核验后才继续盘中判断。",
+            ]
+            return [
+                self._send(
+                    delivery_key=delivery_key,
+                    kind="A4_SYSTEM_HEALTH",
+                    source_id=f"a4-system-health:{trade_date}:{bucket}",
+                    title=f"A4系统告警｜行情数据阻断｜{trade_date} {bucket}",
+                    lines=lines,
+                    summary=summary,
+                    now=now,
+                )
+            ]
+
+        # The same call may recover after the bounded second attempt.  If it
+        # did not, inspect the durable health ledger so a later first READY
+        # tick can close the incident with one recovery card.
+        prior_blocked = False
+        if not recovered_after_retry:
+            try:
+                # The ledger is newest-first.  Only the latest health result
+                # represents the current incident state: once a recovery (or
+                # any later ready result) is recorded, later READY ticks must
+                # not emit another recovery card for the old outage.
+                latest = self.store.list_notification_deliveries(
+                    kind="A4_SYSTEM_HEALTH",
+                    limit=1,
+                )
+                if latest:
+                    row_payload = _json_mapping(latest[0].get("payload_json"))
+                    prior_blocked = (
+                        str(row_payload.get("state") or "").upper() == "DATA_BLOCKED"
+                        and str(row_payload.get("trade_date") or "") == trade_date
+                    )
+            except Exception:
+                prior_blocked = False
+        if not recovered_after_retry and not prior_blocked:
+            return []
+        delivery_key = f"a4-system-health:recovery:{trade_date}:{bucket}"
+        recovery_summary = {**summary, "state": status, "recovery": True}
+        lines = [
+            "**A4盘中系统恢复**",
+            f"• 恢复时间：{_time_label(state.get('as_of') or now.isoformat())}",
+            f"• 受影响计划：{affected} 只；行情已重新核验。",
+            f"• {_LIVE_MARKET_SOURCE_LABELS['HITHINK_FULL_MARKET']}：{_live_market_status(full_status)}；观察 {full_observed}/{full_expected}。",
+            f"• {_LIVE_MARKET_SOURCE_LABELS['TENCENT_INDEX_FALLBACK']}：{_live_market_status(index_status)}；观察 {index_observed}/{index_expected}。",
+            f"• 总尝试次数：{total_attempts} 次；{('本次重试后恢复。' if recovered_after_retry else '本次为阻断后的首次可用结果。')}",
+            "• 处理：恢复盘中条件判断，但仍须逐只满足 A4 计划与风控边界。",
+        ]
+        return [
+            self._send(
+                delivery_key=delivery_key,
+                kind="A4_SYSTEM_HEALTH",
+                source_id=f"a4-system-health:{trade_date}:{bucket}",
+                title=f"A4系统恢复｜行情数据可用｜{trade_date} {bucket}",
+                lines=lines,
+                summary=recovery_summary,
+                now=now,
+            )
+        ]
+
+
+def _is_system_data_block(event: Mapping[str, Any], payload: Mapping[str, Any]) -> bool:
+    if str(event.get("action") or "").strip().upper() != "DATA_BLOCK":
+        return False
+    reason = str(event.get("reason_code") or "").strip().upper()
+    if reason == "LIVE_MARKET_STATE_NOT_READY" or reason.startswith("A4_LIVE_MARKET_"):
+        return True
+    strategy = payload.get("strategy") if isinstance(payload.get("strategy"), Mapping) else {}
+    status = str(strategy.get("live_market_state_status") or "").strip().upper()
+    return status in {"DATA_BLOCK", "DATA_BLOCKED"} and reason in {
+        "LIVE_MARKET_STATE_NOT_READY",
+        "A4_LIVE_MARKET_SOURCE_UNAVAILABLE",
+    }
+
+
+def _live_market_status(value: Any) -> str:
+    status = str(value or "").strip().upper()
+    return _LIVE_MARKET_STATUS_LABELS.get(status, "状态待确认")
+
+
+def _live_market_reason(value: Any) -> str:
+    reason = str(value or "").strip().upper()
+    return _LIVE_MARKET_REASON_LABELS.get(reason, "行情原因待确认")
+
+
+def _bounded_count(value: Any, *, default: int = 0) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(0, min(100_000, parsed))
+
+
+def _trade_date_label(state: Mapping[str, Any], now: datetime) -> str:
+    value = str(state.get("trade_date") or "").strip()
+    if len(value) == 10 and value[4:5] == "-" and value[7:8] == "-":
+        return value
+    return now.date().isoformat()
+
+
+def _health_bucket_label(state: Mapping[str, Any], now: datetime) -> str:
+    raw = str(state.get("cache_bucket") or "").strip()
+    try:
+        parsed = datetime.fromisoformat(raw)
+        return parsed.strftime("%H%M")
+    except ValueError:
+        return f"{now.hour:02d}{now.minute - now.minute % 5:02d}"
 
 
 __all__ = ["WorkflowLarkPublisher"]
