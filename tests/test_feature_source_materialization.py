@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -87,6 +87,75 @@ def test_live_source_stale_market_date_fails_closed(tmp_path: Path) -> None:
     generation = store.get_feature_generation(str(result.generation_id))
     assert generation["status"] == "FAILED"
     assert store.select_latest_live_source() is None
+
+
+def test_live_source_accepts_shanghai_daily_date_ms(tmp_path: Path) -> None:
+    store = ResearchFeatureStore(tmp_path / "features.sqlite3")
+    data = _data(30, trade_date="2026-09-03")
+    expected_ms = int(datetime(2026, 9, 3, 0, 0, tzinfo=TZ).timestamp() * 1000)
+    for rows in data["RECENT_DAILY_BARS"].values():
+        rows[0] = {"date_ms": expected_ms, "close": 10.0, "volume": 1000}
+
+    result = materialize_live_source(
+        store,
+        snapshot_id="snapshot-20260903T151000+0800-date-ms",
+        snapshot_hash="d" * 64,
+        as_of=datetime(2026, 9, 3, 15, 10, tzinfo=TZ),
+        market_trade_date="2026-09-03",
+        data=data,
+        batch_size=25,
+    )
+
+    assert result.status == "READY"
+    generation = store.get_feature_generation(str(result.generation_id))
+    freshness = generation["validation_manifest"]["namespace_freshness"]["RECENT_DAILY_BARS"]
+    assert freshness["observed_date_counts"] == {"2026-09-03": 30}
+    assert freshness["unexplained_stale_count"] == 0
+
+
+def test_live_source_old_date_ms_still_fails_closed(tmp_path: Path) -> None:
+    store = ResearchFeatureStore(tmp_path / "features.sqlite3")
+    data = _data(30, trade_date="2026-09-03")
+    old_ms = int(
+        (datetime(2026, 9, 3, 0, 0, tzinfo=TZ) - timedelta(days=1)).timestamp()
+        * 1000
+    )
+    for rows in data["RECENT_DAILY_BARS"].values():
+        rows[0] = {"date_ms": old_ms, "close": 10.0, "volume": 1000}
+
+    result = materialize_live_source(
+        store,
+        snapshot_id="snapshot-20260903T151000+0800-old-date-ms",
+        snapshot_hash="e" * 64,
+        as_of=datetime(2026, 9, 3, 15, 10, tzinfo=TZ),
+        market_trade_date="2026-09-03",
+        data=data,
+        batch_size=25,
+    )
+
+    assert result.status == "BLOCKED_SOURCE_GENERATION"
+    assert result.reason_code == "FEATURE_SOURCE_MARKET_DATA_STALE"
+
+
+def test_live_source_rejects_unix_seconds_in_date_ms(tmp_path: Path) -> None:
+    store = ResearchFeatureStore(tmp_path / "features.sqlite3")
+    data = _data(30, trade_date="2026-09-03")
+    seconds = int(datetime(2026, 9, 3, 0, 0, tzinfo=TZ).timestamp())
+    for rows in data["RECENT_DAILY_BARS"].values():
+        rows[0] = {"date_ms": seconds, "close": 10.0, "volume": 1000}
+
+    result = materialize_live_source(
+        store,
+        snapshot_id="snapshot-20260903T151000+0800-seconds",
+        snapshot_hash="f" * 64,
+        as_of=datetime(2026, 9, 3, 15, 10, tzinfo=TZ),
+        market_trade_date="2026-09-03",
+        data=data,
+        batch_size=25,
+    )
+
+    assert result.status == "BLOCKED_SOURCE_GENERATION"
+    assert result.reason_code == "FEATURE_SOURCE_MARKET_DATA_STALE"
 
 
 def test_suspended_symbol_can_explain_one_stale_daily_bar(tmp_path: Path) -> None:

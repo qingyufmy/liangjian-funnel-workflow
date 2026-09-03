@@ -266,6 +266,34 @@ def _date_token(value: Any) -> str | None:
         return None
 
 
+def _date_ms_token(value: Any) -> str | None:
+    """Project a provider Unix-millisecond timestamp onto the A-share day.
+
+    Hithink daily bars encode Shanghai midnight as Unix milliseconds.  Taking
+    the UTC date would therefore move every bar to the previous calendar day.
+    Keep this parser deliberately strict so Unix seconds and malformed values
+    cannot accidentally satisfy the market-freshness gate.
+    """
+
+    if isinstance(value, bool) or value in (None, ""):
+        return None
+    try:
+        milliseconds = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not milliseconds.is_integer():
+        return None
+    # Millisecond timestamps for supported market history are at least 12
+    # digits.  The upper bound rejects implausible values before conversion.
+    if milliseconds < 100_000_000_000 or milliseconds >= 10_000_000_000_000:
+        return None
+    try:
+        observed = datetime.fromtimestamp(milliseconds / 1000.0, tz=SHANGHAI)
+    except (OverflowError, OSError, ValueError):
+        return None
+    return observed.date().isoformat()
+
+
 def _latest_bar_date(raw: Any) -> str | None:
     if not isinstance(raw, list):
         return None
@@ -278,6 +306,8 @@ def _latest_bar_date(raw: Any) -> str | None:
             observed = _date_token(item.get(key))
             if observed:
                 break
+        if observed is None:
+            observed = _date_ms_token(item.get("date_ms"))
         if observed and (latest is None or observed > latest):
             latest = observed
     return latest
