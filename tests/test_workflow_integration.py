@@ -243,6 +243,67 @@ def test_plan_publication_allows_qualified_a2_watch_origin_as_probe(tmp_path):
     assert datetime.fromisoformat(str(plan["expires_at"])) == datetime(2026, 9, 1, 15, 0, tzinfo=TZ)
 
 
+def test_same_day_recovery_publishes_new_a3_scope_as_pending_without_parent(tmp_path):
+    store = RuntimeStore(tmp_path / "runtime-same-day-recovery.sqlite3")
+    frozen_at = datetime(2026, 9, 3, 0, 51, tzinfo=TZ)
+    store.create_execution_plan(
+        "stale-pending",
+        "lane_1",
+        "600519.SH",
+        status=PlanStatus.PENDING_MORNING_REVIEW,
+        expires_at=datetime(2026, 9, 3, 15, 0, tzinfo=TZ),
+        payload={"source_run_id": "old-run"},
+    )
+    output = {
+        "core_watch_pool": [
+            {
+                "plan_id": "recovered-plan",
+                "symbol": "002837.SZ",
+                "risk_unit": "PROBE",
+                "strategy_profile": "TREND_MA5",
+                "strategy_version": "a3-a4-three-strategy/1.3.0",
+                "stock_behavior_type": "TREND",
+                "route_permission": "ALLOW_A4",
+                "eligibility": "QUALIFIED",
+                "review_status": "PASS",
+                "trigger_zone": {"low": 47.0, "high": 48.0},
+                "invalidation_level": 45.5,
+                "plan_expiry": "2026-09-03T15:00:00+08:00",
+            }
+        ],
+        "secondary_watch_pool": [],
+    }
+    result = ResearchRunResult(
+        run_id="same-day-recovery-2026-09-03",
+        generated_at=frozen_at,
+        snapshot_id="snapshot-recovery",
+        snapshot_hash="f" * 64,
+        status="READY",
+        lanes=(LaneResult("lane_1", "model", "READY", (), output),),
+        audit_paths=(),
+        markdown_path=None,
+    )
+
+    publication = WorkflowApplication._publish_plans(
+        SimpleNamespace(store=store),
+        result,
+        "morning",
+        frozen_at,
+        snapshot_data={"TRADABILITY_FLAGS": {"002837.SZ": {"tradable": True}}},
+        minimum_trade_date=frozen_at.date(),
+        same_day_recovery=True,
+    )
+
+    assert len(publication["created"]) == 1
+    assert publication["activated"] == []
+    assert publication["blocked"] == []
+    assert publication["publication_mode"] == "SAME_DAY_RECOVERY_PENDING"
+    recovered = store.get_execution_plan(publication["created"][0])
+    assert recovered is not None
+    assert recovered["status"] == PlanStatus.PENDING_MORNING_REVIEW.value
+    assert store.get_execution_plan("stale-pending")["status"] == PlanStatus.INVALIDATED.value
+
+
 def test_close_publication_replaces_pending_scope_even_when_new_a3_is_empty(tmp_path):
     store = RuntimeStore(tmp_path / "runtime-replacement.sqlite3")
     current = datetime(2026, 9, 1, 10, 12, tzinfo=TZ)

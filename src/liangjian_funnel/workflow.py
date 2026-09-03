@@ -2177,6 +2177,7 @@ class WorkflowApplication:
                 current,
                 snapshot_data=prepared.snapshot.data,
                 minimum_trade_date=target_trade_date,
+                same_day_recovery=same_day_recovery,
             )
             if publish_plans
             else {
@@ -2204,7 +2205,11 @@ class WorkflowApplication:
             "primary_lane_ids": list(result.primary_lane_ids),
             "source_as_of": current.isoformat(),
             "target_trade_date": (
-                target_trade_date.isoformat() if target_trade_date is not None else None
+                target_trade_date.isoformat()
+                if target_trade_date is not None
+                else current.date().isoformat()
+                if same_day_recovery
+                else None
             ),
             "market_trade_date": (
                 closed_market_trade_date.isoformat()
@@ -2239,7 +2244,11 @@ class WorkflowApplication:
                     closed_market_trade_date.isoformat()
                 ),
                 target_trade_date=(
-                    target_trade_date.isoformat() if target_trade_date is not None else None
+                    target_trade_date.isoformat()
+                    if target_trade_date is not None
+                    else current.date().isoformat()
+                    if same_day_recovery
+                    else None
                 ),
             ),
             "plan_publication": publication,
@@ -4435,6 +4444,7 @@ class WorkflowApplication:
         *,
         snapshot_data: Mapping[str, Any],
         minimum_trade_date: date | None = None,
+        same_day_recovery: bool = False,
     ) -> dict[str, Any]:
         batch: list[dict[str, Any]] = []
         blocked: list[dict[str, str]] = []
@@ -4535,7 +4545,14 @@ class WorkflowApplication:
                         continue
                     logical = str(raw.get("plan_id") or _hash_json(raw)[:16])
                     plan_id = f"{result.run_id}:{lane.lane}:{logical}"
-                    if slot == "close":
+                    # A bounded same-day recovery rebuilds the plan set that
+                    # should have existed before the regular 09:26 review.
+                    # Publish it as pending first, then let the explicit A4
+                    # activation path apply current quotes, stop and no-chase
+                    # checks.  It must not be treated as an ordinary morning
+                    # tightening pass because there is no parent plan to
+                    # tighten in this recovery scenario.
+                    if slot == "close" or same_day_recovery:
                         batch.append(
                             {
                                 "plan_id": plan_id,
@@ -4594,7 +4611,9 @@ class WorkflowApplication:
         published = self.store.publish_plan_batch(
             batch,
             expire_active_lanes=ready_lanes if formal_close else (),
-            invalidate_pending_lanes=ready_lanes if slot == "close" else (),
+            invalidate_pending_lanes=(
+                ready_lanes if slot == "close" or same_day_recovery else ()
+            ),
         )
         self.store.mark_workflow_runs_published(result.run_id, ready_lanes)
         created = [str(item["plan_id"]) for item in published]
@@ -4610,6 +4629,9 @@ class WorkflowApplication:
             "blocked": blocked,
             "primary_lane": primary_lane,
             "comparison_lanes": comparison_lanes,
+            "publication_mode": (
+                "SAME_DAY_RECOVERY_PENDING" if same_day_recovery else slot.upper()
+            ),
         }
 
     def _a4_callback(
