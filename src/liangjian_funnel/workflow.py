@@ -1875,6 +1875,7 @@ class WorkflowApplication:
         reuse_resume_snapshot: bool = True,
         from_active_a1: bool = False,
         active_a1_generation_id: str | None = None,
+        same_day_recovery: bool = False,
     ) -> dict[str, Any]:
         normalized_slot = _slot(slot)
         current = _aware(as_of or datetime.now(SHANGHAI))
@@ -1913,10 +1914,30 @@ class WorkflowApplication:
                 raise WorkflowError("NEXT_SESSION_PREP_MARKET_DATE_INVALID")
         elif market_data_as_of is not None:
             raise WorkflowError("MARKET_DATA_AS_OF_REQUIRES_NEXT_SESSION_PREP")
+        wall_now = datetime.now(SHANGHAI)
+        if same_day_recovery:
+            # This is a deliberately narrow recovery path for a plan batch
+            # missed before today's open.  It cannot use live/partial market
+            # data, rerun A1, schedule comparisons, or target another date.
+            if (
+                normalized_slot != "morning"
+                or not historical_replay
+                or as_of is None
+                or snapshot_id is None
+                or not primary_only
+                or schedule_comparison
+                or comparison_run
+                or not publish_plans
+                or not from_active_a1
+                or current.date() != wall_now.date()
+                or current.astimezone(SHANGHAI).time().replace(tzinfo=None)
+                >= datetime.strptime("09:26", "%H:%M").time()
+            ):
+                raise WorkflowError("SAME_DAY_RECOVERY_ARGUMENTS_INVALID")
         if historical_replay:
             if as_of is None:
                 raise WorkflowError("HISTORICAL_AS_OF_REQUIRED")
-            if current.date() >= datetime.now(SHANGHAI).date():
+            if current.date() >= wall_now.date() and not same_day_recovery:
                 raise WorkflowError("HISTORICAL_AS_OF_NOT_PAST")
         elif snapshot_id is not None and not comparison_run:
             raise WorkflowError("SNAPSHOT_ID_REQUIRES_HISTORICAL_REPLAY")
@@ -1927,7 +1948,7 @@ class WorkflowApplication:
         if not isinstance(from_active_a1, bool):
             raise WorkflowError("ACTIVE_A1_ARGUMENTS_INVALID")
         if from_active_a1 and (
-            historical_replay
+            (historical_replay and not same_day_recovery)
             or (comparison_run and not active_a1_generation_id)
         ):
             raise WorkflowError("ACTIVE_A1_ARGUMENTS_INVALID")

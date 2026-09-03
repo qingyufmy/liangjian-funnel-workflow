@@ -226,6 +226,14 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="run only the configured primary research model and enqueue optional comparisons",
     )
+    research.add_argument(
+        "--same-day-recovery",
+        action="store_true",
+        help=(
+            "operator recovery only: reuse today's pre-open frozen snapshot and "
+            "the active A1 generation to rebuild today's A2-A3 plans"
+        ),
+    )
     sub.add_parser("monitor-once", help="run one A4 minute and paper-simulation cycle")
     activate_a3 = sub.add_parser(
         "activate-latest-a3-for-a4",
@@ -742,6 +750,13 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
             payload = application.sync_data_cache()
         elif args.command == "run-research":
             historical_as_of = datetime.fromisoformat(args.as_of) if args.as_of else None
+            if args.same_day_recovery and (
+                historical_as_of is None
+                or not args.snapshot_id
+                or not args.primary_only
+                or args.slot != "morning"
+            ):
+                raise WorkflowError("SAME_DAY_RECOVERY_ARGUMENTS_INVALID")
             research_kwargs = {
                 "as_of": historical_as_of,
                 "historical_replay": historical_as_of is not None,
@@ -750,7 +765,15 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
             if args.primary_only:
                 research_kwargs.update(
                     primary_only=True,
-                    schedule_comparison=settings.comparison_enabled,
+                    schedule_comparison=(
+                        False if args.same_day_recovery else settings.comparison_enabled
+                    ),
+                )
+            if args.same_day_recovery:
+                research_kwargs.update(
+                    from_active_a1=True,
+                    run_id_override=f"same-day-recovery-{historical_as_of.date().isoformat()}",
+                    same_day_recovery=True,
                 )
             payload = application.run_research(args.slot, **research_kwargs)
         elif args.command == "run-comparison":
