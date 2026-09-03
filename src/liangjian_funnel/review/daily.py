@@ -137,6 +137,39 @@ class A5ReviewReport(BaseModel):
         return self
 
 
+def _canonicalize_report_output(value: Any) -> Any:
+    """Collapse known detailed drop reasons into the report's layer contract.
+
+    Independent evidence deliberately keeps granular reason codes such as
+    ``A2_NOT_FOCUSED``.  The A5 report field represents only the owning funnel
+    layer.  Models may copy the evidence code verbatim, so normalize recognized
+    layer-prefixed codes while leaving every unrelated value for strict schema
+    validation to reject.
+    """
+
+    if not isinstance(value, Mapping):
+        return value
+    payload = dict(value)
+    rows = payload.get("missed_opportunity_reviews")
+    if not isinstance(rows, list):
+        return payload
+    normalized: list[Any] = []
+    for item in rows:
+        if not isinstance(item, Mapping):
+            normalized.append(item)
+            continue
+        row = dict(item)
+        stage = str(row.get("funnel_drop_stage") or "").strip().upper()
+        if stage not in {"A1", "A2", "A3", "A4", "UNRESOLVED"}:
+            for layer in ("A1", "A2", "A3", "A4"):
+                if stage.startswith(f"{layer}_"):
+                    row["funnel_drop_stage"] = layer
+                    break
+        normalized.append(row)
+    payload["missed_opportunity_reviews"] = normalized
+    return payload
+
+
 def _json_mapping(value: Any) -> dict[str, Any]:
     if isinstance(value, Mapping):
         return dict(value)
@@ -702,7 +735,7 @@ class A5DailyReviewService:
             timeout_seconds=300,
         )
         try:
-            report = A5ReviewReport.model_validate(result.output)
+            report = A5ReviewReport.model_validate(_canonicalize_report_output(result.output))
         except ValidationError as exc:
             raise ValueError("A5_OUTPUT_SCHEMA_INVALID") from exc
         if report.review_kind is not review_kind or report.trade_date != current.date():

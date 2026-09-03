@@ -11,6 +11,7 @@ from liangjian_funnel.pipeline.prompts import PromptRepository
 from liangjian_funnel.review.daily import (
     A5DailyReviewService,
     A5ReviewKind,
+    _canonicalize_report_output,
     _review_history,
     build_a5_fact_snapshot,
 )
@@ -274,3 +275,21 @@ def test_review_history_excludes_rows_created_after_point_in_time_cutoff():
     )
 
     assert [item["review_id"] for item in history] == ["prior-day-close"]
+
+
+def test_a5_report_output_canonicalizes_only_known_detailed_drop_reasons():
+    payload = {
+        "missed_opportunity_reviews": [
+            {"funnel_drop_stage": "A2_NOT_FOCUSED"},
+            {"funnel_drop_stage": "A3_NOT_PLANNED"},
+            {"funnel_drop_stage": "UNEXPECTED_STAGE"},
+        ]
+    }
+
+    normalized = _canonicalize_report_output(payload)
+
+    assert [item["funnel_drop_stage"] for item in normalized["missed_opportunity_reviews"]] == [
+        "A2",
+        "A3",
+        "UNEXPECTED_STAGE",
+    ]
