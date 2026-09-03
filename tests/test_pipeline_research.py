@@ -64,6 +64,7 @@ from liangjian_funnel.pipeline.research import (
     _project_sector_cycle,
     _scan_symbols,
     _semantic_retry_instruction,
+    _semantic_total_timeout_seconds,
     _safe_progress_diagnostics,
     _snapshot_discovery_evidence_refs,
     _stage_execution_budget,
@@ -107,6 +108,29 @@ def test_discovery_semantic_retry_requires_reviewed_hypothesis_dispositions():
     assert "document_id and hypothesis_theme exactly" in instruction
     assert "MAPPED|MONITOR|REJECTED" in instruction
     assert "cannot create a theme or select a stock" in instruction
+
+
+def test_policy_macro_discovery_gets_one_bounded_window_per_semantic_attempt():
+    context = {"mode": "POLICY_MACRO_DISCOVERY"}
+
+    assert _semantic_total_timeout_seconds(
+        "A1",
+        context,
+        model_timeout_seconds=600.0,
+        semantic_limit=2,
+    ) == 1200.0
+    assert _semantic_total_timeout_seconds(
+        "A1",
+        {"mode": "COMPANY_MAPPING"},
+        model_timeout_seconds=600.0,
+        semantic_limit=2,
+    ) == 600.0
+    assert _semantic_total_timeout_seconds(
+        "A3",
+        None,
+        model_timeout_seconds=600.0,
+        semantic_limit=3,
+    ) == 600.0
 
 
 def test_reviewed_hypotheses_cannot_silently_disappear_from_a1_discovery():
@@ -815,6 +839,25 @@ def test_output_shape_never_exposes_unknown_model_field_names():
     assert shape["envelope_fields"] == ["status"]
     assert shape["envelope_unknown_field_count"] == 1
     assert "private" not in json.dumps(shape)
+
+
+def test_output_shape_accepts_prompt_authorized_macro_discovery_fields():
+    shape = _output_shape(
+        {
+            "envelope": {"status": "OK"},
+            "macro_regime": {},
+            "policy_dossiers": [],
+            "policy_calendar": [],
+        }
+    )
+
+    assert shape["unknown_field_count"] == 0
+    assert shape["fields"] == [
+        "envelope",
+        "macro_regime",
+        "policy_calendar",
+        "policy_dossiers",
+    ]
 
 
 def test_a1_batch_merge_recomputes_counts_and_removes_rejected_from_monitor():

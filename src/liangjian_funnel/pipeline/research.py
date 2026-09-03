@@ -307,6 +307,9 @@ _REASONING_KEYS = {"reasoning", "reasoning_content", "thinking", "chain_of_thoug
 _SAFE_OUTPUT_FIELDS = {
     "envelope",
     "analysis_summary",
+    "macro_regime",
+    "policy_dossiers",
+    "policy_calendar",
     "structural_themes",
     "industry_chain_graph",
     "taxonomy_links",
@@ -3998,8 +4001,15 @@ class ResearchPipeline:
         # second repair is still needed to remove a stale model-side numeric
         # veto.  Keep A1/A2 at the established two attempts, but give A3 one
         # additional bounded semantic repair inside the same total deadline.
+        # Monthly macro discovery is the narrow exception: each of its two
+        # full-document attempts receives one provider-sized window.
         semantic_limit = 3 if stage == "A3" else 2
-        semantic_deadline = time.perf_counter() + self.settings.model_timeout_seconds
+        semantic_deadline = time.perf_counter() + _semantic_total_timeout_seconds(
+            stage,
+            a1_discovery_context,
+            model_timeout_seconds=self.settings.model_timeout_seconds,
+            semantic_limit=semantic_limit,
+        )
         aggregate_latency_ms = 0
         aggregate_attempts = 0
         variants: list[str] = []
@@ -6965,6 +6975,33 @@ def _a1_missing_mapping_codes(
         require_targets=False,
     )
     return tuple(validation.missing_industry_codes)
+
+
+def _semantic_total_timeout_seconds(
+    stage: str,
+    a1_discovery_context: Mapping[str, Any] | None,
+    *,
+    model_timeout_seconds: float,
+    semantic_limit: int,
+) -> float:
+    """Return the bounded wall-clock budget for semantic validation retries.
+
+    Monthly macro discovery can produce a structurally valid response that
+    still misses the configured theme or chain coverage.  Its repair must
+    regenerate the complete discovery document, so sharing one provider
+    timeout between both semantic attempts can leave the repair with only a
+    few seconds.  Give each of the two discovery attempts one normal provider
+    window while keeping every individual request capped by ModelClient and
+    preserving the established single-window budget for all other stages.
+    """
+
+    timeout = max(0.0, float(model_timeout_seconds))
+    discovery_retry = (
+        stage == "A1"
+        and isinstance(a1_discovery_context, Mapping)
+        and a1_discovery_context.get("mode") == "POLICY_MACRO_DISCOVERY"
+    )
+    return timeout * max(1, int(semantic_limit)) if discovery_retry else timeout
 
 
 def _semantic_retry_instruction(
