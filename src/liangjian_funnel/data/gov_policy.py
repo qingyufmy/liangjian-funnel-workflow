@@ -331,6 +331,14 @@ class GovPolicyClient:
                 self._throttle()
                 response = self._client.get(self._endpoint, params=dict(params), headers={"Accept": "application/json, text/plain, */*", "Referer": "https://sousuo.www.gov.cn/zcwjk/"})
             except (httpx.HTTPError, TimeoutError, OSError):
+                # Network failures are commonly transient (DNS, proxy or a
+                # closed keep-alive socket).  Keep the existing bounded retry
+                # budget and exponential backoff instead of failing on the
+                # first exception.  Contract and 4xx failures below remain
+                # immediate fail-closed outcomes.
+                if attempt < MAX_RETRIES:
+                    self._sleep(0.5 * 2 ** (attempt - 1))
+                    continue
                 return None, attempt, None, "GOV_POLICY_REQUEST_FAILED"
             status = response.status_code
             if status == 429:

@@ -253,6 +253,48 @@ def test_429_retry_after_and_5xx_bounded_retry() -> None:
     assert sleeps == [2.0, 1.0]
 
 
+def test_transient_network_failure_uses_bounded_backoff_before_success() -> None:
+    calls = 0
+    sleeps: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls < 3:
+            raise httpx.ConnectError("temporary connection failure", request=request)
+        return httpx.Response(
+            200,
+            json=page(request, gongwen=[], bumenfile=[], gongwen_total=0, bumen_total=0),
+        )
+
+    with client(handler, sleeps=sleeps) as gov:
+        result = gov.fetch_documents()
+
+    assert result.ok is True
+    assert result.attempts == 3
+    assert calls == 3
+    assert sleeps == [0.5, 1.0]
+
+
+def test_permanent_network_failure_stops_after_retry_budget() -> None:
+    calls = 0
+    sleeps: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        raise httpx.ReadTimeout("temporary timeout", request=request)
+
+    with client(handler, sleeps=sleeps) as gov:
+        result = gov.fetch_documents()
+
+    assert result.ok is False
+    assert result.reason_code == "GOV_POLICY_REQUEST_FAILED"
+    assert result.attempts == 3
+    assert calls == 3
+    assert sleeps == [0.5, 1.0]
+
+
 def test_permanent_5xx_does_not_include_response_body() -> None:
     with client(lambda _request: httpx.Response(503, content=b"secret response body")) as gov:
         result = gov.fetch_documents()
