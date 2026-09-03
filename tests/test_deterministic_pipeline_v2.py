@@ -826,6 +826,102 @@ def _complete_a2_factor_scores(score: float) -> dict[str, dict[str, float]]:
     }
 
 
+def test_a2_dual_core_pool_keeps_hot100_emotion_and_selected_board_trend_together() -> None:
+    snapshot = _snapshot(3)
+    emotion_symbol, trend_symbol, outside_symbol = snapshot["g0_symbols"]
+    snapshot["A2_SCORE_WEIGHTS"] = {name: 1.0 for name in _complete_a2_factor_scores(90)}
+    snapshot["CAPITAL_FLOW_SNAPSHOT"] = {
+        "available": True,
+        "by_symbol": {
+            symbol: {"available": True, "capital_flow_score": 90}
+            for symbol in snapshot["g0_symbols"]
+        },
+    }
+    snapshot["MARKET_EMOTION_SNAPSHOT"] = {
+        "available": True,
+        "emotion_cycle_stage": "STARTUP",
+        "new_long_permission": "PROBE_ONLY",
+    }
+    snapshot["EASTMONEY_HOT100_SNAPSHOT"] = {
+        "available": True,
+        "trade_date": "2026-08-27",
+        "record_count": 100,
+        "records": [{"symbol": emotion_symbol, "name": "情绪龙头", "rank": 5}],
+    }
+    snapshot["SELECTED_BOARD_SNAPSHOT"] = {
+        "available": True,
+        "by_symbol": {
+            trend_symbol: [{
+                "board_code": "801807",
+                "board_name": "算力",
+                "strength": 3238,
+                "main_net_inflow_cny": 2_467_000_000,
+                "selected_for_rotation": True,
+                "primary_rank": 2,
+            }],
+        },
+    }
+    rows = []
+    for symbol in snapshot["g0_symbols"]:
+        factor_scores = _complete_a2_factor_scores(90)
+        factor_scores["tier_structure"] = {
+            "score": 90 if symbol == emotion_symbol else 20,
+            "available": True,
+            "availability_state": "OBSERVED_VALUE" if symbol == emotion_symbol else "OBSERVED_ABSENT",
+            "ladder_height": 1 if symbol == emotion_symbol else 0,
+            "first_board_observed": symbol == emotion_symbol,
+            "event_source": "HITHINK_LIMIT_UP_POOL" if symbol == emotion_symbol else "HITHINK_LIMIT_UP_LADDER",
+        }
+        factor_scores["weekly_confirmation"] = {"score": 90, "available": True}
+        rows.append({
+            "symbol": symbol,
+            "candidate_id": f"a1:{symbol}",
+            "primary_theme": "theme-core",
+            "industry_chain_node": "node-core",
+            "business_exposure": {"revenue_exposure_pct": 65, "source_ref": f"cninfo:{symbol}"},
+            "a2_factor_scores": factor_scores,
+            "data_quality_score": 90,
+        })
+
+    result = screen_a2(
+        snapshot,
+        {"active_research_pool": rows},
+        minimum_identifiability_score=0,
+        review_all_eligible=True,
+    )
+    by_symbol = {row["symbol"]: row for row in result.decisions}
+    assert by_symbol[emotion_symbol]["status"] == "REVIEW_CANDIDATE"
+    assert by_symbol[emotion_symbol]["a2_pool_channel"] == "EMOTION"
+    assert by_symbol[emotion_symbol]["top_rotation_theme"] is None
+    assert by_symbol[trend_symbol]["status"] == "REVIEW_CANDIDATE"
+    assert by_symbol[trend_symbol]["a2_pool_channel"] == "TREND"
+    assert by_symbol[trend_symbol]["top_rotation_theme"] is True
+    assert by_symbol[trend_symbol]["selected_board"]["board_code"] == "801807"
+    assert by_symbol[outside_symbol]["status"] == "LOCAL_MONITOR"
+    assert "A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD" in by_symbol[outside_symbol]["reason_codes"]
+    assert set(result.review_symbols) == {emotion_symbol, trend_symbol}
+
+    missing_board_snapshot = {
+        **snapshot,
+        "SELECTED_BOARD_SNAPSHOT": {
+            "available": False,
+            "reason_code": "SELECTED_BOARD_SNAPSHOT_MISSING",
+            "by_symbol": {},
+        },
+    }
+    missing_board = screen_a2(
+        missing_board_snapshot,
+        {"active_research_pool": rows},
+        minimum_identifiability_score=0,
+        review_all_eligible=True,
+    )
+    missing_by_symbol = {row["symbol"]: row for row in missing_board.decisions}
+    assert missing_by_symbol[emotion_symbol]["status"] == "REVIEW_CANDIDATE"
+    assert missing_by_symbol[emotion_symbol]["a2_pool_channel"] == "EMOTION"
+    assert missing_by_symbol[trend_symbol]["status"] == "LOCAL_MONITOR"
+    assert "A2_SELECTED_BOARD_SOURCE_UNAVAILABLE" in missing_by_symbol[trend_symbol]["reason_codes"]
+
+
 def test_screen_a2_partitions_no_route_low_identity_and_llm_rank_overflow() -> None:
     """A2 must preserve every A1 row while distinguishing actionable routes."""
 

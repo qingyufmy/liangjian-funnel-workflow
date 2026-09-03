@@ -751,6 +751,30 @@ def test_leader_first_board_four_plus_and_locked_are_watch_only() -> None:
         assert reason in result.reason_codes
 
 
+def test_leader_first_board_is_only_a_startup_probe_from_emotion_core() -> None:
+    base = {
+        "symbol": "600108.SH",
+        "market_role": "EMOTION_LEADER",
+        "theme_stage": "STARTUP",
+        "ladder_height": 1,
+        "ladder_intact": True,
+        "emotion_core_eligible": True,
+    }
+    result = evaluate_a3_strategy(
+        base,
+        factor=_factor(),
+        price_levels=_prices(),
+        tradability={"tradable": True},
+        kline={"labels": ["PLATFORM_BREAKOUT"]},
+        a2_context=base,
+        market_emotion={"emotion_cycle_stage": "STARTUP", "new_long_permission": "PROBE_ONLY"},
+    )
+
+    assert result.eligibility is Eligibility.QUALIFIED
+    assert result.plan_mode == "PROBE"
+    assert "FIRST_BOARD_STARTUP_PROBE" in result.reason_codes
+
+
 def test_leader_weak_or_distribution_is_rejected() -> None:
     weak = _common(
         {"symbol": "600009.SH", "market_role": "EMOTION_LEADER", "theme_stage": "RETREAT", "ladder_height": 2, "ladder_intact": True},

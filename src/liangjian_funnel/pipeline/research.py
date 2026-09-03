@@ -1235,6 +1235,16 @@ class ResearchPipeline:
                 self._not_run_stage(lane_id, model, "A3", snapshot.snapshot_id, "UPSTREAM_STAGE_BLOCKED"),
             )
             return LaneResult(lane=lane_id, model=model, status="BLOCKED", stages=stages, final_output=None)
+        sealed_active_symbols = set(_approved_symbols(a1_output, "A1"))
+        # Verify the sealed generation before adding the explicitly separate
+        # point-in-time emotion overlay. The overlay does not rewrite the
+        # monthly/weekly registry; it only makes today's validated hot-100
+        # names traceable through A1→A2→A3.
+        a1_output, emotion_overlay = _with_daily_emotion_overlay(
+            a1_output,
+            snapshot.data,
+            g0,
+        )
         if any(
             not isinstance(a1_output.get(partition), (list, tuple))
             for partition in ("active_research_pool", "monitor_pool", "rejected_candidates")
@@ -1245,9 +1255,9 @@ class ResearchPipeline:
                 self._not_run_stage(lane_id, model, "A3", snapshot.snapshot_id, "UPSTREAM_STAGE_BLOCKED"),
             )
             return LaneResult(lane=lane_id, model=model, status="BLOCKED", stages=stages, final_output=None)
-        original_symbols = set(_approved_symbols(a1_output, "A1"))
-        current_symbols = original_symbols.intersection(g0)
-        filtered_symbols = original_symbols.difference(current_symbols)
+        runtime_active_symbols = set(_approved_symbols(a1_output, "A1"))
+        current_symbols = runtime_active_symbols.intersection(g0)
+        filtered_symbols = runtime_active_symbols.difference(current_symbols)
         scope_filtered = bool(filtered_symbols)
         if scope_filtered:
             # Current G0 contains daily turnover/suspension qualification.  An
@@ -1306,8 +1316,11 @@ class ResearchPipeline:
                 "reused": True,
                 "executed": False,
                 "scope_filtered_count": len(filtered_symbols),
-                "original_active_symbol_count": len(original_symbols),
+                "sealed_active_symbol_count": len(sealed_active_symbols),
+                "runtime_active_symbol_count": len(runtime_active_symbols),
+                "original_active_symbol_count": len(sealed_active_symbols),
                 "current_g0_symbol_count": len(g0),
+                "daily_emotion_overlay": emotion_overlay,
             },
         )
         if not a1_symbols:
@@ -4690,6 +4703,214 @@ def _filter_a1_output_to_symbols(
     return result
 
 
+def _with_daily_emotion_overlay(
+    output: Mapping[str, Any],
+    snapshot_data: Mapping[str, Any],
+    g0: set[str],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Overlay today's validated Eastmoney top 100 without mutating A1 history."""
+
+    source = snapshot_data.get("EASTMONEY_HOT100_SNAPSHOT")
+    if not isinstance(source, Mapping) or source.get("available") is not True:
+        return dict(output), {
+            "available": False,
+            "reason_code": str(source.get("reason_code") or "EASTMONEY_HOT100_UNAVAILABLE")
+            if isinstance(source, Mapping)
+            else "EASTMONEY_HOT100_UNAVAILABLE",
+            "added_count": 0,
+            "annotated_count": 0,
+        }
+    records = source.get("records")
+    if not isinstance(records, Sequence) or isinstance(records, (str, bytes, bytearray)):
+        return dict(output), {
+            "available": False,
+            "reason_code": "EASTMONEY_HOT100_ROWS_MALFORMED",
+            "added_count": 0,
+            "annotated_count": 0,
+        }
+    hot_by_symbol = {
+        str(item.get("symbol") or "").strip().upper(): dict(item)
+        for item in records
+        if isinstance(item, Mapping)
+        and str(item.get("symbol") or "").strip()
+    }
+    if not hot_by_symbol:
+        return dict(output), {
+            "available": True,
+            "reason_code": "NO_G0_HOT100_SYMBOLS",
+            "added_count": 0,
+            "annotated_count": 0,
+        }
+    candidate_by_symbol: dict[str, Mapping[str, Any]] = {}
+    for key in ("g0_candidates", "research_candidates", "universe_candidates"):
+        rows = snapshot_data.get(key)
+        if not isinstance(rows, Sequence) or isinstance(rows, (str, bytes, bytearray)):
+            continue
+        for raw in rows:
+            if not isinstance(raw, Mapping):
+                continue
+            for symbol in _scan_symbols(raw):
+                candidate_by_symbol.setdefault(symbol, raw)
+
+    result = dict(output)
+    active = [dict(item) for item in output.get("active_research_pool", ()) if isinstance(item, Mapping)]
+    active_by_symbol: dict[str, dict[str, Any]] = {}
+    for item in active:
+        symbols = sorted(_scan_symbols(item))
+        if symbols:
+            active_by_symbol[symbols[0]] = item
+    added = 0
+    annotated = 0
+    excluded: list[dict[str, Any]] = []
+    hard_risks = _daily_emotion_hard_risks(snapshot_data)
+    for symbol, hot in sorted(hot_by_symbol.items(), key=lambda pair: int(pair[1].get("rank") or 999)):
+        metadata = {
+            "source": "EASTMONEY_GUBA_POPULARITY_TOP100",
+            "trade_date": source.get("trade_date"),
+            "rank": hot.get("rank"),
+            "change_pct": hot.get("change_pct"),
+            "turnover_rate_pct": hot.get("turnover_rate_pct"),
+            "volume_ratio": hot.get("volume_ratio"),
+            "point_in_time": True,
+        }
+        exclusion_reason = (
+            "A1_EMOTION_OUTSIDE_RESEARCH_UNIVERSE"
+            if symbol not in g0
+            else hard_risks.get(symbol)
+        )
+        if exclusion_reason:
+            # A sealed monthly row remains immutable in the registry, but a
+            # newly observed daily hard risk must remove it from this run's
+            # downstream active view.
+            if symbol in active_by_symbol:
+                active_by_symbol.pop(symbol, None)
+                active = [
+                    row for row in active
+                    if symbol not in _scan_symbols(row)
+                ]
+            candidate = candidate_by_symbol.get(symbol, {})
+            name = str(hot.get("name") or candidate.get("name") or candidate.get("company_name") or symbol)
+            excluded.append({
+                "candidate_id": f"A1-EMOTION-REJECT-{_sha256_json({'symbol': symbol, 'trade_date': source.get('trade_date')})[:16]}",
+                "symbol": symbol,
+                "company_name": name,
+                "name": name,
+                "status": "REJECTED",
+                "selection_basis": "DAILY_EMOTION_OVERLAY",
+                "research_route": "DAILY_EMOTION_OVERLAY",
+                "emotion_attention_eligible": False,
+                "eastmoney_hot100": metadata,
+                "downstream_trade_eligible": False,
+                "source_refs": ["EASTMONEY_GUBA_POPULARITY_TOP100"],
+                "reason_codes": [exclusion_reason],
+            })
+            continue
+        existing = active_by_symbol.get(symbol)
+        if existing is not None:
+            existing["eastmoney_hot100"] = metadata
+            existing["emotion_attention_eligible"] = True
+            existing.setdefault("a1_pool_channels", []).append("DAILY_EMOTION")
+            existing["a1_pool_channels"] = list(dict.fromkeys(existing["a1_pool_channels"]))
+            annotated += 1
+            continue
+        candidate = candidate_by_symbol.get(symbol, {})
+        name = str(hot.get("name") or candidate.get("name") or candidate.get("company_name") or symbol)
+        row = {
+            "candidate_id": f"A1-EMOTION-{_sha256_json({'symbol': symbol, 'trade_date': source.get('trade_date')})[:16]}",
+            "symbol": symbol,
+            "company_name": name,
+            "name": name,
+            "status": "ACTIVE",
+            "selection_basis": "DAILY_EMOTION_OVERLAY",
+            "research_route": "DAILY_EMOTION_OVERLAY",
+            "a1_pool_channels": ["DAILY_EMOTION"],
+            "emotion_attention_eligible": True,
+            "eastmoney_hot100": metadata,
+            "primary_theme": "当日情绪热度候选",
+            "industry_chain_node": "情绪票日度观察层",
+            "business_exposure": "情绪票按题材与接力事实判断，不以长期基本面作为入选前提",
+            "business_exposure_facts": [],
+            "downstream_trade_eligible": True,
+            "source_refs": ["EASTMONEY_GUBA_POPULARITY_TOP100"],
+            "reason_codes": ["A1_DAILY_EMOTION_HOT100_OVERLAY"],
+        }
+        active.append(row)
+        active_by_symbol[symbol] = row
+        added += 1
+    hot_symbols = set(hot_by_symbol)
+    for partition in ("monitor_pool", "rejected_candidates"):
+        rows = output.get(partition)
+        if isinstance(rows, (list, tuple)):
+            result[partition] = [
+                dict(item)
+                for item in rows
+                if isinstance(item, Mapping) and not _scan_symbols(item).intersection(hot_symbols)
+            ]
+    result.setdefault("rejected_candidates", [])
+    result["rejected_candidates"] = [*result["rejected_candidates"], *excluded]
+    result["active_research_pool"] = active
+    result["daily_emotion_overlay"] = {
+        "source": "EASTMONEY_GUBA_POPULARITY_TOP100",
+        "trade_date": source.get("trade_date"),
+        "source_record_count": source.get("record_count"),
+        "g0_record_count": len(hot_by_symbol),
+        "added_count": added,
+        "annotated_count": annotated,
+        "excluded_count": len(excluded),
+        "complete_source_disposition_count": added + annotated + len(excluded),
+        "monthly_generation_mutated": False,
+    }
+    return result, {
+        "available": True,
+        "reason_code": "OK",
+        "trade_date": source.get("trade_date"),
+        "added_count": added,
+        "annotated_count": annotated,
+        "excluded_count": len(excluded),
+        "complete_source_disposition_count": added + annotated + len(excluded),
+    }
+
+
+def _daily_emotion_hard_risks(snapshot_data: Mapping[str, Any]) -> dict[str, str]:
+    """Return only explicit disqualifying risks for the daily emotion source."""
+
+    result: dict[str, str] = {}
+    tradability = snapshot_data.get("TRADABILITY_FLAGS")
+    if isinstance(tradability, Mapping):
+        for raw_symbol, raw in tradability.items():
+            if not isinstance(raw, Mapping):
+                continue
+            symbol = str(raw_symbol).strip().upper()
+            if raw.get("tradable") is False or raw.get("is_suspended") is True or raw.get("suspended") is True:
+                result[symbol] = "A1_EMOTION_NOT_TRADABLE"
+
+    risk_events = snapshot_data.get("RISK_EVENTS")
+    risk_rows: Sequence[Any] = ()
+    if isinstance(risk_events, Mapping):
+        candidate_rows = risk_events.get("records") or risk_events.get("events")
+        if isinstance(candidate_rows, Sequence) and not isinstance(candidate_rows, (str, bytes, bytearray)):
+            risk_rows = candidate_rows
+    elif isinstance(risk_events, Sequence) and not isinstance(risk_events, (str, bytes, bytearray)):
+        risk_rows = risk_events
+    hard_tokens = (
+        "FRAUD", "DELIST", "ADVERSE_AUDIT", "DISCLAIMER_OF_OPINION",
+        "财务造假", "退市", "否定意见", "无法表示意见", "长期停牌",
+    )
+    for raw in risk_rows:
+        if not isinstance(raw, Mapping):
+            continue
+        symbols = _scan_symbols(raw)
+        severity = str(raw.get("severity") or raw.get("risk_level") or "").strip().upper()
+        event_text = " ".join(
+            str(raw.get(key) or "")
+            for key in ("event_type", "risk_type", "title", "summary", "reason")
+        ).upper()
+        if severity in {"HIGH", "HARD", "CRITICAL"} or any(token in event_text for token in hard_tokens):
+            for symbol in symbols:
+                result[symbol] = "A1_EMOTION_MAJOR_RISK"
+    return result
+
+
 def _extract_g0(data: Mapping[str, Any]) -> set[str]:
     candidates: list[Any] = []
     # Formal snapshots declare the complete A1 research domain explicitly.
@@ -5536,9 +5757,14 @@ def _stage_execution_budget(
             "scorecard. SUPPLY_CHAIN_ALPHA additionally requires supply_chain_role, scarce_layer, "
             "value_chain_position, a complete bottleneck_scorecard, at least two bottleneck_evidence items, "
             "missing_proof and kill_switches. Rank scarce layers before companies; unknown supply-chain facts "
-            "must be sent to watch_only, never scored as zero. A TOP3 MARKET_CORE row that is otherwise route- "
-            "and role-eligible remains in A2 focus even when theme new_entry_policy is WATCH_ONLY/NO_NEW_ENTRY; "
-            "preserve that risk context for A3/A4 instead of treating A2 focus as permission to trade. "
+            "must be sent to watch_only, never scored as zero. A2 has two independent source channels: "
+            "TREND rows must belong to the frozen positive-main-net-inflow selected-board primary TOP3 "
+            "(an explicit child board inherits its parent rank); EMOTION rows must belong to the frozen "
+            "Eastmoney Guba popularity TOP100 and be in STARTUP or ACCELERATION. Emotion rows do not need "
+            "to belong to a selected-board TOP3. CLIMAX, DIVERGENCE, LATENT and ICE_POINT cannot create "
+            "new emotion plans. A qualified TREND MARKET_CORE row remains in A2 focus even when the theme "
+            "new_entry_policy is WATCH_ONLY/NO_NEW_ENTRY; preserve that risk context for A3/A4 instead of "
+            "treating A2 focus as permission to trade. "
             "Every supplied symbol must appear exactly once "
             "across focus_pool, watch_only_pool, and rejected_candidates."
         ),
@@ -5553,7 +5779,13 @@ def _stage_execution_budget(
             "item copies deterministic PRICE_LEVELS values for trigger_zone, invalidation_level, "
             "stop_distance_pct, first_resistance, reward_risk and no_chase_price, then adds only concise model "
             "review evidence. The model may veto or report DATA_GAP, but cannot reroute, rescore or "
-            "change any price. candidate_origin is provenance only: a WATCH_ONLY row with server eligibility "
+            "change any price. Treat EMOTION and TREND as separate execution contracts: an emotion first board "
+            "is only a bounded STARTUP probe, two-to-three boards require an intact relay, and four-plus boards, "
+            "locked boards, failed seals, high-open-low-close, earth-sky, high-volume distribution and no-relay "
+            "patterns are no-entry; trend rows require right-side pullback/support confirmation and are no-entry "
+            "after platform breakdown, top divergence or a death cross. Probability never relaxes evidence gates, "
+            "and execution discipline means obeying the frozen no-chase and invalidation levels. "
+            "candidate_origin is provenance only: a WATCH_ONLY row with server eligibility "
             "QUALIFIED enters core as PROBE unless an independent evidence risk justifies VETO/DATA_GAP. Do not "
             "return technical_score or score_breakdown; A3 has no weighted-score decision path."
         ),
@@ -5686,13 +5918,22 @@ def _gate_item_from_decision(
             "theme_rotation_score": decision.get("theme_rotation_score"),
             "rotation_strength_source": decision.get("rotation_strength_source"),
             "top_rotation_theme": decision.get("top_rotation_theme"),
+            "a2_pool_channel": decision.get("a2_pool_channel"),
+            "emotion_core_eligible": decision.get("emotion_core_eligible") is True,
+            "trend_core_eligible": decision.get("trend_core_eligible") is True,
+            "eastmoney_hot100": dict(decision.get("eastmoney_hot100") or {}),
+            "selected_board": dict(decision.get("selected_board") or {}),
             "sector_index_code": (
-                (decision.get("a2_taxonomy_binding") or {}).get("taxonomy_code")
+                (decision.get("selected_board") or {}).get("board_code")
+                if isinstance(decision.get("selected_board"), Mapping) and decision.get("selected_board")
+                else (decision.get("a2_taxonomy_binding") or {}).get("taxonomy_code")
                 if isinstance(decision.get("a2_taxonomy_binding"), Mapping)
                 else None
             ),
             "sector_index_name": (
-                (decision.get("a2_taxonomy_binding") or {}).get("taxonomy_name")
+                (decision.get("selected_board") or {}).get("board_name")
+                if isinstance(decision.get("selected_board"), Mapping) and decision.get("selected_board")
+                else (decision.get("a2_taxonomy_binding") or {}).get("taxonomy_name")
                 if isinstance(decision.get("a2_taxonomy_binding"), Mapping)
                 else None
             ),
@@ -7172,10 +7413,24 @@ def _canonicalize_stage_lineage(
                 canonical["rotation_strength_source"] = context.get("rotation_strength_source")
                 canonical["top_rotation_theme"] = context.get("top_rotation_theme") is True
                 canonical["rotation_direction_id"] = context.get("rotation_direction_id")
+                canonical["a2_pool_channel"] = context.get("a2_pool_channel")
+                canonical["emotion_core_eligible"] = context.get("emotion_core_eligible") is True
+                canonical["trend_core_eligible"] = context.get("trend_core_eligible") is True
+                canonical["eastmoney_hot100"] = dict(context.get("eastmoney_hot100") or {})
+                canonical["selected_board"] = dict(context.get("selected_board") or {})
                 taxonomy_binding = context.get("a2_taxonomy_binding")
                 if isinstance(taxonomy_binding, Mapping):
-                    canonical["sector_index_code"] = taxonomy_binding.get("taxonomy_code")
-                    canonical["sector_index_name"] = taxonomy_binding.get("taxonomy_name")
+                    selected_board = context.get("selected_board")
+                    canonical["sector_index_code"] = (
+                        selected_board.get("board_code")
+                        if isinstance(selected_board, Mapping) and selected_board
+                        else taxonomy_binding.get("taxonomy_code")
+                    )
+                    canonical["sector_index_name"] = (
+                        selected_board.get("board_name")
+                        if isinstance(selected_board, Mapping) and selected_board
+                        else taxonomy_binding.get("taxonomy_name")
+                    )
         else:
             canonical["upstream_candidate_id"] = upstream_id
             canonical["parent_candidate_id"] = upstream_id
@@ -8153,6 +8408,7 @@ def _a2_relative_top3_market_core_exception(
         if not isinstance(context, Mapping):
             return False
         top_rotation_theme = context.get("top_rotation_theme") is True
+        emotion_core_eligible = context.get("emotion_core_eligible") is True
         local_status = str(
             context.get("deterministic_status")
             or context.get("status")
@@ -8209,6 +8465,7 @@ def _a2_relative_top3_market_core_exception(
             return False
     else:
         top_rotation_theme = item.get("top_rotation_theme") is True
+        emotion_core_eligible = item.get("emotion_core_eligible") is True
         eligible_routes = item.get("eligible_routes")
         route_values = {
             str(value).strip().upper()
@@ -8225,7 +8482,7 @@ def _a2_relative_top3_market_core_exception(
         if MARKET_CORE_ROUTE not in route_values:
             return False
 
-    if not top_rotation_theme:
+    if not top_rotation_theme and not emotion_core_eligible:
         return False
 
     # Model-owned fields may explain or veto a candidate, but cannot turn a
@@ -10062,6 +10319,11 @@ def _with_a2_bottleneck_context(
             "rotation_strength_source": item.get("rotation_strength_source"),
             "top_rotation_theme": item.get("top_rotation_theme"),
             "a2_taxonomy_binding": dict(item.get("a2_taxonomy_binding") or {}),
+            "a2_pool_channel": item.get("a2_pool_channel"),
+            "emotion_core_eligible": item.get("emotion_core_eligible") is True,
+            "trend_core_eligible": item.get("trend_core_eligible") is True,
+            "eastmoney_hot100": dict(item.get("eastmoney_hot100") or {}),
+            "selected_board": dict(item.get("selected_board") or {}),
             "deterministic_market_role": item.get("role"),
             "stock_behavior_type": item.get("stock_behavior_type"),
             "route_permission": list(item.get("route_permission") or ()),

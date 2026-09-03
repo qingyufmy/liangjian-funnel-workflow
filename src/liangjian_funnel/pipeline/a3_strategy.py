@@ -205,7 +205,7 @@ _LEADER_ROLES = {
     "MARKET_LEADER",
     "THEME_LEADER",
 }
-_LEADER_STAGES = {"IGNITION", "CONFIRMATION", "ACCELERATION", "EARLY_ACCELERATION"}
+_LEADER_STAGES = {"STARTUP", "IGNITION", "CONFIRMATION", "ACCELERATION", "EARLY_ACCELERATION"}
 _BAD_LEADER_STAGES = {
     "CLIMAX",
     "DIVERGENCE",
@@ -921,15 +921,25 @@ def evaluate_a3_candidate(
                 labels=labels,
             )
 
-        # A first board, a four-plus board, and a locked one-price board are
-        # observable but not executable.  They are intentionally WATCH, not
-        # hard rejections, so the next session can still display the reason.
+        # A first board is executable only as a bounded probe during the
+        # startup phase. Four-plus boards and locked one-price boards remain
+        # observation-only because the first safe main-rise segment has
+        # already passed or cannot be entered with controlled slippage.
         if profile is StrategyProfile.LEADER_INTRADAY:
             height = ladder.get("height")
             if height is None:
                 condition("LADDER_HEIGHT_AVAILABLE", False, missing=True, reason="LADDER_HEIGHT_MISSING")
             elif height <= 1:
-                condition("BOARD_NOT_FIRST_OBSERVATION_ONLY", False, reason="FIRST_BOARD_OBSERVE_ONLY", watch=True)
+                first_board_probe = (
+                    emotion_cycle_stage in {"STARTUP", "IGNITION"}
+                    and merged_a2.get("emotion_core_eligible") is True
+                )
+                if first_board_probe:
+                    conditional_probe = True
+                    condition("FIRST_BOARD_STARTUP_PROBE", True)
+                    _append_unique(reason_codes, "FIRST_BOARD_STARTUP_PROBE")
+                else:
+                    condition("BOARD_NOT_FIRST_OBSERVATION_ONLY", False, reason="FIRST_BOARD_OBSERVE_ONLY", watch=True)
             elif height >= 4:
                 condition("BOARD_NOT_HIGH_RISK_4_PLUS", False, reason="FOUR_PLUS_BOARD_WATCH_ONLY", watch=True)
             if locked:

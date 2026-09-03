@@ -15,7 +15,12 @@ from liangjian_funnel.pipeline.a1_registry import (
 )
 from liangjian_funnel.pipeline.model_client import ModelCallResult
 from liangjian_funnel.pipeline.prompts import PROMPT_FILENAMES
-from liangjian_funnel.pipeline.research import FrozenInputSnapshot, ResearchPipeline, _restrict_snapshot_to_symbols
+from liangjian_funnel.pipeline.research import (
+    FrozenInputSnapshot,
+    ResearchPipeline,
+    _restrict_snapshot_to_symbols,
+    _with_daily_emotion_overlay,
+)
 from liangjian_funnel.settings import Settings
 from liangjian_funnel.workflow import (
     WorkflowApplication,
@@ -27,6 +32,72 @@ from liangjian_funnel.workflow import (
 
 TZ = ZoneInfo("Asia/Shanghai")
 MODELS = ("deepseek-v4-pro-0813", "moonshotai/kimi-k3-free", "z-ai/glm-5.3-free")
+
+
+def test_daily_emotion_overlay_adds_hot100_to_a1_without_mutating_sealed_payload() -> None:
+    sealed = {
+        "active_research_pool": [{"symbol": "600001.SH", "candidate_id": "monthly-1"}],
+        "monitor_pool": [{"symbol": "600002.SH"}],
+        "rejected_candidates": [],
+    }
+    snapshot = {
+        "g0_candidates": [
+            {"symbol": "600001.SH", "name": "月度趋势"},
+            {"symbol": "600002.SH", "name": "当日情绪"},
+        ],
+        "EASTMONEY_HOT100_SNAPSHOT": {
+            "available": True,
+            "trade_date": "2026-09-03",
+            "record_count": 100,
+            "records": [
+                {"symbol": "600001.SH", "name": "月度趋势", "rank": 20},
+                {"symbol": "600002.SH", "name": "当日情绪", "rank": 3},
+            ],
+        },
+    }
+    overlaid, summary = _with_daily_emotion_overlay(
+        sealed,
+        snapshot,
+        {"600001.SH", "600002.SH"},
+    )
+    assert [row["symbol"] for row in sealed["active_research_pool"]] == ["600001.SH"]
+    assert {row["symbol"] for row in overlaid["active_research_pool"]} == {"600001.SH", "600002.SH"}
+    assert overlaid["monitor_pool"] == []
+    assert summary["added_count"] == 1
+    assert summary["annotated_count"] == 1
+    assert overlaid["daily_emotion_overlay"]["monthly_generation_mutated"] is False
+
+
+def test_daily_emotion_overlay_disposes_every_hot_row_and_rejects_hard_risk() -> None:
+    sealed = {
+        "active_research_pool": [{"symbol": "600002.SH", "candidate_id": "monthly-risk"}],
+        "monitor_pool": [],
+        "rejected_candidates": [],
+    }
+    snapshot = {
+        "g0_candidates": [{"symbol": "600001.SH", "name": "可研究"}],
+        "EASTMONEY_HOT100_SNAPSHOT": {
+            "available": True,
+            "trade_date": "2026-09-03",
+            "record_count": 2,
+            "records": [
+                {"symbol": "600001.SH", "name": "可研究", "rank": 1},
+                {"symbol": "600002.SH", "name": "重大风险", "rank": 2},
+            ],
+        },
+        "RISK_EVENTS": {
+            "available": True,
+            "records": [{"symbol": "600002.SH", "severity": "HIGH", "event_type": "FRAUD"}],
+        },
+    }
+
+    overlaid, summary = _with_daily_emotion_overlay(sealed, snapshot, {"600001.SH", "600002.SH"})
+
+    assert [row["symbol"] for row in overlaid["active_research_pool"]] == ["600001.SH"]
+    assert [row["symbol"] for row in sealed["active_research_pool"]] == ["600002.SH"]
+    assert [row["symbol"] for row in overlaid["rejected_candidates"]] == ["600002.SH"]
+    assert overlaid["rejected_candidates"][0]["reason_codes"] == ["A1_EMOTION_MAJOR_RISK"]
+    assert summary["complete_source_disposition_count"] == 2
 
 
 def test_a1_maintenance_attempt_ids_do_not_reuse_same_day_feature_binding() -> None:

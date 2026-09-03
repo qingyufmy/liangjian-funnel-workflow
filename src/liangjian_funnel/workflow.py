@@ -28,7 +28,9 @@ from .data.bse import BseClient
 from .data.cninfo import CninfoAnnouncement, CninfoClient, CninfoFetchResult
 from .data.cninfo_pdf import CninfoPdfClient, CninfoPdfEvidence
 from .data.gov_policy import GovPolicyClient
+from .data.eastmoney_hot import collect_eastmoney_hot100
 from .data.mootdx import MootdxAdapter, MootdxNode, MinuteBar, detect_missing_bars, map_symbol
+from .data.selected_board import load_selected_board_snapshot
 from .data.tencent_minute import ResilientIntradayAdapter, TencentIntradayAdapter
 from .data.open_news import OpenNewsClient, OpenNewsFetchResult
 from .data.open_macro import OpenMacroDataCollector
@@ -426,6 +428,29 @@ class WorkflowApplication:
         node_count_target = a1_config.get("node_count_target", [40, 80])
         if not isinstance(node_count_target, list):
             raise WorkflowError("A1_NODE_TARGET_INVALID")
+        closed_trade_date = _latest_closed_market_trade_date(
+            market_current,
+            self.trading_calendar,
+        )
+        # The post-close top 100 is the canonical daily emotion-attention
+        # observation.  Before the close, the latest completed session is
+        # loaded instead; a missing current-date response never falls back to
+        # an older file under a new date.
+        eastmoney_hot100 = collect_eastmoney_hot100(
+            as_of=market_current,
+            expected_trade_date=closed_trade_date,
+            cache_dir=self.settings.fact_store_dir / "eastmoney_hot100",
+        )
+        selected_board = load_selected_board_snapshot(
+            as_of=market_current,
+            expected_trade_date=closed_trade_date,
+            snapshot_dir=self.settings.fact_store_dir / "selected_board",
+        )
+        hot100_symbols = {
+            str(item.get("symbol") or "").strip().upper()
+            for item in eastmoney_hot100.get("records", ())
+            if isinstance(item, Mapping) and str(item.get("symbol") or "").strip()
+        }
         source_failures: dict[str, list[str]] = {}
         if progress is not None:
             progress.set_phase("UNIVERSE_SYNC")
@@ -474,6 +499,10 @@ class WorkflowApplication:
                     for symbol in candidate_symbols
                     if str(symbol).strip()
                 }
+                # A1's sealed monthly/weekly pool remains immutable.  The
+                # same-day emotion overlay expands only the daily fact scope
+                # so hot stocks can be evaluated and traced through A1→A3.
+                requested_symbols.update(hot100_symbols)
                 research_records = tuple(
                     candidate
                     for candidate in research_records
@@ -929,6 +958,8 @@ class WorkflowApplication:
         # This payload is included before FrozenInputSnapshot.freeze, so the
         # contracts and their source manifest participate in the facts hash.
         fact_payload["open_macro_bundle"] = open_macro_bundle
+        fact_payload["eastmoney_hot100"] = eastmoney_hot100
+        fact_payload["selected_board_snapshot"] = selected_board
 
         if progress is not None:
             progress.set_phase("SNAPSHOT")
@@ -4119,6 +4150,10 @@ class WorkflowApplication:
             facts = {}
         open_macro_bundle = frozen.fact_payload.get("open_macro_bundle")
         open_macro_bundle = open_macro_bundle if isinstance(open_macro_bundle, Mapping) else {}
+        eastmoney_hot100 = frozen.fact_payload.get("eastmoney_hot100")
+        eastmoney_hot100 = eastmoney_hot100 if isinstance(eastmoney_hot100, Mapping) else {}
+        selected_board = frozen.fact_payload.get("selected_board_snapshot")
+        selected_board = selected_board if isinstance(selected_board, Mapping) else {}
         market_emotion = build_market_emotion(universe.records, facts, as_of=market_as_of)
         if market_emotion.get("available") is not True:
             raise WorkflowError("MARKET_EMOTION_AGGREGATE_NOT_READY")
@@ -4386,6 +4421,8 @@ class WorkflowApplication:
                 "evidence": regime_evidence,
             },
             "MARKET_EMOTION_SNAPSHOT": market_emotion,
+            "EASTMONEY_HOT100_SNAPSHOT": eastmoney_hot100,
+            "SELECTED_BOARD_SNAPSHOT": selected_board,
             "MARKET_FUNDING_SNAPSHOT": market_funding,
             "LIQUIDITY_SNAPSHOT": {item.symbol: {"turnover": item.amount} for item in universe.records if item.symbol in g0_symbols},
             "TRADABILITY_FLAGS": {

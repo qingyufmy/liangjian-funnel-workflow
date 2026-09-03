@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
-EMOTION_ALGORITHM = "market-emotion/1.1.0"
+EMOTION_ALGORITHM = "market-emotion/2.0.0"
 SECTOR_CYCLE_ALGORITHM = "sector-cycle/2.0.0"
 SECTOR_HEALTH_ALGORITHM = "sector-health/1.0.0"
 _MONTHLY_OBSERVATION_BARS = 21  # 20 return periods require 21 closes.
@@ -91,6 +91,7 @@ def build_market_emotion(
         "as_of": cutoff.isoformat(),
         "temperature": temperature,
         "emotion_cycle_stage": emotion_cycle["stage"],
+        "emotion_cycle_stage_cn": emotion_cycle["stage_cn"],
         "new_long_permission": emotion_cycle["new_long_permission"],
         "emotion_cycle_reason_codes": emotion_cycle["reason_codes"],
         "emotion_cycle_evidence": emotion_cycle["evidence"],
@@ -1579,40 +1580,62 @@ def _emotion_cycle_contract(
 
     height = ladder_height or 0
     mapping = {
-        "ICE": ("ICE_POINT", "NO_NEW_ENTRY", ["MARKET_ICE_POINT"]),
-        "WEAK": ("RETREAT", "NO_NEW_ENTRY", ["MARKET_RETREAT"]),
+        "ICE": ("ICE_POINT", "冰点期", "NO_NEW_ENTRY", ["MARKET_ICE_POINT"]),
         "DIVERGING_WEAK": (
             "DIVERGENCE",
+            "分化退潮期",
             "NO_NEW_ENTRY",
             ["HIGH_BREAK_RATE_DIVERGENCE"],
         ),
         "OVERHEATED": (
             "CLIMAX",
+            "情绪高潮期",
             "NO_NEW_ENTRY",
             ["OVERHEATED_CLIMAX_NO_NEW_LEADER"],
         ),
         "STRONG": (
-            "ACCELERATION" if height >= 2 else "CONFIRMATION",
+            "ACCELERATION" if height >= 2 else "STARTUP",
+            "加速期" if height >= 2 else "启动期",
             "ALLOW_CORE",
             ["HEALTHY_BREADTH_AND_LADDER"],
         ),
     }
     if temperature in mapping:
-        stage, permission, reason_codes = mapping[temperature]
+        stage, stage_cn, permission, reason_codes = mapping[temperature]
+    elif temperature == "WEAK" and (
+        (break_rate is not None and break_rate >= 0.30)
+        or limit_down >= max(5, limit_up)
+    ):
+        stage, stage_cn, permission, reason_codes = (
+            "DIVERGENCE",
+            "分化退潮期",
+            "NO_NEW_ENTRY",
+            ["MARKET_RETREAT"],
+        )
+    elif temperature == "WEAK":
+        stage, stage_cn, permission, reason_codes = (
+            "LATENT",
+            "潜伏期",
+            "WATCH_ONLY",
+            ["LATENT_TURNING_POINT_NOT_CONFIRMED"],
+        )
     elif limit_up > limit_down and breadth >= 0.45 and height >= 1:
-        stage, permission, reason_codes = (
-            "IGNITION",
+        stage, stage_cn, permission, reason_codes = (
+            "STARTUP",
+            "启动期",
             "PROBE_ONLY",
             ["RECOVERY_WITH_LADDER_SEED"],
         )
     else:
-        stage, permission, reason_codes = (
-            "MIXED",
+        stage, stage_cn, permission, reason_codes = (
+            "LATENT",
+            "潜伏期",
             "WATCH_ONLY",
             ["EMOTION_CYCLE_NOT_CONFIRMED"],
         )
     return {
         "stage": stage,
+        "stage_cn": stage_cn,
         "new_long_permission": permission,
         "reason_codes": reason_codes,
         "evidence": {

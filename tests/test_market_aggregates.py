@@ -87,8 +87,48 @@ def test_market_emotion_blocks_new_leader_plans_at_climax_and_retreat() -> None:
     retreat_records = [{"change_ratio_pct": 1.0}] * 30 + [{"change_ratio_pct": -1.0}] * 70
     retreat = build_market_emotion(retreat_records, _facts(), as_of=NOW)
 
-    assert retreat["emotion_cycle_stage"] in {"ICE_POINT", "RETREAT"}
+    assert retreat["emotion_cycle_stage"] == "ICE_POINT"
     assert retreat["new_long_permission"] == "NO_NEW_ENTRY"
+
+
+def test_market_emotion_exposes_only_the_six_confirmed_cycle_stages() -> None:
+    scenarios = [
+        ([{"change_ratio_pct": 1.0}] * 20 + [{"change_ratio_pct": -1.0}] * 80, "ICE_POINT"),
+        ([{"change_ratio_pct": 1.0}] * 40 + [{"change_ratio_pct": -1.0}] * 60, "LATENT"),
+        ([{"change_ratio_pct": 1.0}] * 50 + [{"change_ratio_pct": -1.0}] * 50, "STARTUP"),
+        ([{"change_ratio_pct": 1.0}] * 60 + [{"change_ratio_pct": -1.0}] * 40, "ACCELERATION"),
+        ([{"change_ratio_pct": 1.0}] * 80 + [{"change_ratio_pct": -1.0}] * 20, "CLIMAX"),
+    ]
+    for records, expected in scenarios:
+        facts = _facts()
+        if expected == "STARTUP":
+            facts["LIMIT_UP_POOL"] = _fact([{"thscode": f"600{i:03d}.SH"} for i in range(20)])
+            facts["LIMIT_BREAK_POOL"] = _fact([{"thscode": "300001.SZ"}])
+            facts["LIMIT_UP_LADDER"] = _fact([
+                {"date": "2026-08-25", "boards": {"first_board": [{"board_num": 1}]}}
+            ])
+        elif expected == "LATENT":
+            facts["LIMIT_UP_POOL"] = _fact([{"thscode": f"600{i:03d}.SH"} for i in range(10)])
+            facts["LIMIT_BREAK_POOL"] = _fact([{"thscode": f"300{i:03d}.SZ"} for i in range(2)])
+            facts["LIMIT_UP_LADDER"] = _fact([])
+        elif expected == "CLIMAX":
+            facts["LIMIT_UP_POOL"] = _fact([{"thscode": f"600{i:03d}.SH"} for i in range(80)])
+            facts["LIMIT_BREAK_POOL"] = _fact([])
+        stage = build_market_emotion(records, facts, as_of=NOW)["emotion_cycle_stage"]
+        assert stage == expected
+
+    divergence_facts = _facts()
+    divergence_facts["LIMIT_UP_POOL"] = _fact([{"thscode": f"600{i:03d}.SH"} for i in range(50)])
+    divergence_facts["LIMIT_BREAK_POOL"] = _fact([{"thscode": f"300{i:03d}.SZ"} for i in range(30)])
+    divergence = build_market_emotion(
+        [{"change_ratio_pct": 1.0}] * 55 + [{"change_ratio_pct": -1.0}] * 45,
+        divergence_facts,
+        as_of=NOW,
+    )
+    assert divergence["emotion_cycle_stage"] == "DIVERGENCE"
+
+    observed = {expected for _, expected in scenarios} | {divergence["emotion_cycle_stage"]}
+    assert observed == {"LATENT", "STARTUP", "ACCELERATION", "CLIMAX", "DIVERGENCE", "ICE_POINT"}
 
 
 def test_market_emotion_rejects_future_and_low_breadth_coverage() -> None:

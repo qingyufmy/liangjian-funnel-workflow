@@ -1002,6 +1002,27 @@ def screen_a2(
     market_emotion = raw_market_emotion if isinstance(raw_market_emotion, Mapping) else {}
     raw_market_funding = snapshot.get("MARKET_FUNDING_SNAPSHOT")
     market_funding = raw_market_funding if isinstance(raw_market_funding, Mapping) else {}
+    raw_hot100 = snapshot.get("EASTMONEY_HOT100_SNAPSHOT")
+    hot100 = raw_hot100 if isinstance(raw_hot100, Mapping) else {}
+    hot100_by_symbol = {
+        str(row.get("symbol") or "").strip().upper(): dict(row)
+        for row in hot100.get("records", ())
+        if hot100.get("available") is True
+        and isinstance(row, Mapping)
+        and str(row.get("symbol") or "").strip()
+    }
+    raw_selected_boards = snapshot.get("SELECTED_BOARD_SNAPSHOT")
+    selected_boards = raw_selected_boards if isinstance(raw_selected_boards, Mapping) else {}
+    dual_channel_contract = (
+        "EASTMONEY_HOT100_SNAPSHOT" in snapshot
+        or "SELECTED_BOARD_SNAPSHOT" in snapshot
+    )
+    selected_board_by_symbol = (
+        selected_boards.get("by_symbol")
+        if selected_boards.get("available") is True
+        and isinstance(selected_boards.get("by_symbol"), Mapping)
+        else {}
+    )
     taxonomy_theme_map = _a2_taxonomy_theme_map(a1_output)
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     market_grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -1106,6 +1127,27 @@ def screen_a2(
             ),
         )
         role = str(behavior_decision.get("market_role") or A2_BEHAVIOR_UNRESOLVED)
+        hot100_row = hot100_by_symbol.get(symbol)
+        selected_board_rows = selected_board_by_symbol.get(symbol, ())
+        if not isinstance(selected_board_rows, Sequence) or isinstance(selected_board_rows, (str, bytes, bytearray)):
+            selected_board_rows = ()
+        selected_board_matches = [
+            dict(row)
+            for row in selected_board_rows
+            if isinstance(row, Mapping)
+            and row.get("selected_for_rotation") is True
+            and (_number(row.get("main_net_inflow_cny")) or 0.0) > 0
+        ]
+        selected_board_match = max(
+            selected_board_matches,
+            key=lambda row: (
+                _number(row.get("strength")) or 0.0,
+                _number(row.get("main_net_inflow_cny")) or 0.0,
+            ),
+            default=None,
+        )
+        if selected_board_match is not None:
+            rotation_direction_id = f"SELECTED_BOARD:{selected_board_match.get('board_code')}"
         route_results = _a2_route_results(
             item=item,
             identifiability=identifiability,
@@ -1214,6 +1256,36 @@ def screen_a2(
             status = "HARD_REJECT"
             data_sufficiency_state = "SUFFICIENT"
             reasons.append("A2_UPSTREAM_RESEARCH_ONLY")
+        behavior_type = str(behavior_decision.get("stock_behavior_type") or A2_BEHAVIOR_UNRESOLVED)
+        cycle_stage = str(market_emotion.get("emotion_cycle_stage") or "MIXED").upper()
+        emotion_cycle_allowed = cycle_stage in {"STARTUP", "IGNITION", "CONFIRMATION", "ACCELERATION"}
+        emotion_core_eligible = (
+            hot100_row is not None
+            and behavior_type == "EMOTION"
+            and emotion_cycle_allowed
+        )
+        trend_core_eligible = (
+            behavior_type == "TREND"
+            and selected_board_match is not None
+        )
+        pool_channel = (
+            "EMOTION" if emotion_core_eligible
+            else "TREND" if trend_core_eligible
+            else "NONE" if dual_channel_contract
+            else "LEGACY"
+        )
+        if dual_channel_contract and status == "REVIEW_CANDIDATE" and pool_channel == "NONE":
+            status = "LOCAL_MONITOR"
+            if behavior_type == "EMOTION" and hot100_row is None:
+                reasons.append("A2_EMOTION_NOT_IN_EASTMONEY_HOT100")
+            elif behavior_type == "EMOTION" and not emotion_cycle_allowed:
+                reasons.append("A2_EMOTION_CYCLE_NO_NEW_ENTRY")
+            elif behavior_type == "TREND" and selected_boards.get("available") is not True:
+                reasons.append("A2_SELECTED_BOARD_SOURCE_UNAVAILABLE")
+            elif behavior_type == "TREND":
+                reasons.append("A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD")
+            else:
+                reasons.append("A2_BEHAVIOR_UNRESOLVED")
         decision = {
             "decision_id": content_hash({
                 "stage": "A2_LOCAL_ROLE",
@@ -1247,6 +1319,11 @@ def screen_a2(
             "role": role,
             "legacy_market_role": legacy_role,
             "stock_behavior_type": behavior_decision.get("stock_behavior_type"),
+            "a2_pool_channel": pool_channel,
+            "emotion_core_eligible": emotion_core_eligible,
+            "trend_core_eligible": trend_core_eligible,
+            "eastmoney_hot100": dict(hot100_row) if hot100_row is not None else None,
+            "selected_board": dict(selected_board_match) if selected_board_match is not None else None,
             "route_permission": list(behavior_decision.get("route_permission") or ()),
             "behavior_type_decision": behavior_decision,
             "market_emotion_cycle": {
@@ -1293,15 +1370,24 @@ def screen_a2(
             "as_of": snapshot_as_of,
         }
         decisions.append(decision)
-        if _number(taxonomy_binding.get("rotation_strength_score")) is not None:
+        if trend_core_eligible or (
+            not dual_channel_contract
+            and _number(taxonomy_binding.get("rotation_strength_score")) is not None
+        ):
             market_grouped[rotation_direction_id].append(decision)
-        if status == "REVIEW_CANDIDATE":
+        if status == "REVIEW_CANDIDATE" and (trend_core_eligible or not dual_channel_contract):
             grouped[rotation_direction_id].append(decision)
     theme_strength: dict[str, float] = {}
     theme_strength_source: dict[str, str] = {}
     ranking_groups = market_grouped if market_grouped else grouped
     for theme_id, values in ranking_groups.items():
         values.sort(key=lambda item: (-float(item["score"]), -float(item["identifiability_score"]), str(item["symbol"])))
+        selected_strengths = [
+            float(score)
+            for item in values
+            if isinstance(item.get("selected_board"), Mapping)
+            and (score := _number(item["selected_board"].get("strength"))) is not None
+        ]
         market_scores = [
             float(score)
             for item in values
@@ -1311,7 +1397,10 @@ def screen_a2(
                 else None
             )) is not None
         ]
-        if market_scores:
+        if selected_strengths:
+            theme_strength[theme_id] = round(max(selected_strengths), 4)
+            theme_strength_source[theme_id] = "THS_SELECTED_BOARD_STRENGTH"
+        elif market_scores:
             theme_strength[theme_id] = round(max(market_scores), 4)
             theme_strength_source[theme_id] = "A2_THEME_METRICS"
         else:
@@ -1328,8 +1417,24 @@ def screen_a2(
         theme_strength,
         key=lambda theme_id: (-theme_strength[theme_id], -len(grouped[theme_id]), theme_id),
     )
-    top_theme_ids = set(ranked_themes[:rotation_theme_count])
-    theme_rotation_rank = {theme_id: rank for rank, theme_id in enumerate(ranked_themes, start=1)}
+    if selected_boards.get("available") is True:
+        # ``selected_for_rotation`` was already calculated from the strongest
+        # three positive-flow primary boards. Child boards inherit the parent
+        # rank and therefore do not consume a fourth slot.
+        top_theme_ids = set(ranked_themes)
+        theme_rotation_rank = {
+            theme_id: int(
+                min(
+                    _number(item.get("selected_board", {}).get("primary_rank")) or 999
+                    for item in ranking_groups[theme_id]
+                    if isinstance(item.get("selected_board"), Mapping)
+                )
+            )
+            for theme_id in ranked_themes
+        }
+    else:
+        top_theme_ids = set(ranked_themes[:rotation_theme_count])
+        theme_rotation_rank = {theme_id: rank for rank, theme_id in enumerate(ranked_themes, start=1)}
 
     for theme_id, values in ranking_groups.items():
         for item in values:
@@ -1350,9 +1455,25 @@ def screen_a2(
             else:
                 item["sent_to_llm"] = True
 
+    # The emotion channel is independently sourced from Eastmoney top 100 and
+    # the six-stage cycle.  It must not be demoted merely because its emerging
+    # theme has not yet entered the selected-board strength top three.
+    for item in decisions:
+        if item.get("status") == "REVIEW_CANDIDATE" and item.get("emotion_core_eligible") is True:
+            item["top_rotation_theme"] = None
+            item["theme_rotation_rank"] = None
+            item["theme_rotation_score"] = None
+            item["rotation_strength_source"] = "EASTMONEY_HOT100_EMOTION_CHANNEL"
+            item["theme_rank"] = item.get("eastmoney_hot100", {}).get("rank") if isinstance(item.get("eastmoney_hot100"), Mapping) else None
+            item["sent_to_llm"] = True
+
     if market_grouped:
         for item in decisions:
-            if item.get("status") != "REVIEW_CANDIDATE" or item.get("top_rotation_theme") is True:
+            if (
+                item.get("status") != "REVIEW_CANDIDATE"
+                or item.get("top_rotation_theme") is True
+                or item.get("emotion_core_eligible") is True
+            ):
                 continue
             item["status"] = "LOCAL_MONITOR"
             item["sent_to_llm"] = False
@@ -3026,6 +3147,10 @@ def _with_factor_metadata(result: dict[str, Any], raw: Mapping[str, Any]) -> dic
         "sector_ladder_groups",
         "role",
         "tier_confirmation_mode",
+        "first_board_observed",
+        "continuation_confirmed",
+        "event_source",
+        "trade_date",
     ):
         if key in raw:
             result[key] = raw.get(key)
