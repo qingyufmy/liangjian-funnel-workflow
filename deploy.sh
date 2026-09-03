@@ -109,11 +109,24 @@ wait_for_health() {
 }
 
 echo "[deploy] Restarting BaoTa Node project only..."
+old_node_pid="$(pgrep -u www -f 'node dist/server/index\.js' | head -n 1 || true)"
 baota_action restart
 
 # BaoTa restarts asynchronously. The previous process can remain healthy for
-# several seconds, so let the handoff settle before probing the replacement.
-sleep 12
+# several seconds, so do not probe the replacement until that exact PID exits.
+if [[ -n "${old_node_pid}" ]]; then
+  echo "[deploy] Waiting for previous Node PID ${old_node_pid} to exit..."
+  for _ in $(seq 1 40); do
+    if ! kill -0 "${old_node_pid}" 2>/dev/null; then
+      break
+    fi
+    sleep 1
+  done
+  if kill -0 "${old_node_pid}" 2>/dev/null; then
+    echo "[deploy] Previous Node process did not exit after BaoTa restart."
+    exit 3
+  fi
+fi
 
 echo "[deploy] Verifying Node health..."
 if ! wait_for_health; then
