@@ -3475,6 +3475,12 @@ def local_monitor_items(result: DeterministicGateResult) -> list[dict[str, Any]]
             "evidence_confidence": 0.0,
             "status": "MONITOR",
             "selection_basis": item.get("selection_basis") or "DETERMINISTIC_SCORE",
+            # Preserve the server-owned route and execution boundary for
+            # research-only rows (notably broker-gold symbols outside G0).
+            # These fields are copied, never inferred from a monitor status or
+            # from fabricated theme/business evidence.
+            "research_route": item.get("research_route"),
+            "downstream_trade_eligible": item.get("downstream_trade_eligible", True) is True,
             "reason_codes": item.get("reason_codes", []),
             "coverage_origin": item.get("coverage_origin"),
             "autonomous_status": item.get("autonomous_status"),

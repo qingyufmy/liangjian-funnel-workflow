@@ -887,8 +887,10 @@ def validate_a1_generation_contract(
                         diagnostics={"lane_id": str(lane_id), "partition": partition, "symbol": symbol},
                     )
                 if symbol in verified_outside and (
-                    partition != "active_research_pool"
-                    or str(row.get("selection_basis") or row.get("research_route") or "").strip().upper()
+                    partition == "rejected_candidates"
+                    or str(row.get("selection_basis") or "").strip().upper()
+                    != "BROKER_GOLD_DIRECT"
+                    or str(row.get("research_route") or "").strip().upper()
                     != "BROKER_GOLD_DIRECT"
                     or row.get("downstream_trade_eligible") is not False
                 ):

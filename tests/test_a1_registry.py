@@ -306,6 +306,7 @@ def test_a1_registry_allows_verified_broker_gold_research_outside_g0(tmp_path: P
             {
                 "symbol": outside_symbol,
                 "selection_basis": "BROKER_GOLD_DIRECT",
+                "research_route": "BROKER_GOLD_DIRECT",
                 "downstream_trade_eligible": False,
             },
         ],
@@ -348,6 +349,75 @@ def test_a1_registry_allows_verified_broker_gold_research_outside_g0(tmp_path: P
     )
     payload["generation_id"] = generation.generation_id
     sealed = registry.seal_generation(generation.generation_id, payload=payload, sealed_at=now)
+    assert sealed.manifest["outside_g0_research_symbols_by_lane"] == {
+        "lane_1": [outside_symbol]
+    }
+
+
+def test_a1_registry_allows_verified_broker_gold_monitor_outside_g0(tmp_path: Path):
+    registry = A1Registry(tmp_path / "a1.sqlite3")
+    now = datetime(2026, 9, 2, 18, 0, tzinfo=TZ)
+    outside_symbol = "002956.SZ"
+    institutional_row = {
+        "symbol": outside_symbol,
+        "autonomous_partition": "OUTSIDE_G0",
+        "coverage_origin": "BROKER_GOLD_T2",
+        "reason_codes": [
+            "A1_INSTITUTIONAL_DIRECT_ENTRY",
+            "A1_INSTITUTIONAL_OUTSIDE_G0",
+        ],
+        "institutional_coverage": {
+            "evidence_tier": "T2",
+            "direct_research_entry": True,
+        },
+    }
+    output = {
+        "active_research_pool": [{"symbol": "600519.SH"}],
+        "monitor_pool": [{
+            "symbol": outside_symbol,
+            "selection_basis": "BROKER_GOLD_DIRECT",
+            "research_route": "BROKER_GOLD_DIRECT",
+            "downstream_trade_eligible": False,
+        }],
+        "rejected_candidates": [],
+        "institutional_coverage_pool": [institutional_row],
+    }
+    manifest = build_a1_manifest(
+        {
+            "g0_symbols": ["600519.SH"],
+            "g0_candidates": [{"symbol": "600519.SH", "research_eligible": True}],
+        },
+        {"lane_1": output},
+        mode="FULL",
+        snapshot_id="snapshot-broker-monitor",
+        snapshot_hash="d" * 64,
+        as_of=now,
+    )
+    payload = {
+        "schema_version": "liangjian-a1-registry/1.0.0",
+        "mode": "FULL",
+        "snapshot_id": "snapshot-broker-monitor",
+        "snapshot_hash": "d" * 64,
+        "lanes": {
+            "lane_1": {
+                "lane": "lane_1",
+                "model": "deepseek-v4-pro-0813",
+                "status": "VALIDATED",
+                "output": output,
+            }
+        },
+    }
+    generation = registry.create_generation(
+        mode="FULL",
+        snapshot_id="snapshot-broker-monitor",
+        snapshot_hash="d" * 64,
+        as_of=now,
+        manifest=manifest,
+        payload=payload,
+    )
+    payload["generation_id"] = generation.generation_id
+    sealed = registry.seal_generation(generation.generation_id, payload=payload, sealed_at=now)
+
     assert sealed.manifest["outside_g0_research_symbols_by_lane"] == {
         "lane_1": [outside_symbol]
     }

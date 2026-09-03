@@ -13,6 +13,7 @@ from liangjian_funnel.pipeline.deterministic import (
     _specialize_market_role,
     _valuation_factor,
     local_active_items,
+    local_monitor_items,
     screen_a1,
     screen_a2,
     screen_a3,
@@ -309,6 +310,48 @@ def test_a1_strict_monthly_chain_requires_sector_business_and_financial_support(
     assert "A1_FINANCIAL_QUALITY_BELOW_MINIMUM" in by_symbol[weak_symbol]["reason_codes"]
     assert by_symbol[outside_symbol]["status"] == "OUTSIDE_THEME"
     assert not any(item["selection_basis"] == "FUNDAMENTAL_BASELINE" for item in result.decisions)
+
+
+def test_a1_strict_monthly_chain_projects_outside_g0_broker_gold_to_monitor_only() -> None:
+    snapshot = _snapshot(2)
+    outside_symbol = "002293.SZ"
+    snapshot["A1_POOL_TARGETS"] = {
+        "monthly_chain_only": True,
+        "active_research_target": [1, 2],
+        "quota_fill_enabled": False,
+        "fundamental_baseline": {"enabled": False},
+    }
+    snapshot["BROKER_GOLD_COVERAGE_POOL"] = {
+        "available": True,
+        "month": "2026-09",
+        "symbols": {
+            outside_symbol: {
+                "symbol": outside_symbol,
+                "name": "池外金股",
+                "brokers": ["券商甲"],
+                "source_refs": ["broker:strict-outside"],
+                "evidence_tier": "T2",
+                "direct_research_entry": True,
+            },
+        },
+    }
+
+    result = screen_a1(snapshot, _discovery(), local_top_n_per_node=1, llm_top_n_per_theme=1)
+    by_symbol = {item["symbol"]: item for item in result.decisions}
+
+    assert by_symbol[outside_symbol]["status"] == "OUTSIDE_G0"
+    assert outside_symbol in result.monitor_symbols
+    assert outside_symbol not in {
+        item["symbol"]
+        for item in result.decisions
+        if item["status"] in {"LOCAL_ACTIVE_CANDIDATE", "REVIEW_CANDIDATE"}
+    }
+    monitor = next(item for item in local_monitor_items(result) if item["symbol"] == outside_symbol)
+    assert monitor["selection_basis"] == "BROKER_GOLD_DIRECT"
+    assert monitor["research_route"] == "BROKER_GOLD_DIRECT"
+    assert monitor["downstream_trade_eligible"] is False
+    assert monitor["primary_theme"] is None
+    assert monitor["industry_chain_node"] is None
 
 
 def test_a1_missing_factor_weight_stays_monitor_and_zero_without_proxy():

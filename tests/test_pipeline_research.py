@@ -33,6 +33,7 @@ from liangjian_funnel.pipeline.research import (
     _build_a3_candidate_domain,
     _canonicalize_a3_price_fields,
     _canonicalize_a1_driver_context,
+    _canonicalize_a1_local_candidate_facts,
     _canonicalize_a2_contract_semantics,
     _canonicalize_stage_scores,
     _canonicalize_stage_pool_fields,
@@ -2096,6 +2097,118 @@ def test_a1_company_batches_cannot_invent_themes_after_discovery():
         evidenced,
         {"MACRO_POLICY_FEED": {"official_documents": [{"fact_id": "policy-ref"}]}},
     ) == []
+
+
+def test_a1_company_mapping_restores_frozen_facts_before_threshold_policy():
+    local_candidates = {
+        "000426.SZ": {
+            "symbol": "000426.SZ",
+            "theme_id": "theme-monthly",
+            "node_id": "node-defense",
+            "monthly_direction_id": "theme-monthly",
+            "monthly_direction_name": "月度军工方向",
+            "monthly_direction_matches": [{"theme_id": "theme-monthly"}],
+            "sector_index_taxonomy": "INDUSTRY",
+            "sector_index_code": "801740",
+            "sector_index_name": "国防军工",
+            "sector_constituent_confirmed": True,
+            "taxonomy_matches": [{"taxonomy_code": "801740"}],
+            "financial_quality_score": 92.1594,
+            "fundamental_support": {"supported": True, "coverage_ratio": 0.8},
+            "disclosed_business_match": {"structured_match_confirmed": True},
+            "financial_subfactor_coverage": 0.8,
+            "minimum_financial_subfactor_coverage": 0.6,
+        },
+        "600999.SH": {
+            "symbol": "600999.SH",
+            "theme_id": "theme-monthly",
+            "node_id": "node-defense",
+            "monthly_direction_id": "theme-monthly",
+            "monthly_direction_name": "月度军工方向",
+            "sector_index_taxonomy": "INDUSTRY",
+            "sector_index_code": "801740",
+            "sector_index_name": "国防军工",
+            "sector_constituent_confirmed": True,
+            "taxonomy_matches": [{"taxonomy_code": "801740"}],
+            "financial_quality_score": 40.0,
+            "fundamental_support": {"supported": False, "coverage_ratio": 0.4},
+            "disclosed_business_match": {"structured_match_confirmed": True},
+            "financial_subfactor_coverage": 0.4,
+            "minimum_financial_subfactor_coverage": 0.6,
+        },
+    }
+    output = {
+        "active_research_pool": [
+            {
+                "symbol": "000426.SZ",
+                "primary_theme": "模型错误主题",
+                "industry_chain_node": "模型错误节点",
+                "monthly_direction_id": "模型错误方向",
+                "sector_constituent_confirmed": False,
+                "financial_quality_score": 0.0,
+                "financial_subfactor_coverage": 0.0,
+                "status": "ACTIVE",
+                "reason_codes": ["MODEL_SEMANTIC_VETO"],
+                "structural_score": 80,
+                "data_quality_score": 80,
+                "evidence_confidence": 0.8,
+            },
+            {
+                "symbol": "600999.SH",
+                "primary_theme": "模型错误主题",
+                "industry_chain_node": "模型错误节点",
+                "sector_constituent_confirmed": False,
+                "financial_quality_score": 99.0,
+                "financial_subfactor_coverage": 0.99,
+                "status": "ACTIVE",
+                "reason_codes": ["MODEL_REVIEW_NOTE"],
+                "structural_score": 80,
+                "data_quality_score": 80,
+                "evidence_confidence": 0.8,
+            },
+        ],
+        "monitor_pool": [],
+        "rejected_candidates": [
+            {"symbol": "300001.SZ", "status": "REJECTED", "reason_codes": ["MODEL_REJECT"]},
+        ],
+    }
+    canonical, changed = _canonicalize_a1_local_candidate_facts(
+        output,
+        {"mode": "COMPANY_MAPPING", "local_candidates": local_candidates},
+    )
+
+    assert changed > 0
+    valid = canonical["active_research_pool"][0]
+    assert valid["primary_theme"] == "theme-monthly"
+    assert valid["industry_chain_node"] == "node-defense"
+    assert valid["monthly_direction_id"] == "theme-monthly"
+    assert valid["sector_constituent_confirmed"] is True
+    assert valid["financial_quality_score"] == 92.1594
+    assert valid["financial_subfactor_coverage"] == 0.8
+    assert valid["reason_codes"] == ["MODEL_SEMANTIC_VETO"]
+    assert valid["status"] == "ACTIVE"
+    assert canonical["rejected_candidates"] == output["rejected_candidates"]
+
+    thresholded, demotions = _apply_stage_threshold_policy(
+        canonical,
+        "A1",
+        {"A1_POOL_TARGETS": {"monthly_chain_only": True}},
+    )
+    assert demotions == 1
+    assert [item["symbol"] for item in thresholded["active_research_pool"]] == ["000426.SZ"]
+    demoted = thresholded["monitor_pool"][0]
+    assert demoted["symbol"] == "600999.SH"
+    assert "A1_FINANCIAL_QUALITY_BELOW_MINIMUM" in demoted["reason_codes"]
+    assert "A1_FINANCIAL_COVERAGE_BELOW_MINIMUM" in demoted["reason_codes"]
+
+
+def test_a1_company_mapping_fact_canonicalization_is_fail_closed_without_context():
+    output = {"active_research_pool": [{"symbol": "000426.SZ", "financial_quality_score": 99.0}]}
+
+    canonical, changed = _canonicalize_a1_local_candidate_facts(output, {})
+
+    assert changed == 0
+    assert canonical == output
 
 
 def test_macro_policy_projection_prefers_relevant_official_documents_and_retains_counts():

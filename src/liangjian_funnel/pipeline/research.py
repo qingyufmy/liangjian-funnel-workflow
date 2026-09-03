@@ -195,6 +195,31 @@ _STAGE_LINEAGE_REASON = {
     "A2": "A2_STAGE_LINEAGE_MISSING",
     "A3": "A3_STAGE_LINEAGE_MISSING",
 }
+# These fields are produced by the deterministic A1 screen and are immutable
+# inputs to the company-mapping threshold policy.  Keep the list shared by the
+# pre-policy canonicalizer and the final batch merge so a model echo cannot
+# become authoritative merely because it was returned in a different batch.
+_A1_SERVER_OWNED_FACT_FIELDS: tuple[str, ...] = (
+    "monthly_direction_id",
+    "monthly_direction_name",
+    "monthly_direction_matches",
+    "sector_index_taxonomy",
+    "sector_index_code",
+    "sector_index_name",
+    "sector_constituent_confirmed",
+    "taxonomy_matches",
+    "financial_quality_score",
+    "fundamental_support",
+    "disclosed_business_match",
+    "financial_subfactor_coverage",
+    "minimum_financial_subfactor_coverage",
+)
+_A1_SERVER_OWNED_FACT_ALIASES: Mapping[str, tuple[str, ...]] = {
+    # The deterministic record uses theme_id/node_id while the model-facing
+    # CompanyThesisCard uses primary_theme/industry_chain_node.
+    "primary_theme": ("theme_id", "primary_theme"),
+    "industry_chain_node": ("node_id", "industry_chain_node"),
+}
 _A2_LLM_REJECT_HARD_MARKERS = (
     # These are deterministic fact/identity vetoes.  DATA_GAP and optional
     # source degradation deliberately do not appear here: missing data must
@@ -2154,21 +2179,6 @@ class ResearchPipeline:
             for item in gate.decisions
             if item.get("symbol")
         }
-        server_owned_a1_fields = (
-            "monthly_direction_id",
-            "monthly_direction_name",
-            "monthly_direction_matches",
-            "sector_index_taxonomy",
-            "sector_index_code",
-            "sector_index_name",
-            "sector_constituent_confirmed",
-            "taxonomy_matches",
-            "financial_quality_score",
-            "fundamental_support",
-            "disclosed_business_match",
-            "financial_subfactor_coverage",
-            "minimum_financial_subfactor_coverage",
-        )
         for partition in ("active_research_pool", "monitor_pool", "rejected_candidates"):
             rows = merged.get(partition)
             if not isinstance(rows, list):
@@ -2184,7 +2194,7 @@ class ResearchPipeline:
                     item["selection_basis"] = basis_by_symbol[symbol]
                 local_decision = gate_by_symbol.get(symbol)
                 if isinstance(local_decision, Mapping):
-                    for field in server_owned_a1_fields:
+                    for field in _A1_SERVER_OWNED_FACT_FIELDS:
                         if field in local_decision:
                             value = local_decision[field]
                             item[field] = dict(value) if isinstance(value, Mapping) else (
@@ -4118,6 +4128,16 @@ class ResearchPipeline:
                     output, a1_discovery_context
                 )
             output, canonicalized_pool_fields = _canonicalize_stage_pool_fields(output, stage)
+            canonicalized_a1_server_facts = 0
+            if (
+                stage == "A1"
+                and isinstance(a1_discovery_context, Mapping)
+                and a1_discovery_context.get("mode") == "COMPANY_MAPPING"
+            ):
+                output, canonicalized_a1_server_facts = _canonicalize_a1_local_candidate_facts(
+                    output,
+                    a1_discovery_context,
+                )
             canonicalized_a2_semantics = 0
             if stage == "A2":
                 output, canonicalized_a2_semantics = _canonicalize_a2_contract_semantics(output)
@@ -4265,6 +4285,8 @@ class ResearchPipeline:
                     diagnostics["canonicalized_bottleneck_scorecards"] = canonicalized_bottleneck_scores
                 if canonicalized_driver_context:
                     diagnostics["canonicalized_driver_context"] = canonicalized_driver_context
+                if canonicalized_a1_server_facts:
+                    diagnostics["canonicalized_a1_server_facts"] = canonicalized_a1_server_facts
                 if canonicalized_pool_fields:
                     diagnostics["canonicalized_pool_fields"] = canonicalized_pool_fields
                 if canonicalized_a2_semantics:
@@ -7663,6 +7685,83 @@ def _canonicalize_a1_driver_context(
         if result.get(field) != canonical:
             result[field] = canonical
             changed += 1
+    return result, changed
+
+
+def _canonicalize_a1_local_candidate_facts(
+    output: Mapping[str, Any],
+    discovery_context: Mapping[str, Any],
+) -> tuple[dict[str, Any], int]:
+    """Restore frozen A1 candidate facts before applying model thresholds.
+
+    ``COMPANY_MAPPING`` responses are allowed to provide semantic conclusions,
+    status and reason codes, but the deterministic A1 screen owns the monthly
+    direction, sector membership and financial facts used by the threshold
+    policy.  Company batches historically received those facts in their
+    prompt but could omit or echo stale values; the final A1 merge repaired
+    them too late, after an otherwise valid ACTIVE row had already been moved
+    to MONITOR.  This helper only enriches rows whose symbol is present in the
+    frozen ``local_candidates`` map.  It never adds rows or changes model-owned
+    conclusions, status or reasons.
+    """
+
+    if (
+        not isinstance(discovery_context, Mapping)
+        or discovery_context.get("mode") != "COMPANY_MAPPING"
+    ):
+        return dict(output), 0
+    raw_candidates = discovery_context.get("local_candidates")
+    if not isinstance(raw_candidates, Mapping) or not raw_candidates:
+        return dict(output), 0
+
+    candidates_by_symbol: dict[str, Mapping[str, Any]] = {}
+    for raw_key, raw_candidate in raw_candidates.items():
+        if not isinstance(raw_candidate, Mapping):
+            continue
+        symbol = _first_symbol(raw_candidate.get("symbol")) or _first_symbol(raw_key)
+        if symbol:
+            candidates_by_symbol[symbol] = raw_candidate
+    if not candidates_by_symbol:
+        return dict(output), 0
+
+    def copy_fact(value: Any) -> Any:
+        if isinstance(value, Mapping):
+            return {key: copy_fact(item) for key, item in value.items()}
+        if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+            return [copy_fact(item) for item in value]
+        return value
+
+    result = dict(output)
+    changed = 0
+    for partition in ("active_research_pool", "monitor_pool", "rejected_candidates"):
+        rows = result.get(partition)
+        if not isinstance(rows, list):
+            continue
+        normalized: list[Any] = []
+        for raw_item in rows:
+            if not isinstance(raw_item, Mapping):
+                normalized.append(raw_item)
+                continue
+            item = dict(raw_item)
+            candidate = candidates_by_symbol.get(_first_symbol(item.get("symbol")))
+            if isinstance(candidate, Mapping):
+                for field in _A1_SERVER_OWNED_FACT_FIELDS:
+                    if field not in candidate:
+                        continue
+                    value = copy_fact(candidate[field])
+                    if item.get(field) != value:
+                        item[field] = value
+                        changed += 1
+                for output_field, source_fields in _A1_SERVER_OWNED_FACT_ALIASES.items():
+                    source_field = next((field for field in source_fields if field in candidate), None)
+                    if source_field is None:
+                        continue
+                    value = copy_fact(candidate[source_field])
+                    if item.get(output_field) != value:
+                        item[output_field] = value
+                        changed += 1
+            normalized.append(item)
+        result[partition] = normalized
     return result, changed
 
 
