@@ -90,7 +90,13 @@ class FakeGet(dict):
 
 
 model = nodejsModel()
-method = model.restart_project if os.environ["BAOTA_ACTION"] == "restart" else model.start_project
+action = os.environ["BAOTA_ACTION"]
+if action == "start":
+    method = model.start_project
+elif action == "stop":
+    method = model.stop_project
+else:
+    raise SystemExit(f"unsupported BaoTa action: {action}")
 result = method(FakeGet(project_name=os.environ["PROJECT_NAME"]))
 print(json.dumps(result, ensure_ascii=False))
 if not isinstance(result, dict) or not result.get("status"):
@@ -108,12 +114,13 @@ wait_for_health() {
   return 1
 }
 
-echo "[deploy] Restarting BaoTa Node project only..."
+echo "[deploy] Stopping BaoTa Node project..."
 old_node_pid="$(pgrep -u www -f 'node dist/server/index\.js' | head -n 1 || true)"
-baota_action restart
+baota_action stop
 
-# BaoTa restarts asynchronously. The previous process can remain healthy for
-# several seconds, so do not probe the replacement until that exact PID exits.
+# BaoTa stop is asynchronous. Do not start the replacement until the previous
+# process has definitely exited, otherwise its delayed stop can kill the new
+# process after an apparently successful health check.
 if [[ -n "${old_node_pid}" ]]; then
   echo "[deploy] Waiting for previous Node PID ${old_node_pid} to exit..."
   for _ in $(seq 1 40); do
@@ -123,19 +130,18 @@ if [[ -n "${old_node_pid}" ]]; then
     sleep 1
   done
   if kill -0 "${old_node_pid}" 2>/dev/null; then
-    echo "[deploy] Previous Node process did not exit after BaoTa restart."
+    echo "[deploy] Previous Node process did not exit after BaoTa stop."
     exit 3
   fi
 fi
 
+echo "[deploy] Starting BaoTa Node project..."
+baota_action start
+
 echo "[deploy] Verifying Node health..."
 if ! wait_for_health; then
-  echo "[deploy] Restart did not produce a healthy replacement; retrying BaoTa start once..."
-  baota_action start
-  if ! wait_for_health; then
-    echo "[deploy] Node recovery start failed."
-    exit 3
-  fi
+  echo "[deploy] Node start failed."
+  exit 3
 fi
 sleep 5
 if ! curl --fail --silent --show-error http://127.0.0.1:3210/api/health >/dev/null; then
