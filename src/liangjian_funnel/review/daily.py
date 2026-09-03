@@ -452,7 +452,12 @@ def build_a5_fact_snapshot(
         "a2": a2,
         "a3": {"plans": plans},
         "a4": {"events": events, "lifecycles": lifecycles},
-        "review_history": _review_history(store, trade_date=trade_date, review_kind=review_kind),
+        "review_history": _review_history(
+            store,
+            trade_date=trade_date,
+            review_kind=review_kind,
+            cutoff_at=cutoff,
+        ),
         "data_quality": {
             "status": "READY" if not missing else "DEGRADED",
             "missing_components": list(dict.fromkeys(missing)),
@@ -505,10 +510,27 @@ def _count_by(rows: Sequence[Mapping[str, Any]], key: str) -> dict[str, int]:
     return result
 
 
-def _review_history(store: RuntimeStore, *, trade_date: date, review_kind: A5ReviewKind) -> list[dict[str, Any]]:
+def _review_history(
+    store: RuntimeStore,
+    *,
+    trade_date: date,
+    review_kind: A5ReviewKind,
+    cutoff_at: datetime,
+) -> list[dict[str, Any]]:
     history: list[dict[str, Any]] = []
     for row in store.list_a5_reviews(limit=30):
         if str(row.get("trade_date") or "") == trade_date.isoformat() and str(row.get("review_kind") or "") == review_kind.value:
+            continue
+        try:
+            created_at = datetime.fromisoformat(str(row.get("created_at") or ""))
+            if created_at.tzinfo is None or created_at.utcoffset() is None:
+                created_at = created_at.replace(tzinfo=SHANGHAI)
+            created_at = created_at.astimezone(SHANGHAI)
+        except (TypeError, ValueError):
+            # A history row without a trustworthy creation time cannot be
+            # admitted into a point-in-time review.
+            continue
+        if created_at > cutoff_at:
             continue
         report = _json_mapping(row.get("report_json"))
         if not report:

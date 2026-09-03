@@ -8,7 +8,12 @@ from zoneinfo import ZoneInfo
 
 from liangjian_funnel.pipeline.model_client import ModelCallResult
 from liangjian_funnel.pipeline.prompts import PromptRepository
-from liangjian_funnel.review.daily import A5DailyReviewService, A5ReviewKind, build_a5_fact_snapshot
+from liangjian_funnel.review.daily import (
+    A5DailyReviewService,
+    A5ReviewKind,
+    _review_history,
+    build_a5_fact_snapshot,
+)
 from liangjian_funnel.runtime.state import MonitorAction, PlanStatus, RuntimeStore
 
 
@@ -230,3 +235,42 @@ def test_a5_review_ledger_rejects_content_conflict(tmp_path: Path):
     same, inserted_again = store.record_a5_review(**kwargs)
     assert inserted is True and inserted_again is False
     assert same["review_kind"] == "MIDDAY"
+
+
+def test_review_history_excludes_rows_created_after_point_in_time_cutoff():
+    report = json.dumps({
+        "overall_verdict": "HEALTHY",
+        "core_defects": [],
+        "missed_opportunity_reviews": [],
+        "improvement_proposals": [],
+    })
+
+    class _HistoryStore:
+        @staticmethod
+        def list_a5_reviews(*, limit: int):
+            assert limit == 30
+            return [
+                {
+                    "review_id": "future-post-close",
+                    "trade_date": "2026-09-03",
+                    "review_kind": "POST_CLOSE",
+                    "created_at": "2026-09-03T16:05:00+08:00",
+                    "report_json": report,
+                },
+                {
+                    "review_id": "prior-day-close",
+                    "trade_date": "2026-09-02",
+                    "review_kind": "POST_CLOSE",
+                    "created_at": "2026-09-02T16:05:00+08:00",
+                    "report_json": report,
+                },
+            ]
+
+    history = _review_history(
+        _HistoryStore(),
+        trade_date=date(2026, 9, 3),
+        review_kind=A5ReviewKind.MIDDAY,
+        cutoff_at=datetime(2026, 9, 3, 11, 30, tzinfo=TZ),
+    )
+
+    assert [item["review_id"] for item in history] == ["prior-day-close"]
