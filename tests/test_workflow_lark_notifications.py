@@ -72,8 +72,12 @@ def test_premarket_cards_are_chunked_colored_and_idempotent(tmp_path):
     assert all(item.get("duplicate") for item in second)
     assert len(fake.calls) == 2
     assert fake.calls[0][2] != fake.calls[1][2]
-    assert "主线与适用策略" in "\n".join(fake.calls[0][1])
-    assert "禁止追价" in "\n".join(fake.calls[0][1])
+    body = "\n".join(fake.calls[0][1])
+    assert "早盘复核结果" in body
+    assert "适用策略" in body
+    assert "禁止追价" in body
+    assert "AI" not in body
+    assert ".SZ" not in body
     assert len(store.list_notification_deliveries()) == 2
 
 
@@ -211,13 +215,19 @@ def test_a3_premarket_analysis_is_distinct_from_auction_activation(tmp_path):
     assert "农业种植" in body
     assert "梯队 70" in body
     assert "测试股票1" in plan_body
-    assert "000001.SZ" in plan_body
-    assert "run-close-1" in plan_body
-    assert "三情景" in plan_body
-    assert "P2" in plan_body
+    assert "方向：人工智能算力" in plan_body
+    assert "000001" in plan_body
+    assert ".SZ" not in plan_body
+    assert "run-close-1" not in plan_body
+    assert "三种情景" in plan_body
+    assert "常规优先" in plan_body
+    assert "P2" not in plan_body
+    assert "READY" not in body
+    assert "ACCELERATING" not in body
+    assert "ALLOW" not in body
     assert plan_body.index("测试股票2") < plan_body.index("测试股票1")
     assert "参考收盘" in plan_body
-    assert "压力/减仓参考" in plan_body
+    assert "压力参考" in plan_body
     assert store.list_notification_deliveries(kind="PREMARKET_A3_ANALYSIS")
     assert not store.list_notification_deliveries(kind="PREMARKET_A3")
 
@@ -252,7 +262,7 @@ def test_a3_premarket_repairs_cross_date_recovery_timestamp(tmp_path):
 
     assert [item["status"] for item in result] == ["SENT", "SENT"]
     plan_body = "\n".join(fake.calls[1][1])
-    assert "2026-09-01T15:00:00+08:00" in plan_body
+    assert "2026年09月01日 15:00" in plan_body
     assert "2026-09-02T10:04:58+08:00" not in plan_body
 
 
