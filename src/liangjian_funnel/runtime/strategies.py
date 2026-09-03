@@ -945,33 +945,13 @@ def _evaluate_trend(
     unmet: list[str] = []
     reasons: list[str] = []
     veto: list[str] = []
-    daily = _daily_context(plan)
-    ma5 = _number(_lookup(daily, ("ma5",), ("MA5",))) if daily else None
-    ma10 = _number(_lookup(daily, ("ma10",), ("MA10",))) if daily else None
-    ma20 = _number(_lookup(daily, ("ma20",), ("MA20",))) if daily else None
-    ma60 = _number(_lookup(daily, ("ma60",), ("MA60",))) if daily else None
-    daily_close = _number(_lookup(daily, ("close",), ("latest_close",), ("daily_close",))) if daily else None
-    if all(value is not None for value in (ma5, ma10, ma20, ma60, daily_close)):
-        if ma5 > ma10 > ma20 and daily_close > ma60:
-            met.append("DAILY_MAIN_UPTREND")
-        else:
-            unmet.append("DAILY_MAIN_UPTREND")
-            reasons.append("TREND_DAILY_NOT_MAIN_UPTREND")
-    else:
-        unmet.append("DAILY_MA5_MA10_MA20_MA60_SNAPSHOT")
-        reasons.append("TREND_DAILY_SNAPSHOT_MISSING")
-    if _bool_value(_lookup(daily, ("main_uptrend",), ("main_trend",))) is False or _bool_value(_lookup(plan, ("daily_trend_invalidated",), ("trend_invalidated",))) is True:
-        unmet.append("DAILY_MAIN_UPTREND")
-        reasons.append("TREND_DAILY_NOT_MAIN_UPTREND")
-        veto.append("TREND_DAILY_NOT_MAIN_UPTREND")
-
-    weekly = str(_lookup(plan, ("weekly_closed_state",), ("weekly_state",), ("weekly_trend",), ("higher_timeframe", "weekly")) or "").upper()
-    monthly = str(_lookup(plan, ("monthly_state",), ("monthly_trend",), ("higher_timeframe", "monthly")) or "").upper()
-    if weekly not in {"DOWN", "BEARISH", "DECLINING", "下行", "走弱"} and monthly not in {"DOWN", "BEARISH", "DECLINING", "下行", "走弱"}:
-        met.append("MONTHLY_WEEKLY_NOT_DOWN")
-    else:
-        unmet.append("MONTHLY_WEEKLY_NOT_DOWN")
-        reasons.append("TREND_HIGHER_TIMEFRAME_WEAK")
+    # A3 already owns monthly/weekly/daily route eligibility and publishes
+    # only a QUALIFIED + ALLOW_A4 plan.  Recomputing a stricter daily
+    # ``ma5 > ma10 > ma20`` rule here caused valid pullback/restart plans to
+    # be rejected after publication and made A3 and A4 contradict each
+    # other.  A4 records the frozen hand-off and owns only current-session
+    # 15m/5m timing, price zone, volume, stop and no-chase checks.
+    met.append("A3_TREND_ROUTE_APPROVED")
 
     latest15 = fifteen[-1]
     prior15 = fifteen[-2] if len(fifteen) >= 2 else None
@@ -1018,8 +998,7 @@ def _evaluate_trend(
         unmet.append("EXECUTABLE_NOT_LOCKED_LIMIT_UP")
         reasons.append("LOCKED_LIMIT_UP")
         veto.append("LOCKED_LIMIT_UP")
-    valid_daily = "DAILY_MAIN_UPTREND" in met
-    if valid_daily and pressure_easing and reversal and volume_ok and not locked:
+    if pressure_easing and reversal and volume_ok and not locked:
         if _price_zone_met(plan, latest5.close):
             met.append("A3_PULLBACK_ZONE")
             return _entry_decision(plan, met, unmet, reasons, veto)

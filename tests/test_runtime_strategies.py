@@ -115,7 +115,7 @@ def test_leader_requires_context_and_520_requires_daily_snapshot() -> None:
     assert "A3_RIGHT_SIDE_CONFIRMATION_MISSING" in swing["reason_codes"]
 
 
-def test_trend_requires_daily_maintrend_and_520_requires_two_5m_confirmations() -> None:
+def test_trend_trusts_a3_daily_route_and_520_requires_two_5m_confirmations() -> None:
     trend = evaluate_a4_plan(
         _base(StrategyProfile.TREND_MA5.value, daily_indicators={"ma5": 10.0, "ma10": 10.5, "ma20": 10.2, "ma60": 9.5, "close": 10.8}),
         _bars(),
@@ -132,7 +132,9 @@ def test_trend_requires_daily_maintrend_and_520_requires_two_5m_confirmations() 
         ),
         weak_520_bars,
     )
-    assert "TREND_DAILY_NOT_MAIN_UPTREND" in trend["reason_codes"]
+    assert trend["action"] == A4Action.BUY_SIGNAL.value
+    assert "A3_TREND_ROUTE_APPROVED" in trend["met_conditions"]
+    assert "TREND_DAILY_NOT_MAIN_UPTREND" not in trend["reason_codes"]
     assert swing["action"] != A4Action.BUY_SIGNAL.value
     assert "MA520_TWO_CLOSED_5M_CONFIRMATIONS" in swing["unmet_conditions"]
 

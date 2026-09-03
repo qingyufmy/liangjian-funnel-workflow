@@ -208,7 +208,7 @@ def test_a4_confirmation_projection_is_strategy_specific_and_tracks_sector_lag()
 
     assert result["action"] == A4Action.BUY_SIGNAL.value
     assert result["sector_data_lag_s"] == 270.0
-    assert "DAILY_MAIN_UPTREND" in result["confirmation_results"]
+    assert "A3_TREND_ROUTE_APPROVED" in result["confirmation_results"]
     assert "MA520_TWO_CLOSED_5M_CONFIRMATIONS" not in result["confirmation_results"]
     assert result["all_failed_confirmations"] == []
 
