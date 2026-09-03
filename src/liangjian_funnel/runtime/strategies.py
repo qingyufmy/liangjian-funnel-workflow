@@ -15,6 +15,15 @@ rule path and a plan can select exactly one of the three paths:
 The module does not place orders and does not call a model.  A caller may use
 the returned action as a candidate, but still owns paper-broker settlement,
 T+1 and any optional veto-only model call.
+
+An A3 ``market_environment``/emotion assessment is prior-day context only.
+New-entry permission is accepted exclusively from an explicit
+``market_context.live_market_state`` carrying ``status=READY`` (or the
+explicit Tencent index fallback ``READY_DEGRADED``), a current
+timestamp/trade date and one of ``ALLOW``, ``CAUTION`` or
+``BLOCK_NEW_ENTRY``.  Missing or stale live state is a data block for a new
+entry, never a synthetic bearish market decision; hard stops and existing
+position exits remain independent of that gate.
 """
 
 from __future__ import annotations
@@ -110,6 +119,16 @@ _MORNING_CLOSE = time(11, 30)
 _AFTERNOON_OPEN = time(13, 0)
 _SESSION_CLOSE = time(15, 0)
 _EPSILON = 1e-9
+_LIVE_MARKET_STATE_MAX_AGE_SECONDS = 5 * 60
+_LIVE_MARKET_DECISIONS = frozenset({"ALLOW", "CAUTION", "BLOCK_NEW_ENTRY"})
+_ENTRY_ACTIONS = frozenset({A4Action.BUY_SIGNAL.value, A4Action.ADD_SIGNAL.value})
+_EXIT_ACTIONS = frozenset(
+    {
+        A4Action.SELL_SIGNAL.value,
+        A4Action.REDUCE_SIGNAL.value,
+        A4Action.FORCED_RISK_EXIT.value,
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -357,32 +376,24 @@ def evaluate_a4_plan(
             action=A4Action.SELL_SIGNAL,
         )
 
-    market_environment = _runtime_market_environment(plan)
-    if not position_open and market_environment in {
-        "BEAR_RISK",
-        "RISK_OFF",
-        "RISK_OFF_RETREAT",
-    }:
-        return _exit_or_cancel(
+    # A3's market environment/emotion fields are a prior-day research note.
+    # They must never become an all-day A4 entry veto.  Only an explicit,
+    # timestamped, same-day market_context.live_market_state can provide an
+    # entry permission.  The gate is deliberately evaluated after hard-stop,
+    # plan invalidation and type-specific risk so a missing/blocked market
+    # snapshot cannot suppress an exit for an existing position.
+    live_market_gate = _live_market_gate(plan, current)
+    _record_live_market_gate(base, live_market_gate)
+    if not position_open and live_market_gate["status"] != "READY":
+        return _finish(
             base,
-            plan,
-            reason="A4_MARKET_BEAR_NO_NEW_ENTRY",
-            position_open=False,
-            action=A4Action.SELL_SIGNAL,
+            state="DATA_BLOCKED",
+            action=A4Action.DATA_BLOCK,
+            reasons=[live_market_gate["reason_code"]],
+            unmet=["LIVE_MARKET_STATE_READY"],
+            veto=[live_market_gate["reason_code"]],
+            as_of=current,
         )
-    if (
-        not position_open
-        and profile is StrategyProfile.LEADER_INTRADAY
-        and _runtime_emotion_permission(plan) == "NO_NEW_ENTRY"
-    ):
-        return _exit_or_cancel(
-            base,
-            plan,
-            reason="A4_EMOTION_CYCLE_NO_NEW_LEADER",
-            position_open=False,
-            action=A4Action.SELL_SIGNAL,
-        )
-
     locked, upper_limit = _locked_limit_up(plan, current_bar, bars_5m[-1])
     if locked:
         # A locked limit-up bar has no executable price.  It is a veto for
@@ -400,7 +411,7 @@ def evaluate_a4_plan(
         decision = _evaluate_520(plan, bars_5m, bars_15m, current_bar, context, position_open, locked)
     else:
         decision = _evaluate_trend(plan, bars_5m, bars_15m, current_bar, context, position_open, locked)
-    base.update(decision)
+    base.update(_apply_live_market_gate(decision, live_market_gate))
     return _finish(base, as_of=current)
 
 
@@ -435,9 +446,6 @@ def evaluate_strategy(
             "market_shock",
             "sector_data_as_of",
             "sector_as_of",
-            "market_environment",
-            "market_emotion",
-            "emotion_cycle",
             "behavior_risk",
         ):
             if (key not in payload or payload.get(key) is None) and key in market_context:
@@ -1380,28 +1388,222 @@ def _runtime_behavior_risk_reason(
     return None
 
 
-def _runtime_market_environment(plan: Mapping[str, Any]) -> str:
-    value = _lookup(
-        plan,
-        ("market_context", "market_environment"),
-        ("market_environment",),
-        ("strategy_facts", "market_environment"),
-        ("market_context", "market_regime"),
-        ("market_regime",),
+def _live_market_gate(plan: Mapping[str, Any], current: datetime) -> dict[str, Any]:
+    """Validate the current-day market permission used by A4.
+
+    ``market_environment`` and ``market_emotion`` on an A3 plan describe the
+    previous close.  They are intentionally not consulted here.  A4 can make
+    an entry decision only from ``market_context.live_market_state`` with an
+    explicit ``READY``/``READY_DEGRADED`` status, timestamp, trade date and
+    normalized decision.
+    The returned dictionary contains only safe, audit-friendly fields so a
+    caller can persist why a market gate was accepted or blocked.
+    """
+
+    def blocked(
+        reason: str,
+        *,
+        state_status: str | None = None,
+        state_as_of: datetime | None = None,
+        state_trade_date: date | None = None,
+        age_seconds: float | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "status": "DATA_BLOCK",
+            "decision": None,
+            "reason_code": reason,
+            "state_status": state_status,
+            "as_of": state_as_of.isoformat() if state_as_of is not None else None,
+            "trade_date": state_trade_date.isoformat() if state_trade_date is not None else None,
+            "age_seconds": round(age_seconds, 3) if age_seconds is not None else None,
+        }
+
+    context = _lookup(plan, ("market_context",))
+    if not isinstance(context, Mapping):
+        return blocked("LIVE_MARKET_STATE_MISSING")
+    state = context.get("live_market_state")
+    if not isinstance(state, Mapping):
+        return blocked("LIVE_MARKET_STATE_MISSING")
+
+    state_status = str(state.get("status") or "").strip().upper() or None
+    if state_status not in {"READY", "READY_DEGRADED"}:
+        return blocked("LIVE_MARKET_STATE_NOT_READY", state_status=state_status)
+
+    state_as_of = _parse_timestamp(
+        _lookup(
+            state,
+            ("as_of",),
+            ("observed_at",),
+            ("updated_at",),
+            ("timestamp",),
+        )
     )
-    return str(value or "").strip().upper()
+    if state_as_of is None:
+        return blocked("LIVE_MARKET_STATE_AS_OF_MISSING", state_status=state_status)
+
+    state_trade_date = _parse_trade_date(
+        _lookup(
+            state,
+            ("trade_date",),
+            ("market_trade_date",),
+            ("current_trade_date",),
+        )
+    )
+    if state_trade_date is None:
+        return blocked(
+            "LIVE_MARKET_STATE_TRADE_DATE_MISSING",
+            state_status=state_status,
+            state_as_of=state_as_of,
+        )
+
+    current_local = current.astimezone(SHANGHAI)
+    if state_trade_date != current_local.date():
+        return blocked(
+            "LIVE_MARKET_STATE_TRADE_DATE_MISMATCH",
+            state_status=state_status,
+            state_as_of=state_as_of,
+            state_trade_date=state_trade_date,
+        )
+    if state_as_of.date() != state_trade_date:
+        return blocked(
+            "LIVE_MARKET_STATE_AS_OF_DATE_MISMATCH",
+            state_status=state_status,
+            state_as_of=state_as_of,
+            state_trade_date=state_trade_date,
+        )
+
+    age_seconds = (current_local - state_as_of).total_seconds()
+    if age_seconds < 0:
+        return blocked(
+            "LIVE_MARKET_STATE_FUTURE",
+            state_status=state_status,
+            state_as_of=state_as_of,
+            state_trade_date=state_trade_date,
+            age_seconds=age_seconds,
+        )
+    if age_seconds > _LIVE_MARKET_STATE_MAX_AGE_SECONDS:
+        return blocked(
+            "LIVE_MARKET_STATE_STALE",
+            state_status=state_status,
+            state_as_of=state_as_of,
+            state_trade_date=state_trade_date,
+            age_seconds=age_seconds,
+        )
+
+    decision = _normalize_live_market_decision(
+        _lookup(
+            state,
+            ("decision",),
+            ("market_decision",),
+            ("entry_permission",),
+            ("new_entry_permission",),
+            ("permission",),
+            ("new_long_permission",),
+            ("entry_decision",),
+            ("state",),
+        )
+    )
+    if decision is None:
+        return blocked("LIVE_MARKET_DECISION_MISSING", state_status=state_status)
+
+    return {
+        "status": "READY",
+        "decision": decision,
+        "reason_code": "LIVE_MARKET_STATE_READY",
+        "state_status": state_status,
+        "as_of": state_as_of.isoformat(),
+        "trade_date": state_trade_date.isoformat(),
+        "age_seconds": round(age_seconds, 3),
+        "suggested_position_cap_pct": _number(
+            state.get("suggested_position_cap_pct")
+        ),
+    }
 
 
-def _runtime_emotion_permission(plan: Mapping[str, Any]) -> str:
-    value = _lookup(
-        plan,
-        ("market_context", "market_emotion", "new_long_permission"),
-        ("market_context", "emotion_cycle", "new_long_permission"),
-        ("market_emotion", "new_long_permission"),
-        ("emotion_cycle", "new_long_permission"),
-        ("strategy_facts", "emotion_new_long_permission"),
-    )
-    return str(value or "").strip().upper()
+def _record_live_market_gate(result: dict[str, Any], gate: Mapping[str, Any]) -> None:
+    """Expose a redacted market-gate projection for UI and event auditing."""
+
+    projection = {
+        "source": "market_context.live_market_state",
+        "status": gate.get("status"),
+        "decision": gate.get("decision"),
+        "reason_code": gate.get("reason_code"),
+        "state_status": gate.get("state_status"),
+        "as_of": gate.get("as_of"),
+        "trade_date": gate.get("trade_date"),
+        "age_seconds": gate.get("age_seconds"),
+        "suggested_position_cap_pct": gate.get("suggested_position_cap_pct"),
+    }
+    result["market_gate"] = projection
+    result["live_market_state_status"] = projection["status"]
+    result["live_market_state_decision"] = projection["decision"]
+
+
+def _apply_live_market_gate(
+    decision: Mapping[str, Any],
+    gate: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Apply live market permission without suppressing position exits."""
+
+    result = dict(decision)
+    action = str(result.get("action") or A4Action.NO_ACTION.value)
+    status = str(gate.get("status") or "DATA_BLOCK")
+    market_decision = str(gate.get("decision") or "")
+    reason = str(gate.get("reason_code") or "LIVE_MARKET_STATE_MISSING")
+
+    # A live market block is an entry-only control.  The caller reaches this
+    # helper for an existing position as well, so sell/reduce/forced-exit
+    # decisions must pass through unchanged.
+    if action in _EXIT_ACTIONS:
+        return result
+
+    if status != "READY":
+        result["state"] = "DATA_BLOCKED"
+        result["action"] = A4Action.DATA_BLOCK.value
+        result["reason_codes"] = _unique([*(result.get("reason_codes") or []), reason])
+        result["unmet_conditions"] = _unique([*(result.get("unmet_conditions") or []), "LIVE_MARKET_STATE_READY"])
+        result["veto_conditions"] = _unique([*(result.get("veto_conditions") or []), reason])
+        return result
+
+    if market_decision == "BLOCK_NEW_ENTRY" and action in _ENTRY_ACTIONS:
+        # Pause only this entry opportunity.  The A3 plan stays alive so a
+        # later current-session recovery can be evaluated normally.
+        result["state"] = "CONFIRMING"
+        result["action"] = A4Action.START_CONFIRMATION.value
+        result["reason_codes"] = _unique([*(result.get("reason_codes") or []), "A4_LIVE_MARKET_BLOCK_WAIT"])
+        result["unmet_conditions"] = _unique([*(result.get("unmet_conditions") or []), "LIVE_MARKET_ENTRY_PERMISSION"])
+        return result
+
+    if market_decision == "CAUTION" and action in _ENTRY_ACTIONS:
+        # Ordinary weak/rotation markets are position guidance, not an entry
+        # veto.  Preserve the strategy signal and make the reduced exposure
+        # explicit for simulation/UI/Lark consumers.
+        result["reason_codes"] = _unique([*(result.get("reason_codes") or []), "A4_MARKET_CAUTION_REDUCED_POSITION"])
+        result["suggested_position_cap_pct"] = gate.get("suggested_position_cap_pct")
+        return result
+
+    return result
+
+
+def _normalize_live_market_decision(value: Any) -> str | None:
+    """Normalize only explicit values carried by a READY live state."""
+
+    token = str(value or "").strip().upper().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "ALLOW": "ALLOW",
+        "ALLOW_ENTRY": "ALLOW",
+        "ALLOW_A4": "ALLOW",
+        "ALLOW_CORE": "ALLOW",
+        "CAUTION": "CAUTION",
+        "PROBE_ONLY": "CAUTION",
+        "WATCH_ONLY": "CAUTION",
+        "BLOCK": "BLOCK_NEW_ENTRY",
+        "BLOCKED": "BLOCK_NEW_ENTRY",
+        "BLOCK_NEW_ENTRY": "BLOCK_NEW_ENTRY",
+        "NO_NEW_ENTRY": "BLOCK_NEW_ENTRY",
+    }
+    normalized = aliases.get(token)
+    return normalized if normalized in _LIVE_MARKET_DECISIONS else None
 
 
 def _position_open(plan: Mapping[str, Any]) -> bool:
@@ -1506,6 +1708,24 @@ def _trade_date(plan: Mapping[str, Any]) -> date | None:
         return value
     try:
         return date.fromisoformat(str(value)) if value else None
+    except ValueError:
+        return None
+
+
+def _parse_trade_date(value: Any) -> date | None:
+    """Parse an explicit current-session date without guessing a timezone."""
+
+    if isinstance(value, datetime):
+        if value.tzinfo is None or value.utcoffset() is None:
+            return None
+        return value.astimezone(SHANGHAI).date()
+    if isinstance(value, date):
+        return value
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text[:10])
     except ValueError:
         return None
 

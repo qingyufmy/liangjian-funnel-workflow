@@ -473,6 +473,10 @@ def evaluate_a3_candidate(
         if market_regime == "TREND_MAINLINE"
         else "ROTATION_MIXED"
     )
+    # These are prior-session context flags.  Define them independently of
+    # whether a technical route exists so rejected/no-route rows still carry a
+    # complete, deterministic audit projection.
+    risk_off = market_regime in _RISK_OFF_STATES
     theme_stage = _normalize_state(
         _first(merged_a2, "theme_stage", "sector_stage", "stage")
         or _first(context, "theme_stage", "sector_stage", "stage")
@@ -482,6 +486,7 @@ def evaluate_a3_candidate(
         _first(merged_a2, "sector_permission", "theme_permission", "entry_permission", "route_permission")
         or _first(context, "sector_permission", "theme_permission", "entry_permission")
     )
+    sector_cautious = permission in _NO_ENTRY_PERMISSIONS
     ladder = _ladder_info(merged_a2)
     relative_strength = _relative_strength(merged_a2, context)
     kline = _kline_context(raw_kline, raw_candidate, context)
@@ -833,10 +838,8 @@ def evaluate_a3_candidate(
         # observation in reason codes and the standard positive gate
         # projection, but do not append it to the veto/required/unmet
         # collections.  This avoids turning a valid setup into a false A3
-        # rejection.  A4 continues to
-        # consume the existing ``market_environment=BEAR_RISK`` value and
-        # hard-blocks a new entry in a risk-off market.
-        risk_off = market_regime in _RISK_OFF_STATES
+        # rejection.  A4 records the prior label but grants or blocks entry
+        # only from a fresh current-session live-market state.
         if risk_off:
             _append_unique(reason_codes, "MARKET_RISK_OFF")
         record_gate(
@@ -846,12 +849,18 @@ def evaluate_a3_candidate(
             kind="CONDITION",
             available=True,
         )
-        if permission in _NO_ENTRY_PERMISSIONS:
-            veto("SECTOR_NO_NEW_ENTRY")
-        condition(
-            "SECTOR_PERMISSION",
-            permission not in _NO_ENTRY_PERMISSIONS,
-            reason="SECTOR_NO_NEW_ENTRY" if permission in _NO_ENTRY_PERMISSIONS else None,
+        # A2's sector permission is a prior-session observation.  It can
+        # lower the plan priority and recommended exposure, but it cannot
+        # erase an otherwise valid next-day daily setup.  A4 owns the fresh
+        # intraday sector/market entry decision.
+        if sector_cautious:
+            _append_unique(reason_codes, "SECTOR_NO_NEW_ENTRY_PRIOR")
+        record_gate(
+            "SECTOR_PERMISSION_CLASSIFIED",
+            met=True,
+            reason="SECTOR_NO_NEW_ENTRY_CONTEXT_ONLY" if sector_cautious else "OK",
+            kind="CONDITION",
+            available=bool(permission),
         )
 
         geometry_ok = price["geometry_valid"] is True
@@ -1204,6 +1213,13 @@ def evaluate_a3_candidate(
     facts["emotion_cycle_stage"] = emotion_cycle_stage
     facts["emotion_new_long_permission"] = emotion_new_long_permission
     facts["market_environment"] = market_environment
+    facts["a3_market_authority"] = "POSITION_GUIDANCE_ONLY"
+    facts["a4_market_authority"] = "CURRENT_SESSION_LIVE_STATE"
+    facts["suggested_position_range_pct"] = (
+        {"min": 0.5, "max": 0.6, "stance": "NEUTRAL_CAUTION"}
+        if risk_off or permission in _NO_ENTRY_PERMISSIONS
+        else {"min": 0.6, "max": 0.7, "stance": "NORMAL"}
+    )
     facts["behavior_risk"] = behavior_risk
     facts["publication_state"] = publication_state
     facts["plan_priority"] = plan_priority
@@ -1478,23 +1494,18 @@ def _evaluate_leader(
     condition("A2_LEADER_ROLE_CONFIRMED", market_role in _LEADER_ROLES, missing=not bool(market_role), reason="A2_LEADER_ROLE_MISSING" if not market_role else None)
     if theme_stage in _BAD_LEADER_STAGES or theme_stage in _RISK_OFF_STATES:
         veto("LEADER_THEME_RETREAT_OR_CLIMAX")
-    if market_emotion_supplied and (
+    emotion_cautious = market_emotion_supplied and (
         emotion_cycle_stage in {"CLIMAX", "DIVERGENCE", "RETREAT", "ICE_POINT"}
         or emotion_new_long_permission == "NO_NEW_ENTRY"
-    ):
-        veto("MARKET_EMOTION_CYCLE_NO_NEW_LEADER")
+    )
     if market_emotion_supplied:
+        # Yesterday's emotion cycle is useful opening context, not today's
+        # entry authority.  Keep it visible without turning a leader setup
+        # into a false A3 rejection.
         condition(
-            "MARKET_EMOTION_CYCLE_ALLOWS_NEW_LEADER",
-            emotion_new_long_permission in {"ALLOW_CORE", "PROBE_ONLY"},
-            missing=emotion_new_long_permission == "UNKNOWN",
-            reason=(
-                "MARKET_EMOTION_CYCLE_MISSING"
-                if emotion_new_long_permission == "UNKNOWN"
-                else "MARKET_EMOTION_CYCLE_NO_NEW_LEADER"
-                if emotion_new_long_permission not in {"ALLOW_CORE", "PROBE_ONLY"}
-                else None
-            ),
+            "MARKET_EMOTION_CYCLE_CLASSIFIED",
+            True,
+            reason="MARKET_EMOTION_PRIOR_CAUTION" if emotion_cautious else None,
         )
     condition(
         "THEME_IN_EARLY_CYCLE",
@@ -1929,7 +1940,7 @@ def _strategy_facts(
             "regime": market_regime,
             "risk_off": market_regime in _RISK_OFF_STATES,
             "a3_gate": "OBSERVATION_ONLY",
-            "a4_entry_gate": "HARD_BLOCK_NEW_ENTRY_IN_RISK_OFF",
+            "a4_entry_gate": "CURRENT_SESSION_LIVE_STATE_ONLY",
         },
         "relative_strength_observation": dict(relative_strength),
         "price_discovery": price_discovery,

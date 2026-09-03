@@ -218,5 +218,11 @@ def test_compact_premarket_context_projects_a1_a2_a3_without_lane_audit():
     assert context["a1"]["monthly_industries"][0]["name"] == "通信设备"
     assert context["a2"]["active_themes"][0]["name"] == "AI 算力"
     assert context["a2"]["active_themes"][0]["capital_flow"] == 75
-    assert context["a3"]["market_open_constraints"]["new_entry_allowed"] is True
+    assert context["a3"]["market_open_constraints"] == {
+        "prior_market_environment": "TREND_MAINLINE",
+        "recommended_position_min_pct": 0.5,
+        "recommended_position_max_pct": 0.6,
+        "a3_authority": "POSITION_GUIDANCE_ONLY",
+        "a4_entry_authority": "CURRENT_SESSION_LIVE_STATE",
+    }
     assert len(json.dumps(context, ensure_ascii=False)) < 20_000

@@ -16,6 +16,10 @@ MA520_SWING 或 TREND_MA5。确定性引擎按该策略分别处理闭合15分�
 - 交易规则：{{EXCHANGE_RULES}}
 - 当前时间：{{CURRENT_TIME}}
 
+其中A3计划携带的market_environment/market_emotion是上一交易日先验，只能作为
+开盘研究参考。只有MARKET_CONTEXT内带当前交易日时间戳且状态READY的
+live_market_state，才拥有盘中新开仓风控权限；不得用昨日BEAR_RISK替代今日行情。
+
 规则：
 1. 只处理 TRIGGER_ENGINE_RESULT 中 eligible=true 的 plan_id；每个 plan_id 恰好返回一条。
 2. 只能返回 llm_veto=true 或 false。不得返回 BUY/SELL、价格、数量、仓位或新标的。

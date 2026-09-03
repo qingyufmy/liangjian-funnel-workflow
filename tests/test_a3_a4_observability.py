@@ -80,6 +80,15 @@ def _a4_plan(**overrides: object) -> dict:
             "ma60": 9.5,
             "close": 11.3,
         },
+        "market_context": {
+            "live_market_state": {
+                "status": "READY",
+                "entry_permission": "ALLOW",
+                "as_of": "2026-08-31T10:00:00+08:00",
+                "trade_date": "2026-08-31",
+                "source": "TEST_FULL_MARKET",
+            }
+        },
     }
     plan.update(overrides)
     return plan
@@ -99,7 +108,6 @@ def test_a3_gate_projection_keeps_all_failures_and_reason_kinds() -> None:
     assert result.eligibility is Eligibility.DATA_GAP
     assert result.first_blocking_gate is not None
     assert {
-        "SECTOR_PERMISSION",
         "PRICE_GEOMETRY_VALID",
         "DAILY_NOT_BEARISH",
     } <= set(result.all_failed_gates)

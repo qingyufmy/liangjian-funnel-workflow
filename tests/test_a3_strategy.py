@@ -188,7 +188,7 @@ def test_leader_has_priority_over_trend_and_520() -> None:
     assert result.strategy_profile != StrategyProfile.MA520_SWING
 
 
-def test_market_emotion_cycle_blocks_new_leader_at_climax_but_not_trend_route() -> None:
+def test_prior_market_emotion_is_context_only_for_a3_routes() -> None:
     leader = evaluate_a3_strategy(
         {
             "symbol": "600110.SH",
@@ -227,9 +227,11 @@ def test_market_emotion_cycle_blocks_new_leader_at_climax_but_not_trend_route() 
         },
     )
 
-    assert leader.eligibility is Eligibility.REJECTED
-    assert leader.route_permission.value == "BLOCKED"
-    assert "MARKET_EMOTION_CYCLE_NO_NEW_LEADER" in leader.reason_codes
+    assert leader.eligibility is Eligibility.QUALIFIED
+    assert leader.route_permission.value == "ALLOW_A4"
+    assert "MARKET_EMOTION_PRIOR_CAUTION" in leader.gate_results[
+        "MARKET_EMOTION_CYCLE_CLASSIFIED"
+    ]["reason"]
     assert trend.eligibility is Eligibility.QUALIFIED
     assert trend.route_permission.value == "ALLOW_A4"
     assert trend.cycle_alignment["emotion_cycle"]["owned_by"] == "CONTEXT_ONLY"
@@ -293,7 +295,7 @@ def test_market_risk_off_is_a3_context_and_a4_route_stays_available() -> None:
         "regime": "RISK_OFF",
         "risk_off": True,
         "a3_gate": "OBSERVATION_ONLY",
-        "a4_entry_gate": "HARD_BLOCK_NEW_ENTRY_IN_RISK_OFF",
+        "a4_entry_gate": "CURRENT_SESSION_LIVE_STATE_ONLY",
     }
 
     technical_failure = evaluate_a3_strategy(

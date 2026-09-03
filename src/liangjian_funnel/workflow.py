@@ -108,6 +108,7 @@ from .redaction import digest_text, sanitize
 from .reporting import atomic_write_json, atomic_write_json_streaming, atomic_write_text
 from .runtime.monitor import MonitorBatchResult, MonitorEngine, rebuild_effective_markdown
 from .runtime.lark_notifications import WorkflowLarkPublisher
+from .runtime.live_market import load_or_refresh_live_market_state
 from .runtime.progress import WorkflowProgress
 from .runtime.resource_guard import evaluate_resources, measure_resources
 from .runtime.calendar import ExchangeTradingCalendar, TradingCalendarError
@@ -3245,6 +3246,26 @@ class WorkflowApplication:
                 for position in self.store.list_positions(f"paper:{lane_id}")
             )
             lane_scopes[lane_id] = scope
+        # A4's entry authority must come from today's market, never from the
+        # prior-session market label frozen into an A3 plan.  Collect one
+        # shared five-minute market state for all lanes; the provider itself
+        # uses a durable file bucket so one-minute scheduler processes do not
+        # repeat a full-market request.
+        live_market_state = (
+            load_or_refresh_live_market_state(
+                self.settings,
+                self.market_data,
+                as_of=current,
+            )
+            if any(lane_scopes.values())
+            else {
+                "status": "NOT_REQUIRED",
+                "reason_code": "A4_NO_ACTIVE_PLAN_SCOPE",
+                "as_of": current.isoformat(),
+                "trade_date": current.date().isoformat(),
+                "entry_permission": "UNKNOWN",
+            }
+        )
 
         # Market data is frozen once per symbol/minute and shared by every
         # isolated lane.  A4 requests only the closed bars that can exist in
@@ -3396,6 +3417,7 @@ class WorkflowApplication:
                     one_bars,
                     five_bars,
                     current=current,
+                    live_market_state=live_market_state,
                 )
             # A cache/database write failure is a system-level boundary: the
             # entire lane must fail closed.  Provider gaps/fetch failures are
@@ -3472,6 +3494,7 @@ class WorkflowApplication:
             notifications = [{"status": "FAILED", "reason_code": "LARK_NOTIFICATION_FAILED"}]
         payload = {
             "minute_snapshot_id": minute_snapshot_id,
+            "live_market_state": live_market_state,
             "time": current.isoformat(),
             "a3_scope_activation": a3_scope_activation,
             "minute_cache": cache_stats,
@@ -4749,7 +4772,45 @@ def _build_premarket_research_context(
     )[:5]
     focus_rows = _mapping_rows(a2.get("focus_pool"))[:12]
     a3_summary = a3.get("analysis_summary") if isinstance(a3.get("analysis_summary"), Mapping) else {}
-    market_constraints = a3.get("market_open_constraints") if isinstance(a3.get("market_open_constraints"), Mapping) else {}
+    legacy_constraints = (
+        a3.get("market_open_constraints")
+        if isinstance(a3.get("market_open_constraints"), Mapping)
+        else {}
+    )
+    a3_plan_rows = _mapping_rows(a3.get("core_watch_pool"))
+    prior_environments = list(
+        dict.fromkeys(
+            str(item.get("market_environment") or "").strip()
+            for item in a3_plan_rows
+            if str(item.get("market_environment") or "").strip()
+        )
+    )
+    position_ranges = [
+        value
+        for item in a3_plan_rows
+        if isinstance(item.get("strategy_facts"), Mapping)
+        for value in [item["strategy_facts"].get("suggested_position_range_pct")]
+        if isinstance(value, Mapping)
+    ]
+    market_constraints = {
+        "prior_market_environment": (
+            prior_environments[0]
+            if len(prior_environments) == 1
+            else "MIXED"
+            if prior_environments
+            else legacy_constraints.get("regime")
+        ),
+        "recommended_position_min_pct": min(
+            (_safe_float(item.get("min"), 1.0) for item in position_ranges),
+            default=_safe_float(legacy_constraints.get("position_min_pct"), 0.5),
+        ),
+        "recommended_position_max_pct": min(
+            (_safe_float(item.get("max"), 1.0) for item in position_ranges),
+            default=_safe_float(legacy_constraints.get("total_position_cap_pct"), 0.6),
+        ),
+        "a3_authority": "POSITION_GUIDANCE_ONLY",
+        "a4_entry_authority": "CURRENT_SESSION_LIVE_STATE",
+    }
 
     reason_codes: list[str] = []
     for stage in (a1_stage, a2_stage, a3_stage):
@@ -4870,7 +4931,7 @@ def _build_premarket_research_context(
             "approved_count": a3_summary.get("core_watch_pool", a3_summary.get("approved_count")),
             "secondary_count": a3_summary.get("secondary_watch_pool", a3_summary.get("monitor_count")),
             "rejected_count": a3_summary.get("rejected_candidates", a3_summary.get("rejected_count")),
-            "market_open_constraints": dict(market_constraints),
+            "market_open_constraints": market_constraints,
         },
     }
 
@@ -4905,6 +4966,13 @@ def _fallback_premarket_research_context(
             "status": "PLANS_ONLY",
             "market_environments": environments,
             "market_funding_states": funding_states,
+            "market_open_constraints": {
+                "prior_market_environment": environments[0] if len(environments) == 1 else "MIXED" if environments else None,
+                "recommended_position_min_pct": None,
+                "recommended_position_max_pct": None,
+                "a3_authority": "POSITION_GUIDANCE_ONLY",
+                "a4_entry_authority": "CURRENT_SESSION_LIVE_STATE",
+            },
         },
     }
 
@@ -5020,7 +5088,8 @@ def _a3_premarket_markdown(payload: Mapping[str, Any]) -> str:
             "## 四、A1 × A2 × A3 决策链",
             "",
             "- A1 决定月度可研究方向；A2 用当日板块强度、资金、龙头和梯队结构做轮动确认；A3 只按日/周/月技术形态生成可供 A4 复核的次日计划。",
-            f"- 市场环境：`{constraints.get('regime') or 'UNAVAILABLE'}`；允许新开仓：`{constraints.get('new_entry_allowed')}`；总仓位上限：`{constraints.get('total_position_cap_pct')}`。",
+            f"- 昨日市场环境：`{constraints.get('prior_market_environment') or 'UNAVAILABLE'}`；A3 建议仓位：`{constraints.get('recommended_position_min_pct')}`–`{constraints.get('recommended_position_max_pct')}`。",
+            "- 权限边界：A3 只给仓位、优先级和风险提示；当日是否允许新开仓由 A4 使用当前交易日实时市场状态判定。",
             "- 24h 隔夜新闻、当日竞价、实时龙虎榜若未在研究上下文中落库，则本报告不推演、不补造；09:26 再以独立竞价事实做激活复核。",
         ]
     )
@@ -5160,6 +5229,7 @@ def _intraday_market_context(
     five_minute: tuple[MinuteBar, ...],
     *,
     current: datetime,
+    live_market_state: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build bounded deterministic A4 evidence from closed bars only."""
 
@@ -5185,6 +5255,11 @@ def _intraday_market_context(
     return {
         "symbol": symbol,
         "as_of": current.isoformat(),
+        "live_market_state": dict(live_market_state or {}),
+        "market_authority": {
+            "a3_prior_context": "POSITION_GUIDANCE_ONLY",
+            "a4_current_session": "LIVE_ENTRY_AUTHORITY",
+        },
         "realtime_quote": (
             current_bar.model_dump(mode="json")
             if current_bar is not None

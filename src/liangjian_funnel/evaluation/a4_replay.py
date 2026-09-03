@@ -172,6 +172,18 @@ def run_a4_replay(
             data_ok=True,
             snapshot_contiguous=True,
             bar_histories={symbol: day_bars[: index + 1]},
+            market_contexts={
+                symbol: {
+                    "live_market_state": {
+                        "status": "READY",
+                        "entry_permission": "ALLOW",
+                        "as_of": bar.bar_end.isoformat(),
+                        "trade_date": trade_date.isoformat(),
+                        "source": "TEST_ONLY_REPLAY_ASSUMPTION",
+                        "suggested_position_cap_pct": 0.7,
+                    }
+                }
+            },
         )
         model_calls += int(batch.model_called)
 

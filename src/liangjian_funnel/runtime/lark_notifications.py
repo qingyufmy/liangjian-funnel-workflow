@@ -282,7 +282,8 @@ class WorkflowLarkPublisher:
         context_lines.extend(
             [
                 "---\n**三、A1→A2→A3 决策链** A1 定月度研究方向；A2 以板块强度、资金、龙头、梯队与产业链共振确认轮动；A3 以日/周/月技术生成次日计划。",
-                f"**市场边界** 环境 {_text(constraints.get('regime'), limit=40)}｜允许新开仓 {_text(constraints.get('new_entry_allowed'), limit=12)}｜仓位上限 {_number(constraints.get('total_position_cap_pct'))}",
+                f"**昨日环境与仓位** {_text(constraints.get('prior_market_environment'), limit=40)}｜A3 建议仓位 {_number(constraints.get('recommended_position_min_pct'))}–{_number(constraints.get('recommended_position_max_pct'))}",
+                "**权限边界** A3 不阻断次日计划；当日新开仓权限只由 A4 当前交易日实时市场状态判定。",
                 f"**核心不确定性** {'；'.join(uncertainties) if uncertainties else '未提供'}",
                 f"**上下文风险码** {'；'.join(reason_codes) if reason_codes else '无'}",
                 "**事实边界** 未落库的24h新闻、竞价和实时龙虎榜不推演、不补造；09:26 独立竞价复核前不激活 A4。",

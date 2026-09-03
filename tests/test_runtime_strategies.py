@@ -19,6 +19,17 @@ from liangjian_funnel.runtime.strategies import (
 TZ = ZoneInfo("Asia/Shanghai")
 
 
+def _live_market_context(*, decision: str = "ALLOW", as_of: str = "2026-08-31T10:00:00+08:00") -> dict[str, object]:
+    return {
+        "live_market_state": {
+            "status": "READY",
+            "decision": decision,
+            "as_of": as_of,
+            "trade_date": "2026-08-31",
+        }
+    }
+
+
 def _bar(at: datetime, *, close: float, open_: float | None = None, low: float | None = None, high: float | None = None, volume: float = 100.0, closed: bool = True) -> dict[str, object]:
     open_price = close - 0.2 if open_ is None else open_
     return {
@@ -46,6 +57,7 @@ def _base(profile: str, **extra: object) -> dict[str, object]:
         "trade_date": "2026-08-31",
         "trigger_zone": {"low": 10.0, "high": 12.0},
         "invalidation_level": 8.0,
+        "market_context": _live_market_context(),
         **extra,
     }
 
@@ -113,7 +125,11 @@ def test_trend_requires_daily_maintrend_and_520_requires_two_5m_confirmations() 
         at = weak_520_bars[index]["bar_end"]
         weak_520_bars[index] = _bar(at, close=9.5, open_=10.0, low=9.3, high=10.1)
     swing = evaluate_a4_plan(
-        _base(StrategyProfile.MA520_SWING.value, daily_indicators={"ma5": 11.0, "ma20": 10.0, "close": 11.2}),
+        _base(
+            StrategyProfile.MA520_SWING.value,
+            market_context=_live_market_context(as_of="2026-08-31T09:45:00+08:00"),
+            daily_indicators={"ma5": 11.0, "ma20": 10.0, "close": 11.2},
+        ),
         weak_520_bars,
     )
     assert "TREND_DAILY_NOT_MAIN_UPTREND" in trend["reason_codes"]
@@ -175,6 +191,7 @@ def test_a3_ma520_payload_preserves_right_side_evidence_into_a4() -> None:
     )
     plan = a3.model_dump(mode="json")
     plan["trade_date"] = "2026-08-31"
+    plan["market_context"] = _live_market_context()
 
     result = evaluate_a4_plan(plan, _bars())
 
@@ -317,7 +334,7 @@ def test_public_entry_returns_frozen_pydantic_result_and_accepts_overlays() -> N
         _bars(),
         now=datetime(2026, 8, 31, 10, 0, tzinfo=TZ),
         position={"quantity": 0},
-        market_context={"market_shock": False},
+        market_context={**_live_market_context(), "market_shock": False},
     )
     assert isinstance(result, StrategyEvaluation)
     assert result.action == A4Action.BUY_SIGNAL.value
@@ -392,8 +409,29 @@ def test_type_specific_top_risk_cancels_entry_and_exits_matching_position() -> N
     assert exited["action"] == A4Action.SELL_SIGNAL.value
 
 
-def test_intraday_market_context_blocks_new_entry_in_bear_or_emotion_retreat() -> None:
-    trend = evaluate_strategy(
+def test_stale_a3_market_prior_does_not_block_as_current_market_state() -> None:
+    result = evaluate_strategy(
+        _base(
+            StrategyProfile.TREND_MA5.value,
+            stock_behavior_type="TREND",
+            market_environment="BEAR_RISK",
+            market_emotion={"new_long_permission": "NO_NEW_ENTRY"},
+            market_context=None,
+            daily_indicators={"ma5": 11, "ma10": 10.7, "ma20": 10.2, "ma60": 9.5, "close": 11.3},
+        ),
+        _bars(),
+        now=datetime(2026, 8, 31, 10, 0, tzinfo=TZ),
+    )
+
+    assert result.action == A4Action.DATA_BLOCK.value
+    assert result.state == "DATA_BLOCKED"
+    assert result.reason_codes == ("LIVE_MARKET_STATE_MISSING",)
+    assert "A4_MARKET_BEAR_NO_NEW_ENTRY" not in result.reason_codes
+    assert result.live_market_state_status == "DATA_BLOCK"
+
+
+def test_fresh_market_block_cancels_new_entry_only() -> None:
+    result = evaluate_strategy(
         _base(
             StrategyProfile.TREND_MA5.value,
             stock_behavior_type="TREND",
@@ -401,27 +439,138 @@ def test_intraday_market_context_blocks_new_entry_in_bear_or_emotion_retreat() -
         ),
         _bars(),
         now=datetime(2026, 8, 31, 10, 0, tzinfo=TZ),
-        market_context={"market_environment": "BEAR_RISK"},
+        market_context=_live_market_context(decision="BLOCK_NEW_ENTRY"),
     )
-    leader = evaluate_strategy(
+
+    assert result.action == A4Action.START_CONFIRMATION.value
+    assert result.state == "CONFIRMING"
+    assert "A4_LIVE_MARKET_BLOCK_WAIT" in result.reason_codes
+    assert result.market_gate["decision"] == "BLOCK_NEW_ENTRY"
+
+
+def test_fresh_market_allow_keeps_deterministic_entry() -> None:
+    result = evaluate_strategy(
         _base(
-            StrategyProfile.LEADER_INTRADAY.value,
-            stock_behavior_type="EMOTION",
-            leader_context={
-                "theme_stage": "CONFIRMATION",
-                "ladder_intact": True,
-                "board_count": 2,
-            },
+            StrategyProfile.TREND_MA5.value,
+            stock_behavior_type="TREND",
+            market_environment="BEAR_RISK",
+            market_emotion={"new_long_permission": "NO_NEW_ENTRY"},
+            daily_indicators={"ma5": 11, "ma10": 10.7, "ma20": 10.2, "ma60": 9.5, "close": 11.3},
         ),
-        _leader_bars(),
+        _bars(),
+        now=datetime(2026, 8, 31, 10, 0, tzinfo=TZ),
+        market_context=_live_market_context(decision="ALLOW"),
+    )
+
+    assert result.action == A4Action.BUY_SIGNAL.value
+    assert result.market_gate["status"] == "READY"
+    assert result.market_gate["decision"] == "ALLOW"
+
+
+def test_fresh_tencent_index_fallback_is_explicitly_usable() -> None:
+    context = _live_market_context(decision="ALLOW")
+    context["live_market_state"]["status"] = "READY_DEGRADED"
+    context["live_market_state"]["source"] = "TENCENT_INDEX_FALLBACK"
+    result = evaluate_strategy(
+        _base(
+            StrategyProfile.TREND_MA5.value,
+            stock_behavior_type="TREND",
+            daily_indicators={"ma5": 11, "ma10": 10.7, "ma20": 10.2, "ma60": 9.5, "close": 11.3},
+        ),
+        _bars(),
+        now=datetime(2026, 8, 31, 10, 0, tzinfo=TZ),
+        market_context=context,
+    )
+
+    assert result.action == A4Action.BUY_SIGNAL.value
+    assert result.market_gate["status"] == "READY"
+    assert result.market_gate["state_status"] == "READY_DEGRADED"
+
+
+def test_fresh_market_caution_keeps_entry_and_reduces_position() -> None:
+    result = evaluate_strategy(
+        _base(
+            StrategyProfile.TREND_MA5.value,
+            stock_behavior_type="TREND",
+            daily_indicators={"ma5": 11, "ma10": 10.7, "ma20": 10.2, "ma60": 9.5, "close": 11.3},
+        ),
+        _bars(),
         now=datetime(2026, 8, 31, 10, 0, tzinfo=TZ),
         market_context={
-            "market_environment": "ROTATION_MIXED",
-            "market_emotion": {"new_long_permission": "NO_NEW_ENTRY"},
+            "live_market_state": {
+                **_live_market_context(decision="CAUTION")["live_market_state"],
+                "suggested_position_cap_pct": 0.5,
+            }
         },
     )
 
-    assert trend.action == A4Action.NO_ACTION.value
-    assert trend.reason_codes == ("A4_MARKET_BEAR_NO_NEW_ENTRY",)
-    assert leader.action == A4Action.NO_ACTION.value
-    assert leader.reason_codes == ("A4_EMOTION_CYCLE_NO_NEW_LEADER",)
+    assert result.action == A4Action.BUY_SIGNAL.value
+    assert "A4_MARKET_CAUTION_REDUCED_POSITION" in result.reason_codes
+    assert result.suggested_position_cap_pct == 0.5
+    assert result.market_gate["decision"] == "CAUTION"
+
+
+def test_degraded_tencent_fallback_can_authorize_new_entry() -> None:
+    result = evaluate_strategy(
+        _base(
+            StrategyProfile.TREND_MA5.value,
+            stock_behavior_type="TREND",
+            daily_indicators={"ma5": 11, "ma10": 10.7, "ma20": 10.2, "ma60": 9.5, "close": 11.3},
+        ),
+        _bars(),
+        now=datetime(2026, 8, 31, 10, 0, tzinfo=TZ),
+        market_context={
+            "live_market_state": {
+                "status": "READY_DEGRADED",
+                "entry_permission": "ALLOW",
+                "as_of": "2026-08-31T10:00:00+08:00",
+                "trade_date": "2026-08-31",
+            }
+        },
+    )
+
+    assert result.action == A4Action.BUY_SIGNAL.value
+    assert result.market_gate["status"] == "READY"
+    assert result.market_gate["state_status"] == "READY_DEGRADED"
+
+
+def test_expired_live_market_state_is_data_block_not_bearish() -> None:
+    result = evaluate_strategy(
+        _base(
+            StrategyProfile.TREND_MA5.value,
+            stock_behavior_type="TREND",
+            market_environment="BEAR_RISK",
+            daily_indicators={"ma5": 11, "ma10": 10.7, "ma20": 10.2, "ma60": 9.5, "close": 11.3},
+        ),
+        _bars(),
+        now=datetime(2026, 8, 31, 10, 0, tzinfo=TZ),
+        market_context=_live_market_context(as_of="2026-08-31T09:50:00+08:00"),
+    )
+
+    assert result.action == A4Action.DATA_BLOCK.value
+    assert result.state == "DATA_BLOCKED"
+    assert result.reason_codes == ("LIVE_MARKET_STATE_STALE",)
+    assert result.market_gate["status"] == "DATA_BLOCK"
+    assert result.market_gate["as_of"] == "2026-08-31T09:50:00+08:00"
+    assert result.market_gate["trade_date"] == "2026-08-31"
+    assert result.market_gate["age_seconds"] == 600.0
+    assert "A4_MARKET_BEAR_NO_NEW_ENTRY" not in result.reason_codes
+
+
+def test_fresh_market_block_does_not_suppress_existing_position_exit() -> None:
+    result = evaluate_strategy(
+        _base(
+            StrategyProfile.TREND_MA5.value,
+            stock_behavior_type="TREND",
+            position_open=True,
+            stop_level=8.0,
+            daily_indicators={"ma5": 11, "ma10": 10.7, "ma20": 10.2, "ma60": 9.5, "close": 11.3},
+        ),
+        [*_bars()[:-1], _bar(_bars()[-1]["bar_end"], close=10.5, low=7.5)],
+        now=datetime(2026, 8, 31, 10, 0, tzinfo=TZ),
+        market_context=_live_market_context(decision="BLOCK_NEW_ENTRY"),
+    )
+
+    assert result.action == A4Action.FORCED_RISK_EXIT.value
+    assert result.state == "FORCED_RISK_EXIT"
+    assert result.reason_codes == ("HARD_STOP",)

@@ -173,6 +173,17 @@ def test_strategy_plan_uses_closed_15m_and_5m_not_legacy_1m_zone(tmp_path):
         minute_snapshot_id="strategy-1000",
         now=history[-1].bar_end,
         bar_histories={"600519.SH": history},
+        market_contexts={
+            "600519.SH": {
+                "live_market_state": {
+                    "status": "READY",
+                    "entry_permission": "ALLOW",
+                    "as_of": history[-1].bar_end.isoformat(),
+                    "trade_date": history[-1].bar_end.date().isoformat(),
+                    "source": "TEST_FULL_MARKET",
+                }
+            }
+        },
     )
     assert result.model_called is True
     assert result.events[-1].action == MonitorAction.BUY_SIGNAL.value
