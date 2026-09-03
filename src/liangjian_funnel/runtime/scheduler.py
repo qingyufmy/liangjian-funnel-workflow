@@ -31,6 +31,8 @@ class ScheduleKind(StrEnum):
     # cannot be confused with the 09:26 auction review/activation lease.
     PREMARKET_0830 = "premarket_0830"
     MORNING_0925 = "morning_0925"
+    A5_MIDDAY_1135 = "a5_midday_1135"
+    A5_POST_CLOSE_1600 = "a5_post_close_1600"
     CLOSE_1510 = "close_1510"
     MONITOR = "monitor"
 
@@ -220,6 +222,9 @@ class Scheduler:
             return self._job(ScheduleKind.MONITOR, first_monitor, current)
         if current <= _at(day, datetime_time(11, 30)):
             return self._job(ScheduleKind.MONITOR, self._ceil_minute(current), current)
+        midday_review = _at(day, datetime_time(11, 35))
+        if current <= midday_review:
+            return self._job(ScheduleKind.A5_MIDDAY_1135, midday_review, current)
         afternoon = _at(day, datetime_time(13, 0))
         if current < afternoon:
             return self._job(ScheduleKind.MONITOR, afternoon, current)
@@ -228,6 +233,9 @@ class Scheduler:
         close = _at(day, datetime_time(15, 10))
         if current <= close:
             return self._job(ScheduleKind.CLOSE_1510, close, current)
+        post_close_review = _at(day, datetime_time(16, 0))
+        if current <= post_close_review:
+            return self._job(ScheduleKind.A5_POST_CLOSE_1600, post_close_review, current)
         return None
 
     def _due_jobs(self, current: datetime) -> tuple[ScheduledJob, ...]:
@@ -243,9 +251,15 @@ class Scheduler:
             jobs.append(self._job(ScheduleKind.MONITOR, self._floor_minute(current), current))
         if datetime_time(13, 1) <= current.time().replace(tzinfo=None) <= datetime_time(15, 0):
             jobs.append(self._job(ScheduleKind.MONITOR, self._floor_minute(current), current))
+        midday_review = _at(day, datetime_time(11, 35))
+        if current >= midday_review and current <= _at(day, datetime_time(12, 45)):
+            jobs.append(self._job(ScheduleKind.A5_MIDDAY_1135, midday_review, current))
         close = _at(day, datetime_time(15, 10))
         if current >= close and current <= _at(day, datetime_time(20, 30)):
             jobs.append(self._job(ScheduleKind.CLOSE_1510, close, current))
+        post_close_review = _at(day, datetime_time(16, 0))
+        if current >= post_close_review and current <= _at(day, datetime_time(17, 0)):
+            jobs.append(self._job(ScheduleKind.A5_POST_CLOSE_1600, post_close_review, current))
         return tuple(jobs)
 
     @staticmethod
@@ -273,6 +287,10 @@ class Scheduler:
             return current > _at(current.date(), datetime_time(9, 40))
         if job.kind is ScheduleKind.CLOSE_1510:
             return current > _at(current.date(), datetime_time(20, 30))
+        if job.kind is ScheduleKind.A5_MIDDAY_1135:
+            return current > _at(current.date(), datetime_time(12, 45))
+        if job.kind is ScheduleKind.A5_POST_CLOSE_1600:
+            return current > _at(current.date(), datetime_time(17, 0))
         return False
 
     @staticmethod

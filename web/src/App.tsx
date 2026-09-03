@@ -43,6 +43,8 @@ import {
 } from "./localization";
 import {
   AccountSummary,
+  A4SignalLifecycle,
+  A5DailyReview,
   ApiError,
   DataSourceSummary,
   EffectiveEvent,
@@ -73,12 +75,13 @@ import {
   WorkflowProgressSummary,
 } from "./types";
 
-type ViewId = "overview" | "funnel" | "monitor" | "accounts" | "issues" | "logs" | "deployment";
+type ViewId = "overview" | "funnel" | "monitor" | "review" | "accounts" | "issues" | "logs" | "deployment";
 
 const NAVIGATION: Array<{ id: ViewId; label: string; icon: typeof LayoutDashboard }> = [
   { id: "overview", label: "总览", icon: LayoutDashboard },
   { id: "funnel", label: "研究漏斗", icon: GitBranch },
   { id: "monitor", label: "盘中盯盘", icon: MonitorDot },
+  { id: "review", label: "复盘评估", icon: Gauge },
   { id: "accounts", label: "模拟账户", icon: WalletCards },
   { id: "issues", label: "问题跟踪", icon: CircleAlert },
   { id: "logs", label: "运行日志", icon: ScrollText },
@@ -116,11 +119,12 @@ const EMPTY_OVERVIEW: OverviewResponse = {
   schedule: [],
   latestWorkflow: { status: "unknown", lanes: [] },
   workflowProgress: null,
-  monitor: { status: "unknown", events: [] },
+  monitor: { status: "unknown", events: [], signalLifecycles: [], signalLifecycleCounts: {} },
   accounts: [],
   planCounts: {},
   dataSources: [],
   recentEffectiveEvents: [],
+  recentA5Reviews: [],
   recentLogs: [],
 };
 
@@ -172,11 +176,16 @@ function normalizeOverview(value: OverviewResponse): OverviewResponse {
       latestA3Plans: Array.isArray(value.monitor?.latestA3Plans) ? value.monitor.latestA3Plans : [],
       notifications: Array.isArray(value.monitor?.notifications) ? value.monitor.notifications : [],
       dispatch: value.monitor?.dispatch ?? null,
+      signalLifecycles: Array.isArray(value.monitor?.signalLifecycles) ? value.monitor.signalLifecycles : [],
+      signalLifecycleCounts: value.monitor?.signalLifecycleCounts && typeof value.monitor.signalLifecycleCounts === "object"
+        ? value.monitor.signalLifecycleCounts
+        : {},
     },
     accounts: Array.isArray(value.accounts) ? value.accounts : [],
     planCounts: value.planCounts ?? {},
     dataSources: Array.isArray(value.dataSources) ? value.dataSources : [],
     recentEffectiveEvents: Array.isArray(value.recentEffectiveEvents) ? value.recentEffectiveEvents : [],
+    recentA5Reviews: Array.isArray(value.recentA5Reviews) ? value.recentA5Reviews : [],
     recentLogs: Array.isArray(value.recentLogs) ? value.recentLogs : [],
   };
 }
@@ -606,6 +615,7 @@ export function App() {
               {view === "overview" ? <OverviewPage overview={overview} logs={logs} issues={issues} onNavigate={setView} /> : null}
               {view === "funnel" ? <FunnelPage overview={overview} runs={runs} /> : null}
               {view === "monitor" ? <MonitorPage overview={overview} /> : null}
+              {view === "review" ? <A5ReviewPage reviews={overview.recentA5Reviews ?? []} /> : null}
               {view === "accounts" ? <AccountsPage overview={overview} /> : null}
               {view === "issues" ? <IssuesPage issues={issues} /> : null}
               {view === "logs" ? <LogsPage logs={logs} streamConnected={streamConnected} /> : null}
@@ -1386,6 +1396,21 @@ const MONITOR_REASON_LABELS: Record<string, string> = {
   DETERMINISTIC_EXIT_TRIGGER: "确定性离场条件触发",
   LLM_VETO: "盘中快速模型否决本次触发",
   HARD_STOP: "价格触及硬止损",
+  HARD_STOP_BEFORE_ENTRY: "入场前触及保护位",
+  CURRENT_1M_HARD_STOP: "当前一分钟触及保护位",
+  A4_FORCED_EXIT_WITHOUT_POSITION: "系统检测到无持仓离场请求，已阻断错误动作",
+  A4_BEHAVIOR_TYPE_MISSING: "股票类型尚未确定，不能选择盘中策略",
+  BLOCKED_T1: "当日买入暂不可卖，等待下一交易日离场",
+  ENTRY_NEXT_BAR_MISSED: "入场信号后的下一根完整分钟线未能成交",
+  PRE_ENTRY_RISK_LEVEL_TOUCHED: "入场前触及风险位",
+  ENTRY_BLOCKED_CURRENT_MINUTE: "本分钟暂不入场",
+  TREND_PRE_ENTRY_STRUCTURE_INVALIDATED: "趋势策略入场前结构失效",
+  MA520_PRE_ENTRY_STRUCTURE_INVALIDATED: "五日与二十日均线入场前结构失效",
+  TREND_5M_FAILED_MA5_RECLAIM: "趋势五日线策略跌破五日线且回抽失败",
+  TREND_HIGH_VOLUME_MA5_BREAK: "趋势五日线策略放量跌破五日线",
+  TREND_HIGH_VOLUME_UPPER_SHADOW: "趋势五日线策略高位放量长上影",
+  MA520_5M_FAILED_MA20_RECLAIM: "五二零策略跌破二十日线且回抽失败",
+  MA520_HIGH_VOLUME_MA20_BREAK: "五二零策略放量跌破二十日线",
   MINUTE_DATA_GAP: "分钟线存在缺口",
   MINUTE_DATA_UNAVAILABLE: "当前分钟线不可用",
   BAR_MISSING: "计划股票缺少当前分钟线",
@@ -1442,6 +1467,8 @@ function larkNotificationKindLabel(kind?: string | null): string {
   if (kind === "PREMARKET_A3_ANALYSIS") return "A3 盘前分析";
   if (kind === "PREMARKET_A3") return "盘前 A3 计划";
   if (kind === "A4_EFFECTIVE") return "A4 有效事件";
+  if (kind === "A5_MIDDAY_REVIEW") return "A5 盘中复盘";
+  if (kind === "A5_POST_CLOSE_REVIEW") return "A5 盘后复盘";
   return "系统通知";
 }
 
@@ -1481,7 +1508,7 @@ function LarkNotificationPanel({ notifications }: { notifications: LarkNotificat
       });
       setSettings(status);
       setWebhookUrl("");
-      setFeedback({ tone: "success", message: "机器人地址已安全保存，下一次 A3/A4 推送立即生效。" });
+      setFeedback({ tone: "success", message: "机器人地址已安全保存，下一次 A3、A4 或 A5 推送立即生效。" });
     } catch (error) {
       setFeedback({ tone: "error", message: error instanceof Error ? humanizeText(error.message) : "保存失败" });
     } finally {
@@ -1521,7 +1548,7 @@ function LarkNotificationPanel({ notifications }: { notifications: LarkNotificat
         {feedback ? <p className={`lark-settings-feedback lark-settings-feedback-${feedback.tone}`} role={feedback.tone === "error" ? "alert" : "status"}>{feedback.message}</p> : null}
       </form>
     </div>
-    {notifications.length === 0 ? <EmptyState title="暂无推送记录" detail="盘前 A3 计划通过复核，或 A4 产生有效状态变化后，这里会显示投递结果；继续观察不会推送。" icon={<Send size={22} />} /> : <div className="data-table-wrap"><table className="data-table lark-delivery-table"><thead><tr><th>时间</th><th>类型</th><th>卡片</th><th>状态</th><th>尝试</th><th>异常</th></tr></thead><tbody>{notifications.map((item, index) => <tr key={item.deliveryId || `${item.sourceId}-${index}`}><td>{formatDateTime(item.sentAt ?? item.updatedAt ?? item.createdAt)}</td><td>{larkNotificationKindLabel(item.kind)}</td><td><span className="lark-card-title"><i className={larkColorClass(item.color)} aria-hidden="true" /><strong>{item.title || "未命名通知"}</strong></span></td><td><span className={`lark-delivery-status lark-delivery-status-${(item.status || "unknown").toLowerCase()}`}>{larkNotificationStatusLabel(item.status)}</span></td><td>{item.attemptCount ?? 0}</td><td className="monitor-reason">{item.lastReasonCode ? codeLabel(item.lastReasonCode) : "—"}</td></tr>)}</tbody></table></div>}
+    {notifications.length === 0 ? <EmptyState title="暂无推送记录" detail="A3 盘前研究、A4 有效状态变化和 A5 每日复盘完成后，这里会显示投递结果；普通观察状态不会推送。" icon={<Send size={22} />} /> : <div className="data-table-wrap"><table className="data-table lark-delivery-table"><thead><tr><th>时间</th><th>类型</th><th>卡片</th><th>状态</th><th>尝试</th><th>异常</th></tr></thead><tbody>{notifications.map((item, index) => <tr key={item.deliveryId || `${item.sourceId}-${index}`}><td>{formatDateTime(item.sentAt ?? item.updatedAt ?? item.createdAt)}</td><td>{larkNotificationKindLabel(item.kind)}</td><td><span className="lark-card-title"><i className={larkColorClass(item.color)} aria-hidden="true" /><strong>{humanizeText(item.title || "未命名通知")}</strong></span></td><td><span className={`lark-delivery-status lark-delivery-status-${(item.status || "unknown").toLowerCase()}`}>{larkNotificationStatusLabel(item.status)}</span></td><td>{item.attemptCount ?? 0}</td><td className="monitor-reason">{item.lastReasonCode ? codeLabel(item.lastReasonCode) : "—"}</td></tr>)}</tbody></table></div>}
   </Panel>;
 }
 
@@ -1554,6 +1581,82 @@ function MonitorEventDialog({ event, onClose }: { event: EffectiveEvent | null; 
       </div>
     </div> : null}
   </dialog>;
+}
+
+function lifecyclePercent(value?: number | null): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  // Runtime stores returns as decimal ratios (0.005 = 0.50%).
+  return `${(value * 100).toFixed(2)}%`;
+}
+
+function lifecyclePrice(value?: number | null): string {
+  return value === null || value === undefined || !Number.isFinite(value) ? "—" : value.toFixed(2);
+}
+
+function lifecycleQuantity(value?: number | null): string {
+  return value === null || value === undefined || !Number.isFinite(value) ? "—" : `${Math.max(0, Math.floor(value))} 股`;
+}
+
+function lifecycleR(value?: number | null): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  return `${value.toFixed(2)}R`;
+}
+
+function lifecycleStatusCount(
+  lifecycles: A4SignalLifecycle[],
+  counts: Record<string, number>,
+  status: string,
+): number {
+  const value = counts[status];
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : lifecycles.filter((item) => item.status?.trim().toUpperCase() === status).length;
+}
+
+function LifecycleTimestamp({ value, price }: { value?: string | null; price?: number | null }) {
+  return <span className="lifecycle-value"><strong>{formatDateTime(value)}</strong>{price !== null && price !== undefined ? <small>{lifecyclePrice(price)}</small> : null}</span>;
+}
+
+function A4SignalLifecyclePanel({ lifecycles, counts }: { lifecycles: A4SignalLifecycle[]; counts: Record<string, number> }) {
+  const signalled = lifecycleStatusCount(lifecycles, counts, "SIGNALLED");
+  const open = lifecycleStatusCount(lifecycles, counts, "OPEN");
+  const closed = lifecycleStatusCount(lifecycles, counts, "CLOSED");
+  const unfilled = lifecycleStatusCount(lifecycles, counts, "UNFILLED");
+  return (
+    <Panel title="信号跟踪与复盘" icon={<Activity size={18} />} action={<span className="lifecycle-readonly-note">只读记录 · 自动更新</span>}>
+      <div className="lifecycle-summary" aria-label="信号生命周期摘要">
+        <div><span>最近记录</span><strong>{lifecycles.length}</strong></div>
+        <div><span>已发出信号</span><strong>{signalled}</strong></div>
+        <div><span>持仓中</span><strong>{open}</strong></div>
+        <div><span>已完成</span><strong>{closed}</strong></div>
+        <div><span>未成交</span><strong>{unfilled}</strong></div>
+      </div>
+      {lifecycles.length === 0 ? (
+        <EmptyState title="尚无明确入场信号" detail="A4 只有在三种策略的确定性条件满足、且未被盘中模型否决时才会记录入场信号；继续观察不会生成样本。" icon={<Activity size={22} />} />
+      ) : (
+        <div className="data-table-wrap lifecycle-table-wrap">
+          <table className="data-table lifecycle-table">
+            <caption className="sr-only">A4 入场信号、模拟成交、持仓过程和离场复盘记录</caption>
+            <thead><tr><th>股票</th><th>类型 / 策略</th><th>生命周期</th><th>入场信号 / 成交</th><th>当前持仓 / 离场</th><th>最大浮盈 / 最大回撤</th><th>净收益 / 风险收益倍数</th><th>离场原因</th><th>更新时间</th></tr></thead>
+            <tbody>{lifecycles.map((item, index) => (
+              <tr key={item.lifecycleId || `${item.symbol}-${item.entrySignalAt || item.updatedAt || index}`}>
+                <td><span className="monitor-stock"><strong>{item.name || "名称未提供"}</strong><small>{stockSymbolLabel(item.symbol)}</small></span></td>
+                <td><span className="lifecycle-type"><strong>{codeLabel(item.stockBehaviorType)}</strong><small>{strategyProfileLabel(item.strategyProfile)}</small></span></td>
+                <td><span className={`lifecycle-status lifecycle-status-${(item.status || "unknown").toLowerCase()}`}><strong>{codeLabel(item.status)}</strong>{item.dataQualityStatus ? <small>数据：{codeLabel(item.dataQualityStatus)}</small> : null}</span></td>
+                <td><div className="lifecycle-dual-value"><div><span>信号</span><LifecycleTimestamp value={item.entrySignalAt} price={item.entrySignalPrice} /></div><div><span>成交</span><LifecycleTimestamp value={item.entryFillAt} price={item.entryFillPrice} />{item.entryQty !== null && item.entryQty !== undefined ? <small>{lifecycleQuantity(item.entryQty)}</small> : null}</div></div></td>
+                <td><div className="lifecycle-dual-value"><div><span>当前</span><strong>{lifecycleQuantity(item.currentQty)}</strong></div><div><span>信号</span><LifecycleTimestamp value={item.exitSignalAt} /></div><div><span>成交</span><LifecycleTimestamp value={item.exitFillAt} price={item.exitFillPrice} />{item.exitQty !== null && item.exitQty !== undefined ? <small>{lifecycleQuantity(item.exitQty)}</small> : null}</div></div></td>
+                <td><div className="lifecycle-metric-pair"><span>最大浮盈 {lifecyclePercent(item.mfePct)}</span><span>最大回撤 {lifecyclePercent(item.maePct)}</span><small>区间 {lifecyclePrice(item.minPrice)} – {lifecyclePrice(item.maxPrice)}</small></div></td>
+                <td><div className="lifecycle-metric-pair"><strong>{lifecyclePercent(item.netReturnPct)}</strong><span>毛收益 {lifecyclePercent(item.grossReturnPct)}</span><span>实现盈亏 {formatMoney(item.realizedPnl)}</span><small>{lifecycleR(item.rMultiple)}</small></div></td>
+                <td className="lifecycle-exit-reason">{item.exitReasonCode ? codeLabel(item.exitReasonCode) : "尚未离场"}</td>
+                <td><time>{formatDateTime(item.updatedAt)}</time>{item.holdingMinutes !== null && item.holdingMinutes !== undefined ? <small className="lifecycle-holding">历时 {item.holdingMinutes} 分钟</small> : null}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      )}
+      <div className="panel-footnote"><ShieldCheck size={14} /><span>入场信号与后续成交、离场、盈亏数据会持续保留，用于区分策略质量、数据异常和未成交情况；此处不提供交易操作。</span></div>
+    </Panel>
+  );
 }
 
 function DataSourcesPanel({ sources, onOpen }: { sources: DataSourceSummary[]; onOpen: () => void }) {
@@ -1703,6 +1806,8 @@ function MonitorPage({ overview }: { overview: OverviewResponse }) {
       {events.length === 0 ? <EmptyState title="目前没有有效盯盘事件" detail={activePlanCount ? "这是正常结果。系统不会把每分钟的继续观察写入最终结果。" : "当前没有正式活动计划，系统不会自行创建候选。"} icon={<MonitorDot size={22} />} /> : <div className="data-table-wrap"><table className="data-table monitor-event-table"><thead><tr><th>时间</th><th>股票</th><th>策略</th><th>信号</th><th>模拟结果</th><th>原因</th><th><span className="sr-only">详情</span></th></tr></thead><tbody>{events.map((event, index) => <tr key={`${event.minuteEnd}-${event.planId}-${index}`}><td>{formatDateTime(event.minuteEnd ?? event.time)}</td><td><span className="monitor-stock"><strong>{event.name || "名称未提供"}</strong><small>{stockSymbolLabel(event.symbol)}</small></span></td><td>{strategyProfileLabel(event.strategyProfile ?? event.plan?.strategyProfile)}</td><td><span className={`monitor-action monitor-action-${(event.action || "unknown").toLowerCase()}`}>{monitorActionLabel(event.action)}</span></td><td>{event.simulation?.status === "FILLED" ? <span className="monitor-fill-status monitor-fill-success">已成交 · {detailValue(event.simulation.qty)}股</span> : event.action === "LLM_VETO" ? <span className="monitor-fill-status">未成交 · 模型否决</span> : <span className="monitor-fill-status">不适用</span>}</td><td className="monitor-reason">{monitorReasonLabel(event.reasonCode)}</td><td><button className="monitor-detail-button" type="button" onClick={() => setSelectedEvent(event)}>查看<ChevronRight size={16} /></button></td></tr>)}</tbody></table></div>}
     </Panel>
 
+    <A4SignalLifecyclePanel lifecycles={overview.monitor.signalLifecycles ?? []} counts={overview.monitor.signalLifecycleCounts ?? {}} />
+
     <LarkNotificationPanel notifications={notifications} />
 
     <Panel title="A3 计划观察池" icon={<FileClock size={18} />}>
@@ -1721,6 +1826,73 @@ function MonitorPage({ overview }: { overview: OverviewResponse }) {
     </Panel>
     <MonitorEventDialog event={selectedEvent} onClose={() => setSelectedEvent(null)} />
   </div>;
+}
+
+function a5KindLabel(value?: string | null): string {
+  return value === "MIDDAY" ? "盘中复盘" : value === "POST_CLOSE" ? "盘后复盘" : "复盘";
+}
+
+function a5VerdictLabel(value?: string | null): string {
+  const labels: Record<string, string> = {
+    HEALTHY: "运行健康",
+    NEEDS_ATTENTION: "需要关注",
+    DATA_LIMITED: "数据受限",
+    INCIDENT: "存在事故",
+    COMPLETED: "已完成",
+    READY: "证据就绪",
+    DEGRADED: "已完成但证据降级",
+    UNAVAILABLE: "证据不可用",
+  };
+  return labels[String(value || "").toUpperCase()] ?? codeLabel(value) ?? "尚无结论";
+}
+
+function a5AttributionLabel(value?: string | null): string {
+  const labels: Record<string, string> = {
+    GOOD_EXECUTION: "执行符合计划",
+    SELECTION_ERROR: "选股问题",
+    PLAN_ERROR: "计划问题",
+    CONFIRM_ERROR: "择时确认问题",
+    DATA_ERROR: "数据问题",
+    MARKET_REVERSAL: "盘中市场反转",
+    DATA_LIMITED: "数据不足，暂缓归因",
+    UNCLASSIFIED: "暂未归类",
+    NOT_AN_ERROR: "非错误样本",
+  };
+  return labels[String(value || "").toUpperCase()] ?? codeLabel(value) ?? "暂未归类";
+}
+
+function metricNumber(review: A5DailyReview, key: string): number {
+  const value = review.metrics?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function A5ReviewPage({ reviews }: { reviews: A5DailyReview[] }) {
+  const latest = new Map<string, A5DailyReview>();
+  for (const review of reviews) {
+    const kind = review.reviewKind || "UNKNOWN";
+    if (!latest.has(kind)) latest.set(kind, review);
+  }
+  const visible = [latest.get("MIDDAY"), latest.get("POST_CLOSE")].filter((item): item is A5DailyReview => Boolean(item));
+  return <div className="page-stack">
+    <div className="page-heading"><p className="eyebrow">A2 → A3 → A4 独立验证闭环</p><h1>A5 复盘评估</h1><p>每日盘中与盘后各复盘一次。A5 使用异源行情反查板块、技术与信号，并追踪当日强势却未被捕获的反例；它不参与交易，也不会自动修改生产策略。</p></div>
+    {visible.length === 0 ? <Panel title="每日复盘" icon={<Gauge size={18} />}><EmptyState title="尚无 A5 复盘" detail="交易日 11:35 生成盘中复盘，16:00 生成盘后复盘；分别使用截至 11:30 和 15:00 的闭合事实。" icon={<Gauge size={22} />} /></Panel> : visible.map((review) => <A5ReviewCard key={review.reviewId || `${review.tradeDate}-${review.reviewKind}`} review={review} />)}
+  </div>;
+}
+
+function A5ReviewCard({ review }: { review: A5DailyReview }) {
+  const report = review.report ?? {};
+  const layers: Array<[string, typeof report.a2_review]> = [
+    ["A2 题材与选股", report.a2_review], ["A3 日线计划", report.a3_review], ["A4 日内择时", report.a4_review],
+  ];
+  return <Panel title={`${a5KindLabel(review.reviewKind)}｜${review.tradeDate || "日期未提供"}`} icon={<Gauge size={18} />} action={<StatusBadge status={review.status} />} className="a5-review-card">
+    <div className="a5-review-hero"><div><span>总体评价</span><strong>{a5VerdictLabel(report.overall_verdict)}</strong><p>{humanizeText(report.executive_summary || "复盘摘要未提供。")}</p></div><dl><div><dt>事实截止</dt><dd>{formatDateTime(review.cutoffAt)}</dd></div><div><dt>分析模型</dt><dd>{modelNameLabel(review.model)}</dd></div><div><dt>证据质量</dt><dd>{a5VerdictLabel(review.dataQuality?.status)}</dd></div><div><dt>异源核验</dt><dd>{a5VerdictLabel(String(review.metrics?.a5_independent_verification_status || "UNAVAILABLE"))}</dd></div></dl></div>
+    <div className="a5-metrics"><div><span>A2 聚焦 / 观察</span><strong>{metricNumber(review, "a2_focus_count")} / {metricNumber(review, "a2_watch_count")}</strong></div><div><span>A2 主题</span><strong>{metricNumber(review, "a2_theme_count")}</strong></div><div><span>A3 计划</span><strong>{metricNumber(review, "a3_plan_count")}</strong></div><div><span>A4 有效事件 / 生命周期</span><strong>{metricNumber(review, "a4_effective_event_count")} / {metricNumber(review, "a4_lifecycle_count")}</strong></div></div>
+    <div className="a5-layer-grid">{layers.map(([title, layer]) => <section key={title}><header><h3>{title}</h3><span>{a5VerdictLabel(layer?.verdict)}</span></header><p>{humanizeText(layer?.summary || "本次没有足够事实形成评价。")}</p>{layer?.defects?.length ? <ul>{layer.defects.map((item, index) => <li key={`${item}-${index}`}>{humanizeText(item)}</li>)}</ul> : <small>当前未确认层级缺陷。</small>}</section>)}</div>
+    {report.signal_reviews?.length ? <section className="a5-section"><header><h3>信号逐项评价</h3><span>{report.signal_reviews.length} 条</span></header><div className="data-table-wrap"><table className="data-table"><thead><tr><th>股票</th><th>策略</th><th>生命周期</th><th>归因</th><th>客观评价</th></tr></thead><tbody>{report.signal_reviews.map((item, index) => <tr key={`${item.symbol}-${index}`}><td><span className="monitor-stock"><strong>{item.name || "名称未提供"}</strong><small>{stockSymbolLabel(item.symbol)}</small></span></td><td>{strategyProfileLabel(item.strategy_profile)}</td><td>{codeLabel(item.lifecycle_status)}</td><td>{a5AttributionLabel(item.attribution)}</td><td>{humanizeText(item.assessment || "—")}</td></tr>)}</tbody></table></div></section> : null}
+    {report.missed_opportunity_reviews?.length ? <section className="a5-section a5-counterexamples"><header><h3>反向拷问：系统漏掉的机会</h3><span>{report.missed_opportunity_reviews.length} 个反例</span></header><p className="a5-section-note">按异源行情找出当日表现较强但没有有效盘中事件的股票，再定位漏在题材筛选、日线计划还是盘中确认。上涨本身不等于当时存在合规买点。</p><div className="data-table-wrap"><table className="data-table"><thead><tr><th>股票</th><th>主题</th><th>客观表现</th><th>漏斗位置</th><th>复盘判断</th></tr></thead><tbody>{report.missed_opportunity_reviews.map((item, index) => <tr key={`${item.symbol}-${index}`}><td><span className="monitor-stock"><strong>{item.name || "名称未提供"}</strong><small>{stockSymbolLabel(item.symbol)}</small></span></td><td>{humanizeText(item.theme || "未映射")}</td><td>{humanizeText(item.observed_performance || "—")}</td><td><span className={item.is_confirmed_defect ? "a5-confirmed-defect" : "a5-shadow-label"}>{codeLabel(item.funnel_drop_stage)} · {item.is_confirmed_defect ? "已确认缺陷" : "待验证"}</span></td><td>{humanizeText(item.assessment || "—")}</td></tr>)}</tbody></table></div></section> : null}
+    <div className="a5-bottom-grid"><section className="a5-section"><header><h3>核心缺陷</h3><span>按证据分级</span></header>{report.core_defects?.length ? <ol>{report.core_defects.map((item, index) => <li key={`${item.layer}-${index}`}><strong>{item.layer} · {codeLabel(item.severity)}</strong><p>{humanizeText(item.problem)}</p></li>)}</ol> : <p className="a5-empty-copy">本次未确认可归因的核心缺陷。</p>}</section><section className="a5-section"><header><h3>改进提案</h3><span>仅影子验证</span></header>{report.improvement_proposals?.length ? <ol>{report.improvement_proposals.map((item, index) => <li key={item.proposal_id || index}><strong>{item.target} · {codeLabel(item.type)}</strong><p>{humanizeText(item.proposed_change)}</p><small>至少观察 {item.min_shadow_days ?? "—"} 个交易日；证伪：{humanizeText(item.falsification_criteria || "未提供")}</small></li>)}</ol> : <p className="a5-empty-copy">本次没有达到提出改进实验所需的证据门槛。</p>}</section></div>
+    <section className="a5-unresolved"><strong>尚不能下结论</strong><ul>{(report.unresolved_questions ?? []).map((item, index) => <li key={`${item.question}-${index}`}>{humanizeText(item.question)}：{humanizeText(item.resolution)}</li>)}</ul></section>
+  </Panel>;
 }
 
 function AccountsPage({ overview }: { overview: OverviewResponse }) {

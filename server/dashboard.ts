@@ -188,6 +188,70 @@ function normalizeSimulation(value: unknown): JsonValue | null {
   });
 }
 
+/**
+ * Normalize the durable Python lifecycle row once at the Node boundary.
+ * Older deployments may expose the SQLite column names (``signal_time``,
+ * ``entry_time`` and so on), while the lifecycle query contract exposes the
+ * explicit ``*_signal_*``/``*_fill_*`` names.  Accept both here so a rolling
+ * update never makes the read-only workbench crash or silently lose a field.
+ */
+export function normalizeA4SignalLifecycle(value: unknown): JsonValue | null {
+  const lifecycle = record(value);
+  if (!lifecycle) return null;
+  const field = (camel: string, snake: string, fallback: unknown = null): unknown =>
+    lifecycle[camel] ?? lifecycle[snake] ?? fallback;
+  return sanitizeJson({
+    lifecycleId: field("lifecycleId", "lifecycle_id"),
+    planId: field("planId", "plan_id"),
+    sourceRunId: field("sourceRunId", "source_run_id"),
+    laneId: field("laneId", "lane_id"),
+    accountId: field("accountId", "account_id"),
+    tradeDate: field("tradeDate", "trade_date"),
+    symbol: field("symbol", "symbol"),
+    name: field("name", "name"),
+    stockBehaviorType: field("stockBehaviorType", "stock_behavior_type"),
+    strategyProfile: field("strategyProfile", "strategy_profile"),
+    status: field("status", "status"),
+    entrySignalAt: field("entrySignalAt", "entry_signal_at", field("signalTime", "signal_time")),
+    entrySignalPrice: field("entrySignalPrice", "entry_signal_price", field("signalPrice", "signal_price")),
+    entryFillAt: field("entryFillAt", "entry_fill_at", field("entryTime", "entry_time")),
+    entryFillPrice: field("entryFillPrice", "entry_fill_price", field("entryPrice", "entry_price")),
+    entryQty: field("entryQty", "entry_qty"),
+    entryFee: field("entryFee", "entry_fee"),
+    currentQty: field("currentQty", "current_qty", field("remainingQty", "remaining_qty")),
+    maxPrice: field("maxPrice", "max_price"),
+    minPrice: field("minPrice", "min_price"),
+    mfePct: field("mfePct", "mfe_pct", field("mfe", "mfe")),
+    maePct: field("maePct", "mae_pct", field("mae", "mae")),
+    exitSignalAt: field("exitSignalAt", "exit_signal_at", field("exitSignalTime", "exit_signal_time")),
+    exitFillAt: field("exitFillAt", "exit_fill_at", field("exitTime", "exit_time")),
+    exitFillPrice: field("exitFillPrice", "exit_fill_price", field("exitPrice", "exit_price")),
+    exitQty: field("exitQty", "exit_qty"),
+    exitFee: field("exitFee", "exit_fee"),
+    exitReasonCode: field("exitReasonCode", "exit_reason_code", field("exitReason", "exit_reason")),
+    grossReturnPct: field("grossReturnPct", "gross_return_pct", field("grossReturn", "gross_return")),
+    netReturnPct: field("netReturnPct", "net_return_pct", field("netReturn", "net_return")),
+    realizedPnl: field("realizedPnl", "realized_pnl"),
+    rMultiple: field("rMultiple", "r_multiple"),
+    holdingMinutes: field("holdingMinutes", "holding_minutes"),
+    dataQualityStatus: field("dataQualityStatus", "data_quality_status"),
+    updatedAt: field("updatedAt", "updated_at"),
+  });
+}
+
+function normalizeA4SignalLifecycleCounts(value: unknown): JsonValue {
+  const source = record(value);
+  if (!source) return {};
+  const counts: Record<string, number> = {};
+  for (const [key, raw] of Object.entries(source)) {
+    if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0) continue;
+    const normalizedKey = key.trim().toUpperCase();
+    if (!normalizedKey) continue;
+    counts[normalizedKey] = Math.floor(raw);
+  }
+  return sanitizeJson(counts);
+}
+
 function normalizeNotification(value: unknown): JsonValue | null {
   const notification = record(value);
   if (!notification) return null;
@@ -203,6 +267,24 @@ function normalizeNotification(value: unknown): JsonValue | null {
     createdAt: notification.createdAt ?? notification.created_at ?? null,
     updatedAt: notification.updatedAt ?? notification.updated_at ?? null,
     sentAt: notification.sentAt ?? notification.sent_at ?? null,
+  });
+}
+
+export function normalizeA5Review(value: unknown): JsonValue | null {
+  const review = record(value);
+  if (!review) return null;
+  return sanitizeJson({
+    reviewId: review.reviewId ?? review.review_id ?? null,
+    tradeDate: review.tradeDate ?? review.trade_date ?? null,
+    reviewKind: review.reviewKind ?? review.review_kind ?? null,
+    cutoffAt: review.cutoffAt ?? review.cutoff_at ?? null,
+    createdAt: review.createdAt ?? review.created_at ?? null,
+    status: review.status ?? null,
+    model: review.model ?? null,
+    markdownPath: review.markdownPath ?? review.markdown_path ?? null,
+    metrics: review.metrics ?? {},
+    dataQuality: review.dataQuality ?? review.data_quality ?? {},
+    report: review.report ?? {},
   });
 }
 
@@ -598,6 +680,9 @@ export class DashboardData {
     const recentNotifications = statusData
       ? arrayField(statusData, "recent_notifications").map((item) => normalizeNotification(item)).filter(Boolean)
       : [];
+    const recentA5Reviews = statusData
+      ? arrayField(statusData, "recent_a5_reviews").map((item) => normalizeA5Review(item)).filter(Boolean)
+      : [];
     const monitorPlanRecords = monitorPlans
       .map((plan) => record(plan))
       .filter((plan): plan is JsonRecord => plan !== null);
@@ -631,6 +716,14 @@ export class DashboardData {
     const latestA3PublishedAt = statusData
       ? asString(statusData.latest_a3_published_at) ?? asString(statusData.latest_published_a3_at)
       : null;
+    const signalLifecycles = statusData
+      ? arrayField(statusData, "recent_a4_signal_lifecycles")
+        .map((item) => normalizeA4SignalLifecycle(item))
+        .filter(Boolean)
+      : [];
+    const signalLifecycleCounts = statusData
+      ? normalizeA4SignalLifecycleCounts(statusData.a4_signal_lifecycle_counts)
+      : {};
     const serviceHealthy = status.availability === "ok"
       && statusData?.configuration_ready !== false
       && statusData?.state_healthy !== false;
@@ -694,6 +787,8 @@ export class DashboardData {
         dispatch: monitorDispatch,
         replay: normalizeA4Replay(monitor.replay),
         notifications: recentNotifications,
+        signalLifecycles,
+        signalLifecycleCounts,
       },
       accounts,
       positions: statusData ? statusData.positions ?? null : null,
@@ -702,6 +797,7 @@ export class DashboardData {
       fills: statusData ? statusData.fills ?? null : null,
       dataSources,
       recentEffectiveEvents: effectiveEvents,
+      recentA5Reviews,
       recentLogs: await this.logger.list(20),
     });
   }

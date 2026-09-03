@@ -591,9 +591,110 @@ export interface MonitorSimulation {
   barEnd?: string | null;
 }
 
+/**
+ * A4 paper-trade lifecycle.  Unlike a single monitor event, a lifecycle
+ * keeps the entry signal, fills, open-position measurements and exit outcome
+ * together so the user can review signal quality without inferring state
+ * from the latest minute.
+ */
+export interface A4SignalLifecycle {
+  lifecycleId: string | null;
+  planId: string | null;
+  sourceRunId: string | null;
+  laneId: string | null;
+  accountId: string | null;
+  tradeDate: string | null;
+  symbol: string | null;
+  name: string | null;
+  stockBehaviorType: string | null;
+  strategyProfile: string | null;
+  status: string | null;
+  entrySignalAt: string | null;
+  entrySignalPrice: number | null;
+  entryFillAt: string | null;
+  entryFillPrice: number | null;
+  entryQty: number | null;
+  entryFee: number | null;
+  currentQty: number | null;
+  maxPrice: number | null;
+  minPrice: number | null;
+  mfePct: number | null;
+  maePct: number | null;
+  exitSignalAt: string | null;
+  exitFillAt: string | null;
+  exitFillPrice: number | null;
+  exitQty: number | null;
+  exitFee: number | null;
+  exitReasonCode: string | null;
+  grossReturnPct: number | null;
+  netReturnPct: number | null;
+  realizedPnl: number | null;
+  rMultiple: number | null;
+  holdingMinutes: number | null;
+  dataQualityStatus: string | null;
+  updatedAt: string | null;
+}
+
+export interface A5LayerReview {
+  verdict?: string | null;
+  summary?: string | null;
+  strengths?: string[];
+  defects?: string[];
+  evidence_ids?: string[];
+  data_limitations?: string[];
+}
+
+export interface A5SignalReview {
+  symbol?: string | null;
+  name?: string | null;
+  strategy_profile?: string | null;
+  lifecycle_status?: string | null;
+  assessment?: string | null;
+  attribution?: string | null;
+  evidence_ids?: string[];
+}
+
+export interface A5CounterexampleReview {
+  symbol?: string | null;
+  name?: string | null;
+  theme?: string | null;
+  observed_performance?: string | null;
+  funnel_drop_stage?: string | null;
+  assessment?: string | null;
+  evidence_ids?: string[];
+  is_confirmed_defect?: boolean;
+}
+
+export interface A5DailyReview {
+  reviewId?: string | null;
+  tradeDate?: string | null;
+  reviewKind?: "MIDDAY" | "POST_CLOSE" | string | null;
+  cutoffAt?: string | null;
+  createdAt?: string | null;
+  status?: string | null;
+  model?: string | null;
+  markdownPath?: string | null;
+  metrics?: Record<string, unknown>;
+  dataQuality?: { status?: string | null; missing_components?: string[] };
+  report?: {
+    overall_verdict?: string | null;
+    executive_summary?: string | null;
+    sample_sufficient_for_strategy_change?: boolean;
+    a2_review?: A5LayerReview;
+    a3_review?: A5LayerReview;
+    a4_review?: A5LayerReview;
+    signal_reviews?: A5SignalReview[];
+    missed_opportunity_reviews?: A5CounterexampleReview[];
+    core_defects?: Array<{ layer?: string; severity?: string; problem?: string; confidence?: string; blocked_by_data?: boolean }>;
+    improvement_proposals?: Array<{ proposal_id?: string; type?: string; target?: string; hypothesis?: string; proposed_change?: string; validation_method?: string; success_criteria?: string; falsification_criteria?: string; min_shadow_days?: number; risk?: string }>;
+    data_collection_tasks?: string[];
+    unresolved_questions?: Array<{ question?: string; reason?: string; resolution?: string }>;
+  };
+}
+
 export interface LarkNotificationSummary {
   deliveryId?: string | null;
-  kind?: "PREMARKET_A3_ANALYSIS" | "PREMARKET_A3" | "A4_EFFECTIVE" | string | null;
+  kind?: "PREMARKET_A3_ANALYSIS" | "PREMARKET_A3" | "A4_EFFECTIVE" | "A5_MIDDAY_REVIEW" | "A5_POST_CLOSE_REVIEW" | string | null;
   sourceId?: string | null;
   status?: "SENT" | "FAILED" | string | null;
   title?: string | null;
@@ -726,6 +827,8 @@ export interface MonitorSummary {
   dispatch?: MonitorDispatchSummary | null;
   replay?: A4ReplaySummary | null;
   notifications?: LarkNotificationSummary[];
+  signalLifecycles?: A4SignalLifecycle[];
+  signalLifecycleCounts?: Record<string, number>;
 }
 
 export interface WorkflowProgressStage {
@@ -837,6 +940,7 @@ export interface OverviewResponse {
   planCounts: Record<string, number>;
   dataSources: DataSourceSummary[];
   recentEffectiveEvents: EffectiveEvent[];
+  recentA5Reviews?: A5DailyReview[];
   recentLogs: LogEntry[];
   a1Generation?: {
     status?: string | null;

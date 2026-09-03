@@ -84,6 +84,78 @@ class MonitorAction(StrEnum):
     MONITOR_OVERRUN = "MONITOR_OVERRUN"
 
 
+class A4SignalStatus(StrEnum):
+    """Durable lifecycle of one A4 entry signal.
+
+    This is deliberately separate from :class:`MonitorAction`: an event is
+    an immutable observation, while this status describes the paper-trade
+    lifecycle that may span many events and fills.
+    """
+
+    SIGNALLED = "SIGNALLED"
+    OPEN = "OPEN"
+    EXIT_PENDING = "EXIT_PENDING"
+    PARTIALLY_CLOSED = "PARTIALLY_CLOSED"
+    CLOSED = "CLOSED"
+    UNFILLED = "UNFILLED"
+    CANCELLED = "CANCELLED"
+    INVALIDATED = "INVALIDATED"
+    DATA_ERROR = "DATA_ERROR"
+
+
+A4_SIGNAL_TERMINAL_STATUSES = frozenset(
+    {
+        A4SignalStatus.CLOSED.value,
+        A4SignalStatus.UNFILLED.value,
+        A4SignalStatus.CANCELLED.value,
+        A4SignalStatus.INVALIDATED.value,
+        A4SignalStatus.DATA_ERROR.value,
+    }
+)
+
+# Transitions are intentionally conservative.  Replaying an already reached
+# state is handled as an idempotent no-op, but a terminal state can never be
+# reopened or changed to another terminal state.
+A4_SIGNAL_TRANSITIONS: dict[str, frozenset[str]] = {
+    A4SignalStatus.SIGNALLED.value: frozenset(
+        {
+            A4SignalStatus.OPEN.value,
+            A4SignalStatus.EXIT_PENDING.value,
+            A4SignalStatus.UNFILLED.value,
+            A4SignalStatus.CANCELLED.value,
+            A4SignalStatus.INVALIDATED.value,
+            A4SignalStatus.DATA_ERROR.value,
+        }
+    ),
+    A4SignalStatus.OPEN.value: frozenset(
+        {
+            A4SignalStatus.EXIT_PENDING.value,
+            A4SignalStatus.PARTIALLY_CLOSED.value,
+            A4SignalStatus.CLOSED.value,
+            A4SignalStatus.DATA_ERROR.value,
+            A4SignalStatus.INVALIDATED.value,
+        }
+    ),
+    A4SignalStatus.EXIT_PENDING.value: frozenset(
+        {
+            A4SignalStatus.OPEN.value,
+            A4SignalStatus.PARTIALLY_CLOSED.value,
+            A4SignalStatus.CLOSED.value,
+            A4SignalStatus.DATA_ERROR.value,
+            A4SignalStatus.INVALIDATED.value,
+        }
+    ),
+    A4SignalStatus.PARTIALLY_CLOSED.value: frozenset(
+        {
+            A4SignalStatus.EXIT_PENDING.value,
+            A4SignalStatus.PARTIALLY_CLOSED.value,
+            A4SignalStatus.CLOSED.value,
+            A4SignalStatus.DATA_ERROR.value,
+        }
+    ),
+}
+
+
 class ResearchStageStatus(StrEnum):
     """Detailed outcomes for a research stage.
 
@@ -295,6 +367,84 @@ def _row_dict(row: sqlite3.Row | tuple[Any, ...] | None, columns: tuple[str, ...
     if columns is None:
         return dict(enumerate(row))
     return dict(zip(columns, row))
+
+
+def _a4_mapping(value: Any) -> dict[str, Any]:
+    """Decode a structural A4 payload without retaining model prose."""
+
+    if isinstance(value, Mapping):
+        return dict(value)
+    if isinstance(value, str) and value.strip():
+        try:
+            parsed = json.loads(value)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return {}
+        return dict(parsed) if isinstance(parsed, Mapping) else {}
+    return {}
+
+
+def _a4_first(mapping_values: Sequence[Mapping[str, Any]], *keys: str) -> Any:
+    for mapping in mapping_values:
+        for key in keys:
+            value = mapping.get(key)
+            if value is not None and value != "":
+                return value
+    return None
+
+
+def _a4_number(value: Any, *, allow_none: bool = True, positive: bool = False) -> float | None:
+    if value is None or value == "":
+        if allow_none:
+            return None
+        raise ValueError("A4 numeric value required")
+    if isinstance(value, bool):
+        raise ValueError("A4 numeric value invalid")
+    try:
+        result = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("A4 numeric value invalid") from exc
+    if not math.isfinite(result) or (positive and result <= 0):
+        raise ValueError("A4 numeric value invalid")
+    return result
+
+
+def _a4_nonnegative_int(value: Any, *, default: int = 0) -> int:
+    if value is None or value == "":
+        return default
+    if isinstance(value, bool):
+        raise ValueError("A4 quantity invalid")
+    try:
+        result = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("A4 quantity invalid") from exc
+    if result < 0:
+        raise ValueError("A4 quantity invalid")
+    return result
+
+
+def _a4_bar_stamp(value: Any) -> str:
+    if isinstance(value, datetime):
+        return _iso(value) or ""
+    stamp = str(value or "").strip()
+    if not stamp:
+        raise ValueError("A4 timestamp required")
+    try:
+        parsed = datetime.fromisoformat(stamp)
+    except ValueError as exc:
+        raise ValueError("A4 timestamp invalid") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError("A4 timestamp must be timezone-aware")
+    return _iso(parsed) or ""
+
+
+def _a4_json_list(value: Any) -> list[str]:
+    parsed = _a4_mapping(value) if isinstance(value, str) else value
+    if not isinstance(parsed, list):
+        try:
+            parsed = json.loads(str(value or "[]"))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            parsed = []
+    return [str(item) for item in parsed if str(item)]
 
 
 def _ensure_column(connection: sqlite3.Connection, table: str, column: str, declaration: str) -> None:
@@ -559,6 +709,87 @@ class RuntimeStore:
                         payload_json TEXT NOT NULL DEFAULT '{}',
                         created_at TEXT NOT NULL
                     );
+                    CREATE TABLE IF NOT EXISTS a4_signal_lifecycles (
+                        lifecycle_id TEXT PRIMARY KEY,
+                        signal_id TEXT NOT NULL UNIQUE,
+                        entry_event_key TEXT NOT NULL UNIQUE,
+                        entry_event_id TEXT NOT NULL UNIQUE,
+                        plan_id TEXT NOT NULL,
+                        lane_id TEXT NOT NULL,
+                        account_id TEXT NOT NULL,
+                        symbol TEXT NOT NULL,
+                        trade_date TEXT NOT NULL,
+                        source_run_id TEXT NOT NULL,
+                        name TEXT NOT NULL DEFAULT '',
+                        stock_behavior_type TEXT NOT NULL,
+                        strategy_profile TEXT NOT NULL,
+                        strategy_snapshot_json TEXT NOT NULL DEFAULT '{}',
+                        plan_snapshot_json TEXT NOT NULL DEFAULT '{}',
+                        status TEXT NOT NULL CHECK(status IN (
+                            'SIGNALLED','OPEN','EXIT_PENDING','PARTIALLY_CLOSED','CLOSED',
+                            'UNFILLED','CANCELLED','INVALIDATED','DATA_ERROR'
+                        )),
+                        signal_time TEXT NOT NULL,
+                        signal_price REAL,
+                        entry_time TEXT,
+                        entry_price REAL,
+                        entry_qty INTEGER NOT NULL DEFAULT 0 CHECK(entry_qty >= 0),
+                        exit_signal_time TEXT,
+                        exit_signal_price REAL,
+                        exit_signal_qty INTEGER NOT NULL DEFAULT 0 CHECK(exit_signal_qty >= 0),
+                        exit_time TEXT,
+                        exit_price REAL,
+                        exit_qty INTEGER NOT NULL DEFAULT 0 CHECK(exit_qty >= 0),
+                        remaining_qty INTEGER NOT NULL DEFAULT 0 CHECK(remaining_qty >= 0),
+                        entry_fee REAL NOT NULL DEFAULT 0 CHECK(entry_fee >= 0),
+                        exit_fee REAL NOT NULL DEFAULT 0 CHECK(exit_fee >= 0),
+                        total_fee REAL NOT NULL DEFAULT 0 CHECK(total_fee >= 0),
+                        gross_pnl REAL,
+                        net_pnl REAL,
+                        realized_pnl REAL,
+                        gross_return REAL,
+                        net_return REAL,
+                        max_price REAL,
+                        min_price REAL,
+                        mfe REAL,
+                        mae REAL,
+                        holding_minutes INTEGER,
+                        last_bar_end TEXT,
+                        last_close REAL,
+                        exit_reason TEXT,
+                        last_fill_key TEXT,
+                        applied_fill_keys_json TEXT NOT NULL DEFAULT '[]',
+                        applied_exit_event_keys_json TEXT NOT NULL DEFAULT '[]',
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS a5_daily_reviews (
+                        review_id TEXT PRIMARY KEY,
+                        review_key TEXT NOT NULL UNIQUE,
+                        trade_date TEXT NOT NULL,
+                        review_kind TEXT NOT NULL CHECK(review_kind IN ('MIDDAY','POST_CLOSE')),
+                        cutoff_at TEXT NOT NULL,
+                        status TEXT NOT NULL CHECK(status IN ('COMPLETED','DEGRADED')),
+                        model TEXT NOT NULL,
+                        source_run_ids_json TEXT NOT NULL DEFAULT '[]',
+                        input_hash TEXT NOT NULL,
+                        prompt_hash TEXT NOT NULL,
+                        output_hash TEXT NOT NULL,
+                        latency_ms INTEGER NOT NULL DEFAULT 0 CHECK(latency_ms >= 0),
+                        attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),
+                        thinking_variant TEXT,
+                        fact_snapshot_json TEXT NOT NULL,
+                        report_json TEXT NOT NULL,
+                        markdown_path TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        UNIQUE(trade_date, review_kind, input_hash)
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_a4_signal_lifecycles_account_symbol
+                        ON a4_signal_lifecycles(account_id, symbol, status, updated_at DESC);
+                    CREATE INDEX IF NOT EXISTS idx_a4_signal_lifecycles_plan
+                        ON a4_signal_lifecycles(plan_id, trade_date, updated_at DESC);
+                    CREATE INDEX IF NOT EXISTS idx_a4_signal_lifecycles_status
+                        ON a4_signal_lifecycles(status, updated_at DESC);
                     CREATE TABLE IF NOT EXISTS notification_deliveries (
                         delivery_id TEXT PRIMARY KEY,
                         delivery_key TEXT NOT NULL UNIQUE,
@@ -1863,10 +2094,18 @@ class RuntimeStore:
         reason_code: str | None = None,
         effective: bool = False,
         payload: Mapping[str, Any] | None = None,
+        terminal_plan_id: str | None = None,
+        sync_a4_lifecycle: bool = False,
     ) -> tuple[dict[str, Any], bool]:
         action = str(action)
         if effective and action not in EFFECTIVE_ACTIONS:
             raise ValueError("invalid effective monitor action")
+        if terminal_plan_id is not None:
+            terminal_plan_id = str(terminal_plan_id).strip()
+            if not terminal_plan_id:
+                raise ValueError("terminal plan id must not be empty")
+            if not effective or action != MonitorAction.PLAN_INVALIDATED.value:
+                raise ValueError("terminal plan id requires effective PLAN_INVALIDATED event")
         now = _iso(_now())
         minute = _iso(minute_end)
         payload_json = _json(payload)
@@ -1875,7 +2114,68 @@ class RuntimeStore:
         def operation(connection):
             existing = connection.execute("SELECT * FROM monitor_events WHERE event_key=?", (event_key,)).fetchone()
             if existing is not None:
+                if terminal_plan_id is not None:
+                    if existing["action"] != MonitorAction.PLAN_INVALIDATED.value or not bool(existing["effective"]):
+                        raise StateTransitionError("TERMINAL_PLAN_EVENT_CONFLICT")
+                    plan = connection.execute(
+                        "SELECT status FROM execution_plans WHERE plan_id=?", (terminal_plan_id,)
+                    ).fetchone()
+                    if plan is None:
+                        raise StateTransitionError("PLAN_NOT_FOUND")
+                    if plan["status"] == PlanStatus.INVALIDATED.value:
+                        pass
+                    elif plan["status"] in {
+                        PlanStatus.ACTIVE_TODAY.value,
+                        PlanStatus.PENDING_MORNING_REVIEW.value,
+                    }:
+                        connection.execute(
+                            "UPDATE execution_plans SET status=?,updated_at=? WHERE plan_id=? AND status IN (?,?)",
+                            (
+                                PlanStatus.INVALIDATED.value,
+                                now,
+                                terminal_plan_id,
+                                PlanStatus.ACTIVE_TODAY.value,
+                                PlanStatus.PENDING_MORNING_REVIEW.value,
+                            ),
+                        )
+                    else:
+                        raise StateTransitionError("TERMINAL_PLAN_STATE_CONFLICT")
+                if sync_a4_lifecycle and effective:
+                    self._sync_a4_lifecycle_for_event(
+                        connection,
+                        event_id=str(existing["event_id"]),
+                        event_key=str(existing["event_key"]),
+                        lane_id=str(existing["lane_id"]),
+                        minute_end=str(existing["minute_end"]),
+                        action=str(existing["action"]),
+                        reason_code=existing["reason_code"],
+                        payload=_a4_mapping(existing["payload_json"]),
+                        terminal_plan_id=terminal_plan_id,
+                        now=now,
+                    )
                 return _row_dict(existing), False
+            if terminal_plan_id is not None:
+                plan = connection.execute(
+                    "SELECT status FROM execution_plans WHERE plan_id=?", (terminal_plan_id,)
+                ).fetchone()
+                if plan is None:
+                    raise StateTransitionError("PLAN_NOT_FOUND")
+                if plan["status"] in {
+                    PlanStatus.ACTIVE_TODAY.value,
+                    PlanStatus.PENDING_MORNING_REVIEW.value,
+                }:
+                    connection.execute(
+                        "UPDATE execution_plans SET status=?,updated_at=? WHERE plan_id=? AND status IN (?,?)",
+                        (
+                            PlanStatus.INVALIDATED.value,
+                            now,
+                            terminal_plan_id,
+                            PlanStatus.ACTIVE_TODAY.value,
+                            PlanStatus.PENDING_MORNING_REVIEW.value,
+                        ),
+                    )
+                elif plan["status"] != PlanStatus.INVALIDATED.value:
+                    raise StateTransitionError("TERMINAL_PLAN_STATE_CONFLICT")
             connection.execute(
                 """
                 INSERT INTO monitor_events(event_id,event_key,lane_id,minute_end,action,reason_code,effective,payload_json,created_at)
@@ -1883,11 +2183,30 @@ class RuntimeStore:
                 """,
                 (event_id, event_key, lane_id, minute, action, reason_code, int(effective), payload_json, now),
             )
+            if sync_a4_lifecycle and effective:
+                self._sync_a4_lifecycle_for_event(
+                    connection,
+                    event_id=event_id,
+                    event_key=event_key,
+                    lane_id=lane_id,
+                    minute_end=minute_end,
+                    action=action,
+                    reason_code=reason_code,
+                    payload=payload,
+                    terminal_plan_id=terminal_plan_id,
+                )
             return _row_dict(connection.execute("SELECT * FROM monitor_events WHERE event_id=?", (event_id,)).fetchone()), True
 
         return self._write(operation)
 
-    def list_monitor_events(self, *, lane_id: str | None = None, effective_only: bool = False) -> tuple[dict[str, Any], ...]:
+    def list_monitor_events(
+        self,
+        *,
+        lane_id: str | None = None,
+        effective_only: bool = False,
+        from_time: datetime | str | None = None,
+        to_time: datetime | str | None = None,
+    ) -> tuple[dict[str, Any], ...]:
         def operation(connection):
             where: list[str] = []
             args: list[Any] = []
@@ -1896,8 +2215,848 @@ class RuntimeStore:
                 args.append(lane_id)
             if effective_only:
                 where.append("effective=1")
+            if from_time is not None:
+                where.append("minute_end>=?")
+                args.append(_iso(from_time))
+            if to_time is not None:
+                where.append("minute_end<=?")
+                args.append(_iso(to_time))
             sql = "SELECT * FROM monitor_events" + (" WHERE " + " AND ".join(where) if where else "") + " ORDER BY minute_end,event_id"
             return tuple(_row_dict(row) for row in connection.execute(sql, args).fetchall())
+
+        return self._read(operation)
+
+    # ------------------------------------------------------------------
+    # A4 signal lifecycle ledger
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _a4_row_mapping(value: Any) -> dict[str, Any]:
+        if isinstance(value, sqlite3.Row):
+            return {key: value[key] for key in value.keys()}
+        if isinstance(value, Mapping):
+            return dict(value)
+        raise TypeError("A4 row must be a mapping")
+
+    @staticmethod
+    def _a4_transition(current: str, target: str) -> None:
+        if current == target:
+            return
+        if current in A4_SIGNAL_TERMINAL_STATUSES:
+            raise StateTransitionError("A4_TERMINAL_STATE_CONFLICT")
+        if target not in A4_SIGNAL_TRANSITIONS.get(current, frozenset()):
+            raise StateTransitionError("ILLEGAL_A4_LIFECYCLE_TRANSITION")
+
+    @staticmethod
+    def _a4_decode_payload(row: Mapping[str, Any] | None) -> dict[str, Any]:
+        if not row:
+            return {}
+        decoded = _a4_mapping(row.get("payload_json"))
+        if decoded:
+            return decoded
+        return _a4_mapping(row.get("payload"))
+
+    @staticmethod
+    def _a4_scalar(mapping_values: Sequence[Mapping[str, Any]], *keys: str) -> Any:
+        value = _a4_first(mapping_values, *keys)
+        return None if isinstance(value, (Mapping, list, tuple, set)) else value
+
+    @staticmethod
+    def _a4_resolve_on_connection(
+        connection: sqlite3.Connection,
+        signal_event_key: str | None = None,
+        *,
+        event_payload: Mapping[str, Any] | None = None,
+        plan_id: str | None = None,
+        account_id: str | None = None,
+        symbol: str | None = None,
+        include_terminal: bool = True,
+    ) -> sqlite3.Row | None:
+        payload = _a4_mapping(event_payload)
+        keys = (
+            signal_event_key,
+            payload.get("entry_event_key"),
+            payload.get("signal_event_key"),
+            payload.get("entry_event_id"),
+            payload.get("signal_id"),
+            payload.get("lifecycle_id"),
+        )
+        for key in keys:
+            text = str(key or "").strip()
+            if not text:
+                continue
+            row = connection.execute(
+                """
+                SELECT * FROM a4_signal_lifecycles
+                WHERE entry_event_key=? OR entry_event_id=? OR signal_id=? OR lifecycle_id=?
+                LIMIT 1
+                """,
+                (text, text, text, text),
+            ).fetchone()
+            if row is not None:
+                return row
+        clauses: list[str] = []
+        args: list[Any] = []
+        if plan_id:
+            clauses.append("plan_id=?")
+            args.append(str(plan_id))
+        if account_id:
+            clauses.append("account_id=?")
+            args.append(str(account_id))
+        if symbol:
+            clauses.append("symbol=?")
+            args.append(str(symbol))
+        if not include_terminal:
+            placeholders = ",".join("?" for _ in A4_SIGNAL_TERMINAL_STATUSES)
+            clauses.append(f"status NOT IN ({placeholders})")
+            args.extend(sorted(A4_SIGNAL_TERMINAL_STATUSES))
+        if clauses:
+            return connection.execute(
+                "SELECT * FROM a4_signal_lifecycles WHERE "
+                + " AND ".join(clauses)
+                + " ORDER BY updated_at DESC,lifecycle_id DESC LIMIT 1",
+                args,
+            ).fetchone()
+        return None
+
+    def _record_a4_entry_on_connection(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        event: Mapping[str, Any],
+        plan: Mapping[str, Any],
+        now: str,
+    ) -> tuple[dict[str, Any], bool]:
+        event_data = dict(event)
+        plan_data = dict(plan)
+        event_payload = self._a4_decode_payload(event_data)
+        plan_payload = self._a4_decode_payload(plan_data)
+        event_strategy = _a4_mapping(event_payload.get("strategy") or event_payload.get("strategy_snapshot"))
+        scopes = (event_payload, event_strategy, plan_payload, plan_data, event_data)
+
+        event_key = str(event_data.get("event_key") or "").strip()
+        event_id = str(event_data.get("event_id") or "").strip()
+        if not event_key or not event_id:
+            raise ValueError("A4 entry event key and id are required")
+        if str(event_data.get("action") or "").strip().upper() not in {"BUY_SIGNAL", "BUY"}:
+            raise ValueError("A4 entry event must be BUY_SIGNAL")
+
+        plan_id = str(self._a4_scalar(scopes, "plan_id") or "").strip()
+        lane_id = str(event_data.get("lane_id") or self._a4_scalar(scopes, "lane_id") or "").strip()
+        symbol = str(self._a4_scalar(scopes, "symbol", "stock_code", "code") or "").strip().upper()
+        if not plan_id or not lane_id or not symbol:
+            raise ValueError("A4 entry plan, lane and symbol are required")
+        account_raw = self._a4_scalar(scopes, "account_id", "account")
+        account_id = f"paper:{lane_id}"
+        if account_raw is not None and str(account_raw).strip() != account_id:
+            raise StateTransitionError("A4_ACCOUNT_IDENTITY_CONFLICT")
+        trade_raw = self._a4_scalar(scopes, "trade_date", "market_trade_date", "signal_date")
+        if trade_raw is None:
+            trade_raw = event_data.get("minute_end")
+        trade_date = str(trade_raw or "").strip().replace(" ", "T", 1).split("T", 1)[0]
+        try:
+            date.fromisoformat(trade_date)
+        except ValueError as exc:
+            raise ValueError("A4 trade date must be YYYY-MM-DD") from exc
+        source_run_id = str(
+            self._a4_scalar(scopes, "source_run_id", "run_id", "research_run_id") or ""
+        ).strip()
+        # A few legacy monitor tests/old plans predate source lineage and the
+        # strategy-type contract.  Keep their event history auditable without
+        # dropping the lifecycle: the explicit legacy marker makes the gap
+        # visible to downstream reports and never masquerades as a real run.
+        if not source_run_id:
+            source_run_id = f"legacy:{plan_id}"
+        name = str(self._a4_scalar(scopes, "name", "stock_name", "security_name") or symbol).strip() or symbol
+        behavior = str(
+            self._a4_scalar(scopes, "stock_behavior_type", "behavior_type", "stock_type", "category") or ""
+        ).strip().upper()
+        strategy = str(
+            self._a4_scalar(scopes, "strategy_profile", "deterministic_strategy_profile", "strategy_route") or ""
+        ).strip().upper()
+        behavior = behavior or "UNKNOWN"
+        strategy = strategy or "LEGACY"
+        signal_time = _a4_bar_stamp(event_data.get("minute_end"))
+        signal_price = _a4_number(
+            self._a4_scalar(scopes, "signal_price", "entry_signal_price", "entry_reference", "reference_price", "price")
+        )
+        strategy_snapshot = event_strategy or _a4_mapping(event_payload.get("strategy_snapshot"))
+        if not strategy_snapshot:
+            strategy_snapshot = {
+                key: event_payload[key]
+                for key in ("strategy_profile", "stock_behavior_type", "reason_codes", "met_conditions", "unmet_conditions", "veto_conditions")
+                if key in event_payload
+            }
+        plan_snapshot = plan_payload or {
+            key: plan_data[key]
+            for key in ("plan_id", "lane_id", "symbol", "status", "plan_version", "valid_from", "expires_at")
+            if key in plan_data
+        }
+        strategy_json = _json(strategy_snapshot)
+        plan_json = _json(plan_snapshot)
+        lifecycle_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"liangjian-a4-lifecycle:{event_key}"))
+        existing = connection.execute(
+            "SELECT * FROM a4_signal_lifecycles WHERE entry_event_key=?", (event_key,)
+        ).fetchone()
+        if existing is not None:
+            immutable = (
+                existing["lifecycle_id"], existing["entry_event_id"], existing["plan_id"], existing["lane_id"],
+                existing["account_id"], existing["symbol"], existing["trade_date"], existing["source_run_id"],
+                existing["name"], existing["stock_behavior_type"], existing["strategy_profile"],
+                existing["strategy_snapshot_json"], existing["plan_snapshot_json"], existing["signal_price"],
+            )
+            proposed = (
+                lifecycle_id, event_id, plan_id, lane_id, account_id, symbol, trade_date, source_run_id,
+                name, behavior, strategy, strategy_json, plan_json, signal_price,
+            )
+            if immutable != proposed:
+                raise StateTransitionError("A4_SIGNAL_IDENTITY_CONFLICT")
+            return _row_dict(existing) or {}, False
+        duplicate_id = connection.execute(
+            "SELECT 1 FROM a4_signal_lifecycles WHERE entry_event_id=? OR signal_id=? OR lifecycle_id=? LIMIT 1",
+            (event_id, lifecycle_id, lifecycle_id),
+        ).fetchone()
+        if duplicate_id is not None:
+            raise StateTransitionError("A4_SIGNAL_IDENTITY_CONFLICT")
+        connection.execute(
+            """
+            INSERT INTO a4_signal_lifecycles(
+                lifecycle_id,signal_id,entry_event_key,entry_event_id,plan_id,lane_id,account_id,symbol,
+                trade_date,source_run_id,name,stock_behavior_type,strategy_profile,
+                strategy_snapshot_json,plan_snapshot_json,status,signal_time,signal_price,
+                entry_qty,exit_signal_qty,exit_qty,remaining_qty,entry_fee,exit_fee,total_fee,
+                applied_fill_keys_json,applied_exit_event_keys_json,created_at,updated_at
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                lifecycle_id, lifecycle_id, event_key, event_id, plan_id, lane_id, account_id, symbol,
+                trade_date, source_run_id, name, behavior, strategy, strategy_json, plan_json,
+                A4SignalStatus.SIGNALLED.value, signal_time, signal_price,
+                0, 0, 0, 0, 0.0, 0.0, 0.0, "[]", "[]", now, now,
+            ),
+        )
+        return _row_dict(
+            connection.execute("SELECT * FROM a4_signal_lifecycles WHERE lifecycle_id=?", (lifecycle_id,)).fetchone()
+        ) or {}, True
+
+    def _record_a4_exit_on_connection(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        event: Mapping[str, Any],
+        now: str,
+        required: bool = False,
+    ) -> tuple[dict[str, Any] | None, bool]:
+        event_data = dict(event)
+        action = str(event_data.get("action") or "").strip().upper()
+        if action not in {"SELL_SIGNAL", "SELL", "REDUCE_SIGNAL", "REDUCE", "FORCED_RISK_EXIT", "PLAN_INVALIDATED", "CANCEL_SIGNAL", "DATA_BLOCK"}:
+            raise ValueError("A4 exit event action invalid")
+        event_key = str(event_data.get("event_key") or "").strip()
+        if not event_key:
+            raise ValueError("A4 exit event key is required")
+        event_payload = self._a4_decode_payload(event_data)
+        strategy = _a4_mapping(event_payload.get("strategy"))
+        scopes = (event_payload, strategy, event_data)
+        plan_id = str(self._a4_scalar(scopes, "plan_id") or "").strip() or None
+        account_id = str(self._a4_scalar(scopes, "account_id", "account") or "").strip() or None
+        symbol = str(self._a4_scalar(scopes, "symbol", "stock_code", "code") or "").strip().upper() or None
+        row = self._a4_resolve_on_connection(
+            connection,
+            event_payload.get("entry_event_key"),
+            event_payload=event_payload,
+            plan_id=plan_id,
+            account_id=account_id,
+            symbol=symbol,
+            include_terminal=True,
+        )
+        if row is None:
+            if required:
+                raise StateTransitionError("A4_LIFECYCLE_NOT_FOUND")
+            return None, False
+        applied_keys = _a4_json_list(row["applied_exit_event_keys_json"])
+        if event_key in applied_keys:
+            return _row_dict(row), False
+        current = str(row["status"])
+        if current in A4_SIGNAL_TERMINAL_STATUSES:
+            raise StateTransitionError("A4_TERMINAL_STATE_CONFLICT")
+        if action in {"PLAN_INVALIDATED"}:
+            # Invalidating an unfilled plan is terminal. If a paper position
+            # already exists, the plan may stop authorizing new entries while
+            # that position still needs an auditable exit lifecycle.
+            target = (
+                A4SignalStatus.EXIT_PENDING.value
+                if int(row["remaining_qty"] or 0) > 0
+                else A4SignalStatus.INVALIDATED.value
+            )
+        elif action == "CANCEL_SIGNAL":
+            target = A4SignalStatus.CANCELLED.value
+        elif action == "DATA_BLOCK":
+            target = A4SignalStatus.DATA_ERROR.value
+        else:
+            target = A4SignalStatus.EXIT_PENDING.value
+        if target in A4_SIGNAL_TERMINAL_STATUSES and int(row["remaining_qty"] or 0) > 0:
+            raise StateTransitionError("A4_OPEN_QUANTITY_NOT_TERMINAL")
+        self._a4_transition(current, target)
+        applied_keys.append(event_key)
+        price = _a4_number(self._a4_scalar(scopes, "signal_price", "exit_signal_price", "price"))
+        qty = _a4_nonnegative_int(self._a4_scalar(scopes, "qty", "quantity", "exit_signal_qty"), default=0)
+        reason = str(event_data.get("reason_code") or self._a4_scalar(scopes, "exit_reason", "reason") or "").strip() or None
+        connection.execute(
+            """
+            UPDATE a4_signal_lifecycles
+            SET status=?,exit_signal_time=?,exit_signal_price=?,exit_signal_qty=?,exit_reason=?,
+                applied_exit_event_keys_json=?,updated_at=?
+            WHERE lifecycle_id=? AND status=?
+            """,
+            (
+                target,
+                _a4_bar_stamp(event_data.get("minute_end")),
+                price,
+                qty,
+                reason,
+                json.dumps(applied_keys, ensure_ascii=False, separators=(",", ":")),
+                now,
+                row["lifecycle_id"],
+                current,
+            ),
+        )
+        return _row_dict(
+            connection.execute("SELECT * FROM a4_signal_lifecycles WHERE lifecycle_id=?", (row["lifecycle_id"],)).fetchone()
+        ), True
+
+    def _sync_a4_lifecycle_for_event(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        event_id: str,
+        event_key: str,
+        lane_id: str,
+        minute_end: datetime | str,
+        action: str,
+        reason_code: str | None,
+        payload: Mapping[str, Any] | None,
+        terminal_plan_id: str | None,
+        now: str | None = None,
+    ) -> None:
+        """Synchronize the lifecycle while the monitor event transaction is open."""
+
+        stamp = now or _iso(_now()) or ""
+        event = {
+            "event_id": event_id,
+            "event_key": event_key,
+            "lane_id": lane_id,
+            "minute_end": minute_end,
+            "action": action,
+            "reason_code": reason_code,
+            "payload": dict(payload or {}),
+        }
+        if action == MonitorAction.BUY_SIGNAL.value:
+            plan_id = str(_a4_first((_a4_mapping(payload),), "plan_id") or "").strip()
+            if not plan_id:
+                raise StateTransitionError("A4_PLAN_NOT_FOUND")
+            plan_row = connection.execute("SELECT * FROM execution_plans WHERE plan_id=?", (plan_id,)).fetchone()
+            if plan_row is None:
+                raise StateTransitionError("A4_PLAN_NOT_FOUND")
+            self._record_a4_entry_on_connection(
+                connection,
+                event=event,
+                plan=self._a4_row_mapping(plan_row),
+                now=stamp,
+            )
+            return
+        if action in {
+            MonitorAction.SELL_SIGNAL.value,
+            MonitorAction.REDUCE_SIGNAL.value,
+            MonitorAction.FORCED_RISK_EXIT.value,
+            MonitorAction.PLAN_INVALIDATED.value,
+            MonitorAction.CANCEL_SIGNAL.value,
+        }:
+            if action == MonitorAction.PLAN_INVALIDATED.value and terminal_plan_id:
+                event["payload"] = {**_a4_mapping(payload), "plan_id": terminal_plan_id}
+            self._record_a4_exit_on_connection(connection, event=event, now=stamp, required=False)
+
+    def record_a4_entry_signal(
+        self,
+        event: Mapping[str, Any] | sqlite3.Row | None = None,
+        plan: Mapping[str, Any] | sqlite3.Row | None = None,
+        *,
+        event_row: Mapping[str, Any] | sqlite3.Row | None = None,
+        plan_row: Mapping[str, Any] | sqlite3.Row | None = None,
+        plan_payload: Mapping[str, Any] | None = None,
+    ) -> tuple[dict[str, Any], bool]:
+        """Persist one immutable BUY_SIGNAL lifecycle, idempotently."""
+
+        raw_event = event_row if event_row is not None else event
+        raw_plan = plan_row if plan_row is not None else plan
+        if raw_event is None or raw_plan is None:
+            raise ValueError("A4 entry event and plan are required")
+        event_data = self._a4_row_mapping(raw_event)
+        plan_data = self._a4_row_mapping(raw_plan)
+        if plan_payload is not None:
+            plan_data["payload"] = dict(plan_payload)
+        now = _iso(_now()) or ""
+        return self._write(lambda connection: self._record_a4_entry_on_connection(connection, event=event_data, plan=plan_data, now=now))
+
+    def record_a4_exit_signal(
+        self,
+        event: Mapping[str, Any] | sqlite3.Row | None = None,
+        *,
+        event_row: Mapping[str, Any] | sqlite3.Row | None = None,
+    ) -> tuple[dict[str, Any] | None, bool]:
+        """Record a SELL/REDUCE/invalidating event against an existing signal."""
+
+        raw_event = event_row if event_row is not None else event
+        if raw_event is None:
+            raise ValueError("A4 exit event is required")
+        event_data = self._a4_row_mapping(raw_event)
+        now = _iso(_now()) or ""
+        return self._write(lambda connection: self._record_a4_exit_on_connection(connection, event=event_data, now=now, required=True))
+
+    def apply_a4_fill(
+        self,
+        signal_event_key: str,
+        fill_row: Mapping[str, Any] | sqlite3.Row | None = None,
+        remaining_qty: int | None = None,
+        *,
+        fill: Mapping[str, Any] | sqlite3.Row | None = None,
+    ) -> tuple[dict[str, Any], bool]:
+        """Apply one paper fill to a lifecycle, with fill-key idempotency."""
+
+        if fill_row is not None and fill is not None:
+            raise ValueError("provide only one A4 fill row")
+        raw_fill = fill if fill is not None else fill_row
+        if raw_fill is None:
+            raise ValueError("A4 fill row is required")
+        fill_data = self._a4_row_mapping(raw_fill)
+        key = str(
+            fill_data.get("fill_key")
+            or fill_data.get("fill_id")
+            or fill_data.get("intent_key")
+            or fill_data.get("event_key")
+            or ""
+        ).strip()
+        if not key:
+            key = str(
+                uuid.uuid5(
+                    uuid.NAMESPACE_URL,
+                    "liangjian-a4-fill:" + json.dumps(fill_data, ensure_ascii=False, sort_keys=True, default=str),
+                )
+            )
+        action = str(fill_data.get("action") or "").strip().upper()
+        action = {
+            "BUY_SIGNAL": "BUY",
+            "ADD_SIGNAL": "ADD",
+            "SELL_SIGNAL": "SELL",
+            "REDUCE_SIGNAL": "REDUCE",
+            "FORCED_RISK_EXIT": "SELL",
+        }.get(action, action)
+        if action not in {"BUY", "ADD", "SELL", "REDUCE"}:
+            raise ValueError("A4 fill action invalid")
+        qty = _a4_nonnegative_int(fill_data.get("qty", fill_data.get("quantity")))
+        if qty <= 0:
+            raise ValueError("A4 fill quantity must be positive")
+        price = _a4_number(fill_data.get("price"), allow_none=False, positive=True)
+        fee = _a4_number(fill_data.get("fee", fill_data.get("commission", 0.0)), allow_none=False)
+        if fee is None or fee < 0:
+            raise ValueError("A4 fill fee invalid")
+        bar_end = _a4_bar_stamp(fill_data.get("bar_end", fill_data.get("filled_at", fill_data.get("timestamp"))))
+        if remaining_qty is None and fill_data.get("remaining_qty") is not None:
+            remaining_qty = _a4_nonnegative_int(fill_data.get("remaining_qty"))
+        account_id = str(fill_data.get("account_id") or "").strip() or None
+        symbol = str(fill_data.get("symbol") or "").strip().upper() or None
+        now = _iso(_now()) or ""
+
+        def operation(connection):
+            row = self._a4_resolve_on_connection(connection, signal_event_key, account_id=account_id, symbol=symbol)
+            if row is None:
+                raise StateTransitionError("A4_LIFECYCLE_NOT_FOUND")
+            applied_keys = _a4_json_list(row["applied_fill_keys_json"])
+            if key in applied_keys:
+                return _row_dict(row) or {}, False
+            if row["status"] in A4_SIGNAL_TERMINAL_STATUSES:
+                raise StateTransitionError("A4_TERMINAL_STATE_CONFLICT")
+            if account_id is not None and account_id != row["account_id"]:
+                raise StateTransitionError("A4_ACCOUNT_IDENTITY_CONFLICT")
+            if symbol is not None and symbol != row["symbol"]:
+                raise StateTransitionError("A4_SIGNAL_IDENTITY_CONFLICT")
+            current_remaining = int(row["remaining_qty"])
+            current_entry_qty = int(row["entry_qty"])
+            current_exit_qty = int(row["exit_qty"])
+            entry_fee = float(row["entry_fee"] or 0.0)
+            exit_fee = float(row["exit_fee"] or 0.0)
+            old_entry_price = float(row["entry_price"]) if row["entry_price"] is not None else None
+            old_exit_price = float(row["exit_price"]) if row["exit_price"] is not None else None
+            target_status: str
+            entry_time = row["entry_time"]
+            exit_time = row["exit_time"]
+            exit_price = old_exit_price
+            exit_qty = current_exit_qty
+            if action in {"BUY", "ADD"}:
+                if row["status"] not in {A4SignalStatus.SIGNALLED.value, A4SignalStatus.OPEN.value, A4SignalStatus.EXIT_PENDING.value}:
+                    raise StateTransitionError("ILLEGAL_A4_LIFECYCLE_TRANSITION")
+                if action == "BUY" and current_entry_qty > 0:
+                    raise StateTransitionError("A4_DUPLICATE_ENTRY_FILL")
+                new_entry_qty = current_entry_qty + qty
+                new_remaining = current_remaining + qty
+                if remaining_qty is not None and int(remaining_qty) != new_remaining:
+                    raise StateTransitionError("A4_REMAINING_QTY_CONFLICT")
+                new_entry_price = price if old_entry_price is None else ((old_entry_price * current_entry_qty) + (price * qty)) / new_entry_qty
+                entry_fee += float(fee)
+                entry_time = entry_time or bar_end
+                target_status = A4SignalStatus.OPEN.value
+                connection.execute(
+                    """
+                    UPDATE a4_signal_lifecycles
+                    SET status=?,entry_time=?,entry_price=?,entry_qty=?,remaining_qty=?,entry_fee=?,total_fee=?,
+                        last_fill_key=?,applied_fill_keys_json=?,updated_at=?
+                    WHERE lifecycle_id=? AND status=?
+                    """,
+                    (
+                        target_status, entry_time, new_entry_price, new_entry_qty, new_remaining, entry_fee,
+                        entry_fee + exit_fee, key,
+                        json.dumps([*applied_keys, key], ensure_ascii=False, separators=(",", ":")), now,
+                        row["lifecycle_id"], row["status"],
+                    ),
+                )
+            else:
+                if current_entry_qty <= 0 or current_remaining <= 0:
+                    raise StateTransitionError("A4_NO_OPEN_QUANTITY")
+                if qty > current_remaining:
+                    raise StateTransitionError("A4_EXIT_QTY_EXCEEDS_REMAINING")
+                new_remaining = current_remaining - qty
+                if remaining_qty is not None and int(remaining_qty) != new_remaining:
+                    raise StateTransitionError("A4_REMAINING_QTY_CONFLICT")
+                entry_price = old_entry_price
+                if entry_price is None or entry_price <= 0:
+                    raise StateTransitionError("A4_ENTRY_PRICE_REQUIRED")
+                exit_qty += qty
+                new_exit_price = price if old_exit_price is None else ((old_exit_price * current_exit_qty) + (price * qty)) / exit_qty
+                gross_pnl = float(row["gross_pnl"] or 0.0) + (price - entry_price) * qty
+                exit_fee += float(fee)
+                total_fee = entry_fee + exit_fee
+                net_pnl = gross_pnl - total_fee
+                cost_basis = entry_price * current_entry_qty
+                target_status = A4SignalStatus.CLOSED.value if new_remaining == 0 else A4SignalStatus.PARTIALLY_CLOSED.value
+                if target_status == A4SignalStatus.CLOSED.value:
+                    exit_time = bar_end
+                connection.execute(
+                    """
+                    UPDATE a4_signal_lifecycles
+                    SET status=?,exit_time=?,exit_price=?,exit_qty=?,remaining_qty=?,exit_fee=?,total_fee=?,
+                        gross_pnl=?,net_pnl=?,realized_pnl=?,gross_return=?,net_return=?,last_fill_key=?,
+                        applied_fill_keys_json=?,updated_at=?
+                    WHERE lifecycle_id=? AND status=?
+                    """,
+                    (
+                        target_status, exit_time, new_exit_price, exit_qty, new_remaining, exit_fee, total_fee,
+                        gross_pnl, net_pnl, net_pnl,
+                        gross_pnl / cost_basis if cost_basis else None,
+                        net_pnl / cost_basis if cost_basis else None,
+                        key, json.dumps([*applied_keys, key], ensure_ascii=False, separators=(",", ":")), now,
+                        row["lifecycle_id"], row["status"],
+                    ),
+                )
+            return _row_dict(
+                connection.execute("SELECT * FROM a4_signal_lifecycles WHERE lifecycle_id=?", (row["lifecycle_id"],)).fetchone()
+            ) or {}, True
+
+        return self._write(operation)
+
+    def observe_a4_lifecycle(
+        self,
+        account: str | None = None,
+        symbol: str | None = None,
+        bar_end: datetime | str | None = None,
+        high: float | None = None,
+        low: float | None = None,
+        close: float | None = None,
+        *,
+        account_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Update aggregate extrema only; minute bars are not copied."""
+
+        resolved_account = str(account_id or account or "").strip()
+        resolved_symbol = str(symbol or "").strip().upper()
+        if not resolved_account or not resolved_symbol:
+            raise ValueError("A4 account and symbol are required")
+        if bar_end is None or high is None or low is None or close is None:
+            raise ValueError("A4 observation values are required")
+        stamp = _a4_bar_stamp(bar_end)
+        high_value = _a4_number(high, allow_none=False, positive=True)
+        low_value = _a4_number(low, allow_none=False, positive=True)
+        close_value = _a4_number(close, allow_none=False, positive=True)
+        if high_value is None or low_value is None or close_value is None or high_value < low_value:
+            raise ValueError("A4 OHLC values invalid")
+        now = _iso(_now()) or ""
+
+        def operation(connection):
+            row = self._a4_resolve_on_connection(
+                connection, account_id=resolved_account, symbol=resolved_symbol, include_terminal=False
+            )
+            if row is None:
+                return None
+            max_price = max(float(row["max_price"]) if row["max_price"] is not None else high_value, high_value)
+            min_price = min(float(row["min_price"]) if row["min_price"] is not None else low_value, low_value)
+            baseline = row["entry_price"] if row["entry_price"] is not None else row["signal_price"]
+            mfe = (max_price / float(baseline)) - 1.0 if baseline and float(baseline) > 0 else None
+            mae = (min_price / float(baseline)) - 1.0 if baseline and float(baseline) > 0 else None
+            holding_minutes = None
+            if row["entry_time"]:
+                try:
+                    entry_dt = datetime.fromisoformat(str(row["entry_time"]))
+                    bar_dt = datetime.fromisoformat(stamp)
+                    holding_minutes = max(0, int((bar_dt - entry_dt).total_seconds() // 60))
+                except (TypeError, ValueError):
+                    holding_minutes = None
+            connection.execute(
+                """
+                UPDATE a4_signal_lifecycles
+                SET max_price=?,min_price=?,mfe=?,mae=?,holding_minutes=?,last_bar_end=?,last_close=?,updated_at=?
+                WHERE lifecycle_id=? AND status NOT IN (?,?,?,?,?)
+                """,
+                (
+                    max_price, min_price, mfe, mae, holding_minutes, stamp, close_value, now, row["lifecycle_id"],
+                    *sorted(A4_SIGNAL_TERMINAL_STATUSES),
+                ),
+            )
+            return _row_dict(
+                connection.execute("SELECT * FROM a4_signal_lifecycles WHERE lifecycle_id=?", (row["lifecycle_id"],)).fetchone()
+            )
+
+        return self._write(operation)
+
+    def mark_a4_signal_terminal(
+        self,
+        signal_event_key: str | None = None,
+        status: str | A4SignalStatus | None = None,
+        *,
+        event_key: str | None = None,
+        reason_code: str | None = None,
+        at: datetime | str | None = None,
+        exit_price: float | None = None,
+        exit_qty: int | None = None,
+        fee: float | None = None,
+    ) -> dict[str, Any]:
+        signal_event_key = str(signal_event_key or event_key or "").strip()
+        if not signal_event_key:
+            raise ValueError("A4 lifecycle identity is required")
+        if status is None:
+            raise ValueError("A4 terminal status is required")
+        target = str(status).strip().upper()
+        if target not in A4_SIGNAL_TERMINAL_STATUSES:
+            raise ValueError("A4 terminal status invalid")
+        stamp = _a4_bar_stamp(at) if at is not None else (_iso(_now()) or "")
+        price = _a4_number(exit_price)
+        qty = _a4_nonnegative_int(exit_qty, default=0)
+        fee_value = 0.0 if fee is None else _a4_number(fee, allow_none=False)
+        if fee_value is None or fee_value < 0:
+            raise ValueError("A4 terminal fee invalid")
+        now = _iso(_now()) or ""
+
+        def operation(connection):
+            row = self._a4_resolve_on_connection(connection, signal_event_key)
+            if row is None:
+                raise StateTransitionError("A4_LIFECYCLE_NOT_FOUND")
+            current = str(row["status"])
+            if current == target:
+                return _row_dict(row) or {}
+            self._a4_transition(current, target)
+            if target in {
+                A4SignalStatus.UNFILLED.value,
+                A4SignalStatus.CANCELLED.value,
+                A4SignalStatus.INVALIDATED.value,
+                A4SignalStatus.DATA_ERROR.value,
+            } and int(row["remaining_qty"] or 0) > 0:
+                raise StateTransitionError("A4_OPEN_QUANTITY_NOT_TERMINAL")
+            exit_time = stamp if target == A4SignalStatus.CLOSED.value else row["exit_time"]
+            exit_qty_value = qty if qty else int(row["exit_qty"] or 0)
+            exit_fee = float(row["exit_fee"] or 0.0) + float(fee_value)
+            connection.execute(
+                """
+                UPDATE a4_signal_lifecycles
+                SET status=?,exit_time=?,exit_price=COALESCE(?,exit_price),exit_qty=?,remaining_qty=?,
+                    exit_fee=?,total_fee=entry_fee+?,exit_reason=?,updated_at=?
+                WHERE lifecycle_id=? AND status=?
+                """,
+                (
+                    target, exit_time, price, exit_qty_value,
+                    0 if target in A4_SIGNAL_TERMINAL_STATUSES else int(row["remaining_qty"]),
+                    exit_fee, exit_fee, reason_code, now, row["lifecycle_id"], current,
+                ),
+            )
+            return _row_dict(
+                connection.execute("SELECT * FROM a4_signal_lifecycles WHERE lifecycle_id=?", (row["lifecycle_id"],)).fetchone()
+            ) or {}
+
+        return self._write(operation)
+
+    def get_a4_lifecycle(
+        self,
+        signal_event_key: str | None = None,
+        *,
+        entry_event_key: str | None = None,
+        lifecycle_id: str | None = None,
+        signal_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        key = signal_event_key or entry_event_key or lifecycle_id or signal_id
+        if not key:
+            raise ValueError("A4 lifecycle identity is required")
+        text = str(key).strip()
+        return self._read(
+            lambda connection: _row_dict(
+                connection.execute(
+                    """
+                    SELECT * FROM a4_signal_lifecycles
+                    WHERE entry_event_key=? OR entry_event_id=? OR lifecycle_id=? OR signal_id=?
+                    LIMIT 1
+                    """,
+                    (text, text, text, text),
+                ).fetchone()
+            )
+        )
+
+    def list_a4_lifecycles(
+        self,
+        *,
+        account_id: str | None = None,
+        symbol: str | None = None,
+        lane_id: str | None = None,
+        plan_id: str | None = None,
+        trade_date: str | None = None,
+        status: str | Sequence[str] | None = None,
+        limit: int = 1000,
+    ) -> tuple[dict[str, Any], ...]:
+        bounded = max(1, min(int(limit), 10000))
+
+        def operation(connection):
+            clauses: list[str] = []
+            args: list[Any] = []
+            for column, value in (("account_id", account_id), ("symbol", symbol), ("lane_id", lane_id), ("plan_id", plan_id), ("trade_date", trade_date)):
+                if value is not None:
+                    clauses.append(f"{column}=?")
+                    args.append(str(value).strip().upper() if column == "symbol" else str(value).strip())
+            if status is not None:
+                statuses = [str(item).strip().upper() for item in status] if isinstance(status, Sequence) and not isinstance(status, str) else [str(status).strip().upper()]
+                statuses = [item for item in statuses if item]
+                if statuses:
+                    clauses.append("status IN (" + ",".join("?" for _ in statuses) + ")")
+                    args.extend(statuses)
+            sql = "SELECT * FROM a4_signal_lifecycles" + (" WHERE " + " AND ".join(clauses) if clauses else "") + " ORDER BY signal_time DESC,lifecycle_id DESC LIMIT ?"
+            args.append(bounded)
+            return tuple(_row_dict(row) for row in connection.execute(sql, args).fetchall())
+
+        return self._read(operation)
+
+    # Naming aliases keep callers readable while retaining one SQL source of truth.
+    get_a4_signal_lifecycle = get_a4_lifecycle
+    list_a4_signal_lifecycles = list_a4_lifecycles
+
+    # ------------------------------------------------------------------
+    # A5 twice-daily evidence review ledger
+    # ------------------------------------------------------------------
+    def record_a5_review(
+        self,
+        *,
+        trade_date: str,
+        review_kind: str,
+        cutoff_at: datetime | str,
+        status: str,
+        model: str,
+        source_run_ids: Sequence[str],
+        input_hash: str,
+        prompt_hash: str,
+        output_hash: str,
+        latency_ms: int,
+        attempts: int,
+        thinking_variant: str | None,
+        fact_snapshot: Mapping[str, Any],
+        report: Mapping[str, Any],
+        markdown_path: str,
+    ) -> tuple[dict[str, Any], bool]:
+        """Persist one immutable A5 review, idempotent for identical facts."""
+
+        kind = str(review_kind).strip().upper()
+        if kind not in {"MIDDAY", "POST_CLOSE"}:
+            raise ValueError("invalid A5 review kind")
+        state = str(status).strip().upper()
+        if state not in {"COMPLETED", "DEGRADED"}:
+            raise ValueError("invalid A5 review status")
+        day = date.fromisoformat(str(trade_date)).isoformat()
+        cutoff = _iso(cutoff_at)
+        if cutoff is None:
+            raise ValueError("A5 cutoff is required")
+        identity = f"{day}:{kind}:{input_hash}"
+        review_key = f"a5:{identity}"
+        review_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"liangjian-{review_key}"))
+        created_at = _iso(_now())
+        source_json = json.dumps(
+            list(dict.fromkeys(str(item) for item in source_run_ids if str(item))),
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        fact_json = _json(fact_snapshot)
+        report_json = _json(report)
+
+        def operation(connection):
+            existing = connection.execute(
+                "SELECT * FROM a5_daily_reviews WHERE review_key=?", (review_key,)
+            ).fetchone()
+            if existing is not None:
+                immutable = (
+                    existing["cutoff_at"], existing["model"], existing["prompt_hash"],
+                    existing["output_hash"], existing["fact_snapshot_json"], existing["report_json"],
+                )
+                proposed = (cutoff, str(model), str(prompt_hash), str(output_hash), fact_json, report_json)
+                if immutable != proposed:
+                    raise StateTransitionError("A5_REVIEW_CONTENT_CONFLICT")
+                return _row_dict(existing), False
+            connection.execute(
+                """
+                INSERT INTO a5_daily_reviews(
+                    review_id,review_key,trade_date,review_kind,cutoff_at,status,model,
+                    source_run_ids_json,input_hash,prompt_hash,output_hash,latency_ms,attempts,
+                    thinking_variant,fact_snapshot_json,report_json,markdown_path,created_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    review_id, review_key, day, kind, cutoff, state, str(model), source_json,
+                    str(input_hash), str(prompt_hash), str(output_hash), max(0, int(latency_ms)),
+                    max(0, int(attempts)), thinking_variant, fact_json, report_json,
+                    str(markdown_path), created_at,
+                ),
+            )
+            return _row_dict(
+                connection.execute("SELECT * FROM a5_daily_reviews WHERE review_id=?", (review_id,)).fetchone()
+            ), True
+
+        return self._write(operation)
+
+    def list_a5_reviews(
+        self,
+        *,
+        trade_date: str | None = None,
+        review_kind: str | None = None,
+        limit: int = 20,
+    ) -> tuple[dict[str, Any], ...]:
+        bounded = max(1, min(int(limit), 200))
+        kind = str(review_kind).strip().upper() if review_kind is not None else None
+        if kind is not None and kind not in {"MIDDAY", "POST_CLOSE"}:
+            raise ValueError("invalid A5 review kind")
+
+        def operation(connection):
+            clauses: list[str] = []
+            args: list[Any] = []
+            if trade_date is not None:
+                clauses.append("trade_date=?")
+                args.append(date.fromisoformat(str(trade_date)).isoformat())
+            if kind is not None:
+                clauses.append("review_kind=?")
+                args.append(kind)
+            where = " WHERE " + " AND ".join(clauses) if clauses else ""
+            rows = connection.execute(
+                "SELECT * FROM a5_daily_reviews" + where + " ORDER BY cutoff_at DESC,created_at DESC LIMIT ?",
+                (*args, bounded),
+            ).fetchall()
+            return tuple(_row_dict(row) for row in rows)
 
         return self._read(operation)
 
@@ -2579,6 +3738,8 @@ class RuntimeStore:
 
 
 __all__ = [
+    "A4_SIGNAL_TERMINAL_STATUSES",
+    "A4SignalStatus",
     "EFFECTIVE_ACTIONS",
     "MonitorAction",
     "NOTIFICATION_CARD_COLORS",

@@ -29,6 +29,7 @@ export function timeoutForJob(
   // schedule. Minute monitoring has a much tighter deadline so it releases
   // the single worker before the 09:26/15:10 research protection windows.
   if (job === "monitor") return Math.min(configuredTimeoutMs, 55_000);
+  if (job === "a5-midday" || job === "a5-close") return Math.min(configuredTimeoutMs, 10 * 60 * 1000);
   if (job === "a1") return a1TimeoutMs;
   return configuredTimeoutMs;
 }
@@ -71,6 +72,7 @@ export class JobRunner {
   // next morning/close research or the one-minute monitor.
   private active: ActiveChild | null = null;
   private comparison: ActiveChild | null = null;
+  private review: ActiveChild | null = null;
 
   public constructor(
     private readonly config: AppConfig,
@@ -78,7 +80,7 @@ export class JobRunner {
   ) {}
 
   public activeJob(): JobRunRecord | null {
-    const current = this.history.find((item) => item.runId === (this.active?.runId ?? this.comparison?.runId));
+    const current = this.history.find((item) => item.runId === (this.active?.runId ?? this.review?.runId ?? this.comparison?.runId));
     return current ?? null;
   }
 
@@ -91,8 +93,8 @@ export class JobRunner {
     if (!definition) {
       throw new Error("unsupported job");
     }
-    const slot = job === "comparison" ? "comparison" : "primary";
-    const current = slot === "comparison" ? this.comparison : this.active;
+    const slot = job === "comparison" ? "comparison" : job === "a5-midday" || job === "a5-close" ? "review" : "primary";
+    const current = slot === "comparison" ? this.comparison : slot === "review" ? this.review : this.active;
     if (current) return this.skipped(job, definition.command, current.runId);
 
     return this.runChild(job, definition.command, slot);
@@ -116,19 +118,20 @@ export class JobRunner {
     return skipped;
   }
 
-  private childFor(slot: "primary" | "comparison"): ActiveChild | null {
-    return slot === "comparison" ? this.comparison : this.active;
+  private childFor(slot: "primary" | "comparison" | "review"): ActiveChild | null {
+    return slot === "comparison" ? this.comparison : slot === "review" ? this.review : this.active;
   }
 
-  private setChild(slot: "primary" | "comparison", child: ActiveChild | null): void {
+  private setChild(slot: "primary" | "comparison" | "review", child: ActiveChild | null): void {
     if (slot === "comparison") this.comparison = child;
+    else if (slot === "review") this.review = child;
     else this.active = child;
   }
 
   private async runChild(
     job: JobName,
     command: string,
-    slot: "primary" | "comparison",
+    slot: "primary" | "comparison" | "review",
   ): Promise<JobRunRecord> {
 
     const runId = `${job}-${new Date().toISOString().replace(/[:.]/g, "-")}-${randomUUID().slice(0, 8)}`;
@@ -240,6 +243,7 @@ export class JobRunner {
     await Promise.all([
       this.stopChild(this.active),
       this.stopChild(this.comparison),
+      this.stopChild(this.review),
     ]);
   }
 

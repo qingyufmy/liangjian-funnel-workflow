@@ -292,6 +292,7 @@ def screen_a1(
         minimum_available_weight = 0.70
     targets = snapshot.get("A1_POOL_TARGETS")
     targets = targets if isinstance(targets, Mapping) else {}
+    monthly_chain_only = targets.get("monthly_chain_only") is True
     active_target = targets.get("active_research_target")
     if isinstance(active_target, Sequence) and not isinstance(active_target, (str, bytes, bytearray)):
         target_values = [int(value) for value in active_target[:2] if _number(value) is not None]
@@ -340,6 +341,9 @@ def screen_a1(
     minimum_financial_coverage = _number(minimums.get("minimum_financial_coverage", 0.60))
     if minimum_financial_coverage is None or not 0 < minimum_financial_coverage <= 1:
         minimum_financial_coverage = 0.60
+    minimum_financial_quality = _number(minimums.get("minimum_financial_quality", 60.0))
+    if minimum_financial_quality is None or minimum_financial_quality < 0:
+        minimum_financial_quality = 60.0
 
     decisions: list[dict[str, Any]] = []
     provisional: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -386,6 +390,26 @@ def screen_a1(
         primary_link = matched[0] if matched else {}
         primary_theme = theme_by_id.get(str(primary_link.get("theme_id") or ""), {}) if matched else {}
         primary_node = node_by_id.get(str(primary_link.get("node_id") or ""), {}) if matched else {}
+        monthly_direction_matches = [
+            {
+                "monthly_direction_id": link.get("theme_id"),
+                "monthly_direction_name": (
+                    theme_by_id.get(str(link.get("theme_id") or ""), {}).get("display_name")
+                    or link.get("theme_id")
+                ),
+                "industry_chain_node_id": link.get("node_id"),
+                "industry_chain_node_name": (
+                    node_by_id.get(str(link.get("node_id") or ""), {}).get("display_name")
+                    or link.get("node_id")
+                ),
+                "sector_index_taxonomy": link.get("taxonomy"),
+                "sector_index_code": link.get("taxonomy_code"),
+                "sector_index_name": link.get("taxonomy_name"),
+                "match_method": link.get("match_method"),
+                "confidence": link.get("confidence"),
+            }
+            for link in matched
+        ]
         a1_selection_evidence = build_a1_selection_evidence(
             market_regime=market_regime,
             company={
@@ -464,6 +488,12 @@ def screen_a1(
         elif not core_reports or not indicators_available:
             status = "LOCAL_MONITOR"
             reason_codes.append("A1_FUNDAMENTAL_DATA_INCOMPLETE")
+        elif monthly_chain_only and financial_coverage < minimum_financial_coverage:
+            status = "LOCAL_MONITOR"
+            reason_codes.append("A1_FINANCIAL_COVERAGE_BELOW_MINIMUM")
+        elif monthly_chain_only and financial_quality < minimum_financial_quality:
+            status = "LOCAL_MONITOR"
+            reason_codes.append("A1_FINANCIAL_QUALITY_BELOW_MINIMUM")
         elif data_quality < minimum_quality:
             status = "LOCAL_MONITOR"
             reason_codes.append("A1_DATA_QUALITY_BELOW_MINIMUM")
@@ -476,7 +506,7 @@ def screen_a1(
         else:
             status = "LOCAL_CANDIDATE"
         autonomous_status = status
-        if institutional_seed:
+        if institutional_seed and not monthly_chain_only:
             # A current-month broker-gold row is a first-class A1 research
             # route once it is inside G0.  The local risk/tradability result is
             # retained in ``autonomous_status`` and reason codes; it only
@@ -492,6 +522,10 @@ def screen_a1(
             reason_codes.append("A1_FACTOR_COVERAGE_BELOW_MINIMUM")
         if raw_evidence_available and not structured_exposure_available:
             reason_codes.append("A1_BUSINESS_EXPOSURE_UNSTRUCTURED")
+        if monthly_chain_only and financial_quality < minimum_financial_quality:
+            reason_codes.append("A1_FINANCIAL_QUALITY_BELOW_MINIMUM")
+        if monthly_chain_only and financial_coverage < minimum_financial_coverage:
+            reason_codes.append("A1_FINANCIAL_COVERAGE_BELOW_MINIMUM")
         if institutional_seed:
             reason_codes.append("A1_INSTITUTIONAL_COVERAGE_SEED")
         if financial_coverage < minimum_financial_coverage:
@@ -522,7 +556,11 @@ def screen_a1(
             # Every deterministic row has an explicit provenance.  The value
             # is changed below only when the row is actually sent to the LLM
             # or promoted by the temporary coverage mechanism.
-            "selection_basis": "BROKER_GOLD_DIRECT" if institutional_seed else "DETERMINISTIC_SCORE",
+            "selection_basis": (
+                "BROKER_GOLD_DIRECT"
+                if institutional_seed and not monthly_chain_only
+                else "DETERMINISTIC_SCORE"
+            ),
             "score": round(score, 4),
             "data_quality_score": round(data_quality, 4),
             "financial_quality_score": round(financial_quality, 4),
@@ -530,6 +568,13 @@ def screen_a1(
             "theme_id": primary_link.get("theme_id"),
             "node_id": primary_link.get("node_id"),
             "taxonomy_matches": matched,
+            "monthly_direction_id": primary_link.get("theme_id"),
+            "monthly_direction_name": primary_theme.get("display_name") or primary_link.get("theme_id"),
+            "monthly_direction_matches": monthly_direction_matches,
+            "sector_index_taxonomy": primary_link.get("taxonomy"),
+            "sector_index_code": primary_link.get("taxonomy_code"),
+            "sector_index_name": primary_link.get("taxonomy_name"),
+            "sector_constituent_confirmed": bool(matched),
             "theme_source_refs": list(theme_by_id.get(str(primary_link.get("theme_id") or ""), {}).get("source_refs") or ()),
             "node_source_refs": list(node_by_id.get(str(primary_link.get("node_id") or ""), {}).get("source_refs") or ()),
             "source_refs": _source_refs_from_values(
@@ -546,6 +591,13 @@ def screen_a1(
                 if not isinstance(value, Mapping) or value.get("available") is not True
             ],
             "financial_features": financial_details,
+            "fundamental_support": {
+                "score": round(financial_quality, 4),
+                "minimum_score": round(minimum_financial_quality, 4),
+                "supported": financial_quality >= minimum_financial_quality,
+                "coverage_ratio": round(financial_coverage, 6),
+                "features": financial_details,
+            },
             "financial_subfactor_coverage": round(financial_coverage, 6),
             "minimum_financial_subfactor_coverage": round(minimum_financial_coverage, 6),
             "company_archetype": (
@@ -561,13 +613,22 @@ def screen_a1(
             "hard_risk_events": hard_risk_events.get(symbol, []),
             "a1_selection_evidence": a1_selection_evidence,
             "business_exposure_facts": exposure_facts,
+            "disclosed_business_match": {
+                "raw_disclosure_available": raw_evidence_available,
+                "structured_match_confirmed": structured_exposure_available,
+                "maximum_revenue_exposure_pct": maximum_exposure if exposure_facts else None,
+            },
             "maximum_revenue_exposure_pct": maximum_exposure if exposure_facts else None,
             "amount": amount,
             "reason_codes": list(dict.fromkeys(reason_codes)),
             "coverage_origin": "BROKER_GOLD_T2" if institutional_seed else "AUTONOMOUS_RESEARCH",
             "autonomous_status": autonomous_status,
             "institutional_coverage": dict(institutional) if institutional_seed else None,
-            "research_route": "BROKER_GOLD_DIRECT" if institutional_seed else ("MONTHLY_THEME" if matched else None),
+            "research_route": (
+                "BROKER_GOLD_DIRECT"
+                if institutional_seed and not monthly_chain_only
+                else ("MONTHLY_THEME" if matched else None)
+            ),
             "downstream_trade_eligible": not hard_reject,
             "sent_to_llm": False,
             "feature_version": FEATURE_VERSION,
@@ -576,7 +637,16 @@ def screen_a1(
         }
         decisions.append(decision)
         if status == "LOCAL_CANDIDATE":
-            provisional[str(decision.get("node_id") or "UNMAPPED")].append(decision)
+            if monthly_chain_only:
+                sector_keys = {
+                    f"{str(link.get('taxonomy') or '').strip().upper()}:{str(link.get('taxonomy_code') or '').strip().upper()}"
+                    for link in matched
+                    if str(link.get("taxonomy") or "").strip() and str(link.get("taxonomy_code") or "").strip()
+                }
+                for sector_key in sorted(sector_keys):
+                    provisional[sector_key].append(decision)
+            else:
+                provisional[str(decision.get("node_id") or "UNMAPPED")].append(decision)
 
     # A verified current-month broker-gold row is an A1 research obligation
     # even when it is outside today's G0.  It remains explicitly research-only
@@ -591,7 +661,7 @@ def screen_a1(
             "symbol": normalized,
             "name": raw_institutional.get("name"),
             "stage": "A1_LOCAL_SCREEN",
-            "status": "LOCAL_ACTIVE_CANDIDATE",
+            "status": "OUTSIDE_G0" if monthly_chain_only else "LOCAL_ACTIVE_CANDIDATE",
             "selection_basis": "BROKER_GOLD_DIRECT",
             "score": 0.0,
             "data_quality_score": 0.0,
@@ -629,35 +699,56 @@ def screen_a1(
         })
 
     local_eligible: list[dict[str, Any]] = []
-    for node_id, node_decisions in provisional.items():
-        node_decisions.sort(key=lambda item: (-float(item["score"]), -float(item["amount"]), str(item["symbol"])))
-        for rank, item in enumerate(node_decisions, start=1):
-            item["node_rank"] = rank
-            if rank > local_top_n_per_node:
+    if monthly_chain_only:
+        # A monthly direction may map to multiple THS sector indices.  Rank on
+        # each concrete index and retain the union, so one broad theme cannot
+        # consume the review budget of another index or hide a strong member.
+        for sector_key, sector_decisions in provisional.items():
+            sector_decisions.sort(key=lambda item: (
+                -float(item["score"]),
+                -float(item["financial_quality_score"]),
+                -float(item["amount"]),
+                str(item["symbol"]),
+            ))
+            for rank, item in enumerate(sector_decisions, start=1):
+                ranks = item.setdefault("sector_index_ranks", {})
+                ranks[sector_key] = rank
+        for item in decisions:
+            if item.get("status") != "LOCAL_CANDIDATE":
+                continue
+            qualifying = {
+                key: int(rank)
+                for key, rank in (item.get("sector_index_ranks") or {}).items()
+                if int(rank) <= local_top_n_per_node
+            }
+            if not qualifying:
                 item["status"] = "LOCAL_MONITOR"
-                item["reason_codes"].append("A1_OUTSIDE_LOCAL_TOP_N")
-            elif item.get("business_exposure_facts"):
+                item["reason_codes"].append("A1_OUTSIDE_SECTOR_INDEX_TOP_N")
+                continue
+            item["sector_index_qualifying_ranks"] = qualifying
+            if item.get("business_exposure_facts"):
                 item["status"] = "LOCAL_ACTIVE_CANDIDATE"
-                local_eligible.append(item)
             else:
                 item["status"] = "LOCAL_MONITOR"
                 item["reason_codes"].append("A1_REQUIRES_LLM_EXPOSURE_REVIEW")
-                local_eligible.append(item)
+            local_eligible.append(item)
 
-    # The discovery model already owns the monthly policy/cycle thesis.  The
-    # company review is a representative audit per theme, not an approval
-    # quota for the entire deterministic research layer.
-    by_theme: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for item in local_eligible:
-        by_theme[str(item.get("theme_id") or "UNMAPPED")].append(item)
-    for values in by_theme.values():
-        values.sort(key=lambda item: (
-            0 if "A1_REQUIRES_LLM_EXPOSURE_REVIEW" in item.get("reason_codes", ()) else 1,
-            int(item.get("node_rank") or 10**9),
-            -float(item["score"]),
-            str(item["symbol"]),
-        ))
-        for item in values[:llm_top_n_per_theme]:
+        review_symbols: set[str] = set()
+        for sector_key in sorted(provisional):
+            values = [
+                item for item in local_eligible
+                if sector_key in (item.get("sector_index_qualifying_ranks") or {})
+            ]
+            values.sort(key=lambda item: (
+                0 if "A1_REQUIRES_LLM_EXPOSURE_REVIEW" in item.get("reason_codes", ()) else 1,
+                int((item.get("sector_index_ranks") or {}).get(sector_key, 10**9)),
+                -float(item["score"]),
+                str(item["symbol"]),
+            ))
+            review_symbols.update(str(item["symbol"]) for item in values[:llm_top_n_per_theme])
+        for item in local_eligible:
+            if str(item["symbol"]) not in review_symbols:
+                continue
             item["status"] = "REVIEW_CANDIDATE"
             item["selection_basis"] = "LLM_REVIEWED"
             item["sent_to_llm"] = True
@@ -665,13 +756,47 @@ def screen_a1(
                 code for code in item.get("reason_codes", ())
                 if code != "A1_REQUIRES_LLM_EXPOSURE_REVIEW"
             ]
+    else:
+        for node_id, node_decisions in provisional.items():
+            node_decisions.sort(key=lambda item: (-float(item["score"]), -float(item["amount"]), str(item["symbol"])))
+            for rank, item in enumerate(node_decisions, start=1):
+                item["node_rank"] = rank
+                if rank > local_top_n_per_node:
+                    item["status"] = "LOCAL_MONITOR"
+                    item["reason_codes"].append("A1_OUTSIDE_LOCAL_TOP_N")
+                elif item.get("business_exposure_facts"):
+                    item["status"] = "LOCAL_ACTIVE_CANDIDATE"
+                    local_eligible.append(item)
+                else:
+                    item["status"] = "LOCAL_MONITOR"
+                    item["reason_codes"].append("A1_REQUIRES_LLM_EXPOSURE_REVIEW")
+                    local_eligible.append(item)
+
+        by_theme: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for item in local_eligible:
+            by_theme[str(item.get("theme_id") or "UNMAPPED")].append(item)
+        for values in by_theme.values():
+            values.sort(key=lambda item: (
+                0 if "A1_REQUIRES_LLM_EXPOSURE_REVIEW" in item.get("reason_codes", ()) else 1,
+                int(item.get("node_rank") or 10**9),
+                -float(item["score"]),
+                str(item["symbol"]),
+            ))
+            for item in values[:llm_top_n_per_theme]:
+                item["status"] = "REVIEW_CANDIDATE"
+                item["selection_basis"] = "LLM_REVIEWED"
+                item["sent_to_llm"] = True
+                item["reason_codes"] = [
+                    code for code in item.get("reason_codes", ())
+                    if code != "A1_REQUIRES_LLM_EXPOSURE_REVIEW"
+                ]
 
     # The fundamental baseline is a separate, auditable research route.  It
     # widens A1 beyond the monthly theme allow-list without weakening G0 or
     # silently turning missing evidence into a positive signal.  Only rows
     # which are still outside the active/review partitions can enter it.
     local_active_count = sum(item.get("status") == "LOCAL_ACTIVE_CANDIDATE" for item in decisions)
-    if baseline_enabled and local_active_count < active_target_min:
+    if baseline_enabled and not monthly_chain_only and local_active_count < active_target_min:
         baseline_candidates: list[tuple[dict[str, Any], str, str]] = []
         for item in decisions:
             if item.get("status") not in {"LOCAL_MONITOR", "OUTSIDE_THEME"}:
@@ -744,7 +869,7 @@ def screen_a1(
     # Compatibility path for old snapshots without the explicit baseline
     # contract.  New production snapshots use the baseline route above; this
     # path remains bounded and retains the historical provenance label.
-    if quota_fill_enabled and not baseline_enabled and local_active_count < active_target_min:
+    if quota_fill_enabled and not monthly_chain_only and not baseline_enabled and local_active_count < active_target_min:
         expandable = sorted(
             (
                 item for item in decisions
@@ -879,6 +1004,7 @@ def screen_a2(
     market_funding = raw_market_funding if isinstance(raw_market_funding, Mapping) else {}
     taxonomy_theme_map = _a2_taxonomy_theme_map(a1_output)
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    market_grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     decisions: list[dict[str, Any]] = []
     for item in rows:
         symbol = _symbol(item.get("symbol"))
@@ -909,6 +1035,14 @@ def screen_a2(
             taxonomy_theme_map,
             fallback=source_theme_id,
         )
+        if taxonomy_binding.get("status") == "BOUND":
+            bound_taxonomy = str(taxonomy_binding.get("taxonomy") or "").strip().upper()
+            bound_code = str(taxonomy_binding.get("taxonomy_code") or "").strip().upper()
+            if bound_taxonomy and bound_code:
+                # Rotation is ranked on the concrete sector index, not on a
+                # broad A1 narrative theme or an aggregate of constituent
+                # stock scores.
+                rotation_direction_id = f"{bound_taxonomy}:{bound_code}"
         explicit_relative = _relative_strength_score(factor, default=None)
         relative = explicit_relative if explicit_relative is not None else _percentile_score(
             bar_returns.get(symbol), return_distribution
@@ -1159,21 +1293,37 @@ def screen_a2(
             "as_of": snapshot_as_of,
         }
         decisions.append(decision)
+        if _number(taxonomy_binding.get("rotation_strength_score")) is not None:
+            market_grouped[rotation_direction_id].append(decision)
         if status == "REVIEW_CANDIDATE":
             grouped[rotation_direction_id].append(decision)
     theme_strength: dict[str, float] = {}
-    for theme_id, values in grouped.items():
+    theme_strength_source: dict[str, str] = {}
+    ranking_groups = market_grouped if market_grouped else grouped
+    for theme_id, values in ranking_groups.items():
         values.sort(key=lambda item: (-float(item["score"]), -float(item["identifiability_score"]), str(item["symbol"])))
-        # Direction strength is an aggregation of the already-audited A2
-        # score, not a new factor family.  Keep five fixed breadth slots so a
-        # one-stock taxonomy spike cannot outrank a broad, tradeable rotation.
-        # Empty slots contribute zero; once five names exist this becomes the
-        # ordinary mean of the five leaders.
-        leaders = values[:5]
-        theme_strength[theme_id] = round(
-            sum(float(item["score"]) for item in leaders) / 5.0,
-            4,
-        )
+        market_scores = [
+            float(score)
+            for item in values
+            if (score := _number(
+                (item.get("a2_taxonomy_binding") or {}).get("rotation_strength_score")
+                if isinstance(item.get("a2_taxonomy_binding"), Mapping)
+                else None
+            )) is not None
+        ]
+        if market_scores:
+            theme_strength[theme_id] = round(max(market_scores), 4)
+            theme_strength_source[theme_id] = "A2_THEME_METRICS"
+        else:
+            # Frozen legacy fixtures may predate the sector-strength contract.
+            # Retain deterministic replayability and label the fallback; new
+            # production snapshots always use A2_THEME_METRICS.
+            leaders = values[:5]
+            theme_strength[theme_id] = round(
+                sum(float(item["score"]) for item in leaders) / 5.0,
+                4,
+            )
+            theme_strength_source[theme_id] = "LEGACY_CONSTITUENT_SCORE_FALLBACK"
     ranked_themes = sorted(
         theme_strength,
         key=lambda theme_id: (-theme_strength[theme_id], -len(grouped[theme_id]), theme_id),
@@ -1181,12 +1331,16 @@ def screen_a2(
     top_theme_ids = set(ranked_themes[:rotation_theme_count])
     theme_rotation_rank = {theme_id: rank for rank, theme_id in enumerate(ranked_themes, start=1)}
 
-    for theme_id, values in grouped.items():
-        for rank, item in enumerate(values, start=1):
-            item["theme_rank"] = rank
+    for theme_id, values in ranking_groups.items():
+        for item in values:
             item["theme_rotation_rank"] = theme_rotation_rank[theme_id]
             item["theme_rotation_score"] = theme_strength[theme_id]
+            item["rotation_strength_source"] = theme_strength_source[theme_id]
             item["top_rotation_theme"] = theme_id in top_theme_ids
+        eligible_values = grouped.get(theme_id, [])
+        eligible_values.sort(key=lambda item: (-float(item["score"]), -float(item["identifiability_score"]), str(item["symbol"])))
+        for rank, item in enumerate(eligible_values, start=1):
+            item["theme_rank"] = rank
             if theme_id not in top_theme_ids:
                 item["status"] = "LOCAL_MONITOR"
                 item["reason_codes"].append("A2_OUTSIDE_ROTATION_TOP_THEMES")
@@ -1195,6 +1349,17 @@ def screen_a2(
                 item["reason_codes"].append("A2_NOT_SENT_TO_LLM")
             else:
                 item["sent_to_llm"] = True
+
+    if market_grouped:
+        for item in decisions:
+            if item.get("status") != "REVIEW_CANDIDATE" or item.get("top_rotation_theme") is True:
+                continue
+            item["status"] = "LOCAL_MONITOR"
+            item["sent_to_llm"] = False
+            item["reason_codes"] = list(dict.fromkeys([
+                *[str(code) for code in item.get("reason_codes", ()) if str(code)],
+                "A2_ROTATION_STRENGTH_UNAVAILABLE",
+            ]))
 
     # Attribution is deliberately computed after theme ranking and transport
     # selection.  This records the final ``SENT_TO_LLM`` state while leaving
@@ -1335,6 +1500,12 @@ def _a2_behavior_evidence(
     tier = factor_scores.get("tier_structure")
     tier = tier if isinstance(tier, Mapping) else {}
     ladder_height = _number(tier.get("ladder_height"))
+    first_board_observed = (
+        tier.get("first_board_observed") is True
+        and ladder_height == 1
+        and str(tier.get("event_source") or tier.get("source") or "").strip().upper()
+        in {"HITHINK_LIMIT_UP_POOL", "HITHINK_LIMIT_UP_POOL_FIRST_BOARD", "HITHINK_LIMIT_UP_LADDER"}
+    )
     ladder_available = tier.get("available") is True and (
         ladder_height is not None or str(tier.get("availability_state") or "").upper() == "OBSERVED_ABSENT"
     )
@@ -1345,12 +1516,15 @@ def _a2_behavior_evidence(
     ladder = {
         "available": ladder_available,
         "met": (
-            ladder_height is not None and ladder_height >= 2
+            (ladder_height is not None and ladder_height >= 2) or first_board_observed
         ) if ladder_available else None,
         "value": {
             "ladder_height": ladder_height,
             "tier": tier.get("tier"),
             "market_role": legacy_role,
+            "first_board_observed": first_board_observed,
+            "continuation_confirmed": tier.get("continuation_confirmed") is True,
+            "event_source": tier.get("event_source") or tier.get("source"),
         },
         "source_refs": list(dict.fromkeys(ladder_refs)),
         "as_of": as_of,
@@ -1850,6 +2024,12 @@ def _bind_a2_factor_to_a1_lineage(
         "taxonomy": best.get("taxonomy"),
         "taxonomy_code": taxonomy_code,
         "taxonomy_name": best.get("taxonomy_name"),
+        "rotation_strength_score": _number(best.get("score")),
+        "rotation_strength_available": best.get("available") is True,
+        "reference_member_count": best.get("reference_member_count", best.get("member_count")),
+        "candidate_member_count": best.get("candidate_member_count"),
+        "return_coverage": best.get("return_coverage"),
+        "source_refs": list(source_refs),
         "matched_taxonomies": matched,
     }
 
@@ -3232,8 +3412,16 @@ def local_active_items(result: DeterministicGateResult) -> list[dict[str, Any]]:
             "decision_id": item.get("decision_id"),
             "company_name": item.get("name"),
             "primary_theme": item.get("theme_id"),
+            "monthly_direction_id": item.get("monthly_direction_id"),
+            "monthly_direction_name": item.get("monthly_direction_name"),
+            "monthly_direction_matches": list(item.get("monthly_direction_matches") or ()),
             "secondary_themes": [],
             "industry_chain_node": item.get("node_id"),
+            "sector_index_taxonomy": item.get("sector_index_taxonomy"),
+            "sector_index_code": item.get("sector_index_code"),
+            "sector_index_name": item.get("sector_index_name"),
+            "sector_constituent_confirmed": item.get("sector_constituent_confirmed") is True,
+            "taxonomy_matches": list(item.get("taxonomy_matches") or ()),
             "core_thesis": (
                 "BROKER_GOLD_MONTHLY_RESEARCH_COVERAGE"
                 if research_route == "BROKER_GOLD_DIRECT"
@@ -3277,6 +3465,9 @@ def local_active_items(result: DeterministicGateResult) -> list[dict[str, Any]]:
             "company_archetype": item.get("company_archetype"),
             "pullback_cause": item.get("pullback_cause"),
             "a1_selection_evidence": dict(item.get("a1_selection_evidence") or {}),
+            "fundamental_support": dict(item.get("fundamental_support") or {}),
+            "financial_quality_score": item.get("financial_quality_score"),
+            "disclosed_business_match": dict(item.get("disclosed_business_match") or {}),
             "financial_subfactor_coverage": item.get("financial_subfactor_coverage"),
             "available_weight": item.get("available_weight"),
             "available_weight_pct": item.get("available_weight_pct"),

@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 from liangjian_funnel.data.mootdx import MinuteBar
 from liangjian_funnel.runtime.monitor import MonitorEngine, rebuild_effective_markdown
+from liangjian_funnel.runtime.simulation import PaperBroker, SimulationAction
 from liangjian_funnel.runtime.state import MonitorAction, PlanStatus, RuntimeStore
 
 
@@ -131,6 +132,7 @@ def test_strategy_plan_uses_closed_15m_and_5m_not_legacy_1m_zone(tmp_path):
         status=PlanStatus.PENDING_MORNING_REVIEW,
         payload={
             "strategy_profile": "TREND_MA5",
+            "stock_behavior_type": "TREND",
             "eligibility": "QUALIFIED",
             # Deliberately excludes the current price.  A strategy plan must
             # not fall back to the retired one-minute trigger-zone check.
@@ -314,3 +316,197 @@ def test_after_cutoff_buy_is_blocked_and_forced_exit_survives(tmp_path):
     t0 = datetime(2026, 8, 24, 14, 46, tzinfo=TZ)
     result = engine.process_minute("lane-a", {"600519.SH": bar(t0)}, minute_snapshot_id="m1", now=t0)
     assert all(event.action != MonitorAction.BUY_SIGNAL.value for event in result.events)
+
+
+def test_pre_entry_one_minute_stop_touch_does_not_invalidate_plan(tmp_path):
+    store = RuntimeStore(tmp_path / "pre-entry-risk.sqlite3")
+    store.create_execution_plan(
+        "p-yingweike",
+        "lane-a",
+        "002837.SZ",
+        status=PlanStatus.ACTIVE_TODAY,
+        payload={
+            "source_run_id": "run-20260903",
+            "name": "英维克",
+            "stock_behavior_type": "TREND",
+            "strategy_profile": "TREND_MA5",
+            "entry_reference_zone": {"low": 66.158, "high": 66.23},
+            "stop_level": 65.81,
+            "daily_indicators": {
+                "ma5": 66.158,
+                "ma10": 61.489,
+                "ma20": 58.552,
+                "close": 66.23,
+            },
+        },
+    )
+    start = datetime(2026, 9, 3, 10, 16, tzinfo=TZ)
+    history = []
+    for index in range(34):
+        end = start + timedelta(minutes=index)
+        close = 66.4 - index * 0.01
+        history.append(
+            MinuteBar(
+                symbol="002837.SZ",
+                interval="1m",
+                bar_end=end,
+                open=close + 0.02,
+                high=close + 0.08,
+                low=close - 0.05,
+                close=close,
+                volume=1_000,
+                amount=close * 1_000,
+                source_id="TENCENT:TEST",
+            )
+        )
+    history[-1] = history[-1].model_copy(
+        update={"open": 65.97, "high": 65.97, "low": 65.80, "close": 65.86}
+    )
+    now = history[-1].bar_end
+    result = MonitorEngine(store, llm_veto=lambda _context: False).process_minute(
+        "lane-a",
+        {"002837.SZ": history[-1]},
+        minute_snapshot_id="yingweike-1049",
+        now=now,
+        bar_histories={"002837.SZ": tuple(history)},
+        market_contexts={
+            "002837.SZ": {
+                "live_market_state": {
+                    "status": "READY",
+                    "decision": "ALLOW",
+                    "as_of": now.isoformat(),
+                    "trade_date": now.date().isoformat(),
+                }
+            }
+        },
+    )
+
+    assert result.events[-1].action == MonitorAction.START_CONFIRMATION.value
+    assert result.events[-1].reason_code == "PRE_ENTRY_RISK_LEVEL_TOUCHED"
+    assert store.get_execution_plan("p-yingweike")["status"] == PlanStatus.ACTIVE_TODAY.value
+    assert store.list_a4_signal_lifecycles() == ()
+
+
+def test_expired_entry_plan_keeps_type_specific_exit_rules_for_open_position(tmp_path):
+    store = RuntimeStore(tmp_path / "expired-position.sqlite3")
+    prior = datetime(2026, 9, 2, 10, 0, tzinfo=TZ)
+    store.create_execution_plan(
+        "p-expired-trend",
+        "lane-a",
+        "600519.SH",
+        status=PlanStatus.ACTIVE_TODAY,
+        expires_at=prior.replace(hour=15),
+        payload={
+            "source_run_id": "run-20260902",
+            "stock_behavior_type": "TREND",
+            "strategy_profile": "TREND_MA5",
+            "stop_level": 8.0,
+            "daily_indicators": {"ma5": 10.0, "ma10": 9.8, "ma20": 9.5, "close": 10.2},
+            "behavior_risk": {
+                "trend_top": {"confirmed": True, "signals": ["DISTRIBUTION"]},
+                "emotion_top": {"confirmed": False, "signals": []},
+            },
+        },
+    )
+    broker = PaperBroker(store, account_id="paper:lane-a", model="TEST")
+    bought = broker.apply(
+        SimulationAction(
+            account_id="paper:lane-a",
+            signal_id="prior-buy",
+            symbol="600519.SH",
+            action="BUY",
+            signal_bar_end=prior,
+            entry_reference=10.0,
+            stop_level=8.0,
+            requested_qty=100,
+            plan_id="p-expired-trend",
+        ),
+        bar(prior + timedelta(minutes=1), close=10.1),
+    )
+    assert bought.reason_code == "FILLED"
+    now = datetime(2026, 9, 3, 10, 0, tzinfo=TZ)
+    start = now.replace(hour=9, minute=31)
+    history = tuple(bar(start + timedelta(minutes=index), close=10.2) for index in range(30))
+
+    result = MonitorEngine(store, llm_veto=lambda _context: False).process_minute(
+        "lane-a",
+        {"600519.SH": history[-1]},
+        minute_snapshot_id="expired-plan-exit",
+        now=now,
+        bar_histories={"600519.SH": history},
+        market_contexts={
+            "600519.SH": {
+                "live_market_state": {
+                    "status": "READY",
+                    "decision": "ALLOW",
+                    "as_of": now.isoformat(),
+                    "trade_date": now.date().isoformat(),
+                }
+            }
+        },
+    )
+
+    target = next(event for event in result.events if event.symbol == "600519.SH")
+    assert target.action == MonitorAction.SELL_SIGNAL.value
+    assert target.reason_code == "A4_TREND_TOP_RISK_CONFIRMED"
+
+
+def test_invalidated_flag_exits_an_open_position_instead_of_only_invalidating_plan(tmp_path):
+    store = RuntimeStore(tmp_path / "invalidated-open-position.sqlite3")
+    signal_at = datetime(2026, 9, 3, 9, 30, tzinfo=TZ)
+    store.create_execution_plan(
+        "p-invalidated-open",
+        "lane-a",
+        "600519.SH",
+        status=PlanStatus.ACTIVE_TODAY,
+        expires_at=signal_at.replace(hour=15),
+        payload={
+            "source_run_id": "run-20260903",
+            "stock_behavior_type": "TREND",
+            "strategy_profile": "TREND_MA5",
+            "plan_invalidated": True,
+            "stop_level": 8.0,
+            "daily_indicators": {"ma5": 10.0, "ma10": 9.8, "ma20": 9.5, "close": 10.2},
+        },
+    )
+    broker = PaperBroker(store, account_id="paper:lane-a", model="TEST")
+    bought = broker.apply(
+        SimulationAction(
+            account_id="paper:lane-a",
+            signal_id="prior-buy",
+            symbol="600519.SH",
+            action="BUY",
+            signal_bar_end=signal_at,
+            entry_reference=10.0,
+            stop_level=8.0,
+            requested_qty=100,
+            plan_id="p-invalidated-open",
+        ),
+        bar(signal_at + timedelta(minutes=1), close=10.1),
+    )
+    assert bought.reason_code == "FILLED"
+    start = signal_at + timedelta(minutes=1)
+    history = tuple(bar(start + timedelta(minutes=index), close=10.2) for index in range(30))
+    now = history[-1].bar_end
+
+    result = MonitorEngine(store, llm_veto=lambda _context: False).process_minute(
+        "lane-a",
+        {"600519.SH": history[-1]},
+        minute_snapshot_id="invalidated-open-position",
+        now=now,
+        bar_histories={"600519.SH": history},
+        market_contexts={
+            "600519.SH": {
+                "live_market_state": {
+                    "status": "READY",
+                    "decision": "ALLOW",
+                    "as_of": now.isoformat(),
+                    "trade_date": now.date().isoformat(),
+                }
+            }
+        },
+    )
+
+    target = next(event for event in result.events if event.symbol == "600519.SH")
+    assert target.action == MonitorAction.SELL_SIGNAL.value
+    assert target.reason_code == "PLAN_INVALIDATED"

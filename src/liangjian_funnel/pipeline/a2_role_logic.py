@@ -5,8 +5,9 @@ turns point-in-time evidence into one of three mutually exclusive behaviour
 types:
 
 ``EMOTION``
-    A theme/ladder leader.  The only downstream route is the intraday leader
-    strategy.
+    A theme/ladder leader or a reliably observed first-board candidate.  The
+    only downstream route is the intraday leader strategy; A3 decides whether
+    first-board evidence is sufficiently confirmed for execution.
 ``TREND``
     A medium-term trend/core stock.  The downstream routes are the daily
     5-day-line trend strategy and the 5/20 swing strategy.
@@ -166,6 +167,7 @@ def classify_a2_stock(
     facets = _build_facets(raw, normalized, default_as_of=as_of)
 
     emotion_anchor = _emotion_anchor(normalized["ladder_structure"])
+    first_board_observed = _first_board_observed(normalized["ladder_structure"])
     emotion_negative = normalized["ladder_structure"]["available"] is True and normalized["ladder_structure"]["met"] is False
     emotion_qualified = emotion_anchor and not emotion_negative
 
@@ -187,10 +189,11 @@ def classify_a2_stock(
     hinted_type = _hinted_behavior_type(raw)
     derived_type: str
     if emotion_qualified:
-        # A confirmed ladder/leader state describes the next-session trading
+        # A ladder/leader observation describes the short-horizon trading
         # behaviour even when the same company also has a healthy medium-term
         # trend.  The shorter-horizon emotion contract takes precedence so the
-        # stock cannot be routed simultaneously to leader and trend playbooks.
+        # stock cannot be routed simultaneously to leader and trend playbooks;
+        # A3 retains the stronger confirmation gate for first-board rows.
         derived_type = EMOTION
     elif trend_qualified:
         derived_type = TREND
@@ -204,6 +207,7 @@ def classify_a2_stock(
     reason_codes = _reason_codes(
         behavior_type=derived_type,
         emotion_anchor=emotion_anchor,
+        first_board_observed=first_board_observed,
         trend_states=trend_states,
         conflicts=conflicts,
         data_gaps=data_gaps,
@@ -235,6 +239,7 @@ def classify_a2_stock(
         "required_facets": facets,
         "decision_basis": {
             "emotion_anchor": emotion_anchor,
+            "first_board_observed": first_board_observed,
             "emotion_qualified": emotion_qualified,
             "trend_qualified": trend_qualified,
             "emotion_precedence_applied": emotion_qualified and trend_qualified,
@@ -425,7 +430,32 @@ def _emotion_anchor(ladder: Mapping[str, Any]) -> bool:
             return True
     for key in ("ladder_height", "board_num", "continuous_boards", "board_count", "连板数", "梯队高度"):
         number = _number(value.get(key))
-        if number is not None and number >= 2:
+        # A reliable first-board observation is enough to enter the emotion /
+        # leader candidate route.  A3 still owns the confirmation gate and
+        # must keep first-board rows observation-only.  Requiring a positive
+        # board number prevents arbitrary ``met=True`` mappings from becoming
+        # emotion leaders.
+        if number is not None and number >= 1:
+            return True
+    return False
+
+
+def _first_board_observed(ladder: Mapping[str, Any]) -> bool:
+    """Return whether the ladder fact is explicitly bounded to board one."""
+
+    if ladder.get("available") is not True or ladder.get("met") is not True:
+        return False
+    value = ladder.get("value")
+    if not isinstance(value, Mapping):
+        return False
+    if value.get("first_board_observed") is True:
+        return True
+    source = str(value.get("event_source") or value.get("source") or "").strip().upper()
+    if source == "HITHINK_LIMIT_UP_POOL":
+        return True
+    for key in ("ladder_height", "board_num", "continuous_boards", "board_count", "连板数", "梯队高度"):
+        number = _number(value.get(key))
+        if number is not None and number == 1:
             return True
     return False
 
@@ -493,6 +523,7 @@ def _reason_codes(
     *,
     behavior_type: str,
     emotion_anchor: bool,
+    first_board_observed: bool = False,
     trend_states: Sequence[Mapping[str, Any]],
     conflicts: Sequence[str],
     data_gaps: Sequence[str],
@@ -500,7 +531,11 @@ def _reason_codes(
 ) -> list[str]:
     reasons: list[str] = []
     if behavior_type == EMOTION:
-        reasons.append("A2_EMOTION_LADDER_LEADER_CONFIRMED")
+        reasons.append(
+            "A2_EMOTION_FIRST_BOARD_OBSERVED"
+            if first_board_observed
+            else "A2_EMOTION_LADDER_LEADER_CONFIRMED"
+        )
         if all(item.get("available") is True and item.get("met") is True for item in trend_states):
             reasons.append("A2_EMOTION_PRECEDENCE_OVER_TREND")
         if not any(item.get("available") is True and item.get("met") is True for item in trend_states):

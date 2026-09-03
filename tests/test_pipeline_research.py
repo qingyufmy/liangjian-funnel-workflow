@@ -40,6 +40,7 @@ from liangjian_funnel.pipeline.research import (
     _demote_a2_llm_rejects,
     _enrich_a2_decision_facts,
     _gate_rejected_items,
+    _gate_outside_rotation_items,
     _gate_secondary_items,
     _move_a2_hard_rejects_to_rejected,
     _refresh_analysis_counts,
@@ -1983,6 +1984,12 @@ def test_a2_gate_hard_reject_is_not_projected_as_watch_only():
         decisions=(
             {"symbol": "600001.SH", "status": "HARD_REJECT", "reason_codes": ["A2_LOW_IDENTITY_EXCLUDED"]},
             {"symbol": "600002.SH", "status": "LOCAL_MONITOR", "reason_codes": ["A2_NOT_SENT_TO_LLM"]},
+            {
+                "symbol": "600003.SH",
+                "status": "LOCAL_MONITOR",
+                "top_rotation_theme": False,
+                "reason_codes": ["A2_OUTSIDE_ROTATION_TOP_THEMES"],
+            },
         ),
         review_symbols=(),
         monitor_symbols=("600002.SH",),
@@ -1993,6 +2000,9 @@ def test_a2_gate_hard_reject_is_not_projected_as_watch_only():
     rejected = _gate_rejected_items(gate, "A2")
     assert [item["symbol"] for item in rejected] == ["600001.SH"]
     assert rejected[0]["status"] == "REJECTED"
+    outside = _gate_outside_rotation_items(gate)
+    assert [item["symbol"] for item in outside] == ["600003.SH"]
+    assert outside[0]["status"] == "OUTSIDE_ROTATION"
 
 
 def test_a2_provider_hard_reject_is_repaired_into_rejected_partition():
@@ -2286,6 +2296,12 @@ def test_a3_candidate_domain_includes_only_eligible_watch_only_roles():
                     "market_role": "EMOTION_LEADER",
                     "a2_route": "NO_ROUTE_READY",
                 },
+                {
+                    "symbol": "000005.SZ",
+                    "market_role": "TREND_CORE",
+                    "top_rotation_theme": False,
+                    "eligible_routes": ["MARKET_CORE"],
+                },
             ],
         }
     )
@@ -2306,6 +2322,11 @@ def test_a3_candidate_domain_includes_only_eligible_watch_only_roles():
     assert not _a3_watch_only_candidate_eligible({
         "market_role": "TREND_CORE",
         "deterministic_reason_codes": ["A2_IDENTIFIABILITY_BELOW_THRESHOLD"],
+    })
+    assert not _a3_watch_only_candidate_eligible({
+        "market_role": "TREND_CORE",
+        "top_rotation_theme": False,
+        "eligible_routes": ["MARKET_CORE"],
     })
 
 

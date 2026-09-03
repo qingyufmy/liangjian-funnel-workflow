@@ -5,6 +5,11 @@ research_slots:
   premarket: "08:30"
   morning: "09:26"
   close: "15:10"
+review_slots:
+  a5_midday: "11:35"
+  a5_post_close: "16:00"
+  input_cutoffs: ["11:30", "15:00"]
+  authority: READ_ONLY_PROPOSAL
 feature_maintenance:
   schedule: "03:30"
   saturday_mode: "FULL"

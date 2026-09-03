@@ -106,6 +106,8 @@ from .pipeline.snapshot import FrozenInputSnapshot, UniverseGatePolicy, Universe
 from .pipeline.technical_aggregates import build_technical_aggregates
 from .redaction import digest_text, sanitize
 from .reporting import atomic_write_json, atomic_write_json_streaming, atomic_write_text
+from .review.daily import A5DailyReviewService, A5ReviewKind
+from .review.verification import A5IndependentVerifier
 from .runtime.monitor import MonitorBatchResult, MonitorEngine, rebuild_effective_markdown
 from .runtime.lark_notifications import WorkflowLarkPublisher
 from .runtime.live_market import load_or_refresh_live_market_state
@@ -114,7 +116,7 @@ from .runtime.resource_guard import evaluate_resources, measure_resources
 from .runtime.calendar import ExchangeTradingCalendar, TradingCalendarError
 from .runtime.scheduler import ScheduleKind, Scheduler
 from .runtime.simulation import PaperBroker, SimulationAction, SimulationConfig
-from .runtime.state import MonitorAction, PlanStatus, RuntimeStore
+from .runtime.state import A4SignalStatus, MonitorAction, PlanStatus, RuntimeStore
 from .settings import Settings, load_yaml
 
 
@@ -354,6 +356,18 @@ class WorkflowApplication:
             ),
             max_attempts=2,
             thinking_enabled=settings.monitor_thinking_enabled,
+        )
+        self.review_model_client = OpenAICompatibleModelClient(
+            settings.model_copy(
+                update={
+                    "model_timeout_seconds": 300.0,
+                    "model_max_output_tokens": 16_384,
+                    "model_fallback_output_tokens": 8_192,
+                    "model_secondary_fallback_output_tokens": 4_096,
+                }
+            ),
+            max_attempts=3,
+            thinking_enabled=settings.research_thinking_enabled,
         )
         self.trading_calendar = ExchangeTradingCalendar()
         mootdx = MootdxAdapter(
@@ -3258,6 +3272,7 @@ class WorkflowApplication:
     def monitor_once(self, *, now: datetime | None = None) -> dict[str, Any]:
         current = _aware(now or datetime.now(SHANGHAI)).replace(second=0, microsecond=0)
         self._ensure_trading_day(current)
+        self._expire_missed_a4_entries(current)
         minute_snapshot_id = f"minute-{current.strftime('%Y%m%dT%H%M%S%z')}"
         # A missed 09:26 callback can still be recovered during the bounded
         # morning window.  This only activates the latest already-published
@@ -3441,7 +3456,27 @@ class WorkflowApplication:
                 else:
                     bars[symbol] = one_bars[-1]
                     histories[symbol] = one_bars
+                    account_id = f"paper:{lane_id}"
+                    position_before = self.store.get_position(account_id, symbol)
+                    if position_before is not None:
+                        self.store.observe_a4_lifecycle(
+                            account_id=account_id,
+                            symbol=symbol,
+                            bar_end=one_bars[-1].bar_end,
+                            high=one_bars[-1].high,
+                            low=one_bars[-1].low,
+                            close=one_bars[-1].close,
+                        )
                     simulation.extend(self._settle_prior_signals(lane_id, symbol, one_bars[-1]))
+                    if position_before is None and self.store.get_position(account_id, symbol) is not None:
+                        self.store.observe_a4_lifecycle(
+                            account_id=account_id,
+                            symbol=symbol,
+                            bar_end=one_bars[-1].bar_end,
+                            high=one_bars[-1].high,
+                            low=one_bars[-1].low,
+                            close=one_bars[-1].close,
+                        )
                 contexts[symbol] = _intraday_market_context(
                     symbol,
                     one_bars,
@@ -3870,6 +3905,39 @@ class WorkflowApplication:
     def run_due(self, *, now: datetime | None = None) -> dict[str, Any]:
         return self.run_scheduled(now=now)
 
+    def run_a5_review(
+        self,
+        review_kind: A5ReviewKind | str,
+        *,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Run one read-only daily review from persisted A2-A4 evidence."""
+
+        current = _aware(now or datetime.now(SHANGHAI))
+        if not self.trading_calendar.is_trading_day(current.date()):
+            return {
+                "status": "NOOP",
+                "reason_code": "NON_TRADING_DAY",
+                "trade_date": current.date().isoformat(),
+            }
+        kind = review_kind if isinstance(review_kind, A5ReviewKind) else A5ReviewKind(str(review_kind).upper())
+        model, _lane_index, lane_id = _primary_model_for_settings(self.settings)
+        return A5DailyReviewService(
+            store=self.store,
+            prompts=self.prompts,
+            model_client=self.review_model_client,
+            output_dir=self.settings.workflow_output_dir,
+            lane_id=lane_id,
+            model=model,
+            independent_verifier=A5IndependentVerifier(
+                daily_cache=self.fact_cache,
+                minute_store=self.minute_store,
+                tencent=getattr(self.market_data, "fallback", None),
+                mootdx=getattr(self.market_data, "primary", None),
+            ),
+            notification_publisher=self.lark_publisher,
+        ).run(review_kind=kind, now=current)
+
     def run_scheduled(
         self,
         kind: ScheduleKind | None = None,
@@ -3892,6 +3960,8 @@ class WorkflowApplication:
                     schedule_comparison=False,
                     from_active_a1=True,
                 ),
+                ScheduleKind.A5_MIDDAY_1135: lambda _job: self.run_a5_review(A5ReviewKind.MIDDAY, now=current),
+                ScheduleKind.A5_POST_CLOSE_1600: lambda _job: self.run_a5_review(A5ReviewKind.POST_CLOSE, now=current),
                 ScheduleKind.MONITOR: lambda _job: self.monitor_once(now=current),
             },
             owner="liangjian-runtime",
@@ -4218,6 +4288,7 @@ class WorkflowApplication:
             industry_membership=industry_membership,
             concept_membership=concept_membership,
             ladder_snapshot=_available_fact(facts, "LIMIT_UP_LADDER"),
+            limit_up_snapshot=_available_fact(facts, "LIMIT_UP_POOL"),
             dragon_tiger_snapshot=dragon_tiger,
             attention_snapshot=hot_stocks,
             sector_cycle_snapshot=sector_cycle,
@@ -4739,6 +4810,7 @@ class WorkflowApplication:
 
     def _settle_prior_signals(self, lane_id: str, symbol: str, bar: MinuteBar) -> list[dict[str, Any]]:
         broker = self.brokers[lane_id]
+        account_id = f"paper:{lane_id}"
         results: list[dict[str, Any]] = []
         for event in self.store.list_monitor_events(lane_id=lane_id, effective_only=True):
             if event.get("action") not in {
@@ -4762,10 +4834,8 @@ class WorkflowApplication:
                 MonitorAction.FORCED_RISK_EXIT.value: "FORCED_RISK_EXIT",
             }[str(event["action"])]
             signal_time = datetime.fromisoformat(str(event["minute_end"]))
-            if bar.bar_end != _next_closed_minute(signal_time):
-                continue
             simulation_action = SimulationAction(
-                account_id=f"paper:{lane_id}",
+                account_id=account_id,
                 signal_id=str(event["event_key"]),
                 symbol=symbol,
                 action=action,
@@ -4780,11 +4850,89 @@ class WorkflowApplication:
                 plan_id=payload.get("plan_id"),
             )
             intent_key = f"{simulation_action.account_id}:{simulation_action.signal_id}:{simulation_action.action.value}"
-            if self.store.get_fill_by_intent_key(intent_key) is not None:
+            lifecycle_rows = self.store.list_a4_signal_lifecycles(
+                plan_id=str(payload.get("plan_id") or "") or None,
+                account_id=account_id,
+                symbol=symbol,
+                limit=10,
+            )
+            lifecycle = lifecycle_rows[0] if lifecycle_rows else None
+            if lifecycle is None and action == "BUY" and plan is not None:
+                lifecycle, _ = self.store.record_a4_entry_signal(event, plan)
+            lifecycle_key = str(lifecycle.get("entry_event_key") or "") if lifecycle else ""
+
+            existing_fill = self.store.get_fill_by_intent_key(intent_key)
+            if existing_fill is not None:
+                if lifecycle_key:
+                    self.store.apply_a4_fill(lifecycle_key, existing_fill)
                 continue
+
+            eligible_bar = _next_closed_minute(signal_time)
+            if action in {"BUY", "ADD"}:
+                if bar.bar_end < eligible_bar:
+                    continue
+                if bar.bar_end > eligible_bar:
+                    if action == "BUY" and lifecycle_key and lifecycle.get("status") == A4SignalStatus.SIGNALLED.value:
+                        self.store.mark_a4_signal_terminal(
+                            lifecycle_key,
+                            A4SignalStatus.UNFILLED,
+                            reason_code="ENTRY_NEXT_BAR_MISSED",
+                            at=bar.bar_end,
+                        )
+                    continue
+            else:
+                if bar.bar_end <= signal_time:
+                    continue
+                position = self.store.get_position(account_id, symbol)
+                if position is None:
+                    continue
+                event_plan_id = str(payload.get("plan_id") or "").strip()
+                position_plan_id = str(position.get("plan_id") or "").strip()
+                if event_plan_id and position_plan_id and event_plan_id != position_plan_id:
+                    continue
+                # Keep the durable lifecycle in EXIT_PENDING during T+1.  The
+                # first later bar after sellable quantity is released will
+                # execute the same immutable exit signal.
+                if int(position.get("sellable_qty") or 0) <= 0:
+                    continue
             outcome = broker.apply(simulation_action, bar)
             results.append(outcome.model_dump(mode="json"))
+            if outcome.fill is not None and lifecycle_key:
+                self.store.apply_a4_fill(lifecycle_key, outcome.fill)
+            elif action == "BUY" and lifecycle_key and outcome.status.value in {"BLOCKED", "CANCELLED"}:
+                self.store.mark_a4_signal_terminal(
+                    lifecycle_key,
+                    A4SignalStatus.UNFILLED,
+                    reason_code=outcome.reason_code,
+                    at=bar.bar_end,
+                )
         return results
+
+    def _expire_missed_a4_entries(self, current: datetime) -> int:
+        """Close stale unfilled signals without deleting their evidence."""
+
+        expired = 0
+        for lifecycle in self.store.list_a4_signal_lifecycles(
+            status=A4SignalStatus.SIGNALLED.value,
+            limit=10_000,
+        ):
+            signal_time = datetime.fromisoformat(str(lifecycle["signal_time"]))
+            if current <= _next_closed_minute(signal_time):
+                continue
+            account_id = str(lifecycle["account_id"])
+            event_key = str(lifecycle["entry_event_key"])
+            fill = self.store.get_fill_by_intent_key(f"{account_id}:{event_key}:BUY")
+            if fill is not None:
+                self.store.apply_a4_fill(event_key, fill)
+                continue
+            self.store.mark_a4_signal_terminal(
+                event_key,
+                A4SignalStatus.UNFILLED,
+                reason_code="ENTRY_NEXT_BAR_MISSED",
+                at=current,
+            )
+            expired += 1
+        return expired
 
     def _ensure_trading_day(self, current: datetime, *, synchronize_accounts: bool = True) -> None:
         try:
@@ -5496,11 +5644,12 @@ def _prompt_parameters(config: Mapping[str, Any]) -> dict[str, Any]:
                 "quota_fill_observation",
                 "COHORT_OBSERVATION_ONLY",
             ),
+            "monthly_chain_only": bool(a1.get("monthly_chain_only", False)),
             "fundamental_baseline": dict(a1.get("fundamental_baseline", {}))
             if isinstance(a1.get("fundamental_baseline"), Mapping)
             else {},
         },
-        "A2_POOL_TARGETS": _pool_targets(a2.get("candidate_pool_target"), default=(100, 200)),
+        "A2_POOL_TARGETS": _pool_targets(a2.get("candidate_pool_target"), default=(20, 60)),
         "A2_ROTATION_THEME_COUNT": a2.get("rotation_theme_count", 3),
         "A2_FOCUS_PER_THEME": _pool_targets(a2.get("focus_per_rotation_theme"), default=(5, 12)),
         "A2_WATCH_PER_THEME": _pool_targets(a2.get("watch_per_rotation_theme"), default=(5, 15)),
@@ -5513,6 +5662,8 @@ def _prompt_parameters(config: Mapping[str, Any]) -> dict[str, Any]:
             "data_quality_score": a1.get("minimum_data_quality", 75),
             "evidence_confidence": a1.get("minimum_evidence_confidence", 0.70),
             "minimum_available_weight": a1.get("minimum_available_weight", 0.70),
+            "minimum_financial_quality": a1.get("minimum_financial_quality", 60),
+            "minimum_financial_coverage": a1.get("minimum_financial_coverage", 0.60),
         },
         "A1_DRIVER_LINEAGE_REQUIRED": True,
         "STRICT_AGENT_RULES": True,

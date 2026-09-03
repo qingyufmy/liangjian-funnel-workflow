@@ -167,6 +167,176 @@ def _monitor_event_projection(
     }
 
 
+_A4_SIGNAL_LIFECYCLE_FIELDS = (
+    "lifecycle_id",
+    "plan_id",
+    "source_run_id",
+    "lane_id",
+    "account_id",
+    "trade_date",
+    "symbol",
+    "name",
+    "stock_behavior_type",
+    "strategy_profile",
+    "status",
+    "entry_signal_at",
+    "entry_signal_price",
+    "entry_fill_at",
+    "entry_fill_price",
+    "entry_qty",
+    "entry_fee",
+    "current_qty",
+    "max_price",
+    "min_price",
+    "mfe_pct",
+    "mae_pct",
+    "exit_signal_at",
+    "exit_fill_at",
+    "exit_fill_price",
+    "exit_qty",
+    "exit_fee",
+    "exit_reason_code",
+    "gross_return_pct",
+    "net_return_pct",
+    "realized_pnl",
+    "r_multiple",
+    "holding_minutes",
+    "data_quality_status",
+    "updated_at",
+)
+
+
+def _a4_signal_lifecycle_status(application: WorkflowApplication) -> tuple[list[dict[str, object]], dict[str, int]]:
+    """Return a bounded, safe A4 lifecycle projection for ``status``.
+
+    The lifecycle table is an additive capability during rolling deployment.
+    Older state stores do not have the query method yet, so status must remain
+    usable and report an empty projection instead of failing the whole CLI.
+    """
+
+    list_lifecycles = getattr(application.store, "list_a4_signal_lifecycles", None)
+    if not callable(list_lifecycles):
+        return [], {}
+    rows = list_lifecycles(limit=100)
+    projected: list[dict[str, object]] = []
+    counts: dict[str, int] = {}
+    for row in rows if isinstance(rows, Sequence) else ():
+        if not isinstance(row, Mapping):
+            continue
+        try:
+            plan_snapshot = json.loads(str(row.get("plan_snapshot_json") or "{}"))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            plan_snapshot = {}
+        if not isinstance(plan_snapshot, Mapping):
+            plan_snapshot = {}
+        entry_price = row.get("entry_price")
+        entry_qty = row.get("entry_qty")
+        net_pnl = row.get("net_pnl")
+        stop_level = (
+            plan_snapshot.get("stop_level")
+            or plan_snapshot.get("daily_invalidation")
+            or plan_snapshot.get("invalidation_level")
+        )
+        r_multiple = None
+        try:
+            initial_risk = (float(entry_price) - float(stop_level)) * int(entry_qty)
+            if initial_risk > 0 and net_pnl is not None:
+                r_multiple = float(net_pnl) / initial_risk
+        except (TypeError, ValueError):
+            r_multiple = None
+        source_run_id = str(row.get("source_run_id") or "")
+        strategy_profile = str(row.get("strategy_profile") or "")
+        data_quality = (
+            "DATA_ERROR"
+            if str(row.get("status") or "").upper() == "DATA_ERROR"
+            else "DATA_GAP"
+            if source_run_id.startswith("legacy:") or strategy_profile == "LEGACY"
+            else "READY"
+        )
+        item = {
+            "lifecycle_id": row.get("lifecycle_id"),
+            "plan_id": row.get("plan_id"),
+            "source_run_id": row.get("source_run_id"),
+            "lane_id": row.get("lane_id"),
+            "account_id": row.get("account_id"),
+            "trade_date": row.get("trade_date"),
+            "symbol": row.get("symbol"),
+            "name": row.get("name"),
+            "stock_behavior_type": row.get("stock_behavior_type"),
+            "strategy_profile": row.get("strategy_profile"),
+            "status": row.get("status"),
+            "entry_signal_at": row.get("signal_time"),
+            "entry_signal_price": row.get("signal_price"),
+            "entry_fill_at": row.get("entry_time"),
+            "entry_fill_price": row.get("entry_price"),
+            "entry_qty": row.get("entry_qty"),
+            "entry_fee": row.get("entry_fee"),
+            "current_qty": row.get("remaining_qty"),
+            "max_price": row.get("max_price"),
+            "min_price": row.get("min_price"),
+            "mfe_pct": row.get("mfe"),
+            "mae_pct": row.get("mae"),
+            "exit_signal_at": row.get("exit_signal_time"),
+            "exit_fill_at": row.get("exit_time"),
+            "exit_fill_price": row.get("exit_price"),
+            "exit_qty": row.get("exit_qty"),
+            "exit_fee": row.get("exit_fee"),
+            "exit_reason_code": row.get("exit_reason"),
+            "gross_return_pct": row.get("gross_return"),
+            "net_return_pct": row.get("net_return"),
+            "realized_pnl": row.get("realized_pnl"),
+            "r_multiple": r_multiple,
+            "holding_minutes": row.get("holding_minutes"),
+            "data_quality_status": data_quality,
+            "updated_at": row.get("updated_at"),
+        }
+        item = {key: item.get(key) for key in _A4_SIGNAL_LIFECYCLE_FIELDS}
+        projected.append(item)
+        status = item.get("status")
+        if isinstance(status, str) and status.strip():
+            status_key = status.strip().upper()
+            counts[status_key] = counts.get(status_key, 0) + 1
+    return projected, counts
+
+
+def _a5_review_status(application: WorkflowApplication) -> list[dict[str, object]]:
+    """Return bounded A5 reports; raw prompts and model transport stay private."""
+
+    rows = application.store.list_a5_reviews(limit=10)
+    projected: list[dict[str, object]] = []
+    for row in rows:
+        try:
+            report = json.loads(str(row.get("report_json") or "{}"))
+            facts = json.loads(str(row.get("fact_snapshot_json") or "{}"))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        if not isinstance(report, Mapping) or not isinstance(facts, Mapping):
+            continue
+        metrics = facts.get("metrics") if isinstance(facts.get("metrics"), Mapping) else {}
+        data_quality = facts.get("data_quality") if isinstance(facts.get("data_quality"), Mapping) else {}
+        projected.append(
+            {
+                "review_id": row.get("review_id"),
+                "trade_date": row.get("trade_date"),
+                "review_kind": row.get("review_kind"),
+                "cutoff_at": row.get("cutoff_at"),
+                "status": row.get("status"),
+                "model": row.get("model"),
+                "markdown_path": row.get("markdown_path"),
+                "created_at": row.get("created_at"),
+                "metrics": dict(metrics),
+                "data_quality": {
+                    "status": data_quality.get("status"),
+                    "missing_components": list(data_quality.get("missing_components", []))[:20]
+                    if isinstance(data_quality.get("missing_components"), list)
+                    else [],
+                },
+                "report": dict(report),
+            }
+        )
+    return projected
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="liangjian-funnel")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -259,6 +429,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub.add_parser("run-morning", help="dispatch only the due 09:26 morning review")
     sub.add_parser("run-close", help="dispatch only the due 15:10 close workflow")
+    sub.add_parser("run-a5-midday", help="run the read-only A5 review using facts closed by 11:30")
+    sub.add_parser("run-a5-close", help="run the read-only A5 review using facts closed by 15:00")
     sub.add_parser(
         "run-next-session-prep",
         help="prepare one clean close A1-A3 run for the nearest next trading session",
@@ -428,7 +600,7 @@ def main(argv: Sequence[str] | None = None, *, settings: Settings | None = None)
         return _storage_command(args, active)
     if args.command in {"label-outcomes", "layer-attribution"}:
         return _evaluation_command(args, active)
-    if args.command in {"prepare-snapshot", "import-broker-gold", "sync-data", "maintain-features", "run-a1-maintenance", "run-research", "run-comparison", "monitor-once", "activate-latest-a3-for-a4", "run-due", "run-premarket", "run-morning", "run-close", "run-next-session-prep", "run-monitor", "status"}:
+    if args.command in {"prepare-snapshot", "import-broker-gold", "sync-data", "maintain-features", "run-a1-maintenance", "run-research", "run-comparison", "monitor-once", "activate-latest-a3-for-a4", "run-due", "run-premarket", "run-morning", "run-close", "run-a5-midday", "run-a5-close", "run-next-session-prep", "run-monitor", "status"}:
         return _workflow_command(args, active)
     reports = []
     if args.command in {"probe-hithink", "probe-all"}:
@@ -464,6 +636,15 @@ def _doctor(settings: Settings) -> int:
             and runtime.get("mode") in {"PHASE0_CAPABILITY_ONLY", "SIMULATION_WORKFLOW"}
             and runtime.get("timezone") == "Asia/Shanghai"
             and runtime.get("research_slots") == {"premarket": "08:30", "morning": "09:26", "close": "15:10"}
+            and (
+                runtime.get("review_slots") is None
+                or runtime.get("review_slots") == {
+                    "a5_midday": "11:35",
+                    "a5_post_close": "16:00",
+                    "input_cutoffs": ["11:30", "15:00"],
+                    "authority": "READ_ONLY_PROPOSAL",
+                }
+            )
             and runtime.get("monitor", {}).get("cadence_seconds") == 60
             and runtime.get("permissions") == {
                 "external_orders": False,
@@ -813,6 +994,14 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
             from .runtime.scheduler import ScheduleKind
 
             payload = application.run_scheduled(ScheduleKind.CLOSE_1510)
+        elif args.command == "run-a5-midday":
+            from .runtime.scheduler import ScheduleKind
+
+            payload = application.run_scheduled(ScheduleKind.A5_MIDDAY_1135)
+        elif args.command == "run-a5-close":
+            from .runtime.scheduler import ScheduleKind
+
+            payload = application.run_scheduled(ScheduleKind.A5_POST_CLOSE_1600)
         elif args.command == "run-next-session-prep":
             payload = application.run_next_session_prep()
         elif args.command == "run-monitor":
@@ -851,6 +1040,7 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
                 _monitor_event_projection(event, plans=plan_by_id, fills=fill_by_signal)
                 for event in application.store.list_monitor_events(effective_only=True)[-100:]
             )
+            recent_a4_signal_lifecycles, a4_signal_lifecycle_counts = _a4_signal_lifecycle_status(application)
             a1_registry = getattr(application, "a1_registry", None)
             status_now = datetime.now(ZoneInfo(settings.timezone))
             active_a1 = None
@@ -933,6 +1123,9 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
                 "effective_event_count": len(application.store.list_monitor_events(effective_only=True)),
                 "monitor_plans": monitor_plans,
                 "recent_effective_events": recent_effective_events,
+                "recent_a4_signal_lifecycles": recent_a4_signal_lifecycles,
+                "a4_signal_lifecycle_counts": a4_signal_lifecycle_counts,
+                "recent_a5_reviews": _a5_review_status(application),
                 "recent_notifications": application.store.list_notification_deliveries(limit=50),
                 "recent_fills": recent_fills,
                 "latest_workflow_runs": workflow_runs,
@@ -992,7 +1185,7 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
     if args.command in {"run-research", "run-next-session-prep"}:
         outcome = payload.get("outcome_v2") if isinstance(payload, Mapping) else None
         return cli_exit_code(outcome if isinstance(outcome, Mapping) else payload)
-    if args.command in {"run-due", "run-premarket", "run-morning", "run-close", "run-monitor"}:
+    if args.command in {"run-due", "run-premarket", "run-morning", "run-close", "run-a5-midday", "run-a5-close", "run-monitor"}:
         dispatch = payload.get("dispatch", []) if isinstance(payload, dict) else []
         if any(
             isinstance(record, dict) and record.get("status") in {"FAILED", "MISSED"}

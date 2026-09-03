@@ -35,6 +35,7 @@ def build_a2_feature_snapshot(
     sector_cycle_snapshot: Mapping[str, Any] | None,
     capital_flow_snapshot: Mapping[str, Any] | None,
     as_of: datetime,
+    limit_up_snapshot: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     cutoff = _aware(as_of)
     candidate_by_symbol = {
@@ -100,7 +101,13 @@ def build_a2_feature_snapshot(
         for symbol in reference_symbols
     }
     ladder = _ladder_by_symbol(ladder_snapshot, cutoff.date())
+    # The ladder endpoint is a continuity/height source, while the limit-up
+    # pool is an independent same-session event source.  A pool row proves
+    # only that the stock hit the limit on this date; it must never be used to
+    # manufacture a second (or higher) board when the ladder omits the symbol.
+    limit_up_pool = _limit_up_pool_by_symbol(limit_up_snapshot, cutoff.date())
     ladder_observed, ladder_state, ladder_reason = _dataset_observation(ladder_snapshot)
+    _, limit_up_pool_state, limit_up_pool_reason = _dataset_observation(limit_up_snapshot)
     dragon = _event_symbols(dragon_tiger_snapshot)
     attention = _event_symbols(attention_snapshot)
     raw_capital_by_symbol = (
@@ -120,6 +127,7 @@ def build_a2_feature_snapshot(
     tier_by_symbol: dict[str, dict[str, Any]] = {}
     for symbol in symbols:
         ladder_row = ladder.get(symbol)
+        limit_up_pool_row = limit_up_pool.get(symbol)
         relative = return_percentiles.get(symbol)
         trend_by_symbol[symbol] = _factor(
             relative,
@@ -137,7 +145,38 @@ def build_a2_feature_snapshot(
                 source="HITHINK_LIMIT_UP_LADDER",
                 availability_state="OBSERVED_VALUE",
                 reason_code="OK",
-                extra={"tier": tier, "ladder_height": height, "trend_percentile": relative},
+                extra={
+                    "tier": tier,
+                    "ladder_height": height,
+                    "trend_percentile": relative,
+                    "continuation_confirmed": height >= 2,
+                    "first_board_observed": height == 1,
+                    "event_source": "HITHINK_LIMIT_UP_LADDER",
+                    "source_refs": ["HITHINK_LIMIT_UP_LADDER"],
+                    "trade_date": ladder_row.get("trade_date"),
+                },
+            )
+        elif limit_up_pool_row is not None:
+            # LIMIT_UP_POOL has no continuity proof.  Keep a deliberately
+            # bounded first-board observation, including the provider's raw
+            # continuation count separately for audit, but never promote that
+            # count to ``ladder_height``.
+            tier_by_symbol[symbol] = _factor(
+                62.5,
+                source="HITHINK_LIMIT_UP_POOL_FIRST_BOARD",
+                availability_state="OBSERVED_VALUE",
+                reason_code="FIRST_BOARD_LIMIT_UP_POOL_OBSERVED",
+                extra={
+                    "tier": "T1",
+                    "ladder_height": 1,
+                    "trend_percentile": relative,
+                    "first_board_observed": True,
+                    "continuation_confirmed": False,
+                    "event_source": "HITHINK_LIMIT_UP_POOL",
+                    "trade_date": limit_up_pool_row.get("trade_date"),
+                    "pool_reported_continue_day_cnt": limit_up_pool_row.get("pool_reported_continue_day_cnt"),
+                    "source_refs": ["HITHINK_LIMIT_UP_POOL"],
+                },
             )
         elif ladder_observed:
             tier_by_symbol[symbol] = _factor(
@@ -232,7 +271,8 @@ def build_a2_feature_snapshot(
             confirmation = int(symbol in dragon) * 6 + int(symbol in attention) * 4
             score = min(100.0, score + confirmation)
         height = tier_height
-        if height >= 2:
+        first_board_observed = tier_by_symbol[symbol].get("first_board_observed") is True
+        if height >= 2 or first_board_observed:
             role = "EMOTION_LEADER"
         elif relative is not None and relative >= 85:
             role = "TREND_LEADER"
@@ -268,6 +308,8 @@ def build_a2_feature_snapshot(
                     if sector_ladder_support.get(symbol)
                     else "NONE"
                 ),
+                "first_board_observed": first_board_observed,
+                "continuation_confirmed": tier_by_symbol[symbol].get("continuation_confirmed") is True,
             },
         )
 
@@ -676,6 +718,8 @@ def build_a2_feature_snapshot(
         },
         "ladder_dataset_state": ladder_state,
         "ladder_dataset_reason_code": ladder_reason,
+        "limit_up_pool_dataset_state": limit_up_pool_state,
+        "limit_up_pool_dataset_reason_code": limit_up_pool_reason,
         "capital_flow_available": bool(
             (isinstance(capital_flow_snapshot, Mapping) and capital_flow_snapshot.get("available") is True)
             or sector_capital_by_group
@@ -753,6 +797,88 @@ def _ladder_by_symbol(value: Mapping[str, Any] | None, as_of: date) -> dict[str,
             height = int(_number(item.get("board_num")) or _board_height(name) or 1)
             result[symbol] = {**dict(item), "board_num": height, "trade_date": latest[0].isoformat()}
     return result
+
+
+def _limit_up_pool_by_symbol(value: Mapping[str, Any] | None, as_of: date) -> dict[str, dict[str, Any]]:
+    """Normalize a same-session limit-up pool into bounded first-board facts.
+
+    The pool endpoint reports that a symbol reached the daily limit, but it is
+    not a continuity source.  Its ``continue_day_cnt`` is therefore retained
+    as provider-reported context only; callers must use ``board_num=1`` from
+    this helper until a ladder source confirms a higher board.
+    """
+
+    records = _records(value)
+    if not records:
+        return {}
+    snapshot_day = _snapshot_day(value) or as_of
+    if snapshot_day > as_of:
+        return {}
+    result: dict[str, dict[str, Any]] = {}
+    for item in records:
+        symbol = _symbol(item)
+        if not symbol:
+            continue
+        item_day = _snapshot_day(item) or snapshot_day
+        if item_day > as_of:
+            continue
+        reported_count = _number(
+            item.get("continue_day_cnt")
+            if "continue_day_cnt" in item
+            else item.get("continue_days")
+        )
+        result[symbol] = {
+            **dict(item),
+            "board_num": 1,
+            "trade_date": item_day.isoformat(),
+            "pool_reported_continue_day_cnt": int(reported_count) if reported_count is not None else None,
+            "first_board_observed": True,
+            "continuation_confirmed": False,
+            "event_source": "HITHINK_LIMIT_UP_POOL",
+        }
+    return result
+
+
+def _snapshot_day(value: Mapping[str, Any] | None) -> date | None:
+    """Extract a provider/event day without treating malformed dates as facts."""
+
+    if not isinstance(value, Mapping):
+        return None
+    metadata = value.get("metadata")
+    sources: tuple[Mapping[str, Any], ...] = (value, metadata) if isinstance(metadata, Mapping) else (value,)
+    for source in sources:
+        for key in ("date", "trade_date", "event_date", "as_of", "event_time", "timestamp", "fetch_time", "date_ms"):
+            if key not in source:
+                continue
+            if (day := _date_like(source.get(key))) is not None:
+                return day
+    return None
+
+
+def _date_like(value: Any) -> date | None:
+    if isinstance(value, datetime):
+        return value.astimezone(SHANGHAI).date() if value.tzinfo is not None and value.utcoffset() is not None else value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        number = float(value)
+        if math.isfinite(number):
+            # Provider timestamps are normally milliseconds; accepting seconds
+            # keeps small deterministic fixtures and legacy snapshots usable.
+            if number > 10_000_000_000:
+                number /= 1000.0
+            try:
+                return datetime.fromtimestamp(number, tz=SHANGHAI).date()
+            except (OverflowError, OSError, ValueError):
+                return None
+    text = str(value or "").strip().replace("/", "-")
+    if not text:
+        return None
+    if "T" in text:
+        text = text.split("T", 1)[0]
+    if " " in text:
+        text = text.split(" ", 1)[0]
+    return _date(text)
 
 
 def _event_symbols(value: Mapping[str, Any] | None) -> set[str]:

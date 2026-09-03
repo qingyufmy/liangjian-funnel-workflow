@@ -145,6 +145,8 @@ export class WorkflowScheduler {
       if (isFeatureMaintenanceMinute(clock)) due.push("features");
       if (clock.hour === 8 && clock.minute === 30) due.push("premarket");
       if (clock.hour === 9 && clock.minute === 26) due.push("morning");
+      if (clock.hour === 11 && clock.minute === 35) due.push("a5-midday");
+      if (clock.hour === 16 && clock.minute === 0) due.push("a5-close");
       if (clock.hour === 15 && clock.minute === 10) due.push("close");
       // Node provides a cheap weekday wake-up. Python owns the exchange
       // calendar and decides whether this date is the monthly full or weekly
@@ -183,7 +185,7 @@ export class WorkflowScheduler {
     this.logger.info(`触发调度 ${job} at=${key}`, { job });
     void this.runner.run(job)
       .then((result) => {
-        const shouldRetry = (job === "premarket" || job === "morning" || job === "close" || job === "a1")
+        const shouldRetry = (job === "premarket" || job === "morning" || job === "close" || job === "a1" || job === "a5-midday" || job === "a5-close")
           && result.status === "skipped"
           && result.reason?.startsWith("BUSY:") === true;
         if (shouldRetry) {
@@ -252,13 +254,17 @@ export class WorkflowScheduler {
         ? 8 * 60 + 30
         : job === "morning"
         ? 9 * 60 + 26
+        : job === "a5-midday"
+        ? 11 * 60 + 35
+        : job === "a5-close"
+        ? 16 * 60
         : job === "close"
           ? 15 * 60 + 10
           : 18 * 60;
       const currentMinute = clock.hour * 60 + clock.minute;
       const withinRecoveryWindow = clock.date === key.slice(0, 10)
         && currentMinute >= dueMinute
-        && currentMinute <= dueMinute + (job === "premarket" ? 50 : job === "a1" ? 5 * 60 : 10);
+        && currentMinute <= dueMinute + (job === "premarket" ? 50 : job === "a1" ? 5 * 60 : job === "a5-midday" ? 70 : job === "a5-close" ? 60 : 10);
       if (withinRecoveryWindow && clock.weekday !== 0 && clock.weekday !== 6) {
         this.dispatch(job, key, current);
       }

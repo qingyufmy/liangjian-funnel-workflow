@@ -67,6 +67,27 @@ def test_next_due_respects_lunch_and_close_slot(tmp_path):
     assert scheduler.next_due_at(datetime(2026, 8, 24, 8, 31, tzinfo=TZ)).time().strftime("%H:%M") == "09:26"
     assert scheduler.next_due_at(datetime(2026, 8, 24, 12, 0, tzinfo=TZ)).time().strftime("%H:%M") == "13:00"
     assert scheduler.next_due_at(datetime(2026, 8, 24, 15, 1, tzinfo=TZ)).time().strftime("%H:%M") == "15:10"
+    assert scheduler.next_due_at(datetime(2026, 8, 24, 15, 11, tzinfo=TZ)).time().strftime("%H:%M") == "16:00"
+
+
+def test_a5_reviews_dispatch_once_in_their_bounded_windows(tmp_path):
+    store = RuntimeStore(tmp_path / "runtime.sqlite3")
+    calls = []
+    scheduler = Scheduler(
+        store,
+        trading_day=lambda _day: True,
+        callbacks={
+            ScheduleKind.A5_MIDDAY_1135: lambda job: calls.append(job.kind),
+            ScheduleKind.A5_POST_CLOSE_1600: lambda job: calls.append(job.kind),
+        },
+    )
+    midday = datetime(2026, 8, 24, 11, 35, tzinfo=TZ)
+    close = datetime(2026, 8, 24, 16, 0, tzinfo=TZ)
+    assert scheduler.dispatch_once(midday, kinds=(ScheduleKind.A5_MIDDAY_1135,))[0].status is DispatchStatus.DISPATCHED
+    duplicate = scheduler.dispatch_once(midday, kinds=(ScheduleKind.A5_MIDDAY_1135,))
+    assert duplicate[0].status is DispatchStatus.LEASE_BUSY
+    assert scheduler.dispatch_once(close, kinds=(ScheduleKind.A5_POST_CLOSE_1600,))[0].status is DispatchStatus.DISPATCHED
+    assert calls == [ScheduleKind.A5_MIDDAY_1135, ScheduleKind.A5_POST_CLOSE_1600]
 
 
 def test_callback_failure_uses_safe_reason_releases_lease_and_retries(tmp_path):

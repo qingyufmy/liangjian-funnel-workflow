@@ -5,6 +5,49 @@ export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue
 export type JsonRecord = { [key: string]: unknown };
 
 /**
+ * Safe Node-side projection of a durable A4 paper-trade signal lifecycle.
+ * Python owns the lifecycle transitions; the dashboard only normalizes and
+ * exposes this immutable evidence for observation and later review.
+ */
+export interface A4SignalLifecycle {
+  readonly lifecycleId: string | null;
+  readonly planId: string | null;
+  readonly sourceRunId: string | null;
+  readonly laneId: string | null;
+  readonly accountId: string | null;
+  readonly tradeDate: string | null;
+  readonly symbol: string | null;
+  readonly name: string | null;
+  readonly stockBehaviorType: string | null;
+  readonly strategyProfile: string | null;
+  readonly status: string | null;
+  readonly entrySignalAt: string | null;
+  readonly entrySignalPrice: number | null;
+  readonly entryFillAt: string | null;
+  readonly entryFillPrice: number | null;
+  readonly entryQty: number | null;
+  readonly entryFee: number | null;
+  readonly currentQty: number | null;
+  readonly maxPrice: number | null;
+  readonly minPrice: number | null;
+  readonly mfePct: number | null;
+  readonly maePct: number | null;
+  readonly exitSignalAt: string | null;
+  readonly exitFillAt: string | null;
+  readonly exitFillPrice: number | null;
+  readonly exitQty: number | null;
+  readonly exitFee: number | null;
+  readonly exitReasonCode: string | null;
+  readonly grossReturnPct: number | null;
+  readonly netReturnPct: number | null;
+  readonly realizedPnl: number | null;
+  readonly rMultiple: number | null;
+  readonly holdingMinutes: number | null;
+  readonly dataQualityStatus: string | null;
+  readonly updatedAt: string | null;
+}
+
+/**
  * Canonical research outcome contract (research-outcome/3.0.0).
  *
  * ``legacy_status`` is an additive compatibility projection.  Consumers must
@@ -31,7 +74,7 @@ import type {
   StageOutcomeContract,
 } from "./generated/research-outcome-v3.js";
 
-export type JobName = "premarket" | "morning" | "close" | "a1" | "monitor" | "features" | "comparison";
+export type JobName = "premarket" | "morning" | "close" | "a1" | "monitor" | "features" | "comparison" | "a5-midday" | "a5-close";
 
 export type JobStatus = "running" | "succeeded" | "failed" | "skipped" | "terminated";
 

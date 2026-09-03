@@ -113,21 +113,42 @@ class MonitorEngine:
         }
         if gap is not None:
             gap_detected = gap
-        plans = self.store.list_active_plans(lane_id, at=minute)
-        if not plans:
-            # A real virtual position remains in the risk lane even after its
-            # research plan expires.  Reconstruct a minimal deterministic
-            # risk scope without reviving its buy permission.
-            positions = self.store.list_positions(f"paper:{lane_id}")
-            plans = tuple(
+        plans = list(self.store.list_active_plans(lane_id, at=minute))
+        # A real virtual position remains in the risk lane after its one-day
+        # A3 entry plan expires.  Recover the frozen source plan so the same
+        # type-specific exit rules continue to apply on later T+1 sessions;
+        # a stop-only synthetic row would silently discard the 520/trend/
+        # leader route.  Presence of another active plan must not hide such a
+        # position, so merge by symbol instead of using an all-or-nothing
+        # fallback.
+        scoped_symbols = {str(plan["symbol"]) for plan in plans}
+        for position in self.store.list_positions(f"paper:{lane_id}"):
+            symbol = str(position["symbol"])
+            if symbol in scoped_symbols:
+                continue
+            source_plan_id = str(position.get("plan_id") or "").strip()
+            source_plan = self.store.get_execution_plan(source_plan_id) if source_plan_id else None
+            if source_plan is not None:
+                try:
+                    source_payload = json.loads(str(source_plan.get("payload_json") or "{}"))
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    source_payload = {}
+                payload = dict(source_payload) if isinstance(source_payload, Mapping) else {}
+                plan_id = source_plan_id
+            else:
+                payload = {}
+                plan_id = f"position:{lane_id}:{symbol}"
+            payload["stop_level"] = position.get("stop_level") or payload.get("stop_level")
+            plans.append(
                 {
-                    "plan_id": f"position:{lane_id}:{position['symbol']}",
+                    "plan_id": plan_id,
                     "lane_id": lane_id,
-                    "symbol": position["symbol"],
-                    "payload_json": json.dumps({"stop_level": position.get("stop_level")}),
+                    "symbol": symbol,
+                    "payload_json": json.dumps(payload, ensure_ascii=False, default=str),
                 }
-                for position in positions
             )
+            scoped_symbols.add(symbol)
+        plans = tuple(plans)
         events: list[MonitorEvent] = []
         durable_events = self.store.list_monitor_events(lane_id=lane_id)
         if not self._in_session(minute):
@@ -216,7 +237,8 @@ class MonitorEngine:
                 events.append(self._emit_effective(lane_id, plan, minute, minute_snapshot_id, MonitorAction.DATA_BLOCK.value, "BAR_NOT_CURRENT_1M"))
                 continue
             payload = self._payload(plan)
-            if payload.get("plan_invalidated") or payload.get("invalidated"):
+            position = self.store.get_position(f"paper:{lane_id}", symbol)
+            if (payload.get("plan_invalidated") or payload.get("invalidated")) and position is None:
                 self._reset_confirmation(lane_id, plan_id)
                 trigger_results.append({"plan_id": plan_id, "symbol": symbol, "trigger_pass": False, "eligible": False, "action_candidate": MonitorAction.PLAN_INVALIDATED.value})
                 events.append(
@@ -231,7 +253,6 @@ class MonitorEngine:
                 )
                 continue
             # Hard risk exits are deterministic and cannot be vetoed by LLM.
-            position = self.store.get_position(f"paper:{lane_id}", symbol)
             stop_level = payload.get("stop_level")
             if position and stop_level is not None and bar.low <= float(stop_level):
                 self._reset_confirmation(lane_id, plan_id)
@@ -345,11 +366,16 @@ class MonitorEngine:
                     continue
                 if action == MonitorAction.FORCED_RISK_EXIT.value:
                     if position is None:
+                        # A forced exit without a position is a strategy
+                        # contract violation, never evidence that the A3 plan
+                        # itself became invalid.  Persist a data block so the
+                        # bad evaluator result is observable without emitting
+                        # a false terminal trading event.
                         self._reset_confirmation(lane_id, plan_id)
                         events.append(self._emit_effective(
                             lane_id, plan, minute, minute_snapshot_id,
-                            MonitorAction.PLAN_INVALIDATED.value,
-                            "HARD_STOP_BEFORE_ENTRY",
+                            MonitorAction.DATA_BLOCK.value,
+                            "A4_FORCED_EXIT_WITHOUT_POSITION",
                             strategy_result=strategy_result,
                         ))
                         continue
@@ -360,14 +386,19 @@ class MonitorEngine:
                     ))
                     continue
                 if action in {MonitorAction.SELL_SIGNAL.value, MonitorAction.REDUCE_SIGNAL.value}:
-                    if position is None or int(position.get("sellable_qty", 0)) <= 0:
+                    if position is None:
                         events.append(self._emit_internal(
                             lane_id, minute, minute_snapshot_id,
                             MonitorAction.NO_ACTION.value,
-                            "EXIT_WITHOUT_SELLABLE_POSITION",
+                            "EXIT_WITHOUT_POSITION",
                             plan_id, symbol, strategy_result=strategy_result,
                         ))
                         continue
+                    # A same-day A-share position may have sellable_qty=0.
+                    # Persist the exit decision now and let the paper broker
+                    # keep it pending until T+1 quantities are released;
+                    # otherwise the decision disappears when today's plan
+                    # expires and can never be audited or settled tomorrow.
                     self._condition_active.add(key)
                     events.append(self._emit_effective(
                         lane_id, plan, minute, minute_snapshot_id,
@@ -479,8 +510,8 @@ class MonitorEngine:
                 trigger_results.append(
                     {"plan_id": plan_id, "symbol": symbol, "trigger_pass": True, "eligible": False, "action_candidate": action, "confirmation_count": count}
                 )
-                if position is None or int(position.get("sellable_qty", 0)) <= 0:
-                    events.append(self._emit_internal(lane_id, minute, minute_snapshot_id, MonitorAction.NO_ACTION.value, "EXIT_WITHOUT_SELLABLE_POSITION", plan_id, symbol))
+                if position is None:
+                    events.append(self._emit_internal(lane_id, minute, minute_snapshot_id, MonitorAction.NO_ACTION.value, "EXIT_WITHOUT_POSITION", plan_id, symbol))
                     continue
                 self._condition_active.add(key)
                 events.append(self._emit_effective(lane_id, plan, minute, minute_snapshot_id, action, "DETERMINISTIC_EXIT_TRIGGER"))
@@ -880,6 +911,8 @@ class MonitorEngine:
             action=action,
             reason_code=reason,
             effective=True,
+            terminal_plan_id=(plan_id if action == MonitorAction.PLAN_INVALIDATED.value else None),
+            sync_a4_lifecycle=True,
             payload={
                 "minute_snapshot_id": snapshot_id,
                 "plan_id": plan_id,

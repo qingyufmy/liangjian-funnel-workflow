@@ -70,6 +70,7 @@ def _a4_plan(**overrides: object) -> dict:
         "lane_id": "lane-a",
         "symbol": "600001.SH",
         "strategy_profile": "TREND_MA5",
+        "stock_behavior_type": "TREND",
         "entry_reference_zone": {"low": 10.0, "high": 12.0},
         "invalidation_level": 8.0,
         "stop_level": 8.0,

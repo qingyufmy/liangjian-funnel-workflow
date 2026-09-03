@@ -21,12 +21,13 @@
 
 北交所只进入研究域，不进入模拟交易域。FAST_TRACK、外部委托和真实交易永久关闭。
 
-## A1–A4 职责边界
+## A1–A5 职责边界
 
 - **A1 宏观/产业链/基本面**：G0 先按配置过滤日成交额低于 5000 万、ST、停牌/新股限制和价格/成交量/成交额无效标的；符合同一质量门的北交所标的保留研究，但不进入模拟交易。A1 AI 必须按“官方政策/宏观变化 → 结构性主题 → 产业链节点 → 公司主营与财务传导”选择 `ACTIVE`。单批 20 只只是模型传输边界，不是全局名额；已通过 G0 质量门的股票不得再因性能上限被静默裁剪。
 - **A2 主题/情绪/市场角色**：只在 A1 `ACTIVE` 内按主题分批判断市场正在交易什么，先排产业链卡点层级，再评估板块宽度、资金、梯队、周期与龙头/中军辨识度。每个 `focus_pool` 标的都要给出卡住的环节、产业链位置、至少两条冻结证据、缺失证明和证伪条件；全量交易候选池目标为 100–200 只，但证据门槛优先，禁止为凑数放宽标准。
 - **A3 技术设置/次日计划**：候选域由 A2 `focus_pool` 与服务器判定合格的 `WATCH_ONLY` 合并而成，并保留 `candidate_origin`；A3 只使用已闭合月线、周线和日线选择龙头、520 或趋势策略，由确定性引擎回填触发区、失效位、止损距离和盈亏比。模型只能核对或否决，不能越级新增标的。
 - **A4 盘中信号复核**：对已有 A3 计划按对应策略使用闭合 15 分钟结构和闭合 5 分钟触发择时，1 分钟数据只做聚合、新鲜度与安全校验；确定性触发先行，Flash 只有否决权，无权创建候选、放宽价位或提高风险单位。
+- **A5 每日复盘**：交易日 11:35 和 16:00 分别冻结截至 11:30、15:00 的 A2 题材/个股、A3 计划、A4 事件及信号生命周期事实；再以腾讯分钟行情复核 A2 板块广度、以本地原始日线和通达信复算 A3 技术事实，并用腾讯/通达信/本地归档交叉检查 A4 决策覆盖。盘中反例限定在可追踪的 A2 候选域；盘后先对完整 A1 研究宇宙做横截面排序，再对顶部样本发起腾讯异源确认，从而定位漏在 A1、A2、A3 或 A4。A5 只提出工程修复、数据修复或影子验证建议，不修改生产策略，也不产生交易信号。
 
 因此，G0 的行业均衡只用于防止候选域被当日成交热点污染，绝不代表 A1 已完成选股。A1 现在有三个独立入口：当月券商金股以 `BROKER_GOLD_DIRECT` 直接进入研究池；月度政策和产业主线通过 `DETERMINISTIC_SCORE`/`LLM_REVIEWED` 进入；当研究覆盖仍低于目标时，以已冻结的财务质量、数据质量和流动性事实按行业分散形成 `FUNDAMENTAL_BASELINE`。`QUOTA_FILL` 只保留给旧快照兼容。机构直通只是研究资格，不是买入或交易放行；原始风险标签会继续传递，A2/A3/A4 独立执行市场、技术和风险判断。`analysis_summary.selection_basis_counts` 只统计最终 ACTIVE 研究池，并与 ACTIVE 总数相等。证据不足的其他标的仍明确保留在 `MONITOR` 或 `REJECT`。
 
@@ -78,6 +79,8 @@ cd D:\dev_A股\liangjian_funnel_workflow
 .\.venv\Scripts\python.exe -m liangjian_funnel run-close
 .\.venv\Scripts\python.exe -m liangjian_funnel run-a1-maintenance
 .\.venv\Scripts\python.exe -m liangjian_funnel run-monitor
+.\.venv\Scripts\python.exe -m liangjian_funnel run-a5-midday
+.\.venv\Scripts\python.exe -m liangjian_funnel run-a5-close
 .\.venv\Scripts\python.exe -m liangjian_funnel status
 ```
 
@@ -108,6 +111,10 @@ cd D:\dev_A股\liangjian_funnel_workflow
 - `LiangjianAStockResearchClose`：每天 15:10；消费 active A1，只执行 A2→A3。
 - Node 常驻调度：工作日 18:00 唤醒 `run-a1-maintenance`；Python 交易日历决定月度 FULL、周度 INCREMENTAL或普通日期 NOOP。
 - `LiangjianAStockMonitor`：每天 09:25 起每分钟一次，15:00 停止；内部用交易所日历跳过法定休市日、午休、重复任务和过期补买。15:10 收盘研究不再与盯盘任务竞争。
+- `LiangjianAStockReviewMidday`：交易日 11:35 执行盘中复盘，事实严格截止 11:30。
+- `LiangjianAStockReviewClose`：交易日 16:00 执行盘后复盘，事实严格截止 15:00；先让 15:10 收盘事实同步完成，再使用独立复盘任务槽执行。
+
+A5 结构化事实、异源核验结果、反向漏斗样本、模型报告和最终 Markdown 均持久化。报告保存在 `outputs/a5/YYYY-MM-DD/`，文件名带输入哈希，迟到数据触发的合法重算不会覆盖旧版本；工作台“复盘评估”展示两次复盘、逐层结论、信号表现、漏选反例、缺陷与改进提案。每次复盘持久化成功后会幂等推送一张中文飞书卡片，按“结论、漏斗概况、分层验收、信号复盘、反向拷问、核心缺陷、改进验证、执行边界”排列；推送失败不回滚复盘，也不重复调用模型。最近历史复盘的缺陷和提案摘要会作为只读证据进入下一次 A5，以识别重复问题；单日或重复出现都不会自动改变生产规则。
 
 生产稳定模式设置 `LIANGJIAN_COMPARISON_ENABLED=false`。此时收盘研究只由主 lane 的
 `deepseek-v4-pro-0813` 维护唯一的 active A1，并在每日收盘连续执行 A2→A3；Kimi/GLM 不会在 Node 启动或主结果发布后

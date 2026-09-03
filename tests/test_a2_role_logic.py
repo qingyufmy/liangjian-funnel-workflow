@@ -105,6 +105,35 @@ def test_confirmed_emotion_leader_takes_one_explicit_route_even_with_trend_evide
     assert "A2_EMOTION_PRECEDENCE_OVER_TREND" in result["reason_codes"]
 
 
+def test_first_board_pool_fact_enters_leader_candidate_route_without_confirmation() -> None:
+    result = classify_a2_stock(
+        symbol="600002.SH",
+        name="首板观察",
+        as_of=AS_OF,
+        evidence={
+            "ladder_structure": _fact(
+                True,
+                {
+                    "board_num": 1,
+                    "ladder_height": 1,
+                    "first_board_observed": True,
+                    "continuation_confirmed": False,
+                    "event_source": "HITHINK_LIMIT_UP_POOL",
+                },
+                "HITHINK_LIMIT_UP_POOL",
+                reason="first-board limit-up pool observation",
+            ),
+        },
+    )
+
+    assert result["stock_behavior_type"] == EMOTION
+    assert result["market_role"] == "EMOTION_LEADER"
+    assert result["route_permission"] == [LEADER_INTRADAY]
+    assert result["decision_basis"]["first_board_observed"] is True
+    assert "A2_EMOTION_FIRST_BOARD_OBSERVED" in result["reason_codes"]
+    assert result["evidence"]["ladder_structure"]["source_refs"] == ["HITHINK_LIMIT_UP_POOL"]
+
+
 def test_missing_data_is_a_gap_and_never_a_negative_or_route() -> None:
     result = classify_a2_stock(
         symbol="688001.SH",

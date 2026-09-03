@@ -2136,6 +2136,26 @@ class ResearchPipeline:
             for item in gate.decisions
             if item.get("symbol") and item.get("selection_basis")
         }
+        gate_by_symbol = {
+            str(item.get("symbol")): item
+            for item in gate.decisions
+            if item.get("symbol")
+        }
+        server_owned_a1_fields = (
+            "monthly_direction_id",
+            "monthly_direction_name",
+            "monthly_direction_matches",
+            "sector_index_taxonomy",
+            "sector_index_code",
+            "sector_index_name",
+            "sector_constituent_confirmed",
+            "taxonomy_matches",
+            "financial_quality_score",
+            "fundamental_support",
+            "disclosed_business_match",
+            "financial_subfactor_coverage",
+            "minimum_financial_subfactor_coverage",
+        )
         for partition in ("active_research_pool", "monitor_pool", "rejected_candidates"):
             rows = merged.get(partition)
             if not isinstance(rows, list):
@@ -2149,6 +2169,16 @@ class ResearchPipeline:
                 symbol = _first_symbol(item)
                 if symbol in basis_by_symbol:
                     item["selection_basis"] = basis_by_symbol[symbol]
+                local_decision = gate_by_symbol.get(symbol)
+                if isinstance(local_decision, Mapping):
+                    for field in server_owned_a1_fields:
+                        if field in local_decision:
+                            value = local_decision[field]
+                            item[field] = dict(value) if isinstance(value, Mapping) else (
+                                list(value)
+                                if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray))
+                                else value
+                            )
                 enriched.append(item)
             merged[partition] = enriched
         basis_counts = {
@@ -2187,6 +2217,11 @@ class ResearchPipeline:
             if decision.get("coverage_origin") == "BROKER_GOLD_T2"
         ]
         merged["institutional_coverage_pool"] = institutional_rows
+        raw_a1_targets = snapshot.data.get("A1_POOL_TARGETS")
+        strict_monthly_chain = (
+            isinstance(raw_a1_targets, Mapping)
+            and raw_a1_targets.get("monthly_chain_only") is True
+        )
         merged["institutional_coverage_summary"] = {
             "symbol_count": len(institutional_rows),
             "active_count": sum(
@@ -2198,8 +2233,8 @@ class ResearchPipeline:
                 for row in institutional_rows
             ),
             "rejected_count": sum(row.get("local_partition") == "HARD_REJECT" for row in institutional_rows),
-            "direct_research_entry": True,
-            "direct_approval_forbidden": False,
+            "direct_research_entry": not strict_monthly_chain,
+            "direct_approval_forbidden": strict_monthly_chain,
             "autonomous_benchmark_remains_independent": True,
         }
         merged["local_screen_summary"] = gate.summary
@@ -2396,6 +2431,10 @@ class ResearchPipeline:
             output["rejected_candidates"] = _deduplicate_stage_items(
                 "rejected_candidates",
                 [*output.get("rejected_candidates", []), *_gate_rejected_items(gate, stage)],
+            )
+            output["outside_rotation_pool"] = _deduplicate_stage_items(
+                "outside_rotation_pool",
+                [*output.get("outside_rotation_pool", []), *_gate_outside_rotation_items(gate)],
             )
             output.setdefault("crowded_pool", [])
             output.setdefault("low_identity_pool", [])
@@ -4798,8 +4837,9 @@ def _prompt_replacements(
                 "node_count_target": [40, 80],
                 "quota_fill_enabled": False,
                 "quota_fill_observation": "COHORT_OBSERVATION_ONLY",
+                "monthly_chain_only": True,
                 "fundamental_baseline": {
-                    "enabled": True,
+                    "enabled": False,
                     "minimum_financial_quality": 60,
                     "minimum_data_quality": 75,
                     "minimum_liquidity_score": 50,
@@ -4810,8 +4850,8 @@ def _prompt_replacements(
         if name == "A2_POOL_TARGETS":
             found, value = _lookup_field(snapshot.data, name)
             replacements[name] = value if found else {
-                "pool_min": 100,
-                "pool_max": 200,
+                "pool_min": 20,
+                "pool_max": 60,
                 "quota_forbidden": True,
             }
             continue
@@ -4891,6 +4931,8 @@ def _prompt_replacements(
                     "structural_score": 65,
                     "data_quality_score": 75,
                     "evidence_confidence": 0.70,
+                    "minimum_financial_quality": 60,
+                    "minimum_financial_coverage": 0.60,
                 },
                 "MIN_THEME_SCORE": 60,
                 "MIN_TECHNICAL_SCORE": 70,
@@ -5592,8 +5634,21 @@ def _gate_secondary_items(gate: DeterministicGateResult, stage: str) -> list[dic
         # not sent to the model.
         if stage == "A2" and status == "HARD_REJECT":
             continue
+        if stage == "A2" and decision.get("top_rotation_theme") is False:
+            # Preserve these rows in ``outside_rotation_pool`` below.  They
+            # are audit evidence, not part of the effective A2 universe.
+            continue
         items.append(_gate_item_from_decision(decision, stage, "WATCH_ONLY" if stage == "A2" else "REJECTED"))
     return items
+
+
+def _gate_outside_rotation_items(gate: DeterministicGateResult) -> list[dict[str, Any]]:
+    return [
+        _gate_item_from_decision(decision, "A2", "OUTSIDE_ROTATION")
+        for decision in gate.decisions
+        if decision.get("top_rotation_theme") is False
+        and str(decision.get("status") or "").upper() != "HARD_REJECT"
+    ]
 
 
 def _gate_item_from_decision(
@@ -5629,7 +5684,18 @@ def _gate_item_from_decision(
             "rotation_direction_id": decision.get("rotation_direction_id"),
             "theme_rotation_rank": decision.get("theme_rotation_rank"),
             "theme_rotation_score": decision.get("theme_rotation_score"),
+            "rotation_strength_source": decision.get("rotation_strength_source"),
             "top_rotation_theme": decision.get("top_rotation_theme"),
+            "sector_index_code": (
+                (decision.get("a2_taxonomy_binding") or {}).get("taxonomy_code")
+                if isinstance(decision.get("a2_taxonomy_binding"), Mapping)
+                else None
+            ),
+            "sector_index_name": (
+                (decision.get("a2_taxonomy_binding") or {}).get("taxonomy_name")
+                if isinstance(decision.get("a2_taxonomy_binding"), Mapping)
+                else None
+            ),
             "identifiability_score": decision.get("identifiability_score"),
             "market_role": decision.get("market_role") or decision.get("role") or "LOW_IDENTITY",
             "stock_behavior_type": decision.get("stock_behavior_type"),
@@ -5772,6 +5838,8 @@ def _build_a3_candidate_domain(
 
 
 def _a3_watch_only_candidate_eligible(item: Mapping[str, Any]) -> bool:
+    if item.get("top_rotation_theme") is False:
+        return False
     role = str(
         item.get("market_role")
         or item.get("role")
@@ -6520,6 +6588,7 @@ def _deduplicate_stage_items(key: str, values: Sequence[Any]) -> list[Any]:
         "active_themes": ("theme_id",),
         "focus_pool": ("symbol",),
         "watch_only_pool": ("symbol",),
+        "outside_rotation_pool": ("symbol",),
         "core_watch_pool": ("symbol",),
         "secondary_watch_pool": ("symbol",),
     }
@@ -7100,8 +7169,13 @@ def _canonicalize_stage_lineage(
                 # rewrites the fields.
                 canonical["theme_rotation_rank"] = context.get("theme_rotation_rank")
                 canonical["theme_rotation_score"] = context.get("theme_rotation_score")
+                canonical["rotation_strength_source"] = context.get("rotation_strength_source")
                 canonical["top_rotation_theme"] = context.get("top_rotation_theme") is True
                 canonical["rotation_direction_id"] = context.get("rotation_direction_id")
+                taxonomy_binding = context.get("a2_taxonomy_binding")
+                if isinstance(taxonomy_binding, Mapping):
+                    canonical["sector_index_code"] = taxonomy_binding.get("taxonomy_code")
+                    canonical["sector_index_name"] = taxonomy_binding.get("taxonomy_name")
         else:
             canonical["upstream_candidate_id"] = upstream_id
             canonical["parent_candidate_id"] = upstream_id
@@ -8182,7 +8256,7 @@ def _apply_stage_threshold_policy(
     if stage == "A1":
         raw_minimums = snapshot_data.get("A1_MINIMUMS")
         minimums = raw_minimums if isinstance(raw_minimums, Mapping) else {}
-        thresholds = (
+        thresholds = [
             ("structural_score", _safe_float(minimums.get("structural_score", 65)), "A1_SCORE_BELOW_MINIMUM"),
             (
                 "data_quality_score",
@@ -8194,7 +8268,21 @@ def _apply_stage_threshold_policy(
                 _safe_float(minimums.get("evidence_confidence", 0.70)),
                 "A1_EVIDENCE_CONFIDENCE_BELOW_MINIMUM",
             ),
-        )
+        ]
+        raw_targets = snapshot_data.get("A1_POOL_TARGETS")
+        targets = raw_targets if isinstance(raw_targets, Mapping) else {}
+        monthly_chain_only = targets.get("monthly_chain_only") is True
+        if monthly_chain_only:
+            thresholds.append((
+                "financial_quality_score",
+                _safe_float(minimums.get("minimum_financial_quality", 60)),
+                "A1_FINANCIAL_QUALITY_BELOW_MINIMUM",
+            ))
+            thresholds.append((
+                "financial_subfactor_coverage",
+                _safe_float(minimums.get("minimum_financial_coverage", 0.60)),
+                "A1_FINANCIAL_COVERAGE_BELOW_MINIMUM",
+            ))
         active = result.get("active_research_pool")
         monitor = list(result.get("monitor_pool")) if isinstance(result.get("monitor_pool"), list) else []
         if not isinstance(active, list):
@@ -8212,7 +8300,22 @@ def _apply_stage_threshold_policy(
                 for field, minimum, reason in thresholds
                 if _safe_float(item.get(field)) < minimum
             ]
-            reason_codes.extend(_a1_business_evidence_reasons(item, snapshot_data))
+            business_reasons = _a1_business_evidence_reasons(item, snapshot_data)
+            reason_codes.extend(business_reasons)
+            if monthly_chain_only:
+                if not business_reasons:
+                    disclosed_match = dict(item.get("disclosed_business_match") or {})
+                    disclosed_match.update({
+                        "structured_match_confirmed": True,
+                        "validated_after_model_review": True,
+                    })
+                    item["disclosed_business_match"] = disclosed_match
+                if not str(item.get("monthly_direction_id") or item.get("primary_theme") or "").strip():
+                    reason_codes.append("A1_MONTHLY_DIRECTION_MISSING")
+                if item.get("sector_constituent_confirmed") is not True:
+                    reason_codes.append("A1_SECTOR_CONSTITUENT_NOT_CONFIRMED")
+                if not str(item.get("sector_index_code") or "").strip():
+                    reason_codes.append("A1_SECTOR_INDEX_MAPPING_MISSING")
             if snapshot_data.get("A1_DRIVER_LINEAGE_REQUIRED") is True:
                 reason_codes.extend(_a1_structural_lineage_reasons(item, result, structural_evidence_refs))
             reason_codes.extend(_a1_score_breakdown_reasons(item, snapshot_data))
@@ -8968,8 +9071,8 @@ def _annotate_a2_pool_target(
     result = dict(output)
     raw_targets = snapshot_data.get("A2_POOL_TARGETS")
     targets = raw_targets if isinstance(raw_targets, Mapping) else {}
-    minimum = max(0, _safe_int(targets.get("pool_min", 100)))
-    maximum = max(minimum, _safe_int(targets.get("pool_max", 200)))
+    minimum = max(0, _safe_int(targets.get("pool_min", 20)))
+    maximum = max(minimum, _safe_int(targets.get("pool_max", 60)))
     focus_count = len(result.get("focus_pool")) if isinstance(result.get("focus_pool"), list) else 0
     watch_rows = result.get("watch_only_pool") if isinstance(result.get("watch_only_pool"), list) else []
     watch_count = len(watch_rows)
@@ -9019,6 +9122,8 @@ def _annotate_a2_pool_target(
 def _a2_watch_row_research_eligible(item: Mapping[str, Any]) -> bool:
     """Return whether an A2 watch row remains part of the effective pool."""
 
+    if item.get("top_rotation_theme") is False:
+        return False
     status = str(item.get("status") or "").strip().upper()
     if status in {"REJECTED", "HARD_REJECT", "DATA_GAP"}:
         return False
@@ -9954,7 +10059,9 @@ def _with_a2_bottleneck_context(
             "deterministic_score": item.get("score"),
             "theme_rotation_rank": item.get("theme_rotation_rank"),
             "theme_rotation_score": item.get("theme_rotation_score"),
+            "rotation_strength_source": item.get("rotation_strength_source"),
             "top_rotation_theme": item.get("top_rotation_theme"),
+            "a2_taxonomy_binding": dict(item.get("a2_taxonomy_binding") or {}),
             "deterministic_market_role": item.get("role"),
             "stock_behavior_type": item.get("stock_behavior_type"),
             "route_permission": list(item.get("route_permission") or ()),

@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 from liangjian_funnel.data.mootdx import FetchResult, MinuteBar
 from liangjian_funnel.runtime.monitor import MonitorEngine
 from liangjian_funnel.runtime.simulation import PaperBroker, SimulationAction, SimulationConfig
-from liangjian_funnel.runtime.state import MonitorAction, PlanStatus, RuntimeStore
+from liangjian_funnel.runtime.state import A4SignalStatus, MonitorAction, PlanStatus, RuntimeStore
 from liangjian_funnel.pipeline.research import (
     FrozenInputSnapshot as ResearchSnapshot,
     LaneResult,
@@ -700,6 +700,141 @@ def test_simulation_does_not_retry_a_signal_after_its_only_next_bar(tmp_path):
         _bar(at + timedelta(minutes=2)),
     ) == []
     assert store.list_fills("paper:lane_1") == ()
+
+
+def test_a4_signal_lifecycle_survives_t1_and_closes_on_next_session(tmp_path):
+    store = RuntimeStore(tmp_path / "runtime.sqlite3")
+    broker = PaperBroker(
+        store,
+        account_id="paper:lane_1",
+        model="deepseek-v4-pro-0813",
+        config=SimulationConfig(initial_cash=100_000),
+    )
+    signal_time = datetime(2026, 9, 3, 10, 0, tzinfo=TZ)
+    store.create_execution_plan(
+        "plan-lifecycle",
+        "lane_1",
+        "600519.SH",
+        status=PlanStatus.ACTIVE_TODAY,
+        expires_at=signal_time.replace(hour=15),
+        payload={
+            "source_run_id": "run-20260903",
+            "name": "贵州茅台",
+            "stock_behavior_type": "TREND",
+            "strategy_profile": "TREND_MA5",
+            "trigger_low": 10,
+            "trigger_high": 11,
+            "stop_level": 9,
+        },
+    )
+    store.record_monitor_event(
+        event_key="effective:entry-lifecycle",
+        lane_id="lane_1",
+        minute_end=signal_time,
+        action=MonitorAction.BUY_SIGNAL,
+        reason_code="DETERMINISTIC_TRIGGER_PASS",
+        effective=True,
+        sync_a4_lifecycle=True,
+        payload={"plan_id": "plan-lifecycle", "symbol": "600519.SH"},
+    )
+    app = SimpleNamespace(store=store, brokers={"lane_1": broker})
+
+    entry = WorkflowApplication._settle_prior_signals(
+        app,
+        "lane_1",
+        "600519.SH",
+        _bar(signal_time + timedelta(minutes=1)),
+    )
+    assert entry[0]["status"] == "FILLED"
+    lifecycle = store.get_a4_signal_lifecycle("effective:entry-lifecycle")
+    assert lifecycle["status"] == A4SignalStatus.OPEN.value
+    assert lifecycle["remaining_qty"] > 0
+    store.observe_a4_lifecycle(
+        "paper:lane_1",
+        "600519.SH",
+        signal_time + timedelta(minutes=2),
+        10.4,
+        9.8,
+        10.2,
+    )
+
+    exit_time = signal_time + timedelta(minutes=3)
+    store.record_monitor_event(
+        event_key="effective:exit-lifecycle",
+        lane_id="lane_1",
+        minute_end=exit_time,
+        action=MonitorAction.FORCED_RISK_EXIT,
+        reason_code="HARD_STOP",
+        effective=True,
+        sync_a4_lifecycle=True,
+        payload={"plan_id": "plan-lifecycle", "symbol": "600519.SH"},
+    )
+    assert store.get_a4_signal_lifecycle("effective:entry-lifecycle")["status"] == A4SignalStatus.EXIT_PENDING.value
+    # Same-day A-share quantity is not sellable. The exit intent remains
+    # durable instead of disappearing or being converted into invalidation.
+    assert WorkflowApplication._settle_prior_signals(
+        app,
+        "lane_1",
+        "600519.SH",
+        _bar(exit_time + timedelta(minutes=1)),
+    ) == []
+
+    next_day = datetime(2026, 9, 4, 9, 31, tzinfo=TZ)
+    broker.start_trading_day(next_day.date())
+    closed = WorkflowApplication._settle_prior_signals(
+        app,
+        "lane_1",
+        "600519.SH",
+        _bar(next_day),
+    )
+    assert any(item["action"] == "FORCED_RISK_EXIT" and item["status"] == "FILLED" for item in closed)
+    lifecycle = store.get_a4_signal_lifecycle("effective:entry-lifecycle")
+    assert lifecycle["status"] == A4SignalStatus.CLOSED.value
+    assert lifecycle["exit_reason"] == "HARD_STOP"
+    assert lifecycle["remaining_qty"] == 0
+    assert lifecycle["mfe"] is not None
+    assert lifecycle["mae"] is not None
+    assert lifecycle["net_return"] is not None
+
+
+def test_missed_next_bar_entry_is_retained_as_unfilled_sample(tmp_path):
+    store = RuntimeStore(tmp_path / "runtime.sqlite3")
+    signal_time = datetime(2026, 9, 3, 10, 0, tzinfo=TZ)
+    store.create_execution_plan(
+        "plan-unfilled",
+        "lane_1",
+        "600519.SH",
+        status=PlanStatus.ACTIVE_TODAY,
+        payload={
+            "source_run_id": "run-20260903",
+            "name": "贵州茅台",
+            "stock_behavior_type": "TREND",
+            "strategy_profile": "TREND_MA5",
+            "trigger_low": 10,
+            "trigger_high": 11,
+            "stop_level": 9,
+        },
+    )
+    store.record_monitor_event(
+        event_key="effective:unfilled",
+        lane_id="lane_1",
+        minute_end=signal_time,
+        action=MonitorAction.BUY_SIGNAL,
+        effective=True,
+        sync_a4_lifecycle=True,
+        payload={"plan_id": "plan-unfilled", "symbol": "600519.SH"},
+    )
+    app = SimpleNamespace(store=store)
+
+    expired = WorkflowApplication._expire_missed_a4_entries(
+        app,
+        signal_time + timedelta(minutes=2),
+    )
+
+    assert expired == 1
+    lifecycle = store.get_a4_signal_lifecycle("effective:unfilled")
+    assert lifecycle["status"] == A4SignalStatus.UNFILLED.value
+    assert lifecycle["exit_reason"] == "ENTRY_NEXT_BAR_MISSED"
 
 
 def test_morning_review_activates_pending_plans_without_research_models(tmp_path):

@@ -82,6 +82,108 @@ def test_a2_features_materialize_tier_leader_and_chain_without_heat_as_leader() 
     assert first["factors"]["weekly_confirmation"]["available"] is True
 
 
+def test_limit_up_pool_fills_missing_ladder_as_auditable_first_board() -> None:
+    snapshot = build_a2_feature_snapshot(
+        candidates=[{"symbol": "600001.SH", "amount": 1000}],
+        daily_bars={"600001.SH": _bars(0.02)},
+        industry_membership=_membership("industry"),
+        concept_membership=None,
+        ladder_snapshot={"available": True, "records": [{"date": "2026-08-29", "boards": {}}]},
+        limit_up_snapshot={
+            "available": True,
+            "date": "2026-08-29",
+            "records": [{"thscode": "600001.SH", "continue_day_cnt": 1}],
+        },
+        dragon_tiger_snapshot={"records": []},
+        attention_snapshot={"records": []},
+        sector_cycle_snapshot=None,
+        capital_flow_snapshot={"available": False, "reason_code": "SOURCE_NOT_CONFIGURED"},
+        as_of=NOW,
+    )
+
+    row = snapshot["by_symbol"]["600001.SH"]
+    tier = row["factors"]["tier_structure"]
+    assert tier["tier"] == "T1"
+    assert tier["ladder_height"] == 1
+    assert tier["source"] == "HITHINK_LIMIT_UP_POOL_FIRST_BOARD"
+    assert tier["event_source"] == "HITHINK_LIMIT_UP_POOL"
+    assert tier["first_board_observed"] is True
+    assert tier["continuation_confirmed"] is False
+    assert tier["pool_reported_continue_day_cnt"] == 1
+    assert row["leader_role"] == "EMOTION_LEADER"
+    assert snapshot["limit_up_pool_dataset_state"] == "OBSERVED_VALUE"
+
+    behavior = _a2_behavior_evidence(
+        item={"primary_theme": "theme", "industry_chain_node": "node"},
+        factor_scores=row["factors"],
+        identifiability=80,
+        minimum_identifiability_score=60,
+        relative=80,
+        liquidity=80,
+        legacy_role="EMOTION_LEADER",
+        as_of=NOW.isoformat(),
+    )
+    assert behavior["ladder_structure"]["met"] is True
+    assert behavior["ladder_structure"]["value"]["first_board_observed"] is True
+
+
+def test_limit_up_pool_absence_does_not_create_a_first_board() -> None:
+    snapshot = build_a2_feature_snapshot(
+        candidates=[{"symbol": "600001.SH", "amount": 1000}],
+        daily_bars={"600001.SH": _bars(0.02)},
+        industry_membership=_membership("industry"),
+        concept_membership=None,
+        ladder_snapshot={"available": True, "records": [{"date": "2026-08-29", "boards": {}}]},
+        limit_up_snapshot={"available": True, "date": "2026-08-29", "records": []},
+        dragon_tiger_snapshot={"records": []},
+        attention_snapshot={"records": []},
+        sector_cycle_snapshot=None,
+        capital_flow_snapshot={"available": False, "reason_code": "SOURCE_NOT_CONFIGURED"},
+        as_of=NOW,
+    )
+
+    row = snapshot["by_symbol"]["600001.SH"]
+    tier = row["factors"]["tier_structure"]
+    assert tier["tier"] == "NONE"
+    assert tier["ladder_height"] == 0
+    assert tier["source"] == "HITHINK_LIMIT_UP_LADDER"
+    assert tier.get("first_board_observed") is not True
+    assert row["leader_role"] != "EMOTION_LEADER"
+
+
+def test_ladder_continuity_takes_precedence_over_limit_up_pool() -> None:
+    snapshot = build_a2_feature_snapshot(
+        candidates=[{"symbol": "600001.SH", "amount": 1000}],
+        daily_bars={"600001.SH": _bars(0.02)},
+        industry_membership=_membership("industry"),
+        concept_membership=None,
+        ladder_snapshot={
+            "available": True,
+            "records": [{
+                "date": "2026-08-29",
+                "boards": {"two_board": [{"thscode": "600001.SH", "board_num": 2}]},
+            }],
+        },
+        limit_up_snapshot={
+            "available": True,
+            "date": "2026-08-29",
+            "records": [{"thscode": "600001.SH", "continue_day_cnt": 1}],
+        },
+        dragon_tiger_snapshot={"records": []},
+        attention_snapshot={"records": []},
+        sector_cycle_snapshot=None,
+        capital_flow_snapshot={"available": False, "reason_code": "SOURCE_NOT_CONFIGURED"},
+        as_of=NOW,
+    )
+
+    tier = snapshot["by_symbol"]["600001.SH"]["factors"]["tier_structure"]
+    assert tier["tier"] == "T2"
+    assert tier["ladder_height"] == 2
+    assert tier["source"] == "HITHINK_LIMIT_UP_LADDER"
+    assert tier["continuation_confirmed"] is True
+    assert tier.get("pool_reported_continue_day_cnt") is None
+
+
 def test_missing_capital_flow_stays_unavailable_while_other_factors_remain_auditable() -> None:
     snapshot = build_a2_feature_snapshot(
         candidates=[{"symbol": "600001.SH", "amount": 1000}],

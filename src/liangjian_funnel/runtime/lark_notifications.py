@@ -1,4 +1,4 @@
-"""Direct Lark notifications for approved A3 plans and effective A4 events."""
+"""Direct Lark notifications for A3 plans, A4 events and A5 reviews."""
 
 from __future__ import annotations
 
@@ -27,6 +27,32 @@ _STRATEGY_LABELS = {
     "LEADER_INTRADAY": "龙头战法",
     "MA520_SWING": "520 均线波段",
     "TREND_MA5": "趋势 5 日线",
+}
+
+_A5_ATTRIBUTION_LABELS = {
+    "GOOD_EXECUTION": "执行符合计划",
+    "SELECTION_ERROR": "选股环节存在问题",
+    "PLAN_ERROR": "日线计划存在问题",
+    "CONFIRM_ERROR": "盘中确认存在问题",
+    "DATA_ERROR": "行情或事实数据存在问题",
+    "MARKET_REVERSAL": "盘中市场发生反转",
+    "DATA_LIMITED": "数据不足，暂缓归因",
+    "NOT_AN_ERROR": "不是策略错误",
+    "UNCLASSIFIED": "暂未完成归因",
+}
+
+_A5_DROP_STAGE_LABELS = {
+    "A1": "未进入月度研究池",
+    "A2": "未进入板块聚焦池",
+    "A3": "未形成日线计划",
+    "A4": "盘中条件未触发",
+    "UNRESOLVED": "尚未定位漏斗位置",
+}
+
+_A5_PROPOSAL_LABELS = {
+    "ENGINEERING_FIX": "工程修复",
+    "DATA_FIX": "数据修复",
+    "SHADOW_TEST": "影子验证",
 }
 
 _DISPLAY_LABELS = {
@@ -92,6 +118,21 @@ _DISPLAY_LABELS = {
     "DAILY_NOT_BEARISH": "个股日线未转空",
     "DETERMINISTIC_TRIGGER_PASS": "确定性触发条件通过",
     "DETERMINISTIC_EXIT_TRIGGER": "确定性离场条件触发",
+    "HARD_STOP_BEFORE_ENTRY": "入场前触及风险线",
+    "CURRENT_1M_HARD_STOP": "当前一分钟价格触及持仓硬止损",
+    "PRE_ENTRY_RISK_LEVEL_TOUCHED": "入场前触及风险线，等待闭合周期确认",
+    "ENTRY_BLOCKED_CURRENT_MINUTE": "当前分钟暂停入场",
+    "TREND_PRE_ENTRY_STRUCTURE_INVALIDATED": "趋势结构经闭合周期确认失效",
+    "MA520_PRE_ENTRY_STRUCTURE_INVALIDATED": "五二零结构经闭合周期确认失效",
+    "A4_FORCED_EXIT_WITHOUT_POSITION": "策略产生了无持仓离场指令，已作为异常阻断",
+    "A4_BEHAVIOR_TYPE_MISSING": "股票类型尚未确定，不能选择盘中策略",
+    "BLOCKED_T1": "受 A 股当日买入次日可卖规则限制，等待下一交易日离场",
+    "ENTRY_NEXT_BAR_MISSED": "入场信号后的下一根完整分钟线未能成交",
+    "TREND_5M_FAILED_MA5_RECLAIM": "趋势股连续跌破五日线参考且回抽失败",
+    "TREND_HIGH_VOLUME_MA5_BREAK": "趋势股放量跌破五日线参考",
+    "TREND_HIGH_VOLUME_UPPER_SHADOW": "趋势股放量长上影，触发减仓",
+    "MA520_5M_FAILED_MA20_RECLAIM": "五二零策略跌破二十日线参考且回抽失败",
+    "MA520_HIGH_VOLUME_MA20_BREAK": "五二零策略放量跌破二十日线参考",
     "TREND_5M_REVERSAL_NOT_CONFIRMED": "五分钟转强尚未确认",
     "TREND_15M_PRESSURE_NOT_EASING": "十五分钟压力尚未缓解",
     "TREND_PULLBACK_ZONE_NOT_MET": "尚未进入趋势回踩区",
@@ -112,6 +153,35 @@ _DISPLAY_LABELS = {
     "STRONG_TREND": "强势趋势",
     "PLATFORM_BREAKOUT": "平台突破",
     "NEW_HIGH": "创新高",
+    "HEALTHY": "运行健康",
+    "NEEDS_ATTENTION": "需要关注",
+    "DATA_LIMITED": "数据受限",
+    "INCIDENT": "存在执行事故",
+    "UNAVAILABLE": "证据不可用",
+    "NOT_AN_ERROR": "不是策略错误",
+    "GOOD_EXECUTION": "执行符合计划",
+    "SELECTION_ERROR": "选股环节存在问题",
+    "PLAN_ERROR": "日线计划存在问题",
+    "CONFIRM_ERROR": "盘中确认存在问题",
+    "DATA_ERROR": "行情或事实数据存在问题",
+    "MARKET_REVERSAL": "盘中市场发生反转",
+    "UNCLASSIFIED": "暂未完成归因",
+    "ENGINEERING_FIX": "工程修复",
+    "DATA_FIX": "数据修复",
+    "SHADOW_TEST": "影子验证",
+    "INSUFFICIENT_SAMPLE": "样本不足",
+    "MISSING_DATA": "数据缺失",
+    "CONFOUNDED": "影响因素相互干扰",
+    "REGIME_NOT_OBSERVED": "尚未观察到对应市场环境",
+    "MATCH": "交叉核验一致",
+    "MISMATCH": "交叉核验不一致",
+    "A1_NOT_ACTIVE": "未进入 A1 有效研究池",
+    "A2_NOT_EVALUATED": "A2 尚未完成评估",
+    "A2_NOT_FOCUSED": "未进入 A2 聚焦池",
+    "A3_NOT_PLANNED": "A3 未形成日线计划",
+    "A4_NO_EFFECTIVE_SIGNAL": "A4 未触发有效信号",
+    "PREVIOUS_CLOSE": "以前一日收盘价为基准",
+    "FIRST_INTRADAY_OPEN": "以当日第一笔盘中开盘价为基准",
 }
 
 _THEME_LABELS = {
@@ -143,6 +213,16 @@ _TEXT_REPLACEMENTS = {
     "PPI": "工业生产者出厂价格指数",
     "tier": "梯队",
     "24h": "24小时",
+    "Tencent": "腾讯行情",
+    "TENCENT": "腾讯行情",
+    "HITHINK": "同花顺",
+    "TDX": "通达信",
+    "mootdx": "通达信",
+    "MA5": "五日均线",
+    "MA20": "二十日均线",
+    "MA60": "六十日均线",
+    "MACD": "指数平滑异同移动平均线",
+    "KDJ": "随机指标",
 }
 
 
@@ -152,6 +232,18 @@ def _payload(row: Mapping[str, Any]) -> dict[str, Any]:
     except (TypeError, ValueError, json.JSONDecodeError):
         return {}
     return value if isinstance(value, dict) else {}
+
+
+def _json_mapping(value: Any) -> dict[str, Any]:
+    if isinstance(value, Mapping):
+        return dict(value)
+    if not value:
+        return {}
+    try:
+        decoded = json.loads(str(value))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+    return dict(decoded) if isinstance(decoded, Mapping) else {}
 
 
 def _text(value: Any, *, limit: int = 300, fallback: str = "—") -> str:
@@ -192,6 +284,13 @@ def _display_text(value: Any, *, limit: int = 300, fallback: str = "—") -> str
 
 def _display_items(value: Any, *, limit: int = 4) -> list[str]:
     return [_display_text(item, limit=180) for item in _items(value, limit=limit)]
+
+
+def _percentage(value: Any) -> str:
+    try:
+        return f"{float(value) * 100:.2f}%"
+    except (TypeError, ValueError):
+        return "—"
 
 
 def _theme_label(value: Mapping[str, Any]) -> str:
@@ -636,6 +735,169 @@ class WorkflowLarkPublisher:
                 )
             )
         return outputs
+
+    def publish_a5_review(
+        self,
+        review: Mapping[str, Any],
+        *,
+        now: datetime,
+    ) -> list[dict[str, Any]]:
+        """Publish one persisted A5 review as a compact Chinese card.
+
+        The database row is the delivery source of truth.  Raw prompts,
+        evidence identifiers, model transport, and internal reason codes are
+        deliberately excluded from the card and its safe delivery summary.
+        """
+
+        report = _json_mapping(review.get("report") or review.get("report_json"))
+        facts = _json_mapping(
+            review.get("fact_snapshot") or review.get("fact_snapshot_json")
+        )
+        review_id = str(review.get("review_id") or "").strip()
+        trade_date = str(review.get("trade_date") or report.get("trade_date") or "").strip()
+        review_kind = str(
+            review.get("review_kind") or report.get("review_kind") or ""
+        ).strip().upper()
+        if not report or not facts or not review_id or not trade_date:
+            return []
+
+        kind_label = "盘中复盘" if review_kind == "MIDDAY" else "盘后复盘"
+        notification_kind = (
+            "A5_MIDDAY_REVIEW" if review_kind == "MIDDAY" else "A5_POST_CLOSE_REVIEW"
+        )
+        metrics = _json_mapping(facts.get("metrics"))
+        data_quality = _json_mapping(facts.get("data_quality"))
+        verification = _json_mapping(facts.get("independent_verification"))
+        verification_status = (
+            verification.get("status")
+            or metrics.get("a5_independent_verification_status")
+            or "UNAVAILABLE"
+        )
+        lines = [
+            "**复盘结论**",
+            f"• {_display_text(report.get('executive_summary'), limit=420, fallback='本次复盘摘要未提供。')}",
+            f"• 总体评价：{_display_text(report.get('overall_verdict'), limit=40, fallback='尚无结论')}",
+            f"• 事实截止：{_time_label(review.get('cutoff_at') or facts.get('cutoff_at'))}",
+            f"• 证据质量：{_display_text(data_quality.get('status'), limit=40, fallback='尚未确认')}；异源核验：{_display_text(verification_status, limit=40, fallback='尚未确认')}",
+            "",
+            "**漏斗概况**",
+            f"• A2：聚焦 {_number(metrics.get('a2_focus_count'))} 只，观察 {_number(metrics.get('a2_watch_count'))} 只，覆盖 {_number(metrics.get('a2_theme_count'))} 个主题。",
+            f"• A3：形成 {_number(metrics.get('a3_plan_count'))} 只日线计划。",
+            f"• A4：记录 {_number(metrics.get('a4_effective_event_count'))} 条有效事件，跟踪 {_number(metrics.get('a4_lifecycle_count'))} 个信号生命周期。",
+            "",
+            "**分层验收**",
+        ]
+        for label, key in (
+            ("A2 板块与选股", "a2_review"),
+            ("A3 日线计划", "a3_review"),
+            ("A4 盘中择时", "a4_review"),
+        ):
+            layer = _json_mapping(report.get(key))
+            lines.append(
+                f"• **{label}｜{_display_text(layer.get('verdict'), limit=32, fallback='尚无结论')}**："
+                f"{_display_text(layer.get('summary'), limit=260, fallback='本次没有足够事实形成评价。')}"
+            )
+
+        signal_reviews = [
+            item for item in report.get("signal_reviews", ()) if isinstance(item, Mapping)
+        ] if isinstance(report.get("signal_reviews"), (list, tuple)) else []
+        if signal_reviews:
+            lines.extend(["", f"**信号复盘｜共 {len(signal_reviews)} 条，展示前 5 条**"])
+            for item in signal_reviews[:5]:
+                name = _text(item.get("name"), limit=24, fallback="名称未提供")
+                symbol = _stock_code(item.get("symbol"))
+                strategy = _STRATEGY_LABELS.get(
+                    str(item.get("strategy_profile") or "").upper(),
+                    _display_text(item.get("strategy_profile"), limit=32, fallback="策略待确认"),
+                )
+                attribution = _A5_ATTRIBUTION_LABELS.get(
+                    str(item.get("attribution") or "").upper(),
+                    _display_text(item.get("attribution"), limit=32, fallback="暂未完成归因"),
+                )
+                lines.append(
+                    f"• **{name}（{symbol}）｜{strategy}**：{attribution}；"
+                    f"{_display_text(item.get('assessment'), limit=220, fallback='评价待补充。')}"
+                )
+
+        counterexamples = [
+            item for item in report.get("missed_opportunity_reviews", ()) if isinstance(item, Mapping)
+        ] if isinstance(report.get("missed_opportunity_reviews"), (list, tuple)) else []
+        if counterexamples:
+            lines.extend(["", f"**反向拷问｜共 {len(counterexamples)} 个样本，展示前 5 个**"])
+            for item in counterexamples[:5]:
+                name = _text(item.get("name"), limit=24, fallback="名称未提供")
+                symbol = _stock_code(item.get("symbol"))
+                drop = _A5_DROP_STAGE_LABELS.get(
+                    str(item.get("funnel_drop_stage") or "").upper(),
+                    "尚未定位漏斗位置",
+                )
+                conclusion = "已确认缺陷" if bool(item.get("is_confirmed_defect")) else "需要继续验证"
+                lines.append(
+                    f"• **{name}（{symbol}）｜{drop}**："
+                    f"{_display_text(item.get('observed_performance'), limit=140, fallback='表现资料未提供')}；"
+                    f"{_display_text(item.get('assessment'), limit=180, fallback='判断待补充')}（{conclusion}）"
+                )
+
+        defects = [
+            item for item in report.get("core_defects", ()) if isinstance(item, Mapping)
+        ] if isinstance(report.get("core_defects"), (list, tuple)) else []
+        lines.extend(["", "**核心缺陷**"])
+        if defects:
+            for item in defects[:4]:
+                severity = _display_text(item.get("severity"), limit=20, fallback="待分级")
+                layer = _display_text(item.get("layer"), limit=20, fallback="相关环节")
+                data_note = "，受数据缺口影响" if bool(item.get("blocked_by_data")) else ""
+                lines.append(
+                    f"• **{layer}｜{severity}**："
+                    f"{_display_text(item.get('problem'), limit=240, fallback='问题描述待补充')}{data_note}"
+                )
+        else:
+            lines.append("• 本次未确认可归因的核心缺陷。")
+
+        proposals = [
+            item for item in report.get("improvement_proposals", ()) if isinstance(item, Mapping)
+        ] if isinstance(report.get("improvement_proposals"), (list, tuple)) else []
+        lines.extend(["", "**改进与验证**"])
+        if proposals:
+            for item in proposals[:3]:
+                proposal_type = _A5_PROPOSAL_LABELS.get(
+                    str(item.get("type") or "").upper(), "待验证建议"
+                )
+                target = _display_text(item.get("target"), limit=20, fallback="相关环节")
+                lines.append(
+                    f"• **{target}｜{proposal_type}**："
+                    f"{_display_text(item.get('proposed_change'), limit=220, fallback='建议待补充')}；"
+                    f"至少观察 {_number(item.get('min_shadow_days'))} 个交易日。"
+                )
+        else:
+            lines.append("• 当前证据尚不足以提出新的改进实验。")
+        lines.extend(
+            [
+                "",
+                "**执行边界**",
+                "• 复盘用于发现问题和积累样本；改进建议只进入影子验证，不自动修改生产策略。",
+                "• 本系统仅做本地模拟研究，不连接真实账户，不发送真实订单。",
+            ]
+        )
+        return [
+            self._send(
+                delivery_key=f"a5-review:{review_id}",
+                kind=notification_kind,
+                source_id=review_id,
+                title=f"A股 A5 {kind_label}｜{trade_date}",
+                lines=lines,
+                summary={
+                    "trade_date": trade_date,
+                    "review_kind": review_kind,
+                    "overall_verdict": report.get("overall_verdict"),
+                    "signal_count": len(signal_reviews),
+                    "counterexample_count": len(counterexamples),
+                    "defect_count": len(defects),
+                    "proposal_count": len(proposals),
+                },
+                now=now,
+            )
+        ]
 
     def publish_a4_events(
         self,

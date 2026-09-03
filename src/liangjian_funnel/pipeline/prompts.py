@@ -24,6 +24,7 @@ PROMPT_FILENAMES: tuple[str, ...] = (
     "agent_4_intraday_signal_v2.txt",
     "agent_4_intraday_veto_v3.txt",
     "agent_5_review_calibrator_v2.txt",
+    "agent_5_daily_reviewer_v1.txt",
 )
 
 STAGE_PROMPT_FILES: Mapping[str, str] = {

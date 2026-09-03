@@ -5,7 +5,13 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from liangjian_funnel.cli import _latest_workflow_acceptance, _monitor_plan_projection, build_parser, main
+from liangjian_funnel.cli import (
+    _a4_signal_lifecycle_status,
+    _latest_workflow_acceptance,
+    _monitor_plan_projection,
+    build_parser,
+    main,
+)
 import liangjian_funnel.cli as cli_module
 from liangjian_funnel.contracts import CapabilityCheck, CapabilityReport, CapabilityStatus
 from liangjian_funnel.reporting import write_capability_report
@@ -293,3 +299,57 @@ def test_monitor_plan_projection_recovers_source_run_id_from_plan_identity():
     })
 
     assert projected["source_run_id"] == "2026-08-31-close-example"
+
+
+def test_a4_lifecycle_status_projects_storage_columns_and_r_multiple():
+    class Store:
+        @staticmethod
+        def list_a4_signal_lifecycles(*, limit):
+            assert limit == 100
+            return ({
+                "lifecycle_id": "life-1",
+                "plan_id": "plan-1",
+                "source_run_id": "run-1",
+                "lane_id": "lane_1",
+                "account_id": "paper:lane_1",
+                "trade_date": "2026-09-03",
+                "symbol": "002837.SZ",
+                "name": "英维克",
+                "stock_behavior_type": "TREND",
+                "strategy_profile": "TREND_MA5",
+                "status": "CLOSED",
+                "signal_time": "2026-09-03T10:00:00+08:00",
+                "signal_price": 66.0,
+                "entry_time": "2026-09-03T10:01:00+08:00",
+                "entry_price": 66.0,
+                "entry_qty": 100,
+                "entry_fee": 5.0,
+                "remaining_qty": 0,
+                "max_price": 68.0,
+                "min_price": 65.5,
+                "mfe": 0.03,
+                "mae": -0.01,
+                "exit_signal_time": "2026-09-04T09:31:00+08:00",
+                "exit_time": "2026-09-04T09:32:00+08:00",
+                "exit_price": 67.0,
+                "exit_qty": 100,
+                "exit_fee": 5.0,
+                "exit_reason": "TREND_5M_FAILED_MA5_RECLAIM",
+                "gross_return": 0.015,
+                "net_return": 0.013,
+                "net_pnl": 90.0,
+                "realized_pnl": 90.0,
+                "holding_minutes": 1411,
+                "plan_snapshot_json": '{"stop_level":65}',
+                "updated_at": "2026-09-04T09:32:00+08:00",
+            },)
+
+    rows, counts = _a4_signal_lifecycle_status(type("App", (), {"store": Store()})())
+
+    assert rows[0]["entry_signal_at"] == "2026-09-03T10:00:00+08:00"
+    assert rows[0]["entry_fill_price"] == 66.0
+    assert rows[0]["current_qty"] == 0
+    assert rows[0]["exit_reason_code"] == "TREND_5M_FAILED_MA5_RECLAIM"
+    assert rows[0]["r_multiple"] == pytest.approx(0.9)
+    assert rows[0]["data_quality_status"] == "READY"
+    assert counts == {"CLOSED": 1}

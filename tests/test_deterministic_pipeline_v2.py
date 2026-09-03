@@ -261,14 +261,54 @@ def test_a1_selection_basis_is_explicit_and_does_not_change_active_symbols():
     assert any(item["selection_basis"] == "QUOTA_FILL" for item in local_active)
 
 
-def test_a1_quota_fill_is_explicitly_configured_as_observation_only():
+def test_a1_strict_monthly_chain_disables_quota_and_baseline_activation():
     config_path = Path(__file__).parents[1] / "config" / "funnel_config_v2.yaml"
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     agent_1 = config["agent_1"]
 
     assert "quota_forbidden" not in agent_1
-    assert agent_1["quota_fill_enabled"] is True
+    assert agent_1["monthly_chain_only"] is True
+    assert agent_1["quota_fill_enabled"] is False
     assert agent_1["quota_fill_observation"] == "COHORT_OBSERVATION_ONLY"
+    assert agent_1["fundamental_baseline"]["enabled"] is False
+    assert agent_1["minimum_financial_quality"] == 60
+
+
+def test_a1_strict_monthly_chain_requires_sector_business_and_financial_support() -> None:
+    snapshot = _snapshot(3)
+    snapshot["A1_POOL_TARGETS"] = {
+        "monthly_chain_only": True,
+        "active_research_target": [2, 4],
+        "quota_fill_enabled": True,
+        "fundamental_baseline": {"enabled": True},
+    }
+    snapshot["A1_MINIMUMS"]["minimum_financial_quality"] = 60
+    broker_symbol, weak_symbol, outside_symbol = snapshot["g0_symbols"]
+    snapshot["BROKER_GOLD_COVERAGE_POOL"] = {
+        "available": True,
+        "symbols": {
+            broker_symbol: {"symbol": broker_symbol, "source_refs": ["broker:strict"]},
+            outside_symbol: {"symbol": outside_symbol, "source_refs": ["broker:outside"]},
+        },
+    }
+    snapshot["COMPANY_FUNDAMENTALS"][weak_symbol]["indicators"] = [
+        {"index_id": "index_weighted_avg_roe", "value": -10},
+        {"index_id": "sale_gross_margin", "value": 5},
+        {"index_id": "net_profit_cash_content", "value": 0},
+    ]
+
+    result = screen_a1(snapshot, _discovery(), local_top_n_per_node=3, llm_top_n_per_theme=3)
+    by_symbol = {item["symbol"]: item for item in result.decisions}
+
+    assert by_symbol[broker_symbol]["selection_basis"] != "BROKER_GOLD_DIRECT"
+    assert by_symbol[broker_symbol]["research_route"] == "MONTHLY_THEME"
+    assert by_symbol[broker_symbol]["sector_constituent_confirmed"] is True
+    assert by_symbol[broker_symbol]["sector_index_code"] == "884001.TI"
+    assert by_symbol[broker_symbol]["fundamental_support"]["supported"] is True
+    assert by_symbol[weak_symbol]["status"] == "LOCAL_MONITOR"
+    assert "A1_FINANCIAL_QUALITY_BELOW_MINIMUM" in by_symbol[weak_symbol]["reason_codes"]
+    assert by_symbol[outside_symbol]["status"] == "OUTSIDE_THEME"
+    assert not any(item["selection_basis"] == "FUNDAMENTAL_BASELINE" for item in result.decisions)
 
 
 def test_a1_missing_factor_weight_stays_monitor_and_zero_without_proxy():
@@ -1199,6 +1239,74 @@ def test_screen_a2_only_sends_market_strength_top_three_themes_to_review() -> No
     assert all(item["status"] == "LOCAL_MONITOR" for item in by_theme["theme-fourth"])
     assert all("A2_OUTSIDE_ROTATION_TOP_THEMES" in item["reason_codes"] for item in by_theme["theme-fourth"])
     assert {item["theme_rotation_rank"] for item in by_theme["theme-fourth"]} == {4}
+
+
+def test_screen_a2_ranks_concrete_sector_indices_from_frozen_market_strength() -> None:
+    snapshot = _snapshot(4)
+    symbols = snapshot["g0_symbols"]
+    codes = [f"I{index:03d}.TI" for index in range(4)]
+    snapshot["THS_INDUSTRY_MEMBERSHIP"]["records"] = [
+        {
+            "thscode": symbol,
+            "mapping_status": "MAPPED",
+            "memberships": [{"industry_thscode": code, "industry_name": f"板块{index}"}],
+        }
+        for index, (symbol, code) in enumerate(zip(symbols, codes))
+    ]
+    snapshot["A2_THEME_METRICS"] = {
+        "theme_metrics": {
+            f"INDUSTRY:{code}": {
+                "available": True,
+                "taxonomy": "INDUSTRY",
+                "taxonomy_code": code,
+                "taxonomy_name": f"板块{index}",
+                "score": strength,
+                "member_count": 20,
+                "return_coverage": 1.0,
+            }
+            for index, (code, strength) in enumerate(zip(codes, (40, 95, 85, 75)))
+        }
+    }
+    rows = [
+        {
+            "symbol": symbol,
+            "candidate_id": f"a1:{symbol}",
+            "primary_theme": "one-broad-monthly-theme",
+            "industry_chain_node": f"node-{index}",
+            "business_exposure": {"revenue_exposure_pct": 65, "source_ref": f"cninfo:{symbol}"},
+            "a2_factor_scores": _complete_a2_factor_scores(90 - index),
+            "data_quality_score": 90,
+        }
+        for index, symbol in enumerate(symbols)
+    ]
+    taxonomy_links = [
+        {
+            "node_id": f"node-{index}",
+            "theme_id": "one-broad-monthly-theme",
+            "taxonomy": "INDUSTRY",
+            "taxonomy_code": code,
+            "confidence": 1.0,
+        }
+        for index, code in enumerate(codes)
+    ]
+
+    result = screen_a2(
+        snapshot,
+        {"active_research_pool": rows, "taxonomy_links": taxonomy_links},
+        minimum_identifiability_score=0,
+        review_all_eligible=True,
+        rotation_theme_count=3,
+    )
+    by_symbol = {item["symbol"]: item for item in result.decisions}
+
+    assert by_symbol[symbols[0]]["top_rotation_theme"] is False
+    assert by_symbol[symbols[0]]["theme_rotation_rank"] == 4
+    assert by_symbol[symbols[0]]["rotation_strength_source"] == "A2_THEME_METRICS"
+    assert {item["rotation_direction_id"] for item in result.decisions if item["top_rotation_theme"]} == {
+        f"INDUSTRY:{codes[1]}",
+        f"INDUSTRY:{codes[2]}",
+        f"INDUSTRY:{codes[3]}",
+    }
 
 
 def test_screen_a2_market_core_needs_only_two_hard_facts_when_optional_facts_missing() -> None:

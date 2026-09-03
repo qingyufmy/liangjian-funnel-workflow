@@ -71,6 +71,8 @@ All schedules use `Asia/Shanghai`:
 - 15:10 on weekdays: `python -m liangjian_funnel run-close` (active A1 → A2 → A3)
 - 18:00 on weekdays: `python -m liangjian_funnel run-a1-maintenance`; Python publishes a monthly FULL on the first exchange session, a weekly INCREMENTAL on the last exchange session, and returns NOOP otherwise. A fresh deployment with no active generation performs one bootstrap FULL.
 - each minute in 09:25-11:30 and 13:00-15:00 on weekdays: `python -m liangjian_funnel run-monitor`
+- 11:35 on weekdays: `python -m liangjian_funnel run-a5-midday` (read-only A2-A4 intraday review, cutoff 11:30; includes independent Tencent/TDX/local-cache verification)
+- 16:00 on weekdays: `python -m liangjian_funnel run-a5-close` (read-only A2-A4 post-close review, cutoff 15:00; runs after close-data synchronization and persists missed-opportunity counterexamples and funnel attribution)
 
 For production stable mode, set `LIANGJIAN_COMPARISON_ENABLED=false`. The
 scheduled active-A1 → A2→A3 primary path remains DeepSeek-only and serial; optional
@@ -78,7 +80,7 @@ Kimi/GLM comparisons are not recovered on Node startup and are not enqueued
 after a successful close run. This flag does not permit real orders and does
 not relax any A3/A4 gate.
 
-The Node runner uses a strict allow-list, single-process overlap protection, bounded child-process handling and graceful shutdown. The Python commands still enforce the actual exchange trading calendar, dispatch key and SQLite lease. `run-monitor` legitimately returns empty scope when no active A3 plan exists.
+The Node runner uses a strict allow-list, bounded child-process handling and graceful shutdown. Research/monitor commands retain their primary overlap guard; A5 uses a separate single-process review slot so a bounded model review cannot block A4 or the 15:10 close workflow. The Python commands still enforce the actual exchange trading calendar, dispatch key and SQLite lease. `run-monitor` legitimately returns empty scope when no active A3 plan exists.
 
 For UI/API diagnostics that must not dispatch scheduled work, start a temporary instance with `LIANGJIAN_SCHEDULER_ENABLED=false`. Do not use that value for unattended production.
 

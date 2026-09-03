@@ -51,9 +51,11 @@ def _bars(*, count: int = 30, start: datetime = datetime(2026, 8, 31, 9, 31, tzi
 
 
 def _base(profile: str, **extra: object) -> dict[str, object]:
+    behavior = "EMOTION" if profile == StrategyProfile.LEADER_INTRADAY.value else "TREND"
     return {
         "symbol": "600001.SH",
         "strategy_profile": profile,
+        "stock_behavior_type": behavior,
         "trade_date": "2026-08-31",
         "trigger_zone": {"low": 10.0, "high": 12.0},
         "invalidation_level": 8.0,
@@ -256,15 +258,154 @@ def test_lunch_break_is_not_aggregated_across_sessions() -> None:
     ]
 
 
-def test_hard_stop_is_1m_safety_and_locked_limit_up_cannot_buy() -> None:
+def test_hard_stop_is_immediate_1m_safety_only_for_an_open_position() -> None:
     bars = _bars()
     bars[-1] = _bar(bars[-1]["bar_end"], close=10.5, low=7.5)
-    stopped = evaluate_a4_plan(
+    waiting = evaluate_a4_plan(
         _base(StrategyProfile.TREND_MA5.value, stop_level=8.0, daily_indicators={"ma5": 11, "ma10": 10.7, "ma20": 10.2, "ma60": 9.5, "close": 11.3}),
+        bars,
+    )
+    assert waiting["action"] == A4Action.START_CONFIRMATION.value
+    assert waiting["state"] == "CONFIRMING"
+    assert waiting["reason_codes"] == ["PRE_ENTRY_RISK_LEVEL_TOUCHED"]
+    assert waiting["met_conditions"] == ["CURRENT_1M_RISK_LEVEL_TOUCHED"]
+
+    stopped = evaluate_a4_plan(
+        _base(
+            StrategyProfile.TREND_MA5.value,
+            stop_level=8.0,
+            position_open=True,
+            daily_indicators={"ma5": 11, "ma10": 10.7, "ma20": 10.2, "ma60": 9.5, "close": 11.3},
+        ),
         bars,
     )
     assert stopped["action"] == A4Action.FORCED_RISK_EXIT.value
     assert stopped["reason_codes"] == ["HARD_STOP"]
+
+
+def test_t1_zero_sellable_quantity_is_still_an_open_position() -> None:
+    bars = _bars()
+    bars[-1] = _bar(bars[-1]["bar_end"], close=10.5, low=7.5)
+
+    stopped = evaluate_strategy(
+        _base(
+            StrategyProfile.TREND_MA5.value,
+            stop_level=8.0,
+            daily_indicators={"ma5": 11, "ma10": 10.7, "ma20": 10.2, "ma60": 9.5, "close": 11.3},
+        ),
+        bars,
+        now=datetime(2026, 8, 31, 10, 0, tzinfo=TZ),
+        position={"total_qty": 100, "sellable_qty": 0, "avg_cost": 10.0},
+    )
+
+    assert stopped.action == A4Action.FORCED_RISK_EXIT.value
+    assert stopped.state == "FORCED_RISK_EXIT"
+    assert stopped.reason_codes == ("HARD_STOP",)
+
+
+@pytest.mark.parametrize(
+    ("profile", "daily", "reason"),
+    [
+        (
+            StrategyProfile.TREND_MA5.value,
+            {"ma5": 10.4, "ma10": 10.2, "ma20": 10.0, "ma60": 9.5, "close": 10.6},
+            "TREND_5M_FAILED_MA5_RECLAIM",
+        ),
+        (
+            StrategyProfile.MA520_SWING.value,
+            {"ma5": 10.6, "ma20": 10.4, "close": 10.7},
+            "MA520_5M_FAILED_MA20_RECLAIM",
+        ),
+    ],
+)
+def test_closed_strategy_breakdown_persists_exit_even_while_t1_locked(
+    profile: str,
+    daily: dict[str, float],
+    reason: str,
+) -> None:
+    bars = _bars()
+    for index in range(20, 30):
+        bars[index] = _bar(
+            bars[index]["bar_end"],
+            close=10.10,
+            open_=10.15,
+            low=10.05,
+            high=10.20,
+        )
+    result = evaluate_strategy(
+        _base(
+            profile,
+            daily_indicators=daily,
+            strategy_facts={"ma520_setup": {"second_wave_restart": True}},
+        ),
+        bars,
+        now=datetime(2026, 8, 31, 10, 0, tzinfo=TZ),
+        position={"total_qty": 100, "sellable_qty": 0, "avg_cost": 10.5},
+    )
+
+    assert result.action == A4Action.SELL_SIGNAL.value
+    assert result.state == "EXIT_READY"
+    assert reason in result.reason_codes
+
+
+def test_trend_pre_entry_breakdown_requires_closed_failed_reclaim() -> None:
+    bars = _bars()
+    for index in range(15, 30):
+        bars[index] = _bar(
+            bars[index]["bar_end"],
+            close=7.7,
+            open_=7.8,
+            low=7.6,
+            high=7.9,
+        )
+    invalidated = evaluate_a4_plan(
+        _base(
+            StrategyProfile.TREND_MA5.value,
+            stop_level=8.0,
+            daily_indicators={"ma5": 11, "ma10": 10.7, "ma20": 10.2, "ma60": 9.5, "close": 11.3},
+        ),
+        bars,
+    )
+    assert invalidated["state"] == "PLAN_INVALIDATED"
+    assert invalidated["action"] == A4Action.NO_ACTION.value
+    assert invalidated["reason_codes"] == ["TREND_PRE_ENTRY_STRUCTURE_INVALIDATED"]
+
+
+def test_yingweike_one_tick_intraminute_breach_waits_for_closed_strategy_confirmation() -> None:
+    start = datetime(2026, 9, 3, 10, 16, tzinfo=TZ)
+    bars = [
+        _bar(start + timedelta(minutes=index), close=66.4 - index * 0.01)
+        for index in range(30)
+    ]
+    bars.extend(
+        [
+            _bar(datetime(2026, 9, 3, 10, 46, tzinfo=TZ), close=66.04, open_=66.11, low=66.04, high=66.19),
+            _bar(datetime(2026, 9, 3, 10, 47, tzinfo=TZ), close=65.88, open_=66.06, low=65.88, high=66.06),
+            _bar(datetime(2026, 9, 3, 10, 48, tzinfo=TZ), close=65.97, open_=65.88, low=65.86, high=65.97),
+            _bar(datetime(2026, 9, 3, 10, 49, tzinfo=TZ), close=65.86, open_=65.97, low=65.80, high=65.97),
+        ]
+    )
+    plan = _base(
+        StrategyProfile.TREND_MA5.value,
+        symbol="600001.SH",
+        stock_behavior_type="TREND",
+        trigger_zone={"low": 66.158, "high": 66.23},
+        stop_level=65.81,
+        invalidation_level=65.81,
+        daily_indicators={"ma5": 66.158, "ma10": 61.489, "ma20": 58.552, "close": 66.23},
+        market_context=_live_market_context(as_of="2026-09-03T10:49:00+08:00"),
+        trade_date="2026-09-03",
+    )
+
+    result = evaluate_a4_plan(plan, bars, as_of=datetime(2026, 9, 3, 10, 49, tzinfo=TZ))
+
+    assert result["state"] == "CONFIRMING"
+    assert result["action"] == A4Action.START_CONFIRMATION.value
+    assert result["reason_codes"] == ["PRE_ENTRY_RISK_LEVEL_TOUCHED"]
+    assert result["closed_5m_end"] == "2026-09-03T10:45:00+08:00"
+
+
+def test_locked_limit_up_cannot_buy() -> None:
 
     locked_bars = _bars()
     locked_bars[-1] = _bar(locked_bars[-1]["bar_end"], close=10.0, open_=10.0, low=10.0, high=10.0)
@@ -280,6 +421,12 @@ def test_unknown_profile_and_data_gap_fail_closed_per_plan() -> None:
     unknown = evaluate_a4_plan({"symbol": "600001.SH", "strategy_profile": "NOT_A_STRATEGY"}, _bars())
     assert unknown["action"] == A4Action.DATA_BLOCK.value
     assert unknown["veto_conditions"] == ["UNKNOWN_STRATEGY_PROFILE"]
+    missing_behavior = evaluate_a4_plan(
+        {key: value for key, value in _base(StrategyProfile.TREND_MA5.value).items() if key != "stock_behavior_type"},
+        _bars(),
+    )
+    assert missing_behavior["action"] == A4Action.DATA_BLOCK.value
+    assert missing_behavior["veto_conditions"] == ["A4_BEHAVIOR_TYPE_MISSING"]
     behavior_conflict = evaluate_a4_plan(
         {
             **_base(StrategyProfile.TREND_MA5.value),
@@ -313,7 +460,7 @@ def test_520_does_not_use_intraday_ma5_ma20_and_trend_add_cannot_average_down() 
             action=A4Action.ADD_SIGNAL.value,
             position_open=True,
             entry_price=20.0,
-            daily_indicators={"ma5": 11.0, "ma10": 10.7, "ma20": 10.2, "ma60": 9.5, "close": 11.3},
+            daily_indicators={"ma5": 10.0, "ma10": 9.8, "ma20": 9.6, "ma60": 9.5, "close": 10.3},
         ),
         _bars(),
     )
@@ -404,7 +551,7 @@ def test_type_specific_top_risk_cancels_entry_and_exits_matching_position() -> N
         _leader_bars(),
     )
 
-    assert cancelled["state"] == "CANCELLED"
+    assert cancelled["state"] == "PLAN_INVALIDATED"
     assert cancelled["action"] == A4Action.NO_ACTION.value
     assert cancelled["reason_codes"] == ["A4_EMOTION_TOP_RISK_CONFIRMED"]
     assert exited["state"] == "EXIT_READY"

@@ -135,6 +135,87 @@ def test_a4_only_sends_effective_event_with_condition_logic(tmp_path):
     assert "NO_ACTION" not in body
 
 
+def test_a5_review_card_is_structured_chinese_and_idempotent(tmp_path):
+    store = RuntimeStore(tmp_path / "state.sqlite3")
+    publisher = WorkflowLarkPublisher(
+        store,
+        "https://open.larksuite.com/open-apis/bot/v2/hook/test-token",
+    )
+    fake = FakeNotifier()
+    publisher.notifier = fake
+    now = datetime(2026, 9, 3, 16, 5, tzinfo=SHANGHAI)
+    review = {
+        "review_id": "a5-review-1",
+        "trade_date": "2026-09-03",
+        "review_kind": "POST_CLOSE",
+        "cutoff_at": "2026-09-03T15:00:00+08:00",
+        "fact_snapshot_json": json.dumps(
+            {
+                "metrics": {
+                    "a2_focus_count": 61,
+                    "a2_watch_count": 42,
+                    "a2_theme_count": 3,
+                    "a3_plan_count": 9,
+                    "a4_effective_event_count": 2,
+                    "a4_lifecycle_count": 2,
+                },
+                "data_quality": {"status": "READY"},
+                "independent_verification": {"status": "DEGRADED"},
+            },
+            ensure_ascii=False,
+        ),
+        "report_json": json.dumps(
+            {
+                "trade_date": "2026-09-03",
+                "review_kind": "POST_CLOSE",
+                "overall_verdict": "NEEDS_ATTENTION",
+                "executive_summary": "A2 至 A4 已完成，Tencent 异源数据存在 DATA_LIMITED。",
+                "a2_review": {"verdict": "HEALTHY", "summary": "板块方向与异源行情基本一致。"},
+                "a3_review": {"verdict": "NEEDS_ATTENTION", "summary": "MA5 计划需要继续核对。"},
+                "a4_review": {"verdict": "DATA_LIMITED", "summary": "部分分钟行情尚未完整。"},
+                "signal_reviews": [{
+                    "symbol": "002837.SZ", "name": "英维克",
+                    "strategy_profile": "TREND_MA5", "attribution": "GOOD_EXECUTION",
+                    "assessment": "按 TREND_MA5 完成确认。",
+                }],
+                "missed_opportunity_reviews": [{
+                    "symbol": "000001.SZ", "name": "平安银行",
+                    "funnel_drop_stage": "A2", "observed_performance": "收盘表现较强",
+                    "assessment": "A2_NOT_FOCUSED，需要复核板块宽度。", "is_confirmed_defect": False,
+                }],
+                "core_defects": [{
+                    "layer": "A3", "severity": "MEDIUM",
+                    "problem": "MA20 数据覆盖不足。", "blocked_by_data": True,
+                }],
+                "improvement_proposals": [{
+                    "type": "DATA_FIX", "target": "A3",
+                    "proposed_change": "补齐 TDX 日线并做 SHADOW_TEST。", "min_shadow_days": 10,
+                }],
+            },
+            ensure_ascii=False,
+        ),
+    }
+
+    first = publisher.publish_a5_review(review, now=now)
+    second = publisher.publish_a5_review(review, now=now)
+
+    assert first[0]["status"] == "SENT"
+    assert second[0]["duplicate"] is True
+    assert len(fake.calls) == 1
+    title, lines, _color = fake.calls[0]
+    body = "\n".join(lines)
+    assert title == "A股 A5 盘后复盘｜2026-09-03"
+    for heading in ("复盘结论", "漏斗概况", "分层验收", "信号复盘", "反向拷问", "核心缺陷", "改进与验证", "执行边界"):
+        assert heading in body
+    for internal in ("NEEDS_ATTENTION", "DATA_LIMITED", "GOOD_EXECUTION", "TREND_MA5", "A2_NOT_FOCUSED", "DATA_FIX", "SHADOW_TEST", "Tencent", "TDX", ".SZ"):
+        assert internal not in body
+    assert "腾讯行情" in body
+    assert "趋势 5 日线" in body
+    assert "未进入 A2 聚焦池" in body
+    assert "数据修复" in body
+    assert store.list_notification_deliveries(kind="A5_POST_CLOSE_REVIEW")
+
+
 def test_a3_premarket_analysis_is_distinct_from_auction_activation(tmp_path):
     store = RuntimeStore(tmp_path / "state.sqlite3")
     publisher = WorkflowLarkPublisher(

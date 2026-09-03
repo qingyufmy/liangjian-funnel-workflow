@@ -183,22 +183,30 @@ def evaluate_a4_plan(
         )
 
     behavior = str(_lookup(plan, ("stock_behavior_type",), ("behavior_type",)) or "").strip().upper()
-    if behavior:
-        compatible = (
-            behavior == "EMOTION" and profile is StrategyProfile.LEADER_INTRADAY
-        ) or (
-            behavior == "TREND"
-            and profile in {StrategyProfile.MA520_SWING, StrategyProfile.TREND_MA5}
+    if behavior not in {"EMOTION", "TREND"}:
+        return _finish(
+            base,
+            state="DATA_BLOCKED",
+            action=A4Action.DATA_BLOCK,
+            reasons=["A4_BEHAVIOR_TYPE_MISSING"],
+            unmet=["STOCK_BEHAVIOR_TYPE"],
+            veto=["A4_BEHAVIOR_TYPE_MISSING"],
         )
-        if not compatible:
-            return _finish(
-                base,
-                state="DATA_BLOCKED",
-                action=A4Action.DATA_BLOCK,
-                reasons=["A4_BEHAVIOR_ROUTE_CONFLICT"],
-                unmet=["BEHAVIOR_ROUTE_COMPATIBLE"],
-                veto=["A4_BEHAVIOR_ROUTE_CONFLICT"],
-            )
+    compatible = (
+        behavior == "EMOTION" and profile is StrategyProfile.LEADER_INTRADAY
+    ) or (
+        behavior == "TREND"
+        and profile in {StrategyProfile.MA520_SWING, StrategyProfile.TREND_MA5}
+    )
+    if not compatible:
+        return _finish(
+            base,
+            state="DATA_BLOCKED",
+            action=A4Action.DATA_BLOCK,
+            reasons=["A4_BEHAVIOR_ROUTE_CONFLICT"],
+            unmet=["BEHAVIOR_ROUTE_COMPATIBLE"],
+            veto=["A4_BEHAVIOR_ROUTE_CONFLICT"],
+        )
 
     try:
         normalized = _normalize_bars(bars, plan)
@@ -300,9 +308,12 @@ def evaluate_a4_plan(
             veto=[],
         )
 
-    # Hard-stop evaluation deliberately precedes the 5m/15m availability
-    # checks.  An exit safety rule must remain effective even when the
-    # contextual bars are temporarily incomplete.
+    # A protective hard stop is an immediate 1m safety rule only after a
+    # position exists.  Before entry the same number is a setup-invalidation
+    # reference: it must be confirmed by the strategy's closed 5m/15m
+    # structure.  Treating a one-tick 1m excursion as a forced exit for a
+    # non-existent position used to bypass all three strategy evaluators and
+    # permanently cancel otherwise recoverable pullback setups.
     stop = _number(
         _lookup(
             plan,
@@ -314,7 +325,7 @@ def evaluate_a4_plan(
         )
     )
     position_open = _position_open(plan)
-    if current_bar is not None and stop is not None and current_bar.low <= stop + _EPSILON:
+    if position_open and current_bar is not None and stop is not None and current_bar.low <= stop + _EPSILON:
         return _finish(
             base,
             state="FORCED_RISK_EXIT",
@@ -354,9 +365,23 @@ def evaluate_a4_plan(
             veto=["NO_CLOSED_15M"],
         )
 
-    # One-minute safety is evaluated before any strategy-specific trigger and
-    # cannot be vetoed by a model.  It deliberately uses the current 1m low,
-    # never a 5m/15m low, so a hard stop is not delayed by aggregation.
+    if not position_open:
+        pre_entry_risk = _pre_entry_risk_decision(
+            profile,
+            plan,
+            current_bar,
+            bars_5m,
+            bars_15m,
+            stop,
+        )
+        if pre_entry_risk is not None:
+            base.update(pre_entry_risk)
+            return _finish(base, as_of=current)
+
+    # Frozen plan invalidation and explicit behaviour risks are evaluated
+    # before any new-entry trigger.  Protective 1m stops for open positions
+    # were already handled above; an unfilled plan reaches this point only
+    # after its strategy-specific closed-bar invalidation check.
     if _plan_invalidated(plan):
         return _exit_or_cancel(
             base,
@@ -820,6 +845,78 @@ def _evaluate_leader(
     return _waiting_decision(met, unmet, reasons, veto, forced_action=A4Action.NO_ACTION if locked else None)
 
 
+def _pre_entry_risk_decision(
+    profile: StrategyProfile,
+    plan: Mapping[str, Any],
+    current: _Bar | None,
+    five: Sequence[_Bar],
+    fifteen: Sequence[_Bar],
+    stop: float | None,
+) -> dict[str, Any] | None:
+    """Classify an unfilled plan around its frozen invalidation reference.
+
+    The number published by A3 is a daily setup reference, not an instruction
+    to manufacture a ``FORCED_RISK_EXIT`` before a position exists.  Trend and
+    520 plans require a closed-bar breakdown plus a failed reclaim.  Leader
+    plans are invalidated by their ladder/theme path in ``_evaluate_leader``;
+    a price touch alone merely pauses entry for the current minute.
+    """
+
+    if current is None or stop is None:
+        return None
+
+    latest5 = five[-1]
+    prior5 = five[-2] if len(five) >= 2 else None
+    latest15 = fifteen[-1]
+    latest5_below = latest5.close < stop - _EPSILON
+    failed_5m_reclaim = bool(
+        latest5_below
+        and prior5 is not None
+        and prior5.close < stop - _EPSILON
+        and latest5.high < stop - _EPSILON
+    )
+    confirmed_15m_break = bool(
+        latest5_below
+        and latest15.close < stop - _EPSILON
+        and latest5.end >= latest15.end
+    )
+
+    if profile in {StrategyProfile.MA520_SWING, StrategyProfile.TREND_MA5} and (
+        failed_5m_reclaim or confirmed_15m_break
+    ):
+        prefix = "MA520" if profile is StrategyProfile.MA520_SWING else "TREND"
+        met = [f"{prefix}_PRE_ENTRY_CLOSED_BREAKDOWN"]
+        if failed_5m_reclaim:
+            met.append(f"{prefix}_5M_FAILED_RECLAIM")
+        if confirmed_15m_break:
+            met.append(f"{prefix}_15M_BREAKDOWN_CONFIRMED")
+        reason = f"{prefix}_PRE_ENTRY_STRUCTURE_INVALIDATED"
+        return {
+            "state": "PLAN_INVALIDATED",
+            "action": A4Action.NO_ACTION.value,
+            "reason_codes": [reason],
+            "met_conditions": met,
+            "unmet_conditions": [],
+            "veto_conditions": [reason],
+        }
+
+    if current.low <= stop + _EPSILON:
+        prefix = {
+            StrategyProfile.LEADER_INTRADAY: "LEADER",
+            StrategyProfile.MA520_SWING: "MA520",
+            StrategyProfile.TREND_MA5: "TREND",
+        }[profile]
+        return {
+            "state": "CONFIRMING",
+            "action": A4Action.START_CONFIRMATION.value,
+            "reason_codes": ["PRE_ENTRY_RISK_LEVEL_TOUCHED"],
+            "met_conditions": ["CURRENT_1M_RISK_LEVEL_TOUCHED"],
+            "unmet_conditions": [f"{prefix}_CLOSED_INVALIDATION_CONFIRMATION"],
+            "veto_conditions": ["ENTRY_BLOCKED_CURRENT_MINUTE"],
+        }
+    return None
+
+
 def _evaluate_520(
     plan: Mapping[str, Any],
     five: Sequence[_Bar],
@@ -862,6 +959,26 @@ def _evaluate_520(
 
     latest5 = five[-1]
     prior5 = five[-2] if len(five) >= 2 else None
+    if position_open and ma20 is not None:
+        ma20_break, ma20_volume_break = _closed_level_breakdown(five, ma20)
+        if ma20_break or ma20_volume_break:
+            reason = (
+                "MA520_HIGH_VOLUME_MA20_BREAK"
+                if ma20_volume_break
+                else "MA520_5M_FAILED_MA20_RECLAIM"
+            )
+            reasons.append(reason)
+            veto.append(reason)
+            unmet.append("MA520_INTRADAY_HOLD_MA20")
+            return _exit_or_cancel_decision(
+                position_open,
+                reason,
+                met,
+                unmet,
+                reasons,
+                veto,
+                action=A4Action.SELL_SIGNAL,
+            )
     vwap = _vwap(five)
     higher_low = prior5 is not None and latest5.low + _EPSILON >= prior5.low
     reclaim = vwap is not None and latest5.close + _EPSILON >= vwap
@@ -963,6 +1080,41 @@ def _evaluate_trend(
         reasons.append("TREND_15M_PRESSURE_NOT_EASING")
     latest5 = five[-1]
     prior5 = five[-2] if len(five) >= 2 else None
+    daily = _daily_context(plan)
+    daily_ma5 = _number(_lookup(daily, ("ma5",), ("MA5",))) if daily else None
+    if position_open and daily_ma5 is not None:
+        ma5_break, ma5_volume_break = _closed_level_breakdown(five, daily_ma5)
+        if ma5_break or ma5_volume_break:
+            reason = (
+                "TREND_HIGH_VOLUME_MA5_BREAK"
+                if ma5_volume_break
+                else "TREND_5M_FAILED_MA5_RECLAIM"
+            )
+            reasons.append(reason)
+            veto.append(reason)
+            unmet.append("TREND_INTRADAY_HOLD_MA5")
+            return _exit_or_cancel_decision(
+                position_open,
+                reason,
+                met,
+                unmet,
+                reasons,
+                veto,
+                action=A4Action.SELL_SIGNAL,
+            )
+        if _high_volume_upper_shadow(latest5, five):
+            reason = "TREND_HIGH_VOLUME_UPPER_SHADOW"
+            reasons.append(reason)
+            veto.append(reason)
+            return _exit_or_cancel_decision(
+                position_open,
+                reason,
+                met,
+                unmet,
+                reasons,
+                veto,
+                action=A4Action.REDUCE_SIGNAL,
+            )
     vwap = _vwap(five)
     reversal = prior5 is not None and latest5.close >= latest5.open and latest5.close >= prior5.close and latest5.low + _EPSILON >= prior5.low and (vwap is None or latest5.close >= vwap)
     if reversal:
@@ -1054,15 +1206,16 @@ def _exit_or_cancel(
     position_open: bool,
     action: A4Action,
 ) -> dict[str, Any]:
-    if position_open and _sellable(plan):
-        result["state"] = "EXIT_READY"
+    if position_open:
+        sellable = _sellable(plan)
+        result["state"] = "EXIT_READY" if sellable else "EXIT_PENDING"
         result["action"] = action.value
-        result["reason_codes"] = [reason]
+        result["reason_codes"] = [reason] if sellable else [reason, "BLOCKED_T1"]
         result["met_conditions"] = ["POSITION_OPEN", reason]
-        result["unmet_conditions"] = []
+        result["unmet_conditions"] = [] if sellable else ["SELLABLE_POSITION"]
         result["veto_conditions"] = [reason]
     else:
-        result["state"] = "CANCELLED"
+        result["state"] = "PLAN_INVALIDATED"
         result["action"] = A4Action.NO_ACTION.value
         result["reason_codes"] = [reason, "NO_SELLABLE_POSITION"] if position_open else [reason]
         result["met_conditions"] = [reason]
@@ -1091,7 +1244,7 @@ def _exit_or_cancel_decision(
             "veto_conditions": _unique([*veto, reason]),
         }
     return {
-        "state": "CANCELLED",
+        "state": "PLAN_INVALIDATED",
         "action": A4Action.NO_ACTION.value,
         "reason_codes": _unique([*reasons, reason]),
         "met_conditions": _unique(met),
@@ -1281,6 +1434,28 @@ def _high_volume_upper_shadow(latest: _Bar, five: Sequence[_Bar]) -> bool:
         return False
     baseline = _median(item.volume for item in five[:-1])
     return baseline is not None and baseline > 0 and latest.volume >= baseline * 2.0
+
+
+def _closed_level_breakdown(five: Sequence[_Bar], level: float) -> tuple[bool, bool]:
+    """Return failed-reclaim and high-volume closed 5m breakdown flags."""
+
+    if len(five) < 2 or level <= 0:
+        return False, False
+    latest, previous = five[-1], five[-2]
+    failed_reclaim = (
+        previous.close < level - _EPSILON
+        and latest.close < level - _EPSILON
+        and latest.high < level - _EPSILON
+    )
+    baseline = _median(item.volume for item in five[:-1])
+    high_volume_break = bool(
+        latest.close < level - _EPSILON
+        and latest.close < latest.open - _EPSILON
+        and baseline is not None
+        and baseline > 0
+        and latest.volume >= baseline * 1.5
+    )
+    return failed_reclaim, high_volume_break
 
 
 def _520_confirmations(five: Sequence[_Bar]) -> int:
@@ -1592,9 +1767,17 @@ def _position_open(plan: Mapping[str, Any]) -> bool:
     for path in (("position",), ("virtual_position",), ("current_position",)):
         value = _lookup(plan, path)
         if isinstance(value, Mapping):
-            quantity = _number(_lookup(value, ("qty",), ("quantity",), ("sellable_qty",)))
+            # ``sellable_qty`` may legitimately be zero on the T+1 entry
+            # session while ``total_qty`` is positive.  Position existence
+            # and current sellability are different facts and must not be
+            # collapsed into one flag.
+            quantity = _number(
+                _lookup(value, ("total_qty",), ("qty",), ("quantity",), ("sellable_qty",))
+            )
             return quantity is not None and quantity > 0
-    quantity = _number(_lookup(plan, ("position_qty",), ("quantity",), ("sellable_qty",)))
+    quantity = _number(
+        _lookup(plan, ("total_qty",), ("position_qty",), ("quantity",), ("sellable_qty",))
+    )
     return quantity is not None and quantity > 0
 
 

@@ -28,4 +28,16 @@ describe("中文展示词典", () => {
     expect(planPriorityText("P3")).toBe("试探观察");
     expect(stockSymbolLabel("000001.SZ")).toBe("000001 · 深市");
   });
+
+  it("将A4生命周期和入场前风险原因转换为中文", () => {
+    expect(codeLabel("SIGNALLED")).toBe("已发出入场信号");
+    expect(codeLabel("OPEN")).toBe("持仓中");
+    expect(codeLabel("HARD_STOP_BEFORE_ENTRY")).toBe("入场前触及保护位");
+    expect(codeLabel("CURRENT_1M_HARD_STOP")).toBe("当前一分钟触及保护位");
+    expect(codeLabel("A4_BEHAVIOR_TYPE_MISSING")).toBe("股票类型尚未确定，不能选择盘中策略");
+    expect(codeLabel("TREND_PRE_ENTRY_STRUCTURE_INVALIDATED")).toBe("趋势策略入场前结构失效");
+    expect(codeLabel("TREND_5M_FAILED_MA5_RECLAIM")).toBe("趋势股连续跌破五日线参考且回抽失败");
+    expect(humanizeText("MA520_PRE_ENTRY_STRUCTURE_INVALIDATED")).toBe("五日与二十日均线入场前结构失效");
+    expect(codeLabel("LARK_NOTIFICATION_FAILED")).toBe("飞书消息发送失败");
+  });
 });

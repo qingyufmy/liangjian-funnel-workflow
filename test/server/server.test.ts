@@ -9,7 +9,7 @@ import type { Request } from "express";
 import { tokenMatches } from "../../server/auth.js";
 import { createApp } from "../../server/api.js";
 import { loadConfig } from "../../server/config.js";
-import { DashboardData, normalizeA4Replay, normalizeStagePoolCounts, summarizeMonitorDispatch } from "../../server/dashboard.js";
+import { DashboardData, normalizeA4Replay, normalizeA4SignalLifecycle, normalizeA5Review, normalizeStagePoolCounts, summarizeMonitorDispatch } from "../../server/dashboard.js";
 import { normalizeLaneOutcome, normalizeRunOutcome, normalizeStageOutcome, ProjectFiles, resolveWithinRoot } from "../../server/files.js";
 import { LogStore } from "../../server/logger.js";
 import { LarkSettingsStore } from "../../server/lark-settings.js";
@@ -167,6 +167,84 @@ test("redacts bearer, API keys, and private reasoning fields", () => {
   expect(safe).toEqual({ token: "[REDACTED]", nested: "Bearer [REDACTED]" });
 });
 
+test("normalizes the durable A4 lifecycle projection from Python snake_case rows", () => {
+  expect(normalizeA4SignalLifecycle({
+    lifecycle_id: "lifecycle-1",
+    plan_id: "plan-1",
+    source_run_id: "close-1",
+    lane_id: "lane_1",
+    account_id: "paper-1",
+    trade_date: "2026-09-03",
+    symbol: "002837.SZ",
+    name: "英维克",
+    stock_behavior_type: "TREND",
+    strategy_profile: "TREND_MA5",
+    status: "OPEN",
+    entry_signal_at: "2026-09-03T10:55:00+08:00",
+    entry_signal_price: 66.16,
+    entry_fill_at: "2026-09-03T10:56:00+08:00",
+    entry_fill_price: 66.17,
+    entry_qty: 100,
+    entry_fee: 1.98,
+    current_qty: 100,
+    max_price: 66.5,
+    min_price: 65.8,
+    mfe_pct: 0.0051,
+    mae_pct: -0.0054,
+    exit_signal_at: null,
+    exit_fill_at: null,
+    exit_fill_price: null,
+    exit_qty: 0,
+    exit_fee: 0,
+    exit_reason_code: null,
+    gross_return_pct: null,
+    net_return_pct: null,
+    realized_pnl: null,
+    r_multiple: null,
+    holding_minutes: 4,
+    data_quality_status: "READY",
+    updated_at: "2026-09-03T10:59:00+08:00",
+  })).toMatchObject({
+    lifecycleId: "lifecycle-1",
+    symbol: "002837.SZ",
+    stockBehaviorType: "TREND",
+    strategyProfile: "TREND_MA5",
+    entrySignalPrice: 66.16,
+    currentQty: 100,
+    mfePct: 0.0051,
+    maePct: -0.0054,
+    dataQualityStatus: "READY",
+  });
+});
+
+test("keeps the current lifecycle storage column aliases visible during rollout", () => {
+  expect(normalizeA4SignalLifecycle({
+    lifecycle_id: "lifecycle-legacy",
+    signal_time: "2026-09-03T10:55:00+08:00",
+    signal_price: 66.16,
+    entry_time: "2026-09-03T10:56:00+08:00",
+    entry_price: 66.17,
+    remaining_qty: 100,
+    mfe: 0.0051,
+    mae: -0.0054,
+    exit_signal_time: null,
+    exit_time: null,
+    exit_price: null,
+    exit_reason: null,
+    gross_return: null,
+    net_return: null,
+  })).toMatchObject({
+    lifecycleId: "lifecycle-legacy",
+    entrySignalAt: "2026-09-03T10:55:00+08:00",
+    entrySignalPrice: 66.16,
+    entryFillAt: "2026-09-03T10:56:00+08:00",
+    entryFillPrice: 66.17,
+    currentQty: 100,
+    mfePct: 0.0051,
+    maePct: -0.0054,
+  });
+});
+
 test("reports the complete A2 research pool instead of only the strict focus subset", () => {
   expect(normalizeStagePoolCounts({
     stage: "A2",
@@ -289,6 +367,34 @@ test("normalizes lane and run outcomes without letting optional comparison lanes
     publication_state: "READY",
     comparison_status: "BLOCKED",
     primary_lane_ids: ["lane_1"],
+  });
+});
+
+test("normalizes persisted A5 reviews for the workbench without exposing raw storage fields", () => {
+  expect(normalizeA5Review({
+    review_id: "review-1",
+    trade_date: "2026-09-03",
+    review_kind: "MIDDAY",
+    cutoff_at: "2026-09-03T11:30:00+08:00",
+    status: "COMPLETED",
+    model: "deepseek-v4-pro-0813",
+    markdown_path: "outputs/a5/2026-09-03/midday-aabbccddeeff.md",
+    metrics: { a3_plan_count: 8 },
+    data_quality: { status: "READY" },
+    report: { overall_verdict: "HEALTHY" },
+    fact_snapshot_json: "must-not-leak",
+  })).toEqual({
+    reviewId: "review-1",
+    tradeDate: "2026-09-03",
+    reviewKind: "MIDDAY",
+    cutoffAt: "2026-09-03T11:30:00+08:00",
+    createdAt: null,
+    status: "COMPLETED",
+    model: "deepseek-v4-pro-0813",
+    markdownPath: "outputs/a5/2026-09-03/midday-aabbccddeeff.md",
+    metrics: { a3_plan_count: 8 },
+    dataQuality: { status: "READY" },
+    report: { overall_verdict: "HEALTHY" },
   });
 });
 
@@ -1414,6 +1520,24 @@ test("scheduler wakes the Python-owned A1 cadence gate at 18:00 on weekdays only
   expect(calls).toEqual(["a1"]);
 });
 
+test("scheduler dispatches both A5 review slots without manufacturing monitor work", async () => {
+  const calls: JobName[] = [];
+  const fakeRunner = {
+    run: async (job: JobName): Promise<JobRunRecord> => {
+      calls.push(job);
+      return { runId: job, job, command: job, startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(), exitCode: 0, signal: null, durationMs: 0, status: "succeeded", reason: null };
+    },
+    activeJob: (): JobRunRecord | null => null,
+  };
+  const root = await mkdtemp(join(tmpdir(), "liangjian-a5-scheduler-"));
+  const logger = new LogStore(loadConfig({ LIANGJIAN_PYTHON_BIN: "python3" }, root));
+  const scheduler = new WorkflowScheduler(fakeRunner as unknown as JobRunner, logger, { comparisonEnabled: false });
+  await scheduler.tick(new Date("2026-09-03T03:35:05.000Z"));
+  await scheduler.tick(new Date("2026-09-03T08:00:05.000Z"));
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(calls).toEqual(["a5-midday", "a5-close"]);
+});
+
 test("process-exit wait returns after timeout so shutdown can escalate to SIGKILL", async () => {
   const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 1000)"], { stdio: "ignore", windowsHide: true });
   const exited = await waitForProcessExit(child, 5);
@@ -1428,4 +1552,6 @@ test("all jobs have a bounded control-plane timeout", () => {
   expect(timeoutForJob("monitor", 1234)).toBe(1234);
   expect(timeoutForJob("monitor", 90_000)).toBe(55_000);
   expect(timeoutForJob("a1", 90_000, 6 * 60 * 60 * 1000)).toBe(6 * 60 * 60 * 1000);
+  expect(timeoutForJob("a5-midday", 90 * 60 * 1000)).toBe(10 * 60 * 1000);
+  expect(timeoutForJob("a5-close", 90 * 60 * 1000)).toBe(10 * 60 * 1000);
 });
