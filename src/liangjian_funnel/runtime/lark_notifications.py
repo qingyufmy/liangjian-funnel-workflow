@@ -232,6 +232,7 @@ class WorkflowLarkPublisher:
         analyzed_at: datetime,
         source_run_id: str | None = None,
         research_context: Mapping[str, Any] | None = None,
+        activation_state: str = "PENDING_0926",
     ) -> list[dict[str, Any]]:
         """Publish a professional read-only A1-A3 premarket brief.
 
@@ -246,8 +247,9 @@ class WorkflowLarkPublisher:
             return []
         ordered = sorted(plans, key=_plan_sort_key)
         plan_ids = [str(row.get("plan_id") or "") for row in ordered]
+        active_session = activation_state == "ACTIVE_CURRENT_SESSION"
         batch_hash = hashlib.sha256(
-            f"{source_run_id or ''}|{'|'.join(plan_ids)}".encode("utf-8")
+            f"{source_run_id or ''}|{activation_state}|{'|'.join(plan_ids)}".encode("utf-8")
         ).hexdigest()[:16]
         context = dict(research_context) if isinstance(research_context, Mapping) else {}
         a1 = context.get("a1") if isinstance(context.get("a1"), Mapping) else {}
@@ -260,8 +262,14 @@ class WorkflowLarkPublisher:
         monthly = [item for item in a1.get("monthly_industries", ()) if isinstance(item, Mapping)] if isinstance(a1.get("monthly_industries"), (list, tuple)) else []
         themes = [item for item in a2.get("active_themes", ()) if isinstance(item, Mapping)] if isinstance(a2.get("active_themes"), (list, tuple)) else []
         reason_codes = _items(context.get("reason_codes"), limit=6)
+        report_label = "盘中补发" if active_session else "盘前总览"
+        execution_boundary = (
+            "本卡为盘中补发，只呈现已完成当日行情复核并处于 A4 监测中的计划；不回填竞价或早盘信号。"
+            if active_session
+            else "未落库的24h新闻、竞价和实时龙虎榜不推演、不补造；09:26 独立竞价复核前不激活 A4。"
+        )
         context_lines = [
-            f"**一、盘前总览** {analyzed_at.date().isoformat()} {analyzed_at.strftime('%H:%M')}｜A3 计划 {len(ordered)} 只｜上下文 {_text(context.get('status'), limit=30, fallback='UNAVAILABLE')}",
+            f"**一、{report_label}** {analyzed_at.date().isoformat()} {analyzed_at.strftime('%H:%M')}｜A3 计划 {len(ordered)} 只｜上下文 {_text(context.get('status'), limit=30, fallback='UNAVAILABLE')}",
             f"**数据时点** 收盘事实 {_text(context.get('market_trade_date'), limit=20)}｜目标交易日 {_text(context.get('target_trade_date'), limit=20)}｜主模型 {_text(context.get('model'), limit=50)}",
             f"**A1 宏观** 流动性 {_text(macro.get('liquidity_condition'), limit=30)}｜盈利周期 {_text(macro.get('profit_cycle_position'), limit=30)}｜研究池 {_number(a1.get('active_count'))}",
             f"**政策方向** {'；'.join(directions) if directions else '未提供可核验方向'}",
@@ -286,7 +294,7 @@ class WorkflowLarkPublisher:
                 "**权限边界** A3 不阻断次日计划；当日新开仓权限只由 A4 当前交易日实时市场状态判定。",
                 f"**核心不确定性** {'；'.join(uncertainties) if uncertainties else '未提供'}",
                 f"**上下文风险码** {'；'.join(reason_codes) if reason_codes else '无'}",
-                "**事实边界** 未落库的24h新闻、竞价和实时龙虎榜不推演、不补造；09:26 独立竞价复核前不激活 A4。",
+                f"**事实边界** {execution_boundary}",
             ]
         )
         chunks = [ordered[index : index + 4] for index in range(0, len(ordered), 4)]
@@ -312,7 +320,14 @@ class WorkflowLarkPublisher:
         for page, chunk in enumerate(chunks, start=1):
             lines = [
                 f"**四、A3 次日计划** {analyzed_at.date().isoformat()}｜本卡 {page}/{len(chunks)}｜共 {len(ordered)} 只。",
-                f"**来源与边界** 批次 {_text(source_run_id, limit=160, fallback='未提供')}；09:26 前不读取竞价、不改变计划状态、不激活 A4。",
+                (
+                    f"**来源与边界** 批次 {_text(source_run_id, limit=160, fallback='未提供')}；"
+                    + (
+                        "计划已激活进入 A4，本卡不补造已错过的盘中信号。"
+                        if active_session
+                        else "09:26 前不读取竞价、不改变计划状态、不激活 A4。"
+                    )
+                ),
             ]
             symbols: list[str] = []
             for row in chunk:
@@ -347,7 +362,7 @@ class WorkflowLarkPublisher:
                         f"**A1-A3 入选链** {'；'.join(reasons) if reasons else '已通过确定性日线技术计划'}",
                         f"**参考收盘** {_number(payload.get('reference_price'))}（{_text(payload.get('reference_price_as_of'), limit=32)}）｜**次日触发区** {_number(payload.get('trigger_low'))}–{_number(payload.get('trigger_high'))}",
                         f"**止损/失效** {_number(payload.get('stop_level') or payload.get('daily_invalidation'))}｜**禁止追价** {_number(payload.get('no_chase') or payload.get('no_chase_price') or payload.get('max_chase_price'))}｜**压力/减仓参考** {_number(payload.get('pressure_reduce_price'))}（{_text(payload.get('pressure_basis'), limit=32)}）",
-                        f"**必要条件** {'；'.join(conditions) if conditions else '按 A3 计划条件，待 09:26 复核'}",
+                        f"**必要条件** {'；'.join(conditions) if conditions else ('按 A3 计划条件，由 A4 继续监测' if active_session else '按 A3 计划条件，待 09:26 复核')}",
                         f"**隔夜失效项** {'；'.join(invalidators)}",
                         f"**三情景** 强：不超过禁追价仍等 A4 确认｜中：进入触发区且条件成立｜弱：跌破失效价则计划作废",
                     ]
@@ -367,7 +382,9 @@ class WorkflowLarkPublisher:
                         "plan_count": len(ordered),
                         "page": page,
                         "card": "plans",
-                        "activation_deferred_to": "09:26",
+                        "activation_deferred_to": (
+                            "ALREADY_ACTIVE" if active_session else "09:26"
+                        ),
                     },
                     now=analyzed_at,
                 )

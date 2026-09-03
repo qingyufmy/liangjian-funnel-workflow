@@ -121,6 +121,24 @@ def test_run_premarket_dispatches_dedicated_schedule_kind(tmp_path: Path, monkey
     assert json.loads(capsys.readouterr().out)["status"] == "READY"
 
 
+def test_run_premarket_recovery_resend_bypasses_scheduler_lease(tmp_path: Path, monkeypatch, capsys):
+    captured = {}
+
+    class FakeApplication:
+        def __init__(self, _settings):
+            pass
+
+        def run_premarket(self, *, recovery_resend=False):
+            captured["recovery_resend"] = recovery_resend
+            return {"status": "READY", "report_mode": "RECOVERY_RESEND"}
+
+    monkeypatch.setattr(cli_module, "WorkflowApplication", FakeApplication)
+    settings = Settings.from_env({}, root=tmp_path)
+    assert main(["run-premarket", "--recovery-resend"], settings=settings) == 0
+    assert captured["recovery_resend"] is True
+    assert json.loads(capsys.readouterr().out)["report_mode"] == "RECOVERY_RESEND"
+
+
 def test_historical_research_cli_preserves_explicit_timezone_cutoff(tmp_path: Path, monkeypatch, capsys):
     captured = {}
 

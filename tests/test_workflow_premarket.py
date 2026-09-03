@@ -15,9 +15,19 @@ TZ = ZoneInfo("Asia/Shanghai")
 class FakePublisher:
     def __init__(self) -> None:
         self.calls: list[tuple[tuple[dict[str, object], ...], datetime, str, dict[str, object]]] = []
+        self.activation_states: list[str] = []
 
-    def publish_a3_premarket_analysis(self, plans, *, analyzed_at, source_run_id, research_context):
+    def publish_a3_premarket_analysis(
+        self,
+        plans,
+        *,
+        analyzed_at,
+        source_run_id,
+        research_context,
+        activation_state="PENDING_0926",
+    ):
         self.calls.append((tuple(plans), analyzed_at, source_run_id, dict(research_context)))
+        self.activation_states.append(activation_state)
         return [{"status": "SENT"}]
 
 
@@ -119,6 +129,29 @@ def test_a3_premarket_empty_scope_is_explicit_and_does_not_notify(tmp_path):
     assert publisher.calls == []
     markdown = tmp_path / "outputs" / "runs" / "2026-09-02-a3-premarket.md"
     assert "NO_PENDING_A3_PLANS" in markdown.read_text(encoding="utf-8")
+
+
+def test_a3_premarket_recovery_resend_uses_current_active_scope(tmp_path):
+    app, store, publisher = _app(tmp_path)
+    created = _plan(store, "active-plan", "000002.SZ", "run-active")
+    store.activate_plan(created["plan_id"], valid_from=datetime(2026, 9, 2, 9, 32, tzinfo=TZ))
+
+    result = WorkflowApplication.publish_a3_premarket_analysis(
+        app,
+        now=datetime(2026, 9, 2, 10, 20, tzinfo=TZ),
+        recovery_resend=True,
+    )
+
+    assert result["status"] == "READY"
+    assert result["source_run_id"] == "run-active"
+    assert result["plan_count"] == 1
+    assert result["activation_deferred_to"] == "ALREADY_ACTIVE"
+    assert result["report_mode"] == "RECOVERY_RESEND"
+    assert publisher.activation_states == ["ACTIVE_CURRENT_SESSION"]
+    markdown = tmp_path / "outputs" / "runs" / "2026-09-02-a3-premarket.md"
+    body = markdown.read_text(encoding="utf-8")
+    assert "本次为盘中补发" in body
+    assert "不回填竞价或已错过的盘中信号" in body
 
 
 def test_a3_premarket_loads_compact_source_context_without_lane_audit(tmp_path):

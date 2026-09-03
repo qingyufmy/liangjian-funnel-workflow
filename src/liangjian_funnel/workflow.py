@@ -3637,7 +3637,12 @@ class WorkflowApplication:
         )
         return payload
 
-    def publish_a3_premarket_analysis(self, *, now: datetime | None = None) -> dict[str, Any]:
+    def publish_a3_premarket_analysis(
+        self,
+        *,
+        now: datetime | None = None,
+        recovery_resend: bool = False,
+    ) -> dict[str, Any]:
         """Publish a read-only 08:30 report for the latest primary A3 batch.
 
         This runs before the auction review. It reads only durable pending A3
@@ -3654,8 +3659,11 @@ class WorkflowApplication:
         deadline = datetime.strptime("09:20", "%H:%M").time()
         if clock < start:
             raise WorkflowError("PREMARKET_ANALYSIS_BEFORE_SCHEDULE")
-        if clock > deadline:
+        recovery_deadline = datetime.strptime("14:50", "%H:%M").time()
+        if clock > deadline and not recovery_resend:
             raise WorkflowError("PREMARKET_ANALYSIS_DEADLINE_MISSED")
+        if recovery_resend and clock > recovery_deadline:
+            raise WorkflowError("PREMARKET_RECOVERY_RESEND_DEADLINE_MISSED")
 
         primary_lane = str(getattr(self.settings, "research_primary_lane_id", "lane_1"))
         pending = tuple(
@@ -3664,9 +3672,20 @@ class WorkflowApplication:
                 status=PlanStatus.PENDING_MORNING_REVIEW,
             )
         )
+        active = (
+            tuple(
+                self.store.list_execution_plans(
+                    lane_id=primary_lane,
+                    status=PlanStatus.ACTIVE_TODAY,
+                )
+            )
+            if recovery_resend
+            else ()
+        )
+        available_plans = tuple((*pending, *active))
         candidates: dict[str, list[dict[str, Any]]] = {}
         sourceless = 0
-        for plan in pending:
+        for plan in available_plans:
             expires_at = plan.get("expires_at")
             try:
                 expiry = datetime.fromisoformat(str(expires_at)) if expires_at else None
@@ -3689,10 +3708,12 @@ class WorkflowApplication:
             candidates.setdefault(source, []).append(plan)
 
         output_path = self.settings.workflow_output_dir / "runs" / f"{current.date()}-a3-premarket.json"
-        if not pending:
+        if not available_plans:
             payload = {
                 "status": "EMPTY_SCOPE",
-                "reason_code": "NO_PENDING_A3_PLANS",
+                "reason_code": (
+                    "NO_CURRENT_A3_PLANS" if recovery_resend else "NO_PENDING_A3_PLANS"
+                ),
                 "analyzed_at": current.isoformat(),
                 "lane_id": primary_lane,
                 "plan_count": 0,
@@ -3733,16 +3754,23 @@ class WorkflowApplication:
             research_context["target_trade_date"] = current.date().isoformat()
         publisher = getattr(self, "lark_publisher", None)
         try:
-            notifications = (
-                publisher.publish_a3_premarket_analysis(
+            if publisher is None:
+                notifications = []
+            elif recovery_resend:
+                notifications = publisher.publish_a3_premarket_analysis(
+                    plans,
+                    analyzed_at=current,
+                    source_run_id=source_run_id,
+                    research_context=research_context,
+                    activation_state="ACTIVE_CURRENT_SESSION",
+                )
+            else:
+                notifications = publisher.publish_a3_premarket_analysis(
                     plans,
                     analyzed_at=current,
                     source_run_id=source_run_id,
                     research_context=research_context,
                 )
-                if publisher is not None
-                else []
-            )
         except Exception:
             notifications = [{"status": "FAILED", "reason_code": "LARK_NOTIFICATION_FAILED"}]
         plan_summaries: list[dict[str, Any]] = []
@@ -3791,7 +3819,12 @@ class WorkflowApplication:
             "plan_count": len(plans),
             "plans": plan_summaries,
             "research_context": research_context,
-            "activation_deferred_to": "09:26",
+            "activation_deferred_to": (
+                "ALREADY_ACTIVE" if recovery_resend else "09:26"
+            ),
+            "report_mode": (
+                "RECOVERY_RESEND" if recovery_resend else "SCHEDULED_PREMARKET"
+            ),
             "notifications": notifications,
         }
         atomic_write_json(output_path, payload)
@@ -3818,10 +3851,18 @@ class WorkflowApplication:
                 pass
         return _fallback_premarket_research_context(source_run_id, plans)
 
-    def run_premarket(self, *, now: datetime | None = None) -> dict[str, Any]:
+    def run_premarket(
+        self,
+        *,
+        now: datetime | None = None,
+        recovery_resend: bool = False,
+    ) -> dict[str, Any]:
         """Command-facing alias for the read-only A3 premarket report."""
 
-        return self.publish_a3_premarket_analysis(now=now)
+        return self.publish_a3_premarket_analysis(
+            now=now,
+            recovery_resend=recovery_resend,
+        )
 
     def run_due(self, *, now: datetime | None = None) -> dict[str, Any]:
         return self.run_scheduled(now=now)
@@ -5052,6 +5093,17 @@ def _a3_premarket_markdown(payload: Mapping[str, Any]) -> str:
     a2 = context.get("a2") if isinstance(context.get("a2"), Mapping) else {}
     a3 = context.get("a3") if isinstance(context.get("a3"), Mapping) else {}
     macro = a1.get("macro") if isinstance(a1.get("macro"), Mapping) else {}
+    recovery_resend = str(payload.get("report_mode") or "") == "RECOVERY_RESEND"
+    data_boundary = (
+        "沿用上一收盘已持久化的 A1-A3 研究事实，并呈现当前已激活的 A4 计划；不回填竞价或已错过的盘中信号。"
+        if recovery_resend
+        else "仅使用上一收盘已持久化的 A1-A3 事实与计划；不读取当日竞价或盘中行情。"
+    )
+    execution_boundary = (
+        "本次为盘中补发；所列计划已完成当日价格复核并进入 A4，是否发出信号仍由实时 15m/5m 条件决定。"
+        if recovery_resend
+        else "09:26 竞价复核前不会激活 A4。"
+    )
     lines = [
         "# 量见 A 股专业盘前研究",
         "",
@@ -5061,8 +5113,8 @@ def _a3_premarket_markdown(payload: Mapping[str, Any]) -> str:
         f"- 研究上下文：`{context.get('status') or 'UNAVAILABLE'}`（模型 `{context.get('model') or '-'}`）",
         f"- 数据时点：source_as_of=`{context.get('source_as_of') or '-'}`，market_trade_date=`{context.get('market_trade_date') or '-'}`，target_trade_date=`{context.get('target_trade_date') or '-'}`",
         f"- 计划数量：`{payload.get('plan_count') or 0}`",
-        "- 数据边界：仅使用上一收盘已持久化的 A1-A3 事实与计划；不读取当日竞价或盘中行情。",
-        "- 执行边界：09:26 竞价复核前不会激活 A4。",
+        f"- 数据边界：{data_boundary}",
+        f"- 执行边界：{execution_boundary}",
         "",
         "## 一、盘前结论与市场边界",
         "",
@@ -5133,7 +5185,11 @@ def _a3_premarket_markdown(payload: Mapping[str, Any]) -> str:
             "- A1 决定月度可研究方向；A2 用当日板块强度、资金、龙头和梯队结构做轮动确认；A3 只按日/周/月技术形态生成可供 A4 复核的次日计划。",
             f"- 昨日市场环境：`{constraints.get('prior_market_environment') or 'UNAVAILABLE'}`；A3 建议仓位：`{constraints.get('recommended_position_min_pct')}`–`{constraints.get('recommended_position_max_pct')}`。",
             "- 权限边界：A3 只给仓位、优先级和风险提示；当日是否允许新开仓由 A4 使用当前交易日实时市场状态判定。",
-            "- 24h 隔夜新闻、当日竞价、实时龙虎榜若未在研究上下文中落库，则本报告不推演、不补造；09:26 再以独立竞价事实做激活复核。",
+            (
+                "- 24h 隔夜新闻、实时龙虎榜若未在研究上下文中落库，则本报告不推演、不补造；本次补发不回填竞价和早盘信号。"
+                if recovery_resend
+                else "- 24h 隔夜新闻、当日竞价、实时龙虎榜若未在研究上下文中落库，则本报告不推演、不补造；09:26 再以独立竞价事实做激活复核。"
+            ),
         ]
     )
     plans = payload.get("plans")
@@ -5166,7 +5222,11 @@ def _a3_premarket_markdown(payload: Mapping[str, Any]) -> str:
                 f"- 必要条件：{condition_text or '-'}",
                 f"- 隔夜失效项：{invalidator_text or '-'}",
                 f"- 强势情景：开盘高于触发区但不超过 `{item.get('no_chase_price')}`，仍须等待对应 A4 策略确认，禁止直接追高。",
-                f"- 中性情景：进入 `{item.get('trigger_low')}`–`{item.get('trigger_high')}` 且必要条件成立，09:26 后才允许进入 A4 监测。",
+                (
+                    f"- 中性情景：进入 `{item.get('trigger_low')}`–`{item.get('trigger_high')}` 且必要条件成立，由 A4 继续进行 15m/5m 确认。"
+                    if recovery_resend
+                    else f"- 中性情景：进入 `{item.get('trigger_low')}`–`{item.get('trigger_high')}` 且必要条件成立，09:26 后才允许进入 A4 监测。"
+                ),
                 f"- 弱势情景：跌破 `{item.get('stop_level')}` 或出现隔夜失效项，计划作废，不做左侧接飞刀。",
                 "",
             ]

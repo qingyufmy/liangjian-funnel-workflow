@@ -245,7 +245,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="timezone-aware operator timestamp; defaults to current Asia/Shanghai time",
     )
     sub.add_parser("run-due", help="dispatch only work due at the current Shanghai time")
-    sub.add_parser("run-premarket", help="dispatch only the due 08:30 A3 premarket analysis")
+    premarket = sub.add_parser(
+        "run-premarket",
+        help="dispatch only the due 08:30 A3 premarket analysis",
+    )
+    premarket.add_argument(
+        "--recovery-resend",
+        action="store_true",
+        help=(
+            "operator recovery only: resend today's professional report from "
+            "the current A3/A4 plan scope without backfilling missed signals"
+        ),
+    )
     sub.add_parser("run-morning", help="dispatch only the due 09:26 morning review")
     sub.add_parser("run-close", help="dispatch only the due 15:10 close workflow")
     sub.add_parser(
@@ -788,9 +799,12 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
         elif args.command == "run-due":
             payload = application.run_due()
         elif args.command == "run-premarket":
-            from .runtime.scheduler import ScheduleKind
+            if args.recovery_resend:
+                payload = application.run_premarket(recovery_resend=True)
+            else:
+                from .runtime.scheduler import ScheduleKind
 
-            payload = application.run_scheduled(ScheduleKind.PREMARKET_0830)
+                payload = application.run_scheduled(ScheduleKind.PREMARKET_0830)
         elif args.command == "run-morning":
             from .runtime.scheduler import ScheduleKind
 
