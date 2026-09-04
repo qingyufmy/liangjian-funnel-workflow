@@ -158,7 +158,7 @@ def _a2_reason(row: Mapping[str, Any], *, status: str) -> str:
     selected = _selected_board(row)
     board = _clean_cn(selected.get("board_name")) or _sector(row)
     rank = _integer(selected.get("primary_rank") or row.get("theme_rotation_rank"))
-    rank_text = f"，一级板块强度第{rank}名" if rank else ""
+    rank_text = f"，量见一级板块强度第{rank}名" if rank else ""
     inflow = _number(selected.get("main_net_inflow_cny"))
     flow_text = f"，主力净流入{_format_cny(inflow)}" if inflow is not None else ""
     return f"{prefix}属于正净流入强势板块{board}{rank_text}{flow_text}；识别为趋势票，基本面有支撑并等待回踩后的右侧确认"

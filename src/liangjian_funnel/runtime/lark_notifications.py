@@ -982,6 +982,128 @@ class WorkflowLarkPublisher:
             )
         return outputs
 
+    def publish_rotation_theme_health(
+        self,
+        snapshot: Mapping[str, Any] | None,
+        *,
+        now: datetime,
+    ) -> list[dict[str, Any]]:
+        """Alert once per A2 free-source blocker/warning and once on recovery."""
+
+        state = dict(snapshot or {})
+        trade_date = _trade_date_label(state, now)
+        source_id = str(state.get("source_id") or "LIANGJIAN_FREE_ROTATION_V1").strip().upper()
+        available = state.get("available") is True
+        quality = state.get("quality") if isinstance(state.get("quality"), Mapping) else {}
+        raw_warnings = (
+            state.get("warning_codes")
+            or state.get("warnings")
+            or quality.get("warning_codes")
+            or ()
+        )
+        if isinstance(raw_warnings, str):
+            raw_warnings = (raw_warnings,)
+        warnings = [str(value).strip().upper() for value in raw_warnings if str(value).strip()]
+        source_health = state.get("source_health") if isinstance(state.get("source_health"), Mapping) else {}
+        membership_warnings = source_health.get("membership_update_warnings")
+        if isinstance(membership_warnings, Mapping):
+            warnings.extend(
+                str(value).strip().upper()
+                for value in membership_warnings.values()
+                if str(value).strip()
+            )
+        for key, public_reason in (
+            ("eastmoney_catalog", "EASTMONEY_BOARD_SOURCE_UNAVAILABLE"),
+            ("eastmoney_board_flow", "EASTMONEY_BOARD_SOURCE_UNAVAILABLE"),
+            ("tencent_flow", "TENCENT_FUND_COVERAGE_INSUFFICIENT"),
+        ):
+            source_reason = str(source_health.get(key) or "").strip().upper()
+            if source_reason and source_reason not in {"OK", "NOT_REQUESTED"}:
+                warnings.append(public_reason)
+        reasons = warnings if available else [
+            str(state.get("reason_code") or "ROTATION_THEME_NOT_READY").strip().upper()
+        ]
+        status = "WARNING" if available and reasons else ("READY" if available else "BLOCKED")
+        selected_count = _bounded_count(
+            state.get("selected_board_count"),
+            default=len(state.get("selected_primary_boards") or ()),
+        )
+        member_age = quality.get("membership_age_days")
+        coverage = quality.get("coverage") if isinstance(quality.get("coverage"), Mapping) else {}
+
+        if status in {"BLOCKED", "WARNING"}:
+            outputs: list[dict[str, Any]] = []
+            for reason in dict.fromkeys(reasons):
+                reason_key = hashlib.sha256(reason.encode("utf-8")).hexdigest()[:12]
+                blocked = status == "BLOCKED"
+                title_state = "阻断" if blocked else "降级"
+                lines = [
+                    "**A2板块数据系统告警**",
+                    f"• 交易日期：{trade_date}。",
+                    f"• 当前状态：{'趋势通道已失败关闭' if blocked else '继续使用合规的本地成员版本'}。",
+                    f"• 原因：{_rotation_health_reason(reason)}。",
+                    f"• 已形成一级方向：{selected_count} 个。",
+                ]
+                if member_age is not None:
+                    lines.append(f"• 本地成员版本年龄：{_number(member_age)} 天。")
+                if coverage:
+                    lines.append(
+                        f"• 数据覆盖：资金 {_percentage(coverage.get('fund'))}，"
+                        f"行情 {_percentage(coverage.get('price'))}。"
+                    )
+                lines.append("• 处理：保持既定覆盖门槛，数据恢复并重新核验后再开放趋势筛选。")
+                outputs.append(
+                    self._send(
+                        delivery_key=f"a2-rotation-health:{status.lower()}:{trade_date}:{source_id}:{reason_key}",
+                        kind="A2_ROTATION_HEALTH",
+                        source_id=f"a2-rotation-health:{trade_date}",
+                        title=f"A2系统告警｜板块数据{title_state}｜{trade_date}",
+                        lines=lines,
+                        summary={
+                            "trade_date": trade_date,
+                            "state": status,
+                            "source_id": source_id,
+                            "reason_code": reason,
+                            "selected_primary_count": selected_count,
+                        },
+                        now=now,
+                    )
+                )
+            return outputs
+
+        try:
+            latest = self.store.list_notification_deliveries(kind="A2_ROTATION_HEALTH", limit=1)
+            prior = _json_mapping(latest[0].get("payload_json")) if latest else {}
+        except Exception:
+            prior = {}
+        if (
+            str(prior.get("trade_date") or "") != trade_date
+            or str(prior.get("state") or "").upper() not in {"BLOCKED", "WARNING"}
+        ):
+            return []
+        return [
+            self._send(
+                delivery_key=f"a2-rotation-health:recovery:{trade_date}:{source_id}",
+                kind="A2_ROTATION_HEALTH",
+                source_id=f"a2-rotation-health:{trade_date}",
+                title=f"A2系统恢复｜板块数据可用｜{trade_date}",
+                lines=[
+                    "**A2板块数据系统恢复**",
+                    f"• 交易日期：{trade_date}。",
+                    f"• 已形成一级方向：{selected_count} 个。",
+                    "• 板块成员、行情、资金覆盖和强度结果已重新核验。",
+                ],
+                summary={
+                    "trade_date": trade_date,
+                    "state": "READY",
+                    "source_id": source_id,
+                    "selected_primary_count": selected_count,
+                    "recovery": True,
+                },
+                now=now,
+            )
+        ]
+
     def publish_a4_system_health(
         self,
         live_market_state: Mapping[str, Any] | None,
@@ -1136,6 +1258,29 @@ def _live_market_status(value: Any) -> str:
 def _live_market_reason(value: Any) -> str:
     reason = str(value or "").strip().upper()
     return _LIVE_MARKET_REASON_LABELS.get(reason, "行情原因待确认")
+
+
+def _rotation_health_reason(value: Any) -> str:
+    reason = str(value or "").strip().upper()
+    labels = {
+        "ROTATION_THEME_NOT_READY": "量见板块强度尚未生成",
+        "ROTATION_THEME_REGISTRY_INVALID": "本地板块映射配置无效",
+        "ROTATION_MEMBERSHIP_MISSING": "本地板块成分版本缺失",
+        "ROTATION_MEMBERSHIP_INCOMPLETE": "东方财富板块成分页未完整采集",
+        "ROTATION_MEMBERSHIP_STALE": "本地板块成分版本需要更新",
+        "ROTATION_MEMBERSHIP_EXPIRED": "本地板块成分版本已超过允许使用期限",
+        "MEMBERSHIP_SNAPSHOT_STALE_WARNING": "本地板块成分版本需要更新",
+        "MEMBERSHIP_UPDATE_FAILED_FALLBACK": "成员更新失败，正在使用未超龄的最后成功版本",
+        "MEMBERSHIP_SNAPSHOT_EXPIRED": "本地板块成分版本已超过允许使用期限",
+        "MEMBERSHIP_UPDATE_FAILED_EXPIRED": "成员更新失败且最后成功版本已经过期",
+        "EASTMONEY_BOARD_SOURCE_UNAVAILABLE": "东方财富板块目录或资金数据不可用",
+        "TENCENT_FUND_COVERAGE_INSUFFICIENT": "腾讯逐股资金覆盖不足",
+        "ROTATION_PRICE_COVERAGE_INSUFFICIENT": "板块行情覆盖不足",
+        "ROTATION_FUND_DIRECTION_CONFLICT": "腾讯聚合资金与东方财富板块资金方向冲突",
+        "ROTATION_PRICE_SOURCE_CONFLICT": "跨数据源收盘价不一致",
+        "ROTATION_SNAPSHOT_DEADLINE_MISSED": "量见板块强度未在收盘时限内生成",
+    }
+    return labels.get(reason, "板块数据未满足生产要求")
 
 
 def _bounded_count(value: Any, *, default: int = 0) -> int:

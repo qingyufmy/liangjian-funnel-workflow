@@ -1094,7 +1094,7 @@ def test_a2_dual_core_pool_keeps_hot100_emotion_and_selected_board_trend_togethe
     assert "A2_SELECTED_BOARD_SOURCE_UNAVAILABLE" in missing_by_symbol[trend_symbol]["reason_codes"]
 
 
-def test_a2_missing_selected_board_uses_positive_flow_sector_strength_fallback() -> None:
+def test_a2_missing_selected_board_fails_closed_for_trend_channel() -> None:
     snapshot = _snapshot(1)
     symbol = snapshot["g0_symbols"][0]
     snapshot["THS_INDUSTRY_MEMBERSHIP"]["records"][0]["memberships"] = [{
@@ -1175,14 +1175,14 @@ def test_a2_missing_selected_board_uses_positive_flow_sector_strength_fallback()
     )
     item = result.decisions[0]
 
-    assert item["status"] == "REVIEW_CANDIDATE", (
+    assert item["status"] == "LOCAL_MONITOR", (
         item.get("rotation_fallback"), item.get("a2_taxonomy_binding")
     )
-    assert item["a2_pool_channel"] == "TREND"
-    assert item["trend_core_eligible"] is True
-    assert item["rotation_fallback"]["main_net_inflow_cny"] == 2_467_000_000
-    assert item["rotation_strength_source"] == "A2_THEME_METRICS"
-    assert item["top_rotation_theme"] is True
+    assert item["a2_pool_channel"] == "NONE"
+    assert item["trend_core_eligible"] is False
+    assert item["rotation_fallback"] is None
+    assert item.get("top_rotation_theme") is not True
+    assert "A2_SELECTED_BOARD_SOURCE_UNAVAILABLE" in item["reason_codes"]
 
 
 def test_screen_a2_partitions_no_route_low_identity_and_llm_rank_overflow() -> None:

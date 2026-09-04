@@ -2779,8 +2779,15 @@ def test_server_threshold_policy_demotes_low_theme_score_and_rejects_bad_a3_payo
     assert a3["analysis_summary"]["pool_counts"]["core_watch_pool"] == 1
 
 
-def test_a2_relative_top3_below_strong_confirmation_stays_focus_without_padding():
-    symbols = ["600001.SH", "600002.SH", "600003.SH", "600004.SH"]
+def test_a2_relative_top5_below_strong_confirmation_stays_focus_without_padding():
+    symbols = [
+        "600001.SH",
+        "600002.SH",
+        "600003.SH",
+        "600004.SH",
+        "600005.SH",
+        "600006.SH",
+    ]
     output, changed = _apply_stage_threshold_policy(
         {
             "focus_pool": [
@@ -2793,6 +2800,8 @@ def test_a2_relative_top3_below_strong_confirmation_stays_focus_without_padding(
                 },
                 {"symbol": symbols[2], "theme_id": "theme-third", "theme_score": 55},
                 {"symbol": symbols[3], "theme_id": "theme-fourth", "theme_score": 54},
+                {"symbol": symbols[4], "theme_id": "theme-fifth", "theme_score": 53},
+                {"symbol": symbols[5], "theme_id": "theme-sixth", "theme_score": 52},
             ],
             "watch_only_pool": [],
         },
@@ -2801,7 +2810,7 @@ def test_a2_relative_top3_below_strong_confirmation_stays_focus_without_padding(
             "MIN_THEME_SCORE": 60,
             "A2_BOTTLENECK_CONTEXT": {
                 symbol: {
-                    "top_rotation_theme": index < 3,
+                    "top_rotation_theme": index < 5,
                     "deterministic_status": "REVIEW_CANDIDATE",
                     "eligible_routes": ["MARKET_CORE"],
                     "route_eligibility": {"MARKET_CORE": {"eligible": True}},
@@ -2813,21 +2822,21 @@ def test_a2_relative_top3_below_strong_confirmation_stays_focus_without_padding(
         },
     )
 
-    assert changed == 1  # only the fourth-theme row is actually demoted
-    assert [item["symbol"] for item in output["focus_pool"]] == symbols[:3]
+    assert changed == 1  # only the sixth-theme row is actually demoted
+    assert [item["symbol"] for item in output["focus_pool"]] == symbols[:5]
     assert all(
         "A2_RELATIVE_TOP3_BELOW_STRONG_CONFIRMATION" in item["reason_codes"]
         for item in output["focus_pool"][1:]
     )
     assert "A2_THEME_SCORE_BELOW_FOCUS_THRESHOLD" not in output["focus_pool"][1]["reason_codes"]
     assert "reason_codes" not in output["focus_pool"][0]
-    assert [item["symbol"] for item in output["watch_only_pool"]] == [symbols[3]]
+    assert [item["symbol"] for item in output["watch_only_pool"]] == [symbols[5]]
     assert output["watch_only_pool"][0]["reason_codes"] == ["A2_THEME_SCORE_BELOW_MINIMUM"]
     assert output["analysis_summary"]["policy_demotions"] == 1
     assert output["analysis_summary"]["a2_theme_score_reference"] == {
         "strong_confirmation_score": 60.0,
-        "below_reference_observations": 2,
-        "relative_top3_exception": True,
+        "below_reference_observations": 4,
+        "relative_top5_exception": True,
     }
 
 

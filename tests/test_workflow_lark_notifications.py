@@ -247,6 +247,52 @@ def test_a4_system_health_reports_same_run_retry_recovery_once(tmp_path):
     assert "重试后恢复" in "\n".join(fake.calls[0][1])
 
 
+def test_a2_rotation_health_alerts_in_chinese_and_recovers_once(tmp_path):
+    store = RuntimeStore(tmp_path / "rotation-health.sqlite3")
+    publisher = WorkflowLarkPublisher(
+        store,
+        "https://open.larksuite.com/open-apis/bot/v2/hook/test-token",
+    )
+    fake = FakeNotifier()
+    publisher.notifier = fake
+    now = datetime(2026, 9, 4, 15, 26, tzinfo=SHANGHAI)
+    blocked = {
+        "available": False,
+        "trade_date": "2026-09-04",
+        "source_id": "LIANGJIAN_FREE_ROTATION_V1",
+        "reason_code": "ROTATION_MEMBERSHIP_EXPIRED",
+        "selected_primary_boards": [],
+        "quality": {"membership_age_days": 15},
+    }
+
+    first = publisher.publish_rotation_theme_health(blocked, now=now)
+    duplicate = publisher.publish_rotation_theme_health(blocked, now=now)
+
+    assert first[0]["status"] == "SENT"
+    assert duplicate[0]["duplicate"] is True
+    assert len(fake.calls) == 1
+    title, lines, _color = fake.calls[0]
+    body = "\n".join(lines)
+    assert "板块数据阻断" in title
+    assert "超过允许使用期限" in body
+    assert "ROTATION_" not in body
+    assert "LIANGJIAN_" not in body
+
+    recovered = {
+        "available": True,
+        "trade_date": "2026-09-04",
+        "source_id": "LIANGJIAN_FREE_ROTATION_V1",
+        "selected_board_count": 5,
+        "selected_primary_boards": [{"board_code": f"T{i}"} for i in range(5)],
+        "quality": {"warning_codes": []},
+    }
+    recovery = publisher.publish_rotation_theme_health(recovered, now=now.replace(minute=31))
+    assert recovery[0]["status"] == "SENT"
+    assert "系统恢复" in fake.calls[-1][0]
+    assert publisher.publish_rotation_theme_health(recovered, now=now.replace(minute=36)) == []
+    assert len(fake.calls) == 2
+
+
 def test_a5_review_card_is_structured_chinese_and_idempotent(tmp_path):
     store = RuntimeStore(tmp_path / "state.sqlite3")
     publisher = WorkflowLarkPublisher(

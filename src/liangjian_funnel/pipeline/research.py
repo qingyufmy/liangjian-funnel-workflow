@@ -241,10 +241,10 @@ _A2_LLM_REJECT_HARD_MARKERS = (
 )
 # A2's absolute theme score is a strong-confirmation reference, not a second
 # rotation ranking.  These markers are the deterministic facts that still
-# prevent a relative TOP3 MARKET_CORE row from using that reference-line
+# prevent a relative TOP5 MARKET_CORE row from using that reference-line
 # exception.  Optional source degradation and the reference-line reason itself
 # deliberately do not appear here.
-_A2_RELATIVE_TOP3_HARD_VETO_MARKERS = (
+_A2_RELATIVE_TOP5_HARD_VETO_MARKERS = (
     "DATA_GAP",
     "CRITICAL_DATA",
     "MARKET_FACTS_INSUFFICIENT",
@@ -265,7 +265,7 @@ _A2_RELATIVE_TOP3_HARD_VETO_MARKERS = (
     "NOT_TRADABLE",
     "TRADABILITY",
 )
-_A2_RELATIVE_TOP3_SOFT_SCORE_REASON = "A2_RELATIVE_TOP3_BELOW_STRONG_CONFIRMATION"
+_A2_RELATIVE_TOP5_SOFT_SCORE_REASON = "A2_RELATIVE_TOP3_BELOW_STRONG_CONFIRMATION"
 _A2_THEME_SCORE_REFERENCE_REASON = "A2_THEME_SCORE_BELOW_MINIMUM"
 _A2_THEME_LIFECYCLE_STAGES = frozenset({
     "IGNITION",
@@ -1815,7 +1815,7 @@ class ResearchPipeline:
             ),
             llm_top_n_per_theme=self.settings.a2_llm_top_n_per_theme,
             review_all_eligible=self.settings.a2_review_all_eligible,
-            rotation_theme_count=int(a2_snapshot.data.get("A2_ROTATION_THEME_COUNT") or 3),
+            rotation_theme_count=int(a2_snapshot.data.get("A2_ROTATION_THEME_COUNT") or 5),
         )
         a2_snapshot = _with_a2_bottleneck_context(a2_snapshot, a2_gate)
         self._persist_gate(run_id, lane_id, a2_gate, a2_snapshot)
@@ -2013,7 +2013,7 @@ class ResearchPipeline:
             minimum_identifiability_score=float(a2_snapshot.data.get("MIN_IDENTIFIABILITY_SCORE") or 60.0),
             llm_top_n_per_theme=self.settings.a2_llm_top_n_per_theme,
             review_all_eligible=self.settings.a2_review_all_eligible,
-            rotation_theme_count=int(a2_snapshot.data.get("A2_ROTATION_THEME_COUNT") or 3),
+            rotation_theme_count=int(a2_snapshot.data.get("A2_ROTATION_THEME_COUNT") or 5),
         )
         a2_snapshot = _with_a2_bottleneck_context(a2_snapshot, a2_gate)
         self._persist_gate(run_id, lane_id, a2_gate, a2_snapshot)
@@ -5842,10 +5842,10 @@ def _stage_execution_budget(
             "value_chain_position, a complete bottleneck_scorecard, at least two bottleneck_evidence items, "
             "missing_proof and kill_switches. Rank scarce layers before companies; unknown supply-chain facts "
             "must be sent to watch_only, never scored as zero. A2 has two independent source channels: "
-            "TREND rows must belong to the frozen positive-main-net-inflow selected-board primary TOP3 "
+            "TREND rows must belong to the frozen positive-main-net-inflow selected-board primary TOP5 "
             "(an explicit child board inherits its parent rank); EMOTION rows must belong to the frozen "
             "Eastmoney Guba popularity TOP100 and be in STARTUP or ACCELERATION. Emotion rows do not need "
-            "to belong to a selected-board TOP3. CLIMAX, DIVERGENCE, LATENT and ICE_POINT cannot create "
+            "to belong to a selected-board TOP5. CLIMAX, DIVERGENCE, LATENT and ICE_POINT cannot create "
             "new emotion plans. A qualified TREND MARKET_CORE row remains in A2 focus even when the theme "
             "new_entry_policy is WATCH_ONLY/NO_NEW_ENTRY; preserve that risk context for A3/A4 instead of "
             "treating A2 focus as permission to trade. "
@@ -7570,7 +7570,7 @@ def _canonicalize_stage_lineage(
             if v2_context_contract:
                 # These ranking fields are deterministic projections of the
                 # frozen A2 market facts.  Preserve them on the model row so
-                # the relative-TOP3 score policy and the workbench inspect
+                # the relative-TOP5 score policy and the workbench inspect
                 # the same server-owned decision even when the model omits or
                 # rewrites the fields.
                 canonical["theme_rotation_rank"] = context.get("theme_rotation_rank")
@@ -8623,17 +8623,17 @@ def _a3_secondary_probe_contract_reasons(
     return []
 
 
-def _a2_relative_top3_market_core_exception(
+def _a2_relative_top5_market_core_exception(
     item: Mapping[str, Any],
     snapshot_data: Mapping[str, Any],
 ) -> bool:
     """Return whether the A2 score line is advisory for this focus row.
 
-    ``screen_a2`` chooses up to three themes from frozen market facts before
+    ``screen_a2`` chooses up to five themes from frozen market facts before
     the model sees them.  The old post-model policy treated ``MIN_THEME_SCORE``
-    as an unconditional veto, so a relative second/third theme was silently
+    as an unconditional veto, so a relative fourth/fifth theme was silently
     removed even when its MARKET_CORE route was valid.  This helper keeps the
-    exception narrow: the frozen context must identify the row as a TOP3
+    exception narrow: the frozen context must identify the row as a TOP5
     theme, the row must have passed the local review route, and no deterministic
     identity/tradability/data veto may be present.  A missing context never
     creates an exception for a new v2 snapshot.
@@ -8702,7 +8702,7 @@ def _a2_relative_top3_market_core_exception(
             if hard_failed_gates:
                 return False
         if any(
-            any(marker in reason for marker in _A2_RELATIVE_TOP3_HARD_VETO_MARKERS)
+            any(marker in reason for marker in _A2_RELATIVE_TOP5_HARD_VETO_MARKERS)
             for reason in context_reasons
         ):
             return False
@@ -8737,7 +8737,7 @@ def _a2_relative_top3_market_core_exception(
     if isinstance(item_reasons, Sequence) and not isinstance(item_reasons, (str, bytes, bytearray)):
         for raw_reason in item_reasons:
             reason = str(raw_reason).strip().upper()
-            if any(marker in reason for marker in _A2_RELATIVE_TOP3_HARD_VETO_MARKERS):
+            if any(marker in reason for marker in _A2_RELATIVE_TOP5_HARD_VETO_MARKERS):
                 return False
     review_status = str(item.get("review_status") or "").strip().upper()
     if review_status in {"VETO", "REJECT", "REJECTED"}:
@@ -8847,7 +8847,7 @@ def _apply_stage_threshold_policy(
             if not isinstance(raw_item, Mapping) or _safe_float(raw_item.get("theme_score")) >= minimum:
                 retained.append(raw_item)
                 continue
-            if _a2_relative_top3_market_core_exception(raw_item, snapshot_data):
+            if _a2_relative_top5_market_core_exception(raw_item, snapshot_data):
                 item = dict(raw_item)
                 existing = item.get("reason_codes") if isinstance(item.get("reason_codes"), list) else []
                 existing = [
@@ -8859,7 +8859,7 @@ def _apply_stage_threshold_policy(
                 ]
                 item["reason_codes"] = list(dict.fromkeys([
                     *existing,
-                    _A2_RELATIVE_TOP3_SOFT_SCORE_REASON,
+                    _A2_RELATIVE_TOP5_SOFT_SCORE_REASON,
                 ]))
                 # Keep the row in focus: this is a below-reference-line
                 # observation, not a deterministic rejection.  A3 still
@@ -8881,7 +8881,7 @@ def _apply_stage_threshold_policy(
                 summary["a2_theme_score_reference"] = {
                     "strong_confirmation_score": minimum,
                     "below_reference_observations": soft_observations,
-                    "relative_top3_exception": True,
+                    "relative_top5_exception": True,
                 }
             result["analysis_summary"] = summary
         return result, changed
@@ -9568,7 +9568,7 @@ def _apply_a2_lineage_policy(
                 reasons.append("A2_THEME_SCORE_LINEAGE_MISMATCH")
             # A2 is the broad rotation/research funnel.  Theme-stage and
             # new-entry policy remain visible on the active theme, but they
-            # are consumed as A3/A4 risk context rather than erasing a TOP3
+            # are consumed as A3/A4 risk context rather than erasing a TOP5
             # market-core candidate before daily technical evaluation.
         if not reasons:
             retained.append(item)

@@ -29,17 +29,33 @@ def load_selected_board_snapshot(
     as_of: datetime,
     snapshot_dir: str | Path,
     expected_trade_date: date | None = None,
+    rotation_theme_count: int = 5,
 ) -> dict[str, Any]:
     cutoff = _aware(as_of)
     trade_day = expected_trade_date or cutoff.date()
     path = Path(snapshot_dir) / f"selected-board-{trade_day.isoformat()}.json"
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-        result = normalize_selected_board_snapshot(payload, as_of=cutoff, expected_trade_date=trade_day)
+        result = normalize_selected_board_snapshot(
+            payload,
+            as_of=cutoff,
+            expected_trade_date=trade_day,
+            rotation_theme_count=rotation_theme_count,
+        )
     except FileNotFoundError:
-        return _unavailable(cutoff, "SELECTED_BOARD_SNAPSHOT_MISSING", path)
+        return _unavailable(
+            cutoff,
+            "SELECTED_BOARD_SNAPSHOT_MISSING",
+            path,
+            rotation_theme_count=rotation_theme_count,
+        )
     except (OSError, json.JSONDecodeError, TypeError, ValueError):
-        return _unavailable(cutoff, "SELECTED_BOARD_SNAPSHOT_INVALID", path)
+        return _unavailable(
+            cutoff,
+            "SELECTED_BOARD_SNAPSHOT_INVALID",
+            path,
+            rotation_theme_count=rotation_theme_count,
+        )
     return {**result, "cache_path": str(path)}
 
 
@@ -48,7 +64,14 @@ def normalize_selected_board_snapshot(
     *,
     as_of: datetime,
     expected_trade_date: date,
+    rotation_theme_count: int = 5,
 ) -> dict[str, Any]:
+    try:
+        rotation_limit = int(rotation_theme_count)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("SELECTED_BOARD_ROTATION_THEME_COUNT_INVALID") from exc
+    if isinstance(rotation_theme_count, bool) or rotation_limit < 1:
+        raise ValueError("SELECTED_BOARD_ROTATION_THEME_COUNT_INVALID")
     root = payload if isinstance(payload, Mapping) else {}
     if str(root.get("trade_date") or "") != expected_trade_date.isoformat():
         raise ValueError("SELECTED_BOARD_TRADE_DATE_MISMATCH")
@@ -93,10 +116,10 @@ def normalize_selected_board_snapshot(
     positive = [row for row in boards if row["main_net_inflow_cny"] > 0]
     primary = [row for row in positive if not row["parent_board_code"]]
     primary.sort(key=lambda row: (-row["strength"], -row["main_net_inflow_cny"], row["board_code"]))
-    top_primary = primary[:3]
+    top_primary = primary[:rotation_limit]
     selected_codes = {row["board_code"] for row in top_primary}
     # A child theme, such as liquid cooling under computing power, belongs to
-    # its selected parent and does not consume another primary top-three slot.
+    # its selected parent and does not consume another primary TOP-N slot.
     selected_codes.update(
         row["board_code"]
         for row in positive
@@ -111,7 +134,7 @@ def normalize_selected_board_snapshot(
         if parent and parent not in by_code:
             raise ValueError("SELECTED_BOARD_PARENT_MISSING")
         # A complete strength ranking need not duplicate constituents for
-        # every non-selected board.  The three selected primaries and their
+        # every non-selected board.  The selected primaries and their
         # selected positive-flow children must, however, have a full member
         # list or the trend channel cannot be built.
         if row["selected_for_rotation"] and not row["constituents"]:
@@ -140,6 +163,7 @@ def normalize_selected_board_snapshot(
         "captured_at": captured_at.isoformat(),
         "source_url": source_url,
         "trade_date": expected_trade_date.isoformat(),
+        "rotation_theme_count": rotation_limit,
         "boards": canonical,
         "selected_primary_boards": [
             {"board_code": row["board_code"], "board_name": row["board_name"], "rank": primary_rank[row["board_code"]]}
@@ -156,13 +180,26 @@ def normalize_selected_board_snapshot(
     }
 
 
-def _unavailable(as_of: datetime, reason: str, path: Path) -> dict[str, Any]:
+def _unavailable(
+    as_of: datetime,
+    reason: str,
+    path: Path,
+    *,
+    rotation_theme_count: int = 5,
+) -> dict[str, Any]:
+    try:
+        rotation_limit = int(rotation_theme_count)
+    except (TypeError, ValueError, OverflowError):
+        rotation_limit = 5
+    if isinstance(rotation_theme_count, bool) or rotation_limit < 1:
+        rotation_limit = 5
     return {
         "schema_version": SELECTED_BOARD_SCHEMA,
         "source_id": SELECTED_BOARD_SOURCE,
         "available": False,
         "reason_code": reason,
         "as_of": _aware(as_of).isoformat(),
+        "rotation_theme_count": rotation_limit,
         "boards": [],
         "selected_primary_boards": [],
         "by_symbol": {},

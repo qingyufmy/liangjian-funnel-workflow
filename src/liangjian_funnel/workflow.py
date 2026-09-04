@@ -30,7 +30,7 @@ from .data.cninfo_pdf import CninfoPdfClient, CninfoPdfEvidence
 from .data.gov_policy import GovPolicyClient
 from .data.eastmoney_hot import collect_eastmoney_hot100
 from .data.mootdx import MootdxAdapter, MootdxNode, MinuteBar, detect_missing_bars, map_symbol
-from .data.selected_board import load_selected_board_snapshot
+from .data.rotation_theme import collect_rotation_theme_snapshot
 from .data.tencent_minute import ResilientIntradayAdapter, TencentIntradayAdapter
 from .data.open_news import OpenNewsClient, OpenNewsFetchResult
 from .data.open_macro import OpenMacroDataCollector
@@ -428,6 +428,16 @@ class WorkflowApplication:
         node_count_target = a1_config.get("node_count_target", [40, 80])
         if not isinstance(node_count_target, list):
             raise WorkflowError("A1_NODE_TARGET_INVALID")
+        a2_config = source_config.get("agent_2", {})
+        a2_config = a2_config if isinstance(a2_config, Mapping) else {}
+        # Keep the selected-board normalization and the prompt/runtime
+        # parameter on the same configured rotation width.  The value is
+        # deliberately resolved before loading the frozen board snapshot so
+        # the snapshot's selected primary set participates in the facts hash.
+        rotation_theme_count = _positive_count(
+            a2_config.get("rotation_theme_count"),
+            fallback=5,
+        )
         closed_trade_date = _latest_closed_market_trade_date(
             market_current,
             self.trading_calendar,
@@ -441,11 +451,28 @@ class WorkflowApplication:
             expected_trade_date=closed_trade_date,
             cache_dir=self.settings.fact_store_dir / "eastmoney_hot100",
         )
-        selected_board = load_selected_board_snapshot(
+        selected_board = collect_rotation_theme_snapshot(
             as_of=market_current,
             expected_trade_date=closed_trade_date,
-            snapshot_dir=self.settings.fact_store_dir / "selected_board",
+            registry_path=self.settings.rotation_theme_registry_path,
+            snapshot_dir=self.settings.fact_store_dir / "rotation_theme",
+            rotation_theme_count=rotation_theme_count,
+            membership_refresh_days=self.settings.rotation_membership_refresh_days,
+            warn_age_days=self.settings.rotation_membership_warn_age_days,
+            max_age_days=self.settings.rotation_membership_max_age_days,
+            fund_coverage_minimum=self.settings.rotation_fund_coverage_minimum,
+            price_coverage_minimum=self.settings.rotation_price_coverage_minimum,
+            workers=self.settings.rotation_collection_workers,
         )
+        try:
+            self.lark_publisher.publish_rotation_theme_health(
+                selected_board,
+                now=market_current,
+            )
+        except Exception:
+            # Notification delivery is observable through its own durable
+            # ledger and must never rewrite the frozen market evidence.
+            pass
         hot100_symbols = {
             str(item.get("symbol") or "").strip().upper()
             for item in eastmoney_hot100.get("records", ())
@@ -5756,7 +5783,10 @@ def _prompt_parameters(config: Mapping[str, Any]) -> dict[str, Any]:
             else {},
         },
         "A2_POOL_TARGETS": _pool_targets(a2.get("candidate_pool_target"), default=(20, 60)),
-        "A2_ROTATION_THEME_COUNT": a2.get("rotation_theme_count", 3),
+        "A2_ROTATION_THEME_COUNT": _positive_count(
+            a2.get("rotation_theme_count"),
+            fallback=5,
+        ),
         "A2_FOCUS_PER_THEME": _pool_targets(a2.get("focus_per_rotation_theme"), default=(5, 12)),
         "A2_WATCH_PER_THEME": _pool_targets(a2.get("watch_per_rotation_theme"), default=(5, 15)),
         "A3_POOL_TARGETS": {

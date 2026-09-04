@@ -25,6 +25,8 @@ def test_prompt_parameters_are_derived_from_versioned_funnel_config() -> None:
     assert parameters["ROTATION_LOOKBACK_DAYS"] == config["market_regime"]["rotation_lookback_days"]
     assert parameters["LEADER_MIN_CRITERIA"] == config["agent_2"]["stock_selection"]["leader_min_criteria"]
     assert parameters["CLIMAX_NEW_ENTRY_POLICY"] == config["agent_2"]["climax_new_entry_policy"]
+    assert config["agent_2"]["rotation_theme_count"] == 5
+    assert parameters["A2_ROTATION_THEME_COUNT"] == config["agent_2"]["rotation_theme_count"]
     assert parameters["A3_STRATEGY_VERSION"] == config["agent_3"]["strategy_version"]
     assert parameters["A3_ALLOWED_STRATEGIES"] == config["agent_3"]["allowed_strategy_profiles"]
     assert parameters["A3_DECISION_TIMEFRAMES"] == config["agent_3"]["decision_timeframes"]

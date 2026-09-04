@@ -30,7 +30,7 @@ def _board(code, name, strength, inflow, members, parent=None):
     }
 
 
-def test_positive_flow_top3_use_primary_boards_and_include_child():
+def test_positive_flow_top5_use_primary_boards_and_include_child():
     payload = _payload([
             _board("801062", "军工", 3636, 3_787_000_000, ["600001"]),
             _board("801235", "化工", 3397, -879_000_000, ["600002"]),
@@ -49,9 +49,76 @@ def test_positive_flow_top3_use_primary_boards_and_include_child():
         for board in result["boards"]
         if board["selected_for_rotation"]
     }
-    assert selected == {"军工", "算力", "液冷", "消费电子"}
-    assert [row["board_name"] for row in result["selected_primary_boards"]] == ["军工", "算力", "消费电子"]
+    assert selected == {"军工", "算力", "液冷", "消费电子", "其它"}
+    assert [row["board_name"] for row in result["selected_primary_boards"]] == ["军工", "算力", "消费电子", "其它"]
     assert result["by_symbol"]["600004.SH"][0]["primary_rank"] == 2
+
+
+def test_positive_flow_top5_excludes_sixth_primary_but_keeps_positive_child_outside_slot():
+    payload = _payload([
+        _board("801001", "第一主板块", 600, 600, ["600001"]),
+        _board("801002", "第二主板块", 500, 500, ["600002"]),
+        _board("801003", "第三主板块", 400, 400, ["600003"]),
+        _board("801004", "第四主板块", 300, 300, ["600004"]),
+        _board("801005", "第五主板块", 200, 200, ["600005"]),
+        _board("801006", "第六主板块", 100, 100, ["600006"]),
+        _board("801730", "第五主板块子板", 700, 50, ["600007"], "801005"),
+        _board("801235", "净流入为负", 900, -1, ["600008"]),
+    ])
+
+    result = normalize_selected_board_snapshot(
+        payload,
+        as_of=datetime(2026, 9, 2, 15, 10, tzinfo=TZ),
+        expected_trade_date=DAY,
+    )
+
+    assert [row["board_name"] for row in result["selected_primary_boards"]] == [
+        "第一主板块",
+        "第二主板块",
+        "第三主板块",
+        "第四主板块",
+        "第五主板块",
+    ]
+    selected_names = {
+        row["board_name"]
+        for row in result["boards"]
+        if row["selected_for_rotation"]
+    }
+    assert selected_names == {
+        "第一主板块",
+        "第二主板块",
+        "第三主板块",
+        "第四主板块",
+        "第五主板块",
+        "第五主板块子板",
+    }
+    assert result["selected_board_count"] == 6
+    assert result["by_symbol"]["600007.SH"][0]["primary_rank"] == 5
+    assert result["by_symbol"]["600006.SH"][0]["selected_for_rotation"] is False
+
+
+def test_rotation_theme_count_is_configurable_without_child_consuming_a_primary_slot():
+    payload = _payload([
+        _board("801001", "第一主板块", 600, 600, ["600001"]),
+        _board("801002", "第二主板块", 500, 500, ["600002"]),
+        _board("801003", "第三主板块", 400, 400, ["600003"]),
+        _board("801730", "第二主板块子板", 700, 50, ["600004"], "801002"),
+    ])
+
+    result = normalize_selected_board_snapshot(
+        payload,
+        as_of=datetime(2026, 9, 2, 15, 10, tzinfo=TZ),
+        expected_trade_date=DAY,
+        rotation_theme_count=2,
+    )
+
+    assert result["rotation_theme_count"] == 2
+    assert [row["board_name"] for row in result["selected_primary_boards"]] == [
+        "第一主板块",
+        "第二主板块",
+    ]
+    assert result["by_symbol"]["600004.SH"][0]["selected_for_rotation"] is True
+    assert result["by_symbol"]["600003.SH"][0]["selected_for_rotation"] is False
 
 
 def test_constituents_are_mandatory():

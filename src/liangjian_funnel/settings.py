@@ -106,6 +106,7 @@ class Settings(BaseModel):
     prompt_dir: Path
     source_config_path: Path
     a1_research_source_registry_path: Path
+    rotation_theme_registry_path: Path
     exchange_rules_path: Path
     news_source_config_path: Path
     open_news_timeout_seconds: float = Field(default=15.0, gt=0, le=60)
@@ -143,6 +144,14 @@ class Settings(BaseModel):
     a2_capital_flow_enabled: bool = True
     a2_capital_flow_minimum_coverage: float = Field(default=0.90, ge=0.50, le=1.0)
     a2_capital_flow_workers: int = Field(default=16, ge=1, le=32)
+    # Membership is a slow-moving versioned reference dataset; prices and
+    # capital flows remain strictly daily observations.
+    rotation_membership_refresh_days: int = Field(default=7, ge=1, le=31)
+    rotation_membership_warn_age_days: int = Field(default=7, ge=1, le=31)
+    rotation_membership_max_age_days: int = Field(default=14, ge=1, le=62)
+    rotation_fund_coverage_minimum: float = Field(default=0.80, ge=0.50, le=1.0)
+    rotation_price_coverage_minimum: float = Field(default=0.90, ge=0.50, le=1.0)
+    rotation_collection_workers: int = Field(default=16, ge=1, le=32)
     simulation_initial_cash: float = Field(default=1_000_000.0, ge=0)
     # Thinking is an explicit capability of a client role. Research lanes
     # keep it enabled; the independent intraday monitor is intentionally
@@ -231,6 +240,7 @@ class Settings(BaseModel):
         prompt_raw = env.get("LIANGJIAN_PROMPT_DIR")
         source_config_raw = env.get("LIANGJIAN_SOURCE_CONFIG_PATH")
         a1_source_registry_raw = env.get("LIANGJIAN_A1_SOURCE_REGISTRY_PATH")
+        rotation_theme_registry_raw = env.get("LIANGJIAN_ROTATION_THEME_REGISTRY_PATH")
         exchange_rules_raw = env.get("LIANGJIAN_EXCHANGE_RULES_PATH")
         news_source_config_raw = env.get("LIANGJIAN_NEWS_SOURCE_CONFIG_PATH")
         default_prompt = base / "prompts"
@@ -324,6 +334,9 @@ class Settings(BaseModel):
             a1_research_source_registry_path=Path(a1_source_registry_raw).resolve()
             if a1_source_registry_raw
             else base / "config" / "a1_research_sources.yaml",
+            rotation_theme_registry_path=Path(rotation_theme_registry_raw).resolve()
+            if rotation_theme_registry_raw
+            else base / "config" / "rotation_themes_v1.yaml",
             exchange_rules_path=Path(exchange_rules_raw).resolve()
             if exchange_rules_raw
             else base / "config" / "exchange_rules.yaml",
@@ -379,6 +392,24 @@ class Settings(BaseModel):
                 env.get("LIANGJIAN_A2_CAPITAL_FLOW_MINIMUM_COVERAGE", "0.90")
             ),
             a2_capital_flow_workers=int(env.get("LIANGJIAN_A2_CAPITAL_FLOW_WORKERS", "16")),
+            rotation_membership_refresh_days=int(
+                env.get("LIANGJIAN_ROTATION_MEMBERSHIP_REFRESH_DAYS", "7")
+            ),
+            rotation_membership_warn_age_days=int(
+                env.get("LIANGJIAN_ROTATION_MEMBERSHIP_WARN_AGE_DAYS", "7")
+            ),
+            rotation_membership_max_age_days=int(
+                env.get("LIANGJIAN_ROTATION_MEMBERSHIP_MAX_AGE_DAYS", "14")
+            ),
+            rotation_fund_coverage_minimum=float(
+                env.get("LIANGJIAN_ROTATION_FUND_COVERAGE_MINIMUM", "0.80")
+            ),
+            rotation_price_coverage_minimum=float(
+                env.get("LIANGJIAN_ROTATION_PRICE_COVERAGE_MINIMUM", "0.90")
+            ),
+            rotation_collection_workers=int(
+                env.get("LIANGJIAN_ROTATION_COLLECTION_WORKERS", "16")
+            ),
             simulation_initial_cash=float(env.get("LIANGJIAN_SIMULATION_INITIAL_CASH", "1000000")),
             research_thinking_enabled=_parse_bool(env.get("LIANGJIAN_RESEARCH_THINKING_ENABLED"), default=True),
             monitor_thinking_enabled=_parse_bool(env.get("LIANGJIAN_MONITOR_THINKING_ENABLED"), default=False),
@@ -442,6 +473,7 @@ class Settings(BaseModel):
             "prompt_dir": str(self.prompt_dir),
             "source_config_path": str(self.source_config_path),
             "a1_research_source_registry_path": str(self.a1_research_source_registry_path),
+            "rotation_theme_registry_path": str(self.rotation_theme_registry_path),
             "exchange_rules_path": str(self.exchange_rules_path),
             "news_source_config_path": str(self.news_source_config_path),
             "open_news_timeout_seconds": self.open_news_timeout_seconds,
@@ -471,6 +503,12 @@ class Settings(BaseModel):
             "a2_capital_flow_enabled": self.a2_capital_flow_enabled,
             "a2_capital_flow_minimum_coverage": self.a2_capital_flow_minimum_coverage,
             "a2_capital_flow_workers": self.a2_capital_flow_workers,
+            "rotation_membership_refresh_days": self.rotation_membership_refresh_days,
+            "rotation_membership_warn_age_days": self.rotation_membership_warn_age_days,
+            "rotation_membership_max_age_days": self.rotation_membership_max_age_days,
+            "rotation_fund_coverage_minimum": self.rotation_fund_coverage_minimum,
+            "rotation_price_coverage_minimum": self.rotation_price_coverage_minimum,
+            "rotation_collection_workers": self.rotation_collection_workers,
             "simulation_initial_cash": self.simulation_initial_cash,
             "research_thinking_enabled": self.research_thinking_enabled,
             "monitor_thinking_enabled": self.monitor_thinking_enabled,

@@ -36,6 +36,13 @@ def test_exact_models_and_safe_summary_do_not_leak_keys(tmp_path: Path):
     assert settings.fundamental_refresh_symbols_per_run == 100
     assert settings.daily_refresh_hours == 4
     assert settings.a2_capital_flow_workers == 16
+    assert settings.rotation_membership_refresh_days == 7
+    assert settings.rotation_membership_warn_age_days == 7
+    assert settings.rotation_membership_max_age_days == 14
+    assert settings.rotation_fund_coverage_minimum == 0.80
+    assert settings.rotation_price_coverage_minimum == 0.90
+    assert settings.rotation_collection_workers == 16
+    assert settings.rotation_theme_registry_path == tmp_path / "config" / "rotation_themes_v1.yaml"
     assert settings.open_macro_enabled is True
     assert settings.open_macro_cache_dir == tmp_path / "storage" / "facts" / "open_macro"
     assert settings.reviewed_research_leads_dir == tmp_path / "config" / "research_leads"
@@ -207,6 +214,32 @@ def test_a2_capital_flow_workers_are_bounded(tmp_path: Path):
         Settings.from_env({"LIANGJIAN_A2_CAPITAL_FLOW_WORKERS": "33"}, root=tmp_path)
 
 
+def test_rotation_reference_and_daily_coverage_settings_are_explicit(tmp_path: Path):
+    settings = Settings.from_env(
+        {
+            "LIANGJIAN_ROTATION_THEME_REGISTRY_PATH": str(tmp_path / "themes.yaml"),
+            "LIANGJIAN_ROTATION_MEMBERSHIP_REFRESH_DAYS": "5",
+            "LIANGJIAN_ROTATION_MEMBERSHIP_WARN_AGE_DAYS": "8",
+            "LIANGJIAN_ROTATION_MEMBERSHIP_MAX_AGE_DAYS": "16",
+            "LIANGJIAN_ROTATION_FUND_COVERAGE_MINIMUM": "0.82",
+            "LIANGJIAN_ROTATION_PRICE_COVERAGE_MINIMUM": "0.93",
+            "LIANGJIAN_ROTATION_COLLECTION_WORKERS": "12",
+        },
+        root=tmp_path,
+    )
+    assert settings.rotation_theme_registry_path == tmp_path / "themes.yaml"
+    assert settings.rotation_membership_refresh_days == 5
+    assert settings.rotation_membership_warn_age_days == 8
+    assert settings.rotation_membership_max_age_days == 16
+    assert settings.rotation_fund_coverage_minimum == 0.82
+    assert settings.rotation_price_coverage_minimum == 0.93
+    assert settings.rotation_collection_workers == 12
+    assert settings.safe_summary()["rotation_membership_max_age_days"] == 16
+
+    with pytest.raises(ValidationError):
+        Settings.from_env({"LIANGJIAN_ROTATION_MEMBERSHIP_MAX_AGE_DAYS": "0"}, root=tmp_path)
+
+
 def test_only_https_endpoints_are_allowed(tmp_path: Path):
     with pytest.raises(ValidationError, match="HTTPS"):
         Settings(root=tmp_path, output_dir=tmp_path, model_base_url="http://example.test/v1")
@@ -227,6 +260,7 @@ def test_mootdx_server_override_is_strict_and_cache_stays_under_root(tmp_path: P
     assert settings.research_checkpoint_dir == tmp_path / "state" / "research_checkpoints"
     assert settings.prompt_dir == tmp_path / "prompts"
     assert settings.source_config_path == tmp_path / "config" / "funnel_config_v2.yaml"
+    assert settings.rotation_theme_registry_path == tmp_path / "config" / "rotation_themes_v1.yaml"
 
     with pytest.raises(ValueError, match="ip:port"):
         Settings.from_env({"MOOTDX_SERVERS": "not-a-server"}, root=tmp_path)

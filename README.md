@@ -59,7 +59,7 @@ cd D:\dev_A股\liangjian_funnel_workflow
 
 密钥只放在 `.env`。程序自动读取该文件，进程环境变量优先；日志和报告不保存密钥、认证头或模型思考正文。提示词默认读取项目根目录下的 `prompts`，也可用 `LIANGJIAN_PROMPT_DIR` 覆盖。模型思考模式按角色显式配置：研究模型默认开启，独立盯盘模型默认关闭，可分别通过 `LIANGJIAN_RESEARCH_THINKING_ENABLED` 和 `LIANGJIAN_MONITOR_THINKING_ENABLED` 调整。
 
-漏斗参数默认读取项目内的 `config/funnel_config_v2.yaml`，也可用 `LIANGJIAN_SOURCE_CONFIG_PATH` 覆盖。资讯源读取 `config/news_sources.json`；该目录来自 Vibe-Research 的12赛道、106个公开RSS源，可用 `LIANGJIAN_NEWS_SOURCE_CONFIG_PATH` 覆盖。
+漏斗参数默认读取项目内的 `config/funnel_config_v2.yaml`，也可用 `LIANGJIAN_SOURCE_CONFIG_PATH` 覆盖。A2 板块轮动使用 `config/rotation_themes_v1.yaml` 中的固定“量见板块”映射；东方财富目录和成分按不可变版本落地本地，默认每7天刷新、14天硬过期，腾讯逐股资金和行情按交易日重新采集。资讯源读取 `config/news_sources.json`；该目录来自 Vibe-Research 的12赛道、106个公开RSS源，可用 `LIANGJIAN_NEWS_SOURCE_CONFIG_PATH` 覆盖。
 
 月度宏观补充层默认启用固定版本 AKShare，缓存写入 `storage/facts/open_macro/`；可用 `LIANGJIAN_OPEN_MACRO_ENABLED=false` 关闭，或用 `LIANGJIAN_OPEN_MACRO_CACHE_DIR` 改变缓存目录。AKShare 仅作为公开接口适配和字段归一化层，事实仍保留原始端点、时间、质量等级和失败原因。A2 的产业链卡点框架吸收 `muxuuu/serenity-skill` 的 MIT 方法论，但不会导入其示例股票，所有公司必须来自本次 A1 池。
 
@@ -137,7 +137,7 @@ Linux、systemd/cron、容器、部署门禁和回滚步骤见 [DEPLOYMENT.md](D
 - `outputs/monitor/effective_signals.md`：只含有效事件，不含每分钟 `NO_ACTION`。
 - `outputs/scheduler/*.log`：计划任务脱敏输出。
 - `storage/snapshots/`：模型事实包；`raw/` 保存完整全市场和源数据冻结快照。
-- `storage/facts/`：同花顺、巨潮、国务院政策与开放资讯的联合事实清单及逐文件 SHA-256 校验侧车；`ths_industry/` 保存每日完整行业成分缓存。
+- `storage/facts/`：行情、巨潮、国务院政策与开放资讯的联合事实清单及逐文件 SHA-256 校验侧车；`rotation_theme/` 保存量见板块每日版本，`rotation_theme/memberships/` 保存每7日更新、最长可用14日的东方财富完整成分版本；旧的 `ths_industry/` 仅保留历史兼容。
 - `storage/facts/market_fact_cache.sqlite3`：WAL/FULL 本地事实库，保留日线与财务修订、数据同步水位、巨潮查询、PDF 证据卡与个股资讯缓存。
 - `state/research_checkpoints/`：按模型/lane/阶段/快照/提示词/股票批次绑定的原子检查点；同日中断会恢复原冻结快照。
 - `state/workflow_progress.json`：前端只读的脱敏进度摘要，包含数据、缓存、lane 和 A1–A3 批次进度。

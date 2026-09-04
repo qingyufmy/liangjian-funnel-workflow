@@ -31,7 +31,7 @@ Agent 2 · ThemeSentimentSelectorAgent
 {{EASTMONEY_HOT100_SNAPSHOT}} 东财股吧当日人气前100，情绪票唯一舆情候选域；
                              必须是同一交易日、100只、排名1至100完整快照
 {{SELECTED_BOARD_SNAPSHOT}}   同花顺801精选板块强度、主力净流与成分股；
-                             趋势轮动只取净流入为正的前三主板块，子板块继承父级名次
+                             趋势轮动只取净流入为正的前五主板块，子板块继承父级名次
 {{SECTOR_CYCLE_SNAPSHOT}}    板块排名、广度、成交占比、资金流、
                              持续天数、板块阶段
 {{CAPITAL_FLOW_SNAPSHOT}}    主力净流、超大单、两融、ETF 申赎
@@ -44,7 +44,7 @@ Agent 2 · ThemeSentimentSelectorAgent
 {{PRIOR_OUTCOME_FEEDBACK}}   Agent 5 回填的上期阶段判定准确率
 {{MIN_THEME_SCORE}}          focus_pool 最低主题分硬门槛
 {{A2_POOL_TARGETS}}          机构交易候选池容量目标（不覆盖证据门槛）
-{{A2_ROTATION_THEME_COUNT}}  服务端按冻结市场事实选出的轮动主题数量（生产值为3）
+{{A2_ROTATION_THEME_COUNT}}  服务端按冻结市场事实选出的轮动主题数量（生产值为5）
 {{A2_FOCUS_PER_THEME}}       每个轮动主题的聚焦候选健康区间（不是配额）
 {{A2_WATCH_PER_THEME}}       每个轮动主题的观察候选健康区间（不是配额）
 
@@ -85,9 +85,9 @@ C8. {{MIN_THEME_SCORE}} 是“强确认参考线”，不是与服务端相对�
 top_rotation_theme=true、MARKET_CORE 路线 eligible=true、且没有确定性身份、
 交易性、关键事实或风险事件硬否决的标的，即使 theme_score 低于该参考线，
 仍可保留在 focus_pool；必须加入 reason_codes=
-A2_RELATIVE_TOP3_BELOW_STRONG_CONFIRMATION，并在 risk_reasons/weak_evidence_fields
+A2_RELATIVE_TOP3_BELOW_STRONG_CONFIRMATION（历史原因码，兼容保留；当前语义覆盖TOP5），并在 risk_reasons/weak_evidence_fields
 中说明低于强确认线的事实缺口或不确定性。只有低于参考线且不属于服务端相对
-TOP3，或存在上述硬否决，才进入 watch_only_pool/rejected_candidates。不得借此
+TOP5，或存在上述硬否决，才进入 watch_only_pool/rejected_candidates。不得借此
 放宽主营映射、辨识度、交易性、主题阶段、追高风险或 A3 的独立技术门槛。
 
 C9. A2 是“当前市场交易候选库”，不是最终交易计划。全量合并后的 focus_pool
@@ -101,8 +101,8 @@ C9. A2 是“当前市场交易候选库”，不是最终交易计划。全量�
      merge 后使用 A2_GLOBAL_FOCUS_LIMIT 做容量归档，容量理由不能替代事实否决。
 
      板块轮动覆盖是服务端合同：A2_BOTTLENECK_CONTEXT 中
-     top_rotation_theme=true 的 {{A2_ROTATION_THEME_COUNT}} 个主题构成当日轮动 TOP3。
-     你不得把它们主观合并成唯一主线，也不得重排 theme_rotation_rank。每个 TOP3
+     top_rotation_theme=true 的 {{A2_ROTATION_THEME_COUNT}} 个主题构成当日轮动 TOP5。
+     你不得把它们主观合并成唯一主线，也不得重排 theme_rotation_rank。每个 TOP5
      主题的路线合格标的都必须逐只落入 focus_pool 或 watch_only_pool；其中
      focus_pool 以 {{A2_FOCUS_PER_THEME}} 为健康区间、watch_only_pool 以
      {{A2_WATCH_PER_THEME}} 为健康区间。区间不是配额，真实硬否决或候选不足时允许
@@ -111,7 +111,7 @@ C9. A2 是“当前市场交易候选库”，不是最终交易计划。全量�
 
      A2 的 focus_pool 表示“值得进入日线技术评估”，不等于允许开仓。主题处于
      CLIMAX/DIVERGENCE/RETREAT，或 new_entry_policy=WATCH_ONLY/NO_NEW_ENTRY 时，
-     必须保留该风险状态和证据，但不得仅凭这一项把服务端 TOP3 中角色、路线均合格的
+     必须保留该风险状态和证据，但不得仅凭这一项把服务端 TOP5 中角色、路线均合格的
      股票从 focus_pool 清空；A3只把该状态用于次日仓位、优先级和风险提示，不能
      因昨日市场或情绪状态清空技术合格计划；A4再依据当日实时市场状态决定是否入场。
      已知交易性、身份、关键事实或硬风险否决仍按原规则淘汰。
@@ -119,9 +119,9 @@ C9. A2 是“当前市场交易候选库”，不是最终交易计划。全量�
      A2 核心池由两条并行通道组成，禁止互相冒充：
      · 情绪通道：候选必须来自 EASTMONEY_HOT100_SNAPSHOT，再用首板/连板、
        题材聚集、换手量比、封板与炸板事实及六阶段情绪周期筛选。它不要求题材
-       已进入801板块强度前三；否则会系统性漏掉启动期新题材。未进东财前100的
+       已进入801板块强度前五；否则会系统性漏掉启动期新题材。未进东财前100的
        股票不得标为情绪核心。
-     · 趋势通道：候选必须属于 SELECTED_BOARD_SNAPSHOT 中“强度前三且主力净
+     · 趋势通道：候选必须属于 SELECTED_BOARD_SNAPSHOT 中“强度前五且主力净
        流入为正”的主板块或其子板块成分股，并具备A1月度方向、主营匹配和基本面
        支撑。趋势票只在回调支撑/右侧确认位置评估，禁止因当日追涨直接入选。
      两条通道均须继承A1；A3不得接收A2以外标的。

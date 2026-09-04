@@ -959,7 +959,7 @@ def screen_a2(
     minimum_identifiability_score: float = 60.0,
     llm_top_n_per_theme: int = 5,
     review_all_eligible: bool = False,
-    rotation_theme_count: int = 3,
+    rotation_theme_count: int = 5,
 ) -> DeterministicGateResult:
     """Build the A2 market-core and supply-chain review routes locally.
 
@@ -1046,13 +1046,21 @@ def screen_a2(
         and isinstance(selected_boards.get("by_symbol"), Mapping)
         else {}
     )
+    # A production v2 snapshot always carries SELECTED_BOARD_SNAPSHOT.  The
+    # field name is retained for replay compatibility, while its production
+    # authority is the versioned Liangjian free-source rotation snapshot.  If
+    # that snapshot is present but unavailable, the trend channel must fail
+    # closed: legacy 881/885 taxonomy metrics and a provider's opaque board
+    # rank are not interchangeable substitutes for the transparent ranking.
+    # The fallback remains available only to older direct callers that omit
+    # the field altogether.
     fallback_rotation_directions = (
         _a2_ranked_fallback_directions(
             snapshot,
             a1_output=a1_output,
             limit=rotation_theme_count,
         )
-        if selected_boards.get("available") is not True
+        if "SELECTED_BOARD_SNAPSHOT" not in snapshot
         else {}
     )
     taxonomy_theme_map = _a2_taxonomy_theme_map(a1_output)
@@ -1343,6 +1351,8 @@ def screen_a2(
             elif behavior_type == "TREND" and selected_boards.get("available") is not True:
                 reasons.append("A2_SELECTED_BOARD_SOURCE_UNAVAILABLE")
             elif behavior_type == "TREND":
+                # Keep the historical reason-code spelling for downstream
+                # compatibility; its selected-board scope now covers TOP5.
                 reasons.append("A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD")
             else:
                 reasons.append("A2_BEHAVIOR_UNRESOLVED")
@@ -1467,7 +1477,12 @@ def screen_a2(
         ]
         if selected_strengths:
             theme_strength[theme_id] = round(max(selected_strengths), 4)
-            theme_strength_source[theme_id] = "THS_SELECTED_BOARD_STRENGTH"
+            theme_strength_source[theme_id] = (
+                "LIANGJIAN_FREE_ROTATION_STRENGTH"
+                if str(selected_boards.get("source_id") or "").strip().upper()
+                == "LIANGJIAN_FREE_ROTATION_V1"
+                else "LEGACY_SELECTED_BOARD_STRENGTH"
+            )
         elif market_scores:
             theme_strength[theme_id] = round(max(market_scores), 4)
             theme_strength_source[theme_id] = "A2_THEME_METRICS"
@@ -1487,8 +1502,8 @@ def screen_a2(
     )
     if selected_boards.get("available") is True:
         # ``selected_for_rotation`` was already calculated from the strongest
-        # three positive-flow primary boards. Child boards inherit the parent
-        # rank and therefore do not consume a fourth slot.
+        # five positive-flow primary boards. Child boards inherit the parent
+        # rank and therefore do not consume another primary slot.
         top_theme_ids = set(ranked_themes)
         theme_rotation_rank = {
             theme_id: int(
@@ -1524,8 +1539,8 @@ def screen_a2(
                 item["sent_to_llm"] = True
 
     # The emotion channel is independently sourced from Eastmoney top 100 and
-    # the six-stage cycle.  It must not be demoted merely because its emerging
-    # theme has not yet entered the selected-board strength top three.
+    # the six-stage cycle. It must not be demoted merely because its emerging
+    # theme has not yet entered the selected-board strength top five.
     for item in decisions:
         if item.get("status") == "REVIEW_CANDIDATE" and item.get("emotion_core_eligible") is True:
             item["top_rotation_theme"] = None
@@ -1589,13 +1604,13 @@ def _a2_rotation_fallback_evidence(
     taxonomy_binding: Mapping[str, Any],
     ranked_directions: Mapping[str, Mapping[str, Any]],
 ) -> dict[str, Any] | None:
-    """Return an audited trend fallback when the THS selected-board file is absent.
+    """Return an audited trend fallback when the rotation snapshot is absent.
 
-    The fallback never pretends that Eastmoney and THS board identifiers are
-    interchangeable.  It uses the already-bound THS taxonomy for strength and
-    only confirms the direction when the independently joined Eastmoney board
-    flow reports a strictly positive current-day main-net amount.  The normal
-    top-three ranking remains downstream of this function.
+    The fallback never pretends that vendor board identifiers are
+    interchangeable. It uses the already-bound legacy taxonomy for strength
+    and only confirms the direction when independently joined Eastmoney board
+    flow reports a strictly positive current-day main-net amount. The normal
+    top-N ranking remains downstream of this function.
     """
 
     taxonomy = str(taxonomy_binding.get("taxonomy") or "").strip().upper()
