@@ -1169,6 +1169,14 @@ def screen_a2(
             ),
             default=None,
         )
+        rotation_fallback = (
+            _a2_rotation_fallback_evidence(
+                snapshot,
+                taxonomy_binding=taxonomy_binding,
+            )
+            if selected_boards.get("available") is not True
+            else None
+        )
         if selected_board_match is not None:
             rotation_direction_id = f"SELECTED_BOARD:{selected_board_match.get('board_code')}"
         route_results = _a2_route_results(
@@ -1289,7 +1297,10 @@ def screen_a2(
         )
         trend_core_eligible = (
             behavior_type == "TREND"
-            and selected_board_match is not None
+            and (
+                selected_board_match is not None
+                or rotation_fallback is not None
+            )
         )
         pool_channel = (
             "EMOTION" if emotion_core_eligible
@@ -1347,6 +1358,7 @@ def screen_a2(
             "trend_core_eligible": trend_core_eligible,
             "eastmoney_hot100": dict(hot100_row) if hot100_row is not None else None,
             "selected_board": dict(selected_board_match) if selected_board_match is not None else None,
+            "rotation_fallback": dict(rotation_fallback) if rotation_fallback is not None else None,
             "route_permission": list(behavior_decision.get("route_permission") or ()),
             "behavior_type_decision": behavior_decision,
             "market_emotion_cycle": {
@@ -1536,6 +1548,61 @@ def screen_a2(
         ),
         rejected_symbols=tuple(str(item["symbol"]) for item in decisions if item["status"] == "HARD_REJECT"),
     )
+
+
+def _a2_rotation_fallback_evidence(
+    snapshot: Mapping[str, Any],
+    *,
+    taxonomy_binding: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    """Return an audited trend fallback when the THS selected-board file is absent.
+
+    The fallback never pretends that Eastmoney and THS board identifiers are
+    interchangeable.  It uses the already-bound THS taxonomy for strength and
+    only confirms the direction when the independently joined Eastmoney board
+    flow reports a strictly positive current-day main-net amount.  The normal
+    top-three ranking remains downstream of this function.
+    """
+
+    if _number(taxonomy_binding.get("rotation_strength_score")) is None:
+        return None
+    taxonomy = str(taxonomy_binding.get("taxonomy") or "").strip().upper()
+    taxonomy_code = str(taxonomy_binding.get("taxonomy_code") or "").strip().upper()
+    if taxonomy not in {"INDUSTRY", "CONCEPT"} or not taxonomy_code:
+        return None
+    raw_health = snapshot.get("A2_SECTOR_HEALTH_SNAPSHOT")
+    health = raw_health if isinstance(raw_health, Mapping) else {}
+    by_taxonomy = health.get("by_taxonomy")
+    by_taxonomy = by_taxonomy if isinstance(by_taxonomy, Mapping) else {}
+    section = by_taxonomy.get(taxonomy.lower())
+    rows = section.get("sectors") if isinstance(section, Mapping) else ()
+    if not isinstance(rows, Sequence) or isinstance(rows, (str, bytes, bytearray)):
+        return None
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        if str(row.get("taxonomy_code") or "").strip().upper() != taxonomy_code:
+            continue
+        flow = row.get("capital_flow")
+        if not isinstance(flow, Mapping) or flow.get("available") is not True:
+            return None
+        windows = flow.get("windows")
+        today = windows.get("today") if isinstance(windows, Mapping) else None
+        main_net_cny = _number(today.get("main_net_cny")) if isinstance(today, Mapping) else None
+        if main_net_cny is None or main_net_cny <= 0:
+            return None
+        return {
+            "taxonomy": taxonomy,
+            "taxonomy_code": taxonomy_code,
+            "taxonomy_name": row.get("taxonomy_name") or taxonomy_binding.get("taxonomy_name"),
+            "strength": _number(taxonomy_binding.get("rotation_strength_score")),
+            "main_net_inflow_cny": main_net_cny,
+            "change_pct": _number(today.get("change_pct")),
+            "source": flow.get("source") or "EASTMONEY_BOARD_CAPITAL_FLOW",
+            "source_scope": "SECTOR",
+            "reason_code": "A2_SELECTED_BOARD_FALLBACK_SECTOR_EVIDENCE",
+        }
+    return None
 
 
 def _a2_behavior_evidence(

@@ -1078,6 +1078,97 @@ def test_a2_dual_core_pool_keeps_hot100_emotion_and_selected_board_trend_togethe
     assert "A2_SELECTED_BOARD_SOURCE_UNAVAILABLE" in missing_by_symbol[trend_symbol]["reason_codes"]
 
 
+def test_a2_missing_selected_board_uses_positive_flow_sector_strength_fallback() -> None:
+    snapshot = _snapshot(1)
+    symbol = snapshot["g0_symbols"][0]
+    snapshot["THS_INDUSTRY_MEMBERSHIP"]["records"][0]["memberships"] = [{
+        "industry_thscode": "884001.TI",
+        "industry_name": "算力设备",
+    }]
+    snapshot["A2_SCORE_WEIGHTS"] = {name: 1.0 for name in _complete_a2_factor_scores(90)}
+    snapshot["CAPITAL_FLOW_SNAPSHOT"] = {
+        "available": True,
+        "by_symbol": {symbol: {"available": True, "capital_flow_score": 90}},
+    }
+    snapshot["SELECTED_BOARD_SNAPSHOT"] = {
+        "available": False,
+        "reason_code": "SELECTED_BOARD_SNAPSHOT_MISSING",
+        "by_symbol": {},
+    }
+    snapshot["A2_THEME_METRICS"] = {
+        "theme_metrics": {
+            "INDUSTRY:884001.TI": {
+                "available": True,
+                "taxonomy": "INDUSTRY",
+                "taxonomy_code": "884001.TI",
+                "taxonomy_name": "算力设备",
+                "score": 88,
+                "breadth": 0.70,
+                "turnover_share": 0.08,
+                "weekly_confirmation_score": 82,
+            },
+        },
+    }
+    snapshot["A2_SECTOR_HEALTH_SNAPSHOT"] = {
+        "by_taxonomy": {
+            "industry": {
+                "sectors": [{
+                    "taxonomy_code": "884001.TI",
+                    "taxonomy_name": "算力设备",
+                    "capital_flow": {
+                        "available": True,
+                        "source": "EASTMONEY_BOARD_CAPITAL_FLOW",
+                        "windows": {"today": {"main_net_cny": 2_467_000_000, "change_pct": 1.2}},
+                    },
+                }],
+            },
+        },
+    }
+    factor_scores = _complete_a2_factor_scores(90)
+    factor_scores["tier_structure"] = {
+        "score": 20,
+        "available": True,
+        "availability_state": "OBSERVED_ABSENT",
+        "ladder_height": 0,
+        "first_board_observed": False,
+        "event_source": "HITHINK_LIMIT_UP_LADDER",
+    }
+    factor_scores["weekly_confirmation"] = {"score": 90, "available": True}
+    a1_output = {
+        "taxonomy_links": [{
+            "node_id": "node-compute-device",
+            "taxonomy": "INDUSTRY",
+            "taxonomy_code": "884001.TI",
+        }],
+        "active_research_pool": [{
+            "symbol": symbol,
+            "candidate_id": f"a1:{symbol}",
+            "primary_theme": "theme-compute",
+            "industry_chain_node": "node-compute-device",
+            "business_exposure": {"revenue_exposure_pct": 65, "source_ref": f"cninfo:{symbol}"},
+            "a2_factor_scores": factor_scores,
+            "data_quality_score": 90,
+        }],
+    }
+
+    result = screen_a2(
+        snapshot,
+        a1_output,
+        minimum_identifiability_score=0,
+        review_all_eligible=True,
+    )
+    item = result.decisions[0]
+
+    assert item["status"] == "REVIEW_CANDIDATE", (
+        item.get("rotation_fallback"), item.get("a2_taxonomy_binding")
+    )
+    assert item["a2_pool_channel"] == "TREND"
+    assert item["trend_core_eligible"] is True
+    assert item["rotation_fallback"]["main_net_inflow_cny"] == 2_467_000_000
+    assert item["rotation_strength_source"] == "A2_THEME_METRICS"
+    assert item["top_rotation_theme"] is True
+
+
 def test_screen_a2_partitions_no_route_low_identity_and_llm_rank_overflow() -> None:
     """A2 must preserve every A1 row while distinguishing actionable routes."""
 
