@@ -105,6 +105,16 @@ def test_stage_decisions_are_idempotent_but_same_day_runs_and_lanes_are_distinct
     assert error.value.reason_code == "OUTCOME_LABEL_IMMUTABLE_CONFLICT"
 
 
+def test_outcome_label_accepts_half_year_fundamental_selection_basis(tmp_path: Path) -> None:
+    store = RuntimeStore(tmp_path / "state.sqlite3")
+    label = _label()
+    label["selection_basis"] = "HALF_YEAR_FUNDAMENTAL"
+
+    stored = store.record_outcome_label(label)
+
+    assert stored["selection_basis"] == "HALF_YEAR_FUNDAMENTAL"
+
+
 def test_explicit_stage_decision_wins_over_unsent_flag_and_keeps_gate_attribution(tmp_path: Path) -> None:
     store = RuntimeStore(tmp_path / "state.sqlite3")
     rows = record_stage_decisions(

@@ -241,6 +241,7 @@ OUTCOME_SELECTION_BASES = frozenset(
         "QUOTA_FILL",
         "BROKER_GOLD_DIRECT",
         "FUNDAMENTAL_BASELINE",
+        "HALF_YEAR_FUNDAMENTAL",
     }
 )
 
