@@ -71,6 +71,11 @@ from .model_client import (
     mechanical_repair_output,
 )
 from .monthly_strategy import build_monthly_strategy_context
+from .mature_theme_registry import (
+    activate_mature_themes,
+    augment_discovery_with_mature_registry,
+    resolve_mature_theme_registry,
+)
 from .prompts import PromptBundle, PromptRepository, PromptRepositoryError
 from .research_checkpoint import (
     FileResearchCheckpointStore,
@@ -210,6 +215,7 @@ _A1_SERVER_OWNED_FACT_FIELDS: tuple[str, ...] = (
     "taxonomy_matches",
     "financial_quality_score",
     "fundamental_support",
+    "half_year_support",
     "disclosed_business_match",
     "financial_subfactor_coverage",
     "minimum_financial_subfactor_coverage",
@@ -314,6 +320,8 @@ _SAFE_OUTPUT_FIELDS = {
     "industry_chain_graph",
     "taxonomy_links",
     "industry_theme_mappings",
+    "mature_theme_registry",
+    "mature_theme_activation",
     "canonical_monthly_decisions",
     "monthly_industry_decisions",
     "monthly_rotation_coverage",
@@ -1643,6 +1651,39 @@ class ResearchPipeline:
             if isinstance(monthly_strategy_context, Mapping)
             else None,
         )
+        raw_mature_registry = snapshot.data.get("A1_MATURE_THEME_REGISTRY")
+        if isinstance(raw_mature_registry, Mapping) and raw_mature_registry.get("enabled") is not False:
+            resolved_mature_registry = resolve_mature_theme_registry(
+                raw_mature_registry,
+                snapshot.data.get("THS_INDUSTRY_CATALOG"),
+                snapshot.data.get("THS_CONCEPT_CATALOG"),
+            )
+            if resolved_mature_registry.get("unresolved"):
+                raise ResearchPipelineError("A1_MATURE_THEME_REGISTRY_UNRESOLVED")
+            mature_activation = activate_mature_themes(
+                resolved_mature_registry,
+                {
+                    "broker_research_consensus": snapshot.data.get("BROKER_RESEARCH_CONSENSUS"),
+                    "monthly_strategy_context": monthly_strategy_context,
+                    "model_discovery": discovery_output,
+                },
+            )
+            mature_activation = _filter_mature_theme_activation_refs(
+                mature_activation,
+                snapshot.data,
+            )
+            minimum_activated = _safe_int(
+                raw_mature_registry.get("minimum_activated_themes"),
+                5,
+            )
+            if len(mature_activation.get("activated_themes") or ()) < max(1, minimum_activated):
+                raise ResearchPipelineError("A1_MATURE_THEME_ACTIVATION_UNDERFILLED")
+            discovery_output = augment_discovery_with_mature_registry(
+                discovery_output,
+                resolved_mature_registry,
+                mature_activation,
+            )
+            discovery_output["mature_theme_activation"] = mature_activation
         themes = [item for item in discovery_output.get("structural_themes", ()) if isinstance(item, Mapping)]
         nodes = [item for item in discovery_output.get("industry_chain_graph", ()) if isinstance(item, Mapping)]
         if self.feature_store is not None:
@@ -2215,6 +2256,7 @@ class ResearchPipeline:
                 "QUOTA_FILL",
                 "BROKER_GOLD_DIRECT",
                 "FUNDAMENTAL_BASELINE",
+                "HALF_YEAR_FUNDAMENTAL",
             )
         }
         for item in merged.get("active_research_pool", ()):
@@ -5086,7 +5128,7 @@ def _prompt_replacements(
                 "pool_min": 300,
                 "pool_max": 1000,
                 "clue_pool_target": [300, 800],
-                "active_research_target": [100, 250],
+                "active_research_target": [200, 800],
                 "node_count_target": [40, 80],
                 "quota_fill_enabled": False,
                 "quota_fill_observation": "COHORT_OBSERVATION_ONLY",
@@ -9109,10 +9151,15 @@ def _snapshot_discovery_evidence_refs(snapshot_data: Mapping[str, Any]) -> set[s
     def visit(value: Any) -> None:
         if isinstance(value, Mapping):
             for key, item in value.items():
-                if str(key) in {"fact_id", "source_ref", "source_url", "content_hash"} and isinstance(item, str):
-                    clean = item.strip()
-                    if clean:
-                        refs.add(clean)
+                if str(key) in {
+                    "fact_id", "source_ref", "source_refs", "source_url", "source_urls", "content_hash",
+                }:
+                    if isinstance(item, str):
+                        clean = item.strip()
+                        if clean:
+                            refs.add(clean)
+                    elif isinstance(item, Sequence) and not isinstance(item, (str, bytes, bytearray)):
+                        refs.update(str(ref).strip() for ref in item if str(ref).strip())
                 else:
                     visit(item)
         elif isinstance(value, list):
@@ -9132,6 +9179,54 @@ def _snapshot_discovery_evidence_refs(snapshot_data: Mapping[str, Any]) -> set[s
     # company disclosures would let a model manufacture a macro/industry theme
     # from evidence that was never supplied for discovery.
     return refs
+
+
+def _filter_mature_theme_activation_refs(
+    activation: Mapping[str, Any],
+    snapshot_data: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Keep only activations backed by real frozen discovery references."""
+
+    allowed = _snapshot_discovery_evidence_refs(snapshot_data)
+    result = dict(activation)
+    kept: list[dict[str, Any]] = []
+    for raw in activation.get("activated_themes", ()):
+        if not isinstance(raw, Mapping):
+            continue
+        item = dict(raw)
+        refs = [str(ref) for ref in item.get("source_refs", ()) if str(ref) in allowed]
+        evidence: list[dict[str, Any]] = []
+        for raw_evidence in item.get("evidence", ()):
+            if not isinstance(raw_evidence, Mapping):
+                continue
+            evidence_item = dict(raw_evidence)
+            evidence_refs = [
+                str(ref)
+                for ref in evidence_item.get("source_refs", ())
+                if str(ref) in allowed
+            ]
+            if evidence_refs:
+                evidence_item["source_refs"] = evidence_refs
+                evidence.append(evidence_item)
+        if not refs:
+            continue
+        item["source_refs"] = list(dict.fromkeys(refs))
+        item["evidence"] = evidence
+        item["activation_evidence"] = evidence
+        kept.append(item)
+    result["activated_themes"] = kept
+    result["activation_evidence"] = {
+        str(item.get("canonical_id")): {
+            "display_name": item.get("display_name"),
+            "keyword_hits": list(item.get("keyword_hits") or ()),
+            "keyword_hit_count": item.get("keyword_hit_count"),
+            "source_refs": list(item.get("source_refs") or ()),
+            "evidence": list(item.get("evidence") or ()),
+        }
+        for item in kept
+        if str(item.get("canonical_id") or "")
+    }
+    return result
 
 
 def _authorized_discovery_source_refs(
@@ -9535,7 +9630,7 @@ def _annotate_a1_pool_target(
     result = dict(output)
     raw_targets = snapshot_data.get("A1_POOL_TARGETS")
     targets = raw_targets if isinstance(raw_targets, Mapping) else {}
-    active_min, active_max = _target_pair(targets.get("active_research_target"), (100, 250))
+    active_min, active_max = _target_pair(targets.get("active_research_target"), (200, 800))
     clue_min, clue_max = _target_pair(targets.get("clue_pool_target"), (300, 800))
     active_count = len(result.get("active_research_pool")) if isinstance(result.get("active_research_pool"), list) else 0
     monitor_count = len(result.get("monitor_pool")) if isinstance(result.get("monitor_pool"), list) else 0

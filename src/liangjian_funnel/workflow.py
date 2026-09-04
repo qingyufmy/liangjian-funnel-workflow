@@ -1791,6 +1791,7 @@ class WorkflowApplication:
                         merged_outputs[lane_id] = dict(base_output)
             if not merged_outputs:
                 raise WorkflowError("A1_MAINTENANCE_OUTPUT_EMPTY")
+            _assert_a1_publishable_coverage(merged_outputs, a1_config)
             delta_payload = scope.as_dict() if scope is not None else {
                 "processed_count": len(updated_symbols),
                 "added_count": len(updated_symbols),
@@ -5692,6 +5693,32 @@ def _exchange_rules_for(path: Path, as_of: datetime) -> dict[str, Any]:
     return dict(rules)
 
 
+def _assert_a1_publishable_coverage(
+    outputs_by_lane: Mapping[str, Mapping[str, Any]],
+    a1_config: Mapping[str, Any],
+) -> None:
+    """Block A1 activation when the configured objective floor is missed.
+
+    The floor is an acceptance contract only.  It never promotes a stock and
+    therefore cannot become a hidden quota-fill rule inside the selector.
+    """
+
+    raw_minimum = a1_config.get("publish_minimum_active_research", 0)
+    try:
+        minimum = int(raw_minimum or 0)
+    except (TypeError, ValueError) as exc:
+        raise WorkflowError("A1_PUBLISH_MINIMUM_INVALID") from exc
+    if minimum < 0:
+        raise WorkflowError("A1_PUBLISH_MINIMUM_INVALID")
+    if minimum == 0:
+        return
+    for output in outputs_by_lane.values():
+        active = output.get("active_research_pool") if isinstance(output, Mapping) else None
+        count = len(active) if isinstance(active, list) else 0
+        if count < minimum:
+            raise WorkflowError("A1_ACTIVE_TARGET_UNDERFILLED")
+
+
 def _prompt_parameters(config: Mapping[str, Any]) -> dict[str, Any]:
     a1 = config.get("agent_1", {}) if isinstance(config.get("agent_1"), Mapping) else {}
     a2 = config.get("agent_2", {}) if isinstance(config.get("agent_2"), Mapping) else {}
@@ -5710,7 +5737,10 @@ def _prompt_parameters(config: Mapping[str, Any]) -> dict[str, Any]:
             "pool_min": a1.get("pool_min", 300),
             "pool_max": a1.get("pool_max", 1000),
             "clue_pool_target": a1.get("clue_pool_target", [300, 800]),
-            "active_research_target": a1.get("active_research_target", [100, 250]),
+            "active_research_target": a1.get("active_research_target", [200, 800]),
+            "publish_minimum_active_research": int(
+                a1.get("publish_minimum_active_research", 0) or 0
+            ),
             "node_count_target": a1.get("node_count_target", [40, 80]),
             "quota_fill_enabled": bool(a1.get("quota_fill_enabled", False)),
             "quota_fill_observation": a1.get(
@@ -5738,6 +5768,9 @@ def _prompt_parameters(config: Mapping[str, Any]) -> dict[str, Any]:
             "minimum_financial_quality": a1.get("minimum_financial_quality", 60),
             "minimum_financial_coverage": a1.get("minimum_financial_coverage", 0.60),
         },
+        "A1_MATURE_THEME_REGISTRY": dict(a1.get("mature_theme_registry", {}))
+        if isinstance(a1.get("mature_theme_registry"), Mapping)
+        else {},
         "A1_DRIVER_LINEAGE_REQUIRED": True,
         "STRICT_AGENT_RULES": True,
         "PRIOR_CONTRIBUTION_CAP": theme_registry.get("prior_contribution_cap", 10),

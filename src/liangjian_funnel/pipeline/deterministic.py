@@ -12,6 +12,7 @@ import re
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 
 from .bottleneck import (
@@ -28,7 +29,7 @@ from .a3_strategy import Eligibility, evaluate_a3_strategy
 
 
 PIPELINE_MODE = "deterministic_v2"
-FEATURE_VERSION = "deterministic-features/2.2.0"
+FEATURE_VERSION = "deterministic-features/2.3.0"
 _A1_DEFAULT_WEIGHTS: dict[str, float] = {
     "structural_theme": 0.20,
     "business_mapping": 0.20,
@@ -43,6 +44,7 @@ _A1_SELECTION_BASES: tuple[str, ...] = (
     "QUOTA_FILL",
     "BROKER_GOLD_DIRECT",
     "FUNDAMENTAL_BASELINE",
+    "HALF_YEAR_FUNDAMENTAL",
 )
 _TOKEN = re.compile(r"[^0-9A-Za-z\u3400-\u9fff]+")
 A2_THEME_FACTORS: tuple[str, ...] = (
@@ -298,8 +300,8 @@ def screen_a1(
         target_values = [int(value) for value in active_target[:2] if _number(value) is not None]
     else:
         target_values = []
-    active_target_min = max(1, target_values[0] if target_values else 100)
-    active_target_max = max(active_target_min, target_values[1] if len(target_values) > 1 else 250)
+    active_target_min = max(1, target_values[0] if target_values else 200)
+    active_target_max = max(active_target_min, target_values[1] if len(target_values) > 1 else 800)
     # Frozen snapshots created before the flag existed preserve the historical
     # expansion behavior.  New runs receive the explicit versioned setting.
     quota_fill_enabled = targets.get("quota_fill_enabled", True) is True
@@ -383,6 +385,10 @@ def screen_a1(
         data_quality += 10.0 if raw_evidence_available else 0.0
         data_quality += 15.0 if structured_exposure_available else 0.0
         financial_quality, financial_details = _financial_quality(fundamental)
+        half_year_support = _latest_half_year_support(
+            fundamental,
+            as_of=snapshot_as_of,
+        )
         maximum_exposure = max(
             (_number(item.get("revenue_exposure_pct")) or 0.0 for item in exposure_facts),
             default=0.0,
@@ -485,6 +491,16 @@ def screen_a1(
         elif not raw_evidence_available:
             status = "LOCAL_MONITOR"
             reason_codes.append("A1_MAIN_BUSINESS_EVIDENCE_MISSING")
+        elif monthly_chain_only and half_year_support.get("supported") is True:
+            # A1 is a monthly research universe, not an executable buy list.
+            # A constituent whose disclosed half-year revenue and attributable
+            # profit are both positive and growing already has the auditable
+            # fundamental support requested by the strategy.  It must not be
+            # discarded merely because optional six-factor enrichments are
+            # sparse or because the revenue-composition parser could not turn
+            # a valid CNINFO page into an exact percentage.
+            status = "LOCAL_ACTIVE_CANDIDATE"
+            reason_codes.append("A1_HALF_YEAR_FUNDAMENTAL_CONFIRMED")
         elif not core_reports or not indicators_available:
             status = "LOCAL_MONITOR"
             reason_codes.append("A1_FUNDAMENTAL_DATA_INCOMPLETE")
@@ -559,6 +575,8 @@ def screen_a1(
             "selection_basis": (
                 "BROKER_GOLD_DIRECT"
                 if institutional_seed and not monthly_chain_only
+                else "HALF_YEAR_FUNDAMENTAL"
+                if monthly_chain_only and half_year_support.get("supported") is True and bool(matched) and raw_evidence_available and not hard_reject
                 else "DETERMINISTIC_SCORE"
             ),
             "score": round(score, 4),
@@ -579,6 +597,7 @@ def screen_a1(
             "node_source_refs": list(node_by_id.get(str(primary_link.get("node_id") or ""), {}).get("source_refs") or ()),
             "source_refs": _source_refs_from_values(
                 institutional if institutional_seed else None,
+                evidence if raw_evidence_available else None,
                 factor_details,
             ),
             "score_breakdown": score_breakdown,
@@ -597,7 +616,9 @@ def screen_a1(
                 "supported": financial_quality >= minimum_financial_quality,
                 "coverage_ratio": round(financial_coverage, 6),
                 "features": financial_details,
+                "latest_half_year": half_year_support,
             },
+            "half_year_support": half_year_support,
             "financial_subfactor_coverage": round(financial_coverage, 6),
             "minimum_financial_subfactor_coverage": round(minimum_financial_coverage, 6),
             "company_archetype": (
@@ -627,6 +648,8 @@ def screen_a1(
             "research_route": (
                 "BROKER_GOLD_DIRECT"
                 if institutional_seed and not monthly_chain_only
+                else "HALF_YEAR_FUNDAMENTAL"
+                if monthly_chain_only and half_year_support.get("supported") is True and bool(matched) and raw_evidence_available and not hard_reject
                 else ("MONTHLY_THEME" if matched else None)
             ),
             "downstream_trade_eligible": not hard_reject,
@@ -738,9 +761,9 @@ def screen_a1(
             values = [
                 item for item in local_eligible
                 if sector_key in (item.get("sector_index_qualifying_ranks") or {})
+                and "A1_REQUIRES_LLM_EXPOSURE_REVIEW" in item.get("reason_codes", ())
             ]
             values.sort(key=lambda item: (
-                0 if "A1_REQUIRES_LLM_EXPOSURE_REVIEW" in item.get("reason_codes", ()) else 1,
                 int((item.get("sector_index_ranks") or {}).get(sector_key, 10**9)),
                 -float(item["score"]),
                 str(item["symbol"]),
@@ -3274,6 +3297,19 @@ def _has_business_evidence(item: Mapping[str, Any]) -> bool:
     business = item.get("business_exposure")
     if isinstance(business, Mapping):
         return bool(str(business.get("source_ref") or business.get("evidence_ref") or "").strip())
+    if str(item.get("research_route") or "").strip().upper() == "HALF_YEAR_FUNDAMENTAL":
+        disclosed = item.get("disclosed_business_match")
+        half_year = item.get("half_year_support")
+        refs = item.get("source_refs")
+        return bool(
+            isinstance(disclosed, Mapping)
+            and disclosed.get("raw_disclosure_available") is True
+            and isinstance(half_year, Mapping)
+            and half_year.get("supported") is True
+            and isinstance(refs, Sequence)
+            and not isinstance(refs, (str, bytes, bytearray))
+            and any(str(ref).strip() for ref in refs)
+        )
     return False
 
 
@@ -3509,7 +3545,11 @@ def local_active_items(result: DeterministicGateResult) -> list[dict[str, Any]]:
             continue
         facts = [fact for fact in item.get("business_exposure_facts", ()) if isinstance(fact, Mapping)]
         research_route = str(item.get("research_route") or "").strip().upper()
-        research_only_route = research_route in {"BROKER_GOLD_DIRECT", "FUNDAMENTAL_BASELINE"}
+        research_only_route = research_route in {
+            "BROKER_GOLD_DIRECT",
+            "FUNDAMENTAL_BASELINE",
+            "HALF_YEAR_FUNDAMENTAL",
+        }
         if not facts and not research_only_route:
             continue
         exposure = (
@@ -3558,6 +3598,8 @@ def local_active_items(result: DeterministicGateResult) -> list[dict[str, Any]]:
                 if research_route == "BROKER_GOLD_DIRECT"
                 else "FUNDAMENTAL_BASELINE_RESEARCH_COVERAGE"
                 if research_route == "FUNDAMENTAL_BASELINE"
+                else "MONTHLY_THEME_AND_HALF_YEAR_GROWTH_CONFIRMED"
+                if research_route == "HALF_YEAR_FUNDAMENTAL"
                 else "MONTHLY_THEME_AND_DISCLOSED_BUSINESS_MAPPING_CONFIRMED"
             ),
             "bear_case": (
@@ -3565,13 +3607,19 @@ def local_active_items(result: DeterministicGateResult) -> list[dict[str, Any]]:
                 if research_route == "BROKER_GOLD_DIRECT"
                 else "FUNDAMENTAL_BASELINE_FINANCIAL_OR_LIQUIDITY_FACTS_DETERIORATE"
                 if research_route == "FUNDAMENTAL_BASELINE"
+                else "HALF_YEAR_GROWTH_REVERSES_OR_MONTHLY_THEME_WEAKENS"
+                if research_route == "HALF_YEAR_FUNDAMENTAL"
                 else "MONTHLY_THEME_WEAKENS_OR_DISCLOSED_BUSINESS_TRANSMISSION_FAILS"
             ),
             "structural_score": item.get("score"),
             "data_quality_score": item.get("data_quality_score"),
-            "evidence_confidence": min(
-                float((exposure or {}).get("confidence") or 0.0) if exposure else 0.0,
-                float(item.get("data_quality_score") or 0.0) / 100.0,
+            "evidence_confidence": (
+                min(0.90, float(item.get("data_quality_score") or 0.0) / 100.0)
+                if research_route == "HALF_YEAR_FUNDAMENTAL"
+                else min(
+                    float((exposure or {}).get("confidence") or 0.0) if exposure else 0.0,
+                    float(item.get("data_quality_score") or 0.0) / 100.0,
+                )
             ),
             "status": "ACTIVE",
             "selection_basis": item.get("selection_basis") or "DETERMINISTIC_SCORE",
@@ -3597,6 +3645,7 @@ def local_active_items(result: DeterministicGateResult) -> list[dict[str, Any]]:
             "pullback_cause": item.get("pullback_cause"),
             "a1_selection_evidence": dict(item.get("a1_selection_evidence") or {}),
             "fundamental_support": dict(item.get("fundamental_support") or {}),
+            "half_year_support": dict(item.get("half_year_support") or {}),
             "financial_quality_score": item.get("financial_quality_score"),
             "disclosed_business_match": dict(item.get("disclosed_business_match") or {}),
             "financial_subfactor_coverage": item.get("financial_subfactor_coverage"),
@@ -3749,6 +3798,23 @@ def _taxonomy_links(
         node_id = str(raw.get("node_id") or "")
         if node_id not in node_ids:
             continue
+        # The long-lived mature-theme registry already emits one normalized
+        # taxonomy row per exact catalog resolution.  Accept that canonical
+        # representation alongside the model contract's code-array form.
+        direct_taxonomy = str(raw.get("taxonomy") or "").strip().upper()
+        direct_code = str(raw.get("taxonomy_code") or "").strip().upper()
+        if direct_taxonomy in {"INDUSTRY", "CONCEPT"} and direct_code:
+            name = universe.get((direct_taxonomy, direct_code))
+            if name is not None:
+                links.append({
+                    "node_id": node_id,
+                    "theme_id": str(raw.get("theme_id") or _first_theme_id(nodes, node_id) or "") or None,
+                    "taxonomy": direct_taxonomy,
+                    "taxonomy_code": direct_code,
+                    "taxonomy_name": name,
+                    "match_method": str(raw.get("match_method") or "MATURE_THEME_REGISTRY_EXACT_NAME"),
+                    "confidence": _number(raw.get("confidence")) or 1.0,
+                })
         for taxonomy, keys in (
             ("INDUSTRY", ("industry_thscodes", "industry_codes")),
             ("CONCEPT", ("concept_thscodes", "concept_codes")),
@@ -3807,7 +3873,12 @@ def _matched_links(
     for membership in memberships:
         key = (str(membership.get("taxonomy") or ""), str(membership.get("taxonomy_code") or ""))
         matched.extend(dict(item) for item in links_by_code.get(key, ()))
-    matched.sort(key=lambda item: (-float(item.get("confidence") or 0.0), str(item.get("node_id") or "")))
+    matched.sort(key=lambda item: (
+        -float(item.get("confidence") or 0.0),
+        0 if str(item.get("taxonomy") or "").upper() == "INDUSTRY" else 1,
+        str(item.get("taxonomy_name") or ""),
+        str(item.get("node_id") or ""),
+    ))
     return _dedupe_links(matched)
 
 
@@ -3838,17 +3909,31 @@ def _financial_quality(value: Mapping[str, Any]) -> tuple[float, dict[str, float
     features = {
         "roe": pick("roe", "净资产收益率"),
         "gross_margin": pick("sale_gross_margin", "gross_margin", "销售毛利率"),
-        "net_margin": pick("net_profit_margin", "销售净利率"),
-        "revenue_growth": pick("operating_income_yoy", "revenue_yoy", "营业收入同比增长率"),
-        "profit_growth": pick("net_profit_yoy", "归母净利润同比增长率"),
+        "net_margin": pick("sale_net_interest_ratio", "net_profit_margin", "销售净利率"),
+        "revenue_growth": pick(
+            "calculate_operating_income_yoy_growth_ratio",
+            "operating_income_yoy",
+            "revenue_yoy",
+            "营业收入同比增长率",
+        ),
+        "profit_growth": pick(
+            "calculate_parent_holder_net_profit_yoy_growth_ratio",
+            "net_profit_yoy",
+            "归母净利润同比增长率",
+        ),
         "cashflow_quality": pick(
+            "net_profit_cash_content",
             "cashflow_net_income_ratio",
             "operating_cash_flow_net_divide_income",
-            "net_profit_cash_content",
             "经营现金流净利润比",
         ),
-        "debt_ratio": pick("debt_to_assets", "资产负债率"),
+        "debt_ratio": pick("assets_debt_ratio", "debt_to_assets", "资产负债率"),
     }
+    # The provider publishes the cash-content indicator as a percentage
+    # (for example 139.27 means 1.3927x).  Older fixtures and compatible
+    # sources may already provide a ratio, so normalize only clear percentages.
+    if features["cashflow_quality"] is not None and abs(features["cashflow_quality"]) > 5:
+        features["cashflow_quality"] = features["cashflow_quality"] / 100.0
     available = [value for value in features.values() if value is not None]
     if not available:
         return 0.0, features
@@ -3867,6 +3952,105 @@ def _financial_quality(value: Mapping[str, Any]) -> tuple[float, dict[str, float
     if features["debt_ratio"] is not None:
         scores.append(100.0 - _scale(features["debt_ratio"], 20, 80))
     return sum(scores) / len(scores), features
+
+
+def _latest_half_year_support(
+    fundamental: Mapping[str, Any],
+    *,
+    as_of: str | None,
+) -> dict[str, Any]:
+    """Verify the latest disclosed H1 result from frozen income statements.
+
+    This deliberately bypasses the generic indicator projection: that feed
+    does not carry a reporting period and may repeat the same latest value.
+    The comparison therefore uses one deduplicated Q2 income row for the
+    latest fiscal year and the corresponding Q2 row for the prior year.
+    """
+
+    statements = fundamental.get("statements")
+    income = statements.get("INCOME") if isinstance(statements, Mapping) else None
+    if not isinstance(income, Sequence) or isinstance(income, (str, bytes, bytearray)):
+        return {"supported": False, "reason_code": "A1_HALF_YEAR_INCOME_MISSING"}
+
+    cutoff_ms: int | None = None
+    if as_of:
+        try:
+            parsed = datetime.fromisoformat(str(as_of).replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            cutoff_ms = int(parsed.timestamp() * 1000)
+        except ValueError:
+            cutoff_ms = None
+
+    by_year: dict[int, Mapping[str, Any]] = {}
+    for row in income:
+        if not isinstance(row, Mapping) or str(row.get("fiscal_period") or "").upper() != "Q2":
+            continue
+        year_value = _number(row.get("fiscal_year"))
+        if year_value is None:
+            continue
+        year = int(year_value)
+        report_ms = _number(row.get("report_date_ms"))
+        if cutoff_ms is not None and report_ms is not None and int(report_ms) > cutoff_ms:
+            continue
+        current = by_year.get(year)
+        if current is None or (_number(current.get("report_date_ms")) or 0.0) < (report_ms or 0.0):
+            by_year[year] = row
+    if not by_year:
+        return {"supported": False, "reason_code": "A1_HALF_YEAR_NOT_DISCLOSED"}
+
+    fiscal_year = max(by_year)
+    current = by_year[fiscal_year]
+    previous = by_year.get(fiscal_year - 1)
+    if previous is None:
+        return {
+            "supported": False,
+            "fiscal_year": fiscal_year,
+            "reason_code": "A1_HALF_YEAR_COMPARATIVE_MISSING",
+        }
+    revenue = _number(current.get("operating_income"))
+    profit = _number(current.get("parent_holder_net_profit"))
+    previous_revenue = _number(previous.get("operating_income"))
+    previous_profit = _number(previous.get("parent_holder_net_profit"))
+    if None in {revenue, profit, previous_revenue, previous_profit}:
+        return {
+            "supported": False,
+            "fiscal_year": fiscal_year,
+            "reason_code": "A1_HALF_YEAR_CORE_METRICS_MISSING",
+        }
+
+    revenue_growth = _year_over_year_growth(revenue, previous_revenue)
+    profit_growth = _year_over_year_growth(profit, previous_profit)
+    supported = bool(
+        revenue > 0
+        and profit > 0
+        and revenue >= previous_revenue
+        and profit >= previous_profit
+    )
+    return {
+        "supported": supported,
+        "fiscal_year": fiscal_year,
+        "fiscal_period": "Q2",
+        "report_date_ms": int(_number(current.get("report_date_ms")) or 0) or None,
+        "operating_income": revenue,
+        "parent_holder_net_profit": profit,
+        "prior_operating_income": previous_revenue,
+        "prior_parent_holder_net_profit": previous_profit,
+        "operating_income_yoy_pct": revenue_growth,
+        "parent_holder_net_profit_yoy_pct": profit_growth,
+        "reason_code": (
+            "A1_HALF_YEAR_REVENUE_AND_PROFIT_GROWTH_CONFIRMED"
+            if supported
+            else "A1_HALF_YEAR_GROWTH_NOT_CONFIRMED"
+        ),
+        "source": "COMPANY_FUNDAMENTALS.INCOME",
+    }
+
+
+def _year_over_year_growth(current: float, previous: float) -> float | None:
+    if previous == 0:
+        return None
+    return round((current - previous) / abs(previous) * 100.0, 6)
 
 
 def _a1_factor_details(

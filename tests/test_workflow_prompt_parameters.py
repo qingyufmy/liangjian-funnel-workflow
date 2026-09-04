@@ -3,8 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 
 import yaml
+import pytest
 
-from liangjian_funnel.workflow import _prompt_parameters
+from liangjian_funnel.workflow import (
+    WorkflowError,
+    _assert_a1_publishable_coverage,
+    _prompt_parameters,
+)
 
 
 def test_prompt_parameters_are_derived_from_versioned_funnel_config() -> None:
@@ -26,6 +31,14 @@ def test_prompt_parameters_are_derived_from_versioned_funnel_config() -> None:
     assert "MIN_TECHNICAL_SCORE" not in parameters
     assert "TECHNICAL_SCORE_WEIGHTS" not in parameters
     assert "REQUIRED_CONFIRMATIONS" not in parameters
+
+
+def test_a1_publish_floor_is_an_acceptance_gate_not_a_selector() -> None:
+    outputs = {"lane-1": {"active_research_pool": [{"symbol": "600000.SH"}]}}
+
+    _assert_a1_publishable_coverage(outputs, {"publish_minimum_active_research": 1})
+    with pytest.raises(WorkflowError, match="A1_ACTIVE_TARGET_UNDERFILLED"):
+        _assert_a1_publishable_coverage(outputs, {"publish_minimum_active_research": 2})
 
 
 def test_a4_config_documents_strategy_specific_runtime_contract() -> None:

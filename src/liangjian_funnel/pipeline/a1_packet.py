@@ -26,7 +26,7 @@ from .a1_contract import (
 )
 
 
-A1_RESEARCH_PACKET_SCHEMA_VERSION = "a1-research-packet/1.3.0"
+A1_RESEARCH_PACKET_SCHEMA_VERSION = "a1-research-packet/1.4.0"
 A1_PACKET_TOKEN_BUDGET = 100_000
 _MACRO_WINDOWS = (1, 3, 6, 12)
 _INDUSTRY_METRIC_KEYS = (
@@ -111,6 +111,10 @@ def build_a1_research_packet(
         data.get("REVIEWED_PUBLIC_RESEARCH_LEADS"),
         24,
     )
+    mature_theme_registry = _project_bounded(
+        data.get("A1_MATURE_THEME_REGISTRY"),
+        64,
+    )
     packet: dict[str, Any] = {
         "schema_version": A1_RESEARCH_PACKET_SCHEMA_VERSION,
         "contract_version": A1_CONTRACT_VERSION,
@@ -133,6 +137,9 @@ def build_a1_research_packet(
         "cross_market_leads": cross_market,
         "broker_research_consensus": broker,
         "reviewed_public_research_leads": reviewed_public_leads,
+        # Long-lived strategy taxonomy.  Monthly evidence activates entries;
+        # it does not rewrite their industry/concept relationships.
+        "mature_theme_registry": mature_theme_registry,
         # This is a permissions-and-availability plane, not research content.
         # A homepage without an active frozen contract or a reviewed document
         # never becomes evidence merely because it appears in this registry.
@@ -156,6 +163,12 @@ def build_a1_research_packet(
             "reviewed_public_research_lead_count": _safe_int(
                 len(reviewed_public_leads.get("documents", ()))
                 if isinstance(reviewed_public_leads, Mapping)
+                else 0,
+                0,
+            ),
+            "mature_theme_count": _safe_int(
+                len(mature_theme_registry.get("themes", ()))
+                if isinstance(mature_theme_registry, Mapping)
                 else 0,
                 0,
             ),

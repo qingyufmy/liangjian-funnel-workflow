@@ -287,10 +287,96 @@ agent_1:
   pool_min: 300
   pool_max: 1000
   clue_pool_target: [300, 800]              # ACTIVE + MONITOR，容量目标而非配额
-  active_research_target: [100, 250]        # 月度方向板块成分中的有效研究层，证据不足可低于下限
+  active_research_target: [200, 800]        # 月度方向板块成分中的有效研究层；按客观证据自然形成
+  publish_minimum_active_research: 200      # 仅作为整代发布验收门，不参与个股补足或排序
   monthly_chain_only: true                  # ACTIVE 必须满足月度方向→板块指数→成分股→主营/基本面链路
   quota_fill_enabled: false                 # 严格月度链路不按数量补池
   quota_fill_observation: COHORT_OBSERVATION_ONLY  # 非随机分组观测；不能宣称因果 A/B 结论
+
+  # 长期稳定的主题语义层。只保存策略认可的主题、同花顺目录中的精确
+  # 中文名称和激活关键词，不保存股票名单；每次冻结快照时再解析为当前
+  # THS 行业/概念代码。月度证据只负责激活主题，不得改变主题含义。
+  mature_theme_registry:
+    enabled: true
+    schema_version: mature-theme-registry/1.0.0
+    version: mature-theme-registry/2026.09.v1
+    minimum_activated_themes: 5
+    activation:
+      minimum_keyword_hits: 1
+      evidence_sources: [MONTHLY_POLICY, BROKER_RESEARCH, INDUSTRY_ROTATION, MARKET_OBSERVATION]
+      model_may_activate: true
+      model_may_change_mapping: false
+    themes:
+      - canonical_id: AI_COMPUTE_INFRASTRUCTURE
+        display_name: AI算力基础设施
+        activation_keywords: [AI算力, 算力基础设施, 数据中心, 液冷, CPO, 光模块, 光纤, 铜缆, PCB, 通信设备]
+        industry_names: [计算机设备, 通信设备, 通信服务, 通信网络设备及器件, 通信线缆及配套, 通信终端及配件, 元件, 印制电路板, 光学光电子]
+        concept_names: [数据中心(AIDC), 东数西算(算力), 液冷服务器, 算力租赁, 共封装光学(CPO), 光纤概念, 铜缆高速连接, PCB概念, 云计算, 人工智能, 英伟达概念]
+      - canonical_id: SEMICONDUCTOR_LOCALIZATION
+        display_name: 半导体国产化
+        activation_keywords: [半导体, 芯片国产化, 国产替代, 集成电路, 先进封装, 存储芯片, 光刻胶, 光刻机]
+        industry_names: [半导体, 半导体材料, 半导体设备, 集成电路制造, 集成电路封测, 数字芯片设计, 模拟芯片设计, 电子化学品, 光学光电子]
+        concept_names: [芯片概念, 存储芯片, MCU芯片, 第三代半导体, 先进封装, 光刻胶, 光刻机, 中芯国际概念, 汽车芯片, 华为海思概念股, 国产操作系统]
+      - canonical_id: NATIONAL_DEFENSE
+        display_name: 国防军工
+        activation_keywords: [国防军工, 军工, 航空装备, 航天装备, 军工电子, 商业航天, 大飞机, 低空经济]
+        industry_names: [军工装备, 航天装备, 航空装备, 地面兵装, 航海装备, 军工电子, 其他运输设备]
+        concept_names: [军工, 大飞机, 海工装备, 国产航母, 无人机, 卫星导航, 航空发动机, 军民融合, 成飞概念, 商业航天, 低空经济, 军工信息化]
+      - canonical_id: CONSUMER_ELECTRONICS
+        display_name: 消费电子
+        activation_keywords: [消费电子, 手机产业链, AI手机, AI眼镜, 折叠屏, 智能穿戴, 苹果产业链, 智能硬件]
+        industry_names: [消费电子, 消费电子零部件及组装, 品牌消费电子, 光学光电子, 面板, LED, 光学元件, 家电零部件]
+        concept_names: [消费电子概念, 苹果概念, 无线充电, 智能穿戴, 无线耳机, 柔性屏(折叠屏), 电子纸, OLED, AI手机, AI眼镜, 华为手机, 小米概念, 富士康概念]
+      - canonical_id: ROBOTICS_ADVANCED_MANUFACTURING
+        display_name: 机器人与先进制造
+        activation_keywords: [机器人, 人形机器人, 先进制造, 工业母机, 高端装备, 自动化, 减速器, 机器视觉]
+        industry_names: [自动化设备, 机器人, 工控设备, 专用设备, 通用设备, 机床工具, 仪器仪表, 工程机械, 激光设备]
+        concept_names: [机器人概念, 人形机器人, 工业母机, 高端装备, 减速器, 机器视觉, 3D打印, 工业互联网, 新型工业化, 传感器]
+      - canonical_id: POWER_EQUIPMENT_NEW_ENERGY
+        display_name: 电力设备与新能源
+        activation_keywords: [电力设备, 新能源, 光伏, 风电, 储能, 电网, 特高压, 固态电池, 锂电池]
+        industry_names: [电力, 电网设备, 电气自控设备, 输变电设备, 其他电源设备, 光伏设备, 风电设备, 电池, 新能源发电, 电能综合服务]
+        concept_names: [新能源汽车, 风电, 核电, 燃料电池, 特高压, 智能电网, 锂电池概念, 充电桩, 储能, 固态电池, 钠离子电池, 光伏概念, 光伏建筑一体化, 虚拟电厂, 绿色电力, 电力物联网, 超超临界发电]
+      - canonical_id: RESOURCES_ENERGY
+        display_name: 资源能源
+        activation_keywords: [资源能源, 煤炭, 石油, 天然气, 有色金属, 黄金, 白银, 铜, 铝, 锂资源]
+        industry_names: [煤炭开采加工, 油气开采及服务, 石油加工贸易, 工业金属, 贵金属, 小金属, 能源金属, 钢铁, 港口航运]
+        concept_names: [煤炭概念, 煤化工概念, 黄金概念, 金属铜, 金属镍, 金属钴, 金属锌, 小金属概念, 稀土永磁, 盐湖提锂, 可燃冰, 页岩气, 天然气, 航运概念]
+      - canonical_id: CHEMICAL_NEW_MATERIALS
+        display_name: 化工新材料
+        activation_keywords: [化工新材料, 新材料, 基础化工, 电子化学品, 氟化工, 磷化工, 有机硅, 高分子材料]
+        industry_names: [化学原料, 化学制品, 电子化学品, 非金属材料, 金属新材料, 塑料制品, 橡胶制品, 化学纤维, 农化制品, 合成树脂, 膜材料]
+        concept_names: [煤化工概念, 氟化工概念, 磷化工, 钛白粉概念, 碳纤维, 有机硅概念, 可降解塑料, 石墨烯, 光刻胶, PVDF概念, PEEK材料, 合成生物, 维生素, 丙烯酸, 化肥]
+      - canonical_id: INNOVATIVE_MEDICINE_HEALTHCARE
+        display_name: 创新药与医疗
+        activation_keywords: [创新药, 医药, 医疗, 生物制品, CXO, CRO, 脑机接口, 合成生物, 中报增长]
+        industry_names: [化学制药, 中药, 生物制品, 医药商业, 医疗器械, 医疗服务, 医疗研发外包, 医疗设备, 体外诊断]
+        concept_names: [创新药, 生物疫苗, 医疗器械概念, CRO概念, 基因测序, 细胞免疫治疗, 眼科医疗, 脑机接口, 智能医疗, 医美概念, 重组蛋白, 减肥药, 合成生物, 辅助生殖]
+      - canonical_id: CONSUMER_SERVICES
+        display_name: 消费服务
+        activation_keywords: [消费服务, 服务消费, 内需, 旅游, 酒店, 餐饮, 零售, 食品饮料, 文旅]
+        industry_names: [旅游及酒店, 餐饮, 零售, 互联网电商, 食品加工制造, 饮料制造, 休闲食品, 文化传媒, 教育, 美容护理, 家居用品]
+        concept_names: [旅游概念, 免税店, 消费电子概念, 白酒概念, 啤酒概念, 乳业, 预制菜, 宠物经济, 跨境电商, 网红经济, 短剧游戏, 体育产业, IP经济(谷子经济)]
+      - canonical_id: FINANCIAL_HIGH_DIVIDEND
+        display_name: 金融高股息
+        activation_keywords: [金融高股息, 高股息, 红利资产, 银行, 保险, 证券, 中特估, 资本市场扩容]
+        industry_names: [银行, 证券, 保险, 多元金融, 国有大型银行, 股份制银行, 城商行, 农商行]
+        concept_names: [高股息精选, 同花顺中特估100, 中字头股票, 央企国企改革, 国企改革, 参股银行, 参股保险, 参股券商, 融资融券, 互联网金融]
+      - canonical_id: AGRICULTURE_FOOD_SECURITY
+        display_name: 农业与粮食安全
+        activation_keywords: [农业, 粮食安全, 种植业, 种业, 养殖业, 农产品, 生猪, 玉米, 农业政策]
+        industry_names: [种植业与林业, 种子生产, 粮食种植, 农业综合, 养殖业, 生猪养殖, 农产品加工, 动物保健, 畜禽饲料, 水产养殖]
+        concept_names: [农业种植, 粮食概念, 玉米, 大豆, 转基因, 猪肉, 养鸡, 生态农业, 乡村振兴, 农机, 农村电商, 供销社, 数字乡村]
+      - canonical_id: AI_APPLICATIONS_DIGITAL_ECONOMY
+        display_name: AI应用与数字经济
+        activation_keywords: [AI应用, 人工智能应用, 数字经济, 数据要素, 软件, 信创, 数据安全, 智能体]
+        industry_names: [软件开发, IT服务, 计算机设备, 通信服务, 数字媒体, 文化传媒, 广告营销]
+        concept_names: [人工智能, AI应用, AIGC概念, ChatGPT概念, 多模态AI, AI智能体, DeepSeek概念, 数据要素, 数据安全, 数字经济, 数字货币, 智慧政务, 信创, 华为鲲鹏, MLOps概念]
+      - canonical_id: INFRASTRUCTURE_DOMESTIC_DEMAND
+        display_name: 基础设施与内需
+        activation_keywords: [基础设施, 稳增长, 内需, 基建, 建筑, 城市更新, 房地产, 水利, 重大工程]
+        industry_names: [建筑装饰, 基础建设, 房屋建设, 专业工程, 建筑材料, 水泥, 房地产, 房地产服务, 公路铁路运输, 工程咨询服务]
+        concept_names: [一带一路, 水利, 新型城镇化, 装配式建筑, 地下管网, 建筑节能, PPP概念, 西部大开发, 统一大市场, 房屋检测, 新型工业化]
 
   # 全市场基本面基准保留为覆盖审计线索，不直接进入严格 A1 ACTIVE。
   fundamental_baseline:

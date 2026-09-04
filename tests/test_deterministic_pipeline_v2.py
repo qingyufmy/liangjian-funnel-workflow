@@ -9,6 +9,8 @@ import pytest
 import yaml
 
 from liangjian_funnel.pipeline.deterministic import (
+    _financial_quality,
+    _has_business_evidence,
     _read_metric_payload,
     _specialize_market_role,
     _valuation_factor,
@@ -28,6 +30,35 @@ from liangjian_funnel.settings import Settings
 
 NOW = datetime(2026, 8, 27, 15, 10, tzinfo=ZoneInfo("Asia/Shanghai"))
 MODELS = ("deepseek-v4-pro-0813", "moonshotai/kimi-k3-free", "z-ai/glm-5.3-free")
+
+
+def test_a1_financial_quality_recognizes_production_indicator_names_and_percent_scale() -> None:
+    score, features = _financial_quality({
+        "indicators": [
+            {"index_id": "sale_net_interest_ratio", "value": "12.5"},
+            {"index_id": "assets_debt_ratio", "value": "38.0"},
+            {"index_id": "net_profit_cash_content", "value": "139.27"},
+            {"index_id": "calculate_operating_income_yoy_growth_ratio", "value": "10.2"},
+            {"index_id": "calculate_parent_holder_net_profit_yoy_growth_ratio", "value": "37.2"},
+        ],
+    })
+
+    assert score > 0
+    assert features["net_margin"] == 12.5
+    assert features["debt_ratio"] == 38.0
+    assert features["cashflow_quality"] == pytest.approx(1.3927)
+    assert features["revenue_growth"] == 10.2
+    assert features["profit_growth"] == 37.2
+
+
+def test_a2_recognizes_audited_h1_main_business_route_without_inventing_exposure() -> None:
+    assert _has_business_evidence({
+        "research_route": "HALF_YEAR_FUNDAMENTAL",
+        "disclosed_business_match": {"raw_disclosure_available": True},
+        "half_year_support": {"supported": True},
+        "source_refs": ["cninfo:600000:2026h1:page:12"],
+        "business_exposure": None,
+    }) is True
 
 
 def test_a1_negative_expected_growth_does_not_receive_positive_growth_valuation_credit() -> None:
@@ -226,6 +257,28 @@ def test_a1_evaluates_every_g0_and_keeps_local_research_coverage():
     assert len(local_active_items(result)) == 4
 
 
+def test_a1_accepts_normalized_links_from_the_stable_theme_registry():
+    snapshot = _snapshot(2)
+    discovery = _discovery()
+    discovery["taxonomy_links"] = [{
+        "node_id": "node-compute-device",
+        "theme_id": "theme-compute",
+        "taxonomy": "INDUSTRY",
+        "taxonomy_code": "884001.TI",
+        "taxonomy_name": "算力设备",
+        "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+        "confidence": 1.0,
+    }]
+
+    result = screen_a1(snapshot, discovery, local_top_n_per_node=2, llm_top_n_per_theme=1)
+
+    assert any(
+        item.get("taxonomy_matches")
+        for item in result.decisions
+        if item["symbol"] == snapshot["g0_symbols"][0]
+    )
+
+
 def test_a1_selection_basis_is_explicit_and_does_not_change_active_symbols():
     snapshot = _snapshot(8)
 
@@ -253,13 +306,67 @@ def test_a1_selection_basis_is_explicit_and_does_not_change_active_symbols():
         "LLM_REVIEWED": 1,
         "DETERMINISTIC_SCORE": 1,
         "QUOTA_FILL": 4,
-        "BROKER_GOLD_DIRECT": 0,
-        "FUNDAMENTAL_BASELINE": 0,
-    }
+            "BROKER_GOLD_DIRECT": 0,
+            "FUNDAMENTAL_BASELINE": 0,
+            "HALF_YEAR_FUNDAMENTAL": 0,
+        }
 
     local_active = local_active_items(first)
     assert all(item["selection_basis"] in {"DETERMINISTIC_SCORE", "QUOTA_FILL"} for item in local_active)
     assert any(item["selection_basis"] == "QUOTA_FILL" for item in local_active)
+
+
+def test_a1_strict_monthly_chain_accepts_disclosed_h1_double_growth_without_quota_fill():
+    snapshot = _snapshot(2)
+    symbol = snapshot["g0_symbols"][0]
+    snapshot["A1_POOL_TARGETS"] = {
+        "monthly_chain_only": True,
+        "quota_fill_enabled": False,
+        "active_research_target": [1, 10],
+    }
+    snapshot["MAIN_BUSINESS_EVIDENCE"][symbol] = {
+        "available": True,
+        "evidence": [{
+            "source_ref": f"cninfo:{symbol}:2026h1:page:12",
+            "page_number": 12,
+            "publish_time": "2026-08-20",
+            # Valid disclosed main-business page, but deliberately no exact
+            # revenue percentage for the legacy exposure parser.
+            "text": "公司半年度报告主营业务分行业包括算力设备及配套服务。",
+        }],
+    }
+    snapshot["COMPANY_FUNDAMENTALS"][symbol]["statements"] = {
+        "INCOME": [
+            {
+                "fiscal_year": 2026,
+                "fiscal_period": "Q2",
+                "report_date_ms": 1787155200000,
+                "operating_income": 130.0,
+                "parent_holder_net_profit": 18.0,
+            },
+            {
+                "fiscal_year": 2025,
+                "fiscal_period": "Q2",
+                "report_date_ms": 1755619200000,
+                "operating_income": 100.0,
+                "parent_holder_net_profit": 10.0,
+            },
+        ],
+        "BALANCE": [{}],
+        "CASH_FLOW": [{}],
+    }
+
+    result = screen_a1(snapshot, _discovery(), local_top_n_per_node=1, llm_top_n_per_theme=1)
+    decision = next(item for item in result.decisions if item["symbol"] == symbol)
+
+    assert decision["status"] == "LOCAL_ACTIVE_CANDIDATE"
+    assert decision["selection_basis"] == "HALF_YEAR_FUNDAMENTAL"
+    assert decision["research_route"] == "HALF_YEAR_FUNDAMENTAL"
+    assert decision["half_year_support"]["supported"] is True
+    assert decision["business_exposure_facts"] == []
+    projected = local_active_items(result)
+    assert [item["symbol"] for item in projected] == [symbol]
+    assert projected[0]["evidence_confidence"] >= 0.70
 
 
 def test_a1_strict_monthly_chain_disables_quota_and_baseline_activation():
@@ -284,6 +391,10 @@ def test_a1_strict_monthly_chain_requires_sector_business_and_financial_support(
         "fundamental_baseline": {"enabled": True},
     }
     snapshot["A1_MINIMUMS"]["minimum_financial_quality"] = 60
+    snapshot["A1_MINIMUMS"]["minimum_score"] = 1
+    snapshot["A1_MINIMUMS"]["minimum_data_quality"] = 1
+    snapshot["A1_MINIMUMS"]["minimum_available_weight"] = 0.10
+    snapshot["A1_MINIMUMS"]["minimum_financial_coverage"] = 0.20
     broker_symbol, weak_symbol, outside_symbol = snapshot["g0_symbols"]
     snapshot["BROKER_GOLD_COVERAGE_POOL"] = {
         "available": True,
@@ -306,6 +417,8 @@ def test_a1_strict_monthly_chain_requires_sector_business_and_financial_support(
     assert by_symbol[broker_symbol]["sector_constituent_confirmed"] is True
     assert by_symbol[broker_symbol]["sector_index_code"] == "884001.TI"
     assert by_symbol[broker_symbol]["fundamental_support"]["supported"] is True
+    assert by_symbol[broker_symbol]["status"] == "LOCAL_ACTIVE_CANDIDATE"
+    assert by_symbol[broker_symbol]["sent_to_llm"] is False
     assert by_symbol[weak_symbol]["status"] == "LOCAL_MONITOR"
     assert "A1_FINANCIAL_QUALITY_BELOW_MINIMUM" in by_symbol[weak_symbol]["reason_codes"]
     assert by_symbol[outside_symbol]["status"] == "OUTSIDE_THEME"
@@ -1228,6 +1341,7 @@ def test_a1_fundamental_baseline_fills_minimum_with_industry_dispersion() -> Non
         "QUOTA_FILL": 0,
         "BROKER_GOLD_DIRECT": 1,
         "FUNDAMENTAL_BASELINE": 4,
+        "HALF_YEAR_FUNDAMENTAL": 0,
     }
 
 
