@@ -1046,15 +1046,26 @@ def screen_a2(
         and isinstance(selected_boards.get("by_symbol"), Mapping)
         else {}
     )
-    # A production v2 snapshot always carries SELECTED_BOARD_SNAPSHOT.  The
-    # field name is retained for replay compatibility, while its production
-    # authority is the versioned Liangjian free-source rotation snapshot.  If
-    # that snapshot is present but unavailable, the trend channel must fail
-    # closed: legacy 881/885 taxonomy metrics and a provider's opaque board
-    # rank are not interchangeable substitutes for the transparent ranking.
-    # The fallback remains available only to older direct callers that omit
-    # the field altogether.
-    fallback_rotation_directions = (
+    # The deterministic full-market rotation contract is authoritative when
+    # its local mapping, theme metrics, and positive-flow sector health facts
+    # are present.  SELECTED_BOARD_SNAPSHOT is intentionally only a curated
+    # compatibility/cross-check source; its presence must never suppress a
+    # valid full-market ranking.  We retain the old fallback for snapshots
+    # produced before the full-market contract existed.
+    full_market_rotation_available = _a2_full_market_rotation_available(
+        snapshot,
+        a1_output=a1_output,
+    )
+    full_market_rotation_directions = (
+        _a2_ranked_fallback_directions(
+            snapshot,
+            a1_output=a1_output,
+            limit=None,
+        )
+        if full_market_rotation_available
+        else {}
+    )
+    compatibility_fallback_directions = (
         _a2_ranked_fallback_directions(
             snapshot,
             a1_output=a1_output,
@@ -1062,6 +1073,11 @@ def screen_a2(
         )
         if "SELECTED_BOARD_SNAPSHOT" not in snapshot
         else {}
+    )
+    preferred_rotation_directions = (
+        full_market_rotation_directions
+        if full_market_rotation_available
+        else compatibility_fallback_directions
     )
     taxonomy_theme_map = _a2_taxonomy_theme_map(a1_output)
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -1100,7 +1116,7 @@ def screen_a2(
             item,
             symbol,
             factor,
-            preferred_taxonomies=set(fallback_rotation_directions),
+            preferred_taxonomies=set(preferred_rotation_directions),
         )
         rotation_direction_id = _a2_rotation_direction_id(
             item,
@@ -1116,6 +1132,7 @@ def screen_a2(
                 # broad A1 narrative theme or an aggregate of constituent
                 # stock scores.
                 rotation_direction_id = f"{bound_taxonomy}:{bound_code}"
+        a1_rotation_direction_id = rotation_direction_id
         explicit_relative = _relative_strength_score(factor, default=None)
         relative = explicit_relative if explicit_relative is not None else _percentile_score(
             bar_returns.get(symbol), return_distribution
@@ -1202,13 +1219,48 @@ def screen_a2(
             _a2_rotation_fallback_evidence(
                 snapshot,
                 taxonomy_binding=taxonomy_binding,
-                ranked_directions=fallback_rotation_directions,
+                ranked_directions=compatibility_fallback_directions,
             )
             if selected_boards.get("available") is not True
             else None
         )
-        if selected_board_match is not None:
+        full_market_rotation_match = None
+        if full_market_rotation_available:
+            # A symbol can belong to several A1-linked concrete taxonomies.
+            # Choose the best *ranked* full-market direction, not merely the
+            # strongest taxonomy metric used by the factor binding.  This
+            # prevents a non-top direction from hiding a top-five related
+            # sector for the same stock.
+            matched_taxonomies = {
+                str(value).strip().upper()
+                for value in (taxonomy_binding.get("matched_taxonomies") or ())
+                if str(value).strip()
+            }
+            full_market_candidates = [
+                (key, value)
+                for key, value in full_market_rotation_directions.items()
+                if key.upper() in matched_taxonomies
+            ]
+            if full_market_candidates:
+                matched_key, full_market_rotation_match = min(
+                    full_market_candidates,
+                    key=lambda pair: (
+                        int(_number(pair[1].get("primary_rank")) or 10**9),
+                        str(pair[0]),
+                    ),
+                )
+                rotation_direction_id = str(
+                    full_market_rotation_match.get("rotation_direction_id")
+                    or matched_key
+                )
+        if not full_market_rotation_available and selected_board_match is not None:
             rotation_direction_id = f"SELECTED_BOARD:{selected_board_match.get('board_code')}"
+        if full_market_rotation_available and full_market_rotation_match is None:
+            # Keep the A1-bound identifier for audit, but do not mistake a
+            # selected-board hit for a full-market direction.  The curated
+            # snapshot is supplemental once the authoritative contract is
+            # available.
+            rotation_direction_id = a1_rotation_direction_id
         route_results = _a2_route_results(
             item=item,
             identifiability=identifiability,
@@ -1330,8 +1382,9 @@ def screen_a2(
             formal_a1_member
             and behavior_type == "TREND"
             and (
-                selected_board_match is not None
-                or rotation_fallback is not None
+                full_market_rotation_match is not None
+                if full_market_rotation_available
+                else selected_board_match is not None or rotation_fallback is not None
             )
         )
         pool_channel = (
@@ -1348,11 +1401,13 @@ def screen_a2(
                 reasons.append("A2_EMOTION_NOT_IN_EASTMONEY_HOT100")
             elif behavior_type == "EMOTION" and not emotion_cycle_allowed:
                 reasons.append("A2_EMOTION_CYCLE_NO_NEW_ENTRY")
+            elif behavior_type == "TREND" and full_market_rotation_available:
+                reasons.append("A2_NO_POSITIVE_FLOW_ROTATION_DIRECTION")
             elif behavior_type == "TREND" and selected_boards.get("available") is not True:
                 reasons.append("A2_SELECTED_BOARD_SOURCE_UNAVAILABLE")
             elif behavior_type == "TREND":
                 # Keep the historical reason-code spelling for downstream
-                # compatibility; its selected-board scope now covers TOP5.
+                # compatibility when using the curated selected-board path.
                 reasons.append("A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD")
             else:
                 reasons.append("A2_BEHAVIOR_UNRESOLVED")
@@ -1398,6 +1453,11 @@ def screen_a2(
             "eastmoney_hot100": dict(hot100_row) if hot100_row is not None else None,
             "selected_board": dict(selected_board_match) if selected_board_match is not None else None,
             "rotation_fallback": dict(rotation_fallback) if rotation_fallback is not None else None,
+            "full_market_rotation": (
+                dict(full_market_rotation_match)
+                if isinstance(full_market_rotation_match, Mapping)
+                else None
+            ),
             "route_permission": list(behavior_decision.get("route_permission") or ()),
             "behavior_type_decision": behavior_decision,
             "market_emotion_cycle": {
@@ -1448,10 +1508,18 @@ def screen_a2(
         # Stock behaviour is applied only after the strongest directions are
         # known; otherwise an entire strong board can disappear merely
         # because its constituents were classified UNRESOLVED at stock level.
-        if formal_a1_member and (selected_board_match is not None or rotation_fallback is not None or (
-            not dual_channel_contract
-            and _number(taxonomy_binding.get("rotation_strength_score")) is not None
-        )):
+        if formal_a1_member and (
+            full_market_rotation_match is not None
+            or (
+                not full_market_rotation_available
+                and (selected_board_match is not None or rotation_fallback is not None)
+            )
+            or (
+                not full_market_rotation_available
+                and not dual_channel_contract
+                and _number(taxonomy_binding.get("rotation_strength_score")) is not None
+            )
+        ):
             market_grouped[rotation_direction_id].append(decision)
         if status == "REVIEW_CANDIDATE" and (trend_core_eligible or not dual_channel_contract):
             grouped[rotation_direction_id].append(decision)
@@ -1460,6 +1528,12 @@ def screen_a2(
     ranking_groups = market_grouped if market_grouped else grouped
     for theme_id, values in ranking_groups.items():
         values.sort(key=lambda item: (-float(item["score"]), -float(item["identifiability_score"]), str(item["symbol"])))
+        full_market_strengths = [
+            float(score)
+            for item in values
+            if isinstance(item.get("full_market_rotation"), Mapping)
+            and (score := _number(item["full_market_rotation"].get("strength"))) is not None
+        ]
         selected_strengths = [
             float(score)
             for item in values
@@ -1475,7 +1549,10 @@ def screen_a2(
                 else None
             )) is not None
         ]
-        if selected_strengths:
+        if full_market_rotation_available and full_market_strengths:
+            theme_strength[theme_id] = round(max(full_market_strengths), 4)
+            theme_strength_source[theme_id] = "A2_THEME_METRICS"
+        elif selected_strengths:
             theme_strength[theme_id] = round(max(selected_strengths), 4)
             theme_strength_source[theme_id] = (
                 "LIANGJIAN_FREE_ROTATION_STRENGTH"
@@ -1498,23 +1575,29 @@ def screen_a2(
             theme_strength_source[theme_id] = "LEGACY_CONSTITUENT_SCORE_FALLBACK"
     ranked_themes = sorted(
         theme_strength,
-        key=lambda theme_id: (-theme_strength[theme_id], -len(grouped[theme_id]), theme_id),
+        key=lambda theme_id: (-theme_strength[theme_id], -len(ranking_groups[theme_id]), theme_id),
     )
-    if selected_boards.get("available") is True:
+    if full_market_rotation_available:
+        # The local full-market facts are the authoritative source.  Keep all
+        # ranks for audit, while only the deterministic top-N directions open
+        # the trend channel.
+        top_theme_ids = set(ranked_themes[:rotation_theme_count])
+        theme_rotation_rank = {
+            theme_id: rank for rank, theme_id in enumerate(ranked_themes, start=1)
+        }
+    elif selected_boards.get("available") is True:
         # ``selected_for_rotation`` was already calculated from the strongest
         # five positive-flow primary boards. Child boards inherit the parent
         # rank and therefore do not consume another primary slot.
         top_theme_ids = set(ranked_themes)
-        theme_rotation_rank = {
-            theme_id: int(
-                min(
-                    _number(item.get("selected_board", {}).get("primary_rank")) or 999
-                    for item in ranking_groups[theme_id]
-                    if isinstance(item.get("selected_board"), Mapping)
-                )
-            )
-            for theme_id in ranked_themes
-        }
+        theme_rotation_rank = {}
+        for rank, theme_id in enumerate(ranked_themes, start=1):
+            primary_ranks = [
+                int(_number(item.get("selected_board", {}).get("primary_rank")) or 999)
+                for item in ranking_groups[theme_id]
+                if isinstance(item.get("selected_board"), Mapping)
+            ]
+            theme_rotation_rank[theme_id] = min(primary_ranks) if primary_ranks else rank
     else:
         top_theme_ids = set(ranked_themes[:rotation_theme_count])
         theme_rotation_rank = {theme_id: rank for rank, theme_id in enumerate(ranked_themes, start=1)}
@@ -1620,26 +1703,137 @@ def _a2_rotation_fallback_evidence(
     return dict(evidence) if isinstance(evidence, Mapping) else None
 
 
+def _a2_full_market_rotation_available(
+    snapshot: Mapping[str, Any],
+    *,
+    a1_output: Mapping[str, Any],
+) -> bool:
+    """Return whether the authoritative full-market rotation facts are usable.
+
+    A2 must distinguish two different states: a source that is unavailable and
+    an available source which simply has no positive-flow direction today.  A
+    curated selected-board snapshot is permitted only in the first state.  We
+    therefore require the materialized theme metrics, sector-health rows, and
+    the local taxonomy membership contracts needed by A1's lineage.  The
+    actual positive-flow/lineage join is deliberately evaluated separately by
+    :func:`_a2_ranked_fallback_directions`; an empty result is a valid
+    ``NO_QUALIFYING_DIRECTION`` state, not a provider failure.
+    """
+
+    raw_metrics = snapshot.get("A2_THEME_METRICS")
+    metrics = raw_metrics.get("theme_metrics") if isinstance(raw_metrics, Mapping) else None
+    if not isinstance(metrics, Mapping) or not metrics:
+        return False
+    if isinstance(raw_metrics, Mapping) and raw_metrics.get("available") is False:
+        return False
+
+    raw_health = snapshot.get("A2_SECTOR_HEALTH_SNAPSHOT")
+    health = raw_health if isinstance(raw_health, Mapping) else {}
+    if health.get("available") is False:
+        return False
+    by_taxonomy = health.get("by_taxonomy")
+    if not isinstance(by_taxonomy, Mapping):
+        return False
+    # An explicitly available health contract with empty sector arrays still
+    # represents a valid observation of no qualifying direction.  We only
+    # treat malformed/missing sections as source unavailability.
+    health_taxonomies = {
+        str(taxonomy).strip().upper()
+        for taxonomy, section in by_taxonomy.items()
+        if isinstance(section, Mapping)
+        and isinstance(section.get("sectors"), Sequence)
+        and not isinstance(section.get("sectors"), (str, bytes, bytearray))
+    }
+    if not health_taxonomies:
+        return False
+
+    # Check only taxonomies represented by A1's explicit lineage.  This keeps
+    # a complete industry contract usable when an old replay fixture has no
+    # concept catalog, while still failing closed for a missing contract that
+    # is required to resolve the current A1 direction.
+    linked_taxonomies: set[str] = set()
+    for link in _mapping_list(a1_output.get("taxonomy_links")):
+        direct_taxonomy = str(link.get("taxonomy") or "").strip().upper()
+        direct_code = str(link.get("taxonomy_code") or "").strip()
+        if direct_taxonomy in {"INDUSTRY", "CONCEPT"} and direct_code:
+            linked_taxonomies.add(direct_taxonomy)
+        for taxonomy, fields in (
+            ("INDUSTRY", ("industry_thscodes", "industry_codes")),
+            ("CONCEPT", ("concept_thscodes", "concept_codes")),
+        ):
+            if any(
+                isinstance(link.get(field), Sequence)
+                and not isinstance(link.get(field), (str, bytes, bytearray))
+                and any(str(value).strip() for value in link.get(field, ()))
+                for field in fields
+            ):
+                linked_taxonomies.add(taxonomy)
+    metric_taxonomies = {
+        str(key).split(":", 1)[0].strip().upper()
+        for key in metrics
+        if ":" in str(key)
+        and str(key).split(":", 1)[0].strip().upper() in {"INDUSTRY", "CONCEPT"}
+    }
+    required_taxonomies = linked_taxonomies.intersection(metric_taxonomies) or metric_taxonomies
+    if not required_taxonomies:
+        return False
+    for taxonomy in required_taxonomies:
+        if taxonomy not in health_taxonomies:
+            return False
+        contract_key = "THS_{}_MEMBERSHIP".format(taxonomy)
+        membership = snapshot.get(contract_key)
+        if (
+            not isinstance(membership, Mapping)
+            or membership.get("available") is False
+            or membership.get("complete") is False
+        ):
+            return False
+        if not _fact_records(membership):
+            return False
+    return True
+
+
 def _a2_ranked_fallback_directions(
     snapshot: Mapping[str, Any],
     *,
     a1_output: Mapping[str, Any],
-    limit: int,
+    limit: int | None,
 ) -> dict[str, dict[str, Any]]:
-    """Rank positive-flow A1 directions before classifying individual stocks."""
+    """Rank positive-flow A1 directions before classifying individual stocks.
+
+    ``limit=None`` returns the complete ranked set of independent A1 monthly
+    directions, represented by each direction's strongest concrete board.
+    The screen uses that form so every independent direction receives an
+    auditable rank even when only the top five are admitted to the trend
+    channel.  The historical integer form remains available for replay
+    compatibility.
+    """
 
     links_by_node: dict[str, list[tuple[str, str]]] = defaultdict(list)
     theme_by_node: dict[str, str] = {}
     for link in _mapping_list(a1_output.get("taxonomy_links")):
-        taxonomy = str(link.get("taxonomy") or "").strip().upper()
-        code = str(link.get("taxonomy_code") or "").strip().upper()
-        if taxonomy not in {"INDUSTRY", "CONCEPT"} or not code:
-            continue
         node_id = str(link.get("node_id") or "").strip()
         if not node_id:
             continue
-        links_by_node[node_id].append((taxonomy, code))
         theme_by_node[node_id] = str(link.get("theme_id") or node_id).strip().upper()
+        direct_taxonomy = str(link.get("taxonomy") or "").strip().upper()
+        direct_code = str(link.get("taxonomy_code") or "").strip().upper()
+        if direct_taxonomy in {"INDUSTRY", "CONCEPT"} and direct_code:
+            links_by_node[node_id].append((direct_taxonomy, direct_code))
+        for taxonomy, fields in (
+            ("INDUSTRY", ("industry_thscodes", "industry_codes")),
+            ("CONCEPT", ("concept_thscodes", "concept_codes")),
+        ):
+            for field in fields:
+                values = link.get(field)
+                if not isinstance(values, Sequence) or isinstance(values, (str, bytes, bytearray)):
+                    continue
+                links_by_node[node_id].extend(
+                    (taxonomy, str(value).strip().upper())
+                    for value in values
+                    if str(value).strip()
+                )
+        links_by_node[node_id] = list(dict.fromkeys(links_by_node[node_id]))
     industry_members = _membership_map(snapshot.get("THS_INDUSTRY_MEMBERSHIP"), taxonomy="INDUSTRY")
     concept_members = _membership_map(snapshot.get("THS_CONCEPT_MEMBERSHIP"), taxonomy="CONCEPT")
     themes_by_key: dict[str, set[str]] = defaultdict(set)
@@ -1695,25 +1889,56 @@ def _a2_ranked_fallback_directions(
         -float(row["main_net_inflow_cny"]),
         str(row["taxonomy_code"]),
     ))
-    selected: list[dict[str, Any]] = []
+    representatives: list[dict[str, Any]] = []
     used_theme_ids: set[str] = set()
     for row in candidates:
+        # Several concrete THS boards can describe the same A1 monthly
+        # direction.  Counting every synonym would let one structural theme
+        # consume all five rotation slots, so retain only its strongest
+        # positive-flow concrete representative.
         row_theme_ids = set(row["theme_ids"])
         if row_theme_ids.intersection(used_theme_ids):
             continue
-        selected.append(row)
+        representatives.append(row)
         used_theme_ids.update(row_theme_ids)
-        if len(selected) >= max(1, int(limit)):
+        if limit is not None and len(representatives) >= max(1, int(limit)):
             break
-    return {
-        f"{row['taxonomy']}:{row['taxonomy_code']}": {
-            **row,
+    # Every concrete child board that belongs to a selected A1 direction must
+    # remain usable for stock membership matching.  It inherits the rank and
+    # strength of the strongest representative, so the child does not consume
+    # another top-N slot and all related constituents still reach the same
+    # downstream LLM review bucket.
+    expanded: dict[str, dict[str, Any]] = {}
+    ranked_representatives = list(enumerate(representatives, start=1))
+    for row in candidates:
+        row_theme_ids = set(row["theme_ids"])
+        matched = next(
+            (
+                (rank, representative)
+                for rank, representative in ranked_representatives
+                if row_theme_ids.intersection(representative["theme_ids"])
+            ),
+            None,
+        )
+        if matched is None:
+            continue
+        rank, representative = matched
+        representative_id = (
+            f"{representative['taxonomy']}:{representative['taxonomy_code']}"
+        )
+        expanded[f"{row['taxonomy']}:{row['taxonomy_code']}"] = {
+            **representative,
             "primary_rank": rank,
+            "rotation_direction_id": representative_id,
+            "matched_taxonomy": row["taxonomy"],
+            "matched_taxonomy_code": row["taxonomy_code"],
+            "matched_taxonomy_name": row.get("taxonomy_name"),
+            "matched_board_strength": row["strength"],
+            "matched_board_main_net_inflow_cny": row["main_net_inflow_cny"],
             "source_scope": "SECTOR",
             "reason_code": "A2_SELECTED_BOARD_FALLBACK_SECTOR_EVIDENCE",
         }
-        for rank, row in enumerate(selected, start=1)
-    }
+    return expanded
 
 
 def _a2_positive_sector_flow(

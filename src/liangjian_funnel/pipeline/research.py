@@ -357,7 +357,7 @@ _PERMISSION_KEYS = {
     "order_permission",
 }
 _ALLOWED_DISABLED = {False, None, "", "DISABLED", "DISABLE", "OFF", "SHADOW", "SIMULATION"}
-_PROMPT_PROJECTION_VERSION = "research-prompt-projection/2.0.0"
+_PROMPT_PROJECTION_VERSION = "research-prompt-projection/2.1.0"
 _DEFAULT_MODEL_MAX_INPUT_TOKENS = 1_000_000
 _A3_BATCH_SIZE = 16
 _STAGE_OUTPUT_BUDGETS: Mapping[str, Mapping[str, int]] = {
@@ -5303,6 +5303,10 @@ def _project_prompt_value(
         return _project_news(value, item_limit=8)
     if name == "NEWS_HEAT_SNAPSHOT":
         return _project_news(value, item_limit=40, symbols=symbols)
+    if name == "SELECTED_BOARD_SNAPSHOT":
+        return _project_selected_board(value, symbols)
+    if name == "A2_THEME_METRICS":
+        return _project_a2_theme_metrics(value, symbols, snapshot_data or {})
     if name == "CAPITAL_FLOW_SNAPSHOT":
         return _project_capital_flow(value, symbols)
     if name == "BROKER_GOLD_COVERAGE_POOL":
@@ -5387,6 +5391,136 @@ def _project_crowding(value: Any, symbols: set[str] | None) -> Any:
             projected["full_record_count"] = len(records)
             projected["prompt_record_count"] = len(projected["records"])
         result[key] = projected
+    return result
+
+
+def _project_selected_board(value: Any, symbols: set[str] | None) -> Any:
+    """Keep the TOP-N board benchmark and only batch-scoped constituents.
+
+    The immutable selected-board snapshot contains a complete constituent
+    graph and a full ``by_symbol`` reverse index.  Both are useful to the
+    deterministic gate, but serialising them into every A2 model request
+    duplicates more than a megabyte of evidence.  The model only needs the
+    selected rotation boards plus boards that contain the current review
+    symbols.  Full counts and the content hash preserve the audit boundary.
+    """
+
+    if not isinstance(value, Mapping) or symbols is None:
+        return value
+    wanted = {str(symbol).strip().upper() for symbol in symbols if str(symbol).strip()}
+    result = {
+        key: item
+        for key, item in value.items()
+        if key not in {"boards", "by_symbol"}
+    }
+    raw_boards = value.get("boards")
+    boards = [item for item in raw_boards if isinstance(item, Mapping)] if isinstance(raw_boards, list) else []
+    selected: list[dict[str, Any]] = []
+    for raw in boards:
+        raw_constituents = raw.get("constituents")
+        constituents = (
+            [str(item).strip().upper() for item in raw_constituents if str(item).strip()]
+            if isinstance(raw_constituents, Sequence)
+            and not isinstance(raw_constituents, (str, bytes, bytearray))
+            else []
+        )
+        linked = bool(wanted.intersection(constituents))
+        if raw.get("selected_for_rotation") is not True and not linked:
+            continue
+        row = dict(raw)
+        row["constituents"] = sorted(wanted.intersection(constituents))
+        row["full_constituent_count"] = len(constituents)
+        row["prompt_constituent_count"] = len(row["constituents"])
+        selected.append(row)
+    raw_by_symbol = value.get("by_symbol")
+    result["boards"] = selected
+    result["by_symbol"] = (
+        {
+            str(symbol): item
+            for symbol, item in raw_by_symbol.items()
+            if str(symbol).strip().upper() in wanted
+        }
+        if isinstance(raw_by_symbol, Mapping)
+        else {}
+    )
+    result["prompt_projection"] = {
+        "symbol_count": len(wanted),
+        "prompt_board_count": len(selected),
+        "full_board_count": len(boards),
+        "prompt_by_symbol_count": len(result["by_symbol"]),
+        "full_by_symbol_count": len(raw_by_symbol) if isinstance(raw_by_symbol, Mapping) else 0,
+        "full_snapshot_retained_for_audit": True,
+    }
+    return result
+
+
+def _project_a2_theme_metrics(
+    value: Any,
+    symbols: set[str] | None,
+    snapshot_data: Mapping[str, Any],
+    *,
+    global_theme_limit: int = 40,
+) -> Any:
+    """Project full-market A2 theme metrics to batch themes plus a benchmark."""
+
+    if not isinstance(value, Mapping) or symbols is None:
+        return value
+    raw_metrics = value.get("theme_metrics")
+    if not isinstance(raw_metrics, Mapping):
+        return dict(value)
+    relevant_codes: set[str] = set()
+    for taxonomy in ("industry", "concept"):
+        relevant_codes.update(
+            f"{taxonomy.upper()}:{code}"
+            for code in _membership_codes_for_symbols(snapshot_data, taxonomy, symbols)
+        )
+    selected_board = snapshot_data.get("SELECTED_BOARD_SNAPSHOT")
+    selected_by_symbol = selected_board.get("by_symbol") if isinstance(selected_board, Mapping) else None
+    if isinstance(selected_by_symbol, Mapping):
+        for symbol in symbols:
+            rows = selected_by_symbol.get(symbol)
+            if not isinstance(rows, Sequence) or isinstance(rows, (str, bytes, bytearray)):
+                continue
+            for row in rows:
+                if not isinstance(row, Mapping):
+                    continue
+                for key in ("theme_id", "board_code", "taxonomy_code"):
+                    code = str(row.get(key) or "").strip().upper()
+                    if code:
+                        relevant_codes.add(code)
+
+    def rank(item: tuple[Any, Any]) -> tuple[float, float, float, str]:
+        key, raw = item
+        row = raw if isinstance(raw, Mapping) else {}
+        return (
+            _safe_float(row.get("score")),
+            _safe_float(row.get("weekly_confirmation_score")),
+            _safe_float(row.get("breadth")),
+            str(key),
+        )
+
+    globally_ranked = sorted(raw_metrics.items(), key=rank, reverse=True)
+    global_keys = {
+        str(key)
+        for key, _item in globally_ranked[: max(0, int(global_theme_limit))]
+    }
+    selected_keys = relevant_codes.union(global_keys)
+    result = dict(value)
+    result["theme_metrics"] = {
+        str(key): item
+        for key, item in raw_metrics.items()
+        if str(key) in selected_keys
+    }
+    result["prompt_projection"] = {
+        "symbol_count": len(symbols),
+        "prompt_theme_count": len(result["theme_metrics"]),
+        "full_theme_count": len(raw_metrics),
+        "batch_linked_theme_count": sum(
+            1 for key in result["theme_metrics"] if key in relevant_codes
+        ),
+        "global_benchmark_limit": max(0, int(global_theme_limit)),
+        "full_snapshot_retained_for_audit": True,
+    }
     return result
 
 
@@ -9828,14 +9962,57 @@ def _filter_symbol_mapping(value: Any, symbols: set[str] | None) -> Any:
 def _project_upstream_output(value: Mapping[str, Any], symbols: set[str] | None) -> dict[str, Any]:
     if symbols is None:
         return dict(value)
-    result = dict(value)
+    # Stage outputs retain broad macro, taxonomy and monthly-registry evidence
+    # for audit.  Downstream prompts already receive the authoritative frozen
+    # snapshots for those domains, so copying the complete upstream document
+    # again is redundant and can push a tiny A2 batch to the provider's input
+    # limit.  Keep only compact status metadata, the stage's theme summary and
+    # the symbol-scoped candidate partitions.  The full upstream digest stays
+    # bound to ``input_hash`` in ``_prepare_stage_request``.
+    metadata_keys = {
+        "envelope",
+        "analysis_summary",
+        "source_health",
+        "macro_regime",
+        "local_screen_summary",
+        "candidate_metadata_coverage",
+        "daily_emotion_overlay",
+    }
+    result = {
+        key: item
+        for key, item in value.items()
+        if key in metadata_keys
+    }
     for key in _CANDIDATE_KEYS:
-        pool = result.get(key)
+        pool = value.get(key)
         if isinstance(pool, list):
             result[key] = [
                 item for item in pool
                 if isinstance(item, Mapping) and bool(_scan_symbols(item).intersection(symbols))
             ]
+    raw_themes = value.get("active_themes")
+    if isinstance(raw_themes, list):
+        candidate_theme_ids: set[str] = set()
+        for key in _CANDIDATE_KEYS:
+            for item in result.get(key, ()):
+                if not isinstance(item, Mapping):
+                    continue
+                for field in ("theme_id", "primary_theme", "monthly_direction_id"):
+                    theme_id = str(item.get(field) or "").strip()
+                    if theme_id:
+                        candidate_theme_ids.add(theme_id)
+        result["active_themes"] = [
+            item
+            for item in raw_themes
+            if isinstance(item, Mapping)
+            and str(item.get("theme_id") or item.get("primary_theme") or "").strip()
+            in candidate_theme_ids
+        ]
+    result["prompt_projection"] = {
+        "symbol_count": len(symbols),
+        "full_output_hash": _sha256_json(value),
+        "full_snapshot_retained_for_audit": True,
+    }
     return result
 
 

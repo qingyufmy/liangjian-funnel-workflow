@@ -982,6 +982,20 @@ def _complete_a2_factor_scores(score: float) -> dict[str, dict[str, float]]:
     }
 
 
+def _trend_a2_factor_scores(score: float) -> dict[str, dict[str, float]]:
+    factors = _complete_a2_factor_scores(score)
+    factors["tier_structure"] = {
+        "score": 20,
+        "available": True,
+        "availability_state": "OBSERVED_ABSENT",
+        "ladder_height": 0,
+        "first_board_observed": False,
+        "event_source": "HITHINK_LIMIT_UP_LADDER",
+    }
+    factors["weekly_confirmation"] = {"score": score, "available": True}
+    return factors
+
+
 def test_a2_dual_core_pool_keeps_hot100_emotion_and_selected_board_trend_together() -> None:
     snapshot = _snapshot(3)
     emotion_symbol, trend_symbol, outside_symbol = snapshot["g0_symbols"]
@@ -1094,7 +1108,7 @@ def test_a2_dual_core_pool_keeps_hot100_emotion_and_selected_board_trend_togethe
     assert "A2_SELECTED_BOARD_SOURCE_UNAVAILABLE" in missing_by_symbol[trend_symbol]["reason_codes"]
 
 
-def test_a2_missing_selected_board_fails_closed_for_trend_channel() -> None:
+def test_a2_missing_selected_board_uses_available_full_market_rotation() -> None:
     snapshot = _snapshot(1)
     symbol = snapshot["g0_symbols"][0]
     snapshot["THS_INDUSTRY_MEMBERSHIP"]["records"][0]["memberships"] = [{
@@ -1175,14 +1189,15 @@ def test_a2_missing_selected_board_fails_closed_for_trend_channel() -> None:
     )
     item = result.decisions[0]
 
-    assert item["status"] == "LOCAL_MONITOR", (
+    assert item["status"] == "REVIEW_CANDIDATE", (
         item.get("rotation_fallback"), item.get("a2_taxonomy_binding")
     )
-    assert item["a2_pool_channel"] == "NONE"
-    assert item["trend_core_eligible"] is False
+    assert item["a2_pool_channel"] == "TREND"
+    assert item["trend_core_eligible"] is True
     assert item["rotation_fallback"] is None
-    assert item.get("top_rotation_theme") is not True
-    assert "A2_SELECTED_BOARD_SOURCE_UNAVAILABLE" in item["reason_codes"]
+    assert item["full_market_rotation"]["taxonomy_code"] == "884001.TI"
+    assert item["top_rotation_theme"] is True
+    assert item["rotation_strength_source"] == "A2_THEME_METRICS"
 
 
 def test_screen_a2_partitions_no_route_low_identity_and_llm_rank_overflow() -> None:
@@ -1667,6 +1682,262 @@ def test_screen_a2_ranks_concrete_sector_indices_from_frozen_market_strength() -
         f"INDUSTRY:{codes[2]}",
         f"INDUSTRY:{codes[3]}",
     }
+
+
+def test_screen_a2_prefers_full_market_rotation_and_groups_same_a1_theme_children() -> None:
+    snapshot = _snapshot(3)
+    symbols = snapshot["g0_symbols"]
+    codes = [f"FULL{index:03d}.TI" for index in range(3)]
+    snapshot["THS_INDUSTRY_MEMBERSHIP"]["records"] = [
+        {
+            "thscode": symbol,
+            "mapping_status": "MAPPED",
+            "memberships": [{"industry_thscode": code, "industry_name": f"全市场板块{index}"}],
+        }
+        for index, (symbol, code) in enumerate(zip(symbols, codes))
+    ]
+    snapshot["A2_THEME_METRICS"] = {
+        "available": True,
+        "theme_metrics": {
+            f"INDUSTRY:{code}": {
+                "available": True,
+                "taxonomy": "INDUSTRY",
+                "taxonomy_code": code,
+                "taxonomy_name": f"全市场板块{index}",
+                "score": strength,
+                "breadth": 0.75,
+                "turnover_share": 0.10,
+                "weekly_confirmation_score": 80,
+            }
+            for index, (code, strength) in enumerate(zip(codes, (95, 85, 75)))
+        },
+    }
+    snapshot["A2_SECTOR_HEALTH_SNAPSHOT"] = {
+        "available": True,
+        "by_taxonomy": {
+            "industry": {
+                "sectors": [
+                    {
+                        "taxonomy_code": code,
+                        "taxonomy_name": f"全市场板块{index}",
+                        "capital_flow": {
+                            "available": True,
+                            "source": "EASTMONEY_BOARD_CAPITAL_FLOW",
+                            "windows": {"today": {"main_net_cny": flow}},
+                        },
+                    }
+                    for index, (code, flow) in enumerate(zip(codes, (3_000_000, 2_000_000, 1_000_000)))
+                ],
+            },
+        },
+    }
+    # The curated source deliberately claims the weakest full-market direction
+    # is its primary board.  It must remain visible as cross-check evidence but
+    # cannot replace the local metrics/flow top five.
+    snapshot["SELECTED_BOARD_SNAPSHOT"] = {
+        "available": True,
+        "by_symbol": {
+            symbols[2]: [{
+                "board_code": "CURATED-WEAK",
+                "board_name": "精选弱势板块",
+                "strength": 9999,
+                "main_net_inflow_cny": 9_999_999,
+                "selected_for_rotation": True,
+                "primary_rank": 1,
+            }],
+        },
+    }
+    snapshot["A2_SCORE_WEIGHTS"] = {name: 1.0 for name in _complete_a2_factor_scores(90)}
+    snapshot["CAPITAL_FLOW_SNAPSHOT"] = {
+        "available": True,
+        "by_symbol": {symbol: {"available": True, "capital_flow_score": 90} for symbol in symbols},
+    }
+    rows = [
+        {
+            "symbol": symbol,
+            "candidate_id": f"a1:{symbol}",
+            "primary_theme": "theme-0" if index < 2 else f"theme-{index}",
+            "industry_chain_node": f"node-{index}",
+            "business_exposure": {"revenue_exposure_pct": 65, "source_ref": f"cninfo:{symbol}"},
+            "a2_factor_scores": _trend_a2_factor_scores(90),
+            "data_quality_score": 90,
+            "business_exposure_facts": [{
+                "revenue_exposure_pct": 65,
+                "source_ref": f"cninfo:{symbol}",
+            }],
+        }
+        for index, symbol in enumerate(symbols)
+    ]
+    taxonomy_links = [
+        {
+            "node_id": f"node-{index}",
+            "theme_id": "theme-0" if index < 2 else f"theme-{index}",
+            "taxonomy": "INDUSTRY",
+            "taxonomy_code": code,
+            "confidence": 1.0,
+        }
+        for index, code in enumerate(codes)
+    ]
+
+    result = screen_a2(
+        snapshot,
+        {"active_research_pool": rows, "taxonomy_links": taxonomy_links},
+        minimum_identifiability_score=0,
+        review_all_eligible=True,
+        rotation_theme_count=1,
+    )
+    by_symbol = {item["symbol"]: item for item in result.decisions}
+
+    assert by_symbol[symbols[0]]["rotation_direction_id"] == f"INDUSTRY:{codes[0]}"
+    assert by_symbol[symbols[0]]["top_rotation_theme"] is True
+    assert by_symbol[symbols[0]]["theme_rotation_rank"] == 1
+    assert by_symbol[symbols[0]]["rotation_strength_source"] == "A2_THEME_METRICS"
+    assert by_symbol[symbols[1]]["rotation_direction_id"] == f"INDUSTRY:{codes[0]}"
+    assert by_symbol[symbols[1]]["top_rotation_theme"] is True
+    assert by_symbol[symbols[1]]["theme_rotation_rank"] == 1
+    assert by_symbol[symbols[1]]["status"] == "REVIEW_CANDIDATE"
+    assert by_symbol[symbols[2]]["top_rotation_theme"] is False
+    assert by_symbol[symbols[2]]["theme_rotation_rank"] == 2
+    assert by_symbol[symbols[2]]["status"] == "LOCAL_MONITOR"
+    assert by_symbol[symbols[2]]["selected_board"]["board_code"] == "CURATED-WEAK"
+    assert set(result.review_symbols) == set(symbols[:2])
+
+
+def test_screen_a2_uses_curated_board_only_when_full_market_rotation_facts_are_unavailable() -> None:
+    snapshot = _snapshot(2)
+    symbols = snapshot["g0_symbols"]
+    snapshot["SELECTED_BOARD_SNAPSHOT"] = {
+        "available": True,
+        "by_symbol": {
+            symbols[1]: [{
+                "board_code": "CURATED-ONLY",
+                "board_name": "精选兼容板块",
+                "strength": 100,
+                "main_net_inflow_cny": 1_000_000,
+                "selected_for_rotation": True,
+                "primary_rank": 1,
+            }],
+        },
+    }
+    snapshot["A2_SCORE_WEIGHTS"] = {name: 1.0 for name in _complete_a2_factor_scores(90)}
+    snapshot["CAPITAL_FLOW_SNAPSHOT"] = {
+        "available": True,
+        "by_symbol": {symbol: {"available": True, "capital_flow_score": 90} for symbol in symbols},
+    }
+    rows = [
+        {
+            "symbol": symbol,
+            "candidate_id": f"a1:{symbol}",
+            "primary_theme": "theme-monthly",
+            "industry_chain_node": "node-monthly",
+            "business_exposure": {"revenue_exposure_pct": 65, "source_ref": f"cninfo:{symbol}"},
+            "a2_factor_scores": _trend_a2_factor_scores(90),
+            "data_quality_score": 90,
+            "business_exposure_facts": [{
+                "revenue_exposure_pct": 65,
+                "source_ref": f"cninfo:{symbol}",
+            }],
+        }
+        for symbol in symbols
+    ]
+    result = screen_a2(
+        snapshot,
+        {"active_research_pool": rows},
+        minimum_identifiability_score=0,
+        review_all_eligible=True,
+    )
+    by_symbol = {item["symbol"]: item for item in result.decisions}
+
+    assert by_symbol[symbols[1]]["rotation_direction_id"] == "SELECTED_BOARD:CURATED-ONLY"
+    assert by_symbol[symbols[1]]["status"] == "REVIEW_CANDIDATE"
+    assert by_symbol[symbols[1]]["trend_core_eligible"] is True
+    assert symbols[1] in result.review_symbols
+
+
+def test_screen_a2_does_not_treat_no_positive_flow_as_full_market_source_failure() -> None:
+    snapshot = _snapshot(1)
+    symbol = snapshot["g0_symbols"][0]
+    code = "NOFLOW.TI"
+    snapshot["THS_INDUSTRY_MEMBERSHIP"]["records"][0]["memberships"] = [{
+        "industry_thscode": code,
+        "industry_name": "无正流入板块",
+    }]
+    snapshot["A2_THEME_METRICS"] = {
+        "available": True,
+        "theme_metrics": {
+            f"INDUSTRY:{code}": {
+                "available": True,
+                "taxonomy": "INDUSTRY",
+                "taxonomy_code": code,
+                "taxonomy_name": "无正流入板块",
+                "score": 95,
+            },
+        },
+    }
+    snapshot["A2_SECTOR_HEALTH_SNAPSHOT"] = {
+        "available": True,
+        "by_taxonomy": {
+            "industry": {
+                "sectors": [{
+                    "taxonomy_code": code,
+                    "taxonomy_name": "无正流入板块",
+                    "capital_flow": {
+                        "available": True,
+                        "windows": {"today": {"main_net_cny": 0}},
+                    },
+                }],
+            },
+        },
+    }
+    # A curated positive row must not be allowed to override the complete
+    # full-market observation of no positive-flow direction.
+    snapshot["SELECTED_BOARD_SNAPSHOT"] = {
+        "available": True,
+        "by_symbol": {
+            symbol: [{
+                "board_code": "CURATED-STALE",
+                "strength": 999,
+                "main_net_inflow_cny": 2_000_000,
+                "selected_for_rotation": True,
+                "primary_rank": 1,
+            }],
+        },
+    }
+    row = {
+        "symbol": symbol,
+        "candidate_id": f"a1:{symbol}",
+        "primary_theme": "theme-monthly",
+        "industry_chain_node": "node-monthly",
+        "business_exposure": {"revenue_exposure_pct": 65, "source_ref": f"cninfo:{symbol}"},
+        "a2_factor_scores": _trend_a2_factor_scores(90),
+        "data_quality_score": 90,
+        "business_exposure_facts": [{
+            "revenue_exposure_pct": 65,
+            "source_ref": f"cninfo:{symbol}",
+        }],
+    }
+    result = screen_a2(
+        snapshot,
+        {
+            "active_research_pool": [row],
+            "taxonomy_links": [{
+                "node_id": "node-monthly",
+                "theme_id": "theme-monthly",
+                "taxonomy": "INDUSTRY",
+                "taxonomy_code": code,
+                "confidence": 1.0,
+            }],
+        },
+        minimum_identifiability_score=0,
+        review_all_eligible=True,
+    )
+    item = result.decisions[0]
+
+    assert item["status"] == "LOCAL_MONITOR"
+    assert item["trend_core_eligible"] is False
+    assert item["full_market_rotation"] is None
+    assert "A2_NO_POSITIVE_FLOW_ROTATION_DIRECTION" in item["reason_codes"]
+    assert result.review_symbols == ()
 
 
 def test_screen_a2_market_core_needs_only_two_hard_facts_when_optional_facts_missing() -> None:

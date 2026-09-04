@@ -60,8 +60,11 @@ from liangjian_funnel.pipeline.research import (
     _project_factor_snapshot,
     _project_macro_policy,
     _project_news,
+    _project_a2_theme_metrics,
+    _project_selected_board,
     _prompt_replacements,
     _project_sector_cycle,
+    _project_upstream_output,
     _scan_symbols,
     _semantic_retry_instruction,
     _semantic_total_timeout_seconds,
@@ -3091,6 +3094,88 @@ def test_a2_prompt_projection_filters_market_maps_and_preserves_batch_sector_evi
     assert all("returns" not in item["history"] for item in health["industry"]["sectors"])
     assert health["industry"]["full_sector_count"] == 3
     assert health["industry"]["batch_linked_sector_count"] == 1
+
+
+def test_a2_prompt_projection_bounds_selected_boards_theme_metrics_and_upstream_audit():
+    symbols = {"600519.SH"}
+    boards = _project_selected_board(
+        {
+            "available": True,
+            "content_hash": "board-hash",
+            "boards": [
+                {
+                    "board_code": "801001",
+                    "selected_for_rotation": True,
+                    "constituents": ["600519.SH", "000001.SZ"],
+                },
+                {
+                    "board_code": "801002",
+                    "selected_for_rotation": False,
+                    "constituents": ["000001.SZ"],
+                },
+            ],
+            "by_symbol": {
+                "600519.SH": [{"board_code": "801001"}],
+                "000001.SZ": [{"board_code": "801002"}],
+            },
+        },
+        symbols,
+    )
+    assert [row["board_code"] for row in boards["boards"]] == ["801001"]
+    assert boards["boards"][0]["constituents"] == ["600519.SH"]
+    assert boards["boards"][0]["full_constituent_count"] == 2
+    assert set(boards["by_symbol"]) == symbols
+    assert boards["content_hash"] == "board-hash"
+    assert boards["prompt_projection"]["full_board_count"] == 2
+
+    snapshot = {
+        "THS_INDUSTRY_MEMBERSHIP": {
+            "records": [{
+                "thscode": "600519.SH",
+                "memberships": [{"industry_thscode": "881001"}],
+            }]
+        },
+        "THS_CONCEPT_MEMBERSHIP": {"records": []},
+    }
+    metrics = _project_a2_theme_metrics(
+        {
+            "available": True,
+            "content_hash": "metric-hash",
+            "theme_metrics": {
+                "INDUSTRY:881001": {"score": 10},
+                "INDUSTRY:881002": {"score": 99},
+                "INDUSTRY:881003": {"score": 98},
+            },
+        },
+        symbols,
+        snapshot,
+        global_theme_limit=1,
+    )
+    assert set(metrics["theme_metrics"]) == {"INDUSTRY:881001", "INDUSTRY:881002"}
+    assert metrics["content_hash"] == "metric-hash"
+    assert metrics["prompt_projection"]["batch_linked_theme_count"] == 1
+    assert metrics["prompt_projection"]["full_theme_count"] == 3
+
+    upstream = _project_upstream_output(
+        {
+            "envelope": {"stage_id": "AGENT_1"},
+            "analysis_summary": {"outcome": "READY"},
+            "structural_themes": [{"theme_id": "huge", "body": "x" * 100_000}],
+            "active_research_pool": [
+                {"symbol": "600519.SH", "primary_theme": "theme-a"},
+                {"symbol": "000001.SZ", "primary_theme": "theme-b"},
+            ],
+            "monitor_pool": [{"symbol": "000001.SZ"}],
+        },
+        symbols,
+    )
+    assert "structural_themes" not in upstream
+    assert upstream["active_research_pool"] == [
+        {"symbol": "600519.SH", "primary_theme": "theme-a"}
+    ]
+    assert upstream["monitor_pool"] == []
+    assert upstream["prompt_projection"]["symbol_count"] == 1
+    assert upstream["prompt_projection"]["full_output_hash"]
 
 
 def test_disclosure_projection_prioritizes_full_report_pdf_business_evidence():

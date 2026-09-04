@@ -516,8 +516,14 @@ class WorkflowApplication:
             # securities remain research-only after passing the same quality
             # gate; execution permission is enforced at plan publication.
             all_research_records = _research_universe_records(universe)
-            all_research_symbols = tuple(
-                candidate.symbol for candidate in all_research_records
+            # Persist and freeze the taxonomy graph for the complete market
+            # identity universe before any A1 quality or strategy filter is
+            # applied.  The collectors cache the complete provider edge list,
+            # but their returned reverse map is scoped by this argument.  A
+            # research-only scope here made the local files look full-market
+            # while downstream snapshots could not map excluded/new symbols.
+            all_market_symbols = tuple(
+                candidate.symbol for candidate in universe.records
             )
             research_records = all_research_records
             if candidate_symbols is not None:
@@ -552,7 +558,7 @@ class WorkflowApplication:
             full_membership = collect_ths_industry_membership(
                 client,
                 industry_catalog,
-                all_research_symbols,
+                all_market_symbols,
                 cache_dir=self.settings.fact_store_dir / "ths_industry",
                 as_of=current,
             )
@@ -600,7 +606,7 @@ class WorkflowApplication:
             market_fact_results["THS_CONCEPT_MEMBERSHIP"] = collect_ths_taxonomy_membership(
                 client,
                 concept_catalog,
-                all_research_symbols,
+                all_market_symbols,
                 taxonomy="concept",
                 cache_dir=self.settings.fact_store_dir / "ths_taxonomy",
                 as_of=current,
