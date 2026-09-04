@@ -2517,6 +2517,7 @@ class ResearchPipeline:
             output.setdefault("crowded_pool", [])
             output.setdefault("low_identity_pool", [])
             output.setdefault("rejected_candidates", [])
+            output, _ = _canonicalize_a2_complete_partition(output, gate)
         else:
             output["rejected_candidates"] = _deduplicate_stage_items(
                 "rejected_candidates",
@@ -6150,6 +6151,67 @@ def _gate_outside_rotation_items(gate: DeterministicGateResult) -> list[dict[str
             and bool(decision.get("eastmoney_hot100"))
         )
     ]
+
+
+def _canonicalize_a2_complete_partition(
+    output: Mapping[str, Any],
+    gate: DeterministicGateResult,
+) -> tuple[dict[str, Any], int]:
+    """Make the final A2 partition mutually exclusive and complete.
+
+    The model reviews only ``gate.review_symbols`` while deterministic rows are
+    appended afterwards.  A reviewed daily-emotion row can therefore still be
+    present in the derived outside-rotation pool, and the bounded effective
+    watch pool can leave otherwise valid local-monitor rows unmaterialized.
+    The server owns the complete partition: keep the most actionable pool by
+    priority, remove later duplicates, then place every remaining gate row in
+    the non-actionable outside-rotation audit pool.  This never promotes a row
+    into focus/watch and cannot bypass a deterministic hard reject.
+    """
+
+    result = dict(output)
+    priority = (
+        "focus_pool",
+        "watch_only_pool",
+        "crowded_pool",
+        "low_identity_pool",
+        "rejected_candidates",
+        "outside_rotation_pool",
+    )
+    seen: set[str] = set()
+    changes = 0
+    for pool in priority:
+        raw_rows = result.get(pool)
+        rows = raw_rows if isinstance(raw_rows, list) else []
+        retained: list[Any] = []
+        for row in rows:
+            symbol = _first_symbol(row) if isinstance(row, Mapping) else ""
+            if symbol and symbol in seen:
+                changes += 1
+                continue
+            retained.append(row)
+            if symbol:
+                seen.add(symbol)
+        result[pool] = retained
+
+    outside = list(result.get("outside_rotation_pool") or [])
+    for decision in gate.decisions:
+        symbol = _first_symbol(decision)
+        if not symbol or symbol in seen:
+            continue
+        item = _gate_item_from_decision(decision, "A2", "OUTSIDE_ROTATION")
+        reason_codes = item.get("reason_codes")
+        reasons = list(reason_codes) if isinstance(reason_codes, list) else []
+        reasons.append("A2_NOT_IN_EFFECTIVE_POOL")
+        item["reason_codes"] = list(dict.fromkeys(str(reason) for reason in reasons if str(reason)))
+        outside.append(item)
+        seen.add(symbol)
+        changes += 1
+    result["outside_rotation_pool"] = _deduplicate_stage_items(
+        "outside_rotation_pool",
+        outside,
+    )
+    return result, changes
 
 
 def _gate_item_from_decision(

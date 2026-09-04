@@ -34,6 +34,7 @@ from liangjian_funnel.pipeline.research import (
     _canonicalize_a3_price_fields,
     _canonicalize_a1_driver_context,
     _canonicalize_a1_local_candidate_facts,
+    _canonicalize_a2_complete_partition,
     _canonicalize_a2_contract_semantics,
     _canonicalize_stage_scores,
     _canonicalize_stage_pool_fields,
@@ -111,6 +112,47 @@ def test_discovery_semantic_retry_requires_reviewed_hypothesis_dispositions():
     assert "document_id and hypothesis_theme exactly" in instruction
     assert "MAPPED|MONITOR|REJECTED" in instruction
     assert "cannot create a theme or select a stock" in instruction
+
+
+def test_a2_complete_partition_removes_cross_pool_duplicates_and_materializes_overflow():
+    gate = DeterministicGateResult(
+        stage="A2_LOCAL_ROLE",
+        decisions=(
+            {"symbol": "600001.SH", "status": "REVIEW_CANDIDATE"},
+            {"symbol": "600002.SH", "status": "LOCAL_MONITOR", "top_rotation_theme": True},
+            {"symbol": "600003.SH", "status": "HARD_REJECT"},
+        ),
+        review_symbols=("600001.SH",),
+        monitor_symbols=("600002.SH",),
+        rejected_symbols=("600003.SH",),
+    )
+    output = {
+        "focus_pool": [],
+        "watch_only_pool": [{"symbol": "600001.SH"}],
+        "crowded_pool": [],
+        "low_identity_pool": [],
+        "rejected_candidates": [{"symbol": "600003.SH"}],
+        "outside_rotation_pool": [{"symbol": "600001.SH"}],
+    }
+
+    repaired, changes = _canonicalize_a2_complete_partition(output, gate)
+
+    pools = (
+        "focus_pool",
+        "watch_only_pool",
+        "crowded_pool",
+        "low_identity_pool",
+        "rejected_candidates",
+        "outside_rotation_pool",
+    )
+    declared = [row["symbol"] for pool in pools for row in repaired[pool]]
+    assert sorted(declared) == ["600001.SH", "600002.SH", "600003.SH"]
+    assert len(declared) == len(set(declared))
+    assert repaired["watch_only_pool"] == [{"symbol": "600001.SH"}]
+    assert repaired["rejected_candidates"] == [{"symbol": "600003.SH"}]
+    assert repaired["outside_rotation_pool"][0]["symbol"] == "600002.SH"
+    assert "A2_NOT_IN_EFFECTIVE_POOL" in repaired["outside_rotation_pool"][0]["reason_codes"]
+    assert changes == 2
 
 
 def test_policy_macro_discovery_gets_one_bounded_window_per_semantic_attempt():
