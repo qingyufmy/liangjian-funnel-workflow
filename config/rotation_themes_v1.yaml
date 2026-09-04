@@ -18,6 +18,7 @@ themes:
       - 东方财富BK1134已于2026-09-04按公开目录现场核验，未从801代码推断
 
   - theme_id: AI_LIQUID_COOLING
+    strategy_theme_id: AI_COMPUTE_INFRASTRUCTURE
     name: 液冷
     kind: CHILD
     parent: AI_COMPUTE_INFRASTRUCTURE
@@ -30,6 +31,7 @@ themes:
       - 东方财富BK1138已于2026-09-04按公开目录现场核验
 
   - theme_id: AI_CPO
+    strategy_theme_id: AI_COMPUTE_INFRASTRUCTURE
     name: CPO与光互联
     kind: CHILD
     parent: AI_COMPUTE_INFRASTRUCTURE
@@ -66,6 +68,7 @@ themes:
       - 东方财富BK1036已于2026-09-04按公开目录现场核验
 
   - theme_id: SEMICONDUCTOR_ADVANCED_PACKAGING
+    strategy_theme_id: SEMICONDUCTOR_LOCALIZATION
     name: 先进封装
     kind: CHILD
     parent: SEMICONDUCTOR_LOCALIZATION
@@ -114,6 +117,7 @@ themes:
       - 东方财富BK1408已于2026-09-04按公开目录现场核验
 
   - theme_id: CHEMICALS
+    strategy_theme_id: CHEMICAL_NEW_MATERIALS
     name: 化工
     kind: PRIMARY
     parent: null
@@ -126,6 +130,7 @@ themes:
       - 东方财富BK1206已于2026-09-04按公开目录现场核验
 
   - theme_id: NONFERROUS_METALS
+    strategy_theme_id: RESOURCES_ENERGY
     name: 有色金属
     kind: PRIMARY
     parent: null
@@ -138,6 +143,7 @@ themes:
       - 与贵金属保持独立身份；东方财富BK0478已于2026-09-04现场核验
 
   - theme_id: PRECIOUS_METALS
+    strategy_theme_id: RESOURCES_ENERGY
     name: 贵金属
     kind: PRIMARY
     parent: null
@@ -150,6 +156,7 @@ themes:
       - 与有色金属保持独立身份；东方财富BK0732已于2026-09-04现场核验
 
   - theme_id: NONMETAL_MATERIALS
+    strategy_theme_id: CHEMICAL_NEW_MATERIALS
     name: 非金属材料
     kind: PRIMARY
     parent: null
@@ -162,6 +169,7 @@ themes:
       - 东方财富BK1020已于2026-09-04按公开目录现场核验
 
   - theme_id: CULTIVATED_DIAMOND
+    strategy_theme_id: CHEMICAL_NEW_MATERIALS
     name: 培育钻石
     kind: CHILD
     parent: NONMETAL_MATERIALS
@@ -174,6 +182,7 @@ themes:
       - 东方财富BK1023已于2026-09-04按公开目录现场核验
 
   - theme_id: FINANCIAL_INSURANCE
+    strategy_theme_id: FINANCIAL_HIGH_DIVIDEND
     name: 金融保险
     kind: PRIMARY
     parent: null
@@ -234,6 +243,7 @@ themes:
       - 东方财富BK1214、BK1213、BK0438已于2026-09-04按公开目录现场核验
 
   - theme_id: SHIPPING
+    strategy_theme_id: RESOURCES_ENERGY
     name: 航运
     kind: PRIMARY
     parent: null

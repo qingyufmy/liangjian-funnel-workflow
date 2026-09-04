@@ -5983,7 +5983,13 @@ def _stage_execution_budget(
             "to belong to a selected-board TOP5. CLIMAX, DIVERGENCE, LATENT and ICE_POINT cannot create "
             "new emotion plans. A qualified TREND MARKET_CORE row remains in A2 focus even when the theme "
             "new_entry_policy is WATCH_ONLY/NO_NEW_ENTRY; preserve that risk context for A3/A4 instead of "
-            "treating A2 focus as permission to trade. "
+            "treating A2 focus as permission to trade. A2 focus is a research/technical-candidate pool, not an "
+            "order list. For every selected-board direction represented by at least one supplied server-qualified "
+            "TREND row, keep at least the best qualified representative in focus_pool; stock-level negative flow "
+            "may lower rank or add a risk flag but cannot erase the whole positive-flow board. Keep qualified "
+            "Eastmoney TOP100 emotion leaders in the same focus pool under the independent EMOTION channel. Use "
+            "the upstream A1 canonical theme_id on active themes and stocks; keep the more granular board identity "
+            "in rotation_direction_id and selected_board instead of replacing the A1 theme lineage. "
             "Every supplied symbol must appear exactly once "
             "across focus_pool, watch_only_pool, and rejected_candidates."
         ),
@@ -5992,6 +5998,7 @@ def _stage_execution_budget(
             "rejected_candidates. Every row must preserve the server-owned strategy_profile, eligibility, "
             "stock_behavior_type, route_permission, expected_holding_sessions, time_stop_sessions, setup_pattern, "
             "cycle_alignment, emotion_cycle_stage, market_environment, market_funding_state and behavior_risk, "
+            "a4_deferred_conditions, "
             "plan_priority, priority_reasons, reference_price, reference_price_as_of, pressure_reduce_price and "
             "pressure_basis, "
             "required_conditions, met_conditions, unmet_conditions and veto_conditions. Each executable core "
@@ -6001,8 +6008,12 @@ def _stage_execution_budget(
             "change any price. Treat EMOTION and TREND as separate execution contracts: an emotion first board "
             "is only a bounded STARTUP probe, two-to-three boards require an intact relay, and four-plus boards, "
             "locked boards, failed seals, high-open-low-close, earth-sky, high-volume distribution and no-relay "
-            "patterns are no-entry; trend rows require right-side pullback/support confirmation and are no-entry "
-            "after platform breakdown, top divergence or a death cross. Probability never relaxes evidence gates, "
+            "patterns are no-entry. A3 identifies the closed-daily LEADER_INTRADAY, TREND_MA5 or MA520_SWING "
+            "route; A4 owns the next-session pullback, retest, VWAP, 15-minute/5-minute right-side confirmation "
+            "and live reward/risk. The absence of a not-yet-observable A4 confirmation must not veto or demote "
+            "an otherwise qualified A3 daily route. Platform breakdown, a confirmed top/divergence, death cross, "
+            "untradability, invalid daily geometry and a genuinely missing daily setup remain A3 exclusions. "
+            "Probability never relaxes evidence gates, "
             "and execution discipline means obeying the frozen no-chase and invalidation levels. "
             "candidate_origin is provenance only: a WATCH_ONLY row with server eligibility "
             "QUALIFIED enters core as PROBE unless an independent evidence risk justifies VETO/DATA_GAP. Do not "
@@ -7361,6 +7372,16 @@ def _semantic_retry_instruction(
         discovery_requirements.append(
             "Do not veto reward/risk or stop distance when immutable PRICE_LEVELS meets the configured thresholds; "
             "copy the frozen canonical values exactly and reserve rejection for a real deterministic failure."
+        )
+    if stage == "A2" and any(
+        code.startswith("A2_ROTATION_FOCUS_COVERAGE_MISSING:")
+        for code in safe_reasons
+    ):
+        discovery_requirements.append(
+            "For each missing selected-board direction, move its best supplied server-qualified TREND row to "
+            "focus_pool. A2 focus is a research pool, not entry permission; retain stock-level risks without "
+            "erasing the whole positive-flow direction. Preserve the upstream canonical theme_id and keep the "
+            "board identity in rotation_direction_id/selected_board."
         )
     discovery_retry = "\n".join(discovery_requirements)
     return (
@@ -8756,11 +8777,13 @@ def _a3_semantic_price_reasons(
     output: Mapping[str, Any],
     snapshot_data: Mapping[str, Any],
 ) -> list[str]:
-    """Detect an explicit model threshold veto that contradicts frozen facts.
+    """Reject model demotions that confuse A3 reference geometry with A4.
 
     Price levels are canonicalized after this check, so harmless decimal
-    rounding remains accepted while an explicit ``rejected_candidates`` veto
-    cannot override a deterministic reward/risk or stop-distance result.
+    rounding remains accepted.  A qualified daily route may carry a weak
+    reference-close reward/risk or stop observation, but that observation is
+    deferred to A4's actual confirmation price and cannot by itself move the
+    row out of A3 core.
     """
 
     raw_levels = snapshot_data.get("PRICE_LEVELS")
@@ -8768,6 +8791,8 @@ def _a3_semantic_price_reasons(
         return []
     minimum_reward_risk = _safe_float(snapshot_data.get("MIN_REWARD_RISK", 2.0))
     maximum_stop = _safe_float(snapshot_data.get("MAX_STOP_DISTANCE", 0.06))
+    raw_contexts = snapshot_data.get("A3_DETERMINISTIC_CONTEXT")
+    contexts = raw_contexts if isinstance(raw_contexts, Mapping) else {}
     reasons: list[str] = []
     for pool_name in ("core_watch_pool", "secondary_watch_pool", "rejected_candidates"):
         raw_items = output.get(pool_name)
@@ -8798,6 +8823,24 @@ def _a3_semantic_price_reasons(
                 and any(marker in code for marker in ("OUTSIDE", "ABOVE", "LIMIT", "MAXIMUM"))
                 for code in codes
             )
+            context = contexts.get(symbol)
+            context = context if isinstance(context, Mapping) else {}
+            qualified_daily_route = (
+                str(context.get("eligibility") or "").upper() == "QUALIFIED"
+                and str(context.get("strategy_profile") or "").upper()
+                in {"LEADER_INTRADAY", "MA520_SWING", "TREND_MA5"}
+                and str(context.get("route_permission") or "ALLOW_A4").upper()
+                == "ALLOW_A4"
+            )
+            model_demoted = (
+                pool_name != "core_watch_pool"
+                or str(raw_item.get("review_status") or "").upper()
+                in {"VETO", "DATA_GAP"}
+                or str(raw_item.get("risk_unit") or "").upper() == "NO_ENTRY"
+            )
+            if qualified_daily_route and model_demoted and (reward_veto or stop_veto):
+                reasons.append("A3_LIVE_GEOMETRY_PREMATURE_VETO")
+                continue
             if reward_veto and expected_reward_risk >= minimum_reward_risk:
                 reasons.append("A3_REWARD_RISK_REJECTION_CONTRADICTS_FROZEN_FACTS")
             if stop_veto and 0 < expected_stop <= maximum_stop:
@@ -9128,7 +9171,7 @@ def _apply_stage_threshold_policy(
                 and strategy_profile in {"MA520_SWING", "TREND_MA5"}
             )
             behavior_contract_required = (
-                str(context.get("strategy_version") or "") == "a3-a4-three-strategy/1.3.0"
+                str(context.get("strategy_version") or "").startswith("a3-a4-three-strategy/")
                 or "stock_behavior_type" in context
                 or "route_permission" in context
             )
@@ -9145,12 +9188,42 @@ def _apply_stage_threshold_policy(
             review_status = str(item.get("review_status") or "PASS").upper()
             if review_status in {"VETO", "DATA_GAP"}:
                 hard_reasons.append(f"A3_LLM_{review_status}")
+            # The frozen A3 price geometry is a reference for the next
+            # session, not an executable fill.  Keep weak reference-close
+            # payoff/stop observations visible, but let A4 recompute them at
+            # the actual closed-bar confirmation price.  A3 still filters
+            # anything that has no valid daily route above.
+            deferred = list(
+                dict.fromkeys(
+                    [
+                        *(
+                            context.get("a4_deferred_conditions")
+                            if isinstance(context.get("a4_deferred_conditions"), list)
+                            else []
+                        ),
+                        *(
+                            item.get("a4_deferred_conditions")
+                            if isinstance(item.get("a4_deferred_conditions"), list)
+                            else []
+                        ),
+                    ]
+                )
+            )
+            reference_warnings: list[str] = []
             stop_distance = _safe_float(item.get("stop_distance_pct"))
             if stop_distance <= 0 or stop_distance > maximum_stop:
-                hard_reasons.append("A3_STOP_DISTANCE_OUTSIDE_LIMIT")
+                reference_warnings.append("A3_STOP_DISTANCE_OUTSIDE_LIMIT")
             reward_risk = _safe_float(item.get("reward_risk"))
             if reward_risk < minimum_reward_risk:
-                hard_reasons.append("A3_REWARD_RISK_BELOW_MINIMUM")
+                reference_warnings.append("A3_REWARD_RISK_BELOW_MINIMUM")
+            if reference_warnings:
+                existing = item.get("reason_codes") if isinstance(item.get("reason_codes"), list) else []
+                item["reason_codes"] = list(dict.fromkeys([*existing, *reference_warnings]))
+                item["a4_deferred_conditions"] = list(
+                    dict.fromkeys([*deferred, *reference_warnings])
+                )
+            elif deferred:
+                item["a4_deferred_conditions"] = deferred
             if hard_reasons:
                 existing = item.get("reason_codes") if isinstance(item.get("reason_codes"), list) else []
                 item["reason_codes"] = list(dict.fromkeys([*existing, *hard_reasons]))
@@ -9712,6 +9785,28 @@ def _apply_a2_lineage_policy(
             if theme_id and theme_id.upper() != "UNMAPPED":
                 allowed_theme_ids.add(theme_id)
 
+    board_strategy_ids: dict[str, str] = {}
+    selected_snapshot = snapshot_data.get("SELECTED_BOARD_SNAPSHOT")
+    selected_boards = (
+        selected_snapshot.get("boards")
+        if isinstance(selected_snapshot, Mapping)
+        else None
+    )
+    if isinstance(selected_boards, Sequence) and not isinstance(
+        selected_boards, (str, bytes, bytearray)
+    ):
+        for board in selected_boards:
+            if not isinstance(board, Mapping):
+                continue
+            board_id = str(
+                board.get("board_code") or board.get("theme_id") or ""
+            ).strip()
+            strategy_id = str(
+                board.get("strategy_theme_id") or board_id
+            ).strip()
+            if board_id and strategy_id:
+                board_strategy_ids[board_id] = strategy_id
+
     active_themes = result.get("active_themes")
     valid_active_themes: set[str] = set()
     if isinstance(active_themes, list):
@@ -9722,6 +9817,23 @@ def _apply_a2_lineage_policy(
                 continue
             theme = dict(raw_theme)
             theme_id = str(theme.get("theme_id") or "").strip()
+            canonical_theme_id = board_strategy_ids.get(theme_id)
+            if (
+                theme_id not in allowed_theme_ids
+                and canonical_theme_id in allowed_theme_ids
+            ):
+                theme["rotation_board_id"] = theme_id
+                theme["theme_id"] = canonical_theme_id
+                theme_id = canonical_theme_id
+                existing = (
+                    theme.get("reason_codes")
+                    if isinstance(theme.get("reason_codes"), list)
+                    else []
+                )
+                theme["reason_codes"] = list(dict.fromkeys([
+                    *existing,
+                    "A2_BOARD_THEME_CANONICALIZED",
+                ]))
             theme_reasons = _a2_theme_reasons(theme, snapshot_data)
             if theme_id not in allowed_theme_ids:
                 theme_reasons.append("A2_THEME_OUTSIDE_A1")
@@ -10250,6 +10362,13 @@ def _validate_output(
             ),
             "A2",
         ))
+        reasons.extend(
+            _validate_a2_rotation_focus_coverage(
+                output,
+                snapshot_data or {},
+                upstream_symbols,
+            )
+        )
     elif stage == "A3" and (snapshot_data or {}).get("STRICT_AGENT_RULES") is True:
         reasons.extend(_validate_partition(
             output,
@@ -10260,6 +10379,67 @@ def _validate_output(
     if stage == "A3":
         reasons.extend(_validate_a3_provenance(output, snapshot_data or {}))
     return list(dict.fromkeys(reasons))
+
+
+def _validate_a2_rotation_focus_coverage(
+    output: Mapping[str, Any],
+    snapshot_data: Mapping[str, Any],
+    upstream_symbols: set[str],
+) -> list[str]:
+    """Require one research representative for every supplied TOP5 board.
+
+    The deterministic A2 gate has already decided whether each row is a
+    qualified trend candidate. A model may rank those rows and add risks, but
+    A2 is not an order list and may not silently erase an entire positive-flow
+    rotation direction. The check is batch-local so it remains compatible
+    with theme-preserving model transport.
+    """
+
+    contexts = _lineage_context_rows(snapshot_data, "A2_BOTTLENECK_CONTEXT")
+    expected: set[str] = set()
+    for symbol in upstream_symbols:
+        context = contexts.get(symbol)
+        if not isinstance(context, Mapping):
+            continue
+        selected = context.get("selected_board")
+        selected = selected if isinstance(selected, Mapping) else {}
+        if (
+            str(context.get("deterministic_status") or "").upper() != "REVIEW_CANDIDATE"
+            or context.get("trend_core_eligible") is not True
+            or context.get("top_rotation_theme") is not True
+            or selected.get("selected_for_rotation") is not True
+        ):
+            continue
+        direction = str(
+            context.get("rotation_direction_id")
+            or selected.get("board_code")
+            or selected.get("theme_id")
+            or ""
+        ).strip()
+        if direction:
+            expected.add(direction)
+
+    focused: set[str] = set()
+    for item in output.get("focus_pool", ()):
+        if not isinstance(item, Mapping):
+            continue
+        symbol = _first_symbol(item.get("symbol"))
+        context = contexts.get(symbol, {})
+        selected = context.get("selected_board")
+        selected = selected if isinstance(selected, Mapping) else {}
+        direction = str(
+            context.get("rotation_direction_id")
+            or selected.get("board_code")
+            or selected.get("theme_id")
+            or ""
+        ).strip()
+        if direction:
+            focused.add(direction)
+
+    return [
+        f"A2_ROTATION_FOCUS_COVERAGE_MISSING:{direction}"
+        for direction in sorted(expected.difference(focused))
+    ]
 
 
 def _candidate_pool_symbols(output: Mapping[str, Any]) -> set[str]:
@@ -10553,6 +10733,7 @@ def _canonicalize_a3_price_fields(
                 "price_discovery",
                 "daily_invalidation",
                 "plan_premises",
+                "a4_deferred_conditions",
                 "a4_required_entry_rules",
                 "a4_exit_rules",
                 "plan_mode",
@@ -10983,6 +11164,7 @@ def _with_a3_deterministic_context(
         "price_discovery",
         "daily_invalidation",
         "plan_premises",
+        "a4_deferred_conditions",
         "a4_required_entry_rules",
         "a4_exit_rules",
         "plan_mode",

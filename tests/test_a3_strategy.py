@@ -5,6 +5,7 @@ from copy import deepcopy
 from liangjian_funnel.pipeline.a3_strategy import (
     A3StrategyDecision,
     Eligibility,
+    RoutePermission,
     StrategyProfile,
     evaluate_a3_strategy,
     route_a3_strategy,
@@ -791,7 +792,7 @@ def test_leader_weak_or_distribution_is_rejected() -> None:
     assert "HIGH_VOLUME_DISTRIBUTION" in distribution.veto_conditions
 
 
-def test_trend_overextension_and_520_dead_cross_are_rejected() -> None:
+def test_trend_overextension_is_deferred_to_a4_while_520_dead_cross_is_rejected() -> None:
     trend = _common(
         {"symbol": "600011.SH", "market_role": "TREND_CORE"},
         factor=_factor(close=13.0, ma5=10.0, ma10=9.8, ma20=9.4, ma60=8.7),
@@ -802,8 +803,11 @@ def test_trend_overextension_and_520_dead_cross_are_rejected() -> None:
         factor=_factor(close=9.7, ma5=9.5, ma10=9.8, ma20=10.0, ma60=9.0, ma_event="DEAD_CROSS_SHORT"),
         kline={"labels": []},
     )
-    assert trend.eligibility is Eligibility.REJECTED
-    assert "TREND_OVEREXTENDED" in trend.veto_conditions
+    assert trend.eligibility is Eligibility.QUALIFIED
+    assert trend.route_permission is RoutePermission.ALLOW_A4
+    assert "OVEREXTENDED_RETEST_CONFIRMATION" in trend.a4_deferred_conditions
+    assert "A4_RETEST_CONFIRMATION_REQUIRED" in trend.reason_codes
+    assert "TREND_OVEREXTENDED" not in trend.veto_conditions
     assert dead.strategy_profile is StrategyProfile.MA520_SWING
     assert dead.eligibility is Eligibility.REJECTED
     assert "MA520_DEAD_CROSS" in dead.veto_conditions
@@ -822,7 +826,7 @@ def test_trend_overextension_with_a_reasonable_ma5_retest_can_be_published() -> 
     assert "TREND_OVEREXTENDED" not in result.veto_conditions
 
 
-def test_overextension_without_retest_rejects_leader_route() -> None:
+def test_overextension_without_retest_publishes_leader_for_a4_confirmation() -> None:
     result = _common(
         {
             "symbol": "600029.SH",
@@ -843,8 +847,11 @@ def test_overextension_without_retest_rejects_leader_route() -> None:
     )
 
     assert result.strategy_profile is StrategyProfile.LEADER_INTRADAY
-    assert result.eligibility is Eligibility.REJECTED
-    assert "OVEREXTENDED_WITHOUT_RETEST" in result.veto_conditions
+    assert result.eligibility is Eligibility.QUALIFIED
+    assert result.route_permission is RoutePermission.ALLOW_A4
+    assert "OVEREXTENDED_RETEST_CONFIRMATION" in result.a4_deferred_conditions
+    assert "A4_RETEST_CONFIRMATION_REQUIRED" in result.reason_codes
+    assert "OVEREXTENDED_WITHOUT_RETEST" not in result.veto_conditions
 
 
 def test_invalid_price_geometry_is_data_gap_and_no_strategy_is_explicit() -> None:

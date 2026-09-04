@@ -1259,9 +1259,23 @@ def screen_a2(
             and 1 <= (_number(row.get("primary_rank")) or 0) <= rotation_theme_count
             and (_number(row.get("main_net_inflow_cny")) or 0.0) > 0
         ]
+        a1_strategy_theme_id = str(
+            item.get("primary_theme")
+            or item.get("theme_id")
+            or source_theme_id
+            or ""
+        ).strip().upper()
         selected_board_match = min(
             selected_board_matches,
             key=lambda row: (
+                0
+                if str(
+                    row.get("strategy_theme_id")
+                    or row.get("theme_id")
+                    or row.get("board_code")
+                    or ""
+                ).strip().upper() == a1_strategy_theme_id
+                else 1,
                 _number(row.get("primary_rank")) or 10**9,
                 -(_number(row.get("strength")) or 0.0),
                 -(_number(row.get("main_net_inflow_cny")) or 0.0),
@@ -4085,19 +4099,23 @@ def screen_a3(snapshot: Mapping[str, Any], a2_output: Mapping[str, Any]) -> Dete
             if stop_distance is None or stop_distance <= 0 or stop_distance > maximum_stop_distance:
                 risk_reasons.append("A3_STOP_DISTANCE_OUTSIDE_LIMIT")
         if risk_reasons:
-            eligibility = Eligibility.REJECTED.value
-            strategy["eligibility"] = eligibility
-            strategy["strategy_profile"] = "NO_NEXT_DAY_PLAN"
-            strategy["route_permission"] = "BLOCKED"
-            strategy["publication_state"] = "BLOCKED"
+            # These figures use the prior close/reference zone. A4 owns the
+            # actual entry price and must recompute both stop distance and
+            # reward/risk from live confirmation. Keep the reference warning
+            # visible without deleting an otherwise valid A3 technical route.
             strategy["reason_codes"] = list(dict.fromkeys([
                 *strategy.get("reason_codes", []),
                 *risk_reasons,
             ]))
-            strategy["veto_conditions"] = list(dict.fromkeys([
-                *strategy.get("veto_conditions", []),
+            strategy["a4_deferred_conditions"] = list(dict.fromkeys([
+                *strategy.get("a4_deferred_conditions", []),
                 *risk_reasons,
             ]))
+            strategy_facts = strategy.get("strategy_facts")
+            if isinstance(strategy_facts, dict):
+                strategy_facts["a4_deferred_conditions"] = list(
+                    strategy["a4_deferred_conditions"]
+                )
         status = {
             Eligibility.QUALIFIED.value: "REVIEW_CANDIDATE",
             Eligibility.WATCH.value: "LOCAL_MONITOR",

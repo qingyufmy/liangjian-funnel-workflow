@@ -308,6 +308,11 @@ class MonitorEngine:
                     "veto_conditions": strategy_result.get("veto_conditions") or [],
                     "closed_5m_end": strategy_result.get("closed_5m_end"),
                     "closed_15m_end": strategy_result.get("closed_15m_end"),
+                    "live_entry_price": strategy_result.get("live_entry_price"),
+                    "live_stop_distance_pct": strategy_result.get("live_stop_distance_pct"),
+                    "live_reward_risk": strategy_result.get("live_reward_risk"),
+                    "minimum_reward_risk": strategy_result.get("minimum_reward_risk"),
+                    "maximum_stop_distance_pct": strategy_result.get("maximum_stop_distance_pct"),
                     "trigger_pass": action in {
                         MonitorAction.BUY_SIGNAL.value,
                         MonitorAction.ADD_SIGNAL.value,

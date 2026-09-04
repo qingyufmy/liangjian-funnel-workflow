@@ -75,7 +75,7 @@ _REQUIRED_THEME_KEYS = frozenset(
         "effective_to",
     }
 )
-_OPTIONAL_THEME_KEYS = frozenset({"name", "display_name", "evidence"})
+_OPTIONAL_THEME_KEYS = frozenset({"name", "display_name", "evidence", "strategy_theme_id"})
 
 
 class RotationThemeConfigError(ValueError):
@@ -107,6 +107,7 @@ class RotationTheme:
     effective_from: date
     effective_to: date | None
     evidence: tuple[str, ...]
+    strategy_theme_id: str
 
     @property
     def display_name(self) -> str:
@@ -133,6 +134,7 @@ class RotationTheme:
             "effective_from": self.effective_from.isoformat(),
             "effective_to": self.effective_to.isoformat() if self.effective_to else None,
             "evidence": list(self.evidence),
+            "strategy_theme_id": self.strategy_theme_id,
         }
 
 
@@ -224,6 +226,9 @@ def validate_rotation_theme_config(payload: Any) -> RotationThemeConfig:
         if not _THEME_ID.fullmatch(theme_id) or theme_id in seen_ids:
             raise RotationThemeConfigError("ROTATION_THEME_ID_INVALID_OR_DUPLICATED")
         seen_ids.add(theme_id)
+        strategy_theme_id = str(raw.get("strategy_theme_id") or theme_id).strip().upper()
+        if not _THEME_ID.fullmatch(strategy_theme_id):
+            raise RotationThemeConfigError("ROTATION_THEME_STRATEGY_ID_INVALID")
         name = str(raw.get("name") or raw.get("display_name") or "").strip()
         if not name or not any("\u4e00" <= char <= "\u9fff" for char in name):
             raise RotationThemeConfigError("ROTATION_THEME_NAME_INVALID")
@@ -285,6 +290,7 @@ def validate_rotation_theme_config(payload: Any) -> RotationThemeConfig:
                 effective_from=effective_from,
                 effective_to=effective_to,
                 evidence=tuple(evidence),
+                strategy_theme_id=strategy_theme_id,
             )
         )
 
@@ -1549,17 +1555,45 @@ def calculate_rotation_strength(
         row["factor_coverage"] = len(available_factors) / len(STRENGTH_WEIGHTS)
     by_id = {row["theme_id"]: row for row in normalized}
     eligible = []
-    for row in primary:
+    for row in normalized:
         row["selection_status"] = _selection_status(
             row,
             trade_day,
             fund_coverage_minimum=fund_minimum,
             price_coverage_minimum=price_minimum,
         )
-        if row["selection_status"] == "ELIGIBLE_PRIMARY":
+        if row["kind"] == PRIMARY and row["selection_status"] == "ELIGIBLE_PRIMARY":
             eligible.append(row)
     eligible.sort(key=lambda item: (-float(item["strength"] if item["strength"] is not None else -1), -float(item.get("tencent_main_net_inflow_cny") or 0), item["theme_id"]))
     selected = eligible[:limit]
+    # Child directions normally inherit a selected parent's rank so the same
+    # economic chain does not consume two slots. If the parent is not
+    # eligible but a child has independently positive flow, complete
+    # membership and sufficient price/factor coverage, that child may fill an
+    # otherwise empty TOP5 slot. A weak parent must not hide a strong child.
+    selected_primary_ids = {row["theme_id"] for row in selected}
+    standalone_children = [
+        row
+        for row in normalized
+        if row["kind"] == CHILD
+        and row["selection_status"] == "ELIGIBLE_PRIMARY"
+        and row.get("parent_theme_id") not in selected_primary_ids
+    ]
+    standalone_children.sort(
+        key=lambda item: (
+            -float(item["strength"] if item["strength"] is not None else -1),
+            -float(item.get("tencent_main_net_inflow_cny") or 0),
+            item["theme_id"],
+        )
+    )
+    selected.extend(standalone_children[: max(0, limit - len(selected))])
+    selected.sort(
+        key=lambda item: (
+            -float(item["strength"] if item["strength"] is not None else -1),
+            -float(item.get("tencent_main_net_inflow_cny") or 0),
+            item["theme_id"],
+        )
+    )
     rank_map = {row["theme_id"]: index for index, row in enumerate(selected, start=1)}
     for row in normalized:
         if row["kind"] == CHILD:
@@ -1567,11 +1601,22 @@ def calculate_rotation_strength(
             if parent is None:
                 row["selection_status"] = "PARENT_MISSING"
                 row["selected_for_rotation"] = False
+            elif row["theme_id"] in rank_map:
+                row["primary_rank"] = rank_map[row["theme_id"]]
+                row["inherited_primary_strength"] = parent["strength"]
+                row["selected_for_rotation"] = True
+                row["selection_status"] = "ELIGIBLE_CHILD_STANDALONE"
             else:
                 row["primary_rank"] = rank_map.get(parent["theme_id"])
                 row["inherited_primary_strength"] = parent["strength"]
                 row["selected_for_rotation"] = parent["theme_id"] in rank_map
-                row["selection_status"] = "INHERITED_FROM_PRIMARY" if row["selected_for_rotation"] else "PRIMARY_NOT_SELECTED"
+                row["selection_status"] = (
+                    "INHERITED_FROM_PRIMARY"
+                    if row["selected_for_rotation"]
+                    else "ELIGIBLE_CHILD_NOT_SELECTED"
+                    if row["selection_status"] == "ELIGIBLE_PRIMARY"
+                    else row["selection_status"]
+                )
         else:
             row["primary_rank"] = rank_map.get(row["theme_id"])
             row["selected_for_rotation"] = row["theme_id"] in rank_map
@@ -1582,6 +1627,7 @@ def calculate_rotation_strength(
                 "board_code": row["theme_id"],
                 "board_name": row["board_name"],
                 "theme_id": row["theme_id"],
+                "strategy_theme_id": row.get("strategy_theme_id") or row["theme_id"],
                 "rank": rank_map[row["theme_id"]],
                 "strength": row["strength"],
                 "main_net_inflow_cny": row.get("tencent_main_net_inflow_cny"),
@@ -1597,6 +1643,8 @@ def calculate_rotation_strength(
         "reason_code": "OK" if selected else "NO_ELIGIBLE_PRIMARY",
         "primary_candidate_count": len(primary),
         "eligible_primary_count": len(eligible),
+        "eligible_standalone_child_count": len(standalone_children),
+        "selected_direction_count": len(selected),
     }
 
 
@@ -2463,6 +2511,9 @@ def _normalize_metric_row(row: Mapping[str, Any], taxonomy: RotationThemeConfig 
             "board_name": name,
             "kind": kind,
             "parent_theme_id": parent,
+            "strategy_theme_id": (
+                theme.strategy_theme_id if theme is not None else theme_id
+            ),
             "constituents": safe_members,
             # The score denominator is the normalized A-share member set.  A
             # provider's raw count may include B shares and therefore cannot
@@ -2628,6 +2679,7 @@ def _public_board_row(row: Mapping[str, Any]) -> dict[str, Any]:
         "theme_id": row["theme_id"],
         "theme_level": row["kind"],
         "parent_theme_id": row.get("parent_theme_id"),
+        "strategy_theme_id": row.get("strategy_theme_id") or row["theme_id"],
         "strength": row.get("strength"),
         "strength_factors": dict(row.get("strength_factors") or {}),
         "relative_return_pct": row.get("relative_return_pct"),

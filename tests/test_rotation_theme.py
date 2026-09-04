@@ -660,6 +660,39 @@ def test_child_inherits_parent_rank_without_consuming_primary_top5():
     assert child["selection_status"] == "INHERITED_FROM_PRIMARY"
 
 
+def test_strong_child_fills_top5_when_parent_is_not_eligible():
+    rows = [
+        _metric_row(f"PRIMARY_{index}", relative=100 - index)
+        for index in range(4)
+    ]
+    rows.extend([
+        _metric_row("WEAK_PARENT", main=-100.0, eastmoney_main=-100.0),
+        _metric_row(
+            "STRONG_CHILD",
+            kind=CHILD,
+            parent="WEAK_PARENT",
+            main=500.0,
+            eastmoney_main=500.0,
+            relative=120.0,
+        ),
+    ])
+
+    result = calculate_rotation_strength(
+        rows,
+        rotation_theme_count=5,
+        expected_trade_date=DAY,
+    )
+
+    assert len(result["selected_primary_boards"]) == 5
+    assert result["selected_primary_boards"][0]["board_code"] == "STRONG_CHILD"
+    child = _board(result, "STRONG_CHILD")
+    parent = _board(result, "WEAK_PARENT")
+    assert child["selected_for_rotation"] is True
+    assert child["selection_status"] == "ELIGIBLE_CHILD_STANDALONE"
+    assert child["primary_rank"] == 1
+    assert parent["selected_for_rotation"] is False
+
+
 def test_public_snapshot_has_stable_schema_and_main_flow_compatibility():
     snapshot = build_rotation_theme_snapshot(
         as_of=AS_OF,

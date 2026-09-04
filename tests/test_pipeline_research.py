@@ -73,6 +73,7 @@ from liangjian_funnel.pipeline.research import (
     _snapshot_discovery_evidence_refs,
     _stage_execution_budget,
     _validate_output,
+    _validate_a2_rotation_focus_coverage,
     _valid_a1_discovery_output,
     _with_a2_bottleneck_context,
 )
@@ -112,6 +113,52 @@ def test_discovery_semantic_retry_requires_reviewed_hypothesis_dispositions():
     assert "document_id and hypothesis_theme exactly" in instruction
     assert "MAPPED|MONITOR|REJECTED" in instruction
     assert "cannot create a theme or select a stock" in instruction
+
+
+def test_a2_rotation_focus_requires_one_representative_per_selected_direction():
+    snapshot = {
+        "A2_BOTTLENECK_CONTEXT": {
+            "600001.SH": {
+                "deterministic_status": "REVIEW_CANDIDATE",
+                "trend_core_eligible": True,
+                "top_rotation_theme": True,
+                "rotation_direction_id": "SELECTED_BOARD:AGRICULTURE",
+                "selected_board": {"selected_for_rotation": True},
+            },
+            "600002.SH": {
+                "deterministic_status": "REVIEW_CANDIDATE",
+                "trend_core_eligible": True,
+                "top_rotation_theme": True,
+                "rotation_direction_id": "SELECTED_BOARD:AI_APPLICATION",
+                "selected_board": {"selected_for_rotation": True},
+            },
+        }
+    }
+    output = {"focus_pool": [{"symbol": "600001.SH"}]}
+
+    assert _validate_a2_rotation_focus_coverage(
+        output,
+        snapshot,
+        {"600001.SH", "600002.SH"},
+    ) == ["A2_ROTATION_FOCUS_COVERAGE_MISSING:SELECTED_BOARD:AI_APPLICATION"]
+
+    output["focus_pool"].append({"symbol": "600002.SH"})
+    assert _validate_a2_rotation_focus_coverage(
+        output,
+        snapshot,
+        {"600001.SH", "600002.SH"},
+    ) == []
+
+
+def test_a2_rotation_focus_retry_explains_research_pool_boundary():
+    instruction = _semantic_retry_instruction(
+        "A2",
+        ("A2_ROTATION_FOCUS_COVERAGE_MISSING:SELECTED_BOARD:AI_APPLICATION",),
+    )
+
+    assert "server-qualified TREND row" in instruction
+    assert "research pool, not entry permission" in instruction
+    assert "upstream canonical theme_id" in instruction
 
 
 def test_a2_complete_partition_removes_cross_pool_duplicates_and_materializes_overflow():
@@ -2721,6 +2768,40 @@ def test_a3_semantic_veto_contradicting_frozen_reward_is_retry_reason():
     assert reasons == ["A3_REWARD_RISK_REJECTION_CONTRADICTS_FROZEN_FACTS"]
 
 
+def test_a3_qualified_daily_route_cannot_be_demoted_for_weak_reference_geometry():
+    reasons = _a3_semantic_price_reasons(
+        {
+            "secondary_watch_pool": [
+                {
+                    "symbol": "002957.SZ",
+                    "review_status": "VETO",
+                    "reason_codes": ["A3_REWARD_RISK_BELOW_MINIMUM"],
+                }
+            ]
+        },
+        {
+            "PRICE_LEVELS": {
+                "002957.SZ": {
+                    "available": True,
+                    "reward_risk": 0.75,
+                    "stop_distance_pct": 0.02,
+                }
+            },
+            "A3_DETERMINISTIC_CONTEXT": {
+                "002957.SZ": {
+                    "eligibility": "QUALIFIED",
+                    "strategy_profile": "TREND_MA5",
+                    "route_permission": "ALLOW_A4",
+                }
+            },
+            "MIN_REWARD_RISK": 2.0,
+            "MAX_STOP_DISTANCE": 0.06,
+        },
+    )
+
+    assert reasons == ["A3_LIVE_GEOMETRY_PREMATURE_VETO"]
+
+
 def test_a3_secondary_probe_missing_score_breakdown_is_retryable_not_silent_no_entry():
     output = {
         "secondary_watch_pool": [
@@ -2770,7 +2851,7 @@ def test_a3_global_pool_limits_are_applied_after_batch_merge():
     assert limited["rejected_candidates"] == []
 
 
-def test_server_threshold_policy_demotes_low_theme_score_and_rejects_bad_a3_payoff():
+def test_server_threshold_policy_demotes_low_theme_score_but_defers_a3_live_geometry():
     a2, a2_changed = _apply_stage_threshold_policy(
         {
             "focus_pool": [
@@ -2816,12 +2897,16 @@ def test_server_threshold_policy_demotes_low_theme_score_and_rejects_bad_a3_payo
                 },
             },
         )
-    assert a3_changed == 1
-    assert [item["symbol"] for item in a3["core_watch_pool"]] == ["300502.SZ"]
-    assert a3["secondary_watch_pool"][0]["risk_unit"] == "NO_ENTRY"
-    assert "A3_REWARD_RISK_BELOW_MINIMUM" in a3["secondary_watch_pool"][0]["reason_codes"]
-    assert "A3_TECHNICAL_SCORE_BELOW_MINIMUM" not in a3["secondary_watch_pool"][0]["reason_codes"]
-    assert a3["analysis_summary"]["pool_counts"]["core_watch_pool"] == 1
+    assert a3_changed == 0
+    assert [item["symbol"] for item in a3["core_watch_pool"]] == [
+        "600183.SH",
+        "300502.SZ",
+    ]
+    weak = a3["core_watch_pool"][0]
+    assert "A3_REWARD_RISK_BELOW_MINIMUM" in weak["reason_codes"]
+    assert "A3_REWARD_RISK_BELOW_MINIMUM" in weak["a4_deferred_conditions"]
+    assert "A3_TECHNICAL_SCORE_BELOW_MINIMUM" not in weak["reason_codes"]
+    assert a3["secondary_watch_pool"] == []
 
 
 def test_a2_relative_top5_below_strong_confirmation_stays_focus_without_padding():

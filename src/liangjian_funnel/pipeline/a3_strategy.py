@@ -25,7 +25,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 
-STRATEGY_VERSION = "a3-a4-three-strategy/1.3.0"
+STRATEGY_VERSION = "a3-a4-three-strategy/1.4.0"
 
 
 class StrategyProfile(StrEnum):
@@ -128,6 +128,7 @@ class A3StrategyDecision(BaseModel):
     price_discovery: bool = False
     daily_invalidation: float | None = None
     plan_premises: list[str] = Field(default_factory=list)
+    a4_deferred_conditions: list[str] = Field(default_factory=list)
     a4_required_entry_rules: list[str] = Field(default_factory=list)
     a4_exit_rules: list[str] = Field(default_factory=list)
     plan_mode: str | None = None
@@ -632,6 +633,7 @@ def evaluate_a3_candidate(
     gate_results: dict[str, dict[str, Any]] = {}
     data_gaps: list[str] = []
     watch_reasons: list[str] = []
+    a4_deferred_conditions: list[str] = []
 
     def record_gate(
         name: str,
@@ -962,21 +964,25 @@ def evaluate_a3_candidate(
             and behavior_risk["trend_top"]["confirmed"] is True
         ):
             veto("TREND_TOP_RISK_CONFIRMED")
-        # A high-acceleration/overextended close is never an A4 plan merely
-        # because the route is labelled LEADER or MA520.  It must show a
-        # concrete daily MA5 retest that held (A4 still confirms the intraday
-        # leg).  This keeps trend/new-high strength from turning into a
-        # top-of-the-mountain entry while preserving a valid repair path.
+        # Extension is an entry-timing issue, not evidence that the daily
+        # route does not exist. Preserve the no-chase/invalidating geometry
+        # and require A4 to wait for a fresh intraday retest. A3 must still
+        # publish the technically valid leader/MA5/MA520 candidate so A4 has
+        # something objective to monitor.
         if (
             profile is not StrategyProfile.NO_NEXT_DAY_PLAN
             and overextended
             and not trend_paths.get("strong_pullback_geometry", False)
         ):
-            veto("OVEREXTENDED_WITHOUT_RETEST")
-            if profile is StrategyProfile.TREND_MA5:
-                # Keep the historical, route-specific reason for existing
-                # audit consumers while exposing the shared hard boundary.
-                veto("TREND_OVEREXTENDED")
+            _append_unique(a4_deferred_conditions, "OVEREXTENDED_RETEST_CONFIRMATION")
+            _append_unique(reason_codes, "A4_RETEST_CONFIRMATION_REQUIRED")
+            record_gate(
+                "OVEREXTENSION_DEFERRED_TO_A4",
+                met=True,
+                reason="A4_RETEST_CONFIRMATION_REQUIRED",
+                kind="A4_CONFIRMATION",
+                available=True,
+            )
         if profile is StrategyProfile.MA520_SWING and setup["dead_cross"]:
             veto("MA520_DEAD_CROSS")
         if profile is not StrategyProfile.LEADER_INTRADAY:
@@ -1180,6 +1186,7 @@ def evaluate_a3_candidate(
         "price_discovery": bool(price_discovery),
         "daily_invalidation": invalidation,
         "plan_premises": _plan_premises(profile),
+        "a4_deferred_conditions": list(a4_deferred_conditions),
         "a4_required_entry_rules": _a4_entry_rules(profile),
         "a4_exit_rules": _a4_exit_rules(profile),
         "plan_mode": plan_mode,
@@ -1232,6 +1239,7 @@ def evaluate_a3_candidate(
     )
     facts["behavior_risk"] = behavior_risk
     facts["publication_state"] = publication_state
+    facts["a4_deferred_conditions"] = list(a4_deferred_conditions)
     facts["plan_priority"] = plan_priority
     facts["priority_reasons"] = priority_reasons
     facts["reference_price"] = _round(daily_close)
@@ -1589,16 +1597,18 @@ def _evaluate_trend(
         reason="DAILY_MA5_MISSING" if ma5 is None else None,
     )
 
-    # Keep the established hard risk boundary.  An overextended close can be
-    # published only when the same daily bar proves a reasonable MA5 retest;
-    # otherwise a strong trend/innovation-high flag must not put a plan on the
-    # top of the mountain.  The global evaluator adds TREND_OVEREXTENDED as a
-    # veto when this retest geometry is absent.
+    # Extension is recorded by the global evaluator as an A4 confirmation
+    # requirement. It must not turn a valid daily trend route into an A3
+    # rejection merely because tomorrow's intraday retest has not happened.
     retest_geometry = bool(trend_paths.get("strong_pullback_geometry", False))
     condition(
-        "NOT_OVEREXTENDED_OR_RETEST_CONFIRMED",
-        not overextended or retest_geometry,
-        reason="TREND_OVEREXTENDED" if overextended and not retest_geometry else None,
+        "OVEREXTENSION_STATE_CLASSIFIED",
+        True,
+        reason=(
+            "A4_RETEST_CONFIRMATION_REQUIRED"
+            if overextended and not retest_geometry
+            else None
+        ),
     )
     condition("NOT_DISTRIBUTION", not distribution, reason="HIGH_VOLUME_DISTRIBUTION" if distribution else None)
     if price_discovery:
@@ -1640,6 +1650,8 @@ def _evaluate_520(
     setup_missing = not setup_confirmed and not daily_event and (ma5 is None or ma20 is None)
     condition("MA520_SETUP_CONFIRMED", setup_confirmed, missing=setup_missing, reason="MA520_SETUP_NOT_CONFIRMED" if not setup_confirmed else None)
     right_side_missing = bool(right_side.get("data_missing", False))
+    # The closed-daily right-side state is part of the A3 big-cycle setup.
+    # A4 still owns the following session's intraday trigger confirmation.
     condition(
         "MA520_RIGHT_SIDE_CONFIRMED",
         bool(right_side.get("confirmed", False)),

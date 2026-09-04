@@ -436,6 +436,11 @@ def evaluate_a4_plan(
         decision = _evaluate_520(plan, bars_5m, bars_15m, current_bar, context, position_open, locked)
     else:
         decision = _evaluate_trend(plan, bars_5m, bars_15m, current_bar, context, position_open, locked)
+    decision = _apply_live_entry_geometry(
+        plan,
+        decision,
+        current_price=(current_bar.close if current_bar is not None else bars_5m[-1].close),
+    )
     base.update(_apply_live_market_gate(decision, live_market_gate))
     return _finish(base, as_of=current)
 
@@ -1494,6 +1499,164 @@ def _price_zone_met(plan: Mapping[str, Any], price: float) -> bool:
         low = _number(_lookup(zone, ("low",), ("min",)))
         high = _number(_lookup(zone, ("high",), ("max",)))
     return low is not None and high is not None and low <= price <= high
+
+
+def _apply_live_entry_geometry(
+    plan: Mapping[str, Any],
+    decision: Mapping[str, Any],
+    *,
+    current_price: float,
+) -> dict[str, Any]:
+    """Recompute entry geometry only after a strategy has confirmed live.
+
+    A3 publishes daily reference levels.  They are useful for planning but
+    are not the actual next-session fill.  This gate uses the current closed
+    minute price after the selected leader/520/trend path has confirmed, so a
+    weak reference-close ratio does not delete a valid A3 route and a poor
+    live fill can never become an executable signal.
+    """
+
+    result = dict(decision)
+    action = str(result.get("action") or "").upper()
+    if action not in _ENTRY_ACTIONS:
+        return result
+
+    stop = _number(
+        _lookup(
+            plan,
+            ("stop_level",),
+            ("invalidation_level",),
+            ("daily_invalidation",),
+            ("risk", "stop_level"),
+            ("risk", "invalidation_level"),
+        )
+    )
+    no_chase = _number(
+        _lookup(
+            plan,
+            ("no_chase",),
+            ("no_chase_price",),
+            ("max_chase_price",),
+        )
+    )
+    target = _number(
+        _lookup(
+            plan,
+            ("first_resistance",),
+            ("pressure_reduce_price",),
+            ("observation_target",),
+            ("strategy_facts", "observation_targets", "r2"),
+        )
+    )
+    minimum_reward_risk = _number(
+        _lookup(
+            plan,
+            ("minimum_reward_risk",),
+            ("min_reward_risk",),
+            ("risk", "minimum_reward_risk"),
+        )
+    )
+    maximum_stop_distance = _number(
+        _lookup(
+            plan,
+            ("maximum_stop_distance_pct",),
+            ("max_stop_distance_pct",),
+            ("risk", "maximum_stop_distance_pct"),
+        )
+    )
+    raw_deferred = _lookup(
+        plan,
+        ("a4_deferred_conditions",),
+        ("strategy_facts", "a4_deferred_conditions"),
+    )
+    deferred_values = (
+        raw_deferred
+        if isinstance(raw_deferred, Sequence)
+        and not isinstance(raw_deferred, (str, bytes, bytearray))
+        else ()
+    )
+    deferred = {
+        str(value).strip().upper()
+        for value in deferred_values
+        if str(value).strip()
+    }
+
+    result["live_entry_price"] = current_price
+    result["live_stop_level"] = stop
+    result["live_target_price"] = target
+    result["live_no_chase_price"] = no_chase
+    result["minimum_reward_risk"] = minimum_reward_risk
+    result["maximum_stop_distance_pct"] = maximum_stop_distance
+
+    missing: list[str] = []
+    if (
+        "A3_STOP_DISTANCE_OUTSIDE_LIMIT" in deferred
+        and (stop is None or maximum_stop_distance is None)
+    ):
+        missing.append("A4_LIVE_STOP_GEOMETRY_MISSING")
+    if (
+        "A3_REWARD_RISK_BELOW_MINIMUM" in deferred
+        and (stop is None or target is None or minimum_reward_risk is None)
+    ):
+        missing.append("A4_LIVE_REWARD_RISK_GEOMETRY_MISSING")
+    if missing:
+        result["state"] = "DATA_BLOCKED"
+        result["action"] = A4Action.DATA_BLOCK.value
+        result["reason_codes"] = _unique([*(result.get("reason_codes") or []), *missing])
+        result["unmet_conditions"] = _unique([*(result.get("unmet_conditions") or []), "A4_LIVE_ENTRY_GEOMETRY_READY"])
+        result["veto_conditions"] = _unique([*(result.get("veto_conditions") or []), *missing])
+        return result
+
+    live_stop_distance = (
+        (current_price - stop) / current_price
+        if stop is not None and current_price > stop and current_price > 0
+        else None
+    )
+    live_reward_risk = (
+        (target - current_price) / (current_price - stop)
+        if stop is not None
+        and target is not None
+        and current_price > stop
+        and target > current_price
+        else None
+    )
+    result["live_stop_distance_pct"] = live_stop_distance
+    result["live_reward_risk"] = live_reward_risk
+
+    blockers: list[str] = []
+    if no_chase is not None and current_price > no_chase + _EPSILON:
+        blockers.append("A4_LIVE_NO_CHASE_EXCEEDED")
+    if (
+        maximum_stop_distance is not None
+        and (live_stop_distance is None or live_stop_distance > maximum_stop_distance + _EPSILON)
+    ):
+        blockers.append("A4_LIVE_STOP_DISTANCE_TOO_WIDE")
+    if (
+        minimum_reward_risk is not None
+        and (live_reward_risk is None or live_reward_risk + _EPSILON < minimum_reward_risk)
+    ):
+        blockers.append("A4_LIVE_REWARD_RISK_BELOW_MINIMUM")
+    if not blockers:
+        result["met_conditions"] = _unique([
+            *(result.get("met_conditions") or []),
+            "A4_LIVE_ENTRY_GEOMETRY_ACCEPTED",
+        ])
+        return result
+
+    # The plan remains alive: a later pullback inside the same frozen setup
+    # may improve stop distance/reward-risk.  Only the current entry is held.
+    result["state"] = "CONFIRMING"
+    result["action"] = A4Action.START_CONFIRMATION.value
+    result["reason_codes"] = _unique([*(result.get("reason_codes") or []), *blockers])
+    result["unmet_conditions"] = _unique([
+        *(result.get("unmet_conditions") or []),
+        "A4_LIVE_ENTRY_GEOMETRY_ACCEPTED",
+    ])
+    result["veto_conditions"] = _unique([
+        *(result.get("veto_conditions") or []),
+        "ENTRY_BLOCKED_CURRENT_MINUTE",
+    ])
+    return result
 
 
 def _locked_limit_up(plan: Mapping[str, Any], current: _Bar | None, latest5: _Bar) -> tuple[bool, float | None]:

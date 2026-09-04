@@ -107,6 +107,28 @@ def test_each_strategy_has_a_deterministic_valid_entry() -> None:
         assert result["veto_conditions"] == []
 
 
+def test_a4_recomputes_live_geometry_after_strategy_confirmation() -> None:
+    plan = _base(
+        StrategyProfile.TREND_MA5.value,
+        daily_indicators={"ma5": 10.4, "ma10": 10.2, "ma20": 10.0, "close": 10.6},
+        invalidation_level=10.0,
+        first_resistance=11.0,
+        minimum_reward_risk=2.0,
+        maximum_stop_distance_pct=0.06,
+        a4_deferred_conditions=["A3_REWARD_RISK_BELOW_MINIMUM"],
+    )
+
+    result = evaluate_a4_plan(plan, _bars())
+
+    assert result["action"] == A4Action.START_CONFIRMATION.value
+    assert result["state"] == "CONFIRMING"
+    assert result["live_entry_price"] == pytest.approx(10.79)
+    assert result["live_stop_distance_pct"] == pytest.approx((10.79 - 10.0) / 10.79)
+    assert result["live_reward_risk"] == pytest.approx((11.0 - 10.79) / (10.79 - 10.0))
+    assert "A4_LIVE_STOP_DISTANCE_TOO_WIDE" in result["reason_codes"]
+    assert "A4_LIVE_REWARD_RISK_BELOW_MINIMUM" in result["reason_codes"]
+
+
 def test_leader_requires_context_and_520_requires_daily_snapshot() -> None:
     leader = evaluate_a4_plan(_base(StrategyProfile.LEADER_INTRADAY.value), _leader_bars())
     swing = evaluate_a4_plan(_base(StrategyProfile.MA520_SWING.value), _bars())

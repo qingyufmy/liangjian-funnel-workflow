@@ -513,7 +513,7 @@ def test_a2_and_a3_never_expand_the_upstream_pool():
     assert set(a3.review_symbols).issubset(set(a2.review_symbols))
 
 
-def test_a3_server_strategy_uses_frozen_factors_and_enforces_effective_risk_floor():
+def test_a3_server_strategy_defers_reference_risk_floor_to_a4_live_entry():
     snapshot = _snapshot(2)
     snapshot["TECHNICAL_SCORE_WEIGHTS"] = {
         "higher_timeframe_trend": 0.20,
@@ -561,8 +561,11 @@ def test_a3_server_strategy_uses_frozen_factors_and_enforces_effective_risk_floo
     assert ready["strategy_profile"] == "TREND_MA5"
     assert ready["eligibility"] == "QUALIFIED"
     assert "technical_score" not in ready
-    assert weak["status"] == "HARD_REJECT"
+    assert weak["status"] == "REVIEW_CANDIDATE"
+    assert weak["eligibility"] == "QUALIFIED"
     assert "A3_REWARD_RISK_BELOW_MINIMUM" in weak["reason_codes"]
+    assert "A3_REWARD_RISK_BELOW_MINIMUM" in weak["a4_deferred_conditions"]
+    assert "A3_REWARD_RISK_BELOW_MINIMUM" not in weak["veto_conditions"]
 
 
 def test_a2_market_core_uses_real_local_market_factors_without_inventing_capital_flow():
