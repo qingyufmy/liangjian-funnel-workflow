@@ -2493,7 +2493,18 @@ class ResearchPipeline:
             output, _ = _move_a2_hard_rejects_to_rejected(output, gate)
             output["watch_only_pool"] = _deduplicate_stage_items(
                 "watch_only_pool",
-                [*output.get("watch_only_pool", []), *_gate_secondary_items(gate, stage)],
+                [
+                    *output.get("watch_only_pool", []),
+                    *_gate_secondary_items(
+                        gate,
+                        stage,
+                        pool_max=(
+                            _a2_candidate_pool_max(snapshot.data)
+                            if stage == "A2"
+                            else None
+                        ),
+                    ),
+                ],
             )
             output["rejected_candidates"] = _deduplicate_stage_items(
                 "rejected_candidates",
@@ -5928,7 +5939,12 @@ def _chunk_symbol_sets(symbols: Sequence[str], size: int) -> list[set[str]]:
     return [set(ordered[index : index + size]) for index in range(0, len(ordered), size)]
 
 
-def _gate_secondary_items(gate: DeterministicGateResult, stage: str) -> list[dict[str, Any]]:
+def _gate_secondary_items(
+    gate: DeterministicGateResult,
+    stage: str,
+    *,
+    pool_max: int | None = None,
+) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     for decision in gate.decisions:
         status = str(decision.get("status") or "").upper()
@@ -5939,12 +5955,47 @@ def _gate_secondary_items(gate: DeterministicGateResult, stage: str) -> list[dic
         # not sent to the model.
         if stage == "A2" and status == "HARD_REJECT":
             continue
-        if stage == "A2" and decision.get("top_rotation_theme") is False:
-            # Preserve these rows in ``outside_rotation_pool`` below.  They
-            # are audit evidence, not part of the effective A2 universe.
-            continue
+        if stage == "A2":
+            is_top_rotation = decision.get("top_rotation_theme") is True
+            is_hot100_emotion = (
+                str(decision.get("stock_behavior_type") or "").upper() == "EMOTION"
+                and isinstance(decision.get("eastmoney_hot100"), Mapping)
+                and bool(decision.get("eastmoney_hot100"))
+            )
+            if not is_top_rotation and not is_hot100_emotion:
+                # Rows outside the three rotation directions and outside the
+                # independent Eastmoney emotion channel are attribution
+                # evidence, not part of the effective A2 candidate pool.
+                continue
         items.append(_gate_item_from_decision(decision, stage, "WATCH_ONLY" if stage == "A2" else "REJECTED"))
-    return items
+    if stage != "A2":
+        return items
+
+    def ranking(item: Mapping[str, Any]) -> tuple[int, int, float, str]:
+        hot100 = item.get("eastmoney_hot100")
+        hot_rank = (_safe_int(hot100.get("rank")) or 9999) if isinstance(hot100, Mapping) else 9999
+        rotation_rank = _safe_int(item.get("theme_rotation_rank")) or 9999
+        return (
+            0 if rotation_rank < 9999 else 1,
+            min(rotation_rank, hot_rank),
+            -_safe_float(item.get("theme_rotation_score") or item.get("identifiability_score")),
+            _first_symbol(item),
+        )
+
+    items.sort(key=ranking)
+    if pool_max is None:
+        return items
+    remaining = max(0, int(pool_max) - len(gate.review_symbols))
+    return items[:remaining]
+
+
+def _a2_candidate_pool_max(snapshot_data: Mapping[str, Any]) -> int:
+    raw = snapshot_data.get("A2_POOL_TARGETS")
+    if isinstance(raw, Mapping):
+        return max(0, _safe_int(raw.get("pool_max")) or 60)
+    if isinstance(raw, Sequence) and not isinstance(raw, (str, bytes, bytearray)) and len(raw) >= 2:
+        return max(0, _safe_int(raw[1]) or 60)
+    return 60
 
 
 def _gate_outside_rotation_items(gate: DeterministicGateResult) -> list[dict[str, Any]]:

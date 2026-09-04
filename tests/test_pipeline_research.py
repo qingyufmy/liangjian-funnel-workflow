@@ -2027,7 +2027,12 @@ def test_a2_gate_hard_reject_is_not_projected_as_watch_only():
         stage="A2_LOCAL_ROLE",
         decisions=(
             {"symbol": "600001.SH", "status": "HARD_REJECT", "reason_codes": ["A2_LOW_IDENTITY_EXCLUDED"]},
-            {"symbol": "600002.SH", "status": "LOCAL_MONITOR", "reason_codes": ["A2_NOT_SENT_TO_LLM"]},
+            {
+                "symbol": "600002.SH",
+                "status": "LOCAL_MONITOR",
+                "top_rotation_theme": True,
+                "reason_codes": ["A2_NOT_SENT_TO_LLM"],
+            },
             {
                 "symbol": "600003.SH",
                 "status": "LOCAL_MONITOR",
@@ -2047,6 +2052,44 @@ def test_a2_gate_hard_reject_is_not_projected_as_watch_only():
     outside = _gate_outside_rotation_items(gate)
     assert [item["symbol"] for item in outside] == ["600003.SH"]
     assert outside[0]["status"] == "OUTSIDE_ROTATION"
+
+
+def test_a2_effective_pool_keeps_only_top3_and_hot100_emotion_with_capacity_bound():
+    gate = DeterministicGateResult(
+        stage="A2_LOCAL_ROLE",
+        decisions=(
+            {
+                "symbol": "600001.SH",
+                "status": "REVIEW_CANDIDATE",
+                "top_rotation_theme": True,
+            },
+            {
+                "symbol": "600002.SH",
+                "status": "LOCAL_MONITOR",
+                "top_rotation_theme": True,
+                "theme_rotation_rank": 2,
+                "theme_rotation_score": 80,
+            },
+            {
+                "symbol": "600003.SH",
+                "status": "LOCAL_MONITOR",
+                "stock_behavior_type": "EMOTION",
+                "eastmoney_hot100": {"rank": 1},
+            },
+            {
+                "symbol": "600004.SH",
+                "status": "LOCAL_MONITOR",
+                "top_rotation_theme": None,
+            },
+        ),
+        review_symbols=("600001.SH",),
+        monitor_symbols=("600002.SH", "600003.SH", "600004.SH"),
+        rejected_symbols=(),
+    )
+
+    rows = _gate_secondary_items(gate, "A2", pool_max=2)
+
+    assert [row["symbol"] for row in rows] == ["600002.SH"]
 
 
 def test_a2_provider_hard_reject_is_repaired_into_rejected_partition():

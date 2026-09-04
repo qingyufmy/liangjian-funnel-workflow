@@ -1046,6 +1046,15 @@ def screen_a2(
         and isinstance(selected_boards.get("by_symbol"), Mapping)
         else {}
     )
+    fallback_rotation_directions = (
+        _a2_ranked_fallback_directions(
+            snapshot,
+            a1_output=a1_output,
+            limit=rotation_theme_count,
+        )
+        if selected_boards.get("available") is not True
+        else {}
+    )
     taxonomy_theme_map = _a2_taxonomy_theme_map(a1_output)
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     market_grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -1072,6 +1081,7 @@ def screen_a2(
             item,
             symbol,
             factor,
+            preferred_taxonomies=set(fallback_rotation_directions),
         )
         rotation_direction_id = _a2_rotation_direction_id(
             item,
@@ -1173,6 +1183,7 @@ def screen_a2(
             _a2_rotation_fallback_evidence(
                 snapshot,
                 taxonomy_binding=taxonomy_binding,
+                ranked_directions=fallback_rotation_directions,
             )
             if selected_boards.get("available") is not True
             else None
@@ -1405,7 +1416,11 @@ def screen_a2(
             "as_of": snapshot_as_of,
         }
         decisions.append(decision)
-        if trend_core_eligible or (
+        # Rank rotation directions from the full A1 market cross-section.
+        # Stock behaviour is applied only after the strongest directions are
+        # known; otherwise an entire strong board can disappear merely
+        # because its constituents were classified UNRESOLVED at stock level.
+        if selected_board_match is not None or rotation_fallback is not None or (
             not dual_channel_contract
             and _number(taxonomy_binding.get("rotation_strength_score")) is not None
         ):
@@ -1554,6 +1569,7 @@ def _a2_rotation_fallback_evidence(
     snapshot: Mapping[str, Any],
     *,
     taxonomy_binding: Mapping[str, Any],
+    ranked_directions: Mapping[str, Mapping[str, Any]],
 ) -> dict[str, Any] | None:
     """Return an audited trend fallback when the THS selected-board file is absent.
 
@@ -1564,12 +1580,110 @@ def _a2_rotation_fallback_evidence(
     top-three ranking remains downstream of this function.
     """
 
-    if _number(taxonomy_binding.get("rotation_strength_score")) is None:
-        return None
     taxonomy = str(taxonomy_binding.get("taxonomy") or "").strip().upper()
     taxonomy_code = str(taxonomy_binding.get("taxonomy_code") or "").strip().upper()
-    if taxonomy not in {"INDUSTRY", "CONCEPT"} or not taxonomy_code:
-        return None
+    key = f"{taxonomy}:{taxonomy_code}"
+    evidence = ranked_directions.get(key)
+    return dict(evidence) if isinstance(evidence, Mapping) else None
+
+
+def _a2_ranked_fallback_directions(
+    snapshot: Mapping[str, Any],
+    *,
+    a1_output: Mapping[str, Any],
+    limit: int,
+) -> dict[str, dict[str, Any]]:
+    """Rank positive-flow A1 directions before classifying individual stocks."""
+
+    links_by_node: dict[str, list[tuple[str, str]]] = defaultdict(list)
+    theme_by_node: dict[str, str] = {}
+    for link in _mapping_list(a1_output.get("taxonomy_links")):
+        taxonomy = str(link.get("taxonomy") or "").strip().upper()
+        code = str(link.get("taxonomy_code") or "").strip().upper()
+        if taxonomy not in {"INDUSTRY", "CONCEPT"} or not code:
+            continue
+        node_id = str(link.get("node_id") or "").strip()
+        if not node_id:
+            continue
+        links_by_node[node_id].append((taxonomy, code))
+        theme_by_node[node_id] = str(link.get("theme_id") or node_id).strip().upper()
+    industry_members = _membership_map(snapshot.get("THS_INDUSTRY_MEMBERSHIP"), taxonomy="INDUSTRY")
+    concept_members = _membership_map(snapshot.get("THS_CONCEPT_MEMBERSHIP"), taxonomy="CONCEPT")
+    themes_by_key: dict[str, set[str]] = defaultdict(set)
+    for item in _mapping_list(a1_output.get("active_research_pool")):
+        symbol = _symbol(item.get("symbol"))
+        node_id = str(item.get("industry_chain_node") or item.get("node_id") or "").strip()
+        if not symbol or not node_id:
+            continue
+        memberships = {
+            f"INDUSTRY:{str(row.get('taxonomy_code') or '').strip().upper()}"
+            for row in industry_members.get(symbol, ())
+            if str(row.get("taxonomy_code") or "").strip()
+        }
+        memberships.update({
+            f"CONCEPT:{str(row.get('taxonomy_code') or '').strip().upper()}"
+            for row in concept_members.get(symbol, ())
+            if str(row.get("taxonomy_code") or "").strip()
+        })
+        for taxonomy, code in links_by_node.get(node_id, ()):
+            key = f"{taxonomy}:{code}"
+            if key in memberships:
+                themes_by_key[key].add(theme_by_node.get(node_id, node_id.upper()))
+    raw_metrics = snapshot.get("A2_THEME_METRICS")
+    metrics = raw_metrics.get("theme_metrics") if isinstance(raw_metrics, Mapping) else None
+    metrics = metrics if isinstance(metrics, Mapping) else {}
+    candidates: list[dict[str, Any]] = []
+    for key, theme_ids in themes_by_key.items():
+        metric = metrics.get(key)
+        if not isinstance(metric, Mapping) or metric.get("available") is not True:
+            continue
+        strength = _number(metric.get("score"))
+        if strength is None:
+            continue
+        taxonomy, code = key.split(":", 1)
+        flow_evidence = _a2_positive_sector_flow(snapshot, taxonomy=taxonomy, taxonomy_code=code)
+        if flow_evidence is None:
+            continue
+        candidates.append({
+            **flow_evidence,
+            "taxonomy": taxonomy,
+            "taxonomy_code": code,
+            "taxonomy_name": metric.get("taxonomy_name") or flow_evidence.get("taxonomy_name"),
+            "strength": strength,
+            "theme_ids": sorted(theme_ids),
+        })
+    candidates.sort(key=lambda row: (
+        -float(row["strength"]),
+        -float(row["main_net_inflow_cny"]),
+        str(row["taxonomy_code"]),
+    ))
+    selected: list[dict[str, Any]] = []
+    used_theme_ids: set[str] = set()
+    for row in candidates:
+        row_theme_ids = set(row["theme_ids"])
+        if row_theme_ids.intersection(used_theme_ids):
+            continue
+        selected.append(row)
+        used_theme_ids.update(row_theme_ids)
+        if len(selected) >= max(1, int(limit)):
+            break
+    return {
+        f"{row['taxonomy']}:{row['taxonomy_code']}": {
+            **row,
+            "primary_rank": rank,
+            "source_scope": "SECTOR",
+            "reason_code": "A2_SELECTED_BOARD_FALLBACK_SECTOR_EVIDENCE",
+        }
+        for rank, row in enumerate(selected, start=1)
+    }
+
+
+def _a2_positive_sector_flow(
+    snapshot: Mapping[str, Any],
+    *,
+    taxonomy: str,
+    taxonomy_code: str,
+) -> dict[str, Any] | None:
     raw_health = snapshot.get("A2_SECTOR_HEALTH_SNAPSHOT")
     health = raw_health if isinstance(raw_health, Mapping) else {}
     by_taxonomy = health.get("by_taxonomy")
@@ -1592,15 +1706,10 @@ def _a2_rotation_fallback_evidence(
         if main_net_cny is None or main_net_cny <= 0:
             return None
         return {
-            "taxonomy": taxonomy,
-            "taxonomy_code": taxonomy_code,
-            "taxonomy_name": row.get("taxonomy_name") or taxonomy_binding.get("taxonomy_name"),
-            "strength": _number(taxonomy_binding.get("rotation_strength_score")),
+            "taxonomy_name": row.get("taxonomy_name"),
             "main_net_inflow_cny": main_net_cny,
             "change_pct": _number(today.get("change_pct")),
             "source": flow.get("source") or "EASTMONEY_BOARD_CAPITAL_FLOW",
-            "source_scope": "SECTOR",
-            "reason_code": "A2_SELECTED_BOARD_FALLBACK_SECTOR_EVIDENCE",
         }
     return None
 
@@ -2139,6 +2248,7 @@ def _bind_a2_factor_to_a1_lineage(
     item: Mapping[str, Any],
     symbol: str,
     factor: Mapping[str, Any],
+    preferred_taxonomies: set[str] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Bind taxonomy aggregates to the A1 theme/node selected for a stock.
 
@@ -2182,6 +2292,16 @@ def _bind_a2_factor_to_a1_lineage(
         for key in matched
         if isinstance(metrics.get(key), Mapping) and metrics[key].get("available") is True
     ]
+    preferred = set(preferred_taxonomies or ())
+    preferred_rows = [
+        metrics[key]
+        for key in matched
+        if key in preferred
+        and isinstance(metrics.get(key), Mapping)
+        and metrics[key].get("available") is True
+    ]
+    if preferred_rows:
+        rows = preferred_rows
     best = max(rows, key=lambda row: float(_number(row.get("score")) or 0.0), default=None)
     result = dict(factor)
     raw_factors = result.get("factors")
