@@ -14,7 +14,7 @@ def _outputs() -> tuple[dict, dict, dict]:
     a1 = {
         "active_research_pool": [
             {"symbol": "600001.SH", "company_name": "情绪甲", "selection_basis": "DAILY_EMOTION_OVERLAY", "eastmoney_hot_rank": 8, "primary_theme": "军工"},
-            {"symbol": "600002.SH", "company_name": "趋势乙", "selection_basis": "MONTHLY_THEME", "primary_theme": "算力"},
+            {"symbol": "600002.SH", "company_name": "趋势乙", "selection_basis": "MONTHLY_THEME", "primary_theme": "AI_COMPUTE", "monthly_direction_name": "算力"},
             {"symbol": "600003.SH", "company_name": "波段丙", "selection_basis": "MONTHLY_THEME", "primary_theme": "消费电子"},
         ]
     }
@@ -51,6 +51,7 @@ def test_export_projection_is_chinese_and_preserves_three_a3_routes() -> None:
         "A3未包含于A2": [],
     }
     assert {row["类别"] for row in result["A2"]} == {"情绪票", "趋势票"}
+    assert result["A1"][1]["板块"] == "算力"
     assert {row["策略"] for row in result["A3"]} == {
         "情绪龙头",
         "五日与二十日均线波段",

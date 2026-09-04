@@ -194,7 +194,17 @@ def _sector(row: Mapping[str, Any]) -> str:
     board_name = _clean_cn(selected.get("board_name"))
     if board_name:
         return board_name
-    for key in ("selected_board_name", "primary_theme", "theme_name", "industry_chain_node"):
+    # Prefer the user-facing monthly direction on A1 and the concrete sector
+    # index on A2.  Internal theme/node identifiers are deliberately last and
+    # will be discarded by ``_clean_cn``.
+    for key in (
+        "selected_board_name",
+        "monthly_direction_name",
+        "sector_index_name",
+        "primary_theme",
+        "theme_name",
+        "industry_chain_node",
+    ):
         value = _clean_cn(row.get(key))
         if value:
             return value
