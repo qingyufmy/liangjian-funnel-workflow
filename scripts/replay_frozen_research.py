@@ -295,6 +295,63 @@ def _pool_counts(output: object, stage: str) -> dict[str, int]:
     }
 
 
+def _resume_stage_rows(
+    raw: dict[str, object],
+    *,
+    stage: str,
+    audit_root: Path,
+) -> tuple[dict[str, object] | None, tuple[dict[str, object], ...]]:
+    """Resolve the upstream stage and complete A1/A2 lineage for a resume.
+
+    An isolated A2 replay intentionally writes ``a2_stage`` instead of a
+    normal lane ``stages`` array.  A3 must still be able to consume that
+    artifact, so recover its A1 lineage from the bounded ``resume_source_audit``
+    path and combine it with the newly validated A2 stage.
+    """
+
+    if stage == "A3" and str(raw.get("run_role") or "") == "A2_ISOLATED_REPLAY":
+        a2_stage = raw.get("a2_stage")
+        if not isinstance(a2_stage, dict):
+            return None, ()
+        source_value = raw.get("resume_source_audit")
+        source_path = Path(str(source_value or "")).expanduser().resolve()
+        if source_path.parent != audit_root or not source_path.is_file():
+            raise SystemExit("RESUME_A1_LINEAGE_PATH_INVALID")
+        try:
+            source_raw = json.loads(source_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise SystemExit("RESUME_A1_LINEAGE_INVALID") from exc
+        a1_stage = next(
+            (
+                item
+                for item in source_raw.get("stages", ())
+                if isinstance(item, dict) and item.get("stage") == "A1"
+            ),
+            None,
+        ) if isinstance(source_raw, dict) else None
+        lineage = (
+            (a1_stage, a2_stage)
+            if isinstance(a1_stage, dict)
+            else ()
+        )
+        return a2_stage, lineage
+
+    previous_stage = "A1" if stage == "A2" else "A2"
+    stage_rows = tuple(
+        item
+        for item in raw.get("stages", ())
+        if isinstance(item, dict)
+    )
+    previous = next(
+        (item for item in stage_rows if item.get("stage") == previous_stage),
+        None,
+    )
+    lineage = tuple(
+        item for item in stage_rows if item.get("stage") in {"A1", "A2"}
+    )
+    return previous, lineage
+
+
 def _resume_stage(
     application: WorkflowApplication,
     pipeline: ResearchPipeline,
@@ -319,14 +376,10 @@ def _resume_stage(
         raise SystemExit("RESUME_AUDIT_INVALID") from exc
     if not isinstance(raw, dict) or raw.get("model") not in settings.research_models:
         raise SystemExit("RESUME_AUDIT_SCHEMA_INVALID")
-    previous_stage = "A1" if stage == "A2" else "A2"
-    previous = next(
-        (
-            item
-            for item in raw.get("stages", ())
-            if isinstance(item, dict) and item.get("stage") == previous_stage
-        ),
-        None,
+    previous, lineage_rows = _resume_stage_rows(
+        raw,
+        stage=stage,
+        audit_root=audit_root,
     )
     if not isinstance(previous, dict) or not _stage_completed(str(previous.get("status") or "")):
         raise SystemExit("RESUME_UPSTREAM_STAGE_NOT_VALIDATED")
@@ -403,11 +456,7 @@ def _resume_stage(
             diagnostics=audit.diagnostics,
         )
 
-    previous_stages = tuple(
-        _stage_audit_from_dict(item)
-        for item in raw.get("stages", ())
-        if isinstance(item, dict) and item.get("stage") in {"A1", "A2"}
-    )
+    previous_stages = tuple(_stage_audit_from_dict(item) for item in lineage_rows)
     if tuple(item.stage for item in previous_stages) != ("A1", "A2"):
         raise SystemExit("RESUME_AUDIT_STAGE_LINEAGE_INVALID")
     stages = (*previous_stages, audit)

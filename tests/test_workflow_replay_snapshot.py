@@ -8,6 +8,7 @@ import pytest
 from liangjian_funnel import workflow as workflow_module
 from liangjian_funnel.settings import Settings
 from liangjian_funnel.workflow import WorkflowApplication, WorkflowError
+from scripts.replay_frozen_research import _resume_stage_rows
 
 
 TZ = ZoneInfo("Asia/Shanghai")
@@ -56,3 +57,37 @@ def test_snapshot_replay_rejects_hash_and_date_mismatch(tmp_path: Path):
     }), encoding="utf-8")
     with pytest.raises(WorkflowError, match="SNAPSHOT_HASH_MISMATCH"):
         application._load_research_snapshot_by_id(snapshot_id, expected_date="2026-08-28")
+
+
+def test_isolated_a2_replay_can_restore_a1_lineage_for_a3(tmp_path: Path):
+    audit_root = tmp_path.resolve()
+    source_path = audit_root / "source_lane.json"
+    a1_stage = {
+        "stage": "A1",
+        "status": "VALIDATED",
+        "snapshot_id": "snapshot-1",
+        "output": {"active_research_pool": [{"symbol": "600001.SH"}]},
+    }
+    source_path.write_text(
+        json.dumps({"stages": [a1_stage]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    a2_stage = {
+        "stage": "A2",
+        "status": "VALIDATED",
+        "snapshot_id": "snapshot-1:a2",
+        "output": {"focus_pool": [{"symbol": "600001.SH"}]},
+    }
+
+    previous, lineage = _resume_stage_rows(
+        {
+            "run_role": "A2_ISOLATED_REPLAY",
+            "a2_stage": a2_stage,
+            "resume_source_audit": str(source_path),
+        },
+        stage="A3",
+        audit_root=audit_root,
+    )
+
+    assert previous == a2_stage
+    assert [item["stage"] for item in lineage] == ["A1", "A2"]
