@@ -6002,8 +6002,13 @@ def _gate_outside_rotation_items(gate: DeterministicGateResult) -> list[dict[str
     return [
         _gate_item_from_decision(decision, "A2", "OUTSIDE_ROTATION")
         for decision in gate.decisions
-        if decision.get("top_rotation_theme") is False
+        if decision.get("top_rotation_theme") is not True
         and str(decision.get("status") or "").upper() != "HARD_REJECT"
+        and not (
+            str(decision.get("stock_behavior_type") or "").upper() == "EMOTION"
+            and isinstance(decision.get("eastmoney_hot100"), Mapping)
+            and bool(decision.get("eastmoney_hot100"))
+        )
     ]
 
 
@@ -9986,7 +9991,14 @@ def _validate_output(
         reasons.extend(_validate_partition(
             output,
             upstream_symbols,
-            ("focus_pool", "watch_only_pool", "crowded_pool", "low_identity_pool", "rejected_candidates"),
+            (
+                "focus_pool",
+                "watch_only_pool",
+                "outside_rotation_pool",
+                "crowded_pool",
+                "low_identity_pool",
+                "rejected_candidates",
+            ),
             "A2",
         ))
     elif stage == "A3" and (snapshot_data or {}).get("STRICT_AGENT_RULES") is True:
