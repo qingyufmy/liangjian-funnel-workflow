@@ -1057,6 +1057,22 @@ def test_a2_dual_core_pool_keeps_hot100_emotion_and_selected_board_trend_togethe
     assert "A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD" in by_symbol[outside_symbol]["reason_codes"]
     assert set(result.review_symbols) == {emotion_symbol, trend_symbol}
 
+    overlay_rows = [dict(row) for row in rows]
+    overlay_rows[0]["selection_basis"] = "DAILY_EMOTION_OVERLAY"
+    overlay_rows[0]["research_route"] = "DAILY_EMOTION_OVERLAY"
+    overlay_result = screen_a2(
+        snapshot,
+        {"active_research_pool": overlay_rows},
+        minimum_identifiability_score=0,
+        review_all_eligible=True,
+    )
+    overlay_by_symbol = {row["symbol"]: row for row in overlay_result.decisions}
+    assert overlay_by_symbol[emotion_symbol]["a1_formal_member"] is False
+    assert overlay_by_symbol[emotion_symbol]["status"] == "LOCAL_MONITOR"
+    assert overlay_by_symbol[emotion_symbol]["emotion_core_eligible"] is False
+    assert "A2_OUTSIDE_FORMAL_A1_POOL" in overlay_by_symbol[emotion_symbol]["reason_codes"]
+    assert emotion_symbol not in overlay_result.review_symbols
+
     missing_board_snapshot = {
         **snapshot,
         "SELECTED_BOARD_SNAPSHOT": {

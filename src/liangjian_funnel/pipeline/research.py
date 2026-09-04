@@ -5956,6 +5956,11 @@ def _gate_secondary_items(
         if stage == "A2" and status == "HARD_REJECT":
             continue
         if stage == "A2":
+            if decision.get("a1_formal_member") is False:
+                # Overlay-only hot-list rows remain visible in the audit
+                # partition but cannot expand the effective A2 pool beyond
+                # the formal monthly A1 universe.
+                continue
             is_top_rotation = decision.get("top_rotation_theme") is True
             is_hot100_emotion = (
                 str(decision.get("stock_behavior_type") or "").upper() == "EMOTION"
@@ -6005,7 +6010,8 @@ def _gate_outside_rotation_items(gate: DeterministicGateResult) -> list[dict[str
         if decision.get("top_rotation_theme") is not True
         and str(decision.get("status") or "").upper() != "HARD_REJECT"
         and not (
-            str(decision.get("stock_behavior_type") or "").upper() == "EMOTION"
+            decision.get("a1_formal_member") is not False
+            and str(decision.get("stock_behavior_type") or "").upper() == "EMOTION"
             and isinstance(decision.get("eastmoney_hot100"), Mapping)
             and bool(decision.get("eastmoney_hot100"))
         )
@@ -6047,6 +6053,9 @@ def _gate_item_from_decision(
             "theme_rotation_score": decision.get("theme_rotation_score"),
             "rotation_strength_source": decision.get("rotation_strength_source"),
             "top_rotation_theme": decision.get("top_rotation_theme"),
+            "a1_formal_member": decision.get("a1_formal_member") is not False,
+            "upstream_selection_basis": decision.get("upstream_selection_basis"),
+            "upstream_coverage_origin": decision.get("upstream_coverage_origin"),
             "a2_pool_channel": decision.get("a2_pool_channel"),
             "emotion_core_eligible": decision.get("emotion_core_eligible") is True,
             "trend_core_eligible": decision.get("trend_core_eligible") is True,
@@ -7570,6 +7579,7 @@ def _canonicalize_stage_lineage(
                 canonical["top_rotation_theme"] = context.get("top_rotation_theme") is True
                 canonical["rotation_direction_id"] = context.get("rotation_direction_id")
                 canonical["a2_pool_channel"] = context.get("a2_pool_channel")
+                canonical["a1_formal_member"] = context.get("a1_formal_member") is not False
                 canonical["emotion_core_eligible"] = context.get("emotion_core_eligible") is True
                 canonical["trend_core_eligible"] = context.get("trend_core_eligible") is True
                 canonical["eastmoney_hot100"] = dict(context.get("eastmoney_hot100") or {})
@@ -10621,6 +10631,7 @@ def _with_a2_bottleneck_context(
             "top_rotation_theme": item.get("top_rotation_theme"),
             "a2_taxonomy_binding": dict(item.get("a2_taxonomy_binding") or {}),
             "a2_pool_channel": item.get("a2_pool_channel"),
+            "a1_formal_member": item.get("a1_formal_member") is not False,
             "emotion_core_eligible": item.get("emotion_core_eligible") is True,
             "trend_core_eligible": item.get("trend_core_eligible") is True,
             "eastmoney_hot100": dict(item.get("eastmoney_hot100") or {}),

@@ -1063,6 +1063,17 @@ def screen_a2(
         symbol = _symbol(item.get("symbol"))
         if not symbol:
             continue
+        # The Eastmoney top-100 overlay is a daily discovery source attached
+        # to A1 for cross-checking.  It is not part of the frozen monthly A1
+        # research pool by itself.  A2 must remain a strict subset of formal
+        # A1, so an overlay-only row can provide audit evidence but cannot
+        # enter either the emotion or trend candidate channel.
+        selection_basis = str(item.get("selection_basis") or "").strip().upper()
+        research_route = str(item.get("research_route") or "").strip().upper()
+        formal_a1_member = (
+            selection_basis != "DAILY_EMOTION_OVERLAY"
+            and research_route != "DAILY_EMOTION_OVERLAY"
+        )
         upstream_research_route = str(item.get("research_route") or "").strip().upper()
         upstream_research_only = item.get("downstream_trade_eligible") is False
         candidate = candidates.get(symbol, {})
@@ -1302,12 +1313,14 @@ def screen_a2(
         cycle_stage = str(market_emotion.get("emotion_cycle_stage") or "MIXED").upper()
         emotion_cycle_allowed = cycle_stage in {"STARTUP", "IGNITION", "CONFIRMATION", "ACCELERATION"}
         emotion_core_eligible = (
-            hot100_row is not None
+            formal_a1_member
+            and hot100_row is not None
             and behavior_type == "EMOTION"
             and emotion_cycle_allowed
         )
         trend_core_eligible = (
-            behavior_type == "TREND"
+            formal_a1_member
+            and behavior_type == "TREND"
             and (
                 selected_board_match is not None
                 or rotation_fallback is not None
@@ -1321,7 +1334,9 @@ def screen_a2(
         )
         if dual_channel_contract and status == "REVIEW_CANDIDATE" and pool_channel == "NONE":
             status = "LOCAL_MONITOR"
-            if behavior_type == "EMOTION" and hot100_row is None:
+            if not formal_a1_member:
+                reasons.append("A2_OUTSIDE_FORMAL_A1_POOL")
+            elif behavior_type == "EMOTION" and hot100_row is None:
                 reasons.append("A2_EMOTION_NOT_IN_EASTMONEY_HOT100")
             elif behavior_type == "EMOTION" and not emotion_cycle_allowed:
                 reasons.append("A2_EMOTION_CYCLE_NO_NEW_ENTRY")
@@ -1356,6 +1371,9 @@ def screen_a2(
             "node_id": item.get("industry_chain_node") or item.get("node_id"),
             "industry_chain_node": item.get("industry_chain_node") or item.get("node_id"),
             "upstream_candidate_id": item.get("candidate_id") or item.get("upstream_candidate_id"),
+            "a1_formal_member": formal_a1_member,
+            "upstream_selection_basis": selection_basis or None,
+            "upstream_coverage_origin": item.get("coverage_origin"),
             "business_exposure": item.get("business_exposure"),
             "business_exposure_facts": item.get("business_exposure_facts", []),
             "research_route": upstream_research_route or None,
@@ -1420,10 +1438,10 @@ def screen_a2(
         # Stock behaviour is applied only after the strongest directions are
         # known; otherwise an entire strong board can disappear merely
         # because its constituents were classified UNRESOLVED at stock level.
-        if selected_board_match is not None or rotation_fallback is not None or (
+        if formal_a1_member and (selected_board_match is not None or rotation_fallback is not None or (
             not dual_channel_contract
             and _number(taxonomy_binding.get("rotation_strength_score")) is not None
-        ):
+        )):
             market_grouped[rotation_direction_id].append(decision)
         if status == "REVIEW_CANDIDATE" and (trend_core_eligible or not dual_channel_contract):
             grouped[rotation_direction_id].append(decision)
@@ -1611,6 +1629,11 @@ def _a2_ranked_fallback_directions(
     concept_members = _membership_map(snapshot.get("THS_CONCEPT_MEMBERSHIP"), taxonomy="CONCEPT")
     themes_by_key: dict[str, set[str]] = defaultdict(set)
     for item in _mapping_list(a1_output.get("active_research_pool")):
+        if (
+            str(item.get("selection_basis") or "").strip().upper() == "DAILY_EMOTION_OVERLAY"
+            or str(item.get("research_route") or "").strip().upper() == "DAILY_EMOTION_OVERLAY"
+        ):
+            continue
         symbol = _symbol(item.get("symbol"))
         node_id = str(item.get("industry_chain_node") or item.get("node_id") or "").strip()
         if not symbol or not node_id:

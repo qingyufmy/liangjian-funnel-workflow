@@ -2077,6 +2077,13 @@ def test_a2_effective_pool_keeps_only_top3_and_hot100_emotion_with_capacity_boun
                 "eastmoney_hot100": {"rank": 1},
             },
             {
+                "symbol": "600005.SH",
+                "status": "LOCAL_MONITOR",
+                "a1_formal_member": False,
+                "stock_behavior_type": "EMOTION",
+                "eastmoney_hot100": {"rank": 2},
+            },
+            {
                 "symbol": "600004.SH",
                 "status": "LOCAL_MONITOR",
                 "top_rotation_theme": None,
@@ -2090,6 +2097,12 @@ def test_a2_effective_pool_keeps_only_top3_and_hot100_emotion_with_capacity_boun
     rows = _gate_secondary_items(gate, "A2", pool_max=2)
 
     assert [row["symbol"] for row in rows] == ["600002.SH"]
+    expanded_rows = _gate_secondary_items(gate, "A2", pool_max=5)
+    assert [row["symbol"] for row in expanded_rows] == ["600002.SH", "600003.SH"]
+    assert [row["symbol"] for row in _gate_outside_rotation_items(gate)] == [
+        "600005.SH",
+        "600004.SH",
+    ]
 
 
 def test_a2_provider_hard_reject_is_repaired_into_rejected_partition():
