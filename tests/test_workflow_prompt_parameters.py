@@ -28,6 +28,7 @@ def test_prompt_parameters_are_derived_from_versioned_funnel_config() -> None:
     assert parameters["A3_STRATEGY_VERSION"] == config["agent_3"]["strategy_version"]
     assert parameters["A3_ALLOWED_STRATEGIES"] == config["agent_3"]["allowed_strategy_profiles"]
     assert parameters["A3_DECISION_TIMEFRAMES"] == config["agent_3"]["decision_timeframes"]
+    assert parameters["A1_POOL_TARGETS"]["publish_minimum_active_research"] == 200
     assert "MIN_TECHNICAL_SCORE" not in parameters
     assert "TECHNICAL_SCORE_WEIGHTS" not in parameters
     assert "REQUIRED_CONFIRMATIONS" not in parameters

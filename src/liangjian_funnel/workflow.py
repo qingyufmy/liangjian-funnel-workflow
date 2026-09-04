@@ -1791,7 +1791,10 @@ class WorkflowApplication:
                         merged_outputs[lane_id] = dict(base_output)
             if not merged_outputs:
                 raise WorkflowError("A1_MAINTENANCE_OUTPUT_EMPTY")
-            _assert_a1_publishable_coverage(merged_outputs, a1_config)
+            a1_publish_config = prepared.snapshot.data.get("A1_POOL_TARGETS")
+            if not isinstance(a1_publish_config, Mapping):
+                raise WorkflowError("A1_PUBLISH_CONFIG_MISSING")
+            _assert_a1_publishable_coverage(merged_outputs, a1_publish_config)
             delta_payload = scope.as_dict() if scope is not None else {
                 "processed_count": len(updated_symbols),
                 "added_count": len(updated_symbols),
