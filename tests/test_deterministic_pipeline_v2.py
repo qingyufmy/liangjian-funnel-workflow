@@ -1072,8 +1072,18 @@ def test_a2_dual_core_pool_keeps_hot100_emotion_and_selected_board_trend_togethe
     assert set(result.review_symbols) == {emotion_symbol, trend_symbol}
 
     overlay_rows = [dict(row) for row in rows]
-    overlay_rows[0]["selection_basis"] = "DAILY_EMOTION_OVERLAY"
-    overlay_rows[0]["research_route"] = "DAILY_EMOTION_OVERLAY"
+    overlay_rows[0].update({
+        "status": "ACTIVE",
+        "selection_basis": "DAILY_EMOTION_OVERLAY",
+        "research_route": "DAILY_EMOTION_OVERLAY",
+        "emotion_attention_eligible": True,
+        "downstream_trade_eligible": True,
+        # A real daily overlay has no monthly revenue-line proof.  The
+        # emotion route must still reach review only after its own hot-100,
+        # ladder and market-fact gates pass.
+        "business_exposure": "情绪票按题材与接力事实判断",
+        "business_exposure_facts": [],
+    })
     overlay_result = screen_a2(
         snapshot,
         {"active_research_pool": overlay_rows},
@@ -1082,10 +1092,33 @@ def test_a2_dual_core_pool_keeps_hot100_emotion_and_selected_board_trend_togethe
     )
     overlay_by_symbol = {row["symbol"]: row for row in overlay_result.decisions}
     assert overlay_by_symbol[emotion_symbol]["a1_formal_member"] is False
-    assert overlay_by_symbol[emotion_symbol]["status"] == "LOCAL_MONITOR"
-    assert overlay_by_symbol[emotion_symbol]["emotion_core_eligible"] is False
-    assert "A2_OUTSIDE_FORMAL_A1_POOL" in overlay_by_symbol[emotion_symbol]["reason_codes"]
-    assert emotion_symbol not in overlay_result.review_symbols
+    assert overlay_by_symbol[emotion_symbol]["monthly_a1_member"] is False
+    assert overlay_by_symbol[emotion_symbol]["daily_a1_member"] is True
+    assert overlay_by_symbol[emotion_symbol]["status"] == "REVIEW_CANDIDATE"
+    assert overlay_by_symbol[emotion_symbol]["emotion_core_eligible"] is True
+    assert overlay_by_symbol[emotion_symbol]["trend_core_eligible"] is False
+    assert overlay_by_symbol[emotion_symbol]["a2_pool_channel"] == "EMOTION"
+    assert overlay_by_symbol[emotion_symbol]["top_rotation_theme"] is None
+    assert emotion_symbol in overlay_result.review_symbols
+    daily_a1_symbols = {
+        item["symbol"] for item in overlay_result.decisions if item["daily_a1_member"] is True
+    }
+    monthly_a1_symbols = {
+        item["symbol"] for item in overlay_result.decisions if item["monthly_a1_member"] is True
+    }
+    emotion_review_symbols = {
+        item["symbol"]
+        for item in overlay_result.decisions
+        if item["status"] == "REVIEW_CANDIDATE" and item["a2_pool_channel"] == "EMOTION"
+    }
+    trend_review_symbols = {
+        item["symbol"]
+        for item in overlay_result.decisions
+        if item["status"] == "REVIEW_CANDIDATE" and item["a2_pool_channel"] == "TREND"
+    }
+    assert emotion_review_symbols <= daily_a1_symbols
+    assert trend_review_symbols <= monthly_a1_symbols
+    assert emotion_symbol not in trend_review_symbols
 
     missing_board_snapshot = {
         **snapshot,
@@ -1104,11 +1137,107 @@ def test_a2_dual_core_pool_keeps_hot100_emotion_and_selected_board_trend_togethe
     missing_by_symbol = {row["symbol"]: row for row in missing_board.decisions}
     assert missing_by_symbol[emotion_symbol]["status"] == "REVIEW_CANDIDATE"
     assert missing_by_symbol[emotion_symbol]["a2_pool_channel"] == "EMOTION"
+    assert missing_by_symbol[emotion_symbol]["emotion_core_eligible"] is True
+    assert missing_by_symbol[emotion_symbol]["rotation_input_source"] == "SELECTED_BOARD_SNAPSHOT_UNAVAILABLE"
     assert missing_by_symbol[trend_symbol]["status"] == "LOCAL_MONITOR"
+    assert missing_by_symbol[trend_symbol]["trend_core_eligible"] is False
     assert "A2_SELECTED_BOARD_SOURCE_UNAVAILABLE" in missing_by_symbol[trend_symbol]["reason_codes"]
 
 
-def test_a2_missing_selected_board_uses_available_full_market_rotation() -> None:
+def test_a2_daily_emotion_overlay_risk_and_trade_boundaries_stay_closed() -> None:
+    snapshot = _snapshot(1)
+    symbol = snapshot["g0_symbols"][0]
+    snapshot["A2_SCORE_WEIGHTS"] = {name: 1.0 for name in _complete_a2_factor_scores(90)}
+    snapshot["CAPITAL_FLOW_SNAPSHOT"] = {
+        "available": True,
+        "by_symbol": {symbol: {"available": True, "capital_flow_score": 90}},
+    }
+    snapshot["MARKET_EMOTION_SNAPSHOT"] = {
+        "available": True,
+        "emotion_cycle_stage": "STARTUP",
+        "new_long_permission": "PROBE_ONLY",
+    }
+    snapshot["EASTMONEY_HOT100_SNAPSHOT"] = {
+        "available": True,
+        "trade_date": "2026-08-27",
+        "record_count": 100,
+        "records": [{"symbol": symbol, "name": "情绪龙头", "rank": 1}],
+    }
+    factors = _complete_a2_factor_scores(90)
+    factors["tier_structure"] = {
+        "score": 90,
+        "available": True,
+        "availability_state": "OBSERVED_VALUE",
+        "ladder_height": 1,
+        "first_board_observed": True,
+        "event_source": "HITHINK_LIMIT_UP_POOL",
+    }
+    factors["weekly_confirmation"] = {"score": 90, "available": True}
+    base_overlay = {
+        "symbol": symbol,
+        "candidate_id": f"A1-EMOTION-{symbol}",
+        "status": "ACTIVE",
+        "selection_basis": "DAILY_EMOTION_OVERLAY",
+        "research_route": "DAILY_EMOTION_OVERLAY",
+        "emotion_attention_eligible": True,
+        "primary_theme": "当日情绪热度候选",
+        "industry_chain_node": "情绪票日度观察层",
+        "business_exposure": "情绪票按题材与接力事实判断",
+        "business_exposure_facts": [],
+        "a2_factor_scores": factors,
+        "data_quality_score": 90,
+        "downstream_trade_eligible": True,
+    }
+
+    healthy = screen_a2(
+        snapshot,
+        {"active_research_pool": [base_overlay]},
+        minimum_identifiability_score=0,
+        review_all_eligible=True,
+    )
+    healthy_item = healthy.decisions[0]
+    assert healthy_item["daily_a1_member"] is True
+    assert healthy_item["monthly_a1_member"] is False
+    assert healthy_item["a2_pool_channel"] == "EMOTION"
+    assert healthy_item["status"] == "REVIEW_CANDIDATE"
+    assert "A2_DAILY_EMOTION_BUSINESS_EVIDENCE_NOT_REQUIRED" in healthy_item["route_eligibility"]["MARKET_CORE"]["diagnostic_reason_codes"]
+
+    trade_blocked = dict(base_overlay)
+    trade_blocked["downstream_trade_eligible"] = False
+    blocked = screen_a2(
+        snapshot,
+        {"active_research_pool": [trade_blocked]},
+        minimum_identifiability_score=0,
+        review_all_eligible=True,
+    )
+    blocked_item = blocked.decisions[0]
+    assert blocked_item["status"] == "HARD_REJECT"
+    assert blocked_item["daily_a1_member"] is False
+    assert blocked_item["emotion_core_eligible"] is False
+    assert blocked_item["trend_core_eligible"] is False
+    assert blocked.review_symbols == ()
+    assert "A2_UPSTREAM_RESEARCH_ONLY" in blocked_item["reason_codes"]
+
+    risk_snapshot = {**snapshot, "RISK_EVENTS": {
+        "available": True,
+        "records": [{"symbol": symbol, "severity": "HIGH", "event_type": "FRAUD"}],
+    }}
+    risk = screen_a2(
+        risk_snapshot,
+        {"active_research_pool": [base_overlay]},
+        minimum_identifiability_score=0,
+        review_all_eligible=True,
+    )
+    risk_item = risk.decisions[0]
+    assert risk_item["status"] == "HARD_REJECT"
+    assert risk_item["daily_a1_member"] is False
+    assert risk_item["emotion_core_eligible"] is False
+    assert risk_item["trend_core_eligible"] is False
+    assert risk.review_symbols == ()
+    assert risk_item["hard_risk_events"][0]["event_type"] == "FRAUD"
+    assert "A2_HARD_RISK_PRESENT" in risk_item["reason_codes"]
+
+def test_a2_missing_selected_board_field_uses_available_full_market_rotation() -> None:
     snapshot = _snapshot(1)
     symbol = snapshot["g0_symbols"][0]
     snapshot["THS_INDUSTRY_MEMBERSHIP"]["records"][0]["memberships"] = [{
@@ -1119,11 +1248,6 @@ def test_a2_missing_selected_board_uses_available_full_market_rotation() -> None
     snapshot["CAPITAL_FLOW_SNAPSHOT"] = {
         "available": True,
         "by_symbol": {symbol: {"available": True, "capital_flow_score": 90}},
-    }
-    snapshot["SELECTED_BOARD_SNAPSHOT"] = {
-        "available": False,
-        "reason_code": "SELECTED_BOARD_SNAPSHOT_MISSING",
-        "by_symbol": {},
     }
     snapshot["A2_THEME_METRICS"] = {
         "theme_metrics": {
@@ -1196,6 +1320,7 @@ def test_a2_missing_selected_board_uses_available_full_market_rotation() -> None
     assert item["trend_core_eligible"] is True
     assert item["rotation_fallback"] is None
     assert item["full_market_rotation"]["taxonomy_code"] == "884001.TI"
+    assert item["rotation_input_source"] == "FULL_MARKET_ROTATION_FALLBACK"
     assert item["top_rotation_theme"] is True
     assert item["rotation_strength_source"] == "A2_THEME_METRICS"
 
@@ -1684,7 +1809,7 @@ def test_screen_a2_ranks_concrete_sector_indices_from_frozen_market_strength() -
     }
 
 
-def test_screen_a2_prefers_full_market_rotation_and_groups_same_a1_theme_children() -> None:
+def test_screen_a2_available_selected_board_is_authoritative_over_conflicting_metrics() -> None:
     snapshot = _snapshot(3)
     symbols = snapshot["g0_symbols"]
     codes = [f"FULL{index:03d}.TI" for index in range(3)]
@@ -1731,19 +1856,37 @@ def test_screen_a2_prefers_full_market_rotation_and_groups_same_a1_theme_childre
             },
         },
     }
-    # The curated source deliberately claims the weakest full-market direction
-    # is its primary board.  It must remain visible as cross-check evidence but
-    # cannot replace the local metrics/flow top five.
+    # The versioned selected-board snapshot deliberately claims the weakest
+    # full-market direction is the primary board for the first two A1 rows.
+    # It is the production fixed-theme top-five contract and must win over
+    # conflicting A2_THEME_METRICS/sector-health rankings.
     snapshot["SELECTED_BOARD_SNAPSHOT"] = {
         "available": True,
         "by_symbol": {
-            symbols[2]: [{
+            symbols[0]: [{
                 "board_code": "CURATED-WEAK",
-                "board_name": "精选弱势板块",
+                "board_name": "精选固定主题",
+                "strength": 10,
+                "main_net_inflow_cny": 1_000_000,
+                "selected_for_rotation": True,
+                "primary_rank": 1,
+            }],
+            symbols[1]: [{
+                "board_code": "CURATED-WEAK",
+                "board_name": "精选固定主题",
+                "strength": 10,
+                "main_net_inflow_cny": 900_000,
+                "selected_for_rotation": True,
+                "primary_rank": 1,
+                "is_child_board": True,
+            }],
+            symbols[2]: [{
+                "board_code": "CURATED-OUTSIDE",
+                "board_name": "精选非前五主题",
                 "strength": 9999,
                 "main_net_inflow_cny": 9_999_999,
                 "selected_for_rotation": True,
-                "primary_rank": 1,
+                "primary_rank": 6,
             }],
         },
     }
@@ -1788,22 +1931,24 @@ def test_screen_a2_prefers_full_market_rotation_and_groups_same_a1_theme_childre
     )
     by_symbol = {item["symbol"]: item for item in result.decisions}
 
-    assert by_symbol[symbols[0]]["rotation_direction_id"] == f"INDUSTRY:{codes[0]}"
+    assert by_symbol[symbols[0]]["rotation_direction_id"] == "SELECTED_BOARD:CURATED-WEAK"
     assert by_symbol[symbols[0]]["top_rotation_theme"] is True
     assert by_symbol[symbols[0]]["theme_rotation_rank"] == 1
-    assert by_symbol[symbols[0]]["rotation_strength_source"] == "A2_THEME_METRICS"
-    assert by_symbol[symbols[1]]["rotation_direction_id"] == f"INDUSTRY:{codes[0]}"
+    assert by_symbol[symbols[0]]["rotation_strength_source"] == "LEGACY_SELECTED_BOARD_STRENGTH"
+    assert by_symbol[symbols[0]]["rotation_input_source"] == "SELECTED_BOARD_SNAPSHOT"
+    assert by_symbol[symbols[0]]["full_market_rotation"] is None
+    assert by_symbol[symbols[1]]["rotation_direction_id"] == "SELECTED_BOARD:CURATED-WEAK"
     assert by_symbol[symbols[1]]["top_rotation_theme"] is True
     assert by_symbol[symbols[1]]["theme_rotation_rank"] == 1
     assert by_symbol[symbols[1]]["status"] == "REVIEW_CANDIDATE"
-    assert by_symbol[symbols[2]]["top_rotation_theme"] is False
-    assert by_symbol[symbols[2]]["theme_rotation_rank"] == 2
     assert by_symbol[symbols[2]]["status"] == "LOCAL_MONITOR"
-    assert by_symbol[symbols[2]]["selected_board"]["board_code"] == "CURATED-WEAK"
+    assert by_symbol[symbols[2]]["trend_core_eligible"] is False
+    assert by_symbol[symbols[2]]["selected_board"] is None
+    assert "A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5" in by_symbol[symbols[2]]["reason_codes"]
     assert set(result.review_symbols) == set(symbols[:2])
 
 
-def test_screen_a2_uses_curated_board_only_when_full_market_rotation_facts_are_unavailable() -> None:
+def test_screen_a2_available_selected_board_opens_only_its_top_five_rows() -> None:
     snapshot = _snapshot(2)
     symbols = snapshot["g0_symbols"]
     snapshot["SELECTED_BOARD_SNAPSHOT"] = {
@@ -1851,10 +1996,14 @@ def test_screen_a2_uses_curated_board_only_when_full_market_rotation_facts_are_u
     assert by_symbol[symbols[1]]["rotation_direction_id"] == "SELECTED_BOARD:CURATED-ONLY"
     assert by_symbol[symbols[1]]["status"] == "REVIEW_CANDIDATE"
     assert by_symbol[symbols[1]]["trend_core_eligible"] is True
+    assert by_symbol[symbols[1]]["rotation_input_source"] == "SELECTED_BOARD_SNAPSHOT"
     assert symbols[1] in result.review_symbols
+    assert by_symbol[symbols[0]]["status"] == "LOCAL_MONITOR"
+    assert by_symbol[symbols[0]]["trend_core_eligible"] is False
+    assert "A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5" in by_symbol[symbols[0]]["reason_codes"]
 
 
-def test_screen_a2_does_not_treat_no_positive_flow_as_full_market_source_failure() -> None:
+def test_screen_a2_selected_board_unavailable_fails_closed_even_with_metrics() -> None:
     snapshot = _snapshot(1)
     symbol = snapshot["g0_symbols"][0]
     code = "NOFLOW.TI"
@@ -1889,13 +2038,14 @@ def test_screen_a2_does_not_treat_no_positive_flow_as_full_market_source_failure
             },
         },
     }
-    # A curated positive row must not be allowed to override the complete
-    # full-market observation of no positive-flow direction.
+    # An explicit unavailable production snapshot must fail closed for trend;
+    # complete A2 metrics/health facts are not a fallback once the field exists.
     snapshot["SELECTED_BOARD_SNAPSHOT"] = {
-        "available": True,
+        "available": False,
+        "reason_code": "SELECTED_BOARD_SNAPSHOT_SOURCE_UNAVAILABLE",
         "by_symbol": {
             symbol: [{
-                "board_code": "CURATED-STALE",
+                "board_code": "SHOULD-NOT-BYPASS",
                 "strength": 999,
                 "main_net_inflow_cny": 2_000_000,
                 "selected_for_rotation": True,
@@ -1936,7 +2086,9 @@ def test_screen_a2_does_not_treat_no_positive_flow_as_full_market_source_failure
     assert item["status"] == "LOCAL_MONITOR"
     assert item["trend_core_eligible"] is False
     assert item["full_market_rotation"] is None
-    assert "A2_NO_POSITIVE_FLOW_ROTATION_DIRECTION" in item["reason_codes"]
+    assert item["rotation_fallback"] is None
+    assert item["rotation_input_source"] == "SELECTED_BOARD_SNAPSHOT_UNAVAILABLE"
+    assert "A2_SELECTED_BOARD_SOURCE_UNAVAILABLE" in item["reason_codes"]
     assert result.review_symbols == ()
 
 

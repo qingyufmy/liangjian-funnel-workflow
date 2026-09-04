@@ -24,6 +24,7 @@ from liangjian_funnel.data.rotation_theme import (
     RotationThemeConfigError,
     RotationThemeDataError,
     _content_hash,
+    aggregate_tencent_theme_flows,
     build_membership_snapshot,
     build_rotation_theme_snapshot,
     calculate_rotation_strength,
@@ -158,7 +159,8 @@ def _metric_row(
     kind: str = "PRIMARY",
     parent: str | None = None,
     main: float = 100.0,
-    fund_coverage: float = 1.0,
+    fund_coverage: float | None = 1.0,
+    flow_coverage: float | None = None,
     price_coverage: float = 1.0,
     eastmoney_main: float | None = 100.0,
     relative: float = 5.0,
@@ -186,6 +188,7 @@ def _metric_row(
         "member_snapshot_trade_date": DAY,
         "price_coverage": price_coverage,
         "turnover_coverage": fund_coverage,
+        "flow_coverage": flow_coverage,
         "tencent_main_net_inflow_cny": main,
         "eastmoney_main_net_inflow_cny": eastmoney_main,
         **values,
@@ -525,6 +528,118 @@ def test_selection_gates_require_positive_tencent_flow_coverage_price_and_consis
         "LOW_PRICE": "OBSERVATION_ONLY_PRICE_COVERAGE_LOW",
         "EAST_CONFLICT": "OBSERVATION_ONLY_EASTMONEY_FLOW_CONFLICT",
     }
+
+
+def test_effective_fund_coverage_prefers_validated_turnover_over_member_count():
+    row = _metric_row("TURNOVER_FIRST", fund_coverage=0.8, flow_coverage=0.1)
+    result = calculate_rotation_strength([row], expected_trade_date=DAY)
+    board = _board(result, "TURNOVER_FIRST")
+
+    assert board["turnover_coverage"] == pytest.approx(0.8)
+    assert board["flow_coverage"] == pytest.approx(0.1)
+    assert board["effective_fund_coverage"] == pytest.approx(0.8)
+    assert board["coverage_basis"] == "turnover"
+    assert board["coverage_degraded"] is False
+    assert board["coverage_degraded_reason"] is None
+    assert board["selection_status"] == "ELIGIBLE_PRIMARY"
+
+
+def test_effective_fund_coverage_degrades_to_member_count_when_turnover_missing():
+    row = _metric_row("MEMBER_COUNT_FALLBACK", fund_coverage=None, flow_coverage=0.8)
+    result = calculate_rotation_strength([row], expected_trade_date=DAY)
+    board = _board(result, "MEMBER_COUNT_FALLBACK")
+
+    assert board["turnover_coverage"] is None
+    assert board["flow_coverage"] == pytest.approx(0.8)
+    assert board["effective_fund_coverage"] == pytest.approx(0.8)
+    assert board["coverage_basis"] == "member_count"
+    assert board["coverage_degraded"] is True
+    assert board["coverage_degraded_reason"] == "TENCENT_TURNOVER_DENOMINATOR_UNAVAILABLE"
+    assert board["selection_status"] == "ELIGIBLE_PRIMARY"
+
+
+def test_member_count_fallback_below_threshold_still_blocks_selection():
+    row = _metric_row("LOW_MEMBER_COUNT", fund_coverage=None, flow_coverage=0.79)
+    result = calculate_rotation_strength([row], expected_trade_date=DAY)
+    board = _board(result, "LOW_MEMBER_COUNT")
+
+    assert board["coverage_basis"] == "member_count"
+    assert board["effective_fund_coverage"] == pytest.approx(0.79)
+    assert board["selection_status"] == "OBSERVATION_ONLY_TENCENT_COVERAGE_LOW"
+
+
+def test_member_count_fallback_does_not_bypass_independent_price_coverage_gate():
+    row = _metric_row("LOW_MEMBER_PRICE", fund_coverage=None, flow_coverage=0.8, price_coverage=0.89)
+    result = calculate_rotation_strength([row], expected_trade_date=DAY)
+    board = _board(result, "LOW_MEMBER_PRICE")
+
+    assert board["effective_fund_coverage"] == pytest.approx(0.8)
+    assert board["selection_status"] == "OBSERVATION_ONLY_PRICE_COVERAGE_LOW"
+
+
+def test_tencent_coverage_fallback_and_b_share_exclusion_keep_a_share_denominator():
+    flows = [
+        {"symbol": "600001.SH", "main_net_inflow_cny": 100.0},
+        {"symbol": "000002.SZ", "main_net_inflow_cny": 100.0},
+        {"symbol": "830001.BJ", "main_net_inflow_cny": 100.0},
+    ]
+    members = {
+        "AGRI": [
+            {"symbol": "600001.SH", "turnover_cny": None},
+            {"symbol": "000002.SZ", "turnover_cny": None},
+            {"symbol": "200019.SZ", "turnover_cny": None},
+            {"symbol": "900901.SH", "turnover_cny": None},
+            {"symbol": "830001.BJ", "turnover_cny": None},
+        ]
+    }
+
+    metrics = aggregate_tencent_theme_flows(flows, members, expected_trade_date=DAY)
+    board = metrics["AGRI"]
+
+    assert board["member_count"] == 3
+    assert board["covered_member_count"] == 3
+    assert board["flow_coverage"] == pytest.approx(1.0)
+    assert board["turnover_coverage"] is None
+    assert board["effective_fund_coverage"] == pytest.approx(1.0)
+    assert board["coverage_basis"] == "member_count"
+    assert board["coverage_degraded"] is True
+    assert board["excluded_non_a_share_symbols"] == ["200019.SZ", "900901.SH"]
+
+
+def test_collection_excludes_b_shares_before_daily_price_coverage_denominator(tmp_path: Path):
+    registry = _write_registry(tmp_path / "registry.yaml")
+
+    def member_page(kind: str, value: str, page: int, page_size: int) -> dict:
+        if kind != "members":
+            return _east_page_for(DAY, CAPTURE, kind, value, page, page_size)
+        rows = [
+            {"f12": "600001", "f14": "甲公司", "f2": 10.0, "f3": 5.0, "f5": 100, "f6": 1000},
+            {"f12": "000002", "f14": "乙公司", "f2": 20.0, "f3": 2.0, "f5": 200, "f6": 2000},
+            {"f12": "830001", "f14": "北交所公司", "f2": 30.0, "f3": 1.0, "f5": 300, "f6": 3000},
+            {"f12": "200019", "f14": "深B股", "f2": 40.0, "f3": 1.0, "f5": 400, "f6": 4000},
+            {"f12": "900901", "f14": "沪B股", "f2": 50.0, "f3": 1.0, "f5": 500, "f6": 5000},
+        ]
+        return {"total": len(rows), "rows": rows, "captured_at": CAPTURE.isoformat()}
+
+    fetchers = _top_level_fetchers()
+    fetchers["eastmoney_members"] = member_page
+    result = collect_rotation_theme_snapshot(
+        as_of=AS_OF,
+        expected_trade_date=DAY,
+        registry_path=registry,
+        snapshot_dir=tmp_path / "daily",
+        fetchers=fetchers,
+        tencent_capture_timestamp=CAPTURE,
+        workers=2,
+    )
+    board = _board(result, "TEST_THEME")
+
+    assert board["member_count"] == 3
+    assert board["price_coverage"] == pytest.approx(1.0)
+    assert board["excluded_non_a_share_count"] == 2
+    assert board["excluded_non_a_share_symbols"] == ["200019.SZ", "900901.SH"]
+    assert all(symbol not in board["constituents"] for symbol in ("200019.SZ", "900901.SH"))
+    assert "830001.BJ" in board["constituents"]
 
 
 def test_child_inherits_parent_rank_without_consuming_primary_top5():

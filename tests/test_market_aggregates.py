@@ -387,10 +387,202 @@ def test_sector_health_joins_real_board_flow_by_exact_cross_vendor_name() -> Non
     chemical = next(row for row in result["industry"]["sectors"] if row["taxonomy_name"] == "化工")
     agriculture = next(row for row in result["industry"]["sectors"] if row["taxonomy_name"] == "农业种植")
     assert chemical["capital_flow"]["source_scope"] == "SECTOR"
+    assert chemical["capital_flow"]["match_method"] == "EXACT_NAME"
+    assert chemical["capital_flow"]["source_board_name"] == "化工"
     assert chemical["capital_flow"]["windows"]["today"]["main_net_cny"] == 8_000_000
     assert agriculture["capital_flow"]["windows"]["5d"]["main_pct"] == 5.0
     assert chemical["capital_flow"]["score"] != agriculture["capital_flow"]["score"]
     assert result["turnover_is_capital_flow"] is False
+
+
+def test_sector_health_prefers_exact_shared_board_code_and_keeps_source_name() -> None:
+    facts = _sector_facts(taxonomy="industry", code="BK0477", name="THS行业名")
+    result = build_sector_health_snapshot(
+        facts,
+        [{"symbol": "600001.SH", "change_ratio_pct": 2.0, "amount": 100.0}],
+        symbols=["600001.SH"],
+        as_of=NOW,
+        board_capital_flow_snapshot=_board_flow(industry=[
+            {"rank": 1, "code": "BK0477", "name": "东方财富行业名", "main_net_cny": 8_000_000},
+        ]),
+    )
+
+    flow = result["industry"]["sectors"][0]["capital_flow"]
+    assert flow["match_method"] == "EXACT_CODE"
+    assert flow["source_board_code"] == "BK0477"
+    assert flow["source_board_name"] == "东方财富行业名"
+    assert flow["target_taxonomy_name"] == "THS行业名"
+
+
+def _sector_facts(*, taxonomy: str, code: str, name: str, symbol: str = "600001.SH") -> dict:
+    facts = _facts()
+    facts[f"THS_{taxonomy.upper()}_CATALOG"] = _fact([{
+        "taxonomy_code": code,
+        "taxonomy_name": name,
+    }])
+    facts[f"THS_{taxonomy.upper()}_MEMBERSHIP"] = _fact([{
+        "thscode": symbol,
+        "memberships": [{
+            f"{taxonomy}_thscode": code,
+            f"{taxonomy}_name": name,
+        }],
+    }])
+    return facts
+
+
+def _board_flow(*, industry: list[dict] | None = None, concept: list[dict] | None = None) -> dict:
+    def period(records: list[dict] | None) -> dict:
+        return {
+            "available": True,
+            "content_hash": "fixture",
+            "records": records or [],
+        }
+
+    return {
+        "by_taxonomy": {
+            "industry": {"today": period(industry)},
+            "concept": {"today": period(concept)},
+        },
+    }
+
+
+def test_sector_health_joins_explicit_aliases_in_both_directions_and_audits_source_name() -> None:
+    facts = _sector_facts(taxonomy="concept", code="885001.TI", name="猪肉")
+    facts["THS_CONCEPT_CATALOG"] = _fact([
+        {"taxonomy_code": "885001.TI", "taxonomy_name": "猪肉"},
+        {"taxonomy_code": "885002.TI", "taxonomy_name": "白酒概念"},
+    ])
+    facts["THS_CONCEPT_MEMBERSHIP"] = _fact([
+        {
+            "thscode": "600001.SH",
+            "memberships": [{"concept_thscode": "885001.TI", "concept_name": "猪肉"}],
+        },
+        {
+            "thscode": "600002.SH",
+            "memberships": [{"concept_thscode": "885002.TI", "concept_name": "白酒概念"}],
+        },
+    ])
+    result = build_sector_health_snapshot(
+        facts,
+        [
+            {"symbol": "600001.SH", "change_ratio_pct": 2.0, "amount": 100.0},
+            {"symbol": "600002.SH", "change_ratio_pct": 1.0, "amount": 100.0},
+        ],
+        symbols=["600001.SH", "600002.SH"],
+        as_of=NOW,
+        board_capital_flow_snapshot=_board_flow(concept=[
+            {"rank": 1, "code": "BK-PORK", "name": "猪肉概念", "main_net_cny": 10_000_000},
+            {"rank": 2, "code": "BK-LIQUOR", "name": "白酒", "main_net_cny": 8_000_000},
+        ]),
+    )
+
+    rows = {row["taxonomy_name"]: row for row in result["concept"]["sectors"]}
+    pork = rows["猪肉"]["capital_flow"]
+    liquor = rows["白酒概念"]["capital_flow"]
+    assert pork["match_method"] == "EXPLICIT_ALIAS"
+    assert pork["source_board_name"] == "猪肉概念"
+    assert pork["alias_group"] == ["猪肉", "猪肉概念"]
+    assert liquor["match_method"] == "EXPLICIT_ALIAS"
+    assert liquor["source_board_name"] == "白酒"
+    assert liquor["alias_group"] == ["白酒", "白酒概念"]
+    assert all(row["capital_flow"]["target_taxonomy"] == "concept" for row in rows.values())
+
+
+def test_sector_health_joins_industry_media_alias_without_cross_taxonomy_guess() -> None:
+    facts = _sector_facts(taxonomy="industry", code="881001.TI", name="文化传媒")
+    result = build_sector_health_snapshot(
+        facts,
+        [{"symbol": "600001.SH", "change_ratio_pct": 2.0, "amount": 100.0}],
+        symbols=["600001.SH"],
+        as_of=NOW,
+        board_capital_flow_snapshot=_board_flow(
+            industry=[{"rank": 1, "code": "BK-MEDIA", "name": "传媒", "main_net_cny": 6_000_000}],
+            concept=[{"rank": 1, "code": "BK-CONCEPT-MEDIA", "name": "文化传媒", "main_net_cny": 9_000_000}],
+        ),
+    )
+
+    media = result["industry"]["sectors"][0]["capital_flow"]
+    assert media["match_method"] == "EXPLICIT_ALIAS"
+    assert media["source_board_name"] == "传媒"
+    assert media["target_taxonomy"] == "industry"
+    assert result["industry"]["sectors"][0]["capital_flow"]["source_board_code"] == "BK-MEDIA"
+
+
+def test_sector_health_rejects_ambiguous_alias_instead_of_picking_a_board() -> None:
+    facts = _sector_facts(taxonomy="concept", code="885001.TI", name="白酒概念")
+    result = build_sector_health_snapshot(
+        facts,
+        [{"symbol": "600001.SH", "change_ratio_pct": 2.0, "amount": 100.0}],
+        symbols=["600001.SH"],
+        as_of=NOW,
+        board_capital_flow_snapshot=_board_flow(concept=[
+            {"rank": 1, "code": "BK-LIQUOR-A", "name": "白酒", "main_net_cny": 6_000_000},
+            {"rank": 2, "code": "BK-LIQUOR-B", "name": "白酒", "main_net_cny": 5_000_000},
+        ]),
+    )
+
+    sector = result["concept"]["sectors"][0]
+    assert sector["capital_flow_available"] is False
+    assert sector["capital_flow_reason_code"] == "AMBIGUOUS_BOARD_FLOW_ALIAS"
+    assert sector["capital_flow"]["match_method"] == "AMBIGUOUS_ALIAS"
+    assert len(sector["capital_flow"]["candidate_source_boards"]) == 2
+    assert sector["capital_flow"]["source_board_name"] is None
+
+
+def test_sector_health_keeps_taxonomy_isolation_for_explicit_aliases() -> None:
+    facts = _sector_facts(taxonomy="industry", code="881001.TI", name="文化传媒")
+    result = build_sector_health_snapshot(
+        facts,
+        [{"symbol": "600001.SH", "change_ratio_pct": 2.0, "amount": 100.0}],
+        symbols=["600001.SH"],
+        as_of=NOW,
+        board_capital_flow_snapshot=_board_flow(concept=[
+            {"rank": 1, "code": "BK-CONCEPT-MEDIA", "name": "传媒", "main_net_cny": 9_000_000},
+        ]),
+    )
+
+    sector = result["industry"]["sectors"][0]
+    assert sector["capital_flow_available"] is False
+    assert sector["capital_flow_reason_code"] == "SECTOR_NOT_IN_BOARD_FLOW_RANKING"
+    assert sector["capital_flow"]["match_method"] == "NO_MATCH"
+    assert sector["capital_flow"]["source_board_name"] is None
+
+
+def test_sector_health_does_not_make_fuzzy_ai_or_region_aliases() -> None:
+    facts = _sector_facts(taxonomy="concept", code="885001.TI", name="AI视频")
+    facts["THS_CONCEPT_CATALOG"] = _fact([
+        {"taxonomy_code": "885001.TI", "taxonomy_name": "AI视频"},
+        {"taxonomy_code": "885002.TI", "taxonomy_name": "海峡两岸"},
+    ])
+    facts["THS_CONCEPT_MEMBERSHIP"] = _fact([
+        {
+            "thscode": "600001.SH",
+            "memberships": [{"concept_thscode": "885001.TI", "concept_name": "AI视频"}],
+        },
+        {
+            "thscode": "600002.SH",
+            "memberships": [{"concept_thscode": "885002.TI", "concept_name": "海峡两岸"}],
+        },
+    ])
+    result = build_sector_health_snapshot(
+        facts,
+        [
+            {"symbol": "600001.SH", "change_ratio_pct": 2.0, "amount": 100.0},
+            {"symbol": "600002.SH", "change_ratio_pct": 1.0, "amount": 100.0},
+        ],
+        symbols=["600001.SH", "600002.SH"],
+        as_of=NOW,
+        board_capital_flow_snapshot=_board_flow(concept=[
+            {"rank": 1, "code": "BK-AI", "name": "AI应用", "main_net_cny": 9_000_000},
+            {"rank": 2, "code": "BK-STRAIT", "name": "福建", "main_net_cny": 8_000_000},
+        ]),
+    )
+
+    flows = {row["taxonomy_name"]: row["capital_flow"] for row in result["concept"]["sectors"]}
+    assert flows["AI视频"]["match_method"] == "NO_MATCH"
+    assert flows["AI视频"]["source_board_name"] is None
+    assert flows["海峡两岸"]["match_method"] == "NO_MATCH"
+    assert flows["海峡两岸"]["source_board_name"] is None
 
 
 def test_monthly_rotation_keeps_persistent_sector_and_rejects_one_day_pulse() -> None:

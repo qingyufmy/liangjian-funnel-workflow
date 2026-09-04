@@ -1027,34 +1027,46 @@ def screen_a2(
     market_funding = raw_market_funding if isinstance(raw_market_funding, Mapping) else {}
     raw_hot100 = snapshot.get("EASTMONEY_HOT100_SNAPSHOT")
     hot100 = raw_hot100 if isinstance(raw_hot100, Mapping) else {}
+    hot100_available = hot100.get("available") is True
     hot100_by_symbol = {
         str(row.get("symbol") or "").strip().upper(): dict(row)
         for row in hot100.get("records", ())
-        if hot100.get("available") is True
+        if hot100_available
         and isinstance(row, Mapping)
         and str(row.get("symbol") or "").strip()
     }
+    hard_risk_by_symbol = _hard_risk_events(snapshot.get("RISK_EVENTS"))
+    selected_board_field_present = "SELECTED_BOARD_SNAPSHOT" in snapshot
     raw_selected_boards = snapshot.get("SELECTED_BOARD_SNAPSHOT")
     selected_boards = raw_selected_boards if isinstance(raw_selected_boards, Mapping) else {}
+    selected_board_source_available = (
+        selected_board_field_present
+        and selected_boards.get("available") is True
+    )
     dual_channel_contract = (
         "EASTMONEY_HOT100_SNAPSHOT" in snapshot
-        or "SELECTED_BOARD_SNAPSHOT" in snapshot
+        or selected_board_field_present
     )
     selected_board_by_symbol = (
         selected_boards.get("by_symbol")
-        if selected_boards.get("available") is True
+        if selected_board_source_available
         and isinstance(selected_boards.get("by_symbol"), Mapping)
         else {}
     )
-    # The deterministic full-market rotation contract is authoritative when
-    # its local mapping, theme metrics, and positive-flow sector health facts
-    # are present.  SELECTED_BOARD_SNAPSHOT is intentionally only a curated
-    # compatibility/cross-check source; its presence must never suppress a
-    # valid full-market ranking.  We retain the old fallback for snapshots
-    # produced before the full-market contract existed.
-    full_market_rotation_available = _a2_full_market_rotation_available(
-        snapshot,
-        a1_output=a1_output,
+    # The materialized SELECTED_BOARD_SNAPSHOT is the production rotation
+    # contract.  Once the field is present, its versioned fixed-theme
+    # selection is the *only* trend top-five entry path: A2_THEME_METRICS and
+    # sector health remain factor/verification evidence and cannot replace or
+    # reorder it.  An explicitly unavailable field therefore fails closed for
+    # trend rather than silently substituting a transient taxonomy ranking.
+    # Full-market/legacy fallback is retained solely for historical fixtures
+    # that predate the field altogether.
+    full_market_rotation_available = (
+        not selected_board_field_present
+        and _a2_full_market_rotation_available(
+            snapshot,
+            a1_output=a1_output,
+        )
     )
     full_market_rotation_directions = (
         _a2_ranked_fallback_directions(
@@ -1071,7 +1083,7 @@ def screen_a2(
             a1_output=a1_output,
             limit=rotation_theme_count,
         )
-        if "SELECTED_BOARD_SNAPSHOT" not in snapshot
+        if not selected_board_field_present
         else {}
     )
     preferred_rotation_directions = (
@@ -1087,19 +1099,33 @@ def screen_a2(
         symbol = _symbol(item.get("symbol"))
         if not symbol:
             continue
-        # The Eastmoney top-100 overlay is a daily discovery source attached
-        # to A1 for cross-checking.  It is not part of the frozen monthly A1
-        # research pool by itself.  A2 must remain a strict subset of formal
-        # A1, so an overlay-only row can provide audit evidence but cannot
-        # enter either the emotion or trend candidate channel.
+        # A1 has two deliberately different identities.  A monthly member is
+        # eligible for the medium-term/trend channel; a validated Eastmoney
+        # top-100 overlay is a daily member for the emotion channel.  The
+        # overlay must never be allowed to masquerade as a monthly member, but
+        # it is still a real A1 row for the current day's emotion review.
         selection_basis = str(item.get("selection_basis") or "").strip().upper()
         research_route = str(item.get("research_route") or "").strip().upper()
-        formal_a1_member = (
-            selection_basis != "DAILY_EMOTION_OVERLAY"
-            and research_route != "DAILY_EMOTION_OVERLAY"
+        daily_emotion_overlay = (
+            selection_basis == "DAILY_EMOTION_OVERLAY"
+            or research_route == "DAILY_EMOTION_OVERLAY"
         )
+        # ``active_research_pool`` is the upstream A1 partition.  Preserve
+        # monthly identity independently from today's eligibility so a risked
+        # monthly row remains auditable without receiving a downstream route.
+        monthly_a1_member = not daily_emotion_overlay
         upstream_research_route = str(item.get("research_route") or "").strip().upper()
         upstream_research_only = item.get("downstream_trade_eligible") is False
+        item_hard_risk_events = item.get("hard_risk_events")
+        item_hard_risk = bool(
+            isinstance(item_hard_risk_events, Mapping)
+            or (
+                isinstance(item_hard_risk_events, Sequence)
+                and not isinstance(item_hard_risk_events, (str, bytes, bytearray))
+                and any(isinstance(event, Mapping) or str(event).strip() for event in item_hard_risk_events)
+            )
+        )
+        hard_risk_present = bool(hard_risk_by_symbol.get(symbol)) or item_hard_risk
         candidate = candidates.get(symbol, {})
         amount = max(0.0, _number(candidate.get("amount")) or _number(candidate.get("turnover")) or 0.0)
         factor = _symbol_scoped_row(factors, symbol)
@@ -1197,21 +1223,49 @@ def screen_a2(
         )
         role = str(behavior_decision.get("market_role") or A2_BEHAVIOR_UNRESOLVED)
         hot100_row = hot100_by_symbol.get(symbol)
+        upstream_status = str(item.get("status") or "ACTIVE").strip().upper()
+        explicitly_inactive = upstream_status in {"REJECTED", "HARD_REJECT", "INACTIVE", "DISABLED"}
+        daily_member_reasons: list[str] = []
+        if upstream_research_only:
+            daily_member_reasons.append("A2_UPSTREAM_RESEARCH_ONLY")
+        if hard_risk_present:
+            daily_member_reasons.append("A2_HARD_RISK_PRESENT")
+        if explicitly_inactive:
+            daily_member_reasons.append("A2_UPSTREAM_A1_ROW_INACTIVE")
+        if daily_emotion_overlay:
+            if not hot100_available:
+                daily_member_reasons.append("A2_EMOTION_HOT100_UNAVAILABLE")
+            elif hot100_row is None:
+                daily_member_reasons.append("A2_EMOTION_NOT_IN_EASTMONEY_HOT100")
+            if item.get("emotion_attention_eligible") is not True:
+                daily_member_reasons.append("A2_EMOTION_OVERLAY_NOT_VALIDATED")
+        daily_a1_member = not daily_member_reasons
+        if daily_a1_member:
+            daily_member_reasons.append("A2_DAILY_A1_MEMBER")
+        # Keep the legacy field as the monthly identity contract.  New callers
+        # must use the explicit fields below instead of inferring today's
+        # membership from ``a1_formal_member``.
+        formal_a1_member = monthly_a1_member
         selected_board_rows = selected_board_by_symbol.get(symbol, ())
         if not isinstance(selected_board_rows, Sequence) or isinstance(selected_board_rows, (str, bytes, bytearray)):
             selected_board_rows = ()
         selected_board_matches = [
             dict(row)
             for row in selected_board_rows
-            if isinstance(row, Mapping)
+            if selected_board_source_available
+            and isinstance(row, Mapping)
             and row.get("selected_for_rotation") is True
+            and str(row.get("board_code") or row.get("theme_id") or "").strip()
+            and 1 <= (_number(row.get("primary_rank")) or 0) <= rotation_theme_count
             and (_number(row.get("main_net_inflow_cny")) or 0.0) > 0
         ]
-        selected_board_match = max(
+        selected_board_match = min(
             selected_board_matches,
             key=lambda row: (
-                _number(row.get("strength")) or 0.0,
-                _number(row.get("main_net_inflow_cny")) or 0.0,
+                _number(row.get("primary_rank")) or 10**9,
+                -(_number(row.get("strength")) or 0.0),
+                -(_number(row.get("main_net_inflow_cny")) or 0.0),
+                str(row.get("board_code") or row.get("theme_id") or ""),
             ),
             default=None,
         )
@@ -1221,7 +1275,7 @@ def screen_a2(
                 taxonomy_binding=taxonomy_binding,
                 ranked_directions=compatibility_fallback_directions,
             )
-            if selected_boards.get("available") is not True
+            if not selected_board_field_present and not full_market_rotation_available
             else None
         )
         full_market_rotation_match = None
@@ -1253,13 +1307,14 @@ def screen_a2(
                     full_market_rotation_match.get("rotation_direction_id")
                     or matched_key
                 )
-        if not full_market_rotation_available and selected_board_match is not None:
-            rotation_direction_id = f"SELECTED_BOARD:{selected_board_match.get('board_code')}"
+        if selected_board_source_available and selected_board_match is not None:
+            rotation_direction_id = (
+                "SELECTED_BOARD:"
+                f"{selected_board_match.get('board_code') or selected_board_match.get('theme_id')}"
+            )
         if full_market_rotation_available and full_market_rotation_match is None:
             # Keep the A1-bound identifier for audit, but do not mistake a
-            # selected-board hit for a full-market direction.  The curated
-            # snapshot is supplemental once the authoritative contract is
-            # available.
+            # missing/invalid full-market join for a qualifying direction.
             rotation_direction_id = a1_rotation_direction_id
         route_results = _a2_route_results(
             item=item,
@@ -1273,18 +1328,65 @@ def screen_a2(
             coverage_minimum=coverage_minimum,
             weights=weights,
         )
-        if upstream_research_only:
-            # A1 may retain a broker-gold row with a known hard risk for
-            # research traceability.  It must not receive an A2 route or be
-            # sent to an LLM, even if its market facts happen to be complete.
+        behavior_type = str(behavior_decision.get("stock_behavior_type") or A2_BEHAVIOR_UNRESOLVED)
+        cycle_stage = str(market_emotion.get("emotion_cycle_stage") or "MIXED").upper()
+        emotion_cycle_allowed = cycle_stage in {"STARTUP", "IGNITION", "CONFIRMATION", "ACCELERATION"}
+        # Daily emotion rows intentionally do not carry monthly business-line
+        # evidence.  Once the independent hot-100, ladder and cycle gates are
+        # satisfied, allow the market-core route to reach LLM review while
+        # preserving all hard market-fact/identity/coverage failures.  This is
+        # a route-specific evidence exemption, never a blanket overlay pass.
+        emotion_overlay_route_candidate = (
+            daily_emotion_overlay
+            and daily_a1_member
+            and behavior_type == "EMOTION"
+            and hot100_available
+            and hot100_row is not None
+            and emotion_cycle_allowed
+        )
+        if emotion_overlay_route_candidate:
+            market_route = route_results.get(MARKET_CORE_ROUTE)
+            if isinstance(market_route, Mapping):
+                missing = {
+                    str(reason)
+                    for reason in market_route.get("missing_reason_codes", ())
+                    if str(reason)
+                }
+                if missing.issubset({"A1_BUSINESS_EVIDENCE_MISSING"}):
+                    adjusted_market_route = dict(market_route)
+                    adjusted_market_route["eligible"] = True
+                    adjusted_market_route["missing_reason_codes"] = []
+                    adjusted_market_route["diagnostic_reason_codes"] = list(dict.fromkeys([
+                        *[str(reason) for reason in adjusted_market_route.get("diagnostic_reason_codes", ()) if str(reason)],
+                        "A2_DAILY_EMOTION_BUSINESS_EVIDENCE_NOT_REQUIRED",
+                    ]))
+                    adjusted_market_route["data_sufficiency_state"] = (
+                        "DEGRADED"
+                        if adjusted_market_route.get("missing_optional_factors")
+                        else "SUFFICIENT"
+                    )
+                    route_results[MARKET_CORE_ROUTE] = adjusted_market_route
+        if upstream_research_only or hard_risk_present or explicitly_inactive:
+            # A1 may retain a row with a known hard risk for research
+            # traceability.  It must not receive an A2 route or be sent to an
+            # LLM, even if its market facts happen to be complete.
             blocked_routes: dict[str, dict[str, Any]] = {}
             for route_name, raw_route in route_results.items():
                 route = dict(raw_route) if isinstance(raw_route, Mapping) else {}
                 route["eligible"] = False
-                route["blocked_by_upstream"] = True
+                route["blocked_by_upstream"] = upstream_research_only
+                route["blocked_by_risk"] = hard_risk_present
+                route["blocked_by_inactive_a1_row"] = explicitly_inactive
+                blocking_reasons = []
+                if upstream_research_only:
+                    blocking_reasons.append("A2_UPSTREAM_RESEARCH_ONLY")
+                if hard_risk_present:
+                    blocking_reasons.append("A2_HARD_RISK_PRESENT")
+                if explicitly_inactive:
+                    blocking_reasons.append("A2_UPSTREAM_A1_ROW_INACTIVE")
                 route["missing_reason_codes"] = list(dict.fromkeys([
                     *[str(code) for code in route.get("missing_reason_codes", ()) if str(code)],
-                    "A2_UPSTREAM_RESEARCH_ONLY",
+                    *blocking_reasons,
                 ]))
                 route["data_sufficiency_state"] = "BLOCKED_UPSTREAM"
                 blocked_routes[route_name] = route
@@ -1339,7 +1441,7 @@ def screen_a2(
         if route_data_gap_reasons and not has_route:
             reasons.extend(("A2_CRITICAL_DATA_INSUFFICIENT", "A2_DATA_GAP"))
             reasons.extend(sorted(route_data_gap_reasons))
-        if not has_route and not upstream_research_only:
+        if not has_route and not (upstream_research_only or hard_risk_present or explicitly_inactive):
             reasons.append("A2_NO_ROUTE_READY")
         reasons.extend(str(code) for code in behavior_decision.get("reason_codes", ()) if str(code))
         data_sufficiency_state = (
@@ -1365,26 +1467,38 @@ def screen_a2(
             status = "LOCAL_MONITOR"
         elif not configured_weights:
             reasons.append("A2_SCORE_WEIGHTS_FALLBACK")
-        if upstream_research_only:
+        if upstream_research_only or hard_risk_present or explicitly_inactive:
             status = "HARD_REJECT"
             data_sufficiency_state = "SUFFICIENT"
-            reasons.append("A2_UPSTREAM_RESEARCH_ONLY")
-        behavior_type = str(behavior_decision.get("stock_behavior_type") or A2_BEHAVIOR_UNRESOLVED)
-        cycle_stage = str(market_emotion.get("emotion_cycle_stage") or "MIXED").upper()
-        emotion_cycle_allowed = cycle_stage in {"STARTUP", "IGNITION", "CONFIRMATION", "ACCELERATION"}
+            if upstream_research_only:
+                reasons.append("A2_UPSTREAM_RESEARCH_ONLY")
+            if hard_risk_present:
+                reasons.append("A2_HARD_RISK_PRESENT")
+            if explicitly_inactive:
+                reasons.append("A2_UPSTREAM_A1_ROW_INACTIVE")
         emotion_core_eligible = (
-            formal_a1_member
+            daily_a1_member
             and hot100_row is not None
             and behavior_type == "EMOTION"
             and emotion_cycle_allowed
         )
         trend_core_eligible = (
-            formal_a1_member
+            monthly_a1_member
+            and not upstream_research_only
+            and not hard_risk_present
+            and not explicitly_inactive
             and behavior_type == "TREND"
             and (
-                full_market_rotation_match is not None
-                if full_market_rotation_available
-                else selected_board_match is not None or rotation_fallback is not None
+                (
+                    selected_board_source_available
+                    and selected_board_match is not None
+                )
+                if selected_board_field_present
+                else (
+                    full_market_rotation_match is not None
+                    if full_market_rotation_available
+                    else rotation_fallback is not None
+                )
             )
         )
         pool_channel = (
@@ -1393,21 +1507,44 @@ def screen_a2(
             else "NONE" if dual_channel_contract
             else "LEGACY"
         )
+        if daily_emotion_overlay and status == "REVIEW_CANDIDATE" and not emotion_core_eligible:
+            # An overlay-only row has no legacy/trend escape hatch.  It can be
+            # reviewed only through the explicit emotion channel; otherwise it
+            # remains visible as a local monitor with the failed evidence.
+            status = "LOCAL_MONITOR"
+            reasons.extend(daily_member_reasons if not daily_a1_member else ())
+            if behavior_type != "EMOTION":
+                reasons.append("A2_DAILY_EMOTION_OVERLAY_NOT_TREND_ELIGIBLE")
+            elif hot100_row is None:
+                reasons.append("A2_EMOTION_NOT_IN_EASTMONEY_HOT100")
+            elif not emotion_cycle_allowed:
+                reasons.append("A2_EMOTION_CYCLE_NO_NEW_ENTRY")
+            else:
+                reasons.append("A2_EMOTION_EVIDENCE_NOT_ROUTEABLE")
         if dual_channel_contract and status == "REVIEW_CANDIDATE" and pool_channel == "NONE":
             status = "LOCAL_MONITOR"
-            if not formal_a1_member:
+            if not monthly_a1_member and behavior_type == "TREND":
+                reasons.append("A2_DAILY_EMOTION_OVERLAY_NOT_TREND_ELIGIBLE")
+            elif not daily_a1_member:
+                reasons.extend(daily_member_reasons)
+            elif not monthly_a1_member:
                 reasons.append("A2_OUTSIDE_FORMAL_A1_POOL")
             elif behavior_type == "EMOTION" and hot100_row is None:
                 reasons.append("A2_EMOTION_NOT_IN_EASTMONEY_HOT100")
             elif behavior_type == "EMOTION" and not emotion_cycle_allowed:
                 reasons.append("A2_EMOTION_CYCLE_NO_NEW_ENTRY")
+            elif behavior_type == "TREND" and selected_board_field_present and not selected_board_source_available:
+                reasons.append("A2_SELECTED_BOARD_SOURCE_UNAVAILABLE")
+            elif behavior_type == "TREND" and selected_board_field_present:
+                # Preserve the historical reason code while adding an
+                # explicit top-five contract label for new audit consumers.
+                reasons.append("A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5")
+                reasons.append("A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD")
             elif behavior_type == "TREND" and full_market_rotation_available:
                 reasons.append("A2_NO_POSITIVE_FLOW_ROTATION_DIRECTION")
-            elif behavior_type == "TREND" and selected_boards.get("available") is not True:
-                reasons.append("A2_SELECTED_BOARD_SOURCE_UNAVAILABLE")
             elif behavior_type == "TREND":
                 # Keep the historical reason-code spelling for downstream
-                # compatibility when using the curated selected-board path.
+                # compatibility when using the historical fallback path.
                 reasons.append("A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD")
             else:
                 reasons.append("A2_BEHAVIOR_UNRESOLVED")
@@ -1436,13 +1573,37 @@ def screen_a2(
             "node_id": item.get("industry_chain_node") or item.get("node_id"),
             "industry_chain_node": item.get("industry_chain_node") or item.get("node_id"),
             "upstream_candidate_id": item.get("candidate_id") or item.get("upstream_candidate_id"),
+            # ``a1_formal_member`` is retained as a compatibility alias for
+            # the frozen monthly identity.  Daily overlay membership is
+            # intentionally exposed separately so consumers cannot route a
+            # daily emotion row into the monthly trend channel by accident.
             "a1_formal_member": formal_a1_member,
+            "monthly_a1_member": monthly_a1_member,
+            "daily_a1_member": daily_a1_member,
+            "daily_a1_member_reason_codes": list(dict.fromkeys(daily_member_reasons)),
+            "daily_emotion_overlay": daily_emotion_overlay,
+            "upstream_a1_status": upstream_status,
             "upstream_selection_basis": selection_basis or None,
             "upstream_coverage_origin": item.get("coverage_origin"),
             "business_exposure": item.get("business_exposure"),
             "business_exposure_facts": item.get("business_exposure_facts", []),
             "research_route": upstream_research_route or None,
             "downstream_trade_eligible": item.get("downstream_trade_eligible", True) is True,
+            "hard_risk_events": [
+                *(
+                    [dict(event) for event in hard_risk_by_symbol.get(symbol, ()) if isinstance(event, Mapping)]
+                    if hard_risk_by_symbol.get(symbol)
+                    else []
+                ),
+                *(
+                    [dict(item_hard_risk_events)]
+                    if isinstance(item_hard_risk_events, Mapping)
+                    else [dict(event) for event in item_hard_risk_events if isinstance(event, Mapping)]
+                    if isinstance(item_hard_risk_events, Sequence)
+                    and not isinstance(item_hard_risk_events, (str, bytes, bytearray))
+                    else []
+                ),
+            ],
             "source_refs": list(item.get("source_refs") or ()) if isinstance(item.get("source_refs"), Sequence) and not isinstance(item.get("source_refs"), (str, bytes, bytearray)) else [],
             "role": role,
             "legacy_market_role": legacy_role,
@@ -1453,6 +1614,15 @@ def screen_a2(
             "eastmoney_hot100": dict(hot100_row) if hot100_row is not None else None,
             "selected_board": dict(selected_board_match) if selected_board_match is not None else None,
             "rotation_fallback": dict(rotation_fallback) if rotation_fallback is not None else None,
+            "rotation_input_source": (
+                "SELECTED_BOARD_SNAPSHOT"
+                if selected_board_field_present and selected_board_source_available
+                else "SELECTED_BOARD_SNAPSHOT_UNAVAILABLE"
+                if selected_board_field_present
+                else "FULL_MARKET_ROTATION_FALLBACK"
+                if full_market_rotation_available
+                else "LEGACY_ROTATION_FALLBACK"
+            ),
             "full_market_rotation": (
                 dict(full_market_rotation_match)
                 if isinstance(full_market_rotation_match, Mapping)
@@ -1508,20 +1678,31 @@ def screen_a2(
         # Stock behaviour is applied only after the strongest directions are
         # known; otherwise an entire strong board can disappear merely
         # because its constituents were classified UNRESOLVED at stock level.
-        if formal_a1_member and (
+        if monthly_a1_member and not (upstream_research_only or hard_risk_present or explicitly_inactive) and (
             full_market_rotation_match is not None
             or (
-                not full_market_rotation_available
-                and (selected_board_match is not None or rotation_fallback is not None)
+                selected_board_source_available
+                and selected_board_match is not None
             )
             or (
-                not full_market_rotation_available
+                not selected_board_field_present
+                and not full_market_rotation_available
+                and rotation_fallback is not None
+            )
+            or (
+                not selected_board_field_present
+                and not full_market_rotation_available
                 and not dual_channel_contract
                 and _number(taxonomy_binding.get("rotation_strength_score")) is not None
             )
         ):
             market_grouped[rotation_direction_id].append(decision)
-        if status == "REVIEW_CANDIDATE" and (trend_core_eligible or not dual_channel_contract):
+        if (
+            status == "REVIEW_CANDIDATE"
+            and monthly_a1_member
+            and not (upstream_research_only or hard_risk_present or explicitly_inactive)
+            and (trend_core_eligible or not dual_channel_contract)
+        ):
             grouped[rotation_direction_id].append(decision)
     theme_strength: dict[str, float] = {}
     theme_strength_source: dict[str, str] = {}
@@ -1585,10 +1766,12 @@ def screen_a2(
         theme_rotation_rank = {
             theme_id: rank for rank, theme_id in enumerate(ranked_themes, start=1)
         }
-    elif selected_boards.get("available") is True:
-        # ``selected_for_rotation`` was already calculated from the strongest
-        # five positive-flow primary boards. Child boards inherit the parent
-        # rank and therefore do not consume another primary slot.
+    elif selected_board_field_present and selected_board_source_available:
+        # ``selected_for_rotation`` and ``primary_rank`` were materialized by
+        # the versioned fixed-theme collector.  Only those rows (already
+        # constrained to the requested top five above) can open the trend
+        # channel. Child boards inherit the parent rank and therefore do not
+        # consume another primary slot.
         top_theme_ids = set(ranked_themes)
         theme_rotation_rank = {}
         for rank, theme_id in enumerate(ranked_themes, start=1):
@@ -1708,17 +1891,24 @@ def _a2_full_market_rotation_available(
     *,
     a1_output: Mapping[str, Any],
 ) -> bool:
-    """Return whether the authoritative full-market rotation facts are usable.
+    """Return whether historical full-market fallback facts are usable.
 
     A2 must distinguish two different states: a source that is unavailable and
     an available source which simply has no positive-flow direction today.  A
-    curated selected-board snapshot is permitted only in the first state.  We
-    therefore require the materialized theme metrics, sector-health rows, and
-    the local taxonomy membership contracts needed by A1's lineage.  The
+    materialized selected-board snapshot is the production contract and is
+    handled by :func:`screen_a2` before this compatibility helper.  This
+    helper is deliberately valid only for historical snapshots which have no
+    ``SELECTED_BOARD_SNAPSHOT`` field at all; an explicitly unavailable field
+    must fail closed instead of falling back to a transient taxonomy ranking.
+    It therefore requires the materialized theme metrics, sector-health rows,
+    and local taxonomy membership contracts needed by A1's lineage.  The
     actual positive-flow/lineage join is deliberately evaluated separately by
     :func:`_a2_ranked_fallback_directions`; an empty result is a valid
     ``NO_QUALIFYING_DIRECTION`` state, not a provider failure.
     """
+
+    if "SELECTED_BOARD_SNAPSHOT" in snapshot:
+        return False
 
     raw_metrics = snapshot.get("A2_THEME_METRICS")
     metrics = raw_metrics.get("theme_metrics") if isinstance(raw_metrics, Mapping) else None
@@ -1836,6 +2026,7 @@ def _a2_ranked_fallback_directions(
         links_by_node[node_id] = list(dict.fromkeys(links_by_node[node_id]))
     industry_members = _membership_map(snapshot.get("THS_INDUSTRY_MEMBERSHIP"), taxonomy="INDUSTRY")
     concept_members = _membership_map(snapshot.get("THS_CONCEPT_MEMBERSHIP"), taxonomy="CONCEPT")
+    hard_risk_symbols = _hard_risk_symbols(snapshot.get("RISK_EVENTS"))
     themes_by_key: dict[str, set[str]] = defaultdict(set)
     for item in _mapping_list(a1_output.get("active_research_pool")):
         if (
@@ -1846,6 +2037,15 @@ def _a2_ranked_fallback_directions(
         symbol = _symbol(item.get("symbol"))
         node_id = str(item.get("industry_chain_node") or item.get("node_id") or "").strip()
         if not symbol or not node_id:
+            continue
+        if item.get("downstream_trade_eligible") is False or symbol in hard_risk_symbols:
+            continue
+        item_risks = item.get("hard_risk_events")
+        if isinstance(item_risks, Mapping) or (
+            isinstance(item_risks, Sequence)
+            and not isinstance(item_risks, (str, bytes, bytearray))
+            and any(isinstance(event, Mapping) or str(event).strip() for event in item_risks)
+        ):
             continue
         memberships = {
             f"INDUSTRY:{str(row.get('taxonomy_code') or '').strip().upper()}"

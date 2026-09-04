@@ -1012,7 +1012,14 @@ def aggregate_tencent_theme_flows(
     *,
     expected_trade_date: date | None = None,
 ) -> dict[str, dict[str, Any]]:
-    """Aggregate Tencent main flow and turnover coverage per theme."""
+    """Aggregate Tencent flow with an auditable fund-coverage fallback.
+
+    ``turnover_coverage`` is retained only when the normalized A-share member
+    set has a complete, positive turnover denominator.  Otherwise
+    ``effective_fund_coverage`` uses the ratio of members with a Tencent main
+    net-flow value and marks the result as degraded with
+    ``coverage_basis=member_count``.
+    """
 
     records = normalize_tencent_flow_records(flows)
     by_symbol = {row["symbol"]: row for row in records}
@@ -1024,39 +1031,64 @@ def aggregate_tencent_theme_flows(
         raise RotationThemeDataError("ROTATION_THEME_MEMBERSHIPS_INVALID")
     result: dict[str, dict[str, Any]] = {}
     for theme_id, raw_group in groups:
-        symbols, total_turnover = _membership_symbols_and_turnover(raw_group)
+        symbols, total_turnover, excluded_symbols = _membership_symbols_and_turnover_with_exclusions(raw_group)
         if not symbols:
             result[str(theme_id)] = {
                 "tencent_main_net_inflow_cny": 0.0,
                 "covered_member_count": 0,
                 "member_count": 0,
-                "turnover_coverage": 0.0,
+                # There is no validated denominator for an empty group.  Do
+                # not manufacture a turnover coverage value; the member-count
+                # basis remains visible and fails the selection gate.
+                "turnover_coverage": None,
                 "flow_coverage": 0.0,
-                "coverage_basis": "turnover",
+                "effective_fund_coverage": 0.0,
+                "coverage_basis": "member_count",
+                "coverage_degraded": True,
+                "coverage_degraded_reason": "TENCENT_TURNOVER_DENOMINATOR_UNAVAILABLE",
+                "degraded": True,
+                "degraded_reason": "TENCENT_TURNOVER_DENOMINATOR_UNAVAILABLE",
+                "excluded_non_a_share_count": len(excluded_symbols),
+                "excluded_non_a_share_symbols": excluded_symbols,
             }
             continue
         covered = [by_symbol[symbol] for symbol in symbols if symbol in by_symbol]
         covered_turnover = sum(_turnover(row) or 0.0 for row in covered)
         total_turnover_value = total_turnover
-        if total_turnover_value is None:
-            member_rows = list(_iter_members(raw_group))
-            member_turnovers = [_turnover(item) for item in member_rows if isinstance(item, Mapping)]
-            if member_rows and len(member_turnovers) == len(member_rows) and all(value is not None for value in member_turnovers):
-                total_turnover_value = sum(float(value) for value in member_turnovers) or None
         turnover_coverage = (
             covered_turnover / total_turnover_value
             if total_turnover_value is not None and total_turnover_value > 0
             else None
         )
+        flow_coverage = len(covered) / len(symbols)
+        coverage_basis = "turnover" if turnover_coverage is not None else "member_count"
         result[str(theme_id)] = {
             "tencent_main_net_inflow_cny": sum(_main_flow(row) or 0.0 for row in covered),
             "covered_member_count": len(covered),
             "member_count": len(symbols),
-            "flow_coverage": len(covered) / len(symbols),
+            "flow_coverage": flow_coverage,
             "turnover_coverage": turnover_coverage,
-            "coverage_basis": "turnover" if turnover_coverage is not None else "member_count",
+            # The effective gate is turnover-based only when every member has
+            # a same-day, positive turnover denominator.  Otherwise it is a
+            # deliberately degraded member-count gate over Tencent flow rows.
+            "effective_fund_coverage": turnover_coverage if turnover_coverage is not None else flow_coverage,
+            "coverage_basis": coverage_basis,
+            "coverage_degraded": coverage_basis != "turnover",
+            "coverage_degraded_reason": (
+                "TENCENT_TURNOVER_DENOMINATOR_UNAVAILABLE"
+                if coverage_basis != "turnover"
+                else None
+            ),
+            "degraded": coverage_basis != "turnover",
+            "degraded_reason": (
+                "TENCENT_TURNOVER_DENOMINATOR_UNAVAILABLE"
+                if coverage_basis != "turnover"
+                else None
+            ),
             "covered_turnover_cny": covered_turnover,
             "total_turnover_cny": total_turnover_value,
+            "excluded_non_a_share_count": len(excluded_symbols),
+            "excluded_non_a_share_symbols": excluded_symbols,
             "trade_date": expected_trade_date.isoformat() if expected_trade_date else None,
         }
     return result
@@ -1268,6 +1300,13 @@ def build_membership_snapshot(
     if len(set(symbols)) != len(symbols):
         raise RotationThemeDataError("MEMBERSHIP_MEMBER_DUPLICATED")
     evidence = _validate_pagination_evidence(pagination_evidence, len(normalized))
+    excluded_symbols = sorted(
+        symbol for symbol in symbols if _is_non_a_share_symbol(symbol)
+    )
+    normalized = [
+        item for item in normalized
+        if not _is_non_a_share_symbol(item["symbol"])
+    ]
     body: dict[str, Any] = {
         "schema_version": MEMBERSHIP_SNAPSHOT_SCHEMA,
         "source_id": str(source).strip(),
@@ -1278,6 +1317,8 @@ def build_membership_snapshot(
         "effective_from": effective.isoformat(),
         "records": normalized,
         "member_count": len(normalized),
+        "excluded_non_a_share_count": len(excluded_symbols),
+        "excluded_non_a_share_symbols": excluded_symbols,
         "pagination_evidence": evidence,
         "immutable": True,
         "point_in_time": True,
@@ -1544,6 +1585,12 @@ def calculate_rotation_strength(
                 "rank": rank_map[row["theme_id"]],
                 "strength": row["strength"],
                 "main_net_inflow_cny": row.get("tencent_main_net_inflow_cny"),
+                "turnover_coverage": row.get("turnover_coverage"),
+                "flow_coverage": row.get("flow_coverage"),
+                "effective_fund_coverage": row.get("effective_fund_coverage"),
+                "coverage_basis": row.get("coverage_basis"),
+                "coverage_degraded": row.get("coverage_degraded", row.get("degraded", False)),
+                "coverage_degraded_reason": row.get("coverage_degraded_reason", row.get("degraded_reason")),
             }
             for row in selected
         ],
@@ -1590,7 +1637,24 @@ def build_rotation_theme_snapshot(
             row = dict(raw)
             theme_id = str(row.get("theme_id") or row.get("board_code") or "").strip().upper()
             if theme_id in flow_metrics:
-                row.update({key: value for key, value in flow_metrics[theme_id].items() if value is not None})
+                row.update(
+                    {
+                        key: value
+                        for key, value in flow_metrics[theme_id].items()
+                        if value is not None
+                        or key
+                        in {
+                            "turnover_coverage",
+                            "flow_coverage",
+                            "effective_fund_coverage",
+                            "coverage_basis",
+                            "coverage_degraded",
+                            "coverage_degraded_reason",
+                            "degraded",
+                            "degraded_reason",
+                        }
+                    }
+                )
             if theme_id in east_metrics:
                 row.update({f"eastmoney_{key}": value for key, value in east_metrics[theme_id].items() if value is not None})
             member = _membership_map_get(memberships, theme_id)
@@ -1636,6 +1700,14 @@ def build_rotation_theme_snapshot(
     selected_count = len(calculated["selected_primary_boards"])
     total_members = sum(int(row.get("member_count") or len(row.get("constituents", ()))) for row in boards)
     complete_members = sum(1 for row in boards if row.get("member_snapshot_complete") is True)
+    excluded_non_a_share_symbols = sorted(
+        {
+            symbol
+            for row in boards
+            for value in (row.get("excluded_non_a_share_symbols") or ())
+            if (symbol := _normalize_symbol(value)) and _is_non_a_share_symbol(symbol)
+        }
+    )
     payload: dict[str, Any] = {
         "schema_version": ROTATION_THEME_SCHEMA,
         "source_id": ROTATION_THEME_SOURCE_ID,
@@ -1654,12 +1726,15 @@ def build_rotation_theme_snapshot(
             "member_snapshot_complete_count": complete_members,
             "member_snapshot_coverage": complete_members / source_count if source_count else 0.0,
             "rotation_theme_count": int(rotation_theme_count),
+            "excluded_non_a_share_count": len(excluded_non_a_share_symbols),
+            "excluded_non_a_share_symbols": excluded_non_a_share_symbols,
         },
         "quality": {
             "formula": {key: value for key, value in STRENGTH_WEIGHTS.items()},
             "score_scale": "0-100",
             "tencent_positive_flow_gate": True,
-            "tencent_turnover_coverage_gate": float(fund_coverage_minimum),
+            "tencent_effective_fund_coverage_gate": float(fund_coverage_minimum),
+            "tencent_fund_coverage_policy": "turnover_if_valid_else_member_count",
             "price_coverage_gate": float(price_coverage_minimum),
             "minimum_factor_coverage": MINIMUM_FACTOR_COVERAGE,
             "factor_coverage": {
@@ -1882,7 +1957,17 @@ def collect_rotation_theme_snapshot(
             # source_health without allowing one optional theme to erase all
             # otherwise valid primary directions.
             continue
-        records = member.get("records") or ()
+        records, excluded_symbols = _filter_a_share_members(member.get("records") or ())
+        excluded_symbols = sorted(
+            {
+                *excluded_symbols,
+                *(
+                    symbol
+                    for value in (member.get("excluded_non_a_share_symbols") or ())
+                    if (symbol := _normalize_symbol(value)) and _is_non_a_share_symbol(symbol)
+                ),
+            }
+        )
         groups[theme.theme_id] = records if member.get("available") else ()
         flow = _flow_for_theme(theme, flow_snapshot, resolved_codes.get(theme.theme_id, ()))
         raw_rows.append(
@@ -1894,6 +1979,8 @@ def collect_rotation_theme_snapshot(
                 "effective_from": theme.effective_from,
                 "constituents": [item.get("symbol") for item in records if isinstance(item, Mapping)],
                 "member_count": len(records),
+                "excluded_non_a_share_count": len(excluded_symbols),
+                "excluded_non_a_share_symbols": excluded_symbols,
                 "member_snapshot_complete": bool(member.get("available") and member.get("pagination_evidence", {}).get("complete") is True),
                 "member_snapshot_trade_date": trade_day,
                 # Member snapshots are identity-only for daily scoring.  The
@@ -1997,7 +2084,23 @@ def collect_rotation_theme_snapshot(
     flow_metrics = aggregate_tencent_theme_flows(tencent_snapshot, daily_groups) if tencent_snapshot.get("available") else {}
     for row in raw_rows:
         metrics = flow_metrics.get(row["theme_id"], {})
+        prior_excluded = {
+            symbol
+            for value in (row.get("excluded_non_a_share_symbols") or ())
+            if (symbol := _normalize_symbol(value)) and _is_non_a_share_symbol(symbol)
+        }
         row.update(metrics)
+        # The daily group intentionally contains only tradable members, so
+        # aggregate_tencent_theme_flows cannot see exclusions that happened
+        # during membership normalization.  Preserve that audit evidence when
+        # merging the independent flow metrics.
+        merged_excluded = prior_excluded | {
+            symbol
+            for value in (metrics.get("excluded_non_a_share_symbols") or ())
+            if (symbol := _normalize_symbol(value)) and _is_non_a_share_symbol(symbol)
+        }
+        row["excluded_non_a_share_count"] = len(merged_excluded)
+        row["excluded_non_a_share_symbols"] = sorted(merged_excluded)
 
     snapshot = build_rotation_theme_snapshot(
         as_of=cutoff,
@@ -2028,6 +2131,10 @@ def collect_rotation_theme_snapshot(
             for theme_id, value in membership_state.items()
             if value.get("available") is not True
         },
+        "excluded_non_a_share_count": sum(
+            int(row.get("excluded_non_a_share_count") or 0)
+            for row in raw_rows
+        ),
     }
     snapshot.pop("content_hash", None)
     snapshot["content_hash"] = _content_hash(snapshot)
@@ -2330,8 +2437,23 @@ def _normalize_metric_row(row: Mapping[str, Any], taxonomy: RotationThemeConfig 
         members = row.get("members") or row.get("member_symbols") or ()
     if not isinstance(members, Sequence) or isinstance(members, (str, bytes, bytearray)):
         raise RotationThemeDataError("ROTATION_THEME_CONSTITUENTS_INVALID")
-    safe_members = tuple(dict.fromkeys(symbol for value in members if (symbol := _normalize_symbol(value))))
-    if not safe_members:
+    safe_member_values: list[str] = []
+    excluded_symbols = {
+        symbol
+        for value in (row.get("excluded_non_a_share_symbols") or ())
+        if (symbol := _normalize_symbol(value)) and _is_non_a_share_symbol(symbol)
+    }
+    for value in members:
+        raw_symbol = value.get("symbol") if isinstance(value, Mapping) else value
+        symbol = _normalize_symbol(raw_symbol)
+        if symbol is None:
+            continue
+        if _is_non_a_share_symbol(symbol):
+            excluded_symbols.add(symbol)
+            continue
+        safe_member_values.append(symbol)
+    safe_members = tuple(dict.fromkeys(safe_member_values))
+    if not safe_members and not excluded_symbols:
         raise RotationThemeDataError("ROTATION_THEME_CONSTITUENTS_EMPTY")
     result = dict(row)
     result.update(
@@ -2342,12 +2464,59 @@ def _normalize_metric_row(row: Mapping[str, Any], taxonomy: RotationThemeConfig 
             "kind": kind,
             "parent_theme_id": parent,
             "constituents": safe_members,
-            "member_count": int(row.get("member_count") or len(safe_members)),
+            # The score denominator is the normalized A-share member set.  A
+            # provider's raw count may include B shares and therefore cannot
+            # be retained as the denominator after exclusion.
+            "member_count": len(safe_members),
+            "excluded_non_a_share_count": len(excluded_symbols),
+            "excluded_non_a_share_symbols": sorted(excluded_symbols),
             "member_snapshot_complete": bool(row.get("member_snapshot_complete") or row.get("constituents_complete") or row.get("complete_members")),
             "price_coverage": _coverage_value(row.get("price_coverage", row.get("member_price_coverage"))),
             "tencent_main_net_inflow_cny": _number(row.get("tencent_main_net_inflow_cny", row.get("main_net_inflow_cny", row.get("net_inflow_amount")))),
             "turnover_coverage": _coverage_value(row.get("turnover_coverage", row.get("fund_coverage"))),
             "eastmoney_main_net_inflow_cny": _number(row.get("eastmoney_main_net_inflow_cny", row.get("eastmoney_main_net_cny"))),
+        }
+    )
+    raw_coverage_basis = str(row.get("coverage_basis") or "").strip().lower()
+    flow_coverage = _coverage_value(row.get("flow_coverage"))
+    if flow_coverage is None:
+        covered_count = _integer(row.get("covered_member_count"))
+        member_count = int(result["member_count"])
+        if covered_count is not None and member_count > 0:
+            flow_coverage = _coverage_value(covered_count / member_count)
+    # Accept an already materialized effective value when re-reading a
+    # snapshot, but always derive the effective basis from the raw turnover
+    # availability.  This prevents a member-count value from being mislabeled
+    # as turnover coverage and preserves the no-fabrication rule.
+    if flow_coverage is None and raw_coverage_basis == "member_count":
+        flow_coverage = _coverage_value(row.get("effective_fund_coverage"))
+    turnover_coverage = result["turnover_coverage"]
+    if turnover_coverage is not None:
+        effective_fund_coverage = turnover_coverage
+        coverage_basis = "turnover"
+        coverage_degraded = False
+        coverage_degraded_reason = None
+    else:
+        effective_fund_coverage = flow_coverage
+        coverage_basis = "member_count"
+        coverage_degraded = True
+        coverage_degraded_reason = str(
+            row.get("coverage_degraded_reason")
+            or row.get("degraded_reason")
+            or "TENCENT_TURNOVER_DENOMINATOR_UNAVAILABLE"
+        ).strip() or "TENCENT_TURNOVER_DENOMINATOR_UNAVAILABLE"
+    result.update(
+        {
+            "flow_coverage": flow_coverage,
+            "effective_fund_coverage": effective_fund_coverage,
+            "coverage_basis": coverage_basis,
+            "coverage_degraded": coverage_degraded,
+            "coverage_degraded_reason": coverage_degraded_reason,
+            # Generic aliases make the degraded state explicit to consumers
+            # that do not know the rotation-theme field prefix.  They are
+            # derived, never an independent source of truth.
+            "degraded": coverage_degraded,
+            "degraded_reason": coverage_degraded_reason,
         }
     )
     if trade_day is not None:
@@ -2427,7 +2596,7 @@ def _selection_status(
     flow = _number(row.get("tencent_main_net_inflow_cny"))
     if flow is None or flow <= 0:
         return "OBSERVATION_ONLY_TENCENT_FLOW_NON_POSITIVE"
-    coverage = row.get("turnover_coverage")
+    coverage = row.get("effective_fund_coverage")
     if coverage is None or float(coverage) < fund_coverage_minimum:
         return "OBSERVATION_ONLY_TENCENT_COVERAGE_LOW"
     price_coverage = row.get("price_coverage")
@@ -2475,9 +2644,19 @@ def _public_board_row(row: Mapping[str, Any]) -> dict[str, Any]:
         "main_net_inflow_cny": row.get("tencent_main_net_inflow_cny"),
         "eastmoney_main_net_inflow_cny": row.get("eastmoney_main_net_inflow_cny"),
         "turnover_coverage": row.get("turnover_coverage"),
+        "flow_coverage": row.get("flow_coverage"),
+        "effective_fund_coverage": row.get("effective_fund_coverage"),
+        "coverage_basis": row.get("coverage_basis"),
+        "coverage_degraded": row.get("coverage_degraded", row.get("degraded", False)),
+        "coverage_degraded_reason": row.get("coverage_degraded_reason", row.get("degraded_reason")),
+        "degraded": row.get("degraded", row.get("coverage_degraded", False)),
+        "degraded_reason": row.get("degraded_reason", row.get("coverage_degraded_reason")),
         "price_coverage": row.get("price_coverage"),
         "member_snapshot_complete": row.get("member_snapshot_complete", False),
         "member_count": row.get("member_count", len(row.get("constituents", ()))),
+        "covered_member_count": row.get("covered_member_count"),
+        "excluded_non_a_share_count": row.get("excluded_non_a_share_count", 0),
+        "excluded_non_a_share_symbols": list(row.get("excluded_non_a_share_symbols") or ()),
         "selection_status": row.get("selection_status"),
         "selected_for_rotation": row.get("selected_for_rotation", False),
         "primary_rank": row.get("primary_rank"),
@@ -2597,7 +2776,15 @@ def _merge_membership_metrics(row: dict[str, Any], member: Mapping[str, Any], tr
 
 
 def _membership_symbols_and_turnover(group: Any) -> tuple[list[str], float | None]:
+    """Return the eligible A-share symbols and their validated turnover sum."""
+
+    symbols, total, _ = _membership_symbols_and_turnover_with_exclusions(group)
+    return symbols, total
+
+
+def _membership_symbols_and_turnover_with_exclusions(group: Any) -> tuple[list[str], float | None, list[str]]:
     rows = list(_iter_members(group))
+    rows, excluded_symbols = _filter_a_share_members(rows)
     symbols = [symbol for item in rows if (symbol := _normalize_symbol(item.get("symbol") if isinstance(item, Mapping) else item))]
     turnover_values = [_turnover(item) for item in rows if isinstance(item, Mapping)]
     # A total with one missing member would overstate coverage.  Keep the
@@ -2607,7 +2794,7 @@ def _membership_symbols_and_turnover(group: Any) -> tuple[list[str], float | Non
         total = None
     else:
         total = sum(float(value) for value in turnover_values)
-    return list(dict.fromkeys(symbols)), total or None
+    return list(dict.fromkeys(symbols)), total or None, excluded_symbols
 
 
 def _iter_members(group: Any) -> Sequence[Any]:
@@ -2617,6 +2804,34 @@ def _iter_members(group: Any) -> Sequence[Any]:
     if isinstance(group, Sequence) and not isinstance(group, (str, bytes, bytearray)):
         return group
     return ()
+
+
+def _filter_a_share_members(values: Sequence[Any]) -> tuple[list[Any], list[str]]:
+    """Remove only Shanghai/Shenzhen B-share symbols from a member set.
+
+    ``200xxx.SZ`` and ``900xxx.SH`` are B shares and are not part of the
+    A-share trading candidate universe.  North-exchange ``.BJ`` symbols are
+    deliberately retained because this module has no contract that excludes
+    them.  The excluded symbols are returned for audit output instead of
+    silently changing a coverage denominator.
+    """
+
+    included: list[Any] = []
+    excluded: set[str] = set()
+    for value in values:
+        raw_symbol = value.get("symbol") if isinstance(value, Mapping) else value
+        symbol = _normalize_symbol(raw_symbol)
+        if symbol is None:
+            # Invalid symbols are not tradable members and must not inflate a
+            # coverage denominator.  Provider validation records the raw
+            # pagination separately; this helper only builds the candidate
+            # universe.
+            continue
+        if symbol is not None and _is_non_a_share_symbol(symbol):
+            excluded.add(symbol)
+            continue
+        included.append(value)
+    return included, sorted(excluded)
 
 
 def _turnover(row: Any) -> float | None:
@@ -2646,6 +2861,18 @@ def _normalize_symbol(value: Any) -> str | None:
     if text.startswith(("4", "8")):
         return f"{text}.BJ"
     return f"{text}.SH" if text.startswith(("5", "6", "9")) else f"{text}.SZ"
+
+
+def _is_non_a_share_symbol(symbol: str) -> bool:
+    """Return whether a normalized symbol is a Shanghai/Shenzhen B share."""
+
+    try:
+        code, exchange = str(symbol).upper().split(".", 1)
+    except ValueError:
+        return False
+    return (exchange == "SZ" and code.startswith("200")) or (
+        exchange == "SH" and code.startswith("900")
+    )
 
 
 def _number(value: Any) -> float | None:

@@ -20,6 +20,21 @@ _MONTHLY_OBSERVATION_BARS = 21  # 20 return periods require 21 closes.
 _MONTHLY_TOP10_MIN_APPEARANCES = 2
 _SECTOR_SEQUENCE_MIN_BARS = 4
 
+# The two providers do not publish one shared sector taxonomy.  Keep the
+# small set of cross-vendor synonyms explicit and scoped to one taxonomy.  A
+# target name may occur on either side of a group; the matcher below therefore
+# works in both directions.  Deliberately do not add broad/semantic guesses
+# such as ``AI视频`` -> ``AI应用`` or ``海峡两岸`` -> ``福建``.
+_BOARD_FLOW_ALIAS_GROUPS: dict[str, tuple[tuple[str, ...], ...]] = {
+    "industry": (
+        ("文化传媒", "传媒"),
+    ),
+    "concept": (
+        ("猪肉", "猪肉概念"),
+        ("白酒", "白酒概念"),
+    ),
+}
+
 
 def build_market_emotion(
     universe_records: Sequence[Any],
@@ -481,17 +496,27 @@ build_a2_sector_health_snapshot = build_sector_health_snapshot
 
 def _board_capital_flow_index(
     snapshot: Mapping[str, Any] | None,
-) -> dict[str, dict[str, dict[str, Any]]]:
+) -> dict[str, dict[str, Any]]:
     """Normalize the persisted Eastmoney board ranks for sector joins.
 
     Eastmoney and THS use different board identifiers, so an exact normalized
-    name is the authoritative cross-vendor join when codes do not match.  Rank
-    percentiles are vendor-derived relative flow scores; raw amounts and
-    percentages remain attached for audit and are never synthesized from
-    turnover.
+    name is the authoritative cross-vendor join when codes do not match.  A
+    small, taxonomy-scoped alias table is considered only after exact matches.
+    The index keeps lists for every lookup key so a duplicate/ambiguous vendor
+    mapping is rejected by ``_match_board_flow`` instead of being silently
+    overwritten.  Rank percentiles are vendor-derived relative flow scores;
+    raw amounts and percentages remain attached for audit and are never
+    synthesized from turnover.
     """
 
-    result: dict[str, dict[str, dict[str, Any]]] = {"industry": {}, "concept": {}}
+    result: dict[str, dict[str, Any]] = {
+        taxonomy: {
+            "source_available": False,
+            "by_code": {},
+            "by_name": {},
+        }
+        for taxonomy in ("industry", "concept")
+    }
     if not isinstance(snapshot, Mapping):
         return result
     by_taxonomy = snapshot.get("by_taxonomy")
@@ -507,6 +532,7 @@ def _board_capital_flow_index(
             period_snapshot = periods.get(period)
             if not isinstance(period_snapshot, Mapping) or period_snapshot.get("available") is not True:
                 continue
+            result[taxonomy]["source_available"] = True
             records = period_snapshot.get("records")
             if not isinstance(records, Sequence) or isinstance(records, (str, bytes, bytearray)):
                 continue
@@ -522,12 +548,16 @@ def _board_capital_flow_index(
                 rank = _integer(row.get("rank")) or ordinal
                 rank_score = 50.0 if count <= 1 else max(0.0, min(100.0, (count - rank) / (count - 1) * 100.0))
                 item = aggregates.setdefault(identity, {
+                    "source_identity": identity,
                     "code": code,
                     "name": name,
+                    "source_names": set(),
                     "weighted_score": 0.0,
                     "available_weight": 0.0,
                     "windows": {},
                 })
+                if name:
+                    item["source_names"].add(name)
                 item["weighted_score"] += rank_score * weight
                 item["available_weight"] += weight
                 item["windows"][period] = {
@@ -544,6 +574,7 @@ def _board_capital_flow_index(
             if weight <= 0:
                 continue
             normalized = {
+                "source_identity": item["source_identity"],
                 "available": True,
                 "availability_state": "OBSERVED_VALUE",
                 "reason_code": "OK",
@@ -554,13 +585,205 @@ def _board_capital_flow_index(
                 "available_weight": round(weight, 4),
                 "code": item["code"],
                 "name": item["name"],
+                "source_names": sorted(item["source_names"]),
                 "windows": item["windows"],
             }
             if item["code"]:
-                result[taxonomy][str(item["code"])] = normalized
-            if item["name"]:
-                result[taxonomy][_sector_name_key(item["name"])] = normalized
+                _append_unique_board_flow(
+                    result[taxonomy]["by_code"],
+                    str(item["code"]),
+                    normalized,
+                )
+            for source_name in item["source_names"]:
+                _append_unique_board_flow(
+                    result[taxonomy]["by_name"],
+                    _sector_name_key(source_name),
+                    normalized,
+                )
     return result
+
+
+def _append_unique_board_flow(
+    index: dict[str, list[dict[str, Any]]],
+    key: str,
+    flow: Mapping[str, Any],
+) -> None:
+    """Register one source board without hiding duplicate identities."""
+
+    normalized_key = str(key or "").strip()
+    if not normalized_key:
+        return
+    values = index.setdefault(normalized_key, [])
+    identity = str(flow.get("source_identity") or "")
+    if not any(str(item.get("source_identity") or "") == identity for item in values):
+        values.append(dict(flow))
+
+
+def _unique_board_flow_candidates(
+    values: Sequence[Mapping[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """Deduplicate one index lookup while preserving all source identities."""
+
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for value in values or ():
+        if not isinstance(value, Mapping):
+            continue
+        identity = str(value.get("source_identity") or "").strip()
+        if not identity:
+            identity = f"{value.get('code') or ''}|{_sector_name_key(value.get('name'))}"
+        if identity in seen:
+            continue
+        seen.add(identity)
+        result.append(dict(value))
+    return result
+
+
+def _board_flow_alias_group(taxonomy: str, name: Any) -> tuple[str, ...] | None:
+    """Return one explicit, bidirectional alias group for a target name."""
+
+    target_key = _sector_name_key(name)
+    if not target_key:
+        return None
+    for group in _BOARD_FLOW_ALIAS_GROUPS.get(taxonomy, ()):
+        normalized = tuple(
+            key
+            for key in (_sector_name_key(item) for item in group)
+            if key
+        )
+        if target_key in normalized:
+            return normalized
+    return None
+
+
+def _board_flow_candidate_audit(flow: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "source_board_code": flow.get("code") or None,
+        "source_board_name": flow.get("name") or None,
+        "source_identity": flow.get("source_identity") or None,
+    }
+
+
+def _match_board_flow(
+    flow_index: Mapping[str, Any],
+    *,
+    taxonomy: str,
+    taxonomy_code: str,
+    taxonomy_name: str,
+) -> dict[str, Any]:
+    """Join one THS sector to Eastmoney flow with fail-closed auditability."""
+
+    by_code = flow_index.get("by_code")
+    by_name = flow_index.get("by_name")
+    source_available = flow_index.get("source_available") is True
+    by_code = by_code if isinstance(by_code, Mapping) else {}
+    by_name = by_name if isinstance(by_name, Mapping) else {}
+
+    def result(
+        *,
+        flow: Mapping[str, Any] | None,
+        match_method: str,
+        reason_code: str,
+        alias_group: Sequence[str] | None = None,
+        candidates: Sequence[Mapping[str, Any]] = (),
+    ) -> dict[str, Any]:
+        candidate_audit = [_board_flow_candidate_audit(item) for item in candidates]
+        if flow is None:
+            return {
+                "flow": None,
+                "match_method": match_method,
+                "reason_code": reason_code,
+                "alias_group": list(alias_group) if alias_group else None,
+                "candidate_source_boards": candidate_audit,
+                "source_available": source_available,
+            }
+        matched = dict(flow)
+        matched.update({
+            "match_method": match_method,
+            "target_taxonomy": taxonomy,
+            "target_taxonomy_code": taxonomy_code,
+            "target_taxonomy_name": taxonomy_name,
+            "source_board_code": flow.get("code") or None,
+            "source_board_name": flow.get("name") or None,
+            "alias_group": list(alias_group) if alias_group else None,
+            "candidate_source_boards": candidate_audit,
+        })
+        return {
+            "flow": matched,
+            "match_method": match_method,
+            "reason_code": reason_code,
+            "alias_group": list(alias_group) if alias_group else None,
+            "candidate_source_boards": candidate_audit,
+            "source_available": source_available,
+        }
+
+    if taxonomy_code:
+        code_candidates = _unique_board_flow_candidates(by_code.get(taxonomy_code))
+        if len(code_candidates) > 1:
+            return result(
+                flow=None,
+                match_method="AMBIGUOUS_CODE",
+                reason_code="AMBIGUOUS_BOARD_FLOW_CODE",
+                candidates=code_candidates,
+            )
+        if code_candidates:
+            return result(
+                flow=code_candidates[0],
+                match_method="EXACT_CODE",
+                reason_code="OK",
+                candidates=code_candidates,
+            )
+
+    name_key = _sector_name_key(taxonomy_name)
+    if name_key:
+        name_candidates = _unique_board_flow_candidates(by_name.get(name_key))
+        if len(name_candidates) > 1:
+            return result(
+                flow=None,
+                match_method="AMBIGUOUS_NAME",
+                reason_code="AMBIGUOUS_BOARD_FLOW_NAME",
+                candidates=name_candidates,
+            )
+        if name_candidates:
+            return result(
+                flow=name_candidates[0],
+                match_method="EXACT_NAME",
+                reason_code="OK",
+                candidates=name_candidates,
+            )
+
+    alias_group = _board_flow_alias_group(taxonomy, taxonomy_name)
+    if alias_group:
+        alias_candidates: list[Mapping[str, Any]] = []
+        for alias_key in alias_group:
+            alias_candidates.extend(
+                value
+                for value in by_name.get(alias_key, ())
+                if isinstance(value, Mapping)
+            )
+        alias_candidates = _unique_board_flow_candidates(alias_candidates)
+        if len(alias_candidates) > 1:
+            return result(
+                flow=None,
+                match_method="AMBIGUOUS_ALIAS",
+                reason_code="AMBIGUOUS_BOARD_FLOW_ALIAS",
+                alias_group=alias_group,
+                candidates=alias_candidates,
+            )
+        if alias_candidates:
+            return result(
+                flow=alias_candidates[0],
+                match_method="EXPLICIT_ALIAS",
+                reason_code="OK",
+                alias_group=alias_group,
+                candidates=alias_candidates,
+            )
+
+    return result(
+        flow=None,
+        match_method="NO_MATCH",
+        reason_code="SECTOR_NOT_IN_BOARD_FLOW_RANKING" if source_available else "SOURCE_UNAVAILABLE",
+    )
 
 
 def _sector_name_key(value: Any) -> str:
@@ -575,7 +798,7 @@ def _build_sector_health_rows(
     history_by_code: Mapping[str, Mapping[str, Any]],
     pool_symbols: set[str],
     ladder_by_symbol: Mapping[str, Sequence[Mapping[str, Any]]],
-    board_flow: Mapping[str, Mapping[str, Any]],
+    board_flow: Mapping[str, Any],
 ) -> list[dict[str, Any]]:
     grouped: dict[str, dict[str, Any]] = {}
     for symbol, memberships in member_map.items():
@@ -650,8 +873,39 @@ def _build_sector_health_rows(
             quote_coverage=quote_coverage,
             persistence=persistence,
         )
-        flow = board_flow.get(code) or board_flow.get(_sector_name_key(group["taxonomy_name"]))
+        flow_match = _match_board_flow(
+            board_flow,
+            taxonomy=taxonomy,
+            taxonomy_code=code,
+            taxonomy_name=group["taxonomy_name"],
+        )
+        flow = flow_match.get("flow")
         flow = dict(flow) if isinstance(flow, Mapping) else None
+        flow_reason_code = str(flow_match.get("reason_code") or "SOURCE_UNAVAILABLE")
+        flow_available = flow is not None and flow.get("available") is True
+        if flow is None:
+            ambiguous = flow_reason_code.startswith("AMBIGUOUS_BOARD_FLOW_")
+            flow = {
+                "available": False,
+                "availability_state": "AMBIGUOUS_MATCH" if ambiguous else (
+                    "OBSERVED_ABSENT"
+                    if flow_match.get("source_available") is True
+                    else "SOURCE_UNAVAILABLE"
+                ),
+                "reason_code": flow_reason_code,
+                "score": None,
+                "source": "EASTMONEY_BOARD_CAPITAL_FLOW",
+                "source_scope": "SECTOR",
+                "provider_method": "VENDOR_DERIVED_RANK_PERCENTILE",
+                "match_method": flow_match.get("match_method"),
+                "target_taxonomy": taxonomy,
+                "target_taxonomy_code": code,
+                "target_taxonomy_name": group["taxonomy_name"],
+                "source_board_code": None,
+                "source_board_name": None,
+                "alias_group": flow_match.get("alias_group"),
+                "candidate_source_boards": flow_match.get("candidate_source_boards", []),
+            }
         rows.append({
             "taxonomy": taxonomy,
             "taxonomy_code": code,
@@ -683,15 +937,9 @@ def _build_sector_health_rows(
             "ladder_member_symbols": sorted(group["ladder_members"]),
             "limit_up_member_symbols": sorted(group["pool_members"]),
             "health_state": health_state,
-            "capital_flow_available": flow is not None,
-            "capital_flow_reason_code": "OK" if flow is not None else "SECTOR_NOT_IN_BOARD_FLOW_RANKING",
-            "capital_flow": flow or {
-                "available": False,
-                "availability_state": "OBSERVED_ABSENT" if board_flow else "SOURCE_UNAVAILABLE",
-                "reason_code": "SECTOR_NOT_IN_BOARD_FLOW_RANKING" if board_flow else "SOURCE_UNAVAILABLE",
-                "score": None,
-                "source": "EASTMONEY_BOARD_CAPITAL_FLOW",
-            },
+            "capital_flow_available": flow_available,
+            "capital_flow_reason_code": "OK" if flow_available else flow_reason_code,
+            "capital_flow": flow,
             "turnover_is_capital_flow": False,
             "history": history,
         })
