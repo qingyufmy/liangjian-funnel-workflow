@@ -11,6 +11,13 @@ from liangjian_funnel.pipeline.mature_theme_registry import (
     augment_discovery_with_mature_registry,
     resolve_mature_theme_registry,
 )
+from liangjian_funnel.pipeline.research import _mature_theme_activation_minimum
+
+
+def test_mature_theme_activation_minimum_handles_default_and_explicit_values() -> None:
+    assert _mature_theme_activation_minimum(None) == 5
+    assert _mature_theme_activation_minimum(0) == 1
+    assert _mature_theme_activation_minimum("7") == 7
 
 
 def _registry() -> dict:

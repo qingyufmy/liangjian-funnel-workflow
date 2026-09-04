@@ -1672,9 +1672,8 @@ class ResearchPipeline:
                 mature_activation,
                 snapshot.data,
             )
-            minimum_activated = _safe_int(
-                raw_mature_registry.get("minimum_activated_themes"),
-                5,
+            minimum_activated = _mature_theme_activation_minimum(
+                raw_mature_registry.get("minimum_activated_themes")
             )
             if len(mature_activation.get("activated_themes") or ()) < max(1, minimum_activated):
                 raise ResearchPipelineError("A1_MATURE_THEME_ACTIVATION_UNDERFILLED")
@@ -10495,6 +10494,14 @@ def _safe_int(value: Any) -> int:
         return max(0, int(value))
     except (TypeError, ValueError):
         return 0
+
+
+def _mature_theme_activation_minimum(value: Any) -> int:
+    """Return the configured activation floor without overloading _safe_int."""
+
+    if value is None or value == "":
+        return 5
+    return max(1, _safe_int(value))
 
 
 def _safe_optional_int(value: Any) -> int | None:
