@@ -362,7 +362,7 @@ _ALLOWED_DISABLED = {False, None, "", "DISABLED", "DISABLE", "OFF", "SHADOW", "S
 _PROMPT_PROJECTION_VERSION = "research-prompt-projection/2.2.0"
 _DEFAULT_MODEL_MAX_INPUT_TOKENS = 1_000_000
 _A3_BATCH_SIZE = 16
-_A2_MAX_TRANSPORT_BATCH_SIZE = 15
+_A2_MAX_TRANSPORT_BATCH_SIZE = 10
 _STAGE_OUTPUT_BUDGETS: Mapping[str, Mapping[str, int]] = {
     "A1": {"approved_pool": 5, "secondary_pool": 5, "themes": 18, "chain_nodes": 80, "evidence_per_item": 3},
     "A2": {"approved_pool": 5, "secondary_pool": 5, "themes": 20, "chain_nodes": 0, "evidence_per_item": 3},
@@ -5543,7 +5543,7 @@ def _project_a2_theme_metrics(
     symbols: set[str] | None,
     snapshot_data: Mapping[str, Any],
     *,
-    global_theme_limit: int = 12,
+    global_theme_limit: int = 5,
 ) -> Any:
     """Project full-market A2 theme metrics to batch themes plus a benchmark."""
 
