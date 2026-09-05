@@ -1291,15 +1291,31 @@ def screen_a2(
             or source_theme_id
             or ""
         ).strip().upper()
+        theme_bound_selected_board_matches = [
+            row
+            for row in selected_board_matches
+            if _a2_selected_board_matches_theme(
+                row,
+                a1_strategy_theme_id=a1_strategy_theme_id,
+                item=item,
+            )
+        ]
+        stable_symbol_membership_binding = (
+            _a2_selected_board_uses_stable_symbol_membership(selected_boards)
+        )
+        # The Liangjian free-data snapshot owns a versioned full-market
+        # symbol->board membership index.  A1 proves monthly eligibility and
+        # disclosed-business support; it does not assign the only sector a
+        # company may trade with today.  Requiring A1's single primary theme
+        # to equal every daily rotation board discarded legitimate multi-
+        # theme members before the model could assess their actual exposure.
+        # Legacy/ad-hoc selected-board payloads retain the stricter explicit
+        # theme binding so an arbitrary concept cannot open the trend route.
         selected_board_match = min(
             (
-                row
-                for row in selected_board_matches
-                if _a2_selected_board_matches_theme(
-                    row,
-                    a1_strategy_theme_id=a1_strategy_theme_id,
-                    item=item,
-                )
+                selected_board_matches
+                if stable_symbol_membership_binding
+                else theme_bound_selected_board_matches
             ),
             key=lambda row: (
                 _number(row.get("primary_rank")) or 10**9,
@@ -1686,7 +1702,14 @@ def screen_a2(
             "trend_core_eligible": trend_core_eligible,
             "eastmoney_hot100": dict(hot100_row) if hot100_row is not None else None,
             "selected_board": dict(selected_board_match) if selected_board_match is not None else None,
-            "selected_board_theme_match": selected_board_match is not None,
+            "selected_board_theme_match": bool(theme_bound_selected_board_matches),
+            "selected_board_binding": (
+                "STABLE_FULL_MARKET_SYMBOL_MEMBERSHIP"
+                if selected_board_match is not None and stable_symbol_membership_binding
+                else "EXPLICIT_A1_THEME_BINDING"
+                if selected_board_match is not None
+                else None
+            ),
             "rotation_fallback": dict(rotation_fallback) if rotation_fallback is not None else None,
             "rotation_input_source": (
                 "SELECTED_BOARD_SNAPSHOT"
@@ -2044,6 +2067,27 @@ def _a2_selected_board_matches_theme(
                 if str(value).strip()
             )
     return bool(row_tokens.intersection(a1_tokens))
+
+
+def _a2_selected_board_uses_stable_symbol_membership(
+    snapshot: Mapping[str, Any],
+) -> bool:
+    """Allow board membership to complement, not overwrite, A1 identity.
+
+    Only the versioned Liangjian rotation contract is eligible for this
+    path.  Its ``by_symbol`` index is built from the persisted full-market
+    membership snapshots and its taxonomy version is frozen in the content
+    hash.  Unknown/legacy payloads still require an explicit A1 theme alias.
+    """
+
+    return (
+        str(snapshot.get("schema_version") or "").strip()
+        == "liangjian-rotation-theme/1.0.0"
+        and str(snapshot.get("source_id") or "").strip()
+        == "LIANGJIAN_FREE_ROTATION_V1"
+        and snapshot.get("taxonomy_substitution_forbidden") is False
+        and isinstance(snapshot.get("by_symbol"), Mapping)
+    )
 
 
 def _a2_full_market_rotation_available(

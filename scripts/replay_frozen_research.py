@@ -92,6 +92,13 @@ def main() -> int:
         action="store_true",
         help="attach same-day open macro contracts to a non-publishable validation replay",
     )
+    parser.add_argument(
+        "--rotation-snapshot-overlay",
+        help=(
+            "hash-validated non-publishable rotation snapshot used only for "
+            "retrospective A2/A3 diagnosis"
+        ),
+    )
     args = parser.parse_args()
 
     settings = Settings.from_env()
@@ -105,7 +112,11 @@ def main() -> int:
     base_snapshot_hash = raw.get("snapshot_hash")
     if not isinstance(base_snapshot_hash, str) or _canonical_hash(raw["data"]) != base_snapshot_hash:
         raise SystemExit("RESEARCH_SNAPSHOT_HASH_MISMATCH")
-    if args.publish and (args.enable_deterministic_v2_overlay or args.refresh_open_macro_overlay):
+    if args.publish and (
+        args.enable_deterministic_v2_overlay
+        or args.refresh_open_macro_overlay
+        or args.rotation_snapshot_overlay
+    ):
         raise SystemExit("VALIDATION_OVERLAY_CANNOT_PUBLISH")
     snapshot_data = dict(raw["data"])
     snapshot_id = str(raw.get("snapshot_id") or "")
@@ -124,6 +135,46 @@ def main() -> int:
         raise SystemExit("RESEARCH_SNAPSHOT_AS_OF_INVALID") from exc
     if snapshot_as_of.tzinfo is None or snapshot_as_of.utcoffset() is None:
         raise SystemExit("RESEARCH_SNAPSHOT_AS_OF_TIMEZONE_REQUIRED")
+    if args.rotation_snapshot_overlay:
+        overlay_path = Path(args.rotation_snapshot_overlay).expanduser().resolve()
+        try:
+            rotation_overlay = json.loads(overlay_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise SystemExit("ROTATION_SNAPSHOT_OVERLAY_INVALID") from exc
+        if not isinstance(rotation_overlay, dict):
+            raise SystemExit("ROTATION_SNAPSHOT_OVERLAY_SCHEMA_INVALID")
+        overlay_hash = str(rotation_overlay.get("content_hash") or "")
+        overlay_body = dict(rotation_overlay)
+        overlay_body.pop("content_hash", None)
+        local_trade_date = snapshot_as_of.astimezone(
+            ZoneInfo(settings.timezone)
+        ).date().isoformat()
+        quality = rotation_overlay.get("quality")
+        if (
+            rotation_overlay.get("schema_version")
+            != "liangjian-rotation-theme/1.0.0"
+            or rotation_overlay.get("available") is not True
+            or str(rotation_overlay.get("trade_date") or "") != local_trade_date
+            or not overlay_hash
+            or _canonical_hash(overlay_body) != overlay_hash
+            or not isinstance(quality, dict)
+            or quality.get("retrospective_validation_only") is not True
+            or quality.get("production_publish_forbidden") is not True
+        ):
+            raise SystemExit("ROTATION_SNAPSHOT_OVERLAY_SCHEMA_INVALID")
+        snapshot_data["SELECTED_BOARD_SNAPSHOT"] = rotation_overlay
+        manifest = dict(snapshot_data.get("snapshot_manifest") or {})
+        manifest["rotation_snapshot_validation_overlay"] = {
+            "path": str(overlay_path),
+            "content_hash": overlay_hash,
+            "trade_date": rotation_overlay.get("trade_date"),
+            "ranking_source": quality.get("ranking_source"),
+            "membership_snapshot_hash": quality.get("membership_snapshot_hash"),
+            "non_publishable": True,
+            "retrospective": True,
+        }
+        snapshot_data["snapshot_manifest"] = manifest
+        expected_hash = _canonical_hash(snapshot_data)
     if args.refresh_open_macro_overlay:
         if snapshot_as_of.astimezone(ZoneInfo(settings.timezone)).date() != current.date():
             raise SystemExit("OPEN_MACRO_OVERLAY_REQUIRES_SAME_DAY_SNAPSHOT")
@@ -244,7 +295,9 @@ def main() -> int:
                 "status": result.status,
                 "snapshot_id": result.snapshot_id,
                 "base_snapshot_hash": base_snapshot_hash if (
-                    args.enable_deterministic_v2_overlay or args.refresh_open_macro_overlay
+                    args.enable_deterministic_v2_overlay
+                    or args.refresh_open_macro_overlay
+                    or args.rotation_snapshot_overlay
                 ) else None,
                 "markdown": str(result.markdown_path) if result.markdown_path else None,
                 "plan_publication": publication,

@@ -6325,6 +6325,8 @@ def _gate_item_from_decision(
             "trend_core_eligible": decision.get("trend_core_eligible") is True,
             "eastmoney_hot100": dict(decision.get("eastmoney_hot100") or {}),
             "selected_board": dict(decision.get("selected_board") or {}),
+            "selected_board_binding": decision.get("selected_board_binding"),
+            "selected_board_theme_match": decision.get("selected_board_theme_match") is True,
             "sector_index_code": (
                 (decision.get("selected_board") or {}).get("board_code")
                 if isinstance(decision.get("selected_board"), Mapping) and decision.get("selected_board")
@@ -7902,6 +7904,10 @@ def _canonicalize_stage_lineage(
                 canonical["trend_core_eligible"] = context.get("trend_core_eligible") is True
                 canonical["eastmoney_hot100"] = dict(context.get("eastmoney_hot100") or {})
                 canonical["selected_board"] = dict(context.get("selected_board") or {})
+                canonical["selected_board_binding"] = context.get("selected_board_binding")
+                canonical["selected_board_theme_match"] = (
+                    context.get("selected_board_theme_match") is True
+                )
                 taxonomy_binding = context.get("a2_taxonomy_binding")
                 if isinstance(taxonomy_binding, Mapping):
                     selected_board = context.get("selected_board")
@@ -11222,6 +11228,8 @@ def _with_a2_bottleneck_context(
             "trend_core_eligible": item.get("trend_core_eligible") is True,
             "eastmoney_hot100": dict(item.get("eastmoney_hot100") or {}),
             "selected_board": dict(item.get("selected_board") or {}),
+            "selected_board_binding": item.get("selected_board_binding"),
+            "selected_board_theme_match": item.get("selected_board_theme_match") is True,
             "deterministic_market_role": item.get("role"),
             "stock_behavior_type": item.get("stock_behavior_type"),
             "route_permission": list(item.get("route_permission") or ()),

@@ -1802,6 +1802,7 @@ def build_rotation_theme_snapshot(
             "eastmoney_conflict_policy": "OBSERVATION_ONLY",
             "pagination_required": True,
             "taxonomy_version": taxonomy.version if taxonomy else None,
+            "membership_contract": "VERSIONED_FULL_MARKET_SYMBOL_MEMBERSHIP",
         },
         "content_hash": "",
         "taxonomy_substitution_forbidden": False,

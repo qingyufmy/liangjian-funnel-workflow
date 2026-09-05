@@ -1,0 +1,88 @@
+{
+  "schema_version": "liangjian-rotation-observation/1.0.0",
+  "trade_date": "2026-09-03",
+  "observed_as_of": "2026-09-03T15:00:00+08:00",
+  "retrospective_validation_only": true,
+  "rotation_theme_count": 5,
+  "source_description": "用户提供的同花顺精选板块收盘截图；强度降序且主力净流入为正，子板块继承父板块名次",
+  "source_evidence": [
+    {
+      "file_name": "codex-clipboard-aa8962f7-40c2-4860-bd1e-fca7de44867d.png",
+      "sha256": "1832af9b4421301f1179bbddc703163cb2bfe4930407c2f867cef6af119b9ff6"
+    },
+    {
+      "file_name": "codex-clipboard-715f8ac8-2206-4265-9741-3334884b1412.png",
+      "sha256": "4e09fd08f980c946bb4ad1c7914afa90e2966d1a0c5d90d1a2177b09525cb217"
+    }
+  ],
+  "ranking_rule": "正主力净流入板块按截图强度降序取前五；液冷作为算力子板块继承第1名且不另占名额",
+  "observations": [
+    {
+      "theme_id": "AI_COMPUTE_INFRASTRUCTURE",
+      "source_board_codes": ["801807"],
+      "source_board_names": ["算力"],
+      "strength": 5211,
+      "main_net_inflow_cny": 1776000000,
+      "primary_rank": 1,
+      "occupies_primary_slot": true
+    },
+    {
+      "theme_id": "AI_LIQUID_COOLING",
+      "source_board_codes": ["801730"],
+      "source_board_names": ["液冷"],
+      "strength": 5183,
+      "main_net_inflow_cny": 1233000000,
+      "primary_rank": 1,
+      "occupies_primary_slot": false
+    },
+    {
+      "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+      "source_board_codes": ["801159"],
+      "source_board_names": ["机器人概念"],
+      "strength": 4387,
+      "main_net_inflow_cny": 976000000,
+      "primary_rank": 2,
+      "occupies_primary_slot": true
+    },
+    {
+      "theme_id": "FINANCIAL_INSURANCE",
+      "source_board_codes": ["801071"],
+      "source_board_names": ["保险"],
+      "strength": 2356,
+      "main_net_inflow_cny": 899000000,
+      "primary_rank": 3,
+      "occupies_primary_slot": true
+    },
+    {
+      "theme_id": "CONSUMER_SERVICES",
+      "source_board_codes": ["801053"],
+      "source_board_names": ["零售"],
+      "strength": 1459,
+      "main_net_inflow_cny": 471000000,
+      "primary_rank": 4,
+      "occupies_primary_slot": true
+    },
+    {
+      "theme_id": "CULTIVATED_DIAMOND",
+      "source_board_codes": ["801377", "801139"],
+      "source_board_names": ["金刚石概念", "培育钻石"],
+      "strength": 1387,
+      "main_net_inflow_cny": 2820000000,
+      "primary_rank": 5,
+      "occupies_primary_slot": true,
+      "mapping_note": "按已确认的稳定策略映射统一命名为培育钻石；排名和正流入采用截图中的金刚石概念801377，801139负流入仅作冲突观察"
+    }
+  ],
+  "ranking_proof": {
+    "highest_excluded_positive_board": {
+      "source_board_code": "801234",
+      "source_board_name": "航运",
+      "strength": 1194,
+      "main_net_inflow_cny": 713000000
+    },
+    "intervening_negative_flow_boards": [
+      {"source_board_code": "801660", "source_board_name": "通信", "strength": 1748, "main_net_inflow_cny": -7536000000},
+      {"source_board_code": "803023", "source_board_name": "AI应用", "strength": 1212, "main_net_inflow_cny": -2233000000}
+    ]
+  }
+}
