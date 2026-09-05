@@ -359,7 +359,7 @@ _PERMISSION_KEYS = {
     "order_permission",
 }
 _ALLOWED_DISABLED = {False, None, "", "DISABLED", "DISABLE", "OFF", "SHADOW", "SIMULATION"}
-_PROMPT_PROJECTION_VERSION = "research-prompt-projection/2.5.0"
+_PROMPT_PROJECTION_VERSION = "research-prompt-projection/2.6.0"
 _DEFAULT_MODEL_MAX_INPUT_TOKENS = 1_000_000
 _A3_BATCH_SIZE = 16
 _A2_MAX_TRANSPORT_BATCH_SIZE = 5
@@ -5511,10 +5511,24 @@ def _project_selected_board(value: Any, symbols: set[str] | None) -> Any:
         return value
     wanted = {str(symbol).strip().upper() for symbol in symbols if str(symbol).strip()}
     result = {
-        key: item
-        for key, item in value.items()
-        if key not in {"boards", "by_symbol"}
+        key: value.get(key)
+        for key in (
+            "schema_version", "available", "reason_code", "trade_date", "as_of",
+            "source", "top_n", "selected_board_count", "content_hash",
+        )
+        if key in value
     }
+    quality = value.get("quality")
+    if isinstance(quality, Mapping):
+        result["quality"] = {
+            key: quality.get(key)
+            for key in (
+                "ranking_source", "capital_flow_required", "positive_flow_only",
+                "membership_snapshot_complete", "retrospective_validation_only",
+                "production_publish_forbidden",
+            )
+            if key in quality
+        }
     raw_boards = value.get("boards")
     boards = [item for item in raw_boards if isinstance(item, Mapping)] if isinstance(raw_boards, list) else []
     selected: list[dict[str, Any]] = []
@@ -5944,26 +5958,15 @@ def _project_a2_bottleneck_context(value: Any, symbols: set[str] | None) -> Any:
                 for key in (
                     "status", "reason_code", "node_id", "taxonomy", "taxonomy_code",
                     "taxonomy_name", "rotation_strength_score", "rotation_strength_available",
-                    "candidate_member_count", "return_coverage",
                 )
                 if key in binding
             }
-            matched = binding.get("matched_taxonomies")
-            if isinstance(matched, Sequence) and not isinstance(matched, (str, bytes, bytearray)):
-                row["a2_taxonomy_binding"]["matched_taxonomies"] = list(matched[:8])
         factors = raw.get("a2_factor_scores")
         if isinstance(factors, Mapping):
             row["a2_factor_scores"] = {
                 str(name): _compact_a2_factor(factor)
                 for name, factor in factors.items()
                 if isinstance(factor, Mapping)
-            }
-        routes = raw.get("route_eligibility")
-        if isinstance(routes, Mapping):
-            row["route_eligibility"] = {
-                str(name): _compact_a2_route(route)
-                for name, route in routes.items()
-                if isinstance(route, Mapping) and str(name) in {"MARKET_CORE", "SUPPLY_CHAIN_ALPHA"}
             }
         behavior = raw.get("behavior_type_decision")
         if isinstance(behavior, Mapping):
@@ -5981,19 +5984,10 @@ def _project_a2_bottleneck_context(value: Any, symbols: set[str] | None) -> Any:
 
 def _compact_a2_factor(value: Mapping[str, Any]) -> dict[str, Any]:
     allowed = {
-        "available", "score", "reason_code", "availability_state", "coverage",
-        "value", "rank", "breadth", "turnover_share", "ladder_height", "tier",
-        "relative_strength", "weekly_confirmation_score", "weekly_momentum_state",
+        "available", "score", "reason_code", "availability_state", "coverage", "rank",
+        "weekly_momentum_state",
     }
     return {key: value.get(key) for key in allowed if key in value}
-
-
-def _compact_a2_route(value: Mapping[str, Any]) -> dict[str, Any]:
-    allowed = {
-        "eligible", "data_sufficiency_state", "factor_coverage", "missing_reason_codes",
-        "blocked_by_upstream", "blocked_by_risk", "blocked_by_inactive_a1_row",
-    }
-    return {key: _truncate_nested(value.get(key), 512) for key in allowed if key in value}
 
 
 def _project_eastmoney_hot100(value: Any, symbols: set[str] | None) -> Any:
