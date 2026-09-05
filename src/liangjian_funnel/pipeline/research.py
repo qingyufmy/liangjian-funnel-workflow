@@ -7345,22 +7345,26 @@ def _semantic_total_timeout_seconds(
 ) -> float:
     """Return the bounded wall-clock budget for semantic validation retries.
 
-    Monthly macro discovery can produce a structurally valid response that
-    still misses the configured theme or chain coverage.  Its repair must
-    regenerate the complete discovery document, so sharing one provider
-    timeout between both semantic attempts can leave the repair with only a
-    few seconds.  Give each of the two discovery attempts one normal provider
-    window while keeping every individual request capped by ModelClient and
-    preserving the established single-window budget for all other stages.
+    Monthly macro discovery and A2 can produce structurally complete responses
+    that still need one bounded semantic repair.  Both repairs regenerate a
+    complete batch document; sharing one provider timeout between the first
+    response and its repair can leave the second request with only a few
+    seconds.  Give each allowed attempt one normal provider window for those
+    two stages.  Every individual request remains capped by ModelClient and
+    A1 company mapping/A3 retain their established single-window budget.
     """
 
     timeout = max(0.0, float(model_timeout_seconds))
-    discovery_retry = (
+    independent_semantic_windows = stage == "A2" or (
         stage == "A1"
         and isinstance(a1_discovery_context, Mapping)
         and a1_discovery_context.get("mode") == "POLICY_MACRO_DISCOVERY"
     )
-    return timeout * max(1, int(semantic_limit)) if discovery_retry else timeout
+    return (
+        timeout * max(1, int(semantic_limit))
+        if independent_semantic_windows
+        else timeout
+    )
 
 
 def _semantic_retry_instruction(

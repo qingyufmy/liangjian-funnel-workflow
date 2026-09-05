@@ -225,6 +225,15 @@ def test_policy_macro_discovery_gets_one_bounded_window_per_semantic_attempt():
     ) == 600.0
 
 
+def test_a2_semantic_repair_gets_its_own_bounded_provider_window():
+    assert _semantic_total_timeout_seconds(
+        "A2",
+        None,
+        model_timeout_seconds=600.0,
+        semantic_limit=2,
+    ) == 1200.0
+
+
 def test_reviewed_hypotheses_cannot_silently_disappear_from_a1_discovery():
     snapshot = {
         "REVIEWED_PUBLIC_RESEARCH_LEADS": {
