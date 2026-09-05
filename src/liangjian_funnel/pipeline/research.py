@@ -359,7 +359,7 @@ _PERMISSION_KEYS = {
     "order_permission",
 }
 _ALLOWED_DISABLED = {False, None, "", "DISABLED", "DISABLE", "OFF", "SHADOW", "SIMULATION"}
-_PROMPT_PROJECTION_VERSION = "research-prompt-projection/2.3.0"
+_PROMPT_PROJECTION_VERSION = "research-prompt-projection/2.4.0"
 _DEFAULT_MODEL_MAX_INPUT_TOKENS = 1_000_000
 _A3_BATCH_SIZE = 16
 _A2_MAX_TRANSPORT_BATCH_SIZE = 5
@@ -565,6 +565,7 @@ class _PreparedStageRequest:
     prompt_chars: int
     estimated_input_tokens: int
     input_token_limit: int
+    replacement_chars: Mapping[str, int]
 
 
 class ResearchPipeline:
@@ -3994,6 +3995,10 @@ class ResearchPipeline:
         )
         prompt_chars = sum(len(str(message.get("content", ""))) for message in messages)
         estimated_input_tokens = _estimate_message_tokens(messages)
+        replacement_chars = {
+            name: len(_canonical_json(value))
+            for name, value in replacements.items()
+        }
         input_token_limit = int(
             getattr(self.settings, "model_max_input_tokens", _DEFAULT_MODEL_MAX_INPUT_TOKENS)
         )
@@ -4013,6 +4018,7 @@ class ResearchPipeline:
             prompt_chars=prompt_chars,
             estimated_input_tokens=estimated_input_tokens,
             input_token_limit=input_token_limit,
+            replacement_chars=replacement_chars,
         )
 
     def _run_stage(
@@ -4050,6 +4056,7 @@ class ResearchPipeline:
             prompt_chars = prepared.prompt_chars
             estimated_input_tokens = prepared.estimated_input_tokens
             input_token_limit = prepared.input_token_limit
+            replacement_chars = prepared.replacement_chars
         except (PromptRepositoryError, TypeError, ValueError):
             return StageAudit(
                 lane=lane_id,
@@ -4181,6 +4188,12 @@ class ResearchPipeline:
                         "input_token_limit": input_token_limit,
                         "projection_symbol_count": len(
                             projection_symbols if projection_symbols is not None else upstream_symbols
+                        ),
+                        "largest_prompt_replacements": dict(
+                            sorted(
+                                replacement_chars.items(),
+                                key=lambda item: (-item[1], item[0]),
+                            )[:8]
                         ),
                         "last_invalid_output_shape": last_shape,
                         "missing_mapping_codes": list(last_missing_mapping_codes),
