@@ -556,18 +556,18 @@ class WorkflowApplication:
             # normal multi-second request is misclassified as future data.
             industry_catalog = _bind_reference_fact_event_time(
                 client.ths_index_catalog(tag="industry"),
-                as_of=current,
+                as_of=market_current,
             )
             concept_catalog = _bind_reference_fact_event_time(
                 client.ths_index_catalog(tag="cn_concept"),
-                as_of=current,
+                as_of=market_current,
             )
             full_membership = collect_ths_industry_membership(
                 client,
                 industry_catalog,
                 all_market_symbols,
                 cache_dir=self.settings.fact_store_dir / "ths_industry",
-                as_of=current,
+                as_of=market_current,
             )
             if not full_membership.ok or not full_membership.complete:
                 raise WorkflowError(f"THS_INDUSTRY_MEMBERSHIP_NOT_READY:{full_membership.reason_code}")
@@ -604,7 +604,7 @@ class WorkflowApplication:
                 client,
                 industry_catalog,
                 cache_dir=self.settings.fact_store_dir / "ths_industry",
-                as_of=current,
+                as_of=market_current,
             )
             # Reuse the already complete full-market projection. Re-projecting
             # the same graph here doubles both allocation and JSON work on the
@@ -616,7 +616,7 @@ class WorkflowApplication:
                 all_market_symbols,
                 taxonomy="concept",
                 cache_dir=self.settings.fact_store_dir / "ths_taxonomy",
-                as_of=current,
+                as_of=market_current,
             )
             if not market_fact_results["THS_INDUSTRY_HISTORY"].ok:
                 raise WorkflowError(
