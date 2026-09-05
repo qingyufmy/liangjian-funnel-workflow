@@ -82,6 +82,12 @@ async function createResearchDetailFixture(): Promise<string> {
           focus_pool: [{
             symbol: "600001.SH",
             theme_score: 72,
+            primary_theme: "农业与粮食安全",
+            selected_board: {
+              board_code: "AI_APPLICATIONS_DIGITAL_ECONOMY",
+              board_name: "AI应用与数字经济",
+              selected_for_rotation: true,
+            },
             industry: "软件开发",
             industry_chain_role: "BOTTLENECK_NODE",
             market_role: "CORE_ARMY",
@@ -601,6 +607,7 @@ test("projects paginated research stage pools with names, reasons, and allow-lis
     symbol: "600001.SH",
     name: "模型名称",
     nameSource: "lane_a1",
+    theme: "AI应用与数字经济",
     detailState: "COMPLETE",
     missingFields: [],
     decisionFacts: {

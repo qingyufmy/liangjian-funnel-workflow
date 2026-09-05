@@ -1873,7 +1873,20 @@ function normalizeResearchItem(
   const sourceRefs = sourceReferenceValues(value);
   const scoreBreakdown = asSafeJson(value.score_breakdown ?? value.scoreBreakdown);
   const factorCoverage = asSafeJson(value.factor_coverage ?? value.factorCoverage ?? value.critical_factor_coverage ?? value.criticalFactorCoverage);
-  const theme = firstString(value, ["primary_theme", "primaryTheme", "theme", "theme_id", "themeId"])
+  const selectedBoard = isRecord(value.selected_board)
+    ? value.selected_board
+    : isRecord(value.selectedBoard)
+      ? value.selectedBoard
+      : null;
+  // A2 owns the point-in-time rotation classification. Its upstream A1
+  // structural theme remains useful lineage, but must not be presented as the
+  // current board or users will see unrelated names (for example an AI/finance
+  // rotation candidate labelled as agriculture). Prefer the canonical board
+  // display name and keep internal identifiers out of the user-facing field.
+  const theme = (stage === "A2" && selectedBoard
+    ? firstString(selectedBoard, ["board_name", "boardName", "display_name", "displayName", "name"])
+    : null)
+    ?? firstString(value, ["primary_theme", "primaryTheme", "theme", "theme_id", "themeId"])
     ?? catalogName?.theme
     ?? null;
   const industry = industryText(value) ?? catalogName?.industry ?? null;
