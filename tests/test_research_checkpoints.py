@@ -26,7 +26,9 @@ def _prompt_dir(tmp_path: Path) -> Path:
 
 
 def _settings(tmp_path: Path) -> Settings:
-    return Settings.from_env({"LIANGJIAN_MODEL_API_KEY": "model-secret"}, root=tmp_path)
+    return Settings.from_env({"LIANGJIAN_MODEL_API_KEY": "model-secret"}, root=tmp_path).model_copy(
+        update={"research_models": MODELS}
+    )
 
 
 def _envelope(model: str, stage: str, snapshot_id: str) -> dict:

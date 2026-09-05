@@ -864,7 +864,7 @@ def test_v2_pipeline_does_not_send_the_full_g0_to_a1(tmp_path: Path):
             "LIANGJIAN_A2_LLM_TOP_N_PER_THEME": "2",
         },
         root=tmp_path,
-    )
+    ).model_copy(update={"research_models": MODELS})
     client = V2Client()
     progress_events: list[dict] = []
     runtime_store = RuntimeStore(settings.state_db_path)

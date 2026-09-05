@@ -120,7 +120,7 @@ def _settings(tmp_path: Path) -> Settings:
             "LIANGJIAN_RESEARCH_PIPELINE_MODE": "legacy",
         },
         root=tmp_path,
-    )
+    ).model_copy(update={"research_models": MODELS})
 
 
 def _prompt_dir(tmp_path: Path) -> Path:

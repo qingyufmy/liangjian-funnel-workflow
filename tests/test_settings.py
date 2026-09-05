@@ -3,7 +3,15 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from liangjian_funnel.settings import ALL_MODELS, MONITOR_MODEL, RESEARCH_MODELS, Settings, load_dotenv, load_yaml
+from liangjian_funnel.settings import (
+    ALL_MODELS,
+    MODEL_CLIENT_COMPATIBILITY_MODELS,
+    MONITOR_MODEL,
+    RESEARCH_MODELS,
+    Settings,
+    load_dotenv,
+    load_yaml,
+)
 
 
 def test_exact_models_and_safe_summary_do_not_leak_keys(tmp_path: Path):
@@ -17,7 +25,7 @@ def test_exact_models_and_safe_summary_do_not_leak_keys(tmp_path: Path):
     )
     assert settings.research_models == RESEARCH_MODELS
     assert settings.monitor_model == MONITOR_MODEL
-    assert ALL_MODELS == (*RESEARCH_MODELS, MONITOR_MODEL)
+    assert ALL_MODELS == (*RESEARCH_MODELS, *MODEL_CLIENT_COMPATIBILITY_MODELS, MONITOR_MODEL)
     assert secret not in repr(settings)
     assert secret not in str(settings.safe_summary())
     assert settings.safe_summary()["model_key_present"] is True

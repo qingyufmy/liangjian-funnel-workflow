@@ -14,11 +14,15 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationInfo, fi
 
 RESEARCH_MODELS = (
     "deepseek-v4-pro-0813",
+)
+MONITOR_MODEL = "deepseek-v4-flash-0731"
+# These identifiers remain accepted only by isolated transport-compatibility
+# tests.  They are not part of the production research model configuration.
+MODEL_CLIENT_COMPATIBILITY_MODELS = (
     "moonshotai/kimi-k3-free",
     "z-ai/glm-5.3-free",
 )
-MONITOR_MODEL = "deepseek-v4-flash-0731"
-ALL_MODELS = (*RESEARCH_MODELS, MONITOR_MODEL)
+ALL_MODELS = (*RESEARCH_MODELS, *MODEL_CLIENT_COMPATIBILITY_MODELS, MONITOR_MODEL)
 ENV_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 DEFAULT_MOOTDX_SERVERS = (
     ("117.34.114.13", 7709),

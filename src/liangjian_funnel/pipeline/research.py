@@ -29,7 +29,7 @@ from ..redaction import digest_text, safe_error
 from ..reporting import atomic_write_json, atomic_write_text
 from ..evaluation.outcome_labels import record_stage_decisions
 from .result_index import snapshot_name_catalog, write_lane_result_index
-from ..settings import RESEARCH_MODELS, Settings
+from ..settings import Settings
 from ..runtime.state import RuntimeStore
 from .bottleneck import (
     EVIDENCE_STRENGTHS,
@@ -796,7 +796,10 @@ class ResearchPipeline:
             or not isinstance(lane_start_index, int)
             or isinstance(lane_start_index, bool)
             or lane_start_index < 1
-            or lane_start_index + len(selected_models) - 1 > len(RESEARCH_MODELS)
+            # Lane numbering is an orchestration contract, not a count of the
+            # production model allow-list.  Production is DeepSeek-only, while
+            # tests may still exercise isolated multi-lane compatibility.
+            or lane_start_index + len(selected_models) - 1 > 3
         ):
             global_reason = global_reason or "RESEARCH_MODEL_CONFIG_INVALID"
         if primary_lane_ids is None:

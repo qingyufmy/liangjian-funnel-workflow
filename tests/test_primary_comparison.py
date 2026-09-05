@@ -29,7 +29,7 @@ def _settings(tmp_path: Path) -> Settings:
             "LIANGJIAN_COMPARISON_ENABLED": "true",
         },
         root=tmp_path,
-    )
+    ).model_copy(update={"research_models": (DEEPSEEK, KIMI, GLM)})
 
 
 def _prompt_dir(tmp_path: Path) -> Path:

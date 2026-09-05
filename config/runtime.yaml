@@ -92,8 +92,6 @@ data_sources:
 models:
   research:
     - deepseek-v4-pro-0813
-    - moonshotai/kimi-k3-free
-    - z-ai/glm-5.3-free
   monitor: deepseek-v4-flash-0731
 permissions:
   external_orders: false

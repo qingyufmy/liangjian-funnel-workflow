@@ -39,7 +39,7 @@ def test_doctor_is_offline_and_does_not_print_key(tmp_path: Path, capsys):
         "timezone: Asia/Shanghai\n"
             "research_slots: {premarket: '08:30', morning: '09:26', close: '15:10'}\n"
         "monitor: {cadence_seconds: 60}\n"
-        "models:\n  research:\n    - deepseek-v4-pro-0813\n    - moonshotai/kimi-k3-free\n    - z-ai/glm-5.3-free\n  monitor: deepseek-v4-flash-0731\n"
+        "models:\n  research:\n    - deepseek-v4-pro-0813\n  monitor: deepseek-v4-flash-0731\n"
         "permissions: {external_orders: false, gm_fallback: false, live_trading: false, fast_track: false}\n",
         encoding="utf-8",
     )

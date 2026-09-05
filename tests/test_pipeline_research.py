@@ -565,7 +565,9 @@ def test_discovery_progress_diagnostics_derive_only_counts_from_safe_shape():
 
 
 def _settings(tmp_path: Path) -> Settings:
-    return Settings.from_env({"LIANGJIAN_MODEL_API_KEY": "model-secret"}, root=tmp_path)
+    return Settings.from_env({"LIANGJIAN_MODEL_API_KEY": "model-secret"}, root=tmp_path).model_copy(
+        update={"research_models": MODELS}
+    )
 
 
 def _prompt_dir(tmp_path: Path) -> Path:
