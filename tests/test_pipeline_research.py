@@ -1276,7 +1276,7 @@ def test_a2_prompt_projection_removes_full_market_permission_and_attribution_bul
     assert set(context) == symbols
     assert "gate_results" not in context["600001.SH"]
     assert context["600001.SH"]["a2_factor_scores"]["breadth"] == 88
-    assert _stage_model_output_limit("A2", 15, configured_limit=393_216) == 2_048
+    assert _stage_model_output_limit("A2", 15, configured_limit=393_216) == 4_096
     assert _stage_model_output_limit("A3", 15, configured_limit=393_216) == 393_216
 
 
@@ -3475,7 +3475,7 @@ def test_a2_prompt_projection_filters_market_maps_and_preserves_batch_sector_evi
 
 
 def test_a2_model_timeout_is_bounded_without_changing_other_stages():
-    assert _stage_model_timeout_limit("A2", 600.0) == 240.0
+    assert _stage_model_timeout_limit("A2", 600.0) == 600.0
     assert _stage_model_timeout_limit("A2", 120.0) == 120.0
     assert _stage_model_timeout_limit("A3", 600.0) == 600.0
 

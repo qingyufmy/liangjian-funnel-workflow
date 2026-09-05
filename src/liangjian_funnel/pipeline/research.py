@@ -359,11 +359,11 @@ _PERMISSION_KEYS = {
     "order_permission",
 }
 _ALLOWED_DISABLED = {False, None, "", "DISABLED", "DISABLE", "OFF", "SHADOW", "SIMULATION"}
-_PROMPT_PROJECTION_VERSION = "research-prompt-projection/2.7.0"
+_PROMPT_PROJECTION_VERSION = "research-prompt-projection/2.8.0"
 _DEFAULT_MODEL_MAX_INPUT_TOKENS = 1_000_000
 _A3_BATCH_SIZE = 16
-_A2_MAX_TRANSPORT_BATCH_SIZE = 5
-_A2_MODEL_REQUEST_TIMEOUT_SECONDS = 240.0
+_A2_MAX_TRANSPORT_BATCH_SIZE = 10
+_A2_MODEL_REQUEST_TIMEOUT_SECONDS = 600.0
 _STAGE_OUTPUT_BUDGETS: Mapping[str, Mapping[str, int]] = {
     "A1": {"approved_pool": 5, "secondary_pool": 5, "themes": 18, "chain_nodes": 80, "evidence_per_item": 3},
     "A2": {"approved_pool": 5, "secondary_pool": 5, "themes": 20, "chain_nodes": 0, "evidence_per_item": 3},
@@ -6961,7 +6961,7 @@ def _stage_model_output_limit(
     configured = max(1, int(configured_limit))
     if stage != "A2":
         return configured
-    return min(configured, 2_048)
+    return min(configured, 4_096)
 
 
 def _stage_model_timeout_limit(stage: str, remaining_seconds: float) -> float:

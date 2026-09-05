@@ -1,6 +1,6 @@
 ========================================================================
 Agent 2 · ThemeSentimentSelectorAgent · Transport Contract
-版本: agent-2-transport/2.7.0   前置: SHARED_SYSTEM_V2
+版本: agent-2-transport/2.8.0   前置: SHARED_SYSTEM_V2
 ========================================================================
 
 任务：在 A1 已批准候选中，结合服务端量化事实与有限的模型判断，形成 A2
