@@ -261,7 +261,9 @@ def test_market_facts_bind_pools_and_dragon_tiger_to_closed_trade_date() -> None
             return _result()
 
         def limit_up_ladder(self) -> HithinkFetchResult:
-            return _result()
+            return _result().model_copy(
+                update={"metadata": {"window": {"date_list": ["2026-08-31"]}}}
+            )
 
         def dragon_tiger_list(self, **kwargs: object) -> HithinkFetchResult:
             requested["dragon_tiger"] = kwargs
@@ -270,10 +272,58 @@ def test_market_facts_bind_pools_and_dragon_tiger_to_closed_trade_date() -> None
         def hot_stock_list(self, *, period: str) -> HithinkFetchResult:
             return _result()
 
-    collect_market_results(Client(), (), market_trade_date=datetime(2026, 8, 31).date())
+    results = collect_market_results(
+        Client(), (), market_trade_date=datetime(2026, 8, 31).date()
+    )
 
     expected_ms = int(datetime(2026, 8, 31, tzinfo=TZ).timestamp() * 1000)
     assert requested["limit_up"] == {"date_ms": expected_ms}
     assert requested["limit_down"] == {"date_ms": expected_ms}
     assert requested["limit_break"] == {"date_ms": expected_ms}
     assert requested["dragon_tiger"] == {"date": "2026-08-31"}
+    expected_event_time = datetime(2026, 8, 31, 15, 0, tzinfo=TZ).isoformat()
+    for fact_type in (
+        "LIMIT_UP_POOL",
+        "LIMIT_DOWN_POOL",
+        "LIMIT_BREAK_POOL",
+        "LIMIT_UP_LADDER",
+        "DRAGON_TIGER_LIST",
+    ):
+        assert results[fact_type].metadata["timestamp"] == expected_event_time
+        assert results[fact_type].metadata["event_time_basis"] == "REQUESTED_CLOSED_MARKET_SESSION"
+
+
+def test_market_fact_ladder_rejects_a_different_latest_trade_date() -> None:
+    class Client:
+        def ths_index_catalog(self, *, tag: str) -> HithinkFetchResult:
+            return _result()
+
+        def limit_up_pool(self, **kwargs: object) -> HithinkFetchResult:
+            return _result()
+
+        def limit_down_pool(self, **kwargs: object) -> HithinkFetchResult:
+            return _result()
+
+        def limit_break_pool(self, **kwargs: object) -> HithinkFetchResult:
+            return _result()
+
+        def limit_up_ladder(self) -> HithinkFetchResult:
+            return _result().model_copy(
+                update={"metadata": {"window": {"date_list": ["2026-08-28"]}}}
+            )
+
+        def dragon_tiger_list(self, **kwargs: object) -> HithinkFetchResult:
+            return _result()
+
+        def hot_stock_list(self, *, period: str) -> HithinkFetchResult:
+            return _result()
+
+    results = collect_market_results(
+        Client(), (), market_trade_date=datetime(2026, 8, 31).date()
+    )
+
+    ladder = results["LIMIT_UP_LADDER"]
+    assert ladder.ok is False
+    assert ladder.complete is False
+    assert ladder.reason_code == "MARKET_TRADE_DATE_MISMATCH"
+    assert ladder.metadata["observed_latest_market_trade_date"] == "2026-08-28"

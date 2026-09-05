@@ -223,6 +223,49 @@ def collect_market_results(
         "DRAGON_TIGER_LIST": client.dragon_tiger_list(**dragon_tiger_kwargs),
         "HOT_STOCK_LIST": client.hot_stock_list(period="hour"),
     }
+    if market_trade_date is not None:
+        # The pool and dragon-tiger endpoints are explicitly queried for the
+        # requested completed session.  Their response envelope timestamp is
+        # nevertheless the HTTP generation time, which may be a weekend or a
+        # later trading day.  It is provenance, not the market event time.
+        # Bind those dated facts to the requested close while retaining the
+        # provider timestamp and real fetch_time for audit.
+        for fact_type in (
+            "LIMIT_UP_POOL",
+            "LIMIT_DOWN_POOL",
+            "LIMIT_BREAK_POOL",
+            "DRAGON_TIGER_LIST",
+        ):
+            results[fact_type] = _bind_closed_session_event_time(
+                results[fact_type],
+                market_trade_date=market_trade_date,
+            )
+
+        # The ladder endpoint has no date argument.  Its window must prove
+        # that the first (latest) row belongs to the requested closed session;
+        # otherwise fail closed instead of relabelling stale data.
+        ladder = results["LIMIT_UP_LADDER"]
+        window = ladder.metadata.get("window")
+        date_list = window.get("date_list") if isinstance(window, Mapping) else None
+        latest_ladder_date = str(date_list[0]) if isinstance(date_list, list) and date_list else ""
+        if latest_ladder_date == market_trade_date.isoformat():
+            results["LIMIT_UP_LADDER"] = _bind_closed_session_event_time(
+                ladder,
+                market_trade_date=market_trade_date,
+            )
+        else:
+            results["LIMIT_UP_LADDER"] = ladder.model_copy(
+                update={
+                    "ok": False,
+                    "complete": False,
+                    "reason_code": "MARKET_TRADE_DATE_MISMATCH",
+                    "metadata": {
+                        **dict(ladder.metadata),
+                        "expected_market_trade_date": market_trade_date.isoformat(),
+                        "observed_latest_market_trade_date": latest_ladder_date or None,
+                    },
+                }
+            )
     if symbols:
         normalized_symbols = tuple(dict.fromkeys(str(symbol).strip().upper() for symbol in symbols if str(symbol).strip()))
         batches = tuple(
@@ -234,6 +277,32 @@ def collect_market_results(
             requested_symbols=normalized_symbols,
         )
     return results
+
+
+def _bind_closed_session_event_time(
+    result: HithinkFetchResult,
+    *,
+    market_trade_date: date,
+) -> HithinkFetchResult:
+    event_time = datetime(
+        market_trade_date.year,
+        market_trade_date.month,
+        market_trade_date.day,
+        15,
+        0,
+        tzinfo=SHANGHAI,
+    )
+    metadata = dict(result.metadata)
+    provider_response_timestamp = metadata.get("timestamp")
+    metadata.update(
+        {
+            "timestamp": event_time.isoformat(),
+            "market_trade_date": market_trade_date.isoformat(),
+            "event_time_basis": "REQUESTED_CLOSED_MARKET_SESSION",
+            "provider_response_timestamp": provider_response_timestamp,
+        }
+    )
+    return result.model_copy(update={"metadata": metadata})
 
 
 def _merge_auction_batches(
