@@ -28,6 +28,9 @@ A2_POOL_TARGETS={{A2_POOL_TARGETS}}
    若没有合格聚焦股，在 rotation_reviews 中明确 NO_FOCUS，原样复制 rotation_direction_id，
    列出已比较的代表股 reviewed_symbols，以及引用冻结事实的具体中文 explanation。
    覆盖要求是每个方向有审阅结论，不能为凑齐方向或数量强行晋级。
+   rotation_reviews只列没有focus股票的方向；已有focus_decisions代表的方向不要再列。
+   若所有方向都有focus代表，rotation_reviews返回[]。NO_FOCUS和focus不能同时属于同一方向。
+   使用A2_BOTTLENECK_CONTEXT._rotation_review_scope核对方向与股票，不要用A1主题替换轮动方向。
 3. 情绪通道独立审阅同交易日东财股吧人气前 100。启动期可首板试探，加速期
    评估 2-3 板核心；高潮、分化、退潮不新增接力。情绪票不要求属于板块前五。
 4. MARKET_CORE 依据板块广度、成交结构、梯队、相对强弱和量化角色判断。

@@ -312,7 +312,7 @@ def main() -> int:
                 "path": str(path),
                 "snapshot_hash": snapshot.snapshot_hash,
                 "snapshot_id": snapshot.snapshot_id,
-                "as_of": snapshot.as_of,
+                "as_of": snapshot.as_of.isoformat() if snapshot.as_of else None,
             },
             "research_markdown": str(result.markdown_path) if result.markdown_path else None,
             "plan_publication": publication,

@@ -5956,6 +5956,13 @@ def _project_a2_bottleneck_context(value: Any, symbols: set[str] | None) -> Any:
                 if key in behavior
             }
         result[symbol] = row
+    scope: dict[str, list[str]] = {}
+    for symbol, row in result.items():
+        direction = row.get("rotation_direction_id")
+        if direction and row.get("trend_eligible"):
+            scope.setdefault(str(direction), []).append(symbol)
+    if scope:
+        result["_rotation_review_scope"] = scope
     return result
 
 
@@ -7814,7 +7821,7 @@ def _semantic_retry_instruction(
             "copy the frozen canonical values exactly and reserve rejection for a real deterministic failure."
         )
     if stage == "A2" and any(
-        code.startswith(("A2_ROTATION_FOCUS_COVERAGE_MISSING:", "A2_ROTATION_REVIEW_USES_ENTRY_GATE:"))
+        code.startswith(("A2_ROTATION_FOCUS_COVERAGE_MISSING:", "A2_ROTATION_REVIEW_"))
         for code in safe_reasons
     ):
         discovery_requirements.append(
@@ -7824,6 +7831,8 @@ def _semantic_retry_instruction(
             "direction, reason_codes and a concrete Chinese explanation based on frozen facts. Never force promotion. "
             "NO_NEW_ENTRY and emotion retreat limit execution, not TREND research priority. "
             "Do not require a limit-up ladder for TREND candidates or reject a direction solely on these entry gates."
+            " rotation_reviews contains ONLY directions with no focus_decisions representative: omit all focused "
+            "directions from rotation_reviews, use [] when all have focus. Do not emit decision=FOCUS in rotation_reviews."
         )
     discovery_retry = "\n".join(discovery_requirements)
     return (
@@ -11250,7 +11259,22 @@ def _validate_a2_rotation_focus_coverage(
             or not isinstance(explanation, str)
             or len(explanation.strip()) < 10
         ):
-            errors.append("A2_ROTATION_REVIEW_INVALID:" + direction)
+            invalid_fields = []
+            if direction not in expected:
+                invalid_fields.append("UNKNOWN_DIRECTION")
+            if direction in seen:
+                invalid_fields.append("DUPLICATE_DIRECTION")
+            if direction in focused:
+                invalid_fields.append("ALREADY_FOCUSED")
+            if review.get("decision") != "NO_FOCUS":
+                invalid_fields.append("DECISION_MUST_BE_NO_FOCUS")
+            if not isinstance(representatives, list) or not representatives:
+                invalid_fields.append("REPRESENTATIVES_REQUIRED")
+            if not isinstance(reasons, list) or not reasons:
+                invalid_fields.append("REASON_CODES_REQUIRED")
+            if not isinstance(explanation, str) or len(explanation.strip()) < 10:
+                invalid_fields.append("EXPLANATION_REQUIRED")
+            errors.append("A2_ROTATION_REVIEW_INVALID:" + direction + ":" + ",".join(invalid_fields or ["REASON_CODE_INVALID"]))
             continue
         seen.add(direction)
         # A2 priority and A4 entry permission are separate. Optional emotion
