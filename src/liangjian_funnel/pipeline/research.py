@@ -6919,8 +6919,7 @@ def _stage_model_output_limit(
     configured = max(1, int(configured_limit))
     if stage != "A2":
         return configured
-    needed = max(16_384, 8_192 + max(1, int(symbol_count)) * 3_072)
-    return min(configured, needed, 65_536)
+    return min(configured, 8_192)
 
 
 def _a1_node_by_symbol(
