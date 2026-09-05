@@ -81,6 +81,30 @@ def test_client_uses_bounded_model_thinking_and_json_object(tmp_path: Path):
     assert "secret-cot" not in repr(result)
 
 
+def test_client_honors_per_request_output_budget(tmp_path: Path):
+    seen: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+
+        seen.append(json.loads(request.read()))
+        return _sse_response(request, [{"choices": [{"delta": {"content": '{"ok":true}'}}]}, "[DONE]"])
+
+    client = OpenAICompatibleModelClient(
+        _settings(tmp_path),
+        transport=httpx.MockTransport(handler),
+        sleep=lambda _: None,
+    )
+    result = client.complete(
+        "deepseek-v4-pro-0813",
+        [{"role": "user", "content": "same"}],
+        max_output_tokens=131_072,
+    )
+
+    assert result.output == {"ok": True}
+    assert seen[0]["max_tokens"] == 131_072
+
+
 @pytest.mark.parametrize(
     ("status", "message"),
     [

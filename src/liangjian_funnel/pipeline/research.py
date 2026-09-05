@@ -359,9 +359,10 @@ _PERMISSION_KEYS = {
     "order_permission",
 }
 _ALLOWED_DISABLED = {False, None, "", "DISABLED", "DISABLE", "OFF", "SHADOW", "SIMULATION"}
-_PROMPT_PROJECTION_VERSION = "research-prompt-projection/2.1.0"
+_PROMPT_PROJECTION_VERSION = "research-prompt-projection/2.2.0"
 _DEFAULT_MODEL_MAX_INPUT_TOKENS = 1_000_000
 _A3_BATCH_SIZE = 16
+_A2_MAX_TRANSPORT_BATCH_SIZE = 15
 _STAGE_OUTPUT_BUDGETS: Mapping[str, Mapping[str, int]] = {
     "A1": {"approved_pool": 5, "secondary_pool": 5, "themes": 18, "chain_nodes": 80, "evidence_per_item": 3},
     "A2": {"approved_pool": 5, "secondary_pool": 5, "themes": 20, "chain_nodes": 0, "evidence_per_item": 3},
@@ -3659,7 +3660,8 @@ class ResearchPipeline:
         batches = _build_a2_theme_batches(
             upstream_output,
             upstream_symbols,
-            self.settings.research_a2_batch_size,
+            min(self.settings.research_a2_batch_size, _A2_MAX_TRANSPORT_BATCH_SIZE),
+            snapshot_data=snapshot.data,
         )
         audits, valid_audits, split_count, blocked, _total_batches = self._execute_batch_plan(
             batches=batches,
@@ -4045,6 +4047,8 @@ class ResearchPipeline:
             input_hash = prepared.input_hash
             messages = list(prepared.messages)
             prompt_chars = prepared.prompt_chars
+            estimated_input_tokens = prepared.estimated_input_tokens
+            input_token_limit = prepared.input_token_limit
         except (PromptRepositoryError, TypeError, ValueError):
             return StageAudit(
                 lane=lane_id,
@@ -4146,6 +4150,11 @@ class ResearchPipeline:
                     snapshot_id=snapshot.snapshot_id,
                     stage=stage,
                     timeout_seconds=remaining_seconds,
+                    max_output_tokens=_stage_model_output_limit(
+                        stage,
+                        len(projection_symbols if projection_symbols is not None else upstream_symbols),
+                        configured_limit=self.settings.model_max_output_tokens,
+                    ),
                 )
             except ModelClientError as exc:
                 aggregate_latency_ms += int((time.perf_counter() - model_started) * 1000)
@@ -4166,6 +4175,12 @@ class ResearchPipeline:
                     reason_codes=(exc.reason_code,),
                     diagnostics={
                         "semantic_attempts": semantic_attempt,
+                        "prompt_chars": prompt_chars,
+                        "estimated_input_tokens": estimated_input_tokens,
+                        "input_token_limit": input_token_limit,
+                        "projection_symbol_count": len(
+                            projection_symbols if projection_symbols is not None else upstream_symbols
+                        ),
                         "last_invalid_output_shape": last_shape,
                         "missing_mapping_codes": list(last_missing_mapping_codes),
                         "client_diagnostics": _safe_diagnostics({
@@ -4371,6 +4386,15 @@ class ResearchPipeline:
                     "trend_veto_items": trend_veto_items,
                     "pool_counts": _stage_pool_counts(output, stage),
                 }
+                if stage == "A2":
+                    diagnostics.update({
+                        "prompt_chars": prompt_chars,
+                        "estimated_input_tokens": estimated_input_tokens,
+                        "input_token_limit": input_token_limit,
+                        "projection_symbol_count": len(
+                            projection_symbols if projection_symbols is not None else upstream_symbols
+                        ),
+                    })
                 if canonicalized_analysis_summary:
                     diagnostics["canonicalized_analysis_summary"] = canonicalized_analysis_summary
                 if canonicalized_discovery_refs:
@@ -5368,6 +5392,8 @@ def _project_prompt_value(
         return _project_broker_gold_coverage(value, symbols)
     if name == "SECTOR_CYCLE_SNAPSHOT":
         return _project_sector_cycle(value, symbols, snapshot_data or {})
+    if name == "SECTOR_PERMISSIONS":
+        return _project_sector_permissions(value, symbols)
     if name == "CROWDING_SNAPSHOT":
         return _project_crowding(value, symbols)
     if name in {
@@ -5377,9 +5403,10 @@ def _project_prompt_value(
         "TRADABILITY_FLAGS",
         "COMPANY_FUNDAMENTALS",
         "MAIN_BUSINESS_EVIDENCE",
-        "A2_BOTTLENECK_CONTEXT",
     }:
         return _filter_symbol_mapping(value, symbols)
+    if name == "A2_BOTTLENECK_CONTEXT":
+        return _project_a2_bottleneck_context(value, symbols)
     if name == "RISK_EVENTS":
         return _project_disclosures(value, symbols)
     if name == "THS_INDUSTRY_MEMBERSHIP":
@@ -5514,7 +5541,7 @@ def _project_a2_theme_metrics(
     symbols: set[str] | None,
     snapshot_data: Mapping[str, Any],
     *,
-    global_theme_limit: int = 40,
+    global_theme_limit: int = 12,
 ) -> Any:
     """Project full-market A2 theme metrics to batch themes plus a benchmark."""
 
@@ -5523,12 +5550,13 @@ def _project_a2_theme_metrics(
     raw_metrics = value.get("theme_metrics")
     if not isinstance(raw_metrics, Mapping):
         return dict(value)
-    relevant_codes: set[str] = set()
-    for taxonomy in ("industry", "concept"):
-        relevant_codes.update(
-            f"{taxonomy.upper()}:{code}"
-            for code in _membership_codes_for_symbols(snapshot_data, taxonomy, symbols)
-        )
+    relevant_codes = _a2_prompt_rotation_codes(snapshot_data, symbols)
+    if not relevant_codes:
+        for taxonomy in ("industry", "concept"):
+            relevant_codes.update(
+                f"{taxonomy.upper()}:{code}"
+                for code in _membership_codes_for_symbols(snapshot_data, taxonomy, symbols)
+            )
     selected_board = snapshot_data.get("SELECTED_BOARD_SNAPSHOT")
     selected_by_symbol = selected_board.get("by_symbol") if isinstance(selected_board, Mapping) else None
     if isinstance(selected_by_symbol, Mapping):
@@ -5542,7 +5570,7 @@ def _project_a2_theme_metrics(
                 for key in ("theme_id", "board_code", "taxonomy_code"):
                     code = str(row.get(key) or "").strip().upper()
                     if code:
-                        relevant_codes.add(code)
+                        relevant_codes.add(code.upper())
 
     def rank(item: tuple[Any, Any]) -> tuple[float, float, float, str]:
         key, raw = item
@@ -5559,19 +5587,19 @@ def _project_a2_theme_metrics(
         str(key)
         for key, _item in globally_ranked[: max(0, int(global_theme_limit))]
     }
-    selected_keys = relevant_codes.union(global_keys)
+    selected_keys = {key.upper() for key in relevant_codes.union(global_keys)}
     result = dict(value)
     result["theme_metrics"] = {
         str(key): item
         for key, item in raw_metrics.items()
-        if str(key) in selected_keys
+        if str(key).upper() in selected_keys
     }
     result["prompt_projection"] = {
         "symbol_count": len(symbols),
         "prompt_theme_count": len(result["theme_metrics"]),
         "full_theme_count": len(raw_metrics),
         "batch_linked_theme_count": sum(
-            1 for key in result["theme_metrics"] if key in relevant_codes
+            1 for key in result["theme_metrics"] if key.upper() in relevant_codes
         ),
         "global_benchmark_limit": max(0, int(global_theme_limit)),
         "full_snapshot_retained_for_audit": True,
@@ -5584,7 +5612,7 @@ def _project_sector_cycle(
     symbols: set[str] | None,
     snapshot_data: Mapping[str, Any],
     *,
-    global_sector_limit: int = 40,
+    global_sector_limit: int = 12,
 ) -> Any:
     """Build a compact all-market benchmark plus complete batch-sector view.
 
@@ -5596,15 +5624,31 @@ def _project_sector_cycle(
 
     if not isinstance(value, Mapping) or symbols is None:
         return value
-    result = dict(value)
+    result = {
+        key: item
+        for key, item in value.items()
+        if key in {
+            "available", "reason_code", "as_of", "source", "taxonomy",
+            "capital_flow_available", "turnover_is_capital_flow",
+            "membership_available", "membership_coverage", "mapped_symbol_count",
+            "industry_catalog_count", "missing_components",
+        }
+    }
     health = value.get("sector_health_snapshot")
     if not isinstance(health, Mapping):
         return result
     projected_health = {
         key: item
         for key, item in health.items()
-        if key not in {"by_taxonomy", "industry", "concept"}
+        if key in {
+            "algorithm_version", "as_of", "available", "capital_flow_available",
+            "capital_flow_mapped_sector_count", "capital_flow_reason_code",
+            "data_sufficiency_state", "healthy_sector_count", "missing_components",
+            "reason_code", "scope", "sector_count", "source",
+            "turnover_is_capital_flow", "turnover_metric_role",
+        }
     }
+    prompt_rotation_codes = _a2_prompt_rotation_codes(snapshot_data, symbols)
     projection_counts: dict[str, dict[str, int]] = {}
     for taxonomy in ("industry", "concept"):
         raw_taxonomy = health.get(taxonomy)
@@ -5612,7 +5656,14 @@ def _project_sector_cycle(
             continue
         raw_sectors = raw_taxonomy.get("sectors")
         sectors = [item for item in raw_sectors if isinstance(item, Mapping)] if isinstance(raw_sectors, list) else []
-        relevant_codes = _membership_codes_for_symbols(snapshot_data, taxonomy, symbols)
+        prefix = f"{taxonomy.upper()}:"
+        relevant_codes = {
+            code[len(prefix):] if code.startswith(prefix) else code
+            for code in prompt_rotation_codes
+            if code.startswith(prefix) or ":" not in code
+        }
+        if not relevant_codes:
+            relevant_codes = _membership_codes_for_symbols(snapshot_data, taxonomy, symbols)
         globally_ranked = sorted(sectors, key=_sector_prompt_rank, reverse=True)
         global_codes = {
             str(item.get("taxonomy_code") or "")
@@ -5704,11 +5755,162 @@ def _sector_prompt_rank(item: Mapping[str, Any]) -> tuple[float, float, float, f
 
 
 def _compact_sector_prompt_row(item: Mapping[str, Any]) -> dict[str, Any]:
-    result = dict(item)
+    scalar_fields = {
+        "taxonomy", "taxonomy_code", "taxonomy_name", "health_state",
+        "relative_strength_percentile", "breadth", "breadth_balance",
+        "member_count", "quote_count", "quote_coverage", "advances", "declines",
+        "flats", "ladder_count", "limit_up_count", "max_board",
+        "capital_flow_available", "capital_flow_reason_code",
+        "return_flow_state", "turnover_is_capital_flow",
+    }
+    result = {key: item.get(key) for key in scalar_fields if key in item}
+    for key in ("strength", "capital_flow", "persistence", "relative_strength"):
+        if isinstance(item.get(key), Mapping):
+            result[key] = _truncate_nested(item[key], 512)
     history = item.get("history")
     if isinstance(history, Mapping):
         result["history"] = {key: value for key, value in history.items() if key != "returns"}
     return result
+
+
+def _a2_prompt_rotation_codes(
+    snapshot_data: Mapping[str, Any],
+    symbols: set[str],
+) -> set[str]:
+    """Return only deterministic rotation/taxonomy codes needed by this batch."""
+
+    result: set[str] = set()
+    contexts = snapshot_data.get("A2_BOTTLENECK_CONTEXT")
+    if isinstance(contexts, Mapping):
+        for symbol in symbols:
+            row = contexts.get(symbol)
+            if not isinstance(row, Mapping):
+                continue
+            for field in ("rotation_direction_id", "theme_id"):
+                code = str(row.get(field) or "").strip().upper()
+                if code:
+                    result.add(code.removeprefix("SELECTED_BOARD:"))
+            binding = row.get("a2_taxonomy_binding")
+            if isinstance(binding, Mapping):
+                taxonomy = str(binding.get("taxonomy") or "").strip().upper()
+                code = str(binding.get("taxonomy_code") or "").strip().upper()
+                if code:
+                    result.add(f"{taxonomy}:{code}" if taxonomy else code)
+    selected = snapshot_data.get("SELECTED_BOARD_SNAPSHOT")
+    by_symbol = selected.get("by_symbol") if isinstance(selected, Mapping) else None
+    if isinstance(by_symbol, Mapping):
+        for symbol in symbols:
+            rows = by_symbol.get(symbol)
+            if not isinstance(rows, Sequence) or isinstance(rows, (str, bytes, bytearray)):
+                continue
+            for row in rows:
+                if not isinstance(row, Mapping):
+                    continue
+                for field in ("theme_id", "board_code", "taxonomy_code"):
+                    code = str(row.get(field) or "").strip().upper()
+                    if code:
+                        result.add(code)
+    return result
+
+
+def _project_sector_permissions(value: Any, symbols: set[str] | None) -> Any:
+    if not isinstance(value, Mapping) or symbols is None:
+        return value
+    result = {key: item for key, item in value.items() if key != "by_symbol"}
+    raw = value.get("by_symbol")
+    result["by_symbol"] = _filter_symbol_mapping(raw, symbols) if isinstance(raw, Mapping) else {}
+    result["prompt_symbol_count"] = len(result["by_symbol"])
+    result["full_symbol_count"] = len(raw) if isinstance(raw, Mapping) else 0
+    return result
+
+
+def _project_a2_bottleneck_context(value: Any, symbols: set[str] | None) -> Any:
+    """Keep model-decision facts; omit duplicated attribution/provenance traces."""
+
+    if not isinstance(value, Mapping) or symbols is None:
+        return value
+    scalar_fields = {
+        "company_name", "theme_id", "rotation_direction_id", "industry_chain_node",
+        "upstream_candidate_id", "deterministic_status", "deterministic_route",
+        "deterministic_score", "theme_rotation_rank", "theme_rotation_score",
+        "rotation_strength_source", "top_rotation_theme", "a2_pool_channel",
+        "a1_formal_member", "emotion_core_eligible", "trend_core_eligible",
+        "selected_board_binding", "selected_board_theme_match",
+        "deterministic_market_role", "stock_behavior_type", "decision_id", "as_of",
+        "identifiability_score", "data_sufficiency_state", "preferred_route",
+        "first_blocking_gate", "route_context_schema", "methodology_version",
+        "known_weight_pct", "factor_coverage_pct", "evidence_readiness_score",
+        "scarcity_claim_allowed",
+    }
+    sequence_fields = {
+        "route_permission", "missing_optional_factors", "deterministic_reason_codes",
+        "eligible_routes", "all_failed_gates", "unknown_factor_names", "source_refs",
+    }
+    mapping_fields = {
+        "a2_taxonomy_binding", "eastmoney_hot100", "selected_board",
+        "market_emotion_cycle", "identifiability_breakdown", "role_breakdown",
+        "factor_coverage", "critical_factor_coverage", "known_factor_ratings_0_5",
+        "factor_weights",
+    }
+    result: dict[str, Any] = {}
+    for symbol in sorted(symbols):
+        raw = value.get(symbol)
+        if not isinstance(raw, Mapping):
+            continue
+        row = {key: raw.get(key) for key in scalar_fields if key in raw}
+        for key in sequence_fields:
+            sequence = raw.get(key)
+            if isinstance(sequence, Sequence) and not isinstance(sequence, (str, bytes, bytearray)):
+                row[key] = list(sequence[:16])
+        for key in mapping_fields:
+            if isinstance(raw.get(key), Mapping):
+                row[key] = _truncate_nested(raw[key], 512)
+        factors = raw.get("a2_factor_scores")
+        if isinstance(factors, Mapping):
+            row["a2_factor_scores"] = {
+                str(name): _compact_a2_factor(factor)
+                for name, factor in factors.items()
+                if isinstance(factor, Mapping)
+            }
+        routes = raw.get("route_eligibility")
+        if isinstance(routes, Mapping):
+            row["route_eligibility"] = {
+                str(name): _compact_a2_route(route)
+                for name, route in routes.items()
+                if isinstance(route, Mapping)
+            }
+        behavior = raw.get("behavior_type_decision")
+        if isinstance(behavior, Mapping):
+            row["behavior_type_decision"] = {
+                key: behavior.get(key)
+                for key in (
+                    "stock_behavior_type", "market_role", "route_permission",
+                    "confidence", "reason_codes", "evidence_state",
+                )
+                if key in behavior
+            }
+        result[symbol] = row
+    return result
+
+
+def _compact_a2_factor(value: Mapping[str, Any]) -> dict[str, Any]:
+    allowed = {
+        "available", "score", "source", "source_ref", "reason_code",
+        "availability_state", "coverage", "value", "raw_value", "rank",
+        "breadth", "turnover_share", "ladder_height", "tier", "member_count",
+        "relative_strength", "weekly_confirmation_score", "weekly_momentum_state",
+    }
+    return {key: value.get(key) for key in allowed if key in value}
+
+
+def _compact_a2_route(value: Mapping[str, Any]) -> dict[str, Any]:
+    allowed = {
+        "eligible", "data_sufficiency_state", "factor_coverage",
+        "critical_factor_coverage", "missing_reason_codes",
+        "diagnostic_reason_codes", "missing_optional_factors", "required_factors",
+        "blocked_by_upstream", "blocked_by_risk", "blocked_by_inactive_a1_row",
+    }
+    return {key: _truncate_nested(value.get(key), 512) for key in allowed if key in value}
 
 
 def _project_factor_snapshot(value: Any, symbols: set[str] | None) -> Any:
@@ -6596,12 +6798,21 @@ def _build_a2_theme_batches(
     upstream_output: Mapping[str, Any],
     symbols: set[str],
     batch_size: int,
+    *,
+    snapshot_data: Mapping[str, Any] | None = None,
 ) -> list[set[str]]:
-    """Pack A1-approved companies by structural theme for A2 role review."""
+    """Pack candidates by deterministic daily rotation direction.
+
+    A1's monthly theme is only a fallback. Mixing daily boards in one request
+    makes lifecycle comparison unstable and invites the model to collapse the
+    TOP5 contract into one preferred narrative.
+    """
 
     if batch_size < 1:
         raise ResearchPipelineError("A2_BATCH_SIZE_INVALID")
     groups: dict[str, list[tuple[float, str]]] = {}
+    contexts = snapshot_data.get("A2_BOTTLENECK_CONTEXT") if isinstance(snapshot_data, Mapping) else None
+    contexts = contexts if isinstance(contexts, Mapping) else {}
     active = upstream_output.get("active_research_pool")
     if isinstance(active, list):
         for item in active:
@@ -6613,8 +6824,23 @@ def _build_a2_theme_batches(
             symbol = next(iter(scanned))
             if symbol not in symbols:
                 continue
-            theme = str(item.get("primary_theme") or "UNMAPPED").strip() or "UNMAPPED"
-            groups.setdefault(theme, []).append((_safe_float(item.get("structural_score")), symbol))
+            context = contexts.get(symbol)
+            context = context if isinstance(context, Mapping) else {}
+            if context.get("emotion_core_eligible") is True:
+                hot = context.get("eastmoney_hot100")
+                hot = hot if isinstance(hot, Mapping) else {}
+                theme = f"EMOTION:{context.get('theme_id') or item.get('primary_theme') or 'UNMAPPED'}"
+                score = -_safe_float(hot.get("rank"))
+            else:
+                theme = str(
+                    context.get("rotation_direction_id")
+                    or item.get("primary_theme")
+                    or "UNMAPPED"
+                ).strip() or "UNMAPPED"
+                score = _safe_float(
+                    context.get("theme_rotation_score") or item.get("structural_score")
+                )
+            groups.setdefault(theme, []).append((score, symbol))
     assigned = {symbol for members in groups.values() for _score, symbol in members}
     for symbol in sorted(symbols.difference(assigned)):
         groups.setdefault("UNMAPPED", []).append((0.0, symbol))
@@ -6624,21 +6850,27 @@ def _build_a2_theme_batches(
         key=lambda entry: (-max((score for score, _symbol in entry[1]), default=0.0), entry[0]),
     )
     batches: list[set[str]] = []
-    current: list[str] = []
     for _theme, members in ordered_groups:
         ordered_members = [symbol for _score, symbol in sorted(members, key=lambda item: (-item[0], item[1]))]
         for offset in range(0, len(ordered_members), batch_size):
             chunk = ordered_members[offset:offset + batch_size]
-            if current and len(current) + len(chunk) > batch_size:
-                batches.append(set(current))
-                current = []
-            current.extend(chunk)
-            if len(current) == batch_size:
-                batches.append(set(current))
-                current = []
-    if current:
-        batches.append(set(current))
+            batches.append(set(chunk))
     return batches
+
+
+def _stage_model_output_limit(
+    stage: str,
+    symbol_count: int,
+    *,
+    configured_limit: int,
+) -> int:
+    """Reserve a realistic A2 completion window instead of the global maximum."""
+
+    configured = max(1, int(configured_limit))
+    if stage != "A2":
+        return configured
+    needed = max(32_768, 16_384 + max(1, int(symbol_count)) * 7_680)
+    return min(configured, needed, 131_072)
 
 
 def _a1_node_by_symbol(
@@ -10333,7 +10565,8 @@ def _project_upstream_output(value: Mapping[str, Any], symbols: set[str] | None)
         pool = value.get(key)
         if isinstance(pool, list):
             result[key] = [
-                item for item in pool
+                _compact_upstream_candidate(item)
+                for item in pool
                 if isinstance(item, Mapping) and bool(_scan_symbols(item).intersection(symbols))
             ]
     raw_themes = value.get("active_themes")
@@ -10359,6 +10592,38 @@ def _project_upstream_output(value: Mapping[str, Any], symbols: set[str] | None)
         "full_output_hash": _sha256_json(value),
         "full_snapshot_retained_for_audit": True,
     }
+    return result
+
+
+def _compact_upstream_candidate(item: Mapping[str, Any]) -> dict[str, Any]:
+    """Bound a downstream model row without weakening server-side lineage."""
+
+    allowed = {
+        "symbol", "code", "candidate_id", "upstream_candidate_id", "company_name", "name",
+        "status", "autonomous_status", "primary_theme", "theme_id", "monthly_direction_id",
+        "monthly_direction_name", "industry_chain_node", "sector_index_taxonomy",
+        "sector_index_code", "sector_index_name", "research_route", "company_archetype",
+        "selection_basis", "core_thesis", "bear_case", "structural_score",
+        "data_quality_score", "financial_quality_score", "evidence_confidence",
+        "available_weight", "financial_subfactor_coverage", "sector_constituent_confirmed",
+        "downstream_trade_eligible", "business_exposure", "disclosed_business_match",
+        "fundamental_support", "half_year_support", "score_breakdown", "reason_codes",
+        "source_refs", "a2_route", "market_role", "stock_behavior_type", "route_permission",
+        "theme_stage", "weekly_momentum_state", "new_entry_policy", "identifiability_score",
+        "identifiability_breakdown", "theme_score", "factor_coverage",
+        "critical_factor_coverage", "selection_reasons", "risk_reasons", "risk_flags",
+        "weak_evidence_fields", "bottleneck_status", "supply_chain_role", "scarce_layer",
+        "value_chain_position", "missing_proof", "kill_switches", "bottleneck_scorecard",
+        "bottleneck_evidence", "pool_channel", "a2_pool_channel", "candidate_origin",
+    }
+    result = {key: item.get(key) for key in allowed if key in item}
+    for key in (
+        "reason_codes", "source_refs", "selection_reasons", "risk_reasons", "risk_flags",
+        "weak_evidence_fields", "kill_switches", "bottleneck_evidence",
+    ):
+        value = result.get(key)
+        if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+            result[key] = [_truncate_nested(entry, 512) for entry in value[:16]]
     return result
 
 

@@ -158,6 +158,7 @@ class OpenAICompatibleModelClient:
         snapshot_id: str | None = None,
         stage: str | None = None,
         timeout_seconds: float | None = None,
+        max_output_tokens: int | None = None,
     ) -> ModelCallResult:
         del snapshot_id, stage  # metadata is retained by the pipeline audit, not sent as secrets
         if model not in ALL_MODELS:
@@ -201,6 +202,16 @@ class OpenAICompatibleModelClient:
                 last_variant = variant_id
                 variant_attempts = 0
                 primary_output_tokens = self.settings.model_max_output_tokens
+                if max_output_tokens is not None:
+                    if isinstance(max_output_tokens, bool):
+                        raise ModelClientError("MODEL_OUTPUT_BUDGET_INVALID")
+                    try:
+                        requested_output_tokens = int(max_output_tokens)
+                    except (TypeError, ValueError, OverflowError) as exc:
+                        raise ModelClientError("MODEL_OUTPUT_BUDGET_INVALID") from exc
+                    if requested_output_tokens < 1:
+                        raise ModelClientError("MODEL_OUTPUT_BUDGET_INVALID")
+                    primary_output_tokens = min(primary_output_tokens, requested_output_tokens)
                 # Legacy deployments may set a primary below one or both
                 # fallback tiers. Build a strictly descending, de-duplicated
                 # sequence so a fallback can never increase the request.

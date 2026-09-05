@@ -63,7 +63,9 @@ from liangjian_funnel.pipeline.research import (
     _project_macro_policy,
     _project_news,
     _project_a2_theme_metrics,
+    _project_a2_bottleneck_context,
     _project_selected_board,
+    _project_sector_permissions,
     _prompt_replacements,
     _project_sector_cycle,
     _project_upstream_output,
@@ -73,6 +75,7 @@ from liangjian_funnel.pipeline.research import (
     _safe_progress_diagnostics,
     _snapshot_discovery_evidence_refs,
     _stage_execution_budget,
+    _stage_model_output_limit,
     _validate_output,
     _validate_a2_rotation_focus_coverage,
     _valid_a1_discovery_output,
@@ -1175,6 +1178,80 @@ def test_a2_theme_batches_preserve_scope_and_pool_target_is_advisory():
     assert summary["rejected_candidate_count"] == 1
     assert summary["pool_target_underfilled_by"] == 0
     assert "POOL_TARGET_UNDERFILLED" not in summary["reason_codes"]
+
+
+def test_a2_theme_batches_use_daily_rotation_and_never_mix_boards():
+    symbols = {"600001.SH", "600002.SH", "600003.SH", "600004.SH"}
+    upstream = {
+        "active_research_pool": [
+            {"symbol": symbol, "primary_theme": "same-monthly-theme", "structural_score": 80}
+            for symbol in sorted(symbols)
+        ]
+    }
+    snapshot = {
+        "A2_BOTTLENECK_CONTEXT": {
+            "600001.SH": {"rotation_direction_id": "BOARD:A", "theme_rotation_score": 90},
+            "600002.SH": {"rotation_direction_id": "BOARD:A", "theme_rotation_score": 90},
+            "600003.SH": {"rotation_direction_id": "BOARD:B", "theme_rotation_score": 80},
+            "600004.SH": {"rotation_direction_id": "BOARD:B", "theme_rotation_score": 80},
+        }
+    }
+
+    batches = _build_a2_theme_batches(
+        upstream,
+        symbols,
+        3,
+        snapshot_data=snapshot,
+    )
+
+    assert sorted(map(sorted, batches)) == [
+        ["600001.SH", "600002.SH"],
+        ["600003.SH", "600004.SH"],
+    ]
+    for batch in batches:
+        assert len({snapshot["A2_BOTTLENECK_CONTEXT"][symbol]["rotation_direction_id"] for symbol in batch}) == 1
+
+
+def test_a2_prompt_projection_removes_full_market_permission_and_attribution_bulk():
+    symbols = {"600001.SH"}
+    permissions = _project_sector_permissions(
+        {
+            "available": True,
+            "by_symbol": {
+                "600001.SH": {"permission": "ALLOW"},
+                "600002.SH": {"permission": "BLOCK"},
+            },
+        },
+        symbols,
+    )
+    context = _project_a2_bottleneck_context(
+        {
+            "600001.SH": {
+                "rotation_direction_id": "SELECTED_BOARD:AI_COMPUTE",
+                "deterministic_market_role": "TREND_CORE",
+                "eligible_routes": ["MARKET_CORE"],
+                "gate_results": {"HUGE": {"trace": "x" * 100_000}},
+                "a2_factor_scores": {
+                    "breadth": {
+                        "available": True,
+                        "score": 88,
+                        "source": "LOCAL",
+                        "raw_history": "x" * 100_000,
+                    }
+                },
+            },
+            "600002.SH": {"gate_results": {"HUGE": "x" * 100_000}},
+        },
+        symbols,
+    )
+
+    assert set(permissions["by_symbol"]) == symbols
+    assert permissions["full_symbol_count"] == 2
+    assert set(context) == symbols
+    assert "gate_results" not in context["600001.SH"]
+    assert "raw_history" not in context["600001.SH"]["a2_factor_scores"]["breadth"]
+    assert _stage_model_output_limit("A2", 15, configured_limit=393_216) == 131_072
+    assert _stage_model_output_limit("A3", 15, configured_limit=393_216) == 393_216
 
 
 def test_a2_batch_merge_has_no_hidden_small_global_cap():
