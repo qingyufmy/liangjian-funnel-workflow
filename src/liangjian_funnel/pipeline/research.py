@@ -359,7 +359,7 @@ _PERMISSION_KEYS = {
     "order_permission",
 }
 _ALLOWED_DISABLED = {False, None, "", "DISABLED", "DISABLE", "OFF", "SHADOW", "SIMULATION"}
-_PROMPT_PROJECTION_VERSION = "research-prompt-projection/2.4.0"
+_PROMPT_PROJECTION_VERSION = "research-prompt-projection/2.5.0"
 _DEFAULT_MODEL_MAX_INPUT_TOKENS = 1_000_000
 _A3_BATCH_SIZE = 16
 _A2_MAX_TRANSPORT_BATCH_SIZE = 5
@@ -5536,8 +5536,7 @@ def _project_selected_board(value: Any, symbols: set[str] | None) -> Any:
                 "provider_rank", "strength", "main_net_inflow_cny",
                 "selected_for_rotation", "selection_status", "breadth",
                 "relative_return_pct", "leader_structure_score", "factor_coverage",
-                "available_factors", "missing_factors", "member_snapshot_complete",
-                "observed_strength_source", "source_board_codes", "source_board_names",
+                "member_snapshot_complete", "observed_strength_source",
             )
             if linked
             else (
@@ -5896,19 +5895,13 @@ def _project_a2_bottleneck_context(value: Any, symbols: set[str] | None) -> Any:
         "rotation_strength_source", "top_rotation_theme", "a2_pool_channel",
         "a1_formal_member", "emotion_core_eligible", "trend_core_eligible",
         "selected_board_binding", "selected_board_theme_match",
-        "deterministic_market_role", "stock_behavior_type", "decision_id", "as_of",
+        "deterministic_market_role", "stock_behavior_type",
         "identifiability_score", "data_sufficiency_state", "preferred_route",
-        "first_blocking_gate", "route_context_schema", "methodology_version",
-        "known_weight_pct", "factor_coverage_pct", "evidence_readiness_score",
+        "first_blocking_gate", "factor_coverage_pct", "evidence_readiness_score",
         "scarcity_claim_allowed",
     }
     sequence_fields = {
-        "route_permission", "missing_optional_factors", "deterministic_reason_codes",
-        "eligible_routes", "unknown_factor_names", "source_refs",
-    }
-    mapping_fields = {
-        "eastmoney_hot100", "selected_board",
-        "market_emotion_cycle", "critical_factor_coverage",
+        "route_permission", "deterministic_reason_codes", "eligible_routes",
     }
     result: dict[str, Any] = {}
     for symbol in sorted(symbols):
@@ -5920,9 +5913,30 @@ def _project_a2_bottleneck_context(value: Any, symbols: set[str] | None) -> Any:
             sequence = raw.get(key)
             if isinstance(sequence, Sequence) and not isinstance(sequence, (str, bytes, bytearray)):
                 row[key] = [_truncate_nested(item, 256) for item in sequence[:4]]
-        for key in mapping_fields:
-            if isinstance(raw.get(key), Mapping):
-                row[key] = _truncate_nested(raw[key], 512)
+        compact_mapping_fields = {
+            "eastmoney_hot100": (
+                "available", "eligible", "rank", "name", "trade_date", "reason_code",
+            ),
+            "selected_board": (
+                "available", "eligible", "board_code", "board_name", "theme_id",
+                "strategy_theme_id", "parent_theme_id", "primary_rank", "strength",
+                "main_net_inflow_cny", "reason_code",
+            ),
+            "market_emotion_cycle": (
+                "available", "stage", "new_entry_policy", "reason_codes",
+            ),
+            "critical_factor_coverage": (
+                "coverage", "minimum", "available", "reason_codes",
+            ),
+        }
+        for key, fields in compact_mapping_fields.items():
+            source = raw.get(key)
+            if isinstance(source, Mapping):
+                row[key] = {
+                    field: _truncate_nested(source.get(field), 160)
+                    for field in fields
+                    if field in source
+                }
         binding = raw.get("a2_taxonomy_binding")
         if isinstance(binding, Mapping):
             row["a2_taxonomy_binding"] = {
@@ -5930,8 +5944,7 @@ def _project_a2_bottleneck_context(value: Any, symbols: set[str] | None) -> Any:
                 for key in (
                     "status", "reason_code", "node_id", "taxonomy", "taxonomy_code",
                     "taxonomy_name", "rotation_strength_score", "rotation_strength_available",
-                    "reference_member_count", "candidate_member_count", "return_coverage",
-                    "source_refs",
+                    "candidate_member_count", "return_coverage",
                 )
                 if key in binding
             }
@@ -5968,9 +5981,8 @@ def _project_a2_bottleneck_context(value: Any, symbols: set[str] | None) -> Any:
 
 def _compact_a2_factor(value: Mapping[str, Any]) -> dict[str, Any]:
     allowed = {
-        "available", "score", "source_ref", "reason_code",
-        "availability_state", "coverage", "value", "rank",
-        "breadth", "turnover_share", "ladder_height", "tier", "member_count",
+        "available", "score", "reason_code", "availability_state", "coverage",
+        "value", "rank", "breadth", "turnover_share", "ladder_height", "tier",
         "relative_strength", "weekly_confirmation_score", "weekly_momentum_state",
     }
     return {key: value.get(key) for key in allowed if key in value}
@@ -5978,8 +5990,7 @@ def _compact_a2_factor(value: Mapping[str, Any]) -> dict[str, Any]:
 
 def _compact_a2_route(value: Mapping[str, Any]) -> dict[str, Any]:
     allowed = {
-        "eligible", "data_sufficiency_state", "factor_coverage",
-        "critical_factor_coverage", "missing_reason_codes",
+        "eligible", "data_sufficiency_state", "factor_coverage", "missing_reason_codes",
         "blocked_by_upstream", "blocked_by_risk", "blocked_by_inactive_a1_row",
     }
     return {key: _truncate_nested(value.get(key), 512) for key in allowed if key in value}
@@ -6005,7 +6016,15 @@ def _project_eastmoney_hot100(value: Any, symbols: set[str] | None) -> Any:
         if key in seen:
             continue
         seen.add(key)
-        selected.append(_truncate_nested(item, 512))
+        selected.append({
+            field: _truncate_nested(item.get(field), 160)
+            for field in (
+                "rank", "symbol", "code", "name", "trade_date", "change_pct",
+                "rank_change", "limit_up", "board_count", "turnover_rate",
+                "available", "reason_code",
+            )
+            if field in item
+        })
     result["records"] = selected
     result["full_record_count"] = len(rows)
     result["prompt_record_count"] = len(selected)
@@ -8033,7 +8052,7 @@ def _compact_viewpoint_contract(value: Any, *, public_lead: bool) -> Any:
     documents = value.get("documents")
     compact_documents: list[dict[str, Any]] = []
     if isinstance(documents, list):
-        for raw in documents[:4]:
+        for raw in documents[:2]:
             if not isinstance(raw, Mapping):
                 continue
             document = {
@@ -8057,9 +8076,9 @@ def _compact_viewpoint_contract(value: Any, *, public_lead: bool) -> Any:
                 for key in ("conditions", "required_facts", "counter_signals"):
                     entries = item.get(key)
                     if isinstance(entries, Sequence) and not isinstance(entries, (str, bytes, bytearray)):
-                        row[key] = [_truncate_nested(entry, 160) for entry in entries[:2]]
+                        row[key] = [_truncate_nested(entry, 120) for entry in entries[:1]]
                 hypotheses.append(row)
-            document["theme_hypotheses"] = hypotheses[:16]
+            document["theme_hypotheses"] = hypotheses[:8]
             compact_documents.append(document)
     metadata["documents"] = compact_documents
     metadata["prompt_projection"] = {
@@ -10750,11 +10769,7 @@ def _project_upstream_output(value: Mapping[str, Any], symbols: set[str] | None)
     metadata_keys = {
         "envelope",
         "analysis_summary",
-        "source_health",
-        "macro_regime",
-        "local_screen_summary",
         "candidate_metadata_coverage",
-        "daily_emotion_overlay",
     }
     result = {
         key: item
@@ -10800,15 +10815,15 @@ def _compact_upstream_candidate(item: Mapping[str, Any]) -> dict[str, Any]:
 
     allowed = {
         "symbol", "code", "candidate_id", "upstream_candidate_id", "company_name", "name",
-        "status", "autonomous_status", "primary_theme", "theme_id", "monthly_direction_id",
+        "status", "primary_theme", "theme_id", "monthly_direction_id",
         "monthly_direction_name", "industry_chain_node", "sector_index_taxonomy",
-        "sector_index_code", "sector_index_name", "research_route", "company_archetype",
+        "sector_index_code", "sector_index_name", "research_route",
         "selection_basis", "core_thesis", "bear_case", "structural_score",
         "data_quality_score", "financial_quality_score", "evidence_confidence",
-        "available_weight", "financial_subfactor_coverage", "sector_constituent_confirmed",
+        "financial_subfactor_coverage", "sector_constituent_confirmed",
         "downstream_trade_eligible", "business_exposure", "disclosed_business_match",
         "fundamental_support", "reason_codes",
-        "source_refs", "a2_route", "market_role", "stock_behavior_type", "route_permission",
+        "a2_route", "market_role", "stock_behavior_type", "route_permission",
         "theme_stage", "weekly_momentum_state", "new_entry_policy", "identifiability_score",
         "identifiability_breakdown", "theme_score", "factor_coverage",
         "critical_factor_coverage", "selection_reasons", "risk_reasons", "risk_flags",
@@ -10849,8 +10864,7 @@ def _compact_upstream_candidate(item: Mapping[str, Any]) -> dict[str, Any]:
                 if key in latest
             }
     for key in (
-        "reason_codes", "source_refs", "selection_reasons", "risk_reasons", "risk_flags",
-        "weak_evidence_fields", "kill_switches", "bottleneck_evidence",
+        "reason_codes",
     ):
         value = result.get(key)
         if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
