@@ -452,7 +452,14 @@ class WorkflowApplication:
             cache_dir=self.settings.fact_store_dir / "eastmoney_hot100",
         )
         selected_board = collect_rotation_theme_snapshot(
-            as_of=market_current,
+            # Use wall-clock research time for archive selection while the
+            # explicit expected_trade_date remains the market identity.  On a
+            # weekend/holiday prep this makes the collector load the sealed
+            # prior-session snapshot instead of attempting to recreate an
+            # older 15:10 capture and colliding with its immutable day view.
+            # During a live trading-day run current == market_current, so the
+            # normal same-session collection path is unchanged.
+            as_of=current,
             expected_trade_date=closed_trade_date,
             registry_path=self.settings.rotation_theme_registry_path,
             snapshot_dir=self.settings.fact_store_dir / "rotation_theme",
