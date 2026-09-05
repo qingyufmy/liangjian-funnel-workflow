@@ -18,6 +18,7 @@ from typing import Any, Mapping
 
 PROMPT_FILENAMES: tuple[str, ...] = (
     "00_shared_system_v2.txt",
+    "agent_2_transport_system_v1.txt",
     "agent_1_macro_chain_v2.txt",
     "agent_2_theme_sentiment_v2.txt",
     "agent_2_theme_sentiment_transport_v2.txt",

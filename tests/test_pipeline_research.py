@@ -13,6 +13,7 @@ from liangjian_funnel.pipeline.research import (
     FrozenInputSnapshot,
     ResearchPipeline,
     ResearchPipelineError,
+    StageAudit,
     _a1_batch_is_splittable,
     _a2_batch_is_splittable,
     _a2_theme_reasons,
@@ -42,6 +43,7 @@ from liangjian_funnel.pipeline.research import (
     _canonicalize_stage_lineage,
     _demote_a2_llm_rejects,
     _enrich_a2_decision_facts,
+    _expand_a2_compact_output,
     _gate_rejected_items,
     _gate_outside_rotation_items,
     _gate_secondary_items,
@@ -1026,11 +1028,11 @@ def test_stage_execution_budget_keeps_a1_broad_and_uses_downstream_regime_caps()
     a2 = _stage_execution_budget("A2", 20, regime)
     a3 = _stage_execution_budget("A3", 20, regime)
     assert "approved pool <= 20; secondary/watch pool <= 20" in a1
-    assert "approved pool <= 12; secondary/watch pool <= 20" in a2
+    assert "focus_decisions <= 12" in a2
     assert "approved pool <= 20; secondary/watch pool <= 20" in a3
     assert "business_exposure with revenue_exposure_pct" in a1
-    assert "The server restores candidate id, theme stage, route, role" in a2
-    assert "Every supplied symbol must appear exactly once" in a2
+    assert "omitted from focus_decisions" in a2
+    assert "one global review" in a2
 
 
 def test_a1_incomplete_partition_can_split_to_smaller_transport_groups():
@@ -1083,7 +1085,7 @@ def test_a2_prompt_keeps_non_scoring_research_hypotheses_out_of_each_batch(tmp_p
 
     assert "A2_RESEARCH_HYPOTHESES" not in replacements
     assert '"document_id":"weekly-private"' not in rendered
-    assert "仅保留在完整快照审计" in rendered
+    assert "完整冻结快照" in rendered
 
 
 def test_a2_large_runtime_placeholders_are_injected_once():
@@ -1097,6 +1099,103 @@ def test_a2_large_runtime_placeholders_are_injected_once():
         "MARKET_EMOTION_SNAPSHOT",
     ):
         assert prompt.count("{{" + name + "}}") == 1
+
+
+def test_a2_compact_review_expands_omitted_symbols_to_watch():
+    expanded = _expand_a2_compact_output(
+        {
+            "envelope": {"stage_id": "AGENT_2"},
+            "reason_codes": ["GLOBAL_REVIEW_COMPLETE"],
+            "theme_reviews": [{
+                "theme_id": "theme-a",
+                "stage": "CONFIRMATION",
+                "new_entry_policy": "ALLOW",
+                "score_breakdown": {"breadth": 80},
+                "penalty_points": 0,
+                "penalty_codes": [],
+                "support_codes": ["ROTATION_TOP5"],
+                "risk_codes": [],
+            }],
+            "focus_decisions": [{
+                "symbol": "600001.SH",
+                "support_codes": ["BOARD_REPRESENTATIVE"],
+                "risk_codes": [],
+            }],
+            "reject_decisions": [{
+                "symbol": "600003.SH",
+                "risk_codes": ["UNTRADABLE"],
+            }],
+        },
+        {},
+        {"600001.SH", "600002.SH", "600003.SH"},
+    )
+
+    assert [row["symbol"] for row in expanded["focus_pool"]] == ["600001.SH"]
+    assert expanded["watch_only_pool"] == [{
+        "symbol": "600002.SH",
+        "selection_reasons": ["A2_QUANT_ELIGIBLE_LLM_WATCH"],
+        "risk_reasons": ["A2_LLM_NOT_PROMOTED_TO_FOCUS"],
+    }]
+    assert expanded["rejected_candidates"] == [{
+        "symbol": "600003.SH",
+        "reason_codes": ["UNTRADABLE"],
+    }]
+    assert expanded["analysis_summary"]["compact_transport_expanded"] is True
+
+
+def test_v2_a2_uses_one_global_review_even_above_legacy_batch_size(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    settings = _settings(tmp_path).model_copy(update={"research_a2_batch_size": 1})
+    pipeline = ResearchPipeline(settings, prompt_repository=_prompt_dir(tmp_path))
+    symbols = ("600001.SH", "600002.SH", "600003.SH")
+    gate = DeterministicGateResult(
+        stage="A2_LOCAL_ROLE",
+        decisions=tuple({"symbol": symbol, "status": "REVIEW_CANDIDATE"} for symbol in symbols),
+        review_symbols=symbols,
+        monitor_symbols=(),
+        rejected_symbols=(),
+    )
+    called: list[set[str]] = []
+
+    def fail_batched(**_kwargs):
+        raise AssertionError("V2 A2 must not use the legacy batch transport")
+
+    def direct_review(**kwargs):
+        called.append(set(kwargs["projection_symbols"]))
+        return StageAudit(
+            lane="lane_1",
+            model=MODELS[0],
+            stage="A2",
+            status="BLOCKED_MODEL",
+            snapshot_id="single-a2",
+            prompt_hash=None,
+            input_hash=None,
+            output_hash=None,
+            latency_ms=1,
+            attempts=1,
+            thinking_variant=None,
+            symbols=(),
+            reason_codes=("EXPECTED_TEST_STOP",),
+        )
+
+    monkeypatch.setattr(pipeline, "_run_a2_batched", fail_batched)
+    monkeypatch.setattr(pipeline, "_run_stage_with_checkpoint", direct_review)
+    result = pipeline._run_v2_downstream_review(
+        lane_id="lane_1",
+        model=MODELS[0],
+        stage="A2",
+        snapshot=FrozenInputSnapshot("single-a2", {}, as_of=NOW),
+        upstream_output={"active_research_pool": []},
+        full_upstream_symbols=set(symbols),
+        gate=gate,
+        bundle=pipeline.prompts.bundle(),
+        run_id="single-a2",
+    )
+
+    assert result.status == "BLOCKED_MODEL"
+    assert called == [set(symbols)]
 
 
 def test_a3_prompt_names_the_full_candidate_domain_without_focus_pool_alias():
@@ -3548,7 +3647,7 @@ def test_a2_prompt_projection_bounds_selected_boards_theme_metrics_and_upstream_
     assert "structural_themes" not in upstream
     assert "analysis_summary" not in upstream
     assert upstream["active_research_pool"] == [
-        {"symbol": "600519.SH", "primary_theme": "theme-a"}
+        {"symbol": "600519.SH", "a1_theme": "theme-a"}
     ]
     assert upstream["monitor_pool"] == []
     assert upstream["prompt_projection"]["symbol_count"] == 1

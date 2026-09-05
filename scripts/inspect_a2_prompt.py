@@ -13,7 +13,6 @@ from liangjian_funnel.pipeline.deterministic import screen_a2
 from liangjian_funnel.pipeline.research import (
     FrozenInputSnapshot,
     ResearchPipeline,
-    _build_a2_theme_batches,
     _prompt_replacements,
     _with_a2_bottleneck_context,
 )
@@ -46,7 +45,6 @@ def main() -> int:
     parser.add_argument("--resume-audit", required=True)
     parser.add_argument("--rotation-snapshot-overlay")
     parser.add_argument("--model")
-    parser.add_argument("--batch-size", type=int, default=5)
     args = parser.parse_args()
 
     settings = Settings.from_env()
@@ -127,15 +125,9 @@ def main() -> int:
         for symbol in gate.review_symbols
         if str(symbol).strip()
     }
-    batches = _build_a2_theme_batches(
-        upstream_output,
-        review_symbols,
-        max(1, args.batch_size),
-        snapshot_data=stage_snapshot.data,
-    )
-    if not batches:
-        raise SystemExit("A2_REVIEW_BATCH_EMPTY")
-    batch = set(batches[0])
+    if not review_symbols:
+        raise SystemExit("A2_REVIEW_DOMAIN_EMPTY")
+    batch = set(review_symbols)
     prepared = pipeline._prepare_stage_request(
         lane_id=str(audit.get("lane") or "lane_1"),
         model=model,
@@ -190,8 +182,8 @@ def main() -> int:
             {
                 "a1_active_count": len(upstream_symbols),
                 "a2_review_count": len(review_symbols),
-                "batch_count": len(batches),
-                "first_batch_symbols": sorted(batch),
+                "request_count": 1,
+                "review_symbols": sorted(batch),
                 "prompt_chars": prepared.prompt_chars,
                 "estimated_input_tokens": prepared.estimated_input_tokens,
                 "largest_prompt_replacements": dict(

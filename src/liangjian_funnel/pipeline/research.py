@@ -359,7 +359,7 @@ _PERMISSION_KEYS = {
     "order_permission",
 }
 _ALLOWED_DISABLED = {False, None, "", "DISABLED", "DISABLE", "OFF", "SHADOW", "SIMULATION"}
-_PROMPT_PROJECTION_VERSION = "research-prompt-projection/2.9.0"
+_PROMPT_PROJECTION_VERSION = "research-prompt-projection/3.0.0"
 _DEFAULT_MODEL_MAX_INPUT_TOKENS = 1_000_000
 _A3_BATCH_SIZE = 16
 _A2_MAX_TRANSPORT_BATCH_SIZE = 10
@@ -2440,17 +2440,14 @@ class ResearchPipeline:
                 lane_id, model, stage, snapshot.snapshot_id, "RESEARCH_DEADLINE_EXCEEDED"
             )
         if review_symbols:
-            if stage == "A2" and len(review_symbols) > self.settings.research_a2_batch_size:
-                audit = self._run_a2_batched(
-                    lane_id=lane_id,
-                    model=model,
-                    snapshot=snapshot,
-                    upstream_output=upstream_output,
-                    upstream_symbols=review_symbols,
-                    bundle=bundle,
-                    run_id=run_id,
-                )
-            elif stage == "A3" and len(review_symbols) > _A3_BATCH_SIZE:
+            # V2 A2 is deliberately one quant-first review request.  The
+            # deterministic gate already owns the complete stock partition;
+            # repeating the same market/theme contract across small provider
+            # batches is both slow and capable of producing batch-relative
+            # focus decisions.  The compact A2 response names only promotions
+            # and explicit hard rejects; omitted review candidates default to
+            # WATCH on the server.
+            if stage == "A3" and len(review_symbols) > _A3_BATCH_SIZE:
                 audit = self._run_a3_batched(
                     lane_id=lane_id,
                     model=model,
@@ -3916,7 +3913,10 @@ class ResearchPipeline:
             projection_symbols=projection_symbols,
             a1_discovery_context=a1_discovery_context,
         )
-        shared = bundle.render("00_shared_system_v2.txt", replacements)
+        shared = bundle.render(
+            "agent_2_transport_system_v1.txt" if stage == "A2" else "00_shared_system_v2.txt",
+            replacements,
+        )
         stage_prompt = bundle.render_stage(stage, replacements)
         effective_scope = projection_symbols if projection_symbols is not None else upstream_symbols
         execution_budget = _stage_execution_budget(
@@ -4229,6 +4229,12 @@ class ResearchPipeline:
             aggregate_attempts += result.attempts
             variants.append(result.thinking_variant)
             output = _strip_reasoning(result.output)
+            if stage == "A2":
+                output = _expand_a2_compact_output(
+                    output,
+                    snapshot.data,
+                    projection_symbols if projection_symbols is not None else upstream_symbols,
+                )
             output, canonicalized_analysis_summary = mechanical_repair_output(output)
             canonicalized_envelope = 0
             canonicalized_discovery_refs = 0
@@ -6292,6 +6298,21 @@ def _stage_execution_budget(
         # turn an advisory pool size into a trading rule.
         budget["approved_pool"] = supplied
         budget["secondary_pool"] = supplied
+    if stage == "A2":
+        return (
+            "RUNTIME_EXECUTION_BUDGET (overrides generic target counts, never overrides evidence gates):\n"
+            f"- supplied_symbol_count={supplied}; analyze only supplied symbols in one global review.\n"
+            f"- focus_decisions <= {budget['approved_pool']}; reject_decisions only for explicit hard vetoes.\n"
+            f"- theme_reviews <= {budget['themes']}; each evidence array <= {budget['evidence_per_item']}.\n"
+            "- Return envelope, theme_reviews, focus_decisions, reject_decisions and reason_codes only.\n"
+            "- Do not list ordinary WATCH rows: every supplied symbol omitted from focus_decisions and "
+            "reject_decisions is deterministically classified WATCH by the server.\n"
+            "- Each supplied symbol may appear at most once across focus_decisions and reject_decisions; "
+            "never add a symbol outside the supplied set.\n"
+            "- Copy RUNTIME_INPUT.required_envelope exactly as the complete envelope; omit no field.\n"
+            "- The server restores candidate identity, theme lineage, routes, scores, evidence facts and "
+            "the complete mutually exclusive partition after the response.\n"
+        )
     stage_contract = {
         "A1": (
             (
@@ -6320,33 +6341,6 @@ def _stage_execution_budget(
                     "the batch boundary is not a selection quota."
                 )
             )
-        ),
-        "A2": (
-            "Required top-level keys: envelope, analysis_summary, active_themes, focus_pool, "
-            "watch_only_pool, rejected_candidates. Each active theme needs theme_id, stage, new_entry_policy, "
-            "theme_score, score_breakdown containing every exact key from THEME_SCORE_WEIGHTS, penalties, "
-            "supporting_evidence, contradicting_evidence, and rotation_overlap_ratio. Each focus item needs "
-            "only symbol, inherited theme_id, concise selection_reasons, risk_reasons and risk_flags. Watch rows "
-            "need symbol, inherited theme_id and concise reasons; rejected rows need symbol and a hard-veto "
-            "reason code. The server restores candidate id, theme stage, route, role, behavior type, scores, "
-            "lineage and bottleneck facts after the response; do not repeat those fields. MARKET_CORE must not "
-            "invent scarcity. SUPPLY_CHAIN_ALPHA with incomplete frozen bottleneck evidence goes to watch_only. "
-            "Unknown supply-chain facts remain unknown, never zero. A2 has two independent source channels: "
-            "TREND rows must belong to the frozen positive-main-net-inflow selected-board primary TOP5 "
-            "(an explicit child board inherits its parent rank); EMOTION rows must belong to the frozen "
-            "Eastmoney Guba popularity TOP100 and be in STARTUP or ACCELERATION. Emotion rows do not need "
-            "to belong to a selected-board TOP5. CLIMAX, DIVERGENCE, LATENT and ICE_POINT cannot create "
-            "new emotion plans. A qualified TREND MARKET_CORE row remains in A2 focus even when the theme "
-            "new_entry_policy is WATCH_ONLY/NO_NEW_ENTRY; preserve that risk context for A3/A4 instead of "
-            "treating A2 focus as permission to trade. A2 focus is a research/technical-candidate pool, not an "
-            "order list. For every selected-board direction represented by at least one supplied server-qualified "
-            "TREND row, keep at least the best qualified representative in focus_pool; stock-level negative flow "
-            "may lower rank or add a risk flag but cannot erase the whole positive-flow board. Keep qualified "
-            "Eastmoney TOP100 emotion leaders in the same focus pool under the independent EMOTION channel. Use "
-            "the upstream A1 canonical theme_id on active themes and stocks; keep the more granular board identity "
-            "in rotation_direction_id and selected_board instead of replacing the A1 theme lineage. "
-            "Every supplied symbol must appear exactly once "
-            "across focus_pool, watch_only_pool, and rejected_candidates."
         ),
         "A3": (
             "Required top-level keys: envelope, analysis_summary, core_watch_pool, secondary_watch_pool, "
@@ -8688,6 +8682,129 @@ def _canonicalize_a2_bottleneck_scorecards(
     return result, changed
 
 
+def _expand_a2_compact_output(
+    output: Mapping[str, Any],
+    snapshot_data: Mapping[str, Any],
+    expected_symbols: set[str],
+) -> dict[str, Any]:
+    """Expand compact A2 promotions/vetoes into the complete review partition.
+
+    The quant gate owns the review domain. DeepSeek only names FOCUS
+    promotions and explicit REJECT proposals; every unmentioned supplied
+    symbol is a deterministic WATCH. This prevents a malformed or truncated
+    provider response from silently deleting candidates.
+    """
+
+    if not isinstance(output, Mapping):
+        return dict(output) if isinstance(output, dict) else {}
+    reviews = output.get("theme_reviews")
+    focus_decisions = output.get("focus_decisions")
+    reject_decisions = output.get("reject_decisions")
+    if not isinstance(reviews, list):
+        return dict(output)
+    if focus_decisions is None:
+        focus_decisions = []
+    if reject_decisions is None:
+        reject_decisions = []
+    if not isinstance(focus_decisions, list) or not isinstance(reject_decisions, list):
+        return dict(output)
+
+    expected = {
+        _first_symbol(symbol)
+        for symbol in expected_symbols
+        if _first_symbol(symbol)
+    }
+
+    history = snapshot_data.get("SECTOR_CYCLE_SNAPSHOT")
+    history_metrics = history.get("history_metrics") if isinstance(history, Mapping) else None
+    overlap = (
+        _safe_float(history_metrics.get("top3_daily_overlap"))
+        if isinstance(history_metrics, Mapping) and history_metrics.get("available") is True
+        else 0.0
+    )
+
+    def codes(value: Any, *, limit: int) -> list[str]:
+        if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
+            return []
+        return [str(item).strip() for item in value[:limit] if str(item).strip()]
+
+    themes: list[dict[str, Any]] = []
+    for raw in reviews:
+        if not isinstance(raw, Mapping):
+            continue
+        penalty_points = _safe_float(raw.get("penalty_points"))
+        penalty_codes = codes(raw.get("penalty_codes"), limit=3)
+        themes.append({
+            "theme_id": raw.get("theme_id"),
+            "stage": raw.get("stage"),
+            "new_entry_policy": raw.get("new_entry_policy"),
+            "theme_score": 0.0,
+            "score_breakdown": dict(raw.get("score_breakdown") or {}),
+            "penalties": ([{
+                "points": penalty_points,
+                "reason_codes": penalty_codes,
+            }] if penalty_points or penalty_codes else []),
+            "supporting_evidence": codes(raw.get("support_codes"), limit=2),
+            "contradicting_evidence": codes(raw.get("risk_codes"), limit=2),
+            "rotation_overlap_ratio": overlap,
+        })
+
+    focus_by_symbol: dict[str, dict[str, Any]] = {}
+    reject_by_symbol: dict[str, dict[str, Any]] = {}
+    for raw in focus_decisions:
+        if not isinstance(raw, Mapping):
+            continue
+        symbol = _first_symbol(raw.get("symbol"))
+        if symbol not in expected or symbol in focus_by_symbol:
+            continue
+        support = codes(raw.get("support_codes"), limit=2)
+        risk = codes(raw.get("risk_codes"), limit=2)
+        focus_by_symbol[symbol] = {
+            "symbol": symbol,
+            "selection_reasons": support or ["A2_LLM_FOCUS_PROMOTION"],
+            "risk_reasons": risk,
+            "risk_flags": risk,
+        }
+    for raw in reject_decisions:
+        if not isinstance(raw, Mapping):
+            continue
+        symbol = _first_symbol(raw.get("symbol"))
+        if symbol not in expected or symbol in reject_by_symbol:
+            continue
+        risk = codes(raw.get("risk_codes"), limit=3)
+        if not risk:
+            continue
+        reject_by_symbol[symbol] = {"symbol": symbol, "reason_codes": risk}
+
+    # When the model contradicts itself, the conservative classification wins.
+    # The later server policy still demotes unsupported vetoes back to WATCH.
+    for symbol in reject_by_symbol:
+        focus_by_symbol.pop(symbol, None)
+    classified = set(focus_by_symbol).union(reject_by_symbol)
+    watch = [
+        {
+            "symbol": symbol,
+            "selection_reasons": ["A2_QUANT_ELIGIBLE_LLM_WATCH"],
+            "risk_reasons": ["A2_LLM_NOT_PROMOTED_TO_FOCUS"],
+        }
+        for symbol in sorted(expected.difference(classified))
+    ]
+
+    return {
+        "envelope": output.get("envelope"),
+        "analysis_summary": {
+            "reason_codes": codes(output.get("reason_codes"), limit=4),
+            "compact_transport_expanded": True,
+        },
+        "active_themes": themes,
+        "focus_pool": [focus_by_symbol[symbol] for symbol in sorted(focus_by_symbol)],
+        "watch_only_pool": watch,
+        "rejected_candidates": [
+            reject_by_symbol[symbol] for symbol in sorted(reject_by_symbol)
+        ],
+    }
+
+
 def _canonicalize_a2_contract_semantics(
     output: Mapping[str, Any],
 ) -> tuple[dict[str, Any], int]:
@@ -10776,39 +10893,25 @@ def _project_upstream_output(
 def _compact_a2_upstream_candidate(item: Mapping[str, Any]) -> dict[str, Any]:
     """Expose only A1 facts that are not repeated by the A2 gate context."""
 
-    allowed = {
-        "symbol", "company_name", "name", "primary_theme", "theme_id",
-        "industry_chain_node", "structural_score", "data_quality_score",
-        "financial_quality_score", "evidence_confidence",
-        "sector_constituent_confirmed", "disclosed_business_match",
+    result = {
+        "symbol": item.get("symbol") or item.get("code"),
+        "name": item.get("company_name") or item.get("name"),
+        "a1_theme": item.get("theme_id") or item.get("primary_theme"),
+        "node": item.get("industry_chain_node"),
+        "a1_score": item.get("structural_score"),
+        "financial_quality": item.get("financial_quality_score"),
+        "data_quality": item.get("data_quality_score"),
+        "evidence_confidence": item.get("evidence_confidence"),
+        "business_match": item.get("disclosed_business_match"),
     }
-    result = {key: item.get(key) for key in allowed if key in item}
-    exposure = item.get("business_exposure")
-    if isinstance(exposure, Mapping):
-        result["business_exposure"] = {
-            key: exposure.get(key)
-            for key in ("status", "matched", "revenue_exposure_pct", "evidence_tier")
-            if key in exposure
-        }
     fundamental = item.get("fundamental_support")
     if isinstance(fundamental, Mapping):
-        compact_fundamental = {
-            key: fundamental.get(key)
-            for key in ("coverage_ratio", "score", "supported")
-            if key in fundamental
-        }
+        result["fundamental_supported"] = fundamental.get("supported")
         latest = fundamental.get("latest_half_year")
         if isinstance(latest, Mapping):
-            compact_fundamental["latest_half_year"] = {
-                key: latest.get(key)
-                for key in (
-                    "operating_income_yoy_pct", "parent_holder_net_profit_yoy_pct",
-                    "supported", "reason_code",
-                )
-                if key in latest
-            }
-        result["fundamental_support"] = compact_fundamental
-    return result
+            result["half_year_revenue_yoy"] = latest.get("operating_income_yoy_pct")
+            result["half_year_profit_yoy"] = latest.get("parent_holder_net_profit_yoy_pct")
+    return {key: value for key, value in result.items() if value is not None}
 
 
 def _compact_upstream_candidate(item: Mapping[str, Any]) -> dict[str, Any]:
