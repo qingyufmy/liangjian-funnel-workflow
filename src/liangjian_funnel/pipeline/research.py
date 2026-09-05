@@ -359,7 +359,7 @@ _PERMISSION_KEYS = {
     "order_permission",
 }
 _ALLOWED_DISABLED = {False, None, "", "DISABLED", "DISABLE", "OFF", "SHADOW", "SIMULATION"}
-_PROMPT_PROJECTION_VERSION = "research-prompt-projection/2.8.0"
+_PROMPT_PROJECTION_VERSION = "research-prompt-projection/2.9.0"
 _DEFAULT_MODEL_MAX_INPUT_TOKENS = 1_000_000
 _A3_BATCH_SIZE = 16
 _A2_MAX_TRANSPORT_BATCH_SIZE = 10
@@ -5147,6 +5147,20 @@ def _prompt_replacements(
                 diagnostics=exc.diagnostics,
             ) from exc
     for name in names:
+        if stage == "A2" and name in {
+            "A2_THEME_METRICS",
+            "SELECTED_BOARD_SNAPSHOT",
+            "EASTMONEY_HOT100_SNAPSHOT",
+            "CROWDING_SNAPSHOT",
+            "A2_RESEARCH_HYPOTHESES",
+            "EXCHANGE_RULES",
+            "DATA_SLA_POLICY",
+        }:
+            # These facts have already been reduced into the server-owned
+            # per-candidate A2 context. Repeating the full global blocks in
+            # every transport batch adds latency without changing a decision.
+            replacements[name] = None
+            continue
         if name == "A1_RESEARCH_PACKET":
             replacements[name] = dict(a1_packet or {})
             continue
@@ -5865,79 +5879,72 @@ def _project_sector_permissions(value: Any, symbols: set[str] | None) -> Any:
 
 
 def _project_a2_bottleneck_context(value: Any, symbols: set[str] | None) -> Any:
-    """Keep model-decision facts; omit duplicated attribution/provenance traces."""
+    """Build the single compact, server-owned fact row used by A2."""
 
     if not isinstance(value, Mapping) or symbols is None:
         return value
-    scalar_fields = {
-        "company_name", "theme_id", "rotation_direction_id", "industry_chain_node",
-        "upstream_candidate_id", "deterministic_status",
-        "deterministic_score", "theme_rotation_rank", "theme_rotation_score",
-        "top_rotation_theme", "a2_pool_channel", "emotion_core_eligible",
-        "trend_core_eligible", "selected_board_theme_match",
-        "deterministic_market_role", "stock_behavior_type",
-        "identifiability_score", "data_sufficiency_state", "preferred_route",
-        "factor_coverage_pct", "evidence_readiness_score",
-    }
-    sequence_fields = {
-        "deterministic_reason_codes", "eligible_routes",
-    }
     result: dict[str, Any] = {}
     for symbol in sorted(symbols):
         raw = value.get(symbol)
         if not isinstance(raw, Mapping):
             continue
-        row = {key: raw.get(key) for key in scalar_fields if key in raw}
-        for key in sequence_fields:
-            sequence = raw.get(key)
-            if isinstance(sequence, Sequence) and not isinstance(sequence, (str, bytes, bytearray)):
-                row[key] = [_truncate_nested(item, 256) for item in sequence[:4]]
-        compact_mapping_fields = {
-            "eastmoney_hot100": (
-                "available", "eligible", "rank", "name", "trade_date", "reason_code",
-            ),
-            "selected_board": (
-                "eligible", "board_name", "theme_id", "strategy_theme_id",
-                "parent_theme_id", "primary_rank", "strength", "main_net_inflow_cny",
-            ),
-            "market_emotion_cycle": (
-                "available", "stage", "new_entry_policy", "reason_codes",
-            ),
-            "critical_factor_coverage": (
-                "coverage", "minimum", "available", "reason_codes",
-            ),
+        row = {
+            "quant_score": raw.get("deterministic_score"),
+            "rotation_direction_id": raw.get("rotation_direction_id"),
+            "rotation_rank": raw.get("theme_rotation_rank"),
+            "rotation_score": raw.get("theme_rotation_score"),
+            "channel": raw.get("a2_pool_channel"),
+            "market_role": raw.get("deterministic_market_role"),
+            "behavior_type": raw.get("stock_behavior_type"),
+            "identifiability": raw.get("identifiability_score"),
+            "data_state": raw.get("data_sufficiency_state"),
+            "emotion_eligible": raw.get("emotion_core_eligible") is True,
+            "trend_eligible": raw.get("trend_core_eligible") is True,
         }
-        for key, fields in compact_mapping_fields.items():
-            source = raw.get(key)
-            if isinstance(source, Mapping):
-                row[key] = {
-                    field: _truncate_nested(source.get(field), 160)
-                    for field in fields
-                    if field in source
-                }
-        binding = raw.get("a2_taxonomy_binding")
-        if isinstance(binding, Mapping):
-            row["a2_taxonomy_binding"] = {
-                key: binding.get(key)
-                for key in (
-                    "status", "taxonomy", "taxonomy_code", "taxonomy_name",
-                )
-                if key in binding
-            }
+        routes = raw.get("eligible_routes")
+        if isinstance(routes, Sequence) and not isinstance(routes, (str, bytes, bytearray)):
+            row["eligible_routes"] = [str(item) for item in routes[:2]]
+        reasons = raw.get("deterministic_reason_codes")
+        if isinstance(reasons, Sequence) and not isinstance(reasons, (str, bytes, bytearray)):
+            row["reason_codes"] = [str(item) for item in reasons[:3]]
         factors = raw.get("a2_factor_scores")
         if isinstance(factors, Mapping):
-            row["a2_factor_scores"] = {
+            row["factor_scores"] = {
                 str(name): factor.get("score")
                 for name, factor in factors.items()
                 if isinstance(factor, Mapping)
                 and factor.get("score") is not None
             }
+        board = raw.get("selected_board")
+        if isinstance(board, Mapping):
+            row["selected_board"] = {
+                key: board.get(key)
+                for key in (
+                    "eligible", "board_name", "theme_id", "parent_theme_id",
+                    "primary_rank", "strength", "main_net_inflow_cny",
+                )
+                if key in board
+            }
+        hot = raw.get("eastmoney_hot100")
+        if isinstance(hot, Mapping):
+            row["hot100"] = {
+                key: hot.get(key)
+                for key in ("eligible", "rank")
+                if key in hot
+            }
+        emotion = raw.get("market_emotion_cycle")
+        if isinstance(emotion, Mapping):
+            row["emotion_cycle"] = {
+                key: emotion.get(key)
+                for key in ("stage", "new_entry_policy")
+                if key in emotion
+            }
         behavior = raw.get("behavior_type_decision")
         if isinstance(behavior, Mapping):
-            row["behavior_type_decision"] = {
+            row["behavior"] = {
                 key: behavior.get(key)
                 for key in (
-                    "stock_behavior_type", "market_role", "confidence", "evidence_state",
+                    "confidence", "evidence_state",
                 )
                 if key in behavior
             }
@@ -10774,12 +10781,8 @@ def _compact_a2_upstream_candidate(item: Mapping[str, Any]) -> dict[str, Any]:
         "industry_chain_node", "structural_score", "data_quality_score",
         "financial_quality_score", "evidence_confidence",
         "sector_constituent_confirmed", "disclosed_business_match",
-        "research_route", "selection_basis", "reason_codes",
     }
     result = {key: item.get(key) for key in allowed if key in item}
-    reasons = result.get("reason_codes")
-    if isinstance(reasons, Sequence) and not isinstance(reasons, (str, bytes, bytearray)):
-        result["reason_codes"] = [_truncate_nested(value, 120) for value in reasons[:3]]
     exposure = item.get("business_exposure")
     if isinstance(exposure, Mapping):
         result["business_exposure"] = {

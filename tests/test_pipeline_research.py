@@ -1056,7 +1056,7 @@ def test_discovery_evidence_catalog_excludes_company_only_disclosures():
     assert refs == {"policy-1", "https://stats.example/industry"}
 
 
-def test_a2_prompt_receives_non_scoring_research_hypotheses(tmp_path: Path):
+def test_a2_prompt_keeps_non_scoring_research_hypotheses_out_of_each_batch(tmp_path: Path):
     prompt_dir = Path(__file__).resolve().parents[1] / "prompts"
     bundle = PromptRepository(prompt_dir).bundle()
     hypotheses = {
@@ -1081,17 +1081,9 @@ def test_a2_prompt_receives_non_scoring_research_hypotheses(tmp_path: Path):
     )
     rendered = bundle.render_stage("A2", replacements)
 
-    assert replacements["A2_RESEARCH_HYPOTHESES"]["documents"] == [
-        {"document_id": "weekly-private", "theme_hypotheses": []}
-    ]
-    assert replacements["A2_RESEARCH_HYPOTHESES"]["prompt_projection"] == {
-        "document_count": 1,
-        "full_document_count": 1,
-        "projection": "T2_THEME_HYPOTHESES",
-        "full_snapshot_retained_for_audit": True,
-    }
-    assert '"document_id":"weekly-private"' in rendered
-    assert "不参与确定性打分" in rendered
+    assert "A2_RESEARCH_HYPOTHESES" not in replacements
+    assert '"document_id":"weekly-private"' not in rendered
+    assert "仅保留在完整快照审计" in rendered
 
 
 def test_a2_large_runtime_placeholders_are_injected_once():
@@ -1101,7 +1093,6 @@ def test_a2_large_runtime_placeholders_are_injected_once():
     for name in (
         "UPSTREAM_ACTIVE_POOL",
         "A2_BOTTLENECK_CONTEXT",
-        "A2_RESEARCH_HYPOTHESES",
         "MARKET_REGIME_SNAPSHOT",
         "MARKET_EMOTION_SNAPSHOT",
     ):
@@ -1275,7 +1266,7 @@ def test_a2_prompt_projection_removes_full_market_permission_and_attribution_bul
     assert permissions["full_symbol_count"] == 2
     assert set(context) == symbols
     assert "gate_results" not in context["600001.SH"]
-    assert context["600001.SH"]["a2_factor_scores"]["breadth"] == 88
+    assert context["600001.SH"]["factor_scores"]["breadth"] == 88
     assert _stage_model_output_limit("A2", 15, configured_limit=393_216) == 4_096
     assert _stage_model_output_limit("A3", 15, configured_limit=393_216) == 393_216
 
