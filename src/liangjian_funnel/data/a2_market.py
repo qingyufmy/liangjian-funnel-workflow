@@ -607,6 +607,23 @@ def _load_capital_flow_cache_state(
         return None, MALFORMED
     if str(payload.get("trade_date") or "") != str(trade_date):
         return None, MALFORMED
+    provider_dates = payload.get("provider_trade_dates")
+    if isinstance(provider_dates, Mapping):
+        observed_provider_dates = {
+            str(value)
+            for values in provider_dates.values()
+            if isinstance(values, Sequence)
+            and not isinstance(values, (str, bytes, bytearray))
+            for value in values
+            if str(value).strip()
+        }
+        if observed_provider_dates and observed_provider_dates != {str(trade_date)}:
+            # A cache filename and its local trade_date are not sufficient
+            # proof of market identity.  Older collectors could persist the
+            # latest provider response under the requested day before the
+            # provider timestamp was checked.  Never replay that mislabeled
+            # observation as point-in-time data.
+            return None, MALFORMED
     if max_age_seconds is not None:
         if isinstance(max_age_seconds, bool) or float(max_age_seconds) < 0:
             raise ValueError("max_age_seconds must be non-negative")
@@ -1062,6 +1079,25 @@ def inspect_board_capital_flow_snapshot(
     )
     if not valid:
         return {"path": str(path), "exists": True, "available": False, "availability_state": MALFORMED, "reason_code": "BOARD_FLOW_CACHE_INVALID", "snapshot": None}
+    provider_dates = payload.get("provider_trade_dates")
+    if isinstance(provider_dates, Mapping):
+        observed_provider_dates = {
+            str(value)
+            for values in provider_dates.values()
+            if isinstance(values, Sequence)
+            and not isinstance(values, (str, bytes, bytearray))
+            for value in values
+            if str(value).strip()
+        }
+        if observed_provider_dates and observed_provider_dates != {date_text}:
+            return {
+                "path": str(path),
+                "exists": True,
+                "available": False,
+                "availability_state": MALFORMED,
+                "reason_code": "BOARD_FLOW_CACHE_PROVIDER_DATE_MISMATCH",
+                "snapshot": None,
+            }
     if max_age_seconds is not None:
         if isinstance(max_age_seconds, bool) or float(max_age_seconds) < 0:
             raise ValueError("max_age_seconds must be non-negative")

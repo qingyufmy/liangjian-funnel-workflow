@@ -14,6 +14,7 @@ from liangjian_funnel.data.a2_market import (
     collect_eastmoney_capital_flow,
     collect_eastmoney_board_flow,
     collect_ths_market_fact,
+    inspect_board_capital_flow_snapshot,
     inspect_trade_date_fact,
     load_trade_date_fact,
     write_trade_date_fact,
@@ -230,3 +231,32 @@ def test_historical_board_flow_rejects_provider_date_mismatch(tmp_path: Path) ->
 
     assert recovered["available"] is False
     assert recovered["reason_code"] == "HISTORICAL_BOARD_FLOW_PROVIDER_DATE_MISMATCH"
+
+
+def test_board_flow_cache_rejects_mislabeled_provider_date(tmp_path: Path) -> None:
+    previous_day = AS_OF - timedelta(days=1)
+    collected = collect_eastmoney_board_flow(
+        as_of=AS_OF,
+        now=AS_OF,
+        board_type="concept",
+        period="today",
+        cache_dir=tmp_path,
+        fetch_board=lambda *_: {
+            "rows": [{
+                "code": "BK0001",
+                "name": "算力",
+                "main_net": 10,
+                "provider_timestamp": int(previous_day.timestamp()),
+            }]
+        },
+    )
+
+    assert collected["provider_trade_date_verified"] is False
+    inspected = inspect_board_capital_flow_snapshot(
+        tmp_path,
+        "concept",
+        "today",
+        AS_OF.date().isoformat(),
+    )
+    assert inspected["available"] is False
+    assert inspected["reason_code"] == "BOARD_FLOW_CACHE_PROVIDER_DATE_MISMATCH"

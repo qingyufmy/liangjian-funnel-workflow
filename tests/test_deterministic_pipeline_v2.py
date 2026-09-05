@@ -1244,6 +1244,67 @@ def test_a2_selected_board_without_a1_theme_binding_cannot_open_trend_route() ->
     assert result.review_symbols == ()
 
 
+def test_a2_liangjian_full_market_membership_can_complement_a1_primary_theme() -> None:
+    snapshot = _snapshot(1)
+    symbol = snapshot["g0_symbols"][0]
+    snapshot["SELECTED_BOARD_SNAPSHOT"] = {
+        "schema_version": "liangjian-rotation-theme/1.0.0",
+        "source_id": "LIANGJIAN_FREE_ROTATION_V1",
+        "available": True,
+        "taxonomy_substitution_forbidden": False,
+        "by_symbol": {
+            symbol: [{
+                "board_code": "AI_LIQUID_COOLING",
+                "strategy_theme_id": "AI_COMPUTE_INFRASTRUCTURE",
+                "strength": 90,
+                "main_net_inflow_cny": 1_000_000,
+                "selected_for_rotation": True,
+                "primary_rank": 1,
+            }],
+        },
+    }
+    snapshot["CAPITAL_FLOW_SNAPSHOT"] = {
+        "available": True,
+        "by_symbol": {
+            symbol: {"available": True, "capital_flow_score": 90},
+        },
+    }
+    row = {
+        "symbol": symbol,
+        "candidate_id": f"a1:{symbol}",
+        # A company can be selected by a different monthly primary theme and
+        # still be a verified member of today's liquid-cooling board.
+        "primary_theme": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "industry_chain_node": "software-platform",
+        "business_exposure": {
+            "revenue_exposure_pct": 65,
+            "source_ref": f"cninfo:{symbol}",
+        },
+        "business_exposure_facts": [{
+            "revenue_exposure_pct": 65,
+            "source_ref": f"cninfo:{symbol}",
+        }],
+        "a2_factor_scores": _trend_a2_factor_scores(80),
+        "data_quality_score": 90,
+    }
+
+    result = screen_a2(
+        snapshot,
+        {"active_research_pool": [row]},
+        minimum_identifiability_score=0,
+        review_all_eligible=True,
+    )
+    item = result.decisions[0]
+
+    assert item["selected_board"]["board_code"] == "AI_LIQUID_COOLING"
+    assert item["selected_board_theme_match"] is False
+    assert item["selected_board_binding"] == "STABLE_FULL_MARKET_SYMBOL_MEMBERSHIP"
+    assert item["trend_core_eligible"] is True
+    assert item["a2_pool_channel"] == "TREND"
+    assert item["status"] == "REVIEW_CANDIDATE"
+    assert result.review_symbols == (symbol,)
+
+
 def test_a2_replays_explicit_primary_board_strategy_binding_when_reverse_row_is_legacy() -> None:
     snapshot = _snapshot(1)
     symbol = snapshot["g0_symbols"][0]
