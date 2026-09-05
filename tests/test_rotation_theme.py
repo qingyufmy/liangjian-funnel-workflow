@@ -242,6 +242,15 @@ def test_default_taxonomy_is_strict_and_parent_child_legal():
     assert all(theme.effective_from <= DAY for theme in config.themes)
 
 
+def test_exact_insurance_and_retail_do_not_inherit_broad_member_sets():
+    config = load_rotation_theme_config()
+    assert config.get("INSURANCE").eastmoney_board_codes == ("BK0474",)
+    assert config.get("INSURANCE").strategy_theme_id == "FINANCIAL_HIGH_DIVIDEND"
+    assert config.get("RETAIL_GENERAL").eastmoney_board_codes == ("BK0482",)
+    assert "保险" not in config.get("FINANCIAL_INSURANCE").aliases
+    assert "零售" not in config.get("CONSUMER_SERVICES").aliases
+
+
 def test_taxonomy_rejects_duplicate_code_unknown_parent_and_missing_evidence():
     base = load_rotation_theme_config().as_dict()
 

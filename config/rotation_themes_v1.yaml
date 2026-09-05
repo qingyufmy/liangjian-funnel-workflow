@@ -187,12 +187,25 @@ themes:
     kind: PRIMARY
     parent: null
     eastmoney_board_codes: [BK1203]
-    aliases: [金融保险, 银行, 保险, 证券, 非银金融, 多元金融]
+    aliases: [金融保险, 银行, 证券, 非银金融, 多元金融]
     effective_from: 2026-09-01
     effective_to: null
     evidence:
       - 九月方向覆盖非银金融、保险、证券和资本市场改革
       - 东方财富BK1203已于2026-09-04按公开目录现场核验
+
+  - theme_id: INSURANCE
+    strategy_theme_id: FINANCIAL_HIGH_DIVIDEND
+    name: 保险
+    kind: CHILD
+    parent: FINANCIAL_INSURANCE
+    eastmoney_board_codes: [BK0474]
+    aliases: [保险, 保险Ⅱ, 保险板块]
+    effective_from: 2026-09-01
+    effective_to: null
+    evidence:
+      - 东方财富BK0474保险Ⅱ与截图保险方向语义对应；不将非银金融成分替代保险成分
+      - 2026-09-05现场核验；实际成分采集时间由不可变快照记录，生效日期不代表历史已知时间
 
   - theme_id: AGRICULTURE_FOOD_SECURITY
     name: 农业与粮食安全
@@ -235,12 +248,25 @@ themes:
     kind: PRIMARY
     parent: null
     eastmoney_board_codes: [BK1214, BK1213, BK0438]
-    aliases: [消费服务, 服务消费, 内需, 旅游, 酒店, 餐饮, 零售, 文旅]
+    aliases: [消费服务, 服务消费, 内需, 旅游, 酒店, 餐饮, 文旅]
     effective_from: 2026-09-01
     effective_to: null
     evidence:
       - 月度方向覆盖服务消费、旅游、零售和食品饮料
       - 东方财富BK1214、BK1213、BK0438已于2026-09-04按公开目录现场核验
+
+  - theme_id: RETAIL_GENERAL
+    strategy_theme_id: CONSUMER_SERVICES
+    name: 一般零售
+    kind: CHILD
+    parent: CONSUMER_SERVICES
+    eastmoney_board_codes: [BK0482]
+    aliases: [零售, 一般零售, 零售板块]
+    effective_from: 2026-09-01
+    effective_to: null
+    evidence:
+      - 东方财富BK0482一般零售作为截图零售的跨源近似映射，不宣称两家供应商成分完全一致
+      - 排除社会服务及食品饮料并集；2026-09-05现场核验，实际采集时间单独记录
 
   - theme_id: SHIPPING
     strategy_theme_id: RESOURCES_ENERGY

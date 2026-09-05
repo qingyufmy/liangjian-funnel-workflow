@@ -313,6 +313,7 @@ _CANDIDATE_KEYS = {
 }
 _REASONING_KEYS = {"reasoning", "reasoning_content", "thinking", "chain_of_thought", "cot"}
 _SAFE_OUTPUT_FIELDS = {
+    "rotation_reviews",
     "envelope",
     "analysis_summary",
     "macro_regime",
@@ -4330,13 +4331,6 @@ class ResearchPipeline:
             output, policy_demotions = _apply_stage_threshold_policy(output, stage, snapshot.data)
             if stage == "A1" and projection_symbols is None:
                 output = _annotate_a1_pool_target(output, snapshot.data)
-            a2_rotation_coverage_promotions = 0
-            if stage == "A2":
-                output, a2_rotation_coverage_promotions = _ensure_a2_rotation_focus_coverage(
-                    output,
-                    snapshot.data,
-                    upstream_symbols,
-                )
             if stage == "A2" and snapshot.data.get("STRICT_AGENT_RULES") is True:
                 output, a2_demotions = _apply_a2_lineage_policy(output, upstream_output or {}, snapshot.data)
                 policy_demotions += a2_demotions
@@ -4445,8 +4439,6 @@ class ResearchPipeline:
                     diagnostics["canonicalized_lineage"] = canonicalized_lineage
                 if a2_llm_reject_demotions:
                     diagnostics["a2_llm_reject_demotions"] = a2_llm_reject_demotions
-                if a2_rotation_coverage_promotions:
-                    diagnostics["a2_rotation_coverage_promotions"] = a2_rotation_coverage_promotions
                 if canonicalized_a3_origins:
                     diagnostics["canonicalized_a3_origins"] = canonicalized_a3_origins
                 if policy_demotions:
@@ -6313,7 +6305,7 @@ def _stage_execution_budget(
             f"- supplied_symbol_count={supplied}; analyze only supplied symbols in one global review.\n"
             f"- focus_decisions <= {budget['approved_pool']}; reject_decisions only for explicit hard vetoes.\n"
             f"- theme_reviews <= {budget['themes']}; each evidence array <= {budget['evidence_per_item']}.\n"
-            "- Return envelope, theme_reviews, focus_decisions, reject_decisions and reason_codes only.\n"
+            "- Return envelope, theme_reviews, focus_decisions, rotation_reviews, reject_decisions and reason_codes only.\n"
             "- Do not list ordinary WATCH rows: every supplied symbol omitted from focus_decisions and "
             "reject_decisions is deterministically classified WATCH by the server.\n"
             "- Each supplied symbol may appear at most once across focus_decisions and reject_decisions; "
@@ -7826,10 +7818,10 @@ def _semantic_retry_instruction(
         for code in safe_reasons
     ):
         discovery_requirements.append(
-            "For each missing selected-board direction, move its best supplied server-qualified TREND row to "
-            "focus_pool. A2 focus is a research pool, not entry permission; retain stock-level risks without "
-            "erasing the whole positive-flow direction. Preserve the upstream canonical theme_id and keep the "
-            "board identity in rotation_direction_id/selected_board."
+            "Review each missing direction's server-qualified TREND row and preserve the upstream canonical theme_id. "
+            "A2 is a research pool, not entry permission. Select a qualified representative in focus_decisions or "
+            "supply rotation_reviews with decision=NO_FOCUS, exact rotation_direction_id, reviewed_symbols from that "
+            "direction, reason_codes and a concrete Chinese explanation based on frozen facts. Never force promotion."
         )
     discovery_retry = "\n".join(discovery_requirements)
     return (
@@ -8805,6 +8797,7 @@ def _expand_a2_compact_output(
             "reason_codes": codes(output.get("reason_codes"), limit=4),
             "compact_transport_expanded": True,
         },
+        "rotation_reviews": output.get("rotation_reviews", []),
         "active_themes": themes,
         "focus_pool": [focus_by_symbol[symbol] for symbol in sorted(focus_by_symbol)],
         "watch_only_pool": watch,
@@ -11176,129 +11169,15 @@ def _validate_output(
     return list(dict.fromkeys(reasons))
 
 
-def _ensure_a2_rotation_focus_coverage(
-    output: Mapping[str, Any],
-    snapshot_data: Mapping[str, Any],
-    upstream_symbols: set[str],
-) -> tuple[dict[str, Any], int]:
-    """Promote one quant-qualified representative for each missing TOP5 board.
-
-    A2 focus is a research pool, not an execution permission.  The model may
-    rank candidates and retain risks, but it cannot erase an entire positive-
-    flow rotation direction already qualified by the deterministic gate.  A
-    hard-rejected row is never present in the watch pool and therefore cannot
-    be promoted here.
-    """
-
-    result = dict(output)
-    contexts = _lineage_context_rows(snapshot_data, "A2_BOTTLENECK_CONTEXT")
-    valid_themes = {
-        str(item.get("theme_id") or "").strip()
-        for item in result.get("active_themes", ())
-        if isinstance(item, Mapping) and str(item.get("theme_id") or "").strip()
-    }
-
-    def direction_for(symbol: str) -> str:
-        context = contexts.get(symbol)
-        if not isinstance(context, Mapping):
-            return ""
-        selected = context.get("selected_board")
-        selected = selected if isinstance(selected, Mapping) else {}
-        return str(
-            context.get("rotation_direction_id")
-            or selected.get("board_code")
-            or selected.get("theme_id")
-            or ""
-        ).strip()
-
-    focused_directions = {
-        direction_for(_first_symbol(item.get("symbol")))
-        for item in result.get("focus_pool", ())
-        if isinstance(item, Mapping) and _first_symbol(item.get("symbol"))
-    }
-    focused_directions.discard("")
-
-    candidates: dict[str, list[dict[str, Any]]] = {}
-    for raw in result.get("watch_only_pool", ()):
-        if not isinstance(raw, Mapping):
-            continue
-        symbol = _first_symbol(raw.get("symbol"))
-        if not symbol or symbol not in upstream_symbols:
-            continue
-        context = contexts.get(symbol)
-        if not isinstance(context, Mapping):
-            continue
-        selected = context.get("selected_board")
-        selected = selected if isinstance(selected, Mapping) else {}
-        if (
-            str(context.get("deterministic_status") or "").upper() != "REVIEW_CANDIDATE"
-            or context.get("trend_core_eligible") is not True
-            or context.get("top_rotation_theme") is not True
-            or selected.get("selected_for_rotation") is not True
-        ):
-            continue
-        theme_id = str(raw.get("theme_id") or context.get("theme_id") or "").strip()
-        if theme_id not in valid_themes:
-            continue
-        direction = direction_for(symbol)
-        if not direction or direction in focused_directions:
-            continue
-        candidates.setdefault(direction, []).append(dict(raw))
-
-    promoted_symbols: set[str] = set()
-    promoted: list[dict[str, Any]] = []
-    for direction in sorted(candidates):
-        ranked = sorted(
-            candidates[direction],
-            key=lambda item: (
-                -_safe_float(contexts.get(_first_symbol(item.get("symbol")), {}).get("deterministic_score")),
-                -_safe_float(contexts.get(_first_symbol(item.get("symbol")), {}).get("identifiability_score")),
-                _safe_int(contexts.get(_first_symbol(item.get("symbol")), {}).get("theme_rotation_rank")) or 9999,
-                _first_symbol(item.get("symbol")),
-            ),
-        )
-        if not ranked:
-            continue
-        item = ranked[0]
-        symbol = _first_symbol(item.get("symbol"))
-        selection = item.get("selection_reasons")
-        selection = list(selection) if isinstance(selection, list) else []
-        item["selection_reasons"] = list(dict.fromkeys([
-            *selection,
-            "A2_SERVER_ROTATION_COVERAGE_PROMOTION",
-        ]))
-        item["status"] = "FOCUS"
-        item["server_rotation_coverage_promotion"] = True
-        promoted.append(item)
-        promoted_symbols.add(symbol)
-
-    if not promoted:
-        return result, 0
-    result["watch_only_pool"] = [
-        item
-        for item in result.get("watch_only_pool", ())
-        if not isinstance(item, Mapping)
-        or _first_symbol(item.get("symbol")) not in promoted_symbols
-    ]
-    result["focus_pool"] = _deduplicate_stage_items(
-        "focus_pool",
-        [*result.get("focus_pool", ()), *promoted],
-    )
-    return result, len(promoted)
-
-
 def _validate_a2_rotation_focus_coverage(
     output: Mapping[str, Any],
     snapshot_data: Mapping[str, Any],
     upstream_symbols: set[str],
 ) -> list[str]:
-    """Require one research representative for every supplied TOP5 board.
+    """Require a model focus decision or an explicit, attributable NO_FOCUS.
 
-    The deterministic A2 gate has already decided whether each row is a
-    qualified trend candidate. A model may rank those rows and add risks, but
-    A2 is not an order list and may not silently erase an entire positive-flow
-    rotation direction. The check is batch-local so it remains compatible
-    with theme-preserving model transport.
+    Coverage is review completeness, never a permission to promote a row.
+    The reported representative must belong to the frozen direction.
     """
 
     contexts = _lineage_context_rows(snapshot_data, "A2_BOTTLENECK_CONTEXT")
@@ -11342,9 +11221,52 @@ def _validate_a2_rotation_focus_coverage(
         if direction:
             focused.add(direction)
 
-    return [
+    explained: set[str] = set()
+    reviews = output.get("rotation_reviews", [])
+    if not isinstance(reviews, list):
+        return ["A2_ROTATION_REVIEW_SCHEMA_INVALID"]
+    errors: list[str] = []
+    seen: set[str] = set()
+    for review in reviews:
+        if not isinstance(review, Mapping):
+            errors.append("A2_ROTATION_REVIEW_SCHEMA_INVALID")
+            continue
+        direction = str(review.get("rotation_direction_id") or "").strip()
+        representatives = review.get("reviewed_symbols")
+        reasons = review.get("reason_codes")
+        explanation = review.get("explanation")
+        if (
+            direction not in expected
+            or direction in seen
+            or direction in focused
+            or review.get("decision") != "NO_FOCUS"
+            or not isinstance(representatives, list)
+            or not representatives
+            or not isinstance(reasons, list)
+            or not reasons
+            or any(not isinstance(code, str) or not code.strip() for code in reasons)
+            or not isinstance(explanation, str)
+            or len(explanation.strip()) < 10
+        ):
+            errors.append("A2_ROTATION_REVIEW_INVALID:" + direction)
+            continue
+        seen.add(direction)
+        valid = True
+        for representative in representatives:
+            symbol = _first_symbol(representative)
+            context = contexts.get(symbol, {})
+            selected = context.get("selected_board") or {}
+            bound = str(context.get("rotation_direction_id") or selected.get("board_code") or selected.get("theme_id") or "").strip()
+            if symbol not in upstream_symbols or bound != direction:
+                valid = False
+                break
+        if not valid:
+            errors.append("A2_ROTATION_REVIEW_REPRESENTATIVE_INVALID:" + direction)
+            continue
+        explained.add(direction)
+    return errors + [
         f"A2_ROTATION_FOCUS_COVERAGE_MISSING:{direction}"
-        for direction in sorted(expected.difference(focused))
+        for direction in sorted(expected.difference(focused).difference(explained))
     ]
 
 

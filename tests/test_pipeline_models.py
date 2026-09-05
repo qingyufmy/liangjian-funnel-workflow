@@ -105,7 +105,11 @@ def test_client_honors_per_request_output_budget(tmp_path: Path):
     assert seen[0]["max_tokens"] == 131_072
 
 
-def test_a2_uses_bounded_json_classification_with_thinking_explicitly_disabled(tmp_path: Path):
+@pytest.mark.parametrize("stage,model,thinking", [
+    ("A2", "deepseek-v4-pro-0813", True),
+    ("A4", "deepseek-v4-flash-0731", False),
+])
+def test_a2_a4_use_bounded_json_with_thinking_explicitly_disabled(tmp_path: Path, stage, model, thinking):
     seen: list[dict] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -118,11 +122,12 @@ def test_a2_uses_bounded_json_classification_with_thinking_explicitly_disabled(t
         _settings(tmp_path),
         transport=httpx.MockTransport(handler),
         sleep=lambda _: None,
+        thinking_enabled=thinking,
     )
     result = client.complete(
-        "deepseek-v4-pro-0813",
+        model,
         [{"role": "user", "content": "same"}],
-        stage="A2",
+        stage=stage,
     )
 
     assert result.output == {"ok": True}

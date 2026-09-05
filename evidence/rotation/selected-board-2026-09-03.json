@@ -45,7 +45,9 @@
       "occupies_primary_slot": true
     },
     {
-      "theme_id": "FINANCIAL_INSURANCE",
+      "theme_id": "INSURANCE",
+      "membership_board_codes": ["BK0474"],
+      "mapping_note": "保险对应东财保险Ⅱ；跨源语义映射，不宣称供应商成分完全相同",
       "source_board_codes": ["801071"],
       "source_board_names": ["保险"],
       "strength": 2356,
@@ -54,7 +56,9 @@
       "occupies_primary_slot": true
     },
     {
-      "theme_id": "CONSUMER_SERVICES",
+      "theme_id": "RETAIL_GENERAL",
+      "membership_board_codes": ["BK0482"],
+      "mapping_note": "零售使用东财一般零售近似核对，禁止替换为社会服务及食品饮料并集",
       "source_board_codes": ["801053"],
       "source_board_names": ["零售"],
       "strength": 1459,

@@ -43,7 +43,6 @@ from liangjian_funnel.pipeline.research import (
     _canonicalize_stage_lineage,
     _demote_a2_llm_rejects,
     _enrich_a2_decision_facts,
-    _ensure_a2_rotation_focus_coverage,
     _expand_a2_compact_output,
     _gate_rejected_items,
     _gate_outside_rotation_items,
@@ -1199,62 +1198,33 @@ def test_v2_a2_uses_one_global_review_even_above_legacy_batch_size(
     assert called == [set(symbols)]
 
 
-def test_a2_quant_rule_promotes_best_missing_rotation_representative():
-    output, promoted = _ensure_a2_rotation_focus_coverage(
-        {
-            "active_themes": [
-                {"theme_id": "theme-a"},
-                {"theme_id": "theme-b"},
-            ],
-            "focus_pool": [{"symbol": "600001.SH", "theme_id": "theme-a"}],
-            "watch_only_pool": [
-                {"symbol": "600002.SH", "theme_id": "theme-b", "risk_reasons": ["LLM_CAUTION"]},
-                {"symbol": "600003.SH", "theme_id": "theme-b"},
-            ],
-            "rejected_candidates": [],
-        },
-        {
-            "A2_BOTTLENECK_CONTEXT": {
-                "600001.SH": {
-                    "rotation_direction_id": "BOARD:A",
-                    "deterministic_status": "REVIEW_CANDIDATE",
-                    "trend_core_eligible": True,
-                    "top_rotation_theme": True,
-                    "selected_board": {"selected_for_rotation": True},
-                },
-                "600002.SH": {
-                    "theme_id": "theme-b",
-                    "rotation_direction_id": "BOARD:B",
-                    "deterministic_status": "REVIEW_CANDIDATE",
-                    "deterministic_score": 82,
-                    "identifiability_score": 75,
-                    "theme_rotation_rank": 2,
-                    "trend_core_eligible": True,
-                    "top_rotation_theme": True,
-                    "selected_board": {"selected_for_rotation": True},
-                },
-                "600003.SH": {
-                    "theme_id": "theme-b",
-                    "rotation_direction_id": "BOARD:B",
-                    "deterministic_status": "REVIEW_CANDIDATE",
-                    "deterministic_score": 70,
-                    "identifiability_score": 90,
-                    "theme_rotation_rank": 2,
-                    "trend_core_eligible": True,
-                    "top_rotation_theme": True,
-                    "selected_board": {"selected_for_rotation": True},
-                },
-            }
-        },
-        {"600001.SH", "600002.SH", "600003.SH"},
-    )
-
-    assert promoted == 1
-    assert {row["symbol"] for row in output["focus_pool"]} == {"600001.SH", "600002.SH"}
-    assert [row["symbol"] for row in output["watch_only_pool"]] == ["600003.SH"]
-    representative = next(row for row in output["focus_pool"] if row["symbol"] == "600002.SH")
-    assert representative["risk_reasons"] == ["LLM_CAUTION"]
-    assert "A2_SERVER_ROTATION_COVERAGE_PROMOTION" in representative["selection_reasons"]
+def test_a2_no_focus_requires_attributable_explanation_without_promotion():
+    snapshot = {"A2_BOTTLENECK_CONTEXT": {
+        "600001.SH": {
+            "deterministic_status": "REVIEW_CANDIDATE",
+            "trend_core_eligible": True, "top_rotation_theme": True,
+            "rotation_direction_id": "SELECTED_BOARD:INSURANCE",
+            "selected_board": {"selected_for_rotation": True},
+        }
+    }}
+    output = {"focus_pool": [], "watch_only_pool": [{"symbol": "600001.SH"}],
+              "rotation_reviews": [{
+                  "rotation_direction_id": "SELECTED_BOARD:INSURANCE",
+                  "decision": "NO_FOCUS", "reviewed_symbols": ["600001.SH"],
+                  "reason_codes": ["STRUCTURE_WEAK"],
+                  "explanation": "该方向代表股结构偏弱，当前冻结证据不足以支持聚焦晋级。",
+              }]}
+    before = json.loads(json.dumps(output))
+    assert _validate_a2_rotation_focus_coverage(output, snapshot, {"600001.SH"}) == []
+    assert output == before
+    output["rotation_reviews"][0]["reviewed_symbols"] = ["600002.SH"]
+    assert "A2_ROTATION_REVIEW_REPRESENTATIVE_INVALID:SELECTED_BOARD:INSURANCE" in _validate_a2_rotation_focus_coverage(output, snapshot, {"600001.SH"})
+    output["rotation_reviews"][0]["reviewed_symbols"] = ["600001.SH"]
+    output["rotation_reviews"][0]["explanation"] = ""
+    assert _validate_a2_rotation_focus_coverage(output, snapshot, {"600001.SH"})
+    output["rotation_reviews"][0]["explanation"] = before["rotation_reviews"][0]["explanation"]
+    output["focus_pool"] = [{"symbol": "600001.SH"}]
+    assert _validate_a2_rotation_focus_coverage(output, snapshot, {"600001.SH"})
 
 
 def test_a3_prompt_names_the_full_candidate_domain_without_focus_pool_alias():

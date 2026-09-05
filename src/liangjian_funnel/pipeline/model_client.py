@@ -26,9 +26,9 @@ PRODUCTION_THINKING_VARIANTS: tuple[tuple[str, dict[str, Any]], ...] = (
 )
 NO_THINKING_VARIANTS: tuple[tuple[str, dict[str, Any]], ...] = (("thinking_disabled", {}),)
 # The production gateway defaults this model family to hidden reasoning when
-# the field is omitted.  A2 is a bounded classification review over facts the
+# the field is omitted. A2 and A4 are bounded reviews over facts the
 # server has already computed, so disable provider reasoning explicitly.  A
-# live capability probe on the configured gateway verifies this parameter;
+# live capability probes for Pro and Flash verify this parameter;
 # keep the general no-thinking client contract above unchanged for providers
 # where sending an extra field may be unsupported.
 A2_NO_THINKING_VARIANTS: tuple[tuple[str, dict[str, Any]], ...] = (
@@ -194,13 +194,15 @@ class OpenAICompatibleModelClient:
         overall_deadline = self.monotonic() + call_timeout
         total_attempts = 0
         # A2 receives server-computed ranks, roles, routes and fact coverage.
-        # Its model task is bounded JSON classification/explanation, so an
-        # explicit reasoning mode adds minutes of latency without adding an
-        # auditable fact. A1 discovery and A3 plan verification retain the
+        # A4 also has a bounded veto-only task. Hidden reasoning can exhaust
+        # its minute deadline. A1 discovery and A3 plan verification retain the
         # configured reasoning variants.
         call_variants = (
             A2_NO_THINKING_VARIANTS
-            if str(stage or "").upper() == "A2"
+            if str(stage or "").upper() == "A2" or (
+                str(stage or "").upper() == "A4" and model.startswith("deepseek-")
+                and not self.thinking_enabled
+            )
             else self.thinking_variants
         )
         last_variant = call_variants[0][0]

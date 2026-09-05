@@ -1,6 +1,6 @@
 ========================================================================
 Agent 2 · ThemeSentimentSelectorAgent · Quant-First Review Contract
-版本: agent-2-transport/3.0.0   前置: A2_TRANSPORT_SYSTEM_V1
+版本: agent-2-transport/3.1.0   前置: A2_TRANSPORT_SYSTEM_V1
 ========================================================================
 
 任务：服务端已经完成全市场 A2 量化筛选。你只对本次量化候选做一次全局审阅，
@@ -24,8 +24,10 @@ A2_POOL_TARGETS={{A2_POOL_TARGETS}}
 【审阅规则】
 1. 趋势通道只审阅服务端已判定为板块强度前五且主力净流入为正的一级板块，
    或其明确子板块，并继承 A1 月度方向、主营匹配与基本面结论。
-2. 每个存在合格量化候选的前五轮动方向，至少晋级一只最有代表性的股票到
-   focus_decisions；不能因单股弱项把整个第 2-5 名方向清空。
+2. 全量审阅每个存在量化候选的前五轮动方向。选择合格代表进入 focus_decisions；
+   若没有合格聚焦股，在 rotation_reviews 中明确 NO_FOCUS，原样复制 rotation_direction_id，
+   列出已比较的代表股 reviewed_symbols，以及引用冻结事实的具体中文 explanation。
+   覆盖要求是每个方向有审阅结论，不能为凑齐方向或数量强行晋级。
 3. 情绪通道独立审阅同交易日东财股吧人气前 100。启动期可首板试探，加速期
    评估 2-3 板核心；高潮、分化、退潮不新增接力。情绪票不要求属于板块前五。
 4. MARKET_CORE 依据板块广度、成交结构、梯队、相对强弱和量化角色判断。
@@ -59,6 +61,13 @@ A2_POOL_TARGETS={{A2_POOL_TARGETS}}
     "symbol": "000001.SZ",
     "support_codes": ["最多2个短原因码"],
     "risk_codes": ["最多2个短原因码"]
+  }],
+  "rotation_reviews": [{
+    "rotation_direction_id": "原样复制量化上下文中的方向标识",
+    "decision": "NO_FOCUS",
+    "reviewed_symbols": ["该方向输入集合内的代表股"],
+    "reason_codes": ["具体未晋级原因"],
+    "explanation": "结合该方向代表股的冻结数据解释为何暂不聚焦，避免笼统描述"
   }],
   "reject_decisions": [{
     "symbol": "000001.SZ",

@@ -9,7 +9,7 @@ import json
 import math
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -56,6 +56,8 @@ def _finite_number(value: Any, reason: str) -> float:
 def build_overlay(
     evidence: Mapping[str, Any],
     membership: Mapping[str, Any],
+    *,
+    member_versions: Sequence[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
     if evidence.get("schema_version") != OBSERVATION_SCHEMA:
         raise SystemExit("ROTATION_OBSERVATION_SCHEMA_INVALID")
@@ -76,6 +78,34 @@ def build_overlay(
         if isinstance(row, Mapping)
         and str(row.get("theme_id") or row.get("board_code") or "").strip()
     }
+    member_captures = [datetime.fromisoformat(str(membership.get("captured_at") or ""))]
+    for version in member_versions:
+        if (
+            version.get("schema_version") != "liangjian-rotation-membership/1.0.0"
+            or version.get("available") is not True
+            or version.get("content_hash") != _canonical_hash(version)
+            or version.get("pagination_evidence", {}).get("complete") is not True
+        ):
+            raise SystemExit("ROTATION_MEMBER_VERSION_INVALID")
+        from liangjian_funnel.data.rotation_theme import load_rotation_theme_config
+        theme = load_rotation_theme_config().get(str(version["theme_id"]))
+        pages = version["pagination_evidence"].get("pages", [])
+        codes = sorted({page.get("board_code") for page in pages if page.get("board_code")})
+        if codes != sorted(theme.eastmoney_board_codes):
+            raise SystemExit("ROTATION_MEMBER_VERSION_BOARD_MISMATCH")
+        member_captures.append(datetime.fromisoformat(str(version["captured_at"])))
+        membership_boards[theme.theme_id] = {
+            "theme_id": theme.theme_id, "board_name": theme.name,
+            "strategy_theme_id": theme.strategy_theme_id,
+            "theme_level": theme.kind, "parent_theme_id": theme.parent,
+            "is_child_board": theme.kind == "CHILD",
+            "constituents": [row["symbol"] for row in version["records"]],
+            "membership_board_codes": codes,
+            "membership_captured_at": version["captured_at"],
+            "membership_content_hash": version["content_hash"],
+        }
+    if any(stamp.tzinfo is None for stamp in member_captures):
+        raise SystemExit("ROTATION_MEMBER_CAPTURE_TIME_INVALID")
     observations = evidence.get("observations")
     if not isinstance(observations, Sequence) or isinstance(
         observations, (str, bytes, bytearray)
@@ -93,6 +123,9 @@ def build_overlay(
         member_row = membership_boards.get(theme_id)
         if not isinstance(member_row, Mapping):
             raise SystemExit(f"ROTATION_MEMBERSHIP_THEME_MISSING:{theme_id}")
+        required_codes = raw.get("membership_board_codes")
+        if required_codes and sorted(required_codes) != sorted(member_row.get("membership_board_codes") or []):
+            raise SystemExit(f"ROTATION_EXACT_MEMBERSHIP_REQUIRED:{theme_id}")
         constituents = sorted({str(value).strip().upper() for value in member_row.get("constituents", ()) if str(value).strip()})
         if not constituents:
             raise SystemExit(f"ROTATION_MEMBERSHIP_EMPTY:{theme_id}")
@@ -172,7 +205,8 @@ def build_overlay(
         "available": True,
         "reason_code": "OK_RETROSPECTIVE_USER_EVIDENCE",
         "trade_date": trade_day.isoformat(),
-        "captured_at": observed_as_of.isoformat(),
+        "captured_at": datetime.now(timezone.utc).isoformat(),
+        "observed_as_of": observed_as_of.isoformat(),
         "boards": rows,
         "selected_primary_boards": selected_primary,
         "by_symbol": dict(sorted(by_symbol.items())),
@@ -187,7 +221,9 @@ def build_overlay(
             "membership_contract": "VERSIONED_FULL_MARKET_SYMBOL_MEMBERSHIP",
             "membership_snapshot_hash": expected_membership_hash,
             "membership_snapshot_trade_date": membership.get("trade_date"),
-            "membership_known_after_target_date": str(membership.get("trade_date")) > trade_day.isoformat(),
+            "membership_captured_at": max(member_captures).isoformat(),
+            "membership_version_hashes": [v["content_hash"] for v in member_versions],
+            "membership_known_after_target_date": max(member_captures) > observed_as_of,
             "retrospective_validation_only": True,
             "production_publish_forbidden": True,
             "source_evidence": list(evidence.get("source_evidence") or ()),
@@ -205,10 +241,11 @@ def main() -> int:
     parser.add_argument("--evidence", required=True)
     parser.add_argument("--membership-snapshot", required=True)
     parser.add_argument("--output", required=True)
+    parser.add_argument("--member-version", action="append", default=[])
     args = parser.parse_args()
     evidence = _load_object(Path(args.evidence))
     membership = _load_object(Path(args.membership_snapshot))
-    output = build_overlay(evidence, membership)
+    output = build_overlay(evidence, membership, member_versions=[_load_object(Path(p)) for p in args.member_version])
     atomic_write_json(Path(args.output), output)
     print(json.dumps({
         "output": str(Path(args.output)),
