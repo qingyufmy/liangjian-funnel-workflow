@@ -8,10 +8,29 @@ import pytest
 from liangjian_funnel import workflow as workflow_module
 from liangjian_funnel.settings import Settings
 from liangjian_funnel.workflow import WorkflowApplication, WorkflowError
-from scripts.replay_frozen_research import _resume_stage_rows
+from scripts.replay_frozen_research import _canonical_hash, _resume_stage_rows, _reuse_a1_payload
 
 
 TZ = ZoneInfo("Asia/Shanghai")
+
+
+def test_reuse_a1_validates_frozen_hash_and_publication_lineage(tmp_path: Path):
+    path = tmp_path / "lane.json"
+    output = {"active_research_pool": [{"symbol": "600001.SH"}]}
+    payload = {"lane": "lane_1", "stages": [{"stage": "A1", "status": "VALIDATED",
+        "snapshot_id": "snapshot-1:a1", "output": output, "output_hash": _canonical_hash(output)}]}
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    assert _reuse_a1_payload(path, tmp_path, "snapshot-1", publish=True)["lanes"]["lane_1"]["output"] == output
+    with pytest.raises(SystemExit, match="SNAPSHOT_LINEAGE_MISMATCH"):
+        _reuse_a1_payload(path, tmp_path, "snapshot-2", publish=True)
+    payload["publishable"] = False
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(SystemExit, match="NON_PUBLISHABLE_LINEAGE"):
+        _reuse_a1_payload(path, tmp_path, "snapshot-1", publish=True)
+    payload["stages"][0]["output_hash"] = "corrupted"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(SystemExit, match="OUTPUT_HASH_MISMATCH"):
+        _reuse_a1_payload(path, tmp_path, "snapshot-1", publish=False)
 
 
 def _application(tmp_path: Path) -> WorkflowApplication:

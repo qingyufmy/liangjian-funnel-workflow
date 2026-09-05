@@ -62,6 +62,23 @@ def _snapshot_path(settings: Settings, requested: str | None) -> Path:
     return path
 
 
+def _reuse_a1_payload(path: Path, audit_root: Path, snapshot_id: str, *, publish: bool) -> dict:
+    path = path.resolve()
+    if path.parent != audit_root.resolve() or not path.is_file():
+        raise SystemExit("REUSE_A1_AUDIT_PATH_INVALID")
+    source = json.loads(path.read_text(encoding="utf-8"))
+    if publish and source.get("publishable") is False:
+        raise SystemExit("NON_PUBLISHABLE_LINEAGE")
+    a1 = next((row for row in source.get("stages", []) if row.get("stage") == "A1"), None)
+    if not isinstance(a1, dict) or a1.get("status") != "VALIDATED" or not isinstance(a1.get("output"), dict):
+        raise SystemExit("REUSE_A1_AUDIT_NOT_VALIDATED")
+    if a1.get("output_hash") != _canonical_hash(a1["output"]):
+        raise SystemExit("REUSE_A1_OUTPUT_HASH_MISMATCH")
+    if not str(a1.get("snapshot_id") or "").startswith(snapshot_id):
+        raise SystemExit("REUSE_A1_SNAPSHOT_LINEAGE_MISMATCH")
+    return {"generation_id": "audit:" + path.stem, "lanes": {str(source["lane"]): a1}}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--snapshot", help="snapshot JSON under LIANGJIAN_SNAPSHOT_DIR; latest when omitted")
@@ -77,6 +94,7 @@ def main() -> int:
         help="publish validated plans and write the normal outputs/runs summary",
     )
     parser.add_argument("--resume-audit", help="validated lane audit under outputs/research")
+    parser.add_argument("--reuse-a1-audit", help="reuse validated A1 from a lane audit, run current A2 and A3")
     parser.add_argument(
         "--stage",
         choices=("A2", "A3"),
@@ -100,6 +118,8 @@ def main() -> int:
         ),
     )
     args = parser.parse_args()
+    if args.reuse_a1_audit and (args.stage or args.resume_audit):
+        raise SystemExit("REUSE_A1_AND_RESUME_ARE_EXCLUSIVE")
 
     settings = Settings.from_env()
     path = _snapshot_path(settings, args.snapshot)
@@ -119,6 +139,11 @@ def main() -> int:
     ):
         raise SystemExit("VALIDATION_OVERLAY_CANNOT_PUBLISH")
     snapshot_data = dict(raw["data"])
+    if args.publish and any(
+        isinstance(value, dict) and (value.get("non_publishable") is True or value.get("retrospective") is True)
+        for value in (snapshot_data.get("snapshot_manifest") or {}).values()
+    ):
+        raise SystemExit("VALIDATION_OVERLAY_CANNOT_PUBLISH")
     snapshot_id = str(raw.get("snapshot_id") or "")
     expected_hash = base_snapshot_hash
     if args.enable_deterministic_v2_overlay:
@@ -263,7 +288,13 @@ def main() -> int:
         )
         return exit_code
 
-    result = pipeline.run(snapshot, run_id=run_id, generated_at=current)
+    active_a1 = None
+    if args.reuse_a1_audit:
+        active_a1 = _reuse_a1_payload(
+            Path(args.reuse_a1_audit), settings.workflow_output_dir / "research", snapshot.snapshot_id,
+            publish=args.publish,
+        )
+    result = pipeline.run(snapshot, run_id=run_id, generated_at=current, active_a1=active_a1)
     publication = None
     run_summary_path = None
     if args.publish:
@@ -430,6 +461,8 @@ def _resume_stage(
         raise SystemExit("RESUME_AUDIT_INVALID") from exc
     if not isinstance(raw, dict) or raw.get("model") not in settings.research_models:
         raise SystemExit("RESUME_AUDIT_SCHEMA_INVALID")
+    if publish and raw.get("publishable") is False:
+        raise SystemExit("NON_PUBLISHABLE_LINEAGE")
     previous, lineage_rows = _resume_stage_rows(
         raw,
         stage=stage,
@@ -530,6 +563,10 @@ def _resume_stage(
         final_output=audit.output if lane_status in {"READY", "READY_DEGRADED"} else None,
     )
     lane_path = pipeline._write_lane_audit(run_id, lane, snapshot=snapshot)
+    if raw.get("publishable") is False:
+        persisted = json.loads(lane_path.read_text(encoding="utf-8"))
+        persisted.update(publishable=False, resume_source_audit=str(audit_path))
+        atomic_write_json(lane_path, persisted)
     lane = LaneResult(
         lane=lane.lane,
         model=lane.model,

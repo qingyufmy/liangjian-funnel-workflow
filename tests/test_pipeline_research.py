@@ -1217,6 +1217,9 @@ def test_a2_no_focus_requires_attributable_explanation_without_promotion():
     before = json.loads(json.dumps(output))
     assert _validate_a2_rotation_focus_coverage(output, snapshot, {"600001.SH"}) == []
     assert output == before
+    output["rotation_reviews"][0]["reason_codes"] = ["NO_NEW_ENTRY", "TIER_STRUCTURE_ZERO"]
+    assert "A2_ROTATION_REVIEW_USES_ENTRY_GATE:SELECTED_BOARD:INSURANCE" in _validate_a2_rotation_focus_coverage(output, snapshot, {"600001.SH"})
+    output["rotation_reviews"][0]["reason_codes"] = ["STRUCTURE_WEAK"]
     output["rotation_reviews"][0]["reviewed_symbols"] = ["600002.SH"]
     assert "A2_ROTATION_REVIEW_REPRESENTATIVE_INVALID:SELECTED_BOARD:INSURANCE" in _validate_a2_rotation_focus_coverage(output, snapshot, {"600001.SH"})
     output["rotation_reviews"][0]["reviewed_symbols"] = ["600001.SH"]

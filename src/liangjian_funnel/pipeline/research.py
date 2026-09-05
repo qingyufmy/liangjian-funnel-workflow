@@ -7814,14 +7814,16 @@ def _semantic_retry_instruction(
             "copy the frozen canonical values exactly and reserve rejection for a real deterministic failure."
         )
     if stage == "A2" and any(
-        code.startswith("A2_ROTATION_FOCUS_COVERAGE_MISSING:")
+        code.startswith(("A2_ROTATION_FOCUS_COVERAGE_MISSING:", "A2_ROTATION_REVIEW_USES_ENTRY_GATE:"))
         for code in safe_reasons
     ):
         discovery_requirements.append(
             "Review each missing direction's server-qualified TREND row and preserve the upstream canonical theme_id. "
             "A2 is a research pool, not entry permission. Select a qualified representative in focus_decisions or "
             "supply rotation_reviews with decision=NO_FOCUS, exact rotation_direction_id, reviewed_symbols from that "
-            "direction, reason_codes and a concrete Chinese explanation based on frozen facts. Never force promotion."
+            "direction, reason_codes and a concrete Chinese explanation based on frozen facts. Never force promotion. "
+            "NO_NEW_ENTRY and emotion retreat limit execution, not TREND research priority. "
+            "Do not require a limit-up ladder for TREND candidates or reject a direction solely on these entry gates."
         )
     discovery_retry = "\n".join(discovery_requirements)
     return (
@@ -11251,6 +11253,17 @@ def _validate_a2_rotation_focus_coverage(
             errors.append("A2_ROTATION_REVIEW_INVALID:" + direction)
             continue
         seen.add(direction)
+        # A2 priority and A4 entry permission are separate. Optional emotion
+        # factors cannot become a blanket rejection of a TREND direction.
+        non_selection_reasons = {
+            "MARKET_RISK_OFF_RETREAT", "MARKET_RISK_OFF", "RISK_OFF_RETREAT",
+            "EMOTION_DIVERGENCE_NO_NEW_ENTRY", "EMOTION_DIVERGENCE",
+            "NO_NEW_ENTRY", "NO_NEW_ENTRY_REGIME", "TIER_STRUCTURE_ZERO",
+            "TIER_STRUCTURE_ABSENT", "ROTATION_RANK_4", "ROTATION_RANK_5",
+        }
+        if all(code.strip().upper() in non_selection_reasons for code in reasons):
+            errors.append("A2_ROTATION_REVIEW_USES_ENTRY_GATE:" + direction)
+            continue
         valid = True
         for representative in representatives:
             symbol = _first_symbol(representative)
