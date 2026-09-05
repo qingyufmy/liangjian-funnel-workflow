@@ -182,3 +182,71 @@ def test_known_negative_required_fact_is_not_misreported_as_missing() -> None:
     assert "A2_DATA_GAP_LADDER_STRUCTURE" not in result["data_gaps"]
     assert "A2_DATA_GAP_MEDIUM_TERM_TREND" not in result["data_gaps"]
     assert "A2_ROLE_KNOWN_NEGATIVE" in result["reason_codes"]
+
+
+def test_partial_trend_candidate_keeps_one_weak_facet_for_llm_review() -> None:
+    result = classify_a2_stock(
+        symbol="002002.SZ",
+        as_of=AS_OF,
+        trend_candidate=True,
+        evidence={
+            "supply_chain_position": _fact(True, {"industry_logic": True}, "research:industry"),
+            "index_chain_resonance": _fact(
+                True,
+                {"medium_term_trend": True, "relative_strength": False},
+                "local:resonance",
+                reason="relative strength is below confirmation line",
+            ),
+        },
+    )
+
+    assert result["stock_behavior_type"] == TREND
+    assert result["decision_basis"]["partial_trend_qualified"] is True
+    assert "A2_TREND_PARTIAL_CONFIRMATION" in result["reason_codes"]
+    assert "A2_WEAK_RELATIVE_STRENGTH" in result["reason_codes"]
+    assert "A2_KNOWN_NEGATIVE_RELATIVE_STRENGTH" in result["known_negatives"]
+
+
+def test_partial_trend_candidate_is_opt_in_and_does_not_relax_emotion_rules() -> None:
+    evidence = {
+        "supply_chain_position": _fact(True, {"industry_logic": True}, "research:industry"),
+        "index_chain_resonance": _fact(
+            True,
+            {"medium_term_trend": True, "relative_strength": False},
+            "local:resonance",
+        ),
+    }
+    without_scope = classify_a2_stock(symbol="002003.SZ", as_of=AS_OF, evidence=evidence)
+    with_emotion = classify_a2_stock(
+        symbol="002003.SZ",
+        as_of=AS_OF,
+        trend_candidate=True,
+        evidence={
+            **evidence,
+            "ladder_structure": _fact(True, {"board_num": 2, "theme_leader": True}, "hithink:ladder"),
+        },
+    )
+
+    assert without_scope["stock_behavior_type"] == UNRESOLVED
+    assert with_emotion["stock_behavior_type"] == EMOTION
+    assert with_emotion["route_permission"] == [LEADER_INTRADAY]
+
+
+def test_partial_trend_candidate_still_requires_medium_term_anchor() -> None:
+    result = classify_a2_stock(
+        symbol="002004.SZ",
+        as_of=AS_OF,
+        trend_candidate=True,
+        evidence={
+            "supply_chain_position": _fact(True, {"industry_logic": True}, "research:industry"),
+            "index_chain_resonance": _fact(
+                True,
+                {"relative_strength": True},
+                "local:resonance",
+            ),
+        },
+    )
+
+    assert result["stock_behavior_type"] == UNRESOLVED
+    assert result["decision_basis"]["partial_trend_qualified"] is False
+    assert "A2_DATA_GAP_MEDIUM_TERM_TREND" in result["data_gaps"]

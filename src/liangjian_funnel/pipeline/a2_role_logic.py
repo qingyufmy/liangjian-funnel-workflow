@@ -27,7 +27,7 @@ from datetime import date, datetime
 from typing import Any
 
 
-A2_ROLE_LOGIC_VERSION = "a2-role-logic/1.0.0"
+A2_ROLE_LOGIC_VERSION = "a2-role-logic/1.1.0"
 
 EMOTION = "EMOTION"
 TREND = "TREND"
@@ -134,6 +134,7 @@ def classify_a2_stock(
     name: str | None = None,
     evidence: Mapping[str, Any] | None = None,
     as_of: str | date | datetime | None = None,
+    trend_candidate: bool = False,
 ) -> dict[str, Any]:
     """Classify one A2 candidate using explicit, point-in-time evidence.
 
@@ -183,6 +184,15 @@ def classify_a2_stock(
         state["available"] is True and state["met"] is True
         for state in trend_states
     )
+    # A2 first establishes a broad, auditable candidate universe and lets the
+    # model make the quality decision.  For a monthly A1 member already
+    # joined to a positive-flow TOP5 board, a single weak relative-strength
+    # or industry-resonance facet must not turn the row into an invisible
+    # UNRESOLVED row.  The medium-term trend remains a required anchor;
+    # missing/negative medium-term evidence is not bypassed.  This opt-in
+    # flag is intentionally restricted to the deterministic TOP5 route and
+    # does not broaden the independent emotion contract.
+    partial_trend_qualified = bool(trend_candidate) and _partial_trend_candidate(trend_states)
 
     conflicts: list[str] = []
 
@@ -195,7 +205,7 @@ def classify_a2_stock(
         # stock cannot be routed simultaneously to leader and trend playbooks;
         # A3 retains the stronger confirmation gate for first-board rows.
         derived_type = EMOTION
-    elif trend_qualified:
+    elif trend_qualified or partial_trend_qualified:
         derived_type = TREND
     else:
         derived_type = UNRESOLVED
@@ -242,6 +252,8 @@ def classify_a2_stock(
             "first_board_observed": first_board_observed,
             "emotion_qualified": emotion_qualified,
             "trend_qualified": trend_qualified,
+            "partial_trend_qualified": partial_trend_qualified,
+            "trend_candidate_requested": bool(trend_candidate),
             "emotion_precedence_applied": emotion_qualified and trend_qualified,
             "hinted_behavior_type": hinted_type,
             "scoring_used": False,
@@ -255,10 +267,17 @@ def classify_stock_behavior(
     name: str | None = None,
     evidence: Mapping[str, Any] | None = None,
     as_of: str | date | datetime | None = None,
+    trend_candidate: bool = False,
 ) -> dict[str, Any]:
     """Readable alias for callers that do not use the A2 prefix."""
 
-    return classify_a2_stock(symbol=symbol, name=name, evidence=evidence, as_of=as_of)
+    return classify_a2_stock(
+        symbol=symbol,
+        name=name,
+        evidence=evidence,
+        as_of=as_of,
+        trend_candidate=trend_candidate,
+    )
 
 
 def _first_value(mapping: Mapping[str, Any], aliases: Sequence[str]) -> Any:
@@ -406,6 +425,32 @@ def _first_nested(mapping: Mapping[str, Any], keys: Sequence[str]) -> Any:
     return None
 
 
+def _partial_trend_candidate(states: Sequence[Mapping[str, Any]]) -> bool:
+    """Return whether the trend evidence is broad enough for A2 review.
+
+    ``TREND`` here means *candidate for model review*, not a final quality
+    verdict.  The medium-term trend is a required anchor and must be
+    available and positive.  Relative strength and industry logic are
+    complementary facts: one may be unavailable or a known negative while
+    the other still supports a review candidate.  If the medium-term anchor
+    is missing/negative, or both supporting facets are absent/negative, the
+    deterministic layer has no objective trend evidence to hand to the model.
+    """
+
+    if len(states) < 3:
+        return False
+    medium, relative, industry = states[:3]
+    # The medium-term anchor is a critical fact and cannot be bypassed by a
+    # strong board or by the LLM broad-review contract.
+    if medium.get("available") is not True or medium.get("met") is not True:
+        return False
+    supporting = (relative, industry)
+    return any(
+        state.get("available") is True and state.get("met") is True
+        for state in supporting
+    )
+
+
 def _emotion_anchor(ladder: Mapping[str, Any]) -> bool:
     if ladder.get("available") is not True or ladder.get("met") is not True:
         return False
@@ -541,13 +586,24 @@ def _reason_codes(
         if not any(item.get("available") is True and item.get("met") is True for item in trend_states):
             reasons.append("A2_TREND_FACTS_NOT_REQUIRED_FOR_EMOTION_ROUTE")
     elif behavior_type == TREND:
-        reasons.extend(
-            [
-                "A2_MEDIUM_TERM_TREND_CONFIRMED",
-                "A2_RELATIVE_STRENGTH_CONFIRMED",
-                "A2_INDUSTRY_LOGIC_CONFIRMED",
-            ]
+        facet_codes = (
+            ("A2_MEDIUM_TERM_TREND_CONFIRMED", "A2_WEAK_MEDIUM_TERM_TREND"),
+            ("A2_RELATIVE_STRENGTH_CONFIRMED", "A2_WEAK_RELATIVE_STRENGTH"),
+            ("A2_INDUSTRY_LOGIC_CONFIRMED", "A2_WEAK_INDUSTRY_LOGIC"),
         )
+        for state, (confirmed_code, weak_code) in zip(trend_states, facet_codes):
+            if state.get("available") is True and state.get("met") is True:
+                reasons.append(confirmed_code)
+            else:
+                # Preserve the weak/data-gap fact alongside the positive
+                # trend candidate.  The LLM decides whether this is focus,
+                # watch or rejected; it is not silently discarded locally.
+                reasons.append(weak_code)
+        if not all(
+            state.get("available") is True and state.get("met") is True
+            for state in trend_states
+        ):
+            reasons.append("A2_TREND_PARTIAL_CONFIRMATION")
     else:
         if conflicts:
             reasons.append("A2_ROLE_EVIDENCE_CONFLICT")

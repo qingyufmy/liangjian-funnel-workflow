@@ -179,12 +179,18 @@ _A3_WATCH_ONLY_HARD_REASON_MARKERS = (
     "MARKET_FACTS_INSUFFICIENT",
     "NO_ROUTE",
     "ROUTE_MISSING",
-    "LOW_IDENTITY",
-    "IDENTIFIABILITY_BELOW",
+    "HARD_RISK",
+    "UPSTREAM_RESEARCH_ONLY",
+    "BUSINESS_EVIDENCE_MISSING",
     "NOT_TRADABLE",
     "TRADABILITY",
     "SYMBOL_NOT_TRADABLE",
 )
+
+_A3_BEHAVIOR_ROUTE_PERMISSIONS: Mapping[str, frozenset[str]] = {
+    "EMOTION": frozenset({"LEADER_INTRADAY"}),
+    "TREND": frozenset({"TREND_MA5", "MA520_SWING"}),
+}
 # Stage lineage is server-owned.  The model may add narrative, scores and
 # reasons, but it must not rename a security, move it to another A1 theme or
 # rewrite the route/role chosen by the deterministic gate.  Keep this contract
@@ -227,11 +233,9 @@ _A1_SERVER_OWNED_FACT_ALIASES: Mapping[str, tuple[str, ...]] = {
     "industry_chain_node": ("node_id", "industry_chain_node"),
 }
 _A2_LLM_REJECT_HARD_MARKERS = (
-    # These are deterministic fact/identity vetoes.  DATA_GAP and optional
+    # These are deterministic fact vetoes.  DATA_GAP and optional
     # source degradation deliberately do not appear here: missing data must
     # remain visible as a watch row rather than being turned into a rejection.
-    "A2_LOW_IDENTITY_EXCLUDED",
-    "A2_IDENTIFIABILITY_BELOW",
     "A2_MARKET_ROLE_NOT_FOCUS_ELIGIBLE",
     "A2_RISK_EVENT",
     "A1_RISK_EVENT",
@@ -251,8 +255,6 @@ _A2_RELATIVE_TOP5_HARD_VETO_MARKERS = (
     "COVERAGE_BELOW_MINIMUM",
     "NO_ROUTE",
     "ROUTE_MISSING",
-    "LOW_IDENTITY",
-    "IDENTIFIABILITY_BELOW",
     "MARKET_ROLE_NOT_FOCUS",
     "ROLE_EVIDENCE_INSUFFICIENT",
     "ROLE_KNOWN_NEGATIVE",
@@ -1842,10 +1844,11 @@ class ResearchPipeline:
             )
 
         a2_output = a2_audit.output if isinstance(a2_audit.output, Mapping) else {}
-        # A3 is allowed to inspect the A2 focus pool plus a deterministic,
-        # explicitly PROBE_ONLY subset of watch-only rows.  Keep the original
-        # A2 output unchanged for audit purposes; the projected copy is the
-        # only upstream view sent to A3.
+        # A3 inspects the complete A2 behavior-resolved, route-compatible
+        # focus/watch domain.  Focus versus watch is preserved as provenance
+        # and later caps risk to PROBE, but it cannot suppress the independent
+        # three-strategy technical calculation.  Keep the original A2 output
+        # unchanged for audit purposes.
         a3_upstream_output, a3_origins = _build_a3_candidate_domain(a2_output)
         a3_symbols = set(a3_origins)
         if not a3_symbols:
@@ -6015,8 +6018,11 @@ def _stage_execution_budget(
             "untradability, invalid daily geometry and a genuinely missing daily setup remain A3 exclusions. "
             "Probability never relaxes evidence gates, "
             "and execution discipline means obeying the frozen no-chase and invalidation levels. "
-            "candidate_origin is provenance only: a WATCH_ONLY row with server eligibility "
-            "QUALIFIED enters core as PROBE unless an independent evidence risk justifies VETO/DATA_GAP. Do not "
+            "candidate_origin is provenance only: every A2 row already resolved as EMOTION or TREND with a "
+            "compatible route_permission must receive the deterministic three-strategy check, whether it came "
+            "from FOCUS or WATCH_ONLY. A WATCH_ONLY row with server eligibility QUALIFIED enters core as PROBE "
+            "unless an independent evidence risk justifies VETO/DATA_GAP. Identifiability score or A2 priority "
+            "alone is not an A3 technical veto. Do not "
             "return technical_score or score_breakdown; A3 has no weighted-score decision path."
         ),
     }[stage]
@@ -6363,13 +6369,17 @@ def _move_a2_hard_rejects_to_rejected(
 def _build_a3_candidate_domain(
     a2_output: Mapping[str, Any],
 ) -> tuple[dict[str, Any], dict[str, str]]:
-    """Build the server-owned A3 domain from A2 focus and eligible watch rows.
+    """Build the server-owned A3 domain from every routeable A2 result.
 
-    A2's focus pool remains the ordinary A3 input.  A watch-only row can enter
-    the technical review only through the explicit PROBE_ONLY route and only
-    when its role/route/tradability facts are still usable.  This is a domain
-    expansion, not a quota: every eligible row is retained and no symbol is
-    selected by code or by a fixed count.
+    Focus and watch are A2 priority labels, not A3 technical gates.  Current
+    deterministic-v2 rows therefore use one uniform contract: the behavior
+    must already be EMOTION or TREND, the corresponding A4 strategy family
+    must be permitted, and no immutable data/tradability veto may be present.
+    Historical rows without the behavior contract retain the former
+    focus/watch compatibility path so frozen replays remain readable.
+
+    This is a domain expansion, not a quota: every eligible row is retained and
+    A3 itself decides which of the three technical setups is actually ready.
     """
 
     focus_rows = a2_output.get("focus_pool")
@@ -6387,6 +6397,8 @@ def _build_a3_candidate_domain(
         if len(symbols) != 1:
             continue
         symbol = next(iter(symbols))
+        if not _a3_candidate_eligible(raw, origin="FOCUS"):
+            continue
         item = dict(raw)
         item["symbol"] = symbol
         item["candidate_origin"] = "FOCUS"
@@ -6404,7 +6416,7 @@ def _build_a3_candidate_domain(
             # A symbol in focus wins deterministically if a provider repeated
             # it in both A2 partitions.
             continue
-        if not _a3_watch_only_candidate_eligible(raw):
+        if not _a3_candidate_eligible(raw, origin="WATCH_ONLY"):
             continue
         item = dict(raw)
         item["symbol"] = symbol
@@ -6424,8 +6436,43 @@ def _build_a3_candidate_domain(
 
 
 def _a3_watch_only_candidate_eligible(item: Mapping[str, Any]) -> bool:
-    if item.get("top_rotation_theme") is False:
+    """Backward-compatible public helper for the A2-watch to A3 contract."""
+
+    return _a3_candidate_eligible(item, origin="WATCH_ONLY")
+
+
+def _a3_candidate_eligible(item: Mapping[str, Any], *, origin: str) -> bool:
+    behavior_value = str(
+        item.get("stock_behavior_type")
+        or item.get("behavior_type")
+        or ""
+    ).strip().upper()
+    behavior_contract_present = bool(behavior_value)
+    allowed_permissions = _A3_BEHAVIOR_ROUTE_PERMISSIONS.get(behavior_value)
+
+    # A current A2 row is routeable only after A2 has resolved its execution
+    # behavior.  UNRESOLVED/NONE rows are audit evidence, not A3 candidates.
+    if behavior_contract_present and allowed_permissions is None:
         return False
+
+    # The selected-board top-five requirement belongs only to the trend
+    # channel.  Emotion rows are sourced independently from Eastmoney Hot100.
+    if behavior_value != "EMOTION" and item.get("top_rotation_theme") is False:
+        return False
+
+    raw_permission = item.get("route_permission")
+    permission_values = {
+        str(value).strip().upper()
+        for value in raw_permission
+        if str(value).strip()
+    } if isinstance(raw_permission, Sequence) and not isinstance(
+        raw_permission, (str, bytes, bytearray)
+    ) else set()
+    if behavior_contract_present:
+        # A present-but-empty permission list is an explicit A2 route veto.
+        if not permission_values.intersection(allowed_permissions or frozenset()):
+            return False
+
     role = str(
         item.get("market_role")
         or item.get("role")
@@ -6433,14 +6480,13 @@ def _a3_watch_only_candidate_eligible(item: Mapping[str, Any]) -> bool:
         or item.get("deterministic_market_role")
         or ""
     ).strip().upper()
-    if role not in _A3_WATCH_ONLY_ROLES:
+    if not behavior_contract_present and origin == "WATCH_ONLY" and role not in _A3_WATCH_ONLY_ROLES:
         return False
 
-    # Only server-owned reasons may remove an A2 watch row from A3's
-    # deterministic technical review domain. The model-facing ``reason_codes``
-    # are advisory unless the row is explicitly marked as a local decision;
-    # otherwise model wording such as IDENTIFIABILITY_BELOW would make the A3
-    # universe nondeterministic across identical frozen snapshots.
+    # Only server-owned reasons may remove an A2 row from A3's deterministic
+    # technical review domain.  Model-facing priority/identity wording is
+    # advisory; otherwise A2 ranking language would become an undocumented A3
+    # technical gate.  Explicit hard facts remain blocking.
     reason_values: list[str] = []
     reason_keys = ["deterministic_reason_codes", "hard_reason_codes"]
     if item.get("local_decision") is True:
@@ -8937,7 +8983,14 @@ def _a2_relative_top5_market_core_exception(
                 str(value).strip().upper()
                 for value in failed_gates
                 if isinstance(value, str) and value.strip()
-            } - {"THEME_SCORE_MIN"}
+            } - {
+                "THEME_SCORE_MIN",
+                # Frozen pre-fix contexts may still list this comparison as
+                # a failed gate.  Identifiability is now ordering/risk
+                # evidence only and cannot invalidate a fact-qualified TOP5
+                # market-core row during replay.
+                "IDENTIFIABILITY_MIN",
+            }
             if hard_failed_gates:
                 return False
         if any(
@@ -9849,7 +9902,6 @@ def _apply_a2_lineage_policy(
     watch = list(result.get("watch_only_pool")) if isinstance(result.get("watch_only_pool"), list) else []
     if not isinstance(focus, list):
         return result, 0
-    minimum_identity = _safe_float(snapshot_data.get("MIN_IDENTIFIABILITY_SCORE", 60))
     retained: list[Any] = []
     changed = 0
     for raw_item in focus:
@@ -9864,8 +9916,6 @@ def _apply_a2_lineage_policy(
         role = str(item.get("market_role") or "").strip()
         if role not in A2_FOCUS_ROLES:
             reasons.append("A2_MARKET_ROLE_NOT_FOCUS_ELIGIBLE")
-        if _safe_float(item.get("identifiability_score")) < minimum_identity:
-            reasons.append("A2_IDENTIFIABILITY_BELOW_MINIMUM")
         reasons.extend(_a2_bottleneck_reasons(item, snapshot_data))
         active_theme = next((
             theme for theme in result.get("active_themes", ())

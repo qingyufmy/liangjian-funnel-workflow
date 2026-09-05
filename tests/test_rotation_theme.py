@@ -708,6 +708,7 @@ def test_public_snapshot_has_stable_schema_and_main_flow_compatibility():
     board = _board(snapshot, "TEST_THEME")
     assert board["main_net_inflow_cny"] == pytest.approx(100.0)
     assert snapshot["by_symbol"]["600001.SH"][0]["main_net_inflow_cny"] == pytest.approx(100.0)
+    assert snapshot["by_symbol"]["600001.SH"][0]["strategy_theme_id"] == "TEST_THEME"
 
 
 def test_collection_keeps_each_theme_provider_rank(tmp_path: Path):

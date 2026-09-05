@@ -155,6 +155,10 @@ def _a2_reason(row: Mapping[str, Any], *, status: str) -> str:
         height = _integer(row.get("ladder_height"))
         ladder_text = f"，当前{height}板梯队" if height else ""
         return f"{prefix}进入东方财富股吧人气{rank_text}，识别为情绪票；处于{cycle}{ladder_text}，按首段主升与接力纪律筛选"
+    if behavior == "待分类":
+        selected = _selected_board(row)
+        board = _clean_cn(selected.get("board_name")) or _sector(row)
+        return f"{prefix}已核对{board}板块归属，但情绪/趋势行为类型尚未确认；仅进入补充分析，不进入A3技术计划"
     selected = _selected_board(row)
     board = _clean_cn(selected.get("board_name")) or _sector(row)
     rank = _integer(selected.get("primary_rank") or row.get("theme_rotation_rank"))

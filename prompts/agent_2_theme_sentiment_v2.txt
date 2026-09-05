@@ -103,7 +103,8 @@ C9. A2 是“当前市场交易候选库”，不是最终交易计划。全量�
      板块轮动覆盖是服务端合同：A2_BOTTLENECK_CONTEXT 中
      top_rotation_theme=true 的 {{A2_ROTATION_THEME_COUNT}} 个主题构成当日轮动 TOP5。
      你不得把它们主观合并成唯一主线，也不得重排 theme_rotation_rank。每个 TOP5
-     主题的路线合格标的都必须逐只落入 focus_pool 或 watch_only_pool；其中
+     主题中通过事实级门槛的候选都必须逐只分析，并逐只落入 focus_pool、
+     watch_only_pool 或 rejected_candidates；其中
      focus_pool 以 {{A2_FOCUS_PER_THEME}} 为健康区间、watch_only_pool 以
      {{A2_WATCH_PER_THEME}} 为健康区间。区间不是配额，真实硬否决或候选不足时允许
      少于下限，但必须按主题报告缺口与原因，禁止用“非唯一最强板块”“模型优先级”
@@ -146,11 +147,15 @@ C11. A2 只允许两条入池路线，且两条路线都必须严格继承 A1 �
      · SUPPLY_CHAIN_ALPHA：只有具备完整 8 因子 bottleneck_scorecard、至少两条
        冻结来源证据（至少一条 STRONG 或 MEDIUM）、scarce_layer、
        value_chain_position、missing_proof 与 kill_switches 才能进入。
-     STORY_ONLY、LOW_IDENTITY、主营映射缺失或只有新闻/涨幅证据的标的，
-     两条路线都不得进入 focus_pool。
+     STORY_ONLY、主营映射缺失或只有新闻/涨幅证据的标的，两条路线都不得进入
+     focus_pool；仅有低辨识度分数时仍须保留在 watch_only_pool 或由模型结合
+     明确反证放入 rejected_candidates，不能由服务端单值直接消失。
 
      宽进规则：MARKET_CORE 的硬事实只要求板块广度、成交占比和龙头/中军
-     结构中至少两项可用，并且 A1 主题、主营映射和辨识度满足服务端契约。
+     结构中至少两项可用，并且 A1 主题、主营映射和基本交易事实存在。辨识度
+     分数是风险/排序证据，不是单值硬拒绝；低辨识度候选仍须交给模型在
+     focus_pool/watch_only_pool/rejected_candidates 中给出结论。只有明确的硬风险、
+     不可交易、主营/基本面证据缺失或关键市场事实不足才可在服务端阻断。
      capital_flow、tier_structure、crowding、index_chain_resonance 以及
      supply_chain_role 在 MARKET_CORE 中属于可选增强事实；缺失或只有弱
      代理时必须记录为 DEGRADED/弱证据和风险提示，但不得仅因这些字段缺失
@@ -339,7 +344,7 @@ C19. REVIEWED_PUBLIC_RESEARCH_LEADS 的 theme_hypotheses 只定义“需要验�
     TREND_CORE      中期趋势核心，非龙非中军但结构完好
     CHAIN_RESONANCE 产业链共振或合理补涨
     FIRST_MOVER     首次异动，待确认
-    LOW_IDENTITY    ★ 杂毛。辨识度不足，禁止入选
+    LOW_IDENTITY    ★ 低辨识度弱项；需结合明确反证决定是否淘汰
     EVENT_ONLY      仅单一事件刺激
     CROWDED         拥挤
     AVOID           禁止新增
@@ -368,9 +373,9 @@ C19. REVIEWED_PUBLIC_RESEARCH_LEADS 的 theme_hypotheses 只定义“需要验�
     ★ 中军走坏 = 板块逻辑被质疑。中军和龙头背离时（龙头继续冲、
       中军转弱），必须触发 D8 检查（见第六步）。
 
-  ── 5.3 杂毛（LOW_IDENTITY）的识别与剔除 ★ 硬性 ─────────────────
-    命中以下任意 {{LOW_IDENTITY_TRIGGER_COUNT}} 条 → 直接标 LOW_IDENTITY，
-    并强制排除出 focus_pool，不进入 watch_only：
+  ── 5.3 杂毛（LOW_IDENTITY）的识别与剔除 ────────────────────────
+    命中以下明确事实组合时 → 标 LOW_IDENTITY，并由模型结合反证决定
+    focus/watch/rejected；单一聚合辨识度低分不得替代以下事实判断：
 
       × 主营业务与主题无可验证映射（Agent 1 的
         business_exposure.evidence_basis 为 "-"）
@@ -396,8 +401,11 @@ C19. REVIEWED_PUBLIC_RESEARCH_LEADS 的 theme_hypotheses 只定义“需要验�
       流动性与容量                   10
 
     identifiability_score < {{MIN_IDENTIFIABILITY_SCORE}}
-      → 强制降级为 LOW_IDENTITY，无论 theme_score 多高。
-      辨识度是**否决维度**，不参与总分，不可被总分抵消。
+      → 标记为低辨识度弱项，写入 weak_evidence_fields/risk_reasons 并降低排序；
+      不得单独阻断已经通过A1主营/基本面、交易性和关键市场事实门槛的TOP5候选。
+      只有同时存在明确的杂毛事实组合或其他硬否决时，才能进入 rejected_candidates。
+      辨识度不参与服务端总分抵消，但也不是单值服务端否决；模型必须给出
+      focus/watch/rejected 的明确结论，不能让整个板块因该分数消失。
 
   ── 5.5 其他纪律 ────────────────────────────────────────────────
     - 资金容载量不足的细分小板块，其个股最高只能给 EVENT_ONLY
@@ -577,7 +585,7 @@ C19. REVIEWED_PUBLIC_RESEARCH_LEADS 的 theme_hypotheses 只定义“需要验�
   "low_identity_pool": [
     {"symbol":"...","upstream_candidate_id":"...",
      "identifiability_score":0,"low_identity_flags":[...],
-     "note":"杂毛，强制排除，不进入任何可买池"}
+     "note":"低辨识度弱项；结合明确事实决定 focus/watch/rejected，不能仅凭分数让板块消失"}
   ],
 
   "rejected_candidates": [

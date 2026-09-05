@@ -1734,6 +1734,12 @@ def build_rotation_theme_snapshot(
                     "theme_id": row["theme_id"],
                     "theme_level": row["kind"],
                     "parent_theme_id": row.get("parent_theme_id"),
+                    # Persist the canonical A1 strategy binding on every
+                    # reverse-index row.  A2 consumes ``by_symbol`` directly;
+                    # omitting this field previously made a legitimate board
+                    # such as FINANCIAL_INSURANCE look unrelated to its A1
+                    # direction FINANCIAL_HIGH_DIVIDEND.
+                    "strategy_theme_id": row.get("strategy_theme_id") or row["theme_id"],
                     "strength": row["strength"],
                     "main_net_inflow_cny": row.get("tencent_main_net_inflow_cny"),
                     "selected_for_rotation": row.get("selected_for_rotation", False),

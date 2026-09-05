@@ -68,3 +68,26 @@ def test_export_refuses_broken_a1_a2_a3_lineage() -> None:
 
     with pytest.raises(ValueError, match="A3存在未进入A2"):
         validate_stage_lineage(a1, a2, a3)
+
+
+def test_export_does_not_describe_unresolved_a2_row_as_trend() -> None:
+    a1, a2, a3 = _outputs()
+    a1["active_research_pool"].append(
+        {"symbol": "600004.SH", "company_name": "未决丁", "primary_theme": "金融"}
+    )
+    a2["watch_only_pool"].append(
+        {
+            "symbol": "600004.SH",
+            "company_name": "未决丁",
+            "a2_pool_channel": "NONE",
+            "stock_behavior_type": "UNRESOLVED",
+            "selected_board": {"board_name": "金融保险"},
+        }
+    )
+
+    result = build_chinese_export_rows(a1, a2, a3)
+    row = next(item for item in result["A2"] if item["代码"] == "600004")
+
+    assert row["类别"] == "待分类"
+    assert "尚未确认" in row["入选理由"]
+    assert "识别为趋势票" not in row["入选理由"]

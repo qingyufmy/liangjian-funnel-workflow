@@ -1053,6 +1053,20 @@ def screen_a2(
         and isinstance(selected_boards.get("by_symbol"), Mapping)
         else {}
     )
+    # Current snapshots persist ``strategy_theme_id`` in every by-symbol row.
+    # Retain deterministic replay compatibility for already frozen snapshots
+    # by joining the same explicit mapping from selected_primary_boards.  This
+    # is not a fuzzy alias or a best-board fallback: the board code must match
+    # the materialized primary-board record exactly.
+    selected_board_strategy_theme = {
+        str(row.get("board_code") or row.get("theme_id") or "").strip().upper(): str(
+            row.get("strategy_theme_id") or row.get("theme_id") or ""
+        ).strip().upper()
+        for row in selected_boards.get("selected_primary_boards", ())
+        if isinstance(row, Mapping)
+        and str(row.get("board_code") or row.get("theme_id") or "").strip()
+        and str(row.get("strategy_theme_id") or row.get("theme_id") or "").strip()
+    }
     # The materialized SELECTED_BOARD_SNAPSHOT is the production rotation
     # contract.  Once the field is present, its versioned fixed-theme
     # selection is the *only* trend top-five entry path: A2_THEME_METRICS and
@@ -1206,22 +1220,22 @@ def screen_a2(
             _role(identifiability, liquidity, relative),
             factor_scores,
         )
+        behavior_evidence = _a2_behavior_evidence(
+            item=item,
+            factor_scores=factor_scores,
+            identifiability=identifiability,
+            minimum_identifiability_score=minimum_identifiability_score,
+            relative=relative,
+            liquidity=liquidity,
+            legacy_role=legacy_role,
+            as_of=_snapshot_as_of(snapshot),
+        )
         behavior_decision = classify_a2_stock(
             symbol=symbol,
             name=item.get("company_name") or item.get("name") or candidate.get("name"),
             as_of=_snapshot_as_of(snapshot),
-            evidence=_a2_behavior_evidence(
-                item=item,
-                factor_scores=factor_scores,
-                identifiability=identifiability,
-                minimum_identifiability_score=minimum_identifiability_score,
-                relative=relative,
-                liquidity=liquidity,
-                legacy_role=legacy_role,
-                as_of=_snapshot_as_of(snapshot),
-            ),
+            evidence=behavior_evidence,
         )
-        role = str(behavior_decision.get("market_role") or A2_BEHAVIOR_UNRESOLVED)
         hot100_row = hot100_by_symbol.get(symbol)
         upstream_status = str(item.get("status") or "ACTIVE").strip().upper()
         explicitly_inactive = upstream_status in {"REJECTED", "HARD_REJECT", "INACTIVE", "DISABLED"}
@@ -1250,7 +1264,19 @@ def screen_a2(
         if not isinstance(selected_board_rows, Sequence) or isinstance(selected_board_rows, (str, bytes, bytearray)):
             selected_board_rows = ()
         selected_board_matches = [
-            dict(row)
+            {
+                **dict(row),
+                **(
+                    {"strategy_theme_id": selected_board_strategy_theme.get(
+                        str(row.get("board_code") or row.get("theme_id") or "").strip().upper()
+                    )}
+                    if not str(row.get("strategy_theme_id") or "").strip()
+                    and selected_board_strategy_theme.get(
+                        str(row.get("board_code") or row.get("theme_id") or "").strip().upper()
+                    )
+                    else {}
+                ),
+            }
             for row in selected_board_rows
             if selected_board_source_available
             and isinstance(row, Mapping)
@@ -1266,16 +1292,16 @@ def screen_a2(
             or ""
         ).strip().upper()
         selected_board_match = min(
-            selected_board_matches,
+            (
+                row
+                for row in selected_board_matches
+                if _a2_selected_board_matches_theme(
+                    row,
+                    a1_strategy_theme_id=a1_strategy_theme_id,
+                    item=item,
+                )
+            ),
             key=lambda row: (
-                0
-                if str(
-                    row.get("strategy_theme_id")
-                    or row.get("theme_id")
-                    or row.get("board_code")
-                    or ""
-                ).strip().upper() == a1_strategy_theme_id
-                else 1,
                 _number(row.get("primary_rank")) or 10**9,
                 -(_number(row.get("strength")) or 0.0),
                 -(_number(row.get("main_net_inflow_cny")) or 0.0),
@@ -1283,6 +1309,37 @@ def screen_a2(
             ),
             default=None,
         )
+        # A1's monthly member and a selected positive-flow TOP5 board form
+        # the broad trend-candidate contract.  A2 behavior classification is
+        # allowed to retain one weak trend facet for LLM review; it must not
+        # silently turn a valid board constituent into an unrouteable local
+        # monitor.  Emotion rows are never promoted by this path.
+        market_fact_count = sum(
+            isinstance(factor_scores.get(name), Mapping)
+            and factor_scores.get(name, {}).get("available") is True
+            and _number(factor_scores.get(name, {}).get("score")) is not None
+            for name in _A2_MARKET_FACTORS
+        )
+        broad_trend_candidate = (
+            monthly_a1_member
+            and selected_board_match is not None
+            and not upstream_research_only
+            and not hard_risk_present
+            and not explicitly_inactive
+            and _has_business_evidence(item)
+            and market_fact_count >= 2
+            and str(behavior_decision.get("stock_behavior_type") or "")
+            == A2_BEHAVIOR_UNRESOLVED
+        )
+        if broad_trend_candidate:
+            behavior_decision = classify_a2_stock(
+                symbol=symbol,
+                name=item.get("company_name") or item.get("name") or candidate.get("name"),
+                as_of=_snapshot_as_of(snapshot),
+                evidence=behavior_evidence,
+                trend_candidate=True,
+            )
+        role = str(behavior_decision.get("market_role") or A2_BEHAVIOR_UNRESOLVED)
         rotation_fallback = (
             _a2_rotation_fallback_evidence(
                 snapshot,
@@ -1463,18 +1520,12 @@ def screen_a2(
             else "SUFFICIENT"
         )
         status = "REVIEW_CANDIDATE"
-        if low_identity and not core_route_data_gap_reasons:
-            status = "HARD_REJECT"
-            reasons.append("A2_LOW_IDENTITY_EXCLUDED")
-        elif not has_route and route_data_gap_reasons:
+        if not has_route and route_data_gap_reasons:
             # A missing required fact is not negative evidence.  Preserve the
             # symbol in an explicit data-gap partition instead of rejecting it
             # or claiming the market contains no opportunity.
             status = "DATA_GAP"
             data_sufficiency_state = "INSUFFICIENT"
-        elif low_identity:
-            status = "HARD_REJECT"
-            reasons.append("A2_LOW_IDENTITY_EXCLUDED")
         elif route_coverage_below_minimum:
             status = "LOCAL_MONITOR"
         elif not has_route:
@@ -1554,6 +1605,8 @@ def screen_a2(
                 # explicit top-five contract label for new audit consumers.
                 reasons.append("A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5")
                 reasons.append("A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD")
+                if selected_board_matches and selected_board_match is None:
+                    reasons.append("A2_SELECTED_BOARD_THEME_MISMATCH")
             elif behavior_type == "TREND" and full_market_rotation_available:
                 reasons.append("A2_NO_POSITIVE_FLOW_ROTATION_DIRECTION")
             elif behavior_type == "TREND":
@@ -1562,6 +1615,8 @@ def screen_a2(
                 reasons.append("A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD")
             else:
                 reasons.append("A2_BEHAVIOR_UNRESOLVED")
+            if selected_board_matches and selected_board_match is None:
+                reasons.append("A2_SELECTED_BOARD_THEME_MISMATCH")
         decision = {
             "decision_id": content_hash({
                 "stage": "A2_LOCAL_ROLE",
@@ -1627,6 +1682,7 @@ def screen_a2(
             "trend_core_eligible": trend_core_eligible,
             "eastmoney_hot100": dict(hot100_row) if hot100_row is not None else None,
             "selected_board": dict(selected_board_match) if selected_board_match is not None else None,
+            "selected_board_theme_match": selected_board_match is not None,
             "rotation_fallback": dict(rotation_fallback) if rotation_fallback is not None else None,
             "rotation_input_source": (
                 "SELECTED_BOARD_SNAPSHOT"
@@ -1898,6 +1954,92 @@ def _a2_rotation_fallback_evidence(
     key = f"{taxonomy}:{taxonomy_code}"
     evidence = ranked_directions.get(key)
     return dict(evidence) if isinstance(evidence, Mapping) else None
+
+
+def _a2_selected_board_matches_theme(
+    row: Mapping[str, Any],
+    *,
+    a1_strategy_theme_id: str,
+    item: Mapping[str, Any],
+) -> bool:
+    """Require an explicit A1-to-selected-board theme relationship.
+
+    The selected-board reverse index historically contains only board code,
+    parent code and rotation facts.  A primary board code is therefore a
+    trusted exact strategy-theme binding when it equals A1's canonical theme;
+    a child board is trusted only when its explicit parent equals that theme.
+    Optional ``strategy_theme_id``/alias fields remain supported for enriched
+    snapshots.  There is deliberately no "best available board" fallback:
+    assigning an arbitrary TOP5 board is how unrelated A1 themes became
+    concentrated in AI/digital in the previous run.
+    """
+
+    target = str(a1_strategy_theme_id or "").strip().upper()
+    if not target:
+        return False
+
+    row_tokens: set[str] = set()
+    for key in ("strategy_theme_id", "theme_id", "board_code", "parent_board_code"):
+        value = str(row.get(key) or "").strip().upper()
+        if value:
+            row_tokens.add(value)
+    value = str(row.get("board_name") or "").strip().upper()
+    if value:
+        row_tokens.add(value)
+    for key in ("strategy_theme_aliases", "theme_aliases", "aliases"):
+        values = row.get(key)
+        if isinstance(values, Sequence) and not isinstance(values, (str, bytes, bytearray)):
+            row_tokens.update(
+                str(value).strip().upper()
+                for value in values
+                if str(value).strip()
+            )
+
+    a1_tokens = {target}
+    for key in (
+        "strategy_theme_id",
+        "theme_id",
+        "primary_theme",
+        "monthly_direction_id",
+        "a1_theme_id",
+        "sector_index_code",
+        "sector_index_name",
+    ):
+        value = str(item.get(key) or "").strip().upper()
+        if value:
+            a1_tokens.add(value)
+    # A1 materializes the exact strategy-theme-to-sector binding in these
+    # records.  Treat only those explicit code/name fields as aliases; do not
+    # infer a relationship from an arbitrary concept or from the best-ranked
+    # board available for the symbol.
+    for key in ("monthly_direction_matches", "taxonomy_matches"):
+        matches = item.get(key)
+        if not isinstance(matches, Sequence) or isinstance(matches, (str, bytes, bytearray)):
+            continue
+        for match in matches:
+            if not isinstance(match, Mapping):
+                continue
+            for field in (
+                "strategy_theme_id",
+                "theme_id",
+                "monthly_direction_id",
+                "sector_index_code",
+                "sector_index_name",
+                "taxonomy_code",
+                "taxonomy_name",
+            ):
+                value = str(match.get(field) or "").strip().upper()
+                if value:
+                    a1_tokens.add(value)
+    for key in ("strategy_theme_aliases", "theme_aliases", "aliases"):
+        values = item.get(key)
+        if isinstance(values, Sequence) and not isinstance(values, (str, bytes, bytearray)):
+            a1_tokens.update(
+                str(value).strip().upper()
+                for value in values
+                if str(value).strip()
+            )
+    return bool(row_tokens.intersection(a1_tokens))
 
 
 def _a2_full_market_rotation_available(
@@ -2384,7 +2526,12 @@ def _a2_behavior_evidence(
         "index_chain_resonance": factor_fact("index_chain_resonance", threshold=50.0),
         "identifiability_liquidity": {
             "available": True,
-            "met": identifiability >= minimum_identifiability_score and liquidity > 0,
+            # The aggregate identity threshold is a weak-evidence/ranking
+            # field.  Positive liquidity keeps this fact available for the
+            # behavior classifier; a score below the configured reference
+            # line must not manufacture an UNRESOLVED type or block LLM
+            # review of a valid TOP5 monthly candidate.
+            "met": liquidity > 0,
             "value": {
                 "identifiability": round(identifiability, 4),
                 "threshold": round(minimum_identifiability_score, 4),
@@ -2585,13 +2732,16 @@ def _a2_attribution_gates(
             value=round(identifiability, 4),
             threshold=round(minimum_identifiability_score, 4),
             passed=identifiability >= minimum_identifiability_score,
-            applied=True,
-            blocks_decision=identifiability < minimum_identifiability_score,
+            # Keep the comparison auditable, but make it a review-risk and
+            # ordering signal rather than a service-side publication veto.
+            applied=False,
+            blocks_decision=False,
             reason_code=(
-                "A2_IDENTIFIABILITY_MEETS_MINIMUM"
+                "A2_IDENTIFIABILITY_MEETS_MINIMUM_REVIEW_ONLY"
                 if identifiability >= minimum_identifiability_score
-                else "A2_IDENTIFIABILITY_BELOW_MINIMUM"
+                else "A2_IDENTIFIABILITY_BELOW_MINIMUM_REVIEW_ONLY"
             ),
+            evaluation="RISK_AND_ORDERING_ONLY_NOT_A_DETERMINISTIC_REVIEW_GATE",
         ),
         "BEHAVIOR_TYPE_RESOLVED": _a2_attribution_record(
             available=bool(item.get("stock_behavior_type")),
@@ -3344,7 +3494,10 @@ def _market_core_route_result(
     research_route = str(item.get("research_route") or "").strip().upper()
     research_route_qualified = research_route in {"BROKER_GOLD_DIRECT", "FUNDAMENTAL_BASELINE"}
     if identifiability < minimum_identifiability_score:
-        missing.append("A2_IDENTIFIABILITY_BELOW_MINIMUM")
+        # Identifiability is a ranking/risk input for the broad A2 funnel.  A
+        # single aggregate score must not erase an otherwise fact-supported
+        # TOP5 monthly candidate before the LLM can decide focus/watch/reject.
+        diagnostics.append("A2_IDENTIFIABILITY_BELOW_MINIMUM_REVIEW_ONLY")
     if not str(item.get("primary_theme") or item.get("theme_id") or "").strip():
         if research_route_qualified:
             diagnostics.append("A2_UPSTREAM_RESEARCH_ROUTE_WITHOUT_STRUCTURAL_MAPPING")
@@ -3378,7 +3531,13 @@ def _market_core_route_result(
         or ""
     ).strip().upper()
     if explicit_role and explicit_role not in A2_FOCUS_ROLES:
-        missing.append("A2_MARKET_ROLE_NOT_FOCUS_ELIGIBLE")
+        if explicit_role == "LOW_IDENTITY":
+            # Preserve the upstream label for model risk review, but do not
+            # let a role label derived from one aggregate identity score turn
+            # into a service-side MARKET_CORE veto.
+            diagnostics.append("A2_LOW_IDENTITY_ROLE_REVIEW_ONLY")
+        else:
+            missing.append("A2_MARKET_ROLE_NOT_FOCUS_ELIGIBLE")
     market_factor_names = _A2_MARKET_FACTORS
     market_fact_count = sum(
         isinstance(factor_scores.get(name), Mapping)

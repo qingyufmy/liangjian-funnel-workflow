@@ -1825,6 +1825,34 @@ def test_a2_market_core_model_reject_remains_watch_only_when_route_is_eligible()
     assert "A2_BATCH_CAPACITY_REASON_IGNORED" in demoted["watch_only_pool"][0]["reason_codes"]
 
 
+def test_a2_low_identifiability_alone_cannot_turn_model_reject_into_hard_reject():
+    output = {
+        "focus_pool": [],
+        "watch_only_pool": [],
+        "rejected_candidates": [{
+            "symbol": "600001.SH",
+            "reason_codes": ["MODEL_IDENTIFIABILITY_WEAK"],
+        }],
+    }
+    snapshot = {
+        "A2_BOTTLENECK_CONTEXT": {
+            "600001.SH": {
+                "deterministic_status": "REVIEW_CANDIDATE",
+                "preferred_route": "MARKET_CORE",
+                "eligible_routes": ["MARKET_CORE"],
+                "deterministic_reason_codes": ["A2_IDENTIFIABILITY_BELOW_MINIMUM"],
+            },
+        },
+    }
+
+    demoted, changed = _demote_a2_llm_rejects(output, snapshot)
+
+    assert changed == 1
+    assert demoted["rejected_candidates"] == []
+    assert demoted["watch_only_pool"][0]["status"] == "WATCH_ONLY"
+    assert "A2_LLM_REJECT_DEMOTED_TO_WATCH" in demoted["watch_only_pool"][0]["reason_codes"]
+
+
 def test_stage_lineage_is_server_owned_for_a2_and_locks_model_identity():
     upstream = {
         "active_research_pool": [{
@@ -2623,7 +2651,7 @@ def test_a3_candidate_domain_includes_only_eligible_watch_only_roles():
         "reason_codes": ["A2_IDENTIFIABILITY_BELOW_THRESHOLD"],
         "llm_decision": "REJECT",
     })
-    assert not _a3_watch_only_candidate_eligible({
+    assert _a3_watch_only_candidate_eligible({
         "market_role": "TREND_CORE",
         "deterministic_reason_codes": ["A2_IDENTIFIABILITY_BELOW_THRESHOLD"],
     })
@@ -2632,6 +2660,67 @@ def test_a3_candidate_domain_includes_only_eligible_watch_only_roles():
         "top_rotation_theme": False,
         "eligible_routes": ["MARKET_CORE"],
     })
+
+
+def test_a3_candidate_domain_uses_behavior_and_strategy_permission_for_both_pools():
+    projected, origins = _build_a3_candidate_domain(
+        {
+            "focus_pool": [
+                {
+                    "symbol": "600001.SH",
+                    "stock_behavior_type": "TREND",
+                    "route_permission": ["TREND_MA5", "MA520_SWING"],
+                    "top_rotation_theme": True,
+                },
+                {
+                    "symbol": "600002.SH",
+                    "stock_behavior_type": "UNRESOLVED",
+                    "route_permission": [],
+                },
+                {
+                    "symbol": "600003.SH",
+                    "stock_behavior_type": "EMOTION",
+                    "route_permission": ["LEADER_INTRADAY"],
+                    "top_rotation_theme": False,
+                },
+            ],
+            "watch_only_pool": [
+                {
+                    "symbol": "000001.SZ",
+                    "stock_behavior_type": "TREND",
+                    "route_permission": ["MA520_SWING"],
+                    "top_rotation_theme": True,
+                    "market_role": "LOW_IDENTITY",
+                    "deterministic_reason_codes": ["A2_IDENTIFIABILITY_BELOW_THRESHOLD"],
+                },
+                {
+                    "symbol": "000002.SZ",
+                    "stock_behavior_type": "TREND",
+                    "route_permission": ["LEADER_INTRADAY"],
+                    "top_rotation_theme": True,
+                },
+                {
+                    "symbol": "000003.SZ",
+                    "stock_behavior_type": "EMOTION",
+                    "route_permission": ["LEADER_INTRADAY"],
+                    "local_decision": True,
+                    "reason_codes": ["A2_HARD_RISK_PRESENT"],
+                },
+                {
+                    "symbol": "000004.SZ",
+                    "stock_behavior_type": "EMOTION",
+                    "route_permission": ["LEADER_INTRADAY"],
+                    "top_rotation_theme": False,
+                },
+            ],
+        }
+    )
+
+    assert set(origins) == {"600001.SH", "600003.SH", "000001.SZ", "000004.SZ"}
+    assert origins["600001.SH"] == "FOCUS"
+    assert origins["000001.SZ"] == "WATCH_ONLY"
+    assert projected["watch_only_pool"] == []
+    assert {row["symbol"] for row in projected["focus_pool"]} == set(origins)
 
 
 def test_a3_watch_only_core_remains_executable_but_is_capped_to_probe():
@@ -2970,7 +3059,7 @@ def test_a2_relative_top5_below_strong_confirmation_stays_focus_without_padding(
     }
 
 
-def test_a2_relative_top3_score_exception_never_bypasses_hard_veto():
+def test_a2_relative_top5_score_exception_treats_low_identity_as_ordering_only():
     output, changed = _apply_stage_threshold_policy(
         {
             "focus_pool": [{"symbol": "600001.SH", "theme_score": 55}],
@@ -2992,9 +3081,11 @@ def test_a2_relative_top3_score_exception_never_bypasses_hard_veto():
         },
     )
 
-    assert changed == 1
-    assert output["focus_pool"] == []
-    assert output["watch_only_pool"][0]["reason_codes"] == ["A2_THEME_SCORE_BELOW_MINIMUM"]
+    assert changed == 0
+    assert output["watch_only_pool"] == []
+    assert output["focus_pool"][0]["reason_codes"] == [
+        "A2_RELATIVE_TOP3_BELOW_STRONG_CONFIRMATION"
+    ]
 
 
 def test_a1_partition_reads_only_declared_symbol_not_evidence_references():

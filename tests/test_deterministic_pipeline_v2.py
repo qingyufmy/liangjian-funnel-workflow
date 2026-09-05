@@ -1026,6 +1026,7 @@ def test_a2_dual_core_pool_keeps_hot100_emotion_and_selected_board_trend_togethe
         "by_symbol": {
             trend_symbol: [{
                 "board_code": "801807",
+                "strategy_theme_id": "theme-core",
                 "board_name": "算力",
                 "strength": 3238,
                 "main_net_inflow_cny": 2_467_000_000,
@@ -1145,6 +1146,154 @@ def test_a2_dual_core_pool_keeps_hot100_emotion_and_selected_board_trend_togethe
     assert missing_by_symbol[trend_symbol]["status"] == "LOCAL_MONITOR"
     assert missing_by_symbol[trend_symbol]["trend_core_eligible"] is False
     assert "A2_SELECTED_BOARD_SOURCE_UNAVAILABLE" in missing_by_symbol[trend_symbol]["reason_codes"]
+
+
+def test_a2_top5_monthly_candidate_with_identity_below_reference_reaches_llm() -> None:
+    snapshot = _snapshot(1)
+    symbol = snapshot["g0_symbols"][0]
+    snapshot["SELECTED_BOARD_SNAPSHOT"] = {
+        "available": True,
+        "by_symbol": {
+            symbol: [{
+                "board_code": "801807",
+                "strength": 90,
+                "main_net_inflow_cny": 1_000_000,
+                "selected_for_rotation": True,
+                "primary_rank": 1,
+            }],
+        },
+    }
+    row = {
+        "symbol": symbol,
+        "candidate_id": f"a1:{symbol}",
+        "primary_theme": "theme-core",
+        "industry_chain_node": "node-core",
+        "business_exposure": {"revenue_exposure_pct": 65, "source_ref": f"cninfo:{symbol}"},
+        "business_exposure_facts": [{
+            "revenue_exposure_pct": 65,
+            "source_ref": f"cninfo:{symbol}",
+        }],
+        "monthly_direction_matches": [{
+            "monthly_direction_id": "theme-core",
+            "sector_index_code": "801807",
+            "sector_index_name": "算力",
+        }],
+        "a2_factor_scores": _complete_a2_factor_scores(80),
+        "data_quality_score": 90,
+    }
+    row["a2_factor_scores"]["weekly_confirmation"] = {"score": 80, "available": True}
+
+    result = screen_a2(
+        snapshot,
+        {"active_research_pool": [row]},
+        minimum_identifiability_score=101,
+        review_all_eligible=True,
+    )
+    item = result.decisions[0]
+
+    assert item["identifiability_score"] < 101
+    assert item["status"] == "REVIEW_CANDIDATE"
+    assert item["a2_pool_channel"] == "TREND"
+    assert item["sent_to_llm"] is True
+    assert item["selected_board_theme_match"] is True
+    assert item["gate_results"]["IDENTIFIABILITY_MIN"]["blocks_decision"] is False
+
+
+def test_a2_selected_board_without_a1_theme_binding_cannot_open_trend_route() -> None:
+    snapshot = _snapshot(1)
+    symbol = snapshot["g0_symbols"][0]
+    snapshot["SELECTED_BOARD_SNAPSHOT"] = {
+        "available": True,
+        "by_symbol": {
+            symbol: [{
+                "board_code": "801807",
+                "strategy_theme_id": "unrelated-theme",
+                "strength": 90,
+                "main_net_inflow_cny": 1_000_000,
+                "selected_for_rotation": True,
+                "primary_rank": 1,
+            }],
+        },
+    }
+    row = {
+        "symbol": symbol,
+        "candidate_id": f"a1:{symbol}",
+        "primary_theme": "theme-core",
+        "industry_chain_node": "node-core",
+        "business_exposure": {"revenue_exposure_pct": 65, "source_ref": f"cninfo:{symbol}"},
+        "business_exposure_facts": [{
+            "revenue_exposure_pct": 65,
+            "source_ref": f"cninfo:{symbol}",
+        }],
+        "a2_factor_scores": _complete_a2_factor_scores(80),
+        "data_quality_score": 90,
+    }
+
+    result = screen_a2(
+        snapshot,
+        {"active_research_pool": [row]},
+        minimum_identifiability_score=0,
+        review_all_eligible=True,
+    )
+    item = result.decisions[0]
+
+    assert item["selected_board"] is None
+    assert item["trend_core_eligible"] is False
+    assert item["a2_pool_channel"] == "NONE"
+    assert "A2_SELECTED_BOARD_THEME_MISMATCH" in item["reason_codes"]
+    assert result.review_symbols == ()
+
+
+def test_a2_replays_explicit_primary_board_strategy_binding_when_reverse_row_is_legacy() -> None:
+    snapshot = _snapshot(1)
+    symbol = snapshot["g0_symbols"][0]
+    snapshot["SELECTED_BOARD_SNAPSHOT"] = {
+        "available": True,
+        "selected_primary_boards": [{
+            "board_code": "FINANCIAL_INSURANCE",
+            "theme_id": "FINANCIAL_INSURANCE",
+            "strategy_theme_id": "FINANCIAL_HIGH_DIVIDEND",
+            "rank": 4,
+        }],
+        "by_symbol": {
+            symbol: [{
+                # Frozen pre-fix snapshots omitted strategy_theme_id here.
+                "board_code": "FINANCIAL_INSURANCE",
+                "theme_id": "FINANCIAL_INSURANCE",
+                "strength": 76,
+                "main_net_inflow_cny": 1_000_000,
+                "selected_for_rotation": True,
+                "primary_rank": 4,
+            }],
+        },
+    }
+    row = {
+        "symbol": symbol,
+        "candidate_id": f"a1:{symbol}",
+        "primary_theme": "FINANCIAL_HIGH_DIVIDEND",
+        "industry_chain_node": "insurance",
+        "business_exposure": {"revenue_exposure_pct": 65, "source_ref": f"cninfo:{symbol}"},
+        "business_exposure_facts": [{
+            "revenue_exposure_pct": 65,
+            "source_ref": f"cninfo:{symbol}",
+        }],
+        "a2_factor_scores": _complete_a2_factor_scores(80),
+        "data_quality_score": 90,
+    }
+    row["a2_factor_scores"]["weekly_confirmation"] = {"score": 80, "available": True}
+
+    result = screen_a2(
+        snapshot,
+        {"active_research_pool": [row]},
+        minimum_identifiability_score=0,
+        review_all_eligible=True,
+        rotation_theme_count=5,
+    )
+    item = result.decisions[0]
+
+    assert item["selected_board"]["strategy_theme_id"] == "FINANCIAL_HIGH_DIVIDEND"
+    assert item["a2_pool_channel"] == "TREND"
+    assert item["sent_to_llm"] is True
 
 
 def test_a2_daily_emotion_overlay_risk_and_trade_boundaries_stay_closed() -> None:
@@ -1390,16 +1539,17 @@ def test_screen_a2_partitions_no_route_low_identity_and_llm_rank_overflow() -> N
     assert by_symbol[symbols[2]]["status"] == "DATA_GAP"
     assert "A2_NO_ROUTE_READY" in by_symbol[symbols[2]]["reason_codes"]
 
-    # A high identity threshold is an explicit deterministic rejection, not
-    # a data-gap claim.  The same complete source contract remains auditable.
+    # A high identity reference remains auditable but is not a deterministic
+    # publication veto when the A1/market facts are otherwise sufficient.
     rejected = screen_a2(
         snapshot,
         {"active_research_pool": [rows[0]]},
         minimum_identifiability_score=101,
         llm_top_n_per_theme=1,
     ).decisions[0]
-    assert rejected["status"] == "HARD_REJECT"
-    assert "A2_LOW_IDENTITY_EXCLUDED" in rejected["reason_codes"]
+    assert rejected["status"] == "REVIEW_CANDIDATE"
+    assert "A2_IDENTIFIABILITY_BELOW_MINIMUM" in rejected["reason_codes"]
+    assert rejected["gate_results"]["IDENTIFIABILITY_MIN"]["blocks_decision"] is False
 
 
 def test_screen_a2_review_all_eligible_bypasses_legacy_theme_top_n() -> None:
@@ -1868,6 +2018,7 @@ def test_screen_a2_available_selected_board_is_authoritative_over_conflicting_me
         "by_symbol": {
             symbols[0]: [{
                 "board_code": "CURATED-WEAK",
+                "strategy_theme_id": "theme-0",
                 "board_name": "精选固定主题",
                 "strength": 10,
                 "main_net_inflow_cny": 1_000_000,
@@ -1876,6 +2027,7 @@ def test_screen_a2_available_selected_board_is_authoritative_over_conflicting_me
             }],
             symbols[1]: [{
                 "board_code": "CURATED-WEAK",
+                "strategy_theme_id": "theme-0",
                 "board_name": "精选固定主题",
                 "strength": 10,
                 "main_net_inflow_cny": 900_000,
@@ -1959,6 +2111,7 @@ def test_screen_a2_available_selected_board_opens_only_its_top_five_rows() -> No
         "by_symbol": {
             symbols[1]: [{
                 "board_code": "CURATED-ONLY",
+                "strategy_theme_id": "theme-monthly",
                 "board_name": "精选兼容板块",
                 "strength": 100,
                 "main_net_inflow_cny": 1_000_000,
@@ -2177,7 +2330,6 @@ def test_screen_a2_records_all_effective_gate_failures_without_short_circuiting(
     assert {
         "LOCAL_DATA_SUFFICIENCY",
         "LOCAL_ELIGIBILITY",
-        "IDENTIFIABILITY_MIN",
         "ROUTE_REQUIREMENT",
     }.issubset(
         decision["all_failed_gates"]
@@ -2196,9 +2348,9 @@ def test_screen_a2_records_all_effective_gate_failures_without_short_circuiting(
     assert identity_gate["available"] is True
     assert identity_gate["value"] < identity_gate["threshold"] == 101.0
     assert identity_gate["passed"] is False
-    assert identity_gate["applied"] is True
-    assert identity_gate["blocks_decision"] is True
-    assert identity_gate["reason_code"] == "A2_IDENTIFIABILITY_BELOW_MINIMUM"
+    assert identity_gate["applied"] is False
+    assert identity_gate["blocks_decision"] is False
+    assert identity_gate["reason_code"] == "A2_IDENTIFIABILITY_BELOW_MINIMUM_REVIEW_ONLY"
     # Missing/unimplemented facts remain explicit but cannot become a hidden
     # veto or a false positive.
     assert decision["gate_results"]["TIER_STRUCTURE"]["available"] is False
@@ -2214,7 +2366,6 @@ def test_screen_a2_records_all_effective_gate_failures_without_short_circuiting(
         for name in (
             "LOCAL_DATA_SUFFICIENCY",
             "LOCAL_ELIGIBILITY",
-            "IDENTIFIABILITY_MIN",
             "ROUTE_REQUIREMENT",
         )
     )
