@@ -65,7 +65,8 @@ def test_next_due_respects_lunch_and_close_slot(tmp_path):
     scheduler = Scheduler(store, trading_day=lambda _day: True)
     assert scheduler.next_due_at(datetime(2026, 8, 24, 8, 0, tzinfo=TZ)).time().strftime("%H:%M") == "08:30"
     assert scheduler.next_due_at(datetime(2026, 8, 24, 8, 31, tzinfo=TZ)).time().strftime("%H:%M") == "09:26"
-    assert scheduler.next_due_at(datetime(2026, 8, 24, 12, 0, tzinfo=TZ)).time().strftime("%H:%M") == "13:00"
+    assert scheduler.next_due_at(datetime(2026, 8, 24, 12, 0, tzinfo=TZ)).time().strftime("%H:%M") == "13:01"
+    assert scheduler.next_due_at(datetime(2026, 8, 24, 13, 0, tzinfo=TZ)).time().strftime("%H:%M") == "13:01"
     assert scheduler.next_due_at(datetime(2026, 8, 24, 15, 1, tzinfo=TZ)).time().strftime("%H:%M") == "15:10"
     assert scheduler.next_due_at(datetime(2026, 8, 24, 15, 11, tzinfo=TZ)).time().strftime("%H:%M") == "16:00"
 

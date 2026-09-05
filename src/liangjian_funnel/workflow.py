@@ -2995,15 +2995,37 @@ class WorkflowApplication:
     ) -> Any:
         """Fetch only the bounded current-session window used by A4.
 
-        ``ResilientIntradayAdapter`` intentionally falls back to MootDX for
-        general callers.  A4 must not turn a short opening-window response
-        into a multi-day overlap, so use its bounded Tencent provider
-        directly when it is available and fail closed on a shortage.
+        Prefer Tencent, then verify the independently fetched TDX window.
+        A fallback must contain exactly the required closed current-session
+        bars; previous-session bars cannot fill an opening shortage.
         """
 
         provider = getattr(self.market_data, "fallback", None)
         if provider is not None and callable(getattr(provider, "fetch_bars", None)):
-            return provider.fetch_bars(symbol, interval, required_bars, as_of=current)
+            first = None
+            try:
+                first = provider.fetch_bars(symbol, interval, required_bars, as_of=current)
+                if first.complete:
+                    return first
+            except Exception:
+                pass
+            secondary = getattr(self.market_data, "primary", None)
+            if secondary is not None and callable(getattr(secondary, "fetch_bars", None)):
+                try:
+                    result = secondary.fetch_bars(symbol, interval, required_bars, as_of=current)
+                    bars = tuple(bar for bar in result.bars
+                                 if bar.bar_end.astimezone(SHANGHAI).date() == current.date()
+                                 and bar.bar_end <= current)[-required_bars:]
+                    expected_end = current if interval == "1m" else current.replace(minute=current.minute // 5 * 5)
+                    if (len(bars) == required_bars and bars and bars[-1].bar_end == expected_end
+                            and not detect_missing_bars(bars, interval, as_of=current)):
+                        return result.model_copy(update={"bars": bars, "returned_bars": len(bars),
+                                                        "complete": True, "reason_code": "OK"})
+                except Exception:
+                    pass
+            if first is not None:
+                return first
+            raise WorkflowError("MINUTE_DATA_FETCH_FAILED")
         return self.market_data.fetch_bars(symbol, interval, required_bars, as_of=current)
 
     def activate_latest_a3_for_monitor(self, *, now: datetime | None = None) -> dict[str, Any]:
@@ -3031,8 +3053,14 @@ class WorkflowApplication:
 
         candidates: list[dict[str, Any]] = []
         for lane_id in self.brokers:
-            if self.store.list_active_plans(lane_id, at=current):
-                continue
+            active_sources: set[str] = set()
+            for active in self.store.list_active_plans(lane_id, at=current):
+                try:
+                    active_source = json.loads(str(active.get("payload_json") or "{}")).get("source_run_id")
+                    if active_source:
+                        active_sources.add(str(active_source))
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    continue
             pending = self.store.list_execution_plans(
                 lane_id=lane_id,
                 status=PlanStatus.PENDING_MORNING_REVIEW,
@@ -3051,6 +3079,10 @@ class WorkflowApplication:
                 except (TypeError, ValueError, json.JSONDecodeError):
                     continue
                 source = str(payload.get("source_run_id") or "").strip() if isinstance(payload, Mapping) else ""
+                # Retry quote-missing peers of an already active publication,
+                # but never activate a different batch over the active scope.
+                if active_sources and source not in active_sources:
+                    continue
                 if source:
                     by_source.setdefault(source, []).append(plan)
             if not by_source:
@@ -3732,12 +3764,18 @@ class WorkflowApplication:
             # 1m bar does not exist until 09:31.  Review the provider-owned,
             # timestamped auction quote instead of requiring an impossible
             # 09:26 minute bar.
-            quote_result = self.market_data.fetch_quote(symbol, as_of=current)
+            try:
+                quote_result = self.market_data.fetch_quote(symbol, as_of=current)
+            except Exception:
+                failures.append({"symbol": symbol, "reason_code": "QUOTE_UNAVAILABLE"})
+                continue
             if not quote_result.complete or quote_result.quote is None:
                 failures.append({"symbol": symbol, "reason_code": quote_result.reason_code})
                 continue
             evidence[symbol] = quote_result.quote.model_dump(mode="json")
 
+        activation_ids: list[str] = []
+        invalidation_ids: list[str] = []
         for plan in pending:
             symbol = str(plan["symbol"])
             if symbol not in evidence:
@@ -3747,15 +3785,23 @@ class WorkflowApplication:
                 stop_level = float(payload["stop_level"])
                 trigger_high = float(payload["trigger_high"])
                 price = float(evidence[symbol]["price"])
+                no_chase = float(payload.get("no_chase") or payload.get("no_chase_price") or trigger_high * 1.05)
+                if not _a4_price_contract_valid(price, stop_level, trigger_high, no_chase):
+                    raise ValueError("invalid morning price contract")
             except (KeyError, TypeError, ValueError, json.JSONDecodeError):
                 failures.append({"symbol": symbol, "reason_code": "PLAN_PRICE_CONTRACT_INVALID"})
+                invalidation_ids.append(str(plan["plan_id"]))
                 continue
             if price <= stop_level:
                 failures.append({"symbol": symbol, "reason_code": "PLAN_INVALIDATED_AT_OPEN"})
-            elif price > trigger_high * 1.05:
+                invalidation_ids.append(str(plan["plan_id"]))
+            elif price > no_chase:
                 failures.append({"symbol": symbol, "reason_code": "OPEN_PRICE_CHASE_BLOCK"})
+                invalidation_ids.append(str(plan["plan_id"]))
+            else:
+                activation_ids.append(str(plan["plan_id"]))
 
-        if failures:
+        if failures and not activation_ids and not invalidation_ids:
             payload = {
                 "status": "BLOCKED",
                 "reviewed_at": current.isoformat(),
@@ -3768,8 +3814,9 @@ class WorkflowApplication:
             )
             return payload
         activated = self.store.activate_pending_plan_batch(
-            [str(plan["plan_id"]) for plan in pending],
+            activation_ids,
             valid_from=_at_time(current, 9, 32),
+            invalidated_plan_ids=invalidation_ids,
         )
         primary_lane_id = getattr(self.settings, "research_primary_lane_id", "lane_1")
         primary_activated = [
@@ -3791,6 +3838,8 @@ class WorkflowApplication:
             "reviewed_at": current.isoformat(),
             "atomic": True,
             "activated": [str(plan["plan_id"]) for plan in activated],
+            "invalidated": invalidation_ids,
+            "failures": failures,
             "evidence_symbols": symbols,
             "notifications": notifications,
         }

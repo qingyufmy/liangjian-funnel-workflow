@@ -1723,6 +1723,7 @@ def _apply_live_entry_geometry(
     minimum_reward_risk = _number(
         _lookup(
             plan,
+            ("deterministic_price_evidence", "minimum_reward_risk"),
             ("minimum_reward_risk",),
             ("min_reward_risk",),
             ("risk", "minimum_reward_risk"),
@@ -1731,6 +1732,7 @@ def _apply_live_entry_geometry(
     maximum_stop_distance = _number(
         _lookup(
             plan,
+            ("deterministic_price_evidence", "maximum_stop_distance_pct"),
             ("maximum_stop_distance_pct",),
             ("max_stop_distance_pct",),
             ("risk", "maximum_stop_distance_pct"),

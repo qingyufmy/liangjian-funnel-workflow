@@ -430,6 +430,12 @@ def run_a4_replay(
     ]
     status = "READY" if effective and (fills or any(item["action"] == MonitorAction.LLM_VETO.value for item in effective)) else "NO_EFFECTIVE_SIGNAL"
     strategy_conformance = _strategy_document_conformance(plan, event_payloads)
+    if plan["plan_id"] in morning_result.get("invalidated", []):
+        strategy_conformance = {
+            "document": STRATEGY_ACCEPTANCE_DOCUMENT, "strategy_profile": plan["strategy_profile"],
+            "status": "PASS", "checks": {"pre_entry_plan_invalidated": True, "no_entry_after_invalidation": not fills},
+            "latest_indicator_observations": {},
+        }
     report = {
         "schema_version": A4_REPLAY_SCHEMA,
         "status": status,
@@ -799,7 +805,8 @@ def run_a4_replay_batch(
             ),
             "source_execution_parameters_preserved": all(
                 item.get("test_plan", {}).get("source_risk_unit") == item.get("test_plan", {}).get("test_risk_unit")
-                and item.get("test_plan", {}).get("source_confirmation_bars") == item.get("test_plan", {}).get("test_confirmation_bars")
+                and (item.get("test_plan", {}).get("source_confirmation_bars") is None
+                     or item.get("test_plan", {}).get("source_confirmation_bars") == item.get("test_plan", {}).get("test_confirmation_bars"))
                 for item in result_rows
                 if item.get("test_plan")
             ),

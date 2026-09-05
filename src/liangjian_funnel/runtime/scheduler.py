@@ -225,7 +225,7 @@ class Scheduler:
         midday_review = _at(day, datetime_time(11, 35))
         if current <= midday_review:
             return self._job(ScheduleKind.A5_MIDDAY_1135, midday_review, current)
-        afternoon = _at(day, datetime_time(13, 0))
+        afternoon = _at(day, datetime_time(13, 1))
         if current < afternoon:
             return self._job(ScheduleKind.MONITOR, afternoon, current)
         if current <= _at(day, datetime_time(15, 0)):

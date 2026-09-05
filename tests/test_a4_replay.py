@@ -107,6 +107,17 @@ def test_a4_replay_preserves_core_execution_parameters_and_signal_identity(tmp_p
     assert report["signal_identities"][0]["source_plan_id"] == "core-plan-1"
 
 
+def test_replay_morning_invalidation_is_a_valid_zero_entry_outcome(tmp_path):
+    plan = _plan("600519.SH", source_plan_id="invalid-open")
+    plan.update(invalidation_level=10.6, trigger_zone={"low":10.8,"high":11.0})
+    report = run_a4_replay(trade_date=date(2026,8,28), source_run_id="source",
+        source_plan=plan, bars=_bars(), state_db_path=tmp_path/"state.sqlite3", output_dir=tmp_path/"report")
+    assert report["morning_review"]["invalidated"]
+    assert report["fills"] == []
+    assert report["model_calls"] == 0
+    assert report["strategy_document_conformance"]["checks"]["pre_entry_plan_invalidated"]
+
+
 def test_a4_replay_batch_aggregates_two_plans_in_one_isolated_ledger(tmp_path) -> None:
     plans = (
         _plan("600519.SH", source_plan_id="core-plan-1"),

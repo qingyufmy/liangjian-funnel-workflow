@@ -1922,10 +1922,15 @@ class RuntimeStore:
         plan_ids: Sequence[str],
         *,
         valid_from: datetime,
+        invalidated_plan_ids: Sequence[str] = (),
     ) -> tuple[dict[str, Any], ...]:
         """Atomically activate a fully validated morning-review plan set."""
 
-        ids = tuple(dict.fromkeys(str(item) for item in plan_ids))
+        activation_ids = tuple(dict.fromkeys(str(item) for item in plan_ids))
+        invalidation_ids = tuple(dict.fromkeys(str(item) for item in invalidated_plan_ids))
+        if set(activation_ids).intersection(invalidation_ids):
+            raise ValueError("morning plan cannot be both activated and invalidated")
+        ids = tuple(dict.fromkeys((*activation_ids, *invalidation_ids)))
         if not ids:
             return ()
         stamp = _iso(valid_from)
@@ -1944,9 +1949,11 @@ class RuntimeStore:
                     raise StateTransitionError("PLAN_NOT_PENDING_MORNING_REVIEW")
                 rows.append(row)
             for plan_id in ids:
+                invalidated = plan_id in invalidation_ids
                 connection.execute(
                     "UPDATE execution_plans SET status=?,valid_from=?,updated_at=? WHERE plan_id=?",
-                    (PlanStatus.ACTIVE_TODAY.value, stamp, now, plan_id),
+                    (PlanStatus.INVALIDATED.value if invalidated else PlanStatus.ACTIVE_TODAY.value,
+                     None if invalidated else stamp, now, plan_id),
                 )
             return tuple(
                 _row_dict(
@@ -1954,7 +1961,7 @@ class RuntimeStore:
                         "SELECT * FROM execution_plans WHERE plan_id=?", (plan_id,)
                     ).fetchone()
                 )
-                for plan_id in ids
+                for plan_id in activation_ids
             )
 
         return self._write(operation)

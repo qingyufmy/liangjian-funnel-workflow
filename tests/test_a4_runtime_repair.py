@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
+from datetime import timedelta
+from liangjian_funnel.data.mootdx import FetchResult, MinuteBar
 
 from liangjian_funnel.data.tencent_minute import MarketQuote, QuoteResult
 from liangjian_funnel.pipeline.research import LaneResult, ResearchRunResult
@@ -12,6 +14,51 @@ import liangjian_funnel.cli as cli
 
 
 TZ = ZoneInfo("Asia/Shanghai")
+
+
+def test_live_tdx_fallback_cannot_fill_with_previous_session_bars():
+    current = datetime(2026, 9, 4, 9, 31, tzinfo=TZ)
+    bar = MinuteBar(symbol="600519.SH", interval="1m", bar_end=current,
+                    open=10, high=11, low=9, close=10, volume=100, amount=1000, source_id="TEST_TDX")
+    missing = FetchResult(symbol=bar.symbol, interval="1m", requested_bars=1, returned_bars=0,
+                          reason_code="MISSING", complete=False)
+    good = FetchResult(symbol=bar.symbol, interval="1m", requested_bars=1, returned_bars=1,
+                       bars=(bar,), reason_code="OK", complete=True)
+    market = SimpleNamespace(fallback=SimpleNamespace(fetch_bars=lambda *a, **k: missing),
+                             primary=SimpleNamespace(fetch_bars=lambda *a, **k: good))
+    app = SimpleNamespace(market_data=market)
+    assert WorkflowApplication._fetch_live_bars(app, bar.symbol, "1m", 1, current).complete
+    stale = good.model_copy(update={"bars": (bar.model_copy(update={"bar_end": current-timedelta(days=1)}),)})
+    market.primary.fetch_bars = lambda *a, **k: stale
+    assert not WorkflowApplication._fetch_live_bars(app, bar.symbol, "1m", 1, current).complete
+
+
+def test_morning_failure_isolated_and_explicit_no_chase_respected(tmp_path):
+    store = RuntimeStore(tmp_path / "morning.sqlite3")
+    now = datetime(2026, 9, 7, 9, 26, tzinfo=TZ)
+    symbols = ["600001.SH", "600002.SH", "600003.SH"]
+    for symbol in symbols:
+        store.create_execution_plan(symbol, "lane_1", symbol, status=PlanStatus.PENDING_MORNING_REVIEW,
+            expires_at=now.replace(hour=15, minute=0),
+            payload={"source_run_id":"same-close", "stop_level":9, "trigger_high":11, "no_chase":11.1})
+    class Quotes(_Quotes):
+        def fetch_quote(self, symbol, *, as_of):
+            if symbol == symbols[2]:
+                raise TimeoutError()
+            return super().fetch_quote(symbol, as_of=as_of)
+    app = SimpleNamespace(store=store, brokers={"lane_1": object()},
+        market_data=Quotes({symbols[0]:10.5, symbols[1]:11.2}),
+        settings=SimpleNamespace(workflow_output_dir=tmp_path), _ensure_trading_day=lambda _: None)
+    result = WorkflowApplication.review_pending_morning(app, now=now)
+    assert result["status"] == "READY"
+    assert result["activated"] == [symbols[0]]
+    assert result["invalidated"] == [symbols[1]]
+    assert store.get_execution_plan(symbols[2])["status"] == PlanStatus.PENDING_MORNING_REVIEW.value
+    assert store.get_execution_plan(symbols[1])["status"] == PlanStatus.INVALIDATED.value
+    app.market_data = _Quotes({symbols[2]:10.5})
+    recovered = WorkflowApplication.activate_latest_a3_for_monitor(app, now=now.replace(minute=33))
+    assert recovered["activated"] == [symbols[2]]
+    assert store.get_execution_plan(symbols[1])["status"] == PlanStatus.INVALIDATED.value
 
 
 class _Quotes:

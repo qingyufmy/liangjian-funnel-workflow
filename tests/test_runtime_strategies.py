@@ -139,6 +139,19 @@ def test_leader_requires_context_and_520_requires_daily_snapshot() -> None:
     assert "A3_RIGHT_SIDE_CONFIRMATION_MISSING" in swing["reason_codes"]
 
 
+def test_a4_reads_frozen_a3_risk_geometry_without_requiring_model_duplication():
+    plan = _base(StrategyProfile.TREND_MA5.value,
+        daily_indicators={"ma5": 10.4, "ma10": 10.2, "ma20": 10.0, "close": 10.6},
+        invalidation_level=10.0, first_resistance=11.0,
+        deterministic_price_evidence={"minimum_reward_risk": 2.0, "maximum_stop_distance_pct": 0.06},
+        a4_deferred_conditions=["A3_REWARD_RISK_BELOW_MINIMUM"])
+    result = evaluate_a4_plan(plan, _bars())
+    assert result["minimum_reward_risk"] == 2.0
+    assert result["maximum_stop_distance_pct"] == 0.06
+    assert "A4_LIVE_REWARD_RISK_GEOMETRY_MISSING" not in result["reason_codes"]
+    assert "A4_LIVE_REWARD_RISK_BELOW_MINIMUM" in result["reason_codes"]
+
+
 def test_trend_trusts_a3_daily_route_and_520_requires_two_5m_confirmations() -> None:
     trend = evaluate_a4_plan(
         _base(StrategyProfile.TREND_MA5.value, daily_indicators={"ma5": 10.0, "ma10": 10.5, "ma20": 10.2, "ma60": 9.5, "close": 10.8}),
