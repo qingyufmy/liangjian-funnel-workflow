@@ -1275,7 +1275,7 @@ def test_a2_prompt_projection_removes_full_market_permission_and_attribution_bul
     assert permissions["full_symbol_count"] == 2
     assert set(context) == symbols
     assert "gate_results" not in context["600001.SH"]
-    assert "raw_history" not in context["600001.SH"]["a2_factor_scores"]["breadth"]
+    assert context["600001.SH"]["a2_factor_scores"]["breadth"] == 88
     assert _stage_model_output_limit("A2", 15, configured_limit=393_216) == 2_048
     assert _stage_model_output_limit("A3", 15, configured_limit=393_216) == 393_216
 
@@ -3508,7 +3508,7 @@ def test_a2_prompt_projection_bounds_selected_boards_theme_metrics_and_upstream_
     assert [row["board_code"] for row in boards["boards"]] == ["801001"]
     assert boards["boards"][0]["constituents"] == ["600519.SH"]
     assert boards["boards"][0]["full_constituent_count"] == 2
-    assert set(boards["by_symbol"]) == symbols
+    assert "by_symbol" not in boards
     assert boards["content_hash"] == "board-hash"
     assert boards["prompt_projection"]["full_board_count"] == 2
 
@@ -3552,8 +3552,10 @@ def test_a2_prompt_projection_bounds_selected_boards_theme_metrics_and_upstream_
             "monitor_pool": [{"symbol": "000001.SZ"}],
         },
         symbols,
+        stage="A2",
     )
     assert "structural_themes" not in upstream
+    assert "analysis_summary" not in upstream
     assert upstream["active_research_pool"] == [
         {"symbol": "600519.SH", "primary_theme": "theme-a"}
     ]

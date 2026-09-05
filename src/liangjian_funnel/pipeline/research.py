@@ -359,7 +359,7 @@ _PERMISSION_KEYS = {
     "order_permission",
 }
 _ALLOWED_DISABLED = {False, None, "", "DISABLED", "DISABLE", "OFF", "SHADOW", "SIMULATION"}
-_PROMPT_PROJECTION_VERSION = "research-prompt-projection/2.6.0"
+_PROMPT_PROJECTION_VERSION = "research-prompt-projection/2.7.0"
 _DEFAULT_MODEL_MAX_INPUT_TOKENS = 1_000_000
 _A3_BATCH_SIZE = 16
 _A2_MAX_TRANSPORT_BATCH_SIZE = 5
@@ -5177,7 +5177,7 @@ def _prompt_replacements(
             continue
         if name in {"UPSTREAM_ACTIVE_POOL", "UPSTREAM_FOCUS_POOL", "A3_CANDIDATE_POOL"}:
             replacements[name] = (
-                _project_upstream_output(upstream_output, allowed_symbols)
+                _project_upstream_output(upstream_output, allowed_symbols, stage=stage)
                 if upstream_output is not None
                 else None
             )
@@ -5547,20 +5547,9 @@ def _project_selected_board(value: Any, symbols: set[str] | None) -> Any:
         if raw.get("selected_for_rotation") is not True and not linked:
             continue
         row_fields = (
-            (
-                "board_code", "board_name", "theme_id", "strategy_theme_id",
-                "theme_level", "parent_theme_id", "is_child_board", "primary_rank",
-                "provider_rank", "strength", "main_net_inflow_cny",
-                "selected_for_rotation", "selection_status", "breadth",
-                "relative_return_pct", "leader_structure_score", "factor_coverage",
-                "member_snapshot_complete", "observed_strength_source",
-            )
-            if linked
-            else (
-                "board_code", "board_name", "theme_id", "strategy_theme_id",
-                "theme_level", "parent_theme_id", "is_child_board", "primary_rank",
-                "strength", "main_net_inflow_cny", "selected_for_rotation",
-            )
+            "board_code", "board_name", "theme_id", "strategy_theme_id",
+            "theme_level", "parent_theme_id", "is_child_board", "primary_rank",
+            "strength", "main_net_inflow_cny", "selected_for_rotation",
         )
         row = {
             key: raw.get(key)
@@ -5571,36 +5560,11 @@ def _project_selected_board(value: Any, symbols: set[str] | None) -> Any:
         row["full_constituent_count"] = len(constituents)
         row["prompt_constituent_count"] = len(row["constituents"])
         selected.append(row)
-    raw_by_symbol = value.get("by_symbol")
     result["boards"] = selected
-    result["by_symbol"] = (
-        {
-            str(symbol): [
-                {
-                    key: row.get(key)
-                    for key in (
-                        "board_code", "theme_id", "parent_theme_id", "primary_rank",
-                        "selected_for_rotation",
-                    )
-                    if key in row
-                }
-                for row in item
-                if isinstance(row, Mapping)
-            ]
-            for symbol, item in raw_by_symbol.items()
-            if str(symbol).strip().upper() in wanted
-            and isinstance(item, Sequence)
-            and not isinstance(item, (str, bytes, bytearray))
-        }
-        if isinstance(raw_by_symbol, Mapping)
-        else {}
-    )
     result["prompt_projection"] = {
         "symbol_count": len(wanted),
         "prompt_board_count": len(selected),
         "full_board_count": len(boards),
-        "prompt_by_symbol_count": len(result["by_symbol"]),
-        "full_by_symbol_count": len(raw_by_symbol) if isinstance(raw_by_symbol, Mapping) else 0,
         "full_snapshot_retained_for_audit": True,
     }
     return result
@@ -5907,18 +5871,16 @@ def _project_a2_bottleneck_context(value: Any, symbols: set[str] | None) -> Any:
         return value
     scalar_fields = {
         "company_name", "theme_id", "rotation_direction_id", "industry_chain_node",
-        "upstream_candidate_id", "deterministic_status", "deterministic_route",
+        "upstream_candidate_id", "deterministic_status",
         "deterministic_score", "theme_rotation_rank", "theme_rotation_score",
-        "rotation_strength_source", "top_rotation_theme", "a2_pool_channel",
-        "a1_formal_member", "emotion_core_eligible", "trend_core_eligible",
-        "selected_board_binding", "selected_board_theme_match",
+        "top_rotation_theme", "a2_pool_channel", "emotion_core_eligible",
+        "trend_core_eligible", "selected_board_theme_match",
         "deterministic_market_role", "stock_behavior_type",
         "identifiability_score", "data_sufficiency_state", "preferred_route",
-        "first_blocking_gate", "factor_coverage_pct", "evidence_readiness_score",
-        "scarcity_claim_allowed",
+        "factor_coverage_pct", "evidence_readiness_score",
     }
     sequence_fields = {
-        "route_permission", "deterministic_reason_codes", "eligible_routes",
+        "deterministic_reason_codes", "eligible_routes",
     }
     result: dict[str, Any] = {}
     for symbol in sorted(symbols):
@@ -5935,9 +5897,8 @@ def _project_a2_bottleneck_context(value: Any, symbols: set[str] | None) -> Any:
                 "available", "eligible", "rank", "name", "trade_date", "reason_code",
             ),
             "selected_board": (
-                "available", "eligible", "board_code", "board_name", "theme_id",
-                "strategy_theme_id", "parent_theme_id", "primary_rank", "strength",
-                "main_net_inflow_cny", "reason_code",
+                "eligible", "board_name", "theme_id", "strategy_theme_id",
+                "parent_theme_id", "primary_rank", "strength", "main_net_inflow_cny",
             ),
             "market_emotion_cycle": (
                 "available", "stage", "new_entry_policy", "reason_codes",
@@ -5959,38 +5920,29 @@ def _project_a2_bottleneck_context(value: Any, symbols: set[str] | None) -> Any:
             row["a2_taxonomy_binding"] = {
                 key: binding.get(key)
                 for key in (
-                    "status", "reason_code", "node_id", "taxonomy", "taxonomy_code",
-                    "taxonomy_name", "rotation_strength_score", "rotation_strength_available",
+                    "status", "taxonomy", "taxonomy_code", "taxonomy_name",
                 )
                 if key in binding
             }
         factors = raw.get("a2_factor_scores")
         if isinstance(factors, Mapping):
             row["a2_factor_scores"] = {
-                str(name): _compact_a2_factor(factor)
+                str(name): factor.get("score")
                 for name, factor in factors.items()
                 if isinstance(factor, Mapping)
+                and factor.get("score") is not None
             }
         behavior = raw.get("behavior_type_decision")
         if isinstance(behavior, Mapping):
             row["behavior_type_decision"] = {
                 key: behavior.get(key)
                 for key in (
-                    "stock_behavior_type", "market_role", "route_permission",
-                    "confidence", "reason_codes", "evidence_state",
+                    "stock_behavior_type", "market_role", "confidence", "evidence_state",
                 )
                 if key in behavior
             }
         result[symbol] = row
     return result
-
-
-def _compact_a2_factor(value: Mapping[str, Any]) -> dict[str, Any]:
-    allowed = {
-        "available", "score", "reason_code", "availability_state", "coverage", "rank",
-        "weekly_momentum_state",
-    }
-    return {key: value.get(key) for key in allowed if key in value}
 
 
 def _project_eastmoney_hot100(value: Any, symbols: set[str] | None) -> Any:
@@ -10753,7 +10705,12 @@ def _filter_symbol_mapping(value: Any, symbols: set[str] | None) -> Any:
     return {str(key): item for key, item in value.items() if str(key) in symbols}
 
 
-def _project_upstream_output(value: Mapping[str, Any], symbols: set[str] | None) -> dict[str, Any]:
+def _project_upstream_output(
+    value: Mapping[str, Any],
+    symbols: set[str] | None,
+    *,
+    stage: str | None = None,
+) -> dict[str, Any]:
     if symbols is None:
         return dict(value)
     # Stage outputs retain broad macro, taxonomy and monthly-registry evidence
@@ -10763,10 +10720,8 @@ def _project_upstream_output(value: Mapping[str, Any], symbols: set[str] | None)
     # limit.  Keep only compact status metadata, the stage's theme summary and
     # the symbol-scoped candidate partitions.  The full upstream digest stays
     # bound to ``input_hash`` in ``_prepare_stage_request``.
-    metadata_keys = {
-        "envelope",
-        "analysis_summary",
-        "candidate_metadata_coverage",
+    metadata_keys = {"envelope"} if stage == "A2" else {
+        "envelope", "analysis_summary", "candidate_metadata_coverage",
     }
     result = {
         key: item
@@ -10777,7 +10732,11 @@ def _project_upstream_output(value: Mapping[str, Any], symbols: set[str] | None)
         pool = value.get(key)
         if isinstance(pool, list):
             result[key] = [
-                _compact_upstream_candidate(item)
+                (
+                    _compact_a2_upstream_candidate(item)
+                    if stage == "A2"
+                    else _compact_upstream_candidate(item)
+                )
                 for item in pool
                 if isinstance(item, Mapping) and bool(_scan_symbols(item).intersection(symbols))
             ]
@@ -10804,6 +10763,48 @@ def _project_upstream_output(value: Mapping[str, Any], symbols: set[str] | None)
         "full_output_hash": _sha256_json(value),
         "full_snapshot_retained_for_audit": True,
     }
+    return result
+
+
+def _compact_a2_upstream_candidate(item: Mapping[str, Any]) -> dict[str, Any]:
+    """Expose only A1 facts that are not repeated by the A2 gate context."""
+
+    allowed = {
+        "symbol", "company_name", "name", "primary_theme", "theme_id",
+        "industry_chain_node", "structural_score", "data_quality_score",
+        "financial_quality_score", "evidence_confidence",
+        "sector_constituent_confirmed", "disclosed_business_match",
+        "research_route", "selection_basis", "reason_codes",
+    }
+    result = {key: item.get(key) for key in allowed if key in item}
+    reasons = result.get("reason_codes")
+    if isinstance(reasons, Sequence) and not isinstance(reasons, (str, bytes, bytearray)):
+        result["reason_codes"] = [_truncate_nested(value, 120) for value in reasons[:3]]
+    exposure = item.get("business_exposure")
+    if isinstance(exposure, Mapping):
+        result["business_exposure"] = {
+            key: exposure.get(key)
+            for key in ("status", "matched", "revenue_exposure_pct", "evidence_tier")
+            if key in exposure
+        }
+    fundamental = item.get("fundamental_support")
+    if isinstance(fundamental, Mapping):
+        compact_fundamental = {
+            key: fundamental.get(key)
+            for key in ("coverage_ratio", "score", "supported")
+            if key in fundamental
+        }
+        latest = fundamental.get("latest_half_year")
+        if isinstance(latest, Mapping):
+            compact_fundamental["latest_half_year"] = {
+                key: latest.get(key)
+                for key in (
+                    "operating_income_yoy_pct", "parent_holder_net_profit_yoy_pct",
+                    "supported", "reason_code",
+                )
+                if key in latest
+            }
+        result["fundamental_support"] = compact_fundamental
     return result
 
 
