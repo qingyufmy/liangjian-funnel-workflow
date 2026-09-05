@@ -340,7 +340,9 @@ read_rotation_theme_config = load_rotation_theme_config
 
 def _default_config_path() -> Path:
     # .../src/liangjian_funnel/data/rotation_theme.py -> repository root.
-    return Path(__file__).resolve().parents[3] / "config" / "rotation_themes_v1.yaml"
+    from ..settings import project_root
+
+    return project_root() / "config" / "rotation_themes_v1.yaml"
 
 
 # ---------------------------------------------------------------------------
