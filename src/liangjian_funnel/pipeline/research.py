@@ -611,6 +611,7 @@ class ResearchPipeline:
             else None
         )
         self._feature_generation_id = ""
+        self._feature_run_id = ""
         self._feature_generation_owned = False
         self._pipeline_contract_hash = _sha256_json({
             "pipeline_mode": settings.research_pipeline_mode,
@@ -654,6 +655,7 @@ class ResearchPipeline:
         """
         self._deadline_started_monotonic = time.monotonic()
         self._feature_generation_id = ""
+        self._feature_run_id = ""
         self._feature_generation_owned = False
         if isinstance(a1_only, bool) is False:
             raise ValueError("a1_only must be a boolean")
@@ -683,6 +685,25 @@ class ResearchPipeline:
                 # share mutable deterministic decisions.
                 run_digest = hashlib.sha256(effective_run_id.encode("utf-8")).hexdigest()[:12]
                 generation_id = f"run-{frozen.snapshot_hash[:12]}-{run_digest}"
+                feature_run_id = effective_run_id
+                existing_binding = self.feature_store.get_run_feature_binding(
+                    run_id=effective_run_id,
+                    strict=False,
+                )
+                if (
+                    existing_binding is not None
+                    and str(existing_binding.get("generation_id") or "") != generation_id
+                ):
+                    # A blocked next-session preparation is intentionally
+                    # retryable under the same public run id.  A fresh input
+                    # snapshot must still own an isolated immutable feature
+                    # projection, so only the internal feature binding gains
+                    # a snapshot suffix.  Publication/idempotency continues to
+                    # use ``effective_run_id``.
+                    feature_run_id = _safe_run_id(
+                        f"{effective_run_id}--snapshot-{frozen.snapshot_hash[:12]}"
+                    )
+                self._feature_run_id = feature_run_id
                 generation = self.feature_store.get_feature_generation(generation_id)
                 if generation is None:
                     self.feature_store.create_feature_generation(
@@ -694,6 +715,7 @@ class ResearchPipeline:
                         metadata={
                             "snapshot_id": frozen.snapshot_id,
                             "run_id": effective_run_id,
+                            "feature_run_id": feature_run_id,
                             "historical_replay": bool(historical_replay),
                         },
                         purpose=(
@@ -735,7 +757,7 @@ class ResearchPipeline:
                     # are written only to this run.  The binding is immutable;
                     # the generation itself is sealed after all lanes finish.
                     self.feature_store.bind_run_feature_generation(
-                        run_id=effective_run_id,
+                        run_id=feature_run_id,
                         generation_id=generation_id,
                         contract_hash=self._feature_contract_hash,
                         allow_unpublished=True,
@@ -1689,11 +1711,12 @@ class ResearchPipeline:
         nodes = [item for item in discovery_output.get("industry_chain_graph", ()) if isinstance(item, Mapping)]
         if self.feature_store is not None:
             self.feature_store.record_theme_registry(
-                run_id=run_id,
+                run_id=self._feature_run_id or run_id,
                 lane_id=lane_id,
                 as_of=snapshot.as_of or self.now(),
                 themes=themes,
                 nodes=nodes,
+                generation_id=self._feature_generation_id or None,
             )
 
         a1_gate = screen_a1(
@@ -1706,10 +1729,11 @@ class ResearchPipeline:
         self._emit_gate_progress(run_id, lane_id, model, a1_gate)
         if self.feature_store is not None:
             self.feature_store.record_taxonomy_links(
-                run_id=run_id,
+                run_id=self._feature_run_id or run_id,
                 lane_id=lane_id,
                 links=a1_gate.taxonomy_links,
                 source_hash=snapshot.snapshot_hash,
+                generation_id=self._feature_generation_id or None,
             )
         frozen_discovery_context = {
             "mode": "COMPANY_MAPPING",
@@ -2602,23 +2626,26 @@ class ResearchPipeline:
             return
         try:
             self.feature_store.replace_stage_decisions(
-                run_id=run_id,
+                run_id=self._feature_run_id or run_id,
                 lane_id=lane_id,
                 stage=gate.stage,
                 decisions=gate.decisions,
                 updated_at=snapshot.as_of or self.now(),
+                generation_id=self._feature_generation_id or None,
             )
             if gate.stage == "A1_LOCAL_SCREEN":
                 self.feature_store.record_fundamental_features(
                     as_of=snapshot.as_of or self.now(),
                     decisions=gate.decisions,
-                    run_id=run_id,
+                    run_id=self._feature_run_id or run_id,
+                    generation_id=self._feature_generation_id or None,
                 )
             elif gate.stage == "A2_LOCAL_ROLE":
                 self.feature_store.record_market_role_features(
-                    run_id=run_id,
+                    run_id=self._feature_run_id or run_id,
                     lane_id=lane_id,
                     decisions=gate.decisions,
+                    generation_id=self._feature_generation_id or None,
                 )
         except (FeatureGenerationError, OSError, sqlite3.Error, ValueError) as exc:
             raise ResearchPipelineError("FEATURE_STORE_WRITE_FAILED") from exc
@@ -2666,7 +2693,7 @@ class ResearchPipeline:
             offset = 0
             while True:
                 page = self.feature_store.stage_decisions(
-                    run_id,
+                    self._feature_run_id or run_id,
                     lane.lane,
                     local_stage,
                     limit=5000,

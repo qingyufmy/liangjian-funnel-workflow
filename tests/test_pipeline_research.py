@@ -3646,3 +3646,42 @@ def test_research_run_seals_private_generation_without_replacing_live_active(tmp
     assert generation["status"] == "SEALED"
     assert generation["purpose"] == "RUN_SNAPSHOT"
     assert generation["activation_eligible"] is False
+
+
+def test_research_retry_with_fresh_snapshot_keeps_public_run_id_and_isolates_feature_generation(tmp_path: Path):
+    settings = _settings(tmp_path)
+    prompt_dir = _prompt_dir(tmp_path)
+    store = ResearchFeatureStore(settings.feature_store_db_path)
+    symbols = dict(zip(MODELS, ("600519.SH", "000001.SZ", "300750.SZ")))
+    pipeline = ResearchPipeline(
+        settings,
+        prompt_repository=prompt_dir,
+        model_client=FakeResearchClient(symbols),
+        now=lambda: NOW,
+    )
+    logical_run_id = "next-session-prep-2026-08-31"
+
+    first = pipeline.run(_snapshot(), run_id=logical_run_id, generated_at=NOW)
+    retry_snapshot = {
+        **_snapshot(),
+        "snapshot_id": "snap-20260824-retry",
+        "snapshot_hash": "t" * 64,
+        "snapshot_manifest": {"snapshot_id": "snap-20260824-retry"},
+    }
+    second = pipeline.run(retry_snapshot, run_id=logical_run_id, generated_at=NOW)
+
+    assert first.status == second.status == "READY"
+    assert first.run_id == second.run_id == logical_run_id
+    original_binding = store.get_run_feature_binding(run_id=logical_run_id, strict=True)
+    retry_binding = store.get_run_feature_binding(
+        run_id=f"{logical_run_id}--snapshot-{'t' * 12}",
+        strict=True,
+    )
+    assert original_binding["generation_id"] != retry_binding["generation_id"]
+    assert store.get_feature_generation(original_binding["generation_id"])["status"] == "SEALED"
+    retry_generation = store.get_feature_generation(retry_binding["generation_id"])
+    assert retry_generation["status"] == "SEALED"
+    assert retry_generation["metadata"]["run_id"] == logical_run_id
+    assert retry_generation["metadata"]["feature_run_id"] == (
+        f"{logical_run_id}--snapshot-{'t' * 12}"
+    )
