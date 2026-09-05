@@ -105,6 +105,31 @@ def test_client_honors_per_request_output_budget(tmp_path: Path):
     assert seen[0]["max_tokens"] == 131_072
 
 
+def test_a2_uses_bounded_json_classification_without_explicit_thinking(tmp_path: Path):
+    seen: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+
+        seen.append(json.loads(request.read()))
+        return _sse_response(request, [{"choices": [{"delta": {"content": '{"ok":true}'}}]}, "[DONE]"])
+
+    client = OpenAICompatibleModelClient(
+        _settings(tmp_path),
+        transport=httpx.MockTransport(handler),
+        sleep=lambda _: None,
+    )
+    result = client.complete(
+        "deepseek-v4-pro-0813",
+        [{"role": "user", "content": "same"}],
+        stage="A2",
+    )
+
+    assert result.output == {"ok": True}
+    assert result.thinking_variant == "thinking_disabled"
+    assert "reasoning_effort" not in seen[0]
+
+
 @pytest.mark.parametrize(
     ("status", "message"),
     [

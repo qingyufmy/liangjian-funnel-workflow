@@ -160,7 +160,7 @@ class OpenAICompatibleModelClient:
         timeout_seconds: float | None = None,
         max_output_tokens: int | None = None,
     ) -> ModelCallResult:
-        del snapshot_id, stage  # metadata is retained by the pipeline audit, not sent as secrets
+        del snapshot_id  # metadata is retained by the pipeline audit, not sent as secrets
         if model not in ALL_MODELS:
             raise ModelClientError("MODEL_NOT_ALLOWED")
         if self.settings.model_api_key is None:
@@ -184,7 +184,13 @@ class OpenAICompatibleModelClient:
         started_all = time.perf_counter()
         overall_deadline = self.monotonic() + call_timeout
         total_attempts = 0
-        last_variant = self.thinking_variants[0][0]
+        # A2 receives server-computed ranks, roles, routes and fact coverage.
+        # Its model task is bounded JSON classification/explanation, so an
+        # explicit reasoning mode adds minutes of latency without adding an
+        # auditable fact. A1 discovery and A3 plan verification retain the
+        # configured reasoning variants.
+        call_variants = NO_THINKING_VARIANTS if str(stage or "").upper() == "A2" else self.thinking_variants
+        last_variant = call_variants[0][0]
         strict_json_retry = False
         last_strict_error: StrictJSONError | None = None
         with httpx.Client(
@@ -198,7 +204,7 @@ class OpenAICompatibleModelClient:
                 "Content-Type": "application/json",
             },
         ) as client:
-            for variant_id, thinking_payload in self.thinking_variants:
+            for variant_id, thinking_payload in call_variants:
                 last_variant = variant_id
                 variant_attempts = 0
                 primary_output_tokens = self.settings.model_max_output_tokens
@@ -296,7 +302,7 @@ class OpenAICompatibleModelClient:
                                 generic_final_variant_fallback = (
                                     status in {400, 413, 422}
                                     and self.thinking_enabled
-                                    and variant_id == self.thinking_variants[-1][0]
+                                    and variant_id == call_variants[-1][0]
                                 )
                                 if output_budget_rejected or generic_final_variant_fallback:
                                     if budget_index + 1 < len(output_budgets):
@@ -317,7 +323,7 @@ class OpenAICompatibleModelClient:
                                     )
                                 # Unsupported thinking parameters are the sole reason
                                 # to try the next already-verified thinking variant.
-                                if status in {400, 404, 422} and variant_id != self.thinking_variants[-1][0]:
+                                if status in {400, 404, 422} and variant_id != call_variants[-1][0]:
                                     break
                                 raise ModelHTTPError("UPSTREAM_4XX", status_code=status, attempts=total_attempts)
 
@@ -338,7 +344,7 @@ class OpenAICompatibleModelClient:
                             self._backoff(variant_attempts, deadline=overall_deadline)
                             continue
                         if (
-                            variant_id != self.thinking_variants[-1][0]
+                            variant_id != call_variants[-1][0]
                             and self.monotonic() < overall_deadline
                         ):
                             break
