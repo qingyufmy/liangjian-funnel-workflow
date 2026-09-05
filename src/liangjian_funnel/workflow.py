@@ -53,6 +53,7 @@ from .facts import (
     select_cninfo_pdf_candidates,
 )
 from .evaluation.broker_gold import BrokerGoldContractError, evaluate_broker_gold, import_broker_gold
+from .evaluation.outcome_labels import record_stage_decisions
 from .pipeline.data_source import HithinkClient, HithinkFetchResult
 from .pipeline.data_readiness import evaluate_data_readiness
 from .pipeline.data_sync import HithinkIncrementalSynchronizer
@@ -3643,6 +3644,21 @@ class WorkflowApplication:
             str(plan.get("plan_id") or ""): plan
             for plan in lane_plans.get(primary_lane_id, ())
         }
+        all_plans = {
+            str(plan.get("plan_id") or ""): plan
+            for plans in lane_plans.values()
+            for plan in plans
+        }
+        outcome_tracking = self._record_a4_outcomes(
+            list(
+                self.store.list_monitor_events(
+                    effective_only=True,
+                    from_time=current.replace(hour=9, minute=30),
+                    to_time=current,
+                )
+            ),
+            all_plans,
+        )
         publisher = getattr(self, "lark_publisher", None)
         system_notifications: list[dict[str, Any]] = []
         publish_system_health = getattr(publisher, "publish_a4_system_health", None)
@@ -3676,6 +3692,7 @@ class WorkflowApplication:
             "minute_cache": cache_stats,
             "lanes": results,
             "simulation": simulation,
+            "outcome_tracking": outcome_tracking,
             "notifications": notifications,
         }
         atomic_write_json(self.settings.workflow_output_dir / "monitor" / "latest.json", payload)
@@ -4924,6 +4941,95 @@ class WorkflowApplication:
             return {"vetoes": veto_by_plan}
 
         return callback
+
+    def _record_a4_outcomes(
+        self,
+        events: tuple[dict[str, Any], ...] | list[dict[str, Any]],
+        plans: Mapping[str, Mapping[str, Any]],
+    ) -> dict[str, Any]:
+        """Append immutable T+N cohort rows for effective A4 entry signals.
+
+        Execution and paper fills remain owned by the monitor/lifecycle
+        ledger. This observation hook is best-effort: missing lineage is
+        reported in the monitor payload but never alters a trading decision.
+        """
+
+        recorded: list[str] = []
+        skipped: list[dict[str, str]] = []
+        for event in events:
+            if str(event.get("action") or "").upper() != MonitorAction.BUY_SIGNAL.value:
+                continue
+            try:
+                payload = json.loads(str(event.get("payload_json") or "{}"))
+            except json.JSONDecodeError:
+                payload = {}
+            if not isinstance(payload, Mapping):
+                payload = {}
+            plan_id = str(payload.get("plan_id") or "").strip()
+            lane_id = str(event.get("lane_id") or "").strip()
+            plan = plans.get(plan_id) or self.store.get_execution_plan(plan_id)
+            if not plan_id or not lane_id or plan is None:
+                skipped.append({
+                    "event_key": str(event.get("event_key") or ""),
+                    "reason_code": "A4_OUTCOME_PLAN_LINEAGE_MISSING",
+                })
+                continue
+            try:
+                plan_payload = json.loads(str(plan.get("payload_json") or "{}"))
+            except json.JSONDecodeError:
+                plan_payload = {}
+            if not isinstance(plan_payload, Mapping):
+                plan_payload = {}
+            source_run_id = str(plan_payload.get("source_run_id") or "").strip()
+            source_run = self.store.get_workflow_run(source_run_id, lane_id) if source_run_id else None
+            snapshot_id = str((source_run or {}).get("snapshot_hash") or "").strip()
+            config_hash = str((source_run or {}).get("config_hash") or "").strip()
+            if not source_run_id or not snapshot_id or not config_hash:
+                skipped.append({
+                    "event_key": str(event.get("event_key") or ""),
+                    "reason_code": "A4_OUTCOME_SOURCE_LINEAGE_MISSING",
+                })
+                continue
+            try:
+                signal_time = datetime.fromisoformat(str(event.get("minute_end") or ""))
+                lifecycle = self.store.get_a4_signal_lifecycle(str(event.get("event_key") or ""))
+                rows = record_stage_decisions(
+                    self.store,
+                    trade_date=signal_time.astimezone(SHANGHAI).date(),
+                    stage="A4",
+                    decisions=[{
+                        "symbol": str(plan.get("symbol") or payload.get("symbol") or ""),
+                        "decision": "PASSED",
+                        "selection_basis": "A4_EXECUTION_SIGNAL",
+                        "reason_codes": payload.get("reason_codes", ()),
+                        "metadata": {
+                            "entry_event_key": str(event.get("event_key") or ""),
+                            "lifecycle_id": str((lifecycle or {}).get("lifecycle_id") or ""),
+                            "plan_id": plan_id,
+                            "signal_time": signal_time.isoformat(),
+                            "signal_price": (lifecycle or {}).get("signal_price"),
+                            "strategy_profile": plan_payload.get("strategy_profile"),
+                            "stock_behavior_type": plan_payload.get("stock_behavior_type"),
+                            "theme_id": plan_payload.get("theme_id"),
+                            "candidate_origin": plan_payload.get("candidate_origin"),
+                        },
+                    }],
+                    snapshot_id=snapshot_id,
+                    config_hash=config_hash,
+                    run_id=source_run_id,
+                    lane_id=lane_id,
+                )
+                recorded.extend(str(row.get("label_id") or "") for row in rows)
+            except Exception:
+                skipped.append({
+                    "event_key": str(event.get("event_key") or ""),
+                    "reason_code": "A4_OUTCOME_PERSIST_FAILED",
+                })
+        return {
+            "status": "READY" if not skipped else "DEGRADED",
+            "recorded": sorted(set(item for item in recorded if item)),
+            "skipped": skipped,
+        }
 
     def _settle_prior_signals(self, lane_id: str, symbol: str, bar: MinuteBar) -> list[dict[str, Any]]:
         broker = self.brokers[lane_id]

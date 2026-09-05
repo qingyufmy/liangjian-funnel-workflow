@@ -242,6 +242,7 @@ OUTCOME_SELECTION_BASES = frozenset(
         "BROKER_GOLD_DIRECT",
         "FUNDAMENTAL_BASELINE",
         "HALF_YEAR_FUNDAMENTAL",
+        "A4_EXECUTION_SIGNAL",
     }
 )
 
@@ -1259,6 +1260,16 @@ class RuntimeStore:
                     "SELECT * FROM workflow_runs ORDER BY updated_at DESC,run_id,lane_id LIMIT ?",
                     (bounded,),
                 ).fetchall()
+            )
+        )
+
+    def get_workflow_run(self, run_id: str, lane_id: str) -> dict[str, Any] | None:
+        return self._read(
+            lambda connection: _row_dict(
+                connection.execute(
+                    "SELECT * FROM workflow_runs WHERE run_id=? AND lane_id=?",
+                    (str(run_id), str(lane_id)),
+                ).fetchone()
             )
         )
 

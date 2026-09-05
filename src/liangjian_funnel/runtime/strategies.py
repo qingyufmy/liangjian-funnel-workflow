@@ -85,6 +85,7 @@ class StrategyEvaluation(BaseModel):
     unmet_conditions: tuple[str, ...] = ()
     veto_conditions: tuple[str, ...] = ()
     confirmation_results: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    indicator_observations: dict[str, Any] = Field(default_factory=dict)
     all_failed_confirmations: tuple[str, ...] = ()
     sector_data_lag_s: float | None = None
     closed_5m_end: str | None = None
@@ -365,6 +366,17 @@ def evaluate_a4_plan(
             veto=["NO_CLOSED_15M"],
         )
 
+    if profile is StrategyProfile.MA520_SWING:
+        # MACD and KDJ are supporting evidence in the frozen strategy
+        # contract, never a replacement for the price/volume state machine.
+        # Keep them on every evaluable 520 decision so production and replay
+        # audits can verify that role explicitly.
+        base["indicator_observations"] = _ma520_indicator_observations(
+            plan,
+            bars_5m,
+            bars_15m,
+        )
+
     if not position_open:
         pre_entry_risk = _pre_entry_risk_decision(
             profile,
@@ -518,6 +530,7 @@ def _base_result(profile: StrategyProfile | None, plan: Mapping[str, Any]) -> di
         "unmet_conditions": [],
         "veto_conditions": [],
         "confirmation_results": {},
+        "indicator_observations": {},
         "all_failed_confirmations": [],
         "sector_data_lag_s": None,
         "_sector_data_timestamp": _sector_data_timestamp(plan),
@@ -1473,6 +1486,165 @@ def _520_confirmations(five: Sequence[_Bar]) -> int:
         else:
             break
     return count
+
+
+def _ma520_indicator_observations(
+    plan: Mapping[str, Any],
+    five: Sequence[_Bar],
+    fifteen: Sequence[_Bar],
+) -> dict[str, Any]:
+    """Return document-scoped 520 indicator evidence without voting on entry.
+
+    The authoritative strategy conditions remain the frozen daily MA5/MA20
+    path, 15-minute price structure and closed 5-minute confirmation.  MACD
+    and KDJ are intentionally exposed as auxiliary/observational facts only.
+    """
+
+    raw_daily = _lookup(plan, ("daily_macd",), ("strategy_facts", "daily_macd"))
+    daily = raw_daily if isinstance(raw_daily, Mapping) else {}
+    dif = _number(_lookup(daily, ("dif",), ("diff",)))
+    dea = _number(_lookup(daily, ("dea",), ("signal",)))
+    hist = _number(_lookup(daily, ("hist",), ("histogram",), ("macd",)))
+    daily_available = dif is not None and dea is not None and hist is not None
+    daily_state = "UNAVAILABLE"
+    if daily_available:
+        daily_state = (
+            "POSITIVE" if hist > _EPSILON
+            else "NEGATIVE" if hist < -_EPSILON
+            else "ZERO"
+        )
+
+    return {
+        "contract_version": "ma520-indicators/1.0.0",
+        "price_structure_remains_authoritative": True,
+        "multi_indicator_vote_used": False,
+        "daily_macd": {
+            "role": "A3_TREND_CONFIRMATION_ONLY",
+            "hard_gate": False,
+            "available": daily_available,
+            "dif": round(dif, 6) if dif is not None else None,
+            "dea": round(dea, 6) if dea is not None else None,
+            "hist": round(hist, 6) if hist is not None else None,
+            "state": daily_state,
+        },
+        "m15_macd": _macd_observation(fifteen),
+        "kdj": _kdj_observation(five),
+    }
+
+
+def _ema_series(values: Sequence[float], period: int) -> list[float]:
+    if not values:
+        return []
+    alpha = 2.0 / (period + 1.0)
+    result = [float(values[0])]
+    for value in values[1:]:
+        result.append(alpha * float(value) + (1.0 - alpha) * result[-1])
+    return result
+
+
+def _macd_observation(bars: Sequence[_Bar]) -> dict[str, Any]:
+    role = "A4_AUXILIARY_EVIDENCE"
+    if len(bars) < 2:
+        return {
+            "role": role,
+            "timeframe": "15m_closed",
+            "hard_gate": False,
+            "available": False,
+            "warmup_complete": False,
+            "bar_count": len(bars),
+            "state": "UNAVAILABLE",
+            "reason_code": "M15_MACD_REQUIRES_TWO_CLOSED_BARS",
+        }
+    closes = [bar.close for bar in bars]
+    fast = _ema_series(closes, 12)
+    slow = _ema_series(closes, 26)
+    dif_values = [left - right for left, right in zip(fast, slow)]
+    dea_values = _ema_series(dif_values, 9)
+    hist_values = [2.0 * (left - right) for left, right in zip(dif_values, dea_values)]
+    previous = hist_values[-2]
+    current = hist_values[-1]
+    if previous <= _EPSILON < current:
+        state = "TURNED_POSITIVE"
+    elif current < -_EPSILON and abs(current) + _EPSILON < abs(previous):
+        state = "NEGATIVE_SHRINKING"
+    elif current > _EPSILON and current > previous + _EPSILON:
+        state = "POSITIVE_EXPANDING"
+    elif current > _EPSILON:
+        state = "POSITIVE_WEAKENING"
+    elif current < -_EPSILON:
+        state = "NEGATIVE_EXPANDING_OR_FLAT"
+    else:
+        state = "ZERO"
+    return {
+        "role": role,
+        "timeframe": "15m_closed",
+        "hard_gate": False,
+        "available": True,
+        # A full 12/26/9 warm-up needs more history than a single A-share
+        # session provides.  The value remains transparent auxiliary evidence
+        # until at least 35 closed 15-minute bars are present.
+        "warmup_complete": len(bars) >= 35,
+        "bar_count": len(bars),
+        "dif": round(dif_values[-1], 6),
+        "dea": round(dea_values[-1], 6),
+        "hist": round(current, 6),
+        "previous_hist": round(previous, 6),
+        "state": state,
+        "closed_bar_end": bars[-1].end.isoformat(),
+    }
+
+
+def _kdj_observation(bars: Sequence[_Bar], period: int = 9) -> dict[str, Any]:
+    role = "OBSERVATION_ONLY"
+    if len(bars) < period:
+        return {
+            "role": role,
+            "timeframe": "5m_closed",
+            "hard_gate": False,
+            "available": False,
+            "bar_count": len(bars),
+            "required_bars": period,
+            "state": "UNAVAILABLE",
+            "reason_code": "KDJ_REQUIRES_NINE_CLOSED_5M_BARS",
+        }
+    k_value = 50.0
+    d_value = 50.0
+    previous_k = k_value
+    previous_d = d_value
+    for index in range(period - 1, len(bars)):
+        window = bars[index - period + 1 : index + 1]
+        lowest = min(bar.low for bar in window)
+        highest = max(bar.high for bar in window)
+        rsv = 50.0 if highest <= lowest + _EPSILON else (
+            (bars[index].close - lowest) / (highest - lowest) * 100.0
+        )
+        previous_k, previous_d = k_value, d_value
+        k_value = (2.0 * k_value + rsv) / 3.0
+        d_value = (2.0 * d_value + k_value) / 3.0
+    j_value = 3.0 * k_value - 2.0 * d_value
+    if previous_k <= previous_d and k_value > d_value:
+        state = "GOLDEN_CROSS_OBSERVED"
+    elif previous_k >= previous_d and k_value < d_value:
+        state = "DEATH_CROSS_OBSERVED"
+    elif k_value >= 80.0 and d_value >= 80.0:
+        state = "OVERBOUGHT_OBSERVED"
+    elif k_value <= 20.0 and d_value <= 20.0:
+        state = "OVERSOLD_OBSERVED"
+    else:
+        state = "NEUTRAL"
+    return {
+        "role": role,
+        "timeframe": "5m_closed",
+        "hard_gate": False,
+        "available": True,
+        "bar_count": len(bars),
+        "required_bars": period,
+        "k": round(k_value, 6),
+        "d": round(d_value, 6),
+        "j": round(j_value, 6),
+        "state": state,
+        "closed_bar_end": bars[-1].end.isoformat(),
+    }
 
 
 def _volume_not_overheated(plan: Mapping[str, Any], five: Sequence[_Bar]) -> tuple[bool, str]:

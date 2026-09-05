@@ -93,7 +93,7 @@ export class JobRunner {
     if (!definition) {
       throw new Error("unsupported job");
     }
-    const slot = job === "comparison" ? "comparison" : job === "a5-midday" || job === "a5-close" ? "review" : "primary";
+    const slot = job === "comparison" ? "comparison" : job === "a5-midday" || job === "a5-close" || job === "outcomes" ? "review" : "primary";
     const current = slot === "comparison" ? this.comparison : slot === "review" ? this.review : this.active;
     if (current) return this.skipped(job, definition.command, current.runId);
 

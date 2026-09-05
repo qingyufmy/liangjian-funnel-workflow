@@ -925,6 +925,52 @@ def test_missed_next_bar_entry_is_retained_as_unfilled_sample(tmp_path):
     assert lifecycle["exit_reason"] == "ENTRY_NEXT_BAR_MISSED"
 
 
+def test_effective_a4_entry_is_persisted_as_idempotent_tn_outcome_cohort(tmp_path):
+    store = RuntimeStore(tmp_path / "runtime.sqlite3")
+    store.record_workflow_run(
+        run_id="source-run",
+        lane_id="lane_1",
+        trade_date="2026-09-03",
+        slot="CLOSE",
+        model="fixture",
+        status="PUBLISHED",
+        snapshot_hash="snapshot-hash",
+        config_hash="config-hash",
+    )
+    plan = store.create_execution_plan(
+        "plan-outcome",
+        "lane_1",
+        "600519.SH",
+        status=PlanStatus.ACTIVE_TODAY,
+        payload={
+            "source_run_id": "source-run",
+            "strategy_profile": "TREND_MA5",
+            "stock_behavior_type": "TREND",
+            "theme_id": "CONSUMPTION",
+        },
+    )
+    event, _ = store.record_monitor_event(
+        event_key="effective:a4-outcome",
+        lane_id="lane_1",
+        minute_end=datetime(2026, 9, 4, 10, 0, tzinfo=TZ),
+        action=MonitorAction.BUY_SIGNAL,
+        effective=True,
+        sync_a4_lifecycle=True,
+        payload={"plan_id": "plan-outcome", "symbol": "600519.SH", "signal_price": 100.0},
+    )
+    app = SimpleNamespace(store=store)
+
+    first = WorkflowApplication._record_a4_outcomes(app, [event], {"plan-outcome": plan})
+    second = WorkflowApplication._record_a4_outcomes(app, [event], {"plan-outcome": plan})
+
+    rows = store.list_outcome_labels(stage="A4")
+    assert first["status"] == "READY"
+    assert second["status"] == "READY"
+    assert len(rows) == 1
+    assert rows[0]["trade_date"] == "2026-09-04"
+    assert rows[0]["selection_basis"] == "A4_EXECUTION_SIGNAL"
+
+
 def test_morning_review_activates_pending_plans_without_research_models(tmp_path):
     store = RuntimeStore(tmp_path / "runtime.sqlite3")
     current = datetime(2026, 8, 24, 9, 26, tzinfo=TZ)

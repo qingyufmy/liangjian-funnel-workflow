@@ -4259,6 +4259,9 @@ class ResearchPipeline:
                 a3_semantic_reasons.extend(
                     _a3_origin_only_veto_reasons(output, snapshot.data)
                 )
+                a3_semantic_reasons.extend(
+                    _a3_prior_market_only_veto_reasons(output, snapshot.data)
+                )
                 output, canonicalized_a3_origins = _apply_a3_candidate_origin_policy(
                     output,
                     snapshot.data,
@@ -5190,6 +5193,27 @@ def _prompt_replacements(
                 "pool_max": 60,
                 "quota_forbidden": True,
             }
+            continue
+        if name == "REGIME_PARAM_SET" and stage == "A3":
+            found, value = _lookup_field(snapshot.data, name)
+            if not found or not isinstance(value, Mapping):
+                replacements[name] = value if found else None
+                continue
+            projected = dict(value)
+            raw_agent3 = value.get("agent_3")
+            if isinstance(raw_agent3, Mapping):
+                # Prior-day regime parameters may guide priority/risk-unit
+                # commentary, but the A3 contract makes technical
+                # qualification independent from global pool quotas.  Do not
+                # expose stale pre-refactor kill switches that invite the
+                # veto-only model to erase a server-qualified daily setup.
+                agent3 = dict(raw_agent3)
+                for key in ("core_watch_max", "total_watch_max", "generate_buy_plans"):
+                    agent3.pop(key, None)
+                projected["agent_3"] = agent3
+            projected["a3_market_context_authority"] = "POSITION_GUIDANCE_ONLY"
+            projected["a4_entry_authority"] = "CURRENT_SESSION_LIVE_STATE"
+            replacements[name] = projected
             continue
         if name == "BROKER_GOLD_COVERAGE_POOL" and policy_macro_discovery:
             found, value = _lookup_field(snapshot.data, name)
@@ -8847,6 +8871,67 @@ def _a3_origin_only_veto_reasons(
             }
             if not independent:
                 reasons.append("A3_ORIGIN_ONLY_VETO_CONTRADICTS_TECHNICAL_QUALIFICATION")
+    return list(dict.fromkeys(reasons))
+
+
+def _a3_prior_market_only_veto_reasons(
+    output: Mapping[str, Any],
+    snapshot_data: Mapping[str, Any],
+) -> list[str]:
+    """Reject A3 vetoes based only on prior-day market/pool switches.
+
+    A3 owns closed-daily technical qualification.  The previous session's
+    regime controls position guidance and priority, while A4 owns the next
+    session's live new-entry permission.  A veto-only model therefore cannot
+    demote a server-qualified plan solely because an obsolete regime override
+    says the model pool is zero or yesterday was risk-off.
+    """
+
+    raw_contexts = snapshot_data.get("A3_DETERMINISTIC_CONTEXT")
+    contexts = raw_contexts if isinstance(raw_contexts, Mapping) else {}
+    context_only_codes = {
+        "SYSTEM_CORE_WATCH_MAX_ZERO",
+        "AGENT3_GENERATE_BUY_PLANS_FALSE",
+        "MARKET_RISK_OFF",
+        "RISK_OFF_RETREAT",
+        "NO_NEW_ENTRY",
+        "PRIOR_MARKET_NO_NEW_ENTRY",
+        "PRIOR_DAY_NO_NEW_ENTRY",
+    }
+    reasons: list[str] = []
+    for pool_name in ("secondary_watch_pool", "rejected_candidates"):
+        raw_items = output.get(pool_name)
+        if not isinstance(raw_items, list):
+            continue
+        for raw_item in raw_items:
+            if not isinstance(raw_item, Mapping):
+                continue
+            symbol = _first_symbol(raw_item)
+            context = contexts.get(symbol)
+            context = context if isinstance(context, Mapping) else {}
+            eligibility = str(
+                context.get("eligibility") or raw_item.get("eligibility") or ""
+            ).strip().upper()
+            if eligibility != "QUALIFIED":
+                continue
+            review_status = str(raw_item.get("review_status") or "VETO").strip().upper()
+            if review_status not in {"VETO", "DATA_GAP"}:
+                continue
+            raw_codes = raw_item.get("reason_codes")
+            codes = {
+                str(code).strip().upper()
+                for code in raw_codes
+                if isinstance(code, str) and str(code).strip()
+            } if isinstance(raw_codes, list) else set()
+            independent = {
+                code
+                for code in codes
+                if code not in context_only_codes
+                and not code.startswith("SYSTEM_CORE_WATCH_MAX_")
+                and not code.startswith("AGENT3_GENERATE_BUY_PLANS_")
+            }
+            if codes and not independent:
+                reasons.append("A3_PRIOR_MARKET_ONLY_VETO_CONTRADICTS_TECHNICAL_AUTHORITY")
     return list(dict.fromkeys(reasons))
 
 

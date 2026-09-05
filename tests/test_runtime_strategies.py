@@ -191,6 +191,30 @@ def test_ma520_explicit_right_side_evidence_can_continue_to_entry() -> None:
     assert "A3_RIGHT_SIDE_CONFIRMATION" in result["met_conditions"]
 
 
+def test_ma520_records_macd_and_kdj_in_document_roles_without_indicator_vote() -> None:
+    result = evaluate_a4_plan(
+        _base(
+            StrategyProfile.MA520_SWING.value,
+            daily_indicators={"ma5": 11.0, "ma20": 10.0, "close": 11.2},
+            daily_macd={"dif": 0.12, "dea": 0.08, "hist": 0.08},
+            strategy_facts={"ma520_setup": {"second_wave_restart": True}},
+        ),
+        _bars(count=60),
+    )
+
+    observations = result["indicator_observations"]
+    assert observations["price_structure_remains_authoritative"] is True
+    assert observations["multi_indicator_vote_used"] is False
+    assert observations["daily_macd"]["role"] == "A3_TREND_CONFIRMATION_ONLY"
+    assert observations["daily_macd"]["hard_gate"] is False
+    assert observations["m15_macd"]["role"] == "A4_AUXILIARY_EVIDENCE"
+    assert observations["m15_macd"]["available"] is True
+    assert observations["m15_macd"]["hard_gate"] is False
+    assert observations["kdj"]["role"] == "OBSERVATION_ONLY"
+    assert observations["kdj"]["available"] is True
+    assert observations["kdj"]["hard_gate"] is False
+
+
 def test_a3_ma520_payload_preserves_right_side_evidence_into_a4() -> None:
     factor = {
         "timeframes": {

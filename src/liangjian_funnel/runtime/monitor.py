@@ -313,6 +313,7 @@ class MonitorEngine:
                     "live_reward_risk": strategy_result.get("live_reward_risk"),
                     "minimum_reward_risk": strategy_result.get("minimum_reward_risk"),
                     "maximum_stop_distance_pct": strategy_result.get("maximum_stop_distance_pct"),
+                    "indicator_observations": strategy_result.get("indicator_observations") or {},
                     "trigger_pass": action in {
                         MonitorAction.BUY_SIGNAL.value,
                         MonitorAction.ADD_SIGNAL.value,

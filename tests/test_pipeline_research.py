@@ -22,6 +22,7 @@ from liangjian_funnel.pipeline.research import (
     _authorized_discovery_source_refs,
     _a3_semantic_price_reasons,
     _a3_origin_only_veto_reasons,
+    _a3_prior_market_only_veto_reasons,
     _a3_secondary_probe_contract_reasons,
     _a3_watch_only_candidate_eligible,
     _apply_stage_threshold_policy,
@@ -2800,6 +2801,36 @@ def test_a3_watch_only_model_veto_with_independent_risk_remains_valid():
     )
 
     assert reasons == []
+
+
+def test_a3_prior_market_pool_switches_cannot_veto_qualified_daily_setup():
+    reasons = _a3_prior_market_only_veto_reasons(
+        {
+            "secondary_watch_pool": [
+                {
+                    "symbol": "000301.SZ",
+                    "review_status": "VETO",
+                    "reason_codes": [
+                        "SYSTEM_CORE_WATCH_MAX_ZERO",
+                        "AGENT3_GENERATE_BUY_PLANS_FALSE",
+                        "MARKET_RISK_OFF",
+                    ],
+                }
+            ]
+        },
+        {
+            "A3_DETERMINISTIC_CONTEXT": {
+                "000301.SZ": {
+                    "eligibility": "QUALIFIED",
+                    "strategy_profile": "TREND_MA5",
+                }
+            }
+        },
+    )
+
+    assert reasons == [
+        "A3_PRIOR_MARKET_ONLY_VETO_CONTRADICTS_TECHNICAL_AUTHORITY"
+    ]
 
 
 def test_a3_secondary_probe_is_canonicalized_and_thresholded():

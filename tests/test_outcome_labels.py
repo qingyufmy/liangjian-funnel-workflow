@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -172,6 +173,70 @@ def test_forward_metrics_use_raw_prices_and_explicit_factor_and_leave_short_wind
     assert "RAW_PLUS_EXPLICIT_FACTOR_REQUIRED" in bad["source_errors"]
 
 
+def test_sqlite_utc_daily_bar_timestamp_is_mapped_to_shanghai_trade_date(tmp_path: Path) -> None:
+    store = RuntimeStore(tmp_path / "state.sqlite3")
+    recorded = store.record_outcome_label(_label())
+    source = tmp_path / "facts.sqlite3"
+    with sqlite3.connect(source) as connection:
+        connection.execute(
+            "CREATE TABLE daily_bars(symbol TEXT,bar_timestamp TEXT,adjust TEXT,payload_json TEXT)"
+        )
+        for day, close in (
+            ("2026-08-27T16:00:00+00:00", 100.0),
+            ("2026-08-30T16:00:00+00:00", 101.0),
+        ):
+            connection.execute(
+                "INSERT INTO daily_bars VALUES(?,?,?,?)",
+                (
+                    "600001.SH",
+                    day,
+                    "none",
+                    json.dumps({
+                        "close_price": close,
+                        "high_price": close + 1.0,
+                        "low_price": close - 1.0,
+                    }),
+                ),
+            )
+
+    result = backfill_forward_returns(
+        store,
+        as_of_date="2026-08-31",
+        price_source=source,
+    )
+
+    row = store.get_outcome_label(recorded["label_id"])
+    assert result["source_errors"] == []
+    assert row is not None
+    assert row["fwd_return_1d"] == pytest.approx(0.01)
+
+
+def test_sqlite_price_source_uses_latest_append_only_revision(tmp_path: Path) -> None:
+    store = RuntimeStore(tmp_path / "state.sqlite3")
+    recorded = store.record_outcome_label(_label())
+    source = tmp_path / "facts.sqlite3"
+    with sqlite3.connect(source) as connection:
+        connection.execute(
+            "CREATE TABLE daily_bars(symbol TEXT,bar_timestamp TEXT,adjust TEXT,payload_json TEXT,fetched_at TEXT,content_hash TEXT)"
+        )
+        rows = (
+            ("2026-08-27T16:00:00+00:00", 100.0, "2026-08-28T01:00:00+00:00", "a"),
+            ("2026-08-30T16:00:00+00:00", 101.0, "2026-08-31T01:00:00+00:00", "a"),
+            ("2026-08-30T16:00:00+00:00", 103.0, "2026-08-31T02:00:00+00:00", "b"),
+        )
+        for timestamp, close, fetched_at, digest in rows:
+            connection.execute(
+                "INSERT INTO daily_bars VALUES(?,?,?,?,?,?)",
+                ("600001.SH", timestamp, "none", json.dumps({"close_price": close}), fetched_at, digest),
+            )
+
+    backfill_forward_returns(store, as_of_date="2026-08-31", price_source=source)
+
+    row = store.get_outcome_label(recorded["label_id"])
+    assert row is not None
+    assert row["fwd_return_1d"] == pytest.approx(0.03)
+
+
 def test_conditional_random_baseline_is_deterministic_and_requires_n_peers() -> None:
     target = {
         "symbol": "600001.SH",
@@ -220,3 +285,32 @@ def test_evaluation_cli_is_local_only_and_emits_structured_json(tmp_path: Path, 
     assert payload["network_used"] is False
     assert payload["models_called"] is False
     assert payload["runtime_mutation"] is True
+
+
+def test_scheduled_outcome_cli_uses_configured_local_fact_cache(tmp_path: Path, capsys) -> None:
+    source = tmp_path / "facts.sqlite3"
+    with sqlite3.connect(source) as connection:
+        connection.execute(
+            "CREATE TABLE daily_bars(symbol TEXT,bar_timestamp TEXT,adjust TEXT,payload_json TEXT)"
+        )
+        for timestamp, close in (
+            ("2026-08-27T16:00:00+00:00", 100.0),
+            ("2026-08-30T16:00:00+00:00", 102.0),
+        ):
+            connection.execute(
+                "INSERT INTO daily_bars VALUES(?,?,?,?)",
+                ("600001.SH", timestamp, "none", json.dumps({"close_price": close})),
+            )
+    settings = Settings.from_env(
+        {"LIANGJIAN_FACT_CACHE_DB_PATH": str(source)},
+        root=tmp_path,
+    )
+    store = RuntimeStore(settings.state_db_path)
+    store.record_outcome_label(_label())
+
+    assert main(["run-outcomes"], settings=settings) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["source_errors"] == []
+    assert payload["labels_updated"] == 1
+    assert RuntimeStore(settings.state_db_path).list_outcome_labels()[0]["fwd_return_1d"] == pytest.approx(0.02)

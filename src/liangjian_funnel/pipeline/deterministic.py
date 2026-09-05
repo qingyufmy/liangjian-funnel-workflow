@@ -1309,37 +1309,17 @@ def screen_a2(
             ),
             default=None,
         )
-        # A1's monthly member and a selected positive-flow TOP5 board form
-        # the broad trend-candidate contract.  A2 behavior classification is
-        # allowed to retain one weak trend facet for LLM review; it must not
-        # silently turn a valid board constituent into an unrouteable local
-        # monitor.  Emotion rows are never promoted by this path.
+        # Count the objective market facts before resolving the final trend
+        # route.  The broad-candidate promotion is applied after every
+        # supported rotation source has been joined below; historical frozen
+        # snapshots without SELECTED_BOARD_SNAPSHOT must not lose the same
+        # coverage contract merely because they use A2_THEME_METRICS.
         market_fact_count = sum(
             isinstance(factor_scores.get(name), Mapping)
             and factor_scores.get(name, {}).get("available") is True
             and _number(factor_scores.get(name, {}).get("score")) is not None
             for name in _A2_MARKET_FACTORS
         )
-        broad_trend_candidate = (
-            monthly_a1_member
-            and selected_board_match is not None
-            and not upstream_research_only
-            and not hard_risk_present
-            and not explicitly_inactive
-            and _has_business_evidence(item)
-            and market_fact_count >= 2
-            and str(behavior_decision.get("stock_behavior_type") or "")
-            == A2_BEHAVIOR_UNRESOLVED
-        )
-        if broad_trend_candidate:
-            behavior_decision = classify_a2_stock(
-                symbol=symbol,
-                name=item.get("company_name") or item.get("name") or candidate.get("name"),
-                as_of=_snapshot_as_of(snapshot),
-                evidence=behavior_evidence,
-                trend_candidate=True,
-            )
-        role = str(behavior_decision.get("market_role") or A2_BEHAVIOR_UNRESOLVED)
         rotation_fallback = (
             _a2_rotation_fallback_evidence(
                 snapshot,
@@ -1387,6 +1367,30 @@ def screen_a2(
             # Keep the A1-bound identifier for audit, but do not mistake a
             # missing/invalid full-market join for a qualifying direction.
             rotation_direction_id = a1_rotation_direction_id
+        broad_trend_candidate = (
+            monthly_a1_member
+            and (
+                selected_board_match is not None
+                or full_market_rotation_match is not None
+                or rotation_fallback is not None
+            )
+            and not upstream_research_only
+            and not hard_risk_present
+            and not explicitly_inactive
+            and _has_business_evidence(item)
+            and market_fact_count >= 2
+            and str(behavior_decision.get("stock_behavior_type") or "")
+            == A2_BEHAVIOR_UNRESOLVED
+        )
+        if broad_trend_candidate:
+            behavior_decision = classify_a2_stock(
+                symbol=symbol,
+                name=item.get("company_name") or item.get("name") or candidate.get("name"),
+                as_of=_snapshot_as_of(snapshot),
+                evidence=behavior_evidence,
+                trend_candidate=True,
+            )
+        role = str(behavior_decision.get("market_role") or A2_BEHAVIOR_UNRESOLVED)
         route_results = _a2_route_results(
             item=item,
             identifiability=identifiability,

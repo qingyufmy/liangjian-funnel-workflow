@@ -450,6 +450,10 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="local JSON/CSV or SQLite daily-bar source; defaults to the fact cache",
     )
+    sub.add_parser(
+        "run-outcomes",
+        help="scheduled local T+N outcome backfill through the latest Shanghai trade date",
+    )
     attribution = sub.add_parser(
         "layer-attribution",
         help="calculate deterministic funnel-layer outcome attribution",
@@ -598,7 +602,7 @@ def main(argv: Sequence[str] | None = None, *, settings: Settings | None = None)
         return _doctor(active)
     if args.command in {"storage-audit", "storage-backup", "storage-cleanup"}:
         return _storage_command(args, active)
-    if args.command in {"label-outcomes", "layer-attribution"}:
+    if args.command in {"label-outcomes", "run-outcomes", "layer-attribution"}:
         return _evaluation_command(args, active)
     if args.command in {"prepare-snapshot", "import-broker-gold", "sync-data", "maintain-features", "run-a1-maintenance", "run-research", "run-comparison", "monitor-once", "activate-latest-a3-for-a4", "run-due", "run-premarket", "run-morning", "run-close", "run-a5-midday", "run-a5-close", "run-next-session-prep", "run-monitor", "status"}:
         return _workflow_command(args, active)
@@ -827,15 +831,19 @@ def _evaluation_command(args: argparse.Namespace, settings: Settings) -> int:
 
     try:
         store = RuntimeStore(settings.state_db_path)
-        if args.command == "label-outcomes":
+        if args.command in {"label-outcomes", "run-outcomes"}:
             source = (
                 Path(args.price_source).expanduser().resolve()
-                if args.price_source
+                if getattr(args, "price_source", None)
                 else settings.fact_cache_db_path
             )
             payload = backfill_forward_returns(
                 store,
-                as_of_date=args.as_of,
+                as_of_date=(
+                    args.as_of
+                    if getattr(args, "as_of", None)
+                    else datetime.now(ZoneInfo(settings.timezone)).date()
+                ),
                 price_source=source,
             )
             print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True, default=str))

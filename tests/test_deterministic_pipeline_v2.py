@@ -1962,6 +1962,106 @@ def test_screen_a2_ranks_concrete_sector_indices_from_frozen_market_strength() -
     }
 
 
+def test_a2_full_market_top5_promotes_partial_trend_for_complete_llm_review() -> None:
+    snapshot = _snapshot(1)
+    symbol = snapshot["g0_symbols"][0]
+    code = "I900.TI"
+    snapshot["EASTMONEY_HOT100_SNAPSHOT"] = {
+        "available": True,
+        "trade_date": "2026-09-03",
+        "records": [],
+    }
+    snapshot["THS_INDUSTRY_MEMBERSHIP"]["records"] = [{
+        "thscode": symbol,
+        "mapping_status": "MAPPED",
+        "memberships": [{"industry_thscode": code, "industry_name": "测试强板块"}],
+    }]
+    snapshot["A2_THEME_METRICS"] = {
+        "available": True,
+        "theme_metrics": {
+            f"INDUSTRY:{code}": {
+                "available": True,
+                "taxonomy": "INDUSTRY",
+                "taxonomy_code": code,
+                "taxonomy_name": "测试强板块",
+                "score": 90,
+                "breadth": 80,
+                "turnover_share": 10,
+                "weekly_confirmation_score": 80,
+            }
+        },
+    }
+    snapshot["A2_SECTOR_HEALTH_SNAPSHOT"] = {
+        "available": True,
+        "by_taxonomy": {
+            "industry": {
+                "sectors": [{
+                    "taxonomy_code": code,
+                    "taxonomy_name": "测试强板块",
+                    "capital_flow": {
+                        "available": True,
+                        "source": "EASTMONEY_BOARD_CAPITAL_FLOW",
+                        "windows": {"today": {"main_net_cny": 1_000_000}},
+                    },
+                }]
+            }
+        },
+    }
+    snapshot["A2_FACTOR_SNAPSHOT"] = {
+        symbol: {
+            "relative_strength_score": 55,
+            "a2_factor_scores": _trend_a2_factor_scores(80),
+        }
+    }
+    snapshot["A2_SCORE_WEIGHTS"] = {
+        name: 1.0 for name in _complete_a2_factor_scores(80)
+    }
+    snapshot["CAPITAL_FLOW_SNAPSHOT"] = {
+        "available": True,
+        "by_symbol": {symbol: {"available": True, "capital_flow_score": 80}},
+    }
+    row = {
+        "symbol": symbol,
+        "candidate_id": f"a1:{symbol}",
+        "primary_theme": "theme-monthly",
+        "industry_chain_node": "node-monthly",
+        "business_exposure": {
+            "revenue_exposure_pct": 65,
+            "source_ref": f"cninfo:{symbol}",
+            "evidence_basis": "COMPANY_DISCLOSURE",
+        },
+        "business_exposure_facts": [{
+            "revenue_exposure_pct": 65,
+            "source_ref": f"cninfo:{symbol}",
+        }],
+        "a2_factor_scores": _trend_a2_factor_scores(80),
+        "data_quality_score": 90,
+    }
+    taxonomy_links = [{
+        "node_id": "node-monthly",
+        "theme_id": "theme-monthly",
+        "taxonomy": "INDUSTRY",
+        "taxonomy_code": code,
+        "confidence": 1.0,
+    }]
+
+    result = screen_a2(
+        snapshot,
+        {"active_research_pool": [row], "taxonomy_links": taxonomy_links},
+        minimum_identifiability_score=0,
+        review_all_eligible=True,
+        rotation_theme_count=5,
+    )
+    decision = result.decisions[0]
+
+    assert decision["rotation_input_source"] == "FULL_MARKET_ROTATION_FALLBACK"
+    assert decision["top_rotation_theme"] is True
+    assert decision["stock_behavior_type"] == "TREND"
+    assert decision["trend_core_eligible"] is True
+    assert decision["sent_to_llm"] is True
+    assert result.review_symbols == (symbol,)
+
+
 def test_screen_a2_available_selected_board_is_authoritative_over_conflicting_metrics() -> None:
     snapshot = _snapshot(3)
     symbols = snapshot["g0_symbols"]

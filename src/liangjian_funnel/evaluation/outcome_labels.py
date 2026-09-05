@@ -23,9 +23,10 @@ import random
 import sqlite3
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from ..runtime.state import RuntimeStore
 
@@ -62,6 +63,7 @@ _VOLATILITY_FIELDS = (
     "volatility_annualized",
     "vol_20d",
 )
+_MARKET_TIMEZONE = ZoneInfo("Asia/Shanghai")
 
 
 class OutcomeLabelError(ValueError):
@@ -122,7 +124,11 @@ def _as_float(value: Any) -> float | None:
 
 def _as_date(value: Any, *, field: str) -> date:
     if isinstance(value, datetime):
-        return value.date()
+        return (
+            value.astimezone(_MARKET_TIMEZONE).date()
+            if value.tzinfo is not None and value.utcoffset() is not None
+            else value.date()
+        )
     if isinstance(value, date):
         return value
     raw = _text(value)
@@ -131,7 +137,12 @@ def _as_date(value: Any, *, field: str) -> date:
     normalized = raw[:-1] + "+00:00" if raw.endswith(("Z", "z")) else raw
     try:
         if "T" in normalized or " " in normalized:
-            return datetime.fromisoformat(normalized).date()
+            parsed = datetime.fromisoformat(normalized)
+            return (
+                parsed.astimezone(_MARKET_TIMEZONE).date()
+                if parsed.tzinfo is not None and parsed.utcoffset() is not None
+                else parsed.date()
+            )
         return date.fromisoformat(normalized[:10])
     except ValueError as exc:
         raise OutcomeLabelError("OUTCOME_TRADE_DATE_INVALID", f"invalid {field}") from exc
@@ -230,7 +241,12 @@ def _observation(raw: Mapping[str, Any], *, symbol_hint: str | None = None) -> _
     )
 
 
-def _rows_from_path(path: Path) -> list[Mapping[str, Any]]:
+def _rows_from_path(
+    path: Path,
+    *,
+    start_date: date | None = None,
+    cutoff: date | None = None,
+) -> list[Mapping[str, Any]]:
     if not path.is_file():
         raise OutcomeLabelError("PRICE_SOURCE_NOT_FOUND")
     if path.suffix.lower() in {".csv", ".tsv"}:
@@ -245,9 +261,40 @@ def _rows_from_path(path: Path) -> list[Mapping[str, Any]]:
             }
             if "daily_bars" not in tables:
                 raise OutcomeLabelError("PRICE_SOURCE_TABLE_MISSING")
+            columns = {
+                str(row[1])
+                for row in connection.execute("PRAGMA table_info(daily_bars)")
+            }
+            order_fields = ["bar_timestamp", "symbol"]
+            # The fact cache keeps append-only provider revisions. Iterating
+            # oldest to newest makes the later overwrite in _normalise_source
+            # deterministic and leaves the newest fetched revision active.
+            order_fields.extend(
+                field for field in ("fetched_at", "content_hash") if field in columns
+            )
+            clauses: list[str] = []
+            parameters: list[str] = []
+            if start_date is not None:
+                clauses.append("bar_timestamp>=?")
+                parameters.append(
+                    datetime.combine(start_date, time.min, tzinfo=_MARKET_TIMEZONE)
+                    .astimezone(timezone.utc)
+                    .isoformat()
+                )
+            if cutoff is not None:
+                clauses.append("bar_timestamp<?")
+                parameters.append(
+                    datetime.combine(cutoff + timedelta(days=1), time.min, tzinfo=_MARKET_TIMEZONE)
+                    .astimezone(timezone.utc)
+                    .isoformat()
+                )
             rows: list[Mapping[str, Any]] = []
             for row in connection.execute(
-                "SELECT symbol,bar_timestamp,adjust,payload_json FROM daily_bars ORDER BY bar_timestamp,symbol"
+                "SELECT symbol,bar_timestamp,adjust,payload_json FROM daily_bars"
+                + (" WHERE " + " AND ".join(clauses) if clauses else "")
+                + " ORDER BY "
+                + ",".join(order_fields),
+                parameters,
             ):
                 item = dict(row)
                 try:
@@ -273,9 +320,18 @@ def _rows_from_path(path: Path) -> list[Mapping[str, Any]]:
     raise OutcomeLabelError("PRICE_SOURCE_INVALID")
 
 
-def _source_rows(price_source: Any) -> list[Mapping[str, Any]]:
+def _source_rows(
+    price_source: Any,
+    *,
+    start_date: date | None = None,
+    cutoff: date | None = None,
+) -> list[Mapping[str, Any]]:
     if isinstance(price_source, (str, Path)):
-        return _rows_from_path(Path(price_source).expanduser().resolve())
+        return _rows_from_path(
+            Path(price_source).expanduser().resolve(),
+            start_date=start_date,
+            cutoff=cutoff,
+        )
     if isinstance(price_source, Mapping):
         # One row is the most common in-memory test/source form.
         if any(name in price_source for name in (*_CLOSE_FIELDS, "payload", "trade_date", "date")):
@@ -325,11 +381,16 @@ def _source_rows(price_source: Any) -> list[Mapping[str, Any]]:
     raise OutcomeLabelError("PRICE_SOURCE_UNSUPPORTED")
 
 
-def _normalise_source(price_source: Any) -> tuple[dict[str, list[_Observation]], list[str]]:
+def _normalise_source(
+    price_source: Any,
+    *,
+    start_date: date | None = None,
+    cutoff: date | None = None,
+) -> tuple[dict[str, list[_Observation]], list[str]]:
     observations: dict[str, dict[date, _Observation]] = {}
     errors: list[str] = []
     try:
-        rows = _source_rows(price_source)
+        rows = _source_rows(price_source, start_date=start_date, cutoff=cutoff)
     except OutcomeLabelError as exc:
         return {}, [exc.reason_code]
     for raw in rows:
@@ -716,8 +777,18 @@ def backfill_forward_returns(
         row for row in store.list_outcome_labels(labeled_only=False)
         if not row.get("labeled_at")
     )
-    source, source_errors = _normalise_source(price_source)
+    earliest_trade_date = min(
+        (_as_date(row.get("trade_date"), field="trade_date") for row in labels),
+        default=cutoff,
+    )
+    source, source_errors = _normalise_source(
+        price_source,
+        start_date=earliest_trade_date,
+        cutoff=cutoff,
+    )
     updates: list[dict[str, Any]] = []
+    metrics_cache: dict[tuple[str, date], dict[str, float | None]] = {}
+    baseline_universe_cache: dict[date, list[dict[str, Any]]] = {}
     counts = {
         "labels_seen": len(labels),
         "labels_updated": 0,
@@ -730,7 +801,11 @@ def backfill_forward_returns(
         symbol = _text(label.get("symbol")).upper()
         trade_date = _as_date(label.get("trade_date"), field="trade_date")
         observations = source.get(symbol, ())
-        metrics = _forward_metrics(observations, trade_date=trade_date, cutoff=cutoff)
+        metric_key = (symbol, trade_date)
+        metrics = metrics_cache.get(metric_key)
+        if metrics is None:
+            metrics = _forward_metrics(observations, trade_date=trade_date, cutoff=cutoff)
+            metrics_cache[metric_key] = metrics
         update: dict[str, Any] = {
             "label_id": label.get("label_id"),
             **metrics,
@@ -738,7 +813,6 @@ def backfill_forward_returns(
         if not observations or not any(item.trade_date == trade_date for item in observations):
             update["baseline_status"] = "DATA_UNAVAILABLE"
         else:
-            universe = _build_baseline_universe(source, labels, trade_date=trade_date, cutoff=cutoff)
             target = {
                 "symbol": symbol,
                 "trade_date": trade_date.isoformat(),
@@ -748,6 +822,15 @@ def backfill_forward_returns(
             target = {**dict(entry.context), **target}
             target["fwd_return_5d"] = metrics.get("fwd_return_5d")
             if metrics.get("fwd_return_5d") is not None:
+                universe = baseline_universe_cache.get(trade_date)
+                if universe is None:
+                    universe = _build_baseline_universe(
+                        source,
+                        labels,
+                        trade_date=trade_date,
+                        cutoff=cutoff,
+                    )
+                    baseline_universe_cache[trade_date] = universe
                 baseline = conditional_random_baseline(target, universe)
                 update["baseline_status"] = baseline["status"]
                 update["baseline_sample_size"] = baseline["sample_size"]

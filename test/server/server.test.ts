@@ -1545,6 +1545,25 @@ test("scheduler dispatches both A5 review slots without manufacturing monitor wo
   expect(calls).toEqual(["a5-midday", "a5-close"]);
 });
 
+test("scheduler dispatches the local T+N outcome backfill after close", async () => {
+  const calls: JobName[] = [];
+  const fakeRunner = {
+    run: async (job: JobName): Promise<JobRunRecord> => {
+      calls.push(job);
+      return { runId: job, job, command: job, startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(), exitCode: 0, signal: null, durationMs: 0, status: "succeeded", reason: null };
+    },
+    activeJob: (): JobRunRecord | null => null,
+  };
+  const root = await mkdtemp(join(tmpdir(), "liangjian-outcome-scheduler-"));
+  const logger = new LogStore(loadConfig({ LIANGJIAN_PYTHON_BIN: "python3" }, root));
+  const scheduler = new WorkflowScheduler(fakeRunner as unknown as JobRunner, logger, { comparisonEnabled: false });
+
+  await scheduler.tick(new Date("2026-09-04T08:10:05.000Z"));
+  await new Promise<void>((resolve) => setImmediate(resolve));
+
+  expect(calls).toEqual(["outcomes"]);
+});
+
 test("process-exit wait returns after timeout so shutdown can escalate to SIGKILL", async () => {
   const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 1000)"], { stdio: "ignore", windowsHide: true });
   const exited = await waitForProcessExit(child, 5);

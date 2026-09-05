@@ -147,6 +147,7 @@ export class WorkflowScheduler {
       if (clock.hour === 9 && clock.minute === 26) due.push("morning");
       if (clock.hour === 11 && clock.minute === 35) due.push("a5-midday");
       if (clock.hour === 16 && clock.minute === 0) due.push("a5-close");
+      if (clock.hour === 16 && clock.minute === 10) due.push("outcomes");
       if (clock.hour === 15 && clock.minute === 10) due.push("close");
       // Node provides a cheap weekday wake-up. Python owns the exchange
       // calendar and decides whether this date is the monthly full or weekly
@@ -185,7 +186,7 @@ export class WorkflowScheduler {
     this.logger.info(`触发调度 ${job} at=${key}`, { job });
     void this.runner.run(job)
       .then((result) => {
-        const shouldRetry = (job === "premarket" || job === "morning" || job === "close" || job === "a1" || job === "a5-midday" || job === "a5-close")
+        const shouldRetry = (job === "premarket" || job === "morning" || job === "close" || job === "a1" || job === "a5-midday" || job === "a5-close" || job === "outcomes")
           && result.status === "skipped"
           && result.reason?.startsWith("BUSY:") === true;
         if (shouldRetry) {
@@ -258,13 +259,15 @@ export class WorkflowScheduler {
         ? 11 * 60 + 35
         : job === "a5-close"
         ? 16 * 60
+        : job === "outcomes"
+        ? 16 * 60 + 10
         : job === "close"
           ? 15 * 60 + 10
           : 18 * 60;
       const currentMinute = clock.hour * 60 + clock.minute;
       const withinRecoveryWindow = clock.date === key.slice(0, 10)
         && currentMinute >= dueMinute
-        && currentMinute <= dueMinute + (job === "premarket" ? 50 : job === "a1" ? 5 * 60 : job === "a5-midday" ? 70 : job === "a5-close" ? 60 : 10);
+        && currentMinute <= dueMinute + (job === "premarket" ? 50 : job === "a1" ? 5 * 60 : job === "a5-midday" ? 70 : job === "a5-close" || job === "outcomes" ? 60 : 10);
       if (withinRecoveryWindow && clock.weekday !== 0 && clock.weekday !== 6) {
         this.dispatch(job, key, current);
       }
