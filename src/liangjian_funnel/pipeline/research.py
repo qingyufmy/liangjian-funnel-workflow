@@ -6338,16 +6338,12 @@ def _stage_execution_budget(
             "watch_only_pool, rejected_candidates. Each active theme needs theme_id, stage, new_entry_policy, "
             "theme_score, score_breakdown containing every exact key from THEME_SCORE_WEIGHTS, penalties, "
             "supporting_evidence, contradicting_evidence, and rotation_overlap_ratio. Each focus item needs "
-            "symbol, upstream_candidate_id, theme_id, theme_stage, a2_route, bottleneck_status, "
-            "market_role, role_evidence, stock_behavior_type and route_permission copied from the "
-            "deterministic behavior decision, "
-            "identifiability_score, identifiability_breakdown, theme_score inherited from its active theme, "
-            "selection_reasons, risk_reasons and risk_flags. MARKET_CORE requires frozen market-role evidence, "
-            "factor_coverage and bottleneck_status=NOT_REQUIRED_FOR_MARKET_CORE; it must not invent a scarcity "
-            "scorecard. SUPPLY_CHAIN_ALPHA additionally requires supply_chain_role, scarce_layer, "
-            "value_chain_position, a complete bottleneck_scorecard, at least two bottleneck_evidence items, "
-            "missing_proof and kill_switches. Rank scarce layers before companies; unknown supply-chain facts "
-            "must be sent to watch_only, never scored as zero. A2 has two independent source channels: "
+            "only symbol, inherited theme_id, concise selection_reasons, risk_reasons and risk_flags. Watch rows "
+            "need symbol, inherited theme_id and concise reasons; rejected rows need symbol and a hard-veto "
+            "reason code. The server restores candidate id, theme stage, route, role, behavior type, scores, "
+            "lineage and bottleneck facts after the response; do not repeat those fields. MARKET_CORE must not "
+            "invent scarcity. SUPPLY_CHAIN_ALPHA with incomplete frozen bottleneck evidence goes to watch_only. "
+            "Unknown supply-chain facts remain unknown, never zero. A2 has two independent source channels: "
             "TREND rows must belong to the frozen positive-main-net-inflow selected-board primary TOP5 "
             "(an explicit child board inherits its parent rank); EMOTION rows must belong to the frozen "
             "Eastmoney Guba popularity TOP100 and be in STARTUP or ACCELERATION. Emotion rows do not need "
@@ -6984,7 +6980,7 @@ def _stage_model_output_limit(
     configured = max(1, int(configured_limit))
     if stage != "A2":
         return configured
-    return min(configured, 8_192)
+    return min(configured, 4_096)
 
 
 def _stage_model_timeout_limit(stage: str, remaining_seconds: float) -> float:

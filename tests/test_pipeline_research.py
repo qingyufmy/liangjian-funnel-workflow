@@ -1027,7 +1027,7 @@ def test_stage_execution_budget_keeps_a1_broad_and_uses_downstream_regime_caps()
     assert "approved pool <= 12; secondary/watch pool <= 20" in a2
     assert "approved pool <= 20; secondary/watch pool <= 20" in a3
     assert "business_exposure with revenue_exposure_pct" in a1
-    assert "identifiability_score, identifiability_breakdown" in a2
+    assert "The server restores candidate id, theme stage, route, role" in a2
     assert "Every supplied symbol must appear exactly once" in a2
 
 
@@ -1274,7 +1274,7 @@ def test_a2_prompt_projection_removes_full_market_permission_and_attribution_bul
     assert set(context) == symbols
     assert "gate_results" not in context["600001.SH"]
     assert "raw_history" not in context["600001.SH"]["a2_factor_scores"]["breadth"]
-    assert _stage_model_output_limit("A2", 15, configured_limit=393_216) == 8_192
+    assert _stage_model_output_limit("A2", 15, configured_limit=393_216) == 4_096
     assert _stage_model_output_limit("A3", 15, configured_limit=393_216) == 393_216
 
 
