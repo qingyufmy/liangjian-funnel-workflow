@@ -64,6 +64,7 @@ from liangjian_funnel.pipeline.research import (
     _project_news,
     _project_a2_theme_metrics,
     _project_a2_bottleneck_context,
+    _project_eastmoney_hot100,
     _project_selected_board,
     _project_sector_permissions,
     _prompt_replacements,
@@ -1252,6 +1253,22 @@ def test_a2_prompt_projection_removes_full_market_permission_and_attribution_bul
     assert "raw_history" not in context["600001.SH"]["a2_factor_scores"]["breadth"]
     assert _stage_model_output_limit("A2", 15, configured_limit=393_216) == 54_272
     assert _stage_model_output_limit("A3", 15, configured_limit=393_216) == 393_216
+
+
+def test_a2_hot100_projection_keeps_top10_and_batch_match_with_full_validation():
+    records = [
+        {"rank": rank, "symbol": f"{600000 + rank:06d}.SH", "name": f"股票{rank}"}
+        for rank in range(1, 101)
+    ]
+    projected = _project_eastmoney_hot100(
+        {"available": True, "trade_date": "2026-09-03", "records": records},
+        {"600088.SH"},
+    )
+
+    assert projected["full_snapshot_validated"] is True
+    assert projected["full_record_count"] == 100
+    assert projected["prompt_record_count"] == 11
+    assert {row["rank"] for row in projected["records"]} == {*range(1, 11), 88}
 
 
 def test_a2_batch_merge_has_no_hidden_small_global_cap():

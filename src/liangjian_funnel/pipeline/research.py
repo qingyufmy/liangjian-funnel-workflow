@@ -5381,7 +5381,9 @@ def _project_prompt_value(
     if name == "INDUSTRY_NEWS_FEED":
         return _project_news(value, item_limit=8)
     if name == "NEWS_HEAT_SNAPSHOT":
-        return _project_news(value, item_limit=40, symbols=symbols)
+        return _project_news(value, item_limit=12, symbols=symbols)
+    if name == "EASTMONEY_HOT100_SNAPSHOT":
+        return _project_eastmoney_hot100(value, symbols)
     if name == "SELECTED_BOARD_SNAPSHOT":
         return _project_selected_board(value, symbols)
     if name == "A2_THEME_METRICS":
@@ -5612,7 +5614,7 @@ def _project_sector_cycle(
     symbols: set[str] | None,
     snapshot_data: Mapping[str, Any],
     *,
-    global_sector_limit: int = 12,
+    global_sector_limit: int = 5,
 ) -> Any:
     """Build a compact all-market benchmark plus complete batch-sector view.
 
@@ -5847,7 +5849,7 @@ def _project_a2_bottleneck_context(value: Any, symbols: set[str] | None) -> Any:
         "eligible_routes", "all_failed_gates", "unknown_factor_names", "source_refs",
     }
     mapping_fields = {
-        "a2_taxonomy_binding", "eastmoney_hot100", "selected_board",
+        "eastmoney_hot100", "selected_board",
         "market_emotion_cycle", "identifiability_breakdown", "role_breakdown",
         "factor_coverage", "critical_factor_coverage", "known_factor_ratings_0_5",
         "factor_weights",
@@ -5865,6 +5867,21 @@ def _project_a2_bottleneck_context(value: Any, symbols: set[str] | None) -> Any:
         for key in mapping_fields:
             if isinstance(raw.get(key), Mapping):
                 row[key] = _truncate_nested(raw[key], 512)
+        binding = raw.get("a2_taxonomy_binding")
+        if isinstance(binding, Mapping):
+            row["a2_taxonomy_binding"] = {
+                key: binding.get(key)
+                for key in (
+                    "status", "reason_code", "node_id", "taxonomy", "taxonomy_code",
+                    "taxonomy_name", "rotation_strength_score", "rotation_strength_available",
+                    "reference_member_count", "candidate_member_count", "return_coverage",
+                    "source_refs",
+                )
+                if key in binding
+            }
+            matched = binding.get("matched_taxonomies")
+            if isinstance(matched, Sequence) and not isinstance(matched, (str, bytes, bytearray)):
+                row["a2_taxonomy_binding"]["matched_taxonomies"] = list(matched[:8])
         factors = raw.get("a2_factor_scores")
         if isinstance(factors, Mapping):
             row["a2_factor_scores"] = {
@@ -5911,6 +5928,39 @@ def _compact_a2_route(value: Mapping[str, Any]) -> dict[str, Any]:
         "blocked_by_upstream", "blocked_by_risk", "blocked_by_inactive_a1_row",
     }
     return {key: _truncate_nested(value.get(key), 512) for key in allowed if key in value}
+
+
+def _project_eastmoney_hot100(value: Any, symbols: set[str] | None) -> Any:
+    """Project a server-validated full Hot100 snapshot to batch rows + top10."""
+
+    if not isinstance(value, Mapping) or symbols is None:
+        return value
+    result = {key: item for key, item in value.items() if key != "records"}
+    records = value.get("records")
+    rows = [item for item in records if isinstance(item, Mapping)] if isinstance(records, list) else []
+    wanted = {str(symbol).strip().upper() for symbol in symbols}
+    selected: list[Mapping[str, Any]] = []
+    seen: set[str] = set()
+    ordered = sorted(rows, key=lambda item: (_safe_int(item.get("rank")) or 10**9, str(item.get("symbol") or "")))
+    for item in ordered:
+        symbol = next(iter(_scan_symbols(item)), "")
+        if (_safe_int(item.get("rank")) or 10**9) > 10 and symbol not in wanted:
+            continue
+        key = str(item.get("rank") or "") + ":" + symbol
+        if key in seen:
+            continue
+        seen.add(key)
+        selected.append(_truncate_nested(item, 512))
+    result["records"] = selected
+    result["full_record_count"] = len(rows)
+    result["prompt_record_count"] = len(selected)
+    result["full_snapshot_validated"] = (
+        value.get("available") is True
+        and len(rows) == 100
+        and {_safe_int(item.get("rank")) for item in rows} == set(range(1, 101))
+    )
+    result["projection_scope"] = "TOP10_PLUS_BATCH_MATCHES"
+    return result
 
 
 def _project_factor_snapshot(value: Any, symbols: set[str] | None) -> Any:

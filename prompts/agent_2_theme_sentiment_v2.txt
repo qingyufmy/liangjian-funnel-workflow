@@ -29,7 +29,9 @@ Agent 2 · ThemeSentimentSelectorAgent
 {{MARKET_EMOTION_SNAPSHOT}}  情绪综合强度、涨跌家数、涨跌停、炸板、
                              昨日涨停溢价、连板高度、赚钱/亏钱效应
 {{EASTMONEY_HOT100_SNAPSHOT}} 东财股吧当日人气前100，情绪票唯一舆情候选域；
-                             必须是同一交易日、100只、排名1至100完整快照
+                             完整快照先由服务端校验；模型视图仅含前10基准和本批命中行，
+                             full_snapshot_validated=true 才代表同交易日100只且排名1至100完整，
+                             不得因 prompt_record_count 少于100误判数据缺失
 {{SELECTED_BOARD_SNAPSHOT}}   同花顺801精选板块强度、主力净流与成分股；
                              趋势轮动只取净流入为正的前五主板块，子板块继承父级名次
 {{SECTOR_CYCLE_SNAPSHOT}}    板块排名、广度、成交占比、资金流、
