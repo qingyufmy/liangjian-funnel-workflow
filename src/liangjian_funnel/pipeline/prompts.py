@@ -20,6 +20,7 @@ PROMPT_FILENAMES: tuple[str, ...] = (
     "00_shared_system_v2.txt",
     "agent_1_macro_chain_v2.txt",
     "agent_2_theme_sentiment_v2.txt",
+    "agent_2_theme_sentiment_transport_v2.txt",
     "agent_3_technical_planner_v2.txt",
     "agent_4_intraday_signal_v2.txt",
     "agent_4_intraday_veto_v3.txt",
@@ -29,7 +30,7 @@ PROMPT_FILENAMES: tuple[str, ...] = (
 
 STAGE_PROMPT_FILES: Mapping[str, str] = {
     "A1": "agent_1_macro_chain_v2.txt",
-    "A2": "agent_2_theme_sentiment_v2.txt",
+    "A2": "agent_2_theme_sentiment_transport_v2.txt",
     "A3": "agent_3_technical_planner_v2.txt",
 }
 

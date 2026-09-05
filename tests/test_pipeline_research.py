@@ -1093,7 +1093,7 @@ def test_a2_prompt_receives_non_scoring_research_hypotheses(tmp_path: Path):
 
 
 def test_a2_large_runtime_placeholders_are_injected_once():
-    prompt = (Path(__file__).resolve().parents[1] / "prompts" / "agent_2_theme_sentiment_v2.txt").read_text(
+    prompt = (Path(__file__).resolve().parents[1] / "prompts" / "agent_2_theme_sentiment_transport_v2.txt").read_text(
         encoding="utf-8"
     )
     for name in (
@@ -3394,7 +3394,8 @@ def test_prompt_projection_bounds_history_and_filters_upstream_symbols():
     assert projected_news["prompt_item_count"] == 1
     assert projected_news["full_item_count"] == 2
     assert set(projected_news["by_symbol"]) == {"600519.SH"}
-    assert len(projected_news["items"][0]["body"]) <= 801
+    assert "body" not in projected_news["items"][0]
+    assert projected_news["items"][0]["title"] == "600519.SH event"
 
 
 def test_a2_prompt_projection_filters_market_maps_and_preserves_batch_sector_evidence():

@@ -76,7 +76,7 @@ from .mature_theme_registry import (
     augment_discovery_with_mature_registry,
     resolve_mature_theme_registry,
 )
-from .prompts import PromptBundle, PromptRepository, PromptRepositoryError
+from .prompts import STAGE_PROMPT_FILES, PromptBundle, PromptRepository, PromptRepositoryError
 from .research_checkpoint import (
     FileResearchCheckpointStore,
     InMemoryResearchCheckpointStore,
@@ -5100,7 +5100,7 @@ def _prompt_replacements(
     a1_discovery_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     names = set(bundle.shared.placeholders)
-    names.update(bundle.document({"A1": "agent_1_macro_chain_v2.txt", "A2": "agent_2_theme_sentiment_v2.txt", "A3": "agent_3_technical_planner_v2.txt"}[stage]).placeholders)
+    names.update(bundle.document(STAGE_PROMPT_FILES[stage]).placeholders)
     discovery_mode = str((a1_discovery_context or {}).get("mode") or "") if stage == "A1" else ""
     policy_macro_discovery = discovery_mode == "POLICY_MACRO_DISCOVERY"
     if projection_symbols is not None:
@@ -5382,7 +5382,7 @@ def _project_prompt_value(
     if name == "INDUSTRY_NEWS_FEED":
         return _project_news(value, item_limit=8)
     if name == "NEWS_HEAT_SNAPSHOT":
-        return _project_news(value, item_limit=6, symbols=symbols)
+        return _project_news(value, item_limit=3, symbols=symbols)
     if name == "A2_RESEARCH_HYPOTHESES":
         return _project_a2_research_hypotheses(value)
     if name == "REVIEWED_PUBLIC_RESEARCH_LEADS":
@@ -5516,9 +5516,8 @@ def _project_selected_board(value: Any, symbols: set[str] | None) -> Any:
         linked = bool(wanted.intersection(constituents))
         if raw.get("selected_for_rotation") is not True and not linked:
             continue
-        row = {
-            key: raw.get(key)
-            for key in (
+        row_fields = (
+            (
                 "board_code", "board_name", "theme_id", "strategy_theme_id",
                 "theme_level", "parent_theme_id", "is_child_board", "primary_rank",
                 "provider_rank", "strength", "main_net_inflow_cny",
@@ -5527,6 +5526,16 @@ def _project_selected_board(value: Any, symbols: set[str] | None) -> Any:
                 "available_factors", "missing_factors", "member_snapshot_complete",
                 "observed_strength_source", "source_board_codes", "source_board_names",
             )
+            if linked
+            else (
+                "board_code", "board_name", "theme_id", "strategy_theme_id",
+                "theme_level", "parent_theme_id", "is_child_board", "primary_rank",
+                "strength", "main_net_inflow_cny", "selected_for_rotation",
+            )
+        )
+        row = {
+            key: raw.get(key)
+            for key in row_fields
             if key in raw
         }
         row["constituents"] = sorted(wanted.intersection(constituents))
@@ -5541,9 +5550,8 @@ def _project_selected_board(value: Any, symbols: set[str] | None) -> Any:
                 {
                     key: row.get(key)
                     for key in (
-                        "board_code", "board_name", "theme_id", "strategy_theme_id",
-                        "theme_level", "parent_theme_id", "is_child_board", "primary_rank",
-                        "strength", "main_net_inflow_cny", "selected_for_rotation",
+                        "board_code", "theme_id", "parent_theme_id", "primary_rank",
+                        "selected_for_rotation",
                     )
                     if key in row
                 }
@@ -5574,7 +5582,7 @@ def _project_a2_theme_metrics(
     symbols: set[str] | None,
     snapshot_data: Mapping[str, Any],
     *,
-    global_theme_limit: int = 5,
+    global_theme_limit: int = 2,
 ) -> Any:
     """Project full-market A2 theme metrics to batch themes plus a benchmark."""
 
@@ -5887,8 +5895,7 @@ def _project_a2_bottleneck_context(value: Any, symbols: set[str] | None) -> Any:
     }
     mapping_fields = {
         "eastmoney_hot100", "selected_board",
-        "market_emotion_cycle", "identifiability_breakdown",
-        "factor_coverage", "critical_factor_coverage",
+        "market_emotion_cycle", "critical_factor_coverage",
     }
     result: dict[str, Any] = {}
     for symbol in sorted(symbols):
@@ -5930,7 +5937,7 @@ def _project_a2_bottleneck_context(value: Any, symbols: set[str] | None) -> Any:
             row["route_eligibility"] = {
                 str(name): _compact_a2_route(route)
                 for name, route in routes.items()
-                if isinstance(route, Mapping)
+                if isinstance(route, Mapping) and str(name) in {"MARKET_CORE", "SUPPLY_CHAIN_ALPHA"}
             }
         behavior = raw.get("behavior_type_decision")
         if isinstance(behavior, Mapping):
@@ -5960,7 +5967,6 @@ def _compact_a2_route(value: Mapping[str, Any]) -> dict[str, Any]:
     allowed = {
         "eligible", "data_sufficiency_state", "factor_coverage",
         "critical_factor_coverage", "missing_reason_codes",
-        "missing_optional_factors",
         "blocked_by_upstream", "blocked_by_risk", "blocked_by_inactive_a1_row",
     }
     return {key: _truncate_nested(value.get(key), 512) for key in allowed if key in value}
@@ -6231,7 +6237,17 @@ def _taxonomy_catalog_projection(snapshot_data: Mapping[str, Any]) -> dict[str, 
 def _project_news(value: Any, *, item_limit: int, symbols: set[str] | None = None) -> Any:
     if not isinstance(value, Mapping):
         return value
-    result = dict(value)
+    result = {
+        key: value.get(key)
+        for key in (
+            "schema_version", "available", "reason_code", "as_of", "evidence_tier",
+            "window_hours", "deduped_item_count", "sentiment_available",
+            "sentiment_reason_code", "healthy_source_count", "source_health_count",
+            "stale_items_dropped", "future_items_dropped", "repost_count_total",
+            "untrusted_text",
+        )
+        if key in value
+    }
     items = value.get("items")
     if isinstance(items, list):
         relevant: list[Any] = []
@@ -6240,11 +6256,24 @@ def _project_news(value: Any, *, item_limit: int, symbols: set[str] | None = Non
             item_symbols = _scan_symbols(item)
             (relevant if symbols and item_symbols.intersection(symbols) else other).append(item)
         selected = (relevant + other)[:item_limit]
-        result["items"] = [_truncate_nested(item, 800) for item in selected]
+        result["items"] = [
+            {
+                key: _truncate_nested(item.get(key), 240)
+                for key in (
+                    "fact_id", "fact_type", "symbol", "industry_hint", "channel",
+                    "publish_time", "source_id", "source_url", "title", "summary",
+                    "repost_count", "untrusted_text",
+                )
+                if isinstance(item, Mapping) and key in item
+            }
+            for item in selected
+            if isinstance(item, Mapping)
+        ]
         result["prompt_item_count"] = len(selected)
         result["full_item_count"] = len(items)
-    if isinstance(result.get("by_symbol"), Mapping) and symbols is not None:
-        result["by_symbol"] = _filter_symbol_mapping(result["by_symbol"], symbols)
+    raw_by_symbol = value.get("by_symbol")
+    if isinstance(raw_by_symbol, Mapping) and symbols is not None:
+        result["by_symbol"] = _filter_symbol_mapping(raw_by_symbol, symbols)
     return result
 
 
@@ -10769,7 +10798,7 @@ def _compact_upstream_candidate(item: Mapping[str, Any]) -> dict[str, Any]:
         "data_quality_score", "financial_quality_score", "evidence_confidence",
         "available_weight", "financial_subfactor_coverage", "sector_constituent_confirmed",
         "downstream_trade_eligible", "business_exposure", "disclosed_business_match",
-        "fundamental_support", "half_year_support", "reason_codes",
+        "fundamental_support", "reason_codes",
         "source_refs", "a2_route", "market_role", "stock_behavior_type", "route_permission",
         "theme_stage", "weekly_momentum_state", "new_entry_policy", "identifiability_score",
         "identifiability_breakdown", "theme_score", "factor_coverage",
@@ -10792,6 +10821,24 @@ def _compact_upstream_candidate(item: Mapping[str, Any]) -> dict[str, Any]:
             )
             if key in exposure
         }
+    fundamental = result.get("fundamental_support")
+    if isinstance(fundamental, Mapping):
+        latest = fundamental.get("latest_half_year")
+        result["fundamental_support"] = {
+            key: fundamental.get(key)
+            for key in ("coverage_ratio", "minimum_score", "score", "supported")
+            if key in fundamental
+        }
+        if isinstance(latest, Mapping):
+            result["fundamental_support"]["latest_half_year"] = {
+                key: latest.get(key)
+                for key in (
+                    "fiscal_year", "fiscal_period", "operating_income_yoy_pct",
+                    "parent_holder_net_profit_yoy_pct", "supported", "reason_code",
+                    "report_date_ms", "source",
+                )
+                if key in latest
+            }
     for key in (
         "reason_codes", "source_refs", "selection_reasons", "risk_reasons", "risk_flags",
         "weak_evidence_fields", "kill_switches", "bottleneck_evidence",
