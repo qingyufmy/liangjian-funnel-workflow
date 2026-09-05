@@ -359,10 +359,11 @@ _PERMISSION_KEYS = {
     "order_permission",
 }
 _ALLOWED_DISABLED = {False, None, "", "DISABLED", "DISABLE", "OFF", "SHADOW", "SIMULATION"}
-_PROMPT_PROJECTION_VERSION = "research-prompt-projection/2.2.0"
+_PROMPT_PROJECTION_VERSION = "research-prompt-projection/2.3.0"
 _DEFAULT_MODEL_MAX_INPUT_TOKENS = 1_000_000
 _A3_BATCH_SIZE = 16
 _A2_MAX_TRANSPORT_BATCH_SIZE = 5
+_A2_MODEL_REQUEST_TIMEOUT_SECONDS = 240.0
 _STAGE_OUTPUT_BUDGETS: Mapping[str, Mapping[str, int]] = {
     "A1": {"approved_pool": 5, "secondary_pool": 5, "themes": 18, "chain_nodes": 80, "evidence_per_item": 3},
     "A2": {"approved_pool": 5, "secondary_pool": 5, "themes": 20, "chain_nodes": 0, "evidence_per_item": 3},
@@ -4149,7 +4150,7 @@ class ResearchPipeline:
                     input_hash=input_hash,
                     snapshot_id=snapshot.snapshot_id,
                     stage=stage,
-                    timeout_seconds=remaining_seconds,
+                    timeout_seconds=_stage_model_timeout_limit(stage, remaining_seconds),
                     max_output_tokens=_stage_model_output_limit(
                         stage,
                         len(projection_symbols if projection_symbols is not None else upstream_symbols),
@@ -5381,7 +5382,11 @@ def _project_prompt_value(
     if name == "INDUSTRY_NEWS_FEED":
         return _project_news(value, item_limit=8)
     if name == "NEWS_HEAT_SNAPSHOT":
-        return _project_news(value, item_limit=12, symbols=symbols)
+        return _project_news(value, item_limit=6, symbols=symbols)
+    if name == "A2_RESEARCH_HYPOTHESES":
+        return _project_a2_research_hypotheses(value)
+    if name == "REVIEWED_PUBLIC_RESEARCH_LEADS":
+        return _project_reviewed_public_research_leads(value)
     if name == "EASTMONEY_HOT100_SNAPSHOT":
         return _project_eastmoney_hot100(value, symbols)
     if name == "SELECTED_BOARD_SNAPSHOT":
@@ -5511,7 +5516,19 @@ def _project_selected_board(value: Any, symbols: set[str] | None) -> Any:
         linked = bool(wanted.intersection(constituents))
         if raw.get("selected_for_rotation") is not True and not linked:
             continue
-        row = dict(raw)
+        row = {
+            key: raw.get(key)
+            for key in (
+                "board_code", "board_name", "theme_id", "strategy_theme_id",
+                "theme_level", "parent_theme_id", "is_child_board", "primary_rank",
+                "provider_rank", "strength", "main_net_inflow_cny",
+                "selected_for_rotation", "selection_status", "breadth",
+                "relative_return_pct", "leader_structure_score", "factor_coverage",
+                "available_factors", "missing_factors", "member_snapshot_complete",
+                "observed_strength_source", "source_board_codes", "source_board_names",
+            )
+            if key in raw
+        }
         row["constituents"] = sorted(wanted.intersection(constituents))
         row["full_constituent_count"] = len(constituents)
         row["prompt_constituent_count"] = len(row["constituents"])
@@ -5520,9 +5537,23 @@ def _project_selected_board(value: Any, symbols: set[str] | None) -> Any:
     result["boards"] = selected
     result["by_symbol"] = (
         {
-            str(symbol): item
+            str(symbol): [
+                {
+                    key: row.get(key)
+                    for key in (
+                        "board_code", "board_name", "theme_id", "strategy_theme_id",
+                        "theme_level", "parent_theme_id", "is_child_board", "primary_rank",
+                        "strength", "main_net_inflow_cny", "selected_for_rotation",
+                    )
+                    if key in row
+                }
+                for row in item
+                if isinstance(row, Mapping)
+            ]
             for symbol, item in raw_by_symbol.items()
             if str(symbol).strip().upper() in wanted
+            and isinstance(item, Sequence)
+            and not isinstance(item, (str, bytes, bytearray))
         }
         if isinstance(raw_by_symbol, Mapping)
         else {}
@@ -5614,7 +5645,7 @@ def _project_sector_cycle(
     symbols: set[str] | None,
     snapshot_data: Mapping[str, Any],
     *,
-    global_sector_limit: int = 5,
+    global_sector_limit: int = 2,
 ) -> Any:
     """Build a compact all-market benchmark plus complete batch-sector view.
 
@@ -5761,17 +5792,23 @@ def _compact_sector_prompt_row(item: Mapping[str, Any]) -> dict[str, Any]:
         "taxonomy", "taxonomy_code", "taxonomy_name", "health_state",
         "relative_strength_percentile", "breadth", "breadth_balance",
         "member_count", "quote_count", "quote_coverage", "advances", "declines",
-        "flats", "ladder_count", "limit_up_count", "max_board",
+        "ladder_count", "limit_up_count", "max_board",
         "capital_flow_available", "capital_flow_reason_code",
         "return_flow_state", "turnover_is_capital_flow",
     }
     result = {key: item.get(key) for key in scalar_fields if key in item}
     for key in ("strength", "capital_flow", "persistence", "relative_strength"):
         if isinstance(item.get(key), Mapping):
-            result[key] = _truncate_nested(item[key], 512)
-    history = item.get("history")
-    if isinstance(history, Mapping):
-        result["history"] = {key: value for key, value in history.items() if key != "returns"}
+            result[key] = {
+                field: item[key].get(field)
+                for field in (
+                    "available", "score", "value", "amount", "amount_total",
+                    "main_net_inflow", "main_net_inflow_cny", "coverage",
+                    "days", "state", "reason_code", "weekly_confirmation_score",
+                    "weekly_momentum_state",
+                )
+                if field in item[key]
+            }
     return result
 
 
@@ -5846,13 +5883,12 @@ def _project_a2_bottleneck_context(value: Any, symbols: set[str] | None) -> Any:
     }
     sequence_fields = {
         "route_permission", "missing_optional_factors", "deterministic_reason_codes",
-        "eligible_routes", "all_failed_gates", "unknown_factor_names", "source_refs",
+        "eligible_routes", "unknown_factor_names", "source_refs",
     }
     mapping_fields = {
         "eastmoney_hot100", "selected_board",
-        "market_emotion_cycle", "identifiability_breakdown", "role_breakdown",
-        "factor_coverage", "critical_factor_coverage", "known_factor_ratings_0_5",
-        "factor_weights",
+        "market_emotion_cycle", "identifiability_breakdown",
+        "factor_coverage", "critical_factor_coverage",
     }
     result: dict[str, Any] = {}
     for symbol in sorted(symbols):
@@ -5863,7 +5899,7 @@ def _project_a2_bottleneck_context(value: Any, symbols: set[str] | None) -> Any:
         for key in sequence_fields:
             sequence = raw.get(key)
             if isinstance(sequence, Sequence) and not isinstance(sequence, (str, bytes, bytearray)):
-                row[key] = list(sequence[:16])
+                row[key] = [_truncate_nested(item, 256) for item in sequence[:4]]
         for key in mapping_fields:
             if isinstance(raw.get(key), Mapping):
                 row[key] = _truncate_nested(raw[key], 512)
@@ -5912,8 +5948,8 @@ def _project_a2_bottleneck_context(value: Any, symbols: set[str] | None) -> Any:
 
 def _compact_a2_factor(value: Mapping[str, Any]) -> dict[str, Any]:
     allowed = {
-        "available", "score", "source", "source_ref", "reason_code",
-        "availability_state", "coverage", "value", "raw_value", "rank",
+        "available", "score", "source_ref", "reason_code",
+        "availability_state", "coverage", "value", "rank",
         "breadth", "turnover_share", "ladder_height", "tier", "member_count",
         "relative_strength", "weekly_confirmation_score", "weekly_momentum_state",
     }
@@ -5924,7 +5960,7 @@ def _compact_a2_route(value: Mapping[str, Any]) -> dict[str, Any]:
     allowed = {
         "eligible", "data_sufficiency_state", "factor_coverage",
         "critical_factor_coverage", "missing_reason_codes",
-        "diagnostic_reason_codes", "missing_optional_factors", "required_factors",
+        "missing_optional_factors",
         "blocked_by_upstream", "blocked_by_risk", "blocked_by_inactive_a1_row",
     }
     return {key: _truncate_nested(value.get(key), 512) for key in allowed if key in value}
@@ -6922,6 +6958,15 @@ def _stage_model_output_limit(
     return min(configured, 8_192)
 
 
+def _stage_model_timeout_limit(stage: str, remaining_seconds: float) -> float:
+    """Prevent one unhealthy A2 request from consuming the whole job."""
+
+    remaining = max(0.0, float(remaining_seconds))
+    if stage != "A2":
+        return remaining
+    return min(remaining, _A2_MODEL_REQUEST_TIMEOUT_SECONDS)
+
+
 def _a1_node_by_symbol(
     snapshot_data: Mapping[str, Any],
     symbols: set[str],
@@ -7625,6 +7670,9 @@ def _a2_batch_is_splittable(reasons: Sequence[str]) -> bool:
         "OUTPUT_BUDGET_",
         "NETWORK_",
         "MODEL_TOTAL_DEADLINE_",
+        "MODEL_WALL_CLOCK_",
+        "UPSTREAM_5XX_",
+        "RATE_LIMIT_",
         "STRICT_JSON_",
         "STREAM_",
         "RESPONSE_",
@@ -7926,6 +7974,71 @@ def _refresh_analysis_counts(output: Mapping[str, Any], stage: str) -> dict[str,
         })
     result["analysis_summary"] = summary
     return result
+
+
+def _compact_viewpoint_contract(value: Any, *, public_lead: bool) -> Any:
+    """Keep optional T2/T3 hypotheses useful without replaying full essays."""
+
+    if not isinstance(value, Mapping):
+        return value
+    metadata = {
+        key: value.get(key)
+        for key in (
+            "schema_version", "available", "reason_code", "as_of", "content_hash",
+            "evidence_tier", "viewpoint_only", "untrusted_text",
+            "fact_substitution_allowed", "deterministic_score_influence_allowed",
+            "direct_stock_selection_allowed", "out_of_a1_selection_allowed",
+            "original_fact_authority",
+        )
+        if key in value
+    }
+    documents = value.get("documents")
+    compact_documents: list[dict[str, Any]] = []
+    if isinstance(documents, list):
+        for raw in documents[:4]:
+            if not isinstance(raw, Mapping):
+                continue
+            document = {
+                key: raw.get(key)
+                for key in (
+                    "document_id", "publish_time", "valid_until", "effective_month",
+                    "source_type", "source_ref", "evidence_tier", "viewpoint_only",
+                    "quality_flags",
+                )
+                if key in raw
+            }
+            hypotheses: list[dict[str, Any]] = []
+            for item in raw.get("theme_hypotheses", ()):
+                if not isinstance(item, Mapping):
+                    continue
+                row = {
+                    key: item.get(key)
+                    for key in ("theme", "stance")
+                    if key in item
+                }
+                for key in ("conditions", "required_facts", "counter_signals"):
+                    entries = item.get(key)
+                    if isinstance(entries, Sequence) and not isinstance(entries, (str, bytes, bytearray)):
+                        row[key] = [_truncate_nested(entry, 160) for entry in entries[:2]]
+                hypotheses.append(row)
+            document["theme_hypotheses"] = hypotheses[:16]
+            compact_documents.append(document)
+    metadata["documents"] = compact_documents
+    metadata["prompt_projection"] = {
+        "document_count": len(compact_documents),
+        "full_document_count": len(documents) if isinstance(documents, list) else 0,
+        "projection": "PUBLIC_LEAD_HYPOTHESES" if public_lead else "T2_THEME_HYPOTHESES",
+        "full_snapshot_retained_for_audit": True,
+    }
+    return metadata
+
+
+def _project_a2_research_hypotheses(value: Any) -> Any:
+    return _compact_viewpoint_contract(value, public_lead=False)
+
+
+def _project_reviewed_public_research_leads(value: Any) -> Any:
+    return _compact_viewpoint_contract(value, public_lead=True)
 
 
 def _lineage_text(value: Any, *keys: str) -> str | None:
@@ -10656,7 +10769,7 @@ def _compact_upstream_candidate(item: Mapping[str, Any]) -> dict[str, Any]:
         "data_quality_score", "financial_quality_score", "evidence_confidence",
         "available_weight", "financial_subfactor_coverage", "sector_constituent_confirmed",
         "downstream_trade_eligible", "business_exposure", "disclosed_business_match",
-        "fundamental_support", "half_year_support", "score_breakdown", "reason_codes",
+        "fundamental_support", "half_year_support", "reason_codes",
         "source_refs", "a2_route", "market_role", "stock_behavior_type", "route_permission",
         "theme_stage", "weekly_momentum_state", "new_entry_policy", "identifiability_score",
         "identifiability_breakdown", "theme_score", "factor_coverage",
@@ -10666,13 +10779,26 @@ def _compact_upstream_candidate(item: Mapping[str, Any]) -> dict[str, Any]:
         "bottleneck_evidence", "pool_channel", "a2_pool_channel", "candidate_origin",
     }
     result = {key: item.get(key) for key in allowed if key in item}
+    for key in ("core_thesis", "bear_case"):
+        if isinstance(result.get(key), str):
+            result[key] = _truncate_nested(result[key], 240)
+    exposure = result.get("business_exposure")
+    if isinstance(exposure, Mapping):
+        result["business_exposure"] = {
+            key: _truncate_nested(exposure.get(key), 256)
+            for key in (
+                "status", "matched", "revenue_exposure_pct", "source_ref",
+                "evidence_tier", "published_at", "as_of", "reason_codes",
+            )
+            if key in exposure
+        }
     for key in (
         "reason_codes", "source_refs", "selection_reasons", "risk_reasons", "risk_flags",
         "weak_evidence_fields", "kill_switches", "bottleneck_evidence",
     ):
         value = result.get(key)
         if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
-            result[key] = [_truncate_nested(entry, 512) for entry in value[:16]]
+            result[key] = [_truncate_nested(entry, 256) for entry in value[:4]]
     return result
 
 

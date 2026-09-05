@@ -77,6 +77,7 @@ from liangjian_funnel.pipeline.research import (
     _snapshot_discovery_evidence_refs,
     _stage_execution_budget,
     _stage_model_output_limit,
+    _stage_model_timeout_limit,
     _validate_output,
     _validate_a2_rotation_focus_coverage,
     _valid_a1_discovery_output,
@@ -1078,9 +1079,31 @@ def test_a2_prompt_receives_non_scoring_research_hypotheses(tmp_path: Path):
     )
     rendered = bundle.render_stage("A2", replacements)
 
-    assert replacements["A2_RESEARCH_HYPOTHESES"] == hypotheses
+    assert replacements["A2_RESEARCH_HYPOTHESES"]["documents"] == [
+        {"document_id": "weekly-private", "theme_hypotheses": []}
+    ]
+    assert replacements["A2_RESEARCH_HYPOTHESES"]["prompt_projection"] == {
+        "document_count": 1,
+        "full_document_count": 1,
+        "projection": "T2_THEME_HYPOTHESES",
+        "full_snapshot_retained_for_audit": True,
+    }
     assert '"document_id":"weekly-private"' in rendered
     assert "不参与确定性打分" in rendered
+
+
+def test_a2_large_runtime_placeholders_are_injected_once():
+    prompt = (Path(__file__).resolve().parents[1] / "prompts" / "agent_2_theme_sentiment_v2.txt").read_text(
+        encoding="utf-8"
+    )
+    for name in (
+        "UPSTREAM_ACTIVE_POOL",
+        "A2_BOTTLENECK_CONTEXT",
+        "A2_RESEARCH_HYPOTHESES",
+        "MARKET_REGIME_SNAPSHOT",
+        "MARKET_EMOTION_SNAPSHOT",
+    ):
+        assert prompt.count("{{" + name + "}}") == 1
 
 
 def test_a3_prompt_names_the_full_candidate_domain_without_focus_pool_alias():
@@ -3443,9 +3466,15 @@ def test_a2_prompt_projection_filters_market_maps_and_preserves_batch_sector_evi
     health = cycle["sector_health_snapshot"]
     assert "by_taxonomy" not in health
     assert {item["taxonomy_code"] for item in health["industry"]["sectors"]} == {"I1", "I3"}
-    assert all("returns" not in item["history"] for item in health["industry"]["sectors"])
+    assert all("history" not in item for item in health["industry"]["sectors"])
     assert health["industry"]["full_sector_count"] == 3
     assert health["industry"]["batch_linked_sector_count"] == 1
+
+
+def test_a2_model_timeout_is_bounded_without_changing_other_stages():
+    assert _stage_model_timeout_limit("A2", 600.0) == 240.0
+    assert _stage_model_timeout_limit("A2", 120.0) == 120.0
+    assert _stage_model_timeout_limit("A3", 600.0) == 600.0
 
 
 def test_a2_prompt_projection_bounds_selected_boards_theme_metrics_and_upstream_audit():

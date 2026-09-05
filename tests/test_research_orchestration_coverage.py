@@ -331,4 +331,6 @@ def test_stage_outcome_and_batch_split_policies_are_fail_closed() -> None:
     assert _a1_batch_is_splittable(("MODEL_CALL_FAILED",)) is False
     assert _a2_batch_is_splittable(("MODEL_PROMPT_TOO_LARGE",)) is True
     assert _a2_batch_is_splittable(("OUTPUT_BUDGET_FALLBACK_REJECTED",)) is True
+    assert _a2_batch_is_splittable(("MODEL_WALL_CLOCK_TIMEOUT",)) is True
+    assert _a2_batch_is_splittable(("UPSTREAM_5XX_RETRY_EXHAUSTED",)) is True
     assert _a2_batch_is_splittable(("A2_CRITICAL_DATA_INSUFFICIENT",)) is False
