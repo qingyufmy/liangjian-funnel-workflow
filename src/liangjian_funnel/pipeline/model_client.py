@@ -25,6 +25,15 @@ PRODUCTION_THINKING_VARIANTS: tuple[tuple[str, dict[str, Any]], ...] = (
     *THINKING_VARIANTS,
 )
 NO_THINKING_VARIANTS: tuple[tuple[str, dict[str, Any]], ...] = (("thinking_disabled", {}),)
+# The production gateway defaults this model family to hidden reasoning when
+# the field is omitted.  A2 is a bounded classification review over facts the
+# server has already computed, so disable provider reasoning explicitly.  A
+# live capability probe on the configured gateway verifies this parameter;
+# keep the general no-thinking client contract above unchanged for providers
+# where sending an extra field may be unsupported.
+A2_NO_THINKING_VARIANTS: tuple[tuple[str, dict[str, Any]], ...] = (
+    ("thinking_explicitly_disabled", {"enable_thinking": False}),
+)
 
 # A status code alone is not enough to identify an output-budget rejection:
 # 400/422 are also used for unsupported thinking parameters, and 413 can mean
@@ -189,7 +198,11 @@ class OpenAICompatibleModelClient:
         # explicit reasoning mode adds minutes of latency without adding an
         # auditable fact. A1 discovery and A3 plan verification retain the
         # configured reasoning variants.
-        call_variants = NO_THINKING_VARIANTS if str(stage or "").upper() == "A2" else self.thinking_variants
+        call_variants = (
+            A2_NO_THINKING_VARIANTS
+            if str(stage or "").upper() == "A2"
+            else self.thinking_variants
+        )
         last_variant = call_variants[0][0]
         strict_json_retry = False
         last_strict_error: StrictJSONError | None = None

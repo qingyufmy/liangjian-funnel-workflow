@@ -105,7 +105,7 @@ def test_client_honors_per_request_output_budget(tmp_path: Path):
     assert seen[0]["max_tokens"] == 131_072
 
 
-def test_a2_uses_bounded_json_classification_without_explicit_thinking(tmp_path: Path):
+def test_a2_uses_bounded_json_classification_with_thinking_explicitly_disabled(tmp_path: Path):
     seen: list[dict] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -126,8 +126,9 @@ def test_a2_uses_bounded_json_classification_without_explicit_thinking(tmp_path:
     )
 
     assert result.output == {"ok": True}
-    assert result.thinking_variant == "thinking_disabled"
+    assert result.thinking_variant == "thinking_explicitly_disabled"
     assert "reasoning_effort" not in seen[0]
+    assert seen[0]["enable_thinking"] is False
 
 
 @pytest.mark.parametrize(
