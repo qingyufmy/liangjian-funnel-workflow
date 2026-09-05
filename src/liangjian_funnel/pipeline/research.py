@@ -6993,7 +6993,7 @@ def _stage_model_output_limit(
     configured = max(1, int(configured_limit))
     if stage != "A2":
         return configured
-    return min(configured, 4_096)
+    return min(configured, 2_048)
 
 
 def _stage_model_timeout_limit(stage: str, remaining_seconds: float) -> float:
