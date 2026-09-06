@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import shutil
 from pathlib import Path
 
 from scripts.generate_acceptance_report import (
@@ -227,7 +228,11 @@ def test_explicit_primary_failure_is_engineering_fail(tmp_path: Path) -> None:
     assert any(item["severity"] == "HARD" for item in report["blockers"])
 
 
-def test_report_hash_is_independent_of_absolute_workspace_root(tmp_path: Path) -> None:
+def test_report_hash_is_independent_of_absolute_workspace_root(tmp_path: Path, monkeypatch) -> None:
+    # Freeze the measured disk state: concurrent writes must not turn this
+    # root-invariance test into a comparison of two different observations.
+    usage = shutil.disk_usage(tmp_path)
+    monkeypatch.setattr(shutil, "disk_usage", lambda _path: usage)
     first = tmp_path / "first"
     second = tmp_path / "second"
     first.mkdir()
