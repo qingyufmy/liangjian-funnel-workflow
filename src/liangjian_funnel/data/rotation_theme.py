@@ -22,7 +22,7 @@ import re
 from collections import defaultdict
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -75,7 +75,7 @@ _REQUIRED_THEME_KEYS = frozenset(
         "effective_to",
     }
 )
-_OPTIONAL_THEME_KEYS = frozenset({"name", "display_name", "evidence", "strategy_theme_id"})
+_OPTIONAL_THEME_KEYS = frozenset({"name", "display_name", "evidence", "strategy_theme_id", "eastmoney_board_names"})
 
 
 class RotationThemeConfigError(ValueError):
@@ -108,6 +108,7 @@ class RotationTheme:
     effective_to: date | None
     evidence: tuple[str, ...]
     strategy_theme_id: str
+    eastmoney_board_names: Mapping[str, str] = field(default_factory=dict)
 
     @property
     def display_name(self) -> str:
@@ -135,6 +136,7 @@ class RotationTheme:
             "effective_to": self.effective_to.isoformat() if self.effective_to else None,
             "evidence": list(self.evidence),
             "strategy_theme_id": self.strategy_theme_id,
+            "eastmoney_board_names": dict(self.eastmoney_board_names),
         }
 
 
@@ -256,6 +258,12 @@ def validate_rotation_theme_config(payload: Any) -> RotationThemeConfig:
             seen_codes[code] = theme_id
 
         raw_aliases = raw.get("aliases")
+        board_names = raw.get("eastmoney_board_names", {})
+        if not isinstance(board_names, Mapping) or (board_names and (
+            set(board_names) != set(codes)
+            or any(not isinstance(name, str) or not name.strip() for name in board_names.values())
+        )):
+            raise RotationThemeConfigError("ROTATION_THEME_BOARD_NAMES_INVALID")
         if not isinstance(raw_aliases, Sequence) or isinstance(raw_aliases, (str, bytes, bytearray)) or not raw_aliases:
             raise RotationThemeConfigError("ROTATION_THEME_ALIASES_MISSING")
         aliases: list[str] = []
@@ -291,6 +299,7 @@ def validate_rotation_theme_config(payload: Any) -> RotationThemeConfig:
                 effective_to=effective_to,
                 evidence=tuple(evidence),
                 strategy_theme_id=strategy_theme_id,
+                eastmoney_board_names=dict(board_names),
             )
         )
 
@@ -597,7 +606,16 @@ def _collect_paginated(
     captured: datetime | None = None
     page = 1
     while page <= int(max_pages) and (provider_total is None or len(rows) < provider_total):
-        raw = _invoke_page_fetcher(fetcher, request_kind, request_value, page, int(page_size))
+        import requests
+
+        try:
+            raw = _invoke_page_fetcher(fetcher, request_kind, request_value, page, int(page_size))
+        except RotationThemeDataError:
+            raise
+        except (requests.RequestException, OSError) as exc:
+            raise RotationThemeDataError("EASTMONEY_TRANSPORT_UNAVAILABLE") from exc
+        except ValueError as exc:
+            raise RotationThemeDataError("EASTMONEY_RESPONSE_INVALID") from exc
         records, total, provider_capture, provider_trade = _extract_page(raw)
         if total is None or total < 0:
             raise RotationThemeDataError("EASTMONEY_PAGINATION_TOTAL_MISSING")
@@ -1609,9 +1627,10 @@ def calculate_rotation_strength(
                 row["selected_for_rotation"] = True
                 row["selection_status"] = "ELIGIBLE_CHILD_STANDALONE"
             else:
-                row["primary_rank"] = rank_map.get(parent["theme_id"])
+                child_eligible = row["selection_status"] == "ELIGIBLE_PRIMARY"
+                row["primary_rank"] = rank_map.get(parent["theme_id"]) if child_eligible else None
                 row["inherited_primary_strength"] = parent["strength"]
-                row["selected_for_rotation"] = parent["theme_id"] in rank_map
+                row["selected_for_rotation"] = child_eligible and parent["theme_id"] in rank_map
                 row["selection_status"] = (
                     "INHERITED_FROM_PRIMARY"
                     if row["selected_for_rotation"]
@@ -1905,7 +1924,13 @@ def collect_rotation_theme_snapshot(
         )
 
     resolved_codes: dict[str, tuple[str, ...]] = {}
+    identity_errors: dict[str, str] = {}
     for theme in taxonomy.active(trade_day):
+        identity_error = validate_board_identity(theme, catalog)
+        if identity_error and identity_error != "ROTATION_BOARD_CATALOG_UNAVAILABLE":
+            identity_errors[theme.theme_id] = identity_error
+            resolved_codes[theme.theme_id] = ()
+            continue
         configured = tuple(theme.eastmoney_board_codes)
         if configured:
             resolved_codes[theme.theme_id] = configured
@@ -1915,6 +1940,11 @@ def collect_rotation_theme_snapshot(
     membership_state: dict[str, dict[str, Any]] = {}
     membership_update_warnings: dict[str, str] = {}
     for theme in taxonomy.active(trade_day):
+        if theme.theme_id in identity_errors:
+            membership_state[theme.theme_id] = unavailable_membership_snapshot(
+                theme.theme_id, trade_day, identity_errors[theme.theme_id]
+            )
+            continue
         loaded = load_membership_snapshot(
             membership_dir,
             theme.theme_id,
@@ -1923,6 +1953,27 @@ def collect_rotation_theme_snapshot(
             warn_after_days=warn_days,
             expire_after_days=expire_days,
         )
+        # A fresh cache from a different board definition is still wrong.
+        # Never fall back to it after a failed refresh of the corrected code.
+        if loaded.get("available") and not membership_matches_codes(loaded, resolved_codes[theme.theme_id]):
+            loaded = unavailable_membership_snapshot(theme.theme_id, trade_day, "MEMBERSHIP_BOARD_DEFINITION_MISMATCH")
+        if theme.eastmoney_board_names and catalog.get("available") is not True:
+            # A catalog outage must not erase a healthy, exact, locally
+            # verified reference dimension. A legacy cache without identity
+            # evidence cannot provide this fallback.
+            page_names = {
+                p.get("board_code"): p.get("board_name")
+                for p in loaded.get("pagination_evidence", {}).get("pages", ())
+                if isinstance(p, Mapping)
+            }
+            if not loaded.get("available") or page_names != dict(theme.eastmoney_board_names):
+                membership_state[theme.theme_id] = unavailable_membership_snapshot(
+                    theme.theme_id, trade_day, "ROTATION_BOARD_CATALOG_UNAVAILABLE"
+                )
+                continue
+            membership_update_warnings[theme.theme_id] = "CATALOG_UNAVAILABLE_VERIFIED_MEMBERSHIP_REUSED"
+            membership_state[theme.theme_id] = loaded
+            continue
         should_refresh = not loaded.get("available") or int(loaded.get("age_days") or 0) >= refresh_days
         if should_refresh and resolved_codes.get(theme.theme_id):
             # A theme may be represented by more than one public board.  The
@@ -1947,6 +1998,7 @@ def collect_rotation_theme_snapshot(
                 fetched_members.extend(item for item in result.get("records", ()) if isinstance(item, Mapping))
                 page_evidence.append({
                     "board_code": board_code,
+                    "board_name": theme.eastmoney_board_names.get(board_code),
                     "provider_total": result.get("provider_total"),
                     "pagination_evidence": result.get("pagination_evidence"),
                 })
@@ -1970,7 +2022,7 @@ def collect_rotation_theme_snapshot(
                         theme_id=theme.theme_id,
                         members=list(unique.values()),
                         captured_at=latest_capture,
-                        effective_from=theme.effective_from,
+                        effective_from=latest_capture.date(),
                         source=EASTMONEY_BOARD_SOURCE_ID,
                         pagination_evidence=combined_evidence,
                         expected_trade_date=trade_day,
@@ -2036,6 +2088,9 @@ def collect_rotation_theme_snapshot(
                 "effective_from": theme.effective_from,
                 "constituents": [item.get("symbol") for item in records if isinstance(item, Mapping)],
                 "member_count": len(records),
+                "membership_board_codes": list(resolved_codes[theme.theme_id]),
+                "membership_content_hash": member.get("content_hash"),
+                "membership_captured_at": member.get("captured_at"),
                 "excluded_non_a_share_count": len(excluded_symbols),
                 "excluded_non_a_share_symbols": excluded_symbols,
                 "member_snapshot_complete": bool(member.get("available") and member.get("pagination_evidence", {}).get("complete") is True),
@@ -2170,6 +2225,7 @@ def collect_rotation_theme_snapshot(
         price_coverage_minimum=price_coverage_minimum,
     )
     snapshot["source_health"] = {
+        "board_identity_errors": identity_errors,
         "eastmoney_catalog": catalog.get("reason_code") if catalog else "NOT_REQUESTED",
         "eastmoney_board_flow": flow_snapshot.get("reason_code") if flow_snapshot else "NOT_REQUESTED",
         "tencent_flow": tencent_snapshot.get("reason_code") if tencent_snapshot else "NOT_REQUESTED",
@@ -2194,6 +2250,7 @@ def collect_rotation_theme_snapshot(
         ),
     }
     snapshot.pop("content_hash", None)
+    snapshot["taxonomy_content_hash"] = _content_hash(taxonomy.as_dict())
     snapshot["content_hash"] = _content_hash(snapshot)
     return _persist_daily_rotation_snapshot(snapshot_dir, snapshot)
 
@@ -2210,6 +2267,24 @@ def _persist_daily_rotation_snapshot(snapshot_dir: str | Path, snapshot: dict[st
         # do not turn a filesystem outage into a false available snapshot.
         return {**snapshot, "available": False, "reason_code": "ROTATION_THEME_SNAPSHOT_WRITE_FAILED"}
     return {**snapshot, "snapshot_path": str(path)}
+
+
+def validate_board_identity(theme: RotationTheme, catalog: Mapping[str, Any]) -> str | None:
+    """Code and reviewed vendor name must agree; semantic aliases are not proof."""
+    if not theme.eastmoney_board_names:
+        return None  # Legacy/custom registries; the production registry binds every code.
+    if catalog.get("available") is not True:
+        return "ROTATION_BOARD_CATALOG_UNAVAILABLE"
+    names = {row.get("board_code"): row.get("board_name") for row in catalog.get("records", ()) if isinstance(row, Mapping)}
+    if any(names.get(code) != name for code, name in theme.eastmoney_board_names.items()):
+        return "ROTATION_BOARD_IDENTITY_MISMATCH"
+    return None
+
+
+def membership_matches_codes(snapshot: Mapping[str, Any], codes: Sequence[str]) -> bool:
+    pages = snapshot.get("pagination_evidence", {}).get("pages", ())
+    actual = {row.get("board_code") for row in pages if isinstance(row, Mapping) and row.get("board_code")}
+    return bool(codes) and actual == set(codes)
 
 
 def _resolve_codes_from_catalog(theme: RotationTheme, catalog: Mapping[str, Any]) -> tuple[str, ...]:

@@ -243,6 +243,7 @@ def _pdf_payload(evidence: CninfoPdfEvidence | None) -> dict[str, Any]:
         "pdf_content_type": evidence.content_type,
         "pdf_byte_size": evidence.byte_size,
         "pdf_parser": evidence.parser,
+        "pdf_extraction_version": evidence.extraction_version,
         "pdf_page_count": evidence.page_count,
         "pdf_pages_scanned": evidence.pages_scanned,
         "pdf_extracted_chars": evidence.extracted_chars,
@@ -272,8 +273,10 @@ def compact_cninfo_pdf_evidence(
         return evidence
 
     def rank(item: Any) -> tuple[int, int, int, str]:
+        from ..data.business_disclosure import financial_business_kind
+
         compact = re.sub(r"\s+", "", str(item.text))
-        business = any(term in compact for term in (
+        business = financial_business_kind(str(item.text)) is not None or any(term in compact for term in (
             "主营业务分行业", "主营业务分产品", "主营业务分地区", "占营业收入的",
         ))
         risk = any(term in compact for term in _RISK_KEYWORDS)

@@ -1406,9 +1406,30 @@ class WorkflowApplication:
         if cached is None:
             return None
         try:
+            from .data.cninfo_pdf import BUSINESS_EXTRACTION_VERSION
+
             evidence = CninfoPdfEvidence.model_validate(cached["payload"])
-            if evidence.announcement_id != announcement.announcement_id:
+            if "extraction_version" not in cached["payload"]:
+                evidence = evidence.model_copy(update={"extraction_version": "legacy"})
+            if evidence.announcement_id != announcement.announcement_id or evidence.pdf_url != announcement.pdf_url:
                 return None
+            if evidence.available and cached["payload"].get("extraction_version") != BUSINESS_EXTRACTION_VERSION:
+                # Reuse an old extraction only when its existing source
+                # snippets already satisfy today's business projection.
+                # Missing evidence is refreshed; a parser release must not
+                # cause a mass re-download of still-usable monthly filings.
+                from .facts.cninfo import _pdf_payload
+
+                symbol = announcement.sec_code
+                record = {
+                    **_pdf_payload(compact_cninfo_pdf_evidence(evidence)),
+                    "announcement_id": announcement.announcement_id,
+                    "content_hash": evidence.pdf_sha256,
+                }
+                if not _main_business_evidence({"by_symbol": {symbol: [record]}}, [symbol])[symbol]["available"]:
+                    return None
+                # Do not relabel a legacy extraction as having run V2.
+                evidence = evidence.model_copy(update={"extraction_version": str(cached["payload"].get("extraction_version") or "legacy")})
             if evidence.available:
                 raw_path = (
                     self.settings.cninfo_pdf_cache_dir / str(evidence.cache_relative_path)
@@ -6692,6 +6713,8 @@ def _main_business_evidence(
 ) -> dict[str, Any]:
     """Project hash-bound filing snippets that can prove revenue exposure."""
 
+    from .data.business_disclosure import financial_business_kind
+
     raw_by_symbol = disclosure_events.get("by_symbol")
     by_symbol = raw_by_symbol if isinstance(raw_by_symbol, Mapping) else {}
     result: dict[str, Any] = {}
@@ -6711,12 +6734,14 @@ def _main_business_evidence(
                     continue
                 text_value = str(snippet.get("text") or "")
                 compact = re.sub(r"\s+", "", text_value)
+                financial_kind = financial_business_kind(text_value)
                 structured_revenue_share = (
                     "占营业收入的" in compact
                     and any(term in compact for term in ("客户", "产品", "地区", "业务板块"))
                 )
                 if (
                     not structured_revenue_share
+                    and financial_kind is None
                     and not any(term in compact for term in strong_terms)
                     and sum(term in compact for term in supporting_terms) < 2
                 ):
@@ -6732,12 +6757,16 @@ def _main_business_evidence(
                         "source_ref": f"cninfo:{announcement_id}:page:{page_number}",
                         "text": text_value[:1_500],
                         "content_hash": record.get("content_hash"),
+                        "business_disclosure_kind": financial_kind or "REVENUE_TABLE_OR_NARRATIVE",
                     }
                 )
         result[symbol] = {
             "available": bool(selected),
             "reason_code": "OK" if selected else "MAIN_BUSINESS_BREAKDOWN_NOT_FOUND",
-            "evidence": selected[:3],
+            "evidence": sorted(selected, key=lambda row: (
+                str(row.get("publish_time") or ""),
+                row["business_disclosure_kind"] != "REVENUE_TABLE_OR_NARRATIVE",
+            ), reverse=True)[:3],
         }
     return result
 

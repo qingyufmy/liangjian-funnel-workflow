@@ -147,7 +147,7 @@ def _membership(
         pagination_evidence={
             "total": 2,
             "page_size": 100,
-            "pages": [{"page": 1, "requested": 100, "returned": 2}],
+            "pages": [{"board_code": "BK0001", "page": 1, "requested": 100, "returned": 2}],
             "complete": True,
         },
     )
@@ -239,7 +239,8 @@ def test_default_taxonomy_is_strict_and_parent_child_legal():
     )
     codes = [code for theme in config.themes for code in theme.eastmoney_board_codes]
     assert len(codes) == len(set(codes))
-    assert all(theme.effective_from <= DAY for theme in config.themes)
+    assert all(theme.effective_from <= date(2026, 9, 6) for theme in config.themes)
+    assert all(theme.eastmoney_board_names for theme in config.themes)
 
 
 def test_exact_insurance_and_retail_do_not_inherit_broad_member_sets():

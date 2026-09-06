@@ -36,6 +36,23 @@ from typing import Any
 
 MODULE_VERSION = "mature-theme-registry/1.0.0"
 REGISTRY_VERSION = "mature-theme-registry/2026.09.v1"
+# These attributes describe listing eligibility/ownership or another
+# business entirely. They cannot stand in for a company's business chain.
+NON_BUSINESS_CONCEPTS = frozenset({"融资融券", "沪股通", "深股通"})
+_UNRELATED_THEME_CONCEPTS = {
+    "FINANCIAL_HIGH_DIVIDEND": frozenset({
+        "同花顺中特估100", "中字头股票", "央企国企改革", "国企改革",
+        "参股银行", "参股保险", "参股券商",
+    }),
+    "SEMICONDUCTOR_LOCALIZATION": frozenset({"国产操作系统"}),
+    "CONSUMER_SERVICES": frozenset({"消费电子概念"}),
+}
+
+
+def taxonomy_is_business_related(theme_id: str, taxonomy: str, name: str) -> bool:
+    if taxonomy != "CONCEPT":
+        return True
+    return name not in NON_BUSINESS_CONCEPTS and name not in _UNRELATED_THEME_CONCEPTS.get(theme_id, ())
 _MAX_EVIDENCE_EXCERPT = 320
 _MAX_EVIDENCE_ROWS_PER_THEME = 24
 _MAX_SOURCE_REFS = 24
@@ -103,7 +120,7 @@ _DEFAULT_THEMES: tuple[dict[str, Any], ...] = (
         ),
         "concept_names": (
             "芯片概念", "存储芯片", "MCU芯片", "第三代半导体", "先进封装", "光刻胶", "光刻机",
-            "中芯国际概念", "汽车芯片", "华为海思概念股", "国产操作系统",
+            "中芯国际概念", "汽车芯片", "华为海思概念股",
         ),
     },
     {
@@ -222,7 +239,7 @@ _DEFAULT_THEMES: tuple[dict[str, Any], ...] = (
             "教育", "美容护理", "家居用品",
         ),
         "concept_names": (
-            "旅游概念", "免税店", "消费电子概念", "白酒概念", "啤酒概念", "乳业", "预制菜", "宠物经济",
+            "旅游概念", "免税店", "白酒概念", "啤酒概念", "乳业", "预制菜", "宠物经济",
             "跨境电商", "网红经济", "短剧游戏", "体育产业", "IP经济(谷子经济)",
         ),
     },
@@ -236,8 +253,7 @@ _DEFAULT_THEMES: tuple[dict[str, Any], ...] = (
             "银行", "证券", "保险", "多元金融", "国有大型银行", "股份制银行", "城商行", "农商行",
         ),
         "concept_names": (
-            "高股息精选", "同花顺中特估100", "中字头股票", "央企国企改革", "国企改革", "参股银行", "参股保险",
-            "参股券商", "融资融券", "互联网金融",
+            "高股息精选", "互联网金融",
         ),
     },
     {
@@ -909,7 +925,7 @@ def _taxonomy_links_for_theme(
         for row in rows:
             code = _text(row.get("thscode"))
             name = _text(row.get("name"))
-            if not code or not name:
+            if not code or not name or not taxonomy_is_business_related(canonical_id, taxonomy, name):
                 continue
             links.append(
                 {

@@ -319,7 +319,7 @@ agent_1:
         display_name: 半导体国产化
         activation_keywords: [半导体, 芯片国产化, 国产替代, 集成电路, 先进封装, 存储芯片, 光刻胶, 光刻机]
         industry_names: [半导体, 半导体材料, 半导体设备, 集成电路制造, 集成电路封测, 数字芯片设计, 模拟芯片设计, 电子化学品, 光学光电子]
-        concept_names: [芯片概念, 存储芯片, MCU芯片, 第三代半导体, 先进封装, 光刻胶, 光刻机, 中芯国际概念, 汽车芯片, 华为海思概念股, 国产操作系统]
+        concept_names: [芯片概念, 存储芯片, MCU芯片, 第三代半导体, 先进封装, 光刻胶, 光刻机, 中芯国际概念, 汽车芯片, 华为海思概念股]
       - canonical_id: NATIONAL_DEFENSE
         display_name: 国防军工
         activation_keywords: [国防军工, 军工, 航空装备, 航天装备, 军工电子, 商业航天, 大飞机, 低空经济]
@@ -359,12 +359,12 @@ agent_1:
         display_name: 消费服务
         activation_keywords: [消费服务, 服务消费, 内需, 旅游, 酒店, 餐饮, 零售, 食品饮料, 文旅]
         industry_names: [旅游及酒店, 餐饮, 零售, 互联网电商, 食品加工制造, 饮料制造, 休闲食品, 文化传媒, 教育, 美容护理, 家居用品]
-        concept_names: [旅游概念, 免税店, 消费电子概念, 白酒概念, 啤酒概念, 乳业, 预制菜, 宠物经济, 跨境电商, 网红经济, 短剧游戏, 体育产业, IP经济(谷子经济)]
+        concept_names: [旅游概念, 免税店, 白酒概念, 啤酒概念, 乳业, 预制菜, 宠物经济, 跨境电商, 网红经济, 短剧游戏, 体育产业, IP经济(谷子经济)]
       - canonical_id: FINANCIAL_HIGH_DIVIDEND
         display_name: 金融高股息
         activation_keywords: [金融高股息, 高股息, 红利资产, 银行, 保险, 证券, 中特估, 资本市场扩容]
         industry_names: [银行, 证券, 保险, 多元金融, 国有大型银行, 股份制银行, 城商行, 农商行]
-        concept_names: [高股息精选, 同花顺中特估100, 中字头股票, 央企国企改革, 国企改革, 参股银行, 参股保险, 参股券商, 融资融券, 互联网金融]
+        concept_names: [高股息精选, 互联网金融]
       - canonical_id: AGRICULTURE_FOOD_SECURITY
         display_name: 农业与粮食安全
         activation_keywords: [农业, 粮食安全, 种植业, 种业, 养殖业, 农产品, 生猪, 玉米, 农业政策]

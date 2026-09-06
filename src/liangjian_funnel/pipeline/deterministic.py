@@ -396,6 +396,9 @@ def screen_a1(
         primary_link = matched[0] if matched else {}
         primary_theme = theme_by_id.get(str(primary_link.get("theme_id") or ""), {}) if matched else {}
         primary_node = node_by_id.get(str(primary_link.get("node_id") or ""), {}) if matched else {}
+        company_industry = candidate.get("industry") or candidate.get("industry_name") or next(
+            (row.get("taxonomy_name") for row in industry.get(symbol, ()) if row.get("taxonomy_name")), None
+        )
         monthly_direction_matches = [
             {
                 "monthly_direction_id": link.get("theme_id"),
@@ -419,7 +422,7 @@ def screen_a1(
         a1_selection_evidence = build_a1_selection_evidence(
             market_regime=market_regime,
             company={
-                "industry": candidate.get("industry") or candidate.get("industry_name"),
+                "industry": company_industry,
                 "sector": primary_theme.get("display_name") or primary_theme.get("theme_id"),
                 "theme": primary_node.get("display_name") or primary_node.get("node_id"),
                 "style": candidate.get("style"),
@@ -568,6 +571,7 @@ def screen_a1(
             "symbol": symbol,
             "name": str(candidate.get("name") or candidate.get("security_name") or "") or None,
             "stage": "A1_LOCAL_SCREEN",
+            "industry": company_industry,
             "status": status,
             # Every deterministic row has an explicit provenance.  The value
             # is changed below only when the row is actually sent to the LLM
@@ -4660,6 +4664,8 @@ def _taxonomy_links(
     industry: Mapping[str, Sequence[Mapping[str, Any]]],
     concept: Mapping[str, Sequence[Mapping[str, Any]]],
 ) -> list[dict[str, Any]]:
+    from .mature_theme_registry import taxonomy_is_business_related
+
     explicit = _mapping_list(discovery.get("taxonomy_links"))
     node_ids = {str(node.get("node_id") or "") for node in nodes}
     theme_by_id = {str(item.get("theme_id") or ""): item for item in themes}
@@ -4713,6 +4719,9 @@ def _taxonomy_links(
                     "match_method": "MODEL_SELECTED_VALIDATED_CODE",
                     "confidence": 1.0,
                 })
+    links = [link for link in links if taxonomy_is_business_related(
+        str(link.get("theme_id") or ""), str(link["taxonomy"]), str(link.get("taxonomy_name") or "")
+    )]
     if links:
         return _dedupe_links(links)
 
@@ -4727,7 +4736,9 @@ def _taxonomy_links(
         normalized = _normalize(" ".join(texts))
         for (taxonomy, code), name in universe.items():
             normalized_name = _normalize(name)
-            if len(normalized_name) >= 2 and normalized_name in normalized:
+            if len(normalized_name) >= 2 and normalized_name in normalized and taxonomy_is_business_related(
+                theme_ids[0] if theme_ids else "", taxonomy, name
+            ):
                 links.append({
                     "node_id": node_id,
                     "theme_id": theme_ids[0] if theme_ids else None,

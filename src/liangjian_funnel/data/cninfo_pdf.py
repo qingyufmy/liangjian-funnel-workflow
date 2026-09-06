@@ -31,6 +31,7 @@ MAX_PDF_PAGES = 200
 MAX_EXTRACTED_CHARS = 200_000
 MAX_EVIDENCE_SNIPPETS = 12
 MAX_SNIPPET_CHARS = 500
+BUSINESS_EXTRACTION_VERSION = "business-disclosure/2.0.0"
 _CONTENT_TYPES = {"application/pdf", "application/octet-stream"}
 _BSE_CDN_CHALLENGE_STATUSES = frozenset({301, 302, 303, 307, 308})
 _BSE_TEMPORARY_STATUSES = frozenset({403, 408})
@@ -78,6 +79,7 @@ class CninfoPdfEvidence(BaseModel):
     content_type: str | None = None
     byte_size: int | None = Field(default=None, ge=0)
     parser: str = f"pypdf/{pypdf.__version__}"
+    extraction_version: str = BUSINESS_EXTRACTION_VERSION
     page_count: int | None = Field(default=None, ge=0)
     pages_scanned: int = Field(default=0, ge=0)
     extracted_chars: int = Field(default=0, ge=0)
@@ -510,11 +512,24 @@ def _clean_text(value: str) -> str:
 
 
 def _build_snippets(page_texts: list[tuple[int, str]]) -> tuple[PdfEvidenceSnippet, ...]:
+    from .business_disclosure import financial_business_kind
+
     candidates: list[tuple[int, int, int, PdfEvidenceSnippet]] = []
     for page_number, page_text in page_texts:
         units = [item.strip() for item in re.split(r"(?<=[。！？；])|\n+", page_text) if item.strip()]
         if not units:
             units = [page_text]
+        # Flattened PDF pages can contain thousands of characters. Taking
+        # only their first 500 chars drops the actual revenue table even
+        # though the pre-truncation keyword count ranks the page highly.
+        for anchor in re.finditer(
+            r"营业收入构成|主营业务分行业|主营业务分产品|分行业|分产品|保险服务收入|原保险保费收入|利息净收入|证券经纪业务",
+            page_text,
+        ):
+            start = max(0, anchor.start() - 40)
+            window = page_text[start:start + MAX_SNIPPET_CHARS]
+            if window not in units:
+                units.append(window)
         for index, unit in enumerate(units):
             matched = tuple(keyword for keyword in _EVIDENCE_KEYWORDS if keyword in unit)
             if not matched:
@@ -528,7 +543,15 @@ def _build_snippets(page_texts: list[tuple[int, str]]) -> tuple[PdfEvidenceSnipp
                 matched_keywords=matched,
                 prompt_injection_suspected=secret_suspected or bool(_INJECTION.search(snippet_text)),
             )
-            candidates.append((-len(matched), page_number, index, snippet))
+            # Financial reports do not use the manufacturing revenue table.
+            # Protect their actual business disclosure from cash-flow pages
+            # with many generic keywords. Never invent a revenue percentage.
+            compact = re.sub(r"\s+", "", snippet_text)
+            composition = any(t in compact for t in ("营业收入构成", "主营业务分行业", "主营业务分产品")) or (
+                any(t in compact for t in ("分行业", "分产品")) and any(t in compact for t in ("营业收入", "%", "毛利率"))
+            )
+            priority = 100 if financial_business_kind(snippet_text) or composition else 0
+            candidates.append((-priority - len(matched), page_number, index, snippet))
     if not candidates and page_texts:
         page_number, page_text = page_texts[0]
         raw_snippet = page_text[:MAX_SNIPPET_CHARS]
