@@ -12,6 +12,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
+from threading import Lock
 from urllib.parse import urljoin, urlparse
 from zoneinfo import ZoneInfo
 
@@ -26,12 +27,13 @@ SHANGHAI = ZoneInfo("Asia/Shanghai")
 CNINFO_PDF_HOST = "static.cninfo.com.cn"
 BSE_PDF_HOST = "www.bse.cn"
 BSE_PDF_REFERER = "https://www.bse.cn/disclosure/announcement.html"
-MAX_PDF_BYTES = 20 * 1024 * 1024
+MAX_PDF_BYTES = 64 * 1024 * 1024
 MAX_PDF_PAGES = 200
 MAX_EXTRACTED_CHARS = 200_000
 MAX_EVIDENCE_SNIPPETS = 12
 MAX_SNIPPET_CHARS = 500
-BUSINESS_EXTRACTION_VERSION = "business-disclosure/2.0.0"
+BUSINESS_EXTRACTION_VERSION = "business-disclosure/3.0.0"
+_PDFIUM_LOCK = Lock()  # PDFium is not thread-safe, including across documents.
 _CONTENT_TYPES = {"application/pdf", "application/octet-stream"}
 _BSE_CDN_CHALLENGE_STATUSES = frozenset({301, 302, 303, 307, 308})
 _BSE_TEMPORARY_STATUSES = frozenset({403, 408})
@@ -79,7 +81,8 @@ class CninfoPdfEvidence(BaseModel):
     content_type: str | None = None
     byte_size: int | None = Field(default=None, ge=0)
     parser: str = f"pypdf/{pypdf.__version__}"
-    extraction_version: str = BUSINESS_EXTRACTION_VERSION
+    extraction_version: str = "legacy"
+    download_limit_bytes: int = Field(default=20 * 1024 * 1024, gt=0)
     page_count: int | None = Field(default=None, ge=0)
     pages_scanned: int = Field(default=0, ge=0)
     extracted_chars: int = Field(default=0, ge=0)
@@ -330,14 +333,17 @@ class CninfoPdfClient:
         logging.getLogger("pypdf").setLevel(logging.ERROR)
         try:
             from pypdf import PdfReader
-            from pypdf.errors import PdfReadError
+            from pypdf.errors import PdfReadError, DependencyError
         except ImportError:
             return self._failure(
                 announcement, "CNINFO_PDF_PARSER_UNAVAILABLE", http_status=http_status, attempts=attempts
             )
         try:
             reader = PdfReader(str(path), strict=False)
-            if reader.is_encrypted:
+            # Public reports may use an empty user password solely for PDF
+            # permission flags. Read only what opens without credentials;
+            # genuinely password-protected reports remain unavailable.
+            if reader.is_encrypted and (not callable(getattr(reader, "decrypt", None)) or not reader.decrypt("")):
                 return self._failure(
                     announcement, "CNINFO_PDF_ENCRYPTED", http_status=http_status, attempts=attempts,
                     cache_hit=cache_hit, digest=digest, size=size, content_type=content_type, path=path,
@@ -359,13 +365,27 @@ class CninfoPdfClient:
                 extracted_chars += len(text)
                 if text:
                     page_texts.append((page_number, text))
+            snippets = _build_snippets(page_texts)
+            parser_name = f"pypdf/{pypdf.__version__}"
+            # Some official PDFs have broken font character maps in pypdf
+            # while PDFium reads their text correctly. Try a bounded, local
+            # second parser, never OCR guesses or a different document.
+            from .business_disclosure import business_disclosure_kind
+            if not any(business_disclosure_kind(s.text) for s in snippets):
+                alternative = _pdfium_business_text(path)
+                if alternative is not None:
+                    alt_pages, alt_count, alt_scanned, alt_chars, alt_truncated, alt_parser = alternative
+                    alt_snippets = _build_snippets(alt_pages)
+                    if any(business_disclosure_kind(s.text) for s in alt_snippets):
+                        snippets = alt_snippets
+                        page_count, pages_scanned = alt_count, alt_scanned
+                        extracted_chars, truncated, parser_name = alt_chars, alt_truncated, alt_parser
             if extracted_chars == 0:
                 return self._failure(
                     announcement, "CNINFO_PDF_TEXT_EMPTY", http_status=http_status, attempts=attempts,
                     cache_hit=cache_hit, digest=digest, size=size, content_type=content_type, path=path,
                     page_count=page_count, pages_scanned=pages_scanned,
                 )
-            snippets = _build_snippets(page_texts)
             suspected = any(item.prompt_injection_suspected for item in snippets)
             return CninfoPdfEvidence(
                 announcement_id=announcement.announcement_id,
@@ -373,6 +393,9 @@ class CninfoPdfClient:
                 available=True,
                 reason_code="OK",
                 fetched_at=_aware(self._now()),
+                extraction_version=BUSINESS_EXTRACTION_VERSION,
+                parser=parser_name,
+                download_limit_bytes=self.max_bytes,
                 http_status=http_status,
                 attempts=attempts,
                 cache_hit=cache_hit,
@@ -386,6 +409,11 @@ class CninfoPdfClient:
                 truncated=truncated,
                 prompt_injection_suspected=suspected,
                 snippets=snippets,
+            )
+        except DependencyError:
+            return self._failure(
+                announcement, "CNINFO_PDF_CRYPTO_UNAVAILABLE", http_status=http_status, attempts=attempts,
+                cache_hit=cache_hit, digest=digest, size=size, content_type=content_type, path=path,
             )
         except (PdfReadError, OSError, ValueError, TypeError, KeyError, IndexError, RuntimeError):
             return self._failure(
@@ -414,6 +442,8 @@ class CninfoPdfClient:
             available=False,
             reason_code=reason,
             fetched_at=_aware(self._now()),
+            extraction_version=BUSINESS_EXTRACTION_VERSION,
+            download_limit_bytes=self.max_bytes,
             http_status=http_status,
             attempts=attempts,
             cache_hit=cache_hit,
@@ -511,8 +541,40 @@ def _clean_text(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip()
 
 
+def _pdfium_business_text(path: Path):
+    """Optional parser fallback with the same page/character resource bounds."""
+    try:
+        import pypdfium2 as pdfium
+    except ImportError:
+        return None
+    try:
+        with _PDFIUM_LOCK, pdfium.PdfDocument(str(path)) as document:
+            count = len(document)
+            pages, chars, scanned = [], 0, 0
+            for index in range(min(count, MAX_PDF_PAGES)):
+                if chars >= MAX_EXTRACTED_CHARS:
+                    break
+                page = document[index]
+                try:
+                    text_page = page.get_textpage()
+                    try:
+                        text = _clean_text(text_page.get_text_range())
+                    finally:
+                        text_page.close()
+                finally:
+                    page.close()
+                scanned += 1
+                text = text[:MAX_EXTRACTED_CHARS - chars]
+                chars += len(text)
+                if text:
+                    pages.append((index + 1, text))
+            return pages, count, scanned, chars, (scanned < count or chars >= MAX_EXTRACTED_CHARS), f"pypdfium2/{pdfium.PYPDFIUM_INFO.version}"
+    except (pdfium.PdfiumError, OSError, ValueError, RuntimeError):
+        return None
+
+
 def _build_snippets(page_texts: list[tuple[int, str]]) -> tuple[PdfEvidenceSnippet, ...]:
-    from .business_disclosure import financial_business_kind
+    from .business_disclosure import business_disclosure_kind, BUSINESS_DESCRIPTION_PATTERN
 
     candidates: list[tuple[int, int, int, PdfEvidenceSnippet]] = []
     for page_number, page_text in page_texts:
@@ -523,7 +585,7 @@ def _build_snippets(page_texts: list[tuple[int, str]]) -> tuple[PdfEvidenceSnipp
         # only their first 500 chars drops the actual revenue table even
         # though the pre-truncation keyword count ranks the page highly.
         for anchor in re.finditer(
-            r"营业收入构成|主营业务分行业|主营业务分产品|分行业|分产品|保险服务收入|原保险保费收入|利息净收入|证券经纪业务",
+            r"营业收入构成|主营业务分行业|主营业务分产品|分行业|分产品|产品或服务|产品名称|分业务|业务分部|保险服务收入|原保险保费收入|利息净收入|证券经纪业务|公司主营业务|公司的主营业务|" + BUSINESS_DESCRIPTION_PATTERN,
             page_text,
         ):
             start = max(0, anchor.start() - 40)
@@ -532,7 +594,7 @@ def _build_snippets(page_texts: list[tuple[int, str]]) -> tuple[PdfEvidenceSnipp
                 units.append(window)
         for index, unit in enumerate(units):
             matched = tuple(keyword for keyword in _EVIDENCE_KEYWORDS if keyword in unit)
-            if not matched:
+            if not matched and business_disclosure_kind(unit[:MAX_SNIPPET_CHARS]) is None:
                 continue
             raw_snippet = unit[:MAX_SNIPPET_CHARS]
             secret_suspected = bool(_SECRET_LIKE.search(raw_snippet))
@@ -546,11 +608,7 @@ def _build_snippets(page_texts: list[tuple[int, str]]) -> tuple[PdfEvidenceSnipp
             # Financial reports do not use the manufacturing revenue table.
             # Protect their actual business disclosure from cash-flow pages
             # with many generic keywords. Never invent a revenue percentage.
-            compact = re.sub(r"\s+", "", snippet_text)
-            composition = any(t in compact for t in ("营业收入构成", "主营业务分行业", "主营业务分产品")) or (
-                any(t in compact for t in ("分行业", "分产品")) and any(t in compact for t in ("营业收入", "%", "毛利率"))
-            )
-            priority = 100 if financial_business_kind(snippet_text) or composition else 0
+            priority = 100 if business_disclosure_kind(snippet_text) else 0
             candidates.append((-priority - len(matched), page_number, index, snippet))
     if not candidates and page_texts:
         page_number, page_text = page_texts[0]

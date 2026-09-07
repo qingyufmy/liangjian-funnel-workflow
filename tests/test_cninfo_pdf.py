@@ -62,6 +62,43 @@ def test_owned_client_ignores_process_proxy_configuration(tmp_path: Path, monkey
     client.close()
 
 
+@pytest.mark.parametrize('password_result,reason', [(1, 'OK'), (0, 'CNINFO_PDF_ENCRYPTED')])
+def test_public_pdf_empty_password_only(tmp_path, monkeypatch, password_result, reason):
+    class PermissionReader(Reader):
+        is_encrypted = True
+        def decrypt(self, password):
+            assert password == ''
+            return password_result
+    monkeypatch.setattr(pypdf, 'PdfReader', PermissionReader)
+    result = make_client(tmp_path, lambda r: httpx.Response(200,
+        headers={'Content-Type': 'application/pdf'}, content=b'%PDF-test')).fetch_evidence(announcement())
+    assert result.reason_code == reason
+
+
+def test_pdfium_fallback_keeps_same_document_hash_and_actual_parser(tmp_path, monkeypatch):
+    import liangjian_funnel.data.cninfo_pdf as module
+    monkeypatch.setattr(pypdf, 'PdfReader', Reader)
+    text = '公司主要从事精密光学仪器的研发、生产和销售。'
+    monkeypatch.setattr(module, '_pdfium_business_text', lambda path:
+        ([(17, text)], 20, 20, len(text), False, 'pypdfium2/test'))
+    result = make_client(tmp_path, lambda r: httpx.Response(200,
+        headers={'Content-Type': 'application/pdf'}, content=b'%PDF-test')).fetch_evidence(announcement())
+    assert result.available and result.parser == 'pypdfium2/test'
+    assert result.snippets[0].page_number == 17 and result.pdf_sha256
+
+
+def test_missing_crypto_has_explicit_diagnostic(tmp_path, monkeypatch):
+    from pypdf.errors import DependencyError
+    class CryptoReader(Reader):
+        is_encrypted = True
+        def decrypt(self, password):
+            raise DependencyError('crypto dependency missing')
+    monkeypatch.setattr(pypdf, 'PdfReader', CryptoReader)
+    result = make_client(tmp_path, lambda r: httpx.Response(200,
+        headers={'Content-Type': 'application/pdf'}, content=b'%PDF-test')).fetch_evidence(announcement())
+    assert result.reason_code == 'CNINFO_PDF_CRYPTO_UNAVAILABLE' and not result.available
+
+
 def test_download_extract_and_hash_validated_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(pypdf, "PdfReader", Reader)
     calls = 0

@@ -10,6 +10,22 @@ from liangjian_funnel.runtime.state import RuntimeStore
 TZ = ZoneInfo("Asia/Shanghai")
 
 
+def test_monitor_settles_session_end_after_node_delay_without_backfill(tmp_path):
+    store = RuntimeStore(tmp_path / "boundary.sqlite3")
+    seen = []
+    scheduler = Scheduler(store, callbacks={"monitor": lambda job: seen.append(job.due)},
+                          trading_day=lambda _: True)
+    for hour, minute in ((11, 30), (15, 0)):
+        at = datetime(2026, 9, 7, hour, minute, 3, tzinfo=TZ)
+        result = scheduler.dispatch_once(at, kinds=(ScheduleKind.MONITOR,))
+        assert len(result) == 1
+        assert result[0].status is DispatchStatus.DISPATCHED
+        assert result[0].due == at.replace(second=0)
+        scheduler.dispatch_once(at.replace(second=59), kinds=(ScheduleKind.MONITOR,))
+        assert not scheduler.dispatch_once(at + timedelta(minutes=1), kinds=(ScheduleKind.MONITOR,))
+    assert len(seen) == 2
+
+
 def test_schedule_uses_injected_business_day_and_no_duplicate_lease_dispatch(tmp_path):
     store = RuntimeStore(tmp_path / "runtime.sqlite3")
     seen = []

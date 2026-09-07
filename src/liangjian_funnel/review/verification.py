@@ -263,8 +263,14 @@ class A5IndependentVerifier:
             return {}
         result: dict[str, dict[str, Any]] = {}
         for symbol in symbols:
+            selection = {}
             try:
-                rows = [_bar_dict(item) for item in self.minute_store.load_latest(symbol, "1m", limit=300)]
+                latest_selection = getattr(self.minute_store, "latest_decision_snapshot", None)
+                if callable(latest_selection):
+                    selection = latest_selection(symbol, "1m", as_of=cutoff)
+                rows = [_bar_dict(item) for item in (
+                    selection["bars"] if selection else self.minute_store.load_latest(symbol, "1m", limit=300)
+                )]
             except Exception:
                 rows = []
             rows = [
@@ -275,6 +281,8 @@ class A5IndependentVerifier:
             ]
             result[symbol] = {
                 "bars": rows,
+                "selection": {key: value for key, value in selection.items() if key != "bars"},
+                "archive_basis": "LATEST_DECISION_SNAPSHOT" if selection else "LEGACY_FIRST_OBSERVATION",
                 "source_ids": sorted({str(row.get("source_id") or "") for row in rows if str(row.get("source_id") or "")}),
             }
         return result
@@ -581,6 +589,8 @@ class A5IndependentVerifier:
                 "cross_source_max_close_difference": max(differences) if differences else None,
                 "cross_source_status": "MATCH" if differences and max(differences) <= 0.005 else "MISMATCH" if differences else "DATA_LIMITED",
                 "archived_bar_count": len(archived), "archived_tdx_overlap_count": len(archived_overlap),
+                "archive_basis": local.get(symbol, {}).get("archive_basis", "LEGACY_FIRST_OBSERVATION"),
+                "decision_snapshot": local.get(symbol, {}).get("selection", {}),
                 "archived_tdx_max_close_difference": max(archived_differences) if archived_differences else None,
                 "archived_tdx_status": "MATCH" if archived_differences and max(archived_differences) <= 0.005 else "MISMATCH" if archived_differences else "DATA_LIMITED",
                 "tdx_trigger_zone_seen": bool(low is not None and high is not None and any(low <= value <= high for value in tdx_closes)),

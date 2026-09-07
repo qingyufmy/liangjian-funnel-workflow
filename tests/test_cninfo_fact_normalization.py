@@ -242,7 +242,7 @@ def test_snapshot_pdf_projection_keeps_full_cache_value_but_bounds_memory_snippe
     snippets = tuple(
         PdfEvidenceSnippet(
             page_number=index + 1,
-            text=("主营业务分产品 营业收入 毛利率" if index == 9 else f"普通证据 {index}"),
+            text=("主营业务分产品 营业收入 毛利率 机械设备 100万元 25%" if index == 9 else f"普通证据 {index}"),
         )
         for index in range(12)
     )

@@ -218,7 +218,9 @@ def _announcement_url(value: object) -> str:
         path = parts.path
     decoded_path = unquote(path)
     if (
-        not path.startswith("/disclosure/")
+        not (path.startswith("/disclosure/") or re.fullmatch(
+            r"/uploads/6/file/public/\d{6}/[A-Za-z0-9_-]+\.pdf", path, re.IGNORECASE
+        ))
         or "\\" in path
         or "?" in path
         or "#" in path

@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 import hashlib
 import json
+import zlib
 from collections.abc import Iterable
 from datetime import date, datetime
 from pathlib import Path
@@ -85,8 +86,9 @@ class MinuteBarStore:
     observation raises :class:`CacheConflictError`.  Live providers commonly
     return an overlapping window and may revise the last forming bar or use a
     different node for the overlap.  ``write_live`` therefore appends only
-    new, closed observations, retains the local canonical value for overlap
-    conflicts, and records a safe diagnostic without poisoning the monitor.
+    new, closed observations in the legacy archive, records full source
+    versions, and freezes a separate immutable selection for each decision.
+    The live monitor reads that selection, not the legacy first-value archive.
     """
 
     def __init__(self, directory: Path):
@@ -163,6 +165,31 @@ class MinuteBarStore:
                 ON minute_bar_audit(dedupe_key)
                 """
             )
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS minute_bar_versions (
+                    version_id TEXT PRIMARY KEY,
+                    symbol TEXT NOT NULL, interval TEXT NOT NULL, bar_end TEXT NOT NULL,
+                    source_id TEXT NOT NULL, observed_at TEXT NOT NULL,
+                    payload_json TEXT NOT NULL
+                ) WITHOUT ROWID
+            """)
+
+            connection.execute("""
+                CREATE INDEX IF NOT EXISTS idx_minute_bar_versions_time
+                ON minute_bar_versions(symbol,interval,bar_end,observed_at)
+            """)
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS minute_decision_snapshots (
+                    snapshot_id TEXT NOT NULL, symbol TEXT NOT NULL, interval TEXT NOT NULL,
+                    decision_as_of TEXT NOT NULL, captured_at TEXT NOT NULL,
+                    payload_sha256 TEXT NOT NULL, payload_zlib BLOB NOT NULL,
+                    PRIMARY KEY(snapshot_id,symbol,interval)
+                ) WITHOUT ROWID
+            """)
+            connection.execute("""
+                CREATE INDEX IF NOT EXISTS idx_minute_decision_lookup
+                ON minute_decision_snapshots(symbol,interval,decision_as_of)
+            """)
 
     def write(
         self,
@@ -191,6 +218,7 @@ class MinuteBarStore:
         try:
             connection.execute("BEGIN IMMEDIATE")
             for bar in values:
+                self._record_version(connection, bar, _observed_at(None))
                 payload = _payload(bar)
                 cursor = connection.execute(
                     """
@@ -252,14 +280,17 @@ class MinuteBarStore:
         bars: Iterable[MinuteBar],
         *,
         as_of: datetime,
+        snapshot_id: str | None = None,
     ) -> CacheWriteResult:
         """Append a live closed-bar snapshot without failing on overlaps.
 
         The provider window is intentionally not allowed to rewrite the local
         canonical value.  This makes a Tencent/MootDX overlap safe even when
         the source revises a recent row or two public nodes disagree.  A
-        caller that needs an explicit current-day correction can use
-        ``write(..., allow_revisions_for=...)`` instead.
+        caller that needs an explicit current-day archive correction can use
+        ``write(..., allow_revisions_for=...)`` instead. Live decisions use
+        ``snapshot_id`` and ``load_decision_snapshot``: subsequent decisions
+        may use newly observed revisions while retries retain their first set.
 
         Rows later than ``as_of`` are not persisted.  The adapter normally
         performs this filter too, but keeping the invariant in the cache is
@@ -276,6 +307,25 @@ class MinuteBarStore:
         connection = self._connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
+            captured = _observed_at(None)
+            closed = tuple(bar for bar in values if bar.bar_end <= cutoff)
+            for bar in closed:
+                self._record_version(connection, bar, captured)
+            if snapshot_id is not None:
+                groups: dict[tuple[str, str], list[MinuteBar]] = {}
+                for bar in closed:
+                    groups.setdefault((bar.symbol, bar.interval), []).append(bar)
+                for (symbol, interval), group in groups.items():
+                    raw = json.dumps(
+                        [bar.model_dump(mode="json") for bar in sorted(group, key=lambda b: b.bar_end)],
+                        sort_keys=True, separators=(",", ":"),
+                    ).encode("utf-8")
+                    # First selection for this decision is immutable on retry.
+                    connection.execute("""
+                        INSERT OR IGNORE INTO minute_decision_snapshots
+                        VALUES(?,?,?,?,?,?,?)
+                    """, (snapshot_id, symbol, interval, observed, captured,
+                          hashlib.sha256(raw).hexdigest(), zlib.compress(raw)))
             for bar in values:
                 payload = _payload(bar)
                 if bar.bar_end > cutoff:
@@ -349,6 +399,53 @@ class MinuteBarStore:
             skipped_future=skipped_future,
         )
 
+    @staticmethod
+    def _record_version(connection: sqlite3.Connection, bar: MinuteBar, observed_at: str) -> None:
+        raw = bar.model_dump_json()
+        digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+        connection.execute("""
+            INSERT OR IGNORE INTO minute_bar_versions VALUES(?,?,?,?,?,?,?)
+        """, (digest, bar.symbol, bar.interval, bar.bar_end.isoformat(),
+              bar.source_id, observed_at, raw))
+
+    def load_decision_snapshot(
+        self, snapshot_id: str, symbol: str, interval: str, *, as_of: datetime,
+    ) -> tuple[MinuteBar, ...]:
+        """Load the exact version set selected then, not a later repaired series."""
+        with self._connect() as connection:
+            row = connection.execute("""
+                SELECT decision_as_of,payload_sha256,payload_zlib
+                FROM minute_decision_snapshots WHERE snapshot_id=? AND symbol=? AND interval=?
+            """, (snapshot_id, map_symbol(symbol).canonical, interval)).fetchone()
+        if row is None:
+            raise ValueError("MINUTE_DECISION_SNAPSHOT_MISSING")
+        if row[0] != _observed_at(as_of):
+            raise ValueError("MINUTE_DECISION_SNAPSHOT_TIME_MISMATCH")
+        raw = zlib.decompress(row[2])
+        if hashlib.sha256(raw).hexdigest() != row[1]:
+            raise ValueError("MINUTE_DECISION_SNAPSHOT_HASH_MISMATCH")
+        bars = tuple(MinuteBar.model_validate(item) for item in json.loads(raw))
+        if any(bar.bar_end > as_of for bar in bars):
+            raise ValueError("MINUTE_DECISION_SNAPSHOT_FUTURE_BAR")
+        return bars
+
+    def latest_decision_snapshot(self, symbol: str, interval: str, *, as_of: datetime) -> dict:
+        """Review-only latest same-session selection; not an earlier replay."""
+        end = _observed_at(as_of)
+        start = as_of.astimezone(SHANGHAI).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        with self._connect() as connection:
+            row = connection.execute("""
+                SELECT snapshot_id,decision_as_of,captured_at,payload_sha256
+                FROM minute_decision_snapshots WHERE symbol=? AND interval=?
+                AND decision_as_of>=? AND decision_as_of<=?
+                ORDER BY decision_as_of DESC LIMIT 1
+            """, (map_symbol(symbol).canonical, interval, start, end)).fetchone()
+        if row is None:
+            return {}
+        bars = self.load_decision_snapshot(row[0], symbol, interval, as_of=datetime.fromisoformat(row[1]))
+        return {"snapshot_id": row[0], "decision_as_of": row[1], "captured_at": row[2],
+                "payload_sha256": row[3], "bars": bars}
+
     def _replace_existing(
         self,
         connection: sqlite3.Connection,
@@ -358,6 +455,9 @@ class MinuteBarStore:
         observed_at: str,
         differing_fields: Iterable[str],
     ) -> None:
+        # Capture the old full value before replacement. Its historic first
+        # observation time is unknown in legacy databases; never fabricate it.
+        self._record_version(connection, _from_row(existing), _observed_at(None))
         revision_number = int(
             connection.execute(
                 """

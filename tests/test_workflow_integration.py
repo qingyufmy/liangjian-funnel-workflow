@@ -170,6 +170,10 @@ def test_monitor_archives_invalidated_plan_without_returning_it_to_a4(tmp_path):
     archived = app.minute_store.load_latest("600176.SH", "1m", limit=240)
     assert archived
     assert archived[-1].bar_end == current
+    snapshot = app.minute_store.load_decision_snapshot(
+        result["minute_snapshot_id"], "600176.SH", "1m", as_of=current,
+    )
+    assert snapshot[-1].bar_end == current
     # The terminal plan remains terminal and never appears in an A4 decision
     # event, signal lifecycle, or position.
     assert store.get_execution_plan("invalidated-plan")["status"] == PlanStatus.INVALIDATED.value

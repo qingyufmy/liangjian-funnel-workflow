@@ -130,6 +130,12 @@ class MinuteBar(BaseModel):
     amount: float
     source_id: str
     adjust_mode: AdjustMode = "none"
+    # Legacy persisted rows intentionally remain unspecified, never silently
+    # relabelled as the new contract. New adapters explicitly declare units.
+    volume_unit: Literal["shares", "legacy_unspecified"] = "legacy_unspecified"
+    amount_kind: Literal["reported", "ohlc_estimate", "legacy_unspecified"] = "legacy_unspecified"
+    normalizer_version: str = "legacy"
+    provider_bar_end: datetime | None = None
 
     @field_validator("symbol", mode="before")
     @classmethod
@@ -421,7 +427,7 @@ def normalize_bars(
             MinuteBar(
                 symbol=mapping.canonical,
                 interval=interval,
-                bar_end=_parse_timestamp(_value(row, _TIME_KEYS)),
+                bar_end=_tdx_bar_end(_value(row, _TIME_KEYS)),
                 open=_number(_value(row, _OPEN_KEYS)),
                 high=_number(_value(row, _HIGH_KEYS)),
                 low=_number(_value(row, _LOW_KEYS)),
@@ -430,6 +436,10 @@ def normalize_bars(
                 amount=_number(_value(row, _AMOUNT_KEYS)),
                 source_id=source_id,
                 adjust_mode=adjust_mode,
+                volume_unit="shares",
+                amount_kind="reported",
+                normalizer_version="tdx-equity-minute-v2",
+                provider_bar_end=_parse_timestamp(_value(row, _TIME_KEYS)),
             )
             for row in records
         )
@@ -444,6 +454,19 @@ def normalize_bars(
         if not (all(delta > 0 for delta in deltas) or all(delta < 0 for delta in deltas)):
             raise MootdxError("UNORDERED_BAR_DATA")
     return bars
+
+
+def _tdx_bar_end(value: Any) -> datetime:
+    """TDX equity lunch-close alias; retain raw timestamp on MinuteBar.
+
+    13:00 is not a continuous-session close. The 2026-09-07 paired
+    40-stock capture verifies that this node label is the 11:30 close.
+    If both labels occur, the normal duplicate guard refuses ambiguity.
+    """
+    stamp = _parse_timestamp(value)
+    if stamp.time() == datetime_time(13, 0):
+        return stamp.replace(hour=11, minute=30)
+    return stamp
 
 
 class _FetchFailure(Exception):

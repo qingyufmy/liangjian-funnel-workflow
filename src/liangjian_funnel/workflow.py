@@ -944,6 +944,9 @@ class WorkflowApplication:
                 source_failures.setdefault(symbol, []).append(
                     f"CNINFO_PDF:{announcement.announcement_id}:{evidence.reason_code}"
                 )
+        self._supplement_cninfo_business_evidence(
+            cninfo_results, evidence_by_id, pdf_ids_by_symbol, source_failures, progress=progress,
+        )
         if progress is not None:
             progress.set_phase("FACT_MANIFEST_SYNC")
             _progress_stdout(progress.snapshot())
@@ -1376,6 +1379,38 @@ class WorkflowApplication:
             ttl=timedelta(days=7),
             search_keyword="年度报告",
         )
+        from .facts.cninfo import is_full_periodic_report
+
+        for keyword, semantic_key in (
+            ("报告", "BUSINESS_REPORT_450D_V3"),
+            ("招股说明书", "BUSINESS_PROSPECTUS_450D_V3"),
+        ):
+            if not business_result.ok or not business_result.complete or any(
+                is_full_periodic_report(a.announcement_title) for a in business_result.announcements
+            ):
+                break
+            prospectus_result, prospectus_hit = self._cached_cninfo_result(
+                client, symbol=symbol, start_date=business_query_start, end_date=query_end,
+                semantic_key=semantic_key, ttl=timedelta(days=7), search_keyword=keyword,
+            )
+            supplement_queries = list(business_result.metadata.get("supplemental_queries", []))
+            supplement_queries.append({"search_keyword": keyword, "reason_code": prospectus_result.reason_code,
+                                       "complete": prospectus_result.complete, "ok": prospectus_result.ok})
+            business_result = business_result.model_copy(update={
+                "metadata": {**business_result.metadata, "supplemental_queries": supplement_queries},
+            })
+            if prospectus_result.ok and prospectus_result.complete:
+                merged_announcements = tuple({a.announcement_id: a for a in (
+                    *business_result.announcements, *prospectus_result.announcements
+                )}.values())
+                business_result = business_result.model_copy(update={
+                    "announcements": merged_announcements,
+                    "total": len(merged_announcements),
+                    "pages": business_result.pages + prospectus_result.pages,
+                    "attempts": business_result.attempts + prospectus_result.attempts,
+                    "fetched_at": max(business_result.fetched_at, prospectus_result.fetched_at),
+                })
+                business_hit = business_hit and prospectus_hit
         return symbol, recent_result, recent_hit, business_result, business_hit
 
     def _cached_cninfo_pdf_evidence(
@@ -1406,12 +1441,18 @@ class WorkflowApplication:
         if cached is None:
             return None
         try:
-            from .data.cninfo_pdf import BUSINESS_EXTRACTION_VERSION
+            from .data.cninfo_pdf import BUSINESS_EXTRACTION_VERSION, MAX_PDF_BYTES
 
             evidence = CninfoPdfEvidence.model_validate(cached["payload"])
             if "extraction_version" not in cached["payload"]:
                 evidence = evidence.model_copy(update={"extraction_version": "legacy"})
             if evidence.announcement_id != announcement.announcement_id or evidence.pdf_url != announcement.pdf_url:
+                return None
+            if evidence.reason_code == "CNINFO_PDF_TOO_LARGE" and int(
+                cached["payload"].get("download_limit_bytes") or 20 * 1024 * 1024
+            ) < MAX_PDF_BYTES:
+                return None
+            if evidence.reason_code == "CNINFO_PDF_ENCRYPTED" and evidence.extraction_version != BUSINESS_EXTRACTION_VERSION:
                 return None
             if evidence.available and cached["payload"].get("extraction_version") != BUSINESS_EXTRACTION_VERSION:
                 # Reuse an old extraction only when its existing source
@@ -1452,6 +1493,80 @@ class WorkflowApplication:
             return evidence.model_copy(update={"cache_hit": True})
         except (OSError, TypeError, ValueError, KeyError):
             return None
+
+    def _supplement_cninfo_business_evidence(
+        self, results, evidence_by_id, ids_by_symbol, source_failures, *, progress=None,
+    ) -> None:
+        """Only missing business proof may try two additional official filings.
+
+        Never replace the original risk documents or relabel an older report.
+        Cache hits use the same validation contract as the first PDF pass.
+        """
+        from .data.business_disclosure import business_disclosure_kind
+        from .facts.cninfo import is_full_periodic_report, is_final_prospectus
+
+        def usable(evidence):
+            return evidence is not None and evidence.available and any(
+                not s.prompt_injection_suspected and business_disclosure_kind(s.text)
+                for s in evidence.snippets
+            )
+
+        pending = {}
+        for symbol, result in results.items():
+            if not result.ok or not result.complete:
+                continue
+            filings = sorted((a for a in result.announcements if
+                is_full_periodic_report(a.announcement_title) or is_final_prospectus(a.announcement_title)),
+                key=lambda a: (a.publish_time, a.announcement_id), reverse=True)
+            existing = set(ids_by_symbol.get(symbol, []))
+            if any(a.announcement_id in existing and usable(evidence_by_id.get(a.announcement_id)) for a in filings):
+                continue
+            candidates = [a for a in filings if a.announcement_id not in existing][:2]
+            if candidates:
+                pending[symbol] = candidates
+        if not pending:
+            return
+
+        def supplement(candidates):
+            attempted = []
+            with CninfoPdfClient(self.settings.cninfo_pdf_cache_dir, timeout_seconds=self.settings.timeout_seconds) as client:
+                for announcement in candidates:
+                    try:
+                        evidence = self._cached_cninfo_pdf_evidence(client, announcement)
+                    except Exception:
+                        evidence = self._cninfo_pdf_worker_failure(announcement)
+                    evidence = compact_cninfo_pdf_evidence(evidence)
+                    attempted.append((announcement.announcement_id, evidence))
+                    if usable(evidence):
+                        break
+            return attempted
+
+        with ThreadPoolExecutor(max_workers=min(4, self.settings.cninfo_pdf_workers)) as executor:
+            futures = {executor.submit(supplement, candidates): symbol for symbol, candidates in pending.items()}
+            processed = len(evidence_by_id)
+            total = processed + sum(len(candidates) for candidates in pending.values())
+            hits = sum(e.cache_hit for e in evidence_by_id.values())
+            failed = sum(not e.available for e in evidence_by_id.values())
+            for future in as_completed(futures):
+                symbol = futures[future]
+                try:
+                    attempted = future.result()
+                except Exception:
+                    attempted = [(a.announcement_id, self._cninfo_pdf_worker_failure(a)) for a in pending[symbol]]
+                for identifier, evidence in attempted:
+                    evidence_by_id[identifier] = evidence
+                    ids_by_symbol.setdefault(symbol, []).append(identifier)
+                    if not evidence.available:
+                        source_failures.setdefault(symbol, []).append(f"CNINFO_PDF:{identifier}:{evidence.reason_code}")
+                processed += len(attempted)
+                hits += sum(e.cache_hit for _, e in attempted)
+                failed += sum(not e.available for _, e in attempted)
+                total -= len(pending[symbol]) - len(attempted)
+                if progress is not None:
+                    progress.update_data(processed=processed, total=total, cache_hits=hits,
+                        cache_misses=processed-hits, failures=failed, current_symbol=symbol,
+                        documents_succeeded=processed-failed, documents_failed=failed)
+                    _progress_stdout(progress.snapshot())
 
     def _fetch_and_cache_cninfo_pdf_evidence(
         self,
@@ -3517,7 +3632,9 @@ class WorkflowApplication:
                         if not live_bars:
                             continue
                         try:
-                            write_result = self.minute_store.write_live(live_bars, as_of=current)
+                            write_result = self.minute_store.write_live(
+                                live_bars, as_of=current, snapshot_id=minute_snapshot_id,
+                            )
                             for field in (
                                 "inserted",
                                 "unchanged",
@@ -3572,17 +3689,29 @@ class WorkflowApplication:
                     bar for bar in (tuple(five.bars) if five is not None else ())
                     if bar.bar_end.astimezone(SHANGHAI).date() == current.date() and bar.bar_end <= current
                 )
-                # After a live overlap conflict, the local SQLite row is the
-                # canonical observation.  Do not feed a conflicting provider
-                # value to the strategy just because it was fetched first.
+                # Use this decision's persisted provider snapshot. The legacy
+                # first-observation archive is retained for historical audit,
+                # but must not freeze an early forming value forever. A later
+                # revision is eligible only for a later decision, never a retry.
                 for interval, required in (("1m", _a4_required_bars(current, "1m")), ("5m", _a4_required_bars(current, "5m"))):
                     result = fetched.get(interval)
                     if result is None or not getattr(result, "complete", False) or required <= 0:
                         continue
                     try:
-                        canonical = self.minute_store.load_latest(symbol, interval, limit=required)
+                        canonical = self.minute_store.load_decision_snapshot(
+                            minute_snapshot_id, symbol, interval, as_of=current,
+                        )
                     except Exception:
                         canonical = ()
+                        cache_system_error = True
+                        if interval == "1m":
+                            one_bars = ()
+                        else:
+                            five_bars = ()
+                        cache_stats["errors"].append({
+                            "symbol": symbol, "interval": interval,
+                            "reason_code": "MINUTE_DECISION_SNAPSHOT_UNAVAILABLE",
+                        })
                     canonical = tuple(
                         bar for bar in canonical
                         if bar.bar_end.astimezone(SHANGHAI).date() == current.date() and bar.bar_end <= current
@@ -3647,6 +3776,7 @@ class WorkflowApplication:
         def process_lane(lane_id: str) -> tuple[str, MonitorBatchResult]:
             plans = lane_plans[lane_id]
             bars, data_ok, contexts, histories, data_errors = lane_inputs[lane_id]
+            data_ok = data_ok and not cache_system_error
             engine = MonitorEngine(
                 self.store,
                 llm_veto=self._a4_callback(lane_id, plans, contexts, current),
@@ -6524,7 +6654,8 @@ def _merge_cninfo_query_results(
         "main_business_query": {
             "start_date": business_history.start_date,
             "end_date": business_history.end_date,
-            "search_keyword": "年度报告",
+            "search_keyword": "年度报告；缺失时补检报告和正式招股说明书",
+            "supplemental_queries": business_history.metadata.get("supplemental_queries", []),
             "reason_code": business_history.reason_code,
             "announcement_count": len(business_history.announcements),
         },
@@ -6713,13 +6844,12 @@ def _main_business_evidence(
 ) -> dict[str, Any]:
     """Project hash-bound filing snippets that can prove revenue exposure."""
 
-    from .data.business_disclosure import financial_business_kind
+    from .data.business_disclosure import business_disclosure_kind
+    from .facts.cninfo import is_full_periodic_report, is_final_prospectus
 
     raw_by_symbol = disclosure_events.get("by_symbol")
     by_symbol = raw_by_symbol if isinstance(raw_by_symbol, Mapping) else {}
     result: dict[str, Any] = {}
-    strong_terms = ("主营业务分行业", "主营业务分产品", "主营业务分地区")
-    supporting_terms = ("分行业", "分产品", "营业收入", "营业成本", "毛利率")
     for symbol in sorted(set(symbols)):
         selected: list[dict[str, Any]] = []
         records = by_symbol.get(symbol)
@@ -6732,19 +6862,11 @@ def _main_business_evidence(
             for snippet in snippets:
                 if not isinstance(snippet, Mapping):
                     continue
+                if snippet.get("prompt_injection_suspected") is True:
+                    continue
                 text_value = str(snippet.get("text") or "")
-                compact = re.sub(r"\s+", "", text_value)
-                financial_kind = financial_business_kind(text_value)
-                structured_revenue_share = (
-                    "占营业收入的" in compact
-                    and any(term in compact for term in ("客户", "产品", "地区", "业务板块"))
-                )
-                if (
-                    not structured_revenue_share
-                    and financial_kind is None
-                    and not any(term in compact for term in strong_terms)
-                    and sum(term in compact for term in supporting_terms) < 2
-                ):
+                kind = business_disclosure_kind(text_value)
+                if kind is None:
                     continue
                 page_number = snippet.get("page_number")
                 announcement_id = str(record.get("announcement_id") or "")
@@ -6753,19 +6875,32 @@ def _main_business_evidence(
                         "announcement_id": announcement_id,
                         "announcement_title": record.get("announcement_title"),
                         "publish_time": record.get("publish_time"),
+                        "source_url": record.get("source_url"),
+                        "evidence_fetched_at": record.get("pdf_fetched_at") or record.get("evidence_fetched_at"),
+                        "parser": record.get("pdf_parser"),
+                        "extraction_version": record.get("pdf_extraction_version"),
                         "page_number": page_number,
                         "source_ref": f"cninfo:{announcement_id}:page:{page_number}",
                         "text": text_value[:1_500],
-                        "content_hash": record.get("content_hash"),
-                        "business_disclosure_kind": financial_kind or "REVENUE_TABLE_OR_NARRATIVE",
+                        "content_hash": record.get("pdf_sha256") or record.get("content_hash"),
+                        "business_disclosure_kind": kind,
                     }
                 )
+        latest_report_time = max((str(record.get("publish_time") or "")
+            for record in (records if isinstance(records, list) else ())
+            if isinstance(record, Mapping) and is_full_periodic_report(str(record.get("announcement_title") or ""))), default="")
+        supported_report_time = max((str(proof.get("publish_time") or "") for proof in selected
+            if is_full_periodic_report(str(proof.get("announcement_title") or ""))), default="")
         result[symbol] = {
             "available": bool(selected),
             "reason_code": "OK" if selected else "MAIN_BUSINESS_BREAKDOWN_NOT_FOUND",
+            "latest_full_report_publish_time": latest_report_time or None,
+            "uses_older_filing": bool(selected and latest_report_time and supported_report_time < latest_report_time),
             "evidence": sorted(selected, key=lambda row: (
+                is_full_periodic_report(str(row.get("announcement_title") or ""))
+                or is_final_prospectus(str(row.get("announcement_title") or "")),
                 str(row.get("publish_time") or ""),
-                row["business_disclosure_kind"] != "REVENUE_TABLE_OR_NARRATIVE",
+                row["business_disclosure_kind"] != "COMPANY_BUSINESS_DESCRIPTION",
             ), reverse=True)[:3],
         }
     return result

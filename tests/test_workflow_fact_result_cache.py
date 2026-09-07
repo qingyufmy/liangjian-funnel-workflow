@@ -113,7 +113,7 @@ def test_official_disclosure_queries_route_bj_to_bse(tmp_path: Path):
     assert symbol == "920012.BJ"
     assert recent.ok and business.ok
     assert cninfo.calls == 0
-    assert bse.calls == 2
+    assert bse.calls == 4  # empty report lane additionally checks reports and IPO prospectuses
     assert business.metadata["search_keyword"] == "年度报告"
 
 

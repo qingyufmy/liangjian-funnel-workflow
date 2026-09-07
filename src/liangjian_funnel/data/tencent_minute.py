@@ -220,7 +220,8 @@ class TencentIntradayAdapter:
         close_value = float(row[2])
         high_value = float(row[3])
         low_value = float(row[4])
-        volume = float(row[5])
+        # Tencent equity mkline reports lots (100 shares); TDX reports shares.
+        volume = float(row[5]) * 100.0
         # Tencent's final field is not consistently documented across
         # securities.  A same-unit OHLCV notional preserves a valid VWAP
         # without pretending that the field is authoritative turnover.
@@ -236,6 +237,10 @@ class TencentIntradayAdapter:
             volume=volume,
             amount=amount,
             source_id=TENCENT_SOURCE_ID,
+            volume_unit="shares",
+            amount_kind="ohlc_estimate",
+            normalizer_version="tencent-equity-minute-v2",
+            provider_bar_end=stamp,
         )
 
     @staticmethod

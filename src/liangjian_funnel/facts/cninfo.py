@@ -29,7 +29,20 @@ _RISK_KEYWORDS = (
 _EARNINGS_KEYWORDS = ("年度报告", "半年度报告", "季度报告", "业绩预告", "业绩快报")
 _ORDER_KEYWORDS = ("中标", "合同", "订单", "项目", "产能", "投资建设")
 _ST_RISK = re.compile(r"(?:^|[^A-Z])(?:\*?ST|S\*ST)(?:[^A-Z]|$)", re.IGNORECASE)
-_FULL_PERIODIC_REPORT = re.compile(r"(?:19|20)\d{2}年(?:半年度|年度)报告(?:全文)?$")
+_FULL_PERIODIC_REPORT = re.compile(
+    r"(?:19|20)\d{2}年?(?:半年度报告|年度报告|半年报)(?:全文)?"
+    r"(?:[（(](?:全文|修订版|修订稿|修订后|更正版|更正后|更新版)[）)])*$"
+)
+
+
+def is_full_periodic_report(title: str) -> bool:
+    return bool(_FULL_PERIODIC_REPORT.search(re.sub(r"[\s_《》]", "", title)))
+
+
+def is_final_prospectus(title: str) -> bool:
+    return "招股说明书" in title and not any(t in title for t in (
+        "摘要", "申报稿", "注册稿", "问询", "审核", "核查", "保荐", "回复",
+    ))
 
 
 def normalize_cninfo_results(
@@ -243,6 +256,7 @@ def _pdf_payload(evidence: CninfoPdfEvidence | None) -> dict[str, Any]:
         "pdf_content_type": evidence.content_type,
         "pdf_byte_size": evidence.byte_size,
         "pdf_parser": evidence.parser,
+        "pdf_fetched_at": evidence.fetched_at.isoformat(),
         "pdf_extraction_version": evidence.extraction_version,
         "pdf_page_count": evidence.page_count,
         "pdf_pages_scanned": evidence.pages_scanned,
@@ -273,12 +287,10 @@ def compact_cninfo_pdf_evidence(
         return evidence
 
     def rank(item: Any) -> tuple[int, int, int, str]:
-        from ..data.business_disclosure import financial_business_kind
+        from ..data.business_disclosure import business_disclosure_kind
 
         compact = re.sub(r"\s+", "", str(item.text))
-        business = financial_business_kind(str(item.text)) is not None or any(term in compact for term in (
-            "主营业务分行业", "主营业务分产品", "主营业务分地区", "占营业收入的",
-        ))
+        business = business_disclosure_kind(str(item.text)) is not None
         risk = any(term in compact for term in _RISK_KEYWORDS)
         return (
             0 if business else 1 if risk else 2,
@@ -320,17 +332,21 @@ def select_cninfo_pdf_candidates(
         (
             announcement
             for announcement in result.announcements
-            if _FULL_PERIODIC_REPORT.search(re.sub(r"\s+", "", announcement.announcement_title))
+            if is_full_periodic_report(announcement.announcement_title)
         ),
         key=lambda announcement: (announcement.publish_time, announcement.announcement_id),
         reverse=True,
     )
+    if not periodic_reports:
+        periodic_reports = sorted(
+            (a for a in result.announcements if is_final_prospectus(a.announcement_title)),
+            key=lambda a: (a.publish_time, a.announcement_id), reverse=True,
+        )
     ranked: list[tuple[int, float, str, CninfoAnnouncement]] = []
     for announcement in result.announcements:
         _, tags = classify_cninfo_title(announcement.announcement_title)
         tag_set = set(tags)
-        normalized_title = re.sub(r"\s+", "", announcement.announcement_title)
-        if _FULL_PERIODIC_REPORT.search(normalized_title):
+        if is_full_periodic_report(announcement.announcement_title) or is_final_prospectus(announcement.announcement_title):
             continue
         if "RISK" in tag_set:
             priority = 0

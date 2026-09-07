@@ -49,6 +49,10 @@ def test_tencent_minute_normalizes_closed_rows_and_excludes_auction() -> None:
     assert [bar.bar_end.strftime("%H:%M") for bar in result.bars] == ["09:31", "09:32"]
     assert all(bar.source_id.startswith("TENCENT:") for bar in result.bars)
     assert result.bars[-1].high == 8.94
+    assert result.bars[-1].volume == 781100
+    assert result.bars[-1].volume_unit == "shares"
+    assert result.bars[-1].amount_kind == "ohlc_estimate"
+    assert result.bars[-1].amount / result.bars[-1].volume == (8.89 + 8.94 + 8.87 + 8.94) / 4
 
 
 def test_tencent_quote_requires_same_day_fresh_positive_auction_volume() -> None:

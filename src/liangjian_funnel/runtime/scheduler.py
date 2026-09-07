@@ -247,9 +247,13 @@ class Scheduler:
         morning = _at(day, datetime_time(9, 26))
         if current >= morning and current < _at(day, datetime_time(15, 10)):
             jobs.append(self._job(ScheduleKind.MORNING_0925, morning, current))
-        if datetime_time(9, 31) <= current.time().replace(tzinfo=None) <= datetime_time(11, 30):
+        # Node deliberately dispatches after second 3. Compare minute labels,
+        # not wall-clock seconds, so 11:30:03 and 15:00:03 still settle the
+        # final closed bar. Never admit 11:31 or 15:01 as catch-up trading.
+        minute_clock = current.time().replace(second=0, microsecond=0, tzinfo=None)
+        if datetime_time(9, 31) <= minute_clock <= datetime_time(11, 30):
             jobs.append(self._job(ScheduleKind.MONITOR, self._floor_minute(current), current))
-        if datetime_time(13, 1) <= current.time().replace(tzinfo=None) <= datetime_time(15, 0):
+        if datetime_time(13, 1) <= minute_clock <= datetime_time(15, 0):
             jobs.append(self._job(ScheduleKind.MONITOR, self._floor_minute(current), current))
         midday_review = _at(day, datetime_time(11, 35))
         if current >= midday_review and current <= _at(day, datetime_time(12, 45)):

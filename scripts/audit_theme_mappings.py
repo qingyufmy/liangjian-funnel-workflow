@@ -128,7 +128,7 @@ def main():
     projection = None
     updated = []
     if args.fact_cache:
-        from liangjian_funnel.data.cninfo_pdf import CninfoPdfEvidence, BUSINESS_EXTRACTION_VERSION
+        from liangjian_funnel.data.cninfo_pdf import CninfoPdfEvidence
         from liangjian_funnel.facts.cninfo import _pdf_payload, compact_cninfo_pdf_evidence
         from liangjian_funnel.pipeline.local_fact_cache import LocalFactCache
         events = snapshot["data"].get("DISCLOSURE_EVENTS", {}).get("by_symbol", {})
@@ -141,12 +141,14 @@ def main():
             for row in rows:
                 cached = records.get(row["announcement_id"], {}).get("payload", {})
                 replacement = row
-                if cached.get("available") and cached.get("extraction_version") == BUSINESS_EXTRACTION_VERSION:
+                if cached.get("available"):
                     evidence = CninfoPdfEvidence.model_validate(cached)
                     if evidence.announcement_id == row["announcement_id"] and evidence.pdf_url == row.get("source_url"):
-                        replacement = {**row, **_pdf_payload(compact_cninfo_pdf_evidence(evidence))}
+                        replacement = {**row, **_pdf_payload(compact_cninfo_pdf_evidence(evidence)),
+                            "content_hash": evidence.pdf_sha256}
                         updated.append({"symbol": symbol, "announcement_id": evidence.announcement_id,
-                            "fetched_at": evidence.fetched_at.isoformat(), "pdf_sha256": evidence.pdf_sha256})
+                            "fetched_at": evidence.fetched_at.isoformat(), "pdf_sha256": evidence.pdf_sha256,
+                            "extraction_version": evidence.extraction_version})
                 projected[symbol].append(replacement)
         projection = _main_business_evidence({"by_symbol": projected}, snapshot["data"]["g0_symbols"])
     report = build_audit(config=config, catalog=read(args.catalog), memberships=memberships,
