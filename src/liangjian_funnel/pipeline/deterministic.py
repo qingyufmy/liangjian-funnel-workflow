@@ -4188,6 +4188,39 @@ def _has_business_evidence(item: Mapping[str, Any]) -> bool:
     return False
 
 
+def _a3_candidate_with_theme_stage(
+    item: Mapping[str, Any],
+    context: Mapping[str, Any],
+    active_themes: list[Mapping[str, Any]],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Bind a missing per-stock stage to its exact same-batch A2 theme.
+
+    A market-wide emotion cycle is not the individual theme's lifecycle.
+    Missing, ambiguous or duplicate theme rows must remain unknown; explicit
+    candidate/context observations retain their existing precedence.
+    """
+    candidate = dict(item)
+    theme_id = str(item.get("theme_id") or item.get("primary_theme") or "")
+    binding: dict[str, Any] = {"theme_id": theme_id, "source": "A2_ACTIVE_THEMES", "resolved": False}
+    for source in (item, context):
+        if any(str(source.get(key) or "").strip().upper() not in {"", "UNKNOWN"}
+               for key in ("theme_stage", "sector_stage", "stage")):
+            binding["source"] = "EXPLICIT_CANDIDATE_OR_CONTEXT"
+            return candidate, binding
+    matches = [row for row in active_themes if theme_id and str(row.get("theme_id") or "") == theme_id]
+    if len(matches) != 1:
+        binding["reason_code"] = "A3_THEME_STAGE_MISSING_OR_AMBIGUOUS"
+        return candidate, binding
+    row = matches[0]
+    value = row.get("stage") or row.get("theme_stage") or row.get("sector_stage")
+    if not isinstance(value, str) or value.strip().upper() in {"", "UNKNOWN"}:
+        binding["reason_code"] = "A3_THEME_STAGE_UNAVAILABLE"
+        return candidate, binding
+    candidate["theme_stage"] = value.strip().upper()
+    binding.update({"resolved": True, "theme_stage": candidate["theme_stage"], "source_hash": content_hash(row)})
+    return candidate, binding
+
+
 def screen_a3(snapshot: Mapping[str, Any], a2_output: Mapping[str, Any]) -> DeterministicGateResult:
     """Route A2 candidates by explicit daily strategy conditions.
 
@@ -4263,6 +4296,7 @@ def screen_a3(snapshot: Mapping[str, Any], a2_output: Mapping[str, Any]) -> Dete
         if re.fullmatch(r"\d{4}-\d{2}-\d{2}", market_trade_date)
         else None
     )
+    active_themes = _mapping_list(a2_output.get("active_themes"))
     decisions: list[dict[str, Any]] = []
     for item in rows:
         symbol = _symbol(item.get("symbol"))
@@ -4285,8 +4319,9 @@ def screen_a3(snapshot: Mapping[str, Any], a2_output: Mapping[str, Any]) -> Dete
             if isinstance(raw_permission, Mapping)
             else str(raw_permission or "")
         )
+        strategy_candidate, theme_stage_binding = _a3_candidate_with_theme_stage(item, context, active_themes)
         strategy = evaluate_a3_strategy(
-            item,
+            strategy_candidate,
             factor=factor,
             price_levels=price_level,
             tradability=flags,
@@ -4298,6 +4333,7 @@ def screen_a3(snapshot: Mapping[str, Any], a2_output: Mapping[str, Any]) -> Dete
             market_funding=market_funding,
             as_of=reference_close_as_of,
         ).model_dump(mode="json")
+        strategy["strategy_facts"]["a2_theme_stage_binding"] = theme_stage_binding
         eligibility = str(strategy["eligibility"])
         minimum_reward_risk = _number(snapshot.get("MIN_REWARD_RISK")) or 2.0
         maximum_stop_distance = _number(snapshot.get("MAX_STOP_DISTANCE")) or 0.06
@@ -4341,6 +4377,7 @@ def screen_a3(snapshot: Mapping[str, Any], a2_output: Mapping[str, Any]) -> Dete
                 "as_of": _snapshot_as_of(snapshot),
                 "strategy_version": strategy.get("strategy_version"),
                 "source_hashes": source_hashes,
+                "a2_theme_stage_binding": theme_stage_binding,
             })[:24],
             "symbol": symbol,
             "name": item.get("company_name") or item.get("name"),
