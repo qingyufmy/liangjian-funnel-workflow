@@ -248,6 +248,14 @@ def render_runtime_contract(config: Mapping[str, Any] | None = None) -> str:
         "model_output=structural_themes,industry_chain_graph,taxonomy_links,industry_theme_mappings\n"
         "model_must_map_every_include_industry_or_declare_UNMAPPED\n"
         "model_must_not_return_or_rewrite_monthly_industry_decisions\n"
+        "evidence_authority=RUNTIME_INPUT.a1_discovery_context.allowed_primary_source_refs\n"
+        "source_index is a document index, NOT an evidence allowlist; T3 leads cannot support discovery.\n"
+        "Every structural_themes row and industry_chain_graph row MUST contain source_refs: "
+        "a nonempty JSON array of exact authorized strings. Every MAPPED industry_theme_mappings row "
+        "MUST contain supporting_source_refs with the same rule. All refs, not only one, must be authorized.\n"
+        "Every industry_chain_graph row MUST contain theme_ids: a nonempty JSON array; "
+        "EVERY value must exactly equal a structural_themes.theme_id in this response, not its display_name. "
+        "The same exact-ID rule applies to mapped_theme_ids. Never invent evidence to meet a count target.\n"
         "batch_is_transport_boundary_not_selection_quota\n"
     )
 
@@ -362,7 +370,8 @@ def validate_discovery_output(
             reasons.append("A1_DISCOVERY_NODE_INVALID")
             continue
         linked = node.get("theme_ids")
-        if not isinstance(linked, list) or not linked or not theme_ids.intersection(str(item).strip() for item in linked):
+        if (not isinstance(linked, list) or not linked
+                or any(not isinstance(item, str) or item not in theme_ids for item in linked)):
             reasons.append("A1_DISCOVERY_NODE_THEME_LINK_INVALID")
     expected_by_code = {
         _code(item.get("industry_thscode")): item
@@ -395,7 +404,11 @@ def validate_discovery_output(
             reasons.append("A1_INDUSTRY_THEME_MAPPING_STATUS_INVALID")
         if mapping.mapping_status == "MAPPED" and not mapping.mapped_theme_ids:
             reasons.append("A1_INDUSTRY_THEME_MAPPING_THEME_MISSING")
-        if mapping.mapping_status == "MAPPED" and not set(mapping.mapped_theme_ids).intersection(theme_ids):
+        if mapping.mapping_status == "MAPPED" and (
+            not set(mapping.mapped_theme_ids).issubset(theme_ids)
+            or not isinstance(raw.get("mapped_theme_ids"), list)
+            or any(not isinstance(item, str) or item not in theme_ids for item in raw.get("mapped_theme_ids", []))
+        ):
             reasons.append("A1_INDUSTRY_THEME_MAPPING_THEME_UNKNOWN")
         if mapping.mapping_status == "MAPPED" and not mapping.supporting_source_refs:
             reasons.append("A1_INDUSTRY_THEME_MAPPING_EVIDENCE_MISSING")

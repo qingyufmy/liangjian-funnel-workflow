@@ -523,6 +523,12 @@ def _build_source_index(packet: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _snapshot_parts(snapshot: Mapping[str, Any] | Any) -> tuple[dict[str, Any], Any, Any, Any]:
+    # The production research snapshot also implements Mapping, but its
+    # identity/cutoff live on attributes rather than inside the evidence map.
+    raw_data = getattr(snapshot, "data", None)
+    if isinstance(raw_data, Mapping):
+        return (dict(raw_data), getattr(snapshot, "snapshot_id", None),
+                getattr(snapshot, "snapshot_hash", None), getattr(snapshot, "as_of", None))
     if isinstance(snapshot, Mapping):
         nested = snapshot.get("data")
         data = dict(nested) if isinstance(nested, Mapping) else dict(snapshot)
