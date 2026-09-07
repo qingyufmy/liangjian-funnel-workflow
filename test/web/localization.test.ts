@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import {
   codeLabel,
   displayValue,
@@ -26,6 +27,16 @@ describe("中文展示词典", () => {
     expect(humanizeText("价格进入A3日线MA5回踩区")).toBe("价格进入A3日线5日均线回踩区");
     expect(humanizeText("5分钟收回VWAP，MA20向上")).toBe("5分钟收回成交量加权均价，二十周期均线向上");
     expect(humanizeText("MACD和KDJ共振")).toBe("指数平滑异同移动平均指标和随机指标共振");
+  });
+
+  it("覆盖策略认可的全部主题标识，新增配置不能悄悄漂移为英文", () => {
+    for (const path of ["config/funnel_config_v2.yaml", "config/rotation_themes_v1.yaml"]) {
+      const source = readFileSync(path, "utf8");
+      for (const match of source.matchAll(/(?:canonical_id|theme_id): ([A-Z][A-Z_]+)/g)) {
+        expect(codeLabel(match[1])).not.toContain("说明待补充");
+        expect(codeLabel(match[1])).not.toBe(match[1]);
+      }
+    }
   });
 
   it("以中文名称显示模型、优先级和证券市场", () => {

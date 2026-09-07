@@ -1,5 +1,10 @@
 const CODE_LABELS: Record<string, string> = {
   READY: "就绪",
+  A3_REWARD_RISK_BELOW_MINIMUM: "研究盈亏比低于参考下限",
+  A3_STOP_DISTANCE_OUTSIDE_LIMIT: "研究止损距离超出参考区间",
+  A1_MAINTENANCE_NOT_DUE: "未到月度或周度维护时间",
+  NOT_DUE: "尚未到执行时间",
+  FOCUS: "聚焦池",
   COMPLETED: "已完成",
   FAILED: "失败",
   DEGRADED: "存在缺口",
@@ -179,6 +184,27 @@ const CODE_LABELS: Record<string, string> = {
 };
 
 const THEME_LABELS: Record<string, string> = {
+  AI_COMPUTE_INFRASTRUCTURE: "人工智能算力基础设施",
+  SEMICONDUCTOR_LOCALIZATION: "半导体国产化",
+  NATIONAL_DEFENSE: "国防军工",
+  CONSUMER_ELECTRONICS: "消费电子",
+  ROBOTICS_ADVANCED_MANUFACTURING: "机器人与先进制造",
+  POWER_EQUIPMENT_NEW_ENERGY: "电力设备与新能源",
+  RESOURCES_ENERGY: "资源能源",
+  CHEMICAL_NEW_MATERIALS: "化工新材料",
+  INNOVATIVE_MEDICINE_HEALTHCARE: "创新药与医疗",
+  CONSUMER_SERVICES: "消费服务",
+  FINANCIAL_HIGH_DIVIDEND: "金融高股息",
+  AGRICULTURE_FOOD_SECURITY: "农业与粮食安全",
+  AI_APPLICATIONS_DIGITAL_ECONOMY: "人工智能应用与数字经济",
+  INFRASTRUCTURE_DOMESTIC_DEMAND: "基础设施与内需",
+  AI_LIQUID_COOLING: "液冷", AI_CPO: "共封装光学与光互联",
+  SEMICONDUCTOR_ADVANCED_PACKAGING: "先进封装", CHEMICALS: "化工",
+  NONFERROUS_METALS: "有色金属", PRECIOUS_METALS: "贵金属",
+  NONMETAL_MATERIALS: "非金属材料", CULTIVATED_DIAMOND: "培育钻石",
+  FINANCIAL_INSURANCE: "非银金融", INSURANCE: "保险", RETAIL_GENERAL: "一般零售",
+  SHIPPING: "航运", DIGITAL_ECONOMY: "数字经济", BANKS: "银行",
+  SECURITIES: "证券", COMMERCE_RETAIL: "商贸零售", FOOD_BEVERAGE: "食品饮料",
   TH_ELEC_COMPONENTS: "电子元件",
   TH_NONMETAL_MATERIALS: "非金属材料与电子化学品",
   TH_AGRI_FOREST: "种植业与林业",
@@ -195,6 +221,13 @@ const THEME_LABELS: Record<string, string> = {
 };
 
 const FIELD_LABELS: Record<string, string> = {
+  upstreamCandidateId: "上游候选标识", parentCandidateId: "父级候选标识",
+  candidateOrigin: "候选来源", nodeId: "产业链节点标识", maAnalysis: "均线分析",
+  daily_state: "日线状态", weekly_state: "周线状态",
+  high_gap_no_chase_plan: "高开不追价方案", no_chase_price: "禁止追价线", rule: "规则",
+  invalidation_plan: "失效方案", daily_invalidation: "日线失效位", exit_rules: "离场规则",
+  normal_open_plan: "正常开盘方案", entry_rules: "入场确认规则",
+  weak_open_plan: "弱势开盘方案", precondition: "前提条件",
   monthly: "月线",
   weekly: "周线",
   daily: "日线",

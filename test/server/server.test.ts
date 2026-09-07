@@ -559,6 +559,17 @@ test("legacy and indexed A3 detail both honor the same batch input contract", as
   expect(await files.researchStageDetail("fixture-run", "lane_1", "A3", "approved")).toMatchObject({ inputCount: 49, outputCount: 26, outcome: { counts: { input: 49 } } });
 });
 
+test("data summary uses frozen run metadata and leaves absent counts unknown", async () => {
+  const root = await createResearchDetailFixture();
+  const path = join(root, "outputs/runs/fixture-run.json");
+  await writeFile(path, JSON.stringify({ snapshot: { selected_count: 738, full_universe_count: 5567,
+    feature_source: { market_trade_date: "2026-09-07", fundamental_count: 738, business_count: 966 } } }));
+  const config = loadConfig({ LIANGJIAN_PYTHON_BIN: "python3" }, root);
+  const files = new ProjectFiles(config, new LogStore(config));
+  expect(await files.researchDataSummary("fixture-run")).toMatchObject({ marketTradeDate: "2026-09-07", selectedCount: 738, fundamentalRecords: 738, businessRecords: 966, researchUniverseCount: null });
+  expect(await files.researchDataSummary("../outside")).toBeNull();
+});
+
 test("projects paginated research stage pools with names, reasons, and allow-listed detail", async () => {
   const root = await createResearchDetailFixture();
   const config = loadConfig({ LIANGJIAN_PYTHON_BIN: "python3" }, root);

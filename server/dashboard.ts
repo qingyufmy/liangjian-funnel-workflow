@@ -801,6 +801,7 @@ export class DashboardData {
       recentEffectiveEvents: effectiveEvents,
       recentA5Reviews,
       businessHealth: dailyReviewHealth(recentA5Reviews, recentNotifications),
+      researchDataSummary: await this.files.researchDataSummary(runId),
       decisionData: laneRecords.flatMap((lane) => arrayField(lane, "stages").map((rawStage) => {
         const stage = record(rawStage) ?? {};
         const output = record(stage.output);
@@ -810,6 +811,7 @@ export class DashboardData {
           .filter((item) => stringField(item, "eligibility") === "DATA_GAP")
           .map((item) => stringField(item, "symbol")).filter(Boolean);
         return { laneId: asString(lane.lane), stage: asString(stage.stage), runId,
+          inputSnapshotIds: output ? arrayField(output.envelope, "input_snapshot_ids") : [],
           asOf: output ? asString(output.as_of) ?? stringField(output.envelope, "as_of") : null,
           dataState: outcome?.data_sufficiency_state ?? null,
           coverage: outcome?.data_coverage ?? {},

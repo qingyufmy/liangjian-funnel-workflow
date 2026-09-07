@@ -20,20 +20,25 @@ def main():
               "run": {key: workflow.get(key) for key in ("runId", "tradeDate", "status")},
               "planCounts": data.get("planCounts"), "businessHealth": data.get("businessHealth"),
               "decisionData": data.get("decisionData"),
-              "planSample": (monitor.get("latestA3Plans") or [])[:1],
+              "researchDataSummary": data.get("researchDataSummary"),
+              "planSample": [{k: p.get(k) for k in ("planId", "sourceRunId", "symbol", "status", "expiresAt")}
+                             for p in (monitor.get("latestA3Plans") or [])[:1]],
               "reviewSample": [{k: r.get(k) for k in ("reviewId", "tradeDate", "status", "cutoffAt")}
                                for r in (data.get("recentA5Reviews") or [])[:2]],
               "notificationSample": (monitor.get("notifications") or [])[:2],
-              "sources": data.get("dataSources"), "stages": []}
+              "sources": [{k: p.get(k) for k in ("id", "status", "checkedAt")}
+                          for p in data.get("dataSources") or []], "stages": []}
     for lane in workflow.get("lanes") or []:
         if lane.get("laneId") != "lane_1":
             continue
         for stage in lane.get("stages") or []:
             name = stage.get("stage")
             detail = get(f'/api/research/runs/{workflow["runId"]}/lanes/lane_1/stages/{name}?pageSize=1')
-            result["stages"].append({"stage": name, "outcome": stage.get("outcome"),
+            first_item = (detail.get("items") or [{}])[0]
+            result["stages"].append({"stage": name, "contractCounts": (stage.get("outcome") or {}).get("counts"),
                 "inputCount": detail.get("inputCount"), "outputCount": detail.get("outputCount"),
-                "pools": detail.get("pools"), "plan": (detail.get("items") or [{}])[0].get("plan")})
+                "pools": detail.get("pools"), "publication": first_item.get("publication"),
+                "missingFields": first_item.get("missingFields")})
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 

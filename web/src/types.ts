@@ -927,10 +927,13 @@ export interface WorkflowProgressSummary {
 }
 
 export interface OverviewResponse {
+  researchDataSummary?: { runId: string; marketTradeDate: string | null; snapshotId: string | null;
+    fullUniverseCount: number | null; researchUniverseCount: number | null; selectedCount: number | null;
+    fundamentalRecords: number | null; businessRecords: number | null; sourceStatus: string | null } | null;
   businessHealth?: { date: string | null; reviewId: string | null; reviewStatus: string | null;
     cutoffAt: string | null; deliveryStatus: string | null; sentAt: string | null };
   decisionData?: { laneId: string | null; stage: string | null; runId: string | null; asOf: string | null;
-    dataState: string | null; coverage: Record<string, unknown>; missingSymbols: string[]; scope: string }[];
+    dataState: string | null; coverage: Record<string, unknown>; missingSymbols: string[]; scope: string; inputSnapshotIds?: string[] }[];
   generatedAt: string;
   service: ServiceSummary;
   activeJob?: {

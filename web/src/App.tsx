@@ -649,17 +649,25 @@ function BusinessStatusPanel({ overview, onNavigate }: { overview: OverviewRespo
   </Panel>;
 }
 
-function DecisionDataPanel({ data }: { data: NonNullable<OverviewResponse["decisionData"]> }) {
+function DecisionDataPanel({ data, summary }: { data: NonNullable<OverviewResponse["decisionData"]>; summary: OverviewResponse["researchDataSummary"] }) {
   const labels: Record<string, string> = { critical_breadth: "板块广度", critical_index_chain_resonance: "指数产业链共振", critical_leader_structure: "龙头结构", critical_tier_structure: "梯队结构", critical_turnover_share: "成交占比", minimum_critical: "最低要求", sufficiency_state: "充分性" };
   return <Panel title="本批次决策数据" icon={<Database size={18} />}>
     <p className="panel-footnote">覆盖率来自阶段研究契约，不是实时行情健康结论；未提供的统计不填为 100%。</p>
+    {summary ? <><h3>本轮基础行情交易日：{summary.marketTradeDate ?? "未提供"}</h3>
+      <dl className="stage-definition-grid">
+        <div><dt>全市场股票</dt><dd>{progressCount(summary.fullUniverseCount)}</dd></div>
+        <div><dt>研究范围股票</dt><dd>{progressCount(summary.researchUniverseCount)}</dd></div>
+        <div><dt>本轮采集股票</dt><dd>{progressCount(summary.selectedCount)}</dd></div>
+        <div><dt>基本面源记录</dt><dd>{progressCount(summary.fundamentalRecords)}</dd></div>
+        <div><dt>主营资料源记录</dt><dd>{progressCount(summary.businessRecords)}</dd></div>
+      </dl><p>源记录数不是去重股票覆盖率。A1 可沿用月度研究，不能把本轮行情日期当成所有主营披露或研究证据的日期。</p></> : null}
     {!data.length ? <EmptyState title="尚无决策数据统计" detail="当前批次未提供可读取的阶段契约。" icon={<Database size={18} />} /> : data.map((row) => <section className="decision-data-row" key={`${row.laneId}-${row.stage}`}>
-      <h3>{row.stage} · {codeLabel(row.dataState)}</h3>
+      <h3>{row.stage} · 契约声明：{codeLabel(row.dataState)}</h3>
       <p>事实截止：{formatDateTime(row.asOf)} · 已标记数据不足 {row.missingSymbols.length} 只</p>
       <dl className="stage-definition-grid">{Object.entries(row.coverage).map(([key, value]) => <div key={key}><dt>{labels[key] ?? fieldLabel(key)}</dt><dd>{typeof value === "number" ? `${(value * 100).toFixed(1)}%` : detailValue(value)}</dd></div>)}</dl>
       {!Object.keys(row.coverage).length ? <p>字段覆盖率未提供，不能据此确认资料齐全。</p> : null}
       {row.missingSymbols.length ? <details><summary>查看受影响股票</summary><p>{row.missingSymbols.map(stockSymbolLabel).join("、")}</p></details> : null}
-      <details><summary>统计范围与批次</summary><p>{row.scope}</p><p className="diagnostic-reference">{row.runId}</p></details>
+      <details><summary>统计范围与批次</summary><p>{row.scope}</p><p className="diagnostic-reference">{row.runId}</p><p>输入快照（用于核对沿用日期）：</p>{row.inputSnapshotIds?.map((id) => <p key={id} className="diagnostic-reference">{id}</p>)}</details>
     </section>)}
   </Panel>;
 }
@@ -684,7 +692,7 @@ function OverviewPage({ overview, logs, issues, onNavigate }: { overview: Overvi
       </div>
 
       <WorkflowProgressPanel progress={overview.workflowProgress} />
-      <DecisionDataPanel data={overview.decisionData ?? []} />
+      <DecisionDataPanel data={overview.decisionData ?? []} summary={overview.researchDataSummary} />
 
       <IssuePanel issues={issues} onOpen={() => onNavigate("issues")} />
 
@@ -1111,12 +1119,12 @@ function outcomeAxisLabel(outcome: OutcomeStatus): string {
     : stage === "A2"
       ? `聚焦${opportunityLabel(outcome.focus_opportunity_state)}`
       : stage === "A3"
-        ? `行动${actionabilityLabel(outcome.actionability_state)}`
+        ? (outcome.actionability_state === "ACTIONABLE" ? "研究具备计划条件，执行仍需确认" : `研究${actionabilityLabel(outcome.actionability_state)}`)
         : `研究${opportunityLabel(outcome.research_opportunity_state)} · 聚焦${opportunityLabel(outcome.focus_opportunity_state)} · 行动${actionabilityLabel(outcome.actionability_state)}`;
   const publication = outcome.publication_state === "PUBLISHED"
     ? "已发布"
     : outcome.publication_state === "READY" ? "可发布" : outcome.publication_state === "BLOCKED" ? "不可发布" : "不适用";
-  return `${quality} · ${opportunity} · ${publication}`;
+  return `${quality} · ${opportunity} · ${stage === "A3" ? "发布状态见正式记录" : publication}`;
 }
 
 function OutcomeNotice({ outcome }: { outcome: OutcomeStatus | null | undefined }) {
@@ -1261,7 +1269,7 @@ function StageDetailDialog({ target, onDismiss }: { target: StageDetailTarget | 
                 {error ? <div className="stage-detail-state stage-detail-error"><TriangleAlert size={20} /><strong>明细读取失败</strong><span>{error}</span></div> : loading && !data ? <div className="stage-detail-state"><RefreshCw className="spin" size={20} /><strong>正在读取持久化结果</strong></div> : data?.items.length ? data.items.map((item) => (
                   <button key={item.symbol} type="button" className={item.symbol === selected?.symbol ? "stage-stock-grid stage-stock-row stage-stock-row-selected" : "stage-stock-grid stage-stock-row"} aria-pressed={item.symbol === selected?.symbol} onClick={() => { setSelectedSymbol(item.symbol); setMobileDetailOpen(true); }}>
                     <span className="stage-stock-identity"><strong>{item.name || "名称未提供"}</strong><small>{item.symbol}</small></span>
-                    <span>{item.theme || item.industry || "—"}</span>
+                    <span>{codeLabel(item.theme || item.industry)}</span>
                      <strong className="stage-stock-score">{isA3 ? <>{strategyProfileLabel(item.plan?.strategyProfile)}<small>{eligibilityLabel(item.plan?.eligibility)}</small></> : item.score === null || item.score === undefined ? "—" : item.score}</strong>
                     <span className="stage-stock-reasons">{humanizeText(item.selectionReasons[0] ?? item.reasonCodes[0] ?? item.evidence[0] ?? "未提供原因")}</span>
                     <span className="stage-stock-result-status"><StatusBadge status={item.status} label={pools.find((entry) => entry.id === item.pool)?.label} />{item.detailState ? <small className={item.detailState === "COMPLETE" ? "detail-completeness detail-complete" : "detail-completeness detail-partial"}>{item.detailState === "COMPLETE" ? "明细完整" : `缺 ${item.missingFields?.length ?? 0} 项`}</small> : null}</span>
@@ -1325,13 +1333,24 @@ const MISSING_FIELD_LABELS: Record<string, string> = {
   "decisionFacts.technicalCycle": "技术周期", "decisionFacts.weeklyConfirmation": "周线确认", "decisionFacts.indexChainResonance": "指数 / 产业链共振",
 };
 
+function MovingAverageEvidence({ value }: { value: unknown }) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const periods = Object.entries(value).filter(([, row]) => row && typeof row === "object" && !Array.isArray(row));
+  return <section className="stage-detail-section"><h3>均线技术事实</h3>
+    <div className="funnel-table-wrap"><table className="funnel-table"><thead><tr><th>周期</th><th>五周期</th><th>二十周期</th><th>六十周期</th><th>排列</th></tr></thead>
+      <tbody>{periods.map(([period, raw]) => { const row = raw as Record<string, unknown>; return <tr key={period}><th>{fieldLabel(period)}</th><td>{detailValue(row.ma5)}</td><td>{detailValue(row.ma20)}</td><td>{detailValue(row.ma60)}</td><td>{detailValue(row.alignment)}</td></tr>; })}</tbody>
+    </table></div><details><summary>其他均线与偏离事实</summary><p>{detailValue(value)}</p></details>
+  </section>;
+}
+
 function StageStockDetail({ item, stage, onBack }: { item: StageDetailItem | null; stage?: string; onBack: () => void }) {
   if (!item) return <aside className="stage-stock-detail"><div className="stage-detail-state"><CircleAlert size={21} /><strong>选择一只股票查看详情</strong><span>模型判断、系统原因码与事实证据会分开展示。</span></div></aside>;
   const isA3 = stage?.toUpperCase() === "A3";
   // A3 uses deterministic route eligibility and conditions; do not surface the
   // legacy composite technical score as if it were part of the new contract.
   const scoreEntries = isA3 ? [] : Object.entries(item.scoreBreakdown ?? {});
-  const decisionFactEntries = Object.entries(item.decisionFacts ?? {}).filter(([, value]) => value !== null && value !== undefined);
+  const decisionFactEntries = Object.entries(item.decisionFacts ?? {}).filter(([key, value]) => value !== null && value !== undefined
+    && !(isA3 && item.plan?.maAnalysis && ["technicalCycle", "weeklyConfirmation"].includes(key)));
   const plan = item.plan;
   const publication = item.publication;
   const hasPlanRoute = Boolean(plan && (plan.strategyProfile || plan.eligibility || plan.noChasePrice !== null && plan.noChasePrice !== undefined || plan.priceDiscovery !== null && plan.priceDiscovery !== undefined));
@@ -1350,7 +1369,7 @@ function StageStockDetail({ item, stage, onBack }: { item: StageDetailItem | nul
       {item.sourceRefs.length ? <section className="stage-detail-section"><header><h3>事实来源</h3><span>可追溯来源</span></header><ul className="stage-source-refs">{item.sourceRefs.map((source, index) => <li key={index}>{detailValue(source)}</li>)}</ul></section> : null}
       <DetailStringList title="风险提示" badge="模型风险" values={[...new Set([...item.riskReasons, ...item.risks])]} />
       <DetailStringList title="失效条件" badge="约束条件" values={item.invalidation} />
-      {item.lineage && Object.keys(item.lineage).length ? <section className="stage-detail-section"><header><h3>上游追溯</h3><span>来源链路</span></header><dl className="stage-definition-grid">{Object.entries(item.lineage).map(([key, value]) => <div key={key}><dt>{fieldLabel(key)}</dt><dd>{detailValue(value)}</dd></div>)}</dl></section> : null}
+      {item.lineage && Object.keys(item.lineage).length ? <details className="stage-detail-section"><summary>上游追溯与诊断标识</summary><dl className="stage-definition-grid">{Object.entries(item.lineage).map(([key, value]) => <div key={key}><dt>{fieldLabel(key)}</dt><dd>{detailValue(value)}</dd></div>)}</dl></details> : null}
        {plan ? <section className="stage-detail-section stage-plan-section">
          <header><h3>A3 技术研究</h3><span>研究条件与正式发布分开核验</span></header>
          <section className="stage-detail-section" aria-label="正式计划发布核验">
@@ -1388,13 +1407,13 @@ function StageStockDetail({ item, stage, onBack }: { item: StageDetailItem | nul
            <div><dt>反趋势试探</dt><dd>{detailValue(plan.counterTrendProbe)}</dd></div>
            <div><dt>过度延伸</dt><dd>{detailValue(plan.overExtended)}</dd></div>
            <div><dt>允许时间窗</dt><dd>{detailValue(plan.allowedTimeWindows)}</dd></div>
-           <div><dt>均线分析</dt><dd>{detailValue(plan.maAnalysis)}</dd></div>
            <div><dt>研究行计划标识</dt><dd>{plan.planId ? "已提供；以正式发布核验为准" : "研究文件未提供，不代表未发布"}</dd></div>
            <div><dt>数据一致性</dt><dd>{plan.planHash && plan.factorSnapshotHash && plan.configHash ? "已绑定研究数据与配置" : "部分校验信息未提供"}</dd></div>
            <div><dt>研究参考截止（非正式有效期）</dt><dd>{formatDateTime(plan.planExpiry)}</dd></div>
          </dl>
+         <MovingAverageEvidence value={plan.maAnalysis} />
          {plan.priorityReasons?.length ? <DetailStringList title="优先级依据" badge="确定性档位" values={plan.priorityReasons} /> : null}
-         {plan.timeframeStates && Object.keys(plan.timeframeStates).length ? <section className="stage-detail-section"><header><h3>周期状态</h3><span>多周期分析</span></header><dl className="stage-definition-grid">{Object.entries(plan.timeframeStates).map(([key, value]) => <div key={key}><dt>{fieldLabel(key)}</dt><dd>{detailValue(value)}</dd></div>)}</dl></section> : null}
+         {plan.timeframeStates && Object.keys(plan.timeframeStates).length ? <section className="stage-detail-section"><header><h3>周期状态</h3><span>多周期分析</span></header><dl className="stage-definition-grid">{Object.entries(plan.timeframeStates).filter(([key]) => key !== "maAnalysis").map(([key, value]) => <div key={key}><dt>{fieldLabel(key)}</dt><dd>{detailValue(value)}</dd></div>)}</dl></section> : null}
          {plan.scenarios ? <section className="stage-detail-section"><header><h3>情景计划</h3><span>行情应对</span></header><p className="stage-detail-raw-value">{detailValue(plan.scenarios)}</p></section> : null}
          {plan.confirmationConditions?.length ? <DetailStringList title="确认条件" badge="触发约束" values={plan.confirmationConditions} /> : null}
          <DetailStringList title="必备条件" badge="确定性门槛" values={plan.requiredConditions ?? []} />

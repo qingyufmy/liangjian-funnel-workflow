@@ -2047,6 +2047,23 @@ export class ProjectFiles {
     return lanes;
   }
 
+  public async researchDataSummary(runId: string | null): Promise<JsonValue | null> {
+    if (!runId || !SAFE_ID.test(runId)) return null;
+    const path = resolveWithinRoot(this.config.rootDir, join("outputs/runs", `${runId}.json`));
+    const run = path ? await readJson(path) : null;
+    const snapshot = optionalRecord(run?.snapshot);
+    if (!snapshot) return null;
+    const source = optionalRecord(snapshot.feature_source);
+    return sanitizeJson({ runId, marketTradeDate: boundedText(source?.market_trade_date),
+      snapshotId: boundedText(snapshot.snapshot_id),
+      fullUniverseCount: numberValue(snapshot.full_universe_count),
+      researchUniverseCount: numberValue(snapshot.research_universe_count),
+      selectedCount: numberValue(snapshot.selected_count),
+      fundamentalRecords: numberValue(source?.fundamental_count),
+      businessRecords: numberValue(source?.business_count),
+      sourceStatus: boundedText(source?.status) });
+  }
+
   private async researchLane(runId: string, laneId: string): Promise<JsonRecord | null> {
     if (!SAFE_ID.test(runId) || !isResearchLaneId(laneId)) return null;
     for (const fileName of researchLaneFileNames(runId, laneId)) {
