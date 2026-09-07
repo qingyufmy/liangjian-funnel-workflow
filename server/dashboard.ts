@@ -3,6 +3,7 @@ import { LogStore } from "./logger.js";
 import { asArray, asJsonRecord, asString, sanitizeJson } from "./redaction.js";
 import { JobRunner } from "./runner.js";
 import { WorkflowScheduler } from "./scheduler.js";
+import { dailyReviewHealth, publicationFor } from "./console-truth.js";
 import type { AppConfig } from "./config.js";
 import type {
   JobRunRecord,
@@ -639,7 +640,8 @@ export class DashboardData {
     const acceptance = record(statusData?.latest_workflow_acceptance);
     const storedRunOutcome = record(statusData?.latest_workflow_outcome_v2);
     const latestRun = runs.find((item) => item.runId === runId) ?? null;
-    const lanes = ["lane_1", "lane_2", "lane_3"].map((laneId) => laneOverview(
+    const visibleLaneIds = this.config.comparisonEnabled ? ["lane_1", "lane_2", "lane_3"] : [this.config.researchPrimaryLaneId];
+    const lanes = visibleLaneIds.map((laneId) => laneOverview(
       laneId,
       currentRows,
       laneRecords.find((item) => item.lane === laneId) ?? null,
@@ -798,6 +800,22 @@ export class DashboardData {
       dataSources,
       recentEffectiveEvents: effectiveEvents,
       recentA5Reviews,
+      businessHealth: dailyReviewHealth(recentA5Reviews, recentNotifications),
+      decisionData: laneRecords.flatMap((lane) => arrayField(lane, "stages").map((rawStage) => {
+        const stage = record(rawStage) ?? {};
+        const output = record(stage.output);
+        const outcome = normalizeStageOutcome(stage);
+        const missingSymbols = ["focus_pool", "watch_only_pool", "core_watch_pool", "secondary_watch_pool", "rejected_candidates"]
+          .flatMap((key) => output ? arrayField(output, key) : [])
+          .filter((item) => stringField(item, "eligibility") === "DATA_GAP")
+          .map((item) => stringField(item, "symbol")).filter(Boolean);
+        return { laneId: asString(lane.lane), stage: asString(stage.stage), runId,
+          asOf: output ? asString(output.as_of) ?? stringField(output.envelope, "as_of") : null,
+          dataState: outcome?.data_sufficiency_state ?? null,
+          coverage: outcome?.data_coverage ?? {},
+          missingSymbols: [...new Set(missingSymbols)],
+          scope: "本批次研究契约；缺口列表仅含已记录的数据不足候选，不代表全市场完整覆盖" };
+      })),
       recentLogs: await this.logger.list(20),
     });
   }
@@ -822,7 +840,14 @@ export class DashboardData {
     reason: string,
   ): Promise<JsonValue | null> {
     const detail = await this.files.researchStageDetail(runId, laneId, stage, pool, page, pageSize, query, reason);
-    return detail ? sanitizeJson(detail) : null;
+    if (!detail) return null;
+    if (stage !== "A3") return sanitizeJson(detail);
+    const status = await this.files.status();
+    const records = status.data ? ["monitor_plans", "latest_a3_plans", "latest_published_a3_plans"]
+      .flatMap((key) => arrayField(status.data, key)) : [];
+    return sanitizeJson({ ...detail, items: detail.items.map((item) => ({ ...item,
+      publication: status.availability === "ok" ? publicationFor(item, runId, laneId, records) : { state: "UNAVAILABLE" },
+    })) });
   }
 
   public async logs(limit: number, level?: "debug" | "info" | "warn" | "error", job?: string): Promise<JsonValue> {

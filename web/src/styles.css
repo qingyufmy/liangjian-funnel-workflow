@@ -46,6 +46,20 @@
 }
 
 * { box-sizing: border-box; }
+.business-status-list { margin: 0; }
+.business-status-list > div { display: grid; grid-template-columns: 110px minmax(0, 1fr) auto; gap: 16px; align-items: start; padding: 12px 0; border-bottom: 1px solid var(--color-border); }
+.business-status-list > div:last-child { border-bottom: 0; }
+.business-status-list dt { color: var(--color-muted); }
+.business-status-list dd { margin: 0; min-width: 0; }
+.business-status-list small { display: block; color: var(--color-muted); margin-top: 4px; overflow-wrap: anywhere; }
+.decision-data-row { padding: 16px 0; border-top: 1px solid var(--color-border); }
+.decision-data-row h3 { margin: 0 0 8px; font-size: var(--text-body); }
+.decision-data-row p { color: var(--color-muted); overflow-wrap: anywhere; }
+.diagnostic-reference { overflow-wrap: anywhere; font-size: var(--text-label); }
+@media (max-width: 640px) {
+  .business-status-list > div { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .business-status-list button { justify-self: start; }
+}
 html, body, #root { min-width: 320px; min-height: 100%; margin: 0; }
 body { min-height: 100vh; background: var(--color-canvas); font-size: var(--text-body); line-height: 1.5; font-kerning: normal; }
 button, input, select { font: inherit; }

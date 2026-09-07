@@ -1,5 +1,14 @@
 const CODE_LABELS: Record<string, string> = {
   READY: "就绪",
+  COMPLETED: "已完成",
+  FAILED: "失败",
+  DEGRADED: "存在缺口",
+  SENT: "已送达",
+  PENDING: "待处理",
+  NO_ACTIVE_SCOPE: "无今日活动计划",
+  SUCCEEDED_NO_ACTION: "已执行，未触发",
+  EFFECTIVE_SIGNAL: "已记录有效信号",
+  OVEREXTENSION_STATE_CLASSIFIED: "价格过度延伸状态已分类",
   READY_DEGRADED: "可用但需留意",
   INSUFFICIENT: "不足",
   SUFFICIENT: "充足",
@@ -208,9 +217,25 @@ const FIELD_LABELS: Record<string, string> = {
   sourceRef: "事实来源",
   source: "数据来源",
   timestamp: "记录时间",
+  ma5: "五周期均线", ma10: "十周期均线", ma20: "二十周期均线", ma60: "六十周期均线",
+  ma99: "九十九周期均线", ma128: "一百二十八周期均线", ma255: "二百五十五周期均线",
+  alignment: "均线排列", bias: "价格偏离", event: "均线事件",
+  close_vs_ma20_pct: "收盘价相对二十周期均线偏离比例",
+  close_vs_ma99_pct: "收盘价相对九十九周期均线偏离比例",
 };
 
 const TEXT_REPLACEMENTS: Record<string, string> = {
+  MA5: "五周期均线",
+  MA10: "十周期均线",
+  MA20: "二十周期均线",
+  MA60: "六十周期均线",
+  VWAP: "成交量加权均价",
+  MACD: "指数平滑异同移动平均指标",
+  KDJ: "随机指标",
+  BULL_STACK: "均线多头排列",
+  BULL_PARTIAL: "均线部分多头排列",
+  GOLDEN_CROSS_SHORT: "短周期均线金叉",
+  FIRST_RESISTANCE: "第一阻力位",
   SOCIAL_FINANCING: "社会融资",
   NEW_CREDIT: "新增信贷",
   M2_YOY: "广义货币同比",
@@ -228,6 +253,12 @@ const TEXT_REPLACEMENTS: Record<string, string> = {
   LIANGJIAN_SCHEDULER_ENABLED: "调度开关",
 };
 
+export function marketDate(value?: string | null): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).format(date) : null;
+}
+
 export function codeLabel(value?: string | null): string {
   if (!value) return "—";
   const key = value.trim().toUpperCase().replaceAll("-", "_").replaceAll(" ", "_");
@@ -244,6 +275,7 @@ export function humanizeText(value?: string | null): string {
   const direct = CODE_LABELS[value.trim().toUpperCase()] ?? THEME_LABELS[value.trim().toUpperCase()];
   if (direct) return direct;
   let rendered = value;
+  rendered = rendered.replace(/日线MA(\d+)/g, "日线$1日均线");
   for (const [source, target] of Object.entries(TEXT_REPLACEMENTS).filter(([source]) => !/^[A-Z][A-Z0-9_:-]*$/.test(source))) {
     rendered = rendered.replaceAll(source, target);
   }
@@ -256,7 +288,7 @@ export function humanizeText(value?: string | null): string {
     if (normalized.startsWith("INDUSTRY:")) return "行业方向";
     if (normalized.startsWith("CONCEPT:")) return "题材方向";
     if (normalized.startsWith("TH_")) return "主题方向";
-    return "系统内部状态";
+    return `说明待补充（${token}）`;
   });
   return rendered;
 }

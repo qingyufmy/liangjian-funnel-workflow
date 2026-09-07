@@ -456,6 +456,9 @@ export interface StageDetailDecisionFacts {
 }
 
 export interface StageDetailItem {
+  publication?: { state: string; records?: number; planId?: string | null; sourceRunId?: string | null;
+    status?: string | null; effectiveStatus?: string | null; targetTradeDate?: string | null;
+    validFrom?: string | null; expiresAt?: string | null };
   symbol: string;
   name?: string | null;
   nameSource?: string | null;
@@ -924,6 +927,10 @@ export interface WorkflowProgressSummary {
 }
 
 export interface OverviewResponse {
+  businessHealth?: { date: string | null; reviewId: string | null; reviewStatus: string | null;
+    cutoffAt: string | null; deliveryStatus: string | null; sentAt: string | null };
+  decisionData?: { laneId: string | null; stage: string | null; runId: string | null; asOf: string | null;
+    dataState: string | null; coverage: Record<string, unknown>; missingSymbols: string[]; scope: string }[];
   generatedAt: string;
   service: ServiceSummary;
   activeJob?: {

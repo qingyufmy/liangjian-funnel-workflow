@@ -540,6 +540,25 @@ test("classifies a successful monitor with no trigger separately from an empty s
   expect(summary.status).toBe("SUCCEEDED_NO_ACTION");
 });
 
+test("legacy and indexed A3 detail both honor the same batch input contract", async () => {
+  const root = await createResearchDetailFixture();
+  const path = join(root, "outputs/research/research_fixture-run_lane_1.json");
+  const lane = JSON.parse(await readFile(path, "utf8"));
+  const a3 = lane.stages.find((s: { stage: string }) => s.stage === "A3");
+  a3.outcome_v2 = { stage: "A3", counts: { input: 49, selected: 26 } };
+  await writeFile(path, JSON.stringify(lane));
+  const config = loadConfig({ LIANGJIAN_PYTHON_BIN: "python3" }, root);
+  const files = new ProjectFiles(config, new LogStore(config));
+  expect((await files.researchStageDetail("fixture-run", "lane_1", "A3", "approved"))?.inputCount).toBe(49);
+  await writeFile(join(root, "outputs/research/research_fixture-run_lane_1.decisions.ndjson"), "");
+  await writeFile(join(root, "outputs/research/research_fixture-run_lane_1.decisions.json"), JSON.stringify({
+    schema_version: "research-stage-decision-index/1.0.0", run_id: "fixture-run", lane_id: "lane_1",
+    data_file: "research_fixture-run_lane_1.decisions.ndjson", counts: { A3: { approved: 26 } },
+    stages: { A3: { input_count: 5, output_count: 26 } },
+  }));
+  expect(await files.researchStageDetail("fixture-run", "lane_1", "A3", "approved")).toMatchObject({ inputCount: 49, outputCount: 26, outcome: { counts: { input: 49 } } });
+});
+
 test("projects paginated research stage pools with names, reasons, and allow-listed detail", async () => {
   const root = await createResearchDetailFixture();
   const config = loadConfig({ LIANGJIAN_PYTHON_BIN: "python3" }, root);

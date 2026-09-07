@@ -1120,7 +1120,7 @@ function decisionFactsValue(value: JsonRecord): ResearchDecisionFacts {
     value,
     ["weekly_confirmation", "weeklyConfirmation", "weekly_confirmation_score", "weeklyConfirmationScore", "weekly_momentum_state", "weeklyMomentumState", "weekly_state", "weeklyState"],
     ["weekly_confirmation", "weekly_confirmation_score"],
-  );
+  ) ?? asSafeJson(optionalRecord(optionalRecord(value.ma_analysis ?? value.maAnalysis)?.weekly));
   const indexChainResonance = firstFact(
     value,
     ["index_chain_resonance", "indexChainResonance", "index_chain_resonance_score", "indexChainResonanceScore", "chain_resonance_score", "chainResonanceScore"],
@@ -1207,7 +1207,7 @@ function detailMissingFields(
   // is surfaced to the UI instead of being replaced with a guess.
   mark("name", Boolean(item.name));
   mark("themeOrIndustry", Boolean(item.theme || item.industry));
-  mark("score", item.score !== null);
+  if (stage !== "A3" && hasAnyKey(value, ["score", "total_score", "composite_score"])) mark("score", item.score !== null);
   mark("selectionReasonsOrReasonCodes", item.selectionReasons.length > 0 || item.reasonCodes.length > 0);
   if (stage === "A1") {
     if (hasAnyKey(value, ["business_exposure", "businessExposure", "business_exposure_facts", "businessExposureFacts"])) {
@@ -1238,7 +1238,8 @@ function detailMissingFields(
   }
   if (stage === "A3") {
     mark("decisionFacts.technicalCycle", item.decisionFacts.technicalCycle !== null);
-    mark("decisionFacts.weeklyConfirmation", item.decisionFacts.weeklyConfirmation !== null);
+    mark("decisionFacts.weeklyConfirmation", item.decisionFacts.weeklyConfirmation !== null
+      || Boolean(optionalRecord(item.plan?.maAnalysis)?.weekly));
   }
   // Only an A3 approved row is expected to contain an executable plan.  A3
   // watch/rejected rows are valid without one and remain auditable through
@@ -2100,6 +2101,11 @@ export class ProjectFiles {
   }
 
   private async researchInputCount(runId: string, lane: JsonRecord, stages: readonly unknown[], stageIndex: number): Promise<number | null> {
+    const current = stages[stageIndex];
+    if (isRecord(current)) {
+      const declared = normalizeStageOutcome(current, firstString(current, ["stage"]) ?? "")?.counts.input;
+      if (declared !== null && declared !== undefined) return declared;
+    }
     if (stageIndex > 0) {
       const previous = stages[stageIndex - 1];
       return isRecord(previous) && Array.isArray(previous.symbols) ? rawArray(previous.symbols).length : null;
@@ -2274,6 +2280,11 @@ export class ProjectFiles {
       input.destroy();
     }
     const stageMeta = optionalRecord(optionalRecord(manifest.stages)?.[stageKey]);
+    const laneStages = rawArray(lane?.stages);
+    const laneStageIndex = laneStages.findIndex((item) => isRecord(item) && item.stage === stageKey);
+    const authoritativeInput = lane && laneStageIndex >= 0
+      ? await this.researchInputCount(runId, lane, laneStages, laneStageIndex) : null;
+    const authoritativeStage = laneStages[laneStageIndex];
     return {
       runId,
       laneId,
@@ -2281,7 +2292,7 @@ export class ProjectFiles {
       stage: stageKey,
       status: boundedText(stageMeta?.status),
       latencyMs: numberValue(stageMeta?.latency_ms),
-      inputCount: numberValue(stageMeta?.input_count),
+      inputCount: authoritativeInput ?? numberValue(stageMeta?.input_count),
       outputCount: numberValue(stageMeta?.output_count),
       pools: allPools,
       pool: poolKey,
@@ -2289,7 +2300,7 @@ export class ProjectFiles {
       pageSize: safePageSize,
       total,
       reasonOptions,
-      outcome: normalizeStageOutcome(stageMeta ?? {}, stageKey),
+      outcome: normalizeStageOutcome(isRecord(authoritativeStage) ? authoritativeStage : stageMeta ?? {}, stageKey),
       items,
     };
   }

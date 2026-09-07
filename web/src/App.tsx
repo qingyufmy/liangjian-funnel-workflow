@@ -36,6 +36,7 @@ import {
   humanizeText,
   jobLabel,
   logLevelLabel,
+  marketDate,
   modelNameLabel,
   planPriorityText,
   slotLabel,
@@ -107,7 +108,7 @@ const STRATEGY_PROFILE_LABELS: Record<string, string> = {
 };
 
 const ELIGIBILITY_LABELS: Record<string, string> = {
-  QUALIFIED: "可形成计划",
+  QUALIFIED: "研究技术条件合格",
   WATCH_ONLY: "仅观察",
   DATA_GAP: "数据不足",
   REJECTED: "不符合",
@@ -378,7 +379,7 @@ function serviceHeadline(overview: OverviewResponse): { title: string; detail: s
   }
   if (overview.service.schedulerEnabled === false) return { title: "服务在线，调度已禁用", detail: "当前为只读验收模式，不会触发研究或盯盘任务", tone: "warning" };
   const tone = toneForStatus(overview.service.status);
-  if (tone === "healthy") return { title: "系统运行正常", detail: "控制台服务在线，工作流状态可读取", tone };
+  if (tone === "healthy") return { title: "控制台服务在线", detail: "服务可读不代表研究、计划与推送全部完成；各环节见下方状态。", tone };
   if (tone === "warning") return { title: "系统需要关注", detail: "服务在线，但部分能力或最近运行处于降级状态", tone };
   if (tone === "error") return { title: "系统运行异常", detail: "请查看部署状态和最新错误日志", tone };
   return { title: "正在确认系统状态", detail: "尚未取得完整运行信息", tone: "unknown" };
@@ -629,6 +630,40 @@ export function App() {
   );
 }
 
+function BusinessStatusPanel({ overview, onNavigate }: { overview: OverviewResponse; onNavigate: (view: ViewId) => void }) {
+  const health = overview.businessHealth;
+  const plans = overview.monitor.latestA3Plans ?? [];
+  const dates = [...new Set(plans.map((p) => p.expiresAt?.slice(0, 10)).filter(Boolean))];
+  const rows: { label: string; value: string; detail: string; view: ViewId }[] = [
+    { label: "研究结果", value: codeLabel(overview.latestWorkflow.status), detail: `研究日期 ${overview.latestWorkflow.tradeDate ?? "未提供"} · ${formatDateTime(overview.latestWorkflow.updatedAt)}`, view: "funnel" },
+    { label: "正式计划", value: `当前活动 ${overview.monitor.activePlanCount ?? 0} · 待盘前复核 ${overview.monitor.pendingPlanCount ?? 0}`, detail: `最新发布有效期日期：${dates.join("、") || "未核验到"}；不等于当前可开仓`, view: "monitor" },
+    { label: "盘中观察", value: codeLabel(overview.monitor.status), detail: `最后记录 ${formatDateTime(overview.monitor.checkedAt)}；末条记录不证明全日无缺口`, view: "monitor" },
+    { label: "当日 A5", value: health?.reviewStatus ? codeLabel(health.reviewStatus) : "未核验到当日复盘记录", detail: `${health?.date ?? "日期未提供"} · 事实截止 ${formatDateTime(health?.cutoffAt)}`, view: "review" },
+    { label: "对应飞书投递", value: health?.deliveryStatus ? codeLabel(health.deliveryStatus) : "未核验到对应 A5 投递", detail: `仅匹配该复盘记录，其他消息成功不替代；送达 ${formatDateTime(health?.sentAt)}`, view: "review" },
+  ];
+  return <Panel title="业务环节状态" icon={<Activity size={18} />}>
+    <dl className="business-status-list">{rows.map((row) => <div key={row.label}>
+      <dt>{row.label}</dt><dd><strong>{row.value}</strong><small>{row.detail}</small></dd>
+      <button type="button" className="text-button" onClick={() => onNavigate(row.view)}>查看{row.label}</button>
+    </div>)}</dl>
+  </Panel>;
+}
+
+function DecisionDataPanel({ data }: { data: NonNullable<OverviewResponse["decisionData"]> }) {
+  const labels: Record<string, string> = { critical_breadth: "板块广度", critical_index_chain_resonance: "指数产业链共振", critical_leader_structure: "龙头结构", critical_tier_structure: "梯队结构", critical_turnover_share: "成交占比", minimum_critical: "最低要求", sufficiency_state: "充分性" };
+  return <Panel title="本批次决策数据" icon={<Database size={18} />}>
+    <p className="panel-footnote">覆盖率来自阶段研究契约，不是实时行情健康结论；未提供的统计不填为 100%。</p>
+    {!data.length ? <EmptyState title="尚无决策数据统计" detail="当前批次未提供可读取的阶段契约。" icon={<Database size={18} />} /> : data.map((row) => <section className="decision-data-row" key={`${row.laneId}-${row.stage}`}>
+      <h3>{row.stage} · {codeLabel(row.dataState)}</h3>
+      <p>事实截止：{formatDateTime(row.asOf)} · 已标记数据不足 {row.missingSymbols.length} 只</p>
+      <dl className="stage-definition-grid">{Object.entries(row.coverage).map(([key, value]) => <div key={key}><dt>{labels[key] ?? fieldLabel(key)}</dt><dd>{typeof value === "number" ? `${(value * 100).toFixed(1)}%` : detailValue(value)}</dd></div>)}</dl>
+      {!Object.keys(row.coverage).length ? <p>字段覆盖率未提供，不能据此确认资料齐全。</p> : null}
+      {row.missingSymbols.length ? <details><summary>查看受影响股票</summary><p>{row.missingSymbols.map(stockSymbolLabel).join("、")}</p></details> : null}
+      <details><summary>统计范围与批次</summary><p>{row.scope}</p><p className="diagnostic-reference">{row.runId}</p></details>
+    </section>)}
+  </Panel>;
+}
+
 function OverviewPage({ overview, logs, issues, onNavigate }: { overview: OverviewResponse; logs: LogEntry[]; issues: WorkbenchIssue[]; onNavigate: (view: ViewId) => void }) {
   const headline = serviceHeadline(overview);
   return (
@@ -639,6 +674,7 @@ function OverviewPage({ overview, logs, issues, onNavigate }: { overview: Overvi
         <div className="status-hero-next"><CalendarClock size={20} /><div><span>下一次计划</span><strong>{nextScheduleLabel(overview)}</strong></div></div>
       </section>
 
+      <BusinessStatusPanel overview={overview} onNavigate={onNavigate} />
       <div className="overview-grid">
         <FunnelPanel workflow={overview.latestWorkflow} onOpen={() => onNavigate("funnel")} />
         <div className="overview-rail">
@@ -648,6 +684,7 @@ function OverviewPage({ overview, logs, issues, onNavigate }: { overview: Overvi
       </div>
 
       <WorkflowProgressPanel progress={overview.workflowProgress} />
+      <DecisionDataPanel data={overview.decisionData ?? []} />
 
       <IssuePanel issues={issues} onOpen={() => onNavigate("issues")} />
 
@@ -690,7 +727,7 @@ function FunnelPanel({ workflow, onOpen }: { workflow: OverviewResponse["latestW
           <div><span>更新时间</span><strong>{formatDateTime(workflow.updatedAt)}</strong></div>
         </div>
         {workflow.lanes.length === 0 ? (
-          <EmptyState title="暂无模型运行记录" detail="收盘研究运行后，三个模型的 A1–A3 阶段会在这里逐项显示。" icon={<GitBranch size={22} />} />
+          <EmptyState title="暂无模型运行记录" detail="收盘研究运行后，生产模型的 A1–A3 阶段会在这里逐项显示。" icon={<GitBranch size={22} />} />
         ) : (
           <div className="funnel-table-wrap">
             <table className="funnel-table">
@@ -1195,7 +1232,7 @@ function StageDetailDialog({ target, onDismiss }: { target: StageDetailTarget | 
             <div className="stage-detail-heading">
               <p className="eyebrow">{target.modelLabel} · {target.stage.stage.toUpperCase()}</p>
               <h2 id="stage-detail-title">{STAGE_LABELS[target.stage.stage.toUpperCase()] ?? target.stage.stage}筛选明细</h2>
-              <span>最近一次研究结果</span>
+              <details><summary>本次研究批次</summary><span className="diagnostic-reference">{target.runId}</span></details>
             </div>
             <dl className="stage-detail-metrics">
               <div><dt>状态</dt><dd><StatusBadge status={data?.status ?? target.stage.status} outcome={data?.outcome ?? target.stage.outcome} /></dd></div>
@@ -1213,7 +1250,7 @@ function StageDetailDialog({ target, onDismiss }: { target: StageDetailTarget | 
 
           <div className="stage-detail-toolbar">
             <label className="stage-detail-search"><Search size={16} aria-hidden="true" /><span className="sr-only">搜索股票代码或名称</span><input value={queryInput} onChange={(event) => setQueryInput(event.target.value)} placeholder="搜索股票代码或名称" /></label>
-            <label className="stage-detail-filter"><Filter size={16} aria-hidden="true" /><span className="sr-only">按原因筛选</span><select value={reason} onChange={(event) => { setReason(event.target.value); setPage(1); }}><option value="">全部原因</option>{(data?.reasonOptions ?? []).map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
+            <label className="stage-detail-filter"><Filter size={16} aria-hidden="true" /><span className="sr-only">按原因筛选</span><select value={reason} onChange={(event) => { setReason(event.target.value); setPage(1); }}><option value="">全部原因</option>{(data?.reasonOptions ?? []).map((option) => <option key={option} value={option}>{codeLabel(option)}</option>)}</select></label>
             <span>{loading ? "读取中…" : `共 ${data?.total ?? 0} 只`}</span>
           </div>
 
@@ -1296,6 +1333,7 @@ function StageStockDetail({ item, stage, onBack }: { item: StageDetailItem | nul
   const scoreEntries = isA3 ? [] : Object.entries(item.scoreBreakdown ?? {});
   const decisionFactEntries = Object.entries(item.decisionFacts ?? {}).filter(([, value]) => value !== null && value !== undefined);
   const plan = item.plan;
+  const publication = item.publication;
   const hasPlanRoute = Boolean(plan && (plan.strategyProfile || plan.eligibility || plan.noChasePrice !== null && plan.noChasePrice !== undefined || plan.priceDiscovery !== null && plan.priceDiscovery !== undefined));
   return (
     <aside className="stage-stock-detail" aria-label={`${item.symbol} 详情`}>
@@ -1314,11 +1352,21 @@ function StageStockDetail({ item, stage, onBack }: { item: StageDetailItem | nul
       <DetailStringList title="失效条件" badge="约束条件" values={item.invalidation} />
       {item.lineage && Object.keys(item.lineage).length ? <section className="stage-detail-section"><header><h3>上游追溯</h3><span>来源链路</span></header><dl className="stage-definition-grid">{Object.entries(item.lineage).map(([key, value]) => <div key={key}><dt>{fieldLabel(key)}</dt><dd>{detailValue(value)}</dd></div>)}</dl></section> : null}
        {plan ? <section className="stage-detail-section stage-plan-section">
-         <header><h3>A3 技术计划</h3><span>确定性路线 · 只读计划</span></header>
+         <header><h3>A3 技术研究</h3><span>研究条件与正式发布分开核验</span></header>
+         <section className="stage-detail-section" aria-label="正式计划发布核验">
+           <h3>正式计划发布记录</h3>
+           {publication?.state === "MATCHED" ? <dl className="stage-definition-grid">
+             <div><dt>发布状态</dt><dd>{codeLabel(publication.effectiveStatus)}<small>已匹配同批次、同模型、同股票记录；仍需 A4 确认。</small></dd></div>
+             <div><dt>目标交易日（正式有效期）</dt><dd>{publication.targetTradeDate ?? "未提供"}</dd></div>
+             <div><dt>正式到期时间</dt><dd>{formatDateTime(publication.expiresAt)}</dd></div>
+             <div><dt>生效时间</dt><dd>{publication.validFrom ? formatDateTime(publication.validFrom) : "尚未提供 / 待盘前复核"}</dd></div>
+             <div><dt>发布版本</dt><dd className="diagnostic-reference">{publication.planId}</dd></div>
+           </dl> : <p>{publication?.state === "AMBIGUOUS" ? "找到多个发布版本，无法唯一匹配，暂不判断可执行。" : publication?.state === "UNAVAILABLE" ? "发布状态暂时无法读取，请刷新后核验。" : "当前状态窗口未核验到同批次发布记录；研究合格不等于已经发布或可以执行。"}</p>}
+         </section>
          {hasPlanRoute ? <dl className="stage-definition-grid">
            <div><dt>策略路线</dt><dd>{strategyProfileLabel(plan.strategyProfile)}</dd></div>
            <div><dt>计划优先级</dt><dd>{planPriorityLabel(plan.planPriority)}</dd></div>
-           <div><dt>计划资格</dt><dd>{eligibilityLabel(plan.eligibility)}</dd></div>
+           <div><dt>研究资格</dt><dd>{eligibilityLabel(plan.eligibility)}</dd></div>
            <div><dt>禁止追价价位</dt><dd>{detailValue(plan.noChasePrice)}</dd></div>
            <div><dt>价格发现</dt><dd>{plan.priceDiscovery === null || plan.priceDiscovery === undefined ? "—" : plan.priceDiscovery ? "是 · 趋势强度票" : "否"}</dd></div>
          </dl> : null}
@@ -1341,9 +1389,9 @@ function StageStockDetail({ item, stage, onBack }: { item: StageDetailItem | nul
            <div><dt>过度延伸</dt><dd>{detailValue(plan.overExtended)}</dd></div>
            <div><dt>允许时间窗</dt><dd>{detailValue(plan.allowedTimeWindows)}</dd></div>
            <div><dt>均线分析</dt><dd>{detailValue(plan.maAnalysis)}</dd></div>
-           <div><dt>计划记录</dt><dd>{plan.planId ? "已生成并落盘" : "—"}</dd></div>
+           <div><dt>研究行计划标识</dt><dd>{plan.planId ? "已提供；以正式发布核验为准" : "研究文件未提供，不代表未发布"}</dd></div>
            <div><dt>数据一致性</dt><dd>{plan.planHash && plan.factorSnapshotHash && plan.configHash ? "已绑定研究数据与配置" : "部分校验信息未提供"}</dd></div>
-           <div><dt>有效期</dt><dd>{detailValue(plan.planExpiry)}</dd></div>
+           <div><dt>研究参考截止（非正式有效期）</dt><dd>{formatDateTime(plan.planExpiry)}</dd></div>
          </dl>
          {plan.priorityReasons?.length ? <DetailStringList title="优先级依据" badge="确定性档位" values={plan.priorityReasons} /> : null}
          {plan.timeframeStates && Object.keys(plan.timeframeStates).length ? <section className="stage-detail-section"><header><h3>周期状态</h3><span>多周期分析</span></header><dl className="stage-definition-grid">{Object.entries(plan.timeframeStates).map(([key, value]) => <div key={key}><dt>{fieldLabel(key)}</dt><dd>{detailValue(value)}</dd></div>)}</dl></section> : null}
@@ -1359,7 +1407,10 @@ function StageStockDetail({ item, stage, onBack }: { item: StageDetailItem | nul
 }
 
 function MonitorPanel({ overview, onOpen }: { overview: OverviewResponse; onOpen: () => void }) {
-  const effective = overview.recentEffectiveEvents.length ? overview.recentEffectiveEvents : overview.monitor.events.filter((event) => event.effective);
+  const allEffective = overview.recentEffectiveEvents.length ? overview.recentEffectiveEvents : overview.monitor.events.filter((event) => event.effective);
+  const currentDate = marketDate(overview.generatedAt);
+  const effective = allEffective.filter((event) => currentDate && marketDate(event.minuteEnd ?? event.time) === currentDate);
+  const historical = allEffective.filter((event) => !currentDate || marketDate(event.minuteEnd ?? event.time) !== currentDate);
   const dispatch = overview.monitor.dispatch;
   return (
     <Panel title="盘中盯盘" icon={<MonitorDot size={18} />} action={<button className="text-button" type="button" onClick={onOpen}>查看详情</button>}>
@@ -1368,7 +1419,8 @@ function MonitorPanel({ overview, onOpen }: { overview: OverviewResponse; onOpen
       {effective.length === 0 ? <EmptyState title="暂无有效事件" detail={overview.monitor.activePlanCount ? "A4 正在复核已有计划；继续观察不会写入有效结果。" : "当前没有正式 A3 活动计划，A4 不会自行创建候选。"} icon={<MonitorDot size={21} />} /> : (
         <ul className="event-list">{effective.slice(0, 4).map((event, index) => <EventRow key={`${event.minuteEnd}-${event.laneId}-${index}`} event={event} />)}</ul>
       )}
-      <dl className="compact-stats"><div><dt>有效事件</dt><dd>{overview.monitor.effectiveEventCount ?? effective.length}</dd></div><div><dt>活动计划</dt><dd>{overview.monitor.activePlanCount ?? overview.planCounts.ACTIVE_TODAY ?? 0}</dd></div></dl>
+      {historical.length ? <details><summary>历史有效事件（最近窗口 {historical.length} 条）</summary><ul className="event-list">{historical.slice(0, 4).map((event, index) => <EventRow key={index} event={event} />)}</ul></details> : null}
+      <dl className="compact-stats"><div><dt>今日有效事件（可见窗口）</dt><dd>{effective.length}</dd></div><div><dt>当前活动计划</dt><dd>{overview.monitor.activePlanCount ?? overview.planCounts.ACTIVE_TODAY ?? 0}</dd></div></dl>
     </Panel>
   );
 }
@@ -1662,7 +1714,8 @@ function A4SignalLifecyclePanel({ lifecycles, counts }: { lifecycles: A4SignalLi
 function DataSourcesPanel({ sources, onOpen }: { sources: DataSourceSummary[]; onOpen: () => void }) {
   const labels: Record<string, string> = { MODEL_GATEWAY: "模型网关", HITHINK: "同花顺", MOOTDX: "通达信分钟线" };
   return (
-    <Panel title="数据源" icon={<Database size={18} />} action={<button className="text-button" type="button" onClick={onOpen}>部署状态</button>}>
+    <Panel title="历史能力检测" icon={<Database size={18} />} action={<button className="text-button" type="button" onClick={onOpen}>部署状态</button>}>
+      <p className="panel-footnote">以下为最近一次连通性 / 能力探针，不代表今天的行情覆盖或数据新鲜度。</p>
       {sources.length === 0 ? <EmptyState title="暂无探针结果" detail="完成能力探针后，这里会显示各事实源的最新状态。" icon={<Database size={21} />} /> : (
         <ul className="source-list">{sources.slice(0, 6).map((source) => (
           <li key={source.id}><span>{labels[source.label.toUpperCase()] ?? humanizeText(source.label)}</span><StatusBadge status={source.status} /><time>{formatDateTime(source.checkedAt)}</time></li>

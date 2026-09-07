@@ -16,10 +16,16 @@ describe("中文展示词典", () => {
     expect(humanizeText("AI算力")).toBe("人工智能算力");
   });
 
-  it("不会把未知内部枚举原样暴露给界面", () => {
-    expect(humanizeText("SOME_NEW_INTERNAL_CODE")).toBe("系统内部状态");
+  it("未知术语明确待补充，不伪装成有效技术解释", () => {
+    expect(humanizeText("SOME_NEW_INTERNAL_CODE")).toBe("说明待补充（SOME_NEW_INTERNAL_CODE）");
     expect(displayValue({ route: "MARKET_CORE", marketRole: "TREND_CORE" }))
       .toBe("入池路线：市场核心；市场角色：趋势核心");
+  });
+
+  it("保留日线、分钟线与均价技术含义", () => {
+    expect(humanizeText("价格进入A3日线MA5回踩区")).toBe("价格进入A3日线5日均线回踩区");
+    expect(humanizeText("5分钟收回VWAP，MA20向上")).toBe("5分钟收回成交量加权均价，二十周期均线向上");
+    expect(humanizeText("MACD和KDJ共振")).toBe("指数平滑异同移动平均指标和随机指标共振");
   });
 
   it("以中文名称显示模型、优先级和证券市场", () => {

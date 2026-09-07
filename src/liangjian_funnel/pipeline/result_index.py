@@ -69,11 +69,18 @@ def write_lane_result_index(
                     continue
                 output = _stage_output(raw_stage)
                 stage_output_count = len(_stage_symbols(raw_stage))
+                outcome = _stage_value(raw_stage, "outcome_v2")
+                if outcome is None and callable(getattr(raw_stage, "outcome", None)):
+                    outcome = raw_stage.outcome().as_dict()
+                outcome = outcome if isinstance(outcome, Mapping) else {}
+                outcome_counts = outcome.get("counts", {})
+                declared_input = outcome_counts.get("input") if isinstance(outcome_counts, Mapping) else None
                 stage_meta[stage] = {
                     "status": _stage_value(raw_stage, "status"),
                     "latency_ms": _integer(_stage_value(raw_stage, "latency_ms")),
-                    "input_count": previous_output_count,
+                    "input_count": declared_input if isinstance(declared_input, int) and not isinstance(declared_input, bool) and declared_input >= 0 else previous_output_count,
                     "output_count": stage_output_count,
+                    "outcome_v2": dict(outcome),
                 }
                 previous_output_count = stage_output_count
                 for pool, key in POOL_KEYS[stage].items():
