@@ -954,6 +954,19 @@ class WorkflowLarkPublisher:
             veto = _display_items(event.get("veto_conditions") or strategy_result.get("veto_conditions") or payload.get("veto_conditions"), limit=3)
             source_id = f"{event.get('lane_id') or ''}:{plan_id}:{action}"
             title = f"A4 盘中信号｜{name}（{symbol}）｜{_ACTION_LABELS.get(action, _display_text(action))}"
+            eligibility = strategy_result.get("execution_eligibility") or {}
+            execution_lines: list[str] = []
+            if action in {"SELL_SIGNAL", "REDUCE_SIGNAL", "FORCED_RISK_EXIT"}:
+                blocked = eligibility.get("reason")
+                explanation = (
+                    "当日买入股份受T+1限制，尚未执行；风险任务保留至后续交易时段。"
+                    if blocked == "BLOCKED_T1" else
+                    "可卖数量尚未核实，禁止执行。" if not eligibility or blocked else
+                    "仅对可卖部分进入执行核验；技术触发不代表已经成交。"
+                )
+                execution_lines = ["", "**执行状态**",
+                    f"• 总持仓：{eligibility.get('total_qty', '未核实')}股；可卖：{eligibility.get('sellable_qty') if eligibility.get('sellable_qty') is not None else '未核实'}股",
+                    f"• {explanation}"]
             lines = [
                 "**盘中有效信号**",
                  f"• 时间：{_time_label(event.get('minute_end') or now.isoformat())}",
@@ -977,8 +990,8 @@ class WorkflowLarkPublisher:
                     kind="A4_EFFECTIVE",
                     source_id=source_id,
                     title=title,
-                    lines=lines,
-                    summary={"minute_end": event.get("minute_end"), "symbol": symbol, "action": action, "reason_code": event.get("reason_code")},
+                    lines=lines + execution_lines,
+                    summary={"minute_end": event.get("minute_end"), "symbol": symbol, "action": action, "reason_code": event.get("reason_code"), "execution_eligibility": eligibility},
                     now=now,
                 )
             )

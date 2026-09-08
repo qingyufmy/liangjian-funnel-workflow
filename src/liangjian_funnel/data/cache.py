@@ -526,7 +526,7 @@ class MinuteBarStore:
             ),
         )
 
-    def load_latest(self, symbol: str, interval: str, *, limit: int) -> tuple[MinuteBar, ...]:
+    def load_latest(self, symbol: str, interval: str, *, limit: int, before: datetime | None = None) -> tuple[MinuteBar, ...]:
         canonical = map_symbol(symbol).canonical
         if interval not in {"1m", "5m"}:
             raise ValueError("interval must be 1m or 5m")
@@ -538,11 +538,11 @@ class MinuteBarStore:
                 SELECT symbol, interval, bar_end, open_value, high_value, low_value,
                        close_value, volume_value, amount_value, source_id, adjust_mode
                 FROM minute_bars
-                WHERE symbol=? AND interval=?
+                WHERE symbol=? AND interval=? AND (? IS NULL OR bar_end<?)
                 ORDER BY bar_end DESC
                 LIMIT ?
                 """,
-                (canonical, interval, limit),
+                (canonical, interval, before.isoformat() if before else None, before.isoformat() if before else None, limit),
             ).fetchall()
         return tuple(_from_row(row) for row in reversed(rows))
 

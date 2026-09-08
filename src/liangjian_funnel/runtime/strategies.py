@@ -39,6 +39,8 @@ from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .execution_eligibility import project_exit_eligibility
+
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 
@@ -534,6 +536,7 @@ def _base_result(profile: StrategyProfile | None, plan: Mapping[str, Any]) -> di
         "all_failed_confirmations": [],
         "sector_data_lag_s": None,
         "_sector_data_timestamp": _sector_data_timestamp(plan),
+        "_execution_position": plan.get("position") if isinstance(plan.get("position"), Mapping) else plan,
         "closed_5m_end": None,
         "closed_15m_end": None,
     }
@@ -569,6 +572,7 @@ def _finish(
             result[key] = _unique(values)
     if as_of is not None:
         result["as_of"] = as_of.isoformat()
+    project_exit_eligibility(result, result.pop("_execution_position", None))
     _finalize_observability(result, as_of=as_of)
     return result
 
@@ -1527,9 +1531,61 @@ def _ma520_indicator_observations(
             "hist": round(hist, 6) if hist is not None else None,
             "state": daily_state,
         },
-        "m15_macd": _macd_observation(fifteen),
+        "m15_macd": _macd_observation([*_historical_fifteen(plan, fifteen), *fifteen]),
         "kdj": _kdj_observation(five),
     }
+
+
+def _historical_fifteen(plan: Mapping[str, Any], current: Sequence[_Bar]) -> list[_Bar]:
+    if not current:
+        return []
+    raw = _lookup(plan, ("market_context", "historical_5m")) or []
+    bars: dict[datetime, _Bar] = {}
+    for item in raw:
+        if not isinstance(item, Mapping):
+            continue
+        end = _parse_datetime(item.get("bar_end"))
+        if end is None or end.date() >= current[0].end.date() or item.get("interval") != "5m":
+            continue
+        if _symbol_key(str(item.get("symbol") or "")) != current[0].symbol:
+            continue
+        values = {key: _number(item.get(key)) for key in ("open", "high", "low", "close", "volume", "amount")}
+        if (any(value is None for value in values.values()) or values["close"] <= 0
+                or values["low"] <= 0 or values["high"] < max(values["open"], values["close"], values["low"])
+                or values["low"] > min(values["open"], values["close"]) or values["volume"] < 0):
+            continue
+        bars[end] = _Bar(symbol=current[0].symbol, end=end, **values)
+    result = []
+    for end in sorted(bars):
+        clock = end.time().replace(tzinfo=None)
+        if end.minute % 15 or not (time(9, 30) < clock <= time(11, 30) or time(13) < clock <= time(15)):
+            continue
+        group = [bars.get(end - timedelta(minutes=offset)) for offset in (10, 5, 0)]
+        if all(bar is not None for bar in group):
+            result.append(_aggregate_group(tuple(group), 15))
+    # Use only the contiguous suffix ending at the previous session's close.
+    # Missing prior sessions/buckets must not masquerade as a warmed-up MACD.
+    from .calendar import ExchangeTradingCalendar
+    calendar = ExchangeTradingCalendar()
+    try:
+        previous_day = calendar.previous_trading_day(current[0].end.date())
+        expected = current[0].end.replace(year=previous_day.year, month=previous_day.month,
+                                          day=previous_day.day, hour=15, minute=0, second=0, microsecond=0)
+        suffix = []
+        for item in reversed(result):
+            if item.end != expected:
+                break
+            suffix.append(item)
+            if expected.hour == 9 and expected.minute == 45:
+                previous_day = calendar.previous_trading_day(expected.date())
+                expected = expected.replace(year=previous_day.year, month=previous_day.month, day=previous_day.day, hour=15, minute=0)
+            elif expected.hour == 13 and expected.minute == 15:
+                expected = expected.replace(hour=11, minute=30)
+            else:
+                expected -= timedelta(minutes=15)
+        return list(reversed(suffix))
+    except (ValueError, RuntimeError):
+        return []
 
 
 def _ema_series(values: Sequence[float], period: int) -> list[float]:
@@ -1591,6 +1647,7 @@ def _macd_observation(bars: Sequence[_Bar]) -> dict[str, Any]:
         "previous_hist": round(previous, 6),
         "state": state,
         "closed_bar_end": bars[-1].end.isoformat(),
+        "input_series": [{"end": bar.end.isoformat(), "close": bar.close} for bar in bars],
     }
 
 
@@ -1821,7 +1878,7 @@ def _apply_live_entry_geometry(
     # may improve stop distance/reward-risk.  Only the current entry is held.
     result["state"] = "CONFIRMING"
     result["action"] = A4Action.START_CONFIRMATION.value
-    result["reason_codes"] = _unique([*(result.get("reason_codes") or []), *blockers])
+    result["reason_codes"] = _unique([*blockers, *(result.get("reason_codes") or [])])
     result["unmet_conditions"] = _unique([
         *(result.get("unmet_conditions") or []),
         "A4_LIVE_ENTRY_GEOMETRY_ACCEPTED",

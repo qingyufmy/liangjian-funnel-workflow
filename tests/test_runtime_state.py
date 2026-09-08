@@ -335,7 +335,7 @@ def test_workflow_lane_state_and_real_trading_day_are_durable(tmp_path):
     assert store.start_account_trading_day("paper:lane-a", date(2026, 8, 24)) is True
     assert store.start_account_trading_day("paper:lane-a", date(2026, 8, 24)) is False
     with pytest.raises(StateTransitionError, match="TRADING_DAY_REGRESSION"):
-        store.start_account_trading_day("paper:lane-a", date(2026, 8, 23))
+        store.start_account_trading_day("paper:lane-a", date(2026, 8, 21))
 
 
 def test_latest_a3_activation_is_atomic_idempotent_and_overrides_session_expiry(tmp_path):

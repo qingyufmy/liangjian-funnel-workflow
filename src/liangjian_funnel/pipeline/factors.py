@@ -99,6 +99,7 @@ class TimeframeFactors(BaseModel):
     partial_bars: tuple[OHLCVBar, ...] = ()
     latest_partial: OHLCVBar | None = None
     moving_averages: dict[str, float | None] = Field(default_factory=dict)
+    macd: dict[str, Any] = Field(default_factory=dict)
     previous_moving_averages: dict[str, float | None] = Field(default_factory=dict)
     ma_slopes: dict[str, float | None] = Field(default_factory=dict)
     ma_alignment: str | None = None
@@ -286,6 +287,7 @@ def _calculate_frame(
         required_periods,
     )
     bias = _ma_bias(ordered[-1].close if ordered else None, moving)
+    from .macd_evidence import macd_evidence
     return TimeframeFactors(
         timeframe=timeframe,
         bars=ordered,
@@ -293,6 +295,9 @@ def _calculate_frame(
         partial_bars=partial,
         latest_partial=partial[-1] if partial else None,
         moving_averages=moving,
+        macd=macd_evidence([bar.close for bar in ordered],
+                           as_of=ordered[-1].end.isoformat() if ordered else None,
+                           adjust_mode=_common_adjust_mode(ordered)) if timeframe == "daily" else {},
         previous_moving_averages=previous_moving,
         ma_slopes=slopes,
         ma_alignment=alignment,
@@ -809,6 +814,7 @@ def _technical_summary(
             "latest_partial_end": frame.latest_partial.end.isoformat() if frame.latest_partial else None,
             "latest_close": frame.latest.close if frame.latest else None,
             "ma": dict(frame.moving_averages),
+            "macd": dict(frame.macd),
             "previous_ma": dict(frame.previous_moving_averages),
             "ma_slopes": dict(frame.ma_slopes),
             "ma_alignment": frame.ma_alignment,

@@ -28,6 +28,21 @@ _LEGITIMATE_SUPPRESSIONS = frozenset({
 })
 
 
+def counterexample_drop_stage(symbol: str, pool: str, plan_symbols: Sequence[str], technical_candidates: Mapping[str, Any]) -> str:
+    # Actual downstream evidence outranks an A2 display-pool label.
+    if symbol in plan_symbols:
+        return "A4_NO_EFFECTIVE_SIGNAL"
+    if symbol in technical_candidates:
+        return "A3_NOT_PLANNED"
+    if pool in {"A1_MONITOR", "A1_REJECTED"}:
+        return "A1_NOT_ACTIVE"
+    if pool == "A1_ACTIVE":
+        return "A2_NOT_EVALUATED"
+    if pool == "REJECTED":
+        return "A2_REJECTED"
+    return "UNRESOLVED_A3_LINEAGE_MISSING"
+
+
 def _mapping(value: Any) -> dict[str, Any]:
     if isinstance(value, Mapping):
         return dict(value)
@@ -386,16 +401,8 @@ class A5IndependentVerifier:
                 continue
             production_candidate = production_candidate_by_symbol.get(symbol)
             pool = str(production_candidate.get("pool") if production_candidate else row.get("pool") or "UNKNOWN")
-            if pool in {"A1_MONITOR", "A1_REJECTED"}:
-                drop_stage = "A1_NOT_ACTIVE"
-            elif pool == "A1_ACTIVE":
-                drop_stage = "A2_NOT_EVALUATED"
-            elif pool != "FOCUS":
-                drop_stage = "A2_NOT_FOCUSED"
-            elif symbol not in plan_symbols:
-                drop_stage = "A3_NOT_PLANNED"
-            else:
-                drop_stage = "A4_NO_EFFECTIVE_SIGNAL"
+            technical = {str(item.get("symbol")): item for item in a2.get("technical_candidates", ()) if isinstance(item, Mapping)}
+            drop_stage = counterexample_drop_stage(symbol, pool, plan_symbols, technical)
             reason_source = production_candidate or row
             independent_confirmation = bool(market_cross_section) and symbol in confirmation_symbols
             alternate_return = (
@@ -411,6 +418,7 @@ class A5IndependentVerifier:
                 "theme_id": str(row.get("theme_id") or ""),
                 "theme_name": str(row.get("theme_name") or ""),
                 "source_pool": pool,
+                "a3_candidate": technical.get(symbol),
                 "intraday_return": round(local_return, 8),
                 "return_basis": row["return_basis"],
                 "performance_rank": rank,

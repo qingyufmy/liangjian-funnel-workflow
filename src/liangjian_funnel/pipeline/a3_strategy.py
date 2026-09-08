@@ -3098,9 +3098,15 @@ def _partial_period_observation(frame: Mapping[str, Any]) -> dict[str, Any] | No
 
 
 def _macd(daily: Mapping[str, Any], context: Mapping[str, Any]) -> dict[str, float | None]:
+    from .macd_evidence import macd_evidence
     raw = _mapping(_first(daily, "macd", "MACD"))
     if not raw:
         raw = _mapping(_first(context, "daily_macd", "macd", "MACD"))
+    if not all(_number(raw.get(key)) is not None for key in ("dif", "dea", "hist")):
+        bars = [bar for bar in (daily.get("bars") or ()) if isinstance(bar, Mapping) and bar.get("closed") is True]
+        prices = [_number(bar.get("close")) for bar in bars]
+        if prices and all(value is not None for value in prices):
+            raw = macd_evidence(prices)
     return {key: _round(_number(_first(raw, key, key.upper()))) for key in ("dif", "dea", "hist")}
 
 

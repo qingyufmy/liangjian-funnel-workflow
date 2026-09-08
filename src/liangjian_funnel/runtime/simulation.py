@@ -18,8 +18,10 @@ from zoneinfo import ZoneInfo
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ..data.mootdx import MinuteBar, map_symbol
-from .state import PersistenceBlockedError, PersistenceError, RuntimeStore
+from .state import PersistenceBlockedError, PersistenceError, RuntimeStore, StateTransitionError
 from .risk import RiskGovernor
+from .stock_trading_rules import stock_trading_rules
+from .execution_eligibility import sell_eligibility
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -224,15 +226,16 @@ class PaperBroker:
         if fill_reference <= 0:
             return 0, "INVALID_PRICE"
         risk_cash = float(account["equity"]) * self.config.base_risk_pct * unit
-        qty = _floor_lot(risk_cash / distance, self.config.lot_size)
+        rules = stock_trading_rules(symbol or "600000")
+        qty = rules.floor_buy(risk_cash / distance)
         if requested_qty is not None:
-            qty = min(qty, _floor_lot(float(requested_qty), self.config.lot_size))
+            qty = min(qty, rules.floor_buy(float(requested_qty)))
         # Use an adverse buy estimate for all hard caps, then check exact fill
         # accounting again before committing.
         estimate = fill_reference * (1 + self.config.slippage_bps / 10_000)
         if estimate <= 0:
             return 0, "INVALID_PRICE"
-        qty = min(qty, _floor_lot(float(account["cash"]) / estimate, self.config.lot_size))
+        qty = min(qty, rules.floor_buy(float(account["cash"]) / estimate))
         current_position = self.store.get_position(self.account_id, symbol) if symbol else None
         current_total = 0.0
         for existing in self.store.list_positions(self.account_id):
@@ -251,7 +254,7 @@ class PaperBroker:
         )
         total_room = max(0.0, float(account["equity"]) * self.config.max_total_position_pct - current_total)
         single_room = float(account["equity"]) * self.config.max_single_position_pct - same_value
-        qty = min(qty, _floor_lot(total_room / estimate, self.config.lot_size), _floor_lot(single_room / estimate, self.config.lot_size))
+        qty = min(qty, rules.floor_buy(total_room / estimate), rules.floor_buy(single_room / estimate))
         if qty <= 0:
             return 0, "POSITION_OR_CASH_CAP"
         return qty, "OK"
@@ -265,7 +268,7 @@ class PaperBroker:
         try:
             self.store.assert_writable()
             decision = self.risk_governor.evaluate(parsed, bar)
-        except (PersistenceError, PersistenceBlockedError):
+        except (PersistenceError, PersistenceBlockedError, StateTransitionError):
             return self._blocked(parsed, "PERSISTENCE_FAILED")
         if not decision.allowed:
             return self._blocked(parsed, decision.reason_code)
@@ -298,6 +301,19 @@ class PaperBroker:
             )
         if bar.interval != "1m":
             return self._blocked(parsed, "BAR_INTERVAL_INVALID")
+        try:
+            rules = stock_trading_rules(parsed.symbol)
+        except ValueError:
+            return self._blocked(parsed, "UNSUPPORTED_SECURITY_RULES")
+        clock = bar.bar_end.astimezone(SHANGHAI).time().replace(tzinfo=None)
+        if not (datetime_time(9, 30) < clock <= datetime_time(11, 30) or datetime_time(13) < clock <= datetime_time(15)):
+            return self._blocked(parsed, "OUTSIDE_TRADING_SESSION")
+        if map_symbol(bar.symbol).canonical != parsed.symbol:
+            return self._blocked(parsed, "BAR_SYMBOL_MISMATCH")
+        try:
+            self.start_trading_day(bar.bar_end.astimezone(SHANGHAI).date())
+        except (ValueError, RuntimeError) as exc:
+            return self._blocked(parsed, str(exc) if str(exc).isupper() else "TRADING_DAY_UNAVAILABLE")
         if bar.bar_end <= parsed.signal_bar_end:
             return self._blocked(parsed, "NEXT_COMPLETE_BAR_REQUIRED")
         if bar.volume <= 0 or bar.high <= bar.low:
@@ -353,16 +369,17 @@ class PaperBroker:
         else:
             if position is None or int(position["total_qty"]) <= 0:
                 return self._blocked(parsed, "NO_POSITION")
-            sellable = int(position["sellable_qty"])
-            if sellable <= 0:
-                return self._blocked(parsed, "BLOCKED_T1")
+            eligibility = sell_eligibility(position)
+            if eligibility["reason"]:
+                return self._blocked(parsed, eligibility["reason"])
+            sellable = int(eligibility["sellable_qty"])
             requested = parsed.requested_qty
             if requested is None:
                 requested = sellable if parsed.action in {SimulationActionType.SELL, SimulationActionType.FORCED_RISK_EXIT} else max(
-                    self.config.lot_size,
-                    _floor_lot(sellable / 2, self.config.lot_size),
+                    min(rules.minimum, sellable),
+                    rules.floor_buy(sellable / 2),
                 )
-            qty = _floor_lot(float(requested), self.config.lot_size)
+            qty = rules.sell_quantity(int(requested), sellable)
             if qty <= 0:
                 return self._blocked(parsed, "INVALID_SELL_QTY")
             if qty > sellable:
@@ -410,6 +427,8 @@ class PaperBroker:
                 stop_level=parsed.stop_level,
                 plan_id=parsed.plan_id,
             )
+        except StateTransitionError as exc:
+            return self._blocked(parsed, str(exc))
         except (PersistenceError, PersistenceBlockedError):
             return self._blocked(parsed, "PERSISTENCE_FAILED")
         return SimulationResult(
@@ -434,9 +453,9 @@ class PaperBroker:
             return None
         slippage = self.config.slippage_bps / 10_000
         if action.action in {SimulationActionType.BUY, SimulationActionType.ADD}:
-            proposed = reference * (1 + slippage)
+            proposed = stock_trading_rules(action.symbol).adverse_tick(reference * (1 + slippage), buy=True)
             return proposed if bar.low <= proposed <= bar.high else None
-        proposed = reference * (1 - slippage)
+        proposed = stock_trading_rules(action.symbol).adverse_tick(reference * (1 - slippage), buy=False)
         return proposed if bar.low <= proposed <= bar.high else None
 
     @staticmethod

@@ -11,8 +11,8 @@ from liangjian_funnel.runtime.state import RuntimeStore, PlanStatus
 from liangjian_funnel.workflow import WorkflowApplication
 
 
-@pytest.mark.parametrize("broken_snapshot", [False, True])
-def test_monitor_consumes_persisted_revision_or_blocks(monkeypatch, tmp_path, broken_snapshot):
+@pytest.mark.parametrize("broken_snapshot,incomplete", [(False, False), (True, False), (False, True)])
+def test_monitor_consumes_persisted_revision_or_blocks(monkeypatch, tmp_path, broken_snapshot, incomplete):
     now = datetime(2026, 9, 7, 9, 32, tzinfo=ZoneInfo("Asia/Shanghai"))
     symbol = "000001.SZ"
     original = MinuteBar(symbol=symbol, interval="1m", bar_end=now-timedelta(minutes=1),
@@ -38,7 +38,8 @@ def test_monitor_consumes_persisted_revision_or_blocks(monkeypatch, tmp_path, br
     app._record_a4_outcomes = lambda *args: {}
     app._a4_callback = lambda *args: None
     app._fetch_live_bars = lambda *args: FetchResult(symbol=symbol, interval="1m",
-        requested_bars=2, returned_bars=2, bars=(revised, current), reason_code="OK", complete=True)
+        requested_bars=2, returned_bars=2, bars=(revised, current),
+        reason_code="CLOSE_BAR_FINALIZATION_UNCONFIRMED" if incomplete else "OK", complete=not incomplete)
     monkeypatch.setattr("liangjian_funnel.workflow.load_or_refresh_live_market_state", lambda *args, **kwargs: {})
     calls = []
     class Engine:
@@ -53,10 +54,13 @@ def test_monitor_consumes_persisted_revision_or_blocks(monkeypatch, tmp_path, br
     result = app.monitor_once(now=now)
     assert len(calls) == 1
     assert calls[0]["data_ok"] is not broken_snapshot
-    if not broken_snapshot:
+    if incomplete:
+        assert calls[0]["data_errors"][symbol] == "CLOSE_BAR_FINALIZATION_UNCONFIRMED"
+    if not broken_snapshot and not incomplete:
         assert calls[0]["bar_histories"][symbol][0].close == 10.2
         # The old archive remains untouched even though the new decision uses revision.
         assert app.minute_store.load_latest(symbol, "1m", limit=2)[0].close == 10
     else:
         assert settlements == []
-        assert result["minute_cache"]["errors"][0]["reason_code"] == "MINUTE_DECISION_SNAPSHOT_UNAVAILABLE"
+        if broken_snapshot:
+            assert result["minute_cache"]["errors"][0]["reason_code"] == "MINUTE_DECISION_SNAPSHOT_UNAVAILABLE"

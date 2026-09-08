@@ -970,6 +970,7 @@ class RuntimeStore:
                 _ensure_column(connection, "astock_outcome_labels", "baseline_status", "TEXT NOT NULL DEFAULT 'PENDING'")
                 _ensure_column(connection, "astock_outcome_labels", "baseline_sample_size", "INTEGER")
                 _ensure_column(connection, "astock_outcome_labels", "metadata_json", "TEXT NOT NULL DEFAULT '{}'")
+                _ensure_column(connection, "a4_signal_lifecycles", "exit_metadata_json", "TEXT NOT NULL DEFAULT '{}'")
                 # Create secondary indexes only after migrations have added
                 # the identity columns.  This keeps first-open upgrades from
                 # failing on the original date-only table.
@@ -1611,6 +1612,37 @@ class RuntimeStore:
 
         rows = self.update_outcome_label_metrics(({"label_id": label_id, **metrics},))
         return rows[0]
+
+    def repair_a4_outcome_reasons(self, label_id: str, *, apply: bool = False) -> dict[str, Any]:
+        """Audited correction of an empty derived reason, never return metrics."""
+        def operation(connection):
+            row = connection.execute("SELECT * FROM astock_outcome_labels WHERE label_id=? AND stage='A4'", (label_id,)).fetchone()
+            if row is None:
+                raise StateTransitionError("A4_OUTCOME_NOT_FOUND")
+            metadata = _a4_mapping(row["metadata_json"])
+            before = _a4_json_list(row["reason_codes"])
+            if before or metadata.get("reason_correction"):
+                return {"label_id": label_id, "changed": False, "applied": False}
+            event = connection.execute("SELECT * FROM monitor_events WHERE event_key=? AND lane_id=? AND action='BUY_SIGNAL'",
+                                       (metadata.get("entry_event_key"), row["lane_id"])).fetchone()
+            if event is None or str(event["minute_end"])[:10] != row["trade_date"]:
+                raise StateTransitionError("A4_OUTCOME_EVENT_EVIDENCE_MISSING")
+            payload = _a4_mapping(event["payload_json"])
+            if payload.get("symbol") != row["symbol"]:
+                raise StateTransitionError("A4_OUTCOME_SYMBOL_CONFLICT")
+            after = list(dict.fromkeys([*([event["reason_code"]] if event["reason_code"] else []),
+                                       *(payload.get("reason_codes") or []),
+                                       *(_a4_mapping(payload.get("strategy")).get("reason_codes") or [])]))
+            if not after:
+                raise StateTransitionError("A4_OUTCOME_REASON_EVIDENCE_MISSING")
+            metadata["reason_correction"] = {"version": "a4-reason/2", "previous_reason_codes": before,
+                                             "source_event_key": event["event_key"], "at": _iso(_now())}
+            if apply:
+                connection.execute("UPDATE astock_outcome_labels SET reason_codes=?,metadata_json=? WHERE label_id=?",
+                                   (json.dumps(after, ensure_ascii=False), json.dumps(metadata, ensure_ascii=False), label_id))
+            return {"label_id": label_id, "changed": True, "applied": apply, "before": before, "after": after,
+                    "source_event_key": event["event_key"]}
+        return self._write(operation) if apply else self._read(operation)
 
     def get_outcome_label(self, label_id: str) -> dict[str, Any] | None:
         return self._read(
@@ -2566,23 +2598,37 @@ class RuntimeStore:
             raise StateTransitionError("A4_OPEN_QUANTITY_NOT_TERMINAL")
         self._a4_transition(current, target)
         applied_keys.append(event_key)
-        price = _a4_number(self._a4_scalar(scopes, "signal_price", "exit_signal_price", "price"))
-        qty = _a4_nonnegative_int(self._a4_scalar(scopes, "qty", "quantity", "exit_signal_qty"), default=0)
+        price = _a4_number(self._a4_scalar(scopes, "signal_price", "exit_signal_price", "reference_price", "price"))
+        remaining = int(row["remaining_qty"] or 0)
+        default_qty = remaining if action in {"SELL_SIGNAL", "SELL", "FORCED_RISK_EXIT"} else remaining // 2
+        qty = _a4_nonnegative_int(self._a4_scalar(scopes, "target_exit_qty", "exit_signal_qty", "qty", "quantity"), default=default_qty)
         reason = str(event_data.get("reason_code") or self._a4_scalar(scopes, "exit_reason", "reason") or "").strip() or None
+        metadata = _a4_mapping(json.loads(row["exit_metadata_json"] or "{}"))
+        priority = {"FORCED_RISK_EXIT": 3, "SELL_SIGNAL": 2, "SELL": 2, "REDUCE_SIGNAL": 1, "REDUCE": 1}.get(action, 0)
+        observation = {"event_key": event_key, "action": action, "priority": priority,
+                       "at": _a4_bar_stamp(event_data.get("minute_end")), "price": price,
+                       "target_qty": qty, "reason": reason}
+        metadata.setdefault("first_exit", observation)
+        if priority > int(_a4_mapping(metadata.get("highest_priority_exit")).get("priority") or -1):
+            metadata["highest_priority_exit"] = observation
+        metadata["latest_observation"] = observation
+        metadata["execution_eligibility"] = _a4_mapping(strategy.get("execution_eligibility"))
+        first = metadata["first_exit"]
         connection.execute(
             """
             UPDATE a4_signal_lifecycles
             SET status=?,exit_signal_time=?,exit_signal_price=?,exit_signal_qty=?,exit_reason=?,
-                applied_exit_event_keys_json=?,updated_at=?
+                applied_exit_event_keys_json=?,exit_metadata_json=?,updated_at=?
             WHERE lifecycle_id=? AND status=?
             """,
             (
                 target,
-                _a4_bar_stamp(event_data.get("minute_end")),
-                price,
-                qty,
-                reason,
+                row["exit_signal_time"] or first["at"],
+                row["exit_signal_price"] if row["exit_signal_time"] else first["price"],
+                int(row["exit_signal_qty"]) if row["exit_signal_time"] else first["target_qty"],
+                row["exit_reason"] if row["exit_signal_time"] else first["reason"],
                 json.dumps(applied_keys, ensure_ascii=False, separators=(",", ":")),
+                json.dumps(metadata, ensure_ascii=False, separators=(",", ":")),
                 now,
                 row["lifecycle_id"],
                 current,
@@ -2957,6 +3003,50 @@ class RuntimeStore:
             ) or {}
 
         return self._write(operation)
+
+    def rebuild_a4_exit_projection(self, lifecycle_id: str, *, apply: bool = False) -> dict[str, Any]:
+        """Explicit, auditable repair of a derived summary, never raw events/fills."""
+        def operation(connection):
+            row = connection.execute("SELECT * FROM a4_signal_lifecycles WHERE lifecycle_id=?", (lifecycle_id,)).fetchone()
+            if row is None:
+                raise StateTransitionError("A4_LIFECYCLE_NOT_FOUND")
+            metadata = _a4_mapping(row["exit_metadata_json"])
+            if metadata.get("projection_revision") == "exit-summary/2":
+                return {"lifecycle_id": lifecycle_id, "changed": False, "applied": False}
+            keys = set(_a4_json_list(row["applied_exit_event_keys_json"]))
+            events = connection.execute("SELECT * FROM monitor_events WHERE lane_id=? ORDER BY minute_end,event_key", (row["lane_id"],)).fetchall()
+            fills = connection.execute("SELECT * FROM virtual_fills WHERE account_id=? AND symbol=? ORDER BY bar_end", (row["account_id"], row["symbol"])).fetchall()
+            fill_keys = set(_a4_json_list(row["applied_fill_keys_json"]))
+            observations = []
+            for event in events:
+                if event["event_key"] not in keys or event["action"] not in {"SELL_SIGNAL", "REDUCE_SIGNAL", "FORCED_RISK_EXIT"}:
+                    continue
+                payload = self._a4_decode_payload(dict(event))
+                strategy = _a4_mapping(payload.get("strategy"))
+                scopes = (payload, strategy, dict(event))
+                inventory = sum((1 if fill["action"] in {"BUY", "ADD"} else -1) * int(fill["qty"])
+                                for fill in fills if fill["fill_id"] in fill_keys and fill["bar_end"] <= event["minute_end"])
+                if inventory <= 0:
+                    raise StateTransitionError("EXIT_PROJECTION_FILL_EVIDENCE_MISSING")
+                priority = {"FORCED_RISK_EXIT": 3, "SELL_SIGNAL": 2, "REDUCE_SIGNAL": 1}[event["action"]]
+                observations.append({"event_key": event["event_key"], "action": event["action"], "priority": priority,
+                    "at": event["minute_end"], "price": _a4_number(self._a4_scalar(scopes, "signal_price", "exit_signal_price", "reference_price", "price")),
+                    "target_qty": _a4_nonnegative_int(self._a4_scalar(scopes, "target_exit_qty", "exit_signal_qty", "qty", "quantity"), default=inventory if priority > 1 else inventory // 2),
+                    "reason": event["reason_code"]})
+            if not observations:
+                return {"lifecycle_id": lifecycle_id, "changed": False, "applied": False, "reason": "NO_EXIT_EVIDENCE"}
+            before = {key: row[key] for key in ("exit_signal_time", "exit_signal_price", "exit_signal_qty", "exit_reason")}
+            first = observations[0]
+            after = dict(zip(before, (first["at"], first["price"], first["target_qty"], first["reason"])))
+            metadata.update(first_exit=first, highest_priority_exit=max(observations, key=lambda item: item["priority"]),
+                            latest_observation=observations[-1], projection_revision="exit-summary/2",
+                            previous_projection=before, rebuilt_from_event_keys=[item["event_key"] for item in observations])
+            if apply:
+                connection.execute("UPDATE a4_signal_lifecycles SET exit_signal_time=?,exit_signal_price=?,exit_signal_qty=?,exit_reason=?,exit_metadata_json=?,updated_at=? WHERE lifecycle_id=?",
+                                   (*after.values(), json.dumps(metadata, ensure_ascii=False), _iso(_now()), lifecycle_id))
+            return {"lifecycle_id": lifecycle_id, "changed": before != after, "applied": apply, "before": before, "after": after,
+                    "evidence_event_keys": metadata["rebuilt_from_event_keys"]}
+        return self._write(operation) if apply else self._read(operation)
 
     def get_a4_lifecycle(
         self,
@@ -3358,6 +3448,9 @@ class RuntimeStore:
     def start_account_trading_day(self, account_id: str, trade_date: date) -> bool:
         """Idempotently release T+1 quantities once per real trading date."""
 
+        from .calendar import ExchangeTradingCalendar
+        if not ExchangeTradingCalendar().is_trading_day(trade_date):
+            raise StateTransitionError("NOT_A_TRADING_DAY")
         day = trade_date.isoformat()
         now = _iso(_now())
 
@@ -3370,10 +3463,22 @@ class RuntimeStore:
                 return False
             if current is not None and str(current["trade_date"]) > day:
                 raise StateTransitionError("TRADING_DAY_REGRESSION")
-            connection.execute(
-                "UPDATE virtual_positions SET sellable_qty=total_qty,updated_at=? WHERE account_id=? AND sellable_qty<total_qty",
-                (now, account_id),
-            )
+            for position in connection.execute("SELECT * FROM virtual_positions WHERE account_id=?", (account_id,)).fetchall():
+                fills = connection.execute(
+                    "SELECT action,qty,bar_end FROM virtual_fills WHERE account_id=? AND symbol=? AND action IN ('BUY','ADD')",
+                    (account_id, position["symbol"]),
+                ).fetchall()
+                if not fills and position["sellable_qty"] < position["total_qty"]:
+                    raise StateTransitionError("POSITION_ACQUISITION_DATE_UNKNOWN")
+                if any(str(fill["bar_end"])[:10] > day for fill in fills):
+                    raise StateTransitionError("TRADING_DAY_REGRESSION")
+                locked = sum(int(fill["qty"]) for fill in fills if str(fill["bar_end"])[:10] == day)
+                if locked > int(position["total_qty"]):
+                    raise StateTransitionError("T1_QUANTITY_CONFLICT")
+                connection.execute(
+                    "UPDATE virtual_positions SET sellable_qty=?,updated_at=? WHERE account_id=? AND symbol=?",
+                    (int(position["total_qty"]) - locked, now, account_id, position["symbol"]),
+                )
             connection.execute(
                 """
                 INSERT INTO account_trading_days(account_id,trade_date,updated_at) VALUES(?,?,?)
@@ -3546,8 +3651,18 @@ class RuntimeStore:
         stop_level: float | None = None,
         plan_id: str | None = None,
     ) -> tuple[dict[str, Any], bool]:
-        if qty <= 0 or price <= 0 or fee < 0 or cash_after < 0:
+        if (not isinstance(qty, int) or isinstance(qty, bool) or qty <= 0
+                or not all(math.isfinite(float(value)) for value in (price, fee, cash_after))
+                or price <= 0 or fee < 0 or cash_after < 0):
             raise ValueError("invalid fill accounting values")
+        from .stock_trading_rules import stock_trading_rules
+        rules = stock_trading_rules(symbol)
+        if action not in {"BUY", "ADD", "SELL", "REDUCE", "FORCED_RISK_EXIT"}:
+            raise StateTransitionError("INVALID_FILL_ACTION")
+        if abs(price - round(price, 2)) > 1e-9:
+            raise StateTransitionError("INVALID_PRICE_TICK")
+        if action in {"BUY", "ADD"} and rules.floor_buy(qty) != qty:
+            raise StateTransitionError("INVALID_BUY_QTY")
         if position is not None:
             required = {"total_qty", "sellable_qty", "avg_cost"}
             if not required.issubset(position):
@@ -3572,6 +3687,21 @@ class RuntimeStore:
                 if existing_fill is None:
                     raise StateTransitionError("INTENT_ALREADY_RESERVED")
                 return _row_dict(existing_fill), False
+            held = connection.execute("SELECT * FROM virtual_positions WHERE account_id=? AND symbol=?", (account_id, symbol)).fetchone()
+            selling = action in {"SELL", "REDUCE", "FORCED_RISK_EXIT"}
+            if selling and (held is None or qty > int(held["sellable_qty"])):
+                raise StateTransitionError("BLOCKED_T1")
+            if selling and rules.sell_quantity(qty, int(held["sellable_qty"])) != qty:
+                raise StateTransitionError("INVALID_SELL_QTY")
+            old_total = int(held["total_qty"]) if held else 0
+            old_sellable = int(held["sellable_qty"]) if held else 0
+            expected_total = old_total - qty if selling else old_total + qty
+            expected_sellable = old_sellable - qty if selling else old_sellable
+            if int((position or {}).get("total_qty", 0)) != expected_total or int((position or {}).get("sellable_qty", 0)) != expected_sellable:
+                raise StateTransitionError("FILL_POSITION_CONFLICT")
+            expected_cash = float(account["cash"]) + (qty * price if selling else -qty * price) - fee
+            if abs(expected_cash - cash_after) > .000001:
+                raise StateTransitionError("FILL_CASH_CONFLICT")
             connection.execute(
                 "INSERT INTO simulation_intents(intent_id,intent_key,account_id,signal_id,symbol,action,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)",
                 (intent_id, intent_key, account_id, signal_id, symbol, action, "PENDING", now, now),
@@ -3661,18 +3791,8 @@ class RuntimeStore:
         return self._write(operation)
 
     def release_t1(self, account_id: str) -> int:
-        """Release all quantities bought on prior sessions for a new day."""
-
-        now = _iso(_now())
-
-        def operation(connection):
-            cursor = connection.execute(
-                "UPDATE virtual_positions SET sellable_qty=total_qty,updated_at=? WHERE account_id=? AND sellable_qty<total_qty",
-                (now, account_id),
-            )
-            return int(cursor.rowcount)
-
-        return int(self._write(operation))
+        """Legacy entry point uses the same dated, idempotent settlement gate."""
+        return int(self.start_account_trading_day(account_id, _now().date()))
 
     def get_fill_by_intent_key(self, intent_key: str) -> dict[str, Any] | None:
         return self._read(

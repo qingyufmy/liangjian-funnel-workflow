@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from ..data.mootdx import MinuteBar
 from ..reporting import atomic_write_text
 from .strategies import STRATEGY_PROFILES, evaluate_strategy
+from .execution_eligibility import project_exit_eligibility
 from .state import EFFECTIVE_ACTIONS, MonitorAction, PersistenceError, RuntimeStore
 
 
@@ -288,6 +289,7 @@ class MonitorEngine:
                         or context_map.get(symbol.split(".")[0])
                     ),
                 ).model_dump(mode="json")
+                project_exit_eligibility(strategy_result, position)
                 action = str(strategy_result.get("action") or MonitorAction.NO_ACTION.value)
                 reason_codes = strategy_result.get("reason_codes")
                 reason = (

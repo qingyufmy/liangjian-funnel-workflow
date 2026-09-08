@@ -277,7 +277,7 @@ def test_ma520_right_side_guard_does_not_suppress_hard_stop_exit() -> None:
         bars,
     )
     assert result["action"] == A4Action.FORCED_RISK_EXIT.value
-    assert result["reason_codes"] == ["HARD_STOP"]
+    assert result["reason_codes"] == ["HARD_STOP", "SELLABLE_QUANTITY_UNKNOWN"]
 
 
 def test_unclosed_bucket_and_future_bar_never_trigger() -> None:
@@ -339,7 +339,7 @@ def test_hard_stop_is_immediate_1m_safety_only_for_an_open_position() -> None:
         bars,
     )
     assert stopped["action"] == A4Action.FORCED_RISK_EXIT.value
-    assert stopped["reason_codes"] == ["HARD_STOP"]
+    assert stopped["reason_codes"] == ["HARD_STOP", "SELLABLE_QUANTITY_UNKNOWN"]
 
 
 def test_t1_zero_sellable_quantity_is_still_an_open_position() -> None:
@@ -358,8 +358,8 @@ def test_t1_zero_sellable_quantity_is_still_an_open_position() -> None:
     )
 
     assert stopped.action == A4Action.FORCED_RISK_EXIT.value
-    assert stopped.state == "FORCED_RISK_EXIT"
-    assert stopped.reason_codes == ("HARD_STOP",)
+    assert stopped.state == "EXIT_PENDING"
+    assert stopped.reason_codes == ("HARD_STOP", "BLOCKED_T1")
 
 
 @pytest.mark.parametrize(
@@ -403,7 +403,7 @@ def test_closed_strategy_breakdown_persists_exit_even_while_t1_locked(
     )
 
     assert result.action == A4Action.SELL_SIGNAL.value
-    assert result.state == "EXIT_READY"
+    assert result.state == "EXIT_PENDING"
     assert reason in result.reason_codes
 
 
@@ -780,5 +780,5 @@ def test_fresh_market_block_does_not_suppress_existing_position_exit() -> None:
     )
 
     assert result.action == A4Action.FORCED_RISK_EXIT.value
-    assert result.state == "FORCED_RISK_EXIT"
-    assert result.reason_codes == ("HARD_STOP",)
+    assert result.state == "EXIT_PENDING"
+    assert result.reason_codes == ("HARD_STOP", "SELLABLE_QUANTITY_UNKNOWN")

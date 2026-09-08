@@ -3141,7 +3141,8 @@ class WorkflowApplication:
             first = None
             try:
                 first = provider.fetch_bars(symbol, interval, required_bars, as_of=current)
-                if first.complete:
+                closing_unfinalized = current.hour == 15 and current.minute == 0 and first.bars and first.bars[-1].volume == 0
+                if first.complete and not closing_unfinalized:
                     return first
             except Exception:
                 pass
@@ -3154,12 +3155,15 @@ class WorkflowApplication:
                                  and bar.bar_end <= current)[-required_bars:]
                     expected_end = current if interval == "1m" else current.replace(minute=current.minute // 5 * 5)
                     if (len(bars) == required_bars and bars and bars[-1].bar_end == expected_end
+                            and not (current.hour == 15 and current.minute == 0 and bars[-1].volume == 0)
                             and not detect_missing_bars(bars, interval, as_of=current)):
                         return result.model_copy(update={"bars": bars, "returned_bars": len(bars),
                                                         "complete": True, "reason_code": "OK"})
                 except Exception:
                     pass
             if first is not None:
+                if current.hour == 15 and current.minute == 0 and first.bars and first.bars[-1].volume == 0:
+                    return first.model_copy(update={"complete": False, "reason_code": "CLOSE_BAR_FINALIZATION_UNCONFIRMED"})
                 return first
             raise WorkflowError("MINUTE_DATA_FETCH_FAILED")
         return self.market_data.fetch_bars(symbol, interval, required_bars, as_of=current)
@@ -3723,6 +3727,9 @@ class WorkflowApplication:
                             five_bars = canonical[-required:]
                 if one is not None and not getattr(one, "complete", False):
                     data_errors.setdefault(symbol, str(getattr(one, "reason_code", "MINUTE_DATA_UNAVAILABLE")))
+                    # Retain the provider observation in the archive, but do
+                    # not execute against an incomplete decision window.
+                    one_bars = ()
                 one_gaps = detect_missing_bars(one_bars, "1m", as_of=current) if one_bars else ()
                 expected_one = _a4_required_bars(current, "1m")
                 if not one_bars:
@@ -3762,6 +3769,16 @@ class WorkflowApplication:
                     current=current,
                     live_market_state=live_market_state,
                 )
+                # Supporting history cannot alter today's price structure or
+                # fill a missing current-session bucket. Read local archive only.
+                if any(str(json.loads(p.get("payload_json") or "{}").get("strategy_profile")) == "MA520_SWING"
+                       for p in lane_plans[lane_id] if p.get("symbol") == symbol):
+                    try:
+                        past = self.minute_store.load_latest(symbol, "5m", limit=360,
+                            before=current.replace(hour=0, minute=0, second=0, microsecond=0))
+                        contexts[symbol]["historical_5m"] = [bar.model_dump(mode="json") for bar in past]
+                    except Exception:
+                        contexts[symbol]["historical_5m"] = []
             # A cache/database write failure is a system-level boundary: the
             # entire lane must fail closed.  Provider gaps/fetch failures are
             # retained in ``data_errors`` and only block their own symbols.
@@ -5201,7 +5218,11 @@ class WorkflowApplication:
                         "symbol": str(plan.get("symbol") or payload.get("symbol") or ""),
                         "decision": "PASSED",
                         "selection_basis": "A4_EXECUTION_SIGNAL",
-                        "reason_codes": payload.get("reason_codes", ()),
+                        "reason_codes": list(dict.fromkeys([
+                            *([str(event["reason_code"])] if event.get("reason_code") else []),
+                            *(payload.get("reason_codes") or ()),
+                            *((payload.get("strategy") or {}).get("reason_codes") or ()),
+                        ])),
                         "metadata": {
                             "entry_event_key": str(event.get("event_key") or ""),
                             "lifecycle_id": str((lifecycle or {}).get("lifecycle_id") or ""),
@@ -5212,6 +5233,8 @@ class WorkflowApplication:
                             "stock_behavior_type": plan_payload.get("stock_behavior_type"),
                             "theme_id": plan_payload.get("theme_id"),
                             "candidate_origin": plan_payload.get("candidate_origin"),
+                            "minute_snapshot_id": event.get("minute_snapshot_id") or payload.get("minute_snapshot_id"),
+                            "performance_basis": "SIGNAL_REFERENCE_NOT_FILL",
                         },
                     }],
                     snapshot_id=snapshot_id,
@@ -5235,7 +5258,15 @@ class WorkflowApplication:
         broker = self.brokers[lane_id]
         account_id = f"paper:{lane_id}"
         results: list[dict[str, Any]] = []
-        for event in self.store.list_monitor_events(lane_id=lane_id, effective_only=True):
+        events = self.store.list_monitor_events(lane_id=lane_id, effective_only=True)
+        exit_priority = {"FORCED_RISK_EXIT": 3, "SELL_SIGNAL": 2, "REDUCE_SIGNAL": 1}
+        # Entries retain their next-bar contract. Among already-known exits,
+        # a later reduction cannot consume inventory before a full risk exit.
+        events = sorted(events, key=lambda event: (
+            1 if event.get("action") in exit_priority else 0,
+            -exit_priority.get(str(event.get("action")), 0), str(event.get("minute_end")),
+        ))
+        for event in events:
             if event.get("action") not in {
                 MonitorAction.BUY_SIGNAL.value,
                 MonitorAction.ADD_SIGNAL.value,
@@ -5288,7 +5319,15 @@ class WorkflowApplication:
             if existing_fill is not None:
                 if lifecycle_key:
                     self.store.apply_a4_fill(lifecycle_key, existing_fill)
-                continue
+                if action not in {"SELL", "FORCED_RISK_EXIT"}:
+                    continue
+                # A full exit may have sold only the settled part of a mixed
+                # T+1 position. Use a separate, auditable daily residual intent.
+                if str(existing_fill["bar_end"])[:10] >= bar.bar_end.date().isoformat():
+                    continue
+                simulation_action = simulation_action.model_copy(update={
+                    "signal_id": f"{event['event_key']}:residual:{bar.bar_end.date().isoformat()}",
+                })
 
             eligible_bar = _next_closed_minute(signal_time)
             if action in {"BUY", "ADD"}:

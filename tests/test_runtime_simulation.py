@@ -71,7 +71,7 @@ def test_t1_blocks_sell_until_next_session_and_cash_never_negative(tmp_path):
     )
     assert blocked.reason_code == "BLOCKED_T1"
     assert store.get_account("paper:model-a")["cash"] >= 0
-    broker.start_trading_day()
+    broker.start_trading_day(signal_time.date() + timedelta(days=1))
     sold = broker.apply(
         action("paper:model-a", "s3", signal_time + timedelta(days=1), "SELL"),
         bar(signal_time + timedelta(days=1, minutes=1), close=10),

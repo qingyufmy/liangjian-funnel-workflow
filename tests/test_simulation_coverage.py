@@ -78,15 +78,15 @@ def test_simulation_configuration_and_action_contracts_are_strict() -> None:
     with pytest.raises(ValueError, match="total position cap"):
         SimulationConfig(max_single_position_pct=0.8, max_total_position_pct=0.7)
     with pytest.raises(ValidationError, match="timezone-aware"):
-        _action("paper:m", "s", datetime(2026, 8, 29, 9, 30))
-    alias = _action("paper:m", "s", datetime(2026, 8, 29, 9, 30, tzinfo=TZ), "BUY_SIGNAL")
+        _action("paper:m", "s", datetime(2026, 8, 24, 9, 30))
+    alias = _action("paper:m", "s", datetime(2026, 8, 24, 9, 30, tzinfo=TZ), "BUY_SIGNAL")
     assert alias.action is SimulationActionType.BUY
     with pytest.raises(ValidationError, match="positive and finite"):
-        _action("paper:m", "bad-price", datetime(2026, 8, 29, 9, 30, tzinfo=TZ), entry=float("nan"))
+        _action("paper:m", "bad-price", datetime(2026, 8, 24, 9, 30, tzinfo=TZ), entry=float("nan"))
 
 
 def test_conflict_resolution_accepts_mappings_and_is_stable_on_equal_priority() -> None:
-    at = datetime(2026, 8, 29, 9, 30, tzinfo=TZ)
+    at = datetime(2026, 8, 24, 9, 30, tzinfo=TZ)
     first = _action("paper:m", "first", at, "BUY")
     second = _action("paper:m", "second", at, "BUY")
     forced = _action("paper:m", "forced", at, "FORCED_RISK_EXIT")
@@ -140,16 +140,16 @@ def test_quantity_calculation_handles_missing_account_and_position_caps(tmp_path
 def test_apply_fail_closed_paths_do_not_create_fills(tmp_path: Path) -> None:
     store = RuntimeStore(tmp_path / "runtime.sqlite3")
     broker = PaperBroker(store, model="model-a")
-    at = datetime(2026, 8, 29, 9, 30, tzinfo=TZ)
+    at = datetime(2026, 8, 24, 9, 30, tzinfo=TZ)
     complete = _bar(at + timedelta(minutes=1))
 
     mismatch = broker.apply(_action("paper:other", "mismatch", at), complete)
     assert mismatch.reason_code == "ACCOUNT_LANE_MISMATCH"
     assert broker.apply(_action("paper:model-a", "cancel", at, "CANCEL"), complete).status is SimulationStatus.CANCELLED
     assert broker.apply(_action("paper:model-a", "five", at), _bar(at + timedelta(minutes=1), interval="5m")).reason_code == "BAR_INTERVAL_INVALID"
-    assert broker.apply(_action("paper:model-a", "same", at), _bar(at)).reason_code == "NEXT_COMPLETE_BAR_REQUIRED"
+    assert broker.apply(_action("paper:model-a", "same", at), _bar(at)).reason_code == "OUTSIDE_TRADING_SESSION"
     assert broker.apply(_action("paper:model-a", "empty", at), _bar(at + timedelta(minutes=1), volume=0)).reason_code == "BAR_NOT_EXECUTABLE"
-    late = datetime(2026, 8, 29, 14, 45, tzinfo=TZ)
+    late = datetime(2026, 8, 24, 14, 45, tzinfo=TZ)
     assert broker.apply(_action("paper:model-a", "late", late), _bar(late + timedelta(minutes=1))).reason_code == "BUY_AFTER_CLOSE"
     outside_store = RuntimeStore(tmp_path / "outside.sqlite3")
     outside_broker = PaperBroker(outside_store, model="model-a")
@@ -164,19 +164,19 @@ def test_apply_fail_closed_paths_do_not_create_fills(tmp_path: Path) -> None:
 def test_apply_enforces_position_state_t1_account_status_and_forced_exit(tmp_path: Path) -> None:
     store = RuntimeStore(tmp_path / "runtime.sqlite3")
     broker = PaperBroker(store, model="model-a", config=SimulationConfig(initial_cash=100_000))
-    at = datetime(2026, 8, 29, 9, 30, tzinfo=TZ)
+    at = datetime(2026, 8, 24, 9, 30, tzinfo=TZ)
     bought = broker.apply(_action("paper:model-a", "buy", at, requested_qty=100, plan_id="p"), _bar(at + timedelta(minutes=1)))
     assert bought.status is SimulationStatus.FILLED
     assert broker.apply(_action("paper:model-a", "duplicate-buy", at + timedelta(minutes=2)), _bar(at + timedelta(minutes=3))).reason_code == "POSITION_ALREADY_OPEN"
     assert broker.apply(_action("paper:model-a", "t1-sell", at + timedelta(minutes=2), "SELL"), _bar(at + timedelta(minutes=3))).reason_code == "BLOCKED_T1"
     assert broker.apply(_action("paper:model-a", "no-stop-add", at + timedelta(minutes=2), "ADD", stop=9), _bar(at + timedelta(minutes=3), close=8, low=7)).reason_code == "ADD_REQUIRES_OPEN_PROFIT"
 
-    broker.start_trading_day(trade_date=datetime(2026, 8, 30, tzinfo=TZ).date())
+    broker.start_trading_day(trade_date=datetime(2026, 8, 25, tzinfo=TZ).date())
     blocked_over_sell = broker.apply(
         _action("paper:model-a", "over-sell", at + timedelta(days=1), "SELL", requested_qty=200),
         _bar(at + timedelta(days=1, minutes=1)),
     )
-    assert blocked_over_sell.reason_code == "BLOCKED_T1"
+    assert blocked_over_sell.reason_code == "INVALID_SELL_QTY"
     invalid_qty = broker.apply(
         _action("paper:model-a", "invalid-sell", at + timedelta(days=1), "SELL", requested_qty=1),
         _bar(at + timedelta(days=1, minutes=1)),
@@ -202,7 +202,7 @@ def test_apply_exercises_idempotency_equity_and_provider_failure_boundaries(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    at = datetime(2026, 8, 29, 9, 30, tzinfo=TZ)
+    at = datetime(2026, 8, 24, 9, 30, tzinfo=TZ)
     store = RuntimeStore(tmp_path / "apply.sqlite3")
     broker = PaperBroker(store, model="model-a", config=SimulationConfig(initial_cash=100_000))
     first_action = _action("paper:model-a", "buy-once", at, requested_qty=100)
@@ -218,7 +218,7 @@ def test_apply_exercises_idempotency_equity_and_provider_failure_boundaries(
 
     # A second symbol exercises equity accounting for an existing unrelated
     # position (the false arm of the same-symbol replacement branch).
-    broker.start_trading_day(trade_date=datetime(2026, 8, 30, tzinfo=TZ).date())
+    broker.start_trading_day(trade_date=datetime(2026, 8, 25, tzinfo=TZ).date())
     second = broker.apply(
         _action(
             "paper:model-a",
@@ -227,7 +227,7 @@ def test_apply_exercises_idempotency_equity_and_provider_failure_boundaries(
             requested_qty=100,
             symbol="000001.SZ",
         ),
-        _bar(at + timedelta(days=1, minutes=3)),
+        _bar(at + timedelta(days=1, minutes=3)).model_copy(update={"symbol": "000001.SZ"}),
     )
     assert second.status is SimulationStatus.FILLED
     assert store.get_position("paper:model-a", "000001.SZ") is not None
@@ -268,7 +268,7 @@ def test_apply_keeps_broker_guards_after_risk_and_quantity_dependencies_allow(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    at = datetime(2026, 8, 29, 9, 30, tzinfo=TZ)
+    at = datetime(2026, 8, 24, 9, 30, tzinfo=TZ)
     allow = lambda *_args: SimpleNamespace(allowed=True, reason_code="OK")
 
     # The broker still requires a stop even if a caller's upstream risk
@@ -330,6 +330,6 @@ def test_apply_keeps_broker_guards_after_risk_and_quantity_dependencies_allow(
 def test_adverse_price_rejects_corrupted_internal_reference(tmp_path: Path) -> None:
     store = RuntimeStore(tmp_path / "price.sqlite3")
     broker = PaperBroker(store, model="model-a")
-    at = datetime(2026, 8, 29, 9, 30, tzinfo=TZ)
+    at = datetime(2026, 8, 24, 9, 30, tzinfo=TZ)
     invalid_action = SimpleNamespace(entry_reference=float("nan"), action=SimulationActionType.BUY)
     assert broker._adverse_price(invalid_action, _bar(at + timedelta(minutes=1))) is None

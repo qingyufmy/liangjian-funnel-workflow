@@ -216,6 +216,7 @@ def _plan_projection(row: Mapping[str, Any]) -> dict[str, Any]:
         "strategy_profile": payload.get("strategy_profile"),
         "plan_priority": payload.get("plan_priority"),
         "setup_type": payload.get("setup_type"),
+        "daily_macd": payload.get("daily_macd") or {},
         "trigger_low": payload.get("trigger_low"),
         "trigger_high": payload.get("trigger_high"),
         "stop_level": payload.get("stop_level"),
@@ -290,6 +291,21 @@ def _a2_projection(audit: Mapping[str, Any]) -> tuple[dict[str, Any], list[str]]
         "themes": themes,
         "candidates": candidates,
     }, [] if output else ["A2_OUTPUT_MISSING"]
+
+
+def _a3_candidates(audit: Mapping[str, Any]) -> list[dict[str, Any]]:
+    stage = next((s for s in _rows(audit.get("stages")) if s.get("stage") == "A3"), {})
+    output = _json_mapping(stage.get("output"))
+    result: dict[str, dict[str, Any]] = {}
+    for pool in ("core_watch_pool", "secondary_watch_pool", "core_targets", "secondary_watchlist", "rejected_candidates"):
+        for row in _rows(output.get(pool)):
+            symbol = str(row.get("symbol") or "")
+            if symbol:
+                result[symbol] = {"evidence_id": f"A3:CANDIDATE:{symbol}", "symbol": symbol,
+                    "pool": pool, "eligibility": row.get("deterministic_eligibility") or row.get("eligibility"),
+                    "reason_codes": row.get("deterministic_reason_codes") or row.get("reason_codes") or [],
+                    "veto_conditions": row.get("deterministic_veto_conditions") or row.get("veto_conditions") or []}
+    return list(result.values())
 
 
 def _a1_market_universe(audit: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -386,6 +402,7 @@ def build_a5_fact_snapshot(
         audit, reasons = _audit_output(Path(output_dir), source_run_ids[0], lane_id)
         missing.extend(reasons)
         a2, reasons = _a2_projection(audit)
+        a2["technical_candidates"] = _a3_candidates(audit)
         missing.extend(reasons)
         market_universe = _a1_market_universe(audit)
     else:
@@ -394,6 +411,7 @@ def build_a5_fact_snapshot(
     events = []
     action_counts: dict[str, int] = {}
     effective_event_count = 0
+    warmed_macd_plans: set[str] = set()
     session_start = cutoff.replace(hour=9, minute=0, second=0, microsecond=0)
     raw_event_rows = store.list_monitor_events(
         lane_id=lane_id, effective_only=False, from_time=session_start, to_time=cutoff,
@@ -403,6 +421,10 @@ def build_a5_fact_snapshot(
         action_counts[action] = action_counts.get(action, 0) + 1
         effective = bool(row.get("effective"))
         effective_event_count += int(effective)
+        payload = _json_mapping(row.get("payload_json"))
+        indicators = _json_mapping(_json_mapping(payload.get("strategy")).get("indicator_observations"))
+        if any(isinstance(value, Mapping) and value.get("warmup_complete") is True for value in indicators.values()):
+            warmed_macd_plans.add(str(payload.get("plan_id")))
         # Keep complete counts but only send consequential rows to A5.  A
         # per-plan NO_ACTION heartbeat can number in the thousands and carries
         # no additional causal evidence after aggregation.
@@ -443,6 +465,12 @@ def build_a5_fact_snapshot(
             "entry_time": row.get("entry_time"),
             "entry_price": row.get("entry_price"),
             "entry_qty": row.get("entry_qty"),
+            "exit_qty": row.get("exit_qty"),
+            "remaining_qty": row.get("remaining_qty"),
+            "exit_signal_time": row.get("exit_signal_time"),
+            "exit_signal_price": row.get("exit_signal_price"),
+            "exit_signal_qty": row.get("exit_signal_qty"),
+            "exit_metadata": _json_mapping(row.get("exit_metadata_json")),
             "exit_time": row.get("exit_time"),
             "exit_price": row.get("exit_price"),
             "exit_reason": row.get("exit_reason"),
@@ -458,13 +486,18 @@ def build_a5_fact_snapshot(
     for item in lifecycles:
         key = str(item.get("status") or "UNKNOWN")
         lifecycle_counts[key] = lifecycle_counts.get(key, 0) + 1
-    finished_returns = [float(item["net_return"]) for item in lifecycles if item.get("net_return") is not None]
+    finished_returns = [float(item["net_return"]) for item in lifecycles
+                        if item.get("status") == "CLOSED" and item.get("remaining_qty") == 0 and item.get("net_return") is not None]
     metrics = {
         "a2_focus_count": int(a2.get("counts", {}).get("FOCUS", 0)),
         "a2_watch_count": int(a2.get("counts", {}).get("WATCH", 0)),
         "a2_theme_count": len(a2.get("themes", [])),
         "a3_plan_count": len(plans),
         "a3_strategy_counts": _count_by(plans, "strategy_profile"),
+        "a3_daily_macd_complete_count": sum(all(_json_mapping(item.get("daily_macd")).get(key) is not None
+                                                for key in ("dif", "dea", "hist")) for item in plans),
+        "a4_m15_macd_warmed_plan_count": len(warmed_macd_plans),
+        "indicator_verification_scope": "MA_AND_CLOSE_CHECKS_DO_NOT_VALIDATE_MACD_KDJ_OR_VOLUME",
         "a4_monitor_observation_count": sum(action_counts.values()),
         "a4_effective_event_count": effective_event_count,
         "a4_action_counts": action_counts,
@@ -483,7 +516,7 @@ def build_a5_fact_snapshot(
         "source_run_ids": source_run_ids,
         "metrics": metrics,
         "a2": a2,
-        "a3": {"plans": plans},
+        "a3": {"plans": plans, "candidates": a2.get("technical_candidates", [])},
         "a4": {"events": events, "lifecycles": lifecycles},
         "review_history": _review_history(
             store,
@@ -593,7 +626,7 @@ def _evidence_ids(snapshot: Mapping[str, Any]) -> set[str]:
     a2 = _json_mapping(snapshot.get("a2"))
     a3 = _json_mapping(snapshot.get("a3"))
     a4 = _json_mapping(snapshot.get("a4"))
-    for group in (a2.get("themes"), a2.get("candidates"), a3.get("plans"), a4.get("events"), a4.get("lifecycles")):
+    for group in (a2.get("themes"), a2.get("candidates"), a3.get("plans"), a3.get("candidates"), a4.get("events"), a4.get("lifecycles")):
         for row in _rows(group):
             if row.get("evidence_id"):
                 values.add(str(row["evidence_id"]))
@@ -628,6 +661,18 @@ def _validate_evidence(report: A5ReviewReport, snapshot: Mapping[str, Any]) -> N
         referenced.extend(item.evidence_ids)
     if any(item not in allowed for item in referenced):
         raise ValueError("A5_OUTPUT_EVIDENCE_INVALID")
+    facts = {str(row.get("symbol")): row for row in _rows(_json_mapping(snapshot.get("independent_verification")).get("counterexamples"))}
+    for item in report.missed_opportunity_reviews:
+        fact = facts.get(item.symbol)
+        if fact is None:
+            raise ValueError("A5_COUNTEREXAMPLE_NOT_IN_FACTS")
+        expected = str(fact.get("drop_stage") or "UNRESOLVED").split("_")[0]
+        if expected not in {"A1", "A2", "A3", "A4"}:
+            expected = "UNRESOLVED"
+        if item.funnel_drop_stage != expected:
+            raise ValueError("A5_COUNTEREXAMPLE_STAGE_CONFLICT")
+        if str(fact.get("evidence_id")) not in item.evidence_ids:
+            raise ValueError("A5_COUNTEREXAMPLE_REFERENCE_MISMATCH")
 
 
 def _markdown(report: A5ReviewReport, snapshot: Mapping[str, Any]) -> str:
@@ -733,6 +778,7 @@ class A5DailyReviewService:
             input_hash=str(facts["input_hash"]),
             stage="A5",
             timeout_seconds=300,
+            max_output_tokens=16_384,
         )
         try:
             report = A5ReviewReport.model_validate(_canonicalize_report_output(result.output))
