@@ -602,6 +602,7 @@ def test_a3_uses_minute_cache_only_as_optional_observation(monkeypatch):
 
     class FactCache:
         def query_daily_bars(self, *_args, **_kwargs):
+            assert _kwargs["as_of"] == as_of
             return []
 
     class Mootdx:

@@ -30,6 +30,7 @@ from .a3_strategy import Eligibility, evaluate_a3_strategy
 
 PIPELINE_MODE = "deterministic_v2"
 FEATURE_VERSION = "deterministic-features/2.3.0"
+A2_EVIDENCE_HANDOFF_VERSION = "a2-evidence-handoff/1.0.0"
 _A1_DEFAULT_WEIGHTS: dict[str, float] = {
     "structural_theme": 0.20,
     "business_mapping": 0.20,
@@ -205,6 +206,8 @@ class DeterministicGateResult:
             )
             has_degraded = any(
                 str(decision.get("data_sufficiency_state") or "").upper() == "DEGRADED"
+                or any(value.get("available") is False for value in
+                       decision.get("channel_source_health", {}).values())
                 for decision in surviving_scope
             )
             gate_block_counts = {
@@ -240,6 +243,10 @@ class DeterministicGateResult:
                     for route in (MARKET_CORE_ROUTE, SUPPLY_CHAIN_ALPHA_ROUTE)
                 },
                 "gate_block_counts": gate_block_counts,
+                "channel_source_health": next((
+                    decision["channel_source_health"] for decision in self.decisions
+                    if decision.get("channel_source_health")
+                ), {}),
             })
         return result
 
@@ -1427,17 +1434,16 @@ def screen_a2(
         cycle_stage = str(market_emotion.get("emotion_cycle_stage") or "MIXED").upper()
         emotion_cycle_allowed = cycle_stage in {"STARTUP", "IGNITION", "CONFIRMATION", "ACCELERATION"}
         # Daily emotion rows intentionally do not carry monthly business-line
-        # evidence.  Once the independent hot-100, ladder and cycle gates are
-        # satisfied, allow the market-core route to reach LLM review while
+        # evidence. A validated daily member does not require monthly business
+        # proof, even when its emotion behavior has not yet formed. Independent
+        # behavior/cycle/channel gates below still own entry to LLM review while
         # preserving all hard market-fact/identity/coverage failures.  This is
         # a route-specific evidence exemption, never a blanket overlay pass.
         emotion_overlay_route_candidate = (
             daily_emotion_overlay
             and daily_a1_member
-            and behavior_type == "EMOTION"
             and hot100_available
             and hot100_row is not None
-            and emotion_cycle_allowed
         )
         if emotion_overlay_route_candidate:
             market_route = route_results.get(MARKET_CORE_ROUTE)
@@ -1605,7 +1611,8 @@ def screen_a2(
             if behavior_type != "EMOTION":
                 reasons.append("A2_DAILY_EMOTION_OVERLAY_NOT_TREND_ELIGIBLE")
             elif hot100_row is None:
-                reasons.append("A2_EMOTION_NOT_IN_EASTMONEY_HOT100")
+                reasons.append("A2_EMOTION_NOT_IN_EASTMONEY_HOT100" if hot100_available
+                               else "A2_EMOTION_HOT100_UNAVAILABLE")
             elif not emotion_cycle_allowed:
                 reasons.append("A2_EMOTION_CYCLE_NO_NEW_ENTRY")
             else:
@@ -1619,7 +1626,8 @@ def screen_a2(
             elif not monthly_a1_member:
                 reasons.append("A2_OUTSIDE_FORMAL_A1_POOL")
             elif behavior_type == "EMOTION" and hot100_row is None:
-                reasons.append("A2_EMOTION_NOT_IN_EASTMONEY_HOT100")
+                reasons.append("A2_EMOTION_NOT_IN_EASTMONEY_HOT100" if hot100_available
+                               else "A2_EMOTION_HOT100_UNAVAILABLE")
             elif behavior_type == "EMOTION" and not emotion_cycle_allowed:
                 reasons.append("A2_EMOTION_CYCLE_NO_NEW_ENTRY")
             elif behavior_type == "TREND" and selected_board_field_present and not selected_board_source_available:
@@ -1647,11 +1655,14 @@ def screen_a2(
                 "symbol": symbol,
                 "as_of": snapshot_as_of,
                 "feature_version": FEATURE_VERSION,
+                "evidence_handoff_version": A2_EVIDENCE_HANDOFF_VERSION,
+                "emotion_theme_binding": item.get("emotion_theme_binding"),
                 "source_hashes": source_hashes,
             })[:24],
             "symbol": symbol,
             "name": item.get("company_name") or item.get("name") or candidate.get("name"),
             "stage": "A2_LOCAL_ROLE",
+            "evidence_handoff_version": A2_EVIDENCE_HANDOFF_VERSION,
             "status": status,
             # Keep the pre-ranking deterministic outcome so transport
             # attribution can distinguish a locally ineligible row from a
@@ -1681,6 +1692,7 @@ def screen_a2(
             "business_exposure": item.get("business_exposure"),
             "business_exposure_facts": item.get("business_exposure_facts", []),
             "research_route": upstream_research_route or None,
+            "emotion_theme_binding": item.get("emotion_theme_binding"),
             "downstream_trade_eligible": item.get("downstream_trade_eligible", True) is True,
             "hard_risk_events": [
                 *(
@@ -1704,6 +1716,16 @@ def screen_a2(
             "a2_pool_channel": pool_channel,
             "emotion_core_eligible": emotion_core_eligible,
             "trend_core_eligible": trend_core_eligible,
+            "channel_source_health": {
+                **({"emotion": {"available": hot100_available,
+                    "reason_code": hot100.get("reason_code") or ("OK" if hot100_available else "EASTMONEY_HOT100_UNAVAILABLE"),
+                    "trade_date": hot100.get("trade_date")}}
+                   if "EASTMONEY_HOT100_SNAPSHOT" in snapshot else {}),
+                **({"trend": {"available": selected_board_source_available,
+                    "reason_code": selected_boards.get("reason_code") or ("OK" if selected_board_source_available else "SELECTED_BOARD_UNAVAILABLE"),
+                    "trade_date": selected_boards.get("trade_date")}}
+                   if selected_board_field_present else {}),
+            },
             "eastmoney_hot100": dict(hot100_row) if hot100_row is not None else None,
             "selected_board": dict(selected_board_match) if selected_board_match is not None else None,
             "selected_board_theme_match": bool(theme_bound_selected_board_matches),
@@ -3545,6 +3567,10 @@ def _market_core_route_result(
     diagnostics: list[str] = []
     research_route = str(item.get("research_route") or "").strip().upper()
     research_route_qualified = research_route in {"BROKER_GOLD_DIRECT", "FUNDAMENTAL_BASELINE"}
+    theme_binding = item.get("emotion_theme_binding")
+    if isinstance(theme_binding, Mapping) and theme_binding.get("resolved") is False:
+        missing.extend(["A1_THEME_MISSING", "A1_CHAIN_NODE_MISSING"])
+        diagnostics.append(str(theme_binding.get("reason_code") or "EMOTION_THEME_MEMBERSHIP_MISSING"))
     if identifiability < minimum_identifiability_score:
         # Identifiability is a ranking/risk input for the broad A2 funnel.  A
         # single aggregate score must not erase an otherwise fact-supported

@@ -1415,6 +1415,23 @@ def test_a2_daily_emotion_overlay_risk_and_trade_boundaries_stay_closed() -> Non
     assert healthy_item["status"] == "REVIEW_CANDIDATE"
     assert "A2_DAILY_EMOTION_BUSINESS_EVIDENCE_NOT_REQUIRED" in healthy_item["route_eligibility"]["MARKET_CORE"]["diagnostic_reason_codes"]
 
+    for inactive in (
+        {**snapshot, "MARKET_EMOTION_SNAPSHOT": {"available": True, "emotion_cycle_stage": "FADE"}},
+    ):
+        waiting = screen_a2(inactive, {"active_research_pool": [base_overlay]}, review_all_eligible=True)
+        assert waiting.review_symbols == ()
+        assert waiting.decisions[0]["status"] == "LOCAL_MONITOR"
+        assert "A1_BUSINESS_EVIDENCE_MISSING" not in waiting.decisions[0]["reason_codes"]
+        assert "A2_EMOTION_CYCLE_NO_NEW_ENTRY" in waiting.decisions[0]["reason_codes"]
+
+    unresolved = {**base_overlay, "a2_factor_scores": {**factors, "tier_structure": {
+        "score": 20, "available": True, "availability_state": "OBSERVED_ZERO", "ladder_height": 0,
+    }}}
+    waiting = screen_a2(snapshot, {"active_research_pool": [unresolved]}, review_all_eligible=True)
+    assert waiting.review_symbols == ()
+    assert waiting.decisions[0]["status"] == "LOCAL_MONITOR"
+    assert "A1_BUSINESS_EVIDENCE_MISSING" not in waiting.decisions[0]["reason_codes"]
+
     trade_blocked = dict(base_overlay)
     trade_blocked["downstream_trade_eligible"] = False
     blocked = screen_a2(

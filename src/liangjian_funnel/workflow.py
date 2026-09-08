@@ -3055,6 +3055,7 @@ class WorkflowApplication:
                 symbol,
                 adjust="none",
                 end=current + timedelta(days=1),
+                as_of=current,
                 limit=800,
                 descending=True,
             )
@@ -7081,6 +7082,7 @@ def _compact_factor(value: Mapping[str, Any]) -> dict[str, Any]:
                 "ma_alignment": raw.get("ma_alignment"),
                 "ma_event": raw.get("ma_event"),
                 "ma_bias": raw.get("ma_bias"),
+                "macd": raw.get("macd"),
                 "vwap": raw.get("vwap"),
                 "ready": raw.get("ready"),
                 "reasons": raw.get("reasons"),

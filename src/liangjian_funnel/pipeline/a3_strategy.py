@@ -1220,6 +1220,7 @@ def evaluate_a3_candidate(
     facts["stock_behavior_type"] = stock_behavior_type.value
     facts["behavior_type_source"] = behavior_source
     facts["behavior_type_conflict"] = bool(behavior_conflict)
+    facts["daily_macd_evidence"] = dict(_mapping(daily.get("macd")))
     facts["routed_profile_before_behavior_gate"] = routed_profile_before_behavior.value
     facts["route_permission"] = route_permission.value
     facts["expected_holding_sessions"] = expected_holding_sessions

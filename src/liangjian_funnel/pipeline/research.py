@@ -4988,6 +4988,8 @@ def _with_daily_emotion_overlay(
     added = 0
     annotated = 0
     excluded: list[dict[str, Any]] = []
+    from .emotion_theme import bind_emotion_themes
+    theme_bindings = bind_emotion_themes(output, snapshot_data, set(hot_by_symbol))
     hard_risks = _daily_emotion_hard_risks(snapshot_data)
     for symbol, hot in sorted(hot_by_symbol.items(), key=lambda pair: int(pair[1].get("rank") or 999)):
         metadata = {
@@ -5052,13 +5054,16 @@ def _with_daily_emotion_overlay(
             "a1_pool_channels": ["DAILY_EMOTION"],
             "emotion_attention_eligible": True,
             "eastmoney_hot100": metadata,
-            "primary_theme": "当日情绪热度候选",
-            "industry_chain_node": "情绪票日度观察层",
+            "primary_theme": theme_bindings[symbol]["theme_id"],
+            "industry_chain_node": theme_bindings[symbol]["node_id"],
+            "emotion_theme_binding": theme_bindings[symbol],
             "business_exposure": "情绪票按题材与接力事实判断，不以长期基本面作为入选前提",
             "business_exposure_facts": [],
             "downstream_trade_eligible": True,
             "source_refs": ["EASTMONEY_GUBA_POPULARITY_TOP100"],
-            "reason_codes": ["A1_DAILY_EMOTION_HOT100_OVERLAY"],
+            "reason_codes": ["A1_DAILY_EMOTION_HOT100_OVERLAY", *(
+                [theme_bindings[symbol]["reason_code"]] if not theme_bindings[symbol]["resolved"] else []
+            )],
         }
         active.append(row)
         active_by_symbol[symbol] = row
@@ -5075,6 +5080,12 @@ def _with_daily_emotion_overlay(
     result.setdefault("rejected_candidates", [])
     result["rejected_candidates"] = [*result["rejected_candidates"], *excluded]
     result["active_research_pool"] = active
+    binding_counts: dict[str, int] = {}
+    for row in active:
+        binding = row.get("emotion_theme_binding")
+        if isinstance(binding, Mapping):
+            code = str(binding.get("reason_code") or "UNKNOWN")
+            binding_counts[code] = binding_counts.get(code, 0) + 1
     result["daily_emotion_overlay"] = {
         "source": "EASTMONEY_GUBA_POPULARITY_TOP100",
         "trade_date": source.get("trade_date"),
@@ -5085,6 +5096,7 @@ def _with_daily_emotion_overlay(
         "excluded_count": len(excluded),
         "complete_source_disposition_count": added + annotated + len(excluded),
         "monthly_generation_mutated": False,
+        "theme_binding_counts": binding_counts,
     }
     return result, {
         "available": True,
@@ -5094,6 +5106,7 @@ def _with_daily_emotion_overlay(
         "annotated_count": annotated,
         "excluded_count": len(excluded),
         "complete_source_disposition_count": added + annotated + len(excluded),
+        "theme_binding_counts": binding_counts,
     }
 
 
