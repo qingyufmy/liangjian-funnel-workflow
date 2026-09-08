@@ -341,6 +341,15 @@ def _compact_a4_observations(events: Sequence[Mapping[str, Any]]) -> tuple[list[
 
 def _model_fact_projection(facts: Mapping[str, Any]) -> dict[str, Any]:
     projected = dict(facts)
+    # These are exact duplicates of the authoritative A3/root evidence.
+    projected["a2"] = dict(_json_mapping(facts.get("a2")))
+    projected["a2"].pop("technical_candidates", None)
+    independent = dict(_json_mapping(facts.get("independent_verification")))
+    if independent:
+        independent["a2"] = dict(_json_mapping(independent.get("a2")))
+        if independent["a2"].get("counterexamples") == independent.get("counterexamples"):
+            independent["a2"].pop("counterexamples", None)
+        projected["independent_verification"] = independent
     a4 = dict(_json_mapping(facts.get("a4")))
     events, groups = _compact_a4_observations(_rows(a4.get("events")))
     original_count = len(a4.get("events") or [])
@@ -399,6 +408,11 @@ def build_a5_fact_snapshot(
     if cutoff.date() != trade_date:
         raise ValueError("A5 cutoff must belong to trade date")
 
+    session_start = cutoff.replace(hour=9, minute=0, second=0, microsecond=0)
+    raw_event_rows = store.list_monitor_events(
+        lane_id=lane_id, effective_only=False, from_time=session_start, to_time=cutoff,
+    )
+    observed_plan_ids = {str(_json_mapping(row.get("payload_json")).get("plan_id") or "") for row in raw_event_rows}
     raw_plans = store.list_execution_plans(lane_id=lane_id)
     plans = []
     selected_plan_rows: list[dict[str, Any]] = []
@@ -407,12 +421,17 @@ def build_a5_fact_snapshot(
         expires_at = row.get("expires_at")
         payload = _json_mapping(row.get("payload_json"))
         target_day = str(payload.get("target_trade_date") or "")
-        in_session = target_day == trade_date.isoformat()
-        if not in_session:
+        in_session = str(row.get("plan_id") or "") in observed_plan_ids or target_day == trade_date.isoformat()
+        if not in_session and not target_day:
             try:
                 start = datetime.fromisoformat(str(valid_from)).date() if valid_from else None
                 end = datetime.fromisoformat(str(expires_at)).date() if expires_at else None
-                in_session = bool((start is None or start <= trade_date) and (end is None or trade_date <= end))
+                # A pending plan's null valid_from is not an unbounded start.
+                # Its next-day expiry identifies the intended session until
+                # morning activation supplies a real start timestamp.
+                in_session = bool((start == trade_date or end == trade_date)
+                                  and (start is None or start <= trade_date)
+                                  and (end is None or trade_date <= end))
             except ValueError:
                 in_session = False
         if in_session:
@@ -455,10 +474,6 @@ def build_a5_fact_snapshot(
     action_counts: dict[str, int] = {}
     effective_event_count = 0
     warmed_macd_plans: set[str] = set()
-    session_start = cutoff.replace(hour=9, minute=0, second=0, microsecond=0)
-    raw_event_rows = store.list_monitor_events(
-        lane_id=lane_id, effective_only=False, from_time=session_start, to_time=cutoff,
-    )
     for row in raw_event_rows:
         action = str(row.get("action") or "UNKNOWN")
         action_counts[action] = action_counts.get(action, 0) + 1

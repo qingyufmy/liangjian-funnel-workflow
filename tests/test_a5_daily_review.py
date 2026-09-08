@@ -83,6 +83,19 @@ def _report(*, include_counterexample: bool = False) -> dict:
     }
 
 
+def test_post_close_does_not_mix_tomorrows_pending_plan_or_new_source(tmp_path):
+    store = RuntimeStore(tmp_path / "state.db")
+    _seed(store, tmp_path)
+    store.create_execution_plan("tomorrow", "lane_1", "000002.SZ", status=PlanStatus.PENDING_MORNING_REVIEW,
+        expires_at=datetime(2026, 9, 4, 15, 0, tzinfo=TZ),
+        payload={"source_run_id": "new-close-run", "strategy_profile": "LEADER_INTRADAY"})
+    facts = build_a5_fact_snapshot(store, tmp_path, trade_date=date(2026, 9, 3),
+        cutoff_at=datetime(2026, 9, 3, 15, 0, tzinfo=TZ), review_kind=A5ReviewKind.POST_CLOSE, lane_id="lane_1")
+    assert facts["metrics"]["a3_plan_count"] == 1
+    assert facts["source_run_ids"] == ["close-run"]
+    assert facts["metrics"]["a3_strategy_counts"] == {"TREND_MA5": 1}
+
+
 class _Model:
     def __init__(self, *, include_counterexample: bool = False):
         self.calls = 0
