@@ -1,6 +1,22 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+# Keep the whole pre-open/intraday window (including lunch) free of releases.
+# A conservative weekday guard also blocks holidays; deploy after 15:35 then.
+assert_deployment_window() {
+  local deployment_weekday deployment_clock
+  read -r deployment_weekday deployment_clock <<< "$(TZ=Asia/Shanghai date '+%u %H%M')"
+  if [[ ! "${deployment_weekday}" =~ ^[1-7]$ || ! "${deployment_clock}" =~ ^[0-9]{4}$ ]]; then
+    echo "[deploy] Cannot verify Beijing time; refusing deployment."
+    return 3
+  fi
+  if (( deployment_weekday <= 5 && 10#${deployment_clock} >= 900 && 10#${deployment_clock} < 1535 )); then
+    echo "[deploy] Weekday 09:00-15:35 Beijing time: keep A4 running; deploy after close."
+    return 3
+  fi
+}
+assert_deployment_window
+
 PROJECT_ROOT="/www/wwwroot/Agu/liangjian-funnel-workflow"
 PROJECT_NAME="量见-A股-工作流"
 BOOTSTRAP_UNIT="liangjian-research-g0-bootstrap-20260826.service"

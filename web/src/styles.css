@@ -193,6 +193,7 @@ button, a, input, select { -webkit-tap-highlight-color: transparent; }
 .stage-detail-toolbar { min-height: 60px; display: grid; grid-template-columns: minmax(240px, 1fr) minmax(170px, auto) auto; align-items: center; gap: 12px; padding: 8px 16px; background: var(--color-surface-subtle); border-bottom: 1px solid var(--color-border); }
 .stage-detail-search, .stage-detail-filter { min-height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 12px; background: var(--color-surface); border: 1px solid var(--color-border-strong); border-radius: var(--radius-md); }
 .stage-detail-search svg, .stage-detail-filter svg { flex: 0 0 auto; color: var(--color-muted); }
+.stage-detail-filter > span:not(.sr-only) { flex: 0 0 auto; white-space: nowrap; }
 .stage-detail-search input, .stage-detail-filter select { width: 100%; min-width: 0; min-height: 42px; color: var(--color-ink); background: transparent; border: 0; outline: 0; font-size: var(--text-label); }
 .stage-detail-toolbar > span { color: var(--color-muted); font-size: var(--text-caption); white-space: nowrap; }
 .stage-detail-content { min-height: 0; display: grid; grid-template-columns: minmax(0, 1.62fr) minmax(340px, 1fr); }

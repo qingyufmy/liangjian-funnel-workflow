@@ -353,6 +353,7 @@ export interface ResearchStageDetailPlan {
 }
 
 export interface ResearchStageDetailItem {
+  readonly a3Display?: import("../shared/a3-display.js").A3Display;
   readonly symbol: string;
   readonly name: string | null;
   readonly nameSource: "model" | "lane_a1" | "snapshot" | "unavailable";
@@ -386,6 +387,7 @@ export interface ResearchStageDetailPool {
 }
 
 export interface ResearchStageDetail {
+  readonly dispositionCounts?: Readonly<Record<string, number>>;
   readonly runId: string;
   readonly laneId: string;
   readonly model: string | null;

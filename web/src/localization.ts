@@ -1,3 +1,5 @@
+import { A3_REASON_LABELS } from "../../shared/a3-display";
+
 const CODE_LABELS: Record<string, string> = {
   READY: "就绪",
   A3_REWARD_RISK_BELOW_MINIMUM: "研究盈亏比低于参考下限",
@@ -39,6 +41,7 @@ const CODE_LABELS: Record<string, string> = {
   DATA_ERROR: "数据异常",
   QUALIFIED: "符合计划条件",
   WATCH_ONLY: "继续观察",
+  WATCH: "技术待观察",
   DATA_GAP: "数据不足",
   REJECTED: "不符合",
   TREND: "趋势票",
@@ -91,7 +94,7 @@ const CODE_LABELS: Record<string, string> = {
   DAILY_NOT_BEARISH: "个股日线未转空",
   QUALIFIED_STANDARD: "常规计划条件合格",
   QUALIFIED_PROBE: "试探计划条件合格",
-  HIGHER_TIMEFRAME_CONDITIONAL_PROBE: "大周期仍需盘中确认",
+  HIGHER_TIMEFRAME_CONDITIONAL_PROBE: "月／周线背景偏弱（非淘汰条件）",
   A3_WATCH_ONLY_TECHNICALLY_QUALIFIED_PROBE: "观察池中技术条件合格，可小仓试探",
   A3_STAGE_LINEAGE_MISSING: "上游阶段追溯信息不完整",
   A1_ACTIVE_REUSED: "沿用本月有效研究池",
@@ -291,6 +294,8 @@ export function marketDate(value?: string | null): string | null {
   const date = new Date(value);
   return Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).format(date) : null;
 }
+
+Object.assign(CODE_LABELS, A3_REASON_LABELS);
 
 export function codeLabel(value?: string | null): string {
   if (!value) return "—";

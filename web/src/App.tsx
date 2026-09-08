@@ -1,3 +1,4 @@
+import { A3_GROUP_LABELS } from "../../shared/a3-display";
 import {
   Activity,
   CalendarClock,
@@ -1098,9 +1099,9 @@ function fallbackPools(stage: string): StageDetailPool[] {
   return (["approved", "watch", "rejected"] as StagePoolId[]).map((id, index) => ({ id, label: stageLabels[index], count: 0 }));
 }
 
-function stageDetailPath(target: StageDetailTarget, pool: StagePoolId, page: number, query: string, reason: string): string {
+function stageDetailPath(target: StageDetailTarget, pool: StagePoolId, page: number, query: string, reason: string, disposition = ""): string {
   const base = `/api/research/runs/${encodeURIComponent(target.runId)}/lanes/${encodeURIComponent(target.laneId)}/stages/${encodeURIComponent(target.stage.stage.toUpperCase())}`;
-  return withQuery(base, { pool, page, pageSize: 50, q: query, reason });
+  return withQuery(base, { pool, page, pageSize: 50, q: query, reason, disposition });
 }
 
 function outcomeAxisLabel(outcome: OutcomeStatus): string {
@@ -1136,9 +1137,10 @@ function OutcomeNotice({ outcome }: { outcome: OutcomeStatus | null | undefined 
   return <div className={`stage-detail-outcome outcome-${tone}`} role="status"><StatusIcon tone={tone} size={15} /><strong>{outcomeAxisLabel(outcome)}</strong><span>{`运行阶段：${statusLabel(outcome.lifecycle_state)}${reasons}`}</span></div>;
 }
 
-function StageDetailDialog({ target, onDismiss }: { target: StageDetailTarget | null; onDismiss: () => void }) {
+export function StageDetailDialog({ target, onDismiss }: { target: StageDetailTarget | null; onDismiss: () => void }) {
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const [pool, setPool] = useState<StagePoolId>("approved");
+  const [disposition, setDisposition] = useState("");
   const [page, setPage] = useState(1);
   const [queryInput, setQueryInput] = useState("");
   const [query, setQuery] = useState("");
@@ -1166,6 +1168,7 @@ function StageDetailDialog({ target, onDismiss }: { target: StageDetailTarget | 
 
   useEffect(() => {
     setPool("approved");
+    setDisposition("");
     setPage(1);
     setQueryInput("");
     setQuery("");
@@ -1189,7 +1192,7 @@ function StageDetailDialog({ target, onDismiss }: { target: StageDetailTarget | 
     const controller = new AbortController();
     setLoading(true);
     setError(null);
-    void apiFetch<StageDetailResponse>(stageDetailPath(target, pool, page, query, reason), controller.signal)
+    void apiFetch<StageDetailResponse>(stageDetailPath(target, pool, page, query, reason, disposition), controller.signal)
       .then((response) => {
         const normalized = { ...response, outcome: readStageOutcome(response.outcome ?? response) };
         setData(normalized);
@@ -1204,9 +1207,10 @@ function StageDetailDialog({ target, onDismiss }: { target: StageDetailTarget | 
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [target, pool, page, query, reason]);
+  }, [target, pool, page, query, reason, disposition]);
 
-  const pools = data?.pools ?? fallbackPools(target?.stage.stage ?? "A1");
+  const pools = (data?.pools ?? fallbackPools(target?.stage.stage ?? "A1")).map(entry =>
+    target?.stage.stage.toUpperCase() === "A3" && entry.id === "rejected" ? { ...entry, label: "未晋级（含观察／缺口）" } : entry);
   const selected = data?.items.find((item) => item.symbol === selectedSymbol) ?? data?.items[0] ?? null;
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
   const isA3 = target?.stage.stage.toUpperCase() === "A3";
@@ -1217,6 +1221,7 @@ function StageDetailDialog({ target, onDismiss }: { target: StageDetailTarget | 
 
   function selectPool(nextPool: StagePoolId): void {
     setPool(nextPool);
+    setDisposition("");
     setPage(1);
     setReason("");
     setSelectedSymbol(null);
@@ -1257,6 +1262,7 @@ function StageDetailDialog({ target, onDismiss }: { target: StageDetailTarget | 
           </div>
 
           <div className="stage-detail-toolbar">
+            {isA3 && pool === "rejected" ? <label className="stage-detail-filter"><span>技术分流</span><select aria-label="技术分流" value={disposition} onChange={event => { setDisposition(event.target.value); setPage(1); }}><option value="">全部未晋级</option>{Object.entries(data?.dispositionCounts ?? {}).map(([key, count]) => <option key={key} value={key}>{A3_GROUP_LABELS[key] ?? "分类待核"} {count} 只</option>)}</select></label> : null}
             <label className="stage-detail-search"><Search size={16} aria-hidden="true" /><span className="sr-only">搜索股票代码或名称</span><input value={queryInput} onChange={(event) => setQueryInput(event.target.value)} placeholder="搜索股票代码或名称" /></label>
             <label className="stage-detail-filter"><Filter size={16} aria-hidden="true" /><span className="sr-only">按原因筛选</span><select value={reason} onChange={(event) => { setReason(event.target.value); setPage(1); }}><option value="">全部原因</option>{(data?.reasonOptions ?? []).map((option) => <option key={option} value={option}>{codeLabel(option)}</option>)}</select></label>
             <span>{loading ? "读取中…" : `共 ${data?.total ?? 0} 只`}</span>
@@ -1271,8 +1277,8 @@ function StageDetailDialog({ target, onDismiss }: { target: StageDetailTarget | 
                     <span className="stage-stock-identity"><strong>{item.name || "名称未提供"}</strong><small>{item.symbol}</small></span>
                     <span>{codeLabel(item.theme || item.industry)}</span>
                      <strong className="stage-stock-score">{isA3 ? <>{strategyProfileLabel(item.plan?.strategyProfile)}<small>{eligibilityLabel(item.plan?.eligibility)}</small></> : item.score === null || item.score === undefined ? "—" : item.score}</strong>
-                    <span className="stage-stock-reasons">{humanizeText(item.selectionReasons[0] ?? item.reasonCodes[0] ?? item.evidence[0] ?? "未提供原因")}</span>
-                    <span className="stage-stock-result-status"><StatusBadge status={item.status} label={pools.find((entry) => entry.id === item.pool)?.label} />{item.detailState ? <small className={item.detailState === "COMPLETE" ? "detail-completeness detail-complete" : "detail-completeness detail-partial"}>{item.detailState === "COMPLETE" ? "明细完整" : `缺 ${item.missingFields?.length ?? 0} 项`}</small> : null}</span>
+                    <span className="stage-stock-reasons">{item.a3Display?.primaryReason ?? humanizeText(item.selectionReasons[0] ?? item.reasonCodes[0] ?? item.evidence[0] ?? "未提供原因")}</span>
+                    <span className="stage-stock-result-status"><StatusBadge status={item.a3Display?.disposition ?? item.status} label={item.a3Display?.label ?? pools.find((entry) => entry.id === item.pool)?.label} />{item.detailState ? <small className={item.detailState === "COMPLETE" ? "detail-completeness detail-complete" : "detail-completeness detail-partial"}>{item.detailState === "COMPLETE" ? item.a3Display && item.pool === "rejected" ? "分流说明齐全" : "明细完整" : `缺 ${item.missingFields?.length ?? 0} 项`}</small> : null}</span>
                   </button>
                 )) : <div className="stage-detail-state"><Database size={20} /><strong>当前筛选条件没有股票</strong><span>可切换分类或清空搜索与原因筛选。</span></div>}
               </div>
@@ -1358,11 +1364,12 @@ function StageStockDetail({ item, stage, onBack }: { item: StageDetailItem | nul
     <aside className="stage-stock-detail" aria-label={`${item.symbol} 详情`}>
       <button className="stage-detail-back text-button" type="button" onClick={onBack}><ChevronLeft size={17} />返回股票列表</button>
       <header className="stage-stock-detail-heading"><div><h3>{item.name || "名称未提供"}</h3><span>{stockSymbolLabel(item.symbol)} · {codeLabel(item.theme || item.industry || "行业主题未提供")}</span></div>{!isA3 && item.score !== null && item.score !== undefined ? <strong>{item.score}<small>分</small></strong> : null}</header>
-      {item.detailState === "PARTIAL" ? <div className="stage-detail-notice"><CircleAlert size={16} /><div><strong>明细字段不完整</strong><span>未提供：{(item.missingFields ?? []).map((field) => MISSING_FIELD_LABELS[field] ?? fieldLabel(field)).join("、") || "未标明字段"}。页面不会推测填充。</span></div></div> : item.detailState === "COMPLETE" ? <div className="stage-detail-complete-note"><CheckCircle2 size={16} />本阶段要求的股票明细字段完整。</div> : null}
+      {item.detailState === "PARTIAL" ? <div className="stage-detail-notice"><CircleAlert size={16} /><div><strong>明细字段不完整</strong><span>未提供：{(item.missingFields ?? []).map((field) => MISSING_FIELD_LABELS[field] ?? fieldLabel(field)).join("、") || "未标明字段"}。页面不会推测填充。</span></div></div> : item.detailState === "COMPLETE" ? <div className="stage-detail-complete-note"><CheckCircle2 size={16} />{item.a3Display && item.pool === "rejected" ? "分流说明齐全，不代表研究数据已齐全或可以发布计划。" : "本阶段要求的股票明细字段完整。"}</div> : null}
       {item.nameSource === "unavailable" ? <div className="stage-detail-notice"><CircleAlert size={16} />冻结快照和模型结果均未提供名称，页面没有推测填充。</div> : null}
       {item.route || item.bottleneckStatus || item.factorCoverage ? <section className="stage-detail-section"><header><h3>A2 入池通道</h3><span>确定性门禁</span></header><dl className="stage-definition-grid"><div><dt>路线</dt><dd>{detailValue(item.route)}</dd></div><div><dt>瓶颈状态</dt><dd>{detailValue(item.bottleneckStatus)}</dd></div><div><dt>事实覆盖</dt><dd>{detailValue(item.factorCoverage)}</dd></div></dl></section> : null}
-      <DetailStringList title="入选逻辑" badge="模型判断" values={item.selectionReasons} />
-      <DetailStringList title="淘汰 / 校验原因" badge="系统原因码" values={item.reasonCodes} />
+      {item.a3Display ? <section className="stage-detail-section" aria-label="A3量化分流依据"><header><h3>{item.a3Display.label}</h3><span>{item.a3Display.localDecision ? "量化判断，未送模型" : "研究记录"}</span></header><p>{item.a3Display.primaryReason}</p><DetailStringList title="未通过条件" badge="不含背景提示" values={item.a3Display.blockers} /><DetailStringList title="大周期与市场背景" badge="非淘汰条件" values={item.a3Display.background} /><DetailStringList title="A4盘中待确认" badge="不作为A3淘汰依据" values={item.a3Display.deferred} />{item.a3Display.untranslatedCodes.length ? <p role="status">存在未翻译的技术条件，属于展示缺陷，不能据此判定股票不合格。</p> : null}<details><summary>原始分流与诊断标识</summary><p>原始状态：{item.status ?? "未记录"}；量化资格：{item.a3Display.eligibility ?? "未记录"}</p><p>{item.a3Display.diagnosticCodes.join("、")}</p></details></section> : null}
+      <DetailStringList title="入选逻辑" badge={item.a3Display?.localDecision ? "量化记录" : "模型判断"} values={item.selectionReasons} />
+      {item.a3Display ? <DetailStringList title="研究校验提示" badge="不等于淘汰结论" values={item.a3Display.researchNotes ?? []} /> : <DetailStringList title="淘汰 / 校验原因" badge="系统原因码" values={item.reasonCodes} />}
       {decisionFactEntries.length ? <section className="stage-detail-section"><header><h3>关键决策事实</h3><span>持久化事实</span></header><dl className="stage-definition-grid stage-decision-grid">{decisionFactEntries.map(([key, value]) => <div key={key}><dt>{DECISION_FACT_LABELS[key] ?? key}</dt><dd>{detailValue(value)}</dd></div>)}</dl></section> : null}
       {scoreEntries.length ? <section className="stage-detail-section"><header><h3>评分拆解</h3><span>模型字段</span></header><dl className="stage-score-grid">{scoreEntries.map(([key, value]) => <div key={key}><dt>{fieldLabel(key)}</dt><dd>{detailValue(value)}</dd></div>)}</dl></section> : null}
       <DetailStringList title="证据与依据" badge="模型证据" values={item.evidence} />

@@ -39,6 +39,19 @@ def _outputs() -> tuple[dict, dict, dict]:
     return a1, a2, a3
 
 
+def test_nonqualified_supplement_does_not_change_executable_subset():
+    a1, a2, a3 = _outputs()
+    a3["rejected_candidates"] = [{"symbol": "600004.SH", "company_name": "观察丁",
+        "deterministic_eligibility": "WATCH", "deterministic_strategy_profile": "TREND_MA5",
+        "reason_codes": ["HIGHER_TIMEFRAME_CONDITIONAL_PROBE", "TREND_DAILY_PATH_MISSING"]}]
+    result = build_chinese_export_rows(a1, a2, a3)
+    assert result["自查"]["通过"] is True
+    assert result["自查"]["A3数量"] == 3
+    assert len(result["A3未晋级核对"]) == 1
+    assert result["A3未晋级核对"][0]["状态"] == "技术待观察"
+    assert "盘中确认" not in result["A3未晋级核对"][0]["主要原因"]
+
+
 def test_export_projection_is_chinese_and_preserves_three_a3_routes() -> None:
     result = build_chinese_export_rows(*_outputs())
 

@@ -662,7 +662,7 @@ test("projects paginated research stage pools with names, reasons, and allow-lis
   expect(a3?.pools).toEqual([
     { id: "approved", label: "核心计划", count: 1 },
     { id: "watch", label: "次级观察", count: 0 },
-    { id: "rejected", label: "淘汰", count: 1 },
+    { id: "rejected", label: "未晋级（含观察／缺口）", count: 1 },
   ]);
   expect(a3?.items[0]).toMatchObject({
     symbol: "600001.SH",

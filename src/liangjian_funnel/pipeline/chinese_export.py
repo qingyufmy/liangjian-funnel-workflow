@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 import re
 from typing import Any
+from .a3_display import a3_nonqualified_explanation
 
 
 _INTERNAL_TOKEN = re.compile(r"(?:^|\s)[A-Z][A-Z0-9_]{2,}(?:$|\s)")
@@ -125,6 +126,14 @@ def build_chinese_export_rows(
                 }
             )
     result = {"自查": checks, "A1": a1_rows, "A2": a2_rows, "A3": a3_rows}
+    # Audit supplement, not members of the executable A3 export set.
+    if a3_output.get("rejected_candidates"):
+        result["A3未晋级核对"] = [
+            {"代码": _display_code(row), "名称": _name(row), "板块": _sector(row),
+             "策略": _STRATEGY_CN.get(_upper(row.get("deterministic_strategy_profile") or row.get("strategy_profile")), "策略未记录"),
+             **a3_nonqualified_explanation(row)}
+            for row in _pool_rows(a3_output, ("rejected_candidates",))
+        ]
     _assert_no_internal_labels(result)
     return result
 

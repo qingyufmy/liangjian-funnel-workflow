@@ -112,6 +112,11 @@ export function createApp(deps: ApiDependencies): Express {
     const laneId = typeof request.params.laneId === "string" ? request.params.laneId : "";
     const stage = typeof request.params.stage === "string" ? request.params.stage : "";
     const pool = queryString(request, "pool") ?? "approved";
+    const disposition = queryString(request, "disposition") ?? "";
+    if (disposition && (stage !== "A3" || !["QUALIFIED", "WATCH", "REJECTED", "DATA_GAP", "UNKNOWN"].includes(disposition))) {
+      response.status(400).json({ error: "INVALID_STAGE_DISPOSITION" });
+      return;
+    }
     const page = queryPositiveInteger(request, "page", 1, Number.MAX_SAFE_INTEGER);
     const pageSize = queryPositiveInteger(request, "pageSize", 50, 100);
     if (!SAFE_RESEARCH_RUN_ID.test(runId) || !isResearchLaneId(laneId) || !isResearchStage(stage) || !isResearchPool(pool) || page === null || pageSize === null) {
@@ -127,6 +132,7 @@ export function createApp(deps: ApiDependencies): Express {
       pageSize,
       queryString(request, "q") ?? "",
       queryString(request, "reason") ?? "",
+      disposition,
     );
     if (!detail) {
       response.status(404).json({ error: "RESEARCH_STAGE_NOT_FOUND" });

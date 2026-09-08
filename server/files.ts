@@ -2,6 +2,7 @@ import { createReadStream } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, resolve, sep, win32 } from "node:path";
 import { createInterface } from "node:readline";
+import { a3Display } from "../shared/a3-display.js";
 
 import type { AppConfig } from "./config.js";
 import { asArray, asJsonRecord, asString, redactText, sanitizeJson } from "./redaction.js";
@@ -88,7 +89,7 @@ const RESEARCH_POOLS = new Set<ResearchPool>(["approved", "watch", "rejected"]);
 const RESEARCH_POOL_LABELS: Record<ResearchStage, Record<ResearchPool, string>> = {
   A1: { approved: "晋级研究", watch: "持续观察", rejected: "淘汰" },
   A2: { approved: "聚焦候选", watch: "仅观察", rejected: "淘汰" },
-  A3: { approved: "核心计划", watch: "次级观察", rejected: "淘汰" },
+  A3: { approved: "核心计划", watch: "次级观察", rejected: "未晋级（含观察／缺口）" },
 };
 const RESEARCH_POOL_KEYS: Record<ResearchStage, Record<ResearchPool, string>> = {
   A1: { approved: "active_research_pool", watch: "monitor_pool", rejected: "rejected_candidates" },
@@ -937,7 +938,10 @@ function timeframeStates(value: JsonRecord): JsonValue | null {
 }
 
 function planValue(value: JsonRecord): ResearchStageDetailPlan | null {
-  const source = optionalRecord(value.plan) ?? value;
+  const source: JsonRecord = { ...value, ...optionalRecord(value.plan) };
+  for (const field of ["strategy_profile", "eligibility", "required_conditions", "met_conditions", "unmet_conditions", "veto_conditions"]) {
+    if (value[`deterministic_${field}`] !== undefined && value[`deterministic_${field}`] !== null) source[field] = value[`deterministic_${field}`];
+  }
   const trigger = optionalRecord(source.trigger_zone ?? source.triggerZone);
   const triggerZone = trigger
     ? sanitizeJson({ low: numberValue(trigger.low), high: numberValue(trigger.high) })
@@ -1197,6 +1201,12 @@ function detailMissingFields(
   };
   if (pool === "rejected") {
     mark("name", Boolean(item.name));
+    if (stage === "A3") {
+      const display = a3Display(value, pool);
+      mark("plan.strategyProfile", Boolean(display.strategy));
+      mark("plan.eligibility", Boolean(display.eligibility));
+      mark("readableBlockingReason", display.blockers.length > 0 && display.untranslatedCodes.length === 0);
+    }
     mark("reasonCodes", item.reasonCodes.length > 0 || hasAnyKey(value, [
       "reason_codes", "reasonCodes", "reason_code", "reasonCode", "system_reason_codes", "systemReasonCodes",
       "veto_triggered", "vetoTriggered",
@@ -1894,6 +1904,7 @@ function normalizeResearchItem(
   const lineage = lineageValue(value);
   const plan = planValue(value);
   const item: ResearchStageDetailItem = {
+    ...(stage === "A3" ? { a3Display: a3Display(value, pool) } : {}),
     symbol,
     name,
     nameSource,
@@ -2147,9 +2158,10 @@ export class ProjectFiles {
     pageSize = 50,
     query = "",
     reason = "",
+    disposition = "",
   ): Promise<ResearchStageDetail | null> {
     if (!SAFE_ID.test(runId) || !isResearchLaneId(laneId) || !isResearchStage(stage) || !isResearchPool(pool)) return null;
-    const indexed = await this.indexedResearchStageDetail(runId, laneId, stage, pool, page, pageSize, query, reason);
+    const indexed = await this.indexedResearchStageDetail(runId, laneId, stage, pool, page, pageSize, query, reason, disposition);
     if (indexed) return indexed;
     const lane = await this.researchLane(runId, laneId);
     if (!lane) return null;
@@ -2175,6 +2187,8 @@ export class ProjectFiles {
       count: normalizedPools.get(candidatePool)?.length ?? 0,
     }));
     const selectedItems = normalizedPools.get(poolKey) ?? [];
+    const dispositionCounts: Record<string, number> = {};
+    for (const item of selectedItems) if (item.a3Display) dispositionCounts[item.a3Display.disposition] = (dispositionCounts[item.a3Display.disposition] ?? 0) + 1;
     const reasonOptions: string[] = [];
     const reasonSet = new Set<string>();
     for (const item of selectedItems) {
@@ -2189,7 +2203,7 @@ export class ProjectFiles {
     const filtered = selectedItems.filter((item) => {
       const queryMatch = !search || item.symbol.toLocaleLowerCase().includes(search) || (item.name?.toLocaleLowerCase().includes(search) ?? false);
       const reasonMatch = !reasonFilter || item.reasonCodes.includes(reasonFilter);
-      return queryMatch && reasonMatch;
+      return queryMatch && reasonMatch && (!disposition || item.a3Display?.disposition === disposition);
     });
     const safePage = Number.isSafeInteger(page) && page > 0 ? page : 1;
     const safePageSize = Number.isSafeInteger(pageSize) && pageSize > 0 ? Math.min(pageSize, DETAIL_PAGE_SIZE_MAX) : 50;
@@ -2207,6 +2221,7 @@ export class ProjectFiles {
       inputCount,
       outputCount,
       pools: allPools,
+      dispositionCounts,
       pool: poolKey,
       page: safePage,
       pageSize: safePageSize,
@@ -2226,6 +2241,7 @@ export class ProjectFiles {
     pageSize: number,
     query: string,
     reason: string,
+    disposition: string,
   ): Promise<ResearchStageDetail | null> {
     const stem = `research_${runId}_${laneId}`;
     const manifestPath = resolveWithinRoot(this.config.rootDir, join("outputs/research", `${stem}.decisions.json`));
@@ -2269,6 +2285,7 @@ export class ProjectFiles {
     const lane = await this.researchLane(runId, laneId);
     const names = lane ? await this.researchNameCatalog(runId, lane) : new Map<string, NameCatalogEntry>();
     const items: ResearchStageDetailItem[] = [];
+    const dispositionCounts: Record<string, number> = {};
     let total = 0;
     const input = createReadStream(dataPath, { encoding: "utf8" });
     const lines = createInterface({ input, crlfDelay: Infinity });
@@ -2284,6 +2301,8 @@ export class ProjectFiles {
         if (!isRecord(parsed) || parsed.stage !== stageKey || parsed.pool !== poolKey || !isRecord(parsed.item)) continue;
         const normalized = normalizeResearchItem(parsed.item, poolKey, stageKey, names);
         if (!normalized) continue;
+        if (normalized.a3Display) dispositionCounts[normalized.a3Display.disposition] = (dispositionCounts[normalized.a3Display.disposition] ?? 0) + 1;
+        if (disposition && normalized.a3Display?.disposition !== disposition) continue;
         const queryMatch = !search
           || normalized.symbol.toLocaleLowerCase().includes(search)
           || (normalized.name?.toLocaleLowerCase().includes(search) ?? false);
@@ -2312,6 +2331,7 @@ export class ProjectFiles {
       inputCount: authoritativeInput ?? numberValue(stageMeta?.input_count),
       outputCount: numberValue(stageMeta?.output_count),
       pools: allPools,
+      dispositionCounts,
       pool: poolKey,
       page: safePage,
       pageSize: safePageSize,

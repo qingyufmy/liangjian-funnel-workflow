@@ -11,6 +11,7 @@ from typing import Any, Mapping, Sequence
 
 from .lark import LarkConfigurationError, LarkNotifier
 from .state import RuntimeStore
+from ..pipeline.a3_display import A3_REASON_LABELS
 
 
 _ACTION_LABELS = {
@@ -117,7 +118,7 @@ _DISPLAY_LABELS = {
     "WATCH_ONLY": "继续观察",
     "QUALIFIED_STANDARD": "常规计划条件合格",
     "QUALIFIED_PROBE": "试探计划条件合格",
-    "HIGHER_TIMEFRAME_CONDITIONAL_PROBE": "大周期仍需盘中确认",
+    "HIGHER_TIMEFRAME_CONDITIONAL_PROBE": "月／周线背景偏弱（非淘汰条件）",
     "A3_WATCH_ONLY_TECHNICALLY_QUALIFIED_PROBE": "观察池中技术条件合格，可小仓试探",
     "A3_STAGE_LINEAGE_MISSING": "上游阶段追溯信息不完整",
     "A1_ACTIVE_REUSED": "沿用本月有效研究池",
@@ -283,7 +284,7 @@ def _display_text(value: Any, *, limit: int = 300, fallback: str = "—") -> str
     raw = _text(value, limit=max(limit * 2, 320), fallback=fallback)
     if raw == fallback:
         return raw
-    direct = _DISPLAY_LABELS.get(raw.strip().upper()) or _THEME_LABELS.get(raw.strip().upper())
+    direct = A3_REASON_LABELS.get(raw.strip().upper()) or _DISPLAY_LABELS.get(raw.strip().upper()) or _THEME_LABELS.get(raw.strip().upper())
     if direct:
         return direct[:limit]
     rendered = raw
@@ -294,7 +295,8 @@ def _display_text(value: Any, *, limit: int = 300, fallback: str = "—") -> str
     rendered = re.sub(
         r"\b[A-Z][A-Z0-9_:-]{2,}(?:\.[A-Z]{2})?\b",
         lambda match: (
-            _DISPLAY_LABELS.get(match.group(0).replace("-", "_"))
+            A3_REASON_LABELS.get(match.group(0).replace("-", "_"))
+            or _DISPLAY_LABELS.get(match.group(0).replace("-", "_"))
             or _THEME_LABELS.get(match.group(0).replace("-", "_"))
             or _TEXT_REPLACEMENTS.get(match.group(0).replace("-", "_"))
             or "系统内部状态"

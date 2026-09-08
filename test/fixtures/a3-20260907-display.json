@@ -1,0 +1,1336 @@
+{
+  "run_id": "2026-09-07-close-34ab6b52c8d2",
+  "source_commit_at_audit": "7c3aa62",
+  "purpose": "Read-only presentation fixture, not full strategy replay input",
+  "rows": [
+    {
+      "pool": "approved",
+      "item": {
+        "symbol": "000998.SZ",
+        "company_name": "隆平高科",
+        "name": "隆平高科",
+        "eligibility": "QUALIFIED",
+        "strategy_profile": "TREND_MA5",
+        "deterministic_eligibility": "QUALIFIED",
+        "deterministic_strategy_profile": "TREND_MA5",
+        "deterministic_unmet_conditions": [],
+        "deterministic_veto_conditions": [],
+        "reason_codes": [
+          "A3_STOP_DISTANCE_OUTSIDE_LIMIT",
+          "A3_REWARD_RISK_BELOW_MINIMUM"
+        ],
+        "deterministic_reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "A3_REWARD_RISK_BELOW_MINIMUM",
+          "A3_STOP_DISTANCE_OUTSIDE_LIMIT"
+        ],
+        "decision_id": "8ea9832a273cd06489ec9df5",
+        "reference_price": 9.68,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "approved",
+      "item": {
+        "symbol": "001283.SZ",
+        "company_name": "豪鹏科技",
+        "name": "豪鹏科技",
+        "eligibility": "QUALIFIED",
+        "strategy_profile": "TREND_MA5",
+        "deterministic_eligibility": "QUALIFIED",
+        "deterministic_strategy_profile": "TREND_MA5",
+        "deterministic_unmet_conditions": [],
+        "deterministic_veto_conditions": [],
+        "reason_codes": [
+          "A3_WATCH_ONLY_TECHNICALLY_QUALIFIED_PROBE",
+          "A3_REWARD_RISK_BELOW_MINIMUM"
+        ],
+        "deterministic_reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "A3_REWARD_RISK_BELOW_MINIMUM"
+        ],
+        "decision_id": "3a37ed4d50c85564002bb581",
+        "reference_price": 50.02,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "approved",
+      "item": {
+        "symbol": "002041.SZ",
+        "company_name": "登海种业",
+        "name": "登海种业",
+        "eligibility": "QUALIFIED",
+        "strategy_profile": "TREND_MA5",
+        "deterministic_eligibility": "QUALIFIED",
+        "deterministic_strategy_profile": "TREND_MA5",
+        "deterministic_unmet_conditions": [],
+        "deterministic_veto_conditions": [],
+        "reason_codes": [
+          "A3_STOP_DISTANCE_OUTSIDE_LIMIT",
+          "A3_REWARD_RISK_BELOW_MINIMUM"
+        ],
+        "deterministic_reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "A3_REWARD_RISK_BELOW_MINIMUM",
+          "A3_STOP_DISTANCE_OUTSIDE_LIMIT"
+        ],
+        "decision_id": "de0f49737f2092df51ea6705",
+        "reference_price": 11.58,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "approved",
+      "item": {
+        "symbol": "002299.SZ",
+        "company_name": "圣农发展",
+        "name": "圣农发展",
+        "eligibility": "QUALIFIED",
+        "strategy_profile": "TREND_MA5",
+        "deterministic_eligibility": "QUALIFIED",
+        "deterministic_strategy_profile": "TREND_MA5",
+        "deterministic_unmet_conditions": [],
+        "deterministic_veto_conditions": [],
+        "reason_codes": [
+          "A3_WATCH_ONLY_TECHNICALLY_QUALIFIED_PROBE",
+          "A3_REWARD_RISK_BELOW_MINIMUM"
+        ],
+        "deterministic_reason_codes": [
+          "A3_REWARD_RISK_BELOW_MINIMUM"
+        ],
+        "decision_id": "aa8c13ab5cbac6a28b2cddee",
+        "reference_price": 17.25,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "approved",
+      "item": {
+        "symbol": "002553.SZ",
+        "company_name": "南方精工",
+        "name": "南方精工",
+        "eligibility": "QUALIFIED",
+        "strategy_profile": "TREND_MA5",
+        "deterministic_eligibility": "QUALIFIED",
+        "deterministic_strategy_profile": "TREND_MA5",
+        "deterministic_unmet_conditions": [],
+        "deterministic_veto_conditions": [],
+        "reason_codes": [
+          "A3_WATCH_ONLY_TECHNICALLY_QUALIFIED_PROBE"
+        ],
+        "deterministic_reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE"
+        ],
+        "decision_id": "8a3a0e8805acff160b20e976",
+        "reference_price": 18.27,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "approved",
+      "item": {
+        "symbol": "002556.SZ",
+        "company_name": "辉隆股份",
+        "name": "辉隆股份",
+        "eligibility": "QUALIFIED",
+        "strategy_profile": "TREND_MA5",
+        "deterministic_eligibility": "QUALIFIED",
+        "deterministic_strategy_profile": "TREND_MA5",
+        "deterministic_unmet_conditions": [],
+        "deterministic_veto_conditions": [],
+        "reason_codes": [
+          "A3_WATCH_ONLY_TECHNICALLY_QUALIFIED_PROBE",
+          "A3_REWARD_RISK_BELOW_MINIMUM"
+        ],
+        "deterministic_reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "A3_REWARD_RISK_BELOW_MINIMUM"
+        ],
+        "decision_id": "9e8164bb2bbd1aada6049830",
+        "reference_price": 5.42,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "approved",
+      "item": {
+        "symbol": "002746.SZ",
+        "company_name": "仙坛股份",
+        "name": "仙坛股份",
+        "eligibility": "QUALIFIED",
+        "strategy_profile": "TREND_MA5",
+        "deterministic_eligibility": "QUALIFIED",
+        "deterministic_strategy_profile": "TREND_MA5",
+        "deterministic_unmet_conditions": [],
+        "deterministic_veto_conditions": [],
+        "reason_codes": [
+          "A3_WATCH_ONLY_TECHNICALLY_QUALIFIED_PROBE",
+          "A3_REWARD_RISK_BELOW_MINIMUM"
+        ],
+        "deterministic_reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "A3_REWARD_RISK_BELOW_MINIMUM"
+        ],
+        "decision_id": "cb1daaadaff22ef66c634a8e",
+        "reference_price": 6.83,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "approved",
+      "item": {
+        "symbol": "002772.SZ",
+        "company_name": "众兴菌业",
+        "name": "众兴菌业",
+        "eligibility": "QUALIFIED",
+        "strategy_profile": "TREND_MA5",
+        "deterministic_eligibility": "QUALIFIED",
+        "deterministic_strategy_profile": "TREND_MA5",
+        "deterministic_unmet_conditions": [],
+        "deterministic_veto_conditions": [],
+        "reason_codes": [
+          "A3_REWARD_RISK_BELOW_MINIMUM"
+        ],
+        "deterministic_reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "A3_REWARD_RISK_BELOW_MINIMUM"
+        ],
+        "decision_id": "252b10c7e312bfb454f9f06b",
+        "reference_price": 11.96,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "approved",
+      "item": {
+        "symbol": "002818.SZ",
+        "company_name": "富森美",
+        "name": "富森美",
+        "eligibility": "QUALIFIED",
+        "strategy_profile": "TREND_MA5",
+        "deterministic_eligibility": "QUALIFIED",
+        "deterministic_strategy_profile": "TREND_MA5",
+        "deterministic_unmet_conditions": [],
+        "deterministic_veto_conditions": [],
+        "reason_codes": [
+          "A3_WATCH_ONLY_TECHNICALLY_QUALIFIED_PROBE"
+        ],
+        "deterministic_reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE"
+        ],
+        "decision_id": "a529ff0de6b7988ee2d46029",
+        "reference_price": 11.1,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "approved",
+      "item": {
+        "symbol": "003030.SZ",
+        "company_name": "祖名股份",
+        "name": "祖名股份",
+        "eligibility": "QUALIFIED",
+        "strategy_profile": "TREND_MA5",
+        "deterministic_eligibility": "QUALIFIED",
+        "deterministic_strategy_profile": "TREND_MA5",
+        "deterministic_unmet_conditions": [],
+        "deterministic_veto_conditions": [],
+        "reason_codes": [
+          "A3_REWARD_RISK_BELOW_MINIMUM"
+        ],
+        "deterministic_reason_codes": [
+          "A3_REWARD_RISK_BELOW_MINIMUM"
+        ],
+        "decision_id": "ab9580baec6fc15621b03cf3",
+        "reference_price": 26.41,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "approved",
+      "item": {
+        "symbol": "300400.SZ",
+        "company_name": "劲拓股份",
+        "name": "劲拓股份",
+        "eligibility": "QUALIFIED",
+        "strategy_profile": "TREND_MA5",
+        "deterministic_eligibility": "QUALIFIED",
+        "deterministic_strategy_profile": "TREND_MA5",
+        "deterministic_unmet_conditions": [],
+        "deterministic_veto_conditions": [],
+        "reason_codes": [
+          "A3_WATCH_ONLY_TECHNICALLY_QUALIFIED_PROBE",
+          "A3_STOP_DISTANCE_OUTSIDE_LIMIT"
+        ],
+        "deterministic_reason_codes": [
+          "A3_STOP_DISTANCE_OUTSIDE_LIMIT"
+        ],
+        "decision_id": "15930c93cc96138510d8d4ef",
+        "reference_price": 35.07,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "approved",
+      "item": {
+        "symbol": "300607.SZ",
+        "company_name": "拓斯达",
+        "name": "拓斯达",
+        "eligibility": "QUALIFIED",
+        "strategy_profile": "MA520_SWING",
+        "deterministic_eligibility": "QUALIFIED",
+        "deterministic_strategy_profile": "MA520_SWING",
+        "deterministic_unmet_conditions": [],
+        "deterministic_veto_conditions": [],
+        "reason_codes": [
+          "A3_WATCH_ONLY_TECHNICALLY_QUALIFIED_PROBE",
+          "A3_REWARD_RISK_BELOW_MINIMUM"
+        ],
+        "deterministic_reason_codes": [
+          "A3_REWARD_RISK_BELOW_MINIMUM"
+        ],
+        "decision_id": "1fe6f104060810cac42a9405",
+        "reference_price": 37.55,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "approved",
+      "item": {
+        "symbol": "300976.SZ",
+        "company_name": "达瑞电子",
+        "name": "达瑞电子",
+        "eligibility": "QUALIFIED",
+        "strategy_profile": "TREND_MA5",
+        "deterministic_eligibility": "QUALIFIED",
+        "deterministic_strategy_profile": "TREND_MA5",
+        "deterministic_unmet_conditions": [],
+        "deterministic_veto_conditions": [],
+        "reason_codes": [
+          "A3_WATCH_ONLY_TECHNICALLY_QUALIFIED_PROBE"
+        ],
+        "deterministic_reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE"
+        ],
+        "decision_id": "2eb5229f7afca4f62fb14311",
+        "reference_price": 61.16,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "approved",
+      "item": {
+        "symbol": "300988.SZ",
+        "company_name": "津荣天宇",
+        "name": "津荣天宇",
+        "eligibility": "QUALIFIED",
+        "strategy_profile": "TREND_MA5",
+        "deterministic_eligibility": "QUALIFIED",
+        "deterministic_strategy_profile": "TREND_MA5",
+        "deterministic_unmet_conditions": [],
+        "deterministic_veto_conditions": [],
+        "reason_codes": [
+          "A3_WATCH_ONLY_TECHNICALLY_QUALIFIED_PROBE",
+          "A3_REWARD_RISK_BELOW_MINIMUM"
+        ],
+        "deterministic_reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "A3_REWARD_RISK_BELOW_MINIMUM"
+        ],
+        "decision_id": "0b1e2ee4ed92d7c6e68dc3c2",
+        "reference_price": 16,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "approved",
+      "item": {
+        "symbol": "301041.SZ",
+        "company_name": "金百泽",
+        "name": "金百泽",
+        "eligibility": "QUALIFIED",
+        "strategy_profile": "TREND_MA5",
+        "deterministic_eligibility": "QUALIFIED",
+        "deterministic_strategy_profile": "TREND_MA5",
+        "deterministic_unmet_conditions": [],
+        "deterministic_veto_conditions": [],
+        "reason_codes": [
+          "A3_WATCH_ONLY_TECHNICALLY_QUALIFIED_PROBE"
+        ],
+        "deterministic_reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE"
+        ],
+        "decision_id": "11282901a5b486c1bbb44ed5",
+        "reference_price": 30.6,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "approved",
+      "item": {
+        "symbol": "301058.SZ",
+        "company_name": "中粮科工",
+        "name": "中粮科工",
+        "eligibility": "QUALIFIED",
+        "strategy_profile": "TREND_MA5",
+        "deterministic_eligibility": "QUALIFIED",
+        "deterministic_strategy_profile": "TREND_MA5",
+        "deterministic_unmet_conditions": [],
+        "deterministic_veto_conditions": [],
+        "reason_codes": [
+          "A3_WATCH_ONLY_TECHNICALLY_QUALIFIED_PROBE",
+          "A3_REWARD_RISK_BELOW_MINIMUM"
+        ],
+        "deterministic_reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "A3_REWARD_RISK_BELOW_MINIMUM"
+        ],
+        "decision_id": "78aba2e2be2231635320bea1",
+        "reference_price": 9.19,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "approved",
+      "item": {
+        "symbol": "301116.SZ",
+        "company_name": "益客食品",
+        "name": "益客食品",
+        "eligibility": "QUALIFIED",
+        "strategy_profile": "TREND_MA5",
+        "deterministic_eligibility": "QUALIFIED",
+        "deterministic_strategy_profile": "TREND_MA5",
+        "deterministic_unmet_conditions": [],
+        "deterministic_veto_conditions": [],
+        "reason_codes": [
+          "A3_WATCH_ONLY_TECHNICALLY_QUALIFIED_PROBE",
+          "A3_REWARD_RISK_BELOW_MINIMUM"
+        ],
+        "deterministic_reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "A3_REWARD_RISK_BELOW_MINIMUM"
+        ],
+        "decision_id": "2c4cc5e1e40cd2aae3fc29b3",
+        "reference_price": 10.03,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "approved",
+      "item": {
+        "symbol": "600257.SH",
+        "company_name": "大湖股份",
+        "name": "大湖股份",
+        "eligibility": "QUALIFIED",
+        "strategy_profile": "TREND_MA5",
+        "deterministic_eligibility": "QUALIFIED",
+        "deterministic_strategy_profile": "TREND_MA5",
+        "deterministic_unmet_conditions": [],
+        "deterministic_veto_conditions": [],
+        "reason_codes": [
+          "A3_WATCH_ONLY_TECHNICALLY_QUALIFIED_PROBE"
+        ],
+        "deterministic_reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE"
+        ],
+        "decision_id": "d753d418da900a819eac3e9e",
+        "reference_price": 6.07,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "approved",
+      "item": {
+        "symbol": "600499.SH",
+        "company_name": "科达制造",
+        "name": "科达制造",
+        "eligibility": "QUALIFIED",
+        "strategy_profile": "TREND_MA5",
+        "deterministic_eligibility": "QUALIFIED",
+        "deterministic_strategy_profile": "TREND_MA5",
+        "deterministic_unmet_conditions": [],
+        "deterministic_veto_conditions": [],
+        "reason_codes": [
+          "A3_WATCH_ONLY_TECHNICALLY_QUALIFIED_PROBE",
+          "A3_REWARD_RISK_BELOW_MINIMUM"
+        ],
+        "deterministic_reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "A3_REWARD_RISK_BELOW_MINIMUM"
+        ],
+        "decision_id": "c52f369e7abbb99505dfb4a9",
+        "reference_price": 14.59,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "approved",
+      "item": {
+        "symbol": "600628.SH",
+        "company_name": "新世界",
+        "name": "新世界",
+        "eligibility": "QUALIFIED",
+        "strategy_profile": "TREND_MA5",
+        "deterministic_eligibility": "QUALIFIED",
+        "deterministic_strategy_profile": "TREND_MA5",
+        "deterministic_unmet_conditions": [],
+        "deterministic_veto_conditions": [],
+        "reason_codes": [
+          "A3_WATCH_ONLY_TECHNICALLY_QUALIFIED_PROBE",
+          "A3_REWARD_RISK_BELOW_MINIMUM"
+        ],
+        "deterministic_reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "A3_REWARD_RISK_BELOW_MINIMUM"
+        ],
+        "decision_id": "d58d45cfc4af7f43fd8db1ba",
+        "reference_price": 6.57,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "approved",
+      "item": {
+        "symbol": "600738.SH",
+        "company_name": "丽尚国潮",
+        "name": "丽尚国潮",
+        "eligibility": "QUALIFIED",
+        "strategy_profile": "TREND_MA5",
+        "deterministic_eligibility": "QUALIFIED",
+        "deterministic_strategy_profile": "TREND_MA5",
+        "deterministic_unmet_conditions": [],
+        "deterministic_veto_conditions": [],
+        "reason_codes": [
+          "A3_WATCH_ONLY_TECHNICALLY_QUALIFIED_PROBE"
+        ],
+        "deterministic_reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE"
+        ],
+        "decision_id": "7c54759c036bd64d2c23ab89",
+        "reference_price": 4.48,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "approved",
+      "item": {
+        "symbol": "603101.SH",
+        "company_name": "汇嘉时代",
+        "name": "汇嘉时代",
+        "eligibility": "QUALIFIED",
+        "strategy_profile": "TREND_MA5",
+        "deterministic_eligibility": "QUALIFIED",
+        "deterministic_strategy_profile": "TREND_MA5",
+        "deterministic_unmet_conditions": [],
+        "deterministic_veto_conditions": [],
+        "reason_codes": [
+          "A3_WATCH_ONLY_TECHNICALLY_QUALIFIED_PROBE"
+        ],
+        "deterministic_reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE"
+        ],
+        "decision_id": "1e17eb849cb112c843b8ed67",
+        "reference_price": 7.89,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "approved",
+      "item": {
+        "symbol": "603236.SH",
+        "company_name": "移远通信",
+        "name": "移远通信",
+        "eligibility": "QUALIFIED",
+        "strategy_profile": "TREND_MA5",
+        "deterministic_eligibility": "QUALIFIED",
+        "deterministic_strategy_profile": "TREND_MA5",
+        "deterministic_unmet_conditions": [],
+        "deterministic_veto_conditions": [],
+        "reason_codes": [
+          "A3_WATCH_ONLY_TECHNICALLY_QUALIFIED_PROBE",
+          "A3_REWARD_RISK_BELOW_MINIMUM"
+        ],
+        "deterministic_reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "A3_REWARD_RISK_BELOW_MINIMUM"
+        ],
+        "decision_id": "e2778dc9c4620d3b8865820b",
+        "reference_price": 63.22,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "approved",
+      "item": {
+        "symbol": "603596.SH",
+        "company_name": "伯特利",
+        "name": "伯特利",
+        "eligibility": "QUALIFIED",
+        "strategy_profile": "TREND_MA5",
+        "deterministic_eligibility": "QUALIFIED",
+        "deterministic_strategy_profile": "TREND_MA5",
+        "deterministic_unmet_conditions": [],
+        "deterministic_veto_conditions": [],
+        "reason_codes": [
+          "A3_WATCH_ONLY_TECHNICALLY_QUALIFIED_PROBE"
+        ],
+        "deterministic_reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE"
+        ],
+        "decision_id": "2bced9ef01f350141fbbfb5c",
+        "reference_price": 30.13,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "approved",
+      "item": {
+        "symbol": "688135.SH",
+        "company_name": "利扬芯片",
+        "name": "利扬芯片",
+        "eligibility": "QUALIFIED",
+        "strategy_profile": "TREND_MA5",
+        "deterministic_eligibility": "QUALIFIED",
+        "deterministic_strategy_profile": "TREND_MA5",
+        "deterministic_unmet_conditions": [],
+        "deterministic_veto_conditions": [],
+        "reason_codes": [
+          "A3_WATCH_ONLY_TECHNICALLY_QUALIFIED_PROBE"
+        ],
+        "deterministic_reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE"
+        ],
+        "decision_id": "0d79f536f15ae84882ebfeda",
+        "reference_price": 29.49,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "approved",
+      "item": {
+        "symbol": "688686.SH",
+        "company_name": "奥普特",
+        "name": "奥普特",
+        "eligibility": "QUALIFIED",
+        "strategy_profile": "TREND_MA5",
+        "deterministic_eligibility": "QUALIFIED",
+        "deterministic_strategy_profile": "TREND_MA5",
+        "deterministic_unmet_conditions": [],
+        "deterministic_veto_conditions": [],
+        "reason_codes": [
+          "A3_WATCH_ONLY_TECHNICALLY_QUALIFIED_PROBE",
+          "A3_REWARD_RISK_BELOW_MINIMUM"
+        ],
+        "deterministic_reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "A3_REWARD_RISK_BELOW_MINIMUM"
+        ],
+        "decision_id": "dfdac519b142009bc238a5b4",
+        "reference_price": 152.18,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "rejected",
+      "item": {
+        "symbol": "000829.SZ",
+        "company_name": "天音控股",
+        "name": "天音控股",
+        "status": "REJECTED",
+        "local_partition": "LOCAL_MONITOR",
+        "deterministic_eligibility": "WATCH",
+        "deterministic_strategy_profile": "TREND_MA5",
+        "deterministic_unmet_conditions": [
+          "TREND_DAILY_PATH_CONFIRMED"
+        ],
+        "deterministic_veto_conditions": [],
+        "reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "TREND_DAILY_PATH_MISSING"
+        ],
+        "deterministic_reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "TREND_DAILY_PATH_MISSING"
+        ],
+        "local_decision": true,
+        "sent_to_llm": false,
+        "decision_id": "e2e047bed01fc01638c0b039",
+        "reference_price": 9.05,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "rejected",
+      "item": {
+        "symbol": "001313.SZ",
+        "company_name": "粤海饲料",
+        "name": "粤海饲料",
+        "status": "REJECTED",
+        "local_partition": "HARD_REJECT",
+        "deterministic_eligibility": "REJECTED",
+        "deterministic_strategy_profile": "MA520_SWING",
+        "deterministic_unmet_conditions": [
+          "MA520_RIGHT_SIDE_CONFIRMED"
+        ],
+        "deterministic_veto_conditions": [
+          "MA520_DEAD_CROSS",
+          "TREND_TOP_RISK_CONFIRMED"
+        ],
+        "reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "MA520_DEAD_CROSS",
+          "MA520_RIGHT_SIDE_NOT_CONFIRMED",
+          "TREND_TOP_RISK_CONFIRMED"
+        ],
+        "deterministic_reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "MA520_DEAD_CROSS",
+          "MA520_RIGHT_SIDE_NOT_CONFIRMED",
+          "TREND_TOP_RISK_CONFIRMED"
+        ],
+        "local_decision": true,
+        "sent_to_llm": false,
+        "decision_id": "31ef96f90f1e020f9151e4d4",
+        "reference_price": 8.03,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "rejected",
+      "item": {
+        "symbol": "002177.SZ",
+        "company_name": "御银股份",
+        "name": "御银股份",
+        "status": "REJECTED",
+        "local_partition": "LOCAL_MONITOR",
+        "deterministic_eligibility": "WATCH",
+        "deterministic_strategy_profile": "TREND_MA5",
+        "deterministic_unmet_conditions": [
+          "TREND_DAILY_PATH_CONFIRMED"
+        ],
+        "deterministic_veto_conditions": [],
+        "reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "TREND_DAILY_PATH_MISSING"
+        ],
+        "deterministic_reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "TREND_DAILY_PATH_MISSING"
+        ],
+        "local_decision": true,
+        "sent_to_llm": false,
+        "decision_id": "22b454f56301c9df015e7d3e",
+        "reference_price": 6,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "rejected",
+      "item": {
+        "symbol": "002281.SZ",
+        "company_name": "光迅科技",
+        "name": "光迅科技",
+        "status": "REJECTED",
+        "local_partition": "DATA_GAP",
+        "deterministic_eligibility": "DATA_GAP",
+        "deterministic_strategy_profile": "LEADER_INTRADAY",
+        "deterministic_unmet_conditions": [
+          "THEME_IN_EARLY_CYCLE",
+          "BOARD_NOT_FIRST_OBSERVATION_ONLY"
+        ],
+        "deterministic_veto_conditions": [],
+        "reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "THEME_STAGE_NOT_EARLY",
+          "FIRST_BOARD_OBSERVE_ONLY"
+        ],
+        "deterministic_reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "THEME_STAGE_NOT_EARLY",
+          "FIRST_BOARD_OBSERVE_ONLY"
+        ],
+        "local_decision": true,
+        "sent_to_llm": false,
+        "decision_id": "26cc5bc0ad1cd0453c3aea6e",
+        "reference_price": 184.47,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "rejected",
+      "item": {
+        "symbol": "002286.SZ",
+        "company_name": "保龄宝",
+        "name": "保龄宝",
+        "status": "REJECTED",
+        "local_partition": "LOCAL_MONITOR",
+        "deterministic_eligibility": "WATCH",
+        "deterministic_strategy_profile": "MA520_SWING",
+        "deterministic_unmet_conditions": [
+          "MA520_RIGHT_SIDE_CONFIRMED"
+        ],
+        "deterministic_veto_conditions": [],
+        "reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "MA520_RIGHT_SIDE_NOT_CONFIRMED"
+        ],
+        "deterministic_reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "MA520_RIGHT_SIDE_NOT_CONFIRMED"
+        ],
+        "local_decision": true,
+        "sent_to_llm": false,
+        "decision_id": "006246fba8465d99ae2f240f",
+        "reference_price": 8.41,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "rejected",
+      "item": {
+        "symbol": "002997.SZ",
+        "company_name": "瑞鹄模具",
+        "name": "瑞鹄模具",
+        "status": "REJECTED",
+        "local_partition": "LOCAL_MONITOR",
+        "deterministic_eligibility": "WATCH",
+        "deterministic_strategy_profile": "TREND_MA5",
+        "deterministic_unmet_conditions": [
+          "TREND_DAILY_PATH_CONFIRMED"
+        ],
+        "deterministic_veto_conditions": [],
+        "reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "TREND_DAILY_PATH_MISSING"
+        ],
+        "deterministic_reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "TREND_DAILY_PATH_MISSING"
+        ],
+        "local_decision": true,
+        "sent_to_llm": false,
+        "decision_id": "8945858e97ecba4c0721550d",
+        "reference_price": 28.4,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "rejected",
+      "item": {
+        "symbol": "003010.SZ",
+        "company_name": "若羽臣",
+        "name": "若羽臣",
+        "status": "REJECTED",
+        "local_partition": "LOCAL_MONITOR",
+        "deterministic_eligibility": "WATCH",
+        "deterministic_strategy_profile": "TREND_MA5",
+        "deterministic_unmet_conditions": [
+          "TREND_DAILY_PATH_CONFIRMED"
+        ],
+        "deterministic_veto_conditions": [],
+        "reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "TREND_DAILY_PATH_MISSING"
+        ],
+        "deterministic_reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "TREND_DAILY_PATH_MISSING"
+        ],
+        "local_decision": true,
+        "sent_to_llm": false,
+        "decision_id": "7460d28a7889b2f28f05959e",
+        "reference_price": 30.73,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "rejected",
+      "item": {
+        "symbol": "300022.SZ",
+        "company_name": "吉峰科技",
+        "name": "吉峰科技",
+        "status": "REJECTED",
+        "local_partition": "LOCAL_MONITOR",
+        "deterministic_eligibility": "WATCH",
+        "deterministic_strategy_profile": "MA520_SWING",
+        "deterministic_unmet_conditions": [
+          "MA520_RIGHT_SIDE_CONFIRMED"
+        ],
+        "deterministic_veto_conditions": [],
+        "reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "MA520_RIGHT_SIDE_NOT_CONFIRMED"
+        ],
+        "deterministic_reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "MA520_RIGHT_SIDE_NOT_CONFIRMED"
+        ],
+        "local_decision": true,
+        "sent_to_llm": false,
+        "decision_id": "9c5bba3d26522f72db97cacb",
+        "reference_price": 8.18,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "rejected",
+      "item": {
+        "symbol": "300602.SZ",
+        "company_name": "飞荣达",
+        "name": "飞荣达",
+        "status": "REJECTED",
+        "local_partition": "LOCAL_MONITOR",
+        "deterministic_eligibility": "WATCH",
+        "deterministic_strategy_profile": "TREND_MA5",
+        "deterministic_unmet_conditions": [
+          "TREND_DAILY_PATH_CONFIRMED"
+        ],
+        "deterministic_veto_conditions": [],
+        "reason_codes": [
+          "TREND_DAILY_PATH_MISSING"
+        ],
+        "deterministic_reason_codes": [
+          "TREND_DAILY_PATH_MISSING"
+        ],
+        "local_decision": true,
+        "sent_to_llm": false,
+        "decision_id": "8543891a23c9a5e31cbb610d",
+        "reference_price": 42.22,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "rejected",
+      "item": {
+        "symbol": "300647.SZ",
+        "company_name": "超频三",
+        "name": "超频三",
+        "status": "REJECTED",
+        "local_partition": "LOCAL_MONITOR",
+        "deterministic_eligibility": "WATCH",
+        "deterministic_strategy_profile": "TREND_MA5",
+        "deterministic_unmet_conditions": [
+          "TREND_DAILY_PATH_CONFIRMED"
+        ],
+        "deterministic_veto_conditions": [],
+        "reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "TREND_DAILY_PATH_MISSING"
+        ],
+        "deterministic_reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "TREND_DAILY_PATH_MISSING"
+        ],
+        "local_decision": true,
+        "sent_to_llm": false,
+        "decision_id": "9512e437873b66400cc820e4",
+        "reference_price": 7.69,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "rejected",
+      "item": {
+        "symbol": "300687.SZ",
+        "company_name": "赛意信息",
+        "name": "赛意信息",
+        "status": "REJECTED",
+        "local_partition": "LOCAL_MONITOR",
+        "deterministic_eligibility": "WATCH",
+        "deterministic_strategy_profile": "TREND_MA5",
+        "deterministic_unmet_conditions": [
+          "TREND_DAILY_PATH_CONFIRMED"
+        ],
+        "deterministic_veto_conditions": [],
+        "reason_codes": [
+          "TREND_DAILY_PATH_MISSING"
+        ],
+        "deterministic_reason_codes": [
+          "TREND_DAILY_PATH_MISSING"
+        ],
+        "local_decision": true,
+        "sent_to_llm": false,
+        "decision_id": "3412d9106238102db3e5fd08",
+        "reference_price": 28.74,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "rejected",
+      "item": {
+        "symbol": "300790.SZ",
+        "company_name": "宇瞳光学",
+        "name": "宇瞳光学",
+        "status": "REJECTED",
+        "local_partition": "HARD_REJECT",
+        "deterministic_eligibility": "REJECTED",
+        "deterministic_strategy_profile": "TREND_MA5",
+        "deterministic_unmet_conditions": [
+          "HIGHER_TIMEFRAME_NOT_BEARISH",
+          "TREND_DAILY_PATH_CONFIRMED",
+          "DAILY_NOT_BEARISH"
+        ],
+        "deterministic_veto_conditions": [
+          "HIGHER_TIMEFRAME_BEARISH",
+          "DAILY_TREND_WEAK"
+        ],
+        "reason_codes": [
+          "HIGHER_TIMEFRAME_BEARISH",
+          "TREND_DAILY_PATH_MISSING",
+          "DAILY_TREND_WEAK"
+        ],
+        "deterministic_reason_codes": [
+          "HIGHER_TIMEFRAME_BEARISH",
+          "TREND_DAILY_PATH_MISSING",
+          "DAILY_TREND_WEAK"
+        ],
+        "local_decision": true,
+        "sent_to_llm": false,
+        "decision_id": "2d36bd4501c43e2d8c303485",
+        "reference_price": 19.06,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "rejected",
+      "item": {
+        "symbol": "300843.SZ",
+        "company_name": "胜蓝股份",
+        "name": "胜蓝股份",
+        "status": "REJECTED",
+        "local_partition": "HARD_REJECT",
+        "deterministic_eligibility": "REJECTED",
+        "deterministic_strategy_profile": "TREND_MA5",
+        "deterministic_unmet_conditions": [
+          "TREND_DAILY_PATH_CONFIRMED",
+          "DAILY_NOT_BEARISH"
+        ],
+        "deterministic_veto_conditions": [
+          "DAILY_TREND_WEAK"
+        ],
+        "reason_codes": [
+          "TREND_DAILY_PATH_MISSING",
+          "DAILY_TREND_WEAK"
+        ],
+        "deterministic_reason_codes": [
+          "TREND_DAILY_PATH_MISSING",
+          "DAILY_TREND_WEAK"
+        ],
+        "local_decision": true,
+        "sent_to_llm": false,
+        "decision_id": "7e042cab8e2955b7dbf53496",
+        "reference_price": 127.9,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "rejected",
+      "item": {
+        "symbol": "300866.SZ",
+        "company_name": "安克创新",
+        "name": "安克创新",
+        "status": "REJECTED",
+        "local_partition": "LOCAL_MONITOR",
+        "deterministic_eligibility": "WATCH",
+        "deterministic_strategy_profile": "TREND_MA5",
+        "deterministic_unmet_conditions": [
+          "TREND_DAILY_PATH_CONFIRMED"
+        ],
+        "deterministic_veto_conditions": [],
+        "reason_codes": [
+          "TREND_DAILY_PATH_MISSING"
+        ],
+        "deterministic_reason_codes": [
+          "TREND_DAILY_PATH_MISSING"
+        ],
+        "local_decision": true,
+        "sent_to_llm": false,
+        "decision_id": "ae836433995579683140df17",
+        "reference_price": 132.24,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "rejected",
+      "item": {
+        "symbol": "301189.SZ",
+        "company_name": "奥尼电子",
+        "name": "奥尼电子",
+        "status": "REJECTED",
+        "local_partition": "LOCAL_MONITOR",
+        "deterministic_eligibility": "WATCH",
+        "deterministic_strategy_profile": "TREND_MA5",
+        "deterministic_unmet_conditions": [
+          "TREND_DAILY_PATH_CONFIRMED"
+        ],
+        "deterministic_veto_conditions": [],
+        "reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "TREND_DAILY_PATH_MISSING"
+        ],
+        "deterministic_reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "TREND_DAILY_PATH_MISSING"
+        ],
+        "local_decision": true,
+        "sent_to_llm": false,
+        "decision_id": "b9e51c7452b01707cb6760c5",
+        "reference_price": 56.56,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "rejected",
+      "item": {
+        "symbol": "301603.SZ",
+        "company_name": "乔锋智能",
+        "name": "乔锋智能",
+        "status": "REJECTED",
+        "local_partition": "LOCAL_MONITOR",
+        "deterministic_eligibility": "WATCH",
+        "deterministic_strategy_profile": "MA520_SWING",
+        "deterministic_unmet_conditions": [
+          "MA520_RIGHT_SIDE_CONFIRMED"
+        ],
+        "deterministic_veto_conditions": [],
+        "reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "MA520_RIGHT_SIDE_NOT_CONFIRMED"
+        ],
+        "deterministic_reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "MA520_RIGHT_SIDE_NOT_CONFIRMED"
+        ],
+        "local_decision": true,
+        "sent_to_llm": false,
+        "decision_id": "e449dc325eaa2a9ad159ed7c",
+        "reference_price": 128.35,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "rejected",
+      "item": {
+        "symbol": "301606.SZ",
+        "company_name": "绿联科技",
+        "name": "绿联科技",
+        "status": "REJECTED",
+        "local_partition": "HARD_REJECT",
+        "deterministic_eligibility": "REJECTED",
+        "deterministic_strategy_profile": "TREND_MA5",
+        "deterministic_unmet_conditions": [
+          "NOT_DISTRIBUTION"
+        ],
+        "deterministic_veto_conditions": [
+          "HIGH_VOLUME_DISTRIBUTION",
+          "TREND_TOP_RISK_CONFIRMED"
+        ],
+        "reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "HIGH_VOLUME_DISTRIBUTION",
+          "TREND_TOP_RISK_CONFIRMED"
+        ],
+        "deterministic_reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "HIGH_VOLUME_DISTRIBUTION",
+          "TREND_TOP_RISK_CONFIRMED"
+        ],
+        "local_decision": true,
+        "sent_to_llm": false,
+        "decision_id": "ea20efbdb700dff7f3f989ae",
+        "reference_price": 57.29,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "rejected",
+      "item": {
+        "symbol": "600191.SH",
+        "company_name": "华资实业",
+        "name": "华资实业",
+        "status": "REJECTED",
+        "local_partition": "HARD_REJECT",
+        "deterministic_eligibility": "REJECTED",
+        "deterministic_strategy_profile": "TREND_MA5",
+        "deterministic_unmet_conditions": [
+          "TREND_DAILY_PATH_CONFIRMED",
+          "DAILY_NOT_BEARISH"
+        ],
+        "deterministic_veto_conditions": [
+          "DAILY_TREND_WEAK"
+        ],
+        "reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "TREND_DAILY_PATH_MISSING",
+          "DAILY_TREND_WEAK"
+        ],
+        "deterministic_reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "TREND_DAILY_PATH_MISSING",
+          "DAILY_TREND_WEAK"
+        ],
+        "local_decision": true,
+        "sent_to_llm": false,
+        "decision_id": "775f9d94c408804d039c2f82",
+        "reference_price": 10.5,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "rejected",
+      "item": {
+        "symbol": "600203.SH",
+        "company_name": "福日电子",
+        "name": "福日电子",
+        "status": "REJECTED",
+        "local_partition": "LOCAL_MONITOR",
+        "deterministic_eligibility": "WATCH",
+        "deterministic_strategy_profile": "TREND_MA5",
+        "deterministic_unmet_conditions": [
+          "TREND_DAILY_PATH_CONFIRMED"
+        ],
+        "deterministic_veto_conditions": [],
+        "reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "TREND_DAILY_PATH_MISSING"
+        ],
+        "deterministic_reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "TREND_DAILY_PATH_MISSING"
+        ],
+        "local_decision": true,
+        "sent_to_llm": false,
+        "decision_id": "b702168529e93c24868697e7",
+        "reference_price": 10.83,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "rejected",
+      "item": {
+        "symbol": "601609.SH",
+        "company_name": "金田股份",
+        "name": "金田股份",
+        "status": "REJECTED",
+        "local_partition": "LOCAL_MONITOR",
+        "deterministic_eligibility": "WATCH",
+        "deterministic_strategy_profile": "TREND_MA5",
+        "deterministic_unmet_conditions": [
+          "TREND_DAILY_PATH_CONFIRMED"
+        ],
+        "deterministic_veto_conditions": [],
+        "reason_codes": [
+          "TREND_DAILY_PATH_MISSING"
+        ],
+        "deterministic_reason_codes": [
+          "TREND_DAILY_PATH_MISSING"
+        ],
+        "local_decision": true,
+        "sent_to_llm": false,
+        "decision_id": "a0489d54f183247629d6be0f",
+        "reference_price": 13.31,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "rejected",
+      "item": {
+        "symbol": "605188.SH",
+        "company_name": "国光连锁",
+        "name": "国光连锁",
+        "status": "REJECTED",
+        "local_partition": "LOCAL_MONITOR",
+        "deterministic_eligibility": "WATCH",
+        "deterministic_strategy_profile": "TREND_MA5",
+        "deterministic_unmet_conditions": [
+          "TREND_DAILY_PATH_CONFIRMED"
+        ],
+        "deterministic_veto_conditions": [],
+        "reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "TREND_DAILY_PATH_MISSING"
+        ],
+        "deterministic_reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "TREND_DAILY_PATH_MISSING"
+        ],
+        "local_decision": true,
+        "sent_to_llm": false,
+        "decision_id": "e558c885dab8bbd1108244b7",
+        "reference_price": 14.88,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "rejected",
+      "item": {
+        "symbol": "688001.SH",
+        "company_name": "华兴源创",
+        "name": "华兴源创",
+        "status": "REJECTED",
+        "local_partition": "DATA_GAP",
+        "deterministic_eligibility": "DATA_GAP",
+        "deterministic_strategy_profile": "LEADER_INTRADAY",
+        "deterministic_unmet_conditions": [
+          "HIGHER_TIMEFRAME_NOT_BEARISH",
+          "THEME_IN_EARLY_CYCLE",
+          "LEADER_DAILY_NOT_BEARISH",
+          "BOARD_NOT_FIRST_OBSERVATION_ONLY"
+        ],
+        "deterministic_veto_conditions": [
+          "HIGHER_TIMEFRAME_BEARISH",
+          "LEADER_DAILY_TREND_WEAK"
+        ],
+        "reason_codes": [
+          "HIGHER_TIMEFRAME_BEARISH",
+          "THEME_STAGE_NOT_EARLY",
+          "LEADER_DAILY_TREND_WEAK",
+          "FIRST_BOARD_OBSERVE_ONLY",
+          "A4_RETEST_CONFIRMATION_REQUIRED"
+        ],
+        "deterministic_reason_codes": [
+          "HIGHER_TIMEFRAME_BEARISH",
+          "THEME_STAGE_NOT_EARLY",
+          "LEADER_DAILY_TREND_WEAK",
+          "FIRST_BOARD_OBSERVE_ONLY",
+          "A4_RETEST_CONFIRMATION_REQUIRED"
+        ],
+        "local_decision": true,
+        "sent_to_llm": false,
+        "decision_id": "7ff75912fe795c1ee72cf64c",
+        "reference_price": 58.26,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    },
+    {
+      "pool": "rejected",
+      "item": {
+        "symbol": "688416.SH",
+        "company_name": "恒烁股份",
+        "name": "恒烁股份",
+        "status": "REJECTED",
+        "local_partition": "LOCAL_MONITOR",
+        "deterministic_eligibility": "WATCH",
+        "deterministic_strategy_profile": "MA520_SWING",
+        "deterministic_unmet_conditions": [
+          "MA520_RIGHT_SIDE_CONFIRMED"
+        ],
+        "deterministic_veto_conditions": [],
+        "reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "MA520_RIGHT_SIDE_NOT_CONFIRMED"
+        ],
+        "deterministic_reason_codes": [
+          "HIGHER_TIMEFRAME_CONDITIONAL_PROBE",
+          "MA520_RIGHT_SIDE_NOT_CONFIRMED"
+        ],
+        "local_decision": true,
+        "sent_to_llm": false,
+        "decision_id": "ac3eda18b8e2e38109a71c4d",
+        "reference_price": 76.84,
+        "reference_price_as_of": "2026-09-07T15:00:00+08:00"
+      }
+    }
+  ]
+}

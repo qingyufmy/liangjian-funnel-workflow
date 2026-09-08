@@ -840,8 +840,9 @@ export class DashboardData {
     pageSize: number,
     query: string,
     reason: string,
+    disposition = "",
   ): Promise<JsonValue | null> {
-    const detail = await this.files.researchStageDetail(runId, laneId, stage, pool, page, pageSize, query, reason);
+    const detail = await this.files.researchStageDetail(runId, laneId, stage, pool, page, pageSize, query, reason, disposition);
     if (!detail) return null;
     if (stage !== "A3") return sanitizeJson(detail);
     const status = await this.files.status();

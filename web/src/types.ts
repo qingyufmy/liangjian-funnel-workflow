@@ -456,6 +456,7 @@ export interface StageDetailDecisionFacts {
 }
 
 export interface StageDetailItem {
+  a3Display?: import("../../shared/a3-display").A3Display;
   publication?: { state: string; records?: number; planId?: string | null; sourceRunId?: string | null;
     status?: string | null; effectiveStatus?: string | null; targetTradeDate?: string | null;
     validFrom?: string | null; expiresAt?: string | null };
@@ -486,6 +487,7 @@ export interface StageDetailItem {
 }
 
 export interface StageDetailResponse {
+  dispositionCounts?: Record<string, number>;
   runId: string;
   laneId: string;
   model?: string | null;

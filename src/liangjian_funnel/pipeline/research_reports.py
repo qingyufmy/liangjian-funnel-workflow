@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from ..reporting import atomic_write_text
+from .a3_display import a3_nonqualified_explanation
 
 
 _POOLS: dict[str, tuple[tuple[str, str], ...]] = {
@@ -24,7 +25,7 @@ _POOLS: dict[str, tuple[tuple[str, str], ...]] = {
     "A3": (
         ("core_watch_pool", "CORE"),
         ("secondary_watch_pool", "SECONDARY"),
-        ("rejected_candidates", "REJECTED"),
+        ("rejected_candidates", "未晋级（含观察／缺口）"),
     ),
 }
 
@@ -93,7 +94,11 @@ def _render_stage(result: Any, stage_name: str) -> str:
                 ]
             )
             for row in values:
-                lines.append(_row_line(row))
+                if stage_name == "A3" and pool == "rejected_candidates":
+                    explanation = a3_nonqualified_explanation(row)
+                    lines.append(_row_line({**row, "reason_codes": list(explanation.values())}))
+                else:
+                    lines.append(_row_line(row))
     return "\n".join(lines) + "\n"
 
 
