@@ -615,6 +615,8 @@ def build_a5_fact_snapshot(
         snapshot["metrics"]["a5_independent_verification_status"] = str(
             independent.get("status") or "UNAVAILABLE"
         )
+        snapshot["metrics"]["a5_counterexample_drop_stage_counts"] = _count_by(
+            _rows(independent.get("counterexamples")), "drop_stage")
         independent_status = str(independent.get("status") or "UNAVAILABLE").upper()
         if independent_status != "READY":
             reason = (
@@ -746,6 +748,8 @@ def _markdown(report: A5ReviewReport, snapshot: Mapping[str, Any]) -> str:
         f"- A2 聚焦/观察：`{metrics.get('a2_focus_count', 0)}/{metrics.get('a2_watch_count', 0)}`",
         f"- A3 计划：`{metrics.get('a3_plan_count', 0)}`",
         f"- A4 有效事件/生命周期：`{metrics.get('a4_effective_event_count', 0)}/{metrics.get('a4_lifecycle_count', 0)}`",
+        f"- 反例落层计数（代码统计）：`{json.dumps(metrics.get('a5_counterexample_drop_stage_counts', {}), ensure_ascii=False)}`",
+        "- 核验边界：价格字段一致不代表开高低、成交量或全部技术指标一致；次日可卖也不代表必定成交。",
         "", "## 总结", "", report.executive_summary, "",
     ]
     for title, layer in (("A2 选股与题材", report.a2_review), ("A3 日线计划", report.a3_review), ("A4 日内择时", report.a4_review)):

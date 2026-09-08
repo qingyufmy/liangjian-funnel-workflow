@@ -519,6 +519,8 @@ class A5IndependentVerifier:
         return {
             "status": "READY" if ratio >= 0.8 else "DEGRADED" if ready or not plan_rows else "UNAVAILABLE",
             "evidence_id": "A5V:A3:SUMMARY", "plan_count": len(plan_rows),
+            "verified_fields": ["MA5", "MA20", "MA60", "CLOSE", "ROUTE", "PRICE_LEVELS"],
+            "not_verified_fields": ["MACD", "KDJ", "VOLUME"],
             "formula_covered_count": ready, "formula_coverage": round(ratio, 6), "plans": results,
         }
 
@@ -610,6 +612,8 @@ class A5IndependentVerifier:
         return {
             "status": "READY" if ratio >= 0.8 else "DEGRADED" if covered or not plan_rows else "UNAVAILABLE",
             "evidence_id": "A5V:A4:SUMMARY", "plan_count": len(plan_rows),
+            "cross_source_verified_fields": ["CLOSE"],
+            "cross_source_not_verified_fields": ["OPEN", "HIGH", "LOW", "VOLUME", "AMOUNT"],
             "cross_source_covered_count": covered, "cross_source_coverage": round(ratio, 6),
             "plans": results,
         }

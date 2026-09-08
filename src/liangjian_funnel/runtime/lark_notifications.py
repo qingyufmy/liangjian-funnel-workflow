@@ -7,7 +7,7 @@ import json
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from .lark import LarkConfigurationError, LarkNotifier
 from .state import RuntimeStore
@@ -424,10 +424,12 @@ class WorkflowLarkPublisher:
         *,
         webhook_path: Path | None = None,
         timeout_seconds: float = 8.0,
+        clock: Callable[[], datetime] | None = None,
     ):
         self.store = store
         self.webhook_path = webhook_path
         self.timeout_seconds = timeout_seconds
+        self.clock = clock or (lambda: datetime.now().astimezone())
         self.configuration_reason: str | None = None
         try:
             self.notifier = LarkNotifier(webhook_url, timeout_seconds=timeout_seconds)
@@ -477,7 +479,9 @@ class WorkflowLarkPublisher:
         if existing is not None:
             return {"status": str(existing["status"]), "duplicate": True, "delivery_id": existing["delivery_id"]}
         color = self.store.next_notification_color()
+        send_started = self.clock()
         result = notifier.send(title, lines, color)
+        acknowledged_at = self.clock()
         row, _ = self.store.record_delivery(
             delivery_key=delivery_key,
             kind=kind,
@@ -487,9 +491,9 @@ class WorkflowLarkPublisher:
             color=color,
             attempt_count=result.attempts,
             last_reason_code=None if result.ok else result.reason_code,
-            payload=summary,
-            created_at=now,
-            sent_at=now if result.ok else None,
+            payload={**summary, "business_at": now.isoformat()},
+            created_at=send_started,
+            sent_at=acknowledged_at if result.ok else None,
         )
         return {
             "status": str(row["status"]),

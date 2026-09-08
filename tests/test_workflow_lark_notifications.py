@@ -293,6 +293,21 @@ def test_a2_rotation_health_alerts_in_chinese_and_recovers_once(tmp_path):
     assert len(fake.calls) == 2
 
 
+def test_delivery_timestamp_is_acknowledgement_not_business_cutoff(tmp_path):
+    store = RuntimeStore(tmp_path / "state.db")
+    started = datetime(2026, 9, 8, 17, 5, tzinfo=SHANGHAI)
+    ack = started.replace(second=2)
+    clock = iter([started, ack])
+    publisher = WorkflowLarkPublisher(store, None, clock=lambda: next(clock))
+    publisher.notifier = FakeNotifier()
+    publisher._send(delivery_key="timestamp", kind="A5", source_id="review", title="复盘", lines=["完成"],
+                    summary={}, now=started.replace(hour=16, minute=0))
+    row = store.get_delivery_by_key("timestamp")
+    assert row["created_at"] == started.isoformat()
+    assert row["sent_at"] == ack.isoformat()
+    assert json.loads(row["payload_json"])["business_at"] == started.replace(hour=16, minute=0).isoformat()
+
+
 def test_a5_review_card_is_structured_chinese_and_idempotent(tmp_path):
     store = RuntimeStore(tmp_path / "state.sqlite3")
     publisher = WorkflowLarkPublisher(
