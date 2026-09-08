@@ -28,7 +28,8 @@ def main():
     before_lives = store.list_a4_signal_lifecycles(trade_date=day, limit=1000)
     before_labels = store.list_outcome_labels(trade_date=day, stage="A4")
     fills_before = digest(store.list_fills())
-    events_before = digest(store.list_monitor_events())
+    event_scope = {"from_time": day + "T00:00:00+08:00", "to_time": day + "T23:59:59+08:00"}
+    events_before = digest(store.list_monitor_events(**event_scope))
     preview = {
         "lifecycles": [store.rebuild_a4_exit_projection(row["lifecycle_id"]) for row in before_lives],
         "labels": [store.repair_a4_outcome_reasons(row["label_id"]) for row in before_labels],
@@ -47,7 +48,7 @@ def main():
             "lifecycles": [store.rebuild_a4_exit_projection(row["lifecycle_id"], apply=True) for row in before_lives],
             "labels": [store.repair_a4_outcome_reasons(row["label_id"], apply=True) for row in before_labels],
         }
-    unchanged = fills_before == digest(store.list_fills()) and events_before == digest(store.list_monitor_events())
+    unchanged = fills_before == digest(store.list_fills()) and events_before == digest(store.list_monitor_events(**event_scope))
     result.update(trade_date=day, apply_requested=args.apply, raw_events_and_fills_unchanged=unchanged,
                   before_artifact=str(before_path))
     atomic_write_json(args.output, result)

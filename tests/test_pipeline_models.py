@@ -292,6 +292,19 @@ def test_generic_final_thinking_400_uses_the_configured_256k_fallback_once(tmp_p
     assert [body["max_tokens"] for body in seen] == [393_216, 262_144]
 
 
+def test_a5_generic_400_is_not_misreported_as_output_budget(tmp_path: Path):
+    seen = []
+    def handler(request):
+        seen.append(request)
+        return httpx.Response(400, json={"error": "bad_response_status_code"}, request=request)
+    client = OpenAICompatibleModelClient(_settings(tmp_path), transport=httpx.MockTransport(handler), max_attempts=1)
+    client.thinking_variants = (("reasoning_effort_low", {"reasoning_effort": "low"}),)
+    with pytest.raises(ModelHTTPError) as exc_info:
+        client.complete("deepseek-v4-pro-0813", [{"role": "user", "content": "facts"}], stage="A5")
+    assert exc_info.value.reason_code == "UPSTREAM_4XX"
+    assert len(seen) == 1
+
+
 def test_413_without_explicit_output_token_limit_does_not_downgrade(tmp_path: Path):
     seen: list[dict] = []
 

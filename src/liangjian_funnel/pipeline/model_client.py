@@ -316,6 +316,7 @@ class OpenAICompatibleModelClient:
                                 # when the bounded body cannot be classified.
                                 generic_final_variant_fallback = (
                                     status in {400, 413, 422}
+                                    and stage != "A5"
                                     and self.thinking_enabled
                                     and variant_id == call_variants[-1][0]
                                 )

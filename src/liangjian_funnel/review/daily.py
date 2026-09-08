@@ -308,6 +308,49 @@ def _a3_candidates(audit: Mapping[str, Any]) -> list[dict[str, Any]]:
     return list(result.values())
 
 
+def _compact_a4_observations(events: Sequence[Mapping[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Preserve effective events and causal coverage, not repeated prose."""
+    groups: dict[tuple[str, str], list[Mapping[str, Any]]] = {}
+    selected: dict[str, dict[str, Any]] = {}
+    for event in events:
+        if event.get("effective"):
+            selected[str(event["evidence_id"])] = dict(event)
+        else:
+            key = (str(event.get("plan_id")), str(event.get("action")))
+            groups.setdefault(key, []).append(event)
+    summaries = []
+    for key, rows in sorted(groups.items()):
+        ordered = sorted(rows, key=lambda row: (str(row.get("minute_end")), str(row.get("event_id"))))
+        closest = min(ordered, key=lambda row: len(row.get("unmet_conditions") or []))
+        representatives = {str(row["evidence_id"]): dict(row) for row in (ordered[0], closest, ordered[-1])}
+        selected.update(representatives)
+        counts: dict[str, int] = {}
+        primary_counts: dict[str, int] = {}
+        for row in ordered:
+            primary = str(row.get("reason_code") or "UNKNOWN")
+            primary_counts[primary] = primary_counts.get(primary, 0) + 1
+            for reason in set(row.get("strategy_reason_codes") or []):
+                counts[str(reason)] = counts.get(str(reason), 0) + 1
+        summaries.append({"evidence_id": "A4:OBSERVATION_GROUP:" + _canonical_hash(key)[:16],
+            "plan_id": key[0], "symbol": ordered[0].get("symbol"), "action": key[1], "primary_reason_counts": primary_counts,
+            "observation_count": len(ordered), "first_at": ordered[0].get("minute_end"),
+            "last_at": ordered[-1].get("minute_end"), "strategy_reason_counts": counts,
+            "representative_evidence_ids": list(representatives)})
+    return sorted(selected.values(), key=lambda row: (str(row.get("minute_end")), str(row.get("event_id")))), summaries
+
+
+def _model_fact_projection(facts: Mapping[str, Any]) -> dict[str, Any]:
+    projected = dict(facts)
+    a4 = dict(_json_mapping(facts.get("a4")))
+    events, groups = _compact_a4_observations(_rows(a4.get("events")))
+    original_count = len(a4.get("events") or [])
+    a4.update(events=events, observation_groups=groups,
+              model_projection={"original_event_count": original_count, "representative_event_count": len(events),
+                                "all_effective_events_retained": True, "full_evidence_archived": True})
+    projected["a4"] = a4
+    return projected
+
+
 def _a1_market_universe(audit: Mapping[str, Any]) -> list[dict[str, Any]]:
     """Return the full traceable A1 universe for post-close counterexamples."""
 
@@ -443,6 +486,8 @@ def build_a5_fact_snapshot(
             "reason_code": row.get("reason_code"),
             "diagnostic_code": payload.get("diagnostic_code"),
             "strategy_profile": _json_mapping(payload.get("strategy")).get("strategy_profile"),
+            "strategy_reason_codes": _json_mapping(payload.get("strategy")).get("reason_codes") or [],
+            "unmet_conditions": _json_mapping(payload.get("strategy")).get("unmet_conditions") or [],
         })
 
     lifecycles = []
@@ -517,7 +562,7 @@ def build_a5_fact_snapshot(
         "metrics": metrics,
         "a2": a2,
         "a3": {"plans": plans, "candidates": a2.get("technical_candidates", [])},
-        "a4": {"events": events, "lifecycles": lifecycles},
+        "a4": {"events": events, "lifecycles": lifecycles, "observation_groups": _compact_a4_observations(events)[1]},
         "review_history": _review_history(
             store,
             trade_date=trade_date,
@@ -626,7 +671,7 @@ def _evidence_ids(snapshot: Mapping[str, Any]) -> set[str]:
     a2 = _json_mapping(snapshot.get("a2"))
     a3 = _json_mapping(snapshot.get("a3"))
     a4 = _json_mapping(snapshot.get("a4"))
-    for group in (a2.get("themes"), a2.get("candidates"), a3.get("plans"), a3.get("candidates"), a4.get("events"), a4.get("lifecycles")):
+    for group in (a2.get("themes"), a2.get("candidates"), a3.get("plans"), a3.get("candidates"), a4.get("events"), a4.get("lifecycles"), a4.get("observation_groups")):
         for row in _rows(group):
             if row.get("evidence_id"):
                 values.add(str(row["evidence_id"]))
@@ -769,7 +814,14 @@ class A5DailyReviewService:
                 notifications=self._publish_notification(same, now=current),
             )
 
-        prompt = self.prompts.render(_A5_PROMPT, {"A5_FACT_SNAPSHOT": facts})
+        target_dir = self.output_dir / "a5" / current.date().isoformat()
+        artifact_stem = f"{review_kind.value.lower().replace('_', '-')}-{str(facts['input_hash'])[:12]}"
+        # Preserve failed requests' facts as well as successful reviews.
+        atomic_write_json(target_dir / f"{artifact_stem}-facts.json", facts)
+        projection = _model_fact_projection(facts)
+        prompt = self.prompts.render(_A5_PROMPT, {"A5_FACT_SNAPSHOT": projection})
+        if len(prompt) > 250_000:
+            raise ValueError("A5_MODEL_CONTEXT_TOO_LARGE")
         prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
         result: ModelCallResult = self.model_client.complete(
             self.model,

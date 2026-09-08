@@ -8,7 +8,7 @@ import pytest
 
 from liangjian_funnel.data.mootdx import MinuteBar, FetchResult
 from liangjian_funnel.pipeline.macd_evidence import macd_evidence
-from liangjian_funnel.review.daily import _a3_candidates
+from liangjian_funnel.review.daily import _a3_candidates, _model_fact_projection
 from liangjian_funnel.review.verification import counterexample_drop_stage
 from liangjian_funnel.runtime.execution_eligibility import project_exit_eligibility
 from liangjian_funnel.runtime.simulation import PaperBroker, SimulationAction
@@ -233,3 +233,24 @@ def test_outcome_reason_correction_preserves_returns_and_event(tmp_path):
             assert after[key] == value
     assert store.repair_a4_outcome_reasons(label["label_id"], apply=True)["changed"] is False
     assert store.list_monitor_events(lane_id="lane_1")[0] == event
+
+
+def test_a5_compaction_keeps_complete_counts_and_effective_events():
+    events = [{"evidence_id": f"E:{index}", "event_id": str(index), "minute_end": f"{index:06}",
+               "plan_id": f"P{index % 3}", "symbol": str(index % 3), "effective": False,
+               "action": "START_CONFIRMATION", "reason_code": "WAIT" if index % 2 else "RR_LOW",
+               "strategy_reason_codes": ["RR_LOW"] if index % 2 else ["WAIT"],
+               "unmet_conditions": ["X"] if index != 333 else []} for index in range(5000)]
+    effective = {**events[0], "evidence_id": "E:BUY", "effective": True, "action": "BUY_SIGNAL"}
+    events.append(effective)
+    facts = {"a4": {"events": events}, "metrics": {"a4_monitor_observation_count": 5001}}
+    original = json.dumps(facts, sort_keys=True)
+    projected = _model_fact_projection(facts)
+    groups = projected["a4"]["observation_groups"]
+    assert sum(row["observation_count"] for row in groups) == 5000
+    assert sum(sum(row["primary_reason_counts"].values()) for row in groups) == 5000
+    assert effective in projected["a4"]["events"]
+    assert events[333] in projected["a4"]["events"]
+    assert len(projected["a4"]["events"]) <= 10
+    assert projected["metrics"] == facts["metrics"]
+    assert json.dumps(facts, sort_keys=True) == original

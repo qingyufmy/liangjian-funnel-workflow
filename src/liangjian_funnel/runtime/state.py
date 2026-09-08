@@ -3014,7 +3014,9 @@ class RuntimeStore:
             if metadata.get("projection_revision") == "exit-summary/2":
                 return {"lifecycle_id": lifecycle_id, "changed": False, "applied": False}
             keys = set(_a4_json_list(row["applied_exit_event_keys_json"]))
-            events = connection.execute("SELECT * FROM monitor_events WHERE lane_id=? ORDER BY minute_end,event_key", (row["lane_id"],)).fetchall()
+            placeholders = ",".join("?" for _ in keys) or "NULL"
+            events = connection.execute(f"SELECT * FROM monitor_events WHERE lane_id=? AND event_key IN ({placeholders}) ORDER BY minute_end,event_key",
+                                        (row["lane_id"], *sorted(keys))).fetchall()
             fills = connection.execute("SELECT * FROM virtual_fills WHERE account_id=? AND symbol=? ORDER BY bar_end", (row["account_id"], row["symbol"])).fetchall()
             fill_keys = set(_a4_json_list(row["applied_fill_keys_json"]))
             observations = []
