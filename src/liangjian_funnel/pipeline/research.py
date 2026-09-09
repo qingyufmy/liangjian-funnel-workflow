@@ -5533,6 +5533,11 @@ def _project_prompt_value(
         "TRADABILITY_FLAGS",
         "COMPANY_FUNDAMENTALS",
         "MAIN_BUSINESS_EVIDENCE",
+        # The A3 gate contains the whole evaluated pool, including locally
+        # filtered stocks. Each model batch must see only its own candidates,
+        # just like its price and factor evidence. Keep every field for those
+        # candidates; the full gate remains in the immutable snapshot.
+        "A3_DETERMINISTIC_CONTEXT",
     }:
         return _filter_symbol_mapping(value, symbols)
     if name == "A2_BOTTLENECK_CONTEXT":

@@ -1088,6 +1088,33 @@ def test_a2_prompt_keeps_non_scoring_research_hypotheses_out_of_each_batch(tmp_p
     assert "完整冻结快照" in rendered
 
 
+@pytest.mark.parametrize("batch_size", [0, 10, 16])
+def test_a3_prompt_gate_is_exact_batch_scope_without_removing_candidate_facts(batch_size):
+    bundle = PromptRepository(Path(__file__).resolve().parents[1] / "prompts").bundle()
+    context = {
+        f"{i:06d}.SZ": {
+            "symbol": f"{i:06d}.SZ", "eligibility": "QUALIFIED",
+            "strategy_profile": "TREND_MA5", "gate_results": [{"gate": "DAILY_CLOSED", "passed": True}],
+            "strategy_facts": {"daily_macd": {"dif": i / 10, "dea": 0.1, "hist": 0.2},
+                               "evidence": [f"unique-evidence-for-{i:06d}"]},
+        } for i in range(1, 99)
+    }
+    snapshot = FrozenInputSnapshot(snapshot_id="a3-batch-scope", data={
+        "snapshot_manifest": {"trade_date": "2026-09-09"},
+        "A3_DETERMINISTIC_CONTEXT": context,
+    })
+    frozen_before = json.dumps(dict(snapshot.data), sort_keys=True)
+    batch = set(sorted(context)[:batch_size])
+    replacements = _prompt_replacements(bundle, "A3", snapshot,
+        {"focus_pool": [{"symbol": s} for s in context]}, projection_symbols=batch)
+    assert replacements["A3_DETERMINISTIC_CONTEXT"] == {s: context[s] for s in batch}
+    rendered = bundle.render_stage("A3", replacements)
+    assert "unique-evidence-for-000098" not in rendered
+    for s in batch:
+        assert context[s]["strategy_facts"]["evidence"][0] in rendered
+    assert json.dumps(dict(snapshot.data), sort_keys=True) == frozen_before
+
+
 def test_a2_large_runtime_placeholders_are_injected_once():
     prompt = (Path(__file__).resolve().parents[1] / "prompts" / "agent_2_theme_sentiment_transport_v2.txt").read_text(
         encoding="utf-8"

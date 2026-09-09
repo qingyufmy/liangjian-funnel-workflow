@@ -24,13 +24,23 @@ def main():
     rid=now.strftime('%Y-%m-%d-close-a2-audit-%H%M%S')
     directory=app.settings.workflow_output_dir/'audits'/rid
     complete=app.model_client.complete
-    count=0
+    counts={'A2':0,'A3':0}
     def capture(*args,**kwargs):
-        nonlocal count
+        stage=kwargs.get('stage')
+        if stage in counts:
+            counts[stage]+=1
+            index=counts[stage]
+            messages=args[1] if len(args)>1 else kwargs.get('messages',[])
+            atomic_write_json(directory/f'{stage.lower()}-request-{index}.json',{
+                'stage':stage,'input_hash':kwargs.get('input_hash'),
+                'message_characters':sum(len(str(m.get('content',''))) for m in messages),
+                'status':'STARTED'})
         result=complete(*args,**kwargs)
-        if kwargs.get('stage')=='A2':
-            count+=1
-            atomic_write_json(directory/f'model-{count}.json',{'output':result.output,'input_hash':result.input_hash,'attempts':result.attempts})
+        if stage in counts:
+            prefix='model' if stage=='A2' else 'a3-model'
+            atomic_write_json(directory/f'{prefix}-{index}.json',{
+                'output':research._strip_reasoning(result.output),'input_hash':result.input_hash,
+                'attempts':result.attempts,'latency_ms':result.latency_ms})
         return result
     app.model_client.complete=capture
     validate=research._validate_a2_rotation_focus_coverage
