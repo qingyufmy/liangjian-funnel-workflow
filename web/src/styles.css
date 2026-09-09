@@ -605,6 +605,10 @@ button, a, input, select { -webkit-tap-highlight-color: transparent; }
 .a5-unresolved { margin: 0 24px 22px; padding: 16px 18px; border: 1px solid color-mix(in srgb, var(--color-warning) 36%, var(--color-border)); border-radius: var(--radius-md); background: color-mix(in srgb, var(--color-warning) 8%, var(--color-surface)); }
 .a5-unresolved ul { margin: 8px 0 0; padding-left: 18px; color: var(--color-ink-soft); }
 .a5-section-note { margin: 0; padding: 14px 18px; color: var(--color-muted); font-size: var(--text-caption); line-height: 1.65; border-bottom: 1px solid var(--color-border); }
+.a5-signal-stock-table { min-width: 760px; }
+.a5-signal-stock-table th:first-child, .a5-signal-stock-table td:first-child { min-width: 140px; }
+.a5-signal-stock-table details p { overflow-wrap: anywhere; }
+.a5-signal-stock-table summary { cursor: pointer; padding-block: 8px; }
 .a5-shadow-label, .a5-confirmed-defect { display: inline-flex; align-items: center; border-radius: 999px; padding: 3px 8px; font-size: var(--text-caption); white-space: nowrap; }
 .a5-shadow-label { color: var(--color-muted); background: var(--color-surface-subtle); }
 .a5-confirmed-defect { color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 9%, transparent); }

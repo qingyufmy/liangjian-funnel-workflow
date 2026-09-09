@@ -17,6 +17,9 @@ from ..pipeline.model_client import ModelCallResult, OpenAICompatibleModelClient
 from ..pipeline.prompts import PromptRepository
 from ..reporting import atomic_write_json, atomic_write_text
 from ..runtime.state import RuntimeStore
+from .signal_audit import build_signal_stock_reviews
+from .context import A5ReviewError, render_a5_prompt
+from .plan_scope import carryover_evidence, select_review_plans
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -124,6 +127,8 @@ class A5ReviewReport(BaseModel):
     a3_review: A5LayerReview
     a4_review: A5LayerReview
     signal_reviews: list[A5SignalReview] = Field(default_factory=list, max_length=80)
+    # Populated by server facts after model validation, never model authority.
+    signal_stock_reviews: list[dict[str, Any]] = Field(default_factory=list)
     missed_opportunity_reviews: list[A5CounterexampleReview] = Field(default_factory=list, max_length=20)
     core_defects: list[A5Defect] = Field(default_factory=list, max_length=8)
     improvement_proposals: list[A5Proposal] = Field(default_factory=list, max_length=3)
@@ -345,6 +350,9 @@ def _model_fact_projection(facts: Mapping[str, Any]) -> dict[str, Any]:
     projected["a2"] = dict(_json_mapping(facts.get("a2")))
     projected["a2"].pop("technical_candidates", None)
     independent = dict(_json_mapping(facts.get("independent_verification")))
+    independent.pop("signal_market", None)  # minute paths stay in the fact archive
+    if "independent_verification" in facts:
+        projected["independent_verification"] = independent
     if independent:
         independent["a2"] = dict(_json_mapping(independent.get("a2")))
         if independent["a2"].get("counterexamples") == independent.get("counterexamples"):
@@ -414,29 +422,16 @@ def build_a5_fact_snapshot(
     )
     observed_plan_ids = {str(_json_mapping(row.get("payload_json")).get("plan_id") or "") for row in raw_event_rows}
     raw_plans = store.list_execution_plans(lane_id=lane_id)
-    plans = []
-    selected_plan_rows: list[dict[str, Any]] = []
-    for row in raw_plans:
-        valid_from = row.get("valid_from")
-        expires_at = row.get("expires_at")
-        payload = _json_mapping(row.get("payload_json"))
-        target_day = str(payload.get("target_trade_date") or "")
-        in_session = str(row.get("plan_id") or "") in observed_plan_ids or target_day == trade_date.isoformat()
-        if not in_session and not target_day:
-            try:
-                start = datetime.fromisoformat(str(valid_from)).date() if valid_from else None
-                end = datetime.fromisoformat(str(expires_at)).date() if expires_at else None
-                # A pending plan's null valid_from is not an unbounded start.
-                # Its next-day expiry identifies the intended session until
-                # morning activation supplies a real start timestamp.
-                in_session = bool((start == trade_date or end == trade_date)
-                                  and (start is None or start <= trade_date)
-                                  and (end is None or trade_date <= end))
-            except ValueError:
-                in_session = False
-        if in_session:
-            plans.append(_plan_projection(row))
-            selected_plan_rows.append(dict(row))
+    # Prior entries remain auditable after T+1 exits, including a position
+    # closed today. They must not inflate today's A3 publication count.
+    carryover_lifecycles = carryover_evidence(store.list_a4_signal_lifecycles(
+        lane_id=lane_id, status=("OPEN", "EXIT_PENDING", "PARTIALLY_CLOSED", "CLOSED"), limit=10000,
+    ), cutoff)
+    selected_plan_rows, carryover_plan_rows, retired_plans = select_review_plans(
+        raw_plans, cutoff=cutoff, observed_ids=observed_plan_ids,
+        carryover_ids={str(row.get("plan_id") or "") for row in carryover_lifecycles},
+    )
+    plans = [_plan_projection(row) for row in selected_plan_rows]
 
     source_latest: dict[str, str] = {}
     for item in plans:
@@ -506,7 +501,8 @@ def build_a5_fact_snapshot(
         })
 
     lifecycles = []
-    for row in store.list_a4_signal_lifecycles(lane_id=lane_id, trade_date=trade_date.isoformat(), limit=1000):
+    raw_lifecycles = store.list_a4_signal_lifecycles(lane_id=lane_id, trade_date=trade_date.isoformat(), limit=1000)
+    for row in raw_lifecycles:
         signal_time = row.get("signal_time")
         if signal_time and not _within_cutoff(signal_time, trade_date, cutoff):
             continue
@@ -576,8 +572,13 @@ def build_a5_fact_snapshot(
         "source_run_ids": source_run_ids,
         "metrics": metrics,
         "a2": a2,
-        "a3": {"plans": plans, "candidates": a2.get("technical_candidates", [])},
-        "a4": {"events": events, "lifecycles": lifecycles, "observation_groups": _compact_a4_observations(events)[1]},
+        "a3": {"plans": plans, "candidates": a2.get("technical_candidates", []),
+               "plan_scope": {"evidence_id": "A3:PLAN_SCOPE", "session_plan_count": len(plans),
+                              "retired_before_session_count": len(retired_plans),
+                              "retired_before_session": retired_plans}},
+        "a4": {"events": events, "lifecycles": lifecycles, "observation_groups": _compact_a4_observations(events)[1],
+               "carryover_plans": [_plan_projection(row) for row in carryover_plan_rows],
+               "carryover_lifecycles": carryover_lifecycles},
         "review_history": _review_history(
             store,
             trade_date=trade_date,
@@ -626,6 +627,9 @@ def build_a5_fact_snapshot(
             )
             snapshot["data_quality"]["status"] = "DEGRADED"
             snapshot["data_quality"]["missing_components"].append(reason)
+    signal_market = _json_mapping(_json_mapping(snapshot.get("independent_verification")).get("signal_market"))
+    snapshot["signal_stock_reviews"] = build_signal_stock_reviews(
+        raw_event_rows, selected_plan_rows, store.list_fills(), signal_market, cutoff, lifecycles=raw_lifecycles)
     snapshot["input_hash"] = _canonical_hash(snapshot)
     return snapshot
 
@@ -705,6 +709,10 @@ def _evidence_ids(snapshot: Mapping[str, Any]) -> set[str]:
 
     collect(snapshot.get("independent_verification"))
     collect(snapshot.get("review_history"))
+    collect(snapshot.get("signal_stock_reviews"))
+    collect(a3.get("plan_scope"))
+    collect(a4.get("carryover_plans"))
+    collect(a4.get("carryover_lifecycles"))
     return values
 
 
@@ -722,19 +730,19 @@ def _validate_evidence(report: A5ReviewReport, snapshot: Mapping[str, Any]) -> N
     for item in report.improvement_proposals:
         referenced.extend(item.evidence_ids)
     if any(item not in allowed for item in referenced):
-        raise ValueError("A5_OUTPUT_EVIDENCE_INVALID")
+        raise A5ReviewError("A5_OUTPUT_EVIDENCE_INVALID")
     facts = {str(row.get("symbol")): row for row in _rows(_json_mapping(snapshot.get("independent_verification")).get("counterexamples"))}
     for item in report.missed_opportunity_reviews:
         fact = facts.get(item.symbol)
         if fact is None:
-            raise ValueError("A5_COUNTEREXAMPLE_NOT_IN_FACTS")
+            raise A5ReviewError("A5_COUNTEREXAMPLE_NOT_IN_FACTS")
         expected = str(fact.get("drop_stage") or "UNRESOLVED").split("_")[0]
         if expected not in {"A1", "A2", "A3", "A4"}:
             expected = "UNRESOLVED"
         if item.funnel_drop_stage != expected:
-            raise ValueError("A5_COUNTEREXAMPLE_STAGE_CONFLICT")
+            raise A5ReviewError("A5_COUNTEREXAMPLE_STAGE_CONFLICT")
         if str(fact.get("evidence_id")) not in item.evidence_ids:
-            raise ValueError("A5_COUNTEREXAMPLE_REFERENCE_MISMATCH")
+            raise A5ReviewError("A5_COUNTEREXAMPLE_REFERENCE_MISMATCH")
 
 
 def _markdown(report: A5ReviewReport, snapshot: Mapping[str, Any]) -> str:
@@ -765,6 +773,14 @@ def _markdown(report: A5ReviewReport, snapshot: Mapping[str, Any]) -> str:
         for item in report.signal_reviews:
             lines.append(f"| {item.name} {item.symbol} | {item.strategy_profile} | {item.lifecycle_status} | {item.attribution} | {item.assessment} |")
         lines.append("")
+    if report.signal_stock_reviews:
+        lines.extend(["## 信号股票：当日表现与入场审计", "",
+                      "价格表现不等于已实现收益；仅使用复盘截止前的行情和成交。", ""])
+        for item in report.signal_stock_reviews:
+            lines.extend([f"### {item.get('name')}（{item.get('symbol')}）", "",
+                          f"- 当日表现：{item.get('performance_summary')}",
+                          f"- 入场审计：{item.get('entry_audit_summary')}",
+                          f"- 证据编号：{item.get('evidence_id')}", ""])
     if report.missed_opportunity_reviews:
         lines.extend(["## 反向拷问：当日强势但未被捕获", "", "| 股票 | 主题 | 表现 | 漏斗位置 | 判断 |", "|---|---|---|---|---|"])
         for item in report.missed_opportunity_reviews:
@@ -816,7 +832,7 @@ class A5DailyReviewService:
         cutoff_clock = (11, 30) if review_kind is A5ReviewKind.MIDDAY else (15, 0)
         cutoff = current.replace(hour=cutoff_clock[0], minute=cutoff_clock[1], second=0, microsecond=0)
         if current < cutoff:
-            raise ValueError("A5_REVIEW_BEFORE_CUTOFF")
+            raise A5ReviewError("A5_REVIEW_BEFORE_CUTOFF")
         facts = build_a5_fact_snapshot(
             self.store, self.output_dir, trade_date=current.date(), cutoff_at=cutoff,
             review_kind=review_kind, lane_id=self.lane_id,
@@ -838,9 +854,12 @@ class A5DailyReviewService:
         # Preserve failed requests' facts as well as successful reviews.
         atomic_write_json(target_dir / f"{artifact_stem}-facts.json", facts)
         projection = _model_fact_projection(facts)
-        prompt = self.prompts.render(_A5_PROMPT, {"A5_FACT_SNAPSHOT": projection})
-        if len(prompt) > 250_000:
-            raise ValueError("A5_MODEL_CONTEXT_TOO_LARGE")
+        try:
+            prompt, context_diagnostics = render_a5_prompt(self.prompts, _A5_PROMPT, projection)
+        except A5ReviewError as exc:
+            atomic_write_json(target_dir / f"{artifact_stem}-context.json", exc.diagnostics)
+            raise
+        atomic_write_json(target_dir / f"{artifact_stem}-context.json", context_diagnostics)
         prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
         result: ModelCallResult = self.model_client.complete(
             self.model,
@@ -854,10 +873,11 @@ class A5DailyReviewService:
         try:
             report = A5ReviewReport.model_validate(_canonicalize_report_output(result.output))
         except ValidationError as exc:
-            raise ValueError("A5_OUTPUT_SCHEMA_INVALID") from exc
+            raise A5ReviewError("A5_OUTPUT_SCHEMA_INVALID") from exc
         if report.review_kind is not review_kind or report.trade_date != current.date():
-            raise ValueError("A5_OUTPUT_IDENTITY_MISMATCH")
+            raise A5ReviewError("A5_OUTPUT_IDENTITY_MISMATCH")
         _validate_evidence(report, facts)
+        report.signal_stock_reviews = list(facts.get("signal_stock_reviews") or [])
 
         target_dir = self.output_dir / "a5" / current.date().isoformat()
         artifact_stem = f"{review_kind.value.lower().replace('_', '-')}-{str(facts['input_hash'])[:12]}"

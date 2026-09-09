@@ -1958,7 +1958,7 @@ function A5ReviewPage({ reviews }: { reviews: A5DailyReview[] }) {
   </div>;
 }
 
-function A5ReviewCard({ review }: { review: A5DailyReview }) {
+export function A5ReviewCard({ review }: { review: A5DailyReview }) {
   const report = review.report ?? {};
   const layers: Array<[string, typeof report.a2_review]> = [
     ["A2 题材与选股", report.a2_review], ["A3 日线计划", report.a3_review], ["A4 日内择时", report.a4_review],
@@ -1969,6 +1969,20 @@ function A5ReviewCard({ review }: { review: A5DailyReview }) {
     <div className="a5-layer-grid">{layers.map(([title, layer]) => <section key={title}><header><h3>{title}</h3><span>{a5VerdictLabel(layer?.verdict)}</span></header><p>{humanizeText(layer?.summary || "本次没有足够事实形成评价。")}</p>{layer?.defects?.length ? <ul>{layer.defects.map((item, index) => <li key={`${item}-${index}`}>{humanizeText(item)}</li>)}</ul> : <small>当前未确认层级缺陷。</small>}</section>)}</div>
     {report.signal_reviews?.length ? <section className="a5-section"><header><h3>信号逐项评价</h3><span>{report.signal_reviews.length} 条</span></header><div className="data-table-wrap"><table className="data-table"><thead><tr><th>股票</th><th>策略</th><th>生命周期</th><th>归因</th><th>客观评价</th></tr></thead><tbody>{report.signal_reviews.map((item, index) => <tr key={`${item.symbol}-${index}`}><td><span className="monitor-stock"><strong>{item.name || "名称未提供"}</strong><small>{stockSymbolLabel(item.symbol)}</small></span></td><td>{strategyProfileLabel(item.strategy_profile)}</td><td>{codeLabel(item.lifecycle_status)}</td><td>{a5AttributionLabel(item.attribution)}</td><td>{humanizeText(item.assessment || "—")}</td></tr>)}</tbody></table></div></section> : null}
     {report.missed_opportunity_reviews?.length ? <section className="a5-section a5-counterexamples"><header><h3>反向拷问：系统漏掉的机会</h3><span>{report.missed_opportunity_reviews.length} 个反例</span></header><p className="a5-section-note">按异源行情找出当日表现较强但没有有效盘中事件的股票，再定位漏在题材筛选、日线计划还是盘中确认。上涨本身不等于当时存在合规买点。</p><div className="data-table-wrap"><table className="data-table"><thead><tr><th>股票</th><th>主题</th><th>客观表现</th><th>漏斗位置</th><th>复盘判断</th></tr></thead><tbody>{report.missed_opportunity_reviews.map((item, index) => <tr key={`${item.symbol}-${index}`}><td><span className="monitor-stock"><strong>{item.name || "名称未提供"}</strong><small>{stockSymbolLabel(item.symbol)}</small></span></td><td>{humanizeText(item.theme || "未映射")}</td><td>{humanizeText(item.observed_performance || "—")}</td><td><span className={item.is_confirmed_defect ? "a5-confirmed-defect" : "a5-shadow-label"}>{codeLabel(item.funnel_drop_stage)} · {item.is_confirmed_defect ? "已确认缺陷" : "待验证"}</span></td><td>{humanizeText(item.assessment || "—")}</td></tr>)}</tbody></table></div></section> : null}
+    <section className="a5-section">
+      <header><h3>信号股票：当日表现与入场审计</h3><span>{report.signal_stock_reviews?.length ?? 0} 个事件</span></header>
+      <p className="a5-section-note">按有效信号逐事件核对。价格表现未扣费，不是已实现收益；当日新买入股份受T+1限制。入场审计核对冻结记录，不代表全策略重算。</p>
+      {report.signal_stock_reviews?.length ? <div className="data-table-wrap"><table className="data-table a5-signal-stock-table">
+        <thead><tr><th scope="col">股票 / 策略</th><th scope="col">当日表现</th><th scope="col">入场审计</th></tr></thead>
+        <tbody>{report.signal_stock_reviews.map((item, index) => <tr key={item.event_id || `${item.symbol}-${index}`}>
+          <td><strong>{item.name || "名称未提供"}</strong><br />{stockSymbolLabel(item.symbol)}<br />{strategyProfileLabel(item.strategy_profile)}</td>
+          <td>{item.performance_summary || "表现资料未归档"}<br /><small>行情截至：{formatDateTime(item.performance?.price_as_of)}</small></td>
+          <td>{item.entry_audit_summary || "入场证据未归档"}<details><summary>查看证据标识与盈亏比</summary>
+            <p>信号证据：{item.evidence_id || "未归档"}<br />冻结行情：{item.entry_audit?.minute_snapshot_id || "未归档"}<br />入场盈亏比：{item.entry_audit?.live_reward_risk?.toFixed(2) ?? "未提供"}；要求：{item.entry_audit?.minimum_reward_risk?.toFixed(2) ?? "未提供"}</p>
+          </details></td>
+        </tr>)}</tbody>
+      </table></div> : <p className="a5-empty-copy">本版复盘没有归档信号表现与入场审计；不能据此认定当日没有信号。</p>}
+    </section>
     <div className="a5-bottom-grid"><section className="a5-section"><header><h3>核心缺陷</h3><span>按证据分级</span></header>{report.core_defects?.length ? <ol>{report.core_defects.map((item, index) => <li key={`${item.layer}-${index}`}><strong>{item.layer} · {codeLabel(item.severity)}</strong><p>{humanizeText(item.problem)}</p></li>)}</ol> : <p className="a5-empty-copy">本次未确认可归因的核心缺陷。</p>}</section><section className="a5-section"><header><h3>改进提案</h3><span>仅影子验证</span></header>{report.improvement_proposals?.length ? <ol>{report.improvement_proposals.map((item, index) => <li key={item.proposal_id || index}><strong>{item.target} · {codeLabel(item.type)}</strong><p>{humanizeText(item.proposed_change)}</p><small>至少观察 {item.min_shadow_days ?? "—"} 个交易日；证伪：{humanizeText(item.falsification_criteria || "未提供")}</small></li>)}</ol> : <p className="a5-empty-copy">本次没有达到提出改进实验所需的证据门槛。</p>}</section></div>
     <section className="a5-unresolved"><strong>尚不能下结论</strong><ul>{(report.unresolved_questions ?? []).map((item, index) => <li key={`${item.question}-${index}`}>{humanizeText(item.question)}：{humanizeText(item.resolution)}</li>)}</ul></section>
   </Panel>;

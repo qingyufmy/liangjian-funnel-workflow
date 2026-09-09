@@ -356,6 +356,9 @@ def test_a5_review_card_is_structured_chinese_and_idempotent(tmp_path):
                     "funnel_drop_stage": "A2", "observed_performance": "收盘表现较强",
                     "assessment": "A2_NOT_FOCUSED，需要复核板块宽度。", "is_confirmed_defect": False,
                 }],
+                "signal_stock_reviews": [{"symbol": "002837.SZ", "name": "英维克",
+                    "performance_summary": "较昨收+1.00%；价格表现不是已实现收益",
+                    "entry_audit_summary": "模拟成交100股；当日新买入股份受T+1限制，当日不可卖"}],
                 "core_defects": [{
                     "layer": "A3", "severity": "MEDIUM",
                     "problem": "MA20 数据覆盖不足。", "blocked_by_data": True,
@@ -386,6 +389,9 @@ def test_a5_review_card_is_structured_chinese_and_idempotent(tmp_path):
     assert "趋势 5 日线" in body
     assert "未进入 A2 聚焦池" in body
     assert "数据修复" in body
+    assert "当日表现与入场审计" in body
+    assert "较昨收+1.00%" in body
+    assert "当日不可卖" in body
     assert store.list_notification_deliveries(kind="A5_POST_CLOSE_REVIEW")
 
 

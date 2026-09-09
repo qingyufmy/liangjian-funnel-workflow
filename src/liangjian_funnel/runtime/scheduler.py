@@ -325,6 +325,18 @@ class Scheduler:
             raw = getattr(exc, "diagnostics", None)
         except Exception:
             return {}
+        if isinstance(raw, Mapping) and raw.get("reason_code") == "A5_MODEL_CONTEXT_TOO_LARGE":
+            result = {key: raw[key] for key in ("prompt_chars", "unpacked_prompt_chars", "limit_chars", "target_chars")
+                      if type(raw.get(key)) is int and 0 <= raw[key] <= 1_000_000_000}
+            digest = raw.get("input_hash")
+            if isinstance(digest, str) and re.fullmatch(r"[a-f0-9]{64}", digest):
+                result["input_hash"] = digest
+            sections = raw.get("section_chars")
+            if isinstance(sections, Mapping):
+                allowed = {"a2", "a3", "a4", "metrics", "independent_verification", "review_history", "signal_stock_reviews"}
+                result["section_chars"] = {key: value for key, value in sections.items()
+                                           if key in allowed and type(value) is int and 0 <= value <= 1_000_000_000}
+            return result
         if not isinstance(raw, Mapping) or raw.get("reason_code") != "MINUTE_CACHE_CONFLICT":
             return {}
         result: dict[str, Any] = {}

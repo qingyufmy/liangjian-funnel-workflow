@@ -847,6 +847,15 @@ class WorkflowLarkPublisher:
                     f"{_display_text(item.get('assessment'), limit=220, fallback='评价待补充。')}"
                 )
 
+        stock_reviews = [item for item in report.get("signal_stock_reviews", ()) if isinstance(item, Mapping)]
+        if stock_reviews:
+            lines.extend(["", f"**当日表现与入场审计｜共 {len(stock_reviews)} 个信号事件，展示前5个**"])
+            for item in stock_reviews[:5]:
+                lines.append(f"• **{_text(item.get('name'), limit=24)}（{_stock_code(item.get('symbol'))}）**")
+                lines.append(f"  当日表现：{_text(item.get('performance_summary'), limit=300)}")
+                lines.append(f"  入场审计：{_text(item.get('entry_audit_summary'), limit=400)}")
+            lines.append("价格表现未扣费，不是已实现收益；完整信号和冻结证据见复盘详情。")
+
         counterexamples = [
             item for item in report.get("missed_opportunity_reviews", ()) if isinstance(item, Mapping)
         ] if isinstance(report.get("missed_opportunity_reviews"), (list, tuple)) else []

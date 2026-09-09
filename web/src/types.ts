@@ -659,6 +659,18 @@ export interface A5SignalReview {
   evidence_ids?: string[];
 }
 
+export interface A5SignalStockReview {
+  event_id?: string;
+  symbol?: string;
+  name?: string;
+  strategy_profile?: string;
+  performance_summary?: string;
+  entry_audit_summary?: string;
+  evidence_id?: string;
+  performance?: { price_as_of?: string | null; source?: string | null };
+  entry_audit?: { minute_snapshot_id?: string | null; live_reward_risk?: number | null; minimum_reward_risk?: number | null; scope?: string };
+}
+
 export interface A5CounterexampleReview {
   symbol?: string | null;
   name?: string | null;
@@ -689,6 +701,7 @@ export interface A5DailyReview {
     a3_review?: A5LayerReview;
     a4_review?: A5LayerReview;
     signal_reviews?: A5SignalReview[];
+    signal_stock_reviews?: A5SignalStockReview[];
     missed_opportunity_reviews?: A5CounterexampleReview[];
     core_defects?: Array<{ layer?: string; severity?: string; problem?: string; confidence?: string; blocked_by_data?: boolean }>;
     improvement_proposals?: Array<{ proposal_id?: string; type?: string; target?: string; hypothesis?: string; proposed_change?: string; validation_method?: string; success_criteria?: string; falsification_criteria?: string; min_shadow_days?: number; risk?: string }>;

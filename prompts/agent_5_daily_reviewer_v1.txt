@@ -23,7 +23,11 @@
 20. a4.observation_groups是量化全量汇总；events只展示代表样本和全部有效事件，不代表全天次数。汇总保留各原因次数、首末时点，不同原因计数可能重叠；引用组证据，不从代表样本外推比例或胜率。
 21. 反例分阶段数量必须引用metrics.a5_counterexample_drop_stage_counts；无该统计就不写阶段数量。cross_source_verified_fields之外的字段不得说“一致”。T+1次日可卖仍受停牌、价格限制、行情和流动性约束，不得把次日未成交一概认定为缺陷。
 
+22. encoding="a5-column-table/1" 表示无损列式表：columns是字段顺序，rows每行按列对应原记录；missing_cells中的[行号,列号]（从0开始）表示字段缺失，其余null仍表示明确空值。该编码只去除重复字段名，没有删减记录、异常或信号；evidence_id列的原始值仍是引用编号。不得把表结构当成额外业务事实。
+23. a3.plan_scope区分当日计划与盘前已失效的历史版本；历史版本不计入当日计划数。a4.carryover_plans和carryover_lifecycles是前日持仓关联证据，不代表当日新入场或新发布计划；不得与今日信号收益混算。
+
 A5_FACT_SNAPSHOT:
+signal_stock_reviews由代码生成，是有效信号逐事件的当日表现及入场冻结证据。评价必须区分昨收涨跌、信号后价格表现、模拟成交后价格表现与已实现收益；分钟覆盖不足不能称全日极值。入场审计是冻结记录核对而非全策略重算。缺失成交不推定持仓，T+1当日买入不可当日卖出。不要在输出中生成signal_stock_reviews字段，程序会注入权威事实。
 {{A5_FACT_SNAPSHOT}}
 
 只输出一个合法 JSON 对象，禁止 Markdown、前后缀和额外字段：

@@ -160,6 +160,14 @@ def test_a5_service_persists_markdown_and_is_idempotent(tmp_path: Path):
     assert str(first["markdown_path"]).endswith(f"midday-{first['input_hash'][:12]}.md")
     assert "不修改生产策略" in Path(str(first["markdown_path"])).read_text(encoding="utf-8")
     assert len(store.list_a5_reviews()) == 1
+    diagnostics = list(output_dir.joinpath("a5", "2026-09-03").glob("*-context.json"))
+    assert len(diagnostics) == 1
+    context = json.loads(diagnostics[0].read_text(encoding="utf-8"))
+    assert context["prompt_chars"] <= context["limit_chars"] == 250000
+    saved = json.loads(Path(str(first["markdown_path"])).with_suffix(".json").read_text(encoding="utf-8"))
+    assert len(saved["report"]["signal_stock_reviews"]) == 1
+    assert saved["report"]["signal_stock_reviews"] == saved["facts"]["signal_stock_reviews"]
+    assert "当日表现与入场审计" in Path(str(first["markdown_path"])).read_text(encoding="utf-8")
 
 
 def test_a5_service_accepts_independent_counterexample_evidence(tmp_path: Path):

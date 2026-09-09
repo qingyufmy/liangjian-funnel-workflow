@@ -18,6 +18,7 @@ from datetime import datetime, time, timedelta
 from statistics import median
 from typing import Any
 from zoneinfo import ZoneInfo
+from ..runtime.calendar import ExchangeTradingCalendar
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -182,6 +183,23 @@ class A5IndependentVerifier:
         )
         a3_check = self._verify_a3(plan_rows, daily, tdx_5m, cutoff)
         a4_check = self._verify_a4(plan_rows, event_rows, tencent_rows, tdx_1m, local_1m, cutoff)
+        # Only signal stocks need minute paths for deterministic performance.
+        # Keep frozen decision-family observations separate from alternate checks.
+        signal_symbols = {str(_mapping(e.get("payload_json")).get("symbol") or "")
+                          for e in event_rows if e.get("effective") and e.get("action") in _ACTIONABLE}
+        signal_market = {}
+        previous_session = ExchangeTradingCalendar().previous_trading_day(cutoff.date())
+        for symbol in sorted(signal_symbols):
+            selected = local_1m.get(symbol, {})
+            previous = [b for b in daily.get(symbol, []) if _bar_time(b) and _bar_time(b).date() < cutoff.date()]
+            previous.sort(key=lambda b: _bar_time(b))
+            signal_market[symbol] = {
+                "source": selected.get("archive_basis", "UNAVAILABLE"),
+                "previous_close": _bar_value(previous[-1], "close") if previous and _bar_time(previous[-1]).date() == previous_session else None,
+                "expected_minutes": _expected_minutes(cutoff.replace(hour=9, minute=30, second=0, microsecond=0), cutoff),
+                "bars": [{"bar_end": _bar_time(b).isoformat(), **{k: _bar_value(b, k) for k in ("open", "high", "low", "close")}}
+                         for b in selected.get("bars", []) if _bar_time(b)],
+            }
         sections = (a2_check, a3_check, a4_check)
         status = "READY" if all(item.get("status") == "READY" for item in sections) else (
             "DEGRADED" if any(item.get("status") in {"READY", "DEGRADED"} for item in sections) else "UNAVAILABLE"
@@ -199,6 +217,7 @@ class A5IndependentVerifier:
             "a2": a2_check,
             "a3": a3_check,
             "a4": a4_check,
+            "signal_market": signal_market,
             "counterexamples": a2_check.get("counterexamples", []),
         }
 
