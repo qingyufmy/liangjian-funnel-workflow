@@ -913,11 +913,20 @@ class MonitorEngine:
         # de-duplication key.  A new A3 plan receives a new plan_id.
         key = f"effective:{lane_id}:{plan_id}:{action}"
         from .entry_contract import freeze_entry_contract
+        entry_payload = self._payload(plan)
+        if plan.get("expires_at"):
+            entry_payload = {**entry_payload, "expires_at": plan["expires_at"]}
         entry_contract = (
-            freeze_entry_contract(symbol, self._payload(plan), strategy_result or {}, at=minute)
+            freeze_entry_contract(symbol, entry_payload, strategy_result or {}, at=minute)
             if action in {MonitorAction.BUY_SIGNAL.value, MonitorAction.ADD_SIGNAL.value}
             and strategy_result is not None else None
         )
+        if entry_contract is not None and entry_contract.get("status") != "READY":
+            return self._emit_internal(
+                lane_id, minute, snapshot_id, MonitorAction.NO_ACTION.value,
+                str(entry_contract.get("reason_code") or "ENTRY_PRICE_CONTRACT_INVALID"), plan_id, symbol,
+                strategy_result={**dict(strategy_result or {}), "entry_contract": entry_contract},
+            )
         record, inserted = self.store.record_monitor_event(
             event_key=key,
             lane_id=lane_id,

@@ -357,3 +357,18 @@ def test_a5_embedded_states_keep_chinese_execution_meaning():
     assert _display_text('LOW') == '较低'
     assert '系统内部状态' not in _display_text('UNRECOGNIZED_FUTURE_REASON')
     assert '阶段追溯完整' in _display_text('lineage_complete=true')
+
+
+def test_close_time_cannot_emit_unexecutable_buy_notification(tmp_path):
+    from liangjian_funnel.runtime.monitor import MonitorEngine
+    store=RuntimeStore(tmp_path/'monitor.db')
+    engine=MonitorEngine(store)
+    plan={'plan_id':'p','symbol':'600001.SH','payload_json':json.dumps({'stop_level':9.0}),
+          'expires_at':'2026-09-09T15:00:00+08:00'}
+    strategy={'action':'BUY_SIGNAL','live_entry_price':10.0,'live_stop_level':9.0}
+    event=engine._emit_effective('lane_1',plan,NOW.replace(hour=15), 'closed-snapshot','BUY_SIGNAL','STRATEGY_ENTRY_READY',strategy_result=strategy)
+    assert event.effective is False and event.action=='NO_ACTION'
+    assert event.reason_code in {'ENTRY_NO_NEXT_TRADING_MINUTE','ENTRY_NEXT_MINUTE_AFTER_PLAN_EXPIRY'}
+    assert not any(row['effective'] for row in store.list_monitor_events())
+    contract=freeze_entry_contract('600001.SH',{'stop_level':9.0,'expires_at':plan['expires_at']},strategy,at=NOW.replace(hour=14,minute=59))
+    assert contract['status']=='READY' and contract['eligible_bar_end']=='2026-09-09T15:00:00+08:00'
