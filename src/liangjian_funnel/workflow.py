@@ -3884,6 +3884,12 @@ class WorkflowApplication:
         except Exception:
             event_notifications = [{"status": "FAILED", "reason_code": "LARK_NOTIFICATION_FAILED"}]
         notifications = [*system_notifications, *event_notifications]
+        execution_publisher = getattr(publisher, "publish_a4_execution_results", None)
+        if callable(execution_publisher):
+            try:
+                notifications.extend(execution_publisher(simulation, now=current))
+            except Exception:
+                notifications.append({"status": "FAILED", "reason_code": "A4_EXECUTION_NOTIFICATION_FAILED"})
         payload = {
             "minute_snapshot_id": minute_snapshot_id,
             "live_market_state": live_market_state,
@@ -4957,7 +4963,13 @@ class WorkflowApplication:
                         **_plan_payload(raw),
                         "source_run_id": result.run_id,
                     }
+                    if str(raw.get("strategy_profile") or "").upper() == "TREND_MA5":
+                        payload["trend_entry_rule_version"] = "trend-ma5/2"
                     symbol = payload.get("symbol")
+                    if raw.get("rotation_reserve_scope") == "RESEARCH_ONLY_NO_AUTOMATIC_ENTRY":
+                        blocked.append({"lane": lane.lane, "symbol": symbol or "-",
+                                        "reason": "A3_ROTATION_RESERVE_RESEARCH_ONLY"})
+                        continue
                     if pool_name == "secondary_watch_pool":
                         blocked.append({
                             "lane": lane.lane,
@@ -5089,8 +5101,26 @@ class WorkflowApplication:
             for item in published
             if item.get("status") == PlanStatus.ACTIVE_TODAY.value
         ]
+        indicator_preparation = {"status": "NOT_APPLICABLE", "plans": []}
+        if slot == "close" and hasattr(self, "minute_store") and hasattr(self, "market_data"):
+            from .runtime.indicator_history import prepare_520_history
+            indicator_preparation = prepare_520_history(
+                published, now=now, calendar=self.trading_calendar,
+                minute_store=self.minute_store, provider=self.market_data,
+            )
+            history_notifier = getattr(getattr(self, "lark_publisher", None), "publish_indicator_preparation", None)
+            if callable(history_notifier):
+                try:
+                    indicator_preparation["notifications"] = history_notifier(indicator_preparation, now=now)
+                except Exception:
+                    indicator_preparation["notifications"] = [{"status": "FAILED", "reason_code": "INDICATOR_ALERT_FAILED"}]
+            atomic_write_json(
+                self.settings.workflow_output_dir / "runs" / f"{result.run_id}-indicator-preparation.json",
+                indicator_preparation,
+            )
         return {
             "atomic": True,
+            "indicator_preparation": indicator_preparation,
             "created": created,
             "activated": activated,
             "blocked": blocked,
@@ -5175,7 +5205,8 @@ class WorkflowApplication:
         recorded: list[str] = []
         skipped: list[dict[str, str]] = []
         for event in events:
-            if str(event.get("action") or "").upper() != MonitorAction.BUY_SIGNAL.value:
+            action_name = str(event.get("action") or "").upper()
+            if action_name not in {MonitorAction.BUY_SIGNAL.value, MonitorAction.ADD_SIGNAL.value}:
                 continue
             try:
                 payload = json.loads(str(event.get("payload_json") or "{}"))
@@ -5183,6 +5214,12 @@ class WorkflowApplication:
                 payload = {}
             if not isinstance(payload, Mapping):
                 payload = {}
+            entry_contract = payload.get("entry_contract")
+            entry_contract = entry_contract if isinstance(entry_contract, Mapping) else {}
+            # Historical BUY labels keep their original identity. New frozen
+            # entry contracts identify each signal, including a later add.
+            if action_name == MonitorAction.ADD_SIGNAL.value and not entry_contract:
+                continue
             plan_id = str(payload.get("plan_id") or "").strip()
             lane_id = str(event.get("lane_id") or "").strip()
             plan = plans.get(plan_id) or self.store.get_execution_plan(plan_id)
@@ -5211,6 +5248,11 @@ class WorkflowApplication:
             try:
                 signal_time = datetime.fromisoformat(str(event.get("minute_end") or ""))
                 lifecycle = self.store.get_a4_signal_lifecycle(str(event.get("event_key") or ""))
+                event_key = str(event.get("event_key") or "")
+                outcome_run_id = (
+                    f"{source_run_id}:signal:{hashlib.sha256(event_key.encode()).hexdigest()[:16]}"
+                    if entry_contract else source_run_id
+                )
                 rows = record_stage_decisions(
                     self.store,
                     trade_date=signal_time.astimezone(SHANGHAI).date(),
@@ -5229,7 +5271,10 @@ class WorkflowApplication:
                             "lifecycle_id": str((lifecycle or {}).get("lifecycle_id") or ""),
                             "plan_id": plan_id,
                             "signal_time": signal_time.isoformat(),
-                            "signal_price": (lifecycle or {}).get("signal_price"),
+                            "signal_price": entry_contract.get("signal_reference") or (lifecycle or {}).get("signal_price"),
+                            "source_run_id": source_run_id,
+                            "signal_action": action_name,
+                            "entry_contract_version": entry_contract.get("version"),
                             "strategy_profile": plan_payload.get("strategy_profile"),
                             "stock_behavior_type": plan_payload.get("stock_behavior_type"),
                             "theme_id": plan_payload.get("theme_id"),
@@ -5240,7 +5285,7 @@ class WorkflowApplication:
                     }],
                     snapshot_id=snapshot_id,
                     config_hash=config_hash,
-                    run_id=source_run_id,
+                    run_id=outcome_run_id,
                     lane_id=lane_id,
                 )
                 recorded.extend(str(row.get("label_id") or "") for row in rows)
@@ -5289,6 +5334,9 @@ class WorkflowApplication:
                 MonitorAction.FORCED_RISK_EXIT.value: "FORCED_RISK_EXIT",
             }[str(event["action"])]
             signal_time = datetime.fromisoformat(str(event["minute_end"]))
+            contract = payload.get("entry_contract")
+            contract = contract if isinstance(contract, Mapping) else None
+            new_entry = contract is not None and action in {"BUY", "ADD"}
             simulation_action = SimulationAction(
                 account_id=account_id,
                 signal_id=str(event["event_key"]),
@@ -5296,12 +5344,14 @@ class WorkflowApplication:
                 action=action,
                 signal_bar_end=signal_time,
                 entry_reference=(
-                    plan_payload.get("trigger_low")
+                    (contract.get("limit_price") if new_entry else plan_payload.get("trigger_low"))
                     if action in {"BUY", "ADD"}
                     else bar.open
                 ) or bar.open,
-                stop_level=plan_payload.get("stop_level"),
-                risk_unit=0.33 if plan_payload.get("risk_unit") == "PROBE" else 1.0,
+                stop_level=contract.get("stop_level") if new_entry else plan_payload.get("stop_level"),
+                risk_unit=contract.get("risk_unit", 1.0) if new_entry else (0.33 if plan_payload.get("risk_unit") == "PROBE" else 1.0),
+                order_type=("LIMIT" if contract.get("status") == "READY" else "INVALID") if new_entry else "LEGACY_REFERENCE",
+                limit_price=contract.get("limit_price") if new_entry else None,
                 plan_id=payload.get("plan_id"),
             )
             intent_key = f"{simulation_action.account_id}:{simulation_action.signal_id}:{simulation_action.action.value}"
@@ -5394,6 +5444,13 @@ class WorkflowApplication:
                 reason_code="ENTRY_NEXT_BAR_MISSED",
                 at=current,
             )
+            execution_publisher = getattr(getattr(self, "lark_publisher", None), "publish_a4_execution_results", None)
+            if callable(execution_publisher):
+                execution_publisher([{
+                    "account_id": account_id, "signal_id": event_key,
+                    "symbol": lifecycle.get("symbol"), "action": "BUY",
+                    "status": "CANCELLED", "reason_code": "ENTRY_NEXT_BAR_MISSED",
+                }], now=current)
             expired += 1
         return expired
 

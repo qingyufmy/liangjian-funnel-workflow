@@ -185,12 +185,13 @@ def classify_a2_stock(
         for state in trend_states
     )
     # A2 first establishes a broad, auditable candidate universe and lets the
-    # model make the quality decision.  For a monthly A1 member already
-    # joined to a positive-flow TOP5 board, a single weak relative-strength
+    # model make the quality decision. For an evidence-backed monthly A1
+    # member, a single weak relative-strength
     # or industry-resonance facet must not turn the row into an invisible
     # UNRESOLVED row.  The medium-term trend remains a required anchor;
-    # missing/negative medium-term evidence is not bypassed.  This opt-in
-    # flag is intentionally restricted to the deterministic TOP5 route and
+    # missing/negative medium-term evidence is not bypassed. Today's TOP5
+    # admission is a separate downstream gate: a trend outside that scope
+    # remains a trend observation, not an executable candidate. This flag
     # does not broaden the independent emotion contract.
     partial_trend_qualified = bool(trend_candidate) and _partial_trend_candidate(trend_states)
 

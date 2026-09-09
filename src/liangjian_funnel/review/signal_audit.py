@@ -130,6 +130,8 @@ def build_signal_stock_reviews(events, plans, fills, market, cutoff, *, lifecycl
             "coverage_complete": len(bars) == observed.get("expected_minutes") and bool(bars),
             "basis": "价格变化，未扣费；不是已实现收益；成交后极值不含成交分钟"}
         audit = {"state": audit_state, "checks": checks, "signal_at": at.isoformat(),
+            "execution_contract": mapping(payload.get("entry_contract")),
+            "execution_status": "FILLED" if qty else "UNFILLED" if terminal else "NO_FILL_RECORDED",
             "signal_reference_price": reference, "fill_at": entry_at.isoformat() if entry_at else None,
             "fill_qty": qty, "fill_price": price, "entry_fee": fee,
             "fill_ids": [f.get("fill_id") for f in matched], "fill_summary": fill_label,
@@ -151,7 +153,7 @@ def build_signal_stock_reviews(events, plans, fills, market, cutoff, *, lifecycl
             "name": plan.get("name") or plan.get("company_name") or "名称未提供",
             "strategy_profile": strategy.get("strategy_profile") or plan.get("strategy_profile"),
             "action": event.get("action"), "performance": performance, "entry_audit": audit,
-            "performance_summary": f"较昨收{percentage(day_return)}；信号后{percentage(signal_return)}；成交价至观察价{percentage(entry_return)}；{coverage}",
+            "performance_summary": f"较昨收{percentage(day_return)}；信号后{percentage(signal_return)}；成交价至观察价{percentage(entry_return) if qty else '不适用（未成交）'}；{coverage}",
             "entry_audit_summary": f"{at:%H:%M}，{audit_state}；{fill_label}；{audit['t1_note']}",
             "evidence_id": f"A5S:{event.get('event_id')}"})
     return result

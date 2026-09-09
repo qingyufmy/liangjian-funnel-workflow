@@ -78,6 +78,8 @@ class SimulationAction(BaseModel):
     requested_qty: int | None = Field(default=None, ge=1)
     risk_unit: float = Field(default=1.0, gt=0, le=1)
     plan_id: str | None = None
+    order_type: str = "LEGACY_REFERENCE"
+    limit_price: float | None = None
 
     @field_validator("symbol", mode="before")
     @classmethod
@@ -103,7 +105,7 @@ class SimulationAction(BaseModel):
             raise ValueError("signal_bar_end must be timezone-aware")
         return value
 
-    @field_validator("entry_reference", "stop_level")
+    @field_validator("entry_reference", "stop_level", "limit_price")
     @classmethod
     def finite_price(cls, value: float | None) -> float | None:
         if value is not None and (not math.isfinite(value) or value <= 0):
@@ -265,6 +267,10 @@ class PaperBroker:
         parsed = action if isinstance(action, SimulationAction) else SimulationAction.model_validate(action)
         if parsed.account_id != self.account_id:
             return self._blocked(parsed, "ACCOUNT_LANE_MISMATCH")
+        if parsed.order_type not in {"LEGACY_REFERENCE", "LIMIT"}:
+            return self._blocked(parsed, "ENTRY_CONTRACT_INVALID")
+        if parsed.order_type == "LIMIT" and parsed.limit_price is None:
+            return self._blocked(parsed, "ENTRY_CONTRACT_INVALID")
         try:
             self.store.assert_writable()
             decision = self.risk_governor.evaluate(parsed, bar)
@@ -316,6 +322,10 @@ class PaperBroker:
             return self._blocked(parsed, str(exc) if str(exc).isupper() else "TRADING_DAY_UNAVAILABLE")
         if bar.bar_end <= parsed.signal_bar_end:
             return self._blocked(parsed, "NEXT_COMPLETE_BAR_REQUIRED")
+        if parsed.order_type == "LIMIT" and parsed.action in {SimulationActionType.BUY, SimulationActionType.ADD}:
+            from .entry_contract import next_entry_minute
+            if bar.bar_end != next_entry_minute(parsed.signal_bar_end):
+                return self._blocked(parsed, "ENTRY_NEXT_BAR_MISSED")
         if bar.volume <= 0 or bar.high <= bar.low:
             return self._blocked(parsed, "BAR_NOT_EXECUTABLE")
         self.store.upsert_market_mark(self.account_id, parsed.symbol, bar.close, bar.bar_end)
@@ -331,11 +341,16 @@ class PaperBroker:
         position = self.store.get_position(self.account_id, parsed.symbol)
         fill_price = self._adverse_price(parsed, bar)
         if fill_price is None:
+            if parsed.order_type == "LIMIT" and parsed.action in {SimulationActionType.BUY, SimulationActionType.ADD}:
+                return self._blocked(parsed, "LIMIT_TOUCH_WITHOUT_FILL_EVIDENCE"
+                                     if bar.low == parsed.limit_price else "LIMIT_NOT_REACHED")
             return self._blocked(parsed, "PRICE_OUTSIDE_BAR")
 
         if parsed.action in {SimulationActionType.BUY, SimulationActionType.ADD}:
             if parsed.stop_level is None:
                 return self._blocked(parsed, "STOP_LEVEL_REQUIRED")
+            if parsed.order_type == "LIMIT" and fill_price <= parsed.stop_level:
+                return self._blocked(parsed, "ENTRY_AT_OR_BELOW_STOP")
             qty, reason = self.calculate_quantity(
                 symbol=parsed.symbol,
                 entry_reference=float(parsed.entry_reference or bar.open),
@@ -448,6 +463,16 @@ class PaperBroker:
     execute = apply
 
     def _adverse_price(self, action: SimulationAction, bar: MinuteBar) -> float | None:
+        if getattr(action, "order_type", "LEGACY_REFERENCE") == "LIMIT" and action.action in {SimulationActionType.BUY, SimulationActionType.ADD}:
+            limit = action.limit_price
+            if limit is None:
+                return None
+            # A limit is a maximum, not an exact required transaction price.
+            # Opening price improvement is permitted. A later touch alone
+            # does not prove queue priority: require strict penetration.
+            if bar.open <= limit:
+                return bar.open
+            return limit if bar.low < limit else None
         reference = float(action.entry_reference or bar.open)
         if not math.isfinite(reference) or reference <= 0:
             return None

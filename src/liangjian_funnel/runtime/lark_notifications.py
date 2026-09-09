@@ -151,6 +151,11 @@ _DISPLAY_LABELS = {
     "A4_BEHAVIOR_TYPE_MISSING": "股票类型尚未确定，不能选择盘中策略",
     "BLOCKED_T1": "受 A 股当日买入次日可卖规则限制，等待下一交易日离场",
     "ENTRY_NEXT_BAR_MISSED": "入场信号后的下一根完整分钟线未能成交",
+    "LIMIT_TOUCH_WITHOUT_FILL_EVIDENCE": "仅触及限价，缺少可成交证据",
+    "LIMIT_NOT_REACHED": "有效分钟内价格未到买入限价",
+    "PRICE_OUTSIDE_BAR": "旧版模拟指定价未落入该分钟价格范围",
+    "ENTRY_CONTRACT_INVALID": "入场参考价或风险线缺失，执行契约无效",
+    "ENTRY_AT_OR_BELOW_STOP": "拟成交价已触及风险线，不再入场",
     "TREND_5M_FAILED_MA5_RECLAIM": "趋势股连续跌破五日线参考且回抽失败",
     "TREND_HIGH_VOLUME_MA5_BREAK": "趋势股放量跌破五日线参考",
     "TREND_HIGH_VOLUME_UPPER_SHADOW": "趋势股放量长上影，触发减仓",
@@ -158,6 +163,12 @@ _DISPLAY_LABELS = {
     "MA520_HIGH_VOLUME_MA20_BREAK": "五二零策略放量跌破二十日线参考",
     "TREND_5M_REVERSAL_NOT_CONFIRMED": "五分钟转强尚未确认",
     "TREND_15M_PRESSURE_NOT_EASING": "十五分钟压力尚未缓解",
+    "TREND_PULLBACK_VOLUME_CONTRACTION_NOT_MET": "回踩阶段尚未出现缩量",
+    "TREND_PRIOR_5M_REVERSAL_NOT_MET": "前一根完整五分钟线未形成反转结构",
+    "TREND_SUBSEQUENT_5M_CONFIRMATION_NOT_MET": "反转后尚未出现温和放量的五分钟阳线确认",
+    "TREND_VWAP_RECLAIMED_NOT_MET": "价格尚未收复当日成交均价",
+    "A2_ROTATION_RESERVE_RESEARCH_ONLY": "轮动候补方向，进入技术研究，暂不执行",
+    "A3_ROTATION_RESERVE_RESEARCH_ONLY": "候补技术研究计划，未开放盘中执行",
     "TREND_PULLBACK_ZONE_NOT_MET": "尚未进入趋势回踩区",
     "PLAN_INVALIDATED_AT_OPEN": "开盘价格触发计划失效",
     "LLM_VETO": "盘中复核模型否决",
@@ -200,6 +211,7 @@ _DISPLAY_LABELS = {
     "MISMATCH": "交叉核验不一致",
     "A1_NOT_ACTIVE": "未进入 A1 有效研究池",
     "A2_NOT_EVALUATED": "A2 尚未完成评估",
+    "A2_QUANT_FILTERED": "A2量化已评价，未进入模型复核池",
     "A2_NOT_FOCUSED": "未进入 A2 聚焦池",
     "A3_NOT_PLANNED": "A3 未形成日线计划",
     "A4_NO_EFFECTIVE_SIGNAL": "A4 未触发有效信号",
@@ -936,6 +948,60 @@ class WorkflowLarkPublisher:
             )
         ]
 
+    def publish_signal_day_review(self, facts: Mapping[str, Any], *, now: datetime) -> list[dict[str, Any]]:
+        """Deterministic post-close card; independent of the A5 model result."""
+        if facts.get("review_kind") != "POST_CLOSE":
+            return []
+        rows = list(facts.get("signal_stock_reviews") or [])
+        outputs = []
+        for offset in range(0, len(rows), 10):
+            page = rows[offset:offset + 10]
+            digest = hashlib.sha256(json.dumps(page, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:16]
+            lines = ["策略信号不等于成交。以下为价格观察，未成交样本也持续跟踪T+N，不计入成交收益。"]
+            for row in page:
+                audit = row.get("entry_audit") or {}
+                lines.extend(["", f"**{_text(row.get('name'))}（{_stock_code(row.get('symbol'))}）**",
+                    f"• 信号时间：{_time_label(audit.get('signal_at'))}；参考价：{_number(audit.get('signal_reference_price'))}",
+                    f"• {row.get('performance_summary') or '表现资料不足'}",
+                    f"• {audit.get('fill_summary') or '未确认成交'}"])
+            outputs.append(self._send(
+                delivery_key=f"a4-signal-day:{facts.get('trade_date')}:{offset // 10 + 1}:{digest}",
+                kind="A4_SIGNAL_DAY_REVIEW", source_id=str(facts.get("input_hash") or digest),
+                title=f"当日信号表现｜{facts.get('trade_date')}｜第{offset // 10 + 1}页",
+                lines=lines, summary={"signal_count": len(rows), "rows": page}, now=now,
+            ))
+        return outputs
+
+    def publish_indicator_preparation(self, preparation, *, now):
+        missing = [row for row in preparation.get("plans", []) if row.get("status") != "READY"]
+        if not missing:
+            return []
+        digest = hashlib.sha256(json.dumps(missing, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:16]
+        return [self._send(delivery_key=f"a4-indicator-history:{digest}", kind="A4_INDICATOR_READINESS",
+            source_id=digest, title="盘前数据准备告警｜520历史不足",
+            lines=["A3日线计划不因此自动淘汰，但520盘中辅助指标尚未具备完整历史。"] + [
+                f"• {_stock_code(row.get('symbol'))}：目标{row.get('target_trade_date')}；五分钟历史{row.get('available_5m_count', 0)}/144。"
+                for row in missing], summary=preparation, now=now)]
+
+    def publish_a4_execution_results(self, results, *, now):
+        outputs = []
+        for row in results:
+            if row.get("action") not in {"BUY", "ADD"} or row.get("status") == "DUPLICATE":
+                continue
+            if row.get("status") not in {"FILLED", "BLOCKED", "CANCELLED"}:
+                continue
+            filled = row.get("status") == "FILLED"
+            symbol = _stock_code(row.get("symbol"))
+            lines = [f"• 股票：{symbol}",
+                     f"• 模拟成交：{row.get('qty', 0)}股，价格{_number(row.get('price'))}；费用{_number(row.get('fee'))}" if filled
+                     else f"• 未成交终止：{_display_text(row.get('reason_code'), fallback='执行条件未满足')}。不推定持仓，不自动追价。",
+                     "• 新买入股份当日不可卖出；信号表现与成交收益分开跟踪。"]
+            outputs.append(self._send(delivery_key=f"a4-execution:{row.get('account_id')}:{row.get('signal_id')}:{row.get('status')}",
+                kind="A4_EXECUTION_RESULT", source_id=str(row.get("signal_id")),
+                title=f"A4执行结果｜{symbol}｜{'模拟成交' if filled else '未成交终止'}",
+                lines=lines, summary=dict(row), now=now))
+        return outputs
+
     def publish_a4_events(
         self,
         events: Sequence[Mapping[str, Any]],
@@ -969,6 +1035,15 @@ class WorkflowLarkPublisher:
             title = f"A4 盘中信号｜{name}（{symbol}）｜{_ACTION_LABELS.get(action, _display_text(action))}"
             eligibility = strategy_result.get("execution_eligibility") or {}
             execution_lines: list[str] = []
+            if action in {"BUY_SIGNAL", "ADD_SIGNAL"}:
+                contract = event_payload.get("entry_contract") or {}
+                ready = contract.get("status") == "READY"
+                title += "｜待成交" if ready else "｜执行契约待核对"
+                execution_lines = ["", "**执行状态**",
+                    "• 条件成立不代表委托已成交，不以信号推定持仓。",
+                    f"• 信号参考价：{_number(contract.get('signal_reference'))}；限价买入上限：{_number(contract.get('limit_price'))}",
+                    "• 仅下一根可交易完整分钟尝试模拟撮合；未成交即终止，不自动追价。" if ready else "• 缺少有效冻结执行契约，不能认定为可执行委托。",
+                    "• 当日新买入股份受T+1限制，当日不可卖出。"]
             if action in {"SELL_SIGNAL", "REDUCE_SIGNAL", "FORCED_RISK_EXIT"}:
                 blocked = eligibility.get("reason")
                 explanation = (

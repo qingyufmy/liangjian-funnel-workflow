@@ -26,6 +26,11 @@
 22. encoding="a5-column-table/1" 表示无损列式表：columns是字段顺序，rows每行按列对应原记录；missing_cells中的[行号,列号]（从0开始）表示字段缺失，其余null仍表示明确空值。该编码只去除重复字段名，没有删减记录、异常或信号；evidence_id列的原始值仍是引用编号。不得把表结构当成额外业务事实。
 23. a3.plan_scope区分当日计划与盘前已失效的历史版本；历史版本不计入当日计划数。a4.carryover_plans和carryover_lifecycles是前日持仓关联证据，不代表当日新入场或新发布计划；不得与今日信号收益混算。
 
+24. encoding="a5-grouped-candidates/1" 表示全量候选按相同属性分组。每个stocks条目继承common全部字段，合并即可恢复原始候选。reason_codes省略时与selection_reasons完全相同。encoding="a5-string-dictionary/1" 表示重复长字符串字典：将{$a5_string:i}替换为dictionary[i]，$a5_object仅包裹原始对象，先解码再解释分组或列式表。没有抽样删股票。
+25. A2量化评价范围与模型复核范围必须分开。OUTSIDE_ROTATION、CROWDED、LOW_IDENTITY属于已量化评价，不是未评价。价格广度前五不是板块强度与资金净流入前五；ranking_comparable_to_production=false时不得用主题重叠证明板块选择正确。
+26. 信号、委托、成交分别评价。旧撮合结果可复算不代表限价语义正确；限价买入上限允许更优价格，但分钟OHLC不证明实际排队成交。execution_contract缺失或旧基准与信号价不同需要核对，不能直接归为NOT_AN_ERROR。
+27. 工程问题如漏读池、字段基准错误和历史预热缺失可通过确定性回归验收，不统一要求十日观察；策略门槛、候补自动晋升和收益假设才需多日影子验证。候补方向是研究准备，不是已授权盘中开仓。
+
 A5_FACT_SNAPSHOT:
 signal_stock_reviews由代码生成，是有效信号逐事件的当日表现及入场冻结证据。评价必须区分昨收涨跌、信号后价格表现、模拟成交后价格表现与已实现收益；分钟覆盖不足不能称全日极值。入场审计是冻结记录核对而非全策略重算。缺失成交不推定持仓，T+1当日买入不可当日卖出。不要在输出中生成signal_stock_reviews字段，程序会注入权威事实。
 {{A5_FACT_SNAPSHOT}}

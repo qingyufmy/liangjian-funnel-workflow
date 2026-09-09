@@ -2281,7 +2281,8 @@ def test_screen_a2_available_selected_board_is_authoritative_over_conflicting_me
     assert set(result.review_symbols) == set(symbols[:2])
 
 
-def test_screen_a2_available_selected_board_opens_only_its_top_five_rows() -> None:
+@pytest.mark.parametrize("reserve", [False, True])
+def test_screen_a2_available_selected_board_opens_only_its_top_five_rows(reserve) -> None:
     snapshot = _snapshot(2)
     symbols = snapshot["g0_symbols"]
     snapshot["SELECTED_BOARD_SNAPSHOT"] = {
@@ -2319,6 +2320,13 @@ def test_screen_a2_available_selected_board_opens_only_its_top_five_rows() -> No
         }
         for symbol in symbols
     ]
+    if reserve:
+        snapshot["SELECTED_BOARD_SNAPSHOT"]["by_symbol"][symbols[0]] = [{
+            "board_code": "RESERVE", "strategy_theme_id": "theme-monthly",
+            "board_name": "候补方向", "strength": 80, "main_net_inflow_cny": 100,
+            "rotation_reserve_rank": 1, "rotation_reserve_scope": "RESEARCH_ONLY_NO_AUTOMATIC_ENTRY",
+            "selected_for_rotation": False,
+        }]
     result = screen_a2(
         snapshot,
         {"active_research_pool": rows},
@@ -2332,9 +2340,14 @@ def test_screen_a2_available_selected_board_opens_only_its_top_five_rows() -> No
     assert by_symbol[symbols[1]]["trend_core_eligible"] is True
     assert by_symbol[symbols[1]]["rotation_input_source"] == "SELECTED_BOARD_SNAPSHOT"
     assert symbols[1] in result.review_symbols
-    assert by_symbol[symbols[0]]["status"] == "LOCAL_MONITOR"
+    assert by_symbol[symbols[0]]["status"] == ("REVIEW_CANDIDATE" if reserve else "LOCAL_MONITOR")
     assert by_symbol[symbols[0]]["trend_core_eligible"] is False
-    assert "A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5" in by_symbol[symbols[0]]["reason_codes"]
+    if reserve:
+        assert by_symbol[symbols[0]]["rotation_reserve_eligible"] is True
+        assert by_symbol[symbols[0]]["top_rotation_theme"] is False
+        assert symbols[0] in result.review_symbols
+    else:
+        assert "A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5" in by_symbol[symbols[0]]["reason_codes"]
 
 
 def test_screen_a2_selected_board_unavailable_fails_closed_even_with_metrics() -> None:

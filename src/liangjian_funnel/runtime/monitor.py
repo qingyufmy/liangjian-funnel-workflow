@@ -912,6 +912,12 @@ class MonitorEngine:
         # One effective state per plan/action is the durable restart-safe
         # de-duplication key.  A new A3 plan receives a new plan_id.
         key = f"effective:{lane_id}:{plan_id}:{action}"
+        from .entry_contract import freeze_entry_contract
+        entry_contract = (
+            freeze_entry_contract(symbol, self._payload(plan), strategy_result or {}, at=minute)
+            if action in {MonitorAction.BUY_SIGNAL.value, MonitorAction.ADD_SIGNAL.value}
+            and strategy_result is not None else None
+        )
         record, inserted = self.store.record_monitor_event(
             event_key=key,
             lane_id=lane_id,
@@ -928,6 +934,7 @@ class MonitorEngine:
                 "llm_veto": bool(llm_veto),
                 "llm_reason_code": _safe_reason_code(llm_reason_code),
                 "diagnostic_code": diagnostic_code,
+                "entry_contract": entry_contract,
                 "strategy": dict(strategy_result) if isinstance(strategy_result, Mapping) else None,
             },
         )

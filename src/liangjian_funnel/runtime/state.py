@@ -970,6 +970,8 @@ class RuntimeStore:
                 _ensure_column(connection, "astock_outcome_labels", "baseline_status", "TEXT NOT NULL DEFAULT 'PENDING'")
                 _ensure_column(connection, "astock_outcome_labels", "baseline_sample_size", "INTEGER")
                 _ensure_column(connection, "astock_outcome_labels", "metadata_json", "TEXT NOT NULL DEFAULT '{}'")
+                for window in (1, 3, 5, 10):
+                    _ensure_column(connection, "astock_outcome_labels", f"signal_return_{window}d", "REAL")
                 _ensure_column(connection, "a4_signal_lifecycles", "exit_metadata_json", "TEXT NOT NULL DEFAULT '{}'")
                 # Create secondary indexes only after migrations have added
                 # the identity columns.  This keeps first-open upgrades from
@@ -1483,6 +1485,7 @@ class RuntimeStore:
         if isinstance(updates, (str, bytes, bytearray)):
             raise TypeError("outcome metric updates must be a sequence of mappings")
         fields = (
+            "signal_return_1d", "signal_return_3d", "signal_return_5d", "signal_return_10d",
             "fwd_return_1d",
             "fwd_return_3d",
             "fwd_return_5d",

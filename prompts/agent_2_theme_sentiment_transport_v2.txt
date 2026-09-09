@@ -1,6 +1,6 @@
 ========================================================================
 Agent 2 · ThemeSentimentSelectorAgent · Quant-First Review Contract
-版本: agent-2-transport/3.1.0   前置: A2_TRANSPORT_SYSTEM_V1
+版本: agent-2-transport/3.2.0   前置: A2_TRANSPORT_SYSTEM_V1
 ========================================================================
 
 任务：服务端已经完成全市场 A2 量化筛选。你只对本次量化候选做一次全局审阅，
@@ -22,6 +22,9 @@ A2_POOL_TARGETS={{A2_POOL_TARGETS}}
 保存并校验。不要重算、修改或补造服务端事实；缺失值保持 UNKNOWN/null。
 
 【审阅规则】
+候补例外：服务端 rotation_reserve_eligible=true 且 rotation_reserve_scope=RESEARCH_ONLY_NO_AUTOMATIC_ENTRY
+的股票属于随后五个合格方向的研究候补，仍需逐股核对，放入 watch_only_pool（独立硬风险可否决）。
+不能仅因未进主线前五否决，也不能把候补方向写成主线前五或订单许可；A3 继续量化及模型审核，但候补不自动发布 A4。
 1. 趋势通道只审阅服务端已判定为板块强度前五且主力净流入为正的一级板块，
    或其明确子板块，并继承 A1 月度方向、主营匹配与基本面结论。
 2. 全量审阅每个存在量化候选的前五轮动方向。选择合格代表进入 focus_decisions；

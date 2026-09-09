@@ -1585,28 +1585,26 @@ def calculate_rotation_strength(
         if row["kind"] == PRIMARY and row["selection_status"] == "ELIGIBLE_PRIMARY":
             eligible.append(row)
     eligible.sort(key=lambda item: (-float(item["strength"] if item["strength"] is not None else -1), -float(item.get("tencent_main_net_inflow_cny") or 0), item["theme_id"]))
-    selected = eligible[:limit]
-    # Child directions normally inherit a selected parent's rank so the same
-    # economic chain does not consume two slots. If the parent is not
-    # eligible but a child has independently positive flow, complete
-    # membership and sufficient price/factor coverage, that child may fill an
-    # otherwise empty TOP5 slot. A weak parent must not hide a strong child.
-    selected_primary_ids = {row["theme_id"] for row in selected}
-    standalone_children = [
-        row
-        for row in normalized
-        if row["kind"] == CHILD
-        and row["selection_status"] == "ELIGIBLE_PRIMARY"
-        and row.get("parent_theme_id") not in selected_primary_ids
-    ]
-    standalone_children.sort(
-        key=lambda item: (
-            -float(item["strength"] if item["strength"] is not None else -1),
-            -float(item.get("tencent_main_net_inflow_cny") or 0),
-            item["theme_id"],
-        )
+    # Rank eligible child directions alongside primary directions, then
+    # deduplicate their economic parent. A strong liquid-cooling board must
+    # not wait for one of five unrelated primary slots to be empty.
+    primary_top_ids = {row["theme_id"] for row in eligible[:limit]}
+    ranked = sorted(
+        [row for row in normalized if row["selection_status"] == "ELIGIBLE_PRIMARY"
+         and (row["kind"] == PRIMARY or (row.get("parent_theme_id") in by_id
+                                        and row.get("parent_theme_id") not in primary_top_ids))],
+        key=lambda item: (-float(item["strength"] if item["strength"] is not None else -1),
+                          -float(item.get("tencent_main_net_inflow_cny") or 0), item["theme_id"]),
     )
-    selected.extend(standalone_children[: max(0, limit - len(selected))])
+    families = set()
+    representatives = []
+    for row in ranked:
+        family = row.get("parent_theme_id") if row["kind"] == CHILD else row["theme_id"]
+        if family not in families:
+            families.add(family)
+            representatives.append(row)
+    selected = representatives[:limit]
+    # All eligible directions already competed above; no second allocation.
     selected.sort(
         key=lambda item: (
             -float(item["strength"] if item["strength"] is not None else -1),
@@ -1615,7 +1613,10 @@ def calculate_rotation_strength(
         )
     )
     rank_map = {row["theme_id"]: index for index, row in enumerate(selected, start=1)}
+    reserve_map = {row["theme_id"]: index for index, row in enumerate(representatives[limit:limit * 2], start=1)}
     for row in normalized:
+        row["rotation_reserve_rank"] = reserve_map.get(row["theme_id"])
+        row["rotation_reserve_scope"] = "RESEARCH_ONLY_NO_AUTOMATIC_ENTRY" if row["rotation_reserve_rank"] else None
         if row["kind"] == CHILD:
             parent = by_id.get(row.get("parent_theme_id"))
             if parent is None:
@@ -1664,7 +1665,7 @@ def calculate_rotation_strength(
         "reason_code": "OK" if selected else "NO_ELIGIBLE_PRIMARY",
         "primary_candidate_count": len(primary),
         "eligible_primary_count": len(eligible),
-        "eligible_standalone_child_count": len(standalone_children),
+        "eligible_standalone_child_count": sum(row["kind"] == CHILD for row in ranked),
         "selected_direction_count": len(selected),
     }
 
@@ -1765,6 +1766,8 @@ def build_rotation_theme_snapshot(
                     "main_net_inflow_cny": row.get("tencent_main_net_inflow_cny"),
                     "selected_for_rotation": row.get("selected_for_rotation", False),
                     "primary_rank": row.get("primary_rank"),
+                    "rotation_reserve_rank": row.get("rotation_reserve_rank"),
+                    "rotation_reserve_scope": row.get("rotation_reserve_scope"),
                     "is_child_board": row["kind"] == CHILD,
                 }
             )
@@ -1805,6 +1808,8 @@ def build_rotation_theme_snapshot(
             "excluded_non_a_share_symbols": excluded_non_a_share_symbols,
         },
         "quality": {
+            "ranking_version": "rotation-family-competition/2",
+            "reserve_policy": "NEXT_TOP5_RESEARCH_ONLY_NO_AUTOMATIC_ENTRY",
             "formula": {key: value for key, value in STRENGTH_WEIGHTS.items()},
             "score_scale": "0-100",
             "tencent_positive_flow_gate": True,
@@ -2796,6 +2801,8 @@ def _public_board_row(row: Mapping[str, Any]) -> dict[str, Any]:
         "selection_status": row.get("selection_status"),
         "selected_for_rotation": row.get("selected_for_rotation", False),
         "primary_rank": row.get("primary_rank"),
+        "rotation_reserve_rank": row.get("rotation_reserve_rank"),
+        "rotation_reserve_scope": row.get("rotation_reserve_scope"),
         "is_child_board": row.get("kind") == CHILD,
         "constituents": sorted(set(row.get("constituents", ()))),
     }

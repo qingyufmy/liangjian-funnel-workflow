@@ -113,7 +113,8 @@ def test_a5_independent_verifier_recomputes_and_traces_counterexample() -> None:
     )
 
     assert result["a2"]["covered_count"] == 3
-    assert result["a2"]["independent_top3_theme_ids"] == ["AI", "BANK"]
+    assert result["a2"]["independent_top5_theme_ids"] == ["AI", "BANK"]
+    assert result["a2"]["ranking_comparable_to_production"] is False
     assert result["counterexamples"][0]["symbol"] == "000001.SZ"
     assert result["counterexamples"][0]["drop_stage"] == "A4_NO_EFFECTIVE_SIGNAL"
     assert result["a3"]["plans"][0]["formula_status"] == "MATCH"

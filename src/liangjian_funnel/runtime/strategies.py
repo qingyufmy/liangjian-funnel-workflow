@@ -1094,7 +1094,11 @@ def _evaluate_trend(
 
     latest15 = fifteen[-1]
     prior15 = fifteen[-2] if len(fifteen) >= 2 else None
-    pressure_easing = _fifteen_not_weak(latest15, prior15)
+    versioned_entry = plan.get("trend_entry_rule_version") == "trend-ma5/2"
+    pressure_easing = (
+        prior15 is not None and latest15.low + _EPSILON >= prior15.low
+        if versioned_entry else _fifteen_not_weak(latest15, prior15)
+    )
     if pressure_easing:
         met.append("TREND_15M_PRESSURE_EASING")
     else:
@@ -1139,6 +1143,14 @@ def _evaluate_trend(
             )
     vwap = _vwap(five)
     reversal = prior5 is not None and latest5.close >= latest5.open and latest5.close >= prior5.close and latest5.low + _EPSILON >= prior5.low and (vwap is None or latest5.close >= vwap)
+    if versioned_entry:
+        confirmation = _trend_entry_sequence(five, vwap)
+        reversal = all(confirmation.values())
+        for name, passed in confirmation.items():
+            (met if passed else unmet).append(name)
+            if not passed:
+                reasons.append(name + "_NOT_MET")
+        met.append("TREND_ENTRY_RULE_V2")
     if reversal:
         met.append("TREND_5M_REVERSAL_CONFIRMATION")
     else:
@@ -1179,6 +1191,40 @@ def _evaluate_trend(
         unmet.append("A3_PULLBACK_ZONE")
         reasons.append("TREND_PULLBACK_ZONE_NOT_MET")
     return _waiting_decision(met, unmet, reasons, veto, forced_action=A4Action.NO_ACTION if locked else None)
+
+
+def _trend_entry_sequence(five: Sequence[_Bar], vwap: float | None) -> dict[str, bool]:
+    """Closed-bar sequence, never a same-bar reversal/confirmation shortcut.
+
+    A hammer's lower shadow is at least twice its body and no smaller than
+    its upper shadow. Engulfing refers to real bodies; higher-low requires
+    both a higher low and close. Volume contraction/expansion is measured
+    against the immediately preceding phase, with the existing overheat
+    ceiling applied separately. These are definitions, not fitted scores.
+    """
+    result = dict.fromkeys(("TREND_PULLBACK_VOLUME_CONTRACTION", "TREND_PRIOR_5M_REVERSAL",
+                           "TREND_SUBSEQUENT_5M_CONFIRMATION", "TREND_VWAP_RECLAIMED"), False)
+    if len(five) < 4:
+        return result
+    baseline, pullback, reversal, confirm = five[-4:]
+    body = abs(reversal.close - reversal.open)
+    lower = min(reversal.open, reversal.close) - reversal.low
+    upper = reversal.high - max(reversal.open, reversal.close)
+    hammer = lower > _EPSILON and lower >= 2 * body and lower >= upper
+    engulf = (pullback.close < pullback.open and reversal.close > reversal.open
+              and reversal.open <= pullback.close and reversal.close >= pullback.open)
+    higher_low = reversal.low > pullback.low and reversal.close > pullback.close
+    result.update({
+        "TREND_PULLBACK_VOLUME_CONTRACTION": (
+            0 < pullback.volume < baseline.volume and pullback.close <= baseline.close),
+        "TREND_PRIOR_5M_REVERSAL": hammer or engulf or higher_low,
+        "TREND_SUBSEQUENT_5M_CONFIRMATION": (
+            confirm.end > reversal.end and confirm.close > confirm.open
+            and confirm.close > reversal.close and confirm.low >= reversal.low
+            and confirm.volume > reversal.volume > 0),
+        "TREND_VWAP_RECLAIMED": vwap is not None and confirm.close >= vwap,
+    })
+    return result
 
 
 def _entry_decision(

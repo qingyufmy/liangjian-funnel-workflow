@@ -255,13 +255,21 @@ def _a2_projection(audit: Mapping[str, Any]) -> tuple[dict[str, Any], list[str]]
         return {"status": "NOT_AVAILABLE", "candidates": [], "themes": []}, ["A2_STAGE_NOT_FOUND"]
     output = _json_mapping(stage.get("output"))
     candidates: list[dict[str, Any]] = []
+    seen: set[str] = set()
     for pool_name, values in (
         ("FOCUS", output.get("focus_pool")),
         ("WATCH", output.get("watch_only_pool")),
         ("REJECTED", output.get("rejected_candidates")),
+        ("OUTSIDE_ROTATION", output.get("outside_rotation_pool")),
+        ("CROWDED", output.get("crowded_pool")),
+        ("LOW_IDENTITY", output.get("low_identity_pool")),
     ):
-        for item in _rows(values)[:300]:
+        for item in _rows(values):
             symbol = str(item.get("symbol") or "")
+            if not symbol or symbol in seen:
+                continue
+            seen.add(symbol)
+            reasons = item.get("reason_codes") if isinstance(item.get("reason_codes"), list) else []
             candidates.append({
                 "evidence_id": f"A2:{pool_name}:{symbol}",
                 "pool": pool_name,
@@ -271,8 +279,15 @@ def _a2_projection(audit: Mapping[str, Any]) -> tuple[dict[str, Any], list[str]]
                 "theme_name": item.get("theme_name"),
                 "market_role": item.get("market_role"),
                 "score": item.get("identifiability_score", item.get("score")),
-                "selection_reasons": item.get("selection_reasons") if isinstance(item.get("selection_reasons"), list) else [],
+                "selection_reasons": item.get("selection_reasons") or reasons,
+                "reason_codes": reasons,
+                "quant_status": item.get("local_eligibility_status") or item.get("local_screen_status") or item.get("status"),
+                "behavior_type": item.get("stock_behavior_type") or item.get("behavior_type"),
+                "llm_reviewed": item.get("sent_to_llm", pool_name in {"FOCUS", "WATCH", "REJECTED"}),
                 "risk_reasons": item.get("risk_reasons") if isinstance(item.get("risk_reasons"), list) else [],
+                **({"rotation_reserve_scope": item.get("rotation_reserve_scope"),
+                    "rotation_reserve_boards": item.get("rotation_reserve_boards", [])}
+                   if item.get("rotation_reserve_eligible") else {}),
             })
     themes = []
     for item in _rows(output.get("active_themes"))[:30]:
@@ -288,14 +303,22 @@ def _a2_projection(audit: Mapping[str, Any]) -> tuple[dict[str, Any], list[str]]
             "chase_risk_level": item.get("chase_risk_level"),
             "score_breakdown": item.get("score_breakdown") if isinstance(item.get("score_breakdown"), Mapping) else {},
         })
-    counts = {name: sum(item["pool"] == name for item in candidates) for name in ("FOCUS", "WATCH", "REJECTED")}
+    counts = {name: sum(item["pool"] == name for item in candidates) for name in (
+        "FOCUS", "WATCH", "REJECTED", "OUTSIDE_ROTATION", "CROWDED", "LOW_IDENTITY",
+    )}
+    summary = _json_mapping(output.get("local_screen_summary"))
+    evaluated_count = summary.get("evaluated_count")
+    lineage_complete = evaluated_count is None or evaluated_count == len(candidates)
     return {
         "status": stage.get("status"),
         "reason_codes": stage.get("reason_codes") if isinstance(stage.get("reason_codes"), list) else [],
         "counts": counts,
+        "quant_evaluated_count": evaluated_count,
+        "llm_reviewed_count": summary.get("sent_to_llm_count"),
+        "lineage_complete": lineage_complete,
         "themes": themes,
         "candidates": candidates,
-    }, [] if output else ["A2_OUTPUT_MISSING"]
+    }, (["A2_LINEAGE_COUNT_MISMATCH"] if not lineage_complete else []) if output else ["A2_OUTPUT_MISSING"]
 
 
 def _a3_candidates(audit: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -349,6 +372,24 @@ def _model_fact_projection(facts: Mapping[str, Any]) -> dict[str, Any]:
     # These are exact duplicates of the authoritative A3/root evidence.
     projected["a2"] = dict(_json_mapping(facts.get("a2")))
     projected["a2"].pop("technical_candidates", None)
+    projected["a2"]["candidates"] = [
+        {key: value for key, value in row.items()
+         if not (key == "reason_codes" and value == row.get("selection_reasons"))}
+        for row in _rows(projected["a2"].get("candidates"))
+    ]
+    projected["a2"]["reason_encoding"] = "When reason_codes is omitted, it equals selection_reasons exactly; no reasons are truncated."
+    candidate_groups: dict[str, dict[str, Any]] = {}
+    identity_fields = {"evidence_id", "symbol", "name", "score"}
+    for row in projected["a2"]["candidates"]:
+        common = {key: value for key, value in row.items() if key not in identity_fields}
+        key = json.dumps(common, sort_keys=True, ensure_ascii=False)
+        group = candidate_groups.setdefault(key, {"common": common, "stocks": []})
+        group["stocks"].append({key: value for key, value in row.items() if key in identity_fields})
+    grouped = {"encoding": "a5-grouped-candidates/1",
+               "decoding": "Every stock inherits its group's common fields. Merge common and stock to recover every candidate without sampling.",
+               "groups": list(candidate_groups.values())}
+    if len(json.dumps(grouped, ensure_ascii=False)) < len(json.dumps(projected["a2"]["candidates"], ensure_ascii=False)):
+        projected["a2"]["candidates"] = grouped
     independent = dict(_json_mapping(facts.get("independent_verification")))
     independent.pop("signal_market", None)  # minute paths stay in the fact archive
     if "independent_verification" in facts:
@@ -476,7 +517,7 @@ def build_a5_fact_snapshot(
         effective_event_count += int(effective)
         payload = _json_mapping(row.get("payload_json"))
         indicators = _json_mapping(_json_mapping(payload.get("strategy")).get("indicator_observations"))
-        if any(isinstance(value, Mapping) and value.get("warmup_complete") is True for value in indicators.values()):
+        if _json_mapping(indicators.get("m15_macd")).get("warmup_complete") is True:
             warmed_macd_plans.add(str(payload.get("plan_id")))
         # Keep complete counts but only send consequential rows to A5.  A
         # per-plan NO_ACTION heartbeat can number in the thousands and carries
@@ -553,6 +594,9 @@ def build_a5_fact_snapshot(
         "a3_daily_macd_complete_count": sum(all(_json_mapping(item.get("daily_macd")).get(key) is not None
                                                 for key in ("dif", "dea", "hist")) for item in plans),
         "a4_m15_macd_warmed_plan_count": len(warmed_macd_plans),
+        "a4_m15_macd_applicable_plan_count": sum(item.get("strategy_profile") == "MA520_SWING" for item in plans),
+        "a4_m15_macd_not_warmed_plan_ids": [str(item.get("plan_id")) for item in plans
+            if item.get("strategy_profile") == "MA520_SWING" and str(item.get("plan_id")) not in warmed_macd_plans],
         "indicator_verification_scope": "MA_AND_CLOSE_CHECKS_DO_NOT_VALIDATE_MACD_KDJ_OR_VOLUME",
         "a4_monitor_observation_count": sum(action_counts.values()),
         "a4_effective_event_count": effective_event_count,
@@ -805,6 +849,52 @@ def _markdown(report: A5ReviewReport, snapshot: Mapping[str, Any]) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+def _enforce_verified_findings(report: A5ReviewReport, facts: Mapping[str, Any]) -> None:
+    """Model prose cannot clear failed deterministic verification."""
+    findings = []
+    verification = _json_mapping(facts.get("independent_verification"))
+    a4 = _json_mapping(verification.get("a4"))
+    metrics = _json_mapping(facts.get("metrics"))
+    applicable = metrics.get("a4_m15_macd_applicable_plan_count", _json_mapping(metrics.get("a3_strategy_counts")).get("MA520_SWING", 0))
+    if applicable and metrics.get("a4_monitor_observation_count", 0) and metrics.get("a4_m15_macd_warmed_plan_count", 0) < applicable:
+        findings.append(A5Defect(layer="A4", severity="MEDIUM", confidence="HIGH", blocked_by_data=True,
+            problem=f"{applicable}个适用520计划中，仅{metrics.get('a4_m15_macd_warmed_plan_count', 0)}个记录15分钟MACD预热完成；不能以均线通过代替指标完整性验收。",
+            evidence_ids=[]))
+    bad_prices = [row for row in _rows(a4.get("plans"))
+                  if row.get("cross_source_status") == "MISMATCH" or row.get("archived_tdx_status") == "MISMATCH"]
+    if bad_prices:
+        findings.append(A5Defect(layer="A4", severity="MEDIUM", confidence="HIGH", blocked_by_data=True,
+            problem=f"{len(bad_prices)}个计划存在异源价格超容差差异；行情覆盖完整不等于数值一致。",
+            evidence_ids=[str(row["evidence_id"]) for row in bad_prices[:20]]))
+    gaps = [row for row in _rows(a4.get("plans")) if float(row.get("observation_coverage", 1)) < 1]
+    if gaps:
+        findings.append(A5Defect(layer="A4", severity="HIGH", confidence="HIGH",
+            problem=f"{len(gaps)}个计划在应观察窗口内缺少决策记录，需要按激活时间核对。",
+            evidence_ids=[str(row["evidence_id"]) for row in gaps[:20]]))
+    if _json_mapping(facts.get("a2")).get("lineage_complete") is False:
+        findings.append(A5Defect(layer="A2", severity="HIGH", confidence="HIGH", blocked_by_data=True,
+            problem="A2量化评价数量与全池去向不闭合，不能认定漏选归因完整。", evidence_ids=[]))
+    if findings:
+        report.core_defects = (findings + report.core_defects)[:8]
+        report.overall_verdict = "NEEDS_ATTENTION" if report.overall_verdict != "INCIDENT" else "INCIDENT"
+        for layer in {item.layer for item in findings}:
+            review = getattr(report, f"{layer.lower()}_review", None)
+            if review is not None:
+                review.verdict = "NEEDS_ATTENTION"
+                review.summary = "；".join(item.problem for item in findings if item.layer == layer)[:600]
+        report.executive_summary = ("确定性核验仍有待处理问题：" + "；".join(item.problem for item in findings) + " 模型分析：" + report.executive_summary)[:1200]
+    # A2 labels cannot override actual A3 membership or A4 plan lineage.
+    missed = {str(row.get("symbol")): str(row.get("drop_stage") or "")
+              for row in _rows(verification.get("counterexamples"))}
+    for row in report.missed_opportunity_reviews:
+        actual = missed.get(row.symbol, "")
+        if actual.startswith(("A1_", "A2_", "A3_", "A4_")):
+            row.funnel_drop_stage = actual[:2]
+    if _json_mapping(verification.get("a3")).get("not_verified_fields"):
+        note = "独立复算只覆盖已声明字段，未验证MACD、KDJ及成交量，不能据此宣称三套策略全部验收。"
+        report.a3_review.data_limitations = [note, *report.a3_review.data_limitations][:8]
+
+
 class A5DailyReviewService:
     def __init__(
         self,
@@ -838,6 +928,22 @@ class A5DailyReviewService:
             review_kind=review_kind, lane_id=self.lane_id,
             independent_verifier=self.independent_verifier,
         )
+        # Identical market facts must not reuse prose produced by an older
+        # prompt/verification contract after a release.
+        facts["review_contract"] = {
+            "version": "a5-full-lineage-entry-audit/2",
+            "prompt_sha256": self.prompts.document(_A5_PROMPT).sha256,
+        }
+        facts["input_hash"] = _canonical_hash({key: value for key, value in facts.items() if key != "input_hash"})
+        signal_delivery = getattr(self.notification_publisher, "publish_signal_day_review", None)
+        signal_notifications = []
+        if callable(signal_delivery):
+            try:
+                signal_notifications = list(signal_delivery(facts, now=current))
+            except Exception:
+                # The publisher owns its delivery ledger. A notification
+                # failure must not prevent research or trigger model retries.
+                signal_notifications = [{"status": "FAILED", "reason_code": "SIGNAL_DAY_NOTIFICATION_FAILED"}]
         existing = self.store.list_a5_reviews(
             trade_date=current.date().isoformat(), review_kind=review_kind.value, limit=20,
         )
@@ -846,7 +952,7 @@ class A5DailyReviewService:
             return self._public_row(
                 same,
                 created=False,
-                notifications=self._publish_notification(same, now=current),
+                notifications=signal_notifications + self._publish_notification(same, now=current),
             )
 
         target_dir = self.output_dir / "a5" / current.date().isoformat()
@@ -878,6 +984,7 @@ class A5DailyReviewService:
             raise A5ReviewError("A5_OUTPUT_IDENTITY_MISMATCH")
         _validate_evidence(report, facts)
         report.signal_stock_reviews = list(facts.get("signal_stock_reviews") or [])
+        _enforce_verified_findings(report, facts)
 
         target_dir = self.output_dir / "a5" / current.date().isoformat()
         artifact_stem = f"{review_kind.value.lower().replace('_', '-')}-{str(facts['input_hash'])[:12]}"
@@ -902,7 +1009,7 @@ class A5DailyReviewService:
         return self._public_row(
             row,
             created=created,
-            notifications=self._publish_notification(row, now=current),
+            notifications=signal_notifications + self._publish_notification(row, now=current),
         )
 
     def _publish_notification(

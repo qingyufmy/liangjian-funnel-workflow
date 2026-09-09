@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 from typing import Any, Mapping
 
 
@@ -44,6 +45,7 @@ def pack_evidence(value: Any) -> Any:
 
 
 def render_a5_prompt(prompts: Any, filename: str, projection: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    original_projection = projection
     prompt = prompts.render(filename, {"A5_FACT_SNAPSHOT": projection})
     original_chars = len(prompt)
     if original_chars > PROMPT_TARGET:
@@ -51,12 +53,46 @@ def render_a5_prompt(prompts: Any, filename: str, projection: dict[str, Any]) ->
         # sampled or discarded. Nested tables only deduplicate field names.
         projection = pack_evidence(projection)
         prompt = prompts.render(filename, {"A5_FACT_SNAPSHOT": projection})
+    if len(prompt) > PROMPT_TARGET:
+        packed = pack_string_dictionary(projection)
+        candidate = prompts.render(filename, {"A5_FACT_SNAPSHOT": packed})
+        if len(candidate) < len(prompt):
+            prompt = candidate
     diagnostics = {
         "prompt_chars": len(prompt), "unpacked_prompt_chars": original_chars,
         "limit_chars": PROMPT_LIMIT, "target_chars": PROMPT_TARGET,
-        "input_hash": projection.get("input_hash"),
+        "input_hash": original_projection.get("input_hash"),
         "section_chars": {key: json_size(value) for key, value in projection.items()},
     }
     if len(prompt) > PROMPT_LIMIT:
         raise A5ReviewError("A5_MODEL_CONTEXT_TOO_LARGE", diagnostics=diagnostics)
     return prompt, diagnostics
+
+
+def pack_string_dictionary(value: Any) -> dict:
+    """Intern repeated long values, preserving full candidate lineage."""
+    counts = Counter()
+    def count(node):
+        if isinstance(node, str) and len(node) >= 12:
+            counts[node] += 1
+        elif isinstance(node, dict):
+            for child in node.values():
+                count(child)
+        elif isinstance(node, list):
+            for child in node:
+                count(child)
+    count(value)
+    dictionary = sorted(text for text, n in counts.items() if n >= 3 and len(text) > 20)
+    indices = {text: i for i, text in enumerate(dictionary)}
+    def encode(node):
+        if isinstance(node, str) and node in indices:
+            return {"$a5_string": indices[node]}
+        if isinstance(node, list):
+            return [encode(child) for child in node]
+        if isinstance(node, dict):
+            result = {key: encode(child) for key, child in node.items()}
+            return {"$a5_object": result} if "$a5_string" in node or "$a5_object" in node else result
+        return node
+    return {"encoding": "a5-string-dictionary/1",
+            "decoding": "Replace each {$a5_string:i} with dictionary[i]. $a5_object wraps an original object. Decode before interpreting column tables. No facts were removed.",
+            "dictionary": dictionary, "data": encode(value)}

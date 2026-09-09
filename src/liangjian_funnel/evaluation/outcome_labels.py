@@ -29,6 +29,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from ..runtime.state import RuntimeStore
+from ..runtime.calendar import ExchangeTradingCalendar
 
 
 OUTCOME_LABEL_SCHEMA_VERSION = "liangjian-outcome-labels/1.0.0"
@@ -623,6 +624,30 @@ def _baseline_seed(trade_date: date, symbol: str) -> int:
     return int.from_bytes(digest[:8], "big", signed=False)
 
 
+def _signal_forward_metrics(observations, *, trade_date, cutoff, signal_price, calendar):
+    """Event-price returns at exact exchange sessions, separate from legacy fields.
+
+    Missing/suspended terminal sessions remain null; never substitute the Nth
+    available bar. The signal and source day share the explicit factor basis.
+    """
+    result = {f"signal_return_{n}d": None for n in FORWARD_WINDOWS}
+    entry = next((row for row in observations if row.trade_date == trade_date), None)
+    if entry is None or signal_price is None or signal_price <= 0:
+        return result
+    by_date = {row.trade_date: row for row in observations if row.trade_date <= cutoff}
+    session = trade_date
+    for offset in range(1, max(FORWARD_WINDOWS) + 1):
+        session = calendar.next_trading_day(session)
+        if session > cutoff:
+            break
+        terminal = by_date.get(session)
+        if offset in FORWARD_WINDOWS and terminal is not None and terminal.tradable:
+            result[f"signal_return_{offset}d"] = (
+                terminal.close * terminal.adjust_factor / (signal_price * entry.adjust_factor) - 1
+            )
+    return result
+
+
 def _baseline_context(row: Mapping[str, Any]) -> tuple[str | None, float | None, float | None, int | None, int | None]:
     context = _context_from_row(row)
     industry = _text(context.get("industry")).upper() or None
@@ -775,7 +800,7 @@ def backfill_forward_returns(
     # from rewriting a closed measurement.
     labels = tuple(
         row for row in store.list_outcome_labels(labeled_only=False)
-        if not row.get("labeled_at")
+        if not row.get("labeled_at") or (str(row.get("stage")) == "A4" and row.get("signal_return_10d") is None)
     )
     earliest_trade_date = min(
         (_as_date(row.get("trade_date"), field="trade_date") for row in labels),
@@ -787,6 +812,7 @@ def backfill_forward_returns(
         cutoff=cutoff,
     )
     updates: list[dict[str, Any]] = []
+    calendar = ExchangeTradingCalendar()
     metrics_cache: dict[tuple[str, date], dict[str, float | None]] = {}
     baseline_universe_cache: dict[date, list[dict[str, Any]]] = {}
     counts = {
@@ -810,6 +836,21 @@ def backfill_forward_returns(
             "label_id": label.get("label_id"),
             **metrics,
         }
+        raw_metadata = label.get("metadata_json", label.get("metadata", {}))
+        try:
+            metadata = json.loads(raw_metadata) if isinstance(raw_metadata, str) else dict(raw_metadata or {})
+        except (TypeError, ValueError):
+            metadata = {}
+        if str(label.get("stage")) == "A4" and metadata.get("performance_basis") == "SIGNAL_REFERENCE_NOT_FILL":
+            update.update(_signal_forward_metrics(
+                observations, trade_date=trade_date, cutoff=cutoff,
+                signal_price=_as_float(metadata.get("signal_price")), calendar=calendar,
+            ))
+        if label.get("labeled_at"):
+            signal_update = {key: value for key, value in update.items() if key == "label_id" or key.startswith("signal_return_")}
+            if any(value is not None for key, value in signal_update.items() if key != "label_id"):
+                updates.append(signal_update)
+            continue
         if not observations or not any(item.trade_date == trade_date for item in observations):
             update["baseline_status"] = "DATA_UNAVAILABLE"
         else:
@@ -845,7 +886,8 @@ def backfill_forward_returns(
         # The state layer ignores null updates, and rejects conflicting
         # non-null values.  ``labeled_at`` is deliberately delayed until 10d.
         if all(metrics.get(f"fwd_return_{window}d") is not None for window in FORWARD_WINDOWS):
-            update["labeled_at"] = datetime.now().astimezone().isoformat()
+            if not label.get("labeled_at"):
+                update["labeled_at"] = datetime.now().astimezone().isoformat()
             counts["fully_labeled"] += 1
         elif any(value is not None for value in metrics.values()):
             counts["partial_labels"] += 1

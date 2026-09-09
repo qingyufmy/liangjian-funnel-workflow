@@ -670,6 +670,17 @@ def test_child_inherits_parent_rank_without_consuming_primary_top5():
     assert child["selection_status"] == "INHERITED_FROM_PRIMARY"
 
 
+def test_strong_child_competes_even_with_five_eligible_unrelated_primaries():
+    rows = [_metric_row(f"P_{index}", relative=10-index) for index in range(5)]
+    rows += [_metric_row("WEAK_PARENT", main=-1, relative=-5),
+             _metric_row("STRONG_CHILD", kind=CHILD, parent="WEAK_PARENT", relative=99)]
+    result = calculate_rotation_strength(rows, rotation_theme_count=5, expected_trade_date=DAY)
+    selected = result["selected_primary_boards"]
+    assert len(selected) == 5 and "STRONG_CHILD" in {row["board_code"] for row in selected}
+    reserve = [row for row in result["boards"] if row.get("rotation_reserve_rank")]
+    assert reserve and all(not row["selected_for_rotation"] for row in reserve)
+
+
 def test_strong_child_fills_top5_when_parent_is_not_eligible():
     rows = [
         _metric_row(f"PRIMARY_{index}", relative=100 - index)

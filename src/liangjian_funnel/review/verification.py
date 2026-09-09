@@ -41,6 +41,8 @@ def counterexample_drop_stage(symbol: str, pool: str, plan_symbols: Sequence[str
         return "A2_NOT_EVALUATED"
     if pool == "REJECTED":
         return "A2_REJECTED"
+    if pool in {"OUTSIDE_ROTATION", "CROWDED", "LOW_IDENTITY"}:
+        return "A2_QUANT_FILTERED"
     return "UNRESOLVED_A3_LINEAGE_MISSING"
 
 
@@ -153,6 +155,7 @@ class A5IndependentVerifier:
     ) -> dict[str, Any]:
         cutoff = cutoff_at.astimezone(SHANGHAI)
         candidates = [row for row in a2.get("candidates", ()) if isinstance(row, Mapping)]
+        price_candidates = [row for row in candidates if row.get("llm_reviewed") is not False]
         plan_symbols = tuple(dict.fromkeys(str(row.get("symbol") or "") for row in plan_rows if str(row.get("symbol") or "")))
         market_cross_section = self._daily_market_cross_section(market_universe, cutoff)
         # The deterministic top percentile is a discovery index, not a funnel
@@ -162,7 +165,7 @@ class A5IndependentVerifier:
         confirmation_count = max(20, math.ceil(len(market_cross_section) * 0.01)) if market_cross_section else 0
         confirmation_symbols = tuple(str(row["symbol"]) for row in market_cross_section[:confirmation_count])
         symbols = tuple(dict.fromkeys([
-            *(str(row.get("symbol") or "") for row in candidates if str(row.get("symbol") or "")),
+            *(str(row.get("symbol") or "") for row in price_candidates if str(row.get("symbol") or "")),
             *plan_symbols,
             *confirmation_symbols,
         ]))
@@ -177,9 +180,17 @@ class A5IndependentVerifier:
         daily = self._daily_windows(plan_symbols, cutoff)
 
         a2_check = self._verify_a2(
-            candidates, a2, plan_rows, event_rows, tencent_rows, cutoff,
+            price_candidates, a2, plan_rows, event_rows, tencent_rows, cutoff,
             market_cross_section=market_cross_section,
             confirmation_symbols=set(confirmation_symbols),
+        )
+        expected_symbols = {str(row.get("symbol") or "") for row in market_universe} - {""}
+        covered_symbols = {str(row.get("symbol") or "") for row in market_cross_section}
+        a2_check["market_universe_expected_count"] = len(expected_symbols)
+        a2_check["market_cross_section_missing_symbols"] = sorted(expected_symbols - covered_symbols)
+        a2_check["market_cross_section_coverage"] = (
+            round(len(expected_symbols & covered_symbols) / len(expected_symbols), 6)
+            if expected_symbols else None
         )
         a3_check = self._verify_a3(plan_rows, daily, tdx_5m, cutoff)
         a4_check = self._verify_a4(plan_rows, event_rows, tencent_rows, tdx_1m, local_1m, cutoff)
@@ -209,7 +220,7 @@ class A5IndependentVerifier:
             "status": status,
             "cutoff_at": cutoff.isoformat(),
             "independence_contract": {
-                "a2": "同花顺板块结论对照腾讯逐股分钟价格广度重新排序",
+                "a2": "A2模型复核候选的腾讯分钟价格广度对照，不等同于全市场板块强度或资金排名；全量量化去向另行保留",
                 "a3": "从本地原始日线独立复算均线，并用通达信五分钟收盘交叉核价",
                 "a4": "检查每分钟决策落盘覆盖、动作传递，并用通达信分钟线对照腾讯/本地行情",
                 "production_mutation": False,
@@ -375,7 +386,8 @@ class A5IndependentVerifier:
         ranking.sort(key=lambda row: (-float(row["median_return"]), -float(row["advance_ratio"]), -int(row["sample_count"]), str(row["theme_id"])))
         selected = {str(row.get("theme_id") or "") for row in a2.get("themes", ()) if isinstance(row, Mapping)}
         adequately_sampled = [row for row in ranking if int(row["sample_count"]) >= 3]
-        independent_top = {str(row["theme_id"]) for row in (adequately_sampled or ranking)[:3]}
+        top_n = 5
+        independent_top = {str(row["theme_id"]) for row in (adequately_sampled or ranking)[:top_n]}
         plan_symbols = {
             str(row.get("symbol") or _mapping(row.get("payload_json")).get("symbol") or "")
             for row in plan_rows
@@ -387,7 +399,7 @@ class A5IndependentVerifier:
         stock_performance.sort(key=lambda row: (-float(row["return"]), str(row["symbol"])))
         production_candidate_by_symbol = {
             str(row.get("symbol") or ""): dict(row)
-            for row in candidates if str(row.get("symbol") or "")
+            for row in a2.get("candidates", candidates) if str(row.get("symbol") or "")
         }
         alternate_performance_by_symbol = {str(row.get("symbol") or ""): row for row in stock_performance}
         for cross_row in market_cross_section:
@@ -466,20 +478,27 @@ class A5IndependentVerifier:
         return {
             "status": "READY" if ratio >= 0.8 else "DEGRADED" if covered else "UNAVAILABLE",
             "evidence_id": "A5V:A2:SUMMARY", "source_family": "TENCENT_MINUTE_PRICE_BREADTH",
-            "scope": "A1进入A2的候选域，不代表独立扫描全市场全部板块",
+            "scope": "A2模型复核候选的异源分钟价格抽验；全池量化去向不截断，不代表全市场板块排名",
+            "quant_lineage_candidate_count": len(production_candidate_by_symbol),
             "candidate_count": len(candidates), "covered_count": covered, "coverage": round(ratio, 6),
             "provider_reason_counts": dict(sorted(reason_counts.items())),
-            "independent_top3_theme_ids": sorted(independent_top),
+            "independent_top5_theme_ids": [str(row["theme_id"]) for row in (adequately_sampled or ranking)[:top_n]],
+            "ranking_basis": "CANDIDATE_PRICE_BREADTH_NOT_BOARD_STRENGTH_OR_NET_FLOW",
+            "ranking_comparable_to_production": False,
             "selected_theme_overlap_count": len(selected & independent_top),
-            "selected_theme_overlap_ratio": round(len(selected & independent_top) / max(1, min(3, len(selected))), 6),
+            "selected_theme_overlap_ratio": round(len(selected & independent_top) / max(1, len(independent_top)), 6),
             "theme_rankings": ranking,
             "adequately_sampled_theme_count": len(adequately_sampled),
             "counterexample_scope": (
-                "完整A1可追踪研究宇宙的盘后横截面；先全量排序，再对顶部1%发起腾讯异源确认"
+                "有可用行情的A1研究样本盘后横截面，缺行情标的不参与排序；对顶部1%发起腾讯异源确认"
                 if market_cross_section
                 else "A1进入A2并在A2审计输出中可追踪的盘中候选域，不冒充全市场扫描"
             ),
             "market_universe_count": len(market_cross_section),
+            "missing_cross_section_candidate_symbols": sorted(
+                {str(row.get("symbol") or "") for row in candidates}
+                - {str(row.get("symbol") or "") for row in market_cross_section}
+            ) if market_cross_section else [],
             "alternate_confirmation_requested_count": len(confirmation_symbols),
             "counterexamples": counterexamples,
         }
@@ -571,6 +590,9 @@ class A5IndependentVerifier:
             except (TypeError, ValueError):
                 start = cutoff.replace(hour=9, minute=31, second=0, microsecond=0)
             expected = _expected_minutes(start, cutoff)
+            never_activated = (not plan_row.get("valid_from") and str(plan_row.get("status")) == "INVALIDATED" and not events)
+            if never_activated:
+                expected = 0
             orchestration_omissions = []
             effective_actions = []
             for event in events:
@@ -595,6 +617,13 @@ class A5IndependentVerifier:
                 value for stamp in overlap
                 if (value := _relative_difference(_bar_value(left_by_time[stamp], "close"), _bar_value(right_by_time[stamp], "close"))) is not None
             ]
+            mismatch_points = [{"bar_end": stamp,
+                "tencent_close": _bar_value(left_by_time[stamp], "close"),
+                "tdx_close": _bar_value(right_by_time[stamp], "close"),
+                "relative_difference": value}
+                for stamp in overlap
+                if (value := _relative_difference(_bar_value(left_by_time[stamp], "close"), _bar_value(right_by_time[stamp], "close"))) is not None
+                and value > 0.005]
             archived_overlap = sorted(set(archived_by_time) & set(right_by_time))
             archived_differences = [
                 value for stamp in archived_overlap
@@ -609,6 +638,7 @@ class A5IndependentVerifier:
             results.append({
                 "evidence_id": f"A5V:A4:PLAN:{plan_id}", "plan_id": plan_id, "symbol": symbol,
                 "expected_observation_minutes": expected, "recorded_observation_minutes": len(actual_minutes),
+                "decision_scope": "INVALIDATED_BEFORE_ACTIVATION" if never_activated else "ACTIVE_WINDOW",
                 "observation_coverage": round(len(actual_minutes) / expected, 6) if expected else 1.0,
                 "effective_actions": effective_actions, "orchestration_omission_count": len(orchestration_omissions),
                 "orchestration_omissions": orchestration_omissions[:20],
@@ -616,6 +646,8 @@ class A5IndependentVerifier:
                 "tencent_reason_code": tencent.get(symbol, {}).get("reason_code"),
                 "tdx_reason_code": tdx.get(symbol, {}).get("reason_code"),
                 "cross_source_max_close_difference": max(differences) if differences else None,
+                "cross_source_difference_unit": "RELATIVE_RATIO",
+                "cross_source_mismatch_points": mismatch_points,
                 "cross_source_status": "MATCH" if differences and max(differences) <= 0.005 else "MISMATCH" if differences else "DATA_LIMITED",
                 "archived_bar_count": len(archived), "archived_tdx_overlap_count": len(archived_overlap),
                 "archive_basis": local.get(symbol, {}).get("archive_basis", "LEGACY_FIRST_OBSERVATION"),
@@ -628,8 +660,10 @@ class A5IndependentVerifier:
                 "archived_digest": _digest(archived) if archived else None,
             })
         ratio = covered / len(plan_rows) if plan_rows else 1.0
+        needs_attention = any(row["cross_source_status"] == "MISMATCH" or row["archived_tdx_status"] == "MISMATCH"
+                              or row["observation_coverage"] < 1 or row["orchestration_omission_count"] for row in results)
         return {
-            "status": "READY" if ratio >= 0.8 else "DEGRADED" if covered or not plan_rows else "UNAVAILABLE",
+            "status": "READY" if ratio >= 0.8 and not needs_attention else "DEGRADED" if covered or not plan_rows else "UNAVAILABLE",
             "evidence_id": "A5V:A4:SUMMARY", "plan_count": len(plan_rows),
             "cross_source_verified_fields": ["CLOSE"],
             "cross_source_not_verified_fields": ["OPEN", "HIGH", "LOW", "VOLUME", "AMOUNT"],

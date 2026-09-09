@@ -2570,6 +2570,12 @@ class ResearchPipeline:
             )
             if stage == "A2":
                 output, _ = _enrich_a2_decision_facts(output, snapshot.data)
+                reserve_focus = [row for row in output.get("focus_pool", []) if isinstance(row, Mapping) and _is_rotation_reserve(row)]
+                if reserve_focus:
+                    output["focus_pool"] = [row for row in output["focus_pool"] if row not in reserve_focus]
+                    output["watch_only_pool"] = [*output.get("watch_only_pool", []), *reserve_focus]
+            else:
+                output, _ = _apply_a3_candidate_origin_policy(output, snapshot.data)
         output["local_screen_summary"] = gate.summary
         output = _refresh_analysis_counts(output, stage)
         reasons = _validate_output(
@@ -5980,6 +5986,12 @@ def _project_a2_bottleneck_context(value: Any, symbols: set[str] | None) -> Any:
             "data_state": raw.get("data_sufficiency_state"),
             "emotion_eligible": raw.get("emotion_core_eligible") is True,
             "trend_eligible": raw.get("trend_core_eligible") is True,
+            "rotation_reserve_eligible": raw.get("rotation_reserve_eligible") is True,
+            "rotation_reserve_scope": raw.get("rotation_reserve_scope"),
+            "rotation_reserve_boards": [
+                {key: board.get(key) for key in ("board_name", "board_code", "rotation_reserve_rank", "strength", "main_net_inflow_cny")}
+                for board in raw.get("rotation_reserve_boards", []) if isinstance(board, Mapping)
+            ],
         }
         routes = raw.get("eligible_routes")
         if isinstance(routes, Sequence) and not isinstance(routes, (str, bytes, bytearray)):
@@ -6696,6 +6708,10 @@ def _gate_item_from_decision(
             "a1_formal_member": decision.get("a1_formal_member") is not False,
             "upstream_selection_basis": decision.get("upstream_selection_basis"),
             "upstream_coverage_origin": decision.get("upstream_coverage_origin"),
+            "upstream_mapping_revision": decision.get("upstream_mapping_revision"),
+            "rotation_reserve_eligible": decision.get("rotation_reserve_eligible", False),
+            "rotation_reserve_boards": decision.get("rotation_reserve_boards", []),
+            "rotation_reserve_scope": decision.get("rotation_reserve_scope"),
             "a2_pool_channel": decision.get("a2_pool_channel"),
             "emotion_core_eligible": decision.get("emotion_core_eligible") is True,
             "trend_core_eligible": decision.get("trend_core_eligible") is True,
@@ -6886,7 +6902,7 @@ def _a3_candidate_eligible(item: Mapping[str, Any], *, origin: str) -> bool:
 
     # The selected-board top-five requirement belongs only to the trend
     # channel.  Emotion rows are sourced independently from Eastmoney Hot100.
-    if behavior_value != "EMOTION" and item.get("top_rotation_theme") is False:
+    if behavior_value != "EMOTION" and item.get("top_rotation_theme") is False and not _is_rotation_reserve(item):
         return False
 
     raw_permission = item.get("route_permission")
@@ -8446,6 +8462,9 @@ def _canonicalize_stage_lineage(
                 canonical["theme_rotation_score"] = context.get("theme_rotation_score")
                 canonical["rotation_strength_source"] = context.get("rotation_strength_source")
                 canonical["top_rotation_theme"] = context.get("top_rotation_theme") is True
+                canonical["rotation_reserve_eligible"] = context.get("rotation_reserve_eligible") is True
+                canonical["rotation_reserve_scope"] = context.get("rotation_reserve_scope")
+                canonical["rotation_reserve_boards"] = list(context.get("rotation_reserve_boards") or [])
                 canonical["rotation_direction_id"] = context.get("rotation_direction_id")
                 canonical["a2_pool_channel"] = context.get("a2_pool_channel")
                 canonical["a1_formal_member"] = context.get("a1_formal_member") is not False
@@ -9457,12 +9476,18 @@ def _apply_a3_candidate_origin_policy(
         return result, 0
 
     changed = 0
+    contexts = snapshot_data.get("A2_BOTTLENECK_CONTEXT")
+    contexts = contexts if isinstance(contexts, Mapping) else {}
     def normalize(raw_item: Any, pool: str) -> Any:
         nonlocal changed
         if not isinstance(raw_item, Mapping):
             return raw_item
         item = dict(raw_item)
         symbol = _first_symbol(item)
+        if _is_rotation_reserve(contexts.get(symbol, {})):
+            item["rotation_reserve_eligible"] = True
+            item["rotation_reserve_scope"] = "RESEARCH_ONLY_NO_AUTOMATIC_ENTRY"
+            item["rotation_reserve_boards"] = list(contexts[symbol].get("rotation_reserve_boards") or [])
         origin = origins.get(symbol) or str(item.get("candidate_origin") or "FOCUS").strip().upper()
         # Unknown/malformed origins are not allowed to become a new routing
         # class.  Treat old responses without the additive field as FOCUS;
@@ -9494,6 +9519,16 @@ def _apply_a3_candidate_origin_policy(
         result["core_watch_pool"] = [normalize(item, "core_watch_pool") for item in core]
     if secondary is not None:
         result["secondary_watch_pool"] = [normalize(item, "secondary_watch_pool") for item in secondary]
+    # Research coverage is not automatic execution permission. Keep the
+    # completed technical/model conclusions, but publish no reserve orders.
+    reserve = [item for item in result.get("core_watch_pool", []) if isinstance(item, Mapping) and _is_rotation_reserve(item)]
+    if reserve:
+        result["core_watch_pool"] = [item for item in result["core_watch_pool"] if item not in reserve]
+        for item in reserve:
+            item["risk_unit"] = "NO_ENTRY"
+            item["reason_codes"] = list(dict.fromkeys([*item.get("reason_codes", []), "A3_ROTATION_RESERVE_RESEARCH_ONLY"]))
+        result["secondary_watch_pool"] = [*result.get("secondary_watch_pool", []), *reserve]
+        changed += len(reserve)
     return result, changed
 
 
@@ -9812,7 +9847,7 @@ def _a2_relative_top5_market_core_exception(
         if MARKET_CORE_ROUTE not in route_values:
             return False
 
-    if not top_rotation_theme and not emotion_core_eligible:
+    if not top_rotation_theme and not emotion_core_eligible and not _is_rotation_reserve(context if isinstance(context, Mapping) else item):
         return False
 
     # Model-owned fields may explain or veto a candidate, but cannot turn a
@@ -9893,8 +9928,7 @@ def _apply_stage_threshold_policy(
                 if not business_reasons:
                     disclosed_match = dict(item.get("disclosed_business_match") or {})
                     disclosed_match.update({
-                        "structured_match_confirmed": True,
-                        "validated_after_model_review": True,
+                        "revenue_source_validated_after_model_review": True,
                     })
                     item["disclosed_business_match"] = disclosed_match
                 if not str(item.get("monthly_direction_id") or item.get("primary_theme") or "").strip():
@@ -10825,10 +10859,15 @@ def _annotate_a2_pool_target(
     return result
 
 
+def _is_rotation_reserve(item: Mapping[str, Any]) -> bool:
+    return (item.get("rotation_reserve_eligible") is True
+            and item.get("rotation_reserve_scope") == "RESEARCH_ONLY_NO_AUTOMATIC_ENTRY")
+
+
 def _a2_watch_row_research_eligible(item: Mapping[str, Any]) -> bool:
     """Return whether an A2 watch row remains part of the effective pool."""
 
-    if item.get("top_rotation_theme") is False:
+    if item.get("top_rotation_theme") is False and not _is_rotation_reserve(item):
         return False
     status = str(item.get("status") or "").strip().upper()
     if status in {"REJECTED", "HARD_REJECT", "DATA_GAP"}:
@@ -12050,6 +12089,9 @@ def _with_a2_bottleneck_context(
             "theme_rotation_score": item.get("theme_rotation_score"),
             "rotation_strength_source": item.get("rotation_strength_source"),
             "top_rotation_theme": item.get("top_rotation_theme"),
+            "rotation_reserve_eligible": item.get("rotation_reserve_eligible") is True,
+            "rotation_reserve_scope": item.get("rotation_reserve_scope"),
+            "rotation_reserve_boards": list(item.get("rotation_reserve_boards") or []),
             "a2_taxonomy_binding": dict(item.get("a2_taxonomy_binding") or {}),
             "a2_pool_channel": item.get("a2_pool_channel"),
             "a1_formal_member": item.get("a1_formal_member") is not False,

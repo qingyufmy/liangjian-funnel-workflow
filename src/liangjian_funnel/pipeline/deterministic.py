@@ -29,7 +29,7 @@ from .a3_strategy import Eligibility, evaluate_a3_strategy
 
 
 PIPELINE_MODE = "deterministic_v2"
-FEATURE_VERSION = "deterministic-features/2.3.0"
+FEATURE_VERSION = "deterministic-features/2.4.0"
 A2_EVIDENCE_HANDOFF_VERSION = "a2-evidence-handoff/1.0.0"
 _A1_DEFAULT_WEIGHTS: dict[str, float] = {
     "structural_theme": 0.20,
@@ -647,7 +647,9 @@ def screen_a1(
             "business_exposure_facts": exposure_facts,
             "disclosed_business_match": {
                 "raw_disclosure_available": raw_evidence_available,
-                "structured_match_confirmed": structured_exposure_available,
+                "structured_exposure_available": structured_exposure_available,
+                "structured_match_confirmed": _business_theme_match(exposure_facts, matched, primary_link.get("theme_id")),
+                "match_basis": "EXPLICIT_BUSINESS_NAME_TO_THEME_TAXONOMY",
                 "maximum_revenue_exposure_pct": maximum_exposure if exposure_facts else None,
             },
             "maximum_revenue_exposure_pct": maximum_exposure if exposure_facts else None,
@@ -988,7 +990,7 @@ def screen_a2(
     if llm_top_n_per_theme < 1 or rotation_theme_count < 1:
         raise ValueError("A2 Top-N value must be positive")
 
-    rows = _mapping_list(a1_output.get("active_research_pool"))
+    rows = [repair_cached_primary_mapping(row) for row in _mapping_list(a1_output.get("active_research_pool"))]
     candidates = _candidate_map(snapshot)
     # A2 is fed by its own materialized feature contract.  The legacy
     # FACTOR_SNAPSHOT is the technical/A3 projection and is only a fallback
@@ -1396,11 +1398,10 @@ def screen_a2(
             rotation_direction_id = a1_rotation_direction_id
         broad_trend_candidate = (
             monthly_a1_member
-            and (
-                selected_board_match is not None
-                or full_market_rotation_match is not None
-                or rotation_fallback is not None
-            )
+            # Behavior is an evidence classification, not today's ranking.
+            # A supported trend outside the five directions stays a trend
+            # in the audit/reserve pool; the independent channel gate below
+            # still forbids promotion without a selected positive-flow board.
             and not upstream_research_only
             and not hard_risk_present
             and not explicitly_inactive
@@ -1577,6 +1578,16 @@ def screen_a2(
             and behavior_type == "EMOTION"
             and emotion_cycle_allowed
         )
+        reserve_boards = [dict(row) for row in selected_board_rows
+            if isinstance(row, Mapping) and selected_board_source_available
+            and row.get("rotation_reserve_scope") == "RESEARCH_ONLY_NO_AUTOMATIC_ENTRY"
+            and 1 <= (_number(row.get("rotation_reserve_rank")) or 0) <= rotation_theme_count
+            and (_number(row.get("main_net_inflow_cny")) or 0) > 0
+            and (stable_symbol_membership_binding or _a2_selected_board_matches_theme(
+                row, a1_strategy_theme_id=a1_strategy_theme_id, item=item))]
+        reserve_eligible = bool(reserve_boards and selected_board_match is None and status == "REVIEW_CANDIDATE"
+                                and monthly_a1_member and behavior_type == "TREND"
+                                and not upstream_research_only and not hard_risk_present and not explicitly_inactive)
         trend_core_eligible = (
             monthly_a1_member
             and not upstream_research_only
@@ -1598,7 +1609,7 @@ def screen_a2(
         )
         pool_channel = (
             "EMOTION" if emotion_core_eligible
-            else "TREND" if trend_core_eligible
+            else "TREND" if trend_core_eligible or reserve_eligible
             else "NONE" if dual_channel_contract
             else "LEGACY"
         )
@@ -1689,6 +1700,7 @@ def screen_a2(
             "upstream_a1_status": upstream_status,
             "upstream_selection_basis": selection_basis or None,
             "upstream_coverage_origin": item.get("coverage_origin"),
+            "upstream_mapping_revision": item.get("mapping_revision"),
             "business_exposure": item.get("business_exposure"),
             "business_exposure_facts": item.get("business_exposure_facts", []),
             "research_route": upstream_research_route or None,
@@ -1716,6 +1728,9 @@ def screen_a2(
             "a2_pool_channel": pool_channel,
             "emotion_core_eligible": emotion_core_eligible,
             "trend_core_eligible": trend_core_eligible,
+            "rotation_reserve_eligible": reserve_eligible,
+            "rotation_reserve_boards": reserve_boards,
+            "rotation_reserve_scope": "RESEARCH_ONLY_NO_AUTOMATIC_ENTRY" if reserve_eligible else None,
             "channel_source_health": {
                 **({"emotion": {"available": hot100_available,
                     "reason_code": hot100.get("reason_code") or ("OK" if hot100_available else "EASTMONEY_HOT100_UNAVAILABLE"),
@@ -1918,7 +1933,7 @@ def screen_a2(
         eligible_values.sort(key=lambda item: (-float(item["score"]), -float(item["identifiability_score"]), str(item["symbol"])))
         for rank, item in enumerate(eligible_values, start=1):
             item["theme_rank"] = rank
-            if theme_id not in top_theme_ids:
+            if theme_id not in top_theme_ids and not item.get("rotation_reserve_eligible"):
                 item["status"] = "LOCAL_MONITOR"
                 item["reason_codes"].append("A2_OUTSIDE_ROTATION_TOP_THEMES")
             elif not review_all_eligible and rank > llm_top_n_per_theme:
@@ -1945,6 +1960,7 @@ def screen_a2(
                 item.get("status") != "REVIEW_CANDIDATE"
                 or item.get("top_rotation_theme") is True
                 or item.get("emotion_core_eligible") is True
+                or item.get("rotation_reserve_eligible") is True
             ):
                 continue
             item["status"] = "LOCAL_MONITOR"
@@ -1953,6 +1969,12 @@ def screen_a2(
                 *[str(code) for code in item.get("reason_codes", ()) if str(code)],
                 "A2_ROTATION_STRENGTH_UNAVAILABLE",
             ]))
+
+    for item in decisions:
+        if item.get("rotation_reserve_eligible") is True and item.get("status") == "REVIEW_CANDIDATE":
+            item["sent_to_llm"] = True
+            item["top_rotation_theme"] = False
+            item["reason_codes"].append("A2_ROTATION_RESERVE_RESEARCH_ONLY")
 
     # Attribution is deliberately computed after theme ranking and transport
     # selection.  This records the final ``SENT_TO_LLM`` state while leaving
@@ -2548,8 +2570,12 @@ def _a2_behavior_evidence(
     weekly = weekly if isinstance(weekly, Mapping) else {}
     trend_proxy = factor_scores.get("trend_strength_proxy")
     trend_proxy = trend_proxy if isinstance(trend_proxy, Mapping) else {}
-    medium_source = weekly if weekly.get("available") is True else trend_proxy
-    medium_name = "weekly_confirmation" if medium_source is weekly else "trend_strength_proxy"
+    # Sector weekly rotation is not the stock's trend. Production snapshots
+    # already contain a symbol-scoped daily proxy; retain its missing state
+    # too, instead of substituting a stronger or weaker sector aggregate.
+    # Legacy fixtures without that contract retain their declared weekly fact.
+    medium_source = trend_proxy if "trend_strength_proxy" in factor_scores else weekly
+    medium_name = "trend_strength_proxy" if "trend_strength_proxy" in factor_scores else "weekly_confirmation"
     medium_score = _number(medium_source.get("score"))
     medium_available = medium_source.get("available") is True and medium_score is not None
     medium_refs = _payload_source_refs(medium_source)
@@ -3280,6 +3306,17 @@ def _a2_factor_scores(
             if quality is not None:
                 value = _factor_result(quality, "A1_ACTIVE_RESEARCH_POOL", _item_source_refs(item), "OK")
         result[name] = value or _factor_result(None, "UNAVAILABLE", (), "A2_FACTOR_UNAVAILABLE")
+    # This classification-only input is not a new composite-score weight.
+    # Previously it was materialized but discarded before behavior analysis.
+    has_stock_trend = "trend_strength_proxy" in factor or any(
+        isinstance(factor.get(key), Mapping) and "trend_strength_proxy" in factor[key]
+        for key in ("factors", "factor_scores")
+    )
+    stock_trend = (_read_factor_row(factor, "trend_strength_proxy", (),
+                                   source="A2_FACTOR_SNAPSHOT", source_refs=_payload_source_refs(factor))
+                   if has_stock_trend else None)
+    if stock_trend is not None:
+        result["trend_strength_proxy"] = stock_trend
     return result
 
 
@@ -4822,13 +4859,70 @@ def _matched_links(
     for membership in memberships:
         key = (str(membership.get("taxonomy") or ""), str(membership.get("taxonomy_code") or ""))
         matched.extend(dict(item) for item in links_by_code.get(key, ()))
+    # Deduplication sorts by node id. Doing it AFTER ranking discarded the
+    # industry priority and promoted alphabetical concepts such as rural
+    # revitalisation over a gold miner's actual precious-metals industry.
+    matched = _dedupe_links(matched)
     matched.sort(key=lambda item: (
-        -float(item.get("confidence") or 0.0),
         0 if str(item.get("taxonomy") or "").upper() == "INDUSTRY" else 1,
+        -float(item.get("confidence") or 0.0),
         str(item.get("taxonomy_name") or ""),
         str(item.get("node_id") or ""),
     ))
-    return _dedupe_links(matched)
+    return matched
+
+
+def _business_theme_match(exposures, links, theme_id) -> bool:
+    """Only explicit business-name evidence confirms a match, not existence.
+
+    Unknown semantic relationships remain unconfirmed; taxonomy membership
+    can still support research independently of this narrower claim.
+    """
+    names = [str(row.get("taxonomy_name") or "") for row in links if row.get("theme_id") == theme_id]
+    for fact in exposures:
+        business = str(fact.get("business_name") or "").strip()
+        if len(business) < 2 or business in {"其他", "其它", "主营业务", "营业收入", "产品", "服务"}:
+            continue
+        if any(business in name or (len(name) >= 2 and name in business) for name in names):
+            return True
+    return False
+
+
+def repair_cached_primary_mapping(row: Mapping[str, Any]) -> dict[str, Any]:
+    """Repair a cached monthly row's attribution, never its pool membership.
+
+    Daily emotion bindings are a separate contract. Unknown links remain
+    unresolved, rather than guessing a business theme from a company name.
+    """
+    from .mature_theme_registry import taxonomy_is_business_related
+    result = dict(row)
+    if str(row.get("selection_basis")) == "DAILY_EMOTION_OVERLAY":
+        return result
+    links = [link for link in _mapping_list(row.get("taxonomy_matches")) if taxonomy_is_business_related(
+        str(link.get("theme_id") or ""), str(link.get("taxonomy") or ""), str(link.get("taxonomy_name") or ""))]
+    index = defaultdict(list)
+    for link in links:
+        index[(link.get("taxonomy"), link.get("taxonomy_code"))].append(link)
+    ranked = _matched_links(links, index)
+    if not ranked:
+        return result
+    primary = ranked[0]
+    result.update(primary_theme=primary.get("theme_id"), monthly_direction_id=primary.get("theme_id"),
+                  industry_chain_node=primary.get("node_id"), sector_index_code=primary.get("taxonomy_code"),
+                  sector_index_name=primary.get("taxonomy_name"), sector_index_taxonomy=primary.get("taxonomy"),
+                  taxonomy_matches=ranked)
+    result["monthly_direction_name"] = next((match.get("monthly_direction_name") for match in _mapping_list(row.get("monthly_direction_matches"))
+        if match.get("monthly_direction_id") == primary.get("theme_id")), primary.get("theme_id"))
+    exposure = row.get("business_exposure")
+    exposures = row.get("business_exposure_facts") or ([exposure] if isinstance(exposure, Mapping) else [])
+    result["disclosed_business_match"] = {
+        **(row.get("disclosed_business_match") if isinstance(row.get("disclosed_business_match"), Mapping) else {}),
+        "structured_match_confirmed": _business_theme_match(exposures, ranked, primary.get("theme_id")),
+    }
+    result["mapping_revision"] = {"version": "industry-priority/2", "prior_theme": row.get("primary_theme"),
+                                  "current_theme": primary.get("theme_id"), "basis": "FROZEN_TAXONOMY_MEMBERSHIP",
+                                  "membership_changed": False}
+    return result
 
 
 def _financial_quality(value: Mapping[str, Any]) -> tuple[float, dict[str, float | None]]:
