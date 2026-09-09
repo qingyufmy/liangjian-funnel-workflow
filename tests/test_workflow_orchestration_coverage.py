@@ -290,6 +290,24 @@ def test_immutable_snapshot_loader_and_resume_marker_preserve_point_in_time_iden
     assert app._load_research_resume_snapshot("close", NOW) is None
 
 
+def test_scoped_daily_resume_requires_exact_a1_plus_hot100_intersection(tmp_path):
+    app=_app(tmp_path)
+    data={'G0_SCOPE_CONTRACT':'CONFIGURED_RESEARCH_UNIVERSE_V1','g0_symbols':['600519.SH','000001.SZ'],
+        'research_candidates':[{'symbol':s} for s in ('600519.SH','000001.SZ','600000.SH')],
+        'EASTMONEY_HOT100_SNAPSHOT':{'available':True,'records':[{'symbol':'000001.SZ'}]}}
+    snapshot=FrozenInputSnapshot(snapshot_id='snapshot-scoped',snapshot_hash=workflow_module._hash_json(data),as_of=NOW,data=data)
+    app.settings.snapshot_dir.mkdir(parents=True,exist_ok=True)
+    path=app.settings.snapshot_dir/'snapshot-scoped.json'
+    path.write_text(json.dumps({'snapshot_id':snapshot.snapshot_id,'snapshot_hash':snapshot.snapshot_hash,'as_of':NOW.isoformat(),'data':data}),encoding='utf-8')
+    prepared=PreparedSnapshot(snapshot=snapshot,path=path,full_universe_count=4,research_universe_count=3,trade_universe_count=3,selected_count=2,factor_ready_count=0)
+    app._write_research_resume_marker('close',prepared,status='RETRYABLE')
+    assert app._load_research_resume_snapshot('close',NOW) is None
+    resumed=app._load_research_resume_snapshot('close',NOW,candidate_symbols=['600519.SH'])
+    assert resumed is not None and resumed.selected_count==2
+    assert app._load_research_resume_snapshot('close',NOW,candidate_symbols=['600519.SH','600000.SH']) is None
+    assert app._load_research_resume_snapshot('close',NOW,candidate_symbols=[]) is None
+
+
 def test_primary_only_publishes_before_idempotent_comparison_enqueue(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

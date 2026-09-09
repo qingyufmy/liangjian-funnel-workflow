@@ -544,6 +544,10 @@ def _decode_model_response(
         raise StrictJSONError("RESPONSE_JSON_INVALID") from exc
     if not isinstance(payload, dict):
         raise StrictJSONError("RESPONSE_OBJECT_REQUIRED")
+    choices = payload.get("choices")
+    if isinstance(choices, list) and choices and isinstance(choices[0], Mapping):
+        if choices[0].get("finish_reason") == "length":
+            raise ModelClientError("MODEL_OUTPUT_TRUNCATED", diagnostics={"finish_reason": "length"})
     message = _message_from_response(payload)
     return message.get("content"), _reasoning_tokens(payload)
 
@@ -652,6 +656,10 @@ def _decode_sse_lines(
                 "STREAM_CHOICES_INVALID",
                 diagnostics=_stream_shape(payload, event_index),
             )
+        if choice.get("finish_reason") == "length":
+            # Retrying the same truncated completion with the same token
+            # budget cannot repair its contract. Surface a capacity failure.
+            raise ModelClientError("MODEL_OUTPUT_TRUNCATED", diagnostics={"finish_reason": "length"})
         delta = choice.get("delta")
         if not isinstance(delta, Mapping):
             raise StrictJSONError("STREAM_DELTA_INVALID")

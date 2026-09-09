@@ -1398,7 +1398,10 @@ def test_a2_prompt_projection_removes_full_market_permission_and_attribution_bul
     assert set(context) == symbols
     assert "gate_results" not in context["600001.SH"]
     assert context["600001.SH"]["factor_scores"]["breadth"] == 88
-    assert _stage_model_output_limit("A2", 15, configured_limit=393_216) == 4_096
+    assert _stage_model_output_limit("A2", 15, configured_limit=393_216) == 8_192
+    assert _stage_model_output_limit("A2", 98, configured_limit=393_216) == 16_640
+    assert _stage_model_output_limit("A2", 1000, configured_limit=393_216) == 32_768
+    assert _stage_model_output_limit("A2", 98, configured_limit=10_000) == 10_000
     assert _stage_model_output_limit("A3", 15, configured_limit=393_216) == 393_216
 
 

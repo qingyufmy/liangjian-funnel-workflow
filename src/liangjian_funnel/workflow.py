@@ -2262,7 +2262,9 @@ class WorkflowApplication:
                 )
                 if snapshot_id is not None
                 else None if historical_replay or not reuse_resume_snapshot
-                else self._load_research_resume_snapshot(normalized_slot, current)
+                else self._load_research_resume_snapshot(
+                    normalized_slot, current, candidate_symbols=active_a1_scope_symbols
+                )
             )
             if prepared is None:
                 prepared = self.prepare_snapshot(
@@ -2909,6 +2911,8 @@ class WorkflowApplication:
         self,
         slot: str,
         current: datetime,
+        *,
+        candidate_symbols: Sequence[str] | None = None,
     ) -> PreparedSnapshot | None:
         trade_date = current.astimezone(SHANGHAI).date().isoformat()
         marker_path = self._research_resume_marker_path(slot, trade_date)
@@ -2952,12 +2956,30 @@ class WorkflowApplication:
             research_count = int(raw["research_universe_count"])
             selected_count = int(raw["selected_count"])
             g0_symbols = data.get("g0_symbols")
+            expected_count = research_count
+            if candidate_symbols is not None:
+                # A daily A2/A3 run is intentionally scoped to sealed A1 plus
+                # the frozen same-day emotion overlay, not the full market.
+                # Reuse only an exact intersection with the frozen full
+                # research universe; a changed A1 scope invalidates reuse.
+                universe_rows = data.get("research_candidates")
+                if not isinstance(universe_rows, list):
+                    return None
+                universe_symbols = {str(row.get("symbol") or "") for row in universe_rows if isinstance(row, Mapping)}
+                if "" in universe_symbols or len(universe_symbols) != research_count:
+                    return None
+                hot = data.get("EASTMONEY_HOT100_SNAPSHOT") or {}
+                hot_symbols = {str(row.get("symbol") or "") for row in hot.get("records", ()) if isinstance(row, Mapping)} if isinstance(hot, Mapping) and hot.get("available") is True else set()
+                expected_symbols = (set(candidate_symbols) | hot_symbols) & universe_symbols
+                if not expected_symbols or not isinstance(g0_symbols, list) or set(g0_symbols) != expected_symbols:
+                    return None
+                expected_count = len(expected_symbols)
             if (
                 data.get("G0_SCOPE_CONTRACT") != _G0_SCOPE_CONTRACT
-                or selected_count != research_count
+                or selected_count != expected_count
                 or not isinstance(g0_symbols, list)
-                or len(g0_symbols) != research_count
-                or len(set(map(str, g0_symbols))) != research_count
+                or len(g0_symbols) != expected_count
+                or len(set(map(str, g0_symbols))) != expected_count
             ):
                 return None
             return PreparedSnapshot(

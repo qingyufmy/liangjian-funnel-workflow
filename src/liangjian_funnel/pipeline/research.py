@@ -7059,7 +7059,10 @@ def _stage_model_output_limit(
     configured = max(1, int(configured_limit))
     if stage != "A2":
         return configured
-    return min(configured, 4_096)
+    # The envelope, theme evidence and per-direction review already consume
+    # several thousand tokens. A fixed 4K cap truncated the 98-candidate live
+    # batch repeatedly; reserve bounded capacity without limiting its stocks.
+    return min(configured, 32_768, max(8_192, 4_096 + max(0, int(symbol_count)) * 128))
 
 
 def _stage_model_timeout_limit(stage: str, remaining_seconds: float) -> float:

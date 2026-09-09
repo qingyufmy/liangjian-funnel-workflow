@@ -45,6 +45,21 @@ def _settings(tmp_path: Path, key: str | None = "model-secret") -> Settings:
     return Settings.from_env({"LIANGJIAN_MODEL_API_KEY": key or ""}, root=tmp_path)
 
 
+@pytest.mark.parametrize('streamed',[True,False])
+def test_explicit_output_truncation_does_not_repeat_same_budget(tmp_path,streamed):
+    calls=[]
+    def handler(request):
+        calls.append(request)
+        if streamed:
+            return _sse_response(request,[{'choices':[{'delta':{'content':'{"unfinished":'},'finish_reason':None}]},
+                {'choices':[{'delta':{},'finish_reason':'length'}]},'[DONE]'])
+        return httpx.Response(200,json={'choices':[{'message':{'content':'{"unfinished":'},'finish_reason':'length'}]})
+    client=OpenAICompatibleModelClient(_settings(tmp_path),transport=httpx.MockTransport(handler))
+    with pytest.raises(ModelClientError,match='MODEL_OUTPUT_TRUNCATED'):
+        client.complete('deepseek-v4-pro-0813',[{'role':'user','content':'Return JSON'}],max_output_tokens=4096)
+    assert len(calls)==1
+
+
 def test_client_uses_bounded_model_thinking_and_json_object(tmp_path: Path):
     seen: list[dict] = []
 
