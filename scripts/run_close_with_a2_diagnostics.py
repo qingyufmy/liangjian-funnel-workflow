@@ -4,6 +4,7 @@ Instrumentation records already-parsed model JSON and deterministic output;
 it does not alter decisions, bypass validation or retain model reasoning.
 """
 from datetime import datetime
+import argparse
 import json
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -15,13 +16,19 @@ from liangjian_funnel.pipeline import research
 
 
 def main():
-    now=datetime.now(ZoneInfo('Asia/Shanghai'))
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--as-of', help='Explicit closed research timestamp for authorized after-midnight recovery.')
+    args=parser.parse_args()
+    clock_now=datetime.now(ZoneInfo('Asia/Shanghai'))
+    now=datetime.fromisoformat(args.as_of) if args.as_of else clock_now
+    if now.tzinfo is None or now>clock_now or now.hour<15:
+        raise ValueError('CLOSED_NONFUTURE_AWARE_AS_OF_REQUIRED')
     app=WorkflowApplication(Settings.from_env(root=Path.cwd()))
     a1=app.a1_registry.require_active(as_of=now,max_age=_A1_MAX_AGE)
     prepared=app._load_research_resume_snapshot('close',now,candidate_symbols=_active_a1_downstream_scope(a1.payload))
     if prepared is None:
         raise RuntimeError('VERIFIED_SAME_DAY_SNAPSHOT_REQUIRED')
-    rid=now.strftime('%Y-%m-%d-close-a2-audit-%H%M%S')
+    rid=now.strftime('%Y-%m-%d-close-a2-audit-')+clock_now.strftime('%H%M%S')
     directory=app.settings.workflow_output_dir/'audits'/rid
     complete=app.model_client.complete
     counts={'A2':0,'A3':0}
@@ -34,6 +41,7 @@ def main():
             atomic_write_json(directory/f'{stage.lower()}-request-{index}.json',{
                 'stage':stage,'input_hash':kwargs.get('input_hash'),
                 'message_characters':sum(len(str(m.get('content',''))) for m in messages),
+                'validation_feedback':messages[-1].get('content') if messages and str(messages[-1].get('content','')).startswith('PREVIOUS_RESPONSE_REJECTED') else None,
                 'status':'STARTED'})
         result=complete(*args,**kwargs)
         if stage in counts:

@@ -1115,6 +1115,31 @@ def test_a3_prompt_gate_is_exact_batch_scope_without_removing_candidate_facts(ba
     assert json.dumps(dict(snapshot.data), sort_keys=True) == frozen_before
 
 
+@pytest.mark.parametrize("review_status", ["PASS", "VETO"])
+def test_a3_scenarios_are_server_owned_without_overriding_model_review(review_status):
+    from liangjian_funnel.pipeline.research import _with_a3_deterministic_context, _a3_contract_scenarios
+    decision = {"symbol": "600001.SH", "strategy_profile": "MA520_SWING", "eligibility": "QUALIFIED",
+        "entry_reference_zone": {"low": 10, "high": 10.1}, "no_chase_price": 10.2,
+        "daily_invalidation": 9.5, "plan_mode": "PROBE", "a4_required_entry_rules": ["RULE_FROM_STRATEGY"]}
+    gate = DeterministicGateResult("A3_LOCAL_TECHNICAL", (decision,), ("600001.SH",), (), ())
+    frozen = _with_a3_deterministic_context(FrozenInputSnapshot(snapshot_id="scenario-contract", data={
+        "PRICE_LEVELS": {"600001.SH": {"available": True, "trigger_zone": {"low": 10, "high": 10.1},
+            "invalidation": 9.5, "stop_distance_pct": .05, "reward_risk": 3, "first_resistance": 12}}}), gate)
+    expected = _a3_contract_scenarios(frozen.data["A3_DETERMINISTIC_CONTEXT"]["600001.SH"])
+    for model_scenarios in ({}, {"high_gap_no_chase_plan": {"action": "BUY", "no_chase_price": 99}}):
+        normalized, _, _ = _canonicalize_a3_price_fields({"core_watch_pool": [{
+            "symbol": "600001.SH", "strategy_profile": "MA520_SWING", "risk_unit": "PROBE",
+            "review_status": review_status, "scenarios": model_scenarios}]}, frozen.data)
+        row = normalized["core_watch_pool"][0]
+        assert row["scenarios"] == expected
+        assert row["review_status"] == review_status
+        assert expected["normal_open_plan"]["required_entry_rules"] == ["RULE_FROM_STRATEGY"]
+        assert expected["high_gap_no_chase_plan"]["action"] == "NO_ENTRY"
+        assert expected["high_gap_no_chase_plan"]["no_chase_price"] == 10.2
+        assert expected["invalidation_plan"]["invalidation_level"] == 9.5
+        assert "T+1" in expected["invalidation_plan"]["description"]
+
+
 def test_a2_large_runtime_placeholders_are_injected_once():
     prompt = (Path(__file__).resolve().parents[1] / "prompts" / "agent_2_theme_sentiment_transport_v2.txt").read_text(
         encoding="utf-8"

@@ -11790,6 +11790,8 @@ def _canonicalize_a3_price_fields(
                 "first_resistance": expected.get("first_resistance"),
                 "reward_risk": expected.get("reward_risk"),
             }
+            if strategy_context.get("scenario_contract_version") == "a3-scenarios/1":
+                replacements["scenarios"] = _a3_contract_scenarios(strategy_context)
             for key in (
                 "strategy_profile",
                 "strategy_version",
@@ -11827,6 +11829,7 @@ def _canonicalize_a3_price_fields(
                 "a4_deferred_conditions",
                 "a4_required_entry_rules",
                 "a4_exit_rules",
+                "scenarios",
                 "plan_mode",
                 "plan_priority",
                 "priority_reasons",
@@ -12218,6 +12221,26 @@ def _with_a3_candidate_context(
     )
 
 
+def _a3_contract_scenarios(decision: Mapping[str, Any]) -> dict[str, Any]:
+    """Display the existing execution contract, never invent another trigger."""
+    base = {
+        "source": "DETERMINISTIC_A3_CONTRACT",
+        "schema_version": "a3-scenarios/1",
+        "strategy_profile": decision.get("strategy_profile"),
+        "entry_reference_zone": decision.get("entry_reference_zone"),
+        "no_chase_price": decision.get("no_chase_price"),
+        "invalidation_level": decision.get("daily_invalidation"),
+        "required_entry_rules": decision.get("a4_required_entry_rules") or [],
+        "risk_unit": decision.get("plan_mode"),
+    }
+    return {
+        "normal_open_plan": {**base, "action": "WAIT", "description": "等待A4按冻结策略确认，不因正常开盘自动买入。"},
+        "weak_open_plan": {**base, "action": "WAIT", "description": "等待盘中结构恢复并通过原策略确认，不左侧抄底；触及失效位取消计划。"},
+        "high_gap_no_chase_plan": {**base, "action": "NO_ENTRY", "description": "超过禁止追价上限不得追买；回归允许范围后仍须通过原策略确认。"},
+        "invalidation_plan": {**base, "action": "CANCEL_PLAN", "risk_unit": "NO_ENTRY", "description": "入场前触及失效位取消计划；已有持仓的退出由A4及T+1可卖数量规则处理。"},
+    }
+
+
 def _with_a3_deterministic_context(
     snapshot: FrozenInputSnapshot,
     gate: DeterministicGateResult,
@@ -12293,7 +12316,12 @@ def _with_a3_deterministic_context(
         "reason_codes",
     )
     context = {
-        str(item.get("symbol")): {key: item.get(key) for key in keys}
+        str(item.get("symbol")): {
+            **{key: item.get(key) for key in keys},
+            # Inputs already include every source value. Do not repeat four
+            # derived copies in the model prompt; materialize after review.
+            "scenario_contract_version": "a3-scenarios/1",
+        }
         for item in gate.decisions
         if str(item.get("symbol") or "")
     }
