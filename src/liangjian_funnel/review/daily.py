@@ -94,9 +94,16 @@ class A5Proposal(BaseModel):
     validation_method: str = Field(min_length=1, max_length=800)
     success_criteria: str = Field(min_length=1, max_length=500)
     falsification_criteria: str = Field(min_length=1, max_length=500)
-    min_shadow_days: int = Field(ge=1, le=120)
+    min_shadow_days: int = Field(ge=0, le=120)
     risk: str = Field(min_length=1, max_length=500)
     automatic_production_change: bool = False
+
+    @field_validator("min_shadow_days")
+    @classmethod
+    def shadow_test_needs_observations(cls, value, info):
+        if info.data.get("type") == "SHADOW_TEST" and value < 1:
+            raise ValueError("Shadow strategy tests require observation days")
+        return value
 
     @field_validator("automatic_production_change")
     @classmethod
@@ -842,7 +849,8 @@ def _markdown(report: A5ReviewReport, snapshot: Mapping[str, Any]) -> str:
             f"### {item.proposal_id}｜{item.target}", "",
             f"- 假设：{item.hypothesis}", f"- 建议：{item.proposed_change}",
             f"- 验证：{item.validation_method}", f"- 成功标准：{item.success_criteria}",
-            f"- 证伪标准：{item.falsification_criteria}", f"- 最少影子观察：{item.min_shadow_days} 个交易日", "",
+            f"- 证伪标准：{item.falsification_criteria}",
+            (f"- 最少影子观察：{item.min_shadow_days} 个交易日" if item.type == "SHADOW_TEST" else "- 验收方式：确定性回归及数据核对，不设统一影子观察天数"), "",
         ])
     lines.extend(["## 尚不能下结论", ""])
     lines.extend([f"- {item.question}（{item.reason}）：{item.resolution}" for item in report.unresolved_questions])
@@ -859,7 +867,7 @@ def _enforce_verified_findings(report: A5ReviewReport, facts: Mapping[str, Any])
     if applicable and metrics.get("a4_monitor_observation_count", 0) and metrics.get("a4_m15_macd_warmed_plan_count", 0) < applicable:
         findings.append(A5Defect(layer="A4", severity="MEDIUM", confidence="HIGH", blocked_by_data=True,
             problem=f"{applicable}个适用520计划中，仅{metrics.get('a4_m15_macd_warmed_plan_count', 0)}个记录15分钟MACD预热完成；不能以均线通过代替指标完整性验收。",
-            evidence_ids=[]))
+            evidence_ids=["METRICS:DAILY"]))
     bad_prices = [row for row in _rows(a4.get("plans"))
                   if row.get("cross_source_status") == "MISMATCH" or row.get("archived_tdx_status") == "MISMATCH"]
     if bad_prices:
@@ -873,7 +881,7 @@ def _enforce_verified_findings(report: A5ReviewReport, facts: Mapping[str, Any])
             evidence_ids=[str(row["evidence_id"]) for row in gaps[:20]]))
     if _json_mapping(facts.get("a2")).get("lineage_complete") is False:
         findings.append(A5Defect(layer="A2", severity="HIGH", confidence="HIGH", blocked_by_data=True,
-            problem="A2量化评价数量与全池去向不闭合，不能认定漏选归因完整。", evidence_ids=[]))
+            problem="A2量化评价数量与全池去向不闭合，不能认定漏选归因完整。", evidence_ids=["DATA_QUALITY:DAILY"]))
     if findings:
         report.core_defects = (findings + report.core_defects)[:8]
         report.overall_verdict = "NEEDS_ATTENTION" if report.overall_verdict != "INCIDENT" else "INCIDENT"
@@ -893,6 +901,9 @@ def _enforce_verified_findings(report: A5ReviewReport, facts: Mapping[str, Any])
     if _json_mapping(verification.get("a3")).get("not_verified_fields"):
         note = "独立复算只覆盖已声明字段，未验证MACD、KDJ及成交量，不能据此宣称三套策略全部验收。"
         report.a3_review.data_limitations = [note, *report.a3_review.data_limitations][:8]
+    for proposal in report.improvement_proposals:
+        if proposal.type in {"ENGINEERING_FIX", "DATA_FIX"}:
+            proposal.min_shadow_days = 0
 
 
 class A5DailyReviewService:
@@ -985,6 +996,7 @@ class A5DailyReviewService:
         _validate_evidence(report, facts)
         report.signal_stock_reviews = list(facts.get("signal_stock_reviews") or [])
         _enforce_verified_findings(report, facts)
+        _validate_evidence(report, facts)
 
         target_dir = self.output_dir / "a5" / current.date().isoformat()
         artifact_stem = f"{review_kind.value.lower().replace('_', '-')}-{str(facts['input_hash'])[:12]}"

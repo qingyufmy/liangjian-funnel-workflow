@@ -214,6 +214,7 @@ def test_verified_findings_cannot_be_cleared_by_healthy_model_prose():
     _enforce_verified_findings(report, facts)
     assert report.overall_verdict == report.a4_review.verdict == "NEEDS_ATTENTION"
     assert len(report.core_defects) == 3 and report.a3_review.data_limitations
+    assert all(item.evidence_ids for item in report.core_defects)
     A5ReviewReport.model_validate(report.model_dump())
 
 
@@ -315,3 +316,34 @@ def test_rotation_reserve_enters_technical_research_but_never_execution_core():
     assert output["secondary_watch_pool"][0]["review_status"] == "PASS"
     rejected = {**reserve, "data_sufficiency_state": "INSUFFICIENT"}
     assert not _build_a3_candidate_domain({"watch_only_pool": [rejected]})[1]
+
+
+def test_repeated_reason_list_encoding_roundtrip_and_reserved_keys():
+    from liangjian_funnel.review.context import pack_structure_dictionary, json_size
+    reasons = ["A2_REPEATED_LONG_REASON_" + str(i) for i in range(12)]
+    original = [{"symbol": f"{i:06}.SZ", "reasons": reasons, "nil": None,
+                 "$a5_value": 77, "$a5_value_object": {"x": False}} for i in range(100)]
+    original.append({"$a5_value": 999, "one_off": [None, False]})
+    packed = pack_structure_dictionary(original)
+    def decode(node):
+        if isinstance(node, list):
+            return [decode(item) for item in node]
+        if isinstance(node, dict):
+            if "$a5_value_object" in node:
+                return {key:decode(child) for key,child in node["$a5_value_object"].items()}
+            if "$a5_value" in node:
+                return packed["dictionary"][node["$a5_value"]]
+            return {key:decode(child) for key,child in node.items()}
+        return node
+    assert decode(packed["data"]) == original
+    assert json_size(packed) < json_size(original) / 2
+
+
+def test_engineering_validation_is_not_forced_to_ten_shadow_days():
+    from liangjian_funnel.review.daily import A5Proposal
+    payload = dict(proposal_id="fix", type="DATA_FIX", target="A4", hypothesis="data",
+                   proposed_change="verify", validation_method="replay", success_criteria="match",
+                   falsification_criteria="mismatch", min_shadow_days=0, risk="none")
+    assert A5Proposal.model_validate(payload).min_shadow_days == 0
+    with pytest.raises(ValueError):
+        A5Proposal.model_validate({**payload, "type": "SHADOW_TEST"})

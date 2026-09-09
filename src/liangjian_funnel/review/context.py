@@ -53,6 +53,12 @@ def render_a5_prompt(prompts: Any, filename: str, projection: dict[str, Any]) ->
         # sampled or discarded. Nested tables only deduplicate field names.
         projection = pack_evidence(projection)
         prompt = prompts.render(filename, {"A5_FACT_SNAPSHOT": projection})
+    section_sizes = {key: json_size(value) for key, value in projection.items()}
+    if len(prompt) > PROMPT_TARGET:
+        packed = pack_structure_dictionary(projection)
+        candidate = prompts.render(filename, {"A5_FACT_SNAPSHOT": packed})
+        if len(candidate) < len(prompt):
+            projection, prompt = packed, candidate
     if len(prompt) > PROMPT_TARGET:
         packed = pack_string_dictionary(projection)
         candidate = prompts.render(filename, {"A5_FACT_SNAPSHOT": packed})
@@ -62,11 +68,54 @@ def render_a5_prompt(prompts: Any, filename: str, projection: dict[str, Any]) ->
         "prompt_chars": len(prompt), "unpacked_prompt_chars": original_chars,
         "limit_chars": PROMPT_LIMIT, "target_chars": PROMPT_TARGET,
         "input_hash": original_projection.get("input_hash"),
-        "section_chars": {key: json_size(value) for key, value in projection.items()},
+        "section_chars": section_sizes,
     }
     if len(prompt) > PROMPT_LIMIT:
         raise A5ReviewError("A5_MODEL_CONTEXT_TOO_LARGE", diagnostics=diagnostics)
     return prompt, diagnostics
+
+
+def pack_structure_dictionary(value: Any) -> dict:
+    """Intern identical repeated JSON structures without dropping any fact."""
+    counts = Counter()
+    def key(node):
+        if isinstance(node, (list, dict)):
+            encoded = json.dumps(node, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+            if len(encoded) >= 80:
+                return encoded
+        return None
+    def walk(node):
+        encoded = key(node)
+        if encoded is not None:
+            counts[encoded] += 1
+        if isinstance(node, list):
+            for child in node:
+                walk(child)
+        elif isinstance(node, dict):
+            for child in node.values():
+                walk(child)
+    walk(value)
+    keys = sorted(encoded for encoded, count in counts.items() if count >= 3)
+    eligible = set(keys)
+    indices = {}
+    dictionary = []
+    def encode(node):
+        encoded = key(node)
+        if encoded in eligible:
+            if encoded not in indices:
+                indices[encoded] = len(dictionary)
+                dictionary.append(json.loads(encoded))
+            return {"$a5_value": indices[encoded]}
+        if isinstance(node, list):
+            return [encode(child) for child in node]
+        if isinstance(node, dict):
+            result = {name: encode(child) for name, child in node.items()}
+            return {"$a5_value_object": result} if "$a5_value" in node or "$a5_value_object" in node else result
+        return node
+    data = encode(value)
+    return {"encoding": "a5-value-dictionary/1", "dictionary": dictionary,
+            "decoding": "Replace {$a5_value:i} with the literal dictionary[i] (do not reinterpret reserved keys inside literal entries); $a5_value_object wraps an original object. Decode before column tables. All stocks and evidence remain.",
+            "data": data}
 
 
 def pack_string_dictionary(value: Any) -> dict:

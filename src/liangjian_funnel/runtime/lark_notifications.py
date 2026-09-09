@@ -916,7 +916,8 @@ class WorkflowLarkPublisher:
                 lines.append(
                     f"• **{target}｜{proposal_type}**："
                     f"{_display_text(item.get('proposed_change'), limit=220, fallback='建议待补充')}；"
-                    f"至少观察 {_number(item.get('min_shadow_days'))} 个交易日。"
+                    + (f"至少观察 {_number(item.get('min_shadow_days'))} 个交易日。" if item.get("type") == "SHADOW_TEST"
+                     else "以确定性回归和数据核对验收，不设统一观察天数。")
                 )
         else:
             lines.append("• 当前证据尚不足以提出新的改进实验。")
