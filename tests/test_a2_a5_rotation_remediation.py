@@ -347,3 +347,13 @@ def test_engineering_validation_is_not_forced_to_ten_shadow_days():
     assert A5Proposal.model_validate(payload).min_shadow_days == 0
     with pytest.raises(ValueError):
         A5Proposal.model_validate({**payload, "type": "SHADOW_TEST"})
+
+
+def test_a5_embedded_states_keep_chinese_execution_meaning():
+    from liangjian_funnel.runtime.lark_notifications import _display_text
+    rendered = _display_text('TREND_MA5 BUY_SIGNAL UNFILLED；OUTSIDE_ROTATION；OPEN/HIGH/LOW/VOLUME/AMOUNT',limit=500)
+    assert rendered == '趋势 5 日线 买入触发 未成交；轮动范围外；开盘价/最高价/最低价/成交量/成交额'
+    assert _display_text('HIGH') == '较高'
+    assert _display_text('LOW') == '较低'
+    assert '系统内部状态' not in _display_text('UNRECOGNIZED_FUTURE_REASON')
+    assert '阶段追溯完整' in _display_text('lineage_complete=true')

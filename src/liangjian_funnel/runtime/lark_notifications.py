@@ -217,6 +217,35 @@ _DISPLAY_LABELS = {
     "A4_NO_EFFECTIVE_SIGNAL": "A4 未触发有效信号",
     "PREVIOUS_CLOSE": "以前一日收盘价为基准",
     "FIRST_INTRADAY_OPEN": "以当日第一笔盘中开盘价为基准",
+    **_STRATEGY_LABELS,
+    **_ACTION_LABELS,
+    "FOCUS": "聚焦",
+    "WATCH": "观察",
+    "OUTSIDE_ROTATION": "轮动范围外",
+    "UNFILLED": "未成交",
+    "FILLED": "已模拟成交",
+    "CANCELLED": "委托已终止",
+    "INVALIDATED": "计划已失效",
+    "CLOSE": "收盘价",
+    "OPEN": "开盘价",
+    "VOLUME": "成交量",
+    "AMOUNT": "成交额",
+    "OHLC": "开高低收价格",
+    "MA": "均线",
+    "M15": "十五分钟",
+    "MA520": "520均线策略",
+    "DIF": "快慢均线差",
+    "DEA": "均线差的平滑值",
+    "HIST": "柱状值",
+    "ROUTE": "策略路线",
+    "PRICE_LEVELS": "计划价格位",
+    "PRICE_OUTSIDE_BAR": "委托参考价不在该分钟价格区间",
+    "MA_AND_CLOSE": "均线及收盘价",
+    "MA_AND_CLOSE_CHECKS": "仅核验均线及收盘价",
+    "CANDIDATE_PRICE_BREADTH_NOT_BOARD_STRENGTH_OR_NET_FLOW": "候选股价格广度（非板块强度或资金排名）",
+    "A5V:A4:SUMMARY": "A4独立核验汇总",
+    "A5V:A3:SUMMARY": "A3独立核验汇总",
+    "A5V:A2:SUMMARY": "A2独立核验汇总",
 }
 
 _THEME_LABELS = {
@@ -233,6 +262,12 @@ _THEME_LABELS = {
     "INDUSTRY:881177.TI": "互联网服务",
     "INDUSTRY:884202.TI": "房地产服务",
     "CONCEPT:885999.TI": "智能座舱",
+    "AI_COMPUTE_INFRASTRUCTURE": "人工智能算力基础设施",
+    "CONSUMER_ELECTRONICS": "消费电子",
+    "FINANCIAL_HIGH_DIVIDEND": "金融与高股息",
+    "AGRICULTURE_FOOD_SECURITY": "农业与粮食安全",
+    "INFRASTRUCTURE_DOMESTIC_DEMAND": "基建与内需",
+    "CHEMICAL_NEW_MATERIALS": "化工与新材料",
 }
 
 _TEXT_REPLACEMENTS = {
@@ -258,6 +293,21 @@ _TEXT_REPLACEMENTS = {
     "MA60": "六十日均线",
     "MACD": "指数平滑异同移动平均线",
     "KDJ": "随机指标",
+    "OPEN/HIGH/LOW": "开盘价/最高价/最低价",
+    "lineage_complete=true": "阶段追溯完整",
+    "lineage_complete=false": "阶段追溯不完整",
+    "ranking_comparable_to_production=false": "不可直接对比生产板块排名",
+    "ranking_comparable_to_production=true": "可对比生产板块排名",
+    "llm_reviewed": "模型复核数量",
+    "quant_evaluated": "量化评价数量",
+    "ranking_basis": "排名依据",
+    "session_plan_count": "当日计划数",
+    "daily_bar_count": "日线数量",
+    "route_contract_match": "策略路线契约一致",
+    "not_verified_fields": "未验证字段",
+    "indicator_verification_scope": "指标核验范围",
+    "cross_source_verified_fields": "跨源已核验字段",
+    "lineage": "阶段追溯",
 }
 
 
@@ -311,7 +361,7 @@ def _display_text(value: Any, *, limit: int = 300, fallback: str = "—") -> str
             or _DISPLAY_LABELS.get(match.group(0).replace("-", "_"))
             or _THEME_LABELS.get(match.group(0).replace("-", "_"))
             or _TEXT_REPLACEMENTS.get(match.group(0).replace("-", "_"))
-            or "系统内部状态"
+            or "未识别的说明（见原始证据）"
         ),
         rendered,
     )

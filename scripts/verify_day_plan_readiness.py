@@ -1,16 +1,45 @@
 """Read-only acceptance of one published A2/A3 batch and its next-day plans."""
 import argparse
 from collections import Counter
-from datetime import date
+from datetime import date, datetime
 import hashlib
 import importlib
 import json
 from pathlib import Path
 import sqlite3
 import subprocess
+from zoneinfo import ZoneInfo
 
 from liangjian_funnel.settings import Settings
 from liangjian_funnel.runtime.calendar import ExchangeTradingCalendar
+
+
+def audit_520_inputs(plans, settings, target_date):
+    """Read the same archived history as A4; do not construct a writable store."""
+    from liangjian_funnel.data.cache import _from_row
+    from liangjian_funnel.runtime.strategies import _Bar, _historical_fifteen, _macd_observation
+    targets = [p for p in plans if p['payload'].get('strategy_profile') == 'MA520_SWING']
+    if not targets:
+        return []
+    cutoff = datetime.combine(date.fromisoformat(target_date), datetime.min.time(), ZoneInfo('Asia/Shanghai'))
+    checks = []
+    with sqlite3.connect((settings.minute_cache_dir/'minute_bars.sqlite3').as_uri()+'?mode=ro',uri=True) as db:
+        for plan in targets:
+            rows = db.execute('''select symbol,interval,bar_end,open_value,high_value,low_value,
+                close_value,volume_value,amount_value,source_id,adjust_mode from minute_bars
+                where symbol=? and interval='5m' and bar_end<? order by bar_end desc limit 360''',
+                (plan['symbol'],cutoff.isoformat())).fetchall()
+            history = [_from_row(row).model_dump(mode='json') for row in reversed(rows)]
+            # The marker supplies only target date/symbol to the history selector.
+            # It is never included in indicator inputs or an A4 decision.
+            marker = _Bar(symbol=plan['symbol'],end=cutoff,open=1,high=1,low=1,close=1,volume=0,amount=0)
+            bars = _historical_fifteen({'market_context':{'historical_5m':history}},[marker])
+            macd = _macd_observation(bars)
+            daily = plan['payload'].get('daily_macd') or (plan['payload'].get('strategy_facts') or {}).get('daily_macd') or {}
+            checks.append({'symbol':plan['symbol'],'daily_macd_available':all(isinstance(daily.get(k),(int,float)) for k in ('dif','dea','hist')),
+                'closed_prior_m15_count':len(bars),'m15_macd_warmup_complete':macd.get('warmup_complete') is True,
+                'last_prior_bar':bars[-1].end.isoformat() if bars else None})
+    return checks
 
 
 def main():
@@ -40,6 +69,7 @@ def main():
     pending_other=db.execute("select count(*) from execution_plans where lane_id='lane_1' and status='PENDING_MORNING_REVIEW' and substr(expires_at,1,10)=?",(args.target_date,)).fetchone()[0]-len(plans)
     columns={row[1] for row in db.execute('pragma table_info(astock_outcome_labels)')}
     db.close()
+    indicator_checks=audit_520_inputs(plans,settings,args.target_date)
     module_checks={}
     for name in ('pipeline.deterministic','pipeline.research','runtime.strategies','runtime.entry_contract','runtime.simulation','runtime.indicator_history','review.context','review.daily','workflow'):
         module=importlib.import_module('liangjian_funnel.'+name)
@@ -53,11 +83,13 @@ def main():
         'nonempty_plans':bool(plans),
         'pending_not_activated':all(p['status']=='PENDING_MORNING_REVIEW' and not p['valid_from'] for p in plans),
         'single_pending_batch':pending_other==0,
+        'all_expire_target_close':all(p['expires_at'].startswith(args.target_date+'T15:00:00') for p in plans),
         'no_reserve_executable':all(p['payload'].get('rotation_reserve_scope')!='RESEARCH_ONLY_NO_AUTOMATIC_ENTRY' for p in plans),
         'all_qualified_model_pass':all(p['payload'].get('eligibility')=='QUALIFIED' and p['payload'].get('review_status')=='PASS' for p in plans),
         'new_trend_rule_frozen':all(p['payload'].get('strategy_profile')!='TREND_MA5' or p['payload'].get('trend_entry_rule_version')=='trend-ma5/2' for p in plans),
         'tn_schema_ready':{f'signal_return_{n}d' for n in (1,3,5,10)}<=columns,
         'installed_modules_match_source':all(module_checks.values()),
+        '520_daily_and_prior_macd_ready':all(r['daily_macd_available'] and r['m15_macd_warmup_complete'] for r in indicator_checks),
     }
     history_path=settings.workflow_output_dir/'runs'/f'{args.run_id}-indicator-preparation.json'
     history=json.loads(history_path.read_text()) if history_path.exists() else {'status':'MISSING'}
@@ -66,7 +98,7 @@ def main():
         'a2_quant':a2.get('local_screen_summary'),'a2_themes':a2.get('active_themes'),'a3_core':len(core),'a3_research_reserve':sum(r.get('rotation_reserve_eligible') is True for r in secondary),
         'a3_strategy_counts':dict(Counter(p['payload'].get('strategy_profile') for p in plans)),
         'plans':[{key:value for key,value in p.items() if key!='payload'}|{'strategy':p['payload'].get('strategy_profile'),'name':p['payload'].get('name')} for p in plans],
-        'indicator_preparation':history,'status':'READY' if all(assertions.values()) and history.get('status')=='READY' else 'NEEDS_ATTENTION'}
+        'indicator_preparation':history,'520_archived_input_checks':indicator_checks,'status':'READY' if all(assertions.values()) and history.get('status')=='READY' else 'NEEDS_ATTENTION'}
     print(json.dumps(result,ensure_ascii=False))
     if not all(assertions.values()):
         raise SystemExit(2)
