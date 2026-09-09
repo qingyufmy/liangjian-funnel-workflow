@@ -71,7 +71,7 @@ def main():
     db.close()
     indicator_checks=audit_520_inputs(plans,settings,args.target_date)
     module_checks={}
-    for name in ('pipeline.deterministic','pipeline.research','runtime.strategies','runtime.entry_contract','runtime.simulation','runtime.indicator_history','review.context','review.daily','workflow'):
+    for name in ('pipeline.deterministic','pipeline.research','pipeline.model_client','runtime.strategies','runtime.monitor','runtime.entry_contract','runtime.simulation','runtime.indicator_history','runtime.lark_notifications','review.context','review.daily','review.verification','workflow'):
         module=importlib.import_module('liangjian_funnel.'+name)
         local=(root/'src/liangjian_funnel'/Path(*name.split('.'))).with_suffix('.py')
         module_checks[name]=hashlib.sha256(local.read_bytes()).hexdigest()==hashlib.sha256(Path(module.__file__).read_bytes()).hexdigest()

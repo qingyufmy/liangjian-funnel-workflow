@@ -372,3 +372,18 @@ def test_close_time_cannot_emit_unexecutable_buy_notification(tmp_path):
     assert not any(row['effective'] for row in store.list_monitor_events())
     contract=freeze_entry_contract('600001.SH',{'stop_level':9.0,'expires_at':plan['expires_at']},strategy,at=NOW.replace(hour=14,minute=59))
     assert contract['status']=='READY' and contract['eligible_bar_end']=='2026-09-09T15:00:00+08:00'
+
+
+def test_monthly_theme_identity_is_separate_from_three_rotation_boards():
+    from liangjian_funnel.pipeline.research import _project_a2_bottleneck_context, _a2_compact_theme_identity_reasons
+    contexts={symbol:{'theme_id':'RESOURCES_ENERGY','rotation_direction_id':'SELECTED_BOARD:'+board,
+        'trend_core_eligible':True,'selected_board':{'theme_id':board}}
+        for symbol,board in [('600026.SH','SHIPPING'),('000506.SZ','PRECIOUS_METALS'),('000878.SZ','NONFERROUS_METALS')]}
+    projected=_project_a2_bottleneck_context(contexts,set(contexts))
+    assert set(projected['_theme_review_scope'])=={'RESOURCES_ENERGY'}
+    assert len(projected['_rotation_review_scope'])==3
+    assert projected['000506.SZ']['a1_theme_id']=='RESOURCES_ENERGY'
+    snapshot={'A2_BOTTLENECK_CONTEXT':contexts}
+    assert not _a2_compact_theme_identity_reasons({'theme_reviews':[{'theme_id':'RESOURCES_ENERGY'}]},snapshot,set(contexts))
+    assert _a2_compact_theme_identity_reasons({'theme_reviews':[{'theme_id':'PRECIOUS_METALS'}]},snapshot,set(contexts))==['A2_THEME_REVIEW_ID_NOT_CANONICAL:PRECIOUS_METALS']
+    assert _a2_compact_theme_identity_reasons({'theme_reviews':[{'theme_id':'RESOURCES_ENERGY'}]*2},snapshot,set(contexts))==['A2_THEME_REVIEW_ID_DUPLICATED:RESOURCES_ENERGY']

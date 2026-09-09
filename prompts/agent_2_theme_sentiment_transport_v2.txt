@@ -47,6 +47,11 @@ A2_POOL_TARGETS={{A2_POOL_TARGETS}}
    成交额只能辅助解释，不能替代冻结的板块资金或逐股量化事实。
 8. 每只 focus 股票所继承的 A1 主题都必须有且只有一条 theme_reviews；主题缺失
    会使该股票自动降为 WATCH。不要为纯 WATCH 股票重复输出无关主题。
+   theme_reviews.theme_id只能复制A2_BOTTLENECK_CONTEXT._theme_review_scope的键，
+   每股的唯一主题见a1_theme_id；不能使用selected_board.theme_id或轮动方向标识替代。
+   例如航运、贵金属、有色可分别占据三个轮动方向，却同属RESOURCES_ENERGY：
+   theme_reviews只输出一条RESOURCES_ENERGY，三个方向仍分别核对代表股覆盖。
+   不要分别输出SHIPPING、PRECIOUS_METALS、NONFERROUS_METALS后让服务端合并评分。
 9. 聚焦是下一步技术研究优先级，和开仓权限分别判断。NO_NEW_ENTRY、RISK_OFF、
    情绪退潮只写入开仓权限及风险，不能单独清空趋势方向。TREND不要求连板，
    tier_structure=0/没有涨停梯队不代表趋势结构缺陷；不能套用EMOTION的接力门槛。

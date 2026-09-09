@@ -4257,7 +4257,12 @@ class ResearchPipeline:
             variants.append(result.thinking_variant)
             output = _strip_reasoning(result.output)
             original_discovery_output = output
+            a2_review_identity_reasons = []
             if stage == "A2":
+                a2_review_identity_reasons = _a2_compact_theme_identity_reasons(
+                    output, snapshot.data,
+                    projection_symbols if projection_symbols is not None else upstream_symbols,
+                )
                 output = _expand_a2_compact_output(
                     output,
                     snapshot.data,
@@ -4384,6 +4389,8 @@ class ResearchPipeline:
             )
             if stage == "A3" and a3_semantic_reasons:
                 reasons.extend(a3_semantic_reasons)
+            if stage == "A2":
+                reasons.extend(a2_review_identity_reasons)
             if stage == "A1" and a1_discovery_context:
                 reasons.extend(_a1_discovery_context_reasons(output, a1_discovery_context))
                 if (
@@ -5975,6 +5982,7 @@ def _project_a2_bottleneck_context(value: Any, symbols: set[str] | None) -> Any:
         if not isinstance(raw, Mapping):
             continue
         row = {
+            "a1_theme_id": raw.get("theme_id"),
             "quant_score": raw.get("deterministic_score"),
             "rotation_direction_id": raw.get("rotation_direction_id"),
             "rotation_rank": raw.get("theme_rotation_rank"),
@@ -6048,6 +6056,13 @@ def _project_a2_bottleneck_context(value: Any, symbols: set[str] | None) -> Any:
             scope.setdefault(str(direction), []).append(symbol)
     if scope:
         result["_rotation_review_scope"] = scope
+    theme_scope: dict[str, list[str]] = {}
+    for symbol in sorted(symbols):
+        row = result.get(symbol, {})
+        if row.get("a1_theme_id"):
+            theme_scope.setdefault(str(row["a1_theme_id"]), []).append(symbol)
+    if theme_scope:
+        result["_theme_review_scope"] = theme_scope
     return result
 
 
@@ -7989,6 +8004,13 @@ def _semantic_retry_instruction(
             " rotation_reviews contains ONLY directions with no focus_decisions representative: omit all focused "
             "directions from rotation_reviews, use [] when all have focus. Do not emit decision=FOCUS in rotation_reviews."
         )
+    if stage == "A2" and any(code.startswith("A2_THEME_REVIEW_") for code in safe_reasons):
+        discovery_requirements.append(
+            "Use only the exact keys of A2_BOTTLENECK_CONTEXT._theme_review_scope in theme_reviews.theme_id. "
+            "Copy each stock's a1_theme_id, NOT selected_board.theme_id or rotation_direction_id. "
+            "SHIPPING, PRECIOUS_METALS and NONFERROUS_METALS share the single canonical monthly theme RESOURCES_ENERGY; "
+            "keep their three rotation direction coverage checks separate. Do not invent or merge scores."
+        )
     discovery_retry = "\n".join(discovery_requirements)
     return (
         "PREVIOUS_RESPONSE_REJECTED\n"
@@ -8850,6 +8872,27 @@ def _canonicalize_a2_bottleneck_scorecards(
             normalized.append(item)
         result[pool] = normalized
     return result, changed
+
+
+def _a2_compact_theme_identity_reasons(output, snapshot_data, expected_symbols):
+    """Do not silently merge different board scores into one monthly theme."""
+    reviews = output.get("theme_reviews") if isinstance(output, Mapping) else None
+    contexts = _lineage_context_rows(snapshot_data, "A2_BOTTLENECK_CONTEXT")
+    allowed = {str(contexts.get(symbol, {}).get("theme_id") or "") for symbol in expected_symbols}
+    allowed.discard("")
+    if not isinstance(reviews, list) or not allowed:
+        return []
+    reasons, seen = [], set()
+    for row in reviews:
+        if not isinstance(row, Mapping):
+            continue
+        theme = str(row.get("theme_id") or "")
+        if theme not in allowed:
+            reasons.append("A2_THEME_REVIEW_ID_NOT_CANONICAL:" + theme)
+        elif theme in seen:
+            reasons.append("A2_THEME_REVIEW_ID_DUPLICATED:" + theme)
+        seen.add(theme)
+    return reasons
 
 
 def _expand_a2_compact_output(
