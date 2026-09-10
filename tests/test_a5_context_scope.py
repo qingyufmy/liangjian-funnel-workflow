@@ -147,6 +147,55 @@ def test_critical_counts_remain_plain_and_separate_missing_from_mismatch():
     assert facts == original
 
 
+def test_representative_prioritizes_live_geometry_over_empty_warmup():
+    from liangjian_funnel.review.daily import _compact_a4_observations
+    base = {"plan_id": "p", "symbol": "300855.SZ", "action": "START_CONFIRMATION", "effective": False}
+    rows = [
+        {**base, "evidence_id": "warm", "minute_end": "09:32", "reason_code": "A4_SESSION_WARMUP", "unmet_conditions": []},
+        {**base, "evidence_id": "geometry", "minute_end": "10:30", "reason_code": "A4_LIVE_REWARD_RISK_BELOW_MINIMUM", "unmet_conditions": ["A4_LIVE_ENTRY_GEOMETRY_ACCEPTED"], "entry_geometry": {"live_reward_risk": .126984, "minimum_reward_risk": 2}},
+        {**base, "evidence_id": "end", "minute_end": "15:00", "reason_code": "TREND_15M_PRESSURE_NOT_EASING", "unmet_conditions": ["PRESSURE"]},
+    ]
+    selected, groups = _compact_a4_observations(rows)
+    assert "geometry" in {r["evidence_id"] for r in selected}
+    assert next(r for r in selected if r["evidence_id"] == "geometry")["entry_geometry"]["minimum_reward_risk"] == 2
+    assert groups[0]["observation_count"] == 3
+    assert groups[0]["primary_reason_counts"]["A4_SESSION_WARMUP"] == 1
+
+
+def test_market_recovery_keeps_full_coverage_and_failures_without_mutating_archive():
+    rows = [{"symbol": "000001.SZ", "return": .1, "close": 11, "previous_close": 10,
+             "input_digest": "x"*64, "verification_fetched_at": "2026-09-10T16:00:01+08:00"},
+            {"symbol": "000002.SZ", "return": None, "reason_code": "NO_PRICE", "input_digest": "y"*64}]
+    f={"independent_verification": {"a2": {"market_cross_section_recovery": rows}}}
+    original=copy.deepcopy(f); p=_model_fact_projection(f)["independent_verification"]["a2"]
+    groups=p["market_cross_section_recovery"]["groups"]
+    assert [symbol for g in groups for symbol in g["symbols"]]==["000001.SZ","000002.SZ"]
+    assert sum(g["priced_count"] for g in groups)==1
+    assert [r for g in groups for r in g["failures"]][0]["reason_code"]=="NO_PRICE"
+    assert p["market_cross_section_recovery"]["row_count"]==2
+    assert p["market_recovery_provenance"]["row_count"]==2
+    assert f==original
+
+
+def test_full_day_frozen_input_when_available():
+    path = ROOT / "outputs/audits/session-20260910/post-close-original-facts.json"
+    if not path.exists():
+        pytest.skip("Local frozen full-day production fixture not present")
+    facts = json.loads(path.read_text(encoding="utf-8"))
+    original = copy.deepcopy(facts)
+    projection = _model_fact_projection(facts)
+    _, diagnostics = render_a5_prompt(PromptRepository(ROOT / "prompts"),
+        "agent_5_daily_reviewer_v1.txt", projection)
+    assert diagnostics["prompt_chars"] < 225000
+    original_rows = facts["independent_verification"]["a2"]["market_cross_section_recovery"]
+    index = projection["independent_verification"]["a2"]["market_cross_section_recovery"]
+    assert index["row_count"] == len(original_rows) == 812
+    assert sorted(s for g in index["groups"] for s in g["symbols"]) == sorted(r["symbol"] for r in original_rows)
+    assert projection["independent_verification"]["counterexamples"] == facts["independent_verification"]["counterexamples"]
+    assert unpack(pack_evidence(projection)) == projection
+    assert facts == original
+
+
 def test_frozen_retry_rejects_wrong_day_or_hash_before_model_call(tmp_path):
     service=A5DailyReviewService(store=RuntimeStore(tmp_path/'runtime.db'),
         prompts=PromptRepository(ROOT/'prompts'),model_client=None,output_dir=tmp_path,lane_id='lane_1',model='deepseek')

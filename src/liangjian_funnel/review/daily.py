@@ -232,6 +232,13 @@ def _plan_projection(row: Mapping[str, Any]) -> dict[str, Any]:
         "trigger_low": payload.get("trigger_low"),
         "trigger_high": payload.get("trigger_high"),
         "stop_level": payload.get("stop_level"),
+        "entry_reference_zone": payload.get("entry_reference_zone"),
+        "first_resistance": payload.get("first_resistance"),
+        "a4_deferred_conditions": payload.get("a4_deferred_conditions") or [],
+        "minimum_reward_risk": _json_mapping(payload.get("deterministic_price_evidence")).get(
+            "minimum_reward_risk", payload.get("minimum_reward_risk")),
+        "maximum_stop_distance_pct": _json_mapping(payload.get("deterministic_price_evidence")).get(
+            "maximum_stop_distance_pct", payload.get("maximum_stop_distance_pct")),
         "no_chase_price": payload.get("no_chase_price", payload.get("max_chase_price")),
         "selection_reasons": [str(item)[:500] for item in reasons[:8]],
         "valid_from": row.get("valid_from"),
@@ -338,6 +345,9 @@ def _a3_candidates(audit: Mapping[str, Any]) -> list[dict[str, Any]]:
             if symbol:
                 result[symbol] = {"evidence_id": f"A3:CANDIDATE:{symbol}", "symbol": symbol,
                     "pool": pool, "eligibility": row.get("deterministic_eligibility") or row.get("eligibility"),
+                    "strategy_profile": row.get("strategy_profile"),
+                    "stock_behavior_type": row.get("stock_behavior_type"),
+                    "a4_deferred_conditions": row.get("a4_deferred_conditions") or [],
                     "reason_codes": row.get("deterministic_reason_codes") or row.get("reason_codes") or [],
                     "veto_conditions": row.get("deterministic_veto_conditions") or row.get("veto_conditions") or []}
     return list(result.values())
@@ -356,7 +366,16 @@ def _compact_a4_observations(events: Sequence[Mapping[str, Any]]) -> tuple[list[
     summaries = []
     for key, rows in sorted(groups.items()):
         ordered = sorted(rows, key=lambda row: (str(row.get("minute_end")), str(row.get("event_id"))))
-        closest = min(ordered, key=lambda row: len(row.get("unmet_conditions") or []))
+        def proximity(row: Mapping[str, Any]) -> tuple[int, int, int]:
+            reason = str(row.get("reason_code") or "")
+            geometry_gate = reason.startswith("A4_LIVE_REWARD_RISK_") or reason.startswith("A4_LIVE_STOP_")
+            warmup = reason in {"A4_SESSION_WARMUP", "NO_CLOSED_5M", "NO_CLOSED_15M", "EMPTY_SCOPE"}
+            # A warm-up row may have zero unmet_conditions; it is not the
+            # closest entry opportunity. Live geometry runs after technical
+            # confirmation and is therefore the priority diagnostic sample.
+            return (0 if geometry_gate else 1, 1 if warmup else 0,
+                    len(row.get("unmet_conditions") or []))
+        closest = min(ordered, key=proximity)
         representatives = {str(row["evidence_id"]): dict(row) for row in (ordered[0], closest, ordered[-1])}
         selected.update(representatives)
         counts: dict[str, int] = {}
@@ -418,6 +437,36 @@ def _model_fact_projection(facts: Mapping[str, Any]) -> dict[str, Any]:
         projected["independent_verification"] = independent
     if independent:
         independent["a2"] = dict(_json_mapping(independent.get("a2")))
+        recovery = _rows(independent["a2"].get("market_cross_section_recovery"))
+        if recovery:
+            # The server already ranks the full cross-section and emits all
+            # selected counterexamples below. Do not ask the model to rank
+            # 812 raw quotes again. Keep the complete coverage index and all
+            # failures; original per-stock quotes remain in frozen facts.
+            times = sorted(str(r["verification_fetched_at"]) for r in recovery if r.get("verification_fetched_at"))
+            business_rows = [
+                {k: v for k, v in row.items() if k not in {"input_digest", "verification_fetched_at"}}
+                for row in recovery]
+            recovery_groups: dict[str, dict[str, Any]] = {}
+            for row in business_rows:
+                common = {k: row.get(k) for k in ("source_ids", "return_basis", "price_at", "evidence_scope")}
+                key = json.dumps(common, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+                group = recovery_groups.setdefault(key, {"basis": common, "symbols": [], "priced_count": 0, "failures": []})
+                group["symbols"].append(row.get("symbol"))
+                if row.get("return") is not None:
+                    group["priced_count"] += 1
+                else:
+                    group["failures"].append(row)
+            independent["a2"]["market_cross_section_recovery"] = {
+                "projection": "FULL_COVERAGE_INDEX_SERVER_RANKED_QUOTES_IN_FROZEN_ARCHIVE",
+                "row_count": len(recovery),
+                "interpretation": "Every recovered symbol is listed. All unavailable quote rows remain. Full per-stock prices and returns are in frozen facts; server-selected counterexamples retain detailed returns. No model re-ranking or claim that this index contains every raw quote.",
+                "groups": list(recovery_groups.values())}
+            independent["a2"]["market_recovery_provenance"] = {
+                "row_count": len(recovery), "individual_provenance_in_full_fact_archive": True,
+                "first_fetched_at": times[0] if times else None,
+                "last_fetched_at": times[-1] if times else None,
+                "scope": "POST_HOC_VERIFICATION_NOT_ORIGINAL_DECISION_INPUT"}
         if independent["a2"].get("counterexamples") == independent.get("counterexamples"):
             independent["a2"].pop("counterexamples", None)
         projected["independent_verification"] = independent
@@ -548,6 +597,7 @@ def build_a5_fact_snapshot(
             continue
         payload = _json_mapping(row.get("payload_json"))
         symbol = str(payload.get("symbol") or "")
+        strategy = _json_mapping(payload.get("strategy"))
         events.append({
             "evidence_id": f"A4:EVENT:{row.get('event_id')}",
             "event_id": row.get("event_id"),
@@ -561,6 +611,10 @@ def build_a5_fact_snapshot(
             "strategy_profile": _json_mapping(payload.get("strategy")).get("strategy_profile"),
             "strategy_reason_codes": _json_mapping(payload.get("strategy")).get("reason_codes") or [],
             "unmet_conditions": _json_mapping(payload.get("strategy")).get("unmet_conditions") or [],
+            "entry_geometry": {key: strategy[key] for key in (
+                "live_entry_price", "live_stop_level", "live_target_price", "live_no_chase_price",
+                "live_reward_risk", "live_stop_distance_pct", "minimum_reward_risk",
+                "maximum_stop_distance_pct", "closed_5m_end", "closed_15m_end") if key in strategy},
         })
 
     lifecycles = []
@@ -977,7 +1031,7 @@ class A5DailyReviewService:
         # Identical market facts must not reuse prose produced by an older
         # prompt/verification contract after a release.
         facts["review_contract"] = {
-            "version": "a5-full-lineage-entry-audit/4",
+            "version": "a5-full-lineage-entry-audit/5",
             "prompt_sha256": self.prompts.document(_A5_PROMPT).sha256,
             "model": self.model,
         }
