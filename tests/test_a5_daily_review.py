@@ -126,6 +126,29 @@ class _FailingPublisher:
         raise RuntimeError("simulated delivery failure")
 
 
+def test_frozen_retry_uses_original_evidence_and_is_idempotent(tmp_path, monkeypatch):
+    store=RuntimeStore(tmp_path/'state.db')
+    _seed(store,tmp_path)
+    cutoff=datetime(2026,9,3,11,30,tzinfo=TZ)
+    facts=build_a5_fact_snapshot(store,tmp_path,trade_date=cutoff.date(),cutoff_at=cutoff,
+        review_kind=A5ReviewKind.MIDDAY,lane_id='lane_1')
+    before=json.dumps(facts,sort_keys=True,ensure_ascii=False)
+    def forbidden(*args,**kwargs):
+        raise AssertionError('Frozen retry must not rebuild facts')
+    monkeypatch.setattr('liangjian_funnel.review.daily.build_a5_fact_snapshot',forbidden)
+    class Model(_Model):
+        def complete(self,model,messages,**kwargs):
+            assert kwargs['max_output_tokens']==32768 and kwargs['timeout_seconds']==600
+            return super().complete(model,messages,**kwargs)
+    model=Model()
+    service=A5DailyReviewService(store=store,prompts=PromptRepository(ROOT/'prompts'),
+        model_client=model,output_dir=tmp_path,lane_id='lane_1',model='deepseek/deepseek-v4-pro')
+    for _ in range(2):
+        service.run(review_kind=A5ReviewKind.MIDDAY,now=cutoff.replace(hour=12),frozen_facts=facts)
+    assert model.calls==1 and len(store.list_a5_reviews())==1
+    assert json.dumps(facts,sort_keys=True,ensure_ascii=False)==before
+
+
 def test_a5_snapshot_joins_a2_a3_a4_without_live_data(tmp_path: Path):
     store = RuntimeStore(tmp_path / "state.sqlite3")
     output_dir = tmp_path / "outputs"

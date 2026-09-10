@@ -363,8 +363,8 @@ class WorkflowApplication:
         self.review_model_client = OpenAICompatibleModelClient(
             settings.model_copy(
                 update={
-                    "model_timeout_seconds": 300.0,
-                    "model_max_output_tokens": 16_384,
+                    "model_timeout_seconds": 600.0,
+                    "model_max_output_tokens": 32_768,
                     "model_fallback_output_tokens": 8_192,
                     "model_secondary_fallback_output_tokens": 4_096,
                 }

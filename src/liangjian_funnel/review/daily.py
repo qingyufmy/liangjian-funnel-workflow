@@ -1012,8 +1012,8 @@ class A5DailyReviewService:
             prompt_hash=prompt_hash,
             input_hash=str(facts["input_hash"]),
             stage="A5",
-            timeout_seconds=300,
-            max_output_tokens=16_384,
+            timeout_seconds=600,
+            max_output_tokens=32_768,
         )
         try:
             report = A5ReviewReport.model_validate(_canonicalize_report_output(result.output))
