@@ -1608,6 +1608,7 @@ test("all jobs have a bounded control-plane timeout", () => {
   expect(timeoutForJob("monitor", 1234)).toBe(1234);
   expect(timeoutForJob("monitor", 90_000)).toBe(55_000);
   expect(timeoutForJob("a1", 90_000, 6 * 60 * 60 * 1000)).toBe(6 * 60 * 60 * 1000);
-  expect(timeoutForJob("a5-midday", 90 * 60 * 1000)).toBe(10 * 60 * 1000);
-  expect(timeoutForJob("a5-close", 90 * 60 * 1000)).toBe(10 * 60 * 1000);
+  expect(timeoutForJob("a5-midday", 90 * 60 * 1000)).toBe(15 * 60 * 1000);
+  expect(timeoutForJob("a5-close", 90 * 60 * 1000)).toBe(15 * 60 * 1000);
+  expect(timeoutForJob("a5-close", 30_000)).toBe(30_000);
 });
