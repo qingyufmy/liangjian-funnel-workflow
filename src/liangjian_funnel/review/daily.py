@@ -164,6 +164,27 @@ def _canonicalize_report_output(value: Any) -> Any:
     if not isinstance(value, Mapping):
         return value
     payload = dict(value)
+    tasks = payload.get("data_collection_tasks")
+    if isinstance(tasks, list):
+        priorities = {"HIGH": "高", "MEDIUM": "中", "LOW": "低"}
+        normalized_tasks = []
+        for task in tasks:
+            # Only normalize the observed, losslessly representable shape.
+            # Unknown keys and invalid values still fail strict validation.
+            if (isinstance(task, Mapping) and set(task) <= {"task", "target", "priority"}
+                    and isinstance(task.get("task"), str) and task["task"].strip()
+                    and ("target" not in task or isinstance(task["target"], str) and task["target"] in {"A1", "A2", "A3", "A4", "A5", "ORCHESTRATOR"})
+                    and ("priority" not in task or isinstance(task["priority"], str) and task["priority"] in priorities)):
+                target = task.get("target", "")
+                if target == "ORCHESTRATOR":
+                    target = "任务编排"
+                tags = [target] if target else []
+                if "priority" in task:
+                    tags.append("优先级：" + priorities[task["priority"]])
+                normalized_tasks.append(("【" + "；".join(tags) + "】" if tags else "") + task["task"])
+            else:
+                normalized_tasks.append(task)
+        payload["data_collection_tasks"] = normalized_tasks
     rows = payload.get("missed_opportunity_reviews")
     if not isinstance(rows, list):
         return payload
@@ -1102,12 +1123,18 @@ class A5DailyReviewService:
         prompt_hash = result.prompt_hash or prompt_hash
         # Preserve complete model responses even if schema/evidence validation
         # later rejects them. Never send this unvalidated artifact to Lark.
-        atomic_write_json(target_dir / f"{artifact_stem}-model-{result.output_hash[:12]}.json", {
+        raw_path = target_dir / f"{artifact_stem}-model-{result.output_hash[:12]}.json"
+        raw_payload = {
             "model": self.model, "output_hash": result.output_hash,
             "thinking_variant": result.thinking_variant, "output": result.output,
             "prompt_hash": prompt_hash,
             "validation_status": "RAW_NOT_APPROVED", "input_hash": facts["input_hash"],
-        })
+        }
+        if raw_path.exists():
+            if json.loads(raw_path.read_text(encoding="utf-8")) != raw_payload:
+                raise A5ReviewError("A5_ARCHIVED_RESPONSE_CONFLICT")
+        else:
+            atomic_write_json(raw_path, raw_payload)
         try:
             report = A5ReviewReport.model_validate(_canonicalize_report_output(result.output))
         except ValidationError as exc:
@@ -1118,6 +1145,10 @@ class A5DailyReviewService:
         report.signal_stock_reviews = list(facts.get("signal_stock_reviews") or [])
         _enforce_verified_findings(report, facts)
         report.fact_reconciliation = reconcile_report(report, facts)
+        archived_source = getattr(self.model_client, "archived_response_source", None)
+        if archived_source:
+            report.fact_reconciliation.append(
+                f"本版复验已归档模型响应（{archived_source}），未重新调用模型；沿用原提示词及冻结输入，执行当前结构与事实校验。")
         report = A5ReviewReport.model_validate(report.model_dump())
         _validate_evidence(report, facts)
 

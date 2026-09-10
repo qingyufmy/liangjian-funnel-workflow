@@ -4,11 +4,61 @@ from pathlib import Path
 
 import pytest
 
-from liangjian_funnel.review.daily import A5ReviewReport, _model_fact_projection, _enforce_verified_findings, _validate_evidence
+from liangjian_funnel.review.daily import A5ReviewReport, _model_fact_projection, _enforce_verified_findings, _validate_evidence, _canonicalize_report_output
 from liangjian_funnel.review.fact_guard import normalize_quality, reconcile_report, verification_totals
 from liangjian_funnel.review.verification import _field_comparison
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_collection_task_known_object_preserves_meaning_without_mutating_raw():
+    from test_a5_daily_review import _report
+    payload = copy.deepcopy(_report())
+    task = {"task": "核对金额口径", "target": "A4", "priority": "MEDIUM"}
+    payload["data_collection_tasks"] = [task]
+    result = A5ReviewReport.model_validate(_canonicalize_report_output(payload))
+    assert result.data_collection_tasks == ["【A4；优先级：中】核对金额口径"]
+    assert payload["data_collection_tasks"] == [task]
+
+
+@pytest.mark.parametrize("task", [{"task": "采集", "unknown": "不能丢失"},
+    {"task": "采集", "priority": []}, {"task": "采集", "target": {}}, {"task": ""}])
+def test_unknown_collection_task_shape_still_fails(task):
+    from test_a5_daily_review import _report
+    from pydantic import ValidationError
+    payload = copy.deepcopy(_report())
+    payload["data_collection_tasks"] = [task]
+    with pytest.raises(ValidationError):
+        A5ReviewReport.model_validate(_canonicalize_report_output(payload))
+
+
+def test_archived_response_requires_identical_prompt_input_and_output(tmp_path):
+    import hashlib
+    import importlib.util
+    from liangjian_funnel.pipeline.model_client import ModelCallResult
+    spec = importlib.util.spec_from_file_location("rerun_a5_frozen", ROOT / "scripts/rerun_a5_frozen.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    prompt = "frozen prompt"
+    prompt_hash = hashlib.sha256(prompt.encode()).hexdigest()
+    result = ModelCallResult(model="deepseek-v4-pro", output={"ok": True}, prompt_hash=prompt_hash,
+        input_hash="input", latency_ms=100, attempts=1, thinking_variant="original")
+    raw = {"model": result.model, "output": result.output, "prompt_hash": prompt_hash,
+        "input_hash": "input", "output_hash": result.output_hash, "thinking_variant": "original"}
+    path = tmp_path / "response.json"
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    client = module.ArchivedResponseClient(path)
+    kwargs = {"prompt_hash": prompt_hash, "input_hash": "input"}
+    messages = [{"role": "system", "content": prompt}]
+    assert client.complete(result.model, messages, **kwargs).attempts == 0
+    with pytest.raises(ValueError, match="IDENTITY_MISMATCH"):
+        client.complete(result.model, messages, **(kwargs | {"input_hash": "other"}))
+    with pytest.raises(ValueError, match="IDENTITY_MISMATCH"):
+        client.complete(result.model, [{"role": "system", "content": "different"}], **kwargs)
+    raw["output"] = {"ok": False}
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    with pytest.raises(ValueError, match="HASH_MISMATCH"):
+        module.ArchivedResponseClient(path)
 
 
 def test_amount_limitation_keeps_comparison_scopes_separate():
