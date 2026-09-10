@@ -90,7 +90,7 @@ def reconcile_report(report: Any, facts: Mapping[str, Any]) -> list[str]:
         notes.append("无适用520计划不构成15分钟MACD预热故障。")
 
     if totals["scope_verified"]:
-        aggregate_terms = ("成交量", "成交金额", "VOLUME", "AMOUNT", "分钟", "理论值")
+        aggregate_terms = ("成交量", "金额", "VOLUME", "AMOUNT", "分钟", "理论值")
         def aggregate_claim(text: str) -> bool:
             # Never erase exit/T+1 or indicator findings just because their
             # descriptions also mention a minute timeframe or volume.

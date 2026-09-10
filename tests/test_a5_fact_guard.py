@@ -11,6 +11,26 @@ from liangjian_funnel.review.verification import _field_comparison
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_amount_limitation_keeps_comparison_scopes_separate():
+    from test_a5_daily_review import _report
+    payload = copy.deepcopy(_report())
+    payload["a4_review"]["defects"] = ["金额字段全部数据受限，无法比较"]
+    report = A5ReviewReport.model_validate(payload)
+    facts = {"metrics": {}, "independent_verification": {"a4": {"plans": [{
+        "expected_observation_minutes": 1, "recorded_observation_minutes": 1,
+        "cross_source_field_checks": {"AMOUNT": {
+            "compared_count": 0, "mismatch_count": 0, "not_comparable_count": 5280}},
+        "archived_tdx_field_checks": {"AMOUNT": {
+            "compared_count": 3360, "mismatch_count": 0, "not_comparable_count": 1920}},
+    }]}}}
+    reconcile_report(report, facts)
+    A5ReviewReport.model_validate(report.model_dump())
+    assert not any("金额字段全部" in item for item in report.a4_review.defects)
+    assert any("两源比较不可比较：成交金额5280组" in item for item in report.a4_review.data_limitations)
+    assert any("归档对通达信不可比较：成交金额1920组" in item for item in report.a4_review.data_limitations)
+    assert verification_totals(facts)["fields"]["archived_tdx_field_checks:AMOUNT"]["compared_count"] == 3360
+
+
 def test_fact_guard_preserves_real_exit_and_indicator_defects():
     from test_a5_daily_review import _report
     payload = copy.deepcopy(_report())
