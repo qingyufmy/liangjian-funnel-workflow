@@ -869,6 +869,7 @@ class WorkflowLarkPublisher:
         )
         lines = [
             "**复盘结论**",
+            *(["• 本版含服务器事实审校，计数与归因以本版为准；此前报告和原始交易记录保留。"] if report.get("fact_reconciliation") else []),
             f"• {_display_text(report.get('executive_summary'), limit=420, fallback='本次复盘摘要未提供。')}",
             f"• 总体评价：{_display_text(report.get('overall_verdict'), limit=40, fallback='尚无结论')}",
             f"• 事实截止：{_time_label(review.get('cutoff_at') or facts.get('cutoff_at'))}",
