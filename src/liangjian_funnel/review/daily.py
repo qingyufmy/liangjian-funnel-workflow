@@ -782,7 +782,7 @@ def _evidence_ids(snapshot: Mapping[str, Any]) -> set[str]:
     return values
 
 
-def _validate_evidence(report: A5ReviewReport, snapshot: Mapping[str, Any]) -> None:
+def _validate_evidence(report: A5ReviewReport, snapshot: Mapping[str, Any], *, check_stage: bool = True) -> None:
     allowed = _evidence_ids(snapshot)
     referenced: list[str] = []
     for layer in (report.a2_review, report.a3_review, report.a4_review):
@@ -805,7 +805,7 @@ def _validate_evidence(report: A5ReviewReport, snapshot: Mapping[str, Any]) -> N
         expected = str(fact.get("drop_stage") or "UNRESOLVED").split("_")[0]
         if expected not in {"A1", "A2", "A3", "A4"}:
             expected = "UNRESOLVED"
-        if item.funnel_drop_stage != expected:
+        if check_stage and item.funnel_drop_stage != expected:
             raise A5ReviewError("A5_COUNTEREXAMPLE_STAGE_CONFLICT")
         if str(fact.get("evidence_id")) not in item.evidence_ids:
             raise A5ReviewError("A5_COUNTEREXAMPLE_REFERENCE_MISMATCH")
@@ -912,9 +912,17 @@ def _enforce_verified_findings(report: A5ReviewReport, facts: Mapping[str, Any])
     for row in report.missed_opportunity_reviews:
         actual = missed.get(row.symbol, "")
         if actual.startswith(("A1_", "A2_", "A3_", "A4_")):
+            if row.funnel_drop_stage != actual[:2]:
+                row.assessment = (
+                    f"冻结晋级证据确认落层为{actual[:2]}（{actual}）。模型原始落层归因与证据冲突，"
+                    "该项原归因不采纳；不能仅凭上涨确认策略缺陷，需按真实阶段继续核对。"
+                )
+                row.is_confirmed_defect = False
             row.funnel_drop_stage = actual[:2]
     if _json_mapping(verification.get("a3")).get("not_verified_fields"):
-        note = "独立复算只覆盖已声明字段，未验证MACD、KDJ及成交量，不能据此宣称三套策略全部验收。"
+        names = {"MACD":"MACD", "KDJ":"KDJ", "VOLUME":"成交量"}
+        missing = _json_mapping(verification.get("a3"))["not_verified_fields"]
+        note = "独立复算仍未验证" + "、".join(names.get(str(k),str(k)) for k in missing) + "，不能据此宣称三套策略全部验收。"
         report.a3_review.data_limitations = [note, *report.a3_review.data_limitations][:8]
     for proposal in report.improvement_proposals:
         if proposal.type in {"ENGINEERING_FIX", "DATA_FIX"}:
@@ -969,7 +977,7 @@ class A5DailyReviewService:
         # Identical market facts must not reuse prose produced by an older
         # prompt/verification contract after a release.
         facts["review_contract"] = {
-            "version": "a5-full-lineage-entry-audit/3",
+            "version": "a5-full-lineage-entry-audit/4",
             "prompt_sha256": self.prompts.document(_A5_PROMPT).sha256,
             "model": self.model,
         }
@@ -1015,13 +1023,20 @@ class A5DailyReviewService:
             timeout_seconds=600,
             max_output_tokens=32_768,
         )
+        # Preserve complete model responses even if schema/evidence validation
+        # later rejects them. Never send this unvalidated artifact to Lark.
+        atomic_write_json(target_dir / f"{artifact_stem}-model-{result.output_hash[:12]}.json", {
+            "model": self.model, "output_hash": result.output_hash,
+            "thinking_variant": result.thinking_variant, "output": result.output,
+            "validation_status": "RAW_NOT_APPROVED", "input_hash": facts["input_hash"],
+        })
         try:
             report = A5ReviewReport.model_validate(_canonicalize_report_output(result.output))
         except ValidationError as exc:
             raise A5ReviewError("A5_OUTPUT_SCHEMA_INVALID") from exc
         if report.review_kind is not review_kind or report.trade_date != current.date():
             raise A5ReviewError("A5_OUTPUT_IDENTITY_MISMATCH")
-        _validate_evidence(report, facts)
+        _validate_evidence(report, facts, check_stage=False)
         report.signal_stock_reviews = list(facts.get("signal_stock_reviews") or [])
         _enforce_verified_findings(report, facts)
         _validate_evidence(report, facts)

@@ -19,6 +19,7 @@ def main():
     parser.add_argument('--facts', type=Path, required=True)
     parser.add_argument('--execute', action='store_true', help='Call the model, persist A5, and send its normal notification')
     parser.add_argument('--model', help='Explicit operator-selected model for this A5 run only; no environment/configuration writes')
+    parser.add_argument('--no-notify', action='store_true', help='Persist the validated review for inspection before its normal notification')
     args = parser.parse_args()
     raw = args.facts.read_bytes()
     facts = json.loads(raw)
@@ -42,7 +43,7 @@ def main():
     model = args.model or settings.review_model
     service = A5DailyReviewService(store=app.store,prompts=app.prompts,
         model_client=app.review_model_client,output_dir=settings.workflow_output_dir,
-        lane_id=lane,model=model,notification_publisher=app.lark_publisher)
+        lane_id=lane,model=model,notification_publisher=None if args.no_notify else app.lark_publisher)
     result = service.run(review_kind=kind,now=now,frozen_facts=facts)
     print(json.dumps(result,ensure_ascii=False,default=str),flush=True)
     if hashlib.sha256(args.facts.read_bytes()).hexdigest() != hashlib.sha256(raw).hexdigest():

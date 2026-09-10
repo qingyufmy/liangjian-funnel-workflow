@@ -149,6 +149,25 @@ def test_frozen_retry_uses_original_evidence_and_is_idempotent(tmp_path, monkeyp
     assert json.dumps(facts,sort_keys=True,ensure_ascii=False)==before
 
 
+def test_stage_conflict_is_explicitly_disclaimed_after_reference_validation(tmp_path):
+    store=RuntimeStore(tmp_path/'state.db');_seed(store,tmp_path)
+    class Verifier(_Verifier):
+        def verify(self,**kwargs):
+            result=super().verify(**kwargs)
+            result['counterexamples'][0]['drop_stage']='A3_NOT_PLANNED'
+            return result
+    service=A5DailyReviewService(store=store,prompts=PromptRepository(ROOT/'prompts'),
+        model_client=_Model(include_counterexample=True),output_dir=tmp_path,lane_id='lane_1',
+        model='deepseek/deepseek-v4-pro',independent_verifier=Verifier())
+    service.run(review_kind=A5ReviewKind.MIDDAY,now=datetime(2026,9,3,11,35,tzinfo=TZ))
+    raw=json.loads(next((tmp_path/'a5/2026-09-03').glob('*-model-*.json')).read_text(encoding='utf-8'))
+    assert raw['output']['missed_opportunity_reviews'][0]['funnel_drop_stage']=='A2'
+    published=json.loads(next((tmp_path/'a5/2026-09-03').glob('*.md')).with_suffix('.json').read_text(encoding='utf-8'))
+    case=published['report']['missed_opportunity_reviews'][0]
+    assert case['funnel_drop_stage']=='A3' and '不采纳' in case['assessment']
+    assert case['is_confirmed_defect'] is False
+
+
 def test_a5_snapshot_joins_a2_a3_a4_without_live_data(tmp_path: Path):
     store = RuntimeStore(tmp_path / "state.sqlite3")
     output_dir = tmp_path / "outputs"
