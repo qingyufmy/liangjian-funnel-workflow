@@ -1594,6 +1594,34 @@ test("scheduler dispatches the local T+N outcome backfill after close", async ()
   expect(calls).toEqual(["outcomes"]);
 });
 
+test("scheduler reconciles outcomes after late close success without rerunning research", async () => {
+  const calls: JobName[] = [];
+  let completeClose: (value: JobRunRecord) => void = () => {};
+  let now = new Date("2026-09-10T07:10:05Z");
+  const record = (job: JobName): JobRunRecord => ({ runId: job, job, command: job,
+    startedAt: now.toISOString(), finishedAt: now.toISOString(), exitCode: 0,
+    signal: null, durationMs: 0, status: "succeeded", reason: null });
+  const fakeRunner = { run: async (job: JobName): Promise<JobRunRecord> => {
+    calls.push(job);
+    return job === "close" ? new Promise(resolve => { completeClose = resolve; }) : record(job);
+  }, activeJob: () => null };
+  const root = await mkdtemp(join(tmpdir(), "liangjian-late-outcomes-"));
+  const scheduler = new WorkflowScheduler(fakeRunner as unknown as JobRunner,
+    new LogStore(loadConfig({ LIANGJIAN_PYTHON_BIN: "python3" }, root)),
+    { comparisonEnabled: false, now: () => now });
+  await scheduler.tick(now);
+  now = new Date("2026-09-10T08:10:05Z");
+  await scheduler.tick(now);
+  await new Promise<void>(resolve => setImmediate(resolve));
+  now = new Date("2026-09-10T10:12:05Z");
+  completeClose(record("close"));
+  await new Promise<void>(resolve => setImmediate(resolve));
+  await scheduler.tick(now);
+  await new Promise<void>(resolve => setImmediate(resolve));
+  await scheduler.tick(now);
+  expect(calls).toEqual(["close", "outcomes", "outcomes"]);
+});
+
 test("process-exit wait returns after timeout so shutdown can escalate to SIGKILL", async () => {
   const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 1000)"], { stdio: "ignore", windowsHide: true });
   const exited = await waitForProcessExit(child, 5);

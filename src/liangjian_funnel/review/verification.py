@@ -144,6 +144,7 @@ def _field_comparison(left: Mapping[str, Mapping[str, Any]], right: Mapping[str,
         compared = 0
         missing = 0
         mismatches = []
+        patterns: dict[str, int] = {}
         for stamp in sorted(set(left) & set(right)):
             a, b = left[stamp], right[stamp]
             comparable = (field not in {"volume", "amount"}
@@ -159,9 +160,19 @@ def _field_comparison(left: Mapping[str, Mapping[str, Any]], right: Mapping[str,
             tolerance = max(0.01, abs(y) * 0.005) if field in {"open", "high", "low", "close"} else 1.0
             if abs(x - y) > tolerance + 1e-9:
                 mismatches.append({"bar_end": stamp, "left": x, "right": y})
+                if field == "volume":
+                    ratio = max(abs(x), abs(y)) / min(abs(x), abs(y)) if x and y else None
+                    pattern = ("RATIO_NEAR_100_NEEDS_UNIT_EVIDENCE" if ratio is not None and abs(ratio - 100) < .01
+                        else "OPENING_MINUTE_BOUNDARY" if "T09:31:" in stamp
+                        else "DIFFERENCE_AT_MOST_ONE_LOT" if abs(x - y) <= 100 + 1e-9
+                        else "OTHER_SOURCE_OR_REVISION_DIFFERENCE")
+                    patterns[pattern] = patterns.get(pattern, 0) + 1
         result[field.upper()] = {"status": "MISMATCH" if mismatches else "MATCH" if compared and not missing else "DATA_LIMITED",
                                 "compared_count": compared, "not_comparable_count": missing,
                                 "mismatch_count": len(mismatches), "mismatch_samples": mismatches[:5]}
+        if field == "volume":
+            result[field.upper()]["difference_patterns"] = patterns
+            result[field.upper()]["pattern_scope"] = "DESCRIPTIVE_NOT_CAUSAL; ORIGINAL_TOLERANCE_AND_MISMATCHES_UNCHANGED"
     return result
 
 

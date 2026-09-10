@@ -20,6 +20,7 @@ from ..runtime.state import RuntimeStore
 from .signal_audit import build_signal_stock_reviews
 from .context import A5ReviewError, render_a5_prompt
 from .plan_scope import carryover_evidence, select_review_plans
+from .fact_guard import normalize_quality, reconcile_report
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -136,6 +137,7 @@ class A5ReviewReport(BaseModel):
     signal_reviews: list[A5SignalReview] = Field(default_factory=list, max_length=80)
     # Populated by server facts after model validation, never model authority.
     signal_stock_reviews: list[dict[str, Any]] = Field(default_factory=list)
+    fact_reconciliation: list[str] = Field(default_factory=list)
     missed_opportunity_reviews: list[A5CounterexampleReview] = Field(default_factory=list, max_length=20)
     core_defects: list[A5Defect] = Field(default_factory=list, max_length=8)
     improvement_proposals: list[A5Proposal] = Field(default_factory=list, max_length=3)
@@ -395,6 +397,12 @@ def _compact_a4_observations(events: Sequence[Mapping[str, Any]]) -> tuple[list[
 
 def _model_fact_projection(facts: Mapping[str, Any]) -> dict[str, Any]:
     projected = dict(facts)
+    projected["data_quality"] = normalize_quality(_json_mapping(facts.get("data_quality")))
+    # Persisted prose is not independently validated history. Keep identity
+    # references, not old numbers/claims that contaminate a new session.
+    projected["review_history"] = [{key: row[key] for key in (
+        "evidence_id", "review_id", "trade_date", "review_kind", "proposal_ids") if key in row}
+        for row in _rows(facts.get("review_history"))]
     # These are exact duplicates of the authoritative A3/root evidence.
     projected["a2"] = dict(_json_mapping(facts.get("a2")))
     projected["a2"].pop("technical_candidates", None)
@@ -746,7 +754,7 @@ def build_a5_fact_snapshot(
                 else "A5_INDEPENDENT_VERIFICATION_UNAVAILABLE"
             )
             snapshot["data_quality"]["status"] = "DEGRADED"
-            snapshot["data_quality"]["missing_components"].append(reason)
+            snapshot["data_quality"].setdefault("limitation_reasons", []).append(reason)
     signal_market = _json_mapping(_json_mapping(snapshot.get("independent_verification")).get("signal_market"))
     snapshot["signal_stock_reviews"] = build_signal_stock_reviews(
         raw_event_rows, selected_plan_rows, store.list_fills(), signal_market, cutoff, lifecycles=raw_lifecycles)
@@ -880,6 +888,8 @@ def _markdown(report: A5ReviewReport, snapshot: Mapping[str, Any]) -> str:
         "- 核验边界：价格字段一致不代表开高低、成交量或全部技术指标一致；次日可卖也不代表必定成交。",
         "", "## 总结", "", report.executive_summary, "",
     ]
+    if report.fact_reconciliation:
+        lines.extend(["## 事实审校", "", *[f"- {note}" for note in report.fact_reconciliation], ""])
     for title, layer in (("A2 选股与题材", report.a2_review), ("A3 日线计划", report.a3_review), ("A4 日内择时", report.a4_review)):
         lines.extend([f"## {title}", "", f"**{layer.verdict}**｜{layer.summary}", ""])
         if layer.strengths:
@@ -1031,7 +1041,7 @@ class A5DailyReviewService:
         # Identical market facts must not reuse prose produced by an older
         # prompt/verification contract after a release.
         facts["review_contract"] = {
-            "version": "a5-full-lineage-entry-audit/5",
+            "version": "a5-full-lineage-entry-audit/6",
             "prompt_sha256": self.prompts.document(_A5_PROMPT).sha256,
             "model": self.model,
         }
@@ -1106,6 +1116,8 @@ class A5DailyReviewService:
         _validate_evidence(report, facts, check_stage=False)
         report.signal_stock_reviews = list(facts.get("signal_stock_reviews") or [])
         _enforce_verified_findings(report, facts)
+        report.fact_reconciliation = reconcile_report(report, facts)
+        report = A5ReviewReport.model_validate(report.model_dump())
         _validate_evidence(report, facts)
 
         target_dir = self.output_dir / "a5" / current.date().isoformat()

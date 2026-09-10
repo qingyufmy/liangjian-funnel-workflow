@@ -15,7 +15,7 @@
 12. missed_opportunity_reviews 中每一项必须引用对应 A5V:MISS:* 证据。只有独立事实能证明当时应通过且系统错误拒绝/漏执行时，is_confirmed_defect 才能为 true；否则为 false 并提出影子验证。
 13. independent_verification.a2.scope 和 counterexample_scope 是结论边界；不得把 A1→A2 候选域写成全市场扫描。
 14. 对 A4，价格进入触发区只是反例线索，不等于完整策略买点；只有策略动作已经生成却未被合法抑制的 orchestration_omissions 才可直接归为执行遗漏。
-15. review_history 是已经验证并持久化的历史 A5 摘要，可用于识别重复缺陷和累计影子样本；不得把历史提案写成已经生效，也不得因为重复出现就自动修改生产规则。
+15. review_history只提供历史记录身份和提案编号；持久化不代表历史文字已经独立核验，不得把旧摘要的数字或判断移植到本次结论。
 16. 反例的funnel_drop_stage必须服从独立事实drop_stage对应阶段；a3.candidates包含未发布的观察、否决和缺口。A2观察不等于未进入A3，缺血缘写UNRESOLVED，不猜测。
 17. A股当日买入股份不得当日卖出，老仓与今仓按实际可卖数量分别处理。风险触发、T+1待退出、模拟成交是不同状态；止损也不能绕过T+1。未成交不得计算已实现收益。
 18. 均线及close一致只代表对应项目核验；MACD缺失或未预热、OHLC/成交量修订必须单列，不能推导三策略全部健康。
@@ -34,6 +34,9 @@
 
 29. summary、assessment、problem、proposed_change等面向用户的文字必须用简体中文说明业务含义，不粘贴英文状态码、字段名或证据编号。代码要求的枚举值和evidence_ids字段保持原值；例如写“未成交”“轮动范围外”“量化已评价827只”，不要写UNFILLED、OUTSIDE_ROTATION或quant_evaluated。技术指标可使用约定名称，但不得把价格广度称为板块资金强度。
 30. 本次metrics与独立核验优先于历史摘要。START_CONFIRMATION是观察，不是有效信号。适用520计划数为0时，预热数为0不构成预热失败。金额DATA_LIMITED且compared_count为0只能写未能比较，不能写大量不匹配。排名口径不可比时，不能用重叠率证明板块选择正确或错误。
+31. 判断记录数、交易分钟数、计划乘分钟数是不同量纲。是否漏盘只按每个计划的expected_observation_minutes、recorded_observation_minutes和orchestration_omission_count核对；不可用计划数乘240推断遗漏。盘前失效和延迟激活会改变观察窗口。
+32. data_quality.limitation_reasons是资料受限原因，不是缺失程序组件。独立核验已执行但结果降级，不需要创建一个同名组件。成交量差异只能作为待解释事实；没有单位证据不得确认是百倍单位错误，也不得通过放宽容差追求差异归零。来源未提供的金额保持不可比较。
+33. 反例主题必须来自该股冻结theme_id/theme_name，不得凭股票名称重新判行业。程序会生成事实审校字段，模型不要生成fact_reconciliation。
 
 A5_FACT_SNAPSHOT:
 signal_stock_reviews由代码生成，是有效信号逐事件的当日表现及入场冻结证据。评价必须区分昨收涨跌、信号后价格表现、模拟成交后价格表现与已实现收益；分钟覆盖不足不能称全日极值。入场审计是冻结记录核对而非全策略重算。缺失成交不推定持仓，T+1当日买入不可当日卖出。不要在输出中生成signal_stock_reviews字段，程序会注入权威事实。

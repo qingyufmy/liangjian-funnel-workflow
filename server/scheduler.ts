@@ -88,6 +88,7 @@ export class WorkflowScheduler {
   private comparisonInFlight = false;
   private comparisonPendingTrigger = false;
   private comparisonRetryTimer: NodeJS.Timeout | null = null;
+  private outcomesAfterCloseDate: string | null = null;
   private readonly now: () => Date;
   private readonly intervalMs: number;
   private readonly retryMs: number;
@@ -128,6 +129,7 @@ export class WorkflowScheduler {
     this.comparisonRetryTimer = null;
     this.comparisonInFlight = false;
     this.comparisonPendingTrigger = false;
+    this.outcomesAfterCloseDate = null;
     this.running = false;
     this.logger.info("Node 调度器已停止");
   }
@@ -161,6 +163,16 @@ export class WorkflowScheduler {
       if (this.dispatched.get(job) === key || this.inFlight.has(job) || this.retryKeys.get(job) === key) continue;
       this.dispatch(job, key, value);
     }
+    // The 16:10 pass can precede refreshed closing prices. Reconcile again
+    // after a successful same-day research run, without replaying research.
+    if (this.outcomesAfterCloseDate && this.outcomesAfterCloseDate !== clock.date) {
+      this.outcomesAfterCloseDate = null;
+    }
+    if (this.outcomesAfterCloseDate === clock.date && clock.hour >= 15
+      && !this.inFlight.has("outcomes") && !this.retryTimers.has("outcomes")) {
+      this.outcomesAfterCloseDate = null;
+      this.dispatch("outcomes", `${clock.date}Tafter-close`, value);
+    }
   }
 
   public snapshot(): SchedulerSnapshot {
@@ -192,6 +204,10 @@ export class WorkflowScheduler {
         if (shouldRetry) {
           this.dispatched.delete(job);
           this.scheduleResearchRetry(job, key);
+        }
+        if (job === "close" && result.status === "succeeded"
+          && shanghaiClock(this.now()).date === key.slice(0, 10)) {
+          this.outcomesAfterCloseDate = key.slice(0, 10);
         }
         // The current morning command is the deterministic pending-plan
         // review; the model-backed primary research hand-off is the close
@@ -265,9 +281,10 @@ export class WorkflowScheduler {
           ? 15 * 60 + 10
           : 18 * 60;
       const currentMinute = clock.hour * 60 + clock.minute;
+      const afterCloseOutcomes = job === "outcomes" && key.endsWith("Tafter-close");
       const withinRecoveryWindow = clock.date === key.slice(0, 10)
-        && currentMinute >= dueMinute
-        && currentMinute <= dueMinute + (job === "premarket" ? 50 : job === "a1" ? 5 * 60 : job === "a5-midday" ? 70 : job === "a5-close" || job === "outcomes" ? 60 : 10);
+        && currentMinute >= (afterCloseOutcomes ? 15 * 60 : dueMinute)
+        && currentMinute <= (afterCloseOutcomes ? 23 * 60 + 59 : dueMinute + (job === "premarket" ? 50 : job === "a1" ? 5 * 60 : job === "a5-midday" ? 70 : job === "a5-close" || job === "outcomes" ? 60 : 10));
       if (withinRecoveryWindow && clock.weekday !== 0 && clock.weekday !== 6) {
         this.dispatch(job, key, current);
       }

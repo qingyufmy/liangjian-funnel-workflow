@@ -94,6 +94,8 @@ def _critical_fact_header(projection: dict[str, Any]) -> str:
         return ""
     verification = projection.get("independent_verification") or {}
     a2 = verification.get("a2") or {}
+    from .fact_guard import verification_totals
+    coverage = verification_totals(projection)
     fields = {}
     for plan in (verification.get("a4") or {}).get("plans", []):
         for side in ("cross_source_field_checks", "archived_tdx_field_checks"):
@@ -111,6 +113,7 @@ def _critical_fact_header(projection: dict[str, Any]) -> str:
         "ranking_comparable_to_production", "ranking_basis", "selected_theme_overlap_count",
         "selected_theme_overlap_ratio", "market_cross_section_status", "scope") if key in a2},
         "a4_field_totals": fields,
+        "a4_observation_scope": {k: v for k, v in coverage.items() if k != "fields"},
         "counterexample_stages": [{key: row.get(key) for key in
             ("symbol", "drop_stage", "has_a3_plan", "has_effective_a4_event", "evidence_id")}
             for row in verification.get("counterexamples", [])]}
