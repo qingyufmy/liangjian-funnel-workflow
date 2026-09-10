@@ -256,6 +256,8 @@ def _pdf_payload(evidence: CninfoPdfEvidence | None) -> dict[str, Any]:
         "pdf_content_type": evidence.content_type,
         "pdf_byte_size": evidence.byte_size,
         "pdf_parser": evidence.parser,
+        "pdf_text_method": evidence.text_method,
+        "pdf_ocr_quality": evidence.ocr_quality,
         "pdf_fetched_at": evidence.fetched_at.isoformat(),
         "pdf_extraction_version": evidence.extraction_version,
         "pdf_page_count": evidence.page_count,

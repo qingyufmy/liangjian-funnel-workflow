@@ -104,7 +104,7 @@ def test_config_contains_the_stable_registry_and_strategy_families() -> None:
     config_path = Path(__file__).parents[1] / "config" / "funnel_config_v2.yaml"
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     registry = config["agent_1"]["mature_theme_registry"]
-    assert registry["version"] == "mature-theme-registry/2026.09.v1"
+    assert registry["version"] == "mature-theme-registry/2026.09.10.v2"
     assert len(registry["themes"]) >= 12
     for theme in registry["themes"]:
         assert {

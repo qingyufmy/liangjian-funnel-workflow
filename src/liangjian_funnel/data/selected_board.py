@@ -212,10 +212,12 @@ def _symbol(value: Any) -> str | None:
     text = str(value or "").strip().upper()
     if "." in text:
         code, suffix = text.split(".", 1)
+        if len(code) == 6 and code.isdigit() and code.startswith("920") and suffix in {"SH", "SZ", "BJ"}:
+            return f"{code}.BJ"
         return f"{code}.{suffix}" if len(code) == 6 and code.isdigit() and suffix in {"SH", "SZ", "BJ"} else None
     if len(text) != 6 or not text.isdigit():
         return None
-    if text.startswith(("4", "8")):
+    if text.startswith(("4", "8", "920")):
         return f"{text}.BJ"
     return f"{text}.SH" if text.startswith(("5", "6", "9")) else f"{text}.SZ"
 

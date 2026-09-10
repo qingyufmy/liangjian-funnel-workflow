@@ -1075,6 +1075,8 @@ def _symbol(value: Mapping[str, Any] | Any) -> str:
     else:
         raw = value
     text = str(raw or "").strip().upper()
+    if text[:6].isdigit() and text.startswith("920") and text[6:] in ("", ".SH", ".SZ", ".BJ"):
+        return text[:6] + ".BJ"
     if len(text) == 6 and text.isdigit():
         suffix = "SH" if text.startswith(("5", "6", "9")) else "BJ" if text.startswith(("4", "8")) else "SZ"
         return f"{text}.{suffix}"

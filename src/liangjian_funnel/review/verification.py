@@ -17,8 +17,11 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, time, timedelta
 from statistics import median
 from typing import Any
+from pathlib import Path
 from zoneinfo import ZoneInfo
 from ..runtime.calendar import ExchangeTradingCalendar
+from .indicator_evidence import audit_event_indicators, daily_macd_check
+from .evidence_archive import archive_observation
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -135,15 +138,44 @@ def _expected_minutes(start: datetime, cutoff: datetime) -> int:
     return count
 
 
+def _field_comparison(left: Mapping[str, Mapping[str, Any]], right: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
+    result = {}
+    for field in ("open", "high", "low", "close", "volume", "amount"):
+        compared = 0
+        missing = 0
+        mismatches = []
+        for stamp in sorted(set(left) & set(right)):
+            a, b = left[stamp], right[stamp]
+            comparable = (field not in {"volume", "amount"}
+                          or (field == "volume" and a.get("volume_unit") == b.get("volume_unit") == "shares")
+                          or (field == "amount" and a.get("amount_kind") == b.get("amount_kind") == "reported"))
+            x, y = _bar_value(a, field), _bar_value(b, field)
+            if not comparable or x is None or y is None:
+                missing += 1
+                continue
+            compared += 1
+            # Price tolerance keeps the existing audit contract. Volumes use
+            # one-share rounding only; source disagreements remain visible.
+            tolerance = max(0.01, abs(y) * 0.005) if field in {"open", "high", "low", "close"} else 1.0
+            if abs(x - y) > tolerance + 1e-9:
+                mismatches.append({"bar_end": stamp, "left": x, "right": y})
+        result[field.upper()] = {"status": "MISMATCH" if mismatches else "MATCH" if compared and not missing else "DATA_LIMITED",
+                                "compared_count": compared, "not_comparable_count": missing,
+                                "mismatch_count": len(mismatches), "mismatch_samples": mismatches[:5]}
+    return result
+
+
 class A5IndependentVerifier:
     """Build independent A2/A3/A4 acceptance evidence without mutating runtime."""
 
-    def __init__(self, *, daily_cache: Any, minute_store: Any, tencent: Any, mootdx: Any, workers: int = 12):
+    def __init__(self, *, daily_cache: Any, minute_store: Any, tencent: Any, mootdx: Any, workers: int = 12, quote_fetch: Any = None, evidence_dir: Path | None = None):
         self.daily_cache = daily_cache
         self.minute_store = minute_store
         self.tencent = tencent
         self.mootdx = mootdx
         self.workers = max(1, min(int(workers), 24))
+        self.quote_fetch = quote_fetch
+        self.evidence_dir = evidence_dir
 
     def verify(
         self,
@@ -159,6 +191,34 @@ class A5IndependentVerifier:
         price_candidates = [row for row in candidates if row.get("llm_reviewed") is not False]
         plan_symbols = tuple(dict.fromkeys(str(row.get("symbol") or "") for row in plan_rows if str(row.get("symbol") or "")))
         market_cross_section = self._daily_market_cross_section(market_universe, cutoff)
+        expected_symbols = {str(row.get("symbol") or "") for row in market_universe} - {""}
+        missing = expected_symbols - {str(row["symbol"]) for row in market_cross_section}
+        # Recover only absent end-of-day prices. A prior close must come from
+        # the previous trading session, never from today's opening minute.
+        recovered_tencent = self._fetch_many(self.tencent, tuple(sorted(missing)), "1m", 300, cutoff) if cutoff.time() >= time(15) else {}
+        recovery = self._recover_cross_section(market_universe, missing, recovered_tencent, cutoff)
+        if self.quote_fetch is not None and cutoff.time() >= time(15):
+            metadata = {str(r.get("symbol")): r for r in market_universe}
+            for symbol in sorted(missing - {r["symbol"] for r in recovery}):
+                try:
+                    quote = self.quote_fetch(symbol)
+                    price, baseline = _number(quote.get("latest_price")), _number(quote.get("previous_close"))
+                    stamp = quote.get("quote_time")
+                    if isinstance(stamp,str): stamp = datetime.fromisoformat(stamp)
+                    if (quote.get("symbol") == symbol and quote.get("no_reported_trades") is True
+                            and quote.get("turnover_cny") == 0 and price is not None and price > 0
+                            and price == baseline and isinstance(stamp,datetime) and stamp.tzinfo
+                            and stamp.date() == cutoff.date() and stamp.time() >= time(15)):
+                        recovery.append({**metadata.get(symbol,{}), "symbol":symbol,"return":0.0,
+                            "return_basis":"NO_TRADE_QUOTE_REFERENCE_MARK", "ranking_eligible":False,
+                            "trading_activity":"NO_REPORTED_TRADES", "close":price,"previous_close":baseline,
+                            "price_at":stamp.isoformat(),"source_ids":[quote.get("source_id")],
+                            "verification_fetched_at":datetime.now(SHANGHAI).isoformat(),
+                            "evidence_scope":"POST_HOC_QUOTE_NOT_A_TRADE_OR_A_SUSPENSION_RULING"})
+                except Exception:
+                    continue
+        market_cross_section.extend(recovery)
+        market_cross_section.sort(key=lambda row: (-float(row["return"]), str(row["symbol"])))
         # The deterministic top percentile is a discovery index, not a funnel
         # capacity.  It avoids thousands of duplicate public minute requests;
         # every A1-universe member is still ranked before the alternate-source
@@ -174,7 +234,7 @@ class A5IndependentVerifier:
         # One complete A-share session has 240 one-minute closes.  Request a
         # little more so the independent A2 return can use the previous close
         # instead of silently dropping the overnight gap.
-        tencent_rows = self._fetch_many(self.tencent, symbols, "1m", 300, cutoff)
+        tencent_rows = {**recovered_tencent, **self._fetch_many(self.tencent, tuple(s for s in symbols if s not in recovered_tencent), "1m", 300, cutoff)}
         tdx_1m = self._fetch_many(self.mootdx, plan_symbols, "1m", 240, cutoff)
         tdx_5m = self._fetch_many(self.mootdx, plan_symbols, "5m", 320, cutoff)
         local_1m = self._load_local_minutes(plan_symbols, cutoff)
@@ -193,6 +253,10 @@ class A5IndependentVerifier:
             round(len(expected_symbols & covered_symbols) / len(expected_symbols), 6)
             if expected_symbols else None
         )
+        a2_check["market_cross_section_recovery"] = recovery
+        a2_check["market_cross_section_status"] = "READY" if expected_symbols and not (expected_symbols - covered_symbols) else "DATA_LIMITED"
+        if expected_symbols - covered_symbols and cutoff.time() >= time(15) and a2_check.get("status") == "READY":
+            a2_check["status"] = "DEGRADED"
         a3_check = self._verify_a3(plan_rows, daily, tdx_5m, cutoff)
         a4_check = self._verify_a4(plan_rows, event_rows, tencent_rows, tdx_1m, local_1m, cutoff)
         # Only signal stocks need minute paths for deterministic performance.
@@ -216,6 +280,10 @@ class A5IndependentVerifier:
         status = "READY" if all(item.get("status") == "READY" for item in sections) else (
             "DEGRADED" if any(item.get("status") in {"READY", "DEGRADED"} for item in sections) else "UNAVAILABLE"
         )
+        archives = {name:{symbol:row.get("input_snapshot", {"status":"NOT_ARCHIVED"}) for symbol,row in source.items()}
+                    for name,source in (("tencent_1m",tencent_rows),("tdx_1m",tdx_1m),("tdx_5m",tdx_5m))}
+        if self.evidence_dir and any(item.get("status") == "ARCHIVE_FAILED" for source in archives.values() for item in source.values()):
+            status = "DEGRADED"
         return {
             "schema_version": "a5-independent-verification/1.0.0",
             "status": status,
@@ -230,6 +298,7 @@ class A5IndependentVerifier:
             "a3": a3_check,
             "a4": a4_check,
             "signal_market": signal_market,
+            "market_data_evidence_archives": archives,
             "counterexamples": a2_check.get("counterexamples", []),
         }
 
@@ -242,11 +311,19 @@ class A5IndependentVerifier:
                 result = provider.fetch_bars(symbol, interval, required, as_of=cutoff)
                 bars = [_bar_dict(item) for item in getattr(result, "bars", ())]
                 bars = [row for row in bars if (_bar_time(row) is not None and _bar_time(row) <= cutoff)]
-                return symbol, {
+                observation = {
                     "reason_code": str(getattr(result, "reason_code", "UNKNOWN")),
                     "source_ids": sorted({str(row.get("source_id") or "") for row in bars if str(row.get("source_id") or "")}),
                     "bars": bars,
+                    "verification_fetched_at": datetime.now(SHANGHAI).isoformat(),
                 }
+                if self.evidence_dir is not None:
+                    try:
+                        observation["input_snapshot"] = archive_observation(self.evidence_dir,
+                            {**observation,"symbol":symbol,"interval":interval,"requested_bars":required,"cutoff_at":cutoff.isoformat()})
+                    except (OSError,ValueError):
+                        observation["input_snapshot"] = {"status":"ARCHIVE_FAILED"}
+                return symbol, observation
             except Exception:
                 return symbol, {"reason_code": "A5_VERIFICATION_PROVIDER_FAILED", "source_ids": [], "bars": []}
 
@@ -259,7 +336,7 @@ class A5IndependentVerifier:
         try:
             session_start = cutoff.replace(hour=0, minute=0, second=0, microsecond=0)
             raw = self.daily_cache.latest_daily_bar_windows_before(
-                symbols, end=session_start, per_symbol_limit=260, adjust="none", as_of=cutoff,
+                symbols, end=session_start, per_symbol_limit=800, adjust="none", as_of=cutoff,
             )
             return {str(symbol): [dict(row) for row in rows] for symbol, rows in raw.items()}
         except Exception:
@@ -286,7 +363,8 @@ class A5IndependentVerifier:
         result = []
         for symbol, rows in windows.items():
             ordered = sorted((dict(row) for row in rows), key=lambda row: _bar_time(row) or cutoff)
-            if len(ordered) < 2 or (_bar_time(ordered[-1]) or cutoff).date() != cutoff.date():
+            if (len(ordered) < 2 or (_bar_time(ordered[-1]) or cutoff).date() != cutoff.date()
+                    or (_bar_time(ordered[-2]) or cutoff).date() != ExchangeTradingCalendar().previous_trading_day(cutoff.date())):
                 continue
             previous_close = _bar_value(ordered[-2], "close")
             current_close = _bar_value(ordered[-1], "close")
@@ -302,6 +380,37 @@ class A5IndependentVerifier:
                 "daily_fetched_at": ordered[-1].get("fetched_at"),
             })
         result.sort(key=lambda row: (-float(row["return"]), str(row["symbol"])))
+        return result
+
+    def _recover_cross_section(self, universe, missing, fetched, cutoff):
+        if cutoff.time() < time(15) or not missing:
+            return []
+        previous = self._daily_windows(tuple(sorted(missing)), cutoff)
+        prior_day = ExchangeTradingCalendar().previous_trading_day(cutoff.date())
+        close_time = cutoff.replace(hour=15, minute=0, second=0, microsecond=0)
+        metadata = {str(r.get("symbol")): r for r in universe}
+        result = []
+        for symbol in sorted(missing):
+            selected = fetched.get(symbol, {})
+            bars = selected.get("bars", [])
+            current = [r for r in bars if _bar_time(r) == close_time]
+            prior = sorted([r for r in bars if _bar_time(r) and _bar_time(r).date() == prior_day], key=_bar_time)
+            basis = "TENCENT_PREVIOUS_SESSION_CLOSE"
+            # A minute baseline is valid only at the previous session close.
+            prior = [r for r in prior if _bar_time(r).time() == time(15)]
+            if not prior:
+                prior = sorted([r for r in previous.get(symbol, []) if _bar_time(r) and _bar_time(r).date() == prior_day], key=_bar_time)
+                basis = "LOCAL_DAILY_PREVIOUS_CLOSE_TENCENT_CLOSE"
+            base = _bar_value(prior[-1], "close") if prior else None
+            price = _bar_value(current[-1], "close") if current else None
+            if base is None or price is None or base <= 0 or price <= 0:
+                continue
+            result.append({**metadata.get(symbol, {}), "symbol": symbol, "return": price / base - 1,
+                           "return_basis": basis, "previous_close": base, "close": price,
+                           "price_at": close_time.isoformat(), "source_ids": selected.get("source_ids", []),
+                           "verification_fetched_at": selected.get("verification_fetched_at"),
+                           "evidence_scope": "POST_HOC_VERIFICATION_NOT_ORIGINAL_DECISION_INPUT",
+                           "input_digest": _digest([prior[-1], current[-1]])})
         return result
 
     def _load_local_minutes(self, symbols: Sequence[str], cutoff: datetime) -> dict[str, dict[str, Any]]:
@@ -423,7 +532,7 @@ class A5IndependentVerifier:
                 "return": current_close / reference - 1.0,
                 "return_basis": "PREVIOUS_CLOSE" if previous_close is not None and previous_close > 0 else "FIRST_INTRADAY_OPEN",
             }
-        audit_performance = list(market_cross_section) if market_cross_section else stock_performance
+        audit_performance = [r for r in market_cross_section if r.get("ranking_eligible") is not False] if market_cross_section else stock_performance
         positive = [row for row in audit_performance if float(row["return"]) > 0]
         relative_limit = min(20, max(1, math.ceil(len(audit_performance) * 0.01))) if market_cross_section else min(20, max(1, math.ceil(len(audit_performance) * 0.10))) if audit_performance else 0
         counterexamples = []
@@ -515,6 +624,12 @@ class A5IndependentVerifier:
             closes = [value for item in bars if (value := _bar_value(item, "close")) is not None]
             latest_daily = closes[-1] if closes else None
             declared_daily = _mapping(_mapping(payload.get("ma_analysis")).get("daily"))
+            strategy_facts = _mapping(payload.get("strategy_facts"))
+            declared_daily = declared_daily or _mapping(strategy_facts.get("daily_moving_averages"))
+            declared_macd = _mapping(payload.get("daily_macd")) or _mapping(strategy_facts.get("daily_macd_evidence"))
+            if not declared_macd.get("input_hash"):
+                declared_macd = {**declared_macd, "input_hash": _mapping(strategy_facts.get("daily_macd_evidence")).get("input_hash")}
+            macd_check = daily_macd_check(declared_macd, closes)
             recomputed = {"ma5": _moving_average(closes, 5), "ma20": _moving_average(closes, 20), "ma60": _moving_average(closes, 60)}
             errors = {
                 key: _relative_difference(
@@ -550,16 +665,22 @@ class A5IndependentVerifier:
                 "symbol": symbol, "strategy_profile": strategy, "route_contract_match": route_ok,
                 "price_levels_valid": levels_ok, "daily_bar_count": len(closes), "recomputed_ma": recomputed,
                 "declared_ma_relative_errors": errors, "formula_status": formula_status,
+                "daily_macd_verification": macd_check,
                 "tdx_previous_close": tdx_previous, "local_daily_close": latest_daily,
                 "cross_source_close_relative_difference": close_diff, "cross_source_price_status": price_status,
                 "tdx_reason_code": tdx_5m.get(symbol, {}).get("reason_code"),
             })
         ratio = ready / len(plan_rows) if plan_rows else 1.0
+        indicator_limited = any(r["daily_macd_verification"]["formula_status"] != "MATCH"
+                                or r["daily_macd_verification"]["input_hash_status"] != "MATCH" for r in results)
+        formula_mismatch = any(r["formula_status"] == "MISMATCH" for r in results)
         return {
-            "status": "READY" if ratio >= 0.8 else "DEGRADED" if ready or not plan_rows else "UNAVAILABLE",
+            "status": "READY" if ratio >= 0.8 and not indicator_limited and not formula_mismatch else "DEGRADED" if ready or not plan_rows else "UNAVAILABLE",
             "evidence_id": "A5V:A3:SUMMARY", "plan_count": len(plan_rows),
-            "verified_fields": ["MA5", "MA20", "MA60", "CLOSE", "ROUTE", "PRICE_LEVELS"],
-            "not_verified_fields": ["MACD", "KDJ", "VOLUME"],
+            "verified_fields": ["MA5", "MA20", "MA60", "CLOSE", "ROUTE", "PRICE_LEVELS"] + (["MACD"] if results and all(r["daily_macd_verification"]["formula_status"] != "DATA_LIMITED" for r in results) else []),
+            "not_verified_fields": ["KDJ", "VOLUME"] + (["MACD"] if any(r["daily_macd_verification"]["formula_status"] == "DATA_LIMITED" for r in results) else []),
+            "macd_formula_covered_count": sum(r["daily_macd_verification"]["formula_status"] != "DATA_LIMITED" for r in results),
+            "macd_mismatch_count": sum(r["daily_macd_verification"]["formula_status"] == "MISMATCH" or r["daily_macd_verification"]["input_hash_status"] == "MISMATCH" for r in results),
             "formula_covered_count": ready, "formula_coverage": round(ratio, 6), "plans": results,
         }
 
@@ -626,6 +747,10 @@ class A5IndependentVerifier:
                 if (value := _relative_difference(_bar_value(left_by_time[stamp], "close"), _bar_value(right_by_time[stamp], "close"))) is not None
                 and value > 0.005]
             archived_overlap = sorted(set(archived_by_time) & set(right_by_time))
+            cross_fields = _field_comparison(left_by_time, right_by_time)
+            archive_fields = _field_comparison(archived_by_time, right_by_time)
+            archive_mismatch = any(v["status"] == "MISMATCH" for v in archive_fields.values())
+            alternate_mismatch = any(v["status"] == "MISMATCH" for v in cross_fields.values())
             archived_differences = [
                 value for stamp in archived_overlap
                 if (value := _relative_difference(_bar_value(archived_by_time[stamp], "close"), _bar_value(right_by_time[stamp], "close"))) is not None
@@ -649,6 +774,9 @@ class A5IndependentVerifier:
                 "cross_source_max_close_difference": max(differences) if differences else None,
                 "cross_source_difference_unit": "RELATIVE_RATIO",
                 "cross_source_mismatch_points": mismatch_points,
+                "cross_source_field_checks": cross_fields, "archived_tdx_field_checks": archive_fields,
+                "discrepancy_class": "PRODUCTION_ARCHIVE_DIVERGENCE" if archive_mismatch else "ALTERNATE_SOURCE_DIVERGENCE" if alternate_mismatch else "NO_COMPARABLE_MISMATCH",
+                "indicator_formula_audit": audit_event_indicators(events),
                 "cross_source_status": "MATCH" if differences and max(differences) <= 0.005 else "MISMATCH" if differences else "DATA_LIMITED",
                 "archived_bar_count": len(archived), "archived_tdx_overlap_count": len(archived_overlap),
                 "archive_basis": local.get(symbol, {}).get("archive_basis", "LEGACY_FIRST_OBSERVATION"),
@@ -661,13 +789,15 @@ class A5IndependentVerifier:
                 "archived_digest": _digest(archived) if archived else None,
             })
         ratio = covered / len(plan_rows) if plan_rows else 1.0
-        needs_attention = any(row["cross_source_status"] == "MISMATCH" or row["archived_tdx_status"] == "MISMATCH"
-                              or row["observation_coverage"] < 1 or row["orchestration_omission_count"] for row in results)
+        needs_attention = any(row["discrepancy_class"] != "NO_COMPARABLE_MISMATCH" or row["cross_source_status"] == "MISMATCH" or row["archived_tdx_status"] == "MISMATCH"
+                              or row["observation_coverage"] < 1 or row["orchestration_omission_count"]
+                              or any(count for counts in row["indicator_formula_audit"]["counts"].values()
+                                     for status, count in counts.items() if status != "MATCH") for row in results)
         return {
             "status": "READY" if ratio >= 0.8 and not needs_attention else "DEGRADED" if covered or not plan_rows else "UNAVAILABLE",
             "evidence_id": "A5V:A4:SUMMARY", "plan_count": len(plan_rows),
-            "cross_source_verified_fields": ["CLOSE"],
-            "cross_source_not_verified_fields": ["OPEN", "HIGH", "LOW", "VOLUME", "AMOUNT"],
+            "cross_source_verified_fields": [f for f in ("OPEN", "HIGH", "LOW", "CLOSE", "VOLUME", "AMOUNT") if results and all(r["cross_source_field_checks"][f]["status"] != "DATA_LIMITED" for r in results)],
+            "cross_source_not_verified_fields": [f for f in ("OPEN", "HIGH", "LOW", "CLOSE", "VOLUME", "AMOUNT") if not results or any(r["cross_source_field_checks"][f]["status"] == "DATA_LIMITED" for r in results)],
             "cross_source_covered_count": covered, "cross_source_coverage": round(ratio, 6),
             "plans": results,
         }

@@ -541,6 +541,8 @@ def _canonical_symbol(value: str, exchange: Any = None) -> str | None:
     match = _CANONICAL.fullmatch(text)
     if match:
         code, suffix = match.groups()
+        if code.startswith("920"):
+            return f"{code}.BJ"
         suffix = {"SH": "SH", "SZ": "SZ", "BJ": "BJ"}.get(suffix)
         return f"{code}.{suffix}" if suffix else None
     if "." in text:
@@ -550,6 +552,8 @@ def _canonical_symbol(value: str, exchange: Any = None) -> str | None:
     digits = re.sub(r"\D", "", text)
     if len(digits) != 6:
         return None
+    if digits.startswith("920"):
+        return f"{digits}.BJ"
     exch = str(exchange or "").strip().upper()
     exch = {"XSHG": "SH", "XSHE": "SZ", "1": "SH", "2": "SZ", "SH": "SH", "SZ": "SZ", "BJ": "BJ", "BSE": "BJ"}.get(exch, exch)
     if exch not in {"SH", "SZ", "BJ"}:

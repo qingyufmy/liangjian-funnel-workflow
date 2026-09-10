@@ -433,7 +433,10 @@ def _closed_daily_end(value: datetime) -> datetime:
 
 
 def _report_period(row: Mapping[str, Any], fallback: datetime) -> str:
-    for key in ("report_period", "report_date_ms", "period_end_ms", "end_date", "report"):
+    # Report publication and the fiscal period are different dates. Never
+    # use report_date_ms as a period identifier (amendments would look like
+    # new fiscal periods and historical statements could outrank current ones).
+    for key in ("report_period", "period_end_ms", "end_date", "report"):
         value = row.get(key)
         if value in (None, ""):
             continue
@@ -445,7 +448,7 @@ def _report_period(row: Mapping[str, Any], fallback: datetime) -> str:
 
 
 def _published_at(row: Mapping[str, Any], fallback: datetime) -> datetime:
-    for key in ("published_at", "publish_time", "announcement_time", "update_time"):
+    for key in ("published_at", "publish_time", "announcement_time", "report_date_ms", "update_time"):
         value = row.get(key)
         if value in (None, ""):
             continue

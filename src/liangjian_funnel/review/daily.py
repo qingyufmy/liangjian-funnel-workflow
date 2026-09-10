@@ -604,7 +604,7 @@ def build_a5_fact_snapshot(
         "a4_m15_macd_applicable_plan_count": sum(item.get("strategy_profile") == "MA520_SWING" for item in plans),
         "a4_m15_macd_not_warmed_plan_ids": [str(item.get("plan_id")) for item in plans
             if item.get("strategy_profile") == "MA520_SWING" and str(item.get("plan_id")) not in warmed_macd_plans],
-        "indicator_verification_scope": "MA_AND_CLOSE_CHECKS_DO_NOT_VALIDATE_MACD_KDJ_OR_VOLUME",
+        "indicator_verification_scope": "SEE_INDEPENDENT_VERIFICATION_FIELD_CHECKS_AND_FROZEN_INDICATOR_FORMULA_AUDIT; FORMULA_MATCH_IS_NOT_RAW_SOURCE_VERIFICATION",
         "a4_monitor_observation_count": sum(action_counts.values()),
         "a4_effective_event_count": effective_event_count,
         "a4_action_counts": action_counts,

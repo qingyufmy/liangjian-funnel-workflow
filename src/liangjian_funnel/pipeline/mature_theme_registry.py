@@ -35,7 +35,7 @@ from typing import Any
 
 
 MODULE_VERSION = "mature-theme-registry/1.0.0"
-REGISTRY_VERSION = "mature-theme-registry/2026.09.v1"
+REGISTRY_VERSION = "mature-theme-registry/2026.09.10.v2"
 # These attributes describe listing eligibility/ownership or another
 # business entirely. They cannot stand in for a company's business chain.
 NON_BUSINESS_CONCEPTS = frozenset({"融资融券", "沪股通", "深股通"})
@@ -236,7 +236,7 @@ _DEFAULT_THEMES: tuple[dict[str, Any], ...] = (
         ),
         "industry_names": (
             "旅游及酒店", "餐饮", "零售", "互联网电商", "食品加工制造", "饮料制造", "休闲食品", "文化传媒",
-            "教育", "美容护理", "家居用品",
+            "教育", "美容护理", "家居用品", "白酒", "服装家纺", "饰品", "汽车整车", "乘用车",
         ),
         "concept_names": (
             "旅游概念", "免税店", "白酒概念", "啤酒概念", "乳业", "预制菜", "宠物经济",

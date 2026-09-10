@@ -6221,8 +6221,8 @@ def _project_fundamentals(value: Any, symbols: set[str] | None) -> Any:
             ordered = sorted(
                 by_dataset.get(dataset, ()),
                 key=lambda row: (
-                    _safe_int(row.get("report_date_ms")),
                     _safe_int(row.get("period_end_ms")),
+                    _safe_int(row.get("report_date_ms")),
                     str(row.get("index_id") or ""),
                 ),
                 reverse=True,
@@ -6257,6 +6257,7 @@ def _project_disclosures(value: Any, symbols: set[str] | None) -> Any:
         "announcement_id", "announcement_title", "event_tags", "event_time", "publish_time",
         "source_url", "symbol", "sec_name", "pdf_evidence_available", "pdf_reason_code",
         "pdf_evidence_snippets", "prompt_injection_suspected", "reason_code", "content_hash",
+        "pdf_text_method", "pdf_ocr_quality", "pdf_parser",
     }
     projected: dict[str, Any] = {}
     for raw_symbol, raw_items in sorted(by_symbol.items(), key=lambda item: str(item[0])):

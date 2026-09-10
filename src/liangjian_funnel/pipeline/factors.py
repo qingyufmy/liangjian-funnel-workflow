@@ -746,6 +746,8 @@ def _canonical_symbol(value: Any) -> str | None:
     if not match:
         return None
     code, exchange = match.groups()
+    if code.startswith("920"):
+        return f"{code}.BJ"
     exchange = exchange or ("SH" if code.startswith("6") else "SZ" if code.startswith(("0", "2", "3")) else "BJ" if code.startswith(("4", "8")) else None)
     return f"{code}.{exchange}" if exchange else None
 

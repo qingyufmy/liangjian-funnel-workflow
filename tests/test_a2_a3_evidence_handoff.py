@@ -56,6 +56,24 @@ def test_multiple_industry_bindings_are_explicit_not_cherry_picked():
     assert len(a["matches"]) == 2
 
 
+def test_daily_classification_uses_unactivated_registry_and_explicit_leaf_hierarchy():
+    output,snapshot=inputs()
+    snapshot['A1_MATURE_THEME_REGISTRY']={'enabled':True,'themes':[{
+        'canonical_id':'CHEMICAL_NEW_MATERIALS','display_name':'化工新材料',
+        'industry_names':['农化制品'],'concept_names':[],'activation_keywords':['化工']}]}
+    snapshot['THS_INDUSTRY_CATALOG']={'records':[{'name':'农化制品','thscode':'881263.TI'}]}
+    result=bind_emotion_themes({},snapshot,{'000912.SZ'})['000912.SZ']
+    assert result['resolved'] and result['node_id']=='MTR:CHEMICAL_NEW_MATERIALS:CORE'
+    parent={**output['taxonomy_links'][0],'theme_id':'PARENT','taxonomy_code':'881000.TI'}
+    output['taxonomy_links']=[parent,{**parent,'theme_id':'LEAF','taxonomy_code':'884000.TI'}]
+    snapshot.pop('A1_MATURE_THEME_REGISTRY')
+    snapshot['THS_INDUSTRY_MEMBERSHIP']={'records':[{'symbol':'000912.SZ','memberships':[
+        {'industry_thscode':'881000.TI'},{'industry_thscode':'884000.TI'}]}]}
+    snapshot['snapshot_manifest']={'g0_selection':{'nodes':[{'industry_thscode':'884000.TI','parent_industry_thscode':'881000.TI'}]}}
+    result=bind_emotion_themes(output,snapshot,{'000912.SZ'})['000912.SZ']
+    assert result['theme_id']=='LEAF' and result['selection_basis']=='UNIQUE_LEAF_INDUSTRY'
+
+
 def test_missing_membership_does_not_infer_from_stock_name():
     output, snapshot = inputs()
     snapshot["THS_INDUSTRY_MEMBERSHIP"] = {}

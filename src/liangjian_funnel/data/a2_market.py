@@ -1607,6 +1607,8 @@ def _normalize_symbol(value: Any) -> str:
     if not raw:
         return ""
     if re.fullmatch(r"\d{6}\.(SH|SZ|BJ)", raw):
+        if raw.startswith("920"):
+            return raw[:6] + ".BJ"
         return raw
     raw_digits = re.sub(r"\D", "", raw)
     if not raw_digits or len(raw_digits) > 6:
@@ -1614,7 +1616,7 @@ def _normalize_symbol(value: Any) -> str:
     digits = raw_digits.zfill(6)
     if not re.fullmatch(r"\d{6}", digits) or digits == "000000":
         return ""
-    exchange = "SH" if digits.startswith(("5", "6", "9")) else "BJ" if digits.startswith(("4", "8")) else "SZ"
+    exchange = "BJ" if digits.startswith(("4", "8", "920")) else "SH" if digits.startswith(("5", "6", "9")) else "SZ"
     return f"{digits}.{exchange}"
 
 

@@ -11,7 +11,7 @@ import time
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable, Literal
 from threading import Lock
 from urllib.parse import urljoin, urlparse
 from zoneinfo import ZoneInfo
@@ -81,6 +81,8 @@ class CninfoPdfEvidence(BaseModel):
     content_type: str | None = None
     byte_size: int | None = Field(default=None, ge=0)
     parser: str = f"pypdf/{pypdf.__version__}"
+    text_method: Literal["NATIVE_TEXT", "OCR"] = "NATIVE_TEXT"
+    ocr_quality: dict[str, Any] | None = None
     extraction_version: str = "legacy"
     download_limit_bytes: int = Field(default=20 * 1024 * 1024, gt=0)
     page_count: int | None = Field(default=None, ge=0)
@@ -126,6 +128,9 @@ class CninfoPdfEvidence(BaseModel):
         if self.content_type is not None and self.content_type not in _CONTENT_TYPES:
             raise ValueError("invalid cached PDF content type")
         if self.available:
+            if self.text_method == "OCR" and (not self.ocr_quality or self.ocr_quality.get("quality_gate_passed") is not True
+                    or self.pages_scanned != self.page_count or self.truncated):
+                raise ValueError("OCR evidence requires complete hash-bound page quality evidence")
             if self.reason_code != "OK" or self.pdf_sha256 is None or self.cache_relative_path is None:
                 raise ValueError("available PDF evidence requires an OK hash-bound cache record")
             if not self.page_count or self.extracted_chars < 1 or not self.snippets:
@@ -376,7 +381,7 @@ class CninfoPdfClient:
                 if alternative is not None:
                     alt_pages, alt_count, alt_scanned, alt_chars, alt_truncated, alt_parser = alternative
                     alt_snippets = _build_snippets(alt_pages)
-                    if any(business_disclosure_kind(s.text) for s in alt_snippets):
+                    if (extracted_chars == 0 and alt_chars > 0) or any(business_disclosure_kind(s.text) for s in alt_snippets):
                         snippets = alt_snippets
                         page_count, pages_scanned = alt_count, alt_scanned
                         extracted_chars, truncated, parser_name = alt_chars, alt_truncated, alt_parser

@@ -29,6 +29,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from ..reporting import atomic_write_json
+from ..runtime.calendar import ExchangeTradingCalendar
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -1165,22 +1166,62 @@ def _default_tencent_capture_timestamp_fetcher() -> Any:
 
 
 def _default_tencent_quote_fetch(symbol: str) -> dict[str, Any]:
-    """Fetch one same-day quote for coverage/breadth validation."""
+    """Reference quotes include Beijing members; A4 market permissions do not."""
+    from .a2_market import _tencent_symbol
+    from .tencent_minute import _default_text_fetcher
 
-    from .tencent_minute import TencentIntradayAdapter
-
-    result = TencentIntradayAdapter().fetch_quote(symbol, as_of=datetime.now(SHANGHAI))
-    quote = result.quote
-    if quote is None:
+    canonical = _normalize_symbol(symbol)
+    if canonical is None:
         return {}
+    raw = _default_text_fetcher("https://qt.gtimg.cn/q", {"q": _tencent_symbol(canonical)}, 12.0)
+    return _parse_tencent_reference_quote(raw, canonical)
+
+
+def _parse_tencent_reference_quote(raw: str, canonical: str) -> dict[str, Any]:
+    match = re.search(r'=\s*"([^"]*)"', str(raw or ""))
+    fields = match.group(1).split("~") if match else []
+    if len(fields) <= 37 or fields[2].strip() != canonical[:6] or not re.fullmatch(r"\d{14}", fields[30]):
+        return {}
+    price, previous, amount = (_number(fields[i]) for i in (3, 4, 37))
+    raw_volume = _number(fields[6])
+    no_reported_price = price == previous == amount == raw_volume == 0
+    if (amount is None or amount < 0 or raw_volume is None or raw_volume < 0
+            or (not no_reported_price and (price is None or price <= 0 or previous is None or previous <= 0))):
+        return {}
+    stamp = datetime.strptime(fields[30], "%Y%m%d%H%M%S").replace(tzinfo=SHANGHAI)
     return {
-        "symbol": quote.symbol,
-        "latest_price": quote.price,
-        "change_pct": (quote.price / quote.previous_close - 1.0) * 100.0 if quote.previous_close else None,
-        "turnover_cny": quote.amount,
-        "quote_time": quote.quote_time,
-        "trade_date": quote.quote_time.date(),
+        "symbol": canonical, "latest_price": None if no_reported_price else price,
+        "previous_close": None if no_reported_price else previous,
+        "change_pct": None if no_reported_price else (price / previous - 1.0) * 100.0,
+        "no_reported_trades": raw_volume == amount == 0,
+        "price_state": "NO_REPORTED_PRICE" if no_reported_price else "OBSERVED_PRICE",
+        "turnover_cny": amount * 10000.0,
+        "quote_time": stamp, "trade_date": stamp.date(),
+        "source_id": "TENCENT:qt.gtimg.cn", "amount_unit": "CNY",
     }
+
+
+def _default_tencent_quote_batch_fetch(symbols: Sequence[str]) -> dict[str, Any]:
+    from .a2_market import _tencent_symbol
+    from .tencent_minute import _default_text_fetcher
+    canonical = list(dict.fromkeys(v for s in symbols if (v := _normalize_symbol(s))))
+    def fetch(group):
+        requested = {_tencent_symbol(s): s for s in group}
+        try:
+            raw = _default_text_fetcher("https://qt.gtimg.cn/q", {"q": ",".join(requested)}, 12.0)
+        except Exception:
+            return {}
+        result = {}
+        for match in re.finditer(r'v_((?:sh|sz|bj)\d{6})\s*=\s*"([^"]*)"', raw):
+            symbol = requested.get(match.group(1))
+            if symbol:
+                value = _parse_tencent_reference_quote(match.group(0), symbol)
+                if value:
+                    result[symbol] = value
+        return result
+    groups = [canonical[i:i+50] for i in range(0,len(canonical),50)]
+    with ThreadPoolExecutor(max_workers=4,thread_name_prefix="rotation-quote-batch") as pool:
+        return {s:v for group in pool.map(fetch,groups) for s,v in group.items()}
 
 
 def _validate_same_day_quotes(*, quote_fetch: Callable[..., Any] | None, quotes: Any, symbols: Sequence[str], expected_trade_date: date, as_of: datetime, workers: int = 1) -> bool:
@@ -1215,6 +1256,10 @@ def _same_day_quote_records(*, quote_fetch: Callable[..., Any] | None, quotes: A
     if quote_fetch is not None:
         missing = [symbol for symbol in symbols if symbol not in quote_map]
         fetched: dict[str, Any] = {}
+        if quote_fetch is _default_tencent_quote_fetch:
+            fetched = _default_tencent_quote_batch_fetch(missing)
+            # A bad batch is a visible gap, not thousands of retry requests.
+            missing = []
         with ThreadPoolExecutor(max_workers=max(1, int(workers)), thread_name_prefix="rotation-tencent-quote") as executor:
             futures = {executor.submit(_invoke_quote_fetch, quote_fetch, symbol): symbol for symbol in missing}
             for future in as_completed(futures):
@@ -1236,9 +1281,9 @@ def _same_day_quote_records(*, quote_fetch: Callable[..., Any] | None, quotes: A
             stamp.date() != expected_trade_date
             or stamp > _live_collection_upper_bound(as_of, expected_trade_date)
         ):
-            return {}
+            continue
         if trade is not None and trade != expected_trade_date:
-            return {}
+            continue
         if stamp is not None or trade == expected_trade_date:
             item_map["symbol"] = symbol
             item_map["quote_time"] = stamp.isoformat() if stamp else None
@@ -2105,6 +2150,7 @@ def collect_rotation_theme_snapshot(
                 "price_coverage": 0.0,
                 "breadth": None,
                 "relative_return_pct": flow.get("relative_return_pct"),
+                "component_board_codes": flow.get("component_board_codes", []),
                 "eastmoney_main_net_inflow_cny": flow.get("eastmoney_main_net_inflow_cny"),
                 "provider_rank": flow.get("provider_rank"),
                 "momentum_3d_pct": flow.get("momentum_3d_pct"),
@@ -2197,7 +2243,23 @@ def collect_rotation_theme_snapshot(
             top_contribution = sum(ordered[:top_count]) / positive_total if positive_total > 0 else None
             limit_ratio = sum(value >= 9.5 for value in valid_changes) / len(valid_changes)
             row["leader_structure_score"] = (0.7 * top_contribution + 0.3 * limit_ratio) if top_contribution is not None else None
+    # A public index close series supplies the initial history even when this
+    # installation has only a few local snapshots. Injected transports stay
+    # offline unless a history fetcher is explicitly supplied too.
+    from .board_history import enrich_board_momentum, fetch_board_history, enrich_reported_five_day_momentum
+    history_fetch = provided.get("eastmoney_history")
+    if history_fetch is None and flow_fetcher is _default_eastmoney_page_fetch:
+        history_fetch = fetch_board_history
     _apply_history_factors(raw_rows, root, trade_day)
+    if history_fetch is not None and cutoff.hour >= 15:
+        if flow_fetcher is _default_eastmoney_page_fetch:
+            from .a2_market import collect_eastmoney_board_flow as collect_period_flow
+            periods = [collect_period_flow(as_of=cutoff,board_type=kind,period="5d",cache_dir=root.parent/"a2_market")
+                       for kind in ("industry","concept")]
+            enrich_reported_five_day_momentum(raw_rows,periods,trade_day)
+        missing_momentum = [r for r in raw_rows if r.get("momentum_3d_pct") is None or r.get("momentum_5d_pct") is None]
+        if missing_momentum:
+            enrich_board_momentum(missing_momentum, root / "index_history", trade_day, fetcher=history_fetch)
     flow_metrics = aggregate_tencent_theme_flows(tencent_snapshot, daily_groups) if tencent_snapshot.get("available") else {}
     for row in raw_rows:
         metrics = flow_metrics.get(row["theme_id"], {})
@@ -2348,14 +2410,26 @@ def _apply_history_factors(rows: Sequence[dict[str, Any]], snapshot_dir: Path, t
     history = _load_recent_rotation_history(snapshot_dir, trade_day, limit=5)
     for row in rows:
         theme_id = row.get("theme_id")
-        previous = [item.get(theme_id) for item in history if theme_id in item]
-        previous = [item for item in previous if isinstance(item, Mapping)]
+        previous = []
+        expected_day = ExchangeTradingCalendar().previous_trading_day(trade_day)
+        for group in history:
+            item = group.get(theme_id)
+            if not isinstance(item, Mapping) or item.get("history_trade_date") != expected_day.isoformat():
+                break
+            # A changed component-index basket is not the same time series.
+            if not item.get("component_board_codes") or sorted(item["component_board_codes"]) != sorted(row.get("component_board_codes") or []):
+                break
+            previous.append(item)
+            expected_day = ExchangeTradingCalendar().previous_trading_day(expected_day)
         current_return = _number(row.get("relative_return_pct"))
         returns = [current_return] + [_number(item.get("relative_return_pct")) for item in previous]
-        if len(returns) >= 3 and all(value is not None for value in returns[:3]):
-            row["momentum_3d_pct"] = sum(float(value) for value in returns[:3])
-        if len(returns) >= 5 and all(value is not None for value in returns[:5]):
-            row["momentum_5d_pct"] = sum(float(value) for value in returns[:5])
+        if row.get("momentum_3d_pct") is None and len(returns) >= 3 and all(value is not None for value in returns[:3]):
+            row["momentum_3d_pct"] = (math.prod(1 + float(value) / 100 for value in returns[:3]) - 1) * 100
+        if row.get("momentum_5d_pct") is None and len(returns) >= 5 and all(value is not None for value in returns[:5]):
+            row["momentum_5d_pct"] = (math.prod(1 + float(value) / 100 for value in returns[:5]) - 1) * 100
+        row.setdefault("momentum_history_evidence", {"basis": "COMPOUNDED_SAME_BASKET_DAILY_RETURN",
+            "consecutive_sessions": len(previous) + (current_return is not None),
+            "required_sessions": 5, "missing_is_zero": False})
         ranks = [_integer(item.get("liangjian_rank") or item.get("provider_rank")) for item in previous]
         ranks = [rank for rank in ranks if rank is not None and rank >= 1]
         if len(ranks) >= 3:
@@ -2408,6 +2482,12 @@ def _load_recent_rotation_history(snapshot_dir: Path, trade_day: date, *, limit:
         for item in normalized_rows:
             theme_id = str(item.get("theme_id") or item.get("board_code") or "").strip().upper()
             item["liangjian_rank"] = rank_by_theme.get(theme_id)
+            item["history_trade_date"] = day.isoformat()
+            if not item.get("component_board_codes") and payload.get("source_health", {}).get("eastmoney_board_flow") == "OK":
+                member = load_membership_snapshot(snapshot_dir / "memberships", theme_id, day)
+                if member.get("available") and str(member.get("captured_at") or "") <= str(payload.get("captured_at") or ""):
+                    item["component_board_codes"] = sorted({str(p["board_code"]) for p in member.get("pagination_evidence",{}).get("pages",[]) if p.get("board_code")})
+                    item["component_lineage_recovered_from"] = member.get("content_hash")
             by_theme[theme_id] = item
         snapshots.append((day, by_theme))
     snapshots.sort(key=lambda item: item[0], reverse=True)
@@ -2775,6 +2855,10 @@ def _public_board_row(row: Mapping[str, Any]) -> dict[str, Any]:
         "breadth": row.get("breadth"),
         "momentum_3d_pct": row.get("momentum_3d_pct"),
         "momentum_5d_pct": row.get("momentum_5d_pct"),
+        "momentum_history_evidence": row.get("momentum_history_evidence"),
+        "momentum_5d_evidence": row.get("momentum_5d_evidence"),
+        "component_board_codes": row.get("component_board_codes", []),
+        "membership_board_codes": row.get("membership_board_codes", []),
         "leader_structure_score": row.get("leader_structure_score"),
         "rank_persistence_score": row.get("rank_persistence_score"),
         "provider_rank": row.get("provider_rank"),
@@ -2998,10 +3082,12 @@ def _normalize_symbol(value: Any) -> str | None:
         text = f"{text[2:]}.{text[:2]}"
     if "." in text:
         code, exchange = text.split(".", 1)
+        if re.fullmatch(r"920\d{3}", code) and exchange in {"SH", "SZ", "BJ"}:
+            return f"{code}.BJ"
         return f"{code}.{exchange}" if re.fullmatch(r"\d{6}", code) and exchange in {"SH", "SZ", "BJ"} else None
     if not re.fullmatch(r"\d{6}", text):
         return None
-    if text.startswith(("4", "8")):
+    if text.startswith(("4", "8", "920")):
         return f"{text}.BJ"
     return f"{text}.SH" if text.startswith(("5", "6", "9")) else f"{text}.SZ"
 

@@ -30,7 +30,7 @@ from .data.cninfo_pdf import CninfoPdfClient, CninfoPdfEvidence
 from .data.gov_policy import GovPolicyClient
 from .data.eastmoney_hot import collect_eastmoney_hot100
 from .data.mootdx import MootdxAdapter, MootdxNode, MinuteBar, detect_missing_bars, map_symbol
-from .data.rotation_theme import collect_rotation_theme_snapshot
+from .data.rotation_theme import collect_rotation_theme_snapshot, _default_tencent_quote_fetch
 from .data.tencent_minute import ResilientIntradayAdapter, TencentIntradayAdapter
 from .data.open_news import OpenNewsClient, OpenNewsFetchResult
 from .data.open_macro import OpenMacroDataCollector
@@ -4308,6 +4308,8 @@ class WorkflowApplication:
                 minute_store=self.minute_store,
                 tencent=getattr(self.market_data, "fallback", None),
                 mootdx=getattr(self.market_data, "primary", None),
+                quote_fetch=_default_tencent_quote_fetch,
+                evidence_dir=self.settings.workflow_output_dir / "a5" / "market_evidence",
             ),
             notification_publisher=self.lark_publisher,
         ).run(review_kind=kind, now=current)
@@ -7323,6 +7325,8 @@ _PREFERRED_FUNDAMENTAL_INDICATORS = frozenset({
 def _compact_fundamental_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
     """Keep bounded statement history while the durable cache retains all rows."""
 
+    from .pipeline.statement_metrics import derive_statement_metrics, select_statement_periods
+
     grouped: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         if not isinstance(row, Mapping):
@@ -7335,6 +7339,7 @@ def _compact_fundamental_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
         if not grouped.get(dataset)
     ]
     result: dict[str, Any] = {
+        "derived_statement_metrics": derive_statement_metrics(rows),
         "statements": {},
         "indicators": [],
         "dataset_coverage": {
@@ -7346,15 +7351,7 @@ def _compact_fundamental_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
         },
     }
     for dataset in ("INCOME", "BALANCE", "CASH_FLOW"):
-        ordered = sorted(
-            grouped.get(dataset, ()),
-            key=lambda item: (
-                _int_or_zero(item.get("report_date_ms")),
-                _int_or_zero(item.get("period_end_ms")),
-                str(item.get("report_period") or ""),
-            ),
-            reverse=True,
-        )
+        ordered = select_statement_periods(grouped.get(dataset, ()),limit=4)
         fields = _COMPACT_FUNDAMENTAL_FIELDS[dataset]
         result["statements"][dataset] = [
             {key: item.get(key) for key in fields if key in item}

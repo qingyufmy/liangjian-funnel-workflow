@@ -1747,6 +1747,7 @@ def _kdj_observation(bars: Sequence[_Bar], period: int = 9) -> dict[str, Any]:
         "j": round(j_value, 6),
         "state": state,
         "closed_bar_end": bars[-1].end.isoformat(),
+        "input_series": [{"end": bar.end.isoformat(), "high": bar.high, "low": bar.low, "close": bar.close} for bar in bars],
     }
 
 

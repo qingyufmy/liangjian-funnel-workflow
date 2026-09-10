@@ -220,8 +220,9 @@ class TencentIntradayAdapter:
         close_value = float(row[2])
         high_value = float(row[3])
         low_value = float(row[4])
-        # Tencent equity mkline reports lots (100 shares); TDX reports shares.
-        volume = float(row[5]) * 100.0
+        # Tencent reports STAR-market volume in shares, other supported
+        # equities in lots. Both must meet the same TDX shares contract.
+        volume = float(row[5]) * (1.0 if map_symbol(symbol).code.startswith(("688", "689")) else 100.0)
         # Tencent's final field is not consistently documented across
         # securities.  A same-unit OHLCV notional preserves a valid VWAP
         # without pretending that the field is authoritative turnover.
@@ -239,7 +240,7 @@ class TencentIntradayAdapter:
             source_id=TENCENT_SOURCE_ID,
             volume_unit="shares",
             amount_kind="ohlc_estimate",
-            normalizer_version="tencent-equity-minute-v2",
+            normalizer_version="tencent-equity-minute-v3",
             provider_bar_end=stamp,
         )
 
@@ -258,8 +259,8 @@ class TencentIntradayAdapter:
             price=float(fields[3]),
             previous_close=float(fields[4]),
             open=float(fields[5]),
-            volume=max(0.0, float(fields[6] or 0)),
-            amount=max(0.0, float(fields[37] or 0)),
+            volume=max(0.0, float(fields[6] or 0)) * (1.0 if map_symbol(symbol).code.startswith(("688", "689")) else 100.0),
+            amount=max(0.0, float(fields[37] or 0)) * 10000.0,
         )
 
     @staticmethod
