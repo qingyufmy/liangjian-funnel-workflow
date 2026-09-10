@@ -314,3 +314,22 @@ def test_scheduled_outcome_cli_uses_configured_local_fact_cache(tmp_path: Path, 
     assert payload["source_errors"] == []
     assert payload["labels_updated"] == 1
     assert RuntimeStore(settings.state_db_path).list_outcome_labels()[0]["fwd_return_1d"] == pytest.approx(0.02)
+
+
+def test_due_t1_missing_is_not_completed_and_weekend_is_not_due(tmp_path):
+    store = RuntimeStore(tmp_path / "state.sqlite3")
+    store.record_outcome_label(_label())
+    prices = [_bar("600001.SH", date(2026, 8, 28), 100)]
+    weekend = backfill_forward_returns(store, as_of_date="2026-08-30", price_source=prices)
+    assert weekend["status"] == "COMPLETED"
+    assert weekend["t1_readiness_by_stage"]["A1"]["t1_due"] == 0
+    monday = backfill_forward_returns(store, as_of_date="2026-08-31", price_source=prices)
+    assert monday["status"] == "DATA_LIMITED"
+    assert monday["reason_code"] == "OUTCOME_T1_DUE_PRICE_MISSING"
+    assert monday["source_latest_trade_date"] == "2026-08-28"
+    assert monday["t1_readiness_by_stage"]["A1"] == {"t1_due": 1, "t1_ready": 0, "t1_missing": 1}
+    fixed = backfill_forward_returns(store, as_of_date="2026-08-31",
+        price_source=prices + [_bar("600001.SH", date(2026, 8, 31), 102)])
+    assert fixed["status"] == "COMPLETED"
+    assert fixed["t1_readiness_by_stage"]["A1"]["t1_ready"] == 1
+    assert store.list_outcome_labels()[0]["labeled_at"] is None

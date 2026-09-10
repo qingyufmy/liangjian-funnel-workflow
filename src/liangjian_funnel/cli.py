@@ -847,7 +847,7 @@ def _evaluation_command(args: argparse.Namespace, settings: Settings) -> int:
                 price_source=source,
             )
             print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True, default=str))
-            return 0 if not payload.get("source_errors") else 2
+            return 0 if not payload.get("source_errors") and payload.get("status") != "DATA_LIMITED" else 2
 
         try:
             from_date = date.fromisoformat(str(args.from_date))

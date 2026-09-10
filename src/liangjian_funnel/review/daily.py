@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-from ..pipeline.model_client import ModelCallResult, OpenAICompatibleModelClient
+from ..pipeline.model_client import ModelCallResult, ModelClientError, OpenAICompatibleModelClient
 from ..pipeline.prompts import PromptRepository
 from ..reporting import atomic_write_json, atomic_write_text
 from ..runtime.state import RuntimeStore
@@ -1068,15 +1068,26 @@ class A5DailyReviewService:
             raise
         atomic_write_json(target_dir / f"{artifact_stem}-context.json", context_diagnostics)
         prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
-        result: ModelCallResult = self.model_client.complete(
-            self.model,
-            [{"role": "system", "content": prompt}],
-            prompt_hash=prompt_hash,
-            input_hash=str(facts["input_hash"]),
-            stage="A5",
-            timeout_seconds=600,
-            max_output_tokens=32_768,
-        )
+        try:
+            result: ModelCallResult = self.model_client.complete(
+                self.model,
+                [{"role": "system", "content": prompt}],
+                prompt_hash=prompt_hash,
+                input_hash=str(facts["input_hash"]),
+                stage="A5",
+                timeout_seconds=600,
+                max_output_tokens=32_768,
+            )
+        except ModelClientError as exc:
+            # Keep request failure evidence without provider bodies, keys or
+            # hidden reasoning; no report or notification is created.
+            atomic_write_json(target_dir / f"{artifact_stem}-request-failure.json", {
+                "status": "FAILED", "reason_code": exc.reason_code,
+                "http_status": exc.status_code, "attempts": exc.attempts,
+                "model": self.model, "input_hash": facts["input_hash"],
+                "prompt_hash": prompt_hash, "failed_at": datetime.now(SHANGHAI).isoformat(),
+            })
+            raise
         prompt_hash = result.prompt_hash or prompt_hash
         # Preserve complete model responses even if schema/evidence validation
         # later rejects them. Never send this unvalidated artifact to Lark.

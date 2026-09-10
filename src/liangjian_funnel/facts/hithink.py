@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import date, datetime
 from typing import Any
 from urllib.parse import urljoin
@@ -193,6 +193,7 @@ def collect_market_results(
     symbols: Sequence[str],
     *,
     market_trade_date: date | None = None,
+    progress_callback: Callable[[str, int, int], None] | None = None,
 ) -> dict[str, HithinkFetchResult]:
     """Fetch the Phase-1 market facts; each endpoint retains its own status."""
 
@@ -213,16 +214,23 @@ def collect_market_results(
         )
         dragon_tiger_kwargs["date"] = market_trade_date.isoformat()
 
-    results = {
-        "THS_INDUSTRY_CATALOG": client.ths_index_catalog(tag="industry"),
-        "THS_CONCEPT_CATALOG": client.ths_index_catalog(tag="cn_concept"),
-        "LIMIT_UP_POOL": client.limit_up_pool(**pool_kwargs),
-        "LIMIT_DOWN_POOL": client.limit_down_pool(**pool_kwargs),
-        "LIMIT_BREAK_POOL": client.limit_break_pool(**pool_kwargs),
-        "LIMIT_UP_LADDER": client.limit_up_ladder(),
-        "DRAGON_TIGER_LIST": client.dragon_tiger_list(**dragon_tiger_kwargs),
-        "HOT_STOCK_LIST": client.hot_stock_list(period="hour"),
-    }
+    calls = (
+        ("THS_INDUSTRY_CATALOG", lambda: client.ths_index_catalog(tag="industry")),
+        ("THS_CONCEPT_CATALOG", lambda: client.ths_index_catalog(tag="cn_concept")),
+        ("LIMIT_UP_POOL", lambda: client.limit_up_pool(**pool_kwargs)),
+        ("LIMIT_DOWN_POOL", lambda: client.limit_down_pool(**pool_kwargs)),
+        ("LIMIT_BREAK_POOL", lambda: client.limit_break_pool(**pool_kwargs)),
+        ("LIMIT_UP_LADDER", lambda: client.limit_up_ladder()),
+        ("DRAGON_TIGER_LIST", lambda: client.dragon_tiger_list(**dragon_tiger_kwargs)),
+        ("HOT_STOCK_LIST", lambda: client.hot_stock_list(period="hour")),
+    )
+    results = {}
+    for index, (fact_type, fetch) in enumerate(calls):
+        if progress_callback is not None:
+            progress_callback(f"MARKET_FACT_{fact_type}", index, len(calls))
+        results[fact_type] = fetch()
+        if progress_callback is not None:
+            progress_callback(f"MARKET_FACT_{fact_type}", index + 1, len(calls))
     if market_trade_date is not None:
         # The pool and dragon-tiger endpoints are explicitly queried for the
         # requested completed session.  Their response envelope timestamp is

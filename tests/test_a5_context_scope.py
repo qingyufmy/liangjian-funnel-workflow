@@ -283,6 +283,25 @@ def test_service_archives_budget_failure_and_never_calls_model(tmp_path, monkeyp
     assert store.list_a5_reviews() == ()
 
 
+def test_service_archives_safe_model_rejection_without_report(tmp_path, monkeypatch):
+    from liangjian_funnel.pipeline.model_client import ModelHTTPError
+    monkeypatch.setattr("liangjian_funnel.review.daily.build_a5_fact_snapshot",
+        lambda *args, **kwargs: {"input_hash": "c" * 64, "metrics": {"a4_effective_event_count": 0}})
+    class DeniedModel:
+        def complete(self, *args, **kwargs):
+            raise ModelHTTPError("MODEL_ACCESS_DENIED", status_code=403, attempts=1)
+    store = RuntimeStore(tmp_path / "runtime.db")
+    service = A5DailyReviewService(store=store, prompts=PromptRepository(ROOT / "prompts"),
+        model_client=DeniedModel(), output_dir=tmp_path, lane_id="lane_1", model="deepseek")
+    with pytest.raises(ModelHTTPError, match="MODEL_ACCESS_DENIED"):
+        service.run(review_kind=A5ReviewKind.MIDDAY, now=CUTOFF.replace(minute=35))
+    failures = list((tmp_path / "a5/2026-09-09").glob("*-request-failure.json"))
+    assert len(failures) == 1
+    failure = json.loads(failures[0].read_text(encoding="utf-8"))
+    assert failure["http_status"] == 403 and failure["attempts"] == 1
+    assert store.list_a5_reviews() == ()
+
+
 @pytest.mark.parametrize("kind", ["midday", "post-close"])
 def test_frozen_production_inputs_when_available(kind):
     files = list((ROOT / "outputs/audits/a5-signal-20260909").glob(f"{kind}-*-facts.json"))

@@ -341,7 +341,10 @@ class OpenAICompatibleModelClient:
                                 # to try the next already-verified thinking variant.
                                 if status in {400, 404, 422} and variant_id != call_variants[-1][0]:
                                     break
-                                raise ModelHTTPError("UPSTREAM_4XX", status_code=status, attempts=total_attempts)
+                                reason = {401: "MODEL_AUTHENTICATION_REJECTED",
+                                          402: "MODEL_PAYMENT_REQUIRED",
+                                          403: "MODEL_ACCESS_DENIED"}.get(status, "UPSTREAM_4XX")
+                                raise ModelHTTPError(reason, status_code=status, attempts=total_attempts)
 
                             content, reasoning_tokens = _decode_model_response(
                                 response,

@@ -30,7 +30,7 @@ out={'captured_at':datetime.now(ZoneInfo('Asia/Shanghai')).isoformat(),'day':DAY
 counter=collections.Counter();per=collections.defaultdict(lambda:{'n':0,'minutes':set(),'first':None,'last':None,'effective':0,'reasons':collections.Counter()}); examples={}; digest=hashlib.sha256(); effective=[]
 for r in c.execute('select * from monitor_events where minute_end>=? and minute_end<? order by event_id',(lo,hi)):
  d=dict(r);digest.update(json.dumps(d,ensure_ascii=False,sort_keys=True,separators=(',',':')).encode());p=json.loads(r['payload_json']);sym=p.get('symbol','EMPTY')
- reasons=p.get('strategy_reason_codes') or p.get('strategy',{}).get('reason_codes') or [r['reason_code']]
+ reasons=p.get('strategy_reason_codes') or (p.get('strategy') or {}).get('reason_codes') or [r['reason_code']]
  for reason in reasons:counter[str(reason)]+=1;per[sym]['reasons'][str(reason)]+=1;examples.setdefault(str(reason),d)
  x=per[sym];x['n']+=1;x['minutes'].add(r['minute_end']);x['first']=min(x['first'] or r['minute_end'],r['minute_end']);x['last']=max(x['last'] or r['minute_end'],r['minute_end']);x['effective']+=r['effective']
  if r['effective']:effective.append(d)

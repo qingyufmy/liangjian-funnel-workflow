@@ -591,6 +591,12 @@ class WorkflowApplication:
             if progress is not None:
                 progress.set_phase("MARKET_FACT_SYNC")
                 _progress_stdout(progress.snapshot())
+            def market_progress(phase: str, processed: int, total: int) -> None:
+                if progress is not None:
+                    progress.set_phase(phase)
+                    progress.update_data(processed=processed, total=total,
+                        cache_hits=0, cache_misses=0, failures=0)
+                    _progress_stdout(progress.snapshot())
             market_fact_results = collect_market_results(
                 client,
                 [candidate.symbol for candidate in selected] if _auction_window(current) else [],
@@ -598,6 +604,7 @@ class WorkflowApplication:
                     current,
                     self.trading_calendar,
                 ),
+                progress_callback=market_progress,
             )
             market_fact_results["THS_INDUSTRY_CATALOG"] = industry_catalog
             market_fact_results["THS_CONCEPT_CATALOG"] = concept_catalog
@@ -606,11 +613,13 @@ class WorkflowApplication:
                 industry_catalog,
                 cache_dir=self.settings.fact_store_dir / "ths_industry",
                 as_of=market_current,
+                progress_callback=market_progress,
             )
             # Reuse the already complete full-market projection. Re-projecting
             # the same graph here doubles both allocation and JSON work on the
             # VM without changing a byte of evidence.
             market_fact_results["THS_INDUSTRY_MEMBERSHIP"] = full_membership
+            market_progress("MARKET_CONCEPT_MEMBERSHIP", 0, 1)
             market_fact_results["THS_CONCEPT_MEMBERSHIP"] = collect_ths_taxonomy_membership(
                 client,
                 concept_catalog,
@@ -619,6 +628,7 @@ class WorkflowApplication:
                 cache_dir=self.settings.fact_store_dir / "ths_taxonomy",
                 as_of=market_current,
             )
+            market_progress("MARKET_CONCEPT_MEMBERSHIP", 1, 1)
             if not market_fact_results["THS_INDUSTRY_HISTORY"].ok:
                 raise WorkflowError(
                     "THS_INDUSTRY_HISTORY_NOT_READY:"

@@ -320,6 +320,21 @@ def test_a5_generic_400_is_not_misreported_as_output_budget(tmp_path: Path):
     assert len(seen) == 1
 
 
+@pytest.mark.parametrize("status,reason", [(401, "MODEL_AUTHENTICATION_REJECTED"),
+    (402, "MODEL_PAYMENT_REQUIRED"), (403, "MODEL_ACCESS_DENIED")])
+def test_account_rejection_is_specific_and_not_retried(tmp_path, status, reason):
+    seen = []
+    def handler(request):
+        seen.append(request)
+        return httpx.Response(status, json={"error": {"message": "DO_NOT_LOG_PROVIDER_BODY"}}, request=request)
+    client = OpenAICompatibleModelClient(_settings(tmp_path), transport=httpx.MockTransport(handler))
+    with pytest.raises(ModelHTTPError) as caught:
+        client.complete("deepseek-v4-pro-0813", [{"role": "user", "content": "facts"}], stage="A5")
+    assert caught.value.reason_code == reason and caught.value.status_code == status
+    assert len(seen) == 1
+    assert "DO_NOT_LOG" not in str(caught.value)
+
+
 def test_413_without_explicit_output_token_limit_does_not_downgrade(tmp_path: Path):
     seen: list[dict] = []
 

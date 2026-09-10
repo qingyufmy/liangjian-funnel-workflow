@@ -357,6 +357,7 @@ def collect_ths_industry_history(
     cache_dir: Path,
     as_of: datetime,
     lookback_days: int = 45,
+    progress_callback: Callable[[str, int, int], None] | None = None,
 ) -> HithinkFetchResult:
     """Collect point-in-time 881* industry bars used to prove market regime.
 
@@ -393,6 +394,8 @@ def collect_ths_industry_history(
     if cached is not None:
         fetched_at = _parse_time(cached.get("fetched_at")) or cutoff
         rows = cached["industries"]
+        if progress_callback is not None:
+            progress_callback("MARKET_INDUSTRY_HISTORY_CACHE", len(rows), len(rows))
         return HithinkFetchResult(
             endpoint=_HISTORY_ENDPOINT,
             ok=True,
@@ -421,8 +424,12 @@ def collect_ths_industry_history(
     rows: list[dict[str, Any]] = []
     failures: list[dict[str, str]] = []
     fetched_at = cutoff
-    for industry in catalog_rows:
+    for index, industry in enumerate(catalog_rows):
+        if progress_callback is not None:
+            progress_callback("MARKET_INDUSTRY_HISTORY_" + industry["industry_thscode"], index, len(catalog_rows))
         result = client.index_history_1d(industry["industry_thscode"], start=start, end=end)
+        if progress_callback is not None:
+            progress_callback("MARKET_INDUSTRY_HISTORY_" + industry["industry_thscode"], index + 1, len(catalog_rows))
         fetched_at = max(fetched_at, result.fetch_time)
         if not result.ok or not result.complete or len(result.items) < 5:
             failures.append({

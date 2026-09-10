@@ -823,6 +823,9 @@ def backfill_forward_returns(
         "baseline_ok": 0,
         "baseline_insufficient": 0,
     }
+    t1_due_dates: dict[date, date] = {}
+    readiness: dict[str, dict[str, int]] = {}
+    missing_t1_symbols: set[str] = set()
     for label in labels:
         symbol = _text(label.get("symbol")).upper()
         trade_date = _as_date(label.get("trade_date"), field="trade_date")
@@ -832,6 +835,16 @@ def backfill_forward_returns(
         if metrics is None:
             metrics = _forward_metrics(observations, trade_date=trade_date, cutoff=cutoff)
             metrics_cache[metric_key] = metrics
+        if trade_date not in t1_due_dates:
+            t1_due_dates[trade_date] = calendar.next_trading_day(trade_date)
+        stage_readiness = readiness.setdefault(str(label.get("stage")), {"t1_due": 0, "t1_ready": 0, "t1_missing": 0})
+        if t1_due_dates[trade_date] <= cutoff:
+            stage_readiness["t1_due"] += 1
+            if label.get("fwd_return_1d") is not None or metrics.get("fwd_return_1d") is not None:
+                stage_readiness["t1_ready"] += 1
+            else:
+                stage_readiness["t1_missing"] += 1
+                missing_t1_symbols.add(symbol)
         update: dict[str, Any] = {
             "label_id": label.get("label_id"),
             **metrics,
@@ -898,8 +911,14 @@ def backfill_forward_returns(
         counts["labels_updated"] = len(updates)
     return {
         "schema_version": OUTCOME_LABEL_SCHEMA_VERSION,
-        "status": "COMPLETED" if labels else "EMPTY",
+        "status": ("DATA_LIMITED" if missing_t1_symbols or source_errors else "COMPLETED") if labels else "EMPTY",
+        "reason_code": "OUTCOME_T1_DUE_PRICE_MISSING" if missing_t1_symbols else "OUTCOME_PRICE_SOURCE_INVALID" if source_errors else "OK",
         "as_of_date": cutoff.isoformat(),
+        "source_latest_trade_date": max((row.trade_date.isoformat() for rows in source.values()
+            for row in rows if row.trade_date <= cutoff), default=None),
+        "t1_readiness_by_stage": readiness,
+        "t1_missing_symbol_count": len(missing_t1_symbols),
+        "t1_missing_symbol_examples": sorted(missing_t1_symbols)[:50],
         "source_rows": sum(len(value) for value in source.values()),
         "source_errors": source_errors,
         **counts,
