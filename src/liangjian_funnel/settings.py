@@ -24,7 +24,7 @@ MODEL_CLIENT_COMPATIBILITY_MODELS = (
 )
 # Provider-advertised DeepSeek Pro route, explicitly selectable for isolated
 # A5 recovery. This does not silently change research/A4 default models.
-DEEPSEEK_PROVIDER_ALIASES = ("deepseek/deepseek-v4-pro",)
+DEEPSEEK_PROVIDER_ALIASES = ("deepseek/deepseek-v4-pro", "deepseek-v4-pro")
 ALL_MODELS = (*RESEARCH_MODELS, *MODEL_CLIENT_COMPATIBILITY_MODELS, MONITOR_MODEL, *DEEPSEEK_PROVIDER_ALIASES)
 ENV_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 DEFAULT_MOOTDX_SERVERS = (
@@ -175,6 +175,20 @@ class Settings(BaseModel):
     publish_comparison_lanes: bool = False
     monitor_model: str = MONITOR_MODEL
 
+    @field_validator("research_models")
+    @classmethod
+    def allowed_research_models(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if not value or any(model not in (*RESEARCH_MODELS, *DEEPSEEK_PROVIDER_ALIASES) for model in value):
+            raise ValueError("RESEARCH_MODEL_NOT_ALLOWED")
+        return value
+
+    @field_validator("monitor_model")
+    @classmethod
+    def allowed_monitor_model(cls, value: str) -> str:
+        if value not in (MONITOR_MODEL, *RESEARCH_MODELS, *DEEPSEEK_PROVIDER_ALIASES):
+            raise ValueError("MONITOR_MODEL_NOT_ALLOWED")
+        return value
+
     @field_validator("review_model")
     @classmethod
     def allowed_review_model(cls, value: str) -> str:
@@ -192,10 +206,15 @@ class Settings(BaseModel):
             "hithink_base_url": {"fuyao.aicubes.cn"},
             "cninfo_base_url": {"www.cninfo.com.cn"},
             "gov_policy_base_url": {"sousuo.www.gov.cn"},
-            "model_base_url": {"ai-api.finpoints.tech"},
+            "model_base_url": {"ai-api.finpoints.tech", "ark.cn-beijing.volces.com"},
         }
         if parsed.hostname not in allowed.get(info.field_name, set()):
             raise ValueError(f"unapproved capability host for {info.field_name}")
+        if parsed.hostname == "ark.cn-beijing.volces.com" and (
+            parsed.path.rstrip("/") != "/api/plan/v3" or parsed.username or parsed.password
+            or parsed.query or parsed.fragment or parsed.port not in (None, 443)
+        ):
+            raise ValueError("ARK_ENDPOINT_MUST_BE_PLAN_V3")
         return value.rstrip("/")
 
     @field_validator("mootdx_servers")
@@ -268,6 +287,8 @@ class Settings(BaseModel):
             hithink_api_key=_secret(env.get("HITHINK_FINANCE_API_KEY")),
             model_api_key=_secret(env.get("LIANGJIAN_MODEL_API_KEY")),
             review_model=env.get("LIANGJIAN_REVIEW_MODEL", "deepseek/deepseek-v4-pro"),
+            research_models=(env["LIANGJIAN_RESEARCH_MODEL"],) if env.get("LIANGJIAN_RESEARCH_MODEL") else RESEARCH_MODELS,
+            monitor_model=env.get("LIANGJIAN_MONITOR_MODEL", MONITOR_MODEL),
             lark_webhook_path=base / "state" / "lark_webhook.json",
             lark_timeout_seconds=float(env.get("LIANGJIAN_LARK_TIMEOUT_SECONDS", "8")),
             timezone=env.get("LIANGJIAN_TIMEZONE", "Asia/Shanghai"),

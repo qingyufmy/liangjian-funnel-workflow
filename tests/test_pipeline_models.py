@@ -45,6 +45,23 @@ def _settings(tmp_path: Path, key: str | None = "model-secret") -> Settings:
     return Settings.from_env({"LIANGJIAN_MODEL_API_KEY": key or ""}, root=tmp_path)
 
 
+@pytest.mark.parametrize("stage,thinking", [("A2", "disabled"), ("A4", "disabled"), ("A3", "enabled"), ("A5", "enabled")])
+def test_ark_preserves_endpoint_path_and_uses_provider_thinking(tmp_path, stage, thinking):
+    import json
+    seen = []
+    def handler(request):
+        seen.append(json.loads(request.read()))
+        assert request.url.path == "/api/plan/v3/chat/completions"
+        return _sse_response(request, [{"choices": [{"delta": {"content": '{"ok":true}'}}]}, "[DONE]"])
+    settings = Settings.from_env({"LIANGJIAN_MODEL_BASE_URL": "https://ark.cn-beijing.volces.com/api/plan/v3",
+        "LIANGJIAN_MODEL_API_KEY": "unit-only-key"}, root=tmp_path)
+    client = OpenAICompatibleModelClient(settings, transport=httpx.MockTransport(handler))
+    result = client.complete("deepseek-v4-pro", [{"role": "user", "content": "facts"}], stage=stage)
+    assert result.output == {"ok": True}
+    assert seen[0]["thinking"] == {"type": thinking}
+    assert "enable_thinking" not in seen[0]
+
+
 @pytest.mark.parametrize('streamed',[True,False])
 def test_explicit_output_truncation_does_not_repeat_same_budget(tmp_path,streamed):
     calls=[]

@@ -15,6 +15,18 @@ from liangjian_funnel.settings import (
 )
 
 
+def test_explicit_ark_provider_and_all_stage_models(tmp_path):
+    configured = Settings.from_env({"LIANGJIAN_MODEL_BASE_URL": "https://ark.cn-beijing.volces.com/api/plan/v3",
+        "LIANGJIAN_RESEARCH_MODEL": "deepseek-v4-pro", "LIANGJIAN_REVIEW_MODEL": "deepseek-v4-pro",
+        "LIANGJIAN_MONITOR_MODEL": "deepseek-v4-pro"}, root=tmp_path)
+    assert configured.research_models == ("deepseek-v4-pro",)
+    assert configured.monitor_model == configured.review_model == "deepseek-v4-pro"
+    with pytest.raises(ValidationError):
+        Settings.from_env({"LIANGJIAN_MODEL_BASE_URL": "https://ark.cn-beijing.volces.com/wrong"}, root=tmp_path)
+    with pytest.raises(ValidationError):
+        Settings.from_env({"LIANGJIAN_RESEARCH_MODEL": "unapproved-model"}, root=tmp_path)
+
+
 def test_exact_models_and_safe_summary_do_not_leak_keys(tmp_path: Path):
     secret = "unit-secret-value-not-for-output"
     settings = Settings.from_env(

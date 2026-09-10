@@ -205,6 +205,13 @@ class OpenAICompatibleModelClient:
             )
             else self.thinking_variants
         )
+        if self.settings.model_base_url.startswith("https://ark.cn-beijing.volces.com/"):
+            # Ark's control is a structured thinking field, not the former
+            # gateway's enable_thinking boolean. Never try incompatible
+            # variants or silently enable thinking in the minute budget.
+            no_thinking = str(stage or "").upper() in {"A2", "A4"} or not self.thinking_enabled
+            call_variants = (("ark_thinking_disabled", {"thinking": {"type": "disabled"}}),) if no_thinking else (
+                ("ark_thinking_enabled", {"thinking": {"type": "enabled"}, "reasoning_effort": "low"}),)
         last_variant = call_variants[0][0]
         strict_json_retry = False
         last_strict_error: StrictJSONError | None = None
