@@ -48,20 +48,31 @@ def render_a5_prompt(prompts: Any, filename: str, projection: dict[str, Any]) ->
     original_projection = projection
     prompt = prompts.render(filename, {"A5_FACT_SNAPSHOT": projection})
     original_chars = len(prompt)
-    if original_chars > PROMPT_TARGET:
+    def render(value):
+        # Pretty-print indentation grows with nested source audits. Compact
+        # JSON changes whitespace only, and avoids opaque packing when enough.
+        return prompts.render(filename, {"A5_FACT_SNAPSHOT": json.dumps(
+            value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)})
+    prompt = render(projection)
+    if len(prompt) > PROMPT_TARGET:
         # Counts, effective events, counterexamples and signal audits are not
         # sampled or discarded. Nested tables only deduplicate field names.
         projection = pack_evidence(projection)
-        prompt = prompts.render(filename, {"A5_FACT_SNAPSHOT": projection})
+        prompt = render(projection)
     section_sizes = {key: json_size(value) for key, value in projection.items()}
     if len(prompt) > PROMPT_TARGET:
         packed = pack_structure_dictionary(projection)
-        candidate = prompts.render(filename, {"A5_FACT_SNAPSHOT": packed})
+        candidate = render(packed)
         if len(candidate) < len(prompt):
             projection, prompt = packed, candidate
     if len(prompt) > PROMPT_TARGET:
         packed = pack_string_dictionary(projection)
-        candidate = prompts.render(filename, {"A5_FACT_SNAPSHOT": packed})
+        candidate = render(packed)
+        if len(candidate) < len(prompt):
+            projection, prompt = packed, candidate
+    if len(prompt) > PROMPT_TARGET:
+        packed = pack_key_dictionary(projection)
+        candidate = render(packed)
         if len(candidate) < len(prompt):
             prompt = candidate
     diagnostics = {
@@ -73,6 +84,27 @@ def render_a5_prompt(prompts: Any, filename: str, projection: dict[str, Any]) ->
     if len(prompt) > PROMPT_LIMIT:
         raise A5ReviewError("A5_MODEL_CONTEXT_TOO_LARGE", diagnostics=diagnostics)
     return prompt, diagnostics
+
+
+def pack_key_dictionary(value: Any) -> dict:
+    """Shorten repeated object keys reversibly; all values and rows survive."""
+    keys = set()
+    def collect(node):
+        if isinstance(node, dict):
+            keys.update(node)
+            for child in node.values(): collect(child)
+        elif isinstance(node, list):
+            for child in node: collect(child)
+    collect(value)
+    dictionary = sorted(keys)
+    aliases = {key: f"k{i}" for i, key in enumerate(dictionary)}
+    def encode(node):
+        if isinstance(node, dict): return {aliases[key]: encode(child) for key, child in node.items()}
+        if isinstance(node, list): return [encode(child) for child in node]
+        return node
+    return {"encoding": "a5-key-dictionary/1", "keys": dictionary,
+            "decoding": "In data only, recursively rename object key kN to keys[N]. Values are unchanged. Then decode the restored nested encodings. No business facts are omitted.",
+            "data": encode(value)}
 
 
 def pack_structure_dictionary(value: Any) -> dict:
@@ -95,7 +127,9 @@ def pack_structure_dictionary(value: Any) -> dict:
             for child in node.values():
                 walk(child)
     walk(value)
-    keys = sorted(encoded for encoded, count in counts.items() if count >= 3)
+    # A5 carries the same production/alternate-source checks twice when both
+    # sources agree. Two copies already save space for the >=80-char entries.
+    keys = sorted(encoded for encoded, count in counts.items() if count >= 2)
     eligible = set(keys)
     indices = {}
     dictionary = []

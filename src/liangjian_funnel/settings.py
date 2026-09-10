@@ -22,7 +22,10 @@ MODEL_CLIENT_COMPATIBILITY_MODELS = (
     "moonshotai/kimi-k3-free",
     "z-ai/glm-5.3-free",
 )
-ALL_MODELS = (*RESEARCH_MODELS, *MODEL_CLIENT_COMPATIBILITY_MODELS, MONITOR_MODEL)
+# Provider-advertised DeepSeek Pro route, explicitly selectable for isolated
+# A5 recovery. This does not silently change research/A4 default models.
+DEEPSEEK_PROVIDER_ALIASES = ("deepseek/deepseek-v4-pro",)
+ALL_MODELS = (*RESEARCH_MODELS, *MODEL_CLIENT_COMPATIBILITY_MODELS, MONITOR_MODEL, *DEEPSEEK_PROVIDER_ALIASES)
 ENV_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 DEFAULT_MOOTDX_SERVERS = (
     ("117.34.114.13", 7709),
@@ -163,6 +166,7 @@ class Settings(BaseModel):
     research_thinking_enabled: bool = True
     monitor_thinking_enabled: bool = False
     research_models: tuple[str, ...] = RESEARCH_MODELS
+    review_model: str = "deepseek/deepseek-v4-pro"
     research_primary_lane_id: str = "lane_1"
     # Optional comparison lanes are an audit plane, never a production
     # dependency.  Stable deployments disable this flag so the primary
@@ -170,6 +174,13 @@ class Settings(BaseModel):
     comparison_enabled: bool = False
     publish_comparison_lanes: bool = False
     monitor_model: str = MONITOR_MODEL
+
+    @field_validator("review_model")
+    @classmethod
+    def allowed_review_model(cls, value: str) -> str:
+        if value not in (*RESEARCH_MODELS, *DEEPSEEK_PROVIDER_ALIASES):
+            raise ValueError("A5_REVIEW_MODEL_NOT_ALLOWED")
+        return value
 
     @field_validator("hithink_base_url", "cninfo_base_url", "gov_policy_base_url", "model_base_url")
     @classmethod
@@ -256,6 +267,7 @@ class Settings(BaseModel):
             model_base_url=env.get("LIANGJIAN_MODEL_BASE_URL", "https://ai-api.finpoints.tech/v1"),
             hithink_api_key=_secret(env.get("HITHINK_FINANCE_API_KEY")),
             model_api_key=_secret(env.get("LIANGJIAN_MODEL_API_KEY")),
+            review_model=env.get("LIANGJIAN_REVIEW_MODEL", "deepseek/deepseek-v4-pro"),
             lark_webhook_path=base / "state" / "lark_webhook.json",
             lark_timeout_seconds=float(env.get("LIANGJIAN_LARK_TIMEOUT_SECONDS", "8")),
             timezone=env.get("LIANGJIAN_TIMEZONE", "Asia/Shanghai"),
@@ -517,6 +529,7 @@ class Settings(BaseModel):
             "research_thinking_enabled": self.research_thinking_enabled,
             "monitor_thinking_enabled": self.monitor_thinking_enabled,
             "research_models": list(self.research_models),
+            "review_model": self.review_model,
             "research_primary_lane_id": self.research_primary_lane_id,
             "comparison_enabled": self.comparison_enabled,
             "publish_comparison_lanes": self.publish_comparison_lanes,

@@ -91,6 +91,52 @@ def test_raw_signal_market_is_archived_not_sent_even_without_other_verifier_sect
     assert facts["independent_verification"]["signal_market"]["bars"] == ["RAW_MINUTE_PATH"]
 
 
+def test_archive_transport_index_is_summarized_but_failures_and_findings_remain():
+    facts = {"independent_verification": {
+        "market_data_evidence_archives": {"tdx_1m": {
+            "600000.SH": {"relative_path": "DO_NOT_SEND_FILE_PATH", "sha256": "f"*64},
+            "600001.SH": {"status": "ARCHIVE_FAILED"}, "600002.SH": None}},
+        "a4": {"plans": [{"evidence_id":"A5V:A4:1", "discrepancy_class":"PRODUCTION_ARCHIVE_DIVERGENCE"}]}}}
+    original = copy.deepcopy(facts)
+    projected = _model_fact_projection(facts)
+    summary = projected['independent_verification']['market_evidence_archive_summary']['sources']['tdx_1m']
+    assert summary['requested_count'] == 3 and summary['archived_count'] == 1
+    assert len(summary['failures']) == 2 and summary['failures'][0]['status'] == 'ARCHIVE_FAILED'
+    assert 'DO_NOT_SEND_FILE_PATH' not in json.dumps(projected)
+    assert projected['independent_verification']['a4'] == facts['independent_verification']['a4']
+    assert facts == original
+
+
+def test_compact_prompt_json_preserves_nested_values_without_indentation_cost():
+    class Prompts:
+        def render(self, filename, replacements):
+            value = replacements['A5_FACT_SNAPSHOT']
+            return value if isinstance(value, str) else json.dumps(value,ensure_ascii=False,indent=2)
+    projection={'a4':{'checks':[{'id':str(i),'observations':{'value':i,'null':None}} for i in range(100)]}}
+    prompt, diagnostics = render_a5_prompt(Prompts(),'test',projection)
+    assert json.loads(prompt) == projection
+    assert diagnostics['prompt_chars'] < diagnostics['unpacked_prompt_chars']
+
+
+def test_key_dictionary_roundtrip_preserves_reserved_keys_and_values():
+    from liangjian_funnel.review.context import pack_key_dictionary
+    value={'k1':{'$a5_value':1,'normal':None},'rows':[{'reason_code':'k1','nullable':False}]*30}
+    packed=pack_key_dictionary(value)
+    def decode(node):
+        if isinstance(node,dict):return {packed['keys'][int(k[1:])]:decode(v) for k,v in node.items()}
+        if isinstance(node,list):return [decode(v) for v in node]
+        return node
+    assert decode(packed['data']) == value
+
+
+def test_frozen_retry_rejects_wrong_day_or_hash_before_model_call(tmp_path):
+    service=A5DailyReviewService(store=RuntimeStore(tmp_path/'runtime.db'),
+        prompts=PromptRepository(ROOT/'prompts'),model_client=None,output_dir=tmp_path,lane_id='lane_1',model='deepseek')
+    with pytest.raises(A5ReviewError,match='A5_FROZEN_FACT_IDENTITY_OR_HASH_MISMATCH'):
+        service.run(review_kind=A5ReviewKind.MIDDAY,now=CUTOFF.replace(minute=35),
+                    frozen_facts={'trade_date':'2026-09-08','input_hash':'bad'})
+
+
 def test_large_synthetic_input_preserves_all_effective_events_and_error_details():
     events = [{"evidence_id": f"A4:E:{i}", "event_id": str(i), "plan_id": str(i),
                "effective": True, "action": "BUY_SIGNAL", "minute_end": CUTOFF.isoformat(),

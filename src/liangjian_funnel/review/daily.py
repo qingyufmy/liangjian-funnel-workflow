@@ -399,6 +399,21 @@ def _model_fact_projection(facts: Mapping[str, Any]) -> dict[str, Any]:
         projected["a2"]["candidates"] = grouped
     independent = dict(_json_mapping(facts.get("independent_verification")))
     independent.pop("signal_market", None)  # minute paths stay in the fact archive
+    archives = independent.pop("market_data_evidence_archives", None)
+    if isinstance(archives, Mapping):
+        # File names, hashes and byte counts belong to the immutable evidence
+        # index, not the analyst context. Preserve every failure and coverage
+        # count; all business findings below remain untouched.
+        summaries = {}
+        for source, records in archives.items():
+            records = _json_mapping(records)
+            failures = [{"symbol": symbol, "status": row.get("status", "NOT_ARCHIVED") if isinstance(row, Mapping) else "INVALID_ARCHIVE_REFERENCE"}
+                        for symbol, row in records.items()
+                        if not (isinstance(row, Mapping) and row.get("sha256") and row.get("relative_path"))]
+            summaries[source] = {"requested_count": len(records),
+                                 "archived_count": len(records) - len(failures), "failures": failures}
+        independent["market_evidence_archive_summary"] = {
+            "scope": "FILE_INDEX_IN_FULL_FACT_ARCHIVE_NOT_MODEL_CONTEXT", "sources": summaries}
     if "independent_verification" in facts:
         projected["independent_verification"] = independent
     if independent:
@@ -928,22 +943,35 @@ class A5DailyReviewService:
         self.independent_verifier = independent_verifier
         self.notification_publisher = notification_publisher
 
-    def run(self, *, review_kind: A5ReviewKind, now: datetime) -> dict[str, Any]:
+    def run(self, *, review_kind: A5ReviewKind, now: datetime,
+            frozen_facts: Mapping[str, Any] | None = None) -> dict[str, Any]:
         current = now.astimezone(SHANGHAI)
         cutoff_clock = (11, 30) if review_kind is A5ReviewKind.MIDDAY else (15, 0)
         cutoff = current.replace(hour=cutoff_clock[0], minute=cutoff_clock[1], second=0, microsecond=0)
         if current < cutoff:
             raise A5ReviewError("A5_REVIEW_BEFORE_CUTOFF")
-        facts = build_a5_fact_snapshot(
-            self.store, self.output_dir, trade_date=current.date(), cutoff_at=cutoff,
-            review_kind=review_kind, lane_id=self.lane_id,
-            independent_verifier=self.independent_verifier,
-        )
+        if frozen_facts is None:
+            facts = build_a5_fact_snapshot(
+                self.store, self.output_dir, trade_date=current.date(), cutoff_at=cutoff,
+                review_kind=review_kind, lane_id=self.lane_id,
+                independent_verifier=self.independent_verifier,
+            )
+        else:
+            # Retry today's failed report without re-fetching later prices or
+            # replacing the original observation/decision evidence.
+            import copy
+            facts = copy.deepcopy(dict(frozen_facts))
+            if (facts.get("trade_date") != current.date().isoformat()
+                    or facts.get("review_kind") != review_kind.value
+                    or facts.get("cutoff_at") != cutoff.isoformat()
+                    or facts.get("input_hash") != _canonical_hash({k: v for k, v in facts.items() if k != "input_hash"})):
+                raise A5ReviewError("A5_FROZEN_FACT_IDENTITY_OR_HASH_MISMATCH")
         # Identical market facts must not reuse prose produced by an older
         # prompt/verification contract after a release.
         facts["review_contract"] = {
-            "version": "a5-full-lineage-entry-audit/2",
+            "version": "a5-full-lineage-entry-audit/3",
             "prompt_sha256": self.prompts.document(_A5_PROMPT).sha256,
+            "model": self.model,
         }
         facts["input_hash"] = _canonical_hash({key: value for key, value in facts.items() if key != "input_hash"})
         signal_delivery = getattr(self.notification_publisher, "publish_signal_day_review", None)

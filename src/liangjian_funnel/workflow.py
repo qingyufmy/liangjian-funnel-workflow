@@ -4302,7 +4302,7 @@ class WorkflowApplication:
             model_client=self.review_model_client,
             output_dir=self.settings.workflow_output_dir,
             lane_id=lane_id,
-            model=model,
+            model=self.settings.review_model,
             independent_verifier=A5IndependentVerifier(
                 daily_cache=self.fact_cache,
                 minute_store=self.minute_store,

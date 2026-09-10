@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from liangjian_funnel.settings import (
     ALL_MODELS,
+    DEEPSEEK_PROVIDER_ALIASES,
     MODEL_CLIENT_COMPATIBILITY_MODELS,
     MONITOR_MODEL,
     RESEARCH_MODELS,
@@ -25,7 +26,8 @@ def test_exact_models_and_safe_summary_do_not_leak_keys(tmp_path: Path):
     )
     assert settings.research_models == RESEARCH_MODELS
     assert settings.monitor_model == MONITOR_MODEL
-    assert ALL_MODELS == (*RESEARCH_MODELS, *MODEL_CLIENT_COMPATIBILITY_MODELS, MONITOR_MODEL)
+    assert ALL_MODELS == (*RESEARCH_MODELS, *MODEL_CLIENT_COMPATIBILITY_MODELS, MONITOR_MODEL, *DEEPSEEK_PROVIDER_ALIASES)
+    assert settings.review_model == "deepseek/deepseek-v4-pro"
     assert secret not in repr(settings)
     assert secret not in str(settings.safe_summary())
     assert settings.safe_summary()["model_key_present"] is True
@@ -60,6 +62,14 @@ def test_exact_models_and_safe_summary_do_not_leak_keys(tmp_path: Path):
     assert settings.research_thinking_enabled is True
     assert settings.monitor_thinking_enabled is False
     assert settings.comparison_enabled is False
+
+
+def test_review_model_override_does_not_change_research_or_intraday_models(tmp_path):
+    settings=Settings.from_env({'LIANGJIAN_REVIEW_MODEL':'deepseek-v4-pro-0813'},root=tmp_path)
+    assert settings.review_model == 'deepseek-v4-pro-0813'
+    assert settings.research_models == RESEARCH_MODELS and settings.monitor_model == MONITOR_MODEL
+    with pytest.raises(ValidationError,match='A5_REVIEW_MODEL_NOT_ALLOWED'):
+        Settings.from_env({'LIANGJIAN_REVIEW_MODEL':'unknown-provider/model'},root=tmp_path)
 
 
 def test_fundamental_refresh_budget_is_bounded_without_limiting_research_pool(tmp_path: Path):
