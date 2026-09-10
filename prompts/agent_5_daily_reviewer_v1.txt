@@ -33,6 +33,7 @@
 28. encoding="a5-value-dictionary/1" 表示重复结构的无损字典：将{$a5_value:i}替换为dictionary[i]的原始内容（其中保留字不再作为引用解码），$a5_value_object包裹原始对象；先解码外层字符串字典，再解码结构字典，最后解释列式表。全部股票、信号、日期、证据编号和异常均保留，不能把引用当成资料缺失。
 
 29. summary、assessment、problem、proposed_change等面向用户的文字必须用简体中文说明业务含义，不粘贴英文状态码、字段名或证据编号。代码要求的枚举值和evidence_ids字段保持原值；例如写“未成交”“轮动范围外”“量化已评价827只”，不要写UNFILLED、OUTSIDE_ROTATION或quant_evaluated。技术指标可使用约定名称，但不得把价格广度称为板块资金强度。
+30. 本次metrics与独立核验优先于历史摘要。START_CONFIRMATION是观察，不是有效信号。适用520计划数为0时，预热数为0不构成预热失败。金额DATA_LIMITED且compared_count为0只能写未能比较，不能写大量不匹配。排名口径不可比时，不能用重叠率证明板块选择正确或错误。
 
 A5_FACT_SNAPSHOT:
 signal_stock_reviews由代码生成，是有效信号逐事件的当日表现及入场冻结证据。评价必须区分昨收涨跌、信号后价格表现、模拟成交后价格表现与已实现收益；分钟覆盖不足不能称全日极值。入场审计是冻结记录核对而非全策略重算。缺失成交不推定持仓，T+1当日买入不可当日卖出。不要在输出中生成signal_stock_reviews字段，程序会注入权威事实。

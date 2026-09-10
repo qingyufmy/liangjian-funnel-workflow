@@ -46,12 +46,15 @@ def pack_evidence(value: Any) -> Any:
 
 def render_a5_prompt(prompts: Any, filename: str, projection: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     original_projection = projection
-    prompt = prompts.render(filename, {"A5_FACT_SNAPSHOT": projection})
+    # Keep decisive facts readable even when the full evidence needs nested
+    # lossless dictionaries. This is a duplicate, not a replacement or sample.
+    critical = _critical_fact_header(projection)
+    prompt = critical + prompts.render(filename, {"A5_FACT_SNAPSHOT": projection})
     original_chars = len(prompt)
     def render(value):
         # Pretty-print indentation grows with nested source audits. Compact
         # JSON changes whitespace only, and avoids opaque packing when enough.
-        return prompts.render(filename, {"A5_FACT_SNAPSHOT": json.dumps(
+        return critical + prompts.render(filename, {"A5_FACT_SNAPSHOT": json.dumps(
             value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)})
     prompt = render(projection)
     if len(prompt) > PROMPT_TARGET:
@@ -84,6 +87,37 @@ def render_a5_prompt(prompts: Any, filename: str, projection: dict[str, Any]) ->
     if len(prompt) > PROMPT_LIMIT:
         raise A5ReviewError("A5_MODEL_CONTEXT_TOO_LARGE", diagnostics=diagnostics)
     return prompt, diagnostics
+
+
+def _critical_fact_header(projection: dict[str, Any]) -> str:
+    if not projection.get("metrics"):
+        return ""
+    verification = projection.get("independent_verification") or {}
+    a2 = verification.get("a2") or {}
+    fields = {}
+    for plan in (verification.get("a4") or {}).get("plans", []):
+        for side in ("cross_source_field_checks", "archived_tdx_field_checks"):
+            for name, row in (plan.get(side) or {}).items():
+                if not isinstance(row, dict):
+                    continue
+                total = fields.setdefault(f"{side}:{name}", {
+                    "statuses": {}, "compared_count": 0, "mismatch_count": 0, "not_comparable_count": 0})
+                status = str(row.get("status", "UNKNOWN"))
+                total["statuses"][status] = total["statuses"].get(status, 0) + 1
+                for key in ("compared_count", "mismatch_count", "not_comparable_count"):
+                    total[key] += row.get(key) or 0
+    facts = {"metrics": projection["metrics"], "a2_comparison": {
+        key: a2[key] for key in ("candidate_count", "covered_count", "quant_lineage_candidate_count",
+        "ranking_comparable_to_production", "ranking_basis", "selected_theme_overlap_count",
+        "selected_theme_overlap_ratio", "market_cross_section_status", "scope") if key in a2},
+        "a4_field_totals": fields,
+        "counterexample_stages": [{key: row.get(key) for key in
+            ("symbol", "drop_stage", "has_a3_plan", "has_effective_a4_event", "evidence_id")}
+            for row in verification.get("counterexamples", [])]}
+    return ("A5权威计数与归因速查（从本次冻结事实原样复制或逐字段加总；详细证据仍完整保留）：\n"
+        + json.dumps(facts, ensure_ascii=False, separators=(",", ":"), default=str)
+        + "\n观察不是有效信号；适用计划为0不是指标预热失败；不可比较不是不匹配。"
+          "主题排名口径不可比时，不据此证明选择正确或错误。历史摘要不得替代本次数字。\n\n")
 
 
 def pack_key_dictionary(value: Any) -> dict:

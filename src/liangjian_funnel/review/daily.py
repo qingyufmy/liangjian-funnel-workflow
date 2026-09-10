@@ -1023,11 +1023,13 @@ class A5DailyReviewService:
             timeout_seconds=600,
             max_output_tokens=32_768,
         )
+        prompt_hash = result.prompt_hash or prompt_hash
         # Preserve complete model responses even if schema/evidence validation
         # later rejects them. Never send this unvalidated artifact to Lark.
         atomic_write_json(target_dir / f"{artifact_stem}-model-{result.output_hash[:12]}.json", {
             "model": self.model, "output_hash": result.output_hash,
             "thinking_variant": result.thinking_variant, "output": result.output,
+            "prompt_hash": prompt_hash,
             "validation_status": "RAW_NOT_APPROVED", "input_hash": facts["input_hash"],
         })
         try:

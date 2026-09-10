@@ -129,6 +129,24 @@ def test_key_dictionary_roundtrip_preserves_reserved_keys_and_values():
     assert decode(packed['data']) == value
 
 
+def test_critical_counts_remain_plain_and_separate_missing_from_mismatch():
+    from liangjian_funnel.review.context import _critical_fact_header
+    facts = {"metrics": {"a4_effective_event_count": 0, "a4_m15_macd_applicable_plan_count": 0},
+        "independent_verification": {"a2": {"ranking_comparable_to_production": False,
+            "selected_theme_overlap_ratio": 1.0}, "a4": {"plans": [{"cross_source_field_checks": {
+                "AMOUNT": {"status": "DATA_LIMITED", "compared_count": 0, "mismatch_count": 0, "not_comparable_count": 120},
+                "VOLUME": {"status": "MISMATCH", "compared_count": 120, "mismatch_count": 4}}}]},
+            "counterexamples": [{"symbol": "300852.SZ", "drop_stage": "A4_NO_EFFECTIVE_SIGNAL"}]}}
+    original = copy.deepcopy(facts)
+    header = _critical_fact_header(facts)
+    plain = json.loads(header.splitlines()[1])
+    assert plain["metrics"]["a4_effective_event_count"] == 0
+    assert plain["a2_comparison"]["selected_theme_overlap_ratio"] == 1.0
+    assert plain["a4_field_totals"]["cross_source_field_checks:AMOUNT"]["mismatch_count"] == 0
+    assert plain["a4_field_totals"]["cross_source_field_checks:VOLUME"]["mismatch_count"] == 4
+    assert facts == original
+
+
 def test_frozen_retry_rejects_wrong_day_or_hash_before_model_call(tmp_path):
     service=A5DailyReviewService(store=RuntimeStore(tmp_path/'runtime.db'),
         prompts=PromptRepository(ROOT/'prompts'),model_client=None,output_dir=tmp_path,lane_id='lane_1',model='deepseek')
