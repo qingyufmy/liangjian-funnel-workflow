@@ -622,6 +622,7 @@ def build_a5_fact_snapshot(
             "entry_geometry": {key: strategy[key] for key in (
                 "live_entry_price", "live_stop_level", "live_target_price", "live_no_chase_price",
                 "live_reward_risk", "live_stop_distance_pct", "minimum_reward_risk",
+                "reward_risk_entry_ceiling", "entry_ceiling_scope",
                 "maximum_stop_distance_pct", "closed_5m_end", "closed_15m_end") if key in strategy},
         })
 

@@ -1865,6 +1865,15 @@ def _apply_live_entry_geometry(
     result["live_no_chase_price"] = no_chase
     result["minimum_reward_risk"] = minimum_reward_risk
     result["maximum_stop_distance_pct"] = maximum_stop_distance
+    # Explain the existing gate with the same frozen target/stop. This is
+    # not an order price or permission: the current closed-minute trigger,
+    # all strategy confirmations and the original RR comparison still apply.
+    result["reward_risk_entry_ceiling"] = (
+        (target + minimum_reward_risk * stop) / (1 + minimum_reward_risk)
+        if target is not None and stop is not None and target > stop
+        and minimum_reward_risk is not None and minimum_reward_risk > 0 else None
+    )
+    result["entry_ceiling_scope"] = "EXPLANATION_ONLY_NOT_LIMIT_ORDER"
 
     missing: list[str] = []
     if (

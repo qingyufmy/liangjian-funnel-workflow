@@ -494,16 +494,14 @@ def _first_board_observed(ladder: Mapping[str, Any]) -> bool:
     value = ladder.get("value")
     if not isinstance(value, Mapping):
         return False
-    if value.get("first_board_observed") is True:
-        return True
-    source = str(value.get("event_source") or value.get("source") or "").strip().upper()
-    if source == "HITHINK_LIMIT_UP_POOL":
-        return True
-    for key in ("ladder_height", "board_num", "continuous_boards", "board_count", "连板数", "梯队高度"):
-        number = _number(value.get(key))
-        if number is not None and number == 1:
-            return True
-    return False
+    heights = [_number(value.get(key)) for key in (
+        "ladder_height", "board_num", "continuous_boards", "board_count", "连板数", "梯队高度")]
+    observed = [number for number in heights if number is not None]
+    if observed:
+        # A pool name is a source, not proof of board height. Explicit
+        # continuity also outranks a stale first-board flag.
+        return all(number == 1 for number in observed)
+    return value.get("first_board_observed") is True
 
 
 def _number(value: Any) -> float | None:

@@ -231,6 +231,12 @@ class DeterministicGateResult:
                 sufficiency_state = "DEGRADED" if has_data_gap or has_degraded else "SUFFICIENT"
             result.update({
                 "data_gap_count": counts.get("DATA_GAP", 0),
+                "data_gap_scope": "PER_SYMBOL_NOT_ALL_CANDIDATES_UNAVAILABLE",
+                "data_gap_symbols": [
+                    {"symbol": d.get("symbol"), "reason_codes": d.get("reason_codes", []),
+                     "route_eligibility": d.get("route_eligibility", {})}
+                    for d in self.decisions if d.get("status") == "DATA_GAP"
+                ],
                 "critical_factor_coverage": coverage,
                 "minimum_critical_factor_coverage": 0.90,
                 "data_sufficiency_state": sufficiency_state,

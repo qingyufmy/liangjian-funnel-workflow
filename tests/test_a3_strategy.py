@@ -93,6 +93,8 @@ def test_each_strategy_has_a_single_qualified_route() -> None:
         assert decision.no_chase_price is not None
         assert decision.daily_invalidation is not None
         assert decision.a4_required_entry_rules
+        for name in ("MONTH_CLOSED", "WEEK_CLOSED", "DAILY_CLOSED", "DAILY_CLOSE_AVAILABLE", "PRICE_GEOMETRY_VALID"):
+            assert decision.gate_results[name]["met"] and decision.gate_results[name]["available"]
 
 
 def test_plan_priority_is_ordinal_and_does_not_change_eligibility() -> None:

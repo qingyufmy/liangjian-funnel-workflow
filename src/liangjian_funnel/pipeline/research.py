@@ -28,6 +28,7 @@ from zoneinfo import ZoneInfo
 from ..redaction import digest_text, safe_error, sanitize
 from ..reporting import atomic_write_json, atomic_write_text
 from ..evaluation.outcome_labels import record_stage_decisions
+from .rotation_diagnostics import rotation_coverage
 from .result_index import snapshot_name_catalog, write_lane_result_index
 from ..settings import Settings
 from ..runtime.state import RuntimeStore
@@ -2578,6 +2579,12 @@ class ResearchPipeline:
                 output, _ = _apply_a3_candidate_origin_policy(output, snapshot.data)
         output["local_screen_summary"] = gate.summary
         output = _refresh_analysis_counts(output, stage)
+        if stage == "A2":
+            # Recompute only after appending and deduplicating local rows.
+            # The model-reviewed subset is not the final A2/A3 handoff scope.
+            output = _annotate_a2_pool_target(output, snapshot.data)
+            output["local_screen_summary"]["rotation_coverage"] = rotation_coverage(
+                snapshot.data, gate.decisions, output)
         reasons = _validate_output(
             output,
             stage=stage,

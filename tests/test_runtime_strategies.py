@@ -148,6 +148,8 @@ def test_a4_reads_frozen_a3_risk_geometry_without_requiring_model_duplication():
     result = evaluate_a4_plan(plan, _bars())
     assert result["minimum_reward_risk"] == 2.0
     assert result["maximum_stop_distance_pct"] == 0.06
+    assert result["reward_risk_entry_ceiling"] == pytest.approx(31.0 / 3)
+    assert result["entry_ceiling_scope"] == "EXPLANATION_ONLY_NOT_LIMIT_ORDER"
     assert "A4_LIVE_REWARD_RISK_GEOMETRY_MISSING" not in result["reason_codes"]
     assert "A4_LIVE_REWARD_RISK_BELOW_MINIMUM" in result["reason_codes"]
 

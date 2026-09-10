@@ -691,7 +691,10 @@ def evaluate_a3_candidate(
             met=bool(ok),
             reason=detail["reason"],
             kind="CONDITION",
-            available=not missing,
+            # Callers mark a *failed* condition as a missing-data failure.
+            # A satisfied condition has observed evidence even when that
+            # failure classification was supplied as missing=True.
+            available=bool(ok) or not missing,
         )
         if ok:
             met.append(name)

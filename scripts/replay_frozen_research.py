@@ -357,7 +357,9 @@ def main() -> int:
             ensure_ascii=False,
         )
     )
-    exit_code = 0 if result.status == "READY" else 2
+    # Match the stage-resume path: completed degraded research may publish
+    # qualified plans, while its evidence limitations remain in the result.
+    exit_code = 0 if result.status in {"READY", "READY_DEGRADED"} else 2
     progress.finish(
         status="COMPLETED" if exit_code == 0 else "BLOCKED",
         phase="COMPLETED" if exit_code == 0 else "FAILED",

@@ -134,6 +134,15 @@ def test_first_board_pool_fact_enters_leader_candidate_route_without_confirmatio
     assert result["evidence"]["ladder_structure"]["source_refs"] == ["HITHINK_LIMIT_UP_POOL"]
 
 
+def test_limit_up_pool_source_does_not_turn_multi_board_into_first_board() -> None:
+    result = classify_a2_stock(symbol="600002.SH", as_of=AS_OF,
+        evidence={"ladder_structure": _fact(True, {"board_num": 3,
+            "first_board_observed": True, "event_source": "HITHINK_LIMIT_UP_POOL"}, "pool")})
+    assert result["stock_behavior_type"] == EMOTION
+    assert result["decision_basis"]["first_board_observed"] is False
+    assert "A2_EMOTION_LADDER_LEADER_CONFIRMED" in result["reason_codes"]
+
+
 def test_missing_data_is_a_gap_and_never_a_negative_or_route() -> None:
     result = classify_a2_stock(
         symbol="688001.SH",
