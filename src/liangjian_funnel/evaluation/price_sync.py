@@ -14,7 +14,7 @@ from .outcome_labels import _observation
 
 
 def refresh_current_outcome_prices(store, settings, *, now=None, client_factory=HithinkClient,
-                                   max_requests=500):
+                                   max_requests=1000):
     current = (now or datetime.now(ZoneInfo(settings.timezone))).astimezone(ZoneInfo("Asia/Shanghai"))
     calendar = ExchangeTradingCalendar()
     report = {"status": "NOOP", "scope": "OPEN_T_PLUS_10_CURRENT_OBSERVATIONS",

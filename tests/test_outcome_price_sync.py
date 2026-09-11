@@ -76,6 +76,17 @@ def test_missing_suspension_like_response_stays_missing_and_requests_bounded(tmp
     assert not result['updated_symbols']
 
 
+def test_default_budget_covers_observed_marketwide_tracking_gap(tmp_path):
+    Client.calls = []; Client.mode = 'ready'
+    rows = [label(f'{600000+i:06}.SH') for i in range(790)]
+    result = refresh_current_outcome_prices(store(rows), Settings.from_env({}, root=tmp_path),
+        now=NOW, client_factory=Client)
+    assert result['status'] == 'COMPLETED'
+    assert result['requests'] == 790
+    assert not result['deferred_symbols']
+    assert not result['missing_symbols']
+
+
 def test_before_close_and_weekend_never_fetch(tmp_path):
     settings = Settings.from_env({}, root=tmp_path)
     for current in (NOW.replace(hour=14), NOW+timedelta(days=1)):
