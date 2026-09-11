@@ -30,7 +30,9 @@ def main():
     output = lane['output']
     pools = ('active_research_pool', 'monitor_pool', 'rejected_candidates')
     rows = {key: [{k: row.get(k) for k in ('symbol', 'name', 'primary_theme', 'theme_id',
-        'reason_codes', 'half_year_support', 'fundamental_support', 'selection_basis')}
+        'company_name', 'monthly_direction_name', 'monthly_direction_matches', 'sector_index_name',
+        'business_exposure', 'disclosed_business_match', 'reason_codes', 'half_year_support',
+        'fundamental_support', 'selection_basis')}
         for row in output.get(key, [])] for key in pools}
     current_symbols = {row['symbol'] for row in rows['active_research_pool']}
     report = {'schema': 'a1-weekly-audit/1', 'generated_at': datetime.now(ZoneInfo('Asia/Shanghai')).isoformat(),
@@ -38,6 +40,10 @@ def main():
         'snapshot_id': active.snapshot_id, 'manifest_counts': {k:v for k,v in active.manifest.items() if 'count' in k},
         'pool_counts': {k:len(v) for k,v in rows.items()},
         'active_theme_counts': dict(Counter(r.get('theme_id') or r.get('primary_theme') or 'UNMAPPED' for r in rows['active_research_pool'])),
+        'all_matched_theme_counts': dict(Counter(theme for r in rows['active_research_pool']
+            for theme in {m.get('monthly_direction_id') for m in r.get('monthly_direction_matches') or []
+                if m.get('monthly_direction_id')})),
+        'structural_themes': output.get('structural_themes', []),
         'partitions': rows, 'production_decisions_changed': False}
     if args.baseline:
         baseline = json.loads(args.baseline.read_text(encoding='utf8'))
