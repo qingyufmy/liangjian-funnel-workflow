@@ -63,6 +63,10 @@ def main():
         report['fresh_quant_comparison'] = {'basis': 'FRESH_FACTS_WITH_SEALED_MONTHLY_DIRECTIONS_NOT_NEW_LLM_SELECTION',
             'snapshot_id': raw['snapshot_id'], 'snapshot_hash': digest,
             'g0_count': len(symbols), 'status_counts': dict(Counter(r['status'] for r in gate.decisions)),
+            'universe_exclusions': [{k: r.get(k) for k in
+                ('symbol', 'name', 'research_eligible', 'trade_eligible', 'exclusion_reasons')}
+                for r in raw['data'].get('universe_candidates', [])
+                if not r.get('research_eligible')],
             'business_available_count': len(symbols) - len(missing_business),
             'business_missing_symbols': missing_business,
             'business_evidence': {s: {'available': business.get(s, {}).get('available', False),
