@@ -867,23 +867,29 @@ def _evaluation_command(args: argparse.Namespace, settings: Settings) -> int:
                 # but do not turn an independently verified current success
                 # into a recurring operational failure because of old gaps.
                 today = payload.get("t1_due_today_by_stage")
+                no_trade = set(refresh.get("no_trade_observations", {}))
+                today_missing = payload.get("t1_due_today_missing_symbols")
                 current_ready = (
-                    refresh.get("status") == "COMPLETED"
-                    and not refresh.get("missing_symbols")
+                    refresh.get("status") in {"COMPLETED", "COMPLETED_WITH_NO_TRADES"}
+                    and not refresh.get("unresolved_missing_symbols", refresh.get("missing_symbols"))
                     and not payload.get("source_errors")
                     and isinstance(today, dict)
-                    and payload.get("t1_due_today_missing_symbols") == []
+                    and isinstance(today_missing, list) and set(today_missing) <= no_trade
                     and all(isinstance(row, dict)
                         and isinstance(row.get("t1_due"), int)
                         and row["t1_due"] >= 0
-                        and row.get("t1_ready") == row["t1_due"]
-                        and row.get("t1_missing") == 0 for row in today.values())
+                        and isinstance(row.get("t1_ready"), int) and row["t1_ready"] >= 0
+                        and isinstance(row.get("t1_missing"), int) and row["t1_missing"] >= 0
+                        and row["t1_ready"] + row["t1_missing"] == row["t1_due"]
+                        and (row["t1_missing"] == 0 or bool(today_missing)) for row in today.values())
                 )
+                payload["t1_pending_no_trade_symbols"] = sorted(set(today_missing or ()) & no_trade)
                 payload["data_status"] = payload["status"]
                 payload["job_status"] = "COMPLETED" if current_ready else "FAILED"
                 payload["job_scope"] = "CURRENT_OBSERVATION_REFRESH_AND_T1_DUE_TODAY"
                 payload["job_reason_code"] = (
-                    "CURRENT_OBSERVATIONS_COMPLETE_HISTORY_LIMITED"
+                    "CURRENT_OBSERVATIONS_COMPLETE_WITH_NO_TRADE_PENDING" if current_ready and no_trade
+                    else "CURRENT_OBSERVATIONS_COMPLETE_HISTORY_LIMITED"
                     if current_ready and payload["status"] == "DATA_LIMITED"
                     else "CURRENT_OBSERVATIONS_COMPLETE" if current_ready
                     else "CURRENT_OBSERVATIONS_NOT_VERIFIED"

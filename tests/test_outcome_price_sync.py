@@ -14,6 +14,11 @@ from liangjian_funnel.cli import main
 NOW = datetime(2026, 9, 11, 16, 10, tzinfo=ZoneInfo('Asia/Shanghai'))
 
 
+@pytest.fixture(autouse=True)
+def no_live_quote_requests(monkeypatch):
+    monkeypatch.setattr('liangjian_funnel.data.rotation_theme._default_tencent_quote_batch_fetch', lambda symbols: {})
+
+
 class Client:
     calls = []
     mode = 'ready'
@@ -131,6 +136,45 @@ def test_explicit_refresh_cli_keeps_incomplete_prices_visible(tmp_path, monkeypa
     assert result['status'] == 'DATA_LIMITED'
     assert result['network_used'] is True
     assert result['models_called'] is False
+
+
+@pytest.mark.parametrize('defect', [None, 'stale', 'future', 'traded', 'changed_price', 'wrong_symbol'])
+def test_no_trade_day_is_observed_without_fabricating_a_candle(tmp_path, defect):
+    Client.calls = []; Client.mode = 'stale'
+    quote = {'symbol': '002295.SZ', 'source_id': 'TENCENT:qt.gtimg.cn',
+        'quote_time': NOW, 'latest_price': 10, 'previous_close': 10,
+        'turnover_cny': 0, 'no_reported_trades': True, 'price_state': 'OBSERVED_PRICE'}
+    if defect == 'stale': quote['quote_time'] = NOW-timedelta(days=1)
+    if defect == 'future': quote['quote_time'] = NOW+timedelta(days=1)
+    if defect == 'traded': quote['turnover_cny'] = 100
+    if defect == 'changed_price': quote['latest_price'] = 11
+    if defect == 'wrong_symbol': quote['symbol'] = '600001.SH'
+    settings = Settings.from_env({}, root=tmp_path)
+    result = refresh_current_outcome_prices(store([label()]), settings, now=NOW,
+        client_factory=Client, quote_fetcher=lambda _: {'002295.SZ': quote})
+    assert result['status'] == ('COMPLETED_WITH_NO_TRADES' if defect is None else 'DATA_LIMITED')
+    assert result['missing_symbols'] == ['002295.SZ']
+    assert result['unresolved_missing_symbols'] == ([] if defect is None else ['002295.SZ'])
+    assert not result['updated_symbols']
+    bars = LocalFactCache(settings.fact_cache_db_path).query_daily_bars('002295.SZ')
+    assert len(bars) == 1  # Only the real prior-day bar; never an invented current bar.
+
+
+def test_cli_reports_verified_no_trade_t1_as_pending_not_ready(tmp_path, monkeypatch, capsys):
+    settings = Settings.from_env({}, root=tmp_path)
+    monkeypatch.setattr('liangjian_funnel.cli.backfill_forward_returns', lambda *a, **kw: {
+        'status': 'DATA_LIMITED', 'source_errors': [],
+        't1_due_today_by_stage': {'A4': {'t1_due': 1, 't1_ready': 0, 't1_missing': 1}},
+        't1_due_today_missing_symbols': ['002295.SZ']})
+    monkeypatch.setattr('liangjian_funnel.evaluation.price_sync.refresh_current_outcome_prices', lambda *_: {
+        'status': 'COMPLETED_WITH_NO_TRADES', 'network_used': True,
+        'missing_symbols': ['002295.SZ'], 'unresolved_missing_symbols': [],
+        'no_trade_observations': {'002295.SZ': {'daily_bar_created': False}}})
+    assert main(['run-outcomes-refresh'], settings=settings) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result['status'] == result['data_status'] == 'DATA_LIMITED'
+    assert result['t1_due_today_by_stage']['A4']['t1_ready'] == 0
+    assert result['t1_pending_no_trade_symbols'] == ['002295.SZ']
 
 
 @pytest.mark.parametrize('defect', [None, 'current_missing', 'source_error', 'missing_readiness'])

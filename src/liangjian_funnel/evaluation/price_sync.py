@@ -14,7 +14,7 @@ from .outcome_labels import _observation
 
 
 def refresh_current_outcome_prices(store, settings, *, now=None, client_factory=HithinkClient,
-                                   max_requests=1000):
+                                   max_requests=1000, quote_fetcher=None):
     current = (now or datetime.now(ZoneInfo(settings.timezone))).astimezone(ZoneInfo("Asia/Shanghai"))
     calendar = ExchangeTradingCalendar()
     report = {"status": "NOOP", "scope": "OPEN_T_PLUS_10_CURRENT_OBSERVATIONS",
@@ -89,5 +89,51 @@ def refresh_current_outcome_prices(store, settings, *, now=None, client_factory=
                     # Provider exceptions may include credentials or URLs.
                     report["failures"][symbol] = "PRICE_REFRESH_" + type(exc).__name__.upper()
     report["missing_symbols"] = [s for s in missing if s not in report["updated_symbols"]]
-    report["status"] = "DATA_LIMITED" if report["missing_symbols"] else "COMPLETED"
+    # A complete history response may legitimately have no bar on a suspended
+    # day. Verify today's absence of trades independently; never synthesize a
+    # daily candle, carry a price forward, or label a zero return from a quote.
+    no_bar = [s for s, reason in report["failures"].items()
+              if reason == "CURRENT_CLOSED_DAILY_BAR_MISSING"]
+    report["no_trade_observations"] = {}
+    if no_bar:
+        if quote_fetcher is None:
+            from ..data.rotation_theme import _default_tencent_quote_batch_fetch
+            quote_fetcher = _default_tencent_quote_batch_fetch
+        report["network_used"] = True
+        report["quote_check_count"] = len(no_bar)
+        try:
+            quotes = quote_fetcher(no_bar)
+        except Exception:
+            quotes = {}
+        quote_cutoff = current if now is not None else datetime.now(current.tzinfo)
+        for symbol in no_bar:
+            quote = quotes.get(symbol, {}) if isinstance(quotes, dict) else {}
+            if quote_cutoff.date() == current.date() and _verified_no_trade_quote(quote, symbol, quote_cutoff):
+                report["no_trade_observations"][symbol] = {
+                    "reason_code": "CURRENT_DAY_NO_REPORTED_TRADES",
+                    "source_id": quote["source_id"],
+                    "quote_time": str(quote["quote_time"]),
+                    "reference_price": quote["latest_price"],
+                    "daily_bar_created": False,
+                    "performance_status": "PENDING_NO_TRADE_OBSERVATION",
+                }
+    report["unresolved_missing_symbols"] = [s for s in report["missing_symbols"]
+        if s not in report["no_trade_observations"]]
+    report["status"] = ("DATA_LIMITED" if report["unresolved_missing_symbols"] else
+        "COMPLETED_WITH_NO_TRADES" if report["no_trade_observations"] else "COMPLETED")
     return report
+
+
+def _verified_no_trade_quote(quote, symbol, current):
+    try:
+        stamp = datetime.fromisoformat(str(quote["quote_time"]))
+        price, previous = float(quote["latest_price"]), float(quote["previous_close"])
+        return (quote.get("symbol") == symbol and quote.get("source_id") == "TENCENT:qt.gtimg.cn"
+            and quote.get("price_state") == "OBSERVED_PRICE"
+            and quote.get("no_reported_trades") is True and quote.get("turnover_cny") == 0
+            and 0 < price == previous and price < float('inf')
+            and stamp.tzinfo is not None and stamp <= current
+            and stamp.astimezone(current.tzinfo).date() == current.date()
+            and stamp.astimezone(current.tzinfo).hour >= 15)
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return False
