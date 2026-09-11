@@ -34,6 +34,8 @@ A2_POOL_TARGETS={{A2_POOL_TARGETS}}
    rotation_reviews只列没有focus股票的方向；已有focus_decisions代表的方向不要再列。
    若所有方向都有focus代表，rotation_reviews返回[]。NO_FOCUS和focus不能同时属于同一方向。
    使用A2_BOTTLENECK_CONTEXT._rotation_review_scope核对方向与股票，不要用A1主题替换轮动方向。
+   同属AI_COMPUTE_INFRASTRUCTURE月度主题的股票，可能分别绑定AI_CPO和AI_COMPUTE_INFRASTRUCTURE两个轮动方向。
+   聚焦AI_CPO中的股票不等于覆盖算力方向；算力无聚焦时仍须保留其NO_FOCUS说明。只删除与实际已聚焦方向冲突的重复说明，不要清空全部rotation_reviews。
 3. 情绪通道独立审阅同交易日东财股吧人气前 100。启动期可首板试探，加速期
    评估 2-3 板核心；高潮、分化、退潮不新增接力。情绪票不要求属于板块前五。
 4. MARKET_CORE 依据板块广度、成交结构、梯队、相对强弱和量化角色判断。
@@ -57,6 +59,10 @@ A2_POOL_TARGETS={{A2_POOL_TARGETS}}
    tier_structure=0/没有涨停梯队不代表趋势结构缺陷；不能套用EMOTION的接力门槛。
    NO_FOCUS必须有方向内个股的实质弱项，不能只列市场环境、没有连板或排名第四第五。
    每个NO_FOCUS只列最多3只已比较代表股，不重复整份候选名单。
+10. factor_scores中的数值是0—100归一化得分，不是原始资金金额、涨幅或财报同比。
+    capital_flow得分96表示资金因子较强，不能因数值较大宣称资金异常；profit_effect是市场赚钱效应，
+    得分0不证明公司亏损、业绩下降或缺乏盈利。公司基本面只引用A1已披露财报与主营证据。
+    任何不聚焦理由必须与该代表股已给出的量化事实一致，不得把可用的高分说成缺项或低分。
 
 【输出】
 只返回一个紧凑 JSON 对象，无 Markdown、前言或解释：

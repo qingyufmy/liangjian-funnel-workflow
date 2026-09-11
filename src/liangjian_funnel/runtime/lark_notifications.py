@@ -24,6 +24,14 @@ _ACTION_LABELS = {
     "DATA_BLOCK": "数据阻断",
     "FORCED_RISK_EXIT": "强制风控离场",
 }
+_A4_TRADE_ACTIONS = frozenset({
+    "BUY_SIGNAL", "ADD_SIGNAL", "SELL_SIGNAL", "REDUCE_SIGNAL", "FORCED_RISK_EXIT",
+})
+# Consequential to the state machine does not mean actionable for the user.
+# These remain in monitor_events and A5, without individual Lark cards.
+_A4_SILENT_ACTIONS = frozenset({
+    "PLAN_INVALIDATED", "LLM_VETO", "NO_ACTION", "START_CONFIRMATION", "EMPTY_SCOPE",
+})
 _STRATEGY_LABELS = {
     "LEADER_INTRADAY": "龙头战法",
     "MA520_SWING": "520 均线波段",
@@ -878,7 +886,7 @@ class WorkflowLarkPublisher:
             "**漏斗概况**",
             f"• A2：聚焦 {_number(metrics.get('a2_focus_count'))} 只，观察 {_number(metrics.get('a2_watch_count'))} 只，覆盖 {_number(metrics.get('a2_theme_count'))} 个主题。",
             f"• A3：形成 {_number(metrics.get('a3_plan_count'))} 只日线计划。",
-            f"• A4：记录 {_number(metrics.get('a4_effective_event_count'))} 条有效事件，跟踪 {_number(metrics.get('a4_lifecycle_count'))} 个信号生命周期。",
+            f"• A4：记录 {_number(metrics.get('a4_effective_event_count'))} 条业务状态事件；交易信号 {_number(metrics.get('a4_trade_signal_count'))} 条，跟踪 {_number(metrics.get('a4_lifecycle_count'))} 个信号生命周期。",
             "",
             "**分层验收**",
         ]
@@ -1069,6 +1077,11 @@ class WorkflowLarkPublisher:
         for event in events:
             if not bool(event.get("effective")):
                 continue
+            action = str(event.get("action") or "")
+            if action in _A4_SILENT_ACTIONS:
+                continue
+            if action not in _A4_TRADE_ACTIONS | {"DATA_BLOCK"}:
+                continue
             event_payload = _payload(event)
             # A shared live-market outage is reported once by
             # ``publish_a4_system_health``.  Suppress the five equivalent
@@ -1077,7 +1090,6 @@ class WorkflowLarkPublisher:
             if _is_system_data_block(event, event_payload):
                 continue
             strategy_result = event_payload.get("strategy") if isinstance(event_payload.get("strategy"), Mapping) else {}
-            action = str(event.get("action") or "")
             plan_id = str(event.get("plan_id") or event_payload.get("plan_id") or "")
             plan = plans.get(plan_id, {})
             payload = _payload(plan)
@@ -1089,12 +1101,17 @@ class WorkflowLarkPublisher:
             veto = _display_items(event.get("veto_conditions") or strategy_result.get("veto_conditions") or payload.get("veto_conditions"), limit=3)
             source_id = f"{event.get('lane_id') or ''}:{plan_id}:{action}"
             title = f"A4 盘中信号｜{name}（{symbol}）｜{_ACTION_LABELS.get(action, _display_text(action))}"
+            contract = event_payload.get("entry_contract") or {}
+            is_data_alert = action == "DATA_BLOCK" or (
+                action in {"BUY_SIGNAL", "ADD_SIGNAL"} and contract.get("status") != "READY")
+            if is_data_alert:
+                title = f"A4 数据告警｜{name}（{symbol}）｜{'行情或执行数据未就绪' if action == 'DATA_BLOCK' else '入场契约未就绪'}"
             eligibility = strategy_result.get("execution_eligibility") or {}
             execution_lines: list[str] = []
             if action in {"BUY_SIGNAL", "ADD_SIGNAL"}:
-                contract = event_payload.get("entry_contract") or {}
                 ready = contract.get("status") == "READY"
-                title += "｜待成交" if ready else "｜执行契约待核对"
+                if ready:
+                    title += "｜待成交"
                 execution_lines = ["", "**执行状态**",
                     "• 条件成立不代表委托已成交，不以信号推定持仓。",
                     f"• 信号参考价：{_number(contract.get('signal_reference'))}；限价买入上限：{_number(contract.get('limit_price'))}",
@@ -1112,7 +1129,7 @@ class WorkflowLarkPublisher:
                     f"• 总持仓：{eligibility.get('total_qty', '未核实')}股；可卖：{eligibility.get('sellable_qty') if eligibility.get('sellable_qty') is not None else '未核实'}股",
                     f"• {explanation}"]
             lines = [
-                "**盘中有效信号**",
+                "**数据条件告警，不是交易信号**" if is_data_alert else "**盘中交易条件触发**",
                  f"• 时间：{_time_label(event.get('minute_end') or now.isoformat())}",
                 f"• 股票：{name}（{symbol}）",
                 f"• 策略：{strategy}",
@@ -1120,7 +1137,7 @@ class WorkflowLarkPublisher:
                 f"• 触发原因：{_display_text(event.get('reason_code'), limit=100, fallback='确定性条件成立')}",
                 "",
                 "**条件核对**",
-                f"• 已满足：{'；'.join(met) if met else '确定性策略已确认'}",
+                f"• 已满足：{'；'.join(met) if met else '尚未确认' if is_data_alert else '确定性策略已确认'}",
                 f"• 未满足：{'；'.join(unmet) if unmet else '无'}",
                 f"• 否决边界：{'；'.join(veto) if veto else '无新增否决条件'}",
                 "",
@@ -1131,7 +1148,7 @@ class WorkflowLarkPublisher:
             outputs.append(
                 self._send(
                     delivery_key=f"a4:{source_id}",
-                    kind="A4_EFFECTIVE",
+                    kind="A4_DATA_ALERT" if is_data_alert else "A4_EFFECTIVE",
                     source_id=source_id,
                     title=title,
                     lines=lines + execution_lines,

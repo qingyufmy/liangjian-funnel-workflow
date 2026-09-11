@@ -83,6 +83,21 @@ def _report(*, include_counterexample: bool = False) -> dict:
     }
 
 
+def test_plan_invalidation_is_not_counted_as_trade_signal(tmp_path):
+    store = RuntimeStore(tmp_path / "state.db")
+    _seed(store, tmp_path)
+    store.record_monitor_event(event_key="invalid", lane_id="lane_1",
+        minute_end=datetime(2026, 9, 3, 10, 20, tzinfo=TZ),
+        action=MonitorAction.PLAN_INVALIDATED, reason_code="TREND_PRE_ENTRY_STRUCTURE_INVALIDATED",
+        effective=True, payload={"plan_id": "plan-1", "symbol": "000001.SZ"})
+    facts = build_a5_fact_snapshot(store, tmp_path, trade_date=date(2026, 9, 3),
+        cutoff_at=datetime(2026, 9, 3, 11, 30, tzinfo=TZ), review_kind=A5ReviewKind.MIDDAY, lane_id="lane_1")
+    assert facts["metrics"]["a4_effective_event_count"] == 2
+    assert facts["metrics"]["a4_trade_signal_count"] == 1
+    assert facts["metrics"]["a4_plan_invalidation_count"] == 1
+    assert len([e for e in facts["a4"]["events"] if e["action"] == "PLAN_INVALIDATED"]) == 1
+
+
 def test_post_close_does_not_mix_tomorrows_pending_plan_or_new_source(tmp_path):
     store = RuntimeStore(tmp_path / "state.db")
     _seed(store, tmp_path)

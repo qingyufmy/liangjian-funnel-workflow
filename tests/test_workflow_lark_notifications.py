@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import copy
 from datetime import datetime
 from zoneinfo import ZoneInfo
+
+import pytest
 
 from liangjian_funnel.runtime.lark import LarkDeliveryResult
 from liangjian_funnel.runtime.lark_notifications import WorkflowLarkPublisher
@@ -94,6 +97,7 @@ def test_a4_only_sends_effective_event_with_condition_logic(tmp_path):
     event_payload = {
         "plan_id": plan["plan_id"],
         "symbol": plan["symbol"],
+        "entry_contract": {"status": "READY", "limit_price": 10.1, "signal_reference": 10.1},
         "strategy": {
             "met_conditions": ["首次回踩5日线企稳"],
             "unmet_conditions": [],
@@ -133,6 +137,51 @@ def test_a4_only_sends_effective_event_with_condition_logic(tmp_path):
     assert "首次回踩5日线企稳" in body
     assert "放量跌破5日线" in body
     assert "NO_ACTION" not in body
+    assert "待成交" in fake.calls[0][0]
+
+
+@pytest.mark.parametrize("action", ["PLAN_INVALIDATED", "LLM_VETO", "START_CONFIRMATION", "NO_ACTION", "EMPTY_SCOPE"])
+def test_normal_state_events_are_silent_and_not_mutated(tmp_path, action):
+    store = RuntimeStore(tmp_path / "state.sqlite3")
+    publisher = WorkflowLarkPublisher(store, "https://open.larksuite.com/open-apis/bot/v2/hook/test-token")
+    fake = FakeNotifier()
+    publisher.notifier = fake
+    event = {"effective": 1, "action": action, "plan_id": "p", "payload_json": "{}"}
+    original = copy.deepcopy(event)
+    assert publisher.publish_a4_events([event], plans={}, now=datetime(2026, 9, 11, 9, 45, tzinfo=SHANGHAI)) == []
+    assert not fake.calls and not store.list_notification_deliveries()
+    assert event == original
+
+
+@pytest.mark.parametrize("action", ["BUY_SIGNAL", "ADD_SIGNAL", "DATA_BLOCK"])
+def test_unready_data_is_alert_not_trade_signal(tmp_path, action):
+    store = RuntimeStore(tmp_path / "state.sqlite3")
+    publisher = WorkflowLarkPublisher(store, "https://open.larksuite.com/open-apis/bot/v2/hook/test-token")
+    fake = FakeNotifier()
+    publisher.notifier = fake
+    event = {"effective": 1, "action": action, "plan_id": "p", "lane_id": "lane_1",
+        "reason_code": "MINUTE_DATA_MISSING", "payload_json": "{}"}
+    now = datetime(2026, 9, 11, 9, 45, tzinfo=SHANGHAI)
+    result = publisher.publish_a4_events([event], plans={}, now=now)
+    publisher.publish_a4_events([event], plans={}, now=now)
+    assert result[0]["status"] == "SENT" and len(fake.calls) == 1
+    assert fake.calls[0][0].startswith("A4 数据告警")
+    assert "不是交易信号" in "\n".join(fake.calls[0][1])
+    assert store.list_notification_deliveries()[0]["kind"] == "A4_DATA_ALERT"
+
+
+@pytest.mark.parametrize("action", ["SELL_SIGNAL", "REDUCE_SIGNAL", "FORCED_RISK_EXIT"])
+def test_position_risk_events_still_notify_t1_constraint(tmp_path, action):
+    store = RuntimeStore(tmp_path / "state.sqlite3")
+    publisher = WorkflowLarkPublisher(store, "https://open.larksuite.com/open-apis/bot/v2/hook/test-token")
+    fake = FakeNotifier()
+    publisher.notifier = fake
+    event = {"effective": 1, "action": action, "plan_id": "p", "lane_id": "lane_1",
+        "payload_json": json.dumps({"strategy": {"execution_eligibility": {
+            "reason": "BLOCKED_T1", "total_qty": 100, "sellable_qty": 0}}})}
+    publisher.publish_a4_events([event], plans={}, now=datetime(2026, 9, 11, 9, 45, tzinfo=SHANGHAI))
+    assert len(fake.calls) == 1
+    assert "T+1限制，尚未执行" in "\n".join(fake.calls[0][1])
 
 
 def _a4_health_state(

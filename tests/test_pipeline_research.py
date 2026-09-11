@@ -169,6 +169,35 @@ def test_a2_rotation_focus_retry_explains_research_pool_boundary():
     assert "upstream canonical theme_id" in instruction
 
 
+def test_a2_prompt_rotation_scope_matches_coverage_validator():
+    from liangjian_funnel.pipeline.research import _project_a2_bottleneck_context
+    good = {"theme_id": "AI", "deterministic_status": "REVIEW_CANDIDATE",
+        "trend_core_eligible": True, "top_rotation_theme": True,
+        "rotation_direction_id": "SELECTED_BOARD:AI",
+        "selected_board": {"selected_for_rotation": True, "board_code": "AI"}}
+    rows = {"600001.SH": good,
+        "600002.SH": dict(good, deterministic_status="LOCAL_MONITOR", rotation_direction_id="LOCAL"),
+        "600003.SH": dict(good, top_rotation_theme=False, rotation_direction_id="RESERVE")}
+    projected = _project_a2_bottleneck_context(rows, set(rows))
+    assert projected["_rotation_review_scope"] == {"SELECTED_BOARD:AI": ["600001.SH"]}
+    assert projected["600001.SH"]["selected_board"]["selected_for_rotation"] is True
+    reasons = _validate_a2_rotation_focus_coverage({"focus_pool": []},
+        {"A2_BOTTLENECK_CONTEXT": rows}, set(rows))
+    assert reasons == ["A2_ROTATION_FOCUS_COVERAGE_MISSING:SELECTED_BOARD:AI"]
+
+
+def test_a2_retry_does_not_merge_cpo_and_compute_under_one_monthly_theme():
+    from liangjian_funnel.pipeline.research import _a2_rotation_retry_feedback
+    base = {"theme_id": "AI_COMPUTE_INFRASTRUCTURE", "deterministic_status": "REVIEW_CANDIDATE",
+        "trend_core_eligible": True, "top_rotation_theme": True, "selected_board": {"selected_for_rotation": True}}
+    contexts = {"600001.SH": dict(base, rotation_direction_id="SELECTED_BOARD:AI_CPO"),
+        "600002.SH": dict(base, rotation_direction_id="SELECTED_BOARD:AI_COMPUTE_INFRASTRUCTURE")}
+    output = {"focus_pool": [{"symbol": "600001.SH"}], "rotation_reviews": []}
+    feedback = _a2_rotation_retry_feedback(output, {"A2_BOTTLENECK_CONTEXT": contexts}, set(contexts))
+    assert feedback["already_focused_directions"] == {"SELECTED_BOARD:AI_CPO": ["600001.SH"]}
+    assert feedback["required_no_focus_if_focus_unchanged"] == {"SELECTED_BOARD:AI_COMPUTE_INFRASTRUCTURE": ["600002.SH"]}
+
+
 def test_a2_complete_partition_removes_cross_pool_duplicates_and_materializes_overflow():
     gate = DeterministicGateResult(
         stage="A2_LOCAL_ROLE",
@@ -936,6 +965,39 @@ def test_schema_invalid_output_is_not_persisted_and_stage_retries_once(tmp_path:
     assert all("must-not-persist" not in path.read_text(encoding="utf-8") for path in result.audit_paths)
     assert len(client.repair_messages) == 3
     assert all("private-model-self-correction" not in message for message in client.repair_messages)
+
+
+def test_a3_timeout_retains_prior_validation_evidence_and_retry_answer(tmp_path: Path):
+    class TimeoutAfterInvalidA3(FakeResearchClient):
+        def __init__(self):
+            super().__init__(dict.fromkeys(MODELS, "600519.SH"))
+            self.seen = set()
+
+        def complete(self, model, messages, **metadata):
+            stage = metadata.get("stage")
+            if stage == "A3" and model in self.seen:
+                assert any(m["role"] == "assistant" for m in messages)
+                raise ModelNetworkError("MODEL_WALL_CLOCK_TIMEOUT", attempts=1)
+            result = super().complete(model, messages, **metadata)
+            if stage == "A3":
+                self.seen.add(model)
+                result.output["core_watch_pool"][0]["symbol"] = "999999.SH"
+            return result
+
+    settings = _settings(tmp_path)
+    result = ResearchPipeline(settings, prompt_repository=_prompt_dir(tmp_path),
+        model_client=TimeoutAfterInvalidA3(), now=lambda: NOW).run(
+            _snapshot(), run_id="a3-timeout-evidence", generated_at=NOW)
+    for lane in result.lanes:
+        a3 = lane.stages[2]
+        assert a3.status == "BLOCKED_MODEL" and a3.output is None
+        assert a3.diagnostics["last_validation_reasons"]
+    attempts = list(tmp_path.rglob("a3_review_attempts/**/attempt-*.json"))
+    assert len(attempts) == len(MODELS)
+    for path in attempts:
+        record = json.loads(path.read_text(encoding="utf8"))
+        assert record["executable"] is False and record["validation_reasons"]
+        assert "do-not-persist-this" not in path.read_text(encoding="utf8")
 
 
 def test_output_shape_never_exposes_unknown_model_field_names():

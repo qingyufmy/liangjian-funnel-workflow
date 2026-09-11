@@ -778,3 +778,30 @@ def test_close_fails_closed_when_active_a1_is_unavailable(tmp_path: Path, reason
             as_of=datetime(2026, 6, 1, 15, 10, tzinfo=TZ),
             from_active_a1=True,
         )
+
+
+def test_natural_weekly_maintenance_does_not_repeat_same_day_post_close_publication():
+    from types import SimpleNamespace
+    app = object.__new__(WorkflowApplication)
+    active = SimpleNamespace(as_of=datetime(2026, 9, 11, 17, 0, tzinfo=TZ),
+        generation_id="weekly-already-published", manifest={"last_full_period": "2026-09"})
+    app.a1_registry = SimpleNamespace(get_active_generation=lambda: active)
+    app.trading_calendar = SimpleNamespace(is_trading_day=lambda day: day.weekday() < 5)
+    result = app.run_a1_maintenance(now=datetime(2026, 9, 11, 18, 0, tzinfo=TZ))
+    assert result["status"] == "NOOP"
+    assert result["generation_id"] == "weekly-already-published"
+
+
+def test_weekly_maintenance_rejects_daily_subset_before_creating_generation(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    import liangjian_funnel.workflow as workflow_module
+    app = object.__new__(WorkflowApplication)
+    app.settings = _settings(tmp_path)
+    app.a1_registry = SimpleNamespace(get_active_generation=lambda: SimpleNamespace(generation_id="baseline"))
+    app._load_research_snapshot_by_id = lambda *a, **kw: SimpleNamespace(selected_count=827, research_universe_count=4164)
+    monkeypatch.setattr(workflow_module, "evaluate_resources", lambda *a: SimpleNamespace(
+        allowed=True, snapshot=SimpleNamespace(as_dict=lambda: {})))
+    monkeypatch.setattr(workflow_module, "_progress_stdout", lambda *a: None)
+    result = app.run_a1_maintenance(now=datetime(2026, 9, 11, 17, 0, tzinfo=TZ), mode="incremental", snapshot_id="daily-subset")
+    assert result["status"] == "FAILED"
+    assert result["reason_code"] == "A1_MAINTENANCE_REQUIRES_FULL_RESEARCH_UNIVERSE"

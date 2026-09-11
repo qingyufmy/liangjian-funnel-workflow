@@ -630,7 +630,11 @@ def screen_a1(
             "fundamental_support": {
                 "score": round(financial_quality, 4),
                 "minimum_score": round(minimum_financial_quality, 4),
-                "supported": financial_quality >= minimum_financial_quality,
+                "supported": (monthly_chain_only and half_year_support.get("supported") is True)
+                    or financial_quality >= minimum_financial_quality,
+                "support_basis": "DISCLOSED_HALF_YEAR" if monthly_chain_only and half_year_support.get("supported") is True else "INDICATOR_SCORE",
+                "indicator_score_supported": financial_quality >= minimum_financial_quality,
+                "indicator_period_verified": False,
                 "coverage_ratio": round(financial_coverage, 6),
                 "features": financial_details,
                 "latest_half_year": half_year_support,

@@ -826,6 +826,8 @@ def backfill_forward_returns(
     t1_due_dates: dict[date, date] = {}
     readiness: dict[str, dict[str, int]] = {}
     missing_t1_symbols: set[str] = set()
+    due_today_readiness: dict[str, dict[str, int]] = {}
+    due_today_missing_symbols: set[str] = set()
     for label in labels:
         symbol = _text(label.get("symbol")).upper()
         trade_date = _as_date(label.get("trade_date"), field="trade_date")
@@ -845,6 +847,14 @@ def backfill_forward_returns(
             else:
                 stage_readiness["t1_missing"] += 1
                 missing_t1_symbols.add(symbol)
+            if t1_due_dates[trade_date] == cutoff:
+                today_stage = due_today_readiness.setdefault(str(label.get("stage")), {"t1_due": 0, "t1_ready": 0, "t1_missing": 0})
+                today_stage["t1_due"] += 1
+                if label.get("fwd_return_1d") is not None or metrics.get("fwd_return_1d") is not None:
+                    today_stage["t1_ready"] += 1
+                else:
+                    today_stage["t1_missing"] += 1
+                    due_today_missing_symbols.add(symbol)
         update: dict[str, Any] = {
             "label_id": label.get("label_id"),
             **metrics,
@@ -917,6 +927,9 @@ def backfill_forward_returns(
         "source_latest_trade_date": max((row.trade_date.isoformat() for rows in source.values()
             for row in rows if row.trade_date <= cutoff), default=None),
         "t1_readiness_by_stage": readiness,
+        "t1_due_today_by_stage": due_today_readiness,
+        "t1_due_today_missing_symbols": sorted(due_today_missing_symbols),
+        "readiness_scope": "ALL_HISTORY_WITH_CURRENT_DUE_DAY_SEPARATED",
         "t1_missing_symbol_count": len(missing_t1_symbols),
         "t1_missing_symbol_examples": sorted(missing_t1_symbols)[:50],
         "source_rows": sum(len(value) for value in source.values()),

@@ -1770,6 +1770,12 @@ class WorkflowApplication:
                     "time": current.isoformat(),
                 }
             normalized_mode = plan.mode
+            if (normalized_mode == A1_INCREMENTAL and active is not None
+                    and active.as_of.astimezone(SHANGHAI).date() == current.date()
+                    and active.as_of.astimezone(SHANGHAI).hour >= 15):
+                return {"status": "NOOP", "mode": normalized_mode,
+                    "reason_code": "A1_POST_CLOSE_MAINTENANCE_ALREADY_PUBLISHED",
+                    "generation_id": active.generation_id, "time": current.isoformat()}
         if normalized_mode not in {A1_FULL, A1_INCREMENTAL}:
             raise WorkflowError("A1_MAINTENANCE_MODE_INVALID")
         if normalized_mode == A1_INCREMENTAL and active is None:
@@ -1810,6 +1816,8 @@ class WorkflowApplication:
                     snapshot_id,
                     expected_date=current.date().isoformat(),
                 )
+                if prepared.selected_count != prepared.research_universe_count:
+                    raise WorkflowError("A1_MAINTENANCE_REQUIRES_FULL_RESEARCH_UNIVERSE")
                 progress.update_data(
                     processed=prepared.selected_count,
                     total=prepared.selected_count,

@@ -35,6 +35,7 @@ for r in c.execute('select event_id,minute_end,action,reason_code,payload_json f
  ctx=_intraday_market_context(sym,one,five or [],current=now,live_market_state=market[bucket])
  result=evaluate_strategy(plans[pid],one,now=now,position=None,market_context=ctx).model_dump(mode='json')
  action=result.get('action');reason=(result.get('reason_codes') or [None])[0]
+ if result.get('state')=='PLAN_INVALIDATED':action='PLAN_INVALIDATED'
  # Mirror the existing MonitorEngine warm-up presentation boundary, rather
  # than treating normal pre-09:45 missing closed frames as replay defects.
  if action=='DATA_BLOCK' and reason in ('NO_CLOSED_5M','NO_CLOSED_15M'):

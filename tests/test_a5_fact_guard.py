@@ -129,6 +129,21 @@ def test_partial_verification_does_not_claim_all_plan_coverage():
     assert verification_totals(facts)["scope_verified"] is False
 
 
+def test_source_outage_proposal_is_not_replaced_with_volume_mismatch_theory():
+    from test_a5_daily_review import _report
+    report = A5ReviewReport.model_validate(copy.deepcopy(_report()))
+    from liangjian_funnel.review.daily import A5Proposal
+    proposal = A5Proposal(proposal_id="tdx-recover", type="DATA_FIX", target="A4",
+        hypothesis="通达信取数失败导致价格和成交量不能比较", evidence_ids=["METRICS:DAILY"],
+        proposed_change="探查协议握手并验证节点返回真实行情", validation_method="同日只读节点请求",
+        success_criteria="取得可核验分钟线", falsification_criteria="仍无行情", min_shadow_days=0,
+        risk="不修改历史判断", automatic_production_change=False)
+    report.improvement_proposals = [proposal]
+    original = proposal.model_dump()
+    reconcile_report(report, {"metrics": {}, "independent_verification": {"a4": {"status": "UNAVAILABLE", "plans": []}}})
+    assert report.improvement_proposals[0].model_dump() == original
+
+
 def test_live_report_reconciles_false_minutes_old_counts_and_theme_when_available():
     path = ROOT / "outputs/audits/session-20260910/ark-post-close-report.json"
     if not path.exists():

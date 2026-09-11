@@ -10,6 +10,50 @@ from liangjian_funnel.review.verification import A5IndependentVerifier
 TZ = ZoneInfo("Asia/Shanghai")
 
 
+def test_decision_duty_ends_at_pre_entry_invalidation_but_archive_duty_does_not():
+    from liangjian_funnel.review.verification import _decision_window
+    start = datetime(2026, 9, 11, 9, 32, tzinfo=TZ)
+    cutoff = start.replace(hour=15, minute=0)
+    plan = {"valid_from": start.isoformat(), "status": "INVALIDATED"}
+    events = [{"minute_end": (start + timedelta(minutes=i)).isoformat(),
+        "effective": i == 13, "action": "PLAN_INVALIDATED" if i == 13 else "START_CONFIRMATION"}
+        for i in range(14)]
+    result = _decision_window(plan, events, cutoff)
+    assert result["expected_observation_minutes"] == result["recorded_observation_minutes"] == 14
+    assert result["missing_observation_count"] == 0
+    assert result["decision_scope"] == "ENDED_AT_PRE_ENTRY_INVALIDATION"
+    assert result["market_archive_scope"] == "FULL_TRADING_SESSION_UNCHANGED"
+    missing = _decision_window(plan, events[1:], cutoff)
+    assert missing["missing_observation_count"] == 1
+    assert missing["missing_observation_samples"] == [start.isoformat()]
+    assert missing["observation_coverage"] < 1
+
+
+def test_decision_duty_is_not_cut_by_invalid_status_or_ineffective_event():
+    from liangjian_funnel.review.verification import _decision_window
+    start = datetime(2026, 9, 11, 9, 32, tzinfo=TZ)
+    cutoff = start.replace(hour=15, minute=0)
+    plan = {"valid_from": start.isoformat(), "status": "INVALIDATED"}
+    event = {"minute_end": start.replace(minute=45).isoformat(),
+        "action": "PLAN_INVALIDATED", "effective": False}
+    assert _decision_window(plan, [event], cutoff)["expected_observation_minutes"] == 239
+    event["effective"] = True
+    bought = {"minute_end": start.isoformat(), "action": "BUY_SIGNAL", "effective": True}
+    assert _decision_window(plan, [bought, event], cutoff)["expected_observation_minutes"] == 239
+    never = _decision_window({"status": "INVALIDATED"}, [], cutoff)
+    assert never["expected_observation_minutes"] == 0
+    assert never["decision_scope"] == "INVALIDATED_BEFORE_ACTIVATION"
+
+
+def test_a5_market_universe_prefers_canonical_theme_over_legacy_primary_theme():
+    from liangjian_funnel.review.daily import _a1_market_universe
+    rows = _a1_market_universe({"stages": [{"stage": "A1", "output": {
+        "active_research_pool": [{"symbol": "002201.SZ", "theme_id": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+            "primary_theme": "FINANCIAL_HIGH_DIVIDEND", "primary_theme_name": "旧金融标签"}]}}]})
+    assert rows[0]["theme_id"] == "INFRASTRUCTURE_DOMESTIC_DEMAND"
+    assert rows[0]["theme_name"] is None
+
+
 def _bar(symbol: str, stamp: datetime, close: float, *, interval: str = "1m", source: str = "TEST") -> dict:
     return {
         "symbol": symbol,

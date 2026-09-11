@@ -328,6 +328,11 @@ def test_due_t1_missing_is_not_completed_and_weekend_is_not_due(tmp_path):
     assert monday["reason_code"] == "OUTCOME_T1_DUE_PRICE_MISSING"
     assert monday["source_latest_trade_date"] == "2026-08-28"
     assert monday["t1_readiness_by_stage"]["A1"] == {"t1_due": 1, "t1_ready": 0, "t1_missing": 1}
+    assert monday["t1_due_today_by_stage"]["A1"] == {"t1_due": 1, "t1_ready": 0, "t1_missing": 1}
+    assert monday["t1_due_today_missing_symbols"] == ["600001.SH"]
+    tuesday = backfill_forward_returns(store, as_of_date="2026-09-01", price_source=prices)
+    assert tuesday["t1_due_today_missing_symbols"] == []
+    assert tuesday["status"] == "DATA_LIMITED"
     fixed = backfill_forward_returns(store, as_of_date="2026-08-31",
         price_source=prices + [_bar("600001.SH", date(2026, 8, 31), 102)])
     assert fixed["status"] == "COMPLETED"

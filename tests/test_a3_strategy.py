@@ -65,6 +65,15 @@ def _common(candidate: dict, *, factor: dict | None = None, prices: dict | None 
     )
 
 
+def test_missing_theme_phase_is_data_gap_not_confirmed_late_cycle() -> None:
+    candidate = {"symbol": "600001.SH", "market_role": "EMOTION_LEADER",
+        "theme_stage": "UNKNOWN", "ladder_height": 2, "ladder_intact": True}
+    decision = _common(candidate, a2=candidate)
+    assert decision.eligibility is Eligibility.DATA_GAP
+    assert "THEME_STAGE_MISSING" in decision.reason_codes
+    assert "THEME_STAGE_NOT_EARLY" not in decision.reason_codes
+
+
 def test_each_strategy_has_a_single_qualified_route() -> None:
     leader = _common(
         {"symbol": "600001.SH", "name": "龙头", "market_role": "EMOTION_LEADER", "theme_stage": "CONFIRMATION", "ladder_height": 2, "ladder_intact": True},

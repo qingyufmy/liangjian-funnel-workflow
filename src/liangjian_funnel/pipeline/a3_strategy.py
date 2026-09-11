@@ -1535,7 +1535,8 @@ def _evaluate_leader(
         "THEME_IN_EARLY_CYCLE",
         theme_stage in _LEADER_STAGES,
         missing=not bool(theme_stage) or theme_stage == "UNKNOWN",
-        reason="THEME_STAGE_NOT_EARLY" if theme_stage not in _LEADER_STAGES else None,
+        reason="THEME_STAGE_MISSING" if not theme_stage or theme_stage == "UNKNOWN"
+        else "THEME_STAGE_NOT_EARLY" if theme_stage not in _LEADER_STAGES else None,
     )
     ladder_state = _normalize_state(_first(ladder, "state", "status", "ladder_state"))
     ladder_intact = _first(ladder, "intact", "not_broken", "unbroken")

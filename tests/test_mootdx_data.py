@@ -91,6 +91,19 @@ def test_first_node_failure_rotates_to_next_node_without_network():
     assert good.closed is True
 
 
+def test_protocol_failure_is_not_reported_as_successful_tcp_connectivity():
+    class ResponseHeaderRecvFails(Exception):
+        pass
+
+    def factory(node):
+        raise ResponseHeaderRecvFails("private data must not leak")
+
+    result = MootdxAdapter(nodes=[("node-a", 7709)], client_factory=factory).fetch_bars("600519", "1m", 1)
+    assert result.complete is False and not result.bars
+    assert result.reason_code == "NODE_PROTOCOL_RESPONSE_INVALID"
+    assert "private data" not in result.model_dump_json()
+
+
 def test_empty_table_fails_closed_and_attempts_next_node():
     empty = FakeClient([[]])
     good = FakeClient([[row(datetime(2026, 8, 24, 9, 30, tzinfo=TZ))]])

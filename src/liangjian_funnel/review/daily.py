@@ -530,8 +530,8 @@ def _a1_market_universe(audit: Mapping[str, Any]) -> list[dict[str, Any]]:
             result.append({
                 "symbol": symbol,
                 "name": item.get("name") or item.get("company_name"),
-                "theme_id": item.get("primary_theme") or item.get("theme_id"),
-                "theme_name": item.get("primary_theme_name") or item.get("theme_name"),
+                "theme_id": item.get("theme_id") or item.get("primary_theme"),
+                "theme_name": item.get("theme_name") if item.get("theme_id") else item.get("primary_theme_name"),
                 "pool": pool_name,
                 "selection_reasons": item.get("core_thesis") if isinstance(item.get("core_thesis"), list) else [],
                 "risk_reasons": item.get("bear_case") if isinstance(item.get("bear_case"), list) else [],
@@ -608,6 +608,7 @@ def build_a5_fact_snapshot(
 
     events = []
     action_counts: dict[str, int] = {}
+    effective_action_counts: dict[str, int] = {}
     effective_event_count = 0
     warmed_macd_plans: set[str] = set()
     for row in raw_event_rows:
@@ -615,6 +616,8 @@ def build_a5_fact_snapshot(
         action_counts[action] = action_counts.get(action, 0) + 1
         effective = bool(row.get("effective"))
         effective_event_count += int(effective)
+        if effective:
+            effective_action_counts[action] = effective_action_counts.get(action, 0) + 1
         payload = _json_mapping(row.get("payload_json"))
         indicators = _json_mapping(_json_mapping(payload.get("strategy")).get("indicator_observations"))
         if _json_mapping(indicators.get("m15_macd")).get("warmup_complete") is True:
@@ -706,6 +709,10 @@ def build_a5_fact_snapshot(
         "indicator_verification_scope": "SEE_INDEPENDENT_VERIFICATION_FIELD_CHECKS_AND_FROZEN_INDICATOR_FORMULA_AUDIT; FORMULA_MATCH_IS_NOT_RAW_SOURCE_VERIFICATION",
         "a4_monitor_observation_count": sum(action_counts.values()),
         "a4_effective_event_count": effective_event_count,
+        "a4_effective_action_counts": effective_action_counts,
+        "a4_trade_signal_count": sum(effective_action_counts.get(action, 0) for action in (
+            "BUY_SIGNAL", "ADD_SIGNAL", "SELL_SIGNAL", "REDUCE_SIGNAL", "FORCED_RISK_EXIT")),
+        "a4_plan_invalidation_count": effective_action_counts.get("PLAN_INVALIDATED", 0),
         "a4_action_counts": action_counts,
         "a4_lifecycle_count": len(lifecycles),
         "a4_lifecycle_counts": lifecycle_counts,
@@ -905,7 +912,7 @@ def _markdown(report: A5ReviewReport, snapshot: Mapping[str, Any]) -> str:
         f"- 事实截止：`{snapshot.get('cutoff_at')}`",
         f"- A2 聚焦/观察：`{metrics.get('a2_focus_count', 0)}/{metrics.get('a2_watch_count', 0)}`",
         f"- A3 计划：`{metrics.get('a3_plan_count', 0)}`",
-        f"- A4 有效事件/生命周期：`{metrics.get('a4_effective_event_count', 0)}/{metrics.get('a4_lifecycle_count', 0)}`",
+        f"- A4 业务状态事件/生命周期：`{metrics.get('a4_effective_event_count', 0)}/{metrics.get('a4_lifecycle_count', 0)}`；交易信号：{metrics.get('a4_trade_signal_count', '未单独统计')}；计划失效：{metrics.get('a4_plan_invalidation_count', '未单独统计')}",
         f"- 反例落层计数（代码统计）：`{json.dumps(metrics.get('a5_counterexample_drop_stage_counts', {}), ensure_ascii=False)}`",
         "- 核验边界：价格字段一致不代表开高低、成交量或全部技术指标一致；次日可卖也不代表必定成交。",
         "", "## 总结", "", report.executive_summary, "",
@@ -1063,7 +1070,7 @@ class A5DailyReviewService:
         # Identical market facts must not reuse prose produced by an older
         # prompt/verification contract after a release.
         facts["review_contract"] = {
-            "version": "a5-full-lineage-entry-audit/7",
+            "version": "a5-full-lineage-entry-audit/8",
             "prompt_sha256": self.prompts.document(_A5_PROMPT).sha256,
             "model": self.model,
         }

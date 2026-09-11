@@ -4131,6 +4131,9 @@ class ResearchPipeline:
         last_reasons: list[str] = []
         last_missing_mapping_codes: tuple[str, ...] = ()
         last_shape: dict[str, Any] = {"type": "NoneType"}
+        last_a2_output: Mapping[str, Any] | None = None
+        last_a3_output: Mapping[str, Any] | None = None
+        last_a2_rotation_feedback: dict[str, Any] = {}
         discovery_audit_paths: list[str] = []
         last_discovery_output: dict[str, Any] | None = None
         last_discovery_issues: list[dict[str, Any]] = []
@@ -4142,6 +4145,15 @@ class ResearchPipeline:
         for semantic_attempt in range(1, semantic_limit + 1):
             active_messages = list(messages)
             if semantic_attempt > 1:
+                if last_a3_output is not None:
+                    active_messages.append({"role": "assistant", "content": _canonical_json(last_a3_output)})
+                if last_a2_output is not None:
+                    active_messages.append({"role": "assistant", "content": _canonical_json(last_a2_output)})
+                    active_messages.append({"role": "user", "content":
+                        "Correct the previous response against these exact server-bound directions. "
+                        "Keep valid NO_FOCUS reviews for uncovered directions; remove only reviews conflicting "
+                        "with a focus representative. A1 theme_id is NOT rotation_direction_id. "
+                        + _canonical_json(last_a2_rotation_feedback)})
                 if last_discovery_output is not None:
                     active_messages.append({"role": "assistant", "content": _canonical_json(last_discovery_output)})
                 active_messages.append(
@@ -4231,6 +4243,7 @@ class ResearchPipeline:
                             )[:8]
                         ),
                         "last_invalid_output_shape": last_shape,
+                        "last_validation_reasons": last_reasons,
                         "missing_mapping_codes": list(last_missing_mapping_codes),
                         "client_diagnostics": _safe_diagnostics({
                             **dict(getattr(exc, "diagnostics", None) or {}),
@@ -4398,6 +4411,33 @@ class ResearchPipeline:
                 reasons.extend(a3_semantic_reasons)
             if stage == "A2":
                 reasons.extend(a2_review_identity_reasons)
+            if stage in {"A2", "A3"}:
+                # Keep rejected model judgments and server demotions as
+                # non-executable evidence; output=None must remain blocked.
+                record = sanitize({
+                    "schema_version": f"{stage.lower()}-review-attempt/1.0.0", "executable": False,
+                    "run_id": run_id, "lane": lane_id, "model": model,
+                    "snapshot_id": snapshot.snapshot_id, "snapshot_hash": snapshot.snapshot_hash,
+                    "prompt_hash": prompt_hash, "input_hash": input_hash,
+                    "semantic_attempt": semantic_attempt,
+                    "model_output": _strip_reasoning(result.output),
+                    "post_policy_output": _strip_reasoning(output),
+                    "policy_demotions": policy_demotions,
+                    "validation_reasons": list(dict.fromkeys(reasons)),
+                    "review_context": (_project_a2_bottleneck_context(
+                        snapshot.data.get("A2_BOTTLENECK_CONTEXT", {}),
+                        projection_symbols if projection_symbols is not None else upstream_symbols)
+                        if stage == "A2" else _filter_symbol_mapping(
+                            snapshot.data.get("A3_DETERMINISTIC_CONTEXT", {}),
+                            projection_symbols if projection_symbols is not None else upstream_symbols)),
+                })
+                record_hash = _sha256_json(record)
+                try:
+                    atomic_write_json(self.output_dir / f"{stage.lower()}_review_attempts" / _safe_run_id(run_id)
+                        / _safe_run_id(lane_id) / f"attempt-{semantic_attempt}-{record_hash[:16]}.json",
+                        {**record, "record_hash": record_hash})
+                except OSError:
+                    reasons.append(f"{stage}_REVIEW_AUDIT_WRITE_FAILED")
             if stage == "A1" and a1_discovery_context:
                 reasons.extend(_a1_discovery_context_reasons(output, a1_discovery_context))
                 if (
@@ -4540,6 +4580,11 @@ class ResearchPipeline:
                 )
             last_reasons = list(dict.fromkeys(reasons))
             last_shape = _output_shape(output)
+            if stage == "A2":
+                last_a2_output = _strip_reasoning(result.output)
+                last_a2_rotation_feedback = _a2_rotation_retry_feedback(output, snapshot.data, upstream_symbols)
+            elif stage == "A3":
+                last_a3_output = _strip_reasoning(result.output)
 
         return StageAudit(
             lane=lane_id,
@@ -5995,6 +6040,8 @@ def _project_a2_bottleneck_context(value: Any, symbols: set[str] | None) -> Any:
             continue
         row = {
             "a1_theme_id": raw.get("theme_id"),
+            "deterministic_status": raw.get("deterministic_status"),
+            "top_rotation_theme": raw.get("top_rotation_theme") is True,
             "quant_score": raw.get("deterministic_score"),
             "rotation_direction_id": raw.get("rotation_direction_id"),
             "rotation_rank": raw.get("theme_rotation_rank"),
@@ -6032,7 +6079,7 @@ def _project_a2_bottleneck_context(value: Any, symbols: set[str] | None) -> Any:
             row["selected_board"] = {
                 key: board.get(key)
                 for key in (
-                    "eligible", "board_name", "theme_id", "parent_theme_id",
+                    "eligible", "selected_for_rotation", "board_code", "board_name", "theme_id", "parent_theme_id",
                     "primary_rank", "strength", "main_net_inflow_cny",
                 )
                 if key in board
@@ -6064,7 +6111,10 @@ def _project_a2_bottleneck_context(value: Any, symbols: set[str] | None) -> Any:
     scope: dict[str, list[str]] = {}
     for symbol, row in result.items():
         direction = row.get("rotation_direction_id")
-        if direction and row.get("trend_eligible"):
+        if (direction and row.get("trend_eligible")
+                and row.get("deterministic_status") == "REVIEW_CANDIDATE"
+                and row.get("top_rotation_theme") is True
+                and row.get("selected_board", {}).get("selected_for_rotation") is True):
             scope.setdefault(str(direction), []).append(symbol)
     if scope:
         result["_rotation_review_scope"] = scope
@@ -6428,6 +6478,9 @@ def _stage_execution_budget(
             "- Return envelope, theme_reviews, focus_decisions, rotation_reviews, reject_decisions and reason_codes only.\n"
             "- Do not list ordinary WATCH rows: every supplied symbol omitted from focus_decisions and "
             "reject_decisions is deterministically classified WATCH by the server.\n"
+            "- WATCH defaults do not discharge direction review: every key in "
+            "A2_BOTTLENECK_CONTEXT._rotation_review_scope needs a focus representative OR "
+            "an explicit NO_FOCUS review with bound reviewed_symbols and a concrete evidence-based explanation.\n"
             "- Each supplied symbol may appear at most once across focus_decisions and reject_decisions; "
             "never add a symbol outside the supplied set.\n"
             "- Copy RUNTIME_INPUT.required_envelope exactly as the complete envelope; omit no field.\n"
@@ -11412,6 +11465,22 @@ def _validate_output(
     if stage == "A3":
         reasons.extend(_validate_a3_provenance(output, snapshot_data or {}))
     return list(dict.fromkeys(reasons))
+
+
+def _a2_rotation_retry_feedback(output, snapshot_data, upstream_symbols):
+    contexts = _lineage_context_rows(snapshot_data, "A2_BOTTLENECK_CONTEXT")
+    projected = _project_a2_bottleneck_context(contexts, upstream_symbols)
+    scope = projected.get("_rotation_review_scope", {})
+    focus_by_direction: dict[str, list[str]] = {}
+    for row in output.get("focus_pool", []):
+        symbol = _first_symbol(row.get("symbol")) if isinstance(row, Mapping) else ""
+        direction = str(contexts.get(symbol, {}).get("rotation_direction_id") or "")
+        if direction in scope:
+            focus_by_direction.setdefault(direction, []).append(symbol)
+    return {"already_focused_directions": focus_by_direction,
+        "required_no_focus_if_focus_unchanged": {
+            key: values for key, values in scope.items() if key not in focus_by_direction},
+        "validation_errors": _validate_a2_rotation_focus_coverage(output, snapshot_data, upstream_symbols)}
 
 
 def _validate_a2_rotation_focus_coverage(

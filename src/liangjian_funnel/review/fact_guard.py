@@ -31,6 +31,7 @@ def verification_totals(facts: Mapping[str, Any]) -> dict[str, Any]:
         "expected_plan_observations": sum(int(p.get("expected_observation_minutes") or 0) for p in plans),
         "recorded_plan_observations": sum(int(p.get("recorded_observation_minutes") or 0) for p in plans),
         "omission_count": sum(int(p.get("orchestration_omission_count") or 0) for p in plans),
+        "missing_observation_count": sum(int(p.get("missing_observation_count") or 0) for p in plans),
         "verified_plan_count": len(plans),
         "scope_verified": bool(plans)
             and len(plans) == int((facts.get("metrics") or {}).get("a3_plan_count", len(plans)))
@@ -75,7 +76,8 @@ def reconcile_report(report: Any, facts: Mapping[str, Any]) -> list[str]:
         if proposal.target == "ORCHESTRATOR" and component_fiction(text):
             removed.append(proposal)
             continue
-        if proposal.target == "A4" and proposal.type == "DATA_FIX" and ("成交量" in text or "VOLUME" in text):
+        volume_mismatch_count = sum(v.get("mismatch_count", 0) for k, v in totals["fields"].items() if k.endswith(":VOLUME"))
+        if proposal.target == "A4" and proposal.type == "DATA_FIX" and volume_mismatch_count and ("成交量" in text or "VOLUME" in text):
             proposal.hypothesis = "成交量差异成因尚未确认，需分别核对首分钟归属、手数取整、行情修订及实际单位；差异不等于单位转换错误。"
             proposal.proposed_change = "先建立逐时间戳差异分类与原值追踪；只有实际单位或时间归属证据确认适配缺陷后，才实施对应修复，不统一清洗差异或放宽比较容差。"
             proposal.validation_method = "按相同时间戳保留两源原值、既有容差和完整差异计数，分类后用冻结策略复算验证动作影响；不覆盖原始判断。"
@@ -90,7 +92,7 @@ def reconcile_report(report: Any, facts: Mapping[str, Any]) -> list[str]:
         notes.append("无适用520计划不构成15分钟MACD预热故障。")
 
     if totals["scope_verified"]:
-        aggregate_terms = ("成交量", "金额", "VOLUME", "AMOUNT", "分钟", "理论值")
+        aggregate_terms = ("成交量", "金额", "VOLUME", "AMOUNT", "分钟", "理论值", "缺少决策记录", "应观察窗口")
         def aggregate_claim(text: str) -> bool:
             # Never erase exit/T+1 or indicator findings just because their
             # descriptions also mention a minute timeframe or volume.
@@ -103,7 +105,10 @@ def reconcile_report(report: Any, facts: Mapping[str, Any]) -> list[str]:
         missing = totals["omission_count"]
         summary = (f"共{metrics.get('a4_monitor_observation_count', 0)}条判断记录，不是同等数量的交易分钟；"
             f"按激活窗口应观察{expected}条，实际{recorded}条，编排遗漏{missing}条。"
-            f"有效事件{metrics.get('a4_effective_event_count', 0)}个、生命周期{metrics.get('a4_lifecycle_count', 0)}个。")
+            f"业务状态事件{metrics.get('a4_effective_event_count', 0)}个、生命周期{metrics.get('a4_lifecycle_count', 0)}个。")
+        if "a4_trade_signal_count" in metrics:
+            summary += (f"其中交易信号{metrics['a4_trade_signal_count']}个，"
+                f"计划失效{metrics.get('a4_plan_invalidation_count', 0)}个；计划失效不是买卖信号或任务运行失败。")
         defects = []
         limits = []
         labels = {"OPEN": "开盘价", "HIGH": "最高价", "LOW": "最低价", "CLOSE": "收盘价", "VOLUME": "成交量", "AMOUNT": "成交金额"}
@@ -122,6 +127,10 @@ def reconcile_report(report: Any, facts: Mapping[str, Any]) -> list[str]:
                 limits.append(name + "不可比较：" + "、".join(missing_parts) + "；不能算作不匹配。")
         if missing:
             defects.insert(0, f"按计划激活窗口发现{missing}条编排遗漏。")
+        if totals["missing_observation_count"]:
+            defects.insert(0, f"实际决策窗口缺少{totals['missing_observation_count']}条判断记录。")
+        if verification.get("a4", {}).get("status") == "UNAVAILABLE":
+            limits.append("异源核验没有取得重合行情，无法确认价格和成交量一致；零差异计数不是核验通过。")
         report.a4_review.summary = summary
         report.a4_review.defects = (retained_defects + defects)[:5]
         report.a4_review.strengths = [f"按计划激活窗口完成{recorded}/{expected}条观察记录核对。"]
@@ -134,7 +143,7 @@ def reconcile_report(report: Any, facts: Mapping[str, Any]) -> list[str]:
             and not any(e.startswith(("A4:EVENT:", "A4:LIFECYCLE:", "A4:SIGNAL:")) for e in r.evidence_ids))]
         if defects and len(report.core_defects) < 8:
             from .daily import A5Defect
-            report.core_defects.append(A5Defect(layer="A4", severity="HIGH" if missing else "MEDIUM",
+            report.core_defects.append(A5Defect(layer="A4", severity="HIGH" if missing or totals["missing_observation_count"] else "MEDIUM",
                 confidence="HIGH", blocked_by_data=True, problem=" ".join(defects)[:500],
                 evidence_ids=[str(verification.get("a4", {}).get("evidence_id") or "METRICS:DAILY")]))
         report.executive_summary = (f"A2聚焦{metrics.get('a2_focus_count', 0)}只、观察{metrics.get('a2_watch_count', 0)}只；"

@@ -363,6 +363,9 @@ def test_a1_strict_monthly_chain_accepts_disclosed_h1_double_growth_without_quot
     assert decision["selection_basis"] == "HALF_YEAR_FUNDAMENTAL"
     assert decision["research_route"] == "HALF_YEAR_FUNDAMENTAL"
     assert decision["half_year_support"]["supported"] is True
+    assert decision["fundamental_support"]["supported"] is True
+    assert decision["fundamental_support"]["support_basis"] == "DISCLOSED_HALF_YEAR"
+    assert decision["fundamental_support"]["indicator_period_verified"] is False
     assert decision["business_exposure_facts"] == []
     projected = local_active_items(result)
     assert [item["symbol"] for item in projected] == [symbol]

@@ -138,6 +138,47 @@ def _expected_minutes(start: datetime, cutoff: datetime) -> int:
     return count
 
 
+def _decision_window(plan: Mapping[str, Any], events: Sequence[Mapping[str, Any]], cutoff: datetime) -> dict[str, Any]:
+    """Audit decision duty, separately from full-session market archiving."""
+    def stamp(value: Any) -> datetime | None:
+        try:
+            parsed = datetime.fromisoformat(str(value))
+            return parsed.astimezone(SHANGHAI) if parsed.tzinfo else None
+        except (ValueError, TypeError):
+            return None
+
+    start = stamp(plan.get("valid_from")) or cutoff.replace(hour=9, minute=31, second=0, microsecond=0)
+    end = min(cutoff, stamp(plan.get("expires_at")) or cutoff)
+    scoped = [e for e in events if (at := stamp(e.get("minute_end"))) is not None and start <= at <= end]
+    never = not plan.get("valid_from") and str(plan.get("status")) == "INVALIDATED" and not scoped
+    # Invalidation of an unfilled setup ends decision duty, not bar archiving.
+    # Do not truncate a position-bearing path based only on its plan status.
+    entry_or_position = any(
+        bool(e.get("effective")) and str(e.get("action")) in {"BUY_SIGNAL", "ADD_SIGNAL"}
+        or (_number(_mapping(_mapping(_mapping(e.get("payload_json")).get("strategy")).get("execution_eligibility")).get("total_qty")) or 0) > 0
+        for e in scoped)
+    terminal = min((stamp(e.get("minute_end")) for e in scoped
+        if bool(e.get("effective")) and str(e.get("action")) == "PLAN_INVALIDATED"), default=None) if not entry_or_position else None
+    if terminal is not None:
+        end = terminal
+    slots = set()
+    minute = max(start, cutoff.replace(hour=9, minute=31, second=0, microsecond=0)).replace(second=0, microsecond=0)
+    if minute < start:
+        minute += timedelta(minutes=1)
+    while not never and minute <= end:
+        if minute.date() == cutoff.date() and (time(9, 31) <= minute.time() <= time(11, 30)
+                or time(13, 1) <= minute.time() <= time(15, 0)):
+            slots.add(minute.isoformat())
+        minute += timedelta(minutes=1)
+    actual = {at.isoformat() for e in scoped if (at := stamp(e.get("minute_end"))) is not None}
+    missing = sorted(slots - actual)
+    return {"expected_observation_minutes": len(slots), "recorded_observation_minutes": len(slots & actual),
+        "missing_observation_count": len(missing), "missing_observation_samples": missing[:20],
+        "observation_coverage": round(len(slots & actual) / len(slots), 6) if slots else 1.0,
+        "decision_scope": "INVALIDATED_BEFORE_ACTIVATION" if never else "ENDED_AT_PRE_ENTRY_INVALIDATION" if terminal else "ACTIVE_WINDOW",
+        "decision_window_end": end.isoformat(), "market_archive_scope": "FULL_TRADING_SESSION_UNCHANGED"}
+
+
 def _field_comparison(left: Mapping[str, Mapping[str, Any]], right: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
     result = {}
     for field in ("open", "high", "low", "close", "volume", "amount"):
@@ -567,8 +608,9 @@ class A5IndependentVerifier:
                 "evidence_id": f"A5V:MISS:{symbol}",
                 "symbol": symbol,
                 "name": str(row.get("name") or ""),
-                "theme_id": str(row.get("theme_id") or ""),
-                "theme_name": str(row.get("theme_name") or ""),
+                "theme_id": str(reason_source.get("theme_id") or ""),
+                "theme_name": str(reason_source.get("theme_name") or ""),
+                "theme_basis": "PRODUCTION_A2_LINEAGE" if production_candidate else "A1_UNIVERSE_LINEAGE",
                 "source_pool": pool,
                 "a3_candidate": technical.get(symbol),
                 "intraday_return": round(local_return, 8),
@@ -717,15 +759,7 @@ class A5IndependentVerifier:
             plan_id = str(plan_row.get("plan_id") or "")
             symbol = str(plan_row.get("symbol") or payload.get("symbol") or "")
             events = by_plan.get(plan_id, [])
-            actual_minutes = {str(row.get("minute_end") or "") for row in events if row.get("minute_end")}
-            try:
-                start = datetime.fromisoformat(str(plan_row.get("valid_from"))).astimezone(SHANGHAI)
-            except (TypeError, ValueError):
-                start = cutoff.replace(hour=9, minute=31, second=0, microsecond=0)
-            expected = _expected_minutes(start, cutoff)
-            never_activated = (not plan_row.get("valid_from") and str(plan_row.get("status")) == "INVALIDATED" and not events)
-            if never_activated:
-                expected = 0
+            decision_window = _decision_window(plan_row, events, cutoff)
             orchestration_omissions = []
             effective_actions = []
             for event in events:
@@ -774,9 +808,7 @@ class A5IndependentVerifier:
             tdx_lows = [value for item in right if (value := _bar_value(item, "low")) is not None]
             results.append({
                 "evidence_id": f"A5V:A4:PLAN:{plan_id}", "plan_id": plan_id, "symbol": symbol,
-                "expected_observation_minutes": expected, "recorded_observation_minutes": len(actual_minutes),
-                "decision_scope": "INVALIDATED_BEFORE_ACTIVATION" if never_activated else "ACTIVE_WINDOW",
-                "observation_coverage": round(len(actual_minutes) / expected, 6) if expected else 1.0,
+                **decision_window,
                 "effective_actions": effective_actions, "orchestration_omission_count": len(orchestration_omissions),
                 "orchestration_omissions": orchestration_omissions[:20],
                 "tencent_bar_count": len(left), "tdx_bar_count": len(right), "cross_source_overlap_count": len(overlap),

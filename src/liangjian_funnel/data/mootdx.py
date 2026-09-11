@@ -73,6 +73,14 @@ class SymbolError(ValueError):
         super().__init__(reason_code)
 
 
+def _node_failure_reason(exc: Exception) -> str:
+    # TCP connectivity is not a successful TDX application handshake. Never
+    # persist third-party exception text (which may contain paths or payloads).
+    if type(exc).__name__ in {"ResponseHeaderRecvFails", "ResponseRecvFails", "ResponseError"}:
+        return "NODE_PROTOCOL_RESPONSE_INVALID"
+    return "NODE_REQUEST_FAILED"
+
+
 @dataclass(frozen=True, slots=True)
 class SymbolMapping:
     code: str
@@ -613,9 +621,9 @@ class MootdxAdapter:
                 attempts.append(NodeAttempt(server=node.server, reason_code=exc.reason_code))
             except (ConnectionError, TimeoutError, OSError):
                 attempts.append(NodeAttempt(server=node.server, reason_code="NODE_REQUEST_FAILED"))
-            except Exception:
+            except Exception as exc:
                 # Do not expose third-party exception text or local paths.
-                attempts.append(NodeAttempt(server=node.server, reason_code="NODE_REQUEST_FAILED"))
+                attempts.append(NodeAttempt(server=node.server, reason_code=_node_failure_reason(exc)))
             finally:
                 self._close_client(client)
 
@@ -660,8 +668,8 @@ class MootdxAdapter:
                 raise
             except (ConnectionError, TimeoutError, OSError):
                 raise _FetchFailure("NODE_REQUEST_FAILED", pages=pages, returned_bars=len(by_time)) from None
-            except Exception:
-                raise _FetchFailure("NODE_REQUEST_FAILED", pages=pages, returned_bars=len(by_time)) from None
+            except Exception as exc:
+                raise _FetchFailure(_node_failure_reason(exc), pages=pages, returned_bars=len(by_time)) from None
             pages += 1
             records = _records(raw)
             if not records:
@@ -755,6 +763,7 @@ def _final_reason(attempts: Sequence[NodeAttempt]) -> str:
         "EMPTY_DATA",
         "INSUFFICIENT_BARS",
         "MOOTDX_NOT_INSTALLED",
+        "NODE_PROTOCOL_RESPONSE_INVALID",
         "NODE_REQUEST_FAILED",
     )
     reasons = {attempt.reason_code for attempt in attempts}
