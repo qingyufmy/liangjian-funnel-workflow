@@ -454,6 +454,10 @@ def build_parser() -> argparse.ArgumentParser:
         "run-outcomes",
         help="scheduled local T+N outcome backfill through the latest Shanghai trade date",
     )
+    sub.add_parser(
+        "run-outcomes-refresh",
+        help="refresh current tracked-stock prices, then label T+N without rerunning research",
+    )
     attribution = sub.add_parser(
         "layer-attribution",
         help="calculate deterministic funnel-layer outcome attribution",
@@ -602,7 +606,7 @@ def main(argv: Sequence[str] | None = None, *, settings: Settings | None = None)
         return _doctor(active)
     if args.command in {"storage-audit", "storage-backup", "storage-cleanup"}:
         return _storage_command(args, active)
-    if args.command in {"label-outcomes", "run-outcomes", "layer-attribution"}:
+    if args.command in {"label-outcomes", "run-outcomes", "run-outcomes-refresh", "layer-attribution"}:
         return _evaluation_command(args, active)
     if args.command in {"prepare-snapshot", "import-broker-gold", "sync-data", "maintain-features", "run-a1-maintenance", "run-research", "run-comparison", "monitor-once", "activate-latest-a3-for-a4", "run-due", "run-premarket", "run-morning", "run-close", "run-a5-midday", "run-a5-close", "run-next-session-prep", "run-monitor", "status"}:
         return _workflow_command(args, active)
@@ -823,15 +827,20 @@ def _storage_command(args: argparse.Namespace, settings: Settings) -> int:
 def _evaluation_command(args: argparse.Namespace, settings: Settings) -> int:
     """Run deterministic outcome evaluation without constructing the workflow.
 
-    These commands intentionally have no ``WorkflowApplication`` path: they
-    only read/write the local SQLite outcome ledger and local price source.
+    These commands intentionally have no ``WorkflowApplication`` path.
+    Only run-outcomes-refresh explicitly acquires current observation prices;
+    the other commands use the local ledger and local price source only.
     In particular, they cannot acquire a scheduler lease, call a model, or
     create a research/monitoring plan as a side effect.
     """
 
     try:
         store = RuntimeStore(settings.state_db_path)
-        if args.command in {"label-outcomes", "run-outcomes"}:
+        if args.command in {"label-outcomes", "run-outcomes", "run-outcomes-refresh"}:
+            refresh = None
+            if args.command == "run-outcomes-refresh":
+                from .evaluation.price_sync import refresh_current_outcome_prices
+                refresh = refresh_current_outcome_prices(store, settings)
             source = (
                 Path(args.price_source).expanduser().resolve()
                 if getattr(args, "price_source", None)
@@ -846,6 +855,13 @@ def _evaluation_command(args: argparse.Namespace, settings: Settings) -> int:
                 ),
                 price_source=source,
             )
+            if refresh is not None:
+                payload["price_refresh"] = refresh
+                payload["network_used"] = refresh["network_used"]
+                if refresh["status"] == "DATA_LIMITED":
+                    payload["status"] = "DATA_LIMITED"
+                    if payload.get("reason_code") == "OK":
+                        payload["reason_code"] = "OUTCOME_CURRENT_PRICE_REFRESH_INCOMPLETE"
             print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True, default=str))
             return 0 if not payload.get("source_errors") and payload.get("status") != "DATA_LIMITED" else 2
 
