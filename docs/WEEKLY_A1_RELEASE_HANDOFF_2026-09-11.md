@@ -1,6 +1,27 @@
 # 9月11日周度A1与统一发布接续记录
 
-## 尚未完成，不得提前报成功
+## 最终交接：研究与生产验收已完成
+
+当前功能版本`396f0e4cc50e554085b24cb57dbcfa3930c126ee`已部署，Python1532项、服务端84项完整回归通过。最终实际结果：
+
+- A1：`a1-incremental-20260911T192429209834Z-d913719e2ae1`，正式1569只、14主方向；新增912、保留657、退出125。
+- A2–A3：`2026-09-11-close-weekly-final-396f0e4` READY。当日有效A1=1569封存+51情绪补充=1620；A2聚焦8、观察70，A3核心32，均属于封存A1。
+- 下周计划：32只趋势五日线，全部9月14日待盘前复核，未激活、当日15:00到期，唯一正式待复核批次。`weekly-final-readiness-20260914.json`14项断言通过。A3量化78→32合格、39观察、7硬排除，两批16只模型复核均通过。520并非分支消失：10只实际计算，9只右侧未确认、1只死叉；情绪入口受既定周期政策限制。
+- T+N：`outcomes-deployed-final-20260911.log`退出0，当前任务完成，今日到期A2 1584/1584、A3 28/28；8只当日无成交有独立报价证据，不填伪日线/零收益。全历史DATA_LIMITED仍保留。
+- A5：v8审阅`dc6e9fb2-80be-5f4e-a26f-0d3cfbf729e0`完成，19:42:29飞书SENT；应56/实56/缺0、交易信号0、计划失效4。原报告、A4事件、归档及成交记录未改写。
+- 表格：`outputs/session-20260911/A1周度股票池_2026-09-11.xlsx`已生成并渲染验收，含1569正式股票及125退出股票，六位文本代码和计数公式均核对。
+
+详细证据与32只名单见`docs/A1_A5_WEEKLY_DIAGNOSIS_2026-09-11.md`第七节。通达信异源协议不可用、5只热度补充题材歧义、主营占比未完全结构化及历史价格缺口仍如实标注。不得为了凑5个方向或凑龙头/520计划放宽门槛。
+
+下列内容是历史过程，不再重跑或重复取消。无需继续等待43527、47501、50066、50684等本轮旧进程；未来任何操作都需重新核对实时PID。日常自动化恢复工作日15:35，次日实际业务仍由虚拟机08:30、09:26及盘中调度执行。周末不激活交易计划。
+
+## 历史过程（18–19时的中间记录，不是当前状态）
+
+**19:42最新进度（优先于下方18时记录）：**`396f0e4cc50e554085b24cb57dbcfa3930c126ee`已通过现有`deploy.sh`部署，119个Python安装源文件与仓库一致；最终Python1532项、服务端84项通过。新全量快照` snapshot-20260911T191327+0800-720161761969`覆盖4007只，今日日线全部齐全。正式A1已发布`a1-incremental-20260911T192429209834Z-d913719e2ae1`：1569研究、2373观察、65拒绝，14个方向；新增912、保留657、退出125。五家银行均进入半年报支持通道。A1工作簿已生成并核对1569/125行、公式及六位代码。
+
+T+N生产命令已完成，今日到期A2 1584/1584、A3 28/28；4788只持续观察域中8只当日无成交已异源核实，未生成伪日线，未解释缺口为0。全历史DATA_LIMITED保留。新版A5和最终A2/A3仍在运行，不得提前宣称完整。
+
+**纠正下方旧执行示例：**普通当日`run_research`不允许显式`snapshot_id`，仅历史/比较路径允许。首次调用在任何研究和发布之前被`SNAPSHOT_ID_REQUIRES_HISTORICAL_REPLAY`拦截，证据`close-deployed-final-20260911.log`。不要修改此护栏或冒用历史模式。现用正式`from_active_a1=True`日度路径，自动基于新A1加当日情绪补充准备1620只日度快照，复用已热缓存，运行编号`2026-09-11-close-weekly-final-396f0e4`，日志`close-deployed-final-normal-20260911.log`。新快照与新A1血缘须在最终结果核对。
 
 2026年9月11日18:25：修复代码已经提交推送，生产仍为`a20f15e432fe31e8aea96698f06659ea81ccd2cb`，尚未部署。周度全市场快照仍在采集公告；尚未生成新的正式A1、下周一A2/A3或新版A5。不要用隔离候选结果充当正式发布。
 
@@ -39,7 +60,7 @@
 3. 先做只读新事实A1审计：`scripts/audit_a1_weekly.py --snapshot <全量快照路径> --output outputs/runs/a1-weekly-freshfacts-20260911.json`。这是用旧封存月度方向重算新事实，不能称新的模型A1。
 4. 使用已经取得的全量快照显式周度维护，避免再次准备全市场：`.venv/bin/python -m liangjian_funnel run-a1-maintenance --mode incremental --snapshot-id <全量编号>`。保留运行日志。A1失败时保留旧封存池，不强制放宽或直接晋级；按具体冻结错误修复。
 5. 用`audit_a1_weekly.py --baseline outputs/runs/a1-weekly-baseline-detailed-20260911.json --output outputs/runs/a1-weekly-after-20260911.json`核对新增/退出/保留，主营证据、半年报、银行及13个方向主归属与多主题关系。原782只中670半年报支撑、76未双增长、36缺同比；不能把所有旧池都说成半年报双增长。不得为200+凑数。
-6. 最终A2/A3必须基于刚发布的新A1。CLI `run-research`默认不复用活跃A1，使用现有方法明确传参：`WorkflowApplication(settings).run_research('close', snapshot_id=<全量编号>, primary_only=True, schedule_comparison=False, from_active_a1=True, run_id_override='2026-09-11-close-weekly-final-<部署短版本>')`。这会正常生成待盘前复核计划，不调用历史回放模式。
+6. 最终A2/A3必须基于刚发布的新A1。CLI `run-research`默认不复用活跃A1，使用现有方法明确传参：`WorkflowApplication(settings).run_research('close', primary_only=True, schedule_comparison=False, from_active_a1=True, run_id_override='2026-09-11-close-weekly-final-<部署短版本>')`。不传`snapshot_id`，按正式日度范围准备或严格复用快照，正常生成待盘前复核计划，不调用历史回放模式。
 7. `scripts/verify_day_plan_readiness.py --run-id <最终批次> --target-date 2026-09-14`全部断言通过；尤其A3⊆A2⊆当日有效A1、来源安装代码、唯一发布批次、520日线MACD及跨日前置预热。待9月14日盘前复核不等于已经允许买入。
 8. 新版调度T+N命令为`run-outcomes-refresh`，独立补最近10交易日仍跟踪股票的当前行情，最多500只，有延期则明确记录。原`run-outcomes`/`label-outcomes`仍完全离线。执行并核对当前到期统计；全历史资料受限不能伪装完成。
 9. 新版A5直接使用`WorkflowApplication(settings).run_a5_review('POST_CLOSE')`，防止旧调度完成记录导致NOOP。v8合同及提示词哈希应生成新的结果，原16:04:56报告保留。确认它仍归因今日实际Sep10上游计划，而非新Monday批次；应56/实56/缺0、交易信号0、计划失效4，通达信无独立重合行情不得改写为一致。检查实际飞书SENT。
