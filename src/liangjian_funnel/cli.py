@@ -862,7 +862,35 @@ def _evaluation_command(args: argparse.Namespace, settings: Settings) -> int:
                     payload["status"] = "DATA_LIMITED"
                     if payload.get("reason_code") == "OK":
                         payload["reason_code"] = "OUTCOME_CURRENT_PRICE_REFRESH_INCOMPLETE"
+                # Scheduled current observation refresh is not a historical
+                # data-repair job. Preserve the all-history DATA_LIMITED result,
+                # but do not turn an independently verified current success
+                # into a recurring operational failure because of old gaps.
+                today = payload.get("t1_due_today_by_stage")
+                current_ready = (
+                    refresh.get("status") == "COMPLETED"
+                    and not refresh.get("missing_symbols")
+                    and not payload.get("source_errors")
+                    and isinstance(today, dict)
+                    and payload.get("t1_due_today_missing_symbols") == []
+                    and all(isinstance(row, dict)
+                        and isinstance(row.get("t1_due"), int)
+                        and row["t1_due"] >= 0
+                        and row.get("t1_ready") == row["t1_due"]
+                        and row.get("t1_missing") == 0 for row in today.values())
+                )
+                payload["data_status"] = payload["status"]
+                payload["job_status"] = "COMPLETED" if current_ready else "FAILED"
+                payload["job_scope"] = "CURRENT_OBSERVATION_REFRESH_AND_T1_DUE_TODAY"
+                payload["job_reason_code"] = (
+                    "CURRENT_OBSERVATIONS_COMPLETE_HISTORY_LIMITED"
+                    if current_ready and payload["status"] == "DATA_LIMITED"
+                    else "CURRENT_OBSERVATIONS_COMPLETE" if current_ready
+                    else "CURRENT_OBSERVATIONS_NOT_VERIFIED"
+                )
             print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True, default=str))
+            if refresh is not None:
+                return 0 if payload["job_status"] == "COMPLETED" else 2
             return 0 if not payload.get("source_errors") and payload.get("status") != "DATA_LIMITED" else 2
 
         try:

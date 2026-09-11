@@ -1,4 +1,5 @@
 import json
+import pytest
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
@@ -119,3 +120,29 @@ def test_explicit_refresh_cli_keeps_incomplete_prices_visible(tmp_path, monkeypa
     assert result['status'] == 'DATA_LIMITED'
     assert result['network_used'] is True
     assert result['models_called'] is False
+
+
+@pytest.mark.parametrize('defect', [None, 'current_missing', 'source_error', 'missing_readiness'])
+def test_scheduled_refresh_separates_current_completion_from_history(tmp_path, monkeypatch, capsys, defect):
+    settings = Settings.from_env({}, root=tmp_path)
+    payload = {'status': 'DATA_LIMITED', 'reason_code': 'OUTCOME_T1_DUE_PRICE_MISSING',
+        'source_errors': [], 't1_missing_symbol_count': 561,
+        't1_due_today_by_stage': {'A2': {'t1_due': 1584, 't1_ready': 1584, 't1_missing': 0}},
+        't1_due_today_missing_symbols': [], 'models_called': False}
+    if defect == 'current_missing':
+        payload['t1_due_today_by_stage']['A2'].update(t1_ready=1583, t1_missing=1)
+        payload['t1_due_today_missing_symbols'] = ['002295.SZ']
+    elif defect == 'source_error':
+        payload['source_errors'] = ['INVALID_PRICE_SOURCE']
+    elif defect == 'missing_readiness':
+        del payload['t1_due_today_by_stage']
+    monkeypatch.setattr('liangjian_funnel.cli.backfill_forward_returns', lambda *a, **kw: dict(payload))
+    monkeypatch.setattr('liangjian_funnel.evaluation.price_sync.refresh_current_outcome_prices',
+        lambda *_: {'status': 'COMPLETED', 'network_used': False, 'missing_symbols': []})
+    assert main(['run-outcomes-refresh'], settings=settings) == (0 if defect is None else 2)
+    result = json.loads(capsys.readouterr().out)
+    assert result['status'] == result['data_status'] == 'DATA_LIMITED'
+    assert result['t1_missing_symbol_count'] == 561
+    assert result['job_status'] == ('COMPLETED' if defect is None else 'FAILED')
+    # The explicitly offline, all-history command keeps its strict contract.
+    assert main(['run-outcomes'], settings=settings) == 2
