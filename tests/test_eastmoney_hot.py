@@ -39,6 +39,18 @@ def test_normalize_requires_exact_same_day_complete_top100():
     assert result["records"][0]["symbol"] == "600001.SH"
 
 
+def test_force_refresh_never_returns_same_day_stale_cache(tmp_path):
+    collect_eastmoney_hot100(as_of=AS_OF, cache_dir=tmp_path, fetch=lambda _: _payload())
+    fresh = _payload()
+    fresh["data"]["result"]["dataList"][0]["SECURITY_SHORT_NAME"] = "最新排名"
+    result = collect_eastmoney_hot100(as_of=AS_OF, cache_dir=tmp_path,
+                                    fetch=lambda _: fresh, force_refresh=True)
+    assert result["records"][0]["name"] == "最新排名"
+    failed = collect_eastmoney_hot100(as_of=AS_OF, cache_dir=tmp_path,
+                                     fetch=lambda _: _payload(count=99), force_refresh=True, max_attempts=1)
+    assert failed["available"] is False
+
+
 def test_collect_fails_closed_on_incomplete_response(tmp_path):
     result = collect_eastmoney_hot100(
         as_of=AS_OF,

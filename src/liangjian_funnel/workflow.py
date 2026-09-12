@@ -403,6 +403,7 @@ class WorkflowApplication:
         market_data_as_of: datetime | None = None,
         progress: WorkflowProgress | None = None,
         candidate_symbols: tuple[str, ...] | None = None,
+        auction_refresh: bool = False,
     ) -> PreparedSnapshot:
         current = _aware(as_of or datetime.now(SHANGHAI))
         market_current = _aware(market_data_as_of or current)
@@ -443,15 +444,29 @@ class WorkflowApplication:
             market_current,
             self.trading_calendar,
         )
+        # Daily technical history retains its closed-session identity. Only
+        # intraday attention/rotation observations use today's identity.
+        observation_date = current.date() if auction_refresh else closed_trade_date
         # The post-close top 100 is the canonical daily emotion-attention
         # observation.  Before the close, the latest completed session is
         # loaded instead; a missing current-date response never falls back to
         # an older file under a new date.
         eastmoney_hot100 = collect_eastmoney_hot100(
             as_of=market_current,
-            expected_trade_date=closed_trade_date,
-            cache_dir=self.settings.fact_store_dir / "eastmoney_hot100",
+            expected_trade_date=observation_date,
+            cache_dir=self.settings.fact_store_dir / "eastmoney_hot100" / "auction" if auction_refresh else self.settings.fact_store_dir / "eastmoney_hot100",
+            **({"force_refresh": True} if auction_refresh else {}),
         )
+        auction_quotes = None
+        if auction_refresh:
+            from .runtime.auction_refresh import collect_fresh_quotes
+            if not eastmoney_hot100.get("available"):
+                raise WorkflowError("AUCTION_HOT100_UNAVAILABLE")
+            quote_scope = set(candidate_symbols or ()) | {
+                str(row["symbol"]) for row in eastmoney_hot100.get("records", ())
+                if isinstance(row, Mapping) and row.get("symbol")
+            }
+            auction_quotes = collect_fresh_quotes(quote_scope, as_of=current)
         selected_board = collect_rotation_theme_snapshot(
             # Use wall-clock research time for archive selection while the
             # explicit expected_trade_date remains the market identity.  On a
@@ -461,7 +476,7 @@ class WorkflowApplication:
             # During a live trading-day run current == market_current, so the
             # normal same-session collection path is unchanged.
             as_of=current,
-            expected_trade_date=closed_trade_date,
+            expected_trade_date=observation_date,
             registry_path=self.settings.rotation_theme_registry_path,
             snapshot_dir=self.settings.fact_store_dir / "rotation_theme",
             rotation_theme_count=rotation_theme_count,
@@ -481,6 +496,11 @@ class WorkflowApplication:
             # Notification delivery is observable through its own durable
             # ledger and must never rewrite the frozen market evidence.
             pass
+        if auction_refresh and (
+            selected_board.get("available") is not True
+            or str(selected_board.get("trade_date")) != current.date().isoformat()
+        ):
+            raise WorkflowError("AUCTION_CURRENT_ROTATION_UNAVAILABLE")
         hot100_symbols = {
             str(item.get("symbol") or "").strip().upper()
             for item in eastmoney_hot100.get("records", ())
@@ -599,7 +619,7 @@ class WorkflowApplication:
                     _progress_stdout(progress.snapshot())
             market_fact_results = collect_market_results(
                 client,
-                [candidate.symbol for candidate in selected] if _auction_window(current) else [],
+                [candidate.symbol for candidate in selected] if _auction_window(current) and not auction_refresh else [],
                 market_trade_date=_latest_closed_market_trade_date(
                     current,
                     self.trading_calendar,
@@ -645,7 +665,7 @@ class WorkflowApplication:
                 for name in required_market_facts
             ):
                 raise WorkflowError("MARKET_EMOTION_FACTS_NOT_READY")
-            if _auction_window(current):
+            if _auction_window(current) and not auction_refresh:
                 auction = market_fact_results.get("AUCTION_FINAL")
                 if auction is None or not auction.ok or not auction.complete:
                     raise WorkflowError("AUCTION_FACTS_NOT_READY")
@@ -1014,6 +1034,8 @@ class WorkflowApplication:
         fact_payload["open_macro_bundle"] = open_macro_bundle
         fact_payload["eastmoney_hot100"] = eastmoney_hot100
         fact_payload["selected_board_snapshot"] = selected_board
+        if auction_quotes is not None:
+            fact_payload["auction_refresh_quotes"] = auction_quotes
 
         if progress is not None:
             progress.set_phase("SNAPSHOT")
@@ -1096,7 +1118,7 @@ class WorkflowApplication:
             progress.set_phase("FEATURE_SOURCE_GENERATION")
             progress.update_resources(measure_resources(self.settings.root).as_dict())
             _progress_stdout(progress.snapshot())
-        if self.settings.feature_maintenance_enabled:
+        if self.settings.feature_maintenance_enabled and not auction_refresh:
             try:
                 feature_source = materialize_live_source(
                     self.feature_store,
@@ -1127,7 +1149,7 @@ class WorkflowApplication:
                 "snapshot_id": snapshot.snapshot_id,
                 "snapshot_hash": snapshot.snapshot_hash,
                 "market_trade_date": market_current.date().isoformat(),
-                "reason_code": "FEATURE_MAINTENANCE_DISABLED",
+                "reason_code": "AUCTION_SKIP_MAINTENANCE_WRITE" if auction_refresh else "FEATURE_MAINTENANCE_DISABLED",
             }
         if progress is not None:
             progress.update_resources(measure_resources(self.settings.root).as_dict())
@@ -2120,9 +2142,16 @@ class WorkflowApplication:
         from_active_a1: bool = False,
         active_a1_generation_id: str | None = None,
         same_day_recovery: bool = False,
+        auction_refresh: bool = False,
     ) -> dict[str, Any]:
         normalized_slot = _slot(slot)
         current = _aware(as_of or datetime.now(SHANGHAI))
+        if auction_refresh and (
+            normalized_slot != "morning" or not from_active_a1 or not primary_only
+            or publish_plans or historical_replay or comparison_run or snapshot_id
+            or schedule_comparison or same_day_recovery
+        ):
+            raise WorkflowError("AUCTION_REFRESH_ARGUMENTS_INVALID")
         next_session_prep = target_trade_date is not None or allow_non_trading_source
         if next_session_prep:
             # This escape hatch is intentionally private to the dedicated
@@ -2215,6 +2244,9 @@ class WorkflowApplication:
             str(run_id_override or f"{current.date()}-{normalized_slot}-comparison"),
         )[:180]
         progress_path = (
+            self.settings.workflow_output_dir / "auction_progress" / f"{comparison_progress_id}.json"
+            if auction_refresh
+            else
             self.settings.workflow_output_dir / "comparison_progress" / f"{comparison_progress_id}.json"
             if comparison_run
             else self.settings.workflow_progress_path
@@ -2290,8 +2322,9 @@ class WorkflowApplication:
                     market_data_as_of=market_data_as_of,
                     progress=progress,
                     candidate_symbols=active_a1_scope_symbols,
+                    **({"auction_refresh": True} if auction_refresh else {}),
                 )
-                if not historical_replay and not comparison_run:
+                if not historical_replay and not comparison_run and not auction_refresh:
                     self._write_research_resume_marker(
                         normalized_slot,
                         prepared,
@@ -2431,7 +2464,7 @@ class WorkflowApplication:
                 "created": [],
                 "activated": [],
                 "blocked": [],
-                "publication": "COMPARISON_ONLY",
+                "publication": "AUCTION_RESEARCH_ONLY" if auction_refresh else "COMPARISON_ONLY",
             }
         )
         summary_calendar = getattr(self, "trading_calendar", None)
@@ -2445,6 +2478,7 @@ class WorkflowApplication:
         summary = {
             "run_id": run_id,
             "slot": normalized_slot,
+            "auction_refresh": auction_refresh,
             "status": result.status,
             "run_role": "comparison" if comparison_run else "primary" if primary_only else "full",
             "models": [lane.model for lane in result.lanes],
@@ -2516,7 +2550,7 @@ class WorkflowApplication:
             )
             summary["comparison_request"] = request
             atomic_write_json(self.settings.workflow_output_dir / "runs" / f"{run_id}.json", summary)
-        if not historical_replay and not comparison_run:
+        if not historical_replay and not comparison_run and not auction_refresh:
             self._write_research_resume_marker(
                 normalized_slot,
                 prepared,
@@ -3975,7 +4009,7 @@ class WorkflowApplication:
         evidence: dict[str, Any] = {}
         symbols = sorted({str(plan["symbol"]) for plan in pending})
         for symbol in symbols:
-            # 09:26 is still the auction phase; the first closed continuous
+            # The opening auction has ended at 09:26; the first closed continuous
             # 1m bar does not exist until 09:31.  Review the provider-owned,
             # timestamped auction quote instead of requiring an impossible
             # 09:26 minute bar.
@@ -4533,6 +4567,8 @@ class WorkflowApplication:
         )
         breadth = float(market_emotion["breadth"])
         auction = _available_fact(facts, "AUCTION_FINAL") if _auction_window(market_as_of) else None
+        if isinstance(frozen.fact_payload.get("auction_refresh_quotes"), Mapping):
+            auction = frozen.fact_payload["auction_refresh_quotes"]
         dragon_tiger = _available_fact(facts, "DRAGON_TIGER_LIST")
         hot_stocks = _available_fact(facts, "HOT_STOCK_LIST")
         industry_catalog = _available_fact(facts, "THS_INDUSTRY_CATALOG")

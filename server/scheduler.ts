@@ -147,6 +147,9 @@ export class WorkflowScheduler {
       if (isFeatureMaintenanceMinute(clock)) due.push("features");
       if (clock.hour === 8 && clock.minute === 30) due.push("premarket");
       if (clock.hour === 9 && clock.minute === 26) due.push("morning");
+      // A four-minute startup/restart window, with a stable daily key.
+      // The Python lease is authoritative across Node restarts.
+      if (clock.hour === 9 && clock.minute >= 26 && clock.minute < 30) due.push("auction-refresh");
       if (clock.hour === 11 && clock.minute === 35) due.push("a5-midday");
       if (clock.hour === 16 && clock.minute === 0) due.push("a5-close");
       if (clock.hour === 16 && clock.minute === 10) due.push("outcomes");
@@ -159,9 +162,10 @@ export class WorkflowScheduler {
     }
 
     for (const job of due) {
+      const dispatchKey = job === "auction-refresh" ? `${clock.date}T09:26` : key;
       if (job === "features" && !this.featureMaintenanceEnabled) continue;
-      if (this.dispatched.get(job) === key || this.inFlight.has(job) || this.retryKeys.get(job) === key) continue;
-      this.dispatch(job, key, value);
+      if (this.dispatched.get(job) === dispatchKey || this.inFlight.has(job) || this.retryKeys.get(job) === dispatchKey) continue;
+      this.dispatch(job, dispatchKey, value);
     }
     // The 16:10 pass can precede refreshed closing prices. Reconcile again
     // after a successful same-day research run, without replaying research.
@@ -198,6 +202,11 @@ export class WorkflowScheduler {
     this.logger.info(`触发调度 ${job} at=${key}`, { job });
     void this.runner.run(job)
       .then((result) => {
+        if (job === "auction-refresh" && result.status !== "succeeded") {
+          // Retry on the next minute only while the four-minute capture
+          // window is still open; never start this job later in the session.
+          this.dispatched.delete(job);
+        }
         const shouldRetry = (job === "premarket" || job === "morning" || job === "close" || job === "a1" || job === "a5-midday" || job === "a5-close" || job === "outcomes")
           && result.status === "skipped"
           && result.reason?.startsWith("BUSY:") === true;

@@ -428,6 +428,7 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     sub.add_parser("run-morning", help="dispatch only the due 09:26 morning review")
+    sub.add_parser("run-auction-refresh", help="refresh A2/A3 research after auction; never replace active A4 plans")
     sub.add_parser("run-close", help="dispatch only the due 15:10 close workflow")
     sub.add_parser("run-a5-midday", help="run the read-only A5 review using facts closed by 11:30")
     sub.add_parser("run-a5-close", help="run the read-only A5 review using facts closed by 15:00")
@@ -608,7 +609,7 @@ def main(argv: Sequence[str] | None = None, *, settings: Settings | None = None)
         return _storage_command(args, active)
     if args.command in {"label-outcomes", "run-outcomes", "run-outcomes-refresh", "layer-attribution"}:
         return _evaluation_command(args, active)
-    if args.command in {"prepare-snapshot", "import-broker-gold", "sync-data", "maintain-features", "run-a1-maintenance", "run-research", "run-comparison", "monitor-once", "activate-latest-a3-for-a4", "run-due", "run-premarket", "run-morning", "run-close", "run-a5-midday", "run-a5-close", "run-next-session-prep", "run-monitor", "status"}:
+    if args.command in {"prepare-snapshot", "import-broker-gold", "sync-data", "maintain-features", "run-a1-maintenance", "run-research", "run-comparison", "monitor-once", "activate-latest-a3-for-a4", "run-due", "run-premarket", "run-morning", "run-auction-refresh", "run-close", "run-a5-midday", "run-a5-close", "run-next-session-prep", "run-monitor", "status"}:
         return _workflow_command(args, active)
     reports = []
     if args.command in {"probe-hithink", "probe-all"}:
@@ -1052,6 +1053,10 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
             from .runtime.scheduler import ScheduleKind
 
             payload = application.run_scheduled(ScheduleKind.CLOSE_1510)
+        elif args.command == "run-auction-refresh":
+            from .runtime.auction_refresh import run_auction_refresh
+
+            payload = run_auction_refresh(application)
         elif args.command == "run-a5-midday":
             from .runtime.scheduler import ScheduleKind
 

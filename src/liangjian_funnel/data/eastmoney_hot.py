@@ -44,6 +44,7 @@ def collect_eastmoney_hot100(
     max_attempts: int = 3,
     retry_wait_seconds: float = 1.0,
     sleep: Callable[[float], None] = time.sleep,
+    force_refresh: bool = False,
 ) -> dict[str, Any]:
     """Return a validated top-100 snapshot or an explicit unavailable state.
 
@@ -58,7 +59,7 @@ def collect_eastmoney_hot100(
     target_dir.mkdir(parents=True, exist_ok=True)
     cache_path = target_dir / f"eastmoney-guba-hot100-{trade_day.isoformat()}.json"
     cached = _load_cache(cache_path, trade_day)
-    if cached is not None:
+    if cached is not None and not force_refresh:
         return {**cached, "cache_status": "HIT", "cache_path": str(cache_path)}
 
     last_reason = "SOURCE_UNAVAILABLE"

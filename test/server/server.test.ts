@@ -1357,7 +1357,7 @@ test("scheduler gives research exclusive dispatch in its protection minute", asy
   await scheduler.tick(new Date("2026-08-26T01:26:10.000Z"));
   await scheduler.tick(new Date("2026-08-26T01:26:30.000Z"));
   await new Promise<void>((resolve) => setImmediate(resolve));
-  expect(calls).toEqual(["morning"]);
+  expect(calls).toEqual(["morning", "auction-refresh"]);
 });
 
 test("dispatches A4 once at the settled second without catch-up", async () => {
@@ -1439,7 +1439,7 @@ test("scheduler retries a research job skipped by an active monitor in the same 
   });
   await scheduler.tick(now);
   await new Promise<void>((resolve) => setTimeout(resolve, 50));
-  expect(calls).toEqual(["morning", "morning"]);
+  expect(calls).toEqual(["morning", "auction-refresh", "morning"]);
 });
 
 test("scheduler dispatches weekday incremental and Saturday full maintenance but never Sunday", async () => {
@@ -1516,7 +1516,7 @@ test("feature maintenance flag disables only the 03:30 job", async () => {
   await scheduler.tick(new Date("2026-08-31T01:26:10.000Z"));
   await new Promise<void>((resolve) => setImmediate(resolve));
 
-  expect(calls).toEqual(["morning"]);
+  expect(calls).toEqual(["morning", "auction-refresh"]);
   expect(scheduler.snapshot().jobs.find((job) => job.job === "features")?.enabled).toBe(false);
   expect(scheduler.snapshot().jobs.find((job) => job.job === "morning")?.enabled).toBe(true);
   scheduler.stop();
