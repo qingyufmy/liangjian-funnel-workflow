@@ -55,6 +55,7 @@ def recover(root: Path, source_run: str, *, quant_only: bool = False) -> dict:
     pipeline = ResearchPipeline(
         settings, prompt_repository=app.prompts, model_client=app.model_client,
         output_dir=output_dir / "recovery", runtime_store=None,
+        checkpoint_store=app.research_checkpoints,
         batch_workers=1, parallel_lanes=False,
         stage_snapshot_enricher=app._stage_snapshot_enricher,
         progress_callback=lambda event: print(json.dumps(event, ensure_ascii=True), flush=True),

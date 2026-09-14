@@ -6443,6 +6443,20 @@ def _project_news(value: Any, *, item_limit: int, symbols: set[str] | None = Non
     return result
 
 
+_A3_REFERENCE_GEOMETRY_CONTRACT = (
+    "For server eligibility=QUALIFIED with route_permission=ALLOW_A4, reference-close reward_risk "
+    "below MIN_REWARD_RISK or stop_distance_pct above MAX_STOP_DISTANCE is an A4 deferred condition, "
+    "not an A3 VETO or DATA_GAP, even when those reference values really fail the thresholds. "
+    "Preserve PRICE_LEVELS and the warnings in a4_deferred_conditions; A4 must enforce the unchanged "
+    "thresholds at the actual confirmation price. PASS means daily research qualification, not permission "
+    "to buy now. Review each row again: if there is an independent evidenced daily failure, retain VETO "
+    "with that failure as reason_codes and keep reference-geometry warnings separate. Otherwise return "
+    "PASS in core_watch_pool. Never automatically approve unqualified or missing-data rows. "
+    "A3_POOL_TARGETS and batch size are not selection quotas; POOL_CAPACITY_LIMIT or POOL_CAPACITY_FULL "
+    "alone cannot justify VETO, DATA_GAP or demotion."
+)
+
+
 def _stage_execution_budget(
     stage: str,
     input_symbol_count: int,
@@ -6544,7 +6558,8 @@ def _stage_execution_budget(
             "from FOCUS or WATCH_ONLY. A WATCH_ONLY row with server eligibility QUALIFIED enters core as PROBE "
             "unless an independent evidence risk justifies VETO/DATA_GAP. Identifiability score or A2 priority "
             "alone is not an A3 technical veto. Do not "
-            "return technical_score or score_breakdown; A3 has no weighted-score decision path."
+            "return technical_score or score_breakdown; A3 has no weighted-score decision path. "
+            + _A3_REFERENCE_GEOMETRY_CONTRACT
         ),
     }[stage]
     return (
@@ -8049,6 +8064,11 @@ def _semantic_retry_instruction(
             "MAPPED requires an existing independently evidenced structural theme. T3 commentary alone "
             "cannot create a theme or select a stock. Do not silently omit any reviewed hypothesis."
         )
+    if stage == "A3" and {
+        "A3_LIVE_GEOMETRY_PREMATURE_VETO",
+        "A3_PRIOR_MARKET_ONLY_VETO_CONTRADICTS_TECHNICAL_AUTHORITY",
+    }.intersection(safe_reasons):
+        discovery_requirements.append(_A3_REFERENCE_GEOMETRY_CONTRACT)
     if stage == "A3" and {
         "A3_REWARD_RISK_REJECTION_CONTRADICTS_FROZEN_FACTS",
         "A3_STOP_REJECTION_CONTRADICTS_FROZEN_FACTS",
@@ -9717,6 +9737,8 @@ def _a3_prior_market_only_veto_reasons(
     raw_contexts = snapshot_data.get("A3_DETERMINISTIC_CONTEXT")
     contexts = raw_contexts if isinstance(raw_contexts, Mapping) else {}
     context_only_codes = {
+        "POOL_CAPACITY_LIMIT",
+        "POOL_CAPACITY_FULL",
         "SYSTEM_CORE_WATCH_MAX_ZERO",
         "AGENT3_GENERATE_BUY_PLANS_FALSE",
         "MARKET_RISK_OFF",

@@ -3288,6 +3288,47 @@ def test_a3_qualified_daily_route_cannot_be_demoted_for_weak_reference_geometry(
 
     assert reasons == ["A3_LIVE_GEOMETRY_PREMATURE_VETO"]
 
+    retry = _semantic_retry_instruction("A3", reasons)
+    initial = _stage_execution_budget("A3", 16, {})
+    for instruction in (retry, initial):
+        assert "even when those reference values really fail the thresholds" in instruction
+        assert "independent evidenced daily failure, retain VETO" in instruction
+        assert "A4 must enforce the unchanged thresholds" in instruction
+        assert "POOL_CAPACITY_LIMIT" in instruction
+
+
+@pytest.mark.parametrize("capacity_code", ["POOL_CAPACITY_LIMIT", "POOL_CAPACITY_FULL"])
+def test_a3_capacity_is_not_a_technical_veto_but_real_daily_risk_is(capacity_code):
+    snapshot = {"A3_DETERMINISTIC_CONTEXT": {
+        "002957.SZ": {"eligibility": "QUALIFIED", "strategy_profile": "TREND_MA5"},
+    }}
+    row = {"symbol": "002957.SZ", "review_status": "VETO", "reason_codes": [capacity_code]}
+    assert _a3_prior_market_only_veto_reasons({"rejected_candidates": [row]}, snapshot) == [
+        "A3_PRIOR_MARKET_ONLY_VETO_CONTRADICTS_TECHNICAL_AUTHORITY"
+    ]
+    row["reason_codes"].append("DAILY_MACD_DEATH_CROSS")
+    assert _a3_prior_market_only_veto_reasons({"rejected_candidates": [row]}, snapshot) == []
+
+
+def test_a3_reference_geometry_warning_does_not_erase_independent_daily_veto():
+    snapshot = {
+        "A3_DETERMINISTIC_CONTEXT": {"002957.SZ": {
+            "eligibility": "QUALIFIED", "strategy_profile": "TREND_MA5", "route_permission": "ALLOW_A4",
+        }},
+        "PRICE_LEVELS": {"002957.SZ": {
+            "available": True, "reward_risk": 0.75, "stop_distance_pct": 0.08,
+        }},
+        "MIN_REWARD_RISK": 2.0, "MAX_STOP_DISTANCE": 0.06,
+    }
+    output = {"rejected_candidates": [{
+        "symbol": "002957.SZ", "review_status": "VETO", "risk_unit": "NO_ENTRY",
+        "reason_codes": ["DAILY_MACD_DEATH_CROSS"],
+        "a4_deferred_conditions": ["A3_REWARD_RISK_BELOW_MINIMUM", "A3_STOP_DISTANCE_OUTSIDE_LIMIT"],
+    }]}
+    assert _a3_semantic_price_reasons(output, snapshot) == []
+    checked, _ = _apply_stage_threshold_policy(output, "A3", snapshot)
+    assert checked["rejected_candidates"][0]["review_status"] == "VETO"
+
 
 def test_a3_secondary_probe_missing_score_breakdown_is_retryable_not_silent_no_entry():
     output = {
