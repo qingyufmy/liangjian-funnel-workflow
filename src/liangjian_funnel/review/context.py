@@ -69,7 +69,7 @@ def render_a5_prompt(prompts: Any, filename: str, projection: dict[str, Any]) ->
         if len(candidate) < len(prompt):
             projection, prompt = packed, candidate
     if len(prompt) > PROMPT_TARGET:
-        packed = pack_string_dictionary(projection)
+        packed = pack_compact_strings(projection)
         candidate = render(packed)
         if len(candidate) < len(prompt):
             projection, prompt = packed, candidate
@@ -216,3 +216,31 @@ def pack_string_dictionary(value: Any) -> dict:
     return {"encoding": "a5-string-dictionary/1",
             "decoding": "Replace each {$a5_string:i} with dictionary[i]. $a5_object wraps an original object. Decode before interpreting column tables. No facts were removed.",
             "dictionary": dictionary, "data": encode(value)}
+
+
+def pack_compact_strings(value: Any) -> dict:
+    """Lossless string references without an object wrapper per repeated cell."""
+    counts = Counter()
+    def count(node):
+        if isinstance(node, str):
+            counts[node] += 1
+        elif isinstance(node, dict):
+            for child in node.values(): count(child)
+        elif isinstance(node, list):
+            for child in node: count(child)
+    count(value)
+    # Estimate using a conservative six-character reference. Even shorter
+    # stock IDs can benefit when repeated across many evidence sections.
+    dictionary = sorted(text for text, n in counts.items()
+                        if n >= 2 and (len(text) - 6) * n > len(text) + 10)
+    indices = {text: i for i, text in enumerate(dictionary)}
+    def encode(node):
+        if isinstance(node, str):
+            if node in indices: return "~" + str(indices[node])
+            return "~" + node if node.startswith("~") else node
+        if isinstance(node, list): return [encode(child) for child in node]
+        if isinstance(node, dict): return {key: encode(child) for key, child in node.items()}
+        return node
+    return {"encoding": "a5-string-dictionary/2", "dictionary": dictionary,
+            "decoding": "In data values only: a string '~N' means literal dictionary[N]; a string starting '~~' loses exactly one leading '~'. Do not reinterpret dictionary literals or object keys. Decode this layer before nested table/value encodings. Every original string and fact is preserved.",
+            "data": encode(value)}

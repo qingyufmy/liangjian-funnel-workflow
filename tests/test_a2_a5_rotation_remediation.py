@@ -49,7 +49,10 @@ def test_full_a2_lineage_over_300_and_group_roundtrip():
     assert counterexample_drop_stage("000100.SZ", "OUTSIDE_ROTATION", [], {}) == "A2_QUANT_FILTERED"
     assert counterexample_drop_stage("000100.SZ", "OUTSIDE_ROTATION", ["000100.SZ"], {}) == "A4_NO_EFFECTIVE_SIGNAL"
     grouped = _model_fact_projection({"a2": projection})["a2"]["candidates"]
-    restored = [{**group["common"], **row} for group in grouped["groups"] for row in group["stocks"]]
+    restored = [{**group["common"], **row,
+                 **({"evidence_id": f"A2:{group['common']['pool']}:{row['symbol']}"}
+                    if group.get("derive_evidence_id") else {})}
+                for group in grouped["groups"] for row in group["stocks"]]
     for row in restored:
         row.setdefault("reason_codes", row["selection_reasons"])
     assert sorted(restored, key=lambda r: r["symbol"]) == sorted(projection["candidates"], key=lambda r: r["symbol"])

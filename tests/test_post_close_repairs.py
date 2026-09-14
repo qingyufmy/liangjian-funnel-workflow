@@ -134,3 +134,21 @@ def test_grouped_evidence_ids_round_trip_without_removing_candidates():
     assert restored == rows
     assert facts == original
     assert len(json.dumps(packed)) < len(json.dumps(rows)) * .6
+
+
+def test_compact_strings_round_trip_reserved_values_and_nested_evidence():
+    from liangjian_funnel.review.context import pack_compact_strings
+    value = [{"~3": "~0", "literal": "~~x", "code": "000538.SZ", "id": "plan:" + "abc" * 30,
+              "nothing": None, "number": 3, "flag": False} for _ in range(100)]
+    value.append({"literal": "~" * 30, "escape": "~not-a-number"})
+    original = copy.deepcopy(value)
+    packed = pack_compact_strings(value)
+    def decode(node):
+        if isinstance(node, str):
+            if node.startswith("~~"): return node[1:]
+            if node.startswith("~"): return packed["dictionary"][int(node[1:])]
+        if isinstance(node, dict): return {key: decode(child) for key, child in node.items()}
+        if isinstance(node, list): return [decode(child) for child in node]
+        return node
+    assert decode(packed["data"]) == original == value
+    assert len(json.dumps(packed)) < len(json.dumps(value)) * .7
