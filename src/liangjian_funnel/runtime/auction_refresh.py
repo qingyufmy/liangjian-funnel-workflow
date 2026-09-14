@@ -92,6 +92,7 @@ def run_auction_refresh(app, *, now=None):
         return receipt
     except Exception as exc:
         receipt.update(status="BLOCKED", reason_code=getattr(exc, "reason_code", "AUCTION_REFRESH_FAILED"),
+                       diagnostics=getattr(exc, "diagnostics", {}),
                        finished_at=datetime.now(SHANGHAI).isoformat())
         atomic_write_json(path, receipt)
         app.store.release_lease(lease, owner)

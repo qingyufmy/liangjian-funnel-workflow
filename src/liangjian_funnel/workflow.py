@@ -159,8 +159,9 @@ _CNINFO_PDF_TRANSIENT_FAILURES = frozenset(
 
 
 class WorkflowError(RuntimeError):
-    def __init__(self, reason_code: str):
+    def __init__(self, reason_code: str, *, diagnostics: Mapping[str, Any] | None = None):
         self.reason_code = reason_code
+        self.diagnostics = dict(diagnostics or {})
         super().__init__(reason_code)
 
 
@@ -589,6 +590,7 @@ class WorkflowApplication:
                 all_market_symbols,
                 cache_dir=self.settings.fact_store_dir / "ths_industry",
                 as_of=market_current,
+                **({"cache_max_age_days": 7} if auction_refresh else {}),
             )
             if not full_membership.ok or not full_membership.complete:
                 raise WorkflowError(f"THS_INDUSTRY_MEMBERSHIP_NOT_READY:{full_membership.reason_code}")
@@ -626,13 +628,33 @@ class WorkflowApplication:
                 ),
                 progress_callback=market_progress,
             )
+            # Validate before slow graph/history collection, and retain each
+            # source outcome even when no full snapshot can be built.
+            required_market_facts = ("LIMIT_UP_POOL", "LIMIT_DOWN_POOL", "LIMIT_BREAK_POOL", "LIMIT_UP_LADDER")
+            market_diagnostics = {
+                "expected_closed_trade_date": closed_trade_date.isoformat(),
+                "facts": {
+                    name: {"ok": value.ok, "complete": value.complete, "reason_code": value.reason_code,
+                           "endpoint": value.endpoint, "total": value.total,
+                           "fetch_time": value.fetch_time.isoformat(),
+                           "market_trade_date": value.metadata.get("market_trade_date"),
+                           "observed_latest_market_trade_date": value.metadata.get("observed_latest_market_trade_date"),
+                           "projection": value.metadata.get("projection")}
+                    for name in required_market_facts for value in (market_fact_results[name],)
+                },
+            }
+            if auction_refresh:
+                atomic_write_json(self.settings.workflow_output_dir / "runs" / f"{current.date()}-auction-market-facts.json", market_diagnostics)
+            if any(not market_fact_results[name].ok or not market_fact_results[name].complete for name in required_market_facts):
+                raise WorkflowError("MARKET_EMOTION_FACTS_NOT_READY", diagnostics=market_diagnostics)
             market_fact_results["THS_INDUSTRY_CATALOG"] = industry_catalog
             market_fact_results["THS_CONCEPT_CATALOG"] = concept_catalog
             market_fact_results["THS_INDUSTRY_HISTORY"] = collect_ths_industry_history(
                 client,
                 industry_catalog,
                 cache_dir=self.settings.fact_store_dir / "ths_industry",
-                as_of=market_current,
+                as_of=(datetime.combine(closed_trade_date, datetime.min.time(), tzinfo=SHANGHAI).replace(hour=15, minute=10)
+                       if auction_refresh else market_current),
                 progress_callback=market_progress,
             )
             # Reuse the already complete full-market projection. Re-projecting
@@ -647,6 +669,7 @@ class WorkflowApplication:
                 taxonomy="concept",
                 cache_dir=self.settings.fact_store_dir / "ths_taxonomy",
                 as_of=market_current,
+                **({"cache_max_age_days": 7} if auction_refresh else {}),
             )
             market_progress("MARKET_CONCEPT_MEMBERSHIP", 1, 1)
             if not market_fact_results["THS_INDUSTRY_HISTORY"].ok:
@@ -654,17 +677,6 @@ class WorkflowApplication:
                     "THS_INDUSTRY_HISTORY_NOT_READY:"
                     f"{market_fact_results['THS_INDUSTRY_HISTORY'].reason_code}"
                 )
-            required_market_facts = (
-                "LIMIT_UP_POOL",
-                "LIMIT_DOWN_POOL",
-                "LIMIT_BREAK_POOL",
-                "LIMIT_UP_LADDER",
-            )
-            if any(
-                not market_fact_results[name].ok or not market_fact_results[name].complete
-                for name in required_market_facts
-            ):
-                raise WorkflowError("MARKET_EMOTION_FACTS_NOT_READY")
             if _auction_window(current) and not auction_refresh:
                 auction = market_fact_results.get("AUCTION_FINAL")
                 if auction is None or not auction.ok or not auction.complete:

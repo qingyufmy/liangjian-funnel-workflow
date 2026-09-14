@@ -9,7 +9,7 @@ from typing import Any
 from urllib.parse import urljoin
 from zoneinfo import ZoneInfo
 
-from ..pipeline.data_source import HithinkFetchResult
+from ..pipeline.data_source import HithinkFetchResult, HithinkRow
 from .contracts import (
     FactSnapshotManifest,
     RealtimeFactEnvelope,
@@ -249,31 +249,9 @@ def collect_market_results(
                 market_trade_date=market_trade_date,
             )
 
-        # The ladder endpoint has no date argument.  Its window must prove
-        # that the first (latest) row belongs to the requested closed session;
-        # otherwise fail closed instead of relabelling stale data.
-        ladder = results["LIMIT_UP_LADDER"]
-        window = ladder.metadata.get("window")
-        date_list = window.get("date_list") if isinstance(window, Mapping) else None
-        latest_ladder_date = str(date_list[0]) if isinstance(date_list, list) and date_list else ""
-        if latest_ladder_date == market_trade_date.isoformat():
-            results["LIMIT_UP_LADDER"] = _bind_closed_session_event_time(
-                ladder,
-                market_trade_date=market_trade_date,
-            )
-        else:
-            results["LIMIT_UP_LADDER"] = ladder.model_copy(
-                update={
-                    "ok": False,
-                    "complete": False,
-                    "reason_code": "MARKET_TRADE_DATE_MISMATCH",
-                    "metadata": {
-                        **dict(ladder.metadata),
-                        "expected_market_trade_date": market_trade_date.isoformat(),
-                        "observed_latest_market_trade_date": latest_ladder_date or None,
-                    },
-                }
-            )
+        results["LIMIT_UP_LADDER"] = project_closed_ladder(
+            results["LIMIT_UP_LADDER"], market_trade_date=market_trade_date,
+        )
     if symbols:
         normalized_symbols = tuple(dict.fromkeys(str(symbol).strip().upper() for symbol in symbols if str(symbol).strip()))
         batches = tuple(
@@ -285,6 +263,55 @@ def collect_market_results(
             requested_symbols=normalized_symbols,
         )
     return results
+
+
+def project_closed_ladder(result: HithinkFetchResult, *, market_trade_date: date) -> HithinkFetchResult:
+    """Select the dated closed prefix, never relabel today's partial ladder."""
+    if not result.ok or not result.complete:
+        return result
+    target = market_trade_date.isoformat()
+    window = result.metadata.get("window")
+    dates = window.get("date_list") if isinstance(window, Mapping) else None
+    metadata = {**dict(result.metadata), "expected_market_trade_date": target,
+                "observed_latest_market_trade_date": dates[0] if isinstance(dates, list) and dates else None}
+
+    def failure(reason):
+        return result.model_copy(update={"ok": False, "complete": False,
+                                         "reason_code": reason, "metadata": metadata})
+
+    if not isinstance(dates, list) or target not in dates:
+        return failure("MARKET_TRADE_DATE_MISMATCH")
+    try:
+        if any(date.fromisoformat(d).isoformat() != d for d in dates):
+            return failure("LADDER_WINDOW_INVALID")
+    except (TypeError, ValueError):
+        return failure("LADDER_WINDOW_INVALID")
+    raw = [row.model_dump(mode="json") for row in result.items]
+    row_dates = [row.get("date") for row in raw]
+    if (len(set(dates)) != len(dates) or len(row_dates) != len(dates)
+            or any(not isinstance(d, str) for d in row_dates)
+            or len(set(row_dates)) != len(row_dates) or set(row_dates) != set(dates)):
+        return failure("LADDER_WINDOW_ROWS_MISMATCH")
+    kept = sorted((row for row in raw if row["date"] <= target), key=lambda row: row["date"], reverse=True)
+    for row in kept:
+        if not isinstance(row.get("boards"), Mapping) or any(
+            not isinstance(group, list) or any(not isinstance(stock, dict) for stock in group)
+            for group in row["boards"].values()
+        ):
+            return failure("LADDER_BOARDS_INVALID")
+        # The provider revises next-day annotations even on historical rows.
+        # Outcomes attached to the cutoff day's stocks are not closed facts.
+        if row["date"] == target:
+            for group in row["boards"].values():
+                for stock in group:
+                    stock.pop("seal_nextday", None)
+                    stock.pop("sign_level", None)
+    metadata.update({"window": {"date_list": [row["date"] for row in kept], "length": len(kept)},
+                     "projection": "CLOSED_DATE_PREFIX", "dropped_newer_day_count": len(raw) - len(kept),
+                     "cutoff_day_forward_annotations_removed": True})
+    projected = result.model_copy(update={"items": tuple(HithinkRow.model_validate(row) for row in kept),
+                                          "total": len(kept), "metadata": metadata})
+    return _bind_closed_session_event_time(projected, market_trade_date=market_trade_date)
 
 
 def _bind_closed_session_event_time(

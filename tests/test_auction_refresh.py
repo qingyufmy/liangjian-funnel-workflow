@@ -80,6 +80,20 @@ def test_blocked_result_leaves_failure_receipt_and_releases_lease(tmp_path):
     app.store.complete_lease.assert_not_called()
 
 
+def test_failure_receipt_retains_specific_source_and_date(tmp_path):
+    import json
+    app = _app(tmp_path)
+    diagnostics = {"expected_closed_trade_date": "2026-09-11",
+                   "facts": {"LIMIT_UP_LADDER": {"reason_code": "MARKET_TRADE_DATE_MISMATCH",
+                                                    "observed_latest_market_trade_date": "2026-09-14"}}}
+    app.run_research.side_effect = WorkflowError("MARKET_EMOTION_FACTS_NOT_READY", diagnostics=diagnostics)
+    with pytest.raises(WorkflowError):
+        run_auction_refresh(app, now=NOW)
+    receipt = json.loads((tmp_path / "runs/2026-09-14-auction-refresh.json").read_text())
+    assert receipt["diagnostics"] == diagnostics
+    app.store.release_lease.assert_called_once()
+
+
 def test_refresh_cannot_be_used_to_bypass_publication_guard():
     with pytest.raises(WorkflowError, match="AUCTION_REFRESH_ARGUMENTS_INVALID"):
         WorkflowApplication.run_research(SimpleNamespace(), "morning", as_of=NOW,

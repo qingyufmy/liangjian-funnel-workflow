@@ -262,7 +262,8 @@ def test_market_facts_bind_pools_and_dragon_tiger_to_closed_trade_date() -> None
 
         def limit_up_ladder(self) -> HithinkFetchResult:
             return _result().model_copy(
-                update={"metadata": {"window": {"date_list": ["2026-08-31"]}}}
+                update={"metadata": {"window": {"date_list": ["2026-08-31"]}},
+                        "items": (HithinkRow.model_validate({"date": "2026-08-31", "boards": {}}),)}
             )
 
         def dragon_tiger_list(self, **kwargs: object) -> HithinkFetchResult:

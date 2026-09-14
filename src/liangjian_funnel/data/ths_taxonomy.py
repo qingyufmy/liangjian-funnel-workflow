@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 from ..facts.contracts import canonical_json_bytes
 from ..pipeline.data_source import HithinkFetchResult, HithinkRow
 from ..reporting import atomic_write_json
+from .reference_cache import load_recent_reference
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -33,6 +34,7 @@ def collect_ths_taxonomy_membership(
     max_attempts: int = 3,
     retry_wait_seconds: float = 2.0,
     sleep: Callable[[float], None] = time.sleep,
+    cache_max_age_days: int = 0,
 ) -> HithinkFetchResult:
     """Crawl one THS taxonomy and project its complete graph to ``symbols``.
 
@@ -64,6 +66,9 @@ def collect_ths_taxonomy_membership(
         catalog_hash=catalog_hash,
         trade_date=cutoff.date().isoformat(),
     )
+    if cache_max_age_days:
+        cached = load_recent_reference(cache_path, as_of=cutoff, max_age_days=cache_max_age_days,
+            loader=lambda path, day: _load_cache(path, taxonomy=taxonomy, catalog_hash=catalog_hash, trade_date=day))
     fetched_at = max(cutoff, catalog.fetch_time)
     cache_hit = cached is not None
     if cached is not None:
@@ -155,7 +160,9 @@ def collect_ths_taxonomy_membership(
             "selected_symbol_count": len(wanted),
             "membership_coverage": coverage,
             "cache_hit": cache_hit,
-            "cache_trade_date": cutoff.date().isoformat(),
+            "cache_trade_date": cached["trade_date"] if cached else cutoff.date().isoformat(),
+            "reference_observed_at": fetched_at.isoformat(),
+            "reference_max_age_days": cache_max_age_days,
         },
     )
 
