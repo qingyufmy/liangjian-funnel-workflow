@@ -151,3 +151,16 @@ def test_failed_tdx_nodes_cool_down_across_worker_restarts(tmp_path):
     for _ in range(3):
         assert not fetch_live_window(tencent, adapter(), SYMBOL, '1m', 1, NOW).complete
     assert len(calls) == 2 and len(set(calls)) == 2
+
+
+def test_compact_prompt_preserves_research_permissions_and_theme_evidence():
+    from liangjian_funnel.pipeline.research import _project_a2_bottleneck_context, _apply_a3_candidate_origin_policy
+    binding = {'requires_theme_selection': True, 'candidate_routes': [{'theme_id':'AI','node_id':'AI:CORE'}]}
+    context = {SYMBOL: {'execution_permission':'BLOCKED','research_only_reason':'A2_EMOTION_THEME_SELECTION_REQUIRED',
+                        'emotion_theme_binding': binding}}
+    projected = _project_a2_bottleneck_context(context, {SYMBOL})
+    assert projected[SYMBOL]['execution_permission'] == 'BLOCKED'
+    assert projected[SYMBOL]['emotion_theme_binding'] == binding
+    normalized, _ = _apply_a3_candidate_origin_policy({'core_watch_pool':[{'symbol':SYMBOL}], 'secondary_watch_pool':[]},
+        {'A2_BOTTLENECK_CONTEXT':context})
+    assert normalized['core_watch_pool'][0]['execution_permission']=='BLOCKED'
