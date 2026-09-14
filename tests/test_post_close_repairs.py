@@ -169,3 +169,21 @@ def test_a3_formula_success_cannot_become_cross_source_success():
     assert report.a3_review.verdict == "DATA_LIMITED"
     assert "跨源收盘价格核验一致0/32份" in report.a3_review.strengths[-1]
     assert "100%" not in str(report.a3_review.strengths)
+
+
+def test_collection_tasks_preserve_reason_and_validate_references():
+    from test_a5_daily_review import _report
+    from liangjian_funnel.review.daily import A5ReviewReport, _canonicalize_report_output
+    from pydantic import ValidationError
+    raw = _report()
+    raw["data_collection_tasks"] = [{"task": "补充行情", "target": "A4", "reason": "缺少重叠样本",
+                                      "evidence_ids": ["A5V:A4:SUMMARY"]}]
+    original = copy.deepcopy(raw)
+    report = A5ReviewReport.model_validate(_canonicalize_report_output(raw, allowed_evidence={"A5V:A4:SUMMARY"}))
+    assert "补充行情；说明：缺少重叠样本；依据：A5V:A4:SUMMARY" in report.data_collection_tasks[0]
+    assert raw == original
+    with pytest.raises(ValidationError):
+        A5ReviewReport.model_validate(_canonicalize_report_output(raw, allowed_evidence=set()))
+    raw["data_collection_tasks"][0]["unrecognized"] = "must not be lost"
+    with pytest.raises(ValidationError):
+        A5ReviewReport.model_validate(_canonicalize_report_output(raw, allowed_evidence={"A5V:A4:SUMMARY"}))

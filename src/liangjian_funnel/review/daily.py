@@ -151,7 +151,7 @@ class A5ReviewReport(BaseModel):
         return self
 
 
-def _canonicalize_report_output(value: Any) -> Any:
+def _canonicalize_report_output(value: Any, *, allowed_evidence: set[str] | None = None) -> Any:
     """Collapse known detailed drop reasons into the report's layer contract.
 
     Independent evidence deliberately keeps granular reason codes such as
@@ -171,9 +171,13 @@ def _canonicalize_report_output(value: Any) -> Any:
         for task in tasks:
             # Only normalize the observed, losslessly representable shape.
             # Unknown keys and invalid values still fail strict validation.
-            if (isinstance(task, Mapping) and set(task) <= {"task", "target", "priority"}
+            if (isinstance(task, Mapping) and set(task) <= {"task", "target", "priority", "reason", "evidence_ids"}
                     and isinstance(task.get("task"), str) and task["task"].strip()
                     and ("target" not in task or isinstance(task["target"], str) and task["target"] in {"A1", "A2", "A3", "A4", "A5", "ORCHESTRATOR"})
+                    and ("reason" not in task or isinstance(task["reason"], str) and task["reason"].strip())
+                    and ("evidence_ids" not in task or isinstance(task["evidence_ids"], list)
+                         and allowed_evidence is not None
+                         and all(isinstance(ref, str) and ref in allowed_evidence for ref in task["evidence_ids"]))
                     and ("priority" not in task or isinstance(task["priority"], str) and task["priority"] in priorities)):
                 target = task.get("target", "")
                 if target == "ORCHESTRATOR":
@@ -181,7 +185,12 @@ def _canonicalize_report_output(value: Any) -> Any:
                 tags = [target] if target else []
                 if "priority" in task:
                     tags.append("优先级：" + priorities[task["priority"]])
-                normalized_tasks.append(("【" + "；".join(tags) + "】" if tags else "") + task["task"])
+                text = ("【" + "；".join(tags) + "】" if tags else "") + task["task"]
+                if "reason" in task:
+                    text += "；说明：" + task["reason"]
+                if task.get("evidence_ids"):
+                    text += "；依据：" + "、".join(task["evidence_ids"])
+                normalized_tasks.append(text)
             else:
                 normalized_tasks.append(task)
         payload["data_collection_tasks"] = normalized_tasks
@@ -1154,7 +1163,8 @@ class A5DailyReviewService:
         else:
             atomic_write_json(raw_path, raw_payload)
         try:
-            report = A5ReviewReport.model_validate(_canonicalize_report_output(result.output))
+            report = A5ReviewReport.model_validate(_canonicalize_report_output(
+                result.output, allowed_evidence=_evidence_ids(facts)))
         except ValidationError as exc:
             raise A5ReviewError("A5_OUTPUT_SCHEMA_INVALID") from exc
         if report.review_kind is not review_kind or report.trade_date != current.date():
