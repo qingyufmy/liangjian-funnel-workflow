@@ -152,3 +152,20 @@ def test_compact_strings_round_trip_reserved_values_and_nested_evidence():
         return node
     assert decode(packed["data"]) == original == value
     assert len(json.dumps(packed)) < len(json.dumps(value)) * .7
+
+
+def test_a3_formula_success_cannot_become_cross_source_success():
+    from test_a5_daily_review import _report
+    from liangjian_funnel.review.daily import A5ReviewReport
+    from liangjian_funnel.review.fact_guard import reconcile_report
+    report = A5ReviewReport.model_validate(_report())
+    report.a3_review.strengths = ["通达信核价100%通过"]
+    report.a3_review.verdict = "HEALTHY"
+    facts = {"independent_verification": {"a3": {"not_verified_fields": ["KDJ", "VOLUME"],
+        "plans": [{"formula_status": "MATCH", "cross_source_price_status": "DATA_LIMITED",
+                   "route_contract_match": True, "price_levels_valid": True,
+                   "daily_macd_verification": {"formula_status": "MATCH", "input_hash_status": "MATCH"}}] * 32}}}
+    reconcile_report(report, facts)
+    assert report.a3_review.verdict == "DATA_LIMITED"
+    assert "跨源收盘价格核验一致0/32份" in report.a3_review.strengths[-1]
+    assert "100%" not in str(report.a3_review.strengths)

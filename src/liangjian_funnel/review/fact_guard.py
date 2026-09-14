@@ -59,6 +59,30 @@ def reconcile_report(report: Any, facts: Mapping[str, Any]) -> list[str]:
             "公式与跨源核验的通过范围见支持证据；未核验字段仍属于数据限制，不能据此宣称全部策略健康。"
         )
         notes.append("A3计划数量与策略分类由冻结执行计划计数生成，不采用模型推断的策略名称。")
+    a3_checks = (verification.get("a3") or {}).get("plans") or []
+    if a3_checks:
+        count = len(a3_checks)
+        formula = sum(row.get("formula_status") == "MATCH" for row in a3_checks)
+        cross = sum(row.get("cross_source_price_status") == "MATCH" for row in a3_checks)
+        macd = sum((row.get("daily_macd_verification") or {}).get("formula_status") == "MATCH"
+                   and (row.get("daily_macd_verification") or {}).get("input_hash_status") == "MATCH"
+                   for row in a3_checks)
+        route = sum(row.get("route_contract_match") is True for row in a3_checks)
+        levels = sum(row.get("price_levels_valid") is True for row in a3_checks)
+        report.a3_review.strengths = [
+            f"均线公式复算一致{formula}/{count}份；日线MACD公式及输入校验一致{macd}/{count}份。",
+            f"策略路径契约通过{route}/{count}份；价格层级通过{levels}/{count}份。",
+            f"跨源收盘价格核验一致{cross}/{count}份；该项与公式复算分别计数。",
+        ]
+        limits = list(report.a3_review.data_limitations)
+        if cross < count:
+            limits.insert(0, f"{count-cross}份计划未取得跨源收盘价格一致证据，不能宣称通达信核价通过。")
+        not_verified = (verification.get("a3") or {}).get("not_verified_fields") or []
+        if not_verified or cross < count:
+            if report.a3_review.verdict == "HEALTHY":
+                report.a3_review.verdict = "DATA_LIMITED"
+        report.a3_review.data_limitations = list(dict.fromkeys(limits))[:8]
+        notes.append("A3公式、路径、价格层级及跨源核价逐项从冻结核验记录计数，未比较不等于通过。")
     themes = {r.get("theme_id"): r.get("theme_name") for r in (facts.get("a2") or {}).get("themes", [])}
     counterexamples = {r.get("symbol"): r for r in verification.get("counterexamples", [])}
     for item in report.missed_opportunity_reviews:

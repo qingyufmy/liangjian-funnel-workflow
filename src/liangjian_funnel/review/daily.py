@@ -1081,7 +1081,7 @@ class A5DailyReviewService:
         # Identical market facts must not reuse prose produced by an older
         # prompt/verification contract after a release.
         facts["review_contract"] = {
-            "version": "a5-full-lineage-entry-audit/9",
+            "version": "a5-full-lineage-entry-audit/10",
             "prompt_sha256": self.prompts.document(_A5_PROMPT).sha256,
             "model": self.model,
         }
