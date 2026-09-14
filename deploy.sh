@@ -11,11 +11,15 @@ assert_deployment_window() {
     return 3
   fi
   if (( deployment_weekday <= 5 && 10#${deployment_clock} >= 900 && 10#${deployment_clock} < 1535 )); then
+    if [[ "${1:-}" == "--allow-intraday" ]]; then
+      echo "[deploy] Explicit operator-approved intraday deployment at ${deployment_clock}; default protection remains enabled."
+      return 0
+    fi
     echo "[deploy] Weekday 09:00-15:35 Beijing time: keep A4 running; deploy after close."
     return 3
   fi
 }
-assert_deployment_window
+assert_deployment_window "$@"
 
 PROJECT_ROOT="/www/wwwroot/Agu/liangjian-funnel-workflow"
 PROJECT_NAME="量见-A股-工作流"

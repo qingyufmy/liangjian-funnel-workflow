@@ -101,6 +101,20 @@ def test_refresh_cannot_be_used_to_bypass_publication_guard():
                                          auction_refresh=True, publish_plans=True)
 
 
+def test_manual_rerun_uses_actual_time_and_keeps_morning_receipt(tmp_path):
+    app = _app(tmp_path)
+    (tmp_path / "runs").mkdir()
+    original = tmp_path / "runs/2026-09-14-auction-refresh.json"
+    original.write_text('{"status":"BLOCKED"}')
+    current = NOW.replace(hour=11, minute=20)
+    receipt = run_auction_refresh(app, now=current, manual_current=True)
+    assert receipt["research_mode"] == "MANUAL_CURRENT_SESSION"
+    assert app.run_research.call_args.kwargs["as_of"] == current
+    assert not app.run_research.call_args.kwargs["publish_plans"]
+    assert original.read_text() == '{"status":"BLOCKED"}'
+    assert (tmp_path / "runs/2026-09-14-manual-current-refresh-112000.json").exists()
+
+
 def test_snapshot_requests_today_rotation_and_fresh_hot100_before_heavy_sync(tmp_path, monkeypatch):
     import liangjian_funnel.workflow as workflow
     import liangjian_funnel.runtime.auction_refresh as refresh

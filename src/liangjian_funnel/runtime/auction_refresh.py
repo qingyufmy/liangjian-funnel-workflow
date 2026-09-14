@@ -52,7 +52,7 @@ def collect_fresh_quotes(symbols, *, as_of: datetime, fetch=None, clock=None) ->
     }
 
 
-def run_auction_refresh(app, *, now=None):
+def run_auction_refresh(app, *, now=None, manual_current=False):
     """One durable research attempt per trading day; never mutate A4 plans.
 
     This can finish after the open. Source timestamps are retained and the
@@ -65,14 +65,20 @@ def run_auction_refresh(app, *, now=None):
     current = current.astimezone(SHANGHAI)
     if not app.trading_calendar.is_trading_day(current.date()):
         return {"status": "NOOP", "reason_code": "NON_TRADING_DAY"}
-    if not time(9, 26) <= current.time().replace(tzinfo=None) < time(9, 30):
+    clock = current.time().replace(tzinfo=None)
+    if manual_current and not time(9, 26) <= clock < time(14, 50):
+        raise WorkflowError("MANUAL_RESEARCH_CURRENT_SESSION_WINDOW_MISSED")
+    if not manual_current and not time(9, 26) <= clock < time(9, 30):
         raise WorkflowError("AUCTION_REFRESH_START_WINDOW_MISSED")
-    key = f"auction-refresh:{current.date()}"
+    run_name = (f"{current.date()}-manual-current-refresh-{current.strftime('%H%M%S')}"
+                if manual_current else f"{current.date()}-auction-refresh")
+    key = f"manual-current-refresh:{current.date()}:{current.strftime('%H%M')}" if manual_current else f"auction-refresh:{current.date()}"
     lease, owner = "scheduler:auction-refresh", "auction-refresh"
     if not app.store.acquire_lease(lease, owner, now=current, ttl_seconds=2400, dispatch_key=key):
         return {"status": "NOOP", "reason_code": "AUCTION_REFRESH_ALREADY_DISPATCHED"}
-    path = app.settings.workflow_output_dir / "runs" / f"{current.date()}-auction-refresh.json"
+    path = app.settings.workflow_output_dir / "runs" / f"{run_name}.json"
     receipt = {"started_at": current.isoformat(), "a1_reused": True,
+               "research_mode": "MANUAL_CURRENT_SESSION" if manual_current else "SCHEDULED_POST_AUCTION",
                "execution_publication": "UNCHANGED", "status": "RUNNING"}
     atomic_write_json(path, receipt)
     try:
@@ -80,7 +86,7 @@ def run_auction_refresh(app, *, now=None):
             "morning", as_of=current, primary_only=True, from_active_a1=True,
             publish_plans=False, schedule_comparison=False, reuse_resume_snapshot=False,
             auction_refresh=True,
-            run_id_override=f"{current.date()}-auction-refresh-{current.strftime('%H%M%S')}",
+            run_id_override=f"{run_name}-research" if manual_current else f"{current.date()}-auction-refresh-{current.strftime('%H%M%S')}",
         )
         receipt.update(status=result.get("status", "BLOCKED"), run_id=result.get("run_id"),
                        finished_at=datetime.now(SHANGHAI).isoformat(),

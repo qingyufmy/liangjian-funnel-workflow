@@ -428,7 +428,9 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     sub.add_parser("run-morning", help="dispatch only the due 09:26 morning review")
-    sub.add_parser("run-auction-refresh", help="refresh A2/A3 research after auction; never replace active A4 plans")
+    auction_refresh = sub.add_parser("run-auction-refresh", help="refresh A2/A3 research after auction; never replace active A4 plans")
+    auction_refresh.add_argument("--manual-current", action="store_true",
+                                 help="explicit operator rerun using the current session time, not the 09:26 auction cutoff")
     sub.add_parser("run-close", help="dispatch only the due 15:10 close workflow")
     sub.add_parser("run-a5-midday", help="run the read-only A5 review using facts closed by 11:30")
     sub.add_parser("run-a5-close", help="run the read-only A5 review using facts closed by 15:00")
@@ -1056,7 +1058,7 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
         elif args.command == "run-auction-refresh":
             from .runtime.auction_refresh import run_auction_refresh
 
-            payload = run_auction_refresh(application)
+            payload = run_auction_refresh(application, manual_current=args.manual_current)
         elif args.command == "run-a5-midday":
             from .runtime.scheduler import ScheduleKind
 
