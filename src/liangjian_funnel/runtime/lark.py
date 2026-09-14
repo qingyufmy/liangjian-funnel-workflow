@@ -107,7 +107,7 @@ def _card_safe(value: Any) -> None:
 
 
 class LarkNotifier:
-    """POST one card; retry one time only for HTTP 429/5xx."""
+    """POST one card with at most one bounded transient-failure retry."""
 
     def __init__(
         self,
@@ -235,7 +235,7 @@ class LarkNotifier:
 
     @staticmethod
     def _retryable(result: LarkDeliveryResult) -> bool:
-        return result.reason_code == "LARK_HTTP_RETRYABLE"
+        return result.reason_code in {"LARK_HTTP_RETRYABLE", "LARK_NETWORK_ERROR", "LARK_TIMEOUT"}
 
 
 __all__ = ["LarkConfigurationError", "LarkDeliveryResult", "LarkNotifier", "NOTIFICATION_CARD_COLORS", "rotate_color", "validate_webhook_url"]

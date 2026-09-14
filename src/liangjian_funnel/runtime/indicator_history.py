@@ -34,7 +34,8 @@ def prepare_520_history(plans, *, now, calendar, minute_store, provider):
             bars = minute_store.load_latest(symbol, "5m", limit=360, before=cutoff + timedelta(seconds=1))
             missing = expected - {bar.bar_end for bar in bars}
             if missing:
-                fetched = provider.fetch_bars(symbol, "5m", 360, as_of=cutoff)
+                fetched = provider.fetch_bars(symbol, "5m", len(expected), as_of=cutoff)
+                row["fetch_reason_code"] = getattr(fetched, "reason_code", None)
                 fetched_bars = getattr(fetched, "bars", ()) if not isinstance(fetched, Mapping) else fetched.get("bars", ())
                 valid = [bar for bar in fetched_bars if bar.symbol == symbol and bar.interval == "5m" and bar.bar_end in expected]
                 if valid:

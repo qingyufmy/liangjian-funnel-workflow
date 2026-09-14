@@ -14,7 +14,7 @@ from .outcome_labels import _observation
 
 
 def refresh_current_outcome_prices(store, settings, *, now=None, client_factory=HithinkClient,
-                                   max_requests=1000, quote_fetcher=None):
+                                   max_requests=6000, quote_fetcher=None):
     current = (now or datetime.now(ZoneInfo(settings.timezone))).astimezone(ZoneInfo("Asia/Shanghai"))
     calendar = ExchangeTradingCalendar()
     report = {"status": "NOOP", "scope": "OPEN_T_PLUS_10_CURRENT_OBSERVATIONS",
@@ -54,6 +54,7 @@ def refresh_current_outcome_prices(store, settings, *, now=None, client_factory=
     missing.sort(key=lambda s: (-tracked[s].toordinal(), s))
     limit = max(0, int(max_requests))
     report["tracked_symbol_count"] = len(tracked)
+    report["request_budget"] = limit
     report["deferred_symbols"] = missing[limit:]
     pending = missing[:limit]
     if pending:
@@ -121,6 +122,9 @@ def refresh_current_outcome_prices(store, settings, *, now=None, client_factory=
         if s not in report["no_trade_observations"]]
     report["status"] = ("DATA_LIMITED" if report["unresolved_missing_symbols"] else
         "COMPLETED_WITH_NO_TRADES" if report["no_trade_observations"] else "COMPLETED")
+    report["reason_code"] = ("CURRENT_PRICE_REQUEST_BUDGET_EXHAUSTED" if report["deferred_symbols"]
+                             else "CURRENT_PRICE_SOURCE_INCOMPLETE" if report["unresolved_missing_symbols"]
+                             else "OK")
     return report
 
 

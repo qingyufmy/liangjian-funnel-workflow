@@ -147,6 +147,7 @@ def test_prepare_history_fetches_three_sessions_and_never_future(tmp_path):
     calls = []
     class Provider:
         def fetch_bars(self, symbol, interval, required, *, as_of):
+            assert required == 144  # Fits Tencent's 320-bar window; do not force TDX.
             calls.append(as_of)
             return SimpleNamespace(bars=bars)
     plan = {"plan_id": "p", "symbol": "600001.SH", "expires_at": "2026-09-10T15:00:00+08:00",

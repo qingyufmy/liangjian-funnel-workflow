@@ -29,6 +29,7 @@ EASTMONEY_HOT100_SCHEMA = "eastmoney-guba-hot100/1.0.0"
 EASTMONEY_HOT100_SOURCE = "EASTMONEY_GUBA_POPULARITY_TOP100"
 EASTMONEY_HOT100_URL = "https://np-tjxg-g.eastmoney.com/api/smart-tag/stock/v3/pw/search-code"
 EASTMONEY_HOT100_REFERER = "https://xuangu.eastmoney.com/"
+GUBA_RANK_URL = "https://emappdata.eastmoney.com/stockrank/getAllCurrentList"
 
 
 class EastmoneyHot100Error(RuntimeError):
@@ -45,6 +46,7 @@ def collect_eastmoney_hot100(
     retry_wait_seconds: float = 1.0,
     sleep: Callable[[float], None] = time.sleep,
     force_refresh: bool = False,
+    rank_fetch: Callable[[], Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Return a validated top-100 snapshot or an explicit unavailable state.
 
@@ -66,11 +68,15 @@ def collect_eastmoney_hot100(
     fetcher = fetch or _fetch_payload
     for attempt in range(1, max(1, max_attempts) + 1):
         try:
-            normalized = normalize_eastmoney_hot100(
-                fetcher(_request_body()),
-                as_of=cutoff,
-                expected_trade_date=trade_day,
-            )
+            raw = fetcher(_request_body())
+            try:
+                normalized = normalize_eastmoney_hot100(raw, as_of=cutoff, expected_trade_date=trade_day)
+            except EastmoneyHot100Error as exc:
+                if str(exc) != "EASTMONEY_HOT100_INCOMPLETE" or (fetch is not None and rank_fetch is None):
+                    raise
+                normalized = reconcile_guba_ranks(
+                    raw, (rank_fetch or _fetch_guba_ranks)(), as_of=cutoff, expected_trade_date=trade_day,
+                )
         except (EastmoneyHot100Error, httpx.HTTPError, OSError, TypeError, ValueError) as exc:
             last_reason = str(exc) or "SOURCE_UNAVAILABLE"
             if attempt < max_attempts:
@@ -79,6 +85,81 @@ def collect_eastmoney_hot100(
         atomic_write_json(cache_path, normalized)
         return {**normalized, "cache_status": "MISS", "cache_path": str(cache_path)}
     return unavailable_eastmoney_hot100(cutoff, last_reason)
+
+
+def _fetch_guba_ranks() -> Mapping[str, Any]:
+    body = {"appId": "appId01", "globalId": "786e4c21-70dc-435a-93bb-38", "marketType": ""}
+    with httpx.Client(timeout=12.0) as client:
+        response = client.post(GUBA_RANK_URL, json={**body, "pageNo": 1, "pageSize": 100})
+        response.raise_for_status()
+        payload = response.json()
+        rows = payload.get("data", [])
+        if payload.get("code") != 0 or not isinstance(rows, list) or len(rows) != 100:
+            raise EastmoneyHot100Error("GUBA_ORIGINAL_RANK_INCOMPLETE")
+        # The list lacks a timestamp; verify dated top and bottom identities.
+        checks = []
+        for row in (rows[0], rows[-1]):
+            reply = client.post("https://emappdata.eastmoney.com/stockrank/getCurrentLatest",
+                                json={**body, "srcSecurityCode": row.get("sc")})
+            reply.raise_for_status()
+            checked = reply.json()
+            if checked.get("code") != 0:
+                raise EastmoneyHot100Error("GUBA_ORIGINAL_RANK_TIME_UNVERIFIED")
+            checks.append(checked.get("data"))
+        return {"rows": rows, "dated_checks": checks}
+
+
+def reconcile_guba_ranks(payload: Any, original: Mapping[str, Any], *, as_of: datetime,
+                         expected_trade_date: date) -> dict[str, Any]:
+    """Use the original forum ranks, never renumber duplicates in the screener."""
+    import copy
+    rows = original.get("rows", [])
+    if not isinstance(rows, list) or len(rows) != 100 or any(not isinstance(r, Mapping) for r in rows):
+        raise EastmoneyHot100Error("GUBA_ORIGINAL_RANK_INCOMPLETE")
+    ranks = {str(r.get("sc") or "").upper(): _integer(r.get("rk")) for r in rows}
+    if len(ranks) != 100 or set(ranks.values()) != set(range(1, 101)):
+        raise EastmoneyHot100Error("GUBA_ORIGINAL_RANK_INCOMPLETE")
+    checks = original.get("dated_checks", [])
+    expected_checks = {str(rows[0].get("sc")).upper(), str(rows[-1].get("sc")).upper()}
+    if not isinstance(checks, list) or len(checks) != 2:
+        raise EastmoneyHot100Error("GUBA_ORIGINAL_RANK_TIME_UNVERIFIED")
+    checked_symbols = set()
+    for check in checks:
+        try:
+            symbol = str(check["srcSecurityCode"]).upper()
+            stamp = datetime.fromisoformat(check["calcTime"]).replace(tzinfo=SHANGHAI)
+            valid = (symbol in expected_checks and _integer(check["rank"]) == ranks[symbol]
+                     and stamp.date() == expected_trade_date and stamp <= _aware(as_of))
+        except (KeyError, TypeError, ValueError):
+            valid = False
+        if not valid:
+            raise EastmoneyHot100Error("GUBA_ORIGINAL_RANK_TIME_UNVERIFIED")
+        checked_symbols.add(symbol)
+    if checked_symbols != expected_checks:
+        raise EastmoneyHot100Error("GUBA_ORIGINAL_RANK_TIME_UNVERIFIED")
+    copied = copy.deepcopy(payload)
+    source_rows = copied.get("data", {}).get("result", {}).get("dataList", [])
+    rank_key = f"GUBA_TOP_REAL_TIME{{{expected_trade_date.isoformat()}}}"
+    identities = []
+    original_values = {}
+    for row in source_rows:
+        symbol = _a_share_symbol(str(row.get("SECURITY_CODE") or ""), str(row.get("MARKET_SHORT_NAME") or ""))
+        if symbol is None or rank_key not in row:
+            raise EastmoneyHot100Error("GUBA_ORIGINAL_RANK_IDENTITY_MISMATCH")
+        code, market = symbol.split(".")
+        provider_code = market + code
+        if provider_code not in ranks:
+            raise EastmoneyHot100Error("GUBA_ORIGINAL_RANK_IDENTITY_MISMATCH")
+        identities.append(provider_code)
+        original_values[symbol] = row[rank_key]
+        row[rank_key] = ranks[provider_code]
+    if len(identities) != 100 or set(identities) != set(ranks):
+        raise EastmoneyHot100Error("GUBA_ORIGINAL_RANK_IDENTITY_MISMATCH")
+    result = normalize_eastmoney_hot100(copied, as_of=as_of, expected_trade_date=expected_trade_date)
+    result.update(rank_source_url=GUBA_RANK_URL, rank_reconciled=True,
+                  screener_rank_values=original_values, dated_rank_checks=checks,
+                  rank_reconciliation_reason="SCREENER_RANK_INCOMPLETE_OR_DUPLICATED")
+    return result
 
 
 def normalize_eastmoney_hot100(

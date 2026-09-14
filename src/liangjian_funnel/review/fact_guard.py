@@ -49,6 +49,16 @@ def reconcile_report(report: Any, facts: Mapping[str, Any]) -> list[str]:
     verification = facts.get("independent_verification") or {}
     totals = verification_totals(facts)
     quality = normalize_quality(facts.get("data_quality") or {})
+    strategy_counts = metrics.get("a3_strategy_counts")
+    if isinstance(strategy_counts, Mapping) and strategy_counts:
+        labels = {"TREND_MA5": "趋势五日线", "MA520_SWING": "520", "LEADER_INTRADAY": "龙头"}
+        summary = "、".join(f"{labels.get(k, '未识别策略')}{v}个" for k, v in strategy_counts.items())
+        # This aggregate description is server-owned, not a model inference.
+        report.a3_review.summary = (
+            f"本次复盘正式计划{metrics.get('a3_plan_count', 0)}个：{summary}。"
+            "公式与跨源核验的通过范围见支持证据；未核验字段仍属于数据限制，不能据此宣称全部策略健康。"
+        )
+        notes.append("A3计划数量与策略分类由冻结执行计划计数生成，不采用模型推断的策略名称。")
     themes = {r.get("theme_id"): r.get("theme_name") for r in (facts.get("a2") or {}).get("themes", [])}
     counterexamples = {r.get("symbol"): r for r in verification.get("counterexamples", [])}
     for item in report.missed_opportunity_reviews:

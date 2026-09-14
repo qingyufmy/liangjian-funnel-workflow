@@ -278,7 +278,9 @@ def _audit_output(output_dir: Path, run_id: str, lane_id: str) -> tuple[dict[str
         if not path.is_file():
             return {}, ["A2_AUDIT_NOT_FOUND"]
         if path.stat().st_size > 64 * 1024 * 1024:
-            return {}, ["A2_AUDIT_OVERSIZE"]
+            from .audit_reader import read_audit_stage
+            stages = [read_audit_stage(path, name) for name in ("A1", "A2", "A3")]
+            return {"stages": [stage for stage in stages if stage]}, []
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError, json.JSONDecodeError):
         return {}, ["A2_AUDIT_UNREADABLE"]
@@ -1070,7 +1072,7 @@ class A5DailyReviewService:
         # Identical market facts must not reuse prose produced by an older
         # prompt/verification contract after a release.
         facts["review_contract"] = {
-            "version": "a5-full-lineage-entry-audit/8",
+            "version": "a5-full-lineage-entry-audit/9",
             "prompt_sha256": self.prompts.document(_A5_PROMPT).sha256,
             "model": self.model,
         }
