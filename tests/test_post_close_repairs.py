@@ -112,3 +112,25 @@ def test_a5_strategy_summary_uses_frozen_plan_counts():
     reconcile_report(report, {"metrics": {"a3_plan_count": 32, "a3_strategy_counts": {"TREND_MA5": 32}}})
     assert "趋势五日线32个" in report.a3_review.summary
     assert "520" not in report.a3_review.summary
+
+
+def test_grouped_evidence_ids_round_trip_without_removing_candidates():
+    from liangjian_funnel.review.daily import _model_fact_projection
+    rows = [{"evidence_id": f"A2:OUTSIDE_ROTATION:{i:06}.SZ", "pool": "OUTSIDE_ROTATION",
+             "symbol": f"{i:06}.SZ", "name": "名称", "score": i / 10,
+             "selection_reasons": ["A2_ROLE_EVIDENCE_INSUFFICIENT"], "risk_reasons": []}
+            for i in range(1600)]
+    rows.append(dict(rows[0], evidence_id="nonstandard-id", pool="WATCH", symbol="600001.SH"))
+    facts = {"a2": {"candidates": rows}}
+    original = copy.deepcopy(facts)
+    packed = _model_fact_projection(facts)["a2"]["candidates"]
+    restored = []
+    for group in packed["groups"]:
+        for stock in group["stocks"]:
+            row = {**group["common"], **stock}
+            if group.get("derive_evidence_id"):
+                row["evidence_id"] = f"A2:{row['pool']}:{row['symbol']}"
+            restored.append(row)
+    assert restored == rows
+    assert facts == original
+    assert len(json.dumps(packed)) < len(json.dumps(rows)) * .6

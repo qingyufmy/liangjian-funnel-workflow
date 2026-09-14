@@ -442,8 +442,17 @@ def _model_fact_projection(facts: Mapping[str, Any]) -> dict[str, Any]:
         key = json.dumps(common, sort_keys=True, ensure_ascii=False)
         group = candidate_groups.setdefault(key, {"common": common, "stocks": []})
         group["stocks"].append({key: value for key, value in row.items() if key in identity_fields})
-    grouped = {"encoding": "a5-grouped-candidates/1",
-               "decoding": "Every stock inherits its group's common fields. Merge common and stock to recover every candidate without sampling.",
+    for group in candidate_groups.values():
+        # Evidence IDs are a deterministic duplicate of pool + symbol. Only
+        # omit them when exact round-trip reconstruction is proven for every
+        # member; irregular IDs stay literal. The immutable facts stay intact.
+        if all(row.get("evidence_id") == f"A2:{group['common'].get('pool')}:{row.get('symbol')}"
+               for row in group["stocks"]):
+            group["derive_evidence_id"] = True
+            for row in group["stocks"]:
+                row.pop("evidence_id")
+    grouped = {"encoding": "a5-grouped-candidates/2",
+               "decoding": "Every stock inherits its group's common fields. Merge common and stock. If derive_evidence_id is true, reconstruct evidence_id exactly as 'A2:' + common.pool + ':' + stock.symbol. All original candidate fields and IDs are recoverable without sampling.",
                "groups": list(candidate_groups.values())}
     if len(json.dumps(grouped, ensure_ascii=False)) < len(json.dumps(projected["a2"]["candidates"], ensure_ascii=False)):
         projected["a2"]["candidates"] = grouped
