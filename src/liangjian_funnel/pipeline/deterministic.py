@@ -26,6 +26,7 @@ from .feature_store import content_hash
 from .a1_selection_logic import FUNDAMENTAL, build_a1_selection_evidence
 from .a2_role_logic import UNRESOLVED as A2_BEHAVIOR_UNRESOLVED, classify_a2_stock
 from .a3_strategy import Eligibility, evaluate_a3_strategy
+from .factors import a3_factor_contract_reasons
 
 
 PIPELINE_MODE = "deterministic_v2"
@@ -4436,6 +4437,22 @@ def screen_a3(snapshot: Mapping[str, Any], a2_output: Mapping[str, Any]) -> Dete
                 strategy_facts["a4_deferred_conditions"] = list(
                     strategy["a4_deferred_conditions"]
                 )
+        # Apply the exact final-output contract before sending a symbol to
+        # the model. A single short history must not poison a whole batch.
+        if snapshot.get("STRICT_AGENT_RULES") is True:
+            factor_reasons = a3_factor_contract_reasons(factor)
+            if factor_reasons and eligibility != Eligibility.REJECTED.value:
+                eligibility = Eligibility.DATA_GAP.value
+                strategy["eligibility"] = eligibility
+                strategy["reason_codes"] = list(dict.fromkeys([
+                    *strategy.get("reason_codes", []), *factor_reasons,
+                ]))
+                strategy["strategy_facts"]["factor_readiness"] = {
+                    "a3_ready": factor.get("a3_ready") is True,
+                    "contract_reasons": factor_reasons,
+                    "input_reasons": list(factor.get("a3_reasons") or ()),
+                    "intraday_data_required": False,
+                }
         status = {
             Eligibility.QUALIFIED.value: "REVIEW_CANDIDATE",
             Eligibility.WATCH.value: "LOCAL_MONITOR",

@@ -146,6 +146,34 @@ class TechnicalFactorSnapshot(BaseModel):
 FactorSnapshot = TechnicalFactorSnapshot
 
 
+def a3_factor_contract_reasons(factor: Any) -> list[str]:
+    """One monthly/weekly/daily contract for preflight and output validation.
+
+    Minute readiness and the legacy all-frame ``ready`` flag belong to A4,
+    not this contract. Missing input cannot be repaired by a model response.
+    """
+    frames = factor.get("timeframes") if isinstance(factor, Mapping) else None
+    if not isinstance(factor, Mapping) or factor.get("a3_ready") is not True or not isinstance(frames, Mapping):
+        return ["A3_FACTOR_SNAPSHOT_NOT_READY"]
+    reasons: list[str] = []
+    for timeframe in A3_TIMEFRAMES:
+        frame = frames.get(timeframe)
+        if not isinstance(frame, Mapping) or not isinstance(frame.get("latest"), Mapping):
+            reasons.append(f"A3_FACTOR_FRAME_NOT_READY:{timeframe}")
+            continue
+        if timeframe != "daily":
+            continue
+        if frame.get("ma_alignment") not in {
+            "BULL_STACK", "BULL_PARTIAL", "ENTANGLED", "BEAR_PARTIAL", "BEAR_STACK"
+        }:
+            reasons.append(f"A3_MA_ALIGNMENT_MISSING:{timeframe}")
+        if not isinstance(frame.get("ma_event"), str):
+            reasons.append(f"A3_MA_EVENT_MISSING:{timeframe}")
+        if not isinstance(frame.get("ma_bias"), Mapping):
+            reasons.append(f"A3_MA_BIAS_MISSING:{timeframe}")
+    return reasons
+
+
 class FactorEngine:
     """Build only from bars that have closed by ``as_of``."""
 

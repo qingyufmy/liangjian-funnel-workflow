@@ -63,6 +63,7 @@ from .a1_contract import (
 )
 from .a1_packet import A1_PACKET_TOKEN_BUDGET, A1PacketSizeError, build_a1_research_packet
 from .feature_store import FeatureGenerationError, ResearchFeatureStore
+from .factors import a3_factor_contract_reasons
 from .feature_rebuild import validate_feature_generation as validate_generation_projection
 from .candidate_catalog import enrich_candidate_metadata
 from .model_client import (
@@ -11801,31 +11802,7 @@ def _validate_a3_provenance(output: Mapping[str, Any], snapshot_data: Mapping[st
 def _a3_factor_contract_reasons(symbol: str, snapshot_data: Mapping[str, Any]) -> list[str]:
     factors = snapshot_data.get("FACTOR_SNAPSHOT")
     factor = factors.get(symbol) if isinstance(factors, Mapping) else None
-    frames = factor.get("timeframes") if isinstance(factor, Mapping) else None
-    if not isinstance(factor, Mapping) or factor.get("a3_ready") is not True or not isinstance(frames, Mapping):
-        return ["A3_FACTOR_SNAPSHOT_NOT_READY"]
-    reasons: list[str] = []
-    # A3 owns only formal monthly/weekly/daily facts.  Intraday frames belong
-    # to A4 and can never block tomorrow's daily plan.
-    for timeframe in ("monthly", "weekly", "daily"):
-        frame = frames.get(timeframe)
-        if not isinstance(frame, Mapping) or not isinstance(frame.get("latest"), Mapping):
-            reasons.append(f"A3_FACTOR_FRAME_NOT_READY:{timeframe}")
-            continue
-        # Monthly/weekly formal frames can be useful with fewer than 60 bars;
-        # their frame-level legacy ``ready`` flag still asks for MA60.  The
-        # independent top-level ``a3_ready`` contract owns that sufficiency.
-        if timeframe != "daily":
-            continue
-        if frame.get("ma_alignment") not in {
-            "BULL_STACK", "BULL_PARTIAL", "ENTANGLED", "BEAR_PARTIAL", "BEAR_STACK"
-        }:
-            reasons.append(f"A3_MA_ALIGNMENT_MISSING:{timeframe}")
-        if not isinstance(frame.get("ma_event"), str):
-            reasons.append(f"A3_MA_EVENT_MISSING:{timeframe}")
-        if not isinstance(frame.get("ma_bias"), Mapping):
-            reasons.append(f"A3_MA_BIAS_MISSING:{timeframe}")
-    return reasons
+    return a3_factor_contract_reasons(factor)
 
 
 def _canonicalize_a3_price_fields(

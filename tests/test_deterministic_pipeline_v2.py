@@ -516,6 +516,45 @@ def test_a2_and_a3_never_expand_the_upstream_pool():
     assert set(a3.review_symbols).issubset(set(a2.review_symbols))
 
 
+def test_a3_strict_factor_gap_isolated_before_model_review():
+    from liangjian_funnel.pipeline.research import _a3_factor_contract_reasons
+
+    snapshot = _snapshot(2)
+    snapshot["STRICT_AGENT_RULES"] = True
+    healthy, short = snapshot["g0_symbols"]
+    output = {"focus_pool": [{"symbol": s, "theme_id": "theme-compute"}
+                             for s in (healthy, short)]}
+    baseline = screen_a3(snapshot, output)
+    assert short in baseline.review_symbols
+    snapshot["FACTOR_SNAPSHOT"][short]["a3_ready"] = False
+    snapshot["FACTOR_SNAPSHOT"][short]["a3_reasons"] = ["INSUFFICIENT_DAILY_MA60"]
+    result = screen_a3(snapshot, output)
+    assert healthy in result.review_symbols
+    assert short not in result.review_symbols
+    row = next(r for r in result.decisions if r["symbol"] == short)
+    assert row["status"] == "DATA_GAP"
+    assert row["sent_to_llm"] is False
+    assert "A3_FACTOR_SNAPSHOT_NOT_READY" in row["reason_codes"]
+    assert row["strategy_facts"]["factor_readiness"]["input_reasons"] == ["INSUFFICIENT_DAILY_MA60"]
+    assert _a3_factor_contract_reasons(short, snapshot) == ["A3_FACTOR_SNAPSHOT_NOT_READY"]
+
+
+def test_a3_strict_factor_preflight_ignores_intraday_and_checks_daily_contract():
+    snapshot = _snapshot(2)
+    snapshot["STRICT_AGENT_RULES"] = True
+    symbol = snapshot["g0_symbols"][0]
+    factor = snapshot["FACTOR_SNAPSHOT"][symbol]
+    factor["ready"] = False
+    for name in ("5m", "15m", "120m"):
+        factor["timeframes"].pop(name)
+    output = {"focus_pool": [{"symbol": symbol, "theme_id": "theme-compute"}]}
+    assert symbol in screen_a3(snapshot, output).review_symbols
+    factor["timeframes"]["daily"].pop("ma_event")
+    result = screen_a3(snapshot, output)
+    assert not result.review_symbols
+    assert "A3_MA_EVENT_MISSING:daily" in result.decisions[0]["reason_codes"]
+
+
 def test_a3_server_strategy_defers_reference_risk_floor_to_a4_live_entry():
     snapshot = _snapshot(2)
     snapshot["TECHNICAL_SCORE_WEIGHTS"] = {
