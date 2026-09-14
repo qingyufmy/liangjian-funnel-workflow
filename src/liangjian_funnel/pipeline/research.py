@@ -5105,6 +5105,10 @@ def _with_daily_emotion_overlay(
             existing["emotion_attention_eligible"] = True
             existing.setdefault("a1_pool_channels", []).append("DAILY_EMOTION")
             existing["a1_pool_channels"] = list(dict.fromkeys(existing["a1_pool_channels"]))
+            if existing.get("research_route") == "DAILY_EMOTION_OVERLAY":
+                existing["emotion_theme_binding"] = theme_bindings[symbol]
+                existing["primary_theme"] = theme_bindings[symbol]["theme_id"]
+                existing["industry_chain_node"] = theme_bindings[symbol]["node_id"]
             annotated += 1
             continue
         candidate = candidate_by_symbol.get(symbol, {})
@@ -6493,6 +6497,11 @@ def _stage_execution_budget(
             "- Return envelope, theme_reviews, focus_decisions, rotation_reviews, reject_decisions and reason_codes only.\n"
             "- Do not list ordinary WATCH rows: every supplied symbol omitted from focus_decisions and "
             "reject_decisions is deterministically classified WATCH by the server.\n"
+            "- execution_permission=BLOCKED and A2_EMOTION_CYCLE_NO_NEW_ENTRY restrict trading, not research. "
+            "Keep an otherwise supported candidate in WATCH; these restrictions alone are not a hard rejection.\n"
+            "- emotion_theme_binding.candidate_routes are evidence-backed alternatives, not missing membership. "
+            "Do not invent a primary theme, business revenue or catalyst. Unresolved theme selection remains "
+            "research-only and cannot authorize an execution plan.\n"
             "- WATCH defaults do not discharge direction review: every key in "
             "A2_BOTTLENECK_CONTEXT._rotation_review_scope needs a focus representative OR "
             "an explicit NO_FOCUS review with bound reviewed_symbols and a concrete evidence-based explanation.\n"
@@ -6536,6 +6545,8 @@ def _stage_execution_budget(
             "rejected_candidates. Every row must preserve the server-owned strategy_profile, eligibility, "
             "stock_behavior_type, route_permission, expected_holding_sessions, time_stop_sessions, setup_pattern, "
             "cycle_alignment, emotion_cycle_stage, market_environment, market_funding_state and behavior_risk, "
+            "research_only_reason and execution_permission when supplied; a research-qualified row with BLOCKED "
+            "execution permission is not an executable plan and the model must never remove that restriction. "
             "a4_deferred_conditions, "
             "plan_priority, priority_reasons, reference_price, reference_price_as_of, pressure_reduce_price and "
             "pressure_basis, "
@@ -6811,6 +6822,9 @@ def _gate_item_from_decision(
             "rotation_reserve_scope": decision.get("rotation_reserve_scope"),
             "a2_pool_channel": decision.get("a2_pool_channel"),
             "emotion_core_eligible": decision.get("emotion_core_eligible") is True,
+            "research_only_reason": decision.get("research_only_reason"),
+            "execution_permission": decision.get("execution_permission"),
+            "emotion_theme_binding": decision.get("emotion_theme_binding"),
             "trend_core_eligible": decision.get("trend_core_eligible") is True,
             "eastmoney_hot100": dict(decision.get("eastmoney_hot100") or {}),
             "selected_board": dict(decision.get("selected_board") or {}),
@@ -8581,6 +8595,9 @@ def _canonicalize_stage_lineage(
                 canonical["a2_pool_channel"] = context.get("a2_pool_channel")
                 canonical["a1_formal_member"] = context.get("a1_formal_member") is not False
                 canonical["emotion_core_eligible"] = context.get("emotion_core_eligible") is True
+                canonical["research_only_reason"] = context.get("research_only_reason")
+                canonical["execution_permission"] = context.get("execution_permission")
+                canonical["emotion_theme_binding"] = context.get("emotion_theme_binding")
                 canonical["trend_core_eligible"] = context.get("trend_core_eligible") is True
                 canonical["eastmoney_hot100"] = dict(context.get("eastmoney_hot100") or {})
                 canonical["selected_board"] = dict(context.get("selected_board") or {})
@@ -9621,6 +9638,9 @@ def _apply_a3_candidate_origin_policy(
             item["rotation_reserve_eligible"] = True
             item["rotation_reserve_scope"] = "RESEARCH_ONLY_NO_AUTOMATIC_ENTRY"
             item["rotation_reserve_boards"] = list(contexts[symbol].get("rotation_reserve_boards") or [])
+        if contexts.get(symbol, {}).get("execution_permission") == "BLOCKED":
+            item["execution_permission"] = "BLOCKED"
+            item["research_only_reason"] = contexts[symbol].get("research_only_reason")
         origin = origins.get(symbol) or str(item.get("candidate_origin") or "FOCUS").strip().upper()
         # Unknown/malformed origins are not allowed to become a new routing
         # class.  Treat old responses without the additive field as FOCUS;
@@ -11002,7 +11022,8 @@ def _is_rotation_reserve(item: Mapping[str, Any]) -> bool:
 def _a2_watch_row_research_eligible(item: Mapping[str, Any]) -> bool:
     """Return whether an A2 watch row remains part of the effective pool."""
 
-    if item.get("top_rotation_theme") is False and not _is_rotation_reserve(item):
+    if (item.get("top_rotation_theme") is False and not _is_rotation_reserve(item)
+            and item.get("emotion_core_eligible") is not True):
         return False
     status = str(item.get("status") or "").strip().upper()
     if status in {"REJECTED", "HARD_REJECT", "DATA_GAP"}:
@@ -12226,6 +12247,9 @@ def _with_a2_bottleneck_context(
             "a2_pool_channel": item.get("a2_pool_channel"),
             "a1_formal_member": item.get("a1_formal_member") is not False,
             "emotion_core_eligible": item.get("emotion_core_eligible") is True,
+            "research_only_reason": item.get("research_only_reason"),
+            "execution_permission": item.get("execution_permission"),
+            "emotion_theme_binding": item.get("emotion_theme_binding"),
             "trend_core_eligible": item.get("trend_core_eligible") is True,
             "eastmoney_hot100": dict(item.get("eastmoney_hot100") or {}),
             "selected_board": dict(item.get("selected_board") or {}),

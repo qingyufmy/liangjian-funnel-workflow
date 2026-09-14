@@ -290,6 +290,15 @@ class MonitorEngine:
                     ),
                 ).model_dump(mode="json")
                 project_exit_eligibility(strategy_result, position)
+                from .indicator_windows import freeze_observations
+                try:
+                    strategy_result["indicator_observations"] = freeze_observations(
+                        self.store.path.parent / "indicator_windows",
+                        strategy_result.get("indicator_observations") or {}, symbol)
+                except (OSError, ValueError):
+                    # Keep inline evidence on archive failure; never drop
+                    # protective exits because a deduplication write failed.
+                    strategy_result["indicator_archive_status"] = "INLINE_FALLBACK"
                 action = str(strategy_result.get("action") or MonitorAction.NO_ACTION.value)
                 reason_codes = strategy_result.get("reason_codes")
                 reason = (

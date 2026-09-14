@@ -1065,7 +1065,7 @@ class A5DailyReviewService:
         self.notification_publisher = notification_publisher
 
     def run(self, *, review_kind: A5ReviewKind, now: datetime,
-            frozen_facts: Mapping[str, Any] | None = None) -> dict[str, Any]:
+            frozen_facts: Mapping[str, Any] | None = None, close_archive: Mapping[str, Any] | None = None) -> dict[str, Any]:
         current = now.astimezone(SHANGHAI)
         cutoff_clock = (11, 30) if review_kind is A5ReviewKind.MIDDAY else (15, 0)
         cutoff = current.replace(hour=cutoff_clock[0], minute=cutoff_clock[1], second=0, microsecond=0)
@@ -1077,6 +1077,8 @@ class A5DailyReviewService:
                 review_kind=review_kind, lane_id=self.lane_id,
                 independent_verifier=self.independent_verifier,
             )
+            if close_archive is not None:
+                facts["post_close_archive"] = dict(close_archive)
         else:
             # Retry today's failed report without re-fetching later prices or
             # replacing the original observation/decision evidence.

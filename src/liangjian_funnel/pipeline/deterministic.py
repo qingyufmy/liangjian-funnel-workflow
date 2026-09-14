@@ -1587,8 +1587,11 @@ def screen_a2(
             daily_a1_member
             and hot100_row is not None
             and behavior_type == "EMOTION"
-            and emotion_cycle_allowed
         )
+        theme_selection_pending = (item.get("emotion_theme_binding") or {}).get("requires_theme_selection") is True
+        emotion_research_only = emotion_core_eligible and (not emotion_cycle_allowed or theme_selection_pending)
+        if emotion_research_only:
+            reasons.append("A2_EMOTION_THEME_SELECTION_REQUIRED" if theme_selection_pending else "A2_EMOTION_CYCLE_NO_NEW_ENTRY")
         reserve_boards = [dict(row) for row in selected_board_rows
             if isinstance(row, Mapping) and selected_board_source_available
             and row.get("rotation_reserve_scope") == "RESEARCH_ONLY_NO_AUTOMATIC_ENTRY"
@@ -1738,6 +1741,8 @@ def screen_a2(
             "stock_behavior_type": behavior_decision.get("stock_behavior_type"),
             "a2_pool_channel": pool_channel,
             "emotion_core_eligible": emotion_core_eligible,
+            "research_only_reason": ("A2_EMOTION_THEME_SELECTION_REQUIRED" if theme_selection_pending else "A2_EMOTION_CYCLE_NO_NEW_ENTRY") if emotion_research_only else None,
+            "execution_permission": "BLOCKED" if emotion_research_only else "REQUIRES_A3_A4_CONFIRMATION",
             "trend_core_eligible": trend_core_eligible,
             "rotation_reserve_eligible": reserve_eligible,
             "rotation_reserve_boards": reserve_boards,
@@ -3617,8 +3622,12 @@ def _market_core_route_result(
     research_route_qualified = research_route in {"BROKER_GOLD_DIRECT", "FUNDAMENTAL_BASELINE"}
     theme_binding = item.get("emotion_theme_binding")
     if isinstance(theme_binding, Mapping) and theme_binding.get("resolved") is False:
-        missing.extend(["A1_THEME_MISSING", "A1_CHAIN_NODE_MISSING"])
-        diagnostics.append(str(theme_binding.get("reason_code") or "EMOTION_THEME_MEMBERSHIP_MISSING"))
+        if (research_route == "DAILY_EMOTION_OVERLAY" and theme_binding.get("research_resolved") is True
+                and theme_binding.get("candidate_routes")):
+            diagnostics.append("A2_EMOTION_THEME_SELECTION_REQUIRED")
+        else:
+            missing.extend(["A1_THEME_MISSING", "A1_CHAIN_NODE_MISSING"])
+            diagnostics.append(str(theme_binding.get("reason_code") or "EMOTION_THEME_MEMBERSHIP_MISSING"))
     if identifiability < minimum_identifiability_score:
         # Identifiability is a ranking/risk input for the broad A2 funnel.  A
         # single aggregate score must not erase an otherwise fact-supported

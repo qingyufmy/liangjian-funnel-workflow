@@ -3215,6 +3215,7 @@ class WorkflowApplication:
         interval: str,
         required_bars: int,
         current: datetime,
+        *, deadline: float | None = None,
     ) -> Any:
         """Fetch only the bounded current-session window used by A4.
 
@@ -3223,37 +3224,14 @@ class WorkflowApplication:
         bars; previous-session bars cannot fill an opening shortage.
         """
 
+        from .data.live_fetch import fetch_live_window
         provider = getattr(self.market_data, "fallback", None)
-        if provider is not None and callable(getattr(provider, "fetch_bars", None)):
-            first = None
-            try:
-                first = provider.fetch_bars(symbol, interval, required_bars, as_of=current)
-                closing_unfinalized = current.hour == 15 and current.minute == 0 and first.bars and first.bars[-1].volume == 0
-                if first.complete and not closing_unfinalized:
-                    return first
-            except Exception:
-                pass
-            secondary = getattr(self.market_data, "primary", None)
-            if secondary is not None and callable(getattr(secondary, "fetch_bars", None)):
-                try:
-                    result = secondary.fetch_bars(symbol, interval, required_bars, as_of=current)
-                    bars = tuple(bar for bar in result.bars
-                                 if bar.bar_end.astimezone(SHANGHAI).date() == current.date()
-                                 and bar.bar_end <= current)[-required_bars:]
-                    expected_end = current if interval == "1m" else current.replace(minute=current.minute // 5 * 5)
-                    if (len(bars) == required_bars and bars and bars[-1].bar_end == expected_end
-                            and not (current.hour == 15 and current.minute == 0 and bars[-1].volume == 0)
-                            and not detect_missing_bars(bars, interval, as_of=current)):
-                        return result.model_copy(update={"bars": bars, "returned_bars": len(bars),
-                                                        "complete": True, "reason_code": "OK"})
-                except Exception:
-                    pass
-            if first is not None:
-                if current.hour == 15 and current.minute == 0 and first.bars and first.bars[-1].volume == 0:
-                    return first.model_copy(update={"complete": False, "reason_code": "CLOSE_BAR_FINALIZATION_UNCONFIRMED"})
-                return first
-            raise WorkflowError("MINUTE_DATA_FETCH_FAILED")
-        return self.market_data.fetch_bars(symbol, interval, required_bars, as_of=current)
+        secondary = getattr(self.market_data, "primary", None)
+        if isinstance(secondary, MootdxAdapter) and getattr(self, "settings", None) is not None:
+            secondary.live_health_path = self.settings.minute_cache_dir / "live-node-health.json"
+        return fetch_live_window(provider or self.market_data,
+                                 secondary,
+                                 symbol, interval, required_bars, current, deadline=deadline)
 
     def activate_latest_a3_for_monitor(self, *, now: datetime | None = None) -> dict[str, Any]:
         """Recover the latest current-session A3 plans for A4, safely.
@@ -3683,14 +3661,16 @@ class WorkflowApplication:
         }
         cache_system_error = False
 
+        fetch_deadline = time.monotonic() + 20.0
+
         def fetch_symbol(symbol: str) -> tuple[str, dict[str, Any]]:
             one_required = _a4_required_bars(current, "1m")
             five_required = _a4_required_bars(current, "5m")
-            one = self._fetch_live_bars(symbol, "1m", one_required, current) if one_required else None
+            one = self._fetch_live_bars(symbol, "1m", one_required, current, deadline=fetch_deadline) if one_required else None
             # Before the first closed 5m bar, absence is a normal warm-up
             # state.  Do not ask the resilient adapter for an artificial
             # historical window merely to fill this slot.
-            five = self._fetch_live_bars(symbol, "5m", five_required, current) if five_required else None
+            five = self._fetch_live_bars(symbol, "5m", five_required, current, deadline=fetch_deadline) if five_required else None
             return symbol, {"1m": one, "5m": five}
 
         if all_symbols:
@@ -3970,6 +3950,21 @@ class WorkflowApplication:
         except Exception:
             event_notifications = [{"status": "FAILED", "reason_code": "LARK_NOTIFICATION_FAILED"}]
         notifications = [*system_notifications, *event_notifications]
+        source_health_publisher = getattr(publisher, "publish_minute_source_health", None)
+        if callable(source_health_publisher) and current.hour < 15 and decision_symbols:
+            failures = {}
+            for symbol in sorted(decision_symbols):
+                fetched = market.get(symbol, {})
+                if fetched.get("fetch_error"):
+                    failures[symbol] = str(fetched["fetch_error"])
+                for interval in ("1m", "5m"):
+                    value = fetched.get(interval)
+                    if value is not None and not value.complete:
+                        failures.setdefault(symbol, value.reason_code)
+            try:
+                notifications.extend(source_health_publisher(failures, now=current))
+            except Exception:
+                notifications.append({"status": "FAILED", "reason_code": "MINUTE_SOURCE_ALERT_FAILED"})
         execution_publisher = getattr(publisher, "publish_a4_execution_results", None)
         if callable(execution_publisher):
             try:
@@ -4343,13 +4338,22 @@ class WorkflowApplication:
     def run_due(self, *, now: datetime | None = None) -> dict[str, Any]:
         return self.run_scheduled(now=now)
 
+    def collect_close_finalization(self, *, now: datetime | None = None) -> dict[str, Any]:
+        from .runtime.close_finalization import collect_close_finalization
+        current = _aware(now or datetime.now(SHANGHAI))
+        if (current.date() != datetime.now(SHANGHAI).date()
+                or not self.trading_calendar.is_trading_day(current.date())):
+            return {"status": "NOOP", "reason_code": "NOT_CURRENT_TRADING_DAY"}
+        return collect_close_finalization(getattr(self.market_data, "fallback", self.market_data),
+            self.minute_store, self.store.list_execution_plans(), self.settings.workflow_output_dir, now=current)
+
     def run_a5_review(
         self,
         review_kind: A5ReviewKind | str,
         *,
         now: datetime | None = None,
     ) -> dict[str, Any]:
-        """Run one read-only daily review from persisted A2-A4 evidence."""
+        """Review frozen decisions; post-close observations are separately archived."""
 
         current = _aware(now or datetime.now(SHANGHAI))
         if not self.trading_calendar.is_trading_day(current.date()):
@@ -4359,6 +4363,7 @@ class WorkflowApplication:
                 "trade_date": current.date().isoformat(),
             }
         kind = review_kind if isinstance(review_kind, A5ReviewKind) else A5ReviewKind(str(review_kind).upper())
+        close_archive = self.collect_close_finalization(now=current) if kind is A5ReviewKind.POST_CLOSE else None
         model, _lane_index, lane_id = _primary_model_for_settings(self.settings)
         return A5DailyReviewService(
             store=self.store,
@@ -4374,9 +4379,10 @@ class WorkflowApplication:
                 mootdx=getattr(self.market_data, "primary", None),
                 quote_fetch=_default_tencent_quote_fetch,
                 evidence_dir=self.settings.workflow_output_dir / "a5" / "market_evidence",
+                indicator_window_dir=self.store.path.parent / "indicator_windows",
             ),
             notification_publisher=self.lark_publisher,
-        ).run(review_kind=kind, now=current)
+        ).run(review_kind=kind, now=current, close_archive=close_archive)
 
     def run_scheduled(
         self,
@@ -5036,6 +5042,13 @@ class WorkflowApplication:
                 blocked.append({"lane": lane.lane, "reason": "A3_PLAN_POOLS_MISSING"})
                 continue
             ready_lanes.append(lane.lane)
+            upstream_research_only = set()
+            for audit in getattr(lane, "stages", ()):
+                if getattr(audit, "stage", None) != "A2" or not isinstance(getattr(audit, "output", None), Mapping):
+                    continue
+                for name in ("focus_pool", "watch_only_pool", "outside_rotation_pool", "rejected_candidates"):
+                    upstream_research_only.update(str(row.get("symbol")) for row in audit.output.get(name, ())
+                        if isinstance(row, Mapping) and row.get("execution_permission") == "BLOCKED")
             previous = {
                 str(item["symbol"]): item
                 for item in self.store.list_execution_plans(lane_id=lane.lane, status=PlanStatus.PENDING_MORNING_REVIEW)
@@ -5056,6 +5069,18 @@ class WorkflowApplication:
                     if str(raw.get("strategy_profile") or "").upper() == "TREND_MA5":
                         payload["trend_entry_rule_version"] = "trend-ma5/2"
                     symbol = payload.get("symbol")
+                    permission_context = snapshot_data.get("A2_BOTTLENECK_CONTEXT", {})
+                    permission_context = permission_context.get(symbol, {}) if isinstance(permission_context, Mapping) else {}
+                    emotion_snapshot = snapshot_data.get("MARKET_EMOTION_SNAPSHOT") or {}
+                    emotion_blocked = (raw.get("stock_behavior_type") == "EMOTION" and isinstance(emotion_snapshot, Mapping)
+                        and emotion_snapshot.get("available") is True
+                        and (emotion_snapshot.get("new_long_permission") == "NO_NEW_ENTRY"
+                             or str(emotion_snapshot.get("emotion_cycle_stage") or "").upper() not in {"STARTUP", "IGNITION", "CONFIRMATION", "ACCELERATION"}))
+                    if (raw.get("execution_permission") == "BLOCKED" or permission_context.get("execution_permission") == "BLOCKED"
+                            or symbol in upstream_research_only or emotion_blocked):
+                        blocked.append({"lane": lane.lane, "symbol": symbol or "-",
+                                        "reason": "A3_EMOTION_RESEARCH_ONLY_NO_ENTRY"})
+                        continue
                     if raw.get("rotation_reserve_scope") == "RESEARCH_ONLY_NO_AUTOMATIC_ENTRY":
                         blocked.append({"lane": lane.lane, "symbol": symbol or "-",
                                         "reason": "A3_ROTATION_RESERVE_RESEARCH_ONLY"})

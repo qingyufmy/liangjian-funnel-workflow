@@ -1,0 +1,869 @@
+{
+  "snapshot_id": "snapshot-20260914T170300+0800-5153a2420231",
+  "snapshot_hash": "5153a2420231b9ad5e2d9ab825860b894d760008ff4bef88e50df5a5a8876031",
+  "models_called": false,
+  "published": false,
+  "a1_count": 1519,
+  "a2_review_count": 123,
+  "a2_outside_a1": [],
+  "old_selected_missing_from_new_trend": [],
+  "new_trend_outside_old_selected": [],
+  "review_behavior_counts": {
+    "TREND": 88,
+    "EMOTION": 35
+  },
+  "research_only_symbols": [
+    "000572.SZ",
+    "000823.SZ",
+    "000839.SZ",
+    "000868.SZ",
+    "000962.SZ",
+    "000978.SZ",
+    "000980.SZ",
+    "000981.SZ",
+    "000993.SZ",
+    "001896.SZ",
+    "002141.SZ",
+    "002172.SZ",
+    "002212.SZ",
+    "002232.SZ",
+    "002560.SZ",
+    "002579.SZ",
+    "002585.SZ",
+    "002669.SZ",
+    "002897.SZ",
+    "300903.SZ",
+    "301132.SZ",
+    "301520.SZ",
+    "600088.SH",
+    "600172.SH",
+    "600186.SH",
+    "600330.SH",
+    "600488.SH",
+    "600876.SH",
+    "601086.SH",
+    "601123.SH",
+    "603439.SH",
+    "603626.SH",
+    "605058.SH",
+    "605069.SH",
+    "605580.SH"
+  ],
+  "status_counts": {
+    "LOCAL_MONITOR": 1396,
+    "REVIEW_CANDIDATE": 123
+  },
+  "five_symbol_cards": [
+    {
+      "symbol": "000839.SZ",
+      "name": "国安股份",
+      "status": "REVIEW_CANDIDATE",
+      "execution_permission": "BLOCKED",
+      "reason_codes": [
+        "A2_EMOTION_FIRST_BOARD_OBSERVED",
+        "A2_EMOTION_THEME_SELECTION_REQUIRED"
+      ],
+      "research_only_reason": "A2_EMOTION_THEME_SELECTION_REQUIRED",
+      "route_eligibility": {
+        "MARKET_CORE": {
+          "eligible": true,
+          "route": "MARKET_CORE",
+          "missing_reason_codes": [],
+          "diagnostic_reason_codes": [
+            "A2_EMOTION_THEME_SELECTION_REQUIRED",
+            "A2_DAILY_EMOTION_BUSINESS_EVIDENCE_NOT_REQUIRED"
+          ],
+          "missing_optional_factors": [],
+          "data_sufficiency_state": "SUFFICIENT",
+          "bottleneck_status": "NOT_REQUIRED_FOR_MARKET_CORE",
+          "market_fact_count": 3,
+          "route_coverage_ratio": 1.0
+        },
+        "SUPPLY_CHAIN_ALPHA": {
+          "eligible": false,
+          "route": "SUPPLY_CHAIN_ALPHA",
+          "missing_reason_codes": [
+            "A2_SUPPLY_CHAIN_ROLE_NOT_FOCUS_ELIGIBLE",
+            "A2_SCARCE_LAYER_MISSING",
+            "A2_VALUE_CHAIN_POSITION_MISSING",
+            "A2_BOTTLENECK_SCORECARD_MISSING",
+            "A2_BOTTLENECK_EVIDENCE_INSUFFICIENT",
+            "A2_BOTTLENECK_STRONG_EVIDENCE_MISSING",
+            "A2_BOTTLENECK_MISSING_PROOF_UNDECLARED",
+            "A2_BOTTLENECK_KILL_SWITCH_MISSING"
+          ],
+          "missing_optional_factors": [],
+          "data_sufficiency_state": "DATA_GAP",
+          "bottleneck_status": "UNPROVEN",
+          "evidence_count": 0
+        }
+      },
+      "unique_theme_selected": false,
+      "candidate_routes": [
+        {
+          "theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+          "node_id": "MTR:AI_APPLICATIONS_DIGITAL_ECONOMY:CORE",
+          "evidence": [
+            {
+              "confidence": 1.0,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:AI_APPLICATIONS_DIGITAL_ECONOMY:CORE",
+              "taxonomy": "INDUSTRY",
+              "taxonomy_code": "881162.TI",
+              "taxonomy_name": "通信服务",
+              "theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY"
+            },
+            {
+              "theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+              "canonical_id": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+              "taxonomy": "INDUSTRY",
+              "taxonomy_code": "881162.TI",
+              "taxonomy_name": "通信服务",
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "confidence": 1.0,
+              "node_id": "MTR:AI_APPLICATIONS_DIGITAL_ECONOMY:CORE"
+            }
+          ]
+        },
+        {
+          "theme_id": "AI_COMPUTE_INFRASTRUCTURE",
+          "node_id": "MTR:AI_COMPUTE_INFRASTRUCTURE:CORE",
+          "evidence": [
+            {
+              "confidence": 1.0,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:AI_COMPUTE_INFRASTRUCTURE:CORE",
+              "taxonomy": "INDUSTRY",
+              "taxonomy_code": "881162.TI",
+              "taxonomy_name": "通信服务",
+              "theme_id": "AI_COMPUTE_INFRASTRUCTURE"
+            },
+            {
+              "theme_id": "AI_COMPUTE_INFRASTRUCTURE",
+              "canonical_id": "AI_COMPUTE_INFRASTRUCTURE",
+              "taxonomy": "INDUSTRY",
+              "taxonomy_code": "881162.TI",
+              "taxonomy_name": "通信服务",
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "confidence": 1.0,
+              "node_id": "MTR:AI_COMPUTE_INFRASTRUCTURE:CORE"
+            }
+          ]
+        }
+      ],
+      "source_hash": "4f875f643e8169caabc3a15abd39a1c88001b1bde33e9ebcff8477f5fbfa7e25",
+      "as_of": "2026-09-14T17:03:00+08:00"
+    },
+    {
+      "symbol": "000981.SZ",
+      "name": "山子高科",
+      "status": "REVIEW_CANDIDATE",
+      "execution_permission": "BLOCKED",
+      "reason_codes": [
+        "A2_EMOTION_FIRST_BOARD_OBSERVED",
+        "A2_EMOTION_THEME_SELECTION_REQUIRED"
+      ],
+      "research_only_reason": "A2_EMOTION_THEME_SELECTION_REQUIRED",
+      "route_eligibility": {
+        "MARKET_CORE": {
+          "eligible": true,
+          "route": "MARKET_CORE",
+          "missing_reason_codes": [],
+          "diagnostic_reason_codes": [
+            "A2_EMOTION_THEME_SELECTION_REQUIRED",
+            "A2_DAILY_EMOTION_BUSINESS_EVIDENCE_NOT_REQUIRED"
+          ],
+          "missing_optional_factors": [],
+          "data_sufficiency_state": "SUFFICIENT",
+          "bottleneck_status": "NOT_REQUIRED_FOR_MARKET_CORE",
+          "market_fact_count": 3,
+          "route_coverage_ratio": 1.0
+        },
+        "SUPPLY_CHAIN_ALPHA": {
+          "eligible": false,
+          "route": "SUPPLY_CHAIN_ALPHA",
+          "missing_reason_codes": [
+            "A2_SUPPLY_CHAIN_ROLE_NOT_FOCUS_ELIGIBLE",
+            "A2_SCARCE_LAYER_MISSING",
+            "A2_VALUE_CHAIN_POSITION_MISSING",
+            "A2_BOTTLENECK_SCORECARD_MISSING",
+            "A2_BOTTLENECK_EVIDENCE_INSUFFICIENT",
+            "A2_BOTTLENECK_STRONG_EVIDENCE_MISSING",
+            "A2_BOTTLENECK_MISSING_PROOF_UNDECLARED",
+            "A2_BOTTLENECK_KILL_SWITCH_MISSING"
+          ],
+          "missing_optional_factors": [],
+          "data_sufficiency_state": "DATA_GAP",
+          "bottleneck_status": "UNPROVEN",
+          "evidence_count": 0
+        }
+      },
+      "unique_theme_selected": false,
+      "candidate_routes": [
+        {
+          "theme_id": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+          "node_id": "MTR:INFRASTRUCTURE_DOMESTIC_DEMAND:CORE",
+          "evidence": [
+            {
+              "confidence": 1.0,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:INFRASTRUCTURE_DOMESTIC_DEMAND:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "886086.TI",
+              "taxonomy_name": "西部大开发",
+              "theme_id": "INFRASTRUCTURE_DOMESTIC_DEMAND"
+            },
+            {
+              "theme_id": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+              "canonical_id": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "886086.TI",
+              "taxonomy_name": "西部大开发",
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "confidence": 1.0,
+              "node_id": "MTR:INFRASTRUCTURE_DOMESTIC_DEMAND:CORE"
+            }
+          ]
+        },
+        {
+          "theme_id": "POWER_EQUIPMENT_NEW_ENERGY",
+          "node_id": "MTR:POWER_EQUIPMENT_NEW_ENERGY:CORE",
+          "evidence": [
+            {
+              "confidence": 1.0,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:POWER_EQUIPMENT_NEW_ENERGY:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885431.TI",
+              "taxonomy_name": "新能源汽车",
+              "theme_id": "POWER_EQUIPMENT_NEW_ENERGY"
+            },
+            {
+              "theme_id": "POWER_EQUIPMENT_NEW_ENERGY",
+              "canonical_id": "POWER_EQUIPMENT_NEW_ENERGY",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885431.TI",
+              "taxonomy_name": "新能源汽车",
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "confidence": 1.0,
+              "node_id": "MTR:POWER_EQUIPMENT_NEW_ENERGY:CORE"
+            }
+          ]
+        },
+        {
+          "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+          "node_id": "MTR:ROBOTICS_ADVANCED_MANUFACTURING:CORE",
+          "evidence": [
+            {
+              "confidence": 1.0,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:ROBOTICS_ADVANCED_MANUFACTURING:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885427.TI",
+              "taxonomy_name": "高端装备",
+              "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING"
+            },
+            {
+              "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+              "canonical_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885427.TI",
+              "taxonomy_name": "高端装备",
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "confidence": 1.0,
+              "node_id": "MTR:ROBOTICS_ADVANCED_MANUFACTURING:CORE"
+            },
+            {
+              "confidence": 1.0,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:ROBOTICS_ADVANCED_MANUFACTURING:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "886008.TI",
+              "taxonomy_name": "减速器",
+              "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING"
+            },
+            {
+              "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+              "canonical_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "886008.TI",
+              "taxonomy_name": "减速器",
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "confidence": 1.0,
+              "node_id": "MTR:ROBOTICS_ADVANCED_MANUFACTURING:CORE"
+            }
+          ]
+        },
+        {
+          "theme_id": "SEMICONDUCTOR_LOCALIZATION",
+          "node_id": "MTR:SEMICONDUCTOR_LOCALIZATION:CORE",
+          "evidence": [
+            {
+              "confidence": 1.0,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:SEMICONDUCTOR_LOCALIZATION:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885756.TI",
+              "taxonomy_name": "芯片概念",
+              "theme_id": "SEMICONDUCTOR_LOCALIZATION"
+            },
+            {
+              "theme_id": "SEMICONDUCTOR_LOCALIZATION",
+              "canonical_id": "SEMICONDUCTOR_LOCALIZATION",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885756.TI",
+              "taxonomy_name": "芯片概念",
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "confidence": 1.0,
+              "node_id": "MTR:SEMICONDUCTOR_LOCALIZATION:CORE"
+            },
+            {
+              "confidence": 1.0,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:SEMICONDUCTOR_LOCALIZATION:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "886009.TI",
+              "taxonomy_name": "先进封装",
+              "theme_id": "SEMICONDUCTOR_LOCALIZATION"
+            },
+            {
+              "theme_id": "SEMICONDUCTOR_LOCALIZATION",
+              "canonical_id": "SEMICONDUCTOR_LOCALIZATION",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "886009.TI",
+              "taxonomy_name": "先进封装",
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "confidence": 1.0,
+              "node_id": "MTR:SEMICONDUCTOR_LOCALIZATION:CORE"
+            }
+          ]
+        }
+      ],
+      "source_hash": "cd771e65849e4e1e1d886d19b1f3b50fb6dde2617af69632454b55736f2019f9",
+      "as_of": "2026-09-14T17:03:00+08:00"
+    },
+    {
+      "symbol": "600088.SH",
+      "name": "中视传媒",
+      "status": "REVIEW_CANDIDATE",
+      "execution_permission": "BLOCKED",
+      "reason_codes": [
+        "A2_EMOTION_LADDER_LEADER_CONFIRMED",
+        "A2_EMOTION_PRECEDENCE_OVER_TREND",
+        "A2_EMOTION_THEME_SELECTION_REQUIRED"
+      ],
+      "research_only_reason": "A2_EMOTION_THEME_SELECTION_REQUIRED",
+      "route_eligibility": {
+        "MARKET_CORE": {
+          "eligible": true,
+          "route": "MARKET_CORE",
+          "missing_reason_codes": [],
+          "diagnostic_reason_codes": [
+            "A2_EMOTION_THEME_SELECTION_REQUIRED",
+            "A2_DAILY_EMOTION_BUSINESS_EVIDENCE_NOT_REQUIRED"
+          ],
+          "missing_optional_factors": [],
+          "data_sufficiency_state": "SUFFICIENT",
+          "bottleneck_status": "NOT_REQUIRED_FOR_MARKET_CORE",
+          "market_fact_count": 3,
+          "route_coverage_ratio": 1.0
+        },
+        "SUPPLY_CHAIN_ALPHA": {
+          "eligible": false,
+          "route": "SUPPLY_CHAIN_ALPHA",
+          "missing_reason_codes": [
+            "A2_SUPPLY_CHAIN_ROLE_NOT_FOCUS_ELIGIBLE",
+            "A2_SCARCE_LAYER_MISSING",
+            "A2_VALUE_CHAIN_POSITION_MISSING",
+            "A2_BOTTLENECK_SCORECARD_MISSING",
+            "A2_BOTTLENECK_EVIDENCE_INSUFFICIENT",
+            "A2_BOTTLENECK_STRONG_EVIDENCE_MISSING",
+            "A2_BOTTLENECK_MISSING_PROOF_UNDECLARED",
+            "A2_BOTTLENECK_KILL_SWITCH_MISSING"
+          ],
+          "missing_optional_factors": [],
+          "data_sufficiency_state": "DATA_GAP",
+          "bottleneck_status": "UNPROVEN",
+          "evidence_count": 0
+        }
+      },
+      "unique_theme_selected": false,
+      "candidate_routes": [
+        {
+          "theme_id": "AGRICULTURE_FOOD_SECURITY",
+          "node_id": "MTR:AGRICULTURE_FOOD_SECURITY:CORE",
+          "evidence": [
+            {
+              "confidence": 1.0,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:AGRICULTURE_FOOD_SECURITY:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885705.TI",
+              "taxonomy_name": "乡村振兴",
+              "theme_id": "AGRICULTURE_FOOD_SECURITY"
+            },
+            {
+              "theme_id": "AGRICULTURE_FOOD_SECURITY",
+              "canonical_id": "AGRICULTURE_FOOD_SECURITY",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885705.TI",
+              "taxonomy_name": "乡村振兴",
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "confidence": 1.0,
+              "node_id": "MTR:AGRICULTURE_FOOD_SECURITY:CORE"
+            }
+          ]
+        },
+        {
+          "theme_id": "CONSUMER_SERVICES",
+          "node_id": "MTR:CONSUMER_SERVICES:CORE",
+          "evidence": [
+            {
+              "confidence": 1.0,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:CONSUMER_SERVICES:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885497.TI",
+              "taxonomy_name": "旅游概念",
+              "theme_id": "CONSUMER_SERVICES"
+            },
+            {
+              "theme_id": "CONSUMER_SERVICES",
+              "canonical_id": "CONSUMER_SERVICES",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885497.TI",
+              "taxonomy_name": "旅游概念",
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "confidence": 1.0,
+              "node_id": "MTR:CONSUMER_SERVICES:CORE"
+            }
+          ]
+        }
+      ],
+      "source_hash": "29d1efce0a7d343de703b648391e6c160e7e433e91f1c68f667fb354f8486a38",
+      "as_of": "2026-09-14T17:03:00+08:00"
+    },
+    {
+      "symbol": "600330.SH",
+      "name": "天通股份",
+      "status": "REVIEW_CANDIDATE",
+      "execution_permission": "BLOCKED",
+      "reason_codes": [
+        "A2_EMOTION_FIRST_BOARD_OBSERVED",
+        "A2_EMOTION_THEME_SELECTION_REQUIRED"
+      ],
+      "research_only_reason": "A2_EMOTION_THEME_SELECTION_REQUIRED",
+      "route_eligibility": {
+        "MARKET_CORE": {
+          "eligible": true,
+          "route": "MARKET_CORE",
+          "missing_reason_codes": [],
+          "diagnostic_reason_codes": [
+            "A2_EMOTION_THEME_SELECTION_REQUIRED",
+            "A2_DAILY_EMOTION_BUSINESS_EVIDENCE_NOT_REQUIRED"
+          ],
+          "missing_optional_factors": [],
+          "data_sufficiency_state": "SUFFICIENT",
+          "bottleneck_status": "NOT_REQUIRED_FOR_MARKET_CORE",
+          "market_fact_count": 3,
+          "route_coverage_ratio": 1.0
+        },
+        "SUPPLY_CHAIN_ALPHA": {
+          "eligible": false,
+          "route": "SUPPLY_CHAIN_ALPHA",
+          "missing_reason_codes": [
+            "A2_SUPPLY_CHAIN_ROLE_NOT_FOCUS_ELIGIBLE",
+            "A2_SCARCE_LAYER_MISSING",
+            "A2_VALUE_CHAIN_POSITION_MISSING",
+            "A2_BOTTLENECK_SCORECARD_MISSING",
+            "A2_BOTTLENECK_EVIDENCE_INSUFFICIENT",
+            "A2_BOTTLENECK_STRONG_EVIDENCE_MISSING",
+            "A2_BOTTLENECK_MISSING_PROOF_UNDECLARED",
+            "A2_BOTTLENECK_KILL_SWITCH_MISSING"
+          ],
+          "missing_optional_factors": [],
+          "data_sufficiency_state": "DATA_GAP",
+          "bottleneck_status": "UNPROVEN",
+          "evidence_count": 0
+        }
+      },
+      "unique_theme_selected": false,
+      "candidate_routes": [
+        {
+          "theme_id": "CHEMICAL_NEW_MATERIALS",
+          "node_id": "MTR:CHEMICAL_NEW_MATERIALS:CORE",
+          "evidence": [
+            {
+              "confidence": 1.0,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:CHEMICAL_NEW_MATERIALS:CORE",
+              "taxonomy": "INDUSTRY",
+              "taxonomy_code": "881172.TI",
+              "taxonomy_name": "电子化学品",
+              "theme_id": "CHEMICAL_NEW_MATERIALS"
+            },
+            {
+              "theme_id": "CHEMICAL_NEW_MATERIALS",
+              "canonical_id": "CHEMICAL_NEW_MATERIALS",
+              "taxonomy": "INDUSTRY",
+              "taxonomy_code": "881172.TI",
+              "taxonomy_name": "电子化学品",
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "confidence": 1.0,
+              "node_id": "MTR:CHEMICAL_NEW_MATERIALS:CORE"
+            }
+          ]
+        },
+        {
+          "theme_id": "SEMICONDUCTOR_LOCALIZATION",
+          "node_id": "MTR:SEMICONDUCTOR_LOCALIZATION:CORE",
+          "evidence": [
+            {
+              "confidence": 1.0,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:SEMICONDUCTOR_LOCALIZATION:CORE",
+              "taxonomy": "INDUSTRY",
+              "taxonomy_code": "881172.TI",
+              "taxonomy_name": "电子化学品",
+              "theme_id": "SEMICONDUCTOR_LOCALIZATION"
+            },
+            {
+              "theme_id": "SEMICONDUCTOR_LOCALIZATION",
+              "canonical_id": "SEMICONDUCTOR_LOCALIZATION",
+              "taxonomy": "INDUSTRY",
+              "taxonomy_code": "881172.TI",
+              "taxonomy_name": "电子化学品",
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "confidence": 1.0,
+              "node_id": "MTR:SEMICONDUCTOR_LOCALIZATION:CORE"
+            }
+          ]
+        }
+      ],
+      "source_hash": "1429fb1577c5f2c396b8152efdf3f0cf4ad33f896e63d527365cad4681d50730",
+      "as_of": "2026-09-14T17:03:00+08:00"
+    },
+    {
+      "symbol": "605069.SH",
+      "name": "正和生态",
+      "status": "REVIEW_CANDIDATE",
+      "execution_permission": "BLOCKED",
+      "reason_codes": [
+        "A2_EMOTION_LADDER_LEADER_CONFIRMED",
+        "A2_EMOTION_THEME_SELECTION_REQUIRED"
+      ],
+      "research_only_reason": "A2_EMOTION_THEME_SELECTION_REQUIRED",
+      "route_eligibility": {
+        "MARKET_CORE": {
+          "eligible": true,
+          "route": "MARKET_CORE",
+          "missing_reason_codes": [],
+          "diagnostic_reason_codes": [
+            "A2_EMOTION_THEME_SELECTION_REQUIRED",
+            "A2_DAILY_EMOTION_BUSINESS_EVIDENCE_NOT_REQUIRED"
+          ],
+          "missing_optional_factors": [],
+          "data_sufficiency_state": "SUFFICIENT",
+          "bottleneck_status": "NOT_REQUIRED_FOR_MARKET_CORE",
+          "market_fact_count": 3,
+          "route_coverage_ratio": 1.0
+        },
+        "SUPPLY_CHAIN_ALPHA": {
+          "eligible": false,
+          "route": "SUPPLY_CHAIN_ALPHA",
+          "missing_reason_codes": [
+            "A2_SUPPLY_CHAIN_ROLE_NOT_FOCUS_ELIGIBLE",
+            "A2_SCARCE_LAYER_MISSING",
+            "A2_VALUE_CHAIN_POSITION_MISSING",
+            "A2_BOTTLENECK_SCORECARD_MISSING",
+            "A2_BOTTLENECK_EVIDENCE_INSUFFICIENT",
+            "A2_BOTTLENECK_STRONG_EVIDENCE_MISSING",
+            "A2_BOTTLENECK_MISSING_PROOF_UNDECLARED",
+            "A2_BOTTLENECK_KILL_SWITCH_MISSING"
+          ],
+          "missing_optional_factors": [],
+          "data_sufficiency_state": "DATA_GAP",
+          "bottleneck_status": "UNPROVEN",
+          "evidence_count": 0
+        }
+      },
+      "unique_theme_selected": false,
+      "candidate_routes": [
+        {
+          "theme_id": "AGRICULTURE_FOOD_SECURITY",
+          "node_id": "MTR:AGRICULTURE_FOOD_SECURITY:CORE",
+          "evidence": [
+            {
+              "confidence": 1.0,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:AGRICULTURE_FOOD_SECURITY:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885705.TI",
+              "taxonomy_name": "乡村振兴",
+              "theme_id": "AGRICULTURE_FOOD_SECURITY"
+            },
+            {
+              "theme_id": "AGRICULTURE_FOOD_SECURITY",
+              "canonical_id": "AGRICULTURE_FOOD_SECURITY",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885705.TI",
+              "taxonomy_name": "乡村振兴",
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "confidence": 1.0,
+              "node_id": "MTR:AGRICULTURE_FOOD_SECURITY:CORE"
+            }
+          ]
+        },
+        {
+          "theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+          "node_id": "MTR:AI_APPLICATIONS_DIGITAL_ECONOMY:CORE",
+          "evidence": [
+            {
+              "confidence": 1.0,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:AI_APPLICATIONS_DIGITAL_ECONOMY:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885728.TI",
+              "taxonomy_name": "人工智能",
+              "theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY"
+            },
+            {
+              "theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+              "canonical_id": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885728.TI",
+              "taxonomy_name": "人工智能",
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "confidence": 1.0,
+              "node_id": "MTR:AI_APPLICATIONS_DIGITAL_ECONOMY:CORE"
+            },
+            {
+              "confidence": 1.0,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:AI_APPLICATIONS_DIGITAL_ECONOMY:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885976.TI",
+              "taxonomy_name": "数字经济",
+              "theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY"
+            },
+            {
+              "theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+              "canonical_id": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885976.TI",
+              "taxonomy_name": "数字经济",
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "confidence": 1.0,
+              "node_id": "MTR:AI_APPLICATIONS_DIGITAL_ECONOMY:CORE"
+            },
+            {
+              "confidence": 1.0,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:AI_APPLICATIONS_DIGITAL_ECONOMY:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "886019.TI",
+              "taxonomy_name": "AIGC概念",
+              "theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY"
+            },
+            {
+              "theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+              "canonical_id": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "886019.TI",
+              "taxonomy_name": "AIGC概念",
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "confidence": 1.0,
+              "node_id": "MTR:AI_APPLICATIONS_DIGITAL_ECONOMY:CORE"
+            },
+            {
+              "confidence": 1.0,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:AI_APPLICATIONS_DIGITAL_ECONOMY:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "886099.TI",
+              "taxonomy_name": "AI智能体",
+              "theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY"
+            },
+            {
+              "theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+              "canonical_id": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "886099.TI",
+              "taxonomy_name": "AI智能体",
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "confidence": 1.0,
+              "node_id": "MTR:AI_APPLICATIONS_DIGITAL_ECONOMY:CORE"
+            }
+          ]
+        },
+        {
+          "theme_id": "AI_COMPUTE_INFRASTRUCTURE",
+          "node_id": "MTR:AI_COMPUTE_INFRASTRUCTURE:CORE",
+          "evidence": [
+            {
+              "confidence": 1.0,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:AI_COMPUTE_INFRASTRUCTURE:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885728.TI",
+              "taxonomy_name": "人工智能",
+              "theme_id": "AI_COMPUTE_INFRASTRUCTURE"
+            },
+            {
+              "theme_id": "AI_COMPUTE_INFRASTRUCTURE",
+              "canonical_id": "AI_COMPUTE_INFRASTRUCTURE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885728.TI",
+              "taxonomy_name": "人工智能",
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "confidence": 1.0,
+              "node_id": "MTR:AI_COMPUTE_INFRASTRUCTURE:CORE"
+            }
+          ]
+        },
+        {
+          "theme_id": "CONSUMER_SERVICES",
+          "node_id": "MTR:CONSUMER_SERVICES:CORE",
+          "evidence": [
+            {
+              "confidence": 1.0,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:CONSUMER_SERVICES:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885497.TI",
+              "taxonomy_name": "旅游概念",
+              "theme_id": "CONSUMER_SERVICES"
+            },
+            {
+              "theme_id": "CONSUMER_SERVICES",
+              "canonical_id": "CONSUMER_SERVICES",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885497.TI",
+              "taxonomy_name": "旅游概念",
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "confidence": 1.0,
+              "node_id": "MTR:CONSUMER_SERVICES:CORE"
+            },
+            {
+              "confidence": 1.0,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:CONSUMER_SERVICES:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "886095.TI",
+              "taxonomy_name": "IP经济(谷子经济)",
+              "theme_id": "CONSUMER_SERVICES"
+            },
+            {
+              "theme_id": "CONSUMER_SERVICES",
+              "canonical_id": "CONSUMER_SERVICES",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "886095.TI",
+              "taxonomy_name": "IP经济(谷子经济)",
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "confidence": 1.0,
+              "node_id": "MTR:CONSUMER_SERVICES:CORE"
+            }
+          ]
+        },
+        {
+          "theme_id": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+          "node_id": "MTR:INFRASTRUCTURE_DOMESTIC_DEMAND:CORE",
+          "evidence": [
+            {
+              "confidence": 1.0,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:INFRASTRUCTURE_DOMESTIC_DEMAND:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885572.TI",
+              "taxonomy_name": "水利",
+              "theme_id": "INFRASTRUCTURE_DOMESTIC_DEMAND"
+            },
+            {
+              "theme_id": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+              "canonical_id": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885572.TI",
+              "taxonomy_name": "水利",
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "confidence": 1.0,
+              "node_id": "MTR:INFRASTRUCTURE_DOMESTIC_DEMAND:CORE"
+            },
+            {
+              "confidence": 1.0,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:INFRASTRUCTURE_DOMESTIC_DEMAND:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885690.TI",
+              "taxonomy_name": "PPP概念",
+              "theme_id": "INFRASTRUCTURE_DOMESTIC_DEMAND"
+            },
+            {
+              "theme_id": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+              "canonical_id": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885690.TI",
+              "taxonomy_name": "PPP概念",
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "confidence": 1.0,
+              "node_id": "MTR:INFRASTRUCTURE_DOMESTIC_DEMAND:CORE"
+            },
+            {
+              "confidence": 1.0,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:INFRASTRUCTURE_DOMESTIC_DEMAND:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885991.TI",
+              "taxonomy_name": "新型城镇化",
+              "theme_id": "INFRASTRUCTURE_DOMESTIC_DEMAND"
+            },
+            {
+              "theme_id": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+              "canonical_id": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885991.TI",
+              "taxonomy_name": "新型城镇化",
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "confidence": 1.0,
+              "node_id": "MTR:INFRASTRUCTURE_DOMESTIC_DEMAND:CORE"
+            }
+          ]
+        },
+        {
+          "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+          "node_id": "MTR:ROBOTICS_ADVANCED_MANUFACTURING:CORE",
+          "evidence": [
+            {
+              "confidence": 1.0,
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "node_id": "MTR:ROBOTICS_ADVANCED_MANUFACTURING:CORE",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885517.TI",
+              "taxonomy_name": "机器人概念",
+              "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING"
+            },
+            {
+              "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+              "canonical_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+              "taxonomy": "CONCEPT",
+              "taxonomy_code": "885517.TI",
+              "taxonomy_name": "机器人概念",
+              "match_method": "MATURE_THEME_REGISTRY_EXACT_NAME",
+              "confidence": 1.0,
+              "node_id": "MTR:ROBOTICS_ADVANCED_MANUFACTURING:CORE"
+            }
+          ]
+        }
+      ],
+      "source_hash": "9e9a2efaee333f523be38dc588cab3e6960960009d22cdd8c0d99fe3cfb309eb",
+      "as_of": "2026-09-14T17:03:00+08:00"
+    }
+  ],
+  "all_market_mapping": {
+    "scope": 5571,
+    "scope_basis": "FROZEN_MEMBERSHIP_UNIVERSE",
+    "daily_overlay": 56,
+    "unique": 4617,
+    "multiple_supported": 914,
+    "missing": 40
+  }
+}

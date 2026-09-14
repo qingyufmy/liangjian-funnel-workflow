@@ -180,7 +180,7 @@ def test_board_lots_odd_balance_and_tick():
         stock_trading_rules("920001.BJ")
 
 
-@pytest.mark.parametrize("secondary_volume,complete", [(1000, True), (0, False)])
+@pytest.mark.parametrize("secondary_volume,complete", [(1000, False), (0, False)])
 def test_close_zero_volume_requires_independent_finalized_window(secondary_volume, complete):
     current = at(8, 15, 0)
     base = bar(current)

@@ -177,6 +177,12 @@ _DISPLAY_LABELS = {
     "TREND_VWAP_RECLAIMED_NOT_MET": "价格尚未收复当日成交均价",
     "A2_ROTATION_RESERVE_RESEARCH_ONLY": "轮动候补方向，进入技术研究，暂不执行",
     "A3_ROTATION_RESERVE_RESEARCH_ONLY": "候补技术研究计划，未开放盘中执行",
+    "A3_EMOTION_RESEARCH_ONLY_NO_ENTRY": "情绪研究候选，暂未开放执行",
+    "A2_EMOTION_CYCLE_NO_NEW_ENTRY": "情绪阶段限制新开仓，保留研究观察",
+    "A2_EMOTION_THEME_SELECTION_REQUIRED": "存在多个有依据的主题，需明确本轮研究题材",
+    "MINUTE_FETCH_BUDGET_EXHAUSTED": "本分钟取数超时，等待后续完整行情",
+    "CURRENT_SESSION_WINDOW_INVALID": "当日分钟窗口不完整或时间不符",
+    "CLOSE_BAR_FINALIZATION_UNCONFIRMED": "收盘行情待确认，盘后补采归档",
     "TREND_PULLBACK_ZONE_NOT_MET": "尚未进入趋势回踩区",
     "PLAN_INVALIDATED_AT_OPEN": "开盘价格触发计划失效",
     "LLM_VETO": "盘中复核模型否决",
@@ -1279,6 +1285,28 @@ class WorkflowLarkPublisher:
                 now=now,
             )
         ]
+
+    def publish_minute_source_health(self, failures: Mapping[str, str], *, now: datetime) -> list[dict[str, Any]]:
+        """One durable incident/recovery per source-window failure, not per plan."""
+        day = now.date().isoformat()
+        state = "BLOCKED" if failures else "READY"
+        previous = self.store.list_notification_deliveries(kind="A4_MINUTE_SOURCE_HEALTH", limit=1)
+        old = _json_mapping(previous[0].get("payload_json")) if previous else {}
+        same_day = old.get("trade_date") == day
+        reasons = sorted(set(failures.values()))
+        if same_day and old.get("state") == state and old.get("reasons") == reasons and previous[0].get("status") == "SENT":
+            return []
+        if not failures and not (same_day and old.get("state") == "BLOCKED"):
+            return []
+        title = "A4行情取数异常" if failures else "A4行情取数恢复"
+        lines = [f"• 时间：{now.strftime('%H:%M:%S')}；受影响股票：{len(failures)}只。",
+                 "• 重试及后备取数后仍未取得完整当日分钟窗口，受影响股票暂停判断；其他股票继续。" if failures else "• 当日分钟窗口已恢复并通过完整性检查，后续正常判断，不补发历史信号。"]
+        if failures:
+            lines.append("• 涉及股票：" + "、".join(_stock_code(s) for s in sorted(failures)[:15]))
+        return [self._send(delivery_key=f"a4-minute-source:{now.isoformat()}:{state}",
+            kind="A4_MINUTE_SOURCE_HEALTH", source_id=f"minute-source:{day}", title=title,
+            lines=lines, summary={"trade_date": day, "state": state, "reasons": reasons,
+                                  "symbols": sorted(failures), "affected_count": len(failures)}, now=now)]
 
     def publish_a4_system_health(
         self,

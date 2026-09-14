@@ -21,6 +21,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 from ..runtime.calendar import ExchangeTradingCalendar
 from .indicator_evidence import audit_event_indicators, daily_macd_check
+from ..runtime.indicator_windows import load_window
 from .evidence_archive import archive_observation
 
 
@@ -220,7 +221,7 @@ def _field_comparison(left: Mapping[str, Mapping[str, Any]], right: Mapping[str,
 class A5IndependentVerifier:
     """Build independent A2/A3/A4 acceptance evidence without mutating runtime."""
 
-    def __init__(self, *, daily_cache: Any, minute_store: Any, tencent: Any, mootdx: Any, workers: int = 12, quote_fetch: Any = None, evidence_dir: Path | None = None):
+    def __init__(self, *, daily_cache: Any, minute_store: Any, tencent: Any, mootdx: Any, workers: int = 12, quote_fetch: Any = None, evidence_dir: Path | None = None, indicator_window_dir: Path | None = None):
         self.daily_cache = daily_cache
         self.minute_store = minute_store
         self.tencent = tencent
@@ -228,6 +229,7 @@ class A5IndependentVerifier:
         self.workers = max(1, min(int(workers), 24))
         self.quote_fetch = quote_fetch
         self.evidence_dir = evidence_dir
+        self.indicator_window_dir = indicator_window_dir
 
     def verify(
         self,
@@ -819,7 +821,8 @@ class A5IndependentVerifier:
                 "cross_source_mismatch_points": mismatch_points,
                 "cross_source_field_checks": cross_fields, "archived_tdx_field_checks": archive_fields,
                 "discrepancy_class": "PRODUCTION_ARCHIVE_DIVERGENCE" if archive_mismatch else "ALTERNATE_SOURCE_DIVERGENCE" if alternate_mismatch else "NO_COMPARABLE_MISMATCH",
-                "indicator_formula_audit": audit_event_indicators(events),
+                "indicator_formula_audit": audit_event_indicators(events, strategy_profile=str(payload.get("strategy_profile") or ""),
+                    symbol=symbol, window_loader=(lambda digest: load_window(self.indicator_window_dir, digest)) if self.indicator_window_dir else None),
                 "cross_source_status": "MATCH" if differences and max(differences) <= 0.005 else "MISMATCH" if differences else "DATA_LIMITED",
                 "archived_bar_count": len(archived), "archived_tdx_overlap_count": len(archived_overlap),
                 "archive_basis": local.get(symbol, {}).get("archive_basis", "LEGACY_FIRST_OBSERVATION"),
@@ -835,7 +838,7 @@ class A5IndependentVerifier:
         needs_attention = any(row["discrepancy_class"] != "NO_COMPARABLE_MISMATCH" or row["cross_source_status"] == "MISMATCH" or row["archived_tdx_status"] == "MISMATCH"
                               or row["observation_coverage"] < 1 or row["orchestration_omission_count"]
                               or any(count for counts in row["indicator_formula_audit"]["counts"].values()
-                                     for status, count in counts.items() if status != "MATCH") for row in results)
+                                     for status, count in counts.items() if status not in {"MATCH", "NOT_APPLICABLE", "NOT_YET_EVALUABLE"}) for row in results)
         return {
             "status": "READY" if ratio >= 0.8 and not needs_attention else "DEGRADED" if covered or not plan_rows else "UNAVAILABLE",
             "evidence_id": "A5V:A4:SUMMARY", "plan_count": len(plan_rows),

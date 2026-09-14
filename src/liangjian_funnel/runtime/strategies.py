@@ -379,6 +379,18 @@ def evaluate_a4_plan(
             bars_15m,
         )
 
+    # This is the exact common volume baseline used by the price/volume
+    # helpers below, not an additional entry gate or an inferred cash flow.
+    volume_baseline = _median(item.volume for item in bars_5m[:-1])
+    base["indicator_observations"]["volume_5m"] = {
+        "role": "INPUT_FORMULA_AUDIT", "timeframe": "5m_closed",
+        "available": volume_baseline is not None, "bar_count": len(bars_5m),
+        "latest_volume": bars_5m[-1].volume, "median_previous_volume": volume_baseline,
+        "volume_unit": "shares", "closed_bar_end": bars_5m[-1].end.isoformat(),
+        "parameters": {"baseline": "MEDIAN_PREVIOUS_CURRENT_SESSION"},
+        "input_series": [{"end": b.end.isoformat(), "volume": b.volume} for b in bars_5m],
+    }
+
     if not position_open:
         pre_entry_risk = _pre_entry_risk_decision(
             profile,
@@ -1694,6 +1706,7 @@ def _macd_observation(bars: Sequence[_Bar]) -> dict[str, Any]:
         "state": state,
         "closed_bar_end": bars[-1].end.isoformat(),
         "input_series": [{"end": bar.end.isoformat(), "close": bar.close} for bar in bars],
+        "parameters": {"fast": 12, "slow": 26, "signal": 9, "hist_scale": 2, "initialization": "FIRST_CLOSE"},
     }
 
 
@@ -1748,6 +1761,7 @@ def _kdj_observation(bars: Sequence[_Bar], period: int = 9) -> dict[str, Any]:
         "state": state,
         "closed_bar_end": bars[-1].end.isoformat(),
         "input_series": [{"end": bar.end.isoformat(), "high": bar.high, "low": bar.low, "close": bar.close} for bar in bars],
+        "parameters": {"period": period, "k_smooth": 3, "d_smooth": 3, "initial_k": 50, "initial_d": 50},
     }
 
 

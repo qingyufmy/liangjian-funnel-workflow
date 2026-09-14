@@ -50,6 +50,21 @@ _FORBIDDEN_HOST = re.compile(r"[\x00-\x20/\\:@?#\[\]]")
 _FORBIDDEN_SOURCE = re.compile(r"[\x00-\x1f/\\?#\[\]]")
 
 
+class _ExplicitTdxClient:
+    """Minimal per-node client; keep raw volume units for normalize_bars."""
+
+    def __init__(self, client: Any):
+        self.client = client
+
+    def bars(self, *, symbol: str, frequency: int, start: int = 0, offset: int = 800):
+        mapping = map_symbol(symbol)
+        return self.client.get_security_bars(
+            frequency, 1 if mapping.exchange == "SH" else 0, mapping.code, start, offset)
+
+    def close(self):
+        self.client.disconnect()
+
+
 class MootdxError(RuntimeError):
     """A safe, structured adapter error.
 
@@ -528,16 +543,19 @@ class MootdxAdapter:
 
     def _default_factory(self, node: MootdxNode) -> Any:
         try:
-            from mootdx.quotes import Quotes  # type: ignore[import-not-found]
+            from tdxpy.hq import TdxHq_API
         except ImportError:
             raise MootdxError("MOOTDX_NOT_INSTALLED", server=node.server) from None
-        return Quotes.factory(
-            market="std",
-            server=(node.host, node.port),
-            timeout=self.timeout_seconds,
-            auto_retry=False,
-            raise_exception=True,
-        )
+        # StdQuotes mutates process-global BESTIP and persists user config.
+        # Concurrent nodes must have independent sockets and explicit identity.
+        client = TdxHq_API(auto_retry=False, raise_exception=True)
+        try:
+            if not client.connect(node.host, node.port, time_out=self.timeout_seconds):
+                raise MootdxError("NODE_CONNECT_FAILED", server=node.server)
+        except Exception:
+            client.disconnect()
+            raise
+        return _ExplicitTdxClient(client)
 
     def fetch_bars(
         self,

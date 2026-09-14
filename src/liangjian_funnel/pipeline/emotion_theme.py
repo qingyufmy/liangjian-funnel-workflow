@@ -71,8 +71,13 @@ def bind_emotion_themes(output: Mapping[str, Any], snapshot: Mapping[str, Any],
         resolved = len(pairs) == 1
         theme, node = next(iter(pairs)) if resolved else ("UNMAPPED", "UNMAPPED")
         result[symbol] = {
-            "schema_version": "emotion-theme-binding/1.0.0",
+            "schema_version": "emotion-theme-binding/1.1.0",
             "resolved": resolved, "theme_id": theme, "node_id": node,
+            "research_resolved": bool(pairs),
+            "requires_theme_selection": len(pairs) > 1,
+            "candidate_routes": [{"theme_id": t, "node_id": n,
+                                  "evidence": [r for r in preferred if r["theme_id"] == t and r["node_id"] == n]}
+                                 for t, n in sorted(pairs)],
             "reason_code": "OK" if resolved else "EMOTION_THEME_AMBIGUOUS" if pairs else "EMOTION_THEME_MEMBERSHIP_MISSING",
             "source": "FROZEN_STRATEGY_REGISTRY_AND_SYMBOL_MEMBERSHIP" if registry else "FROZEN_A1_TAXONOMY_LINKS_AND_SYMBOL_MEMBERSHIP",
             "selection_basis": "UNIQUE_LEAF_INDUSTRY" if preferred is leaves else "UNIQUE_INDUSTRY" if industry else "UNIQUE_CONCEPT",

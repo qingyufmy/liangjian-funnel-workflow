@@ -101,7 +101,9 @@ class MootdxProbe:
         )
 
         checks.append(self._cross_source_check(one_minute, current))
-        overall = CapabilityStatus.PASS if all(check.status is CapabilityStatus.PASS for check in checks) else CapabilityStatus.BLOCKED
+        overall = (CapabilityStatus.PASS if all(check.status is CapabilityStatus.PASS for check in checks)
+                   else CapabilityStatus.PARTIAL if all(check.status in {CapabilityStatus.PASS, CapabilityStatus.UNVERIFIED} for check in checks)
+                   else CapabilityStatus.BLOCKED)
         return CapabilityReport(provider="MOOTDX", generated_at=current, overall_status=overall, checks=tuple(checks))
 
     def _cache_check(self, one_minute: FetchResult | None, five_minute: FetchResult | None) -> CapabilityCheck:
@@ -132,7 +134,9 @@ class MootdxProbe:
         if not minute or not minute.complete or not minute.bars:
             return CapabilityCheck(name="cross_source_latest_price", status=CapabilityStatus.BLOCKED, reason_code="MOOTDX_MINUTE_UNAVAILABLE")
         if self.settings.hithink_api_key is None:
-            return CapabilityCheck(name="cross_source_latest_price", status=CapabilityStatus.BLOCKED, reason_code="HITHINK_API_KEY_MISSING")
+            return CapabilityCheck(name="cross_source_latest_price", status=CapabilityStatus.UNVERIFIED,
+                                   reason_code="OPTIONAL_CROSS_SOURCE_NOT_CONFIGURED",
+                                   evidence={"source_fetch_blocked": False, "independent_verification_complete": False})
         started = time.perf_counter()
         try:
             with httpx.Client(

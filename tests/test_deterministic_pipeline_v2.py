@@ -1461,8 +1461,9 @@ def test_a2_daily_emotion_overlay_risk_and_trade_boundaries_stay_closed() -> Non
         {**snapshot, "MARKET_EMOTION_SNAPSHOT": {"available": True, "emotion_cycle_stage": "FADE"}},
     ):
         waiting = screen_a2(inactive, {"active_research_pool": [base_overlay]}, review_all_eligible=True)
-        assert waiting.review_symbols == ()
-        assert waiting.decisions[0]["status"] == "LOCAL_MONITOR"
+        assert waiting.review_symbols == ("600000.SH",)
+        assert waiting.decisions[0]["status"] == "REVIEW_CANDIDATE"
+        assert waiting.decisions[0]["execution_permission"] == "BLOCKED"
         assert "A1_BUSINESS_EVIDENCE_MISSING" not in waiting.decisions[0]["reason_codes"]
         assert "A2_EMOTION_CYCLE_NO_NEW_ENTRY" in waiting.decisions[0]["reason_codes"]
 
