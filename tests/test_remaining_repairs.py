@@ -164,3 +164,10 @@ def test_compact_prompt_preserves_research_permissions_and_theme_evidence():
     normalized, _ = _apply_a3_candidate_origin_policy({'core_watch_pool':[{'symbol':SYMBOL}], 'secondary_watch_pool':[]},
         {'A2_BOTTLENECK_CONTEXT':context})
     assert normalized['core_watch_pool'][0]['execution_permission']=='BLOCKED'
+
+
+@pytest.mark.parametrize('reason', ['CLOSE_BAR_FINALIZATION_UNCONFIRMED','TENCENT_REQUEST_FAILED','MINUTE_FETCH_BUDGET_EXHAUSTED'])
+def test_source_incidents_do_not_send_per_stock_cards(reason):
+    from liangjian_funnel.runtime.lark_notifications import WorkflowLarkPublisher
+    events = [{'effective':True,'action':'DATA_BLOCK','reason_code':reason,'payload_json':'{}'}]
+    assert WorkflowLarkPublisher.publish_a4_events(SimpleNamespace(), events, plans={}, now=NOW)==[]

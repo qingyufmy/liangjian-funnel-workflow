@@ -1089,6 +1089,14 @@ class WorkflowLarkPublisher:
             if action not in _A4_TRADE_ACTIONS | {"DATA_BLOCK"}:
                 continue
             event_payload = _payload(event)
+            data_reason = str(event.get("reason_code") or event_payload.get("reason_code") or "")
+            if action == "DATA_BLOCK" and (data_reason.startswith(("TENCENT_", "NODE_")) or data_reason in {
+                "MINUTE_FETCH_BUDGET_EXHAUSTED", "CURRENT_SESSION_WINDOW_INVALID", "MINUTE_DATA_FETCH_FAILED",
+                "CLOSE_BAR_FINALIZATION_UNCONFIRMED",
+            }):
+                # Shared acquisition incidents have their own aggregate card;
+                # the 15:00 pending-finality state is a post-close archive task.
+                continue
             # A shared live-market outage is reported once by
             # ``publish_a4_system_health``.  Suppress the five equivalent
             # per-plan DATA_BLOCK cards it would otherwise produce.  A
