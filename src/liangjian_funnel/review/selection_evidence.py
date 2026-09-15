@@ -33,6 +33,8 @@ def counterexample_selection_audit(candidate, technical):
         profile = names.get(technical.get("strategy_profile"), "未识别策略")
         unmet = technical.get("unmet_conditions") or []
         labels = {"THEME_IN_EARLY_CYCLE": "题材尚未满足启动或加速阶段",
+                  "BOARD_NOT_HIGH_RISK_4_PLUS": "已处于四板及以上高风险阶段，仅作观察",
+                  "BOARD_NOT_FIRST_OBSERVATION_ONLY": "首板尚未满足启动试探条件，仅作观察",
                   "TREND_DAILY_PATH_CONFIRMED": "未确认日线主升、平台突破、强势回踩或创新高路径"}
         parts.append(f"当时核验的是{profile}策略")
         parts.extend(labels.get(code, str(code)) for code in unmet)

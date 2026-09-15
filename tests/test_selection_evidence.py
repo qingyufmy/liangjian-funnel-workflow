@@ -16,6 +16,11 @@ def test_a3_rejected_strategy_and_unmet_predicate_are_not_lost():
     audit = counterexample_selection_audit({}, result)
     assert "继续观察" in audit["explanation"]
     assert "未确认日线" in audit["explanation"]
+    for condition, label in [("BOARD_NOT_HIGH_RISK_4_PLUS", "四板及以上"),
+                              ("BOARD_NOT_FIRST_OBSERVATION_ONLY", "首板")]:
+        explanation = counterexample_selection_audit({}, {"strategy_profile": "LEADER_INTRADAY",
+            "unmet_conditions": [condition]})["explanation"]
+        assert label in explanation and condition not in explanation
 
 
 def test_a2_numeric_reason_survives_into_selected_counterexample_only():
