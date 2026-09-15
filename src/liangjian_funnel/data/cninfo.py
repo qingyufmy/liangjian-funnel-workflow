@@ -431,6 +431,9 @@ class CninfoClient:
         # endpoint.  RLock also protects the organization-id memo used by the
         # zero-result fallback without changing its public behavior.
         self._throttle_lock = Lock()
+        self._access_lock = Lock()
+        self._consecutive_denials = 0
+        self._access_circuit_open = False
         self._last_request: float | None = None
         self._min_request_interval = float(min_request_interval_seconds)
         self._endpoint = f"{base_url.rstrip('/')}/new/hisAnnouncement/query"
@@ -719,15 +722,29 @@ class CninfoClient:
         attempts = 0
         last_status: int | None = None
         for attempt in range(1, MAX_RETRIES + 1):
-            attempts += 1
+            with self._access_lock:
+                if self._access_circuit_open:
+                    return _PageOutcome(page=None, reason_code="CNINFO_ACCESS_DENIED_CIRCUIT_OPEN", http_status=403, attempts=attempts)
             try:
                 self._throttle()
+                # Threads already queued at the global throttle must also
+                # observe the denial circuit before making another request.
+                with self._access_lock:
+                    if self._access_circuit_open:
+                        return _PageOutcome(page=None, reason_code="CNINFO_ACCESS_DENIED_CIRCUIT_OPEN", http_status=403, attempts=attempts)
+                attempts += 1
                 response = self._client.post(self._endpoint, data=dict(form))
             except (httpx.HTTPError, TimeoutError, OSError):
                 return _PageOutcome(page=None, reason_code="CNINFO_REQUEST_FAILED", http_status=None, attempts=attempts)
             except Exception:
                 return _PageOutcome(page=None, reason_code="CNINFO_REQUEST_FAILED", http_status=None, attempts=attempts)
             status = int(getattr(response, "status_code", 0))
+            with self._access_lock:
+                self._consecutive_denials = self._consecutive_denials + 1 if status == 403 else 0
+                if self._consecutive_denials >= 3:
+                    # Client/batch scoped; a new scheduled run probes again.
+                    # Never convert denial into an empty successful dataset.
+                    self._access_circuit_open = True
             last_status = status if 100 <= status <= 599 else None
             if status == 429:
                 if attempt < MAX_RETRIES:

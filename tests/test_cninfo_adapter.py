@@ -18,6 +18,23 @@ TZ = ZoneInfo("Asia/Shanghai")
 NOW = datetime(2026, 8, 25, 15, 10, tzinfo=TZ)
 
 
+def test_repeated_access_denial_stops_bulk_requests_without_false_success():
+    calls = []
+    c = CninfoClient(transport=httpx.MockTransport(lambda request: calls.append(request) or httpx.Response(403)))
+    results = [c.fetch_announcements('600519.SH','2026-08-01','2026-08-25') for _ in range(100)]
+    assert len(calls) == 3
+    assert all(not r.ok and not r.complete for r in results)
+    assert results[-1].reason_code == 'CNINFO_ACCESS_DENIED_CIRCUIT_OPEN'
+    assert results[-1].attempts == 0
+
+
+def test_single_symbol_404_does_not_open_host_denial_circuit():
+    calls = []
+    c = CninfoClient(transport=httpx.MockTransport(lambda request: calls.append(request) or httpx.Response(404)))
+    for _ in range(5):c.fetch_announcements('600519.SH','2026-08-01','2026-08-25')
+    assert len(calls) == 5
+
+
 def announcement(identifier: str, *, title: str = "贵州茅台公告", url: str = "/finalpage/a.pdf") -> dict:
     return {
         "announcementId": identifier,
