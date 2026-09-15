@@ -17,6 +17,7 @@ from ..data.mootdx import MinuteBar
 from ..reporting import atomic_write_text
 from .strategies import STRATEGY_PROFILES, evaluate_strategy
 from .execution_eligibility import project_exit_eligibility
+from .position_data_health import position_data_health
 from .state import EFFECTIVE_ACTIONS, MonitorAction, PersistenceError, RuntimeStore
 
 
@@ -193,9 +194,10 @@ class MonitorEngine:
             risk_bar = bars_by_symbol.get(symbol) or bars_by_symbol.get(symbol.split(".")[0])
             risk_position = self.store.get_position(f"paper:{lane_id}", symbol)
             risk_payload = self._payload(plan)
+            risk_health = position_data_health(risk_bar, at=minute, reason=symbol_reason or global_data_reason,
+                                               integrity_ok=not bool(global_data_reason))
             if (symbol_reason and not global_data_reason and risk_position
-                    and risk_bar is not None and risk_bar.interval == "1m" and risk_bar.bar_end == minute
-                    and symbol_reason != "CLOSE_BAR_FINALIZATION_UNCONFIRMED"
+                    and risk_health["current_price_trusted"]
                     and risk_payload.get("stop_level") is not None
                     and risk_bar.low <= float(risk_payload["stop_level"])):
                 self._reset_confirmation(lane_id, plan_id)
@@ -232,6 +234,7 @@ class MonitorEngine:
                         minute_snapshot_id,
                         MonitorAction.DATA_BLOCK.value,
                         reason,
+                        strategy_result={"position_data_health": risk_health} if risk_position else None,
                     )
                 )
                 continue

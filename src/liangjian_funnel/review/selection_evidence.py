@@ -45,7 +45,9 @@ def counterexample_selection_audit(candidate, technical):
         value = medium.get("value") or {}
         if medium.get("available") is True and medium.get("met") is False:
             score, threshold = value.get("score"), value.get("threshold")
-            if isinstance(score, (int, float)) and isinstance(threshold, (int, float)):
+            if value.get("source_factor") == "stock_trend_structure":
+                parts.append(f"日线中期结构未确认：收盘{value.get('close')}，20日均线{value.get('ma20')}，前一交易日20日均线{value.get('previous_ma20')}，5日均线{value.get('ma5')}；稳定趋势与站回上升5日线的结构修复条件均未满足")
+            elif isinstance(score, (int, float)) and isinstance(threshold, (int, float)):
                 parts.append(f"趋势分类代理值{score:.2f}，未达到现行分类线{threshold:g}")
                 if value.get("source_factor") == "trend_strength_proxy":
                     parts.append("该值是20日涨幅横截面排名，不等于均线趋势或主营质量；其口径需单独评估")

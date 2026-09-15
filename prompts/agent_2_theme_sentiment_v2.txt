@@ -349,6 +349,7 @@ C19. REVIEWED_PUBLIC_RESEARCH_LEADS 的 theme_hypotheses 只定义“需要验�
     CORE_ARMY       中军。板块的权重与容量核心，机构参与度高，
                     走势代表板块中枢，回调时抗跌、启动时带指数
     TREND_CORE      中期趋势核心，非龙非中军但结构完好
+    中期结构与相对强度必须分开：stock_trend_structure 要求当前已闭合日线收盘不低于MA20；MA20不下降为稳定结构，否则只有收盘同时站上正在回升的MA5才是结构修复候选。修复候选不等于已形成A3计划。trend_strength_proxy 是20日涨幅横截面排名，仅用于相对强度，不是均线趋势。不得把缺失结构视为通过或由模型重算替代。该宽口径只用于A2分类，具体龙头、520、五日线技术资格仍由A3判断。
     CHAIN_RESONANCE 产业链共振或合理补涨
     FIRST_MOVER     首次异动，待确认
     LOW_IDENTITY    ★ 低辨识度弱项；需结合明确反证决定是否淘汰

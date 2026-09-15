@@ -576,6 +576,16 @@ def test_deterministic_a2_consumes_materialized_real_factor_projection() -> None
     assert decision["a2_factor_scores"]["leader_structure"]["available"] is True
     assert decision["a2_factor_scores"]["weekly_confirmation"]["available"] is True
     assert decision["a2_factor_scores"]["weekly_confirmation"]["weekly_momentum_state"] == "PERSISTENT"
+    medium = decision["behavior_type_decision"]["required_facets"]["medium_term_trend"]
+    assert medium["value"]["source_factor"] == "stock_trend_structure"
+    assert medium["value"]["ma20"] > medium["value"]["previous_ma20"]
+    assert medium["met"] is True
+    missing = {"available": False, "score": None, "reason_code": "A2_STOCK_TREND_DAY_MISSING"}
+    factors["by_symbol"]["600001.SH"]["stock_trend_structure"] = missing
+    factors["by_symbol"]["600001.SH"]["factors"]["stock_trend_structure"] = missing
+    blocked = screen_a2(snapshot, a1, minimum_identifiability_score=0, llm_top_n_per_theme=1).decisions[0]
+    medium = blocked["behavior_type_decision"]["required_facets"]["medium_term_trend"]
+    assert medium["available"] is False and medium["met"] is None
 
 
 def test_deterministic_a2_keeps_missing_capital_as_degraded_optional_fact() -> None:

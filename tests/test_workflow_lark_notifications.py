@@ -56,6 +56,27 @@ def _plan(index: int) -> dict[str, object]:
     }
 
 
+def test_position_health_incident_change_recovery_survives_restart(tmp_path):
+    from datetime import timedelta
+    store = RuntimeStore(tmp_path / "health.sqlite3")
+    publisher = WorkflowLarkPublisher(store, "https://open.larksuite.com/open-apis/bot/v2/hook/test-token")
+    fake = FakeNotifier()
+    publisher.notifier = fake
+    now = datetime(2026, 9, 15, 13, 2, tzinfo=SHANGHAI)
+    partial = {"lane_1:600001.SH": {"symbol": "600001.SH", "status": "HARD_STOP_ONLY"}}
+    assert publisher.publish_position_data_health({}, now=now) == []
+    assert publisher.publish_position_data_health(partial, now=now)[0]["status"] == "SENT"
+    publisher = WorkflowLarkPublisher(store, "https://open.larksuite.com/open-apis/bot/v2/hook/test-token")
+    publisher.notifier = fake
+    assert publisher.publish_position_data_health(partial, now=now+timedelta(minutes=1)) == []
+    partial["lane_1:600001.SH"]["status"] = "UNOBSERVABLE"
+    assert publisher.publish_position_data_health(partial, now=now+timedelta(minutes=2))[0]["status"] == "SENT"
+    assert publisher.publish_position_data_health({}, now=now+timedelta(minutes=3))[0]["status"] == "SENT"
+    assert len(fake.calls) == 3
+    assert "多周期退出暂不可核验" in str(fake.calls[0])
+    assert "暂不可观测" in str(fake.calls[1])
+
+
 def test_premarket_cards_are_chunked_colored_and_idempotent(tmp_path):
     store = RuntimeStore(tmp_path / "state.sqlite3")
     publisher = WorkflowLarkPublisher(

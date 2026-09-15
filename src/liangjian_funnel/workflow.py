@@ -3990,6 +3990,21 @@ class WorkflowApplication:
             except Exception:
                 notifications.append({"status": "FAILED", "reason_code": "MINUTE_SOURCE_ALERT_FAILED"})
         execution_publisher = getattr(publisher, "publish_a4_execution_results", None)
+        risk_publisher = getattr(publisher, "publish_position_data_health", None)
+        if callable(risk_publisher):
+            from .runtime.position_data_health import position_data_health
+            affected_positions = {}
+            for lane_id, (risk_bars, integrity_ok, _, _, risk_errors) in lane_inputs.items():
+                for position in self.store.list_positions(f"paper:{lane_id}"):
+                    symbol = str(position["symbol"])
+                    health = position_data_health(risk_bars.get(symbol), at=current,
+                        reason=risk_errors.get(symbol), integrity_ok=integrity_ok)
+                    if health["status"] != "READY":
+                        affected_positions[f"{lane_id}:{symbol}"] = {**health, "symbol": symbol}
+            try:
+                notifications.extend(risk_publisher(affected_positions, now=current))
+            except Exception:
+                notifications.append({"status": "FAILED", "reason_code": "POSITION_DATA_ALERT_FAILED"})
         if callable(execution_publisher):
             try:
                 notifications.extend(execution_publisher(simulation, now=current))

@@ -1006,6 +1006,11 @@ def _enforce_verified_findings(report: A5ReviewReport, facts: Mapping[str, Any])
         findings.append(A5Defect(layer="A2", severity="MEDIUM", confidence="HIGH", blocked_by_data=False,
             problem=f"记录到{len(failed_research)}次研究任务失败或超时；需核对进度收尾及计划血缘，不能由行情覆盖正常推断研究刷新成功。",
             evidence_ids=[row["evidence_id"] for row in failed_research]))
+    position_alerts = [row for row in operations if row.get("kind") == "POSITION_DATA_HEALTH_EVENT" and row.get("state") == "BLOCKED"]
+    if position_alerts:
+        findings.append(A5Defect(layer="A4", severity="HIGH", confidence="HIGH", blocked_by_data=True,
+            problem=f"存在{len(position_alerts)}次持仓风险数据受限通知；须核对当时可用风险输入与恢复，不能从无成交推断无风险，也不能据此断言漏卖。",
+            evidence_ids=[row["evidence_id"] for row in position_alerts]))
     alerts = [row for row in operations if row.get("kind") == "SOURCE_HEALTH_EVENT" and row.get("state") == "BLOCKED"]
     if alerts:
         findings.append(A5Defect(layer="A4", severity="MEDIUM", confidence="HIGH", blocked_by_data=True,
@@ -1120,7 +1125,7 @@ class A5DailyReviewService:
         # Identical market facts must not reuse prose produced by an older
         # prompt/verification contract after a release.
         facts["review_contract"] = {
-            "version": "a5-full-lineage-entry-audit/11",
+            "version": "a5-full-lineage-entry-audit/12",
             "prompt_sha256": self.prompts.document(_A5_PROMPT).sha256,
             "model": self.model,
         }

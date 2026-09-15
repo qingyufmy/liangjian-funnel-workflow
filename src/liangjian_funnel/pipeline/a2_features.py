@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
-A2_FEATURE_SCHEMA = "a2-features/3.1.0"
+A2_FEATURE_SCHEMA = "a2-features/3.2.0"
 
 
 def build_a2_feature_snapshot(
@@ -545,6 +545,7 @@ def build_a2_feature_snapshot(
             # substitute for an observed limit-up ladder.  It deliberately
             # remains outside the canonical A2 factor weights.
             "trend_strength_proxy": trend_by_symbol[symbol],
+            "stock_trend_structure": stock_trend_structure(daily_bars.get(symbol, ()), cutoff.date()),
             "leader_structure": leader_by_symbol[symbol],
             "index_chain_resonance": chain_by_symbol[symbol],
             "weekly_confirmation": weekly_by_symbol[symbol],
@@ -923,6 +924,63 @@ def _dataset_observation(value: Mapping[str, Any] | None) -> tuple[bool, str, st
     if any(not isinstance(item, Mapping) for item in records):
         return False, "SOURCE_FAILED", "A2_TIER_RECORDS_MALFORMED"
     return True, "OBSERVED_VALUE", "OK"
+
+
+def stock_trend_structure(bars: Sequence[Mapping[str, Any]], as_of: date) -> dict[str, Any]:
+    """Stock-local broad structure, not peer rank and not an A3 entry setup.
+
+    Require the close at/above MA20. A non-falling MA20 is established
+    structure; otherwise a rising MA5 reclaimed by price is recovery only.
+    A3 still decides whether either candidate has an executable daily setup.
+    """
+    observed: dict[date, float] = {}
+    reason = None
+    for row in bars:
+        stamp = row.get("date_ms") or row.get("timestamp") or row.get("time")
+        if isinstance(stamp, str) and "T" in stamp:
+            try:
+                stamp = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+            except ValueError:
+                stamp = None
+        day = _date_like(stamp)
+        if day is None:
+            reason = "A2_STOCK_TREND_DATE_INVALID"
+            break
+        if day > as_of:
+            continue
+        close = _number(row.get("close_price", row.get("close")))
+        if close is None or close <= 0:
+            reason = "A2_STOCK_TREND_CLOSE_INVALID"
+            break
+        if day in observed and observed[day] != close:
+            reason = "A2_STOCK_TREND_DUPLICATE_CONFLICT"
+            break
+        observed[day] = close
+    ordered = sorted(observed.items())
+    if not reason and (not ordered or ordered[-1][0] != as_of):
+        reason = "A2_STOCK_TREND_DAY_MISSING"
+    if not reason and len(ordered) < 21:
+        reason = "A2_STOCK_TREND_HISTORY_SHORT"
+    values = [close for _, close in ordered[-21:]]
+    close = values[-1] if values else None
+    ma20 = sum(values[-20:]) / 20 if not reason else None
+    previous = sum(values[:-1]) / 20 if not reason else None
+    ma5 = sum(values[-5:]) / 5 if not reason else None
+    previous_ma5 = sum(values[-6:-1]) / 5 if not reason else None
+    established = close >= ma20 and ma20 >= previous if not reason else False
+    recovery = close >= ma20 and close >= ma5 and ma5 > previous_ma5 if not reason else False
+    met = bool(established or recovery) if not reason else None
+    return _factor(100.0 if met else 0.0 if met is False else None,
+        source="LOCAL_POINT_IN_TIME_DAILY_BARS",
+        availability_state="SOURCE_FAILED" if reason else "OBSERVED_VALUE",
+        reason_code=reason or ("A2_STOCK_TREND_STRUCTURE_CONFIRMED" if met else "A2_STOCK_TREND_STRUCTURE_NOT_CONFIRMED"),
+        extra={"structure_confirmed": met, "close": close, "ma20": ma20,
+               "previous_ma20": previous, "ma20_slope": ma20 - previous if not reason else None,
+               "ma5": ma5, "previous_ma5": previous_ma5,
+               "structure_phase": "UNAVAILABLE" if reason else "ESTABLISHED" if established else "RECOVERY_CANDIDATE" if recovery else "UNCONFIRMED",
+               "trade_date": as_of.isoformat(), "observed_bar_count": len(ordered),
+               "metric_semantics": "CLOSE_GE_MA20_AND_NONFALLING_MA20_OR_RECLAIMED_RISING_MA5",
+               "rule_version": "a2-stock-structure/2"})
 
 
 def _return_nd(bars: Sequence[Mapping[str, Any]], as_of: date, window: int) -> float | None:

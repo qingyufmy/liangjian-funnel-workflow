@@ -103,3 +103,16 @@ def test_a5_includes_failed_jobs_and_alert_not_future(tmp_path):
     assert [r['kind'] for r in evidence] == ['SOURCE_HEALTH_EVENT', 'JOB_TERMINATED']
     from liangjian_funnel.review.daily import _evidence_ids
     assert all(r['evidence_id'] in _evidence_ids({'operational_evidence': evidence}) for r in evidence)
+
+
+def test_conflicting_price_cannot_authorize_position_stop(tmp_path):
+    store = RuntimeStore(tmp_path/'conflict.db')
+    store.create_execution_plan('p', 'lane_1', SYMBOL, status=PlanStatus.ACTIVE_TODAY, payload={'stop_level': 9.5})
+    store.get_position = lambda *a: {'quantity': 100, 'sellable_quantity': 0}
+    now = at('13:02:00')
+    result = MonitorEngine(store).process_minute('lane_1', {SYMBOL: bar(now)}, minute_snapshot_id='conflict',
+        now=now, data_errors={SYMBOL: 'EXECUTION_NATIVE_5M_CONFLICT'})
+    assert result.events[0].action == 'DATA_BLOCK'
+    from liangjian_funnel.runtime.position_data_health import position_data_health
+    assert position_data_health(bar(now), at=now, reason='MINUTE_DATA_GAP')['status'] == 'HARD_STOP_ONLY'
+    assert position_data_health(bar(now), at=now, reason='EXECUTION_NATIVE_5M_CONFLICT')['status'] == 'UNOBSERVABLE'

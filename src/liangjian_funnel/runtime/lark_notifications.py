@@ -1326,6 +1326,30 @@ class WorkflowLarkPublisher:
                                   "symbols": sorted(failures), "affected_count": len(failures),
                                   "auxiliary_symbols": sorted(auxiliary)}, now=now)]
 
+    def publish_position_data_health(self, affected: Mapping[str, Mapping[str, Any]], *, now: datetime) -> list[dict[str, Any]]:
+        """Persistent incident/impact-change/recovery notice, never a trade."""
+        day = now.date().isoformat()
+        detail = {key: dict(value) for key, value in sorted(affected.items())}
+        state = "BLOCKED" if detail else "READY"
+        previous = self.store.list_notification_deliveries(kind="A4_POSITION_DATA_HEALTH", limit=1)
+        old = _json_mapping(previous[0].get("payload_json")) if previous else {}
+        same = old.get("trade_date") == day
+        if same and old.get("positions") == detail and previous[0].get("status") == "SENT":
+            return []
+        if not detail and not (same and old.get("state") == "BLOCKED"):
+            return []
+        lines = [f"• 时间：{now.strftime('%H:%M:%S')}；受影响持仓：{len(detail)}个。"]
+        for key, value in list(detail.items())[:15]:
+            description = ("当前一分钟可信，只能检查硬止损；多周期退出暂不可核验" if value.get("status") == "HARD_STOP_ONLY"
+                           else "当前价格或数据一致性不可确认，持仓风险暂不可观测")
+            lines.append(f"• {_stock_code(str(value.get('symbol') or key))}：{description}。")
+        lines.append("• 不构造价格、不生成虚假成交；T+1及可卖数量规则保持不变。" if detail else
+                     "• 当前已无持仓数据阻断（输入恢复或持仓已结束）；不补发历史交易信号。")
+        return [self._send(delivery_key=f"a4-position-health:{now.isoformat()}:{state}",
+            kind="A4_POSITION_DATA_HEALTH", source_id=f"position-health:{day}",
+            title="A4持仓风险数据受限" if detail else "A4持仓数据阻断解除", lines=lines,
+            summary={"trade_date": day, "state": state, "positions": detail}, now=now)]
+
     def publish_a4_system_health(
         self,
         live_market_state: Mapping[str, Any] | None,

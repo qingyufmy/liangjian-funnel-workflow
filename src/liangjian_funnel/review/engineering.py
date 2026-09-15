@@ -17,6 +17,17 @@ def operational_evidence(store, output_dir, *, cutoff):
                      "time": stamp.isoformat(), "state": payload.get("state"),
                      "reasons": payload.get("reasons", []), "symbols": payload.get("symbols", []),
                      "note": "告警事实不等于真实停机；需与冻结输入和执行动作交叉核对。"})
+    for item in store.list_notification_deliveries(kind="A4_POSITION_DATA_HEALTH", limit=500):
+        try:
+            payload = json.loads(item.get("payload_json") or "{}")
+            stamp = datetime.fromisoformat(str(item.get("created_at") or item.get("sent_at") or ""))
+            if not isinstance(payload.get("positions"), dict) or stamp.tzinfo is None or stamp > cutoff or stamp.date() != cutoff.date():
+                continue
+        except (ValueError, TypeError):
+            continue
+        rows.append({"evidence_id": f"ENGINEERING:POSITION:{len(rows)}", "kind": "POSITION_DATA_HEALTH_EVENT",
+                     "time": stamp.isoformat(), "state": payload.get("state"), "positions": payload["positions"],
+                     "note": "持仓风险输入受限或恢复；不是成交，也不能推断发生漏卖。"})
     log = output_dir / "node" / f"node-{cutoff.date()}.jsonl"
     if log.exists():
         with log.open(encoding="utf-8") as stream:

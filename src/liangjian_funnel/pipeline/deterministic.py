@@ -2590,10 +2590,18 @@ def _a2_behavior_evidence(
     # already contain a symbol-scoped daily proxy; retain its missing state
     # too, instead of substituting a stronger or weaker sector aggregate.
     # Legacy fixtures without that contract retain their declared weekly fact.
-    medium_source = trend_proxy if "trend_strength_proxy" in factor_scores else weekly
-    medium_name = "trend_strength_proxy" if "trend_strength_proxy" in factor_scores else "weekly_confirmation"
+    structure = factor_scores.get("stock_trend_structure")
+    # Current production freezes a stock-local predicate. Legacy replay may
+    # retain its old proxy, but missing new evidence must never fall back.
+    medium_source = (structure if isinstance(structure, Mapping) else
+                     trend_proxy if "trend_strength_proxy" in factor_scores else weekly)
+    medium_name = ("stock_trend_structure" if isinstance(structure, Mapping) else
+                   "trend_strength_proxy" if "trend_strength_proxy" in factor_scores else "weekly_confirmation")
     medium_score = _number(medium_source.get("score"))
-    medium_available = medium_source.get("available") is True and medium_score is not None
+    structure_contract = medium_name == "stock_trend_structure"
+    medium_available = medium_source.get("available") is True and (
+        isinstance(medium_source.get("structure_confirmed"), bool) if structure_contract else medium_score is not None)
+    medium_met = (medium_source.get("structure_confirmed") if structure_contract else medium_score >= 50.0) if medium_available else None
     medium_refs = _payload_source_refs(medium_source)
     if str(medium_source.get("source") or ""):
         medium_refs.append(str(medium_source.get("source")))
@@ -2659,8 +2667,14 @@ def _a2_behavior_evidence(
         },
         "medium_term_trend": {
             "available": medium_available,
-            "met": medium_score >= 50.0 if medium_available else None,
-            "value": {"score": medium_score, "threshold": 50.0, "source_factor": medium_name,
+            "met": medium_met,
+            "value": {"score": medium_score, "threshold": None if structure_contract else 50.0, "source_factor": medium_name,
+                      "score_encoding": "BOOLEAN_ONLY_NOT_STRENGTH" if structure_contract else "LEGACY_PERCENTILE",
+                      "close": medium_source.get("close"), "ma20": medium_source.get("ma20"),
+                      "previous_ma20": medium_source.get("previous_ma20"),
+                      "structure_confirmed": medium_source.get("structure_confirmed"),
+                      "ma5": medium_source.get("ma5"), "previous_ma5": medium_source.get("previous_ma5"),
+                      "structure_phase": medium_source.get("structure_phase"),
                       "metric_semantics": medium_source.get("metric_semantics"),
                       "return_20d_pct": medium_source.get("return_20d_pct"),
                       "reference_symbol_count": medium_source.get("reference_symbol_count")},
@@ -3336,6 +3350,14 @@ def _a2_factor_scores(
                    if has_stock_trend else None)
     if stock_trend is not None:
         result["trend_strength_proxy"] = stock_trend
+    has_structure = "stock_trend_structure" in factor or any(
+        isinstance(factor.get(key), Mapping) and "stock_trend_structure" in factor[key]
+        for key in ("factors", "factor_scores"))
+    structure = (_read_factor_row(factor, "stock_trend_structure", (),
+                                  source="A2_FACTOR_SNAPSHOT", source_refs=_payload_source_refs(factor))
+                 if has_structure else None)
+    if structure is not None:
+        result["stock_trend_structure"] = structure
     return result
 
 
@@ -4138,6 +4160,15 @@ def _with_factor_metadata(result: dict[str, Any], raw: Mapping[str, Any]) -> dic
         "metric_semantics",
         "return_20d_pct",
         "reference_symbol_count",
+        "structure_confirmed",
+        "close",
+        "ma20",
+        "previous_ma20",
+        "ma20_slope",
+        "ma5",
+        "previous_ma5",
+        "structure_phase",
+        "rule_version",
     ):
         if key in raw:
             result[key] = raw.get(key)
@@ -5551,6 +5582,10 @@ def _relative_strength_score(factor: Mapping[str, Any], *, default: float | None
                     if isinstance(value, Mapping)
                 )
     for summary in candidates:
+        if str(summary.get("rule_version") or "").startswith("a2-stock-structure/"):
+            # Boolean structure evidence must not become a 0/100 peer rank
+            # when the independent relative-strength source is missing.
+            continue
         for key in ("relative_strength_score", "relative_strength", "rs_score", "relative_strength_percentile"):
             value = _number(summary.get(key))
             if value is not None:
