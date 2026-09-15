@@ -45,7 +45,7 @@ def main():
     if not args.apply:return
     store=RuntimeStore(s.state_db_path)
     lease=store.get_lease('scheduler:auction-refresh')
-    if lease and (lease.get('owner')!='auction-refresh' or lease.get('dispatch_key')!=f'auction-refresh:{args.day}'):
+    if lease and (lease.get('owner')!='auction-refresh' or lease.get('last_dispatch_key')!=f'auction-refresh:{args.day}'):
         raise SystemExit('LEASE_IDENTITY_CHANGED')
     backup=s.workflow_output_dir/'recovery'/f'auction-terminal-{args.day}'
     if backup.exists():raise SystemExit('RECOVERY_BACKUP_ALREADY_EXISTS')

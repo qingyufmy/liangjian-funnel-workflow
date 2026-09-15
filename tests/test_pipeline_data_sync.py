@@ -238,3 +238,39 @@ def test_missing_core_fundamentals_bypass_zero_rotation_budget(tmp_path):
     assert "600519.SH" in result.fundamental
     assert result.financial_refreshes == 1
     assert result.deferred_financial_refreshes == 0
+
+
+class DelayedDailyClient(FakeClient):
+    def __init__(self, recover=True):
+        super().__init__()
+        self.recover = recover
+
+    def history_1d(self, symbol, **kwargs):
+        result = super().history_1d(symbol, **kwargs)
+        calls = self.calls.count(("DAILY", symbol))
+        if self.recover and calls > 1:
+            return result
+        rows = [row.model_dump(mode="python") for row in result.items]
+        rows[-1]["date_ms"] -= 86400000
+        return _result("history", rows)
+
+
+def test_delayed_daily_bar_recovers_once_after_initial_pass(tmp_path):
+    cache = LocalFactCache(tmp_path / "facts.sqlite3")
+    client = DelayedDailyClient()
+    result = HithinkIncrementalSynchronizer(cache).sync(client, ["301565.SZ"], as_of=NOW)
+    assert client.calls.count(("DAILY", "301565.SZ")) == 2
+    assert result.failures == {}
+    assert datetime.fromtimestamp(result.daily["301565.SZ"][-1]["date_ms"] / 1000, TZ).date() == NOW.date()
+    assert cache.get_sync_state("HITHINK_DAILY_1D", "301565.SZ")["status"] == "READY"
+
+
+def test_successful_but_stale_daily_response_remains_failed_and_retry_is_bounded(tmp_path):
+    cache = LocalFactCache(tmp_path / "facts.sqlite3")
+    client = DelayedDailyClient(recover=False)
+    symbols = [f"{301560 + i}.SZ" for i in range(12)]
+    result = HithinkIncrementalSynchronizer(cache).sync(client, symbols, as_of=NOW)
+    assert sum(kind == "DAILY" for kind, _ in client.calls) == 22
+    for symbol in symbols:
+        assert "DAILY:LATEST_CLOSED_DAY_MISSING" in result.failures[symbol]
+        assert cache.get_sync_state("HITHINK_DAILY_1D", symbol)["status"] == "FAILED"

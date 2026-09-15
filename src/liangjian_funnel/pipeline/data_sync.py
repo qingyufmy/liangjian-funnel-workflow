@@ -84,6 +84,7 @@ class HithinkIncrementalSynchronizer:
         daily: dict[str, list[dict[str, Any]]] = {}
         fundamental: dict[str, Any] = {}
         updated_symbols: list[str] = []
+        stale_daily: list[str] = []
         hits = 0
         misses = 0
         daily_updates = 0
@@ -180,6 +181,12 @@ class HithinkIncrementalSynchronizer:
             )
             if rows:
                 daily[symbol] = [dict(item["payload"]) for item in reversed(rows)]
+                if required_latest_daily is not None and _row_time(daily[symbol][-1]) < required_latest_daily:
+                    failures.setdefault(symbol, []).append("DAILY:LATEST_CLOSED_DAY_MISSING")
+                    self.cache.update_sync_state(
+                        "HITHINK_DAILY_1D", symbol, status="FAILED", reason="LATEST_CLOSED_DAY_MISSING"
+                    )
+                    stale_daily.append(symbol)
             else:
                 failures.setdefault(symbol, []).append("DAILY:CACHE_EMPTY")
 
@@ -282,6 +289,44 @@ class HithinkIncrementalSynchronizer:
                         "deferred_financial_refreshes": len(deferred_financial_symbols),
                     }
                 )
+
+        # A provider can acknowledge the request while its latest daily bar
+        # is still being published. After the full pass, retry at most ten
+        # symbols once; never turn a successful HTTP response into freshness.
+        for symbol in stale_daily[:10]:
+            result = client.history_1d(
+                symbol, start=int((required_latest_daily - timedelta(days=7)).timestamp() * 1000),
+                end=int(closed_daily_end.timestamp() * 1000), adjust="none", limit=1000, max_pages=1,
+            )
+            closed_items = tuple(
+                row for row in result.items
+                if required_latest_daily - timedelta(days=7)
+                <= _row_time(row.model_dump(mode="python")) < closed_daily_end
+            )
+            if not (result.ok and result.complete and closed_items
+                    and max(_row_time(row.model_dump(mode="python")) for row in closed_items) >= required_latest_daily):
+                continue
+            self.cache.upsert_daily_bars(({
+                "symbol": symbol, "timestamp": _row_time(row.model_dump(mode="python")),
+                "adjust": "none", "fetched_at": result.fetch_time,
+                "payload": row.model_dump(mode="json"),
+            } for row in closed_items), batch_size=self.batch_size)
+            self.cache.update_sync_state(
+                "HITHINK_DAILY_1D", symbol, last_success=result.fetch_time,
+                cursor={"through": _latest_row_time(closed_items)}, status="READY", reason=None,
+            )
+            rows = self.cache.query_daily_bars(
+                symbol, adjust="none", start=start, end=closed_daily_end,
+                limit=compact_daily_bars, descending=True,
+            )
+            daily[symbol] = [dict(item["payload"]) for item in reversed(rows)]
+            remaining = [reason for reason in failures.get(symbol, ()) if not reason.startswith("DAILY:")]
+            if remaining:
+                failures[symbol] = remaining
+            else:
+                failures.pop(symbol, None)
+            if symbol not in updated_symbols:
+                updated_symbols.append(symbol)
 
         return SyncResult(
             daily=daily,
