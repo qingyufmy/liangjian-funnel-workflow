@@ -2660,7 +2660,10 @@ def _a2_behavior_evidence(
         "medium_term_trend": {
             "available": medium_available,
             "met": medium_score >= 50.0 if medium_available else None,
-            "value": {"score": medium_score, "threshold": 50.0, "source_factor": medium_name},
+            "value": {"score": medium_score, "threshold": 50.0, "source_factor": medium_name,
+                      "metric_semantics": medium_source.get("metric_semantics"),
+                      "return_20d_pct": medium_source.get("return_20d_pct"),
+                      "reference_symbol_count": medium_source.get("reference_symbol_count")},
             "source_refs": list(dict.fromkeys(medium_refs)),
             "as_of": as_of,
             "reason": str(medium_source.get("reason_code") or "A2_MEDIUM_TERM_TREND_OBSERVED") if medium_available else "A2_MEDIUM_TERM_TREND_UNAVAILABLE",
@@ -4132,6 +4135,9 @@ def _with_factor_metadata(result: dict[str, Any], raw: Mapping[str, Any]) -> dic
         "continuation_confirmed",
         "event_source",
         "trade_date",
+        "metric_semantics",
+        "return_20d_pct",
+        "reference_symbol_count",
     ):
         if key in raw:
             result[key] = raw.get(key)

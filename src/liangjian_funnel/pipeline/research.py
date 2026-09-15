@@ -8656,6 +8656,16 @@ def _canonicalize_stage_lineage(
                     technical_context.get("veto_conditions") or ()
                 )
                 canonical["deterministic_gate_status"] = technical_context.get("status")
+                # Rejected/observed rows need the same daily predicate values
+                # as admitted rows; otherwise A5 only sees a generic reason.
+                strategy_facts = technical_context.get("strategy_facts") or {}
+                canonical["deterministic_technical_evidence"] = {
+                    key: strategy_facts[key] for key in (
+                        "daily_close", "daily_moving_averages", "previous_moving_averages",
+                        "daily_state", "theme_stage", "trend_paths", "ma520_right_side",
+                        "condition_details", "overextended", "distribution", "one_price_locked",
+                    ) if key in strategy_facts
+                }
                 canonical["deterministic_reason_codes"] = list(technical_context.get("reason_codes") or ())
                 canonical["deterministic_price_evidence"] = {
                     "reward_risk": technical_context.get("reward_risk"),

@@ -134,7 +134,10 @@ def build_a2_feature_snapshot(
             source="LOCAL_POINT_IN_TIME_DAILY_BARS",
             availability_state="OBSERVED_VALUE" if relative is not None else "SOURCE_FAILED",
             reason_code="OK" if relative is not None else "A2_TREND_DAILY_BARS_MISSING",
-            extra={"trend_percentile": relative},
+            extra={"trend_percentile": relative,
+                   "return_20d_pct": candidate_returns.get(symbol),
+                   "metric_semantics": "CROSS_SECTIONAL_20D_RETURN_PERCENTILE_NOT_MA_TREND",
+                   "reference_symbol_count": len(returns), "trade_date": cutoff.date().isoformat()},
         )
         if ladder_row is not None:
             height = int(_number(ladder_row.get("board_num")) or 1)

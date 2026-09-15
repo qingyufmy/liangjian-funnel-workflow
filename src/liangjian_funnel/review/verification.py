@@ -21,6 +21,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 from ..runtime.calendar import ExchangeTradingCalendar
 from .indicator_evidence import audit_event_indicators, daily_macd_check
+from .selection_evidence import counterexample_selection_audit
 from ..runtime.indicator_windows import load_window
 from .evidence_archive import archive_observation
 
@@ -615,6 +616,7 @@ class A5IndependentVerifier:
                 "theme_basis": "PRODUCTION_A2_LINEAGE" if production_candidate else "A1_UNIVERSE_LINEAGE",
                 "source_pool": pool,
                 "a3_candidate": technical.get(symbol),
+                "selection_audit": counterexample_selection_audit(reason_source, technical.get(symbol)),
                 "intraday_return": round(local_return, 8),
                 "return_basis": row["return_basis"],
                 "performance_rank": rank,
@@ -694,16 +696,21 @@ class A5IndependentVerifier:
                 for key in recomputed
             }
             comparable = [value for value in errors.values() if value is not None]
-            formula_status = "MATCH" if comparable and max(comparable) <= 0.001 else "MISMATCH" if comparable else "DATA_LIMITED"
+            formula_status = ("MISMATCH" if comparable and max(comparable) > 0.001 else
+                              "MATCH" if len(comparable) == 3 else "DATA_LIMITED")
+            latest_day = _bar_time(bars[-1]).date() if bars and _bar_time(bars[-1]) else None
             tdx_days: dict[str, list[dict[str, Any]]] = defaultdict(list)
             for item in tdx_5m.get(symbol, {}).get("bars", ()):
                 stamp = _bar_time(item)
                 if stamp is not None and stamp.date() < cutoff.date():
                     tdx_days[stamp.date().isoformat()].append(dict(item))
             tdx_previous = None
-            if tdx_days:
-                day = sorted(tdx_days)[-1]
-                tdx_previous = _bar_value(tdx_days[day][-1], "close")
+            # Equal prices on different days (or a partial day's last row)
+            # are not a successful close-price cross-check.
+            if latest_day is not None:
+                same_day = sorted(tdx_days.get(latest_day.isoformat(), ()), key=lambda item: _bar_time(item))
+                if same_day and _bar_time(same_day[-1]).time() == time(15, 0):
+                    tdx_previous = _bar_value(same_day[-1], "close")
             close_diff = _relative_difference(tdx_previous, latest_daily)
             price_status = "MATCH" if close_diff is not None and close_diff <= 0.005 else "MISMATCH" if close_diff is not None else "DATA_LIMITED"
             behavior = str(payload.get("stock_behavior_type") or "").upper()
@@ -724,6 +731,8 @@ class A5IndependentVerifier:
                 "tdx_previous_close": tdx_previous, "local_daily_close": latest_daily,
                 "cross_source_close_relative_difference": close_diff, "cross_source_price_status": price_status,
                 "tdx_reason_code": tdx_5m.get(symbol, {}).get("reason_code"),
+                "daily_reference_date": latest_day.isoformat() if latest_day else None,
+                "cross_source_period_policy": "SAME_DAILY_DATE_AND_FINAL_1500_BAR_REQUIRED",
             })
         ratio = ready / len(plan_rows) if plan_rows else 1.0
         indicator_limited = any(r["daily_macd_verification"]["formula_status"] != "MATCH"

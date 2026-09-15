@@ -297,6 +297,7 @@ def _audit_output(output_dir: Path, run_id: str, lane_id: str) -> tuple[dict[str
 
 
 def _a2_projection(audit: Mapping[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    from .selection_evidence import a2_gate_evidence
     stages = _rows(audit.get("stages"))
     stage = next((item for item in stages if str(item.get("stage")).upper() == "A2"), None)
     if stage is None:
@@ -333,6 +334,7 @@ def _a2_projection(audit: Mapping[str, Any]) -> tuple[dict[str, Any], list[str]]
                 "behavior_type": item.get("stock_behavior_type") or item.get("behavior_type"),
                 "llm_reviewed": item.get("sent_to_llm", pool_name in {"FOCUS", "WATCH", "REJECTED"}),
                 "risk_reasons": item.get("risk_reasons") if isinstance(item.get("risk_reasons"), list) else [],
+                "quant_gate_evidence": a2_gate_evidence(item),
                 **({"rotation_reserve_scope": item.get("rotation_reserve_scope"),
                     "rotation_reserve_boards": item.get("rotation_reserve_boards", [])}
                    if item.get("rotation_reserve_eligible") else {}),
@@ -379,7 +381,12 @@ def _a3_candidates(audit: Mapping[str, Any]) -> list[dict[str, Any]]:
             if symbol:
                 result[symbol] = {"evidence_id": f"A3:CANDIDATE:{symbol}", "symbol": symbol,
                     "pool": pool, "eligibility": row.get("deterministic_eligibility") or row.get("eligibility"),
-                    "strategy_profile": row.get("strategy_profile"),
+                    "strategy_profile": row.get("strategy_profile") or row.get("deterministic_strategy_profile"),
+                    "decision_as_of": row.get("decision_as_of"),
+                    "unmet_conditions": row.get("deterministic_unmet_conditions") or row.get("unmet_conditions") or [],
+                    "technical_evidence": row.get("deterministic_technical_evidence") or {},
+                    "reference_price": row.get("reference_price"),
+                    "reference_price_as_of": row.get("reference_price_as_of"),
                     "stock_behavior_type": row.get("stock_behavior_type"),
                     "a4_deferred_conditions": row.get("a4_deferred_conditions") or [],
                     "reason_codes": row.get("deterministic_reason_codes") or row.get("reason_codes") or [],
@@ -440,10 +447,11 @@ def _model_fact_projection(facts: Mapping[str, Any]) -> dict[str, Any]:
     projected["a2"].pop("technical_candidates", None)
     projected["a2"]["candidates"] = [
         {key: value for key, value in row.items()
-         if not (key == "reason_codes" and value == row.get("selection_reasons"))}
+         if key != "quant_gate_evidence" and not (key == "reason_codes" and value == row.get("selection_reasons"))}
         for row in _rows(projected["a2"].get("candidates"))
     ]
     projected["a2"]["reason_encoding"] = "When reason_codes is omitted, it equals selection_reasons exactly; no reasons are truncated."
+    projected["a2"]["gate_evidence_scope"] = "Full per-stock quant_gate_evidence remains in the fact archive; selected counterexamples carry it in selection_audit. No candidate identity or disposition is removed."
     candidate_groups: dict[str, dict[str, Any]] = {}
     identity_fields = {"evidence_id", "symbol", "name", "score"}
     for row in projected["a2"]["candidates"]:
@@ -1047,6 +1055,11 @@ def _enforce_verified_findings(report: A5ReviewReport, facts: Mapping[str, Any])
                 )
                 row.is_confirmed_defect = False
             row.funnel_drop_stage = actual[:2]
+        source = next((item for item in _rows(verification.get("counterexamples")) if item.get("symbol") == row.symbol), {})
+        explanation = _json_mapping(source.get("selection_audit")).get("explanation")
+        if explanation:
+            row.assessment = (str(explanation) + "。以上为原时点筛选依据；当日涨幅不能证明应入选。"
+                              + row.assessment)
     if _json_mapping(verification.get("a3")).get("not_verified_fields"):
         names = {"MACD":"MACD", "KDJ":"KDJ", "VOLUME":"成交量"}
         missing = _json_mapping(verification.get("a3"))["not_verified_fields"]
@@ -1107,7 +1120,7 @@ class A5DailyReviewService:
         # Identical market facts must not reuse prose produced by an older
         # prompt/verification contract after a release.
         facts["review_contract"] = {
-            "version": "a5-full-lineage-entry-audit/10",
+            "version": "a5-full-lineage-entry-audit/11",
             "prompt_sha256": self.prompts.document(_A5_PROMPT).sha256,
             "model": self.model,
         }

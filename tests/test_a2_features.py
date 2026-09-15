@@ -73,6 +73,10 @@ def test_a2_features_materialize_tier_leader_and_chain_without_heat_as_leader() 
     assert first["tier"] == "T2"
     assert first["leader_role"] == "EMOTION_LEADER"
     assert first["factors"]["index_chain_resonance"]["available"] is True
+    trend_proxy = first["factors"]["trend_strength_proxy"]
+    assert trend_proxy["return_20d_pct"] > 0
+    assert trend_proxy["reference_symbol_count"] == 3
+    assert trend_proxy["metric_semantics"] == "CROSS_SECTIONAL_20D_RETURN_PERCENTILE_NOT_MA_TREND"
     # Attention is only a bounded confirmation.  It cannot overwrite the
     # cross-sectional role with an artificial leader label.
     assert snapshot["by_symbol"]["000002.SZ"]["leader_role"] != "EMOTION_LEADER"

@@ -2435,6 +2435,8 @@ def test_a3_lineage_locks_all_partitions_to_a2_upstream_and_origin_map():
                 "stock_behavior_type": "TREND",
                 "route_permission": "ALLOW_A4",
                 "decision_id": "a3:600001.SH:trend-ma5",
+                "strategy_facts": {"daily_close": 10.4, "daily_moving_averages": {"ma5": 10.5},
+                                   "trend_paths": {"daily_main_rise": False}},
                 "eligibility": "QUALIFIED",
                 "required_conditions": ["MONTH_CLOSED", "WEEK_CLOSED"],
                 "met_conditions": ["MONTH_CLOSED", "WEEK_CLOSED"],
@@ -2475,6 +2477,7 @@ def test_a3_lineage_locks_all_partitions_to_a2_upstream_and_origin_map():
         assert item["deterministic_met_conditions"] == ["MONTH_CLOSED", "WEEK_CLOSED"]
         assert item["deterministic_gate_status"] == "REVIEW_CANDIDATE"
         assert item["deterministic_price_evidence"]["minimum_reward_risk"] == 2.5
+        assert item["deterministic_technical_evidence"] == snapshot["A3_DETERMINISTIC_CONTEXT"]["600001.SH"]["strategy_facts"]
 
 
 def test_a2_model_reject_is_demoted_only_for_soft_deterministic_context():
