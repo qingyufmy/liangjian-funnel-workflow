@@ -223,6 +223,8 @@ class FetchResult(BaseModel):
     attempts: tuple[NodeAttempt, ...] = ()
     reason_code: str
     complete: bool = False
+    request_started_at: datetime | None = None
+    response_received_at: datetime | None = None
 
     @model_validator(mode="after")
     def count_matches(self) -> "FetchResult":

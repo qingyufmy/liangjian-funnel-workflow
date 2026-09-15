@@ -11,6 +11,7 @@ from ..reporting import atomic_write_json
 
 from .mootdx import FetchResult, MootdxAdapter, detect_missing_bars
 from .tencent_minute import TencentIntradayAdapter
+from .session_windows import closed_window_ends, TZ
 
 _NODE_LOCK = RLock()
 
@@ -57,6 +58,9 @@ def _release_node(source, node, healthy):
 def fetch_live_window(provider, secondary, symbol, interval, required, cutoff: datetime,
                       *, deadline: float | None = None, clock=time.monotonic):
     deadline = deadline if deadline is not None else clock() + 15.0
+    expected_ends = closed_window_ends(cutoff, interval)
+    if required <= 0 or not expected_ends:
+        return _failure(symbol, interval, max(0, required), "WAITING_BAR_CLOSE")
     first = None
     # Retrying format/identity errors is not useful. Only a transient request
     # failure is retried; the alternate source remains independently validated.
@@ -81,6 +85,7 @@ def fetch_live_window(provider, secondary, symbol, interval, required, cutoff: d
                         bounded.client_factory = bounded._default_factory
                     bounded.nodes = (reserved_node,)
                     bounded.max_pages = min(source.max_pages, 2)
+            requested_at = datetime.now(TZ)
             try:
                 result = bounded.fetch_bars(symbol, interval, required, as_of=cutoff)
             except Exception:
@@ -88,6 +93,8 @@ def fetch_live_window(provider, secondary, symbol, interval, required, cutoff: d
             finally:
                 if reserved_node is not None:
                     _release_node(source, reserved_node, result.complete)
+            result = result.model_copy(update={"request_started_at": requested_at,
+                "response_received_at": datetime.now(TZ)})
             if clock() > deadline:
                 return _failure(symbol, interval, required, "MINUTE_FETCH_BUDGET_EXHAUSTED")
             if first is None:
@@ -95,8 +102,8 @@ def fetch_live_window(provider, secondary, symbol, interval, required, cutoff: d
             bars = tuple(b for b in result.bars if b.symbol == symbol
                          and b.interval == interval and b.bar_end.date() == cutoff.date()
                          and b.bar_end <= cutoff)[-required:]
-            expected = cutoff if interval == "1m" else cutoff.replace(minute=cutoff.minute // 5 * 5)
-            valid = (result.complete and len(bars) == required and bars[-1].bar_end == expected
+            valid = (result.complete and len(bars) == required
+                     and tuple(b.bar_end for b in bars) == expected_ends[-required:]
                      and not detect_missing_bars(bars, interval, as_of=cutoff))
             # No 15:00 print, including a nonzero one, is proof of finality.
             # Post-close collection is separate and cannot rewrite this action.

@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from datetime import datetime, time
 import math
+import json
+import signal
+import threading
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -80,13 +83,37 @@ def run_auction_refresh(app, *, now=None, manual_current=False):
     receipt = {"started_at": current.isoformat(), "a1_reused": True,
                "research_mode": "MANUAL_CURRENT_SESSION" if manual_current else "SCHEDULED_POST_AUCTION",
                "execution_publication": "UNCHANGED", "status": "RUNNING"}
+    research_id = f"{run_name}-research" if manual_current else f"{current.date()}-auction-refresh-{current.strftime('%H%M%S')}"
+    receipt["run_id"] = research_id
     atomic_write_json(path, receipt)
+    def record_failure(reason):
+        finished = datetime.now(SHANGHAI).isoformat()
+        receipt.update(status="BLOCKED", reason_code=reason, finished_at=finished)
+        atomic_write_json(path, receipt)
+        progress_path = app.settings.workflow_output_dir / "auction_progress" / f"{research_id}.json"
+        if progress_path.exists():
+            progress = json.loads(progress_path.read_text(encoding="utf-8"))
+            if progress.get("run_id") == research_id:
+                progress.update(status="BLOCKED", job_status="BLOCKED", phase="FAILED",
+                                reason_code=reason, updated_at=finished, finished_at=finished, eta_seconds=None)
+                atomic_write_json(progress_path, progress)
+        app.store.release_lease(lease, owner)
+
+    def terminated(signum, frame):
+        # Flush before unwinding a provider/thread-pool call: the parent may
+        # escalate to SIGKILL before that call's cleanup finishes.
+        record_failure("AUCTION_REFRESH_PROCESS_TERMINATED")
+        raise WorkflowError("AUCTION_REFRESH_PROCESS_TERMINATED")
+
+    previous_handler = None
+    if threading.current_thread() is threading.main_thread():
+        previous_handler = signal.signal(signal.SIGTERM, terminated)
     try:
         result = app.run_research(
             "morning", as_of=current, primary_only=True, from_active_a1=True,
             publish_plans=False, schedule_comparison=False, reuse_resume_snapshot=False,
             auction_refresh=True,
-            run_id_override=f"{run_name}-research" if manual_current else f"{current.date()}-auction-refresh-{current.strftime('%H%M%S')}",
+            run_id_override=research_id,
         )
         receipt.update(status=result.get("status", "BLOCKED"), run_id=result.get("run_id"),
                        finished_at=datetime.now(SHANGHAI).isoformat(),
@@ -103,3 +130,6 @@ def run_auction_refresh(app, *, now=None, manual_current=False):
         atomic_write_json(path, receipt)
         app.store.release_lease(lease, owner)
         raise
+    finally:
+        if previous_handler is not None:
+            signal.signal(signal.SIGTERM, previous_handler)

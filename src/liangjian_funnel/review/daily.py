@@ -807,6 +807,8 @@ def build_a5_fact_snapshot(
     signal_market = _json_mapping(_json_mapping(snapshot.get("independent_verification")).get("signal_market"))
     snapshot["signal_stock_reviews"] = build_signal_stock_reviews(
         raw_event_rows, selected_plan_rows, store.list_fills(), signal_market, cutoff, lifecycles=raw_lifecycles)
+    from .engineering import operational_evidence
+    snapshot["operational_evidence"] = operational_evidence(store, Path(output_dir), cutoff=cutoff)
     snapshot["input_hash"] = _canonical_hash(snapshot)
     return snapshot
 
@@ -887,6 +889,7 @@ def _evidence_ids(snapshot: Mapping[str, Any]) -> set[str]:
     collect(snapshot.get("independent_verification"))
     collect(snapshot.get("review_history"))
     collect(snapshot.get("signal_stock_reviews"))
+    collect(snapshot.get("operational_evidence"))
     collect(a3.get("plan_scope"))
     collect(a4.get("carryover_plans"))
     collect(a4.get("carryover_lifecycles"))
@@ -988,6 +991,18 @@ def _markdown(report: A5ReviewReport, snapshot: Mapping[str, Any]) -> str:
 def _enforce_verified_findings(report: A5ReviewReport, facts: Mapping[str, Any]) -> None:
     """Model prose cannot clear failed deterministic verification."""
     findings = []
+    operations = _rows(facts.get("operational_evidence"))
+    failed_research = [row for row in operations if row.get("kind") in {"JOB_TERMINATED", "JOB_FAILED"}
+                       and row.get("job") in {"auction-refresh", "close", "morning"}]
+    if failed_research:
+        findings.append(A5Defect(layer="A2", severity="MEDIUM", confidence="HIGH", blocked_by_data=False,
+            problem=f"记录到{len(failed_research)}次研究任务失败或超时；需核对进度收尾及计划血缘，不能由行情覆盖正常推断研究刷新成功。",
+            evidence_ids=[row["evidence_id"] for row in failed_research]))
+    alerts = [row for row in operations if row.get("kind") == "SOURCE_HEALTH_EVENT" and row.get("state") == "BLOCKED"]
+    if alerts:
+        findings.append(A5Defect(layer="A4", severity="MEDIUM", confidence="HIGH", blocked_by_data=True,
+            problem=f"当日记录{len(alerts)}次行情阻断告警。告警可能为误报，须逐窗对照执行数据；观察记录齐全不代表告警和执行口径一致。",
+            evidence_ids=[row["evidence_id"] for row in alerts]))
     verification = _json_mapping(facts.get("independent_verification"))
     a4 = _json_mapping(verification.get("a4"))
     metrics = _json_mapping(facts.get("metrics"))

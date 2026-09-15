@@ -1024,7 +1024,7 @@ def test_morning_review_activates_pending_plans_without_research_models(tmp_path
     assert store.get_execution_plan("pending-1")["valid_from"].endswith("09:32:00+08:00")
 
 
-def test_a4_context_contains_independent_closed_1m_5m_15m_ma_and_vwap():
+def test_a4_context_does_not_fill_missing_1m_history_from_native_5m():
     current = datetime(2026, 8, 24, 10, 0, tzinfo=TZ)
     one = tuple(_bar(current - timedelta(minutes=20 - index)) for index in range(21))
     five = tuple(
@@ -1046,8 +1046,10 @@ def test_a4_context_contains_independent_closed_1m_5m_15m_ma_and_vwap():
     context = _intraday_market_context("600519.SH", one, five, current=current)
     assert context["realtime_quote"]["bar_end"] == current.isoformat()
     assert len(context["closed_bars"]["1m"]) == 21
-    assert len(context["closed_bars"]["5m"]) == 6
-    assert len(context["closed_bars"]["15m"]) == 2
+    # Only complete buckets from 09:40..10:00 can enter the shared context.
+    assert len(context["closed_bars"]["5m"]) == 4
+    assert len(context["closed_bars"]["15m"]) == 1
+    assert context["execution_data"]["entry_window_complete"] is False
     assert context["moving_averages"]["1m"]["ma20"] is not None
     assert context["moving_averages"]["5m"]["vwap"] == 10
 

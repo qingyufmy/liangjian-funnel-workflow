@@ -80,6 +80,23 @@ def test_blocked_result_leaves_failure_receipt_and_releases_lease(tmp_path):
     app.store.complete_lease.assert_not_called()
 
 
+def test_sigterm_seals_receipt_progress_and_releases_lease(tmp_path):
+    import signal
+    import json
+    app = _app(tmp_path)
+    path = tmp_path/'auction_progress/2026-09-14-auction-refresh-092600.json'
+    path.parent.mkdir()
+    path.write_text(json.dumps({'run_id':'2026-09-14-auction-refresh-092600','status':'RUNNING'}))
+    old_handler = signal.getsignal(signal.SIGTERM)
+    app.run_research.side_effect = lambda *a, **k: signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
+    with pytest.raises(WorkflowError, match='PROCESS_TERMINATED'):
+        run_auction_refresh(app, now=NOW)
+    assert json.loads(path.read_text())['status'] == 'BLOCKED'
+    assert json.loads((tmp_path/'runs/2026-09-14-auction-refresh.json').read_text())['status'] == 'BLOCKED'
+    assert signal.getsignal(signal.SIGTERM) == old_handler
+    app.store.complete_lease.assert_not_called()
+
+
 def test_failure_receipt_retains_specific_source_and_date(tmp_path):
     import json
     app = _app(tmp_path)

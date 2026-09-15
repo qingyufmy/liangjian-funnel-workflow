@@ -60,6 +60,8 @@ def main():
     a2_all = set().union(*(symbols(a2.get(key, [])) for key in (
         'focus_pool','watch_only_pool','outside_rotation_pool','crowded_pool','low_identity_pool','rejected_candidates')))
     core,secondary = a3.get('core_watch_pool',[]),a3.get('secondary_watch_pool',[])
+    executable_core = [row for row in core if row.get('execution_permission') != 'BLOCKED'
+                       and row.get('rotation_reserve_scope') != 'RESEARCH_ONLY_NO_AUTOMATIC_ENTRY']
     db=sqlite3.connect(settings.state_db_path.as_uri()+'?mode=ro',uri=True); db.row_factory=sqlite3.Row
     plans=[]
     for row in db.execute('select plan_id,symbol,status,valid_from,expires_at,payload_json from execution_plans where lane_id=? and expires_at>=? and expires_at<?',('lane_1',args.target_date,args.target_date+'T23:59')):
@@ -79,7 +81,8 @@ def main():
         'target_is_trading_day':ExchangeTradingCalendar().is_trading_day(date.fromisoformat(args.target_date)),
         'a2_all_subset_a1':a2_all<=a1_set,
         'a3_research_subset_a2':symbols(core+secondary)<=a2_effective,
-        'published_equals_core':symbols(plans)==symbols(core) and len(plans)==len(core),
+        'published_equals_executable_core':symbols(plans)==symbols(executable_core) and len(plans)==len(executable_core),
+        'research_only_core_not_published':not (symbols(plans) & (symbols(core)-symbols(executable_core))),
         'nonempty_plans':bool(plans),
         'pending_not_activated':all(p['status']=='PENDING_MORNING_REVIEW' and not p['valid_from'] for p in plans),
         'single_pending_batch':pending_other==0,
@@ -96,6 +99,7 @@ def main():
     result={'run_id':args.run_id,'target_trade_date':args.target_date,'commit':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
         'assertions':assertions,'module_checks':module_checks,'a1_count':len(a1_set),'a2_counts':{key:len(a2.get(key,[])) for key in ('focus_pool','watch_only_pool','outside_rotation_pool','rejected_candidates')},
         'a2_quant':a2.get('local_screen_summary'),'a2_themes':a2.get('active_themes'),'a3_core':len(core),'a3_research_reserve':sum(r.get('rotation_reserve_eligible') is True for r in secondary),
+        'a3_executable_core':len(executable_core),
         'a3_strategy_counts':dict(Counter(p['payload'].get('strategy_profile') for p in plans)),
         'plans':[{key:value for key,value in p.items() if key!='payload'}|{'strategy':p['payload'].get('strategy_profile'),'name':p['payload'].get('name')} for p in plans],
         'indicator_preparation':history,'520_archived_input_checks':indicator_checks,'status':'READY' if all(assertions.values()) and history.get('status')=='READY' else 'NEEDS_ATTENTION'}

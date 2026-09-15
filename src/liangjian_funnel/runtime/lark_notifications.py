@@ -1294,27 +1294,37 @@ class WorkflowLarkPublisher:
             )
         ]
 
-    def publish_minute_source_health(self, failures: Mapping[str, str], *, now: datetime) -> list[dict[str, Any]]:
+    def publish_minute_source_health(self, failures: Mapping[str, str], *, now: datetime,
+                                     auxiliary_failures: Mapping[str, str] | None = None) -> list[dict[str, Any]]:
         """One durable incident/recovery per source-window failure, not per plan."""
         day = now.date().isoformat()
-        state = "BLOCKED" if failures else "READY"
+        auxiliary = dict(auxiliary_failures or {})
+        state = "BLOCKED" if failures else "DEGRADED" if auxiliary else "READY"
         previous = self.store.list_notification_deliveries(kind="A4_MINUTE_SOURCE_HEALTH", limit=1)
         old = _json_mapping(previous[0].get("payload_json")) if previous else {}
         same_day = old.get("trade_date") == day
-        reasons = sorted(set(failures.values()))
-        if same_day and old.get("state") == state and old.get("reasons") == reasons and previous[0].get("status") == "SENT":
+        reasons = sorted(set(failures.values()) | set(auxiliary.values()))
+        if (same_day and old.get("state") == state and old.get("reasons") == reasons
+                and old.get("symbols") == sorted(failures)
+                and old.get("auxiliary_symbols", []) == sorted(auxiliary)
+                and previous[0].get("status") == "SENT"):
             return []
-        if not failures and not (same_day and old.get("state") == "BLOCKED"):
+        if state == "READY" and not (same_day and old.get("state") in {"BLOCKED", "DEGRADED"}):
             return []
-        title = "A4行情取数异常" if failures else "A4行情取数恢复"
+        title = "A4新增仓数据阻断" if failures else "A4辅助五分钟源降级" if auxiliary else "A4行情取数恢复"
         lines = [f"• 时间：{now.strftime('%H:%M:%S')}；受影响股票：{len(failures)}只。",
-                 "• 重试及后备取数后仍未取得完整当日分钟窗口，受影响股票暂停判断；其他股票继续。" if failures else "• 当日分钟窗口已恢复并通过完整性检查，后续正常判断，不补发历史信号。"]
+                 "• 必需窗口缺失或冲突，受影响股票暂停新增仓；已有持仓按可用风险数据独立监控，其他股票继续。" if failures else
+                 "• 当日一分钟及派生五/十五分钟可用，原生五分钟复核暂缺；历史指标预热仍独立校验，不代表全部策略已就绪。" if auxiliary else
+                 "• 当日执行及辅助窗口恢复，后续正常判断，不补发历史信号。"]
         if failures:
             lines.append("• 涉及股票：" + "、".join(_stock_code(s) for s in sorted(failures)[:15]))
+        if auxiliary:
+            lines.append("• 辅助复核缺项：" + "、".join(_stock_code(s) for s in sorted(auxiliary)[:15]))
         return [self._send(delivery_key=f"a4-minute-source:{now.isoformat()}:{state}",
             kind="A4_MINUTE_SOURCE_HEALTH", source_id=f"minute-source:{day}", title=title,
             lines=lines, summary={"trade_date": day, "state": state, "reasons": reasons,
-                                  "symbols": sorted(failures), "affected_count": len(failures)}, now=now)]
+                                  "symbols": sorted(failures), "affected_count": len(failures),
+                                  "auxiliary_symbols": sorted(auxiliary)}, now=now)]
 
     def publish_a4_system_health(
         self,

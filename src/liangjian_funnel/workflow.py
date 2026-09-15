@@ -17,6 +17,8 @@ from typing import Any, Mapping
 from zoneinfo import ZoneInfo
 
 from .data.cache import CacheConflictError, MinuteBarStore
+from .data.session_windows import closed_window_ends, latest_closed_end
+from .data.execution_evidence import execution_evidence
 from .data.a2_market import (
     collect_eastmoney_board_flow,
     collect_eastmoney_capital_flow,
@@ -3794,6 +3796,12 @@ class WorkflowApplication:
                             five_bars = canonical[-required:]
                 if one is not None and not getattr(one, "complete", False):
                     data_errors.setdefault(symbol, str(getattr(one, "reason_code", "MINUTE_DATA_UNAVAILABLE")))
+                    # A partial history can still contain a trustworthy current
+                    # bar for existing-position hard risk, never for new entry.
+                    if (one.reason_code in {"TENCENT_INSUFFICIENT_BARS", "INSUFFICIENT_BARS", "MINUTE_DATA_GAP"}
+                            and one_bars and one_bars[-1].bar_end == current
+                            and one_bars[-1].symbol == symbol and one_bars[-1].interval == "1m"):
+                        bars[symbol] = one_bars[-1]
                     # Retain the provider observation in the archive, but do
                     # not execute against an incomplete decision window.
                     one_bars = ()
@@ -3835,7 +3843,16 @@ class WorkflowApplication:
                     five_bars,
                     current=current,
                     live_market_state=live_market_state,
+                    native_complete=bool(five is not None and five.complete),
                 )
+                contexts[symbol]["execution_data"]["minute_snapshot_id"] = minute_snapshot_id
+                contexts[symbol]["execution_data"]["receipts"] = {
+                    interval: {"request_started_at": str(getattr(fetched.get(interval), "request_started_at", None) or "UNKNOWN"),
+                               "response_received_at": str(getattr(fetched.get(interval), "response_received_at", None) or "UNKNOWN"),
+                               "reason_code": getattr(fetched.get(interval), "reason_code", "UNAVAILABLE")}
+                    for interval in ("1m", "5m")}
+                if contexts[symbol]["execution_data"]["native_5m_comparison"]["status"] == "CONFLICT":
+                    data_errors.setdefault(symbol, "EXECUTION_NATIVE_5M_CONFLICT")
                 # Supporting history cannot alter today's price structure or
                 # fill a missing current-session bucket. Read local archive only.
                 if any(str(json.loads(p.get("payload_json") or "{}").get("strategy_profile")) == "MA520_SWING"
@@ -3957,12 +3974,19 @@ class WorkflowApplication:
                 fetched = market.get(symbol, {})
                 if fetched.get("fetch_error"):
                     failures[symbol] = str(fetched["fetch_error"])
-                for interval in ("1m", "5m"):
+                for interval in ("1m",):
                     value = fetched.get(interval)
                     if value is not None and not value.complete:
                         failures.setdefault(symbol, value.reason_code)
+                for _, _, lane_contexts, _, lane_errors in lane_inputs.values():
+                    if symbol in lane_errors:
+                        failures.setdefault(symbol, lane_errors[symbol])
             try:
-                notifications.extend(source_health_publisher(failures, now=current))
+                degraded = {symbol: str(getattr(market.get(symbol, {}).get("5m"), "reason_code", "UNAVAILABLE"))
+                            for symbol in decision_symbols if symbol not in failures
+                            and _a4_required_bars(current, "5m") > 0
+                            and not getattr(market.get(symbol, {}).get("5m"), "complete", False)}
+                notifications.extend(source_health_publisher(failures, now=current, auxiliary_failures=degraded))
             except Exception:
                 notifications.append({"status": "FAILED", "reason_code": "MINUTE_SOURCE_ALERT_FAILED"})
         execution_publisher = getattr(publisher, "publish_a4_execution_results", None)
@@ -6134,6 +6158,7 @@ def _intraday_market_context(
     *,
     current: datetime,
     live_market_state: Mapping[str, Any] | None = None,
+    native_complete: bool = True,
 ) -> dict[str, Any]:
     """Build bounded deterministic A4 evidence from closed bars only."""
 
@@ -6142,7 +6167,9 @@ def _intraday_market_context(
     def compact(bars: tuple[MinuteBar, ...]) -> list[dict[str, Any]]:
         return [bar.model_dump(mode="json") for bar in bars[-21:]]
 
-    fifteen_minute = _aggregate_closed_15m(five_minute)
+    aggregated, evidence = execution_evidence(one_minute, five_minute if native_complete else (), as_of=current)
+    derived_five = list(aggregated["5m"])
+    fifteen_minute = list(aggregated["15m"])
 
     def statistics(bars: list[Mapping[str, Any]]) -> dict[str, Any]:
         closes = [float(bar["close"]) for bar in bars]
@@ -6160,6 +6187,7 @@ def _intraday_market_context(
         "symbol": symbol,
         "as_of": current.isoformat(),
         "live_market_state": dict(live_market_state or {}),
+        "execution_data": evidence,
         "market_authority": {
             "a3_prior_context": "POSITION_GUIDANCE_ONLY",
             "a4_current_session": "LIVE_ENTRY_AUTHORITY",
@@ -6171,12 +6199,12 @@ def _intraday_market_context(
         ),
         "closed_bars": {
             "1m": compact(one_minute),
-            "5m": compact(five_minute),
+            "5m": derived_five[-21:],
             "15m": fifteen_minute[-21:],
         },
         "moving_averages": {
             "1m": statistics(compact(one_minute)),
-            "5m": statistics(compact(five_minute)),
+            "5m": statistics(derived_five[-21:]),
             "15m": statistics(fifteen_minute),
         },
         "tradability": {
@@ -6189,7 +6217,7 @@ def _intraday_market_context(
                 if current_bar is not None
                 else "CURRENT_1M_BAR_UNAVAILABLE"
             ),
-            "source": "mootdx_closed_1m",
+            "source": current_bar.source_id if current_bar is not None else "UNAVAILABLE",
         },
     }
 
@@ -7170,19 +7198,7 @@ def _minute_cache_ready(
 
 
 def _latest_required_5m_end(value: datetime) -> datetime | None:
-    current = _aware(value)
-    day = current.date()
-    if current.time() >= datetime.strptime("15:00", "%H:%M").time():
-        return datetime.combine(day, datetime.strptime("15:00", "%H:%M").time(), SHANGHAI)
-    if current.time() >= datetime.strptime("13:05", "%H:%M").time():
-        minutes = min(120, ((current.hour * 60 + current.minute) - (13 * 60)) // 5 * 5)
-        return datetime.combine(day, datetime.strptime("13:00", "%H:%M").time(), SHANGHAI) + timedelta(minutes=minutes)
-    if current.time() >= datetime.strptime("11:30", "%H:%M").time():
-        return datetime.combine(day, datetime.strptime("11:30", "%H:%M").time(), SHANGHAI)
-    if current.time() >= datetime.strptime("09:35", "%H:%M").time():
-        minutes = min(120, ((current.hour * 60 + current.minute) - (9 * 60 + 30)) // 5 * 5)
-        return datetime.combine(day, datetime.strptime("09:30", "%H:%M").time(), SHANGHAI) + timedelta(minutes=minutes)
-    return None
+    return latest_closed_end(_aware(value), "5m")
 
 
 def _a4_required_bars(value: datetime, interval: str) -> int:
@@ -7195,23 +7211,7 @@ def _a4_required_bars(value: datetime, interval: str) -> int:
 
     if interval not in {"1m", "5m"}:
         raise ValueError("interval must be 1m or 5m")
-    current = _aware(value).astimezone(SHANGHAI)
-    step = 1 if interval == "1m" else 5
-    starts = (
-        datetime(current.year, current.month, current.day, 9, 30 + step, tzinfo=SHANGHAI),
-        datetime(current.year, current.month, current.day, 13, step, tzinfo=SHANGHAI),
-    )
-    ends = (
-        datetime(current.year, current.month, current.day, 11, 30, tzinfo=SHANGHAI),
-        datetime(current.year, current.month, current.day, 15, 0, tzinfo=SHANGHAI),
-    )
-    total = 0
-    for start, end in zip(starts, ends):
-        if current < start:
-            continue
-        capped = min(current, end)
-        total += int((capped - start).total_seconds() // (step * 60)) + 1
-    return max(0, total)
+    return len(closed_window_ends(_aware(value), interval))
 
 
 def _a4_price_contract_valid(

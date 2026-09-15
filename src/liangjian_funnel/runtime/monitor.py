@@ -187,6 +187,24 @@ class MonitorEngine:
             plan_id = str(plan["plan_id"])
             symbol = str(plan["symbol"])
             symbol_reason = symbol_data_errors.get(symbol) or symbol_data_errors.get(symbol.split(".")[0])
+            # Entry-history failure must not silence an independently valid
+            # current-bar hard stop. Global persistence/integrity failures and
+            # untrusted current bars still cannot authorize any execution.
+            risk_bar = bars_by_symbol.get(symbol) or bars_by_symbol.get(symbol.split(".")[0])
+            risk_position = self.store.get_position(f"paper:{lane_id}", symbol)
+            risk_payload = self._payload(plan)
+            if (symbol_reason and not global_data_reason and risk_position
+                    and risk_bar is not None and risk_bar.interval == "1m" and risk_bar.bar_end == minute
+                    and symbol_reason != "CLOSE_BAR_FINALIZATION_UNCONFIRMED"
+                    and risk_payload.get("stop_level") is not None
+                    and risk_bar.low <= float(risk_payload["stop_level"])):
+                self._reset_confirmation(lane_id, plan_id)
+                trigger_results.append({"plan_id": plan_id, "symbol": symbol,
+                    "trigger_pass": True, "eligible": False,
+                    "action_candidate": MonitorAction.FORCED_RISK_EXIT.value})
+                events.append(self._emit_effective(lane_id, plan, minute, minute_snapshot_id,
+                    MonitorAction.FORCED_RISK_EXIT.value, "HARD_STOP"))
+                continue
             # If a map is present, it is a complete per-symbol readiness
             # projection.  Only the named plan is blocked; other symbols can
             # continue through deterministic trigger evaluation.
@@ -289,6 +307,9 @@ class MonitorEngine:
                         or context_map.get(symbol.split(".")[0])
                     ),
                 ).model_dump(mode="json")
+                selected_context = context_map.get(symbol) or context_map.get(symbol.split(".")[0]) or {}
+                if selected_context.get("execution_data"):
+                    strategy_result["execution_data"] = dict(selected_context["execution_data"])
                 project_exit_eligibility(strategy_result, position)
                 from .indicator_windows import freeze_observations
                 try:

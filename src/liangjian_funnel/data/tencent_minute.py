@@ -156,7 +156,13 @@ class TencentIntradayAdapter:
                 for bar in (self._bar(symbol, interval, row) for row in rows)
                 if bar.bar_end <= cutoff and not (interval == "1m" and bar.bar_end.time().strftime("%H%M") == "0930")
             )
-            ordered = tuple(sorted({bar.bar_end: bar for bar in bars}.values(), key=lambda item: item.bar_end))
+            unique = {}
+            for bar in bars:
+                previous = unique.get(bar.bar_end)
+                if previous is not None and previous != bar:
+                    return self._result(symbol, interval, requested, (), "TENCENT_DUPLICATE_BAR_CONFLICT")
+                unique[bar.bar_end] = bar
+            ordered = tuple(sorted(unique.values(), key=lambda item: item.bar_end))
         except (TencentMarketDataError, TypeError, ValueError, KeyError):
             return self._result(symbol, interval, requested, (), "TENCENT_RESPONSE_INVALID")
         except Exception:
