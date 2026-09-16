@@ -241,8 +241,8 @@ def test_model_failure_persists_only_stable_diagnostic_code(tmp_path):
         now=t0 + timedelta(minutes=1),
     )
     assert result.blocked is True
-    event = store.list_monitor_events(lane_id="lane-a", effective_only=True)[-1]
-    assert event["reason_code"] == "LLM_UNAVAILABLE"
+    event = store.list_monitor_events(lane_id="lane-a")[-1]
+    assert event["reason_code"] == "LLM_UNAVAILABLE" and not event["effective"]
     payload = __import__("json").loads(event["payload_json"])
     assert payload["diagnostic_code"] == "MODEL_TOTAL_DEADLINE_EXCEEDED"
     assert "must not be persisted" not in event["payload_json"]
@@ -257,7 +257,7 @@ def test_gap_resets_confirmation_and_no_action_is_not_markdown(tmp_path):
     blocked = engine.process_minute("lane-a", {"600519.SH": bar(t0 + timedelta(minutes=1))}, minute_snapshot_id="m2", now=t0 + timedelta(minutes=1), gap_detected=True)
     assert blocked.blocked is True
     assert all(event.action == MonitorAction.DATA_BLOCK.value for event in blocked.events)
-    assert "NO_ACTION" not in md.read_text(encoding="utf-8")
+    assert not md.exists()  # Data observations are not effective trading signals.
 
 
 def test_symbol_data_block_does_not_stop_healthy_plan(tmp_path):

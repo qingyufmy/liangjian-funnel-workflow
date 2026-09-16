@@ -177,10 +177,19 @@ _DISPLAY_LABELS = {
     "TREND_VWAP_RECLAIMED_NOT_MET": "价格尚未收复当日成交均价",
     "A2_ROTATION_RESERVE_RESEARCH_ONLY": "轮动候补方向，进入技术研究，暂不执行",
     "A3_ROTATION_RESERVE_RESEARCH_ONLY": "候补技术研究计划，未开放盘中执行",
+    "A3_STRONG_TREND_OBSERVATION_ONLY": "板块前五之外的强趋势研究观察，未开放盘中执行",
+    "A2_STRONG_TREND_OBSERVATION_ONLY": "基本面与趋势证据满足补充研究条件，仅进入观察",
+    "A2_STRONG_TREND_OBSERVATION_BUDGET": "强趋势研究超出本轮复核数量上限，保留待复核",
+    "A2_EMOTION_AND_TREND_INDEPENDENT_REVIEW": "同时具备情绪与趋势证据，分别核验策略资格",
     "A3_EMOTION_RESEARCH_ONLY_NO_ENTRY": "情绪研究候选，暂未开放执行",
     "A2_EMOTION_CYCLE_NO_NEW_ENTRY": "情绪阶段限制新开仓，保留研究观察",
     "A2_EMOTION_THEME_SELECTION_REQUIRED": "存在多个有依据的主题，需明确本轮研究题材",
     "MINUTE_FETCH_BUDGET_EXHAUSTED": "本分钟取数超时，等待后续完整行情",
+    "MINUTE_PUBLICATION_PENDING": "本分钟行情版本待确认，暂不新增仓",
+    "MINUTE_PUBLICATION_UNCONFIRMED": "连续分钟行情版本未确认，暂停受影响股票新增仓",
+    "MINUTE_PUBLICATION_REPLAY_MISMATCH": "同一决策的行情版本已变化，不重算历史入场",
+    "MINUTE_PUBLICATION_AUDIT_UNAVAILABLE": "行情确认记录不可用，暂停新增仓",
+    "EXECUTION_NATIVE_5M_CONFLICT": "一分钟聚合与原生五分钟行情不一致",
     "CURRENT_SESSION_WINDOW_INVALID": "当日分钟窗口不完整或时间不符",
     "CLOSE_BAR_FINALIZATION_UNCONFIRMED": "收盘行情待确认，盘后补采归档",
     "TREND_PULLBACK_ZONE_NOT_MET": "尚未进入趋势回踩区",
@@ -873,7 +882,8 @@ class WorkflowLarkPublisher:
         notification_kind = (
             "A5_MIDDAY_REVIEW" if review_kind == "MIDDAY" else "A5_POST_CLOSE_REVIEW"
         )
-        metrics = _json_mapping(facts.get("metrics"))
+        from ..review.fact_guard import business_metrics
+        metrics = business_metrics(facts)
         data_quality = _json_mapping(facts.get("data_quality"))
         verification = _json_mapping(facts.get("independent_verification"))
         verification_status = (
@@ -1081,7 +1091,7 @@ class WorkflowLarkPublisher:
     ) -> list[dict[str, Any]]:
         outputs: list[dict[str, Any]] = []
         for event in events:
-            if not bool(event.get("effective")):
+            if not bool(event.get("effective")) and event.get("action") != "DATA_BLOCK":
                 continue
             action = str(event.get("action") or "")
             if action in _A4_SILENT_ACTIONS:
@@ -1093,6 +1103,10 @@ class WorkflowLarkPublisher:
             if action == "DATA_BLOCK" and (data_reason.startswith(("TENCENT_", "NODE_")) or data_reason in {
                 "MINUTE_FETCH_BUDGET_EXHAUSTED", "CURRENT_SESSION_WINDOW_INVALID", "MINUTE_DATA_FETCH_FAILED",
                 "CLOSE_BAR_FINALIZATION_UNCONFIRMED",
+                "EXECUTION_NATIVE_5M_CONFLICT", "MINUTE_PUBLICATION_PENDING",
+                "MINUTE_PUBLICATION_UNCONFIRMED", "MINUTE_DATA_NOT_CURRENT",
+                "MINUTE_PUBLICATION_REPLAY_MISMATCH",
+                "MINUTE_DATA_GAP", "MINUTE_DATA_UNAVAILABLE",
             }):
                 # Shared acquisition incidents have their own aggregate card;
                 # the 15:00 pending-finality state is a post-close archive task.
@@ -1295,15 +1309,25 @@ class WorkflowLarkPublisher:
         ]
 
     def publish_minute_source_health(self, failures: Mapping[str, str], *, now: datetime,
-                                     auxiliary_failures: Mapping[str, str] | None = None) -> list[dict[str, Any]]:
+                                     auxiliary_failures: Mapping[str, str] | None = None,
+                                     pending_failures: Mapping[str, str] | None = None) -> list[dict[str, Any]]:
         """One durable incident/recovery per source-window failure, not per plan."""
         day = now.date().isoformat()
         auxiliary = dict(auxiliary_failures or {})
+        # A first bounded publication wait is visible in the minute audit,
+        # not a fault/recovery card. Persistent waits arrive as failures.
+        if pending_failures and not failures and not auxiliary:
+            return []
         state = "BLOCKED" if failures else "DEGRADED" if auxiliary else "READY"
         previous = self.store.list_notification_deliveries(kind="A4_MINUTE_SOURCE_HEALTH", limit=1)
         old = _json_mapping(previous[0].get("payload_json")) if previous else {}
         same_day = old.get("trade_date") == day
         reasons = sorted(set(failures.values()) | set(auxiliary.values()))
+        if (same_day and old.get("state") == state and old.get("reasons") == reasons
+                and set(failures).issubset(old.get("symbols", []))
+                and set(auxiliary).issubset(old.get("auxiliary_symbols", []))
+                and state != "READY" and previous[0].get("status") == "SENT"):
+            return []
         if (same_day and old.get("state") == state and old.get("reasons") == reasons
                 and old.get("symbols") == sorted(failures)
                 and old.get("auxiliary_symbols", []) == sorted(auxiliary)
@@ -1311,20 +1335,28 @@ class WorkflowLarkPublisher:
             return []
         if state == "READY" and not (same_day and old.get("state") in {"BLOCKED", "DEGRADED"}):
             return []
-        title = "A4新增仓数据阻断" if failures else "A4辅助五分钟源降级" if auxiliary else "A4行情取数恢复"
+        title = "A4行情校验未通过｜暂停新增仓" if failures else "A4辅助五分钟源降级" if auxiliary else "A4行情校验恢复"
         lines = [f"• 时间：{now.strftime('%H:%M:%S')}；受影响股票：{len(failures)}只。",
+                 "• 通知类型：行情质量提醒，不是买入信号或委托失败回报。",
                  "• 必需窗口缺失或冲突，受影响股票暂停新增仓；已有持仓按可用风险数据独立监控，其他股票继续。" if failures else
                  "• 当日一分钟及派生五/十五分钟可用，原生五分钟复核暂缺；历史指标预热仍独立校验，不代表全部策略已就绪。" if auxiliary else
-                 "• 当日执行及辅助窗口恢复，后续正常判断，不补发历史信号。"]
+                 "• 当日执行及辅助窗口恢复，后续重新判断策略；不代表买点成立或委托成交，不补发历史信号。"]
         if failures:
             lines.append("• 涉及股票：" + "、".join(_stock_code(s) for s in sorted(failures)[:15]))
         if auxiliary:
             lines.append("• 辅助复核缺项：" + "、".join(_stock_code(s) for s in sorted(auxiliary)[:15]))
+        if pending_failures:
+            lines.append(f"• 另有{len(pending_failures)}只行情版本待确认，仍暂停新增仓；本通知不表示其已恢复。")
+        if reasons:
+            lines.append("• 原因：" + "、".join(_DISPLAY_LABELS.get(reason, "必需行情数据不可用") for reason in reasons))
         return [self._send(delivery_key=f"a4-minute-source:{now.isoformat()}:{state}",
             kind="A4_MINUTE_SOURCE_HEALTH", source_id=f"minute-source:{day}", title=title,
             lines=lines, summary={"trade_date": day, "state": state, "reasons": reasons,
+                                  "event_category": "MARKET_DATA_QUALITY",
+                                  "order_outcome": "NOT_AN_ORDER_RESULT",
                                   "symbols": sorted(failures), "affected_count": len(failures),
-                                  "auxiliary_symbols": sorted(auxiliary)}, now=now)]
+                                  "auxiliary_symbols": sorted(auxiliary),
+                                  "pending_symbols": sorted(pending_failures or {})}, now=now)]
 
     def publish_position_data_health(self, affected: Mapping[str, Mapping[str, Any]], *, now: datetime) -> list[dict[str, Any]]:
         """Persistent incident/impact-change/recovery notice, never a trade."""

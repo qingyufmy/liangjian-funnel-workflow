@@ -20,7 +20,7 @@ from ..runtime.state import RuntimeStore
 from .signal_audit import build_signal_stock_reviews
 from .context import A5ReviewError, render_a5_prompt
 from .plan_scope import carryover_evidence, select_review_plans
-from .fact_guard import normalize_quality, reconcile_report
+from .fact_guard import normalize_quality, reconcile_report, business_metrics
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -335,6 +335,11 @@ def _a2_projection(audit: Mapping[str, Any]) -> tuple[dict[str, Any], list[str]]
                 "llm_reviewed": item.get("sent_to_llm", pool_name in {"FOCUS", "WATCH", "REJECTED"}),
                 "risk_reasons": item.get("risk_reasons") if isinstance(item.get("risk_reasons"), list) else [],
                 "quant_gate_evidence": a2_gate_evidence(item),
+                **({"research_observation_scope": item.get("research_observation_scope"),
+                    "execution_permission": item.get("execution_permission")}
+                   if item.get("strong_trend_observation") else {}),
+                **({"research_route_qualifications": item.get("research_route_qualifications")}
+                   if item.get("independent_strategy_review") else {}),
                 **({"rotation_reserve_scope": item.get("rotation_reserve_scope"),
                     "rotation_reserve_boards": item.get("rotation_reserve_boards", [])}
                    if item.get("rotation_reserve_eligible") else {}),
@@ -388,6 +393,11 @@ def _a3_candidates(audit: Mapping[str, Any]) -> list[dict[str, Any]]:
                     "reference_price": row.get("reference_price"),
                     "reference_price_as_of": row.get("reference_price_as_of"),
                     "stock_behavior_type": row.get("stock_behavior_type"),
+                    "research_state": row.get("research_state"),
+                    "execution_permission": row.get("execution_permission"),
+                    "strategy_checks": {profile: {key: check.get(key) for key in
+                        ("eligibility", "unmet_conditions", "veto_conditions", "reason_codes")}
+                        for profile, check in _json_mapping(row.get("strategy_checks")).items() if isinstance(check, Mapping)},
                     "a4_deferred_conditions": row.get("a4_deferred_conditions") or [],
                     "reason_codes": row.get("deterministic_reason_codes") or row.get("reason_codes") or [],
                     "veto_conditions": row.get("deterministic_veto_conditions") or row.get("veto_conditions") or []}
@@ -642,7 +652,11 @@ def build_a5_fact_snapshot(
     for row in raw_event_rows:
         action = str(row.get("action") or "UNKNOWN")
         action_counts[action] = action_counts.get(action, 0) + 1
-        effective = bool(row.get("effective"))
+        # Older producers marked DATA_BLOCK effective for alert delivery.
+        # Preserve that raw flag but classify it as a data observation, not
+        # an effective business signal. Never rewrite the original ledger.
+        recorded_effective = bool(row.get("effective"))
+        effective = recorded_effective and action != "DATA_BLOCK"
         effective_event_count += int(effective)
         if effective:
             effective_action_counts[action] = effective_action_counts.get(action, 0) + 1
@@ -666,6 +680,7 @@ def build_a5_fact_snapshot(
             "symbol": symbol,
             "action": row.get("action"),
             "effective": effective,
+            "recorded_effective": recorded_effective,
             "reason_code": row.get("reason_code"),
             "diagnostic_code": payload.get("diagnostic_code"),
             "strategy_profile": _json_mapping(payload.get("strategy")).get("strategy_profile"),
@@ -935,7 +950,7 @@ def _validate_evidence(report: A5ReviewReport, snapshot: Mapping[str, Any], *, c
 
 def _markdown(report: A5ReviewReport, snapshot: Mapping[str, Any]) -> str:
     kind = "盘中复盘" if report.review_kind is A5ReviewKind.MIDDAY else "盘后复盘"
-    metrics = _json_mapping(snapshot.get("metrics"))
+    metrics = business_metrics(snapshot)
     lines = [
         f"# A5 {kind}｜{report.trade_date.isoformat()}", "",
         "> 内部模拟复盘，不构成投资建议；A5 不修改生产策略，不产生或执行交易信号。", "",
@@ -999,23 +1014,28 @@ def _markdown(report: A5ReviewReport, snapshot: Mapping[str, Any]) -> str:
 def _enforce_verified_findings(report: A5ReviewReport, facts: Mapping[str, Any]) -> None:
     """Model prose cannot clear failed deterministic verification."""
     findings = []
+    def references(rows):
+        # Report citations are a bounded index, not the source archive. Keep
+        # the complete event set in frozen facts and the total in the finding.
+        ids = list(dict.fromkeys(str(row["evidence_id"]) for row in rows))
+        return ids if len(ids) <= 20 else ids[:10] + ids[-10:]
     operations = _rows(facts.get("operational_evidence"))
     failed_research = [row for row in operations if row.get("kind") in {"JOB_TERMINATED", "JOB_FAILED"}
                        and row.get("job") in {"auction-refresh", "close", "morning"}]
     if failed_research:
         findings.append(A5Defect(layer="A2", severity="MEDIUM", confidence="HIGH", blocked_by_data=False,
             problem=f"记录到{len(failed_research)}次研究任务失败或超时；需核对进度收尾及计划血缘，不能由行情覆盖正常推断研究刷新成功。",
-            evidence_ids=[row["evidence_id"] for row in failed_research]))
+            evidence_ids=references(failed_research)))
     position_alerts = [row for row in operations if row.get("kind") == "POSITION_DATA_HEALTH_EVENT" and row.get("state") == "BLOCKED"]
     if position_alerts:
         findings.append(A5Defect(layer="A4", severity="HIGH", confidence="HIGH", blocked_by_data=True,
             problem=f"存在{len(position_alerts)}次持仓风险数据受限通知；须核对当时可用风险输入与恢复，不能从无成交推断无风险，也不能据此断言漏卖。",
-            evidence_ids=[row["evidence_id"] for row in position_alerts]))
+            evidence_ids=references(position_alerts)))
     alerts = [row for row in operations if row.get("kind") == "SOURCE_HEALTH_EVENT" and row.get("state") == "BLOCKED"]
     if alerts:
         findings.append(A5Defect(layer="A4", severity="MEDIUM", confidence="HIGH", blocked_by_data=True,
             problem=f"当日记录{len(alerts)}次行情阻断告警。告警可能为误报，须逐窗对照执行数据；观察记录齐全不代表告警和执行口径一致。",
-            evidence_ids=[row["evidence_id"] for row in alerts]))
+            evidence_ids=references(alerts)))
     verification = _json_mapping(facts.get("independent_verification"))
     a4 = _json_mapping(verification.get("a4"))
     metrics = _json_mapping(facts.get("metrics"))
@@ -1063,8 +1083,8 @@ def _enforce_verified_findings(report: A5ReviewReport, facts: Mapping[str, Any])
         source = next((item for item in _rows(verification.get("counterexamples")) if item.get("symbol") == row.symbol), {})
         explanation = _json_mapping(source.get("selection_audit")).get("explanation")
         if explanation:
-            row.assessment = (str(explanation) + "。以上为原时点筛选依据；当日涨幅不能证明应入选。"
-                              + row.assessment)
+            row.assessment = (str(explanation)[:350] + "。以上为原时点筛选依据；当日涨幅不能证明应入选。"
+                              + row.assessment)[:600]
     if _json_mapping(verification.get("a3")).get("not_verified_fields"):
         names = {"MACD":"MACD", "KDJ":"KDJ", "VOLUME":"成交量"}
         missing = _json_mapping(verification.get("a3"))["not_verified_fields"]
@@ -1153,7 +1173,12 @@ class A5DailyReviewService:
         target_dir = self.output_dir / "a5" / current.date().isoformat()
         artifact_stem = f"{review_kind.value.lower().replace('_', '-')}-{str(facts['input_hash'])[:12]}"
         # Preserve failed requests' facts as well as successful reviews.
-        atomic_write_json(target_dir / f"{artifact_stem}-facts.json", facts)
+        facts_path = target_dir / f"{artifact_stem}-facts.json"
+        if facts_path.exists():
+            if json.loads(facts_path.read_text(encoding="utf-8")) != facts:
+                raise A5ReviewError("A5_ARCHIVED_FACT_CONFLICT")
+        else:
+            atomic_write_json(facts_path, facts)
         projection = _model_fact_projection(facts)
         try:
             prompt, context_diagnostics = render_a5_prompt(self.prompts, _A5_PROMPT, projection)
@@ -1163,15 +1188,26 @@ class A5DailyReviewService:
         atomic_write_json(target_dir / f"{artifact_stem}-context.json", context_diagnostics)
         prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
         try:
-            result: ModelCallResult = self.model_client.complete(
-                self.model,
-                [{"role": "system", "content": prompt}],
-                prompt_hash=prompt_hash,
-                input_hash=str(facts["input_hash"]),
-                stage="A5",
-                timeout_seconds=600,
-                max_output_tokens=32_768,
-            )
+            if frozen_facts is not None and getattr(self.model_client, "revalidate_facts", False):
+                result = self.model_client.revalidate_frozen(
+                    facts=facts, model=self.model, template_hash=self.prompts.document(_A5_PROMPT).sha256,
+                    rendered_prompt_hash=prompt_hash)
+                atomic_write_json(target_dir / f"{artifact_stem}-archive-revalidation.json",
+                                  self.model_client.archive_validation_provenance)
+            else:
+                # Keep the exact request bytes for future same-request replay.
+                request_path = target_dir / f"{artifact_stem}-prompt-{prompt_hash[:12]}.txt"
+                if not request_path.exists():
+                    atomic_write_text(request_path, prompt)
+                result: ModelCallResult = self.model_client.complete(
+                    self.model,
+                    [{"role": "system", "content": prompt}],
+                    prompt_hash=prompt_hash,
+                    input_hash=str(facts["input_hash"]),
+                    stage="A5",
+                    timeout_seconds=600,
+                    max_output_tokens=32_768,
+                )
         except ModelClientError as exc:
             # Keep request failure evidence without provider bodies, keys or
             # hidden reasoning; no report or notification is created.
@@ -1206,12 +1242,23 @@ class A5DailyReviewService:
             raise A5ReviewError("A5_OUTPUT_IDENTITY_MISMATCH")
         _validate_evidence(report, facts, check_stage=False)
         report.signal_stock_reviews = list(facts.get("signal_stock_reviews") or [])
-        _enforce_verified_findings(report, facts)
-        report.fact_reconciliation = reconcile_report(report, facts)
+        try:
+            _enforce_verified_findings(report, facts)
+            report.fact_reconciliation = reconcile_report(report, facts)
+            report = A5ReviewReport.model_validate(report.model_dump())
+        except ValidationError as exc:
+            diagnostics = {"phase": "SERVER_FACT_RECONCILIATION", "errors": [
+                {"field": ".".join(str(part) for part in e["loc"]), "type": e["type"]}
+                for e in exc.errors(include_input=False, include_url=False)]}
+            atomic_write_json(target_dir / f"{artifact_stem}-validation-failure.json", diagnostics)
+            raise A5ReviewError("A5_SERVER_FACT_SCHEMA_INVALID", diagnostics=diagnostics) from exc
         archived_source = getattr(self.model_client, "archived_response_source", None)
         if archived_source:
             report.fact_reconciliation.append(
                 f"本版复验已归档模型响应（{archived_source}），未重新调用模型；沿用原提示词及冻结输入，执行当前结构与事实校验。")
+            if getattr(self.model_client, "revalidate_facts", False):
+                report.fact_reconciliation.append(
+                    "本次为冻结事实及原响应复验，不是原请求字节重放；原始与重建提示词哈希已分别留档，未宣称二者完全一致。")
         report = A5ReviewReport.model_validate(report.model_dump())
         _validate_evidence(report, facts)
 

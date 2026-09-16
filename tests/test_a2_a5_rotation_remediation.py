@@ -55,7 +55,12 @@ def test_full_a2_lineage_over_300_and_group_roundtrip():
                 for group in grouped["groups"] for row in group["stocks"]]
     for row in restored:
         row.setdefault("reason_codes", row["selection_reasons"])
-    assert sorted(restored, key=lambda r: r["symbol"]) == sorted(projection["candidates"], key=lambda r: r["symbol"])
+    # Detailed quant gates intentionally remain in the immutable fact archive;
+    # model transport carries them only for selected counterexample audits.
+    expected = [{key: value for key, value in row.items() if key != "quant_gate_evidence"}
+                for row in projection["candidates"]]
+    assert sorted(restored, key=lambda r: r["symbol"]) == sorted(expected, key=lambda r: r["symbol"])
+    assert all("quant_gate_evidence" in row for row in projection["candidates"])
 
 
 def test_dictionary_roundtrip_escapes_reserved_keys():

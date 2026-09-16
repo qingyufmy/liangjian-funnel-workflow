@@ -25,7 +25,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 
-STRATEGY_VERSION = "a3-a4-three-strategy/1.4.0"
+STRATEGY_VERSION = "a3-a4-three-strategy/1.5.0"
 
 
 class StrategyProfile(StrEnum):
@@ -380,6 +380,7 @@ def evaluate_a3_candidate(
     snapshot: Mapping[str, Any] | None = None,
     as_of: datetime | date | str | None = None,
     ablation: Mapping[str, Any] | None = None,
+    _research_profile: StrategyProfile | None = None,
 ) -> dict[str, Any]:
     """Evaluate one A2 candidate against the A3 daily strategy contract.
 
@@ -590,6 +591,16 @@ def evaluate_a3_candidate(
         profile = StrategyProfile.MA520_SWING
     else:
         profile = StrategyProfile.NO_NEXT_DAY_PLAN
+
+    # Independent review can choose a route only when that route's own
+    # technical setup exists. It cannot turn an absent setup into a pass.
+    if _research_profile is not None:
+        supported = {
+            StrategyProfile.LEADER_INTRADAY: leader_route,
+            StrategyProfile.TREND_MA5: trend_route,
+            StrategyProfile.MA520_SWING: ma520_route,
+        }
+        profile = _research_profile if supported.get(_research_profile) else StrategyProfile.NO_NEXT_DAY_PLAN
 
     # Classify the stock's behavior before any plan can be published.  The
     # route remains driven by the deterministic daily setup above, but an
@@ -1471,6 +1482,37 @@ def evaluate_a3_strategy(
         as_of=as_of,
         ablation=ablation,
     )
+    authoritative = _mapping(a2_context) if a2_context is not None else candidate_map
+    qualifications = _mapping(authoritative.get("research_route_qualifications"))
+    checks: dict[str, dict[str, Any]] = {}
+    if authoritative.get("independent_strategy_review") is True:
+        for profile in (StrategyProfile.LEADER_INTRADAY, StrategyProfile.TREND_MA5, StrategyProfile.MA520_SWING):
+            if _mapping(qualifications.get(profile.value)).get("eligible") is not True:
+                continue
+            behavior = "EMOTION" if profile is StrategyProfile.LEADER_INTRADAY else "TREND"
+            role = "EMOTION_LEADER" if behavior == "EMOTION" else "TREND_CORE"
+            overrides = {"stock_behavior_type": behavior, "behavior_type": behavior,
+                         "market_role": role, "role": role, "a2_role": role}
+            scoped_candidate = {**candidate_map, **overrides,
+                                "a2_context": {**_mapping(candidate_map.get("a2_context")), **overrides}}
+            checks[profile.value] = evaluate_a3_candidate(
+                scoped_candidate, context, _mapping(price_levels), _mapping(tradability), kline,
+                as_of=as_of, ablation=ablation, _research_profile=profile,
+            )
+        if checks:
+            # One stock still produces one plan. Prefer a qualified result,
+            # keeping the old route on ties; retain every failed alternative.
+            priority = {"QUALIFIED": 0, "WATCH": 1, "DATA_GAP": 2, "REJECTED": 3}
+            result = min([result, *checks.values()], key=lambda row: priority.get(str(row.get("eligibility")), 4))
+    result = dict(result)
+    result["strategy_checks"] = checks
+    result["research_state"] = {
+        "QUALIFIED": "TECHNICAL_QUALIFIED_WAIT_CONFIRMATION", "WATCH": "PREPARATION_WATCH",
+        "DATA_GAP": "EVIDENCE_PENDING", "REJECTED": "STRUCTURE_INVALID",
+    }.get(str(result.get("eligibility")), "EVIDENCE_PENDING")
+    if authoritative.get("execution_permission") == "BLOCKED":
+        result["execution_permission"] = "BLOCKED"
+        result["research_only_reason"] = authoritative.get("research_only_reason")
     return A3StrategyDecision.model_validate(result)
 
 

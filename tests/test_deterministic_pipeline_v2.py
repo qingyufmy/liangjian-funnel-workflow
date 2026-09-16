@@ -371,6 +371,23 @@ def test_a1_strict_monthly_chain_accepts_disclosed_h1_double_growth_without_quot
     assert [item["symbol"] for item in projected] == [symbol]
     assert projected[0]["evidence_confidence"] >= 0.70
 
+    # The daily discovery increment must pass this same real gate, not a
+    # separate technical-only shortcut. A failed disclosure remains pending.
+    from copy import deepcopy
+    from liangjian_funnel.pipeline.early_discovery import recheck_a1_discovery
+    discovery = {**_discovery(), "active_research_pool": [], "monitor_pool": [], "rejected_candidates": []}
+    snapshot["EARLY_DISCOVERY_SNAPSHOT"] = {"records": [{"symbol": symbol, "review_budget_selected": True}]}
+    frozen = deepcopy(discovery)
+    increment = recheck_a1_discovery(discovery, snapshot)
+    assert discovery == frozen
+    assert [row["symbol"] for row in increment["active_research_pool"]] == [symbol]
+    assert increment["active_research_pool"][0]["daily_verified_increment"]["evidence_hash"]
+    no_disclosure = deepcopy(snapshot)
+    no_disclosure["MAIN_BUSINESS_EVIDENCE"][symbol]["evidence"][0]["publish_time"] = "2026-09-20"
+    rejected_increment = recheck_a1_discovery(discovery, no_disclosure)
+    assert not rejected_increment["active_research_pool"]
+    assert rejected_increment["early_discovery"]["evidence_recheck_symbols"] == [symbol]
+
 
 def test_a1_strict_monthly_chain_disables_quota_and_baseline_activation():
     config_path = Path(__file__).parents[1] / "config" / "funnel_config_v2.yaml"
@@ -1113,9 +1130,10 @@ def test_a2_dual_core_pool_keeps_hot100_emotion_and_selected_board_trend_togethe
     assert by_symbol[trend_symbol]["a2_pool_channel"] == "TREND"
     assert by_symbol[trend_symbol]["top_rotation_theme"] is True
     assert by_symbol[trend_symbol]["selected_board"]["board_code"] == "801807"
-    assert by_symbol[outside_symbol]["status"] == "LOCAL_MONITOR"
-    assert "A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD" in by_symbol[outside_symbol]["reason_codes"]
-    assert set(result.review_symbols) == {emotion_symbol, trend_symbol}
+    assert by_symbol[outside_symbol]["status"] == "REVIEW_CANDIDATE"
+    assert by_symbol[outside_symbol]["strong_trend_observation"] is True
+    assert by_symbol[outside_symbol]["execution_permission"] == "BLOCKED"
+    assert set(result.review_symbols) == {emotion_symbol, trend_symbol, outside_symbol}
 
     overlay_rows = [dict(row) for row in rows]
     overlay_rows[0].update({
@@ -2317,11 +2335,13 @@ def test_screen_a2_available_selected_board_is_authoritative_over_conflicting_me
     assert by_symbol[symbols[1]]["top_rotation_theme"] is True
     assert by_symbol[symbols[1]]["theme_rotation_rank"] == 1
     assert by_symbol[symbols[1]]["status"] == "REVIEW_CANDIDATE"
-    assert by_symbol[symbols[2]]["status"] == "LOCAL_MONITOR"
+    assert by_symbol[symbols[2]]["status"] == "REVIEW_CANDIDATE"
+    assert by_symbol[symbols[2]]["strong_trend_observation"] is True
+    assert by_symbol[symbols[2]]["execution_permission"] == "BLOCKED"
     assert by_symbol[symbols[2]]["trend_core_eligible"] is False
     assert by_symbol[symbols[2]]["selected_board"] is None
-    assert "A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5" in by_symbol[symbols[2]]["reason_codes"]
-    assert set(result.review_symbols) == set(symbols[:2])
+    assert "A2_STRONG_TREND_OBSERVATION_ONLY" in by_symbol[symbols[2]]["reason_codes"]
+    assert set(result.review_symbols) == set(symbols)
 
 
 @pytest.mark.parametrize("reserve", [False, True])
@@ -2383,14 +2403,15 @@ def test_screen_a2_available_selected_board_opens_only_its_top_five_rows(reserve
     assert by_symbol[symbols[1]]["trend_core_eligible"] is True
     assert by_symbol[symbols[1]]["rotation_input_source"] == "SELECTED_BOARD_SNAPSHOT"
     assert symbols[1] in result.review_symbols
-    assert by_symbol[symbols[0]]["status"] == ("REVIEW_CANDIDATE" if reserve else "LOCAL_MONITOR")
+    assert by_symbol[symbols[0]]["status"] == "REVIEW_CANDIDATE"
     assert by_symbol[symbols[0]]["trend_core_eligible"] is False
     if reserve:
         assert by_symbol[symbols[0]]["rotation_reserve_eligible"] is True
         assert by_symbol[symbols[0]]["top_rotation_theme"] is False
         assert symbols[0] in result.review_symbols
     else:
-        assert "A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5" in by_symbol[symbols[0]]["reason_codes"]
+        assert by_symbol[symbols[0]]["strong_trend_observation"] is True
+        assert by_symbol[symbols[0]]["execution_permission"] == "BLOCKED"
 
 
 def test_screen_a2_selected_board_unavailable_fails_closed_even_with_metrics() -> None:

@@ -1,13 +1,13 @@
 """Auditable A2 stock-behaviour and route classification.
 
 This module deliberately contains no ranking score and no provider calls.  It
-turns point-in-time evidence into one of three mutually exclusive behaviour
-types:
+turns point-in-time evidence into a primary display identity and independent
+research route qualifications (neither grants execution permission):
 
 ``EMOTION``
     A theme/ladder leader or a reliably observed first-board candidate.  The
-    only downstream route is the intraday leader strategy; A3 decides whether
-    first-board evidence is sufficiently confirmed for execution.
+    leader route is reviewed by A3; independently confirmed trend evidence
+    also retains its own research routes rather than being overwritten.
 ``TREND``
     A medium-term trend/core stock.  The downstream routes are the daily
     5-day-line trend strategy and the 5/20 swing strategy.
@@ -27,7 +27,7 @@ from datetime import date, datetime
 from typing import Any
 
 
-A2_ROLE_LOGIC_VERSION = "a2-role-logic/1.1.0"
+A2_ROLE_LOGIC_VERSION = "a2-role-logic/1.2.0"
 
 EMOTION = "EMOTION"
 TREND = "TREND"
@@ -203,8 +203,8 @@ def classify_a2_stock(
         # A ladder/leader observation describes the short-horizon trading
         # behaviour even when the same company also has a healthy medium-term
         # trend.  The shorter-horizon emotion contract takes precedence so the
-        # stock cannot be routed simultaneously to leader and trend playbooks;
-        # A3 retains the stronger confirmation gate for first-board rows.
+        # primary display identity remains emotion; independent research
+        # qualifications below preserve any supported trend route as well.
         derived_type = EMOTION
     elif trend_qualified or partial_trend_qualified:
         derived_type = TREND
@@ -235,6 +235,11 @@ def classify_a2_stock(
         market_role = UNRESOLVED_MARKET_ROLE
         route_permission = []
 
+    if derived_type == EMOTION and trend_qualified and not conflicts:
+        route_permission.extend([TREND_MA5, MA520_SWING])
+        reason_codes = [code for code in reason_codes if code != "A2_EMOTION_PRECEDENCE_OVER_TREND"]
+        reason_codes.append("A2_EMOTION_AND_TREND_INDEPENDENT_REVIEW")
+
     return {
         "schema": A2_ROLE_LOGIC_VERSION,
         "symbol": str(symbol or "").strip(),
@@ -242,6 +247,10 @@ def classify_a2_stock(
         "stock_behavior_type": derived_type,
         "market_role": market_role,
         "route_permission": route_permission,
+        "research_route_qualifications": {
+            route: {"eligible": route in route_permission, "execution_authority": False}
+            for route in (LEADER_INTRADAY, TREND_MA5, MA520_SWING)
+        },
         "reason_codes": reason_codes,
         "data_gaps": data_gaps,
         "known_negatives": known_negatives,
@@ -255,7 +264,8 @@ def classify_a2_stock(
             "trend_qualified": trend_qualified,
             "partial_trend_qualified": partial_trend_qualified,
             "trend_candidate_requested": bool(trend_candidate),
-            "emotion_precedence_applied": emotion_qualified and trend_qualified,
+            "emotion_precedence_applied": False,
+            "parallel_research_qualified": emotion_qualified and trend_qualified and not conflicts,
             "hinted_behavior_type": hinted_type,
             "scoring_used": False,
         },

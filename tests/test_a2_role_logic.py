@@ -83,7 +83,7 @@ def test_trend_core_requires_medium_trend_relative_strength_and_industry_logic()
     assert "A2_MEDIUM_TERM_TREND_CONFIRMED" in result["reason_codes"]
 
 
-def test_confirmed_emotion_leader_takes_one_explicit_route_even_with_trend_evidence() -> None:
+def test_confirmed_emotion_preserves_independent_trend_research() -> None:
     result = classify_a2_stock(
         symbol="300001.SZ",
         as_of=AS_OF,
@@ -100,9 +100,11 @@ def test_confirmed_emotion_leader_takes_one_explicit_route_even_with_trend_evide
 
     assert result["stock_behavior_type"] == EMOTION
     assert result["market_role"] == "EMOTION_LEADER"
-    assert result["route_permission"] == [LEADER_INTRADAY]
+    assert result["route_permission"] == [LEADER_INTRADAY, TREND_MA5, MA520_SWING]
     assert result["conflicts"] == []
-    assert "A2_EMOTION_PRECEDENCE_OVER_TREND" in result["reason_codes"]
+    assert "A2_EMOTION_AND_TREND_INDEPENDENT_REVIEW" in result["reason_codes"]
+    assert result["decision_basis"]["emotion_precedence_applied"] is False
+    assert all(not row["execution_authority"] for row in result["research_route_qualifications"].values())
 
 
 def test_first_board_pool_fact_enters_leader_candidate_route_without_confirmation() -> None:

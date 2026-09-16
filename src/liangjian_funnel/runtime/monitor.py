@@ -234,7 +234,10 @@ class MonitorEngine:
                         minute_snapshot_id,
                         MonitorAction.DATA_BLOCK.value,
                         reason,
-                        strategy_result={"position_data_health": risk_health} if risk_position else None,
+                        strategy_result={
+                            "position_data_health": risk_health if risk_position else None,
+                            "execution_data": dict(((market_contexts or {}).get(symbol) or {}).get("execution_data") or {}),
+                        },
                     )
                 )
                 continue
@@ -908,6 +911,7 @@ class MonitorEngine:
         symbol: str | None = None,
         *,
         strategy_result: Mapping[str, Any] | None = None,
+        diagnostic_code: str | None = None,
     ) -> MonitorEvent:
         key = f"internal:{lane_id}:{plan_id or '-'}:{minute.isoformat()}:{action}:{reason}"
         self.store.record_monitor_event(
@@ -921,6 +925,7 @@ class MonitorEngine:
                 "minute_snapshot_id": snapshot_id,
                 "plan_id": plan_id,
                 "symbol": symbol,
+                "diagnostic_code": diagnostic_code,
                 "strategy": dict(strategy_result) if isinstance(strategy_result, Mapping) else None,
             },
         )
@@ -942,6 +947,12 @@ class MonitorEngine:
     ) -> MonitorEvent:
         plan_id = str(plan["plan_id"])
         symbol = str(plan["symbol"])
+        if action == MonitorAction.DATA_BLOCK.value:
+            # Observation identity is per minute. Notification incidents are
+            # deduplicated separately; never erase a later failed decision.
+            return self._emit_internal(lane_id, minute, snapshot_id, action, reason,
+                                       plan_id, symbol, strategy_result=strategy_result,
+                                       diagnostic_code=diagnostic_code)
         # One effective state per plan/action is the durable restart-safe
         # de-duplication key.  A new A3 plan receives a new plan_id.
         key = f"effective:{lane_id}:{plan_id}:{action}"

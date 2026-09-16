@@ -1,10 +1,35 @@
 """Bounded, deterministic operational evidence that market-only A5 missed."""
 from datetime import datetime
+from collections import Counter
 import json
 
 
 def operational_evidence(store, output_dir, *, cutoff):
     rows = []
+    # Quiet publication waits remain reviewable even when no card was sent.
+    quality_dir = output_dir / "monitor" / "data_quality" / cutoff.date().isoformat()
+    states, reasons, symbols, files = Counter(), Counter(), set(), []
+    malformed = 0
+    for path in sorted(quality_dir.glob("*.json")):
+        try:
+            item = json.loads(path.read_text(encoding="utf-8"))
+            stamp = datetime.fromisoformat(item["market_cutoff"])
+            if stamp.tzinfo is None or stamp > cutoff or stamp.date() != cutoff.date():
+                continue
+            for symbol, observation in item["symbols"].items():
+                states[observation["state"]] += 1
+                if observation.get("decision_error"):
+                    reasons[observation["decision_error"]] += 1
+                    symbols.add(symbol)
+            files.append(path.name)
+        except (OSError, ValueError, KeyError, TypeError):
+            malformed += 1
+    if files or malformed:
+        rows.append({"evidence_id": "ENGINEERING:PUBLICATION", "kind": "MINUTE_PUBLICATION_AUDIT",
+                     "time": cutoff.isoformat(), "state_counts": dict(states), "reason_counts": dict(reasons),
+                     "symbols": sorted(symbols), "minute_count": len(files), "unreadable_files": malformed,
+                     "source_dir": str(quality_dir),
+                     "note": "计数单位为股票×分钟，含仅归档股票；等待确认不等于停机或漏买，稳定不等于交易所最终定稿。"})
     for item in store.list_notification_deliveries(kind="A4_MINUTE_SOURCE_HEALTH", limit=500):
         try:
             payload = json.loads(item.get("payload_json") or "{}")
@@ -16,7 +41,8 @@ def operational_evidence(store, output_dir, *, cutoff):
         rows.append({"evidence_id": f"ENGINEERING:ALERT:{len(rows)}", "kind": "SOURCE_HEALTH_EVENT",
                      "time": stamp.isoformat(), "state": payload.get("state"),
                      "reasons": payload.get("reasons", []), "symbols": payload.get("symbols", []),
-                     "note": "告警事实不等于真实停机；需与冻结输入和执行动作交叉核对。"})
+                     "event_category": "MARKET_DATA_QUALITY", "order_outcome": "NOT_AN_ORDER_RESULT",
+                     "note": "这是行情质量提醒，不是买入信号或委托失败回报；不等于真实停机，需与冻结输入和执行动作交叉核对。"})
     for item in store.list_notification_deliveries(kind="A4_POSITION_DATA_HEALTH", limit=500):
         try:
             payload = json.loads(item.get("payload_json") or "{}")

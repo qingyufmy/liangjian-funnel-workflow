@@ -30,7 +30,7 @@ from .factors import a3_factor_contract_reasons
 
 
 PIPELINE_MODE = "deterministic_v2"
-FEATURE_VERSION = "deterministic-features/2.4.0"
+FEATURE_VERSION = "deterministic-features/2.5.0"
 A2_EVIDENCE_HANDOFF_VERSION = "a2-evidence-handoff/1.0.0"
 _A1_DEFAULT_WEIGHTS: dict[str, float] = {
     "structural_theme": 0.20,
@@ -1151,7 +1151,12 @@ def screen_a2(
         # ``active_research_pool`` is the upstream A1 partition.  Preserve
         # monthly identity independently from today's eligibility so a risked
         # monthly row remains auditable without receiving a downstream route.
-        monthly_a1_member = not daily_emotion_overlay
+        increment = item.get("daily_verified_increment")
+        daily_verified_increment = bool(isinstance(increment, Mapping)
+            and increment.get("basis") == "EXISTING_A1_GATE_AND_DISCLOSED_FUNDAMENTALS"
+            and increment.get("evidence_hash") and increment.get("as_of"))
+        monthly_a1_member = not daily_emotion_overlay and not daily_verified_increment
+        fundamental_a1_member = monthly_a1_member or daily_verified_increment
         upstream_research_route = str(item.get("research_route") or "").strip().upper()
         upstream_research_only = item.get("downstream_trade_eligible") is False
         item_hard_risk_events = item.get("hard_risk_events")
@@ -1280,10 +1285,9 @@ def screen_a2(
         daily_a1_member = not daily_member_reasons
         if daily_a1_member:
             daily_member_reasons.append("A2_DAILY_A1_MEMBER")
-        # Keep the legacy field as the monthly identity contract.  New callers
-        # must use the explicit fields below instead of inferring today's
-        # membership from ``a1_formal_member``.
-        formal_a1_member = monthly_a1_member
+        # Formal daily membership may include a verified fundamental delta.
+        # monthly_a1_member alone denotes identity in the sealed base pool.
+        formal_a1_member = fundamental_a1_member
         selected_board_rows = selected_board_by_symbol.get(symbol, ())
         if not isinstance(selected_board_rows, Sequence) or isinstance(selected_board_rows, (str, bytes, bytearray)):
             selected_board_rows = ()
@@ -1408,7 +1412,7 @@ def screen_a2(
             # missing/invalid full-market join for a qualifying direction.
             rotation_direction_id = a1_rotation_direction_id
         broad_trend_candidate = (
-            monthly_a1_member
+            fundamental_a1_member
             # Behavior is an evidence classification, not today's ranking.
             # A supported trend outside the five directions stays a trend
             # in the audit/reserve pool; the independent channel gate below
@@ -1443,6 +1447,10 @@ def screen_a2(
             weights=weights,
         )
         behavior_type = str(behavior_decision.get("stock_behavior_type") or A2_BEHAVIOR_UNRESOLVED)
+        trend_research_qualified = bool(
+            behavior_decision.get("decision_basis", {}).get("trend_qualified")
+            and not behavior_decision.get("conflicts")
+        )
         cycle_stage = str(market_emotion.get("emotion_cycle_stage") or "MIXED").upper()
         emotion_cycle_allowed = cycle_stage in {"STARTUP", "IGNITION", "CONFIRMATION", "ACCELERATION"}
         # Daily emotion rows intentionally do not carry monthly business-line
@@ -1600,14 +1608,14 @@ def screen_a2(
             and (stable_symbol_membership_binding or _a2_selected_board_matches_theme(
                 row, a1_strategy_theme_id=a1_strategy_theme_id, item=item))]
         reserve_eligible = bool(reserve_boards and selected_board_match is None and status == "REVIEW_CANDIDATE"
-                                and monthly_a1_member and behavior_type == "TREND"
+                                and fundamental_a1_member and behavior_type == "TREND"
                                 and not upstream_research_only and not hard_risk_present and not explicitly_inactive)
         trend_core_eligible = (
-            monthly_a1_member
+            fundamental_a1_member
             and not upstream_research_only
             and not hard_risk_present
             and not explicitly_inactive
-            and behavior_type == "TREND"
+            and (behavior_type == "TREND" or trend_research_qualified)
             and (
                 (
                     selected_board_source_available
@@ -1627,6 +1635,15 @@ def screen_a2(
             else "NONE" if dual_channel_contract
             else "LEGACY"
         )
+        strong_trend_observation = bool(
+            fundamental_a1_member and trend_research_qualified
+            and status == "REVIEW_CANDIDATE" and not trend_core_eligible
+            and not reserve_eligible and not emotion_core_eligible
+            and not upstream_research_only and not hard_risk_present and not explicitly_inactive
+            and _has_business_evidence(item) and not low_identity
+            and data_sufficiency_state != "INSUFFICIENT"
+            and selected_board_source_available
+        )
         if daily_emotion_overlay and status == "REVIEW_CANDIDATE" and not emotion_core_eligible:
             # An overlay-only row has no legacy/trend escape hatch.  It can be
             # reviewed only through the explicit emotion channel; otherwise it
@@ -1642,13 +1659,13 @@ def screen_a2(
                 reasons.append("A2_EMOTION_CYCLE_NO_NEW_ENTRY")
             else:
                 reasons.append("A2_EMOTION_EVIDENCE_NOT_ROUTEABLE")
-        if dual_channel_contract and status == "REVIEW_CANDIDATE" and pool_channel == "NONE":
+        if dual_channel_contract and status == "REVIEW_CANDIDATE" and pool_channel == "NONE" and not strong_trend_observation:
             status = "LOCAL_MONITOR"
-            if not monthly_a1_member and behavior_type == "TREND":
+            if not fundamental_a1_member and behavior_type == "TREND":
                 reasons.append("A2_DAILY_EMOTION_OVERLAY_NOT_TREND_ELIGIBLE")
             elif not daily_a1_member:
                 reasons.extend(daily_member_reasons)
-            elif not monthly_a1_member:
+            elif not fundamental_a1_member:
                 reasons.append("A2_OUTSIDE_FORMAL_A1_POOL")
             elif behavior_type == "EMOTION" and hot100_row is None:
                 reasons.append("A2_EMOTION_NOT_IN_EASTMONEY_HOT100" if hot100_available
@@ -1702,12 +1719,11 @@ def screen_a2(
             "node_id": item.get("industry_chain_node") or item.get("node_id"),
             "industry_chain_node": item.get("industry_chain_node") or item.get("node_id"),
             "upstream_candidate_id": item.get("candidate_id") or item.get("upstream_candidate_id"),
-            # ``a1_formal_member`` is retained as a compatibility alias for
-            # the frozen monthly identity.  Daily overlay membership is
-            # intentionally exposed separately so consumers cannot route a
-            # daily emotion row into the monthly trend channel by accident.
+            # Separate sealed monthly identity, verified daily fundamental
+            # additions and emotion-only overlays in the audit.
             "a1_formal_member": formal_a1_member,
             "monthly_a1_member": monthly_a1_member,
+            "daily_verified_increment": dict(increment) if daily_verified_increment else {},
             "daily_a1_member": daily_a1_member,
             "daily_a1_member_reason_codes": list(dict.fromkeys(daily_member_reasons)),
             "daily_emotion_overlay": daily_emotion_overlay,
@@ -1739,10 +1755,14 @@ def screen_a2(
             "role": role,
             "legacy_market_role": legacy_role,
             "stock_behavior_type": behavior_decision.get("stock_behavior_type"),
+            "independent_strategy_review": bool(fundamental_a1_member and trend_research_qualified),
+            "research_route_qualifications": dict(behavior_decision.get("research_route_qualifications") or {}) if fundamental_a1_member else {},
+            "strong_trend_observation": strong_trend_observation,
+            "research_observation_scope": "RESEARCH_ONLY_NO_AUTOMATIC_ENTRY" if strong_trend_observation else None,
             "a2_pool_channel": pool_channel,
             "emotion_core_eligible": emotion_core_eligible,
-            "research_only_reason": ("A2_EMOTION_THEME_SELECTION_REQUIRED" if theme_selection_pending else "A2_EMOTION_CYCLE_NO_NEW_ENTRY") if emotion_research_only else None,
-            "execution_permission": "BLOCKED" if emotion_research_only else "REQUIRES_A3_A4_CONFIRMATION",
+            "research_only_reason": "A2_STRONG_TREND_OBSERVATION_ONLY" if strong_trend_observation else ("A2_EMOTION_THEME_SELECTION_REQUIRED" if theme_selection_pending else "A2_EMOTION_CYCLE_NO_NEW_ENTRY") if emotion_research_only else None,
+            "execution_permission": "BLOCKED" if emotion_research_only or strong_trend_observation else "REQUIRES_A3_A4_CONFIRMATION",
             "trend_core_eligible": trend_core_eligible,
             "rotation_reserve_eligible": reserve_eligible,
             "rotation_reserve_boards": reserve_boards,
@@ -1832,7 +1852,7 @@ def screen_a2(
         # Stock behaviour is applied only after the strongest directions are
         # known; otherwise an entire strong board can disappear merely
         # because its constituents were classified UNRESOLVED at stock level.
-        if monthly_a1_member and not (upstream_research_only or hard_risk_present or explicitly_inactive) and (
+        if fundamental_a1_member and not (upstream_research_only or hard_risk_present or explicitly_inactive) and (
             full_market_rotation_match is not None
             or (
                 selected_board_source_available
@@ -1853,7 +1873,7 @@ def screen_a2(
             market_grouped[rotation_direction_id].append(decision)
         if (
             status == "REVIEW_CANDIDATE"
-            and monthly_a1_member
+            and fundamental_a1_member
             and not (upstream_research_only or hard_risk_present or explicitly_inactive)
             and (trend_core_eligible or not dual_channel_contract)
         ):
@@ -1949,7 +1969,7 @@ def screen_a2(
         eligible_values.sort(key=lambda item: (-float(item["score"]), -float(item["identifiability_score"]), str(item["symbol"])))
         for rank, item in enumerate(eligible_values, start=1):
             item["theme_rank"] = rank
-            if theme_id not in top_theme_ids and not item.get("rotation_reserve_eligible"):
+            if theme_id not in top_theme_ids and not item.get("rotation_reserve_eligible") and not item.get("strong_trend_observation"):
                 item["status"] = "LOCAL_MONITOR"
                 item["reason_codes"].append("A2_OUTSIDE_ROTATION_TOP_THEMES")
             elif not review_all_eligible and rank > llm_top_n_per_theme:
@@ -1977,6 +1997,7 @@ def screen_a2(
                 or item.get("top_rotation_theme") is True
                 or item.get("emotion_core_eligible") is True
                 or item.get("rotation_reserve_eligible") is True
+                or item.get("strong_trend_observation") is True
             ):
                 continue
             item["status"] = "LOCAL_MONITOR"
@@ -1991,6 +2012,22 @@ def screen_a2(
             item["sent_to_llm"] = True
             item["top_rotation_theme"] = False
             item["reason_codes"].append("A2_ROTATION_RESERVE_RESEARCH_ONLY")
+
+    # Bounded supplemental research, never a replacement for board TOP5 or
+    # permission to trade. Stable ordering avoids growing model work unbounded.
+    strong_observations = sorted(
+        (item for item in decisions if item.get("strong_trend_observation")),
+        key=lambda item: (-float(item["score"]), -float(item["identifiability_score"]), str(item["symbol"])),
+    )
+    for rank, item in enumerate(strong_observations, 1):
+        item["strong_trend_observation_rank"] = rank
+        item["top_rotation_theme"] = False
+        item["reason_codes"].append("A2_STRONG_TREND_OBSERVATION_ONLY")
+        item["sent_to_llm"] = rank <= 30
+        item["status"] = "REVIEW_CANDIDATE" if rank <= 30 else "LOCAL_MONITOR"
+        if rank > 30:
+            item["strong_trend_observation"] = False
+            item["reason_codes"].append("A2_STRONG_TREND_OBSERVATION_BUDGET")
 
     # Attribution is deliberately computed after theme ranking and transport
     # selection.  This records the final ``SENT_TO_LLM`` state while leaving
@@ -4466,6 +4503,7 @@ def screen_a3(snapshot: Mapping[str, Any], a2_output: Mapping[str, Any]) -> Dete
             if stop_distance is None or stop_distance <= 0 or stop_distance > maximum_stop_distance:
                 risk_reasons.append("A3_STOP_DISTANCE_OUTSIDE_LIMIT")
         if risk_reasons:
+            strategy["research_state"] = "TECHNICAL_QUALIFIED_WAIT_PRICE"
             # These figures use the prior close/reference zone. A4 owns the
             # actual entry price and must recompute both stop distance and
             # reward/risk from live confirmation. Keep the reference warning
@@ -4490,6 +4528,7 @@ def screen_a3(snapshot: Mapping[str, Any], a2_output: Mapping[str, Any]) -> Dete
             if factor_reasons and eligibility != Eligibility.REJECTED.value:
                 eligibility = Eligibility.DATA_GAP.value
                 strategy["eligibility"] = eligibility
+                strategy["research_state"] = "EVIDENCE_PENDING"
                 strategy["reason_codes"] = list(dict.fromkeys([
                     *strategy.get("reason_codes", []), *factor_reasons,
                 ]))

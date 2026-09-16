@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import Any, Mapping
+import re
 
 
 def normalize_quality(value: Mapping[str, Any]) -> dict[str, Any]:
@@ -38,6 +39,17 @@ def verification_totals(facts: Mapping[str, Any]) -> dict[str, Any]:
             and all("expected_observation_minutes" in p and "recorded_observation_minutes" in p for p in plans)}
 
 
+def business_metrics(facts: Mapping[str, Any]) -> dict[str, Any]:
+    """A display projection only; preserve historical effective flags/hash."""
+    metrics = dict(facts.get("metrics") or {})
+    actions = dict(metrics.get("a4_effective_action_counts") or {})
+    data_blocks = int(actions.pop("DATA_BLOCK", 0) or 0)
+    if data_blocks:
+        metrics["a4_effective_event_count"] = max(0, int(metrics.get("a4_effective_event_count", 0)) - data_blocks)
+        metrics["a4_effective_action_counts"] = actions
+    return metrics
+
+
 def reconcile_report(report: Any, facts: Mapping[str, Any]) -> list[str]:
     """Reconcile factual fields; preserve original model output in its archive.
 
@@ -45,7 +57,9 @@ def reconcile_report(report: Any, facts: Mapping[str, Any]) -> list[str]:
     Free-form hypotheses remain proposals, never confirmed numeric evidence.
     """
     notes = []
-    metrics = facts.get("metrics") or {}
+    metrics = business_metrics(facts)
+    if metrics != (facts.get("metrics") or {}):
+        notes.append("旧账本中的DATA_BLOCK仅作行情质量观察，不计为业务或交易信号；原始标记与冻结事实未修改。")
     verification = facts.get("independent_verification") or {}
     totals = verification_totals(facts)
     quality = normalize_quality(facts.get("data_quality") or {})
@@ -116,6 +130,11 @@ def reconcile_report(report: Any, facts: Mapping[str, Any]) -> list[str]:
             proposal.proposed_change = "先建立逐时间戳差异分类与原值追踪；只有实际单位或时间归属证据确认适配缺陷后，才实施对应修复，不统一清洗差异或放宽比较容差。"
             proposal.validation_method = "按相同时间戳保留两源原值、既有容差和完整差异计数，分类后用冻结策略复算验证动作影响；不覆盖原始判断。"
             proposal.success_criteria = "全部差异有可追溯原值和分类，能够复现；可比字段单独验收，来源未提供的金额继续标为不可比较，不要求凭空补出。"
+        elif proposal.target == "A4" and proposal.type == "DATA_FIX" and ("AMOUNT" in text or "成交金额" in text):
+            proposal.proposed_change = "修复可取得的跨源价格和成交量证据，逐字段标记真实值、估算值及不可比较原因；估算金额不得伪装成实际成交金额。"
+            proposal.success_criteria = "可比字段分别统计覆盖与差异，并核对差异原因；来源未提供或仅估算的金额保持不可比较，不以全字段零差异作验收。"
+            proposal.falsification_criteria = "可比字段仍存在未解释差异，或把不可比较字段误记为核验通过。"
+            notes.append("金额估算值不要求跨源强行一致，已纠正全字段零差异的提案验收口径。")
         proposals.append(proposal)
     report.improvement_proposals = proposals
     if removed:
@@ -126,6 +145,15 @@ def reconcile_report(report: Any, facts: Mapping[str, Any]) -> list[str]:
         notes.append("无适用520计划不构成15分钟MACD预热故障。")
 
     if totals["scope_verified"]:
+        missing_label = str(totals["missing_observation_count"])
+        def correct_units(text):
+            return re.sub(r"(?<!\d)" + missing_label + "分钟", missing_label + "条股票×分钟观察记录", text) if int(missing_label) else text
+        for proposal in report.improvement_proposals:
+            for field in ("hypothesis", "proposed_change", "validation_method", "success_criteria", "falsification_criteria"):
+                setattr(proposal, field, correct_units(getattr(proposal, field)))
+        for question in report.unresolved_questions:
+            question.question = correct_units(question.question)
+            question.resolution = correct_units(question.resolution)
         aggregate_terms = ("成交量", "金额", "VOLUME", "AMOUNT", "分钟", "理论值", "缺少决策记录", "应观察窗口")
         def aggregate_claim(text: str) -> bool:
             # Never erase exit/T+1 or indicator findings just because their

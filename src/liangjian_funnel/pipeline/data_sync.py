@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, time as datetime_time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from .data_source import HithinkClient, HithinkFetchResult
 from .local_fact_cache import LocalFactCache
+from .early_discovery import discover_early_setups, merge_discovery_parts
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -34,6 +35,7 @@ class SyncResult:
     # deliberately excluded so downstream feature maintenance cannot rebuild
     # an unchanged or incomplete entity.
     updated_symbols: tuple[str, ...] = ()
+    early_discovery: dict[str, Any] = field(default_factory=dict)
 
 
 ProgressCallback = Callable[[Mapping[str, Any]], None]
@@ -77,6 +79,8 @@ class HithinkIncrementalSynchronizer:
         compact_daily_bars: int = 30,
         fundamental_projector: FundamentalProjector | None = None,
         progress: ProgressCallback | None = None,
+        collect_early_discovery: bool = False,
+        include_financial: bool = True,
     ) -> SyncResult:
         current = _aware(as_of)
         ordered = tuple(dict.fromkeys(str(symbol).strip().upper() for symbol in symbols))
@@ -85,6 +89,7 @@ class HithinkIncrementalSynchronizer:
         fundamental: dict[str, Any] = {}
         updated_symbols: list[str] = []
         stale_daily: list[str] = []
+        discovery_parts: dict[str, dict[str, Any]] = {}
         hits = 0
         misses = 0
         daily_updates = 0
@@ -176,11 +181,15 @@ class HithinkIncrementalSynchronizer:
                 adjust="none",
                 start=start,
                 end=closed_daily_end,
-                limit=compact_daily_bars,
+                limit=None if collect_early_discovery else compact_daily_bars,
                 descending=True,
             )
+            if collect_early_discovery:
+                discovery_parts[symbol] = discover_early_setups({symbol: [
+                    {**row["payload"], "timestamp": row["timestamp"], "adjust": row["adjust"]}
+                    for row in reversed(rows)]}, as_of=current, symbols=[symbol])
             if rows:
-                daily[symbol] = [dict(item["payload"]) for item in reversed(rows)]
+                daily[symbol] = [dict(item["payload"]) for item in reversed(rows[:compact_daily_bars])]
                 if required_latest_daily is not None and _row_time(daily[symbol][-1]) < required_latest_daily:
                     failures.setdefault(symbol, []).append("DAILY:LATEST_CLOSED_DAY_MISSING")
                     self.cache.update_sync_state(
@@ -192,7 +201,7 @@ class HithinkIncrementalSynchronizer:
 
             financial_rows: list[dict[str, Any]] = []
             symbol_financial_refreshed = False
-            for dataset in FINANCIAL_DATASETS:
+            for dataset in FINANCIAL_DATASETS if include_financial else ():
                 endpoint = f"HITHINK_FINANCIAL_{dataset}"
                 state = financial_states.get((endpoint, symbol))
                 due = self._financial_due(state, current)
@@ -317,9 +326,13 @@ class HithinkIncrementalSynchronizer:
             )
             rows = self.cache.query_daily_bars(
                 symbol, adjust="none", start=start, end=closed_daily_end,
-                limit=compact_daily_bars, descending=True,
+                limit=None if collect_early_discovery else compact_daily_bars, descending=True,
             )
-            daily[symbol] = [dict(item["payload"]) for item in reversed(rows)]
+            if collect_early_discovery:
+                discovery_parts[symbol] = discover_early_setups({symbol: [
+                    {**row["payload"], "timestamp": row["timestamp"], "adjust": row["adjust"]}
+                    for row in reversed(rows)]}, as_of=current, symbols=[symbol])
+            daily[symbol] = [dict(item["payload"]) for item in reversed(rows[:compact_daily_bars])]
             remaining = [reason for reason in failures.get(symbol, ()) if not reason.startswith("DAILY:")]
             if remaining:
                 failures[symbol] = remaining
@@ -340,6 +353,7 @@ class HithinkIncrementalSynchronizer:
             financial_refreshes=financial_refreshes,
             deferred_financial_refreshes=len(deferred_financial_symbols),
             updated_symbols=tuple(updated_symbols),
+            early_discovery=merge_discovery_parts(list(discovery_parts.values()), as_of=current) if collect_early_discovery else {},
         )
 
     def _daily_ready(

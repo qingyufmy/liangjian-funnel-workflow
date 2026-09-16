@@ -17,7 +17,7 @@ from liangjian_funnel.settings import Settings
 class ArchivedResponseClient:
     """Revalidate only an exact failed request; never impersonate a new call."""
 
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, *, revalidate_facts: bool = False):
         from liangjian_funnel.pipeline.model_client import ModelCallResult
         self.raw = path.read_bytes()
         self.path = path
@@ -28,6 +28,30 @@ class ArchivedResponseClient:
         if self.result.output_hash != value['output_hash']:
             raise ValueError('ARCHIVED_RESPONSE_HASH_MISMATCH')
         self.archived_response_source = path.name
+        self.revalidate_facts = revalidate_facts
+
+    def revalidate_frozen(self, *, facts, model, template_hash, rendered_prompt_hash):
+        """Validate an archived judgment, explicitly not a new request replay.
+
+        Older archives sorted JSON object keys, so rebuilding a packed prompt
+        can change its bytes. Bind the entire semantic input and the original
+        template/model/response instead; retain both prompt hashes as evidence.
+        """
+        contract = facts.get('review_contract') or {}
+        if (not self.revalidate_facts or self.path.read_bytes() != self.raw
+                or model != self.result.model or contract.get('model') != model
+                or contract.get('prompt_sha256') != template_hash
+                or facts.get('input_hash') != self.result.input_hash
+                or _canonical_hash({k: v for k, v in facts.items() if k != 'input_hash'}) != self.result.input_hash):
+            raise ValueError('ARCHIVED_RESPONSE_FACT_IDENTITY_MISMATCH')
+        self.archive_validation_provenance = {
+            'mode': 'FROZEN_FACT_RESPONSE_REVALIDATION_NOT_REQUEST_REPLAY',
+            'response_file_sha256': hashlib.sha256(self.raw).hexdigest(),
+            'original_prompt_hash': self.result.prompt_hash,
+            'reconstructed_prompt_hash': rendered_prompt_hash,
+            'exact_prompt_bytes_reproduced': rendered_prompt_hash == self.result.prompt_hash,
+        }
+        return self.result
 
     def complete(self, model, messages, **kwargs):
         prompt = messages[0]['content'] if len(messages) == 1 and messages[0]['role'] == 'system' else ''
@@ -46,7 +70,10 @@ def main():
     parser.add_argument('--model', help='Explicit operator-selected model for this A5 run only; no environment/configuration writes')
     parser.add_argument('--no-notify', action='store_true', help='Persist the validated review for inspection before its normal notification')
     parser.add_argument('--response', type=Path, help='Revalidate this exact archived response without a new model request; preserve provenance')
+    parser.add_argument('--revalidate-facts', action='store_true', help='Explicitly validate archived facts/response, not exact rendered request bytes')
     args = parser.parse_args()
+    if args.revalidate_facts and not args.response:
+        parser.error('--revalidate-facts requires --response')
     raw = args.facts.read_bytes()
     facts = json.loads(raw)
     now = datetime.now(ZoneInfo('Asia/Shanghai'))
@@ -68,7 +95,7 @@ def main():
     model, _, lane = _primary_model_for_settings(settings)
     model = args.model or settings.review_model
     service = A5DailyReviewService(store=app.store,prompts=app.prompts,
-        model_client=ArchivedResponseClient(args.response) if args.response else app.review_model_client,output_dir=settings.workflow_output_dir,
+        model_client=ArchivedResponseClient(args.response, revalidate_facts=args.revalidate_facts) if args.response else app.review_model_client,output_dir=settings.workflow_output_dir,
         lane_id=lane,model=model,notification_publisher=None if args.no_notify else app.lark_publisher)
     result = service.run(review_kind=kind,now=now,frozen_facts=facts)
     print(json.dumps(result,ensure_ascii=False,default=str),flush=True)

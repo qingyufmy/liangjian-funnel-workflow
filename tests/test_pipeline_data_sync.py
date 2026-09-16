@@ -103,6 +103,47 @@ def test_incremental_sync_persists_each_symbol_and_warm_run_uses_cache(tmp_path)
     assert warm.updated_symbols == ()
 
 
+def test_early_discovery_scans_full_cache_before_thirty_bar_compaction(tmp_path):
+    class RepairClient(FakeClient):
+        def history_1d(self, symbol, **kwargs):
+            self.calls.append(("DAILY", symbol))
+            prices = [20.] * 45 + [20. - i * .5 for i in range(20)] + [11., 12., 14., 16.]
+            end = NOW.replace(hour=0, minute=0)
+            return _result("history", [{
+                "date_ms": int((end - timedelta(days=len(prices) - i - 1)).timestamp() * 1000),
+                "open_price": p, "high_price": p + .1, "low_price": p - .1,
+                "close_price": p, "volume": 1000, "turnover": 10000,
+            } for i, p in enumerate(prices)])
+
+    cache = LocalFactCache(tmp_path / "facts.sqlite3")
+    sync = HithinkIncrementalSynchronizer(cache)
+    cold_client = RepairClient()
+    cold = sync.sync(cold_client, ["603186.SH"], as_of=NOW, collect_early_discovery=True)
+    assert len(cold.daily["603186.SH"]) == 30
+    assert len(cold_client.calls) == 5
+    assert cold.early_discovery["data_gaps"] == []
+    lead = cold.early_discovery["records"][0]
+    assert lead["signals"] == ["REPAIR_WATCH"]
+    assert lead["evidence"]["bar_count"] == 69
+    assert lead["evidence"]["adjust_mode"] == "none"
+    warm_client = RepairClient()
+    warm = sync.sync(warm_client, ["603186.SH"], as_of=NOW, collect_early_discovery=True)
+    assert warm_client.calls == []
+    assert warm.early_discovery == cold.early_discovery
+    assert warm.daily == cold.daily
+
+    radar_client = RepairClient()
+    radar_cache = LocalFactCache(tmp_path / "radar.sqlite3")
+    radar = HithinkIncrementalSynchronizer(radar_cache).sync(
+        radar_client, ["603186.SH"], as_of=NOW, collect_early_discovery=True, include_financial=False,
+    )
+    assert radar_client.calls == [("DAILY", "603186.SH")]
+    assert radar.fundamental == {} and radar.failures == {}
+    assert radar.early_discovery == cold.early_discovery
+    from liangjian_funnel.pipeline.early_discovery import scan_cached_universe
+    assert scan_cached_universe(radar_cache, ["603186.SH"], as_of=NOW) == radar.early_discovery
+
+
 def test_interrupted_bootstrap_resumes_completed_symbols(tmp_path):
     cache = LocalFactCache(tmp_path / "facts.sqlite3")
     sync = HithinkIncrementalSynchronizer(cache, progress_every=1)

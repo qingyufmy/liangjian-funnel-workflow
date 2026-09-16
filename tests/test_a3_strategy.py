@@ -74,6 +74,33 @@ def test_missing_theme_phase_is_data_gap_not_confirmed_late_cycle() -> None:
     assert "THEME_STAGE_NOT_EARLY" not in decision.reason_codes
 
 
+def test_first_board_does_not_erase_independent_trend_and_cannot_launder_block():
+    candidate = {"symbol": "603186.SH", "market_role": "EMOTION_LEADER", "stock_behavior_type": "EMOTION",
+                 "theme_stage": "CONFIRMATION", "ladder_height": 1, "ladder_intact": True,
+                 "independent_strategy_review": True, "execution_permission": "BLOCKED",
+                 "research_only_reason": "A2_EMOTION_CYCLE_NO_NEW_ENTRY",
+                 "research_route_qualifications": {route: {"eligible": True} for route in
+                     ("LEADER_INTRADAY", "TREND_MA5", "MA520_SWING")}}
+    original = deepcopy(candidate)
+    decision = _common(candidate, a2=candidate)
+    assert candidate == original
+    assert decision.strategy_profile is StrategyProfile.TREND_MA5
+    assert decision.eligibility is Eligibility.QUALIFIED
+    assert decision.execution_permission == "BLOCKED"
+    assert decision.strategy_checks["LEADER_INTRADAY"]["eligibility"] == "WATCH"
+    assert decision.stock_behavior_type.value == "TREND"
+    assert decision.research_state == "TECHNICAL_QUALIFIED_WAIT_CONFIRMATION"
+
+
+def test_no_independent_permission_keeps_emotion_first_board_observation():
+    candidate = {"symbol": "603186.SH", "market_role": "EMOTION_LEADER", "stock_behavior_type": "EMOTION",
+                 "theme_stage": "CONFIRMATION", "ladder_height": 1, "ladder_intact": True}
+    decision = _common(candidate, a2=candidate)
+    assert decision.eligibility is Eligibility.WATCH
+    assert not decision.strategy_checks
+    assert decision.research_state == "PREPARATION_WATCH"
+
+
 def test_each_strategy_has_a_single_qualified_route() -> None:
     leader = _common(
         {"symbol": "600001.SH", "name": "龙头", "market_role": "EMOTION_LEADER", "theme_stage": "CONFIRMATION", "ladder_height": 2, "ladder_intact": True},

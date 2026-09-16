@@ -59,6 +59,7 @@ from .evaluation.outcome_labels import record_stage_decisions
 from .pipeline.data_source import HithinkClient, HithinkFetchResult
 from .pipeline.data_readiness import evaluate_data_readiness
 from .pipeline.data_sync import HithinkIncrementalSynchronizer
+from .pipeline.early_discovery import scan_cached_universe
 from .pipeline.a2_features import build_a2_feature_snapshot
 from .pipeline.a1_sources import (
     A1SourceRegistryError,
@@ -557,7 +558,27 @@ class WorkflowApplication:
                 candidate.symbol for candidate in universe.records
             )
             research_records = all_research_records
+            full_market_discovery = None
             if candidate_symbols is not None:
+                discovery_symbols = [record.symbol for record in all_research_records]
+                if not auction_refresh and market_current.hour >= 15:
+                    # Refresh daily prices only. Do not rerun A1 or request
+                    # market-wide financial/LLM work to discover pool outsiders.
+                    if progress is not None:
+                        progress.set_phase("EARLY_DISCOVERY_DAILY_SYNC")
+                    discovery_sync = self.fact_synchronizer.sync(
+                        client, discovery_symbols, as_of=market_current,
+                        collect_early_discovery=True, include_financial=False,
+                    )
+                    full_market_discovery = discovery_sync.early_discovery
+                    del discovery_sync
+                else:
+                    # Auction/morning jobs reuse closed-day cache and cannot
+                    # start a second full-market network sweep alongside A4.
+                    full_market_discovery = scan_cached_universe(
+                        self.fact_cache, discovery_symbols,
+                        as_of=datetime.combine(closed_trade_date, datetime.min.time(), tzinfo=SHANGHAI).replace(hour=15, minute=10),
+                    )
                 requested_symbols = {
                     str(symbol).strip().upper()
                     for symbol in candidate_symbols
@@ -567,6 +588,8 @@ class WorkflowApplication:
                 # same-day emotion overlay expands only the daily fact scope
                 # so hot stocks can be evaluated and traced through A1→A3.
                 requested_symbols.update(hot100_symbols)
+                requested_symbols.update(row["symbol"] for row in full_market_discovery.get("records", [])
+                                         if row.get("review_budget_selected"))
                 research_records = tuple(
                     candidate
                     for candidate in research_records
@@ -718,6 +741,7 @@ class WorkflowApplication:
                 as_of=market_current,
                 lookback_days=800,
                 compact_daily_bars=30,
+                collect_early_discovery=True,
                 fundamental_projector=_compact_fundamental_rows,
                 progress=sync_progress,
             )
@@ -1048,6 +1072,9 @@ class WorkflowApplication:
         fact_payload["open_macro_bundle"] = open_macro_bundle
         fact_payload["eastmoney_hot100"] = eastmoney_hot100
         fact_payload["selected_board_snapshot"] = selected_board
+        fact_payload["early_discovery_snapshot"] = (
+            full_market_discovery if full_market_discovery is not None else getattr(sync_result, "early_discovery", {})
+        )
         if auction_quotes is not None:
             fact_payload["auction_refresh_quotes"] = auction_quotes
 
@@ -3663,7 +3690,10 @@ class WorkflowApplication:
         }
         cache_system_error = False
 
-        fetch_deadline = time.monotonic() + 20.0
+        from .data.publication import (
+            ACQUISITION_BUDGET_SECONDS, confirm_publications, classify_persistent_pending, reuse_publication,
+        )
+        fetch_deadline = time.monotonic() + ACQUISITION_BUDGET_SECONDS
 
         def fetch_symbol(symbol: str) -> tuple[str, dict[str, Any]]:
             one_required = _a4_required_bars(current, "1m")
@@ -3692,45 +3722,63 @@ class WorkflowApplication:
                         market[symbol] = {"fetch_error": "MINUTE_DATA_FETCH_FAILED"}
                         continue
                     market[symbol] = fetched
-                    for interval in ("1m", "5m"):
-                        result = fetched[interval]
-                        if result is None or not result.bars:
-                            continue
-                        live_bars = tuple(
-                            bar
-                            for bar in result.bars
-                            if bar.bar_end.astimezone(SHANGHAI).date() == current.date()
-                            and bar.bar_end <= current
+            market = confirm_publications(market, fetch_symbol, at=current, deadline=fetch_deadline)
+            quality_dir = self.settings.workflow_output_dir / "monitor" / "data_quality" / current.date().isoformat()
+            quality_path = quality_dir / (current.strftime("%H%M") + ".json")
+            previous_path = quality_dir / ((current - timedelta(minutes=1)).strftime("%H%M") + ".json")
+            try:
+                previous = json.loads(previous_path.read_text(encoding="utf-8")) if previous_path.exists() else {}
+                market = {symbol: classify_persistent_pending(pack, previous.get("symbols", {}).get(symbol), at=current)
+                          for symbol, pack in market.items()}
+                if quality_path.exists():
+                    frozen_quality = json.loads(quality_path.read_text(encoding="utf-8"))
+                    if frozen_quality.get("market_cutoff") != current.isoformat():
+                        raise ValueError("publication cutoff mismatch")
+                    for symbol, pack in market.items():
+                        original = frozen_quality["symbols"][symbol]
+                        market[symbol] = reuse_publication(pack, original, at=current)
+                else:
+                    atomic_write_json(quality_path, {"market_cutoff": current.isoformat(), "symbols": {
+                        symbol: {**pack["publication"], "decision_error": pack.get("publication_error")}
+                        for symbol, pack in market.items()}})
+            except Exception:
+                cache_system_error = True
+                cache_stats["errors"].append({"reason_code": "MINUTE_PUBLICATION_AUDIT_UNAVAILABLE"})
+            for symbol, fetched in market.items():
+                for interval in ("1m", "5m"):
+                    result = fetched.get(interval)
+                    if result is None or not result.bars:
+                        continue
+                    live_bars = tuple(
+                        bar
+                        for bar in result.bars
+                        if bar.bar_end.astimezone(SHANGHAI).date() == current.date()
+                        and bar.bar_end <= current
+                    )
+                    if not live_bars:
+                        continue
+                    try:
+                        write_result = self.minute_store.write_live(
+                            live_bars, as_of=current, snapshot_id=minute_snapshot_id,
                         )
-                        if not live_bars:
-                            continue
-                        try:
-                            write_result = self.minute_store.write_live(
-                                live_bars, as_of=current, snapshot_id=minute_snapshot_id,
-                            )
-                            for field in (
-                                "inserted",
-                                "unchanged",
-                                "revised",
-                                "overlap_conflicts",
-                                "skipped_future",
-                            ):
-                                cache_stats[field] += int(getattr(write_result, field, 0))
-                        except CacheConflictError as exc:
-                            # Strict/replay conflicts should not normally be
-                            # raised by write_live, but retain a stable audit
-                            # reason if a custom store does raise one.
-                            cache_stats["errors"].append({
-                                **exc.diagnostics,
-                                "mode": "live",
-                            })
-                        except Exception:
-                            cache_system_error = True
-                            cache_stats["errors"].append({
-                                "symbol": symbol,
-                                "interval": interval,
-                                "reason_code": "MINUTE_CACHE_WRITE_FAILED",
-                            })
+                        for field in (
+                            "inserted",
+                            "unchanged",
+                            "revised",
+                            "overlap_conflicts",
+                            "skipped_future",
+                        ):
+                            cache_stats[field] += int(getattr(write_result, field, 0))
+                    except CacheConflictError as exc:
+                        # Preserve the evidence if a custom store raises.
+                        cache_stats["errors"].append({**exc.diagnostics, "mode": "live"})
+                    except Exception:
+                        cache_system_error = True
+                        cache_stats["errors"].append({
+                            "symbol": symbol,
+                            "interval": interval,
+                            "reason_code": "MINUTE_CACHE_WRITE_FAILED",
+                        })
 
         simulation: list[dict[str, Any]] = []
         lane_inputs: dict[
@@ -3754,6 +3802,8 @@ class WorkflowApplication:
                 five = fetched.get("5m")
                 if fetched.get("fetch_error"):
                     data_errors[symbol] = str(fetched["fetch_error"])
+                if fetched.get("publication_error"):
+                    data_errors.setdefault(symbol, str(fetched["publication_error"]))
                 one_bars = tuple(
                     bar for bar in (tuple(one.bars) if one is not None else ())
                     if bar.bar_end.astimezone(SHANGHAI).date() == current.date() and bar.bar_end <= current
@@ -3818,7 +3868,7 @@ class WorkflowApplication:
                     histories[symbol] = one_bars
                     account_id = f"paper:{lane_id}"
                     position_before = self.store.get_position(account_id, symbol)
-                    if position_before is not None:
+                    if position_before is not None and not data_errors.get(symbol) and not cache_system_error:
                         self.store.observe_a4_lifecycle(
                             account_id=account_id,
                             symbol=symbol,
@@ -3827,8 +3877,10 @@ class WorkflowApplication:
                             low=one_bars[-1].low,
                             close=one_bars[-1].close,
                         )
-                    simulation.extend(self._settle_prior_signals(lane_id, symbol, one_bars[-1]))
-                    if position_before is None and self.store.get_position(account_id, symbol) is not None:
+                    if not data_errors.get(symbol) and not cache_system_error:
+                        simulation.extend(self._settle_prior_signals(lane_id, symbol, one_bars[-1]))
+                    if (position_before is None and not data_errors.get(symbol) and not cache_system_error
+                            and self.store.get_position(account_id, symbol) is not None):
                         self.store.observe_a4_lifecycle(
                             account_id=account_id,
                             symbol=symbol,
@@ -3846,11 +3898,11 @@ class WorkflowApplication:
                     native_complete=bool(five is not None and five.complete),
                 )
                 contexts[symbol]["execution_data"]["minute_snapshot_id"] = minute_snapshot_id
-                contexts[symbol]["execution_data"]["receipts"] = {
-                    interval: {"request_started_at": str(getattr(fetched.get(interval), "request_started_at", None) or "UNKNOWN"),
-                               "response_received_at": str(getattr(fetched.get(interval), "response_received_at", None) or "UNKNOWN"),
-                               "reason_code": getattr(fetched.get(interval), "reason_code", "UNAVAILABLE")}
-                    for interval in ("1m", "5m")}
+                contexts[symbol]["execution_data"]["publication"] = dict(fetched.get("publication") or {})
+                publication_attempts = fetched.get("publication", {}).get("attempts", [])
+                contexts[symbol]["execution_data"]["receipts"] = (
+                    publication_attempts[-1]["sources"] if publication_attempts else {}
+                )
                 if contexts[symbol]["execution_data"]["native_5m_comparison"]["status"] == "CONFLICT":
                     data_errors.setdefault(symbol, "EXECUTION_NATIVE_5M_CONFLICT")
                 # Supporting history cannot alter today's price structure or
@@ -3924,6 +3976,11 @@ class WorkflowApplication:
             )
             if str(row.get("event_key") or "") in effective_keys
         ]
+        # Data observations are not trades. Keep each minute for audit, while
+        # the publisher owns incident/delivery deduplication independently.
+        durable_events.extend(row for row in self.store.list_monitor_events(
+            lane_id=primary_lane_id, from_time=current, to_time=current,
+        ) if row.get("action") == "DATA_BLOCK")
         primary_plans = {
             str(plan.get("plan_id") or ""): plan
             for plan in lane_plans.get(primary_lane_id, ())
@@ -3986,7 +4043,10 @@ class WorkflowApplication:
                             for symbol in decision_symbols if symbol not in failures
                             and _a4_required_bars(current, "5m") > 0
                             and not getattr(market.get(symbol, {}).get("5m"), "complete", False)}
-                notifications.extend(source_health_publisher(failures, now=current, auxiliary_failures=degraded))
+                pending = {symbol: failures.pop(symbol) for symbol in list(failures)
+                           if failures[symbol] == "MINUTE_PUBLICATION_PENDING"}
+                notifications.extend(source_health_publisher(failures, now=current, auxiliary_failures=degraded,
+                                                            pending_failures=pending))
             except Exception:
                 notifications.append({"status": "FAILED", "reason_code": "MINUTE_SOURCE_ALERT_FAILED"})
         execution_publisher = getattr(publisher, "publish_a4_execution_results", None)
@@ -4892,6 +4952,7 @@ class WorkflowApplication:
                 for item in frozen.g0_candidates
                 if item.symbol in g0_symbols
             },
+            "EARLY_DISCOVERY_SNAPSHOT": frozen.fact_payload.get("early_discovery_snapshot", {}),
             "EXCHANGE_RULES": exchange_rules,
             "DATA_SLA_POLICY": {"closed_bars_only": True, "fail_closed": True},
             "REGIME_PARAM_SET": dict(regime_parameters),
@@ -5119,6 +5180,10 @@ class WorkflowApplication:
                             or symbol in upstream_research_only or emotion_blocked):
                         blocked.append({"lane": lane.lane, "symbol": symbol or "-",
                                         "reason": "A3_EMOTION_RESEARCH_ONLY_NO_ENTRY"})
+                        continue
+                    if raw.get("research_observation_scope") == "RESEARCH_ONLY_NO_AUTOMATIC_ENTRY":
+                        blocked.append({"lane": lane.lane, "symbol": symbol or "-",
+                                        "reason": "A3_STRONG_TREND_OBSERVATION_ONLY"})
                         continue
                     if raw.get("rotation_reserve_scope") == "RESEARCH_ONLY_NO_AUTOMATIC_ENTRY":
                         blocked.append({"lane": lane.lane, "symbol": symbol or "-",

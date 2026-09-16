@@ -98,6 +98,22 @@ def test_plan_invalidation_is_not_counted_as_trade_signal(tmp_path):
     assert len([e for e in facts["a4"]["events"] if e["action"] == "PLAN_INVALIDATED"]) == 1
 
 
+def test_legacy_data_alert_is_not_effective_business_signal_and_raw_ledger_is_unchanged(tmp_path):
+    store = RuntimeStore(tmp_path / "state.db")
+    _seed(store, tmp_path)
+    store.record_monitor_event(event_key="legacy-data", lane_id="lane_1",
+        minute_end=datetime(2026, 9, 3, 10, 20, tzinfo=TZ),
+        action=MonitorAction.DATA_BLOCK, reason_code="EXECUTION_NATIVE_5M_CONFLICT",
+        effective=True, payload={"plan_id": "plan-1", "symbol": "000001.SZ"})
+    facts = build_a5_fact_snapshot(store, tmp_path, trade_date=date(2026, 9, 3),
+        cutoff_at=datetime(2026, 9, 3, 11, 30, tzinfo=TZ), review_kind=A5ReviewKind.MIDDAY, lane_id="lane_1")
+    assert facts["metrics"]["a4_effective_event_count"] == 1
+    assert facts["metrics"]["a4_trade_signal_count"] == 1
+    data_event = next(e for e in facts["a4"]["events"] if e["action"] == "DATA_BLOCK")
+    assert not data_event['effective'] and data_event['recorded_effective']
+    assert len(store.list_monitor_events(effective_only=True)) == 2
+
+
 def test_post_close_does_not_mix_tomorrows_pending_plan_or_new_source(tmp_path):
     store = RuntimeStore(tmp_path / "state.db")
     _seed(store, tmp_path)

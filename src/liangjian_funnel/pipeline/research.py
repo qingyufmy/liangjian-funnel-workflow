@@ -29,6 +29,7 @@ from ..redaction import digest_text, safe_error, sanitize
 from ..reporting import atomic_write_json, atomic_write_text
 from ..evaluation.outcome_labels import record_stage_decisions
 from .rotation_diagnostics import rotation_coverage
+from .early_discovery import attach_discovery_queue, recheck_a1_discovery
 from .result_index import snapshot_name_catalog, write_lane_result_index
 from ..settings import Settings
 from ..runtime.state import RuntimeStore
@@ -1314,6 +1315,7 @@ class ResearchPipeline:
             snapshot.data,
             g0,
         )
+        a1_output = recheck_a1_discovery(a1_output, snapshot.data)
         if any(
             not isinstance(a1_output.get(partition), (list, tuple))
             for partition in ("active_research_pool", "monitor_pool", "rejected_candidates")
@@ -1785,6 +1787,8 @@ class ResearchPipeline:
             )
 
         a1_output = a1_audit.output if isinstance(a1_audit.output, Mapping) else {}
+        a1_output = attach_discovery_queue(a1_output, snapshot.data.get("EARLY_DISCOVERY_SNAPSHOT") or {})
+        a1_audit = replace(a1_audit, output=a1_output, output_hash=_sha256_json(a1_output))
         if stop_after_a1:
             # Maintenance owns the A1 generation lifecycle.  Stop before any
             # A2/A3 gate or model request so an A1-only invocation cannot
@@ -2555,9 +2559,14 @@ class ResearchPipeline:
             output.setdefault("rejected_candidates", [])
             output, _ = _canonicalize_a2_complete_partition(output, gate)
         else:
+            local_secondary = _gate_secondary_items(gate, stage)
+            output["secondary_watch_pool"] = _deduplicate_stage_items(
+                "secondary_watch_pool", [*output.get("secondary_watch_pool", []),
+                                         *(row for row in local_secondary if row.get("status") == "WATCH_ONLY")],
+            )
             output["rejected_candidates"] = _deduplicate_stage_items(
                 "rejected_candidates",
-                [*output.get("rejected_candidates", []), *_gate_secondary_items(gate, stage)],
+                [*output.get("rejected_candidates", []), *(row for row in local_secondary if row.get("status") != "WATCH_ONLY")],
             )
             output.setdefault("secondary_watch_pool", [])
         if stage in {"A2", "A3"}:
@@ -6054,6 +6063,9 @@ def _project_a2_bottleneck_context(value: Any, symbols: set[str] | None) -> Any:
             "channel": raw.get("a2_pool_channel"),
             "market_role": raw.get("deterministic_market_role"),
             "behavior_type": raw.get("stock_behavior_type"),
+            "research_route_qualifications": raw.get("research_route_qualifications", {}),
+            "strong_trend_observation": raw.get("strong_trend_observation") is True,
+            "research_observation_scope": raw.get("research_observation_scope"),
             "identifiability": raw.get("identifiability_score"),
             "data_state": raw.get("data_sufficiency_state"),
             "emotion_eligible": raw.get("emotion_core_eligible") is True,
@@ -6674,7 +6686,8 @@ def _gate_secondary_items(
                 # independent Eastmoney emotion channel are attribution
                 # evidence, not part of the effective A2 candidate pool.
                 continue
-        items.append(_gate_item_from_decision(decision, stage, "WATCH_ONLY" if stage == "A2" else "REJECTED"))
+        projected_status = "WATCH_ONLY" if stage == "A2" or status == "LOCAL_MONITOR" else "DATA_GAP" if status == "DATA_GAP" else "REJECTED"
+        items.append(_gate_item_from_decision(decision, stage, projected_status))
     if stage != "A2":
         return items
 
@@ -6807,6 +6820,12 @@ def _gate_item_from_decision(
         "decision_id": decision.get("decision_id"),
         "decision_as_of": decision.get("as_of"),
         "local_partition": decision.get("status"),
+        "research_state": decision.get("research_state"),
+        "strategy_checks": decision.get("strategy_checks", {}),
+        "strategy_profile": decision.get("strategy_profile"),
+        "eligibility": decision.get("eligibility"),
+        "unmet_conditions": decision.get("unmet_conditions", []),
+        "veto_conditions": decision.get("veto_conditions", []),
     }
     if stage == "A2":
         item.update({
@@ -6817,6 +6836,8 @@ def _gate_item_from_decision(
             "rotation_strength_source": decision.get("rotation_strength_source"),
             "top_rotation_theme": decision.get("top_rotation_theme"),
             "a1_formal_member": decision.get("a1_formal_member") is not False,
+            "monthly_a1_member": decision.get("monthly_a1_member"),
+            "daily_verified_increment": dict(decision.get("daily_verified_increment") or {}),
             "upstream_selection_basis": decision.get("upstream_selection_basis"),
             "upstream_coverage_origin": decision.get("upstream_coverage_origin"),
             "upstream_mapping_revision": decision.get("upstream_mapping_revision"),
@@ -6850,6 +6871,10 @@ def _gate_item_from_decision(
             "identifiability_score": decision.get("identifiability_score"),
             "market_role": decision.get("market_role") or decision.get("role") or "LOW_IDENTITY",
             "stock_behavior_type": decision.get("stock_behavior_type"),
+            "independent_strategy_review": decision.get("independent_strategy_review") is True,
+            "research_route_qualifications": dict(decision.get("research_route_qualifications") or {}),
+            "strong_trend_observation": decision.get("strong_trend_observation") is True,
+            "research_observation_scope": decision.get("research_observation_scope"),
             "route_permission": list(decision.get("route_permission") or ()),
             "behavior_type_decision": dict(decision.get("behavior_type_decision") or {}),
             # Preserve the deterministic route context when a row was not
@@ -8591,7 +8616,13 @@ def _canonicalize_stage_lineage(
                 canonical["theme_rotation_score"] = context.get("theme_rotation_score")
                 canonical["rotation_strength_source"] = context.get("rotation_strength_source")
                 canonical["top_rotation_theme"] = context.get("top_rotation_theme") is True
+                canonical["monthly_a1_member"] = context.get("monthly_a1_member")
+                canonical["daily_verified_increment"] = dict(context.get("daily_verified_increment") or {})
                 canonical["rotation_reserve_eligible"] = context.get("rotation_reserve_eligible") is True
+                canonical["independent_strategy_review"] = context.get("independent_strategy_review") is True
+                canonical["research_route_qualifications"] = dict(context.get("research_route_qualifications") or {})
+                canonical["strong_trend_observation"] = context.get("strong_trend_observation") is True
+                canonical["research_observation_scope"] = context.get("research_observation_scope")
                 canonical["rotation_reserve_scope"] = context.get("rotation_reserve_scope")
                 canonical["rotation_reserve_boards"] = list(context.get("rotation_reserve_boards") or [])
                 canonical["rotation_direction_id"] = context.get("rotation_direction_id")
@@ -8643,6 +8674,8 @@ def _canonicalize_stage_lineage(
                     canonical[key] = technical_context.get(key)
                 canonical["deterministic_strategy_profile"] = technical_context.get("strategy_profile")
                 canonical["deterministic_eligibility"] = technical_context.get("eligibility")
+                canonical["research_state"] = technical_context.get("research_state")
+                canonical["strategy_checks"] = dict(technical_context.get("strategy_checks") or {})
                 canonical["deterministic_required_conditions"] = list(
                     technical_context.get("required_conditions") or ()
                 )
@@ -9647,10 +9680,13 @@ def _apply_a3_candidate_origin_policy(
             return raw_item
         item = dict(raw_item)
         symbol = _first_symbol(item)
-        if _is_rotation_reserve(contexts.get(symbol, {})):
+        if contexts.get(symbol, {}).get("rotation_reserve_eligible") is True:
             item["rotation_reserve_eligible"] = True
             item["rotation_reserve_scope"] = "RESEARCH_ONLY_NO_AUTOMATIC_ENTRY"
             item["rotation_reserve_boards"] = list(contexts[symbol].get("rotation_reserve_boards") or [])
+        if contexts.get(symbol, {}).get("strong_trend_observation") is True:
+            item["strong_trend_observation"] = True
+            item["research_observation_scope"] = "RESEARCH_ONLY_NO_AUTOMATIC_ENTRY"
         if contexts.get(symbol, {}).get("execution_permission") == "BLOCKED":
             item["execution_permission"] = "BLOCKED"
             item["research_only_reason"] = contexts[symbol].get("research_only_reason")
@@ -9679,6 +9715,11 @@ def _apply_a3_candidate_origin_policy(
             if item.get("risk_unit") != "NO_ENTRY" and item.get("risk_unit") != "PROBE":
                 item["risk_unit"] = "PROBE"
                 changed += 1
+        if pool == "secondary_watch_pool" and (
+            item.get("status") == "WATCH_ONLY" or item.get("execution_permission") == "BLOCKED"
+        ) and item.get("risk_unit") != "NO_ENTRY":
+            item["risk_unit"] = "NO_ENTRY"
+            changed += 1
         return item
 
     if core is not None:
@@ -9692,7 +9733,8 @@ def _apply_a3_candidate_origin_policy(
         result["core_watch_pool"] = [item for item in result["core_watch_pool"] if item not in reserve]
         for item in reserve:
             item["risk_unit"] = "NO_ENTRY"
-            item["reason_codes"] = list(dict.fromkeys([*item.get("reason_codes", []), "A3_ROTATION_RESERVE_RESEARCH_ONLY"]))
+            reason = "A3_STRONG_TREND_OBSERVATION_ONLY" if item.get("strong_trend_observation") else "A3_ROTATION_RESERVE_RESEARCH_ONLY"
+            item["reason_codes"] = list(dict.fromkeys([*item.get("reason_codes", []), reason]))
         result["secondary_watch_pool"] = [*result.get("secondary_watch_pool", []), *reserve]
         changed += len(reserve)
     return result, changed
@@ -11029,7 +11071,9 @@ def _annotate_a2_pool_target(
 
 def _is_rotation_reserve(item: Mapping[str, Any]) -> bool:
     return (item.get("rotation_reserve_eligible") is True
-            and item.get("rotation_reserve_scope") == "RESEARCH_ONLY_NO_AUTOMATIC_ENTRY")
+            and item.get("rotation_reserve_scope") == "RESEARCH_ONLY_NO_AUTOMATIC_ENTRY") or (
+            item.get("strong_trend_observation") is True
+            and item.get("research_observation_scope") == "RESEARCH_ONLY_NO_AUTOMATIC_ENTRY")
 
 
 def _a2_watch_row_research_eligible(item: Mapping[str, Any]) -> bool:
@@ -11969,6 +12013,9 @@ def _canonicalize_a3_price_fields(
             if strategy_context.get("daily_invalidation") is not None:
                 replacements["invalidation_level"] = strategy_context.get("daily_invalidation")
             if strategy_context.get("strategy_profile") is not None:
+                for key in ("research_state", "strategy_checks", "execution_permission", "research_only_reason"):
+                    if key in strategy_context:
+                        replacements[key] = strategy_context[key]
                 replacements["setup_type"] = strategy_context.get("strategy_profile")
             if strategy_context.get("a4_required_entry_rules") is not None:
                 replacements["confirmation_conditions"] = strategy_context.get(
@@ -12247,6 +12294,10 @@ def _with_a2_bottleneck_context(
             "industry_chain_node": item.get("node_id"),
             "upstream_candidate_id": item.get("upstream_candidate_id"),
             "deterministic_status": item.get("status"),
+            "independent_strategy_review": item.get("independent_strategy_review") is True,
+            "research_route_qualifications": dict(item.get("research_route_qualifications") or {}),
+            "strong_trend_observation": item.get("strong_trend_observation") is True,
+            "research_observation_scope": item.get("research_observation_scope"),
             "deterministic_route": item.get("route"),
             "deterministic_score": item.get("score"),
             "theme_rotation_rank": item.get("theme_rotation_rank"),
@@ -12259,6 +12310,8 @@ def _with_a2_bottleneck_context(
             "a2_taxonomy_binding": dict(item.get("a2_taxonomy_binding") or {}),
             "a2_pool_channel": item.get("a2_pool_channel"),
             "a1_formal_member": item.get("a1_formal_member") is not False,
+            "monthly_a1_member": item.get("monthly_a1_member"),
+            "daily_verified_increment": dict(item.get("daily_verified_increment") or {}),
             "emotion_core_eligible": item.get("emotion_core_eligible") is True,
             "research_only_reason": item.get("research_only_reason"),
             "execution_permission": item.get("execution_permission"),
@@ -12415,6 +12468,10 @@ def _with_a3_deterministic_context(
         "first_blocking_gate",
         "all_failed_gates",
         "publication_state",
+        "research_state",
+        "strategy_checks",
+        "execution_permission",
+        "research_only_reason",
         "A3_ABLATION_MODE",
         "a3_ablation_mode",
         "ablation_gates",

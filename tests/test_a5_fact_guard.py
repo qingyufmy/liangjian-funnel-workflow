@@ -11,6 +11,69 @@ from liangjian_funnel.review.verification import _field_comparison
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_frozen_legacy_data_block_counts_are_display_only():
+    from liangjian_funnel.review.fact_guard import business_metrics
+    facts = {'metrics': {'a4_effective_event_count': 23,
+        'a4_effective_action_counts': {'DATA_BLOCK': 21, 'BUY_SIGNAL': 2}, 'a4_trade_signal_count': 2}}
+    original = copy.deepcopy(facts)
+    metrics = business_metrics(facts)
+    assert metrics['a4_effective_event_count'] == 2
+    assert metrics['a4_trade_signal_count'] == 2
+    assert metrics['a4_effective_action_counts'] == {'BUY_SIGNAL': 2}
+    assert facts == original
+
+
+def test_frozen_response_revalidation_binds_facts_template_model_and_bytes(tmp_path):
+    import hashlib
+    import importlib.util
+    from liangjian_funnel.pipeline.model_client import ModelCallResult
+    from liangjian_funnel.review.daily import _canonical_hash
+    spec = importlib.util.spec_from_file_location('rerun_frozen_facts', ROOT/'scripts/rerun_a5_frozen.py')
+    module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+    facts = {'review_contract': {'model': 'test', 'prompt_sha256': 'template'}, 'value': 1}
+    facts['input_hash'] = _canonical_hash(facts)
+    result = ModelCallResult(model='test', output={'ok': True}, prompt_hash='original',
+        input_hash=facts['input_hash'], latency_ms=0, attempts=0, thinking_variant='original')
+    path = tmp_path/'response.json'
+    path.write_text(json.dumps({'model': result.model, 'output': result.output, 'output_hash': result.output_hash,
+        'prompt_hash': result.prompt_hash, 'input_hash': result.input_hash, 'thinking_variant': result.thinking_variant}), encoding='utf-8')
+    client = module.ArchivedResponseClient(path, revalidate_facts=True)
+    kwargs = {'facts': facts, 'model': 'test', 'template_hash': 'template', 'rendered_prompt_hash': 'reordered'}
+    assert client.revalidate_frozen(**kwargs).output == {'ok': True}
+    assert client.archive_validation_provenance['exact_prompt_bytes_reproduced'] is False
+    for invalid in ({'model': 'different'}, {'template_hash': 'different'}, {'facts': facts | {'value': 2}}):
+        with pytest.raises(ValueError, match='FACT_IDENTITY'):
+            client.revalidate_frozen(**(kwargs | invalid))
+    strict = module.ArchivedResponseClient(path)
+    with pytest.raises(ValueError, match='FACT_IDENTITY'):
+        strict.revalidate_frozen(**kwargs)
+    path.write_text('{}', encoding='utf-8')
+    with pytest.raises(ValueError, match='FACT_IDENTITY'):
+        client.revalidate_frozen(**kwargs)
+
+
+@pytest.mark.parametrize('kind,extra', [
+    ('SOURCE_HEALTH_EVENT', {'state': 'BLOCKED'}),
+    ('POSITION_DATA_HEALTH_EVENT', {'state': 'BLOCKED'}),
+    ('JOB_FAILED', {'job': 'close'}),
+])
+@pytest.mark.parametrize('count', [20, 22, 69])
+def test_operational_citation_overflow_never_drops_full_evidence_or_fails_report(kind, extra, count):
+    from test_a5_daily_review import _report
+    report = A5ReviewReport.model_validate(_report())
+    rows = [{'kind': kind, 'evidence_id': f'ENGINEERING:{i}', **extra} for i in range(count)]
+    facts = {'operational_evidence': rows}
+    original = copy.deepcopy(facts)
+    _enforce_verified_findings(report, facts)
+    A5ReviewReport.model_validate(report.model_dump())
+    finding = report.core_defects[0]
+    assert str(count) in finding.problem
+    assert len(finding.evidence_ids) == min(count, 20)
+    assert finding.evidence_ids[0] == 'ENGINEERING:0'
+    assert finding.evidence_ids[-1] == f'ENGINEERING:{count-1}'
+    assert facts == original
+
+
 def test_collection_task_known_object_preserves_meaning_without_mutating_raw():
     from test_a5_daily_review import _report
     payload = copy.deepcopy(_report())
