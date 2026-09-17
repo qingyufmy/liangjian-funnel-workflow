@@ -190,6 +190,7 @@ _DISPLAY_LABELS = {
     "MINUTE_PUBLICATION_REPLAY_MISMATCH": "同一决策的行情版本已变化，不重算历史入场",
     "MINUTE_PUBLICATION_AUDIT_UNAVAILABLE": "行情确认记录不可用，暂停新增仓",
     "EXECUTION_NATIVE_5M_CONFLICT": "一分钟聚合与原生五分钟行情不一致",
+    "AUXILIARY_NATIVE_5M_CONFLICT": "辅助五分钟复核与执行口径存在差异",
     "CURRENT_SESSION_WINDOW_INVALID": "当日分钟窗口不完整或时间不符",
     "CLOSE_BAR_FINALIZATION_UNCONFIRMED": "收盘行情待确认，盘后补采归档",
     "TREND_PULLBACK_ZONE_NOT_MET": "尚未进入趋势回踩区",
@@ -1336,7 +1337,7 @@ class WorkflowLarkPublisher:
         if state == "READY" and not (same_day and old.get("state") in {"BLOCKED", "DEGRADED"}):
             return []
         title = "A4行情校验未通过｜暂停新增仓" if failures else "A4辅助五分钟源降级" if auxiliary else "A4行情校验恢复"
-        lines = [f"• 时间：{now.strftime('%H:%M:%S')}；受影响股票：{len(failures)}只。",
+        lines = [f"• 时间：{now.strftime('%H:%M:%S')}；受影响股票：{len(set(failures) | set(auxiliary))}只。",
                  "• 通知类型：行情质量提醒，不是买入信号或委托失败回报。",
                  "• 必需窗口缺失或冲突，受影响股票暂停新增仓；已有持仓按可用风险数据独立监控，其他股票继续。" if failures else
                  "• 当日一分钟及派生五/十五分钟可用，原生五分钟复核暂缺；历史指标预热仍独立校验，不代表全部策略已就绪。" if auxiliary else

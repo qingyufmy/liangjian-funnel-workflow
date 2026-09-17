@@ -74,6 +74,19 @@ def test_model_quant_same_ohlcv_and_native_conflicts_retained():
         execution_evidence(one + (bar(now+timedelta(minutes=1)),), (), as_of=now)
 
 
+def test_same_source_native_open_scope_is_not_an_execution_conflict():
+    now = at('13:05:00')
+    one = tuple(bar(end) for end in closed_window_ends(now, '1m'))
+    aggregate, _ = execution_evidence(one, (), as_of=now)
+    native = tuple(MinuteBar(**row, source_id='TEST') for row in aggregate['5m'])
+    native = native[:-1] + (native[-1].model_copy(update={'open': 10.01}),)
+    _, evidence = execution_evidence(one, native, as_of=now)
+    comparison = evidence['native_5m_comparison']
+    assert comparison['status'] == 'DATA_LIMITED'
+    assert comparison['independent_source'] is False
+    assert comparison['conflicts'] == []
+
+
 @pytest.mark.parametrize('global_bad,current_bar,expected', [(False, True, 'FORCED_RISK_EXIT'),
     (False, False, 'DATA_BLOCK'), (True, True, 'DATA_BLOCK')])
 def test_entry_gap_cannot_silence_valid_hard_stop(tmp_path, global_bad, current_bar, expected):

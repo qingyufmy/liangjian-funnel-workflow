@@ -285,7 +285,7 @@ def test_symbol_data_block_does_not_stop_healthy_plan(tmp_path):
     assert by_symbol["000001.SZ"].action == MonitorAction.DATA_BLOCK.value
     assert by_symbol["000001.SZ"].reason_code == "MINUTE_DATA_GAP"
     assert by_symbol["600519.SH"].action == MonitorAction.START_CONFIRMATION.value
-    assert result.blocked is True
+    assert result.blocked is False
 
     system_store = setup_store(tmp_path / "system")
     system_store.create_execution_plan(

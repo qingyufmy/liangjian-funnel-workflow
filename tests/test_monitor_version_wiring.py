@@ -36,7 +36,7 @@ def test_monitor_consumes_persisted_revision_or_blocks(monkeypatch, tmp_path, br
     settlements = []
     app._settle_prior_signals = lambda *args: settlements.append(args) or []
     app._record_a4_outcomes = lambda *args: {}
-    app._a4_callback = lambda *args: None
+    app._a4_callback = lambda *args, **kwargs: None
     app._fetch_live_bars = lambda *args, **kwargs: FetchResult(symbol=symbol, interval="1m",
         requested_bars=2, returned_bars=2, bars=(revised, current),
         reason_code="CLOSE_BAR_FINALIZATION_UNCONFIRMED" if incomplete else "OK", complete=not incomplete)

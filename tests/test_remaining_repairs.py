@@ -60,6 +60,19 @@ def test_late_response_is_not_decision_input():
     assert not r.complete and r.reason_code == 'MINUTE_FETCH_BUDGET_EXHAUSTED'
 
 
+def test_1500_bar_requires_grace_then_becomes_eligible_for_stability_check():
+    cutoff = NOW.replace(hour=15, minute=0)
+    current = bar(cutoff)
+    source = SimpleNamespace(fetch_bars=lambda *a, **k: result([current]))
+    early = fetch_live_window(source, None, SYMBOL, '1m', 1, cutoff,
+        wall_clock=lambda: cutoff + timedelta(seconds=10))
+    assert not early.complete
+    assert early.reason_code == 'CLOSE_BAR_FINALIZATION_UNCONFIRMED'
+    late = fetch_live_window(source, None, SYMBOL, '1m', 1, cutoff,
+        wall_clock=lambda: cutoff + timedelta(seconds=21))
+    assert late.complete and late.reason_code == 'OK'
+
+
 def test_tdx_default_factory_has_no_global_node_state(monkeypatch):
     clients = []
     class Client:

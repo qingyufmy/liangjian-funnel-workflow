@@ -19,12 +19,12 @@ AT = datetime(2026, 9, 16, 9, 40, tzinfo=TZ)
 SYMBOL = '002886.SZ'
 
 
-def pack(close=10, native='match', complete=True):
+def pack(close=10, native='match', complete=True, *, native_source='TEST'):
     bars = tuple(MinuteBar(symbol=SYMBOL, interval='1m', bar_end=t, open=10,
         high=12, low=9, close=close, volume=100, amount=1000, source_id='TEST',
         volume_unit='shares', normalizer_version='test/1') for t in closed_window_ends(AT, '1m'))
     aggregate, _ = execution_evidence(bars, (), as_of=AT)
-    five = tuple(MinuteBar(**row, source_id='TEST') for row in aggregate['5m'])
+    five = tuple(MinuteBar(**row, source_id=native_source) for row in aggregate['5m'])
     if native == 'conflict':
         five = five[:-1] + (five[-1].model_copy(update={'close': 11.5}),)
     def result(interval, rows, valid):
@@ -77,11 +77,27 @@ def test_early_revision_can_converge_and_late_revision_cannot_trade():
     assert result['1m'].bars[-1].close == 10.2
 
 
-@pytest.mark.parametrize('last,expected', [
-    ('match', 'OBSERVED_STABLE'), ('conflict', 'CONFLICT'), ('missing', 'CONFLICT')])
-def test_conflict_requires_positive_resolution_not_loss_of_auxiliary_source(last, expected):
-    result, _, _ = run(pack(native='conflict'), [pack(native='conflict'), pack(native=last)])
-    assert result['publication']['state'] == expected
+@pytest.mark.parametrize('last,auxiliary_error', [
+    ('match', None), ('conflict', 'AUXILIARY_NATIVE_5M_CONFLICT'),
+    ('missing', 'AUXILIARY_NATIVE_5M_CONFLICT')])
+def test_independent_conflict_is_retained_as_auxiliary_degradation(last, auxiliary_error):
+    kwargs = {'native_source': 'OTHER'}
+    result, _, _ = run(pack(native='conflict', **kwargs),
+                       [pack(native='conflict', **kwargs), pack(native=last, **kwargs)])
+    assert result['publication']['state'] == 'OBSERVED_STABLE'
+    assert result.get('auxiliary_error') == auxiliary_error
+    assert not result.get('publication_error')
+
+
+def test_same_source_native_difference_is_audited_but_never_blocks_execution():
+    result, _, _ = run(pack(native='conflict'), [pack(native='conflict'), pack(native='conflict')])
+    comparison = result['publication']['attempts'][-1]['comparison']
+    assert comparison['status'] == 'DATA_LIMITED'
+    assert comparison['independent_source'] is False
+    assert any(item['reason'] == 'SAME_SOURCE_AGGREGATION_SCOPE_DIFFERENT'
+               for item in comparison['limitations'])
+    assert result['publication']['state'] == 'OBSERVED_STABLE'
+    assert not result.get('publication_error')
 
 
 def test_old_auction_scope_limitation_does_not_hide_current_conflict_resolution():

@@ -17,6 +17,9 @@ def execution_evidence(one_minute, native_five, *, as_of):
     mismatches = []
     limited = []
     compared = 0
+    one_sources = {bar.source_id for bar in one_minute}
+    native_sources = {bar.source_id for bar in native_five}
+    independent = bool(native_five) and not bool(native_sources & one_sources)
     for row in aggregated["5m"]:
         other = native.get(row["bar_end"])
         if other is None:
@@ -33,6 +36,18 @@ def execution_evidence(one_minute, native_five, *, as_of):
         for field in ("open", "high", "low", "close", "volume"):
             left, right = float(row[field]), float(getattr(other, field))
             if not math.isclose(left, right, rel_tol=0, abs_tol=1e-7):
+                if not independent:
+                    # A provider's native five-minute series is not an
+                    # independent check of its own one-minute rows.  Tencent
+                    # in particular includes session-opening prints in the
+                    # 09:35/13:05 native candle that are deliberately absent
+                    # from the continuous-session execution series.  Preserve
+                    # the difference for audit, but never turn it into an A4
+                    # execution-data conflict.
+                    limited.append({"end": row["bar_end"], "field": field,
+                        "derived": left, "native": right,
+                        "reason": "SAME_SOURCE_AGGREGATION_SCOPE_DIFFERENT"})
+                    continue
                 if (field == "volume" and other.source_id == "TENCENT:ifzq.gtimg.cn"
                         and not other.symbol.startswith(("688", "689"))
                         and abs(left-right) <= 100 and left % 100 == 0 and right % 100 == 0):
@@ -47,7 +62,7 @@ def execution_evidence(one_minute, native_five, *, as_of):
     expected = closed_window_ends(as_of, "1m")
     ready = tuple(bar.bar_end for bar in one_minute) == expected and bool(expected)
     evidence = {
-        "contract_version": "closed-session-execution-v1",
+        "contract_version": "closed-session-execution-v2",
         "market_cutoff": as_of.isoformat(),
         "source_ids": sorted({bar.source_id for bar in one_minute}),
         "normalizer_versions": sorted({bar.normalizer_version for bar in one_minute}),
@@ -58,8 +73,7 @@ def execution_evidence(one_minute, native_five, *, as_of):
         "native_5m_comparison": {"compared": compared, "conflicts": mismatches,
             "status": "CONFLICT" if mismatches else "DATA_LIMITED" if limited else "MATCH" if compared else "UNAVAILABLE",
             "limitations": limited,
-            "independent_source": bool(native_five) and not bool(
-                {b.source_id for b in native_five} & {b.source_id for b in one_minute}),
+            "independent_source": independent,
             "amount_comparison": "NOT_COMPARED"},
     }
     return aggregated, evidence

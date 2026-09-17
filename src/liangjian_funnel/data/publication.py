@@ -13,7 +13,7 @@ import time
 from .execution_evidence import execution_evidence
 from .session_windows import TZ
 
-POLICY_VERSION = "minute-publication/1"
+POLICY_VERSION = "minute-publication/2"
 PROBE_AGES = (20.0, 25.0)
 ACQUISITION_BUDGET_SECONDS = 30.0
 
@@ -80,7 +80,10 @@ def confirm_publications(initial, fetch, *, at, deadline, clock=time.monotonic,
         "probe_ages_seconds": list(PROBE_AGES), "attempts": [receipt(pack, at=at)]}
         for symbol, pack in selected.items()}
     eligible = {symbol for symbol, pack in selected.items()
-                if pack.get("1m") is not None and pack["1m"].complete}
+                if pack.get("1m") is not None and (
+                    pack["1m"].complete
+                    or pack["1m"].reason_code == "CLOSE_BAR_FINALIZATION_UNCONFIRMED"
+                )}
     prior_sweep_end = None
     for target_age in PROBE_AGES:
         if not eligible:
@@ -119,13 +122,12 @@ def confirm_publications(initial, fetch, *, at, deadline, clock=time.monotonic,
                               observed["sources"]["1m"]["hash"] == previous["sources"]["1m"]["hash"])
                 unresolved = unresolved_conflicts(pack, evidence[symbol]['attempts'][:-1], at=at)
                 observed['unresolved_prior_conflicts'] = unresolved
-                comparable = observed["comparison"]["status"] != "CONFLICT" and not unresolved
-                if target_age == PROBE_AGES[-1] and late_probe and stable and comparable:
+                auxiliary_conflict = observed["comparison"]["status"] == "CONFLICT" or bool(unresolved)
+                evidence[symbol]["auxiliary_state"] = "DEGRADED" if auxiliary_conflict else (
+                    "READY" if observed["comparison"]["status"] in {"MATCH", "DATA_LIMITED"} else "UNAVAILABLE"
+                )
+                if target_age == PROBE_AGES[-1] and late_probe and stable:
                     evidence[symbol]["state"] = "OBSERVED_STABLE"
-                elif target_age == PROBE_AGES[-1] and late_probe and stable and not comparable:
-                    # Stable execution prices still disagree with native data;
-                    # retain the conflict, do not widen tolerances to pass it.
-                    evidence[symbol]["state"] = "CONFLICT"
         prior_sweep_end = clock()
     for symbol, pack in selected.items():
         item = evidence[symbol]
@@ -134,10 +136,13 @@ def confirm_publications(initial, fetch, *, at, deadline, clock=time.monotonic,
             item["state"] = "INPUT_UNAVAILABLE"
         if item["state"] == "PENDING_PUBLICATION":
             pack["publication_error"] = "MINUTE_PUBLICATION_PENDING"
-        elif item["state"] == "CONFLICT":
-            pack["publication_error"] = "EXECUTION_NATIVE_5M_CONFLICT"
         elif item["state"] == "INPUT_UNAVAILABLE":
             pack["publication_error"] = pack.get("fetch_error") or (one.reason_code if one else "MINUTE_DATA_UNAVAILABLE")
+        comparison = item.get("attempts", [{}])[-1].get("comparison", {})
+        if comparison.get("status") == "CONFLICT" or item.get("auxiliary_state") == "DEGRADED":
+            pack["auxiliary_error"] = "AUXILIARY_NATIVE_5M_CONFLICT"
+        elif pack.get("5m") is not None and not pack["5m"].complete:
+            pack["auxiliary_error"] = pack["5m"].reason_code
         pack["publication"] = item
     return selected
 

@@ -128,6 +128,8 @@ from .settings import Settings, load_yaml
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 _A4_FILE = "agent_4_intraday_veto_v3.txt"
+A4_DECISION_BUDGET_SECONDS = 47.0
+A4_MODEL_MAX_SECONDS = 15.0
 _G0_SCOPE_CONTRACT = "CONFIGURED_RESEARCH_UNIVERSE_V1"
 _RESEARCH_RESUME_SCHEMA = "liangjian-research-resume/1.2.0"
 _A1_MAX_AGE = DEFAULT_A1_MAX_AGE
@@ -3612,6 +3614,7 @@ class WorkflowApplication:
         }
 
     def monitor_once(self, *, now: datetime | None = None) -> dict[str, Any]:
+        monitor_started = time.monotonic()
         current = _aware(now or datetime.now(SHANGHAI)).replace(second=0, microsecond=0)
         self._ensure_trading_day(current)
         self._expire_missed_a4_entries(current)
@@ -3695,14 +3698,22 @@ class WorkflowApplication:
         )
         fetch_deadline = time.monotonic() + ACQUISITION_BUDGET_SECONDS
 
-        def fetch_symbol(symbol: str) -> tuple[str, dict[str, Any]]:
+        def fetch_symbol(symbol: str, *, include_auxiliary: bool = True) -> tuple[str, dict[str, Any]]:
             one_required = _a4_required_bars(current, "1m")
             five_required = _a4_required_bars(current, "5m")
             one = self._fetch_live_bars(symbol, "1m", one_required, current, deadline=fetch_deadline) if one_required else None
             # Before the first closed 5m bar, absence is a normal warm-up
             # state.  Do not ask the resilient adapter for an artificial
             # historical window merely to fill this slot.
-            five = self._fetch_live_bars(symbol, "5m", five_required, current, deadline=fetch_deadline) if five_required else None
+            # The execution 5m/15m bars are always derived from the frozen
+            # one-minute series.  Native 5m is auxiliary evidence and only
+            # changes at a five-minute boundary, so do not repeat a full-day
+            # native request on every intervening minute or publication probe.
+            native_due = _a4_native_verification_due(current)
+            five = (
+                self._fetch_live_bars(symbol, "5m", five_required, current, deadline=fetch_deadline)
+                if include_auxiliary and native_due else None
+            )
             return symbol, {"1m": one, "5m": five}
 
         if all_symbols:
@@ -3722,7 +3733,15 @@ class WorkflowApplication:
                         market[symbol] = {"fetch_error": "MINUTE_DATA_FETCH_FAILED"}
                         continue
                     market[symbol] = fetched
-            market = confirm_publications(market, fetch_symbol, at=current, deadline=fetch_deadline)
+            def refetch_execution(symbol: str) -> tuple[str, dict[str, Any]]:
+                _, refreshed = fetch_symbol(symbol, include_auxiliary=False)
+                # Auxiliary evidence is frozen from the initial boundary
+                # observation.  Publication probes certify only the required
+                # one-minute execution series.
+                refreshed["5m"] = market.get(symbol, {}).get("5m")
+                return symbol, refreshed
+
+            market = confirm_publications(market, refetch_execution, at=current, deadline=fetch_deadline)
             quality_dir = self.settings.workflow_output_dir / "monitor" / "data_quality" / current.date().isoformat()
             quality_path = quality_dir / (current.strftime("%H%M") + ".json")
             previous_path = quality_dir / ((current - timedelta(minutes=1)).strftime("%H%M") + ".json")
@@ -3739,7 +3758,9 @@ class WorkflowApplication:
                         market[symbol] = reuse_publication(pack, original, at=current)
                 else:
                     atomic_write_json(quality_path, {"market_cutoff": current.isoformat(), "symbols": {
-                        symbol: {**pack["publication"], "decision_error": pack.get("publication_error")}
+                        symbol: {**pack["publication"],
+                                 "decision_error": pack.get("publication_error"),
+                                 "auxiliary_error": pack.get("auxiliary_error")}
                         for symbol, pack in market.items()}})
             except Exception:
                 cache_system_error = True
@@ -3903,8 +3924,11 @@ class WorkflowApplication:
                 contexts[symbol]["execution_data"]["receipts"] = (
                     publication_attempts[-1]["sources"] if publication_attempts else {}
                 )
-                if contexts[symbol]["execution_data"]["native_5m_comparison"]["status"] == "CONFLICT":
-                    data_errors.setdefault(symbol, "EXECUTION_NATIVE_5M_CONFLICT")
+                # Native 5m is an auxiliary audit only. Any discrepancy stays
+                # in execution_data and source-health observability; A4 uses
+                # the same frozen 1m-derived 5m/15m bars for quant, model and
+                # alerts, so the auxiliary series cannot become a hidden
+                # execution dependency.
                 # Supporting history cannot alter today's price structure or
                 # fill a missing current-session bucket. Read local archive only.
                 if any(str(json.loads(p.get("payload_json") or "{}").get("strategy_profile")) == "MA520_SWING"
@@ -3930,10 +3954,17 @@ class WorkflowApplication:
             plans = lane_plans[lane_id]
             bars, data_ok, contexts, histories, data_errors = lane_inputs[lane_id]
             data_ok = data_ok and not cache_system_error
+            model_budget = max(1.0, min(
+                A4_MODEL_MAX_SECONDS,
+                A4_DECISION_BUDGET_SECONDS - (time.monotonic() - monitor_started),
+            ))
             engine = MonitorEngine(
                 self.store,
-                llm_veto=self._a4_callback(lane_id, plans, contexts, current),
-                max_seconds=50,
+                llm_veto=self._a4_callback(
+                    lane_id, plans, contexts, current,
+                    model_timeout_seconds=model_budget,
+                ),
+                max_seconds=model_budget + 1.0,
             )
             batch = engine.process_minute(
                 lane_id,
@@ -4039,10 +4070,16 @@ class WorkflowApplication:
                     if symbol in lane_errors:
                         failures.setdefault(symbol, lane_errors[symbol])
             try:
-                degraded = {symbol: str(getattr(market.get(symbol, {}).get("5m"), "reason_code", "UNAVAILABLE"))
-                            for symbol in decision_symbols if symbol not in failures
-                            and _a4_required_bars(current, "5m") > 0
-                            and not getattr(market.get(symbol, {}).get("5m"), "complete", False)}
+                native_due = _a4_native_verification_due(current)
+                degraded = {}
+                for symbol in decision_symbols:
+                    if symbol in failures:
+                        continue
+                    fetched = market.get(symbol, {})
+                    if fetched.get("auxiliary_error"):
+                        degraded[symbol] = str(fetched["auxiliary_error"])
+                    elif native_due and not getattr(fetched.get("5m"), "complete", False):
+                        degraded[symbol] = str(getattr(fetched.get("5m"), "reason_code", "AUXILIARY_5M_UNAVAILABLE"))
                 pending = {symbol: failures.pop(symbol) for symbol in list(failures)
                            if failures[symbol] == "MINUTE_PUBLICATION_PENDING"}
                 notifications.extend(source_health_publisher(failures, now=current, auxiliary_failures=degraded,
@@ -5357,6 +5394,8 @@ class WorkflowApplication:
         plans: tuple[dict[str, Any], ...],
         market_context: Mapping[str, Mapping[str, Any]],
         now: datetime,
+        *,
+        model_timeout_seconds: float = A4_MODEL_MAX_SECONDS,
     ):
         if not plans:
             return None
@@ -5391,6 +5430,7 @@ class WorkflowApplication:
                 input_hash=_hash_json(contexts),
                 snapshot_id=f"a4-{now.isoformat()}",
                 stage="A4",
+                timeout_seconds=model_timeout_seconds,
             )
             veto_by_plan: dict[str, bool] = {
                 str(item.get("plan_id")): True
@@ -7293,6 +7333,13 @@ def _a4_required_bars(value: datetime, interval: str) -> int:
     if interval not in {"1m", "5m"}:
         raise ValueError("interval must be 1m or 5m")
     return len(closed_window_ends(_aware(value), interval))
+
+
+def _a4_native_verification_due(value: datetime) -> bool:
+    """Return whether a new optional native 5m window can exist."""
+
+    current = _aware(value)
+    return bool(_a4_required_bars(current, "5m") and current.minute % 5 == 0)
 
 
 def _a4_price_contract_valid(

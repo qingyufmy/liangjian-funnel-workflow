@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from copy import copy
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
 import json
 from threading import RLock
@@ -14,6 +14,7 @@ from .tencent_minute import TencentIntradayAdapter
 from .session_windows import closed_window_ends, TZ
 
 _NODE_LOCK = RLock()
+CLOSE_FINALIZATION_GRACE_SECONDS = 20.0
 
 
 def _reserve_node(source):
@@ -56,7 +57,8 @@ def _release_node(source, node, healthy):
 
 
 def fetch_live_window(provider, secondary, symbol, interval, required, cutoff: datetime,
-                      *, deadline: float | None = None, clock=time.monotonic):
+                      *, deadline: float | None = None, clock=time.monotonic,
+                      wall_clock=lambda: datetime.now(TZ)):
     deadline = deadline if deadline is not None else clock() + 15.0
     expected_ends = closed_window_ends(cutoff, interval)
     if required <= 0 or not expected_ends:
@@ -85,7 +87,7 @@ def fetch_live_window(provider, secondary, symbol, interval, required, cutoff: d
                         bounded.client_factory = bounded._default_factory
                     bounded.nodes = (reserved_node,)
                     bounded.max_pages = min(source.max_pages, 2)
-            requested_at = datetime.now(TZ)
+            requested_at = wall_clock()
             try:
                 result = bounded.fetch_bars(symbol, interval, required, as_of=cutoff)
             except Exception:
@@ -93,8 +95,9 @@ def fetch_live_window(provider, secondary, symbol, interval, required, cutoff: d
             finally:
                 if reserved_node is not None:
                     _release_node(source, reserved_node, result.complete)
+            received_at = wall_clock()
             result = result.model_copy(update={"request_started_at": requested_at,
-                "response_received_at": datetime.now(TZ)})
+                "response_received_at": received_at})
             if clock() > deadline:
                 return _failure(symbol, interval, required, "MINUTE_FETCH_BUDGET_EXHAUSTED")
             if first is None:
@@ -105,10 +108,14 @@ def fetch_live_window(provider, secondary, symbol, interval, required, cutoff: d
             valid = (result.complete and len(bars) == required
                      and tuple(b.bar_end for b in bars) == expected_ends[-required:]
                      and not detect_missing_bars(bars, interval, as_of=cutoff))
-            # No 15:00 print, including a nonzero one, is proof of finality.
-            # Post-close collection is separate and cannot rewrite this action.
+            # The first 15:00 observation is not final merely because it is
+            # non-zero.  After the bounded publication grace, the ordinary
+            # stability probes still have to observe the same complete bar
+            # before it can enter the frozen decision/archive pack.
             if valid and cutoff.hour == 15 and cutoff.minute == 0:
-                return result.model_copy(update={"complete": False, "reason_code": "CLOSE_BAR_FINALIZATION_UNCONFIRMED"})
+                if (received_at.date() != cutoff.date()
+                        or received_at < cutoff + timedelta(seconds=CLOSE_FINALIZATION_GRACE_SECONDS)):
+                    return result.model_copy(update={"complete": False, "reason_code": "CLOSE_BAR_FINALIZATION_UNCONFIRMED"})
             if valid:
                 return result.model_copy(update={"bars": bars, "returned_bars": len(bars), "reason_code": "OK", "complete": True})
             if result.complete:

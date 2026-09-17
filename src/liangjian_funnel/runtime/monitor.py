@@ -677,12 +677,19 @@ class MonitorEngine:
                 llm_reason_code=llm_reason_code,
                 strategy_result=strategy_result,
             ))
+        plan_events = [event for event in events if event.plan_id]
         return MonitorBatchResult(
             lane_id=lane_id,
             minute_snapshot_id=minute_snapshot_id,
             events=tuple(events),
             model_called=model_called,
-            blocked=any(event.action == MonitorAction.DATA_BLOCK.value for event in events),
+            # One isolated symbol fault is a degraded batch, not a failed
+            # minute.  The scheduler is blocked only when every scoped plan
+            # was unable to make a decision (global integrity loss, complete
+            # source outage, model failure for the sole trigger, or overrun).
+            blocked=bool(plan_events) and all(
+                event.action == MonitorAction.DATA_BLOCK.value for event in plan_events
+            ),
         )
 
     def _bar_map(self, bars: Mapping[str, MinuteBar] | tuple[MinuteBar, ...] | list[MinuteBar]) -> dict[str, MinuteBar]:
