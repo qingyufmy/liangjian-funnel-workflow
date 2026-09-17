@@ -163,6 +163,14 @@ _A3_TECHNICAL_DATA_REASONS = frozenset(
         "A3_PRICE_LEVELS_UNAVAILABLE",
     }
 )
+_A3_DECISION_EVIDENCE_GAP_REASONS = frozenset(
+    {
+        "THEME_STAGE_MISSING",
+        "A3_THEME_STAGE_MISSING_OR_AMBIGUOUS",
+        "A3_THEME_STAGE_UNAVAILABLE",
+        "A3_THEME_STAGE_EVIDENCE_INSUFFICIENT",
+    }
+)
 _A3_WATCH_ONLY_ROLES = frozenset({
     "LEADER",
     "CORE_ARMY",
@@ -12825,6 +12833,9 @@ def _classify_stage_outcome(
             and not _gate_has_reviewable_symbols(gate)
         ):
             return STATUS_BLOCKED_TECHNICAL_DATA, tuple(sorted(gate_reasons.intersection(_A3_TECHNICAL_DATA_REASONS)))
+        evidence_gaps = _a3_decision_evidence_gaps(output, gate)
+        if evidence_gaps:
+            return STATUS_DEGRADED_UNDERFILLED_DATA_GAP, tuple(sorted(evidence_gaps))
         return STATUS_VALIDATED_NO_SETUP, ("A3_NO_TECHNICAL_SETUP",)
     return STATUS_VALIDATED, ()
 
@@ -12960,6 +12971,44 @@ def _gate_reason_codes(
         if isinstance(raw, Sequence) and not isinstance(raw, (str, bytes, bytearray)):
             result.update(str(item).strip().upper() for item in raw if isinstance(item, str) and item.strip())
     return result
+
+
+def _a3_decision_evidence_gaps(
+    output: Mapping[str, Any],
+    gate: Any | None,
+) -> set[str]:
+    """Return per-symbol decision gaps that invalidate a pure no-setup claim."""
+
+    reasons: set[str] = set()
+    rows: list[Mapping[str, Any]] = []
+    for pool in ("secondary_watch_pool", "rejected_candidates"):
+        value = output.get(pool)
+        if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+            rows.extend(item for item in value if isinstance(item, Mapping))
+    decisions = getattr(gate, "decisions", ()) if gate is not None else ()
+    rows.extend(item for item in decisions if isinstance(item, Mapping))
+    for row in rows:
+        eligibility = str(
+            row.get("deterministic_eligibility")
+            or row.get("eligibility")
+            or row.get("status")
+            or row.get("local_partition")
+            or ""
+        ).strip().upper()
+        if eligibility not in {"DATA_GAP", "EVIDENCE_PENDING"}:
+            continue
+        raw = row.get("reason_codes") or row.get("deterministic_reason_codes") or ()
+        if isinstance(raw, str):
+            raw = [raw]
+        if isinstance(raw, Sequence) and not isinstance(raw, (str, bytes, bytearray)):
+            reasons.update(
+                str(item).strip().upper()
+                for item in raw
+                if str(item).strip().upper() in _A3_DECISION_EVIDENCE_GAP_REASONS
+            )
+        if not reasons:
+            reasons.add("A3_DECISION_EVIDENCE_GAP")
+    return reasons
 
 
 def _gate_has_reviewable_symbols(gate: Any | None) -> bool:

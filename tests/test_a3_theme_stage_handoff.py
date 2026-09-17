@@ -23,7 +23,13 @@ def _inputs():
         "MARKET_EMOTION_SNAPSHOT": {"available": True, "emotion_cycle_stage": "ACCELERATION",
                                     "new_long_permission": "ALLOW_CORE"},
     }
-    output = {"active_themes": [{"theme_id": "AGRICULTURE", "stage": "ACCELERATION"}],
+    output = {"active_themes": [{
+                  "theme_id": "AGRICULTURE", "stage": "ACCELERATION",
+                  "stage_since": "2026-09-01",
+                  "supporting_evidence": ["breadth rising"],
+                  "contradicting_evidence": ["crowding rising"],
+                  "source_refs": ["A2_THEME_METRICS:AGRICULTURE"],
+              }],
               "focus_pool": [{"symbol": symbol, "primary_theme": "AGRICULTURE",
                               "market_role": "EMOTION_LEADER", "ladder_height": 2, "ladder_intact": True}]}
     return snapshot, output
@@ -57,11 +63,29 @@ def test_retreat_is_not_promoted_by_stage_handoff(location):
     snapshot, output = _inputs()
     if location == "candidate":
         output["focus_pool"][0]["theme_stage"] = "RETREAT"
+        output["focus_pool"][0]["theme_stage_evidence"] = {
+            "source_hash": "candidate-stage-hash", "as_of": "2026-09-16"
+        }
     elif location == "context":
-        snapshot["A2_BOTTLENECK_CONTEXT"] = {"001366.SZ": {"theme_stage": "RETREAT"}}
+        snapshot["A2_BOTTLENECK_CONTEXT"] = {"001366.SZ": {
+            "theme_stage": "RETREAT",
+            "theme_stage_evidence": {
+                "source_hash": "context-stage-hash", "as_of": "2026-09-16"
+            },
+        }}
     else:
         output["active_themes"][0]["stage"] = "RETREAT"
     decision = screen_a3(snapshot, output).decisions[0]
     assert decision["theme_stage"] == "RETREAT"
     assert decision["status"] == "HARD_REJECT"
     assert not decision["sent_to_llm"]
+
+
+def test_theme_stage_without_theme_specific_evidence_is_data_gap():
+    snapshot, output = _inputs()
+    output["active_themes"][0] = {"theme_id": "AGRICULTURE", "stage": "CLIMAX"}
+    decision = screen_a3(snapshot, output).decisions[0]
+    assert decision["theme_stage"] == "UNKNOWN"
+    assert decision["status"] == "DATA_GAP"
+    binding = decision["strategy_facts"]["a2_theme_stage_binding"]
+    assert binding["reason_code"] == "A3_THEME_STAGE_EVIDENCE_INSUFFICIENT"

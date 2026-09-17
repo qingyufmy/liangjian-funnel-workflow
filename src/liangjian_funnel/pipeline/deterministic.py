@@ -4360,10 +4360,24 @@ def _a3_candidate_with_theme_stage(
     theme_id = str(item.get("theme_id") or item.get("primary_theme") or "")
     binding: dict[str, Any] = {"theme_id": theme_id, "source": "A2_ACTIVE_THEMES", "resolved": False}
     for source in (item, context):
-        if any(str(source.get(key) or "").strip().upper() not in {"", "UNKNOWN"}
-               for key in ("theme_stage", "sector_stage", "stage")):
-            binding["source"] = "EXPLICIT_CANDIDATE_OR_CONTEXT"
+        if not any(str(source.get(key) or "").strip().upper() not in {"", "UNKNOWN"}
+                   for key in ("theme_stage", "sector_stage", "stage")):
+            continue
+        evidence = source.get("theme_stage_evidence")
+        if isinstance(evidence, Mapping) and str(evidence.get("source_hash") or "").strip() and str(
+            evidence.get("as_of") or evidence.get("trade_date") or ""
+        ).strip():
+            binding.update({
+                "source": "EXPLICIT_CANDIDATE_OR_CONTEXT",
+                "resolved": True,
+                "evidence_hash": str(evidence.get("source_hash")),
+                "evidence_as_of": str(evidence.get("as_of") or evidence.get("trade_date")),
+            })
             return candidate, binding
+        for key in ("theme_stage", "sector_stage", "stage"):
+            candidate.pop(key, None)
+        binding["reason_code"] = "A3_THEME_STAGE_EVIDENCE_INSUFFICIENT"
+        return candidate, binding
     matches = [row for row in active_themes if theme_id and str(row.get("theme_id") or "") == theme_id]
     if len(matches) != 1:
         binding["reason_code"] = "A3_THEME_STAGE_MISSING_OR_AMBIGUOUS"
@@ -4373,8 +4387,30 @@ def _a3_candidate_with_theme_stage(
     if not isinstance(value, str) or value.strip().upper() in {"", "UNKNOWN"}:
         binding["reason_code"] = "A3_THEME_STAGE_UNAVAILABLE"
         return candidate, binding
+    support = row.get("supporting_evidence")
+    contradiction = row.get("contradicting_evidence")
+    source_refs = row.get("source_refs")
+    stage_since = str(row.get("stage_since") or "").strip()
+    if (
+        not isinstance(support, Sequence) or isinstance(support, (str, bytes, bytearray)) or not support
+        or not isinstance(contradiction, Sequence) or isinstance(contradiction, (str, bytes, bytearray)) or not contradiction
+        or not isinstance(source_refs, Sequence) or isinstance(source_refs, (str, bytes, bytearray)) or not source_refs
+        or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", stage_since)
+    ):
+        binding["reason_code"] = "A3_THEME_STAGE_EVIDENCE_INSUFFICIENT"
+        return candidate, binding
     candidate["theme_stage"] = value.strip().upper()
-    binding.update({"resolved": True, "theme_stage": candidate["theme_stage"], "source_hash": content_hash(row)})
+    binding.update({
+        "resolved": True,
+        "theme_stage": candidate["theme_stage"],
+        "stage_since": stage_since,
+        "source_hash": content_hash(row),
+        "evidence_hash": content_hash({
+            "supporting_evidence": list(support),
+            "contradicting_evidence": list(contradiction),
+            "source_refs": list(source_refs),
+        }),
+    })
     return candidate, binding
 
 

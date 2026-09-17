@@ -330,3 +330,31 @@ def test_a3_partial_symbol_data_gap_does_not_block_reviewable_pool():
 
     assert status == STATUS_VALIDATED_NO_SETUP
     assert reasons == ("A3_NO_TECHNICAL_SETUP",)
+
+
+def test_a3_theme_stage_gap_is_not_reported_as_no_technical_setup():
+    output = {
+        "core_watch_pool": [],
+        "secondary_watch_pool": [],
+        "rejected_candidates": [{
+            "symbol": "600000.SH",
+            "eligibility": "DATA_GAP",
+            "reason_codes": ["THEME_STAGE_MISSING"],
+        }],
+    }
+    gate = DeterministicGateResult(
+        stage="A3_LOCAL_TECHNICAL",
+        decisions=({
+            "symbol": "600000.SH",
+            "status": "DATA_GAP",
+            "reason_codes": ["THEME_STAGE_MISSING"],
+        },),
+        review_symbols=(),
+        monitor_symbols=(),
+        rejected_symbols=("600000.SH",),
+    )
+
+    status, reasons = _classify_stage_outcome("A3", output, reasons=(), gate=gate)
+
+    assert status == STATUS_DEGRADED_UNDERFILLED_DATA_GAP
+    assert reasons == ("THEME_STAGE_MISSING",)

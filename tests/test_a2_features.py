@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -34,6 +34,68 @@ def _membership(kind: str) -> dict:
             for symbol in ("600001.SH", "000002.SZ", "300003.SZ")
         ],
     }
+
+
+def test_premarket_observation_uses_explicit_latest_closed_trade_date() -> None:
+    observation = datetime(2026, 9, 17, 6, 36, tzinfo=TZ)
+    closed_trade_date = date(2026, 9, 16)
+    bars = [
+        {
+            "date_ms": int(
+                (datetime(2026, 8, 17, 15, 0, tzinfo=TZ) + timedelta(days=index)).timestamp() * 1000
+            ),
+            "close_price": 10 + index * 0.1,
+        }
+        for index in range(31)
+    ]
+    snapshot = build_a2_feature_snapshot(
+        candidates=[{"symbol": "600001.SH", "amount": 1000}],
+        daily_bars={"600001.SH": bars},
+        industry_membership=_membership("industry"),
+        concept_membership=None,
+        ladder_snapshot=None,
+        dragon_tiger_snapshot=None,
+        attention_snapshot=None,
+        sector_cycle_snapshot=None,
+        capital_flow_snapshot=None,
+        as_of=observation,
+        evaluation_trade_date=closed_trade_date,
+    )
+
+    structure = snapshot["by_symbol"]["600001.SH"]["stock_trend_structure"]
+    assert snapshot["as_of"] == observation.isoformat()
+    assert snapshot["evaluation_trade_date"] == "2026-09-16"
+    assert structure["available"] is True
+    assert structure["trade_date"] == "2026-09-16"
+
+
+def test_premarket_observation_does_not_silently_accept_natural_date() -> None:
+    observation = datetime(2026, 9, 17, 6, 36, tzinfo=TZ)
+    bars = [
+        {
+            "date_ms": int(
+                (datetime(2026, 8, 17, 15, 0, tzinfo=TZ) + timedelta(days=index)).timestamp() * 1000
+            ),
+            "close_price": 10 + index * 0.1,
+        }
+        for index in range(31)
+    ]
+    snapshot = build_a2_feature_snapshot(
+        candidates=[{"symbol": "600001.SH", "amount": 1000}],
+        daily_bars={"600001.SH": bars},
+        industry_membership=_membership("industry"),
+        concept_membership=None,
+        ladder_snapshot=None,
+        dragon_tiger_snapshot=None,
+        attention_snapshot=None,
+        sector_cycle_snapshot=None,
+        capital_flow_snapshot=None,
+        as_of=observation,
+    )
+
+    structure = snapshot["by_symbol"]["600001.SH"]["stock_trend_structure"]
+    assert structure["available"] is False
+    assert structure["reason_code"] == "A2_STOCK_TREND_DAY_MISSING"
 
 
 def test_a2_features_materialize_tier_leader_and_chain_without_heat_as_leader() -> None:

@@ -1166,7 +1166,7 @@ class WorkflowApplication:
                     snapshot_id=snapshot.snapshot_id,
                     snapshot_hash=snapshot.snapshot_hash,
                     as_of=current,
-                    market_trade_date=market_current.date().isoformat(),
+                    market_trade_date=closed_trade_date.isoformat(),
                     data=data,
                     batch_size=self.settings.feature_source_batch_size,
                 ).as_dict()
@@ -1180,7 +1180,7 @@ class WorkflowApplication:
                     "generation_id": None,
                     "snapshot_id": snapshot.snapshot_id,
                     "snapshot_hash": snapshot.snapshot_hash,
-                    "market_trade_date": market_current.date().isoformat(),
+                    "market_trade_date": closed_trade_date.isoformat(),
                     "reason_code": getattr(exc, "reason_code", type(exc).__name__.upper()),
                 }
         else:
@@ -1189,7 +1189,7 @@ class WorkflowApplication:
                 "generation_id": None,
                 "snapshot_id": snapshot.snapshot_id,
                 "snapshot_hash": snapshot.snapshot_hash,
-                "market_trade_date": market_current.date().isoformat(),
+                "market_trade_date": closed_trade_date.isoformat(),
                 "reason_code": "AUCTION_SKIP_MAINTENANCE_WRITE" if auction_refresh else "FEATURE_MAINTENANCE_DISABLED",
             }
         if progress is not None:
@@ -4827,6 +4827,11 @@ class WorkflowApplication:
             **sector_cycle,
             "sector_health_snapshot": sector_health,
         }
+        feature_trade_date = (
+            _latest_closed_market_trade_date(market_as_of, reference_calendar)
+            if reference_calendar is not None
+            else market_as_of.date()
+        )
         a2_features = build_a2_feature_snapshot(
             candidates=selected_records,
             daily_bars={
@@ -4845,6 +4850,7 @@ class WorkflowApplication:
             sector_cycle_snapshot=sector_cycle,
             capital_flow_snapshot=capital_flow,
             as_of=market_as_of,
+            evaluation_trade_date=feature_trade_date,
         )
         regime, regime_evidence = _determine_market_regime(
             market_emotion,
@@ -5033,12 +5039,7 @@ class WorkflowApplication:
                 "source": "LOCAL_POINT_IN_TIME_DAILY_CACHE",
                 "as_of": market_as_of.isoformat(),
                 "market_trade_date": (
-                    _latest_closed_market_trade_date(
-                        market_as_of,
-                        reference_calendar,
-                    ).isoformat()
-                    if reference_calendar is not None
-                    else market_as_of.date().isoformat()
+                    feature_trade_date.isoformat()
                 ),
                 "symbol_count": len(reference_symbols),
                 "daily_bar_symbol_count": len(reference_daily_bars),

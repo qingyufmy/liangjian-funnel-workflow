@@ -87,16 +87,22 @@ def _render_stage(result: Any, stage_name: str) -> str:
             if stage_name == "A1" and pool == "monitor_pool":
                 lines.extend(_reason_summary(values))
                 continue
-            lines.extend(
-                [
-                    "| 代码 | 名称 | 主题/节点 | 路线/角色 | 分数 | 原因 |",
-                    "|---|---|---|---|---:|---|",
-                ]
-            )
+            if stage_name == "A3" and pool == "rejected_candidates":
+                lines.extend([
+                    "| 代码 | 名称 | 主题/节点 | 路线/角色 | 状态 | 主要阻断 | 其他条件 | 背景风险 | A4待确认 |",
+                    "|---|---|---|---|---|---|---|---|---|",
+                ])
+            else:
+                lines.extend(
+                    [
+                        "| 代码 | 名称 | 主题/节点 | 路线/角色 | 分数 | 原因 |",
+                        "|---|---|---|---|---:|---|",
+                    ]
+                )
             for row in values:
                 if stage_name == "A3" and pool == "rejected_candidates":
                     explanation = a3_nonqualified_explanation(row)
-                    lines.append(_row_line({**row, "reason_codes": list(explanation.values())}))
+                    lines.append(_a3_rejected_row_line(row, explanation))
                 else:
                     lines.append(_row_line(row))
     return "\n".join(lines) + "\n"
@@ -140,6 +146,26 @@ def _row_line(row: Mapping[str, Any]) -> str:
     return (
         f"| {_cell(symbol)} | {_cell(name)} | {_cell(theme)}/{_cell(node)} | "
         f"{_cell(route)} | {_cell(score)} | {_cell(reasons)} |"
+    )
+
+
+def _a3_rejected_row_line(row: Mapping[str, Any], explanation: Mapping[str, Any]) -> str:
+    symbol = row.get("symbol") or row.get("stock_code") or "-"
+    name = row.get("company_name") or row.get("name") or "-"
+    theme = row.get("primary_theme") or row.get("theme_id") or "-"
+    node = row.get("industry_chain_node") or row.get("node_id") or "-"
+    route = (
+        row.get("deterministic_strategy_profile")
+        or row.get("strategy_profile")
+        or row.get("a2_route")
+        or row.get("market_role")
+        or "-"
+    )
+    return (
+        f"| {_cell(symbol)} | {_cell(name)} | {_cell(theme)}/{_cell(node)} | {_cell(route)} | "
+        f"{_cell(explanation.get('状态'))} | {_cell(explanation.get('主要原因'))} | "
+        f"{_cell(explanation.get('其他条件'))} | {_cell(explanation.get('背景风险'))} | "
+        f"{_cell(explanation.get('盘中待确认'))} |"
     )
 
 

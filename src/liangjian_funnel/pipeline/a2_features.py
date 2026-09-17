@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
-A2_FEATURE_SCHEMA = "a2-features/3.2.0"
+A2_FEATURE_SCHEMA = "a2-features/3.3.0"
 
 
 def build_a2_feature_snapshot(
@@ -36,8 +36,22 @@ def build_a2_feature_snapshot(
     capital_flow_snapshot: Mapping[str, Any] | None,
     as_of: datetime,
     limit_up_snapshot: Mapping[str, Any] | None = None,
+    evaluation_trade_date: date | None = None,
 ) -> dict[str, Any]:
+    """Build the point-in-time A2 feature package.
+
+    ``as_of`` is the observation timestamp.  Daily returns, ladder facts and
+    stock trend structure must instead be evaluated against the latest closed
+    exchange session.  Premarket callers therefore pass
+    ``evaluation_trade_date`` explicitly; retaining a fallback keeps small
+    historical/unit callers compatible without silently changing their date.
+    """
     cutoff = _aware(as_of)
+    trade_date = evaluation_trade_date or cutoff.date()
+    if not isinstance(trade_date, date) or isinstance(trade_date, datetime):
+        raise TypeError("evaluation_trade_date must be a date")
+    if trade_date > cutoff.date():
+        raise ValueError("evaluation_trade_date cannot be after observation date")
     candidate_by_symbol = {
         symbol: dict(row)
         for row in candidates
@@ -60,7 +74,7 @@ def build_a2_feature_snapshot(
         window: {
             symbol: value
             for symbol in reference_symbols
-            if (value := _return_nd(reference_bars.get(symbol, ()), cutoff.date(), window)) is not None
+            if (value := _return_nd(reference_bars.get(symbol, ()), trade_date, window)) is not None
         }
         for window in (5, 10, 20)
     }
@@ -68,7 +82,7 @@ def build_a2_feature_snapshot(
     candidate_returns = {
         symbol: value
         for symbol in symbols
-        if (value := _return_nd(daily_bars.get(symbol, ()), cutoff.date(), 20)) is not None
+        if (value := _return_nd(daily_bars.get(symbol, ()), trade_date, 20)) is not None
     }
     return_percentiles_by_window = {
         window: _percentiles(values)
@@ -100,12 +114,12 @@ def build_a2_feature_snapshot(
         symbol: all_concept_by_symbol.get(symbol, ())
         for symbol in reference_symbols
     }
-    ladder = _ladder_by_symbol(ladder_snapshot, cutoff.date())
+    ladder = _ladder_by_symbol(ladder_snapshot, trade_date)
     # The ladder endpoint is a continuity/height source, while the limit-up
     # pool is an independent same-session event source.  A pool row proves
     # only that the stock hit the limit on this date; it must never be used to
     # manufacture a second (or higher) board when the ladder omits the symbol.
-    limit_up_pool = _limit_up_pool_by_symbol(limit_up_snapshot, cutoff.date())
+    limit_up_pool = _limit_up_pool_by_symbol(limit_up_snapshot, trade_date)
     ladder_observed, ladder_state, ladder_reason = _dataset_observation(ladder_snapshot)
     _, limit_up_pool_state, limit_up_pool_reason = _dataset_observation(limit_up_snapshot)
     dragon = _event_symbols(dragon_tiger_snapshot)
@@ -137,7 +151,7 @@ def build_a2_feature_snapshot(
             extra={"trend_percentile": relative,
                    "return_20d_pct": candidate_returns.get(symbol),
                    "metric_semantics": "CROSS_SECTIONAL_20D_RETURN_PERCENTILE_NOT_MA_TREND",
-                   "reference_symbol_count": len(returns), "trade_date": cutoff.date().isoformat()},
+                   "reference_symbol_count": len(returns), "trade_date": trade_date.isoformat()},
         )
         if ladder_row is not None:
             height = int(_number(ladder_row.get("board_num")) or 1)
@@ -545,7 +559,7 @@ def build_a2_feature_snapshot(
             # substitute for an observed limit-up ladder.  It deliberately
             # remains outside the canonical A2 factor weights.
             "trend_strength_proxy": trend_by_symbol[symbol],
-            "stock_trend_structure": stock_trend_structure(daily_bars.get(symbol, ()), cutoff.date()),
+            "stock_trend_structure": stock_trend_structure(daily_bars.get(symbol, ()), trade_date),
             "leader_structure": leader_by_symbol[symbol],
             "index_chain_resonance": chain_by_symbol[symbol],
             "weekly_confirmation": weekly_by_symbol[symbol],
@@ -703,6 +717,7 @@ def build_a2_feature_snapshot(
         "reason_code": "OK" if data_state == "SUFFICIENT" else "A2_OPTIONAL_FACTS_DEGRADED" if data_state == "DEGRADED" else "A2_CRITICAL_DATA_INSUFFICIENT",
         "data_sufficiency_state": data_state,
         "as_of": cutoff.isoformat(),
+        "evaluation_trade_date": trade_date.isoformat(),
         "symbol_count": symbol_count,
         "daily_bar_coverage": round(daily_bar_coverage, 6),
         "identity_coverage": round(identity_coverage, 6),
