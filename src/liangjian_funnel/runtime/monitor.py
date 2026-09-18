@@ -17,6 +17,7 @@ from ..data.mootdx import MinuteBar
 from ..reporting import atomic_write_text
 from .strategies import STRATEGY_PROFILES, evaluate_strategy
 from .execution_eligibility import project_exit_eligibility
+from .a4_explain import build_a4_decision_context
 from .position_data_health import position_data_health
 from .state import EFFECTIVE_ACTIONS, MonitorAction, PersistenceError, RuntimeStore
 
@@ -982,6 +983,11 @@ class MonitorEngine:
                 str(entry_contract.get("reason_code") or "ENTRY_PRICE_CONTRACT_INVALID"), plan_id, symbol,
                 strategy_result={**dict(strategy_result or {}), "entry_contract": entry_contract},
             )
+        decision_context = build_a4_decision_context(
+            entry_payload,
+            strategy_result,
+            entry_contract,
+        )
         record, inserted = self.store.record_monitor_event(
             event_key=key,
             lane_id=lane_id,
@@ -999,6 +1005,7 @@ class MonitorEngine:
                 "llm_reason_code": _safe_reason_code(llm_reason_code),
                 "diagnostic_code": diagnostic_code,
                 "entry_contract": entry_contract,
+                "decision_context": decision_context,
                 "strategy": dict(strategy_result) if isinstance(strategy_result, Mapping) else None,
             },
         )

@@ -5749,7 +5749,39 @@ class WorkflowApplication:
                 if int(position.get("sellable_qty") or 0) <= 0:
                     continue
             outcome = broker.apply(simulation_action, bar)
-            results.append(outcome.model_dump(mode="json"))
+            result = outcome.model_dump(mode="json")
+            account = self.store.get_account(account_id) or {}
+            position = self.store.get_position(account_id, symbol) or {}
+            result.update({
+                "name": plan_payload.get("name") or plan_payload.get("company_name"),
+                "plan_id": payload.get("plan_id"),
+                "signal_time": signal_time.isoformat(),
+                "execution_bar_end": bar.bar_end.isoformat(),
+                "fill_delay_seconds": max(0.0, (bar.bar_end - signal_time).total_seconds()),
+                "signal_reference": contract.get("signal_reference") if new_entry else None,
+                "limit_price": contract.get("limit_price") if new_entry else None,
+                "stop_level": contract.get("stop_level") if new_entry else plan_payload.get("stop_level"),
+                "execution_basis": "NEXT_COMPLETE_1M_BAR_SIMULATION",
+                "execution_bar": {
+                    "source_id": bar.source_id,
+                    "bar_end": bar.bar_end.isoformat(),
+                    "open": bar.open,
+                    "high": bar.high,
+                    "low": bar.low,
+                    "close": bar.close,
+                    "volume": bar.volume,
+                    "volume_unit": bar.volume_unit,
+                },
+                "decision_context": payload.get("decision_context") or {},
+                "account_snapshot": {
+                    "equity": account.get("equity"),
+                    "cash": account.get("cash"),
+                    "position_total_qty": position.get("total_qty", 0),
+                    "position_sellable_qty": position.get("sellable_qty", 0),
+                    "position_avg_cost": position.get("avg_cost"),
+                },
+            })
+            results.append(result)
             if outcome.fill is not None and lifecycle_key:
                 self.store.apply_a4_fill(lifecycle_key, outcome.fill)
             elif action == "BUY" and lifecycle_key and outcome.status.value in {"BLOCKED", "CANCELLED"}:
@@ -5765,6 +5797,7 @@ class WorkflowApplication:
         """Close stale unfilled signals without deleting their evidence."""
 
         expired = 0
+        event_rows: dict[str, dict[str, Any]] | None = None
         for lifecycle in self.store.list_a4_signal_lifecycles(
             status=A4SignalStatus.SIGNALLED.value,
             limit=10_000,
@@ -5786,10 +5819,48 @@ class WorkflowApplication:
             )
             execution_publisher = getattr(getattr(self, "lark_publisher", None), "publish_a4_execution_results", None)
             if callable(execution_publisher):
+                if event_rows is None:
+                    session_start = current.replace(hour=0, minute=0, second=0, microsecond=0)
+                    event_rows = {
+                        str(row.get("event_key") or ""): row
+                        for row in self.store.list_monitor_events(
+                            effective_only=True,
+                            from_time=session_start,
+                            to_time=current,
+                        )
+                    }
+                event = event_rows.get(event_key) or {}
+                try:
+                    event_payload = json.loads(str(event.get("payload_json") or "{}"))
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    event_payload = {}
+                plan_id = str(lifecycle.get("plan_id") or event_payload.get("plan_id") or "")
+                plan = self.store.get_execution_plan(plan_id) if plan_id else None
+                try:
+                    plan_payload = json.loads(str((plan or {}).get("payload_json") or "{}"))
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    plan_payload = {}
+                contract = event_payload.get("entry_contract") if isinstance(event_payload.get("entry_contract"), Mapping) else {}
+                account = self.store.get_account(account_id) or {}
+                position = self.store.get_position(account_id, str(lifecycle.get("symbol") or "")) or {}
                 execution_publisher([{
                     "account_id": account_id, "signal_id": event_key,
                     "symbol": lifecycle.get("symbol"), "action": "BUY",
                     "status": "CANCELLED", "reason_code": "ENTRY_NEXT_BAR_MISSED",
+                    "name": plan_payload.get("name") or plan_payload.get("company_name"),
+                    "plan_id": plan_id,
+                    "signal_time": signal_time.isoformat(),
+                    "signal_reference": contract.get("signal_reference") or lifecycle.get("signal_price"),
+                    "limit_price": contract.get("limit_price"),
+                    "stop_level": contract.get("stop_level") or plan_payload.get("stop_level"),
+                    "execution_basis": "NEXT_COMPLETE_1M_BAR_SIMULATION",
+                    "decision_context": event_payload.get("decision_context") or {},
+                    "account_snapshot": {
+                        "equity": account.get("equity"), "cash": account.get("cash"),
+                        "position_total_qty": position.get("total_qty", 0),
+                        "position_sellable_qty": position.get("sellable_qty", 0),
+                        "position_avg_cost": position.get("avg_cost"),
+                    },
                 }], now=current)
             expired += 1
         return expired

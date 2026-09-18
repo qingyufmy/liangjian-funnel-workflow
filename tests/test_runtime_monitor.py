@@ -193,6 +193,9 @@ def test_strategy_plan_uses_closed_15m_and_5m_not_legacy_1m_zone(tmp_path):
     persisted = store.list_monitor_events(lane_id="lane-a", effective_only=True)[-1]
     payload = __import__("json").loads(persisted["payload_json"])
     assert payload["strategy"]["closed_15m_end"].endswith("10:00:00+08:00")
+    assert payload["decision_context"]["environment"]["live_decision"] == "ALLOW"
+    assert payload["decision_context"]["strategy"]["profile"] == "TREND_MA5"
+    assert payload["decision_context"]["price"]["signal_reference"] is not None
 
 
 def test_restart_does_not_recall_model_during_same_trigger_episode(tmp_path):

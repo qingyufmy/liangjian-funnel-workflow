@@ -11,10 +11,13 @@ from typing import Any, Callable, Mapping, Sequence
 
 from .lark import LarkConfigurationError, LarkNotifier
 from .state import RuntimeStore
+from .a4_explain import build_a4_decision_context
 from ..pipeline.a3_display import A3_REASON_LABELS
 
 
 _ACTION_LABELS = {
+    "BUY": "买入",
+    "ADD": "加仓",
     "BUY_SIGNAL": "买入触发",
     "ADD_SIGNAL": "加仓触发",
     "SELL_SIGNAL": "离场触发",
@@ -114,8 +117,11 @@ _DISPLAY_LABELS = {
     "CONFIRMATION": "确认阶段",
     "ICE_POINT": "情绪冰点",
     "LIQUIDITY_CONTRACTION": "流动性收缩",
+    "INCREMENTAL_EXPANSION": "增量资金扩张",
+    "EXISTING_FUNDS_ROTATION": "存量资金轮动",
     "ALLOW": "允许关注",
     "NO_NEW_ENTRY": "暂不追高开仓",
+    "BLOCK_NEW_ENTRY": "暂停新增仓",
     "CAUTION": "谨慎参与",
     "HIGH": "较高",
     "MEDIUM": "中等",
@@ -463,6 +469,88 @@ def _time_label(value: Any, *, fallback: str = "—") -> str:
     except ValueError:
         return _display_text(raw, limit=40, fallback=fallback)
     return parsed.strftime("%Y年%m月%d日 %H:%M")
+
+
+def _percentile(value: Any) -> str:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return "—"
+    if 0 <= number <= 1:
+        number *= 100
+    return f"{number:.1f}%"
+
+
+def _minute_source_label(value: Any) -> str:
+    raw = str(value or "").upper()
+    if "MOOTDX" in raw or "TDX" in raw:
+        return "通达信一分钟行情"
+    if "TENCENT" in raw:
+        return "腾讯一分钟行情"
+    if "SINA" in raw:
+        return "新浪一分钟行情"
+    return "本地标准化一分钟行情"
+
+
+def _a4_decision_lines(context: Mapping[str, Any]) -> list[str]:
+    environment = context.get("environment") if isinstance(context.get("environment"), Mapping) else {}
+    sector = context.get("sector") if isinstance(context.get("sector"), Mapping) else {}
+    capital = context.get("capital") if isinstance(context.get("capital"), Mapping) else {}
+    strategy = context.get("strategy") if isinstance(context.get("strategy"), Mapping) else {}
+    price = context.get("price") if isinstance(context.get("price"), Mapping) else {}
+
+    live_decision = _display_text(environment.get("live_decision"), limit=30, fallback="实时许可资料未提供")
+    prior_market = _display_text(
+        environment.get("market_environment") or environment.get("market_regime"),
+        limit=40,
+        fallback="前一收盘环境未标注",
+    )
+    emotion = _display_text(environment.get("emotion_cycle_stage"), limit=30, fallback="情绪阶段未标注")
+    theme = _display_text(
+        sector.get("theme_name") or sector.get("theme_id"), limit=40, fallback="板块未标注"
+    )
+    role = _display_text(sector.get("market_role"), limit=30, fallback="角色未标注")
+    stage = _display_text(sector.get("theme_stage"), limit=30, fallback="阶段未标注")
+    relative = _percentile(sector.get("relative_strength_percentile"))
+
+    funding_state = _display_text(capital.get("state"), limit=40, fallback="资金状态资料不足")
+    amount_ratio = _percentage(capital.get("amount_ratio"))
+    coverage = _percentage(capital.get("coverage"))
+    flow_score = capital.get("sector_flow_score")
+    flow_text = (
+        f"板块资金评分{_number(flow_score)}"
+        if flow_score is not None and capital.get("sector_flow_source")
+        else "板块净流入未形成可核验数值"
+    )
+
+    profile = _STRATEGY_LABELS.get(
+        str(strategy.get("profile") or ""),
+        _display_text(strategy.get("profile"), limit=30, fallback="策略未标注"),
+    )
+    setup = _display_text(strategy.get("setup_pattern"), limit=50, fallback="按冻结计划确认")
+    met = _display_items(strategy.get("met_conditions"), limit=4)
+    closed = "、".join(
+        item for item in (
+            f"五分钟{_time_label(strategy.get('closed_5m_end'))}" if strategy.get("closed_5m_end") else "",
+            f"十五分钟{_time_label(strategy.get('closed_15m_end'))}" if strategy.get("closed_15m_end") else "",
+        ) if item
+    ) or "闭合周期时间未提供"
+    reward_risk = _number(price.get("live_reward_risk"))
+    confirmed_price = _number(price.get("live_entry_price") or price.get("signal_reference"))
+    stop_price = _number(price.get("stop_level"))
+    no_chase_price = _number(price.get("no_chase_price"))
+    target_price = _number(price.get("target_price"))
+
+    return [
+        "",
+        "**入场理由**",
+        f"• 市场环境：当日实时许可为{live_decision}（{_time_label(environment.get('live_as_of'))}）；前一收盘为{prior_market}，情绪处于{emotion}。",
+        f"• 板块位置：{theme}；角色为{role}；阶段为{stage}；个股相对强度分位{relative}。",
+        f"• 资金条件：{funding_state}；市场成交额比{amount_ratio}，覆盖率{coverage}；{flow_text}。",
+        f"• 价格结构：实时确认价{confirmed_price}；止损{stop_price}；禁止追价{no_chase_price}；第一目标{target_price}；实时盈亏比{reward_risk}。",
+        f"• 技术策略：{profile}；形态为{setup}；依据闭合周期：{closed}。",
+        f"• 已确认：{'；'.join(met) if met else '确定性策略条件已通过，细项未单独列出'}。",
+    ]
 
 
 def _reference_price_as_of(
@@ -1073,13 +1161,47 @@ class WorkflowLarkPublisher:
                 continue
             filled = row.get("status") == "FILLED"
             symbol = _stock_code(row.get("symbol"))
-            lines = [f"• 股票：{symbol}",
-                     f"• 模拟成交：{row.get('qty', 0)}股，价格{_number(row.get('price'))}；费用{_number(row.get('fee'))}" if filled
-                     else f"• 未成交终止：{_display_text(row.get('reason_code'), fallback='执行条件未满足')}。不推定持仓，不自动追价。",
-                     "• 新买入股份当日不可卖出；信号表现与成交收益分开跟踪。"]
+            name = _text(row.get("name"), limit=30, fallback="名称未提供")
+            decision_context = row.get("decision_context") if isinstance(row.get("decision_context"), Mapping) else {}
+            execution_bar = row.get("execution_bar") if isinstance(row.get("execution_bar"), Mapping) else {}
+            account = row.get("account_snapshot") if isinstance(row.get("account_snapshot"), Mapping) else {}
+            gross = float(row.get("qty") or 0) * float(row.get("price") or 0)
+            lines = [
+                "**成交结论**" if filled else "**执行结论**",
+                f"• 标的：{name}（{symbol}）",
+                f"• 方向：{_ACTION_LABELS.get(str(row.get('action') or ''), '买入')}；结果：{'已模拟成交' if filled else '未成交终止'}",
+                f"• 原因：{_display_text(row.get('reason_code'), fallback='执行条件已满足' if filled else '执行条件未满足')} ",
+                "",
+                "**价格与数量**",
+                f"• 信号时间：{_time_label(row.get('signal_time'))}；信号参考价：{_number(row.get('signal_reference'))}；限价上限：{_number(row.get('limit_price'))}",
+                (
+                    f"• 模拟成交价：{_number(row.get('price'))}；数量：{row.get('qty', 0)}股；成交额：{_number(gross)}；费用：{_number(row.get('fee'))}"
+                    if filled else
+                    "• 未生成模拟持仓，未成交信号不自动追价。"
+                ),
+                f"• 从信号到可执行完整分钟：{_number(row.get('fill_delay_seconds'))}秒。",
+                "",
+                "**模拟成交依据**",
+                "• 执行口径：信号后下一根可交易的完整一分钟K线模拟撮合；这不是交易所真实成交回报。",
+            ]
+            if execution_bar:
+                lines.extend([
+                    f"• 行情来源：{_minute_source_label(execution_bar.get('source_id'))}；K线结束：{_time_label(execution_bar.get('bar_end'))}",
+                    f"• 开/高/低/收：{_number(execution_bar.get('open'))}/{_number(execution_bar.get('high'))}/{_number(execution_bar.get('low'))}/{_number(execution_bar.get('close'))}；成交量：{_number(execution_bar.get('volume'))}",
+                ])
+            else:
+                lines.append("• 未生成符合价格契约的完整分钟成交记录。")
+            if decision_context:
+                lines.extend(_a4_decision_lines(decision_context))
+            lines.extend([
+                "",
+                "**模拟账户**",
+                f"• 权益：{_number(account.get('equity'))}；现金：{_number(account.get('cash'))}；持仓：{account.get('position_total_qty', 0)}股；当日可卖：{account.get('position_sellable_qty', 0)}股。",
+                "• A股当日新买入股份不可卖出；信号表现与模拟成交收益分开跟踪。",
+            ])
             outputs.append(self._send(delivery_key=f"a4-execution:{row.get('account_id')}:{row.get('signal_id')}:{row.get('status')}",
                 kind="A4_EXECUTION_RESULT", source_id=str(row.get("signal_id")),
-                title=f"A4执行结果｜{symbol}｜{'模拟成交' if filled else '未成交终止'}",
+                title=f"A4模拟成交回执｜{name}（{symbol}）｜{'已成交' if filled else '未成交'}",
                 lines=lines, summary=dict(row), now=now))
         return outputs
 
@@ -1131,6 +1253,11 @@ class WorkflowLarkPublisher:
             source_id = f"{event.get('lane_id') or ''}:{plan_id}:{action}"
             title = f"A4 盘中信号｜{name}（{symbol}）｜{_ACTION_LABELS.get(action, _display_text(action))}"
             contract = event_payload.get("entry_contract") or {}
+            decision_context = (
+                event_payload.get("decision_context")
+                if isinstance(event_payload.get("decision_context"), Mapping)
+                else build_a4_decision_context(payload, strategy_result, contract)
+            )
             is_data_alert = action == "DATA_BLOCK" or (
                 action in {"BUY_SIGNAL", "ADD_SIGNAL"} and contract.get("status") != "READY")
             if is_data_alert:
@@ -1174,6 +1301,8 @@ class WorkflowLarkPublisher:
                 f"• 触发区：{_number(payload.get('trigger_low'))}–{_number(payload.get('trigger_high'))}",
                 f"• 止损：{_number(payload.get('stop_level'))}；禁止追价：{_number(payload.get('no_chase_price') or payload.get('max_chase_price'))}",
             ]
+            if not is_data_alert and action in {"BUY_SIGNAL", "ADD_SIGNAL"}:
+                lines.extend(_a4_decision_lines(decision_context))
             outputs.append(
                 self._send(
                     delivery_key=f"a4:{source_id}",

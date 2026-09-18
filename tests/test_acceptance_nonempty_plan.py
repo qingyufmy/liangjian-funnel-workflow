@@ -109,6 +109,13 @@ def test_nonempty_plan_morning_a4_entry_and_next_day_exit(tmp_path) -> None:
         _bar(first_minute + timedelta(minutes=2)),
     )
     assert any(item["action"] == "BUY" and item["status"] == "FILLED" for item in entry)
+    filled_entry = next(item for item in entry if item["action"] == "BUY" and item["status"] == "FILLED")
+    assert filled_entry["execution_basis"] == "NEXT_COMPLETE_1M_BAR_SIMULATION"
+    assert filled_entry["execution_bar"]["bar_end"] == (first_minute + timedelta(minutes=2)).isoformat()
+    assert filled_entry["execution_bar"]["source_id"] == "TEST_ONLY:FIXTURE"
+    assert filled_entry["decision_context"]["schema_version"] == "liangjian-a4-decision-context/1.0.0"
+    assert filled_entry["account_snapshot"]["position_total_qty"] > 0
+    assert filled_entry["account_snapshot"]["position_sellable_qty"] == 0
     assert store.get_position("paper:lane_1", "600519.SH") is not None
 
     next_day = first_minute + timedelta(days=1)

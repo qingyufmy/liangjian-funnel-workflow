@@ -115,6 +115,21 @@ def test_a4_only_sends_effective_event_with_condition_logic(tmp_path):
     publisher.notifier = fake
     now = datetime(2026, 9, 2, 10, 5, tzinfo=SHANGHAI)
     plan = _plan(1)
+    plan_payload = json.loads(str(plan["payload_json"]))
+    plan_payload.update({
+        "primary_theme": "CONSUMER_ELECTRONICS",
+        "market_role": "TREND_CORE",
+        "theme_stage": "ACCELERATING",
+        "relative_strength": {"percentile": 88},
+        "market_environment": "WEAK_ROTATION",
+        "emotion_cycle_stage": "REPAIR",
+        "market_funding_state": "EXISTING_FUNDS_ROTATION",
+        "cycle_alignment": {"market_funding": {
+            "state": "EXISTING_FUNDS_ROTATION", "amount_ratio": 1.03, "coverage": 0.96,
+        }},
+        "setup_pattern": "MAIN_RISE",
+    })
+    plan["payload_json"] = json.dumps(plan_payload, ensure_ascii=False)
     event_payload = {
         "plan_id": plan["plan_id"],
         "symbol": plan["symbol"],
@@ -123,6 +138,11 @@ def test_a4_only_sends_effective_event_with_condition_logic(tmp_path):
             "met_conditions": ["首次回踩5日线企稳"],
             "unmet_conditions": [],
             "veto_conditions": ["放量跌破5日线"],
+            "market_gate": {"status": "READY", "decision": "ALLOW", "as_of": now.isoformat()},
+            "closed_5m_end": now.isoformat(),
+            "closed_15m_end": now.replace(minute=0).isoformat(),
+            "live_entry_price": 10.1,
+            "live_reward_risk": 2.8,
         },
     }
     events = [
@@ -159,6 +179,72 @@ def test_a4_only_sends_effective_event_with_condition_logic(tmp_path):
     assert "放量跌破5日线" in body
     assert "NO_ACTION" not in body
     assert "待成交" in fake.calls[0][0]
+    assert "入场理由" in body
+    assert "当日实时许可为允许关注" in body
+    assert "消费电子" in body
+    assert "存量资金轮动" in body
+    assert "市场成交额比103.00%" in body
+    assert "板块净流入未形成可核验数值" in body
+    assert "实时盈亏比2.8" in body
+
+
+def test_a4_fill_receipt_explains_price_basis_and_frozen_reasons(tmp_path):
+    store = RuntimeStore(tmp_path / "state.sqlite3")
+    publisher = WorkflowLarkPublisher(
+        store,
+        "https://open.larksuite.com/open-apis/bot/v2/hook/test-token",
+    )
+    fake = FakeNotifier()
+    publisher.notifier = fake
+    now = datetime(2026, 9, 18, 10, 39, tzinfo=SHANGHAI)
+    result = publisher.publish_a4_execution_results([{
+        "account_id": "paper:lane_1",
+        "signal_id": "effective:signal-1",
+        "symbol": "300136.SZ",
+        "name": "信维通信",
+        "action": "BUY",
+        "status": "FILLED",
+        "reason_code": "FILLED",
+        "qty": 2500,
+        "price": 58.43,
+        "fee": 45.29,
+        "signal_time": "2026-09-18T10:38:00+08:00",
+        "signal_reference": 58.32,
+        "limit_price": 58.45,
+        "fill_delay_seconds": 60,
+        "execution_basis": "NEXT_COMPLETE_1M_BAR_SIMULATION",
+        "execution_bar": {
+            "source_id": "MOOTDX:10.0.0.1:7709",
+            "bar_end": now.isoformat(),
+            "open": 58.35, "high": 58.50, "low": 58.30, "close": 58.43,
+            "volume": 640000,
+        },
+        "decision_context": {
+            "environment": {"live_decision": "ALLOW", "live_as_of": now.isoformat(),
+                            "market_environment": "WEAK_ROTATION", "emotion_cycle_stage": "REPAIR"},
+            "sector": {"theme_name": "消费电子", "market_role": "TREND_CORE",
+                       "theme_stage": "ACCELERATING", "relative_strength_percentile": 88},
+            "capital": {"state": "EXISTING_FUNDS_ROTATION", "amount_ratio": 1.03, "coverage": 0.96},
+            "strategy": {"profile": "TREND_MA5", "setup_pattern": "MAIN_RISE",
+                         "met_conditions": ["五分钟转强"], "closed_5m_end": now.isoformat()},
+            "price": {"live_reward_risk": 2.8},
+        },
+        "account_snapshot": {"equity": 9950704.51, "cash": 6369756.71,
+                             "position_total_qty": 2500, "position_sellable_qty": 0},
+    }], now=now)
+
+    assert result[0]["status"] == "SENT"
+    title, lines, _color = fake.calls[0]
+    body = "\n".join(lines)
+    assert "信维通信（300136）" in title
+    assert "信号参考价：58.32" in body
+    assert "模拟成交价：58.43" in body
+    assert "下一根可交易的完整一分钟K线模拟撮合" in body
+    assert "不是交易所真实成交回报" in body
+    assert "通达信一分钟行情" in body
+    assert "市场环境" in body and "板块位置" in body and "资金条件" in body and "技术策略" in body
+    assert "当日可卖：0股" in body
+    assert "NEXT_TICK" not in body and "一档可见量" not in body
 
 
 @pytest.mark.parametrize("action", ["PLAN_INVALIDATED", "LLM_VETO", "START_CONFIRMATION", "NO_ACTION", "EMPTY_SCOPE"])
