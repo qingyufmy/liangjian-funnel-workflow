@@ -92,6 +92,8 @@ class MonitorEngine:
         gap: bool | None = None,
         bar_histories: Mapping[str, tuple[MinuteBar, ...] | list[MinuteBar]] | None = None,
         market_contexts: Mapping[str, Mapping[str, Any]] | None = None,
+        decision_bar_end: datetime | None = None,
+        risk_bars: Mapping[str, MinuteBar] | None = None,
     ) -> MonitorBatchResult:
         """Process one frozen minute; no historical catch-up is performed."""
 
@@ -105,9 +107,11 @@ class MonitorEngine:
             else:
                 raise ValueError("minute timestamp is required when bars are empty")
         minute = _local(now)
+        observation_end = _local(decision_bar_end) if decision_bar_end is not None else minute
         if minute is None:
             raise ValueError("minute timestamp is required when bars are empty")
         bars_by_symbol = self._bar_map(bars)
+        risk_bars_by_symbol = self._bar_map(risk_bars or bars)
         symbol_data_errors = {
             str(symbol): str(reason)
             for symbol, reason in (data_errors or {}).items()
@@ -191,12 +195,12 @@ class MonitorEngine:
             # Entry-history failure must not silence an independently valid
             # current-bar hard stop. Global persistence/integrity failures and
             # untrusted current bars still cannot authorize any execution.
-            risk_bar = bars_by_symbol.get(symbol) or bars_by_symbol.get(symbol.split(".")[0])
+            risk_bar = risk_bars_by_symbol.get(symbol) or risk_bars_by_symbol.get(symbol.split(".")[0])
             risk_position = self.store.get_position(f"paper:{lane_id}", symbol)
             risk_payload = self._payload(plan)
             risk_health = position_data_health(risk_bar, at=minute, reason=symbol_reason or global_data_reason,
                                                integrity_ok=not bool(global_data_reason))
-            if (symbol_reason and not global_data_reason and risk_position
+            if (not global_data_reason and risk_position
                     and risk_health["current_price_trusted"]
                     and risk_payload.get("stop_level") is not None
                     and risk_bar.low <= float(risk_payload["stop_level"])):
@@ -256,7 +260,7 @@ class MonitorEngine:
                     )
                 )
                 continue
-            if bar.interval != "1m" or bar.bar_end != minute:
+            if bar.interval != "1m" or bar.bar_end != observation_end:
                 self._reset_confirmation(lane_id, plan_id)
                 trigger_results.append({"plan_id": plan_id, "symbol": symbol, "trigger_pass": False, "eligible": False, "action_candidate": "DATA_BLOCK"})
                 events.append(self._emit_effective(lane_id, plan, minute, minute_snapshot_id, MonitorAction.DATA_BLOCK.value, "BAR_NOT_CURRENT_1M"))

@@ -18,7 +18,6 @@ def test_monitor_consumes_persisted_revision_or_blocks(monkeypatch, tmp_path, br
     original = MinuteBar(symbol=symbol, interval="1m", bar_end=now-timedelta(minutes=1),
         open=10, high=10.2, low=9.9, close=10, volume=100, amount=1000, source_id="TEST")
     revised = original.model_copy(update={"close": 10.2})
-    current = revised.model_copy(update={"bar_end": now})
     store = RuntimeStore(tmp_path/"state.sqlite3")
     store.create_execution_plan("p", "lane_1", symbol, status=PlanStatus.ACTIVE_TODAY,
         valid_from=now-timedelta(minutes=2), expires_at=now.replace(hour=15, minute=0), payload={})
@@ -38,7 +37,7 @@ def test_monitor_consumes_persisted_revision_or_blocks(monkeypatch, tmp_path, br
     app._record_a4_outcomes = lambda *args: {}
     app._a4_callback = lambda *args, **kwargs: None
     app._fetch_live_bars = lambda *args, **kwargs: FetchResult(symbol=symbol, interval="1m",
-        requested_bars=2, returned_bars=2, bars=(revised, current),
+        requested_bars=1, returned_bars=1, bars=(revised,),
         reason_code="CLOSE_BAR_FINALIZATION_UNCONFIRMED" if incomplete else "OK", complete=not incomplete)
     monkeypatch.setattr("liangjian_funnel.workflow.load_or_refresh_live_market_state", lambda *args, **kwargs: {})
     calls = []

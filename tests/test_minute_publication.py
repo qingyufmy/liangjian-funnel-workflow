@@ -139,6 +139,32 @@ def test_initial_failure_not_retried_by_confirmation_layer():
     assert calls == [] and result['publication_error'] == 'TENCENT_REQUEST_FAILED'
 
 
+def test_closed_window_is_immediate_and_transient_failure_gets_short_retry():
+    clock = Clock()
+    calls = []
+    ready = pack()
+    result = confirm_publications({SYMBOL: ready}, lambda symbol: (symbol, ready),
+        at=AT, deadline=33, clock=clock.now,
+        wall_clock=clock.wall, sleep=clock.sleep, closed_window=True)[SYMBOL]
+    assert result['publication']['state'] == 'OBSERVED_STABLE'
+    assert result['publication']['closed_window'] is True
+    assert result['publication']['attempts'] and calls == []
+    assert clock.now() == 3.0
+
+    clock = Clock()
+    failed = pack(complete=False)
+    def fetch(symbol):
+        calls.append(clock.now())
+        return symbol, ready
+    calls.clear()
+    recovered = confirm_publications({SYMBOL: failed}, fetch,
+        at=AT, deadline=33, clock=clock.now,
+        wall_clock=clock.wall, sleep=clock.sleep, closed_window=True)[SYMBOL]
+    assert recovered['publication']['state'] == 'OBSERVED_STABLE'
+    assert not recovered.get('publication_error')
+    assert calls == [3.5]
+
+
 def test_pending_escalates_only_consecutive_minutes_and_recovers():
     result, _, _ = run(pack(), [pack(), pack(10.2)])
     first = classify_persistent_pending(result, {}, at=AT)

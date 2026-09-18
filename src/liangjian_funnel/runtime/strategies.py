@@ -462,10 +462,20 @@ def evaluate_a4_plan(
         decision = _evaluate_520(plan, bars_5m, bars_15m, current_bar, context, position_open, locked)
     else:
         decision = _evaluate_trend(plan, bars_5m, bars_15m, current_bar, context, position_open, locked)
+    realtime_quote = _lookup(plan, ("market_context", "realtime_quote"))
+    realtime_price = (
+        _number(realtime_quote.get("price"))
+        if isinstance(realtime_quote, Mapping) and realtime_quote.get("available") is True
+        else None
+    )
     decision = _apply_live_entry_geometry(
         plan,
         decision,
-        current_price=(current_bar.close if current_bar is not None else bars_5m[-1].close),
+        current_price=(
+            realtime_price
+            if realtime_price is not None
+            else current_bar.close if current_bar is not None else bars_5m[-1].close
+        ),
     )
     base.update(_apply_live_market_gate(decision, live_market_gate))
     return _finish(base, as_of=current)

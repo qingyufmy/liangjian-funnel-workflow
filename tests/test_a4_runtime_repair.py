@@ -11,7 +11,7 @@ from liangjian_funnel.pipeline.research import LaneResult, ResearchRunResult
 from liangjian_funnel.runtime.state import PlanStatus, RuntimeStore
 from liangjian_funnel.workflow import (
     WorkflowApplication, _a4_native_verification_due,
-    _a4_price_contract_valid, _a4_required_bars,
+    _a4_execution_cutoff, _a4_price_contract_valid, _a4_required_bars,
 )
 import liangjian_funnel.cli as cli
 
@@ -94,6 +94,14 @@ def test_live_bar_requirement_only_counts_closed_current_session_bars():
     assert _a4_required_bars(datetime(2026, 9, 1, 9, 35, tzinfo=TZ), "5m") == 1
     assert _a4_required_bars(datetime(2026, 9, 1, 13, 0, tzinfo=TZ), "1m") == 120
     assert _a4_required_bars(datetime(2026, 9, 1, 15, 0, tzinfo=TZ), "1m") == 240
+
+
+def test_a4_execution_cutoff_excludes_forming_provider_minute_and_respects_lunch():
+    assert _a4_execution_cutoff(datetime(2026, 9, 1, 9, 31, tzinfo=TZ)) is None
+    assert _a4_execution_cutoff(datetime(2026, 9, 1, 9, 32, tzinfo=TZ)).strftime("%H:%M") == "09:31"
+    assert _a4_execution_cutoff(datetime(2026, 9, 1, 13, 1, tzinfo=TZ)).strftime("%H:%M") == "11:30"
+    assert _a4_execution_cutoff(datetime(2026, 9, 1, 13, 2, tzinfo=TZ)).strftime("%H:%M") == "13:01"
+    assert _a4_execution_cutoff(datetime(2026, 9, 1, 15, 0, tzinfo=TZ)).strftime("%H:%M") == "14:59"
 
 
 def test_native_five_minute_audit_only_runs_when_a_new_window_closed():

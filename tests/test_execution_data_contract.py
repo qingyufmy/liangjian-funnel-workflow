@@ -104,6 +104,22 @@ def test_entry_gap_cannot_silence_valid_hard_stop(tmp_path, global_bad, current_
     assert result.events[0].action == expected
 
 
+def test_closed_decision_bar_and_current_risk_quote_are_separate(tmp_path):
+    store = RuntimeStore(tmp_path/'separate.db')
+    now = at('13:02:00')
+    closed = bar(at('13:01:00'))
+    risk = bar(now).model_copy(update={'low': 9.0, 'close': 9.1})
+    store.create_execution_plan('p', 'lane_1', SYMBOL, status=PlanStatus.ACTIVE_TODAY,
+        valid_from=now-timedelta(minutes=1), expires_at=now+timedelta(hours=1),
+        payload={'stop_level': 9.5})
+    store.get_position = lambda *a: {'quantity': 100, 'sellable_quantity': 100}
+    result = MonitorEngine(store).process_minute('lane_1', {SYMBOL: closed},
+        risk_bars={SYMBOL: risk}, decision_bar_end=closed.bar_end,
+        minute_snapshot_id='separate', now=now)
+    assert result.events[0].action == 'FORCED_RISK_EXIT'
+    assert result.events[0].minute_end == now
+
+
 def test_a5_includes_failed_jobs_and_alert_not_future(tmp_path):
     (tmp_path/'node').mkdir()
     rows = [{'id': i, 'timestamp': f'2026-09-15T{time}Z', 'stream': 'node', 'job': 'auction-refresh',

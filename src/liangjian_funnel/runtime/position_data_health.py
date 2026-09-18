@@ -2,8 +2,9 @@
 HISTORY_ONLY_ERRORS = frozenset({"TENCENT_INSUFFICIENT_BARS", "INSUFFICIENT_BARS", "MINUTE_DATA_GAP"})
 
 
-def position_data_health(bar, *, at, reason=None, integrity_ok=True):
-    current = bar is not None and bar.interval == "1m" and bar.bar_end == at
+def position_data_health(bar, *, at, reason=None, integrity_ok=True, expected_bar_end=None):
+    expected = expected_bar_end or at
+    current = bar is not None and bar.interval == "1m" and bar.bar_end == expected
     trusted = integrity_ok and current and (not reason or reason in HISTORY_ONLY_ERRORS)
     return {"status": "READY" if trusted and not reason else "HARD_STOP_ONLY" if trusted else "UNOBSERVABLE",
             "current_price_trusted": bool(trusted), "multi_period_ready": bool(trusted and not reason),

@@ -13,9 +13,10 @@ import time
 from .execution_evidence import execution_evidence
 from .session_windows import TZ
 
-POLICY_VERSION = "minute-publication/2"
+POLICY_VERSION = "minute-publication/3"
 PROBE_AGES = (20.0, 25.0)
 ACQUISITION_BUDGET_SECONDS = 30.0
+CLOSED_WINDOW_RETRY_DELAYS = (0.5, 1.5)
 
 
 def _digest(result):
@@ -67,7 +68,8 @@ def unresolved_conflicts(pack, attempts, *, at):
 
 
 def confirm_publications(initial, fetch, *, at, deadline, clock=time.monotonic,
-                         wall_clock=lambda: datetime.now(TZ), sleep=time.sleep, workers=8):
+                         wall_clock=lambda: datetime.now(TZ), sleep=time.sleep, workers=8,
+                         closed_window=False):
     """At most two additional sweeps, same deadline, no per-symbol sleeps.
 
     ``fetch`` returns an atomic per-symbol pair, using the passed shared
@@ -84,6 +86,53 @@ def confirm_publications(initial, fetch, *, at, deadline, clock=time.monotonic,
                     pack["1m"].complete
                     or pack["1m"].reason_code == "CLOSE_BAR_FINALIZATION_UNCONFIRMED"
                 )}
+    if closed_window:
+        # A4 deliberately consumes the previous, exchange-closed provider
+        # minute.  It must not spend most of the next minute repeatedly
+        # hashing a candle that is still being distributed by provider
+        # nodes.  One complete, session-contiguous closed window is eligible
+        # immediately.  Only unavailable inputs receive two short, bounded
+        # retries; this is acquisition recovery, not a relaxed data check.
+        retryable = {
+            symbol for symbol, pack in selected.items()
+            if pack.get("1m") is None or not pack["1m"].complete
+        }
+        for symbol in eligible:
+            evidence[symbol]["state"] = "OBSERVED_STABLE"
+            evidence[symbol]["closed_window"] = True
+            evidence[symbol]["last_observed_at"] = wall_clock().isoformat()
+        started = clock()
+        for delay in CLOSED_WINDOW_RETRY_DELAYS:
+            if not retryable:
+                break
+            target = started + delay
+            if target >= deadline:
+                break
+            if clock() < target:
+                sleep(target - clock())
+            if clock() >= deadline:
+                break
+            with ThreadPoolExecutor(max_workers=max(1, min(workers, len(retryable)))) as executor:
+                futures = {executor.submit(fetch, symbol): symbol for symbol in sorted(retryable)}
+                for future in as_completed(futures):
+                    symbol = futures[future]
+                    try:
+                        _, pack = future.result()
+                    except Exception:
+                        pack = {"fetch_error": "MINUTE_DATA_FETCH_FAILED"}
+                    selected[symbol] = dict(pack)
+                    observed = receipt(pack, at=at)
+                    evidence[symbol]["attempts"].append(observed)
+                    evidence[symbol]["last_observed_at"] = wall_clock().isoformat()
+                    one = pack.get("1m")
+                    if clock() <= deadline and one is not None and one.complete:
+                        evidence[symbol]["state"] = "OBSERVED_STABLE"
+                        evidence[symbol]["closed_window"] = True
+            retryable = {
+                symbol for symbol in retryable
+                if evidence[symbol]["state"] != "OBSERVED_STABLE"
+            }
+        eligible = set()
     prior_sweep_end = None
     for target_age in PROBE_AGES:
         if not eligible:
@@ -139,6 +188,12 @@ def confirm_publications(initial, fetch, *, at, deadline, clock=time.monotonic,
         elif item["state"] == "INPUT_UNAVAILABLE":
             pack["publication_error"] = pack.get("fetch_error") or (one.reason_code if one else "MINUTE_DATA_UNAVAILABLE")
         comparison = item.get("attempts", [{}])[-1].get("comparison", {})
+        if item["state"] == "OBSERVED_STABLE" and "auxiliary_state" not in item:
+            item["auxiliary_state"] = (
+                "DEGRADED" if comparison.get("status") == "CONFLICT"
+                else "READY" if comparison.get("status") in {"MATCH", "DATA_LIMITED"}
+                else "UNAVAILABLE"
+            )
         if comparison.get("status") == "CONFLICT" or item.get("auxiliary_state") == "DEGRADED":
             pack["auxiliary_error"] = "AUXILIARY_NATIVE_5M_CONFLICT"
         elif pack.get("5m") is not None and not pack["5m"].complete:

@@ -8,6 +8,7 @@ import math
 import os
 import re
 import time
+from copy import copy
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -33,7 +34,7 @@ from .data.gov_policy import GovPolicyClient
 from .data.eastmoney_hot import collect_eastmoney_hot100
 from .data.mootdx import MootdxAdapter, MootdxNode, MinuteBar, detect_missing_bars, map_symbol
 from .data.rotation_theme import collect_rotation_theme_snapshot, _default_tencent_quote_fetch
-from .data.tencent_minute import ResilientIntradayAdapter, TencentIntradayAdapter
+from .data.tencent_minute import QuoteResult, ResilientIntradayAdapter, TencentIntradayAdapter
 from .data.open_news import OpenNewsClient, OpenNewsFetchResult
 from .data.open_macro import OpenMacroDataCollector
 from .data.ths_industry import (
@@ -3264,6 +3265,31 @@ class WorkflowApplication:
                                  secondary,
                                  symbol, interval, required_bars, current, deadline=deadline)
 
+    def _fetch_live_quote(self, symbol: str, current: datetime, *, deadline: float | None = None) -> Any:
+        """Fetch a bounded current quote separately from closed K-line input."""
+
+        source = getattr(self.market_data, "fallback", None) or self.market_data
+        fetch = getattr(source, "fetch_quote", None)
+        if not callable(fetch):
+            return None
+        last = None
+        for _ in range(2):
+            if deadline is not None and time.monotonic() >= deadline:
+                break
+            bounded = copy(source)
+            if hasattr(bounded, "timeout_seconds"):
+                remaining = max(0.1, (deadline - time.monotonic()) if deadline is not None else 2.5)
+                bounded.timeout_seconds = min(float(getattr(source, "timeout_seconds", 2.5)), 2.5, remaining)
+            try:
+                last = bounded.fetch_quote(symbol, as_of=current, max_age_seconds=90.0)
+            except TypeError:
+                last = bounded.fetch_quote(symbol, as_of=current)
+            except Exception:
+                last = None
+            if last is not None and getattr(last, "complete", False):
+                return last
+        return last or QuoteResult(symbol=symbol, reason_code="REALTIME_QUOTE_UNAVAILABLE")
+
     def activate_latest_a3_for_monitor(self, *, now: datetime | None = None) -> dict[str, Any]:
         """Recover the latest current-session A3 plans for A4, safely.
 
@@ -3616,6 +3642,7 @@ class WorkflowApplication:
     def monitor_once(self, *, now: datetime | None = None) -> dict[str, Any]:
         monitor_started = time.monotonic()
         current = _aware(now or datetime.now(SHANGHAI)).replace(second=0, microsecond=0)
+        execution_cutoff = _a4_execution_cutoff(current)
         self._ensure_trading_day(current)
         self._expire_missed_a4_entries(current)
         minute_snapshot_id = f"minute-{current.strftime('%Y%m%dT%H%M%S%z')}"
@@ -3699,9 +3726,9 @@ class WorkflowApplication:
         fetch_deadline = time.monotonic() + ACQUISITION_BUDGET_SECONDS
 
         def fetch_symbol(symbol: str, *, include_auxiliary: bool = True) -> tuple[str, dict[str, Any]]:
-            one_required = _a4_required_bars(current, "1m")
-            five_required = _a4_required_bars(current, "5m")
-            one = self._fetch_live_bars(symbol, "1m", one_required, current, deadline=fetch_deadline) if one_required else None
+            one_required = _a4_required_bars(execution_cutoff, "1m") if execution_cutoff else 0
+            five_required = _a4_required_bars(execution_cutoff, "5m") if execution_cutoff else 0
+            one = self._fetch_live_bars(symbol, "1m", one_required, execution_cutoff, deadline=fetch_deadline) if one_required else None
             # Before the first closed 5m bar, absence is a normal warm-up
             # state.  Do not ask the resilient adapter for an artificial
             # historical window merely to fill this slot.
@@ -3709,12 +3736,13 @@ class WorkflowApplication:
             # one-minute series.  Native 5m is auxiliary evidence and only
             # changes at a five-minute boundary, so do not repeat a full-day
             # native request on every intervening minute or publication probe.
-            native_due = _a4_native_verification_due(current)
+            native_due = bool(execution_cutoff and _a4_native_verification_due(execution_cutoff))
             five = (
-                self._fetch_live_bars(symbol, "5m", five_required, current, deadline=fetch_deadline)
+                self._fetch_live_bars(symbol, "5m", five_required, execution_cutoff, deadline=fetch_deadline)
                 if include_auxiliary and native_due else None
             )
-            return symbol, {"1m": one, "5m": five}
+            quote = self._fetch_live_quote(symbol, current, deadline=fetch_deadline)
+            return symbol, {"1m": one, "5m": five, "quote": quote}
 
         if all_symbols:
             with ThreadPoolExecutor(max_workers=min(8, len(all_symbols))) as executor:
@@ -3741,7 +3769,30 @@ class WorkflowApplication:
                 refreshed["5m"] = market.get(symbol, {}).get("5m")
                 return symbol, refreshed
 
-            market = confirm_publications(market, refetch_execution, at=current, deadline=fetch_deadline)
+            if execution_cutoff is not None:
+                market = confirm_publications(
+                    market,
+                    refetch_execution,
+                    at=execution_cutoff,
+                    deadline=fetch_deadline,
+                    closed_window=True,
+                )
+            else:
+                market = {
+                    symbol: {
+                        **pack,
+                        "publication_error": "WAITING_BAR_CLOSE",
+                        "publication": {
+                            "version": "minute-publication/3",
+                            "market_cutoff": current.isoformat(),
+                            "state": "WAITING_BAR_CLOSE",
+                            "closed_window": True,
+                            "exchange_finality_proven": False,
+                            "attempts": [],
+                        },
+                    }
+                    for symbol, pack in market.items()
+                }
             quality_dir = self.settings.workflow_output_dir / "monitor" / "data_quality" / current.date().isoformat()
             quality_path = quality_dir / (current.strftime("%H%M") + ".json")
             previous_path = quality_dir / ((current - timedelta(minutes=1)).strftime("%H%M") + ".json")
@@ -3773,8 +3824,9 @@ class WorkflowApplication:
                     live_bars = tuple(
                         bar
                         for bar in result.bars
-                        if bar.bar_end.astimezone(SHANGHAI).date() == current.date()
-                        and bar.bar_end <= current
+                        if execution_cutoff is not None
+                        and bar.bar_end.astimezone(SHANGHAI).date() == current.date()
+                        and bar.bar_end <= execution_cutoff
                     )
                     if not live_bars:
                         continue
@@ -3810,6 +3862,7 @@ class WorkflowApplication:
                 dict[str, Any],
                 dict[str, tuple[MinuteBar, ...]],
                 dict[str, str],
+                dict[str, MinuteBar],
             ],
         ] = {}
         for lane_id, scope_symbols in lane_scopes.items():
@@ -3817,27 +3870,44 @@ class WorkflowApplication:
             contexts: dict[str, Any] = {}
             histories: dict[str, tuple[MinuteBar, ...]] = {}
             data_errors: dict[str, str] = {}
+            risk_bars: dict[str, MinuteBar] = {}
             for symbol in sorted(scope_symbols):
                 fetched = market.get(symbol, {})
                 one = fetched.get("1m")
                 five = fetched.get("5m")
+                quote_result = fetched.get("quote")
+                quote = getattr(quote_result, "quote", None)
+                quote_error = None
+                if quote_result is not None and getattr(quote_result, "complete", False) and quote is not None:
+                    risk_bars[symbol] = _quote_risk_bar(symbol, quote, current)
+                elif quote_result is not None:
+                    quote_error = str(getattr(quote_result, "reason_code", "REALTIME_QUOTE_UNAVAILABLE"))
                 if fetched.get("fetch_error"):
                     data_errors[symbol] = str(fetched["fetch_error"])
                 if fetched.get("publication_error"):
                     data_errors.setdefault(symbol, str(fetched["publication_error"]))
+                if quote_error:
+                    data_errors.setdefault(symbol, quote_error)
                 one_bars = tuple(
                     bar for bar in (tuple(one.bars) if one is not None else ())
-                    if bar.bar_end.astimezone(SHANGHAI).date() == current.date() and bar.bar_end <= current
+                    if execution_cutoff is not None
+                    and bar.bar_end.astimezone(SHANGHAI).date() == current.date()
+                    and bar.bar_end <= execution_cutoff
                 )
                 five_bars = tuple(
                     bar for bar in (tuple(five.bars) if five is not None else ())
-                    if bar.bar_end.astimezone(SHANGHAI).date() == current.date() and bar.bar_end <= current
+                    if execution_cutoff is not None
+                    and bar.bar_end.astimezone(SHANGHAI).date() == current.date()
+                    and bar.bar_end <= execution_cutoff
                 )
                 # Use this decision's persisted provider snapshot. The legacy
                 # first-observation archive is retained for historical audit,
                 # but must not freeze an early forming value forever. A later
                 # revision is eligible only for a later decision, never a retry.
-                for interval, required in (("1m", _a4_required_bars(current, "1m")), ("5m", _a4_required_bars(current, "5m"))):
+                for interval, required in (
+                    ("1m", _a4_required_bars(execution_cutoff, "1m") if execution_cutoff else 0),
+                    ("5m", _a4_required_bars(execution_cutoff, "5m") if execution_cutoff else 0),
+                ):
                     result = fetched.get(interval)
                     if result is None or not getattr(result, "complete", False) or required <= 0:
                         continue
@@ -3858,7 +3928,9 @@ class WorkflowApplication:
                         })
                     canonical = tuple(
                         bar for bar in canonical
-                        if bar.bar_end.astimezone(SHANGHAI).date() == current.date() and bar.bar_end <= current
+                        if execution_cutoff is not None
+                        and bar.bar_end.astimezone(SHANGHAI).date() == current.date()
+                        and bar.bar_end <= execution_cutoff
                     )
                     if len(canonical) >= required:
                         if interval == "1m":
@@ -3870,17 +3942,18 @@ class WorkflowApplication:
                     # A partial history can still contain a trustworthy current
                     # bar for existing-position hard risk, never for new entry.
                     if (one.reason_code in {"TENCENT_INSUFFICIENT_BARS", "INSUFFICIENT_BARS", "MINUTE_DATA_GAP"}
-                            and one_bars and one_bars[-1].bar_end == current
+                            and one_bars and execution_cutoff is not None
+                            and one_bars[-1].bar_end == execution_cutoff
                             and one_bars[-1].symbol == symbol and one_bars[-1].interval == "1m"):
                         bars[symbol] = one_bars[-1]
                     # Retain the provider observation in the archive, but do
                     # not execute against an incomplete decision window.
                     one_bars = ()
-                one_gaps = detect_missing_bars(one_bars, "1m", as_of=current) if one_bars else ()
-                expected_one = _a4_required_bars(current, "1m")
+                one_gaps = detect_missing_bars(one_bars, "1m", as_of=execution_cutoff) if one_bars and execution_cutoff else ()
+                expected_one = _a4_required_bars(execution_cutoff, "1m") if execution_cutoff else 0
                 if not one_bars:
                     data_errors.setdefault(symbol, "MINUTE_DATA_UNAVAILABLE")
-                elif expected_one > 0 and (len(one_bars) < expected_one or one_bars[-1].bar_end != current):
+                elif expected_one > 0 and (len(one_bars) < expected_one or one_bars[-1].bar_end != execution_cutoff):
                     data_errors.setdefault(symbol, "MINUTE_DATA_NOT_CURRENT")
                 elif one_gaps:
                     data_errors.setdefault(symbol, "MINUTE_DATA_GAP")
@@ -3889,32 +3962,35 @@ class WorkflowApplication:
                     histories[symbol] = one_bars
                     account_id = f"paper:{lane_id}"
                     position_before = self.store.get_position(account_id, symbol)
-                    if position_before is not None and not data_errors.get(symbol) and not cache_system_error:
+                    observation_bar = risk_bars.get(symbol) or one_bars[-1]
+                    if position_before is not None and not cache_system_error:
                         self.store.observe_a4_lifecycle(
                             account_id=account_id,
                             symbol=symbol,
-                            bar_end=one_bars[-1].bar_end,
-                            high=one_bars[-1].high,
-                            low=one_bars[-1].low,
-                            close=one_bars[-1].close,
+                            bar_end=observation_bar.bar_end,
+                            high=observation_bar.high,
+                            low=observation_bar.low,
+                            close=observation_bar.close,
                         )
-                    if not data_errors.get(symbol) and not cache_system_error:
-                        simulation.extend(self._settle_prior_signals(lane_id, symbol, one_bars[-1]))
+                    if symbol in risk_bars and not cache_system_error:
+                        simulation.extend(self._settle_prior_signals(lane_id, symbol, risk_bars[symbol]))
                     if (position_before is None and not data_errors.get(symbol) and not cache_system_error
                             and self.store.get_position(account_id, symbol) is not None):
                         self.store.observe_a4_lifecycle(
                             account_id=account_id,
                             symbol=symbol,
-                            bar_end=one_bars[-1].bar_end,
-                            high=one_bars[-1].high,
-                            low=one_bars[-1].low,
-                            close=one_bars[-1].close,
+                            bar_end=observation_bar.bar_end,
+                            high=observation_bar.high,
+                            low=observation_bar.low,
+                            close=observation_bar.close,
                         )
                 contexts[symbol] = _intraday_market_context(
                     symbol,
                     one_bars,
                     five_bars,
                     current=current,
+                    execution_cutoff=execution_cutoff,
+                    realtime_quote=quote,
                     live_market_state=live_market_state,
                     native_complete=bool(five is not None and five.complete),
                 )
@@ -3948,11 +4024,12 @@ class WorkflowApplication:
                 contexts,
                 histories,
                 {} if cache_system_error else data_errors,
+                risk_bars,
             )
 
         def process_lane(lane_id: str) -> tuple[str, MonitorBatchResult]:
             plans = lane_plans[lane_id]
-            bars, data_ok, contexts, histories, data_errors = lane_inputs[lane_id]
+            bars, data_ok, contexts, histories, data_errors, risk_bars = lane_inputs[lane_id]
             data_ok = data_ok and not cache_system_error
             model_budget = max(1.0, min(
                 A4_MODEL_MAX_SECONDS,
@@ -3976,6 +4053,8 @@ class WorkflowApplication:
                 snapshot_contiguous=data_ok,
                 bar_histories=histories,
                 market_contexts=contexts,
+                decision_bar_end=execution_cutoff,
+                risk_bars=risk_bars,
             )
             return lane_id, batch
 
@@ -4066,11 +4145,11 @@ class WorkflowApplication:
                     value = fetched.get(interval)
                     if value is not None and not value.complete:
                         failures.setdefault(symbol, value.reason_code)
-                for _, _, lane_contexts, _, lane_errors in lane_inputs.values():
+                for _, _, lane_contexts, _, lane_errors, _ in lane_inputs.values():
                     if symbol in lane_errors:
                         failures.setdefault(symbol, lane_errors[symbol])
             try:
-                native_due = _a4_native_verification_due(current)
+                native_due = bool(execution_cutoff and _a4_native_verification_due(execution_cutoff))
                 degraded = {}
                 for symbol in decision_symbols:
                     if symbol in failures:
@@ -4091,7 +4170,7 @@ class WorkflowApplication:
         if callable(risk_publisher):
             from .runtime.position_data_health import position_data_health
             affected_positions = {}
-            for lane_id, (risk_bars, integrity_ok, _, _, risk_errors) in lane_inputs.items():
+            for lane_id, (_, integrity_ok, _, _, risk_errors, risk_bars) in lane_inputs.items():
                 for position in self.store.list_positions(f"paper:{lane_id}"):
                     symbol = str(position["symbol"])
                     health = position_data_health(risk_bars.get(symbol), at=current,
@@ -4111,6 +4190,7 @@ class WorkflowApplication:
             "minute_snapshot_id": minute_snapshot_id,
             "live_market_state": live_market_state,
             "time": current.isoformat(),
+            "execution_cutoff": execution_cutoff.isoformat() if execution_cutoff else None,
             "a3_scope_activation": a3_scope_activation,
             "archive_only_symbols": archive_only_symbols,
             "minute_cache": cache_stats,
@@ -6278,17 +6358,21 @@ def _intraday_market_context(
     five_minute: tuple[MinuteBar, ...],
     *,
     current: datetime,
+    execution_cutoff: datetime | None = None,
+    realtime_quote: Any | None = None,
     live_market_state: Mapping[str, Any] | None = None,
     native_complete: bool = True,
 ) -> dict[str, Any]:
     """Build bounded deterministic A4 evidence from closed bars only."""
 
-    current_bar = one_minute[-1] if one_minute and one_minute[-1].bar_end == current else None
+    cutoff = execution_cutoff or current
+    current_bar = one_minute[-1] if one_minute and one_minute[-1].bar_end == cutoff else None
+    quote_available = realtime_quote is not None
 
     def compact(bars: tuple[MinuteBar, ...]) -> list[dict[str, Any]]:
         return [bar.model_dump(mode="json") for bar in bars[-21:]]
 
-    aggregated, evidence = execution_evidence(one_minute, five_minute if native_complete else (), as_of=current)
+    aggregated, evidence = execution_evidence(one_minute, five_minute if native_complete else (), as_of=cutoff)
     derived_five = list(aggregated["5m"])
     fifteen_minute = list(aggregated["15m"])
 
@@ -6307,6 +6391,7 @@ def _intraday_market_context(
     return {
         "symbol": symbol,
         "as_of": current.isoformat(),
+        "execution_cutoff": cutoff.isoformat(),
         "live_market_state": dict(live_market_state or {}),
         "execution_data": evidence,
         "market_authority": {
@@ -6314,8 +6399,10 @@ def _intraday_market_context(
             "a4_current_session": "LIVE_ENTRY_AUTHORITY",
         },
         "realtime_quote": (
-            current_bar.model_dump(mode="json")
-            if current_bar is not None
+            {**realtime_quote.model_dump(mode="json"), "available": True, "usage": "LIVE_PRICE_AND_HARD_RISK_ONLY"}
+            if quote_available and callable(getattr(realtime_quote, "model_dump", None))
+            else current_bar.model_dump(mode="json")
+            if current_bar is not None and cutoff == current
             else {"available": False, "reason_code": "CURRENT_1M_BAR_UNAVAILABLE"}
         ),
         "closed_bars": {
@@ -6329,16 +6416,26 @@ def _intraday_market_context(
             "15m": statistics(fifteen_minute),
         },
         "tradability": {
-            "available": current_bar is not None,
-            "tradable": current_bar is not None and current_bar.volume > 0,
+            "available": quote_available or (current_bar is not None and cutoff == current),
+            "tradable": (
+                bool(getattr(realtime_quote, "volume", 0) > 0)
+                if quote_available
+                else current_bar is not None and cutoff == current and current_bar.volume > 0
+            ),
             "reason_code": (
-                "CURRENT_1M_BAR_AVAILABLE"
-                if current_bar is not None and current_bar.volume > 0
+                "REALTIME_QUOTE_AVAILABLE"
+                if quote_available and getattr(realtime_quote, "volume", 0) > 0
+                else "CURRENT_1M_BAR_AVAILABLE"
+                if current_bar is not None and cutoff == current and current_bar.volume > 0
                 else "CURRENT_1M_BAR_ZERO_VOLUME"
-                if current_bar is not None
+                if current_bar is not None and cutoff == current
                 else "CURRENT_1M_BAR_UNAVAILABLE"
             ),
-            "source": current_bar.source_id if current_bar is not None else "UNAVAILABLE",
+            "source": (
+                getattr(realtime_quote, "source_id", "UNAVAILABLE")
+                if quote_available
+                else current_bar.source_id if current_bar is not None and cutoff == current else "UNAVAILABLE"
+            ),
         },
     }
 
@@ -7333,6 +7430,45 @@ def _a4_required_bars(value: datetime, interval: str) -> int:
     if interval not in {"1m", "5m"}:
         raise ValueError("interval must be 1m or 5m")
     return len(closed_window_ends(_aware(value), interval))
+
+
+def _a4_execution_cutoff(value: datetime) -> datetime | None:
+    """Latest provider minute allowed to drive a deterministic A4 decision.
+
+    The Tencent row carrying the wall-clock minute can still be revised by
+    different publication nodes during that minute.  A4 therefore consumes
+    the preceding session minute as immutable K-line evidence and obtains the
+    current price through the separate quote channel.  Lunch is handled by
+    the exchange-session window: 13:01 maps to the final 11:30 bar and 13:02
+    maps to 13:01, without fabricating a 13:00 candle.
+    """
+
+    current = _aware(value).replace(second=0, microsecond=0)
+    ends = closed_window_ends(current - timedelta(minutes=1), "1m")
+    return ends[-1] if ends else None
+
+
+def _quote_risk_bar(symbol: str, quote: Any, current: datetime) -> MinuteBar:
+    """Project a provider quote into a risk-only observation, never history."""
+
+    price = float(quote.price)
+    open_value = float(getattr(quote, "open", price) or price)
+    return MinuteBar(
+        symbol=symbol,
+        interval="1m",
+        bar_end=current,
+        open=open_value,
+        high=max(open_value, price),
+        low=min(open_value, price),
+        close=price,
+        volume=max(0.0, float(getattr(quote, "volume", 0) or 0)),
+        amount=max(0.0, float(getattr(quote, "amount", 0) or 0)),
+        source_id=f"{getattr(quote, 'source_id', 'REALTIME_QUOTE')}:RISK_ONLY",
+        volume_unit="shares",
+        amount_kind="provider_quote",
+        normalizer_version="realtime-quote-risk-v1",
+        provider_bar_end=getattr(quote, "quote_time", current),
+    )
 
 
 def _a4_native_verification_due(value: datetime) -> bool:
