@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Keep the whole pre-open/intraday window (including lunch) free of releases.
-# A conservative weekday guard also blocks holidays; deploy after 15:35 then.
+# Keep the whole pre-open/intraday window (including lunch) and the scheduled
+# close-review windows free of releases. A conservative weekday guard also
+# blocks holidays.
 assert_deployment_window() {
   local deployment_weekday deployment_clock
   read -r deployment_weekday deployment_clock <<< "$(TZ=Asia/Shanghai date '+%u %H%M')"
@@ -16,6 +17,14 @@ assert_deployment_window() {
       return 0
     fi
     echo "[deploy] Weekday 09:00-15:35 Beijing time: keep A4 running; deploy after close."
+    return 3
+  fi
+  if (( deployment_weekday <= 5 && 10#${deployment_clock} >= 1535 && 10#${deployment_clock} < 1630 )); then
+    echo "[deploy] Weekday 15:35-16:30 Beijing time: close research, A5 and T+N may still be running."
+    return 3
+  fi
+  if (( deployment_weekday <= 5 && 10#${deployment_clock} >= 1750 && 10#${deployment_clock} < 1810 )); then
+    echo "[deploy] Weekday 17:50-18:10 Beijing time: scheduled A1 may be starting."
     return 3
   fi
 }
@@ -33,6 +42,18 @@ if ! flock -n 9; then
 fi
 
 cd "${PROJECT_ROOT}"
+
+assert_no_active_workflow_jobs() {
+  local active_jobs
+  active_jobs="$(pgrep -u www -af 'python.*-m liangjian_funnel (run-|maintain-|monitor-once|backfill-)' || true)"
+  if [[ -n "${active_jobs}" ]]; then
+    echo "[deploy] Refusing deployment while workflow jobs are active:"
+    printf '%s\n' "${active_jobs}"
+    return 2
+  fi
+}
+
+assert_no_active_workflow_jobs
 bootstrap_pid_before="$(systemctl show "${BOOTSTRAP_UNIT}" --property=MainPID --value 2>/dev/null || true)"
 bootstrap_state_before="$(systemctl is-active "${BOOTSTRAP_UNIT}" 2>/dev/null || true)"
 echo "[deploy] G0 bootstrap before deploy: state=${bootstrap_state_before:-unknown} pid=${bootstrap_pid_before:-0}"
@@ -88,6 +109,10 @@ fi
 
 echo "[deploy] Building production assets..."
 runuser -u www -- npm run build
+
+# A task may have started while dependencies/assets were prepared. Never stop
+# the scheduler process underneath a newly active workflow.
+assert_no_active_workflow_jobs
 
 baota_action() {
   local action="$1"

@@ -250,7 +250,7 @@ def test_a5_compaction_keeps_complete_counts_and_effective_events():
     assert sum(row["observation_count"] for row in groups) == 5000
     assert sum(sum(row["primary_reason_counts"].values()) for row in groups) == 5000
     assert effective in projected["a4"]["events"]
-    assert events[333] in projected["a4"]["events"]
+    assert any(row["evidence_id"] == events[333]["evidence_id"] for row in projected["a4"]["events"])
     assert len(projected["a4"]["events"]) <= 10
     assert projected["metrics"] == facts["metrics"]
     assert json.dumps(facts, sort_keys=True) == original

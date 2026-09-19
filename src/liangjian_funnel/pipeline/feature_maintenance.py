@@ -1119,6 +1119,51 @@ def _source_symbols(store: ResearchFeatureStore, generation_id: str) -> tuple[st
     return tuple(str(row[0]) for row in rows)
 
 
+def _source_scoped_counts(
+    store: ResearchFeatureStore,
+    generation_id: str,
+) -> dict[str, int]:
+    """Count only rows that belong to the source generation's G0 contract.
+
+    A live source may deliberately retain taxonomy history for symbols outside
+    the current G0 universe.  Maintenance copies entity-scoped rows for G0
+    members only, so comparing the target to the source's global manifest
+    turns those extra taxonomy rows into a false validation failure.
+    """
+
+    member_scope = """
+        EXISTS (
+            SELECT 1 FROM feature_generation_members AS member
+            WHERE member.generation_id=?
+              AND member.entity_type='STOCK'
+              AND member.partition_name='snapshot-inputs'
+              AND member.entity_id={symbol_expression}
+        )
+    """
+    queries = {
+        "members": """
+            SELECT COUNT(*) FROM feature_generation_members
+            WHERE generation_id=? AND entity_type='STOCK'
+              AND partition_name='snapshot-inputs'
+        """,
+        "fundamental": "SELECT COUNT(*) FROM stock_fundamental_features AS row "
+        "WHERE row.generation_id=? AND "
+        + member_scope.format(symbol_expression="row.symbol"),
+        "taxonomy": "SELECT COUNT(*) FROM taxonomy_membership_versions AS row "
+        "WHERE row.generation_id=? AND "
+        + member_scope.format(symbol_expression="row.symbol"),
+        "business": "SELECT COUNT(*) FROM business_exposure_facts AS row "
+        "WHERE row.generation_id=? AND "
+        + member_scope.format(symbol_expression="row.symbol"),
+    }
+    counts: dict[str, int] = {}
+    with store._connect() as connection:  # noqa: SLF001 - frozen generation audit
+        for key, query in queries.items():
+            params = (generation_id,) if key == "members" else (generation_id, generation_id)
+            counts[key] = int(connection.execute(query, params).fetchone()[0])
+    return counts
+
+
 def _maintenance_coverage_contract(source: Mapping[str, Any]) -> dict[str, Any]:
     manifest = _source_manifest(source)
     table_counts = manifest.get("table_counts")
@@ -1440,9 +1485,15 @@ def _run_feature_maintenance_locked(
             purpose=("LIVE_FULL" if mode == "FULL" else "LIVE_INCREMENTAL"),
             coverage_contract=_maintenance_coverage_contract(selected_source),
         )
-        source_counts_raw = _source_manifest(selected_source).get("counts")
-        source_counts = (
-            dict(source_counts_raw) if isinstance(source_counts_raw, Mapping) else {}
+        source_manifest_counts_raw = _source_manifest(selected_source).get("counts")
+        source_manifest_counts = (
+            dict(source_manifest_counts_raw)
+            if isinstance(source_manifest_counts_raw, Mapping)
+            else {}
+        )
+        source_counts = _source_scoped_counts(
+            feature_store,
+            str(selected_source["generation_id"]),
         )
         target_counts = validation.get("table_counts")
         target_counts = dict(target_counts) if isinstance(target_counts, Mapping) else {}
@@ -1466,8 +1517,13 @@ def _run_feature_maintenance_locked(
             )
         validation["source_equivalence"] = {
             "status": "READY",
+            "scope": "SOURCE_G0_SNAPSHOT_INPUT_MEMBERS",
             "counts": {
                 key: int(source_counts.get(key) or 0) for key in count_mapping
+            },
+            "source_manifest_counts": {
+                key: int(source_manifest_counts.get(key) or 0)
+                for key in count_mapping
             },
         }
         return validation

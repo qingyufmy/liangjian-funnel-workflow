@@ -271,6 +271,50 @@ def test_full_maintenance_publishes_from_live_source_without_snapshot_file(
     }
 
 
+def test_full_maintenance_compares_target_to_source_g0_scope(tmp_path: Path):
+    settings = _settings(tmp_path)
+    data = _data()
+    extra_symbol = "600999.SH"
+    data["THS_INDUSTRY_MEMBERSHIP"]["records"].append(
+        {
+            "thscode": extra_symbol,
+            "memberships": [
+                {"industry_thscode": "881999.TI", "industry_name": "outside-g0"}
+            ],
+        }
+    )
+    data["THS_CONCEPT_MEMBERSHIP"]["records"].append(
+        {
+            "thscode": extra_symbol,
+            "memberships": [
+                {"taxonomy_code": "885999.TI", "taxonomy_name": "outside-g0"}
+            ],
+        }
+    )
+    store, _ = _materialize(settings, data=data)
+
+    result = run_feature_maintenance(
+        settings,
+        full=True,
+        now=datetime(2026, 8, 29, 4, tzinfo=TZ),
+    )
+
+    assert result["status"] == "PUBLISHED"
+    equivalence = result["validation"]["source_equivalence"]
+    assert equivalence["scope"] == "SOURCE_G0_SNAPSHOT_INPUT_MEMBERS"
+    assert equivalence["counts"]["taxonomy"] == len(SYMBOLS) * 2
+    assert equivalence["source_manifest_counts"]["taxonomy"] == len(SYMBOLS) * 2 + 2
+    with store._connect() as connection:  # noqa: SLF001 - exact generation audit
+        target_symbols = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT DISTINCT symbol FROM taxonomy_membership_versions WHERE generation_id=?",
+                (result["generation_id"],),
+            ).fetchall()
+        }
+    assert extra_symbol not in target_symbols
+
+
 def test_full_maintenance_missing_source_is_explicitly_blocked(tmp_path: Path):
     settings = _settings(tmp_path)
     result = run_feature_maintenance(

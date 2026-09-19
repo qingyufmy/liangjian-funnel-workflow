@@ -49,6 +49,7 @@ from liangjian_funnel.pipeline.research import (
     _gate_secondary_items,
     _move_a2_hard_rejects_to_rejected,
     _refresh_analysis_counts,
+    _refresh_discovery_analysis_counts,
     _a2_item_route,
     _discovery_progress_diagnostics,
     _estimate_message_tokens,
@@ -106,6 +107,9 @@ def test_discovery_semantic_retry_restates_exact_coverage_and_evidence_contract(
 
     assert "12-18 structural_themes" in instruction
     assert "40-80 industry_chain_graph nodes" in instruction
+    assert "Count the actual JSON array rows" in instruction
+    assert "never report chain_node_count larger than the array length" in instruction
+    assert "Preserve every valid prior node" in instruction
     assert "allowed_primary_source_refs" in instruction
     assert "copy at least one source_ref verbatim" in instruction
     assert "RUNTIME_INPUT.A1_BATCH_CONTEXT" not in instruction
@@ -121,6 +125,31 @@ def test_discovery_semantic_retry_requires_reviewed_hypothesis_dispositions():
     assert "document_id and hypothesis_theme exactly" in instruction
     assert "MAPPED|MONITOR|REJECTED" in instruction
     assert "cannot create a theme or select a stock" in instruction
+
+
+def test_discovery_summary_counts_are_recomputed_from_actual_arrays():
+    output = {
+        "analysis_summary": {
+            "theme_count": 99,
+            "chain_node_count": 42,
+            "mapping_count": 88,
+            "conclusion": "keep",
+        },
+        "structural_themes": [{"theme_id": "t1"}, {"theme_id": "t2"}],
+        "industry_chain_graph": [{"node_id": f"n{i}"} for i in range(28)],
+        "industry_theme_mappings": [{"industry_thscode": "881001.TI"}],
+    }
+
+    refreshed, changed = _refresh_discovery_analysis_counts(output)
+
+    assert changed == 3
+    assert refreshed["analysis_summary"] == {
+        "theme_count": 2,
+        "chain_node_count": 28,
+        "mapping_count": 1,
+        "conclusion": "keep",
+    }
+    assert output["analysis_summary"]["chain_node_count"] == 42
 
 
 def test_a2_rotation_focus_requires_one_representative_per_selected_direction():
@@ -246,8 +275,8 @@ def test_policy_macro_discovery_gets_one_bounded_window_per_semantic_attempt():
         "A1",
         context,
         model_timeout_seconds=600.0,
-        semantic_limit=2,
-    ) == 1200.0
+        semantic_limit=3,
+    ) == 1800.0
     assert _semantic_total_timeout_seconds(
         "A1",
         {"mode": "COMPANY_MAPPING"},

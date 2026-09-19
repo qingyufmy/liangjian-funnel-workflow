@@ -103,7 +103,8 @@ def test_archive_transport_index_is_summarized_but_failures_and_findings_remain(
     assert summary['requested_count'] == 3 and summary['archived_count'] == 1
     assert len(summary['failures']) == 2 and summary['failures'][0]['status'] == 'ARCHIVE_FAILED'
     assert 'DO_NOT_SEND_FILE_PATH' not in json.dumps(projected)
-    assert projected['independent_verification']['a4'] == facts['independent_verification']['a4']
+    assert projected['independent_verification']['a4']['plans'][0] == facts['independent_verification']['a4']['plans'][0]
+    assert projected['independent_verification']['a4']['field_totals'] == {}
     assert facts == original
 
 

@@ -427,7 +427,12 @@ def _compact_a4_observations(events: Sequence[Mapping[str, Any]]) -> tuple[list[
             return (0 if geometry_gate else 1, 1 if warmup else 0,
                     len(row.get("unmet_conditions") or []))
         closest = min(ordered, key=proximity)
-        representatives = {str(row["evidence_id"]): dict(row) for row in (ordered[0], closest, ordered[-1])}
+        # The group summary already preserves the exact first/last timestamps,
+        # counts and every reason frequency.  Keeping the closest causal row is
+        # therefore sufficient for model diagnosis; retaining first/closest/
+        # last repeated the same large entry-geometry payload thousands of
+        # times across a close review and could crowd out A1-A3 evidence.
+        representatives = {str(closest["evidence_id"]): dict(closest)}
         selected.update(representatives)
         counts: dict[str, int] = {}
         primary_counts: dict[str, int] = {}
@@ -452,6 +457,9 @@ def _model_fact_projection(facts: Mapping[str, Any]) -> dict[str, Any]:
     projected["review_history"] = [{key: row[key] for key in (
         "evidence_id", "review_id", "trade_date", "review_kind", "proposal_ids") if key in row}
         for row in _rows(facts.get("review_history"))]
+    post_close = _json_mapping(facts.get("post_close_archive"))
+    if post_close:
+        projected["post_close_archive"] = _compact_post_close_archive_for_model(post_close)
     # These are exact duplicates of the authoritative A3/root evidence.
     projected["a2"] = dict(_json_mapping(facts.get("a2")))
     projected["a2"].pop("technical_candidates", None)
@@ -468,7 +476,8 @@ def _model_fact_projection(facts: Mapping[str, Any]) -> dict[str, Any]:
         common = {key: value for key, value in row.items() if key not in identity_fields}
         key = json.dumps(common, sort_keys=True, ensure_ascii=False)
         group = candidate_groups.setdefault(key, {"common": common, "stocks": []})
-        group["stocks"].append({key: value for key, value in row.items() if key in identity_fields})
+        stock = {field: value for field, value in row.items() if field in identity_fields}
+        group["stocks"].append(stock)
     for group in candidate_groups.values():
         # Evidence IDs are a deterministic duplicate of pool + symbol. Only
         # omit them when exact round-trip reconstruction is proven for every
@@ -478,11 +487,22 @@ def _model_fact_projection(facts: Mapping[str, Any]) -> dict[str, Any]:
             group["derive_evidence_id"] = True
             for row in group["stocks"]:
                 row.pop("evidence_id")
-    grouped = {"encoding": "a5-grouped-candidates/2",
-               "decoding": "Every stock inherits its group's common fields. Merge common and stock. If derive_evidence_id is true, reconstruct evidence_id exactly as 'A2:' + common.pool + ':' + stock.symbol. All original candidate fields and IDs are recoverable without sampling.",
+    grouped = {"encoding": "a5-grouped-candidates/3",
+               "decoding": "Every stock inherits its group's common fields. Merge common and stock. If derive_evidence_id is true, reconstruct evidence_id exactly as 'A2:' + common.pool + ':' + stock.symbol. Every identity, pool, disposition and reason remains present without sampling.",
                "groups": list(candidate_groups.values())}
     if len(json.dumps(grouped, ensure_ascii=False)) < len(json.dumps(projected["a2"]["candidates"], ensure_ascii=False)):
         projected["a2"]["candidates"] = grouped
+    projected["a3"] = dict(_json_mapping(facts.get("a3")))
+    projected["a3"]["candidates"] = [
+        _compact_a3_candidate_for_model(row)
+        for row in _rows(projected["a3"].get("candidates"))
+    ]
+    projected["a3"]["candidate_evidence_scope"] = (
+        "Every candidate identity, disposition, selected strategy, reason, unmet/veto/deferred condition and "
+        "compact risk state is present. Full per-condition matrices, moving-average vectors, path booleans and "
+        "per-route checks remain in the immutable fact archive. Published plans and selected counterexamples "
+        "retain their detailed evidence."
+    )
     independent = dict(_json_mapping(facts.get("independent_verification")))
     independent.pop("signal_market", None)  # minute paths stay in the fact archive
     archives = independent.pop("market_data_evidence_archives", None)
@@ -536,15 +556,272 @@ def _model_fact_projection(facts: Mapping[str, Any]) -> dict[str, Any]:
                 "scope": "POST_HOC_VERIFICATION_NOT_ORIGINAL_DECISION_INPUT"}
         if independent["a2"].get("counterexamples") == independent.get("counterexamples"):
             independent["a2"].pop("counterexamples", None)
+        independent["a3"] = _compact_a3_verification_for_model(
+            _json_mapping(independent.get("a3"))
+        )
+        independent["a4"] = _compact_a4_verification_for_model(
+            _json_mapping(independent.get("a4"))
+        )
         projected["independent_verification"] = independent
     a4 = dict(_json_mapping(facts.get("a4")))
     events, groups = _compact_a4_observations(_rows(a4.get("events")))
     original_count = len(a4.get("events") or [])
-    a4.update(events=events, observation_groups=groups,
+    a4.update(events=[_compact_a4_event_for_model(row) for row in events], observation_groups=groups,
               model_projection={"original_event_count": original_count, "representative_event_count": len(events),
-                                "all_effective_events_retained": True, "full_evidence_archived": True})
+                                "all_effective_events_retained": True, "full_evidence_archived": True,
+                                "empty_values_and_derivable_event_ids_archived": True})
     projected["a4"] = a4
     return projected
+
+
+def _compact_a3_candidate_for_model(row: Mapping[str, Any]) -> dict[str, Any]:
+    """Keep every A3 disposition while moving repeated raw matrices to the archive.
+
+    A5 reasons about server-owned outcomes, exceptions and executable plans.  It
+    does not need 140 copies of the same successful condition schema.  The
+    immutable facts file remains the audit authority for every omitted matrix
+    cell, so this projection never changes an A3 decision.
+    """
+
+    result = dict(row)
+    result.pop("strategy_checks", None)
+    technical = _json_mapping(result.get("technical_evidence"))
+    if technical:
+        result["technical_evidence"] = {
+            key: technical[key]
+            for key in (
+                "daily_close",
+                "daily_state",
+                "distribution",
+                "overextended",
+                "one_price_locked",
+                "theme_stage",
+            )
+            if key in technical
+        }
+    return result
+
+
+def _compact_a4_event_for_model(row: Mapping[str, Any]) -> dict[str, Any]:
+    """Remove transport-only empty cells while retaining every event fact."""
+
+    result = {
+        key: value
+        for key, value in row.items()
+        if value not in (None, "", [], {})
+    }
+    event_id = str(result.get("event_id") or "")
+    if event_id and result.get("evidence_id") == f"A4:EVENT:{event_id}":
+        result.pop("event_id", None)
+    if result.get("recorded_effective") == result.get("effective"):
+        result.pop("recorded_effective", None)
+    return result
+
+
+def _compact_post_close_archive_for_model(value: Mapping[str, Any]) -> dict[str, Any]:
+    """Keep finalization coverage and failures, not repeated stable hashes."""
+
+    result = {key: value[key] for key in (
+        "collected_at", "creates_signals", "status", "reason_code"
+    ) if key in value}
+    records: list[dict[str, Any]] = []
+    for row in _rows(value.get("records")):
+        attempts = _rows(row.get("attempts"))
+        item = {key: row[key] for key in (
+            "symbol", "interval", "status", "provider_official_final"
+        ) if key in row}
+        item["attempt_count"] = len(attempts)
+        reason_counts: dict[str, int] = {}
+        for attempt in attempts:
+            reason = str(attempt.get("reason") or "UNKNOWN")
+            reason_counts[reason] = reason_counts.get(reason, 0) + 1
+        item["attempt_reason_counts"] = reason_counts
+        exceptions = [
+            dict(attempt)
+            for attempt in attempts
+            if str(attempt.get("reason") or "") != "OK"
+        ]
+        if exceptions:
+            item["exception_attempts"] = exceptions
+        records.append(item)
+    result["records"] = records
+    result["projection_scope"] = (
+        "Every symbol/interval finalization status and attempt reason count is present. Non-OK attempts are exact; "
+        "repeated stable hashes/timestamps and the receipt path remain in the immutable fact archive."
+    )
+    return result
+
+
+def _verification_field_totals(plans: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    totals: dict[str, dict[str, Any]] = {}
+    for plan in plans:
+        for side in ("cross_source_field_checks", "archived_tdx_field_checks"):
+            checks = plan.get(side)
+            if not isinstance(checks, Mapping):
+                continue
+            for name, raw in checks.items():
+                if not isinstance(raw, Mapping):
+                    continue
+                key = f"{side}:{name}"
+                total = totals.setdefault(
+                    key,
+                    {
+                        "statuses": {},
+                        "compared_count": 0,
+                        "mismatch_count": 0,
+                        "not_comparable_count": 0,
+                    },
+                )
+                status = str(raw.get("status") or "UNKNOWN")
+                total["statuses"][status] = total["statuses"].get(status, 0) + 1
+                for field in ("compared_count", "mismatch_count", "not_comparable_count"):
+                    total[field] += int(raw.get(field) or 0)
+    return totals
+
+
+def _field_check_exceptions(value: Any) -> dict[str, Any]:
+    checks = value if isinstance(value, Mapping) else {}
+    return {
+        str(name): dict(raw)
+        for name, raw in checks.items()
+        if isinstance(raw, Mapping)
+        and (
+            int(raw.get("mismatch_count") or 0) > 0
+            or int(raw.get("not_comparable_count") or 0) > 0
+            or bool(raw.get("mismatch_samples"))
+            or bool(raw.get("difference_patterns"))
+        )
+    }
+
+
+def _compact_a4_verification_for_model(value: Mapping[str, Any]) -> dict[str, Any]:
+    """Aggregate repeated cross-source checks without hiding exceptions."""
+
+    result = dict(value)
+    plans = _rows(result.get("plans"))
+    result["field_totals"] = _verification_field_totals(plans)
+    formula_totals: dict[str, dict[str, int]] = {}
+    raw_formula_verification = {"verified": 0, "not_verified": 0}
+    for plan in plans:
+        audit = _json_mapping(plan.get("indicator_formula_audit"))
+        raw_verified = audit.get("raw_source_independently_verified") is True
+        raw_formula_verification["verified" if raw_verified else "not_verified"] += 1
+        for indicator, statuses in _json_mapping(audit.get("counts")).items():
+            if not isinstance(statuses, Mapping):
+                continue
+            total = formula_totals.setdefault(str(indicator), {})
+            for status, count in statuses.items():
+                total[str(status)] = total.get(str(status), 0) + int(count or 0)
+    result["indicator_formula_totals"] = formula_totals
+    result["indicator_raw_source_verification"] = raw_formula_verification
+    compact: list[dict[str, Any]] = []
+    keep = (
+        "evidence_id",
+        "plan_id",
+        "symbol",
+        "decision_scope",
+        "decision_window_end",
+        "decision_snapshot",
+        "archived_bar_count",
+        "tencent_bar_count",
+        "tdx_bar_count",
+        "expected_observation_minutes",
+        "recorded_observation_minutes",
+        "missing_observation_count",
+        "missing_observation_samples",
+        "observation_coverage",
+        "orchestration_omission_count",
+        "orchestration_omissions",
+        "cross_source_overlap_count",
+        "cross_source_status",
+        "cross_source_max_close_difference",
+        "archived_tdx_overlap_count",
+        "archived_tdx_status",
+        "archived_tdx_max_close_difference",
+        "tencent_reason_code",
+        "tdx_reason_code",
+        "tdx_stop_touched",
+        "tdx_trigger_zone_seen",
+        "discrepancy_class",
+        "effective_actions",
+    )
+    for plan in plans:
+        item = {key: plan[key] for key in keep if key in plan}
+        cross_exceptions = _field_check_exceptions(plan.get("cross_source_field_checks"))
+        tdx_exceptions = _field_check_exceptions(plan.get("archived_tdx_field_checks"))
+        if cross_exceptions:
+            item["cross_source_field_exceptions"] = cross_exceptions
+        if tdx_exceptions:
+            item["archived_tdx_field_exceptions"] = tdx_exceptions
+        formula_audit = _json_mapping(plan.get("indicator_formula_audit"))
+        formula_issues = formula_audit.get("issue_samples")
+        if formula_issues:
+            item["indicator_formula_issue_samples"] = formula_issues
+        compact.append(item)
+    result["plans"] = compact
+    result["projection_scope"] = (
+        "All plan identities, coverage, source statuses, aggregated formula counts and every mismatch/not-comparable "
+        "or formula issue sample "
+        "are present. Repeated per-field zero rows and file digests remain in the immutable fact archive; "
+        "field_totals is the exact server-side aggregation across all plans."
+    )
+    return result
+
+
+def _compact_a3_verification_for_model(value: Mapping[str, Any]) -> dict[str, Any]:
+    """Keep plan-level verification outcomes and expand only exceptions."""
+
+    result = dict(value)
+    compact: list[dict[str, Any]] = []
+    keep = (
+        "evidence_id",
+        "plan_id",
+        "symbol",
+        "strategy_profile",
+        "daily_reference_date",
+        "daily_bar_count",
+        "formula_status",
+        "price_levels_valid",
+        "route_contract_match",
+        "cross_source_price_status",
+        "cross_source_close_relative_difference",
+        "cross_source_period_policy",
+        "tdx_previous_close",
+        "tdx_reason_code",
+    )
+    for plan in _rows(result.get("plans")):
+        item = {key: plan[key] for key in keep if key in plan}
+        macd = _json_mapping(plan.get("daily_macd_verification"))
+        if macd:
+            item["daily_macd_verification"] = {
+                key: macd[key]
+                for key in ("bar_count", "formula_status", "input_hash_status")
+                if key in macd
+            }
+        is_formula_exception = (
+            str(plan.get("formula_status") or "") not in {"", "MATCH"}
+            or str(macd.get("formula_status") or "") not in {"", "MATCH"}
+            or str(macd.get("input_hash_status") or "") not in {"", "MATCH"}
+            or plan.get("price_levels_valid") is not True
+            or plan.get("route_contract_match") is not True
+        )
+        if is_formula_exception:
+            for key in (
+                "local_daily_close",
+                "recomputed_ma",
+                "declared_ma_relative_errors",
+            ):
+                if key in plan:
+                    item[key] = plan[key]
+            if macd:
+                item["daily_macd_verification"] = dict(macd)
+        compact.append(item)
+    result["plans"] = compact
+    result["projection_scope"] = (
+        "Every plan identity and formula/price/route/source outcome is present. Exact recomputed vectors and hashes "
+        "are expanded for exceptions; repeated matching numeric vectors remain in the immutable fact archive."
+    )
+    return result
 
 
 def _a1_market_universe(audit: Mapping[str, Any]) -> list[dict[str, Any]]:

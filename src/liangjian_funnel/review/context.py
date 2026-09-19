@@ -96,8 +96,10 @@ def _critical_fact_header(projection: dict[str, Any]) -> str:
     a2 = verification.get("a2") or {}
     from .fact_guard import verification_totals
     coverage = verification_totals(projection)
-    fields = {}
-    for plan in (verification.get("a4") or {}).get("plans", []):
+    a4_verification = verification.get("a4") or {}
+    explicit_totals = a4_verification.get("field_totals")
+    fields = dict(explicit_totals) if isinstance(explicit_totals, Mapping) else {}
+    for plan in a4_verification.get("plans", []):
         for side in ("cross_source_field_checks", "archived_tdx_field_checks"):
             for name, row in (plan.get(side) or {}).items():
                 if not isinstance(row, dict):

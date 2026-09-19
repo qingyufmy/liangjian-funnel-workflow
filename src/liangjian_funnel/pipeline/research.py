@@ -4134,9 +4134,16 @@ class ResearchPipeline:
         # second repair is still needed to remove a stale model-side numeric
         # veto.  Keep A1/A2 at the established two attempts, but give A3 one
         # additional bounded semantic repair inside the same total deadline.
-        # Monthly macro discovery is the narrow exception: each of its two
-        # full-document attempts receives one provider-sized window.
-        semantic_limit = 3 if stage == "A3" else 2
+        # Monthly macro discovery is the narrow exception: a third bounded
+        # repair is allowed because one pass may repair citation/linkage while
+        # the next still has to append enough distinct chain nodes.  The hard
+        # 40-node contract is not lowered.
+        policy_macro_discovery = (
+            stage == "A1"
+            and str((a1_discovery_context or {}).get("mode") or "")
+            == "POLICY_MACRO_DISCOVERY"
+        )
+        semantic_limit = 3 if stage == "A3" or policy_macro_discovery else 2
         semantic_deadline = time.perf_counter() + _semantic_total_timeout_seconds(
             stage,
             a1_discovery_context,
@@ -4309,6 +4316,7 @@ class ResearchPipeline:
             output, canonicalized_analysis_summary = mechanical_repair_output(output)
             canonicalized_envelope = 0
             canonicalized_discovery_refs = 0
+            canonicalized_discovery_summary = 0
             required_envelope = _required_envelope(snapshot, lane_id, model, stage)
             output, canonicalized_envelope = _normalize_server_envelope(output, required_envelope)
             if (
@@ -4319,6 +4327,9 @@ class ResearchPipeline:
                 output, canonicalized_discovery_refs = _normalize_a1_discovery_source_refs(
                     output,
                     authorized_discovery_refs,
+                )
+                output, canonicalized_discovery_summary = _refresh_discovery_analysis_counts(
+                    output
                 )
             canonicalized_driver_context = 0
             if (
@@ -4559,6 +4570,8 @@ class ResearchPipeline:
                     diagnostics["canonicalized_analysis_summary"] = canonicalized_analysis_summary
                 if canonicalized_discovery_refs:
                     diagnostics["canonicalized_discovery_refs"] = canonicalized_discovery_refs
+                if canonicalized_discovery_summary:
+                    diagnostics["canonicalized_discovery_summary"] = canonicalized_discovery_summary
                 if canonicalized_score_items:
                     diagnostics["canonicalized_score_items"] = canonicalized_score_items
                 if canonicalized_bottleneck_scores:
@@ -8081,7 +8094,9 @@ def _semantic_retry_instruction(
     if "A1_MONTHLY_CHAIN_COVERAGE_INSUFFICIENT" in safe_reasons:
         discovery_requirements.append(
             "Return 40-80 industry_chain_graph nodes with unique valid node_id values; "
-            "each node must reference an existing theme_id."
+            "each node must reference an existing theme_id. Count the actual JSON array rows before returning; "
+            "never report chain_node_count larger than the array length. Preserve every valid prior node and append "
+            "distinct evidence-backed nodes until the actual array length is at least 40."
         )
     if {
         "A1_DISCOVERY_THEME_EVIDENCE_INVALID",
@@ -8307,6 +8322,40 @@ def _refresh_analysis_counts(output: Mapping[str, Any], stage: str) -> dict[str,
         })
     result["analysis_summary"] = summary
     return result
+
+
+def _refresh_discovery_analysis_counts(
+    output: Mapping[str, Any],
+) -> tuple[dict[str, Any], int]:
+    """Make A1 discovery summary counts agree with the returned arrays.
+
+    Coverage validation always uses the arrays themselves.  This refresh only
+    prevents a provider-authored summary (for example ``chain_node_count=42``)
+    from contradicting an actual 28-row array in the persisted audit/UI.
+    Missing ``analysis_summary`` remains missing so the schema validator can
+    still request a semantic repair instead of receiving a fabricated field.
+    """
+
+    summary = output.get("analysis_summary")
+    if not isinstance(summary, Mapping):
+        return dict(output), 0
+    counts = {
+        "theme_count": len(output.get("structural_themes") or ())
+        if isinstance(output.get("structural_themes"), list)
+        else 0,
+        "chain_node_count": len(output.get("industry_chain_graph") or ())
+        if isinstance(output.get("industry_chain_graph"), list)
+        else 0,
+        "mapping_count": len(output.get("industry_theme_mappings") or ())
+        if isinstance(output.get("industry_theme_mappings"), list)
+        else 0,
+    }
+    normalized = dict(summary)
+    changed = sum(normalized.get(key) != value for key, value in counts.items())
+    normalized.update(counts)
+    result = dict(output)
+    result["analysis_summary"] = normalized
+    return result, changed
 
 
 def _compact_viewpoint_contract(value: Any, *, public_lead: bool) -> Any:

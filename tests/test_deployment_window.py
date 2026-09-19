@@ -9,7 +9,9 @@ import pytest
 @pytest.mark.parametrize("stamp,expected", [
     ("2 0859", 0), ("2 0900", 3), ("2 1130", 3),
     ("2 1300", 3), ("2 1500", 3), ("2 1534", 3),
-    ("2 1535", 0), ("6 1000", 0), ("bad", 3),
+    ("2 1535", 3), ("2 1629", 3), ("2 1630", 0),
+    ("2 1750", 3), ("2 1800", 3), ("2 1809", 3), ("2 1810", 0),
+    ("6 1000", 0), ("bad", 3),
 ])
 def test_deployment_window(stamp, expected):
     bash = shutil.which("bash")

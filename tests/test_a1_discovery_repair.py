@@ -103,14 +103,14 @@ def test_discovery_retry_has_prior_json_exact_issues_and_durable_audit(tmp_path,
     assert audit.output["structural_themes"][0]["source_refs"] == ["policy-1"]
 
 
-def test_two_invalid_responses_stay_blocked_and_keep_nonexecutable_evidence(tmp_path, monkeypatch):
+def test_three_invalid_responses_stay_blocked_and_keep_nonexecutable_evidence(tmp_path, monkeypatch):
     pipeline, calls, kwargs = stage_fixture(tmp_path, monkeypatch, always_bad=True)
     audit = pipeline._run_stage(**kwargs)
     assert audit.status == "BLOCKED"
     assert audit.output is None
     assert audit.symbols == ()
-    assert len(calls) == 2
-    assert len(audit.diagnostics["discovery_audit_paths"]) == 2
+    assert len(calls) == 3
+    assert len(audit.diagnostics["discovery_audit_paths"]) == 3
     assert audit.diagnostics["validation_issues"]
 
 
