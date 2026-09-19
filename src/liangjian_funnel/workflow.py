@@ -1247,28 +1247,32 @@ class WorkflowApplication:
             tzinfo=SHANGHAI,
         )
 
-        # One deterministic receipt per target session and active A1
-        # generation makes retries safe without freezing a stale downstream
-        # plan set.  A weekend full A1 maintenance can legitimately complete
-        # after an earlier next-session preparation.  In that case preserve
-        # the old receipt and publish a versioned replacement; morning
-        # activation already selects the newest pending A3 source batch.
+        # One deterministic receipt per target session, active A1 generation,
+        # and downstream preparation contract makes retries safe without
+        # freezing a stale plan set after an A2/A3 boundary repair.  Preserve
+        # old receipts; morning activation selects the newest pending source.
         base_run_id = f"next-session-prep-{target_trade_date.isoformat()}"
+        preparation_contract_version = "2"
         active_a1 = self.a1_registry.get_active_generation()
         active_a1_generation_id = (
             str(active_a1.generation_id) if active_a1 is not None else None
         )
         run_id = base_run_id
-        receipt_paths = [
-            self.settings.workflow_output_dir / "runs" / f"{base_run_id}.json"
-        ]
+        receipt_paths: list[Path] = []
         if active_a1_generation_id:
             revision = hashlib.sha256(
                 active_a1_generation_id.encode("utf-8")
             ).hexdigest()[:12]
-            run_id = f"{base_run_id}-a1-{revision}"
+            run_id = (
+                f"{base_run_id}-a1-{revision}"
+                f"-prep-v{preparation_contract_version}"
+            )
             receipt_paths.append(
                 self.settings.workflow_output_dir / "runs" / f"{run_id}.json"
+            )
+        else:
+            receipt_paths.append(
+                self.settings.workflow_output_dir / "runs" / f"{base_run_id}.json"
             )
         for summary_path in receipt_paths:
             try:
