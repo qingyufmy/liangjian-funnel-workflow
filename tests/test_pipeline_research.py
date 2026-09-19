@@ -2830,6 +2830,43 @@ def test_a1_company_mapping_fact_canonicalization_is_fail_closed_without_context
     assert canonical == output
 
 
+def test_a1_half_year_route_survives_generic_financial_and_business_thresholds():
+    output = {
+        "active_research_pool": [{
+            "symbol": "000426.SZ",
+            "primary_theme": "theme-monthly",
+            "monthly_direction_id": "theme-monthly",
+            "industry_chain_node": "node-monthly",
+            "sector_constituent_confirmed": True,
+            "sector_index_code": "884001.TI",
+            "research_route": "HALF_YEAR_FUNDAMENTAL",
+            "half_year_support": {"supported": True},
+            "financial_quality_score": 0.0,
+            "financial_subfactor_coverage": 0.0,
+            "structural_score": 80.0,
+            "data_quality_score": 75.0,
+            "evidence_confidence": 0.75,
+            "status": "ACTIVE",
+            "reason_codes": ["A1_MAIN_BUSINESS_EVIDENCE_MISSING"],
+        }],
+        "monitor_pool": [],
+    }
+    snapshot = {
+        "A1_POOL_TARGETS": {"monthly_chain_only": True},
+        "MAIN_BUSINESS_EVIDENCE": {
+            "000426.SZ": {"available": False, "evidence": []},
+        },
+    }
+
+    thresholded, demotions = _apply_stage_threshold_policy(output, "A1", snapshot)
+
+    assert demotions == 0
+    assert [item["symbol"] for item in thresholded["active_research_pool"]] == ["000426.SZ"]
+    assert thresholded["active_research_pool"][0]["reason_codes"] == [
+        "A1_MAIN_BUSINESS_EVIDENCE_MISSING"
+    ]
+
+
 def test_macro_policy_projection_prefers_relevant_official_documents_and_retains_counts():
     feed = {
         "official_documents": [

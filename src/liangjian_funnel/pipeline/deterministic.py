@@ -500,24 +500,30 @@ def screen_a1(
         ):
             hard_reject = True
             reason_codes.append("A1_FUNDAMENTAL_PULLBACK_HARD_REJECT")
+        half_year_confirmed = bool(
+            monthly_chain_only
+            and matched
+            and half_year_support.get("supported") is True
+        )
         if hard_reject:
             status = "HARD_REJECT"
         elif not matched:
             status = "OUTSIDE_THEME"
             reason_codes.append("A1_OUTSIDE_DISCOVERED_THEME")
+        elif half_year_confirmed:
+            # The strict monthly route is allowed to use exact sector-index
+            # membership as the company-to-direction binding when the frozen
+            # H1 statements independently confirm positive, non-declining
+            # revenue and attributable profit.  The missing narrative
+            # disclosure remains visible below, but it is not a second veto
+            # on the same already-proven monthly membership relationship.
+            # Keep the row provisional so every qualified company still has
+            # to win the deterministic per-sector Top-N ranking.
+            status = "LOCAL_CANDIDATE"
+            reason_codes.append("A1_HALF_YEAR_FUNDAMENTAL_CONFIRMED")
         elif not raw_evidence_available:
             status = "LOCAL_MONITOR"
             reason_codes.append("A1_MAIN_BUSINESS_EVIDENCE_MISSING")
-        elif monthly_chain_only and half_year_support.get("supported") is True:
-            # A1 is a monthly research universe, not an executable buy list.
-            # A constituent whose disclosed half-year revenue and attributable
-            # profit are both positive and growing already has the auditable
-            # fundamental support requested by the strategy.  It must not be
-            # discarded merely because optional six-factor enrichments are
-            # sparse or because the revenue-composition parser could not turn
-            # a valid CNINFO page into an exact percentage.
-            status = "LOCAL_ACTIVE_CANDIDATE"
-            reason_codes.append("A1_HALF_YEAR_FUNDAMENTAL_CONFIRMED")
         elif not core_reports or not indicators_available:
             status = "LOCAL_MONITOR"
             reason_codes.append("A1_FUNDAMENTAL_DATA_INCOMPLETE")
@@ -553,6 +559,8 @@ def screen_a1(
             # fail-closed branch (for example missing business evidence) has
             # already selected LOCAL_MONITOR.
             reason_codes.append("A1_FACTOR_COVERAGE_BELOW_MINIMUM")
+        if matched and not raw_evidence_available:
+            reason_codes.append("A1_MAIN_BUSINESS_EVIDENCE_MISSING")
         if raw_evidence_available and not structured_exposure_available:
             reason_codes.append("A1_BUSINESS_EXPOSURE_UNSTRUCTURED")
         if monthly_chain_only and financial_quality < minimum_financial_quality:
@@ -594,7 +602,7 @@ def screen_a1(
                 "BROKER_GOLD_DIRECT"
                 if institutional_seed and not monthly_chain_only
                 else "HALF_YEAR_FUNDAMENTAL"
-                if monthly_chain_only and half_year_support.get("supported") is True and bool(matched) and raw_evidence_available and not hard_reject
+                if half_year_confirmed and not hard_reject
                 else "DETERMINISTIC_SCORE"
             ),
             "score": round(score, 4),
@@ -673,7 +681,7 @@ def screen_a1(
                 "BROKER_GOLD_DIRECT"
                 if institutional_seed and not monthly_chain_only
                 else "HALF_YEAR_FUNDAMENTAL"
-                if monthly_chain_only and half_year_support.get("supported") is True and bool(matched) and raw_evidence_available and not hard_reject
+                if half_year_confirmed and not hard_reject
                 else ("MONTHLY_THEME" if matched else None)
             ),
             "downstream_trade_eligible": not hard_reject,
@@ -773,7 +781,15 @@ def screen_a1(
                 item["reason_codes"].append("A1_OUTSIDE_SECTOR_INDEX_TOP_N")
                 continue
             item["sector_index_qualifying_ranks"] = qualifying
-            if item.get("business_exposure_facts"):
+            if (
+                item.get("business_exposure_facts")
+                or (
+                    str(item.get("research_route") or "").strip().upper()
+                    == "HALF_YEAR_FUNDAMENTAL"
+                    and isinstance(item.get("half_year_support"), Mapping)
+                    and item["half_year_support"].get("supported") is True
+                )
+            ):
                 item["status"] = "LOCAL_ACTIVE_CANDIDATE"
             else:
                 item["status"] = "LOCAL_MONITOR"
@@ -944,6 +960,34 @@ def screen_a1(
             ]
             item["reason_codes"].append("A1_ADAPTIVE_COVERAGE_EXPANSION")
             local_active_count += 1
+
+    if monthly_chain_only:
+        # The configured maximum is a publication capacity, not a quota-fill
+        # target.  When many sector indices overlap, their independent Top-N
+        # unions can exceed it. Keep the strongest union members by their best
+        # concrete-sector rank and deterministic score, while retaining every
+        # overflow row in the monitor pool with an explicit reason.
+        monthly_active = [
+            item for item in decisions
+            if item.get("status") == "LOCAL_ACTIVE_CANDIDATE"
+        ]
+        if len(monthly_active) > active_target_max:
+            monthly_active.sort(key=lambda item: (
+                min(
+                    (int(rank) for rank in (item.get("sector_index_ranks") or {}).values()),
+                    default=10**9,
+                ),
+                -float(item.get("score") or 0.0),
+                -float(item.get("financial_quality_score") or 0.0),
+                -float(item.get("amount") or 0.0),
+                str(item.get("symbol") or ""),
+            ))
+            for item in monthly_active[active_target_max:]:
+                item["status"] = "LOCAL_MONITOR"
+                item["reason_codes"] = list(dict.fromkeys([
+                    *item.get("reason_codes", ()),
+                    "A1_ACTIVE_TARGET_MAX_EXCEEDED",
+                ]))
 
     for item in decisions:
         if (
@@ -3681,7 +3725,11 @@ def _market_core_route_result(
     missing: list[str] = []
     diagnostics: list[str] = []
     research_route = str(item.get("research_route") or "").strip().upper()
-    research_route_qualified = research_route in {"BROKER_GOLD_DIRECT", "FUNDAMENTAL_BASELINE"}
+    research_route_qualified = research_route in {
+        "BROKER_GOLD_DIRECT",
+        "FUNDAMENTAL_BASELINE",
+        "HALF_YEAR_FUNDAMENTAL",
+    }
     theme_binding = item.get("emotion_theme_binding")
     if isinstance(theme_binding, Mapping) and theme_binding.get("resolved") is False:
         if (research_route == "DAILY_EMOTION_OVERLAY" and theme_binding.get("research_resolved") is True

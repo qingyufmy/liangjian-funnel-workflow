@@ -324,17 +324,7 @@ def test_a1_strict_monthly_chain_accepts_disclosed_h1_double_growth_without_quot
         "quota_fill_enabled": False,
         "active_research_target": [1, 10],
     }
-    snapshot["MAIN_BUSINESS_EVIDENCE"][symbol] = {
-        "available": True,
-        "evidence": [{
-            "source_ref": f"cninfo:{symbol}:2026h1:page:12",
-            "page_number": 12,
-            "publish_time": "2026-08-20",
-            # Valid disclosed main-business page, but deliberately no exact
-            # revenue percentage for the legacy exposure parser.
-            "text": "公司半年度报告主营业务分行业包括算力设备及配套服务。",
-        }],
-    }
+    snapshot["MAIN_BUSINESS_EVIDENCE"][symbol] = {"available": False, "evidence": []}
     snapshot["COMPANY_FUNDAMENTALS"][symbol]["statements"] = {
         "INCOME": [
             {
@@ -367,6 +357,8 @@ def test_a1_strict_monthly_chain_accepts_disclosed_h1_double_growth_without_quot
     assert decision["fundamental_support"]["support_basis"] == "DISCLOSED_HALF_YEAR"
     assert decision["fundamental_support"]["indicator_period_verified"] is False
     assert decision["business_exposure_facts"] == []
+    assert decision["sector_index_qualifying_ranks"]
+    assert "A1_MAIN_BUSINESS_EVIDENCE_MISSING" in decision["reason_codes"]
     projected = local_active_items(result)
     assert [item["symbol"] for item in projected] == [symbol]
     assert projected[0]["evidence_confidence"] >= 0.70
@@ -382,11 +374,93 @@ def test_a1_strict_monthly_chain_accepts_disclosed_h1_double_growth_without_quot
     assert discovery == frozen
     assert [row["symbol"] for row in increment["active_research_pool"]] == [symbol]
     assert increment["active_research_pool"][0]["daily_verified_increment"]["evidence_hash"]
-    no_disclosure = deepcopy(snapshot)
-    no_disclosure["MAIN_BUSINESS_EVIDENCE"][symbol]["evidence"][0]["publish_time"] = "2026-09-20"
-    rejected_increment = recheck_a1_discovery(discovery, no_disclosure)
+    unsupported = deepcopy(snapshot)
+    unsupported["COMPANY_FUNDAMENTALS"][symbol]["statements"]["INCOME"][0]["parent_holder_net_profit"] = 8.0
+    rejected_increment = recheck_a1_discovery(discovery, unsupported)
     assert not rejected_increment["active_research_pool"]
     assert rejected_increment["early_discovery"]["evidence_recheck_symbols"] == [symbol]
+
+
+def test_a1_strict_monthly_chain_missing_business_and_unsupported_h1_stays_monitor():
+    snapshot = _snapshot(2)
+    symbol = snapshot["g0_symbols"][0]
+    snapshot["A1_POOL_TARGETS"] = {
+        "monthly_chain_only": True,
+        "quota_fill_enabled": False,
+        "active_research_target": [1, 10],
+    }
+    snapshot["MAIN_BUSINESS_EVIDENCE"][symbol] = {"available": False, "evidence": []}
+    snapshot["COMPANY_FUNDAMENTALS"][symbol]["statements"] = {
+        "INCOME": [
+            {
+                "fiscal_year": 2026,
+                "fiscal_period": "Q2",
+                "report_date_ms": 1787155200000,
+                "operating_income": 130.0,
+                "parent_holder_net_profit": 8.0,
+            },
+            {
+                "fiscal_year": 2025,
+                "fiscal_period": "Q2",
+                "report_date_ms": 1755619200000,
+                "operating_income": 100.0,
+                "parent_holder_net_profit": 10.0,
+            },
+        ],
+        "BALANCE": [{}],
+        "CASH_FLOW": [{}],
+    }
+
+    result = screen_a1(snapshot, _discovery(), local_top_n_per_node=1, llm_top_n_per_theme=1)
+    decision = next(item for item in result.decisions if item["symbol"] == symbol)
+
+    assert decision["status"] == "LOCAL_MONITOR"
+    assert decision["research_route"] == "MONTHLY_THEME"
+    assert decision["half_year_support"]["supported"] is False
+    assert "A1_MAIN_BUSINESS_EVIDENCE_MISSING" in decision["reason_codes"]
+    assert not local_active_items(result)
+
+
+def test_a1_strict_monthly_chain_caps_overlapping_sector_union_without_quota_fill():
+    snapshot = _snapshot(4)
+    snapshot["A1_POOL_TARGETS"] = {
+        "monthly_chain_only": True,
+        "quota_fill_enabled": False,
+        "active_research_target": [1, 2],
+    }
+    for symbol in snapshot["g0_symbols"][:3]:
+        snapshot["MAIN_BUSINESS_EVIDENCE"][symbol] = {"available": False, "evidence": []}
+        snapshot["COMPANY_FUNDAMENTALS"][symbol]["statements"] = {
+            "INCOME": [
+                {
+                    "fiscal_year": 2026,
+                    "fiscal_period": "Q2",
+                    "report_date_ms": 1787155200000,
+                    "operating_income": 130.0,
+                    "parent_holder_net_profit": 18.0,
+                },
+                {
+                    "fiscal_year": 2025,
+                    "fiscal_period": "Q2",
+                    "report_date_ms": 1755619200000,
+                    "operating_income": 100.0,
+                    "parent_holder_net_profit": 10.0,
+                },
+            ],
+            "BALANCE": [{}],
+            "CASH_FLOW": [{}],
+        }
+
+    result = screen_a1(snapshot, _discovery(), local_top_n_per_node=3, llm_top_n_per_theme=1)
+    active = local_active_items(result)
+    overflow = [
+        item for item in result.decisions
+        if "A1_ACTIVE_TARGET_MAX_EXCEEDED" in item.get("reason_codes", ())
+    ]
+
+    assert len(active) == 2
+    assert len(overflow) == 1
+    assert overflow[0]["status"] == "LOCAL_MONITOR"
 
 
 def test_a1_strict_monthly_chain_disables_quota_and_baseline_activation():
@@ -1944,6 +2018,38 @@ def test_a2_market_core_allows_research_route_without_business_exposure() -> Non
     assert "A1_BUSINESS_EVIDENCE_MISSING" not in decision["route_eligibility"]["MARKET_CORE"]["missing_reason_codes"]
     assert "A2_UPSTREAM_RESEARCH_ROUTE_WITHOUT_BUSINESS_EXPOSURE" in decision["reason_codes"]
     assert "A2_UPSTREAM_RESEARCH_ROUTE_WITHOUT_BUSINESS_EXPOSURE" in decision["route_eligibility"]["MARKET_CORE"]["diagnostic_reason_codes"]
+
+
+def test_a2_market_core_allows_half_year_route_without_revenue_split() -> None:
+    snapshot = _snapshot(1)
+    symbol = snapshot["g0_symbols"][0]
+    row = {
+        "symbol": symbol,
+        "candidate_id": "a1:half-year",
+        "primary_theme": "theme-compute",
+        "industry_chain_node": "node-compute-device",
+        "research_route": "HALF_YEAR_FUNDAMENTAL",
+        "downstream_trade_eligible": True,
+        "half_year_support": {"supported": True},
+        "a2_factor_scores": _complete_a2_factor_scores(90),
+        "data_quality_score": 95,
+        "source_refs": ["fundamentals:income:2026h1"],
+    }
+
+    result = screen_a2(
+        snapshot,
+        {"active_research_pool": [row]},
+        minimum_identifiability_score=0,
+        llm_top_n_per_theme=1,
+        review_all_eligible=True,
+    )
+    decision = result.decisions[0]
+    market = decision["route_eligibility"]["MARKET_CORE"]
+
+    assert decision["status"] == "REVIEW_CANDIDATE"
+    assert "MARKET_CORE" in decision["eligible_routes"]
+    assert "A1_BUSINESS_EVIDENCE_MISSING" not in market["missing_reason_codes"]
+    assert "A2_UPSTREAM_RESEARCH_ROUTE_WITHOUT_BUSINESS_EXPOSURE" in market["diagnostic_reason_codes"]
 
 
 def test_a2_market_core_uses_research_route_when_direct_entry_has_no_theme_mapping() -> None:

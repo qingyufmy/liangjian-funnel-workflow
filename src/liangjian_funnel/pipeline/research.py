@@ -10184,12 +10184,36 @@ def _apply_stage_threshold_policy(
                 retained.append(raw_item)
                 continue
             item = dict(raw_item)
+            half_year = item.get("half_year_support")
+            half_year_route_confirmed = bool(
+                monthly_chain_only
+                and str(item.get("research_route") or "").strip().upper()
+                == "HALF_YEAR_FUNDAMENTAL"
+                and isinstance(half_year, Mapping)
+                and half_year.get("supported") is True
+                and item.get("sector_constituent_confirmed") is True
+                and str(item.get("sector_index_code") or "").strip()
+                and str(item.get("monthly_direction_id") or item.get("primary_theme") or "").strip()
+            )
             reason_codes = [
                 reason
                 for field, minimum, reason in thresholds
                 if _safe_float(item.get(field)) < minimum
+                and not (
+                    half_year_route_confirmed
+                    and field in {"financial_quality_score", "financial_subfactor_coverage"}
+                )
             ]
-            business_reasons = _a1_business_evidence_reasons(item, snapshot_data)
+            # On this dedicated route the exact monthly sector constituent
+            # link is the business-to-direction proof and the frozen H1
+            # comparison is the fundamental proof. Missing revenue-split
+            # disclosure remains on the row as a diagnostic from the local
+            # gate, but must not erase an otherwise verified A1 candidate.
+            business_reasons = (
+                []
+                if half_year_route_confirmed
+                else _a1_business_evidence_reasons(item, snapshot_data)
+            )
             reason_codes.extend(business_reasons)
             if monthly_chain_only:
                 if not business_reasons:
