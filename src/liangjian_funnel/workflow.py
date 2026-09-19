@@ -1247,22 +1247,47 @@ class WorkflowApplication:
             tzinfo=SHANGHAI,
         )
 
-        # One deterministic receipt per target session makes a second command
-        # invocation safe: it cannot publish a second pending plan set for the
-        # same morning review.  A blocked/incomplete run has no receipt and may
-        # be retried through the same entry point.
-        run_id = f"next-session-prep-{target_trade_date.isoformat()}"
-        summary_path = self.settings.workflow_output_dir / "runs" / f"{run_id}.json"
-        try:
-            existing = json.loads(summary_path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, ValueError, TypeError):
-            existing = None
-        if (
-            isinstance(existing, Mapping)
-            and existing.get("preparation_mode") == "NEXT_SESSION_PRODUCTION_PREP"
-            and str(existing.get("status") or "").upper() in {"READY", "READY_DEGRADED"}
-        ):
-            raise WorkflowError("NEXT_SESSION_PREP_ALREADY_COMPLETED")
+        # One deterministic receipt per target session and active A1
+        # generation makes retries safe without freezing a stale downstream
+        # plan set.  A weekend full A1 maintenance can legitimately complete
+        # after an earlier next-session preparation.  In that case preserve
+        # the old receipt and publish a versioned replacement; morning
+        # activation already selects the newest pending A3 source batch.
+        base_run_id = f"next-session-prep-{target_trade_date.isoformat()}"
+        active_a1 = self.a1_registry.get_active_generation()
+        active_a1_generation_id = (
+            str(active_a1.generation_id) if active_a1 is not None else None
+        )
+        run_id = base_run_id
+        receipt_paths = [
+            self.settings.workflow_output_dir / "runs" / f"{base_run_id}.json"
+        ]
+        if active_a1_generation_id:
+            revision = hashlib.sha256(
+                active_a1_generation_id.encode("utf-8")
+            ).hexdigest()[:12]
+            run_id = f"{base_run_id}-a1-{revision}"
+            receipt_paths.append(
+                self.settings.workflow_output_dir / "runs" / f"{run_id}.json"
+            )
+        for summary_path in receipt_paths:
+            try:
+                existing = json.loads(summary_path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, ValueError, TypeError):
+                continue
+            if not (
+                isinstance(existing, Mapping)
+                and existing.get("preparation_mode") == "NEXT_SESSION_PRODUCTION_PREP"
+                and str(existing.get("status") or "").upper() in {"READY", "READY_DEGRADED"}
+            ):
+                continue
+            receipt_generation_id = str(existing.get("a1_generation_id") or "").strip()
+            if (
+                not active_a1_generation_id
+                or not receipt_generation_id
+                or receipt_generation_id == active_a1_generation_id
+            ):
+                raise WorkflowError("NEXT_SESSION_PREP_ALREADY_COMPLETED")
 
         return self.run_research(
             "close",

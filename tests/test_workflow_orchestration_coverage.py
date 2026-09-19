@@ -8,6 +8,7 @@ so a green test cannot be obtained by merely calling an unasserted mock.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import time
@@ -123,6 +124,7 @@ def test_research_rejects_invalid_historical_and_comparison_inputs(tmp_path: Pat
 def test_next_session_prep_binds_wall_clock_source_and_calendar_target(tmp_path: Path) -> None:
     app = _app(tmp_path)
     app.trading_calendar = _PrepCalendar()
+    app.a1_registry = SimpleNamespace(get_active_generation=lambda: None)
     calls: list[tuple[str, dict[str, object]]] = []
 
     def run_research(slot: str, **kwargs: object) -> dict[str, object]:
@@ -155,6 +157,7 @@ def test_next_session_prep_binds_wall_clock_source_and_calendar_target(tmp_path:
 def test_next_session_prep_rejects_trading_day_and_completed_receipt(tmp_path: Path) -> None:
     app = _app(tmp_path)
     app.trading_calendar = _PrepCalendar(trading_day=True)
+    app.a1_registry = SimpleNamespace(get_active_generation=lambda: None)
     with pytest.raises(WorkflowError, match="NEXT_SESSION_PREP_REQUIRES_NON_TRADING_DAY"):
         app.run_next_session_prep(now=datetime(2026, 8, 31, 8, 0, tzinfo=TZ))
 
@@ -170,6 +173,65 @@ def test_next_session_prep_rejects_trading_day_and_completed_receipt(tmp_path: P
     )
     with pytest.raises(WorkflowError, match="NEXT_SESSION_PREP_ALREADY_COMPLETED"):
         app.run_next_session_prep(now=datetime(2026, 8, 30, 8, 0, tzinfo=TZ))
+
+
+def test_next_session_prep_allows_versioned_refresh_after_a1_generation_changes(
+    tmp_path: Path,
+) -> None:
+    app = _app(tmp_path)
+    app.trading_calendar = _PrepCalendar()
+    active = SimpleNamespace(generation_id="a1-full-new-generation")
+    app.a1_registry = SimpleNamespace(get_active_generation=lambda: active)
+    receipt = app.settings.workflow_output_dir / "runs" / "next-session-prep-2026-08-31.json"
+    receipt.parent.mkdir(parents=True, exist_ok=True)
+    receipt.write_text(
+        json.dumps({
+            "status": "READY",
+            "preparation_mode": "NEXT_SESSION_PRODUCTION_PREP",
+            "a1_generation_id": "a1-full-old-generation",
+        }),
+        encoding="utf-8",
+    )
+    calls: list[dict[str, object]] = []
+
+    def run_research(_slot: str, **kwargs: object) -> dict[str, object]:
+        calls.append(kwargs)
+        return {"status": "READY"}
+
+    app.run_research = run_research
+    app.run_next_session_prep(now=datetime(2026, 8, 30, 20, 0, tzinfo=TZ))
+
+    assert len(calls) == 1
+    assert str(calls[0]["run_id_override"]).startswith(
+        "next-session-prep-2026-08-31-a1-"
+    )
+
+
+def test_next_session_prep_blocks_existing_receipt_for_same_a1_generation(
+    tmp_path: Path,
+) -> None:
+    app = _app(tmp_path)
+    app.trading_calendar = _PrepCalendar()
+    active = SimpleNamespace(generation_id="a1-full-current")
+    app.a1_registry = SimpleNamespace(get_active_generation=lambda: active)
+    revision = hashlib.sha256(b"a1-full-current").hexdigest()[:12]
+    receipt = (
+        app.settings.workflow_output_dir
+        / "runs"
+        / f"next-session-prep-2026-08-31-a1-{revision}.json"
+    )
+    receipt.parent.mkdir(parents=True, exist_ok=True)
+    receipt.write_text(
+        json.dumps({
+            "status": "READY",
+            "preparation_mode": "NEXT_SESSION_PRODUCTION_PREP",
+            "a1_generation_id": "a1-full-current",
+        }),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(WorkflowError, match="NEXT_SESSION_PREP_ALREADY_COMPLETED"):
+        app.run_next_session_prep(now=datetime(2026, 8, 30, 20, 0, tzinfo=TZ))
 
 
 def test_next_session_prep_contract_cannot_be_used_to_bypass_publication_gate(tmp_path: Path) -> None:
