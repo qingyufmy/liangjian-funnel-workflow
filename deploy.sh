@@ -171,7 +171,11 @@ wait_for_stable_health() {
 
 echo "[deploy] Stopping BaoTa Node project..."
 old_node_pid="$(pgrep -u www -f 'node dist/server/index\.js' | head -n 1 || true)"
-baota_action stop
+if [[ -n "${old_node_pid}" ]]; then
+  baota_action stop
+else
+  echo "[deploy] Node project is already stopped; continuing with a clean start."
+fi
 
 # BaoTa stop is asynchronous. Do not start the replacement until the previous
 # process has definitely exited, otherwise its delayed stop can kill the new
