@@ -34,7 +34,7 @@ TZ = ZoneInfo("Asia/Shanghai")
 MODELS = ("deepseek-v4-pro-0813", "moonshotai/kimi-k3-free", "z-ai/glm-5.3-free")
 
 
-def test_daily_emotion_overlay_adds_hot100_to_a1_without_mutating_sealed_payload() -> None:
+def test_daily_emotion_overlay_only_annotates_active_a1_without_mutating_sealed_payload() -> None:
     sealed = {
         "active_research_pool": [{"symbol": "600001.SH", "candidate_id": "monthly-1"}],
         "monitor_pool": [{"symbol": "600002.SH"}],
@@ -61,10 +61,11 @@ def test_daily_emotion_overlay_adds_hot100_to_a1_without_mutating_sealed_payload
         {"600001.SH", "600002.SH"},
     )
     assert [row["symbol"] for row in sealed["active_research_pool"]] == ["600001.SH"]
-    assert {row["symbol"] for row in overlaid["active_research_pool"]} == {"600001.SH", "600002.SH"}
-    assert overlaid["monitor_pool"] == []
-    assert summary["added_count"] == 1
+    assert {row["symbol"] for row in overlaid["active_research_pool"]} == {"600001.SH"}
+    assert [row["symbol"] for row in overlaid["monitor_pool"]] == ["600002.SH"]
+    assert summary["added_count"] == 0
     assert summary["annotated_count"] == 1
+    assert summary["outside_active_count"] == 1
     assert overlaid["daily_emotion_overlay"]["monthly_generation_mutated"] is False
 
 
@@ -93,11 +94,12 @@ def test_daily_emotion_overlay_disposes_every_hot_row_and_rejects_hard_risk() ->
 
     overlaid, summary = _with_daily_emotion_overlay(sealed, snapshot, {"600001.SH", "600002.SH"})
 
-    assert [row["symbol"] for row in overlaid["active_research_pool"]] == ["600001.SH"]
+    assert overlaid["active_research_pool"] == []
     assert [row["symbol"] for row in sealed["active_research_pool"]] == ["600002.SH"]
     assert [row["symbol"] for row in overlaid["rejected_candidates"]] == ["600002.SH"]
     assert overlaid["rejected_candidates"][0]["reason_codes"] == ["A1_EMOTION_MAJOR_RISK"]
     assert summary["complete_source_disposition_count"] == 2
+    assert summary["outside_active_count"] == 1
 
 
 def test_a1_maintenance_attempt_ids_do_not_reuse_same_day_feature_binding() -> None:

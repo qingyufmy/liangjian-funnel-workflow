@@ -5030,7 +5030,13 @@ def _with_daily_emotion_overlay(
     snapshot_data: Mapping[str, Any],
     g0: set[str],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Overlay today's validated Eastmoney top 100 without mutating A1 history."""
+    """Annotate sealed A1-active rows with today's Eastmoney top 100 facts.
+
+    A1 is the fundamental eligibility boundary.  Daily popularity may rank or
+    annotate an A1-active stock for A2, but it must never promote an A1 monitor
+    or rejected row into the executable downstream universe.  A newly observed
+    hard risk may still demote an active row for the current run.
+    """
 
     source = snapshot_data.get("EASTMONEY_HOT100_SNAPSHOT")
     if not isinstance(source, Mapping) or source.get("available") is not True:
@@ -5041,6 +5047,7 @@ def _with_daily_emotion_overlay(
             else "EASTMONEY_HOT100_UNAVAILABLE",
             "added_count": 0,
             "annotated_count": 0,
+            "outside_active_count": 0,
         }
     records = source.get("records")
     if not isinstance(records, Sequence) or isinstance(records, (str, bytes, bytearray)):
@@ -5049,6 +5056,7 @@ def _with_daily_emotion_overlay(
             "reason_code": "EASTMONEY_HOT100_ROWS_MALFORMED",
             "added_count": 0,
             "annotated_count": 0,
+            "outside_active_count": 0,
         }
     hot_by_symbol = {
         str(item.get("symbol") or "").strip().upper(): dict(item)
@@ -5062,18 +5070,8 @@ def _with_daily_emotion_overlay(
             "reason_code": "NO_G0_HOT100_SYMBOLS",
             "added_count": 0,
             "annotated_count": 0,
+            "outside_active_count": 0,
         }
-    candidate_by_symbol: dict[str, Mapping[str, Any]] = {}
-    for key in ("g0_candidates", "research_candidates", "universe_candidates"):
-        rows = snapshot_data.get(key)
-        if not isinstance(rows, Sequence) or isinstance(rows, (str, bytes, bytearray)):
-            continue
-        for raw in rows:
-            if not isinstance(raw, Mapping):
-                continue
-            for symbol in _scan_symbols(raw):
-                candidate_by_symbol.setdefault(symbol, raw)
-
     result = dict(output)
     active = [dict(item) for item in output.get("active_research_pool", ()) if isinstance(item, Mapping)]
     active_by_symbol: dict[str, dict[str, Any]] = {}
@@ -5083,6 +5081,7 @@ def _with_daily_emotion_overlay(
             active_by_symbol[symbols[0]] = item
     added = 0
     annotated = 0
+    outside_active = 0
     excluded: list[dict[str, Any]] = []
     from .emotion_theme import bind_emotion_themes
     theme_bindings = bind_emotion_themes(output, snapshot_data, set(hot_by_symbol))
@@ -5106,14 +5105,22 @@ def _with_daily_emotion_overlay(
             # A sealed monthly row remains immutable in the registry, but a
             # newly observed daily hard risk must remove it from this run's
             # downstream active view.
-            if symbol in active_by_symbol:
+            existing = active_by_symbol.get(symbol)
+            if existing is not None:
                 active_by_symbol.pop(symbol, None)
                 active = [
                     row for row in active
                     if symbol not in _scan_symbols(row)
                 ]
-            candidate = candidate_by_symbol.get(symbol, {})
-            name = str(hot.get("name") or candidate.get("name") or candidate.get("company_name") or symbol)
+            if existing is None:
+                outside_active += 1
+                continue
+            name = str(
+                hot.get("name")
+                or existing.get("name")
+                or existing.get("company_name")
+                or symbol
+            )
             excluded.append({
                 "candidate_id": f"A1-EMOTION-REJECT-{_sha256_json({'symbol': symbol, 'trade_date': source.get('trade_date')})[:16]}",
                 "symbol": symbol,
@@ -5135,47 +5142,19 @@ def _with_daily_emotion_overlay(
             existing["emotion_attention_eligible"] = True
             existing.setdefault("a1_pool_channels", []).append("DAILY_EMOTION")
             existing["a1_pool_channels"] = list(dict.fromkeys(existing["a1_pool_channels"]))
-            if existing.get("research_route") == "DAILY_EMOTION_OVERLAY":
-                existing["emotion_theme_binding"] = theme_bindings[symbol]
-                existing["primary_theme"] = theme_bindings[symbol]["theme_id"]
-                existing["industry_chain_node"] = theme_bindings[symbol]["node_id"]
+            existing["emotion_theme_binding"] = theme_bindings[symbol]
+            existing.setdefault("primary_theme", theme_bindings[symbol]["theme_id"])
+            existing.setdefault("industry_chain_node", theme_bindings[symbol]["node_id"])
             annotated += 1
             continue
-        candidate = candidate_by_symbol.get(symbol, {})
-        name = str(hot.get("name") or candidate.get("name") or candidate.get("company_name") or symbol)
-        row = {
-            "candidate_id": f"A1-EMOTION-{_sha256_json({'symbol': symbol, 'trade_date': source.get('trade_date')})[:16]}",
-            "symbol": symbol,
-            "company_name": name,
-            "name": name,
-            "status": "ACTIVE",
-            "selection_basis": "DAILY_EMOTION_OVERLAY",
-            "research_route": "DAILY_EMOTION_OVERLAY",
-            "a1_pool_channels": ["DAILY_EMOTION"],
-            "emotion_attention_eligible": True,
-            "eastmoney_hot100": metadata,
-            "primary_theme": theme_bindings[symbol]["theme_id"],
-            "industry_chain_node": theme_bindings[symbol]["node_id"],
-            "emotion_theme_binding": theme_bindings[symbol],
-            "business_exposure": "情绪票按题材与接力事实判断，不以长期基本面作为入选前提",
-            "business_exposure_facts": [],
-            "downstream_trade_eligible": True,
-            "source_refs": ["EASTMONEY_GUBA_POPULARITY_TOP100"],
-            "reason_codes": ["A1_DAILY_EMOTION_HOT100_OVERLAY", *(
-                [theme_bindings[symbol]["reason_code"]] if not theme_bindings[symbol]["resolved"] else []
-            )],
-        }
-        active.append(row)
-        active_by_symbol[symbol] = row
-        added += 1
-    hot_symbols = set(hot_by_symbol)
+        outside_active += 1
     for partition in ("monitor_pool", "rejected_candidates"):
         rows = output.get(partition)
         if isinstance(rows, (list, tuple)):
             result[partition] = [
                 dict(item)
                 for item in rows
-                if isinstance(item, Mapping) and not _scan_symbols(item).intersection(hot_symbols)
+                if isinstance(item, Mapping)
             ]
     result.setdefault("rejected_candidates", [])
     result["rejected_candidates"] = [*result["rejected_candidates"], *excluded]
@@ -5193,8 +5172,9 @@ def _with_daily_emotion_overlay(
         "g0_record_count": len(hot_by_symbol),
         "added_count": added,
         "annotated_count": annotated,
+        "outside_active_count": outside_active,
         "excluded_count": len(excluded),
-        "complete_source_disposition_count": added + annotated + len(excluded),
+        "complete_source_disposition_count": annotated + outside_active + len(excluded),
         "monthly_generation_mutated": False,
         "theme_binding_counts": binding_counts,
     }
@@ -5204,8 +5184,9 @@ def _with_daily_emotion_overlay(
         "trade_date": source.get("trade_date"),
         "added_count": added,
         "annotated_count": annotated,
+        "outside_active_count": outside_active,
         "excluded_count": len(excluded),
-        "complete_source_disposition_count": added + annotated + len(excluded),
+        "complete_source_disposition_count": annotated + outside_active + len(excluded),
         "theme_binding_counts": binding_counts,
     }
 

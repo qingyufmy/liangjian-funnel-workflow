@@ -14,7 +14,11 @@ def inputs():
     link = dict(theme_id="CHEMICAL", node_id="chemical-core", taxonomy="INDUSTRY",
                 taxonomy_code="881263.TI", taxonomy_name="农化制品",
                 match_method="MATURE_THEME_REGISTRY_EXACT_NAME")
-    output = {"active_research_pool": [], "taxonomy_links": [link]}
+    output = {"active_research_pool": [{
+        "symbol": "000912.SZ",
+        "research_route": "HALF_YEAR_FUNDAMENTAL",
+        "selection_basis": "HALF_YEAR_FUNDAMENTAL",
+    }], "taxonomy_links": [link]}
     snapshot = {
         "EASTMONEY_HOT100_SNAPSHOT": {"available": True, "trade_date": "2026-09-08",
                                     "records": [{"symbol": "000912.SZ", "rank": 1}]},
@@ -31,8 +35,8 @@ def test_overlay_uses_frozen_theme_not_popularity_label_and_preserves_monthly():
     row = result["active_research_pool"][0]
     assert row["primary_theme"] == "CHEMICAL"
     assert row["industry_chain_node"] == "chemical-core"
-    assert row["research_route"] == "DAILY_EMOTION_OVERLAY"
-    assert row["business_exposure_facts"] == []
+    assert row["research_route"] == "HALF_YEAR_FUNDAMENTAL"
+    assert row["a1_pool_channels"] == ["DAILY_EMOTION"]
     assert row["emotion_theme_binding"]["source_hash"]
     assert row["emotion_theme_binding"]["confirms_theme_stage"] is False
     assert "theme_stage" not in row
