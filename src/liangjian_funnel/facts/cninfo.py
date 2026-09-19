@@ -90,9 +90,17 @@ def normalize_cninfo_results(
         if legacy_pdf_results.get((symbol, identifier)) or indexed_pdf_results.get(identifier)
     )
     for symbol, result in sorted(results.items()):
-        provider_prefix = "bse.official" if result.source_id == "bse_official" else "cninfo.public"
+        provider_prefix = {
+            "bse_official": "bse.official",
+            "sse_official": "sse.official",
+            "szse_official": "szse.official",
+        }.get(result.source_id, "cninfo.public")
         source_id = f"{provider_prefix}.{symbol.replace('.', '_').lower()}"
-        checksum_prefix = "BSE" if result.source_id == "bse_official" else "CNINFO"
+        checksum_prefix = {
+            "bse_official": "BSE",
+            "sse_official": "SSE",
+            "szse_official": "SZSE",
+        }.get(result.source_id, "CNINFO")
         symbol_pdf = {
             identifier: item
             for identifier in symbol_pdf_ids.get(symbol, ())
@@ -122,8 +130,21 @@ def normalize_cninfo_results(
             ).hexdigest()
         pdf_available = sum(item.available for item in symbol_pdf.values())
         pdf_failed = len(symbol_pdf) - pdf_available
-        health_status = SourceHealthStatus.HEALTHY if available else SourceHealthStatus.UNAVAILABLE
-        health_reason = result.reason_code
+        query_degraded = bool(result.metadata.get("degraded")) or (
+            result.metadata.get("cache_status") == "STALE_VERIFIED_FALLBACK"
+        )
+        health_status = (
+            SourceHealthStatus.DEGRADED
+            if available and query_degraded
+            else SourceHealthStatus.HEALTHY
+            if available
+            else SourceHealthStatus.UNAVAILABLE
+        )
+        health_reason = (
+            str(result.metadata.get("cache_status") or "DISCLOSURE_QUERY_DEGRADED")
+            if available and query_degraded
+            else result.reason_code
+        )
         if available and pdf_failed:
             health_status = SourceHealthStatus.DEGRADED
             health_reason = "CNINFO_PDF_EVIDENCE_PARTIAL"
@@ -139,6 +160,16 @@ def normalize_cninfo_results(
                 available=available,
                 details={
                     "source_system": result.metadata.get("source_system", result.source_id),
+                    "availability_state": result.metadata.get("availability_state"),
+                    "provider_attempts": result.metadata.get("provider_attempts", []),
+                    "fallback_used": result.metadata.get("fallback_used", False),
+                    "cache_status": result.metadata.get("cache_status"),
+                    "cache_age_seconds": result.metadata.get("cache_age_seconds"),
+                    "live_failure_reason_code": result.metadata.get("live_failure_reason_code"),
+                    "recent_query_complete": result.metadata.get("recent_query_complete", True),
+                    "main_business_query_complete": result.metadata.get(
+                        "main_business_query_complete", True
+                    ),
                     "query_start_date": result.start_date,
                     "query_end_date": result.end_date,
                     "announcement_count": len(result.announcements),

@@ -142,6 +142,8 @@ Linux、systemd/cron、容器、部署门禁和回滚步骤见 [DEPLOYMENT.md](D
 - `state/research_checkpoints/`：按模型/lane/阶段/快照/提示词/股票批次绑定的原子检查点；同日中断会恢复原冻结快照。
 - `state/workflow_progress.json`：前端只读的脱敏进度摘要，包含数据、缓存、lane 和 A1–A3 批次进度。
 - `storage/cninfo_pdfs/`：巨潮 PDF 的有界下载/解析工作目录；默认在页码证据卡和 PDF SHA-256 已落入事实库后删除可重新下载的原文，可用 `LIANGJIAN_CNINFO_PDF_RETAIN_RAW=true` 选择长期保留。模型始终只读带页码的短证据卡。
+
+公司公告采用免费官方多入口：巨潮是沪深公告索引主源；主源查询失败时按上市地回退到上交所、深交所或北交所公开公告入口。确认成功的零记录不会触发回退，所有提供方尝试、失败原因、抓取时间和来源 URL 都会冻结。近期公告查询始终失败关闭；年报、半年报及招股说明书查询在全部实时入口失败时，可在 45 天内复用最后一次完整、内容寻址的公告索引，并明确标为 `STALE_VERIFIED_FALLBACK`，不得冒充当日公告完整。交易所 PDF 仅允许官方静态域名，仍执行大小、页数、内容类型、PDF 魔数和内容哈希限制。
 - `PHASE1_PHASE2_ACCEPTANCE_REPORT.md`：事实源和本地确定性聚合的中间验收证据。
 - `state/workflow.sqlite3`：计划、信号、三个虚拟账户、持仓、成交和租约。
 

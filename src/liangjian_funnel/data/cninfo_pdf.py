@@ -27,6 +27,10 @@ SHANGHAI = ZoneInfo("Asia/Shanghai")
 CNINFO_PDF_HOST = "static.cninfo.com.cn"
 BSE_PDF_HOST = "www.bse.cn"
 BSE_PDF_REFERER = "https://www.bse.cn/disclosure/announcement.html"
+SSE_PDF_HOST = "static.sse.com.cn"
+SSE_PDF_REFERER = "https://www.sse.com.cn/assortment/stock/list/info/announcement/"
+SZSE_PDF_HOST = "disc.static.szse.cn"
+SZSE_PDF_REFERER = "https://www.szse.cn/disclosure/listed/notice/index.html"
 MAX_PDF_BYTES = 64 * 1024 * 1024
 MAX_PDF_PAGES = 200
 MAX_EXTRACTED_CHARS = 200_000
@@ -266,6 +270,10 @@ class CninfoPdfClient:
                         "Referer": (
                             BSE_PDF_REFERER
                             if urlparse(url).hostname == BSE_PDF_HOST
+                            else SSE_PDF_REFERER
+                            if urlparse(url).hostname == SSE_PDF_HOST
+                            else SZSE_PDF_REFERER
+                            if urlparse(url).hostname == SZSE_PDF_HOST
                             else CNINFO_REFERER
                         ),
                     },
@@ -506,7 +514,12 @@ def _approved_url(url: str) -> bool:
     parsed = urlparse(url)
     return bool(
         parsed.scheme == "https"
-        and parsed.hostname in {CNINFO_PDF_HOST, BSE_PDF_HOST}
+        and parsed.hostname in {
+            CNINFO_PDF_HOST,
+            BSE_PDF_HOST,
+            SSE_PDF_HOST,
+            SZSE_PDF_HOST,
+        }
         and parsed.port is None
         and not parsed.username
         and not parsed.password
@@ -637,6 +650,8 @@ def _aware(value: datetime) -> datetime:
 
 __all__ = [
     "CNINFO_PDF_HOST",
+    "SSE_PDF_HOST",
+    "SZSE_PDF_HOST",
     "MAX_PDF_BYTES",
     "CninfoPdfClient",
     "CninfoPdfEvidence",

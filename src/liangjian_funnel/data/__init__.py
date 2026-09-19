@@ -43,6 +43,18 @@ from .bse import (
     BseClient,
     BseContractError,
 )
+from .disclosure_router import DisclosureClient, OfficialDisclosureRouter
+from .exchange_disclosure import (
+    SSE_ENDPOINT,
+    SSE_REFERER,
+    SSE_SOURCE_ID,
+    SZSE_ENDPOINT,
+    SZSE_REFERER,
+    SZSE_SOURCE_ID,
+    ExchangeDisclosureContractError,
+    SseDisclosureClient,
+    SzseDisclosureClient,
+)
 from .gov_policy import (
     GOV_POLICY_ENDPOINT,
     GOV_POLICY_SOURCE_ID,
@@ -86,6 +98,17 @@ __all__ = [
     "BSE_USER_AGENT",
     "BseClient",
     "BseContractError",
+    "DisclosureClient",
+    "OfficialDisclosureRouter",
+    "SSE_ENDPOINT",
+    "SSE_REFERER",
+    "SSE_SOURCE_ID",
+    "SZSE_ENDPOINT",
+    "SZSE_REFERER",
+    "SZSE_SOURCE_ID",
+    "ExchangeDisclosureContractError",
+    "SseDisclosureClient",
+    "SzseDisclosureClient",
     "GOV_POLICY_ENDPOINT",
     "GOV_POLICY_SOURCE_ID",
     "GovPolicyClient",

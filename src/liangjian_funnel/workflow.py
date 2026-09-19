@@ -29,6 +29,8 @@ from .data.a2_market import (
 )
 from .data.bse import BseClient
 from .data.cninfo import CninfoAnnouncement, CninfoClient, CninfoFetchResult
+from .data.disclosure_router import OfficialDisclosureRouter
+from .data.exchange_disclosure import SseDisclosureClient, SzseDisclosureClient
 from .data.cninfo_pdf import CninfoPdfClient, CninfoPdfEvidence
 from .data.gov_policy import GovPolicyClient
 from .data.eastmoney_hot import collect_eastmoney_hot100
@@ -803,7 +805,16 @@ class WorkflowApplication:
         ) as cninfo, BseClient(
             timeout_seconds=self.settings.timeout_seconds,
             min_request_interval_seconds=self.settings.cninfo_min_request_interval_seconds,
-        ) as bse:
+        ) as bse, SseDisclosureClient(
+            timeout_seconds=self.settings.timeout_seconds,
+            min_request_interval_seconds=self.settings.cninfo_min_request_interval_seconds,
+        ) as sse, SzseDisclosureClient(
+            timeout_seconds=self.settings.timeout_seconds,
+            min_request_interval_seconds=self.settings.cninfo_min_request_interval_seconds,
+        ) as szse:
+            disclosure_router = OfficialDisclosureRouter(
+                cninfo, sse=sse, szse=szse, bse=bse
+            )
             # Each candidate is one independent unit containing the recent and
             # business-history queries.  The shared client owns the global
             # request throttle, so workers hide network latency without
@@ -813,12 +824,11 @@ class WorkflowApplication:
                 for index, candidate in enumerate(selected):
                     future = executor.submit(
                         self._fetch_cninfo_candidate_queries,
-                        cninfo,
+                        disclosure_router,
                         candidate.symbol,
                         query_start,
                         query_end,
                         business_query_start,
-                        bse_client=bse,
                     )
                     query_futures[future] = index
                 completed_queries: dict[
@@ -866,14 +876,13 @@ class WorkflowApplication:
                 symbol, recent_result, recent_hit, business_result, business_hit = completed_queries[index]
                 result = _merge_cninfo_query_results(recent_result, business_result)
                 cninfo_results[symbol] = result
-                disclosure_source = "BSE" if symbol.upper().endswith(".BJ") else "CNINFO"
                 if not recent_result.ok or not recent_result.complete:
                     source_failures.setdefault(symbol, []).append(
-                        f"{disclosure_source}:{recent_result.reason_code}"
+                        f"OFFICIAL_DISCLOSURE_RECENT:{recent_result.reason_code}"
                     )
                 if not business_result.ok or not business_result.complete:
                     source_failures.setdefault(symbol, []).append(
-                        f"{disclosure_source}_MAIN_BUSINESS:{business_result.reason_code}"
+                        f"OFFICIAL_DISCLOSURE_MAIN_BUSINESS:{business_result.reason_code}"
                     )
         # Freeze the complete PDF work list before opening the client.  The
         # candidate selector is deterministic, so this gives the control
@@ -1386,7 +1395,7 @@ class WorkflowApplication:
 
     def _cached_cninfo_result(
         self,
-        client: CninfoClient | BseClient,
+        client: Any,
         *,
         symbol: str,
         start_date: str,
@@ -1394,6 +1403,7 @@ class WorkflowApplication:
         semantic_key: str,
         ttl: timedelta,
         search_keyword: str | None = None,
+        stale_if_error: timedelta | None = None,
     ) -> tuple[CninfoFetchResult, bool]:
         cache_key = f"{symbol}:{semantic_key}"
         now = datetime.now(SHANGHAI)
@@ -1407,7 +1417,9 @@ class WorkflowApplication:
                 return CninfoFetchResult.model_validate(cached["payload"]), True
             except Exception:
                 pass
-        result = client.fetch_announcements(
+        router_primary_only = isinstance(client, OfficialDisclosureRouter) and stale_if_error is not None
+        fetch_method = client.fetch_primary if router_primary_only else client.fetch_announcements
+        result = fetch_method(
             symbol,
             start_date,
             end_date,
@@ -1421,11 +1433,65 @@ class WorkflowApplication:
                 fetched_at=result.fetched_at,
                 expires_at=result.fetched_at + ttl,
             )
+            return result, False
+
+        # Periodic reports and their parsed business evidence remain factual
+        # after a web query expires.  When every live official locator fails,
+        # reuse only the last complete immutable query within a bounded age
+        # and state the degradation explicitly.  Recent-risk queries never
+        # pass ``stale_if_error`` and therefore remain fail closed.
+        if stale_if_error is not None:
+            stale = self.fact_cache.get_cached_result(
+                "CNINFO_ANNOUNCEMENTS",
+                cache_key,
+                as_of=now,
+            )
+            if stale is not None:
+                try:
+                    cached_result = CninfoFetchResult.model_validate(stale["payload"])
+                    fetched_at = datetime.fromisoformat(str(stale["fetched_at"]))
+                    if fetched_at.tzinfo is None or fetched_at.utcoffset() is None:
+                        fetched_at = fetched_at.replace(tzinfo=SHANGHAI)
+                    age = now - fetched_at.astimezone(SHANGHAI)
+                    if timedelta(0) <= age <= stale_if_error:
+                        return cached_result.model_copy(
+                            update={
+                                "metadata": {
+                                    **cached_result.metadata,
+                                    "cache_status": "STALE_VERIFIED_FALLBACK",
+                                    "availability_state": "STALE_VERIFIED_FALLBACK",
+                                    "cache_age_seconds": age.total_seconds(),
+                                    "live_failure_reason_code": result.reason_code,
+                                    "live_failure_source_id": result.source_id,
+                                    "live_provider_attempts": result.metadata.get(
+                                        "provider_attempts", []
+                                    ),
+                                }
+                            }
+                        ), True
+                except Exception:
+                    pass
+        if router_primary_only:
+            result = client.fetch_after_primary_failure(
+                result,
+                symbol,
+                start_date,
+                end_date,
+                search_keyword=search_keyword or "",
+            )
+            if result.ok and result.complete:
+                self.fact_cache.put_cached_result(
+                    "CNINFO_ANNOUNCEMENTS",
+                    cache_key,
+                    result.model_dump(mode="json"),
+                    fetched_at=result.fetched_at,
+                    expires_at=result.fetched_at + ttl,
+                )
         return result, False
 
     def _fetch_cninfo_candidate_queries(
         self,
-        cninfo_client: CninfoClient,
+        cninfo_client: Any,
         symbol: str,
         query_start: str,
         query_end: str,
@@ -1435,8 +1501,10 @@ class WorkflowApplication:
     ) -> tuple[str, CninfoFetchResult, bool, CninfoFetchResult, bool]:
         """Fetch both official disclosure-query lanes for one candidate."""
 
-        client: CninfoClient | BseClient = cninfo_client
-        if symbol.upper().endswith(".BJ") and bse_client is not None:
+        client: Any = cninfo_client
+        if symbol.upper().endswith(".BJ") and bse_client is not None and not isinstance(
+            cninfo_client, OfficialDisclosureRouter
+        ):
             client = bse_client
 
         recent_result, recent_hit = self._cached_cninfo_result(
@@ -1455,6 +1523,7 @@ class WorkflowApplication:
             semantic_key="ANNUAL_REPORT_450D",
             ttl=timedelta(days=7),
             search_keyword="年度报告",
+            stale_if_error=timedelta(days=45),
         )
         from .facts.cninfo import is_full_periodic_report
 
@@ -1469,6 +1538,7 @@ class WorkflowApplication:
             prospectus_result, prospectus_hit = self._cached_cninfo_result(
                 client, symbol=symbol, start_date=business_query_start, end_date=query_end,
                 semantic_key=semantic_key, ttl=timedelta(days=7), search_keyword=keyword,
+                stale_if_error=timedelta(days=45),
             )
             supplement_queries = list(business_result.metadata.get("supplemental_queries", []))
             supplement_queries.append({"search_keyword": keyword, "reason_code": prospectus_result.reason_code,
@@ -7180,6 +7250,8 @@ def _merge_cninfo_query_results(
             "end_date": recent.end_date,
             "reason_code": recent.reason_code,
             "announcement_count": len(recent.announcements),
+            "provider_attempts": recent.metadata.get("provider_attempts", []),
+            "fallback_used": recent.metadata.get("fallback_used", False),
         },
         "main_business_query": {
             "start_date": business_history.start_date,
@@ -7188,9 +7260,17 @@ def _merge_cninfo_query_results(
             "supplemental_queries": business_history.metadata.get("supplemental_queries", []),
             "reason_code": business_history.reason_code,
             "announcement_count": len(business_history.announcements),
+            "provider_attempts": business_history.metadata.get("provider_attempts", []),
+            "fallback_used": business_history.metadata.get("fallback_used", False),
+            "cache_status": business_history.metadata.get("cache_status"),
+            "cache_age_seconds": business_history.metadata.get("cache_age_seconds"),
         },
+        "recent_query_complete": bool(recent.ok and recent.complete),
+        "main_business_query_complete": bool(
+            business_history.ok and business_history.complete
+        ),
     }
-    if not recent.ok or not recent.complete or not business_history.ok or not business_history.complete:
+    if not business_history.ok or not business_history.complete:
         return recent.model_copy(update={"metadata": metadata})
     combined = {item.announcement_id: item for item in recent.announcements}
     for item in business_history.announcements:
@@ -7202,16 +7282,52 @@ def _merge_cninfo_query_results(
             reverse=True,
         )
     )
+    degraded_recent = not recent.ok or not recent.complete
     return recent.model_copy(
         update={
             "start_date": business_history.start_date,
+            "ok": True,
+            "complete": True,
+            "reason_code": (
+                "BUSINESS_EVIDENCE_READY_RECENT_QUERY_UNAVAILABLE"
+                if degraded_recent
+                else recent.reason_code
+            ),
             "announcements": announcements,
             "total": len(announcements),
             "total_pages": recent.total_pages,
             "pages": recent.pages + business_history.pages,
             "attempts": recent.attempts + business_history.attempts,
             "fetched_at": max(recent.fetched_at, business_history.fetched_at),
-            "metadata": metadata,
+            "source_id": business_history.source_id if degraded_recent else recent.source_id,
+            "source_url": business_history.source_url if degraded_recent else recent.source_url,
+            "metadata": {
+                **metadata,
+                "provider_attempts": (
+                    business_history.metadata.get("provider_attempts", [])
+                    if degraded_recent
+                    else recent.metadata.get("provider_attempts", [])
+                ),
+                "fallback_used": (
+                    business_history.metadata.get("fallback_used", False)
+                    if degraded_recent
+                    else recent.metadata.get("fallback_used", False)
+                ),
+                "cache_status": business_history.metadata.get("cache_status"),
+                "cache_age_seconds": business_history.metadata.get("cache_age_seconds"),
+                "availability_state": (
+                    "DEGRADED_RECENT_QUERY_UNAVAILABLE"
+                    if degraded_recent
+                    else recent.metadata.get("availability_state", "READY")
+                ),
+                "live_failure_reason_code": business_history.metadata.get(
+                    "live_failure_reason_code"
+                ),
+                "degraded": degraded_recent,
+                "degraded_reason_code": (
+                    recent.reason_code if degraded_recent else None
+                ),
+            },
         }
     )
 
