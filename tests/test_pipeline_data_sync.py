@@ -233,6 +233,80 @@ def test_daily_cache_uses_closed_bar_watermark_instead_of_wall_clock_ttl(tmp_pat
     assert all(dataset == "DAILY" for dataset, _symbol in refreshed.calls)
 
 
+def test_weekend_sync_requires_friday_instead_of_nonexistent_saturday_bar(tmp_path):
+    cache = LocalFactCache(tmp_path / "facts.sqlite3")
+    friday_close = datetime(2026, 9, 18, 15, 10, tzinfo=TZ)
+    saturday = datetime(2026, 9, 19, 20, 50, tzinfo=TZ)
+
+    class FridayClient(FakeClient):
+        def history_1d(self, symbol, **kwargs):
+            self.calls.append(("DAILY", symbol))
+            self.history_kwargs.append(kwargs)
+            rows = []
+            for index in range(31):
+                point = friday_close.replace(hour=0, minute=0) - timedelta(days=30 - index)
+                rows.append({
+                    "date_ms": int(point.timestamp() * 1000),
+                    "open_price": 10,
+                    "high_price": 11,
+                    "low_price": 9,
+                    "close_price": 10.5,
+                    "volume": 1000,
+                    "turnover": 10000,
+                })
+            return _result("history", rows)
+
+    client = FridayClient()
+    result = HithinkIncrementalSynchronizer(cache).sync(
+        client,
+        ["600519.SH"],
+        as_of=saturday,
+        include_financial=False,
+    )
+
+    assert result.failures == {}
+    assert datetime.fromtimestamp(
+        result.daily["600519.SH"][-1]["date_ms"] / 1000,
+        tz=TZ,
+    ).date() == friday_close.date()
+    requested_end = datetime.fromtimestamp(client.history_kwargs[0]["end"] / 1000, tz=TZ)
+    assert requested_end == datetime(2026, 9, 19, 0, 0, tzinfo=TZ)
+
+
+def test_trading_day_morning_requires_previous_closed_session(tmp_path):
+    cache = LocalFactCache(tmp_path / "facts.sqlite3")
+    monday_morning = datetime(2026, 9, 21, 9, 20, tzinfo=TZ)
+
+    class FridayClient(FakeClient):
+        def history_1d(self, symbol, **kwargs):
+            self.calls.append(("DAILY", symbol))
+            self.history_kwargs.append(kwargs)
+            friday = datetime(2026, 9, 18, 0, 0, tzinfo=TZ)
+            rows = [{
+                "date_ms": int((friday - timedelta(days=30 - index)).timestamp() * 1000),
+                "open_price": 10,
+                "high_price": 11,
+                "low_price": 9,
+                "close_price": 10.5,
+                "volume": 1000,
+                "turnover": 10000,
+            } for index in range(31)]
+            return _result("history", rows)
+
+    result = HithinkIncrementalSynchronizer(cache).sync(
+        FridayClient(),
+        ["600519.SH"],
+        as_of=monday_morning,
+        include_financial=False,
+    )
+
+    assert result.failures == {}
+    assert datetime.fromtimestamp(
+        result.daily["600519.SH"][-1]["date_ms"] / 1000,
+        tz=TZ,
+    ).date().isoformat() == "2026-09-18"
+
+
 def test_stale_fundamentals_rotate_oldest_without_reducing_research_coverage(tmp_path):
     cache = LocalFactCache(tmp_path / "facts.sqlite3")
     initial = HithinkIncrementalSynchronizer(cache, progress_every=1)

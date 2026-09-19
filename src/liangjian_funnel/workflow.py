@@ -339,6 +339,7 @@ class WorkflowApplication:
         # marks symbols dirty after a successful provider write; maintenance
         # publishes a new generation separately, so a partial sync cannot
         # contaminate the active research generation.
+        self.trading_calendar = ExchangeTradingCalendar()
         self.feature_store = ResearchFeatureStore(settings.feature_store_db_path)
         self.fact_synchronizer = HithinkIncrementalSynchronizer(
             self.fact_cache,
@@ -347,6 +348,7 @@ class WorkflowApplication:
             daily_refresh_hours=settings.daily_refresh_hours,
             progress_every=settings.data_progress_every,
             batch_size=settings.data_sync_batch_size,
+            trading_calendar=self.trading_calendar,
         )
         self._stage_technical_cache: dict[tuple[str, str], dict[str, Any]] = {}
         self._stage_technical_lock = RLock()
@@ -381,7 +383,6 @@ class WorkflowApplication:
             max_attempts=3,
             thinking_enabled=settings.research_thinking_enabled,
         )
-        self.trading_calendar = ExchangeTradingCalendar()
         mootdx = MootdxAdapter(
             tuple(MootdxNode(host=host, port=port) for host, port in settings.mootdx_servers),
             page_size=settings.mootdx_page_size,

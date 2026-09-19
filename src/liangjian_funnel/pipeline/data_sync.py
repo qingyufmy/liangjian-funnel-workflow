@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 from .data_source import HithinkClient, HithinkFetchResult
 from .local_fact_cache import LocalFactCache
 from .early_discovery import discover_early_setups, merge_discovery_parts
+from ..runtime.calendar import ExchangeTradingCalendar
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -59,6 +60,7 @@ class HithinkIncrementalSynchronizer:
         daily_refresh_hours: int = 4,
         progress_every: int = 25,
         batch_size: int = 50,
+        trading_calendar: ExchangeTradingCalendar | None = None,
     ) -> None:
         self.cache = cache
         self.fundamental_refresh = timedelta(hours=max(1, int(fundamental_refresh_hours)))
@@ -68,6 +70,7 @@ class HithinkIncrementalSynchronizer:
         self.daily_refresh = timedelta(hours=max(1, int(daily_refresh_hours)))
         self.progress_every = max(1, int(progress_every))
         self.batch_size = max(1, int(batch_size))
+        self.trading_calendar = trading_calendar or ExchangeTradingCalendar()
 
     def sync(
         self,
@@ -95,11 +98,9 @@ class HithinkIncrementalSynchronizer:
         daily_updates = 0
         financial_refreshes = 0
         start = current - timedelta(days=max(1, int(lookback_days)))
-        closed_daily_end = _closed_daily_end(current)
-        required_latest_daily = (
-            current.replace(hour=0, minute=0, second=0, microsecond=0)
-            if current.time().replace(tzinfo=None) >= datetime_time(15, 0)
-            else None
+        required_latest_daily, closed_daily_end = _closed_daily_window(
+            current,
+            self.trading_calendar,
         )
         financial_states = {
             (str(state.get("endpoint") or ""), str(state.get("symbol") or "")): state
@@ -481,14 +482,37 @@ def _latest_row_time(rows: Sequence[Any]) -> str | None:
     return max(values).isoformat() if values else None
 
 
-def _closed_daily_end(value: datetime) -> datetime:
-    """Exclusive cutoff containing only fully closed A-share daily bars."""
+def _closed_daily_window(
+    value: datetime,
+    calendar: ExchangeTradingCalendar,
+) -> tuple[datetime, datetime]:
+    """Return latest closed session and its exclusive daily-bar cutoff.
+
+    Wall-clock dates are not exchange sessions.  On weekends, exchange
+    holidays and a trading-day morning, the latest fully closed daily bar is
+    the previous session.  After 15:00 on a trading day it is the current
+    session.  The calendar is deliberately fail-closed; callers must not
+    silently fall back to weekday arithmetic when the session table is
+    unavailable.
+    """
 
     current = _aware(value)
-    day_start = current.replace(hour=0, minute=0, second=0, microsecond=0)
-    if current.time().replace(tzinfo=None) >= datetime_time(15, 0):
-        return day_start + timedelta(days=1)
-    return day_start
+    current_date = current.date()
+    current_session_closed = (
+        calendar.is_trading_day(current_date)
+        and current.time().replace(tzinfo=None) >= datetime_time(15, 0)
+    )
+    latest_session = (
+        current_date
+        if current_session_closed
+        else calendar.previous_trading_day(current_date)
+    )
+    required_latest = datetime.combine(
+        latest_session,
+        datetime_time.min,
+        tzinfo=SHANGHAI,
+    )
+    return required_latest, required_latest + timedelta(days=1)
 
 
 def _report_period(row: Mapping[str, Any], fallback: datetime) -> str:
