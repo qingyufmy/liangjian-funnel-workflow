@@ -159,6 +159,16 @@ wait_for_health() {
   return 1
 }
 
+wait_for_stable_health() {
+  local checks="${1:-15}"
+  for _ in $(seq 1 "${checks}"); do
+    if ! curl --fail --silent --show-error http://127.0.0.1:3210/api/health >/dev/null; then
+      return 1
+    fi
+    sleep 1
+  done
+}
+
 echo "[deploy] Stopping BaoTa Node project..."
 old_node_pid="$(pgrep -u www -f 'node dist/server/index\.js' | head -n 1 || true)"
 baota_action stop
@@ -180,6 +190,10 @@ if [[ -n "${old_node_pid}" ]]; then
   fi
 fi
 
+# BaoTa's stop hook can outlive the PID it targeted. Give the control plane a
+# short quiescence interval so a delayed stop cannot kill the replacement.
+sleep 5
+
 echo "[deploy] Starting BaoTa Node project..."
 baota_action start
 
@@ -188,16 +202,14 @@ if ! wait_for_health; then
   echo "[deploy] Node start failed."
   exit 3
 fi
-sleep 5
-if ! curl --fail --silent --show-error http://127.0.0.1:3210/api/health >/dev/null; then
+if ! wait_for_stable_health 15; then
   echo "[deploy] Node exited after the initial health check; retrying BaoTa start once..."
   baota_action start
   if ! wait_for_health; then
     echo "[deploy] Node recovery start failed."
     exit 4
   fi
-  sleep 5
-  if ! curl --fail --silent --show-error http://127.0.0.1:3210/api/health >/dev/null; then
+  if ! wait_for_stable_health 15; then
     echo "[deploy] Node did not remain healthy after recovery start."
     exit 5
   fi
