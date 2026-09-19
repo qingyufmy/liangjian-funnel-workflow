@@ -723,6 +723,7 @@ class WorkflowApplication:
             def sync_progress(event: Mapping[str, Any]) -> None:
                 if progress is None:
                     return
+                progress.set_phase("COMPANY_FACT_SYNC")
                 progress.update_data(
                     processed=int(event.get("processed") or 0),
                     total=int(event.get("total") or len(selected)),
