@@ -83,4 +83,12 @@
 | SRC-12 | 转载去重且过期观点无交易权 | `test_src_12_reposts_form_one_source_chain_and_expired_opinion_has_no_authority` | 10份转载归1条来源链；保留可检验条件和失效期 | 通过（离线） |
 | SRC-13 | 主营提取失败时行业仅作分类回退 | `test_src_13_business_parse_failure_keeps_industry_as_classification_only` | 原文保留、主营段为空、S04覆盖记录 `PARSE_ERROR` | 通过（离线） |
 | SRC-14 | 未授权/未实测/口径未验收不得正式 fallback | `test_src_14_unlicensed_or_unverified_source_cannot_become_fallback` | 即使误开 enabled/执行权仍因许可与LIVE状态阻断 | 通过（离线） |
-| EVAL-01 | 分层增益与反事实不混用 | S10 回放/统计测试 | 未开始 | 待 S10 |
+| EVAL-01 | 未来标签/财务修订不改写冻结决策身份 | `test_eval_01_future_revisions_do_not_change_frozen_decision_identity` | 标签可追加，决策哈希不变 | 通过（离线） |
+| EVAL-02 | 忠实回放与补数回放严格隔离 | `test_eval_02_observed_and_repaired_runs_are_strictly_separated` | 忠实缺证据阻断；补数报告不可声称历史可交易 | 通过（离线） |
+| EVAL-03 | 重复回放幂等，阻断/未成交不算盈利 | `test_eval_03_replay_is_idempotent_and_nonfills_are_not_profitable_trades` | 重复订单按身份去重；仅真实 fill 计净收益 | 通过（离线） |
+| EVAL-04 | 费用/成交/策略版本分开报告 | `test_eval_04_versioned_cost_fill_and_strategy_reports_never_overwrite` | 任一版本变化生成不同 report_id | 通过（离线） |
+| EVAL-05 | 固定时间切分并检测标签窗口重叠 | `test_eval_05_time_split_is_fixed_and_detects_overlapping_label_windows` | walk-forward + purge + embargo；无随机拆行 | 通过（离线） |
+| EVAL-06 | 模型否决的信号与账户效果分开 | `test_eval_06_llm_veto_signal_and_account_effects_are_not_added_together` | 账户只用真实成交，禁止直接叠加反事实收益 | 通过（离线） |
+| EVAL-07 | 未来公告、错日期主题、未知复权和成本遗漏 fail closed | 参数化 `test_eval_07_known_future_and_cost_leakage_counterexamples_fail` | 四类污染均返回稳定错误码 | 通过（离线） |
+| EVAL-08 | 少样本不足证据，基准与选择样本不污染 | `test_eval_08_small_samples_and_contaminated_benchmarks_are_not_evidence` | 少样本为 `INSUFFICIENT_EVIDENCE`；交集阻断 | 通过（离线） |
+| EVAL-09 | A1/A2 全去向集合对账并保留失败样本 | `test_eval_09_a1_a2_reconciliation_keeps_rejected_and_missing_rows` | input=passed∪rejected∪missing 且互斥 | 通过（离线） |

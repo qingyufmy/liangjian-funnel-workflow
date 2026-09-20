@@ -1,0 +1,70 @@
+{
+  "schema_version": "liangjian-layered-evaluation-input/1.0.0",
+  "run_id": "test-only-observed-20260903",
+  "dataset_mode": "AS_OBSERVED",
+  "generated_at": "2026-09-20T10:00:00+08:00",
+  "data_cutoff": "2026-09-03T15:00:00+08:00",
+  "input_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "config_version": "test-config-v1",
+  "strategy_version": "test-strategy-v1",
+  "fill_model_version": "test-fill-v2",
+  "fee_model_version": "test-fee-cn-a-v1",
+  "costs_complete": true,
+  "random_seed": 20260920,
+  "split": {
+    "method": "TIME_WALK_FORWARD",
+    "purge_days": 10,
+    "embargo_days": 1
+  },
+  "decisions": [
+    {
+      "decision_id": "test-decision-1",
+      "symbol": "600001.SH",
+      "trade_date": "2026-09-03",
+      "decision_at": "2026-09-03T10:00:00+08:00",
+      "selected_at": "2026-09-03T10:00:00+08:00",
+      "strategy_profile": "TREND_MA5",
+      "technical_eligible": true,
+      "a1_decision": "PASSED",
+      "a2_decision": "PASSED",
+      "a3_decision": "PASSED",
+      "a4_decision": "BUY",
+      "llm_decision": "ALLOW",
+      "llm_used": true,
+      "server_override": "NONE",
+      "a1_path": "BUSINESS_AND_EARNINGS",
+      "a2_theme": "TEST_THEME",
+      "a2_role": "CORE",
+      "a4_conditions": ["MA5_RECLAIM"],
+      "market_regime": "ROTATION",
+      "entry_mode": "PULLBACK_RECLAIM",
+      "target_source": "STRUCTURE",
+      "holding_window_days": 5,
+      "theme_snapshot_date": "2026-09-03",
+      "announcement_first_known_at": "2026-09-03T09:00:00+08:00",
+      "adjustment_state": "RAW_PLUS_EXPLICIT_FACTOR",
+      "evidence_complete": true,
+      "frozen_evidence": {
+        "snapshot_id": "test-snapshot-1",
+        "snapshot_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+        "first_known_at": "2026-09-03T09:59:00+08:00"
+      },
+      "label": {
+        "labeled_at": "2026-09-18T16:10:00+08:00",
+        "fwd_return_1d": 0.01,
+        "fwd_return_3d": 0.02,
+        "fwd_return_5d": 0.03,
+        "fwd_return_10d": null,
+        "mfe_5d": 0.05,
+        "mae_5d": -0.01
+      }
+    }
+  ],
+  "orders": [],
+  "universe_reconciliation": {
+    "A1": {"input": ["test-decision-1"], "passed": ["test-decision-1"], "rejected": [], "missing": []},
+    "A2": {"input": ["test-decision-1"], "passed": ["test-decision-1"], "rejected": [], "missing": []}
+  },
+  "benchmark": {"kind": "HELD_OUT", "sample_ids": ["test-benchmark-1"]},
+  "repairs": []
+}

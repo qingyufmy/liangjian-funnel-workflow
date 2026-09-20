@@ -10,7 +10,7 @@
     ],
     "production_runtime_modified": false
   },
-  "current_stage": "S09",
+  "current_stage": "S10",
   "stages": {
     "S00": {
       "code_status": "CODE_ACCEPTED",
@@ -606,16 +606,90 @@
         "artifacts/iteration/s09-offline-20260920/"
       ]
     },
-    "S10": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
+    "S10": {
+      "code_status": "CODE_ACCEPTED",
+      "evidence_status": "OFFLINE_CONTRACT_ACCEPTED_REAL_REPLAY_PENDING",
+      "replay_status": "PENDING_READONLY_PRODUCTION_EVIDENCE",
+      "operations_status": "PENDING_PRODUCTION_EVIDENCE",
+      "strategy_status": "INSUFFICIENT_EVIDENCE",
+      "changed_files": [
+        "config/evaluation_experiments.yaml",
+        "src/liangjian_funnel/evaluation/layered_evaluation.py",
+        "src/liangjian_funnel/evaluation/__init__.py",
+        "scripts/run_layered_evaluation.py",
+        "scripts/run_iteration_acceptance.py",
+        "tests/iteration/test_layered_evaluation.py",
+        "tests/fixtures/layered_evaluation_observed.json",
+        "docs/iteration/S10_EVALUATION_GOVERNANCE.md",
+        "docs/iteration/*"
+      ],
+      "dependencies": ["S00", "S01", "S02", "S03", "S04", "S05", "S06", "S07", "S08", "S09"],
+      "commands": [
+        {
+          "command": ".venv/Scripts/python.exe -m pytest -q tests/iteration/test_layered_evaluation.py",
+          "exit_code": 2,
+          "result": "collection failed before implementation because evaluation.layered_evaluation did not exist",
+          "artifact": null
+        },
+        {
+          "command": ".venv/Scripts/python.exe -m pytest -q tests/iteration/test_layered_evaluation.py",
+          "exit_code": 1,
+          "result": "one fixture failure exposed an order referencing a decision outside the reduced sample scope; fixture generator corrected",
+          "artifact": null
+        },
+        {
+          "command": ".venv/Scripts/python.exe -m pytest -q tests/iteration/test_layered_evaluation.py --cov=liangjian_funnel.evaluation.layered_evaluation --cov-branch --cov-report=term",
+          "exit_code": 0,
+          "result": "55 passed; layered evaluation branch coverage 98%",
+          "artifact": null
+        },
+        {
+          "command": ".venv/Scripts/python.exe scripts/run_layered_evaluation.py --manifest tests/fixtures/layered_evaluation_observed.json --output-dir artifacts/iteration/s10-layered-20260920",
+          "exit_code": 0,
+          "result": "test-only AS_OBSERVED report emitted; strategy status INSUFFICIENT_EVIDENCE; no production config change",
+          "artifact": "artifacts/iteration/s10-layered-20260920/layered-evaluation.json"
+        },
+        {
+          "command": ".venv/Scripts/python.exe -m pytest -q tests/iteration/test_layered_evaluation.py tests/test_outcome_labels.py tests/test_a4_replay.py tests/test_replay_window.py tests/test_replay_acceptance_coverage.py tests/test_broker_gold_public_data.py tests/test_broker_gold_benchmark.py tests/test_historical_replay_isolation.py",
+          "exit_code": 0,
+          "result": "52 passed before expanded contract-edge suite",
+          "artifact": null
+        },
+        {
+          "command": ".venv/Scripts/python.exe -m pytest --cov=liangjian_funnel --cov-report=term --cov-report=xml:artifacts/iteration/s10-regression-20260920/coverage.xml --cov-fail-under=65 --junitxml=artifacts/iteration/s10-regression-20260920/python-junit.xml",
+          "exit_code": 0,
+          "result": "1879 passed, 4 skipped, coverage 78.97%",
+          "artifact": "artifacts/iteration/s10-regression-20260920/"
+        },
+        {
+          "command": "npm run typecheck; npm test; npm run build",
+          "exit_code": 0,
+          "result": "typecheck passed; 91 tests passed; web and server build passed",
+          "artifact": null
+        },
+        {
+          "command": ".venv/Scripts/python.exe scripts/run_iteration_acceptance.py --profile offline --output-dir artifacts/iteration/s10-offline-20260920",
+          "exit_code": 0,
+          "result": "CODE_ACCEPTED; 207 passed, 0 failed, 0 skipped",
+          "artifact": "artifacts/iteration/s10-offline-20260920/summary.json"
+        }
+      ],
+      "artifacts": [
+        "artifacts/iteration/s10-layered-20260920/layered-evaluation.json",
+        "artifacts/iteration/s10-regression-20260920/",
+        "artifacts/iteration/s10-offline-20260920/"
+      ]
+    },
     "S11": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"}
   },
   "unresolved": [
     "A1 production frozen-snapshot coverage and real backfill adapter throughput require OPERATIONS evidence",
     "strict LLM review remains disabled until isolated replay and shadow evidence support production enablement",
     "all S09 external candidate sources remain disabled and LIVE_UNVERIFIED pending license, upstream and live capability evidence",
+    "S10 real AS_OBSERVED replay requires an authorized read-only production evidence export; test fixtures do not satisfy REPLAY acceptance",
     "replay, operations and strategy acceptance remain unproven"
   ],
   "blockers": [],
-  "next_action": "Implement S10 layered evaluation, AS_OBSERVED versus REPAIRED_DATA separation, causal scorecards and strategy-change governance.",
-  "updated_at": "2026-09-20T19:54:00+08:00"
+  "next_action": "Implement S11 integrated acceptance, production-evidence export contract, migration rehearsal, shadow isolation and rollback proof without deploying production.",
+  "updated_at": "2026-09-20T20:12:00+08:00"
 }

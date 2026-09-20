@@ -1,0 +1,49 @@
+schema_version: liangjian-evaluation-preregistration/1.0.0
+frozen_before_results: true
+random_seed: 20260920
+minimum_labeled_samples: 30
+split:
+  method: TIME_WALK_FORWARD
+  purge_days: 10
+  embargo_days: 1
+layers:
+  - TECHNICAL_BASELINE
+  - PLUS_A1
+  - PLUS_A2
+  - FULL_A3_A4
+  - PLUS_LLM_VETO
+fixed_contracts:
+  same_data_cutoff: true
+  same_basic_tradability: true
+  same_risk_rules: true
+  same_fill_model: true
+  same_fee_model: true
+reporting:
+  research_and_account_separate: true
+  report_all_registered_layers: true
+  allow_best_only: false
+  small_sample_status: INSUFFICIENT_EVIDENCE
+  group_by:
+    - strategy_profile
+    - market_regime
+    - entry_mode
+    - target_source
+    - holding_window_days
+    - a1_path
+    - a2_theme
+    - a2_role
+    - a4_conditions
+change_governance:
+  artifact_type: CONFIG_CHANGE_PROPOSAL
+  automatic_production_change: false
+  required_fields:
+    - hypothesis
+    - impact_scope
+    - frozen_versions
+    - training_window
+    - validation_window
+    - all_experiments
+    - control
+    - costs_and_risks
+    - acceptance_thresholds
+    - rollback

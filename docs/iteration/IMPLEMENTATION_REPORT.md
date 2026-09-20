@@ -81,3 +81,11 @@ Server API、Markdown、Web 明细和飞书计划卡均消费该投影。A4 控�
 归一化明确隔离 KPL 题材、目录概念、主营披露和行业分类；无可靠交易日的报价即使有 HTTP 文件时间也不能交易；观点以原始作者/链接/发布时间/正文组成来源链，转载不放大共识且到期无交易权；主营原文、提取段和分类回退分开保存，解析失败不伪造占比。旁路对照报告计算相同对象/时点的新增字段、冲突、旧数据、年龄和资源消耗，但输出始终无执行权。
 
 首个反例在模块不存在时按预期 collection failed。离线旁路审计产物确认四源未启用、未联网、未改变生产；聚焦测试 48 passed。最终 Python 全量为 1824 passed、4 skipped、覆盖率 78.86%；前端类型检查、91 tests 和构建通过；离线验收入口为 152 passed。真实网络、授权、覆盖与时效没有验收，故 OPERATIONS/STRATEGY 仍未通过，任何正式 fallback 均未开启。
+
+## S10
+
+新增分层评价契约，复用现有决策、结果标签和模拟订单导出，不重建回测引擎。`AS_OBSERVED`、`REPAIRED_DATA` 与 `RETROSPECTIVE_MODEL_RESEARCH` 使用独立 run/report 身份；冻结决策身份排除未来标签和事后修订，补数与事后模型研究固定禁止声称历史可交易。未来公告、错日期主题、未知复权、成本缺失、收盘后同日成交和券商金股自我基准等反例全部 fail closed。
+
+预注册五层实验并固定时间顺序 walk-forward、purge/embargo、随机种子、数据截止、风险、成交和费用版本。研究成绩单与实际成交账户成绩单分开；阻断和未成交不算盈利，模型否决的信号影响不能与账户结果直接相加。A1/A2 输入、通过、拒绝、缺失集合必须完整对账，空样本或少样本明确输出 `INSUFFICIENT_EVIDENCE`。参数调整只能形成 `CONFIG_CHANGE_PROPOSAL`，不能自动改生产。
+
+首个反例在模块不存在时按预期 collection failed；修复测试 fixture 的越界订单引用后，55 个定向测试通过，核心模块分支覆盖率 98%。最终 Python 全量为 1879 passed、4 skipped、覆盖率 78.97%；前端类型检查、91 tests 和构建通过；离线验收入口为 207 passed。成功入口使用测试 fixture，只证明 CODE 和离线契约，真实只读历史证据尚未导入，故 REPLAY/OPERATIONS 未通过、STRATEGY 仍为 `INSUFFICIENT_EVIDENCE`。

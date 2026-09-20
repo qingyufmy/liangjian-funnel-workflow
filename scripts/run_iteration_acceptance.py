@@ -309,6 +309,15 @@ def _write_summary(
         "SRC-12": ["tests/iteration/test_supplemental_sidecar.py::test_src_12_reposts_form_one_source_chain_and_expired_opinion_has_no_authority"],
         "SRC-13": ["tests/iteration/test_supplemental_sidecar.py::test_src_13_business_parse_failure_keeps_industry_as_classification_only"],
         "SRC-14": ["tests/iteration/test_supplemental_sidecar.py::test_src_14_unlicensed_or_unverified_source_cannot_become_fallback"],
+        "EVAL-01": ["tests/iteration/test_layered_evaluation.py::test_eval_01_future_revisions_do_not_change_frozen_decision_identity"],
+        "EVAL-02": ["tests/iteration/test_layered_evaluation.py::test_eval_02_observed_and_repaired_runs_are_strictly_separated"],
+        "EVAL-03": ["tests/iteration/test_layered_evaluation.py::test_eval_03_replay_is_idempotent_and_nonfills_are_not_profitable_trades"],
+        "EVAL-04": ["tests/iteration/test_layered_evaluation.py::test_eval_04_versioned_cost_fill_and_strategy_reports_never_overwrite"],
+        "EVAL-05": ["tests/iteration/test_layered_evaluation.py::test_eval_05_time_split_is_fixed_and_detects_overlapping_label_windows"],
+        "EVAL-06": ["tests/iteration/test_layered_evaluation.py::test_eval_06_llm_veto_signal_and_account_effects_are_not_added_together"],
+        "EVAL-07": ["tests/iteration/test_layered_evaluation.py::test_eval_07_known_future_and_cost_leakage_counterexamples_fail"],
+        "EVAL-08": ["tests/iteration/test_layered_evaluation.py::test_eval_08_small_samples_and_contaminated_benchmarks_are_not_evidence"],
+        "EVAL-09": ["tests/iteration/test_layered_evaluation.py::test_eval_09_a1_a2_reconciliation_keeps_rejected_and_missing_rows"],
     }
     counted = [item for item in checks if item.passed is not None]
     test_counts = {
@@ -338,6 +347,7 @@ def _write_summary(
                 REPO_ROOT / "config" / "capability_specs.yaml",
                 REPO_ROOT / "config" / "a1_evidence_contracts.yaml",
                 REPO_ROOT / "config" / "supplemental_sources.yaml",
+                REPO_ROOT / "config" / "evaluation_experiments.yaml",
                 REPO_ROOT / "docs" / "iteration" / "LIANGJIAN_CODEX_IMPLEMENTATION_MASTER.md",
             )
             if path.exists()

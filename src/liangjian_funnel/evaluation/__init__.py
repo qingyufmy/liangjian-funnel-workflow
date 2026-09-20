@@ -41,6 +41,14 @@ from .outcome_labels import (
     conditional_random_baseline,
     record_stage_decisions,
 )
+from .layered_evaluation import (
+    DatasetMode,
+    EvaluationContractError,
+    EXPERIMENT_LAYERS,
+    build_layered_evaluation,
+    decision_identity,
+    validate_config_change_proposal,
+)
 
 __all__ = [
     "BROKER_GOLD_SCHEMA_VERSION",
@@ -73,4 +81,10 @@ __all__ = [
     "backfill_forward_returns",
     "conditional_random_baseline",
     "record_stage_decisions",
+    "DatasetMode",
+    "EvaluationContractError",
+    "EXPERIMENT_LAYERS",
+    "build_layered_evaluation",
+    "decision_identity",
+    "validate_config_change_proposal",
 ]
