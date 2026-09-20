@@ -3,6 +3,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, resolve, sep, win32 } from "node:path";
 import { createInterface } from "node:readline";
 import { a3Display } from "../shared/a3-display.js";
+import { legacyResearchPresentation, normalizePersistedResearchPresentation } from "../shared/research-presentation.js";
 
 import type { AppConfig } from "./config.js";
 import { asArray, asJsonRecord, asString, redactText, sanitizeJson } from "./redaction.js";
@@ -1842,6 +1843,20 @@ export interface DataSourceSummary {
   readonly generatedAt: string | null;
   readonly path: string;
   readonly checks: JsonValue | null;
+  readonly capabilities: readonly DataSourceCapabilitySummary[];
+  readonly aggregateMeaning: "CAPABILITY_SUMMARY_ONLY";
+}
+
+export interface DataSourceCapabilitySummary {
+  readonly capability: string;
+  readonly status: string | null;
+  readonly lastSuccessAt: string | null;
+  readonly dataAsOf: string | null;
+  readonly dataAgeSeconds: number | null;
+  readonly coverage: number | null;
+  readonly lastFailureReason: string | null;
+  readonly nextAttemptAt: string | null;
+  readonly affectedPaths: readonly string[];
 }
 
 function normalizeResearchItem(
@@ -1869,11 +1884,9 @@ function normalizeResearchItem(
   const nameSource: ResearchStageDetailItem["nameSource"] = modelName
     ? declaredSource ?? "model"
     : catalogName?.source ?? "unavailable";
-  const score = stage === "A1"
-    ? firstNumber(value, ["structural_score", "structuralScore", "score"])
-    : stage === "A2"
-      ? firstNumber(value, ["theme_score", "themeScore", "identifiability_score", "identifiabilityScore", "score"])
-      : firstNumber(value, ["technical_score", "technicalScore", "score"]);
+  const presentation = normalizePersistedResearchPresentation(value.presentation)
+    ?? legacyResearchPresentation(value, stage, pool);
+  const score = presentation.displayScore;
   const selectionReasons = stage === "A1"
     ? collectStructuredTextFields(value, ["core_thesis", "coreThesis", "selection_reasons", "selectionReasons", "supporting_evidence", "supportingEvidence", "why_selected", "whySelected", "rationale"])
     : stage === "A2"
@@ -1911,6 +1924,7 @@ function normalizeResearchItem(
   const plan = planValue(value);
   const item: ResearchStageDetailItem = {
     ...(stage === "A3" ? { a3Display: a3Display(value, pool) } : {}),
+    presentation,
     symbol,
     name,
     nameSource,
@@ -2445,12 +2459,41 @@ export class ProjectFiles {
       const provider = recordString(payload, "provider") ?? basename(file.name, ".json");
       if (latest.has(provider)) continue;
       const checks = recordArray(payload, "checks").map((item) => sanitizeJson(item));
+      const generatedAt = recordString(payload, "generated_at");
+      const capabilities = recordArray(payload, "checks").map((raw) => {
+        const check = isRecord(raw) ? raw : {};
+        const evidence = isRecord(check.evidence) ? check.evidence : {};
+        const status = firstString(check, ["status"]);
+        const dataAsOf = firstString(evidence, ["data_as_of", "as_of", "last_bar_end"]);
+        const explicitAge = firstNumber(evidence, ["data_age_seconds", "age_seconds"]);
+        const generatedMs = generatedAt ? Date.parse(generatedAt) : Number.NaN;
+        const dataMs = dataAsOf ? Date.parse(dataAsOf) : Number.NaN;
+        const computedAge = Number.isFinite(generatedMs) && Number.isFinite(dataMs)
+          ? Math.max(0, (generatedMs - dataMs) / 1000)
+          : null;
+        const affected = evidence.affected_paths ?? evidence.affected_stages;
+        return {
+          capability: firstString(check, ["name", "capability", "id"]) ?? "UNKNOWN_CAPABILITY",
+          status,
+          lastSuccessAt: firstString(evidence, ["last_success_at"]) ?? (status === "PASS" ? generatedAt : null),
+          dataAsOf,
+          dataAgeSeconds: explicitAge ?? computedAge,
+          coverage: firstNumber(evidence, ["coverage", "coverage_ratio", "coverage_pct"]),
+          lastFailureReason: status === "PASS" ? null : firstString(check, ["reason_code", "reason", "message"]),
+          nextAttemptAt: firstString(evidence, ["next_attempt_at", "retry_after_at"]),
+          affectedPaths: Array.isArray(affected)
+            ? affected.filter((item): item is string => typeof item === "string" && item.trim().length > 0).slice(0, 50)
+            : [],
+        };
+      });
       latest.set(provider, {
         provider,
         status: recordString(payload, "overall_status") ?? recordString(payload, "status"),
-        generatedAt: recordString(payload, "generated_at"),
+        generatedAt,
         path: relativeDisplay(this.config.rootDir, file.path),
         checks: checks.length > 0 ? checks : null,
+        capabilities,
+        aggregateMeaning: "CAPABILITY_SUMMARY_ONLY",
       });
     }
     return [...latest.values()];

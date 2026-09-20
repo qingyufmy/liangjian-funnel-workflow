@@ -71,4 +71,10 @@
 | LLM-05 | 外部文本只作不可信数据，引用必须来自冻结证据目录 | `test_llm_05_untrusted_text_is_data_and_fake_evidence_is_rejected` | 指令文本被隔离，伪造 evidence ref 被拒绝 | 通过（离线） |
 | LLM-06 | 无模型/影子实验与正式账户、存储、输出物理隔离 | `test_llm_06_shadow_experiment_requires_separate_store_account_and_output` | 任一复用正式资源均阻断 | 通过（离线） |
 | LLM-07 | 审核身份、模型、提示词、tokens/cost 可审计，未知值不伪造 | `test_llm_07_workflow_callback_returns_bound_transport_audit`；`test_llm_07_strict_monitor_persists_reason_reference_and_identity` | 事件账本持久化 reason/ref/identity；不可得计量明确为 null | 通过（离线） |
+| UI-01 | A3 日线合格、A4确认、当前资格、有效期和目标证据分开 | Python/TS `UI-01` 反例 | 日线合格只显示 `PENDING_A4`；固定R目标明确不是市场阻力证明 | 通过（离线） |
+| UI-02 | A2 主题强度不得冒充个股总分 | Python/TS `UI-02` 反例 | 同主题股票保留各自相对强度/角色；无显式个股总分显示未知 | 通过（离线） |
+| UI-03 | 任务、数据、机会、可执行性与持仓未知状态不得折叠 | Python/TS `UI-03` 反例 | 关键缺口阻断、非关键降级、无机会及未知可卖状态分别呈现 | 通过（离线） |
+| UI-04 | API、Markdown、前端和通知消费同一持久化投影 | `test_ui_04_attached_projection_is_the_single_persisted_stage_projection`；通知/报告回归 | `research-presentation/1.0.0` 随阶段行落盘；旧产物只经同语义兼容适配 | 通过（离线） |
+| UI-05 | 页面刷新只读本地快照，能力健康不以供应商总绿灯替代 | TS `UI-05` 100次读取 | 未调用 `fetch`；逐能力展示成功、新鲜度、覆盖、失败、下次尝试和影响路径 | 通过（离线） |
+| UI-06 | A4 展示计划/实际时间、数据截止、范围计数、deadline、模型、信号和成交 | TS `UI-06` 反例 | 从持久化 observability/simulation 投影，未知值不补零 | 通过（离线） |
 | EVAL-01 | 分层增益与反事实不混用 | S10 回放/统计测试 | 未开始 | 待 S10 |

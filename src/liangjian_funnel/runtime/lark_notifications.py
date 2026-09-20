@@ -13,6 +13,7 @@ from .lark import LarkConfigurationError, LarkNotifier
 from .state import RuntimeStore
 from .a4_explain import build_a4_decision_context
 from ..pipeline.a3_display import A3_REASON_LABELS
+from ..pipeline.presentation import SCHEMA_VERSION as PRESENTATION_SCHEMA_VERSION, project_research_presentation
 
 
 _ACTION_LABELS = {
@@ -351,6 +352,14 @@ def _payload(row: Mapping[str, Any]) -> dict[str, Any]:
     except (TypeError, ValueError, json.JSONDecodeError):
         return {}
     return value if isinstance(value, dict) else {}
+
+
+def _a3_presentation(payload: Mapping[str, Any], *, now: datetime) -> Mapping[str, Any]:
+    persisted = payload.get("presentation")
+    if isinstance(persisted, Mapping) and persisted.get("schema_version") == PRESENTATION_SCHEMA_VERSION:
+        return persisted.get("a3") if isinstance(persisted.get("a3"), Mapping) else {}
+    projected = project_research_presentation(payload, stage="A3", pool="approved", now=now)
+    return projected.get("a3") if isinstance(projected.get("a3"), Mapping) else {}
 
 
 def _json_mapping(value: Any) -> dict[str, Any]:
@@ -718,6 +727,7 @@ class WorkflowLarkPublisher:
             source_ids: list[str] = []
             for row in chunk:
                 payload = _payload(row)
+                presentation = _a3_presentation(payload, now=reviewed_at)
                 symbol_raw = _text(row.get("symbol"), limit=20)
                 symbol = _stock_code(symbol_raw)
                 name = _text(payload.get("name"), limit=30, fallback="名称未提供")
@@ -732,6 +742,7 @@ class WorkflowLarkPublisher:
                     [
                         f"\n**{name}（{symbol}）｜{strategy}**",
                         f"• 入选依据：{'；'.join(reasons) if reasons else '已通过 A3 确定性技术计划'}",
+                        f"• 状态边界：日线设置 {_display_text(presentation.get('daily_setup_state'), limit=30)}；A4确认 {_display_text(presentation.get('a4_confirmation_state'), limit=30)}；当前入场资格 {_display_text(presentation.get('current_entry_eligibility'), limit=30)}；计划有效性 {_display_text(presentation.get('plan_validity_state'), limit=30)}",
                         f"• 价格计划：触发区 {_number(payload.get('trigger_low'))}–{_number(payload.get('trigger_high'))}；止损 {_number(payload.get('stop_level'))}；禁止追价 {_number(payload.get('no_chase_price') or payload.get('max_chase_price'))}",
                         f"• 早盘价格：{_number(auction_price)}；确认条件：{'；'.join(conditions) if conditions else '按计划触发条件执行'}",
                     ]
@@ -882,6 +893,8 @@ class WorkflowLarkPublisher:
             symbols: list[str] = []
             for row in chunk:
                 payload = _payload(row)
+                presentation = _a3_presentation(payload, now=analyzed_at)
+                target = presentation.get("target") if isinstance(presentation.get("target"), Mapping) else {}
                 symbol = _stock_code(row.get("symbol"))
                 name = _text(payload.get("name"), limit=30, fallback="名称未提供")
                 symbols.append(symbol)
@@ -910,9 +923,11 @@ class WorkflowLarkPublisher:
                         f"• 类型：{_display_text(payload.get('stock_behavior_type'), limit=30)}；角色：{_display_text(payload.get('market_role'), limit=30)}；方向：{_theme_label(payload)}",
                         f"• 策略：{strategy}；优先依据：{'；'.join(_display_items(payload.get('priority_reasons'), limit=2)) or '按计划成熟度'}",
                         f"• 入选依据：{'；'.join(reasons) if reasons else '已通过确定性日线技术计划'}",
+                        f"• 状态边界：日线设置 {_display_text(presentation.get('daily_setup_state'), limit=30)}；A4确认 {_display_text(presentation.get('a4_confirmation_state'), limit=30)}；当前入场资格 {_display_text(presentation.get('current_entry_eligibility'), limit=30)}；计划有效性 {_display_text(presentation.get('plan_validity_state'), limit=30)}",
                          f"• 参考收盘：{_number(payload.get('reference_price'))}（{_time_label(_reference_price_as_of(payload, context))}）",
                         f"• 价格计划：触发区 {_number(payload.get('trigger_low'))}–{_number(payload.get('trigger_high'))}；止损 {_number(payload.get('stop_level') or payload.get('daily_invalidation'))}；禁止追价 {_number(payload.get('no_chase') or payload.get('no_chase_price') or payload.get('max_chase_price'))}",
                         f"• 压力参考：{_number(payload.get('pressure_reduce_price'))}（{_display_text(payload.get('pressure_basis'), limit=32, fallback='暂无明确压力位')}）",
+                        f"• 目标证据：{_display_text(target.get('kind'), limit=32)}；{('固定R观察位，不是市场阻力证明' if target.get('claim') == 'OBSERVATION_NOT_MARKET_PROOF' else _display_text(target.get('claim'), limit=40))}",
                         f"• 盘中确认：{'；'.join(conditions) if conditions else ('由 A4 继续监测' if active_session else '等待早盘复核')}",
                         f"• 失效条件：{'；'.join(invalidators)}",
                         "• 三种情景：强势不追高，等待确认；中性进入触发区再判断；弱势跌破止损则计划作废。",

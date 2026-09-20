@@ -1270,13 +1270,13 @@ export function StageDetailDialog({ target, onDismiss }: { target: StageDetailTa
 
           <div className="stage-detail-content" id="stage-detail-panel" role="tabpanel" aria-labelledby={`stage-tab-${pool}`}>
             <section className="stage-stock-master" aria-label="股票列表">
-               <div className="stage-stock-grid stage-stock-grid-head" aria-hidden="true"><span>股票</span><span>主题 / 行业</span><span>{isA3 ? "策略 / 资格" : "评分"}</span><span>主要原因</span><span>状态</span></div>
+               <div className="stage-stock-grid stage-stock-grid-head" aria-hidden="true"><span>股票</span><span>主题 / 行业</span><span>{isA3 ? "策略 / 资格" : isA2 ? "主题 / 个股强度" : "明确阶段分"}</span><span>主要原因</span><span>状态</span></div>
               <div className="stage-stock-list">
                 {error ? <div className="stage-detail-state stage-detail-error"><TriangleAlert size={20} /><strong>明细读取失败</strong><span>{error}</span></div> : loading && !data ? <div className="stage-detail-state"><RefreshCw className="spin" size={20} /><strong>正在读取持久化结果</strong></div> : data?.items.length ? data.items.map((item) => (
                   <button key={item.symbol} type="button" className={item.symbol === selected?.symbol ? "stage-stock-grid stage-stock-row stage-stock-row-selected" : "stage-stock-grid stage-stock-row"} aria-pressed={item.symbol === selected?.symbol} onClick={() => { setSelectedSymbol(item.symbol); setMobileDetailOpen(true); }}>
                     <span className="stage-stock-identity"><strong>{item.name || "名称未提供"}</strong><small>{item.symbol}</small></span>
                     <span>{codeLabel(item.theme || item.industry)}</span>
-                     <strong className="stage-stock-score">{isA3 ? <>{strategyProfileLabel(item.plan?.strategyProfile)}<small>{eligibilityLabel(item.plan?.eligibility)}</small></> : item.score === null || item.score === undefined ? "—" : item.score}</strong>
+                     <strong className="stage-stock-score">{isA3 ? <>{strategyProfileLabel(item.plan?.strategyProfile)}<small>{eligibilityLabel(item.plan?.eligibility)}</small></> : isA2 ? <>{item.presentation?.a2?.themeStrength ?? "—"}<small>个股 {detailValue(item.presentation?.a2?.stockRelativeStrength)}</small></> : item.score === null || item.score === undefined ? "—" : item.score}</strong>
                     <span className="stage-stock-reasons">{item.a3Display?.primaryReason ?? humanizeText(item.selectionReasons[0] ?? item.reasonCodes[0] ?? item.evidence[0] ?? "未提供原因")}</span>
                     <span className="stage-stock-result-status"><StatusBadge status={item.a3Display?.disposition ?? item.status} label={item.a3Display?.label ?? pools.find((entry) => entry.id === item.pool)?.label} />{item.detailState ? <small className={item.detailState === "COMPLETE" ? "detail-completeness detail-complete" : "detail-completeness detail-partial"}>{item.detailState === "COMPLETE" ? item.a3Display && item.pool === "rejected" ? "分流说明齐全" : "明细完整" : `缺 ${item.missingFields?.length ?? 0} 项`}</small> : null}</span>
                   </button>
@@ -1366,6 +1366,9 @@ function StageStockDetail({ item, stage, onBack }: { item: StageDetailItem | nul
       <header className="stage-stock-detail-heading"><div><h3>{item.name || "名称未提供"}</h3><span>{stockSymbolLabel(item.symbol)} · {codeLabel(item.theme || item.industry || "行业主题未提供")}</span></div>{!isA3 && item.score !== null && item.score !== undefined ? <strong>{item.score}<small>分</small></strong> : null}</header>
       {item.detailState === "PARTIAL" ? <div className="stage-detail-notice"><CircleAlert size={16} /><div><strong>明细字段不完整</strong><span>未提供：{(item.missingFields ?? []).map((field) => MISSING_FIELD_LABELS[field] ?? fieldLabel(field)).join("、") || "未标明字段"}。页面不会推测填充。</span></div></div> : item.detailState === "COMPLETE" ? <div className="stage-detail-complete-note"><CheckCircle2 size={16} />{item.a3Display && item.pool === "rejected" ? "分流说明齐全，不代表研究数据已齐全或可以发布计划。" : "本阶段要求的股票明细字段完整。"}</div> : null}
       {item.nameSource === "unavailable" ? <div className="stage-detail-notice"><CircleAlert size={16} />冻结快照和模型结果均未提供名称，页面没有推测填充。</div> : null}
+      {item.presentation?.a1 ? <section className="stage-detail-section"><header><h3>A1 基本面研究权限</h3><span>入池不等于质量认证</span></header><dl className="stage-definition-grid"><div><dt>入选路径</dt><dd>{detailValue(item.presentation.a1.admissionPath)}</dd></div><div><dt>研究层级</dt><dd>{codeLabel(item.presentation.a1.researchLevel)}</dd></div><div><dt>权限含义</dt><dd>{codeLabel(item.presentation.a1.permissionMeaning)}</dd></div><div><dt>证据截止</dt><dd>{formatDateTime(item.presentation.a1.evidenceAsOf)}</dd></div></dl><DetailStringList title="关键证据缺口" badge="未补齐不得扩权" values={item.presentation.a1.criticalGaps} /><DetailStringList title="已知负面事实" badge="事实边界" values={item.presentation.a1.knownNegativeFacts} /></section> : null}
+      {item.presentation?.a2 ? <section className="stage-detail-section"><header><h3>A2 情绪与轮动角色</h3><span>主题和个股分开呈现</span></header><dl className="stage-definition-grid"><div><dt>主题强度</dt><dd>{detailValue(item.presentation.a2.themeStrength)}</dd></div><div><dt>个股相对强度</dt><dd>{detailValue(item.presentation.a2.stockRelativeStrength)}</dd></div><div><dt>市场角色</dt><dd>{detailValue(item.presentation.a2.marketRole)}</dd></div><div><dt>研究路径</dt><dd>{detailValue(item.presentation.a2.researchPath)}</dd></div><div><dt>个股总分</dt><dd>{item.presentation.a2.individualTotalScore === null ? "未生成，不以主题分代替" : detailValue(item.presentation.a2.individualTotalScore)}</dd></div></dl></section> : null}
+      {item.presentation?.a3 ? <section className="stage-detail-section"><header><h3>A3 技术面与 A4 边界</h3><span>日线合格不等于立即买入</span></header><dl className="stage-definition-grid"><div><dt>日线设置</dt><dd>{codeLabel(item.presentation.a3.dailySetupState)}</dd></div><div><dt>A4盘中确认</dt><dd>{codeLabel(item.presentation.a3.a4ConfirmationState)}</dd></div><div><dt>当前入场资格</dt><dd>{codeLabel(item.presentation.a3.currentEntryEligibility)}</dd></div><div><dt>计划有效性</dt><dd>{codeLabel(item.presentation.a3.planValidityState)}</dd></div><div><dt>目标类型</dt><dd>{codeLabel(item.presentation.a3.target.kind)}<small>{item.presentation.a3.target.claim === "OBSERVATION_NOT_MARKET_PROOF" ? "固定R观察位，不是市场阻力证明" : codeLabel(item.presentation.a3.target.claim)}</small></dd></div></dl><DetailStringList title="A4待确认条件" badge="盘中量化确认" values={item.presentation.a3.deferredConditions} /></section> : null}
       {item.route || item.bottleneckStatus || item.factorCoverage ? <section className="stage-detail-section"><header><h3>A2 入池通道</h3><span>确定性门禁</span></header><dl className="stage-definition-grid"><div><dt>路线</dt><dd>{detailValue(item.route)}</dd></div><div><dt>瓶颈状态</dt><dd>{detailValue(item.bottleneckStatus)}</dd></div><div><dt>事实覆盖</dt><dd>{detailValue(item.factorCoverage)}</dd></div></dl></section> : null}
       {item.a3Display ? <section className="stage-detail-section" aria-label="A3量化分流依据"><header><h3>{item.a3Display.label}</h3><span>{item.a3Display.localDecision ? "量化判断，未送模型" : "研究记录"}</span></header><p>{item.a3Display.primaryReason}</p><DetailStringList title="未通过条件" badge="不含背景提示" values={item.a3Display.blockers} /><DetailStringList title="大周期与市场背景" badge="非淘汰条件" values={item.a3Display.background} /><DetailStringList title="A4盘中待确认" badge="不作为A3淘汰依据" values={item.a3Display.deferred} />{item.a3Display.untranslatedCodes.length ? <p role="status">存在未翻译的技术条件，属于展示缺陷，不能据此判定股票不合格。</p> : null}<details><summary>原始分流与诊断标识</summary><p>原始状态：{item.status ?? "未记录"}；量化资格：{item.a3Display.eligibility ?? "未记录"}</p><p>{item.a3Display.diagnosticCodes.join("、")}</p></details></section> : null}
       <DetailStringList title="入选逻辑" badge={item.a3Display?.localDecision ? "量化记录" : "模型判断"} values={item.selectionReasons} />
@@ -1521,6 +1524,13 @@ function monitorDispatchLabel(status?: string | null): string {
 function monitorDispatchDetail(dispatch?: MonitorDispatchSummary | null): string {
   if (!dispatch) return "尚未读取到 A4 调度结果。";
   const attemptTime = dispatch.latestAttemptAt ? `最近尝试 ${formatDateTime(dispatch.latestAttemptAt)}` : "";
+  const scope = dispatch.evaluatedCount !== null && dispatch.evaluatedCount !== undefined
+    ? `；已评估 ${dispatch.evaluatedCount}，数据缺口 ${dispatch.gapCount ?? "未知"}，无机会 ${dispatch.noOpportunityCount ?? "未知"}`
+    : "";
+  const evidenceTime = dispatch.dataValidThrough ? `；决策数据截止 ${formatDateTime(dispatch.dataValidThrough)}` : "";
+  const axes = dispatch.jobState || dispatch.dataState || dispatch.opportunityState || dispatch.actionabilityState
+    ? `；任务 ${statusLabel(dispatch.jobState)} / 数据 ${statusLabel(dispatch.dataState)} / 机会 ${statusLabel(dispatch.opportunityState)} / 可执行性 ${statusLabel(dispatch.actionabilityState)}`
+    : "";
   if (dispatch.status === "RUNNING") return `本分钟任务正在执行${dispatch.latestRunId ? `（${dispatch.latestRunId}）` : ""}${attemptTime ? `，${attemptTime}` : ""}。`;
   if (dispatch.status === "FAILED") {
     const reason = dispatch.lastReasonCode ? `原因：${monitorReasonLabel(dispatch.lastReasonCode)}` : "原因未提供";
@@ -1530,8 +1540,8 @@ function monitorDispatchDetail(dispatch?: MonitorDispatchSummary | null): string
   }
   if (dispatch.status === "DATA_BLOCK") return `任务已执行（${formatDateTime(dispatch.latestCompletedAt ?? dispatch.latestAttemptAt)}），但分钟线或计划事实未通过数据门禁；未产生交易信号。`;
   if (dispatch.status === "EMPTY_SCOPE") return `任务已执行（${formatDateTime(dispatch.latestCompletedAt ?? dispatch.latestAttemptAt)}），但当前没有今日活动计划；下一日待复核计划不会进入本次盯盘。`;
-  if (dispatch.status === "EFFECTIVE_SIGNAL") return `任务已执行并产生有效盯盘事件（${formatDateTime(dispatch.latestCompletedAt ?? dispatch.latestAttemptAt)}），详见下方正式实时信号。`;
-  if (dispatch.status === "SUCCEEDED_NO_ACTION") return `任务已完成（${formatDateTime(dispatch.lastSuccessAt ?? dispatch.latestCompletedAt ?? dispatch.latestAttemptAt)}），本分钟确定性条件未触发有效动作。`;
+  if (dispatch.status === "EFFECTIVE_SIGNAL") return `任务已执行并产生有效盯盘事件（${formatDateTime(dispatch.latestCompletedAt ?? dispatch.latestAttemptAt)}）${scope}${evidenceTime}${axes}，详见下方正式实时信号。`;
+  if (dispatch.status === "SUCCEEDED_NO_ACTION") return `任务已完成（${formatDateTime(dispatch.lastSuccessAt ?? dispatch.latestCompletedAt ?? dispatch.latestAttemptAt)}），本分钟确定性条件未触发有效动作${scope}${evidenceTime}${axes}。`;
   return "尚未形成可判定的 A4 调度状态。";
 }
 
@@ -1744,7 +1754,7 @@ function DataSourcesPanel({ sources, onOpen }: { sources: DataSourceSummary[]; o
       <p className="panel-footnote">以下为最近一次连通性 / 能力探针，不代表今天的行情覆盖或数据新鲜度。</p>
       {sources.length === 0 ? <EmptyState title="暂无探针结果" detail="完成能力探针后，这里会显示各事实源的最新状态。" icon={<Database size={21} />} /> : (
         <ul className="source-list">{sources.slice(0, 6).map((source) => (
-          <li key={source.id}><span>{labels[source.label.toUpperCase()] ?? humanizeText(source.label)}</span><StatusBadge status={source.status} /><time>{formatDateTime(source.checkedAt)}</time></li>
+          <li key={source.id}><span>{labels[source.label.toUpperCase()] ?? humanizeText(source.label)}<small>{source.capabilities?.length ? source.capabilities.map((capability) => `${humanizeText(capability.capability)}：${statusLabel(capability.status)} · 覆盖${capability.coverage === null || capability.coverage === undefined ? "未知" : `${(capability.coverage * (capability.coverage <= 1 ? 100 : 1)).toFixed(1)}%`} · 截止${formatDateTime(capability.dataAsOf)}${capability.affectedPaths?.length ? ` · 影响${capability.affectedPaths.join("/")}` : ""}`).join("；") : "未提供能力级证据"}</small></span><StatusBadge status={source.status} /><time>{formatDateTime(source.checkedAt)}</time></li>
         ))}</ul>
       )}
     </Panel>

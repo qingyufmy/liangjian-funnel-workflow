@@ -9,6 +9,7 @@ from typing import Any
 
 from ..reporting import atomic_write_text
 from .a3_display import a3_nonqualified_explanation
+from .presentation import SCHEMA_VERSION as PRESENTATION_SCHEMA_VERSION, project_research_presentation
 
 
 _POOLS: dict[str, tuple[tuple[str, str], ...]] = {
@@ -92,6 +93,20 @@ def _render_stage(result: Any, stage_name: str) -> str:
                     "| 代码 | 名称 | 主题/节点 | 路线/角色 | 状态 | 主要阻断 | 其他条件 | 背景风险 | A4待确认 |",
                     "|---|---|---|---|---|---|---|---|---|",
                 ])
+            elif stage_name == "A2":
+                lines.extend(
+                    [
+                        "| 代码 | 名称 | 主题/节点 | 主题强度 | 个股相对强度 | 市场角色/研究路径 | 个股总分 | 原因 |",
+                        "|---|---|---|---:|---:|---|---:|---|",
+                    ]
+                )
+            elif stage_name == "A3":
+                lines.extend(
+                    [
+                        "| 代码 | 名称 | 主题/节点 | 日线设置 | A4确认 | 当前入场资格 | 计划有效期 | 目标依据 | 原因 |",
+                        "|---|---|---|---|---|---|---|---|---|",
+                    ]
+                )
             else:
                 lines.extend(
                     [
@@ -104,7 +119,7 @@ def _render_stage(result: Any, stage_name: str) -> str:
                     explanation = a3_nonqualified_explanation(row)
                     lines.append(_a3_rejected_row_line(row, explanation))
                 else:
-                    lines.append(_row_line(row))
+                    lines.append(_row_line(row, stage_name=stage_name, pool=pool))
     return "\n".join(lines) + "\n"
 
 
@@ -126,7 +141,17 @@ def _reason_summary(rows: Sequence[Mapping[str, Any]]) -> list[str]:
     return lines
 
 
-def _row_line(row: Mapping[str, Any]) -> str:
+def _presentation(row: Mapping[str, Any], *, stage_name: str, pool: str) -> Mapping[str, Any]:
+    persisted = row.get("presentation")
+    if isinstance(persisted, Mapping) and persisted.get("schema_version") == PRESENTATION_SCHEMA_VERSION:
+        return persisted
+    pool_name = "approved" if pool in {"active_research_pool", "focus_pool", "core_watch_pool"} else (
+        "watch" if pool in {"monitor_pool", "watch_only_pool", "secondary_watch_pool"} else "rejected"
+    )
+    return project_research_presentation(row, stage=stage_name, pool=pool_name)
+
+
+def _row_line(row: Mapping[str, Any], *, stage_name: str, pool: str) -> str:
     symbol = row.get("symbol") or row.get("stock_code") or "-"
     name = row.get("company_name") or row.get("name") or "-"
     theme = row.get("primary_theme") or row.get("theme_id") or "-"
@@ -138,11 +163,27 @@ def _row_line(row: Mapping[str, Any]) -> str:
         or row.get("role")
         or "-"
     )
-    score = next(
-        (row.get(key) for key in ("technical_score", "theme_score", "identifiability_score", "structural_score", "score") if row.get(key) is not None),
-        "-",
-    )
+    presentation = _presentation(row, stage_name=stage_name, pool=pool)
     reasons = ", ".join(_reasons(row)) or "-"
+    if stage_name == "A2":
+        a2 = presentation.get("a2") if isinstance(presentation.get("a2"), Mapping) else {}
+        role_path = "/".join(str(value) for value in (a2.get("market_role"), a2.get("research_path")) if value not in (None, "")) or "-"
+        return (
+            f"| {_cell(symbol)} | {_cell(name)} | {_cell(theme)}/{_cell(node)} | "
+            f"{_cell(a2.get('theme_strength'))} | {_cell(a2.get('stock_relative_strength'))} | "
+            f"{_cell(role_path)} | {_cell(a2.get('individual_total_score'))} | {_cell(reasons)} |"
+        )
+    if stage_name == "A3":
+        a3 = presentation.get("a3") if isinstance(presentation.get("a3"), Mapping) else {}
+        target = a3.get("target") if isinstance(a3.get("target"), Mapping) else {}
+        target_label = f"{target.get('kind') or 'UNAVAILABLE'} / {target.get('claim') or 'NO_TARGET_EVIDENCE'}"
+        return (
+            f"| {_cell(symbol)} | {_cell(name)} | {_cell(theme)}/{_cell(node)} | "
+            f"{_cell(a3.get('daily_setup_state'))} | {_cell(a3.get('a4_confirmation_state'))} | "
+            f"{_cell(a3.get('current_entry_eligibility'))} | {_cell(a3.get('plan_validity_state'))} | "
+            f"{_cell(target_label)} | {_cell(reasons)} |"
+        )
+    score = presentation.get("display_score", "-")
     return (
         f"| {_cell(symbol)} | {_cell(name)} | {_cell(theme)}/{_cell(node)} | "
         f"{_cell(route)} | {_cell(score)} | {_cell(reasons)} |"

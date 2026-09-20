@@ -10,7 +10,7 @@
     ],
     "production_runtime_modified": false
   },
-  "current_stage": "S07",
+  "current_stage": "S08",
   "stages": {
     "S00": {
       "code_status": "CODE_ACCEPTED",
@@ -486,7 +486,66 @@
         "artifacts/iteration/s07-offline-20260920/"
       ]
     },
-    "S08": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
+    "S08": {
+      "code_status": "CODE_ACCEPTED",
+      "evidence_status": "OFFLINE_ACCEPTED",
+      "operations_status": "PENDING_PRODUCTION_EVIDENCE",
+      "strategy_status": "INSUFFICIENT_EVIDENCE",
+      "changed_files": [
+        "src/liangjian_funnel/pipeline/presentation.py",
+        "src/liangjian_funnel/pipeline/research.py",
+        "src/liangjian_funnel/pipeline/research_reports.py",
+        "src/liangjian_funnel/runtime/lark_notifications.py",
+        "src/liangjian_funnel/runtime/position_data_health.py",
+        "shared/research-presentation.ts",
+        "server/files.ts",
+        "server/dashboard.ts",
+        "server/types.ts",
+        "web/src/App.tsx",
+        "web/src/types.ts",
+        "scripts/run_iteration_acceptance.py",
+        "tests/iteration/test_research_presentation.py",
+        "test/server/research-presentation.test.ts",
+        "docs/iteration/*"
+      ],
+      "dependencies": ["S00", "S01", "S02", "S03", "S04", "S05", "S06", "S07"],
+      "commands": [
+        {
+          "command": ".venv/Scripts/python.exe -m pytest -q tests/iteration/test_research_presentation.py",
+          "exit_code": 2,
+          "result": "collection failed before implementation because pipeline.presentation did not exist",
+          "artifact": null
+        },
+        {
+          "command": "npm test -- --run test/server/research-presentation.test.ts",
+          "exit_code": 1,
+          "result": "3 passed, 1 failed; exposed missing capability-level data source projection",
+          "artifact": null
+        },
+        {
+          "command": "npm run typecheck; npm test; npm run build",
+          "exit_code": 0,
+          "result": "typecheck passed; 91 tests passed; web and server build passed",
+          "artifact": null
+        },
+        {
+          "command": ".venv/Scripts/python.exe -m pytest --cov=liangjian_funnel --cov-report=term --cov-report=xml:artifacts/iteration/s08-regression-20260920/coverage.xml --cov-fail-under=65 --junitxml=artifacts/iteration/s08-regression-20260920/python-junit.xml",
+          "exit_code": 0,
+          "result": "1816 passed, 4 skipped, coverage 78.84%",
+          "artifact": "artifacts/iteration/s08-regression-20260920/"
+        },
+        {
+          "command": ".venv/Scripts/python.exe scripts/run_iteration_acceptance.py --profile offline --output-dir artifacts/iteration/s08-offline-20260920",
+          "exit_code": 0,
+          "result": "CODE_ACCEPTED; 144 passed, 0 failed, 0 skipped",
+          "artifact": "artifacts/iteration/s08-offline-20260920/summary.json"
+        }
+      ],
+      "artifacts": [
+        "artifacts/iteration/s08-regression-20260920/",
+        "artifacts/iteration/s08-offline-20260920/"
+      ]
+    },
     "S09": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
     "S10": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
     "S11": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"}
@@ -497,6 +556,6 @@
     "replay, operations and strategy acceptance remain unproven"
   ],
   "blockers": [],
-  "next_action": "Implement S08 backend/frontend semantic alignment with counterexample tests for counts, dates, status wording and drill-down evidence.",
-  "updated_at": "2026-09-20T19:18:54+08:00"
+  "next_action": "Implement S09 new-source sidecar evaluation with licensing, PIT, field-map and no-production-write gates.",
+  "updated_at": "2026-09-20T19:41:00+08:00"
 }

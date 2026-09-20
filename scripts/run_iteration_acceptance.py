@@ -285,6 +285,24 @@ def _write_summary(
             "tests/iteration/test_llm_review_contract.py::test_llm_07_workflow_callback_returns_bound_transport_audit",
             "tests/iteration/test_llm_review_contract.py::test_llm_07_strict_monitor_persists_reason_reference_and_identity",
         ],
+        "UI-01": [
+            "tests/iteration/test_research_presentation.py::test_ui_01_a3_daily_setup_is_not_immediate_entry_and_target_claim_is_bounded",
+            "test/server/research-presentation.test.ts::UI-01 and UI-02 keep A3 entry pending and A2 stock facts separate",
+        ],
+        "UI-02": [
+            "tests/iteration/test_research_presentation.py::test_ui_02_a2_theme_strength_is_not_a_fake_stock_total_score",
+            "test/server/research-presentation.test.ts::UI-01 and UI-02 keep A3 entry pending and A2 stock facts separate",
+        ],
+        "UI-03": [
+            "tests/iteration/test_research_presentation.py::test_ui_03_unified_status_keeps_job_data_opportunity_and_unknown_separate",
+            "test/server/research-presentation.test.ts::UI-03 keeps missing coverage unknown and critical/noncritical data distinct",
+        ],
+        "UI-04": [
+            "tests/iteration/test_research_presentation.py::test_ui_04_attached_projection_is_the_single_persisted_stage_projection",
+            "test/server/research-presentation.test.ts::UI-04 persisted projection is accepted but unknown fields and credentials are removed",
+        ],
+        "UI-05": ["test/server/research-presentation.test.ts::UI-05 100 dashboard reads consume local capability snapshots without remote fetch"],
+        "UI-06": ["test/server/research-presentation.test.ts::UI-06 A4 dispatch exposes schedule, valid-through and independent scope states"],
     }
     counted = [item for item in checks if item.passed is not None]
     test_counts = {

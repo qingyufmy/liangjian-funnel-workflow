@@ -65,3 +65,11 @@ A4 严格审核新增冻结契约：候选集合、决策 ID、快照 ID、输�
 审核传输审计与业务判断分离保存：reason、evidence refs、模型和提示词身份、耗时及可得的 tokens/cost 写入既有策略事件；当前客户端不暴露的 token/cost 保持 null，不伪造估算。外部文本明确按不可信数据隔离；无模型/影子实验必须使用不同 store、account 和 output root。严格模式通过 `strict_llm_review_v2` 暗开关接入，默认关闭，不改变当前生产策略。
 
 首个全量回归发现最小配置 fixture 被新增字段的 eager access 拖入超时（3 failed、1809 passed），改为仅在严格开关开启时读取审核配置。最终 Python 全量为 1812 passed、4 skipped、覆盖率 78.84%；前端类型检查、86 tests 和构建通过；离线验收入口为 140 passed。未执行真实模型、生产影子、回放、通知、数据库迁移或部署；REPLAY/OPERATIONS/STRATEGY 仍未通过。
+
+## S08
+
+新增 `research-presentation/1.0.0` 只读语义投影并随 A1/A2/A3 阶段行持久化。A1 明确 ACTIVE 只授予研究权限，不等于质量认证；A2 将主题强度、个股相对强度、市场角色和研究路径拆开，无显式个股总分时保持未知；A3 将日线设置、A4确认、当前入场资格、计划有效期和目标证据拆开，固定R观察位明确不冒充市场压力证明。旧产物由同一兼容适配器读取，不修改原始证据。
+
+Server API、Markdown、Web 明细和飞书计划卡均消费该投影。A4 控制台增加计划/实际时间、数据截止、评估/缺口/无机会范围、deadline、模型、信号和成交状态；持仓行情 UNKNOWN 显示为未核实，可卖数量未知不再显示可卖。数据源页只读取本地能力快照，逐能力显示新鲜度、覆盖、失败、下次尝试和影响路径，100次刷新反例证明不会触发远端 `fetch`。
+
+首个 Python 反例在模块不存在时按预期 collection failed；首个 Node 反例为 3 passed、1 failed，定位到能力级数据源投影缺失。最终 Python 全量为 1816 passed、4 skipped、覆盖率 78.84%；前端类型检查、91 tests 和构建通过；离线验收入口为 144 passed。未读取生产快照、未发送真实通知、未执行真实模型、未部署；REPLAY/OPERATIONS/STRATEGY 仍未通过。

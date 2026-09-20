@@ -457,6 +457,7 @@ export interface StageDetailDecisionFacts {
 
 export interface StageDetailItem {
   a3Display?: import("../../shared/a3-display").A3Display;
+  presentation: import("../../shared/research-presentation").ResearchPresentation;
   publication?: { state: string; records?: number; planId?: string | null; sourceRunId?: string | null;
     status?: string | null; effectiveStatus?: string | null; targetTradeDate?: string | null;
     validFrom?: string | null; expiresAt?: string | null };
@@ -754,6 +755,22 @@ export interface MonitorDispatchSummary {
   attemptCount?: number;
   successCount?: number;
   failureCount?: number;
+  scheduledAt?: string | null;
+  startedAt?: string | null;
+  deadlineAt?: string | null;
+  dataValidThrough?: string | null;
+  evaluatedCount?: number | null;
+  gapCount?: number | null;
+  noOpportunityCount?: number | null;
+  deadlineState?: string | null;
+  modelState?: string | null;
+  signalState?: string | null;
+  fillState?: string | null;
+  jobState?: string | null;
+  dataState?: string | null;
+  opportunityState?: string | null;
+  actionabilityState?: string | null;
+  criticalData?: boolean | null;
 }
 
 export interface A4ReplaySummary {
@@ -789,6 +806,18 @@ export interface DataSourceSummary {
   status: string;
   checkedAt?: string | null;
   detail?: string | null;
+  aggregateMeaning?: "CAPABILITY_SUMMARY_ONLY";
+  capabilities?: Array<{
+    capability: string;
+    status?: string | null;
+    lastSuccessAt?: string | null;
+    dataAsOf?: string | null;
+    dataAgeSeconds?: number | null;
+    coverage?: number | null;
+    lastFailureReason?: string | null;
+    nextAttemptAt?: string | null;
+    affectedPaths?: string[];
+  }>;
 }
 
 export interface AccountSummary {

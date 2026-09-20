@@ -452,6 +452,26 @@ export function summarizeMonitorDispatch(input: {
   const failure = ordered.find((attempt) => attempt.nodeStatus === "failed" || attempt.nodeStatus === "terminated" || attempt.pythonStatus === "FAILED");
   const affectedSymbols = [...new Set((latestAttempt?.affectedSymbols ?? new Set<string>()).values())].sort();
   const affectedPlanCount = latestAttempt?.affectedPlanCount ?? (status === "FAILED" ? input.activePlanCount ?? null : null);
+  const observability = record(latest?.observability);
+  const axes = record(observability?.axes);
+  const requiredScope = observability ? arrayField(observability, "required_scope") : [];
+  const readyScope = observability ? arrayField(observability, "ready_scope") : [];
+  const blockedScope = observability ? arrayField(observability, "blocked_scope") : [];
+  const noSignalScope = observability ? arrayField(observability, "no_signal_scope") : [];
+  const simulation = latest ? arrayField(latest, "simulation") : [];
+  const deadlineAt = observability ? asString(observability.deadline_at) : null;
+  const completedAt = latestAttempt?.finishedAt ?? checkedAt;
+  const deadlineMs = deadlineAt ? Date.parse(deadlineAt) : Number.NaN;
+  const completedMs = completedAt ? Date.parse(completedAt) : Number.NaN;
+  const deadlineState = asString(axes?.job_status) === "TIMED_OUT"
+    ? "EXCEEDED"
+    : Number.isFinite(deadlineMs) && Number.isFinite(completedMs)
+      ? completedMs <= deadlineMs ? "WITHIN_DEADLINE" : "EXCEEDED"
+      : null;
+  const signalState = asString(axes?.opportunity_state) ?? null;
+  const fillState = simulation.some((item) => asString(record(item)?.status) === "FILLED")
+    ? "FILLED"
+    : simulation.length ? "RECORDED_NO_FILL" : "NO_FILL";
   return {
     status,
     checkedAt,
@@ -467,6 +487,23 @@ export function summarizeMonitorDispatch(input: {
     attemptCount: ordered.length,
     successCount: successfulAttempts,
     failureCount: failedAttempts,
+    scheduledAt: observability ? asString(observability.scheduled_at) : null,
+    startedAt: observability ? asString(observability.started_at) : null,
+    deadlineAt,
+    dataValidThrough: latest ? asString(latest.execution_cutoff) : null,
+    evaluatedCount: requiredScope.length ? readyScope.length : null,
+    gapCount: requiredScope.length ? blockedScope.length : null,
+    noOpportunityCount: requiredScope.length ? noSignalScope.length : null,
+    deadlineState,
+    modelState: observability && arrayField(observability, "timing_spans").some((item) => asString(record(item)?.name)?.startsWith("llm"))
+      ? "RECORDED" : "NOT_RECORDED",
+    signalState,
+    fillState,
+    jobState: asString(axes?.job_status) ?? null,
+    dataState: asString(axes?.data_state) ?? null,
+    opportunityState: asString(axes?.opportunity_state) ?? null,
+    actionabilityState: asString(axes?.trade_eligibility) ?? null,
+    criticalData: typeof axes?.critical_data === "boolean" ? axes.critical_data : null,
   };
 }
 

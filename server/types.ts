@@ -150,6 +150,22 @@ export interface MonitorDispatchSummary {
   readonly attemptCount: number;
   readonly successCount: number;
   readonly failureCount: number;
+  readonly scheduledAt: string | null;
+  readonly startedAt: string | null;
+  readonly deadlineAt: string | null;
+  readonly dataValidThrough: string | null;
+  readonly evaluatedCount: number | null;
+  readonly gapCount: number | null;
+  readonly noOpportunityCount: number | null;
+  readonly deadlineState: string | null;
+  readonly modelState: string | null;
+  readonly signalState: string | null;
+  readonly fillState: string | null;
+  readonly jobState: string | null;
+  readonly dataState: string | null;
+  readonly opportunityState: string | null;
+  readonly actionabilityState: string | null;
+  readonly criticalData: boolean | null;
 }
 
 export interface StatusSnapshot {
@@ -354,6 +370,7 @@ export interface ResearchStageDetailPlan {
 
 export interface ResearchStageDetailItem {
   readonly a3Display?: import("../shared/a3-display.js").A3Display;
+  readonly presentation: import("../shared/research-presentation.js").ResearchPresentation;
   readonly symbol: string;
   readonly name: string | null;
   readonly nameSource: "model" | "lane_a1" | "snapshot" | "unavailable";

@@ -67,6 +67,7 @@ from .feature_store import FeatureGenerationError, ResearchFeatureStore
 from .factors import a3_factor_contract_reasons
 from .feature_rebuild import validate_feature_generation as validate_generation_projection
 from .candidate_catalog import enrich_candidate_metadata
+from .presentation import attach_research_presentations
 from .model_client import (
     ModelCallResult,
     ModelClientError,
@@ -868,6 +869,11 @@ class ResearchPipeline:
             for stage in lane.stages:
                 if isinstance(stage.output, Mapping):
                     enriched_output = enrich_candidate_metadata(stage.output, frozen.data)
+                    enriched_output = attach_research_presentations(
+                        enriched_output,
+                        stage=stage.stage,
+                        now=current,
+                    )
                     enriched_stage_rows.append(
                         replace(
                             stage,

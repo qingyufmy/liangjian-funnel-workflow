@@ -15,5 +15,8 @@
 | LLM-01 | REPRODUCED_FIXED | 基线使用 `bool(signal.get("llm_veto", True))`，字符串 `"false"` 会误判；S07 以冻结审核契约校验精确候选集合、严格布尔、身份、证据引用和截止时间 | 严格链路已离线验收并保持 dark flag；生产启用仍需回放和影子证据，不把 CODE 通过冒充运行验收 |
 | A1-01 | REPRODUCED_FIXED | S04 已建立字段覆盖投影，冻结输入和 packet 可逐层对账；821 样本、失败分母、PIT、预算投影和代次门反例通过 | CODE 离线通过；真实 VM 冻结样本覆盖率和积压清空能力仍待 OPERATIONS 证据，未宣称生产缺口已补齐 |
 | SRC-01 | REPRODUCED_FIXED | 基线只有 `live_fetch._NODE_LOCK` 和节点 JSON 健康文件，无法在不同能力/进程间共享配额或 fencing；S02 已增加 RuntimeStore 协调表和 typed governor | `SRC-01—SRC-08` 离线反例通过；A4 实际接入属于 S03，生产恢复能力仍待运维证据 |
+| UI-01 | REPRODUCED_FIXED | 基线 A2 API 依次用 `theme_score/identifiability_score/score` 填股票评分；S08 改为只有显式个股总分才显示分值 | 避免同主题股票被伪装成相同总分；生产旧快照兼容仍待 OPERATIONS 抽样 |
+| UI-02 | REPRODUCED_FIXED | 基线 A3 技术资格、盘中确认和当前可入场状态分散在多个字段；S08 落版本化四态投影 | 日线合格稳定显示待 A4，而不是立即买入；不改变计划筛选 |
+| UI-03 | REPRODUCED_FIXED | 基线数据源页只显示 provider 总体状态，无法说明能力、覆盖和影响路径 | S08 从本地 capability 文件逐项投影；刷新不触发远端采集 |
 
 S00 没有改变上述业务行为。表中的行号基于基线提交；后续修改后以符号和 Git diff 为准。
