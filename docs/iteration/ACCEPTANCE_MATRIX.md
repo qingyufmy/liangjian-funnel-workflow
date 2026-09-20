@@ -18,8 +18,19 @@
 | SRC-06 | 备用源口径与上游身份校验 | `test_src_06_fallback_requires_semantic_match_and_independent_upstream` | 单位/复权/日期/同上游冲突证据 | 通过 |
 | SRC-07 | 总时限覆盖无响应调用 | `test_src_07_total_deadline_bounds_nonresponsive_adapter` | 50ms deadline、一次尝试、有界返回 | 通过 |
 | SRC-08 | lease 恢复且旧 owner 迟到写被拒 | `test_src_08_expired_lease_recovers_and_stale_owner_cannot_publish` | fencing token 1/2 与最终结果断言 | 通过 |
-| A4-01 | 全局 deadline 覆盖所有关键等待 | S03 将新增故障与时间边界测试 | 未开始 | 待 S03 |
-| A4-02 | 持仓保护不被候选/归档阻塞 | S03 将新增慢 provider 反例 | 未开始 | 待 S03 |
+| A4-01 | 慢/永久阻塞工作有界且背压不泄漏关键 worker | `test_a4_01_hung_auxiliary_is_bounded_and_required_lane_stays_available` | 独立 gate 超时、背压及关键 lane 正常返回 | 通过 |
+| A4-02 | 原生 5m 与失效归档不进入 A4 决策 wait-all | `test_a4_02_monitor_never_fetches_native_5m_or_archive_only_symbol` | 仅请求决策标的 1m，辅助范围显式延期 | 通过 |
+| A4-03 | 单标的缺口不污染同 lane 健康股票 | `test_symbol_data_block_does_not_stop_healthy_plan`；`test_one_failed_symbol_does_not_block_other_symbols` | 扩大回归通过 | 通过 |
+| A4-04 | 持仓保护不等待计划恢复、市场和 LLM | `test_a4_04_position_hard_stop_does_not_need_market_or_llm`；`test_a4_04_position_protection_is_written_before_plan_activation` | 硬止损在恢复屏障前已持久化 | 通过 |
+| A4-05 | 模型迟到不得放行新开仓，退出不依赖模型 | `test_a4_05_model_completion_after_absolute_deadline_cannot_publish_buy`；`test_after_cutoff_buy_is_blocked_and_forced_exit_survives` | 迟到模型转 `MONITOR_OVERRUN`，无 BUY | 通过 |
+| A4-06 | 绝对截止、迟到结果冻结、晨间恢复不越界写 | `test_a4_06_late_bounded_result_cannot_replace_terminal_timeout`；`test_a4_06_morning_recovery_cannot_mutate_after_round_deadline` | 超时结果不可被迟到值替换，计划仍待审核 | 通过 |
+| A4-07 | 交易时段、午休、截止、收盘、节假日和恢复 | `test_expected_clock`；`test_a4_execution_cutoff_excludes_forming_provider_minute_and_respects_lunch`；scheduler 边界测试 | 当前规则表扩大回归通过 | 通过 |
+| A4-08 | 缺分钟、零成交、停牌和涨跌停保持不同语义 | `test_tencent_quote_requires_same_day_fresh_positive_auction_volume`；`test_locked_limit_up_cannot_buy`；`test_invalid_1m_and_missing_data_are_data_blocked` | 既有分类/策略反例通过；未用插值授权 | 通过 |
+| A4-09 | 重启、重复调度、lease 交接保持幂等 | `test_restart_does_not_recall_model_during_same_trigger_episode`；scheduler lease 测试；simulation 幂等测试 | 扩大回归通过 | 通过 |
+| A4-10 | 合法冻结输入在有界包装前后逐事件一致 | `test_a4_10_absolute_deadline_wrapper_preserves_valid_deterministic_output` | action/reason/effective 逐事件相等 | 通过 |
+| A4-11 | 过期持仓报价必须 DATA_BLOCK | `test_a4_11_stale_position_quote_is_data_block_not_success` | 不再显示风险清晰/成功 | 通过 |
+| A4-12 | 归档 SQLite 写锁不阻塞风险意图短事务 | `test_a4_12_archive_sqlite_writer_cannot_block_risk_intent_store` | 独立 DB 写锁下风险意图 <0.5s | 通过 |
+| A4-PERF | 50/100/200 全会话 fixture 与墙钟档位 | `run_iteration_acceptance.py --profile stress --scenario a4-s03` | 200 计划风险 p99 1.130s；决策核心 1.207s；仅本机离线证据 | 通过（非生产） |
 | A1-01 | 字段覆盖逐层可对账 | S04 将新增覆盖账本测试 | 缺生产冻结样本 | 待 S04 |
 | EX-01 | 佣金与印花税分开计费 | S05 将新增小额卖出反例 | 当前实现已复现错误 | 待 S05 |
 | EX-02 | 只用下一根完整 1m bar 模拟撮合 | S05 将新增跨时钟因果测试 | 当前 quote bar 语义不一致 | 待 S05 |

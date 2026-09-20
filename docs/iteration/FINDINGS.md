@@ -4,10 +4,10 @@
 
 | ID | 状态 | 当前证据 | 影响与后续 |
 | --- | --- | --- | --- |
-| A4-01 | CONFIRMED_STATIC | `workflow.py:3792-3798` 在采集 deadline 建立前刷新市场状态；deadline 到 `3827` 才创建 | 全局截止时间未覆盖市场刷新，S01-S03 修复 |
-| A4-02 | CONFIRMED_STATIC | `workflow.py:3813` 合并决策和归档标的；`3848-3864` 等待整批 future；`4065-4077` 才执行持仓观察与结算 | 归档和慢标的可延迟持仓保护，S03 隔离 |
-| A4-03 | CONFIRMED_STATIC | `workflow.py:3832-3845` 同一 worker 依次取 1m、辅助 5m、quote | 辅助源会先于风险报价占用关键链，S02-S03 调整 |
-| A4-04 | CONFIRMED_STATIC | `workflow.py:3853` 与 `4165` 使用无 timeout 的 `as_completed`；线程池上下文退出还会等待 worker | deadline 传给 provider 不等于调用者终止等待，S02-S03 加有界收敛 |
+| A4-01 | REPRODUCED_FIXED | 基线在采集 deadline 建立前刷新市场状态；S03 改为轮次入口创建绝对 deadline，并传入恢复、行情、模型与 lane | 离线边界已验收；生产延迟仍待 OPERATIONS 证据 |
+| A4-02 | REPRODUCED_FIXED | 基线合并决策和归档标的并整批等待；S03 先处理持仓，归档范围显式延期 | 风险不再等待归档/辅助；历史归档完整率需运维观察 |
+| A4-03 | REPRODUCED_FIXED | 基线同 worker 顺序取 1m、辅助 5m、quote；S03 使用分级 gate，原生 5m 不进入执行链 | 关键链只用冻结 1m 派生周期；原生 5m 保留后续审计职责 |
+| A4-04 | REPRODUCED_FIXED | 基线无界 `as_completed`/executor 退出等待；S03 有限 daemon gate 在超时后返回终态并保留背压 | 不宣称能强杀第三方调用；泄漏 worker 由固定槽位限制 |
 | A4-05 | ALREADY_FIXED | `workflow.py:4104-4108` 明确原生 5m 仅为审计，执行 5m/15m 从冻结 1m 派生 | 不再把原生 5m 冲突当隐藏执行输入；仍需 provider 治理 |
 | EX-01 | REPRODUCED | `runtime/simulation.py:160-162` 把佣金和卖出税合并后整体套最低佣金 | 小额卖出少计税；S05 增加反例并修正 |
 | EX-02 | CONFIRMED_STATIC | `_quote_risk_bar` 构造合成 quote bar，`_settle_prior_signals` 将其传给 PaperBroker，同时账本写 `NEXT_COMPLETE_1M_BAR_SIMULATION` | 成交标签与真实输入语义不一致；S05 必须以冻结完整 1m 撮合 |

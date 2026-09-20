@@ -226,6 +226,18 @@ def _write_summary(
         "SRC-06": ["tests/iteration/test_provider_governance.py::test_src_06_fallback_requires_semantic_match_and_independent_upstream"],
         "SRC-07": ["tests/iteration/test_provider_governance.py::test_src_07_total_deadline_bounds_nonresponsive_adapter"],
         "SRC-08": ["tests/iteration/test_provider_governance.py::test_src_08_expired_lease_recovers_and_stale_owner_cannot_publish"],
+        "A4-01": ["tests/iteration/test_a4_orchestration.py::test_a4_01_hung_auxiliary_is_bounded_and_required_lane_stays_available"],
+        "A4-02": ["tests/iteration/test_a4_orchestration.py::test_a4_02_monitor_never_fetches_native_5m_or_archive_only_symbol"],
+        "A4-03": ["tests/test_runtime_monitor.py::test_symbol_data_block_does_not_stop_healthy_plan"],
+        "A4-04": ["tests/iteration/test_a4_orchestration.py::test_a4_04_position_hard_stop_does_not_need_market_or_llm"],
+        "A4-05": ["tests/iteration/test_a4_orchestration.py::test_a4_05_model_completion_after_absolute_deadline_cannot_publish_buy"],
+        "A4-06": ["tests/iteration/test_a4_orchestration.py::test_a4_06_late_bounded_result_cannot_replace_terminal_timeout"],
+        "A4-07": ["tests/test_execution_data_contract.py::test_expected_clock"],
+        "A4-08": ["tests/test_runtime_strategies.py::test_locked_limit_up_cannot_buy"],
+        "A4-09": ["tests/test_runtime_scheduler.py::test_expired_active_lease_can_recover_same_dispatch_after_crash"],
+        "A4-10": ["tests/iteration/test_a4_orchestration.py::test_a4_10_absolute_deadline_wrapper_preserves_valid_deterministic_output"],
+        "A4-11": ["tests/iteration/test_a4_orchestration.py::test_a4_11_stale_position_quote_is_data_block_not_success"],
+        "A4-12": ["tests/iteration/test_a4_orchestration.py::test_a4_12_archive_sqlite_writer_cannot_block_risk_intent_store"],
     }
     counted = [item for item in checks if item.passed is not None]
     test_counts = {
@@ -324,6 +336,32 @@ def main(argv: Sequence[str] | None = None) -> int:
             missing_evidence.append("readonly manifest is required")
         if args.profile == "stress" and not args.scenario:
             missing_evidence.append("stress scenario is required")
+        if args.profile == "stress" and args.scenario not in {None, "a4-s03"}:
+            missing_evidence.append(f"unsupported stress scenario: {args.scenario}")
+        if args.profile == "stress" and not missing_evidence:
+            checks.append(_run_command(
+                "S03-A4-STRESS",
+                [
+                    sys.executable,
+                    str(REPO_ROOT / "scripts" / "run_a4_stress.py"),
+                    "--output-dir",
+                    str(output_dir / "stress-data"),
+                ],
+                output_dir,
+                _offline_environment(),
+            ))
+            failed = [item.check_id for item in checks if item.status == "FAIL"]
+            exit_code = EXIT_FAILURE if failed else EXIT_PASS
+            _write_summary(
+                output_dir=output_dir,
+                profile=args.profile,
+                started_at=started_at,
+                status="FAIL" if failed else "CODE_ACCEPTED",
+                exit_code=exit_code,
+                checks=checks,
+                missing_evidence=missing_evidence,
+            )
+            return exit_code
         if not missing_evidence:
             missing_evidence.append(f"{args.profile} profile is not implemented before its dependent stage")
         _write_summary(

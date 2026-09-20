@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import math
 import os
@@ -118,7 +119,8 @@ from .redaction import digest_text, sanitize
 from .reporting import atomic_write_json, atomic_write_json_streaming, atomic_write_text
 from .review.daily import A5DailyReviewService, A5ReviewKind
 from .review.verification import A5IndependentVerifier
-from .runtime.monitor import MonitorBatchResult, MonitorEngine, rebuild_effective_markdown
+from .runtime.monitor import MonitorBatchResult, MonitorEngine, MonitorEvent, rebuild_effective_markdown
+from .runtime.bounded_work import BoundedWorkGate, run_many_bounded
 from .runtime.decision_observability import (
     DataState,
     DecisionObservation,
@@ -141,6 +143,13 @@ SHANGHAI = ZoneInfo("Asia/Shanghai")
 _A4_FILE = "agent_4_intraday_veto_v3.txt"
 A4_DECISION_BUDGET_SECONDS = 47.0
 A4_MODEL_MAX_SECONDS = 15.0
+A4_POSITION_RISK_BUDGET_SECONDS = 2.0
+A4_MARKET_STATE_BUDGET_SECONDS = 8.0
+_A4_POSITION_WORK = BoundedWorkGate(8)
+_A4_REQUIRED_WORK = BoundedWorkGate(8)
+_A4_MARKET_WORK = BoundedWorkGate(1)
+_A4_LANE_WORK = BoundedWorkGate(4)
+_A4_AUXILIARY_WORK = BoundedWorkGate(2)
 _G0_SCOPE_CONTRACT = "CONFIGURED_RESEARCH_UNIVERSE_V1"
 _RESEARCH_RESUME_SCHEMA = "liangjian-research-resume/1.2.0"
 _A1_MAX_AGE = DEFAULT_A1_MAX_AGE
@@ -3399,7 +3408,12 @@ class WorkflowApplication:
                 return last
         return last or QuoteResult(symbol=symbol, reason_code="REALTIME_QUOTE_UNAVAILABLE")
 
-    def activate_latest_a3_for_monitor(self, *, now: datetime | None = None) -> dict[str, Any]:
+    def activate_latest_a3_for_monitor(
+        self,
+        *,
+        now: datetime | None = None,
+        deadline: float | None = None,
+    ) -> dict[str, Any]:
         """Recover the latest current-session A3 plans for A4, safely.
 
         This recovery is deliberately limited to the 09:26--09:40 morning
@@ -3480,10 +3494,23 @@ class WorkflowApplication:
         quote_by_symbol: dict[str, Any] = {}
         quote_failures: list[dict[str, str]] = []
         for symbol in sorted({str(item["plan"]["symbol"]) for item in candidates}):
-            try:
-                quote = self.market_data.fetch_quote(symbol, as_of=current)
-            except Exception:
-                quote = None
+            if deadline is not None and time.monotonic() >= deadline:
+                return {
+                    "status": "BLOCKED",
+                    "reason_code": "A3_SCOPE_ACTIVATION_DEADLINE_EXCEEDED",
+                    "as_of": current.isoformat(),
+                    "activated": [],
+                    "invalidated": [],
+                    "failures": quote_failures,
+                }
+            bounded_quote = getattr(self, "_fetch_live_quote", None)
+            if callable(bounded_quote):
+                quote = bounded_quote(symbol, current, deadline=deadline)
+            else:  # Compatibility for isolated method tests/adapters.
+                try:
+                    quote = self.market_data.fetch_quote(symbol, as_of=current)
+                except Exception:
+                    quote = None
             if quote is None or not getattr(quote, "complete", False) or getattr(quote, "quote", None) is None:
                 quote_failures.append(
                     {
@@ -3540,7 +3567,25 @@ class WorkflowApplication:
         activated: list[str] = []
         invalidated: list[str] = []
         source_ids: list[str] = []
+        if deadline is not None and time.monotonic() >= deadline:
+            return {
+                "status": "BLOCKED",
+                "reason_code": "A3_SCOPE_ACTIVATION_DEADLINE_EXCEEDED",
+                "as_of": current.isoformat(),
+                "activated": [],
+                "invalidated": [],
+                "failures": quote_failures + invalidated_reasons,
+            }
         for group in sorted(set(valid_by_group) | set(invalidated_by_group)):
+            if deadline is not None and time.monotonic() >= deadline:
+                return {
+                    "status": "BLOCKED",
+                    "reason_code": "A3_SCOPE_ACTIVATION_DEADLINE_EXCEEDED",
+                    "as_of": current.isoformat(),
+                    "activated": activated,
+                    "invalidated": invalidated,
+                    "failures": quote_failures + invalidated_reasons,
+                }
             _lane_id, source = group
             valid_ids = valid_by_group.get(group, [])
             invalidated_ids = invalidated_by_group.get(group, [])
@@ -3751,6 +3796,10 @@ class WorkflowApplication:
     def monitor_once(self, *, now: datetime | None = None) -> dict[str, Any]:
         monitor_started = time.monotonic()
         monitor_started_wall = datetime.now(SHANGHAI)
+        # One absolute budget starts before plan recovery.  Every later phase
+        # receives this same deadline; no slow dependency can reset the clock.
+        round_deadline = monitor_started + A4_DECISION_BUDGET_SECONDS
+        deadline_wall = monitor_started_wall + timedelta(seconds=A4_DECISION_BUDGET_SECONDS)
         timing_spans: list[TimingSpan] = []
         timing_lock = RLock()
 
@@ -3767,16 +3816,111 @@ class WorkflowApplication:
 
         current = _aware(now or datetime.now(SHANGHAI)).replace(second=0, microsecond=0)
         execution_cutoff = _a4_execution_cutoff(current)
-        plan_restore_started = time.monotonic()
-        plan_restore_wall = datetime.now(SHANGHAI)
         self._ensure_trading_day(current)
         self._expire_missed_a4_entries(current)
         minute_snapshot_id = f"minute-{current.strftime('%Y%m%dT%H%M%S%z')}"
+
+        # Position protection is restored before A3 activation and the wider
+        # plan scope.  A slow/stuck recovery path must never consume the
+        # two-second hard-stop budget for already-held inventory.
+        lane_positions = {
+            lane_id: tuple(self.store.list_positions(f"paper:{lane_id}"))
+            for lane_id in self.brokers
+        }
+        position_symbols = sorted({
+            str(position["symbol"])
+            for positions in lane_positions.values()
+            for position in positions
+        })
+        risk_deadline = min(round_deadline, monitor_started + A4_POSITION_RISK_BUDGET_SECONDS)
+        position_quote_started = time.monotonic()
+        position_quote_wall = datetime.now(SHANGHAI)
+        position_quote_work = run_many_bounded(
+            {
+                symbol: (
+                    lambda symbol=symbol: self._fetch_live_quote(symbol, current, deadline=risk_deadline)
+                )
+                for symbol in position_symbols
+            },
+            deadline=risk_deadline,
+            gate=_A4_POSITION_WORK,
+        ) if position_symbols else {}
+        record_span("position_quote", position_quote_started, position_quote_wall)
+        position_quotes: dict[str, Any] = {}
+        position_quote_errors: dict[str, str] = {}
+        for symbol, work in position_quote_work.items():
+            if work.status != "READY":
+                position_quote_errors[symbol] = (
+                    "POSITION_QUOTE_BACKPRESSURE" if work.status == "BACKPRESSURE"
+                    else "POSITION_QUOTE_DEADLINE_EXCEEDED"
+                )
+                continue
+            quote_result = work.value
+            quote = getattr(quote_result, "quote", None)
+            if quote_result is not None and getattr(quote_result, "complete", False) and quote is not None:
+                position_quotes[symbol] = quote_result
+            else:
+                position_quote_errors[symbol] = str(
+                    getattr(quote_result, "reason_code", "REALTIME_QUOTE_UNAVAILABLE")
+                )
+
+        simulation: list[dict[str, Any]] = []
+        risk_settled: set[tuple[str, str]] = set()
+        position_risk_batches: dict[str, MonitorBatchResult] = {}
+        for lane_id, positions in lane_positions.items():
+            if not positions:
+                position_risk_batches[lane_id] = MonitorBatchResult(
+                    lane_id=lane_id,
+                    minute_snapshot_id=minute_snapshot_id,
+                )
+                continue
+            risk_bars = {
+                symbol: _quote_risk_bar(symbol, result.quote, current)
+                for symbol, result in position_quotes.items()
+                if any(str(position["symbol"]) == symbol for position in positions)
+            }
+            risk_errors = {
+                str(position["symbol"]): position_quote_errors[str(position["symbol"])]
+                for position in positions
+                if str(position["symbol"]) in position_quote_errors
+            }
+            risk_started = time.monotonic()
+            risk_wall = datetime.now(SHANGHAI)
+            engine = MonitorEngine(self.store, max_seconds=max(0.1, risk_deadline - time.monotonic()))
+            batch = engine.process_position_risk(
+                lane_id,
+                risk_bars,
+                minute_snapshot_id=minute_snapshot_id,
+                now=current,
+                data_errors=risk_errors,
+            )
+            position_risk_batches[lane_id] = batch
+            record_span(f"position_risk:{lane_id}", risk_started, risk_wall)
+            for symbol, bar in risk_bars.items():
+                execution_started = time.monotonic()
+                execution_wall = datetime.now(SHANGHAI)
+                try:
+                    simulation.extend(self._settle_prior_signals(lane_id, symbol, bar))
+                    risk_settled.add((lane_id, symbol))
+                finally:
+                    record_span(f"position_order_intent:{lane_id}:{symbol}", execution_started, execution_wall)
+
+        plan_restore_started = time.monotonic()
+        plan_restore_wall = datetime.now(SHANGHAI)
         # A missed 09:26 callback can still be recovered during the bounded
         # morning window.  This only activates the latest already-published
         # A3 rows after the same quote/stop/no-chase checks; it never invents
         # a plan and becomes fail-closed after the window.
-        a3_scope_activation = self.activate_latest_a3_for_monitor(now=current)
+        activation_callback = self.activate_latest_a3_for_monitor
+        activation_parameters = inspect.signature(activation_callback).parameters.values()
+        activation_kwargs: dict[str, Any] = {"now": current}
+        if any(
+            parameter.name == "deadline"
+            or parameter.kind is inspect.Parameter.VAR_KEYWORD
+            for parameter in activation_parameters
+        ):
+            activation_kwargs["deadline"] = round_deadline
+        a3_scope_activation = activation_callback(**activation_kwargs)
         lane_plans = {
             lane_id: self.store.list_active_plans(lane_id, at=current)
             for lane_id in self.brokers
@@ -3810,6 +3954,7 @@ class WorkflowApplication:
         archive_symbols = set().union(*lane_archive_scopes.values()) if lane_archive_scopes else set()
         archive_only_symbols = sorted(archive_symbols - decision_symbols)
         record_span("plan_restore", plan_restore_started, plan_restore_wall)
+
         # A4's entry authority must come from today's market, never from the
         # prior-session market label frozen into an A3 plan.  Collect one
         # shared five-minute market state for all lanes; the provider itself
@@ -3817,20 +3962,34 @@ class WorkflowApplication:
         # repeat a full-market request.
         market_state_started = time.monotonic()
         market_state_wall = datetime.now(SHANGHAI)
+        market_deadline = min(round_deadline, time.monotonic() + A4_MARKET_STATE_BUDGET_SECONDS)
+        market_work = _A4_MARKET_WORK.call(
+            lambda: load_or_refresh_live_market_state(
+                self.settings, self.market_data, as_of=current,
+            ),
+            deadline=market_deadline,
+            name="a4-market-state",
+        ) if any(lane_plans.values()) else None
         live_market_state = (
-            load_or_refresh_live_market_state(
-                self.settings,
-                self.market_data,
-                as_of=current,
-            )
-            if any(lane_scopes.values())
-            else {
+            market_work.value
+            if market_work is not None and market_work.status == "READY"
+            else ({
+                "status": "DATA_BLOCKED",
+                "reason_code": (
+                    "A4_LIVE_MARKET_BACKPRESSURE"
+                    if market_work is not None and market_work.status == "BACKPRESSURE"
+                    else "A4_LIVE_MARKET_DEADLINE_EXCEEDED"
+                ),
+                "as_of": current.isoformat(),
+                "trade_date": current.date().isoformat(),
+                "entry_permission": "UNKNOWN",
+            } if market_work is not None else {
                 "status": "NOT_REQUIRED",
                 "reason_code": "A4_NO_ACTIVE_PLAN_SCOPE",
                 "as_of": current.isoformat(),
                 "trade_date": current.date().isoformat(),
                 "entry_permission": "UNKNOWN",
-            }
+            })
         )
         record_span("market_state", market_state_started, market_state_wall)
 
@@ -3839,7 +3998,10 @@ class WorkflowApplication:
         # the current session.  This avoids falling back to a multi-day
         # overlap window during the opening minutes.
         market: dict[str, dict[str, Any]] = {}
-        all_symbols = sorted(decision_symbols | archive_symbols)
+        # Invalidated-plan archives are deliberately not scheduled in the
+        # decision round.  They are reported as deferred auxiliary work and
+        # cannot consume the required-data pool or delay position protection.
+        all_symbols = sorted(decision_symbols)
         cache_stats: dict[str, Any] = {
             "inserted": 0,
             "unchanged": 0,
@@ -3853,7 +4015,7 @@ class WorkflowApplication:
         from .data.publication import (
             ACQUISITION_BUDGET_SECONDS, confirm_publications, classify_persistent_pending, reuse_publication,
         )
-        fetch_deadline = time.monotonic() + ACQUISITION_BUDGET_SECONDS
+        fetch_deadline = min(round_deadline, time.monotonic() + ACQUISITION_BUDGET_SECONDS)
         acquisition_started = time.monotonic()
         acquisition_wall = datetime.now(SHANGHAI)
 
@@ -3874,40 +4036,44 @@ class WorkflowApplication:
             # changes at a five-minute boundary, so do not repeat a full-day
             # native request on every intervening minute or publication probe.
             native_due = bool(execution_cutoff and _a4_native_verification_due(execution_cutoff))
-            five_started = time.monotonic()
-            five_wall = datetime.now(SHANGHAI)
-            try:
-                five = (
-                    self._fetch_live_bars(symbol, "5m", five_required, execution_cutoff, deadline=fetch_deadline)
-                    if include_auxiliary and native_due else None
-                )
-            finally:
-                record_span(f"auxiliary_archive:{symbol}", five_started, five_wall)
+            five = None
+            auxiliary_error = "AUXILIARY_5M_DEFERRED" if include_auxiliary and native_due else None
             quote_started = time.monotonic()
             quote_wall = datetime.now(SHANGHAI)
             try:
-                quote = self._fetch_live_quote(symbol, current, deadline=fetch_deadline)
+                quote = position_quotes.get(symbol) or self._fetch_live_quote(
+                    symbol, current, deadline=fetch_deadline
+                )
             finally:
                 record_span(f"holding_quote:{symbol}", quote_started, quote_wall)
-            return symbol, {"1m": one, "5m": five, "quote": quote}
+            return symbol, {
+                "1m": one,
+                "5m": five,
+                "quote": quote,
+                "auxiliary_error": auxiliary_error,
+            }
 
         if all_symbols:
-            with ThreadPoolExecutor(max_workers=min(8, len(all_symbols))) as executor:
-                futures = {
-                    executor.submit(fetch_symbol, symbol): symbol for symbol in all_symbols
-                }
-                for future in as_completed(futures):
-                    submitted_symbol = futures[future]
-                    try:
-                        symbol, fetched = future.result()
-                    except Exception:
-                        # Keep the failure at the affected symbol.  The
-                        # monitor engine persists DATA_BLOCK per plan and
-                        # healthy symbols in the same lane can continue.
-                        symbol = submitted_symbol
-                        market[symbol] = {"fetch_error": "MINUTE_DATA_FETCH_FAILED"}
-                        continue
-                    market[symbol] = fetched
+            fetched_work = run_many_bounded(
+                {
+                    symbol: (lambda symbol=symbol: fetch_symbol(symbol))
+                    for symbol in all_symbols
+                },
+                deadline=fetch_deadline,
+                gate=_A4_REQUIRED_WORK,
+            )
+            for submitted_symbol, work in fetched_work.items():
+                if work.status != "READY":
+                    market[submitted_symbol] = {
+                        "fetch_error": (
+                            "MINUTE_FETCH_BACKPRESSURE"
+                            if work.status == "BACKPRESSURE"
+                            else "MINUTE_FETCH_DEADLINE_EXCEEDED"
+                        )
+                    }
+                    continue
+                symbol, fetched = work.value
+                market[symbol] = fetched
             def refetch_execution(symbol: str) -> tuple[str, dict[str, Any]]:
                 _, refreshed = fetch_symbol(symbol, include_auxiliary=False)
                 # Auxiliary evidence is frozen from the initial boundary
@@ -4009,7 +4175,6 @@ class WorkflowApplication:
 
         record_span("market_acquisition", acquisition_started, acquisition_wall)
 
-        simulation: list[dict[str, Any]] = []
         lane_inputs: dict[
             str,
             tuple[
@@ -4128,7 +4293,11 @@ class WorkflowApplication:
                             low=observation_bar.low,
                             close=observation_bar.close,
                         )
-                    if symbol in risk_bars and not cache_system_error:
+                    if (
+                        symbol in risk_bars
+                        and not cache_system_error
+                        and (lane_id, symbol) not in risk_settled
+                    ):
                         execution_started = time.monotonic()
                         execution_wall = datetime.now(SHANGHAI)
                         try:
@@ -4192,10 +4361,10 @@ class WorkflowApplication:
             plans = lane_plans[lane_id]
             bars, data_ok, contexts, histories, data_errors, risk_bars = lane_inputs[lane_id]
             data_ok = data_ok and not cache_system_error
-            model_budget = max(1.0, min(
-                A4_MODEL_MAX_SECONDS,
-                A4_DECISION_BUDGET_SECONDS - (time.monotonic() - monitor_started),
-            ))
+            remaining = round_deadline - time.monotonic()
+            if remaining <= 0:
+                return lane_id, deadline_batch(lane_id, "A4_GLOBAL_DEADLINE_EXCEEDED")
+            model_budget = max(0.1, min(A4_MODEL_MAX_SECONDS, remaining))
             raw_callback = self._a4_callback(
                 lane_id, plans, contexts, current,
                 model_timeout_seconds=model_budget,
@@ -4216,7 +4385,8 @@ class WorkflowApplication:
             engine = MonitorEngine(
                 self.store,
                 llm_veto=observed_callback,
-                max_seconds=model_budget + 1.0,
+                max_seconds=model_budget,
+                deadline_monotonic=round_deadline,
             )
             decision_started = time.monotonic()
             decision_wall = datetime.now(SHANGHAI)
@@ -4245,12 +4415,54 @@ class WorkflowApplication:
                     ))
             return lane_id, batch
 
+        def deadline_batch(lane_id: str, reason_code: str) -> MonitorBatchResult:
+            event_key = f"internal:{lane_id}:-:{current.isoformat()}:MONITOR_OVERRUN:{reason_code}"
+            self.store.record_monitor_event(
+                event_key=event_key,
+                lane_id=lane_id,
+                minute_end=current,
+                action=MonitorAction.MONITOR_OVERRUN.value,
+                reason_code=reason_code,
+                effective=False,
+                payload={"minute_snapshot_id": minute_snapshot_id},
+            )
+            return MonitorBatchResult(
+                lane_id=lane_id,
+                minute_snapshot_id=minute_snapshot_id,
+                events=(MonitorEvent(
+                    lane_id=lane_id,
+                    minute_end=current,
+                    action=MonitorAction.MONITOR_OVERRUN.value,
+                    reason_code=reason_code,
+                ),),
+                model_called=False,
+                blocked=True,
+            )
+
         lane_batches: dict[str, MonitorBatchResult] = {}
-        with ThreadPoolExecutor(max_workers=max(1, len(self.brokers))) as executor:
-            futures = [executor.submit(process_lane, lane_id) for lane_id in self.brokers]
-            for future in as_completed(futures):
-                lane_id, batch = future.result()
-                lane_batches[lane_id] = batch
+        lane_work = run_many_bounded(
+            {
+                lane_id: (lambda lane_id=lane_id: process_lane(lane_id))
+                for lane_id in self.brokers
+            },
+            deadline=round_deadline,
+            gate=_A4_LANE_WORK,
+        )
+        for lane_id, work in lane_work.items():
+            if work.status == "READY":
+                _returned_lane, batch = work.value
+            else:
+                batch = deadline_batch(
+                    lane_id,
+                    "A4_LANE_BACKPRESSURE" if work.status == "BACKPRESSURE" else "A4_GLOBAL_DEADLINE_EXCEEDED",
+                )
+            early = position_risk_batches.get(lane_id)
+            if early is not None and early.events:
+                batch = batch.model_copy(update={
+                    "events": tuple(early.events) + tuple(batch.events),
+                    "blocked": bool(early.blocked or batch.blocked),
+                })
+            lane_batches[lane_id] = batch
         results = [_batch_dict(lane_batches[lane_id]) for lane_id in self.brokers]
         rebuild_effective_markdown(
             self.store,
@@ -4299,8 +4511,12 @@ class WorkflowApplication:
         )
         notification_started = time.monotonic()
         notification_wall = datetime.now(SHANGHAI)
-        publisher = getattr(self, "lark_publisher", None)
-        system_notifications: list[dict[str, Any]] = []
+        notification_deadline_exceeded = time.monotonic() >= round_deadline
+        publisher = None if notification_deadline_exceeded else getattr(self, "lark_publisher", None)
+        system_notifications: list[dict[str, Any]] = ([{
+            "status": "SKIPPED",
+            "reason_code": "A4_GLOBAL_DEADLINE_EXCEEDED",
+        }] if notification_deadline_exceeded else [])
         publish_system_health = getattr(publisher, "publish_a4_system_health", None)
         if callable(publish_system_health):
             try:
@@ -4400,8 +4616,17 @@ class WorkflowApplication:
         else:
             opportunity_state = OpportunityState.ABSENT
         data_state = DataState.READY if not blocked_scope else DataState.MISSING
+        round_timed_out = notification_deadline_exceeded or any(
+            event.reason_code in {
+                "A4_GLOBAL_DEADLINE_EXCEEDED",
+                "A4_LANE_BACKPRESSURE",
+                "MINUTE_FETCH_DEADLINE_EXCEEDED",
+            }
+            for batch in lane_batches.values()
+            for event in batch.events
+        )
         round_axes = project_decision_axes(
-            job_status=JobLifecycleState.SUCCEEDED,
+            job_status=(JobLifecycleState.TIMED_OUT if round_timed_out else JobLifecycleState.SUCCEEDED),
             data_state=data_state,
             opportunity_state=opportunity_state,
             critical_data=bool(decision_symbols) and not bool(ready_scope),
@@ -4440,7 +4665,7 @@ class WorkflowApplication:
             lane_id="ALL",
             scheduled_at=current,
             started_at=monitor_started_wall,
-            deadline_at=monitor_started_wall + timedelta(seconds=A4_DECISION_BUDGET_SECONDS),
+            deadline_at=deadline_wall,
             snapshot_ids=(minute_snapshot_id,),
             required_scope=tuple(sorted(decision_symbols)),
             ready_scope=tuple(ready_scope),
@@ -4449,7 +4674,8 @@ class WorkflowApplication:
             timing_spans=tuple(timing_spans),
             source_attempts=source_attempts,
             terminal_reason=(
-                "A4_NO_REQUIRED_SCOPE" if not decision_symbols
+                "A4_GLOBAL_DEADLINE_EXCEEDED" if round_timed_out
+                else "A4_NO_REQUIRED_SCOPE" if not decision_symbols
                 else "A4_SCOPE_BLOCKED" if not ready_scope
                 else "A4_SIGNAL_PRESENT" if effective_trade_symbols
                 else "A4_NO_SIGNAL"
@@ -4470,6 +4696,18 @@ class WorkflowApplication:
             "execution_cutoff": execution_cutoff.isoformat() if execution_cutoff else None,
             "a3_scope_activation": a3_scope_activation,
             "archive_only_symbols": archive_only_symbols,
+            "deferred_auxiliary": {
+                "archive_symbols": archive_only_symbols,
+                "native_5m_symbols": sorted(
+                    symbol for symbol, pack in market.items()
+                    if pack.get("auxiliary_error") == "AUXILIARY_5M_DEFERRED"
+                ),
+                "reason_code": "A4_AUXILIARY_DEFERRED_OUTSIDE_CRITICAL_PATH",
+            },
+            "position_risk": {
+                lane_id: _batch_dict(batch)
+                for lane_id, batch in position_risk_batches.items()
+            },
             "minute_cache": cache_stats,
             "lanes": results,
             "simulation": simulation,
@@ -4479,6 +4717,107 @@ class WorkflowApplication:
         }
         atomic_write_json(self.settings.workflow_output_dir / "monitor" / "latest.json", payload)
         return payload
+
+    def collect_a4_auxiliary_once(
+        self,
+        *,
+        now: datetime | None = None,
+        budget_seconds: float = 20.0,
+    ) -> dict[str, Any]:
+        """Archive invalidated-plan bars outside the A4 decision round.
+
+        This adapter is intentionally separate from ``monitor_once``.  It has
+        its own small worker pool and deadline, writes only the minute archive,
+        and cannot emit monitor events, lifecycle changes or orders.
+        """
+
+        if budget_seconds <= 0:
+            raise ValueError("budget_seconds must be positive")
+        current = _aware(now or datetime.now(SHANGHAI)).replace(second=0, microsecond=0)
+        cutoff = _a4_execution_cutoff(current)
+        deadline = time.monotonic() + budget_seconds
+        list_invalidated = getattr(self.store, "list_observable_invalidated_plans", None)
+        symbols = sorted({
+            str(plan["symbol"])
+            for lane_id in self.brokers
+            for plan in (
+                tuple(list_invalidated(lane_id, at=current))
+                if callable(list_invalidated)
+                else ()
+            )
+        })
+        if cutoff is None or not symbols:
+            return {
+                "status": "READY",
+                "reason_code": "A4_AUXILIARY_SCOPE_EMPTY",
+                "as_of": current.isoformat(),
+                "symbols": symbols,
+                "archived": [],
+                "failures": [],
+            }
+        required = _a4_required_bars(cutoff, "1m")
+        work = run_many_bounded(
+            {
+                symbol: (
+                    lambda symbol=symbol: self._fetch_live_bars(
+                        symbol,
+                        "1m",
+                        required,
+                        cutoff,
+                        deadline=deadline,
+                    )
+                )
+                for symbol in symbols
+            },
+            deadline=deadline,
+            gate=_A4_AUXILIARY_WORK,
+        )
+        archived: list[str] = []
+        failures: list[dict[str, str]] = []
+        snapshot_id = f"a4-aux-{current.strftime('%Y%m%dT%H%M%S%z')}"
+        for symbol, result in work.items():
+            if result.status != "READY":
+                failures.append({
+                    "symbol": symbol,
+                    "reason_code": (
+                        "A4_AUXILIARY_BACKPRESSURE"
+                        if result.status == "BACKPRESSURE"
+                        else "A4_AUXILIARY_DEADLINE_EXCEEDED"
+                    ),
+                })
+                continue
+            fetched = result.value
+            bars = tuple(
+                bar
+                for bar in tuple(getattr(fetched, "bars", ()) or ())
+                if bar.interval == "1m"
+                and bar.bar_end.astimezone(SHANGHAI).date() == current.date()
+                and bar.bar_end <= cutoff
+            )
+            if not getattr(fetched, "complete", False) or not bars:
+                failures.append({
+                    "symbol": symbol,
+                    "reason_code": str(getattr(fetched, "reason_code", "A4_AUXILIARY_DATA_UNAVAILABLE")),
+                })
+                continue
+            try:
+                self.minute_store.write_live(bars, as_of=current, snapshot_id=snapshot_id)
+            except CacheConflictError as exc:
+                failures.append({"symbol": symbol, "reason_code": exc.reason_code})
+                continue
+            except Exception:
+                failures.append({"symbol": symbol, "reason_code": "A4_AUXILIARY_ARCHIVE_WRITE_FAILED"})
+                continue
+            archived.append(symbol)
+        return {
+            "status": "READY" if not failures else "PARTIAL",
+            "reason_code": "A4_AUXILIARY_ARCHIVED" if not failures else "A4_AUXILIARY_PARTIAL",
+            "as_of": current.isoformat(),
+            "snapshot_id": snapshot_id,
+            "symbols": symbols,
+            "archived": archived,
+            "failures": failures,
+        }
 
     def review_pending_morning(self, *, now: datetime | None = None) -> dict[str, Any]:
         """Perform the time-bounded deterministic review of close A3 plans."""
@@ -7874,7 +8213,7 @@ def _quote_risk_bar(symbol: str, quote: Any, current: datetime) -> MinuteBar:
         amount=max(0.0, float(getattr(quote, "amount", 0) or 0)),
         source_id=f"{getattr(quote, 'source_id', 'REALTIME_QUOTE')}:RISK_ONLY",
         volume_unit="shares",
-        amount_kind="provider_quote",
+        amount_kind="reported",
         normalizer_version="realtime-quote-risk-v1",
         provider_bar_end=getattr(quote, "quote_time", current),
     )

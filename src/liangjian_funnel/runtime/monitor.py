@@ -66,6 +66,8 @@ class MonitorEngine:
         llm_batch: VetoCallback | None = None,
         effective_md_path: str | Path | None = None,
         max_seconds: float = 50.0,
+        deadline_monotonic: float | None = None,
+        clock: Callable[[], float] = time.monotonic,
     ):
         if max_seconds <= 0:
             raise ValueError("max_seconds must be positive")
@@ -75,6 +77,8 @@ class MonitorEngine:
         self.llm_veto = llm_veto or llm_batch
         self.effective_md_path = Path(effective_md_path) if effective_md_path is not None else None
         self.max_seconds = max_seconds
+        self.deadline_monotonic = deadline_monotonic
+        self._clock = clock
         self._confirmations: dict[tuple[str, str], tuple[datetime, int]] = {}
         self._condition_active: set[tuple[str, str]] = set()
         self._overrun_until: dict[str, datetime] = {}
@@ -186,7 +190,7 @@ class MonitorEngine:
             global_data_reason = "MINUTE_DATA_GAP" if gap_detected else "MINUTE_DATA_UNAVAILABLE"
 
         model_called = False
-        started = time.monotonic()
+        started = self._clock()
         pending_veto: list[dict[str, Any]] = []
         trigger_results: list[dict[str, Any]] = []
         for plan in plans:
@@ -618,7 +622,13 @@ class MonitorEngine:
                 else:
                     llm_error_code = "LLM_CALLBACK_FAILED"
 
-        overrun = model_called and time.monotonic() - started > self.max_seconds
+        overrun = model_called and (
+            self._clock() - started > self.max_seconds
+            or (
+                self.deadline_monotonic is not None
+                and self._clock() >= self.deadline_monotonic
+            )
+        )
         if overrun:
             self._overrun_until[lane_id] = minute + timedelta(minutes=1)
             self._reset_lane(lane_id)
@@ -695,6 +705,97 @@ class MonitorEngine:
             blocked=bool(plan_events) and all(
                 event.action == MonitorAction.DATA_BLOCK.value for event in plan_events
             ),
+        )
+
+    def process_position_risk(
+        self,
+        lane_id: str,
+        risk_bars: Mapping[str, MinuteBar],
+        *,
+        minute_snapshot_id: str,
+        now: datetime,
+        data_errors: Mapping[str, str] | None = None,
+        integrity_ok: bool = True,
+    ) -> MonitorBatchResult:
+        """Evaluate existing-position hard stops without entry data or LLM.
+
+        This is the high-priority A4 lane.  It intentionally evaluates only
+        frozen stop protection; strategy exits that need 5m/15m history remain
+        in ``process_minute`` after the required minute snapshot is ready.
+        """
+
+        minute = _local(now)
+        if not self._in_session(minute):
+            return MonitorBatchResult(lane_id=lane_id, minute_snapshot_id=minute_snapshot_id, events=(), model_called=False)
+        errors = {str(key): str(value) for key, value in (data_errors or {}).items()}
+        bars = self._bar_map(risk_bars)
+        events: list[MonitorEvent] = []
+        for position in self.store.list_positions(f"paper:{lane_id}"):
+            symbol = str(position["symbol"])
+            source_plan_id = str(position.get("plan_id") or "").strip()
+            plan = self.store.get_execution_plan(source_plan_id) if source_plan_id else None
+            if plan is None:
+                plan = {
+                    "plan_id": source_plan_id or f"position:{lane_id}:{symbol}",
+                    "lane_id": lane_id,
+                    "symbol": symbol,
+                    "payload_json": json.dumps({"stop_level": position.get("stop_level")}, ensure_ascii=False),
+                }
+            bar = bars.get(symbol) or bars.get(symbol.split(".")[0])
+            reason = errors.get(symbol) or errors.get(symbol.split(".")[0])
+            health = position_data_health(bar, at=minute, reason=reason, integrity_ok=integrity_ok)
+            if not health["current_price_trusted"]:
+                events.append(self._emit_effective(
+                    lane_id,
+                    plan,
+                    minute,
+                    minute_snapshot_id,
+                    MonitorAction.DATA_BLOCK.value,
+                    str(reason or health.get("reason_code") or "POSITION_QUOTE_UNAVAILABLE"),
+                    strategy_result={"position_data_health": health, "risk_lane": "POSITION_PROTECTION"},
+                ))
+                continue
+            payload = self._payload(plan)
+            stop_level = position.get("stop_level") or payload.get("stop_level")
+            if stop_level is None:
+                events.append(self._emit_effective(
+                    lane_id,
+                    plan,
+                    minute,
+                    minute_snapshot_id,
+                    MonitorAction.DATA_BLOCK.value,
+                    "POSITION_STOP_UNAVAILABLE",
+                    strategy_result={"position_data_health": health, "risk_lane": "POSITION_PROTECTION"},
+                ))
+                continue
+            if bar.low <= float(stop_level):
+                self._reset_confirmation(lane_id, str(plan["plan_id"]))
+                events.append(self._emit_effective(
+                    lane_id,
+                    plan,
+                    minute,
+                    minute_snapshot_id,
+                    MonitorAction.FORCED_RISK_EXIT.value,
+                    "HARD_STOP",
+                    strategy_result={"position_data_health": health, "risk_lane": "POSITION_PROTECTION"},
+                ))
+            else:
+                events.append(self._emit_internal(
+                    lane_id,
+                    minute,
+                    minute_snapshot_id,
+                    MonitorAction.NO_ACTION.value,
+                    "POSITION_RISK_CLEAR",
+                    str(plan["plan_id"]),
+                    symbol,
+                    strategy_result={"position_data_health": health, "risk_lane": "POSITION_PROTECTION"},
+                ))
+        return MonitorBatchResult(
+            lane_id=lane_id,
+            minute_snapshot_id=minute_snapshot_id,
+            events=tuple(events),
+            model_called=False,
+            blocked=bool(events) and all(event.action == MonitorAction.DATA_BLOCK.value for event in events),
         )
 
     def _bar_map(self, bars: Mapping[str, MinuteBar] | tuple[MinuteBar, ...] | list[MinuteBar]) -> dict[str, MinuteBar]:

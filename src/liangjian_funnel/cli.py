@@ -405,6 +405,10 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     sub.add_parser("monitor-once", help="run one A4 minute and paper-simulation cycle")
+    sub.add_parser(
+        "archive-a4-auxiliary-once",
+        help="archive invalidated-plan minute evidence outside the A4 decision path",
+    )
     activate_a3 = sub.add_parser(
         "activate-latest-a3-for-a4",
         help="explicitly bind the latest published A3 plans to the current A4 session",
@@ -1033,6 +1037,8 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
             payload = application.run_comparison(parent_run_id=args.parent_run_id)
         elif args.command == "monitor-once":
             payload = application.monitor_once()
+        elif args.command == "archive-a4-auxiliary-once":
+            payload = application.collect_a4_auxiliary_once()
         elif args.command == "activate-latest-a3-for-a4":
             activation_at = datetime.fromisoformat(args.as_of) if args.as_of else None
             if activation_at is not None and (activation_at.tzinfo is None or activation_at.utcoffset() is None):

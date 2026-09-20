@@ -93,7 +93,7 @@ def test_monitor_confirmation_survives_new_process_instance(tmp_path):
     assert len(second_calls) == 1
 
 
-def test_monitor_archives_invalidated_plan_without_returning_it_to_a4(tmp_path):
+def test_monitor_defers_invalidated_plan_archive_outside_a4_critical_path(tmp_path):
     current = datetime(2026, 9, 3, 10, 0, tzinfo=TZ)
     store = RuntimeStore(tmp_path / "archive-only.sqlite3")
     store.create_execution_plan(
@@ -163,15 +163,18 @@ def test_monitor_archives_invalidated_plan_without_returning_it_to_a4(tmp_path):
     result = app.monitor_once(now=current)
 
     assert result["archive_only_symbols"] == ["600176.SH"]
-    # At 10:00 the 09:59 one-minute bar is the immutable execution cutoff;
-    # the next native five-minute verification is requested at 10:01, once
-    # the 10:00 provider bucket has had a full publication minute.
+    # Invalidated plans remain visible to the auxiliary producer, but A4 no
+    # longer waits for their provider or writes their archive inline.
+    assert provider.calls == []
+    assert result["deferred_auxiliary"]["archive_symbols"] == ["600176.SH"]
+    auxiliary = app.collect_a4_auxiliary_once(now=current)
+    assert auxiliary["status"] == "READY"
     assert {call[:2] for call in provider.calls} == {("600176.SH", "1m")}
     archived = app.minute_store.load_latest("600176.SH", "1m", limit=240)
     assert archived
     assert archived[-1].bar_end == current - timedelta(minutes=1)
     snapshot = app.minute_store.load_decision_snapshot(
-        result["minute_snapshot_id"], "600176.SH", "1m", as_of=current,
+        auxiliary["snapshot_id"], "600176.SH", "1m", as_of=current,
     )
     assert snapshot[-1].bar_end == current - timedelta(minutes=1)
     # The terminal plan remains terminal and never appears in an A4 decision

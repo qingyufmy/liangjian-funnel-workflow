@@ -10,7 +10,7 @@
     ],
     "production_runtime_modified": false
   },
-  "current_stage": "S02",
+  "current_stage": "S03",
   "stages": {
     "S00": {
       "code_status": "CODE_ACCEPTED",
@@ -194,7 +194,66 @@
         "artifacts/iteration/s02-offline-final-20260920/"
       ]
     },
-    "S03": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
+    "S03": {
+      "code_status": "CODE_ACCEPTED",
+      "evidence_status": "OFFLINE_ACCEPTED",
+      "operations_status": "PENDING_PRODUCTION_EVIDENCE",
+      "strategy_status": "INSUFFICIENT_EVIDENCE",
+      "changed_files": [
+        "src/liangjian_funnel/runtime/bounded_work.py",
+        "src/liangjian_funnel/runtime/monitor.py",
+        "src/liangjian_funnel/workflow.py",
+        "src/liangjian_funnel/cli.py",
+        "scripts/run_a4_stress.py",
+        "scripts/run_iteration_acceptance.py",
+        "tests/iteration/test_a4_orchestration.py",
+        "tests/test_workflow_integration.py",
+        "docs/iteration/*"
+      ],
+      "dependencies": ["S00", "S01", "S02"],
+      "commands": [
+        {
+          "command": ".venv/Scripts/python.exe -m pytest -q tests/iteration/test_a4_orchestration.py tests/test_runtime_monitor.py tests/test_a4_replay.py tests/test_execution_data_contract.py tests/test_a4_runtime_repair.py tests/test_a4_a5_remediation.py tests/test_minute_publication.py tests/test_runtime_scheduler.py",
+          "exit_code": 0,
+          "result": "focused and expanded A4 regression passed",
+          "artifact": null
+        },
+        {
+          "command": ".venv/Scripts/python.exe scripts/run_iteration_acceptance.py --profile stress --scenario a4-s03 --output-dir artifacts/iteration/s03-stress-20260920",
+          "exit_code": 0,
+          "result": "50/100/200 tiers passed; 200-plan risk p99 1.130s and decision core 1.207s on local Windows fixture",
+          "artifact": "artifacts/iteration/s03-stress-20260920/summary.json"
+        },
+        {
+          "command": ".venv/Scripts/python.exe -m pytest --cov=liangjian_funnel --cov-report=term-missing --cov-fail-under=65",
+          "exit_code": 1,
+          "result": "1 failed, 1759 passed, 4 skipped; legacy inline invalidated-plan archive expectation exposed",
+          "artifact": null
+        },
+        {
+          "command": ".venv/Scripts/python.exe -m pytest --cov=liangjian_funnel --cov-report=term --cov-fail-under=65",
+          "exit_code": 0,
+          "result": "1760 passed, 4 skipped, coverage 78.72%",
+          "artifact": null
+        },
+        {
+          "command": "npm run typecheck && npm test && npm run build",
+          "exit_code": 0,
+          "result": "typecheck passed; 86 tests passed; web and server build passed",
+          "artifact": null
+        },
+        {
+          "command": ".venv/Scripts/python.exe scripts/run_iteration_acceptance.py --profile offline --output-dir artifacts/iteration/s03-offline-final3-20260920",
+          "exit_code": 0,
+          "result": "CODE_ACCEPTED; 88 passed, 0 failed, 0 skipped",
+          "artifact": "artifacts/iteration/s03-offline-final3-20260920/summary.json"
+        }
+      ],
+      "artifacts": [
+        "artifacts/iteration/s03-stress-20260920/",
+        "artifacts/iteration/s03-offline-final3-20260920/"
+      ]
+    },
     "S04": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
     "S05": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
     "S06": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
@@ -205,13 +264,12 @@
     "S11": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"}
   },
   "unresolved": [
-    "A4 critical wait chain and position-protection isolation require S01-S03 changes",
     "A1 coverage ledger and incremental repair require S04",
     "fee and causal fill findings require S05",
     "strict LLM response validation requires S07",
     "replay, operations and strategy acceptance remain unproven"
   ],
   "blockers": [],
-  "next_action": "Implement S03 A4 critical-path deadlines and position-protection isolation using the S01 observation contract and S02 provider governor.",
-  "updated_at": "2026-09-20T17:11:58+08:00"
+  "next_action": "Implement S04 A1 field-level coverage ledger, gap attribution, incremental repair queue and frozen model-input reconciliation.",
+  "updated_at": "2026-09-20T17:49:00+08:00"
 }
