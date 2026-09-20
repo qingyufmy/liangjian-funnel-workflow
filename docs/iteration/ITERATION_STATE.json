@@ -1,0 +1,100 @@
+{
+  "schema_version": "liangjian-iteration-state/1.0.0",
+  "task_version": "LIANGJIAN_CODEX_IMPLEMENTATION_MASTER.md sha256:B2F62C7F2CFEB4B995943730B08C00746F44F775B49C0E1D2AC58C2B86286AC2",
+  "baseline": {
+    "commit": "360c8612c6dc28052509cad5c833b57eeb1b2d79",
+    "branch": "codex/implementation-s00-s11-20260920",
+    "isolated_worktree": "D:/dev_A股/liangjian_funnel_iteration",
+    "initial_worktree_status": [
+      "?? docs/iteration/LIANGJIAN_CODEX_IMPLEMENTATION_MASTER.md"
+    ],
+    "production_runtime_modified": false
+  },
+  "current_stage": "S00",
+  "stages": {
+    "S00": {
+      "code_status": "CODE_ACCEPTED",
+      "evidence_status": "OFFLINE_ACCEPTED",
+      "operations_status": "PENDING_PRODUCTION_EVIDENCE",
+      "strategy_status": "INSUFFICIENT_EVIDENCE",
+      "changed_files": [
+        ".gitignore",
+        "scripts/run_iteration_acceptance.py",
+        "tests/iteration/conftest.py",
+        "tests/iteration/test_offline_harness.py",
+        "docs/iteration/*"
+      ],
+      "dependencies": [],
+      "commands": [
+        {
+          "command": ".venv/Scripts/python.exe -m pytest --cov=liangjian_funnel --cov-report=term-missing --cov-fail-under=65",
+          "exit_code": 0,
+          "result": "1721 passed, 4 skipped, coverage 78.60%",
+          "artifact": "artifacts/iteration/s00-baseline-20260920/python-ci.log"
+        },
+        {
+          "command": "npm run typecheck",
+          "exit_code": 0,
+          "result": "passed",
+          "artifact": "artifacts/iteration/s00-baseline-20260920/node-typecheck.log"
+        },
+        {
+          "command": "npm test",
+          "exit_code": 0,
+          "result": "86 passed in 8 files",
+          "artifact": "artifacts/iteration/s00-baseline-20260920/node-test.log"
+        },
+        {
+          "command": "npm run build",
+          "exit_code": 0,
+          "result": "web and server build passed",
+          "artifact": "artifacts/iteration/s00-baseline-20260920/node-build.log"
+        },
+        {
+          "command": ".venv/Scripts/python.exe -m pytest -q tests/iteration",
+          "exit_code": 0,
+          "result": "4 passed",
+          "artifact": null
+        },
+        {
+          "command": ".venv/Scripts/python.exe scripts/run_iteration_acceptance.py --profile offline --output-dir artifacts/iteration/s00-offline-final-20260920",
+          "exit_code": 0,
+          "result": "CODE_ACCEPTED; 53 passed, 0 failed, 0 skipped",
+          "artifact": "artifacts/iteration/s00-offline-final-20260920/summary.json"
+        },
+        {
+          "command": ".venv/Scripts/python.exe scripts/run_iteration_acceptance.py --profile offline --inject-failure --output-dir artifacts/iteration/s00-injected-failure-final-20260920",
+          "exit_code": 1,
+          "result": "expected controlled failure propagated as exit code 1",
+          "artifact": "artifacts/iteration/s00-injected-failure-final-20260920/summary.json"
+        }
+      ],
+      "artifacts": [
+        "artifacts/iteration/s00-baseline-20260920/",
+        "artifacts/iteration/s00-offline-final-20260920/",
+        "artifacts/iteration/s00-injected-failure-final-20260920/"
+      ]
+    },
+    "S01": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
+    "S02": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
+    "S03": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
+    "S04": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
+    "S05": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
+    "S06": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
+    "S07": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
+    "S08": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
+    "S09": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
+    "S10": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
+    "S11": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"}
+  },
+  "unresolved": [
+    "A4 critical wait chain and position-protection isolation require S01-S03 changes",
+    "A1 coverage ledger and incremental repair require S04",
+    "fee and causal fill findings require S05",
+    "strict LLM response validation requires S07",
+    "replay, operations and strategy acceptance remain unproven"
+  ],
+  "blockers": [],
+  "next_action": "Implement S01 contracts and observability without changing strategy thresholds.",
+  "updated_at": "2026-09-20T16:38:00+08:00"
+}
