@@ -68,6 +68,7 @@ class MonitorEngine:
         max_seconds: float = 50.0,
         deadline_monotonic: float | None = None,
         clock: Callable[[], float] = time.monotonic,
+        wall_clock: Callable[[], datetime] | None = None,
     ):
         if max_seconds <= 0:
             raise ValueError("max_seconds must be positive")
@@ -79,6 +80,7 @@ class MonitorEngine:
         self.max_seconds = max_seconds
         self.deadline_monotonic = deadline_monotonic
         self._clock = clock
+        self._wall_clock = wall_clock or (lambda: datetime.now(ZoneInfo("Asia/Shanghai")))
         self._confirmations: dict[tuple[str, str], tuple[datetime, int]] = {}
         self._condition_active: set[tuple[str, str]] = set()
         self._overrun_until: dict[str, datetime] = {}
@@ -1073,8 +1075,19 @@ class MonitorEngine:
         entry_payload = self._payload(plan)
         if plan.get("expires_at"):
             entry_payload = {**entry_payload, "expires_at": plan["expires_at"]}
+        observed_wall = self._wall_clock()
+        # Historical fixtures/replays cannot reuse today's wall clock as if it
+        # were the original review completion. They remain explicitly legacy
+        # until an as-observed timestamp is supplied by replay evidence.
+        review_completed_at = observed_wall if abs((observed_wall - minute).total_seconds()) <= 86_400 else None
         entry_contract = (
-            freeze_entry_contract(symbol, entry_payload, strategy_result or {}, at=minute)
+            freeze_entry_contract(
+                symbol,
+                entry_payload,
+                strategy_result or {},
+                at=minute,
+                review_completed_at=review_completed_at,
+            )
             if action in {MonitorAction.BUY_SIGNAL.value, MonitorAction.ADD_SIGNAL.value}
             and strategy_result is not None else None
         )

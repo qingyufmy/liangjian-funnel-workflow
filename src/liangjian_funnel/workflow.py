@@ -420,7 +420,15 @@ class WorkflowApplication:
                 self.store,
                 account_id=f"paper:lane_{index}",
                 model=model,
-                config=SimulationConfig(initial_cash=settings.simulation_initial_cash),
+                config=SimulationConfig(
+                    initial_cash=settings.simulation_initial_cash,
+                    fee_bps=settings.simulation_commission_bps,
+                    minimum_fee=settings.simulation_minimum_commission,
+                    sell_tax_bps=settings.simulation_sell_tax_bps,
+                    other_fee_bps=settings.simulation_other_fee_bps,
+                    max_volume_participation=settings.simulation_max_volume_participation,
+                    fee_model_version=settings.simulation_fee_model_version,
+                ),
             )
             for index, model in enumerate(settings.research_models, start=1)
         }
@@ -3898,14 +3906,9 @@ class WorkflowApplication:
             )
             position_risk_batches[lane_id] = batch
             record_span(f"position_risk:{lane_id}", risk_started, risk_wall)
-            for symbol, bar in risk_bars.items():
-                execution_started = time.monotonic()
-                execution_wall = datetime.now(SHANGHAI)
-                try:
-                    simulation.extend(self._settle_prior_signals(lane_id, symbol, bar))
-                    risk_settled.add((lane_id, symbol))
-                finally:
-                    record_span(f"position_order_intent:{lane_id}:{symbol}", execution_started, execution_wall)
+            # Quotes can trigger an immediate hard-stop intent, but they are
+            # not completed OHLCV windows and therefore never settle it.  The
+            # intent is consumed below by the next frozen real 1m bar.
 
         plan_restore_started = time.monotonic()
         plan_restore_wall = datetime.now(SHANGHAI)
@@ -4295,15 +4298,12 @@ class WorkflowApplication:
                             low=observation_bar.low,
                             close=observation_bar.close,
                         )
-                    if (
-                        symbol in risk_bars
-                        and not cache_system_error
-                        and (lane_id, symbol) not in risk_settled
-                    ):
+                    if not cache_system_error and (lane_id, symbol) not in risk_settled:
                         execution_started = time.monotonic()
                         execution_wall = datetime.now(SHANGHAI)
                         try:
-                            simulation.extend(self._settle_prior_signals(lane_id, symbol, risk_bars[symbol]))
+                            simulation.extend(self._settle_prior_signals(lane_id, symbol, one_bars[-1]))
+                            risk_settled.add((lane_id, symbol))
                         finally:
                             record_span(f"order_intent_and_simulation:{lane_id}:{symbol}", execution_started, execution_wall)
                     if (position_before is None and not data_errors.get(symbol) and not cache_system_error
@@ -6338,22 +6338,66 @@ class WorkflowApplication:
             contract = payload.get("entry_contract")
             contract = contract if isinstance(contract, Mapping) else None
             new_entry = contract is not None and action in {"BUY", "ADD"}
+            contract_eligible_end = None
+            if new_entry and contract.get("eligible_bar_end"):
+                try:
+                    contract_eligible_end = datetime.fromisoformat(str(contract["eligible_bar_end"]))
+                except (TypeError, ValueError):
+                    contract_eligible_end = None
+            contract_eligible_from = (
+                contract_eligible_end - timedelta(minutes=1)
+                if contract_eligible_end is not None else signal_time
+            )
+            expiry = contract_eligible_end if new_entry else None
+            if new_entry and expiry is None:
+                expiry = _next_closed_minute(signal_time)
+            entry_reference = (
+                (contract.get("limit_price") if new_entry else plan_payload.get("trigger_low"))
+                if action in {"BUY", "ADD"}
+                else bar.open
+            ) or bar.open
+            stop_level = contract.get("stop_level") if new_entry else plan_payload.get("stop_level")
+            requested_qty = None
+            if new_entry and stop_level is not None:
+                requested_qty, _ = broker.calculate_quantity(
+                    symbol=symbol,
+                    entry_reference=float(entry_reference),
+                    stop_level=float(stop_level),
+                    risk_unit=float(contract.get("risk_unit", 1.0)),
+                    mark_price=float(entry_reference),
+                )
+                requested_qty = requested_qty or None
             simulation_action = SimulationAction(
                 account_id=account_id,
                 signal_id=str(event["event_key"]),
+                decision_id=str(contract.get("decision_id") or event["event_key"]) if new_entry else None,
+                trigger_episode_id=str(contract.get("trigger_episode_id") or event["event_key"]) if new_entry else None,
                 symbol=symbol,
                 action=action,
                 signal_bar_end=signal_time,
-                entry_reference=(
-                    (contract.get("limit_price") if new_entry else plan_payload.get("trigger_low"))
-                    if action in {"BUY", "ADD"}
-                    else bar.open
-                ) or bar.open,
-                stop_level=contract.get("stop_level") if new_entry else plan_payload.get("stop_level"),
+                data_available_at=signal_time if new_entry else None,
+                deterministic_decided_at=signal_time if new_entry else None,
+                review_completed_at=(
+                    datetime.fromisoformat(str(contract["review_completed_at"]))
+                    if new_entry and contract.get("review_completed_at") else None
+                ),
+                order_created_at=(
+                    datetime.fromisoformat(str(contract["order_created_at"]))
+                    if new_entry and contract.get("order_created_at") else None
+                ),
+                eligible_from=contract_eligible_from if new_entry else None,
+                expire_at=expiry,
+                entry_reference=entry_reference,
+                stop_level=stop_level,
+                stop_basis=str(contract.get("stop_basis") or "PLAN_HARD_STOP") if new_entry else None,
+                requested_qty=requested_qty,
                 risk_unit=contract.get("risk_unit", 1.0) if new_entry else (0.33 if plan_payload.get("risk_unit") == "PROBE" else 1.0),
                 order_type=("LIMIT" if contract.get("status") == "READY" else "INVALID") if new_entry else "LEGACY_REFERENCE",
                 limit_price=contract.get("limit_price") if new_entry else None,
                 plan_id=payload.get("plan_id"),
+                risk_reservation_id=str(contract.get("risk_reservation_id") or f"risk:{event['event_key']}") if new_entry else None,
+                fee_model_version=str(contract.get("fee_model_version") or broker.config.fee_model_version) if new_entry else "legacy-paper-fee/1",
+                fill_model_version=str(contract.get("fill_model_version") or broker.config.fill_model_version) if new_entry else "legacy-next-minute/1",
             )
             intent_key = f"{simulation_action.account_id}:{simulation_action.signal_id}:{simulation_action.action.value}"
             lifecycle_rows = self.store.list_a4_signal_lifecycles(
@@ -6381,7 +6425,7 @@ class WorkflowApplication:
                     "signal_id": f"{event['event_key']}:residual:{bar.bar_end.date().isoformat()}",
                 })
 
-            eligible_bar = _next_closed_minute(signal_time)
+            eligible_bar = contract_eligible_end if new_entry and contract_eligible_end is not None else _next_closed_minute(signal_time)
             if action in {"BUY", "ADD"}:
                 if bar.bar_end < eligible_bar:
                     continue
@@ -6445,7 +6489,16 @@ class WorkflowApplication:
             results.append(result)
             if outcome.fill is not None and lifecycle_key:
                 self.store.apply_a4_fill(lifecycle_key, outcome.fill)
-            elif action == "BUY" and lifecycle_key and outcome.status.value in {"BLOCKED", "CANCELLED"}:
+            elif (
+                action == "BUY"
+                and lifecycle_key
+                and outcome.status.value in {"BLOCKED", "CANCELLED"}
+                and outcome.reason_code not in {
+                    "ORDER_NOT_YET_ELIGIBLE",
+                    "FILL_EVIDENCE_INVALID",
+                    "PERSISTENCE_FAILED",
+                }
+            ):
                 self.store.mark_a4_signal_terminal(
                     lifecycle_key,
                     A4SignalStatus.UNFILLED,
@@ -6464,7 +6517,24 @@ class WorkflowApplication:
             limit=10_000,
         ):
             signal_time = datetime.fromisoformat(str(lifecycle["signal_time"]))
-            if current <= _next_closed_minute(signal_time):
+            if event_rows is None:
+                event_rows = {
+                    str(row.get("event_key") or ""): row
+                    for row in self.store.list_monitor_events(effective_only=True)
+                }
+            source_event = event_rows.get(str(lifecycle.get("entry_event_key") or "")) or {}
+            try:
+                source_payload = json.loads(str(source_event.get("payload_json") or "{}"))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                source_payload = {}
+            source_contract = source_payload.get("entry_contract") if isinstance(source_payload.get("entry_contract"), Mapping) else {}
+            eligible_bar_end = _next_closed_minute(signal_time)
+            if source_contract.get("eligible_bar_end"):
+                try:
+                    eligible_bar_end = datetime.fromisoformat(str(source_contract["eligible_bar_end"]))
+                except (TypeError, ValueError):
+                    pass
+            if current <= eligible_bar_end:
                 continue
             account_id = str(lifecycle["account_id"])
             event_key = str(lifecycle["entry_event_key"])
@@ -6480,16 +6550,6 @@ class WorkflowApplication:
             )
             execution_publisher = getattr(getattr(self, "lark_publisher", None), "publish_a4_execution_results", None)
             if callable(execution_publisher):
-                if event_rows is None:
-                    session_start = current.replace(hour=0, minute=0, second=0, microsecond=0)
-                    event_rows = {
-                        str(row.get("event_key") or ""): row
-                        for row in self.store.list_monitor_events(
-                            effective_only=True,
-                            from_time=session_start,
-                            to_time=current,
-                        )
-                    }
                 event = event_rows.get(event_key) or {}
                 try:
                     event_payload = json.loads(str(event.get("payload_json") or "{}"))
@@ -8260,6 +8320,7 @@ def _quote_risk_bar(symbol: str, quote: Any, current: datetime) -> MinuteBar:
         amount_kind="reported",
         normalizer_version="realtime-quote-risk-v1",
         provider_bar_end=getattr(quote, "quote_time", current),
+        evidence_kind="SYNTHETIC_QUOTE",
     )
 
 

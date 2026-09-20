@@ -9,9 +9,9 @@
 | A4-03 | REPRODUCED_FIXED | 基线同 worker 顺序取 1m、辅助 5m、quote；S03 使用分级 gate，原生 5m 不进入执行链 | 关键链只用冻结 1m 派生周期；原生 5m 保留后续审计职责 |
 | A4-04 | REPRODUCED_FIXED | 基线无界 `as_completed`/executor 退出等待；S03 有限 daemon gate 在超时后返回终态并保留背压 | 不宣称能强杀第三方调用；泄漏 worker 由固定槽位限制 |
 | A4-05 | ALREADY_FIXED | `workflow.py:4104-4108` 明确原生 5m 仅为审计，执行 5m/15m 从冻结 1m 派生 | 不再把原生 5m 冲突当隐藏执行输入；仍需 provider 治理 |
-| EX-01 | REPRODUCED | `runtime/simulation.py:160-162` 把佣金和卖出税合并后整体套最低佣金 | 小额卖出少计税；S05 增加反例并修正 |
-| EX-02 | CONFIRMED_STATIC | `_quote_risk_bar` 构造合成 quote bar，`_settle_prior_signals` 将其传给 PaperBroker，同时账本写 `NEXT_COMPLETE_1M_BAR_SIMULATION` | 成交标签与真实输入语义不一致；S05 必须以冻结完整 1m 撮合 |
-| RISK-01 | CONFIRMED_STATIC | `runtime/simulation.py:359` 用未来撮合价作为仓位 cap 的 `mark_price` | 初始委托数量没有完全冻结；S05/S06 划分冻结数量与成交缩减 |
+| EX-01 | REPRODUCED_FIXED | 基线把佣金和卖出税合并后整体套最低佣金；S05 改为 Decimal 订单级佣金累计与独立卖出税/其他费用 | 分单、部分成交、临界金额反例通过；生产实际费率仍需 OPERATIONS 配置证据 |
+| EX-02 | REPRODUCED_FIXED | 基线把 `_quote_risk_bar` 传给 PaperBroker 并标为完整分钟；S05 明确 `SYNTHETIC_QUOTE`，只以冻结真实 1m 结算 | 合成报价仍可触发持仓风险意图，但不能证明成交或容量 |
+| RISK-01 | PARTIALLY_FIXED | S05 冻结订单时钟、数量、费率/撮合版本和成交证据；未来 bar 只能缩量，不能扩大初始数量 | 组合级预占、T+1 未完成退出和生命周期继续在 S06 验收 |
 | LLM-01 | REPRODUCED | `workflow.py:5629` 使用 `bool(signal.get("llm_veto", True))`，字符串 `"false"` 会变成 True | 严格 schema、类型、完整性和重复项校验留到 S07 |
 | A1-01 | REPRODUCED_FIXED | S04 已建立字段覆盖投影，冻结输入和 packet 可逐层对账；821 样本、失败分母、PIT、预算投影和代次门反例通过 | CODE 离线通过；真实 VM 冻结样本覆盖率和积压清空能力仍待 OPERATIONS 证据，未宣称生产缺口已补齐 |
 | SRC-01 | REPRODUCED_FIXED | 基线只有 `live_fetch._NODE_LOCK` 和节点 JSON 健康文件，无法在不同能力/进程间共享配额或 fencing；S02 已增加 RuntimeStore 协调表和 typed governor | `SRC-01—SRC-08` 离线反例通过；A4 实际接入属于 S03，生产恢复能力仍待运维证据 |

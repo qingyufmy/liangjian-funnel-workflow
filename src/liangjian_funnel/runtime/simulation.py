@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterable, Mapping
-from datetime import date, datetime, time as datetime_time
+from datetime import date, datetime, time as datetime_time, timedelta
+from decimal import Decimal
 from enum import StrEnum
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
@@ -22,6 +23,7 @@ from .state import PersistenceBlockedError, PersistenceError, RuntimeStore, Stat
 from .risk import RiskGovernor
 from .stock_trading_rules import stock_trading_rules
 from .execution_eligibility import sell_eligibility
+from .execution_accounting import FeeSchedule, OrderFeeLedger
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -54,7 +56,11 @@ class SimulationConfig(BaseModel):
     slippage_bps: float = Field(default=10.0, ge=0, le=1_000)
     fee_bps: float = Field(default=1.0, ge=0, le=1_000)
     sell_tax_bps: float = Field(default=5.0, ge=0, le=1_000)
+    other_fee_bps: float = Field(default=0.0, ge=0, le=1_000)
     minimum_fee: float = Field(default=5.0, ge=0)
+    max_volume_participation: float = Field(default=0.10, gt=0, le=1)
+    fee_model_version: str = "paper-config/2"
+    fill_model_version: str = "next-complete-minute-capacity/2"
 
     @model_validator(mode="after")
     def cap_order(self) -> "SimulationConfig":
@@ -64,20 +70,42 @@ class SimulationConfig(BaseModel):
             raise ValueError("total position cap must not be below single position cap")
         return self
 
+    def fee_schedule(self) -> FeeSchedule:
+        return FeeSchedule(
+            commission_bps=Decimal(str(self.fee_bps)),
+            minimum_commission=Decimal(str(self.minimum_fee)),
+            sell_tax_bps=Decimal(str(self.sell_tax_bps)),
+            other_fee_bps=Decimal(str(self.other_fee_bps)),
+            version=self.fee_model_version,
+        )
+
 
 class SimulationAction(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     account_id: str
     signal_id: str
+    replay_run_id: str | None = None
+    decision_id: str | None = None
+    trigger_episode_id: str | None = None
     symbol: str
     action: SimulationActionType
     signal_bar_end: datetime
+    data_available_at: datetime | None = None
+    deterministic_decided_at: datetime | None = None
+    review_completed_at: datetime | None = None
+    order_created_at: datetime | None = None
+    eligible_from: datetime | None = None
+    expire_at: datetime | None = None
     entry_reference: float | None = None
     stop_level: float | None = None
+    stop_basis: str | None = None
     requested_qty: int | None = Field(default=None, ge=1)
     risk_unit: float = Field(default=1.0, gt=0, le=1)
     plan_id: str | None = None
+    risk_reservation_id: str | None = None
+    fee_model_version: str = "legacy-paper-fee/1"
+    fill_model_version: str = "legacy-next-minute/1"
     order_type: str = "LEGACY_REFERENCE"
     limit_price: float | None = None
 
@@ -98,12 +126,49 @@ class SimulationAction(BaseModel):
         value = aliases.get(str(value), value)
         return value
 
-    @field_validator("signal_bar_end")
+    @field_validator(
+        "signal_bar_end",
+        "data_available_at",
+        "deterministic_decided_at",
+        "review_completed_at",
+        "order_created_at",
+        "eligible_from",
+        "expire_at",
+    )
     @classmethod
-    def aware_signal_time(cls, value: datetime) -> datetime:
+    def aware_signal_time(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
         if value.tzinfo is None or value.utcoffset() is None:
-            raise ValueError("signal_bar_end must be timezone-aware")
+            raise ValueError("execution timestamps must be timezone-aware")
         return value
+
+    @model_validator(mode="after")
+    def valid_clock_order(self) -> "SimulationAction":
+        known = [
+            self.signal_bar_end,
+            self.data_available_at,
+            self.deterministic_decided_at,
+            self.review_completed_at,
+            self.order_created_at,
+        ]
+        latest_known = max(value for value in known if value is not None)
+        if self.eligible_from is not None and self.eligible_from < latest_known:
+            raise ValueError("eligible_from cannot precede required information")
+        if self.expire_at is not None and self.expire_at < (self.eligible_from or latest_known):
+            raise ValueError("expire_at cannot precede eligibility")
+        return self
+
+    def effective_eligible_from(self) -> datetime:
+        values = [
+            self.signal_bar_end,
+            self.data_available_at,
+            self.deterministic_decided_at,
+            self.review_completed_at,
+            self.order_created_at,
+            self.eligible_from,
+        ]
+        return max(value for value in values if value is not None)
 
     @field_validator("entry_reference", "stop_level", "limit_price")
     @classmethod
@@ -125,6 +190,8 @@ class SimulationResult(BaseModel):
     qty: int = Field(default=0, ge=0)
     price: float | None = Field(default=None, gt=0)
     fee: float = Field(default=0, ge=0)
+    remaining_qty: int = Field(default=0, ge=0)
+    fee_components: dict[str, Any] | None = None
     fill: dict[str, Any] | None = None
 
 
@@ -157,9 +224,38 @@ def _floor_lot(value: float, lot_size: int) -> int:
     return int(value) // lot_size * lot_size
 
 
+def _first_complete_bar_end(value: datetime) -> datetime | None:
+    """Return the first session minute wholly after an information timestamp."""
+
+    local = value.astimezone(SHANGHAI)
+    day = local.date()
+    clock = local.time().replace(tzinfo=None)
+    morning_open = datetime.combine(day, datetime_time(9, 30), SHANGHAI)
+    morning_close = datetime.combine(day, datetime_time(11, 30), SHANGHAI)
+    afternoon_open = datetime.combine(day, datetime_time(13, 0), SHANGHAI)
+    afternoon_close = datetime.combine(day, datetime_time(15, 0), SHANGHAI)
+    if local < morning_open:
+        return morning_open + timedelta(minutes=1)
+    if local < morning_close:
+        floor = local.replace(second=0, microsecond=0)
+        candidate = floor + timedelta(minutes=1 if local == floor else 2)
+        return candidate if candidate <= morning_close else afternoon_open + timedelta(minutes=1)
+    if local < afternoon_open:
+        return afternoon_open + timedelta(minutes=1)
+    if local < afternoon_close:
+        floor = local.replace(second=0, microsecond=0)
+        candidate = floor + timedelta(minutes=1 if local == floor else 2)
+        return candidate if candidate <= afternoon_close else None
+    return None
+
+
 def _fee(gross: float, config: SimulationConfig, *, sell: bool) -> float:
-    rate = config.fee_bps + (config.sell_tax_bps if sell else 0)
-    return max(config.minimum_fee if gross > 0 else 0, gross * rate / 10_000)
+    """Compatibility projection; new ledger rows retain every component."""
+
+    charge = OrderFeeLedger(config.fee_schedule(), side="SELL" if sell else "BUY").charge(
+        Decimal(str(gross)), final=True,
+    )
+    return float(charge.total)
 
 
 class PaperBroker:
@@ -200,6 +296,17 @@ class PaperBroker:
             trade_date or datetime.now(SHANGHAI).date(),
         )
         return 1 if started else 0
+
+    def _frozen_fee_schedule(self, action: SimulationAction) -> FeeSchedule:
+        configured = self.config.fee_schedule()
+        version = action.fee_model_version or configured.version
+        return FeeSchedule(
+            commission_bps=configured.commission_bps,
+            minimum_commission=configured.minimum_commission,
+            sell_tax_bps=configured.sell_tax_bps,
+            other_fee_bps=configured.other_fee_bps,
+            version=version,
+        )
 
     def calculate_quantity(
         self,
@@ -271,6 +378,8 @@ class PaperBroker:
             return self._blocked(parsed, "ENTRY_CONTRACT_INVALID")
         if parsed.order_type == "LIMIT" and parsed.limit_price is None:
             return self._blocked(parsed, "ENTRY_CONTRACT_INVALID")
+        if bar.evidence_kind != "MARKET_BAR" or str(bar.source_id).endswith(":RISK_ONLY"):
+            return self._blocked(parsed, "FILL_EVIDENCE_INVALID")
         try:
             self.store.assert_writable()
             decision = self.risk_governor.evaluate(parsed, bar)
@@ -316,6 +425,13 @@ class PaperBroker:
             return self._blocked(parsed, "OUTSIDE_TRADING_SESSION")
         if map_symbol(bar.symbol).canonical != parsed.symbol:
             return self._blocked(parsed, "BAR_SYMBOL_MISMATCH")
+        eligible_bar_end = _first_complete_bar_end(parsed.effective_eligible_from())
+        if eligible_bar_end is None:
+            return self._blocked(parsed, "ORDER_NO_ELIGIBLE_SESSION")
+        if parsed.expire_at is not None and bar.bar_end > parsed.expire_at:
+            return self._blocked(parsed, "ORDER_EXPIRED")
+        if bar.bar_end < eligible_bar_end:
+            return self._blocked(parsed, "ORDER_NOT_YET_ELIGIBLE")
         try:
             self.start_trading_day(bar.bar_end.astimezone(SHANGHAI).date())
         except (ValueError, RuntimeError) as exc:
@@ -323,9 +439,11 @@ class PaperBroker:
         if bar.bar_end <= parsed.signal_bar_end:
             return self._blocked(parsed, "NEXT_COMPLETE_BAR_REQUIRED")
         if parsed.order_type == "LIMIT" and parsed.action in {SimulationActionType.BUY, SimulationActionType.ADD}:
-            from .entry_contract import next_entry_minute
-            if bar.bar_end != next_entry_minute(parsed.signal_bar_end):
+            if bar.bar_end != eligible_bar_end:
                 return self._blocked(parsed, "ENTRY_NEXT_BAR_MISSED")
+        capacity_model = parsed.fill_model_version != "legacy-next-minute/1"
+        if capacity_model and bar.volume_unit != "shares":
+            return self._blocked(parsed, "FILL_VOLUME_UNIT_UNCONFIRMED")
         if bar.volume <= 0 or bar.high <= bar.low:
             return self._blocked(parsed, "BAR_NOT_EXECUTABLE")
         self.store.upsert_market_mark(self.account_id, parsed.symbol, bar.close, bar.bar_end)
@@ -356,7 +474,9 @@ class PaperBroker:
                 entry_reference=float(parsed.entry_reference or bar.open),
                 stop_level=float(parsed.stop_level),
                 risk_unit=parsed.risk_unit,
-                mark_price=fill_price,
+                # Quantity is frozen from the last known decision reference;
+                # the later fill bar can shrink execution but never enlarge it.
+                mark_price=float(parsed.entry_reference or bar.open),
                 requested_qty=parsed.requested_qty,
             )
             if qty <= 0:
@@ -365,8 +485,20 @@ class PaperBroker:
                 return self._blocked(parsed, "POSITION_ALREADY_OPEN")
             if parsed.action is SimulationActionType.ADD and (position is None or int(position["total_qty"]) == 0):
                 return self._blocked(parsed, "ADD_WITHOUT_POSITION")
+            frozen_qty = qty
+            capacity = (
+                rules.floor_buy(float(bar.volume) * self.config.max_volume_participation)
+                if capacity_model else frozen_qty
+            )
+            qty = min(frozen_qty, capacity)
+            if qty <= 0:
+                return self._blocked(parsed, "INSUFFICIENT_WINDOW_CAPACITY")
+            remaining_qty = frozen_qty - qty
             gross = fill_price * qty
-            fee = _fee(gross, self.config, sell=False)
+            fee_charge = OrderFeeLedger(self._frozen_fee_schedule(parsed), side="BUY").charge(
+                Decimal(str(gross)), final=True,
+            )
+            fee = float(fee_charge.total)
             if gross + fee > float(account["cash"]):
                 return self._blocked(parsed, "INSUFFICIENT_CASH")
             old_qty = int(position["total_qty"]) if position else 0
@@ -399,8 +531,18 @@ class PaperBroker:
                 return self._blocked(parsed, "INVALID_SELL_QTY")
             if qty > sellable:
                 return self._blocked(parsed, "BLOCKED_T1")
+            frozen_qty = qty
+            capacity_raw = min(int(float(bar.volume) * self.config.max_volume_participation), sellable)
+            capacity = rules.sell_quantity(capacity_raw, sellable) if capacity_model else frozen_qty
+            qty = min(frozen_qty, capacity)
+            if qty <= 0:
+                return self._blocked(parsed, "INSUFFICIENT_WINDOW_CAPACITY")
+            remaining_qty = frozen_qty - qty
             gross = fill_price * qty
-            fee = _fee(gross, self.config, sell=True)
+            fee_charge = OrderFeeLedger(self._frozen_fee_schedule(parsed), side="SELL").charge(
+                Decimal(str(gross)), final=True,
+            )
+            fee = float(fee_charge.total)
             cash_after = float(account["cash"]) + gross - fee
             remaining = int(position["total_qty"]) - qty
             position_payload = None if remaining == 0 else {
@@ -435,12 +577,39 @@ class PaperBroker:
                 qty=qty,
                 price=fill_price,
                 fee=fee,
+                fee_components=fee_charge.as_dict(),
                 bar_end=bar.bar_end,
                 cash_after=cash_after,
                 equity_after=equity_after,
                 position=position_payload,
                 stop_level=parsed.stop_level,
                 plan_id=parsed.plan_id,
+                requested_qty=frozen_qty,
+                remaining_qty=remaining_qty,
+                intent_status="FILLED" if remaining_qty == 0 else "PARTIALLY_FILLED_EXPIRED",
+                reserved_cash=0.0,
+                order_metadata={
+                    "decision_id": parsed.decision_id,
+                    "replay_run_id": parsed.replay_run_id,
+                    "trigger_episode_id": parsed.trigger_episode_id,
+                    "plan_id": parsed.plan_id,
+                    "signal_bar_end": parsed.signal_bar_end.isoformat(),
+                    "data_available_at": parsed.data_available_at.isoformat() if parsed.data_available_at else None,
+                    "deterministic_decided_at": parsed.deterministic_decided_at.isoformat() if parsed.deterministic_decided_at else None,
+                    "review_completed_at": parsed.review_completed_at.isoformat() if parsed.review_completed_at else None,
+                    "order_created_at": parsed.order_created_at.isoformat() if parsed.order_created_at else None,
+                    "eligible_from": parsed.effective_eligible_from().isoformat(),
+                    "expire_at": parsed.expire_at.isoformat() if parsed.expire_at else None,
+                    "order_type": parsed.order_type,
+                    "limit_price": parsed.limit_price,
+                    "stop_basis": parsed.stop_basis,
+                    "requested_qty": frozen_qty,
+                    "risk_reservation_id": parsed.risk_reservation_id,
+                    "fee_model_version": parsed.fee_model_version or self.config.fee_model_version,
+                    "fill_model_version": parsed.fill_model_version or self.config.fill_model_version,
+                    "fill_evidence_kind": bar.evidence_kind,
+                    "fill_evidence_source": bar.source_id,
+                },
             )
         except StateTransitionError as exc:
             return self._blocked(parsed, str(exc))
@@ -448,7 +617,7 @@ class PaperBroker:
             return self._blocked(parsed, "PERSISTENCE_FAILED")
         return SimulationResult(
             status=SimulationStatus.FILLED if created else SimulationStatus.DUPLICATE,
-            reason_code="FILLED" if created else "IDEMPOTENT_REPLAY",
+            reason_code=("PARTIALLY_FILLED" if created and remaining_qty else "FILLED") if created else "IDEMPOTENT_REPLAY",
             account_id=parsed.account_id,
             signal_id=parsed.signal_id,
             symbol=parsed.symbol,
@@ -456,6 +625,8 @@ class PaperBroker:
             qty=qty if created else int(fill["qty"]),
             price=fill_price if created else float(fill["price"]),
             fee=fee if created else float(fill["fee"]),
+            remaining_qty=remaining_qty if created else int(fill.get("remaining_qty") or 0),
+            fee_components=fee_charge.as_dict() if created else None,
             fill=fill,
         )
 

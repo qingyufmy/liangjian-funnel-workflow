@@ -250,6 +250,16 @@ def _write_summary(
         "A1-10": ["tests/iteration/test_a1_coverage.py::test_a1_10_arbitrary_821_scope_reconciles_every_layer"],
         "A1-11": ["tests/test_a1_registry.py::test_a1_11_incomplete_coverage_generation_cannot_replace_active"],
         "A1-12": ["tests/iteration/test_a1_coverage.py::test_a1_12_failed_fields_remain_in_denominator_and_empty_group_is_na"],
+        "EX-01": ["tests/iteration/test_execution_causality.py::test_ex_01_fee_components_minimum_rounding_split_and_order_boundary"],
+        "EX-02": ["tests/iteration/test_execution_causality.py::test_ex_02_future_close_does_not_change_frozen_order_quantity"],
+        "EX-03": ["tests/iteration/test_execution_causality.py::test_ex_03_mid_bar_review_uses_only_following_complete_bar"],
+        "EX-04": ["tests/iteration/test_execution_causality.py::test_ex_04_lunch_and_expiry_are_session_aware_and_never_backfilled"],
+        "EX-05": ["tests/iteration/test_execution_causality.py::test_ex_05_capacity_caps_fill_and_records_remaining_quantity"],
+        "EX-06": ["tests/iteration/test_execution_causality.py::test_ex_06_security_rules_come_from_versioned_provider"],
+        "EX-07": ["tests/iteration/test_execution_causality.py::test_ex_07_accounting_is_atomic_and_concurrent_orders_do_not_double_spend"],
+        "EX-08": ["tests/iteration/test_execution_causality.py::test_ex_08_legacy_fill_history_is_not_overwritten_by_new_replay"],
+        "EX-09": ["tests/iteration/test_execution_causality.py::test_ex_09_synthetic_quote_cannot_supply_fill_or_capacity"],
+        "EX-10": ["tests/iteration/test_execution_causality.py::test_ex_10_workflow_freezes_order_contract_and_rejects_risk_quote"],
     }
     counted = [item for item in checks if item.passed is not None]
     test_counts = {

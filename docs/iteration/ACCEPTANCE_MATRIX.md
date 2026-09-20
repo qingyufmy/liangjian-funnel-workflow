@@ -43,8 +43,16 @@
 | A1-10 | 任意 821 样本逐层集合数量与哈希可对账 | `test_a1_10_arbitrary_821_scope_reconciles_every_layer` | 821→821 raw→800 parsed，21 项有原因 | 通过（离线） |
 | A1-11 | 不完整新代次不得覆盖活跃代次，过期活跃代次不得伪装合格 | `test_a1_11_incomplete_coverage_generation_cannot_replace_active`；既有过期测试 | coverage gate 原子拒绝，旧 pointer 保留 | 通过（离线） |
 | A1-12 | 失败对象不退出分母；无适用字段显示 N/A | `test_a1_12_failed_fields_remain_in_denominator_and_empty_group_is_na` | 固定 denominator/version，N/A 非 100% | 通过（离线） |
-| EX-01 | 佣金与印花税分开计费 | S05 将新增小额卖出反例 | 当前实现已复现错误 | 待 S05 |
-| EX-02 | 只用下一根完整 1m bar 模拟撮合 | S05 将新增跨时钟因果测试 | 当前 quote bar 语义不一致 | 待 S05 |
-| RISK-01 | 冻结数量、资金预占和 T+1 生命周期 | S05-S06 生命周期测试 | 当前仅部分满足 | 待 S05-S06 |
+| EX-01 | 佣金、卖出税和其他费用分账；最低佣金按订单累计 | `test_ex_01_fee_components_minimum_rounding_split_and_order_boundary` | Decimal 分账、单/双订单与部分成交算例 | 通过（离线） |
+| EX-02 | 未来 close 不反改冻结委托数量 | `test_ex_02_future_close_does_not_change_frozen_order_quantity` | 两个不同未来 close 的冻结数量一致 | 通过（离线） |
+| EX-03 | 审核在分钟中途完成时只使用之后完整窗口 | `test_ex_03_mid_bar_review_uses_only_following_complete_bar` | 10:00:25 审核只能使用 10:02 bar | 通过（离线） |
+| EX-04 | 午休、闭市和到期不被补数激活 | `test_ex_04_lunch_and_expiry_are_session_aware_and_never_backfilled` | 11:30→13:01，会话前过期明确阻断 | 通过（离线） |
+| EX-05 | 分钟容量不足只部分成交并释放残单预占 | `test_ex_05_capacity_caps_fill_and_records_remaining_quantity` | 500 委托、100 成交、400 过期残单、预占归零 | 通过（离线） |
+| EX-06 | 数量/tick 由版本化规则提供者决定 | `test_ex_06_security_rules_come_from_versioned_provider` | 主板/创业板/科创板及不支持证券反例 | 通过（离线） |
+| EX-07 | 费用、现金、仓位、权益原子对账；并发不双花 | `test_ex_07_accounting_is_atomic_and_concurrent_orders_do_not_double_spend` | 同账户并发订单最多一个成交且现金非负 | 通过（离线） |
+| EX-08 | 旧成交模型历史不被新回放覆盖 | `test_ex_08_legacy_fill_history_is_not_overwritten_by_new_replay` | 独立 replay account/run，旧 fill 保持逐字段相等 | 通过（离线） |
+| EX-09 | 合成 quote 不能充当分钟成交/容量证据 | `test_ex_09_synthetic_quote_cannot_supply_fill_or_capacity` | `SYNTHETIC_QUOTE` 明确 `FILL_EVIDENCE_INVALID` | 通过（离线） |
+| EX-10 | 实际 workflow→订单→结算同样执行冻结/证据门 | `test_ex_10_workflow_freezes_order_contract_and_rejects_risk_quote`；工作流回归 | 合成 quote 不成交且生命周期仍待真实窗口 | 通过（离线） |
+| RISK-01 | 冻结数量、资金预占和 T+1 生命周期 | S05 已冻结数量并记录残单；S06 补组合预占/T+1 完整状态机 | 成交因果通过，组合风险仍未完成 | 部分通过，待 S06 |
 | LLM-01 | 严格布尔、完整集合、超时过期 | S07 schema 反例 | 当前字符串布尔可误判 | 待 S07 |
 | EVAL-01 | 分层增益与反事实不混用 | S10 回放/统计测试 | 未开始 | 待 S10 |

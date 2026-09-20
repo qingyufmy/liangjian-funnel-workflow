@@ -159,6 +159,10 @@ class MinuteBar(BaseModel):
     amount_kind: Literal["reported", "ohlc_estimate", "legacy_unspecified"] = "legacy_unspecified"
     normalizer_version: str = "legacy"
     provider_bar_end: datetime | None = None
+    # A synthetic quote is useful for live risk observation, but it is not a
+    # completed exchange minute and must never prove price penetration or
+    # executable volume to the paper broker.
+    evidence_kind: Literal["MARKET_BAR", "SYNTHETIC_QUOTE"] = "MARKET_BAR"
 
     @field_validator("symbol", mode="before")
     @classmethod

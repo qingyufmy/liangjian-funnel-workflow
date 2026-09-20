@@ -43,3 +43,15 @@ A1 覆盖行和补齐任务复用 A1 registry SQLite，仅保存字段资格、�
 ## D-S04-02 新覆盖先影子诊断，完整性门槛只做显式原子门
 
 新增证据契约当前为 `DIAGNOSTIC_SHADOW`，不修改正式 A1 策略门槛或候选数。只有 manifest 显式携带 blocking `coverage_gate` 时 registry 才拒绝激活；普通旧代次保持兼容。真实补采适配器未授权/未注册时 CLI fail closed，不把任务完成状态伪造成 packet 已修复。
+
+## D-S05-01 完整分钟成交与实时报价风险观察分离
+
+合成 quote 只用于当前持仓硬止损观察，不再扩展 high/low 或沿用累计 volume 证明模拟成交。订单只能由冻结、真实、已闭合且单位确认的一分钟线结算；同轮 quote 触发的退出意图保留到可用窗口，不能因等待数据而丢失。
+
+## D-S05-02 next-minute-only 残单不秘密延寿
+
+当前模型保持既有 next-minute-only 语义。容量不足时只成交可证明部分，剩余量记为 `PARTIALLY_FILLED_EXPIRED` 并释放预占；不在后续分钟偷偷追单。若未来引入多窗口订单，必须使用新 fill model/version 和独立成绩单。
+
+## D-S05-03 测试费率与生产合同分离
+
+费用测试使用总提示词指定算例；运行费率、最低佣金、其他费用、参与率和模型版本从 Settings/环境进入 broker 并冻结到账本。默认值只叫 `configured-paper-default`，不宣称是当前法规或用户券商合同；生产正确性需 OPERATIONS 对账。

@@ -10,7 +10,7 @@
     ],
     "production_runtime_modified": false
   },
-  "current_stage": "S04",
+  "current_stage": "S05",
   "stages": {
     "S00": {
       "code_status": "CODE_ACCEPTED",
@@ -316,7 +316,68 @@
         "artifacts/iteration/s04-offline-final3-20260920/"
       ]
     },
-    "S05": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
+    "S05": {
+      "code_status": "CODE_ACCEPTED",
+      "evidence_status": "OFFLINE_ACCEPTED",
+      "operations_status": "PENDING_PRODUCTION_EVIDENCE",
+      "strategy_status": "INSUFFICIENT_EVIDENCE",
+      "changed_files": [
+        "src/liangjian_funnel/runtime/execution_accounting.py",
+        "src/liangjian_funnel/runtime/simulation.py",
+        "src/liangjian_funnel/runtime/state.py",
+        "src/liangjian_funnel/runtime/entry_contract.py",
+        "src/liangjian_funnel/runtime/monitor.py",
+        "src/liangjian_funnel/data/mootdx.py",
+        "src/liangjian_funnel/settings.py",
+        "src/liangjian_funnel/workflow.py",
+        "scripts/run_iteration_acceptance.py",
+        "tests/iteration/test_execution_causality.py",
+        "docs/iteration/*"
+      ],
+      "dependencies": ["S00", "S01", "S02", "S03", "S04"],
+      "commands": [
+        {
+          "command": ".venv/Scripts/python.exe -m pytest -q tests/iteration/test_execution_causality.py",
+          "exit_code": 2,
+          "result": "collection failed as expected because execution_accounting did not exist; counterexample established before implementation",
+          "artifact": null
+        },
+        {
+          "command": ".venv/Scripts/python.exe -m pytest -q tests/iteration/test_execution_causality.py",
+          "exit_code": 1,
+          "result": "9 passed, 1 failed; replay fixture reused unique model identity",
+          "artifact": null
+        },
+        {
+          "command": ".venv/Scripts/python.exe -m pytest -q tests/iteration/test_execution_causality.py",
+          "exit_code": 0,
+          "result": "10 passed",
+          "artifact": null
+        },
+        {
+          "command": ".venv/Scripts/python.exe -m pytest --cov=liangjian_funnel --cov-report=term --cov-fail-under=65",
+          "exit_code": 0,
+          "result": "1793 passed, 4 skipped, coverage 78.78%",
+          "artifact": "artifacts/iteration/s05-regression-20260920/python-ci.log"
+        },
+        {
+          "command": "npm run typecheck && npm test && npm run build",
+          "exit_code": 0,
+          "result": "typecheck passed; 86 tests passed; web and server build passed",
+          "artifact": null
+        },
+        {
+          "command": ".venv/Scripts/python.exe scripts/run_iteration_acceptance.py --profile offline --output-dir artifacts/iteration/s05-offline-20260920",
+          "exit_code": 0,
+          "result": "CODE_ACCEPTED; 121 passed, 0 failed, 0 skipped",
+          "artifact": "artifacts/iteration/s05-offline-20260920/summary.json"
+        }
+      ],
+      "artifacts": [
+        "artifacts/iteration/s05-regression-20260920/",
+        "artifacts/iteration/s05-offline-20260920/"
+      ]
+    },
     "S06": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
     "S07": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
     "S08": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
@@ -326,11 +387,11 @@
   },
   "unresolved": [
     "A1 production frozen-snapshot coverage and real backfill adapter throughput require OPERATIONS evidence",
-    "fee and causal fill findings require S05",
+    "portfolio reservations, T+1 exits and lifecycle invariants require S06",
     "strict LLM response validation requires S07",
     "replay, operations and strategy acceptance remain unproven"
   ],
   "blockers": [],
-  "next_action": "Implement S05 fee correctness, causal next-complete-bar fills, frozen order quantities and T+1 lifecycle counterexamples.",
-  "updated_at": "2026-09-20T18:11:08+08:00"
+  "next_action": "Implement S06 portfolio reservations, T+1 exits, order lifecycle and atomic risk invariants with counterexample tests.",
+  "updated_at": "2026-09-20T18:35:00+08:00"
 }

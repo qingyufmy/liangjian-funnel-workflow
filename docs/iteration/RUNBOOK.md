@@ -49,6 +49,16 @@ python -m liangjian_funnel.cli a1-backfill-run --scope A1_BASE --as-of 2026-09-2
 
 `--source` 是精确 `source_version` 限制，不会扩大来源权限。当前没有注册真实抓取适配器；去掉 `--dry-run` 的 `a1-backfill-run` 必须返回 `A1_BACKFILL_SOURCE_ADAPTER_NOT_CONFIGURED`，不能把入队或 lease 当作字段已经进入 A1 packet。生产 VM 执行前还需单独完成来源授权、影子积压和冻结输入对账。
 
+## S05 费用与因果撮合
+
+离线聚焦验收：
+
+```powershell
+python -m pytest -q tests/iteration/test_execution_causality.py
+```
+
+生产费率不从测试算例推导。通过 `LIANGJIAN_SIMULATION_COMMISSION_BPS`、`LIANGJIAN_SIMULATION_MINIMUM_COMMISSION`、`LIANGJIAN_SIMULATION_SELL_TAX_BPS`、`LIANGJIAN_SIMULATION_OTHER_FEE_BPS`、`LIANGJIAN_SIMULATION_MAX_VOLUME_PARTICIPATION` 和 `LIANGJIAN_SIMULATION_FEE_MODEL_VERSION` 配置，并在生产启用前与实际模拟账户合同单独对账。`SYNTHETIC_QUOTE` 只能触发风险意图；`virtual_fills` 的成交证据必须是 `MARKET_BAR`。本阶段没有授权生产迁移或部署。
+
 ## 尚未开放的 profile
 
 `replay`、`shadow-report` 在依赖阶段完成前明确返回 `3` 和 `PENDING_EVIDENCE`；`stress` 目前只开放 `a4-s03`，其他场景不会用空数据返回成功。

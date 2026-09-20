@@ -879,6 +879,11 @@ class RuntimeStore:
                         symbol TEXT NOT NULL,
                         action TEXT NOT NULL,
                         status TEXT NOT NULL,
+                        requested_qty INTEGER NOT NULL DEFAULT 0,
+                        filled_qty INTEGER NOT NULL DEFAULT 0,
+                        remaining_qty INTEGER NOT NULL DEFAULT 0,
+                        reserved_cash REAL NOT NULL DEFAULT 0,
+                        order_metadata_json TEXT NOT NULL DEFAULT '{}',
                         created_at TEXT NOT NULL,
                         updated_at TEXT NOT NULL
                     );
@@ -893,6 +898,14 @@ class RuntimeStore:
                         qty INTEGER NOT NULL CHECK(qty > 0),
                         price REAL NOT NULL CHECK(price > 0),
                         fee REAL NOT NULL CHECK(fee >= 0),
+                        gross REAL NOT NULL DEFAULT 0,
+                        commission REAL NOT NULL DEFAULT 0,
+                        sell_tax REAL NOT NULL DEFAULT 0,
+                        other_fee REAL NOT NULL DEFAULT 0,
+                        fee_model_version TEXT NOT NULL DEFAULT 'legacy',
+                        trading_rules_version TEXT NOT NULL DEFAULT 'legacy',
+                        fill_model_version TEXT NOT NULL DEFAULT 'legacy',
+                        evidence_source_id TEXT,
                         bar_end TEXT NOT NULL,
                         created_at TEXT NOT NULL,
                         UNIQUE(intent_id, fill_sequence)
@@ -1028,6 +1041,19 @@ class RuntimeStore:
                 for window in (1, 3, 5, 10):
                     _ensure_column(connection, "astock_outcome_labels", f"signal_return_{window}d", "REAL")
                 _ensure_column(connection, "a4_signal_lifecycles", "exit_metadata_json", "TEXT NOT NULL DEFAULT '{}'")
+                _ensure_column(connection, "simulation_intents", "requested_qty", "INTEGER NOT NULL DEFAULT 0")
+                _ensure_column(connection, "simulation_intents", "filled_qty", "INTEGER NOT NULL DEFAULT 0")
+                _ensure_column(connection, "simulation_intents", "remaining_qty", "INTEGER NOT NULL DEFAULT 0")
+                _ensure_column(connection, "simulation_intents", "reserved_cash", "REAL NOT NULL DEFAULT 0")
+                _ensure_column(connection, "simulation_intents", "order_metadata_json", "TEXT NOT NULL DEFAULT '{}'")
+                _ensure_column(connection, "virtual_fills", "gross", "REAL NOT NULL DEFAULT 0")
+                _ensure_column(connection, "virtual_fills", "commission", "REAL NOT NULL DEFAULT 0")
+                _ensure_column(connection, "virtual_fills", "sell_tax", "REAL NOT NULL DEFAULT 0")
+                _ensure_column(connection, "virtual_fills", "other_fee", "REAL NOT NULL DEFAULT 0")
+                _ensure_column(connection, "virtual_fills", "fee_model_version", "TEXT NOT NULL DEFAULT 'legacy'")
+                _ensure_column(connection, "virtual_fills", "trading_rules_version", "TEXT NOT NULL DEFAULT 'legacy'")
+                _ensure_column(connection, "virtual_fills", "fill_model_version", "TEXT NOT NULL DEFAULT 'legacy'")
+                _ensure_column(connection, "virtual_fills", "evidence_source_id", "TEXT")
                 # Create secondary indexes only after migrations have added
                 # the identity columns.  This keeps first-open upgrades from
                 # failing on the original date-only table.
@@ -3704,12 +3730,18 @@ class RuntimeStore:
         qty: int,
         price: float,
         fee: float,
+        fee_components: Mapping[str, Any] | None = None,
         bar_end: datetime,
         cash_after: float,
         position: Mapping[str, Any] | None,
         equity_after: float | None = None,
         stop_level: float | None = None,
         plan_id: str | None = None,
+        requested_qty: int | None = None,
+        remaining_qty: int = 0,
+        intent_status: str = "FILLED",
+        reserved_cash: float = 0.0,
+        order_metadata: Mapping[str, Any] | None = None,
     ) -> tuple[dict[str, Any], bool]:
         if (not isinstance(qty, int) or isinstance(qty, bool) or qty <= 0
                 or not all(math.isfinite(float(value)) for value in (price, fee, cash_after))
@@ -3717,6 +3749,24 @@ class RuntimeStore:
             raise ValueError("invalid fill accounting values")
         from .stock_trading_rules import stock_trading_rules
         rules = stock_trading_rules(symbol)
+        requested_qty = int(requested_qty if requested_qty is not None else qty)
+        remaining_qty = int(remaining_qty)
+        if requested_qty < qty or remaining_qty != requested_qty - qty or remaining_qty < 0:
+            raise ValueError("invalid order quantity accounting")
+        if intent_status not in {"FILLED", "PARTIALLY_FILLED_EXPIRED"}:
+            raise ValueError("invalid simulation intent status")
+        if not math.isfinite(float(reserved_cash)) or reserved_cash < 0:
+            raise ValueError("invalid reserved cash")
+        components = dict(fee_components or {})
+        commission = float(components.get("commission", fee))
+        sell_tax = float(components.get("sell_tax", 0))
+        other_fee = float(components.get("other_fee", 0))
+        gross = float(components.get("gross", qty * price))
+        if not all(math.isfinite(item) and item >= 0 for item in (commission, sell_tax, other_fee, gross)):
+            raise ValueError("invalid fee components")
+        if abs((commission + sell_tax + other_fee) - fee) > 0.011:
+            raise StateTransitionError("FEE_COMPONENT_CONFLICT")
+        metadata_json = json.dumps(dict(order_metadata or {}), ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
         if action not in {"BUY", "ADD", "SELL", "REDUCE", "FORCED_RISK_EXIT"}:
             raise StateTransitionError("INVALID_FILL_ACTION")
         if abs(price - round(price, 2)) > 1e-9:
@@ -3763,8 +3813,17 @@ class RuntimeStore:
             if abs(expected_cash - cash_after) > .000001:
                 raise StateTransitionError("FILL_CASH_CONFLICT")
             connection.execute(
-                "INSERT INTO simulation_intents(intent_id,intent_key,account_id,signal_id,symbol,action,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)",
-                (intent_id, intent_key, account_id, signal_id, symbol, action, "PENDING", now, now),
+                """
+                INSERT INTO simulation_intents(
+                    intent_id,intent_key,account_id,signal_id,symbol,action,status,
+                    requested_qty,filled_qty,remaining_qty,reserved_cash,order_metadata_json,
+                    created_at,updated_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    intent_id, intent_key, account_id, signal_id, symbol, action, intent_status,
+                    requested_qty, qty, remaining_qty, float(reserved_cash), metadata_json, now, now,
+                ),
             )
             current = connection.execute(
                 "SELECT COALESCE(MAX(fill_sequence),0) AS sequence FROM virtual_fills WHERE intent_id=?", (intent_id,)
@@ -3773,14 +3832,18 @@ class RuntimeStore:
             connection.execute(
                 """
                 INSERT INTO virtual_fills(
-                    fill_id,intent_id,fill_sequence,account_id,signal_id,symbol,action,qty,price,fee,bar_end,created_at
-                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+                    fill_id,intent_id,fill_sequence,account_id,signal_id,symbol,action,qty,price,fee,
+                    gross,commission,sell_tax,other_fee,fee_model_version,trading_rules_version,
+                    fill_model_version,evidence_source_id,bar_end,created_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
-                (fill_id, intent_id, int(current) + 1, account_id, signal_id, symbol, action, int(qty), float(price), float(fee), bar_stamp, now),
-            )
-            connection.execute(
-                "UPDATE simulation_intents SET status='FILLED',updated_at=? WHERE intent_id=?",
-                (now, intent_id),
+                (
+                    fill_id, intent_id, int(current) + 1, account_id, signal_id, symbol, action,
+                    int(qty), float(price), float(fee), gross, commission, sell_tax, other_fee,
+                    str(components.get("fee_model_version") or "legacy"), rules.version,
+                    str((order_metadata or {}).get("fill_model_version") or "legacy"),
+                    (order_metadata or {}).get("fill_evidence_source"), bar_stamp, now,
+                ),
             )
             connection.execute(
                 "UPDATE virtual_accounts SET cash=?,equity=?,updated_at=? WHERE account_id=?",
@@ -3970,6 +4033,16 @@ class RuntimeStore:
                 for row in connection.execute(
                     "SELECT * FROM scheduler_leases ORDER BY lease_name"
                 ).fetchall()
+            )
+        )
+
+    def get_simulation_intent(self, intent_key: str) -> dict[str, Any] | None:
+        return self._read(
+            lambda connection: _row_dict(
+                connection.execute(
+                    "SELECT * FROM simulation_intents WHERE intent_key=?",
+                    (intent_key,),
+                ).fetchone()
             )
         )
 

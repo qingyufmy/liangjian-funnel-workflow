@@ -160,6 +160,12 @@ class Settings(BaseModel):
     rotation_price_coverage_minimum: float = Field(default=0.90, ge=0.50, le=1.0)
     rotation_collection_workers: int = Field(default=16, ge=1, le=32)
     simulation_initial_cash: float = Field(default=1_000_000.0, ge=0)
+    simulation_commission_bps: float = Field(default=1.0, ge=0, le=1_000)
+    simulation_minimum_commission: float = Field(default=5.0, ge=0)
+    simulation_sell_tax_bps: float = Field(default=5.0, ge=0, le=1_000)
+    simulation_other_fee_bps: float = Field(default=0.0, ge=0, le=1_000)
+    simulation_max_volume_participation: float = Field(default=0.10, gt=0, le=1)
+    simulation_fee_model_version: str = "configured-paper-default/2"
     # Thinking is an explicit capability of a client role. Research lanes
     # keep it enabled; the independent intraday monitor is intentionally
     # deterministic at the transport level by default.
@@ -448,6 +454,16 @@ class Settings(BaseModel):
                 env.get("LIANGJIAN_ROTATION_COLLECTION_WORKERS", "16")
             ),
             simulation_initial_cash=float(env.get("LIANGJIAN_SIMULATION_INITIAL_CASH", "1000000")),
+            simulation_commission_bps=float(env.get("LIANGJIAN_SIMULATION_COMMISSION_BPS", "1")),
+            simulation_minimum_commission=float(env.get("LIANGJIAN_SIMULATION_MINIMUM_COMMISSION", "5")),
+            simulation_sell_tax_bps=float(env.get("LIANGJIAN_SIMULATION_SELL_TAX_BPS", "5")),
+            simulation_other_fee_bps=float(env.get("LIANGJIAN_SIMULATION_OTHER_FEE_BPS", "0")),
+            simulation_max_volume_participation=float(
+                env.get("LIANGJIAN_SIMULATION_MAX_VOLUME_PARTICIPATION", "0.10")
+            ),
+            simulation_fee_model_version=env.get(
+                "LIANGJIAN_SIMULATION_FEE_MODEL_VERSION", "configured-paper-default/2"
+            ),
             research_thinking_enabled=_parse_bool(env.get("LIANGJIAN_RESEARCH_THINKING_ENABLED"), default=True),
             monitor_thinking_enabled=_parse_bool(env.get("LIANGJIAN_MONITOR_THINKING_ENABLED"), default=False),
             research_primary_lane_id=env.get("LIANGJIAN_RESEARCH_PRIMARY_LANE_ID", "lane_1"),
@@ -547,6 +563,8 @@ class Settings(BaseModel):
             "rotation_price_coverage_minimum": self.rotation_price_coverage_minimum,
             "rotation_collection_workers": self.rotation_collection_workers,
             "simulation_initial_cash": self.simulation_initial_cash,
+            "simulation_fee_model_version": self.simulation_fee_model_version,
+            "simulation_max_volume_participation": self.simulation_max_volume_participation,
             "research_thinking_enabled": self.research_thinking_enabled,
             "monitor_thinking_enabled": self.monitor_thinking_enabled,
             "research_models": list(self.research_models),
