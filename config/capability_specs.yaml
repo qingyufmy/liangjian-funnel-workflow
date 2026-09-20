@@ -1,4 +1,66 @@
 schema_version: liangjian-capability-specs/1.0.0
+governance:
+  capabilities:
+    - provider: tencent
+      capability: realtime_quote
+      quota_scope: tencent_public_market
+      account_scope: public
+      authorization: FREE_PUBLIC
+      supported_fields: [symbol, quote_time, latest_price, bid1, ask1, volume]
+      markets: [SSE, SZSE, BSE]
+      unit: CNY_SHARE
+      adjustment: RAW
+      time_precision: SECOND
+      rate_window_seconds: 1
+      max_requests: 8
+      max_concurrency: 4
+      ttl_seconds: 5
+      stale_action: BLOCK_NEW_POSITION
+      priority: 10
+      fallbacks: []
+      upstream_identity: tencent-qt.gtimg.cn
+      allowed_hosts: [qt.gtimg.cn]
+      max_response_bytes: 1048576
+    - provider: tencent
+      capability: intraday_bars
+      quota_scope: tencent_public_market
+      account_scope: public
+      authorization: FREE_PUBLIC
+      supported_fields: [symbol, bar_end, open, high, low, close, volume, amount]
+      markets: [SSE, SZSE, BSE]
+      unit: CNY_SHARE
+      adjustment: RAW
+      time_precision: MINUTE
+      rate_window_seconds: 1
+      max_requests: 8
+      max_concurrency: 4
+      ttl_seconds: 75
+      stale_action: BLOCK_NEW_POSITION
+      priority: 10
+      fallbacks: [mootdx/intraday_bars/public]
+      upstream_identity: tencent-web-ifzq.gtimg.cn
+      allowed_hosts: [web.ifzq.gtimg.cn]
+      max_response_bytes: 4194304
+    - provider: mootdx
+      capability: intraday_bars
+      quota_scope: tdx_public_market
+      account_scope: public
+      authorization: FREE_PUBLIC
+      supported_fields: [symbol, bar_end, open, high, low, close, volume, amount]
+      markets: [SSE, SZSE, BSE]
+      unit: CNY_SHARE
+      adjustment: RAW
+      time_precision: MINUTE
+      rate_window_seconds: 1
+      max_requests: 16
+      max_concurrency: 4
+      ttl_seconds: 75
+      stale_action: BLOCK_NEW_POSITION
+      priority: 20
+      fallbacks: []
+      upstream_identity: tdx-public-nodes
+      allowed_hosts: []
+      max_response_bytes: 4194304
 hithink:
   probe_symbol: 600519.SH
   checks:

@@ -10,6 +10,14 @@
 | OBS-03 | 稳定关联 ID 且秘密被清理 | `test_observability_redaction_removes_secret_and_url_query_values`；`test_monitor_consumes_persisted_revision_or_blocks` | A4 `observability` 投影与哨兵测试 | 通过 |
 | OBS-04 | 同一冻结输入决策哈希稳定 | `test_observation_hash_excludes_wall_clock_and_timing_but_tracks_frozen_input` | S01 全量回归 | 通过 |
 | OBS-05 | p50/p95/p99 来自真实 span，缺失明确 | `test_timing_percentiles_are_measured_from_spans_and_missing_is_explicit` | A4 `timing_summary/timing_coverage` | 通过 |
+| SRC-01 | 50 路相同对象请求合并且结果隔离 | `test_src_01_fifty_concurrent_identical_requests_are_singleflight` | S02 聚焦测试及全量回归 | 通过 |
+| SRC-02 | 配额/冷却跨重启且 quota scope 共享 | `test_src_02_quota_and_cooldown_survive_restart_and_share_scope` | 临时 RuntimeStore 重开验证 | 通过 |
+| SRC-03 | 429、超时、恢复的重试有界 | `test_src_03_rate_limit_timeout_then_recovery_has_bounded_attempts` | 尝试账本顺序 `RATE_LIMITED→NETWORK_TRANSIENT→OK` | 通过 |
+| SRC-04 | 空集、未发布、schema、鉴权状态不同 | `test_src_04_terminal_source_states_are_distinct_and_not_retried` | 参数化反例各只调用一次 | 通过 |
+| SRC-05 | 坏响应不覆盖 last_good，过期不可交易 | `test_src_05_bad_response_keeps_last_good_and_stale_is_not_tradable` | 内容哈希及新开仓阻断断言 | 通过 |
+| SRC-06 | 备用源口径与上游身份校验 | `test_src_06_fallback_requires_semantic_match_and_independent_upstream` | 单位/复权/日期/同上游冲突证据 | 通过 |
+| SRC-07 | 总时限覆盖无响应调用 | `test_src_07_total_deadline_bounds_nonresponsive_adapter` | 50ms deadline、一次尝试、有界返回 | 通过 |
+| SRC-08 | lease 恢复且旧 owner 迟到写被拒 | `test_src_08_expired_lease_recovers_and_stale_owner_cannot_publish` | fencing token 1/2 与最终结果断言 | 通过 |
 | A4-01 | 全局 deadline 覆盖所有关键等待 | S03 将新增故障与时间边界测试 | 未开始 | 待 S03 |
 | A4-02 | 持仓保护不被候选/归档阻塞 | S03 将新增慢 provider 反例 | 未开始 | 待 S03 |
 | A1-01 | 字段覆盖逐层可对账 | S04 将新增覆盖账本测试 | 缺生产冻结样本 | 待 S04 |

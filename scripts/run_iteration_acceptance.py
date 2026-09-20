@@ -218,6 +218,14 @@ def _write_summary(
         "OBS-03": ["tests/iteration/test_decision_observability.py::test_observability_redaction_removes_secret_and_url_query_values"],
         "OBS-04": ["tests/iteration/test_decision_observability.py::test_observation_hash_excludes_wall_clock_and_timing_but_tracks_frozen_input"],
         "OBS-05": ["tests/iteration/test_decision_observability.py::test_timing_percentiles_are_measured_from_spans_and_missing_is_explicit"],
+        "SRC-01": ["tests/iteration/test_provider_governance.py::test_src_01_fifty_concurrent_identical_requests_are_singleflight"],
+        "SRC-02": ["tests/iteration/test_provider_governance.py::test_src_02_quota_and_cooldown_survive_restart_and_share_scope"],
+        "SRC-03": ["tests/iteration/test_provider_governance.py::test_src_03_rate_limit_timeout_then_recovery_has_bounded_attempts"],
+        "SRC-04": ["tests/iteration/test_provider_governance.py::test_src_04_terminal_source_states_are_distinct_and_not_retried"],
+        "SRC-05": ["tests/iteration/test_provider_governance.py::test_src_05_bad_response_keeps_last_good_and_stale_is_not_tradable"],
+        "SRC-06": ["tests/iteration/test_provider_governance.py::test_src_06_fallback_requires_semantic_match_and_independent_upstream"],
+        "SRC-07": ["tests/iteration/test_provider_governance.py::test_src_07_total_deadline_bounds_nonresponsive_adapter"],
+        "SRC-08": ["tests/iteration/test_provider_governance.py::test_src_08_expired_lease_recovers_and_stale_owner_cannot_publish"],
     }
     counted = [item for item in checks if item.passed is not None]
     test_counts = {
@@ -244,6 +252,7 @@ def _write_summary(
                 REPO_ROOT / "config" / "runtime.yaml",
                 REPO_ROOT / "config" / "exchange_rules.yaml",
                 REPO_ROOT / "config" / "funnel_config_v2.yaml",
+                REPO_ROOT / "config" / "capability_specs.yaml",
                 REPO_ROOT / "docs" / "iteration" / "LIANGJIAN_CODEX_IMPLEMENTATION_MASTER.md",
             )
             if path.exists()

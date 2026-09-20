@@ -906,6 +906,61 @@ class RuntimeStore:
                         generation INTEGER NOT NULL DEFAULT 1,
                         last_dispatch_key TEXT
                     );
+                    CREATE TABLE IF NOT EXISTS provider_quota_state (
+                        quota_scope TEXT PRIMARY KEY,
+                        window_started_at TEXT NOT NULL,
+                        request_count INTEGER NOT NULL DEFAULT 0,
+                        cooldown_until TEXT,
+                        circuit_state TEXT NOT NULL DEFAULT 'CLOSED',
+                        consecutive_failures INTEGER NOT NULL DEFAULT 0,
+                        half_open_owner TEXT,
+                        half_open_expires_at TEXT,
+                        updated_at TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS provider_request_leases (
+                        request_key TEXT PRIMARY KEY,
+                        owner TEXT NOT NULL,
+                        fencing_token INTEGER NOT NULL,
+                        expires_at TEXT NOT NULL,
+                        state TEXT NOT NULL,
+                        result_json TEXT,
+                        error_kind TEXT,
+                        updated_at TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS provider_concurrency_leases (
+                        quota_scope TEXT NOT NULL,
+                        slot_id INTEGER NOT NULL,
+                        owner TEXT NOT NULL,
+                        expires_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        PRIMARY KEY(quota_scope, slot_id)
+                    );
+                    CREATE TABLE IF NOT EXISTS provider_last_good (
+                        request_key TEXT PRIMARY KEY,
+                        provider TEXT NOT NULL,
+                        capability TEXT NOT NULL,
+                        quota_scope TEXT NOT NULL,
+                        upstream_identity TEXT NOT NULL,
+                        payload_json TEXT NOT NULL,
+                        metadata_json TEXT NOT NULL DEFAULT '{}',
+                        effective_at TEXT,
+                        fetched_at TEXT NOT NULL,
+                        ingested_at TEXT NOT NULL,
+                        expires_at TEXT NOT NULL,
+                        content_hash TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS provider_attempt_log (
+                        attempt_id TEXT PRIMARY KEY,
+                        request_key TEXT NOT NULL,
+                        provider TEXT NOT NULL,
+                        capability TEXT NOT NULL,
+                        outcome TEXT NOT NULL,
+                        reason_code TEXT NOT NULL,
+                        started_at TEXT NOT NULL,
+                        finished_at TEXT NOT NULL,
+                        metadata_json TEXT NOT NULL DEFAULT '{}'
+                    );
                     CREATE TABLE IF NOT EXISTS workflow_runs (
                         run_id TEXT NOT NULL,
                         lane_id TEXT NOT NULL,
@@ -3917,6 +3972,364 @@ class RuntimeStore:
                 ).fetchall()
             )
         )
+
+    # ------------------------------------------------------------------
+    # Provider governance.  These records coordinate callers only; source
+    # facts continue to live in their existing immutable fact stores.
+    # ------------------------------------------------------------------
+    def reserve_provider_quota(
+        self,
+        quota_scope: str,
+        *,
+        now: datetime,
+        window_seconds: float,
+        max_requests: int,
+        owner: str = "",
+        probe_ttl_seconds: float = 30.0,
+    ) -> dict[str, Any]:
+        if window_seconds <= 0 or max_requests <= 0:
+            raise ValueError("provider quota limits must be positive")
+        scope = str(quota_scope).strip()
+        if not scope:
+            raise ValueError("provider quota scope is required")
+        now_text = _iso(now)
+
+        def operation(connection):
+            row = connection.execute(
+                "SELECT * FROM provider_quota_state WHERE quota_scope=?", (scope,)
+            ).fetchone()
+            if row is None:
+                connection.execute(
+                    """
+                    INSERT INTO provider_quota_state(
+                        quota_scope,window_started_at,request_count,circuit_state,
+                        consecutive_failures,updated_at
+                    ) VALUES(?,?,1,'CLOSED',0,?)
+                    """,
+                    (scope, now_text, now_text),
+                )
+                return {"allowed": True, "reason_code": "OK", "request_count": 1}
+            cooldown_until = row["cooldown_until"]
+            if cooldown_until and cooldown_until > now_text:
+                return {
+                    "allowed": False,
+                    "reason_code": "PROVIDER_COOLDOWN",
+                    "request_count": int(row["request_count"]),
+                    "cooldown_until": cooldown_until,
+                }
+            circuit_state = str(row["circuit_state"])
+            probe_owner = str(row["half_open_owner"] or "")
+            probe_expires = str(row["half_open_expires_at"] or "")
+            if circuit_state in {"OPEN", "HALF_OPEN"}:
+                if probe_expires and probe_expires > now_text and probe_owner != owner:
+                    return {
+                        "allowed": False,
+                        "reason_code": "PROVIDER_CIRCUIT_OPEN",
+                        "request_count": int(row["request_count"]),
+                    }
+                connection.execute(
+                    """
+                    UPDATE provider_quota_state
+                    SET circuit_state='HALF_OPEN',half_open_owner=?,half_open_expires_at=?,updated_at=?
+                    WHERE quota_scope=?
+                    """,
+                    (
+                        owner,
+                        _iso(now + timedelta(seconds=max(1.0, probe_ttl_seconds))),
+                        now_text,
+                        scope,
+                    ),
+                )
+            window_started = datetime.fromisoformat(str(row["window_started_at"]))
+            count = int(row["request_count"])
+            if (now - window_started).total_seconds() >= window_seconds:
+                window_started = now
+                count = 0
+            if count >= max_requests:
+                return {
+                    "allowed": False,
+                    "reason_code": "PROVIDER_QUOTA_EXHAUSTED",
+                    "request_count": count,
+                    "window_started_at": _iso(window_started),
+                }
+            count += 1
+            connection.execute(
+                """
+                UPDATE provider_quota_state
+                SET window_started_at=?,request_count=?,updated_at=?
+                WHERE quota_scope=?
+                """,
+                (_iso(window_started), count, now_text, scope),
+            )
+            return {"allowed": True, "reason_code": "OK", "request_count": count}
+
+        return dict(self._write(operation))
+
+    def update_provider_health(
+        self,
+        quota_scope: str,
+        *,
+        now: datetime,
+        success: bool,
+        cooldown_seconds: float = 0.0,
+        failure_threshold: int = 3,
+    ) -> dict[str, Any]:
+        scope = str(quota_scope).strip()
+        now_text = _iso(now)
+
+        def operation(connection):
+            row = connection.execute(
+                "SELECT * FROM provider_quota_state WHERE quota_scope=?", (scope,)
+            ).fetchone()
+            if row is None:
+                connection.execute(
+                    """
+                    INSERT INTO provider_quota_state(
+                        quota_scope,window_started_at,request_count,circuit_state,
+                        consecutive_failures,updated_at
+                    ) VALUES(?,?,0,'CLOSED',0,?)
+                    """,
+                    (scope, now_text, now_text),
+                )
+                row = connection.execute(
+                    "SELECT * FROM provider_quota_state WHERE quota_scope=?", (scope,)
+                ).fetchone()
+            failures = 0 if success else int(row["consecutive_failures"]) + 1
+            state = "CLOSED" if success else (
+                "OPEN" if failures >= failure_threshold else str(row["circuit_state"])
+            )
+            cooldown = None
+            if not success and cooldown_seconds > 0:
+                cooldown = _iso(now + timedelta(seconds=cooldown_seconds))
+            connection.execute(
+                """
+                UPDATE provider_quota_state
+                SET consecutive_failures=?,circuit_state=?,cooldown_until=?,
+                    half_open_owner=NULL,half_open_expires_at=NULL,updated_at=?
+                WHERE quota_scope=?
+                """,
+                (failures, state, cooldown, now_text, scope),
+            )
+            return _row_dict(connection.execute(
+                "SELECT * FROM provider_quota_state WHERE quota_scope=?", (scope,)
+            ).fetchone())
+
+        return dict(self._write(operation) or {})
+
+    def get_provider_quota(self, quota_scope: str) -> dict[str, Any] | None:
+        return self._read(lambda connection: _row_dict(connection.execute(
+            "SELECT * FROM provider_quota_state WHERE quota_scope=?", (quota_scope,)
+        ).fetchone()))
+
+    def acquire_provider_concurrency(
+        self,
+        quota_scope: str,
+        owner: str,
+        *,
+        now: datetime,
+        ttl_seconds: float,
+        max_concurrency: int,
+    ) -> int | None:
+        if ttl_seconds <= 0 or max_concurrency <= 0:
+            raise ValueError("provider concurrency limits must be positive")
+        now_text = _iso(now)
+        expires_at = _iso(now + timedelta(seconds=ttl_seconds))
+
+        def operation(connection):
+            connection.execute(
+                "DELETE FROM provider_concurrency_leases WHERE quota_scope=? AND expires_at<=?",
+                (quota_scope, now_text),
+            )
+            occupied = {
+                int(row[0]) for row in connection.execute(
+                    "SELECT slot_id FROM provider_concurrency_leases WHERE quota_scope=?",
+                    (quota_scope,),
+                ).fetchall()
+            }
+            for slot in range(1, max_concurrency + 1):
+                if slot in occupied:
+                    continue
+                connection.execute(
+                    """
+                    INSERT INTO provider_concurrency_leases(
+                        quota_scope,slot_id,owner,expires_at,updated_at
+                    ) VALUES(?,?,?,?,?)
+                    """,
+                    (quota_scope, slot, owner, expires_at, now_text),
+                )
+                return slot
+            return None
+
+        result = self._write(operation)
+        return None if result is None else int(result)
+
+    def release_provider_concurrency(self, quota_scope: str, slot_id: int, owner: str) -> bool:
+        return bool(self._write(lambda connection: connection.execute(
+            "DELETE FROM provider_concurrency_leases WHERE quota_scope=? AND slot_id=? AND owner=?",
+            (quota_scope, int(slot_id), owner),
+        ).rowcount == 1))
+
+    def acquire_provider_request(
+        self,
+        request_key: str,
+        owner: str,
+        *,
+        now: datetime,
+        ttl_seconds: float,
+    ) -> int | None:
+        if ttl_seconds <= 0:
+            raise ValueError("provider request lease ttl must be positive")
+        now_text = _iso(now)
+        expires_at = _iso(now + timedelta(seconds=ttl_seconds))
+
+        def operation(connection):
+            row = connection.execute(
+                "SELECT * FROM provider_request_leases WHERE request_key=?", (request_key,)
+            ).fetchone()
+            if row is None:
+                token = 1
+                connection.execute(
+                    """
+                    INSERT INTO provider_request_leases(
+                        request_key,owner,fencing_token,expires_at,state,updated_at
+                    ) VALUES(?,?,?,?, 'ACTIVE', ?)
+                    """,
+                    (request_key, owner, token, expires_at, now_text),
+                )
+                return token
+            if str(row["state"]) in {"ACTIVE", "COMPLETED"} and str(row["expires_at"]) > now_text:
+                return None
+            token = int(row["fencing_token"]) + 1
+            connection.execute(
+                """
+                UPDATE provider_request_leases
+                SET owner=?,fencing_token=?,expires_at=?,state='ACTIVE',result_json=NULL,
+                    error_kind=NULL,updated_at=? WHERE request_key=?
+                """,
+                (owner, token, expires_at, now_text, request_key),
+            )
+            return token
+
+        result = self._write(operation)
+        return None if result is None else int(result)
+
+    def get_provider_request(self, request_key: str) -> dict[str, Any] | None:
+        return self._read(lambda connection: _row_dict(connection.execute(
+            "SELECT * FROM provider_request_leases WHERE request_key=?", (request_key,)
+        ).fetchone()))
+
+    def publish_provider_result(
+        self,
+        *,
+        request_key: str,
+        owner: str,
+        fencing_token: int,
+        result: Mapping[str, Any],
+        now: datetime,
+        last_good: Mapping[str, Any] | None = None,
+    ) -> bool:
+        now_text = _iso(now)
+        result_json = _json(result)
+
+        def operation(connection):
+            lease = connection.execute(
+                "SELECT * FROM provider_request_leases WHERE request_key=?", (request_key,)
+            ).fetchone()
+            if (
+                lease is None
+                or lease["state"] != "ACTIVE"
+                or lease["owner"] != owner
+                or int(lease["fencing_token"]) != int(fencing_token)
+            ):
+                return False
+            if last_good is not None:
+                connection.execute(
+                    """
+                    INSERT INTO provider_last_good(
+                        request_key,provider,capability,quota_scope,upstream_identity,
+                        payload_json,metadata_json,effective_at,fetched_at,ingested_at,
+                        expires_at,content_hash,updated_at
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    ON CONFLICT(request_key) DO UPDATE SET
+                        provider=excluded.provider,capability=excluded.capability,
+                        quota_scope=excluded.quota_scope,upstream_identity=excluded.upstream_identity,
+                        payload_json=excluded.payload_json,metadata_json=excluded.metadata_json,
+                        effective_at=excluded.effective_at,fetched_at=excluded.fetched_at,
+                        ingested_at=excluded.ingested_at,expires_at=excluded.expires_at,
+                        content_hash=excluded.content_hash,updated_at=excluded.updated_at
+                    """,
+                    (
+                        request_key, last_good["provider"], last_good["capability"],
+                        last_good["quota_scope"], last_good["upstream_identity"],
+                        _json(last_good["payload"]), _json(last_good.get("metadata", {})),
+                        last_good.get("effective_at"), last_good["fetched_at"],
+                        last_good["ingested_at"], last_good["expires_at"],
+                        last_good["content_hash"], now_text,
+                    ),
+                )
+            connection.execute(
+                """
+                UPDATE provider_request_leases SET state='COMPLETED',result_json=?,
+                    error_kind=?,expires_at=?,updated_at=?
+                WHERE request_key=? AND owner=? AND fencing_token=? AND state='ACTIVE'
+                """,
+                (
+                    result_json,
+                    result.get("status"),
+                    last_good["expires_at"] if last_good is not None else lease["expires_at"],
+                    now_text,
+                    request_key,
+                    owner,
+                    fencing_token,
+                ),
+            )
+            return True
+
+        return bool(self._write(operation))
+
+    def get_provider_last_good(self, request_key: str) -> dict[str, Any] | None:
+        row = self._read(lambda connection: _row_dict(connection.execute(
+            "SELECT * FROM provider_last_good WHERE request_key=?", (request_key,)
+        ).fetchone()))
+        if row is None:
+            return None
+        row["payload"] = json.loads(row.pop("payload_json"))
+        row["metadata"] = json.loads(row.pop("metadata_json"))
+        return row
+
+    def record_provider_attempt(
+        self,
+        *,
+        attempt_id: str,
+        request_key: str,
+        provider: str,
+        capability: str,
+        outcome: str,
+        reason_code: str,
+        started_at: datetime,
+        finished_at: datetime,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> None:
+        self._write(lambda connection: connection.execute(
+            """
+            INSERT INTO provider_attempt_log(
+                attempt_id,request_key,provider,capability,outcome,reason_code,
+                started_at,finished_at,metadata_json
+            ) VALUES(?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                attempt_id, request_key, provider, capability, outcome, reason_code,
+                _iso(started_at), _iso(finished_at), _json(metadata or {}),
+            ),
+        ))
+
+    def list_provider_attempts(self, request_key: str) -> tuple[dict[str, Any], ...]:
+        return self._read(lambda connection: tuple(
+            _row_dict(row) for row in connection.execute(
+                "SELECT * FROM provider_attempt_log WHERE request_key=? ORDER BY started_at,attempt_id",
+                (request_key,),
+            ).fetchall()
+        ))
 
     def effective_events(self, *, lane_id: str | None = None) -> tuple[dict[str, Any], ...]:
         return self.list_monitor_events(lane_id=lane_id, effective_only=True)

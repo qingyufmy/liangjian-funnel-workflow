@@ -10,7 +10,7 @@
     ],
     "production_runtime_modified": false
   },
-  "current_stage": "S01",
+  "current_stage": "S02",
   "stages": {
     "S00": {
       "code_status": "CODE_ACCEPTED",
@@ -131,7 +131,69 @@
         "artifacts/iteration/s01-offline-final-20260920/"
       ]
     },
-    "S02": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
+    "S02": {
+      "code_status": "CODE_ACCEPTED",
+      "evidence_status": "OFFLINE_ACCEPTED",
+      "operations_status": "PENDING_PRODUCTION_EVIDENCE",
+      "strategy_status": "INSUFFICIENT_EVIDENCE",
+      "changed_files": [
+        "config/capability_specs.yaml",
+        "src/liangjian_funnel/data/provider_governance.py",
+        "src/liangjian_funnel/runtime/state.py",
+        "tests/iteration/test_provider_governance.py",
+        "scripts/run_iteration_acceptance.py",
+        "docs/iteration/*"
+      ],
+      "dependencies": ["S00", "S01"],
+      "commands": [
+        {
+          "command": ".venv/Scripts/python.exe -m pytest -q tests/iteration/test_provider_governance.py",
+          "exit_code": 1,
+          "result": "9 failed, 4 passed; exposed timezone-naive default clock and incomplete SSRF fixture",
+          "artifact": null
+        },
+        {
+          "command": ".venv/Scripts/python.exe -m pytest -q tests/iteration tests/test_runtime_store.py tests/test_scheduler*.py tests/test_cninfo_adapter.py tests/test_cninfo_pdf.py",
+          "exit_code": 1,
+          "result": "collection failed because test_runtime_store.py does not exist; corrected command recorded next",
+          "artifact": null
+        },
+        {
+          "command": ".venv/Scripts/python.exe -m pytest -q tests/iteration tests/test_runtime_state.py tests/test_runtime_scheduler.py tests/test_cninfo_adapter.py tests/test_cninfo_pdf.py",
+          "exit_code": 0,
+          "result": "101 passed",
+          "artifact": null
+        },
+        {
+          "command": ".venv/Scripts/python.exe -m pytest -q tests/iteration/test_provider_governance.py",
+          "exit_code": 0,
+          "result": "16 passed",
+          "artifact": null
+        },
+        {
+          "command": ".venv/Scripts/python.exe -m pytest --cov=liangjian_funnel --cov-report=term-missing --cov-fail-under=65",
+          "exit_code": 0,
+          "result": "1750 passed, 4 skipped, coverage 78.68%",
+          "artifact": "artifacts/iteration/s02-regression-20260920/python-ci.log"
+        },
+        {
+          "command": "npm run typecheck && npm test && npm run build",
+          "exit_code": 0,
+          "result": "typecheck passed; 86 tests passed; build passed",
+          "artifact": "artifacts/iteration/s02-regression-20260920/"
+        },
+        {
+          "command": ".venv/Scripts/python.exe scripts/run_iteration_acceptance.py --profile offline --output-dir artifacts/iteration/s02-offline-final-20260920",
+          "exit_code": 0,
+          "result": "CODE_ACCEPTED; 78 passed, 0 failed, 0 skipped",
+          "artifact": "artifacts/iteration/s02-offline-final-20260920/summary.json"
+        }
+      ],
+      "artifacts": [
+        "artifacts/iteration/s02-regression-20260920/",
+        "artifacts/iteration/s02-offline-final-20260920/"
+      ]
+    },
     "S03": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
     "S04": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
     "S05": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
@@ -150,6 +212,6 @@
     "replay, operations and strategy acceptance remain unproven"
   ],
   "blockers": [],
-  "next_action": "Implement S02 provider capability governance and bounded recovery, preserving the S01 decision projection.",
-  "updated_at": "2026-09-20T16:55:00+08:00"
+  "next_action": "Implement S03 A4 critical-path deadlines and position-protection isolation using the S01 observation contract and S02 provider governor.",
+  "updated_at": "2026-09-20T17:11:58+08:00"
 }
