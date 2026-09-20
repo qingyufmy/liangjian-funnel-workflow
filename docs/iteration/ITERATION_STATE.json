@@ -10,7 +10,7 @@
     ],
     "production_runtime_modified": false
   },
-  "current_stage": "S03",
+  "current_stage": "S04",
   "stages": {
     "S00": {
       "code_status": "CODE_ACCEPTED",
@@ -254,7 +254,68 @@
         "artifacts/iteration/s03-offline-final3-20260920/"
       ]
     },
-    "S04": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
+    "S04": {
+      "code_status": "CODE_ACCEPTED",
+      "evidence_status": "OFFLINE_ACCEPTED",
+      "operations_status": "PENDING_PRODUCTION_EVIDENCE",
+      "strategy_status": "INSUFFICIENT_EVIDENCE",
+      "changed_files": [
+        "config/a1_evidence_contracts.yaml",
+        "src/liangjian_funnel/pipeline/a1_coverage.py",
+        "src/liangjian_funnel/pipeline/a1_packet.py",
+        "src/liangjian_funnel/pipeline/a1_registry.py",
+        "src/liangjian_funnel/workflow.py",
+        "src/liangjian_funnel/cli.py",
+        "scripts/run_iteration_acceptance.py",
+        "tests/iteration/test_a1_coverage.py",
+        "tests/iteration/test_a1_coverage_cli.py",
+        "tests/test_a1_registry.py",
+        "docs/iteration/*"
+      ],
+      "dependencies": ["S00", "S01", "S02", "S03"],
+      "commands": [
+        {
+          "command": ".venv/Scripts/python.exe -m pytest -q tests/iteration/test_a1_coverage.py tests/test_a1_packet.py tests/test_a1_registry.py::test_a1_11_incomplete_coverage_generation_cannot_replace_active",
+          "exit_code": 1,
+          "result": "15 failed, 5 passed; exposed 32 SQL values for 31 coverage columns",
+          "artifact": null
+        },
+        {
+          "command": ".venv/Scripts/python.exe -m pytest -q tests/iteration/test_a1_coverage.py tests/iteration/test_a1_coverage_cli.py tests/test_a1_packet.py tests/test_a1_registry.py::test_a1_11_incomplete_coverage_generation_cannot_replace_active",
+          "exit_code": 1,
+          "result": "1 failed, 24 passed; exposed timezone-offset-dependent coverage key during worker replay",
+          "artifact": null
+        },
+        {
+          "command": ".venv/Scripts/python.exe -m pytest -q tests/iteration/test_a1_coverage.py tests/iteration/test_a1_coverage_cli.py tests/test_a1_packet.py tests/test_a1_registry.py::test_a1_11_incomplete_coverage_generation_cannot_replace_active",
+          "exit_code": 0,
+          "result": "25 passed",
+          "artifact": null
+        },
+        {
+          "command": ".venv/Scripts/python.exe -m pytest --cov=liangjian_funnel --cov-report=term --cov-fail-under=65",
+          "exit_code": 0,
+          "result": "1782 passed, 4 skipped, coverage 78.80%",
+          "artifact": "artifacts/iteration/s04-regression-20260920/python-ci.log"
+        },
+        {
+          "command": "npm run typecheck && npm test && npm run build",
+          "exit_code": 0,
+          "result": "typecheck passed; 86 tests passed; web and server build passed",
+          "artifact": "artifacts/iteration/s04-regression-20260920/"
+        },
+        {
+          "command": ".venv/Scripts/python.exe scripts/run_iteration_acceptance.py --profile offline --output-dir artifacts/iteration/s04-offline-final3-20260920",
+          "exit_code": 0,
+          "result": "CODE_ACCEPTED; 111 passed, 0 failed, 0 skipped",
+          "artifact": "artifacts/iteration/s04-offline-final3-20260920/summary.json"
+        }
+      ],
+      "artifacts": [
+        "artifacts/iteration/s04-regression-20260920/",
+        "artifacts/iteration/s04-offline-final3-20260920/"
+      ]
+    },
     "S05": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
     "S06": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
     "S07": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
@@ -264,12 +325,12 @@
     "S11": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"}
   },
   "unresolved": [
-    "A1 coverage ledger and incremental repair require S04",
+    "A1 production frozen-snapshot coverage and real backfill adapter throughput require OPERATIONS evidence",
     "fee and causal fill findings require S05",
     "strict LLM response validation requires S07",
     "replay, operations and strategy acceptance remain unproven"
   ],
   "blockers": [],
-  "next_action": "Implement S04 A1 field-level coverage ledger, gap attribution, incremental repair queue and frozen model-input reconciliation.",
-  "updated_at": "2026-09-20T17:49:00+08:00"
+  "next_action": "Implement S05 fee correctness, causal next-complete-bar fills, frozen order quantities and T+1 lifecycle counterexamples.",
+  "updated_at": "2026-09-20T18:11:08+08:00"
 }

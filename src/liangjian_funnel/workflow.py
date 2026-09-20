@@ -84,6 +84,7 @@ from .pipeline.a1_registry import (
     default_a1_registry_path,
     merge_a1_partitions,
 )
+from .pipeline.a1_coverage import A1CoverageLedger, materialize_snapshot_coverage
 from .pipeline.factors import FactorEngine
 from .pipeline.feature_store import ResearchFeatureStore
 from .pipeline.feature_maintenance import materialize_live_source
@@ -352,6 +353,7 @@ class WorkflowApplication:
         # store remains a deterministic projection cache and must not be used
         # as the close workflow's A1 source of truth.
         self.a1_registry = A1Registry(default_a1_registry_path(settings))
+        self.a1_coverage = A1CoverageLedger(default_a1_registry_path(settings))
         # The feature store is a rebuildable projection cache.  Data sync only
         # marks symbols dirty after a successful provider write; maintenance
         # publishes a new generation separately, so a partial sync cannot
@@ -5833,6 +5835,48 @@ class WorkflowApplication:
         ):
             values.setdefault(key, missing)
         values.update(_prompt_parameters(source_config))
+        coverage_ledger = getattr(self, "a1_coverage", None)
+        if isinstance(coverage_ledger, A1CoverageLedger):
+            evidence_contract_path = self.settings.root / "config" / "a1_evidence_contracts.yaml"
+            evidence_contract = (
+                load_yaml(evidence_contract_path) if evidence_contract_path.is_file() else {}
+            )
+            if evidence_contract and (
+                evidence_contract.get("schema_version") != "liangjian-a1-evidence-contracts/1.0.0"
+                or not isinstance(evidence_contract.get("contracts"), Mapping)
+            ):
+                raise WorkflowError("A1_EVIDENCE_CONTRACT_INVALID")
+            evidence_contract_version = str(
+                evidence_contract.get("schema_version") or "A1_EVIDENCE_CONTRACT_UNAVAILABLE"
+            )
+            evidence_contract_hash = digest_text(json.dumps(
+                evidence_contract, ensure_ascii=False, sort_keys=True, default=str,
+            ))
+            fundamental_version = str(frozen.source_checksums.get("fundamental") or "UNKNOWN")
+            fact_version = str(frozen.source_checksums.get("facts") or "UNKNOWN")
+            coverage_source_version = (
+                f"snapshot:{fundamental_version[:16]}:{fact_version[:16]}:"
+                f"contract:{evidence_contract_hash[:12]}"
+            )
+            values["A1_COVERAGE_PROJECTION"] = materialize_snapshot_coverage(
+                coverage_ledger,
+                values,
+                as_of=_aware(as_of),
+                source_version=coverage_source_version,
+                feature_generation=None,
+                enqueue_missing=True,
+            )
+            values["snapshot_manifest"]["a1_coverage"] = {
+                "schema_version": values["A1_COVERAGE_PROJECTION"].get("schema_version"),
+                "source_version": coverage_source_version,
+                "denominator_version": values["A1_COVERAGE_PROJECTION"].get("denominator_version"),
+                "denominator": values["A1_COVERAGE_PROJECTION"].get("denominator"),
+                "packet_ready": values["A1_COVERAGE_PROJECTION"].get("packet_ready"),
+                "status": values["A1_COVERAGE_PROJECTION"].get("status"),
+                "enforcement": "DIAGNOSTIC_ONLY",
+                "evidence_contract_version": evidence_contract_version,
+                "evidence_contract_hash": evidence_contract_hash,
+            }
         # Regime parameters are executable policy, not prompt-only metadata.
         # Apply the stricter per-regime A3 floor to the server-owned technical
         # gate so the model, deterministic scorer and published constraints all

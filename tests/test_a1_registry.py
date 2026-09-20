@@ -267,6 +267,39 @@ def test_a1_registry_activation_is_atomic_and_strict(tmp_path: Path):
     assert registry.get_active_generation().generation_id == sealed.generation_id
 
 
+def test_a1_11_incomplete_coverage_generation_cannot_replace_active(tmp_path: Path):
+    registry = A1Registry(tmp_path / "a1.sqlite3")
+    now = datetime(2026, 6, 1, 18, 0, tzinfo=TZ)
+    good_manifest, good_payload = _generation_contract(["600519.SH"])
+    good = registry.create_generation(
+        mode="FULL", snapshot_id="snapshot-1", snapshot_hash="a" * 64,
+        as_of=now, manifest=good_manifest, payload=good_payload,
+    )
+    good_payload["generation_id"] = good.generation_id
+    registry.seal_generation(good.generation_id, payload=good_payload)
+    registry.activate_generation(good.generation_id, activated_at=now)
+
+    bad_manifest, bad_payload = _generation_contract(["600519.SH"])
+    bad_manifest["coverage_gate"] = {
+        "status": "INCOMPLETE",
+        "publication_eligible": False,
+        "required_field_coverage": 0.5,
+    }
+    bad = registry.create_generation(
+        mode="FULL", snapshot_id="snapshot-1", snapshot_hash="a" * 64,
+        as_of=now + timedelta(days=1), manifest=bad_manifest, payload=bad_payload,
+    )
+    bad_payload["generation_id"] = bad.generation_id
+    registry.seal_generation(bad.generation_id, payload=bad_payload)
+    with pytest.raises(A1RegistryError, match="A1_COVERAGE_GATE_NOT_MET"):
+        registry.activate_generation(
+            bad.generation_id,
+            expected_current_id=good.generation_id,
+            activated_at=now + timedelta(days=1),
+        )
+    assert registry.get_active_generation().generation_id == good.generation_id
+
+
 def test_a1_registry_rejects_an_incomplete_partition(tmp_path: Path):
     registry = A1Registry(tmp_path / "a1.sqlite3")
     now = datetime(2026, 6, 1, 18, 0, tzinfo=TZ)

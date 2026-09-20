@@ -13,7 +13,7 @@
 | EX-02 | CONFIRMED_STATIC | `_quote_risk_bar` 构造合成 quote bar，`_settle_prior_signals` 将其传给 PaperBroker，同时账本写 `NEXT_COMPLETE_1M_BAR_SIMULATION` | 成交标签与真实输入语义不一致；S05 必须以冻结完整 1m 撮合 |
 | RISK-01 | CONFIRMED_STATIC | `runtime/simulation.py:359` 用未来撮合价作为仓位 cap 的 `mark_price` | 初始委托数量没有完全冻结；S05/S06 划分冻结数量与成交缩减 |
 | LLM-01 | REPRODUCED | `workflow.py:5629` 使用 `bool(signal.get("llm_veto", True))`，字符串 `"false"` 会变成 True | 严格 schema、类型、完整性和重复项校验留到 S07 |
-| A1-01 | NEEDS_RUNTIME_EVIDENCE | 当前有 registry、事实缓存和增量路径，但尚无统一字段覆盖账本证明采集→解析→时点→特征→模型输入分母一致 | S04 建账本并用冻结样本对账；不得把缺生产证据记为通过 |
+| A1-01 | REPRODUCED_FIXED | S04 已建立字段覆盖投影，冻结输入和 packet 可逐层对账；821 样本、失败分母、PIT、预算投影和代次门反例通过 | CODE 离线通过；真实 VM 冻结样本覆盖率和积压清空能力仍待 OPERATIONS 证据，未宣称生产缺口已补齐 |
 | SRC-01 | REPRODUCED_FIXED | 基线只有 `live_fetch._NODE_LOCK` 和节点 JSON 健康文件，无法在不同能力/进程间共享配额或 fencing；S02 已增加 RuntimeStore 协调表和 typed governor | `SRC-01—SRC-08` 离线反例通过；A4 实际接入属于 S03，生产恢复能力仍待运维证据 |
 
 S00 没有改变上述业务行为。表中的行号基于基线提交；后续修改后以符号和 Git diff 为准。

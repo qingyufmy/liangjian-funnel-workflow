@@ -1240,6 +1240,19 @@ class A1Registry:
                     raise A1GenerationNotFound("A1_GENERATION_NOT_FOUND")
                 if str(row["status"]) != "SEALED":
                     raise A1ActivationError("A1_GENERATION_NOT_SEALED")
+                try:
+                    manifest = json.loads(str(row["manifest_json"]))
+                except (TypeError, ValueError, json.JSONDecodeError) as exc:
+                    raise A1ActivationError("A1_GENERATION_CORRUPT") from exc
+                coverage_gate = manifest.get("coverage_gate") if isinstance(manifest, Mapping) else None
+                if isinstance(coverage_gate, Mapping) and coverage_gate.get("publication_eligible") is not True:
+                    raise A1ActivationError(
+                        "A1_COVERAGE_GATE_NOT_MET",
+                        diagnostics={
+                            "coverage_status": coverage_gate.get("status"),
+                            "required_field_coverage": coverage_gate.get("required_field_coverage"),
+                        },
+                    )
                 connection.execute(
                     """
                     INSERT INTO a1_active_pointer(pointer_name,generation_id,activated_at,previous_generation_id)

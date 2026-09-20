@@ -31,7 +31,18 @@
 | A4-11 | 过期持仓报价必须 DATA_BLOCK | `test_a4_11_stale_position_quote_is_data_block_not_success` | 不再显示风险清晰/成功 | 通过 |
 | A4-12 | 归档 SQLite 写锁不阻塞风险意图短事务 | `test_a4_12_archive_sqlite_writer_cannot_block_risk_intent_store` | 独立 DB 写锁下风险意图 <0.5s | 通过 |
 | A4-PERF | 50/100/200 全会话 fixture 与墙钟档位 | `run_iteration_acceptance.py --profile stress --scenario a4-s03` | 200 计划风险 p99 1.130s；决策核心 1.207s；仅本机离线证据 | 通过（非生产） |
-| A1-01 | 字段覆盖逐层可对账 | S04 将新增覆盖账本测试 | 缺生产冻结样本 | 待 S04 |
+| A1-01 | 原始字段解析缺口可定位且修复后进入 packet | `test_a1_01_parse_mapping_gap_then_fix_reaches_real_packet` | SQLite 覆盖行、A1 packet 投影 | 通过（离线） |
+| A1-02 | 零、负数、缺失、非有限数、未授权、未发布、不适用不混淆 | `test_a1_02_*` | 参数化值状态和 gap reason | 通过（离线） |
+| A1-03 | 1,000 标的、单轮 100 的公平补齐不饿死低优先级 | `test_a1_03_thousand_symbol_backfill_is_fair_under_new_high_priority_work` | 持续新增 HOLDING 时原 1,000 个 UNIVERSE 最终全部完成 | 通过（离线） |
+| A1-04 | 重启后只续未完成任务，重复冻结尝试不重复计数 | `test_a1_04_restart_resumes_only_deferred_task_and_keeps_success` | 重开 SQLite、成功任务不再规划、attempt 幂等 | 通过（离线） |
+| A1-05 | 晚公告不得进入历史 cutoff | `test_a1_05_late_announcement_cannot_enter_historical_cutoff` | `TIME_UNVERIFIED` 且 PIT=false | 通过（离线） |
+| A1-06 | 单期摘要不得宣称多期/严格 PIT | `test_a1_06_one_f10_period_cannot_claim_multi_period_or_strict_pit` | 最低证据契约明确不完整 | 通过（离线） |
+| A1-07 | 财务负面与采集未知分离 | `test_a1_07_negative_is_valid_but_missing_is_unknown` | NEGATIVE 为有效事实，缺失为 FIELD_MISSING | 通过（离线） |
+| A1-08 | 入队幂等、retry-after/fencing 不可绕过、worker 先落证据再成功 | `test_a1_08_*` | 重启、双 owner、注入 worker | 通过（离线） |
+| A1-09 | 压缩预算不能隐藏关键缺口 | `test_a1_09_packet_budget_never_hides_critical_gap_projection` | 保留 200 条关键缺口及投影数量/原因 | 通过（离线） |
+| A1-10 | 任意 821 样本逐层集合数量与哈希可对账 | `test_a1_10_arbitrary_821_scope_reconciles_every_layer` | 821→821 raw→800 parsed，21 项有原因 | 通过（离线） |
+| A1-11 | 不完整新代次不得覆盖活跃代次，过期活跃代次不得伪装合格 | `test_a1_11_incomplete_coverage_generation_cannot_replace_active`；既有过期测试 | coverage gate 原子拒绝，旧 pointer 保留 | 通过（离线） |
+| A1-12 | 失败对象不退出分母；无适用字段显示 N/A | `test_a1_12_failed_fields_remain_in_denominator_and_empty_group_is_na` | 固定 denominator/version，N/A 非 100% | 通过（离线） |
 | EX-01 | 佣金与印花税分开计费 | S05 将新增小额卖出反例 | 当前实现已复现错误 | 待 S05 |
 | EX-02 | 只用下一根完整 1m bar 模拟撮合 | S05 将新增跨时钟因果测试 | 当前 quote bar 语义不一致 | 待 S05 |
 | RISK-01 | 冻结数量、资金预占和 T+1 生命周期 | S05-S06 生命周期测试 | 当前仅部分满足 | 待 S05-S06 |

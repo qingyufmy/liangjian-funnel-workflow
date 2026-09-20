@@ -1,0 +1,33 @@
+schema_version: liangjian-a1-evidence-contracts/1.0.0
+enforcement: DIAGNOSTIC_SHADOW
+contracts:
+  multi_period_profit_quality:
+    consumer_path: A1_BASE
+    required_periods: 3
+    statement_scope: CONSOLIDATED
+    currency: CNY
+    announcement_time_required: true
+    fields:
+      - INCOME.operating_income
+      - INCOME.parent_holder_net_profit
+      - CASH_FLOW.act_cash_flow_net
+      - INDICATORS.roe
+      - INDICATORS.revenue_growth
+      - INDICATORS.profit_growth
+      - INDICATORS.cashflow_quality
+  main_business_exposure:
+    consumer_path: A1_BASE
+    announcement_time_required: true
+    accepted_evidence:
+      - PERIODIC_REPORT
+      - PROSPECTUS
+    industry_label_is_revenue_evidence: false
+  order_and_policy_catalyst:
+    consumer_path: A1_DEEP
+    publication_time_required: true
+    mechanism_and_applicable_industry_required: true
+    opinion_is_lead_only: true
+  valuation_and_expectation:
+    consumer_path: A1_DEEP
+    distinguish_disclosed_fact_from_consensus: true
+    source_and_as_of_required: true

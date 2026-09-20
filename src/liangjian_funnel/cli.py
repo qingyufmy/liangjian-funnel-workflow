@@ -12,7 +12,13 @@ from zoneinfo import ZoneInfo
 
 from .contracts import CapabilityStatus
 from .pipeline.outcomes import PublicationState, RunOutcome, aggregate_workflow_acceptance, cli_exit_code
-from .pipeline.a1_registry import A1RegistryError, DEFAULT_A1_DEGRADED_AFTER, DEFAULT_A1_MAX_AGE
+from .pipeline.a1_registry import (
+    A1RegistryError,
+    DEFAULT_A1_DEGRADED_AFTER,
+    DEFAULT_A1_MAX_AGE,
+    default_a1_registry_path,
+)
+from .pipeline.a1_coverage import A1CoverageLedger
 from .evaluation.broker_gold import import_broker_gold
 from .evaluation.outcome_labels import OutcomeLabelError, backfill_forward_returns
 from .evaluation.replay_window import layer_attribution
@@ -379,6 +385,28 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="reuse one verified same-day frozen snapshot after a model-only A1 failure",
     )
+    for command, help_text in (
+        ("a1-coverage-report", "report field-level A1 coverage without fetching upstream data"),
+        ("a1-gap-report", "report retained A1 field gaps and their reason codes"),
+        ("a1-backfill-plan", "plan or enqueue fair incremental A1 coverage repair"),
+        ("a1-backfill-run", "run a bounded A1 repair slice when an adapter is authorized"),
+    ):
+        coverage = sub.add_parser(command, help=help_text)
+        coverage.add_argument("--scope", default=None, help="exact consumer path, for example A1_BASE")
+        coverage.add_argument("--as-of", default=None, help="timezone-aware knowledge cutoff")
+        coverage.add_argument(
+            "--source",
+            dest="source_version",
+            default=None,
+            help="exact source_version restriction; never broadens source authority",
+        )
+        coverage.add_argument("--output-dir", default=None, help="optional report output directory")
+        coverage.add_argument("--dry-run", action="store_true", help="do not enqueue, lease or fetch")
+        coverage.add_argument("--limit", type=int, default=100, help="maximum fields in this slice")
+        coverage.add_argument(
+            "--retry-budget", type=int, default=5,
+            help="exclude tasks that already reached this attempt count",
+        )
     research = sub.add_parser("run-research", help="run three isolated A1-A2-A3 model lanes")
     research.add_argument("--slot", choices=("morning", "close"), required=True)
     research.add_argument(
@@ -613,6 +641,10 @@ def main(argv: Sequence[str] | None = None, *, settings: Settings | None = None)
         return _doctor(active)
     if args.command in {"storage-audit", "storage-backup", "storage-cleanup"}:
         return _storage_command(args, active)
+    if args.command in {
+        "a1-coverage-report", "a1-gap-report", "a1-backfill-plan", "a1-backfill-run",
+    }:
+        return _a1_coverage_command(args, active)
     if args.command in {"label-outcomes", "run-outcomes", "run-outcomes-refresh", "layer-attribution"}:
         return _evaluation_command(args, active)
     if args.command in {"prepare-snapshot", "import-broker-gold", "sync-data", "maintain-features", "run-a1-maintenance", "run-research", "run-comparison", "monitor-once", "activate-latest-a3-for-a4", "run-due", "run-premarket", "run-morning", "run-auction-refresh", "run-close", "run-a5-midday", "run-a5-close", "run-next-session-prep", "run-monitor", "status"}:
@@ -629,6 +661,104 @@ def main(argv: Sequence[str] | None = None, *, settings: Settings | None = None)
         paths = write_capability_report(report, active.output_dir)
         print(json.dumps({"provider": report.provider, "status": report.overall_status.value, "reports": [str(path) for path in paths]}, ensure_ascii=False))
     return 0 if reports and all(report.overall_status is CapabilityStatus.PASS for report in reports) else 2
+
+
+def _a1_coverage_command(args: argparse.Namespace, settings: Settings) -> int:
+    """Operate only on the rebuildable A1 coverage projection.
+
+    Report and dry-run paths are read-only.  A non-dry backfill plan may add
+    idempotent queue rows.  Real source fetching is intentionally unavailable
+    until a governed adapter is registered; the command fails closed instead
+    of pretending that a queue transition repaired model input.
+    """
+
+    try:
+        cutoff = datetime.fromisoformat(args.as_of) if args.as_of else None
+        if cutoff is not None and (cutoff.tzinfo is None or cutoff.utcoffset() is None):
+            raise ValueError("A1 coverage --as-of must be timezone-aware")
+        if args.limit < 1 or args.retry_budget < 1:
+            raise ValueError("A1 coverage limit and retry budget must be positive")
+        ledger = A1CoverageLedger(default_a1_registry_path(settings))
+        source_version = args.source_version or ledger.latest_source_version(
+            consumer_path=args.scope,
+            as_of=cutoff,
+        )
+        report = ledger.coverage_report(
+            consumer_path=args.scope,
+            source_version=source_version,
+            as_of=cutoff,
+        )
+        payload: dict[str, object] = {
+            "command": args.command,
+            "dry_run": bool(args.dry_run),
+            "coverage": report,
+            "tasks": ledger.task_report(per_run_quota=args.limit),
+        }
+        if args.command == "a1-gap-report":
+            payload["gaps"] = list(report.get("gaps") or ())
+        elif args.command in {"a1-backfill-plan", "a1-backfill-run"}:
+            rows = ledger.rows(
+                consumer_path=args.scope,
+                source_version=source_version,
+                as_of=cutoff,
+            )
+            eligible_keys = [
+                str(row["coverage_key"])
+                for row in rows
+                if row.get("required") and row.get("applicable") and not row.get("packet_ready")
+            ]
+            if not args.dry_run:
+                ledger.enqueue_gaps(eligible_keys, priority_class="UNIVERSE", now=cutoff)
+            plan = ledger.plan_backfill(
+                limit=args.limit,
+                now=cutoff,
+                consumer_path=args.scope,
+                source_version=source_version,
+                as_of=cutoff,
+                retry_budget=args.retry_budget,
+            )
+            if args.dry_run:
+                planned_keys = {str(item.get("coverage_key") or "") for item in plan}
+                proposed = [
+                    {
+                        "task_key": str(row["coverage_key"]),
+                        "coverage_key": str(row["coverage_key"]),
+                        "symbol": row.get("symbol"),
+                        "dataset": row.get("dataset"),
+                        "field": row.get("field"),
+                        "report_period": row.get("report_period"),
+                        "source_version": row.get("source_version"),
+                        "gap_reason": row.get("gap_reason"),
+                        "status": "PROPOSED",
+                    }
+                    for row in rows
+                    if str(row["coverage_key"]) in eligible_keys
+                    and str(row["coverage_key"]) not in planned_keys
+                ]
+                plan = tuple([*plan, *proposed][:args.limit])
+            payload["status"] = "PLANNED"
+            payload["eligible_gap_count"] = len(eligible_keys)
+            payload["plan"] = list(plan)
+            if args.command == "a1-backfill-run" and not args.dry_run:
+                payload["status"] = "BLOCKED"
+                payload["reason_code"] = "A1_BACKFILL_SOURCE_ADAPTER_NOT_CONFIGURED"
+                payload["source_fetch_triggered"] = False
+        else:
+            payload["status"] = str(report.get("status") or "UNKNOWN")
+        if args.output_dir:
+            output_dir = Path(args.output_dir).resolve()
+            output_dir.mkdir(parents=True, exist_ok=True)
+            target = output_dir / f"{args.command}.json"
+            atomic_write_json(target, payload)
+            payload["output"] = str(target)
+        print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True, default=str))
+        return 2 if payload.get("status") == "BLOCKED" else 0
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        print(json.dumps({
+            "status": "FAILED",
+            "reason_code": f"A1_COVERAGE_{type(exc).__name__.upper()}",
+        }, ensure_ascii=False))
+        return 3
 
 
 def _doctor(settings: Settings) -> int:

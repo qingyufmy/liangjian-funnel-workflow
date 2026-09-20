@@ -26,7 +26,7 @@ from .a1_contract import (
 )
 
 
-A1_RESEARCH_PACKET_SCHEMA_VERSION = "a1-research-packet/1.4.0"
+A1_RESEARCH_PACKET_SCHEMA_VERSION = "a1-research-packet/1.5.0"
 A1_PACKET_TOKEN_BUDGET = 100_000
 _MACRO_WINDOWS = (1, 3, 6, 12)
 _INDUSTRY_METRIC_KEYS = (
@@ -115,6 +115,22 @@ def build_a1_research_packet(
         data.get("A1_MATURE_THEME_REGISTRY"),
         64,
     )
+    raw_coverage = data.get("A1_COVERAGE_PROJECTION")
+    if isinstance(raw_coverage, Mapping):
+        from .a1_coverage import packet_coverage_projection
+        coverage_ledger = packet_coverage_projection(raw_coverage)
+    else:
+        coverage_ledger = {
+            "schema_version": "a1-packet-coverage/1.0.0",
+            "status": "UNAVAILABLE",
+            "denominator": None,
+            "packet_ready": None,
+            "required_field_coverage": None,
+            "layers": {},
+            "critical_gaps": [],
+            "projected_out_gap_count": 0,
+            "projection_reason": "A1_COVERAGE_PROJECTION_UNAVAILABLE",
+        }
     packet: dict[str, Any] = {
         "schema_version": A1_RESEARCH_PACKET_SCHEMA_VERSION,
         "contract_version": A1_CONTRACT_VERSION,
@@ -144,6 +160,10 @@ def build_a1_research_packet(
         # A homepage without an active frozen contract or a reviewed document
         # never becomes evidence merely because it appears in this registry.
         "research_source_context": research_sources,
+        # Field-level coverage is a compact projection over the same A1
+        # registry/fact stores.  Critical gaps remain visible even when other
+        # long sections are summarized for model input.
+        "coverage_ledger": coverage_ledger,
         "industry_features": industry_features,
         "canonical_monthly_decisions": decisions,
         "prior_theme_registry": prior,
@@ -183,6 +203,10 @@ def build_a1_research_packet(
             ),
             "full_snapshot_retained": True,
             "raw_history_projected_out": True,
+            "field_coverage_status": coverage_ledger.get("status"),
+            "field_coverage_denominator": coverage_ledger.get("denominator"),
+            "field_coverage_packet_ready": coverage_ledger.get("packet_ready"),
+            "field_coverage_projected_out_gaps": coverage_ledger.get("projected_out_gap_count", 0),
         },
     }
     packet["source_index"] = _build_source_index(packet)

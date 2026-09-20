@@ -238,6 +238,18 @@ def _write_summary(
         "A4-10": ["tests/iteration/test_a4_orchestration.py::test_a4_10_absolute_deadline_wrapper_preserves_valid_deterministic_output"],
         "A4-11": ["tests/iteration/test_a4_orchestration.py::test_a4_11_stale_position_quote_is_data_block_not_success"],
         "A4-12": ["tests/iteration/test_a4_orchestration.py::test_a4_12_archive_sqlite_writer_cannot_block_risk_intent_store"],
+        "A1-01": ["tests/iteration/test_a1_coverage.py::test_a1_01_parse_mapping_gap_then_fix_reaches_real_packet"],
+        "A1-02": ["tests/iteration/test_a1_coverage.py::test_a1_02_value_and_gap_states_are_not_collapsed"],
+        "A1-03": ["tests/iteration/test_a1_coverage.py::test_a1_03_thousand_symbol_backfill_is_fair_under_new_high_priority_work"],
+        "A1-04": ["tests/iteration/test_a1_coverage.py::test_a1_04_restart_resumes_only_deferred_task_and_keeps_success"],
+        "A1-05": ["tests/iteration/test_a1_coverage.py::test_a1_05_late_announcement_cannot_enter_historical_cutoff"],
+        "A1-06": ["tests/iteration/test_a1_coverage.py::test_a1_06_one_f10_period_cannot_claim_multi_period_or_strict_pit"],
+        "A1-07": ["tests/iteration/test_a1_coverage.py::test_a1_07_negative_is_valid_but_missing_is_unknown"],
+        "A1-08": ["tests/iteration/test_a1_coverage.py::test_a1_08_enqueue_is_idempotent_and_retry_after_survives_restart"],
+        "A1-09": ["tests/iteration/test_a1_coverage.py::test_a1_09_packet_budget_never_hides_critical_gap_projection"],
+        "A1-10": ["tests/iteration/test_a1_coverage.py::test_a1_10_arbitrary_821_scope_reconciles_every_layer"],
+        "A1-11": ["tests/test_a1_registry.py::test_a1_11_incomplete_coverage_generation_cannot_replace_active"],
+        "A1-12": ["tests/iteration/test_a1_coverage.py::test_a1_12_failed_fields_remain_in_denominator_and_empty_group_is_na"],
     }
     counted = [item for item in checks if item.passed is not None]
     test_counts = {
@@ -265,6 +277,7 @@ def _write_summary(
                 REPO_ROOT / "config" / "exchange_rules.yaml",
                 REPO_ROOT / "config" / "funnel_config_v2.yaml",
                 REPO_ROOT / "config" / "capability_specs.yaml",
+                REPO_ROOT / "config" / "a1_evidence_contracts.yaml",
                 REPO_ROOT / "docs" / "iteration" / "LIANGJIAN_CODEX_IMPLEMENTATION_MASTER.md",
             )
             if path.exists()

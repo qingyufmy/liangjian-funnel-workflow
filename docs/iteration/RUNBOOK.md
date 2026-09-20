@@ -36,6 +36,19 @@ python -m liangjian_funnel.cli archive-a4-auxiliary-once
 
 该入口只写分钟归档，不生成信号、生命周期或订单；生产调度是否启用留待 OPERATIONS 验收。
 
+## S04 A1 覆盖与补齐
+
+以下命令只读取 A1 registry 覆盖投影，不触发外部请求：
+
+```powershell
+python -m liangjian_funnel.cli a1-coverage-report --scope A1_BASE --as-of 2026-09-20T15:00:00+08:00 --output-dir artifacts/iteration/a1-coverage
+python -m liangjian_funnel.cli a1-gap-report --scope A1_BASE --as-of 2026-09-20T15:00:00+08:00 --output-dir artifacts/iteration/a1-coverage
+python -m liangjian_funnel.cli a1-backfill-plan --scope A1_BASE --as-of 2026-09-20T15:00:00+08:00 --limit 100 --retry-budget 5 --dry-run --output-dir artifacts/iteration/a1-coverage
+python -m liangjian_funnel.cli a1-backfill-run --scope A1_BASE --as-of 2026-09-20T15:00:00+08:00 --limit 100 --retry-budget 5 --dry-run --output-dir artifacts/iteration/a1-coverage
+```
+
+`--source` 是精确 `source_version` 限制，不会扩大来源权限。当前没有注册真实抓取适配器；去掉 `--dry-run` 的 `a1-backfill-run` 必须返回 `A1_BACKFILL_SOURCE_ADAPTER_NOT_CONFIGURED`，不能把入队或 lease 当作字段已经进入 A1 packet。生产 VM 执行前还需单独完成来源授权、影子积压和冻结输入对账。
+
 ## 尚未开放的 profile
 
 `replay`、`shadow-report` 在依赖阶段完成前明确返回 `3` 和 `PENDING_EVIDENCE`；`stress` 目前只开放 `a4-s03`，其他场景不会用空数据返回成功。

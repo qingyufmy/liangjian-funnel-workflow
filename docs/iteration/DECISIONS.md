@@ -35,3 +35,11 @@ Provider 配额、并发、lease、尝试和 `last_good` 索引复用 `RuntimeSt
 ## D-S03-02 超时结果终态化，不杀线程造假
 
 无法协作取消的依赖放入有限 daemon gate。调用者在绝对期限返回 `DEADLINE_EXCEEDED`，后台迟到结果不得修改旧决定；未结束 worker 持续占槽并让后续请求显式 `BACKPRESSURE`。辅助 5m 与反事实归档不占持仓/必需数据 gate。
+
+## D-S04-01 覆盖账本是投影，事实仍只有一份
+
+A1 覆盖行和补齐任务复用 A1 registry SQLite，仅保存字段资格、缺口和调度元数据；财务、公告及主营原文继续由既有事实缓存和冻结 snapshot 持有。覆盖率不以已收到记录作分母，失败对象不能通过删除获得更高比例。
+
+## D-S04-02 新覆盖先影子诊断，完整性门槛只做显式原子门
+
+新增证据契约当前为 `DIAGNOSTIC_SHADOW`，不修改正式 A1 策略门槛或候选数。只有 manifest 显式携带 blocking `coverage_gate` 时 registry 才拒绝激活；普通旧代次保持兼容。真实补采适配器未授权/未注册时 CLI fail closed，不把任务完成状态伪造成 packet 已修复。
