@@ -10,7 +10,7 @@
     ],
     "production_runtime_modified": false
   },
-  "current_stage": "S06",
+  "current_stage": "S07",
   "stages": {
     "S00": {
       "code_status": "CODE_ACCEPTED",
@@ -425,7 +425,67 @@
         "artifacts/iteration/s06-offline-20260920/"
       ]
     },
-    "S07": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
+    "S07": {
+      "code_status": "CODE_ACCEPTED",
+      "evidence_status": "OFFLINE_ACCEPTED",
+      "operations_status": "PENDING_PRODUCTION_EVIDENCE",
+      "strategy_status": "INSUFFICIENT_EVIDENCE",
+      "changed_files": [
+        "config/runtime.yaml",
+        "prompts/agent_4_intraday_veto_v3.txt",
+        "src/liangjian_funnel/runtime/llm_review.py",
+        "src/liangjian_funnel/runtime/monitor.py",
+        "src/liangjian_funnel/settings.py",
+        "src/liangjian_funnel/workflow.py",
+        "scripts/run_iteration_acceptance.py",
+        "tests/iteration/test_llm_review_contract.py",
+        "docs/iteration/*"
+      ],
+      "dependencies": ["S00", "S01", "S02", "S03", "S04", "S05", "S06"],
+      "commands": [
+        {
+          "command": ".venv/Scripts/python.exe -m pytest -q tests/iteration/test_llm_review_contract.py",
+          "exit_code": 2,
+          "result": "collection failed as expected before implementation because runtime.llm_review did not exist",
+          "artifact": null
+        },
+        {
+          "command": ".venv/Scripts/python.exe -m pytest -q tests/iteration/test_llm_review_contract.py tests/test_runtime_monitor.py tests/test_workflow_integration.py tests/iteration/test_a4_orchestration.py tests/test_pipeline_models.py tests/test_settings.py tests/test_monitor_version_wiring.py",
+          "exit_code": 0,
+          "result": "strict review counterexamples and focused regressions passed",
+          "artifact": null
+        },
+        {
+          "command": ".venv/Scripts/python.exe -m pytest --cov=liangjian_funnel --cov-report=term --cov-report=xml:artifacts/iteration/s07-regression-20260920/coverage.xml --cov-fail-under=65 --junitxml=artifacts/iteration/s07-regression-20260920/python-junit.xml",
+          "exit_code": 1,
+          "result": "3 failed, 1809 passed, 4 skipped; minimal config fixtures exposed eager strict-review setting access",
+          "artifact": "artifacts/iteration/s07-regression-20260920/"
+        },
+        {
+          "command": ".venv/Scripts/python.exe -m pytest --cov=liangjian_funnel --cov-report=term --cov-report=xml:artifacts/iteration/s07-regression-final-20260920/coverage.xml --cov-fail-under=65 --junitxml=artifacts/iteration/s07-regression-final-20260920/python-junit.xml",
+          "exit_code": 0,
+          "result": "1812 passed, 4 skipped, coverage 78.84%",
+          "artifact": "artifacts/iteration/s07-regression-final-20260920/"
+        },
+        {
+          "command": "npm run typecheck; npm test; npm run build",
+          "exit_code": 0,
+          "result": "typecheck passed; 86 tests passed; web and server build passed",
+          "artifact": null
+        },
+        {
+          "command": ".venv/Scripts/python.exe scripts/run_iteration_acceptance.py --profile offline --output-dir artifacts/iteration/s07-offline-20260920",
+          "exit_code": 0,
+          "result": "CODE_ACCEPTED; 140 passed, 0 failed, 0 skipped",
+          "artifact": "artifacts/iteration/s07-offline-20260920/summary.json"
+        }
+      ],
+      "artifacts": [
+        "artifacts/iteration/s07-regression-20260920/",
+        "artifacts/iteration/s07-regression-final-20260920/",
+        "artifacts/iteration/s07-offline-20260920/"
+      ]
+    },
     "S08": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
     "S09": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
     "S10": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
@@ -433,10 +493,10 @@
   },
   "unresolved": [
     "A1 production frozen-snapshot coverage and real backfill adapter throughput require OPERATIONS evidence",
-    "strict LLM response validation requires S07",
+    "strict LLM review remains disabled until isolated replay and shadow evidence support production enablement",
     "replay, operations and strategy acceptance remain unproven"
   ],
   "blockers": [],
-  "next_action": "Implement S07 strict LLM response validation, completeness, timeout and expiry handling with counterexample tests.",
-  "updated_at": "2026-09-20T18:54:05+08:00"
+  "next_action": "Implement S08 backend/frontend semantic alignment with counterexample tests for counts, dates, status wording and drill-down evidence.",
+  "updated_at": "2026-09-20T19:18:54+08:00"
 }

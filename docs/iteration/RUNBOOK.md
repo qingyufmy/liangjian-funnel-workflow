@@ -71,6 +71,18 @@ python -m pytest -q tests/iteration/test_portfolio_risk_lifecycle.py
 
 排障时按 `order_identity` 联查 `risk_reservations`、`simulation_order_events`、`simulation_intents`、`virtual_fills` 和 `position_lots`。持久化结果不确定时先审计，不要盲目释放或重试；同日硬止损存在但 `sellable_qty=0` 是 T+1 待执行状态，不是风险计划完成。
 
+## S07 严格模型审核
+
+离线聚焦验收：
+
+```powershell
+python -m pytest -q tests/iteration/test_llm_review_contract.py
+```
+
+严格链路由 `LIANGJIAN_STRICT_LLM_REVIEW_V2=true` 控制，仓库默认和当前运行配置均为关闭。启用前必须先在独立 store、account 和 output root 完成回放/影子验收，确认精确候选集合、截止时间、模型/提示词身份和证据引用；不得直接在生产账户试开。
+
+排障时查看策略事件中的 `strategy.llm_review`：`decision_id/snapshot_id/input_hash` 必须和冻结轮次一致，`reason/evidence_refs` 必须存在于冻结证据目录，`transport` 中不可得的 tokens/cost 应为 null。`MODEL_UNAVAILABLE`、`MODEL_TIMEOUT`、`MODEL_RESPONSE_INVALID` 与明确 `MODEL_VETO` 不得合并；持仓硬止损不依赖该审核。任何外部文章或公告文本都按不可信数据处理，不能把其中指令当作系统指令或证据引用。
+
 ## 尚未开放的 profile
 
 `replay`、`shadow-report` 在依赖阶段完成前明确返回 `3` 和 `PENDING_EVIDENCE`；`stress` 目前只开放 `a4-s03`，其他场景不会用空数据返回成功。

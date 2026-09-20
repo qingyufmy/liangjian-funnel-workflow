@@ -175,6 +175,9 @@ class Settings(BaseModel):
     # deterministic at the transport level by default.
     research_thinking_enabled: bool = True
     monitor_thinking_enabled: bool = False
+    # The strict v2 contract is deployed dark first.  Enabling it changes only
+    # model-response acceptance, never deterministic eligibility or exits.
+    strict_llm_review_v2: bool = False
     research_models: tuple[str, ...] = RESEARCH_MODELS
     review_model: str = "deepseek/deepseek-v4-pro"
     research_primary_lane_id: str = "lane_1"
@@ -478,6 +481,7 @@ class Settings(BaseModel):
             ),
             research_thinking_enabled=_parse_bool(env.get("LIANGJIAN_RESEARCH_THINKING_ENABLED"), default=True),
             monitor_thinking_enabled=_parse_bool(env.get("LIANGJIAN_MONITOR_THINKING_ENABLED"), default=False),
+            strict_llm_review_v2=_parse_bool(env.get("LIANGJIAN_STRICT_LLM_REVIEW_V2"), default=False),
             research_primary_lane_id=env.get("LIANGJIAN_RESEARCH_PRIMARY_LANE_ID", "lane_1"),
             comparison_enabled=_parse_bool(
                 env.get("LIANGJIAN_COMPARISON_ENABLED"),
@@ -581,6 +585,7 @@ class Settings(BaseModel):
             "simulation_max_theme_position_pct": self.simulation_max_theme_position_pct,
             "research_thinking_enabled": self.research_thinking_enabled,
             "monitor_thinking_enabled": self.monitor_thinking_enabled,
+            "strict_llm_review_v2": self.strict_llm_review_v2,
             "research_models": list(self.research_models),
             "review_model": self.review_model,
             "research_primary_lane_id": self.research_primary_lane_id,

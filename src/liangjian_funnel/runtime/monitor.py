@@ -19,6 +19,7 @@ from .strategies import STRATEGY_PROFILES, evaluate_strategy
 from .execution_eligibility import project_exit_eligibility
 from .a4_explain import build_a4_decision_context
 from .position_data_health import position_data_health
+from .llm_review import freeze_llm_review_request, validate_llm_review_response
 from .state import EFFECTIVE_ACTIONS, MonitorAction, PersistenceError, RuntimeStore
 
 
@@ -69,6 +70,9 @@ class MonitorEngine:
         deadline_monotonic: float | None = None,
         clock: Callable[[], float] = time.monotonic,
         wall_clock: Callable[[], datetime] | None = None,
+        strict_llm_review: bool = False,
+        llm_model_identity: str | None = None,
+        llm_prompt_version: str | None = None,
     ):
         if max_seconds <= 0:
             raise ValueError("max_seconds must be positive")
@@ -81,6 +85,9 @@ class MonitorEngine:
         self.deadline_monotonic = deadline_monotonic
         self._clock = clock
         self._wall_clock = wall_clock or (lambda: datetime.now(ZoneInfo("Asia/Shanghai")))
+        self.strict_llm_review = bool(strict_llm_review)
+        self.llm_model_identity = str(llm_model_identity or "").strip()
+        self.llm_prompt_version = str(llm_prompt_version or "").strip()
         self._confirmations: dict[tuple[str, str], tuple[datetime, int]] = {}
         self._condition_active: set[tuple[str, str]] = set()
         self._overrun_until: dict[str, datetime] = {}
@@ -594,28 +601,92 @@ class MonitorEngine:
         # with trigger_pass=False can never become eligible here.
         vetoes: dict[str, bool] = {}
         veto_reasons: dict[str, str] = {}
+        veto_observability: dict[str, dict[str, Any]] = {}
         llm_failed = False
         llm_error_code: str | None = None
+        review_request = None
         if self.llm_veto is not None and pending_veto:
             model_called = True
-            context = {
-                "lane_id": lane_id,
-                "minute_snapshot_id": minute_snapshot_id,
-                "minute_end": minute.isoformat(),
-                "plans": tuple(trigger_results),
-            }
             try:
+                if self.strict_llm_review:
+                    eligible_ids = {str(item["plan_id"]) for item in pending_veto}
+                    pending_by_id = {str(item["plan_id"]): item for item in pending_veto}
+                    eligible_plans = tuple({
+                        **dict(item),
+                        "execution_plan": self._payload(pending_by_id[str(item["plan_id"])]["plan"]),
+                        "market_context": dict(
+                            (market_contexts or {}).get(str(item.get("symbol") or ""))
+                            or (market_contexts or {}).get(str(item.get("symbol") or "").split(".")[0])
+                            or {}
+                        ),
+                    } for item in trigger_results
+                        if str(item.get("plan_id") or "") in eligible_ids and item.get("eligible") is True)
+                    review_request = freeze_llm_review_request(
+                        lane_id=lane_id,
+                        minute_snapshot_id=minute_snapshot_id,
+                        minute_end=minute,
+                        eligible_plans=eligible_plans,
+                        response_deadline_monotonic=(
+                            self.deadline_monotonic
+                            if self.deadline_monotonic is not None
+                            else started + self.max_seconds
+                        ),
+                        frozen_monotonic=started,
+                        model_identity=self.llm_model_identity,
+                        prompt_version=self.llm_prompt_version,
+                        frozen_input={
+                            "execution_plans": [
+                                {
+                                    "plan_id": str(plan.get("plan_id") or ""),
+                                    "symbol": str(plan.get("symbol") or ""),
+                                    "payload": self._payload(plan),
+                                }
+                                for plan in plans
+                            ],
+                            "trigger_results": trigger_results,
+                            "market_contexts": dict(market_contexts or {}),
+                            "eligible_plans": eligible_plans,
+                        },
+                    )
+                context = {
+                    "lane_id": lane_id,
+                    "minute_snapshot_id": minute_snapshot_id,
+                    "minute_end": minute.isoformat(),
+                    "plans": tuple(trigger_results),
+                    "review_contract": review_request.to_mapping() if review_request is not None else None,
+                }
                 response = self.llm_veto(context)
-                veto_details = self._batch_veto_details(response, pending_veto)
-                vetoes = {
-                    plan_id: detail[0]
-                    for plan_id, detail in veto_details.items()
-                }
-                veto_reasons = {
-                    plan_id: detail[1]
-                    for plan_id, detail in veto_details.items()
-                    if detail[1]
-                }
+                if review_request is not None:
+                    validated = validate_llm_review_response(
+                        review_request,
+                        response,
+                        received_monotonic=self._clock(),
+                    )
+                    audit = validated.audit.to_mapping() if validated.audit is not None else None
+                    for detail in validated.decisions:
+                        vetoes[detail.plan_id] = detail.llm_veto
+                        veto_reasons[detail.plan_id] = detail.reason_code
+                        veto_observability[detail.plan_id] = {
+                            "status": "VALID",
+                            "schema_version": "a4-llm-review/2.0.0",
+                            "decision_id": review_request.decision_id,
+                            "minute_snapshot_id": review_request.minute_snapshot_id,
+                            "input_hash": review_request.input_hash,
+                            "reason_code": detail.reason_code,
+                            "evidence_refs": list(detail.evidence_refs),
+                            "transport": audit,
+                        }
+                else:
+                    veto_details = self._batch_veto_details(response, pending_veto)
+                    vetoes = {
+                        plan_id: detail[0]
+                        for plan_id, detail in veto_details.items()
+                    }
+                    veto_reasons = {
+                        plan_id: detail[1]
+                        for plan_id, detail in veto_details.items()
+                        if detail[1]
+                    }
             except Exception as exc:
                 llm_failed = True
                 candidate = str(getattr(exc, "reason_code", "") or "")[:80]
@@ -623,6 +694,20 @@ class MonitorEngine:
                     llm_error_code = candidate
                 else:
                     llm_error_code = "LLM_CALLBACK_FAILED"
+                if review_request is not None:
+                    veto_observability = {
+                        str(item["plan_id"]): {
+                            "status": "INVALID",
+                            "schema_version": "a4-llm-review/2.0.0",
+                            "decision_id": review_request.decision_id,
+                            "minute_snapshot_id": review_request.minute_snapshot_id,
+                            "input_hash": review_request.input_hash,
+                            "reason_code": llm_error_code,
+                            "evidence_refs": [],
+                            "transport": None,
+                        }
+                        for item in pending_veto
+                    }
 
         overrun = model_called and (
             self._clock() - started > self.max_seconds
@@ -642,6 +727,7 @@ class MonitorEngine:
                     item.get("strategy_result"),
                     llm_veto=False,
                     llm_reason_code="MONITOR_OVERRUN",
+                    llm_review=veto_observability.get(plan_id),
                 )
                 events.append(self._emit_effective(
                     lane_id,
@@ -670,6 +756,7 @@ class MonitorEngine:
                             item.get("strategy_result"),
                             llm_veto=False,
                             llm_reason_code=unavailable_code,
+                            llm_review=veto_observability.get(plan_id),
                         ),
                     )
                 )
@@ -681,6 +768,7 @@ class MonitorEngine:
                 item.get("strategy_result"),
                 llm_veto=veto,
                 llm_reason_code=llm_reason_code,
+                llm_review=veto_observability.get(plan_id),
             )
             self._condition_active.add(item["key"])
             events.append(self._emit_effective(
@@ -1210,15 +1298,18 @@ def _with_llm_observability(
     *,
     llm_veto: bool,
     llm_reason_code: str,
+    llm_review: Mapping[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Copy only safe LLM outcome fields into the nested strategy payload."""
 
-    if not isinstance(strategy_result, Mapping):
+    if not isinstance(strategy_result, Mapping) and not isinstance(llm_review, Mapping):
         return None
+    base = dict(strategy_result) if isinstance(strategy_result, Mapping) else {}
     return {
-        **dict(strategy_result),
+        **base,
         "llm_veto": bool(llm_veto),
         "llm_reason_code": _safe_reason_code(llm_reason_code),
+        "llm_review": dict(llm_review) if isinstance(llm_review, Mapping) else None,
     }
 
 

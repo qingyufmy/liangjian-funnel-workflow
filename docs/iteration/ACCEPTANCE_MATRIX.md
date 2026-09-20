@@ -64,5 +64,11 @@
 | RISK-09 | 跳空退出使用当前可证明窗口；锁板/零容量不得伪造成交 | `test_risk_09_gap_exit_uses_current_window_and_locked_bar_does_not_fake_fill` | gap 使用当前开盘；不可成交窗口保持未成交 | 通过（离线） |
 | RISK-10 | 公司行为版本化调整 lot；无法解析时禁止新增风险 | `test_risk_10_corporate_action_is_versioned_and_unresolved_blocks_add` | 总仓与 lot 同比调整；未知公司行为保留持仓并阻断 ADD | 通过（离线） |
 | RISK-11 | 成交、现金、持仓、lot、预占同事务；故障后可审计恢复 | `test_risk_11_failed_commit_leaves_no_half_written_fill_or_position` | 注入失败无半写；释放后账本审计一致 | 通过（离线） |
-| LLM-01 | 严格布尔、完整集合、超时过期 | S07 schema 反例 | 当前字符串布尔可误判 | 待 S07 |
+| LLM-01 | 每个合格计划恰有一条结果，布尔值严格且集合完整 | `test_llm_01_requires_exact_candidate_set_and_strict_boolean` | 缺失、重复、未知计划及字符串/空布尔全部阻断 | 通过（离线） |
+| LLM-02 | 模型不得修改股票、动作、价格、数量、权限或数据状态 | `test_llm_02_action_price_quantity_symbol_and_unknown_fields_are_forbidden` | schema 拒绝所有越权字段 | 通过（离线） |
+| LLM-03 | 审核绑定决策、快照和绝对截止，迟到或错配不得生效 | `test_llm_03_rejects_late_or_wrong_decision_and_snapshot`；模型墙钟测试 | 错误 ID/快照、迟到输出和持续流均 fail closed | 通过（离线） |
+| LLM-04 | 模型失败不得阻断确定性持仓保护 | `test_llm_04_model_failure_cannot_block_deterministic_position_exit` | 模型异常时硬止损风险意图仍先落账 | 通过（离线） |
+| LLM-05 | 外部文本只作不可信数据，引用必须来自冻结证据目录 | `test_llm_05_untrusted_text_is_data_and_fake_evidence_is_rejected` | 指令文本被隔离，伪造 evidence ref 被拒绝 | 通过（离线） |
+| LLM-06 | 无模型/影子实验与正式账户、存储、输出物理隔离 | `test_llm_06_shadow_experiment_requires_separate_store_account_and_output` | 任一复用正式资源均阻断 | 通过（离线） |
+| LLM-07 | 审核身份、模型、提示词、tokens/cost 可审计，未知值不伪造 | `test_llm_07_workflow_callback_returns_bound_transport_audit`；`test_llm_07_strict_monitor_persists_reason_reference_and_identity` | 事件账本持久化 reason/ref/identity；不可得计量明确为 null | 通过（离线） |
 | EVAL-01 | 分层增益与反事实不混用 | S10 回放/统计测试 | 未开始 | 待 S10 |

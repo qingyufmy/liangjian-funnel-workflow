@@ -121,6 +121,7 @@ from .reporting import atomic_write_json, atomic_write_json_streaming, atomic_wr
 from .review.daily import A5DailyReviewService, A5ReviewKind
 from .review.verification import A5IndependentVerifier
 from .runtime.monitor import MonitorBatchResult, MonitorEngine, MonitorEvent, rebuild_effective_markdown
+from .runtime.llm_review import ReviewCallbackResult, ReviewTransportAudit
 from .runtime.bounded_work import BoundedWorkGate, run_many_bounded
 from .runtime.decision_observability import (
     DataState,
@@ -4386,11 +4387,17 @@ class WorkflowApplication:
                     model_elapsed_ms += elapsed
                     record_span(f"model_total:{lane_id}", model_started, model_wall)
 
+            strict_review = bool(getattr(self.settings, "strict_llm_review_v2", False))
             engine = MonitorEngine(
                 self.store,
                 llm_veto=observed_callback,
                 max_seconds=model_budget,
                 deadline_monotonic=round_deadline,
+                strict_llm_review=strict_review,
+                llm_model_identity=(self.settings.monitor_model if strict_review else None),
+                llm_prompt_version=(
+                    self.prompts.bundle().document(_A4_FILE).sha256 if strict_review else None
+                ),
             )
             decision_started = time.monotonic()
             decision_wall = datetime.now(SHANGHAI)
@@ -6150,14 +6157,21 @@ class WorkflowApplication:
         bundle = self.prompts.bundle()
         plan_by_id = {str(plan["plan_id"]): plan for plan in plans}
 
-        def callback(context: Mapping[str, Any]) -> Mapping[str, Any]:
+        def callback(context: Mapping[str, Any]) -> Any:
             contexts = context.get("plans") if isinstance(context.get("plans"), (list, tuple)) else [context]
+            strict_review = bool(getattr(self.settings, "strict_llm_review_v2", False))
+            strict_contract = context.get("review_contract") if strict_review else None
+            if strict_review and not isinstance(strict_contract, Mapping):
+                raise WorkflowError("LLM_REVIEW_CONTRACT_MISSING")
             replacements = {name: None for name in bundle.document(_A4_FILE).placeholders}
             prompt_plans = [_a4_prompt_plan(plan) for plan in plans]
             replacements.update(
                 {
                     "EXECUTION_PLANS": prompt_plans,
-                    "TRIGGER_ENGINE_RESULT": contexts,
+                    "TRIGGER_ENGINE_RESULT": (
+                        {"review_contract": dict(strict_contract), "eligible_plans": contexts}
+                        if isinstance(strict_contract, Mapping) else contexts
+                    ),
                     "MARKET_CONTEXT": {
                         "time": now.isoformat(),
                         "minute_snapshot_id": context.get("minute_snapshot_id"),
@@ -6172,14 +6186,44 @@ class WorkflowApplication:
                 self.settings.monitor_model,
                 [
                     {"role": "system", "content": system},
-                    {"role": "user", "content": json.dumps({"lane_id": lane_id, "plans": contexts}, ensure_ascii=False, default=str)},
+                    {"role": "user", "content": json.dumps({
+                        "lane_id": lane_id,
+                        "plans": contexts,
+                        "review_contract": dict(strict_contract) if isinstance(strict_contract, Mapping) else None,
+                    }, ensure_ascii=False, default=str)},
                 ],
                 prompt_hash=digest_text(system),
-                input_hash=_hash_json(contexts),
-                snapshot_id=f"a4-{now.isoformat()}",
+                input_hash=(
+                    str(strict_contract.get("input_hash"))
+                    if isinstance(strict_contract, Mapping) else _hash_json(contexts)
+                ),
+                snapshot_id=(
+                    str(strict_contract.get("decision_id"))
+                    if isinstance(strict_contract, Mapping) else f"a4-{now.isoformat()}"
+                ),
                 stage="A4",
                 timeout_seconds=model_timeout_seconds,
             )
+            if isinstance(strict_contract, Mapping):
+                return ReviewCallbackResult(
+                    raw_response=model_result.output,
+                    audit=ReviewTransportAudit(
+                        model=model_result.model,
+                        prompt_version=bundle.document(_A4_FILE).sha256,
+                        prompt_hash=model_result.prompt_hash,
+                        input_hash=model_result.input_hash,
+                        latency_ms=model_result.latency_ms,
+                        attempts=model_result.attempts,
+                        thinking_variant=model_result.thinking_variant,
+                        reasoning_tokens=model_result.reasoning_tokens,
+                        input_tokens=None,
+                        output_tokens=None,
+                        cost=None,
+                        model_response_id=None,
+                        output_hash=model_result.output_hash,
+                    ),
+                    received_monotonic=time.monotonic(),
+                )
             veto_by_plan: dict[str, bool] = {
                 str(item.get("plan_id")): True
                 for item in contexts

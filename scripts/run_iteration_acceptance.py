@@ -271,6 +271,20 @@ def _write_summary(
         "RISK-09": ["tests/iteration/test_portfolio_risk_lifecycle.py::test_risk_09_gap_exit_uses_current_window_and_locked_bar_does_not_fake_fill"],
         "RISK-10": ["tests/iteration/test_portfolio_risk_lifecycle.py::test_risk_10_corporate_action_is_versioned_and_unresolved_blocks_add"],
         "RISK-11": ["tests/iteration/test_portfolio_risk_lifecycle.py::test_risk_11_failed_commit_leaves_no_half_written_fill_or_position"],
+        "LLM-01": ["tests/iteration/test_llm_review_contract.py::test_llm_01_requires_exact_candidate_set_and_strict_boolean"],
+        "LLM-02": ["tests/iteration/test_llm_review_contract.py::test_llm_02_action_price_quantity_symbol_and_unknown_fields_are_forbidden"],
+        "LLM-03": [
+            "tests/iteration/test_llm_review_contract.py::test_llm_03_rejects_late_or_wrong_decision_and_snapshot",
+            "tests/test_pipeline_models.py::test_continuous_sse_is_bounded_by_total_wall_clock",
+            "tests/test_pipeline_models.py::test_silent_socket_is_interrupted_by_remaining_wall_clock_budget",
+        ],
+        "LLM-04": ["tests/iteration/test_llm_review_contract.py::test_llm_04_model_failure_cannot_block_deterministic_position_exit"],
+        "LLM-05": ["tests/iteration/test_llm_review_contract.py::test_llm_05_untrusted_text_is_data_and_fake_evidence_is_rejected"],
+        "LLM-06": ["tests/iteration/test_llm_review_contract.py::test_llm_06_shadow_experiment_requires_separate_store_account_and_output"],
+        "LLM-07": [
+            "tests/iteration/test_llm_review_contract.py::test_llm_07_workflow_callback_returns_bound_transport_audit",
+            "tests/iteration/test_llm_review_contract.py::test_llm_07_strict_monitor_persists_reason_reference_and_identity",
+        ],
     }
     counted = [item for item in checks if item.passed is not None]
     test_counts = {
