@@ -18,5 +18,7 @@
 | UI-01 | REPRODUCED_FIXED | 基线 A2 API 依次用 `theme_score/identifiability_score/score` 填股票评分；S08 改为只有显式个股总分才显示分值 | 避免同主题股票被伪装成相同总分；生产旧快照兼容仍待 OPERATIONS 抽样 |
 | UI-02 | REPRODUCED_FIXED | 基线 A3 技术资格、盘中确认和当前可入场状态分散在多个字段；S08 落版本化四态投影 | 日线合格稳定显示待 A4，而不是立即买入；不改变计划筛选 |
 | UI-03 | REPRODUCED_FIXED | 基线数据源页只显示 provider 总体状态，无法说明能力、覆盖和影响路径 | S08 从本地 capability 文件逐项投影；刷新不触发远端采集 |
+| SRC-09 | CONFIRMED_STATIC_GATED | 项目没有可证明授权且语义已验收的新题材/F10/报价源；直接接入会扩大不可控依赖 | S09 只实现离线旁路和治理钩子；所有候选均禁用且 `LIVE_UNVERIFIED`，不宣称生产缺口已解决 |
+| SRC-10 | REPRODUCED_FIXED | 题材、概念、主营与行业回退若共享一个文本字段会形成虚假业务证据 | S09 建立身份类型和反例；解析失败保留原文与覆盖缺口，不生成主营占比 |
 
 S00 没有改变上述业务行为。表中的行号基于基线提交；后续修改后以符号和 Git diff 为准。

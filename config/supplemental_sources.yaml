@@ -1,0 +1,50 @@
+schema_version: supplemental-source-policy/1.0.0
+sources:
+  - source_id: shortline_theme_candidate
+    provider: shortline_candidate
+    capability: theme_hierarchy
+    enabled: false
+    shadow_only: true
+    execution_authority: false
+    adapter_status: ADAPTER_OFFLINE_TESTED
+    live_status: LIVE_UNVERIFIED
+    license_status: UNVERIFIED
+    ingestion_mode: FORBIDDEN_UNTIL_VERIFIED
+    upstream_identity: openkaipan-claimed-via-third-party-unverified
+    applicable_paths: [A2_RESEARCH_SIDECAR]
+  - source_id: f10_business_candidate
+    provider: f10_candidate
+    capability: business_profile
+    enabled: false
+    shadow_only: true
+    execution_authority: false
+    adapter_status: ADAPTER_OFFLINE_TESTED
+    live_status: LIVE_UNVERIFIED
+    license_status: UNVERIFIED
+    ingestion_mode: FORBIDDEN_UNTIL_VERIFIED
+    upstream_identity: provider-not-selected
+    applicable_paths: [A1_COVERAGE_SIDECAR]
+  - source_id: quote_backup_candidate
+    provider: quote_candidate
+    capability: realtime_quote
+    enabled: false
+    shadow_only: true
+    execution_authority: false
+    adapter_status: ADAPTER_OFFLINE_TESTED
+    live_status: LIVE_UNVERIFIED
+    license_status: UNVERIFIED
+    ingestion_mode: FORBIDDEN_UNTIL_VERIFIED
+    upstream_identity: provider-not-selected
+    applicable_paths: [QUOTE_COMPARISON_SIDECAR]
+  - source_id: viewpoint_manual_import
+    provider: viewpoint_import
+    capability: research_viewpoint
+    enabled: false
+    shadow_only: true
+    execution_authority: false
+    adapter_status: ADAPTER_OFFLINE_TESTED
+    live_status: LIVE_UNVERIFIED
+    license_status: REVIEWED_EXPORT_ONLY
+    ingestion_mode: MANUAL_REVIEWED_EXPORT
+    upstream_identity: user-authorized-original-document
+    applicable_paths: [A1_RESEARCH_LEAD, A2_RESEARCH_LEAD, A5_REVIEW]

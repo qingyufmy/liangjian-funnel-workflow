@@ -10,7 +10,7 @@
     ],
     "production_runtime_modified": false
   },
-  "current_stage": "S08",
+  "current_stage": "S09",
   "stages": {
     "S00": {
       "code_status": "CODE_ACCEPTED",
@@ -546,16 +546,76 @@
         "artifacts/iteration/s08-offline-20260920/"
       ]
     },
-    "S09": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
+    "S09": {
+      "code_status": "CODE_ACCEPTED",
+      "evidence_status": "OFFLINE_ACCEPTED_LIVE_UNVERIFIED",
+      "operations_status": "PENDING_SOURCE_AUTHORIZATION_AND_LIVE_EVIDENCE",
+      "strategy_status": "INSUFFICIENT_EVIDENCE",
+      "changed_files": [
+        "config/capability_specs.yaml",
+        "config/supplemental_sources.yaml",
+        "src/liangjian_funnel/data/supplemental_sidecar.py",
+        "scripts/run_supplemental_sidecar_audit.py",
+        "scripts/run_iteration_acceptance.py",
+        "tests/iteration/test_supplemental_sidecar.py",
+        "docs/iteration/SUPPLEMENTAL_SOURCE_REVIEW.md",
+        "docs/iteration/*"
+      ],
+      "dependencies": ["S00", "S01", "S02", "S03", "S04", "S05", "S06", "S07", "S08"],
+      "commands": [
+        {
+          "command": ".venv/Scripts/python.exe -m pytest -q tests/iteration/test_supplemental_sidecar.py",
+          "exit_code": 2,
+          "result": "collection failed before implementation because data.supplemental_sidecar did not exist",
+          "artifact": null
+        },
+        {
+          "command": ".venv/Scripts/python.exe scripts/run_supplemental_sidecar_audit.py --as-of 2026-09-18T10:00:00+08:00 --output artifacts/iteration/s09-sidecar-20260920/report.json",
+          "exit_code": 0,
+          "result": "ADAPTER_OFFLINE_TESTED; four policies disabled/shadow-only/no execution authority; no network used",
+          "artifact": "artifacts/iteration/s09-sidecar-20260920/report.json"
+        },
+        {
+          "command": ".venv/Scripts/python.exe -m pytest -q tests/iteration/test_supplemental_sidecar.py tests/iteration/test_provider_governance.py tests/iteration/test_a1_coverage.py tests/test_a1_sources.py",
+          "exit_code": 0,
+          "result": "48 passed",
+          "artifact": null
+        },
+        {
+          "command": ".venv/Scripts/python.exe -m pytest --cov=liangjian_funnel --cov-report=term --cov-report=xml:artifacts/iteration/s09-regression-20260920/coverage.xml --cov-fail-under=65 --junitxml=artifacts/iteration/s09-regression-20260920/python-junit.xml",
+          "exit_code": 0,
+          "result": "1824 passed, 4 skipped, coverage 78.86%",
+          "artifact": "artifacts/iteration/s09-regression-20260920/"
+        },
+        {
+          "command": "npm run typecheck; npm test; npm run build",
+          "exit_code": 0,
+          "result": "typecheck passed; 91 tests passed; web and server build passed",
+          "artifact": null
+        },
+        {
+          "command": ".venv/Scripts/python.exe scripts/run_iteration_acceptance.py --profile offline --output-dir artifacts/iteration/s09-offline-20260920",
+          "exit_code": 0,
+          "result": "CODE_ACCEPTED; 152 passed, 0 failed, 0 skipped",
+          "artifact": "artifacts/iteration/s09-offline-20260920/summary.json"
+        }
+      ],
+      "artifacts": [
+        "artifacts/iteration/s09-sidecar-20260920/report.json",
+        "artifacts/iteration/s09-regression-20260920/",
+        "artifacts/iteration/s09-offline-20260920/"
+      ]
+    },
     "S10": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
     "S11": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"}
   },
   "unresolved": [
     "A1 production frozen-snapshot coverage and real backfill adapter throughput require OPERATIONS evidence",
     "strict LLM review remains disabled until isolated replay and shadow evidence support production enablement",
+    "all S09 external candidate sources remain disabled and LIVE_UNVERIFIED pending license, upstream and live capability evidence",
     "replay, operations and strategy acceptance remain unproven"
   ],
   "blockers": [],
-  "next_action": "Implement S09 new-source sidecar evaluation with licensing, PIT, field-map and no-production-write gates.",
-  "updated_at": "2026-09-20T19:41:00+08:00"
+  "next_action": "Implement S10 layered evaluation, AS_OBSERVED versus REPAIRED_DATA separation, causal scorecards and strategy-change governance.",
+  "updated_at": "2026-09-20T19:54:00+08:00"
 }

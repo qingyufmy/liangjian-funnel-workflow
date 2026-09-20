@@ -77,4 +77,10 @@
 | UI-04 | API、Markdown、前端和通知消费同一持久化投影 | `test_ui_04_attached_projection_is_the_single_persisted_stage_projection`；通知/报告回归 | `research-presentation/1.0.0` 随阶段行落盘；旧产物只经同语义兼容适配 | 通过（离线） |
 | UI-05 | 页面刷新只读本地快照，能力健康不以供应商总绿灯替代 | TS `UI-05` 100次读取 | 未调用 `fetch`；逐能力展示成功、新鲜度、覆盖、失败、下次尝试和影响路径 | 通过（离线） |
 | UI-06 | A4 展示计划/实际时间、数据截止、范围计数、deadline、模型、信号和成交 | TS `UI-06` 反例 | 从持久化 observability/simulation 投影，未知值不补零 | 通过（离线） |
+| SRC-09 | 新源开关不改变正式候选/订单，旁路投影可见 | `test_src_09_sidecar_enablement_never_mutates_formal_candidates_or_orders` | authoritative 深拷贝逐字段一致；shadow 独立且无执行权 | 通过（离线） |
+| SRC-10 | KPL题材、目录概念和主营披露身份不互换 | `test_src_10_taxonomy_identities_cannot_be_interchanged` | 三类 identity key 分离；题材/概念无主营占比 | 通过（离线） |
+| SRC-11 | 只有HTTP文件时间不能成为当前报价 | `test_src_11_http_file_time_without_trade_date_is_not_tradable` | 无可靠交易日/报价时点为 `TIME_UNVERIFIED` | 通过（离线） |
+| SRC-12 | 转载去重且过期观点无交易权 | `test_src_12_reposts_form_one_source_chain_and_expired_opinion_has_no_authority` | 10份转载归1条来源链；保留可检验条件和失效期 | 通过（离线） |
+| SRC-13 | 主营提取失败时行业仅作分类回退 | `test_src_13_business_parse_failure_keeps_industry_as_classification_only` | 原文保留、主营段为空、S04覆盖记录 `PARSE_ERROR` | 通过（离线） |
+| SRC-14 | 未授权/未实测/口径未验收不得正式 fallback | `test_src_14_unlicensed_or_unverified_source_cannot_become_fallback` | 即使误开 enabled/执行权仍因许可与LIVE状态阻断 | 通过（离线） |
 | EVAL-01 | 分层增益与反事实不混用 | S10 回放/统计测试 | 未开始 | 待 S10 |

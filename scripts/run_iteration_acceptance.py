@@ -303,6 +303,12 @@ def _write_summary(
         ],
         "UI-05": ["test/server/research-presentation.test.ts::UI-05 100 dashboard reads consume local capability snapshots without remote fetch"],
         "UI-06": ["test/server/research-presentation.test.ts::UI-06 A4 dispatch exposes schedule, valid-through and independent scope states"],
+        "SRC-09": ["tests/iteration/test_supplemental_sidecar.py::test_src_09_sidecar_enablement_never_mutates_formal_candidates_or_orders"],
+        "SRC-10": ["tests/iteration/test_supplemental_sidecar.py::test_src_10_taxonomy_identities_cannot_be_interchanged"],
+        "SRC-11": ["tests/iteration/test_supplemental_sidecar.py::test_src_11_http_file_time_without_trade_date_is_not_tradable"],
+        "SRC-12": ["tests/iteration/test_supplemental_sidecar.py::test_src_12_reposts_form_one_source_chain_and_expired_opinion_has_no_authority"],
+        "SRC-13": ["tests/iteration/test_supplemental_sidecar.py::test_src_13_business_parse_failure_keeps_industry_as_classification_only"],
+        "SRC-14": ["tests/iteration/test_supplemental_sidecar.py::test_src_14_unlicensed_or_unverified_source_cannot_become_fallback"],
     }
     counted = [item for item in checks if item.passed is not None]
     test_counts = {
@@ -331,6 +337,7 @@ def _write_summary(
                 REPO_ROOT / "config" / "funnel_config_v2.yaml",
                 REPO_ROOT / "config" / "capability_specs.yaml",
                 REPO_ROOT / "config" / "a1_evidence_contracts.yaml",
+                REPO_ROOT / "config" / "supplemental_sources.yaml",
                 REPO_ROOT / "docs" / "iteration" / "LIANGJIAN_CODEX_IMPLEMENTATION_MASTER.md",
             )
             if path.exists()

@@ -61,6 +61,86 @@ governance:
       upstream_identity: tdx-public-nodes
       allowed_hosts: []
       max_response_bytes: 4194304
+    - provider: shortline_candidate
+      capability: theme_hierarchy
+      quota_scope: supplemental_shortline_shadow
+      account_scope: public
+      authorization: UNVERIFIED
+      supported_fields: [symbol, theme_name, board_role, first_limit_time, source_chain]
+      markets: [SSE, SZSE, BSE]
+      unit: CLASSIFICATION
+      adjustment: NOT_APPLICABLE
+      time_precision: SECOND
+      rate_window_seconds: 60
+      max_requests: 1
+      max_concurrency: 1
+      ttl_seconds: 300
+      stale_action: DISPLAY_ONLY
+      priority: 100
+      fallbacks: []
+      upstream_identity: openkaipan-claimed-via-third-party-unverified
+      allowed_hosts: []
+      max_response_bytes: 1048576
+    - provider: f10_candidate
+      capability: business_profile
+      quota_scope: supplemental_f10_shadow
+      account_scope: public
+      authorization: UNVERIFIED
+      supported_fields: [symbol, raw_text, business_segments, industry_classification, publish_time]
+      markets: [SSE, SZSE, BSE]
+      unit: TEXT_AND_RATIO
+      adjustment: NOT_APPLICABLE
+      time_precision: DAY
+      rate_window_seconds: 60
+      max_requests: 1
+      max_concurrency: 1
+      ttl_seconds: 86400
+      stale_action: DISPLAY_ONLY
+      priority: 100
+      fallbacks: []
+      upstream_identity: provider-not-selected
+      allowed_hosts: []
+      max_response_bytes: 4194304
+    - provider: quote_candidate
+      capability: realtime_quote
+      quota_scope: supplemental_quote_shadow
+      account_scope: public
+      authorization: UNVERIFIED
+      supported_fields: [symbol, trade_date, quote_time, latest_price, volume, suspension_state]
+      markets: [SSE, SZSE, BSE]
+      unit: CNY_SHARE
+      adjustment: RAW
+      time_precision: SECOND
+      rate_window_seconds: 60
+      max_requests: 1
+      max_concurrency: 1
+      ttl_seconds: 5
+      stale_action: DISPLAY_ONLY
+      priority: 100
+      fallbacks: []
+      upstream_identity: provider-not-selected
+      allowed_hosts: []
+      max_response_bytes: 1048576
+    - provider: viewpoint_import
+      capability: research_viewpoint
+      quota_scope: supplemental_viewpoint_local
+      account_scope: public
+      authorization: LOCAL
+      supported_fields: [author, original_url, original_published_at, text, expires_at, source_chain]
+      markets: [SSE, SZSE, BSE]
+      unit: DOCUMENT
+      adjustment: NOT_APPLICABLE
+      time_precision: SECOND
+      rate_window_seconds: 1
+      max_requests: 4
+      max_concurrency: 1
+      ttl_seconds: 86400
+      stale_action: DISPLAY_ONLY
+      priority: 100
+      fallbacks: []
+      upstream_identity: user-authorized-original-document
+      allowed_hosts: []
+      max_response_bytes: 4194304
 hithink:
   probe_symbol: 600519.SH
   checks:
