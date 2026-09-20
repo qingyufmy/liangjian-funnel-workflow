@@ -27,8 +27,11 @@
         "QUEUED",
         "RUNNING",
         "SUCCEEDED",
+        "PARTIAL",
         "FAILED",
+        "TIMED_OUT",
         "CANCELLED",
+        "INTERRUPTED",
         "STALE"
       ]
     },

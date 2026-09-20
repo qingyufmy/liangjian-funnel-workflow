@@ -51,6 +51,14 @@ def test_monitor_consumes_persisted_revision_or_blocks(monkeypatch, tmp_path, br
         def fail(*args, **kwargs): raise ValueError("broken snapshot")
         app.minute_store.load_decision_snapshot = fail
     result = app.monitor_once(now=now)
+    observability = result["observability"]
+    assert observability["run_id"].startswith("a4-")
+    assert observability["decision_id"].startswith("a4-decision-")
+    assert len(observability["decision_hash"]) == 64
+    assert observability["snapshot_ids"] == [result["minute_snapshot_id"]]
+    assert symbol in observability["required_scope"]
+    assert observability["timing_summary"]["status"] == "MEASURED"
+    assert observability["axes"]["job_status"] == "SUCCEEDED"
     assert len(calls) == 1
     assert calls[0]["data_ok"] is not broken_snapshot
     if incomplete:

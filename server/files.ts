@@ -297,7 +297,10 @@ function numberValue(value: unknown): number | null {
 const OUTCOME_SCHEMA_VERSION = "research-outcome/3.0.0" as const;
 const LEGACY_OUTCOME_SCHEMA_VERSION = "research-outcome/2.0.0" as const;
 const OUTCOME_LIFECYCLE = new Set(["QUEUED", "RUNNING", "TERMINAL"]);
-const OUTCOME_JOB_STATUS = new Set(["QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELLED", "STALE"]);
+const OUTCOME_JOB_STATUS = new Set([
+  "QUEUED", "RUNNING", "SUCCEEDED", "PARTIAL", "FAILED",
+  "TIMED_OUT", "CANCELLED", "INTERRUPTED", "STALE",
+]);
 const OUTCOME_QUALITY = new Set(["VALIDATED", "DEGRADED", "BLOCKED", "FAILED", "CANCELLED"]);
 const OUTCOME_SUFFICIENCY = new Set(["SUFFICIENT", "PARTIAL", "INSUFFICIENT", "NOT_APPLICABLE"]);
 const OUTCOME_OPPORTUNITY = new Set(["PRESENT", "ABSENT", "UNKNOWN", "NOT_APPLICABLE"]);
@@ -382,10 +385,13 @@ function outcomeSource(value: JsonRecord): JsonRecord {
   return isRecord(nested) ? nested : value;
 }
 
-function outcomeJobStatus(status: string): "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELLED" | "STALE" {
+function outcomeJobStatus(status: string): OutcomeJobStatus {
   if (["PENDING", "CREATED", "DATA_PREPARING", "DATA_BOUND", "QUEUED"].includes(status)) return "QUEUED";
   if (["RUNNING", "RETRYING", "STARTED", "IN_PROGRESS"].includes(status)) return "RUNNING";
   if (["CANCELLED", "CANCELED"].includes(status)) return "CANCELLED";
+  if (["PARTIAL", "PARTIALLY_COMPLETED", "COMPLETED_PARTIAL"].includes(status)) return "PARTIAL";
+  if (["TIMED_OUT", "TIMEOUT", "DEADLINE_EXCEEDED"].includes(status)) return "TIMED_OUT";
+  if (["INTERRUPTED", "ABORTED", "TERMINATED"].includes(status)) return "INTERRUPTED";
   if (["FAILED", "BLOCKED_MODEL", "MODEL_FAILED", "MODEL_CALL_FAILED"].includes(status)) return "FAILED";
   if (status === "STALE") return "STALE";
   return "SUCCEEDED";

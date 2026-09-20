@@ -31,7 +31,10 @@ GENERATED_TARGETS = (
 VERSION = "research-outcome/3.0.0"
 LEGACY_VERSION = "research-outcome/2.0.0"
 EXPECTED_ENUMS = {
-    "JobStatus": ["QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELLED", "STALE"],
+    "JobStatus": [
+        "QUEUED", "RUNNING", "SUCCEEDED", "PARTIAL", "FAILED",
+        "TIMED_OUT", "CANCELLED", "INTERRUPTED", "STALE",
+    ],
     "LifecycleState": ["QUEUED", "RUNNING", "TERMINAL"],
     "QualityState": ["VALIDATED", "DEGRADED", "BLOCKED", "FAILED", "CANCELLED"],
     "SufficiencyState": ["SUFFICIENT", "PARTIAL", "INSUFFICIENT", "NOT_APPLICABLE"],

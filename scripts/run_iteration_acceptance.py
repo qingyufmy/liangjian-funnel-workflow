@@ -213,6 +213,11 @@ def _write_summary(
     requirement_map = {
         "S00-SAFE": ["S00-SAFE-01", "S00-SAFE-02", "S00-SAFE-03"],
         "S00-OFFLINE": ["S00-OFFLINE-TESTS"],
+        "OBS-01": ["tests/iteration/test_decision_observability.py::test_external_failure_has_independent_job_data_opportunity_and_eligibility_axes"],
+        "OBS-02": ["tests/iteration/test_decision_observability.py::test_noncritical_degradation_remains_visible_without_blocking_trade"],
+        "OBS-03": ["tests/iteration/test_decision_observability.py::test_observability_redaction_removes_secret_and_url_query_values"],
+        "OBS-04": ["tests/iteration/test_decision_observability.py::test_observation_hash_excludes_wall_clock_and_timing_but_tracks_frozen_input"],
+        "OBS-05": ["tests/iteration/test_decision_observability.py::test_timing_percentiles_are_measured_from_spans_and_missing_is_explicit"],
     }
     counted = [item for item in checks if item.passed is not None]
     test_counts = {

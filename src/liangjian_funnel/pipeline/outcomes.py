@@ -45,8 +45,11 @@ class JobLifecycleState(StrEnum):
     QUEUED = "QUEUED"
     RUNNING = "RUNNING"
     SUCCEEDED = "SUCCEEDED"
+    PARTIAL = "PARTIAL"
     FAILED = "FAILED"
+    TIMED_OUT = "TIMED_OUT"
     CANCELLED = "CANCELLED"
+    INTERRUPTED = "INTERRUPTED"
     STALE = "STALE"
 
 
@@ -293,6 +296,14 @@ def _job_for_status(status: str) -> JobLifecycleState:
         return JobLifecycleState.RUNNING
     if status in {"CANCELLED", "CANCELED"}:
         return JobLifecycleState.CANCELLED
+    if status in {"PARTIAL", "PARTIALLY_COMPLETED", "COMPLETED_PARTIAL"}:
+        return JobLifecycleState.PARTIAL
+    if status in {"TIMED_OUT", "TIMEOUT", "DEADLINE_EXCEEDED"}:
+        return JobLifecycleState.TIMED_OUT
+    if status in {"INTERRUPTED", "ABORTED", "TERMINATED"}:
+        return JobLifecycleState.INTERRUPTED
+    if status == "STALE":
+        return JobLifecycleState.STALE
     if status in {"FAILED", "BLOCKED_MODEL", "MODEL_FAILED", "MODEL_CALL_FAILED"}:
         return JobLifecycleState.FAILED
     # A data-gated result is a completed job whose business conclusion is

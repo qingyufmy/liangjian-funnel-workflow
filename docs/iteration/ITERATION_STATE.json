@@ -10,7 +10,7 @@
     ],
     "production_runtime_modified": false
   },
-  "current_stage": "S00",
+  "current_stage": "S01",
   "stages": {
     "S00": {
       "code_status": "CODE_ACCEPTED",
@@ -75,7 +75,62 @@
         "artifacts/iteration/s00-injected-failure-final-20260920/"
       ]
     },
-    "S01": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
+    "S01": {
+      "code_status": "CODE_ACCEPTED",
+      "evidence_status": "OFFLINE_ACCEPTED",
+      "operations_status": "PENDING_PRODUCTION_EVIDENCE",
+      "strategy_status": "INSUFFICIENT_EVIDENCE",
+      "changed_files": [
+        "contracts/research_outcome_v3.schema.json",
+        "scripts/export_outcome_contract.py",
+        "server/files.ts",
+        "server/generated/research-outcome-v3.ts",
+        "web/src/generated/research-outcome-v3.ts",
+        "src/liangjian_funnel/pipeline/outcomes.py",
+        "src/liangjian_funnel/runtime/decision_observability.py",
+        "src/liangjian_funnel/workflow.py",
+        "tests/iteration/test_decision_observability.py",
+        "tests/test_monitor_version_wiring.py"
+      ],
+      "dependencies": ["S00"],
+      "commands": [
+        {
+          "command": ".venv/Scripts/python.exe -m pytest --cov=liangjian_funnel --cov-report=term-missing --cov-fail-under=65",
+          "exit_code": 1,
+          "result": "5 failed, 1729 passed, 4 skipped; timing_coverage projection placement defect found",
+          "artifact": "artifacts/iteration/s01-regression-20260920/python-ci.log"
+        },
+        {
+          "command": ".venv/Scripts/python.exe -m pytest --cov=liangjian_funnel --cov-report=term-missing --cov-fail-under=65",
+          "exit_code": 0,
+          "result": "1734 passed, 4 skipped, coverage 78.62%",
+          "artifact": "artifacts/iteration/s01-regression-final-20260920/python-ci.log"
+        },
+        {
+          "command": "npm run typecheck && npm test && npm run build",
+          "exit_code": 0,
+          "result": "typecheck passed; 86 tests passed; build passed",
+          "artifact": "artifacts/iteration/s01-regression-final-20260920/"
+        },
+        {
+          "command": ".venv/Scripts/python.exe scripts/export_outcome_contract.py --check",
+          "exit_code": 0,
+          "result": "outcome contract schema and generated projections match",
+          "artifact": null
+        },
+        {
+          "command": ".venv/Scripts/python.exe scripts/run_iteration_acceptance.py --profile offline --output-dir artifacts/iteration/s01-offline-final-20260920",
+          "exit_code": 0,
+          "result": "CODE_ACCEPTED; 62 passed, 0 failed, 0 skipped",
+          "artifact": "artifacts/iteration/s01-offline-final-20260920/summary.json"
+        }
+      ],
+      "artifacts": [
+        "artifacts/iteration/s01-regression-20260920/",
+        "artifacts/iteration/s01-regression-final-20260920/",
+        "artifacts/iteration/s01-offline-final-20260920/"
+      ]
+    },
     "S02": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
     "S03": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
     "S04": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
@@ -95,6 +150,6 @@
     "replay, operations and strategy acceptance remain unproven"
   ],
   "blockers": [],
-  "next_action": "Implement S01 contracts and observability without changing strategy thresholds.",
-  "updated_at": "2026-09-20T16:38:00+08:00"
+  "next_action": "Implement S02 provider capability governance and bounded recovery, preserving the S01 decision projection.",
+  "updated_at": "2026-09-20T16:55:00+08:00"
 }

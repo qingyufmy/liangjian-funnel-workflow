@@ -111,6 +111,7 @@ from .pipeline.reviewed_research_leads import (
     unavailable_reviewed_research_leads,
 )
 from .pipeline.research_reports import write_stage_markdown_reports
+from .pipeline.outcomes import JobLifecycleState, OpportunityState
 from .pipeline.snapshot import FrozenInputSnapshot, UniverseGatePolicy, UniverseSnapshot
 from .pipeline.technical_aggregates import build_technical_aggregates
 from .redaction import digest_text, sanitize
@@ -118,6 +119,13 @@ from .reporting import atomic_write_json, atomic_write_json_streaming, atomic_wr
 from .review.daily import A5DailyReviewService, A5ReviewKind
 from .review.verification import A5IndependentVerifier
 from .runtime.monitor import MonitorBatchResult, MonitorEngine, rebuild_effective_markdown
+from .runtime.decision_observability import (
+    DataState,
+    DecisionObservation,
+    TimingSpan,
+    project_decision_axes,
+    stable_correlation_id,
+)
 from .runtime.lark_notifications import WorkflowLarkPublisher
 from .runtime.live_market import load_or_refresh_live_market_state
 from .runtime.progress import WorkflowProgress
@@ -3742,8 +3750,25 @@ class WorkflowApplication:
 
     def monitor_once(self, *, now: datetime | None = None) -> dict[str, Any]:
         monitor_started = time.monotonic()
+        monitor_started_wall = datetime.now(SHANGHAI)
+        timing_spans: list[TimingSpan] = []
+        timing_lock = RLock()
+
+        def record_span(name: str, started_mono: float, started_wall: datetime) -> None:
+            finished_wall = datetime.now(SHANGHAI)
+            span = TimingSpan(
+                name=name,
+                duration_ms=max(0.0, (time.monotonic() - started_mono) * 1000.0),
+                started_at=started_wall,
+                finished_at=finished_wall,
+            )
+            with timing_lock:
+                timing_spans.append(span)
+
         current = _aware(now or datetime.now(SHANGHAI)).replace(second=0, microsecond=0)
         execution_cutoff = _a4_execution_cutoff(current)
+        plan_restore_started = time.monotonic()
+        plan_restore_wall = datetime.now(SHANGHAI)
         self._ensure_trading_day(current)
         self._expire_missed_a4_entries(current)
         minute_snapshot_id = f"minute-{current.strftime('%Y%m%dT%H%M%S%z')}"
@@ -3784,11 +3809,14 @@ class WorkflowApplication:
         decision_symbols = set().union(*lane_scopes.values()) if lane_scopes else set()
         archive_symbols = set().union(*lane_archive_scopes.values()) if lane_archive_scopes else set()
         archive_only_symbols = sorted(archive_symbols - decision_symbols)
+        record_span("plan_restore", plan_restore_started, plan_restore_wall)
         # A4's entry authority must come from today's market, never from the
         # prior-session market label frozen into an A3 plan.  Collect one
         # shared five-minute market state for all lanes; the provider itself
         # uses a durable file bucket so one-minute scheduler processes do not
         # repeat a full-market request.
+        market_state_started = time.monotonic()
+        market_state_wall = datetime.now(SHANGHAI)
         live_market_state = (
             load_or_refresh_live_market_state(
                 self.settings,
@@ -3804,6 +3832,7 @@ class WorkflowApplication:
                 "entry_permission": "UNKNOWN",
             }
         )
+        record_span("market_state", market_state_started, market_state_wall)
 
         # Market data is frozen once per symbol/minute and shared by every
         # isolated lane.  A4 requests only the closed bars that can exist in
@@ -3825,11 +3854,18 @@ class WorkflowApplication:
             ACQUISITION_BUDGET_SECONDS, confirm_publications, classify_persistent_pending, reuse_publication,
         )
         fetch_deadline = time.monotonic() + ACQUISITION_BUDGET_SECONDS
+        acquisition_started = time.monotonic()
+        acquisition_wall = datetime.now(SHANGHAI)
 
         def fetch_symbol(symbol: str, *, include_auxiliary: bool = True) -> tuple[str, dict[str, Any]]:
             one_required = _a4_required_bars(execution_cutoff, "1m") if execution_cutoff else 0
             five_required = _a4_required_bars(execution_cutoff, "5m") if execution_cutoff else 0
-            one = self._fetch_live_bars(symbol, "1m", one_required, execution_cutoff, deadline=fetch_deadline) if one_required else None
+            one_started = time.monotonic()
+            one_wall = datetime.now(SHANGHAI)
+            try:
+                one = self._fetch_live_bars(symbol, "1m", one_required, execution_cutoff, deadline=fetch_deadline) if one_required else None
+            finally:
+                record_span(f"required_minute:{symbol}", one_started, one_wall)
             # Before the first closed 5m bar, absence is a normal warm-up
             # state.  Do not ask the resilient adapter for an artificial
             # historical window merely to fill this slot.
@@ -3838,11 +3874,21 @@ class WorkflowApplication:
             # changes at a five-minute boundary, so do not repeat a full-day
             # native request on every intervening minute or publication probe.
             native_due = bool(execution_cutoff and _a4_native_verification_due(execution_cutoff))
-            five = (
-                self._fetch_live_bars(symbol, "5m", five_required, execution_cutoff, deadline=fetch_deadline)
-                if include_auxiliary and native_due else None
-            )
-            quote = self._fetch_live_quote(symbol, current, deadline=fetch_deadline)
+            five_started = time.monotonic()
+            five_wall = datetime.now(SHANGHAI)
+            try:
+                five = (
+                    self._fetch_live_bars(symbol, "5m", five_required, execution_cutoff, deadline=fetch_deadline)
+                    if include_auxiliary and native_due else None
+                )
+            finally:
+                record_span(f"auxiliary_archive:{symbol}", five_started, five_wall)
+            quote_started = time.monotonic()
+            quote_wall = datetime.now(SHANGHAI)
+            try:
+                quote = self._fetch_live_quote(symbol, current, deadline=fetch_deadline)
+            finally:
+                record_span(f"holding_quote:{symbol}", quote_started, quote_wall)
             return symbol, {"1m": one, "5m": five, "quote": quote}
 
         if all_symbols:
@@ -3871,6 +3917,8 @@ class WorkflowApplication:
                 return symbol, refreshed
 
             if execution_cutoff is not None:
+                publication_started = time.monotonic()
+                publication_wall = datetime.now(SHANGHAI)
                 market = confirm_publications(
                     market,
                     refetch_execution,
@@ -3878,6 +3926,7 @@ class WorkflowApplication:
                     deadline=fetch_deadline,
                     closed_window=True,
                 )
+                record_span("publication_validation", publication_started, publication_wall)
             else:
                 market = {
                     symbol: {
@@ -3932,6 +3981,8 @@ class WorkflowApplication:
                     if not live_bars:
                         continue
                     try:
+                        database_started = time.monotonic()
+                        database_wall = datetime.now(SHANGHAI)
                         write_result = self.minute_store.write_live(
                             live_bars, as_of=current, snapshot_id=minute_snapshot_id,
                         )
@@ -3953,6 +4004,10 @@ class WorkflowApplication:
                             "interval": interval,
                             "reason_code": "MINUTE_CACHE_WRITE_FAILED",
                         })
+                    finally:
+                        record_span(f"database_write:{symbol}:{interval}", database_started, database_wall)
+
+        record_span("market_acquisition", acquisition_started, acquisition_wall)
 
         simulation: list[dict[str, Any]] = []
         lane_inputs: dict[
@@ -4074,7 +4129,12 @@ class WorkflowApplication:
                             close=observation_bar.close,
                         )
                     if symbol in risk_bars and not cache_system_error:
-                        simulation.extend(self._settle_prior_signals(lane_id, symbol, risk_bars[symbol]))
+                        execution_started = time.monotonic()
+                        execution_wall = datetime.now(SHANGHAI)
+                        try:
+                            simulation.extend(self._settle_prior_signals(lane_id, symbol, risk_bars[symbol]))
+                        finally:
+                            record_span(f"order_intent_and_simulation:{lane_id}:{symbol}", execution_started, execution_wall)
                     if (position_before is None and not data_errors.get(symbol) and not cache_system_error
                             and self.store.get_position(account_id, symbol) is not None):
                         self.store.observe_a4_lifecycle(
@@ -4136,27 +4196,53 @@ class WorkflowApplication:
                 A4_MODEL_MAX_SECONDS,
                 A4_DECISION_BUDGET_SECONDS - (time.monotonic() - monitor_started),
             ))
+            raw_callback = self._a4_callback(
+                lane_id, plans, contexts, current,
+                model_timeout_seconds=model_budget,
+            )
+            model_elapsed_ms = 0.0
+
+            def observed_callback(payload: Mapping[str, Any]) -> Any:
+                nonlocal model_elapsed_ms
+                model_started = time.monotonic()
+                model_wall = datetime.now(SHANGHAI)
+                try:
+                    return raw_callback(payload)
+                finally:
+                    elapsed = max(0.0, (time.monotonic() - model_started) * 1000.0)
+                    model_elapsed_ms += elapsed
+                    record_span(f"model_total:{lane_id}", model_started, model_wall)
+
             engine = MonitorEngine(
                 self.store,
-                llm_veto=self._a4_callback(
-                    lane_id, plans, contexts, current,
-                    model_timeout_seconds=model_budget,
-                ),
+                llm_veto=observed_callback,
                 max_seconds=model_budget + 1.0,
             )
-            batch = engine.process_minute(
-                lane_id,
-                bars,
-                minute_snapshot_id=minute_snapshot_id,
-                now=current,
-                data_ok=data_ok,
-                data_errors=data_errors,
-                snapshot_contiguous=data_ok,
-                bar_histories=histories,
-                market_contexts=contexts,
-                decision_bar_end=execution_cutoff,
-                risk_bars=risk_bars,
-            )
+            decision_started = time.monotonic()
+            decision_wall = datetime.now(SHANGHAI)
+            try:
+                batch = engine.process_minute(
+                    lane_id,
+                    bars,
+                    minute_snapshot_id=minute_snapshot_id,
+                    now=current,
+                    data_ok=data_ok,
+                    data_errors=data_errors,
+                    snapshot_contiguous=data_ok,
+                    bar_histories=histories,
+                    market_contexts=contexts,
+                    decision_bar_end=execution_cutoff,
+                    risk_bars=risk_bars,
+                )
+            finally:
+                total_ms = max(0.0, (time.monotonic() - decision_started) * 1000.0)
+                with timing_lock:
+                    timing_spans.append(TimingSpan(
+                        name=f"deterministic_compute:{lane_id}",
+                        duration_ms=max(0.0, total_ms - model_elapsed_ms),
+                        started_at=decision_wall,
+                        finished_at=datetime.now(SHANGHAI),
+                    ))
             return lane_id, batch
 
         lane_batches: dict[str, MonitorBatchResult] = {}
@@ -4211,6 +4297,8 @@ class WorkflowApplication:
             ),
             all_plans,
         )
+        notification_started = time.monotonic()
+        notification_wall = datetime.now(SHANGHAI)
         publisher = getattr(self, "lark_publisher", None)
         system_notifications: list[dict[str, Any]] = []
         publish_system_health = getattr(publisher, "publish_a4_system_health", None)
@@ -4287,6 +4375,94 @@ class WorkflowApplication:
                 notifications.extend(execution_publisher(simulation, now=current))
             except Exception:
                 notifications.append({"status": "FAILED", "reason_code": "A4_EXECUTION_NOTIFICATION_FAILED"})
+        record_span("notification", notification_started, notification_wall)
+
+        blocked_scope = sorted({
+            symbol
+            for _, _, _, _, lane_errors, _ in lane_inputs.values()
+            for symbol in lane_errors
+            if symbol in decision_symbols
+        })
+        ready_scope = sorted(decision_symbols - set(blocked_scope))
+        effective_trade_symbols = {
+            str(event.symbol)
+            for batch in lane_batches.values()
+            for event in batch.events
+            if event.effective and event.symbol and event.action in {
+                "BUY_SIGNAL", "ADD_SIGNAL", "SELL_SIGNAL", "REDUCE_SIGNAL", "FORCED_RISK_EXIT"
+            }
+        }
+        no_signal_scope = sorted(set(ready_scope) - effective_trade_symbols)
+        if effective_trade_symbols:
+            opportunity_state = OpportunityState.PRESENT
+        elif blocked_scope:
+            opportunity_state = OpportunityState.UNKNOWN
+        else:
+            opportunity_state = OpportunityState.ABSENT
+        data_state = DataState.READY if not blocked_scope else DataState.MISSING
+        round_axes = project_decision_axes(
+            job_status=JobLifecycleState.SUCCEEDED,
+            data_state=data_state,
+            opportunity_state=opportunity_state,
+            critical_data=bool(decision_symbols) and not bool(ready_scope),
+            reason_codes=("A4_SCOPE_DATA_BLOCKED",) if blocked_scope else (),
+        )
+        run_id = f"a4-{current.strftime('%Y%m%dT%H%M%S%z')}"
+        decision_id = stable_correlation_id(
+            "a4-decision", minute_snapshot_id, sorted(self.brokers), sorted(decision_symbols)
+        )
+        source_attempts = tuple(
+            {
+                "attempt_id": stable_correlation_id(
+                    "source-attempt", decision_id, symbol, "minute-and-quote"
+                ),
+                "run_id": run_id,
+                "decision_id": decision_id,
+                "symbol": symbol,
+                "fetch_error": fetched.get("fetch_error"),
+                "publication_state": (fetched.get("publication") or {}).get("state"),
+                "one_minute_complete": bool(getattr(fetched.get("1m"), "complete", False)),
+                "one_minute_reason": getattr(fetched.get("1m"), "reason_code", "NOT_AVAILABLE"),
+                "quote_complete": bool(getattr(fetched.get("quote"), "complete", False)),
+                "quote_reason": getattr(fetched.get("quote"), "reason_code", "NOT_AVAILABLE"),
+            }
+            for symbol, fetched in sorted(market.items())
+        )
+        timing_spans.append(TimingSpan(
+            name="round_total",
+            duration_ms=max(0.0, (time.monotonic() - monitor_started) * 1000.0),
+            started_at=monitor_started_wall,
+            finished_at=datetime.now(SHANGHAI),
+        ))
+        observation = DecisionObservation(
+            run_id=run_id,
+            decision_id=decision_id,
+            lane_id="ALL",
+            scheduled_at=current,
+            started_at=monitor_started_wall,
+            deadline_at=monitor_started_wall + timedelta(seconds=A4_DECISION_BUDGET_SECONDS),
+            snapshot_ids=(minute_snapshot_id,),
+            required_scope=tuple(sorted(decision_symbols)),
+            ready_scope=tuple(ready_scope),
+            blocked_scope=tuple(blocked_scope),
+            no_signal_scope=tuple(no_signal_scope),
+            timing_spans=tuple(timing_spans),
+            source_attempts=source_attempts,
+            terminal_reason=(
+                "A4_NO_REQUIRED_SCOPE" if not decision_symbols
+                else "A4_SCOPE_BLOCKED" if not ready_scope
+                else "A4_SIGNAL_PRESENT" if effective_trade_symbols
+                else "A4_NO_SIGNAL"
+            ),
+            versions={
+                "git": str(os.getenv("LIANGJIAN_GIT_COMMIT") or "UNRECORDED"),
+                "config": _file_version(getattr(self.settings, "source_config_path", None)),
+                "prompt": _file_version(getattr(self.settings, "prompt_dir", None), "agent_4_intraday_veto_v3.txt"),
+                "fill_model": "NEXT_COMPLETE_1M_BAR_SIMULATION_V1",
+                "rules": _file_version(getattr(self.settings, "exchange_rules_path", None)),
+            },
+            axes=round_axes,
+        )
         payload = {
             "minute_snapshot_id": minute_snapshot_id,
             "live_market_state": live_market_state,
@@ -4299,6 +4475,7 @@ class WorkflowApplication:
             "simulation": simulation,
             "outcome_tracking": outcome_tracking,
             "notifications": notifications,
+            "observability": observation.to_dict(),
         }
         atomic_write_json(self.settings.workflow_output_dir / "monitor" / "latest.json", payload)
         return payload
@@ -7664,6 +7841,20 @@ def _a4_execution_cutoff(value: datetime) -> datetime | None:
     current = _aware(value).replace(second=0, microsecond=0)
     ends = closed_window_ends(current - timedelta(minutes=1), "1m")
     return ends[-1] if ends else None
+
+
+def _file_version(path: Any, child: str | None = None) -> str:
+    """Return a content version without exposing paths or file contents."""
+
+    if path is None:
+        return "UNRECORDED"
+    target = Path(path)
+    if child:
+        target = target / child
+    try:
+        return hashlib.sha256(target.read_bytes()).hexdigest()
+    except (OSError, TypeError, ValueError):
+        return "UNRECORDED"
 
 
 def _quote_risk_bar(symbol: str, quote: Any, current: datetime) -> MinuteBar:
