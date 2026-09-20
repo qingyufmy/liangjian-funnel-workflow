@@ -844,6 +844,9 @@ class RuntimeStore:
                         adds_used INTEGER NOT NULL DEFAULT 0 CHECK(adds_used >= 0),
                         corporate_action_version TEXT,
                         unresolved_corporate_action INTEGER NOT NULL DEFAULT 0 CHECK(unresolved_corporate_action IN (0,1)),
+                        primary_theme_id TEXT NOT NULL DEFAULT 'UNKNOWN',
+                        strategy_identity TEXT,
+                        exit_rules_json TEXT NOT NULL DEFAULT '{}',
                         created_at TEXT NOT NULL,
                         updated_at TEXT NOT NULL,
                         PRIMARY KEY(account_id, symbol)
@@ -918,6 +921,49 @@ class RuntimeStore:
                         expires_at TEXT NOT NULL,
                         generation INTEGER NOT NULL DEFAULT 1,
                         last_dispatch_key TEXT
+                    );
+                    CREATE TABLE IF NOT EXISTS risk_reservations (
+                        reservation_id TEXT PRIMARY KEY,
+                        order_identity TEXT NOT NULL UNIQUE,
+                        account_id TEXT NOT NULL REFERENCES virtual_accounts(account_id),
+                        symbol TEXT NOT NULL,
+                        primary_theme_id TEXT NOT NULL DEFAULT 'UNKNOWN',
+                        requested_qty INTEGER NOT NULL CHECK(requested_qty > 0),
+                        reserved_cash REAL NOT NULL CHECK(reserved_cash >= 0),
+                        reserved_risk REAL NOT NULL CHECK(reserved_risk >= 0),
+                        consumed_cash REAL NOT NULL DEFAULT 0 CHECK(consumed_cash >= 0),
+                        consumed_risk REAL NOT NULL DEFAULT 0 CHECK(consumed_risk >= 0),
+                        status TEXT NOT NULL CHECK(status IN ('RESERVED','CONSUMED','RELEASED','REJECTED')),
+                        reason_code TEXT,
+                        metadata_json TEXT NOT NULL DEFAULT '{}',
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS simulation_order_events (
+                        order_event_id TEXT PRIMARY KEY,
+                        order_identity TEXT NOT NULL,
+                        sequence INTEGER NOT NULL CHECK(sequence > 0),
+                        status TEXT NOT NULL CHECK(status IN (
+                            'CREATED','PENDING_REVIEW','READY','RESERVED','SUBMITTED',
+                            'PARTIALLY_FILLED','FILLED','CANCEL_PENDING','CANCELLED',
+                            'EXPIRED','REJECTED'
+                        )),
+                        reason_code TEXT,
+                        at TEXT NOT NULL,
+                        metadata_json TEXT NOT NULL DEFAULT '{}',
+                        UNIQUE(order_identity,sequence)
+                    );
+                    CREATE TABLE IF NOT EXISTS position_lots (
+                        lot_id TEXT PRIMARY KEY,
+                        fill_id TEXT NOT NULL UNIQUE REFERENCES virtual_fills(fill_id),
+                        account_id TEXT NOT NULL REFERENCES virtual_accounts(account_id),
+                        symbol TEXT NOT NULL,
+                        acquired_trade_date TEXT NOT NULL,
+                        sellable_from TEXT NOT NULL,
+                        original_qty INTEGER NOT NULL CHECK(original_qty > 0),
+                        remaining_qty INTEGER NOT NULL CHECK(remaining_qty >= 0),
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
                     );
                     CREATE TABLE IF NOT EXISTS provider_quota_state (
                         quota_scope TEXT PRIMARY KEY,
@@ -1041,6 +1087,9 @@ class RuntimeStore:
                 for window in (1, 3, 5, 10):
                     _ensure_column(connection, "astock_outcome_labels", f"signal_return_{window}d", "REAL")
                 _ensure_column(connection, "a4_signal_lifecycles", "exit_metadata_json", "TEXT NOT NULL DEFAULT '{}'")
+                _ensure_column(connection, "position_risk_plans", "primary_theme_id", "TEXT NOT NULL DEFAULT 'UNKNOWN'")
+                _ensure_column(connection, "position_risk_plans", "strategy_identity", "TEXT")
+                _ensure_column(connection, "position_risk_plans", "exit_rules_json", "TEXT NOT NULL DEFAULT '{}'")
                 _ensure_column(connection, "simulation_intents", "requested_qty", "INTEGER NOT NULL DEFAULT 0")
                 _ensure_column(connection, "simulation_intents", "filled_qty", "INTEGER NOT NULL DEFAULT 0")
                 _ensure_column(connection, "simulation_intents", "remaining_qty", "INTEGER NOT NULL DEFAULT 0")
@@ -3550,6 +3599,24 @@ class RuntimeStore:
             if current is not None and str(current["trade_date"]) > day:
                 raise StateTransitionError("TRADING_DAY_REGRESSION")
             for position in connection.execute("SELECT * FROM virtual_positions WHERE account_id=?", (account_id,)).fetchall():
+                lots = connection.execute(
+                    "SELECT * FROM position_lots WHERE account_id=? AND symbol=? AND remaining_qty>0",
+                    (account_id, position["symbol"]),
+                ).fetchall()
+                if lots:
+                    lot_total = sum(int(lot["remaining_qty"]) for lot in lots)
+                    if lot_total != int(position["total_qty"]):
+                        raise StateTransitionError("POSITION_LOT_QUANTITY_CONFLICT")
+                    sellable = sum(
+                        int(lot["remaining_qty"])
+                        for lot in lots
+                        if str(lot["sellable_from"]) <= day
+                    )
+                    connection.execute(
+                        "UPDATE virtual_positions SET sellable_qty=?,updated_at=? WHERE account_id=? AND symbol=?",
+                        (sellable, now, account_id, position["symbol"]),
+                    )
+                    continue
                 fills = connection.execute(
                     "SELECT action,qty,bar_end FROM virtual_fills WHERE account_id=? AND symbol=? AND action IN ('BUY','ADD')",
                     (account_id, position["symbol"]),
@@ -3694,6 +3761,24 @@ class RuntimeStore:
                     symbol,
                 ),
             )
+            lots = connection.execute(
+                "SELECT * FROM position_lots WHERE account_id=? AND symbol=?",
+                (account_id, symbol),
+            ).fetchall()
+            if lots:
+                adjusted_total = 0
+                for lot in lots:
+                    adjusted_original = int(round(int(lot["original_qty"]) * quantity_factor))
+                    adjusted_remaining = int(round(int(lot["remaining_qty"]) * quantity_factor))
+                    if adjusted_original <= 0 or adjusted_remaining < 0 or adjusted_remaining > adjusted_original:
+                        raise StateTransitionError("CORPORATE_ACTION_LOT_INVALID")
+                    connection.execute(
+                        "UPDATE position_lots SET original_qty=?,remaining_qty=?,updated_at=? WHERE lot_id=?",
+                        (adjusted_original, adjusted_remaining, now, lot["lot_id"]),
+                    )
+                    adjusted_total += adjusted_remaining
+                if adjusted_total != total:
+                    raise StateTransitionError("CORPORATE_ACTION_LOT_CONFLICT")
             connection.execute(
                 """
                 UPDATE position_risk_plans SET entry_price=entry_price*?,stop_level=stop_level*?,
@@ -3742,6 +3827,10 @@ class RuntimeStore:
         intent_status: str = "FILLED",
         reserved_cash: float = 0.0,
         order_metadata: Mapping[str, Any] | None = None,
+        reservation_id: str | None = None,
+        primary_theme_id: str | None = None,
+        strategy_identity: str | None = None,
+        exit_rules: Mapping[str, Any] | None = None,
     ) -> tuple[dict[str, Any], bool]:
         if (not isinstance(qty, int) or isinstance(qty, bool) or qty <= 0
                 or not all(math.isfinite(float(value)) for value in (price, fee, cash_after))
@@ -3767,6 +3856,13 @@ class RuntimeStore:
         if abs((commission + sell_tax + other_fee) - fee) > 0.011:
             raise StateTransitionError("FEE_COMPONENT_CONFLICT")
         metadata_json = json.dumps(dict(order_metadata or {}), ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+        theme = str(primary_theme_id or "UNKNOWN").strip() or "UNKNOWN"
+        exit_rules_json = json.dumps(dict(exit_rules or {}), ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+        trade_date = bar_end.astimezone(SHANGHAI).date()
+        sellable_from = None
+        if action in {"BUY", "ADD"}:
+            from .calendar import ExchangeTradingCalendar
+            sellable_from = ExchangeTradingCalendar().next_trading_day(trade_date).isoformat()
         if action not in {"BUY", "ADD", "SELL", "REDUCE", "FORCED_RISK_EXIT"}:
             raise StateTransitionError("INVALID_FILL_ACTION")
         if abs(price - round(price, 2)) > 1e-9:
@@ -3788,6 +3884,16 @@ class RuntimeStore:
             account = connection.execute("SELECT * FROM virtual_accounts WHERE account_id=?", (account_id,)).fetchone()
             if account is None:
                 raise StateTransitionError("ACCOUNT_NOT_FOUND")
+            reservation = None
+            if reservation_id is not None:
+                reservation = connection.execute(
+                    "SELECT * FROM risk_reservations WHERE reservation_id=?",
+                    (reservation_id,),
+                ).fetchone()
+                if reservation is None or reservation["status"] != "RESERVED":
+                    raise StateTransitionError("RISK_RESERVATION_UNAVAILABLE")
+                if reservation["account_id"] != account_id or reservation["symbol"] != symbol:
+                    raise StateTransitionError("RISK_RESERVATION_IDENTITY_CONFLICT")
             existing_intent = connection.execute("SELECT * FROM simulation_intents WHERE intent_key=?", (intent_key,)).fetchone()
             if existing_intent is not None:
                 existing_fill = connection.execute(
@@ -3845,6 +3951,59 @@ class RuntimeStore:
                     (order_metadata or {}).get("fill_evidence_source"), bar_stamp, now,
                 ),
             )
+            order_identity = str(reservation["order_identity"]) if reservation is not None else intent_key
+            sequence = int(connection.execute(
+                "SELECT COALESCE(MAX(sequence),0)+1 AS next_sequence FROM simulation_order_events WHERE order_identity=?",
+                (order_identity,),
+            ).fetchone()["next_sequence"])
+            for status, reason in (
+                ("SUBMITTED", "FILL_WINDOW_ACCEPTED"),
+                ("PARTIALLY_FILLED" if remaining_qty else "FILLED", intent_status),
+            ):
+                connection.execute(
+                    "INSERT INTO simulation_order_events VALUES(?,?,?,?,?,?,?)",
+                    (
+                        str(uuid.uuid5(uuid.NAMESPACE_URL, f"liangjian-order-event:{order_identity}:{sequence}:{status}")),
+                        order_identity, sequence, status, reason, now,
+                        json.dumps({"fill_id": fill_id, "qty": qty, "remaining_qty": remaining_qty}, separators=(",", ":")),
+                    ),
+                )
+                sequence += 1
+            if action in {"BUY", "ADD"}:
+                connection.execute(
+                    """
+                    INSERT INTO position_lots(
+                        lot_id,fill_id,account_id,symbol,acquired_trade_date,sellable_from,
+                        original_qty,remaining_qty,created_at,updated_at
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?)
+                    """,
+                    (
+                        f"lot:{fill_id}", fill_id, account_id, symbol, trade_date.isoformat(),
+                        sellable_from, int(qty), int(qty), now, now,
+                    ),
+                )
+            else:
+                lots = connection.execute(
+                    """
+                    SELECT * FROM position_lots
+                    WHERE account_id=? AND symbol=? AND remaining_qty>0 AND sellable_from<=?
+                    ORDER BY sellable_from,created_at,lot_id
+                    """,
+                    (account_id, symbol, trade_date.isoformat()),
+                ).fetchall()
+                if lots:
+                    to_consume = int(qty)
+                    for lot in lots:
+                        consumed = min(to_consume, int(lot["remaining_qty"]))
+                        connection.execute(
+                            "UPDATE position_lots SET remaining_qty=remaining_qty-?,updated_at=? WHERE lot_id=?",
+                            (consumed, now, lot["lot_id"]),
+                        )
+                        to_consume -= consumed
+                        if to_consume == 0:
+                            break
+                    if to_consume:
+                        raise StateTransitionError("T1_LOT_CONFLICT")
             connection.execute(
                 "UPDATE virtual_accounts SET cash=?,equity=?,updated_at=? WHERE account_id=?",
                 (float(cash_after), float(equity_after if equity_after is not None else cash_after), now, account_id),
@@ -3888,11 +4047,18 @@ class RuntimeStore:
                         """
                         INSERT INTO position_risk_plans(
                             account_id,symbol,source_plan_id,status,entry_price,stop_level,max_adds,adds_used,
-                            corporate_action_version,unresolved_corporate_action,created_at,updated_at
-                        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+                            corporate_action_version,unresolved_corporate_action,primary_theme_id,strategy_identity,
+                            exit_rules_json,created_at,updated_at
+                        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                         ON CONFLICT(account_id,symbol) DO UPDATE SET
                             source_plan_id=excluded.source_plan_id,status='ACTIVE',entry_price=excluded.entry_price,
-                            stop_level=excluded.stop_level,adds_used=excluded.adds_used,updated_at=excluded.updated_at
+                            stop_level=excluded.stop_level,adds_used=excluded.adds_used,
+                            primary_theme_id=CASE
+                                WHEN excluded.primary_theme_id='UNKNOWN' THEN position_risk_plans.primary_theme_id
+                                ELSE excluded.primary_theme_id
+                            END,
+                            strategy_identity=COALESCE(excluded.strategy_identity,position_risk_plans.strategy_identity),
+                            exit_rules_json=excluded.exit_rules_json,updated_at=excluded.updated_at
                         """,
                         (
                             account_id,
@@ -3905,10 +4071,28 @@ class RuntimeStore:
                             adds_used,
                             None,
                             0,
+                            theme,
+                            strategy_identity,
+                            exit_rules_json,
                             now,
                             now,
                         ),
                     )
+            if reservation is not None:
+                connection.execute(
+                    """
+                    UPDATE risk_reservations
+                    SET status='CONSUMED',reserved_cash=0,reserved_risk=0,
+                        consumed_cash=?,consumed_risk=?,reason_code='FILL_COMMITTED',updated_at=?
+                    WHERE reservation_id=? AND status='RESERVED'
+                    """,
+                    (
+                        float(qty * price + fee) if action in {"BUY", "ADD"} else 0.0,
+                        float(reservation["reserved_risk"]) * (float(qty) / max(1, int(reservation["requested_qty"]))),
+                        now,
+                        reservation_id,
+                    ),
+                )
             return _row_dict(connection.execute("SELECT * FROM virtual_fills WHERE fill_id=?", (fill_id,)).fetchone()), True
 
         return self._write(operation)
@@ -4035,6 +4219,263 @@ class RuntimeStore:
                 ).fetchall()
             )
         )
+
+    def reserve_simulation_order(
+        self,
+        *,
+        reservation_id: str,
+        order_identity: str,
+        account_id: str,
+        symbol: str,
+        primary_theme_id: str | None,
+        requested_qty: int,
+        reserved_cash: float,
+        reserved_risk: float,
+        max_total_value: float,
+        max_symbol_value: float,
+        max_open_risk: float | None = None,
+        max_theme_value: float | None = None,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> tuple[dict[str, Any], bool]:
+        """Atomically reserve cash and risk before a simulated buy fill."""
+
+        numeric = (reserved_cash, reserved_risk, max_total_value, max_symbol_value)
+        if requested_qty <= 0 or not all(math.isfinite(float(value)) and value >= 0 for value in numeric):
+            raise ValueError("invalid reservation accounting")
+        if max_open_risk is not None and (not math.isfinite(max_open_risk) or max_open_risk < 0):
+            raise ValueError("invalid open risk limit")
+        if max_theme_value is not None and (not math.isfinite(max_theme_value) or max_theme_value < 0):
+            raise ValueError("invalid theme limit")
+        theme = str(primary_theme_id or "UNKNOWN").strip() or "UNKNOWN"
+        now = _iso(_now()) or ""
+        metadata_json = json.dumps(dict(metadata or {}), ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+
+        def operation(connection):
+            existing = connection.execute(
+                "SELECT * FROM risk_reservations WHERE order_identity=?",
+                (order_identity,),
+            ).fetchone()
+            if existing is not None:
+                if str(existing["reservation_id"]) != reservation_id:
+                    raise StateTransitionError("RESERVATION_IDENTITY_CONFLICT")
+                return _row_dict(existing), False
+            account = connection.execute(
+                "SELECT * FROM virtual_accounts WHERE account_id=?",
+                (account_id,),
+            ).fetchone()
+            if account is None or account["status"] != "ACTIVE":
+                raise StateTransitionError("ACCOUNT_UNAVAILABLE")
+            active = connection.execute(
+                "SELECT * FROM risk_reservations WHERE account_id=? AND status='RESERVED'",
+                (account_id,),
+            ).fetchall()
+            active_cash = sum(float(row["reserved_cash"]) for row in active)
+            active_risk = sum(float(row["reserved_risk"]) for row in active)
+            if active_cash + reserved_cash > float(account["cash"]) + 1e-9:
+                raise StateTransitionError("RESERVATION_CASH_LIMIT")
+            position_value = 0.0
+            symbol_value = 0.0
+            theme_value = 0.0
+            open_risk = active_risk
+            for position in connection.execute(
+                "SELECT * FROM virtual_positions WHERE account_id=?",
+                (account_id,),
+            ).fetchall():
+                mark = connection.execute(
+                    "SELECT price FROM portfolio_marks WHERE account_id=? AND symbol=?",
+                    (account_id, position["symbol"]),
+                ).fetchone()
+                price = float(mark["price"]) if mark is not None else float(position["avg_cost"])
+                value = int(position["total_qty"]) * price
+                position_value += value
+                if str(position["symbol"]) == symbol:
+                    symbol_value += value
+                risk_plan = connection.execute(
+                    "SELECT stop_level,primary_theme_id FROM position_risk_plans WHERE account_id=? AND symbol=?",
+                    (account_id, position["symbol"]),
+                ).fetchone()
+                if risk_plan is not None:
+                    open_risk += int(position["total_qty"]) * max(0.0, price - float(risk_plan["stop_level"]))
+                    if str(risk_plan["primary_theme_id"] or "UNKNOWN") == theme:
+                        theme_value += value
+            reserved_total = sum(float(row["reserved_cash"]) for row in active)
+            reserved_symbol = sum(float(row["reserved_cash"]) for row in active if str(row["symbol"]) == symbol)
+            reserved_theme = sum(
+                float(row["reserved_cash"])
+                for row in active
+                if str(row["primary_theme_id"] or "UNKNOWN") == theme
+            )
+            if position_value + reserved_total + reserved_cash > max_total_value + 1e-9:
+                raise StateTransitionError("RESERVATION_TOTAL_POSITION_LIMIT")
+            if symbol_value + reserved_symbol + reserved_cash > max_symbol_value + 1e-9:
+                raise StateTransitionError("RESERVATION_SINGLE_POSITION_LIMIT")
+            if max_open_risk is not None and open_risk + reserved_risk > max_open_risk + 1e-9:
+                raise StateTransitionError("RESERVATION_OPEN_RISK_LIMIT")
+            if max_theme_value is not None and theme_value + reserved_theme + reserved_cash > max_theme_value + 1e-9:
+                raise StateTransitionError("RESERVATION_THEME_LIMIT")
+            connection.execute(
+                """
+                INSERT INTO risk_reservations(
+                    reservation_id,order_identity,account_id,symbol,primary_theme_id,requested_qty,
+                    reserved_cash,reserved_risk,status,metadata_json,created_at,updated_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    reservation_id, order_identity, account_id, symbol, theme, int(requested_qty),
+                    float(reserved_cash), float(reserved_risk), "RESERVED", metadata_json, now, now,
+                ),
+            )
+            for sequence, status, reason_code in (
+                (1, "CREATED", "ORDER_CREATED"),
+                (2, "READY", "ORDER_READY_AFTER_REVIEW"),
+                (3, "RESERVED", "RISK_RESERVED"),
+            ):
+                connection.execute(
+                    """
+                    INSERT INTO simulation_order_events(
+                        order_event_id,order_identity,sequence,status,reason_code,at,metadata_json
+                    ) VALUES(?,?,?,?,?,?,?)
+                    """,
+                    (
+                        str(uuid.uuid5(uuid.NAMESPACE_URL, f"liangjian-order-event:{order_identity}:{sequence}:{status}")),
+                        order_identity, sequence, status, reason_code, now, metadata_json,
+                    ),
+                )
+            return _row_dict(connection.execute(
+                "SELECT * FROM risk_reservations WHERE reservation_id=?",
+                (reservation_id,),
+            ).fetchone()), True
+
+        return self._write(operation)
+
+    def release_risk_reservation(self, reservation_id: str, reason_code: str) -> bool:
+        now = _iso(_now()) or ""
+
+        def operation(connection):
+            row = connection.execute(
+                "SELECT * FROM risk_reservations WHERE reservation_id=?",
+                (reservation_id,),
+            ).fetchone()
+            if row is None or row["status"] in {"RELEASED", "CONSUMED", "REJECTED"}:
+                return False
+            updated = connection.execute(
+                "UPDATE risk_reservations SET status='RELEASED',reserved_cash=0,reserved_risk=0,reason_code=?,updated_at=? WHERE reservation_id=? AND status='RESERVED'",
+                (reason_code, now, reservation_id),
+            )
+            order_identity = str(row["order_identity"])
+            sequence = int(connection.execute(
+                "SELECT COALESCE(MAX(sequence),0)+1 AS next_sequence FROM simulation_order_events WHERE order_identity=?",
+                (order_identity,),
+            ).fetchone()["next_sequence"])
+            terminal = "EXPIRED" if "EXPIRED" in reason_code else "CANCELLED" if "CANCEL" in reason_code else "REJECTED"
+            connection.execute(
+                "INSERT INTO simulation_order_events VALUES(?,?,?,?,?,?,?)",
+                (
+                    str(uuid.uuid5(uuid.NAMESPACE_URL, f"liangjian-order-event:{order_identity}:{sequence}:{terminal}")),
+                    order_identity, sequence, terminal, reason_code, now, "{}",
+                ),
+            )
+            return updated.rowcount == 1
+
+        return bool(self._write(operation))
+
+    def mark_corporate_action_unresolved(self, account_id: str, symbol: str, reason_code: str) -> bool:
+        """Fail closed for new risk while preserving an existing position."""
+
+        now = _iso(_now()) or ""
+
+        def operation(connection):
+            updated = connection.execute(
+                """
+                UPDATE position_risk_plans
+                SET unresolved_corporate_action=1,corporate_action_version=?,updated_at=?
+                WHERE account_id=? AND symbol=? AND status='ACTIVE'
+                """,
+                (f"UNRESOLVED:{str(reason_code)[:80]}", now, account_id, symbol),
+            )
+            return updated.rowcount == 1
+
+        return bool(self._write(operation))
+
+    def list_risk_reservations(self, account_id: str) -> tuple[dict[str, Any], ...]:
+        return self._read(lambda connection: tuple(
+            _row_dict(row)
+            for row in connection.execute(
+                "SELECT * FROM risk_reservations WHERE account_id=? ORDER BY created_at,reservation_id",
+                (account_id,),
+            ).fetchall()
+        ))
+
+    def list_position_lots(self, account_id: str, symbol: str | None = None) -> tuple[dict[str, Any], ...]:
+        return self._read(lambda connection: tuple(
+            _row_dict(row)
+            for row in connection.execute(
+                "SELECT * FROM position_lots WHERE account_id=?"
+                + (" AND symbol=?" if symbol is not None else "")
+                + " ORDER BY sellable_from,created_at,lot_id",
+                (account_id, symbol) if symbol is not None else (account_id,),
+            ).fetchall()
+        ))
+
+    def list_simulation_order_events(self, order_identity: str) -> tuple[dict[str, Any], ...]:
+        return self._read(lambda connection: tuple(
+            _row_dict(row)
+            for row in connection.execute(
+                "SELECT * FROM simulation_order_events WHERE order_identity=? ORDER BY sequence",
+                (order_identity,),
+            ).fetchall()
+        ))
+
+    def audit_virtual_account(self, account_id: str) -> dict[str, Any]:
+        """Rebuild cash and position quantities from immutable fill/lot evidence."""
+
+        def operation(connection):
+            account = connection.execute(
+                "SELECT * FROM virtual_accounts WHERE account_id=?",
+                (account_id,),
+            ).fetchone()
+            if account is None:
+                raise StateTransitionError("ACCOUNT_NOT_FOUND")
+            expected_cash = float(account["initial_cash"])
+            for fill in connection.execute(
+                "SELECT * FROM virtual_fills WHERE account_id=? ORDER BY bar_end,fill_id",
+                (account_id,),
+            ).fetchall():
+                gross = int(fill["qty"]) * float(fill["price"])
+                expected_cash += gross if fill["action"] in {"SELL", "REDUCE", "FORCED_RISK_EXIT"} else -gross
+                expected_cash -= float(fill["fee"])
+            position_mismatches: list[dict[str, Any]] = []
+            for position in connection.execute(
+                "SELECT * FROM virtual_positions WHERE account_id=?",
+                (account_id,),
+            ).fetchall():
+                lot_total = connection.execute(
+                    "SELECT COALESCE(SUM(remaining_qty),0) AS qty FROM position_lots WHERE account_id=? AND symbol=?",
+                    (account_id, position["symbol"]),
+                ).fetchone()["qty"]
+                if int(lot_total) != int(position["total_qty"]):
+                    position_mismatches.append({
+                        "symbol": position["symbol"],
+                        "position_qty": int(position["total_qty"]),
+                        "lot_qty": int(lot_total),
+                    })
+            reserved = connection.execute(
+                "SELECT COALESCE(SUM(reserved_cash),0) AS cash,COALESCE(SUM(reserved_risk),0) AS risk FROM risk_reservations WHERE account_id=? AND status='RESERVED'",
+                (account_id,),
+            ).fetchone()
+            cash_delta = float(account["cash"]) - expected_cash
+            return {
+                "account_id": account_id,
+                "actual_cash": float(account["cash"]),
+                "rebuilt_cash": expected_cash,
+                "cash_delta": cash_delta,
+                "active_reserved_cash": float(reserved["cash"]),
+                "active_reserved_risk": float(reserved["risk"]),
+                "position_mismatches": position_mismatches,
+                "consistent": abs(cash_delta) <= 0.000001 and not position_mismatches,
+            }
+
+        return self._read(operation)
 
     def get_simulation_intent(self, intent_key: str) -> dict[str, Any] | None:
         return self._read(

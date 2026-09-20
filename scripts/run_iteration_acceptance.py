@@ -260,6 +260,17 @@ def _write_summary(
         "EX-08": ["tests/iteration/test_execution_causality.py::test_ex_08_legacy_fill_history_is_not_overwritten_by_new_replay"],
         "EX-09": ["tests/iteration/test_execution_causality.py::test_ex_09_synthetic_quote_cannot_supply_fill_or_capacity"],
         "EX-10": ["tests/iteration/test_execution_causality.py::test_ex_10_workflow_freezes_order_contract_and_rejects_risk_quote"],
+        "RISK-01": ["tests/iteration/test_portfolio_risk_lifecycle.py::test_risk_01_concurrent_reservations_atomically_enforce_cash_and_total_budget"],
+        "RISK-02": ["tests/iteration/test_portfolio_risk_lifecycle.py::test_risk_02_forced_exit_wins_conflict_without_increasing_risk"],
+        "RISK-03": ["tests/iteration/test_portfolio_risk_lifecycle.py::test_risk_03_same_day_hard_stop_stays_pending_until_t1_release"],
+        "RISK-04": ["tests/iteration/test_portfolio_risk_lifecycle.py::test_risk_04_old_sellable_lot_and_new_locked_add_survive_restart"],
+        "RISK-05": ["tests/iteration/test_portfolio_risk_lifecycle.py::test_risk_05_duplicate_fill_is_idempotent_and_new_exit_revision_can_continue"],
+        "RISK-06": ["tests/iteration/test_portfolio_risk_lifecycle.py::test_risk_06_release_and_partial_consumption_zero_out_reservation"],
+        "RISK-07": ["tests/iteration/test_portfolio_risk_lifecycle.py::test_risk_07_new_reduce_episode_is_distinct_but_same_episode_is_idempotent"],
+        "RISK-08": ["tests/iteration/test_portfolio_risk_lifecycle.py::test_risk_08_plan_expiry_does_not_close_position_risk_plan"],
+        "RISK-09": ["tests/iteration/test_portfolio_risk_lifecycle.py::test_risk_09_gap_exit_uses_current_window_and_locked_bar_does_not_fake_fill"],
+        "RISK-10": ["tests/iteration/test_portfolio_risk_lifecycle.py::test_risk_10_corporate_action_is_versioned_and_unresolved_blocks_add"],
+        "RISK-11": ["tests/iteration/test_portfolio_risk_lifecycle.py::test_risk_11_failed_commit_leaves_no_half_written_fill_or_position"],
     }
     counted = [item for item in checks if item.passed is not None]
     test_counts = {

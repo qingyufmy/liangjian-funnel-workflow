@@ -47,3 +47,13 @@ S03 聚焦及扩大回归覆盖 `A4-01—A4-12`。本机离线墙钟压测生成
 实时 quote bar 已标为 `SYNTHETIC_QUOTE`，只供持仓风险观察，不能再充当价格穿越、分钟成交量或模拟成交证据。A4 工作流先把 hard-stop 意图持久化，再由冻结真实 1m bar 结算；数据等待类阻断不再把信号生命周期误终结。模拟费率和参与率从 Settings/环境配置进入 broker，测试数值不冒充券商或法规费率。
 
 首轮反例在 `execution_accounting` 尚不存在时按预期 collection failed；实现后 `EX-01—EX-10` 通过。最终 Python 全量为 1793 passed、4 skipped、覆盖率 78.78%；前端类型检查、86 tests 和构建通过；离线验收入口为 121 passed。未执行真实回放、生产数据库迁移、模型、通知、部署或真实订单；REPLAY/OPERATIONS/STRATEGY 仍未通过。
+
+## S06
+
+模拟账户现在在成交前使用同一 `RuntimeStore` 事务原子预占现金、总仓位、单票额度、组合开仓风险和主题暴露。已持仓风险根据当前标记价格与冻结止损计算；无法识别主题时进入 `UNKNOWN` 桶，不会隐式分散。新增组合风险和主题上限保持可选且默认关闭，避免未经影子统计和授权改变生产门槛；既有现金、总仓和单票限制继续生效。
+
+订单事件账本记录 `CREATED→READY→RESERVED→SUBMITTED→PARTIALLY_FILLED/FILLED` 以及 `CANCELLED/EXPIRED/REJECTED` 终态。部分成交只消费实际成交对应风险，next-minute-only 残量立即过期并释放；持久化结果不确定时保留预占，不能通过失败重试重复占用或双花。ADD/REDUCE 的有效事件键包含触发 episode，同 episode 幂等，后续独立 episode 不会被旧信号永久吞掉。
+
+持仓改为批次账本表达 T+1：每笔买入冻结 `sellable_from`，交易日启动按交易日历释放，旧可卖批次与当日新增锁定批次可以并存并跨重启恢复。计划到期不关闭已有持仓风险计划；公司行为按版本同步调整仓位、成本、止损与 lot，无法解析时仅阻断新增风险并保留保护职责。新增只读账户审计重建现金、持仓批次和活动预占，用于发现半写和漂移。
+
+`RISK-01—RISK-11` 聚焦及扩大回归通过。最终 Python 全量为 1804 passed、4 skipped、覆盖率 78.80%；前端类型检查、86 tests 和构建通过；离线验收入口为 132 passed。未执行真实回放、生产数据库迁移、模型、通知、部署或真实订单；REPLAY/OPERATIONS/STRATEGY 仍未通过。

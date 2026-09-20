@@ -10,7 +10,7 @@
     ],
     "production_runtime_modified": false
   },
-  "current_stage": "S05",
+  "current_stage": "S06",
   "stages": {
     "S00": {
       "code_status": "CODE_ACCEPTED",
@@ -378,7 +378,53 @@
         "artifacts/iteration/s05-offline-20260920/"
       ]
     },
-    "S06": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
+    "S06": {
+      "code_status": "CODE_ACCEPTED",
+      "evidence_status": "OFFLINE_ACCEPTED",
+      "operations_status": "PENDING_PRODUCTION_EVIDENCE",
+      "strategy_status": "INSUFFICIENT_EVIDENCE",
+      "changed_files": [
+        "src/liangjian_funnel/runtime/state.py",
+        "src/liangjian_funnel/runtime/simulation.py",
+        "src/liangjian_funnel/runtime/monitor.py",
+        "src/liangjian_funnel/settings.py",
+        "src/liangjian_funnel/workflow.py",
+        "scripts/run_iteration_acceptance.py",
+        "tests/iteration/test_portfolio_risk_lifecycle.py",
+        "docs/iteration/*"
+      ],
+      "dependencies": ["S00", "S01", "S02", "S03", "S04", "S05"],
+      "commands": [
+        {
+          "command": ".venv/Scripts/python.exe -m pytest -q tests/iteration/test_portfolio_risk_lifecycle.py tests/test_runtime_simulation.py tests/iteration/test_execution_causality.py tests/test_workflow_integration.py tests/test_runtime_monitor.py tests/test_runtime_state.py",
+          "exit_code": 0,
+          "result": "73 passed",
+          "artifact": null
+        },
+        {
+          "command": ".venv/Scripts/python.exe -m pytest --cov=liangjian_funnel --cov-report=term --cov-report=xml:artifacts/iteration/s06-regression-20260920/coverage.xml --cov-fail-under=65 --junitxml=artifacts/iteration/s06-regression-20260920/python-junit.xml",
+          "exit_code": 0,
+          "result": "1804 passed, 4 skipped, coverage 78.80%",
+          "artifact": "artifacts/iteration/s06-regression-20260920/"
+        },
+        {
+          "command": "npm run typecheck; npm test; npm run build",
+          "exit_code": 0,
+          "result": "typecheck passed; 86 tests passed; web and server build passed",
+          "artifact": null
+        },
+        {
+          "command": ".venv/Scripts/python.exe scripts/run_iteration_acceptance.py --profile offline --output-dir artifacts/iteration/s06-offline-20260920",
+          "exit_code": 0,
+          "result": "CODE_ACCEPTED; 132 passed, 0 failed, 0 skipped",
+          "artifact": "artifacts/iteration/s06-offline-20260920/summary.json"
+        }
+      ],
+      "artifacts": [
+        "artifacts/iteration/s06-regression-20260920/",
+        "artifacts/iteration/s06-offline-20260920/"
+      ]
+    },
     "S07": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
     "S08": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
     "S09": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"},
@@ -387,11 +433,10 @@
   },
   "unresolved": [
     "A1 production frozen-snapshot coverage and real backfill adapter throughput require OPERATIONS evidence",
-    "portfolio reservations, T+1 exits and lifecycle invariants require S06",
     "strict LLM response validation requires S07",
     "replay, operations and strategy acceptance remain unproven"
   ],
   "blockers": [],
-  "next_action": "Implement S06 portfolio reservations, T+1 exits, order lifecycle and atomic risk invariants with counterexample tests.",
-  "updated_at": "2026-09-20T18:35:00+08:00"
+  "next_action": "Implement S07 strict LLM response validation, completeness, timeout and expiry handling with counterexample tests.",
+  "updated_at": "2026-09-20T18:54:05+08:00"
 }

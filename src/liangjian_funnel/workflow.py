@@ -428,6 +428,8 @@ class WorkflowApplication:
                     other_fee_bps=settings.simulation_other_fee_bps,
                     max_volume_participation=settings.simulation_max_volume_participation,
                     fee_model_version=settings.simulation_fee_model_version,
+                    max_portfolio_open_risk_pct=settings.simulation_max_portfolio_open_risk_pct,
+                    max_theme_position_pct=settings.simulation_max_theme_position_pct,
                 ),
             )
             for index, model in enumerate(settings.research_models, start=1)
@@ -4471,8 +4473,8 @@ class WorkflowApplication:
             self.settings.workflow_output_dir / "monitor" / "effective_signals.md",
         )
         primary_lane_id = getattr(self.settings, "research_primary_lane_id", "lane_1")
-        effective_keys = {
-            f"effective:{event.lane_id}:{event.plan_id}:{event.action}"
+        effective_identities = {
+            (event.lane_id, event.plan_id, event.action, event.minute_end.isoformat())
             for batch in lane_batches.values()
             for event in batch.events
             if event.effective
@@ -4485,7 +4487,12 @@ class WorkflowApplication:
                 lane_id=primary_lane_id,
                 effective_only=True,
             )
-            if str(row.get("event_key") or "") in effective_keys
+            if (
+                str(row.get("lane_id") or ""),
+                str((json.loads(str(row.get("payload_json") or "{}"))).get("plan_id") or ""),
+                str(row.get("action") or ""),
+                str(row.get("minute_end") or ""),
+            ) in effective_identities
         ]
         # Data observations are not trades. Keep each minute for audit, while
         # the publisher owns incident/delivery deduplication independently.
@@ -6396,6 +6403,20 @@ class WorkflowApplication:
                 limit_price=contract.get("limit_price") if new_entry else None,
                 plan_id=payload.get("plan_id"),
                 risk_reservation_id=str(contract.get("risk_reservation_id") or f"risk:{event['event_key']}") if new_entry else None,
+                primary_theme_id=str(
+                    plan_payload.get("theme_id") or plan_payload.get("primary_theme_id") or "UNKNOWN"
+                ),
+                candidate_sources=tuple(
+                    str(item)
+                    for item in (
+                        plan_payload.get("candidate_origins")
+                        or ([plan_payload.get("candidate_origin")] if plan_payload.get("candidate_origin") else [])
+                    )
+                    if str(item)
+                ),
+                strategy_identity=str(
+                    plan_payload.get("strategy_profile") or plan_payload.get("stock_behavior_type") or "UNKNOWN"
+                ),
                 fee_model_version=str(contract.get("fee_model_version") or broker.config.fee_model_version) if new_entry else "legacy-paper-fee/1",
                 fill_model_version=str(contract.get("fill_model_version") or broker.config.fill_model_version) if new_entry else "legacy-next-minute/1",
             )

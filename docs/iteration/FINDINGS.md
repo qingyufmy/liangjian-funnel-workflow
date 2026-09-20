@@ -11,7 +11,7 @@
 | A4-05 | ALREADY_FIXED | `workflow.py:4104-4108` 明确原生 5m 仅为审计，执行 5m/15m 从冻结 1m 派生 | 不再把原生 5m 冲突当隐藏执行输入；仍需 provider 治理 |
 | EX-01 | REPRODUCED_FIXED | 基线把佣金和卖出税合并后整体套最低佣金；S05 改为 Decimal 订单级佣金累计与独立卖出税/其他费用 | 分单、部分成交、临界金额反例通过；生产实际费率仍需 OPERATIONS 配置证据 |
 | EX-02 | REPRODUCED_FIXED | 基线把 `_quote_risk_bar` 传给 PaperBroker 并标为完整分钟；S05 明确 `SYNTHETIC_QUOTE`，只以冻结真实 1m 结算 | 合成报价仍可触发持仓风险意图，但不能证明成交或容量 |
-| RISK-01 | PARTIALLY_FIXED | S05 冻结订单时钟、数量、费率/撮合版本和成交证据；未来 bar 只能缩量，不能扩大初始数量 | 组合级预占、T+1 未完成退出和生命周期继续在 S06 验收 |
+| RISK-01 | REPRODUCED_FIXED | S05 冻结订单因果与费用；S06 增加原子风险预占、订单事件、持仓批次、T+1 释放、公司行为版本和账本审计 | 离线反例通过；主题/组合新增上限默认关闭，待影子统计和授权后才能成为生产门 |
 | LLM-01 | REPRODUCED | `workflow.py:5629` 使用 `bool(signal.get("llm_veto", True))`，字符串 `"false"` 会变成 True | 严格 schema、类型、完整性和重复项校验留到 S07 |
 | A1-01 | REPRODUCED_FIXED | S04 已建立字段覆盖投影，冻结输入和 packet 可逐层对账；821 样本、失败分母、PIT、预算投影和代次门反例通过 | CODE 离线通过；真实 VM 冻结样本覆盖率和积压清空能力仍待 OPERATIONS 证据，未宣称生产缺口已补齐 |
 | SRC-01 | REPRODUCED_FIXED | 基线只有 `live_fetch._NODE_LOCK` 和节点 JSON 健康文件，无法在不同能力/进程间共享配额或 fencing；S02 已增加 RuntimeStore 协调表和 typed governor | `SRC-01—SRC-08` 离线反例通过；A4 实际接入属于 S03，生产恢复能力仍待运维证据 |

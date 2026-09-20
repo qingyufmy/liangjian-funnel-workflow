@@ -53,6 +53,8 @@ class SimulationConfig(BaseModel):
     base_risk_pct: float = Field(default=0.01, gt=0, le=1)
     max_single_position_pct: float = Field(default=0.20, gt=0, le=1)
     max_total_position_pct: float = Field(default=0.95, gt=0, le=1)
+    max_portfolio_open_risk_pct: float | None = Field(default=None, gt=0, le=1)
+    max_theme_position_pct: float | None = Field(default=None, gt=0, le=1)
     slippage_bps: float = Field(default=10.0, ge=0, le=1_000)
     fee_bps: float = Field(default=1.0, ge=0, le=1_000)
     sell_tax_bps: float = Field(default=5.0, ge=0, le=1_000)
@@ -104,6 +106,10 @@ class SimulationAction(BaseModel):
     risk_unit: float = Field(default=1.0, gt=0, le=1)
     plan_id: str | None = None
     risk_reservation_id: str | None = None
+    primary_theme_id: str = "UNKNOWN"
+    candidate_sources: tuple[str, ...] = ()
+    strategy_identity: str | None = None
+    order_revision: int = Field(default=1, ge=1)
     fee_model_version: str = "legacy-paper-fee/1"
     fill_model_version: str = "legacy-next-minute/1"
     order_type: str = "LEGACY_REFERENCE"
@@ -457,6 +463,7 @@ class PaperBroker:
         if account is None or account["status"] != "ACTIVE":
             return self._blocked(parsed, "ACCOUNT_UNAVAILABLE")
         position = self.store.get_position(self.account_id, parsed.symbol)
+        reservation_id: str | None = None
         fill_price = self._adverse_price(parsed, bar)
         if fill_price is None:
             if parsed.order_type == "LIMIT" and parsed.action in {SimulationActionType.BUY, SimulationActionType.ADD}:
@@ -501,6 +508,44 @@ class PaperBroker:
             fee = float(fee_charge.total)
             if gross + fee > float(account["cash"]):
                 return self._blocked(parsed, "INSUFFICIENT_CASH")
+            reservation_id = parsed.risk_reservation_id or f"risk:{intent_key}:r{parsed.order_revision}"
+            reserve_reference = float(parsed.entry_reference or fill_price)
+            reserve_gross = reserve_reference * frozen_qty
+            reserve_fee = OrderFeeLedger(self._frozen_fee_schedule(parsed), side="BUY").charge(
+                Decimal(str(reserve_gross)), final=True,
+            ).total
+            try:
+                self.store.reserve_simulation_order(
+                    reservation_id=reservation_id,
+                    order_identity=f"{intent_key}:r{parsed.order_revision}",
+                    account_id=parsed.account_id,
+                    symbol=parsed.symbol,
+                    primary_theme_id=parsed.primary_theme_id,
+                    requested_qty=frozen_qty,
+                    reserved_cash=float(Decimal(str(reserve_gross)) + reserve_fee),
+                    reserved_risk=abs(reserve_reference - float(parsed.stop_level)) * frozen_qty,
+                    max_total_value=float(account["equity"]) * self.config.max_total_position_pct,
+                    max_symbol_value=float(account["equity"]) * self.config.max_single_position_pct,
+                    max_open_risk=(
+                        float(account["equity"]) * self.config.max_portfolio_open_risk_pct
+                        if self.config.max_portfolio_open_risk_pct is not None else None
+                    ),
+                    max_theme_value=(
+                        float(account["equity"]) * self.config.max_theme_position_pct
+                        if self.config.max_theme_position_pct is not None else None
+                    ),
+                    metadata={
+                        "candidate_sources": list(parsed.candidate_sources),
+                        "strategy_identity": parsed.strategy_identity,
+                        "order_revision": parsed.order_revision,
+                        "theoretical_stop_loss": abs(reserve_reference - float(parsed.stop_level)) * frozen_qty,
+                        "stress_loss": "UNKNOWN_GAP_AND_LIQUIDITY_NOT_CAPPED",
+                    },
+                )
+            except StateTransitionError as exc:
+                return self._blocked(parsed, str(exc))
+            except (PersistenceError, PersistenceBlockedError):
+                return self._blocked(parsed, "PERSISTENCE_FAILED")
             old_qty = int(position["total_qty"]) if position else 0
             old_cost = float(position["avg_cost"]) if position else 0.0
             total_qty = old_qty + qty
@@ -609,9 +654,23 @@ class PaperBroker:
                     "fill_model_version": parsed.fill_model_version or self.config.fill_model_version,
                     "fill_evidence_kind": bar.evidence_kind,
                     "fill_evidence_source": bar.source_id,
+                    "primary_theme_id": parsed.primary_theme_id,
+                    "candidate_sources": list(parsed.candidate_sources),
+                    "strategy_identity": parsed.strategy_identity,
+                    "order_revision": parsed.order_revision,
+                },
+                reservation_id=reservation_id,
+                primary_theme_id=parsed.primary_theme_id,
+                strategy_identity=parsed.strategy_identity,
+                exit_rules={
+                    "stop_basis": parsed.stop_basis,
+                    "stop_level": parsed.stop_level,
+                    "forced_exit_llm_veto_allowed": False,
                 },
             )
         except StateTransitionError as exc:
+            if reservation_id is not None:
+                self.store.release_risk_reservation(reservation_id, str(exc))
             return self._blocked(parsed, str(exc))
         except (PersistenceError, PersistenceBlockedError):
             return self._blocked(parsed, "PERSISTENCE_FAILED")
@@ -644,7 +703,17 @@ class PaperBroker:
             if bar.open <= limit:
                 return bar.open
             return limit if bar.low < limit else None
-        reference = float(action.entry_reference or bar.open)
+        # Protection exits execute from the currently available window; they
+        # must not wait for an obsolete signal/reference price to reappear.
+        reference = float(
+            bar.open
+            if action.action in {
+                SimulationActionType.SELL,
+                SimulationActionType.REDUCE,
+                SimulationActionType.FORCED_RISK_EXIT,
+            }
+            else action.entry_reference or bar.open
+        )
         if not math.isfinite(reference) or reference <= 0:
             return None
         slippage = self.config.slippage_bps / 10_000

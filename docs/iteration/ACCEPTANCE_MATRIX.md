@@ -53,6 +53,16 @@
 | EX-08 | 旧成交模型历史不被新回放覆盖 | `test_ex_08_legacy_fill_history_is_not_overwritten_by_new_replay` | 独立 replay account/run，旧 fill 保持逐字段相等 | 通过（离线） |
 | EX-09 | 合成 quote 不能充当分钟成交/容量证据 | `test_ex_09_synthetic_quote_cannot_supply_fill_or_capacity` | `SYNTHETIC_QUOTE` 明确 `FILL_EVIDENCE_INVALID` | 通过（离线） |
 | EX-10 | 实际 workflow→订单→结算同样执行冻结/证据门 | `test_ex_10_workflow_freezes_order_contract_and_rejects_risk_quote`；工作流回归 | 合成 quote 不成交且生命周期仍待真实窗口 | 通过（离线） |
-| RISK-01 | 冻结数量、资金预占和 T+1 生命周期 | S05 已冻结数量并记录残单；S06 补组合预占/T+1 完整状态机 | 成交因果通过，组合风险仍未完成 | 部分通过，待 S06 |
+| RISK-01 | 并发委托原子预占现金、总仓位、单票、组合风险和主题暴露 | `test_risk_01_concurrent_reservations_atomically_enforce_cash_and_total_budget` | 同账户并发只有预算内预占成功；超限原因分离；未知主题进入显式桶 | 通过（离线） |
+| RISK-02 | 强制退出优先于加仓和减仓冲突 | `test_risk_02_forced_exit_wins_conflict_without_increasing_risk` | 冲突归并结果为强制退出，不增加风险 | 通过（离线） |
+| RISK-03 | 当日新仓触发硬止损仍遵守 T+1，下一交易日释放 | `test_risk_03_same_day_hard_stop_stays_pending_until_t1_release` | 当日卖出数量为零并保留风险计划；下一交易日可退出 | 通过（离线） |
+| RISK-04 | 旧可卖持仓与当日加仓锁定批次分离且重启不丢失 | `test_risk_04_old_sellable_lot_and_new_locked_add_survive_restart` | lot 账本重开 SQLite 后仍保持 sellable_from 和剩余数量 | 通过（离线） |
+| RISK-05 | 重复成交幂等且后续有效退出修订可继续 | `test_risk_05_duplicate_fill_is_idempotent_and_new_exit_revision_can_continue` | 同 fill 不重复扣款，新的退出 revision 不被永久吞掉 | 通过（离线） |
+| RISK-06 | 部分成交消费实际预占并释放残量，取消/过期有终态 | `test_risk_06_release_and_partial_consumption_zero_out_reservation` | `CREATED→READY→RESERVED→SUBMITTED→PARTIALLY_FILLED`；过期预占归零 | 通过（离线） |
+| RISK-07 | 同 episode 去重，不同减仓 episode 可再次生效 | `test_risk_07_new_reduce_episode_is_distinct_but_same_episode_is_idempotent` | 同分钟重复无效，两分钟后的新 episode 有效 | 通过（离线） |
+| RISK-08 | A3 计划到期不关闭已建仓风险计划 | `test_risk_08_plan_expiry_does_not_close_position_risk_plan` | 执行计划过期后风险计划仍为 ACTIVE | 通过（离线） |
+| RISK-09 | 跳空退出使用当前可证明窗口；锁板/零容量不得伪造成交 | `test_risk_09_gap_exit_uses_current_window_and_locked_bar_does_not_fake_fill` | gap 使用当前开盘；不可成交窗口保持未成交 | 通过（离线） |
+| RISK-10 | 公司行为版本化调整 lot；无法解析时禁止新增风险 | `test_risk_10_corporate_action_is_versioned_and_unresolved_blocks_add` | 总仓与 lot 同比调整；未知公司行为保留持仓并阻断 ADD | 通过（离线） |
+| RISK-11 | 成交、现金、持仓、lot、预占同事务；故障后可审计恢复 | `test_risk_11_failed_commit_leaves_no_half_written_fill_or_position` | 注入失败无半写；释放后账本审计一致 | 通过（离线） |
 | LLM-01 | 严格布尔、完整集合、超时过期 | S07 schema 反例 | 当前字符串布尔可误判 | 待 S07 |
 | EVAL-01 | 分层增益与反事实不混用 | S10 回放/统计测试 | 未开始 | 待 S10 |

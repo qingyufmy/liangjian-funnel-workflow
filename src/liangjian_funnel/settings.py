@@ -166,6 +166,10 @@ class Settings(BaseModel):
     simulation_other_fee_bps: float = Field(default=0.0, ge=0, le=1_000)
     simulation_max_volume_participation: float = Field(default=0.10, gt=0, le=1)
     simulation_fee_model_version: str = "configured-paper-default/2"
+    # New portfolio/theme limits remain disabled until an explicit shadow
+    # configuration is approved; existing cash/single/total caps still apply.
+    simulation_max_portfolio_open_risk_pct: float | None = Field(default=None, gt=0, le=1)
+    simulation_max_theme_position_pct: float | None = Field(default=None, gt=0, le=1)
     # Thinking is an explicit capability of a client role. Research lanes
     # keep it enabled; the independent intraday monitor is intentionally
     # deterministic at the transport level by default.
@@ -464,6 +468,14 @@ class Settings(BaseModel):
             simulation_fee_model_version=env.get(
                 "LIANGJIAN_SIMULATION_FEE_MODEL_VERSION", "configured-paper-default/2"
             ),
+            simulation_max_portfolio_open_risk_pct=(
+                float(env["LIANGJIAN_SIMULATION_MAX_PORTFOLIO_OPEN_RISK_PCT"])
+                if env.get("LIANGJIAN_SIMULATION_MAX_PORTFOLIO_OPEN_RISK_PCT") else None
+            ),
+            simulation_max_theme_position_pct=(
+                float(env["LIANGJIAN_SIMULATION_MAX_THEME_POSITION_PCT"])
+                if env.get("LIANGJIAN_SIMULATION_MAX_THEME_POSITION_PCT") else None
+            ),
             research_thinking_enabled=_parse_bool(env.get("LIANGJIAN_RESEARCH_THINKING_ENABLED"), default=True),
             monitor_thinking_enabled=_parse_bool(env.get("LIANGJIAN_MONITOR_THINKING_ENABLED"), default=False),
             research_primary_lane_id=env.get("LIANGJIAN_RESEARCH_PRIMARY_LANE_ID", "lane_1"),
@@ -565,6 +577,8 @@ class Settings(BaseModel):
             "simulation_initial_cash": self.simulation_initial_cash,
             "simulation_fee_model_version": self.simulation_fee_model_version,
             "simulation_max_volume_participation": self.simulation_max_volume_participation,
+            "simulation_max_portfolio_open_risk_pct": self.simulation_max_portfolio_open_risk_pct,
+            "simulation_max_theme_position_pct": self.simulation_max_theme_position_pct,
             "research_thinking_enabled": self.research_thinking_enabled,
             "monitor_thinking_enabled": self.monitor_thinking_enabled,
             "research_models": list(self.research_models),

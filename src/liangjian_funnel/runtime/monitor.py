@@ -982,15 +982,16 @@ class MonitorEngine:
         latest: tuple[datetime, str, str] | None = None
         # An accepted deterministic action is terminal for this plan even
         # across lunch, restarts and scheduler gaps.
-        for event in events:
-            if not bool(event.get("effective")) or str(event.get("action") or "") != action:
-                continue
-            try:
-                payload = json.loads(event.get("payload_json") or "{}")
-            except (TypeError, json.JSONDecodeError):
-                continue
-            if payload.get("plan_id") == plan_id:
-                return True
+        if action not in {MonitorAction.REDUCE_SIGNAL.value, MonitorAction.ADD_SIGNAL.value}:
+            for event in events:
+                if not bool(event.get("effective")) or str(event.get("action") or "") != action:
+                    continue
+                try:
+                    payload = json.loads(event.get("payload_json") or "{}")
+                except (TypeError, json.JSONDecodeError):
+                    continue
+                if payload.get("plan_id") == plan_id:
+                    return True
         for event in reversed(events):
             try:
                 payload = json.loads(event.get("payload_json") or "{}")
@@ -1070,7 +1071,15 @@ class MonitorEngine:
                                        diagnostic_code=diagnostic_code)
         # One effective state per plan/action is the durable restart-safe
         # de-duplication key.  A new A3 plan receives a new plan_id.
-        key = f"effective:{lane_id}:{plan_id}:{action}"
+        episode_id = str(
+            (strategy_result or {}).get("trigger_episode_id")
+            or minute.isoformat()
+        )
+        revisable = action in {MonitorAction.REDUCE_SIGNAL.value, MonitorAction.ADD_SIGNAL.value}
+        key = (
+            f"effective:{lane_id}:{plan_id}:{action}:{episode_id}"
+            if revisable else f"effective:{lane_id}:{plan_id}:{action}"
+        )
         from .entry_contract import freeze_entry_contract
         entry_payload = self._payload(plan)
         if plan.get("expires_at"):
@@ -1118,6 +1127,7 @@ class MonitorEngine:
                 "llm_veto": bool(llm_veto),
                 "llm_reason_code": _safe_reason_code(llm_reason_code),
                 "diagnostic_code": diagnostic_code,
+                "trigger_episode_id": episode_id,
                 "entry_contract": entry_contract,
                 "decision_context": decision_context,
                 "strategy": dict(strategy_result) if isinstance(strategy_result, Mapping) else None,

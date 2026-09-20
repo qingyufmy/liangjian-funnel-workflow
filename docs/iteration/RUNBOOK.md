@@ -59,6 +59,18 @@ python -m pytest -q tests/iteration/test_execution_causality.py
 
 生产费率不从测试算例推导。通过 `LIANGJIAN_SIMULATION_COMMISSION_BPS`、`LIANGJIAN_SIMULATION_MINIMUM_COMMISSION`、`LIANGJIAN_SIMULATION_SELL_TAX_BPS`、`LIANGJIAN_SIMULATION_OTHER_FEE_BPS`、`LIANGJIAN_SIMULATION_MAX_VOLUME_PARTICIPATION` 和 `LIANGJIAN_SIMULATION_FEE_MODEL_VERSION` 配置，并在生产启用前与实际模拟账户合同单独对账。`SYNTHETIC_QUOTE` 只能触发风险意图；`virtual_fills` 的成交证据必须是 `MARKET_BAR`。本阶段没有授权生产迁移或部署。
 
+## S06 组合风险与订单生命周期
+
+离线聚焦验收：
+
+```powershell
+python -m pytest -q tests/iteration/test_portfolio_risk_lifecycle.py
+```
+
+生产迁移前必须在数据库副本执行 `audit_virtual_account(account_id)`，核对现金重建差异、position 与 lot 数量、活动预占；旧持仓若没有 lot，应先明确标记为遗留待迁移，不能自动伪造取得日期。新增组合风险和主题集中度参数为 `LIANGJIAN_SIMULATION_MAX_PORTFOLIO_OPEN_RISK_PCT`、`LIANGJIAN_SIMULATION_MAX_THEME_POSITION_PCT`，默认不启用；只读回放和单独授权之前不得把测试值带入生产。
+
+排障时按 `order_identity` 联查 `risk_reservations`、`simulation_order_events`、`simulation_intents`、`virtual_fills` 和 `position_lots`。持久化结果不确定时先审计，不要盲目释放或重试；同日硬止损存在但 `sellable_qty=0` 是 T+1 待执行状态，不是风险计划完成。
+
 ## 尚未开放的 profile
 
 `replay`、`shadow-report` 在依赖阶段完成前明确返回 `3` 和 `PENDING_EVIDENCE`；`stress` 目前只开放 `a4-s03`，其他场景不会用空数据返回成功。
