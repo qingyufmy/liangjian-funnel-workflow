@@ -1,0 +1,30 @@
+{
+  "test_only": true,
+  "sessions": [
+    {
+      "trade_date": "2026-09-17",
+      "terminal_rate": 1.0,
+      "data_evaluable_rate": 0.96,
+      "quote_coverage_rate": 0.98,
+      "model_success_rate": 0.95,
+      "true_no_opportunity_rate": 0.70,
+      "stage_latency_p95_ms": 900,
+      "stage_latency_p99_ms": 1400,
+      "max_backlog": 2,
+      "db_wait_p99_ms": 20,
+      "duplicate_fills": 0,
+      "negative_cash": 0,
+      "future_data_uses": 0,
+      "missing_schedule_slots": 0
+    }
+  ],
+  "fault_injections": {
+    "kill_restart": "PASS",
+    "network": "PASS",
+    "slow_source": "PASS",
+    "llm_timeout": "PASS",
+    "disk_full": "PASS",
+    "database_lock": "PASS",
+    "corrupt_input": "PASS"
+  }
+}

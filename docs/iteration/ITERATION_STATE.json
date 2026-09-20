@@ -10,7 +10,7 @@
     ],
     "production_runtime_modified": false
   },
-  "current_stage": "S10",
+  "current_stage": "S11",
   "stages": {
     "S00": {
       "code_status": "CODE_ACCEPTED",
@@ -680,7 +680,104 @@
         "artifacts/iteration/s10-offline-20260920/"
       ]
     },
-    "S11": {"code_status": "NOT_STARTED", "evidence_status": "NOT_STARTED"}
+    "S11": {
+      "code_status": "CODE_ACCEPTED",
+      "evidence_status": "OFFLINE_ACCEPTED_PRODUCTION_EVIDENCE_PENDING",
+      "replay_status": "PENDING_READONLY_PRODUCTION_EVIDENCE",
+      "operations_status": "PENDING_PRODUCTION_EVIDENCE",
+      "strategy_status": "INSUFFICIENT_EVIDENCE",
+      "deployment_status": "DEPLOYMENT_APPROVAL_REQUIRED",
+      "changed_files": [
+        "src/liangjian_funnel/runtime/iteration_acceptance.py",
+        "scripts/run_iteration_acceptance.py",
+        "scripts/export_iteration_evidence.py",
+        "scripts/rehearse_runtime_migration.py",
+        "scripts/build_shadow_stability_report.py",
+        "tests/iteration/test_integrated_acceptance.py",
+        "tests/fixtures/shadow_stability_test.json",
+        "docs/iteration/IMPLEMENTATION_RUNBOOK.md",
+        "docs/iteration/FINAL_ACCEPTANCE.md",
+        "docs/iteration/*"
+      ],
+      "dependencies": ["S00", "S01", "S02", "S03", "S04", "S05", "S06", "S07", "S08", "S09", "S10"],
+      "commands": [
+        {
+          "command": ".venv/Scripts/python.exe -m pytest -q tests/iteration/test_integrated_acceptance.py",
+          "exit_code": 2,
+          "result": "collection failed before implementation because runtime.iteration_acceptance did not exist",
+          "artifact": null
+        },
+        {
+          "command": ".venv/Scripts/python.exe -m pytest -q tests/iteration/test_integrated_acceptance.py --cov=liangjian_funnel.runtime.iteration_acceptance --cov-branch --cov-report=term-missing",
+          "exit_code": 0,
+          "result": "22 passed; integrated acceptance branch coverage 95%",
+          "artifact": null
+        },
+        {
+          "command": ".venv/Scripts/python.exe -m pytest -q tests/iteration/test_integrated_acceptance.py tests/test_storage_governance.py tests/test_runtime_state.py tests/test_runtime_scheduler.py tests/iteration/test_portfolio_risk_lifecycle.py tests/iteration/test_execution_causality.py tests/iteration/test_a4_orchestration.py",
+          "exit_code": 0,
+          "result": "86 passed",
+          "artifact": null
+        },
+        {
+          "command": ".venv/Scripts/python.exe scripts/rehearse_runtime_migration.py --source artifacts/iteration/s03-stress-20260920/stress-data/a4-stress-50.sqlite3 --workdir artifacts/iteration/s11-migration-20260920",
+          "exit_code": 0,
+          "result": "PASS; source unchanged; target and rollback integrity ok; second migration idempotent; production_written=false",
+          "artifact": "artifacts/iteration/s11-migration-20260920/migration-report.json"
+        },
+        {
+          "command": ".venv/Scripts/python.exe scripts/export_iteration_evidence.py --root artifacts/iteration/s11-evidence-fixture-20260920 ... --test-only",
+          "exit_code": 0,
+          "result": "complete six-category TEST_ONLY package generated; no production access",
+          "artifact": "artifacts/iteration/s11-evidence-fixture-20260920/manifest.json"
+        },
+        {
+          "command": ".venv/Scripts/python.exe scripts/run_iteration_acceptance.py --profile replay --output-dir artifacts/iteration/s11-replay-missing-20260920",
+          "exit_code": 3,
+          "result": "PENDING_EVIDENCE; readonly manifest required",
+          "artifact": "artifacts/iteration/s11-replay-missing-20260920/summary.json"
+        },
+        {
+          "command": ".venv/Scripts/python.exe scripts/run_iteration_acceptance.py --profile replay --manifest artifacts/iteration/s11-evidence-fixture-20260920 --output-dir artifacts/iteration/s11-replay-testonly-20260920",
+          "exit_code": 3,
+          "result": "PENDING_EVIDENCE; test-only package cannot satisfy replay acceptance and layered input is absent",
+          "artifact": "artifacts/iteration/s11-replay-testonly-20260920/summary.json"
+        },
+        {
+          "command": ".venv/Scripts/python.exe scripts/build_shadow_stability_report.py --input tests/fixtures/shadow_stability_test.json --output artifacts/iteration/s11-shadow-testonly-20260920/report.json",
+          "exit_code": 3,
+          "result": "OPERATIONS_NOT_ACCEPTED; one test-only session is below the five-session evidence window",
+          "artifact": "artifacts/iteration/s11-shadow-testonly-20260920/report.json"
+        },
+        {
+          "command": ".venv/Scripts/python.exe -m pytest --cov=liangjian_funnel --cov-report=term --cov-report=xml:artifacts/iteration/s11-regression-20260920/coverage.xml --cov-fail-under=65 --junitxml=artifacts/iteration/s11-regression-20260920/python-junit.xml",
+          "exit_code": 0,
+          "result": "1901 passed, 4 skipped, coverage 79.05%",
+          "artifact": "artifacts/iteration/s11-regression-20260920/"
+        },
+        {
+          "command": "npm run typecheck; npm test; npm run build",
+          "exit_code": 0,
+          "result": "typecheck passed; 91 tests passed; web and server build passed",
+          "artifact": null
+        },
+        {
+          "command": ".venv/Scripts/python.exe scripts/run_iteration_acceptance.py --profile offline --output-dir artifacts/iteration/s11-offline-20260920",
+          "exit_code": 0,
+          "result": "CODE_ACCEPTED; 229 passed, 0 failed, 0 skipped",
+          "artifact": "artifacts/iteration/s11-offline-20260920/summary.json"
+        }
+      ],
+      "artifacts": [
+        "artifacts/iteration/s11-migration-20260920/migration-report.json",
+        "artifacts/iteration/s11-evidence-fixture-20260920/manifest.json",
+        "artifacts/iteration/s11-replay-missing-20260920/summary.json",
+        "artifacts/iteration/s11-replay-testonly-20260920/summary.json",
+        "artifacts/iteration/s11-shadow-testonly-20260920/report.json",
+        "artifacts/iteration/s11-regression-20260920/",
+        "artifacts/iteration/s11-offline-20260920/"
+      ]
+    }
   },
   "unresolved": [
     "A1 production frozen-snapshot coverage and real backfill adapter throughput require OPERATIONS evidence",
@@ -690,6 +787,6 @@
     "replay, operations and strategy acceptance remain unproven"
   ],
   "blockers": [],
-  "next_action": "Implement S11 integrated acceptance, production-evidence export contract, migration rehearsal, shadow isolation and rollback proof without deploying production.",
-  "updated_at": "2026-09-20T20:12:00+08:00"
+  "next_action": "If separately authorized, export a read-only production evidence package and run replay acceptance; production deployment remains a separate approval.",
+  "updated_at": "2026-09-20T20:29:00+08:00"
 }

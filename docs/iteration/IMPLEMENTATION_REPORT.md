@@ -89,3 +89,11 @@ Server API、Markdown、Web 明细和飞书计划卡均消费该投影。A4 控�
 预注册五层实验并固定时间顺序 walk-forward、purge/embargo、随机种子、数据截止、风险、成交和费用版本。研究成绩单与实际成交账户成绩单分开；阻断和未成交不算盈利，模型否决的信号影响不能与账户结果直接相加。A1/A2 输入、通过、拒绝、缺失集合必须完整对账，空样本或少样本明确输出 `INSUFFICIENT_EVIDENCE`。参数调整只能形成 `CONFIG_CHANGE_PROPOSAL`，不能自动改生产。
 
 首个反例在模块不存在时按预期 collection failed；修复测试 fixture 的越界订单引用后，55 个定向测试通过，核心模块分支覆盖率 98%。最终 Python 全量为 1879 passed、4 skipped、覆盖率 78.97%；前端类型检查、91 tests 和构建通过；离线验收入口为 207 passed。成功入口使用测试 fixture，只证明 CODE 和离线契约，真实只读历史证据尚未导入，故 REPLAY/OPERATIONS 未通过、STRATEGY 仍为 `INSUFFICIENT_EVIDENCE`。
+
+## S11
+
+统一验收入口现支持 offline、stress、replay 和 shadow-report 的明确返回码。生产证据包只接收操作者显式指定的本地文件，逐文件流式哈希，拒绝目录外路径、符号链接、凭证字段和模型私有推理；缺调度、分钟/Provider、决策、订单、A1覆盖或市场参考任一类即返回缺证据，测试包不能升级为真实 REPLAY/OPERATIONS 验收。
+
+SQLite 迁移演练只在只读源的两份隔离 backup 上运行，迁移两次核对 schema 幂等、关键账本记录数、完整性和源哈希；注入中断保留可验证 rollback 副本且不写源库。影子验收拒绝正式/影子路径父子重叠、符号链接和同账户，报告五日窗口、终态率、可评估率、报价/模型覆盖、无机会比例、p95/p99、积压、数据库等待和七类故障注入。
+
+首个反例在模块不存在时按预期 collection failed。22 个 S11 定向测试通过，核心模块分支覆盖率 95%；扩大回归 86 passed。测试 DB 的迁移 CLI 通过且源不变；测试证据包成功生成，但 replay 和单日 shadow 命令都按设计返回 3，未冒充真实验收。最终 Python 全量为 1901 passed、4 skipped、覆盖率 79.05%；Node 类型检查、91 tests 和构建通过；统一离线入口为 229 passed。未部署、未 push、未合并，REPLAY/OPERATIONS 仍待真实证据，STRATEGY 仍为不足证据。

@@ -92,3 +92,10 @@
 | EVAL-07 | 未来公告、错日期主题、未知复权和成本遗漏 fail closed | 参数化 `test_eval_07_known_future_and_cost_leakage_counterexamples_fail` | 四类污染均返回稳定错误码 | 通过（离线） |
 | EVAL-08 | 少样本不足证据，基准与选择样本不污染 | `test_eval_08_small_samples_and_contaminated_benchmarks_are_not_evidence` | 少样本为 `INSUFFICIENT_EVIDENCE`；交集阻断 | 通过（离线） |
 | EVAL-09 | A1/A2 全去向集合对账并保留失败样本 | `test_eval_09_a1_a2_reconciliation_keeps_rejected_and_missing_rows` | input=passed∪rejected∪missing 且互斥 | 通过（离线） |
+| OPS-01 | 一键入口检测失败和缺环境，不硬编码 PASS | `test_ops_01_acceptance_entry_returns_missing_evidence_code` | 缺 replay manifest 返回 3 和 `PENDING_EVIDENCE` | 通过（离线） |
+| OPS-02 | 迁移幂等，中断可恢复且不丢账本 | `test_ops_02_migration_is_idempotent_and_failed_attempt_keeps_rollback_copy` | 双迁移 schema/记录一致；注入失败 rollback 完整；源不变 | 通过（离线副本） |
+| OPS-03 | 故障与稳定性证据不足不能通过 | `test_ops_03_shadow_report_detects_faults_and_does_not_call_them_stable`；既有 A4/Provider/存储测试 | 重复成交和少于五日均阻断 OPERATIONS | 通过（离线契约） |
+| OPS-04 | 影子存储/输出/账户隔离并拒绝符号链接 | `test_ops_04_shadow_paths_reject_overlap_parent_child_and_symlinks` | 父子路径、同账户、symlink fail closed | 通过（离线） |
+| OPS-05 | 必需 ID 绑定真实测试函数与执行结果 | `test_ops_05_requirement_bindings_name_real_python_tests`；offline summary | 所有 Python selector 对应真实函数，统一入口实际执行 229 tests | 通过（离线） |
+| OPS-06 | 新增命令可执行且无孤立模块 | 参数化 `test_ops_06_documented_commands_have_working_help`；CLI 实跑 | 五个入口 help=0；证据、迁移、shadow、评价均有调用方 | 通过（离线） |
+| OPS-07 | 证据包自动生成覆盖/稳定报告且防篡改 | `test_ops_07_complete_package_generates_report_only_from_hashed_files` | 六类文件完整可验；篡改哈希阻断；凭证/私有推理阻断 | 通过（离线） |

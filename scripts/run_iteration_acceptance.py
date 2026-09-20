@@ -31,6 +31,13 @@ EXIT_MISSING_EVIDENCE = 3
 EXIT_SAFETY_BLOCK = 4
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT / "src"))
+
+from liangjian_funnel.runtime.iteration_acceptance import (  # noqa: E402
+    AcceptanceContractError,
+    validate_evidence_package,
+)
+
 PROTECTED_OUTPUT_ROOTS = {
     (REPO_ROOT / name).resolve()
     for name in ("state", "storage", "outputs", "cache", "config")
@@ -318,6 +325,13 @@ def _write_summary(
         "EVAL-07": ["tests/iteration/test_layered_evaluation.py::test_eval_07_known_future_and_cost_leakage_counterexamples_fail"],
         "EVAL-08": ["tests/iteration/test_layered_evaluation.py::test_eval_08_small_samples_and_contaminated_benchmarks_are_not_evidence"],
         "EVAL-09": ["tests/iteration/test_layered_evaluation.py::test_eval_09_a1_a2_reconciliation_keeps_rejected_and_missing_rows"],
+        "OPS-01": ["tests/iteration/test_integrated_acceptance.py::test_ops_01_acceptance_entry_returns_missing_evidence_code"],
+        "OPS-02": ["tests/iteration/test_integrated_acceptance.py::test_ops_02_migration_is_idempotent_and_failed_attempt_keeps_rollback_copy"],
+        "OPS-03": ["tests/iteration/test_integrated_acceptance.py::test_ops_03_shadow_report_detects_faults_and_does_not_call_them_stable"],
+        "OPS-04": ["tests/iteration/test_integrated_acceptance.py::test_ops_04_shadow_paths_reject_overlap_parent_child_and_symlinks"],
+        "OPS-05": ["tests/iteration/test_integrated_acceptance.py::test_ops_05_requirement_bindings_name_real_python_tests"],
+        "OPS-06": ["tests/iteration/test_integrated_acceptance.py::test_ops_06_documented_commands_have_working_help"],
+        "OPS-07": ["tests/iteration/test_integrated_acceptance.py::test_ops_07_complete_package_generates_report_only_from_hashed_files"],
     }
     counted = [item for item in checks if item.passed is not None]
     test_counts = {
@@ -445,8 +459,75 @@ def main(argv: Sequence[str] | None = None) -> int:
                 missing_evidence=missing_evidence,
             )
             return exit_code
-        if not missing_evidence:
-            missing_evidence.append(f"{args.profile} profile is not implemented before its dependent stage")
+        if args.profile in {"replay", "shadow-report"} and not missing_evidence:
+            manifest_input = Path(str(args.manifest)).expanduser().resolve()
+            package_root = manifest_input.parent if manifest_input.is_file() else manifest_input
+            try:
+                evidence = validate_evidence_package(package_root)
+            except AcceptanceContractError as exc:
+                checks.append(CheckResult("OPS-07-EVIDENCE-PACKAGE", "FAIL", exc.reason_code))
+                _write_summary(
+                    output_dir=output_dir,
+                    profile=args.profile,
+                    started_at=started_at,
+                    status="FAIL",
+                    exit_code=EXIT_FAILURE,
+                    checks=checks,
+                    missing_evidence=missing_evidence,
+                )
+                return EXIT_FAILURE
+            checks.append(CheckResult("OPS-07-EVIDENCE-PACKAGE", "PASS", evidence["status"]))
+            if evidence["status"] != "EVIDENCE_VALID":
+                missing_evidence.extend(f"missing evidence category: {item}" for item in evidence["missing_categories"])
+            if evidence["test_only"]:
+                missing_evidence.append("production replay/operations acceptance requires non-test evidence")
+            category = "layered_evaluation_input" if args.profile == "replay" else "shadow_sessions"
+            relative = evidence["files_by_category"].get(category)
+            if not relative:
+                missing_evidence.append(f"missing evidence category: {category}")
+            if not missing_evidence:
+                if args.profile == "replay":
+                    command = [
+                        sys.executable,
+                        str(REPO_ROOT / "scripts" / "run_layered_evaluation.py"),
+                        "--manifest",
+                        str(package_root / relative),
+                        "--output-dir",
+                        str(output_dir / "replay-report"),
+                    ]
+                    check = _run_command("S10-LAYERED-REPLAY", command, output_dir, _offline_environment())
+                    checks.append(check)
+                    exit_code = EXIT_PASS if check.status == "PASS" else EXIT_FAILURE
+                    status = "REPLAY_ACCEPTED" if exit_code == EXIT_PASS else "FAIL"
+                else:
+                    command = [
+                        sys.executable,
+                        str(REPO_ROOT / "scripts" / "build_shadow_stability_report.py"),
+                        "--input",
+                        str(package_root / relative),
+                        "--output",
+                        str(output_dir / "shadow-stability.json"),
+                    ]
+                    check = _run_command("S11-SHADOW-REPORT", command, output_dir, _offline_environment())
+                    if check.exit_code == EXIT_MISSING_EVIDENCE:
+                        check = CheckResult(**{**asdict(check), "status": "MISSING_EVIDENCE"})
+                        missing_evidence.append("shadow observation window or fault evidence is incomplete")
+                        exit_code = EXIT_MISSING_EVIDENCE
+                        status = "PENDING_EVIDENCE"
+                    else:
+                        exit_code = EXIT_PASS if check.status == "PASS" else EXIT_FAILURE
+                        status = "OPERATIONS_ACCEPTED" if exit_code == EXIT_PASS else "FAIL"
+                    checks.append(check)
+                _write_summary(
+                    output_dir=output_dir,
+                    profile=args.profile,
+                    started_at=started_at,
+                    status=status,
+                    exit_code=exit_code,
+                    checks=checks,
+                    missing_evidence=missing_evidence,
+                )
+                return exit_code
         _write_summary(
             output_dir=output_dir,
             profile=args.profile,
