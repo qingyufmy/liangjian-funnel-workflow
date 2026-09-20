@@ -2,6 +2,10 @@
 
 这是一个独立于 `liangjian-astock-ai` 的 A 股 Shadow/内部模拟工作流。它从同花顺完整证券目录开始，经确定性研究质量门得到 G0，分别让三个研究模型执行 A1→A2→A3，再由 Flash 模型按 lane 每分钟做 A4 否决复核。所有结果写入本地 JSON/Markdown/SQLite，不连接 GM、券商、掘金模拟盘或真实账户。
 
+## 最新生产结果
+
+可进入 Git 版本管理的最新 A1-A3 生产快照位于 [`LATEST_RESULTS/`](LATEST_RESULTS/README.md)。该目录包含任务回执、A1/A2/A3报告和文件校验值；完整逐股票证据、分钟行情及 SQLite 运行状态仍保存在虚拟机，不把大体量运行库或密钥提交到 GitHub。
+
 ## 已接通的流程
 
 ```text

@@ -1,0 +1,1578 @@
+{
+  "a1_generation_id": "a1-full-20260919T205836229892Z-9edfd41f2593",
+  "a1_reuse_age_seconds": 6352,
+  "a1_reuse_degraded": false,
+  "a1_reuse_reason_code": null,
+  "a1_reused": true,
+  "auction_refresh": false,
+  "broker_gold_benchmark": {
+    "benchmark_not_runtime_input": true,
+    "json_path": "/www/wwwroot/Agu/liangjian-funnel-workflow/outputs/research/research_next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2_broker_benchmark.json",
+    "markdown_path": "/www/wwwroot/Agu/liangjian-funnel-workflow/outputs/research/research_next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2_broker_benchmark.md",
+    "reason_code": "OK",
+    "status": "EVALUATED"
+  },
+  "market_data_as_of": "2026-09-18T15:10:00+08:00",
+  "market_trade_date": "2026-09-18",
+  "models": [
+    "deepseek-v4-pro"
+  ],
+  "outcome_v2": {
+    "actionability_state": "ACTIONABLE",
+    "comparison_status": "NOT_RUN",
+    "counts": {
+      "expected_lanes": 1,
+      "ready_lanes": 1,
+      "ready_required_lanes": 1,
+      "recorded_lanes": 1,
+      "required_lanes": 1
+    },
+    "data_coverage": {
+      "critical_breadth": 1.0,
+      "critical_index_chain_resonance": 1.0,
+      "critical_leader_structure": 1.0,
+      "critical_tier_structure": 1.0,
+      "critical_turnover_share": 1.0,
+      "minimum_critical": 0.9,
+      "sufficiency_state": "DEGRADED"
+    },
+    "data_sufficiency_state": "SUFFICIENT",
+    "focus_opportunity_state": "PRESENT",
+    "job_status": "SUCCEEDED",
+    "lanes": [
+      {
+        "actionability_state": "ACTIONABLE",
+        "counts": {
+          "completed_stages": 3,
+          "evaluated": 170,
+          "input": 3824,
+          "selected": 67,
+          "stage_count": 3
+        },
+        "data_coverage": {
+          "critical_breadth": 1.0,
+          "critical_index_chain_resonance": 1.0,
+          "critical_leader_structure": 1.0,
+          "critical_tier_structure": 1.0,
+          "critical_turnover_share": 1.0,
+          "minimum_critical": 0.9,
+          "sufficiency_state": "DEGRADED"
+        },
+        "data_sufficiency_state": "SUFFICIENT",
+        "focus_opportunity_state": "PRESENT",
+        "job_status": "SUCCEEDED",
+        "lane_id": "lane_1",
+        "legacy_projection": {
+          "counts": {
+            "completed_stages": 3,
+            "evaluated": 170,
+            "input": 3824,
+            "selected": 67,
+            "stage_count": 3
+          },
+          "data_coverage": {
+            "critical_breadth": 1.0,
+            "critical_index_chain_resonance": 1.0,
+            "critical_leader_structure": 1.0,
+            "critical_tier_structure": 1.0,
+            "critical_turnover_share": 1.0,
+            "minimum_critical": 0.9,
+            "sufficiency_state": "DEGRADED"
+          },
+          "lane_id": "lane_1",
+          "legacy_status": "READY",
+          "lifecycle_state": "TERMINAL",
+          "model": "deepseek-v4-pro",
+          "opportunity_state": "PRESENT",
+          "publication_state": "READY",
+          "quality_state": "VALIDATED",
+          "reason_codes": [
+            "A1_ACTIVE_REUSED"
+          ],
+          "schema_version": "research-outcome/2.0.0",
+          "stages": [
+            {
+              "counts": {
+                "evaluated": 3824,
+                "input": 3824,
+                "selected": 821
+              },
+              "data_coverage": {},
+              "legacy_status": "VALIDATED",
+              "lifecycle_state": "TERMINAL",
+              "opportunity_state": "PRESENT",
+              "publication_state": "NOT_APPLICABLE",
+              "quality_state": "VALIDATED",
+              "reason_codes": [
+                "A1_ACTIVE_REUSED"
+              ],
+              "schema_version": "research-outcome/2.0.0",
+              "stage": "A1"
+            },
+            {
+              "counts": {
+                "evaluated": 821,
+                "input": 821,
+                "selected": 125
+              },
+              "data_coverage": {
+                "critical_breadth": 1.0,
+                "critical_index_chain_resonance": 1.0,
+                "critical_leader_structure": 1.0,
+                "critical_tier_structure": 1.0,
+                "critical_turnover_share": 1.0,
+                "minimum_critical": 0.9,
+                "sufficiency_state": "DEGRADED"
+              },
+              "legacy_status": "VALIDATED",
+              "lifecycle_state": "TERMINAL",
+              "opportunity_state": "PRESENT",
+              "publication_state": "NOT_APPLICABLE",
+              "quality_state": "VALIDATED",
+              "reason_codes": [],
+              "schema_version": "research-outcome/2.0.0",
+              "stage": "A2"
+            },
+            {
+              "counts": {
+                "evaluated": 170,
+                "input": 170,
+                "selected": 67
+              },
+              "data_coverage": {},
+              "legacy_status": "VALIDATED",
+              "lifecycle_state": "TERMINAL",
+              "opportunity_state": "PRESENT",
+              "publication_state": "NOT_APPLICABLE",
+              "quality_state": "VALIDATED",
+              "reason_codes": [],
+              "schema_version": "research-outcome/2.0.0",
+              "stage": "A3"
+            }
+          ]
+        },
+        "legacy_status": "READY",
+        "lifecycle_state": "TERMINAL",
+        "model": "deepseek-v4-pro",
+        "opportunity_state": "PRESENT",
+        "publication_state": "READY",
+        "quality_state": "VALIDATED",
+        "reason_codes": [
+          "A1_ACTIVE_REUSED"
+        ],
+        "research_opportunity_state": "PRESENT",
+        "schema_version": "research-outcome/3.0.0",
+        "stages": [
+          {
+            "actionability_state": "NOT_APPLICABLE",
+            "counts": {
+              "evaluated": 3824,
+              "input": 3824,
+              "selected": 821
+            },
+            "data_coverage": {},
+            "data_sufficiency_state": "SUFFICIENT",
+            "focus_opportunity_state": "NOT_APPLICABLE",
+            "job_status": "SUCCEEDED",
+            "legacy_projection": {
+              "counts": {
+                "evaluated": 3824,
+                "input": 3824,
+                "selected": 821
+              },
+              "data_coverage": {},
+              "legacy_status": "VALIDATED",
+              "lifecycle_state": "TERMINAL",
+              "opportunity_state": "PRESENT",
+              "publication_state": "NOT_APPLICABLE",
+              "quality_state": "VALIDATED",
+              "reason_codes": [
+                "A1_ACTIVE_REUSED"
+              ],
+              "schema_version": "research-outcome/2.0.0",
+              "stage": "A1"
+            },
+            "legacy_status": "VALIDATED",
+            "lifecycle_state": "TERMINAL",
+            "opportunity_state": "PRESENT",
+            "publication_state": "NOT_APPLICABLE",
+            "quality_state": "VALIDATED",
+            "reason_codes": [
+              "A1_ACTIVE_REUSED"
+            ],
+            "research_opportunity_state": "PRESENT",
+            "schema_version": "research-outcome/3.0.0",
+            "stage": "A1"
+          },
+          {
+            "actionability_state": "NOT_APPLICABLE",
+            "counts": {
+              "evaluated": 821,
+              "input": 821,
+              "selected": 125
+            },
+            "data_coverage": {
+              "critical_breadth": 1.0,
+              "critical_index_chain_resonance": 1.0,
+              "critical_leader_structure": 1.0,
+              "critical_tier_structure": 1.0,
+              "critical_turnover_share": 1.0,
+              "minimum_critical": 0.9,
+              "sufficiency_state": "DEGRADED"
+            },
+            "data_sufficiency_state": "SUFFICIENT",
+            "focus_opportunity_state": "PRESENT",
+            "job_status": "SUCCEEDED",
+            "legacy_projection": {
+              "counts": {
+                "evaluated": 821,
+                "input": 821,
+                "selected": 125
+              },
+              "data_coverage": {
+                "critical_breadth": 1.0,
+                "critical_index_chain_resonance": 1.0,
+                "critical_leader_structure": 1.0,
+                "critical_tier_structure": 1.0,
+                "critical_turnover_share": 1.0,
+                "minimum_critical": 0.9,
+                "sufficiency_state": "DEGRADED"
+              },
+              "legacy_status": "VALIDATED",
+              "lifecycle_state": "TERMINAL",
+              "opportunity_state": "PRESENT",
+              "publication_state": "NOT_APPLICABLE",
+              "quality_state": "VALIDATED",
+              "reason_codes": [],
+              "schema_version": "research-outcome/2.0.0",
+              "stage": "A2"
+            },
+            "legacy_status": "VALIDATED",
+            "lifecycle_state": "TERMINAL",
+            "opportunity_state": "PRESENT",
+            "publication_state": "NOT_APPLICABLE",
+            "quality_state": "VALIDATED",
+            "reason_codes": [],
+            "research_opportunity_state": "NOT_APPLICABLE",
+            "schema_version": "research-outcome/3.0.0",
+            "stage": "A2"
+          },
+          {
+            "actionability_state": "ACTIONABLE",
+            "counts": {
+              "evaluated": 170,
+              "input": 170,
+              "selected": 67
+            },
+            "data_coverage": {},
+            "data_sufficiency_state": "SUFFICIENT",
+            "focus_opportunity_state": "NOT_APPLICABLE",
+            "job_status": "SUCCEEDED",
+            "legacy_projection": {
+              "counts": {
+                "evaluated": 170,
+                "input": 170,
+                "selected": 67
+              },
+              "data_coverage": {},
+              "legacy_status": "VALIDATED",
+              "lifecycle_state": "TERMINAL",
+              "opportunity_state": "PRESENT",
+              "publication_state": "NOT_APPLICABLE",
+              "quality_state": "VALIDATED",
+              "reason_codes": [],
+              "schema_version": "research-outcome/2.0.0",
+              "stage": "A3"
+            },
+            "legacy_status": "VALIDATED",
+            "lifecycle_state": "TERMINAL",
+            "opportunity_state": "PRESENT",
+            "publication_state": "NOT_APPLICABLE",
+            "quality_state": "VALIDATED",
+            "reason_codes": [],
+            "research_opportunity_state": "NOT_APPLICABLE",
+            "schema_version": "research-outcome/3.0.0",
+            "stage": "A3"
+          }
+        ]
+      }
+    ],
+    "legacy_projection": {
+      "comparison_status": "NOT_RUN",
+      "counts": {
+        "expected_lanes": 1,
+        "ready_lanes": 1,
+        "ready_required_lanes": 1,
+        "recorded_lanes": 1,
+        "required_lanes": 1
+      },
+      "data_coverage": {
+        "critical_breadth": 1.0,
+        "critical_index_chain_resonance": 1.0,
+        "critical_leader_structure": 1.0,
+        "critical_tier_structure": 1.0,
+        "critical_turnover_share": 1.0,
+        "minimum_critical": 0.9,
+        "sufficiency_state": "DEGRADED"
+      },
+      "lanes": [
+        {
+          "counts": {
+            "completed_stages": 3,
+            "evaluated": 170,
+            "input": 3824,
+            "selected": 67,
+            "stage_count": 3
+          },
+          "data_coverage": {
+            "critical_breadth": 1.0,
+            "critical_index_chain_resonance": 1.0,
+            "critical_leader_structure": 1.0,
+            "critical_tier_structure": 1.0,
+            "critical_turnover_share": 1.0,
+            "minimum_critical": 0.9,
+            "sufficiency_state": "DEGRADED"
+          },
+          "lane_id": "lane_1",
+          "legacy_status": "READY",
+          "lifecycle_state": "TERMINAL",
+          "model": "deepseek-v4-pro",
+          "opportunity_state": "PRESENT",
+          "publication_state": "READY",
+          "quality_state": "VALIDATED",
+          "reason_codes": [
+            "A1_ACTIVE_REUSED"
+          ],
+          "schema_version": "research-outcome/2.0.0",
+          "stages": [
+            {
+              "counts": {
+                "evaluated": 3824,
+                "input": 3824,
+                "selected": 821
+              },
+              "data_coverage": {},
+              "legacy_status": "VALIDATED",
+              "lifecycle_state": "TERMINAL",
+              "opportunity_state": "PRESENT",
+              "publication_state": "NOT_APPLICABLE",
+              "quality_state": "VALIDATED",
+              "reason_codes": [
+                "A1_ACTIVE_REUSED"
+              ],
+              "schema_version": "research-outcome/2.0.0",
+              "stage": "A1"
+            },
+            {
+              "counts": {
+                "evaluated": 821,
+                "input": 821,
+                "selected": 125
+              },
+              "data_coverage": {
+                "critical_breadth": 1.0,
+                "critical_index_chain_resonance": 1.0,
+                "critical_leader_structure": 1.0,
+                "critical_tier_structure": 1.0,
+                "critical_turnover_share": 1.0,
+                "minimum_critical": 0.9,
+                "sufficiency_state": "DEGRADED"
+              },
+              "legacy_status": "VALIDATED",
+              "lifecycle_state": "TERMINAL",
+              "opportunity_state": "PRESENT",
+              "publication_state": "NOT_APPLICABLE",
+              "quality_state": "VALIDATED",
+              "reason_codes": [],
+              "schema_version": "research-outcome/2.0.0",
+              "stage": "A2"
+            },
+            {
+              "counts": {
+                "evaluated": 170,
+                "input": 170,
+                "selected": 67
+              },
+              "data_coverage": {},
+              "legacy_status": "VALIDATED",
+              "lifecycle_state": "TERMINAL",
+              "opportunity_state": "PRESENT",
+              "publication_state": "NOT_APPLICABLE",
+              "quality_state": "VALIDATED",
+              "reason_codes": [],
+              "schema_version": "research-outcome/2.0.0",
+              "stage": "A3"
+            }
+          ]
+        }
+      ],
+      "legacy_status": "READY",
+      "lifecycle_state": "TERMINAL",
+      "opportunity_state": "PRESENT",
+      "primary_lane_ids": [
+        "lane_1"
+      ],
+      "publication_state": "READY",
+      "quality_state": "VALIDATED",
+      "reason_codes": [
+        "A1_ACTIVE_REUSED"
+      ],
+      "run_id": "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2",
+      "schema_version": "research-outcome/2.0.0"
+    },
+    "legacy_status": "READY",
+    "lifecycle_state": "TERMINAL",
+    "primary_lane_ids": [
+      "lane_1"
+    ],
+    "publication_state": "READY",
+    "quality_state": "VALIDATED",
+    "reason_codes": [
+      "A1_ACTIVE_REUSED"
+    ],
+    "research_opportunity_state": "PRESENT",
+    "run_id": "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2",
+    "schema_version": "research-outcome/3.0.0"
+  },
+  "plan_publication": {
+    "activated": [],
+    "atomic": true,
+    "blocked": [
+      {
+        "lane": "lane_1",
+        "reason": "A3_EMOTION_RESEARCH_ONLY_NO_ENTRY",
+        "symbol": "002138.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_EMOTION_RESEARCH_ONLY_NO_ENTRY",
+        "symbol": "002222.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_EMOTION_RESEARCH_ONLY_NO_ENTRY",
+        "symbol": "002522.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_ROTATION_RESERVE_RESEARCH_ONLY",
+        "symbol": "002811.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_ROTATION_RESERVE_RESEARCH_ONLY",
+        "symbol": "002824.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_EMOTION_RESEARCH_ONLY_NO_ENTRY",
+        "symbol": "300236.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_EMOTION_RESEARCH_ONLY_NO_ENTRY",
+        "symbol": "300408.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_EMOTION_RESEARCH_ONLY_NO_ENTRY",
+        "symbol": "300464.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_ROTATION_RESERVE_RESEARCH_ONLY",
+        "symbol": "300235.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_EMOTION_RESEARCH_ONLY_NO_ENTRY",
+        "symbol": "300747.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_EMOTION_RESEARCH_ONLY_NO_ENTRY",
+        "symbol": "301021.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_EMOTION_RESEARCH_ONLY_NO_ENTRY",
+        "symbol": "301183.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_ROTATION_RESERVE_RESEARCH_ONLY",
+        "symbol": "300811.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_ROTATION_RESERVE_RESEARCH_ONLY",
+        "symbol": "300921.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_ROTATION_RESERVE_RESEARCH_ONLY",
+        "symbol": "301299.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_EMOTION_RESEARCH_ONLY_NO_ENTRY",
+        "symbol": "600640.SH"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_EMOTION_RESEARCH_ONLY_NO_ENTRY",
+        "symbol": "600685.SH"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_EMOTION_RESEARCH_ONLY_NO_ENTRY",
+        "symbol": "603256.SH"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_EMOTION_RESEARCH_ONLY_NO_ENTRY",
+        "symbol": "603650.SH"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_EMOTION_RESEARCH_ONLY_NO_ENTRY",
+        "symbol": "688127.SH"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_SECONDARY_NON_EXECUTABLE",
+        "symbol": "000581.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_SECONDARY_NON_EXECUTABLE",
+        "symbol": "000988.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_ROTATION_RESERVE_RESEARCH_ONLY",
+        "symbol": "002093.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_SECONDARY_NON_EXECUTABLE",
+        "symbol": "002156.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_ROTATION_RESERVE_RESEARCH_ONLY",
+        "symbol": "002181.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_SECONDARY_NON_EXECUTABLE",
+        "symbol": "002213.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_SECONDARY_NON_EXECUTABLE",
+        "symbol": "002241.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_SECONDARY_NON_EXECUTABLE",
+        "symbol": "002265.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_EMOTION_RESEARCH_ONLY_NO_ENTRY",
+        "symbol": "002292.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_EMOTION_RESEARCH_ONLY_NO_ENTRY",
+        "symbol": "002297.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_SECONDARY_NON_EXECUTABLE",
+        "symbol": "002371.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_SECONDARY_NON_EXECUTABLE",
+        "symbol": "002384.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_SECONDARY_NON_EXECUTABLE",
+        "symbol": "002409.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_SECONDARY_NON_EXECUTABLE",
+        "symbol": "002452.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_SECONDARY_NON_EXECUTABLE",
+        "symbol": "002516.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_SECONDARY_NON_EXECUTABLE",
+        "symbol": "002560.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_EMOTION_RESEARCH_ONLY_NO_ENTRY",
+        "symbol": "002632.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_ROTATION_RESERVE_RESEARCH_ONLY",
+        "symbol": "002803.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_SECONDARY_NON_EXECUTABLE",
+        "symbol": "002831.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_SECONDARY_NON_EXECUTABLE",
+        "symbol": "002837.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_SECONDARY_NON_EXECUTABLE",
+        "symbol": "002838.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_SECONDARY_NON_EXECUTABLE",
+        "symbol": "002881.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_EMOTION_RESEARCH_ONLY_NO_ENTRY",
+        "symbol": "002905.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_SECONDARY_NON_EXECUTABLE",
+        "symbol": "002912.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_EMOTION_RESEARCH_ONLY_NO_ENTRY",
+        "symbol": "002916.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_SECONDARY_NON_EXECUTABLE",
+        "symbol": "002947.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_ROTATION_RESERVE_RESEARCH_ONLY",
+        "symbol": "003016.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_SECONDARY_NON_EXECUTABLE",
+        "symbol": "300185.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_ROTATION_RESERVE_RESEARCH_ONLY",
+        "symbol": "300378.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_SECONDARY_NON_EXECUTABLE",
+        "symbol": "300757.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_ROTATION_RESERVE_RESEARCH_ONLY",
+        "symbol": "300855.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_SECONDARY_NON_EXECUTABLE",
+        "symbol": "301603.SZ"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_EMOTION_RESEARCH_ONLY_NO_ENTRY",
+        "symbol": "600150.SH"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_SECONDARY_NON_EXECUTABLE",
+        "symbol": "600186.SH"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_EMOTION_RESEARCH_ONLY_NO_ENTRY",
+        "symbol": "600354.SH"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_SECONDARY_NON_EXECUTABLE",
+        "symbol": "600506.SH"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_SECONDARY_NON_EXECUTABLE",
+        "symbol": "600584.SH"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_SECONDARY_NON_EXECUTABLE",
+        "symbol": "600596.SH"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_ROTATION_RESERVE_RESEARCH_ONLY",
+        "symbol": "601319.SH"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_EMOTION_RESEARCH_ONLY_NO_ENTRY",
+        "symbol": "601328.SH"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_EMOTION_RESEARCH_ONLY_NO_ENTRY",
+        "symbol": "601398.SH"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_EMOTION_RESEARCH_ONLY_NO_ENTRY",
+        "symbol": "601658.SH"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_EMOTION_RESEARCH_ONLY_NO_ENTRY",
+        "symbol": "601869.SH"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_EMOTION_RESEARCH_ONLY_NO_ENTRY",
+        "symbol": "601890.SH"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_EMOTION_RESEARCH_ONLY_NO_ENTRY",
+        "symbol": "601988.SH"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_SECONDARY_NON_EXECUTABLE",
+        "symbol": "603118.SH"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_EMOTION_RESEARCH_ONLY_NO_ENTRY",
+        "symbol": "603186.SH"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_SECONDARY_NON_EXECUTABLE",
+        "symbol": "603416.SH"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_SECONDARY_NON_EXECUTABLE",
+        "symbol": "688082.SH"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_SECONDARY_NON_EXECUTABLE",
+        "symbol": "688151.SH"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_EMOTION_RESEARCH_ONLY_NO_ENTRY",
+        "symbol": "688195.SH"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_SECONDARY_NON_EXECUTABLE",
+        "symbol": "688200.SH"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_SECONDARY_NON_EXECUTABLE",
+        "symbol": "688368.SH"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_SECONDARY_NON_EXECUTABLE",
+        "symbol": "688372.SH"
+      },
+      {
+        "lane": "lane_1",
+        "reason": "A3_SECONDARY_NON_EXECUTABLE",
+        "symbol": "688697.SH"
+      }
+    ],
+    "comparison_lanes": [],
+    "created": [
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:d31bbfd12716da56",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:978266b96421dcd3",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:2a544ff97bcd3a30",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:ede57b77c96dc043",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:c73f6ef96c554384",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:f4072ccb674dfcdb",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:a9daa7745856254b",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:0c3313e7ae31b0bf",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:c92e7479f8142d7d",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:39fa31fb84608068",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:e2f3e26ce4542f9e",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:2de3b843d0e1e9f1",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:a7e4b5978e849e0e",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:d0e5f3d50e269a42",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:3ec1c3ae5583e259",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:6e9e9cabc3f29e52",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:b90be12e8a74c303",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:2cbd5026fe22f80d",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:921b09c0ca679c6b",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:ea9897f940ef243d",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:f2722062d9859158",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:f7e24afb90a8f7f3",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:a259844c93c29708",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:d8325d890b539cc4",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:21512c32c0cc384e",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:fa6d131878ad4977",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:23aa38fb9c99c781",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:1ad108df0c02f896",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:5e3663da4d6d99a2",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:737039ae69d84f6d",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:d42874bf74ca1e8f",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:edc4d5e8124cdca6",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:dc0a38517a849981",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:e404497f26d99faa",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:4e6fcbd1464bc51c",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:1e40cee730fe941c",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:81c04b5808c2ca7b",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:b3135fe4900bd96e",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:af92c9f29864a3ef",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:c00ad09f86506a00",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:5bffb275ba7af443",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:ad2b939d00230634",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:8a1eeb0be87959c2",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:ec7c356085a4a84d",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:f659a3851df5b9a4",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:7716ce1e99075f82",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:67537440ed21f80d",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:ca59950ce8523805",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:810d96fd21a5c5c2",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:365f92bbeac56934",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:0cd9a07b506261da",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:853f82c50ef82eb4",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:5b77c63d2ada9ef2",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:6e6d9b43fea8af1f",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:ffe4b6078c1e2d59",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:ce79bd6869205f2d",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:0606a52cd279735f",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:7fc23d27259f0bad",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:1e845569d82c47e5",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:aa7b2708ce7d5ecb",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:3c0b09e8dd86d04a",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:89069ba41a91e131",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:5e0fc565b0a23a7c",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:7d76012290b0b2ae",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:fc62ac2a3190275e",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:1c40ddc856053164",
+      "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:e155d96cf9137533"
+    ],
+    "indicator_preparation": {
+      "notifications": [],
+      "plans": [
+        {
+          "available_5m_count": 144,
+          "history_cutoff": "2026-09-18T15:00:00+08:00",
+          "missing_bar_ends": [],
+          "plan_id": "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2:lane_1:1c40ddc856053164",
+          "reason_code": "OK",
+          "required_5m_count": 144,
+          "status": "READY",
+          "symbol": "688668.SH",
+          "target_trade_date": "2026-09-21"
+        }
+      ],
+      "schema_version": "a4-indicator-preparation/1",
+      "status": "READY"
+    },
+    "primary_lane": "lane_1",
+    "publication_mode": "CLOSE"
+  },
+  "premarket_research_context": {
+    "a1": {
+      "active_count": 800,
+      "macro": {
+        "key_uncertainties": [
+          "跨市场先行指标（美/韩/台/日）全部不可用，科技链时滞无法验证",
+          "行业利润数据未配置，盈利传导无法确认",
+          "宏观序列observation_date/publish_time缺失，存在非时点风险"
+        ],
+        "liquidity_condition": "TIGHT_BIAS_UNVERIFIED_PIT（M1/M2/新增信贷/社融分位均处低个位数；宏观序列缺少公开时点校验）",
+        "policy_direction": [
+          "十五五分行业规划密集发布：电子信息制造业、信息通信、医药工业、种植业、农业机械化、文化产业、文旅、煤炭、油气等方向政策定调确立",
+          "内需政策延续：财政金融协同促内需、县域消费、商品消费扩容、智能家居、房车消费",
+          "能源安全与节能降碳并重：煤炭/油气规划与能源领域节能降碳行动并行"
+        ],
+        "profit_cycle_position": "UNAVAILABLE",
+        "source_refs": [
+          "akshare_open:macro_china_money_supply",
+          "akshare_open:macro_china_new_financial_credit",
+          "akshare_open:macro_china_shrzgm"
+        ]
+      },
+      "monitor_count": 2968,
+      "monthly_industries": [
+        {
+          "code": "881270.TI",
+          "name": "元件",
+          "rank": 1,
+          "relative_strength_percentile_20d": 99.44444444444444,
+          "return_20d": 0.19138850735507518,
+          "return_5d": 0.055980625975118325,
+          "source_refs": [
+            "derived:THS_PRIMARY_TAXONOMY:sector-cycle/2.0.0:2026-09-19T20:58:47.670000+08:00"
+          ],
+          "theme_ids": [
+            "AI_COMPUTE_INFRASTRUCTURE"
+          ]
+        },
+        {
+          "code": "881101.TI",
+          "name": "种植业与林业",
+          "rank": 2,
+          "relative_strength_percentile_20d": 98.33333333333333,
+          "return_20d": 0.14212046554079438,
+          "return_5d": -0.0353389948871079,
+          "source_refs": [
+            "derived:THS_PRIMARY_TAXONOMY:sector-cycle/2.0.0:2026-09-19T20:58:47.670000+08:00"
+          ],
+          "theme_ids": [
+            "AGRICULTURE_FOOD_SECURITY"
+          ]
+        },
+        {
+          "code": "881274.TI",
+          "name": "影视院线",
+          "rank": 3,
+          "relative_strength_percentile_20d": 97.22222222222223,
+          "return_20d": 0.11362160107099384,
+          "return_5d": -0.006993682892453279,
+          "source_refs": [
+            "derived:THS_PRIMARY_TAXONOMY:sector-cycle/2.0.0:2026-09-19T20:58:47.670000+08:00"
+          ],
+          "theme_ids": [
+            "CONSUMER_SERVICES"
+          ]
+        },
+        {
+          "code": "881164.TI",
+          "name": "文化传媒",
+          "rank": 4,
+          "relative_strength_percentile_20d": 91.66666666666667,
+          "return_20d": 0.06868648911762998,
+          "return_5d": 0.011334799526306893,
+          "source_refs": [
+            "derived:THS_PRIMARY_TAXONOMY:sector-cycle/2.0.0:2026-09-19T20:58:47.670000+08:00"
+          ],
+          "theme_ids": [
+            "CONSUMER_SERVICES",
+            "AI_APPLICATIONS_DIGITAL_ECONOMY"
+          ]
+        },
+        {
+          "code": "881103.TI",
+          "name": "农产品加工",
+          "rank": 5,
+          "relative_strength_percentile_20d": 82.77777777777777,
+          "return_20d": 0.041831343477968685,
+          "return_5d": -0.03229802401875148,
+          "source_refs": [
+            "derived:THS_PRIMARY_TAXONOMY:sector-cycle/2.0.0:2026-09-19T20:58:47.670000+08:00"
+          ],
+          "theme_ids": [
+            "AGRICULTURE_FOOD_SECURITY"
+          ]
+        },
+        {
+          "code": "881172.TI",
+          "name": "电子化学品",
+          "rank": 6,
+          "relative_strength_percentile_20d": 80.55555555555556,
+          "return_20d": 0.04016805626791431,
+          "return_5d": 0.09867779388796571,
+          "source_refs": [
+            "derived:THS_PRIMARY_TAXONOMY:sector-cycle/2.0.0:2026-09-19T20:58:47.670000+08:00"
+          ],
+          "theme_ids": [
+            "CHEMICAL_NEW_MATERIALS",
+            "SEMICONDUCTOR_LOCALIZATION"
+          ]
+        }
+      ],
+      "policy_catalysts": [
+        {
+          "issuing_body": "农业农村部 工业和信息化部",
+          "published_at": "2026-09-19",
+          "source_refs": [
+            "https://www.gov.cn/zhengce/zhengceku/202609/content_7081520.htm"
+          ],
+          "theme_ids": [
+            "AGRICULTURE_FOOD_SECURITY",
+            "ROBOTICS_ADVANCED_MANUFACTURING"
+          ],
+          "title": "全国农业机械化发展“十五五”规划",
+          "verifiability": "UNVERIFIED"
+        },
+        {
+          "issuing_body": "文化和旅游部",
+          "published_at": "2026-09-19",
+          "source_refs": [
+            "https://www.gov.cn/zhengce/zhengceku/202609/content_7081514.htm"
+          ],
+          "theme_ids": [
+            "CONSUMER_SERVICES"
+          ],
+          "title": "文化产业发展“十五五”规划",
+          "verifiability": "UNVERIFIED"
+        },
+        {
+          "issuing_body": "工业和信息化部等十部门",
+          "published_at": "2026-09-18",
+          "source_refs": [
+            "https://www.gov.cn/zhengce/zhengceku/202609/content_7081457.htm"
+          ],
+          "theme_ids": [
+            "INNOVATIVE_MEDICINE_HEALTHCARE"
+          ],
+          "title": "医药工业发展“十五五”规划",
+          "verifiability": "UNVERIFIED"
+        },
+        {
+          "issuing_body": "农业农村部",
+          "published_at": "2026-09-18",
+          "source_refs": [
+            "https://www.gov.cn/zhengce/zhengceku/202609/content_7081404.htm"
+          ],
+          "theme_ids": [
+            "AGRICULTURE_FOOD_SECURITY"
+          ],
+          "title": "全国种植业发展“十五五”规划",
+          "verifiability": "UNVERIFIED"
+        },
+        {
+          "issuing_body": "国务院办公厅",
+          "published_at": "2026-09-18",
+          "source_refs": [
+            "https://www.gov.cn/zhengce/zhengceku/202609/content_7081442.htm"
+          ],
+          "theme_ids": [
+            "CONSUMER_SERVICES"
+          ],
+          "title": "关于促进房车消费的若干措施",
+          "verifiability": "UNVERIFIED"
+        }
+      ],
+      "status": "VALIDATED",
+      "structural_themes": [
+        {
+          "capacity_score": 72,
+          "contradicting_evidence": [
+            "无订单、良率或客户认证的最新公司级证据"
+          ],
+          "industry_lifecycle": "CAPEX_BUILDOUT",
+          "name": "半导体国产化",
+          "pricing_state": "PARTIALLY_PRICED",
+          "source_refs": [
+            "https://www.gov.cn/zhengce/zhengceku/202609/content_7081160.htm",
+            "e8665ecd1caced4eb8947a5914a3b579a8fa1dead5553a7f79d4e189f552f55e",
+            "akshare_open:macro_china_nbs_nation:工业>工业分大类行业增加值增长速度 (2018-至今)"
+          ],
+          "supporting_evidence": [
+            "半导体20日+4.54%/5d +11.05%，加速状态",
+            "NBS电子设备增加值+17.2%持续上升",
+            "券商共识科技为主线但需内部筛选"
+          ],
+          "theme_id": "SEMICONDUCTOR_LOCALIZATION",
+          "weekly_state": "ACCELERATING"
+        },
+        {
+          "capacity_score": 68,
+          "contradicting_evidence": [
+            "跨市场先行证据不可用，无法验证海外资本开支时滞"
+          ],
+          "industry_lifecycle": "CAPEX_BUILDOUT",
+          "name": "AI算力基础设施",
+          "pricing_state": "PARTIALLY_PRICED",
+          "source_refs": [
+            "https://www.gov.cn/zhengce/zhengceku/202609/content_7081160.htm",
+            "https://www.gov.cn/zhengce/zhengceku/202609/content_7080376.htm",
+            "akshare_open:macro_china_nbs_nation:工业>工业分大类行业增加值增长速度 (2018-至今)"
+          ],
+          "supporting_evidence": [
+            "通信设备20d +7.97%/5d +4.24%，换手持续率1.03，TOP10出现率0.25",
+            "元件20d +19.14%，20日相对强度99.4分位",
+            "NBS计算机通信电子设备增加值同比+17.2%且趋势上升"
+          ],
+          "theme_id": "AI_COMPUTE_INFRASTRUCTURE",
+          "weekly_state": "ACCELERATING"
+        },
+        {
+          "capacity_score": 60,
+          "contradicting_evidence": [
+            "消费电子20日+3.22%但相对强度仅71.7分位",
+            "主题历史状态WEAK"
+          ],
+          "industry_lifecycle": "COMMERCIALIZATION",
+          "name": "消费电子",
+          "pricing_state": "PARTIALLY_PRICED",
+          "source_refs": [
+            "https://www.gov.cn/zhengce/zhengceku/202609/content_7081160.htm",
+            "https://www.gov.cn/zhengce/zhengceku/202609/content_7081037.htm",
+            "akshare_open:macro_china_nbs_nation:工业>工业分大类行业增加值增长速度 (2018-至今)"
+          ],
+          "supporting_evidence": [
+            "其他电子20日+4.49%/5d +6.12%加速",
+            "智能家居消费行动方案"
+          ],
+          "theme_id": "CONSUMER_ELECTRONICS",
+          "weekly_state": "MIXED"
+        },
+        {
+          "capacity_score": 55,
+          "contradicting_evidence": [
+            "保险10d -5.03%降温",
+            "证券市场冷却"
+          ],
+          "industry_lifecycle": "MATURE",
+          "name": "金融高股息",
+          "pricing_state": "PARTIALLY_PRICED",
+          "source_refs": [
+            "https://www.gov.cn/zhengce/zhengceku/202608/content_7079155.htm",
+            "https://www.gov.cn/zhengce/zhengceku/202608/content_7078798.htm",
+            "https://www.gov.cn/zhengce/zhengceku/202608/content_7078568.htm"
+          ],
+          "supporting_evidence": [
+            "券商共识防御对冲：分红与稳定现金流",
+            "长护险支付、财政金融协同政策支撑"
+          ],
+          "theme_id": "FINANCIAL_HIGH_DIVIDEND",
+          "weekly_state": "MIXED"
+        },
+        {
+          "capacity_score": 52,
+          "contradicting_evidence": [
+            "煤炭开采增加值同比-5.6%趋势下行",
+            "煤炭5d -2.47%降温，贵金属/工业金属减速"
+          ],
+          "industry_lifecycle": "MATURE",
+          "name": "资源能源",
+          "pricing_state": "NOT_PRICED",
+          "source_refs": [
+            "https://www.gov.cn/zhengce/zhengceku/202608/content_7077816.htm",
+            "https://www.gov.cn/zhengce/zhengceku/202608/content_7078515.htm",
+            "akshare_open:macro_china_nbs_nation:工业>工业分大类行业增加值增长速度 (2018-至今)"
+          ],
+          "supporting_evidence": [
+            "煤炭工业、油气十五五规划发布",
+            "油气开采增加值+6.2%上升"
+          ],
+          "theme_id": "RESOURCES_ENERGY",
+          "weekly_state": "COOLING"
+        },
+        {
+          "capacity_score": 50,
+          "contradicting_evidence": [
+            "化学原料和化学制品增加值同比0.0%且趋势下行",
+            "农化制品冷却"
+          ],
+          "industry_lifecycle": "COMMERCIALIZATION",
+          "name": "化工新材料",
+          "pricing_state": "PARTIALLY_PRICED",
+          "source_refs": [
+            "https://www.gov.cn/zhengce/zhengceku/202609/content_7081160.htm",
+            "https://www.gov.cn/zhengce/zhengceku/202609/content_7080330.htm",
+            "akshare_open:macro_china_nbs_nation:工业>工业分大类行业增加值增长速度 (2018-至今)"
+          ],
+          "supporting_evidence": [
+            "电子化学品20日+3.56%/5d +9.87%加速",
+            "非金属材料5d +4.85%"
+          ],
+          "theme_id": "CHEMICAL_NEW_MATERIALS",
+          "weekly_state": "MIXED"
+        }
+      ]
+    },
+    "a2": {
+      "active_themes": [
+        {
+          "breadth": 62,
+          "capital_flow": 88,
+          "chase_risk_level": null,
+          "contradicting_evidence": [
+            "IDENTIFIABILITY_MIXED"
+          ],
+          "index_chain_resonance": 55,
+          "leader_structure": 72,
+          "name": "半导体国产化",
+          "new_entry_policy": "ALLOW",
+          "score": 69.51,
+          "stage": "ACCELERATION",
+          "supporting_evidence": [
+            "TOP_ROTATION_STRENGTH",
+            "EMOTION_TREND_DUAL"
+          ],
+          "theme_id": "SEMICONDUCTOR_LOCALIZATION",
+          "tier_structure": 62,
+          "weekly_state": null
+        },
+        {
+          "breadth": 70,
+          "capital_flow": 45,
+          "chase_risk_level": null,
+          "contradicting_evidence": [
+            "CAPITAL_FLOW_WEAK"
+          ],
+          "index_chain_resonance": 50,
+          "leader_structure": 80,
+          "name": "消费服务",
+          "new_entry_policy": "PROBE_ONLY",
+          "score": 64.15,
+          "stage": "ACCELERATION",
+          "supporting_evidence": [
+            "EMOTION_LEADER_PRESENT"
+          ],
+          "theme_id": "CONSUMER_SERVICES",
+          "tier_structure": 65,
+          "weekly_state": null
+        },
+        {
+          "breadth": 100,
+          "capital_flow": 51,
+          "chase_risk_level": null,
+          "contradicting_evidence": [
+            "NO_TOP_ROTATION"
+          ],
+          "index_chain_resonance": 67,
+          "leader_structure": 97,
+          "name": "农业与粮食安全",
+          "new_entry_policy": "WATCH_ONLY",
+          "score": 61.11,
+          "stage": "ACCELERATION",
+          "supporting_evidence": [
+            "STRONG_TREND_OBSERVATION"
+          ],
+          "theme_id": "AGRICULTURE_FOOD_SECURITY",
+          "tier_structure": 0,
+          "weekly_state": null
+        },
+        {
+          "breadth": 82,
+          "capital_flow": 78,
+          "chase_risk_level": null,
+          "contradicting_evidence": [
+            "TIER_STRUCTURE_FLAT"
+          ],
+          "index_chain_resonance": 64,
+          "leader_structure": 80,
+          "name": "AI算力基础设施",
+          "new_entry_policy": "ALLOW",
+          "score": 60.64,
+          "stage": "ACCELERATION",
+          "supporting_evidence": [
+            "AI_CPO_STRONG",
+            "BREADTH_HEALTHY"
+          ],
+          "theme_id": "AI_COMPUTE_INFRASTRUCTURE",
+          "tier_structure": 0,
+          "weekly_state": null
+        },
+        {
+          "breadth": 65,
+          "capital_flow": 70,
+          "chase_risk_level": null,
+          "contradicting_evidence": [
+            "TIER_STRUCTURE_FLAT"
+          ],
+          "index_chain_resonance": 52,
+          "leader_structure": 75,
+          "name": "消费电子",
+          "new_entry_policy": "ALLOW",
+          "score": 58.12,
+          "stage": "ACCELERATION",
+          "supporting_evidence": [
+            "TOP_ROTATION_STRENGTH"
+          ],
+          "theme_id": "CONSUMER_ELECTRONICS",
+          "tier_structure": 0,
+          "weekly_state": null
+        }
+      ],
+      "focus_count": 125,
+      "focus_stocks": [
+        {
+          "identifiability_score": null,
+          "market_role": "TREND_CORE",
+          "name": "德明利",
+          "risk_reasons": [
+            "CAPITAL_FLOW_MID"
+          ],
+          "selection_reasons": [
+            "SEMI_CORE",
+            "TREND_CONFIRMED"
+          ],
+          "symbol": "001309.SZ",
+          "theme_id": "SEMICONDUCTOR_LOCALIZATION",
+          "theme_name": "半导体国产化"
+        },
+        {
+          "identifiability_score": null,
+          "market_role": "TREND_CORE",
+          "name": "大港股份",
+          "risk_reasons": [
+            "CAPITAL_FLOW_MID"
+          ],
+          "selection_reasons": [
+            "SEMI_CORE",
+            "TREND_CONFIRMED"
+          ],
+          "symbol": "002077.SZ",
+          "theme_id": "SEMICONDUCTOR_LOCALIZATION",
+          "theme_name": "半导体国产化"
+        },
+        {
+          "identifiability_score": null,
+          "market_role": "TREND_CORE",
+          "name": "康强电子",
+          "risk_reasons": [
+            "CAPITAL_FLOW_MID"
+          ],
+          "selection_reasons": [
+            "SEMI_CORE",
+            "TREND_CONFIRMED"
+          ],
+          "symbol": "002119.SZ",
+          "theme_id": "SEMICONDUCTOR_LOCALIZATION",
+          "theme_name": "半导体国产化"
+        },
+        {
+          "identifiability_score": null,
+          "market_role": "TREND_CORE",
+          "name": "通富微电",
+          "risk_reasons": [
+            "IDENTIFIABILITY_LOW"
+          ],
+          "selection_reasons": [
+            "SEMI_CORE",
+            "HOT100"
+          ],
+          "symbol": "002156.SZ",
+          "theme_id": "SEMICONDUCTOR_LOCALIZATION",
+          "theme_name": "半导体国产化"
+        },
+        {
+          "identifiability_score": null,
+          "market_role": "EMOTION_LEADER",
+          "name": "华天科技",
+          "risk_reasons": [
+            "HIGH_CROWDING"
+          ],
+          "selection_reasons": [
+            "EMOTION_FIRST_BOARD",
+            "TREND_EMOTION_DUAL"
+          ],
+          "symbol": "002185.SZ",
+          "theme_id": "SEMICONDUCTOR_LOCALIZATION",
+          "theme_name": "半导体国产化"
+        },
+        {
+          "identifiability_score": null,
+          "market_role": "TREND_CORE",
+          "name": "大为股份",
+          "risk_reasons": [
+            "CAPITAL_FLOW_MID"
+          ],
+          "selection_reasons": [
+            "SEMI_CORE",
+            "TREND_CONFIRMED"
+          ],
+          "symbol": "002213.SZ",
+          "theme_id": "SEMICONDUCTOR_LOCALIZATION",
+          "theme_name": "半导体国产化"
+        },
+        {
+          "identifiability_score": null,
+          "market_role": "TREND_CORE",
+          "name": "北方华创",
+          "risk_reasons": [
+            "CAPITAL_FLOW_MID"
+          ],
+          "selection_reasons": [
+            "SEMI_CORE",
+            "TREND_CONFIRMED"
+          ],
+          "symbol": "002371.SZ",
+          "theme_id": "SEMICONDUCTOR_LOCALIZATION",
+          "theme_name": "半导体国产化"
+        },
+        {
+          "identifiability_score": null,
+          "market_role": "TREND_CORE",
+          "name": "雅克科技",
+          "risk_reasons": [
+            "CAPITAL_FLOW_MID"
+          ],
+          "selection_reasons": [
+            "SEMI_CORE",
+            "TREND_CONFIRMED"
+          ],
+          "symbol": "002409.SZ",
+          "theme_id": "SEMICONDUCTOR_LOCALIZATION",
+          "theme_name": "半导体国产化"
+        },
+        {
+          "identifiability_score": null,
+          "market_role": "TREND_CORE",
+          "name": "旷达科技",
+          "risk_reasons": [
+            "CAPITAL_FLOW_MID"
+          ],
+          "selection_reasons": [
+            "ROBOTICS_CORE",
+            "TREND_CONFIRMED"
+          ],
+          "symbol": "002516.SZ",
+          "theme_id": "SEMICONDUCTOR_LOCALIZATION",
+          "theme_name": "半导体国产化"
+        },
+        {
+          "identifiability_score": null,
+          "market_role": "TREND_CORE",
+          "name": "中晶科技",
+          "risk_reasons": [
+            "CAPITAL_FLOW_MID"
+          ],
+          "selection_reasons": [
+            "SEMI_CORE",
+            "HOT100"
+          ],
+          "symbol": "003026.SZ",
+          "theme_id": "SEMICONDUCTOR_LOCALIZATION",
+          "theme_name": "半导体国产化"
+        },
+        {
+          "identifiability_score": null,
+          "market_role": "TREND_CORE",
+          "name": "国民技术",
+          "risk_reasons": [
+            "IDENTIFIABILITY_LOW"
+          ],
+          "selection_reasons": [
+            "SEMI_CORE",
+            "HOT100"
+          ],
+          "symbol": "300077.SZ",
+          "theme_id": "SEMICONDUCTOR_LOCALIZATION",
+          "theme_name": "半导体国产化"
+        },
+        {
+          "identifiability_score": null,
+          "market_role": "TREND_CORE",
+          "name": "圣邦股份",
+          "risk_reasons": [
+            "IDENTIFIABILITY_LOW"
+          ],
+          "selection_reasons": [
+            "SEMI_CORE",
+            "TREND_CONFIRMED"
+          ],
+          "symbol": "300661.SZ",
+          "theme_id": "SEMICONDUCTOR_LOCALIZATION",
+          "theme_name": "半导体国产化"
+        }
+      ],
+      "rejected_count": 0,
+      "status": "VALIDATED",
+      "watch_count": 45
+    },
+    "a3": {
+      "approved_count": 67,
+      "market_open_constraints": {
+        "a3_authority": "POSITION_GUIDANCE_ONLY",
+        "a4_entry_authority": "CURRENT_SESSION_LIVE_STATE",
+        "prior_market_environment": "ROTATION_MIXED",
+        "recommended_position_max_pct": 0.7,
+        "recommended_position_min_pct": 0.6
+      },
+      "rejected_count": 28,
+      "secondary_count": 75,
+      "status": "VALIDATED"
+    },
+    "lane_id": "lane_1",
+    "market_trade_date": "2026-09-18",
+    "model": "deepseek-v4-pro",
+    "reason_codes": [
+      "A1_ACTIVE_REUSED"
+    ],
+    "schema_version": "liangjian-premarket-context/2.0.0",
+    "source_as_of": "2026-09-19T22:44:28.980769+08:00",
+    "source_run_id": "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2",
+    "status": "READY",
+    "target_trade_date": "2026-09-21"
+  },
+  "preparation_mode": "NEXT_SESSION_PRODUCTION_PREP",
+  "primary_lane_ids": [
+    "lane_1"
+  ],
+  "research_markdown": "/www/wwwroot/Agu/liangjian-funnel-workflow/outputs/research/research_next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2.md",
+  "run_id": "next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2",
+  "run_role": "primary",
+  "slot": "close",
+  "snapshot": {
+    "factor_ready_count": 0,
+    "feature_source": {
+      "business_count": 1870,
+      "fundamental_count": 938,
+      "g0_count": 938,
+      "generation_id": "feature-live-source-2e5a6862d081119ba24d5d8a",
+      "market_trade_date": "2026-09-18",
+      "member_count": 938,
+      "reason_code": null,
+      "resources": {
+        "disk_free_mb": 24062.152,
+        "disk_free_ratio": 0.299563,
+        "open_file_descriptors": 6,
+        "rss_current_mb": 1142.867,
+        "rss_peak_mb": 1143.73,
+        "swap_used_mb": 1144.461,
+        "system_mem_available_mb": 1239.387
+      },
+      "reused": false,
+      "snapshot_hash": "48deb6e2d725380a752ece5a204ef77f9177afd0687c6e5f57eb28d89723e86c",
+      "snapshot_id": "snapshot-20260919T224600+0800-48deb6e2d725",
+      "status": "READY",
+      "taxonomy_count": 80628
+    },
+    "full_universe_count": 5575,
+    "path": "/www/wwwroot/Agu/liangjian-funnel-workflow/storage/snapshots/snapshot-20260919T224600+0800-48deb6e2d725.json",
+    "research_universe_count": 3823,
+    "selected_count": 938,
+    "snapshot_hash": "48deb6e2d725380a752ece5a204ef77f9177afd0687c6e5f57eb28d89723e86c",
+    "snapshot_id": "snapshot-20260919T224600+0800-48deb6e2d725",
+    "trade_universe_count": 3767
+  },
+  "source_as_of": "2026-09-19T22:44:28.980769+08:00",
+  "stage_markdown": {
+    "A1": "/www/wwwroot/Agu/liangjian-funnel-workflow/outputs/research/research_next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2_A1.md",
+    "A2": "/www/wwwroot/Agu/liangjian-funnel-workflow/outputs/research/research_next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2_A2.md",
+    "A3": "/www/wwwroot/Agu/liangjian-funnel-workflow/outputs/research/research_next-session-prep-2026-09-21-a1-ce94c0d0c751-prep-v2_A3.md"
+  },
+  "status": "READY",
+  "target_trade_date": "2026-09-21"
+}

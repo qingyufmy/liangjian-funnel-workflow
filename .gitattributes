@@ -1,0 +1,3 @@
+/LATEST_RESULTS/*.md text eol=lf
+/LATEST_RESULTS/*.json text eol=lf
+/LATEST_RESULTS/*.sha256 text eol=lf
