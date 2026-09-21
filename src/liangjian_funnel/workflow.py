@@ -509,6 +509,7 @@ class WorkflowApplication:
         progress: WorkflowProgress | None = None,
         candidate_symbols: tuple[str, ...] | None = None,
         auction_refresh: bool = False,
+        materialize_feature_source: bool = True,
     ) -> PreparedSnapshot:
         current = _aware(as_of or datetime.now(SHANGHAI))
         market_current = _aware(market_data_as_of or current)
@@ -1268,7 +1269,7 @@ class WorkflowApplication:
             progress.set_phase("FEATURE_SOURCE_GENERATION")
             progress.update_resources(measure_resources(self.settings.root).as_dict())
             _progress_stdout(progress.snapshot())
-        if self.settings.feature_maintenance_enabled and not auction_refresh:
+        if self.settings.feature_maintenance_enabled and not auction_refresh and materialize_feature_source:
             try:
                 feature_source = materialize_live_source(
                     self.feature_store,
@@ -1299,7 +1300,13 @@ class WorkflowApplication:
                 "snapshot_id": snapshot.snapshot_id,
                 "snapshot_hash": snapshot.snapshot_hash,
                 "market_trade_date": closed_trade_date.isoformat(),
-                "reason_code": "AUCTION_SKIP_MAINTENANCE_WRITE" if auction_refresh else "FEATURE_MAINTENANCE_DISABLED",
+                "reason_code": (
+                    "AUCTION_SKIP_MAINTENANCE_WRITE"
+                    if auction_refresh
+                    else "ACTIVE_A1_DOWNSTREAM_SKIP_FEATURE_MAINTENANCE"
+                    if not materialize_feature_source
+                    else "FEATURE_MAINTENANCE_DISABLED"
+                ),
             }
         if progress is not None:
             progress.update_resources(measure_resources(self.settings.root).as_dict())
@@ -2562,6 +2569,7 @@ class WorkflowApplication:
                     market_data_as_of=market_data_as_of,
                     progress=progress,
                     candidate_symbols=active_a1_scope_symbols,
+                    materialize_feature_source=not from_active_a1,
                     **({"auction_refresh": True} if auction_refresh else {}),
                 )
                 if not historical_replay and not comparison_run and not auction_refresh:
@@ -2605,6 +2613,7 @@ class WorkflowApplication:
             progress_callback=research_progress,
             checkpoint_store=self.research_checkpoints,
             stage_snapshot_enricher=self._stage_snapshot_enricher,
+            enable_feature_store=not from_active_a1,
         )
         heartbeat_stop = Event()
 

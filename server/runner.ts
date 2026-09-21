@@ -34,6 +34,7 @@ export function timeoutForJob(
   // bounded fact collection, verification, persistence and delivery; equal
   // deadlines kill a valid model result before the review can be recorded.
   if (job === "a5-midday" || job === "a5-close") return Math.min(configuredTimeoutMs, 15 * 60 * 1000);
+  if (job === "close") return Math.min(configuredTimeoutMs, 60 * 60 * 1000);
   if (job === "a1") return a1TimeoutMs;
   return configuredTimeoutMs;
 }

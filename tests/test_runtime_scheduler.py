@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
+import time
 from zoneinfo import ZoneInfo
 
 from liangjian_funnel.runtime.scheduler import DispatchStatus, ScheduleKind, Scheduler
@@ -150,6 +151,30 @@ def test_callback_failure_falls_back_to_exception_class_without_message(tmp_path
     encoded = failed.model_dump_json()
     assert "unsafe reason" not in encoded
     assert "sensitive callback body" not in encoded
+
+
+def test_long_callback_heartbeats_scheduler_lease(tmp_path, monkeypatch):
+    store = RuntimeStore(tmp_path / "heartbeat.sqlite3")
+    calls = []
+    original = store.heartbeat_lease
+
+    def heartbeat(*args, **kwargs):
+        calls.append(args[0])
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(store, "heartbeat_lease", heartbeat)
+    scheduler = Scheduler(
+        store,
+        callbacks={"morning_0925": lambda _job: time.sleep(0.18)},
+        trading_day=lambda _day: True,
+        lease_ttl_seconds=0.15,
+    )
+    result = scheduler.dispatch_once(
+        datetime.now(TZ).replace(hour=9, minute=26, second=0, microsecond=0),
+        kinds=(ScheduleKind.MORNING_0925,),
+    )
+    assert result[0].status is DispatchStatus.DISPATCHED
+    assert calls
 
 
 def test_cache_conflict_diagnostics_are_whitelisted_without_market_values(tmp_path):

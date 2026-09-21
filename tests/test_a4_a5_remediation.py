@@ -247,10 +247,10 @@ def test_a5_compaction_keeps_complete_counts_and_effective_events():
     original = json.dumps(facts, sort_keys=True)
     projected = _model_fact_projection(facts)
     groups = projected["a4"]["observation_groups"]
-    assert sum(row["observation_count"] for row in groups) == 5000
-    assert sum(sum(row["primary_reason_counts"].values()) for row in groups) == 5000
+    rows = [dict(zip(groups["columns"], row)) for row in groups["rows"]]
+    assert sum(row["observation_count"] for row in rows) == 5000
+    assert groups["observation_count"] == 5000
     assert effective in projected["a4"]["events"]
-    assert any(row["evidence_id"] == events[333]["evidence_id"] for row in projected["a4"]["events"])
-    assert len(projected["a4"]["events"]) <= 10
+    assert len(projected["a4"]["events"]) == 1
     assert projected["metrics"] == facts["metrics"]
     assert json.dumps(facts, sort_keys=True) == original

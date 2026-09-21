@@ -103,7 +103,11 @@ def test_archive_transport_index_is_summarized_but_failures_and_findings_remain(
     assert summary['requested_count'] == 3 and summary['archived_count'] == 1
     assert len(summary['failures']) == 2 and summary['failures'][0]['status'] == 'ARCHIVE_FAILED'
     assert 'DO_NOT_SEND_FILE_PATH' not in json.dumps(projected)
-    assert projected['independent_verification']['a4']['plans'][0] == facts['independent_verification']['a4']['plans'][0]
+    plan_projection = projected['independent_verification']['a4']['plans']
+    assert plan_projection['plan_count'] == 1
+    assert plan_projection['exception_count'] == 1
+    exception = dict(zip(plan_projection['exceptions']['columns'], plan_projection['exceptions']['rows'][0]))
+    assert exception['evidence_id'] == facts['independent_verification']['a4']['plans'][0]['evidence_id']
     assert projected['independent_verification']['a4']['field_totals'] == {}
     assert facts == original
 
@@ -157,10 +161,11 @@ def test_representative_prioritizes_live_geometry_over_empty_warmup():
         {**base, "evidence_id": "end", "minute_end": "15:00", "reason_code": "TREND_15M_PRESSURE_NOT_EASING", "unmet_conditions": ["PRESSURE"]},
     ]
     selected, groups = _compact_a4_observations(rows)
-    assert "geometry" in {r["evidence_id"] for r in selected}
-    assert next(r for r in selected if r["evidence_id"] == "geometry")["entry_geometry"]["minimum_reward_risk"] == 2
-    assert groups[0]["observation_count"] == 3
-    assert groups[0]["primary_reason_counts"]["A4_SESSION_WARMUP"] == 1
+    assert selected == []
+    assert sum(group["observation_count"] for group in groups) == 3
+    assert {group["reason_code"] for group in groups} == {
+        "A4_SESSION_WARMUP", "A4_LIVE_REWARD_RISK_BELOW_MINIMUM", "TREND_15M_PRESSURE_NOT_EASING"
+    }
 
 
 def test_market_recovery_keeps_full_coverage_and_failures_without_mutating_archive():
@@ -192,7 +197,11 @@ def test_full_day_frozen_input_when_available():
     index = projection["independent_verification"]["a2"]["market_cross_section_recovery"]
     assert index["row_count"] == len(original_rows) == 812
     assert sorted(s for g in index["groups"] for s in g["symbols"]) == sorted(r["symbol"] for r in original_rows)
-    assert projection["independent_verification"]["counterexamples"] == facts["independent_verification"]["counterexamples"]
+    projected_counterexamples = projection["independent_verification"]["counterexamples"]
+    assert [row["evidence_id"] for row in projected_counterexamples] == [
+        row["evidence_id"] for row in facts["independent_verification"]["counterexamples"]
+    ]
+    assert all(row["raw_evidence_sha256"] for row in projected_counterexamples)
     assert unpack(pack_evidence(projection)) == projection
     assert facts == original
 
@@ -273,14 +282,24 @@ def test_service_archives_budget_failure_and_never_calls_model(tmp_path, monkeyp
             pytest.fail("Oversize input must not reach the model")
 
     store = RuntimeStore(tmp_path / "runtime.db")
+    failures = []
+
+    class Publisher:
+        def publish_a5_task_failure(self, review_kind, **kwargs):
+            failures.append((review_kind, kwargs))
+
     service = A5DailyReviewService(store=store, prompts=PromptRepository(ROOT / "prompts"),
-        model_client=ForbiddenModel(), output_dir=tmp_path, lane_id="lane_1", model="deepseek")
+        model_client=ForbiddenModel(), output_dir=tmp_path, lane_id="lane_1", model="deepseek",
+        notification_publisher=Publisher())
     with pytest.raises(A5ReviewError, match="A5_MODEL_CONTEXT_TOO_LARGE"):
         service.run(review_kind=A5ReviewKind.MIDDAY, now=CUTOFF.replace(minute=35))
     artifacts = tmp_path / "a5/2026-09-09"
     assert len(list(artifacts.glob("*-facts.json"))) == 1
     context = json.loads(next(artifacts.glob("*-context.json")).read_text(encoding="utf-8"))
     assert context["reason_code"] == "A5_MODEL_CONTEXT_TOO_LARGE"
+    assert failures[0][0] == "MIDDAY"
+    assert failures[0][1]["reason_code"] == "A5_MODEL_CONTEXT_TOO_LARGE"
+    assert failures[0][1]["diagnostics"]["prompt_chars"] > 250000
     assert store.list_a5_reviews() == ()
 
 
@@ -312,7 +331,7 @@ def test_frozen_production_inputs_when_available(kind):
     original = copy.deepcopy(facts)
     proj = _model_fact_projection(facts)
     _, diag = render_a5_prompt(PromptRepository(ROOT / "prompts"), "agent_5_daily_reviewer_v1.txt", proj)
-    assert diag["unpacked_prompt_chars"] > 250000 and diag["prompt_chars"] < 210000
+    assert diag["prompt_chars"] <= diag["target_chars"] == 180000
     assert unpack(pack_evidence(proj)) == proj
     cutoff = datetime.fromisoformat(facts["cutoff_at"])
     selected, carry, retired = select_review_plans(facts["a3"]["plans"], cutoff=cutoff,

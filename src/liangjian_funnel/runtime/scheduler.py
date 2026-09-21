@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 import re
+from threading import Event, Thread
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, time as datetime_time, timedelta
@@ -169,6 +170,27 @@ class Scheduler:
                 records.append(DispatchRecord(kind=job.kind, due=job.due, status=DispatchStatus.SKIPPED, dispatch_key=job.dispatch_key, reason_code="CALLBACK_NOT_CONFIGURED"))
                 self.store.complete_lease(lease, self.owner, dispatch_key=job.dispatch_key, now=current)
                 continue
+            heartbeat_stop = Event()
+
+            def keep_lease_alive() -> None:
+                interval = max(0.05, min(30.0, self.lease_ttl_seconds / 3.0))
+                while not heartbeat_stop.wait(interval):
+                    try:
+                        if not self.store.heartbeat_lease(
+                            lease,
+                            self.owner,
+                            ttl_seconds=self.lease_ttl_seconds,
+                        ):
+                            return
+                    except Exception:
+                        return
+
+            heartbeat = Thread(
+                target=keep_lease_alive,
+                name=f"liangjian-lease-{job.kind.value}",
+                daemon=True,
+            )
+            heartbeat.start()
             try:
                 result = self._invoke(callback, job)
                 business_reason = self._callback_result_reason(result)
@@ -207,6 +229,9 @@ class Scheduler:
                     )
                 )
                 continue
+            finally:
+                heartbeat_stop.set()
+                heartbeat.join(timeout=1.0)
             records.append(DispatchRecord(kind=job.kind, due=job.due, status=DispatchStatus.DISPATCHED, dispatch_key=job.dispatch_key))
         return tuple(records)
 

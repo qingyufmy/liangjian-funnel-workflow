@@ -26,6 +26,55 @@ class FakeNotifier:
         return LarkDeliveryResult(True, "LARK_SENT", 200, 1)
 
 
+def test_a5_failure_is_once_per_period_and_success_emits_one_recovery(tmp_path):
+    store = RuntimeStore(tmp_path / "a5-health.sqlite3")
+    publisher = WorkflowLarkPublisher(
+        store,
+        "https://open.larksuite.com/open-apis/bot/v2/hook/test-token",
+    )
+    fake = FakeNotifier()
+    publisher.notifier = fake
+    now = datetime(2026, 9, 21, 16, 2, tzinfo=SHANGHAI)
+    diagnostics = {
+        "prompt_chars": 286031,
+        "limit_chars": 250000,
+        "input_hash": "a" * 64,
+    }
+
+    first = publisher.publish_a5_task_failure(
+        "POST_CLOSE",
+        reason_code="A5_MODEL_CONTEXT_TOO_LARGE",
+        diagnostics=diagnostics,
+        now=now,
+    )
+    duplicate = publisher.publish_a5_task_failure(
+        "POST_CLOSE",
+        reason_code="A5_MODEL_CONTEXT_TOO_LARGE",
+        diagnostics=diagnostics,
+        now=now,
+    )
+    recovered = publisher.publish_a5_task_recovery(
+        "POST_CLOSE",
+        input_hash="a" * 64,
+        now=now,
+    )
+    recovery_duplicate = publisher.publish_a5_task_recovery(
+        "POST_CLOSE",
+        input_hash="a" * 64,
+        now=now,
+    )
+
+    assert first["status"] == "SENT" and duplicate["duplicate"] is True
+    assert recovered["status"] == "SENT" and recovery_duplicate["duplicate"] is True
+    assert len(fake.calls) == 2
+    failure_body = "\n".join(fake.calls[0][1])
+    assert "A5_MODEL_CONTEXT_TOO_LARGE" in failure_body
+    assert "286031" in failure_body and "250000" in failure_body
+    assert "不可以，需先修复失败原因" in failure_body
+    assert len(store.list_notification_deliveries(kind="A5_TASK_FAILURE")) == 1
+    assert len(store.list_notification_deliveries(kind="A5_TASK_RECOVERY")) == 1
+
+
 def _plan(index: int) -> dict[str, object]:
     symbol = f"0000{index:02d}.SZ"
     return {

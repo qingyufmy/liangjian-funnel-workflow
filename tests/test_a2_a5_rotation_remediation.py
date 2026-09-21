@@ -49,17 +49,11 @@ def test_full_a2_lineage_over_300_and_group_roundtrip():
     assert counterexample_drop_stage("000100.SZ", "OUTSIDE_ROTATION", [], {}) == "A2_QUANT_FILTERED"
     assert counterexample_drop_stage("000100.SZ", "OUTSIDE_ROTATION", ["000100.SZ"], {}) == "A4_NO_EFFECTIVE_SIGNAL"
     grouped = _model_fact_projection({"a2": projection})["a2"]["candidates"]
-    restored = [{**group["common"], **row,
-                 **({"evidence_id": f"A2:{group['common']['pool']}:{row['symbol']}"}
-                    if group.get("derive_evidence_id") else {})}
-                for group in grouped["groups"] for row in group["stocks"]]
-    for row in restored:
-        row.setdefault("reason_codes", row["selection_reasons"])
-    # Detailed quant gates intentionally remain in the immutable fact archive;
-    # model transport carries them only for selected counterexample audits.
-    expected = [{key: value for key, value in row.items() if key != "quant_gate_evidence"}
-                for row in projection["candidates"]]
-    assert sorted(restored, key=lambda r: r["symbol"]) == sorted(expected, key=lambda r: r["symbol"])
+    assert grouped["total_count"] == 827
+    assert grouped["detailed_count"] == 81
+    assert grouped["archived_remainder"]["count"] == 746
+    assert grouped["archived_remainder"]["pool_counts"] == {"OUTSIDE_ROTATION": 746}
+    assert grouped["archived_remainder"]["raw_evidence_sha256"]
     assert all("quant_gate_evidence" in row for row in projection["candidates"])
 
 

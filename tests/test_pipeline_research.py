@@ -4193,3 +4193,12 @@ def test_research_retry_with_fresh_snapshot_keeps_public_run_id_and_isolates_fea
     assert retry_generation["metadata"]["feature_run_id"] == (
         f"{logical_run_id}--snapshot-{'t' * 12}"
     )
+def test_active_a1_downstream_can_disable_feature_store(tmp_path):
+    pipeline = ResearchPipeline(
+        _settings(tmp_path),
+        prompt_repository=_prompt_dir(tmp_path),
+        model_client=object(),
+        now=lambda: NOW,
+        enable_feature_store=False,
+    )
+    assert pipeline.feature_store is None

@@ -7,8 +7,9 @@ from collections import Counter
 from typing import Any, Mapping
 
 
+PROMPT_TARGET = 180_000
+PROMPT_WARNING = 220_000
 PROMPT_LIMIT = 250_000
-PROMPT_TARGET = 200_000
 
 
 class A5ReviewError(ValueError):
@@ -80,7 +81,9 @@ def render_a5_prompt(prompts: Any, filename: str, projection: dict[str, Any]) ->
             prompt = candidate
     diagnostics = {
         "prompt_chars": len(prompt), "unpacked_prompt_chars": original_chars,
-        "limit_chars": PROMPT_LIMIT, "target_chars": PROMPT_TARGET,
+        "limit_chars": PROMPT_LIMIT, "warning_chars": PROMPT_WARNING,
+        "target_chars": PROMPT_TARGET,
+        "warning": len(prompt) > PROMPT_WARNING,
         "input_hash": original_projection.get("input_hash"),
         "section_chars": section_sizes,
     }
@@ -99,7 +102,10 @@ def _critical_fact_header(projection: dict[str, Any]) -> str:
     a4_verification = verification.get("a4") or {}
     explicit_totals = a4_verification.get("field_totals")
     fields = dict(explicit_totals) if isinstance(explicit_totals, Mapping) else {}
-    for plan in a4_verification.get("plans", []):
+    verification_plans = a4_verification.get("plans", [])
+    if not isinstance(verification_plans, list):
+        verification_plans = []
+    for plan in verification_plans:
         for side in ("cross_source_field_checks", "archived_tdx_field_checks"):
             for name, row in (plan.get(side) or {}).items():
                 if not isinstance(row, dict):

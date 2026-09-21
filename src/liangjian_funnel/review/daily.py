@@ -405,53 +405,397 @@ def _a3_candidates(audit: Mapping[str, Any]) -> list[dict[str, Any]]:
 
 
 def _compact_a4_observations(events: Sequence[Mapping[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Preserve effective events and causal coverage, not repeated prose."""
+    """Keep every consequential event and aggregate repeated observations.
+
+    The immutable fact snapshot remains the event ledger.  The model receives
+    every effective event verbatim, while non-effective rows are grouped by
+    stock and primary reason with exact counts, time bounds and a deterministic
+    hash of the original evidence identities.  This is a projection only: it
+    never rewrites the archived A4 decisions.
+    """
+
     groups: dict[tuple[str, str], list[Mapping[str, Any]]] = {}
-    selected: dict[str, dict[str, Any]] = {}
+    selected: list[dict[str, Any]] = []
     for event in events:
         if event.get("effective"):
-            selected[str(event["evidence_id"])] = dict(event)
+            selected.append(dict(event))
         else:
-            key = (str(event.get("plan_id")), str(event.get("action")))
+            key = (
+                str(event.get("symbol") or "UNKNOWN"),
+                str(event.get("reason_code") or "UNKNOWN"),
+            )
             groups.setdefault(key, []).append(event)
-    summaries = []
+    summaries: list[dict[str, Any]] = []
     for key, rows in sorted(groups.items()):
         ordered = sorted(rows, key=lambda row: (str(row.get("minute_end")), str(row.get("event_id"))))
-        def proximity(row: Mapping[str, Any]) -> tuple[int, int, int]:
-            reason = str(row.get("reason_code") or "")
-            geometry_gate = reason.startswith("A4_LIVE_REWARD_RISK_") or reason.startswith("A4_LIVE_STOP_")
-            warmup = reason in {"A4_SESSION_WARMUP", "NO_CLOSED_5M", "NO_CLOSED_15M", "EMPTY_SCOPE"}
-            # A warm-up row may have zero unmet_conditions; it is not the
-            # closest entry opportunity. Live geometry runs after technical
-            # confirmation and is therefore the priority diagnostic sample.
-            return (0 if geometry_gate else 1, 1 if warmup else 0,
-                    len(row.get("unmet_conditions") or []))
-        closest = min(ordered, key=proximity)
-        # The group summary already preserves the exact first/last timestamps,
-        # counts and every reason frequency.  Keeping the closest causal row is
-        # therefore sufficient for model diagnosis; retaining first/closest/
-        # last repeated the same large entry-geometry payload thousands of
-        # times across a close review and could crowd out A1-A3 evidence.
-        representatives = {str(closest["evidence_id"]): dict(closest)}
-        selected.update(representatives)
-        counts: dict[str, int] = {}
-        primary_counts: dict[str, int] = {}
+        action_counts: dict[str, int] = {}
+        strategy_reason_counts: dict[str, int] = {}
+        plan_ids: set[str] = set()
+        evidence_index: list[dict[str, Any]] = []
         for row in ordered:
-            primary = str(row.get("reason_code") or "UNKNOWN")
-            primary_counts[primary] = primary_counts.get(primary, 0) + 1
+            action = str(row.get("action") or "UNKNOWN")
+            action_counts[action] = action_counts.get(action, 0) + 1
+            if row.get("plan_id"):
+                plan_ids.add(str(row["plan_id"]))
             for reason in set(row.get("strategy_reason_codes") or []):
-                counts[str(reason)] = counts.get(str(reason), 0) + 1
-        summaries.append({"evidence_id": "A4:OBSERVATION_GROUP:" + _canonical_hash(key)[:16],
-            "plan_id": key[0], "symbol": ordered[0].get("symbol"), "action": key[1], "primary_reason_counts": primary_counts,
-            "observation_count": len(ordered), "first_at": ordered[0].get("minute_end"),
-            "last_at": ordered[-1].get("minute_end"), "strategy_reason_counts": counts,
-            "representative_evidence_ids": list(representatives)})
-    return sorted(selected.values(), key=lambda row: (str(row.get("minute_end")), str(row.get("event_id")))), summaries
+                code = str(reason)
+                strategy_reason_counts[code] = strategy_reason_counts.get(code, 0) + 1
+            evidence_index.append({
+                "evidence_id": row.get("evidence_id"),
+                "event_id": row.get("event_id"),
+                "minute_end": row.get("minute_end"),
+                "plan_id": row.get("plan_id"),
+                "action": row.get("action"),
+                "reason_code": row.get("reason_code"),
+            })
+        summaries.append({
+            "evidence_id": "A4:OBSERVATION_GROUP:" + _canonical_hash(evidence_index)[:16],
+            "symbol": key[0],
+            "reason_code": key[1],
+            "category": "ANOMALY" if "DATA_BLOCK" in action_counts else "WAITING",
+            "observation_count": len(ordered),
+            "first_at": ordered[0].get("minute_end"),
+            "last_at": ordered[-1].get("minute_end"),
+            "action_counts": action_counts,
+            "plan_ids": sorted(plan_ids),
+            "strategy_reason_counts": strategy_reason_counts,
+            "raw_evidence_sha256": _canonical_hash(evidence_index),
+            "archive_locator": "a4.events",
+        })
+    return sorted(selected, key=lambda row: (str(row.get("minute_end")), str(row.get("event_id")))), summaries
+
+
+def _count_values(rows: Sequence[Mapping[str, Any]], field: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for row in rows:
+        value = str(row.get(field) or "UNKNOWN")
+        counts[value] = counts.get(value, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def _dictionary_encode(value: Any, dictionary: list[str], index: dict[str, int]) -> Any:
+    if isinstance(value, str):
+        if value not in index:
+            index[value] = len(dictionary)
+            dictionary.append(value)
+        return index[value]
+    if isinstance(value, list):
+        return [_dictionary_encode(item, dictionary, index) for item in value]
+    return value
+
+
+def _compact_a2_candidates_for_model(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Keep FOCUS/WATCH identities and summarize the unchanged A1 remainder."""
+
+    detailed = [dict(row) for row in rows if str(row.get("pool") or "").upper() in {"FOCUS", "WATCH"}]
+    outside = [dict(row) for row in rows if str(row.get("pool") or "").upper() not in {"FOCUS", "WATCH"}]
+    detailed_columns = (
+        "symbol", "name", "pool", "theme_id", "theme_name", "market_role",
+        "behavior_type", "score", "quant_status", "llm_reviewed",
+        "selection_reasons", "risk_reasons", "reason_codes",
+    )
+    detailed_rows = [
+        [row.get(column) for column in detailed_columns]
+        for row in sorted(detailed, key=lambda item: str(item.get("symbol") or ""))
+    ]
+    detailed_dictionary: list[str] = []
+    detailed_index: dict[str, int] = {}
+    encoded_columns = set(range(2, len(detailed_columns))) - {7, 9}
+    for row in detailed_rows:
+        for offset in encoded_columns:
+            row[offset] = _dictionary_encode(row[offset], detailed_dictionary, detailed_index)
+    outside_index = [
+        {
+            "evidence_id": row.get("evidence_id"),
+            "symbol": row.get("symbol"),
+            "pool": row.get("pool"),
+            "theme_id": row.get("theme_id"),
+            "quant_status": row.get("quant_status"),
+            "selection_reasons": row.get("selection_reasons") or [],
+            "risk_reasons": row.get("risk_reasons") or [],
+        }
+        for row in sorted(outside, key=lambda item: str(item.get("symbol") or ""))
+    ]
+    reason_counts: dict[str, int] = {}
+    theme_counts: dict[str, int] = {}
+    for row in outside:
+        theme = str(row.get("theme_id") or "UNMAPPED")
+        theme_counts[theme] = theme_counts.get(theme, 0) + 1
+        reasons = row.get("selection_reasons") or row.get("reason_codes") or ["UNSPECIFIED"]
+        for reason in set(str(value) for value in reasons):
+            reason_counts[reason] = reason_counts.get(reason, 0) + 1
+    return {
+        "encoding": "a5-a2-candidate-projection/1",
+        "decoding": (
+            "FOCUS/WATCH groups retain every detailed stock. OUTSIDE_ROTATION and other non-promoted A1 rows "
+            "are represented by exact counts plus a hash of their immutable archive index; selected counterexamples "
+            "remain detailed in independent_verification.counterexamples."
+        ),
+        "total_count": len(rows),
+        "detailed_count": len(detailed),
+        "detailed_candidates": {
+            "encoding": "a5-a2-candidate-table/1",
+            "columns": list(detailed_columns),
+            "rows": detailed_rows,
+            "string_dictionary": detailed_dictionary,
+            "dictionary_encoded_columns": [detailed_columns[index] for index in sorted(encoded_columns)],
+            "evidence_id_rule": "A2:{pool}:{symbol}",
+            "raw_evidence_sha256": _canonical_hash(detailed),
+            "archive_locator": "a2.candidates",
+        },
+        "archived_remainder": {
+            "count": len(outside),
+            "pool_counts": _count_values(outside, "pool"),
+            "quant_status_counts": _count_values(outside, "quant_status"),
+            "theme_counts": dict(sorted(theme_counts.items())),
+            "reason_counts": dict(sorted(reason_counts.items())),
+            "raw_evidence_sha256": _canonical_hash(outside_index),
+            "archive_locator": "a2.candidates",
+        },
+    }
+
+
+def _compact_a3_candidates_for_model(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Encode every candidate once without repeating field names or timestamps."""
+
+    columns = (
+        "symbol", "pool", "eligibility", "strategy_profile", "research_state",
+        "execution_permission", "stock_behavior_type", "reference_price",
+        "reason_codes", "unmet_conditions", "veto_conditions", "a4_deferred_conditions",
+        "daily_state", "distribution", "overextended", "one_price_locked", "theme_stage",
+    )
+    records: list[list[Any]] = []
+    for row in sorted(rows, key=lambda item: str(item.get("symbol") or "")):
+        technical = _json_mapping(row.get("technical_evidence"))
+        values = {
+            **dict(row),
+            "daily_state": technical.get("daily_state"),
+            "distribution": technical.get("distribution"),
+            "overextended": technical.get("overextended"),
+            "one_price_locked": technical.get("one_price_locked"),
+            "theme_stage": technical.get("theme_stage"),
+        }
+        records.append([values.get(column) for column in columns])
+    dictionary: list[str] = []
+    dictionary_index: dict[str, int] = {}
+    encoded_columns = set(range(1, len(columns))) - {7, 14, 15, 16}
+    for record in records:
+        for offset in encoded_columns:
+            record[offset] = _dictionary_encode(record[offset], dictionary, dictionary_index)
+    return {
+        "encoding": "a5-a3-candidate-table/1",
+        "row_count": len(rows),
+        "columns": list(columns),
+        "rows": records,
+        "string_dictionary": dictionary,
+        "dictionary_encoded_columns": [columns[index] for index in sorted(encoded_columns)],
+        "evidence_id_rule": "A3:CANDIDATE:{symbol}",
+        "decision_as_of": sorted({str(row.get("decision_as_of") or "") for row in rows}),
+        "reference_price_as_of": sorted({str(row.get("reference_price_as_of") or "") for row in rows}),
+        "raw_evidence_sha256": _canonical_hash(rows),
+        "archive_locator": "a3.candidates",
+    }
+
+
+def _compact_a3_plans_for_model(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Keep every executable price/risk fact while deduplicating plan prefixes."""
+
+    source_ids = sorted({str(row.get("source_run_id") or "") for row in rows})
+    shared_source = source_ids[0] if len(source_ids) == 1 else ""
+    common_fields = (
+        "expires_at", "maximum_stop_distance_pct", "minimum_reward_risk",
+        "status", "updated_at",
+    )
+    common_values = {
+        field: sorted({json.dumps(row.get(field), ensure_ascii=False, sort_keys=True, default=str) for row in rows})
+        for field in common_fields
+    }
+    common = {
+        field: json.loads(values[0])
+        for field, values in common_values.items()
+        if len(values) == 1
+    }
+    columns = (
+        "plan_id", "symbol", "name", "strategy_profile", "setup_type",
+        "plan_priority", "stock_behavior_type", "valid_from", "trigger_low",
+        "trigger_high", "stop_level", "no_chase_price", "first_resistance",
+        "daily_macd", "selection_reasons", "a4_deferred_conditions",
+    )
+    records: list[list[Any]] = []
+    for row in sorted(rows, key=lambda item: str(item.get("symbol") or "")):
+        values = dict(row)
+        plan_id = str(row.get("plan_id") or "")
+        if shared_source and plan_id.startswith(shared_source + ":"):
+            values["plan_id"] = plan_id[len(shared_source) + 1 :]
+        records.append([values.get(column) for column in columns])
+    dictionary: list[str] = []
+    dictionary_index: dict[str, int] = {}
+    encoded_columns = {3, 4, 5, 6, 7, 14, 15}
+    for record in records:
+        for offset in encoded_columns:
+            record[offset] = _dictionary_encode(record[offset], dictionary, dictionary_index)
+    return {
+        "encoding": "a5-a3-plan-table/1",
+        "row_count": len(rows),
+        "source_run_id": shared_source or source_ids,
+        "plan_id_rule": (
+            "source_run_id + ':' + stored plan_id; evidence_id is 'A3:PLAN:' + full plan_id"
+            if shared_source else "stored plan_id is complete; evidence_id is 'A3:PLAN:' + plan_id"
+        ),
+        "common": common,
+        "columns": list(columns),
+        "rows": records,
+        "string_dictionary": dictionary,
+        "dictionary_encoded_columns": [columns[index] for index in sorted(encoded_columns)],
+        "raw_evidence_sha256": _canonical_hash(rows),
+        "archive_locator": "a3.plans",
+    }
+
+
+def _compact_a4_observation_groups_for_model(groups: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Table-encode exact waiting/anomaly groups and deduplicate long plan ids."""
+
+    plan_index: dict[str, list[str]] = {}
+    columns = (
+        "evidence_id", "symbol", "reason_code", "category", "observation_count",
+        "first_at", "last_at", "action",
+        "raw_evidence_sha256",
+    )
+    rows: list[list[Any]] = []
+    strategy_reason_totals: dict[str, int] = {}
+    for group in groups:
+        symbol = str(group.get("symbol") or "UNKNOWN")
+        plan_index.setdefault(symbol, [])
+        plan_index[symbol].extend(str(value) for value in group.get("plan_ids") or [])
+        action_counts = _json_mapping(group.get("action_counts"))
+        action = next(iter(action_counts)) if len(action_counts) == 1 else action_counts
+        compact = dict(group)
+        compact["first_at"] = str(group.get("first_at") or "")[11:19]
+        compact["last_at"] = str(group.get("last_at") or "")[11:19]
+        compact["action"] = action
+        rows.append([compact.get(column) for column in columns])
+        for reason, count in _json_mapping(group.get("strategy_reason_counts")).items():
+            strategy_reason_totals[str(reason)] = strategy_reason_totals.get(str(reason), 0) + int(count or 0)
+    return {
+        "encoding": "a5-a4-observation-group-table/1",
+        "grouping_key": "symbol+reason_code",
+        "group_count": len(groups),
+        "observation_count": sum(int(group.get("observation_count") or 0) for group in groups),
+        "columns": list(columns),
+        "rows": rows,
+        "strategy_reason_totals": dict(sorted(strategy_reason_totals.items())),
+        "time_encoding": "HH:MM:SS on the top-level trade_date",
+        "action_encoding": "A string means every observation in the group has that action; otherwise exact counts are provided.",
+        "symbol_plan_index": {
+            symbol: sorted(set(values)) for symbol, values in sorted(plan_index.items())
+        },
+        "archive_locator": "a4.events",
+    }
+
+
+def _group_records(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    identity_fields: set[str],
+    evidence_prefix: str | None = None,
+) -> dict[str, Any]:
+    groups: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        common = {key: value for key, value in row.items() if key not in identity_fields}
+        key = json.dumps(common, sort_keys=True, ensure_ascii=False, separators=(",", ":"), default=str)
+        group = groups.setdefault(key, {"common": common, "records": []})
+        identity = {field: row.get(field) for field in identity_fields if field in row}
+        if evidence_prefix and row.get("evidence_id") == evidence_prefix + str(row.get("symbol") or ""):
+            identity.pop("evidence_id", None)
+            group["derive_evidence_id"] = True
+        group["records"].append(identity)
+    return {
+        "encoding": "a5-grouped-records/1",
+        "row_count": len(rows),
+        "groups": list(groups.values()),
+    }
+
+
+def _compact_plan_scope_for_model(value: Mapping[str, Any]) -> dict[str, Any]:
+    result = {key: value[key] for key in ("evidence_id", "session_plan_count", "retired_before_session_count") if key in value}
+    retired = _rows(value.get("retired_before_session"))
+    groups: dict[tuple[str, str], list[Mapping[str, Any]]] = {}
+    for row in retired:
+        key = (str(row.get("reason_code") or "UNKNOWN"), str(row.get("source_run_id") or "UNKNOWN"))
+        groups.setdefault(key, []).append(row)
+    result["retired_groups"] = [
+        {
+            "reason_code": key[0],
+            "source_run_id": key[1],
+            "count": len(rows),
+            "symbols": sorted(str(row.get("symbol") or "") for row in rows),
+            "first_retired_at": min((str(row.get("retired_at") or "") for row in rows), default=""),
+            "last_retired_at": max((str(row.get("retired_at") or "") for row in rows), default=""),
+            "raw_evidence_sha256": _canonical_hash(rows),
+        }
+        for key, rows in sorted(groups.items())
+    ]
+    result["archive_locator"] = "a3.plan_scope.retired_before_session"
+    return result
+
+
+def _compact_operational_evidence_for_model(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    job_rows = [dict(row) for row in rows if str(row.get("kind") or "").startswith("JOB_")]
+    other_rows = [dict(row) for row in rows if not str(row.get("kind") or "").startswith("JOB_")]
+    groups: dict[tuple[str, str, str], list[Mapping[str, Any]]] = {}
+    for row in job_rows:
+        key = (str(row.get("kind") or "UNKNOWN"), str(row.get("job") or "UNKNOWN"), str(row.get("reason") or "UNKNOWN"))
+        groups.setdefault(key, []).append(row)
+    return {
+        "schema_version": "a5-operational-projection/1",
+        "original_count": len(rows),
+        "job_failure_groups": [
+            {
+                "evidence_id": "ENGINEERING:JOB_GROUP:" + _canonical_hash(items)[:16],
+                "kind": key[0], "job": key[1], "reason": key[2],
+                "count": len(items),
+                "first_at": min(str(item.get("time") or "") for item in items),
+                "last_at": max(str(item.get("time") or "") for item in items),
+                "raw_evidence_sha256": _canonical_hash(items),
+            }
+            for key, items in sorted(groups.items())
+        ],
+        "other_events": other_rows,
+        "projected_count": len(job_rows) + len(other_rows),
+        "archive_locator": "operational_evidence",
+    }
+
+
+def _compact_counterexamples_for_model(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Retain every counterexample while removing duplicated A3 matrices."""
+
+    result: list[dict[str, Any]] = []
+    for source in rows:
+        row = dict(source)
+        candidate = _json_mapping(row.get("a3_candidate"))
+        if candidate:
+            row["a3_candidate"] = _compact_a3_candidate_for_model(candidate)
+        audit = dict(_json_mapping(row.get("selection_audit")))
+        if audit:
+            audit_candidate = _json_mapping(audit.get("a3"))
+            if candidate and audit_candidate == candidate:
+                audit.pop("a3", None)
+                audit["a3_reference"] = "a3_candidate"
+            row["selection_audit"] = audit
+        row["raw_evidence_sha256"] = _canonical_hash(source)
+        row["archive_locator"] = (
+            f"independent_verification.counterexamples[{len(result)}]"
+        )
+        result.append(row)
+    return result
 
 
 def _model_fact_projection(facts: Mapping[str, Any]) -> dict[str, Any]:
     projected = dict(facts)
     projected["data_quality"] = normalize_quality(_json_mapping(facts.get("data_quality")))
+    projected["operational_evidence"] = _compact_operational_evidence_for_model(
+        _rows(facts.get("operational_evidence"))
+    )
     # Persisted prose is not independently validated history. Keep identity
     # references, not old numbers/claims that contaminate a new session.
     projected["review_history"] = [{key: row[key] for key in (
@@ -470,33 +814,21 @@ def _model_fact_projection(facts: Mapping[str, Any]) -> dict[str, Any]:
     ]
     projected["a2"]["reason_encoding"] = "When reason_codes is omitted, it equals selection_reasons exactly; no reasons are truncated."
     projected["a2"]["gate_evidence_scope"] = "Full per-stock quant_gate_evidence remains in the fact archive; selected counterexamples carry it in selection_audit. No candidate identity or disposition is removed."
-    candidate_groups: dict[str, dict[str, Any]] = {}
-    identity_fields = {"evidence_id", "symbol", "name", "score"}
-    for row in projected["a2"]["candidates"]:
-        common = {key: value for key, value in row.items() if key not in identity_fields}
-        key = json.dumps(common, sort_keys=True, ensure_ascii=False)
-        group = candidate_groups.setdefault(key, {"common": common, "stocks": []})
-        stock = {field: value for field, value in row.items() if field in identity_fields}
-        group["stocks"].append(stock)
-    for group in candidate_groups.values():
-        # Evidence IDs are a deterministic duplicate of pool + symbol. Only
-        # omit them when exact round-trip reconstruction is proven for every
-        # member; irregular IDs stay literal. The immutable facts stay intact.
-        if all(row.get("evidence_id") == f"A2:{group['common'].get('pool')}:{row.get('symbol')}"
-               for row in group["stocks"]):
-            group["derive_evidence_id"] = True
-            for row in group["stocks"]:
-                row.pop("evidence_id")
-    grouped = {"encoding": "a5-grouped-candidates/3",
-               "decoding": "Every stock inherits its group's common fields. Merge common and stock. If derive_evidence_id is true, reconstruct evidence_id exactly as 'A2:' + common.pool + ':' + stock.symbol. Every identity, pool, disposition and reason remains present without sampling.",
-               "groups": list(candidate_groups.values())}
-    if len(json.dumps(grouped, ensure_ascii=False)) < len(json.dumps(projected["a2"]["candidates"], ensure_ascii=False)):
-        projected["a2"]["candidates"] = grouped
+    projected["a2"]["candidates"] = _compact_a2_candidates_for_model(
+        projected["a2"]["candidates"]
+    )
     projected["a3"] = dict(_json_mapping(facts.get("a3")))
-    projected["a3"]["candidates"] = [
+    compact_candidates = [
         _compact_a3_candidate_for_model(row)
         for row in _rows(projected["a3"].get("candidates"))
     ]
+    projected["a3"]["candidates"] = _compact_a3_candidates_for_model(compact_candidates)
+    projected["a3"]["plans"] = _compact_a3_plans_for_model(
+        _rows(projected["a3"].get("plans"))
+    )
+    projected["a3"]["plan_scope"] = _compact_plan_scope_for_model(
+        _json_mapping(projected["a3"].get("plan_scope"))
+    )
     projected["a3"]["candidate_evidence_scope"] = (
         "Every candidate identity, disposition, selected strategy, reason, unmet/veto/deferred condition and "
         "compact risk state is present. Full per-condition matrices, moving-average vectors, path booleans and "
@@ -523,7 +855,17 @@ def _model_fact_projection(facts: Mapping[str, Any]) -> dict[str, Any]:
     if "independent_verification" in facts:
         projected["independent_verification"] = independent
     if independent:
+        independent["counterexamples"] = _compact_counterexamples_for_model(
+            _rows(independent.get("counterexamples"))
+        )
         independent["a2"] = dict(_json_mapping(independent.get("a2")))
+        missing_cross_section = independent["a2"].get("market_cross_section_missing_symbols")
+        if isinstance(missing_cross_section, list):
+            independent["a2"]["market_cross_section_missing_symbols"] = {
+                "count": len(missing_cross_section),
+                "sha256": _canonical_hash(missing_cross_section),
+                "archive_locator": "independent_verification.a2.market_cross_section_missing_symbols",
+            }
         recovery = _rows(independent["a2"].get("market_cross_section_recovery"))
         if recovery:
             # The server already ranks the full cross-section and emits all
@@ -554,7 +896,10 @@ def _model_fact_projection(facts: Mapping[str, Any]) -> dict[str, Any]:
                 "first_fetched_at": times[0] if times else None,
                 "last_fetched_at": times[-1] if times else None,
                 "scope": "POST_HOC_VERIFICATION_NOT_ORIGINAL_DECISION_INPUT"}
-        if independent["a2"].get("counterexamples") == independent.get("counterexamples"):
+        original_independent = _json_mapping(facts.get("independent_verification"))
+        if _rows(_json_mapping(original_independent.get("a2")).get("counterexamples")) == _rows(
+            original_independent.get("counterexamples")
+        ):
             independent["a2"].pop("counterexamples", None)
         independent["a3"] = _compact_a3_verification_for_model(
             _json_mapping(independent.get("a3"))
@@ -566,9 +911,13 @@ def _model_fact_projection(facts: Mapping[str, Any]) -> dict[str, Any]:
     a4 = dict(_json_mapping(facts.get("a4")))
     events, groups = _compact_a4_observations(_rows(a4.get("events")))
     original_count = len(a4.get("events") or [])
-    a4.update(events=[_compact_a4_event_for_model(row) for row in events], observation_groups=groups,
+    a4.update(events=[_compact_a4_event_for_model(row) for row in events],
+              observation_groups=_compact_a4_observation_groups_for_model(groups),
               model_projection={"original_event_count": original_count, "representative_event_count": len(events),
+                                "aggregated_event_count": sum(int(row.get("observation_count") or 0) for row in groups),
+                                "aggregate_group_count": len(groups),
                                 "all_effective_events_retained": True, "full_evidence_archived": True,
+                                "grouping_key": "symbol+reason_code",
                                 "empty_values_and_derivable_event_ids_archived": True})
     projected["a4"] = a4
     return projected
@@ -687,7 +1036,6 @@ def _field_check_exceptions(value: Any) -> dict[str, Any]:
         if isinstance(raw, Mapping)
         and (
             int(raw.get("mismatch_count") or 0) > 0
-            or int(raw.get("not_comparable_count") or 0) > 0
             or bool(raw.get("mismatch_samples"))
             or bool(raw.get("difference_patterns"))
         )
@@ -714,7 +1062,9 @@ def _compact_a4_verification_for_model(value: Mapping[str, Any]) -> dict[str, An
                 total[str(status)] = total.get(str(status), 0) + int(count or 0)
     result["indicator_formula_totals"] = formula_totals
     result["indicator_raw_source_verification"] = raw_formula_verification
-    compact: list[dict[str, Any]] = []
+    exceptions: list[dict[str, Any]] = []
+    plan_index: list[dict[str, Any]] = []
+    status_totals: dict[str, dict[str, int]] = {}
     keep = (
         "evidence_id",
         "plan_id",
@@ -747,6 +1097,18 @@ def _compact_a4_verification_for_model(value: Mapping[str, Any]) -> dict[str, An
     )
     for plan in plans:
         item = {key: plan[key] for key in keep if key in plan}
+        plan_index.append({
+            "evidence_id": plan.get("evidence_id"),
+            "plan_id": plan.get("plan_id"),
+            "symbol": plan.get("symbol"),
+        })
+        for field in (
+            "cross_source_status", "archived_tdx_status", "discrepancy_class",
+            "tencent_reason_code", "tdx_reason_code",
+        ):
+            status = str(plan.get(field) or "UNKNOWN")
+            counts = status_totals.setdefault(field, {})
+            counts[status] = counts.get(status, 0) + 1
         cross_exceptions = _field_check_exceptions(plan.get("cross_source_field_checks"))
         tdx_exceptions = _field_check_exceptions(plan.get("archived_tdx_field_checks"))
         if cross_exceptions:
@@ -757,8 +1119,61 @@ def _compact_a4_verification_for_model(value: Mapping[str, Any]) -> dict[str, An
         formula_issues = formula_audit.get("issue_samples")
         if formula_issues:
             item["indicator_formula_issue_samples"] = formula_issues
-        compact.append(item)
-    result["plans"] = compact
+        is_exception = bool(
+            cross_exceptions
+            or tdx_exceptions
+            or formula_issues
+            or int(plan.get("missing_observation_count") or 0) > 0
+            or int(plan.get("orchestration_omission_count") or 0) > 0
+            or plan.get("effective_actions")
+            or str(plan.get("discrepancy_class") or "").upper()
+               not in {
+                   "", "NONE", "MATCH", "NO_DISCREPANCY", "NOT_APPLICABLE",
+                   "NO_COMPARABLE_MISMATCH",
+               }
+        )
+        if is_exception:
+            exceptions.append(item)
+    exception_columns = (
+        "evidence_id", "symbol", "expected_observation_minutes",
+        "recorded_observation_minutes", "missing_observation_count",
+        "missing_observation_samples", "orchestration_omission_count",
+        "orchestration_omissions", "cross_source_status",
+        "archived_tdx_status", "tencent_reason_code", "tdx_reason_code",
+        "discrepancy_class", "effective_actions", "raw_evidence_sha256",
+    )
+    exception_rows: list[list[Any]] = []
+    for item in exceptions:
+        compact = dict(item)
+        compact["raw_evidence_sha256"] = _canonical_hash(item)
+        exception_rows.append([compact.get(column) for column in exception_columns])
+    result["plans"] = {
+        "encoding": "a5-a4-verification-projection/1",
+        "plan_count": len(plans),
+        "coverage_totals": {
+            "expected_plan_observations": sum(int(row.get("expected_observation_minutes") or 0) for row in plans),
+            "recorded_plan_observations": sum(int(row.get("recorded_observation_minutes") or 0) for row in plans),
+            "omission_count": sum(int(row.get("orchestration_omission_count") or 0) for row in plans),
+            "missing_observation_count": sum(int(row.get("missing_observation_count") or 0) for row in plans),
+            "verified_plan_count": len(plans),
+            "scope_verified": bool(plans)
+            and all(
+                "expected_observation_minutes" in row
+                and "recorded_observation_minutes" in row
+                for row in plans
+            ),
+        },
+        "status_totals": status_totals,
+        "plan_index_sha256": _canonical_hash(plan_index),
+        "plan_symbols": sorted(str(row.get("symbol") or "") for row in plans),
+        "exception_count": len(exceptions),
+        "exceptions": {
+            "encoding": "a5-a4-verification-exception-table/1",
+            "columns": list(exception_columns),
+            "rows": exception_rows,
+        },
+        "archive_locator": "independent_verification.a4.plans",
+    }
     result["projection_scope"] = (
         "All plan identities, coverage, source statuses, aggregated formula counts and every mismatch/not-comparable "
         "or formula issue sample "
@@ -773,6 +1188,8 @@ def _compact_a3_verification_for_model(value: Mapping[str, Any]) -> dict[str, An
 
     result = dict(value)
     compact: list[dict[str, Any]] = []
+    plan_index: list[dict[str, Any]] = []
+    status_totals: dict[str, dict[str, int]] = {}
     keep = (
         "evidence_id",
         "plan_id",
@@ -791,6 +1208,18 @@ def _compact_a3_verification_for_model(value: Mapping[str, Any]) -> dict[str, An
     )
     for plan in _rows(result.get("plans")):
         item = {key: plan[key] for key in keep if key in plan}
+        plan_index.append({
+            "evidence_id": plan.get("evidence_id"),
+            "plan_id": plan.get("plan_id"),
+            "symbol": plan.get("symbol"),
+        })
+        for field in (
+            "formula_status", "price_levels_valid", "route_contract_match",
+            "cross_source_price_status", "tdx_reason_code",
+        ):
+            status = str(plan.get(field) if plan.get(field) is not None else "UNKNOWN")
+            counts = status_totals.setdefault(field, {})
+            counts[status] = counts.get(status, 0) + 1
         macd = _json_mapping(plan.get("daily_macd_verification"))
         if macd:
             item["daily_macd_verification"] = {
@@ -815,8 +1244,18 @@ def _compact_a3_verification_for_model(value: Mapping[str, Any]) -> dict[str, An
                     item[key] = plan[key]
             if macd:
                 item["daily_macd_verification"] = dict(macd)
-        compact.append(item)
-    result["plans"] = compact
+        if is_formula_exception:
+            compact.append(item)
+    result["plans"] = {
+        "encoding": "a5-a3-verification-projection/1",
+        "plan_count": len(plan_index),
+        "status_totals": status_totals,
+        "plan_index_sha256": _canonical_hash(plan_index),
+        "plan_symbols": sorted(str(row.get("symbol") or "") for row in plan_index),
+        "exception_count": len(compact),
+        "exceptions": compact,
+        "archive_locator": "independent_verification.a3.plans",
+    }
     result["projection_scope"] = (
         "Every plan identity and formula/price/route/source outcome is present. Exact recomputed vectors and hashes "
         "are expanded for exceptions; repeated matching numeric vectors remain in the immutable fact archive."
@@ -1393,9 +1832,47 @@ class A5DailyReviewService:
         self.model = model
         self.independent_verifier = independent_verifier
         self.notification_publisher = notification_publisher
+        self._failure_context: dict[str, Any] = {}
 
     def run(self, *, review_kind: A5ReviewKind, now: datetime,
             frozen_facts: Mapping[str, Any] | None = None, close_archive: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        self._failure_context = {
+            "input_hash": _json_mapping(frozen_facts).get("input_hash"),
+        }
+        try:
+            result = self._run(
+                review_kind=review_kind,
+                now=now,
+                frozen_facts=frozen_facts,
+                close_archive=close_archive,
+            )
+        except Exception as exc:
+            reason = str(getattr(exc, "reason_code", None) or type(exc).__name__)
+            diagnostics = {
+                **self._failure_context,
+                **dict(getattr(exc, "diagnostics", {}) or {}),
+            }
+            publish = getattr(self.notification_publisher, "publish_a5_task_failure", None)
+            if callable(publish):
+                try:
+                    publish(review_kind.value, reason_code=reason, diagnostics=diagnostics, now=now)
+                except Exception:
+                    pass
+            raise
+        publish_recovery = getattr(self.notification_publisher, "publish_a5_task_recovery", None)
+        if callable(publish_recovery):
+            try:
+                publish_recovery(
+                    review_kind.value,
+                    input_hash=str(result.get("input_hash") or self._failure_context.get("input_hash") or "UNAVAILABLE"),
+                    now=now,
+                )
+            except Exception:
+                pass
+        return result
+
+    def _run(self, *, review_kind: A5ReviewKind, now: datetime,
+             frozen_facts: Mapping[str, Any] | None = None, close_archive: Mapping[str, Any] | None = None) -> dict[str, Any]:
         current = now.astimezone(SHANGHAI)
         cutoff_clock = (11, 30) if review_kind is A5ReviewKind.MIDDAY else (15, 0)
         cutoff = current.replace(hour=cutoff_clock[0], minute=cutoff_clock[1], second=0, microsecond=0)
@@ -1427,6 +1904,7 @@ class A5DailyReviewService:
             "model": self.model,
         }
         facts["input_hash"] = _canonical_hash({key: value for key, value in facts.items() if key != "input_hash"})
+        self._failure_context["input_hash"] = facts["input_hash"]
         signal_delivery = getattr(self.notification_publisher, "publish_signal_day_review", None)
         signal_notifications = []
         if callable(signal_delivery):
@@ -1460,8 +1938,10 @@ class A5DailyReviewService:
         try:
             prompt, context_diagnostics = render_a5_prompt(self.prompts, _A5_PROMPT, projection)
         except A5ReviewError as exc:
+            self._failure_context.update(exc.diagnostics)
             atomic_write_json(target_dir / f"{artifact_stem}-context.json", exc.diagnostics)
             raise
+        self._failure_context.update(context_diagnostics)
         atomic_write_json(target_dir / f"{artifact_stem}-context.json", context_diagnostics)
         prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
         try:

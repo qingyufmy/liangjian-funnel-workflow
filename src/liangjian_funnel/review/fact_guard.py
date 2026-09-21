@@ -20,7 +20,21 @@ def normalize_quality(value: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def verification_totals(facts: Mapping[str, Any]) -> dict[str, Any]:
-    plans = (facts.get("independent_verification") or {}).get("a4", {}).get("plans") or []
+    a4 = (facts.get("independent_verification") or {}).get("a4", {}) or {}
+    plans = a4.get("plans") or []
+    if isinstance(plans, Mapping):
+        coverage = plans.get("coverage_totals") or {}
+        return {
+            "fields": dict(a4.get("field_totals") or {}),
+            "expected_plan_observations": int(coverage.get("expected_plan_observations") or 0),
+            "recorded_plan_observations": int(coverage.get("recorded_plan_observations") or 0),
+            "omission_count": int(coverage.get("omission_count") or 0),
+            "missing_observation_count": int(coverage.get("missing_observation_count") or 0),
+            "verified_plan_count": int(coverage.get("verified_plan_count") or plans.get("plan_count") or 0),
+            "scope_verified": coverage.get("scope_verified") is True,
+        }
+    if not isinstance(plans, list):
+        plans = []
     fields: dict[str, dict[str, int]] = {}
     for plan in plans:
         for side in ("cross_source_field_checks", "archived_tdx_field_checks"):

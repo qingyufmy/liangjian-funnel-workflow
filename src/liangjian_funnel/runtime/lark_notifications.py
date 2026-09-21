@@ -1132,6 +1132,90 @@ class WorkflowLarkPublisher:
             )
         ]
 
+    def publish_a5_task_failure(
+        self,
+        review_kind: str,
+        *,
+        reason_code: str,
+        diagnostics: Mapping[str, Any],
+        now: datetime,
+    ) -> dict[str, Any]:
+        """Emit one actionable failure card per trade date and A5 period."""
+
+        kind = str(review_kind).upper()
+        label = "午间复盘" if kind == "MIDDAY" else "盘后复盘"
+        retryable_codes = {
+            "MODEL_TOTAL_DEADLINE_EXCEEDED", "MODEL_WALL_CLOCK_TIMEOUT",
+            "NETWORK_RETRY_EXHAUSTED", "RATE_LIMIT_RETRY_EXHAUSTED",
+            "UPSTREAM_5XX_RETRY_EXHAUSTED", "A5_OUTPUT_SCHEMA_INVALID",
+        }
+        retryable = reason_code in retryable_codes
+        actual = diagnostics.get("prompt_chars")
+        limit = diagnostics.get("limit_chars")
+        input_hash = str(diagnostics.get("input_hash") or "UNAVAILABLE")
+        lines = [
+            "**任务状态：失败**",
+            f"• 任务：A5 {label}",
+            f"• 失败码：{reason_code}",
+            f"• 实际输入大小：{actual if actual is not None else '未完成测量'} 字符",
+            f"• 硬上限：{limit if limit is not None else '未进入提示词检查'} 字符",
+            f"• 输入哈希：{input_hash}",
+            f"• 可否直接重试：{'可以，复用同一冻结事实' if retryable else '不可以，需先修复失败原因'}",
+            "• 本次未生成复盘结论；原始事实与历史 A4 信号未修改。",
+        ]
+        return self._send(
+            delivery_key=f"a5-task-health:failure:{now.date().isoformat()}:{kind}",
+            kind="A5_TASK_FAILURE",
+            source_id=input_hash,
+            title=f"A股 A5 {label}失败｜{now.date().isoformat()}",
+            lines=lines,
+            summary={
+                "trade_date": now.date().isoformat(),
+                "review_kind": kind,
+                "reason_code": reason_code,
+                "actual_chars": actual,
+                "hard_limit_chars": limit,
+                "fact_digest": input_hash,
+                "retryable": retryable,
+            },
+            now=now,
+        )
+
+    def publish_a5_task_recovery(
+        self,
+        review_kind: str,
+        *,
+        input_hash: str,
+        now: datetime,
+    ) -> dict[str, Any]:
+        """Send recovery only when the matching period has a sent failure."""
+
+        kind = str(review_kind).upper()
+        failure_key = f"a5-task-health:failure:{now.date().isoformat()}:{kind}"
+        failure = self.store.get_delivery_by_key(failure_key)
+        if failure is None or str(failure.get("status")) != "SENT":
+            return {"status": "NOOP", "reason_code": "NO_SENT_A5_FAILURE"}
+        label = "午间复盘" if kind == "MIDDAY" else "盘后复盘"
+        return self._send(
+            delivery_key=f"a5-task-health:recovery:{now.date().isoformat()}:{kind}",
+            kind="A5_TASK_RECOVERY",
+            source_id=input_hash,
+            title=f"A股 A5 {label}已恢复｜{now.date().isoformat()}",
+            lines=[
+                "**任务状态：已恢复**",
+                f"• 任务：A5 {label}",
+                f"• 输入哈希：{input_hash}",
+                "• 已使用冻结事实完成复盘；没有重新采集行情，没有修改历史 A4 信号。",
+            ],
+            summary={
+                "trade_date": now.date().isoformat(),
+                "review_kind": kind,
+                "fact_digest": input_hash,
+                "recovered": True,
+            },
+            now=now,
+        )
+
     def publish_signal_day_review(self, facts: Mapping[str, Any], *, now: datetime) -> list[dict[str, Any]]:
         """Deterministic post-close card; independent of the A5 model result."""
         if facts.get("review_kind") != "POST_CLOSE":

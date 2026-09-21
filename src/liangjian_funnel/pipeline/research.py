@@ -599,6 +599,7 @@ class ResearchPipeline:
         progress_callback: Callable[[Mapping[str, Any]], Any] | None = None,
         checkpoint_store: Any | None = None,
         stage_snapshot_enricher: Callable[..., Any] | None = None,
+        enable_feature_store: bool = True,
     ):
         if isinstance(batch_workers, bool) or not isinstance(batch_workers, int) or batch_workers < 1:
             raise ValueError("batch_workers must be a positive integer")
@@ -623,7 +624,7 @@ class ResearchPipeline:
         self.stage_snapshot_enricher = stage_snapshot_enricher
         self.feature_store = (
             ResearchFeatureStore(settings.feature_store_db_path)
-            if settings.research_pipeline_mode == DETERMINISTIC_PIPELINE_MODE
+            if enable_feature_store and settings.research_pipeline_mode == DETERMINISTIC_PIPELINE_MODE
             else None
         )
         self._feature_generation_id = ""

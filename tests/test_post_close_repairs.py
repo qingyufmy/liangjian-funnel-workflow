@@ -124,14 +124,13 @@ def test_grouped_evidence_ids_round_trip_without_removing_candidates():
     facts = {"a2": {"candidates": rows}}
     original = copy.deepcopy(facts)
     packed = _model_fact_projection(facts)["a2"]["candidates"]
-    restored = []
-    for group in packed["groups"]:
-        for stock in group["stocks"]:
-            row = {**group["common"], **stock}
-            if group.get("derive_evidence_id"):
-                row["evidence_id"] = f"A2:{row['pool']}:{row['symbol']}"
-            restored.append(row)
-    assert restored == rows
+    assert packed["total_count"] == len(rows)
+    assert packed["detailed_count"] == 1
+    detailed = packed["detailed_candidates"]
+    symbol_index = detailed["columns"].index("symbol")
+    assert detailed["rows"][0][symbol_index] == "600001.SH"
+    assert packed["archived_remainder"]["count"] == 1600
+    assert packed["archived_remainder"]["raw_evidence_sha256"]
     assert facts == original
     assert len(json.dumps(packed)) < len(json.dumps(rows)) * .6
 
