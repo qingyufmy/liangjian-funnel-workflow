@@ -139,12 +139,18 @@ def test_strategy_clock_uses_closed_decision_bar_not_scheduler_tick(tmp_path):
     result = MonitorEngine(store).process_minute(
         'lane_1', {SYMBOL: closed}, bar_histories={SYMBOL: history},
         decision_bar_end=closed.bar_end, minute_snapshot_id='strategy-clock', now=tick,
+        market_contexts={SYMBOL: {'live_market_state': {
+            'status': 'READY', 'entry_permission': 'ALLOW',
+            'as_of': tick.isoformat(), 'trade_date': tick.date().isoformat(),
+        }}},
     )
     assert result.events
     assert all(event.reason_code != 'STALE_1M' for event in result.events)
     persisted = store.list_monitor_events(lane_id='lane_1')[-1]
     payload = json.loads(persisted['payload_json'])
     assert payload['strategy']['as_of'] == closed.bar_end.isoformat()
+    assert payload['strategy']['market_gate']['status'] == 'READY'
+    assert payload['strategy']['market_gate']['age_seconds'] == 0.0
     assert persisted['minute_end'] == tick.isoformat()
 
 

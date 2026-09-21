@@ -331,6 +331,7 @@ class MonitorEngine:
                     # realtime/risk quotes on the scheduler clock, but bind all
                     # closed-bar indicators to the observation clock.
                     now=observation_end,
+                    decision_time=minute,
                     position=position,
                     market_context=(
                         context_map.get(symbol)

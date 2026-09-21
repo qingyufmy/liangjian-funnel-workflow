@@ -11,6 +11,7 @@ from liangjian_funnel.runtime.live_market import (
     classify_full_market,
     classify_index_fallback,
     load_or_refresh_live_market_state,
+    load_recent_ready_live_market_state,
 )
 from liangjian_funnel.workflow import _bounded_live_market_index_fallback
 
@@ -89,6 +90,24 @@ def test_bounded_index_fallback_is_independent_of_full_market_lane() -> None:
     assert state["entry_permission"] == "ALLOW"
     assert sorted(calls) == sorted(("000001.SH", "399001.SZ", "399006.SZ", "000300.SH"))
     assert all(item["status"] == "READY" for item in state["diagnostics"]["index_quotes"])
+
+
+def test_recent_ready_bucket_bridges_only_within_existing_five_minute_sla(tmp_path) -> None:
+    settings = SimpleNamespace(fact_store_dir=Path(tmp_path))
+    root = Path(tmp_path) / "a4_live_market" / NOW.date().isoformat()
+    root.mkdir(parents=True)
+    prior = classify_full_market(_rows(700, 300), as_of=NOW.replace(minute=0), expected_count=1000)
+    prior["cache_bucket"] = NOW.replace(minute=0).isoformat()
+    (root / "1000.json").write_text(json.dumps(prior), encoding="utf-8")
+
+    bridged = load_recent_ready_live_market_state(settings, as_of=NOW)
+    expired = load_recent_ready_live_market_state(settings, as_of=NOW.replace(minute=6))
+
+    assert bridged is not None
+    assert bridged["status"] == "READY_DEGRADED"
+    assert bridged["cache_reused_previous_bucket"] is True
+    assert bridged["diagnostics"]["cache_age_seconds"] == 300.0
+    assert expired is None
 
 
 class _Row:

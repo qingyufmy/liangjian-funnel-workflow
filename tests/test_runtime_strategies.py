@@ -697,6 +697,27 @@ def test_fresh_tencent_index_fallback_is_explicitly_usable() -> None:
     assert result.market_gate["state_status"] == "READY_DEGRADED"
 
 
+def test_live_market_clock_is_separate_from_last_closed_bar_clock() -> None:
+    closed_at = datetime(2026, 8, 31, 9, 59, tzinfo=TZ)
+    decision_at = datetime(2026, 8, 31, 10, 0, tzinfo=TZ)
+    result = evaluate_strategy(
+        _base(
+            StrategyProfile.TREND_MA5.value,
+            stock_behavior_type="TREND",
+            daily_indicators={"ma5": 11, "ma10": 10.7, "ma20": 10.2, "ma60": 9.5, "close": 11.3},
+        ),
+        _bars(count=29),
+        now=closed_at,
+        decision_time=decision_at,
+        market_context=_live_market_context(as_of=decision_at.isoformat()),
+    )
+
+    assert result.reason_codes != ("LIVE_MARKET_STATE_FUTURE",)
+    assert result.market_gate["status"] == "READY"
+    assert result.market_gate["age_seconds"] == 0.0
+    assert result.as_of == closed_at.isoformat()
+
+
 def test_fresh_market_caution_keeps_entry_and_reduces_position() -> None:
     result = evaluate_strategy(
         _base(

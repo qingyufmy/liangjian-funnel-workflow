@@ -1571,13 +1571,38 @@ class WorkflowLarkPublisher:
         last_attempt = attempt_rows[-1] if attempt_rows and isinstance(attempt_rows[-1], Mapping) else {}
         full = last_attempt.get("full_market") if isinstance(last_attempt.get("full_market"), Mapping) else {}
         index = last_attempt.get("index_fallback") if isinstance(last_attempt.get("index_fallback"), Mapping) else {}
-        full_status = str(full.get("status") or (state.get("status") if state.get("source") == "HITHINK_FULL_MARKET" else "NOT_ATTEMPTED")).upper()
-        index_status = str(index.get("status") or (state.get("status") if state.get("source") == "TENCENT_INDEX_FALLBACK" else "NOT_ATTEMPTED")).upper()
-        full_reason = str(full.get("reason_code") or (state.get("reason_code") if state.get("source") == "HITHINK_FULL_MARKET" else "FULL_MARKET_READY"))
-        index_reason = str(index.get("reason_code") or "FULL_MARKET_READY")
-        full_observed = _bounded_count(full.get("observed_count"), default=0)
-        full_expected = _bounded_count(full.get("expected_count"), default=0)
-        index_observed = _bounded_count(index.get("observed_count"), default=0)
+        fallback_only = bool(diagnostics.get("fallback_only"))
+        source = str(state.get("source") or "")
+        if full:
+            full_status = str(full.get("status") or "DATA_BLOCKED").upper()
+            full_reason = str(full.get("reason_code") or "A4_LIVE_MARKET_SOURCE_UNAVAILABLE")
+        elif fallback_only and diagnostics.get("full_market_reason_code"):
+            full_status = "DATA_BLOCKED"
+            full_reason = str(diagnostics["full_market_reason_code"])
+        elif source == "HITHINK_FULL_MARKET":
+            full_status = str(state.get("status") or "DATA_BLOCKED").upper()
+            full_reason = str(state.get("reason_code") or "A4_LIVE_MARKET_SOURCE_UNAVAILABLE")
+        else:
+            full_status = "NOT_ATTEMPTED"
+            full_reason = "FULL_MARKET_NOT_ATTEMPTED"
+        if index:
+            index_status = str(index.get("status") or "DATA_BLOCKED").upper()
+            index_reason = str(index.get("reason_code") or "A4_LIVE_MARKET_SOURCE_UNAVAILABLE")
+        elif source == "TENCENT_INDEX_FALLBACK":
+            index_status = str(state.get("status") or "DATA_BLOCKED").upper()
+            index_reason = str(state.get("reason_code") or "A4_LIVE_MARKET_SOURCE_UNAVAILABLE")
+        else:
+            index_status = "NOT_ATTEMPTED"
+            index_reason = "FULL_MARKET_READY"
+        full_observed = _bounded_count(full.get("observed_count"), default=(
+            state.get("observed_count") if source == "HITHINK_FULL_MARKET" else 0
+        ))
+        full_expected = _bounded_count(full.get("expected_count"), default=(
+            state.get("expected_count") if source == "HITHINK_FULL_MARKET" else 0
+        ))
+        index_observed = _bounded_count(index.get("observed_count"), default=(
+            state.get("observed_count") if source == "TENCENT_INDEX_FALLBACK" else 0
+        ))
         index_expected = _bounded_count(index.get("expected_count"), default=4)
         summary = {
             "trade_date": trade_date,

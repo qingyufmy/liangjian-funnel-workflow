@@ -157,6 +157,7 @@ def evaluate_a4_plan(
     bars: Mapping[str, Any] | Iterable[Any],
     *,
     as_of: datetime | None = None,
+    decision_time: datetime | None = None,
 ) -> dict[str, Any]:
     """Evaluate one A3 plan against one frozen intraday bar snapshot.
 
@@ -433,7 +434,35 @@ def evaluate_a4_plan(
     # entry permission.  The gate is deliberately evaluated after hard-stop,
     # plan invalidation and type-specific risk so a missing/blocked market
     # snapshot cannot suppress an exit for an existing position.
-    live_market_gate = _live_market_gate(plan, current)
+    # Closed technical bars and the realtime decision packet have different
+    # clocks.  At a 10:00 scheduler tick the latest legal 1m bar ends at
+    # 09:59, while a market-breadth/quote snapshot observed at 10:00 is not
+    # future data.  Keep technical aggregation bound to ``current`` and
+    # validate the live market overlay against the scheduler decision time.
+    market_clock = current
+    if decision_time is not None:
+        if decision_time.tzinfo is None or decision_time.utcoffset() is None:
+            return _finish(
+                base,
+                state="DATA_BLOCKED",
+                action=A4Action.DATA_BLOCK,
+                reasons=["DECISION_TIME_TIMEZONE_MISSING"],
+                unmet=["AWARE_DECISION_TIME"],
+                veto=["DECISION_TIME_TIMEZONE_MISSING"],
+                as_of=current,
+            )
+        market_clock = decision_time.astimezone(SHANGHAI)
+        if market_clock.date() != current.date() or market_clock < current:
+            return _finish(
+                base,
+                state="DATA_BLOCKED",
+                action=A4Action.DATA_BLOCK,
+                reasons=["DECISION_TIME_INVALID"],
+                unmet=["DECISION_TIME_NOT_BEFORE_CLOSED_BAR"],
+                veto=["DECISION_TIME_INVALID"],
+                as_of=current,
+            )
+    live_market_gate = _live_market_gate(plan, market_clock)
     _record_live_market_gate(base, live_market_gate)
     if not position_open and live_market_gate["status"] != "READY":
         return _finish(
@@ -486,6 +515,7 @@ def evaluate_strategy(
     bars: Mapping[str, Any] | Iterable[Any],
     *,
     now: datetime,
+    decision_time: datetime | None = None,
     position: Mapping[str, Any] | None = None,
     market_context: Mapping[str, Any] | None = None,
 ) -> StrategyEvaluation:
@@ -516,7 +546,12 @@ def evaluate_strategy(
         ):
             if (key not in payload or payload.get(key) is None) and key in market_context:
                 payload[key] = market_context[key]
-    result = evaluate_a4_plan(payload, bars, as_of=now)
+    result = evaluate_a4_plan(
+        payload,
+        bars,
+        as_of=now,
+        decision_time=decision_time,
+    )
     return StrategyEvaluation.model_validate(result)
 
 

@@ -12,7 +12,7 @@ import json
 import math
 import time
 from collections.abc import Callable, Mapping, Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -326,6 +326,52 @@ def load_or_refresh_live_market_state(
     return state
 
 
+def load_recent_ready_live_market_state(
+    settings: Any,
+    *,
+    as_of: datetime,
+    max_age_seconds: float = 5 * 60,
+) -> dict[str, Any] | None:
+    """Return only a current/prior ready bucket still inside the live SLA.
+
+    This is a last-resort bridge when both fresh sources miss their bounded
+    deadline while a full-market worker is still completing.  It never reads
+    a future observation or anything older than the strategy's existing
+    five-minute freshness contract.
+    """
+
+    current = _aware(as_of).replace(second=0, microsecond=0)
+    if max_age_seconds < 0:
+        return None
+    bucket = current.replace(minute=current.minute - current.minute % 5)
+    root = Path(settings.fact_store_dir) / "a4_live_market" / current.date().isoformat()
+    for candidate_bucket in (bucket, bucket - timedelta(minutes=5)):
+        path = root / f"{candidate_bucket.strftime('%H%M')}.json"
+        cached = _read_cache(path, current=current)
+        if cached is None:
+            continue
+        try:
+            observed = _aware(datetime.fromisoformat(str(cached.get("as_of") or "")))
+        except (TypeError, ValueError):
+            continue
+        age_seconds = (current - observed).total_seconds()
+        if age_seconds < 0 or age_seconds > max_age_seconds:
+            continue
+        result = dict(cached)
+        if candidate_bucket != bucket:
+            result["status"] = "READY_DEGRADED"
+            result["reason_code"] = "A4_LIVE_MARKET_RECENT_CACHE_BRIDGE"
+            result["cache_reused_previous_bucket"] = True
+        diagnostics = result.get("diagnostics")
+        result["diagnostics"] = {
+            **(dict(diagnostics) if isinstance(diagnostics, Mapping) else {}),
+            "recent_cache_bridge": candidate_bucket != bucket,
+            "cache_age_seconds": round(age_seconds, 3),
+        }
+        return result
+    return None
+
+
 def _read_cache(path: Path, *, current: datetime) -> dict[str, Any] | None:
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
@@ -460,5 +506,6 @@ __all__ = [
     "SCHEMA_VERSION",
     "classify_full_market",
     "classify_index_fallback",
+    "load_recent_ready_live_market_state",
     "load_or_refresh_live_market_state",
 ]

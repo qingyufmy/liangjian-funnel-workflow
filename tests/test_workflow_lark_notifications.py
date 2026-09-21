@@ -427,6 +427,32 @@ def test_a4_system_health_reports_same_run_retry_recovery_once(tmp_path):
     assert "重试后恢复" in "\n".join(fake.calls[0][1])
 
 
+def test_a4_system_health_understands_fallback_only_diagnostics(tmp_path):
+    store = RuntimeStore(tmp_path / "fallback-health.sqlite3")
+    publisher = WorkflowLarkPublisher(store, "https://open.larksuite.com/open-apis/bot/v2/hook/test-token")
+    fake = FakeNotifier()
+    publisher.notifier = fake
+    now = datetime(2026, 9, 21, 11, 15, tzinfo=SHANGHAI)
+    state = {
+        "status": "DATA_BLOCKED", "source": "TENCENT_INDEX_FALLBACK",
+        "reason_code": "A4_LIVE_MARKET_SOURCE_UNAVAILABLE",
+        "as_of": now.isoformat(), "trade_date": now.date().isoformat(),
+        "observed_count": 1, "expected_count": 4,
+        "diagnostics": {
+            "fallback_only": True,
+            "full_market_reason_code": "A4_LIVE_MARKET_DEADLINE_EXCEEDED",
+            "index_quotes": [],
+        },
+    }
+    publisher.publish_a4_system_health(state, affected_plan_count=48, now=now)
+    summary = json.loads(store.list_notification_deliveries(kind="A4_SYSTEM_HEALTH")[0]["payload_json"])
+    assert summary["full_market_status"] == "DATA_BLOCKED"
+    assert summary["full_market_reason_code"] == "A4_LIVE_MARKET_DEADLINE_EXCEEDED"
+    assert summary["index_fallback_status"] == "DATA_BLOCKED"
+    assert summary["index_fallback_reason_code"] == "A4_LIVE_MARKET_SOURCE_UNAVAILABLE"
+    assert summary["index_fallback_observed_count"] == 1
+
+
 def test_a2_rotation_health_alerts_in_chinese_and_recovers_once(tmp_path):
     store = RuntimeStore(tmp_path / "rotation-health.sqlite3")
     publisher = WorkflowLarkPublisher(

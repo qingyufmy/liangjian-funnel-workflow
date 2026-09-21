@@ -131,7 +131,11 @@ from .runtime.decision_observability import (
     stable_correlation_id,
 )
 from .runtime.lark_notifications import WorkflowLarkPublisher
-from .runtime.live_market import classify_index_fallback, load_or_refresh_live_market_state
+from .runtime.live_market import (
+    classify_index_fallback,
+    load_or_refresh_live_market_state,
+    load_recent_ready_live_market_state,
+)
 from .runtime.progress import WorkflowProgress
 from .runtime.resource_guard import evaluate_resources, measure_resources
 from .runtime.calendar import ExchangeTradingCalendar, TradingCalendarError
@@ -4054,6 +4058,17 @@ class WorkflowApplication:
                 deadline=fallback_deadline,
             )
             live_market_state.setdefault("diagnostics", {})["full_market_reason_code"] = full_market_reason
+            if live_market_state.get("status") == "DATA_BLOCKED":
+                recent_ready = load_recent_ready_live_market_state(
+                    self.settings,
+                    as_of=current,
+                )
+                if recent_ready is not None:
+                    recent_ready.setdefault("diagnostics", {})["fresh_source_failure"] = {
+                        "full_market_reason_code": full_market_reason,
+                        "index_fallback_reason_code": live_market_state.get("reason_code"),
+                    }
+                    live_market_state = recent_ready
         else:
             live_market_state = {
                 "status": "NOT_REQUIRED",
