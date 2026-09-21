@@ -592,6 +592,46 @@ def test_incremental_scope_and_merge_preserve_unmodified_partitions(tmp_path: Pa
     assert merged["analysis_summary"]["approved_count"] == 3
 
 
+def test_incremental_merge_moves_delta_expansion_out_of_old_partition():
+    old_output = {
+        "active_research_pool": [{"symbol": "600519.SH", "score": 1}],
+        "monitor_pool": [],
+        "rejected_candidates": [
+            {"symbol": "920403.BJ", "score": 1, "selection_basis": "DETERMINISTIC_SCORE"},
+        ],
+    }
+    delta_output = {
+        "active_research_pool": [],
+        "monitor_pool": [
+            {
+                "symbol": "920403.BJ",
+                "score": 2,
+                "selection_basis": "BROKER_GOLD_DIRECT",
+                "research_route": "BROKER_GOLD_DIRECT",
+            },
+        ],
+        "rejected_candidates": [],
+    }
+
+    merged = merge_a1_partitions(
+        old_output,
+        delta_output,
+        # Reproduce the production edge case: the server-authorized delta
+        # contains a symbol outside the precomputed maintenance scope.
+        updated_symbols=("600519.SH",),
+    )
+
+    assert merged["active_research_pool"] == []
+    assert [item["symbol"] for item in merged["monitor_pool"]] == ["920403.BJ"]
+    assert merged["rejected_candidates"] == []
+    assert merged["analysis_summary"] == {
+        "outcome": "A1_INCREMENTAL_MERGED",
+        "approved_count": 0,
+        "monitor_count": 1,
+        "rejected_count": 0,
+    }
+
+
 def test_a1_scope_ignores_short_cycle_fields_but_detects_global_context_change():
     base = {
         "g0_symbols": ["600519.SH"],

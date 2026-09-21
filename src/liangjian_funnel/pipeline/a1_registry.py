@@ -729,7 +729,25 @@ def merge_a1_partitions(
 ) -> dict[str, Any]:
     """Merge only changed A1 rows while retaining complete old partitions."""
 
-    updated = {str(item).strip().upper() for item in (*tuple(updated_symbols), *tuple(removed_symbols)) if str(item).strip()}
+    updated = {
+        str(item).strip().upper()
+        for item in (*tuple(updated_symbols), *tuple(removed_symbols))
+        if str(item).strip()
+    }
+    # The deterministic/model pipeline may legitimately return a small
+    # server-authorized expansion beyond the precomputed incremental scope
+    # (for example, a broker-gold row promoted from rejected to monitor).
+    # Every symbol actually present in the delta is authoritative for this
+    # merge and must first be removed from *all* old partitions.  Otherwise
+    # the old row can survive in one partition while the new row is appended
+    # to another, causing the sealed generation to fail the exact-partition
+    # contract with A1_PARTITION_DUPLICATE_SYMBOL.
+    for partition in A1_OUTPUT_PARTITIONS:
+        updated.update(
+            symbol
+            for row in _mapping_list(delta_output.get(partition))
+            if (symbol := _symbol_from_item(row))
+        )
     result = dict(base_output)
     for key, value in delta_output.items():
         if key not in A1_OUTPUT_PARTITIONS and key not in {"envelope", "analysis_summary"}:
