@@ -51,7 +51,9 @@ def fetch(task):
 with ThreadPoolExecutor(max_workers=4) as pool:
  fetched=list(pool.map(fetch,[(s,source,i) for s in symbols for source in ['tencent','tdx'] for i in ['1m','5m']]))
 paths=['server/scheduler.ts','src/liangjian_funnel/runtime/strategies.py','src/liangjian_funnel/runtime/monitor.py','src/liangjian_funnel/data/cache.py','src/liangjian_funnel/data/tencent_minute.py']
-print(json.dumps({'schema':'a4-session-capture/1','trade_date':day,'captured_at':datetime.now(ZoneInfo('Asia/Shanghai')).isoformat(),'host':'192.168.31.254','root':str(root),'commit':subprocess.check_output(['git','-c',f'safe.directory={root}','rev-parse','HEAD'],text=True).strip(),'code_hashes':{p:hashlib.sha256((root/p).read_bytes().replace(b'\r\n',b'\n')).hexdigest() for p in paths},'plans':plans,'events':events,'notifications':notifications,'leases':leases,'lifecycles':lifecycles,'fills':fills,'morning':morning,'archive':archive,'conflicts':conflicts,'verified_fetches':fetched},ensure_ascii=False))
+host_addresses=subprocess.check_output(['hostname','-I'],text=True).split()
+host=next((value for value in host_addresses if not value.startswith(('127.','172.','198.18.'))),subprocess.check_output(['hostname'],text=True).strip())
+print(json.dumps({'schema':'a4-session-capture/1','trade_date':day,'captured_at':datetime.now(ZoneInfo('Asia/Shanghai')).isoformat(),'host':host,'root':str(root),'commit':subprocess.check_output(['git','-c',f'safe.directory={root}','rev-parse','HEAD'],text=True).strip(),'code_hashes':{p:hashlib.sha256((root/p).read_bytes().replace(b'\r\n',b'\n')).hexdigest() for p in paths},'plans':plans,'events':events,'notifications':notifications,'leases':leases,'lifecycles':lifecycles,'fills':fills,'morning':morning,'archive':archive,'conflicts':conflicts,'verified_fetches':fetched},ensure_ascii=False))
 '''
 
 

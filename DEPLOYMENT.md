@@ -4,12 +4,13 @@ This repository is deployed as one persistent Node control-plane process around 
 
 ## Production topology
 
-Current VM connection (updated 2026-09-07): `aurum-vm` resolves through the
-local SSH configuration to `192.168.31.254:22`. The deployed repository is
+Current VM connection (verified 2026-09-21): `aurum-vm` resolves through the
+local SSH configuration to `192.168.1.254:22`. The deployed repository is
 `/www/wwwroot/Agu/liangjian-funnel-workflow`; use its existing `deploy.sh` for
-authorized deployments. The previous `192.168.1.254` address in dated audit
-reports is historical, not the current connection target. An IP update alone
-does not authorize a deployment, restart, or replacement of trading plans.
+authorized deployments. Dated audit reports may retain the address that was
+recorded at their original evidence cutoff; they are not a current connection
+configuration. An IP update alone does not authorize a deployment, restart,
+or replacement of trading plans.
 
 ```text
 BaoTa Nginx (HTTPS / local access control)
