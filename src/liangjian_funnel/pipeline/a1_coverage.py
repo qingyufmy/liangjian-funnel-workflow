@@ -297,6 +297,14 @@ class A1CoverageLedger:
                 classified["gap_reason"], observation.evidence_ref, _iso(observation.attempted_at),
                 success_at, failure_count, None, now.isoformat(),
             ))
+            if classified["packet_ready"]:
+                connection.execute("""
+                    UPDATE a1_backfill_tasks
+                       SET status='SUCCEEDED',next_attempt_at=NULL,retry_after_at=NULL,
+                           lease_owner=NULL,lease_until=NULL,
+                           last_reason='COVERAGE_READY_FROM_FROZEN_FACT',updated_at=?
+                     WHERE coverage_key=? AND status!='SUCCEEDED'
+                """, (now.isoformat(), requirement.key))
         return self.get(requirement.key) or {}
 
     def record_many(
@@ -369,6 +377,14 @@ class A1CoverageLedger:
                         now.isoformat() if classified["packet_ready"] else None,
                         failure_count, None, now.isoformat(),
                     ))
+                    if classified["packet_ready"]:
+                        connection.execute("""
+                            UPDATE a1_backfill_tasks
+                               SET status='SUCCEEDED',next_attempt_at=NULL,retry_after_at=NULL,
+                                   lease_owner=NULL,lease_until=NULL,
+                                   last_reason='COVERAGE_READY_FROM_FROZEN_FACT',updated_at=?
+                             WHERE coverage_key=? AND status!='SUCCEEDED'
+                        """, (now.isoformat(), requirement.key))
                     keys.append(requirement.key)
                 connection.commit()
             except Exception:
@@ -610,6 +626,9 @@ class A1CoverageLedger:
         current = _aware(now or datetime.now(timezone.utc))
         clauses = [
             "t.status IN ('QUEUED','DEFERRED')",
+            "p.required=1",
+            "p.applicable=1",
+            "p.packet_ready=0",
             "(t.next_attempt_at IS NULL OR t.next_attempt_at<=?)",
             "(t.retry_after_at IS NULL OR t.retry_after_at<=?)",
         ]
@@ -997,15 +1016,19 @@ def materialize_snapshot_coverage(
                 currency="CNY" if value is not None else None,
                 consolidation_scope="CONSOLIDATED" if value is not None else None,
                 announced_at=published,
-                # The compact legacy snapshot does not retain fetched_at.
-                # Never infer strict point-in-time availability from presence.
-                available_at=None,
+                # ``report_date_ms`` is the provider's disclosure date, not
+                # the snapshot fetch time.  A frozen statement with this
+                # timestamp is point-in-time usable from that date onward;
+                # a future report date is still rejected by ``classify_coverage``.
+                available_at=published,
                 feature_ready=value is not None,
                 feature_generation=feature_generation,
                 packet_ready=value is not None,
                 evidence_ref=(f"snapshot:{source_version}:{symbol}:{dataset}:{_statement_period(statement)}" if value is not None else None),
                 gap_reason=(
                     A1GapReason.TIME_UNVERIFIED.value
+                    if value is not None and published is None
+                    else None
                     if value is not None
                     else A1GapReason.FIELD_MISSING.value
                     if fundamental
@@ -1014,6 +1037,10 @@ def materialize_snapshot_coverage(
                 attempted_at=as_of,
             )))
         indicator_period = _statement_period(latest_income)
+        indicator_published = _coverage_time(
+            latest_income.get("report_date_ms") if isinstance(latest_income, Mapping) else None,
+            timezone_hint=as_of.tzinfo,
+        )
         for field, aliases in _INDICATOR_ALIASES.items():
             selected = next((indicator_map[alias] for alias in aliases if alias in indicator_map), None)
             requirement = CoverageRequirement(
@@ -1031,14 +1058,21 @@ def materialize_snapshot_coverage(
                 raw_found=bool(fundamental),
                 parsed=selected is not None,
                 value=selected,
-                announced_at=None,
-                available_at=None,
+                # These normalized indicators belong to the latest income
+                # statement packet.  Inherit its official disclosure date so
+                # the ledger does not misclassify already disclosed values as
+                # unknown merely because the compact row omits duplicate time
+                # fields.
+                announced_at=indicator_published,
+                available_at=indicator_published,
                 feature_ready=selected is not None,
                 feature_generation=feature_generation,
                 packet_ready=selected is not None,
                 evidence_ref=(f"snapshot:{source_version}:{symbol}:INDICATORS:{field}" if selected is not None else None),
                 gap_reason=(
                     A1GapReason.TIME_UNVERIFIED.value
+                    if selected is not None and indicator_published is None
+                    else None
                     if selected is not None
                     else A1GapReason.FIELD_MISSING.value
                     if fundamental

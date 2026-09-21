@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -310,7 +310,7 @@ def test_coverage_report_can_resolve_latest_version_without_mixing_history(tmp_p
     assert report["denominator"] == 1
 
 
-def test_snapshot_projection_keeps_unverified_and_missing_fields_visible(tmp_path: Path) -> None:
+def test_snapshot_projection_inherits_statement_disclosure_time_and_keeps_missing_fields_visible(tmp_path: Path) -> None:
     ledger = A1CoverageLedger(tmp_path / "snapshot.sqlite3")
     snapshot = {
         "g0_symbols": ["600519.SH"],
@@ -349,13 +349,57 @@ def test_snapshot_projection_keeps_unverified_and_missing_fields_visible(tmp_pat
     )
 
     assert report["denominator"] == 8
-    assert report["packet_ready"] == 1
+    assert report["packet_ready"] == 4
     assert report["path_symbol_denominator"] == 1
     assert report["path_research_ready"] == 0
     rows = ledger.rows(source_version="snapshot:test")
     by_field = {row["field"]: row for row in rows}
     assert by_field["parent_holder_net_profit"]["value_state"] == "NEGATIVE"
-    assert by_field["parent_holder_net_profit"]["gap_reason"] == "TIME_UNVERIFIED"
+    assert by_field["parent_holder_net_profit"]["packet_ready"] == 1
+    disclosed_at = ANNOUNCED.astimezone(timezone.utc).isoformat()
+    assert by_field["parent_holder_net_profit"]["announced_at"] == disclosed_at
+    assert by_field["parent_holder_net_profit"]["available_at"] == disclosed_at
     assert by_field["roe"]["value_state"] == "ZERO"
+    assert by_field["roe"]["packet_ready"] == 1
     assert by_field["act_cash_flow_net"]["gap_reason"] == "FIELD_MISSING"
     assert by_field["disclosed_business_evidence"]["packet_ready"] == 1
+
+
+def test_snapshot_projection_rejects_financial_disclosure_after_cutoff(tmp_path: Path) -> None:
+    ledger = A1CoverageLedger(tmp_path / "future.sqlite3")
+    future = AS_OF + timedelta(days=1)
+    snapshot = {
+        "g0_symbols": ["600519.SH"],
+        "COMPANY_FUNDAMENTALS": {"600519.SH": {
+            "statements": {"INCOME": [{
+                "fiscal_year": 2026,
+                "fiscal_period": "Q2",
+                "report_date_ms": int(future.timestamp() * 1000),
+                "operating_income": 100.0,
+                "parent_holder_net_profit": 10.0,
+            }], "CASH_FLOW": []},
+            "indicators": [{"index_id": "roe", "value": 8.0}],
+        }},
+        "MAIN_BUSINESS_EVIDENCE": {},
+    }
+
+    materialize_snapshot_coverage(
+        ledger, snapshot, as_of=AS_OF, source_version="snapshot:future",
+    )
+
+    rows = ledger.rows(source_version="snapshot:future")
+    assert {row["gap_reason"] for row in rows if row["field"] in {
+        "operating_income", "parent_holder_net_profit", "roe",
+    }} == {"TIME_UNVERIFIED"}
+
+
+def test_ready_projection_reconciles_stale_backfill_task(tmp_path: Path) -> None:
+    ledger = A1CoverageLedger(tmp_path / "reconcile.sqlite3")
+    req = requirement("600001.SH")
+    ledger.record(req, observation(requested=False, raw_found=False, parsed=False))
+    assert ledger.enqueue_gap(req.key, now=AS_OF)
+
+    ledger.record(req, observation(10.0), recorded_at=AS_OF + timedelta(minutes=1))
+
+    assert ledger.task_report()["by_status"] == {"SUCCEEDED": 1}
+    assert ledger.plan_backfill(limit=10, now=AS_OF + timedelta(minutes=2)) == ()
