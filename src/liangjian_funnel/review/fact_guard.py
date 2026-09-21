@@ -30,11 +30,22 @@ def verification_totals(facts: Mapping[str, Any]) -> dict[str, Any]:
             "recorded_plan_observations": int(coverage.get("recorded_plan_observations") or 0),
             "omission_count": int(coverage.get("omission_count") or 0),
             "missing_observation_count": int(coverage.get("missing_observation_count") or 0),
+            "missing_observation_incident_count": int(coverage.get("missing_observation_incident_count") or 0),
+            "missing_observation_incidents": list(coverage.get("missing_observation_incidents") or []),
             "verified_plan_count": int(coverage.get("verified_plan_count") or plans.get("plan_count") or 0),
             "scope_verified": coverage.get("scope_verified") is True,
         }
     if not isinstance(plans, list):
         plans = []
+    missing_by_minute: dict[str, set[str]] = {}
+    for plan in plans:
+        symbol = str(plan.get("symbol") or plan.get("plan_id") or "UNKNOWN")
+        for stamp in plan.get("missing_observation_samples") or []:
+            missing_by_minute.setdefault(str(stamp), set()).add(symbol)
+    missing_incidents = [
+        {"minute_end": stamp, "affected_plan_count": len(symbols), "symbols": sorted(symbols)}
+        for stamp, symbols in sorted(missing_by_minute.items())
+    ]
     fields: dict[str, dict[str, int]] = {}
     for plan in plans:
         for side in ("cross_source_field_checks", "archived_tdx_field_checks"):
@@ -47,6 +58,8 @@ def verification_totals(facts: Mapping[str, Any]) -> dict[str, Any]:
         "recorded_plan_observations": sum(int(p.get("recorded_observation_minutes") or 0) for p in plans),
         "omission_count": sum(int(p.get("orchestration_omission_count") or 0) for p in plans),
         "missing_observation_count": sum(int(p.get("missing_observation_count") or 0) for p in plans),
+        "missing_observation_incident_count": len(missing_incidents),
+        "missing_observation_incidents": missing_incidents,
         "verified_plan_count": len(plans),
         "scope_verified": bool(plans)
             and len(plans) == int((facts.get("metrics") or {}).get("a3_plan_count", len(plans)))
@@ -124,6 +137,40 @@ def reconcile_report(report: Any, facts: Mapping[str, Any]) -> list[str]:
             item.observed_performance = f"截至复盘时点相对昨收{value:+.2%}；不是策略已实现收益"
     if counterexamples:
         notes.append("反例名称、主题和表现按冻结事实回填，模型不得重新映射行业。")
+        existing = {item.symbol for item in report.missed_opportunity_reviews}
+        from .daily import A5CounterexampleReview
+        for symbol, row in counterexamples.items():
+            if not symbol or symbol in existing:
+                continue
+            drop = str(row.get("drop_stage") or "UNRESOLVED")
+            stage = drop.split("_", 1)[0] if drop.split("_", 1)[0] in {"A1", "A2", "A3", "A4"} else "UNRESOLVED"
+            audit = row.get("selection_audit") or {}
+            explanation = str(audit.get("explanation") or "").strip()
+            assessment = (
+                explanation + "。以上为原时点筛选依据；当日涨幅不能证明应入选。"
+                if explanation else
+                "冻结事实仅确认漏斗落层，尚未证明原时点存在合规买点；需要按当时可用数据复算。"
+            )
+            value = row.get("intraday_return")
+            performance = (
+                f"截至复盘时点相对昨收{value:+.2%}；不是策略已实现收益"
+                if isinstance(value, (int, float)) else "客观表现已记录，收益口径尚未完成核验"
+            )
+            report.missed_opportunity_reviews.append(A5CounterexampleReview(
+                symbol=str(symbol),
+                name=str(row.get("name") or ""),
+                theme=str(row.get("theme_name") or themes.get(row.get("theme_id")) or row.get("theme_id") or "未映射"),
+                observed_performance=performance,
+                funnel_drop_stage=stage,
+                assessment=assessment[:600],
+                evidence_ids=[str(row.get("evidence_id") or f"A5V:MISS:{symbol}")],
+                is_confirmed_defect=False,
+            ))
+        report.missed_opportunity_reviews.sort(key=lambda item: (
+            int(counterexamples.get(item.symbol, {}).get("performance_rank") or 10**9), item.symbol
+        ))
+        if len(existing) != len(report.missed_opportunity_reviews):
+            notes.append("模型未逐项返回的反例由服务器按冻结事实补齐；没有股票因模型输出长度被隐藏。")
 
     def component_fiction(text: str) -> bool:
         return not quality.get("missing_components") and (
@@ -132,6 +179,13 @@ def reconcile_report(report: Any, facts: Mapping[str, Any]) -> list[str]:
 
     removed = [r for r in report.core_defects if r.layer == "ORCHESTRATOR" and component_fiction(r.problem)]
     report.core_defects = [r for r in report.core_defects if r not in removed]
+    candidate_conflicts = [defect for defect in report.core_defects
+        if defect.layer == "ORCHESTRATOR" and "候选" in defect.problem and any(
+            phrase in defect.problem for phrase in ("而非买入信号", "应记录为买入信号", "造成买入信号遗漏")
+        )]
+    if candidate_conflicts:
+        report.core_defects = [defect for defect in report.core_defects if defect not in candidate_conflicts]
+        notes.append("已移除把受阻候选动作直接补记为有效交易信号的归因；候选动作、阻断原因和最终发布动作由服务器事实分别说明，原始事件未修改。")
     proposals = []
     for proposal in report.improvement_proposals:
         text = " ".join(str(getattr(proposal, k)) for k in ("hypothesis", "proposed_change", "success_criteria"))
@@ -168,7 +222,8 @@ def reconcile_report(report: Any, facts: Mapping[str, Any]) -> list[str]:
         for question in report.unresolved_questions:
             question.question = correct_units(question.question)
             question.resolution = correct_units(question.resolution)
-        aggregate_terms = ("成交量", "金额", "VOLUME", "AMOUNT", "分钟", "理论值", "缺少决策记录", "应观察窗口")
+        aggregate_terms = ("成交量", "金额", "VOLUME", "AMOUNT", "分钟", "理论值", "缺少决策记录",
+                           "应观察窗口", "判断记录", "决策窗口", "编排遗漏")
         def aggregate_claim(text: str) -> bool:
             # Never erase exit/T+1 or indicator findings just because their
             # descriptions also mention a minute timeframe or volume.
@@ -179,8 +234,11 @@ def reconcile_report(report: Any, facts: Mapping[str, Any]) -> list[str]:
         expected = totals["expected_plan_observations"]
         recorded = totals["recorded_plan_observations"]
         missing = totals["omission_count"]
+        missing_incidents = int(totals.get("missing_observation_incident_count") or 0)
+        missing_records = int(totals.get("missing_observation_count") or 0)
         summary = (f"共{metrics.get('a4_monitor_observation_count', 0)}条判断记录，不是同等数量的交易分钟；"
-            f"按激活窗口应观察{expected}条，实际{recorded}条，编排遗漏{missing}条。"
+            f"按激活窗口应观察{expected}条，实际{recorded}条；"
+            f"缺失窗口事件{missing_incidents}个、影响{missing_records}条股票×分钟记录，候选动作编排遗漏{missing}条。"
             f"业务状态事件{metrics.get('a4_effective_event_count', 0)}个、生命周期{metrics.get('a4_lifecycle_count', 0)}个。")
         if "a4_trade_signal_count" in metrics:
             summary += (f"其中交易信号{metrics['a4_trade_signal_count']}个，"
@@ -203,8 +261,9 @@ def reconcile_report(report: Any, facts: Mapping[str, Any]) -> list[str]:
                 limits.append(name + "不可比较：" + "、".join(missing_parts) + "；不能算作不匹配。")
         if missing:
             defects.insert(0, f"按计划激活窗口发现{missing}条编排遗漏。")
-        if totals["missing_observation_count"]:
-            defects.insert(0, f"实际决策窗口缺少{totals['missing_observation_count']}条判断记录。")
+        if missing_records:
+            affected = max((int(row.get("affected_plan_count") or 0) for row in totals.get("missing_observation_incidents") or []), default=0)
+            defects.insert(0, f"实际决策窗口发生{missing_incidents}个缺口，最多同时影响{affected}个计划，共缺{missing_records}条股票×分钟判断记录。")
         if verification.get("a4", {}).get("status") == "UNAVAILABLE":
             limits.append("异源核验没有取得重合行情，无法确认价格和成交量一致；零差异计数不是核验通过。")
         report.a4_review.summary = summary

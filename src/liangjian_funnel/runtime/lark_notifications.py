@@ -1054,9 +1054,24 @@ class WorkflowLarkPublisher:
         counterexamples = [
             item for item in report.get("missed_opportunity_reviews", ()) if isinstance(item, Mapping)
         ] if isinstance(report.get("missed_opportunity_reviews"), (list, tuple)) else []
+        ledger = [item for item in verification.get("top_performance_ledger", ()) if isinstance(item, Mapping)]
+        if not ledger:
+            ledger = [item for item in _json_mapping(verification.get("a2")).get("top_performance_ledger", ()) if isinstance(item, Mapping)]
+        captured = sum(str(item.get("coverage_status") or "") == "CAPTURED_EFFECTIVE_A4" for item in ledger)
         if counterexamples:
-            lines.extend(["", f"**反向拷问｜共 {len(counterexamples)} 个样本，展示前 5 个**"])
-            for item in counterexamples[:5]:
+            selected: list[Mapping[str, Any]] = []
+            for stage in ("A1", "A2", "A3", "A4", "UNRESOLVED"):
+                item = next((row for row in counterexamples if str(row.get("funnel_drop_stage") or "UNRESOLVED") == stage and row not in selected), None)
+                if item is not None:
+                    selected.append(item)
+            for item in counterexamples:
+                if len(selected) >= 5:
+                    break
+                if item not in selected:
+                    selected.append(item)
+            scope = f"全市场强势覆盖 {len(ledger)} 只，其中产生有效盘中信号 {captured} 只；" if ledger else ""
+            lines.extend(["", f"**反向拷问｜{scope}需复核 {len(counterexamples)} 只，分阶段展示 {len(selected)} 只**"])
+            for item in selected:
                 name = _text(item.get("name"), limit=24, fallback="名称未提供")
                 symbol = _stock_code(item.get("symbol"))
                 drop = _A5_DROP_STAGE_LABELS.get(
@@ -1069,6 +1084,8 @@ class WorkflowLarkPublisher:
                     f"{_display_text(item.get('observed_performance'), limit=140, fallback='表现资料未提供')}；"
                     f"{_display_text(item.get('assessment'), limit=180, fallback='判断待补充')}（{conclusion}）"
                 )
+            if len(counterexamples) > len(selected):
+                lines.append(f"• 其余 {len(counterexamples) - len(selected)} 只已写入完整复盘和冻结证据账本，未因卡片长度丢弃。")
 
         defects = [
             item for item in report.get("core_defects", ()) if isinstance(item, Mapping)
@@ -1125,6 +1142,8 @@ class WorkflowLarkPublisher:
                     "overall_verdict": report.get("overall_verdict"),
                     "signal_count": len(signal_reviews),
                     "counterexample_count": len(counterexamples),
+                    "top_performance_ledger_count": len(ledger),
+                    "top_performance_captured_count": captured,
                     "defect_count": len(defects),
                     "proposal_count": len(proposals),
                 },

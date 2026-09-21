@@ -218,8 +218,19 @@ def test_large_synthetic_input_preserves_all_effective_events_and_error_details(
     events = [{"evidence_id": f"A4:E:{i}", "event_id": str(i), "plan_id": str(i),
                "effective": True, "action": "BUY_SIGNAL", "minute_end": CUTOFF.isoformat(),
                "strategy_reason_codes": ["TEST"], "unmet_conditions": []} for i in range(600)]
-    facts = {"a4": {"events": events}, "independent_verification": {"counterexamples": [
-        {"evidence_id": f"A5V:MISS:{i}", "symbol": str(i), "drop_stage": "A4_NO_EFFECTIVE_SIGNAL"} for i in range(20)]}}
+    misses = [
+        {"evidence_id": f"A5V:MISS:{i}", "symbol": str(i), "drop_stage": "A1_NOT_ACTIVE",
+         "selection_audit": {"a1": {"fundamental_support": {"supported": False, "score": i,
+             "minimum_score": 60, "latest_half_year": {"supported": False}},
+             "missing_factors": ["business_mapping"], "reason_codes": ["A1_TEST_REASON"]},
+             "explanation": f"样本{i}原时点基本面证据不足"}}
+        for i in range(60)]
+    ledger = [{"evidence_id": f"A5V:COVERAGE:{i}", "symbol": str(i),
+               "coverage_status": "A1_NOT_ACTIVE"} for i in range(60)]
+    facts = {"a4": {"events": events}, "independent_verification": {
+        "counterexamples": misses, "top_performance_ledger": ledger,
+        "a2": {"counterexamples": misses, "top_performance_ledger": ledger},
+    }}
     # Force packing without using an unrealistic giant single prose field.
     facts["a3"] = {"plans": [{"plan_id": str(i), "selection_reasons": ["evidence " * 10],
                              "daily_macd": {"dif": 0, "dea": None, "hist": -0.1}} for i in range(600)]}
@@ -228,6 +239,9 @@ def test_large_synthetic_input_preserves_all_effective_events_and_error_details(
     assert diag["prompt_chars"] <= 250000
     assert unpack(pack_evidence(proj)) == proj
     assert len(proj["a4"]["events"]) == 600
+    assert "counterexamples" not in proj["independent_verification"]["a2"]
+    assert "top_performance_ledger" not in proj["independent_verification"]["a2"]
+    assert len(proj["independent_verification"]["top_performance_ledger"]) == 60
     assert all(row["evidence_id"] in prompt for row in events)
     assert all(row["evidence_id"] in prompt for row in facts["independent_verification"]["counterexamples"])
 

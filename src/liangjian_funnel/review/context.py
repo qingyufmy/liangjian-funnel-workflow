@@ -122,6 +122,15 @@ def _critical_fact_header(projection: dict[str, Any]) -> str:
         "selected_theme_overlap_ratio", "market_cross_section_status", "scope") if key in a2},
         "a4_field_totals": fields,
         "a4_observation_scope": {k: v for k, v in coverage.items() if k != "fields"},
+        "strong_stock_coverage": {
+            "ledger_count": len(verification.get("top_performance_ledger", []) or []),
+            "counterexample_count": len(verification.get("counterexamples", []) or []),
+            "captured_count": sum(
+                str(row.get("coverage_status") or "") == "CAPTURED_EFFECTIVE_A4"
+                for row in (verification.get("top_performance_ledger", []) or [])
+                if isinstance(row, Mapping)
+            ),
+        },
         "counterexample_stages": [{key: row.get(key) for key in
             ("symbol", "drop_stage", "has_a3_plan", "has_effective_a4_event", "evidence_id")}
             for row in verification.get("counterexamples", [])]}

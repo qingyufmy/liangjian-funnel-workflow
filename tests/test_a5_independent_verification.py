@@ -224,3 +224,66 @@ def test_a5_post_close_scans_full_a1_universe_before_confirming_top_percentile()
     assert result["counterexamples"][0]["symbol"] == "000010.SZ"
     assert result["counterexamples"][0]["drop_stage"] == "A1_NOT_ACTIVE"
     assert result["counterexamples"][0]["alternate_source_confirmation_available"] is True
+
+
+def test_post_close_top_percentile_ledger_is_not_capped_and_keeps_captured_rows() -> None:
+    cutoff = datetime(2026, 9, 21, 15, 0, tzinfo=TZ)
+    prior = datetime(2026, 9, 18, 15, 0, tzinfo=TZ)
+    universe = []
+    daily = {}
+    tencent = {}
+    for index in range(2100):
+        symbol = f"{600000 + index:06d}.SH"
+        universe.append({"symbol": symbol, "name": f"样本{index}", "theme_id": "TEST", "pool": "A1_ACTIVE"})
+        current_close = 30.0 - index / 1000
+        daily[symbol] = [
+            {"timestamp": prior.isoformat(), "payload": {"close": 10.0}},
+            {"timestamp": cutoff.isoformat(), "payload": {"close": current_close},
+             "content_hash": str(index), "fetched_at": cutoff.isoformat()},
+        ]
+        if index < 21:
+            tencent[(symbol, "1m")] = [
+                _bar(symbol, prior, 10.0, source="TENCENT"),
+                _bar(symbol, cutoff, current_close, source="TENCENT"),
+            ]
+    captured = universe[0]["symbol"]
+    verifier = A5IndependentVerifier(
+        daily_cache=_Daily(daily), minute_store=_MinuteStore({}),
+        tencent=_Provider(tencent), mootdx=None, workers=4,
+    )
+    result = verifier.verify(
+        a2={"themes": [], "candidates": []}, market_universe=universe,
+        plan_rows=[], event_rows=[{
+            "effective": True, "action": "BUY_SIGNAL",
+            "payload_json": {"symbol": captured}, "minute_end": cutoff.isoformat(),
+        }], cutoff_at=cutoff,
+    )
+    assert result["a2"]["alternate_confirmation_requested_count"] == 21
+    assert result["a2"]["top_performance_ledger_count"] == 21
+    assert len(result["top_performance_ledger"]) == 21
+    assert result["top_performance_ledger"][0]["coverage_status"] == "CAPTURED_EFFECTIVE_A4"
+    assert len(result["counterexamples"]) == 20
+    assert captured not in {row["symbol"] for row in result["counterexamples"]}
+
+
+def test_a1_market_universe_keeps_compact_gate_evidence_for_counterexamples() -> None:
+    from liangjian_funnel.review.daily import _a1_market_universe
+    audit = {"stages": [{"stage": "A1", "output": {"monitor_pool": [{
+        "symbol": "300110.SZ", "company_name": "华仁药业",
+        "theme_id": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "autonomous_status": "LOCAL_MONITOR", "downstream_trade_eligible": True,
+        "financial_quality_score": 38.2, "data_quality_score": 85.0,
+        "missing_factors": ["business_mapping"],
+        "a1_selection_evidence": {"selection_performed": False,
+            "reason_codes": ["A1_FINANCIAL_NEGATIVE_GROWTH_PRESENT"],
+            "data_gaps": ["FUNDAMENTAL_EVIDENCE"]},
+        "fundamental_support": {"supported": False, "score": 38.2, "minimum_score": 60.0,
+            "coverage_ratio": 1.0, "latest_half_year": {"fiscal_year": 2026, "fiscal_period": "Q2",
+                "supported": False, "reason_code": "A1_HALF_YEAR_GROWTH_NOT_CONFIRMED"}},
+        "disclosed_business_match": {"raw_disclosure_available": True,
+            "structured_exposure_available": False, "structured_match_confirmed": False},
+    }]}}]}
+    row = _a1_market_universe(audit)[0]
+    assert row["pool"] == "A1_MONITOR"
+    assert row["a1_gate_evidence"]["financial_quality_score"] == 38.2
+    assert row["a1_gate_evidence"]["fundamental_support"]["latest_half_year"]["supported"] is False

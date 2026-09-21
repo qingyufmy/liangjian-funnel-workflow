@@ -78,6 +78,10 @@ def test_operational_citation_overflow_never_drops_full_evidence_or_fails_report
     assert len(finding.evidence_ids) == min(count, 20)
     assert finding.evidence_ids[0] == 'ENGINEERING:0'
     assert finding.evidence_ids[-1] == f'ENGINEERING:{count-1}'
+    if kind == "JOB_FAILED":
+        assert finding.layer == "ORCHESTRATOR"
+        assert "1个失败周期" in finding.problem
+        assert f"{count}条失败或超时记录" in finding.problem
     assert facts == original
 
 
@@ -223,6 +227,40 @@ def test_partial_verification_does_not_claim_all_plan_coverage():
     facts = {"metrics": {"a3_plan_count": 2}, "independent_verification": {"a4": {"plans": [
         {"expected_observation_minutes": 10, "recorded_observation_minutes": 10}]}}}
     assert verification_totals(facts)["scope_verified"] is False
+
+
+def test_missing_observations_are_grouped_by_global_minute_incident():
+    stamp = "2026-09-21T09:33:00+08:00"
+    facts = {"metrics": {"a3_plan_count": 2}, "independent_verification": {"a4": {"plans": [
+        {"symbol": "000001.SZ", "expected_observation_minutes": 10,
+         "recorded_observation_minutes": 9, "missing_observation_count": 1,
+         "missing_observation_samples": [stamp]},
+        {"symbol": "000002.SZ", "expected_observation_minutes": 10,
+         "recorded_observation_minutes": 9, "missing_observation_count": 1,
+         "missing_observation_samples": [stamp]},
+    ]}}}
+    totals = verification_totals(facts)
+    assert totals["missing_observation_count"] == 2
+    assert totals["missing_observation_incident_count"] == 1
+    assert totals["missing_observation_incidents"][0]["affected_plan_count"] == 2
+
+
+def test_reconciliation_appends_every_server_counterexample_missing_from_model():
+    from test_a5_daily_review import _report
+    report = A5ReviewReport.model_validate(copy.deepcopy(_report()))
+    report.missed_opportunity_reviews = []
+    facts = {"metrics": {}, "independent_verification": {"counterexamples": [
+        {"evidence_id": "A5V:MISS:300110.SZ", "symbol": "300110.SZ", "name": "华仁药业",
+         "theme_id": "HEALTH", "intraday_return": 0.2007, "performance_rank": 1,
+         "drop_stage": "A1_NOT_ACTIVE", "selection_audit": {"explanation": "A1原时点处于观察池"}},
+        {"evidence_id": "A5V:MISS:688112.SH", "symbol": "688112.SH", "name": "鼎阳科技",
+         "theme_id": "ROBOT", "intraday_return": 0.2, "performance_rank": 2,
+         "drop_stage": "A2_QUANT_FILTERED", "selection_audit": {"explanation": "未匹配当时轮动板块"}},
+    ], "a4": {"plans": []}}}
+    notes = reconcile_report(report, facts)
+    assert [row.symbol for row in report.missed_opportunity_reviews] == ["300110.SZ", "688112.SH"]
+    assert all(row.is_confirmed_defect is False for row in report.missed_opportunity_reviews)
+    assert any("服务器按冻结事实补齐" in note for note in notes)
 
 
 def test_source_outage_proposal_is_not_replaced_with_volume_mismatch_theory():

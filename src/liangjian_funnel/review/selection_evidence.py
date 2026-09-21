@@ -25,10 +25,44 @@ def a2_gate_evidence(row):
 
 def counterexample_selection_audit(candidate, technical):
     quant = candidate.get("quant_gate_evidence") or {}
-    facts = {"a2": quant, "a3": technical or {},
+    a1 = candidate.get("a1_gate_evidence") or {}
+    facts = {"a1": a1, "a2": quant, "a3": technical or {},
              "scope": "FROZEN_PRODUCTION_PREDICATES_NOT_COUNTERFACTUAL_BUY_POINT"}
     parts = []
-    if technical:
+    pool = str(candidate.get("pool") or "")
+    if pool in {"A1_MONITOR", "A1_REJECTED"}:
+        support = a1.get("fundamental_support") or {}
+        half_year = support.get("latest_half_year") or {}
+        status = "观察池" if pool == "A1_MONITOR" else "淘汰池"
+        parts.append(f"A1原时点处于{status}")
+        if support:
+            if support.get("supported") is True:
+                parts.append("基本面支持门槛已满足")
+            elif support.get("supported") is False:
+                score = support.get("score")
+                minimum = support.get("minimum_score")
+                if isinstance(score, (int, float)) and isinstance(minimum, (int, float)):
+                    parts.append(f"基本面支持分{score:.2f}，低于门槛{minimum:g}")
+                else:
+                    parts.append("基本面支持门槛未满足")
+        if half_year and half_year.get("supported") is False:
+            parts.append("最新半年报收入或归母净利润增长未确认")
+        missing = a1.get("missing_factors") or []
+        if missing:
+            labels = {
+                "business_mapping": "主营业务收入暴露",
+                "barrier_and_bottleneck": "产业壁垒与关键卡位",
+                "institutional_coverage": "机构覆盖",
+                "valuation_expectation_gap": "估值与预期差",
+                "catalyst_confirmation": "催化剂确认",
+                "structural_theme": "产业趋势支撑",
+            }
+            translated = [labels.get(str(value), "其他证据字段") for value in missing[:6]]
+            parts.append("证据缺口：" + "、".join(dict.fromkeys(translated)))
+        reasons = a1.get("reason_codes") or []
+        if reasons:
+            parts.append(f"另有{len(reasons)}项基本面规则原因已在冻结证据中留档")
+    elif technical:
         names = {"LEADER_INTRADAY": "龙头", "TREND_MA5": "趋势五日线", "MA520_SWING": "520"}
         profile = names.get(technical.get("strategy_profile"), "未识别策略")
         unmet = technical.get("unmet_conditions") or []

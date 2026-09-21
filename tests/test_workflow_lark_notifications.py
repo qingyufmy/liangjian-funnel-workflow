@@ -627,6 +627,20 @@ def test_a5_review_card_is_structured_chinese_and_idempotent(tmp_path):
         ),
     }
 
+    facts_payload = json.loads(review["fact_snapshot_json"])
+    facts_payload["independent_verification"]["top_performance_ledger"] = [
+        {"symbol": f"00000{i}.SZ", "coverage_status": "CAPTURED_EFFECTIVE_A4" if i == 0 else "A2_QUANT_FILTERED"}
+        for i in range(7)
+    ]
+    report_payload = json.loads(review["report_json"])
+    seed = report_payload["missed_opportunity_reviews"][0]
+    report_payload["missed_opportunity_reviews"] = [
+        {**seed, "symbol": f"00000{i}.SZ", "name": f"反例{i}"}
+        for i in range(1, 7)
+    ]
+    review["fact_snapshot_json"] = json.dumps(facts_payload, ensure_ascii=False)
+    review["report_json"] = json.dumps(report_payload, ensure_ascii=False)
+
     first = publisher.publish_a5_review(review, now=now)
     second = publisher.publish_a5_review(review, now=now)
 
@@ -647,6 +661,8 @@ def test_a5_review_card_is_structured_chinese_and_idempotent(tmp_path):
     assert "当日表现与入场审计" in body
     assert "较昨收+1.00%" in body
     assert "当日不可卖" in body
+    assert "全市场强势覆盖 7 只，其中产生有效盘中信号 1 只" in body
+    assert "其余 1 只已写入完整复盘" in body
     assert store.list_notification_deliveries(kind="A5_POST_CLOSE_REVIEW")
 
 

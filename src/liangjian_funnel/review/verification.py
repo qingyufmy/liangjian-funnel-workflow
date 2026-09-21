@@ -355,6 +355,7 @@ class A5IndependentVerifier:
             "signal_market": signal_market,
             "market_data_evidence_archives": archives,
             "counterexamples": a2_check.get("counterexamples", []),
+            "top_performance_ledger": a2_check.get("top_performance_ledger", []),
         }
 
     def _fetch_many(self, provider: Any, symbols: Sequence[str], interval: str, required: int, cutoff: datetime) -> dict[str, dict[str, Any]]:
@@ -559,7 +560,12 @@ class A5IndependentVerifier:
         }
         effective_symbols = {
             str(_mapping(row.get("payload_json")).get("symbol") or "")
-            for row in event_rows if bool(row.get("effective"))
+            for row in event_rows
+            if bool(row.get("effective")) and str(row.get("action") or "") in _ACTIONABLE
+        }
+        technical_by_symbol = {
+            str(item.get("symbol")): item
+            for item in a2.get("technical_candidates", ()) if isinstance(item, Mapping)
         }
         stock_performance.sort(key=lambda row: (-float(row["return"]), str(row["symbol"])))
         production_candidate_by_symbol = {
@@ -589,16 +595,18 @@ class A5IndependentVerifier:
             }
         audit_performance = [r for r in market_cross_section if r.get("ranking_eligible") is not False] if market_cross_section else stock_performance
         positive = [row for row in audit_performance if float(row["return"]) > 0]
-        relative_limit = min(20, max(1, math.ceil(len(audit_performance) * 0.01))) if market_cross_section else min(20, max(1, math.ceil(len(audit_performance) * 0.10))) if audit_performance else 0
-        counterexamples = []
-        for rank, row in enumerate(positive[:relative_limit], start=1):
+        relative_limit = (
+            max(20, math.ceil(len(audit_performance) * 0.01))
+            if market_cross_section else
+            min(20, max(1, math.ceil(len(audit_performance) * 0.10)))
+            if audit_performance else 0
+        )
+
+        def review_row(row: Mapping[str, Any], *, rank: int, sample_basis: str) -> dict[str, Any]:
             symbol = str(row["symbol"])
-            if symbol in effective_symbols:
-                continue
             production_candidate = production_candidate_by_symbol.get(symbol)
             pool = str(production_candidate.get("pool") if production_candidate else row.get("pool") or "UNKNOWN")
-            technical = {str(item.get("symbol")): item for item in a2.get("technical_candidates", ()) if isinstance(item, Mapping)}
-            drop_stage = counterexample_drop_stage(symbol, pool, plan_symbols, technical)
+            drop_stage = counterexample_drop_stage(symbol, pool, plan_symbols, technical_by_symbol)
             reason_source = production_candidate or row
             independent_confirmation = bool(market_cross_section) and symbol in confirmation_symbols
             alternate_return = (
@@ -607,23 +615,26 @@ class A5IndependentVerifier:
             )
             local_return = float(row["return"])
             return_difference = abs(alternate_return - local_return) if alternate_return is not None else None
-            counterexamples.append({
-                "evidence_id": f"A5V:MISS:{symbol}",
+            captured = symbol in effective_symbols
+            return {
+                "evidence_id": f"A5V:{'COVERAGE' if captured else 'MISS'}:{symbol}",
                 "symbol": symbol,
                 "name": str(row.get("name") or ""),
                 "theme_id": str(reason_source.get("theme_id") or ""),
                 "theme_name": str(reason_source.get("theme_name") or ""),
                 "theme_basis": "PRODUCTION_A2_LINEAGE" if production_candidate else "A1_UNIVERSE_LINEAGE",
                 "source_pool": pool,
-                "a3_candidate": technical.get(symbol),
-                "selection_audit": counterexample_selection_audit(reason_source, technical.get(symbol)),
+                "a3_candidate": technical_by_symbol.get(symbol),
+                "selection_audit": counterexample_selection_audit(reason_source, technical_by_symbol.get(symbol)),
                 "intraday_return": round(local_return, 8),
                 "return_basis": row["return_basis"],
                 "performance_rank": rank,
                 "performance_percentile_floor": round(1.0 - ((rank - 1) / max(1, len(audit_performance))), 6),
                 "drop_stage": drop_stage,
                 "has_a3_plan": symbol in plan_symbols,
-                "has_effective_a4_event": False,
+                "has_effective_a4_event": captured,
+                "coverage_status": "CAPTURED_EFFECTIVE_A4" if captured else drop_stage,
+                "sample_basis": sample_basis,
                 "production_selection_reasons": [str(value) for value in reason_source.get("selection_reasons", ())][:8],
                 "production_risk_reasons": [str(value) for value in reason_source.get("risk_reasons", ())][:8],
                 "alternate_source_confirmation_requested": independent_confirmation,
@@ -637,7 +648,42 @@ class A5IndependentVerifier:
                     else "DATA_LIMITED"
                 ),
                 "interpretation_boundary": "客观强势反例，不等于当时必然存在合规买点",
-            })
+            }
+
+        top_performance_ledger = []
+        counterexamples = []
+        top_symbols: set[str] = set()
+        for rank, row in enumerate(positive[:relative_limit], start=1):
+            detail = review_row(row, rank=rank, sample_basis="FULL_MARKET_TOP_PERCENTILE" if market_cross_section else "MIDDAY_CANDIDATE_DOMAIN_TOP_DECILE")
+            symbol = str(detail["symbol"])
+            top_symbols.add(symbol)
+            top_performance_ledger.append({key: detail.get(key) for key in (
+                "evidence_id", "symbol", "name", "theme_id", "theme_name", "source_pool",
+                "intraday_return", "return_basis", "performance_rank", "drop_stage",
+                "has_a3_plan", "has_effective_a4_event", "coverage_status", "sample_basis",
+                "alternate_source_status",
+            )})
+            if not detail["has_effective_a4_event"]:
+                detail["evidence_id"] = f"A5V:MISS:{symbol}"
+                counterexamples.append(detail)
+
+        # Full-market winners are necessary but otherwise crowd A2/A3/A4
+        # diagnostic samples out of the model context.  Add a small,
+        # deterministic stage supplement from the already-frozen A2 candidate
+        # domain.  This changes neither selection nor execution.
+        stage_counts: dict[str, int] = defaultdict(int)
+        for rank, row in enumerate(stock_performance, start=1):
+            symbol = str(row.get("symbol") or "")
+            if not symbol or symbol in top_symbols or symbol in effective_symbols or float(row.get("return") or 0) <= 0:
+                continue
+            detail = review_row(row, rank=rank, sample_basis="STAGE_STRATIFIED_A2_CANDIDATE_SUPPLEMENT")
+            stage = str(detail.get("drop_stage") or "")
+            bucket = stage.split("_", 1)[0]
+            if bucket not in {"A2", "A3", "A4"} or stage_counts[bucket] >= 5:
+                continue
+            stage_counts[bucket] += 1
+            detail["evidence_id"] = f"A5V:MISS:{symbol}"
+            counterexamples.append(detail)
         ratio = covered / len(candidates) if candidates else 0.0
         reason_counts: dict[str, int] = defaultdict(int)
         for symbol in (str(row.get("symbol") or "") for row in candidates):
@@ -667,7 +713,14 @@ class A5IndependentVerifier:
                 - {str(row.get("symbol") or "") for row in market_cross_section}
             ) if market_cross_section else [],
             "alternate_confirmation_requested_count": len(confirmation_symbols),
+            "top_performance_requested_count": relative_limit,
+            "top_performance_ledger_count": len(top_performance_ledger),
+            "top_performance_captured_count": sum(
+                row.get("coverage_status") == "CAPTURED_EFFECTIVE_A4" for row in top_performance_ledger
+            ),
+            "stage_supplement_count": sum(stage_counts.values()),
             "counterexamples": counterexamples,
+            "top_performance_ledger": top_performance_ledger,
         }
 
     @staticmethod

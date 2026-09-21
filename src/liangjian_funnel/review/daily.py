@@ -20,7 +20,7 @@ from ..runtime.state import RuntimeStore
 from .signal_audit import build_signal_stock_reviews
 from .context import A5ReviewError, render_a5_prompt
 from .plan_scope import carryover_evidence, select_review_plans
-from .fact_guard import normalize_quality, reconcile_report, business_metrics
+from .fact_guard import normalize_quality, reconcile_report, business_metrics, verification_totals
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -138,7 +138,9 @@ class A5ReviewReport(BaseModel):
     # Populated by server facts after model validation, never model authority.
     signal_stock_reviews: list[dict[str, Any]] = Field(default_factory=list)
     fact_reconciliation: list[str] = Field(default_factory=list)
-    missed_opportunity_reviews: list[A5CounterexampleReview] = Field(default_factory=list, max_length=20)
+    # The full-market top percentile plus stage-stratified supplements must fit
+    # without forcing the model or server reconciliation to drop identities.
+    missed_opportunity_reviews: list[A5CounterexampleReview] = Field(default_factory=list, max_length=80)
     core_defects: list[A5Defect] = Field(default_factory=list, max_length=8)
     improvement_proposals: list[A5Proposal] = Field(default_factory=list, max_length=3)
     data_collection_tasks: list[str] = Field(default_factory=list, max_length=8)
@@ -746,9 +748,32 @@ def _compact_operational_evidence_for_model(rows: Sequence[Mapping[str, Any]]) -
     for row in job_rows:
         key = (str(row.get("kind") or "UNKNOWN"), str(row.get("job") or "UNKNOWN"), str(row.get("reason") or "UNKNOWN"))
         groups.setdefault(key, []).append(row)
+    incidents: list[dict[str, Any]] = []
+    for job in sorted({str(row.get("job") or "UNKNOWN") for row in job_rows}):
+        ordered = sorted(
+            (row for row in job_rows if str(row.get("job") or "UNKNOWN") == job),
+            key=lambda row: str(row.get("time") or ""),
+        )
+        current: list[Mapping[str, Any]] = []
+        previous_at: datetime | None = None
+        for row in ordered:
+            try:
+                stamp = datetime.fromisoformat(str(row.get("time") or "").replace("Z", "+00:00"))
+            except ValueError:
+                stamp = None
+            if current and stamp is not None and previous_at is not None and (stamp - previous_at).total_seconds() > 2400:
+                incidents.append(_operational_job_incident(job, current))
+                current = []
+            current.append(row)
+            if stamp is not None:
+                previous_at = stamp
+        if current:
+            incidents.append(_operational_job_incident(job, current))
     return {
         "schema_version": "a5-operational-projection/1",
         "original_count": len(rows),
+        "job_incident_count": len(incidents),
+        "job_incidents": incidents,
         "job_failure_groups": [
             {
                 "evidence_id": "ENGINEERING:JOB_GROUP:" + _canonical_hash(items)[:16],
@@ -763,6 +788,28 @@ def _compact_operational_evidence_for_model(rows: Sequence[Mapping[str, Any]]) -
         "other_events": other_rows,
         "projected_count": len(job_rows) + len(other_rows),
         "archive_locator": "operational_evidence",
+    }
+
+
+def _operational_job_incident(job: str, rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    kinds: dict[str, int] = {}
+    reasons: dict[str, int] = {}
+    for row in rows:
+        kind = str(row.get("kind") or "UNKNOWN")
+        reason = str(row.get("reason") or "UNKNOWN")
+        kinds[kind] = kinds.get(kind, 0) + 1
+        reasons[reason] = reasons.get(reason, 0) + 1
+    return {
+        "evidence_id": "ENGINEERING:JOB_INCIDENT:" + _canonical_hash(rows)[:16],
+        "job": job,
+        "record_count": len(rows),
+        "kind_counts": kinds,
+        "reason_counts": reasons,
+        "first_at": min(str(item.get("time") or "") for item in rows),
+        "last_at": max(str(item.get("time") or "") for item in rows),
+        "raw_evidence_ids": [str(item.get("evidence_id") or "") for item in rows],
+        "raw_evidence_sha256": _canonical_hash(rows),
+        "interpretation": "One bounded job incident containing multiple retry/termination records; record_count is not an independent task count.",
     }
 
 
@@ -901,6 +948,10 @@ def _model_fact_projection(facts: Mapping[str, Any]) -> dict[str, Any]:
             original_independent.get("counterexamples")
         ):
             independent["a2"].pop("counterexamples", None)
+        if _rows(_json_mapping(original_independent.get("a2")).get("top_performance_ledger")) == _rows(
+            original_independent.get("top_performance_ledger")
+        ):
+            independent["a2"].pop("top_performance_ledger", None)
         independent["a3"] = _compact_a3_verification_for_model(
             _json_mapping(independent.get("a3"))
         )
@@ -1281,6 +1332,10 @@ def _a1_market_universe(audit: Mapping[str, Any]) -> list[dict[str, Any]]:
             if not symbol or symbol in seen:
                 continue
             seen.add(symbol)
+            selection = _json_mapping(item.get("a1_selection_evidence"))
+            fundamental = _json_mapping(item.get("fundamental_support"))
+            half_year = _json_mapping(fundamental.get("latest_half_year"))
+            disclosed = _json_mapping(item.get("disclosed_business_match"))
             result.append({
                 "symbol": symbol,
                 "name": item.get("name") or item.get("company_name"),
@@ -1289,6 +1344,32 @@ def _a1_market_universe(audit: Mapping[str, Any]) -> list[dict[str, Any]]:
                 "pool": pool_name,
                 "selection_reasons": item.get("core_thesis") if isinstance(item.get("core_thesis"), list) else [],
                 "risk_reasons": item.get("bear_case") if isinstance(item.get("bear_case"), list) else [],
+                "a1_gate_evidence": {
+                    "autonomous_status": item.get("autonomous_status"),
+                    "downstream_trade_eligible": item.get("downstream_trade_eligible"),
+                    "selection_performed": selection.get("selection_performed"),
+                    "reason_codes": list(selection.get("reason_codes") or []),
+                    "data_gaps": list(selection.get("data_gaps") or []),
+                    "financial_quality_score": item.get("financial_quality_score"),
+                    "data_quality_score": item.get("data_quality_score"),
+                    "evidence_confidence": item.get("evidence_confidence"),
+                    "monthly_direction_id": item.get("monthly_direction_id"),
+                    "missing_factors": list(item.get("missing_factors") or []),
+                    "fundamental_support": {
+                        "supported": fundamental.get("supported"),
+                        "score": fundamental.get("score"),
+                        "minimum_score": fundamental.get("minimum_score"),
+                        "coverage_ratio": fundamental.get("coverage_ratio"),
+                        "latest_half_year": {key: half_year.get(key) for key in (
+                            "fiscal_year", "fiscal_period", "operating_income_yoy_pct",
+                            "parent_holder_net_profit_yoy_pct", "reason_code", "supported",
+                        )},
+                    },
+                    "disclosed_business_match": {key: disclosed.get(key) for key in (
+                        "raw_disclosure_available", "structured_exposure_available",
+                        "structured_match_confirmed", "match_basis",
+                    )},
+                },
             })
     return result
 
@@ -1529,6 +1610,15 @@ def build_a5_fact_snapshot(
             if isinstance(independent.get("counterexamples"), list)
             else []
         )
+        coverage_ledger = _rows(independent.get("top_performance_ledger"))
+        snapshot["metrics"]["a5_top_performance_ledger_count"] = len(coverage_ledger)
+        snapshot["metrics"]["a5_top_performance_captured_count"] = sum(
+            str(row.get("coverage_status") or "") == "CAPTURED_EFFECTIVE_A4"
+            for row in coverage_ledger
+        )
+        snapshot["metrics"]["a5_stage_supplement_count"] = int(
+            _json_mapping(independent.get("a2")).get("stage_supplement_count") or 0
+        )
         snapshot["metrics"]["a5_independent_verification_status"] = str(
             independent.get("status") or "UNAVAILABLE"
         )
@@ -1719,6 +1809,7 @@ def _markdown(report: A5ReviewReport, snapshot: Mapping[str, Any]) -> str:
         f"- A2 聚焦/观察：`{metrics.get('a2_focus_count', 0)}/{metrics.get('a2_watch_count', 0)}`",
         f"- A3 计划：`{metrics.get('a3_plan_count', 0)}`",
         f"- A4 业务状态事件/生命周期：`{metrics.get('a4_effective_event_count', 0)}/{metrics.get('a4_lifecycle_count', 0)}`；交易信号：{metrics.get('a4_trade_signal_count', '未单独统计')}；计划失效：{metrics.get('a4_plan_invalidation_count', '未单独统计')}",
+        f"- 强势股覆盖账本/需复核反例：`{metrics.get('a5_top_performance_ledger_count', 0)}/{metrics.get('a5_counterexample_count', 0)}`；其中已产生有效盘中信号：{metrics.get('a5_top_performance_captured_count', 0)}",
         f"- 反例落层计数（代码统计）：`{json.dumps(metrics.get('a5_counterexample_drop_stage_counts', {}), ensure_ascii=False)}`",
         "- 核验边界：价格字段一致不代表开高低、成交量或全部技术指标一致；次日可卖也不代表必定成交。",
         "", "## 总结", "", report.executive_summary, "",
@@ -1774,6 +1865,15 @@ def _markdown(report: A5ReviewReport, snapshot: Mapping[str, Any]) -> str:
 def _enforce_verified_findings(report: A5ReviewReport, facts: Mapping[str, Any]) -> None:
     """Model prose cannot clear failed deterministic verification."""
     findings = []
+    # Older model/server reports described retry records as independent
+    # research-task failures and plan×minute gaps as independent plan
+    # incidents. Replace those derived statements with the canonical grouped
+    # facts below instead of duplicating them during frozen revalidation.
+    report.core_defects = [item for item in report.core_defects if not (
+        ("研究任务失败或超时" in item.problem and item.layer == "A2")
+        or ("计划在应观察窗口内缺少决策记录" in item.problem)
+        or ("实际决策窗口缺少" in item.problem and "判断记录" in item.problem)
+    )]
     def references(rows):
         # Report citations are a bounded index, not the source archive. Keep
         # the complete event set in frozen facts and the total in the finding.
@@ -1783,8 +1883,29 @@ def _enforce_verified_findings(report: A5ReviewReport, facts: Mapping[str, Any])
     failed_research = [row for row in operations if row.get("kind") in {"JOB_TERMINATED", "JOB_FAILED"}
                        and row.get("job") in {"auction-refresh", "close", "morning"}]
     if failed_research:
-        findings.append(A5Defect(layer="A2", severity="MEDIUM", confidence="HIGH", blocked_by_data=False,
-            problem=f"记录到{len(failed_research)}次研究任务失败或超时；需核对进度收尾及计划血缘，不能由行情覆盖正常推断研究刷新成功。",
+        incidents: list[list[Mapping[str, Any]]] = []
+        for job in sorted({str(row.get("job") or "UNKNOWN") for row in failed_research}):
+            ordered = sorted((row for row in failed_research if str(row.get("job") or "UNKNOWN") == job),
+                             key=lambda row: str(row.get("time") or ""))
+            current: list[Mapping[str, Any]] = []
+            previous: datetime | None = None
+            for row in ordered:
+                try:
+                    stamp = datetime.fromisoformat(str(row.get("time") or "").replace("Z", "+00:00"))
+                except ValueError:
+                    stamp = None
+                if current and stamp is not None and previous is not None and (stamp - previous).total_seconds() > 2400:
+                    incidents.append(current)
+                    current = []
+                current.append(row)
+                if stamp is not None:
+                    previous = stamp
+            if current:
+                incidents.append(current)
+        labels = {"auction-refresh": "竞价刷新", "close": "收盘研究", "morning": "盘前研究"}
+        affected_jobs = "、".join(sorted({labels.get(str(row.get('job')), str(row.get('job'))) for row in failed_research}))
+        findings.append(A5Defect(layer="ORCHESTRATOR", severity="MEDIUM", confidence="HIGH", blocked_by_data=False,
+            problem=f"{affected_jobs}发生{len(incidents)}个失败周期，共包含{len(failed_research)}条失败或超时记录；记录条数不是独立任务数，需按故障周期核对恢复和输出血缘。",
             evidence_ids=references(failed_research)))
     position_alerts = [row for row in operations if row.get("kind") == "POSITION_DATA_HEALTH_EVENT" and row.get("state") == "BLOCKED"]
     if position_alerts:
@@ -1810,16 +1931,36 @@ def _enforce_verified_findings(report: A5ReviewReport, facts: Mapping[str, Any])
         findings.append(A5Defect(layer="A4", severity="MEDIUM", confidence="HIGH", blocked_by_data=True,
             problem=f"{len(bad_prices)}个计划存在异源价格超容差差异；行情覆盖完整不等于数值一致。",
             evidence_ids=[str(row["evidence_id"]) for row in bad_prices[:20]]))
+    totals = verification_totals(facts)
     gaps = [row for row in _rows(a4.get("plans")) if float(row.get("observation_coverage", 1)) < 1]
     if gaps:
+        incidents = int(totals.get("missing_observation_incident_count") or 0)
+        records = int(totals.get("missing_observation_count") or 0)
         findings.append(A5Defect(layer="A4", severity="HIGH", confidence="HIGH",
-            problem=f"{len(gaps)}个计划在应观察窗口内缺少决策记录，需要按激活时间核对。",
+            problem=f"应观察窗口发生{incidents}个缺失事件，影响{len(gaps)}个计划、共{records}条股票×分钟记录；需要按事件时间和调度租约核对。",
             evidence_ids=[str(row["evidence_id"]) for row in gaps[:20]]))
+    omissions = [
+        omission
+        for plan in _rows(a4.get("plans"))
+        for omission in _rows(plan.get("orchestration_omissions"))
+    ]
+    if omissions:
+        findings.append(A5Defect(layer="ORCHESTRATOR", severity="MEDIUM", confidence="HIGH", blocked_by_data=True,
+            problem=f"发现{len(omissions)}条策略候选动作未形成同分钟有效动作记录；候选动作、执行数据状态和最终发布动作必须分开保存，数据受限窗口不得补记为有效交易信号。",
+            evidence_ids=[str(row.get("evidence_id") or "A5V:A4:SUMMARY") for row in _rows(a4.get("plans")) if row.get("orchestration_omission_count")][:20]))
     if _json_mapping(facts.get("a2")).get("lineage_complete") is False:
         findings.append(A5Defect(layer="A2", severity="HIGH", confidence="HIGH", blocked_by_data=True,
             problem="A2量化评价数量与全池去向不闭合，不能认定漏选归因完整。", evidence_ids=["DATA_QUALITY:DAILY"]))
     if findings:
-        report.core_defects = (findings + report.core_defects)[:8]
+        deduplicated: list[A5Defect] = []
+        seen_findings: set[tuple[str, str]] = set()
+        for item in [*findings, *report.core_defects]:
+            key = (item.layer, item.problem)
+            if key in seen_findings:
+                continue
+            seen_findings.add(key)
+            deduplicated.append(item)
+        report.core_defects = deduplicated[:8]
         report.overall_verdict = "NEEDS_ATTENTION" if report.overall_verdict != "INCIDENT" else "INCIDENT"
         for layer in {item.layer for item in findings}:
             review = getattr(report, f"{layer.lower()}_review", None)
