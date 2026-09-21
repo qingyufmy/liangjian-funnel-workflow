@@ -1098,6 +1098,11 @@ def _compact_a4_verification_for_model(value: Mapping[str, Any]) -> dict[str, An
 
     result = dict(value)
     plans = _rows(result.get("plans"))
+    coverage_totals = verification_totals({
+        "metrics": {"a3_plan_count": len(plans)},
+        "independent_verification": {"a4": {"plans": plans}},
+    })
+    coverage_totals.pop("fields", None)
     result["field_totals"] = _verification_field_totals(plans)
     formula_totals: dict[str, dict[str, int]] = {}
     raw_formula_verification = {"verified": 0, "not_verified": 0}
@@ -1201,19 +1206,10 @@ def _compact_a4_verification_for_model(value: Mapping[str, Any]) -> dict[str, An
     result["plans"] = {
         "encoding": "a5-a4-verification-projection/1",
         "plan_count": len(plans),
-        "coverage_totals": {
-            "expected_plan_observations": sum(int(row.get("expected_observation_minutes") or 0) for row in plans),
-            "recorded_plan_observations": sum(int(row.get("recorded_observation_minutes") or 0) for row in plans),
-            "omission_count": sum(int(row.get("orchestration_omission_count") or 0) for row in plans),
-            "missing_observation_count": sum(int(row.get("missing_observation_count") or 0) for row in plans),
-            "verified_plan_count": len(plans),
-            "scope_verified": bool(plans)
-            and all(
-                "expected_observation_minutes" in row
-                and "recorded_observation_minutes" in row
-                for row in plans
-            ),
-        },
+        # Preserve both the row count and the incident grouping.  A global
+        # missing minute affecting many plans is one outage window, not many
+        # independent faults.
+        "coverage_totals": coverage_totals,
         "status_totals": status_totals,
         "plan_index_sha256": _canonical_hash(plan_index),
         "plan_symbols": sorted(str(row.get("symbol") or "") for row in plans),

@@ -246,6 +246,35 @@ def test_large_synthetic_input_preserves_all_effective_events_and_error_details(
     assert all(row["evidence_id"] in prompt for row in facts["independent_verification"]["counterexamples"])
 
 
+def test_a4_projection_preserves_missing_window_incident_grouping():
+    stamp = "2026-09-21T09:33:00+08:00"
+    plans = [
+        {
+            "evidence_id": f"A5V:A4:{symbol}",
+            "plan_id": f"plan-{symbol}",
+            "symbol": symbol,
+            "expected_observation_minutes": 10,
+            "recorded_observation_minutes": 9,
+            "missing_observation_count": 1,
+            "missing_observation_samples": [stamp],
+            "orchestration_omission_count": 0,
+        }
+        for symbol in ("000001.SZ", "000002.SZ")
+    ]
+    projected = _model_fact_projection({
+        "metrics": {"a3_plan_count": 2},
+        "independent_verification": {"a4": {"plans": plans}},
+    })
+    coverage = projected["independent_verification"]["a4"]["plans"]["coverage_totals"]
+    assert coverage["missing_observation_count"] == 2
+    assert coverage["missing_observation_incident_count"] == 1
+    assert coverage["missing_observation_incidents"] == [{
+        "minute_end": stamp,
+        "affected_plan_count": 2,
+        "symbols": ["000001.SZ", "000002.SZ"],
+    }]
+
+
 def test_budget_failure_has_safe_diagnostics_not_arbitrary_exception_text():
     proj = {"input_hash": "a" * 64, "a3": {"cannot_discard": "x" * 260000}}
     with pytest.raises(A5ReviewError) as caught:
