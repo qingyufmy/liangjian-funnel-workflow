@@ -131,7 +131,7 @@ from .runtime.decision_observability import (
     stable_correlation_id,
 )
 from .runtime.lark_notifications import WorkflowLarkPublisher
-from .runtime.live_market import load_or_refresh_live_market_state
+from .runtime.live_market import classify_index_fallback, load_or_refresh_live_market_state
 from .runtime.progress import WorkflowProgress
 from .runtime.resource_guard import evaluate_resources, measure_resources
 from .runtime.calendar import ExchangeTradingCalendar, TradingCalendarError
@@ -150,6 +150,7 @@ A4_MARKET_STATE_BUDGET_SECONDS = 8.0
 _A4_POSITION_WORK = BoundedWorkGate(8)
 _A4_REQUIRED_WORK = BoundedWorkGate(8)
 _A4_MARKET_WORK = BoundedWorkGate(1)
+_A4_MARKET_FALLBACK_WORK = BoundedWorkGate(4)
 _A4_LANE_WORK = BoundedWorkGate(4)
 _A4_AUXILIARY_WORK = BoundedWorkGate(2)
 _G0_SCOPE_CONTRACT = "CONFIGURED_RESEARCH_UNIVERSE_V1"
@@ -161,6 +162,66 @@ _COMPARISON_REQUEST_SCHEMA = "liangjian-comparison-request/1.0.0"
 _COMPARISON_REQUEST_STATUSES = frozenset({"PENDING", "RUNNING", "RETRYABLE", "SUCCEEDED", "FAILED", "CANCELLED"})
 _COMPARISON_RETRYABLE_STATUSES = frozenset({"PENDING", "RETRYABLE", "RUNNING"})
 _COMPARISON_OWNER_STALE_SECONDS = 15 * 60
+
+
+def _bounded_live_market_index_fallback(
+    market_data: Any,
+    *,
+    current: datetime,
+    deadline: float,
+) -> dict[str, Any]:
+    """Build a degraded market state without waiting on Hithink.
+
+    Full-market breadth and the Tencent index fallback are separate evidence
+    lanes. A provider that ignores cancellation can keep its single daemon
+    slot while the four small index quotes finish on their own bounded gate.
+    """
+
+    symbols = ("000001.SH", "399001.SZ", "399006.SZ", "000300.SH")
+    operations = {
+        symbol: (
+            lambda value=symbol: market_data.fetch_quote(
+                value, as_of=current, max_age_seconds=180.0
+            )
+        )
+        for symbol in symbols
+    }
+    results = run_many_bounded(
+        operations,
+        deadline=deadline,
+        gate=_A4_MARKET_FALLBACK_WORK,
+    )
+    quotes: list[dict[str, Any]] = []
+    diagnostics: list[dict[str, Any]] = []
+    for symbol in symbols:
+        work = results[symbol]
+        quote_result = work.value if work.status == "READY" else None
+        quote = getattr(quote_result, "quote", None)
+        complete = bool(getattr(quote_result, "complete", False) and quote is not None)
+        reason = (
+            str(getattr(quote_result, "reason_code", "") or "OK")
+            if complete
+            else (
+                str(getattr(quote_result, "reason_code", "") or "")
+                or ("A4_LIVE_MARKET_BACKPRESSURE" if work.status == "BACKPRESSURE"
+                    else "A4_LIVE_MARKET_INDEX_DEADLINE_EXCEEDED" if work.status == "TIMED_OUT"
+                    else "A4_LIVE_MARKET_INDEX_REQUEST_FAILED")
+            )
+        )
+        if complete:
+            quotes.append(quote.model_dump(mode="json"))
+        diagnostics.append({
+            "symbol": symbol,
+            "status": "READY" if complete else "DATA_BLOCKED",
+            "reason_code": reason,
+            "elapsed_ms": work.elapsed_ms,
+        })
+    state = classify_index_fallback(quotes, as_of=current)
+    state["diagnostics"] = {
+        "fallback_only": True,
+        "index_quotes": diagnostics,
+    }
+    return state
 _CNINFO_PDF_PERMANENT_FAILURES = frozenset(
     {
         "CNINFO_PDF_URL_REJECTED",
@@ -3978,27 +4039,29 @@ class WorkflowApplication:
             deadline=market_deadline,
             name="a4-market-state",
         ) if any(lane_plans.values()) else None
-        live_market_state = (
-            market_work.value
-            if market_work is not None and market_work.status == "READY"
-            else ({
-                "status": "DATA_BLOCKED",
-                "reason_code": (
-                    "A4_LIVE_MARKET_BACKPRESSURE"
-                    if market_work is not None and market_work.status == "BACKPRESSURE"
-                    else "A4_LIVE_MARKET_DEADLINE_EXCEEDED"
-                ),
-                "as_of": current.isoformat(),
-                "trade_date": current.date().isoformat(),
-                "entry_permission": "UNKNOWN",
-            } if market_work is not None else {
+        if market_work is not None and market_work.status == "READY":
+            live_market_state = market_work.value
+        elif market_work is not None:
+            full_market_reason = (
+                "A4_LIVE_MARKET_BACKPRESSURE"
+                if market_work.status == "BACKPRESSURE"
+                else "A4_LIVE_MARKET_DEADLINE_EXCEEDED"
+            )
+            fallback_deadline = min(round_deadline, time.monotonic() + 4.0)
+            live_market_state = _bounded_live_market_index_fallback(
+                self.market_data,
+                current=current,
+                deadline=fallback_deadline,
+            )
+            live_market_state.setdefault("diagnostics", {})["full_market_reason_code"] = full_market_reason
+        else:
+            live_market_state = {
                 "status": "NOT_REQUIRED",
                 "reason_code": "A4_NO_ACTIVE_PLAN_SCOPE",
                 "as_of": current.isoformat(),
                 "trade_date": current.date().isoformat(),
                 "entry_permission": "UNKNOWN",
-            })
-        )
+            }
         record_span("market_state", market_state_started, market_state_wall)
 
         # Market data is frozen once per symbol/minute and shared by every
@@ -4609,12 +4672,23 @@ class WorkflowApplication:
                 notifications.append({"status": "FAILED", "reason_code": "A4_EXECUTION_NOTIFICATION_FAILED"})
         record_span("notification", notification_started, notification_wall)
 
-        blocked_scope = sorted({
+        acquisition_blocked_scope = {
             symbol
             for _, _, _, _, lane_errors, _ in lane_inputs.values()
             for symbol in lane_errors
             if symbol in decision_symbols
-        })
+        }
+        # Acquisition may be healthy while the deterministic strategy rejects
+        # the frozen packet (for example a timestamp-contract violation).  The
+        # public observability contract must reflect the actual decision, not
+        # only transport-layer fetch errors.
+        strategy_blocked_scope = {
+            str(event.symbol)
+            for batch in lane_batches.values()
+            for event in batch.events
+            if event.action == MonitorAction.DATA_BLOCK.value and event.symbol in decision_symbols
+        }
+        blocked_scope = sorted(acquisition_blocked_scope | strategy_blocked_scope)
         ready_scope = sorted(decision_symbols - set(blocked_scope))
         effective_trade_symbols = {
             str(event.symbol)

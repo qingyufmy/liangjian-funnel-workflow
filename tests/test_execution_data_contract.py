@@ -120,6 +120,34 @@ def test_closed_decision_bar_and_current_risk_quote_are_separate(tmp_path):
     assert result.events[0].minute_end == now
 
 
+def test_strategy_clock_uses_closed_decision_bar_not_scheduler_tick(tmp_path):
+    store = RuntimeStore(tmp_path/'strategy-clock.db')
+    tick = at('10:00:00')
+    start = at('09:31:00')
+    history = tuple(bar(start + timedelta(minutes=index)) for index in range(29))
+    closed = history[-1]
+    store.create_execution_plan(
+        'p', 'lane_1', SYMBOL, status=PlanStatus.ACTIVE_TODAY,
+        valid_from=start, expires_at=at('15:00:00'),
+        payload={
+            'strategy_profile': 'TREND_MA5', 'stock_behavior_type': 'TREND',
+            'eligibility': 'QUALIFIED', 'entry_reference_zone': {'low': 9, 'high': 12},
+            'invalidation_level': 8, 'stop_level': 8,
+            'daily_indicators': {'ma5': 11, 'ma10': 10.7, 'ma20': 10.2, 'ma60': 9.5, 'close': 11.3},
+        },
+    )
+    result = MonitorEngine(store).process_minute(
+        'lane_1', {SYMBOL: closed}, bar_histories={SYMBOL: history},
+        decision_bar_end=closed.bar_end, minute_snapshot_id='strategy-clock', now=tick,
+    )
+    assert result.events
+    assert all(event.reason_code != 'STALE_1M' for event in result.events)
+    persisted = store.list_monitor_events(lane_id='lane_1')[-1]
+    payload = json.loads(persisted['payload_json'])
+    assert payload['strategy']['as_of'] == closed.bar_end.isoformat()
+    assert persisted['minute_end'] == tick.isoformat()
+
+
 def test_a5_includes_failed_jobs_and_alert_not_future(tmp_path):
     (tmp_path/'node').mkdir()
     rows = [{'id': i, 'timestamp': f'2026-09-15T{time}Z', 'stream': 'node', 'job': 'auction-refresh',

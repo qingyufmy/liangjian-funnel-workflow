@@ -1245,6 +1245,8 @@ class WorkflowLarkPublisher:
                 "MINUTE_PUBLICATION_UNCONFIRMED", "MINUTE_DATA_NOT_CURRENT",
                 "MINUTE_PUBLICATION_REPLAY_MISMATCH",
                 "MINUTE_DATA_GAP", "MINUTE_DATA_UNAVAILABLE",
+                "STALE_1M", "BAR_NOT_CURRENT_1M", "AS_OF_TIMESTAMP_MISSING",
+                "FUTURE_BAR_DETECTED",
             }):
                 # Shared acquisition incidents have their own aggregate card;
                 # the 15:00 pending-finality state is a post-close archive task.
@@ -1458,7 +1460,14 @@ class WorkflowLarkPublisher:
                                      pending_failures: Mapping[str, str] | None = None) -> list[dict[str, Any]]:
         """One durable incident/recovery per source-window failure, not per plan."""
         day = now.date().isoformat()
-        auxiliary = dict(auxiliary_failures or {})
+        auxiliary = {
+            symbol: reason
+            for symbol, reason in (auxiliary_failures or {}).items()
+            # This is an intentional off-critical-path deferral, already
+            # recorded in the minute audit.  Treating it as a source outage
+            # caused a false DEGRADED/READY alert cycle every five minutes.
+            if reason != "AUXILIARY_5M_DEFERRED"
+        }
         # A first bounded publication wait is visible in the minute audit,
         # not a fault/recovery card. Persistent waits arrive as failures.
         if pending_failures and not failures and not auxiliary:

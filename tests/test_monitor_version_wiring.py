@@ -6,13 +6,15 @@ import pytest
 
 from liangjian_funnel.data.cache import MinuteBarStore
 from liangjian_funnel.data.mootdx import FetchResult, MinuteBar
-from liangjian_funnel.runtime.monitor import MonitorBatchResult
+from liangjian_funnel.runtime.monitor import MonitorBatchResult, MonitorEvent
 from liangjian_funnel.runtime.state import RuntimeStore, PlanStatus
 from liangjian_funnel.workflow import WorkflowApplication
 
 
-@pytest.mark.parametrize("broken_snapshot,incomplete", [(False, False), (True, False), (False, True)])
-def test_monitor_consumes_persisted_revision_or_blocks(monkeypatch, tmp_path, broken_snapshot, incomplete):
+@pytest.mark.parametrize("broken_snapshot,incomplete,strategy_block", [
+    (False, False, False), (True, False, False), (False, True, False), (False, False, True),
+])
+def test_monitor_consumes_persisted_revision_or_blocks(monkeypatch, tmp_path, broken_snapshot, incomplete, strategy_block):
     now = datetime(2026, 9, 7, 9, 32, tzinfo=ZoneInfo("Asia/Shanghai"))
     symbol = "000001.SZ"
     original = MinuteBar(symbol=symbol, interval="1m", bar_end=now-timedelta(minutes=1),
@@ -45,7 +47,11 @@ def test_monitor_consumes_persisted_revision_or_blocks(monkeypatch, tmp_path, br
         def __init__(self, *args, **kwargs): pass
         def process_minute(self, lane_id, bars, **kwargs):
             calls.append(kwargs)
-            return MonitorBatchResult(lane_id=lane_id, minute_snapshot_id=kwargs["minute_snapshot_id"])
+            events = ()
+            if strategy_block:
+                events = (MonitorEvent(lane_id=lane_id, plan_id="p", symbol=symbol,
+                    minute_end=now, action="DATA_BLOCK", reason_code="STALE_1M", effective=True),)
+            return MonitorBatchResult(lane_id=lane_id, minute_snapshot_id=kwargs["minute_snapshot_id"], events=events)
     monkeypatch.setattr("liangjian_funnel.workflow.MonitorEngine", Engine)
     if broken_snapshot:
         def fail(*args, **kwargs): raise ValueError("broken snapshot")
@@ -59,6 +65,10 @@ def test_monitor_consumes_persisted_revision_or_blocks(monkeypatch, tmp_path, br
     assert symbol in observability["required_scope"]
     assert observability["timing_summary"]["status"] == "MEASURED"
     assert observability["axes"]["job_status"] == "SUCCEEDED"
+    if strategy_block:
+        assert observability["axes"]["data_state"] == "MISSING"
+        assert observability["axes"]["opportunity_state"] == "UNKNOWN"
+        assert observability["blocked_scope"] == [symbol]
     assert len(calls) == 1
     assert calls[0]["data_ok"] is not broken_snapshot
     if incomplete:

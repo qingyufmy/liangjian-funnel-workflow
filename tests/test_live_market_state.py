@@ -12,6 +12,7 @@ from liangjian_funnel.runtime.live_market import (
     classify_index_fallback,
     load_or_refresh_live_market_state,
 )
+from liangjian_funnel.workflow import _bounded_live_market_index_fallback
 
 
 NOW = datetime(2026, 9, 3, 10, 5, tzinfo=ZoneInfo("Asia/Shanghai"))
@@ -74,6 +75,20 @@ def test_index_fallback_cannot_claim_readiness_without_three_indices() -> None:
     )
     assert state["status"] == "DATA_BLOCKED"
     assert state["reason_code"] == "A4_LIVE_MARKET_SOURCE_UNAVAILABLE"
+
+
+def test_bounded_index_fallback_is_independent_of_full_market_lane() -> None:
+    calls: list[str] = []
+    state = _bounded_live_market_index_fallback(
+        _index_market(ready=True, calls=calls),
+        current=NOW,
+        deadline=__import__('time').monotonic() + 1.0,
+    )
+    assert state["status"] == "READY_DEGRADED"
+    assert state["source"] == "TENCENT_INDEX_FALLBACK"
+    assert state["entry_permission"] == "ALLOW"
+    assert sorted(calls) == sorted(("000001.SH", "399001.SZ", "399006.SZ", "000300.SH"))
+    assert all(item["status"] == "READY" for item in state["diagnostics"]["index_quotes"])
 
 
 class _Row:

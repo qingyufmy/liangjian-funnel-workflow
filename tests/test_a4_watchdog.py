@@ -37,6 +37,18 @@ def test_live_health_does_not_hide_stalled_business():
     assert 'MONITOR_STALLED' in result['problems']
 
 
+def test_all_scope_data_block_and_status_contradiction_are_detected():
+    now=at('10:00');snap=healthy(now)
+    snap['decision_health']={
+        'all_scope_blocked_streak':3, 'latest_all_scope_blocked':True,
+        'latest_reason':'STALE_1M', 'observability_axes':{'data_state':'READY'},
+        'reported_blocked_count':0,
+    }
+    result=assess(now,snap,trading_day=True)
+    assert 'A4_ALL_SCOPE_BLOCKED' in result['problems']
+    assert 'A4_OBSERVABILITY_CONTRACT_MISMATCH' in result['problems']
+
+
 def test_outage_and_recovery_once_and_durable(tmp_path):
     path=tmp_path/'watch.sqlite3';n=Notifier();now=at('10:00')
     bad=assess(now,{},trading_day=True)

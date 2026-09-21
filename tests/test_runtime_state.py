@@ -207,6 +207,26 @@ def test_persistence_failure_blocks_new_writes(tmp_path):
         store.ensure_virtual_account("paper:model-a", "model-a")
 
 
+def test_integrity_check_runs_once_per_store_process_not_once_per_write(tmp_path, monkeypatch):
+    store = RuntimeStore(tmp_path / "state.sqlite3")
+    original_connect = store._connect
+    connections = 0
+
+    def counted_connect():
+        nonlocal connections
+        connections += 1
+        return original_connect()
+
+    monkeypatch.setattr(store, "_connect", counted_connect)
+    store.create_execution_plan("p1", "lane", "000001.SZ", status=PlanStatus.ACTIVE_TODAY)
+    store.create_execution_plan("p2", "lane", "000002.SZ", status=PlanStatus.ACTIVE_TODAY)
+
+    # One connection performs quick_check; each write then owns one normal
+    # transaction.  The old implementation opened four connections here.
+    assert connections == 3
+    assert store._health_verified is True
+
+
 def test_plan_batch_conflict_rolls_back_every_insert(tmp_path):
     store = RuntimeStore(tmp_path / "runtime.sqlite3")
     expires = datetime(2026, 8, 24, 15, 0, tzinfo=TZ)

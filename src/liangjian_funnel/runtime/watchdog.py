@@ -80,6 +80,20 @@ def assess(now: datetime, snapshot: dict, *, trading_day: bool) -> dict:
     result['last_completed_minute']=latest
     if expected and latest < expected[-1]:
         result['problems']['MONITOR_STALLED']=f"A4未完成应执行分钟；最近完成：{latest or '无'}；应至少完成：{expected[-1]}。"
+    decision_health = snapshot.get('decision_health') or {}
+    blocked_streak = int(decision_health.get('all_scope_blocked_streak') or 0)
+    if blocked_streak >= 2:
+        result['problems']['A4_ALL_SCOPE_BLOCKED']=(
+            f"A4最近连续{blocked_streak}个决策分钟全量数据阻断；"
+            f"最近原因：{decision_health.get('latest_reason') or '未记录'}。"
+        )
+    axes = decision_health.get('observability_axes') or {}
+    if (decision_health.get('latest_all_scope_blocked')
+            and axes.get('data_state') == 'READY'
+            and int(decision_health.get('reported_blocked_count') or 0) == 0):
+        result['problems']['A4_OBSERVABILITY_CONTRACT_MISMATCH']=(
+            'A4真实决策全部为数据阻断，但最新状态仍报告数据正常；状态口径与决策账本冲突。'
+        )
     leases={r['lease_name']:r for r in snapshot.get('leases',[])}
     deadlines=(('premarket_0830',9,20,'盘前分析'),('morning_0925',9,40,'早盘复核'),
                ('a5_midday_1135',12,45,'午间复盘'),('a5_post_close_1600',17,0,'收盘复盘'),

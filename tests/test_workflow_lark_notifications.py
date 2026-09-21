@@ -277,6 +277,30 @@ def test_unready_data_is_alert_not_trade_signal(tmp_path, action):
     assert store.list_notification_deliveries()[0]["kind"] == "A4_DATA_ALERT"
 
 
+def test_systemic_timestamp_block_is_not_sent_once_per_stock(tmp_path):
+    store = RuntimeStore(tmp_path / "state.sqlite3")
+    publisher = WorkflowLarkPublisher(store, "https://open.larksuite.com/open-apis/bot/v2/hook/test-token")
+    fake = FakeNotifier()
+    publisher.notifier = fake
+    event = {"effective": 1, "action": "DATA_BLOCK", "plan_id": "p", "lane_id": "lane_1",
+        "reason_code": "STALE_1M", "payload_json": "{}"}
+    assert publisher.publish_a4_events([event], plans={}, now=datetime(2026, 9, 21, 10, 0, tzinfo=SHANGHAI)) == []
+    assert not fake.calls and not store.list_notification_deliveries()
+
+
+def test_expected_auxiliary_deferral_does_not_toggle_source_alert(tmp_path):
+    store = RuntimeStore(tmp_path / "state.sqlite3")
+    publisher = WorkflowLarkPublisher(store, "https://open.larksuite.com/open-apis/bot/v2/hook/test-token")
+    fake = FakeNotifier()
+    publisher.notifier = fake
+    now = datetime(2026, 9, 21, 10, 0, tzinfo=SHANGHAI)
+    result = publisher.publish_minute_source_health(
+        {}, auxiliary_failures={"600519.SH": "AUXILIARY_5M_DEFERRED"}, now=now,
+    )
+    assert result == []
+    assert not fake.calls and not store.list_notification_deliveries()
+
+
 @pytest.mark.parametrize("action", ["SELL_SIGNAL", "REDUCE_SIGNAL", "FORCED_RISK_EXIT"])
 def test_position_risk_events_still_notify_t1_constraint(tmp_path, action):
     store = RuntimeStore(tmp_path / "state.sqlite3")

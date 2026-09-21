@@ -620,6 +620,11 @@ class RuntimeStore:
         self.path = requested.resolve()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._persistence_failed = False
+        # Integrity is verified once per short-lived command process.  Running
+        # a full PRAGMA quick_check before every event write serialized one A4
+        # minute behind dozens of redundant database scans.  Actual write
+        # failures still fail closed and permanently poison this store object.
+        self._health_verified = False
         self._lock = threading.RLock()
         self._initialize()
 
@@ -634,7 +639,9 @@ class RuntimeStore:
         try:
             with self._connect() as connection:
                 result = connection.execute("PRAGMA quick_check").fetchone()
-            return bool(result and result[0] == "ok")
+            healthy = bool(result and result[0] == "ok")
+            self._health_verified = healthy
+            return healthy
         except Exception:
             self._persistence_failed = True
             return False
@@ -642,11 +649,12 @@ class RuntimeStore:
     def assert_writable(self) -> None:
         if self._persistence_failed:
             raise PersistenceBlockedError("PERSISTENCE_FAILED")
-        if not self.healthy:
+        if not self._health_verified and not self.healthy:
             raise PersistenceBlockedError("PERSISTENCE_FAILED")
 
     def mark_persistence_failed(self) -> None:
         self._persistence_failed = True
+        self._health_verified = False
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path, timeout=15, isolation_level=None)

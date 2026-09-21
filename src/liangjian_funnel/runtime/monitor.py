@@ -324,7 +324,13 @@ class MonitorEngine:
                 strategy_result = evaluate_strategy(
                     payload,
                     history,
-                    now=minute,
+                    # The strategy consumes the frozen, last fully closed
+                    # one-minute decision window.  ``minute`` is the scheduler
+                    # tick and may be one minute later; using it here makes a
+                    # valid 09:59 bar look stale at the 10:00 dispatch.  Keep
+                    # realtime/risk quotes on the scheduler clock, but bind all
+                    # closed-bar indicators to the observation clock.
+                    now=observation_end,
                     position=position,
                     market_context=(
                         context_map.get(symbol)
