@@ -1635,8 +1635,52 @@ def _evidence_ids(snapshot: Mapping[str, Any]) -> set[str]:
     return values
 
 
-def _validate_evidence(report: A5ReviewReport, snapshot: Mapping[str, Any], *, check_stage: bool = True) -> None:
-    allowed = _evidence_ids(snapshot)
+def _projection_evidence_ids(projection: Mapping[str, Any]) -> set[str]:
+    """Return only evidence identities actually exposed to the model.
+
+    Model projections may introduce deterministic aggregate identities that do
+    not exist as rows in the immutable fact archive.  Table encodings retain
+    those identities in a ``columns``/``rows`` envelope, so the regular nested
+    mapping collector is not enough.  Restricting the allow-list to identities
+    present in this exact projection keeps strict citation validation while
+    allowing a report to cite a traceable aggregate.
+    """
+
+    values: set[str] = set()
+
+    def collect(value: Any) -> None:
+        if isinstance(value, Mapping):
+            evidence_id = value.get("evidence_id")
+            if isinstance(evidence_id, str) and evidence_id:
+                values.add(evidence_id)
+            columns = value.get("columns")
+            rows = value.get("rows")
+            if (isinstance(columns, Sequence) and not isinstance(columns, (str, bytes))
+                    and isinstance(rows, Sequence) and not isinstance(rows, (str, bytes))
+                    and "evidence_id" in columns):
+                index = list(columns).index("evidence_id")
+                for row in rows:
+                    if (isinstance(row, Sequence) and not isinstance(row, (str, bytes))
+                            and len(row) > index and isinstance(row[index], str) and row[index]):
+                        values.add(row[index])
+            for nested in value.values():
+                collect(nested)
+        elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+            for nested in value:
+                collect(nested)
+
+    collect(projection)
+    return values
+
+
+def _validate_evidence(
+    report: A5ReviewReport,
+    snapshot: Mapping[str, Any],
+    *,
+    check_stage: bool = True,
+    allowed_projection_evidence: set[str] | None = None,
+) -> None:
+    allowed = _evidence_ids(snapshot) | (allowed_projection_evidence or set())
     referenced: list[str] = []
     for layer in (report.a2_review, report.a3_review, report.a4_review):
         referenced.extend(layer.evidence_ids)
@@ -1935,6 +1979,7 @@ class A5DailyReviewService:
         else:
             atomic_write_json(facts_path, facts)
         projection = _model_fact_projection(facts)
+        allowed_projection_evidence = _projection_evidence_ids(projection)
         try:
             prompt, context_diagnostics = render_a5_prompt(self.prompts, _A5_PROMPT, projection)
         except A5ReviewError as exc:
@@ -1992,12 +2037,17 @@ class A5DailyReviewService:
             atomic_write_json(raw_path, raw_payload)
         try:
             report = A5ReviewReport.model_validate(_canonicalize_report_output(
-                result.output, allowed_evidence=_evidence_ids(facts)))
+                result.output, allowed_evidence=_evidence_ids(facts) | allowed_projection_evidence))
         except ValidationError as exc:
             raise A5ReviewError("A5_OUTPUT_SCHEMA_INVALID") from exc
         if report.review_kind is not review_kind or report.trade_date != current.date():
             raise A5ReviewError("A5_OUTPUT_IDENTITY_MISMATCH")
-        _validate_evidence(report, facts, check_stage=False)
+        _validate_evidence(
+            report,
+            facts,
+            check_stage=False,
+            allowed_projection_evidence=allowed_projection_evidence,
+        )
         report.signal_stock_reviews = list(facts.get("signal_stock_reviews") or [])
         try:
             _enforce_verified_findings(report, facts)
@@ -2017,7 +2067,11 @@ class A5DailyReviewService:
                 report.fact_reconciliation.append(
                     "本次为冻结事实及原响应复验，不是原请求字节重放；原始与重建提示词哈希已分别留档，未宣称二者完全一致。")
         report = A5ReviewReport.model_validate(report.model_dump())
-        _validate_evidence(report, facts)
+        _validate_evidence(
+            report,
+            facts,
+            allowed_projection_evidence=allowed_projection_evidence,
+        )
 
         target_dir = self.output_dir / "a5" / current.date().isoformat()
         artifact_stem = f"{review_kind.value.lower().replace('_', '-')}-{str(facts['input_hash'])[:12]}"

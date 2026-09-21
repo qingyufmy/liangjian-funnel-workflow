@@ -4,7 +4,14 @@ from pathlib import Path
 
 import pytest
 
-from liangjian_funnel.review.daily import A5ReviewReport, _model_fact_projection, _enforce_verified_findings, _validate_evidence, _canonicalize_report_output
+from liangjian_funnel.review.daily import (
+    A5ReviewReport,
+    _canonicalize_report_output,
+    _enforce_verified_findings,
+    _model_fact_projection,
+    _projection_evidence_ids,
+    _validate_evidence,
+)
 from liangjian_funnel.review.fact_guard import normalize_quality, reconcile_report, verification_totals
 from liangjian_funnel.review.verification import _field_comparison
 
@@ -82,6 +89,32 @@ def test_collection_task_known_object_preserves_meaning_without_mutating_raw():
     result = A5ReviewReport.model_validate(_canonicalize_report_output(payload))
     assert result.data_collection_tasks == ["【A4；优先级：中】核对金额口径"]
     assert payload["data_collection_tasks"] == [task]
+
+
+def test_projection_aggregate_evidence_is_traceable_but_fabricated_id_is_rejected():
+    from test_a5_daily_review import _report
+
+    facts = {"operational_evidence": [
+        {"kind": "JOB_FAILED", "job": "close", "reason": "TIMEOUT",
+         "time": "2026-09-21T16:10:00+08:00", "evidence_id": "ENGINEERING:JOB:raw"},
+    ]}
+    original = copy.deepcopy(facts)
+    projection = _model_fact_projection(facts)
+    allowed_projection = _projection_evidence_ids(projection)
+    aggregate_id = projection["operational_evidence"]["job_failure_groups"][0]["evidence_id"]
+    assert aggregate_id in allowed_projection
+    assert aggregate_id not in {"ENGINEERING:JOB:raw"}
+
+    payload = copy.deepcopy(_report())
+    payload["signal_reviews"] = []
+    payload["a2_review"]["evidence_ids"] = [aggregate_id]
+    report = A5ReviewReport.model_validate(payload)
+    _validate_evidence(report, facts, allowed_projection_evidence=allowed_projection)
+
+    report.a2_review.evidence_ids = ["ENGINEERING:JOB_GROUP:fabricated"]
+    with pytest.raises(Exception, match="A5_OUTPUT_EVIDENCE_INVALID"):
+        _validate_evidence(report, facts, allowed_projection_evidence=allowed_projection)
+    assert facts == original
 
 
 @pytest.mark.parametrize("task", [{"task": "采集", "unknown": "不能丢失"},
