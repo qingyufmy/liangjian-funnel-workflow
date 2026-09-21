@@ -4219,14 +4219,27 @@ class RuntimeStore:
         return self._read(lambda connection: _row_dict(connection.execute("SELECT * FROM scheduler_leases WHERE lease_name=?", (lease_name,)).fetchone()))
 
     def list_leases(self) -> tuple[dict[str, Any], ...]:
-        return self._read(
-            lambda connection: tuple(
-                _row_dict(row)
-                for row in connection.execute(
-                    "SELECT * FROM scheduler_leases ORDER BY lease_name"
-                ).fetchall()
-            )
-        )
+        now_text = _iso(_now())
+
+        def operation(connection):
+            projected = []
+            for row in connection.execute(
+                "SELECT * FROM scheduler_leases ORDER BY lease_name"
+            ).fetchall():
+                value = _row_dict(row)
+                stored_state = str(value.get("state") or "ACTIVE")
+                expired = stored_state == "ACTIVE" and str(value.get("expires_at") or "") <= now_text
+                value["stored_state"] = stored_state
+                value["expired"] = expired
+                # Preserve the stored row as crash evidence while making the
+                # control-plane projection truthful. An expired lease cannot
+                # hold the scheduler lock and is reclaimable by acquire_lease.
+                if expired:
+                    value["state"] = "EXPIRED"
+                projected.append(value)
+            return tuple(projected)
+
+        return self._read(operation)
 
     def reserve_simulation_order(
         self,

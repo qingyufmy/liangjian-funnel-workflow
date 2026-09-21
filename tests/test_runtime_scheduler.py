@@ -256,6 +256,24 @@ def test_expired_active_lease_can_recover_same_dispatch_after_crash(tmp_path):
     assert store.get_lease("scheduler:morning_0925")["generation"] == 2
 
 
+def test_expired_lease_is_reported_truthfully_without_overwriting_crash_evidence(tmp_path):
+    store = RuntimeStore(tmp_path / "runtime.sqlite3")
+    acquired_at = datetime.now(TZ) - timedelta(minutes=5)
+    assert store.acquire_lease(
+        "scheduler:close_1510",
+        "dead-process",
+        now=acquired_at,
+        ttl_seconds=10,
+        dispatch_key=f"close_1510:{acquired_at.isoformat()}",
+    )
+
+    reported = next(row for row in store.list_leases() if row["lease_name"] == "scheduler:close_1510")
+    assert reported["state"] == "EXPIRED"
+    assert reported["stored_state"] == "ACTIVE"
+    assert reported["expired"] is True
+    assert store.get_lease("scheduler:close_1510")["state"] == "ACTIVE"
+
+
 def test_business_block_is_scheduler_failure_and_dedicated_kind_isolated(tmp_path):
     store = RuntimeStore(tmp_path / "runtime.sqlite3")
     calls = []
