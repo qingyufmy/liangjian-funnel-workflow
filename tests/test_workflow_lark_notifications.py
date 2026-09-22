@@ -75,6 +75,25 @@ def test_a5_failure_is_once_per_period_and_success_emits_one_recovery(tmp_path):
     assert len(store.list_notification_deliveries(kind="A5_TASK_RECOVERY")) == 1
 
 
+def test_a5_evidence_failure_card_does_not_mislabel_input_as_oversize(tmp_path):
+    store = RuntimeStore(tmp_path / "a5-output-health.sqlite3")
+    publisher = WorkflowLarkPublisher(
+        store, "https://open.larksuite.com/open-apis/bot/v2/hook/test-token",
+    )
+    fake = FakeNotifier()
+    publisher.notifier = fake
+    publisher.publish_a5_task_failure(
+        "POST_CLOSE", reason_code="A5_OUTPUT_EVIDENCE_INVALID",
+        diagnostics={"prompt_chars": 146914, "limit_chars": 250000,
+                     "input_hash": "a" * 64, "invalid_evidence_count": 1},
+        now=datetime(2026, 9, 22, 16, 4, tzinfo=SHANGHAI),
+    )
+    body = "\n".join(fake.calls[0][1])
+    assert "模型已返回结果" in body
+    assert "输入检查：未超限" in body
+    assert "不是输入超限" in body
+
+
 def test_premarket_empty_scope_status_is_once_per_day_and_not_a_plan(tmp_path):
     store = RuntimeStore(tmp_path / "premarket.sqlite3")
     publisher = WorkflowLarkPublisher(

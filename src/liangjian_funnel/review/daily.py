@@ -166,6 +166,28 @@ def _canonicalize_report_output(value: Any, *, allowed_evidence: set[str] | None
     if not isinstance(value, Mapping):
         return value
     payload = dict(value)
+    # A projected job incident uses the SHA prefix of its archived raw rows.
+    # The model occasionally copies that exact digest under the raw JOB type.
+    # Correct only this unambiguous type typo; every other unknown citation
+    # still fails the evidence guard. Never alter the archived model response.
+    if allowed_evidence is not None:
+        def normalize_refs(row: Any) -> Any:
+            if not isinstance(row, Mapping) or not isinstance(row.get("evidence_ids"), list):
+                return row
+            result = dict(row)
+            refs = []
+            for ref in row["evidence_ids"]:
+                match = re.fullmatch(r"ENGINEERING:JOB:([a-f0-9]{16})", ref) if isinstance(ref, str) else None
+                incident = f"ENGINEERING:JOB_INCIDENT:{match.group(1)}" if match else None
+                refs.append(incident if ref not in allowed_evidence and incident in allowed_evidence else ref)
+            result["evidence_ids"] = refs
+            return result
+
+        for key in ("a2_review", "a3_review", "a4_review"):
+            payload[key] = normalize_refs(payload.get(key))
+        for key in ("signal_reviews", "missed_opportunity_reviews", "core_defects", "improvement_proposals"):
+            if isinstance(payload.get(key), list):
+                payload[key] = [normalize_refs(row) for row in payload[key]]
     tasks = payload.get("data_collection_tasks")
     if isinstance(tasks, list):
         priorities = {"HIGH": "高", "MEDIUM": "中", "LOW": "低"}
@@ -678,6 +700,13 @@ def _compact_a4_observation_groups_for_model(groups: Sequence[Mapping[str, Any]]
         rows.append([compact.get(column) for column in columns])
         for reason, count in _json_mapping(group.get("strategy_reason_counts")).items():
             strategy_reason_totals[str(reason)] = strategy_reason_totals.get(str(reason), 0) + int(count or 0)
+    dictionary: list[str] = []
+    dictionary_index: dict[str, int] = {}
+    encoded_columns = {"symbol", "reason_code", "category", "action"}
+    for row in rows:
+        for offset, column in enumerate(columns):
+            if column in encoded_columns:
+                row[offset] = _dictionary_encode(row[offset], dictionary, dictionary_index)
     return {
         "encoding": "a5-a4-observation-group-table/1",
         "grouping_key": "symbol+reason_code",
@@ -685,6 +714,8 @@ def _compact_a4_observation_groups_for_model(groups: Sequence[Mapping[str, Any]]
         "observation_count": sum(int(group.get("observation_count") or 0) for group in groups),
         "columns": list(columns),
         "rows": rows,
+        "string_dictionary": dictionary,
+        "dictionary_encoded_columns": sorted(encoded_columns),
         "strategy_reason_totals": dict(sorted(strategy_reason_totals.items())),
         "time_encoding": "HH:MM:SS on the top-level trade_date",
         "action_encoding": "A string means every observation in the group has that action; otherwise exact counts are provided.",

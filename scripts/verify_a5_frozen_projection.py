@@ -102,6 +102,13 @@ def verify(path: Path, prompts: PromptRepository) -> dict[str, Any]:
     )
     group_projection = projection.get("a4", {}).get("observation_groups") or {}
     group_rows = _table(group_projection)
+    dictionary = group_projection.get("string_dictionary") or []
+    encoded_columns = set(group_projection.get("dictionary_encoded_columns") or [])
+    for row in group_rows:
+        for column in encoded_columns:
+            value = row.get(column)
+            if isinstance(value, int):
+                row[column] = dictionary[value]
     actual_groups = Counter(
         {(str(row["symbol"]), str(row["reason_code"])): int(row["observation_count"]) for row in group_rows}
     )

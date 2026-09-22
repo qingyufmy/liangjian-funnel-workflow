@@ -1201,10 +1201,23 @@ class WorkflowLarkPublisher:
         actual = diagnostics.get("prompt_chars")
         limit = diagnostics.get("limit_chars")
         input_hash = str(diagnostics.get("input_hash") or "UNAVAILABLE")
+        if reason_code == "A5_MODEL_CONTEXT_TOO_LARGE":
+            failure_detail = "模型输入超过本地硬上限，未发起模型调用。"
+        elif reason_code == "A5_OUTPUT_EVIDENCE_INVALID":
+            failure_detail = "模型已返回结果，但引用的证据编号无效；不是输入超限。"
+        else:
+            failure_detail = "失败原因见失败码；输入大小仅供定位，不能据此判定超限。"
+        input_status = (
+            "超限" if isinstance(actual, int) and isinstance(limit, int) and actual > limit
+            else "未超限" if isinstance(actual, int) and isinstance(limit, int)
+            else "未测量"
+        )
         lines = [
             "**任务状态：失败**",
             f"• 任务：A5 {label}",
             f"• 失败码：{reason_code}",
+            f"• 原因：{failure_detail}",
+            f"• 输入检查：{input_status}",
             f"• 实际输入大小：{actual if actual is not None else '未完成测量'} 字符",
             f"• 硬上限：{limit if limit is not None else '未进入提示词检查'} 字符",
             f"• 输入哈希：{input_hash}",

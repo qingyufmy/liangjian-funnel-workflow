@@ -8,6 +8,7 @@ from liangjian_funnel.review.daily import (
     A5ReviewReport,
     _canonicalize_report_output,
     _enforce_verified_findings,
+    _evidence_ids,
     _model_fact_projection,
     _projection_evidence_ids,
     _validate_evidence,
@@ -119,6 +120,34 @@ def test_projection_aggregate_evidence_is_traceable_but_fabricated_id_is_rejecte
     with pytest.raises(Exception, match="A5_OUTPUT_EVIDENCE_INVALID"):
         _validate_evidence(report, facts, allowed_projection_evidence=allowed_projection)
     assert facts == original
+
+
+def test_job_incident_citation_type_typo_is_corrected_only_for_exact_digest():
+    from test_a5_daily_review import _report
+
+    facts = {"operational_evidence": [
+        {"kind": "JOB_TERMINATED", "job": "auction-refresh", "reason": "TIMEOUT",
+         "time": "2026-09-22T09:56:08+08:00", "evidence_id": "ENGINEERING:JOB:619"},
+    ]}
+    projection = _model_fact_projection(facts)
+    allowed_projection = _projection_evidence_ids(projection)
+    incident = projection["operational_evidence"]["job_incidents"][0]["evidence_id"]
+    mistaken = incident.replace("JOB_INCIDENT:", "JOB:")
+    payload = copy.deepcopy(_report())
+    payload["signal_reviews"] = []
+    payload["a2_review"]["evidence_ids"] = [incident, mistaken]
+    corrected = _canonicalize_report_output(
+        payload, allowed_evidence=_evidence_ids(facts) | allowed_projection)
+    assert corrected["a2_review"]["evidence_ids"] == [incident, incident]
+    report = A5ReviewReport.model_validate(corrected)
+    _validate_evidence(report, facts, allowed_projection_evidence=allowed_projection)
+    assert payload["a2_review"]["evidence_ids"] == [incident, mistaken]
+
+    payload["a2_review"]["evidence_ids"] = ["ENGINEERING:JOB:0000000000000000"]
+    report = A5ReviewReport.model_validate(_canonicalize_report_output(
+        payload, allowed_evidence=_evidence_ids(facts) | allowed_projection))
+    with pytest.raises(Exception, match="A5_OUTPUT_EVIDENCE_INVALID"):
+        _validate_evidence(report, facts, allowed_projection_evidence=allowed_projection)
 
 
 @pytest.mark.parametrize("task", [{"task": "采集", "unknown": "不能丢失"},
@@ -290,7 +319,9 @@ def test_live_report_reconciles_false_minutes_old_counts_and_theme_when_availabl
     report = A5ReviewReport.model_validate(report.model_dump())
     _validate_evidence(report, facts)
     assert verification_totals(facts)["expected_plan_observations"] == 5019
-    assert "实际5019条，编排遗漏0条" in report.a4_review.summary
+    assert "实际5019条" in report.a4_review.summary
+    assert "缺失窗口事件0个" in report.a4_review.summary
+    assert "编排遗漏0条" in report.a4_review.summary
     assert "628/5280" in " ".join(report.a4_review.defects)
     assert "41/5280" in " ".join(report.a4_review.defects)
     assert "330" not in report.a4_review.summary and "336" not in report.a4_review.summary
