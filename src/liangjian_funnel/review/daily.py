@@ -1809,8 +1809,12 @@ def _validate_evidence(
         referenced.extend(item.evidence_ids)
     for item in report.improvement_proposals:
         referenced.extend(item.evidence_ids)
-    if any(item not in allowed for item in referenced):
-        raise A5ReviewError("A5_OUTPUT_EVIDENCE_INVALID")
+    invalid = sorted({item for item in referenced if item not in allowed})
+    if invalid:
+        raise A5ReviewError("A5_OUTPUT_EVIDENCE_INVALID", diagnostics={
+            "invalid_evidence_count": len(invalid),
+            "invalid_evidence_ids": invalid[:8],
+        })
     facts = {str(row.get("symbol")): row for row in _rows(_json_mapping(snapshot.get("independent_verification")).get("counterexamples"))}
     for item in report.missed_opportunity_reviews:
         fact = facts.get(item.symbol)

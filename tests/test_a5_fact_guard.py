@@ -146,8 +146,9 @@ def test_job_incident_citation_type_typo_is_corrected_only_for_exact_digest():
     payload["a2_review"]["evidence_ids"] = ["ENGINEERING:JOB:0000000000000000"]
     report = A5ReviewReport.model_validate(_canonicalize_report_output(
         payload, allowed_evidence=_evidence_ids(facts) | allowed_projection))
-    with pytest.raises(Exception, match="A5_OUTPUT_EVIDENCE_INVALID"):
+    with pytest.raises(Exception, match="A5_OUTPUT_EVIDENCE_INVALID") as exc:
         _validate_evidence(report, facts, allowed_projection_evidence=allowed_projection)
+    assert exc.value.diagnostics["invalid_evidence_ids"] == ["ENGINEERING:JOB:0000000000000000"]
 
 
 @pytest.mark.parametrize("task", [{"task": "采集", "unknown": "不能丢失"},
