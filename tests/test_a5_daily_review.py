@@ -127,6 +127,40 @@ def test_post_close_does_not_mix_tomorrows_pending_plan_or_new_source(tmp_path):
     assert facts["metrics"]["a3_strategy_counts"] == {"TREND_MA5": 1}
 
 
+def test_post_close_includes_later_job_failure_without_later_market_events(tmp_path):
+    store = RuntimeStore(tmp_path / "state.db")
+    _seed(store, tmp_path)
+    day = date(2026, 9, 3)
+    node_dir = tmp_path / "node"
+    node_dir.mkdir()
+    (node_dir / f"node-{day}.jsonl").write_text("\n".join(json.dumps(row) for row in (
+        {"id": 41, "timestamp": "2026-09-03T07:50:05Z", "stream": "stdout",
+         "job": "close", "runId": "close-2026-09-03",
+         "message": '      "reason_code": "MARKET_EMOTION_FACTS_NOT_READY",'},
+        {"id": 42, "timestamp": "2026-09-03T07:50:06Z", "stream": "node",
+         "job": "close", "runId": "close-2026-09-03",
+         "message": "任务结束 run-close status=failed exit=2 signal=none"},
+    )) + "\n", encoding="utf-8")
+    store.record_monitor_event(
+        event_key="after-close", lane_id="lane_1",
+        minute_end=datetime(2026, 9, 3, 15, 30, tzinfo=TZ),
+        action=MonitorAction.DATA_BLOCK, reason_code="AFTER_MARKET_CUTOFF",
+        effective=False, payload={"symbol": "000001.SZ"},
+    )
+    facts = build_a5_fact_snapshot(
+        store, tmp_path, trade_date=day,
+        cutoff_at=datetime(2026, 9, 3, 15, 0, tzinfo=TZ),
+        operational_cutoff_at=datetime(2026, 9, 3, 16, 0, tzinfo=TZ),
+        review_kind=A5ReviewKind.POST_CLOSE, lane_id="lane_1",
+    )
+    assert facts["cutoff_at"].endswith("15:00:00+08:00")
+    assert facts["operational_cutoff_at"].endswith("16:00:00+08:00")
+    assert any(row.get("job") == "close" and row.get("kind") == "JOB_FAILED"
+               and row.get("reason") == "MARKET_EMOTION_FACTS_NOT_READY"
+               for row in facts["operational_evidence"])
+    assert all(row["reason_code"] != "AFTER_MARKET_CUTOFF" for row in facts["a4"]["events"])
+
+
 class _Model:
     def __init__(self, *, include_counterexample: bool = False):
         self.calls = 0

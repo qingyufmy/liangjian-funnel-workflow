@@ -2,6 +2,10 @@
 from datetime import datetime
 from collections import Counter
 import json
+import re
+
+
+_SAFE_JOB_REASON = re.compile(r'"reason_code"\s*:\s*"([A-Z0-9_]{1,80})"')
 
 
 def operational_evidence(store, output_dir, *, cutoff):
@@ -56,14 +60,22 @@ def operational_evidence(store, output_dir, *, cutoff):
                      "note": "持仓风险输入受限或恢复；不是成交，也不能推断发生漏卖。"})
     log = output_dir / "node" / f"node-{cutoff.date()}.jsonl"
     if log.exists():
+        reason_by_run = {}
         with log.open(encoding="utf-8") as stream:
             for line in stream:
                 try:
                     item = json.loads(line)
                     stamp = datetime.fromisoformat(item["timestamp"].replace("Z", "+00:00"))
-                    if stamp > cutoff or item.get("stream") != "node":
+                    if stamp > cutoff:
                         continue
                     message = item.get("message", "")
+                    run_id = str(item.get("runId") or "")
+                    if item.get("stream") == "stdout" and run_id:
+                        match = _SAFE_JOB_REASON.search(str(message))
+                        if match:
+                            reason_by_run[run_id] = match.group(1)
+                    if item.get("stream") != "node":
+                        continue
                     # Do not copy raw messages: retain safe counters/identities,
                     # and do not classify the 15:00 finality block as downtime.
                     if "任务结束" not in message or not any(x in message for x in ("status=failed", "status=terminated")):
@@ -71,7 +83,9 @@ def operational_evidence(store, output_dir, *, cutoff):
                     rows.append({"evidence_id": f"ENGINEERING:JOB:{item.get('id')}",
                         "kind": "JOB_TERMINATED" if "status=terminated" in message else "JOB_FAILED",
                         "job": item.get("job"), "run_id": item.get("runId"),
-                        "time": stamp.isoformat(), "reason": "TIMEOUT" if "status=terminated" in message else "NON_ZERO_EXIT"})
+                        "time": stamp.isoformat(), "reason": (
+                            "TIMEOUT" if "status=terminated" in message
+                            else reason_by_run.get(run_id, "NON_ZERO_EXIT"))})
                 except (ValueError, KeyError, TypeError):
                     continue
     return rows

@@ -1407,6 +1407,7 @@ def build_a5_fact_snapshot(
     *,
     trade_date: date,
     cutoff_at: datetime,
+    operational_cutoff_at: datetime | None = None,
     review_kind: A5ReviewKind,
     lane_id: str,
     independent_verifier: Any | None = None,
@@ -1418,6 +1419,13 @@ def build_a5_fact_snapshot(
     cutoff = cutoff_at.astimezone(SHANGHAI)
     if cutoff.date() != trade_date:
         raise ValueError("A5 cutoff must belong to trade date")
+    if operational_cutoff_at is not None and (
+        operational_cutoff_at.tzinfo is None or operational_cutoff_at.utcoffset() is None
+    ):
+        raise ValueError("A5 operational cutoff must be timezone-aware")
+    operation_cutoff = (operational_cutoff_at or cutoff_at).astimezone(SHANGHAI)
+    if operation_cutoff.date() != trade_date or operation_cutoff < cutoff:
+        raise ValueError("A5 operational cutoff must follow market cutoff on the same trade date")
 
     session_start = cutoff.replace(hour=9, minute=0, second=0, microsecond=0)
     raw_event_rows = store.list_monitor_events(
@@ -1592,6 +1600,7 @@ def build_a5_fact_snapshot(
         "trade_date": trade_date.isoformat(),
         "review_kind": review_kind.value,
         "cutoff_at": cutoff.isoformat(),
+        "operational_cutoff_at": operation_cutoff.isoformat(),
         "lane_id": lane_id,
         "source_run_ids": source_run_ids,
         "metrics": metrics,
@@ -1664,7 +1673,7 @@ def build_a5_fact_snapshot(
     snapshot["signal_stock_reviews"] = build_signal_stock_reviews(
         raw_event_rows, selected_plan_rows, store.list_fills(), signal_market, cutoff, lifecycles=raw_lifecycles)
     from .engineering import operational_evidence
-    snapshot["operational_evidence"] = operational_evidence(store, Path(output_dir), cutoff=cutoff)
+    snapshot["operational_evidence"] = operational_evidence(store, Path(output_dir), cutoff=operation_cutoff)
     snapshot["input_hash"] = _canonical_hash(snapshot)
     return snapshot
 
@@ -2097,6 +2106,7 @@ class A5DailyReviewService:
         if frozen_facts is None:
             facts = build_a5_fact_snapshot(
                 self.store, self.output_dir, trade_date=current.date(), cutoff_at=cutoff,
+                operational_cutoff_at=current if review_kind is A5ReviewKind.POST_CLOSE else cutoff,
                 review_kind=review_kind, lane_id=self.lane_id,
                 independent_verifier=self.independent_verifier,
             )
