@@ -9,6 +9,7 @@ from liangjian_funnel.facts import collect_market_results, manifest_projection, 
 from liangjian_funnel.facts.hithink import fetch_eastmoney_limit_down_pool
 from liangjian_funnel.facts import FactSnapshotManifest
 from liangjian_funnel.pipeline.data_source import HithinkFetchResult, HithinkRow
+from liangjian_funnel.pipeline.market_aggregates import build_market_emotion
 from liangjian_funnel.workflow import (
     _advance_live_market_cutoff,
     _bind_reference_fact_event_time,
@@ -112,6 +113,32 @@ def test_eastmoney_limit_down_fallback_rejects_stale_and_partial_pages() -> None
         )) as client:
             result = fetch_eastmoney_limit_down_pool(date(2026, 9, 22), http_client=client)
         assert result.ok is False and result.reason_code == reason
+
+
+def test_eastmoney_fallback_enters_market_emotion_as_dated_count() -> None:
+    with httpx.Client(transport=httpx.MockTransport(lambda _: httpx.Response(
+        200, json={"rc": 0, "data": {"qdate": 20260922, "tc": 1,
+            "pool": [{"c": "000668", "m": 0, "p": 17420,
+                      "zdp": -9.97, "days": 1}]}})),
+    ) as client:
+        down = fetch_eastmoney_limit_down_pool(date(2026, 9, 22), http_client=client)
+    facts = {
+        "LIMIT_UP_POOL": _result(),
+        "LIMIT_DOWN_POOL": down,
+        "LIMIT_BREAK_POOL": _result(),
+        "LIMIT_UP_LADDER": _result(),
+    }
+    manifest = normalize_hithink_results(
+        facts, base_url="https://fuyao.aicubes.cn",
+        as_of=datetime(2026, 9, 22, 15, 10, tzinfo=TZ),
+    )
+    emotion = build_market_emotion(
+        [{"change_ratio_pct": 1.0} for _ in range(10)],
+        manifest_projection(manifest)["facts"],
+        as_of=datetime(2026, 9, 22, 15, 10, tzinfo=TZ),
+    )
+    assert emotion["available"] is True
+    assert emotion["limit_down_count"] == 1
 
 
 def test_required_market_fact_recovery_uses_validated_alternative_only_after_primary_failure() -> None:
