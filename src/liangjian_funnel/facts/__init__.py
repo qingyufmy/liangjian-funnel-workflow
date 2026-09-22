@@ -12,7 +12,7 @@ from .contracts import (
     canonical_json_bytes,
 )
 from .store import FactStore
-from .hithink import collect_market_results, manifest_projection, normalize_hithink_results
+from .hithink import collect_market_results, manifest_projection, normalize_hithink_results, recover_required_market_results
 from .merge import merge_fact_manifests
 from .cninfo import (
     classify_cninfo_title,
@@ -39,6 +39,7 @@ __all__ = [
     "canonical_json",
     "canonical_json_bytes",
     "collect_market_results",
+    "recover_required_market_results",
     "manifest_projection",
     "normalize_hithink_results",
     "merge_fact_manifests",

@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import hashlib
+import time
 from collections.abc import Callable, Mapping, Sequence
 from datetime import date, datetime
 from typing import Any
 from urllib.parse import urljoin
 from zoneinfo import ZoneInfo
+
+import httpx
 
 from ..pipeline.data_source import HithinkFetchResult, HithinkRow
 from .contracts import (
@@ -22,6 +25,8 @@ from .contracts import (
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 _AUCTION_SYMBOL_BATCH_SIZE = 100
+_EASTMONEY_LIMIT_DOWN_URL = "https://push2ex.eastmoney.com/getTopicDTPool"
+_EASTMONEY_PUBLIC_UT = "7eea3edcaed734bea9cbfc24409ed989"
 
 
 def normalize_hithink_results(
@@ -265,6 +270,170 @@ def collect_market_results(
     return results
 
 
+def recover_required_market_results(
+    client: Any,
+    initial: Mapping[str, HithinkFetchResult],
+    *,
+    market_trade_date: date,
+    required: Sequence[str] = (
+        "LIMIT_UP_POOL", "LIMIT_DOWN_POOL", "LIMIT_BREAK_POOL", "LIMIT_UP_LADDER",
+    ),
+    max_retries: int = 2,
+    pause: Callable[[float], None] = time.sleep,
+    fallback_fetcher: Callable[[date], HithinkFetchResult] | None = None,
+) -> tuple[dict[str, HithinkFetchResult], list[dict[str, Any]]]:
+    """Bounded source recovery; never convert a failed fact to an empty fact.
+
+    Successful first observations stay frozen. Only failed required endpoints
+    are re-fetched; persistent failures still block downstream research.
+    """
+
+    results = dict(initial)
+    attempts: list[dict[str, Any]] = []
+    date_ms = int(datetime(
+        market_trade_date.year, market_trade_date.month, market_trade_date.day,
+        tzinfo=SHANGHAI,
+    ).timestamp() * 1000)
+    fetches = {
+        "LIMIT_UP_POOL": lambda: _bind_closed_session_event_time(
+            client.limit_up_pool(date_ms=date_ms), market_trade_date=market_trade_date,
+        ),
+        "LIMIT_DOWN_POOL": lambda: _bind_closed_session_event_time(
+            client.limit_down_pool(date_ms=date_ms), market_trade_date=market_trade_date,
+        ),
+        "LIMIT_BREAK_POOL": lambda: _bind_closed_session_event_time(
+            client.limit_break_pool(date_ms=date_ms), market_trade_date=market_trade_date,
+        ),
+        "LIMIT_UP_LADDER": lambda: project_closed_ladder(
+            client.limit_up_ladder(), market_trade_date=market_trade_date,
+        ),
+    }
+    for retry_number in range(1, min(2, max(0, int(max_retries))) + 1):
+        failed = [
+            name for name in required
+            if name not in results or not results[name].ok or not results[name].complete
+        ]
+        if not failed:
+            break
+        pause(float(retry_number))
+        for name in failed:
+            result = fetches[name]()
+            results[name] = result
+            attempts.append({
+                "retry_number": retry_number,
+                "fact_type": name,
+                "ok": bool(result.ok and result.complete),
+                "reason_code": result.reason_code,
+                "business_code": result.business_code,
+                "market_trade_date": market_trade_date.isoformat(),
+            })
+    failed_down = results.get("LIMIT_DOWN_POOL")
+    if ("LIMIT_DOWN_POOL" in required and
+            (failed_down is None or not failed_down.ok or not failed_down.complete)):
+        alternative = (fallback_fetcher or fetch_eastmoney_limit_down_pool)(market_trade_date)
+        attempts.append({
+            "retry_number": "EASTMONEY_FALLBACK",
+            "fact_type": "LIMIT_DOWN_POOL",
+            "ok": bool(alternative.ok and alternative.complete),
+            "reason_code": alternative.reason_code,
+            "business_code": alternative.business_code,
+            "market_trade_date": market_trade_date.isoformat(),
+            "source_endpoint": alternative.endpoint,
+        })
+        if alternative.ok and alternative.complete:
+            results["LIMIT_DOWN_POOL"] = alternative.model_copy(update={
+                "metadata": {
+                    **alternative.metadata,
+                    "primary_failure_reason": failed_down.reason_code if failed_down else "SOURCE_NOT_CONFIGURED",
+                    "primary_business_code": failed_down.business_code if failed_down else None,
+                },
+            })
+    return results, attempts
+
+
+def fetch_eastmoney_limit_down_pool(
+    market_trade_date: date,
+    *,
+    http_client: httpx.Client | None = None,
+) -> HithinkFetchResult:
+    """Date/total-checked free-source fallback for one failed limit-down pool.
+
+    This is a bounded data read, not a strategy bypass. A malformed, stale or
+    partial page stays unavailable. The normalized rows contain only count
+    identities and numeric fields needed for the market-emotion calculation.
+    """
+
+    fetched_at = datetime.now(SHANGHAI)
+    expected_date = market_trade_date.strftime("%Y%m%d")
+
+    def failure(reason: str, status: int | None = None) -> HithinkFetchResult:
+        return HithinkFetchResult(
+            endpoint=_EASTMONEY_LIMIT_DOWN_URL, ok=False, complete=False,
+            reason_code=reason, fetch_time=fetched_at, http_status=status,
+            metadata={"expected_market_trade_date": market_trade_date.isoformat()},
+        )
+
+    owns_client = http_client is None
+    client = http_client or httpx.Client(timeout=7.0, trust_env=False)
+    try:
+        response = client.get(_EASTMONEY_LIMIT_DOWN_URL, params={
+            "ut": _EASTMONEY_PUBLIC_UT, "dpt": "wz.ztzt", "Pageindex": "0",
+            "pagesize": "10000", "sort": "fund:asc", "date": expected_date,
+        })
+        if response.status_code != 200:
+            return failure("EASTMONEY_HTTP_ERROR", response.status_code)
+        payload = response.json()
+    except (httpx.HTTPError, ValueError):
+        return failure("EASTMONEY_FETCH_FAILED")
+    finally:
+        if owns_client:
+            client.close()
+
+    if not isinstance(payload, Mapping) or payload.get("rc") != 0:
+        return failure("EASTMONEY_BUSINESS_ERROR", 200)
+    data = payload.get("data")
+    if not isinstance(data, Mapping) or str(data.get("qdate")) != expected_date:
+        return failure("EASTMONEY_TRADE_DATE_MISMATCH", 200)
+    pool, total = data.get("pool"), data.get("tc")
+    if (not isinstance(pool, list) or not isinstance(total, int) or
+            isinstance(total, bool) or not 0 <= total <= 10000 or total != len(pool)):
+        return failure("EASTMONEY_POOL_INCOMPLETE", 200)
+    rows: list[HithinkRow] = []
+    seen: set[str] = set()
+    for item in pool:
+        if not isinstance(item, Mapping):
+            return failure("EASTMONEY_ROW_INVALID", 200)
+        code, market = str(item.get("c") or ""), item.get("m")
+        price, change, streak = item.get("p"), item.get("zdp"), item.get("days")
+        if (len(code) != 6 or not code.isdigit() or
+                not isinstance(market, int) or isinstance(market, bool) or market not in (0, 1, 2) or
+                not isinstance(price, (int, float)) or isinstance(price, bool) or price <= 0 or
+                not isinstance(change, (int, float)) or isinstance(change, bool) or change >= 0 or
+                not isinstance(streak, int) or isinstance(streak, bool) or streak < 1):
+            return failure("EASTMONEY_ROW_INVALID", 200)
+        symbol = f"{code}.{'SZ' if market == 0 else 'SH' if market == 1 else 'BJ'}"
+        if symbol in seen:
+            return failure("EASTMONEY_DUPLICATE_SYMBOL", 200)
+        seen.add(symbol)
+        rows.append(HithinkRow.model_validate({
+            "thscode": symbol,
+            "ticker": code,
+            "last_price": price / 1000,
+            "change_ratio_pct": change,
+            "limit_down_streak": streak,
+        }))
+    result = HithinkFetchResult(
+        endpoint=_EASTMONEY_LIMIT_DOWN_URL, ok=True, complete=True,
+        reason_code="OK", items=tuple(rows), pages=1, total=total,
+        fetch_time=fetched_at, http_status=200, business_code=0,
+        metadata={
+            "provider": "EASTMONEY", "provider_qdate": expected_date,
+            "provider_total": total, "provider_rc": 0,
+        },
+    )
+    return _bind_closed_session_event_time(result, market_trade_date=market_trade_date)
+
+
 def project_closed_ladder(result: HithinkFetchResult, *, market_trade_date: date) -> HithinkFetchResult:
     """Select the dated closed prefix, never relabel today's partial ladder."""
     if not result.ok or not result.complete:
@@ -416,6 +585,8 @@ def _merge_auction_batches(
 
 
 def _source_id(endpoint: str) -> str:
+    if endpoint.startswith("https://push2ex.eastmoney.com/"):
+        return "eastmoney.limit_down_pool"
     tail = endpoint.strip("/").replace("/", ".").replace("-", "_")
     return f"hithink.{tail}"[-128:]
 

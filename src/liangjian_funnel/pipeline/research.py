@@ -3453,14 +3453,24 @@ class ResearchPipeline:
                         "RESEARCH_DEADLINE_EXCEEDED",
                     )
                 return audit
-            except Exception:
-                return self._blocked_stage(
+            except Exception as exc:
+                # Preserve an explicit, bounded orchestration reason (for
+                # example the parent's SIGTERM deadline). Never persist the
+                # exception message: provider errors may contain credentials.
+                declared_reason = getattr(exc, "reason_code", None)
+                reason = (
+                    declared_reason
+                    if isinstance(declared_reason, str)
+                    and re.fullmatch(r"[A-Z][A-Z0-9_]{1,79}", declared_reason)
+                    else "BATCH_EXECUTION_FAILED"
+                )
+                return replace(self._blocked_stage(
                     lane_id,
                     model,
                     stage,
                     snapshot_id,
-                    "BATCH_EXECUTION_FAILED",
-                )
+                    reason,
+                ), diagnostics={"exception_type": type(exc).__name__})
         executor = (
             ThreadPoolExecutor(max_workers=self.batch_workers, thread_name_prefix="liangjian-batch")
             if self.batch_workers > 1
@@ -5591,6 +5601,8 @@ def _project_prompt_value(
         return _project_selected_board(value, symbols)
     if name == "A2_THEME_METRICS":
         return _project_a2_theme_metrics(value, symbols, snapshot_data or {})
+    if name == "A3_DETERMINISTIC_CONTEXT":
+        return _project_a3_deterministic_context(value, symbols)
     if name == "CAPITAL_FLOW_SNAPSHOT":
         return _project_capital_flow(value, symbols)
     if name == "BROKER_GOLD_COVERAGE_POOL":
@@ -5608,11 +5620,6 @@ def _project_prompt_value(
         "TRADABILITY_FLAGS",
         "COMPANY_FUNDAMENTALS",
         "MAIN_BUSINESS_EVIDENCE",
-        # The A3 gate contains the whole evaluated pool, including locally
-        # filtered stocks. Each model batch must see only its own candidates,
-        # just like its price and factor evidence. Keep every field for those
-        # candidates; the full gate remains in the immutable snapshot.
-        "A3_DETERMINISTIC_CONTEXT",
     }:
         return _filter_symbol_mapping(value, symbols)
     if name == "A2_BOTTLENECK_CONTEXT":
@@ -5624,6 +5631,96 @@ def _project_prompt_value(
     if name == "FUND_HOLDINGS":
         return _filter_nested_symbol_data(value, symbols)
     return value
+
+
+_A3_ROUTE_REVIEW_FIELDS = (
+    "strategy_profile", "strategy_version", "eligibility", "route_permission",
+    "setup_pattern", "reason_codes", "gate_results", "first_blocking_gate",
+    "all_failed_gates", "required_conditions", "met_conditions",
+    "unmet_conditions", "veto_conditions", "a4_deferred_conditions",
+)
+_A3_REVIEW_TOP_FIELDS = (
+    "symbol", "status", "strategy_profile", "strategy_version", "eligibility",
+    "candidate_origin", "execution_permission", "research_only_reason",
+    "decision_id", "as_of", "market_role", "stock_behavior_type",
+    "route_permission", "plan_mode", "plan_priority", "priority_reasons",
+    "setup_pattern", "cycle_alignment", "monthly_state",
+    "monthly_partial_observation", "weekly_closed_state",
+    "weekly_partial_observation", "daily_state", "daily_ma", "daily_macd",
+    "daily_volume_state", "relative_strength", "market_regime",
+    "market_environment", "theme_stage", "emotion_cycle_stage",
+    "behavior_risk", "market_funding_state", "publication_state",
+    "research_state", "entry_reference_zone", "no_chase_price",
+    "daily_invalidation", "reference_price", "reference_price_as_of",
+    "price_discovery", "a4_deferred_conditions", "a4_required_entry_rules",
+    "a4_exit_rules", "plan_expiry", "reward_risk", "stop_distance_pct",
+    "price_levels_hash", "factor_snapshot_hash", "required_conditions",
+    "met_conditions", "unmet_conditions", "veto_conditions", "gate_results",
+    "first_blocking_gate", "all_failed_gates", "reason_codes",
+    "strategy_checks", "strategy_facts",
+)
+_A3_REVIEW_FACT_FIELDS = (
+    "trend_paths", "ma520_setup", "ma520_right_side", "ladder",
+    "condition_details", "daily_macd_evidence", "daily_macd", "evidence",
+    "higher_timeframe_risk",
+    "market_risk_context", "distribution", "overextended",
+    "price_contract_available", "one_price_locked",
+)
+
+
+def _project_a3_deterministic_context(value: Any, symbols: set[str] | None) -> Any:
+    """Send each route's independent verdict once; keep frozen evidence intact.
+
+    The full strategy checks repeat the same daily facts, price contract, and
+    market regime for every route. The model already receives the selected
+    route's authoritative fields here and the daily factors/price levels in
+    their own placeholders. This projection is model-only: validation and the
+    attempt ledger still read the original full deterministic context.
+    """
+
+    scoped = _filter_symbol_mapping(value, symbols)
+    if not isinstance(scoped, Mapping):
+        return scoped
+    result: dict[str, Any] = {}
+    for symbol, raw in scoped.items():
+        if not isinstance(raw, Mapping):
+            result[str(symbol)] = raw
+            continue
+        row = {key: raw[key] for key in _A3_REVIEW_TOP_FIELDS if key in raw}
+        checks = raw.get("strategy_checks")
+        if isinstance(checks, Mapping):
+            row["strategy_checks"] = {
+                str(route): {
+                    **{key: check[key] for key in _A3_ROUTE_REVIEW_FIELDS if key in check},
+                    **({"gate_results": _project_a3_gate_results(check["gate_results"])}
+                       if isinstance(check.get("gate_results"), Mapping) else {}),
+                    **({"strategy_facts": {
+                        key: facts[key] for key in _A3_REVIEW_FACT_FIELDS if key in facts
+                    }} if isinstance(facts := check.get("strategy_facts"), Mapping) else {}),
+                }
+                if isinstance(check, Mapping) else check
+                for route, check in checks.items()
+            }
+        facts = raw.get("strategy_facts")
+        if isinstance(facts, Mapping):
+            row["strategy_facts"] = {
+                key: facts[key] for key in _A3_REVIEW_FACT_FIELDS if key in facts
+            }
+        result[str(symbol)] = row
+    return result
+
+
+def _project_a3_gate_results(value: Mapping[str, Any]) -> dict[str, Any]:
+    """Compress repeated success envelopes, never hide failed gate evidence."""
+
+    return {
+        str(gate): True if isinstance(detail, Mapping)
+        and detail.get("available") is True
+        and detail.get("met") is True
+        and detail.get("reason") == "OK"
+        else detail
+        for gate, detail in value.items()
+    }
 
 
 def _project_broker_gold_coverage(value: Any, symbols: set[str] | None) -> Any:

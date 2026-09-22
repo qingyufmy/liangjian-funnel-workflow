@@ -75,6 +75,29 @@ def test_a5_failure_is_once_per_period_and_success_emits_one_recovery(tmp_path):
     assert len(store.list_notification_deliveries(kind="A5_TASK_RECOVERY")) == 1
 
 
+def test_premarket_empty_scope_status_is_once_per_day_and_not_a_plan(tmp_path):
+    store = RuntimeStore(tmp_path / "premarket.sqlite3")
+    publisher = WorkflowLarkPublisher(
+        store, "https://open.larksuite.com/open-apis/bot/v2/hook/test-token",
+    )
+    fake = FakeNotifier()
+    publisher.notifier = fake
+    now = datetime(2026, 9, 22, 8, 30, tzinfo=SHANGHAI)
+    first = publisher.publish_a3_premarket_status(
+        analyzed_at=now, reason_code="NO_PENDING_A3_PLANS",
+    )
+    again = publisher.publish_a3_premarket_status(
+        analyzed_at=now, reason_code="NO_PENDING_A3_PLANS",
+    )
+    assert first["status"] == "SENT" and again["duplicate"] is True
+    assert len(fake.calls) == 1
+    title, lines, _color = fake.calls[0]
+    assert "盘前计划未就绪" in title
+    assert "今日有效 A3 计划：0 只" in "\n".join(lines)
+    assert "不构成买入信号" in "\n".join(lines)
+    assert store.list_notification_deliveries(kind="PREMARKET_A3_STATUS")
+
+
 def _plan(index: int) -> dict[str, object]:
     symbol = f"0000{index:02d}.SZ"
     return {

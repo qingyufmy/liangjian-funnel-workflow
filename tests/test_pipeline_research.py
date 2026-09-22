@@ -63,6 +63,7 @@ from liangjian_funnel.pipeline.research import (
     _project_crowding,
     _project_fundamentals,
     _project_factor_snapshot,
+    _project_a3_deterministic_context,
     _project_macro_policy,
     _project_news,
     _project_a2_theme_metrics,
@@ -1180,7 +1181,7 @@ def test_a2_prompt_keeps_non_scoring_research_hypotheses_out_of_each_batch(tmp_p
 
 
 @pytest.mark.parametrize("batch_size", [0, 10, 16])
-def test_a3_prompt_gate_is_exact_batch_scope_without_removing_candidate_facts(batch_size):
+def test_a3_prompt_gate_is_exact_batch_scope_with_compact_evidence(batch_size):
     bundle = PromptRepository(Path(__file__).resolve().parents[1] / "prompts").bundle()
     context = {
         f"{i:06d}.SZ": {
@@ -1198,7 +1199,9 @@ def test_a3_prompt_gate_is_exact_batch_scope_without_removing_candidate_facts(ba
     batch = set(sorted(context)[:batch_size])
     replacements = _prompt_replacements(bundle, "A3", snapshot,
         {"focus_pool": [{"symbol": s} for s in context]}, projection_symbols=batch)
-    assert replacements["A3_DETERMINISTIC_CONTEXT"] == {s: context[s] for s in batch}
+    projected = replacements["A3_DETERMINISTIC_CONTEXT"]
+    assert set(projected) == batch
+    assert all(projected[s]["eligibility"] == context[s]["eligibility"] for s in batch)
     rendered = bundle.render_stage("A3", replacements)
     assert "unique-evidence-for-000098" not in rendered
     for s in batch:
@@ -3026,6 +3029,54 @@ def test_factor_projection_removes_duplicate_summary_and_raw_bar_payload():
     assert factor["timeframes"]["120m"]["ma_alignment"] == "BULL_PARTIAL"
 
 
+def test_a3_prompt_projection_keeps_route_evidence_without_repeating_server_facts():
+    symbol = "600183.SH"
+    route = {
+        "strategy_profile": "TREND_MA5",
+        "eligibility": "QUALIFIED",
+        "reason_codes": ["DAILY_TREND_CONFIRMED"],
+        "gate_results": {"DAILY_CLOSED": {"passed": True}},
+        "first_blocking_gate": None,
+        "all_failed_gates": [],
+        "strategy_facts": {
+            "trend_paths": {"breakout": True},
+            "daily_macd_evidence": {"hist": 1.2},
+            "reference_price": 12.3,
+            "large_repeated_blob": "x" * 12000,
+        },
+        "daily_ma": {"ma5": 12.0},
+        "monthly_state": "BULLISH",
+        "weekly_closed_state": "BULLISH",
+        "a4_required_entry_rules": [{"code": "WAIT_CONFIRM"}],
+    }
+    context = {symbol: {
+        "symbol": symbol,
+        "strategy_profile": "TREND_MA5",
+        "eligibility": "QUALIFIED",
+        "entry_reference_zone": {"low": 12, "high": 13},
+        "no_chase_price": 13.5,
+        "daily_invalidation": 11.5,
+        "strategy_checks": {"TREND_MA5": route, "MA520_SWING": {**route, "eligibility": "UNQUALIFIED"}},
+        "strategy_facts": {"large_repeated_blob": "y" * 12000},
+    }}
+
+    projected = _project_a3_deterministic_context(context, {symbol})
+
+    assert projected[symbol]["entry_reference_zone"] == context[symbol]["entry_reference_zone"]
+    assert projected[symbol]["no_chase_price"] == 13.5
+    assert projected[symbol]["daily_invalidation"] == 11.5
+    assert set(projected[symbol]["strategy_checks"]) == {"TREND_MA5", "MA520_SWING"}
+    check = projected[symbol]["strategy_checks"]["TREND_MA5"]
+    assert check["eligibility"] == "QUALIFIED"
+    assert check["reason_codes"] == ["DAILY_TREND_CONFIRMED"]
+    assert check["gate_results"]["DAILY_CLOSED"] == {"passed": True}
+    assert check["strategy_facts"]["trend_paths"] == {"breakout": True}
+    assert check["strategy_facts"]["daily_macd_evidence"] == {"hist": 1.2}
+    assert "large_repeated_blob" not in json.dumps(projected)
+    assert len(json.dumps(projected)) < len(json.dumps(context)) // 3
+    assert context[symbol]["strategy_checks"]["TREND_MA5"]["strategy_facts"]["large_repeated_blob"] == "x" * 12000
+
+
 def test_a3_candidate_domain_includes_only_eligible_watch_only_roles():
     projected, origins = _build_a3_candidate_domain(
         {
@@ -4045,6 +4096,57 @@ def test_a3_model_rounding_is_replaced_with_frozen_server_values():
     assert output["core_watch_pool"][0]["reward_risk"] == 26.37
 
 
+def test_a3_compact_model_verdict_inherits_frozen_price_and_strategy_contract():
+    symbol = "600183.SH"
+    frozen = {
+        "PRICE_LEVELS": {symbol: {
+            "available": True,
+            "trigger_zone": {"low": 12.0, "high": 12.2},
+            "invalidation": 11.4,
+            "stop_distance_pct": 0.05,
+            "first_resistance": 14.0,
+            "reward_risk": 2.5,
+        }},
+        "A3_DETERMINISTIC_CONTEXT": {symbol: {
+            "symbol": symbol,
+            "strategy_profile": "TREND_MA5",
+            "strategy_version": "trend-ma5/1",
+            "eligibility": "QUALIFIED",
+            "candidate_origin": "FOCUS",
+            "entry_reference_zone": {"low": 12.0, "high": 12.2},
+            "no_chase_price": 12.5,
+            "daily_invalidation": 11.4,
+            "required_conditions": ["CLOSED_DAILY_TREND"],
+            "a4_required_entry_rules": ["WAIT_15M_AND_5M"],
+            "a4_exit_rules": ["HARD_STOP"],
+            "plan_expiry": "2026-09-23T15:00:00+08:00",
+            "strategy_checks": {"TREND_MA5": {"eligibility": "QUALIFIED"}},
+            "scenario_contract_version": "a3-scenarios/1",
+        }},
+    }
+    compact = {"core_watch_pool": [{
+        "symbol": symbol,
+        "strategy_profile": "TREND_MA5",
+        "review_status": "PASS",
+        "risk_unit": "STANDARD",
+        "reason_codes": [],
+        "evidence_refs": [],
+    }]}
+
+    canonical, count, trend_veto_count = _canonicalize_a3_price_fields(compact, frozen)
+
+    assert count == 1
+    assert trend_veto_count == 0
+    item = canonical["core_watch_pool"][0]
+    assert item["trigger_zone"] == {"low": 12.0, "high": 12.2}
+    assert item["invalidation_level"] == 11.4
+    assert item["no_chase_price"] == 12.5
+    assert item["required_conditions"] == ["CLOSED_DAILY_TREND"]
+    assert item["a4_required_entry_rules"] == ["WAIT_15M_AND_5M"]
+    assert item["scenarios"]["high_gap_no_chase_plan"]["action"] == "NO_ENTRY"
+    assert compact["core_watch_pool"][0].get("trigger_zone") is None
+
+
 def test_missing_prompt_or_invalid_client_response_blocks(tmp_path: Path):
     prompt_dir = tmp_path / "missing-prompts"
     prompt_dir.mkdir()
@@ -4202,3 +4304,23 @@ def test_active_a1_downstream_can_disable_feature_store(tmp_path):
         enable_feature_store=False,
     )
     assert pipeline.feature_store is None
+
+
+def test_batch_preserves_safe_termination_reason_without_exception_text(tmp_path):
+    from liangjian_funnel.workflow import WorkflowError
+
+    pipeline = ResearchPipeline(
+        _settings(tmp_path), prompt_repository=_prompt_dir(tmp_path),
+        model_client=object(), now=lambda: NOW, enable_feature_store=False,
+    )
+    def terminated(_batch):
+        raise WorkflowError('AUCTION_REFRESH_PROCESS_TERMINATED')
+
+    _audits, _valid, _splits, blocked, _total = pipeline._execute_batch_plan(
+        batches=[{'600519.SH'}], lane_id='lane_1', model='deepseek-v4-pro',
+        stage='A3', run_id='test-terminated', snapshot_id='snapshot',
+        runner=terminated, splittable=lambda _reasons: False,
+    )
+    assert blocked is not None
+    assert blocked.reason_codes == ('AUCTION_REFRESH_PROCESS_TERMINATED',)
+    assert blocked.diagnostics == {'exception_type': 'WorkflowError'}

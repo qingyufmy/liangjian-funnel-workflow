@@ -762,6 +762,35 @@ class WorkflowLarkPublisher:
             )
         return outputs
 
+    def publish_a3_premarket_status(
+        self,
+        *,
+        analyzed_at: datetime,
+        reason_code: str,
+    ) -> dict[str, Any]:
+        """Report a missing plan scope without inventing a trade plan."""
+
+        explanation = {
+            "NO_PENDING_A3_PLANS": "没有待早盘复核的有效技术计划；需核查上一交易日的收盘研究和计划发布。",
+            "NO_CURRENT_A3_PLANS": "没有属于本交易日的有效技术计划。",
+            "A3_PENDING_PLAN_SOURCE_UNAVAILABLE": "待复核计划缺少可核对的研究来源，不能进入盘中执行。",
+        }.get(reason_code, "盘前计划尚未就绪，需核对研究与发布记录。")
+        day = analyzed_at.date().isoformat()
+        return self._send(
+            delivery_key=f"premarket-a3-status:{day}",
+            kind="PREMARKET_A3_STATUS",
+            source_id=f"premarket:{day}",
+            title=f"A股盘前计划未就绪｜{day}",
+            lines=[
+                "**今日有效 A3 计划：0 只**",
+                f"• 原因：{explanation}",
+                "• A4 不启用过期计划，不补发早盘交易信号。",
+                "• 本消息仅说明任务状态，不构成买入信号。",
+            ],
+            summary={"trade_date": day, "plan_count": 0, "reason_code": reason_code},
+            now=analyzed_at,
+        )
+
     def publish_a3_premarket_analysis(
         self,
         plans: Sequence[Mapping[str, Any]],

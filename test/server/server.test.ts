@@ -1632,7 +1632,7 @@ test("process-exit wait returns after timeout so shutdown can escalate to SIGKIL
 
 test("all jobs have a bounded control-plane timeout", () => {
   expect(timeoutForJob("close", 1234)).toBe(1234);
-  expect(timeoutForJob("close", 90 * 60 * 1000)).toBe(60 * 60 * 1000);
+  expect(timeoutForJob("close", 90 * 60 * 1000)).toBe(90 * 60 * 1000);
   expect(timeoutForJob("morning", 1234)).toBe(1234);
   expect(timeoutForJob("monitor", 1234)).toBe(1234);
   expect(timeoutForJob("monitor", 90_000)).toBe(55_000);

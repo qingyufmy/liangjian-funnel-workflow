@@ -49,6 +49,7 @@ from .data.ths_taxonomy import collect_ths_taxonomy_membership
 from .facts import (
     FactStore,
     collect_market_results,
+    recover_required_market_results,
     compact_cninfo_pdf_evidence,
     manifest_projection,
     merge_fact_manifests,
@@ -668,9 +669,29 @@ class WorkflowApplication:
                     # market-wide financial/LLM work to discover pool outsiders.
                     if progress is not None:
                         progress.set_phase("EARLY_DISCOVERY_DAILY_SYNC")
+                        progress.update_data(
+                            processed=0, total=len(discovery_symbols),
+                            cache_hits=0, cache_misses=0, failures=0,
+                        )
+                        _progress_stdout(progress.snapshot())
+                    def discovery_progress(event: Mapping[str, Any]) -> None:
+                        if progress is None:
+                            return
+                        progress.set_phase("EARLY_DISCOVERY_DAILY_SYNC")
+                        progress.update_data(
+                            processed=int(event.get("processed") or 0),
+                            total=len(discovery_symbols),
+                            cache_hits=int(event.get("cache_hits") or 0),
+                            cache_misses=int(event.get("cache_misses") or 0),
+                            failures=int(event.get("failures") or 0),
+                            current_symbol=str(event.get("current_symbol") or "") or None,
+                            daily_updates=int(event.get("daily_updates") or 0),
+                        )
+                        _progress_stdout(progress.snapshot())
                     discovery_sync = self.fact_synchronizer.sync(
                         client, discovery_symbols, as_of=market_current,
                         collect_early_discovery=True, include_financial=False,
+                        progress=discovery_progress,
                     )
                     full_market_discovery = discovery_sync.early_discovery
                     del discovery_sync
@@ -717,7 +738,11 @@ class WorkflowApplication:
                 all_market_symbols,
                 cache_dir=self.settings.fact_store_dir / "ths_industry",
                 as_of=market_current,
-                **({"cache_max_age_days": 7} if auction_refresh else {}),
+                # Daily A2/A3 work consumes the sealed A1 universe. Industry
+                # membership is a dated reference graph, not a live price:
+                # a complete, hash-validated recent version is sufficient.
+                # A1 maintenance still builds the fresh full-market graph.
+                **({"cache_max_age_days": 7} if candidate_symbols is not None else {}),
             )
             if not full_membership.ok or not full_membership.complete:
                 raise WorkflowError(f"THS_INDUSTRY_MEMBERSHIP_NOT_READY:{full_membership.reason_code}")
@@ -755,16 +780,28 @@ class WorkflowApplication:
                 ),
                 progress_callback=market_progress,
             )
+            required_market_facts = ("LIMIT_UP_POOL", "LIMIT_DOWN_POOL", "LIMIT_BREAK_POOL", "LIMIT_UP_LADDER")
+            market_fact_results, market_fact_retries = recover_required_market_results(
+                client, market_fact_results,
+                market_trade_date=_latest_closed_market_trade_date(
+                    current, self.trading_calendar,
+                ),
+                required=required_market_facts,
+            )
             # Validate before slow graph/history collection, and retain each
             # source outcome even when no full snapshot can be built.
-            required_market_facts = ("LIMIT_UP_POOL", "LIMIT_DOWN_POOL", "LIMIT_BREAK_POOL", "LIMIT_UP_LADDER")
             market_diagnostics = {
                 "expected_closed_trade_date": closed_trade_date.isoformat(),
+                "bounded_recovery_attempts": market_fact_retries,
                 "facts": {
                     name: {"ok": value.ok, "complete": value.complete, "reason_code": value.reason_code,
                            "endpoint": value.endpoint, "total": value.total,
                            "fetch_time": value.fetch_time.isoformat(),
                            "market_trade_date": value.metadata.get("market_trade_date"),
+                           "provider": value.metadata.get("provider", "HITHINK"),
+                           "provider_total": value.metadata.get("provider_total"),
+                           "primary_failure_reason": value.metadata.get("primary_failure_reason"),
+                           "primary_business_code": value.metadata.get("primary_business_code"),
                            "observed_latest_market_trade_date": value.metadata.get("observed_latest_market_trade_date"),
                            "projection": value.metadata.get("projection")}
                     for name in required_market_facts for value in (market_fact_results[name],)
@@ -773,6 +810,20 @@ class WorkflowApplication:
             if auction_refresh:
                 atomic_write_json(self.settings.workflow_output_dir / "runs" / f"{current.date()}-auction-market-facts.json", market_diagnostics)
             if any(not market_fact_results[name].ok or not market_fact_results[name].complete for name in required_market_facts):
+                # Preserve the exact failed close observation separately from
+                # a later retry; the scheduler log otherwise retains only the
+                # aggregate error code and hides which provider fact failed.
+                if not auction_refresh:
+                    observed_at = datetime.now(SHANGHAI).strftime("%H%M%S%f")
+                    try:
+                        atomic_write_json(
+                            self.settings.workflow_output_dir / "runs" /
+                            f"{current.date()}-close-market-facts-{observed_at}.json",
+                            market_diagnostics,
+                        )
+                    except OSError:
+                        # The original source failure remains authoritative.
+                        pass
                 raise WorkflowError("MARKET_EMOTION_FACTS_NOT_READY", diagnostics=market_diagnostics)
             market_fact_results["THS_INDUSTRY_CATALOG"] = industry_catalog
             market_fact_results["THS_CONCEPT_CATALOG"] = concept_catalog
@@ -796,7 +847,7 @@ class WorkflowApplication:
                 taxonomy="concept",
                 cache_dir=self.settings.fact_store_dir / "ths_taxonomy",
                 as_of=market_current,
-                **({"cache_max_age_days": 7} if auction_refresh else {}),
+                **({"cache_max_age_days": 7} if candidate_symbols is not None else {}),
             )
             market_progress("MARKET_CONCEPT_MEMBERSHIP", 1, 1)
             if not market_fact_results["THS_INDUSTRY_HISTORY"].ok:
@@ -5123,30 +5174,41 @@ class WorkflowApplication:
             candidates.setdefault(source, []).append(plan)
 
         output_path = self.settings.workflow_output_dir / "runs" / f"{current.date()}-a3-premarket.json"
+        def notify_unavailable(reason_code: str) -> list[dict[str, Any]]:
+            publisher = getattr(self, "lark_publisher", None)
+            if publisher is None:
+                return []
+            try:
+                return [publisher.publish_a3_premarket_status(
+                    analyzed_at=current, reason_code=reason_code,
+                )]
+            except Exception:
+                return [{"status": "FAILED", "reason_code": "LARK_NOTIFICATION_FAILED"}]
+
         if not available_plans:
+            reason_code = "NO_CURRENT_A3_PLANS" if recovery_resend else "NO_PENDING_A3_PLANS"
             payload = {
                 "status": "EMPTY_SCOPE",
-                "reason_code": (
-                    "NO_CURRENT_A3_PLANS" if recovery_resend else "NO_PENDING_A3_PLANS"
-                ),
+                "reason_code": reason_code,
                 "analyzed_at": current.isoformat(),
                 "lane_id": primary_lane,
                 "plan_count": 0,
                 "plans": [],
-                "notifications": [],
+                "notifications": notify_unavailable(reason_code),
             }
             atomic_write_json(output_path, payload)
             atomic_write_text(output_path.with_suffix(".md"), _a3_premarket_markdown(payload))
             return payload
         if not candidates:
+            reason_code = "A3_PENDING_PLAN_SOURCE_UNAVAILABLE" if sourceless else "NO_CURRENT_A3_PLANS"
             payload = {
                 "status": "BLOCKED",
-                "reason_code": "A3_PENDING_PLAN_SOURCE_UNAVAILABLE" if sourceless else "NO_CURRENT_A3_PLANS",
+                "reason_code": reason_code,
                 "analyzed_at": current.isoformat(),
                 "lane_id": primary_lane,
                 "plan_count": 0,
                 "plans": [],
-                "notifications": [],
+                "notifications": notify_unavailable(reason_code),
             }
             atomic_write_json(output_path, payload)
             atomic_write_text(output_path.with_suffix(".md"), _a3_premarket_markdown(payload))

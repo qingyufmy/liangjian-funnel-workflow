@@ -16,6 +16,11 @@ class FakePublisher:
     def __init__(self) -> None:
         self.calls: list[tuple[tuple[dict[str, object], ...], datetime, str, dict[str, object]]] = []
         self.activation_states: list[str] = []
+        self.status_calls: list[tuple[datetime, str]] = []
+
+    def publish_a3_premarket_status(self, *, analyzed_at, reason_code):
+        self.status_calls.append((analyzed_at, reason_code))
+        return {"status": "SENT"}
 
     def publish_a3_premarket_analysis(
         self,
@@ -126,7 +131,7 @@ def test_a3_premarket_selects_latest_primary_batch_without_quote_or_activation(t
     assert "A2 主题上下文未持久化" in markdown
 
 
-def test_a3_premarket_empty_scope_is_explicit_and_does_not_notify(tmp_path):
+def test_a3_premarket_empty_scope_sends_status_not_fake_plan(tmp_path):
     app, store, publisher = _app(tmp_path)
     current = datetime(2026, 9, 2, 8, 30, tzinfo=TZ)
 
@@ -135,6 +140,8 @@ def test_a3_premarket_empty_scope_is_explicit_and_does_not_notify(tmp_path):
     assert result["status"] == "EMPTY_SCOPE"
     assert result["reason_code"] == "NO_PENDING_A3_PLANS"
     assert publisher.calls == []
+    assert publisher.status_calls == [(current, "NO_PENDING_A3_PLANS")]
+    assert result["notifications"] == [{"status": "SENT"}]
     markdown = tmp_path / "outputs" / "runs" / "2026-09-02-a3-premarket.md"
     assert "NO_PENDING_A3_PLANS" in markdown.read_text(encoding="utf-8")
 

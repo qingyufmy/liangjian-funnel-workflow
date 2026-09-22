@@ -34,7 +34,11 @@ export function timeoutForJob(
   // bounded fact collection, verification, persistence and delivery; equal
   // deadlines kill a valid model result before the review can be recorded.
   if (job === "a5-midday" || job === "a5-close") return Math.min(configuredTimeoutMs, 15 * 60 * 1000);
-  if (job === "close") return Math.min(configuredTimeoutMs, 60 * 60 * 1000);
+  // A full-market closed-day refresh alone has a 0.5s per-symbol provider
+  // pacing floor. Keep the job bounded, but leave enough time for the
+  // subsequent complete A2/A3 review rather than killing a valid partial
+  // research run before it can atomically publish next-session plans.
+  if (job === "close") return Math.min(configuredTimeoutMs, 90 * 60 * 1000);
   if (job === "a1") return a1TimeoutMs;
   return configuredTimeoutMs;
 }

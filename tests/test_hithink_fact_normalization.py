@@ -1,9 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from liangjian_funnel.facts import collect_market_results, manifest_projection, normalize_hithink_results
+import httpx
+
+from liangjian_funnel.facts import collect_market_results, manifest_projection, normalize_hithink_results, recover_required_market_results
+from liangjian_funnel.facts.hithink import fetch_eastmoney_limit_down_pool
 from liangjian_funnel.facts import FactSnapshotManifest
 from liangjian_funnel.pipeline.data_source import HithinkFetchResult, HithinkRow
 from liangjian_funnel.workflow import (
@@ -28,6 +31,105 @@ def _result(*, ok: bool = True, reason: str = "OK") -> HithinkFetchResult:
         http_status=200 if ok else 429,
         metadata={"timestamp": int(NOW.timestamp() * 1000)},
     )
+
+
+def test_required_market_fact_recovery_preserves_success_and_retries_only_failure() -> None:
+    original_up = _result()
+    original_down = _result(ok=False, reason="BUSINESS_ERROR").model_copy(
+        update={"business_code": 5003, "http_status": 200},
+    )
+    calls: list[int] = []
+
+    class Client:
+        def limit_down_pool(self, *, date_ms: int) -> HithinkFetchResult:
+            calls.append(date_ms)
+            return original_down if len(calls) == 1 else _result()
+
+    recovered, attempts = recover_required_market_results(
+        Client(), {"LIMIT_UP_POOL": original_up, "LIMIT_DOWN_POOL": original_down},
+        market_trade_date=date(2026, 9, 22),
+        required=("LIMIT_UP_POOL", "LIMIT_DOWN_POOL"), pause=lambda _: None,
+    )
+    assert calls == [1790006400000, 1790006400000]
+    assert recovered["LIMIT_UP_POOL"] is original_up
+    assert recovered["LIMIT_DOWN_POOL"].ok
+    assert [row["ok"] for row in attempts] == [False, True]
+
+
+def test_required_market_fact_recovery_keeps_persistent_business_error_blocked() -> None:
+    failure = _result(ok=False, reason="BUSINESS_ERROR").model_copy(
+        update={"business_code": 5003, "http_status": 200},
+    )
+    calls = 0
+
+    class Client:
+        def limit_down_pool(self, *, date_ms: int) -> HithinkFetchResult:
+            nonlocal calls
+            calls += 1
+            return failure
+
+    recovered, attempts = recover_required_market_results(
+        Client(), {"LIMIT_DOWN_POOL": failure},
+        market_trade_date=date(2026, 9, 22), required=("LIMIT_DOWN_POOL",),
+        max_retries=100, pause=lambda _: None, fallback_fetcher=lambda _: failure,
+    )
+    assert calls == 2
+    assert len(attempts) == 3
+    assert recovered["LIMIT_DOWN_POOL"].ok is False
+    assert recovered["LIMIT_DOWN_POOL"].business_code == 5003
+
+
+def test_eastmoney_limit_down_fallback_checks_date_total_and_source() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.host == "push2ex.eastmoney.com"
+        assert request.url.params["date"] == "20260922"
+        return httpx.Response(200, json={"rc": 0, "data": {
+            "qdate": 20260922, "tc": 1,
+            "pool": [{"c": "000668", "m": 0, "p": 17420,
+                      "zdp": -9.97, "days": 1}],
+        }})
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        result = fetch_eastmoney_limit_down_pool(date(2026, 9, 22), http_client=client)
+    assert result.ok and result.complete and result.total == 1
+    assert result.items[0].thscode == "000668.SZ"
+    assert result.items[0].last_price == 17.42
+    assert result.metadata["market_trade_date"] == "2026-09-22"
+    manifest = normalize_hithink_results(
+        {"LIMIT_DOWN_POOL": result}, base_url="https://fuyao.aicubes.cn", as_of=NOW,
+    )
+    assert manifest.facts[0].source_id == "eastmoney.limit_down_pool"
+    assert manifest.facts[0].source_url == "https://push2ex.eastmoney.com/getTopicDTPool"
+
+
+def test_eastmoney_limit_down_fallback_rejects_stale_and_partial_pages() -> None:
+    for data, reason in (
+        ({"qdate": 20260921, "tc": 0, "pool": []}, "EASTMONEY_TRADE_DATE_MISMATCH"),
+        ({"qdate": 20260922, "tc": 2, "pool": []}, "EASTMONEY_POOL_INCOMPLETE"),
+    ):
+        with httpx.Client(transport=httpx.MockTransport(
+            lambda _: httpx.Response(200, json={"rc": 0, "data": data}),
+        )) as client:
+            result = fetch_eastmoney_limit_down_pool(date(2026, 9, 22), http_client=client)
+        assert result.ok is False and result.reason_code == reason
+
+
+def test_required_market_fact_recovery_uses_validated_alternative_only_after_primary_failure() -> None:
+    failure = _result(ok=False, reason="BUSINESS_ERROR").model_copy(
+        update={"business_code": 5003, "http_status": 200},
+    )
+    alternative = _result().model_copy(update={
+        "endpoint": "https://push2ex.eastmoney.com/getTopicDTPool",
+        "metadata": {"market_trade_date": "2026-09-22", "provider": "EASTMONEY"},
+    })
+    recovered, attempts = recover_required_market_results(
+        object(), {"LIMIT_DOWN_POOL": failure},
+        market_trade_date=date(2026, 9, 22), required=("LIMIT_DOWN_POOL",),
+        max_retries=0, pause=lambda _: None, fallback_fetcher=lambda _: alternative,
+    )
+    assert recovered["LIMIT_DOWN_POOL"].ok
+    assert recovered["LIMIT_DOWN_POOL"].metadata["primary_business_code"] == 5003
+    assert attempts[-1]["retry_number"] == "EASTMONEY_FALLBACK"
 
 
 def test_hithink_result_is_normalized_and_hash_bound() -> None:
