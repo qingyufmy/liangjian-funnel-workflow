@@ -62,3 +62,19 @@
 
 明日检查07:00基线回执是否READY，以及09:26增量输入的基线哈希和来源时刻。
 通达信协议解码失败是另一项残留数据源问题，本次未把它宣称为已恢复。
+
+## 部署验收时补充发现：状态接口覆盖率统计超时
+
+98e1757部署后：源码一致、15项次日计划断言通过；实际运行的Node调度器
+`running=true`，07:00基线、09:26刷新及A4/A5均enabled。状态页却返回STATUS_TIMEOUT。
+现场8秒栈采样定位到`LocalFactCache.get_coverage`全历史日线去重统计；
+独立35秒诊断仍未完成。运行账本仅93条有效事件，不能把该问题误归因于信号事件量。
+
+补充修复：仅CLI状态页调用启用1秒SQLite VM指令执行预算，覆盖率统计被中止时返回
+`available=false, COVERAGE_QUERY_DEADLINE_EXCEEDED, daily=null, financial=null`。
+不伪造零覆盖、不放宽交易数据要求；正常研究调用仍保留完整统计，不受该预算影响。
+其他SQL异常继续抛出，不混淆为超时；progress handler在finally中清除。
+
+`python -m pytest tests/test_local_fact_cache.py tests/test_cli_workflow_coverage.py -o addopts='' -q`
+34 passed，2.15秒，退出0。包含真实SQLite中断、取消后完整查询、快速查询精确计数测试。
+本项需随补充发布再次实测/api/overview，不以健康端点通过代替。

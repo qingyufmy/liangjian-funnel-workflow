@@ -1309,7 +1309,7 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
             payload = {
                 "state_db": str(settings.state_db_path),
                 "state_healthy": application.store.healthy,
-                "fact_cache": application.fact_cache.get_coverage(),
+                "fact_cache": application.fact_cache.get_coverage(query_budget_seconds=1.0),
                 "accounts": application.store.list_accounts(),
                 "positions": {
                     account["account_id"]: application.store.list_positions(str(account["account_id"]))

@@ -15,6 +15,27 @@ UTC = timezone.utc
 T0 = datetime(2026, 8, 25, 8, 0, tzinfo=UTC)
 
 
+def test_status_coverage_budget_interrupts_without_fabricating_zero(tmp_path, monkeypatch):
+    import liangjian_funnel.pipeline.local_fact_cache as module
+    cache = LocalFactCache(tmp_path / "facts.sqlite3")
+    cache.upsert_daily_bars([daily(f"{600000+i}.SH", 30) for i in range(200)])
+    with monkeypatch.context() as patched:
+        ticks = iter([0, 2])
+        patched.setattr(module.time, "monotonic", lambda: next(ticks, 2))
+        result = cache.get_coverage(query_budget_seconds=1)
+    assert result["available"] is False
+    assert result["reason_code"] == "COVERAGE_QUERY_DEADLINE_EXCEEDED"
+    assert result["daily"] is None and result["financial"] is None
+    # Cancellation is connection-local; normal research coverage is unchanged.
+    assert cache.get_coverage()["daily"]["rows"] == 200
+
+
+def test_small_status_coverage_returns_exact_counts(tmp_path):
+    cache = LocalFactCache(tmp_path / "facts.sqlite3")
+    cache.upsert_daily_bars([daily("600000.SH", 30)])
+    assert cache.get_coverage(query_budget_seconds=1) == cache.get_coverage()
+
+
 def daily(symbol: str, minute: int, *, fetched_at: datetime = T0, close: float = 10.0):
     return {
         "symbol": symbol,

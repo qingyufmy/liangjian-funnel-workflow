@@ -1205,6 +1205,7 @@ class LocalFactCache:
         dataset: str | None = None,
         adjust: str | None = None,
         as_of: datetime | str | None = None,
+        query_budget_seconds: float | None = None,
     ) -> dict[str, Any]:
         """Return rows, symbols, datasets and time ranges for readiness checks."""
 
@@ -1235,22 +1236,36 @@ class LocalFactCache:
             f" WHERE {' AND '.join(financial_clauses)}" if financial_clauses else ""
         )
         with self._connect() as connection:
-            daily = connection.execute(
-                "SELECT COUNT(*) AS rows, COUNT(DISTINCT symbol) AS symbols, "
-                "MIN(bar_timestamp) AS min_timestamp, MAX(bar_timestamp) AS max_timestamp "
-                "FROM ("
-                " SELECT symbol, bar_timestamp, adjust FROM daily_bars"
-                f"{daily_where} GROUP BY symbol, bar_timestamp, adjust"
-                ") AS distinct_bars",
-                daily_params,
-            ).fetchone()
-            financial = connection.execute(
-                "SELECT COUNT(*) AS rows, COUNT(DISTINCT symbol) AS symbols, "
-                "COUNT(DISTINCT dataset) AS datasets, MIN(published_at) AS min_published_at, "
-                "MAX(published_at) AS max_published_at "
-                f"FROM financial_facts{financial_where}",
-                financial_params,
-            ).fetchone()
+            if query_budget_seconds is not None:
+                if not 0 < query_budget_seconds <= 60:
+                    raise ValueError("coverage query budget must be in (0, 60]")
+                deadline = time.monotonic() + query_budget_seconds
+                connection.set_progress_handler(lambda: int(time.monotonic() >= deadline), 1000)
+            try:
+                daily = connection.execute(
+                    "SELECT COUNT(*) AS rows, COUNT(DISTINCT symbol) AS symbols, "
+                    "MIN(bar_timestamp) AS min_timestamp, MAX(bar_timestamp) AS max_timestamp "
+                    "FROM ("
+                    " SELECT symbol, bar_timestamp, adjust FROM daily_bars"
+                    f"{daily_where} GROUP BY symbol, bar_timestamp, adjust"
+                    ") AS distinct_bars",
+                    daily_params,
+                ).fetchone()
+                financial = connection.execute(
+                    "SELECT COUNT(*) AS rows, COUNT(DISTINCT symbol) AS symbols, "
+                    "COUNT(DISTINCT dataset) AS datasets, MIN(published_at) AS min_published_at, "
+                    "MAX(published_at) AS max_published_at "
+                    f"FROM financial_facts{financial_where}",
+                    financial_params,
+                ).fetchone()
+            except sqlite3.OperationalError as exc:
+                if query_budget_seconds is None or getattr(exc, "sqlite_errorcode", None) != sqlite3.SQLITE_INTERRUPT:
+                    raise
+                return {"schema_version": SCHEMA_VERSION, "available": False,
+                        "reason_code": "COVERAGE_QUERY_DEADLINE_EXCEEDED",
+                        "daily": None, "financial": None}
+            finally:
+                connection.set_progress_handler(None, 0)
         return {
             "schema_version": SCHEMA_VERSION,
             "as_of": None if as_of is None else _timestamp(as_of),
