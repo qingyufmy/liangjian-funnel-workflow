@@ -1,5 +1,29 @@
 schema_version: supplemental-source-policy/1.0.0
 sources:
+  - source_id: sina_financial_statement_candidate
+    provider: sina_finance
+    capability: financial_statement
+    enabled: false
+    shadow_only: true
+    execution_authority: false
+    adapter_status: ADAPTER_OFFLINE_TESTED
+    live_status: LIVE_UNVERIFIED
+    license_status: UNVERIFIED
+    ingestion_mode: EXPLICIT_LOCAL_RESEARCH_PROBE_ONLY
+    upstream_identity: sina-company-finance
+    applicable_paths: [A1_COVERAGE_SIDECAR]
+  - source_id: tdx_official_daily_package_candidate
+    provider: tdx_daily_package
+    capability: historical_daily_archive
+    enabled: false
+    shadow_only: true
+    execution_authority: false
+    adapter_status: ADAPTER_OFFLINE_TESTED
+    live_status: LIVE_UNVERIFIED
+    license_status: UNVERIFIED
+    ingestion_mode: EXPLICIT_LOCAL_RESEARCH_PROBE_ONLY
+    upstream_identity: tdx-official-http-daily-package
+    applicable_paths: [A3_DAILY_COMPARISON_SIDECAR]
   - source_id: shortline_theme_candidate
     provider: shortline_candidate
     capability: theme_hierarchy

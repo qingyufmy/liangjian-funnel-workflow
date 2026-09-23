@@ -1247,6 +1247,7 @@ def _eastmoney_board_flow_fetcher(board_type: str, period: str) -> dict[str, Any
     rows: list[dict[str, Any]] = []
     page = 1
     total: int | None = None
+    seen_codes: set[str] = set()
     while total is None or len(rows) < total:
         params = {
                 "pz": "200",
@@ -1267,11 +1268,24 @@ def _eastmoney_board_flow_fetcher(board_type: str, period: str) -> dict[str, Any
         data = body.get("data") if isinstance(body, Mapping) else None
         if not isinstance(data, Mapping) or not isinstance(data.get("diff"), list):
             raise CapitalFlowError("board capital-flow provider envelope invalid")
-        total = int(data.get("total") or 0)
-        page_rows = [item for item in data["diff"] if isinstance(item, Mapping)]
+        reported_total = data.get("total")
+        if isinstance(reported_total, bool) or not isinstance(reported_total, int) or reported_total < 0:
+            raise CapitalFlowError("board capital-flow provider total invalid")
+        if total is not None and reported_total != total:
+            raise CapitalFlowError("board capital-flow provider total changed during pagination")
+        total = reported_total
+        page_rows = data["diff"]
+        if any(not isinstance(item, Mapping) for item in page_rows):
+            raise CapitalFlowError("board capital-flow provider row invalid")
+        if len(rows) + len(page_rows) > total:
+            raise CapitalFlowError("board capital-flow provider row count exceeds total")
         if not page_rows and len(rows) < total:
             raise CapitalFlowError("board capital-flow provider page incomplete")
         for item in page_rows:
+            code = item.get("f12")
+            if not isinstance(code, str) or not code.strip() or code in seen_codes:
+                raise CapitalFlowError("board capital-flow provider duplicate or missing board code")
+            seen_codes.add(code)
             rows.append({
                 "code": item.get("f12"),
                 "name": item.get("f14"),
