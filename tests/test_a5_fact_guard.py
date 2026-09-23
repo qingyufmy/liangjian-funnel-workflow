@@ -19,6 +19,28 @@ from liangjian_funnel.review.verification import _field_comparison
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_same_job_raw_and_incident_defects_are_not_double_counted():
+    from test_a5_daily_review import _report
+    from liangjian_funnel.review.daily import A5Defect, _compact_operational_evidence_for_model
+    rows = [{"evidence_id": "ENGINEERING:JOB:549", "kind": "JOB_TERMINATED",
+             "job": "auction-refresh", "time": "2026-09-23T01:56:01+00:00", "reason": "TIMEOUT"}]
+    incident = _compact_operational_evidence_for_model(rows)["job_incidents"][0]["evidence_id"]
+    report = A5ReviewReport.model_validate(_report())
+    report.core_defects = [A5Defect(layer="ORCHESTRATOR", severity="MEDIUM", confidence="HIGH",
+        blocked_by_data=False, problem="竞价刷新超时", evidence_ids=[incident]),
+        A5Defect(layer="ORCHESTRATOR", severity="HIGH", confidence="HIGH", blocked_by_data=True,
+                 problem="独立核验不可用", evidence_ids=["A5V:A4:SUMMARY"])]
+    facts = {"operational_evidence": rows}
+    frozen = copy.deepcopy(facts)
+    _enforce_verified_findings(report, facts)
+    assert len(report.core_defects) == 2
+    assert "1个失败周期" in report.core_defects[0].problem
+    assert report.core_defects[1].problem == "独立核验不可用"
+    _enforce_verified_findings(report, facts)
+    assert len(report.core_defects) == 2
+    assert facts == frozen
+
+
 def test_frozen_legacy_data_block_counts_are_display_only():
     from liangjian_funnel.review.fact_guard import business_metrics
     facts = {'metrics': {'a4_effective_event_count': 23,

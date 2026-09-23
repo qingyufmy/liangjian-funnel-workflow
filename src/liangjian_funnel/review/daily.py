@@ -1923,6 +1923,18 @@ def _enforce_verified_findings(report: A5ReviewReport, facts: Mapping[str, Any])
     failed_research = [row for row in operations if row.get("kind") in {"JOB_TERMINATED", "JOB_FAILED"}
                        and row.get("job") in {"auction-refresh", "close", "morning"}]
     if failed_research:
+        # A model may cite either the raw job event or its projected incident.
+        # Replace only findings wholly backed by these same failures; retain
+        # mixed/independent evidence (e.g. unavailable cross-source quotes).
+        covered_ids = {str(row.get("evidence_id") or "") for row in failed_research}
+        for incident in _compact_operational_evidence_for_model(operations)["job_incidents"]:
+            raw_ids = set(incident["raw_evidence_ids"])
+            if raw_ids and raw_ids <= covered_ids:
+                covered_ids.add(incident["evidence_id"])
+        report.core_defects = [item for item in report.core_defects if not (
+            item.layer == "ORCHESTRATOR" and item.evidence_ids
+            and set(item.evidence_ids) <= covered_ids
+        )]
         incidents: list[list[Mapping[str, Any]]] = []
         for job in sorted({str(row.get("job") or "UNKNOWN") for row in failed_research}):
             ordered = sorted((row for row in failed_research if str(row.get("job") or "UNKNOWN") == job),
