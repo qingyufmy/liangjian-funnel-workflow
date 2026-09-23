@@ -460,6 +460,7 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     sub.add_parser("run-morning", help="dispatch only the due 09:26 morning review")
+    sub.add_parser("run-auction-base", help="prepare immutable research evidence at 07:00; no models or plan publication")
     auction_refresh = sub.add_parser("run-auction-refresh", help="refresh A2/A3 research after auction; never replace active A4 plans")
     auction_refresh.add_argument("--manual-current", action="store_true",
                                  help="explicit operator rerun using the current session time, not the 09:26 auction cutoff")
@@ -647,7 +648,7 @@ def main(argv: Sequence[str] | None = None, *, settings: Settings | None = None)
         return _a1_coverage_command(args, active)
     if args.command in {"label-outcomes", "run-outcomes", "run-outcomes-refresh", "layer-attribution"}:
         return _evaluation_command(args, active)
-    if args.command in {"prepare-snapshot", "import-broker-gold", "sync-data", "maintain-features", "run-a1-maintenance", "run-research", "run-comparison", "monitor-once", "activate-latest-a3-for-a4", "run-due", "run-premarket", "run-morning", "run-auction-refresh", "run-close", "run-a5-midday", "run-a5-close", "run-next-session-prep", "run-monitor", "status"}:
+    if args.command in {"prepare-snapshot", "import-broker-gold", "sync-data", "maintain-features", "run-a1-maintenance", "run-research", "run-comparison", "monitor-once", "activate-latest-a3-for-a4", "run-due", "run-premarket", "run-morning", "run-auction-base", "run-auction-refresh", "run-close", "run-a5-midday", "run-a5-close", "run-next-session-prep", "run-monitor", "status"}:
         return _workflow_command(args, active)
     reports = []
     if args.command in {"probe-hithink", "probe-all"}:
@@ -1191,6 +1192,10 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
             from .runtime.scheduler import ScheduleKind
 
             payload = application.run_scheduled(ScheduleKind.CLOSE_1510)
+        elif args.command == "run-auction-base":
+            from .runtime.auction_base import run_auction_base
+
+            payload = run_auction_base(application)
         elif args.command == "run-auction-refresh":
             from .runtime.auction_refresh import run_auction_refresh
 

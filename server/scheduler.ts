@@ -145,6 +145,7 @@ export class WorkflowScheduler {
       if (isFeatureMaintenanceMinute(clock)) due.push("features");
     } else {
       if (isFeatureMaintenanceMinute(clock)) due.push("features");
+      if (clock.hour === 7 && clock.minute < 15) due.push("auction-base");
       if (clock.hour === 8 && clock.minute === 30) due.push("premarket");
       if (clock.hour === 9 && clock.minute === 26) due.push("morning");
       // A four-minute startup/restart window, with a stable daily key.
@@ -162,7 +163,8 @@ export class WorkflowScheduler {
     }
 
     for (const job of due) {
-      const dispatchKey = job === "auction-refresh" ? `${clock.date}T09:26` : key;
+      const dispatchKey = job === "auction-refresh" ? `${clock.date}T09:26`
+        : job === "auction-base" ? `${clock.date}T07:00` : key;
       if (job === "features" && !this.featureMaintenanceEnabled) continue;
       if (this.dispatched.get(job) === dispatchKey || this.inFlight.has(job) || this.retryKeys.get(job) === dispatchKey) continue;
       this.dispatch(job, dispatchKey, value);
@@ -205,6 +207,11 @@ export class WorkflowScheduler {
         if (job === "auction-refresh" && result.status !== "succeeded") {
           // Retry on the next minute only while the four-minute capture
           // window is still open; never start this job later in the session.
+          this.dispatched.delete(job);
+        }
+        // Baseline failures require investigation, not repeated full syncs.
+        // Only retry a worker-busy skip while the 07:00-07:14 window is open.
+        if (job === "auction-base" && result.status === "skipped" && result.reason?.startsWith("BUSY:")) {
           this.dispatched.delete(job);
         }
         const shouldRetry = (job === "premarket" || job === "morning" || job === "close" || job === "a1" || job === "a5-midday" || job === "a5-close" || job === "outcomes")

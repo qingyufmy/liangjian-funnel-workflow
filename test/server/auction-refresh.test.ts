@@ -8,6 +8,26 @@ import { WorkflowScheduler } from "../../server/scheduler.js";
 import { JobRunner, timeoutForJob } from "../../server/runner.js";
 import type { JobName } from "../../server/types.js";
 
+test("base evidence dispatches once before open and has a bounded worker lifetime", async () => {
+  const root = await mkdtemp(join(tmpdir(), "auction-base-"));
+  const calls: JobName[] = [];
+  const runner = { run: async (job: JobName) => { calls.push(job); return { status: "succeeded", job }; }};
+  const logger = new LogStore(loadConfig({}, root));
+  const scheduler = new WorkflowScheduler(runner as unknown as JobRunner, logger, { comparisonEnabled: false });
+  try {
+    for (const stamp of ["22:59", "23:00", "23:01", "23:14", "23:15"]) {
+      await scheduler.tick(new Date(`2026-09-23T${stamp}:10Z`));
+      await new Promise<void>(resolve => setImmediate(resolve));
+    }
+    expect(calls.filter(x => x === "auction-base")).toHaveLength(1);
+    expect(timeoutForJob("auction-base", 7200_000)).toBe(3600_000);
+  } finally {
+    scheduler.stop();
+    await (logger as unknown as { writeChain: Promise<void> }).writeChain;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("auction research dispatches once and does not stop A4 minute dispatch", async () => {
   const root = await mkdtemp(join(tmpdir(), "auction-refresh-"));
   const calls: JobName[] = [];

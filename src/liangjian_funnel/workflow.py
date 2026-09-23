@@ -512,6 +512,8 @@ class WorkflowApplication:
         auction_refresh: bool = False,
         materialize_feature_source: bool = True,
     ) -> PreparedSnapshot:
+        if auction_refresh:
+            raise WorkflowError("AUCTION_FULL_SYNC_FORBIDDEN_USE_VERIFIED_BASE")
         current = _aware(as_of or datetime.now(SHANGHAI))
         market_current = _aware(market_data_as_of or current)
         wall_now = datetime.now(SHANGHAI)
@@ -2609,20 +2611,24 @@ class WorkflowApplication:
                     expected_date=snapshot_expected_date or current.date().isoformat(),
                 )
                 if snapshot_id is not None
-                else None if historical_replay or not reuse_resume_snapshot
+                else None if historical_replay or not reuse_resume_snapshot or auction_refresh
                 else self._load_research_resume_snapshot(
                     normalized_slot, current, candidate_symbols=active_a1_scope_symbols
                 )
             )
             if prepared is None:
-                prepared = self.prepare_snapshot(
-                    as_of=current,
-                    market_data_as_of=market_data_as_of,
-                    progress=progress,
-                    candidate_symbols=active_a1_scope_symbols,
-                    materialize_feature_source=not from_active_a1,
-                    **({"auction_refresh": True} if auction_refresh else {}),
-                )
+                if auction_refresh:
+                    from .runtime.auction_base import prepare_auction_delta
+                    prepared = prepare_auction_delta(self, current=current,
+                        generation=active_a1_generation, scope=active_a1_scope_symbols)
+                else:
+                    prepared = self.prepare_snapshot(
+                        as_of=current,
+                        market_data_as_of=market_data_as_of,
+                        progress=progress,
+                        candidate_symbols=active_a1_scope_symbols,
+                        materialize_feature_source=not from_active_a1,
+                    )
                 if not historical_replay and not comparison_run and not auction_refresh:
                     self._write_research_resume_marker(
                         normalized_slot,

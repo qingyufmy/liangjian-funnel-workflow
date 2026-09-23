@@ -299,6 +299,27 @@ def test_resource_gate_finishes_progress_and_does_not_start_pipeline(tmp_path: P
     assert progress["reason_code"] == "RESOURCE_BUDGET_EXCEEDED"
 
 
+def test_auction_entry_routes_to_verified_delta_not_full_or_resume(tmp_path, monkeypatch):
+    from unittest.mock import Mock
+    import liangjian_funnel.runtime.auction_base as base_module
+    app = _app(tmp_path)
+    current = NOW.replace(hour=9, minute=26)
+    app.a1_registry = SimpleNamespace(require_active=Mock(return_value=SimpleNamespace(
+        as_of=current, generation_id="active-a1", payload={})))
+    app.prepare_snapshot = Mock(side_effect=AssertionError("full sync forbidden"))
+    app._load_research_resume_snapshot = Mock(side_effect=AssertionError("old resume forbidden"))
+    monkeypatch.setattr(workflow_module, "evaluate_resources", lambda _: _resources(True))
+    monkeypatch.setattr(workflow_module, "_active_a1_downstream_scope", lambda _: ("600519.SH",))
+    delta = Mock(side_effect=WorkflowError("AUCTION_BASE_NOT_READY_OR_STALE"))
+    monkeypatch.setattr(base_module, "prepare_auction_delta", delta)
+    with pytest.raises(WorkflowError, match="AUCTION_BASE_NOT_READY_OR_STALE"):
+        app.run_research("morning", as_of=current, from_active_a1=True, primary_only=True,
+                         publish_plans=False, schedule_comparison=False, auction_refresh=True)
+    delta.assert_called_once()
+    app.prepare_snapshot.assert_not_called()
+    app._load_research_resume_snapshot.assert_not_called()
+
+
 def test_resume_snapshot_failure_is_terminally_visible(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     app = _app(tmp_path)
     monkeypatch.setattr(workflow_module, "evaluate_resources", lambda _root: _resources(True))

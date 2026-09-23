@@ -132,7 +132,7 @@ def test_manual_rerun_uses_actual_time_and_keeps_morning_receipt(tmp_path):
     assert (tmp_path / "runs/2026-09-14-manual-current-refresh-112000.json").exists()
 
 
-def test_snapshot_requests_today_rotation_and_fresh_hot100_before_heavy_sync(tmp_path, monkeypatch):
+def test_legacy_auction_snapshot_path_cannot_reenter_heavy_sync(tmp_path, monkeypatch):
     import liangjian_funnel.workflow as workflow
     import liangjian_funnel.runtime.auction_refresh as refresh
 
@@ -148,10 +148,8 @@ def test_snapshot_requests_today_rotation_and_fresh_hot100_before_heavy_sync(tmp
     monkeypatch.setattr(workflow, "collect_rotation_theme_snapshot", boards)
     monkeypatch.setattr(refresh, "collect_fresh_quotes", lambda *_args, **_kwargs: {"available": True})
     app = SimpleNamespace(settings=settings, trading_calendar=object(), lark_publisher=Mock())
-    with pytest.raises(WorkflowError, match="AUCTION_CURRENT_ROTATION_UNAVAILABLE"):
+    with pytest.raises(WorkflowError, match="AUCTION_FULL_SYNC_FORBIDDEN_USE_VERIFIED_BASE"):
         WorkflowApplication.prepare_snapshot(app, as_of=current, candidate_symbols=("600000.SH",), auction_refresh=True)
-    assert hot.call_args.kwargs["expected_trade_date"] == current.date()
-    assert hot.call_args.kwargs["force_refresh"] is True
-    assert hot.call_args.kwargs["cache_dir"] == tmp_path / "eastmoney_hot100/auction"
-    assert boards.call_args.kwargs["expected_trade_date"] == current.date()
-    app.lark_publisher.publish_rotation_theme_health.assert_called_once()
+    hot.assert_not_called()
+    boards.assert_not_called()
+    app.lark_publisher.publish_rotation_theme_health.assert_not_called()

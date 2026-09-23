@@ -29,6 +29,7 @@ export function timeoutForJob(
   // schedule. Minute monitoring has a much tighter deadline so it releases
   // the single worker before the 09:26/15:10 research protection windows.
   if (job === "monitor") return Math.min(configuredTimeoutMs, 55_000);
+  if (job === "auction-base") return Math.min(configuredTimeoutMs, 60 * 60 * 1000);
   if (job === "auction-refresh") return Math.min(configuredTimeoutMs, 30 * 60 * 1000);
   // A5's model call has a 600s total budget. The parent must also allow
   // bounded fact collection, verification, persistence and delivery; equal
