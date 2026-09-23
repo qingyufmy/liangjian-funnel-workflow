@@ -1,5 +1,17 @@
 schema_version: supplemental-source-policy/1.0.0
 sources:
+  - source_id: sina_five_minute_candidate
+    provider: sina_finance
+    capability: five_minute_ohlcv
+    enabled: false
+    shadow_only: true
+    execution_authority: false
+    adapter_status: SHADOW_ONLY
+    live_status: AVAILABLE_WITH_CROSS_SOURCE_DIFFERENCES
+    license_status: UNVERIFIED
+    ingestion_mode: EXPLICIT_LOCAL_RESEARCH_PROBE_ONLY
+    upstream_identity: sina-finance-public-kline
+    applicable_paths: [A5_MINUTE_COMPARISON_SIDECAR]
   - source_id: sina_financial_statement_candidate
     provider: sina_finance
     capability: financial_statement
