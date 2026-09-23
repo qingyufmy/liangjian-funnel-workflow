@@ -142,12 +142,22 @@ def reconcile_guba_ranks(payload: Any, original: Mapping[str, Any], *, as_of: da
     rank_key = f"GUBA_TOP_REAL_TIME{{{expected_trade_date.isoformat()}}}"
     identities = []
     original_values = {}
+    identity_aliases = []
     for row in source_rows:
         symbol = _a_share_symbol(str(row.get("SECURITY_CODE") or ""), str(row.get("MARKET_SHORT_NAME") or ""))
         if symbol is None or rank_key not in row:
             raise EastmoneyHot100Error("GUBA_ORIGINAL_RANK_IDENTITY_MISMATCH")
         code, market = symbol.split(".")
         provider_code = market + code
+        # The forum endpoint labels some BSE 92xxxx securities as SZ.
+        # Accept only when the dated screener independently identifies BJ;
+        # retain the raw vendor identity instead of broad prefix guessing.
+        screener_market = str(row.get("MARKET_SHORT_NAME") or "").strip().upper()
+        if (provider_code not in ranks and market == "BJ" and screener_market in {"BJ", "北A", "北交所"}
+                and code.startswith("92") and "SZ" + code in ranks):
+            identity_aliases.append({"symbol": symbol, "original_rank_code": "SZ" + code,
+                                     "screener_market": market})
+            provider_code = "SZ" + code
         if provider_code not in ranks:
             raise EastmoneyHot100Error("GUBA_ORIGINAL_RANK_IDENTITY_MISMATCH")
         identities.append(provider_code)
@@ -157,6 +167,7 @@ def reconcile_guba_ranks(payload: Any, original: Mapping[str, Any], *, as_of: da
         raise EastmoneyHot100Error("GUBA_ORIGINAL_RANK_IDENTITY_MISMATCH")
     result = normalize_eastmoney_hot100(copied, as_of=as_of, expected_trade_date=expected_trade_date)
     result.update(rank_source_url=GUBA_RANK_URL, rank_reconciled=True,
+                  rank_identity_aliases=identity_aliases,
                   screener_rank_values=original_values, dated_rank_checks=checks,
                   rank_reconciliation_reason="SCREENER_RANK_INCOMPLETE_OR_DUPLICATED")
     return result

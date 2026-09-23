@@ -14,6 +14,7 @@ from __future__ import annotations
 import ipaddress
 import math
 import re
+import struct
 import time
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -56,7 +57,7 @@ class _ExplicitTdxClient:
     def __init__(self, client: Any):
         self.client = client
 
-    def bars(self, *, symbol: str, frequency: int, start: int = 0, offset: int = 800):
+    def bars(self, symbol: str, frequency: int, start: int = 0, offset: int = 800):
         mapping = map_symbol(symbol)
         return self.client.get_security_bars(
             frequency, 1 if mapping.exchange == "SH" else 0, mapping.code, start, offset)
@@ -91,7 +92,10 @@ class SymbolError(ValueError):
 def _node_failure_reason(exc: Exception) -> str:
     # TCP connectivity is not a successful TDX application handshake. Never
     # persist third-party exception text (which may contain paths or payloads).
-    if type(exc).__name__ in {"ResponseHeaderRecvFails", "ResponseRecvFails", "ResponseError"}:
+    # tdxpy wraps decoder failures; preserve their safe category, not the
+    # third-party text. Do not mistake a malformed reply for valid bars.
+    original = getattr(exc, "original_exception", exc)
+    if isinstance(original, struct.error) or type(original).__name__ in {"ResponseHeaderRecvFails", "ResponseRecvFails", "ResponseError"}:
         return "NODE_PROTOCOL_RESPONSE_INVALID"
     return "NODE_REQUEST_FAILED"
 

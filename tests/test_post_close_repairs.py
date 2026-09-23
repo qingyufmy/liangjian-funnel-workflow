@@ -35,6 +35,22 @@ def test_original_rank_restores_vendor_order_without_mutating_raw():
     assert raw == frozen
 
 
+@pytest.mark.parametrize("market,code,accepted", [("BJ", "920025", True), ("SH", "920025", False), ("BJ", "600001", False)])
+def test_forum_bse_alias_requires_dated_screener_market(market, code, accepted):
+    raw, original = rank_fixture()
+    raw["data"]["result"]["dataList"][28].update(SECURITY_CODE=code, MARKET_SHORT_NAME=market)
+    original["rows"][28]["sc"] = "SZ" + code
+    frozen = copy.deepcopy(raw)
+    if not accepted:
+        with pytest.raises(EastmoneyHot100Error):
+            reconcile_guba_ranks(raw, original, as_of=NOW, expected_trade_date=NOW.date())
+        return
+    result = reconcile_guba_ranks(raw, original, as_of=NOW, expected_trade_date=NOW.date())
+    assert result["records"][28]["symbol"] == "920025.BJ"
+    assert result["rank_identity_aliases"] == [{"symbol": "920025.BJ", "original_rank_code": "SZ920025", "screener_market": "BJ"}]
+    assert raw == frozen
+
+
 @pytest.mark.parametrize("defect", ["duplicate", "membership", "old_date", "future", "missing_check", "wrong_check"])
 def test_original_rank_requires_complete_matching_dated_identities(defect):
     raw, original = rank_fixture()

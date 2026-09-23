@@ -104,6 +104,45 @@ def test_protocol_failure_is_not_reported_as_successful_tcp_connectivity():
     assert "private data" not in result.model_dump_json()
 
 
+@pytest.mark.parametrize("symbol,market", [("600519.SH", 1), ("000001.SZ", 0)])
+def test_default_factory_real_wrapper_accepts_adapter_call(monkeypatch, symbol, market):
+    import sys
+    import types
+
+    calls = []
+    class Api:
+        def __init__(self, **kwargs):
+            assert kwargs == {"auto_retry": False, "raise_exception": True}
+        def connect(self, host, port, **kwargs):
+            calls.append(("connect", host, port))
+            return True
+        def get_security_bars(self, frequency, exchange, code, start, count):
+            calls.append(("bars", frequency, exchange, code))
+            return [row(datetime(2026, 9, 23, 9, 35, tzinfo=TZ))]
+        def disconnect(self):
+            calls.append(("disconnect",))
+
+    monkeypatch.setitem(sys.modules, "tdxpy.hq", types.SimpleNamespace(TdxHq_API=Api))
+    result = MootdxAdapter(nodes=[("node-a", 7709)], max_pages=1).fetch_bars(
+        symbol, "5m", 1, as_of=datetime(2026, 9, 23, 10, tzinfo=TZ))
+    assert result.complete, result.model_dump_json()
+    assert ("bars", 0, market, symbol.split(".")[0]) in calls
+    assert calls[-1] == ("disconnect",)
+
+
+def test_wrapped_tdx_decoder_failure_is_safe_protocol_error():
+    import struct
+    error = RuntimeError("private wrapper text")
+    error.original_exception = struct.error("private payload")
+    def pages(_):
+        raise error
+    result = MootdxAdapter(nodes=[("node-a", 7709)], client_factory=lambda _: FakeClient(pages)).fetch_bars(
+        "600519.SH", "5m", 1)
+    assert not result.complete and not result.bars
+    assert result.reason_code == "NODE_PROTOCOL_RESPONSE_INVALID"
+    assert "private" not in result.model_dump_json()
+
+
 def test_empty_table_fails_closed_and_attempts_next_node():
     empty = FakeClient([[]])
     good = FakeClient([[row(datetime(2026, 8, 24, 9, 30, tzinfo=TZ))]])
