@@ -425,6 +425,14 @@ def test_scoped_daily_resume_requires_exact_a1_plus_hot100_intersection(tmp_path
     assert resumed is not None and resumed.selected_count==2
     assert app._load_research_resume_snapshot('close',NOW,candidate_symbols=['600519.SH','600000.SH']) is None
     assert app._load_research_resume_snapshot('close',NOW,candidate_symbols=[]) is None
+    app._write_research_resume_marker('close',prepared,status='COMPLETED')
+    assert app._load_research_resume_snapshot('close',NOW,candidate_symbols=['600519.SH']) is None
+    assert app._load_research_resume_snapshot('close',NOW,candidate_symbols=['600519.SH'],allow_completed=True) is not None
+    assert app._load_research_resume_snapshot('close',NOW,candidate_symbols=['600000.SH'],allow_completed=True) is None
+    raw=json.loads(path.read_text(encoding='utf-8'))
+    raw['data']['g0_symbols']=[]
+    path.write_text(json.dumps(raw),encoding='utf-8')
+    assert app._load_research_resume_snapshot('close',NOW,candidate_symbols=['600519.SH'],allow_completed=True) is None
 
 
 def test_primary_only_publishes_before_idempotent_comparison_enqueue(

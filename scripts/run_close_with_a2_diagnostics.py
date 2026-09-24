@@ -25,7 +25,7 @@ def main():
         raise ValueError('CLOSED_NONFUTURE_AWARE_AS_OF_REQUIRED')
     app=WorkflowApplication(Settings.from_env(root=Path.cwd()))
     a1=app.a1_registry.require_active(as_of=now,max_age=_A1_MAX_AGE)
-    prepared=app._load_research_resume_snapshot('close',now,candidate_symbols=_active_a1_downstream_scope(a1.payload))
+    prepared=app._load_research_resume_snapshot('close',now,candidate_symbols=_active_a1_downstream_scope(a1.payload),allow_completed=True)
     if prepared is None:
         raise RuntimeError('VERIFIED_SAME_DAY_SNAPSHOT_REQUIRED')
     rid=now.strftime('%Y-%m-%d-close-a2-audit-')+clock_now.strftime('%H%M%S')
@@ -66,7 +66,8 @@ def main():
     research._validate_a2_rotation_focus_coverage=coverage
     print('RUN_ID',rid,flush=True)
     result=app.run_research('close',as_of=now,primary_only=True,schedule_comparison=False,
-        publish_plans=True,run_id_override=rid,reuse_resume_snapshot=True,from_active_a1=True)
+        publish_plans=True,run_id_override=rid,reuse_resume_snapshot=True,from_active_a1=True,
+        reuse_completed_snapshot=True)
     print('CLOSE_RESULT',json.dumps({k:result.get(k) for k in ('run_id','status','plan_publication')},ensure_ascii=False),flush=True)
 
 

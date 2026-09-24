@@ -2439,6 +2439,7 @@ class WorkflowApplication:
         market_data_as_of: datetime | None = None,
         allow_non_trading_source: bool = False,
         reuse_resume_snapshot: bool = True,
+        reuse_completed_snapshot: bool = False,
         from_active_a1: bool = False,
         active_a1_generation_id: str | None = None,
         same_day_recovery: bool = False,
@@ -2446,6 +2447,12 @@ class WorkflowApplication:
     ) -> dict[str, Any]:
         normalized_slot = _slot(slot)
         current = _aware(as_of or datetime.now(SHANGHAI))
+        if reuse_completed_snapshot and (
+            normalized_slot != "close" or not from_active_a1 or not primary_only
+            or not run_id_override or historical_replay or comparison_run
+            or snapshot_id or not reuse_resume_snapshot
+        ):
+            raise WorkflowError("COMPLETED_SNAPSHOT_REUSE_ARGUMENTS_INVALID")
         if auction_refresh and (
             normalized_slot != "morning" or not from_active_a1 or not primary_only
             or publish_plans or historical_replay or comparison_run or snapshot_id
@@ -2613,10 +2620,13 @@ class WorkflowApplication:
                 if snapshot_id is not None
                 else None if historical_replay or not reuse_resume_snapshot or auction_refresh
                 else self._load_research_resume_snapshot(
-                    normalized_slot, current, candidate_symbols=active_a1_scope_symbols
+                    normalized_slot, current, candidate_symbols=active_a1_scope_symbols,
+                    **({"allow_completed": True} if reuse_completed_snapshot else {}),
                 )
             )
             if prepared is None:
+                if reuse_completed_snapshot:
+                    raise WorkflowError("VERIFIED_SAME_DAY_SNAPSHOT_REQUIRED")
                 if auction_refresh:
                     from .runtime.auction_base import prepare_auction_delta
                     prepared = prepare_auction_delta(self, current=current,
@@ -2856,7 +2866,7 @@ class WorkflowApplication:
             )
             summary["comparison_request"] = request
             atomic_write_json(self.settings.workflow_output_dir / "runs" / f"{run_id}.json", summary)
-        if not historical_replay and not comparison_run and not auction_refresh:
+        if not historical_replay and not comparison_run and not auction_refresh and not reuse_completed_snapshot:
             self._write_research_resume_marker(
                 normalized_slot,
                 prepared,
@@ -3271,6 +3281,7 @@ class WorkflowApplication:
         current: datetime,
         *,
         candidate_symbols: Sequence[str] | None = None,
+        allow_completed: bool = False,
     ) -> PreparedSnapshot | None:
         trade_date = current.astimezone(SHANGHAI).date().isoformat()
         marker_path = self._research_resume_marker_path(slot, trade_date)
@@ -3283,7 +3294,7 @@ class WorkflowApplication:
             or marker.get("schema_version") != _RESEARCH_RESUME_SCHEMA
             or marker.get("slot") != slot
             or marker.get("trade_date") != trade_date
-            or marker.get("status") not in {"ACTIVE", "RETRYABLE"}
+            or marker.get("status") not in ({"ACTIVE", "RETRYABLE", "COMPLETED"} if allow_completed else {"ACTIVE", "RETRYABLE"})
         ):
             return None
         raw = marker.get("prepared_snapshot")
