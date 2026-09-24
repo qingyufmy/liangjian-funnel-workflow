@@ -1,5 +1,8 @@
 /** Read-only research presentation. Never use these fields to authorize a plan. */
 export const A3_REASON_LABELS: Record<string, string> = {
+  DAILY_SHORT_MACD_NOT_BEARISH: "日线MACD（5、10、5）动能未偏空",
+  DAILY_SHORT_MACD_BEARISH: "日线MACD（5、10、5）快线低于慢线，趋势计划暂不合格",
+  DAILY_SHORT_MACD_MISSING: "缺少可核验的日线MACD（5、10、5）数据",
   HIGHER_TIMEFRAME_CONDITIONAL_PROBE: "月／周线背景偏弱（非淘汰条件）",
   TREND_DAILY_PATH_MISSING: "日线主升、突破或强势回踩条件尚未确认",
   MA520_DEAD_CROSS: "五日与二十日均线死叉",

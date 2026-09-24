@@ -1,4 +1,5 @@
 import copy
+from dataclasses import replace
 from datetime import datetime, timedelta
 import json
 from types import SimpleNamespace
@@ -43,6 +44,26 @@ def test_verified_same_day_base_loads_without_fetch(tmp_path):
     app, base, generation, _ = fixture(tmp_path)
     assert load_auction_base(app, current=NOW, generation=generation, scope=("600000.SH",)) is base
     app.prepare_snapshot.assert_not_called()
+
+
+def test_explicit_g0_exclusion_is_not_a_missing_baseline(tmp_path):
+    app, base, generation, marker = fixture(tmp_path)
+    scope = ("600000.SH", "600001.SH")
+    marker['scope_symbols'] = list(scope)
+    marker_path(app, NOW.date()).write_text(json.dumps(marker), encoding='utf-8')
+    candidates = [
+        {'symbol': '600001.SH', 'research_eligible': False,
+         'exclusion_reasons': ['MINIMUM_TURNOVER_NOT_MET']}]
+    base = replace(base, snapshot=replace(base.snapshot, data={
+        **base.snapshot.data, 'universe_candidates': candidates}))
+    app._load_research_snapshot_by_id.return_value = base
+    assert load_auction_base(app, current=NOW, generation=generation, scope=scope) is base
+    invalid = replace(base, snapshot=replace(base.snapshot, data={
+        **base.snapshot.data, 'universe_candidates': [
+            {'symbol': '600001.SH', 'research_eligible': False, 'exclusion_reasons': []}]}))
+    app._load_research_snapshot_by_id.return_value = invalid
+    with pytest.raises(WorkflowError, match='AUCTION_BASE_A1_COVERAGE_INCOMPLETE'):
+        load_auction_base(app, current=NOW, generation=generation, scope=scope)
 
 
 @pytest.mark.parametrize("change", [

@@ -8603,6 +8603,8 @@ def _compact_factor(value: Mapping[str, Any]) -> dict[str, Any]:
                 "ma_event": raw.get("ma_event"),
                 "ma_bias": raw.get("ma_bias"),
                 "macd": raw.get("macd"),
+                **({"macd_short": raw["macd_short"]} if "macd_short" in raw else {}),
+                **({"volume_evidence": raw["volume_evidence"]} if "volume_evidence" in raw else {}),
                 "vwap": raw.get("vwap"),
                 "ready": raw.get("ready"),
                 "reasons": raw.get("reasons"),

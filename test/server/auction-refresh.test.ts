@@ -8,6 +8,50 @@ import { WorkflowScheduler } from "../../server/scheduler.js";
 import { JobRunner, timeoutForJob } from "../../server/runner.js";
 import type { JobName } from "../../server/types.js";
 
+test("busy auction worker retries at most once per minute", async () => {
+  const root = await mkdtemp(join(tmpdir(), "auction-busy-"));
+  let auctionCalls = 0;
+  const runner = { run: async (job: JobName) => {
+    if (job === "auction-refresh") auctionCalls++;
+    return { status: "skipped", job, reason: "BUSY:review" };
+  }};
+  const logger = new LogStore(loadConfig({}, root));
+  const scheduler = new WorkflowScheduler(runner as unknown as JobRunner, logger, { comparisonEnabled: false });
+  try {
+    for (const stamp of ["01:26:10", "01:26:15", "01:27:09", "01:27:10", "01:30:10"]) {
+      await scheduler.tick(new Date(`2026-09-24T${stamp}Z`));
+      await new Promise<void>(resolve => setImmediate(resolve));
+    }
+    expect(auctionCalls).toBe(2);
+  } finally {
+    scheduler.stop();
+    await (logger as unknown as { writeChain: Promise<void> }).writeChain;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("frozen coverage failure dispatches once, not every scheduler tick", async () => {
+  const root = await mkdtemp(join(tmpdir(), "auction-failure-"));
+  const calls: JobName[] = [];
+  const runner = { run: async (job: JobName) => {
+    calls.push(job); return { status: "failed", job, reason: "AUCTION_BASE_A1_COVERAGE_INCOMPLETE" };
+  }};
+  const logger = new LogStore(loadConfig({}, root));
+  const scheduler = new WorkflowScheduler(runner as unknown as JobRunner, logger, { comparisonEnabled: false });
+  try {
+    for (const stamp of ["01:26:10", "01:26:15", "01:27:10", "01:29:10", "01:31:10"]) {
+      await scheduler.tick(new Date(`2026-09-24T${stamp}Z`));
+      await new Promise<void>(resolve => setImmediate(resolve));
+    }
+    expect(calls.filter(x => x === "auction-refresh")).toHaveLength(1);
+    expect(calls).toContain("monitor");
+  } finally {
+    scheduler.stop();
+    await (logger as unknown as { writeChain: Promise<void> }).writeChain;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("base evidence dispatches once before open and has a bounded worker lifetime", async () => {
   const root = await mkdtemp(join(tmpdir(), "auction-base-"));
   const calls: JobName[] = [];

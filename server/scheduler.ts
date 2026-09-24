@@ -167,6 +167,8 @@ export class WorkflowScheduler {
         : job === "auction-base" ? `${clock.date}T07:00` : key;
       if (job === "features" && !this.featureMaintenanceEnabled) continue;
       if (this.dispatched.get(job) === dispatchKey || this.inFlight.has(job) || this.retryKeys.get(job) === dispatchKey) continue;
+      if (job === "auction-refresh" && this.lastDispatch.has(job)
+          && value.getTime() - Date.parse(this.lastDispatch.get(job)!) < 60_000) continue;
       this.dispatch(job, dispatchKey, value);
     }
     // The 16:10 pass can precede refreshed closing prices. Reconcile again
@@ -204,9 +206,9 @@ export class WorkflowScheduler {
     this.logger.info(`触发调度 ${job} at=${key}`, { job });
     void this.runner.run(job)
       .then((result) => {
-        if (job === "auction-refresh" && result.status !== "succeeded") {
-          // Retry on the next minute only while the four-minute capture
-          // window is still open; never start this job later in the session.
+        if (job === "auction-refresh" && result.status === "skipped" && result.reason?.startsWith("BUSY:")) {
+          // A deterministic input failure cannot heal by repeatedly executing
+          // the same frozen base. Only a busy worker may be rescheduled.
           this.dispatched.delete(job);
         }
         // Baseline failures require investigation, not repeated full syncs.

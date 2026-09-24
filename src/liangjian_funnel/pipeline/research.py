@@ -5662,6 +5662,7 @@ _A3_REVIEW_TOP_FIELDS = (
 _A3_REVIEW_FACT_FIELDS = (
     "trend_paths", "ma520_setup", "ma520_right_side", "ladder",
     "condition_details", "daily_macd_evidence", "daily_macd", "evidence",
+    "daily_macd_short_evidence", "daily_volume_evidence",
     "higher_timeframe_risk",
     "market_risk_context", "distribution", "overextended",
     "price_contract_available", "one_price_locked",
@@ -9828,7 +9829,7 @@ def _apply_a3_candidate_origin_policy(
             item["rotation_reserve_boards"] = list(contexts[symbol].get("rotation_reserve_boards") or [])
         if contexts.get(symbol, {}).get("strong_trend_observation") is True:
             item["strong_trend_observation"] = True
-            item["research_observation_scope"] = "RESEARCH_ONLY_NO_AUTOMATIC_ENTRY"
+            item["research_observation_scope"] = contexts[symbol].get("research_observation_scope", "RESEARCH_ONLY_NO_AUTOMATIC_ENTRY")
         if contexts.get(symbol, {}).get("execution_permission") == "BLOCKED":
             item["execution_permission"] = "BLOCKED"
             item["research_only_reason"] = contexts[symbol].get("research_only_reason")
@@ -11246,6 +11247,8 @@ def _a2_watch_row_research_eligible(item: Mapping[str, Any]) -> bool:
     """Return whether an A2 watch row remains part of the effective pool."""
 
     if (item.get("top_rotation_theme") is False and not _is_rotation_reserve(item)
+            and not (item.get("strong_trend_observation") is True
+                     and item.get("research_observation_scope") == "REQUIRES_A3_A4_CONFIRMATION")
             and item.get("emotion_core_eligible") is not True):
         return False
     status = str(item.get("status") or "").strip().upper()

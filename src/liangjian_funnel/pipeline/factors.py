@@ -88,6 +88,16 @@ class OHLCVBar(BaseModel):
         return self
 
 
+def _daily_volume_evidence(bars) -> dict[str, Any]:
+    values = [bar.volume for bar in bars[-6:]]
+    ready = len(values) == 6 and all(v is not None and v >= 0 for v in values)
+    mean = sum(values[:-1]) / 5 if ready else None
+    return {"available": bool(ready and mean > 0), "lookback": 5,
+            "baseline_includes_current": False,
+            "ratio_to_prior_five": values[-1] / mean if ready and mean > 0 else None,
+            "ratio_to_previous": values[-1] / values[-2] if ready and values[-2] > 0 else None}
+
+
 class TimeframeFactors(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -100,6 +110,8 @@ class TimeframeFactors(BaseModel):
     latest_partial: OHLCVBar | None = None
     moving_averages: dict[str, float | None] = Field(default_factory=dict)
     macd: dict[str, Any] = Field(default_factory=dict)
+    macd_short: dict[str, Any] = Field(default_factory=dict)
+    volume_evidence: dict[str, Any] = Field(default_factory=dict)
     previous_moving_averages: dict[str, float | None] = Field(default_factory=dict)
     ma_slopes: dict[str, float | None] = Field(default_factory=dict)
     ma_alignment: str | None = None
@@ -326,6 +338,10 @@ def _calculate_frame(
         macd=macd_evidence([bar.close for bar in ordered],
                            as_of=ordered[-1].end.isoformat() if ordered else None,
                            adjust_mode=_common_adjust_mode(ordered)) if timeframe == "daily" else {},
+        macd_short=macd_evidence([bar.close for bar in ordered], parameters=(5, 10, 5),
+                           as_of=ordered[-1].end.isoformat() if ordered else None,
+                           adjust_mode=_common_adjust_mode(ordered)) if timeframe == "daily" else {},
+        volume_evidence=_daily_volume_evidence(ordered) if timeframe == "daily" else {},
         previous_moving_averages=previous_moving,
         ma_slopes=slopes,
         ma_alignment=alignment,
@@ -845,6 +861,8 @@ def _technical_summary(
             "latest_close": frame.latest.close if frame.latest else None,
             "ma": dict(frame.moving_averages),
             "macd": dict(frame.macd),
+            "macd_short": dict(frame.macd_short),
+            "volume_evidence": dict(frame.volume_evidence),
             "previous_ma": dict(frame.previous_moving_averages),
             "ma_slopes": dict(frame.ma_slopes),
             "ma_alignment": frame.ma_alignment,

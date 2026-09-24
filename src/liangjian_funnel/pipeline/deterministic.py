@@ -777,9 +777,10 @@ def screen_a1(
                 if int(rank) <= local_top_n_per_node
             }
             if not qualifying:
-                item["status"] = "LOCAL_MONITOR"
-                item["reason_codes"].append("A1_OUTSIDE_SECTOR_INDEX_TOP_N")
-                continue
+                # Scheduling rank is not a failure of already verified
+                # fundamental admission. Preserve it for batching/audit.
+                item["research_capacity_deferred"] = True
+                item["reason_codes"].append("A1_SECTOR_REVIEW_PRIORITY_DEFERRED")
             item["sector_index_qualifying_ranks"] = qualifying
             if (
                 item.get("business_exposure_facts")
@@ -962,11 +963,8 @@ def screen_a1(
             local_active_count += 1
 
     if monthly_chain_only:
-        # The configured maximum is a publication capacity, not a quota-fill
-        # target.  When many sector indices overlap, their independent Top-N
-        # unions can exceed it. Keep the strongest union members by their best
-        # concrete-sector rank and deterministic score, while retaining every
-        # overflow row in the monitor pool with an explicit reason.
+        # Capacity affects processing priority, never verified eligibility.
+        # Keep the same ordering and annotate overflow without demoting it.
         monthly_active = [
             item for item in decisions
             if item.get("status") == "LOCAL_ACTIVE_CANDIDATE"
@@ -983,10 +981,10 @@ def screen_a1(
                 str(item.get("symbol") or ""),
             ))
             for item in monthly_active[active_target_max:]:
-                item["status"] = "LOCAL_MONITOR"
+                item["research_capacity_deferred"] = True
                 item["reason_codes"] = list(dict.fromkeys([
                     *item.get("reason_codes", ()),
-                    "A1_ACTIVE_TARGET_MAX_EXCEEDED",
+                    "A1_REVIEW_CAPACITY_DEFERRED_NOT_REJECTED",
                 ]))
 
     for item in decisions:
@@ -1802,11 +1800,11 @@ def screen_a2(
             "independent_strategy_review": bool(fundamental_a1_member and trend_research_qualified),
             "research_route_qualifications": dict(behavior_decision.get("research_route_qualifications") or {}) if fundamental_a1_member else {},
             "strong_trend_observation": strong_trend_observation,
-            "research_observation_scope": "RESEARCH_ONLY_NO_AUTOMATIC_ENTRY" if strong_trend_observation else None,
+            "research_observation_scope": "REQUIRES_A3_A4_CONFIRMATION" if strong_trend_observation else None,
             "a2_pool_channel": pool_channel,
             "emotion_core_eligible": emotion_core_eligible,
-            "research_only_reason": "A2_STRONG_TREND_OBSERVATION_ONLY" if strong_trend_observation else ("A2_EMOTION_THEME_SELECTION_REQUIRED" if theme_selection_pending else "A2_EMOTION_CYCLE_NO_NEW_ENTRY") if emotion_research_only else None,
-            "execution_permission": "BLOCKED" if emotion_research_only or strong_trend_observation else "REQUIRES_A3_A4_CONFIRMATION",
+            "research_only_reason": ("A2_EMOTION_THEME_SELECTION_REQUIRED" if theme_selection_pending else "A2_EMOTION_CYCLE_NO_NEW_ENTRY") if emotion_research_only else None,
+            "execution_permission": "BLOCKED" if emotion_research_only else "REQUIRES_A3_A4_CONFIRMATION",
             "trend_core_eligible": trend_core_eligible,
             "rotation_reserve_eligible": reserve_eligible,
             "rotation_reserve_boards": reserve_boards,
@@ -2066,7 +2064,7 @@ def screen_a2(
     for rank, item in enumerate(strong_observations, 1):
         item["strong_trend_observation_rank"] = rank
         item["top_rotation_theme"] = False
-        item["reason_codes"].append("A2_STRONG_TREND_OBSERVATION_ONLY")
+        item["reason_codes"].append("A2_STRONG_TREND_REQUIRES_A3_A4_CONFIRMATION")
         item["sent_to_llm"] = rank <= 30
         item["status"] = "REVIEW_CANDIDATE" if rank <= 30 else "LOCAL_MONITOR"
         if rank > 30:

@@ -455,12 +455,13 @@ def test_a1_strict_monthly_chain_caps_overlapping_sector_union_without_quota_fil
     active = local_active_items(result)
     overflow = [
         item for item in result.decisions
-        if "A1_ACTIVE_TARGET_MAX_EXCEEDED" in item.get("reason_codes", ())
+        if "A1_REVIEW_CAPACITY_DEFERRED_NOT_REJECTED" in item.get("reason_codes", ())
     ]
 
-    assert len(active) == 2
+    assert len(active) == 3
     assert len(overflow) == 1
-    assert overflow[0]["status"] == "LOCAL_MONITOR"
+    assert overflow[0]["status"] == "LOCAL_ACTIVE_CANDIDATE"
+    assert overflow[0]["research_capacity_deferred"] is True
 
 
 def test_a1_strict_monthly_chain_disables_quota_and_baseline_activation():
@@ -1206,7 +1207,7 @@ def test_a2_dual_core_pool_keeps_hot100_emotion_and_selected_board_trend_togethe
     assert by_symbol[trend_symbol]["selected_board"]["board_code"] == "801807"
     assert by_symbol[outside_symbol]["status"] == "REVIEW_CANDIDATE"
     assert by_symbol[outside_symbol]["strong_trend_observation"] is True
-    assert by_symbol[outside_symbol]["execution_permission"] == "BLOCKED"
+    assert by_symbol[outside_symbol]["execution_permission"] == "REQUIRES_A3_A4_CONFIRMATION"
     assert set(result.review_symbols) == {emotion_symbol, trend_symbol, outside_symbol}
 
     overlay_rows = [dict(row) for row in rows]
@@ -2443,10 +2444,10 @@ def test_screen_a2_available_selected_board_is_authoritative_over_conflicting_me
     assert by_symbol[symbols[1]]["status"] == "REVIEW_CANDIDATE"
     assert by_symbol[symbols[2]]["status"] == "REVIEW_CANDIDATE"
     assert by_symbol[symbols[2]]["strong_trend_observation"] is True
-    assert by_symbol[symbols[2]]["execution_permission"] == "BLOCKED"
+    assert by_symbol[symbols[2]]["execution_permission"] == "REQUIRES_A3_A4_CONFIRMATION"
     assert by_symbol[symbols[2]]["trend_core_eligible"] is False
     assert by_symbol[symbols[2]]["selected_board"] is None
-    assert "A2_STRONG_TREND_OBSERVATION_ONLY" in by_symbol[symbols[2]]["reason_codes"]
+    assert "A2_STRONG_TREND_REQUIRES_A3_A4_CONFIRMATION" in by_symbol[symbols[2]]["reason_codes"]
     assert set(result.review_symbols) == set(symbols)
 
 
@@ -2517,7 +2518,7 @@ def test_screen_a2_available_selected_board_opens_only_its_top_five_rows(reserve
         assert symbols[0] in result.review_symbols
     else:
         assert by_symbol[symbols[0]]["strong_trend_observation"] is True
-        assert by_symbol[symbols[0]]["execution_permission"] == "BLOCKED"
+        assert by_symbol[symbols[0]]["execution_permission"] == "REQUIRES_A3_A4_CONFIRMATION"
 
 
 def test_screen_a2_selected_board_unavailable_fails_closed_even_with_metrics() -> None:

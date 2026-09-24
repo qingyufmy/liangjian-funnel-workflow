@@ -74,6 +74,19 @@ def test_missing_theme_phase_is_data_gap_not_confirmed_late_cycle() -> None:
     assert "THEME_STAGE_NOT_EARLY" not in decision.reason_codes
 
 
+def test_short_macd_bearish_cannot_publish_trend_despite_bullish_ma_stack():
+    factor = _factor()
+    factor['timeframes']['daily']['macd_short'] = {
+        'available': True, 'parameters': [5, 10, 5], 'dif': 1.0, 'dea': 1.2}
+    decision = _common({'symbol': '301071.SZ', 'market_role': 'TREND_CORE'}, factor=factor)
+    assert decision.eligibility is not Eligibility.QUALIFIED
+    assert 'DAILY_SHORT_MACD_BEARISH' in decision.reason_codes
+    factor['timeframes']['daily']['macd_short']['available'] = False
+    missing = _common({'symbol': '301071.SZ', 'market_role': 'TREND_CORE'}, factor=factor)
+    assert missing.eligibility is not Eligibility.QUALIFIED
+    assert 'DAILY_SHORT_MACD_MISSING' in missing.reason_codes
+
+
 def test_first_board_does_not_erase_independent_trend_and_cannot_launder_block():
     candidate = {"symbol": "603186.SH", "market_role": "EMOTION_LEADER", "stock_behavior_type": "EMOTION",
                  "theme_stage": "CONFIRMATION", "ladder_height": 1, "ladder_intact": True,

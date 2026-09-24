@@ -93,7 +93,13 @@ def load_auction_base(app, *, current, generation, scope):
             raise WorkflowError("AUCTION_BASE_HASH_MISMATCH")
         if not started <= prepared.snapshot.as_of <= finished:
             raise ValueError()
-        if not set(scope) <= set(prepared.snapshot.data.get("g0_symbols", [])):
+        data = prepared.snapshot.data
+        # Requested monthly scope can legitimately fail today's G0 liquidity
+        # gate. Require an explicit frozen exclusion; never excuse missing data.
+        excluded = {row.get("symbol") for row in data.get("universe_candidates", [])
+                    if isinstance(row, dict) and row.get("research_eligible") is False
+                    and row.get("exclusion_reasons")}
+        if not set(scope) <= set(data.get("g0_symbols", [])) | excluded:
             raise WorkflowError("AUCTION_BASE_A1_COVERAGE_INCOMPLETE")
         return prepared
     except WorkflowError:

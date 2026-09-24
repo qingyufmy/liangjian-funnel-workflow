@@ -1078,7 +1078,7 @@ def evaluate_a3_candidate(
         behavior_conflict=behavior_conflict,
     )
     publication_state = {
-        RoutePermission.ALLOW_A4: "PUBLISHED_A4_PLAN",
+        RoutePermission.ALLOW_A4: "TECHNICALLY_ELIGIBLE_PENDING_PUBLICATION",
         RoutePermission.WATCH_ONLY: "WATCH_ONLY",
         RoutePermission.BLOCKED: "BLOCKED",
     }[route_permission]
@@ -1235,6 +1235,8 @@ def evaluate_a3_candidate(
     facts["behavior_type_source"] = behavior_source
     facts["behavior_type_conflict"] = bool(behavior_conflict)
     facts["daily_macd_evidence"] = dict(_mapping(daily.get("macd")))
+    facts["daily_macd_short_evidence"] = dict(_mapping(daily.get("macd_short")))
+    facts["daily_volume_evidence"] = dict(_mapping(daily.get("volume_evidence")))
     facts["routed_profile_before_behavior_gate"] = routed_profile_before_behavior.value
     facts["route_permission"] = route_permission.value
     facts["expected_holding_sessions"] = expected_holding_sessions
@@ -1621,6 +1623,18 @@ def _evaluate_trend(
     trend_paths: Mapping[str, bool],
 ) -> None:
     ma5 = daily_ma.get("ma5")
+    # New factor packets explicitly carry the user's 5/10/5 daily evidence.
+    # Legacy frozen packets remain reproducible; never reinterpret 12/26/9
+    # as short-cycle evidence or infer a price/indicator divergence from it.
+    if "macd_short" in daily:
+        short = _mapping(daily.get("macd_short"))
+        dif, dea = _number(short.get("dif")), _number(short.get("dea"))
+        ready = (short.get("available") is True and short.get("parameters") == [5, 10, 5]
+                 and dif is not None and dea is not None)
+        condition("DAILY_SHORT_MACD_NOT_BEARISH", bool(ready and dif >= dea),
+                  missing=not ready,
+                  reason="DAILY_SHORT_MACD_MISSING" if not ready else
+                  "DAILY_SHORT_MACD_BEARISH" if dif < dea else None)
     # The trend route is a choice among independent daily setups.  MA60,
     # complete MA5/10/20 stacking, relative strength and A2/platform evidence
     # remain useful observations, but requiring all of them here made a valid
