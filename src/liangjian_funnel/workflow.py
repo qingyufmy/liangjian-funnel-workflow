@@ -3339,7 +3339,12 @@ class WorkflowApplication:
                     return None
                 hot = data.get("EASTMONEY_HOT100_SNAPSHOT") or {}
                 hot_symbols = {str(row.get("symbol") or "") for row in hot.get("records", ()) if isinstance(row, Mapping)} if isinstance(hot, Mapping) and hot.get("available") is True else set()
-                expected_symbols = (set(candidate_symbols) | hot_symbols) & universe_symbols
+                discovery = data.get("EARLY_DISCOVERY_SNAPSHOT") or {}
+                discovery_symbols = {
+                    str(row["symbol"]) for row in discovery.get("records", ())
+                    if isinstance(row, Mapping) and row.get("symbol") and row.get("review_budget_selected")
+                } if isinstance(discovery, Mapping) else set()
+                expected_symbols = (set(candidate_symbols) | hot_symbols | discovery_symbols) & universe_symbols
                 if not expected_symbols or not isinstance(g0_symbols, list) or set(g0_symbols) != expected_symbols:
                     return None
                 expected_count = len(expected_symbols)

@@ -435,6 +435,24 @@ def test_scoped_daily_resume_requires_exact_a1_plus_hot100_intersection(tmp_path
     assert app._load_research_resume_snapshot('close',NOW,candidate_symbols=['600519.SH'],allow_completed=True) is None
 
 
+def test_resume_preserves_explicit_frozen_early_discovery_scope(tmp_path):
+    app=_app(tmp_path)
+    data={'G0_SCOPE_CONTRACT':'CONFIGURED_RESEARCH_UNIVERSE_V1',
+          'g0_symbols':['600519.SH','600000.SH'],
+          'research_candidates':[{'symbol':s} for s in ('600519.SH','600000.SH','000001.SZ')],
+          'EARLY_DISCOVERY_SNAPSHOT':{'records':[
+              {'symbol':'600000.SH','review_budget_selected':True},
+              {'symbol':'000001.SZ','review_budget_selected':False}]}}
+    snapshot=FrozenInputSnapshot(snapshot_id='snapshot-discovery',snapshot_hash=workflow_module._hash_json(data),as_of=NOW,data=data)
+    app.settings.snapshot_dir.mkdir(parents=True,exist_ok=True)
+    path=app.settings.snapshot_dir/'snapshot-discovery.json'
+    path.write_text(json.dumps({'snapshot_id':snapshot.snapshot_id,'snapshot_hash':snapshot.snapshot_hash,'as_of':NOW.isoformat(),'data':data}),encoding='utf8')
+    prepared=PreparedSnapshot(snapshot=snapshot,path=path,full_universe_count=4,research_universe_count=3,trade_universe_count=3,selected_count=2,factor_ready_count=0)
+    app._write_research_resume_marker('close',prepared,status='COMPLETED')
+    assert app._load_research_resume_snapshot('close',NOW,candidate_symbols=['600519.SH'],allow_completed=True) is not None
+    assert app._load_research_resume_snapshot('close',NOW,candidate_symbols=['000001.SZ'],allow_completed=True) is None
+
+
 def test_primary_only_publishes_before_idempotent_comparison_enqueue(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
