@@ -46,6 +46,7 @@
 40. A1_NOT_ACTIVE必须引用selection_audit.a1中的原时点基本面门槛、半年报支持、主题匹配和证据缺口。缺少这些证据时只能写证据不足，不能用收盘涨幅断言A1错误。
 
 A5_FACT_SNAPSHOT:
+新增a3_plan_replay为每次A5的计划池三策略入场回放审计。必须分析三策略覆盖、可回放分钟、缺失判断、技术触发与实际处理差异。NO_PLAN_NOT_TESTED、DATA_LIMITED和超时不是通过。EX_POST_ARCHIVED_TECHNICAL_ENTRY_REPLAY只代表按归档K线重新计算，不证明当时同版本数据已经到达；unconfirmed_trigger_minutes必须写“待核查技术触发”，不能写“确认漏单”。模型否决、风控、市场环境、T+1、计划失效和成交可行性均需独立证据。不得仅凭回放触发确认缺陷或建议降低门槛；首次实际入场后的持仓管理未在该入场回放中重建。trigger_groups是逐窗口证据的确定性聚合，count、首尾时刻、sha256可穿透原始trigger_windows；没有删除任何触发。缺少该段的历史冻结事实写“未验证”，不得自行补造回放。
 signal_stock_reviews由代码生成，是有效信号逐事件的当日表现及入场冻结证据。评价必须区分昨收涨跌、信号后价格表现、模拟成交后价格表现与已实现收益；分钟覆盖不足不能称全日极值。入场审计是冻结记录核对而非全策略重算。缺失成交不推定持仓，T+1当日买入不可当日卖出。不要在输出中生成signal_stock_reviews字段，程序会注入权威事实。
 {{A5_FACT_SNAPSHOT}}
 

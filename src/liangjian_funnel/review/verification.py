@@ -222,7 +222,8 @@ def _field_comparison(left: Mapping[str, Mapping[str, Any]], right: Mapping[str,
 class A5IndependentVerifier:
     """Build independent A2/A3/A4 acceptance evidence without mutating runtime."""
 
-    def __init__(self, *, daily_cache: Any, minute_store: Any, tencent: Any, mootdx: Any, workers: int = 12, quote_fetch: Any = None, evidence_dir: Path | None = None, indicator_window_dir: Path | None = None):
+    def __init__(self, *, daily_cache: Any, minute_store: Any, tencent: Any, mootdx: Any, workers: int = 12, quote_fetch: Any = None, evidence_dir: Path | None = None, indicator_window_dir: Path | None = None, market_state_dir: Path | None = None):
+        self.market_state_dir = market_state_dir
         self.daily_cache = daily_cache
         self.minute_store = minute_store
         self.tencent = tencent

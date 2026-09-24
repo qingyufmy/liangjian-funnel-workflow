@@ -5411,6 +5411,7 @@ class WorkflowApplication:
                 quote_fetch=_default_tencent_quote_fetch,
                 evidence_dir=self.settings.workflow_output_dir / "a5" / "market_evidence",
                 indicator_window_dir=self.store.path.parent / "indicator_windows",
+                market_state_dir=self.settings.fact_store_dir / "a4_live_market",
             ),
             notification_publisher=self.lark_publisher,
         ).run(review_kind=kind, now=current, close_archive=close_archive)

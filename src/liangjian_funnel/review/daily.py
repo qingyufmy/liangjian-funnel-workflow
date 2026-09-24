@@ -20,6 +20,7 @@ from ..runtime.state import RuntimeStore
 from .signal_audit import build_signal_stock_reviews
 from .context import A5ReviewError, render_a5_prompt
 from .plan_scope import carryover_evidence, select_review_plans
+from .plan_replay import replay_plan_pool, model_projection as replay_projection, markdown_lines as replay_markdown
 from .fact_guard import normalize_quality, reconcile_report, business_metrics, verification_totals
 
 
@@ -870,6 +871,8 @@ def _compact_counterexamples_for_model(rows: Sequence[Mapping[str, Any]]) -> lis
 
 def _model_fact_projection(facts: Mapping[str, Any]) -> dict[str, Any]:
     projected = dict(facts)
+    if isinstance(facts.get("a3_plan_replay"), Mapping):
+        projected["a3_plan_replay"] = replay_projection(facts["a3_plan_replay"])
     projected["data_quality"] = normalize_quality(_json_mapping(facts.get("data_quality")))
     projected["operational_evidence"] = _compact_operational_evidence_for_model(
         _rows(facts.get("operational_evidence"))
@@ -1624,6 +1627,11 @@ def build_a5_fact_snapshot(
             "note": "缺失项只限制结论强度，不得自动解释为策略无效。",
         },
     }
+    snapshot["a3_plan_replay"] = replay_plan_pool(
+        selected_plan_rows, raw_event_rows,
+        minute_store=getattr(independent_verifier, "minute_store", None), cutoff=cutoff,
+        market_state_dir=getattr(independent_verifier, "market_state_dir", None),
+    )
     if independent_verifier is not None:
         try:
             independent = independent_verifier.verify(
@@ -1856,6 +1864,7 @@ def _markdown(report: A5ReviewReport, snapshot: Mapping[str, Any]) -> str:
     ]
     if report.fact_reconciliation:
         lines.extend(["## 事实审校", "", *[f"- {note}" for note in report.fact_reconciliation], ""])
+    lines.extend(replay_markdown(snapshot.get("a3_plan_replay")))
     for title, layer in (("A2 选股与题材", report.a2_review), ("A3 日线计划", report.a3_review), ("A4 日内择时", report.a4_review)):
         lines.extend([f"## {title}", "", f"**{layer.verdict}**｜{layer.summary}", ""])
         if layer.strengths:
@@ -2137,7 +2146,7 @@ class A5DailyReviewService:
         # Identical market facts must not reuse prose produced by an older
         # prompt/verification contract after a release.
         facts["review_contract"] = {
-            "version": "a5-full-lineage-entry-audit/12",
+            "version": "a5-full-lineage-entry-audit/13",
             "prompt_sha256": self.prompts.document(_A5_PROMPT).sha256,
             "model": self.model,
         }
