@@ -1681,6 +1681,25 @@ class WorkflowLarkPublisher:
             title="A4持仓风险数据受限" if detail else "A4持仓数据阻断解除", lines=lines,
             summary={"trade_date": day, "state": state, "positions": detail}, now=now)]
 
+    def publish_a4_plan_scope(self, *, active_count: int, now: datetime) -> list[dict[str, Any]]:
+        """One missing-scope alert and one recovery per session, not per minute."""
+        day = now.date().isoformat()
+        previous = self.store.list_notification_deliveries(kind="A4_PLAN_SCOPE", limit=20)
+        alerted = any(str(row.get("source_id")) == f"a4-scope:{day}:empty"
+                      and row.get("status") == "SENT" for row in previous)
+        if active_count and not alerted:
+            return []
+        state = "recovered" if active_count else "empty"
+        return [self._send(
+            delivery_key=f"a4-scope:{day}:{state}", kind="A4_PLAN_SCOPE",
+            source_id=f"a4-scope:{day}:{state}",
+            title=f"A4执行池{'恢复' if active_count else '为空'}｜{day}",
+            lines=[f"• 当前有效执行计划：{active_count}只。",
+                   "• 无有效计划不等于策略逐股检查后没有买点；请核查A3发布、目标交易日和晨审。" if not active_count
+                   else "• 已有当日有效计划；仅从当前时点继续检查，不补发历史交易信号。",
+                   "• 本消息是运行状态提醒，不是买入信号；已有持仓保护独立执行。"],
+            summary={"trade_date": day, "active_count": active_count, "state": state}, now=now)]
+
     def publish_a4_system_health(
         self,
         live_market_state: Mapping[str, Any] | None,

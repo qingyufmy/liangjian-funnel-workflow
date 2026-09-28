@@ -2099,6 +2099,7 @@ class RuntimeStore:
     ) -> tuple[dict[str, Any], ...]:
         """Atomically activate a fully validated morning-review plan set."""
 
+        from .plan_validity import activation_reason
         activation_ids = tuple(dict.fromkeys(str(item) for item in plan_ids))
         invalidation_ids = tuple(dict.fromkeys(str(item) for item in invalidated_plan_ids))
         if set(activation_ids).intersection(invalidation_ids):
@@ -2120,6 +2121,10 @@ class RuntimeStore:
                     raise StateTransitionError("PLAN_NOT_FOUND")
                 if row["status"] != PlanStatus.PENDING_MORNING_REVIEW.value:
                     raise StateTransitionError("PLAN_NOT_PENDING_MORNING_REVIEW")
+                if plan_id in activation_ids:
+                    reason = activation_reason(dict(row), valid_from)
+                    if reason:
+                        raise StateTransitionError(reason)
                 rows.append(row)
             for plan_id in ids:
                 invalidated = plan_id in invalidation_ids
@@ -2160,6 +2165,7 @@ class RuntimeStore:
         second activation or re-run the morning transition.
         """
 
+        from .plan_validity import activation_reason
         activation_ids = tuple(dict.fromkeys(str(item) for item in plan_ids))
         invalidation_ids = tuple(dict.fromkeys(str(item) for item in invalidated_plan_ids))
         ids = tuple(dict.fromkeys((*activation_ids, *invalidation_ids)))
@@ -2193,6 +2199,15 @@ class RuntimeStore:
                 ).fetchone()
                 if row is None:
                     raise StateTransitionError("PLAN_NOT_FOUND")
+                if plan_id in activation_ids:
+                    checked = dict(row)
+                    # Explicit recovery may shorten a legacy multi-day horizon,
+                    # never extend an expired plan or change an explicit target day.
+                    if session_expiry is not None and row["expires_at"] is not None and session_expiry <= row["expires_at"]:
+                        checked["expires_at"] = session_expiry
+                    reason = activation_reason(checked, valid_from)
+                    if reason:
+                        raise StateTransitionError("A3_PLAN_EXPIRED" if reason == "PLAN_EXPIRED" else reason)
                 if row["status"] == PlanStatus.ACTIVE_TODAY.value:
                     if plan_id in invalidation_ids:
                         raise StateTransitionError("A3_ACTIVE_PLAN_CANNOT_INVALIDATE")

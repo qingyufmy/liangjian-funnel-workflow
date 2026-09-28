@@ -2771,7 +2771,8 @@ class WorkflowApplication:
                 normalized_slot,
                 current,
                 snapshot_data=prepared.snapshot.data,
-                minimum_trade_date=target_trade_date,
+                minimum_trade_date=(target_trade_date or (self.trading_calendar.next_trading_day(current.date())
+                                    if normalized_slot == "close" else current.date())),
                 same_day_recovery=same_day_recovery,
             )
             if publish_plans
@@ -4715,6 +4716,13 @@ class WorkflowApplication:
         except Exception:
             event_notifications = [{"status": "FAILED", "reason_code": "LARK_NOTIFICATION_FAILED"}]
         notifications = [*system_notifications, *event_notifications]
+        scope_publisher = getattr(publisher, "publish_a4_plan_scope", None)
+        if callable(scope_publisher) and current >= _at_time(current, 9, 32):
+            try:
+                notifications.extend(scope_publisher(
+                    active_count=sum(len(plans) for plans in lane_plans.values()), now=current) or [])
+            except Exception:
+                notifications.append({"status": "FAILED", "reason_code": "LARK_PLAN_SCOPE_NOTIFICATION_FAILED"})
         source_health_publisher = getattr(publisher, "publish_minute_source_health", None)
         if callable(source_health_publisher) and current.hour < 15 and decision_symbols:
             failures = {}
@@ -5032,7 +5040,24 @@ class WorkflowApplication:
                 "reason_code": "NO_PENDING_MORNING_PLANS",
             }
 
+        from .runtime.plan_validity import activation_reason
         failures: list[dict[str, str]] = []
+        activation_at = max(current, _at_time(current, 9, 32))
+        eligible = []
+        for plan in pending:
+            reason = activation_reason(plan, activation_at)
+            if reason:
+                failures.append({"symbol": str(plan["symbol"]), "reason_code": reason})
+                if reason == "PLAN_EXPIRED":
+                    self.store.invalidate_plan(str(plan["plan_id"]), status=PlanStatus.EXPIRED)
+            else:
+                eligible.append(plan)
+        pending = tuple(eligible)
+        if not pending:
+            payload = {"status": "BLOCKED", "reason_code": "NO_CURRENT_A3_PLANS",
+                       "reviewed_at": current.isoformat(), "activated": [], "failures": failures}
+            atomic_write_json(self.settings.workflow_output_dir / "runs" / f"{current.date()}-morning-review.json", payload)
+            return payload
         evidence: dict[str, Any] = {}
         symbols = sorted({str(plan["symbol"]) for plan in pending})
         for symbol in symbols:
@@ -5091,7 +5116,7 @@ class WorkflowApplication:
             return payload
         activated = self.store.activate_pending_plan_batch(
             activation_ids,
-            valid_from=_at_time(current, 9, 32),
+            valid_from=activation_at,
             invalidated_plan_ids=invalidation_ids,
         )
         primary_lane_id = getattr(self.settings, "research_primary_lane_id", "lane_1")
@@ -8658,13 +8683,14 @@ def _plan_expiry(
         isinstance(minimum_trade_date, datetime) or not isinstance(minimum_trade_date, date)
     ):
         raise ValueError("minimum trade date must be a date")
+    calendar = ExchangeTradingCalendar()
     minimum_day = (
         minimum_trade_date
         if minimum_trade_date is not None
-        else current.date() if slot == "morning" else (current + timedelta(days=1)).date()
+        else current.date() if slot == "morning" else calendar.next_trading_day(current.date())
     )
-    while minimum_day.weekday() >= 5:
-        minimum_day += timedelta(days=1)
+    if not calendar.is_trading_day(minimum_day):
+        minimum_day = calendar.next_trading_day(minimum_day)
     minimum = datetime(
         minimum_day.year,
         minimum_day.month,
@@ -8681,7 +8707,7 @@ def _plan_expiry(
                 # A model may propose a same-day/overnight expiry.  The
                 # server owns the publication horizon: close plans remain
                 # valid through the next trading day at 15:00 at minimum.
-                if parsed > current and parsed >= minimum:
+                if parsed > current and parsed >= minimum and parsed.date() == minimum_day:
                     return parsed
         except ValueError:
             pass

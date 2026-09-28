@@ -36,6 +36,7 @@ from .runtime.storage_governance import (
     storage_cleanup_plan,
 )
 from .runtime.state import PlanStatus, RuntimeStateError, RuntimeStore
+from .runtime.plan_validity import visible_current_plan
 from .settings import Settings, load_yaml
 from .workflow import WorkflowApplication, WorkflowError
 
@@ -1234,10 +1235,12 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
                 and settings.model_api_key
                 and settings.exchange_rules_path.is_file()
             )
+            plan_status_now = datetime.now(ZoneInfo(settings.timezone))
             monitor_plans = tuple(
                 _monitor_plan_projection(plan)
                 for status in (PlanStatus.ACTIVE_TODAY, PlanStatus.PENDING_MORNING_REVIEW)
                 for plan in application.store.list_execution_plans(status=status)
+                if visible_current_plan(plan, plan_status_now)
             )
             plan_by_id = {str(plan["plan_id"]): plan for plan in monitor_plans}
             recent_fills = tuple(application.store.list_fills())[-100:]
@@ -1316,7 +1319,11 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
                     for account in application.store.list_accounts()
                 },
                 "plan_counts": {
-                    status: len(application.store.list_execution_plans(status=status))
+                    status: sum(
+                        visible_current_plan(plan, plan_status_now)
+                        if status in ("ACTIVE_TODAY", "PENDING_MORNING_REVIEW") else 1
+                        for plan in application.store.list_execution_plans(status=status)
+                    )
                     for status in (
                         "DRAFT_CLOSE",
                         "PENDING_MORNING_REVIEW",
@@ -1327,6 +1334,7 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
                     )
                 },
                 "effective_event_count": len(application.store.list_monitor_events(effective_only=True)),
+                "plan_count_scope": "UNEXPIRED_PENDING_AND_CURRENT_ACTIVE_WINDOW",
                 "monitor_plans": monitor_plans,
                 "recent_effective_events": recent_effective_events,
                 "recent_a4_signal_lifecycles": recent_a4_signal_lifecycles,

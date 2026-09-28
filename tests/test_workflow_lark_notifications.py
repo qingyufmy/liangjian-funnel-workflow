@@ -26,6 +26,23 @@ class FakeNotifier:
         return LarkDeliveryResult(True, "LARK_SENT", 200, 1)
 
 
+def test_plan_scope_alert_and_recovery_are_once_per_day(tmp_path):
+    store = RuntimeStore(tmp_path / 'scope.sqlite3')
+    publisher = WorkflowLarkPublisher(store, 'https://open.larksuite.com/open-apis/bot/v2/hook/test-token')
+    fake = FakeNotifier()
+    publisher.notifier = fake
+    now = datetime(2026, 9, 28, 9, 32, tzinfo=SHANGHAI)
+    assert publisher.publish_a4_plan_scope(active_count=2, now=now) == []
+    for _ in range(3):
+        publisher.publish_a4_plan_scope(active_count=0, now=now)
+    assert len(fake.calls) == 1
+    for _ in range(3):
+        publisher.publish_a4_plan_scope(active_count=2, now=now)
+    assert len(fake.calls) == 2
+    assert '为空' in fake.calls[0][0]
+    assert '恢复' in fake.calls[1][0]
+
+
 def test_a5_failure_is_once_per_period_and_success_emits_one_recovery(tmp_path):
     store = RuntimeStore(tmp_path / "a5-health.sqlite3")
     publisher = WorkflowLarkPublisher(
