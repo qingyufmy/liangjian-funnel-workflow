@@ -1,5 +1,110 @@
 {
   "schema_version": "liangjian-iteration-state/1.0.0",
+  "a4_sensitivity_a3_publication_20260929": {
+    "code": "OFFLINE_AUDIT_TOOL_AND_5_TARGETED_TESTS_PASSED",
+    "replay": "239_BASELINE_WINDOWS_REPRODUCED_HIGH_VOLUME_COMBINED_NO_ACTION_OR_REASON_CHANGE",
+    "operations": "READ_ONLY_15_PUBLISHED_PENDING_MORNING_REVIEW_EXPIRE_20260930_1500_NO_DEPLOY",
+    "strategy": "UNCHANGED_NOT_ARRIVAL_TIME_OR_FILL_PROOF_SOURCE_DISCREPANCY_CAUSE_UNRESOLVED",
+    "evidence": "docs/A3_A5_ITERATION_ACCEPTANCE_2026-09-29.md",
+    "commands": [
+      {"command": "python scripts/audit_a4_field_sensitivity.py --facts artifacts/a3-a5-20260929/post-close-853a8225ed2b-facts.json", "exit_code": 0},
+      {"command": "python -m pytest tests/test_a4_field_sensitivity.py tests/test_a4_review_field_status.py -o addopts='' -q --tb=short", "exit_code": 0, "passed": 5},
+      {"command": "ssh aurum-vm python via stdin: sqlite3 URI mode=ro, select execution_plans for 2026-09-29-close-3ccf727422e8 in state/workflow.sqlite3", "exit_code": 0},
+      {"command": "git diff --check", "exit_code": 0}
+    ],
+    "next": "Trace preserved raw provider payloads for source discrepancy; release authorization still required."
+  },
+  "a3_a5_followup_20260929": {
+    "code": "97_PASSED_1_SKIPPED_MISSING_PRODUCTION_FIXTURE",
+    "replay": "MIDDAY_AND_CLOSE_ORIGINAL_A5_SCHEMA_EVIDENCE_RECONCILIATION_VALID_NO_MODEL_CALL",
+    "operations": "VM_READ_ONLY_8c97d65_NO_DEPLOY_OR_NOTIFICATION",
+    "strategy": "UNCHANGED_A4_TWO_FIELD_DIFFERENCES_CAUSAL_REPLAY_PENDING",
+    "evidence": "docs/A3_A5_ITERATION_ACCEPTANCE_2026-09-29.md",
+    "commands": [
+      {"command": "python -m pytest tests/test_a5_daily_review.py tests/test_a5_independent_verification.py tests/test_a4_review_field_status.py tests/test_a3_theme_stage_handoff.py tests/test_a4_runtime_repair.py tests/test_plan_session_contract.py tests/test_a5_fact_guard.py tests/test_a5_plan_replay.py tests/test_a4_replay.py -o addopts='' -q --tb=short -rs", "exit_code": 0, "passed": 97, "skipped": 1},
+      {"command": "python scripts/audit_a5_archived_schema.py --response artifacts/a3-a5-20260929/midday-bd1a578cdeab-model-db1f57ba73aa.json --facts artifacts/a3-a5-20260929/midday-bd1a578cdeab-facts.json --validate-evidence", "exit_code": 0},
+      {"command": "python scripts/audit_a5_archived_schema.py --response artifacts/a3-a5-20260929/post-close-853a8225ed2b-model-edfecca81069.json --facts artifacts/a3-a5-20260929/post-close-853a8225ed2b-facts.json --validate-evidence", "exit_code": 0},
+      {"command": "git diff --check", "exit_code": 0}
+    ],
+    "next": "Frozen A4 mismatch causality and latest A3 publication lineage; deploy separately authorized"
+  },
+  "a2_news_journal_20260929": {
+    "code": "191_SELECTED_REGRESSIONS_AND_8_FINAL_JOURNAL_TESTS_PASSED",
+    "replay": "FROZEN_LIVE_NEWS_30_VALID_EVENTS_COVERAGE_EXPLICITLY_INCOMPLETE",
+    "operations": "LOCAL_ISOLATED_SQLITE_NO_PRODUCTION_WRITES_OR_DEPLOY",
+    "strategy": "UNCHANGED",
+    "evidence": "docs/A2_NEWS_SHADOW_IMPLEMENTATION_2026-09-29.md",
+    "commands": [
+      {"command": "python -m pytest tests/test_news_journal.py tests/test_a2_news_receipts.py tests/test_a2_news_review.py tests/test_a2_news_context.py tests/test_open_news.py tests/test_open_news_fact_normalization.py tests/test_market_aggregates.py tests/test_pipeline_research.py -o addopts='' -q --tb=short", "exit_code": 0, "passed": 191},
+      {"command": "python -m pytest tests/test_news_journal.py -o addopts='' -q --tb=short", "exit_code": 0, "passed": 8},
+      {"command": "python scripts/probe_a2_news_lineage.py --frozen-dir artifacts/a2-news-live-20260929 --output-dir artifacts/a2-news-journal-20260929", "exit_code": 0},
+      {"command": "git diff --check", "exit_code": 0}
+    ],
+    "next": "Verify real provider cursor and same-second pagination boundaries before claiming complete-window coverage"
+  },
+  "a2_news_live_receipts_20260929": {
+    "code": "192_REGRESSION_TESTS_THEN_31_TARGETED_TESTS_PASSED",
+    "replay": "LIVE_FREE_SOURCES_20_PLUS_20_TO_30_VALID_FACTS_FROZEN_REPLAY_6_TITLE_1_CONTEXT_THEME_MENTIONS",
+    "operations": "LOCAL_READ_ONLY_PROBE_NOT_DEPLOYED_NO_PAID_MODEL_CALL",
+    "strategy": "UNCHANGED_NO_CATALYST_OR_GAIN_CLAIM",
+    "evidence": "docs/A2_NEWS_SHADOW_IMPLEMENTATION_2026-09-29.md",
+    "commands": [
+      {"command": "python scripts/probe_a2_news_lineage.py --output-dir artifacts/a2-news-live-20260929", "exit_code": 0},
+      {"command": "python scripts/probe_a2_news_lineage.py --frozen-dir artifacts/a2-news-live-20260929 --output-dir artifacts/a2-news-live-20260929-replayed", "exit_code": 0},
+      {"command": "python -m pytest tests/test_a2_news_receipts.py tests/test_a2_news_review.py tests/test_a2_news_context.py tests/test_open_news_fact_normalization.py tests/test_market_aggregates.py tests/test_pipeline_research.py tests/test_a2_role_logic.py tests/test_a2_data_sufficiency.py -o addopts='' -q --tb=short", "exit_code": 0, "passed": 192},
+      {"command": "python -m pytest tests/test_a2_news_receipts.py tests/test_a2_news_review.py tests/test_a2_news_context.py -o addopts='' -q --tb=short", "exit_code": 0, "passed": 31},
+      {"command": "git diff --check", "exit_code": 0}
+    ],
+    "next": "Labeled multi-window topic mapping evaluation and source pagination/revision coverage; paid model validation remains unauthorized"
+  },
+  "a2_news_mapping_review_20260929": {
+    "code": "187_TARGETED_TESTS_PASSED",
+    "replay": "OLD_120_ITEMS_EVIDENCE_GAP_RETAINED_SYNTHETIC_ADAPTER_TO_REVIEW_CONTRACT_PASSED",
+    "operations": "NOT_DEPLOYED_NO_PAID_CALLS_MODEL_ENTRY_DEFAULT_DISABLED",
+    "strategy": "LEXICAL_CLUES_ONLY_NO_RANK_OR_ELIGIBILITY_CHANGE",
+    "evidence": "docs/A2_NEWS_SHADOW_IMPLEMENTATION_2026-09-29.md",
+    "commands": [
+      {"command": "python -m pytest tests/test_a2_news_review.py tests/test_a2_news_context.py tests/test_open_news_fact_normalization.py tests/test_market_aggregates.py tests/test_pipeline_research.py tests/test_a2_role_logic.py tests/test_a2_data_sufficiency.py -o addopts='' -q --tb=short", "exit_code": 0, "passed": 187},
+      {"command": "python scripts/audit_a2_news_shadow.py --snapshot artifacts/readonly-snapshot-20260928.json --output artifacts/a2-news-shadow-20260929-mapped-0928.json", "exit_code": 0},
+      {"command": "git diff --check", "exit_code": 0}
+    ],
+    "next": "Fresh-source lineage validation, labeled mapping precision, then persistent model receipts and explicitly authorized shadow calls"
+  },
+  "a2_news_shadow_20260929": {
+    "code": "175_TARGETED_TESTS_PASSED_DIFF_CHECK_EXIT_0",
+    "replay": "FROZEN_0928_120_ITEMS_ALL_MISSING_EVIDENCE_REFERENCES_NO_BACKFILL",
+    "operations": "NOT_DEPLOYED_NO_MODEL_OR_NETWORK_CALLS",
+    "strategy": "SHADOW_ONLY_NO_THRESHOLD_CHANGE_NO_GAIN_CLAIM",
+    "evidence": "docs/A2_NEWS_SHADOW_IMPLEMENTATION_2026-09-29.md",
+    "commands": [
+      {"command": "python -m pytest tests/test_a2_news_context.py tests/test_market_aggregates.py tests/test_open_news_fact_normalization.py tests/test_pipeline_research.py tests/test_a2_role_logic.py tests/test_a2_data_sufficiency.py -o addopts='' -q --tb=short", "exit_code": 0, "passed": 175},
+      {"command": "python scripts/audit_a2_news_shadow.py --snapshot artifacts/readonly-snapshot-20260928.json --output artifacts/a2-news-shadow-20260929-frozen-0928.json", "exit_code": 0},
+      {"command": "git diff --check", "exit_code": 0}
+    ],
+    "next": "Validate fresh evidence lineage and labeled sector mapping before bounded shadow LLM analysis; no ranking promotion"
+  },
+  "a1_memory_optimization_20260929": {
+    "code": "179_TARGETED_TESTS_PASSED",
+    "replay": "REAL_92MB_SNAPSHOT_HASH_IDENTICAL_EXTRA_PYTHON_PEAK_284633006_TO_244024_BYTES",
+    "operations": "NOT_DEPLOYED_FULL_A1_RSS_NOT_MEASURED",
+    "strategy": "UNCHANGED",
+    "evidence": "docs/A1_MEMORY_OPTIMIZATION_2026-09-29.md",
+    "commands": [
+      {"command": "python scripts/profile_a1_serialization.py artifacts/readonly-snapshot-20260928.json --mode legacy", "exit_code": 0},
+      {"command": "python scripts/profile_a1_serialization.py artifacts/readonly-snapshot-20260928.json --mode optimized", "exit_code": 0},
+      {"command": "python -m pytest tests/test_research_streaming_hash.py tests/test_a1_registry.py tests/test_a1_packet.py tests/test_pipeline_research.py tests/test_a1_contract.py tests/test_a1_selection_logic.py -o addopts='' -q --tb=short", "exit_code": 0, "passed": 179}
+    ],
+    "next": "Measure full A1 per-phase RSS/Swap during separately authorized release validation"
+  },
+  "a1_a4_followup_20260929": {
+    "code": "169_TARGETED_TESTS_PLUS_2_NEW_NEGATIVES_PASSED_DIFF_CHECK_PASSED",
+    "replay": "FROZEN_20260928_764_A2_ROWS_7_THEME_HANDOFFS_RESOLVED_FULL_STRATEGY_REPLAY_PENDING",
+    "operations": "PRODUCTION_READ_ONLY_186_OF_186_MINUTES_NO_DATA_BLOCK_NOT_DEPLOYED",
+    "strategy": "UNCHANGED_NO_SIGNAL_NOT_EQUIVALENT_TO_RUNTIME_FAILURE",
+    "evidence": "docs/A1_A4_DIAGNOSIS_2026-09-29.md",
+    "commands": [{"command": "python -m pytest tests/test_a1_registry.py tests/test_a3_theme_stage_handoff.py tests/test_research_streaming_hash.py tests/test_pipeline_research.py tests/test_plan_session_contract.py -o addopts='' -q --tb=short", "exit_code": 0, "passed": 169}],
+    "next": "Profile frozen A1 snapshot memory and replay A2 compact handoff before release"
+  },
   "auction_incremental_followup_20260923": {
     "code": "253_PYTHON_AND_62_NODE_TESTS_PASSED_TYPECHECK_PASSED",
     "replay": "STRUCTURAL_DATE_AND_FAILURE_CONTRACTS_VERIFIED_NATURAL_MORNING_PENDING",

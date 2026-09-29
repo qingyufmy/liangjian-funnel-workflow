@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import uuid
+import pytest
+from dataclasses import replace
 from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -411,6 +413,8 @@ def test_a5_report_output_canonicalizes_only_known_detailed_drop_reasons():
             {"funnel_drop_stage": "A2_NOT_FOCUSED"},
             {"funnel_drop_stage": "A3_NOT_PLANNED"},
             {"funnel_drop_stage": "UNEXPECTED_STAGE"},
+            {"funnel_drop_stage": "UNRESOLVED_A3_LINEAGE_MISSING"},
+            {"funnel_drop_stage": "UNRESOLVED_INVENTED_REASON"},
         ]
     }
 
@@ -420,4 +424,42 @@ def test_a5_report_output_canonicalizes_only_known_detailed_drop_reasons():
         "A2",
         "A3",
         "UNEXPECTED_STAGE",
+        "UNRESOLVED",
+        "UNRESOLVED_INVENTED_REASON",
     ]
+
+
+def test_a5_schema_failure_persists_field_diagnostics_and_raw_output(tmp_path):
+    from liangjian_funnel.review.context import A5ReviewError
+    class InvalidModel(_Model):
+        def complete(self, *args, **kwargs):
+            result = super().complete(*args, **kwargs)
+            return replace(result, output={**result.output, "executive_summary": {}}, output_hash="")
+    store = RuntimeStore(tmp_path / "state.sqlite3")
+    _seed(store, tmp_path)
+    service = A5DailyReviewService(store=store, prompts=PromptRepository(ROOT / "prompts"),
+        model_client=InvalidModel(), output_dir=tmp_path, lane_id="lane_1", model="deepseek-v4-pro")
+    with pytest.raises(A5ReviewError, match="A5_OUTPUT_SCHEMA_INVALID"):
+        service.run(review_kind=A5ReviewKind.MIDDAY, now=datetime(2026, 9, 3, 11, 36, tzinfo=TZ))
+    target = tmp_path / "a5/2026-09-03"
+    diagnostic = json.loads(next(target.glob("*-validation-failure.json")).read_text(encoding="utf-8"))
+    assert diagnostic["errors"] == [{"field": "executive_summary", "type": "string_type"}]
+    assert list(target.glob("*-model-*.json"))
+    assert not list(target.glob("*.md"))
+
+
+def test_missing_a3_lineage_cannot_be_a_confirmed_selection_defect(tmp_path):
+    store = RuntimeStore(tmp_path / "state.db")
+    _seed(store, tmp_path)
+    class Verifier(_Verifier):
+        def verify(self, **kwargs):
+            result = super().verify(**kwargs)
+            result["counterexamples"][0]["drop_stage"] = "UNRESOLVED_A3_LINEAGE_MISSING"
+            return result
+    service = A5DailyReviewService(store=store, prompts=PromptRepository(ROOT / "prompts"),
+        model_client=_Model(include_counterexample=True), output_dir=tmp_path, lane_id="lane_1",
+        model="deepseek-v4-pro", independent_verifier=Verifier())
+    result = service.run(review_kind=A5ReviewKind.MIDDAY, now=datetime(2026, 9, 3, 11, 35, tzinfo=TZ))
+    published = json.loads(Path(result["markdown_path"]).with_suffix(".json").read_text(encoding="utf-8"))
+    row = published["report"]["missed_opportunity_reviews"][0]
+    assert row["funnel_drop_stage"] == "UNRESOLVED" and not row["is_confirmed_defect"]

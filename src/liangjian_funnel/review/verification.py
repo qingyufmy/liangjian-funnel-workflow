@@ -27,6 +27,20 @@ from .evidence_archive import archive_observation
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
+
+
+def comparable_field_status(checks: Mapping[str, Any]) -> str:
+    """Aggregate every available OHLCV field, not only CLOSE.
+
+    Missing fields remain DATA_LIMITED unless an observed mismatch already
+    establishes MISMATCH; callers retain per-field comparability counts.
+    """
+    rows = [checks.get(key) for key in ("OPEN", "HIGH", "LOW", "CLOSE", "VOLUME", "AMOUNT")]
+    if any(isinstance(row, Mapping) and row.get("status") == "MISMATCH" for row in rows):
+        return "MISMATCH"
+    if any(not isinstance(row, Mapping) or row.get("status") != "MATCH" for row in rows):
+        return "DATA_LIMITED"
+    return "MATCH"
 _ACTIONABLE = frozenset({"BUY_SIGNAL", "ADD_SIGNAL", "SELL_SIGNAL", "REDUCE_SIGNAL", "FORCED_RISK_EXIT"})
 _LEGITIMATE_SUPPRESSIONS = frozenset({
     "SIGNAL_ALREADY_EMITTED", "DUPLICATE_EFFECTIVE_STATE", "POSITION_ALREADY_OPEN",
@@ -886,12 +900,14 @@ class A5IndependentVerifier:
                 "discrepancy_class": "PRODUCTION_ARCHIVE_DIVERGENCE" if archive_mismatch else "ALTERNATE_SOURCE_DIVERGENCE" if alternate_mismatch else "NO_COMPARABLE_MISMATCH",
                 "indicator_formula_audit": audit_event_indicators(events, strategy_profile=str(payload.get("strategy_profile") or ""),
                     symbol=symbol, window_loader=(lambda digest: load_window(self.indicator_window_dir, digest)) if self.indicator_window_dir else None),
-                "cross_source_status": "MATCH" if differences and max(differences) <= 0.005 else "MISMATCH" if differences else "DATA_LIMITED",
+                "cross_source_close_status": "MATCH" if differences and max(differences) <= 0.005 else "MISMATCH" if differences else "DATA_LIMITED",
+                "cross_source_status": comparable_field_status(cross_fields),
                 "archived_bar_count": len(archived), "archived_tdx_overlap_count": len(archived_overlap),
                 "archive_basis": local.get(symbol, {}).get("archive_basis", "LEGACY_FIRST_OBSERVATION"),
                 "decision_snapshot": local.get(symbol, {}).get("selection", {}),
                 "archived_tdx_max_close_difference": max(archived_differences) if archived_differences else None,
-                "archived_tdx_status": "MATCH" if archived_differences and max(archived_differences) <= 0.005 else "MISMATCH" if archived_differences else "DATA_LIMITED",
+                "archived_tdx_close_status": "MATCH" if archived_differences and max(archived_differences) <= 0.005 else "MISMATCH" if archived_differences else "DATA_LIMITED",
+                "archived_tdx_status": comparable_field_status(archive_fields),
                 "tdx_trigger_zone_seen": bool(low is not None and high is not None and any(low <= value <= high for value in tdx_closes)),
                 "tdx_stop_touched": bool(stop is not None and any(value <= stop for value in tdx_lows)),
                 "tencent_digest": _digest(left) if left else None, "tdx_digest": _digest(right) if right else None,

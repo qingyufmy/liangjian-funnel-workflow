@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -245,6 +245,27 @@ def test_a1_schedule_catches_up_a_missed_monthly_full():
     assert plan is not None
     assert plan.mode == "FULL"
     assert plan.reason_code == "A1_MONTHLY_FULL_CATCHUP_DUE"
+
+
+def test_a1_catches_up_failed_holiday_week_maintenance():
+    trading = lambda day: day.weekday() < 5 and day != date(2026, 9, 25)
+    plan = decide_a1_maintenance(
+        datetime(2026, 9, 28, 18, tzinfo=TZ), trading,
+        active_full_period="2026-09",
+        active_as_of=datetime(2026, 9, 21, 20, 29, tzinfo=TZ),
+    )
+    assert plan is not None
+    assert plan.mode == "INCREMENTAL"
+    assert plan.reason_code == "A1_WEEKLY_INCREMENTAL_CATCHUP_DUE"
+    assert decide_a1_maintenance(
+        datetime(2026, 9, 28, 18, tzinfo=TZ), trading,
+        active_full_period="2026-09",
+        active_as_of=datetime(2026, 9, 24, 20, tzinfo=TZ),
+    ) is None
+    assert decide_a1_maintenance(
+        datetime(2026, 9, 28, 14, tzinfo=TZ), trading,
+        active_as_of=datetime(2026, 9, 21, 20, tzinfo=TZ),
+    ) is None
 
 
 def test_a1_registry_activation_is_atomic_and_strict(tmp_path: Path):

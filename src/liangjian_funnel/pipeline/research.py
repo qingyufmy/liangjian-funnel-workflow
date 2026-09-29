@@ -12,6 +12,7 @@ import gc
 import hashlib
 import inspect
 import json
+import logging
 import os
 import re
 import sqlite3
@@ -29,6 +30,9 @@ from ..redaction import digest_text, safe_error, sanitize
 from ..reporting import atomic_write_json, atomic_write_text
 from ..evaluation.outcome_labels import record_stage_decisions
 from .rotation_diagnostics import rotation_coverage
+from .a2_news_context import build_a2_news_shadow
+from .a2_news_review import enrich_news_shadow, build_review_packet
+from ..data.rotation_theme import load_rotation_theme_config, RotationThemeConfigError
 from .early_discovery import attach_discovery_queue, recheck_a1_discovery
 from .result_index import snapshot_name_catalog, write_lane_result_index
 from ..settings import Settings
@@ -2667,6 +2671,25 @@ class ResearchPipeline:
         gate: DeterministicGateResult,
         snapshot: FrozenInputSnapshot,
     ) -> None:
+        if gate.stage == "A2_LOCAL_ROLE" and snapshot.as_of is not None:
+            try:
+                news_shadow = build_a2_news_shadow(
+                    snapshot.data.get("NEWS_HEAT_SNAPSHOT"), gate.decisions,
+                    as_of=snapshot.as_of, snapshot_hash=snapshot.snapshot_hash,
+                )
+                news_shadow = enrich_news_shadow(news_shadow, load_rotation_theme_config(),
+                                                snapshot.data.get("MAIN_BUSINESS_EVIDENCE"))
+                atomic_write_json(
+                    self.output_dir / "a2_news_shadow" / _safe_run_id(run_id)
+                    / f"{_safe_run_id(lane_id)}.json", news_shadow,
+                )
+                atomic_write_json(
+                    self.output_dir / "a2_news_shadow" / _safe_run_id(run_id)
+                    / f"{_safe_run_id(lane_id)}.review-input.json", build_review_packet(news_shadow),
+                )
+            except (OSError, ValueError, RotationThemeConfigError):
+                logging.getLogger(__name__).warning("A2_NEWS_SHADOW_WRITE_FAILED run=%s lane=%s",
+                                                    _safe_run_id(run_id), _safe_run_id(lane_id))
         if self.feature_store is None:
             return
         try:
@@ -4051,7 +4074,7 @@ class ResearchPipeline:
         prompt_chars = sum(len(str(message.get("content", ""))) for message in messages)
         estimated_input_tokens = _estimate_message_tokens(messages)
         replacement_chars = {
-            name: len(_canonical_json(value))
+            name: _canonical_json_size(value)
             for name, value in replacements.items()
         }
         input_token_limit = int(
@@ -9254,6 +9277,23 @@ def _expand_a2_compact_output(
             "contradicting_evidence": codes(raw.get("risk_codes"), limit=2),
             "rotation_overlap_ratio": overlap,
         })
+        # Compact transport has no lifecycle-onset field. Record the dated
+        # review and its exact quant inputs instead of inventing stage_since.
+        context = snapshot_data.get("A2_BOTTLENECK_CONTEXT")
+        context = context if isinstance(context, Mapping) else {}
+        theme_inputs = {str(key): value for key, value in context.items()
+                        if isinstance(value, Mapping)
+                        and value.get("theme_id") == raw.get("theme_id")}
+        reference = snapshot_data.get("A2_MARKET_REFERENCE")
+        observed = str(reference.get("market_trade_date") or "") if isinstance(reference, Mapping) else ""
+        if theme_inputs and re.fullmatch(r"\d{4}-\d{2}-\d{2}", observed):
+            themes[-1]["stage_observed_as_of"] = observed
+            themes[-1]["stage_evidence_hash"] = _sha256_json({"review": dict(raw), "inputs": theme_inputs, "as_of": observed})
+            themes[-1]["source_refs"] = [f"A2_BOTTLENECK_CONTEXT:{key}" for key in sorted(theme_inputs)]
+        # Preserve richer evidence if supplied by an older transport.
+        for field in ("stage_since", "source_refs"):
+            if raw.get(field):
+                themes[-1][field] = raw[field]
 
     focus_by_symbol: dict[str, dict[str, Any]] = {}
     reject_by_symbol: dict[str, dict[str, Any]] = {}
@@ -12368,7 +12408,33 @@ def _strip_reasoning(value: Any) -> Any:
 
 
 def _canonical_json(value: Any) -> str:
-    return json.dumps(_jsonable(value), ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+    return json.dumps(_json_value(value), ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def _canonical_json_size(value: Any) -> int:
+    encoder = json.JSONEncoder(ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+    return sum(len(chunk) for chunk in encoder.iterencode(_json_value(value)))
+
+
+def _json_value(value: Any) -> Any:
+    """Reuse native frozen JSON trees; normalize special Python values only.
+
+    Source snapshots are already JSON. Recursively rebuilding every dict and
+    list used to retain a second full-market object graph during serialization.
+    No mutation or cache of mutable inputs is permitted here.
+    """
+    return value if _is_native_json(value) else _jsonable(value)
+
+
+def _is_native_json(value: Any) -> bool:
+    kind = type(value)
+    if kind in (str, int, float, bool, type(None)):
+        return True
+    if kind is dict:
+        return all(type(key) is str and _is_native_json(item) for key, item in value.items())
+    if kind is list:
+        return all(_is_native_json(item) for item in value)
+    return False
 
 
 def _jsonable(value: Any) -> Any:
@@ -12389,7 +12455,13 @@ def _jsonable(value: Any) -> Any:
 
 
 def _sha256_json(value: Any) -> str:
-    return hashlib.sha256(_canonical_json(value).encode("utf-8")).hexdigest()
+    # Full-market snapshots can be hundreds of MB. Do not hold the complete
+    # Unicode serialization and its UTF-8 copy simultaneously just to hash it.
+    digest = hashlib.sha256()
+    encoder = json.JSONEncoder(ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+    for chunk in encoder.iterencode(_json_value(value)):
+        digest.update(chunk.encode("utf-8"))
+    return digest.hexdigest()
 
 
 def _default_run_id(current: datetime, snapshot_id: str) -> str:

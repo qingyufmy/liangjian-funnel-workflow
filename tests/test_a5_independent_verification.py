@@ -165,8 +165,11 @@ def test_a5_independent_verifier_recomputes_and_traces_counterexample() -> None:
     assert result["a3"]["plans"][0]["route_contract_match"] is True
     assert result["a3"]["plans"][0]["price_levels_valid"] is True
     assert result["a4"]["plans"][0]["orchestration_omission_count"] == 1
-    assert result["a4"]["plans"][0]["cross_source_status"] == "MATCH"
-    assert result["a4"]["plans"][0]["archived_tdx_status"] == "MATCH"
+    assert result["a4"]["plans"][0]["cross_source_close_status"] == "MATCH"
+    assert result["a4"]["plans"][0]["archived_tdx_close_status"] == "MATCH"
+    # Fixture omits some OHLCV/amount inputs; a close match is not full verification.
+    assert result["a4"]["plans"][0]["cross_source_status"] == "DATA_LIMITED"
+    assert result["a4"]["plans"][0]["archived_tdx_status"] == "DATA_LIMITED"
 
 
 def test_a5_independent_verifier_never_calls_missing_scope_a_success() -> None:

@@ -158,6 +158,7 @@ def manifest_projection(manifest: FactSnapshotManifest) -> dict[str, Any]:
             "event_time": fact.event_time.isoformat(),
             "publish_time": fact.publish_time.isoformat() if fact.publish_time is not None else None,
             "fetch_time": fact.fetch_time.isoformat(),
+            "ingest_time": fact.ingest_time.isoformat(),
             "source_id": fact.source_id,
             "source_url": fact.source_url,
             "content_hash": fact.content_hash,

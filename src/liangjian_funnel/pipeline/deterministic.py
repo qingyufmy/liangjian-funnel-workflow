@@ -4437,11 +4437,14 @@ def _a3_candidate_with_theme_stage(
     contradiction = row.get("contradicting_evidence")
     source_refs = row.get("source_refs")
     stage_since = str(row.get("stage_since") or "").strip()
+    observed = str(row.get("stage_observed_as_of") or "").strip()
+    dated_review = bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", observed)
+                        and str(row.get("stage_evidence_hash") or "").strip())
     if (
         not isinstance(support, Sequence) or isinstance(support, (str, bytes, bytearray)) or not support
         or not isinstance(contradiction, Sequence) or isinstance(contradiction, (str, bytes, bytearray)) or not contradiction
         or not isinstance(source_refs, Sequence) or isinstance(source_refs, (str, bytes, bytearray)) or not source_refs
-        or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", stage_since)
+        or not (re.fullmatch(r"\d{4}-\d{2}-\d{2}", stage_since) or dated_review)
     ):
         binding["reason_code"] = "A3_THEME_STAGE_EVIDENCE_INSUFFICIENT"
         return candidate, binding
@@ -4450,6 +4453,7 @@ def _a3_candidate_with_theme_stage(
         "resolved": True,
         "theme_stage": candidate["theme_stage"],
         "stage_since": stage_since,
+        "stage_observed_as_of": observed or None,
         "source_hash": content_hash(row),
         "evidence_hash": content_hash({
             "supporting_evidence": list(support),

@@ -309,6 +309,7 @@ def decide_a1_maintenance(
     *,
     has_active_generation: bool = True,
     active_full_period: str | None = None,
+    active_as_of: datetime | None = None,
 ) -> A1MaintenancePlan | None:
     """Return the bootstrap/monthly/weekly A1 slot, if due."""
 
@@ -354,10 +355,26 @@ def decide_a1_maintenance(
             dispatch_key=f"a1-maintenance:{current.date().isoformat()}:monthly-full-catchup",
             reason_code="A1_MONTHLY_FULL_CATCHUP_DUE",
         )
-    if not (is_first or is_last_week_session):
+    # A failed weekly run must not wait another week. Compare the last
+    # completed exchange week with the published generation, not job exit 0.
+    catchup = False
+    if active_as_of is not None and not is_first:
+        previous_monday = current.date() - timedelta(days=current.weekday() + 7)
+        try:
+            sessions = [previous_monday + timedelta(days=i) for i in range(7)
+                        if trading_day(previous_monday + timedelta(days=i))]
+        except Exception as exc:
+            raise WorkflowError("TRADING_CALENDAR_UNAVAILABLE") from exc
+        if sessions:
+            required = current.replace(year=max(sessions).year, month=max(sessions).month,
+                                       day=max(sessions).day, hour=18, minute=0, second=0, microsecond=0)
+            catchup = _aware(active_as_of) < required
+    if not (is_first or is_last_week_session or catchup):
         return None
     mode = A1_FULL if is_first else A1_INCREMENTAL
     reason = "A1_MONTHLY_FULL_DUE" if is_first else "A1_WEEKLY_INCREMENTAL_DUE"
+    if catchup and not is_first and not is_last_week_session:
+        reason = "A1_WEEKLY_INCREMENTAL_CATCHUP_DUE"
     due = current.replace(hour=18, minute=0, second=0, microsecond=0)
     return A1MaintenancePlan(
         mode=mode,
@@ -2084,6 +2101,7 @@ class WorkflowApplication:
                 self.trading_calendar.is_trading_day,
                 has_active_generation=active is not None,
                 active_full_period=_a1_full_period(active),
+                active_as_of=active.as_of if active is not None else None,
             )
             if plan is None:
                 return {
@@ -5482,6 +5500,7 @@ class WorkflowApplication:
                 self.trading_calendar.is_trading_day,
                 has_active_generation=active_a1 is not None,
                 active_full_period=_a1_full_period(active_a1),
+                active_as_of=active_a1.as_of if active_a1 is not None else None,
             )
             if plan is not None:
                 lease_name = "scheduler:a1-maintenance"
@@ -8303,7 +8322,8 @@ def _merge_news_heat_snapshots(base: Any, stock: Any) -> dict[str, Any]:
             if not isinstance(item, Mapping):
                 continue
             identity = str(
-                item.get("content_hash")
+                item.get("fact_id")
+                or item.get("content_hash")
                 or item.get("provider_item_id")
                 or item.get("source_ref")
                 or _hash_json(item)
@@ -8334,6 +8354,8 @@ def _merge_news_heat_snapshots(base: Any, stock: Any) -> dict[str, Any]:
         ),
         "items": merged_items,
         "item_count": len(merged_items),
+        "omitted_item_count": sum(int(value.get("omitted_item_count") or 0)
+                                  for value in (base_value, stock_value)) + max(0, len(retained) - 200),
         "untrusted_text": True,
     }
 

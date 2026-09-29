@@ -3,6 +3,7 @@ from copy import deepcopy
 import pytest
 
 from liangjian_funnel.pipeline.deterministic import screen_a3
+from liangjian_funnel.pipeline.research import _expand_a2_compact_output
 
 
 def _inputs():
@@ -89,3 +90,33 @@ def test_theme_stage_without_theme_specific_evidence_is_data_gap():
     assert decision["status"] == "DATA_GAP"
     binding = decision["strategy_facts"]["a2_theme_stage_binding"]
     assert binding["reason_code"] == "A3_THEME_STAGE_EVIDENCE_INSUFFICIENT"
+
+
+@pytest.mark.parametrize("stage,expected", [("ACCELERATION", "REVIEW_CANDIDATE"), ("RETREAT", "HARD_REJECT")])
+def test_real_compact_transport_keeps_dated_theme_evidence(stage, expected):
+    snapshot, output = _inputs()
+    snapshot["A2_MARKET_REFERENCE"] = {"market_trade_date": "2026-09-28"}
+    snapshot["A2_BOTTLENECK_CONTEXT"] = {"001366.SZ": {"theme_id": "AGRICULTURE", "score": 80}}
+    expanded = _expand_a2_compact_output({"theme_reviews": [{
+        "theme_id": "AGRICULTURE", "stage": stage, "support_codes": ["BREADTH"],
+        "risk_codes": ["CROWDING"],
+    }]}, snapshot, {"001366.SZ"})
+    output["active_themes"] = expanded["active_themes"]
+    assert "stage_since" not in output["active_themes"][0]
+    decision = screen_a3(snapshot, output).decisions[0]
+    assert decision["theme_stage"] == stage
+    assert decision["status"] == expected
+
+
+@pytest.mark.parametrize("missing", ["A2_BOTTLENECK_CONTEXT", "A2_MARKET_REFERENCE"])
+def test_compact_transport_cannot_invent_missing_source_or_date(missing):
+    snapshot, output = _inputs()
+    snapshot.update({"A2_MARKET_REFERENCE": {"market_trade_date": "2026-09-28"},
+                     "A2_BOTTLENECK_CONTEXT": {"001366.SZ": {"theme_id": "AGRICULTURE"}}})
+    snapshot.pop(missing)
+    expanded = _expand_a2_compact_output({"theme_reviews": [{
+        "theme_id": "AGRICULTURE", "stage": "ACCELERATION", "support_codes": ["BREADTH"],
+        "risk_codes": ["CROWDING"],
+    }]}, snapshot, {"001366.SZ"})
+    output["active_themes"] = expanded["active_themes"]
+    assert screen_a3(snapshot, output).decisions[0]["status"] == "DATA_GAP"

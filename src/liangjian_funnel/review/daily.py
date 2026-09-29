@@ -229,6 +229,10 @@ def _canonicalize_report_output(value: Any, *, allowed_evidence: set[str] | None
             continue
         row = dict(item)
         stage = str(row.get("funnel_drop_stage") or "").strip().upper()
+        # Exact code emitted by our independent verifier. Do not map arbitrary
+        # UNRESOLVED_* strings or invent A3 attribution for missing lineage.
+        if stage == "UNRESOLVED_A3_LINEAGE_MISSING":
+            row["funnel_drop_stage"] = "UNRESOLVED"
         if stage not in {"A1", "A2", "A3", "A4", "UNRESOLVED"}:
             for layer in ("A1", "A2", "A3", "A4"):
                 if stage.startswith(f"{layer}_"):
@@ -2034,6 +2038,13 @@ def _enforce_verified_findings(report: A5ReviewReport, facts: Mapping[str, Any])
               for row in _rows(verification.get("counterexamples"))}
     for row in report.missed_opportunity_reviews:
         actual = missed.get(row.symbol, "")
+        if actual == "UNRESOLVED_A3_LINEAGE_MISSING":
+            row.funnel_drop_stage = "UNRESOLVED"
+            row.is_confirmed_defect = False
+            row.assessment = (
+                "冻结证据缺少A3晋级血缘，无法确定落层；不采纳确定性漏选归因，需补齐血缘后核对。"
+                + row.assessment
+            )[:600]
         if actual.startswith(("A1_", "A2_", "A3_", "A4_")):
             if row.funnel_drop_stage != actual[:2]:
                 row.assessment = (
@@ -2242,7 +2253,11 @@ class A5DailyReviewService:
             report = A5ReviewReport.model_validate(_canonicalize_report_output(
                 result.output, allowed_evidence=_evidence_ids(facts) | allowed_projection_evidence))
         except ValidationError as exc:
-            raise A5ReviewError("A5_OUTPUT_SCHEMA_INVALID") from exc
+            diagnostics = {"phase": "MODEL_OUTPUT_SCHEMA", "errors": [
+                {"field": ".".join(str(part) for part in e["loc"]), "type": e["type"]}
+                for e in exc.errors(include_input=False, include_url=False)]}
+            atomic_write_json(target_dir / f"{artifact_stem}-validation-failure.json", diagnostics)
+            raise A5ReviewError("A5_OUTPUT_SCHEMA_INVALID", diagnostics=diagnostics) from exc
         if report.review_kind is not review_kind or report.trade_date != current.date():
             raise A5ReviewError("A5_OUTPUT_IDENTITY_MISMATCH")
         _validate_evidence(

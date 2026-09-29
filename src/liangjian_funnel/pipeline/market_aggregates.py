@@ -1670,6 +1670,10 @@ def build_news_heat_snapshot(
                 "title": raw.get("title"),
                 "summary": raw.get("summary"),
                 "publish_time": published.isoformat(),
+                "fetch_time": raw.get("fetch_time"),
+                "ingest_time": raw.get("ingest_time"),
+                "content_hash": raw.get("content_hash"),
+                "prompt_injection_suspected": raw.get("prompt_injection_suspected") is True,
                 "source_id": raw.get("source_id"),
                 "source_name": raw.get("source_name"),
                 "source_url": raw.get("source_url"),
@@ -1716,6 +1720,7 @@ def build_news_heat_snapshot(
         "sentiment_available": False,
         "sentiment_reason_code": "NO_DETERMINISTIC_CLASSIFIER",
         "items": items[:max_items],
+        "omitted_item_count": max(0, len(items) - max_items),
     }
 
 
