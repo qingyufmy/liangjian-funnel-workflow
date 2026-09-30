@@ -177,6 +177,36 @@ def test_cli_reports_verified_no_trade_t1_as_pending_not_ready(tmp_path, monkeyp
     assert result['t1_pending_no_trade_symbols'] == ['002295.SZ']
 
 
+@pytest.mark.parametrize('defect', [None, 'stale', 'future', 'traded', 'wrong_symbol', 'transport'])
+def test_empty_history_requires_independent_no_trade_evidence(tmp_path, defect):
+    class EmptyClient(Client):
+        def history_1d(self, symbol, **kwargs):
+            return HithinkFetchResult(endpoint='history', ok=False, complete=False,
+                reason_code='TIMEOUT' if defect == 'transport' else 'EMPTY_DATA',
+                fetch_time=NOW, pages=1, total=0, limit=100, items=())
+
+    quote = {'symbol': '002295.SZ', 'source_id': 'TENCENT:qt.gtimg.cn',
+        'quote_time': NOW, 'latest_price': 10, 'previous_close': 10,
+        'turnover_cny': 0, 'no_reported_trades': True, 'price_state': 'OBSERVED_PRICE'}
+    if defect == 'stale': quote['quote_time'] = NOW-timedelta(days=1)
+    if defect == 'future': quote['quote_time'] = NOW+timedelta(minutes=1)
+    if defect == 'traded': quote['turnover_cny'] = 100
+    if defect == 'wrong_symbol': quote['symbol'] = '600001.SH'
+    checked = []
+    def quotes(symbols):
+        checked.extend(symbols)
+        return {'002295.SZ': quote}
+    settings = Settings.from_env({}, root=tmp_path)
+    result = refresh_current_outcome_prices(store([label()]), settings, now=NOW,
+        client_factory=EmptyClient, quote_fetcher=quotes)
+    assert result['status'] == ('COMPLETED_WITH_NO_TRADES' if defect is None else 'DATA_LIMITED')
+    assert result['failures']['002295.SZ'] == ('TIMEOUT' if defect == 'transport' else 'EMPTY_DATA')
+    assert checked == ([] if defect == 'transport' else ['002295.SZ'])
+    assert result['unresolved_missing_symbols'] == ([] if defect is None else ['002295.SZ'])
+    assert not result['updated_symbols']
+    assert LocalFactCache(settings.fact_cache_db_path).query_daily_bars('002295.SZ') == []
+
+
 @pytest.mark.parametrize('defect', [None, 'current_missing', 'source_error', 'missing_readiness'])
 def test_scheduled_refresh_separates_current_completion_from_history(tmp_path, monkeypatch, capsys, defect):
     settings = Settings.from_env({}, root=tmp_path)

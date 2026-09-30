@@ -90,11 +90,12 @@ def refresh_current_outcome_prices(store, settings, *, now=None, client_factory=
                     # Provider exceptions may include credentials or URLs.
                     report["failures"][symbol] = "PRICE_REFRESH_" + type(exc).__name__.upper()
     report["missing_symbols"] = [s for s in missing if s not in report["updated_symbols"]]
-    # A complete history response may legitimately have no bar on a suspended
-    # day. Verify today's absence of trades independently; never synthesize a
+    # A complete history response or explicit EMPTY_DATA may legitimately have
+    # no bar on a no-trade day. An empty response is not proof by itself: verify
+    # today's absence of trades independently; never synthesize a
     # daily candle, carry a price forward, or label a zero return from a quote.
     no_bar = [s for s, reason in report["failures"].items()
-              if reason == "CURRENT_CLOSED_DAILY_BAR_MISSING"]
+              if reason in {"CURRENT_CLOSED_DAILY_BAR_MISSING", "EMPTY_DATA"}]
     report["no_trade_observations"] = {}
     if no_bar:
         if quote_fetcher is None:
