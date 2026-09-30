@@ -2,21 +2,24 @@
   "schema_version": "liangjian-iteration-state/1.0.0",
   "a4_a5_20260930": {
     "code": "128_PASSED_4_MISSING_FIXTURE_SKIPPED_INCLUDES_8_CORRECTION_TESTS",
-    "replay": "3472_FROZEN_STRATEGY_DECISIONS_IDENTICAL_NO_MISSING_INPUTS_FULL_DAY_PENDING",
-    "operations": "PRODUCTION_0614B7A_A4_RUNNING_MIDDAY_A5_EVIDENCE_INVALID_LOCAL_REPAIR_NOT_YET_DEPLOYED",
+    "replay": "4631_FULL_DAY_FROZEN_STRATEGY_DECISIONS_IDENTICAL_NO_MISSING_INPUTS_NOT_QUOTE_OR_FILL_PROOF",
+    "operations": "PRODUCTION_0614B7A_A4_240_MINUTES_COMPLETE_MIDDAY_A5_EVIDENCE_INVALID_CLOSE_RESEARCH_RUNNING_REPAIR_NOT_YET_DEPLOYED",
     "strategy": "UNCHANGED_NO_NEW_ENTRY_FILL_OR_PERFORMANCE_PROOF",
     "a5_failure": "A5_OUTPUT_EVIDENCE_INVALID_A5V_SUMMARY_NOT_PRESENT",
     "repair_commit": "e3abaa9f9f3c6fdbbb79cf085511185aa6046c16",
     "volume_forensics": "46_SOURCE_ARCHIVE_HASHES_VALID_NO_100X_ERROR_2351_VOLUME_SENSITIVITY_WINDOWS_ZERO_ACTION_OR_REASON_CHANGES_NOT_CAUSAL_ARRIVAL_PROOF",
     "intraday_1415": {"ticks": 195, "records": 3777, "data_block": 0, "new_entry_signals": 0},
+    "close_1510": {"ticks": 240, "records": 4632, "strategy_records": 4631, "missing_plan_minutes": 0, "duplicate_plan_minutes": 0, "data_block": 0, "new_entry_signals": 0, "last_execution_bar": "2026-09-30T14:59:00+08:00", "close_research": "2026-09-30-close_RUNNING_UNIVERSE_SYNC"},
     "continuation_automation": "9-30-a4-a5_ACTIVE",
     "evidence": "docs/A4_A5_DIAGNOSIS_2026-09-30.md",
     "commands": [
       {"command": "python -m pytest tests/test_a5_plan_replay.py tests/test_a5_output_correction.py tests/test_a5_daily_review.py tests/test_a5_context_scope.py tests/test_a5_fact_guard.py tests/test_a5_independent_verification.py tests/test_audit_frozen_a4_clocks.py tests/test_a4_session_audit.py tests/test_workflow_lark_notifications.py -o addopts='' -q --tb=short -rs", "exit_code": 0, "passed": 128, "skipped": 4},
       {"command": "python -m pytest tests/test_a5_output_correction.py -o addopts='' -q --tb=short", "exit_code": 0, "passed": 8},
-      {"command": "python scripts/audit_frozen_a4_decisions.py --day 2026-09-30 --output artifacts/diagnosis-20260930/a4-frozen-final-clock-audit.json", "exit_code": 0, "replayed": 3472, "changes": 0, "gaps": 0}
+      {"command": "python scripts/audit_frozen_a4_decisions.py --day 2026-09-30 --output artifacts/diagnosis-20260930/a4-frozen-final-clock-audit.json", "exit_code": 0, "replayed": 3472, "changes": 0, "gaps": 0},
+      {"command": "python scripts/audit_session_readonly.py --day 2026-09-30 --output artifacts/diagnosis-20260930/session-close-1510.json", "exit_code": 0, "ticks": 240, "records": 4632},
+      {"command": "python scripts/audit_frozen_a4_decisions.py --day 2026-09-30 --output artifacts/diagnosis-20260930/a4-frozen-close-1510.json", "exit_code": 0, "replayed": 4631, "changes": 0, "gaps": 0}
     ],
-    "next": "Full-day A4 and natural A5 close acceptance; safe post-close release then original frozen MIDDAY retry"
+    "next": "Natural A5 close and close research acceptance; safe post-16:30 release then original frozen MIDDAY retry"
   },
   "release_refresh_20260929": {
     "commit": "0614b7a15a1f03b6c60fb5dbc5b8b6396e3af321",
