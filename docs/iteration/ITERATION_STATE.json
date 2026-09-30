@@ -3,7 +3,7 @@
   "a4_a5_20260930": {
     "code": "128_PASSED_4_SKIPPED_INITIAL_REPAIR_PLUS_73_PASSED_1_SKIPPED_FIELD_DEFECT_REGRESSION",
     "replay": "4631_FULL_DAY_FROZEN_STRATEGY_DECISIONS_IDENTICAL_NO_MISSING_INPUTS_NOT_QUOTE_OR_FILL_PROOF",
-    "operations": "PRODUCTION_0614B7A_A4_FULL_DAY_COMPLETE_POST_CLOSE_A5_DEGRADED_SENT_MIDDAY_FAILED_REPAIR_NOT_YET_DEPLOYED",
+    "operations": "PRODUCTION_41AF033_DEPLOY_EXIT0_INSTALLED_5_MODULES_MATCH_A4_FULL_DAY_COMPLETE_A5_BOTH_SENT_MIDDAY_RECOVERY_SENT_CURRENT_OUTCOMES_COMPLETED",
     "strategy": "UNCHANGED_NO_NEW_ENTRY_FILL_OR_PERFORMANCE_PROOF",
     "a5_failure": "A5_OUTPUT_EVIDENCE_INVALID_A5V_SUMMARY_NOT_PRESENT",
     "repair_commit": "e3abaa9f9f3c6fdbbb79cf085511185aa6046c16",
@@ -12,7 +12,11 @@
     "close_1510": {"ticks": 240, "records": 4632, "strategy_records": 4631, "missing_plan_minutes": 0, "duplicate_plan_minutes": 0, "data_block": 0, "new_entry_signals": 0, "last_execution_bar": "2026-09-30T14:59:00+08:00", "close_research": "2026-09-30-close_RUNNING_UNIVERSE_SYNC"},
     "post_close_a5": {"review_id": "c846c01d-7f73-5c25-bb73-abe946efc120", "status": "DEGRADED", "notification": "SENT_20260930_160609", "input_hash": "aed4831434edcb92099e235f7a355f2ef472e9859288f889788b3318dbbb87cb", "prompt_chars": 179286, "archived_output_validation": "SCHEMA_EVIDENCE_RECONCILIATION_VALID_NO_MODEL_NO_PUBLISH", "field_defect_fix": "22_FIELD_DIFFERENCE_PLANS_NOT_22_PRICE_DIFFERENCE_PLANS"},
     "outcomes_1610": {"exit_code": 2, "job_reason_code": "CURRENT_OBSERVATIONS_NOT_VERIFIED", "unresolved": ["601059.SH", "601198.SH"], "root_cause": "EMPTY_DATA_NOT_INCLUDED_IN_INDEPENDENT_NO_TRADE_VERIFICATION", "live_quote_check": "20260930_1633_TENCENT_BOTH_NO_REPORTED_TRADES_CURRENT_DAY_PRICE_EQUALS_PREVIOUS_ZERO_AMOUNT", "repair": "35_TESTS_PASSED_NO_SYNTHETIC_BARS_OR_RETURNS_RELEASE_PENDING"},
-    "continuation_automation": "9-30-a4-a5_ACTIVE",
+    "midday_recovery": {"unit": "liangjian-a5-midday-recovery-20260930-1643.service", "exit_code": 0, "review_id": "91bd7371-eea2-58be-8fdb-84dfa641f835", "status": "DEGRADED", "model": "deepseek-v4-pro", "input_hash": "93cd867e556a0e924456a09a648324cf504b7b3f9c91d1a56ad6139680f8d126", "prompt_chars": 174907, "normal_notification": "SENT", "recovery_notification": "SENT", "original_fact_sections": "ALL_IDENTICAL_EXCEPT_REVIEW_CONTRACT_AND_INPUT_HASH", "archived_schema_evidence_validation": "PASS"},
+    "deployment": {"commit": "41af0333abf5626fe51e3940b852f81aa293292d", "exit_code": 0, "installed_modules_matched": 5, "node_pid": 372227, "node_http": 200, "active_leases": 0},
+    "outcomes_recovery": {"unit": "liangjian-outcomes-recovery-20260930-1643.service", "exit_code": 0, "job_status": "COMPLETED", "data_status": "DATA_LIMITED", "unresolved_missing_symbols": [], "no_trade_symbols": 7, "t1_today_due": 3598, "t1_today_ready": 3596, "t1_today_pending_no_trade": ["002813.SZ", "603183.SH"]},
+    "next_session_plans": {"run_id": "2026-09-30-close-6a2628d7ef52", "a1": 1415, "a2_focus": 10, "a2_watch": 125, "a3_input": 116, "a3_published": 47, "profiles": {"TREND_MA5": 39, "MA520_SWING": 2, "LEADER_INTRADAY": 6}, "subset_unique_validated": true, "status": "PENDING_MORNING_REVIEW", "expiry": "2026-10-08T15:00:00+08:00", "calendar_verified": true},
+    "continuation_automation": "9-30-a4-a5_DELETED_AFTER_COMPLETION",
     "evidence": "docs/A4_A5_DIAGNOSIS_2026-09-30.md",
     "commands": [
       {"command": "python -m pytest tests/test_a5_plan_replay.py tests/test_a5_output_correction.py tests/test_a5_daily_review.py tests/test_a5_context_scope.py tests/test_a5_fact_guard.py tests/test_a5_independent_verification.py tests/test_audit_frozen_a4_clocks.py tests/test_a4_session_audit.py tests/test_workflow_lark_notifications.py -o addopts='' -q --tb=short -rs", "exit_code": 0, "passed": 128, "skipped": 4},
@@ -24,9 +28,15 @@
       {"command": "python -m pytest tests/test_a5_field_defects.py tests/test_a5_fact_guard.py tests/test_a5_daily_review.py tests/test_a5_independent_verification.py tests/test_a5_output_correction.py tests/test_a5_plan_replay.py -o addopts='' -q --tb=short -rs", "exit_code": 0, "passed": 73, "skipped": 1},
       {"command": "python scripts/audit_a5_archived_schema.py --response artifacts/diagnosis-20260930/post-close-aed4831434ed-model-af2293e184a8.json --facts artifacts/diagnosis-20260930/post-close-aed4831434ed-facts.json --validate-evidence", "exit_code": 0},
       {"command": "python -m pytest tests/test_outcome_price_sync.py -k empty_history -o addopts='' -q --tb=short (before fix)", "exit_code": 1, "failed": 5, "passed": 1},
-      {"command": "python -m pytest tests/test_outcome_price_sync.py tests/test_outcome_labels.py -o addopts='' -q --tb=short -rs", "exit_code": 0, "passed": 35}
+      {"command": "python -m pytest tests/test_outcome_price_sync.py tests/test_outcome_labels.py -o addopts='' -q --tb=short -rs", "exit_code": 0, "passed": 35},
+      {"command": "ssh aurum-vm 'cd /www/wwwroot/Agu/liangjian-funnel-workflow && bash deploy.sh'", "exit_code": 0},
+      {"command": "scripts/rerun_a5_frozen.py --facts outputs/a5/2026-09-30/midday-3877f0118a1c-facts.json --execute (www/systemd)", "exit_code": 0},
+      {"command": "python -m liangjian_funnel run-outcomes-refresh (www/systemd)", "exit_code": 0},
+      {"command": "python scripts/audit_a5_archived_schema.py --response artifacts/diagnosis-20260930/midday-93cd867e556a-model-8a8ca7a09af0.json --facts artifacts/diagnosis-20260930/midday-93cd867e556a-facts.json --validate-evidence", "exit_code": 0},
+      {"command": "python scripts/audit_session_readonly.py --day 2026-09-30 --output artifacts/diagnosis-20260930/session-release-final-1648.json", "exit_code": 0},
+      {"command": "readonly frozen-fact sections and A4 event-hash comparison; next-session subset/calendar/publication assertions", "exit_code": 0}
     ],
-    "next": "Natural A5 close and close research acceptance; safe post-16:30 release then original frozen MIDDAY retry"
+    "next": "COMPLETED_THIS_DAY; observe next natural trading session; independent free-source causal evidence and strategy efficacy remain unproven"
   },
   "release_refresh_20260929": {
     "commit": "0614b7a15a1f03b6c60fb5dbc5b8b6396e3af321",

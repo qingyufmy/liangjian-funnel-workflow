@@ -1,6 +1,6 @@
 # 2026-09-30 A4 / A5 诊断、修复与收盘验收
 
-当前阶段：A4全日验收及自然盘后A5投递完成；A5字段归因新增修复已验证，待盘后发布及午间冻结事实补跑。生产仍为0614b7a，未在盘中中断A4。
+当前阶段：本日收盘验收、修复发布及午间冻结事实恢复完成。生产41af0333abf5626fe51e3940b852f81aa293292d；A4全日及原事实未修改，A5午间/盘后投递均已成功。独立证据限制仍保留，不宣称策略或全部数据无缺口。
 
 15:10全日A4验收完成：240个应执行分钟全部存在，4632条记录（4631条策略、1条正常空池），DATA_BLOCK=0、实际新增仓/成交=0。逐计划适用窗口无缺分钟或重复；全量4631条冻结判断复算，动作与首要原因差异0、缺输入0。16:06盘后A5自然投递成功；修复部署及午间恢复仍未完成，不能据此称全系统已完成。
 
@@ -95,3 +95,24 @@ CODE：原修复128项联合回归通过；字段归因新修复73项相关回�
 最小修改：显式EMPTY_DATA同样进入既有独立无成交核验；超时、传输失败和其他错误不进入这一替代路径。仍严格要求股票一致、当日收盘后且非未来时间、有效价等于昨收、零成交额和源的无成交标记；证据不满足仍DATA_LIMITED。原EMPTY_DATA失败原因保留，表现标签仍待观察，不生成蜡烛、不前值填充、不算零收益。
 
 新增6个反例，旧实现5失败/1通过，退出1；修复后test_outcome_price_sync.py与test_outcome_labels.py合计35项通过，退出0。尚未发布或重跑生产表现补齐。收盘研究16:35仍正常RESEARCH_A3，保持不打断；待无活动任务后通过deploy.sh一并发布，再完成午间冻结事实恢复和当日表现补齐验收。
+
+## 16:48发布及恢复最终验收
+
+收盘研究于16:36:37自然退出0，实际批次2026-09-30-close-6a2628d7ef52已PUBLISHED。随后自动启动的旧代码表现补齐于16:39:02退出2，同一EMPTY_DATA核验缺陷，无任务中断。确认无活动工作流后执行ssh aurum-vm 'cd /www/wwwroot/Agu/liangjian-funnel-workflow && bash deploy.sh'，退出0，部署41af0333abf5626fe51e3940b852f81aa293292d。
+
+实际.venv/lib/python3.13/site-packages中review.daily、review.plan_replay、evaluation.price_sync、workflow、cli五模块SHA256逐项与src一致；Node PID372227，3210/api/health返回200且自然调度器重新启动。无ACTIVE调度租约，未绕过保护、未中断正常任务；生产未跟踪.htaccess保留。
+
+16:43以www用户、原运行目录和既有env启动两个独立正式恢复任务，没有重复研究或模型调用：
+
+- liangjian-a5-midday-recovery-20260930-1643.service调用scripts/rerun_a5_frozen.py --facts outputs/a5/2026-09-30/midday-3877f0118a1c-facts.json --execute，退出0。16:45:23新报告91bd7371-eea2-58be-8fdb-84dfa641f835，DEGRADED（证据受限）但业务生成成功，deepseek-v4-pro/ark_thinking_enabled；午间复盘与恢复通知分别于16:45:24.093和16:45:24.488 SENT。
+- liangjian-outcomes-recovery-20260930-1643.service调用python -m liangjian_funnel run-outcomes-refresh，退出0，job_status=COMPLETED，job_reason_code=CURRENT_OBSERVATIONS_COMPLETE_WITH_NO_TRADE_PENDING。只请求仍缺的7只，全部独立核验当日无成交，unresolved_missing_symbols为空。今日到期3598条A1的3596条T1就绪、002813/603183两条保留待观察；全历史data_status=DATA_LIMITED继续如实保留，不能以任务完成称历史已补齐。
+
+午间正式新提示词174907字符（低于180000目标），新输入哈希93cd867e556a0e924456a09a648324cf504b7b3f9c91d1a56ad6139680f8d126；新响应独立离线结构/引用/事实对账通过，退出0。输入哈希改变仅因为review_contract版本/提示词哈希更新；与原冻结事实逐节比较，除review_contract和input_hash外全部相同。未重新取行情、修改旧A4或伪造引用。
+
+原午间facts文件SHA256仍fda2ee5fdc732d567fda2c78a0020c37c978c2ffc990f88e23b4f05f878e9424，原盘后facts仍911c246b1b36a8547e5b5fe4048723c9184e4ec2ce55ff5f90722b6f9c9b5e33。全日A4事件摘要与15:10留存一致。成功盘后A5未重复补跑，也未静默覆盖报告。
+
+本次自然收盘研究集合断言通过：A1 1415包含A2聚焦10与观察125的联合135，包含A3计划47；A3量化输入116，余下8拒绝、61观察。全部去重、三个阶段VALIDATED，真实发布股票与A3集合一致。47计划为39趋势五日线、2套520、6龙头，全部PENDING_MORNING_REVIEW、valid_from为空，交易日历核对下一交易日2026-10-08，有效期当日15:00；未提前激活。
+
+最终证据：artifacts/diagnosis-20260930/session-release-final-1648.json、midday-93cd867e556a-facts.json、midday-93cd867e556a-model-8a8ca7a09af0.json、midday-93cd867e556a-context.json、a5-midday-recovery-20260930-1643.jsonl、outcomes-recovery-20260930-1643.json。原失败/原成功报告与证据均保留，没有本次需删除的临时操作脚本。一次性跟踪9-30-a4-a5已删除。
+
+最终CODE：对应128/73/35项回归通过，各自跳过项如上，不相加称全项目通过。REPLAY：4631条全日冻结判断一致，原事实不变。OPERATIONS：本日A4完整；A5午间恢复、盘后自然执行及通知成功；发布源码一致、当前表现补齐完成、自然收盘研究和下一交易日计划已核对。STRATEGY：无新增入场或成交样本，未证明策略收益/三策略自然执行稳定；免费源因果和独立验证不足仍需后续证据，策略门槛未修改。
