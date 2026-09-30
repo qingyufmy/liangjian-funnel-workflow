@@ -6,6 +6,9 @@
     "operations": "PRODUCTION_0614B7A_A4_RUNNING_MIDDAY_A5_EVIDENCE_INVALID_LOCAL_REPAIR_NOT_YET_DEPLOYED",
     "strategy": "UNCHANGED_NO_NEW_ENTRY_FILL_OR_PERFORMANCE_PROOF",
     "a5_failure": "A5_OUTPUT_EVIDENCE_INVALID_A5V_SUMMARY_NOT_PRESENT",
+    "repair_commit": "e3abaa9f9f3c6fdbbb79cf085511185aa6046c16",
+    "volume_forensics": "46_SOURCE_ARCHIVE_HASHES_VALID_NO_100X_ERROR_2351_VOLUME_SENSITIVITY_WINDOWS_ZERO_ACTION_OR_REASON_CHANGES_NOT_CAUSAL_ARRIVAL_PROOF",
+    "intraday_1415": {"ticks": 195, "records": 3777, "data_block": 0, "new_entry_signals": 0},
     "continuation_automation": "9-30-a4-a5_ACTIVE",
     "evidence": "docs/A4_A5_DIAGNOSIS_2026-09-30.md",
     "commands": [
