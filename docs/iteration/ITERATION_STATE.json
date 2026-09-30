@@ -1,5 +1,35 @@
 {
   "schema_version": "liangjian-iteration-state/1.0.0",
+  "a4_a5_20260930": {
+    "code": "128_PASSED_4_MISSING_FIXTURE_SKIPPED_INCLUDES_8_CORRECTION_TESTS",
+    "replay": "3472_FROZEN_STRATEGY_DECISIONS_IDENTICAL_NO_MISSING_INPUTS_FULL_DAY_PENDING",
+    "operations": "PRODUCTION_0614B7A_A4_RUNNING_MIDDAY_A5_EVIDENCE_INVALID_LOCAL_REPAIR_NOT_YET_DEPLOYED",
+    "strategy": "UNCHANGED_NO_NEW_ENTRY_FILL_OR_PERFORMANCE_PROOF",
+    "a5_failure": "A5_OUTPUT_EVIDENCE_INVALID_A5V_SUMMARY_NOT_PRESENT",
+    "continuation_automation": "9-30-a4-a5_ACTIVE",
+    "evidence": "docs/A4_A5_DIAGNOSIS_2026-09-30.md",
+    "commands": [
+      {"command": "python -m pytest tests/test_a5_plan_replay.py tests/test_a5_output_correction.py tests/test_a5_daily_review.py tests/test_a5_context_scope.py tests/test_a5_fact_guard.py tests/test_a5_independent_verification.py tests/test_audit_frozen_a4_clocks.py tests/test_a4_session_audit.py tests/test_workflow_lark_notifications.py -o addopts='' -q --tb=short -rs", "exit_code": 0, "passed": 128, "skipped": 4},
+      {"command": "python -m pytest tests/test_a5_output_correction.py -o addopts='' -q --tb=short", "exit_code": 0, "passed": 8},
+      {"command": "python scripts/audit_frozen_a4_decisions.py --day 2026-09-30 --output artifacts/diagnosis-20260930/a4-frozen-final-clock-audit.json", "exit_code": 0, "replayed": 3472, "changes": 0, "gaps": 0}
+    ],
+    "next": "Full-day A4 and natural A5 close acceptance; safe post-close release then original frozen MIDDAY retry"
+  },
+  "release_refresh_20260929": {
+    "commit": "0614b7a15a1f03b6c60fb5dbc5b8b6396e3af321",
+    "deployment": "DEPLOY_SH_EXIT_0_INSTALLED_7_MODULES_HASH_MATCH_NODE_AND_SCHEDULER_READY",
+    "tests": "318_PASSED_1_SKIPPED",
+    "refresh": "A1_SEALED_A2_A3_READY_20260930_PLANS_PENDING_MORNING_REVIEW",
+    "a1_generation_id": "a1-incremental-20260929T204729047284Z-813f00ba3f8b",
+    "a2_a3_run_id": "2026-09-29-close-refresh-2255",
+    "counts": {"a1": 1472, "a2_focus": 14, "a2_watch": 181, "a2_handoff": 195, "a3_published": 23},
+    "acceptance": "SUBSET_UNIQUE_VALIDATED_PUBLICATION_MATCH_EXPIRY_20260930_1500_ASSERTIONS_EXIT_0",
+    "notification": "CLOSE_ENTRY_NO_AUTOMATIC_REPORT_NO_RECEIPT_NEXT_DAY_NATURAL_TASKS_PENDING",
+    "unit": "liangjian-a1-refresh-20260929-2050.service",
+    "a1_run_id": "2026-09-29-a1-incremental-20260929T204729047284+0800",
+    "continuation_automation": "9-29-a1-a3_DELETED_AFTER_ACCEPTANCE",
+    "evidence": "docs/RELEASE_REFRESH_2026-09-29.md"
+  },
   "a4_sensitivity_a3_publication_20260929": {
     "code": "OFFLINE_AUDIT_TOOL_AND_5_TARGETED_TESTS_PASSED",
     "replay": "239_BASELINE_WINDOWS_REPRODUCED_HIGH_VOLUME_COMBINED_NO_ACTION_OR_REASON_CHANGE",

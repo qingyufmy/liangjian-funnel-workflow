@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import time
+from dataclasses import replace
 from datetime import date, datetime
 from enum import StrEnum
 from pathlib import Path
@@ -18,7 +20,7 @@ from ..pipeline.prompts import PromptRepository
 from ..reporting import atomic_write_json, atomic_write_text
 from ..runtime.state import RuntimeStore
 from .signal_audit import build_signal_stock_reviews
-from .context import A5ReviewError, render_a5_prompt
+from .context import A5ReviewError, PROMPT_LIMIT, render_a5_prompt
 from .plan_scope import carryover_evidence, select_review_plans
 from .plan_replay import replay_plan_pool, model_projection as replay_projection, markdown_lines as replay_markdown
 from .fact_guard import normalize_quality, reconcile_report, business_metrics, verification_totals
@@ -2091,6 +2093,92 @@ class A5DailyReviewService:
         self.notification_publisher = notification_publisher
         self._failure_context: dict[str, Any] = {}
 
+    def _validate_model_report(self, output, *, facts, allowed_projection_evidence, review_kind, trade_date):
+        try:
+            report = A5ReviewReport.model_validate(_canonicalize_report_output(
+                output, allowed_evidence=_evidence_ids(facts) | allowed_projection_evidence))
+        except ValidationError as exc:
+            raise A5ReviewError("A5_OUTPUT_SCHEMA_INVALID", diagnostics={
+                "phase": "MODEL_OUTPUT_SCHEMA", "errors": [
+                    {"field": ".".join(str(p) for p in e["loc"]), "type": e["type"]}
+                    for e in exc.errors(include_input=False, include_url=False)]}) from exc
+        if report.review_kind is not review_kind or report.trade_date != trade_date:
+            raise A5ReviewError("A5_OUTPUT_IDENTITY_MISMATCH")
+        _validate_evidence(report, facts, check_stage=False,
+                           allowed_projection_evidence=allowed_projection_evidence)
+        return report
+
+    def _validate_or_repair(self, result, *, prompt, facts, allowed_projection_evidence,
+                            review_kind, trade_date, target_dir, artifact_stem, model_deadline):
+        try:
+            return result, self._validate_model_report(result.output, facts=facts,
+                allowed_projection_evidence=allowed_projection_evidence,
+                review_kind=review_kind, trade_date=trade_date)
+        except A5ReviewError as exc:
+            failure = dict(exc.diagnostics)
+            atomic_write_json(target_dir / f"{artifact_stem}-validation-{result.output_hash[:12]}.json", failure)
+            diagnostic_path = target_dir / f"{artifact_stem}-validation-failure.json"
+            if not diagnostic_path.exists():
+                atomic_write_json(diagnostic_path, failure)
+            # Archived response revalidation is read-only with respect to the
+            # model. Unknown identity or contradictory per-stock evidence must
+            # not be silently rewritten or converted to an approved report.
+            if (exc.reason_code not in {"A5_OUTPUT_SCHEMA_INVALID", "A5_OUTPUT_EVIDENCE_INVALID"}
+                    or getattr(self.model_client, "archived_response_source", None)):
+                raise
+            remaining = model_deadline - time.monotonic()
+            if remaining < 5:
+                raise A5ReviewError(exc.reason_code, diagnostics={**failure,
+                    "repair_skipped": "MODEL_TOTAL_DEADLINE_EXHAUSTED"}) from exc
+            repair_prompt = prompt + "\nA5_OUTPUT_CORRECTION:\n" + json.dumps({
+                "instruction": "上次输出未通过校验。仅依据同一冻结事实纠正一次，返回完整JSON。"
+                    "不得创造证据、猜测映射或为了通过而删除不利事实。无证据支持的判断应明确写为未验证。"
+                    "evidence_ids必须逐字使用citation_catalog中的编号且支持对应判断。日期、时段和事实截止不变。",
+                "validation_failure": failure, "previous_output": result.output,
+            }, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            if len(repair_prompt) > PROMPT_LIMIT:
+                raise A5ReviewError(exc.reason_code, diagnostics={**failure,
+                    "repair_skipped": "REPAIR_CONTEXT_TOO_LARGE", "repair_prompt_chars": len(repair_prompt)}) from exc
+            repair_hash = hashlib.sha256(repair_prompt.encode("utf-8")).hexdigest()
+            atomic_write_text(target_dir / f"{artifact_stem}-repair-prompt-{repair_hash[:12]}.txt", repair_prompt)
+            self._failure_context["semantic_repair_attempted"] = True
+            try:
+                repaired = self.model_client.complete(self.model,
+                    [{"role": "system", "content": repair_prompt}], prompt_hash=repair_hash,
+                    input_hash=str(facts["input_hash"]), stage="A5",
+                    timeout_seconds=min(180, max(0.1, model_deadline - time.monotonic())), max_output_tokens=32_768)
+            except ModelClientError as request_error:
+                atomic_write_json(target_dir / f"{artifact_stem}-repair-request-failure-{repair_hash[:12]}.json", {
+                    "reason_code": request_error.reason_code, "http_status": request_error.status_code,
+                    "input_hash": facts["input_hash"], "prompt_hash": repair_hash,
+                    "parent_output_hash": result.output_hash, "attempts": request_error.attempts})
+                raise
+            if (repaired.model != self.model or repaired.input_hash != facts['input_hash']
+                    or repaired.prompt_hash != repair_hash):
+                raise A5ReviewError("A5_REPAIR_RESPONSE_IDENTITY_MISMATCH")
+            repair_raw = {"model": self.model, "output_hash": repaired.output_hash,
+                "output": repaired.output, "prompt_hash": repair_hash, "input_hash": facts["input_hash"],
+                "thinking_variant": repaired.thinking_variant, "validation_status": "RAW_NOT_APPROVED",
+                "parent_output_hash": result.output_hash, "parent_prompt_hash": result.prompt_hash,
+                "mode": "SAME_FROZEN_FACTS_SINGLE_MODEL_CORRECTION"}
+            repair_path = target_dir / f"{artifact_stem}-repair-model-{repaired.output_hash[:12]}.json"
+            if repair_path.exists():
+                if json.loads(repair_path.read_text(encoding="utf-8")) != repair_raw:
+                    raise A5ReviewError("A5_ARCHIVED_RESPONSE_CONFLICT")
+            else:
+                atomic_write_json(repair_path, repair_raw)
+            try:
+                report = self._validate_model_report(repaired.output, facts=facts,
+                    allowed_projection_evidence=allowed_projection_evidence,
+                    review_kind=review_kind, trade_date=trade_date)
+            except A5ReviewError as repair_error:
+                atomic_write_json(target_dir / f"{artifact_stem}-repair-validation-{repaired.output_hash[:12]}.json",
+                                  repair_error.diagnostics)
+                raise
+            report.fact_reconciliation.append("模型首次输出未通过校验；同一冻结事实下完成一次纠正并重新通过校验，原响应保留。")
+            return replace(repaired, latency_ms=result.latency_ms + repaired.latency_ms,
+                           attempts=result.attempts + repaired.attempts), report
+
     def run(self, *, review_kind: A5ReviewKind, now: datetime,
             frozen_facts: Mapping[str, Any] | None = None, close_archive: Mapping[str, Any] | None = None) -> dict[str, Any]:
         self._failure_context = {
@@ -2157,7 +2245,7 @@ class A5DailyReviewService:
         # Identical market facts must not reuse prose produced by an older
         # prompt/verification contract after a release.
         facts["review_contract"] = {
-            "version": "a5-full-lineage-entry-audit/13",
+            "version": "a5-full-lineage-entry-audit/14",
             "prompt_sha256": self.prompts.document(_A5_PROMPT).sha256,
             "model": self.model,
         }
@@ -2194,6 +2282,9 @@ class A5DailyReviewService:
             atomic_write_json(facts_path, facts)
         projection = _model_fact_projection(facts)
         allowed_projection_evidence = _projection_evidence_ids(projection)
+        # Only list citations actually visible in this projection, not thousands
+        # of raw minute rows that were deterministically aggregated away.
+        projection["citation_catalog"] = sorted(allowed_projection_evidence | {"METRICS:DAILY", "DATA_QUALITY:DAILY"})
         try:
             prompt, context_diagnostics = render_a5_prompt(self.prompts, _A5_PROMPT, projection)
         except A5ReviewError as exc:
@@ -2203,6 +2294,7 @@ class A5DailyReviewService:
         self._failure_context.update(context_diagnostics)
         atomic_write_json(target_dir / f"{artifact_stem}-context.json", context_diagnostics)
         prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+        model_deadline = time.monotonic() + 600
         try:
             if frozen_facts is not None and getattr(self.model_client, "revalidate_facts", False):
                 result = self.model_client.revalidate_frozen(
@@ -2221,7 +2313,7 @@ class A5DailyReviewService:
                     prompt_hash=prompt_hash,
                     input_hash=str(facts["input_hash"]),
                     stage="A5",
-                    timeout_seconds=600,
+                    timeout_seconds=max(0.1, model_deadline - time.monotonic()),
                     max_output_tokens=32_768,
                 )
         except ModelClientError as exc:
@@ -2249,27 +2341,15 @@ class A5DailyReviewService:
                 raise A5ReviewError("A5_ARCHIVED_RESPONSE_CONFLICT")
         else:
             atomic_write_json(raw_path, raw_payload)
-        try:
-            report = A5ReviewReport.model_validate(_canonicalize_report_output(
-                result.output, allowed_evidence=_evidence_ids(facts) | allowed_projection_evidence))
-        except ValidationError as exc:
-            diagnostics = {"phase": "MODEL_OUTPUT_SCHEMA", "errors": [
-                {"field": ".".join(str(part) for part in e["loc"]), "type": e["type"]}
-                for e in exc.errors(include_input=False, include_url=False)]}
-            atomic_write_json(target_dir / f"{artifact_stem}-validation-failure.json", diagnostics)
-            raise A5ReviewError("A5_OUTPUT_SCHEMA_INVALID", diagnostics=diagnostics) from exc
-        if report.review_kind is not review_kind or report.trade_date != current.date():
-            raise A5ReviewError("A5_OUTPUT_IDENTITY_MISMATCH")
-        _validate_evidence(
-            report,
-            facts,
-            check_stage=False,
-            allowed_projection_evidence=allowed_projection_evidence,
-        )
+        result, report = self._validate_or_repair(result, prompt=prompt, facts=facts,
+            allowed_projection_evidence=allowed_projection_evidence, review_kind=review_kind,
+            trade_date=current.date(), target_dir=target_dir, artifact_stem=artifact_stem,
+            model_deadline=model_deadline)
+        prompt_hash = result.prompt_hash or prompt_hash
         report.signal_stock_reviews = list(facts.get("signal_stock_reviews") or [])
         try:
             _enforce_verified_findings(report, facts)
-            report.fact_reconciliation = reconcile_report(report, facts)
+            report.fact_reconciliation.extend(reconcile_report(report, facts))
             report = A5ReviewReport.model_validate(report.model_dump())
         except ValidationError as exc:
             diagnostics = {"phase": "SERVER_FACT_RECONCILIATION", "errors": [

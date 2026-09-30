@@ -76,6 +76,9 @@ def replay_plan_pool(plan_rows, event_rows, *, minute_store, cutoff, market_stat
                   'recorded_signal_not_reproduced': 0,
                   'unconfirmed_trigger_minutes': 0, 'reasons': {}}
         results.append(result)
+        if not start and row.get('status') in ('INVALIDATED', 'EXPIRED') and profile in PROFILES:
+            result.update(status='NOT_APPLICABLE', reason_code='NOT_ACTIVATED_NOT_TESTED')
+            continue
         if profile not in PROFILES or not start:
             result['reason_code'] = 'UNKNOWN_STRATEGY' if profile not in PROFILES else 'ACTIVATION_NOT_PROVEN'
             continue
@@ -171,8 +174,7 @@ def replay_plan_pool(plan_rows, event_rows, *, minute_store, cutoff, market_stat
         except Exception as exc:
             result['reason_code'] = 'REPLAY_INPUT_OR_EVALUATION_FAILED'
             result['error_type'] = type(exc).__name__
-    coverage = {p: {'plan_count': sum(r['strategy_profile'] == p for r in results),
-                    'status': 'COVERED' if any(r['strategy_profile'] == p for r in results) else 'NO_PLAN_NOT_TESTED'} for p in PROFILES}
+    coverage = strategy_coverage(results)
     return {'schema_version': 'a5-plan-entry-replay/1', 'evidence_id': 'A5R:SUMMARY',
             'cutoff_at': cutoff.isoformat(), 'mode': 'EX_POST_ARCHIVED_TECHNICAL_ENTRY_REPLAY',
             'production_mutation': False, 'model_calls': 0, 'strategy_coverage': coverage,
@@ -187,8 +189,32 @@ def replay_plan_pool(plan_rows, event_rows, *, minute_store, cutoff, market_stat
                            '未覆盖的策略、缺失窗口及超时必须标为未验证，不得判定没有漏单。']}
 
 
+def strategy_coverage(results):
+    """Count assigned plans separately from plans actually replayed."""
+    coverage = {}
+    for profile in PROFILES:
+        rows = [r for r in results if r['strategy_profile'] == profile]
+        applicable = [r for r in rows if r['status'] != 'NOT_APPLICABLE']
+        expected = sum(r['expected_minutes'] for r in applicable)
+        replayed = sum(r['replayed_minutes'] for r in applicable)
+        status = ('NO_PLAN_NOT_TESTED' if not rows else 'NOT_ACTIVATED_NOT_TESTED' if not applicable
+                  else 'DATA_LIMITED' if not expected or not replayed or any(r['status'] == 'DATA_LIMITED' for r in applicable)
+                  else 'REQUIRES_REVIEW' if any(r['status'] == 'REQUIRES_REVIEW' for r in applicable)
+                  else 'PARTIALLY_REPLAYED' if replayed < expected else 'COVERED')
+        coverage[profile] = {'plan_count': len(rows), 'applicable_plan_count': len(applicable),
+            'replayed_plan_count': sum(r['replayed_minutes'] > 0 for r in applicable),
+            'expected_minutes': expected, 'replayed_minutes': replayed, 'status': status}
+    return coverage
+
+
 def model_projection(audit):
     result = {k: v for k, v in audit.items() if k not in ('archived_inputs', 'trigger_windows', 'frozen_plans', 'archived_market_states')}
+    if isinstance(audit.get('plans'), list):
+        coverage = strategy_coverage(audit['plans'])
+        if coverage != audit.get('strategy_coverage'):
+            result['archived_strategy_coverage'] = audit.get('strategy_coverage')
+            result['coverage_basis'] = 'RECOUNTED_FROM_FROZEN_PLAN_REPLAY_ROWS_NOT_NEW_REPLAY'
+        result['strategy_coverage'] = coverage
     groups = {}
     for row in audit.get('trigger_windows', []):
         key = (row['plan_id'], row['classification'], row['recorded_action'], row['recorded_reason'])
@@ -206,8 +232,12 @@ def markdown_lines(audit):
     if not audit:
         return ['## A3计划池策略回放', '', '本次冻结事实未包含回放证据，未验证。', '']
     lines = ['## A3计划池策略回放', '', '事后技术回放不等于已证实漏单；缺少当时市场、账户或模型证据时仅列待核查。', '']
-    for profile, row in audit['strategy_coverage'].items():
-        lines.append(f"- {NAMES[profile]}：{row['plan_count']}个计划" + ('，无计划，未验证。' if not row['plan_count'] else '。'))
+    for profile, row in strategy_coverage(audit.get('plans', [])).items():
+        status = row.get('status')
+        label = {'NO_PLAN_NOT_TESTED': '无计划，未验证', 'NOT_ACTIVATED_NOT_TESTED': '计划未激活，未验证',
+            'DATA_LIMITED': '回放资料不足，未完整验证', 'REQUIRES_REVIEW': '存在待核查窗口',
+            'PARTIALLY_REPLAYED': '部分窗口已回放', 'COVERED': '已完成适用窗口技术回放'}.get(status, '未验证')
+        lines.append(f"- {NAMES[profile]}：{row['plan_count']}个计划；{label}。")
     rows = audit['plans']
     lines.append(f"- 应检查{sum(r['expected_minutes'] for r in rows)}个计划分钟；已技术回放{sum(r['replayed_minutes'] for r in rows)}个；缺K线{sum(r['missing_bars'] for r in rows)}个；无执行记录{sum(r['missing_decisions'] for r in rows)}个。")
     lines.append(f"- 未对应有效买入信号的技术触发{sum(r['unconfirmed_trigger_minutes'] for r in rows)}次，需要结合模型否决、风控、计划状态和数据版本继续审计。")

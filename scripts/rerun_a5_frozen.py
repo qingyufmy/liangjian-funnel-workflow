@@ -10,6 +10,7 @@ from liangjian_funnel.pipeline.prompts import PromptRepository
 from liangjian_funnel.review.context import render_a5_prompt
 from liangjian_funnel.review.daily import (
     A5DailyReviewService, A5ReviewKind, _canonical_hash, _model_fact_projection,
+    _projection_evidence_ids,
 )
 from liangjian_funnel.settings import Settings
 
@@ -84,8 +85,10 @@ def main():
             or now < cutoff or facts['input_hash'] != _canonical_hash({k:v for k,v in facts.items() if k != 'input_hash'})):
         raise ValueError('A5_FROZEN_FACT_IDENTITY_OR_HASH_MISMATCH')
     settings = Settings.from_env(root=Path.cwd())
+    projection = _model_fact_projection(facts)
+    projection['citation_catalog'] = sorted(_projection_evidence_ids(projection) | {'METRICS:DAILY', 'DATA_QUALITY:DAILY'})
     _, diagnostics = render_a5_prompt(PromptRepository(settings.prompt_dir),
-        'agent_5_daily_reviewer_v1.txt', _model_fact_projection(facts))
+        'agent_5_daily_reviewer_v1.txt', projection)
     print(json.dumps({'mode':'execute' if args.execute else 'validate_only',
         'source_file_sha256':hashlib.sha256(raw).hexdigest(), 'context':diagnostics},ensure_ascii=False),flush=True)
     if not args.execute:

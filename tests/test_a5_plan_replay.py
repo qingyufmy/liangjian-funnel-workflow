@@ -72,6 +72,40 @@ def test_unactivated_and_archive_absent_are_not_healthy():
     row = plan(); row['valid_from'] = None
     result = replay_plan_pool([row, plan('MA520_SWING')], [], minute_store=None, cutoff=NOW)
     assert [r['reason_code'] for r in result['plans']] == ['ACTIVATION_NOT_PROVEN', 'MINUTE_ARCHIVE_UNAVAILABLE']
+    assert result['strategy_coverage']['TREND_MA5']['status'] == 'DATA_LIMITED'
+    assert result['strategy_coverage']['MA520_SWING']['status'] == 'DATA_LIMITED'
+
+
+def test_premarket_invalidated_leader_does_not_count_as_strategy_test():
+    row = plan('LEADER_INTRADAY')
+    row.update(valid_from=None, status='INVALIDATED')
+    result = replay_plan_pool([row], [], minute_store=None, cutoff=NOW)
+    coverage = result['strategy_coverage']['LEADER_INTRADAY']
+    assert coverage == {'plan_count': 1, 'applicable_plan_count': 0, 'replayed_plan_count': 0,
+                        'expected_minutes': 0, 'replayed_minutes': 0, 'status': 'NOT_ACTIVATED_NOT_TESTED'}
+    assert result['plans'][0]['status'] == 'NOT_APPLICABLE'
+    assert '计划未激活，未验证' in '\n'.join(markdown_lines(result))
+
+
+def test_deadline_and_missing_window_cannot_be_reported_covered(monkeypatch):
+    store, _ = setup(monkeypatch, missing=True)
+    result = replay_plan_pool([plan()], [], minute_store=store, cutoff=NOW)
+    assert result['strategy_coverage']['TREND_MA5']['status'] == 'DATA_LIMITED'
+    timed = replay_plan_pool([plan()], [], minute_store=store, cutoff=NOW, max_seconds=0)
+    assert timed['strategy_coverage']['TREND_MA5']['status'] == 'DATA_LIMITED'
+
+
+def test_old_frozen_coverage_is_recounted_without_overwriting_archive():
+    import copy
+    row = plan('LEADER_INTRADAY'); row['valid_from'] = None
+    audit = replay_plan_pool([row], [], minute_store=None, cutoff=NOW)
+    audit['strategy_coverage']['LEADER_INTRADAY'] = {'plan_count': 1, 'status': 'COVERED'}
+    original = copy.deepcopy(audit)
+    projected = model_projection(audit)
+    assert projected['strategy_coverage']['LEADER_INTRADAY']['status'] == 'DATA_LIMITED'
+    assert projected['archived_strategy_coverage']['LEADER_INTRADAY']['status'] == 'COVERED'
+    assert 'NOT_NEW_REPLAY' in projected['coverage_basis']
+    assert audit == original
 
 
 def test_market_archive_future_is_not_used(monkeypatch, tmp_path):

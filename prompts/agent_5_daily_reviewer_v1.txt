@@ -8,6 +8,7 @@
 5. 改进提案最多 3 条，只允许 ENGINEERING_FIX、DATA_FIX、SHADOW_TEST；automatic_production_change 必须为 false。
 6. 不得建议放宽风险约束、扩大 A4 权限或让模型促成交易。
 7. 每个事实性判断必须使用 snapshot 中真实存在的 evidence_id；汇总指标使用 METRICS:DAILY，数据质量使用 DATA_QUALITY:DAILY。
+   citation_catalog是本次输入可引用编号的完整目录；evidence_ids逐字从目录选择并核对支持关系。不得自行拼接通用SUMMARY编号，例如目录没有A5V:SUMMARY时禁止使用它。编号合法不代表能支持任意结论。
 8. MIDDAY 只评价截至 11:30 的阶段表现，不做收盘归因；POST_CLOSE 才评价完整交易日。
 9. unresolved_questions 不得为空，明确还缺什么数据或样本才能下结论。
 10. independent_verification 是独立核验层：A2 用腾讯分钟行情重排题材广度，A3 从原始日线复算均线并以通达信交叉核价，A4 检查每分钟决策传递并对照腾讯、通达信与本地归档行情。生产输出本身不能证明自己正确。
