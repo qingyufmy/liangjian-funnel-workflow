@@ -1928,6 +1928,8 @@ def _enforce_verified_findings(report: A5ReviewReport, facts: Mapping[str, Any])
         ("研究任务失败或超时" in item.problem and item.layer == "A2")
         or ("计划在应观察窗口内缺少决策记录" in item.problem)
         or ("实际决策窗口缺少" in item.problem and "判断记录" in item.problem)
+        or (item.layer == "A4" and item.problem.endswith(
+            "个计划存在异源价格超容差差异；行情覆盖完整不等于数值一致。"))
     )]
     def references(rows):
         # Report citations are a bounded index, not the source archive. Keep
@@ -1992,12 +1994,29 @@ def _enforce_verified_findings(report: A5ReviewReport, facts: Mapping[str, Any])
         findings.append(A5Defect(layer="A4", severity="MEDIUM", confidence="HIGH", blocked_by_data=True,
             problem=f"{applicable}个适用520计划中，仅{metrics.get('a4_m15_macd_warmed_plan_count', 0)}个记录15分钟MACD预热完成；不能以均线通过代替指标完整性验收。",
             evidence_ids=["METRICS:DAILY"]))
-    bad_prices = [row for row in _rows(a4.get("plans"))
+    bad_fields = [row for row in _rows(a4.get("plans"))
                   if row.get("cross_source_status") == "MISMATCH" or row.get("archived_tdx_status") == "MISMATCH"]
-    if bad_prices:
+    if bad_fields:
+        # The aggregate source status includes volume and amount, not only
+        # prices. Count affected plans once per field across both comparisons;
+        # incomparable/missing values are not mismatches or invented prices.
+        labels = {"OPEN": "开盘价", "HIGH": "最高价", "LOW": "最低价",
+                  "CLOSE": "收盘价", "VOLUME": "成交量", "AMOUNT": "成交金额"}
+        field_counts = {field: 0 for field in labels}
+        for row in bad_fields:
+            mismatched = {
+                str(field)
+                for side in ("cross_source_field_checks", "archived_tdx_field_checks")
+                for field, check in _json_mapping(row.get(side)).items()
+                if isinstance(check, Mapping) and check.get("status") == "MISMATCH"
+            }
+            for field in mismatched & field_counts.keys():
+                field_counts[field] += 1
+        detail = "、".join(f"{labels[field]}{count}个计划"
+                          for field, count in field_counts.items() if count) or "字段未细分"
         findings.append(A5Defect(layer="A4", severity="MEDIUM", confidence="HIGH", blocked_by_data=True,
-            problem=f"{len(bad_prices)}个计划存在异源价格超容差差异；行情覆盖完整不等于数值一致。",
-            evidence_ids=[str(row["evidence_id"]) for row in bad_prices[:20]]))
+            problem=f"{len(bad_fields)}个计划存在可比字段异源差异（{detail}）；字段可能重叠，成因待核查，行情覆盖完整不等于数值一致。",
+            evidence_ids=[str(row["evidence_id"]) for row in bad_fields[:20]]))
     totals = verification_totals(facts)
     gaps = [row for row in _rows(a4.get("plans")) if float(row.get("observation_coverage", 1)) < 1]
     if gaps:
