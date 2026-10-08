@@ -33,3 +33,11 @@
 - REPLAY：845组真实公告缓存对比无遗漏；774组继续严格回退，不做因果性或收益声明。
 - OPERATIONS：正式恢复已完成，明日可执行计划仍为0。发布及新缓存逻辑自然调度另行记录，不能称全项目稳定。
 - STRATEGY：三策略、情绪权限、T+1与风险阈值未改。本次不证明新增买点或策略收益有效。
+
+## 17:42发布与进一步阻断
+
+代码提交522ec802f00c800c6b70611101efef8e3929a502已推送main并通过既有deploy.sh发布，退出0。主机GitHub TLS仍失败，首次脚本退出1、未安装；随后使用已核验增量Git bundle，SHA256=7201cbc2c97b45364c505188ed8504b4e8a8cc7dced91e7f4846a81bb3659fc5，仅部署进程设置url.insteadOf，不改origin/代理/时段和活动任务保护。wheel SHA256=49d5bb3c3a65844cfe00aae88c6211bd11aeddd1c3915b393fba3da069c567f1，Node重新启动、调度启动记录和health通过；6个实际site-packages模块与src逐字节一致。SHADOW保持不变，/tmp bundle删除，.htaccess及原始证据保留。
+
+深入核查冻结SELECTED_BOARD_SNAPSHOT：available=false，ROTATION_THEME_ROWS_EMPTY，27方向全部ROTATION_BOARD_CATALOG_UNAVAILABLE，腾讯资金NOT_REQUESTED。成员文件103份，最新27份采集于9月21日，距10月8日17天，超过既有14日上限。目录请求失败加映射过期才是趋势入口消失的根因；情绪路径可研究但不能执行，不能简单称A3为0只是市场没有机会。
+
+17:45本地Windows和虚拟机分别探测push2delay、push2、82.push2的同一东财公开目录接口，6次均ConnectionError；虚拟机异常内层ProtocolError。两端DNS返回198.18的代理fake-IP，虚拟机路由经过Meta；fake-IP本身不证明配置错误，仍需排查实际代理上游/站点断开。没有改代理、安全配置、扩大映射有效期或伪造更新日期。剩余OPERATIONS阻断：板块成员新鲜度及真实目录恢复、次日计划仍0；新代码已发布不等于明日计划验收通过。下一步应恢复目录/成员同口径采集或取得明确授权建立独立来源映射，不能拿不同分类冒充东财板块。
