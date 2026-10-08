@@ -12,9 +12,10 @@ import re
 from collections.abc import Callable, Mapping
 from datetime import datetime, timedelta
 from typing import Any
+import math
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .mootdx import FetchResult, MinuteBar, MootdxAdapter, NodeAttempt, map_symbol
 
@@ -49,6 +50,15 @@ class MarketQuote(BaseModel):
     amount: float = Field(ge=0)
     source_id: str = TENCENT_SOURCE_ID
 
+    @model_validator(mode="after")
+    def valid_quote(self):
+        if self.quote_time.tzinfo is None or self.quote_time.utcoffset() is None:
+            raise ValueError("QUOTE_TIMEZONE_REQUIRED")
+        if not all(math.isfinite(value) for value in (
+            self.price, self.open, self.previous_close, self.volume, self.amount)):
+            raise ValueError("QUOTE_VALUES_NOT_FINITE")
+        return self
+
 
 class QuoteResult(BaseModel):
     """Fail-closed quote result used by the 09:26 auction review."""
@@ -59,6 +69,10 @@ class QuoteResult(BaseModel):
     quote: MarketQuote | None = None
     reason_code: str
     complete: bool = False
+    request_started_at: datetime | None = None
+    response_received_at: datetime | None = None
+    source_attempts: tuple[dict[str, Any], ...] = ()
+    transport_error_type: str | None = None
 
 
 JsonFetcher = Callable[[str, Mapping[str, str], float], Any]
@@ -165,8 +179,9 @@ class TencentIntradayAdapter:
             ordered = tuple(sorted(unique.values(), key=lambda item: item.bar_end))
         except (TencentMarketDataError, TypeError, ValueError, KeyError):
             return self._result(symbol, interval, requested, (), "TENCENT_RESPONSE_INVALID")
-        except Exception:
-            return self._result(symbol, interval, requested, (), "TENCENT_REQUEST_FAILED")
+        except Exception as exc:
+            return self._result(symbol, interval, requested, (), "TENCENT_REQUEST_FAILED").model_copy(
+                update={"transport_error_type": type(exc).__name__})
         if len(ordered) < requested:
             return self._result(symbol, interval, requested, ordered, "TENCENT_INSUFFICIENT_BARS")
         return self._result(symbol, interval, requested, ordered[-requested:], "OK", complete=True)
@@ -192,8 +207,9 @@ class TencentIntradayAdapter:
             quote = self._quote(raw, symbol)
         except (TencentMarketDataError, TypeError, ValueError, KeyError):
             return QuoteResult(symbol=str(symbol), reason_code="TENCENT_QUOTE_INVALID")
-        except Exception:
-            return QuoteResult(symbol=str(symbol), reason_code="TENCENT_QUOTE_REQUEST_FAILED")
+        except Exception as exc:
+            return QuoteResult(symbol=str(symbol), reason_code="TENCENT_QUOTE_REQUEST_FAILED",
+                               transport_error_type=type(exc).__name__)
         # The scheduler rounds its decision time to a minute.  Permit the
         # provider timestamp to fall inside that same minute, but never accept
         # another trade date or a stale prior snapshot.
@@ -252,12 +268,16 @@ class TencentIntradayAdapter:
 
     @staticmethod
     def _quote(raw: str, symbol: str) -> MarketQuote:
-        match = re.search(r'=\s*"([^"]*)"', str(raw or ""))
+        mapped = map_symbol(symbol)
+        provider = _provider_symbol(symbol)
+        match = re.search(r'\bv_' + re.escape(provider) + r'\s*=\s*"([^"]*)"', str(raw or ""))
         if not match:
             raise TencentMarketDataError("TENCENT_QUOTE_INVALID")
         fields = match.group(1).split("~")
         if len(fields) <= 37 or not _QUOTE_TIMESTAMP.fullmatch(fields[30].strip()):
             raise TencentMarketDataError("TENCENT_QUOTE_INVALID")
+        if fields[2].strip() != mapped.code:
+            raise TencentMarketDataError("TENCENT_QUOTE_SYMBOL_MISMATCH")
         return MarketQuote(
             symbol=map_symbol(symbol).canonical,
             name=fields[1].strip(),

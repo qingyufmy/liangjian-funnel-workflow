@@ -308,8 +308,9 @@ def test_a4_10_absolute_deadline_wrapper_preserves_valid_deterministic_output(tm
     assert legacy[-1][0] == MonitorAction.BUY_SIGNAL.value
 
 
+@pytest.mark.parametrize("hung_quote", [False, True])
 def test_a4_02_monitor_never_fetches_native_5m_or_archive_only_symbol(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, hung_quote: bool
 ) -> None:
     current = NOW.replace(minute=6)
     symbol = "000001.SZ"
@@ -360,7 +361,13 @@ def test_a4_02_monitor_never_fetches_native_5m_or_archive_only_symbol(
         )
 
     app._fetch_live_bars = fetch_bars
-    app._fetch_live_quote = lambda request_symbol, *_args, **_kwargs: quote(request_symbol, price=10, at=current)
+    def quote_source(request_symbol, *_args, **_kwargs):
+        if hung_quote:
+            time.sleep(0.3)
+        return quote(request_symbol, price=10, at=current)
+    app._fetch_live_quote = quote_source
+    if hung_quote:
+        monkeypatch.setattr("liangjian_funnel.data.publication.ACQUISITION_BUDGET_SECONDS", 0.1)
     monkeypatch.setattr("liangjian_funnel.workflow._a4_required_bars", lambda *_args: 1)
     monkeypatch.setattr("liangjian_funnel.workflow.load_or_refresh_live_market_state", lambda *_args, **_kwargs: {
         "status": "READY", "entry_permission": "ALLOW", "as_of": current.isoformat(),
@@ -390,3 +397,10 @@ def test_a4_02_monitor_never_fetches_native_5m_or_archive_only_symbol(
     assert result["archive_only_symbols"] == [archive_symbol]
     assert result["deferred_auxiliary"]["archive_symbols"] == [archive_symbol]
     assert result["deferred_auxiliary"]["native_5m_symbols"] == [symbol]
+    assert app.minute_store.load_decision_snapshot(
+        result["minute_snapshot_id"], symbol, "1m", as_of=current)
+    if hung_quote:
+        attempt = result["observability"]["source_attempts"][0]
+        assert attempt["one_minute_complete"] is True
+        assert attempt["quote_complete"] is False
+        assert attempt["fetch_error"] is None

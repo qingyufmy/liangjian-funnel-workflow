@@ -458,6 +458,9 @@ def test_primary_only_publishes_before_idempotent_comparison_enqueue(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     app = _app(tmp_path)
+    # Production __init__ always provides this calendar. Keep the isolated
+    # object.__new__ fixture complete instead of weakening publication dates.
+    app.trading_calendar = workflow_module.ExchangeTradingCalendar()
     prepared = _prepared(tmp_path)
     monkeypatch.setattr(workflow_module, "evaluate_resources", lambda _root: _resources(True))
     monkeypatch.setattr(

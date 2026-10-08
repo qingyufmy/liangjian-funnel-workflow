@@ -233,6 +233,8 @@ class FetchResult(BaseModel):
     complete: bool = False
     request_started_at: datetime | None = None
     response_received_at: datetime | None = None
+    source_attempts: tuple[dict[str, Any], ...] = ()
+    transport_error_type: str | None = None
 
     @model_validator(mode="after")
     def count_matches(self) -> "FetchResult":

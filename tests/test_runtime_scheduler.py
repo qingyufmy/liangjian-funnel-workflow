@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 import time
+import pytest
 from zoneinfo import ZoneInfo
 
 from liangjian_funnel.runtime.scheduler import DispatchStatus, ScheduleKind, Scheduler
@@ -9,6 +10,34 @@ from liangjian_funnel.runtime.state import RuntimeStore
 
 
 TZ = ZoneInfo("Asia/Shanghai")
+
+
+def test_dead_prior_monitor_process_does_not_lose_next_minute(tmp_path, monkeypatch):
+    store = RuntimeStore(tmp_path / 'dead-owner.sqlite3')
+    now = datetime(2026, 10, 8, 14, 59, 33, tzinfo=TZ)
+    old_key = 'monitor:2026-10-08T14:59:00+08:00'
+    assert store.acquire_lease('scheduler:monitor', 'dead-process', now=now,
+                               ttl_seconds=90, dispatch_key=old_key)
+    monkeypatch.setattr('liangjian_funnel.runtime.scheduler.owner_is_dead', lambda owner: owner == 'dead-process')
+    seen = []
+    scheduler = Scheduler(store, owner='new-process', callbacks={'monitor': lambda job: seen.append(job.due)}, trading_day=lambda _: True)
+    same = scheduler.dispatch_once(now, kinds=(ScheduleKind.MONITOR,))
+    assert same[0].status is DispatchStatus.LEASE_BUSY
+    at = now.replace(hour=15, minute=0, second=3)
+    result = scheduler.dispatch_once(at, kinds=(ScheduleKind.MONITOR,))
+    assert result[0].status is DispatchStatus.DISPATCHED
+    assert seen == [at.replace(second=0)]
+
+
+def test_alive_or_unverifiable_prior_owner_is_never_reclaimed(tmp_path, monkeypatch):
+    store = RuntimeStore(tmp_path / 'alive-owner.sqlite3')
+    now = datetime(2026, 10, 8, 14, 59, 33, tzinfo=TZ)
+    store.acquire_lease('scheduler:monitor', 'alive-or-legacy', now=now, ttl_seconds=90,
+                        dispatch_key='monitor:2026-10-08T14:59:00+08:00')
+    monkeypatch.setattr('liangjian_funnel.runtime.scheduler.owner_is_dead', lambda owner: False)
+    scheduler = Scheduler(store, owner='new-process', callbacks={'monitor': lambda job: pytest.fail('must not execute')}, trading_day=lambda _: True)
+    assert scheduler.dispatch_once(now.replace(hour=15, minute=0), kinds=(ScheduleKind.MONITOR,))[0].status is DispatchStatus.LEASE_BUSY
+    assert store.get_lease('scheduler:monitor')['owner'] == 'alive-or-legacy'
 
 
 def test_monitor_settles_session_end_after_node_delay_without_backfill(tmp_path):

@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 from pydantic import BaseModel, ConfigDict, Field
 
 from .state import RuntimeStore
+from .process_identity import owner_is_dead
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -155,6 +156,19 @@ class Scheduler:
                 self.store.complete_lease(lease, self.owner, dispatch_key=missed_key, now=current)
                 continue
             lease = self._lease_name(job.kind)
+            if job.kind is ScheduleKind.MONITOR:
+                previous = self.store.get_lease(lease)
+                # Reclaim only a provably dead local process, for a strictly
+                # later minute. Never replay the killed minute or reclaim an
+                # alive/legacy/unverifiable owner based on age alone.
+                if previous and previous.get("state") == "ACTIVE":
+                    key = str(previous.get("last_dispatch_key") or "")
+                    try:
+                        old_due = _local(datetime.fromisoformat(key.removeprefix("monitor:"))) if key.startswith("monitor:") else None
+                    except ValueError:
+                        old_due = None
+                    if old_due is not None and old_due < job.due and owner_is_dead(previous["owner"]):
+                        self.store.release_lease(lease, previous["owner"])
             acquired = self.store.acquire_lease(
                 lease,
                 self.owner,

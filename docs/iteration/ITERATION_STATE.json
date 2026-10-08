@@ -1,5 +1,25 @@
 {
   "schema_version": "liangjian-iteration-state/1.0.0",
+  "a4_source_degradation_20261008": {
+    "branch": "fix/a4-source-degradation-20261008",
+    "baseline_commit": "23eb4187304e5fd8bad386da95d04332f4eb91ea",
+    "code": "289_REGRESSIONS_PASSED_PLUS_87_FINAL_TRACE_REGRESSIONS_PASSED_OVERLAPPING_NOT_ADDITIVE",
+    "replay": "7530_COMPLETE_ORIGINAL_DECISIONS_MATCH_33_QUOTE_FAILURE_WINDOWS_NO_BUY_PROOF_21_TRUE_1M_GAPS_PRESERVED",
+    "operations": "LOCAL_ISOLATED_COMMIT_PRODUCTION_41AF033_READ_ONLY_NO_PUSH_NO_MERGE_NO_DEPLOY_NO_NOTICES_NO_MODEL_NO_DB_WRITES_NEW_SINA_SHADOW_ONLY",
+    "strategy": "UNCHANGED_NO_STRATEGY_THRESHOLD_T1_FILL_OR_RETURN_CLAIM",
+    "observed_session": {"minutes": 237, "records": 7585, "data_block": 54, "quote_failures": 33, "minute_gaps": 21, "missing_minutes": ["10:02", "10:03", "15:00"], "last_task_failure": "1459_SIGTERM_55041MS_1500_LEASE_BUSY"},
+    "evidence": "docs/A4_SOURCE_DEGRADATION_REPAIR_2026-10-08.md",
+    "artifact_dir": "artifacts/diagnosis-20261008",
+    "commands": [
+      {"command": "python scripts/audit_session_readonly.py --day 2026-10-08 --output artifacts/diagnosis-20261008/session-1535.json", "exit_code": 0},
+      {"command": "python scripts/audit_frozen_a4_decisions.py --day 2026-10-08 --output artifacts/diagnosis-20261008/a4-frozen-available-windows.json", "exit_code": 0, "replayed": 7563, "missing": 21},
+      {"command": "python scripts/probe_live_quote_backup.py --symbol 600189.SH --output artifacts/diagnosis-20261008/quote-backup-shadow.json", "exit_code": 0, "sina_current_quote_valid": false},
+      {"command": "python -m pytest final 20-file core/workflow/source slice; full command in evidence section 6", "exit_code": 0, "passed": 289},
+      {"command": "python -m pytest tests/test_source_degradation_recovery.py tests/test_minute_publication.py tests/test_live_market_state.py tests/test_runtime_scheduler.py tests/iteration/test_a4_orchestration.py -o addopts='' -q --tb=short", "exit_code": 0, "passed": 87},
+      {"command": "git diff --check", "exit_code": 0}
+    ],
+    "next": "RELEASE_AUTHORIZATION_THEN_EXISTING_DEPLOY_SH_WITH_NO_ACTIVE_WORKFLOW_KEEP_SINA_SHADOW_VERIFY_REAL_NEXT_SESSION_AND_NOTIFICATION_FAILURES"
+  },
   "a4_a5_20260930": {
     "code": "128_PASSED_4_SKIPPED_INITIAL_REPAIR_PLUS_73_PASSED_1_SKIPPED_FIELD_DEFECT_REGRESSION",
     "replay": "4631_FULL_DAY_FROZEN_STRATEGY_DECISIONS_IDENTICAL_NO_MISSING_INPUTS_NOT_QUOTE_OR_FILL_PROOF",

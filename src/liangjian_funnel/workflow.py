@@ -154,6 +154,7 @@ A4_POSITION_RISK_BUDGET_SECONDS = 2.0
 A4_MARKET_STATE_BUDGET_SECONDS = 8.0
 _A4_POSITION_WORK = BoundedWorkGate(8)
 _A4_REQUIRED_WORK = BoundedWorkGate(8)
+_A4_QUOTE_WORK = BoundedWorkGate(8)
 _A4_MARKET_WORK = BoundedWorkGate(1)
 _A4_MARKET_FALLBACK_WORK = BoundedWorkGate(4)
 _A4_LANE_WORK = BoundedWorkGate(4)
@@ -3566,26 +3567,10 @@ class WorkflowApplication:
         """Fetch a bounded current quote separately from closed K-line input."""
 
         source = getattr(self.market_data, "fallback", None) or self.market_data
-        fetch = getattr(source, "fetch_quote", None)
-        if not callable(fetch):
-            return None
-        last = None
-        for _ in range(2):
-            if deadline is not None and time.monotonic() >= deadline:
-                break
-            bounded = copy(source)
-            if hasattr(bounded, "timeout_seconds"):
-                remaining = max(0.1, (deadline - time.monotonic()) if deadline is not None else 2.5)
-                bounded.timeout_seconds = min(float(getattr(source, "timeout_seconds", 2.5)), 2.5, remaining)
-            try:
-                last = bounded.fetch_quote(symbol, as_of=current, max_age_seconds=90.0)
-            except TypeError:
-                last = bounded.fetch_quote(symbol, as_of=current)
-            except Exception:
-                last = None
-            if last is not None and getattr(last, "complete", False):
-                return last
-        return last or QuoteResult(symbol=symbol, reason_code="REALTIME_QUOTE_UNAVAILABLE")
+        from .data.live_quote import SinaQuoteAdapter, fetch_current_quote
+        mode = getattr(getattr(self, "settings", None), "a4_quote_backup_mode", "SHADOW")
+        backup = SinaQuoteAdapter() if mode == "SINA" else None
+        return fetch_current_quote(source, backup, symbol, as_of=current, deadline=deadline)
 
     def activate_latest_a3_for_monitor(
         self,
@@ -4225,18 +4210,9 @@ class WorkflowApplication:
             native_due = bool(execution_cutoff and _a4_native_verification_due(execution_cutoff))
             five = None
             auxiliary_error = "AUXILIARY_5M_DEFERRED" if include_auxiliary and native_due else None
-            quote_started = time.monotonic()
-            quote_wall = datetime.now(SHANGHAI)
-            try:
-                quote = position_quotes.get(symbol) or self._fetch_live_quote(
-                    symbol, current, deadline=fetch_deadline
-                )
-            finally:
-                record_span(f"holding_quote:{symbol}", quote_started, quote_wall)
             return symbol, {
                 "1m": one,
                 "5m": five,
-                "quote": quote,
                 "auxiliary_error": auxiliary_error,
             }
 
@@ -4296,6 +4272,25 @@ class WorkflowApplication:
                     }
                     for symbol, pack in market.items()
                 }
+            # Retain every completed minute window before requesting live
+            # prices. A hung quote must neither occupy minute-source slots
+            # nor replace a successful OHLCV packet with a generic timeout.
+            def fetch_quote_only(symbol: str):
+                started, wall = time.monotonic(), datetime.now(SHANGHAI)
+                try:
+                    return position_quotes.get(symbol) or self._fetch_live_quote(
+                        symbol, current, deadline=fetch_deadline)
+                finally:
+                    record_span(f"holding_quote:{symbol}", started, wall)
+            quote_work = run_many_bounded(
+                {symbol: (lambda symbol=symbol: fetch_quote_only(symbol)) for symbol in all_symbols},
+                deadline=fetch_deadline, gate=_A4_QUOTE_WORK)
+            for symbol, work in quote_work.items():
+                market.setdefault(symbol, {})["quote"] = (
+                    work.value if work.status == "READY" else QuoteResult(
+                        symbol=symbol, reason_code="REALTIME_QUOTE_BACKPRESSURE" if work.status == "BACKPRESSURE"
+                        else "REALTIME_QUOTE_DEADLINE_EXCEEDED" if work.status == "TIMED_OUT"
+                        else "REALTIME_QUOTE_REQUEST_FAILED"))
             quality_dir = self.settings.workflow_output_dir / "monitor" / "data_quality" / current.date().isoformat()
             quality_path = quality_dir / (current.strftime("%H%M") + ".json")
             previous_path = quality_dir / ((current - timedelta(minutes=1)).strftime("%H%M") + ".json")
@@ -4311,10 +4306,12 @@ class WorkflowApplication:
                         original = frozen_quality["symbols"][symbol]
                         market[symbol] = reuse_publication(pack, original, at=current)
                 else:
+                    from .data.source_health import source_health
                     atomic_write_json(quality_path, {"market_cutoff": current.isoformat(), "symbols": {
                         symbol: {**pack["publication"],
                                  "decision_error": pack.get("publication_error"),
-                                 "auxiliary_error": pack.get("auxiliary_error")}
+                                 "auxiliary_error": pack.get("auxiliary_error"),
+                                 "source_health": source_health(symbol, pack, at=current, cutoff=execution_cutoff)}
                         for symbol, pack in market.items()}})
             except Exception:
                 cache_system_error = True
@@ -4863,6 +4860,8 @@ class WorkflowApplication:
                 "one_minute_reason": getattr(fetched.get("1m"), "reason_code", "NOT_AVAILABLE"),
                 "quote_complete": bool(getattr(fetched.get("quote"), "complete", False)),
                 "quote_reason": getattr(fetched.get("quote"), "reason_code", "NOT_AVAILABLE"),
+                "minute_request_attempts": list(getattr(fetched.get("1m"), "source_attempts", ())),
+                "quote_request_attempts": list(getattr(fetched.get("quote"), "source_attempts", ())),
             }
             for symbol, fetched in sorted(market.items())
         )
@@ -4895,6 +4894,7 @@ class WorkflowApplication:
             ),
             versions={
                 "git": str(os.getenv("LIANGJIAN_GIT_COMMIT") or "UNRECORDED"),
+                "workflow_source": _file_version(Path(__file__)),
                 "config": _file_version(getattr(self.settings, "source_config_path", None)),
                 "prompt": _file_version(getattr(self.settings, "prompt_dir", None), "agent_4_intraday_veto_v3.txt"),
                 "fill_model": "NEXT_COMPLETE_1M_BAR_SIMULATION_V1",
@@ -5466,6 +5466,7 @@ class WorkflowApplication:
         now: datetime | None = None,
     ) -> dict[str, Any]:
         current = _aware(now or datetime.now(SHANGHAI))
+        from .runtime.process_identity import local_process_owner
         scheduler = Scheduler(
             self.store,
             callbacks={
@@ -5485,7 +5486,7 @@ class WorkflowApplication:
                 ScheduleKind.A5_POST_CLOSE_1600: lambda _job: self.run_a5_review(A5ReviewKind.POST_CLOSE, now=current),
                 ScheduleKind.MONITOR: lambda _job: self.monitor_once(now=current),
             },
-            owner="liangjian-runtime",
+            owner=local_process_owner(),
             trading_day=self.trading_calendar.is_trading_day,
         )
         maintenance_payload: dict[str, Any] | None = None

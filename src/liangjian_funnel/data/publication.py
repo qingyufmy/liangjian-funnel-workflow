@@ -3,7 +3,6 @@
 Observed stability is not exchange finality. The late probe horizon is a
 versioned conservative acquisition policy, not an OHLCV tolerance or buy gate.
 """
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 import hashlib
 import json
@@ -12,11 +11,13 @@ import time
 
 from .execution_evidence import execution_evidence
 from .session_windows import TZ
+from ..runtime.bounded_work import BoundedWorkGate, run_many_bounded
 
 POLICY_VERSION = "minute-publication/3"
 PROBE_AGES = (20.0, 25.0)
 ACQUISITION_BUDGET_SECONDS = 30.0
 CLOSED_WINDOW_RETRY_DELAYS = (0.5, 1.5)
+_PROBE_WORK = BoundedWorkGate(8)
 
 
 def _digest(result):
@@ -77,6 +78,23 @@ def confirm_publications(initial, fetch, *, at, deadline, clock=time.monotonic,
     Only the final selected pack may be frozen for a trading decision.
     """
     selected = {symbol: dict(pack) for symbol, pack in initial.items()}
+    def sweep(symbols):
+        # Executor.__exit__ waits for hung callbacks even after the deadline.
+        # Share bounded daemon slots across rounds and never accept late work.
+        results = run_many_bounded(
+            {symbol: (lambda symbol=symbol: fetch(symbol)) for symbol in sorted(symbols)},
+            deadline=deadline, gate=_PROBE_WORK, clock=clock, max_workers=max(1, min(workers, 8)))
+        for symbol, work in results.items():
+            if work.status == "READY" and clock() <= deadline:
+                returned_symbol, pack = work.value
+                if returned_symbol == symbol:
+                    yield symbol, pack
+                    continue
+            yield symbol, {"fetch_error": (
+                "MINUTE_PUBLICATION_RETRY_BACKPRESSURE" if work.status == "BACKPRESSURE"
+                else "MINUTE_PUBLICATION_RETRY_TIMEOUT" if work.status == "TIMED_OUT" or clock() > deadline
+                else "MINUTE_DATA_FETCH_FAILED" if work.status == "FAILED"
+                else "MINUTE_PUBLICATION_RETRY_INVALID")}
     evidence = {symbol: {"version": POLICY_VERSION, "market_cutoff": at.isoformat(),
         "state": "PENDING_PUBLICATION", "exchange_finality_proven": False,
         "probe_ages_seconds": list(PROBE_AGES), "attempts": [receipt(pack, at=at)]}
@@ -112,22 +130,15 @@ def confirm_publications(initial, fetch, *, at, deadline, clock=time.monotonic,
                 sleep(target - clock())
             if clock() >= deadline:
                 break
-            with ThreadPoolExecutor(max_workers=max(1, min(workers, len(retryable)))) as executor:
-                futures = {executor.submit(fetch, symbol): symbol for symbol in sorted(retryable)}
-                for future in as_completed(futures):
-                    symbol = futures[future]
-                    try:
-                        _, pack = future.result()
-                    except Exception:
-                        pack = {"fetch_error": "MINUTE_DATA_FETCH_FAILED"}
-                    selected[symbol] = dict(pack)
-                    observed = receipt(pack, at=at)
-                    evidence[symbol]["attempts"].append(observed)
-                    evidence[symbol]["last_observed_at"] = wall_clock().isoformat()
-                    one = pack.get("1m")
-                    if clock() <= deadline and one is not None and one.complete:
-                        evidence[symbol]["state"] = "OBSERVED_STABLE"
-                        evidence[symbol]["closed_window"] = True
+            for symbol, pack in sweep(retryable):
+                selected[symbol] = dict(pack)
+                observed = receipt(pack, at=at)
+                evidence[symbol]["attempts"].append(observed)
+                evidence[symbol]["last_observed_at"] = wall_clock().isoformat()
+                one = pack.get("1m")
+                if clock() <= deadline and one is not None and one.complete:
+                    evidence[symbol]["state"] = "OBSERVED_STABLE"
+                    evidence[symbol]["closed_window"] = True
             retryable = {
                 symbol for symbol in retryable
                 if evidence[symbol]["state"] != "OBSERVED_STABLE"
@@ -148,35 +159,26 @@ def confirm_publications(initial, fetch, *, at, deadline, clock=time.monotonic,
             sleep(delay)
         if not eligible or clock() >= deadline:
             break
-        with ThreadPoolExecutor(max_workers=max(1, min(workers, len(eligible)))) as executor:
-            futures = {executor.submit(fetch, symbol): symbol for symbol in sorted(eligible)}
-            for future in as_completed(futures):
-                symbol = futures[future]
-                try:
-                    _, pack = future.result()
-                except Exception:
-                    pack = {"fetch_error": "MINUTE_DATA_FETCH_FAILED"}
-                observed = receipt(pack, at=at)
-                previous = evidence[symbol]["attempts"][-1]
-                evidence[symbol]["attempts"].append(observed)
-                evidence[symbol]["last_observed_at"] = wall_clock().isoformat()
-                # A failed or late retry cannot be replaced with a successful
-                # earlier but unconfirmed version of the current candle.
-                selected[symbol] = dict(pack)
-                one = pack.get("1m")
-                if clock() > deadline or one is None or not one.complete:
-                    continue
-                late_probe = (wall_clock() - at).total_seconds() >= PROBE_AGES[-1]
-                stable = bool(observed["sources"]["1m"]["hash"] and
-                              observed["sources"]["1m"]["hash"] == previous["sources"]["1m"]["hash"])
-                unresolved = unresolved_conflicts(pack, evidence[symbol]['attempts'][:-1], at=at)
-                observed['unresolved_prior_conflicts'] = unresolved
-                auxiliary_conflict = observed["comparison"]["status"] == "CONFLICT" or bool(unresolved)
-                evidence[symbol]["auxiliary_state"] = "DEGRADED" if auxiliary_conflict else (
-                    "READY" if observed["comparison"]["status"] in {"MATCH", "DATA_LIMITED"} else "UNAVAILABLE"
-                )
-                if target_age == PROBE_AGES[-1] and late_probe and stable:
-                    evidence[symbol]["state"] = "OBSERVED_STABLE"
+        for symbol, pack in sweep(eligible):
+            observed = receipt(pack, at=at)
+            previous = evidence[symbol]["attempts"][-1]
+            evidence[symbol]["attempts"].append(observed)
+            evidence[symbol]["last_observed_at"] = wall_clock().isoformat()
+            selected[symbol] = dict(pack)
+            one = pack.get("1m")
+            if clock() > deadline or one is None or not one.complete:
+                continue
+            late_probe = (wall_clock() - at).total_seconds() >= PROBE_AGES[-1]
+            stable = bool(observed["sources"]["1m"]["hash"] and
+                          observed["sources"]["1m"]["hash"] == previous["sources"]["1m"]["hash"])
+            unresolved = unresolved_conflicts(pack, evidence[symbol]['attempts'][:-1], at=at)
+            observed['unresolved_prior_conflicts'] = unresolved
+            auxiliary_conflict = observed["comparison"]["status"] == "CONFLICT" or bool(unresolved)
+            evidence[symbol]["auxiliary_state"] = "DEGRADED" if auxiliary_conflict else (
+                "READY" if observed["comparison"]["status"] in {"MATCH", "DATA_LIMITED"} else "UNAVAILABLE"
+            )
+            if target_age == PROBE_AGES[-1] and late_probe and stable:
+                evidence[symbol]["state"] = "OBSERVED_STABLE"
         prior_sweep_end = clock()
     for symbol, pack in selected.items():
         item = evidence[symbol]

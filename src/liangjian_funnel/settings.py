@@ -5,7 +5,7 @@ import re
 import sys
 from ipaddress import ip_address
 from pathlib import Path
-from typing import Mapping
+from typing import Literal, Mapping
 from urllib.parse import urlparse
 
 import yaml
@@ -95,6 +95,8 @@ class Settings(BaseModel):
     mootdx_page_size: int = Field(default=800, ge=1, le=800)
     mootdx_max_pages: int = Field(default=20, ge=1, le=100)
     mootdx_history_5m_required_bars: int = Field(default=12_240, ge=255, le=80_000)
+    # New quote source remains shadow-only until separately promoted.
+    a4_quote_backup_mode: Literal["SHADOW", "SINA"] = "SHADOW"
     minute_cache_dir: Path
     output_dir: Path
     workflow_output_dir: Path
@@ -338,6 +340,7 @@ class Settings(BaseModel):
             mootdx_page_size=int(env.get("MOOTDX_PAGE_SIZE", "800")),
             mootdx_max_pages=int(env.get("MOOTDX_MAX_PAGES", "20")),
             mootdx_history_5m_required_bars=int(env.get("MOOTDX_HISTORY_5M_REQUIRED_BARS", "12240")),
+            a4_quote_backup_mode=env.get("LIANGJIAN_A4_QUOTE_BACKUP_MODE", "SHADOW").upper(),
             minute_cache_dir=Path(env["LIANGJIAN_MINUTE_CACHE_DIR"]).resolve()
             if env.get("LIANGJIAN_MINUTE_CACHE_DIR")
             else base / "storage" / "minute",

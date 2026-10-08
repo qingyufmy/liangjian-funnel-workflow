@@ -67,6 +67,9 @@ class BoundedWorkGate:
                 reason_code="DEADLINE_EXCEEDED",
                 elapsed_ms=max(0.0, (clock() - started) * 1000.0),
             )
+        if clock() > deadline:
+            return BoundedWorkResult("TIMED_OUT", reason_code="DEADLINE_EXCEEDED",
+                                     elapsed_ms=max(0.0, (clock() - started) * 1000.0))
         if status == "FAILED":
             return BoundedWorkResult(
                 "FAILED",
@@ -87,9 +90,12 @@ def run_many_bounded(
     deadline: float,
     gate: BoundedWorkGate,
     clock: Callable[[], float] = time.monotonic,
+    max_workers: int | None = None,
 ) -> dict[str, BoundedWorkResult]:
     """Launch independent work without a wait-all executor shutdown barrier."""
 
+    if max_workers is not None and max_workers <= 0:
+        raise ValueError("max_workers must be positive")
     output: dict[str, BoundedWorkResult] = {}
     queue: Queue[tuple[str, BoundedWorkResult]] = Queue()
     pending = iter(operations.items())
@@ -105,7 +111,10 @@ def run_many_bounded(
         def invoke() -> None:
             try:
                 value = operation()
-                result = BoundedWorkResult("READY", value=value, elapsed_ms=max(0.0, (clock() - started) * 1000.0))
+                result = (BoundedWorkResult("TIMED_OUT", reason_code="DEADLINE_EXCEEDED",
+                                           elapsed_ms=max(0.0, (clock() - started) * 1000.0))
+                          if clock() > deadline else
+                          BoundedWorkResult("READY", value=value, elapsed_ms=max(0.0, (clock() - started) * 1000.0)))
             except BaseException as exc:
                 result = BoundedWorkResult(
                     "FAILED", value=type(exc).__name__, reason_code="DEPENDENCY_FAILED",
@@ -121,7 +130,7 @@ def run_many_bounded(
     waiting: list[tuple[str, Callable[[], Any]]] = list(pending)
     cursor = 0
     while cursor < len(waiting) or active:
-        while cursor < len(waiting) and clock() < deadline:
+        while cursor < len(waiting) and clock() < deadline and (max_workers is None or active < max_workers):
             key, operation = waiting[cursor]
             if not launch(key, operation):
                 break
