@@ -31,6 +31,7 @@ from .data.a2_market import (
 from .data.bse import BseClient
 from .data.cninfo import CninfoAnnouncement, CninfoClient, CninfoFetchResult
 from .data.disclosure_router import OfficialDisclosureRouter
+from .data.disclosure_incremental import compose_disclosure_delta, covers_query
 from .data.exchange_disclosure import SseDisclosureClient, SzseDisclosureClient
 from .data.cninfo_pdf import CninfoPdfClient, CninfoPdfEvidence
 from .data.gov_policy import GovPolicyClient
@@ -90,7 +91,7 @@ from .pipeline.factors import FactorEngine
 from .pipeline.feature_store import ResearchFeatureStore
 from .pipeline.feature_maintenance import materialize_live_source
 from .pipeline.institutional_coverage import load_broker_gold_coverage
-from .pipeline.local_fact_cache import LocalFactCache
+from .pipeline.local_fact_cache import LocalFactCache, canonical_json_hash
 from .pipeline.market_aggregates import (
     build_crowding_snapshot,
     build_market_emotion,
@@ -1337,7 +1338,11 @@ class WorkflowApplication:
             },
         )
         if progress is not None:
-            progress.set_phase("FEATURE_SOURCE_GENERATION")
+            progress.set_phase(
+                "FEATURE_SOURCE_GENERATION"
+                if self.settings.feature_maintenance_enabled and not auction_refresh and materialize_feature_source
+                else "SNAPSHOT_READY"
+            )
             progress.update_resources(measure_resources(self.settings.root).as_dict())
             _progress_stdout(progress.snapshot())
         if self.settings.feature_maintenance_enabled and not auction_refresh and materialize_feature_source:
@@ -1607,8 +1612,14 @@ class WorkflowApplication:
         ttl: timedelta,
         search_keyword: str | None = None,
         stale_if_error: timedelta | None = None,
+        recent_delta: CninfoFetchResult | None = None,
     ) -> tuple[CninfoFetchResult, bool]:
         cache_key = f"{symbol}:{semantic_key}"
+        # Legacy official-router results omitted the request keyword. Only
+        # these fixed, historically keyword-specific keys can prove it.
+        cache_keyword = {"RECENT_10D": "", "ANNUAL_REPORT_450D": "年度报告",
+                         "BUSINESS_REPORT_450D_V3": "报告",
+                         "BUSINESS_PROSPECTUS_450D_V3": "招股说明书"}.get(semantic_key)
         now = datetime.now(SHANGHAI)
         cached = self.fact_cache.get_cached_result(
             "CNINFO_ANNOUNCEMENTS",
@@ -1617,9 +1628,37 @@ class WorkflowApplication:
         )
         if cached is not None:
             try:
-                return CninfoFetchResult.model_validate(cached["payload"]), True
+                if canonical_json_hash(cached["payload"]) != cached.get("content_hash"):
+                    raise ValueError("DISCLOSURE_CACHE_HASH_MISMATCH")
+                cached_result = CninfoFetchResult.model_validate(cached["payload"])
+                if covers_query(cached_result, symbol=symbol, start=start_date,
+                                end=end_date, keyword=search_keyword or "", now=now,
+                                cache_keyword=cache_keyword):
+                    return cached_result, True
             except Exception:
                 pass
+        if recent_delta is not None and stale_if_error is not None:
+            historical = self.fact_cache.get_cached_result(
+                "CNINFO_ANNOUNCEMENTS", cache_key, as_of=now,
+            )
+            if historical is not None:
+                try:
+                    if canonical_json_hash(historical["payload"]) != historical.get("content_hash"):
+                        raise ValueError("DISCLOSURE_CACHE_HASH_MISMATCH")
+                    composite = compose_disclosure_delta(
+                        CninfoFetchResult.model_validate(historical["payload"]), recent_delta,
+                        symbol=symbol, start=start_date, end=end_date,
+                        keyword=search_keyword or "", now=now, max_age=stale_if_error,
+                        base_keyword=cache_keyword,
+                    )
+                    if composite is not None:
+                        self.fact_cache.put_cached_result(
+                            "CNINFO_ANNOUNCEMENTS", cache_key, composite.model_dump(mode="json"),
+                            fetched_at=composite.fetched_at, expires_at=composite.fetched_at + ttl,
+                        )
+                        return composite, True
+                except (ValueError, TypeError):
+                    pass
         router_primary_only = isinstance(client, OfficialDisclosureRouter) and stale_if_error is not None
         fetch_method = client.fetch_primary if router_primary_only else client.fetch_announcements
         result = fetch_method(
@@ -1651,12 +1690,17 @@ class WorkflowApplication:
             )
             if stale is not None:
                 try:
+                    if canonical_json_hash(stale["payload"]) != stale.get("content_hash"):
+                        raise ValueError("DISCLOSURE_CACHE_HASH_MISMATCH")
                     cached_result = CninfoFetchResult.model_validate(stale["payload"])
                     fetched_at = datetime.fromisoformat(str(stale["fetched_at"]))
                     if fetched_at.tzinfo is None or fetched_at.utcoffset() is None:
                         fetched_at = fetched_at.replace(tzinfo=SHANGHAI)
                     age = now - fetched_at.astimezone(SHANGHAI)
-                    if timedelta(0) <= age <= stale_if_error:
+                    if (timedelta(0) <= age <= stale_if_error
+                            and cached_result.ok and cached_result.complete
+                            and cached_result.symbol == symbol
+                            and cached_result.metadata.get("search_keyword", cache_keyword or "") == (search_keyword or "")):
                         return cached_result.model_copy(
                             update={
                                 "metadata": {
@@ -1727,6 +1771,7 @@ class WorkflowApplication:
             ttl=timedelta(days=7),
             search_keyword="年度报告",
             stale_if_error=timedelta(days=45),
+            recent_delta=recent_result,
         )
         from .facts.cninfo import is_full_periodic_report
 
@@ -1742,6 +1787,7 @@ class WorkflowApplication:
                 client, symbol=symbol, start_date=business_query_start, end_date=query_end,
                 semantic_key=semantic_key, ttl=timedelta(days=7), search_keyword=keyword,
                 stale_if_error=timedelta(days=45),
+                recent_delta=recent_result,
             )
             supplement_queries = list(business_result.metadata.get("supplemental_queries", []))
             supplement_queries.append({"search_keyword": keyword, "reason_code": prospectus_result.reason_code,

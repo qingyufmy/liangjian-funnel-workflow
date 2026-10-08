@@ -1,4 +1,17 @@
 {
+  "close_recovery_20261008": {
+    "code": "88_RELATED_TESTS_PASSED",
+    "replay": "845_COMPOSITES_NO_MISSING_OR_REVISION_774_DECLINED_473_EXACT_372_SUPERSET",
+    "operations": "FORMAL_CLOSE_RECOVERY_EXIT0_READY_DEGRADED_ZERO_EXECUTABLE_NEXT_DAY_PLANS_RELEASE_PENDING",
+    "strategy": "UNCHANGED_NO_THRESHOLD_RELAXATION_OR_PLAN_COUNT_TARGET",
+    "evidence": "docs/CLOSE_RESEARCH_RECOVERY_2026-10-08.md",
+    "commands": [
+      {"command": "python -m pytest disclosure/cache/router/normalization/workflow/orchestration/data_sync 7-file slice -o addopts='' -q --tb=short", "exit_code": 0, "passed": 88},
+      {"command": "python scripts/audit_disclosure_incremental_readonly.py --day 2026-10-08 --output artifacts/diagnosis-20261008/disclosure-incremental-readonly-v3.json", "exit_code": 0},
+      {"command": "systemd-run existing run_close_with_a2_diagnostics.py www RuntimeMaxSec=5400", "exit_code": 0, "run_id": "2026-10-08-close-a2-audit-172755"}
+    ],
+    "next": "DEPLOY_AFTER_NO_ACTIVE_WORKFLOW_THEN_VERIFY_NEXT_DAY_PREPARATION_AND_NATURAL_A1"
+  },
   "schema_version": "liangjian-iteration-state/1.0.0",
   "a4_source_degradation_20261008": {
     "branch": "fix/a4-source-degradation-20261008",

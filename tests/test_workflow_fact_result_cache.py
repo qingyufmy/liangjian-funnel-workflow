@@ -65,7 +65,7 @@ class FakeCninfoClient:
         )
 
 
-def test_cninfo_semantic_cache_avoids_repeated_company_request(tmp_path: Path):
+def test_cninfo_semantic_cache_must_cover_requested_date_not_only_ttl(tmp_path: Path):
     application = object.__new__(WorkflowApplication)
     application.fact_cache = LocalFactCache(tmp_path / "facts.sqlite3")
     client = FakeCninfoClient()
@@ -90,9 +90,9 @@ def test_cninfo_semantic_cache_avoids_repeated_company_request(tmp_path: Path):
     )
 
     assert first_hit is False
-    assert second_hit is True
-    assert client.calls == 1
-    assert second.model_dump(mode="json") == first.model_dump(mode="json")
+    assert second_hit is False
+    assert client.calls == 2
+    assert second.end_date == "2026-08-27"
 
 
 def test_official_disclosure_queries_route_bj_to_bse(tmp_path: Path):
