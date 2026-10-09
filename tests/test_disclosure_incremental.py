@@ -126,13 +126,14 @@ def test_corrupt_cache_cannot_be_reblessed_by_complete_delta(tmp_path: Path):
     assert not hit and client.calls == 1 and result.end_date == END
 
 
-def test_recent_window_uses_complete_overlapping_delta_not_full_rescan(tmp_path: Path):
+@pytest.mark.parametrize('end_days', [1, 0])
+def test_recent_window_uses_complete_overlapping_delta_not_full_rescan(tmp_path: Path, end_days):
     app = object.__new__(WorkflowApplication)
     app.fact_cache = LocalFactCache(tmp_path / 'recent.sqlite3')
     base, recent = inputs()
     base = base.model_copy(update={'start_date': recent.start_date,
-                                  'end_date': (NOW.date() - timedelta(days=1)).isoformat(),
-                                  'fetched_at': NOW - timedelta(hours=12),
+                                  'end_date': (NOW.date() - timedelta(days=end_days)).isoformat(),
+                                  'fetched_at': NOW - timedelta(hours=7),
                                   'metadata': {'search_keyword': ''}, 'announcements': ()})
     app.fact_cache.put_cached_result('CNINFO_ANNOUNCEMENTS', '600519.SH:RECENT_10D',
         base.model_dump(mode='json'), fetched_at=base.fetched_at,

@@ -32,7 +32,7 @@ out['modules'] = []
 for name in ['data.board_reference','data.hithink_board_reference','data.rotation_theme','pipeline.data_source',
              'runtime.auction_base','settings','workflow','data.publication','data.live_fetch',
              'data.tencent_minute','runtime.monitor','pipeline.a2_role_logic', 'pipeline.a3_strategy',
-             'pipeline.research']:
+             'pipeline.research', 'cli']:
     try:
         m = importlib.import_module('liangjian_funnel.'+name)
     except ModuleNotFoundError:

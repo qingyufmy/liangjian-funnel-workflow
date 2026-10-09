@@ -1676,7 +1676,7 @@ class WorkflowApplication:
                     if (base.ok and base.complete and base.symbol == symbol
                             and base.metadata.get('search_keyword', '') == ''
                             and timedelta(0) <= now - base.fetched_at <= timedelta(days=2)
-                            and base.start_date <= start_date <= base.end_date < end_date <= now.date().isoformat()):
+                            and base.start_date <= start_date <= base.end_date <= end_date <= now.date().isoformat()):
                         # Include the last covered day so overlapping revisions
                         # are checked, not silently preferred. Never relabel a
                         # stale result as a complete current risk query.
