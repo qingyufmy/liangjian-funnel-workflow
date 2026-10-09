@@ -1,6 +1,7 @@
 """Counterexamples for scope lineage, not strategy admission changes."""
 from liangjian_funnel.pipeline.close_scope import build_scope_ledger
-from liangjian_funnel.pipeline.close_scope import seal_scope_receipt
+from liangjian_funnel.pipeline.close_scope import seal_scope_receipt, validate_scope_receipt
+from liangjian_funnel.pipeline.feature_store import content_hash
 import json
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -100,3 +101,29 @@ def test_weekend_receipt_keeps_real_source_time_separate_from_friday_market(tmp_
 def test_future_market_time_is_not_accepted(tmp_path):
     with pytest.raises(ValueError,match='INVALID_SCOPE_TIME'):
         seal(tmp_path,market_data_as_of=datetime(2026,10,10,15,tzinfo=ZoneInfo('Asia/Shanghai')))
+
+
+def test_identical_retry_reuses_original_receipt_and_observation_time(tmp_path):
+    first = seal(tmp_path)
+    original = first.read_bytes()
+    assert seal(tmp_path) == first
+    assert first.read_bytes() == original
+    assert len(list(tmp_path.glob('close-scope-*.json'))) == 1
+
+
+def test_idempotent_receipt_does_not_accept_tampered_observation(tmp_path):
+    first = seal(tmp_path)
+    value = json.loads(first.read_text())
+    value['recorded_at'] = '2000-01-01T00:00:00+00:00'
+    first.write_text(json.dumps(value))
+    with pytest.raises(ValueError, match='SCOPE_RECEIPT_OBSERVATION_HASH_MISMATCH'):
+        seal(tmp_path)
+
+
+def test_legacy_receipt_retains_full_document_hash_contract():
+    value = {'schema_version':'close-scope-receipt/1','recorded_at':'original'}
+    value['receipt_hash'] = content_hash(value)
+    validate_scope_receipt(value)
+    value['recorded_at'] = 'tampered'
+    with pytest.raises(ValueError, match='CLOSE_SCOPE_RECEIPT_HASH_MISMATCH'):
+        validate_scope_receipt(value)

@@ -132,6 +132,7 @@ class HithinkIncrementalSynchronizer:
             state = self.cache.get_sync_state('HITHINK_DAILY_1D', symbol)
             cursor = state.get('cursor') if state else None
             pending_reset = cursor.get('pending_reset_reason') if isinstance(cursor, Mapping) else None
+            history_coverage = cursor.get('history_coverage') if isinstance(cursor, Mapping) else None
             if pending_reset:
                 if pending_reset not in {'ADJUSTMENT_FACTOR_CHANGED', 'HISTORICAL_REVISION_CONFIRMED'}:
                     raise ValueError('UNVERIFIED_DAILY_RESET_REASON')
@@ -160,7 +161,7 @@ class HithinkIncrementalSynchronizer:
                 request_start_ms = int(start.timestamp() * 1000)
                 mode = 'FULL_REFRESH'
                 if reason is None:
-                    if len(rows) < 30:
+                    if len(rows) < 30 and not _complete_short_history(state, start, rows):
                         reason = 'HISTORY_SHORT_BOOTSTRAP'
                     elif latest is not None and (required_latest_daily is None or
                           _aware(datetime.fromisoformat(str(latest['timestamp']))) < required_latest_daily):
@@ -244,6 +245,15 @@ class HithinkIncrementalSynchronizer:
                     'source_reason_code': result.reason_code,
                     'received_at': result.fetch_time.isoformat()})
                 if result.ok and result.complete and closed_items and reset_complete and overlap_complete:
+                    if daily_requests[symbol]['mode'] == 'FULL_REFRESH':
+                        coverage = {'start_ms':request_start_ms,
+                            'end_ms':int(closed_daily_end.timestamp()*1000), 'adjust':'none',
+                            'source_ok':True,'source_complete':True,
+                            'received_at':result.fetch_time.isoformat(),
+                            'row_count':len(closed_items),
+                            'source_hash':content_hash([r.model_dump(mode='json') for r in closed_items])}
+                        coverage['coverage_hash'] = content_hash(coverage)
+                        history_coverage = coverage
                     self.cache.upsert_daily_bars(
                         (
                             {
@@ -262,7 +272,8 @@ class HithinkIncrementalSynchronizer:
                         symbol,
                         last_success=result.fetch_time,
                         cursor={"through": _latest_row_time(closed_items),
-                                'request': daily_requests[symbol]},
+                                'request': daily_requests[symbol],
+                                'history_coverage':history_coverage},
                         status="READY",
                         reason=None,
                     )
@@ -494,7 +505,7 @@ class HithinkIncrementalSynchronizer:
             limit=30,
             descending=True,
         )
-        if len(rows) < 30:
+        if len(rows) < 30 and not _complete_short_history(state, start, rows):
             return False
         latest = datetime.fromisoformat(str(rows[0]["timestamp"]))
         if required_latest is not None:
@@ -665,6 +676,36 @@ def _published_at(row: Mapping[str, Any], fallback: datetime) -> datetime:
         parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
         return parsed.replace(tzinfo=SHANGHAI) if parsed.tzinfo is None else parsed.astimezone(SHANGHAI)
     return _aware(fallback)
+
+
+def _complete_short_history(state: Mapping | None, start: datetime,
+                            rows: Sequence[Mapping]) -> bool:
+    """Transport completeness is not technical eligibility or suspension proof.
+
+    Only a successful full-range source receipt may avoid daily bootstrap.
+    Legacy cursors or fewer than three overlap bars cannot establish this.
+    """
+    if not state or state.get('status') != 'READY' or len(rows) < 3:
+        return False
+    cursor = state.get('cursor')
+    coverage = cursor.get('history_coverage') if isinstance(cursor, Mapping) else None
+    if not isinstance(coverage, Mapping):
+        return False
+    if content_hash({k:v for k,v in coverage.items() if k != 'coverage_hash'}) != coverage.get('coverage_hash'):
+        return False
+    if (coverage.get('adjust') != 'none' or coverage.get('source_ok') is not True
+            or coverage.get('source_complete') is not True
+            or not isinstance(coverage.get('source_hash'), str)
+            or len(coverage['source_hash']) != 64):
+        return False
+    try:
+        return (int(coverage['start_ms']) <= int(start.timestamp()*1000)
+            and int(coverage['end_ms']) > int(coverage['start_ms'])
+            and int(coverage['row_count']) >= 3
+            and _aware(datetime.fromisoformat(coverage['received_at']))
+                <= _aware(datetime.fromisoformat(state['last_success'])))
+    except (ValueError, TypeError, KeyError):
+        return False
 
 
 def _aware(value: datetime) -> datetime:

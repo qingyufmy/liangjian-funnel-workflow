@@ -10,6 +10,34 @@ from pathlib import Path
 from ..reporting import atomic_write_json
 
 
+def _hash(value: Mapping) -> str:
+    return hashlib.sha256(json.dumps(value,ensure_ascii=False,
+        sort_keys=True,separators=(',',':')).encode()).hexdigest()
+
+
+def hash_scope_receipt(payload: Mapping) -> dict:
+    """Separate stable input identity from immutable observation evidence."""
+    value = dict(payload)
+    value['receipt_hash'] = _hash({k:v for k,v in value.items()
+        if k not in {'recorded_at','receipt_hash','observation_hash'}})
+    value['observation_hash'] = _hash({k:v for k,v in value.items() if k != 'observation_hash'})
+    return value
+
+
+def validate_scope_receipt(value: Mapping) -> None:
+    if value.get('schema_version') == 'close-scope-receipt/1':
+        if _hash({k:v for k,v in value.items() if k != 'receipt_hash'}) != value.get('receipt_hash'):
+            raise ValueError('CLOSE_SCOPE_RECEIPT_HASH_MISMATCH')
+    elif value.get('schema_version') == 'close-scope-receipt/2':
+        expected = hash_scope_receipt(value)
+        if expected['receipt_hash'] != value.get('receipt_hash'):
+            raise ValueError('CLOSE_SCOPE_RECEIPT_HASH_MISMATCH')
+        if expected['observation_hash'] != value.get('observation_hash'):
+            raise ValueError('SCOPE_RECEIPT_OBSERVATION_HASH_MISMATCH')
+    else:
+        raise ValueError('CLOSE_SCOPE_RECEIPT_SCHEMA_MISMATCH')
+
+
 def build_scope_ledger(*, a1_symbols: Iterable[str], hot_symbols: Iterable[str],
                        discovery_symbols: Iterable[str], g0_symbols: Iterable[str]) -> dict:
     """Mirror the existing union/intersection, retaining all source overlaps.
@@ -45,7 +73,8 @@ def seal_scope_receipt(*, root: Path, run_id: str, research_as_of: datetime,
     """Archive the actual union before expensive sync; never decide admission.
 
     The timestamp of receipt creation is real observation time. A later A1
-    generation or retry creates a new file, never rewrites an earlier receipt.
+    generation creates a new file. An identical retry reuses the original
+    observation, never claiming that the earlier file was observed later.
     Keep unselected discovery leads as counterevidence, outside the source set.
     """
     if (research_as_of.tzinfo is None or market_data_as_of.tzinfo is None
@@ -59,18 +88,20 @@ def seal_scope_receipt(*, root: Path, run_id: str, research_as_of: datetime,
                            if row.get('review_budget_selected')], g0_symbols=g0_symbols)
     if set(scope['selected_symbols']) != set(selected_symbols):
         raise ValueError('SELECTED_SCOPE_MISMATCH')
-    payload = {'schema_version':'close-scope-receipt/1','run_id':run_id,
+    payload = {'schema_version':'close-scope-receipt/2','run_id':run_id,
         'research_as_of':research_as_of.isoformat(),
         'market_data_as_of':market_data_as_of.isoformat(),
         'recorded_at':datetime.now(timezone.utc).isoformat(),
         'a1_reference':a1_reference,
         'binding_status':'ORIGINAL_RUN_REFERENCE' if a1_reference else 'UNBOUND_A1_REFERENCE',
         'execution_authority':False,'scope':scope,'hot100':hot_payload,'discovery':discovery}
-    payload['receipt_hash'] = hashlib.sha256(json.dumps(payload,ensure_ascii=False,
-        sort_keys=True,separators=(',',':')).encode()).hexdigest()
+    payload = hash_scope_receipt(payload)
     path = Path(root) / ('close-scope-'+research_as_of.strftime('%Y%m%d')+'-'+payload['receipt_hash']+'.json')
     if path.exists():
-        if json.loads(path.read_text(encoding='utf-8')) != payload:
+        existing = json.loads(path.read_text(encoding='utf-8'))
+        validate_scope_receipt(existing)
+        if {k:v for k,v in existing.items() if k not in {'recorded_at','observation_hash'}} != {
+                k:v for k,v in payload.items() if k not in {'recorded_at','observation_hash'}}:
             raise ValueError('SCOPE_RECEIPT_CONFLICT')
         return path
     atomic_write_json(path,payload)

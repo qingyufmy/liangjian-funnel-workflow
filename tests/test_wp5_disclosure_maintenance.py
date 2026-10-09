@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from liangjian_funnel.pipeline.close_scope import seal_scope_receipt
+from liangjian_funnel.pipeline.close_scope import seal_scope_receipt, hash_scope_receipt
 from liangjian_funnel.pipeline.feature_store import content_hash
 from liangjian_funnel.pipeline.disclosure_maintenance import (
     build_maintenance_queue, run_maintenance, validate_queue, seal_maintenance_queue,
@@ -40,6 +40,9 @@ def queue(tmp_path, size=3):
 
 
 def rehash(value, key):
+    if key == 'receipt_hash' and value.get('schema_version') == 'close-scope-receipt/2':
+        value.update(hash_scope_receipt(value))
+        return
     value[key] = content_hash({k: v for k, v in value.items() if k != key})
 
 

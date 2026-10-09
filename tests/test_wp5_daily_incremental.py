@@ -133,3 +133,54 @@ def test_future_cached_revision_is_not_incremental_cursor(tmp_path):
         as_of=NOW, include_financial=False)
     assert client.calls[0][1]['start'] == history()[-4]['date_ms']
     assert result.failures == {}
+
+
+def test_short_complete_bootstrap_is_incremental_next_session_without_lowering_readiness(tmp_path):
+    cache = LocalFactCache(tmp_path/'cache.sqlite3')
+    rows = history()[-5:]
+    first = HithinkIncrementalSynchronizer(cache).sync(Client(rows), ['600000.SH'],
+        as_of=NOW, include_financial=False)
+    assert first.daily_requests['600000.SH']['reason_code'] == 'HISTORY_SHORT_BOOTSTRAP'
+    next_day = NOW + timedelta(days=3)
+    new_row = {**rows[-1], 'date_ms': int(next_day.replace(hour=0,minute=0).timestamp()*1000)}
+    client = Client(rows+[new_row])
+    second = HithinkIncrementalSynchronizer(cache).sync(client,['600000.SH'],
+        as_of=next_day, include_financial=False)
+    assert second.daily_requests['600000.SH']['mode'] == 'INCREMENTAL'
+    assert client.calls[0][1]['start'] == rows[-3]['date_ms']
+    assert len(second.daily['600000.SH']) == 6
+
+
+def test_short_history_without_full_range_receipt_still_bootstraps(tmp_path):
+    cache = LocalFactCache(tmp_path/'cache.sqlite3')
+    seed(cache,'600000.SH',history()[-5:-1])
+    result = HithinkIncrementalSynchronizer(cache).sync(Client(),['600000.SH'],
+        as_of=NOW,include_financial=False)
+    assert result.daily_requests['600000.SH']['mode'] == 'FULL_REFRESH'
+
+
+@pytest.mark.parametrize('fault',['hash','incomplete','narrow','failed'])
+def test_short_history_coverage_must_be_complete_bound_and_successful(tmp_path, fault):
+    from liangjian_funnel.pipeline.feature_store import content_hash
+    cache = LocalFactCache(tmp_path/'cache.sqlite3')
+    rows = history()[-5:]
+    HithinkIncrementalSynchronizer(cache).sync(Client(rows), ['600000.SH'],
+        as_of=NOW, include_financial=False)
+    state = cache.get_sync_state('HITHINK_DAILY_1D','600000.SH')
+    cursor = state['cursor']
+    coverage = cursor['history_coverage']
+    if fault == 'hash':
+        coverage['source_hash'] = 'bad'
+    elif fault == 'incomplete':
+        coverage['source_complete'] = False
+    elif fault == 'narrow':
+        coverage['start_ms'] = rows[-1]['date_ms']
+    if fault != 'hash':
+        coverage['coverage_hash'] = content_hash({k:v for k,v in coverage.items() if k != 'coverage_hash'})
+    cache.update_sync_state('HITHINK_DAILY_1D','600000.SH',cursor=cursor,
+        status='FAILED' if fault == 'failed' else 'READY',last_success=NOW,reason=None)
+    next_day = NOW + timedelta(days=3)
+    client = Client(rows + [{**rows[-1],'date_ms':int(next_day.replace(hour=0,minute=0).timestamp()*1000)}])
+    result = HithinkIncrementalSynchronizer(cache).sync(client,['600000.SH'],
+        as_of=next_day,include_financial=False)
+    assert result.daily_requests['600000.SH']['mode'] == 'FULL_REFRESH'

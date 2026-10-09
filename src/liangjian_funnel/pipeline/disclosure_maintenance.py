@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 
 from ..reporting import atomic_write_json
 from ..runtime.bounded_work import BoundedWorkGate
-from .close_scope import build_scope_ledger
+from .close_scope import build_scope_ledger, validate_scope_receipt
 from .feature_store import content_hash
 
 SHANGHAI = ZoneInfo('Asia/Shanghai')
@@ -40,9 +40,9 @@ def build_maintenance_queue(receipt: Mapping[str, Any], prefilter: Mapping[str, 
     Keep SHADOW semantics: this queue does not narrow the formal close query.
     It exists before final A2 results, including when the research later fails.
     """
-    _verify_hash(receipt, 'receipt_hash', 'CLOSE_SCOPE_RECEIPT_HASH_MISMATCH')
+    validate_scope_receipt(receipt)
     _verify_hash(prefilter, 'scope_hash', 'DISCLOSURE_PREFILTER_HASH_MISMATCH')
-    if receipt.get('schema_version') != 'close-scope-receipt/1' or prefilter.get('schema_version') != 'disclosure-prefilter/1':
+    if prefilter.get('schema_version') != 'disclosure-prefilter/1':
         raise ValueError('MAINTENANCE_INPUT_SCHEMA_MISMATCH')
     reference = receipt.get('a1_reference')
     if (receipt.get('binding_status') != 'ORIGINAL_RUN_REFERENCE'
