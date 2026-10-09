@@ -66,6 +66,7 @@ from .pipeline.data_source import HithinkClient, HithinkFetchResult
 from .pipeline.data_readiness import evaluate_data_readiness
 from .pipeline.data_sync import HithinkIncrementalSynchronizer
 from .pipeline.early_discovery import scan_cached_universe
+from .pipeline.close_scope import seal_scope_receipt
 from .pipeline.a2_features import build_a2_feature_snapshot
 from .pipeline.a1_sources import (
     A1SourceRegistryError,
@@ -528,6 +529,7 @@ class WorkflowApplication:
         market_data_as_of: datetime | None = None,
         progress: WorkflowProgress | None = None,
         candidate_symbols: tuple[str, ...] | None = None,
+        a1_generation_reference: Mapping[str, Any] | None = None,
         auction_refresh: bool = False,
         materialize_feature_source: bool = True,
     ) -> PreparedSnapshot:
@@ -690,6 +692,7 @@ class WorkflowApplication:
             )
             research_records = all_research_records
             full_market_discovery = None
+            close_scope_receipt = None
             if candidate_symbols is not None:
                 discovery_symbols = [record.symbol for record in all_research_records]
                 if not auction_refresh and market_current.hour >= 15:
@@ -748,6 +751,19 @@ class WorkflowApplication:
                 )
                 if not research_records:
                     raise WorkflowError("ACTIVE_A1_DAILY_SCOPE_EMPTY")
+                # Save the actual inputs before announcement/PDF synchronization
+                # can time out. Never reconstruct this receipt from later A1 or
+                # revised daily caches, and never use it to narrow admission.
+                close_scope_receipt = seal_scope_receipt(
+                    root=self.settings.research_checkpoint_dir / 'scope_receipts',
+                    run_id=str(progress.snapshot()['run_id']) if progress else 'direct-prepare',
+                    research_as_of=current, market_data_as_of=market_current,
+                    a1_reference=dict(a1_generation_reference) if a1_generation_reference else None,
+                    a1_symbols=candidate_symbols, hot_payload=eastmoney_hot100,
+                    discovery=full_market_discovery,
+                    g0_symbols=[row.symbol for row in all_research_records],
+                    selected_symbols=[row.symbol for row in research_records],
+                )
             # THS taxonomy rows do not carry row-level effective timestamps.
             # Bind their event time to the requested frozen cutoff while
             # retaining the later HTTP fetch_time for provenance. Otherwise a
@@ -1265,6 +1281,13 @@ class WorkflowApplication:
         # contracts and their source manifest participate in the facts hash.
         fact_payload["open_macro_bundle"] = open_macro_bundle
         fact_payload["eastmoney_hot100"] = eastmoney_hot100
+        if close_scope_receipt is not None:
+            receipt = json.loads(close_scope_receipt.read_text(encoding='utf-8'))
+            fact_payload['close_scope_receipt'] = {
+                'path':str(close_scope_receipt), 'receipt_hash':receipt['receipt_hash'],
+                'scope_hash':receipt['scope']['scope_hash'],
+                'a1_reference':receipt['a1_reference'], 'counts':receipt['scope']['counts'],
+            }
         fact_payload["selected_board_snapshot"] = selected_board
         fact_payload["early_discovery_snapshot"] = (
             full_market_discovery if full_market_discovery is not None else getattr(sync_result, "early_discovery", {})
@@ -2751,6 +2774,11 @@ class WorkflowApplication:
                         progress=progress,
                         candidate_symbols=active_a1_scope_symbols,
                         materialize_feature_source=not from_active_a1,
+                        **({'a1_generation_reference':{
+                            'generation_id':active_a1_generation.generation_id,
+                            'payload_hash':active_a1_generation.payload_hash,
+                            'as_of':active_a1_generation.as_of.isoformat(),
+                        }} if active_a1_generation else {}),
                     )
                 if not historical_replay and not comparison_run and not auction_refresh:
                     self._write_research_resume_marker(

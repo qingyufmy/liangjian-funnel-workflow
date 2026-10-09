@@ -1,0 +1,6 @@
+
+> liangjian-funnel-console@1.0.0 typecheck
+> tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json --noEmit
+
+'tsc' is not recognized as an internal or external command,
+operable program or batch file.

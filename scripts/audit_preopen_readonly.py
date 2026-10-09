@@ -104,7 +104,7 @@ print(json.dumps(out,ensure_ascii=False,default=str))
 
 REMOTE_CLOSE_SCOPE = r'''
 import collections,hashlib,json,pathlib,sqlite3,subprocess
-from datetime import datetime
+from datetime import datetime,timedelta
 from zoneinfo import ZoneInfo
 from liangjian_funnel.settings import Settings
 from liangjian_funnel.workflow import _active_a1_downstream_scope
@@ -130,6 +130,19 @@ generation=dict(row);payload=json.loads(generation.pop('payload_json'));a1=set(_
 del payload,row
 out['a1']={'generation':generation,'symbols':sorted(a1),'count':len(a1)}
 c.rollback();c.close()
+out['a1']['binding_status']='INFERRED_PRE_CLOSE_SEALED_GENERATION_NOT_RUN_RECEIPT'
+c=ro(root/'state/a1_registry.sqlite3')
+out['a1_active_pointer']=dict(c.execute("select generation_id,activated_at,previous_generation_id from a1_active_pointer where pointer_name='A1'").fetchone())
+out['a1_generation_timeline']=[dict(r) for r in c.execute("select generation_id,as_of,created_at,sealed_at,payload_hash,status from a1_generations where julianday(as_of)>=julianday(?) order by as_of",(DAY+'T00:00:00+08:00',))]
+c.rollback();c.close()
+receipt=s.workflow_output_dir/'runs'/(DAY+'-close.json')
+out['original_close_receipt']=file_info(receipt)
+if receipt.is_file():
+ v=json.loads(receipt.read_text());out['original_close_receipt']['binding']={k:v.get(k) for k in ('run_id','a1_generation_id','snapshot_id','as_of','status')}
+out['progress_file']=file_info(s.workflow_progress_path)
+if s.workflow_progress_path.is_file():
+ v=json.loads(s.workflow_progress_path.read_text());out['progress_file']['binding']={k:v.get(k) for k in ('run_id','a1_generation_id','phase','started_at','updated_at')}
+out['original_candidate_files']=[file_info(p) for folder in (s.research_checkpoint_dir,s.fact_store_dir,s.workflow_output_dir/'data_sync') if folder.is_dir() for p in folder.rglob('*') if p.is_file() and (DAY in p.name or DAY.replace('-','') in p.name) and any(k in p.name.lower() for k in ('discovery','scope','universe','catalog','sync'))]
 hotpath=s.fact_store_dir/'eastmoney_hot100'/('eastmoney-guba-hot100-'+DAY+'.json')
 out['hot100']=file_info(hotpath)
 hot=json.loads(hotpath.read_text()) if hotpath.is_file() else {}
@@ -150,8 +163,9 @@ if log.is_file():
   else:
    try:p=json.loads(r.get('message',''))
    except ValueError:continue
-   if p.get('event')=='WORKFLOW_PROGRESS':progress.append(p)
+   if p.get('event')=='WORKFLOW_PROGRESS':progress.append({**p,'observed_at':r.get('timestamp')})
 out['job_events']=events;out['last_close_progress']=next((p for p in reversed(progress) if p.get('run_id')==DAY+'-close'),None)
+out['original_close_phase_boundaries']=[p for i,p in enumerate(progress) if p.get('run_id')==DAY+'-close' and (i==0 or progress[i-1].get('phase')!=p.get('phase') or p.get('processed')==p.get('total'))]
 out['progress_scope_totals']=sorted({p.get('total') for p in progress if p.get('run_id')==DAY+'-close' and p.get('phase')=='CNINFO_SYNC' and isinstance(p.get('total'),int)})
 c=ro(s.fact_cache_db_path);queried=collections.defaultdict(list);hash_errors=[]
 for r in c.execute("select cache_key,content_hash,payload_json,fetched_at,expires_at from cached_results where namespace='CNINFO_ANNOUNCEMENTS' and julianday(fetched_at)>=julianday(?) and julianday(fetched_at)<=julianday(?) order by fetched_at,cache_key",(start,end)):
@@ -161,8 +175,32 @@ for r in c.execute("select cache_key,content_hash,payload_json,fetched_at,expire
  queried[symbol].append({**d,'semantic':semantic,'ok':v.get('ok'),'complete':v.get('complete'),'end_date':v.get('end_date'),'announcement_count':len(v.get('announcements',[]))})
 out['original_window_cached_queries']={k:v for k,v in sorted(queried.items())};out['original_window_cached_symbol_count']=len(queried)
 out['query_cache_hash_errors']=hash_errors;c.rollback();c.close()
+c=ro(s.fact_cache_db_path)
+out['cache_namespace_inventory']=[dict(r) for r in c.execute('select namespace,count(*) as revisions from cached_results group by namespace')]
+out['daily_revision_window']=[dict(r) for r in c.execute('select min(fetched_at) as first_fetch,max(fetched_at) as last_fetch,count(*) as revisions,count(distinct symbol) as symbols from daily_bars where julianday(fetched_at)>=julianday(?) and julianday(fetched_at)<=julianday(?)',(start,end))]
+c.rollback();c.close()
 out['confirmed_cached_outside_a1']=[{'symbol':symbol,'sources':(['HOT100_FILE'] if symbol in hots else []),'cached_queries':queried[symbol]} for symbol in sorted(set(queried)-a1)]
 out['hot100_outside_a1']=sorted(hots-a1)
+if RECONSTRUCT_DISCOVERY:
+ from liangjian_funnel.pipeline.early_discovery import discover_early_setups
+ close_progress=[p for p in progress if p.get('run_id')==DAY+'-close' and p.get('phase')=='EARLY_DISCOVERY_DAILY_SYNC']
+ complete=next((p for p in reversed(close_progress) if p.get('processed')==p.get('total') and p.get('total')),None)
+ if not complete or not complete.get('observed_at'):raise RuntimeError('ORIGINAL_DISCOVERY_COMPLETION_TIME_REQUIRED')
+ received_cutoff=complete['observed_at'];market_cutoff=datetime.fromisoformat(start)
+ first_bar=(market_cutoff-timedelta(days=800)).isoformat();last_bar=DAY+'T23:59:59+08:00'
+ c=ro(s.fact_cache_db_path);reconstructed=[]
+ for symbol in sorted(set(queried)-a1-hots):
+  rows=[dict(r) for r in c.execute("with ranked as (select *,row_number() over(partition by bar_timestamp,adjust order by julianday(fetched_at) desc,content_hash desc) as rn from daily_bars where symbol=? and adjust='none' and julianday(fetched_at)<=julianday(?) and julianday(bar_timestamp)>=julianday(?) and julianday(bar_timestamp)<julianday(?)) select bar_timestamp,adjust,fetched_at,content_hash,payload_json from ranked where rn=1 order by julianday(bar_timestamp)",(symbol,received_cutoff,first_bar,last_bar))]
+  bars=[];errors=[];refs=[]
+  for r in rows:
+   payload=json.loads(r['payload_json'])
+   if canonical_json_hash(payload)!=r['content_hash']:errors.append(r['content_hash']);continue
+   bars.append({**payload,'timestamp':r['bar_timestamp'],'adjust':r['adjust']})
+   refs.append({k:r[k] for k in ('bar_timestamp','adjust','fetched_at','content_hash')})
+  lead=discover_early_setups({symbol:bars},as_of=market_cutoff,symbols=[symbol]) if not errors else {}
+  reconstructed.append({'symbol':symbol,'basis':'EX_POST_ORIGINAL_CACHE_REVISIONS_NOT_FROZEN_SOURCE_SET','received_cutoff':received_cutoff,'input_hash':canonical_json_hash(refs),'input_count':len(refs),'first_bar':refs[0] if refs else None,'last_bar':refs[-1] if refs else None,'hash_errors':errors,'lead':lead.get('records',[]),'data_gaps':lead.get('data_gaps',[])})
+ c.rollback();c.close()
+ out['discovery_reconstruction']={'status':'NOT_ORIGINAL_REVIEW_BUDGET_PROOF','cutoff_progress':complete,'rows':reconstructed,'matched_predicate_count':sum(bool(r['lead']) for r in reconstructed),'target_count':len(reconstructed),'limitations':['NO_ORIGINAL_G0_OR_GLOBAL_REVIEW_RANKING','PER_SYMBOL_PREDICATE_CANNOT_PROVE_GLOBAL_TOP100_ADMISSION','WINDOW_CUTOFF_NOT_EXACT_PER_SYMBOL_READ_TIME','NO_AFTER_CUTOFF_REVISIONS_OR_NEW_COLLECTION_USED']}
 out['exact_scope_status']='PENDING_ORIGINAL_DISCOVERY_AND_G0_SCOPE_EVIDENCE'
 out['limitations']=['QUERY_CACHE_PROVES_REQUESTED_SUBSET_NOT_ENTIRE_PREPARED_SCOPE','HOT_FILE_MAY_NOT_PROVE_ORIGINAL_SELECTION_IF_REVISED','DO_NOT_INFER_76_NAMES_FROM_COUNTS','NO_RECOMPUTATION_USING_LATER_DAILY_INPUTS']
 print(json.dumps(out,ensure_ascii=False,default=str))
@@ -173,6 +211,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--close-scope-day', help='Export original close scope evidence without market collection.')
+    parser.add_argument('--reconstruct-discovery', action='store_true', help='Audit predicates from original received cache versions; not original selection proof.')
     args = parser.parse_args()
     if args.output.exists():
         raise SystemExit('REFUSE_OVERWRITE')
@@ -180,7 +219,7 @@ def main():
     if args.close_scope_day:
         from datetime import date
         date.fromisoformat(args.close_scope_day)
-        remote = 'DAY='+repr(args.close_scope_day)+'\n'+REMOTE_CLOSE_SCOPE
+        remote = 'DAY='+repr(args.close_scope_day)+'\nRECONSTRUCT_DISCOVERY='+repr(args.reconstruct_discovery)+'\n'+REMOTE_CLOSE_SCOPE
     result = subprocess.run(['ssh','aurum-vm',
         'cd /www/wwwroot/Agu/liangjian-funnel-workflow && runuser -u www -- .venv/bin/python -B -'],
         input=remote.encode(),capture_output=True,timeout=90 if args.close_scope_day else 55)

@@ -1,0 +1,6 @@
+
+> liangjian-funnel-console@1.0.0 test
+> vitest run --config vitest.config.ts --reporter=default --reporter=json --outputFile=D:\dev_A股\liangjian_wp5_hotfix_20261009\artifacts\wp5-20261009\full-scope-receipt-tests\vitest.json
+
+'vitest' is not recognized as an internal or external command,
+operable program or batch file.

@@ -3,7 +3,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
+from datetime import datetime, timezone
+from pathlib import Path
+
+from ..reporting import atomic_write_json
 
 
 def build_scope_ledger(*, a1_symbols: Iterable[str], hot_symbols: Iterable[str],
@@ -32,3 +36,42 @@ def build_scope_ledger(*, a1_symbols: Iterable[str], hot_symbols: Iterable[str],
     payload['scope_hash'] = hashlib.sha256(json.dumps(payload,ensure_ascii=False,
         sort_keys=True,separators=(',',':')).encode()).hexdigest()
     return payload
+
+
+def seal_scope_receipt(*, root: Path, run_id: str, research_as_of: datetime,
+                       market_data_as_of: datetime, a1_reference: dict | None,
+                       a1_symbols: Iterable[str], hot_payload: dict, discovery: dict,
+                       g0_symbols: Iterable[str], selected_symbols: Iterable[str]) -> Path:
+    """Archive the actual union before expensive sync; never decide admission.
+
+    The timestamp of receipt creation is real observation time. A later A1
+    generation or retry creates a new file, never rewrites an earlier receipt.
+    Keep unselected discovery leads as counterevidence, outside the source set.
+    """
+    if (research_as_of.tzinfo is None or market_data_as_of.tzinfo is None
+            or market_data_as_of > research_as_of):
+        raise ValueError('INVALID_SCOPE_TIME')
+    scope = build_scope_ledger(a1_symbols=a1_symbols,
+        hot_symbols=[str(row.get('symbol') or '').strip().upper()
+                     for row in hot_payload.get('records',[])
+                     if isinstance(row,Mapping) and str(row.get('symbol') or '').strip()],
+        discovery_symbols=[row['symbol'] for row in discovery.get('records',[])
+                           if row.get('review_budget_selected')], g0_symbols=g0_symbols)
+    if set(scope['selected_symbols']) != set(selected_symbols):
+        raise ValueError('SELECTED_SCOPE_MISMATCH')
+    payload = {'schema_version':'close-scope-receipt/1','run_id':run_id,
+        'research_as_of':research_as_of.isoformat(),
+        'market_data_as_of':market_data_as_of.isoformat(),
+        'recorded_at':datetime.now(timezone.utc).isoformat(),
+        'a1_reference':a1_reference,
+        'binding_status':'ORIGINAL_RUN_REFERENCE' if a1_reference else 'UNBOUND_A1_REFERENCE',
+        'execution_authority':False,'scope':scope,'hot100':hot_payload,'discovery':discovery}
+    payload['receipt_hash'] = hashlib.sha256(json.dumps(payload,ensure_ascii=False,
+        sort_keys=True,separators=(',',':')).encode()).hexdigest()
+    path = Path(root) / ('close-scope-'+research_as_of.strftime('%Y%m%d')+'-'+payload['receipt_hash']+'.json')
+    if path.exists():
+        if json.loads(path.read_text(encoding='utf-8')) != payload:
+            raise ValueError('SCOPE_RECEIPT_CONFLICT')
+        return path
+    atomic_write_json(path,payload)
+    return path

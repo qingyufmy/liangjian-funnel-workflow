@@ -341,6 +341,34 @@ def test_resume_snapshot_failure_is_terminally_visible(tmp_path: Path, monkeypat
     assert progress["reason_code"] == "RESUME_SNAPSHOT_CORRUPT"
 
 
+def test_scope_binding_uses_loaded_generation_before_sync_can_fail(tmp_path, monkeypatch):
+    from unittest.mock import Mock
+    app = _app(tmp_path)
+    generation = SimpleNamespace(as_of=NOW,generation_id='original-loaded-a1',
+                                 payload={},payload_hash='a'*64)
+    app.a1_registry = SimpleNamespace(require_active=Mock(return_value=generation))
+    monkeypatch.setattr(workflow_module,'evaluate_resources',lambda _: _resources(True))
+    monkeypatch.setattr(workflow_module,'_active_a1_downstream_scope',lambda _: ('600519.SH',))
+    app.prepare_snapshot = Mock(side_effect=WorkflowError('ANNOUNCEMENT_TIMEOUT'))
+    with pytest.raises(WorkflowError,match='ANNOUNCEMENT_TIMEOUT'):
+        app.run_research('close',as_of=NOW,from_active_a1=True,
+                         reuse_resume_snapshot=False,primary_only=True,schedule_comparison=False)
+    binding = app.prepare_snapshot.call_args.kwargs['a1_generation_reference']
+    assert binding == {'generation_id':'original-loaded-a1','payload_hash':'a'*64,
+                       'as_of':NOW.isoformat()}
+
+
+def test_friday_asof_is_not_live_collection_on_saturday(tmp_path, monkeypatch):
+    class SaturdayClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026,10,10,12,tzinfo=TZ)
+    monkeypatch.setattr(workflow_module,'datetime',SaturdayClock)
+    app = _app(tmp_path)
+    with pytest.raises(WorkflowError,match='LIVE_FACTS_POINT_IN_TIME_UNSUPPORTED'):
+        app.prepare_snapshot(as_of=datetime(2026,10,9,15,10,tzinfo=TZ))
+
+
 def test_immutable_snapshot_loader_and_resume_marker_preserve_point_in_time_identity(tmp_path: Path) -> None:
     app = _app(tmp_path)
     prepared = _prepared(tmp_path)
