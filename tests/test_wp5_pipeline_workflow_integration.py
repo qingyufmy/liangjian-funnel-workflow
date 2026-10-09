@@ -188,3 +188,31 @@ def test_candidate_pipeline_runs_before_global_daily_finishes_and_catches_discov
 def test_global_event_failure_prevents_all_company_queries(tmp_path, monkeypatch):
     with pytest.raises(wf.WorkflowError, match='MARKET_EMOTION_FACTS_NOT_READY'):
         route(tmp_path, monkeypatch, 'CANDIDATE_DOMAIN', event_ok=False)
+
+
+@pytest.mark.parametrize('already_failed', [True, False])
+def test_pipeline_receipt_io_failure_preserves_original_failure_or_blocks_success(tmp_path, monkeypatch, already_failed):
+    class Client:
+        def __init__(self, **_):
+            pass
+        def __enter__(self):
+            return self
+        def __exit__(self, *_):
+            pass
+    for name in ('CninfoClient', 'BseClient', 'SseDisclosureClient', 'SzseDisclosureClient'):
+        monkeypatch.setattr(wf, name, Client)
+    monkeypatch.setattr(wf, 'atomic_write_json', lambda *_: (_ for _ in ()).throw(OSError('fixture full disk')))
+    class App(wf.WorkflowApplication):
+        def __init__(self):
+            self.settings = Settings.from_env({'LIANGJIAN_DISCLOSURE_SCOPE_MODE': 'CANDIDATE_DOMAIN'}, root=tmp_path)
+        def _prepare_snapshot(self, *, start_disclosure_pipeline, **_):
+            start_disclosure_pipeline(['600000.SH'])
+            if already_failed:
+                raise wf.WorkflowError('ORIGINAL_TEST_FAILURE')
+            return object()
+    if already_failed:
+        with pytest.raises(wf.WorkflowError, match='ORIGINAL_TEST_FAILURE'):
+            App().prepare_snapshot(as_of=NOW, candidate_symbols=('600000.SH',))
+    else:
+        with pytest.raises(OSError, match='fixture full disk'):
+            App().prepare_snapshot(as_of=NOW, candidate_symbols=('600000.SH',))

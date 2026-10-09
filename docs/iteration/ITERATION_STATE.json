@@ -24,12 +24,17 @@
     "disclosure_query_scope": "DEFAULT_SHADOW_FORMAL_SCOPE_UNCHANGED_OPT_IN_CANDIDATE_DOMAIN_IMPLEMENTED_NOT_ACTIVATED_REQUIRES_SEPARATE_AUTHORIZATION",
     "g2_handoff": "docs/CLAUDE_WP5_G1_G2_REVIEW_HANDOFF_2026-10-09.md",
     "g2_evidence": "docs/WP5_G2_PIPELINE_HANDOFF_2026-10-09.md",
-    "g2_full_receipt": "artifacts/wp5-20261009/full-g2-pipeline-tests/evidence.json",
+    "g2_full_receipt": "artifacts/wp5-20261009/full-g2-pipeline-v2-tests/evidence.json",
+    "g2_first_full_receipt": "artifacts/wp5-20261009/full-g2-pipeline-tests/evidence.json",
     "g2_commands": [
       {"command":"python -m pytest tests/test_wp5_disclosure_pipeline.py -o addopts='' -q --junitxml=artifacts/wp5-20261009/pipeline-before.xml","exit_code":1,"result":"MISSING_MODULE_COUNTEREXAMPLE"},
       {"command":"python -m pytest tests/test_wp5_disclosure_pipeline.py tests/test_wp5_pipeline_workflow_integration.py tests/test_research_orchestration_coverage.py -o addopts='' -q --tb=short --junitxml=artifacts/wp5-20261009/pipeline-integration-v2.xml","exit_code":0,"passed":26},
       {"command":"python -m pytest tests/test_wp5_disclosure_pipeline.py tests/test_wp5_pipeline_workflow_integration.py tests/test_wp5_review_regressions.py tests/test_wp5_disclosure_prefilter.py tests/test_wp5_disclosure_maintenance.py tests/test_wp5_disclosure_cache_worker.py tests/test_wp5_daily_incremental.py tests/test_pipeline_data_sync.py tests/test_workflow_orchestration_coverage.py tests/test_workflow_fact_projection.py tests/test_workflow_fact_result_cache.py tests/test_workflow_pdf_progress.py tests/test_wp5_disclosure_formal_routes.py tests/test_research_orchestration_coverage.py -o addopts='' -q --tb=short --junitxml=artifacts/wp5-20261009/pipeline-final-tests.xml","exit_code":0,"passed":146},
       {"command":"scripts/test_all.ps1 -PythonPath D:/dev_A股/liangjian_funnel_workflow/.venv/Scripts/python.exe -OutputDirectory artifacts/wp5-20261009/full-g2-pipeline-tests","result":"ACTUAL_HEAD_EXIT_CODE_AND_COUNTS_IN_FINAL_EVIDENCE_AND_CLAUDE_HANDOFF_ACCEPTANCE_NOT_ASSUMED"}
+      ,{"command":"first full suite at fa632ed","exit_code":1,"failed":1,"passed":2444,"result":"PUBLIC_AUCTION_FAIL_FAST_WRAPPER_REGRESSION_PRESERVE_FAILED_RECEIPT"}
+      ,{"command":"python -m pytest tests/test_wp5_pipeline_workflow_integration.py -o addopts='' -q --tb=short -k receipt_io --junitxml=artifacts/wp5-20261009/pipeline-receipt-io-before.xml","exit_code":1,"failed":1,"passed":1,"result":"SECONDARY_AUDIT_IO_MASKED_ORIGINAL_FAILURE"}
+      ,{"command":"python -m pytest tests/test_auction_refresh.py tests/test_wp5_disclosure_pipeline.py tests/test_wp5_pipeline_workflow_integration.py -o addopts='' -q --tb=short --junitxml=artifacts/wp5-20261009/pipeline-public-entry-repair-v2.xml","exit_code":0,"passed":37}
+      ,{"command":"scripts/test_all.ps1 -PythonPath D:/dev_A股/liangjian_funnel_workflow/.venv/Scripts/python.exe -OutputDirectory artifacts/wp5-20261009/full-g2-pipeline-v2-tests","result":"NEW_HEAD_FULL_RECEIPT_REQUIRED_AFTER_PUBLIC_GUARD_REPAIR_ACTUAL_COUNTS_IN_FINAL_ACCEPTANCE"}
     ],
     "factor_detection": "LAST_THREE_OHLCV_REVISION_AUTOMATIC_RESET_DURABLE_BLOCK_RAW_NOT_FRONT_ADJUSTED_FACTOR_SOURCE_AND_BASIS_PENDING_AUTHORIZED_EVIDENCE",
     "claude_repair_evidence": "docs/WP5_CLAUDE_REVIEW_REPAIR_2026-10-09.md",

@@ -34,7 +34,9 @@ Python：`D:/dev_A股/liangjian_funnel_workflow/.venv/Scripts/python.exe`，`PYT
 - 中间7项单测：初次实现暴露导入错误、Windows monotonic 的低时间分辨率和回执发布竞态。已改正确包路径，绝对截止仍用 monotonic，计时用 perf_counter，并在 Future 成功前记录窗口。没有用 sleep 把并发测绿。
 - 集成夹具修正：保留真实官方路由，修正金融 transport 方法名，固定路由审计时钟，使用短测试路径避免 Windows MAX_PATH。没有 mock app 私有公告助手、同步器或流水线；替代的是本地源 transport 和无关的采集后存储。既有冻结事实的原函数路径与默认 wrapper 字节哈希相同。
 - 最终14文件相关切片：退出0，**146通过**。完整命令见迭代状态；JUnit：`artifacts/wp5-20261009/pipeline-final-tests.xml`。切片计数不能再与全量相加。
-- 全量入口为 `scripts/test_all.ps1 -PythonPath D:/dev_A股/liangjian_funnel_workflow/.venv/Scripts/python.exe -OutputDirectory artifacts/wp5-20261009/full-g2-pipeline-tests`；真实 HEAD、退出码、总数与日志哈希以此目录 `evidence.json` 和最终复审入口为准，不能沿用 ee5f70b 的计数。
+- 首轮全量 fa632ed：退出1，2350 Python通过、94 Node通过、6跳过、1严格预期失败、1失败。失败是旧竞价诊断接收者绑定公开入口时，wrapper 在拒绝 auction_refresh 前调用内部方法，破坏原 fail-fast 合同。已将相同拒绝检查恢复到公开入口，未修改竞价权限或测试夹具；保留 `full-g2-pipeline-tests/evidence.json` 失败回执。
+- 补查回执I/O故障：反例退出1（1失败/1通过），证明失败报告写盘失败可能覆盖首要运行错误。修复后保留原始失败并记录独立写盘错误；成功采集若无法保存强制回执仍阻断，不把无证据结果放行。`pipeline-receipt-io-before.xml` 保留反例。
+- 最终全量入口为 `scripts/test_all.ps1 -PythonPath D:/dev_A股/liangjian_funnel_workflow/.venv/Scripts/python.exe -OutputDirectory artifacts/wp5-20261009/full-g2-pipeline-v2-tests`；真实 HEAD、退出码、总数与日志哈希以此目录 `evidence.json` 和最终复审入口为准，不能沿用 ee5f70b 或首轮 fa632ed 的计数。
 
 阶段回执：`research_checkpoints/scope_receipts/disclosure-pipeline-日期-哈希.json`，记录实际阶段秒数、每股查询窗口、日线/公告重叠区间的并集秒数、已提交与已完成集合、初始范围回执和最终预筛哈希。初始范围是 `PROVISIONAL_A1_HOT_NO_DISCOVERY`，不得误称完整收盘范围。每批预筛在查询前封存；原完整 scope receipt 仍由原全局集合生成。时间指标单独落盘，不改变 SHADOW 冻结事实。
 

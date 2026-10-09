@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import inspect
 import json
+import logging
 import math
 import os
 import re
@@ -543,6 +544,10 @@ class WorkflowApplication:
         daemon worker has finished; no shutdown barrier can extend the existing
         close deadline. Timing receipts are not part of the frozen facts.
         """
+        # Preserve the public fail-fast contract, including callers that only
+        # bind this method to a lightweight diagnostic receiver.
+        if auction_refresh:
+            raise WorkflowError('AUCTION_FULL_SYNC_FORBIDDEN_USE_VERIFIED_BASE')
         options = dict(as_of=as_of, market_data_as_of=market_data_as_of,
             progress=progress, candidate_symbols=candidate_symbols,
             a1_generation_reference=a1_generation_reference,
@@ -611,6 +616,14 @@ class WorkflowApplication:
                     receipt['receipt_hash'] = _hash_json({k: v for k, v in receipt.items() if k != 'receipt_hash'})
                     atomic_write_json(self.settings.research_checkpoint_dir / 'scope_receipts' /
                         f"disclosure-pipeline-{current.date()}-{receipt['receipt_hash']}.json", receipt)
+                except OSError:
+                    if status == 'READY':
+                        raise
+                    # A secondary audit I/O failure must not erase the actual
+                    # source/runtime failure. Successful work still fails if
+                    # its mandatory receipt cannot be saved.
+                    logging.getLogger(__name__).error(
+                        'DISCLOSURE_PIPELINE_RECEIPT_WRITE_FAILED failure_code=%s', failure_code)
                 finally:
                     pipeline.close()
 
@@ -810,8 +823,11 @@ class WorkflowApplication:
                                 'facts': {name: {'ok': value.ok, 'complete': value.complete,
                                     'reason_code': value.reason_code} for name, value in preflight_market_results.items()},
                                 'bounded_recovery_attempts': preflight_market_retries}
-                            atomic_write_json(self.settings.workflow_output_dir / 'runs' /
-                                f"{current.date()}-close-market-facts-{datetime.now(SHANGHAI).strftime('%H%M%S%f')}.json", diagnostics)
+                            try:
+                                atomic_write_json(self.settings.workflow_output_dir / 'runs' /
+                                    f"{current.date()}-close-market-facts-{datetime.now(SHANGHAI).strftime('%H%M%S%f')}.json", diagnostics)
+                            except OSError:
+                                logging.getLogger(__name__).error('CLOSE_MARKET_FAILURE_RECEIPT_WRITE_FAILED')
                             raise WorkflowError('MARKET_EMOTION_FACTS_NOT_READY', diagnostics=diagnostics)
                         preloaded_industry = _bind_reference_fact_event_time(client.ths_index_catalog(tag='industry'), as_of=market_current)
                         preloaded_concept = _bind_reference_fact_event_time(client.ths_index_catalog(tag='cn_concept'), as_of=market_current)
