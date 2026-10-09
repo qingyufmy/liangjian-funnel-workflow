@@ -595,6 +595,12 @@ class WorkflowApplication:
                 if isinstance(row, Mapping) and row.get("symbol")
             }
             auction_quotes = collect_fresh_quotes(quote_scope, as_of=current)
+        from .data.hithink_board_reference import configured_rotation_memberships, rotation_snapshot_directory
+        from .data.board_reference import ReferenceError
+        try:
+            reference_memberships = configured_rotation_memberships(self.settings, as_of=current, trade_date=observation_date)
+        except ReferenceError as exc:
+            raise WorkflowError(str(exc)) from exc
         selected_board = collect_rotation_theme_snapshot(
             # Use wall-clock research time for archive selection while the
             # explicit expected_trade_date remains the market identity.  On a
@@ -606,7 +612,7 @@ class WorkflowApplication:
             as_of=current,
             expected_trade_date=observation_date,
             registry_path=self.settings.rotation_theme_registry_path,
-            snapshot_dir=self.settings.fact_store_dir / "rotation_theme",
+            snapshot_dir=rotation_snapshot_directory(self.settings),
             rotation_theme_count=rotation_theme_count,
             membership_refresh_days=self.settings.rotation_membership_refresh_days,
             warn_age_days=self.settings.rotation_membership_warn_age_days,
@@ -614,6 +620,7 @@ class WorkflowApplication:
             fund_coverage_minimum=self.settings.rotation_fund_coverage_minimum,
             price_coverage_minimum=self.settings.rotation_price_coverage_minimum,
             workers=self.settings.rotation_collection_workers,
+            reference_memberships=reference_memberships,
         )
         try:
             self.lark_publisher.publish_rotation_theme_health(

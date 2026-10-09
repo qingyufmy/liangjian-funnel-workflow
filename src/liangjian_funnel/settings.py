@@ -161,6 +161,9 @@ class Settings(BaseModel):
     rotation_fund_coverage_minimum: float = Field(default=0.80, ge=0.50, le=1.0)
     rotation_price_coverage_minimum: float = Field(default=0.90, ge=0.50, le=1.0)
     rotation_collection_workers: int = Field(default=16, ge=1, le=32)
+    rotation_membership_source: Literal["EASTMONEY", "LOCAL_REFERENCE"] = "EASTMONEY"
+    rotation_reference_dir: Path | None = None
+    rotation_reference_bindings_path: Path | None = None
     simulation_initial_cash: float = Field(default=1_000_000.0, ge=0)
     simulation_commission_bps: float = Field(default=1.0, ge=0, le=1_000)
     simulation_minimum_commission: float = Field(default=5.0, ge=0)
@@ -463,6 +466,11 @@ class Settings(BaseModel):
             rotation_collection_workers=int(
                 env.get("LIANGJIAN_ROTATION_COLLECTION_WORKERS", "16")
             ),
+            rotation_membership_source=env.get("LIANGJIAN_ROTATION_MEMBERSHIP_SOURCE", "EASTMONEY"),
+            rotation_reference_dir=Path(env["LIANGJIAN_ROTATION_REFERENCE_DIR"]).resolve()
+                if env.get("LIANGJIAN_ROTATION_REFERENCE_DIR") else None,
+            rotation_reference_bindings_path=Path(env["LIANGJIAN_ROTATION_REFERENCE_BINDINGS_PATH"]).resolve()
+                if env.get("LIANGJIAN_ROTATION_REFERENCE_BINDINGS_PATH") else None,
             simulation_initial_cash=float(env.get("LIANGJIAN_SIMULATION_INITIAL_CASH", "1000000")),
             simulation_commission_bps=float(env.get("LIANGJIAN_SIMULATION_COMMISSION_BPS", "1")),
             simulation_minimum_commission=float(env.get("LIANGJIAN_SIMULATION_MINIMUM_COMMISSION", "5")),
@@ -581,6 +589,9 @@ class Settings(BaseModel):
             "rotation_fund_coverage_minimum": self.rotation_fund_coverage_minimum,
             "rotation_price_coverage_minimum": self.rotation_price_coverage_minimum,
             "rotation_collection_workers": self.rotation_collection_workers,
+            "rotation_membership_source": self.rotation_membership_source,
+            "rotation_reference_dir": str(self.rotation_reference_dir) if self.rotation_reference_dir else None,
+            "rotation_reference_bindings_path": str(self.rotation_reference_bindings_path) if self.rotation_reference_bindings_path else None,
             "simulation_initial_cash": self.simulation_initial_cash,
             "simulation_fee_model_version": self.simulation_fee_model_version,
             "simulation_max_volume_participation": self.simulation_max_volume_participation,

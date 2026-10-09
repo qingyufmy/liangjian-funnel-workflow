@@ -161,17 +161,23 @@ def prepare_auction_delta(app, *, current, generation, scope):
         raise WorkflowError("AUCTION_HOT100_UNAVAILABLE")
     config = load_yaml(settings.source_config_path)
     a2 = config.get("agent_2", {})
+    from ..data.hithink_board_reference import configured_rotation_memberships, rotation_snapshot_directory
+    from ..data.board_reference import ReferenceError
+    try:
+        references = configured_rotation_memberships(settings, as_of=current)
+    except ReferenceError as exc:
+        raise WorkflowError(str(exc)) from exc
     boards = collect_rotation_theme_snapshot(
         as_of=current, expected_trade_date=current.date(),
         registry_path=settings.rotation_theme_registry_path,
-        snapshot_dir=settings.fact_store_dir / "rotation_theme",
+        snapshot_dir=rotation_snapshot_directory(settings),
         rotation_theme_count=int(a2.get("rotation_theme_count", 5)),
         membership_refresh_days=settings.rotation_membership_refresh_days,
         warn_age_days=settings.rotation_membership_warn_age_days,
         max_age_days=settings.rotation_membership_max_age_days,
         fund_coverage_minimum=settings.rotation_fund_coverage_minimum,
         price_coverage_minimum=settings.rotation_price_coverage_minimum,
-        workers=settings.rotation_collection_workers)
+        workers=settings.rotation_collection_workers, reference_memberships=references)
     # Capture quotes last; a slow board endpoint must not age an earlier quote
     # before it is handed to research. Source collectors retain actual clocks.
     quotes = collect_fresh_quotes(scope, as_of=current)

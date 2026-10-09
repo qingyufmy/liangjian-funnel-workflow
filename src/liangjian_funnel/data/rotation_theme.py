@@ -1814,6 +1814,9 @@ def build_rotation_theme_snapshot(
                     "rotation_reserve_rank": row.get("rotation_reserve_rank"),
                     "rotation_reserve_scope": row.get("rotation_reserve_scope"),
                     "is_child_board": row["kind"] == CHILD,
+                    "membership_source_id": row.get("membership_source_id"),
+                    "membership_source_board_id": row.get("membership_source_board_id"),
+                    "membership_reference_hash": row.get("membership_reference_hash"),
                 }
             )
     for symbol in by_symbol:
@@ -1904,6 +1907,7 @@ def collect_rotation_theme_snapshot(
     tencent_quote_fetcher: Callable[..., Any] | None = None,
     tencent_capture_timestamp: datetime | str | None = None,
     tencent_capture_timestamp_fetcher: Callable[[], Any] | None = None,
+    reference_memberships: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Collect and persist one complete daily free-data rotation snapshot.
 
@@ -1913,6 +1917,10 @@ def collect_rotation_theme_snapshot(
     version up to ``max_age_days`` with a warning, after which the associated
     theme is fail-closed.  Daily flow and price inputs are never read from a
     prior day.
+
+    Explicit ``reference_memberships`` selects the local reference path and
+    never blends it with BK membership, flow, or index history. Missing local
+    mappings remain unavailable; daily Tencent coverage gates stay unchanged.
 
     All network boundaries are injectable.  The default Eastmoney/Tencent
     fetchers are intentionally lazy and are only invoked when a theme needs a
@@ -1926,7 +1934,12 @@ def collect_rotation_theme_snapshot(
     # provider endpoint and never overwrite the archive with an unavailable
     # result merely because a backfill was requested.
     if expected_trade_date is not None and trade_day < cutoff.date():
-        return load_rotation_theme_snapshot(snapshot_dir, trade_day)
+        archived = load_rotation_theme_snapshot(snapshot_dir, trade_day)
+        mode = archived.get("source_health", {}).get("membership_mode", "EASTMONEY")
+        expected_mode = "LOCAL_REFERENCE" if reference_memberships is not None else "EASTMONEY"
+        if archived.get("available") and mode != expected_mode:
+            return unavailable_rotation_theme_snapshot(cutoff, "ROTATION_ARCHIVE_MEMBERSHIP_SOURCE_MISMATCH", expected_trade_date=trade_day)
+        return archived
     try:
         trade_day = _parse_date(trade_day, "ROTATION_THEME_TRADE_DATE_INVALID")
         limit = int(rotation_theme_count)
@@ -1966,7 +1979,7 @@ def collect_rotation_theme_snapshot(
     root = Path(snapshot_dir)
     membership_dir = root / "memberships"
     catalog: dict[str, Any] = {"available": False, "records": [], "reason_code": "NOT_REQUESTED"}
-    if catalog_fetcher is not None:
+    if reference_memberships is None and catalog_fetcher is not None:
         catalog = collect_eastmoney_board_catalog(
             as_of=cutoff,
             expected_trade_date=trade_day,
@@ -1976,6 +1989,9 @@ def collect_rotation_theme_snapshot(
     resolved_codes: dict[str, tuple[str, ...]] = {}
     identity_errors: dict[str, str] = {}
     for theme in taxonomy.active(trade_day):
+        if reference_memberships is not None:
+            resolved_codes[theme.theme_id] = ()
+            continue
         identity_error = validate_board_identity(theme, catalog)
         if identity_error and identity_error != "ROTATION_BOARD_CATALOG_UNAVAILABLE":
             identity_errors[theme.theme_id] = identity_error
@@ -1990,6 +2006,24 @@ def collect_rotation_theme_snapshot(
     membership_state: dict[str, dict[str, Any]] = {}
     membership_update_warnings: dict[str, str] = {}
     for theme in taxonomy.active(trade_day):
+        if reference_memberships is not None:
+            value = reference_memberships.get(theme.theme_id) or {}
+            stamp = _parse_datetime_optional(value.get("captured_at"))
+            valid = (_valid_membership_payload(value, theme.theme_id)
+                and value.get("source_id") == "HITHINK_THS_API"
+                and value.get("source_board_id") and value.get("source_catalog_hash")
+                and value.get("source_reference_hash") and value.get("binding_hash")
+                and value.get("pagination_evidence", {}).get("complete") is True
+                and stamp is not None and stamp <= cutoff
+                and (cutoff.date()-stamp.date()).days <= expire_days)
+            membership_state[theme.theme_id] = dict(value) if valid else unavailable_membership_snapshot(
+                theme.theme_id, trade_day, str(value.get("reason_code") or "REFERENCE_MEMBERSHIP_INVALID")
+                if value.get("available") is not True else "REFERENCE_MEMBERSHIP_INVALID")
+            if valid and (cutoff.date()-stamp.date()).days >= warn_days:
+                membership_update_warnings[theme.theme_id] = "REFERENCE_AGE_WARNING"
+                membership_state[theme.theme_id]["warning"] = "REFERENCE_AGE_WARNING"
+                membership_state[theme.theme_id]["content_hash"] = _content_hash(membership_state[theme.theme_id])
+            continue
         if theme.theme_id in identity_errors:
             membership_state[theme.theme_id] = unavailable_membership_snapshot(
                 theme.theme_id, trade_day, identity_errors[theme.theme_id]
@@ -2099,7 +2133,7 @@ def collect_rotation_theme_snapshot(
 
     # Daily board flow is independent from the slow member dimension.
     flow_snapshot: dict[str, Any] = {"available": False, "records": [], "reason_code": "NOT_REQUESTED"}
-    if flow_fetcher is not None:
+    if reference_memberships is None and flow_fetcher is not None:
         flow_snapshot = collect_eastmoney_board_flow(
             as_of=cutoff,
             expected_trade_date=trade_day,
@@ -2128,7 +2162,9 @@ def collect_rotation_theme_snapshot(
             }
         )
         groups[theme.theme_id] = records if member.get("available") else ()
-        flow = _flow_for_theme(theme, flow_snapshot, resolved_codes.get(theme.theme_id, ()))
+        # A THS member basket is not the corresponding Eastmoney index.
+        # Dynamic factors come from the unchanged same-day Tencent pass.
+        flow = {} if reference_memberships is not None else _flow_for_theme(theme, flow_snapshot, resolved_codes.get(theme.theme_id, ()))
         raw_rows.append(
             {
                 "theme_id": theme.theme_id,
@@ -2140,6 +2176,13 @@ def collect_rotation_theme_snapshot(
                 "member_count": len(records),
                 "membership_board_codes": list(resolved_codes[theme.theme_id]),
                 "membership_content_hash": member.get("content_hash"),
+                "membership_source_id": member.get("source_id"),
+                "membership_source_board_id": member.get("source_board_id"),
+                "membership_source_board_name": member.get("source_board_name"),
+                "membership_reference_hash": member.get("source_reference_hash"),
+                "membership_catalog_hash": member.get("source_catalog_hash"),
+                "membership_binding_hash": member.get("binding_hash"),
+                "return_basis": "TENCENT_CURRENT_MEMBER_EQUAL_WEIGHT" if reference_memberships is not None else "EASTMONEY_OR_TENCENT_MEMBER_FALLBACK",
                 "membership_captured_at": member.get("captured_at"),
                 "excluded_non_a_share_count": len(excluded_symbols),
                 "excluded_non_a_share_symbols": excluded_symbols,
@@ -2248,7 +2291,9 @@ def collect_rotation_theme_snapshot(
     # offline unless a history fetcher is explicitly supplied too.
     from .board_history import enrich_board_momentum, fetch_board_history, enrich_reported_five_day_momentum
     history_fetch = provided.get("eastmoney_history")
-    if history_fetch is None and flow_fetcher is _default_eastmoney_page_fetch:
+    if reference_memberships is not None:
+        history_fetch = None  # Never apply BK history to a different vendor's basket.
+    elif history_fetch is None and flow_fetcher is _default_eastmoney_page_fetch:
         history_fetch = fetch_board_history
     _apply_history_factors(raw_rows, root, trade_day)
     if history_fetch is not None and cutoff.hour >= 15:
@@ -2293,6 +2338,10 @@ def collect_rotation_theme_snapshot(
     )
     snapshot["source_health"] = {
         "board_identity_errors": identity_errors,
+        "membership_mode": "LOCAL_REFERENCE" if reference_memberships is not None else "EASTMONEY",
+        "expected_theme_count": len(active_themes),
+        "available_membership_count": sum(value.get("available") is True for value in membership_state.values()),
+        "reference_mapping_complete": all(membership_state.get(theme.theme_id, {}).get("available") is True for theme in active_themes),
         "eastmoney_catalog": catalog.get("reason_code") if catalog else "NOT_REQUESTED",
         "eastmoney_board_flow": flow_snapshot.get("reason_code") if flow_snapshot else "NOT_REQUESTED",
         "tencent_flow": tencent_snapshot.get("reason_code") if tencent_snapshot else "NOT_REQUESTED",
@@ -2304,7 +2353,7 @@ def collect_rotation_theme_snapshot(
         "unmapped_theme_ids": sorted(
             theme.theme_id
             for theme in active_themes
-            if not resolved_codes.get(theme.theme_id)
+            if not resolved_codes.get(theme.theme_id) and not membership_state.get(theme.theme_id, {}).get("available")
         ),
         "unavailable_membership": {
             theme_id: str(value.get("reason_code") or "MEMBERSHIP_UNAVAILABLE")
@@ -2316,6 +2365,10 @@ def collect_rotation_theme_snapshot(
             for row in raw_rows
         ),
     }
+    if reference_memberships is not None and not snapshot["source_health"]["reference_mapping_complete"]:
+        # New-source primary promotion needs the whole reviewed taxonomy.
+        # Keep partial rows for diagnosis, never advertise a full-market top-N.
+        snapshot.update(available=False, reason_code="ROTATION_REFERENCE_MAPPING_PARTIAL")
     snapshot.pop("content_hash", None)
     snapshot["taxonomy_content_hash"] = _content_hash(taxonomy.as_dict())
     snapshot["content_hash"] = _content_hash(snapshot)
@@ -2859,6 +2912,13 @@ def _public_board_row(row: Mapping[str, Any]) -> dict[str, Any]:
         "momentum_5d_evidence": row.get("momentum_5d_evidence"),
         "component_board_codes": row.get("component_board_codes", []),
         "membership_board_codes": row.get("membership_board_codes", []),
+        "membership_source_id": row.get("membership_source_id"),
+        "membership_source_board_id": row.get("membership_source_board_id"),
+        "membership_source_board_name": row.get("membership_source_board_name"),
+        "membership_reference_hash": row.get("membership_reference_hash"),
+        "membership_catalog_hash": row.get("membership_catalog_hash"),
+        "membership_binding_hash": row.get("membership_binding_hash"),
+        "return_basis": row.get("return_basis"),
         "leader_structure_score": row.get("leader_structure_score"),
         "rank_persistence_score": row.get("rank_persistence_score"),
         "provider_rank": row.get("provider_rank"),

@@ -10,6 +10,7 @@ failure objects.
 
 from __future__ import annotations
 
+import hashlib
 import math
 import re
 import time
@@ -325,7 +326,7 @@ class HithinkClient:
         normalized = str(tag).strip().lower()
         if normalized not in _INDEX_TAGS:
             return self._failure(_ENDPOINT_THS_INDEX_CATALOG, "INVALID_INDEX_TAG")
-        return self._fetch_once(_ENDPOINT_THS_INDEX_CATALOG, {"tag": normalized})
+        return self._fetch_ths_reference(_ENDPOINT_THS_INDEX_CATALOG, {"tag": normalized})
 
     fetch_ths_index_catalog = ths_index_catalog
 
@@ -333,7 +334,45 @@ class HithinkClient:
         symbol = _public_symbol(thscode)
         if not _valid_qualified_symbol(symbol, suffixes={"SH", "SZ", "TI"}):
             return self._failure(_ENDPOINT_THS_INDEX_CONSTITUENTS, "INVALID_INDEX_SYMBOL")
-        return self._fetch_once(_ENDPOINT_THS_INDEX_CONSTITUENTS, {"thscode": symbol})
+        return self._fetch_ths_reference(_ENDPOINT_THS_INDEX_CONSTITUENTS, {"thscode": symbol})
+
+    def _fetch_ths_reference(self, endpoint: str, params: Mapping[str, Any]) -> HithinkFetchResult:
+        """Full-list endpoints must not silently accept a declared partial page."""
+        result = self._fetch_once(endpoint, params, metadata_keys=(
+            "timestamp", "total", "has_more", "next_offset", "pagination", "thscode", "complete", "truncated",
+        ), response_evidence=True)
+        if not result.ok:
+            return result
+        metadata = dict(result.metadata)
+        pagination = metadata.get("pagination", {})
+        invalid = not isinstance(pagination, Mapping)
+        if not invalid:
+            totals = [m["total"] for m in (metadata, pagination) if "total" in m]
+            invalid = any(isinstance(n, bool) or not isinstance(n, int) or n != len(result.items) for n in totals)
+            invalid |= any((m.get("has_more") is not None and m.get("has_more") is not False) or m.get("next_offset") is not None
+                           for m in (metadata, pagination))
+            invalid |= any(isinstance(pagination.get(k, 1), bool) or pagination.get(k, 1) != 1 for k in ("pages", "page"))
+            invalid |= metadata.get("complete") is False or metadata.get("truncated") is True
+        if metadata.get("response_bytes", 0) > 4_000_000:
+            invalid = True
+        if "thscode" in metadata and metadata["thscode"] != params.get("thscode"):
+            invalid = True
+        if invalid:
+            return result.model_copy(update={"ok": False, "complete": False,
+                "reason_code": "THS_REFERENCE_PAGINATION_OR_IDENTITY_CONFLICT"})
+        metadata.update(request_identity=dict(params),
+            completeness_basis="FULL_LIST_ENDPOINT_NOT_INDEPENDENT_TOTAL" if "total" not in metadata and "total" not in pagination
+            else "DECLARED_TOTAL_MATCHED")
+        return result.model_copy(update={"metadata": metadata})
+
+    @staticmethod
+    def _unique_reference_object(pairs: Sequence[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("THS_REFERENCE_DUPLICATE_JSON_KEY")
+            result[key] = value
+        return result
 
     fetch_ths_index_constituents = ths_index_constituents
 
@@ -588,6 +627,7 @@ class HithinkClient:
         metadata_keys: Sequence[str] = ("timestamp",),
         annotate_collection: bool = False,
         allow_empty: bool = False,
+        response_evidence: bool = False,
     ) -> HithinkFetchResult:
         fetched_at = self._now()
         if self.settings.hithink_api_key is None:
@@ -611,7 +651,7 @@ class HithinkClient:
             return self._failure(endpoint, "REQUEST_FAILED", fetch_time=fetched_at, metadata=dict(transport.metadata))
         status = int(response.status_code)
         try:
-            envelope = response.json()
+            envelope = response.json(object_pairs_hook=self._unique_reference_object) if response_evidence else response.json()
         except (TypeError, ValueError):
             return self._failure(
                 endpoint,
@@ -709,6 +749,9 @@ class HithinkClient:
             if key in data and not _KEY_WORDS.search(str(key))
         }
         metadata.update(transport.metadata)
+        if response_evidence:
+            metadata.update(response_sha256=hashlib.sha256(response.content).hexdigest(),
+                            response_bytes=len(response.content), http_status=status)
         return HithinkFetchResult(
             endpoint=endpoint,
             ok=True,

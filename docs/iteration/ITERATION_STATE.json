@@ -1,4 +1,21 @@
 {
+  "free_board_reference_20261009": {
+    "branch": "feat/free-board-reference-20261008",
+    "baseline_commit": "5f2d88d",
+    "code": "242_RELATED_REGRESSIONS_PASSED_NOT_FULL_REPOSITORY_ACCEPTANCE",
+    "replay": "OFFLINE_RESEARCH_AUCTION_ROUTING_FAILURE_ARCHIVE_AND_PARTIAL_COVERAGE_CONTRACTS_PASSED_REAL_DAY_SHADOW_PENDING",
+    "operations": "LOCAL_HITHINK_API_390_CONCEPTS_320_INDUSTRIES_18_OF_27_THEMES_20_FINAL_VERSIONS_INCREMENTAL_ZERO_REQUESTS_NO_PRODUCTION_CHANGE",
+    "strategy": "UNCHANGED_THRESHOLDS_NO_SIGNAL_OR_RETURN_IMPROVEMENT_PROOF",
+    "evidence": "docs/HITHINK_ROTATION_REFERENCE_2026-10-09.md",
+    "commands": [
+      {"command": "python -m pytest tests/test_hithink_board_reference.py -q (before implementation)", "exit_code": 1, "result": "module not yet implemented"},
+      {"command": "python -m pytest -o addopts='' -q 17-file final slice (full command in evidence document)", "exit_code": 0, "passed": 242},
+      {"command": "python scripts/collect_hithink_board_references.py --env-root D:/dev_A股/liangjian_funnel_workflow --output-dir artifacts/board-reference-20261009/hithink-final --max-requests 20 --deadline-seconds 120", "exit_code": 0, "logical_requests": 20, "qualified_themes": 18, "expected_themes": 27},
+      {"command": "python scripts/collect_hithink_board_references.py --env-root D:/dev_A股/liangjian_funnel_workflow --output-dir artifacts/board-reference-20261009/hithink-final --max-requests 1 --deadline-seconds 10", "exit_code": 0, "logical_requests": 0},
+      {"command": "git diff --check", "exit_code": 0}
+    ],
+    "next": "REVIEW_AND_IMPLEMENT_NINE_EXPLICIT_STRATEGY_COMPOSITES_VERIFY_ALL_COMPONENTS_THEN_27_THEME_A2_A3_SHADOW_COMPARISON_BEFORE_PRODUCTION_PROMOTION"
+  },
   "close_recovery_20261008": {
     "code": "88_RELATED_TESTS_PASSED",
     "replay": "845_COMPOSITES_NO_MISSING_OR_REVISION_774_DECLINED_473_EXACT_372_SUPERSET",

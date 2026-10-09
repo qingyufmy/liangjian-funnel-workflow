@@ -505,11 +505,17 @@ def project_theme_binding(binding,catalog,members,*,now,max_age_days=14):
     if catalog.get('catalog_scope')=='INPUT_UNIVERSE_ONLY_NOT_PROVIDER_BOARD_TOTAL':
         raise ReferenceError('REFERENCE_INPUT_UNIVERSE_NOT_FULL_MEMBERSHIP')
     source=binding.get('source_id');code=binding.get('board_id');name=binding.get('board_name')
+    if binding.get('category') and catalog.get('catalog_scope') != binding['category']:
+        raise ReferenceError('REFERENCE_BINDING_CATEGORY_MISMATCH')
     if catalog['source_id']!=source or members['source_id']!=source or members['board_id']!=code or members.get('board_name')!=name:
         raise ReferenceError('REFERENCE_BINDING_IDENTITY_MISMATCH')
+    if members.get('source_catalog_hash') and members['source_catalog_hash'] != catalog['content_hash']:
+        raise ReferenceError('REFERENCE_CATALOG_VERSION_MISMATCH')
     if {'board_id':code,'name':name} not in [{'board_id':x['board_id'],'name':x['name']} for x in catalog['records']]:
         raise ReferenceError('REFERENCE_BINDING_IDENTITY_MISMATCH')
     cutoff=aware(now)
+    if binding.get('effective_from') and datetime.fromisoformat(binding['effective_from']).date() > cutoff.date():
+        raise ReferenceError('REFERENCE_BINDING_NOT_YET_EFFECTIVE')
     for reference in (catalog,members):
         stamp=aware(datetime.fromisoformat(reference['observed_at']))
         if stamp>cutoff or (cutoff.date()-stamp.date()).days>max_age_days:raise ReferenceError('REFERENCE_BINDING_TIME_INVALID')
@@ -535,7 +541,8 @@ def resolve_theme_reference(theme_id,bindings,catalogs,memberships,*,now,max_age
     for binding in sorted(choices,key=lambda b:b['priority']):
         try:
             catalogs_for_source=[c for c in catalogs if c.get('source_id')==binding['source_id'] and _valid(c)
-                                 and any(r.get('board_id')==binding['board_id'] for r in c['records'])]
+                                 and (c.get('catalog_scope')==binding['category'] if binding.get('category')
+                                      else any(r.get('board_id')==binding['board_id'] for r in c['records']))]
             members_for_source=[m for m in memberships if m.get('source_id')==binding['source_id'] and m.get('board_id')==binding['board_id'] and _valid(m)]
             if not catalogs_for_source or not members_for_source:raise ReferenceError('REFERENCE_SOURCE_NOT_FOUND')
             cutoff=aware(now)
@@ -543,8 +550,14 @@ def resolve_theme_reference(theme_id,bindings,catalogs,memberships,*,now,max_age
             catalogs_for_source=[c for c in catalogs_for_source if aware(datetime.fromisoformat(c['observed_at']))<=cutoff]
             members_for_source=[m for m in members_for_source if aware(datetime.fromisoformat(m['observed_at']))<=cutoff]
             if not catalogs_for_source or not members_for_source:raise ReferenceError('REFERENCE_SOURCE_TIME_INVALID')
-            catalog=max(catalogs_for_source,key=lambda c:c['observed_at'])
+            latest_catalog=max(catalogs_for_source,key=lambda c:c['observed_at'])
+            if not any(r.get('board_id')==binding['board_id'] and r.get('name')==binding['board_name'] for r in latest_catalog['records']):
+                raise ReferenceError('REFERENCE_BINDING_IDENTITY_MISMATCH')
             member=max(members_for_source,key=lambda m:m['observed_at'])
+            if member.get('source_catalog_hash'):
+                catalogs_for_source=[c for c in catalogs_for_source if c['content_hash']==member['source_catalog_hash']]
+                if not catalogs_for_source:raise ReferenceError('REFERENCE_CATALOG_VERSION_MISMATCH')
+            catalog=max(catalogs_for_source,key=lambda c:c['observed_at'])
             projection=project_theme_binding(binding,catalog,member,now=now,max_age_days=max_age_days)
             attempts.append({'source_id':binding['source_id'],'board_id':binding['board_id'],'reason_code':'OK'})
             return {'available':True,'projection':projection,'fallback_reused':len(attempts)>1,'attempts':attempts,
