@@ -145,6 +145,7 @@ def audit_disclosure_scope(prefilter: Mapping[str, Any], review_symbols: Iterabl
         'STRONG_TREND_OBSERVATION': lambda r: (r.get('strong_trend_observation') is True
                                               or r.get('strong_trend_observation_rank') is not None),
         'LEGACY': lambda r: r.get('a2_pool_channel') == 'LEGACY',
+        'FULL_MARKET_FALLBACK': lambda r: r.get('rotation_input_source') == 'FULL_MARKET_ROTATION_FALLBACK',
     }
     for name, predicate in selectors.items():
         symbols = _symbols(r['symbol'] for r in rows

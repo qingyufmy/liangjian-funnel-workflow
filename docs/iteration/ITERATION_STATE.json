@@ -2,14 +2,18 @@
   "wp5_hotfix_close_scope_20261009": {
     "branch": "codex/wp5-hotfix-close-scope",
     "baseline_commit": "7402e7fc570b7a91c5e19405308737715b0ad5c1",
-    "status": "PREFILTER_UNCERTAINTY_FIXED_PRE_RANK_ROUTE_AUDIT_AND_OFFLINE_ENTRY_IMPLEMENTED_FORMAL_QUERY_SCOPE_UNCHANGED_FULL_WP5_PENDING",
-    "code": "CORE_FULL_EXIT0_2417_TOTAL_2410_PASS_6_SKIP_1_XFAIL_THEN_COMPACT_OFFLINE_RECEIPT_FINAL_162_RELATED_PASS_NOT_RELEASE_QUALIFIED",
+    "status": "LOCAL_INDEPENDENT_SLICES_READY_FOR_CLAUDE_REVIEW_FORMAL_QUERY_SCOPE_UNCHANGED_FULL_WP5_PENDING_EVIDENCE",
+    "code": "FINAL_FORMAL_ROUTE_SLICE_165_PASS_CLEAN_HEAD_FULL_ACCEPTANCE_IN_IMMUTABLE_HANDOFF_MANIFEST",
     "replay": "0923_AND_0928_PROJECTION_REQUIRED_152_AND_38_ZERO_MISS_BOTH_DATA_LIMITED_ORIGINAL_RAW_AND_A2_OVERLAY_NOT_VERIFIED_1008_1009_STILL_PENDING",
     "operations": "READONLY_ONLY_NO_PUSH_DEPLOY_RECOVERY_OR_PRODUCTION_WRITES",
     "strategy": "NOT_APPLICABLE_UNCHANGED",
     "evidence": "docs/WP5_INCREMENTAL_PREFILTER_2026-10-09.md",
     "night_maintenance_evidence": "docs/WP5_NIGHT_DISCLOSURE_2026-10-09.md",
     "route_coverage_evidence": "docs/WP5_DISCLOSURE_ROUTE_COVERAGE_2026-10-09.md",
+    "review_handoff": "docs/CLAUDE_WP5_REVIEW_HANDOFF_2026-10-09.md",
+    "next_stage_draft": "docs/CLAUDE_NEXT_STAGE_BRIEF_DRAFT_2026-10-09.md",
+    "final_acceptance_manifest": "artifacts/wp5-20261009/claude-review-manifest.json",
+    "final_clean_head_receipt": "artifacts/wp5-20261009/full-claude-handoff-tests/evidence.json",
     "route_coverage_artifact": "artifacts/wp5-20261009/disclosure-batch-20260928-v3.json",
     "route_coverage_sha256": "6bab8cf4ca35a526ac2a8f397cf3f5571fe4fa919178b695e3b492377b9b5b4b",
     "route_coverage_second_artifact": "artifacts/wp5-20261009/disclosure-batch-20260923-v1.json",
@@ -72,11 +76,15 @@
       {"command":"Validate ITERATION_STATE JSON, git diff --check, explicitly resolve and remove only generated 0928 v1/v2 intermediate receipts after hash equivalence proof","exit_code":0,"result":"ORIGINAL_INPUTS_AND_FINAL_RECEIPTS_PRESERVED_46900516_INTERMEDIATE_BYTES_REMOVED"},
       {"command":"git diff --cached --check including byte-preserved CRLF receipts and failure logs","exit_code":2,"result":"EVIDENCE_WHITESPACE_ONLY_SOURCE_CHECK_SEPARATELY_EXIT0_LOCAL_CODE_COMMIT_8DB81AA"},
       {"command":"git -c core.whitespace=cr-at-eol diff --check HEAD^ HEAD -- src scripts tests docs","exit_code":0},
-      {"command":"Only frozen artifacts .gitattributes adds -whitespace; no evidence bytes or source whitespace policy modified","exit_code":0,"result":"METADATA_ONLY_NO_TEST_RERUN_REQUIRED"}
+      {"command":"Only frozen artifacts .gitattributes adds -whitespace; no evidence bytes or source whitespace policy modified","exit_code":0,"result":"METADATA_ONLY_NO_TEST_RERUN_REQUIRED"},
+      {"command":"python -m pytest tests/test_wp5_disclosure_formal_routes.py -o addopts='' -q --tb=short --junitxml=artifacts/wp5-20261009/formal-routes-before.xml","exit_code":1,"failed":2,"passed":1,"result":"ONE_FIXTURE_RELATIVE_STRENGTH_GAP_AND_ONE_REAL_FALLBACK_AUDIT_CLASSIFICATION_GAP"},
+      {"command":"python -m pytest tests/test_wp5_disclosure_formal_routes.py -o addopts='' -q --tb=short --junitxml=artifacts/wp5-20261009/formal-routes-before-v2.xml","exit_code":1,"failed":1,"passed":2,"result":"REAL_FULL_MARKET_FALLBACK_GROUP_MISSING"},
+      {"command":"python -m pytest 12-file WP5/core/workflow slice (full command in Claude handoff doc) --junitxml=artifacts/wp5-20261009/formal-routes-final-tests.xml","exit_code":0,"passed":165},
+      {"command":"Final test_all.ps1, immutable receipt verification, and local review packaging","result":"ACTUAL_COMMANDS_EXIT_CODES_COUNTS_AND_FINAL_HEAD_RECORDED_IN_FINAL_ACCEPTANCE_MANIFEST_NOT_ASSUMED_HERE"}
     ],
     "decision_8":"PENDING_NO_RELEASE",
     "decision_9":"TONIGHT_RECOVERY_ABANDONED_WEEKEND_PREP_REQUIRES_SEPARATE_AUTHORIZATION_USE_ACTUAL_SOURCE_TIME_NOT_FRIDAY_ASOF_LIVE_COLLECTION",
-    "next":"COMPLETE_ORIGINAL_RAW_A2_OVERLAY_AND_RUNTIME_CONFIG_BINDING_PLUS_NONEMPTY_RESERVE_LEGACY_ROUTE_SAMPLES_1008_1009_INPUTS_PENDING_NO_FORMAL_SCOPE_OR_22_SCHEDULE_PROMOTION"
+    "next":"CLAUDE_REVIEW_CODE_DIFF_AND_FINAL_HEAD_RECEIPT_THEN_USER_AUTHORIZED_EVIDENCE_COLLECTION_SCOPE_PROMOTION_AND_RELEASE_FULL_WP5_NOT_COMPLETE"
   },
   "wp0_repository_baseline_20261009": {
     "branch": "codex/wp0-repository-baseline-20261009",
