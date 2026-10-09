@@ -2,7 +2,7 @@
   "wp5_hotfix_close_scope_20261009": {
     "branch": "codex/wp5-hotfix-close-scope",
     "g3_local": {
-      "status": "SOURCE_BASIS_RAW_CONFIRMED_P1A_REAL_GATE_PARITY_P2ABC_FULL_LOCAL_PASS_BRIDGE_0002_REVIEW_PENDING",
+      "status": "SOURCE_BASIS_RAW_CONFIRMED_P1A_REAL_GATE_PARITY_P2ABC_FULL_LOCAL_PASS_BRIDGE_0002_ACCEPTED",
       "evidence": "docs/WP5_G3_LOCAL_REVIEW_2026-10-09.md",
       "full_receipt": "artifacts/wp5-20261009/full-g3-local-v2-tests/evidence.json",
       "failed_full_receipt": "artifacts/wp5-20261009/full-g3-local-tests/evidence.json",
@@ -17,7 +17,7 @@
       "receipt_head":"113ac389124a6920d8e90079076947fe6f2bf7db",
       "receipt_sha256":"a36a9ec9eaf194bf0e4a7d4ec656ae8b16ac7884af804f5abc923506d5d11cd3",
       "receipt_totals":{"tests":2462,"passed":2455,"failed":0,"skipped":6,"xfail":1},
-      "next":"BRIDGE_REVIEW_SUBMITTED_CONTINUE_AUTHORIZED_RAW_EVIDENCE_AND_OTHER_WP_WORK"
+      "next":"CORPORATE_FACTOR_CONTRACT_AND_REAL_200_PARITY_PENDING_NO_RELEASE_AUTHORITY_FROM_REVIEW"
     },
     "p2_7_9": {
       "status":"LOCAL_COUNTEREXAMPLES_FIXED_SOURCE_COVERAGE_NOT_A3_ELIGIBILITY",
@@ -29,6 +29,29 @@
       "replay":"REAL_200_STOCKS_PENDING",
       "operations":"NOT_DEPLOYED_DEFAULT_SHADOW_NO_NIGHT_SCHEDULE",
       "strategy":"UNCHANGED"
+    },
+    "original_snapshot_binding": {
+      "status":"DATA_LIMITED_RAW_PROJECTION_LANE_ATTEMPT_BOUND_FULL_A2_OVERLAY_NOT_PRESERVED",
+      "evidence":"docs/WP5_ORIGINAL_SNAPSHOT_BINDING_2026-10-10.md",
+      "artifact":"artifacts/wp5-20261009/snapshot-binding-20261008-v1.json",
+      "commands":[
+        {"command":"audit_snapshot_binding_readonly.py --projection original1008 --raw original1008 --lane original1008 --attempt original1008 --output snapshot-binding-20261008-v1.json","python_exit_code":2,"outer_tool_exit_code":1,"result":"DATA_LIMITED_NOT_RELEASE_ACCEPTANCE"},
+        {"command":"pytest tests/test_wp5_snapshot_binding_readonly.py --junitxml=snapshot-binding-tests-v1.xml","exit_code":0,"passed":8}
+      ],
+      "production_written":false,"historical_facts_changed":false
+    },
+    "corporate_actions_source": {
+      "status":"20_OF_20_SOURCE_SCHEMA_EXDATE_MATCH_FACTOR_CONTRACT_UNVERIFIED",
+      "evidence":"docs/WP5_G3_CORPORATE_ACTIONS_SOURCE_2026-10-10.md",
+      "artifact":"artifacts/wp5-20261009/corporate-action-probe.json",
+      "artifact_sha256":"7714d13a0213d3a837db16c2bd3f516ce8a0de2e57d43ce94ad871319b3264af",
+      "commands":[
+        {"command":"probe_wp5_corporate_actions_readonly.py using local Settings","exit_code":3,"result":"HITHINK_API_KEY_MISSING_NO_PROVIDER_CALL"},
+        {"command":"same isolated probe using existing www production Settings in temporary directory","exit_code":0,"result":"SOURCE_ONLY_20_MATCH_NOT_FACTOR_ACCEPTANCE"},
+        {"command":"pytest corporate_action_probe hithink_probe hithink_fact_endpoints --junitxml=corporate-action-probe-tests-final.xml","exit_code":0,"passed":39}
+      ],
+      "bridge_question":"0003-question-corporate-price-basis-and-state-ack.md",
+      "operations":"NO_PRODUCTION_BUSINESS_WRITE_NO_DEPLOY","strategy":"RAW_A3_UNCHANGED"
     },
     "baseline_commit": "7402e7fc570b7a91c5e19405308737715b0ad5c1",
     "status": "CLAUDE_G1_G2_LOCAL_HANDOFF_FACTOR_SOURCE_P0_PENDING_DEFAULT_SHADOW_NO_RELEASE",
