@@ -1,0 +1,1072 @@
+{
+  "schema_version": "wp5-daily-incremental-200/1",
+  "selection_rule": "SHA256(WP5-G3-3-200-v1:symbol) ascending; ordinary excludes 10 official specials",
+  "raw_universe_file": "snap-3377a346d297f37ef472d6e8.json",
+  "raw_universe_sha256": "54330ad74aec6150132a2c3f69cceb16a5e23274483a2b85e3d4c799b706d16a",
+  "raw_universe_as_of": "2026-10-08T16:33:51+08:00",
+  "raw_universe_count": 5578,
+  "special_reference_sha256": "fc8d1fc962baa728a9aebbaf918c8a352807eecef0a66edd81832fde3a2cfbfd",
+  "special_evidence_type": "OFFICIAL_SEPTEMBER_EVENT_REFERENCE_NOT_HISTORY_INFERENCE",
+  "counts": {
+    "MAIN": 80,
+    "CHINEXT": 50,
+    "STAR": 40,
+    "BJ": 20,
+    "SPECIAL": 10
+  },
+  "seed_as_of": "2026-10-08T15:10:00+08:00",
+  "target_as_of": "2026-10-09T15:10:00+08:00",
+  "records": [
+    {
+      "symbol": "603815.SH",
+      "name": "交建股份",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "001255.SZ",
+      "name": "博菲电气",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "600191.SH",
+      "name": "华资实业",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "603332.SH",
+      "name": "苏州龙杰",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "000591.SZ",
+      "name": "太阳能",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "003043.SZ",
+      "name": "华亚智能",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "000070.SZ",
+      "name": "特发信息",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "600979.SH",
+      "name": "广安爱众",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "002376.SZ",
+      "name": "新北洋",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "601212.SH",
+      "name": "白银有色",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "601827.SH",
+      "name": "三峰环境",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "002400.SZ",
+      "name": "省广集团",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "002633.SZ",
+      "name": "申科股份",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "603868.SH",
+      "name": "飞科电器",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "002007.SZ",
+      "name": "华兰生物",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "603628.SH",
+      "name": "清源股份",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "002191.SZ",
+      "name": "劲嘉股份",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "603708.SH",
+      "name": "家家悦",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "002269.SZ",
+      "name": "美邦服饰",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "000632.SZ",
+      "name": "ST三木",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "002497.SZ",
+      "name": "雅化集团",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "603936.SH",
+      "name": "博敏电子",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "002970.SZ",
+      "name": "锐明技术",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "601858.SH",
+      "name": "中国科传",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "002101.SZ",
+      "name": "广东鸿图",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "002890.SZ",
+      "name": "弘宇股份",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "002385.SZ",
+      "name": "大北农",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "000909.SZ",
+      "name": "*ST数源",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "002821.SZ",
+      "name": "凯莱英",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "601012.SH",
+      "name": "隆基绿能",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "002414.SZ",
+      "name": "高德红外",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "600676.SH",
+      "name": "久事动娱",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "603960.SH",
+      "name": "克来机电",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "002367.SZ",
+      "name": "康力电梯",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "002561.SZ",
+      "name": "徐家汇",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "603806.SH",
+      "name": "福斯特",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "600728.SH",
+      "name": "佳都科技",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "600376.SH",
+      "name": "首开股份",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "600115.SH",
+      "name": "中国东航",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "001257.SZ",
+      "name": "盛龙股份",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "603838.SH",
+      "name": "*ST四通",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "002627.SZ",
+      "name": "三峡旅游",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "600301.SH",
+      "name": "华锡有色",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "600882.SH",
+      "name": "妙可蓝多",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "600688.SH",
+      "name": "上海石化",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "605208.SH",
+      "name": "永茂泰",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "003003.SZ",
+      "name": "天元股份",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "002206.SZ",
+      "name": "海利得",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "603661.SH",
+      "name": "恒林股份",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "603067.SH",
+      "name": "振华股份",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "002612.SZ",
+      "name": "朗姿股份",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "000876.SZ",
+      "name": "新希望",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "600520.SH",
+      "name": "三佳科技",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "600540.SH",
+      "name": "新赛股份",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "002239.SZ",
+      "name": "奥特佳",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "001268.SZ",
+      "name": "联合精密",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "600990.SH",
+      "name": "四创电子",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "002615.SZ",
+      "name": "哈尔斯",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "603886.SH",
+      "name": "元祖股份",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "001369.SZ",
+      "name": "双欣材料",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "002963.SZ",
+      "name": "豪尔赛",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "002932.SZ",
+      "name": "*ST明德",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "603706.SH",
+      "name": "东方环宇",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "002641.SZ",
+      "name": "公元股份",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "002119.SZ",
+      "name": "康强电子",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "002951.SZ",
+      "name": "金时科技",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "000056.SZ",
+      "name": "*ST皇庭",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "002779.SZ",
+      "name": "中坚科技",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "003029.SZ",
+      "name": "吉大正元",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "601279.SH",
+      "name": "英利汽车",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "603215.SH",
+      "name": "比依股份",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "000800.SZ",
+      "name": "一汽解放",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "601133.SH",
+      "name": "柏诚股份",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "002998.SZ",
+      "name": "优彩资源",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "600769.SH",
+      "name": "祥龙电业",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "000333.SZ",
+      "name": "美的集团",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "605268.SH",
+      "name": "王力安防",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "000626.SZ",
+      "name": "远大控股",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "603259.SH",
+      "name": "药明康德",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "603786.SH",
+      "name": "科博达",
+      "stratum": "MAIN"
+    },
+    {
+      "symbol": "301133.SZ",
+      "name": "金钟股份",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "301293.SZ",
+      "name": "三博脑科",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "300709.SZ",
+      "name": "精研科技",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "300308.SZ",
+      "name": "中际旭创",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "300838.SZ",
+      "name": "浙江力诺",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "301603.SZ",
+      "name": "乔锋智能",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "300708.SZ",
+      "name": "聚灿光电",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "300772.SZ",
+      "name": "运达股份",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "301115.SZ",
+      "name": "联检科技",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "300102.SZ",
+      "name": "乾照光电",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "301275.SZ",
+      "name": "汉朔科技",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "300558.SZ",
+      "name": "贝达药业",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "300230.SZ",
+      "name": "永利股份",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "300468.SZ",
+      "name": "四方精创",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "301356.SZ",
+      "name": "天振股份",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "300518.SZ",
+      "name": "新迅达",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "301232.SZ",
+      "name": "飞沃科技",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "300036.SZ",
+      "name": "超图软件",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "300019.SZ",
+      "name": "硅宝科技",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "300849.SZ",
+      "name": "锦盛新材",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "301059.SZ",
+      "name": "金三江",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "300015.SZ",
+      "name": "爱尔眼科",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "300810.SZ",
+      "name": "中科海讯",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "300409.SZ",
+      "name": "道氏技术",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "300051.SZ",
+      "name": "琏升科技",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "300045.SZ",
+      "name": "华力创通",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "300516.SZ",
+      "name": "久之洋",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "301348.SZ",
+      "name": "蓝箭电子",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "301196.SZ",
+      "name": "唯科科技",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "301330.SZ",
+      "name": "熵基科技",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "300678.SZ",
+      "name": "中科信息",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "300272.SZ",
+      "name": "开能健康",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "301533.SZ",
+      "name": "威马农机",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "300589.SZ",
+      "name": "江龙船艇",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "300693.SZ",
+      "name": "盛弘股份",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "301000.SZ",
+      "name": "肇民科技",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "301198.SZ",
+      "name": "喜悦智行",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "300968.SZ",
+      "name": "格林精密",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "301088.SZ",
+      "name": "戎美股份",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "300504.SZ",
+      "name": "天邑股份",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "301581.SZ",
+      "name": "黄山谷捷",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "301278.SZ",
+      "name": "快可电子",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "300180.SZ",
+      "name": "华峰超纤",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "301592.SZ",
+      "name": "六九一二",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "301035.SZ",
+      "name": "润丰股份",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "300681.SZ",
+      "name": "英搏尔",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "301326.SZ",
+      "name": "捷邦科技",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "300808.SZ",
+      "name": "久量股份",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "301566.SZ",
+      "name": "达利凯普",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "300790.SZ",
+      "name": "宇瞳光学",
+      "stratum": "CHINEXT"
+    },
+    {
+      "symbol": "688613.SH",
+      "name": "奥精医疗",
+      "stratum": "STAR"
+    },
+    {
+      "symbol": "688519.SH",
+      "name": "南亚新材",
+      "stratum": "STAR"
+    },
+    {
+      "symbol": "688112.SH",
+      "name": "鼎阳科技",
+      "stratum": "STAR"
+    },
+    {
+      "symbol": "688285.SH",
+      "name": "高铁电气",
+      "stratum": "STAR"
+    },
+    {
+      "symbol": "688320.SH",
+      "name": "禾川科技",
+      "stratum": "STAR"
+    },
+    {
+      "symbol": "688081.SH",
+      "name": "兴图新科",
+      "stratum": "STAR"
+    },
+    {
+      "symbol": "688238.SH",
+      "name": "和元生物",
+      "stratum": "STAR"
+    },
+    {
+      "symbol": "688819.SH",
+      "name": "天能股份",
+      "stratum": "STAR"
+    },
+    {
+      "symbol": "688373.SH",
+      "name": "盟科药业-U",
+      "stratum": "STAR"
+    },
+    {
+      "symbol": "688106.SH",
+      "name": "金宏气体",
+      "stratum": "STAR"
+    },
+    {
+      "symbol": "688087.SH",
+      "name": "英科再生",
+      "stratum": "STAR"
+    },
+    {
+      "symbol": "688312.SH",
+      "name": "燕麦科技",
+      "stratum": "STAR"
+    },
+    {
+      "symbol": "688663.SH",
+      "name": "新风光",
+      "stratum": "STAR"
+    },
+    {
+      "symbol": "688382.SH",
+      "name": "益方生物-U",
+      "stratum": "STAR"
+    },
+    {
+      "symbol": "688128.SH",
+      "name": "中国电研",
+      "stratum": "STAR"
+    },
+    {
+      "symbol": "688114.SH",
+      "name": "华大智造",
+      "stratum": "STAR"
+    },
+    {
+      "symbol": "688478.SH",
+      "name": "晶升股份",
+      "stratum": "STAR"
+    },
+    {
+      "symbol": "688588.SH",
+      "name": "凌志软件",
+      "stratum": "STAR"
+    },
+    {
+      "symbol": "688584.SH",
+      "name": "上海合晶",
+      "stratum": "STAR"
+    },
+    {
+      "symbol": "688335.SH",
+      "name": "复洁科技",
+      "stratum": "STAR"
+    },
+    {
+      "symbol": "688093.SH",
+      "name": "世华科技",
+      "stratum": "STAR"
+    },
+    {
+      "symbol": "688499.SH",
+      "name": "利元亨",
+      "stratum": "STAR"
+    },
+    {
+      "symbol": "688789.SH",
+      "name": "宏华数科",
+      "stratum": "STAR"
+    },
+    {
+      "symbol": "688303.SH",
+      "name": "大全能源",
+      "stratum": "STAR"
+    },
+    {
+      "symbol": "688728.SH",
+      "name": "格科微",
+      "stratum": "STAR"
+    },
+    {
+      "symbol": "688750.SH",
+      "name": "金天钛业",
+      "stratum": "STAR"
+    },
+    {
+      "symbol": "688251.SH",
+      "name": "井松智能",
+      "stratum": "STAR"
+    },
+    {
+      "symbol": "688306.SH",
+      "name": "均普智能",
+      "stratum": "STAR"
+    },
+    {
+      "symbol": "688360.SH",
+      "name": "德马科技",
+      "stratum": "STAR"
+    },
+    {
+      "symbol": "688507.SH",
+      "name": "索辰科技",
+      "stratum": "STAR"
+    },
+    {
+      "symbol": "688211.SH",
+      "name": "中科微至",
+      "stratum": "STAR"
+    },
+    {
+      "symbol": "688380.SH",
+      "name": "中微半导",
+      "stratum": "STAR"
+    },
+    {
+      "symbol": "688129.SH",
+      "name": "东来技术",
+      "stratum": "STAR"
+    },
+    {
+      "symbol": "688419.SH",
+      "name": "耐科装备",
+      "stratum": "STAR"
+    },
+    {
+      "symbol": "688556.SH",
+      "name": "高测股份",
+      "stratum": "STAR"
+    },
+    {
+      "symbol": "688685.SH",
+      "name": "迈信林",
+      "stratum": "STAR"
+    },
+    {
+      "symbol": "688334.SH",
+      "name": "西高院",
+      "stratum": "STAR"
+    },
+    {
+      "symbol": "688536.SH",
+      "name": "思瑞浦",
+      "stratum": "STAR"
+    },
+    {
+      "symbol": "688553.SH",
+      "name": "汇宇制药-W",
+      "stratum": "STAR"
+    },
+    {
+      "symbol": "688283.SH",
+      "name": "坤恒顺维",
+      "stratum": "STAR"
+    },
+    {
+      "symbol": "920871.BJ",
+      "name": "派特尔",
+      "stratum": "BJ"
+    },
+    {
+      "symbol": "920062.BJ",
+      "name": "科润智控",
+      "stratum": "BJ"
+    },
+    {
+      "symbol": "920098.BJ",
+      "name": "科隆新材",
+      "stratum": "BJ"
+    },
+    {
+      "symbol": "920037.BJ",
+      "name": "广信科技",
+      "stratum": "BJ"
+    },
+    {
+      "symbol": "920943.BJ",
+      "name": "优机股份",
+      "stratum": "BJ"
+    },
+    {
+      "symbol": "920992.BJ",
+      "name": "中科美菱",
+      "stratum": "BJ"
+    },
+    {
+      "symbol": "920020.BJ",
+      "name": "泰凯英",
+      "stratum": "BJ"
+    },
+    {
+      "symbol": "920753.BJ",
+      "name": "天纺标",
+      "stratum": "BJ"
+    },
+    {
+      "symbol": "920019.BJ",
+      "name": "铜冠矿建",
+      "stratum": "BJ"
+    },
+    {
+      "symbol": "920906.BJ",
+      "name": "舜宇精工",
+      "stratum": "BJ"
+    },
+    {
+      "symbol": "920289.BJ",
+      "name": "华汇智能",
+      "stratum": "BJ"
+    },
+    {
+      "symbol": "920071.BJ",
+      "name": "金钛股份",
+      "stratum": "BJ"
+    },
+    {
+      "symbol": "920046.BJ",
+      "name": "亿能电力",
+      "stratum": "BJ"
+    },
+    {
+      "symbol": "920176.BJ",
+      "name": "维琪科技",
+      "stratum": "BJ"
+    },
+    {
+      "symbol": "920599.BJ",
+      "name": "同力股份",
+      "stratum": "BJ"
+    },
+    {
+      "symbol": "920981.BJ",
+      "name": "晶赛科技",
+      "stratum": "BJ"
+    },
+    {
+      "symbol": "920081.BJ",
+      "name": "欧伦电气",
+      "stratum": "BJ"
+    },
+    {
+      "symbol": "920055.BJ",
+      "name": "隆源股份",
+      "stratum": "BJ"
+    },
+    {
+      "symbol": "920122.BJ",
+      "name": "中纺标",
+      "stratum": "BJ"
+    },
+    {
+      "symbol": "920195.BJ",
+      "name": "三祥科技",
+      "stratum": "BJ"
+    },
+    {
+      "symbol": "001246.SZ",
+      "name": "力勤资源",
+      "event_type": "IPO",
+      "effective_date": "2026-09-30",
+      "publication_date": "2026-09-30",
+      "announcement_url": "https://static.cninfo.com.cn/finalpage/2026-09-30/1225586764.PDF",
+      "date_evidence": "2026年9月30日在深圳证券交易所上市交易",
+      "stratum": "SPECIAL"
+    },
+    {
+      "symbol": "301686.SZ",
+      "name": "中塑股份",
+      "event_type": "IPO",
+      "effective_date": "2026-09-22",
+      "publication_date": "2026-09-22",
+      "announcement_url": "https://static.cninfo.com.cn/finalpage/2026-09-22/1225577873.PDF",
+      "date_evidence": "2026年9月22日在深圳证券交易所创业板上市",
+      "stratum": "SPECIAL"
+    },
+    {
+      "symbol": "301688.SZ",
+      "name": "格林生物",
+      "event_type": "IPO",
+      "effective_date": "2026-09-02",
+      "publication_date": "2026-09-01",
+      "announcement_url": "https://static.cninfo.com.cn/finalpage/2026-09-01/1225537225.PDF",
+      "date_evidence": "上市时间2026年9月2日",
+      "stratum": "SPECIAL"
+    },
+    {
+      "symbol": "301689.SZ",
+      "name": "电科思仪",
+      "event_type": "IPO",
+      "effective_date": "2026-09-10",
+      "publication_date": "2026-09-09",
+      "announcement_url": "https://static.cninfo.com.cn/finalpage/2026-09-09/1225554589.PDF",
+      "date_evidence": "上市时间2026年9月10日",
+      "stratum": "SPECIAL"
+    },
+    {
+      "symbol": "301697.SZ",
+      "name": "贝特利",
+      "event_type": "IPO",
+      "effective_date": "2026-09-01",
+      "publication_date": "2026-08-31",
+      "announcement_url": "https://static.cninfo.com.cn/finalpage/2026-08-31/1225523803.PDF",
+      "date_evidence": "上市时间2026年9月1日",
+      "stratum": "SPECIAL"
+    },
+    {
+      "symbol": "301699.SZ",
+      "name": "洛轴股份",
+      "event_type": "IPO",
+      "effective_date": "2026-09-09",
+      "publication_date": "2026-09-08",
+      "announcement_url": "https://static.cninfo.com.cn/finalpage/2026-09-08/1225551178.PDF",
+      "date_evidence": "上市时间2026年9月9日",
+      "stratum": "SPECIAL"
+    },
+    {
+      "symbol": "600825.SH",
+      "name": "新华传媒",
+      "event_type": "SUSPENSION",
+      "effective_date": "2026-09-07",
+      "publication_date": "2026-09-08",
+      "announcement_url": "https://static.cninfo.com.cn/finalpage/2026-09-08/1225552231.PDF",
+      "date_evidence": "9月7日停牌，9月8日继续停牌",
+      "stratum": "SPECIAL"
+    },
+    {
+      "symbol": "600929.SH",
+      "name": "雪天盐业",
+      "event_type": "SUSPENSION_RESUMPTION",
+      "effective_date": "2026-09-14",
+      "publication_date": "2026-09-12",
+      "announcement_url": "https://www.sse.com.cn/disclosure/listedinfo/summaries/indexDetail.shtml?SEQ=334691316",
+      "date_evidence": "公司A股股票将于2026年9月14日开市起复牌",
+      "scope_note": "官方复牌日证明九月停复牌事件；不将9月5日进展公告日当作停牌起始日。",
+      "stratum": "SPECIAL"
+    },
+    {
+      "symbol": "688801.SH",
+      "name": "燧原科技",
+      "event_type": "IPO",
+      "effective_date": "2026-09-11",
+      "publication_date": "2026-09-10",
+      "announcement_url": "https://static.cninfo.com.cn/finalpage/2026-09-10/1225556294.PDF",
+      "date_evidence": "上市时间2026年9月11日",
+      "stratum": "SPECIAL"
+    },
+    {
+      "symbol": "688837.SH",
+      "name": "信诺维",
+      "event_type": "IPO",
+      "effective_date": "2026-09-16",
+      "publication_date": "2026-09-15",
+      "announcement_url": "https://www.sse.com.cn/disclosure/announcement/listing/ipo/c/c_20260915_10832185.shtml",
+      "date_evidence": "2026年9月16日上市交易",
+      "stratum": "SPECIAL"
+    }
+  ]
+}

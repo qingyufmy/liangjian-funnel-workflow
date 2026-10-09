@@ -943,6 +943,7 @@ export interface WorkflowProgressResources {
 }
 
 export interface WorkflowProgressSummary {
+  timing?: WorkflowTimingSummary | null;
   status: "RUNNING" | "STALE" | "COMPLETED" | "READY" | "PARTIAL" | "BLOCKED" | "FAILED" | "IDLE" | "UNKNOWN" | "INVALID";
   issue: "OVERSIZE" | "UNREADABLE" | "INVALID_JSON" | "INVALID_SHAPE" | "HEARTBEAT_TIMEOUT" | null;
   stale: boolean;
@@ -968,6 +969,32 @@ export interface WorkflowProgressSummary {
   updatedAt: string | null;
   lanes: WorkflowProgressLane[];
   resources: WorkflowProgressResources | null;
+}
+
+export interface WorkflowTimingEntry {
+  kind: "PHASE" | "RESEARCH_STAGE";
+  phase: string;
+  laneId: string | null;
+  elapsedMs: number;
+  currentInvocationElapsedMs: number | null;
+  visitsCount: number;
+  status: "RUNNING" | "LEFT_PHASE" | "LEFT_STAGE" | "COMPLETED" | "FAILED" | "INTERRUPTED" | "RUN_ENDED" | null;
+  startedAt: string | null;
+  endedAt: string | null;
+}
+
+export interface WorkflowTimingSummary {
+  runWallElapsedMs: number | null;
+  pythonElapsedMs: number | null;
+  parentElapsedMs: number | null;
+  parentStartedAt: string | null;
+  budgetMs: number | null;
+  budgetSource: "NODE_TIMEOUT_FOR_JOB" | "UNKNOWN";
+  budgetUsedRatio: number | null;
+  stageTimesAreAdditive: false;
+  visitsDroppedCount: number;
+  totals: readonly WorkflowTimingEntry[];
+  visits: readonly WorkflowTimingEntry[];
 }
 
 export interface OverviewResponse {

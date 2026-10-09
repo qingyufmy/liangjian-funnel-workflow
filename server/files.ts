@@ -26,6 +26,8 @@ import type {
   WorkflowProgressStage,
   WorkflowProgressStatus,
   WorkflowProgressSummary,
+  WorkflowTimingEntry,
+  WorkflowTimingSummary,
   LaneOutcomeContract,
   RunOutcomeContract,
   StageOutcomeContract,
@@ -170,6 +172,11 @@ const PROGRESS_PHASES = new Set([
   "READY",
   "BOOTSTRAP",
   "UNKNOWN",
+  "COMPANY_FACT_SYNC", "FACT_MANIFEST_SYNC", "SNAPSHOT_READY", "SNAPSHOT_REUSE",
+  "FEATURE_SOURCE_GENERATION", "EARLY_DISCOVERY_DAILY_SYNC",
+  "MARKET_FACT_THS_INDUSTRY_CATALOG", "MARKET_FACT_THS_CONCEPT_CATALOG",
+  "MARKET_FACT_LIMIT_UP_POOL", "MARKET_FACT_LIMIT_DOWN_POOL", "MARKET_FACT_LIMIT_BREAK_POOL",
+  "MARKET_FACT_LIMIT_UP_LADDER", "MARKET_FACT_DRAGON_TIGER_LIST", "MARKET_FACT_HOT_STOCK_LIST",
 ]);
 
 const NUMERIC_PROGRESS_KEYS = new Set([
@@ -1709,6 +1716,38 @@ function normalizeLane(
   };
 }
 
+export function normalizeWorkflowTiming(value: unknown): WorkflowTimingSummary | null {
+  if (!isRecord(value) || value.schema_version !== "workflow-timing/1.0"
+    || !Array.isArray(value.visits) || !Array.isArray(value.totals)) return null;
+  const duration = (raw: unknown): number | null => typeof raw === "number"
+    ? progressNumber(raw * 1000, "duration") : null;
+  const statuses = new Set(["RUNNING", "LEFT_PHASE", "LEFT_STAGE", "COMPLETED", "FAILED", "INTERRUPTED", "RUN_ENDED"]);
+  const entries = (raw: unknown[]): WorkflowTimingEntry[] => raw.slice(0, 512).flatMap((item) => {
+    if (!isRecord(item) || (item.kind !== "PHASE" && item.kind !== "RESEARCH_STAGE")) return [];
+    const elapsedMs = duration(item.elapsed_seconds);
+    if (elapsedMs === null) return [];
+    const status = typeof item.status === "string" && statuses.has(item.status)
+      ? item.status as WorkflowTimingEntry["status"] : null;
+    return [{ kind: item.kind, phase: progressPhase(item.phase) ?? "UNKNOWN",
+      laneId: item.kind === "RESEARCH_STAGE" ? progressLaneId(item.lane_id) : null,
+      elapsedMs, currentInvocationElapsedMs: duration(item.current_invocation_elapsed_seconds),
+      visitsCount: progressNumber(item.visits_count, "count") ?? 1,
+      status, startedAt: progressTime(item.started_at), endedAt: progressTime(item.ended_at) }];
+  });
+  const budgetSource = value.budget_source === "NODE_TIMEOUT_FOR_JOB" ? "NODE_TIMEOUT_FOR_JOB" : "UNKNOWN";
+  const rawBudget = duration(value.budget_seconds);
+  const budgetMs = budgetSource === "NODE_TIMEOUT_FOR_JOB" && rawBudget !== null && rawBudget > 0 ? rawBudget : null;
+  const parentElapsedMs = duration(value.parent_elapsed_seconds);
+  return {
+    runWallElapsedMs: duration(value.run_wall_elapsed_seconds),
+    pythonElapsedMs: duration(value.python_elapsed_seconds), parentElapsedMs,
+    parentStartedAt: progressTime(value.parent_started_at), budgetMs, budgetSource,
+    budgetUsedRatio: budgetMs !== null && parentElapsedMs !== null ? parentElapsedMs / budgetMs : null,
+    stageTimesAreAdditive: false, visitsDroppedCount: progressNumber(value.visits_dropped_count, "count") ?? 0,
+    totals: entries(value.totals), visits: entries(value.visits),
+  };
+}
+
 function invalidProgress(issue: WorkflowProgressIssue): WorkflowProgressSummary {
   return {
     status: issue === "OVERSIZE" ? "BLOCKED" : "INVALID",
@@ -1737,6 +1776,7 @@ function invalidProgress(issue: WorkflowProgressIssue): WorkflowProgressSummary 
     updatedAt: null,
     lanes: [],
     resources: null,
+    timing: null,
   };
 }
 
@@ -1818,6 +1858,7 @@ function normalizeWorkflowProgress(source: JsonRecord): WorkflowProgressSummary 
     updatedAt: progressTime(source.updated_at ?? source.updatedAt ?? source.time ?? nestedProgress?.updated_at ?? nestedData?.updated_at),
     lanes,
     resources: resourceValue,
+    timing: normalizeWorkflowTiming(source.timing),
   };
 }
 

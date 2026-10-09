@@ -3,6 +3,11 @@
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
+import math
+import os
+import re
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -66,6 +71,19 @@ _SAFE_PROGRESS_SHAPE_TYPES = frozenset(
 _MAX_PROGRESS_DIAGNOSTIC_COUNT = 10_000_000
 _MAX_PROGRESS_DIAGNOSTIC_FIELDS = 20
 _MAX_PROGRESS_DIAGNOSTIC_ITEMS = 10_000
+_TIMING_PHASES = frozenset({
+    "STARTING", "UNIVERSE_SYNC", "DATA_SYNC", "MARKET_FACT_SYNC", "COMPANY_FACT_SYNC",
+    "CNINFO_SYNC", "CNINFO_PDF_SYNC", "FACT_MANIFEST_SYNC", "OPEN_MACRO_SYNC", "SNAPSHOT",
+    "SNAPSHOT_READY", "SNAPSHOT_REUSE", "SNAPSHOT_RESUMED", "FEATURE_SOURCE_GENERATION",
+    "EARLY_DISCOVERY_DAILY_SYNC", "RESEARCH", "PERSIST", "BOOTSTRAP", "UNKNOWN",
+    "MACRO_DISCOVERY", "A1", "A2", "A3", "A1_LOCAL_SCREEN", "A1_LLM_REVIEW",
+    "A2_LOCAL_ROLE", "A2_LLM_REVIEW", "A3_LOCAL_TECHNICAL", "A3_LLM_REVIEW",
+    "MARKET_FACT_THS_INDUSTRY_CATALOG", "MARKET_FACT_THS_CONCEPT_CATALOG",
+    "MARKET_FACT_LIMIT_UP_POOL", "MARKET_FACT_LIMIT_DOWN_POOL", "MARKET_FACT_LIMIT_BREAK_POOL",
+    "MARKET_FACT_LIMIT_UP_LADDER", "MARKET_FACT_DRAGON_TIGER_LIST", "MARKET_FACT_HOT_STOCK_LIST",
+})
+_TIMING_STATUSES = {"RUNNING", "LEFT_PHASE", "LEFT_STAGE", "COMPLETED", "FAILED", "INTERRUPTED", "RUN_ENDED"}
+_MAX_TIMING_VISITS = 384
 
 
 class WorkflowProgress:
@@ -84,6 +102,7 @@ class WorkflowProgress:
         self._state: dict[str, Any] = {
             "schema_version": WORKFLOW_PROGRESS_SCHEMA_VERSION,
             "run_id": str(run_id)[:200],
+            "run_id_sha256": hashlib.sha256(str(run_id).encode("utf-8")).hexdigest(),
             "job": str(job)[:40],
             "status": "RUNNING",
             "job_status": "RUNNING",
@@ -104,7 +123,31 @@ class WorkflowProgress:
             "resources": {},
             "reason_code": None,
         }
-        self._write()
+        self._timing_active: dict[str, dict[str, Any]] = {}
+        self._timing_terminal = False
+        self._timing_finished_at: datetime | None = None
+        self._timing_session_started = started
+        self._timing_prior_python_seconds = 0.0
+        self._state["timing"] = {
+            "schema_version": "workflow-timing/1.0", "stage_times_are_additive": False,
+            "python_elapsed_seconds": 0.0, "run_wall_elapsed_seconds": 0.0,
+            "budget_seconds": None, "budget_source": "UNKNOWN",
+            "parent_started_at": None, "parent_elapsed_seconds": None, "budget_used_ratio": None,
+            "visits": [], "totals": [], "visits_dropped_count": 0,
+        }
+        self._restore_timing(started)
+        budget = _timing_number(os.environ.get("LIANGJIAN_PARENT_JOB_BUDGET_MS"))
+        parent_ms = _timing_number(os.environ.get("LIANGJIAN_PARENT_JOB_STARTED_MS"))
+        if budget is not None and budget > 0 and parent_ms is not None:
+            try:
+                parent = datetime.fromtimestamp(parent_ms / 1000, SHANGHAI)
+                if parent <= started:
+                    self._state["timing"].update(budget_seconds=budget / 1000,
+                        budget_source="NODE_TIMEOUT_FOR_JOB", parent_started_at=parent.isoformat())
+            except (ValueError, OSError, OverflowError):
+                pass
+        self._timing_enter("PHASE", "STARTING", None, started)
+        self._touch(started)
 
     def set_phase(
         self,
@@ -115,7 +158,11 @@ class WorkflowProgress:
         now: datetime | None = None,
     ) -> None:
         with self._lock:
+            if self._timing_terminal:
+                return
             next_phase = _token(phase, 80)
+            current = self._timing_now(now)
+            self._timing_enter("PHASE", _timing_phase(next_phase), None, current)
             if next_phase != self._state.get("phase"):
                 self._state["phase_started_at"] = _aware(
                     now or datetime.now(SHANGHAI)
@@ -185,6 +232,11 @@ class WorkflowProgress:
         lane = _token(event.get("lane") or event.get("lane_id") or "unknown", 40)
         stage = _token(event.get("stage") or "unknown", 40)
         with self._lock:
+            if self._timing_terminal:
+                return
+            current = self._timing_now(now)
+            self._timing_enter("PHASE", "RESEARCH", None, current)
+            self._timing_research(event, current)
             lanes = self._state.setdefault("lanes", {})
             lane_state = lanes.setdefault(lane, {"model": None, "status": "RUNNING", "stages": {}})
             if event.get("model"):
@@ -280,6 +332,12 @@ class WorkflowProgress:
         now: datetime | None = None,
     ) -> None:
         with self._lock:
+            current = self._timing_now(now)
+            self._timing_refresh(current)
+            for visit in list(self._timing_active.values()):
+                self._timing_close(visit, current, "INTERRUPTED" if phase == "FAILED" else "RUN_ENDED")
+            self._timing_terminal = True
+            self._timing_finished_at = current
             self._state["status"] = _token(status, 40)
             self._state["phase"] = _token(phase, 80)
             self._state["eta_seconds"] = 0
@@ -355,11 +413,158 @@ class WorkflowProgress:
             return copy.deepcopy(self._state)
 
     def _touch(self, now: datetime | None) -> None:
-        current = _aware(now or datetime.now(SHANGHAI))
+        current = self._timing_now(now)
+        self._timing_refresh(current)
         started = datetime.fromisoformat(str(self._state["started_at"]))
         self._state["updated_at"] = current.isoformat()
         self._state["elapsed_seconds"] = max(0, int((current - started).total_seconds()))
         self._write()
+
+    def _timing_now(self, now: datetime | None) -> datetime:
+        if self._timing_finished_at is not None:
+            return self._timing_finished_at
+        current = _aware(now or datetime.now(SHANGHAI))
+        return max(current, datetime.fromisoformat(self._state["updated_at"]))
+
+    def _timing_refresh(self, current: datetime) -> None:
+        timing = self._state["timing"]
+        if self._timing_terminal:
+            return
+        timing["run_wall_elapsed_seconds"] = round(max(0.0,
+            (current - datetime.fromisoformat(self._state["started_at"])).total_seconds()), 6)
+        timing["python_elapsed_seconds"] = round(self._timing_prior_python_seconds + max(0.0,
+            (current - self._timing_session_started).total_seconds()), 6)
+        parent = timing.get("parent_started_at")
+        if parent and timing.get("budget_seconds"):
+            timing["parent_elapsed_seconds"] = round(max(0.0,
+                (current - datetime.fromisoformat(parent)).total_seconds()), 6)
+            timing["budget_used_ratio"] = round(timing["parent_elapsed_seconds"] / timing["budget_seconds"], 9)
+        for visit in self._timing_active.values():
+            elapsed = round(max(visit["elapsed_seconds"],
+                (current - datetime.fromisoformat(visit["started_at"])).total_seconds()), 6)
+            total = self._timing_total(visit)
+            total["elapsed_seconds"] = round(total["elapsed_seconds"] + elapsed - visit["elapsed_seconds"], 6)
+            total["current_invocation_elapsed_seconds"] = round(
+                total["current_invocation_elapsed_seconds"] + elapsed - visit["elapsed_seconds"], 6)
+            visit["elapsed_seconds"] = elapsed
+
+    def _timing_total(self, visit: Mapping[str, Any]) -> dict:
+        totals = self._state["timing"]["totals"]
+        key = (visit["kind"], visit["phase"], visit["lane_id"])
+        for item in totals:
+            if (item["kind"], item["phase"], item["lane_id"]) == key:
+                return item
+        item = {"kind": key[0], "phase": key[1], "lane_id": key[2],
+                "elapsed_seconds": 0.0, "current_invocation_elapsed_seconds": 0.0, "visits_count": 0}
+        totals.append(item)
+        return item
+
+    def _timing_enter(self, kind: str, phase: str, lane: str | None, current: datetime) -> None:
+        if self._timing_terminal:
+            return
+        self._timing_refresh(current)
+        scope = lane if kind == "RESEARCH_STAGE" else "__PHASE__"
+        previous = self._timing_active.get(scope)
+        if previous and previous["phase"] == phase:
+            return
+        if previous:
+            self._timing_close(previous, current, "LEFT_STAGE" if lane else "LEFT_PHASE")
+        visit = {"kind": kind, "phase": phase, "lane_id": lane, "status": "RUNNING",
+                 "started_at": current.isoformat(), "ended_at": None, "elapsed_seconds": 0.0,
+                 "invocation_started_at": self._timing_session_started.isoformat(),
+                 "budget_seconds": self._state["timing"]["budget_seconds"],
+                 "parent_started_at": self._state["timing"]["parent_started_at"]}
+        self._state["timing"]["visits"].append(visit)
+        self._timing_active[scope] = visit
+        self._timing_total(visit)["visits_count"] += 1
+        visits = self._state["timing"]["visits"]
+        while len(visits) > _MAX_TIMING_VISITS:
+            closed = next((i for i, item in enumerate(visits) if item["status"] != "RUNNING"), None)
+            if closed is None:
+                break
+            visits.pop(closed)
+            self._state["timing"]["visits_dropped_count"] += 1
+
+    def _timing_close(self, visit: dict, current: datetime, status: str) -> None:
+        visit.update(status=status, ended_at=current.isoformat())
+        self._timing_active.pop(visit["lane_id"] if visit["kind"] == "RESEARCH_STAGE" else "__PHASE__", None)
+
+    def _timing_research(self, event: Mapping[str, Any], current: datetime) -> None:
+        if self._timing_terminal:
+            return
+        lane = _timing_lane(event.get("lane") or event.get("lane_id"))
+        phase = _timing_phase(event.get("stage"))
+        status = str(event.get("status") or "RUNNING").upper()
+        active = self._timing_active.get(lane)
+        prior = next((v for v in reversed(self._state["timing"]["visits"])
+                      if v["lane_id"] == lane and v["kind"] == "RESEARCH_STAGE"), None)
+        if active is None and prior and prior["phase"] == phase and status not in {"RUNNING", "RETRYING", "STARTED"}:
+            return  # Duplicate terminal callback is not a new zero-length visit.
+        self._timing_enter("RESEARCH_STAGE", phase, lane, current)
+        failed = status in {"FAILED", "MODEL_FAILED", "MODEL_CALL_FAILED", "BLOCKED_MODEL", "CANCELLED"}
+        completed = _non_negative(event.get("completed_batches", event.get("completed")))
+        total = _non_negative(event.get("total_batches", event.get("total")))
+        incomplete = total is not None and total > 0 and (completed is None or completed < total)
+        terminal = status in {"COMPLETED", "READY", "READY_DEGRADED", "SUCCEEDED", "REUSED", "NOT_RUN",
+            "VALIDATED", "VALIDATED_NO_OPPORTUNITY", "VALIDATED_NO_ACTION", "VALIDATED_NO_SETUP",
+            "DEGRADED_UNDERFILLED_DATA_GAP", "VALIDATED_UNDERFILLED_MARKET", "BLOCKED"}
+        if failed or (terminal and not incomplete):
+            self._timing_close(self._timing_active[lane], current, "FAILED" if failed else "COMPLETED")
+
+    def _restore_timing(self, current: datetime) -> None:
+        """Same-run recovery imports only this bounded numeric/date contract.
+
+        The unobserved interval is run wall time, NOT active stage time.
+        A last RUNNING visit becomes INTERRUPTED at its last recorded heartbeat.
+        """
+        try:
+            if self.path.stat().st_size > 256_000:
+                return
+            prior = json.loads(self.path.read_text(encoding="utf-8"))
+            if not isinstance(prior, dict) or prior.get("run_id") != self._state["run_id"] or prior.get("job") != self._state["job"]:
+                return
+            if prior.get("run_id_sha256") is not None and prior["run_id_sha256"] != self._state["run_id_sha256"]:
+                return
+            timing = prior.get("timing")
+            if not isinstance(timing, dict) or timing.get("schema_version") != "workflow-timing/1.0":
+                return
+            started = _aware(datetime.fromisoformat(prior["started_at"]))
+            updated = _aware(datetime.fromisoformat(prior["updated_at"]))
+            if not started <= updated <= current:
+                return
+            safe_visits = []
+            for raw in timing.get("visits", [])[-_MAX_TIMING_VISITS:]:
+                if not isinstance(raw, dict) or raw.get("kind") not in {"PHASE", "RESEARCH_STAGE"}:
+                    continue
+                began = _aware(datetime.fromisoformat(raw["started_at"]))
+                ended = _aware(datetime.fromisoformat(raw["ended_at"])) if raw.get("ended_at") else updated
+                elapsed = _timing_number(raw.get("elapsed_seconds"))
+                if elapsed is None or not started <= began <= ended <= updated:
+                    continue
+                safe_visits.append({"kind": raw["kind"], "phase": _timing_phase(raw.get("phase")),
+                    "lane_id": _timing_lane(raw.get("lane_id")) if raw["kind"] == "RESEARCH_STAGE" else None,
+                    "started_at": began.isoformat(), "ended_at": ended.isoformat(), "elapsed_seconds": elapsed,
+                    "invocation_started_at": _aware(datetime.fromisoformat(raw.get("invocation_started_at") or raw["started_at"])).isoformat(),
+                    "budget_seconds": _timing_number(raw.get("budget_seconds")),
+                    "parent_started_at": _aware(datetime.fromisoformat(raw["parent_started_at"])).isoformat() if raw.get("parent_started_at") else None,
+                    "status": "INTERRUPTED" if raw.get("status") == "RUNNING" else
+                    raw.get("status") if raw.get("status") in _TIMING_STATUSES else "INTERRUPTED"})
+            safe_totals = []
+            for raw in timing.get("totals", [])[:512]:
+                if not isinstance(raw, dict) or raw.get("kind") not in {"PHASE", "RESEARCH_STAGE"}:
+                    continue
+                elapsed, count = _timing_number(raw.get("elapsed_seconds")), _non_negative(raw.get("visits_count"))
+                if elapsed is None or count is None:
+                    continue
+                safe_totals.append({"kind": raw["kind"], "phase": _timing_phase(raw.get("phase")),
+                    "lane_id": _timing_lane(raw.get("lane_id")) if raw["kind"] == "RESEARCH_STAGE" else None,
+                    "elapsed_seconds": elapsed, "current_invocation_elapsed_seconds": 0.0, "visits_count": count})
+            self._state["started_at"] = started.isoformat()
+            self._timing_prior_python_seconds = _timing_number(timing.get("python_elapsed_seconds")) or 0.0
+            self._state["timing"].update(visits=safe_visits, totals=safe_totals,
+                visits_dropped_count=_non_negative(timing.get("visits_dropped_count")) or 0)
+        except (OSError, ValueError, TypeError, KeyError, OverflowError):
+            return
 
     def _write(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -370,12 +575,48 @@ class WorkflowProgress:
             mode=0o640,
             group_id=getattr(parent_stat, "st_gid", None),
         )
+        # A later run can replace the presentation file; its last observed
+        # RUNNING timing must still survive without pretending it completed.
+        # The human-readable prefix is not identity: punctuation replacement
+        # and truncation can collide. Hash the ORIGINAL caller ID before the
+        # presentation field's 200-character bound, with room for atomic temp
+        # names on Windows. Existing unhashed receipts are not migrated.
+        safe_run_id = re.sub(r"[^A-Za-z0-9_.-]", "_", self._state["run_id"])[:64] or "unknown"
+        receipt_name = f"{safe_run_id}-{self._state['run_id_sha256'][:16]}.json"
+        receipt_dir = self.path.parent / "run_timing"
+        receipt_dir.mkdir(parents=True, exist_ok=True)
+        atomic_write_json(receipt_dir / receipt_name, {
+            "schema_version": "workflow-timing-receipt/1.0", "run_id": self._state["run_id"],
+            "run_id_sha256": self._state["run_id_sha256"],
+            "job": self._state["job"], "status": self._state["status"],
+            "updated_at": self._state["updated_at"], "timing": self._state["timing"],
+        }, mode=0o640, group_id=getattr(parent_stat, "st_gid", None))
 
 
 def _aware(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
         return value.replace(tzinfo=SHANGHAI)
     return value.astimezone(SHANGHAI)
+
+
+def _timing_phase(value: Any) -> str:
+    token = str(value or "UNKNOWN").upper()
+    return token if token in _TIMING_PHASES else "UNKNOWN"
+
+
+def _timing_lane(value: Any) -> str:
+    token = str(value or "UNKNOWN").upper()
+    return token if re.fullmatch(r"LANE_[1-9]", token) else "UNKNOWN"
+
+
+def _timing_number(value: Any) -> float | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return number if math.isfinite(number) and 0 <= number <= 100_000_000_000_000 else None
 
 
 def _token(value: Any, limit: int) -> str:

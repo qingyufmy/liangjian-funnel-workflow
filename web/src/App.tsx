@@ -1,4 +1,5 @@
 import { A3_GROUP_LABELS } from "../../shared/a3-display";
+import { WorkflowTimingTable } from "./WorkflowTimingTable";
 import {
   Activity,
   CalendarClock,
@@ -975,6 +976,7 @@ function WorkflowProgressPanel({ progress }: { progress: WorkflowProgressSummary
             <div><span>已用时间</span><strong>{formatDuration(progress.elapsedMs)}</strong></div>
             <div><span>预计剩余</span><strong>{formatDuration(progress.etaMs)}</strong></div>
           </div>
+          <WorkflowTimingTable timing={progress.timing} stale={progress.stale} />
           {isPdfProgress ? (
             <div className="progress-current-task" aria-live="polite">
               <div><span>最近完成股票</span><strong>{progress.currentSymbol ? stockSymbolLabel(progress.currentSymbol) : "等待首份完成"}</strong></div>

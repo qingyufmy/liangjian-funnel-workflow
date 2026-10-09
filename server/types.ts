@@ -255,6 +255,32 @@ export interface WorkflowProgressResources {
   readonly openFileDescriptors: number | null;
 }
 
+export interface WorkflowTimingEntry {
+  readonly kind: "PHASE" | "RESEARCH_STAGE";
+  readonly phase: string;
+  readonly laneId: string | null;
+  readonly elapsedMs: number;
+  readonly currentInvocationElapsedMs: number | null;
+  readonly visitsCount: number;
+  readonly status: "RUNNING" | "LEFT_PHASE" | "LEFT_STAGE" | "COMPLETED" | "FAILED" | "INTERRUPTED" | "RUN_ENDED" | null;
+  readonly startedAt: string | null;
+  readonly endedAt: string | null;
+}
+
+export interface WorkflowTimingSummary {
+  readonly runWallElapsedMs: number | null;
+  readonly pythonElapsedMs: number | null;
+  readonly parentElapsedMs: number | null;
+  readonly parentStartedAt: string | null;
+  readonly budgetMs: number | null;
+  readonly budgetSource: "NODE_TIMEOUT_FOR_JOB" | "UNKNOWN";
+  readonly budgetUsedRatio: number | null;
+  readonly stageTimesAreAdditive: false;
+  readonly visitsDroppedCount: number;
+  readonly totals: readonly WorkflowTimingEntry[];
+  readonly visits: readonly WorkflowTimingEntry[];
+}
+
 /**
  * A deliberately small, allow-listed projection of state/workflow_progress.json.
  * The control plane must never expose the original progress document because it
@@ -289,6 +315,7 @@ export interface WorkflowProgressSummary {
   readonly updatedAt: string | null;
   readonly lanes: readonly WorkflowProgressLane[];
   readonly resources: WorkflowProgressResources | null;
+  readonly timing: WorkflowTimingSummary | null;
 }
 
 export type ResearchStage = "A1" | "A2" | "A3";

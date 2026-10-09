@@ -782,3 +782,11 @@ button, a, input, select { -webkit-tap-highlight-color: transparent; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+.workflow-timing { margin-top: 16px; overflow-x: auto; font-size: 13px; }
+.workflow-timing > div { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 6px; }
+.workflow-timing p { color: var(--color-text-muted); line-height: 1.6; }
+.workflow-timing table { width: 100%; min-width: 500px; border-collapse: collapse; }
+.workflow-timing th, .workflow-timing td { padding: 8px; text-align: left; border-bottom: 1px solid var(--color-border); }
+.workflow-timing details { margin-top: 10px; }
+.workflow-timing li { margin-top: 6px; }

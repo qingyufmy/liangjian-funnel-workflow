@@ -1,0 +1,16 @@
+{
+  "evidence_type": "OFFICIAL_SEPTEMBER_EVENT_REFERENCE_NOT_HISTORY_INFERENCE",
+  "verified_on": "2026-10-10",
+  "records": [
+    {"symbol":"301697.SZ","name":"贝特利","event_type":"IPO","effective_date":"2026-09-01","publication_date":"2026-08-31","announcement_url":"https://static.cninfo.com.cn/finalpage/2026-08-31/1225523803.PDF","date_evidence":"上市时间2026年9月1日"},
+    {"symbol":"301688.SZ","name":"格林生物","event_type":"IPO","effective_date":"2026-09-02","publication_date":"2026-09-01","announcement_url":"https://static.cninfo.com.cn/finalpage/2026-09-01/1225537225.PDF","date_evidence":"上市时间2026年9月2日"},
+    {"symbol":"301699.SZ","name":"洛轴股份","event_type":"IPO","effective_date":"2026-09-09","publication_date":"2026-09-08","announcement_url":"https://static.cninfo.com.cn/finalpage/2026-09-08/1225551178.PDF","date_evidence":"上市时间2026年9月9日"},
+    {"symbol":"301689.SZ","name":"电科思仪","event_type":"IPO","effective_date":"2026-09-10","publication_date":"2026-09-09","announcement_url":"https://static.cninfo.com.cn/finalpage/2026-09-09/1225554589.PDF","date_evidence":"上市时间2026年9月10日"},
+    {"symbol":"688801.SH","name":"燧原科技","event_type":"IPO","effective_date":"2026-09-11","publication_date":"2026-09-10","announcement_url":"https://static.cninfo.com.cn/finalpage/2026-09-10/1225556294.PDF","date_evidence":"上市时间2026年9月11日"},
+    {"symbol":"688837.SH","name":"信诺维","event_type":"IPO","effective_date":"2026-09-16","publication_date":"2026-09-15","announcement_url":"https://www.sse.com.cn/disclosure/announcement/listing/ipo/c/c_20260915_10832185.shtml","date_evidence":"2026年9月16日上市交易"},
+    {"symbol":"301686.SZ","name":"中塑股份","event_type":"IPO","effective_date":"2026-09-22","publication_date":"2026-09-22","announcement_url":"https://static.cninfo.com.cn/finalpage/2026-09-22/1225577873.PDF","date_evidence":"2026年9月22日在深圳证券交易所创业板上市"},
+    {"symbol":"001246.SZ","name":"力勤资源","event_type":"IPO","effective_date":"2026-09-30","publication_date":"2026-09-30","announcement_url":"https://static.cninfo.com.cn/finalpage/2026-09-30/1225586764.PDF","date_evidence":"2026年9月30日在深圳证券交易所上市交易"},
+    {"symbol":"600825.SH","name":"新华传媒","event_type":"SUSPENSION","effective_date":"2026-09-07","publication_date":"2026-09-08","announcement_url":"https://static.cninfo.com.cn/finalpage/2026-09-08/1225552231.PDF","date_evidence":"9月7日停牌，9月8日继续停牌"},
+    {"symbol":"600929.SH","name":"雪天盐业","event_type":"SUSPENSION_RESUMPTION","effective_date":"2026-09-14","publication_date":"2026-09-12","announcement_url":"https://www.sse.com.cn/disclosure/listedinfo/summaries/indexDetail.shtml?SEQ=334691316","date_evidence":"公司A股股票将于2026年9月14日开市起复牌","scope_note":"官方复牌日证明九月停复牌事件；不将9月5日进展公告日当作停牌起始日。"}
+  ]
+}

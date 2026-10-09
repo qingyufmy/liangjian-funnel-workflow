@@ -66,10 +66,22 @@ export function childEnvironment(
   job: JobName, timeoutMs: number | null, startedAtMs: number,
   base: NodeJS.ProcessEnv = process.env,
 ): NodeJS.ProcessEnv {
+  if (!Number.isSafeInteger(startedAtMs) || startedAtMs < 0
+    || (job === "close" && timeoutMs === null)
+    || (timeoutMs !== null && (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0
+      || !Number.isSafeInteger(startedAtMs + timeoutMs)))) {
+    throw new Error("INVALID_PARENT_JOB_TIMING");
+  }
   const env = { ...base };
   // Child-only deadline is authoritative for this invocation; never inherit
   // an old close deadline into unrelated jobs or mutate the server env.
   delete env.LIANGJIAN_PARENT_CLOSE_DEADLINE_MS;
+  delete env.LIANGJIAN_PARENT_JOB_BUDGET_MS;
+  delete env.LIANGJIAN_PARENT_JOB_STARTED_MS;
+  if (timeoutMs !== null) {
+    env.LIANGJIAN_PARENT_JOB_BUDGET_MS = String(timeoutMs);
+    env.LIANGJIAN_PARENT_JOB_STARTED_MS = String(startedAtMs);
+  }
   if (job === "close" && timeoutMs !== null) {
     env.LIANGJIAN_PARENT_CLOSE_DEADLINE_MS = String(startedAtMs + timeoutMs);
   }

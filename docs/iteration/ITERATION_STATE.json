@@ -1,6 +1,28 @@
 {
   "wp5_hotfix_close_scope_20261009": {
     "branch": "codex/wp5-hotfix-close-scope",
+    "stage_timing": {
+      "status": "LOCAL_COUNTEREXAMPLES_FIXED_NOT_NATURAL_OPERATIONS",
+      "evidence": "docs/WP5_STAGE_TIMING_2026-10-10.md",
+      "commands": [
+        {"command":"pytest tests/test_wp5_stage_timing.py collision slice --junitxml=stage-timing-collision-before-v2.xml","exit_code":1,"failed":2},
+        {"command":"pytest 9-file progress/workflow/registry slice --junitxml=stage-timing-backend-final-v4.xml","exit_code":0,"passed":110}
+      ],
+      "next": "NEW_HEAD_FULL_BASELINE_THEN_CLAUDE_REVIEW"
+    },
+    "real_200_parity": {
+      "status": "MANIFEST_SEALED_DRY_RUN_ZERO_SOURCE_CALLS_REAL_PROBE_PENDING",
+      "evidence": "docs/WP5_G3_3_200_STRATIFIED_PROBE_2026-10-10.md",
+      "manifest": "artifacts/wp5-20261010/daily-incremental-200-manifest.json",
+      "manifest_sha256": "5534fb343c14f0b8ead9de241795555ba2b8cc01cbfa027f40145cdcd6771180",
+      "commands": [
+        {"command":"pytest tests/test_wp5_daily_incremental_200_probe.py before implementation","exit_code":2},
+        {"command":"pytest probe and daily_incremental slice --junitxml=daily-incremental-200-tests-final.xml","exit_code":0,"passed":21},
+        {"command":"pytest probe final slice --junitxml=daily-incremental-200-probe-final-v2.xml","exit_code":0,"passed":7},
+        {"command":"probe_wp5_daily_incremental_200_readonly.py sealed manifest dry-run","exit_code":0,"source_calls":0}
+      ],
+      "next": "ISOLATED_READONLY_SOURCE_PROBE_WITH_UNCHANGED_PACING_NO_PRODUCTION_CACHE_WRITES"
+    },
     "g3_local": {
       "status": "SOURCE_BASIS_RAW_CONFIRMED_P1A_REAL_GATE_PARITY_P2ABC_FULL_LOCAL_PASS_BRIDGE_0002_ACCEPTED",
       "evidence": "docs/WP5_G3_LOCAL_REVIEW_2026-10-09.md",

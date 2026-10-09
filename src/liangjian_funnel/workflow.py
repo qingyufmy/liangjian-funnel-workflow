@@ -1869,6 +1869,7 @@ class WorkflowApplication:
                     compact_daily_bars=30,
                     progress=on_progress,
                 )
+            progress.set_phase("PERSIST")
             coverage = self.fact_cache.get_coverage(as_of=current)
             readiness = evaluate_data_readiness(
                 coverage,
@@ -1924,6 +1925,8 @@ class WorkflowApplication:
                 ),
             )
             _progress_stdout(progress.snapshot())
+            summary["stage_timing"] = progress.snapshot()["timing"]
+            atomic_write_json(output, summary)
             return {**summary, "report": str(output)}
         except Exception as exc:
             progress.finish(status="BLOCKED", phase="FAILED", reason_code=_safe_reason_code(exc))
@@ -2715,6 +2718,7 @@ class WorkflowApplication:
                 heartbeat_thread.join(timeout=2.0)
             if result.status not in {"READY", "READY_DEGRADED"}:
                 raise WorkflowError("A1_MAINTENANCE_RESULT_BLOCKED")
+            progress.set_phase("PERSIST")
             delta_outputs = _a1_outputs_by_result(result)
             merged_outputs: dict[str, dict[str, Any]] = {}
             updated_symbols = maintenance_scope_symbols if scope is not None else tuple(prepared.snapshot.data.get("g0_symbols", ()))
@@ -2823,7 +2827,8 @@ class WorkflowApplication:
                 outcome=result.outcome().as_dict(),
             )
             _progress_stdout(progress.snapshot())
-            return {
+            summary = {
+                "run_id": maintenance_run_id,
                 "status": "PUBLISHED",
                 "mode": normalized_mode,
                 "generation_id": activated.generation_id,
@@ -2833,7 +2838,10 @@ class WorkflowApplication:
                 "delta": delta_payload,
                 "plan": plan.as_dict() if plan is not None else None,
                 "research_run_id": result.run_id,
+                "stage_timing": progress.snapshot()["timing"],
             }
+            atomic_write_json(self.settings.workflow_output_dir / "runs" / f"{maintenance_run_id}-a1-maintenance.json", summary)
+            return summary
         except Exception as exc:
             reason = _safe_reason_code(exc)
             try:
@@ -3193,6 +3201,7 @@ class WorkflowApplication:
         finally:
             heartbeat_stop.set()
             heartbeat_thread.join(timeout=2.0)
+        progress.set_phase("PERSIST")
         progress.update_resources(measure_resources(self.settings.root).as_dict())
         broker_benchmark = _write_broker_gold_benchmark(
             result,
@@ -3324,6 +3333,8 @@ class WorkflowApplication:
             outcome=result.outcome().as_dict(),
         )
         _progress_stdout(progress.snapshot())
+        summary["stage_timing"] = progress.snapshot()["timing"]
+        atomic_write_json(self.settings.workflow_output_dir / "runs" / f"{run_id}.json", summary)
         return summary
 
     # ------------------------------------------------------------------
