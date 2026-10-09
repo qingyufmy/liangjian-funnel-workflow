@@ -102,15 +102,88 @@ print(json.dumps(out,ensure_ascii=False,default=str))
 '''
 
 
+REMOTE_CLOSE_SCOPE = r'''
+import collections,hashlib,json,pathlib,sqlite3,subprocess
+from datetime import datetime
+from zoneinfo import ZoneInfo
+from liangjian_funnel.settings import Settings
+from liangjian_funnel.workflow import _active_a1_downstream_scope
+from liangjian_funnel.pipeline.local_fact_cache import canonical_json_hash
+root=pathlib.Path.cwd();s=Settings.from_env(root=root);zone=ZoneInfo('Asia/Shanghai')
+start=DAY+'T15:10:00+08:00';end=DAY+'T16:40:01+08:00'
+def ro(path):
+ c=sqlite3.connect(path.resolve().as_uri()+'?mode=ro',uri=True,timeout=5);c.row_factory=sqlite3.Row;c.execute('BEGIN');return c
+def file_info(path):
+ if not path.is_file():return {'path':str(path),'exists':False}
+ h=hashlib.sha256()
+ with path.open('rb') as f:
+  for part in iter(lambda:f.read(1024*1024),b''):h.update(part)
+ return {'path':str(path),'exists':True,'bytes':path.stat().st_size,'sha256':h.hexdigest()}
+out={'mode':'READ_ONLY_ORIGINAL_CLOSE_SCOPE_EVIDENCE_NOT_CURRENT_RESEARCH','day':DAY,
+ 'captured_at':datetime.now(zone).isoformat(),'host':subprocess.check_output(['hostname'],text=True).strip(),
+ 'head':subprocess.check_output(['git','-c','safe.directory='+str(root),'rev-parse','HEAD'],text=True).strip(),
+ 'window':{'start':start,'end':end},'production_mutation':False,'network_collection':False}
+c=ro(root/'state/a1_registry.sqlite3')
+row=c.execute("select generation_id,as_of,created_at,sealed_at,payload_hash,status,payload_json from a1_generations where status='SEALED' and as_of<=? order by as_of desc limit 1",(start,)).fetchone()
+if row is None:raise RuntimeError('ORIGINAL_A1_GENERATION_NOT_FOUND')
+generation=dict(row);payload=json.loads(generation.pop('payload_json'));a1=set(_active_a1_downstream_scope(payload))
+del payload,row
+out['a1']={'generation':generation,'symbols':sorted(a1),'count':len(a1)}
+c.rollback();c.close()
+hotpath=s.fact_store_dir/'eastmoney_hot100'/('eastmoney-guba-hot100-'+DAY+'.json')
+out['hot100']=file_info(hotpath)
+hot=json.loads(hotpath.read_text()) if hotpath.is_file() else {}
+hots={str(r['symbol']) for r in hot.get('records',[]) if isinstance(r,dict) and r.get('symbol')}
+out['hot100'].update(symbols=sorted(hots),count=len(hots),available=hot.get('available'),as_of=hot.get('as_of'),content_hash=hot.get('content_hash'))
+out['hot100']['hash_valid']=bool(hot) and hashlib.sha256(json.dumps(hot.get('records',[]),ensure_ascii=False,sort_keys=True,separators=(',',':')).encode()).hexdigest()==hot.get('content_hash')
+marker=s.research_checkpoint_dir/'active_runs'/(DAY+'-close.json');out['resume_marker']=file_info(marker)
+if marker.is_file():out['resume_marker']['payload']=json.loads(marker.read_text())
+out['same_day_snapshots']=[file_info(p) for p in sorted(s.snapshot_dir.glob('snapshot-'+DAY.replace('-','')+'*.json'))]
+out['raw_same_day_snapshots']=[file_info(p) for p in sorted((s.snapshot_dir/'raw').glob('snapshot-'+DAY.replace('-','')+'*.json'))]
+log=root/'outputs/node'/('node-'+DAY+'.jsonl');out['log']=file_info(log);progress=[];events=[]
+if log.is_file():
+ for line in log.read_text().splitlines():
+  try:r=json.loads(line)
+  except ValueError:continue
+  if r.get('job') not in ('close','a1'):continue
+  if r.get('stream')=='node':events.append({k:r.get(k) for k in ('timestamp','job','message','runId')})
+  else:
+   try:p=json.loads(r.get('message',''))
+   except ValueError:continue
+   if p.get('event')=='WORKFLOW_PROGRESS':progress.append(p)
+out['job_events']=events;out['last_close_progress']=next((p for p in reversed(progress) if p.get('run_id')==DAY+'-close'),None)
+out['progress_scope_totals']=sorted({p.get('total') for p in progress if p.get('run_id')==DAY+'-close' and p.get('phase')=='CNINFO_SYNC' and isinstance(p.get('total'),int)})
+c=ro(s.fact_cache_db_path);queried=collections.defaultdict(list);hash_errors=[]
+for r in c.execute("select cache_key,content_hash,payload_json,fetched_at,expires_at from cached_results where namespace='CNINFO_ANNOUNCEMENTS' and julianday(fetched_at)>=julianday(?) and julianday(fetched_at)<=julianday(?) order by fetched_at,cache_key",(start,end)):
+ d=dict(r);v=json.loads(d.pop('payload_json'));symbol,semantic=d['cache_key'].split(':',1)
+ if canonical_json_hash(v)!=d['content_hash']:hash_errors.append(d);continue
+ if v.get('end_date')!=DAY:continue
+ queried[symbol].append({**d,'semantic':semantic,'ok':v.get('ok'),'complete':v.get('complete'),'end_date':v.get('end_date'),'announcement_count':len(v.get('announcements',[]))})
+out['original_window_cached_queries']={k:v for k,v in sorted(queried.items())};out['original_window_cached_symbol_count']=len(queried)
+out['query_cache_hash_errors']=hash_errors;c.rollback();c.close()
+out['confirmed_cached_outside_a1']=[{'symbol':symbol,'sources':(['HOT100_FILE'] if symbol in hots else []),'cached_queries':queried[symbol]} for symbol in sorted(set(queried)-a1)]
+out['hot100_outside_a1']=sorted(hots-a1)
+out['exact_scope_status']='PENDING_ORIGINAL_DISCOVERY_AND_G0_SCOPE_EVIDENCE'
+out['limitations']=['QUERY_CACHE_PROVES_REQUESTED_SUBSET_NOT_ENTIRE_PREPARED_SCOPE','HOT_FILE_MAY_NOT_PROVE_ORIGINAL_SELECTION_IF_REVISED','DO_NOT_INFER_76_NAMES_FROM_COUNTS','NO_RECOMPUTATION_USING_LATER_DAILY_INPUTS']
+print(json.dumps(out,ensure_ascii=False,default=str))
+'''
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--close-scope-day', help='Export original close scope evidence without market collection.')
     args = parser.parse_args()
     if args.output.exists():
         raise SystemExit('REFUSE_OVERWRITE')
+    remote = REMOTE
+    if args.close_scope_day:
+        from datetime import date
+        date.fromisoformat(args.close_scope_day)
+        remote = 'DAY='+repr(args.close_scope_day)+'\n'+REMOTE_CLOSE_SCOPE
     result = subprocess.run(['ssh','aurum-vm',
         'cd /www/wwwroot/Agu/liangjian-funnel-workflow && runuser -u www -- .venv/bin/python -B -'],
-        input=REMOTE.encode(),capture_output=True,timeout=55)
+        input=remote.encode(),capture_output=True,timeout=90 if args.close_scope_day else 55)
     if result.returncode:
         raise SystemExit(result.stderr.decode(errors='replace')[-1500:])
     out = json.loads(result.stdout)
@@ -118,6 +191,13 @@ def main():
     # Exclusive evidence output; production is never opened for writing.
     with args.output.open('x',encoding='utf-8') as f:
         json.dump(out,f,ensure_ascii=False,indent=2)
+    if args.close_scope_day:
+        print(json.dumps({'output':str(args.output),'head':out['head'],'a1_count':out['a1']['count'],
+                          'scope_totals':out['progress_scope_totals'],'cached_symbols':out['original_window_cached_symbol_count'],
+                          'cached_outside_a1':len(out['confirmed_cached_outside_a1']),
+                          'same_day_snapshots':len(out['same_day_snapshots']),
+                          'exact_scope_status':out['exact_scope_status']},ensure_ascii=False))
+        return
     print(json.dumps({'output':str(args.output),'head':out['head'],'plans':len(out['today_plans']),
                      'installed_modules_match':all(r['matches_src'] for r in out['modules']),
                      'auction_base_status':(out['auction_base'] or {}).get('status'),

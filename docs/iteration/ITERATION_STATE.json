@@ -1,4 +1,28 @@
 {
+  "wp5_hotfix_close_scope_20261009": {
+    "branch": "codex/wp5-hotfix-close-scope",
+    "baseline_commit": "7402e7fc570b7a91c5e19405308737715b0ad5c1",
+    "status": "SCOPE_BASELINE_EXPORTED_BRANCH_STARTED_BUSINESS_PATCH_PENDING",
+    "code": "16_RELATED_TESTS_PASSED_NOT_FULL_REPOSITORY",
+    "replay": "DATA_LIMITED_NO_FROZEN_1825_SCOPE_NO_FAKE_76_SYMBOL_LIST",
+    "operations": "READONLY_ONLY_NO_PUSH_DEPLOY_RECOVERY_OR_PRODUCTION_WRITES",
+    "strategy": "NOT_APPLICABLE_UNCHANGED",
+    "evidence": "docs/WP5_CLOSE_SCOPE_BASELINE_2026-10-09.md",
+    "baseline_artifact": "artifacts/wp5-20261009/close-scope-baseline-20261009-v3.json",
+    "baseline_sha256": "b80520f3128331f304ef989f699aaaaffc399f34f7ff254329371b7cf2be3dfe",
+    "counts": {"scope_total_log":1825,"a1_original":1749,"window_cached_symbols":1774,"window_cached_outside_a1":111,"outside_hot_overlap":47,"outside_without_original_source":64},
+    "commands": [
+      {"command":"audit_preopen_readonly.py --close-scope-day 2026-10-09 (v1)","exit_code":1,"result":"REMOTE_PROCESS_KILLED_CAUSE_NOT_PROVEN_REMOVED_ALL_GENERATION_PAYLOAD_READ"},
+      {"command":"audit_preopen_readonly.py --close-scope-day 2026-10-09 (v2)","exit_code":0,"result":"INVALID_ZERO_CACHE_COUNT_OFFSET_STRING_COMPARISON"},
+      {"command":"audit_preopen_readonly.py --close-scope-day 2026-10-09 (v3)","exit_code":0,"result":"UTC_NORMALIZED_JULIANDAY_QUERY_1774_SYMBOLS"},
+      {"command":"git worktree add -b codex/wp5-hotfix-close-scope D:/dev_A股/liangjian_wp5_hotfix_20261009 7402e7f","exit_code":0},
+      {"command":"python -m pytest tests/test_wp5_close_scope.py -o addopts='' -q (before implementation)","exit_code":1},
+      {"command":"python -m pytest tests/test_wp5_close_scope.py tests/test_wp0_baseline_gate.py -o addopts='' -q --junitxml=artifacts/wp5-20261009/scope-tests.xml","exit_code":0,"passed":16}
+    ],
+    "decision_8":"PENDING_NO_RELEASE",
+    "decision_9":"PENDING_A1_COMPLETION_AND_SNAPSHOT_EVIDENCE_NO_RECOVERY",
+    "next":"IMPLEMENT_ONLY_WP5_TASKS_1_2_ORIGINAL_SCOPE_RECEIPT_DETERMINISTIC_PREFILTER_DAILY_INCREMENTAL"
+  },
   "wp0_repository_baseline_20261009": {
     "branch": "codex/wp0-repository-baseline-20261009",
     "baseline_commit": "89e6a2d92d5e2886cdaecc54c359559555109720",
