@@ -1,2 +1,2 @@
 # Frozen receipts and logs must retain identical bytes on Windows and Linux.
-* -text
+* -text -whitespace

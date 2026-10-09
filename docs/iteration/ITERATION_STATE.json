@@ -69,7 +69,10 @@
       {"command":"python scripts/audit_disclosure_batch_offline.py same immutable inputs --output artifacts/wp5-20261009/disclosure-batch-20260928-v3.json; exit $LASTEXITCODE","exit_code":2,"result":"DATA_LIMITED_COMPACT_RECEIPT_38_REQUIRED_ZERO_MISS"},
       {"command":"Offline compare full and compact gate hashes, all 764 decision hashes, prefilter, coverage, and input references","exit_code":0,"result":"COMPACT_RECEIPT_EQUIVALENT"},
       {"command":"python scripts/audit_disclosure_batch_offline.py --snapshot D:/dev_A股/liangjian_a4_20260923/artifacts/replay-20260923-snapshot.json --research D:/dev_A股/liangjian_a4_20260923/artifacts/replay-20260923-research.json --output artifacts/wp5-20261009/disclosure-batch-20260923-v1.json; exit $LASTEXITCODE","exit_code":2,"result":"DATA_LIMITED_826_SCOPE_437_RETAINED_152_REQUIRED_ZERO_MISS"},
-      {"command":"Validate ITERATION_STATE JSON, git diff --check, explicitly resolve and remove only generated 0928 v1/v2 intermediate receipts after hash equivalence proof","exit_code":0,"result":"ORIGINAL_INPUTS_AND_FINAL_RECEIPTS_PRESERVED_46900516_INTERMEDIATE_BYTES_REMOVED"}
+      {"command":"Validate ITERATION_STATE JSON, git diff --check, explicitly resolve and remove only generated 0928 v1/v2 intermediate receipts after hash equivalence proof","exit_code":0,"result":"ORIGINAL_INPUTS_AND_FINAL_RECEIPTS_PRESERVED_46900516_INTERMEDIATE_BYTES_REMOVED"},
+      {"command":"git diff --cached --check including byte-preserved CRLF receipts and failure logs","exit_code":2,"result":"EVIDENCE_WHITESPACE_ONLY_SOURCE_CHECK_SEPARATELY_EXIT0_LOCAL_CODE_COMMIT_8DB81AA"},
+      {"command":"git -c core.whitespace=cr-at-eol diff --check HEAD^ HEAD -- src scripts tests docs","exit_code":0},
+      {"command":"Only frozen artifacts .gitattributes adds -whitespace; no evidence bytes or source whitespace policy modified","exit_code":0,"result":"METADATA_ONLY_NO_TEST_RERUN_REQUIRED"}
     ],
     "decision_8":"PENDING_NO_RELEASE",
     "decision_9":"TONIGHT_RECOVERY_ABANDONED_WEEKEND_PREP_REQUIRES_SEPARATE_AUTHORIZATION_USE_ACTUAL_SOURCE_TIME_NOT_FRIDAY_ASOF_LIVE_COLLECTION",
