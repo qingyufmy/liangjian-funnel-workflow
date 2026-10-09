@@ -4,7 +4,8 @@
     "g3_local": {
       "status": "SOURCE_BASIS_RAW_CONFIRMED_P1A_REAL_GATE_PARITY_P2ABC_LOCAL_FIXED_FULL_HEAD_RECEIPT_PENDING",
       "evidence": "docs/WP5_G3_LOCAL_REVIEW_2026-10-09.md",
-      "full_receipt": "artifacts/wp5-20261009/full-g3-local-tests/evidence.json",
+      "full_receipt": "artifacts/wp5-20261009/full-g3-local-v2-tests/evidence.json",
+      "failed_full_receipt": "artifacts/wp5-20261009/full-g3-local-tests/evidence.json",
       "commands": [
         {"command":"pytest tests/test_wp5_g3_regressions.py tests/test_wp5_disclosure_formal_routes.py -o addopts='' -q --junitxml=artifacts/wp5-20261009/g3-before.xml","exit_code":1,"failed":5,"passed":7},
         {"command":"pytest G3/formal/pipeline/workflow/auction 5-file slice --junitxml=artifacts/wp5-20261009/g3-integration-v2.xml","exit_code":1,"failed":1,"passed":49,"reason":"WINDOWS_TEST_TEMP_CHECKPOINT_PATH_TOO_LONG_NOT_SOURCE_FAILURE"},

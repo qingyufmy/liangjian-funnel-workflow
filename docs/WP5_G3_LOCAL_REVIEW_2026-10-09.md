@@ -18,7 +18,7 @@
 
 反例 `test_stale_available_board_matches_real_a2_without_retaining_full_domain`：真实 `screen_a2` 当前信任 `available=True`，并未按 trade_date 拦截。三只合成标的中主方向、独立强趋势送审，下跌无通道标的不送审。旧预筛额外保留第三只导致全域采集。
 
-修复仅使预筛的可观察成员条件与实际 gate 一致，日期不一致保留 `BOARD_DATE_MISMATCH` 诊断，不修改 A2、不新增过期执行授权、不将 stale 改成 fresh。无效映射/个股缺项仍保守保留；明确 unavailable 仍阻断趋势通道；人气/发现/涨停事件通道不受影响。此修复解决范围收益退化，不替代 WP4 新鲜度权限合同。
+修复仅使预筛的可观察成员条件与实际 gate 一致，有效日期不一致保留 `BOARD_DATE_MISMATCH` 诊断，不修改 A2、不新增过期执行授权、不将 stale 改成 fresh。缺日期/非法日期、无效映射/个股缺项仍保守保留；明确 unavailable 仍阻断趋势通道；人气/发现/涨停事件通道不受影响。此修复解决范围收益退化，不替代 WP4 新鲜度权限合同。
 
 ## G3-6：P2-A/B/C
 
@@ -39,7 +39,8 @@
 3. 加 workflow integration / auction：退出 **0**，49 passed（`g3-integration-v1.xml`）；随后补 parent receipt 反例，Windows 默认测试临时目录过长导致 receipt 写失败，退出 **1**，1 failed / 49 passed（`g3-integration-v2.xml`）。只缩短测试临时 checkpoint 路径，不改生产 I/O。
 4. 最终 `pytest tests/test_wp5_g3_regressions.py tests/test_wp5_disclosure_formal_routes.py tests/test_wp5_disclosure_pipeline.py tests/test_wp5_pipeline_workflow_integration.py tests/test_auction_refresh.py -q --junitxml=artifacts/wp5-20261009/g3-integration-v3.xml`：退出 **0**，50 passed。
 5. `npm test -- --run test/server/wp5-deadline.test.ts`：退出 **0**，2 passed；`npm run typecheck`：退出 **0**；`git diff --check`：退出 **0**。
-6. 源码提交后运行 `scripts/test_all.ps1 -PythonPath D:/dev_A股/liangjian_funnel_workflow/.venv/Scripts/python.exe -OutputDirectory artifacts/wp5-20261009/full-g3-local-tests`，最终 HEAD/树、退出码、完整统计与日志哈希以该目录的不可变 `evidence.json` 为准，结果不预填。
+6. `scripts/test_all.ps1 ... -OutputDirectory artifacts/wp5-20261009/full-g3-local-tests` 在 ba2242e：退出 **1**，总 2462 / 2454 passed / 1 failed / 6 skipped / 1 xfailed。旧反例检出缺日期被当成已知成员缺席；修复恢复缺日期/非法日期的不确定保留，已有有效旧日期的 P1-A 反例仍按实际 gate 校准。失败回执 SHA256 `5d4c8e15cd05333b04c5578c6b26c78d4bf418d255f58f70ced3487c4f33b19c` 原样保留。
+7. 修复后源码提交，再运行 `scripts/test_all.ps1 -PythonPath D:/dev_A股/liangjian_funnel_workflow/.venv/Scripts/python.exe -OutputDirectory artifacts/wp5-20261009/full-g3-local-v2-tests`；最终 HEAD/树、退出码、完整统计与日志哈希以该目录不可变 `evidence.json` 为准，结果不预填。
 
 ## 四层验收与下一步
 
