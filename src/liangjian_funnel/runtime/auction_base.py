@@ -6,6 +6,7 @@ the marker is an index, never a substitute for snapshot/hash validation.
 from __future__ import annotations
 
 from dataclasses import replace
+from collections.abc import Mapping
 from datetime import datetime, time, timedelta
 import json
 import signal
@@ -116,21 +117,32 @@ def load_auction_base(app, *, current, generation, scope):
 
 def project_auction_delta(base, *, hot, boards, quotes, observed_at):
     """Change only observed market fields; never redate company/daily evidence."""
-    from ..workflow import WorkflowError
+    from ..workflow import WorkflowError, _hash_json
 
     day = observed_at.date().isoformat()
     rows = hot.get("records") or []
-    if (hot.get("available") is not True or hot.get("trade_date") != day or hot.get("record_count") != 100
-            or len(rows) != 100 or len({r.get("symbol") for r in rows}) != 100
+    hot_missing = hot.get("available") is False
+    if not hot_missing and (hot.get("available") is not True or hot.get("trade_date") != day
+            or hot.get("record_count") != 100 or not isinstance(rows, list) or len(rows) != 100
+            or any(not isinstance(row, Mapping) for row in rows)
+            or len({r.get("symbol") for r in rows}) != 100
             or {r.get("rank") for r in rows} != set(range(1, 101))):
         raise WorkflowError("AUCTION_HOT100_UNAVAILABLE")
     if boards.get("available") is not True or boards.get("trade_date") != day:
         raise WorkflowError("AUCTION_CURRENT_ROTATION_UNAVAILABLE")
     if quotes.get("available") is not True or quotes.get("trade_date") != day:
         raise WorkflowError("AUCTION_QUOTE_COVERAGE_INCOMPLETE")
+    # An unavailable optional entrance is not a negative popularity finding.
+    # Retain its original dates/attempts/hash, but never consume partial/old ranks.
+    hot_observation = {
+        "status": "OPTIONAL_SOURCE_UNAVAILABLE" if hot_missing else "COMPLETE_TOP100",
+        "original_object_sha256": _hash_json(hot),
+        "absence_is_not_popularity_evidence": hot_missing,
+    }
+    projected_hot = {**hot, "records": [], "record_count": 0} if hot_missing else hot
     data = dict(base.snapshot.data)
     scope = set(data.get("g0_symbols", []))
-    new_hot = sorted({row["symbol"] for row in hot.get("records", [])} - scope)
+    new_hot = sorted({row["symbol"] for row in projected_hot.get("records", [])} - scope)
     context = {
         "schema_version": "auction-delta/1", "observed_at": observed_at.isoformat(),
         "base_snapshot_id": base.snapshot.snapshot_id, "base_snapshot_hash": base.snapshot.snapshot_hash,
@@ -140,9 +152,10 @@ def project_auction_delta(base, *, hot, boards, quotes, observed_at):
         "company_and_macro_evidence_reused_without_redating": True,
         "post_base_disclosures_not_requeried": True,
         "new_hot_symbols_deferred_to_full_research": new_hot,
+        "hot100_observation": hot_observation,
         "execution_publication": "UNCHANGED",
     }
-    data.update(EASTMONEY_HOT100_SNAPSHOT=hot, SELECTED_BOARD_SNAPSHOT=boards,
+    data.update(EASTMONEY_HOT100_SNAPSHOT=projected_hot, SELECTED_BOARD_SNAPSHOT=boards,
                 AUCTION_SNAPSHOT={**quotes, "research_evidence_context": context},
                 AUCTION_REFRESH_CONTEXT=context)
     data["MARKET_CONTEXT"] = {**data.get("MARKET_CONTEXT", {}), "auction_refresh": context}
@@ -163,8 +176,6 @@ def prepare_auction_delta(app, *, current, generation, scope):
     hot = collect_eastmoney_hot100(as_of=current, expected_trade_date=current.date(),
                                   cache_dir=settings.fact_store_dir / "eastmoney_hot100" / "auction",
                                   force_refresh=True)
-    if not hot.get("available"):
-        raise WorkflowError("AUCTION_HOT100_UNAVAILABLE")
     config = load_yaml(settings.source_config_path)
     a2 = config.get("agent_2", {})
     from ..data.hithink_board_reference import configured_rotation_memberships, rotation_snapshot_directory

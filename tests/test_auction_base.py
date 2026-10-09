@@ -104,6 +104,93 @@ def test_projection_preserves_risk_daily_dates_and_defers_missing_candidates(tmp
     assert context["base_snapshot_hash"] == "hash"
 
 
+def test_unavailable_optional_hot_entry_does_not_block_healthy_auction_delta(tmp_path):
+    _, base, _, _ = fixture(tmp_path)
+    values = deltas()
+    original = {"available": False, "trade_date": "2026-09-23", "record_count": 1,
+                "records": [{"symbol": "600001.SH", "rank": 1}],
+                "reason_code": "HOT100_TRANSPORT_FAILED", "source_attempts": [{"status": "HTTP_502"}]}
+    values["hot"] = copy.deepcopy(original)
+    result = project_auction_delta(base, **values, observed_at=NOW)
+    assert values["hot"] == original
+    projected = result["EASTMONEY_HOT100_SNAPSHOT"]
+    assert projected["available"] is False and projected["records"] == []
+    assert projected["record_count"] == 0
+    assert projected["trade_date"] == original["trade_date"]
+    assert projected["reason_code"] == original["reason_code"]
+    assert projected["source_attempts"] == original["source_attempts"]
+    context = result["AUCTION_REFRESH_CONTEXT"]
+    assert context["hot100_observation"]["status"] == "OPTIONAL_SOURCE_UNAVAILABLE"
+    assert context["hot100_observation"]["absence_is_not_popularity_evidence"] is True
+    assert len(context["hot100_observation"]["original_object_sha256"]) == 64
+    assert context["new_hot_symbols_deferred_to_full_research"] == []
+    assert result["g0_symbols"] == base.snapshot.data["g0_symbols"]
+    assert result["RISK_EVENTS"] == base.snapshot.data["RISK_EVENTS"]
+    assert context["execution_publication"] == "UNCHANGED"
+
+
+@pytest.mark.parametrize("fault", ["partial", "duplicate_rank", "malformed_row", "unspecified_available"])
+def test_optional_hot_contract_does_not_accept_false_success(tmp_path, fault):
+    _, base, _, _ = fixture(tmp_path)
+    values = deltas()
+    if fault == "partial": values["hot"]["records"].pop()
+    elif fault == "duplicate_rank": values["hot"]["records"][1]["rank"] = 1
+    elif fault == "malformed_row": values["hot"]["records"][1] = "malformed"
+    else: values["hot"].pop("available")
+    with pytest.raises(WorkflowError, match="AUCTION_HOT100_UNAVAILABLE"):
+        project_auction_delta(base, **values, observed_at=NOW)
+
+
+@pytest.mark.parametrize("field", ["boards", "quotes"])
+def test_missing_required_delta_still_blocks_with_optional_hot_failure(tmp_path, field):
+    _, base, _, _ = fixture(tmp_path)
+    values = deltas()
+    values["hot"] = {"available": False, "reason_code": "HTTP_502"}
+    values[field]["available"] = False
+    expected = "AUCTION_CURRENT_ROTATION_UNAVAILABLE" if field == "boards" else "AUCTION_QUOTE_COVERAGE_INCOMPLETE"
+    with pytest.raises(WorkflowError, match=expected):
+        project_auction_delta(base, **values, observed_at=NOW)
+
+
+@pytest.mark.parametrize("seconds", [0, 181])
+def test_prepare_optional_hot_failure_keeps_required_collectors_and_deadline(tmp_path, monkeypatch, seconds):
+    import liangjian_funnel.runtime.auction_base as module
+    import liangjian_funnel.runtime.auction_refresh as refresh
+    import liangjian_funnel.data.hithink_board_reference as references
+    import liangjian_funnel.workflow as workflow
+    app, base, generation, _ = fixture(tmp_path)
+    app.settings = SimpleNamespace(workflow_output_dir=tmp_path, fact_store_dir=tmp_path / "facts",
+        snapshot_dir=tmp_path / "deltas", source_config_path=tmp_path / "sources.yaml",
+        rotation_theme_registry_path=tmp_path / "registry.yaml", rotation_membership_refresh_days=7,
+        rotation_membership_warn_age_days=7, rotation_membership_max_age_days=14,
+        rotation_fund_coverage_minimum=.8, rotation_price_coverage_minimum=.95, rotation_collection_workers=16)
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None): return NOW + timedelta(seconds=seconds)
+    monkeypatch.setattr(module, "datetime", Clock)
+    hot = Mock(return_value={"available": False, "reason_code": "HTTP_502", "records": []})
+    boards = Mock(return_value=deltas()["boards"])
+    quotes = Mock(return_value=deltas()["quotes"])
+    monkeypatch.setattr(workflow, "collect_eastmoney_hot100", hot)
+    monkeypatch.setattr(workflow, "collect_rotation_theme_snapshot", boards)
+    monkeypatch.setattr(workflow, "load_yaml", lambda _: {})
+    monkeypatch.setattr(references, "configured_rotation_memberships", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(references, "rotation_snapshot_directory", lambda _: tmp_path / "rotation")
+    monkeypatch.setattr(refresh, "collect_fresh_quotes", quotes)
+    if seconds:
+        with pytest.raises(WorkflowError, match="AUCTION_DELTA_CAPTURE_DEADLINE_EXCEEDED"):
+            prepare_auction_delta(app, current=NOW, generation=generation, scope=("600000.SH",))
+        assert not app.settings.snapshot_dir.exists()
+    else:
+        prepared = prepare_auction_delta(app, current=NOW, generation=generation, scope=("600000.SH",))
+        assert prepared.snapshot.data["EASTMONEY_HOT100_SNAPSHOT"]["available"] is False
+        assert prepared.path.is_file()
+        assert prepared.snapshot.data["RISK_EVENTS"] == base.snapshot.data["RISK_EVENTS"]
+    boards.assert_called_once()
+    quotes.assert_called_once_with(("600000.SH",), as_of=NOW)
+    app.prepare_snapshot.assert_not_called()
+
+
 @pytest.mark.parametrize("field", ["hot", "boards", "quotes"])
 def test_previous_day_delta_is_rejected(tmp_path, field):
     _, base, _, _ = fixture(tmp_path)

@@ -1,4 +1,16 @@
 {
+  "publication_and_wp4_followup_20261010": {
+    "status": "ISOLATED_CODE_IMPLEMENTED_PENDING_NEW_HEAD_FULL_TEST",
+    "publication_receipt": "LOCAL_RECEIPT_BOUND_ONLY_NOT_WIRED_NO_EXECUTION_AUTHORITY",
+    "board_reference_contract": "PURE_RESEARCH_AUDIT_THREE_DAY_POLICY_NOT_WIRED",
+    "auction_optional_hot": "EXPLICIT_UNAVAILABLE_ENTRANCE_EMPTY_REQUIRED_BOARDS_QUOTES_UNCHANGED",
+    "tests": {"receipt_slice": 131, "board_contract_slice": 128, "auction_slice": 103, "not_summed": true},
+    "replay": "FIXTURES_ONLY_REAL_27_DIRECTION_SHADOW_AND_180_SECONDS_PENDING",
+    "operations": "NOT_DEPLOYED",
+    "strategy": "NO_THRESHOLDS_OR_CANDIDATE_CAPS_CHANGED",
+    "bridge_read_through": 14,
+    "a4_writer": "MEASUREMENT_FIRST_VM_BENCHMARK_WRITE_NEEDS_TONY_GATE_0016_NO_IPC_IMPLEMENTED"
+  },
   "bridge_progress_20261010_0135": {
     "canonical_mailbox": "D:/dev_A股/liangjian_a4_20260923/.claude_bridge",
     "outbox_actually_read": [1,2,3,4,5,6,7,8],
