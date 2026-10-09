@@ -2,8 +2,8 @@
   "wp5_hotfix_close_scope_20261009": {
     "branch": "codex/wp5-hotfix-close-scope",
     "baseline_commit": "7402e7fc570b7a91c5e19405308737715b0ad5c1",
-    "status": "CLAUDE_G1_REPAIRS_LOCAL_FACTOR_SOURCE_P0_PENDING_NO_RELEASE_FORMAL_SCOPE_UNCHANGED",
-    "code": "OVERLAP_REVISION_PERSISTENT_RESET_CHANNEL_PREFILTER_AND_BOUNDED_NIGHT_REPAIRED_FINAL_HEAD_RECEIPT_SEPARATE_FACTOR_CAPABILITY_UNVERIFIED",
+    "status": "CLAUDE_G1_G2_LOCAL_HANDOFF_FACTOR_SOURCE_P0_PENDING_DEFAULT_SHADOW_NO_RELEASE",
+    "code": "G2_INTEGRATED_INDUSTRY_DAILY_BATCH_DISCLOSURE_OVERLAP_DEFAULT_SHADOW_HASH_EQUAL_DEADLINE_AND_SCOPE_AUDIT_146_RELATED_PASS_FINAL_HEAD_RECEIPT_SEPARATE_G1_FACTOR_UNVERIFIED",
     "replay": "0923_AND_0928_PROJECTION_REQUIRED_152_AND_38_ZERO_MISS_BOTH_DATA_LIMITED_ORIGINAL_RAW_AND_A2_OVERLAY_NOT_VERIFIED_1008_1009_STILL_PENDING",
     "operations": "READONLY_ONLY_NO_PUSH_DEPLOY_RECOVERY_OR_PRODUCTION_WRITES",
     "strategy": "NOT_APPLICABLE_UNCHANGED",
@@ -21,7 +21,16 @@
     "night_maintenance": "ORIGINAL_RUN_BOUND_SHADOW_QUEUE_CACHE_ONLY_ENTRY_DEFAULT_DRY_RUN_NO_22_SCHEDULE_ENABLED",
     "source_reconciliation_evidence": "docs/WP5_SCOPE_RECONCILIATION_2026-10-09.md",
     "incremental_replay": "200_SYNTHETIC_SYMBOLS_EQUAL_FULL_SERIES_REAL_STOCK_REPLAY_PENDING",
-    "disclosure_query_scope": "SHADOW_ONLY_UNCHANGED_UNTIL_FROZEN_COVERAGE_AND_NIGHT_MAINTENANCE_ACCEPTED",
+    "disclosure_query_scope": "DEFAULT_SHADOW_FORMAL_SCOPE_UNCHANGED_OPT_IN_CANDIDATE_DOMAIN_IMPLEMENTED_NOT_ACTIVATED_REQUIRES_SEPARATE_AUTHORIZATION",
+    "g2_handoff": "docs/CLAUDE_WP5_G1_G2_REVIEW_HANDOFF_2026-10-09.md",
+    "g2_evidence": "docs/WP5_G2_PIPELINE_HANDOFF_2026-10-09.md",
+    "g2_full_receipt": "artifacts/wp5-20261009/full-g2-pipeline-tests/evidence.json",
+    "g2_commands": [
+      {"command":"python -m pytest tests/test_wp5_disclosure_pipeline.py -o addopts='' -q --junitxml=artifacts/wp5-20261009/pipeline-before.xml","exit_code":1,"result":"MISSING_MODULE_COUNTEREXAMPLE"},
+      {"command":"python -m pytest tests/test_wp5_disclosure_pipeline.py tests/test_wp5_pipeline_workflow_integration.py tests/test_research_orchestration_coverage.py -o addopts='' -q --tb=short --junitxml=artifacts/wp5-20261009/pipeline-integration-v2.xml","exit_code":0,"passed":26},
+      {"command":"python -m pytest tests/test_wp5_disclosure_pipeline.py tests/test_wp5_pipeline_workflow_integration.py tests/test_wp5_review_regressions.py tests/test_wp5_disclosure_prefilter.py tests/test_wp5_disclosure_maintenance.py tests/test_wp5_disclosure_cache_worker.py tests/test_wp5_daily_incremental.py tests/test_pipeline_data_sync.py tests/test_workflow_orchestration_coverage.py tests/test_workflow_fact_projection.py tests/test_workflow_fact_result_cache.py tests/test_workflow_pdf_progress.py tests/test_wp5_disclosure_formal_routes.py tests/test_research_orchestration_coverage.py -o addopts='' -q --tb=short --junitxml=artifacts/wp5-20261009/pipeline-final-tests.xml","exit_code":0,"passed":146},
+      {"command":"scripts/test_all.ps1 -PythonPath D:/dev_A股/liangjian_funnel_workflow/.venv/Scripts/python.exe -OutputDirectory artifacts/wp5-20261009/full-g2-pipeline-tests","result":"ACTUAL_HEAD_EXIT_CODE_AND_COUNTS_IN_FINAL_EVIDENCE_AND_CLAUDE_HANDOFF_ACCEPTANCE_NOT_ASSUMED"}
+    ],
     "factor_detection": "LAST_THREE_OHLCV_REVISION_AUTOMATIC_RESET_DURABLE_BLOCK_RAW_NOT_FRONT_ADJUSTED_FACTOR_SOURCE_AND_BASIS_PENDING_AUTHORIZED_EVIDENCE",
     "claude_repair_evidence": "docs/WP5_CLAUDE_REVIEW_REPAIR_2026-10-09.md",
     "claude_repair_tests": "artifacts/wp5-20261009/claude-repair-final-v4.xml",
@@ -97,7 +106,7 @@
     ],
     "decision_8":"PENDING_NO_RELEASE",
     "decision_9":"TONIGHT_RECOVERY_ABANDONED_WEEKEND_PREP_REQUIRES_SEPARATE_AUTHORIZATION_USE_ACTUAL_SOURCE_TIME_NOT_FRIDAY_ASOF_LIVE_COLLECTION",
-    "next":"G1_FACTOR_CAPABILITY_AND_ADJUSTMENT_BASIS_PENDING_G2_LOCAL_PIPELINE_NOT_IMPLEMENTED_G3_READ_SCOPE_AUTH_REQUIRED_NO_PUSH_DEPLOY_OR_PROMOTION"
+    "next":"CLAUDE_REVIEW_G1_G2_LOCAL_CODE_WITH_NEW_HEAD_BOUND_FULL_RECEIPT_THEN_G3_AUTHORIZED_FACTOR_AND_ORIGINAL_FROZEN_EVIDENCE_NO_PUSH_DEPLOY_OR_PROMOTION"
   },
   "wp0_repository_baseline_20261009": {
     "branch": "codex/wp0-repository-baseline-20261009",

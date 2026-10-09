@@ -86,6 +86,7 @@ class Settings(BaseModel):
     # process-wide request interval.  Keep the worker count bounded because
     # the VM has only two CPUs and less than 1 GiB of available memory.
     cninfo_workers: int = Field(default=4, ge=1, le=16)
+    disclosure_scope_mode: Literal["SHADOW", "CANDIDATE_DOMAIN"] = "SHADOW"
     cninfo_pdf_workers: int = Field(default=2, ge=1, le=4)
     cninfo_pdf_max_documents_per_symbol: int = Field(default=3, ge=0, le=10)
     cninfo_pdf_retain_raw: bool = False
@@ -327,6 +328,7 @@ class Settings(BaseModel):
                 env.get("LIANGJIAN_CNINFO_MIN_REQUEST_INTERVAL_SECONDS", "0.5")
             ),
             cninfo_workers=int(env.get("LIANGJIAN_CNINFO_WORKERS", "4")),
+            disclosure_scope_mode=env.get("LIANGJIAN_DISCLOSURE_SCOPE_MODE", "SHADOW"),
             cninfo_pdf_workers=int(env.get("LIANGJIAN_CNINFO_PDF_WORKERS", "2")),
             cninfo_pdf_max_documents_per_symbol=int(
                 env.get("LIANGJIAN_CNINFO_PDF_MAX_DOCUMENTS_PER_SYMBOL", "3")
@@ -526,6 +528,7 @@ class Settings(BaseModel):
             "hithink_min_request_interval_seconds": self.hithink_min_request_interval_seconds,
             "cninfo_min_request_interval_seconds": self.cninfo_min_request_interval_seconds,
             "cninfo_workers": self.cninfo_workers,
+            "disclosure_scope_mode": self.disclosure_scope_mode,
             "cninfo_pdf_workers": self.cninfo_pdf_workers,
             "cninfo_pdf_max_documents_per_symbol": self.cninfo_pdf_max_documents_per_symbol,
             "cninfo_pdf_retain_raw": self.cninfo_pdf_retain_raw,

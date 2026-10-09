@@ -186,7 +186,7 @@ def audit_disclosure_scope(prefilter: Mapping[str, Any], review_symbols: Iterabl
         and (r.get('trend_core_eligible') is True or r.get('rotation_reserve_eligible') is True
              or r.get('strong_trend_observation') is True))
     return {'schema_version': 'disclosure-prefilter-coverage/2',
-            'scope_hash': prefilter['scope_hash'], 'mode': 'SHADOW',
+            'scope_hash': prefilter['scope_hash'], 'mode': prefilter.get('mode', 'SHADOW'),
             'status': 'SCOPE_MISS' if missing or conflicts else 'DATA_LIMITED' if unrepresented else 'COVERED',
             'coverage_level': 'QUANTITATIVE_PRE_RANK_AND_REVIEW' if decisions is not None else 'REVIEW_SYMBOLS_ONLY',
             'review_symbols': actual, 'missing_symbols': missing,
@@ -197,4 +197,4 @@ def audit_disclosure_scope(prefilter: Mapping[str, Any], review_symbols: Iterabl
             'unrepresented_decision_symbols': unrepresented, 'route_coverage': route_coverage,
             'channel_contract_conflict_symbols': conflicts,
             'candidate_count': len(candidate), 'review_count': len(actual),
-            'execution_authority': False, 'changes_query_scope': False}
+            'execution_authority': False, 'changes_query_scope': prefilter.get('changes_query_scope') is True}

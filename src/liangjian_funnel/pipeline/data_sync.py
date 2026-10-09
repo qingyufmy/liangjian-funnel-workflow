@@ -87,6 +87,7 @@ class HithinkIncrementalSynchronizer:
         collect_early_discovery: bool = False,
         include_financial: bool = True,
         daily_reset_reasons: Mapping[str, str] | None = None,
+        daily_batch_callback: Callable[[Mapping[str, Any], Mapping[str, Any]], None] | None = None,
     ) -> SyncResult:
         current = _aware(as_of)
         ordered = tuple(dict.fromkeys(str(symbol).strip().upper() for symbol in symbols))
@@ -107,6 +108,7 @@ class HithinkIncrementalSynchronizer:
         daily_updates = 0
         financial_refreshes = 0
         start = current - timedelta(days=max(1, int(lookback_days)))
+        batch_symbols: list[str] = []
         required_latest_daily, closed_daily_end = _closed_daily_window(
             current,
             self.trading_calendar,
@@ -298,6 +300,15 @@ class HithinkIncrementalSynchronizer:
             else:
                 failures.setdefault(symbol, []).append("DAILY:CACHE_EMPTY")
 
+            if daily_batch_callback is not None:
+                batch_symbols.append(symbol)
+                if len(batch_symbols) >= self.batch_size or index == len(ordered):
+                    daily_batch_callback(
+                        {s: daily.get(s, []) for s in batch_symbols},
+                        {s: list(failures[s]) for s in batch_symbols if s in failures},
+                    )
+                    batch_symbols.clear()
+
             financial_rows: list[dict[str, Any]] = []
             symbol_financial_refreshed = False
             for dataset in FINANCIAL_DATASETS if include_financial else ():
@@ -440,6 +451,9 @@ class HithinkIncrementalSynchronizer:
                 failures.pop(symbol, None)
             if symbol not in updated_symbols:
                 updated_symbols.append(symbol)
+            if daily_batch_callback is not None:
+                daily_batch_callback({symbol: daily[symbol]},
+                                     {symbol: list(failures[symbol])} if symbol in failures else {})
 
         return SyncResult(
             daily=daily,

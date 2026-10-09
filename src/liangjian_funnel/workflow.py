@@ -10,6 +10,7 @@ import os
 import re
 import time
 from copy import copy
+from contextlib import ExitStack
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -69,6 +70,7 @@ from .pipeline.early_discovery import scan_cached_universe
 from .pipeline.close_scope import seal_scope_receipt
 from .pipeline.disclosure_scope import build_disclosure_prefilter, event_scope
 from .pipeline.disclosure_maintenance import seal_maintenance_queue
+from .pipeline.disclosure_pipeline import DisclosurePipeline, industry_batch_order
 from .pipeline.a2_features import build_a2_feature_snapshot
 from .pipeline.a1_sources import (
     A1SourceRegistryError,
@@ -535,6 +537,95 @@ class WorkflowApplication:
         auction_refresh: bool = False,
         materialize_feature_source: bool = True,
     ) -> PreparedSnapshot:
+        """Default SHADOW takes the unchanged serial collection path.
+
+        The opt-in owner closes query resources only when the last bounded
+        daemon worker has finished; no shutdown barrier can extend the existing
+        close deadline. Timing receipts are not part of the frozen facts.
+        """
+        options = dict(as_of=as_of, market_data_as_of=market_data_as_of,
+            progress=progress, candidate_symbols=candidate_symbols,
+            a1_generation_reference=a1_generation_reference,
+            auction_refresh=auction_refresh, materialize_feature_source=materialize_feature_source)
+        current = _aware(as_of or datetime.now(SHANGHAI))
+        market_current = _aware(market_data_as_of or current)
+        enabled = (getattr(self.settings, 'disclosure_scope_mode', 'SHADOW') == 'CANDIDATE_DOMAIN'
+                   and candidate_symbols is not None and not auction_refresh and market_current.hour >= 15)
+        if not enabled:
+            return self._prepare_snapshot(**options)
+        resources = ExitStack()
+        pipeline = None
+        deadline = time.monotonic()+self.settings.research_close_deadline_seconds
+        status = 'FAILED'
+        failure_code = None
+        def start(symbols):
+            nonlocal pipeline
+            if pipeline is not None:
+                return pipeline
+            cninfo = resources.enter_context(CninfoClient(timeout_seconds=self.settings.timeout_seconds,
+                base_url=self.settings.cninfo_base_url,
+                min_request_interval_seconds=self.settings.cninfo_min_request_interval_seconds))
+            bse = resources.enter_context(BseClient(timeout_seconds=self.settings.timeout_seconds,
+                min_request_interval_seconds=self.settings.cninfo_min_request_interval_seconds))
+            sse = resources.enter_context(SseDisclosureClient(timeout_seconds=self.settings.timeout_seconds,
+                min_request_interval_seconds=self.settings.cninfo_min_request_interval_seconds))
+            szse = resources.enter_context(SzseDisclosureClient(timeout_seconds=self.settings.timeout_seconds,
+                min_request_interval_seconds=self.settings.cninfo_min_request_interval_seconds))
+            router = OfficialDisclosureRouter(cninfo, sse=sse, szse=szse, bse=bse)
+            # Catalogue warming runs in the query worker, not on the daily
+            # critical path. All queries use the same shared throttled clients.
+            warm_lock = RLock()
+            warmed = False
+            def fetch(symbol):
+                nonlocal warmed
+                with warm_lock:
+                    if not warmed:
+                        self._warm_cninfo_org_catalog(cninfo, list(symbols))
+                        warmed = True
+                return self._fetch_cninfo_candidate_queries(router, symbol,
+                    (current.date()-timedelta(days=10)).isoformat(), current.date().isoformat(),
+                    (current.date()-timedelta(days=450)).isoformat())
+            pipeline = DisclosurePipeline(fetch, workers=self.settings.cninfo_workers,
+                deadline=deadline, close_resources=resources.close)
+            pipeline.query_date = current.date()
+            pipeline.__enter__()
+            return pipeline
+        try:
+            result = self._prepare_snapshot(**options, start_disclosure_pipeline=start)
+            status = 'READY'
+            return result
+        except Exception as exc:
+            failure_code = _safe_reason_code(exc)
+            raise
+        finally:
+            if pipeline is None:
+                resources.close()
+            else:
+                try:
+                    receipt = pipeline.receipt()
+                    receipt.update(status=status, failure_code=failure_code,
+                        research_as_of=current.isoformat(), market_data_as_of=market_current.isoformat(),
+                        initial_scope_receipt=getattr(pipeline, 'initial_scope_receipt', None),
+                        final_prefilter_hash=getattr(pipeline, 'final_prefilter_hash', None),
+                        run_id=str(progress.snapshot()['run_id']) if progress else 'direct-prepare')
+                    receipt['receipt_hash'] = _hash_json({k: v for k, v in receipt.items() if k != 'receipt_hash'})
+                    atomic_write_json(self.settings.research_checkpoint_dir / 'scope_receipts' /
+                        f"disclosure-pipeline-{current.date()}-{receipt['receipt_hash']}.json", receipt)
+                finally:
+                    pipeline.close()
+
+    def _prepare_snapshot(
+        self,
+        *,
+        as_of: datetime | None = None,
+        market_data_as_of: datetime | None = None,
+        progress: WorkflowProgress | None = None,
+        candidate_symbols: tuple[str, ...] | None = None,
+        a1_generation_reference: Mapping[str, Any] | None = None,
+        auction_refresh: bool = False,
+        materialize_feature_source: bool = True,
+        start_disclosure_pipeline: Any = None,
+    ) -> PreparedSnapshot:
         if auction_refresh:
             raise WorkflowError("AUCTION_FULL_SYNC_FORBIDDEN_USE_VERIFIED_BASE")
         current = _aware(as_of or datetime.now(SHANGHAI))
@@ -646,6 +737,12 @@ class WorkflowApplication:
             if isinstance(item, Mapping) and str(item.get("symbol") or "").strip()
         }
         source_failures: dict[str, list[str]] = {}
+        disclosure_pipeline = None
+        preflight_market_results = None
+        preflight_market_retries = None
+        preloaded_industry = None
+        preloaded_concept = None
+        preloaded_membership = None
         if progress is not None:
             progress.set_phase("UNIVERSE_SYNC")
             _progress_stdout(progress.snapshot())
@@ -698,6 +795,74 @@ class WorkflowApplication:
             if candidate_symbols is not None:
                 discovery_symbols = [record.symbol for record in all_research_records]
                 if not auction_refresh and market_current.hour >= 15:
+                    if start_disclosure_pipeline is not None:
+                        # Global required events must pass before scheduling any
+                        # company query. Discovery remains a global ranking and
+                        # is never approximated by top-N from individual batches.
+                        preflight_market_results = collect_market_results(client, [],
+                            market_trade_date=closed_trade_date)
+                        preflight_market_results, preflight_market_retries = recover_required_market_results(
+                            client, preflight_market_results, market_trade_date=closed_trade_date,
+                            required=('LIMIT_UP_POOL', 'LIMIT_DOWN_POOL', 'LIMIT_BREAK_POOL', 'LIMIT_UP_LADDER'))
+                        if any(not preflight_market_results[name].ok or not preflight_market_results[name].complete
+                               for name in ('LIMIT_UP_POOL', 'LIMIT_DOWN_POOL', 'LIMIT_BREAK_POOL', 'LIMIT_UP_LADDER')):
+                            diagnostics = {'expected_closed_trade_date': closed_trade_date.isoformat(),
+                                'facts': {name: {'ok': value.ok, 'complete': value.complete,
+                                    'reason_code': value.reason_code} for name, value in preflight_market_results.items()},
+                                'bounded_recovery_attempts': preflight_market_retries}
+                            atomic_write_json(self.settings.workflow_output_dir / 'runs' /
+                                f"{current.date()}-close-market-facts-{datetime.now(SHANGHAI).strftime('%H%M%S%f')}.json", diagnostics)
+                            raise WorkflowError('MARKET_EMOTION_FACTS_NOT_READY', diagnostics=diagnostics)
+                        preloaded_industry = _bind_reference_fact_event_time(client.ths_index_catalog(tag='industry'), as_of=market_current)
+                        preloaded_concept = _bind_reference_fact_event_time(client.ths_index_catalog(tag='cn_concept'), as_of=market_current)
+                        preloaded_membership = collect_ths_industry_membership(client, preloaded_industry,
+                            all_market_symbols, cache_dir=self.settings.fact_store_dir/'ths_industry',
+                            as_of=market_current, cache_max_age_days=7)
+                        if not preloaded_membership.ok or not preloaded_membership.complete:
+                            raise WorkflowError(f'THS_INDUSTRY_MEMBERSHIP_NOT_READY:{preloaded_membership.reason_code}')
+                        # This changes request order only, not G0 membership,
+                        # discovery ranking or the final node selection.
+                        discovery_symbols, daily_nodes = select_industry_diversified_symbols(all_research_records,
+                            preloaded_membership, limit=len(all_research_records),
+                            top_n_per_node=top_n_per_node, node_count_target=node_count_target)
+                        discovery_symbols = industry_batch_order(discovery_symbols,
+                            (row.model_dump(mode='python') for row in preloaded_membership.items),
+                            (node['industry_thscode'] for node in daily_nodes['nodes']))
+                        initial_scope = (set(candidate_symbols) | hot100_symbols) & set(discovery_symbols)
+                        initial_events, initial_events_complete = event_scope(preflight_market_results, closed_trade_date)
+                        initial_receipt = {'schema_version': 'disclosure-initial-scope/1',
+                            'status': 'PROVISIONAL_A1_HOT_NO_DISCOVERY', 'execution_authority': False,
+                            'research_as_of': current.isoformat(), 'market_data_as_of': market_current.isoformat(),
+                            'a1_reference': dict(a1_generation_reference) if a1_generation_reference else None,
+                            'a1_symbols': sorted(candidate_symbols), 'hot100': eastmoney_hot100,
+                            'g0_symbols': sorted(discovery_symbols), 'initial_scope': sorted(initial_scope),
+                            'daily_sync_order_hash': _hash_json(discovery_symbols),
+                            'board_input_hash': _hash_json(selected_board),
+                            'event_symbols': initial_events, 'event_sources_complete': initial_events_complete,
+                            'run_id': str(progress.snapshot()['run_id']) if progress else 'direct-prepare'}
+                        initial_receipt['receipt_hash'] = _hash_json(initial_receipt)
+                        initial_path = self.settings.research_checkpoint_dir/'scope_receipts'/f"disclosure-initial-{initial_receipt['receipt_hash']}.json"
+                        atomic_write_json(initial_path, initial_receipt)
+                        disclosure_pipeline = start_disclosure_pipeline(sorted(initial_scope))
+                        disclosure_pipeline.initial_scope_receipt = str(initial_path)
+                        def daily_batch(daily_rows, failures):
+                            usable = [s for s in daily_rows if s in initial_scope
+                                      and not any(r.startswith('DAILY:') for r in failures.get(s, ()))]
+                            prefilter = build_disclosure_prefilter(symbols=usable, trade_date=closed_trade_date,
+                                daily=daily_rows, selected_board=selected_board, selected_board_field_present=True,
+                                event_symbols=initial_events, event_sources_complete=initial_events_complete,
+                                hot_symbols=hot100_symbols)
+                            # Seal observations before starting their queries.
+                            # A batch is not the globally ranked discovery set.
+                            batch_receipt = {'schema_version': 'disclosure-daily-batch/1',
+                                'initial_scope_receipt': str(initial_path), 'prefilter': prefilter,
+                                'daily_failures': dict(failures), 'execution_authority': False}
+                            batch_receipt['receipt_hash'] = _hash_json(batch_receipt)
+                            atomic_write_json(self.settings.research_checkpoint_dir/'scope_receipts'/
+                                f"disclosure-batch-{batch_receipt['receipt_hash']}.json", batch_receipt)
+                            for row in prefilter['records']:
+                                if row['status'] == 'COLLECT_DISCLOSURE':
+                                    disclosure_pipeline.submit(row['symbol'], input_hash=row['daily_input_hash'])
                     # Refresh daily prices only. Do not rerun A1 or request
                     # market-wide financial/LLM work to discover pool outsiders.
                     if progress is not None:
@@ -721,11 +886,16 @@ class WorkflowApplication:
                             daily_updates=int(event.get("daily_updates") or 0),
                         )
                         _progress_stdout(progress.snapshot())
-                    discovery_sync = self.fact_synchronizer.sync(
-                        client, discovery_symbols, as_of=market_current,
-                        collect_early_discovery=True, include_financial=False,
-                        progress=discovery_progress,
-                    )
+                    if disclosure_pipeline is None:
+                        discovery_sync = self.fact_synchronizer.sync(
+                            client, discovery_symbols, as_of=market_current,
+                            collect_early_discovery=True, include_financial=False, progress=discovery_progress)
+                    else:
+                        with disclosure_pipeline.stage('daily'):
+                            discovery_sync = self.fact_synchronizer.sync(
+                                client, discovery_symbols, as_of=market_current,
+                                collect_early_discovery=True, include_financial=False, progress=discovery_progress,
+                                daily_batch_callback=daily_batch)
                     full_market_discovery = discovery_sync.early_discovery
                     daily_sync_receipt = {
                         'schema_version': 'daily-sync-receipt/1',
@@ -785,15 +955,15 @@ class WorkflowApplication:
             # Bind their event time to the requested frozen cutoff while
             # retaining the later HTTP fetch_time for provenance. Otherwise a
             # normal multi-second request is misclassified as future data.
-            industry_catalog = _bind_reference_fact_event_time(
+            industry_catalog = preloaded_industry or _bind_reference_fact_event_time(
                 client.ths_index_catalog(tag="industry"),
                 as_of=market_current,
             )
-            concept_catalog = _bind_reference_fact_event_time(
+            concept_catalog = preloaded_concept or _bind_reference_fact_event_time(
                 client.ths_index_catalog(tag="cn_concept"),
                 as_of=market_current,
             )
-            full_membership = collect_ths_industry_membership(
+            full_membership = preloaded_membership or collect_ths_industry_membership(
                 client,
                 industry_catalog,
                 all_market_symbols,
@@ -832,7 +1002,7 @@ class WorkflowApplication:
                     progress.update_data(processed=processed, total=total,
                         cache_hits=0, cache_misses=0, failures=0)
                     _progress_stdout(progress.snapshot())
-            market_fact_results = collect_market_results(
+            market_fact_results = preflight_market_results or collect_market_results(
                 client,
                 [candidate.symbol for candidate in selected] if _auction_window(current) and not auction_refresh else [],
                 market_trade_date=_latest_closed_market_trade_date(
@@ -842,13 +1012,13 @@ class WorkflowApplication:
                 progress_callback=market_progress,
             )
             required_market_facts = ("LIMIT_UP_POOL", "LIMIT_DOWN_POOL", "LIMIT_BREAK_POOL", "LIMIT_UP_LADDER")
-            market_fact_results, market_fact_retries = recover_required_market_results(
-                client, market_fact_results,
-                market_trade_date=_latest_closed_market_trade_date(
-                    current, self.trading_calendar,
-                ),
-                required=required_market_facts,
-            )
+            if preflight_market_results is None:
+                market_fact_results, market_fact_retries = recover_required_market_results(
+                    client, market_fact_results,
+                    market_trade_date=_latest_closed_market_trade_date(current, self.trading_calendar),
+                    required=required_market_facts)
+            else:
+                market_fact_retries = preflight_market_retries
             # Validate before slow graph/history collection, and retain each
             # source outcome even when no full snapshot can be built.
             market_diagnostics = {
@@ -1000,6 +1170,18 @@ class WorkflowApplication:
                 discovery_symbols=[row['symbol'] for row in discovery.get('records', ())
                                    if row.get('review_budget_selected')],
             )
+            if disclosure_pipeline is not None:
+                if current.date() != disclosure_pipeline.query_date:
+                    raise WorkflowError('DISCLOSURE_PIPELINE_QUERY_DATE_CHANGED')
+                disclosure_prefilter.update(mode='CANDIDATE_DOMAIN', changes_query_scope=True)
+                disclosure_prefilter['scope_hash'] = _hash_json({k: v for k, v in disclosure_prefilter.items() if k != 'scope_hash'})
+                input_hashes = {row['symbol']: row['daily_input_hash'] for row in disclosure_prefilter['records']}
+                disclosure_pipeline.validate_domain(disclosure_prefilter['candidate_symbols'], input_hashes)
+                disclosure_pipeline.final_prefilter_hash = disclosure_prefilter['scope_hash']
+                for symbol in disclosure_prefilter['candidate_symbols']:
+                    disclosure_pipeline.submit(symbol, input_hash=input_hashes[symbol])
+                for symbol in disclosure_prefilter['deferred_symbols']:
+                    source_failures.setdefault(symbol, []).append('OFFICIAL_DISCLOSURE:DEFERRED_DISCLOSURE_NOT_COLLECTED')
             atomic_write_json(
                 self.settings.research_checkpoint_dir / 'scope_receipts' /
                 f"disclosure-prefilter-{closed_trade_date}-{disclosure_prefilter['scope_hash']}.json",
@@ -1016,12 +1198,12 @@ class WorkflowApplication:
                         'status': 'SHADOW_QUEUE_SEALED', 'path': str(queue_path),
                         'queue_hash': queue['queue_hash'],
                         'deferred_count': len(queue['deferred_symbols']),
-                        'execution_authority': False, 'changes_query_scope': False,
+                        'execution_authority': False, 'changes_query_scope': disclosure_pipeline is not None,
                     }
                 else:
                     disclosure_maintenance_reference = {
                         'status': 'ORIGINAL_A1_REFERENCE_REQUIRED', 'execution_authority': False,
-                        'changes_query_scope': False,
+                        'changes_query_scope': disclosure_pipeline is not None,
                     }
 
         # A1 is a structural macro/policy layer. A six-day window only shows
@@ -1048,97 +1230,113 @@ class WorkflowApplication:
         if progress is not None:
             progress.set_phase("CNINFO_SYNC")
             _progress_stdout(progress.snapshot())
-        with CninfoClient(
-            timeout_seconds=self.settings.timeout_seconds,
-            base_url=self.settings.cninfo_base_url,
-            min_request_interval_seconds=self.settings.cninfo_min_request_interval_seconds,
-        ) as cninfo, BseClient(
-            timeout_seconds=self.settings.timeout_seconds,
-            min_request_interval_seconds=self.settings.cninfo_min_request_interval_seconds,
-        ) as bse, SseDisclosureClient(
-            timeout_seconds=self.settings.timeout_seconds,
-            min_request_interval_seconds=self.settings.cninfo_min_request_interval_seconds,
-        ) as sse, SzseDisclosureClient(
-            timeout_seconds=self.settings.timeout_seconds,
-            min_request_interval_seconds=self.settings.cninfo_min_request_interval_seconds,
-        ) as szse:
-            disclosure_router = OfficialDisclosureRouter(
-                cninfo, sse=sse, szse=szse, bse=bse
-            )
-            # One official identity catalogue avoids a guessed empty query,
-            # top-search and second query for every numeric organization ID.
-            # This is not a disclosure completeness gate; missing catalogue
-            # entries keep the original per-security search/fallback contract.
-            self._warm_cninfo_org_catalog(cninfo, [candidate.symbol for candidate in selected])
-            # Each candidate is one independent unit containing the recent and
-            # business-history queries.  The shared client owns the global
-            # request throttle, so workers hide network latency without
-            # creating a per-thread request burst.
-            query_futures = {}
-            with ThreadPoolExecutor(max_workers=self.settings.cninfo_workers) as executor:
-                for index, candidate in enumerate(selected):
-                    future = executor.submit(
-                        self._fetch_cninfo_candidate_queries,
-                        disclosure_router,
-                        candidate.symbol,
-                        query_start,
-                        query_end,
-                        business_query_start,
-                    )
-                    query_futures[future] = index
-                completed_queries: dict[
-                    int,
-                    tuple[str, CninfoFetchResult, bool, CninfoFetchResult, bool],
-                ] = {}
-                completed_count = 0
-                for future in as_completed(query_futures):
-                    index = query_futures[future]
-                    completed_queries[index] = future.result()
-                    completed_count += 1
-                    symbol, recent_result, recent_hit, business_result, business_hit = completed_queries[index]
-                    cninfo_hits += int(recent_hit) + int(business_hit)
-                    cninfo_misses += int(not recent_hit) + int(not business_hit)
-                    if progress is not None and (
-                        completed_count == len(selected)
-                        or completed_count % self.settings.data_progress_every == 0
-                    ):
-                        completed_query_failures = sum(
-                            int(
-                                not recent.ok
-                                or not recent.complete
-                                or not business.ok
-                                or not business.complete
+        if disclosure_pipeline is not None:
+            candidate_domain = set(disclosure_prefilter['candidate_symbols'])
+            query_symbols = [candidate.symbol for candidate in selected
+                             if candidate.symbol in candidate_domain]
+            with disclosure_pipeline.stage('announcement_join'):
+                completed_queries = dict(enumerate(disclosure_pipeline.results(query_symbols)))
+            cninfo_hits = sum(int(row[2])+int(row[4]) for row in completed_queries.values())
+            cninfo_misses = sum(int(not row[2])+int(not row[4]) for row in completed_queries.values())
+            if progress is not None:
+                progress.update_data(processed=len(completed_queries), total=len(query_symbols),
+                    cache_hits=cninfo_hits, cache_misses=cninfo_misses,
+                    failures=sum(bool(reasons) for reasons in source_failures.values())+sum(
+                        not row[1].ok or not row[1].complete or not row[3].ok or not row[3].complete
+                        for row in completed_queries.values()),
+                    current_symbol=query_symbols[-1] if query_symbols else None)
+                _progress_stdout(progress.snapshot())
+        else:
+            with CninfoClient(
+                timeout_seconds=self.settings.timeout_seconds,
+                base_url=self.settings.cninfo_base_url,
+                min_request_interval_seconds=self.settings.cninfo_min_request_interval_seconds,
+            ) as cninfo, BseClient(
+                timeout_seconds=self.settings.timeout_seconds,
+                min_request_interval_seconds=self.settings.cninfo_min_request_interval_seconds,
+            ) as bse, SseDisclosureClient(
+                timeout_seconds=self.settings.timeout_seconds,
+                min_request_interval_seconds=self.settings.cninfo_min_request_interval_seconds,
+            ) as sse, SzseDisclosureClient(
+                timeout_seconds=self.settings.timeout_seconds,
+                min_request_interval_seconds=self.settings.cninfo_min_request_interval_seconds,
+            ) as szse:
+                disclosure_router = OfficialDisclosureRouter(
+                    cninfo, sse=sse, szse=szse, bse=bse
+                )
+                # One official identity catalogue avoids a guessed empty query,
+                # top-search and second query for every numeric organization ID.
+                # This is not a disclosure completeness gate; missing catalogue
+                # entries keep the original per-security search/fallback contract.
+                self._warm_cninfo_org_catalog(cninfo, [candidate.symbol for candidate in selected])
+                # Each candidate is one independent unit containing the recent and
+                # business-history queries.  The shared client owns the global
+                # request throttle, so workers hide network latency without
+                # creating a per-thread request burst.
+                query_futures = {}
+                with ThreadPoolExecutor(max_workers=self.settings.cninfo_workers) as executor:
+                    for index, candidate in enumerate(selected):
+                        future = executor.submit(
+                            self._fetch_cninfo_candidate_queries,
+                            disclosure_router,
+                            candidate.symbol,
+                            query_start,
+                            query_end,
+                            business_query_start,
+                        )
+                        query_futures[future] = index
+                    completed_queries: dict[
+                        int,
+                        tuple[str, CninfoFetchResult, bool, CninfoFetchResult, bool],
+                    ] = {}
+                    completed_count = 0
+                    for future in as_completed(query_futures):
+                        index = query_futures[future]
+                        completed_queries[index] = future.result()
+                        completed_count += 1
+                        symbol, recent_result, recent_hit, business_result, business_hit = completed_queries[index]
+                        cninfo_hits += int(recent_hit) + int(business_hit)
+                        cninfo_misses += int(not recent_hit) + int(not business_hit)
+                        if progress is not None and (
+                            completed_count == len(selected)
+                            or completed_count % self.settings.data_progress_every == 0
+                        ):
+                            completed_query_failures = sum(
+                                int(
+                                    not recent.ok
+                                    or not recent.complete
+                                    or not business.ok
+                                    or not business.complete
+                                )
+                                for _, recent, _, business, _ in completed_queries.values()
                             )
-                            for _, recent, _, business, _ in completed_queries.values()
-                        )
-                        progress.update_data(
-                            processed=completed_count,
-                            total=len(selected),
-                            cache_hits=cninfo_hits,
-                            cache_misses=cninfo_misses,
-                            failures=(
-                                sum(1 for reasons in source_failures.values() if reasons)
-                                + completed_query_failures
-                            ),
-                            current_symbol=symbol,
-                        )
-                        _progress_stdout(progress.snapshot())
-
-            # Rebuild all maps and P0 failure side effects in candidate order;
-            # completion order must never affect snapshot bytes or failure
-            # reason ordering.
-            for index in range(len(selected)):
-                symbol, recent_result, recent_hit, business_result, business_hit = completed_queries[index]
-                result = _merge_cninfo_query_results(recent_result, business_result)
-                cninfo_results[symbol] = result
-                if not recent_result.ok or not recent_result.complete:
-                    source_failures.setdefault(symbol, []).append(
-                        f"OFFICIAL_DISCLOSURE_RECENT:{recent_result.reason_code}"
-                    )
-                if not business_result.ok or not business_result.complete:
-                    source_failures.setdefault(symbol, []).append(
-                        f"OFFICIAL_DISCLOSURE_MAIN_BUSINESS:{business_result.reason_code}"
-                    )
+                            progress.update_data(
+                                processed=completed_count,
+                                total=len(selected),
+                                cache_hits=cninfo_hits,
+                                cache_misses=cninfo_misses,
+                                failures=(
+                                    sum(1 for reasons in source_failures.values() if reasons)
+                                    + completed_query_failures
+                                ),
+                                current_symbol=symbol,
+                            )
+                            _progress_stdout(progress.snapshot())
+        # Rebuild all maps and P0 failure side effects in candidate order;
+        # completion order must never affect snapshot bytes or failure
+        # reason ordering.
+        for index in range(len(completed_queries)):
+            symbol, recent_result, recent_hit, business_result, business_hit = completed_queries[index]
+            result = _merge_cninfo_query_results(recent_result, business_result)
+            cninfo_results[symbol] = result
+            if not recent_result.ok or not recent_result.complete:
+                source_failures.setdefault(symbol, []).append(
+                    f"OFFICIAL_DISCLOSURE_RECENT:{recent_result.reason_code}"
+                )
+            if not business_result.ok or not business_result.complete:
+                source_failures.setdefault(symbol, []).append(
+                    f"OFFICIAL_DISCLOSURE_MAIN_BUSINESS:{business_result.reason_code}"
+                )
         # Freeze the complete PDF work list before opening the client.  The
         # candidate selector is deterministic, so this gives the control
         # plane an honest document-level total instead of leaving the prior

@@ -2413,6 +2413,8 @@ class ResearchPipeline:
                 / f'{_safe_run_id(lane_id)}.json',
                 coverage,
             )
+            if prefilter.get('mode') == 'CANDIDATE_DOMAIN' and coverage['status'] != 'COVERED':
+                raise ResearchPipelineError('DISCLOSURE_CANDIDATE_SCOPE_NOT_COVERED')
         if gate.stage == "A2_LOCAL_ROLE" and snapshot.as_of is not None:
             try:
                 news_shadow = build_a2_news_shadow(
