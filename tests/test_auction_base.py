@@ -127,6 +127,7 @@ def test_base_job_has_no_models_or_plan_writes(tmp_path, monkeypatch):
     assert result["status"] == "READY" and result["model_calls"] == 0
     assert result["execution_publication"] == "UNCHANGED"
     assert app.prepare_snapshot.call_args.kwargs["materialize_feature_source"] is False
+    assert app.prepare_snapshot.call_args.kwargs['progress'].path.name.endswith('-progress.json')
     app.store.complete_lease.assert_called_once()
 
 

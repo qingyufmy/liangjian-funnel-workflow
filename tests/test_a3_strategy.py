@@ -114,6 +114,23 @@ def test_no_independent_permission_keeps_emotion_first_board_observation():
     assert decision.research_state == "PREPARATION_WATCH"
 
 
+def test_emotion_cycle_block_is_scoped_to_leader_with_verified_trend_channel():
+    candidate = {"symbol": "603186.SH", "market_role": "EMOTION_LEADER", "stock_behavior_type": "EMOTION",
+                 "theme_stage": "CONFIRMATION", "ladder_height": 1, "ladder_intact": True,
+                 "independent_strategy_review": True, "execution_permission": "BLOCKED",
+                 "research_only_reason": "A2_EMOTION_CYCLE_NO_NEW_ENTRY",
+                 "trend_core_eligible": True, "a1_formal_member": True,
+                 "research_route_qualifications": {"TREND_MA5": {"eligible": True}}}
+    decision = _common(candidate, a2=candidate)
+    assert decision.strategy_profile is StrategyProfile.TREND_MA5
+    assert decision.execution_permission == "REQUIRES_A3_A4_CONFIRMATION"
+    for field, value in (("trend_core_eligible", False), ("a1_formal_member", False),
+                         ("research_only_reason", "A2_UPSTREAM_RESEARCH_ONLY"),
+                         ("hard_risk_events", [{"reason": "RISK"}])):
+        blocked = _common(candidate, a2={**candidate, field: value})
+        assert blocked.execution_permission == "BLOCKED"
+
+
 def test_each_strategy_has_a_single_qualified_route() -> None:
     leader = _common(
         {"symbol": "600001.SH", "name": "龙头", "market_role": "EMOTION_LEADER", "theme_stage": "CONFIRMATION", "ladder_height": 2, "ladder_intact": True},

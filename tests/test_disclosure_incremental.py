@@ -124,3 +124,47 @@ def test_corrupt_cache_cannot_be_reblessed_by_complete_delta(tmp_path: Path):
         end_date=END, semantic_key="ANNUAL_REPORT_450D", ttl=timedelta(days=7),
         search_keyword="年度报告", stale_if_error=timedelta(days=45), recent_delta=recent)
     assert not hit and client.calls == 1 and result.end_date == END
+
+
+def test_recent_window_uses_complete_overlapping_delta_not_full_rescan(tmp_path: Path):
+    app = object.__new__(WorkflowApplication)
+    app.fact_cache = LocalFactCache(tmp_path / 'recent.sqlite3')
+    base, recent = inputs()
+    base = base.model_copy(update={'start_date': recent.start_date,
+                                  'end_date': (NOW.date() - timedelta(days=1)).isoformat(),
+                                  'fetched_at': NOW - timedelta(hours=12),
+                                  'metadata': {'search_keyword': ''}, 'announcements': ()})
+    app.fact_cache.put_cached_result('CNINFO_ANNOUNCEMENTS', '600519.SH:RECENT_10D',
+        base.model_dump(mode='json'), fetched_at=base.fetched_at,
+        expires_at=base.fetched_at + timedelta(hours=6))
+    class Delta:
+        calls = []
+        def fetch_announcements(self, symbol, start, end, **kwargs):
+            self.calls.append((start, end))
+            return recent.model_copy(update={'start_date': start, 'announcements': ()})
+    client = Delta()
+    result, hit = app._cached_cninfo_result(client, symbol='600519.SH', start_date=recent.start_date,
+        end_date=END, semantic_key='RECENT_10D', ttl=timedelta(hours=6))
+    assert client.calls == [(base.end_date, END)]
+    assert hit and result.metadata['cache_status'] == 'VERIFIED_HISTORY_WITH_COMPLETE_DELTA'
+    assert result.end_date == END and result.start_date == recent.start_date
+
+
+def test_partial_recent_delta_requires_full_authoritative_query(tmp_path: Path):
+    app = object.__new__(WorkflowApplication)
+    app.fact_cache = LocalFactCache(tmp_path / 'partial.sqlite3')
+    _, recent = inputs()
+    base = recent.model_copy(update={'end_date': (NOW.date()-timedelta(days=1)).isoformat(),
+                                    'fetched_at': NOW-timedelta(hours=12), 'announcements': ()})
+    app.fact_cache.put_cached_result('CNINFO_ANNOUNCEMENTS', '600519.SH:RECENT_10D',
+        base.model_dump(mode='json'), fetched_at=base.fetched_at, expires_at=base.fetched_at+timedelta(hours=6))
+    class Partial:
+        calls = []
+        def fetch_announcements(self, symbol, start, end, **kwargs):
+            self.calls.append((start, end))
+            return recent.model_copy(update={'start_date': start, 'complete': len(self.calls) == 2})
+    client = Partial()
+    result, hit = app._cached_cninfo_result(client, symbol='600519.SH', start_date=recent.start_date,
+        end_date=END, semantic_key='RECENT_10D', ttl=timedelta(hours=6))
+    assert not hit and result.complete
+    assert client.calls == [(base.end_date, END), (recent.start_date, END)]

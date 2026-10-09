@@ -7,7 +7,7 @@ import time
 from zoneinfo import ZoneInfo
 
 from liangjian_funnel.data.board_reference import digest, load_reference, write_reference
-from liangjian_funnel.data.hithink_board_reference import SOURCE, collect_catalog, collect_members, load_rotation_references
+from liangjian_funnel.data.hithink_board_reference import SOURCE, binding_components, collect_catalog, collect_members, load_rotation_references
 from liangjian_funnel.data.rotation_theme import load_rotation_theme_config
 from liangjian_funnel.pipeline.data_source import HithinkClient
 from liangjian_funnel.reporting import atomic_write_json
@@ -61,7 +61,8 @@ def main():
         for category in ('concept', 'industry'):
             catalogs[category] = refresh(category)
         if not args.catalog_only:
-            selected = {(b['category'], b['board_id']) for b in bindings if b.get('approved') is True}
+            selected = {(c['category'], c['board_id']) for b in bindings if b.get('approved') is True
+                        for c in binding_components(b)}
             for category, code in sorted(selected):
                 if catalogs.get(category, {}).get('available'):
                     refresh(category, code)

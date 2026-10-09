@@ -33,11 +33,16 @@ def run_auction_base(app, *, now=None):
     if not app.store.acquire_lease(lease, owner, now=current, ttl_seconds=3900, dispatch_key=key):
         return {"status": "NOOP", "reason_code": "AUCTION_BASE_ALREADY_DISPATCHED"}
     path = marker_path(app, current.date())
+    from .progress import WorkflowProgress
+    progress = WorkflowProgress(path.with_name(f'{current.date()}-progress.json'),
+                                run_id=key, job='auction-base', now=current)
     receipt = {"schema_version": "auction-base/1", "status": "RUNNING", "started_at": current.isoformat(),
                "execution_publication": "UNCHANGED", "model_calls": 0}
     atomic_write_json(path, receipt)
     def record_failure(reason):
-        receipt.update(status="BLOCKED", reason_code=reason, finished_at=datetime.now(TZ).isoformat())
+        receipt.update(status="BLOCKED", reason_code=reason, finished_at=datetime.now(TZ).isoformat(),
+                       last_progress=progress.snapshot())
+        progress.finish(status='BLOCKED', phase='FAILED', reason_code=reason)
         atomic_write_json(path, receipt)
         app.store.release_lease(lease, owner)
 
@@ -54,7 +59,7 @@ def run_auction_base(app, *, now=None):
         if not scope:
             raise WorkflowError("A1_ACTIVE_DOWNSTREAM_SCOPE_EMPTY")
         prepared = app.prepare_snapshot(as_of=current, candidate_symbols=scope,
-                                        materialize_feature_source=False)
+                                        materialize_feature_source=False, progress=progress)
         finished = datetime.now(TZ)
         if finished.date() != current.date() or finished.time().replace(tzinfo=None) >= time(8, 15):
             raise WorkflowError("AUCTION_BASE_FINISH_DEADLINE_EXCEEDED")
@@ -63,6 +68,7 @@ def run_auction_base(app, *, now=None):
                        prepared_snapshot=prepared.as_dict())
         atomic_write_json(path, receipt)
         app.store.complete_lease(lease, owner, dispatch_key=key, now=finished)
+        progress.finish(status='READY', now=finished)
         return receipt
     except BaseException as exc:
         record_failure(getattr(exc, "reason_code", "AUCTION_BASE_FAILED"))

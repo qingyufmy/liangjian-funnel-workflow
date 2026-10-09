@@ -29,6 +29,33 @@ from typing import Any
 
 A2_ROLE_LOGIC_VERSION = "a2-role-logic/1.2.0"
 
+
+def route_execution_permission(row: Mapping[str, Any], profile: str) -> str | None:
+    """Scope an emotion-only veto using authoritative deterministic A2 facts.
+
+    Research qualification alone never grants execution. The trend channel
+    must independently pass the formal A1 and selected-board gates as well.
+    Legacy/unknown blocks remain blocks; model-provided rows are not authority.
+    """
+    permission = row.get("execution_permission")
+    if permission != "BLOCKED":
+        return permission
+    qualification = row.get("research_route_qualifications") or {}
+    qualified = qualification.get(profile) if isinstance(qualification, Mapping) else None
+    if (profile in {"TREND_MA5", "MA520_SWING"}
+            and row.get("research_only_reason") == "A2_EMOTION_CYCLE_NO_NEW_ENTRY"
+            and row.get("independent_strategy_review") is True
+            and row.get("trend_core_eligible") is True
+            and row.get("a1_formal_member") is True
+            and isinstance(qualified, Mapping) and qualified.get("eligible") is True
+            and not row.get("hard_risk_events")
+            and row.get("downstream_trade_eligible") is not False
+            and row.get("status", row.get("deterministic_status")) != "HARD_REJECT"
+            and row.get("rotation_reserve_scope") != "RESEARCH_ONLY_NO_AUTOMATIC_ENTRY"
+            and row.get("research_observation_scope") != "RESEARCH_ONLY_NO_AUTOMATIC_ENTRY"):
+        return "REQUIRES_A3_A4_CONFIRMATION"
+    return "BLOCKED"
+
 EMOTION = "EMOTION"
 TREND = "TREND"
 UNRESOLVED = "UNRESOLVED"

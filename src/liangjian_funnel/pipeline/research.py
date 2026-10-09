@@ -6643,7 +6643,9 @@ def _stage_execution_budget(
             "- Do not list ordinary WATCH rows: every supplied symbol omitted from focus_decisions and "
             "reject_decisions is deterministically classified WATCH by the server.\n"
             "- execution_permission=BLOCKED and A2_EMOTION_CYCLE_NO_NEW_ENTRY restrict trading, not research. "
-            "Keep an otherwise supported candidate in WATCH; these restrictions alone are not a hard rejection.\n"
+            "Keep an otherwise supported candidate in WATCH; these restrictions alone are not a hard rejection. "
+            "The server independently scopes this cycle veto to LEADER_INTRADAY only when formal A1 membership, "
+            "trend_core_eligible and the chosen trend route are all verified. Never change these permissions yourself.\n"
             "- emotion_theme_binding.candidate_routes are evidence-backed alternatives, not missing membership. "
             "Do not invent a primary theme, business revenue or catalyst. Unresolved theme selection remains "
             "research-only and cannot authorize an execution plan.\n"
@@ -9870,9 +9872,11 @@ def _apply_a3_candidate_origin_policy(
         if contexts.get(symbol, {}).get("strong_trend_observation") is True:
             item["strong_trend_observation"] = True
             item["research_observation_scope"] = contexts[symbol].get("research_observation_scope", "RESEARCH_ONLY_NO_AUTOMATIC_ENTRY")
-        if contexts.get(symbol, {}).get("execution_permission") == "BLOCKED":
-            item["execution_permission"] = "BLOCKED"
-            item["research_only_reason"] = contexts[symbol].get("research_only_reason")
+        from .a2_role_logic import route_execution_permission
+        permission = route_execution_permission(contexts.get(symbol, {}), str(item.get("strategy_profile") or ""))
+        if permission is not None:
+            item["execution_permission"] = permission
+            item["research_only_reason"] = contexts[symbol].get("research_only_reason") if permission == "BLOCKED" else None
         origin = origins.get(symbol) or str(item.get("candidate_origin") or "FOCUS").strip().upper()
         # Unknown/malformed origins are not allowed to become a new routing
         # class.  Treat old responses without the additive field as FOCUS;

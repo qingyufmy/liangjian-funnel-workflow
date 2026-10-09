@@ -1512,9 +1512,11 @@ def evaluate_a3_strategy(
         "QUALIFIED": "TECHNICAL_QUALIFIED_WAIT_CONFIRMATION", "WATCH": "PREPARATION_WATCH",
         "DATA_GAP": "EVIDENCE_PENDING", "REJECTED": "STRUCTURE_INVALID",
     }.get(str(result.get("eligibility")), "EVIDENCE_PENDING")
-    if authoritative.get("execution_permission") == "BLOCKED":
-        result["execution_permission"] = "BLOCKED"
-        result["research_only_reason"] = authoritative.get("research_only_reason")
+    from .a2_role_logic import route_execution_permission
+    permission = route_execution_permission(authoritative, str(result.get("strategy_profile") or ""))
+    if permission is not None:
+        result["execution_permission"] = permission
+        result["research_only_reason"] = authoritative.get("research_only_reason") if permission == "BLOCKED" else None
     return A3StrategyDecision.model_validate(result)
 
 

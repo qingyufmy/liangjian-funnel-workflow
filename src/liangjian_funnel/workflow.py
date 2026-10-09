@@ -1666,6 +1666,30 @@ class WorkflowApplication:
                         return composite, True
                 except (ValueError, TypeError):
                     pass
+        if semantic_key == "RECENT_10D" and not search_keyword:
+            historical = self.fact_cache.get_cached_result("CNINFO_ANNOUNCEMENTS", cache_key, as_of=now)
+            if historical is not None:
+                try:
+                    if canonical_json_hash(historical['payload']) != historical.get('content_hash'):
+                        raise ValueError('DISCLOSURE_CACHE_HASH_MISMATCH')
+                    base = CninfoFetchResult.model_validate(historical['payload'])
+                    if (base.ok and base.complete and base.symbol == symbol
+                            and base.metadata.get('search_keyword', '') == ''
+                            and timedelta(0) <= now - base.fetched_at <= timedelta(days=2)
+                            and base.start_date <= start_date <= base.end_date < end_date <= now.date().isoformat()):
+                        # Include the last covered day so overlapping revisions
+                        # are checked, not silently preferred. Never relabel a
+                        # stale result as a complete current risk query.
+                        delta = client.fetch_announcements(symbol, base.end_date, end_date, search_keyword='')
+                        composite = compose_disclosure_delta(base, delta, symbol=symbol, start=start_date,
+                            end=end_date, keyword='', now=datetime.now(SHANGHAI), max_age=timedelta(days=2), base_keyword='')
+                        if composite is not None:
+                            self.fact_cache.put_cached_result('CNINFO_ANNOUNCEMENTS', cache_key,
+                                composite.model_dump(mode='json'), fetched_at=composite.fetched_at,
+                                expires_at=composite.fetched_at + ttl)
+                            return composite, True
+                except (ValueError, TypeError):
+                    pass
         router_primary_only = isinstance(client, OfficialDisclosureRouter) and stale_if_error is not None
         fetch_method = client.fetch_primary if router_primary_only else client.fetch_announcements
         result = fetch_method(
@@ -6216,13 +6240,15 @@ class WorkflowApplication:
                 blocked.append({"lane": lane.lane, "reason": "A3_PLAN_POOLS_MISSING"})
                 continue
             ready_lanes.append(lane.lane)
-            upstream_research_only = set()
+            from .pipeline.a2_role_logic import route_execution_permission
+            upstream_permissions = {}
             for audit in getattr(lane, "stages", ()):
                 if getattr(audit, "stage", None) != "A2" or not isinstance(getattr(audit, "output", None), Mapping):
                     continue
                 for name in ("focus_pool", "watch_only_pool", "outside_rotation_pool", "rejected_candidates"):
-                    upstream_research_only.update(str(row.get("symbol")) for row in audit.output.get(name, ())
-                        if isinstance(row, Mapping) and row.get("execution_permission") == "BLOCKED")
+                    for row in audit.output.get(name, ()):
+                        if isinstance(row, Mapping):
+                            upstream_permissions[str(row.get("symbol"))] = row
             previous = {
                 str(item["symbol"]): item
                 for item in self.store.list_execution_plans(lane_id=lane.lane, status=PlanStatus.PENDING_MORNING_REVIEW)
@@ -6245,16 +6271,27 @@ class WorkflowApplication:
                     symbol = payload.get("symbol")
                     permission_context = snapshot_data.get("A2_BOTTLENECK_CONTEXT", {})
                     permission_context = permission_context.get(symbol, {}) if isinstance(permission_context, Mapping) else {}
+                    strategy = str(raw.get("strategy_profile") or "").upper()
+                    authority = upstream_permissions.get(symbol) or permission_context
+                    scoped_permission = route_execution_permission(authority, strategy)
                     emotion_snapshot = snapshot_data.get("MARKET_EMOTION_SNAPSHOT") or {}
-                    emotion_blocked = (raw.get("stock_behavior_type") == "EMOTION" and isinstance(emotion_snapshot, Mapping)
+                    emotion_blocked = (strategy == "LEADER_INTRADAY" and raw.get("stock_behavior_type") == "EMOTION" and isinstance(emotion_snapshot, Mapping)
                         and emotion_snapshot.get("available") is True
                         and (emotion_snapshot.get("new_long_permission") == "NO_NEW_ENTRY"
                              or str(emotion_snapshot.get("emotion_cycle_stage") or "").upper() not in {"STARTUP", "IGNITION", "CONFIRMATION", "ACCELERATION"}))
-                    if (raw.get("execution_permission") == "BLOCKED" or permission_context.get("execution_permission") == "BLOCKED"
-                            or symbol in upstream_research_only or emotion_blocked):
+                    if (scoped_permission == "BLOCKED" or emotion_blocked
+                            or (raw.get("execution_permission") == "BLOCKED"
+                                and scoped_permission != "REQUIRES_A3_A4_CONFIRMATION")
+                            or (permission_context.get("execution_permission") == "BLOCKED"
+                                and route_execution_permission(permission_context, strategy) == "BLOCKED")):
                         blocked.append({"lane": lane.lane, "symbol": symbol or "-",
                                         "reason": "A3_EMOTION_RESEARCH_ONLY_NO_ENTRY"})
                         continue
+                    if scoped_permission is not None:
+                        payload['a2_execution_permission'] = authority.get('execution_permission')
+                        payload['a2_research_only_reason'] = authority.get('research_only_reason')
+                        payload['execution_permission'] = scoped_permission
+                        payload['research_only_reason'] = None if scoped_permission != 'BLOCKED' else authority.get('research_only_reason')
                     if raw.get("research_observation_scope") == "RESEARCH_ONLY_NO_AUTOMATIC_ENTRY":
                         blocked.append({"lane": lane.lane, "symbol": symbol or "-",
                                         "reason": "A3_STRONG_TREND_OBSERVATION_ONLY"})

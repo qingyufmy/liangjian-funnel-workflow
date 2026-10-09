@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import pytest
 from datetime import date, datetime, timedelta
 from threading import RLock
 from types import SimpleNamespace
@@ -336,6 +337,36 @@ def test_plan_publication_allows_qualified_a2_watch_origin_as_probe(tmp_path):
     assert plan["symbol"] == "000713.SZ"
     assert plan["status"] == PlanStatus.PENDING_MORNING_REVIEW.value
     assert datetime.fromisoformat(str(plan["expires_at"])) == datetime(2026, 9, 1, 15, 0, tzinfo=TZ)
+
+
+@pytest.mark.parametrize('profile,trend_ready,expected', [('TREND_MA5', True, 1),
+    ('MA520_SWING', True, 1), ('LEADER_INTRADAY', True, 0), ('TREND_MA5', False, 0)])
+def test_publication_uses_authoritative_route_not_model_unblocking(tmp_path, profile, trend_ready, expected):
+    store = RuntimeStore(tmp_path / 'route.sqlite3')
+    current = datetime(2026, 10, 8, 20, 0, tzinfo=TZ)
+    authority = {'symbol': '600026.SH', 'execution_permission': 'BLOCKED',
+        'research_only_reason': 'A2_EMOTION_CYCLE_NO_NEW_ENTRY', 'trend_core_eligible': trend_ready,
+        'independent_strategy_review': True, 'a1_formal_member': True,
+        'research_route_qualifications': {p: {'eligible': True} for p in ('TREND_MA5', 'MA520_SWING')}}
+    raw = {'symbol': '600026.SH', 'plan_id': 'route', 'strategy_profile': profile,
+        'stock_behavior_type': 'EMOTION' if profile == 'LEADER_INTRADAY' else 'TREND',
+        'route_permission': 'ALLOW_A4', 'execution_permission': 'REQUIRES_A3_A4_CONFIRMATION',
+        'risk_unit': 'STANDARD', 'eligibility': 'QUALIFIED', 'review_status': 'PASS',
+        'trigger_zone': {'low': 10, 'high': 11}, 'invalidation_level': 9}
+    stages = (SimpleNamespace(stage='A2', output={'focus_pool': [authority]}),)
+    result = ResearchRunResult(run_id='route', generated_at=current, snapshot_id='snapshot-route',
+        snapshot_hash='a'*64, status='READY', lanes=(LaneResult('lane_1', 'model', 'READY', stages,
+        {'core_watch_pool': [raw], 'secondary_watch_pool': []}),), audit_paths=(), markdown_path=None)
+    publication = WorkflowApplication._publish_plans(SimpleNamespace(store=store), result, 'close', current,
+        snapshot_data={'A2_BOTTLENECK_CONTEXT': {'600026.SH': authority},
+                       'TRADABILITY_FLAGS': {'600026.SH': {'tradable': True}}})
+    assert len(publication['created']) == expected
+    if expected:
+        payload = json.loads(store.list_execution_plans(lane_id='lane_1')[0]['payload_json'])
+        assert payload['execution_permission'] == 'REQUIRES_A3_A4_CONFIRMATION'
+        assert payload['a2_execution_permission'] == 'BLOCKED'
+    if not expected:
+        assert publication['blocked'][0]['reason'] == 'A3_EMOTION_RESEARCH_ONLY_NO_ENTRY'
 
 
 def test_same_day_recovery_publishes_new_a3_scope_as_pending_without_parent(tmp_path):

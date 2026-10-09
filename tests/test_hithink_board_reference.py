@@ -15,6 +15,33 @@ BINDING = dict(theme_id='TEST_THEME', source_id='HITHINK_THS_API', board_id='886
                board_name='液冷服务器', category='concept', approved=True, priority=1)
 
 
+def test_explicit_composite_requires_every_component_and_preserves_lineage(tmp_path):
+    settings = Settings.from_env({'HITHINK_FINANCE_API_KEY': 'unit-secret',
+        'ASTOCK_HITHINK_MIN_REQUEST_INTERVAL_SECONDS': '0'}, root=tmp_path)
+    boards = [{'thscode': '881108.TI', 'name': '化学原料'}, {'thscode': '881109.TI', 'name': '化学制品'}]
+    def respond(request):
+        rows = boards if 'catalog' in request.url.path else [{'thscode': '600001.SH', 'ticker': '600001', 'name': '甲'}]
+        return httpx.Response(200, json={'code': 0, 'data': {'item': rows}}, request=request)
+    binding = {**BINDING, 'board_id': 'STRATEGY_COMPOSITE:TEST_THEME', 'board_name': '策略化工',
+               'membership_operation': 'EXPLICIT_COMPONENT_UNION', 'components': [
+                   {'category': 'industry', 'board_id': b['thscode'], 'board_name': b['name']} for b in boards]}
+    with HithinkClient(settings, transport=httpx.MockTransport(respond), sleep=lambda _: None) as c:
+        catalog = collect_catalog(c, 'industry', now=lambda: NOW - timedelta(days=1))
+        first = collect_members(c, catalog, '881108.TI', now=lambda: NOW - timedelta(days=1))
+        second = collect_members(c, catalog, '881109.TI', now=lambda: NOW)
+    write_reference(tmp_path, catalog); write_reference(tmp_path, first)
+    partial = load_rotation_references(tmp_path, [binding], ['TEST_THEME'], as_of=NOW)['TEST_THEME']
+    assert not partial['available'] and 'COMPONENT_BLOCKED' in partial['reason_code']
+    write_reference(tmp_path, second)
+    complete = load_rotation_references(tmp_path, [binding], ['TEST_THEME'], as_of=NOW)['TEST_THEME']
+    assert complete['available'] and len(complete['records']) == 1
+    assert complete['membership_basis'] == 'STRATEGY_COMPOSITE_NOT_VENDOR_INDEX'
+    assert complete['deduplicated_count'] == 1 and len(complete['components']) == 2
+    assert complete['age_days'] == 1  # assembly does not rejuvenate slow data
+    wrong = {**binding, 'components': [*binding['components'][:1], {**binding['components'][1], 'board_name': '假名称'}]}
+    assert not load_rotation_references(tmp_path, [wrong], ['TEST_THEME'], as_of=NOW)['TEST_THEME']['available']
+
+
 def client(tmp_path, *, members=None, extra=None):
     settings = Settings.from_env({'HITHINK_FINANCE_API_KEY': 'unit-secret',
         'ASTOCK_HITHINK_MIN_REQUEST_INTERVAL_SECONDS': '0'}, root=tmp_path)

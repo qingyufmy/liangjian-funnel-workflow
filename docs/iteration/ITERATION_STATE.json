@@ -1,4 +1,32 @@
 {
+  "a2_preopen_repair_20261009": {
+    "baseline_commit": "f9bbe9a953ed95cbbc63c6092de2f6865f06d7d2",
+    "code": "386_RELATED_PASSED_THEN_51_CHANGED_PATH_PASSED_2_PROMOTION_PASSED",
+    "replay": "ROUTE_SCOPING_PUBLICATION_FORGERY_COMPOSITE_COMPLETE_AND_RECENT_DISCLOSURE_FALLBACK_PASSED",
+    "operations": "PENDING_RELEASE_27_OF_27_LIVE_MEMBERSHIP_VALIDATED_TODAY_PLANS_STILL_ZERO",
+    "strategy": "UNCHANGED_NOT_NATURAL_TRADING_SIGNAL_ACCEPTANCE",
+    "evidence": "docs/A2_PREOPEN_REPAIR_2026-10-09.md",
+    "next": "SAFE_DEPLOY_VERIFY_INSTALLED_SOURCE_PROMOTE_COMPLETE_MEMBERSHIP_THEN_CURRENT_DAY_QUALITY_AND_FORMAL_A2_A3"
+  },
+  "release_preopen_20261009": {
+    "production_commit": "f9bbe9a953ed95cbbc63c6092de2f6865f06d7d2",
+    "code": "242_RELATED_TESTS_PASSED_11_INSTALLED_MODULES_MATCH_WEB_SERVER_BUILD_PASSED",
+    "replay": "OFFLINE_SOURCE_CONTRACTS_PASSED_FULL_27_THEME_SHADOW_PENDING",
+    "operations": "DEPLOY_EXIT_0_NODE_SCHEDULER_STARTED_TODAY_EXECUTION_BLOCKED_ZERO_PLANS_AUCTION_BASE_TERMINATED_EASTMONEY_502",
+    "strategy": "UNCHANGED_NO_NATURAL_DAY_OR_SIGNAL_IMPROVEMENT_CLAIM",
+    "commands": [
+      {"command": "git push origin HEAD:main", "exit_code": 0},
+      {"command": "ssh aurum-vm 'cd /www/wwwroot/Agu/liangjian-funnel-workflow && bash deploy.sh'", "exit_code": 0},
+      {"command": "python scripts/audit_preopen_readonly.py --output artifacts/readiness-20261009/deployed-preopen-0813.json", "exit_code": 0}
+    ],
+    "a1_selected_count": 1749,
+    "today_published_plan_count": 0,
+    "rotation_membership_source": "EASTMONEY",
+    "new_reference_mapping": "18_OF_27_NOT_PROMOTED",
+    "evidence": "docs/RELEASE_PREOPEN_2026-10-09.md",
+    "followup_automation": "10-9-a4",
+    "next": "VERIFY_0830_0926_0931_NATURAL_JOBS_THEN_COMPLETE_9_EXPLICIT_MAPPING_AND_BOUNDED_AUCTION_BASE_INCREMENTAL_REPAIR"
+  },
   "free_board_reference_20261009": {
     "branch": "feat/free-board-reference-20261008",
     "baseline_commit": "5f2d88d",

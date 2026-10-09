@@ -19,6 +19,45 @@ from .rotation_theme import build_membership_snapshot, unavailable_membership_sn
 SOURCE = 'HITHINK_THS_API'
 
 
+def binding_components(binding):
+    """Explicit single-provider components; never infer an industry by name."""
+    if binding.get('membership_operation') != 'EXPLICIT_COMPONENT_UNION':
+        return [binding]
+    components = binding.get('components')
+    if (binding.get('source_id') != SOURCE or not isinstance(components, list) or not components
+            or len({c.get('board_id') for c in components if isinstance(c, dict)}) != len(components)
+            or binding.get('board_id') != f"STRATEGY_COMPOSITE:{binding.get('theme_id')}"):
+        raise ReferenceError('REFERENCE_COMPOSITE_INVALID')
+    return [{**binding, **{k: c.get(k) for k in ('category', 'board_id', 'board_name')}, 'source_id': SOURCE, 'priority': 1,
+             'membership_operation': None} for c in components]
+
+
+def _resolve_composite(binding, catalogs, members, *, now, max_age_days):
+    projections, attempts, records = [], [], {}
+    for component in binding_components(binding):
+        resolved = resolve_theme_reference(binding['theme_id'], [component], catalogs, members,
+                                           now=now, max_age_days=max_age_days)
+        attempts.extend(resolved['attempts'])
+        if not resolved['available']:
+            raise ReferenceError(f"REFERENCE_COMPOSITE_COMPONENT_BLOCKED:{component['board_id']}")
+        p = resolved['projection']
+        projections.append(p)
+        for row in p['records']:
+            if row['symbol'] in records and records[row['symbol']]['name'] != row['name']:
+                raise ReferenceError('REFERENCE_COMPOSITE_MEMBER_NAME_CONFLICT')
+            records[row['symbol']] = row
+    lineage = [{k: p[k] for k in ('source_board_id', 'source_board_name', 'source_catalog_hash',
+                'source_membership_hash', 'observed_at')} for p in projections]
+    return {'available': True, 'attempts': attempts, 'projection': {
+        'source_id': SOURCE, 'source_board_id': binding['board_id'],
+        'source_board_name': binding['board_name'], 'records': sorted(records.values(), key=lambda r: r['symbol']),
+        'observed_at': min(p['observed_at'] for p in projections),
+        'source_membership_hash': digest({'binding': binding, 'components': lineage}),
+        'source_catalog_hash': digest([p['source_catalog_hash'] for p in projections]),
+        'membership_basis': 'STRATEGY_COMPOSITE_NOT_VENDOR_INDEX', 'components': lineage,
+        'deduplicated_count': sum(len(p['records']) for p in projections) - len(records)}}
+
+
 def rotation_snapshot_directory(settings):
     root = settings.fact_store_dir / 'rotation_theme'
     return root / 'local_reference' if getattr(settings, 'rotation_membership_source', 'EASTMONEY') == 'LOCAL_REFERENCE' else root
@@ -130,12 +169,18 @@ def load_rotation_references(root, bindings, theme_ids, *, as_of, max_age_days=1
                 raise ReferenceError('REFERENCE_THEME_UNMAPPED')
             if not any(b.get('approved') is True for b in matching):
                 raise ReferenceError('REFERENCE_THEME_REVIEW_REQUIRED')
-            resolved = resolve_theme_reference(theme_id, bindings, catalogs, members,
-                                               now=now, max_age_days=max_age_days)
+            composites = [b for b in matching if b.get('approved') is True
+                          and b.get('membership_operation') == 'EXPLICIT_COMPONENT_UNION']
+            if composites and len(matching) != 1:
+                raise ReferenceError('REFERENCE_COMPOSITE_AMBIGUOUS_BINDINGS')
+            resolved = (_resolve_composite(composites[0], catalogs, members, now=now, max_age_days=max_age_days)
+                        if composites else resolve_theme_reference(theme_id, bindings, catalogs, members,
+                                               now=now, max_age_days=max_age_days))
             if not resolved['available']:
                 raise ReferenceError(resolved['reason_code'])
             p = resolved['projection']
-            member = next(m for m in members if m['content_hash'] == p['source_membership_hash'])
+            member = (next(m for m in members if m['content_hash'] == p['source_membership_hash'])
+                      if not composites else {'records': p['records'], 'pagination': {'count_evidence': 'EXPLICIT_COMPLETE_COMPONENT_UNION'}})
             stamp = aware(datetime.fromisoformat(p['observed_at']))
             if stamp.date() > now.date():
                 raise ReferenceError('REFERENCE_TIME_FUTURE')
@@ -150,6 +195,9 @@ def load_rotation_references(root, bindings, theme_ids, *, as_of, max_age_days=1
                 source_reference_hash=p['source_membership_hash'], source_catalog_hash=p['source_catalog_hash'],
                 binding_hash=digest([b for b in bindings if b.get('theme_id') == theme_id]),
                 age_days=(now.date()-stamp.date()).days, reference_selection=resolved['attempts'])
+            if composites:
+                snapshot.update(membership_basis=p['membership_basis'], components=p['components'],
+                                deduplicated_count=p['deduplicated_count'])
             snapshot.pop('content_hash'); snapshot['content_hash'] = digest(snapshot)
             snapshots[theme_id] = snapshot
         except ReferenceError as exc:

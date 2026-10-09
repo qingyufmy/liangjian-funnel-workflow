@@ -1817,6 +1817,8 @@ def build_rotation_theme_snapshot(
                     "membership_source_id": row.get("membership_source_id"),
                     "membership_source_board_id": row.get("membership_source_board_id"),
                     "membership_reference_hash": row.get("membership_reference_hash"),
+                    "membership_basis": row.get("membership_basis"),
+                    "membership_components": row.get("membership_components", []),
                 }
             )
     for symbol in by_symbol:
@@ -2182,6 +2184,8 @@ def collect_rotation_theme_snapshot(
                 "membership_reference_hash": member.get("source_reference_hash"),
                 "membership_catalog_hash": member.get("source_catalog_hash"),
                 "membership_binding_hash": member.get("binding_hash"),
+                "membership_basis": member.get("membership_basis", "VENDOR_NATIVE_BOARD"),
+                "membership_components": member.get("components", []),
                 "return_basis": "TENCENT_CURRENT_MEMBER_EQUAL_WEIGHT" if reference_memberships is not None else "EASTMONEY_OR_TENCENT_MEMBER_FALLBACK",
                 "membership_captured_at": member.get("captured_at"),
                 "excluded_non_a_share_count": len(excluded_symbols),
@@ -2918,6 +2922,8 @@ def _public_board_row(row: Mapping[str, Any]) -> dict[str, Any]:
         "membership_reference_hash": row.get("membership_reference_hash"),
         "membership_catalog_hash": row.get("membership_catalog_hash"),
         "membership_binding_hash": row.get("membership_binding_hash"),
+        "membership_basis": row.get("membership_basis"),
+        "membership_components": row.get("membership_components", []),
         "return_basis": row.get("return_basis"),
         "leader_structure_score": row.get("leader_structure_score"),
         "rank_persistence_score": row.get("rank_persistence_score"),
