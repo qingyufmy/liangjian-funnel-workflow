@@ -47,7 +47,14 @@ class FakeClient:
                 }
             )
         requested_end = datetime.fromtimestamp(kwargs["end"] / 1000, tz=TZ)
+        # Preserve yesterday's bar when a newer session appears. Moving it
+        # would be a missing/revised overlap, not a clean increment fixture.
+        original_latest = NOW.replace(hour=0, minute=0, second=0, microsecond=0)
+        if requested_end - timedelta(days=1) > original_latest:
+            rows.append({**rows[-1], 'date_ms': int(original_latest.timestamp()*1000)})
         rows[-1]["date_ms"] = int((requested_end - timedelta(days=1)).timestamp() * 1000)
+        if requested_end - timedelta(days=1) > original_latest:
+            rows[-2]['date_ms'] = int(original_latest.timestamp()*1000)
         return _result("history", rows)
 
     def income_statements(self, symbol, **_kwargs):
@@ -224,12 +231,13 @@ def test_daily_cache_uses_closed_bar_watermark_instead_of_wall_clock_ttl(tmp_pat
     )
 
     next_close = NOW + timedelta(days=1)
+    expected_overlap = cache.query_daily_bars('600519.SH', descending=True)[2]['timestamp']
     refreshed = FakeClient()
     sync.sync(refreshed, ["600519.SH"], as_of=next_close)
 
     assert ("DAILY", "600519.SH") in refreshed.calls
     request_start = datetime.fromtimestamp(refreshed.history_kwargs[0]["start"] / 1000, tz=TZ)
-    assert request_start >= NOW - timedelta(days=8)
+    assert request_start == datetime.fromisoformat(expected_overlap)
     assert all(dataset == "DAILY" for dataset, _symbol in refreshed.calls)
 
 

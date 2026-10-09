@@ -148,11 +148,21 @@ def test_resume_requires_same_date_fresh_receipt_and_verified_cache(tmp_path):
 def test_incomplete_lane_cannot_be_success_or_resumed(tmp_path):
     value = queue(tmp_path)
     def incomplete(*args):
-        return {**success(*args), 'recent_complete': False}
+        return {**success(*args), 'business_complete': False}
     report = run_maintenance(value, output_dir=tmp_path/'reports', now=NOW,
         execute=True, collect=incomplete, can_reuse=lambda row, now: True)
     assert report['status'] == 'PARTIAL_FAILURE'
     assert report['rows'][0]['ok'] is False
+
+
+def test_night_success_does_not_require_or_certify_recent_risk_announcements(tmp_path):
+    def business_only(*args):
+        return {**success(*args), 'recent_complete': False, 'recent_required': False}
+    report = run_maintenance(queue(tmp_path), output_dir=tmp_path/'reports', now=NOW,
+        execute=True, collect=business_only, can_reuse=lambda row, now: False)
+    assert report['status'] == 'CACHE_WARMED'
+    assert report['maintenance_scope'] == 'BUSINESS_AND_PDF_ONLY'
+    assert report['rows'][0]['recent_complete'] is False
 
 
 def test_lock_and_corrupt_resume_fail_closed(tmp_path):

@@ -2,8 +2,8 @@
   "wp5_hotfix_close_scope_20261009": {
     "branch": "codex/wp5-hotfix-close-scope",
     "baseline_commit": "7402e7fc570b7a91c5e19405308737715b0ad5c1",
-    "status": "LOCAL_INDEPENDENT_SLICES_READY_FOR_CLAUDE_REVIEW_FORMAL_QUERY_SCOPE_UNCHANGED_FULL_WP5_PENDING_EVIDENCE",
-    "code": "FINAL_FORMAL_ROUTE_SLICE_165_PASS_CLEAN_HEAD_FULL_ACCEPTANCE_IN_IMMUTABLE_HANDOFF_MANIFEST",
+    "status": "CLAUDE_G1_REPAIRS_LOCAL_FACTOR_SOURCE_P0_PENDING_NO_RELEASE_FORMAL_SCOPE_UNCHANGED",
+    "code": "OVERLAP_REVISION_PERSISTENT_RESET_CHANNEL_PREFILTER_AND_BOUNDED_NIGHT_REPAIRED_FINAL_HEAD_RECEIPT_SEPARATE_FACTOR_CAPABILITY_UNVERIFIED",
     "replay": "0923_AND_0928_PROJECTION_REQUIRED_152_AND_38_ZERO_MISS_BOTH_DATA_LIMITED_ORIGINAL_RAW_AND_A2_OVERLAY_NOT_VERIFIED_1008_1009_STILL_PENDING",
     "operations": "READONLY_ONLY_NO_PUSH_DEPLOY_RECOVERY_OR_PRODUCTION_WRITES",
     "strategy": "NOT_APPLICABLE_UNCHANGED",
@@ -12,8 +12,8 @@
     "route_coverage_evidence": "docs/WP5_DISCLOSURE_ROUTE_COVERAGE_2026-10-09.md",
     "review_handoff": "docs/CLAUDE_WP5_REVIEW_HANDOFF_2026-10-09.md",
     "next_stage_draft": "docs/CLAUDE_NEXT_STAGE_BRIEF_DRAFT_2026-10-09.md",
-    "final_acceptance_manifest": "artifacts/wp5-20261009/claude-review-manifest.json",
-    "final_clean_head_receipt": "artifacts/wp5-20261009/full-claude-handoff-tests/evidence.json",
+    "previous_acceptance_manifest": "artifacts/wp5-20261009/claude-review-manifest.json",
+    "previous_clean_head_receipt": "artifacts/wp5-20261009/full-claude-handoff-tests/evidence.json",
     "route_coverage_artifact": "artifacts/wp5-20261009/disclosure-batch-20260928-v3.json",
     "route_coverage_sha256": "6bab8cf4ca35a526ac2a8f397cf3f5571fe4fa919178b695e3b492377b9b5b4b",
     "route_coverage_second_artifact": "artifacts/wp5-20261009/disclosure-batch-20260923-v1.json",
@@ -22,7 +22,20 @@
     "source_reconciliation_evidence": "docs/WP5_SCOPE_RECONCILIATION_2026-10-09.md",
     "incremental_replay": "200_SYNTHETIC_SYMBOLS_EQUAL_FULL_SERIES_REAL_STOCK_REPLAY_PENDING",
     "disclosure_query_scope": "SHADOW_ONLY_UNCHANGED_UNTIL_FROZEN_COVERAGE_AND_NIGHT_MAINTENANCE_ACCEPTED",
-    "factor_detection": "EXPLICIT_RESET_AND_DURABLE_FAILURE_SUPPORTED_AUTOMATIC_FACTOR_SOURCE_NOT_PROVIDED",
+    "factor_detection": "LAST_THREE_OHLCV_REVISION_AUTOMATIC_RESET_DURABLE_BLOCK_RAW_NOT_FRONT_ADJUSTED_FACTOR_SOURCE_AND_BASIS_PENDING_AUTHORIZED_EVIDENCE",
+    "claude_repair_evidence": "docs/WP5_CLAUDE_REVIEW_REPAIR_2026-10-09.md",
+    "claude_repair_tests": "artifacts/wp5-20261009/claude-repair-final-v4.xml",
+    "claude_repair_clean_head_receipt": "artifacts/wp5-20261009/full-claude-repair-tests/evidence.json",
+    "claude_repair_commands": [
+      {"command":"python -m pytest tests/test_wp5_review_regressions.py -o addopts='' -q --tb=short --junitxml=artifacts/wp5-20261009/claude-repair-before.xml","exit_code":1,"failed":6},
+      {"command":"python -m pytest 8-file review/data/scope/night/route slice --junitxml=artifacts/wp5-20261009/claude-repair-first.xml","exit_code":1,"passed":79,"failed":2,"reason":"SPARSE_SYNTHETIC_HISTORY_FIXTURE_MOVED_OLD_BAR_AND_ASSUMED_CALENDAR_DAY_OVERLAP"},
+      {"command":"python -m pytest tests/test_wp5_review_regressions.py tests/test_wp5_daily_incremental.py tests/test_pipeline_data_sync.py tests/test_wp5_disclosure_formal_routes.py -o addopts='' -q --tb=short","exit_code":0,"passed":32},
+      {"command":"python -m pytest 14-file review/core/workflow/probe slice --junitxml=artifacts/wp5-20261009/claude-repair-final.xml","exit_code":0,"passed":151},
+      {"command":"python -m pytest same 14-file slice --junitxml=artifacts/wp5-20261009/claude-repair-final-v2.xml","exit_code":0,"passed":152},
+      {"command":"python -m pytest same 14-file slice --junitxml=artifacts/wp5-20261009/claude-repair-final-v3.xml","exit_code":0,"passed":153},
+      {"command":"python -m pytest same 14-file slice --junitxml=artifacts/wp5-20261009/claude-repair-final-v4.xml","exit_code":0,"passed":156},
+      {"command":"Clean-HEAD test_all.ps1","result":"ACTUAL_RESULTS_AND_EXIT_CODES_IN_NEW_HEAD_EVIDENCE_NOT_INFERRED_FROM_OLD_RECEIPT"}
+    ],
     "throughput": "UNPROVEN_DEFAULT_0_5_SECOND_INTERVAL_3975_REQUESTS_LOWER_BOUND_ABOUT_33_MINUTES",
     "reconciliation_artifact":"artifacts/wp5-20261009/close-scope-baseline-20261009-v6.json",
     "reconciliation_sha256":"430d5e0c7531a10dc1cbff7cc7dfe1080ca4fc4e560b28e8972afd1ad20d26ed",
@@ -84,7 +97,7 @@
     ],
     "decision_8":"PENDING_NO_RELEASE",
     "decision_9":"TONIGHT_RECOVERY_ABANDONED_WEEKEND_PREP_REQUIRES_SEPARATE_AUTHORIZATION_USE_ACTUAL_SOURCE_TIME_NOT_FRIDAY_ASOF_LIVE_COLLECTION",
-    "next":"CLAUDE_REVIEW_CODE_DIFF_AND_FINAL_HEAD_RECEIPT_THEN_USER_AUTHORIZED_EVIDENCE_COLLECTION_SCOPE_PROMOTION_AND_RELEASE_FULL_WP5_NOT_COMPLETE"
+    "next":"G1_FACTOR_CAPABILITY_AND_ADJUSTMENT_BASIS_PENDING_G2_LOCAL_PIPELINE_NOT_IMPLEMENTED_G3_READ_SCOPE_AUTH_REQUIRED_NO_PUSH_DEPLOY_OR_PROMOTION"
   },
   "wp0_repository_baseline_20261009": {
     "branch": "codex/wp0-repository-baseline-20261009",

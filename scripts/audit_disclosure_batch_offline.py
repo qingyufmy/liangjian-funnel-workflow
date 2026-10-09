@@ -63,6 +63,7 @@ def audit_projected_batch(snapshot, lane):
     prefilter = build_disclosure_prefilter(symbols=scope, trade_date=day,
         daily=data.get('RECENT_DAILY_BARS', {}),
         selected_board=data.get('SELECTED_BOARD_SNAPSHOT', {}),
+        selected_board_field_present='SELECTED_BOARD_SNAPSHOT' in data,
         event_symbols=events, event_sources_complete=events_complete,
         hot_symbols=[r['symbol'] for r in data.get('EASTMONEY_HOT100_SNAPSHOT', {}).get('records', ())],
         discovery_symbols=[r['symbol'] for r in data.get('EARLY_DISCOVERY_SNAPSHOT', {}).get('records', ())

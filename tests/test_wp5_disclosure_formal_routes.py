@@ -3,6 +3,7 @@
 Synthetic fixtures exercise route contracts, not original-day/model replay.
 """
 from datetime import timedelta
+import pytest
 
 from liangjian_funnel.pipeline.a2_features import stock_trend_structure
 from liangjian_funnel.pipeline.deterministic import screen_a2
@@ -136,3 +137,29 @@ def test_legacy_channel_is_separately_named_without_granting_scope_authority():
     audit = audit_disclosure_scope(scope, gate.review_symbols, decisions=gate.decisions)
     assert audit["route_coverage"]["LEGACY"]["symbols"] == [symbol]
     assert audit["execution_authority"] is False
+
+
+@pytest.mark.parametrize('board', [None, {}, {'reason_code': 'SOURCE_UNAVAILABLE'},
+                                  {'available': False, 'reason_code': 'SOURCE_UNAVAILABLE', 'by_symbol': {}}])
+def test_unavailable_board_real_gate_keeps_emotion_but_not_trend(board):
+    snapshot, rows = _inputs(2)
+    emotion, trend = snapshot['g0_symbols']
+    daily = {s: _bars() for s in snapshot['g0_symbols']}
+    _materialize(snapshot, daily)
+    rows[0]['a2_factor_scores']['tier_structure'] = {
+        'score': 90, 'available': True, 'availability_state': 'OBSERVED_VALUE',
+        'first_board_observed': True, 'ladder_height': 1, 'event_source': 'HITHINK_LIMIT_UP_POOL'}
+    snapshot['EASTMONEY_HOT100_SNAPSHOT'] = {'available': True,
+        'trade_date': NOW.date().isoformat(), 'record_count': 100,
+        'records': [{'symbol': emotion, 'rank': 5}]}
+    snapshot['SELECTED_BOARD_SNAPSHOT'] = board
+    scope = build_disclosure_prefilter(symbols=snapshot['g0_symbols'], trade_date=NOW.date(),
+        daily=daily, selected_board=board, event_symbols=[emotion],
+        selected_board_field_present=True,
+        event_sources_complete=True, hot_symbols=[emotion])
+    gate = screen_a2(snapshot, {'active_research_pool': rows},
+        minimum_identifiability_score=0, review_all_eligible=True)
+    assert gate.review_symbols == (emotion,)
+    assert scope['candidate_symbols'] == [emotion]
+    assert scope['deferred_symbols'] == [trend]
+    assert audit_disclosure_scope(scope, gate.review_symbols, decisions=gate.decisions)['status'] == 'COVERED'

@@ -49,7 +49,9 @@ def open_collector(queue):
             worker = DisclosureCacheWorker(settings,
                 OfficialDisclosureRouter(cninfo, sse=sse, szse=szse, bse=bse), pdf)
             if queue['deferred_symbols']:
-                worker.warm_catalog(cninfo, queue['deferred_symbols'])
+                # Catalogue network work runs lazily inside the same bounded
+                # collector gate, never before the maintenance deadline starts.
+                worker.configure_catalog(cninfo, queue['deferred_symbols'])
             yield worker
     finally:
         lock.unlink(missing_ok=True)

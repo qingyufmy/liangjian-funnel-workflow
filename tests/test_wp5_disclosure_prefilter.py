@@ -52,7 +52,7 @@ def test_strong_trend_outside_top5_is_not_lost():
     assert value['records'][0]['trend_structure']['structure_confirmed'] is True
 
 
-@pytest.mark.parametrize('gap', ['daily', 'board', 'events'])
+@pytest.mark.parametrize('gap', ['daily', 'board'])
 def test_uncertainty_retains_candidate_instead_of_manufacturing_negative(gap):
     value = build_disclosure_prefilter(symbols=['A'], trade_date=DAY,
         daily={} if gap == 'daily' else {'A': bars(False)},

@@ -1,7 +1,8 @@
 """Announcement prefilter, independent of announcements and final A2 output.
 
 Shadow first: a narrow query domain is not activated until frozen-input parity
-has been demonstrated. Unknown facts retain work; they never grant admission.
+has been demonstrated. Stock-local uncertainty retains available-channel work;
+an explicitly unavailable channel does not retain the entire domain.
 """
 from __future__ import annotations
 
@@ -18,7 +19,7 @@ def _symbols(values: Iterable[str]) -> list[str]:
 
 
 def event_scope(results: Mapping[str, Any], trade_date: date) -> tuple[list[str], bool]:
-    """Read validated raw event rows; unknown provider shape retains all work.
+    """Read validated raw event rows without claiming unknown absence.
 
     Do not guess an exchange for a bare ticker. A complete empty event source
     proves absence; a malformed nonempty source does not.
@@ -48,7 +49,8 @@ def build_disclosure_prefilter(*, symbols: Iterable[str], trade_date: date,
                               selected_board: Mapping[str, Any],
                               event_symbols: Iterable[str], event_sources_complete: bool,
                               hot_symbols: Iterable[str] = (),
-                              discovery_symbols: Iterable[str] = ()) -> dict[str, Any]:
+                              discovery_symbols: Iterable[str] = (),
+                              selected_board_field_present: bool | None = None) -> dict[str, Any]:
     """Keep a conservative superset of the current A2 research channels.
 
     Reuse A2's stock-local structure predicate verbatim. Board membership,
@@ -60,10 +62,16 @@ def build_disclosure_prefilter(*, symbols: Iterable[str], trade_date: date,
     scope = _symbols(symbols)
     hot, discovery, events = (_symbols(v) for v in
                               (hot_symbols, discovery_symbols, event_symbols))
+    raw_board = selected_board
+    selected_board = selected_board if isinstance(selected_board, Mapping) else {}
+    field_present = bool(selected_board) if selected_board_field_present is None else selected_board_field_present
     by_symbol = selected_board.get('by_symbol')
     board_known = (selected_board.get('available') is True
                    and isinstance(by_symbol, Mapping)
                    and selected_board.get('trade_date') == trade_date.isoformat())
+    # Match the explicit unavailable-field contract in screen_a2. A missing
+    # field is different: historical FULL_MARKET/LEGACY fallbacks still exist.
+    trend_channel_blocked = field_present and selected_board.get('available') is not True
     records = []
     for symbol in scope:
         bars = daily.get(symbol, ())
@@ -82,27 +90,42 @@ def build_disclosure_prefilter(*, symbols: Iterable[str], trade_date: date,
                 isinstance(row.get('selected_for_rotation'), bool)
                 or row.get('rotation_reserve_scope') == 'RESEARCH_ONLY_NO_AUTOMATIC_ENTRY'
             ) for row in board_rows)
-        if board_rows_valid and any(isinstance(row, Mapping) and (
+        if not trend_channel_blocked and board_rows_valid and any(isinstance(row, Mapping) and (
             row.get('selected_for_rotation') is True
             or row.get('rotation_reserve_scope') == 'RESEARCH_ONLY_NO_AUTOMATIC_ENTRY'
         ) for row in board_rows):
             reasons.append('PRIMARY_OR_RESERVE_BOARD')
-        if structure.get('structure_confirmed') is True:
+        if not trend_channel_blocked and structure.get('structure_confirmed') is True:
             reasons.append('STOCK_TREND_STRUCTURE')
-        uncertain = (not board_known or not board_rows_valid or not event_sources_complete
-                     or structure.get('available') is not True)
+        # Unknown event membership is not an admission channel. Formal close
+        # rejects incomplete required market facts before building this scope.
+        # Keep stock-local uncertainty only for a still-available trend route.
+        uncertain = not trend_channel_blocked and (
+            not board_known or not board_rows_valid or structure.get('available') is not True)
         if uncertain:
             reasons.append('UNCERTAIN_FACTS_RETAINED')
+        diagnostics = []
+        if trend_channel_blocked:
+            diagnostics.append('BOARD_CHANNEL_UNAVAILABLE')
+        elif not board_known or not board_rows_valid:
+            diagnostics.append('BOARD_MEMBERSHIP_UNPROVEN')
+        if not event_sources_complete:
+            diagnostics.append('EVENT_CHANNEL_UNAVAILABLE')
+        if structure.get('available') is not True:
+            diagnostics.append('STOCK_STRUCTURE_UNAVAILABLE')
         records.append({'symbol': symbol,
                         'status': 'COLLECT_DISCLOSURE' if reasons else 'DEFERRED_DISCLOSURE_NOT_COLLECTED',
                         'reason_codes': reasons or ['NO_OBSERVED_A2_CHANNEL'],
-                        'uncertainty_retained': uncertain, 'trend_structure': structure,
+                        'uncertainty_retained': uncertain, 'trend_channel_blocked': trend_channel_blocked,
+                        'channel_diagnostics': diagnostics,
+                        'trend_structure': structure,
                         'daily_input_hash': content_hash(bars)})
     payload = {'schema_version': 'disclosure-prefilter/1', 'mode': 'SHADOW',
                'execution_authority': False, 'changes_query_scope': False,
                'trade_date': trade_date.isoformat(), 'symbols': scope,
                'source_sets': {'hot100': hot, 'discovery': discovery, 'events': events},
-               'board_input_hash': content_hash(selected_board),
+               'event_channel_definition': ['LIMIT_UP_POOL', 'LIMIT_UP_LADDER'],
+               'board_input_hash': content_hash(raw_board), 'selected_board_field_present': field_present,
                'event_sources_complete': event_sources_complete,
                'records': records,
                'candidate_symbols': [r['symbol'] for r in records if r['status'] == 'COLLECT_DISCLOSURE'],
@@ -158,9 +181,13 @@ def audit_disclosure_scope(prefilter: Mapping[str, Any], review_symbols: Iterabl
         route_coverage[f'ROUTE:{route}'] = {'symbols': symbols, 'count': len(symbols),
                                           'missing_symbols': sorted(set(symbols) - candidate)}
     unrepresented = sorted(required - {r['symbol'] for r in rows}) if decisions is not None else []
+    blocked = {r['symbol'] for r in records if r.get('trend_channel_blocked') is True}
+    conflicts = _symbols(r['symbol'] for r in rows if r['symbol'] in blocked
+        and (r.get('trend_core_eligible') is True or r.get('rotation_reserve_eligible') is True
+             or r.get('strong_trend_observation') is True))
     return {'schema_version': 'disclosure-prefilter-coverage/2',
             'scope_hash': prefilter['scope_hash'], 'mode': 'SHADOW',
-            'status': 'SCOPE_MISS' if missing else 'DATA_LIMITED' if unrepresented else 'COVERED',
+            'status': 'SCOPE_MISS' if missing or conflicts else 'DATA_LIMITED' if unrepresented else 'COVERED',
             'coverage_level': 'QUANTITATIVE_PRE_RANK_AND_REVIEW' if decisions is not None else 'REVIEW_SYMBOLS_ONLY',
             'review_symbols': actual, 'missing_symbols': missing,
             'review_missing_symbols': sorted(set(actual) - candidate),
@@ -168,5 +195,6 @@ def audit_disclosure_scope(prefilter: Mapping[str, Any], review_symbols: Iterabl
             'required_symbols': sorted(required), 'required_count': len(required),
             'outside_scope_symbols': sorted(required - scope),
             'unrepresented_decision_symbols': unrepresented, 'route_coverage': route_coverage,
+            'channel_contract_conflict_symbols': conflicts,
             'candidate_count': len(candidate), 'review_count': len(actual),
             'execution_authority': False, 'changes_query_scope': False}

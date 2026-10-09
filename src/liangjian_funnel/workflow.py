@@ -994,7 +994,8 @@ class WorkflowApplication:
             disclosure_prefilter = build_disclosure_prefilter(
                 symbols=[candidate.symbol for candidate in selected],
                 trade_date=closed_trade_date, daily=daily,
-                selected_board=selected_board, event_symbols=event_symbols,
+                selected_board=selected_board, selected_board_field_present=True,
+                event_symbols=event_symbols,
                 event_sources_complete=events_complete, hot_symbols=hot100_symbols,
                 discovery_symbols=[row['symbol'] for row in discovery.get('records', ())
                                    if row.get('review_budget_selected')],
@@ -1877,6 +1878,7 @@ class WorkflowApplication:
         business_query_start: str,
         *,
         bse_client: BseClient | None = None,
+        include_recent: bool = True,
     ) -> tuple[str, CninfoFetchResult, bool, CninfoFetchResult, bool]:
         """Fetch both official disclosure-query lanes for one candidate."""
 
@@ -1893,7 +1895,10 @@ class WorkflowApplication:
             end_date=query_end,
             semantic_key="RECENT_10D",
             ttl=timedelta(hours=6),
-        )
+        ) if include_recent else (CninfoFetchResult(symbol=symbol,
+            start_date=query_start, end_date=query_end, ok=False, complete=False,
+            reason_code='RECENT_NOT_REQUESTED', announcements=(),
+            fetched_at=datetime.now(SHANGHAI)), False)
         business_result, business_hit = self._cached_cninfo_result(
             client,
             symbol=symbol,
@@ -1903,7 +1908,7 @@ class WorkflowApplication:
             ttl=timedelta(days=7),
             search_keyword="年度报告",
             stale_if_error=timedelta(days=45),
-            recent_delta=recent_result,
+            recent_delta=recent_result if include_recent else None,
         )
         from .facts.cninfo import is_full_periodic_report
 
@@ -1919,7 +1924,7 @@ class WorkflowApplication:
                 client, symbol=symbol, start_date=business_query_start, end_date=query_end,
                 semantic_key=semantic_key, ttl=timedelta(days=7), search_keyword=keyword,
                 stale_if_error=timedelta(days=45),
-                recent_delta=recent_result,
+                recent_delta=recent_result if include_recent else None,
             )
             supplement_queries = list(business_result.metadata.get("supplemental_queries", []))
             supplement_queries.append({"search_keyword": keyword, "reason_code": prospectus_result.reason_code,

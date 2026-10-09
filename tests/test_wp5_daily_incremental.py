@@ -37,13 +37,13 @@ def seed(cache, symbol, rows):
                             cursor={'through': str(rows[-1]['date_ms'])}, status='READY', reason=None)
 
 
-def test_incremental_requests_only_after_latest_closed_bar(tmp_path):
+def test_incremental_requests_overlap_last_three_closed_bars(tmp_path):
     cache = LocalFactCache(tmp_path/'cache.sqlite3')
     seed(cache, '600000.SH', history()[:-1])
     client = Client()
     result = HithinkIncrementalSynchronizer(cache).sync(client, ['600000.SH'],
         as_of=NOW, include_financial=False)
-    assert client.calls[0][1]['start'] == history()[-2]['date_ms']+1
+    assert client.calls[0][1]['start'] == history()[-4]['date_ms']
     assert result.daily_requests['600000.SH']['mode'] == 'INCREMENTAL'
     assert result.failures == {}
 
@@ -131,5 +131,5 @@ def test_future_cached_revision_is_not_incremental_cursor(tmp_path):
     client = Client()
     result = HithinkIncrementalSynchronizer(cache).sync(client, ['600000.SH'],
         as_of=NOW, include_financial=False)
-    assert client.calls[0][1]['start'] == history()[-2]['date_ms']+1
+    assert client.calls[0][1]['start'] == history()[-4]['date_ms']
     assert result.failures == {}

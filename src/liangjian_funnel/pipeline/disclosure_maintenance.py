@@ -12,10 +12,14 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from ..reporting import atomic_write_json
+from ..runtime.bounded_work import BoundedWorkGate
 from .close_scope import build_scope_ledger
 from .feature_store import content_hash
 
 SHANGHAI = ZoneInfo('Asia/Shanghai')
+# Shared across attempts: an uncancellable dependency keeps its slot after
+# timeout. Retrying cannot spawn an unbounded collection of late writers.
+_MAINTENANCE_GATE = BoundedWorkGate(1)
 
 
 def _verify_hash(value: Mapping[str, Any], key: str, reason: str) -> None:
@@ -102,7 +106,8 @@ def seal_maintenance_queue(root: Path, receipt: Mapping[str, Any], prefilter: Ma
 
 def run_maintenance(queue: Mapping[str, Any], *, output_dir: Path, now: datetime,
                     execute: bool = False, collect: Callable | None = None,
-                    can_reuse: Callable | None = None, budget_seconds: float = 3600) -> dict:
+                    can_reuse: Callable | None = None, budget_seconds: float = 3600,
+                    dependency_timeout_seconds: float = 60) -> dict:
     """Journal each task independently, then seal a new immutable report.
 
     Resume needs BOTH a valid success receipt and currently usable caches.
@@ -119,6 +124,8 @@ def run_maintenance(queue: Mapping[str, Any], *, output_dir: Path, now: datetime
         raise ValueError('MAINTENANCE_BEFORE_SOURCE_RECEIPT')
     if not 0 < budget_seconds <= 3600:
         raise ValueError('MAINTENANCE_BUDGET_INVALID')
+    if not 0 < dependency_timeout_seconds <= 60:
+        raise ValueError('MAINTENANCE_DEPENDENCY_TIMEOUT_INVALID')
     query_end = now.date().isoformat()
     value = {'schema_version': 'disclosure-maintenance-report/1',
         'queue_hash': queue['queue_hash'], 'source_receipt_hash': queue['source_receipt_hash'],
@@ -128,6 +135,7 @@ def run_maintenance(queue: Mapping[str, Any], *, output_dir: Path, now: datetime
         'candidate_symbols': queue['candidate_symbols'],
         'task_symbols': queue['deferred_symbols'], 'rows': [], 'resumed_symbols': [],
         'production_plans_changed': False, 'execution_authority': False,
+        'maintenance_scope': 'BUSINESS_AND_PDF_ONLY', 'recent_required': False,
         'status': 'DRY_RUN'}
     if not execute:
         return value
@@ -142,6 +150,7 @@ def run_maintenance(queue: Mapping[str, Any], *, output_dir: Path, now: datetime
         raise ValueError('MAINTENANCE_ALREADY_RUNNING') from exc
     attempt_id = uuid4().hex
     started = time.monotonic()
+    deadline = started + budget_seconds
     try:
         with handle:
             handle.write(attempt_id)
@@ -159,21 +168,30 @@ def run_maintenance(queue: Mapping[str, Any], *, output_dir: Path, now: datetime
         for symbol in queue['deferred_symbols']:
             if time.monotonic()-started >= budget_seconds:
                 row = {'symbol': symbol, 'ok': False, 'reason_code': 'MAINTENANCE_BUDGET_EXHAUSTED'}
-            elif symbol in previous and can_reuse(previous[symbol]['row'], now) is True:
-                row = previous[symbol]['row']
-                value['resumed_symbols'].append(symbol)
             else:
-                try:
-                    row = dict(collect(symbol, value['query_start'], query_end, value['business_query_start']))
+                # Bind loop values: a late worker must not consume a later
+                # symbol or mutate this attempt's journal after its deadline.
+                def operation(symbol=symbol, prior=previous.get(symbol)):
+                    if prior is not None and can_reuse(prior['row'], now) is True:
+                        return dict(prior['row']), True
+                    return dict(collect(symbol, value['query_start'], query_end,
+                                        value['business_query_start'])), False
+                result = _MAINTENANCE_GATE.call(operation,
+                    deadline=min(deadline, time.monotonic()+dependency_timeout_seconds),
+                    name='disclosure-cache-maintenance')
+                if result.status != 'READY':
+                    row = {'symbol': symbol, 'ok': False,
+                           'reason_code': result.value if result.status == 'FAILED' else result.reason_code}
+                else:
+                    row, resumed = result.value
                     if row.get('symbol') != symbol:
-                        raise ValueError('COLLECTOR_SYMBOL_MISMATCH')
+                        row = {'symbol': symbol, 'ok': False, 'reason_code': 'COLLECTOR_SYMBOL_MISMATCH'}
                     row['ok'] = row.get('ok') is True and all(row.get(k) is True
-                        for k in ('recent_complete', 'business_complete', 'pdf_complete'))
+                        for k in ('business_complete', 'pdf_complete'))
                     if not row['ok']:
                         row['reason_code'] = row.get('reason_code') or 'MAINTENANCE_INCOMPLETE'
-                except Exception as exc:
-                    # Exception messages can contain credentials/provider URLs.
-                    row = {'symbol': symbol, 'ok': False, 'reason_code': type(exc).__name__}
+                    elif resumed:
+                        value['resumed_symbols'].append(symbol)
             value['rows'].append(row)
             record = {'queue_hash': queue['queue_hash'], 'symbol': symbol,
                 'query_end': query_end,

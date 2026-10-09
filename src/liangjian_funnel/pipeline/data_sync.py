@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 from .data_source import HithinkClient, HithinkFetchResult
 from .local_fact_cache import LocalFactCache
+from .feature_store import content_hash
 from .early_discovery import discover_early_setups, merge_discovery_parts
 from ..runtime.calendar import ExchangeTradingCalendar
 
@@ -161,9 +162,11 @@ class HithinkIncrementalSynchronizer:
                         reason = 'HISTORY_SHORT_BOOTSTRAP'
                     elif latest is not None and (required_latest_daily is None or
                           _aware(datetime.fromisoformat(str(latest['timestamp']))) < required_latest_daily):
+                        # Recheck actual cached sessions, not three calendar
+                        # days. Publication metadata is not an OHLCV revision.
                         request_start_ms = max(request_start_ms,
-                            int(_aware(datetime.fromisoformat(str(latest['timestamp']))).timestamp()*1000)+1)
-                        mode, reason = 'INCREMENTAL', 'AFTER_LATEST_CLOSED_BAR'
+                            int(_aware(datetime.fromisoformat(str(rows[2]['timestamp']))).timestamp()*1000))
+                        mode, reason = 'INCREMENTAL', 'LAST_THREE_CLOSED_BARS_OVERLAP'
                     else:
                         # A failed/missing source receipt is not repaired by
                         # marking its cached rows ready without revalidation.
@@ -185,6 +188,43 @@ class HithinkIncrementalSynchronizer:
                     if request_start_ms <= int(_row_time(row.model_dump(mode="python")).timestamp()*1000)
                     < int(closed_daily_end.timestamp()*1000)
                 )
+                overlap_complete = True
+                if mode == 'INCREMENTAL' and not (result.ok and result.complete):
+                    overlap_complete = False
+                    reset_blocked.add(symbol)
+                if mode == 'INCREMENTAL' and result.ok and result.complete:
+                    returned = {int(_row_time(row.model_dump(mode='python')).timestamp()*1000):
+                                row.model_dump(mode='python') for row in closed_items}
+                    overlap = {int(_aware(datetime.fromisoformat(str(row['timestamp']))).timestamp()*1000):
+                               row['payload'] for row in rows[:3]}
+                    overlap_complete = overlap.keys() <= returned.keys() and len(returned) == len(closed_items)
+                    revised = sorted(stamp for stamp, payload in overlap.items()
+                        if stamp in returned and _daily_value_hash(payload) != _daily_value_hash(returned[stamp]))
+                    daily_requests[symbol].update(overlap_expected_rows=len(overlap),
+                        overlap_complete=overlap_complete, revised_timestamps_ms=revised,
+                        overlap_received_at=result.fetch_time.isoformat(),
+                        overlap_source_hash=content_hash([r.model_dump(mode='json') for r in closed_items]),
+                        revision_evidence=[{'timestamp_ms': stamp,
+                            'cached_hash': _daily_value_hash(overlap[stamp]),
+                            'source_hash': _daily_value_hash(returned[stamp])} for stamp in revised])
+                    if not overlap_complete:
+                        reset_blocked.add(symbol)
+                    elif revised:
+                        # Persist before the network request. An interrupted or
+                        # partial rebuild must remain blocked on the next run.
+                        reset_reasons[symbol] = 'HISTORICAL_REVISION_CONFIRMED'
+                        self.cache.update_sync_state('HITHINK_DAILY_1D', symbol,
+                            status='FAILED', reason='HISTORICAL_REVISION_CONFIRMED',
+                            cursor={'pending_reset_reason': reset_reasons[symbol],
+                                    'request': daily_requests[symbol]})
+                        request_start_ms = int(start.timestamp()*1000)
+                        daily_requests[symbol].update(mode='FULL_REFRESH',
+                            reason_code=reset_reasons[symbol], start_ms=request_start_ms)
+                        result = client.history_1d(symbol, start=request_start_ms,
+                            end=int(closed_daily_end.timestamp()*1000), adjust='none', limit=1000, max_pages=1)
+                        closed_items = tuple(row for row in result.items
+                            if request_start_ms <= int(_row_time(row.model_dump(mode='python')).timestamp()*1000)
+                            < int(closed_daily_end.timestamp()*1000))
                 reset_complete = True
                 if symbol in reset_reasons:
                     reset_history = self.cache.query_daily_bars(
@@ -201,7 +241,7 @@ class HithinkIncrementalSynchronizer:
                     'source_ok': result.ok, 'source_complete': result.complete,
                     'source_reason_code': result.reason_code,
                     'received_at': result.fetch_time.isoformat()})
-                if result.ok and result.complete and closed_items and reset_complete:
+                if result.ok and result.complete and closed_items and reset_complete and overlap_complete:
                     self.cache.upsert_daily_bars(
                         (
                             {
@@ -227,7 +267,8 @@ class HithinkIncrementalSynchronizer:
                     symbol_updated = True
                     daily_updates += 1
                 else:
-                    reason = ('FULL_REFRESH_HISTORY_INCOMPLETE' if not reset_complete else
+                    reason = ('INCREMENTAL_OVERLAP_INCOMPLETE' if not overlap_complete else
+                              'FULL_REFRESH_HISTORY_INCOMPLETE' if not reset_complete else
                               result.reason_code if not result.ok else "NO_CLOSED_DAILY_BARS")
                     failures.setdefault(symbol, []).append(f"DAILY:{reason}")
                     self.cache.update_sync_state(
@@ -536,6 +577,14 @@ def _row_time(row: Mapping[str, Any]) -> datetime:
         parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
         return parsed.replace(tzinfo=SHANGHAI) if parsed.tzinfo is None else parsed.astimezone(SHANGHAI)
     raise ValueError("daily row timestamp missing")
+
+
+def _daily_value_hash(row: Mapping[str, Any]) -> str:
+    """Price/volume identity, independent of fetch metadata and int/float form."""
+    fields = ('open_price', 'high_price', 'low_price', 'close_price', 'volume', 'turnover')
+    return content_hash({key: float(value) if isinstance(value, (int, float))
+                         and not isinstance(value, bool) else value
+                         for key in fields for value in (row.get(key),)})
 
 
 def _latest_row_time(rows: Sequence[Any]) -> str | None:
