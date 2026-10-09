@@ -9,7 +9,16 @@
     "weekend_preparation": "DECISION9_NOT_AUTHORIZED_NOT_RUN",
     "fsync_idle": "EXIT3_PARENT_NOT_EXISTING_DIRECTORY_NO_SAMPLES_GATE0033",
     "raw_six_day_copy": "EXIT2_EMPTY_PROVEN_COPY_ALLOWLIST_ZERO_FILES_NOT_PIT_PROVEN",
-    "capital_label_status": "ISOLATED_CODE_SLICE_NUMERIC_AND_ROUTE_EQUIVALENCE_PASSED_NEW_HEAD_FULL_PENDING",
+    "capital_label_status": "ISOLATED_CODE_AND_FULL_PASSED_REVIEW0035_PENDING_NOT_DEPLOYED",
+    "capital_label_code_head": "e63bdb280009aa7690a63e3e6d0e186a72c95866",
+    "capital_label_full": {
+      "receipt": "artifacts/wp5-20261010/full-capital-label-v1/evidence.json",
+      "sha256": "95abea204fd360a25e7c7ae07c44a89fcc987961b4aba75e8c5e104714ad15b2",
+      "exit_code": 0, "independent_verify_exit_code": 0,
+      "total": 3123, "passed": 3116, "failed": 0, "skipped": 6, "xfail": 1,
+      "package": "artifacts/wp5-20261010/review-capital-label-e63bdb2.zip",
+      "package_sha256": "85a79a3d6d77f7b3310d093e76d589cd79675aa74fa56e9bdf6121540dfd5228"
+    },
     "capital_label_before": {"exit_code": 1, "failed": 8, "artifact": "artifacts/wp5-20261010/capital-a-label-before.xml"},
     "capital_label_after": {"exit_code": 0, "passed": 61, "artifact": "artifacts/wp5-20261010/capital-a-label-after.xml"},
     "capital_label_routes": {"exit_code": 0, "passed": 10, "artifact": "artifacts/wp5-20261010/capital-a-label-routing.xml"},
