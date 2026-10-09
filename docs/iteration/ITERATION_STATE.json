@@ -11,17 +11,58 @@
       "next": "NEW_HEAD_FULL_BASELINE_THEN_CLAUDE_REVIEW"
     },
     "real_200_parity": {
-      "status": "MANIFEST_SEALED_DRY_RUN_ZERO_SOURCE_CALLS_REAL_PROBE_PENDING",
+      "status": "REAL_200_MATCH_600_CALLS_INDEPENDENT_ARRAY_HASH_AND_SQLITE_CHECK_VERIFIED_NOT_HISTORICAL_PIT",
       "evidence": "docs/WP5_G3_3_200_STRATIFIED_PROBE_2026-10-10.md",
       "manifest": "artifacts/wp5-20261010/daily-incremental-200-manifest.json",
       "manifest_sha256": "5534fb343c14f0b8ead9de241795555ba2b8cc01cbfa027f40145cdcd6771180",
+      "executed_commit_manifest_sha256": "729b6ffd79332668c11b1af538dc6d2684b4518636771f59fe6076f33bbd6d9c",
+      "executed_head": "f0c20b7858d729eb12106e86a085763e594c7e3a",
+      "real_result": {"matched":200,"source_calls":600,"incremental":199,"full_refresh":1,"source_exit_code":0},
+      "independent_verification": "artifacts/wp5-20261010/daily-incremental-200-real-f0c20b7-20261010T0038/independent-second-reader.json",
       "commands": [
         {"command":"pytest tests/test_wp5_daily_incremental_200_probe.py before implementation","exit_code":2},
         {"command":"pytest probe and daily_incremental slice --junitxml=daily-incremental-200-tests-final.xml","exit_code":0,"passed":21},
         {"command":"pytest probe final slice --junitxml=daily-incremental-200-probe-final-v2.xml","exit_code":0,"passed":7},
-        {"command":"probe_wp5_daily_incremental_200_readonly.py sealed manifest dry-run","exit_code":0,"source_calls":0}
+        {"command":"probe_wp5_daily_incremental_200_readonly.py sealed manifest dry-run","exit_code":0,"source_calls":0},
+        {"command":"isolated committed LF probe execute via www existing paced client","exit_code":0,"source_calls":600},
+        {"command":"artifacts/wp5-20261010/verify_200_probe_independently.py","exit_code":0,"files_verified":204,"full_arrays_equal":200,"sqlite_quick_checks":"both_ok"}
       ],
-      "next": "ISOLATED_READONLY_SOURCE_PROBE_WITH_UNCHANGED_PACING_NO_PRODUCTION_CACHE_WRITES"
+      "next": "CORPORATE_FACTOR_REAL_SEMANTICS_AND_ORIGINAL_A2_OVERLAY_REMAIN_UNPROVEN_NO_REPEATED_SOURCE_PROBE"
+    },
+    "corporate_factor_contract": {
+      "status":"LOCAL_ONLY_RAW_A3_UNCHANGED_NO_AUTOMATIC_RESET_INTEGRATION",
+      "evidence":"docs/WP5_CORPORATE_FACTOR_CONTRACT_2026-10-10.md",
+      "commands":[
+        {"command":"factor version daily append and cash reference revision counterexamples before repair","exit_code":1,"failed":2,"passed":34},
+        {"command":"pytest corporate factor plus existing probe --junitxml=corporate-factor-version-final.xml","exit_code":0,"passed":63},
+        {"command":"finite extreme forward price ratio counterexample before repair","exit_code":1,"failed":1},
+        {"command":"pytest corporate factor plus existing probe --junitxml=corporate-factor-final-v4.xml","exit_code":0,"passed":64}
+      ],
+      "factor_semantics":"CALLER_CERTIFIED_SAMPLE_ONLY_NOT_LIVE_VERIFIED",
+      "production_changed":false
+    },
+    "auction_split_shadow_contract": {
+      "status":"IMPLEMENTATION_PARTIAL_LOCAL_CONTRACT_ONLY_NO_NIGHT_OR_FAST_NETWORK_ADAPTER",
+      "evidence":"docs/WP5_AUCTION_SPLIT_2026-10-10.md",
+      "commands":[
+        {"command":"pytest new auction contract before module implementation","exit_code":1,"result":"COLLECTION_MODULE_MISSING"},
+        {"command":"pytest auction preparation and disclosure_incremental --junitxml=auction-preparation-local-final-v3.xml","exit_code":0,"passed":75}
+      ],
+      "observed_plan_export":"artifacts/wp5-20261010/auction-plan-evidence-observed-20261009.json",
+      "observed_sep30_created":47,
+      "historical_pending_state_proven":false,
+      "production_wiring":false,
+      "research_eligibility_released":false,
+      "next":"IMPLEMENT_BOUNDED_SOURCE_ADAPTERS_AND_AUTHENTICATED_EXPORT_BINDING_OFFLINE_FIRST_NIGHT_WIRING_SEPARATE_GATE"
+    },
+    "stage_probe_clean_baseline": {
+      "head":"f0c20b7858d729eb12106e86a085763e594c7e3a",
+      "receipt":"artifacts/wp5-20261010/full-stage-probe-f0c20b7/evidence.json",
+      "sha256":"636c6f2f3a3a785b6319ccce5196a1696a5e960683c4ee1cdf2c078054f4f852",
+      "totals":{"tests":2547,"passed":2540,"failed":0,"skipped":6,"xfail":1},
+      "exit_code":0,
+      "independent_verify_exit_code":0,
+      "scope":"ONLY_f0c20b7_NOT_NEW_CORPORATE_OR_AUCTION_CODE"
     },
     "g3_local": {
       "status": "SOURCE_BASIS_RAW_CONFIRMED_P1A_REAL_GATE_PARITY_P2ABC_FULL_LOCAL_PASS_BRIDGE_0002_ACCEPTED",
