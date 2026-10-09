@@ -31,6 +31,7 @@ from .data.a2_market import (
     with_capital_flow_provider_attempts,
 )
 from .data.bse import BseClient
+from .data.capital_source_policy import project_local_capital_evidence
 from .data.cninfo import CninfoAnnouncement, CninfoClient, CninfoFetchResult
 from .data.disclosure_router import OfficialDisclosureRouter
 from .data.disclosure_incremental import compose_disclosure_delta, covers_query
@@ -6136,6 +6137,8 @@ class WorkflowApplication:
             g0_symbols,
             as_of=market_as_of,
         )
+        local_capital_policy = self.settings.rotation_membership_source == "LOCAL_REFERENCE"
+        raw_capital_today_evidence = None
         if self.settings.a2_capital_flow_enabled:
             capital_attempts: list[dict[str, Any]] = []
             try:
@@ -6154,7 +6157,7 @@ class WorkflowApplication:
                     source_id="TENCENT_QQ_FINANCE_FUND_FLOW",
                 )
             capital_attempts.append(capital_flow)
-            if capital_flow.get("available") is not True:
+            if capital_flow.get("available") is not True and not local_capital_policy:
                 try:
                     eastmoney_fallback = collect_eastmoney_capital_flow(
                         as_of=market_as_of,
@@ -6174,6 +6177,10 @@ class WorkflowApplication:
                 capital_attempts.append(eastmoney_fallback)
                 if eastmoney_fallback.get("available") is True:
                     capital_flow = eastmoney_fallback
+            if local_capital_policy:
+                capital_flow, raw_capital_today_evidence = project_local_capital_evidence(
+                    capital_flow, as_of=market_as_of, expected_symbols=g0_symbols,
+                )
             capital_flow = with_capital_flow_provider_attempts(capital_flow, capital_attempts)
         else:
             capital_flow = unavailable_capital_flow_snapshot(
@@ -6189,7 +6196,15 @@ class WorkflowApplication:
             "reason_code": "SOURCE_NOT_CONFIGURED",
             "by_taxonomy": {},
         }
-        if self.settings.a2_capital_flow_enabled:
+        if local_capital_policy:
+            board_capital_flow.update({
+                "source_id": "LOCAL_REFERENCE_CAPITAL_SOURCE_POLICY",
+                "source_role": "EXECUTION", "available": False,
+                "reason_code": "LOCAL_COMPOSITE_HISTORY_UNAVAILABLE",
+                "shadow_collection_status": "NOT_COLLECTED",
+                "expected_period_count": 6, "observed_period_count": 0,
+            })
+        elif self.settings.a2_capital_flow_enabled:
             observed = 0
             failures: list[str] = []
             for taxonomy in ("industry", "concept"):
@@ -6443,6 +6458,8 @@ class WorkflowApplication:
             "SECTOR_PERMISSIONS": sector_permissions,
             "CAPITAL_FLOW_SNAPSHOT": capital_flow,
             "BOARD_CAPITAL_FLOW_SNAPSHOT": board_capital_flow,
+            **({"CAPITAL_FLOW_RAW_TODAY_EVIDENCE": raw_capital_today_evidence}
+               if raw_capital_today_evidence is not None else {}),
             "A2_FACTOR_SNAPSHOT": a2_features,
             "A2_MARKET_REFERENCE": {
                 "schema_version": "a2-market-reference/1.0.0",

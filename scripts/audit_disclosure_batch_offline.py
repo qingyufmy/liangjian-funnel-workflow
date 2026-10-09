@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from liangjian_funnel.data.hot100_observation import observe_hot100
 from liangjian_funnel.pipeline.deterministic import screen_a2
 from liangjian_funnel.pipeline.disclosure_scope import build_disclosure_prefilter, audit_disclosure_scope
 from liangjian_funnel.pipeline.research.common import _sha256_json
@@ -48,6 +49,8 @@ def audit_projected_batch(snapshot, lane):
     if market_time.tzinfo is None or research_time.tzinfo is None or market_time > research_time:
         raise ValueError('MARKET_TIME_INVALID')
     day = market_time.astimezone(ZoneInfo('Asia/Shanghai')).date()
+    hot_observation = observe_hot100(data.get('EASTMONEY_HOT100_SNAPSHOT'),
+                                    decision_as_of=research_time)
     tier = data.get('TIER_STRUCTURE_SNAPSHOT', {})
     tier_rows = tier.get('by_symbol', {})
     tier_time = datetime.fromisoformat(str(tier.get('as_of') or market_time.isoformat()))
@@ -65,7 +68,7 @@ def audit_projected_batch(snapshot, lane):
         selected_board=data.get('SELECTED_BOARD_SNAPSHOT', {}),
         selected_board_field_present='SELECTED_BOARD_SNAPSHOT' in data,
         event_symbols=events, event_sources_complete=events_complete,
-        hot_symbols=[r['symbol'] for r in data.get('EASTMONEY_HOT100_SNAPSHOT', {}).get('records', ())],
+        hot_symbols=[r['symbol'] for r in hot_observation.records],
         discovery_symbols=[r['symbol'] for r in data.get('EARLY_DISCOVERY_SNAPSHOT', {}).get('records', ())
                            if r.get('review_budget_selected') is True])
     # Wide transport is an explicit diagnostic, not a guessed production
@@ -86,6 +89,7 @@ def audit_projected_batch(snapshot, lane):
             'mode': 'SHADOW', 'changes_query_scope': False, 'execution_authority': False,
             'snapshot_id': snapshot['snapshot_id'], 'declared_snapshot_hash': snapshot['snapshot_hash'],
             'as_of': snapshot['as_of'], 'market_trade_date': day.isoformat(),
+            'hot100_source_health': hot_observation.health(),
             'a1_output_hash': stage['output_hash'], 'a1_count': len(a1_symbols),
             'diagnostic_parameters': parameters, 'limitations': limitations,
             'prefilter': prefilter, 'coverage': coverage,

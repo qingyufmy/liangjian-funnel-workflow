@@ -1,4 +1,30 @@
 {
+  "wp4_source_isolation_wp6_followup_20261010": {
+    "status": "ISOLATED_SLICES_PENDING_NEW_HEAD_FULL_AND_REVIEW",
+    "baseline_head": "ae2d098b5eeb3a369e23d080fd006b099d7962fc",
+    "bridge_read_through": 21,
+    "bridge_submitted_through": 25,
+    "hot100": "FULL_100_CURRENT_DATE_RANK_SYMBOL_RECORD_HASH_REVALIDATED_NO_FALSE_ABSENCE_PROMPT_HEALTH_PROPAGATED",
+    "local_capital": "NO_EASTMONEY_FALLBACK_OR_SIX_BOARD_CALLS_TODAY_RAW_EVIDENCE_ONLY_COMPOSITES_UNKNOWN",
+    "legacy_capital_policy": "EASTMONEY_UNCHANGED_DECISION11_GATE0024_NO_TONY_APPROVAL",
+    "hash_encoders": "EXPLICIT_C_OR_STREAM_NO_ENV_GUESS_DEFAULT_UNCHANGED",
+    "sampler": "SYNCHRONOUS_BOUNDED_READONLY_LINUX_FIXTURE_VALIDATION_NOT_WIRED_NO_VM_MEASUREMENT",
+    "commands": [
+      {"command": "pytest actual workflow source isolation before-v4", "exit_code": 1, "failed": 2, "passed": 2},
+      {"command": "pytest capital-isolation-final-v4.xml", "exit_code": 0, "passed": 57},
+      {"command": "pytest hot context/offline counterexamples before", "exit_code": 1, "failed": 7, "passed": 4},
+      {"command": "pytest hot100-consumer-final-v2.xml", "exit_code": 0, "passed": 49},
+      {"command": "pytest explicit hash encoder before", "exit_code": 1, "failed": 10, "passed": 1},
+      {"command": "pytest hash-encoder-final-v3.xml", "exit_code": 0, "passed": 39},
+      {"command": "pytest source-isolation-joint-v1.xml", "exit_code": 0, "passed": 316},
+      {"command": "pytest resource sampler lifetime counterexamples", "exit_code": 1, "failed": 3, "passed": 26},
+      {"command": "pytest resource-sampler-lifetime-final.xml", "exit_code": 0, "passed": 108}
+    ],
+    "replay": "FIXTURES_ONLY_REAL_5_DAY_SOURCE_DIFF_AND_27_DIRECTION_BUDGET_PENDING",
+    "operations": "NOT_DEPLOYED_NOT_MODEL_OR_NOTIFICATION_EXECUTED",
+    "strategy": "NO_THRESHOLD_COUNT_RATE_MODE_OR_LEGACY_WEIGHTING_CHANGE",
+    "production_changed": false
+  },
   "claude_followups_and_source_cutoff_20261010": {
     "status": "LOCAL_CODE_SLICES_PASSED_PENDING_NEW_HEAD_FULL_TEST",
     "publication_normalization": "ACTUAL_WORKFLOW_PURE_FUNCTION_CALLED_LAZILY_NO_APPLICATION_CONSTRUCTION",

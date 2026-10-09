@@ -4,6 +4,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
+from test_deterministic_pipeline_v2 import _complete_hot100_fixture
 
 from liangjian_funnel.pipeline.a1_registry import (
     A1Registry,
@@ -41,19 +42,15 @@ def test_daily_emotion_overlay_only_annotates_active_a1_without_mutating_sealed_
         "rejected_candidates": [],
     }
     snapshot = {
+        "snapshot_manifest": {"as_of": "2026-09-03T15:10:00+08:00"},
         "g0_candidates": [
             {"symbol": "600001.SH", "name": "月度趋势"},
             {"symbol": "600002.SH", "name": "当日情绪"},
         ],
-        "EASTMONEY_HOT100_SNAPSHOT": {
-            "available": True,
-            "trade_date": "2026-09-03",
-            "record_count": 100,
-            "records": [
+        "EASTMONEY_HOT100_SNAPSHOT": _complete_hot100_fixture([
                 {"symbol": "600001.SH", "name": "月度趋势", "rank": 20},
                 {"symbol": "600002.SH", "name": "当日情绪", "rank": 3},
-            ],
-        },
+            ], at=datetime(2026, 9, 3, 15, 10, tzinfo=TZ)),
     }
     overlaid, summary = _with_daily_emotion_overlay(
         sealed,
@@ -65,7 +62,7 @@ def test_daily_emotion_overlay_only_annotates_active_a1_without_mutating_sealed_
     assert [row["symbol"] for row in overlaid["monitor_pool"]] == ["600002.SH"]
     assert summary["added_count"] == 0
     assert summary["annotated_count"] == 1
-    assert summary["outside_active_count"] == 1
+    assert summary["outside_active_count"] == 99
     assert overlaid["daily_emotion_overlay"]["monthly_generation_mutated"] is False
 
 
@@ -76,16 +73,12 @@ def test_daily_emotion_overlay_disposes_every_hot_row_and_rejects_hard_risk() ->
         "rejected_candidates": [],
     }
     snapshot = {
+        "snapshot_manifest": {"as_of": "2026-09-03T15:10:00+08:00"},
         "g0_candidates": [{"symbol": "600001.SH", "name": "可研究"}],
-        "EASTMONEY_HOT100_SNAPSHOT": {
-            "available": True,
-            "trade_date": "2026-09-03",
-            "record_count": 2,
-            "records": [
+        "EASTMONEY_HOT100_SNAPSHOT": _complete_hot100_fixture([
                 {"symbol": "600001.SH", "name": "可研究", "rank": 1},
                 {"symbol": "600002.SH", "name": "重大风险", "rank": 2},
-            ],
-        },
+            ], at=datetime(2026, 9, 3, 15, 10, tzinfo=TZ)),
         "RISK_EVENTS": {
             "available": True,
             "records": [{"symbol": "600002.SH", "severity": "HIGH", "event_type": "FRAUD"}],
@@ -98,8 +91,8 @@ def test_daily_emotion_overlay_disposes_every_hot_row_and_rejects_hard_risk() ->
     assert [row["symbol"] for row in sealed["active_research_pool"]] == ["600002.SH"]
     assert [row["symbol"] for row in overlaid["rejected_candidates"]] == ["600002.SH"]
     assert overlaid["rejected_candidates"][0]["reason_codes"] == ["A1_EMOTION_MAJOR_RISK"]
-    assert summary["complete_source_disposition_count"] == 2
-    assert summary["outside_active_count"] == 1
+    assert summary["complete_source_disposition_count"] == 100
+    assert summary["outside_active_count"] == 99
 
 
 def test_a1_maintenance_attempt_ids_do_not_reuse_same_day_feature_binding() -> None:

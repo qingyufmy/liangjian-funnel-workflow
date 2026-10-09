@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
+from ..data.hot100_observation import observe_hot100
+
 from .bottleneck import (
     MARKET_CORE_ROUTE,
     SUPPLY_CHAIN_ALPHA_ROUTE,
@@ -1093,10 +1095,11 @@ def screen_a2(
     market_funding = raw_market_funding if isinstance(raw_market_funding, Mapping) else {}
     raw_hot100 = snapshot.get("EASTMONEY_HOT100_SNAPSHOT")
     hot100 = raw_hot100 if isinstance(raw_hot100, Mapping) else {}
-    hot100_available = hot100.get("available") is True
+    hot100_observation = observe_hot100(raw_hot100, decision_as_of=snapshot_as_of)
+    hot100_available = hot100_observation.complete
     hot100_by_symbol = {
         str(row.get("symbol") or "").strip().upper(): dict(row)
-        for row in hot100.get("records", ())
+        for row in hot100_observation.records
         if hot100_available
         and isinstance(row, Mapping)
         and str(row.get("symbol") or "").strip()
@@ -1810,10 +1813,7 @@ def screen_a2(
             "rotation_reserve_boards": reserve_boards,
             "rotation_reserve_scope": "RESEARCH_ONLY_NO_AUTOMATIC_ENTRY" if reserve_eligible else None,
             "channel_source_health": {
-                **({"emotion": {"available": hot100_available,
-                    "reason_code": hot100.get("reason_code") or ("OK" if hot100_available else "EASTMONEY_HOT100_UNAVAILABLE"),
-                    "trade_date": hot100.get("trade_date")}}
-                   if "EASTMONEY_HOT100_SNAPSHOT" in snapshot else {}),
+                "emotion": hot100_observation.health(),
                 **({"trend": {"available": selected_board_source_available,
                     "reason_code": selected_boards.get("reason_code") or ("OK" if selected_board_source_available else "SELECTED_BOARD_UNAVAILABLE"),
                     "trade_date": selected_boards.get("trade_date")}}

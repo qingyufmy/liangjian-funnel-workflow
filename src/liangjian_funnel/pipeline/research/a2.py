@@ -286,6 +286,16 @@ def _project_a2_bottleneck_context(value: Any, symbols: set[str] | None) -> Any:
             ],
         }
         routes = raw.get("eligible_routes")
+        health = raw.get("channel_source_health")
+        if isinstance(health, Mapping):
+            row["channel_source_health"] = {
+                str(channel): {key: state.get(key) for key in (
+                    "available", "validation_state", "reason_code", "trade_date", "as_of",
+                    "content_hash", "verified_record_count", "declared_available",
+                    "absence_is_not_popularity_evidence",
+                ) if key in state}
+                for channel, state in health.items() if isinstance(state, Mapping)
+            }
         if isinstance(routes, Sequence) and not isinstance(routes, (str, bytes, bytearray)):
             row["eligible_routes"] = [str(item) for item in routes[:2]]
         reasons = raw.get("deterministic_reason_codes")
@@ -2046,6 +2056,7 @@ def _with_a2_bottleneck_context(
             "emotion_theme_binding": item.get("emotion_theme_binding"),
             "trend_core_eligible": item.get("trend_core_eligible") is True,
             "eastmoney_hot100": dict(item.get("eastmoney_hot100") or {}),
+            "channel_source_health": dict(item.get("channel_source_health") or {}),
             "selected_board": dict(item.get("selected_board") or {}),
             "selected_board_binding": item.get("selected_board_binding"),
             "selected_board_theme_match": item.get("selected_board_theme_match") is True,

@@ -78,6 +78,10 @@ C5. 集合竞价复核与盘中复核 = TIGHTEN_ONLY。只能：
     不能：新增标的 / 升级角色 / 提高仓位上限 / 放宽风控阈值。
 
 C6. 数据缺失时不得用新闻语气补全。
+    热榜不可用≠榜外≠热度低。必须读取 channel_source_health.emotion/source_health；
+    缺源、旧榜、部分榜或未核验 hash/时点只记录“该入口未评估”，不得扣热度分、
+    推断弱势/退潮或伪造 NOT_IN。只有服务端重新核验的完整同日100榜能证明榜外；
+    TOP10_PLUS_BATCH_MATCHES 只是该完整源的投影，不能自己申报完整。趋势资格独立，情绪硬门不放松。
 
 C7. 主题达到 CLIMAX 或 DIVERGENCE 时，必须单独评估追高风险，
     并按 {{CLIMAX_NEW_ENTRY_POLICY}} / {{DIVERGENCE_NEW_ENTRY_POLICY}} 执行。

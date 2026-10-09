@@ -27,6 +27,7 @@ from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
 from ...redaction import digest_text, safe_error, sanitize
+from ...data.hot100_observation import observe_hot100, snapshot_decision_as_of
 from ...reporting import atomic_write_json, atomic_write_text
 from ...evaluation.outcome_labels import record_stage_decisions
 from ..rotation_diagnostics import rotation_coverage
@@ -4352,17 +4353,15 @@ def _with_daily_emotion_overlay(
     """
 
     source = snapshot_data.get("EASTMONEY_HOT100_SNAPSHOT")
-    if not isinstance(source, Mapping) or source.get("available") is not True:
+    observation = observe_hot100(source, decision_as_of=snapshot_decision_as_of(snapshot_data))
+    if not observation.complete:
         return dict(output), {
-            "available": False,
-            "reason_code": str(source.get("reason_code") or "EASTMONEY_HOT100_UNAVAILABLE")
-            if isinstance(source, Mapping)
-            else "EASTMONEY_HOT100_UNAVAILABLE",
+            **observation.health(),
             "added_count": 0,
             "annotated_count": 0,
             "outside_active_count": 0,
         }
-    records = source.get("records")
+    records = observation.records
     if not isinstance(records, Sequence) or isinstance(records, (str, bytes, bytearray)):
         return dict(output), {
             "available": False,
@@ -4480,6 +4479,7 @@ def _with_daily_emotion_overlay(
             binding_counts[code] = binding_counts.get(code, 0) + 1
     result["daily_emotion_overlay"] = {
         "source": "EASTMONEY_GUBA_POPULARITY_TOP100",
+        "source_health": observation.health(),
         "trade_date": source.get("trade_date"),
         "source_record_count": source.get("record_count"),
         "g0_record_count": len(hot_by_symbol),
@@ -4492,8 +4492,7 @@ def _with_daily_emotion_overlay(
         "theme_binding_counts": binding_counts,
     }
     return result, {
-        "available": True,
-        "reason_code": "OK",
+        **observation.health(),
         "trade_date": source.get("trade_date"),
         "added_count": added,
         "annotated_count": annotated,
@@ -4892,7 +4891,7 @@ def _project_prompt_value(
     if name == "REVIEWED_PUBLIC_RESEARCH_LEADS":
         return _project_reviewed_public_research_leads(value)
     if name == "EASTMONEY_HOT100_SNAPSHOT":
-        return _project_eastmoney_hot100(value, symbols)
+        return _project_eastmoney_hot100(value, symbols, decision_as_of=snapshot_decision_as_of(snapshot_data or {}))
     if name == "SELECTED_BOARD_SNAPSHOT":
         return _project_selected_board(value, symbols)
     if name == "A2_THEME_METRICS":
@@ -5289,21 +5288,21 @@ def _project_sector_permissions(value: Any, symbols: set[str] | None) -> Any:
 
 
 
-def _project_eastmoney_hot100(value: Any, symbols: set[str] | None) -> Any:
+def _project_eastmoney_hot100(value: Any, symbols: set[str] | None, *, decision_as_of: Any = None) -> Any:
     """Project a server-validated full Hot100 snapshot to batch rows + top10."""
 
-    if not isinstance(value, Mapping) or symbols is None:
-        return value
-    result = {key: item for key, item in value.items() if key != "records"}
-    records = value.get("records")
-    rows = [item for item in records if isinstance(item, Mapping)] if isinstance(records, list) else []
-    wanted = {str(symbol).strip().upper() for symbol in symbols}
+    observation = observe_hot100(value, decision_as_of=decision_as_of)
+    source = value if isinstance(value, Mapping) else {}
+    result = {key: source[key] for key in ("schema_version", "source_id", "trade_date", "as_of", "content_hash", "point_in_time") if key in source}
+    result.update(available=observation.complete, reason_code=observation.reason_code, source_health=observation.health())
+    rows = observation.records
+    wanted = {str(symbol).strip().upper() for symbol in symbols or ()}
     selected: list[Mapping[str, Any]] = []
     seen: set[str] = set()
     ordered = sorted(rows, key=lambda item: (_safe_int(item.get("rank")) or 10**9, str(item.get("symbol") or "")))
     for item in ordered:
         symbol = next(iter(_scan_symbols(item)), "")
-        if (_safe_int(item.get("rank")) or 10**9) > 10 and symbol not in wanted:
+        if symbols is not None and (_safe_int(item.get("rank")) or 10**9) > 10 and symbol not in wanted:
             continue
         key = str(item.get("rank") or "") + ":" + symbol
         if key in seen:
@@ -5321,11 +5320,7 @@ def _project_eastmoney_hot100(value: Any, symbols: set[str] | None) -> Any:
     result["records"] = selected
     result["full_record_count"] = len(rows)
     result["prompt_record_count"] = len(selected)
-    result["full_snapshot_validated"] = (
-        value.get("available") is True
-        and len(rows) == 100
-        and {_safe_int(item.get("rank")) for item in rows} == set(range(1, 101))
-    )
+    result["full_snapshot_validated"] = observation.complete
     result["projection_scope"] = "TOP10_PLUS_BATCH_MATCHES"
     return result
 
@@ -5886,6 +5881,7 @@ def _gate_item_from_decision(
             "emotion_theme_binding": decision.get("emotion_theme_binding"),
             "trend_core_eligible": decision.get("trend_core_eligible") is True,
             "eastmoney_hot100": dict(decision.get("eastmoney_hot100") or {}),
+            "channel_source_health": dict(decision.get("channel_source_health") or {}),
             "selected_board": dict(decision.get("selected_board") or {}),
             "selected_board_binding": decision.get("selected_board_binding"),
             "selected_board_theme_match": decision.get("selected_board_theme_match") is True,
@@ -6927,6 +6923,7 @@ def _canonicalize_stage_lineage(
                 canonical["emotion_theme_binding"] = context.get("emotion_theme_binding")
                 canonical["trend_core_eligible"] = context.get("trend_core_eligible") is True
                 canonical["eastmoney_hot100"] = dict(context.get("eastmoney_hot100") or {})
+                canonical["channel_source_health"] = dict(context.get("channel_source_health") or {})
                 canonical["selected_board"] = dict(context.get("selected_board") or {})
                 canonical["selected_board_binding"] = context.get("selected_board_binding")
                 canonical["selected_board_theme_match"] = (

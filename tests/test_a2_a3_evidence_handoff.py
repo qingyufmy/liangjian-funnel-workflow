@@ -1,6 +1,7 @@
 from copy import deepcopy
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+from test_deterministic_pipeline_v2 import _complete_hot100_fixture
 
 from liangjian_funnel.pipeline.emotion_theme import bind_emotion_themes
 from liangjian_funnel.pipeline.research import _with_daily_emotion_overlay
@@ -20,8 +21,9 @@ def inputs():
         "selection_basis": "HALF_YEAR_FUNDAMENTAL",
     }], "taxonomy_links": [link]}
     snapshot = {
-        "EASTMONEY_HOT100_SNAPSHOT": {"available": True, "trade_date": "2026-09-08",
-                                    "records": [{"symbol": "000912.SZ", "rank": 1}]},
+        "snapshot_manifest": {"as_of": "2026-09-08T15:10:00+08:00"},
+        "EASTMONEY_HOT100_SNAPSHOT": _complete_hot100_fixture([
+            {"symbol": "000912.SZ", "rank": 1}], at=datetime(2026, 9, 8, 15, 10, tzinfo=ZoneInfo("Asia/Shanghai"))),
         "THS_INDUSTRY_MEMBERSHIP": {"records": [{"symbol": "000912.SZ", "memberships": [
             {"industry_thscode": "881263.TI", "industry_name": "农化制品"}]}]},
     }

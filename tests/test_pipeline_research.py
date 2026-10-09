@@ -1552,13 +1552,15 @@ def test_a2_prompt_projection_removes_full_market_permission_and_attribution_bul
 
 
 def test_a2_hot100_projection_keeps_top10_and_batch_match_with_full_validation():
+    from test_deterministic_pipeline_v2 import _complete_hot100_fixture
     records = [
         {"rank": rank, "symbol": f"{600000 + rank:06d}.SH", "name": f"股票{rank}"}
         for rank in range(1, 101)
     ]
     projected = _project_eastmoney_hot100(
-        {"available": True, "trade_date": "2026-09-03", "records": records},
+        _complete_hot100_fixture(records, at=datetime.fromisoformat("2026-09-03T15:10:00+08:00")),
         {"600088.SH"},
+        decision_as_of="2026-09-03T15:10:00+08:00",
     )
 
     assert projected["full_snapshot_validated"] is True

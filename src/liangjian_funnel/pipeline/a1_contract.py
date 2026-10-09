@@ -94,7 +94,17 @@ def measure_canonical_json(value: Any) -> CanonicalJSONMeasurement:
     return CanonicalJSONMeasurement(total_chars, ascii_chars, total_chars - ascii_chars)
 
 
-def stable_digest(value: Any) -> str:
+def stable_digest(value: Any, *, encoder: str = "STREAM") -> str:
+    """Select a canonical encoder explicitly; never infer from environment.
+
+    C retains the old whole-document allocation/performance trade-off. STREAM
+    retains this slice's default; runtime selection awaits measured evidence.
+    Both use the same serialization contract and invalid-input behavior.
+    """
+    if encoder == "C":
+        return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
+    if encoder != "STREAM":
+        raise ValueError("CANONICAL_HASH_ENCODER_REQUIRED")
     digest = hashlib.sha256()
     for chunk in canonical_json_chunks(value):
         digest.update(chunk.encode("utf-8"))

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -30,6 +31,18 @@ from liangjian_funnel.settings import Settings
 
 NOW = datetime(2026, 8, 27, 15, 10, tzinfo=ZoneInfo("Asia/Shanghai"))
 MODELS = ("deepseek-v4-pro-0813", "moonshotai/kimi-k3-free", "z-ai/glm-5.3-free")
+
+
+def _complete_hot100_fixture(selected, *, at=NOW):
+    """A genuine complete fixture, never a certificate for legacy evidence."""
+    by_rank = {row["rank"]: dict(row) for row in selected}
+    records = [by_rank.get(rank, {"symbol": f"{610000+rank:06d}.SH", "name": f"Fixture{rank}", "rank": rank})
+               for rank in range(1, 101)]
+    return {"available": True, "schema_version": "eastmoney-guba-hot100/1.0.0",
+            "source_id": "EASTMONEY_GUBA_POPULARITY_TOP100", "point_in_time": True,
+            "trade_date": at.date().isoformat(), "as_of": at.isoformat(), "record_count": 100,
+            "records": records, "content_hash": hashlib.sha256(json.dumps(records,
+                ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()).hexdigest()}
 
 
 def test_a1_financial_quality_recognizes_production_indicator_names_and_percent_scale() -> None:
@@ -1149,12 +1162,8 @@ def test_a2_dual_core_pool_keeps_hot100_emotion_and_selected_board_trend_togethe
         "emotion_cycle_stage": "STARTUP",
         "new_long_permission": "PROBE_ONLY",
     }
-    snapshot["EASTMONEY_HOT100_SNAPSHOT"] = {
-        "available": True,
-        "trade_date": "2026-08-27",
-        "record_count": 100,
-        "records": [{"symbol": emotion_symbol, "name": "情绪龙头", "rank": 5}],
-    }
+    snapshot["EASTMONEY_HOT100_SNAPSHOT"] = _complete_hot100_fixture([
+        {"symbol": emotion_symbol, "name": "情绪龙头", "rank": 5}])
     snapshot["SELECTED_BOARD_SNAPSHOT"] = {
         "available": True,
         "by_symbol": {
@@ -1505,12 +1514,8 @@ def test_a2_daily_emotion_overlay_risk_and_trade_boundaries_stay_closed() -> Non
         "emotion_cycle_stage": "STARTUP",
         "new_long_permission": "PROBE_ONLY",
     }
-    snapshot["EASTMONEY_HOT100_SNAPSHOT"] = {
-        "available": True,
-        "trade_date": "2026-08-27",
-        "record_count": 100,
-        "records": [{"symbol": symbol, "name": "情绪龙头", "rank": 1}],
-    }
+    snapshot["EASTMONEY_HOT100_SNAPSHOT"] = _complete_hot100_fixture([
+        {"symbol": symbol, "name": "情绪龙头", "rank": 1}])
     factors = _complete_a2_factor_scores(90)
     factors["tier_structure"] = {
         "score": 90,
