@@ -51,13 +51,17 @@ def test_sqlite_is_wal_full_and_run_stage_transitions_are_atomic(tmp_path):
     assert store.transition_lane_stage("r1", "A2", StageStatus.RUNNING)["status"] == StageStatus.RUNNING.value
 
 
-def test_plan_event_and_account_keys_are_idempotent(tmp_path):
+def test_plan_event_and_account_keys_are_idempotent(tmp_path, monkeypatch):
+    at = datetime(2026, 8, 24, 9, 32, tzinfo=TZ)
+    monkeypatch.setattr('liangjian_funnel.runtime.state._now', lambda: at)
     store = RuntimeStore(tmp_path / "runtime.sqlite3")
     plan = store.create_execution_plan(
         "p1",
         "lane-a",
         "600519.SH",
         status=PlanStatus.PENDING_MORNING_REVIEW,
+        valid_from=at,
+        expires_at=at.replace(hour=15, minute=0),
         payload={"trigger_low": 10, "trigger_high": 11},
     )
     assert store.activate_plan("p1")["status"] == PlanStatus.ACTIVE_TODAY.value
@@ -236,6 +240,7 @@ def test_plan_batch_conflict_rolls_back_every_insert(tmp_path):
             "lane_id": "lane-a",
             "symbol": "600519.SH",
             "status": PlanStatus.ACTIVE_TODAY.value,
+            "valid_from": expires.replace(hour=9, minute=32),
             "expires_at": expires,
             "payload": {"trigger_low": 10},
         },
@@ -244,6 +249,7 @@ def test_plan_batch_conflict_rolls_back_every_insert(tmp_path):
             "lane_id": "lane-b",
             "symbol": "000001.SZ",
             "status": PlanStatus.ACTIVE_TODAY.value,
+            "valid_from": expires.replace(hour=9, minute=32),
             "expires_at": expires,
             "payload": {"trigger_low": 20},
         },
@@ -271,6 +277,7 @@ def test_close_plan_replacement_invalidates_old_pending_but_preserves_current_an
                 "lane_id": "lane-a",
                 "symbol": "000001.SZ",
                 "status": PlanStatus.ACTIVE_TODAY.value,
+                "valid_from": expires.replace(hour=9, minute=32),
                 "expires_at": expires,
                 "payload": {"source_run_id": "old"},
             },
@@ -326,6 +333,7 @@ def test_empty_close_plan_replacement_clears_pending_without_touching_active(tmp
                 "lane_id": "lane-a",
                 "symbol": "000001.SZ",
                 "status": PlanStatus.ACTIVE_TODAY.value,
+                "valid_from": expires.replace(hour=9, minute=32),
                 "expires_at": expires,
                 "payload": {"source_run_id": "old"},
             },

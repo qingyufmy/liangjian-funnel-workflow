@@ -11,6 +11,8 @@ from liangjian_funnel.runtime.state import MonitorAction, PlanStatus, RuntimeSto
 
 
 TZ = ZoneInfo("Asia/Shanghai")
+PLAN_START = datetime(2026, 8, 24, 9, 31, tzinfo=TZ)
+PLAN_EXPIRY = PLAN_START.replace(hour=15, minute=0)
 
 
 def bar(at: datetime, close: float = 10.5) -> MinuteBar:
@@ -35,9 +37,10 @@ def setup_store(tmp_path: Path, lane: str = "lane-a") -> RuntimeStore:
         lane,
         "600519.SH",
         status=PlanStatus.PENDING_MORNING_REVIEW,
+        expires_at=PLAN_EXPIRY,
         payload={"trigger_low": 10, "trigger_high": 11, "confirmation_bars": 2},
     )
-    store.activate_plan(f"p-{lane}")
+    store.activate_plan(f"p-{lane}", valid_from=PLAN_START)
     return store
 
 
@@ -65,8 +68,8 @@ def test_llm_cannot_promote_non_trigger_and_can_only_veto(tmp_path):
 
 def test_lane_isolation_and_effective_markdown_dedup(tmp_path):
     store = setup_store(tmp_path, "lane-a")
-    store.create_execution_plan("p-lane-b", "lane-b", "000001.SZ", status=PlanStatus.PENDING_MORNING_REVIEW, payload={"trigger_low": 10, "trigger_high": 11})
-    store.activate_plan("p-lane-b")
+    store.create_execution_plan("p-lane-b", "lane-b", "000001.SZ", status=PlanStatus.PENDING_MORNING_REVIEW, expires_at=PLAN_EXPIRY, payload={"trigger_low": 10, "trigger_high": 11})
+    store.activate_plan("p-lane-b", valid_from=PLAN_START)
     md = tmp_path / "effective.md"
     engine = MonitorEngine(store, llm_veto=lambda _context: False, effective_md_path=md)
     t0 = datetime(2026, 8, 24, 9, 32, tzinfo=TZ)
@@ -104,10 +107,10 @@ def test_effective_markdown_is_rebuilt_from_sqlite_after_corruption(tmp_path):
 
 def test_one_flash_batch_per_nonempty_lane_contains_all_trigger_results(tmp_path):
     store = setup_store(tmp_path, "lane-a")
-    store.create_execution_plan("p-a2", "lane-a", "000001.SZ", status=PlanStatus.PENDING_MORNING_REVIEW, payload={"trigger_low": 20, "trigger_high": 21})
-    store.activate_plan("p-a2")
-    store.create_execution_plan("p-b", "lane-b", "600519.SH", status=PlanStatus.PENDING_MORNING_REVIEW, payload={"trigger_low": 10, "trigger_high": 11})
-    store.activate_plan("p-b")
+    store.create_execution_plan("p-a2", "lane-a", "000001.SZ", status=PlanStatus.PENDING_MORNING_REVIEW, expires_at=PLAN_EXPIRY, payload={"trigger_low": 20, "trigger_high": 21})
+    store.activate_plan("p-a2", valid_from=PLAN_START)
+    store.create_execution_plan("p-b", "lane-b", "600519.SH", status=PlanStatus.PENDING_MORNING_REVIEW, expires_at=PLAN_EXPIRY, payload={"trigger_low": 10, "trigger_high": 11})
+    store.activate_plan("p-b", valid_from=PLAN_START)
     calls = []
     engine = MonitorEngine(store, llm_veto=lambda context: calls.append(context) or {"vetoes": {"p-lane-a": True}})
     t0 = datetime(2026, 8, 24, 9, 32, tzinfo=TZ)
@@ -130,6 +133,7 @@ def test_strategy_plan_uses_closed_15m_and_5m_not_legacy_1m_zone(tmp_path):
         "lane-a",
         "600519.SH",
         status=PlanStatus.PENDING_MORNING_REVIEW,
+        expires_at=PLAN_EXPIRY,
         payload={
             "strategy_profile": "TREND_MA5",
             "stock_behavior_type": "TREND",
@@ -150,7 +154,7 @@ def test_strategy_plan_uses_closed_15m_and_5m_not_legacy_1m_zone(tmp_path):
             },
         },
     )
-    store.activate_plan("p-strategy")
+    store.activate_plan("p-strategy", valid_from=PLAN_START)
     start = datetime(2026, 8, 24, 9, 31, tzinfo=TZ)
     history = tuple(
         MinuteBar(
@@ -270,9 +274,10 @@ def test_symbol_data_block_does_not_stop_healthy_plan(tmp_path):
         "lane-a",
         "000001.SZ",
         status=PlanStatus.PENDING_MORNING_REVIEW,
+        expires_at=PLAN_EXPIRY,
         payload={"trigger_low": 10, "trigger_high": 11},
     )
-    store.activate_plan("p-bad-data")
+    store.activate_plan("p-bad-data", valid_from=PLAN_START)
     now = datetime(2026, 8, 24, 9, 32, tzinfo=TZ)
     engine = MonitorEngine(store, llm_veto=lambda _context: False)
     result = engine.process_minute(
@@ -296,9 +301,10 @@ def test_symbol_data_block_does_not_stop_healthy_plan(tmp_path):
         "lane-a",
         "000001.SZ",
         status=PlanStatus.PENDING_MORNING_REVIEW,
+        expires_at=PLAN_EXPIRY,
         payload={"trigger_low": 10, "trigger_high": 11},
     )
-    system_store.activate_plan("p-bad-system")
+    system_store.activate_plan("p-bad-system", valid_from=PLAN_START)
     system_failure = MonitorEngine(system_store, llm_veto=lambda _context: False).process_minute(
         "lane-a",
         {"600519.SH": bar(now)},

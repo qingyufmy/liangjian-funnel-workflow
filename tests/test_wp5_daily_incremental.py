@@ -159,6 +159,23 @@ def test_short_history_without_full_range_receipt_still_bootstraps(tmp_path):
     assert result.daily_requests['600000.SH']['mode'] == 'FULL_REFRESH'
 
 
+@pytest.mark.parametrize('bar_count', [1, 2])
+def test_complete_one_or_two_bar_receipt_never_selects_three_bar_overlap(tmp_path, bar_count):
+    """A successful source receipt cannot create the missing third cached bar."""
+    rows = history()[-bar_count:]
+    cache = LocalFactCache(tmp_path/'cache.sqlite3')
+    HithinkIncrementalSynchronizer(cache).sync(Client(rows), ['600000.SH'],
+        as_of=NOW, include_financial=False)
+    client = Client(rows)
+    result = HithinkIncrementalSynchronizer(cache).sync(client, ['600000.SH'],
+        as_of=NOW+timedelta(days=3), include_financial=False)
+    assert result.daily_requests['600000.SH']['mode'] == 'FULL_REFRESH'
+    assert result.daily_requests['600000.SH']['reason_code'] == 'HISTORY_SHORT_BOOTSTRAP'
+    # The existing pager may make a final empty-page request. The overlap
+    # safety contract concerns the initial request, not pagination count.
+    assert client.calls[0][1]['start'] < rows[0]['date_ms']
+
+
 @pytest.mark.parametrize('fault',['hash','incomplete','narrow','failed'])
 def test_short_history_coverage_must_be_complete_bound_and_successful(tmp_path, fault):
     from liangjian_funnel.pipeline.feature_store import content_hash

@@ -6,17 +6,24 @@ from zoneinfo import ZoneInfo
 TZ = ZoneInfo('Asia/Shanghai')
 
 
+def plan_time(value):
+    """Parse an explicit aware timestamp, without filling missing dates."""
+    try:
+        stamp = value if isinstance(value, datetime) else datetime.fromisoformat(str(value or ''))
+        if stamp.tzinfo is None or stamp.utcoffset() is None:
+            return None
+        return stamp.astimezone(TZ)
+    except (ValueError, TypeError):
+        return None
+
+
 def activation_reason(plan, at):
     """Return a rejection code; never extend or infer an absent expiry."""
-    if at.tzinfo is None:
+    current = plan_time(at)
+    if current is None:
         return 'PLAN_SESSION_TIME_INVALID'
-    current = at.astimezone(TZ)
-    try:
-        expiry = datetime.fromisoformat(str(plan.get('expires_at') or ''))
-        if expiry.tzinfo is None:
-            return 'PLAN_EXPIRY_INVALID'
-        expiry = expiry.astimezone(TZ)
-    except (ValueError, TypeError):
+    expiry = plan_time(plan.get('expires_at'))
+    if expiry is None:
         return 'PLAN_EXPIRY_INVALID'
     if expiry < current:
         return 'PLAN_EXPIRED'
@@ -31,6 +38,27 @@ def activation_reason(plan, at):
             return 'PLAN_SESSION_MISMATCH'
     except (ValueError, TypeError, AttributeError):
         return 'PLAN_PAYLOAD_INVALID'
+    return None
+
+
+def active_plan_reason(plan, at):
+    """Validate an active interval at an explicit operation/replay clock.
+
+    Entry validity does not control the independent position protection lane.
+    Direct publication checks at valid_from, allowing a same-session scheduled
+    start; omitted generic activation checks the retained start at wall time.
+    """
+    reason = activation_reason(plan, at)
+    if reason:
+        return reason
+    start = plan_time(plan.get('valid_from'))
+    if start is None:
+        return 'PLAN_VALID_FROM_INVALID'
+    current = plan_time(at)
+    if start.date() != current.date():
+        return 'PLAN_SESSION_MISMATCH'
+    if start > current:
+        return 'PLAN_NOT_YET_VALID'
     return None
 
 

@@ -216,15 +216,16 @@ def test_a4_confirmation_projection_is_strategy_specific_and_tracks_sector_lag()
 
 def test_monitor_persists_only_safe_llm_reason_code_and_strategy_observability(tmp_path: Path) -> None:
     store = RuntimeStore(tmp_path / "monitor.sqlite3")
+    current = _bars()[-1].bar_end
     store.create_execution_plan(
         "p-observability",
         "lane-a",
         "600001.SH",
         status=PlanStatus.PENDING_MORNING_REVIEW,
+        expires_at=current.replace(hour=15, minute=0),
         payload=_a4_plan(),
     )
-    store.activate_plan("p-observability")
-    current = _bars()[-1].bar_end
+    store.activate_plan("p-observability", valid_from=current)
 
     def veto(_context: dict) -> dict:
         return {

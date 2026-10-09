@@ -1,4 +1,53 @@
 {
+  "bridge_progress_20261010_0135": {
+    "canonical_mailbox": "D:/dev_A股/liangjian_a4_20260923/.claude_bridge",
+    "outbox_actually_read": [1,2,3,4,5,6,7,8],
+    "inbox_submitted": [9,10,11,12],
+    "reviews": {"0006":"ACCEPT_CODE_f0c20b7", "0007":"ANSWER_TWO_COVERAGE_METRICS", "0008":"ACCEPT_LOCAL_CONTRACT_AND_200_TRANSPORT_NOT_RELEASE"},
+    "wp1_actual_full_suite": {
+      "head":"2522d289d88904569244dbc97b025c79ef6d0258",
+      "receipt":"D:/dev_A股/liangjian_wp1_20261009/artifacts/wp1-20261010/full-real-ablation-2522d28-node-ready/evidence.json",
+      "sha256":"9a844f0123e6778a73ef8ca5b85bede9034a3994a6c1b06b1495a8a7655ea46b",
+      "totals":{"tests":2442,"passed":2435,"failed":0,"skipped":6,"xfail":1},
+      "exit_code":0,"independent_verify_exit_code":0,
+      "prior_failure_retained":"NODE_DEPENDENCIES_MISSING_NOT_SOURCE_FAILURE",
+      "formal_days":6,"requested_days":17,"baseline_windows":20820,
+      "replay_goal_status":"15_COMPLETE_DAYS_NOT_REACHED",
+      "strategy_status":"NO_PROVEN_FILLS_NO_PARAMETER_CHANGE",
+      "review_inbox":"0010-review-wp1-real-ablation-2522d28.md"
+    },
+    "vm_readonly_gate_check":{"artifact":"artifacts/wp5-20261010/vm-test-gate-readonly-2479b2d.json","correct_head":true,"wrong_head":"TEST_EVIDENCE_HEAD_MISMATCH","exit_code":0,"production_before_after":"47f6ef03b042c0f9a207400c72d2ecffff338244"},
+    "research_relocation":{"artifact":"artifacts/wp5-20261010/research-relocation-current-2479b2d.json","original_definitions_equivalent":239,"current_unchanged":238,"explicit_wp5_delta":"ResearchPipeline._persist_gate","current_fully_ast_equivalent":false},
+    "short_overlap_safety":{"test":"test_complete_one_or_two_bar_receipt_never_selects_three_bar_overlap","result":"16_passed_slice_exit0","prior_fixture_failure":"PAGINATION_COUNT_OVERASSERTION_2_FAIL_14_PASS_NO_PRODUCT_CHANGE"},
+    "publication_reader": {
+      "status":"LOCAL_DECLARATION_BOUND_ONLY_IMPLEMENTATION_PARTIAL_ELIGIBILITY_FALSE",
+      "doc":"docs/WP5_AUCTION_PUBLICATION_EXPORT_2026-10-10.md",
+      "commands":[
+        {"command":"pytest reader lineage before --junitxml=auction-publication-export-lineage-before.xml","exit_code":1,"failed":7},
+        {"command":"pytest reader final binding before --junitxml=auction-publication-export-final-binding-before.xml","exit_code":1,"failed":3},
+        {"command":"pytest publication reader/auction/calendar --junitxml=auction-publication-export-final-v3.xml","exit_code":0,"passed":129}
+      ],
+      "real_readonly_result":"DATA_LIMITED_PUBLICATION_REFERENCE_MISSING_NOT_HISTORICAL_EMPTY",
+      "original_overlay_and_a2_authority_binding":"UNPROVEN_NOT_RECONSTRUCTED",
+      "producer_expiry":"MINIMUM_15_00_CAN_RETURN_LATER_SAME_DAY_READER_SUPPORTS_ONLY_DEFAULT_15_00",
+      "review_questions":["0009","0011"]
+    },
+    "plan_validity_bypasses": {
+      "status":"LOCAL_GENERIC_ACTIVATION_AND_DIRECT_ACTIVE_PUBLICATION_GUARDS_FIXED",
+      "doc":"docs/WP5_PLAN_VALIDITY_BYPASSES_2026-10-10.md",
+      "commands":[
+        {"command":"pytest new validity bypass tests on original source","exit_code":1,"failed":19,"passed":2},
+        {"command":"pytest 9-file validity/runtime/workflow/portfolio slice","exit_code":0,"passed":115},
+        {"command":"pytest iteration A4 orchestration/LLM review slice","exit_code":0,"passed":19}
+      ],
+      "original_historical_five_rows":"UNCHANGED_CAUSAL_ENTRY_UNPROVEN",
+      "explicit_replay_clock_preserved":true,
+      "position_protection_logic_changed":false
+    },
+    "new_code_full_suite":"PENDING_NEW_CLEAN_COMMIT_NOT_PROVEN_BY_2479b2d_RECEIPT",
+    "production_changed":false,
+    "next":"REAL_READONLY_PUBLICATION_BINDING_THEN_BOUNDED_SOURCE_ADAPTERS_AND_A4_ENVELOPE_COUNTEREXAMPLES_NO_AUTO_DEPLOY"
+  },
   "wp5_hotfix_close_scope_20261009": {
     "branch": "codex/wp5-hotfix-close-scope",
     "stage_timing": {
@@ -89,7 +138,7 @@
         {"command":"pytest close_scope and daily_incremental --junitxml=p2-7-9-before.xml","exit_code":1,"failed":3,"passed":20},
         {"command":"pytest 7-file receipt/daily/maintenance/formal/workflow slice --junitxml=p2-7-9-final-v2.xml","exit_code":0,"passed":74}
       ],
-      "replay":"REAL_200_STOCKS_PENDING",
+      "replay":"REAL_200_TRANSPORT_ARRAY_EQUIVALENCE_VERIFIED_FACTOR_SEMANTICS_REMAIN_SEPARATE",
       "operations":"NOT_DEPLOYED_DEFAULT_SHADOW_NO_NIGHT_SCHEDULE",
       "strategy":"UNCHANGED"
     },

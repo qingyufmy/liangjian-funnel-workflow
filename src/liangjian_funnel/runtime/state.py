@@ -1918,6 +1918,11 @@ class RuntimeStore:
         return self._read(operation)
 
     def activate_plan(self, plan_id: str, *, valid_from: datetime | str | None = None) -> dict[str, Any]:
+        """Activate at an explicit paper/replay clock or validate retained dates.
+
+        Omitting valid_from retains the original start and checks today's
+        session; it never manufactures a missing start or extends an expiry.
+        """
         return self._transition_plan(plan_id, PlanStatus.ACTIVE_TODAY.value, valid_from=valid_from)
 
     def invalidate_plan(self, plan_id: str, *, status: str | PlanStatus = PlanStatus.INVALIDATED) -> dict[str, Any]:
@@ -1927,12 +1932,28 @@ class RuntimeStore:
         return self._transition_plan(plan_id, target)
 
     def _transition_plan(self, plan_id: str, target: str, *, valid_from: datetime | str | None = None) -> dict[str, Any]:
-        now = _iso(_now())
+        from .plan_validity import active_plan_reason, plan_time
+        operation_at = _now()
+        now = _iso(operation_at)
 
         def operation(connection):
             current = connection.execute("SELECT * FROM execution_plans WHERE plan_id=?", (plan_id,)).fetchone()
             if current is None:
                 raise StateTransitionError("PLAN_NOT_FOUND")
+            activation_start = None
+            if target == PlanStatus.ACTIVE_TODAY.value:
+                check_at = plan_time(valid_from) if valid_from is not None else operation_at
+                if check_at is None:
+                    raise StateTransitionError("PLAN_VALID_FROM_INVALID")
+                checked = dict(current)
+                # Idempotency validates the original interval, never the new
+                # proposed start. Non-active rows may adopt an explicit start.
+                if current["status"] != target and valid_from is not None:
+                    checked["valid_from"] = valid_from
+                reason = active_plan_reason(checked, check_at)
+                if reason:
+                    raise StateTransitionError(reason)
+                activation_start = plan_time(checked["valid_from"]).isoformat()
             if current["status"] == target:
                 return _row_dict(current)
             allowed = {
@@ -1951,8 +1972,12 @@ class RuntimeStore:
             if target not in allowed.get(current["status"], set()):
                 raise StateTransitionError("ILLEGAL_PLAN_TRANSITION")
             connection.execute(
-                "UPDATE execution_plans SET status=?,valid_from=?,updated_at=? WHERE plan_id=? AND status=?",
-                (target, _iso(valid_from) if valid_from is not None else current["valid_from"], now, plan_id, current["status"]),
+                "UPDATE execution_plans SET status=?,valid_from=?,expires_at=?,updated_at=? WHERE plan_id=? AND status=?",
+                (target, activation_start if target == PlanStatus.ACTIVE_TODAY.value
+                 else _iso(valid_from) if valid_from is not None else current["valid_from"],
+                 plan_time(current["expires_at"]).isoformat() if target == PlanStatus.ACTIVE_TODAY.value
+                 else current["expires_at"],
+                 now, plan_id, current["status"]),
             )
             return _row_dict(connection.execute("SELECT * FROM execution_plans WHERE plan_id=?", (plan_id,)).fetchone())
 
@@ -1978,6 +2003,7 @@ class RuntimeStore:
         touched by this replacement operation.
         """
 
+        from .plan_validity import active_plan_reason, plan_time
         normalized: list[dict[str, Any]] = []
         allowed_statuses = {PlanStatus.PENDING_MORNING_REVIEW.value, PlanStatus.ACTIVE_TODAY.value}
         for raw in plans:
@@ -1990,6 +2016,17 @@ class RuntimeStore:
                 raise ValueError("plan batch status invalid")
             item["status"] = status
             item["payload_json"] = _json(item["payload"])
+            if status == PlanStatus.ACTIVE_TODAY.value:
+                start = plan_time(item.get("valid_from"))
+                if start is None:
+                    raise StateTransitionError("PLAN_VALID_FROM_INVALID")
+                reason = active_plan_reason(item, start)
+                if reason:
+                    raise StateTransitionError(reason)
+                # SQL time comparisons use one normalized offset, including
+                # string inputs (which the generic _iso deliberately retains).
+                item["valid_from"] = start.isoformat()
+                item["expires_at"] = plan_time(item["expires_at"]).isoformat()
             normalized.append(item)
         now = _iso(_now())
         lanes = tuple(dict.fromkeys(str(item) for item in expire_active_lanes))
@@ -1999,6 +2036,27 @@ class RuntimeStore:
             current_plan_ids_by_lane.setdefault(str(item["lane_id"]), set()).add(str(item["plan_id"]))
 
         def operation(connection):
+            # Check every row and same-batch identity before any retirement,
+            # parent invalidation or insert. Never validate an existing ACTIVE
+            # row with proposed replacement dates to escape its old expiry.
+            checked_by_id: dict[str, Mapping[str, Any]] = {}
+            for item in normalized:
+                plan_id = str(item["plan_id"])
+                existing = checked_by_id.get(plan_id)
+                if existing is None:
+                    existing = connection.execute(
+                        "SELECT * FROM execution_plans WHERE plan_id=?", (plan_id,)
+                    ).fetchone()
+                if existing is not None:
+                    immutable = (existing["lane_id"], existing["symbol"], existing["payload_json"])
+                    proposed = (str(item["lane_id"]), str(item["symbol"]), item["payload_json"])
+                    if immutable != proposed:
+                        raise StateTransitionError("PLAN_ID_CONTENT_CONFLICT")
+                    if item["status"] == PlanStatus.ACTIVE_TODAY.value:
+                        reason = active_plan_reason(dict(existing), plan_time(item["valid_from"]))
+                        if reason:
+                            raise StateTransitionError(reason)
+                checked_by_id[plan_id] = existing if existing is not None else item
             for lane_id in lanes:
                 connection.execute(
                     "UPDATE execution_plans SET status=?,updated_at=? WHERE lane_id=? AND status=?",

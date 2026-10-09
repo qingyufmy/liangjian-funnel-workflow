@@ -94,6 +94,48 @@ For UI/API diagnostics that must not dispatch scheduled work, start a temporary 
 
 ## Deployment gate
 
+`deploy.sh` resolves `PROJECT_ROOT` from its own location, not a hard-coded
+Windows checkout name. On the VM it must therefore be invoked from the actual
+production checkout `/www/wwwroot/Agu/liangjian-funnel-workflow`.
+
+For an individually authorized release, first generate one full-suite receipt
+on the clean, committed **exact target HEAD** with `scripts/test_all.ps1` (Windows)
+or `scripts/test_all.sh` (Linux). A slice or a receipt from the previous HEAD is
+not release evidence. Copy `evidence.json`, `pytest.log`, `npm_test.log` and
+`typecheck.log` together into an operator-owned release-evidence directory on
+the VM, readable by `www`; do not copy credentials, databases or raw snapshots.
+Verify the transferred receipt SHA256 against the local receipt and retain the
+three log files with their original bytes and names. Never regenerate evidence
+or modify its HEAD/log hashes to make verification pass.
+
+After separate push/publication authorization and the existing window and
+active-job checks, use the existing release entry point:
+
+```bash
+cd /www/wwwroot/Agu/liangjian-funnel-workflow
+export LIANGJIAN_TEST_EVIDENCE=/path/to/authorized-release-evidence/evidence.json
+export LIANGJIAN_TEST_EVIDENCE_SHA256='<verified-local-receipt-sha256>'
+bash deploy.sh
+```
+
+The script fetches `origin/main`, reads its version of
+`scripts/full_test_baseline.py`, and verifies the receipt against that target
+HEAD **before** pulling, installing or restarting. Missing evidence exits 7;
+wrong HEAD, changed logs, failed/missing steps or dirty-source evidence fail
+verification. A passed receipt is CODE evidence, not Tony's authorization or
+proof of natural A4 execution. Do not use `--allow-intraday` without its own
+explicit authorization.
+
+The WP0 research relocation is part of this branch's difference from the older
+production commit. Its independent original AST/signature/resolved-import
+equivalence evidence is `artifacts/wp0-20261009/research-ast-equivalence.json`
+(239 definitions, 97 external import edges). Subsequent WP5 changes to
+`ResearchPipeline._persist_gate` add the disclosure-scope audit and the
+candidate-domain fail-closed guard; they are **not** mechanical relocation and
+must be reviewed separately. Do not describe the entire later branch as AST
+identical to the pre-relocation source. The source-bound follow-up audit and
+explicit delta are in `artifacts/wp5-20261010/research-relocation-current-2479b2d.json`.
+
 Run this before letting BaoTa keep the process online:
 
 ```bash
