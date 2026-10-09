@@ -2403,10 +2403,15 @@ class ResearchPipeline:
             from ..disclosure_scope import audit_disclosure_scope
             # The comparison is an audit only. A miss never removes actual
             # quantitative candidates or invents missing company evidence.
+            coverage = audit_disclosure_scope(prefilter, gate.review_symbols, decisions=gate.decisions)
+            coverage['binding'] = {'run_id': run_id, 'lane_id': lane_id,
+                                   'snapshot_id': getattr(snapshot, 'snapshot_id', None),
+                                   'snapshot_hash': getattr(snapshot, 'snapshot_hash', None),
+                                   'as_of': snapshot.as_of.isoformat() if snapshot.as_of else None}
             atomic_write_json(
                 self.output_dir / 'disclosure_scope_shadow' / _safe_run_id(run_id)
                 / f'{_safe_run_id(lane_id)}.json',
-                audit_disclosure_scope(prefilter, gate.review_symbols),
+                coverage,
             )
         if gate.stage == "A2_LOCAL_ROLE" and snapshot.as_of is not None:
             try:

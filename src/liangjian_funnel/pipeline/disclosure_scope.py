@@ -31,7 +31,7 @@ def event_scope(results: Mapping[str, Any], trade_date: date) -> tuple[list[str]
             complete = False
             continue
         declared_day = result.metadata.get('market_trade_date')
-        if declared_day and str(declared_day) != trade_date.isoformat():
+        if str(declared_day or '') != trade_date.isoformat():
             complete = False
         for raw in result.items:
             row = raw.model_dump(mode='json')
@@ -63,7 +63,7 @@ def build_disclosure_prefilter(*, symbols: Iterable[str], trade_date: date,
     by_symbol = selected_board.get('by_symbol')
     board_known = (selected_board.get('available') is True
                    and isinstance(by_symbol, Mapping)
-                   and selected_board.get('trade_date', trade_date.isoformat()) == trade_date.isoformat())
+                   and selected_board.get('trade_date') == trade_date.isoformat())
     records = []
     for symbol in scope:
         bars = daily.get(symbol, ())
@@ -77,6 +77,11 @@ def build_disclosure_prefilter(*, symbols: Iterable[str], trade_date: date,
             reasons.append('LADDER_OR_LIMIT_EVENT')
         board_rows = by_symbol.get(symbol, ()) if isinstance(by_symbol, Mapping) else ()
         board_rows_valid = isinstance(board_rows, Sequence) and not isinstance(board_rows, (str, bytes))
+        board_rows_valid = board_rows_valid and all(
+            isinstance(row, Mapping) and (
+                isinstance(row.get('selected_for_rotation'), bool)
+                or row.get('rotation_reserve_scope') == 'RESEARCH_ONLY_NO_AUTOMATIC_ENTRY'
+            ) for row in board_rows)
         if board_rows_valid and any(isinstance(row, Mapping) and (
             row.get('selected_for_rotation') is True
             or row.get('rotation_reserve_scope') == 'RESEARCH_ONLY_NO_AUTOMATIC_ENTRY'
@@ -106,7 +111,8 @@ def build_disclosure_prefilter(*, symbols: Iterable[str], trade_date: date,
     return payload
 
 
-def audit_disclosure_scope(prefilter: Mapping[str, Any], review_symbols: Iterable[str]) -> dict[str, Any]:
+def audit_disclosure_scope(prefilter: Mapping[str, Any], review_symbols: Iterable[str], *,
+                           decisions: Sequence[Mapping[str, Any]] | None = None) -> dict[str, Any]:
     """Compare the earlier work-domain with actual quantitative A2 output.
 
     A miss is evidence of a bad prefilter, not permission to drop an A2 row.
@@ -115,12 +121,51 @@ def audit_disclosure_scope(prefilter: Mapping[str, Any], review_symbols: Iterabl
     unhashed = {key: value for key, value in prefilter.items() if key != 'scope_hash'}
     if content_hash(unhashed) != prefilter.get('scope_hash'):
         raise ValueError('DISCLOSURE_PREFILTER_HASH_MISMATCH')
-    actual = _symbols(review_symbols)
+    scope = set(prefilter['symbols'])
     candidate = set(prefilter['candidate_symbols'])
-    missing = sorted(set(actual) - candidate)
-    return {'schema_version': 'disclosure-prefilter-coverage/1',
+    deferred = set(prefilter['deferred_symbols'])
+    records = prefilter['records']
+    if (candidate & deferred or candidate | deferred != scope
+        or len(records) != len(scope) or {r['symbol'] for r in records} != scope
+        or {r['symbol'] for r in records if r['status'] == 'COLLECT_DISCLOSURE'} != candidate
+        or {r['symbol'] for r in records if r['status'] == 'DEFERRED_DISCLOSURE_NOT_COLLECTED'} != deferred):
+        raise ValueError('DISCLOSURE_PREFILTER_PARTITION_INVALID')
+    actual = _symbols(review_symbols)
+    rows = list(decisions or ())
+    # Pre-ranking eligibility is a stricter coverage domain than the final
+    # transport list. Neither this union nor model output builds the prefilter.
+    local = _symbols(r['symbol'] for r in rows if r.get('local_eligible_for_review') is True)
+    required = set(actual) | set(local)
+    missing = sorted(required - candidate)
+    route_coverage = {}
+    selectors = {
+        'EMOTION': lambda r: r.get('a2_pool_channel') == 'EMOTION',
+        'PRIMARY_TREND': lambda r: r.get('trend_core_eligible') is True,
+        'RESERVE': lambda r: r.get('rotation_reserve_eligible') is True,
+        'STRONG_TREND_OBSERVATION': lambda r: (r.get('strong_trend_observation') is True
+                                              or r.get('strong_trend_observation_rank') is not None),
+        'LEGACY': lambda r: r.get('a2_pool_channel') == 'LEGACY',
+    }
+    for name, predicate in selectors.items():
+        symbols = _symbols(r['symbol'] for r in rows
+                           if r['symbol'] in required and predicate(r))
+        route_coverage[name] = {'symbols': symbols, 'count': len(symbols),
+                                'missing_symbols': sorted(set(symbols) - candidate)}
+    for route in sorted({str(route) for r in rows for route in r.get('eligible_routes', ())}):
+        symbols = _symbols(r['symbol'] for r in rows if r['symbol'] in required
+                           and route in r.get('eligible_routes', ()))
+        route_coverage[f'ROUTE:{route}'] = {'symbols': symbols, 'count': len(symbols),
+                                          'missing_symbols': sorted(set(symbols) - candidate)}
+    unrepresented = sorted(required - {r['symbol'] for r in rows}) if decisions is not None else []
+    return {'schema_version': 'disclosure-prefilter-coverage/2',
             'scope_hash': prefilter['scope_hash'], 'mode': 'SHADOW',
-            'status': 'SCOPE_MISS' if missing else 'COVERED',
+            'status': 'SCOPE_MISS' if missing else 'DATA_LIMITED' if unrepresented else 'COVERED',
+            'coverage_level': 'QUANTITATIVE_PRE_RANK_AND_REVIEW' if decisions is not None else 'REVIEW_SYMBOLS_ONLY',
             'review_symbols': actual, 'missing_symbols': missing,
+            'review_missing_symbols': sorted(set(actual) - candidate),
+            'local_eligible_symbols': local, 'local_eligible_count': len(local),
+            'required_symbols': sorted(required), 'required_count': len(required),
+            'outside_scope_symbols': sorted(required - scope),
+            'unrepresented_decision_symbols': unrepresented, 'route_coverage': route_coverage,
             'candidate_count': len(candidate), 'review_count': len(actual),
             'execution_authority': False, 'changes_query_scope': False}

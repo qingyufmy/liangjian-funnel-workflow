@@ -21,7 +21,7 @@ def bars(up=True):
 def build(symbols, **kwargs):
     return build_disclosure_prefilter(symbols=symbols, trade_date=DAY,
         daily={s: bars(False) for s in symbols},
-        selected_board={"available": True, "by_symbol": {}},
+        selected_board={"available": True, "trade_date": DAY.isoformat(), "by_symbol": {}},
         event_symbols=[], event_sources_complete=True, **kwargs)
 
 
@@ -137,3 +137,57 @@ def test_a2_gate_persists_real_subset_miss_without_changing_gate(tmp_path):
     assert receipt['status'] == 'SCOPE_MISS'
     assert receipt['missing_symbols'] == ['B']
     assert gate.review_symbols == ('A', 'B')
+
+
+@pytest.mark.parametrize('board', [
+    {'available': True, 'by_symbol': {}},
+    {'available': True, 'trade_date': DAY.isoformat(), 'by_symbol': {'A': [None]}},
+    {'available': True, 'trade_date': DAY.isoformat(), 'by_symbol': {'A': [{}]}},
+])
+def test_unproven_board_absence_never_defers_disclosure(board):
+    value = build_disclosure_prefilter(symbols=['A'], trade_date=DAY,
+        daily={'A': bars(False)}, selected_board=board,
+        event_symbols=[], event_sources_complete=True)
+    assert value['candidate_symbols'] == ['A']
+    assert value['records'][0]['uncertainty_retained'] is True
+
+
+def test_missing_event_date_cannot_prove_no_event_today():
+    from liangjian_funnel.pipeline.data_source import HithinkFetchResult
+    result = HithinkFetchResult(endpoint='events', ok=True, complete=True,
+        reason_code='OK', items=(), fetch_time=datetime(2026,10,9,15,10,
+        tzinfo=ZoneInfo('Asia/Shanghai')), metadata={})
+    assert event_scope({'LIMIT_UP_POOL': result, 'LIMIT_UP_LADDER': result}, DAY) == ([], False)
+
+
+def test_coverage_checks_local_eligible_before_transport_ranking():
+    scope = build(['A', 'B'], hot_symbols=['A'])
+    decisions = [{'symbol': 'A', 'status': 'REVIEW_CANDIDATE',
+                  'local_eligible_for_review': True, 'a2_pool_channel': 'EMOTION'},
+                 {'symbol': 'B', 'status': 'MONITOR',
+                  'local_eligible_for_review': True, 'a2_pool_channel': 'TREND',
+                  'rotation_reserve_eligible': True}]
+    value = audit_disclosure_scope(scope, ['A'], decisions=decisions)
+    assert value['status'] == 'SCOPE_MISS'
+    assert value['missing_symbols'] == ['B']
+    assert value['review_missing_symbols'] == []
+    assert value['route_coverage']['RESERVE']['missing_symbols'] == ['B']
+
+
+def test_even_rehashed_invalid_partition_is_not_coverage_evidence():
+    from liangjian_funnel.pipeline.feature_store import content_hash
+    scope = build(['A'], hot_symbols=['A'])
+    scope['deferred_symbols'] = ['A']
+    scope['scope_hash'] = content_hash({k:v for k,v in scope.items() if k != 'scope_hash'})
+    with pytest.raises(ValueError, match='DISCLOSURE_PREFILTER_PARTITION_INVALID'):
+        audit_disclosure_scope(scope, [])
+
+
+def test_observation_clipped_after_rank_still_has_auditable_route():
+    scope = build(['A'])
+    decision = {'symbol': 'A', 'local_eligible_for_review': True,
+                'strong_trend_observation': False, 'strong_trend_observation_rank': 31,
+                'eligible_routes': ['MARKET_CORE'], 'status': 'LOCAL_MONITOR'}
+    value = audit_disclosure_scope(scope, [], decisions=[decision])
+    assert value['route_coverage']['STRONG_TREND_OBSERVATION']['missing_symbols'] == ['A']
+    assert value['route_coverage']['ROUTE:MARKET_CORE']['missing_symbols'] == ['A']

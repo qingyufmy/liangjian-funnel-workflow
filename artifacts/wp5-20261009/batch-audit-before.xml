@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="6" skipped="0" tests="6" time="0.433" timestamp="2026-10-09T20:51:31.370903+08:00" hostname="PC-20260623ZTDR"><testcase classname="tests.test_wp5_disclosure_batch_audit" name="test_projection_and_empty_gate_never_authorize_query_scope_promotion" time="0.000"><failure message="FileNotFoundError: [Errno 2] No such file or directory: 'D:\\dev_A股\\liangjian_wp5_hotfix_20261009\\scripts\\audit_disclosure_batch_offline.py'">tests\test_wp5_disclosure_batch_audit.py:39: in test_projection_and_empty_gate_never_authorize_query_scope_promotion
+    value = module().audit_projected_batch(*inputs())
+            ^^^^^^^^
+tests\test_wp5_disclosure_batch_audit.py:17: in module
+    spec.loader.exec_module(result)
+&lt;frozen importlib._bootstrap_external&gt;:936: in exec_module
+    ???
+&lt;frozen importlib._bootstrap_external&gt;:1073: in get_code
+    ???
+&lt;frozen importlib._bootstrap_external&gt;:1130: in get_data
+    ???
+E   FileNotFoundError: [Errno 2] No such file or directory: 'D:\\dev_A股\\liangjian_wp5_hotfix_20261009\\scripts\\audit_disclosure_batch_offline.py'</failure></testcase><testcase classname="tests.test_wp5_disclosure_batch_audit" name="test_mismatched_or_modified_a1_is_not_replay_input[snapshot_id]" time="0.001"><failure message="FileNotFoundError: [Errno 2] No such file or directory: 'D:\\dev_A股\\liangjian_wp5_hotfix_20261009\\scripts\\audit_disclosure_batch_offline.py'">tests\test_wp5_disclosure_batch_audit.py:62: in test_mismatched_or_modified_a1_is_not_replay_input
+    module().audit_projected_batch(snapshot, lane)
+    ^^^^^^^^
+tests\test_wp5_disclosure_batch_audit.py:17: in module
+    spec.loader.exec_module(result)
+&lt;frozen importlib._bootstrap_external&gt;:936: in exec_module
+    ???
+&lt;frozen importlib._bootstrap_external&gt;:1073: in get_code
+    ???
+&lt;frozen importlib._bootstrap_external&gt;:1130: in get_data
+    ???
+E   FileNotFoundError: [Errno 2] No such file or directory: 'D:\\dev_A股\\liangjian_wp5_hotfix_20261009\\scripts\\audit_disclosure_batch_offline.py'</failure></testcase><testcase classname="tests.test_wp5_disclosure_batch_audit" name="test_mismatched_or_modified_a1_is_not_replay_input[output_hash]" time="0.001"><failure message="FileNotFoundError: [Errno 2] No such file or directory: 'D:\\dev_A股\\liangjian_wp5_hotfix_20261009\\scripts\\audit_disclosure_batch_offline.py'">tests\test_wp5_disclosure_batch_audit.py:62: in test_mismatched_or_modified_a1_is_not_replay_input
+    module().audit_projected_batch(snapshot, lane)
+    ^^^^^^^^
+tests\test_wp5_disclosure_batch_audit.py:17: in module
+    spec.loader.exec_module(result)
+&lt;frozen importlib._bootstrap_external&gt;:936: in exec_module
+    ???
+&lt;frozen importlib._bootstrap_external&gt;:1073: in get_code
+    ???
+&lt;frozen importlib._bootstrap_external&gt;:1130: in get_data
+    ???
+E   FileNotFoundError: [Errno 2] No such file or directory: 'D:\\dev_A股\\liangjian_wp5_hotfix_20261009\\scripts\\audit_disclosure_batch_offline.py'</failure></testcase><testcase classname="tests.test_wp5_disclosure_batch_audit" name="test_mismatched_or_modified_a1_is_not_replay_input[duplicate_a1]" time="0.001"><failure message="FileNotFoundError: [Errno 2] No such file or directory: 'D:\\dev_A股\\liangjian_wp5_hotfix_20261009\\scripts\\audit_disclosure_batch_offline.py'">tests\test_wp5_disclosure_batch_audit.py:62: in test_mismatched_or_modified_a1_is_not_replay_input
+    module().audit_projected_batch(snapshot, lane)
+    ^^^^^^^^
+tests\test_wp5_disclosure_batch_audit.py:17: in module
+    spec.loader.exec_module(result)
+&lt;frozen importlib._bootstrap_external&gt;:936: in exec_module
+    ???
+&lt;frozen importlib._bootstrap_external&gt;:1073: in get_code
+    ???
+&lt;frozen importlib._bootstrap_external&gt;:1130: in get_data
+    ???
+E   FileNotFoundError: [Errno 2] No such file or directory: 'D:\\dev_A股\\liangjian_wp5_hotfix_20261009\\scripts\\audit_disclosure_batch_offline.py'</failure></testcase><testcase classname="tests.test_wp5_disclosure_batch_audit" name="test_mismatched_or_modified_a1_is_not_replay_input[outside_scope]" time="0.001"><failure message="FileNotFoundError: [Errno 2] No such file or directory: 'D:\\dev_A股\\liangjian_wp5_hotfix_20261009\\scripts\\audit_disclosure_batch_offline.py'">tests\test_wp5_disclosure_batch_audit.py:62: in test_mismatched_or_modified_a1_is_not_replay_input
+    module().audit_projected_batch(snapshot, lane)
+    ^^^^^^^^
+tests\test_wp5_disclosure_batch_audit.py:17: in module
+    spec.loader.exec_module(result)
+&lt;frozen importlib._bootstrap_external&gt;:936: in exec_module
+    ???
+&lt;frozen importlib._bootstrap_external&gt;:1073: in get_code
+    ???
+&lt;frozen importlib._bootstrap_external&gt;:1130: in get_data
+    ???
+E   FileNotFoundError: [Errno 2] No such file or directory: 'D:\\dev_A股\\liangjian_wp5_hotfix_20261009\\scripts\\audit_disclosure_batch_offline.py'</failure></testcase><testcase classname="tests.test_wp5_disclosure_batch_audit" name="test_cli_does_not_overwrite_input_or_existing_evidence" time="0.006"><failure message="FileNotFoundError: [Errno 2] No such file or directory: 'D:\\dev_A股\\liangjian_wp5_hotfix_20261009\\scripts\\audit_disclosure_batch_offline.py'">tests\test_wp5_disclosure_batch_audit.py:66: in test_cli_does_not_overwrite_input_or_existing_evidence
+    tool = module()
+           ^^^^^^^^
+tests\test_wp5_disclosure_batch_audit.py:17: in module
+    spec.loader.exec_module(result)
+&lt;frozen importlib._bootstrap_external&gt;:936: in exec_module
+    ???
+&lt;frozen importlib._bootstrap_external&gt;:1073: in get_code
+    ???
+&lt;frozen importlib._bootstrap_external&gt;:1130: in get_data
+    ???
+E   FileNotFoundError: [Errno 2] No such file or directory: 'D:\\dev_A股\\liangjian_wp5_hotfix_20261009\\scripts\\audit_disclosure_batch_offline.py'</failure></testcase></testsuite></testsuites>
