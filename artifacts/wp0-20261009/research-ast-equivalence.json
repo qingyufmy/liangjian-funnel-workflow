@@ -1,0 +1,10 @@
+{
+  "definitions": 239,
+  "missing": 0,
+  "extra": 0,
+  "changed": 0,
+  "external_import_edges": 97,
+  "import_diff": 0,
+  "baseline_sha256": "6ee3fccf3656b85eaea0098d528e45183487c5bdc79e31f07de2033e16f0b649",
+  "scope": "AST_SIGNATURE_AND_RESOLVED_IMPORT_EQUIVALENCE_NOT_PRODUCTION_ACCEPTANCE"
+}

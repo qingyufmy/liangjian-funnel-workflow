@@ -1,4 +1,23 @@
 {
+  "wp0_repository_baseline_20261009": {
+    "branch": "codex/wp0-repository-baseline-20261009",
+    "baseline_commit": "89e6a2d92d5e2886cdaecc54c359559555109720",
+    "code": "PRE_POST_RELOCATION_BOTH_EXIT0_2345_TOTAL_2338_PASS_6_SKIP_1_STRICT_XFAIL_AST_239_DEFINITIONS_97_EDGES_ZERO_DIFFERENCE",
+    "replay": "NOT_APPLICABLE",
+    "operations": "NOT_AUTHORIZED_NO_DEPLOY_NO_PRODUCTION_DB_ACCESS",
+    "strategy": "NOT_APPLICABLE_UNCHANGED",
+    "evidence": "docs/WP0_REPOSITORY_BASELINE_2026-10-09.md",
+    "decision_5": "PENDING_NO_DIRECTORY_DELETE_RENAME_OR_VENV_MOVE_FIVE_TAGS_CREATED_TWO_DIRTY_WORKTREES_PRESERVED",
+    "commands": [
+      {"command": "python scripts/inventory_worktrees.py --primary D:/dev_A股/liangjian_a4_20260923 --tag --output artifacts/wp0-20261009/worktree-inventory.json", "exit_code": 0},
+      {"command": "python -m pytest tests/test_wp0_baseline_gate.py -o addopts='' -q (counterexample before HEAD/tree guard)", "exit_code": 1, "failed": 2},
+      {"command": "scripts/test_all.ps1 -PythonPath D:/dev_A股/liangjian_funnel_workflow/.venv/Scripts/python.exe -OutputDirectory artifacts/wp0-20261009/full-before-relocation-final", "exit_code": 0, "total": 2345},
+      {"command": "python scripts/split_research_mechanically.py --execute", "exit_code": 0},
+      {"command": "python scripts/verify_research_equivalence.py --manifest artifacts/wp0-20261009/research-relocation-manifest.json --output artifacts/wp0-20261009/research-ast-equivalence.json", "exit_code": 0},
+      {"command": "scripts/test_all.ps1 -PythonPath D:/dev_A股/liangjian_funnel_workflow/.venv/Scripts/python.exe -OutputDirectory artifacts/wp0-20261009/full-after-relocation", "exit_code": 0, "total": 2345}
+    ],
+    "next": "START_ONLY_WP1_PARALLEL_DELETE_RENAME_AND_DEPLOY_REMAIN_SEPARATELY_GATED"
+  },
   "a2_preopen_repair_20261009": {
     "baseline_commit": "f9bbe9a953ed95cbbc63c6092de2f6865f06d7d2",
     "code": "386_RELATED_PASSED_51_CHANGED_PATH_2_PROMOTION_49_MAINTENANCE_101_SAME_DAY_DELTA_152_ORG_ID_SLICE_PASSED_OVERLAPPING_COUNTS",

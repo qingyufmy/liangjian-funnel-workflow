@@ -32,13 +32,16 @@ out['modules'] = []
 for name in ['data.board_reference','data.hithink_board_reference','data.rotation_theme','pipeline.data_source',
              'runtime.auction_base','settings','workflow','data.publication','data.live_fetch',
              'data.tencent_minute','runtime.monitor','pipeline.a2_role_logic', 'pipeline.a3_strategy',
-             'pipeline.research', 'cli']:
+             'pipeline.research', 'pipeline.research.common', 'pipeline.research.a1',
+             'pipeline.research.a2', 'pipeline.research.a3', 'cli']:
     try:
         m = importlib.import_module('liangjian_funnel.'+name)
     except ModuleNotFoundError:
         continue
     p = pathlib.Path(m.__file__)
     src = root/'src/liangjian_funnel'/pathlib.Path(*name.split('.')).with_suffix('.py')
+    if not src.is_file():
+        src = src.with_suffix('')/'__init__.py'
     out['modules'].append({'module':name,'path':str(p),'sha256':hashlib.sha256(p.read_bytes()).hexdigest(),
                            'matches_src':src.is_file() and p.read_bytes()==src.read_bytes()})
 with readonly(s.state_db_path) as c:

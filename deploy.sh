@@ -30,7 +30,7 @@ assert_deployment_window() {
 }
 assert_deployment_window "$@"
 
-PROJECT_ROOT="/www/wwwroot/Agu/liangjian-funnel-workflow"
+PROJECT_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_NAME="量见-A股-工作流"
 BOOTSTRAP_UNIT="liangjian-research-g0-bootstrap-20260826.service"
 DEPLOY_LOCK="/tmp/liangjian-funnel-node-deploy.lock"
@@ -62,6 +62,18 @@ echo "[deploy] Fetching origin/main..."
 runuser -u www -- git fetch origin main
 current_commit="$(runuser -u www -- git rev-parse HEAD)"
 target_commit="$(runuser -u www -- git rev-parse origin/main)"
+
+# The operator transfers the local full-suite receipt AND its three logs.
+# Fail before pulling, installing or restarting; never accept a slice, a
+# different HEAD, a modified receipt/log or a dirty-source baseline.
+if [[ -z "${LIANGJIAN_TEST_EVIDENCE:-}" || -z "${LIANGJIAN_TEST_EVIDENCE_SHA256:-}" ]]; then
+  echo "[deploy] HEAD-bound local full-test evidence and SHA256 are required."
+  exit 7
+fi
+runuser -u www -- git show "${target_commit}:scripts/full_test_baseline.py" | \
+runuser -u www -- .venv/bin/python - \
+  --verify "${LIANGJIAN_TEST_EVIDENCE}" \
+  --sha256 "${LIANGJIAN_TEST_EVIDENCE_SHA256}" --head "${target_commit}"
 
 if [[ "${bootstrap_state_before}" == "active" && "${current_commit}" != "${target_commit}" ]]; then
   changed_files="$(runuser -u www -- git diff --name-only "${current_commit}..${target_commit}")"

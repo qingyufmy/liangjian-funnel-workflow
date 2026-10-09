@@ -57,7 +57,7 @@ A2 的确定性行同时保留 `gate_results`、`first_blocking_gate` 和 `all_f
 项目已经有独立虚拟环境：
 
 ```powershell
-cd D:\dev_A股\liangjian_funnel_workflow
+Set-Location (git rev-parse --show-toplevel)
 .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
 ```
 

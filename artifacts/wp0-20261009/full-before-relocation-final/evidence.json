@@ -1,0 +1,80 @@
+{
+  "schema_version": "full-test-baseline/1",
+  "head": "89e6a2d92d5e2886cdaecc54c359559555109720",
+  "tree": "ebf24cd2b306850541ebf9b483e1a121f1553b8c",
+  "root": "D:\\dev_A股\\liangjian_wp0_20261009",
+  "started_at": "2026-10-09T17:31:32.831156+08:00",
+  "python": "D:/dev_A股/liangjian_funnel_workflow/.venv/Scripts/python.exe",
+  "clean_start": false,
+  "steps": {
+    "pytest": {
+      "command": [
+        "D:/dev_A股/liangjian_funnel_workflow/.venv/Scripts/python.exe",
+        "-m",
+        "pytest",
+        "tests",
+        "-o",
+        "addopts=",
+        "-q",
+        "--junitxml=D:\\dev_A股\\liangjian_wp0_20261009\\artifacts\\wp0-20261009\\full-before-relocation-final\\pytest.xml"
+      ],
+      "exit_code": 0,
+      "log": "pytest.log",
+      "log_sha256": "391f07e62ce4423b109f4bd4eb3a3048ba2824f959390e3c165afdd0645d1b58",
+      "seconds": 155.203
+    },
+    "npm_test": {
+      "command": [
+        "C:\\Users\\Administrator\\AppData\\Local\\hermes\\node\\npm.cmd",
+        "test",
+        "--",
+        "--reporter=default",
+        "--reporter=json",
+        "--outputFile=D:\\dev_A股\\liangjian_wp0_20261009\\artifacts\\wp0-20261009\\full-before-relocation-final\\vitest.json"
+      ],
+      "exit_code": 0,
+      "log": "npm_test.log",
+      "log_sha256": "dcda9519af2c69b014adcf95de6c00b87756b1eeb08be597098860b86a4f1073",
+      "seconds": 1.516
+    },
+    "typecheck": {
+      "command": [
+        "C:\\Users\\Administrator\\AppData\\Local\\hermes\\node\\npm.cmd",
+        "run",
+        "typecheck"
+      ],
+      "exit_code": 0,
+      "log": "typecheck.log",
+      "log_sha256": "8668c4ebc000528e97087f717e1ecc070d059016149df4223296b9b8a6572c26",
+      "seconds": 3.265
+    }
+  },
+  "python_counts": {
+    "tests": 2251,
+    "passed": 2244,
+    "failed": 0,
+    "skipped": 6,
+    "xfail": 1
+  },
+  "node_counts": {
+    "tests": 94,
+    "passed": 94,
+    "failed": 0,
+    "skipped": 0,
+    "xfail": 0
+  },
+  "totals": {
+    "tests": 2345,
+    "passed": 2338,
+    "failed": 0,
+    "skipped": 6,
+    "xfail": 1
+  },
+  "failures": [],
+  "clean_end": false,
+  "head_end": "89e6a2d92d5e2886cdaecc54c359559555109720",
+  "tree_end": "ebf24cd2b306850541ebf9b483e1a121f1553b8c",
+  "finished_at": "2026-10-09T17:34:12.980789+08:00",
+  "status": "PASSED",
+  "release_qualified": false
+}

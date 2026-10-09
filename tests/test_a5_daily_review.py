@@ -194,6 +194,9 @@ class _FailingPublisher:
 
 
 def test_frozen_retry_uses_original_evidence_and_is_idempotent(tmp_path, monkeypatch):
+    # This test checks idempotency and the initial budget, not elapsed time.
+    # Freeze the clock so real filesystem latency cannot consume the budget.
+    monkeypatch.setattr('liangjian_funnel.review.daily.time.monotonic', lambda: 100.0)
     store=RuntimeStore(tmp_path/'state.db')
     _seed(store,tmp_path)
     cutoff=datetime(2026,9,3,11,30,tzinfo=TZ)
