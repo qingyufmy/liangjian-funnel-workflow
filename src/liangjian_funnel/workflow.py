@@ -68,6 +68,7 @@ from .pipeline.data_sync import HithinkIncrementalSynchronizer
 from .pipeline.early_discovery import scan_cached_universe
 from .pipeline.close_scope import seal_scope_receipt
 from .pipeline.disclosure_scope import build_disclosure_prefilter, event_scope
+from .pipeline.disclosure_maintenance import seal_maintenance_queue
 from .pipeline.a2_features import build_a2_feature_snapshot
 from .pipeline.a1_sources import (
     A1SourceRegistryError,
@@ -986,6 +987,7 @@ class WorkflowApplication:
         # company announcement is read. Query scope remains unchanged until
         # frozen A2 coverage and the night queue have passed their own gates.
         disclosure_prefilter = None
+        disclosure_maintenance_reference = None
         if candidate_symbols is not None:
             event_symbols, events_complete = event_scope(market_fact_results, closed_trade_date)
             discovery = full_market_discovery or {}
@@ -1002,6 +1004,24 @@ class WorkflowApplication:
                 f"disclosure-prefilter-{closed_trade_date}-{disclosure_prefilter['scope_hash']}.json",
                 disclosure_prefilter,
             )
+            if close_scope_receipt is not None:
+                source_receipt = json.loads(close_scope_receipt.read_text(encoding='utf-8'))
+                if source_receipt['binding_status'] == 'ORIGINAL_RUN_REFERENCE':
+                    queue_path = seal_maintenance_queue(
+                        self.settings.research_checkpoint_dir / 'disclosure_maintenance',
+                        source_receipt, disclosure_prefilter)
+                    queue = json.loads(queue_path.read_text(encoding='utf-8'))
+                    disclosure_maintenance_reference = {
+                        'status': 'SHADOW_QUEUE_SEALED', 'path': str(queue_path),
+                        'queue_hash': queue['queue_hash'],
+                        'deferred_count': len(queue['deferred_symbols']),
+                        'execution_authority': False, 'changes_query_scope': False,
+                    }
+                else:
+                    disclosure_maintenance_reference = {
+                        'status': 'ORIGINAL_A1_REFERENCE_REQUIRED', 'execution_authority': False,
+                        'changes_query_scope': False,
+                    }
 
         # A1 is a structural macro/policy layer. A six-day window only shows
         # incidental recent notices and cannot support policy lifecycle or
@@ -1328,6 +1348,8 @@ class WorkflowApplication:
         fact_payload["selected_board_snapshot"] = selected_board
         if disclosure_prefilter is not None:
             fact_payload['disclosure_prefilter_shadow'] = disclosure_prefilter
+        if disclosure_maintenance_reference is not None:
+            fact_payload['disclosure_maintenance_reference'] = disclosure_maintenance_reference
         fact_payload["early_discovery_snapshot"] = (
             full_market_discovery if full_market_discovery is not None else getattr(sync_result, "early_discovery", {})
         )

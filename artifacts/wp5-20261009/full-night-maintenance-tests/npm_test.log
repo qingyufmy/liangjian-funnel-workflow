@@ -1,0 +1,23 @@
+
+> liangjian-funnel-console@1.0.0 test
+> vitest run --config vitest.config.ts --reporter=default --reporter=json --outputFile=D:\dev_A股\liangjian_wp5_hotfix_20261009\artifacts\wp5-20261009\full-night-maintenance-tests\vitest.json
+
+
+ RUN  v4.1.11 D:/dev_A股/liangjian_wp5_hotfix_20261009
+
+ ✓ test/server/console-truth.test.ts (3 tests) 17ms
+ ✓ test/web/localization.test.ts (6 tests) 9ms
+ ✓ test/web/issues.test.ts (7 tests) 8ms
+ ✓ test/server/auction-refresh.test.ts (5 tests) 48ms
+ ✓ test/server/primary-comparison.test.ts (8 tests) 38ms
+ ✓ test/server/a3-display.test.ts (7 tests) 36ms
+ ✓ test/server/research-presentation.test.ts (5 tests) 74ms
+ ✓ test/a5-signal-audit.test.ts (2 tests) 12ms
+ ✓ test/server/server.test.ts (51 tests) 375ms
+
+ Test Files  9 passed (9)
+      Tests  94 passed (94)
+   Start at  20:39:14
+   Duration  1.37s (transform 1.38s, setup 0ms, import 1.94s, tests 616ms, environment 1ms)
+
+JSON report written to D:/dev_A股/liangjian_wp5_hotfix_20261009/artifacts/wp5-20261009/full-night-maintenance-tests/vitest.json
