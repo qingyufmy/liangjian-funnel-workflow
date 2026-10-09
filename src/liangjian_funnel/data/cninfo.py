@@ -439,6 +439,8 @@ class CninfoClient:
         self._endpoint = f"{base_url.rstrip('/')}/new/hisAnnouncement/query"
         self._org_search_endpoint = f"{base_url.rstrip('/')}/new/information/topSearch/detailOfQuery"
         self._org_id_cache: dict[str, str] = {}
+        self._org_id_evidence: dict[str, dict[str, Any]] = {}
+        self._org_catalog_receipt: dict[str, Any] | None = None
         self._org_id_lock = RLock()
         self._now_fn = now or (lambda: datetime.now(SHANGHAI))
         self._client = http_client or client
@@ -482,6 +484,85 @@ class CninfoClient:
             except Exception:
                 pass
 
+    def warm_org_catalog(self, symbols: list[str]) -> dict[str, Any]:
+        """One official identifier lookup before the parallel query batch.
+
+        Names/categories are not financial evidence and are never interpreted.
+        Missing, ambiguous or mismatched rows retain the existing exact search
+        fallback. A failed catalogue cannot make an announcement query ready.
+        Call before starting workers; all subsequent memo reads are locked.
+        """
+        if self._org_catalog_receipt is not None:
+            return self._org_catalog_receipt
+        endpoint = 'https://www.cninfo.com.cn/new/data/szse_stock.json'
+        observed = self._now()
+        receipt: dict[str, Any] = {'source_id': 'CNINFO_STOCK_CATALOG',
+            'endpoint': endpoint, 'fetched_at': observed.isoformat(),
+            'status': 'DEGRADED', 'matched_symbols': 0,
+            'reason_code': 'CNINFO_ORG_CATALOG_UNAVAILABLE'}
+        # The receipt is retained even after failure: no per-stock GET retry.
+        self._org_catalog_receipt = receipt
+        requested = {}
+        for symbol in symbols:
+            try:
+                canonical, column, _ = _normalise_symbol(symbol)
+            except CninfoContractError:
+                continue
+            code = canonical.split('.')[0]
+            # The catalogue lacks an exchange column. Only unambiguous A-share
+            # code namespaces may be matched, never an arbitrary suffix.
+            if ((column == 'sse' and re.fullmatch(r'(?:60|68)\d{4}', code))
+                    or (column == 'szse' and re.fullmatch(r'(?:00|30)\d{4}', code))):
+                requested[canonical] = (code, column)
+        if not requested:
+            receipt['reason_code'] = 'CNINFO_ORG_CATALOG_NO_SUPPORTED_SYMBOLS'
+            return receipt
+        try:
+            self._throttle()
+            response = self._client.get(endpoint)
+            receipt['http_status'] = response.status_code
+            if response.status_code != 200 or len(response.content) > 4_000_000:
+                return receipt
+            raw = response.content.decode('utf-8')
+            payload = json.loads(raw)
+            items = payload.get('stockList') if isinstance(payload, Mapping) else None
+            if not isinstance(items, list) or not 0 < len(items) <= 20_000:
+                receipt['reason_code'] = 'CNINFO_ORG_CATALOG_CONTRACT_CHANGED'
+                return receipt
+        except (httpx.HTTPError, OSError, ValueError, TypeError, AttributeError):
+            return receipt
+        observed = self._now()
+        receipt['fetched_at'] = observed.isoformat()
+        content_hash = hashlib.sha256(response.content).hexdigest()
+        grouped: dict[str, list[Mapping[str, Any]]] = {}
+        for item in items:
+            if isinstance(item, Mapping) and _CODE.fullmatch(str(item.get('code', ''))):
+                grouped.setdefault(str(item['code']), []).append(item)
+        matches = 0
+        with self._org_id_lock:
+            for canonical, (code, column) in requested.items():
+                rows = grouped.get(code, [])
+                if len(rows) != 1:
+                    continue
+                org = str(rows[0].get('orgId', ''))
+                # Organization IDs are opaque entity identifiers, not market
+                # codes. Transfers/renumberings retain gfbj/qsgn/old gssz IDs.
+                # Use the official unique exact-code mapping verbatim under
+                # the same syntax contract as the exact top-search endpoint.
+                if not re.fullmatch(r'[A-Za-z0-9]{3,32}', org):
+                    continue
+                self._org_id_cache[canonical] = org
+                self._org_id_evidence[canonical] = {
+                    'content_hash': content_hash, 'code': code, 'org_id': org,
+                    'fetched_at': observed.isoformat(), 'endpoint': endpoint}
+                matches += 1
+        receipt.update(matched_symbols=matches, requested_symbols=len(requested),
+                       catalog_rows=len(items), content_hash=content_hash,
+                       raw_response_utf8=raw,
+                       status='READY' if matches == len(requested) else 'DEGRADED',
+                       reason_code='OK' if matches == len(requested) else 'CNINFO_ORG_CATALOG_PARTIAL')
+        return receipt
+
     def fetch_announcements(
         self,
         symbol: str,
@@ -521,6 +602,11 @@ class CninfoClient:
             if not _resolved_stock.startswith(expected_prefix) or not re.fullmatch(r"\d{6},[A-Za-z0-9]{3,32}", _resolved_stock):
                 return self._failure(canonical, start, end, "INVALID_RESOLVED_STOCK", fetched_at=fetched_at)
             stock = _resolved_stock
+        else:
+            with self._org_id_lock:
+                memo = self._org_id_cache.get(canonical)
+            if memo is not None:
+                _resolved_stock = stock = f"{canonical.split('.')[0]},{memo}"
 
         form_base: dict[str, str | int] = {
             "pageSize": page_size,
@@ -550,11 +636,20 @@ class CninfoClient:
             # announcement payload is untrusted and can be very large; the
             # caller only needs to know that the advisory ``totalpages``
             # field disagreed with the observed pagination contract.
-            return (
+            metadata = (
                 {"pagination_metadata_inconsistent": True}
                 if pagination_metadata_inconsistent
                 else {}
             )
+            with self._org_id_lock:
+                evidence = self._org_id_evidence.get(canonical)
+                memo = self._org_id_cache.get(canonical)
+            if evidence is not None:
+                metadata.update(org_id_source='CNINFO_STOCK_CATALOG',
+                                org_id_catalog=dict(evidence))
+            elif memo is not None and _resolved_stock == f"{canonical.split('.')[0]},{memo}":
+                metadata['org_id_source'] = 'CNINFO_TOP_SEARCH_MEMO'
+            return metadata
 
         for page_number in range(1, max_pages + 1):
             form = {**form_base, "pageNum": page_number}
@@ -774,7 +869,7 @@ class CninfoClient:
     def _resolve_stock(self, canonical: str, column: str) -> str | None:
         code = canonical.split(".", 1)[0]
         with self._org_id_lock:
-            cached = self._org_id_cache.get(code)
+            cached = self._org_id_cache.get(canonical)
         if cached is not None:
             return f"{code},{cached}"
         for attempt in range(1, MAX_RETRIES + 1):
@@ -815,7 +910,7 @@ class CninfoClient:
                 return None
             org_id = str(matches[0]["orgId"])
             with self._org_id_lock:
-                self._org_id_cache[code] = org_id
+                self._org_id_cache[canonical] = org_id
             return f"{code},{org_id}"
         return None
 

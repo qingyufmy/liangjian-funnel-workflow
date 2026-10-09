@@ -258,6 +258,136 @@ def test_zero_records_resolves_exact_cninfo_org_id_and_retries_query() -> None:
     assert queried_stocks == ["300308,gssz0300308", "300308,9900022016"]
 
 
+def test_resolved_org_is_used_before_subsequent_empty_queries():
+    calls = []
+    def handler(request):
+        form = dict(httpx.QueryParams(request.content.decode()))
+        calls.append((request.url.path, form.get('stock')))
+        if 'topSearch' in request.url.path:
+            return httpx.Response(200, json={'keyBoardList': [
+                {'code': '300308', 'plate': 'szse', 'orgId': '9900022016'}]})
+        return httpx.Response(200, json=page(None, total=0, total_pages=0, has_more=False))
+    with client(handler) as cninfo:
+        first = cninfo.fetch_announcements('300308.SZ', '2026-08-25', '2026-08-25')
+        before = len(calls)
+        second = cninfo.fetch_announcements('300308.SZ', '2026-08-24', '2026-08-25')
+    assert first.ok and second.ok and second.complete
+    assert calls[before:] == [('/new/hisAnnouncement/query', '300308,9900022016')]
+    assert second.metadata['org_id_source'] == 'CNINFO_TOP_SEARCH_MEMO'
+
+
+def test_catalog_warmup_uses_exact_unique_code_and_keeps_identity_evidence():
+    calls = []
+    def handler(request):
+        calls.append(request)
+        if request.method == 'GET':
+            return httpx.Response(200, json={'stockList': [
+                {'code': '300308', 'orgId': '9900022016', 'zwjc': 'untrusted'}]})
+        return httpx.Response(200, json=page(None, total=0, total_pages=0, has_more=False))
+    with client(handler) as cninfo:
+        receipt = cninfo.warm_org_catalog(['300308.SZ'])
+        result = cninfo.fetch_announcements('300308.SZ', '2026-08-25', '2026-08-25')
+    assert receipt['status'] == 'READY' and receipt['matched_symbols'] == 1
+    assert len(calls) == 2 and calls[0].method == 'GET'
+    assert dict(httpx.QueryParams(calls[1].content.decode()))['stock'] == '300308,9900022016'
+    assert result.ok and result.complete
+    assert result.metadata['org_id_source'] == 'CNINFO_STOCK_CATALOG'
+    assert result.metadata['org_id_catalog']['content_hash'] == receipt['content_hash']
+    assert result.metadata['org_id_catalog']['code'] == '300308'
+
+
+@pytest.mark.parametrize('items', [
+    [{'code': '300308', 'orgId': '9900022016'}, {'code': '300308', 'orgId': '9909999999'}],
+    [{'code': '300308', 'orgId': ''}],
+    [{'code': '300308', 'orgId': 'bad,id'}],
+    [{'code': '300309', 'orgId': '9900022016'}],
+])
+def test_catalog_ambiguity_bad_identity_or_missing_code_preserves_verified_fallback(items):
+    calls = []
+    def handler(request):
+        calls.append(request)
+        if request.method == 'GET':
+            return httpx.Response(200, json={'stockList': items})
+        if 'topSearch' in request.url.path:
+            return httpx.Response(200, json={'keyBoardList': [
+                {'code': '300308', 'plate': 'szse', 'orgId': '9900022016'}]})
+        return httpx.Response(200, json=page(None, total=0, total_pages=0, has_more=False))
+    with client(handler) as cninfo:
+        receipt = cninfo.warm_org_catalog(['300308.SZ'])
+        result = cninfo.fetch_announcements('300308.SZ', '2026-08-25', '2026-08-25')
+    assert receipt['status'] == 'DEGRADED' and receipt['matched_symbols'] == 0
+    assert result.ok and result.metadata['org_id_source'] == 'CNINFO_TOP_SEARCH'
+    assert len(calls) == 4
+
+
+def test_catalog_failure_is_once_per_client_not_empty_disclosure_success():
+    calls = []
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(503)
+    with client(handler) as cninfo:
+        receipt = cninfo.warm_org_catalog(['300308.SZ'])
+        assert cninfo.warm_org_catalog(['300308.SZ']) == receipt
+        result = cninfo.fetch_announcements('300308.SZ', '2026-08-25', '2026-08-25')
+    assert receipt['status'] == 'DEGRADED'
+    assert not result.ok and not result.complete
+    assert len([r for r in calls if r.method == 'GET']) == 1
+
+
+def test_catalog_does_not_infer_exchange_from_an_arbitrary_suffix():
+    calls = []
+    with client(lambda request: calls.append(request) or httpx.Response(200,
+            json={'stockList': [{'code': '600519', 'orgId': 'gssh0600519'}]})) as cninfo:
+        receipt = cninfo.warm_org_catalog(['600519.SZ', '300308.SH', '920000.BJ'])
+    assert receipt['matched_symbols'] == 0
+    assert receipt['reason_code'] == 'CNINFO_ORG_CATALOG_NO_SUPPORTED_SYMBOLS'
+    assert calls == []
+
+
+@pytest.mark.parametrize('code,org', [
+    ('000166', 'qsgn0000301'), ('001267', 'gssz0000765'), ('001202', 'gfbj0839749')])
+def test_catalog_preserves_opaque_ids_after_renumbering_and_market_transfers(code, org):
+    calls = []
+    def handler(request):
+        calls.append(request)
+        if request.method == 'GET':
+            return httpx.Response(200, json={'stockList': [{'code': code, 'orgId': org}]})
+        return httpx.Response(200, json=page(None, total=0, total_pages=0, has_more=False))
+    with client(handler) as cninfo:
+        receipt = cninfo.warm_org_catalog([code+'.SZ'])
+        result = cninfo.fetch_announcements(code+'.SZ', '2026-08-25', '2026-08-25')
+    assert receipt['status'] == 'READY' and result.ok
+    assert dict(httpx.QueryParams(calls[-1].content.decode()))['stock'] == f'{code},{org}'
+
+
+def test_catalog_identity_cannot_make_wrong_security_announcements_complete():
+    def handler(request):
+        if request.method == 'GET':
+            return httpx.Response(200, json={'stockList': [{'code': '300308', 'orgId': '9900022016'}]})
+        return httpx.Response(200, json=page([announcement('a1')], total=1, total_pages=1, has_more=False))
+    with client(handler) as cninfo:
+        cninfo.warm_org_catalog(['300308.SZ'])
+        result = cninfo.fetch_announcements('300308.SZ', '2026-08-25', '2026-08-25')
+    assert not result.ok and not result.complete
+    assert result.reason_code == 'CNINFO_CONTRACT_CHANGED'
+
+
+def test_top_search_memo_is_market_scoped():
+    calls = []
+    def handler(request):
+        form = dict(httpx.QueryParams(request.content.decode()))
+        calls.append(form)
+        if 'topSearch' in request.url.path:
+            return httpx.Response(200, json={'keyBoardList': [
+                {'code': '300308', 'plate': 'szse', 'orgId': '9900022016'}]})
+        return httpx.Response(200, json=page(None, total=0, total_pages=0, has_more=False))
+    with client(handler) as cninfo:
+        cninfo.fetch_announcements('300308.SZ', '2026-08-25', '2026-08-25')
+        before = len(calls)
+        cninfo.fetch_announcements('300308.SH', '2026-08-25', '2026-08-25')
+    assert calls[before]['stock'] == '300308,gssh0300308'
+
+
 def test_real_single_stock_shape_allows_zero_totalpages_and_null_storage_time() -> None:
     item = announcement("a1")
     item["storageTime"] = None

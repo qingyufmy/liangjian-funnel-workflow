@@ -991,6 +991,11 @@ class WorkflowApplication:
             disclosure_router = OfficialDisclosureRouter(
                 cninfo, sse=sse, szse=szse, bse=bse
             )
+            # One official identity catalogue avoids a guessed empty query,
+            # top-search and second query for every numeric organization ID.
+            # This is not a disclosure completeness gate; missing catalogue
+            # entries keep the original per-security search/fallback contract.
+            self._warm_cninfo_org_catalog(cninfo, [candidate.symbol for candidate in selected])
             # Each candidate is one independent unit containing the recent and
             # business-history queries.  The shared client owns the global
             # request throttle, so workers hide network latency without
@@ -1607,6 +1612,18 @@ class WorkflowApplication:
             progress.finish(status="BLOCKED", phase="FAILED", reason_code=_safe_reason_code(exc))
             _progress_stdout(progress.snapshot())
             raise
+
+    def _warm_cninfo_org_catalog(self, client: Any, symbols: list[str]) -> dict[str, Any] | None:
+        warm_catalog = getattr(client, 'warm_org_catalog', None)
+        if not callable(warm_catalog):
+            return None
+        receipt = warm_catalog(symbols)
+        observed = datetime.fromisoformat(receipt['fetched_at'])
+        self.fact_cache.put_cached_result(
+            'CNINFO_ORG_CATALOG', receipt.get('content_hash', 'unavailable'),
+            receipt, fetched_at=observed, expires_at=observed + timedelta(hours=24),
+        )
+        return receipt
 
     def _cached_cninfo_result(
         self,

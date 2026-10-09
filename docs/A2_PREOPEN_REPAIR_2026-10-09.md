@@ -57,3 +57,27 @@ $env:PYTHONPATH='D:/dev_A股/liangjian_a4_20260923/src'
 只读数据库以`julianday`统一时区核查：今日07:14—07:55写入3726份公告结果/投影，其中1853份近期公告，1852份年度公告增量投影；随后55份PDF证据。数量不等于HTTP次数。近期结果平均仅1页，缩短日期范围并不能证明解决了主要耗时。另发现巨潮组织ID解析对空结果可能增加搜索与重查询，仍需单独测试和计时，不能把它当成已证实的唯一超时原因。
 
 今日原基线保持BLOCKED，执行计划仍0。本轮不伪造晨间时间、不补历史信号，也不以源码修复代替新资料和计划验收。
+
+## 最终盘前部署与组织ID补充修复
+
+`47f6ef03b042c0f9a207400c72d2ecffff338244`已推送并通过原`deploy.sh`发布，退出0。一次GitHub TLS握手失败发生在fetch，原脚本重试成功；没有修改代理。08:56:18只读实证：15个模块实际site-packages与src一致，Node启动正常，LOCAL_REFERENCE生效，今日计划仍0、原基线仍BLOCKED。证据：`artifacts/readiness-20261009/repaired-final-preopen-0857.json`。
+
+新增组织ID修复已完成，但进入09:00保护后未部署：
+
+- CNINFO批次只预取一次公开组织ID目录，按明确A股代码命名空间、唯一精确代码映射取原ID；组织ID不能按代码或当前交易所拼接。实测000166→qsgn0000301、001267→gssz0000765、001202→gfbj0839749，目录与逐股搜索一致。
+- 目录重复、非法ID、缺股票或请求失败保留既有逐股核验回退，不让目录成功替代公告完整性。已核验组织ID按canonical symbol缓存并直接用于后续请求，不跨市场复用。
+- 目录原响应、HTTP内容哈希、取得时间保存到独立CNINFO_ORG_CATALOG事实账本；逐股公告结果携带身份映射证据，不改原公告、原快照或原计划。目录失败不会制造空公告成功。
+- 实测3只股票的完整公告内容一致，请求7→4。当前活动A1的1749只组织ID匹配1749/1749；这不是1749只财务、公告或交易行情无缺项的证明，也不是自然基线耗时验收。
+
+反例测试先退出1（7项失败），修改后完整相关切片152 passed，退出0：
+
+```powershell
+$env:PYTHONPATH='D:/dev_A股/liangjian_a4_20260923/src'
+& D:/dev_A股/liangjian_funnel_workflow/.venv/Scripts/python.exe -m pytest -o addopts='' -q tests/test_cninfo_adapter.py tests/test_cninfo_fact_normalization.py tests/test_disclosure_router.py tests/test_disclosure_incremental.py tests/test_workflow_integration.py tests/test_workflow_fact_result_cache.py tests/test_auction_base.py tests/test_a1_sources.py tests/test_a1_registry.py
+& D:/dev_A股/liangjian_funnel_workflow/.venv/Scripts/python.exe scripts/probe_cninfo_org_resolution_readonly.py --output artifacts/readiness-20261009/cninfo-org-catalog-comparison.json
+& D:/dev_A股/liangjian_funnel_workflow/.venv/Scripts/python.exe scripts/probe_cninfo_org_resolution_readonly.py --vm-catalog-scope --output artifacts/readiness-20261009/cninfo-active-a1-catalog-scope-final.json
+```
+
+三个最终命令退出0，原受限前缀匹配的1500/1749探测失败证据另存，未覆盖。最后两个命令是已执行记录，重放必须使用新的输出文件名。
+
+CODE：已部署部分及新组织ID补丁分别通过相关测试；新补丁待盘后部署。REPLAY：权限和身份/缺页反例通过，不是全交易日回放。OPERATIONS：27方向成员图及15模块安装核验通过，但今日执行池未就绪。STRATEGY：规则未放宽，未证明收益或机会捕获提升。09:35核对自然任务；16:35后无活动任务才发布组织ID补丁，不能中断收盘研究/A5或绕过保护。

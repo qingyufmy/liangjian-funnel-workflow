@@ -20,6 +20,22 @@ from liangjian_funnel.workflow import (
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 
 
+def test_org_catalog_warmup_persists_raw_identity_evidence_without_disclosure_promotion(tmp_path):
+    import httpx
+    from liangjian_funnel.data.cninfo import CninfoClient
+    application = object.__new__(WorkflowApplication)
+    application.fact_cache = LocalFactCache(tmp_path / 'catalog-only.sqlite3')
+    payload = {'stockList': [{'code': '300308', 'orgId': '9900022016'}]}
+    with CninfoClient(transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json=payload))) as client:
+        receipt = application._warm_cninfo_org_catalog(client, ['300308.SZ'])
+    saved = application.fact_cache.get_cached_result('CNINFO_ORG_CATALOG', receipt['content_hash'])
+    assert json.loads(saved['payload']['raw_response_utf8']) == payload
+    assert hashlib.sha256(saved['payload']['raw_response_utf8'].encode()).hexdigest() == receipt['content_hash']
+    assert application.fact_cache.get_cached_result('CNINFO_ANNOUNCEMENTS', '300308.SZ:RECENT_10D') is None
+    assert application._warm_cninfo_org_catalog(FakeCninfoClient(), ['300308.SZ']) is None
+
+
 def test_hash_json_streaming_matches_legacy_canonical_contract():
     value = {
         "z": [1, {"中文": "量见"}],
