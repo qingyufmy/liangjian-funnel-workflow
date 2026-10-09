@@ -1,4 +1,22 @@
 {
+  "authorized_release_and_capital_label_20261010": {
+    "approved_release_head": "adafe5054b9ff283ea03925e2b0c6baf2146dcfe",
+    "release_status": "DEPLOYED_EXIT0_INSTALLED_32_MODULES_MATCH",
+    "release_evidence": "artifacts/wp5-20261010/release-adafe50-20261010T0703/",
+    "production_scope_mode": "SHADOW",
+    "next_session": "2026-10-12",
+    "next_session_plan_count": 0,
+    "weekend_preparation": "DECISION9_NOT_AUTHORIZED_NOT_RUN",
+    "fsync_idle": "EXIT3_PARENT_NOT_EXISTING_DIRECTORY_NO_SAMPLES_GATE0033",
+    "raw_six_day_copy": "EXIT2_EMPTY_PROVEN_COPY_ALLOWLIST_ZERO_FILES_NOT_PIT_PROVEN",
+    "capital_label_status": "ISOLATED_CODE_SLICE_NUMERIC_AND_ROUTE_EQUIVALENCE_PASSED_NEW_HEAD_FULL_PENDING",
+    "capital_label_before": {"exit_code": 1, "failed": 8, "artifact": "artifacts/wp5-20261010/capital-a-label-before.xml"},
+    "capital_label_after": {"exit_code": 0, "passed": 61, "artifact": "artifacts/wp5-20261010/capital-a-label-after.xml"},
+    "capital_label_routes": {"exit_code": 0, "passed": 10, "artifact": "artifacts/wp5-20261010/capital-a-label-routing.xml"},
+    "capital_label_operations": "NOT_DEPLOYED_NEW_HEAD_PUSH_AND_DEPLOY_REQUIRE_APPROVAL",
+    "capital_b_shadow": "AUTHORIZED_TOOL_AND_FIVE_DAY_EVIDENCE_PENDING_NO_POLICY_SWITCH",
+    "strategy": "NO_PARAMETER_THRESHOLD_WEIGHT_COUNT_CHANGE"
+  },
   "wp4_source_isolation_wp6_followup_20261010": {
     "status": "ISOLATED_SLICES_PENDING_NEW_HEAD_FULL_AND_REVIEW",
     "baseline_head": "ae2d098b5eeb3a369e23d080fd006b099d7962fc",

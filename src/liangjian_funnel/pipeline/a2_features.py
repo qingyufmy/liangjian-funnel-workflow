@@ -16,6 +16,8 @@ from datetime import date, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from ..data.capital_source_policy import capital_weighting_label, inspect_legacy_capital_weighting
+
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 A2_FEATURE_SCHEMA = "a2-features/3.3.0"
@@ -135,6 +137,7 @@ def build_a2_feature_snapshot(
         for key, value in raw_capital_by_symbol.items()
         if (normalized := _symbol(key)) and isinstance(value, Mapping)
     }
+    capital_weighting_audit = inspect_legacy_capital_weighting(capital_flow_snapshot or {})
     sector_capital_by_group = _sector_capital_flow_by_group(sector_cycle_snapshot)
 
     trend_by_symbol: dict[str, dict[str, Any]] = {}
@@ -550,6 +553,12 @@ def build_a2_feature_snapshot(
             if isinstance(capital, Mapping)
             else _factor(None, source="CAPITAL_FLOW_SNAPSHOT", availability_state="NOT_CONFIGURED", reason_code="A2_CAPITAL_FLOW_UNAVAILABLE")
         )
+        # Metadata only: keep symbol and sector factor contracts separate.
+        # Never recompute score/availability/role from the coverage label.
+        if symbol in capital_by_symbol:
+            capital_factor['weighting_observation'] = capital_weighting_label(
+                capital_weighting_audit, symbol,
+            )
         factors = {
             "breadth": breadth_by_symbol[symbol],
             "turnover_share": turnover_by_symbol[symbol],

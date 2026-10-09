@@ -31,7 +31,7 @@ from .data.a2_market import (
     with_capital_flow_provider_attempts,
 )
 from .data.bse import BseClient
-from .data.capital_source_policy import project_local_capital_evidence
+from .data.capital_source_policy import project_local_capital_evidence, inspect_legacy_capital_weighting
 from .data.cninfo import CninfoAnnouncement, CninfoClient, CninfoFetchResult
 from .data.disclosure_router import OfficialDisclosureRouter
 from .data.disclosure_incremental import compose_disclosure_delta, covers_query
@@ -6457,6 +6457,7 @@ class WorkflowApplication:
             "A2_SECTOR_HEALTH_SNAPSHOT": sector_health,
             "SECTOR_PERMISSIONS": sector_permissions,
             "CAPITAL_FLOW_SNAPSHOT": capital_flow,
+            "CAPITAL_FLOW_WEIGHTING_AUDIT": inspect_legacy_capital_weighting(capital_flow),
             "BOARD_CAPITAL_FLOW_SNAPSHOT": board_capital_flow,
             **({"CAPITAL_FLOW_RAW_TODAY_EVIDENCE": raw_capital_today_evidence}
                if raw_capital_today_evidence is not None else {}),
