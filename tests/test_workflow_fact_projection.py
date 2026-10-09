@@ -175,6 +175,7 @@ def test_research_input_projects_phase_one_facts_without_semantic_substitution(
             for symbol in ("600519.SH", "000001.SZ")
         },
         fact_payload={
+            'disclosure_prefilter_shadow': {'mode': 'SHADOW', 'scope_hash': 'shadow-fixture'},
             "snapshot_id": "facts-1",
             "manifest_hash": "a" * 64,
             "open_macro_bundle": {
@@ -307,6 +308,7 @@ def test_research_input_projects_phase_one_facts_without_semantic_substitution(
     assert result["snapshot_manifest"]["open_macro"]["content_hash"] == "b" * 64
     assert result["snapshot_manifest"]["as_of"] == research_as_of.isoformat()
     assert result["snapshot_manifest"]["market_data_as_of"] == NOW.isoformat()
+    assert result['DISCLOSURE_PREFILTER_SHADOW'] == {'mode': 'SHADOW', 'scope_hash': 'shadow-fixture'}
     assert result["MARKET_DATA_AS_OF"] == NOW.isoformat()
     assert result["MARKET_EMOTION_SNAPSHOT"]["as_of"] == NOW.isoformat()
     assert result["MARKET_FUNDING_SNAPSHOT"]["state"] in {

@@ -2,12 +2,17 @@
   "wp5_hotfix_close_scope_20261009": {
     "branch": "codex/wp5-hotfix-close-scope",
     "baseline_commit": "7402e7fc570b7a91c5e19405308737715b0ad5c1",
-    "status": "ORIGINAL_CACHE_64_PREDICATES_RECONCILED_PRE_ANNOUNCEMENT_SCOPE_SEAL_IMPLEMENTED_PREFILTER_UNCHANGED",
-    "code": "SCOPE_RECEIPT_SLICE_FULL_BASELINE_EXIT0_2358_TOTAL_2351_PASS_6_SKIP_1_XFAIL_NOT_RELEASE_QUALIFIED_FULL_WP5_PENDING",
+    "status": "DAILY_INCREMENTAL_AND_PRE_DISCLOSURE_SHADOW_IMPLEMENTED_FORMAL_QUERY_SCOPE_UNCHANGED_FULL_WP5_PENDING",
+    "code": "INCREMENTAL_PREFILTER_SLICE_FULL_BASELINE_EXIT0_2384_TOTAL_2377_PASS_6_SKIP_1_XFAIL_NOT_RELEASE_QUALIFIED_FULL_WP5_PENDING",
     "replay": "64_OF_64_ORIGINAL_CACHE_PREDICATES_MATCH_GLOBAL_RANK_G0_AND_1825_SCOPE_STILL_DATA_LIMITED",
     "operations": "READONLY_ONLY_NO_PUSH_DEPLOY_RECOVERY_OR_PRODUCTION_WRITES",
     "strategy": "NOT_APPLICABLE_UNCHANGED",
-    "evidence": "docs/WP5_SCOPE_RECONCILIATION_2026-10-09.md",
+    "evidence": "docs/WP5_INCREMENTAL_PREFILTER_2026-10-09.md",
+    "source_reconciliation_evidence": "docs/WP5_SCOPE_RECONCILIATION_2026-10-09.md",
+    "incremental_replay": "200_SYNTHETIC_SYMBOLS_EQUAL_FULL_SERIES_REAL_STOCK_REPLAY_PENDING",
+    "disclosure_query_scope": "SHADOW_ONLY_UNCHANGED_UNTIL_FROZEN_COVERAGE_AND_NIGHT_MAINTENANCE_ACCEPTED",
+    "factor_detection": "EXPLICIT_RESET_AND_DURABLE_FAILURE_SUPPORTED_AUTOMATIC_FACTOR_SOURCE_NOT_PROVIDED",
+    "throughput": "UNPROVEN_DEFAULT_0_5_SECOND_INTERVAL_3975_REQUESTS_LOWER_BOUND_ABOUT_33_MINUTES",
     "reconciliation_artifact":"artifacts/wp5-20261009/close-scope-baseline-20261009-v6.json",
     "reconciliation_sha256":"430d5e0c7531a10dc1cbff7cc7dfe1080ca4fc4e560b28e8972afd1ad20d26ed",
     "reconciliation_counts":{"target":64,"matching_predicate":64,"hash_errors":0,"new_setup":29,"continuing_watch":35},
@@ -30,11 +35,17 @@
       {"command":"scripts/test_all.ps1 -PythonPath D:/dev_A股/liangjian_funnel_workflow/.venv/Scripts/python.exe -OutputDirectory artifacts/wp5-20261009/full-scope-receipt-tests","exit_code":1,"result":"PYTHON_PASSED_NODE_DEPENDENCIES_MISSING_VITEST_TSC"},
       {"command":"Verify equal package-lock SHA256 then create local node_modules junction to existing WP0 dependency runtime","exit_code":0},
       {"command":"scripts/test_all.ps1 -PythonPath D:/dev_A股/liangjian_funnel_workflow/.venv/Scripts/python.exe -OutputDirectory artifacts/wp5-20261009/full-scope-receipt-tests-with-deps","exit_code":0,"tests":2358,"passed":2351,"skipped":6,"xfail":1,"evidence_sha256":"bcc18565edfbb98e06cac76d54be0e2e269e7ea8a5edbfb55b4021dc275d1f76","release_qualified":false},
-      {"command":"git diff --check","exit_code":0}
+      {"command":"git diff --check","exit_code":0},
+      {"command":"python -m pytest tests/test_wp5_disclosure_prefilter.py -o addopts='' -q (before implementation)","exit_code":1,"result":"MISSING_MODULE_COUNTEREXAMPLE"},
+      {"command":"python -m pytest tests/test_wp5_daily_incremental.py -o addopts='' -q (before implementation)","exit_code":1,"result":"6_FAILED_1_PASSED"},
+      {"command":"python -m pytest tests/test_wp5_daily_incremental.py -o addopts='' -q -k factor_reset_partial (partial reset before fix)","exit_code":1,"result":"PARTIAL_HISTORY_WAS_INCORRECTLY_ACCEPTED"},
+      {"command":"python -m pytest tests/test_wp5_daily_incremental.py -o addopts='' -q -k factor_reset_partial (resumption before fix)","exit_code":1,"result":"PENDING_RESET_WAS_LOST_ON_NEXT_RUN"},
+      {"command":"python -m pytest tests/test_wp5_daily_incremental.py tests/test_pipeline_data_sync.py tests/test_wp5_disclosure_prefilter.py tests/test_a2_stock_structure.py tests/test_workflow_orchestration_coverage.py tests/test_workflow_fact_projection.py tests/test_research_orchestration_coverage.py -o addopts='' -q --junitxml=artifacts/wp5-20261009/incremental-prefilter-final-tests.xml","exit_code":0,"passed":77,"result":"INTERMEDIATE_SLICE_FINAL_ADDITIONS_COVERED_BY_FULL_ENTRY"},
+      {"command":"scripts/test_all.ps1 -PythonPath D:/dev_A股/liangjian_funnel_workflow/.venv/Scripts/python.exe -OutputDirectory artifacts/wp5-20261009/full-incremental-prefilter-tests","exit_code":0,"tests":2384,"passed":2377,"skipped":6,"xfail":1,"evidence_sha256":"f5388d2443c09a3af296d86e41cd7263c69c5df5522868a42e1305d66682f0b3","release_qualified":false}
     ],
     "decision_8":"PENDING_NO_RELEASE",
     "decision_9":"TONIGHT_RECOVERY_ABANDONED_WEEKEND_PREP_REQUIRES_SEPARATE_AUTHORIZATION_USE_ACTUAL_SOURCE_TIME_NOT_FRIDAY_ASOF_LIVE_COLLECTION",
-    "next":"IMPLEMENT_ONLY_WP5_TASKS_1_2_DETERMINISTIC_PREFILTER_AND_DAILY_INCREMENTAL_WITHOUT_THRESHOLD_OR_SIZE_CAP_CHANGES"
+    "next":"IMPLEMENT_NIGHT_DISCLOSURE_QUEUE_AND_FROZEN_PREFILTER_COVERAGE_THEN_BIND_QUERY_DOMAIN_NO_PROMOTION_BEFORE_EVIDENCE_COMPLETE"
   },
   "wp0_repository_baseline_20261009": {
     "branch": "codex/wp0-repository-baseline-20261009",

@@ -2398,6 +2398,16 @@ class ResearchPipeline:
         gate: DeterministicGateResult,
         snapshot: FrozenInputSnapshot,
     ) -> None:
+        prefilter = snapshot.data.get('DISCLOSURE_PREFILTER_SHADOW')
+        if gate.stage == 'A2_LOCAL_ROLE' and isinstance(prefilter, Mapping):
+            from ..disclosure_scope import audit_disclosure_scope
+            # The comparison is an audit only. A miss never removes actual
+            # quantitative candidates or invents missing company evidence.
+            atomic_write_json(
+                self.output_dir / 'disclosure_scope_shadow' / _safe_run_id(run_id)
+                / f'{_safe_run_id(lane_id)}.json',
+                audit_disclosure_scope(prefilter, gate.review_symbols),
+            )
         if gate.stage == "A2_LOCAL_ROLE" and snapshot.as_of is not None:
             try:
                 news_shadow = build_a2_news_shadow(

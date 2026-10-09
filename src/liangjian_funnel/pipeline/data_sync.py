@@ -37,6 +37,7 @@ class SyncResult:
     # an unchanged or incomplete entity.
     updated_symbols: tuple[str, ...] = ()
     early_discovery: dict[str, Any] = field(default_factory=dict)
+    daily_requests: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 ProgressCallback = Callable[[Mapping[str, Any]], None]
@@ -84,6 +85,7 @@ class HithinkIncrementalSynchronizer:
         progress: ProgressCallback | None = None,
         collect_early_discovery: bool = False,
         include_financial: bool = True,
+        daily_reset_reasons: Mapping[str, str] | None = None,
     ) -> SyncResult:
         current = _aware(as_of)
         ordered = tuple(dict.fromkeys(str(symbol).strip().upper() for symbol in symbols))
@@ -93,6 +95,12 @@ class HithinkIncrementalSynchronizer:
         updated_symbols: list[str] = []
         stale_daily: list[str] = []
         discovery_parts: dict[str, dict[str, Any]] = {}
+        daily_requests: dict[str, dict[str, Any]] = {}
+        reset_blocked: set[str] = set()
+        reset_reasons = dict(daily_reset_reasons or {})
+        if any(reason not in {'ADJUSTMENT_FACTOR_CHANGED', 'HISTORICAL_REVISION_CONFIRMED'}
+               for reason in reset_reasons.values()):
+            raise ValueError('UNVERIFIED_DAILY_RESET_REASON')
         hits = 0
         misses = 0
         daily_updates = 0
@@ -104,7 +112,7 @@ class HithinkIncrementalSynchronizer:
         )
         financial_states = {
             (str(state.get("endpoint") or ""), str(state.get("symbol") or "")): state
-            for state in self.cache.list_sync_state()
+            for state in (self.cache.list_sync_state() if include_financial else ())
             if str(state.get("endpoint") or "").startswith("HITHINK_FINANCIAL_")
         }
         financial_refresh_symbols, deferred_financial_symbols = (
@@ -113,29 +121,59 @@ class HithinkIncrementalSynchronizer:
                 states=financial_states,
                 current=current,
             )
-        )
+        ) if include_financial else (set(), set())
 
         for index, symbol in enumerate(ordered, start=1):
             symbol_hit = True
             symbol_updated = False
-            daily_ready = self._daily_ready(
+            state = self.cache.get_sync_state('HITHINK_DAILY_1D', symbol)
+            cursor = state.get('cursor') if state else None
+            pending_reset = cursor.get('pending_reset_reason') if isinstance(cursor, Mapping) else None
+            if pending_reset:
+                if pending_reset not in {'ADJUSTMENT_FACTOR_CHANGED', 'HISTORICAL_REVISION_CONFIRMED'}:
+                    raise ValueError('UNVERIFIED_DAILY_RESET_REASON')
+                reset_reasons.setdefault(symbol, pending_reset)
+            # One bounded cache read serves the readiness check, incremental
+            # cursor and discovery. A future bar is never the request cursor.
+            rows = self.cache.query_daily_bars(
+                symbol, adjust='none', start=start, end=closed_daily_end,
+                limit=None if collect_early_discovery else max(30, compact_daily_bars),
+                descending=True,
+            )
+            daily_ready = symbol not in reset_reasons and self._daily_ready(
                 symbol,
                 start=start,
                 closed_daily_end=closed_daily_end,
                 required_latest=required_latest_daily,
+                cached_rows=rows,
+                cached_state=state,
             )
+            daily_requests[symbol] = {'mode': 'CACHE_HIT', 'reason_code': 'LATEST_CLOSED_DAY_READY',
+                                      'adjust': 'none', 'factor_detection': 'NOT_PROVIDED_BY_ENDPOINT'}
             if not daily_ready:
                 symbol_hit = False
-                latest = self.cache.latest_daily_bar(symbol, adjust="none")
-                request_start = start
-                if latest is not None:
-                    request_start = max(
-                        start,
-                        _aware(datetime.fromisoformat(str(latest["timestamp"]))) - timedelta(days=7),
-                    )
+                latest = rows[0] if rows else None
+                reason = reset_reasons.get(symbol)
+                request_start_ms = int(start.timestamp() * 1000)
+                mode = 'FULL_REFRESH'
+                if reason is None:
+                    if len(rows) < 30:
+                        reason = 'HISTORY_SHORT_BOOTSTRAP'
+                    elif latest is not None and (required_latest_daily is None or
+                          _aware(datetime.fromisoformat(str(latest['timestamp']))) < required_latest_daily):
+                        request_start_ms = max(request_start_ms,
+                            int(_aware(datetime.fromisoformat(str(latest['timestamp']))).timestamp()*1000)+1)
+                        mode, reason = 'INCREMENTAL', 'AFTER_LATEST_CLOSED_BAR'
+                    else:
+                        # A failed/missing source receipt is not repaired by
+                        # marking its cached rows ready without revalidation.
+                        reason = 'SOURCE_RECEIPT_REVALIDATION'
+                daily_requests[symbol] = {'mode': mode, 'reason_code': reason, 'adjust': 'none',
+                    'start_ms': request_start_ms, 'end_ms': int(closed_daily_end.timestamp()*1000),
+                    'factor_detection': 'EXPLICIT_RESET_EVIDENCE' if symbol in reset_reasons else 'NOT_PROVIDED_BY_ENDPOINT'}
                 result = client.history_1d(
                     symbol,
-                    start=int(request_start.timestamp() * 1000),
+                    start=request_start_ms,
                     end=int(closed_daily_end.timestamp() * 1000),
                     adjust="none",
                     limit=1000,
@@ -144,9 +182,26 @@ class HithinkIncrementalSynchronizer:
                 closed_items = tuple(
                     row
                     for row in result.items
-                    if _row_time(row.model_dump(mode="python")) < closed_daily_end
+                    if request_start_ms <= int(_row_time(row.model_dump(mode="python")).timestamp()*1000)
+                    < int(closed_daily_end.timestamp()*1000)
                 )
-                if result.ok and result.complete and closed_items:
+                reset_complete = True
+                if symbol in reset_reasons:
+                    reset_history = self.cache.query_daily_bars(
+                        symbol, adjust='none', start=start, end=closed_daily_end, limit=None,
+                    )
+                    required_stamps = {int(_aware(datetime.fromisoformat(str(row['timestamp']))).timestamp()*1000)
+                                       for row in reset_history}
+                    returned_stamps = {int(_row_time(row.model_dump(mode='python')).timestamp()*1000)
+                                       for row in closed_items}
+                    reset_complete = required_stamps <= returned_stamps
+                    if not reset_complete:
+                        reset_blocked.add(symbol)
+                daily_requests[symbol].update({'returned_closed_rows': len(closed_items),
+                    'source_ok': result.ok, 'source_complete': result.complete,
+                    'source_reason_code': result.reason_code,
+                    'received_at': result.fetch_time.isoformat()})
+                if result.ok and result.complete and closed_items and reset_complete:
                     self.cache.upsert_daily_bars(
                         (
                             {
@@ -164,27 +219,28 @@ class HithinkIncrementalSynchronizer:
                         "HITHINK_DAILY_1D",
                         symbol,
                         last_success=result.fetch_time,
-                        cursor={"through": _latest_row_time(closed_items)},
+                        cursor={"through": _latest_row_time(closed_items),
+                                'request': daily_requests[symbol]},
                         status="READY",
                         reason=None,
                     )
                     symbol_updated = True
                     daily_updates += 1
                 else:
-                    reason = result.reason_code if not result.ok else "NO_CLOSED_DAILY_BARS"
+                    reason = ('FULL_REFRESH_HISTORY_INCOMPLETE' if not reset_complete else
+                              result.reason_code if not result.ok else "NO_CLOSED_DAILY_BARS")
                     failures.setdefault(symbol, []).append(f"DAILY:{reason}")
                     self.cache.update_sync_state(
-                        "HITHINK_DAILY_1D", symbol, status="FAILED", reason=reason
+                        "HITHINK_DAILY_1D", symbol, status="FAILED", reason=reason,
+                        **({'cursor': {'pending_reset_reason': reset_reasons[symbol],
+                                       'request': daily_requests[symbol]}}
+                           if symbol in reset_reasons else {}),
                     )
 
-            rows = self.cache.query_daily_bars(
-                symbol,
-                adjust="none",
-                start=start,
-                end=closed_daily_end,
-                limit=None if collect_early_discovery else compact_daily_bars,
-                descending=True,
-            )
+                rows = self.cache.query_daily_bars(
+                    symbol, adjust='none', start=start, end=closed_daily_end,
+                    limit=None if collect_early_discovery else max(30, compact_daily_bars), descending=True,
+                )
             if collect_early_discovery:
                 discovery_parts[symbol] = discover_early_setups({symbol: [
                     {**row["payload"], "timestamp": row["timestamp"], "adjust": row["adjust"]}
@@ -196,7 +252,8 @@ class HithinkIncrementalSynchronizer:
                     self.cache.update_sync_state(
                         "HITHINK_DAILY_1D", symbol, status="FAILED", reason="LATEST_CLOSED_DAY_MISSING"
                     )
-                    stale_daily.append(symbol)
+                    if symbol not in reset_blocked and symbol not in reset_reasons:
+                        stale_daily.append(symbol)
             else:
                 failures.setdefault(symbol, []).append("DAILY:CACHE_EMPTY")
 
@@ -305,12 +362,12 @@ class HithinkIncrementalSynchronizer:
         # symbols once; never turn a successful HTTP response into freshness.
         for symbol in stale_daily[:10]:
             result = client.history_1d(
-                symbol, start=int((required_latest_daily - timedelta(days=7)).timestamp() * 1000),
+                symbol, start=int(required_latest_daily.timestamp() * 1000),
                 end=int(closed_daily_end.timestamp() * 1000), adjust="none", limit=1000, max_pages=1,
             )
             closed_items = tuple(
                 row for row in result.items
-                if required_latest_daily - timedelta(days=7)
+                if required_latest_daily
                 <= _row_time(row.model_dump(mode="python")) < closed_daily_end
             )
             if not (result.ok and result.complete and closed_items
@@ -323,7 +380,8 @@ class HithinkIncrementalSynchronizer:
             } for row in closed_items), batch_size=self.batch_size)
             self.cache.update_sync_state(
                 "HITHINK_DAILY_1D", symbol, last_success=result.fetch_time,
-                cursor={"through": _latest_row_time(closed_items)}, status="READY", reason=None,
+                cursor={"through": _latest_row_time(closed_items), 'request': daily_requests[symbol],
+                        'latest_day_retry': True}, status="READY", reason=None,
             )
             rows = self.cache.query_daily_bars(
                 symbol, adjust="none", start=start, end=closed_daily_end,
@@ -355,6 +413,7 @@ class HithinkIncrementalSynchronizer:
             deferred_financial_refreshes=len(deferred_financial_symbols),
             updated_symbols=tuple(updated_symbols),
             early_discovery=merge_discovery_parts(list(discovery_parts.values()), as_of=current) if collect_early_discovery else {},
+            daily_requests=daily_requests,
         )
 
     def _daily_ready(
@@ -364,13 +423,15 @@ class HithinkIncrementalSynchronizer:
         start: datetime,
         closed_daily_end: datetime,
         required_latest: datetime | None,
+        cached_rows: Sequence[Mapping[str, Any]] | None = None,
+        cached_state: Mapping[str, Any] | None = None,
     ) -> bool:
-        state = self.cache.get_sync_state("HITHINK_DAILY_1D", symbol)
+        state = cached_state if cached_state is not None else self.cache.get_sync_state("HITHINK_DAILY_1D", symbol)
         if not state or state.get("status") != "READY":
             return False
         if not state.get("last_success"):
             return False
-        rows = self.cache.query_daily_bars(
+        rows = cached_rows if cached_rows is not None else self.cache.query_daily_bars(
             symbol,
             adjust="none",
             start=start,

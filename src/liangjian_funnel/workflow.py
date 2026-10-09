@@ -67,6 +67,7 @@ from .pipeline.data_readiness import evaluate_data_readiness
 from .pipeline.data_sync import HithinkIncrementalSynchronizer
 from .pipeline.early_discovery import scan_cached_universe
 from .pipeline.close_scope import seal_scope_receipt
+from .pipeline.disclosure_scope import build_disclosure_prefilter, event_scope
 from .pipeline.a2_features import build_a2_feature_snapshot
 from .pipeline.a1_sources import (
     A1SourceRegistryError,
@@ -725,6 +726,21 @@ class WorkflowApplication:
                         progress=discovery_progress,
                     )
                     full_market_discovery = discovery_sync.early_discovery
+                    daily_sync_receipt = {
+                        'schema_version': 'daily-sync-receipt/1',
+                        'market_data_as_of': market_current.isoformat(),
+                        'execution_authority': False,
+                        'requests': discovery_sync.daily_requests,
+                        'failures': discovery_sync.failures,
+                        'processed': discovery_sync.processed,
+                        'factor_detection': 'NOT_PROVIDED_BY_ENDPOINT',
+                    }
+                    daily_sync_receipt['receipt_hash'] = _hash_json(daily_sync_receipt)
+                    atomic_write_json(
+                        self.settings.research_checkpoint_dir / 'scope_receipts' /
+                        f"daily-sync-{closed_trade_date}-{daily_sync_receipt['receipt_hash']}.json",
+                        daily_sync_receipt,
+                    )
                     del discovery_sync
                 else:
                     # Auction/morning jobs reuse closed-day cache and cannot
@@ -965,6 +981,27 @@ class WorkflowApplication:
             if not data_readiness.ready:
                 raise WorkflowError(data_readiness.reason_codes[0] or "RESEARCH_DATA_NOT_READY")
             technical: dict[str, Any] = {}
+
+        # This first slice records the independent work-domain before any
+        # company announcement is read. Query scope remains unchanged until
+        # frozen A2 coverage and the night queue have passed their own gates.
+        disclosure_prefilter = None
+        if candidate_symbols is not None:
+            event_symbols, events_complete = event_scope(market_fact_results, closed_trade_date)
+            discovery = full_market_discovery or {}
+            disclosure_prefilter = build_disclosure_prefilter(
+                symbols=[candidate.symbol for candidate in selected],
+                trade_date=closed_trade_date, daily=daily,
+                selected_board=selected_board, event_symbols=event_symbols,
+                event_sources_complete=events_complete, hot_symbols=hot100_symbols,
+                discovery_symbols=[row['symbol'] for row in discovery.get('records', ())
+                                   if row.get('review_budget_selected')],
+            )
+            atomic_write_json(
+                self.settings.research_checkpoint_dir / 'scope_receipts' /
+                f"disclosure-prefilter-{closed_trade_date}-{disclosure_prefilter['scope_hash']}.json",
+                disclosure_prefilter,
+            )
 
         # A1 is a structural macro/policy layer. A six-day window only shows
         # incidental recent notices and cannot support policy lifecycle or
@@ -1289,6 +1326,8 @@ class WorkflowApplication:
                 'a1_reference':receipt['a1_reference'], 'counts':receipt['scope']['counts'],
             }
         fact_payload["selected_board_snapshot"] = selected_board
+        if disclosure_prefilter is not None:
+            fact_payload['disclosure_prefilter_shadow'] = disclosure_prefilter
         fact_payload["early_discovery_snapshot"] = (
             full_market_discovery if full_market_discovery is not None else getattr(sync_result, "early_discovery", {})
         )
@@ -5978,6 +6017,7 @@ class WorkflowApplication:
         exchange_rules = _exchange_rules_for(self.settings.exchange_rules_path, as_of)
         values: dict[str, Any] = {
             "G0_SCOPE_CONTRACT": _G0_SCOPE_CONTRACT,
+            "DISCLOSURE_PREFILTER_SHADOW": frozen.fact_payload.get('disclosure_prefilter_shadow'),
             "DETERMINISTIC_RESEARCH_V2_ENABLED": self.settings.research_pipeline_mode == "deterministic_v2",
             "research_pipeline_mode": self.settings.research_pipeline_mode,
             "snapshot_manifest": {
