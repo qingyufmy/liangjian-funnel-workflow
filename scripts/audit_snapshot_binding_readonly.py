@@ -4,9 +4,11 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+from datetime import datetime
 from pathlib import Path
 
 from liangjian_funnel.pipeline.snapshot import FrozenInputSnapshot
+from liangjian_funnel.facts.contracts import FactSnapshotManifest
 
 
 def canonical_hash(value):
@@ -57,13 +59,38 @@ def verify_binding(projection, raw, lane, attempt=None):
     return result
 
 
+def verify_fact_binding(projection, raw, facts, file_sha):
+    """Bind the copied manifest bytes AND its internal canonical fact hashes."""
+    manifest=FactSnapshotManifest.model_validate(facts)
+    p=projection['data']['snapshot_manifest']
+    r=raw['fact_payload']
+    expected_path='snapshots/'+manifest.snapshot_id+'.json'
+    if (p.get('fact_snapshot_id') != manifest.snapshot_id
+            or r.get('snapshot_id') != manifest.snapshot_id
+            or p.get('fact_manifest_hash') != file_sha
+            or r.get('manifest_hash') != file_sha
+            or p.get('fact_store_relative_path') != expected_path
+            or r.get('store_relative_path') != expected_path
+            or r.get('facts_sha256') != manifest.facts_sha256):
+        raise ValueError('FACT_MANIFEST_BINDING_MISMATCH')
+    for cutoff in (projection['as_of'],raw['as_of']):
+        moment=datetime.fromisoformat(cutoff)
+        if moment.tzinfo is None or manifest.as_of > moment:
+            raise ValueError('FACT_MANIFEST_TIME_BINDING_MISMATCH')
+    return {'fact_manifest_hash_verified':True,
+        'fact_internal_canonical_hash_verified':True,
+        'fact_manifest_id':manifest.snapshot_id,'fact_count':len(manifest.facts),
+        'facts_canonical_hash':manifest.facts_sha256}
+
+
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     for name in ('projection','raw','lane','output'):
         parser.add_argument('--'+name,type=Path,required=True)
     parser.add_argument('--attempt',type=Path)
+    parser.add_argument('--facts',type=Path)
     args=parser.parse_args(argv)
-    paths=[args.projection,args.raw,args.lane]+([args.attempt] if args.attempt else [])
+    paths=[args.projection,args.raw,args.lane]+([args.attempt] if args.attempt else [])+([args.facts] if args.facts else [])
     if args.output.exists() or args.output.resolve() in {p.resolve() for p in paths}:
         raise ValueError('REFUSE_OVERWRITE')
     hashes=[]
@@ -73,7 +100,9 @@ def main(argv=None):
             hashes.append(hashlib.file_digest(stream,'sha256').hexdigest())
         with path.open(encoding='utf-8') as stream:
             values.append(json.load(stream))
-    proof=verify_binding(*values)
+    proof=verify_binding(*values[:3],values[3] if args.attempt else None)
+    if args.facts:
+        proof.update(verify_fact_binding(values[0],values[1],values[-1],hashes[-1]))
     proof['input_files']=[{'path':str(path.resolve()),'sha256':sha} for path,sha in zip(paths,hashes)]
     for path,sha in zip(paths,hashes):
         with path.open('rb') as stream:

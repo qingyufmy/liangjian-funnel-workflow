@@ -33,10 +33,13 @@
     "original_snapshot_binding": {
       "status":"DATA_LIMITED_RAW_PROJECTION_LANE_ATTEMPT_BOUND_FULL_A2_OVERLAY_NOT_PRESERVED",
       "evidence":"docs/WP5_ORIGINAL_SNAPSHOT_BINDING_2026-10-10.md",
-      "artifact":"artifacts/wp5-20261009/snapshot-binding-20261008-v1.json",
+      "artifact":"artifacts/wp5-20261009/snapshot-fact-binding-20261008-v2.json",
       "commands":[
         {"command":"audit_snapshot_binding_readonly.py --projection original1008 --raw original1008 --lane original1008 --attempt original1008 --output snapshot-binding-20261008-v1.json","python_exit_code":2,"outer_tool_exit_code":1,"result":"DATA_LIMITED_NOT_RELEASE_ACCEPTANCE"},
-        {"command":"pytest tests/test_wp5_snapshot_binding_readonly.py --junitxml=snapshot-binding-tests-v1.xml","exit_code":0,"passed":8}
+        {"command":"pytest tests/test_wp5_snapshot_binding_readonly.py --junitxml=snapshot-binding-tests-v1.xml","exit_code":0,"passed":8},
+        {"command":"pytest same slice with optional original fact binding --junitxml=snapshot-fact-binding-before.xml","exit_code":1,"failed":7,"passed":8},
+        {"command":"pytest same slice --junitxml=snapshot-fact-binding-final.xml","exit_code":0,"passed":15},
+        {"command":"audit_snapshot_binding_readonly.py original1008 inputs plus --facts original merged fact pack, unique v2 output, explicit native exit propagation","python_exit_code":2,"outer_tool_exit_code":2,"result":"14297_FACTS_INTERNAL_AND_RAW_PROJECTION_REFERENCES_BOUND_STILL_DATA_LIMITED"}
       ],
       "production_written":false,"historical_facts_changed":false
     },

@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from liangjian_funnel.pipeline.snapshot import UniverseSnapshot, FrozenInputSnapshot
+from liangjian_funnel.facts.contracts import FactSnapshotManifest
 
 spec=importlib.util.spec_from_file_location('wp5_binding',Path(__file__).parents[1]/'scripts/audit_snapshot_binding_readonly.py')
 module=importlib.util.module_from_spec(spec)
@@ -59,3 +60,43 @@ def test_any_tampered_binding_cannot_pass(fault):
         a['record_hash']=module.canonical_hash({k:v for k,v in a.items() if k!='record_hash'})
     with pytest.raises(ValueError):
         module.verify_binding(p,r,l,a)
+
+
+def fact_inputs():
+    now=datetime(2026,10,8,16,33,tzinfo=ZoneInfo('Asia/Shanghai'))
+    manifest=FactSnapshotManifest(snapshot_id='merged-fixture',as_of=now)
+    facts=manifest.model_dump(mode='json')
+    file_sha='f'*64
+    refs={'snapshot_id':'merged-fixture','manifest_hash':file_sha,
+          'store_relative_path':'snapshots/merged-fixture.json',
+          'facts_sha256':manifest.facts_sha256}
+    p={'as_of':now.isoformat(),'data':{'snapshot_manifest':{'fact_snapshot_id':'merged-fixture',
+        'fact_manifest_hash':file_sha,'fact_store_relative_path':'snapshots/merged-fixture.json'}}}
+    raw={'as_of':now.isoformat(),'fact_payload':refs}
+    return p,raw,facts,file_sha
+
+
+def test_manifest_internal_hash_and_both_references_are_required():
+    proof=module.verify_fact_binding(*fact_inputs())
+    assert proof['fact_manifest_hash_verified']
+    assert proof['fact_internal_canonical_hash_verified']
+    assert proof['fact_count']==0
+
+
+@pytest.mark.parametrize('fault',['file_hash','raw_ref','projection_ref','path','internal_hash','future'])
+def test_fact_pack_faults_never_gain_lineage_authority(fault):
+    p,r,f,h=deepcopy(fact_inputs())
+    if fault=='file_hash':
+        h='a'*64
+    elif fault=='raw_ref':
+        r['fact_payload']['manifest_hash']='a'*64
+    elif fault=='projection_ref':
+        p['data']['snapshot_manifest']['fact_snapshot_id']='different'
+    elif fault=='path':
+        r['fact_payload']['store_relative_path']='snapshots/other.json'
+    elif fault=='internal_hash':
+        f['facts_sha256']='a'*64
+    else:
+        f['as_of']='2026-10-09T16:33:00+08:00'
+    with pytest.raises(ValueError):
+        module.verify_fact_binding(p,r,f,h)
