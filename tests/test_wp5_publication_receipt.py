@@ -89,6 +89,40 @@ def build(inputs):
     return PublicationReceiptBuilder().build(inputs, calendar=ExchangeTradingCalendar())
 
 
+def test_normalization_consumes_actual_production_function(monkeypatch):
+    import liangjian_funnel.workflow as workflow
+    original = workflow._plan_payload
+    observed = []
+
+    def recorded(raw):
+        observed.append(raw)
+        return original(raw)
+
+    monkeypatch.setattr(workflow, "_plan_payload", recorded)
+    inputs = fixture()
+    assert build(inputs)["evidence_complete"] is True
+    assert observed == [inputs.raw_plan.value]
+
+
+@pytest.mark.parametrize("symbol", ["600000.SH", "SHSE.600000", "szse.000001", "BJSE.920001", "invalid"])
+@pytest.mark.parametrize("strategy", ["MA520_SWING", "TREND_MA5", ""])
+def test_normalization_matches_actual_production_without_new_price_rules(symbol, strategy):
+    from liangjian_funnel.workflow import _plan_payload
+    inputs = fixture(strategy=strategy)
+    raw = {**inputs.raw_plan.value, "symbol": symbol,
+           "trigger_zone": {"low": "0", "high": "11.5"},
+           "invalidation_level": -1, "no_chase_price": None}
+    normalized = _plan_payload(raw)
+    submitted = {**normalized, "source_run_id": RUN}
+    if strategy == "TREND_MA5":
+        submitted["trend_entry_rule_version"] = "trend-ma5/2"
+    updated = replace(inputs, raw_plan=bound(raw), normalized_payload=bound(normalized),
+                      submitted_payload=bound(submitted))
+    reasons = set()
+    PublicationReceiptBuilder._payloads(updated, None, reasons)
+    assert "NORMALIZED_PAYLOAD_CONFLICT" not in reasons
+
+
 def test_original_object_hashes_and_source_inputs_unchanged():
     inputs = fixture(permission=True)
     before = deepcopy(inputs)
@@ -445,6 +479,15 @@ def test_module_has_no_persistence_settings_network_or_publisher_entrypoint():
     tree = ast.parse(path.read_text(encoding="utf-8"))
     imported = [node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)]
     imported.extend(alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names)
-    assert not any(any(word in name for word in ("settings", "runtime.state", "sqlite", "workflow", "httpx", "requests")) for name in imported)
+    assert not any(any(word in name for word in ("settings", "runtime.state", "sqlite", "httpx", "requests")) for name in imported)
+    # The only workflow dependency is the pure production normalization
+    # function; importing/constructing the application remains forbidden.
+    workflow_imports = [node for node in ast.walk(tree)
+                        if isinstance(node, ast.ImportFrom) and node.module == "workflow"]
+    assert len(workflow_imports) == 1
+    assert workflow_imports[0].level == 2
+    assert [alias.name for alias in workflow_imports[0].names] == ["_plan_payload"]
+    assert not any(isinstance(node, ast.Import) and any("workflow" in alias.name
+                   for alias in node.names) for node in ast.walk(tree))
     assert not any(isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in {
         "open", "RuntimeStore", "Settings", "WorkflowApplication"} for node in ast.walk(tree))

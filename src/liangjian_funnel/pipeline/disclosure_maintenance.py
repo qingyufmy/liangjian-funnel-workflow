@@ -107,7 +107,8 @@ def seal_maintenance_queue(root: Path, receipt: Mapping[str, Any], prefilter: Ma
 def run_maintenance(queue: Mapping[str, Any], *, output_dir: Path, now: datetime,
                     execute: bool = False, collect: Callable | None = None,
                     can_reuse: Callable | None = None, budget_seconds: float = 3600,
-                    dependency_timeout_seconds: float = 60) -> dict:
+                    dependency_timeout_seconds: float = 60,
+                    clock: Callable[[], float] = time.monotonic) -> dict:
     """Journal each task independently, then seal a new immutable report.
 
     Resume needs BOTH a valid success receipt and currently usable caches.
@@ -149,7 +150,7 @@ def run_maintenance(queue: Mapping[str, Any], *, output_dir: Path, now: datetime
     except FileExistsError as exc:
         raise ValueError('MAINTENANCE_ALREADY_RUNNING') from exc
     attempt_id = uuid4().hex
-    started = time.monotonic()
+    started = clock()
     deadline = started + budget_seconds
     try:
         with handle:
@@ -166,7 +167,7 @@ def run_maintenance(queue: Mapping[str, Any], *, output_dir: Path, now: datetime
                     and (record['symbol'] not in previous or timestamp > _aware(previous[record['symbol']]['observed_at']))):
                 previous[record['symbol']] = record
         for symbol in queue['deferred_symbols']:
-            if time.monotonic()-started >= budget_seconds:
+            if clock()-started >= budget_seconds:
                 row = {'symbol': symbol, 'ok': False, 'reason_code': 'MAINTENANCE_BUDGET_EXHAUSTED'}
             else:
                 # Bind loop values: a late worker must not consume a later
@@ -177,7 +178,7 @@ def run_maintenance(queue: Mapping[str, Any], *, output_dir: Path, now: datetime
                     return dict(collect(symbol, value['query_start'], query_end,
                                         value['business_query_start'])), False
                 result = _MAINTENANCE_GATE.call(operation,
-                    deadline=min(deadline, time.monotonic()+dependency_timeout_seconds),
+                    deadline=min(deadline, clock()+dependency_timeout_seconds), clock=clock,
                     name='disclosure-cache-maintenance')
                 if result.status != 'READY':
                     row = {'symbol': symbol, 'ok': False,
@@ -195,12 +196,12 @@ def run_maintenance(queue: Mapping[str, Any], *, output_dir: Path, now: datetime
             value['rows'].append(row)
             record = {'queue_hash': queue['queue_hash'], 'symbol': symbol,
                 'query_end': query_end,
-                'observed_at': (now + timedelta(seconds=time.monotonic()-started)).isoformat(), 'row': row}
+                'observed_at': (now + timedelta(seconds=clock()-started)).isoformat(), 'row': row}
             record['attempt_hash'] = content_hash(record)
             atomic_write_json(output_dir/f"{queue['queue_hash']}-attempt-{attempt_id}-{symbol}.json", record)
         value['failed_symbols'] = [row['symbol'] for row in value['rows'] if not row['ok']]
         value['status'] = 'PARTIAL_FAILURE' if value['failed_symbols'] else 'CACHE_WARMED'
-        value['elapsed_seconds'] = time.monotonic()-started
+        value['elapsed_seconds'] = clock()-started
         value['report_hash'] = content_hash(value)
         atomic_write_json(output_dir/f"{queue['queue_hash']}-report-{attempt_id}.json", value)
         return value

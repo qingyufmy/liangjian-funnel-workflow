@@ -1,6 +1,24 @@
 {
+  "claude_followups_and_source_cutoff_20261010": {
+    "status": "LOCAL_CODE_SLICES_PASSED_PENDING_NEW_HEAD_FULL_TEST",
+    "publication_normalization": "ACTUAL_WORKFLOW_PURE_FUNCTION_CALLED_LAZILY_NO_APPLICATION_CONSTRUCTION",
+    "night_deadline": "SHARED_INJECTED_CLOCK_LATE_SUCCESS_REJECTED_NEXT_COLLECTOR_NOT_CALLED_NO_BUDGET_CHANGE",
+    "source_cutoff": "OPT_IN_EXISTING_STOCK_AND_BOARD_CACHE_READERS_DUAL_BOUND_IDENTITY_CHECK_BEFORE_TTL_LEGACY_UNPROVEN",
+    "source_cutoff_runtime_scope": "COLLECTORS_AND_FORMAL_WORKFLOW_NOT_YET_WIRED_NO_MODE_SWITCH",
+    "joint_slice": {"xml": "artifacts/wp5-20261010/review-cutoff-joint-final-v2.xml", "tests": 141, "passed": 141, "failed": 0, "exit_code": 0},
+    "negative_evidence": ["review-followup-before.xml:2_FAILED", "review-followup-final.xml:1_AST_POLICY_FAILED", "source-cutoff-before.xml:MODULE_MISSING", "source-cutoff-final.xml:1_REASON_ORDER_FAILED", "source-cutoff-cache-before.xml:5_API_MISSING_FAILED", "source-cutoff-identity-before.xml:5_INVALID_EXPECTED_SOURCE_SELF_AUTHENTICATION_FAILED"],
+    "fsync_tool": {"xml": "artifacts/wp5-20261010/fsync-tool-final.xml", "passed": 37, "exit_code": 0, "vm_measurement": "NOT_RUN_NEED_TONY", "cleanup": "PER_ITERATION_EXACT_UNLINK_AND_DIR_FSYNC", "architecture": "WAITING_BUSY_EVIDENCE"},
+    "hot100_consumer_audit": {"artifact": "artifacts/wp5-20261010/WP4_HOT100_ABSENCE_CONSUMER_AUDIT.md", "sha256": "58f03f3d539484659c6e6793c4b0bbf89d37465016c08e297bc59b3e91e09d7b", "false_empty_does_not_prove_not_in": true, "true_malformed_consumer_and_llm_health_gaps_remain": true},
+    "wp1_k1_partial": "4242_ACTION_AND_FIRST_UNMET_MATCHES_REAL_PRIMARY_REASON_NOT_EXPORTED_GOLDEN_FALSE_NO_REPLAY_RESTART",
+    "wp1_identity_inventory": "12_SECURITY_DAYS_NO_COMPLETE_CURRENT_CONTRACT_EVIDENCE_PRIOR_RAW_CLOSE_NOT_DISPLAYED_PRECLOSE_NO_FILLS_UNLOCKED",
+    "bridge_read_through": 18,
+    "bridge_submitted_through": 21,
+    "production_changed": false,
+    "strategy": "NO_THRESHOLD_COUNT_RATE_OR_WEIGHT_CHANGES"
+  },
   "wp6_local_followup_20261010": {
-    "status": "PURE_RESOURCE_CONTRACT_AND_STREAMING_COMPONENTS_IMPLEMENTED_PENDING_NEW_HEAD_FULL_TEST",
+    "status": "CODE_FULL_TEST_PASSED_CFED3A5_REVIEW_PENDING_0019",
+    "full_test": {"head": "cfed3a536e65ffd308633ca8ef4de3c2d9b224b3", "tests": 2934, "passed": 2927, "failed": 0, "skipped": 6, "xfail": 1, "exit_code": 0, "independent_verify_exit_code": 0, "receipt": "artifacts/wp5-20261010/full-resource-streaming-cfed3a5/evidence.json", "sha256": "99d7a0d4527aec76451f873712601b762614ef0009659ce4cb6e79b54ea2af30"},
     "resource_contract": "EXPLICIT_SOURCE_UNIT_SUPPORT_INVOCATION_WINDOW_BOUND_NOT_OS_SAMPLER_OR_PRODUCTION_WIRING",
     "resource_slice": {"passed": 79, "failed": 0, "exit_code": 0, "xml": "artifacts/wp5-20261010/resource-evidence-final-v2.xml"},
     "snapshot_profile": {"input_bytes": 92154548, "original_input_unchanged": true, "correct_research_hash_matches": true, "g0_symbols": 910, "declared_research_domain": 3929, "full_a1_scope_verified": false, "artifact": "artifacts/wp5-20261010/snapshot-0928-research-schema-profile-v2.json", "sha256": "9a2e083a276d31c07451ceda384a8d828eb8108e07146dd6b7ca85dd6d41c6c8"},
@@ -10,12 +28,12 @@
     "replay": "LOCAL_COMPONENTS_ONLY_NOT_COMPLETE_A1_FULL",
     "operations": "UNWIRED_UNDEPLOYED_11_02_NATURAL_FULL_PENDING",
     "strategy": "NOT_APPLICABLE_NO_THRESHOLD_OR_CANDIDATE_COUNT_CHANGE",
-    "bridge_inbox_latest": 18,
-    "bridge_read_through": 14,
+    "bridge_inbox_latest": 20,
+    "bridge_read_through": 18,
     "production_changed": false
   },
   "publication_and_wp4_followup_20261010": {
-    "status": "ISOLATED_CODE_FULL_TEST_PASSED_3839A6B_CLAUDE_REVIEW_PENDING_0017",
+    "status": "ISOLATED_CODE_FULL_TEST_PASSED_3839A6B_CLAUDE_ACCEPTED_0017_NO_RELEASE_AUTHORIZATION",
     "full_test": {"head": "3839a6be563873a8b7ce62e75c0a6af127a2aead", "total": 2833, "passed": 2826, "failed": 0, "skipped": 6, "xfail": 1, "exit_code": 0, "independent_verify_exit_code": 0, "sha256": "379929d9bb9acb2b0772353fcfe37b70553bb996a056b54d771c828e9d86f891", "receipt": "artifacts/wp5-20261010/full-publication-board-auction-recheck/evidence.json", "earlier_same_head_failure_retained": true, "unresolved_prior_failure": "EXISTING_NIGHT_DEADLINE_0_594_SECONDS_TIMING_NOT_PRECISELY_ATTRIBUTED"},
     "publication_receipt": "LOCAL_RECEIPT_BOUND_ONLY_NOT_WIRED_NO_EXECUTION_AUTHORITY",
     "board_reference_contract": "PURE_RESEARCH_AUDIT_THREE_DAY_POLICY_NOT_WIRED",

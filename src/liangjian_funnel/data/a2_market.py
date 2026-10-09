@@ -21,6 +21,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from ..reporting import atomic_write_json
+from .source_cutoff import SourceCutoffs, inspect_source_cutoff
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -557,6 +558,8 @@ def load_capital_flow_snapshot(
     *,
     now: datetime | None = None,
     max_age_seconds: float | None = None,
+    cutoffs: SourceCutoffs | None = None,
+    expected_source_id: str | None = None,
 ) -> dict[str, Any] | None:
     """Load a hash-validated capital-flow snapshot.
 
@@ -574,6 +577,8 @@ def load_capital_flow_snapshot(
         trade_date,
         now=now,
         max_age_seconds=max_age_seconds,
+        cutoffs=cutoffs,
+        expected_source_id=expected_source_id,
     )
     # A valid cache can be an observed empty/failed observation.  It still
     # must be returned so callers do not repeatedly hit the provider and so
@@ -588,8 +593,13 @@ def _load_capital_flow_cache_state(
     *,
     now: datetime | None = None,
     max_age_seconds: float | None = None,
+    cutoffs: SourceCutoffs | None = None,
+    expected_source_id: str | None = None,
 ) -> tuple[dict[str, Any] | None, str | None]:
     """Return ``(payload, state)`` while retaining cache failure semantics."""
+
+    if cutoffs is not None and not expected_source_id:
+        raise ValueError("SOURCE_EXPECTED_ID_REQUIRED")
 
     path = Path(cache_dir) / f"capital-flow-{trade_date}.json"
     if not path.is_file():
@@ -607,6 +617,11 @@ def _load_capital_flow_cache_state(
         return None, MALFORMED
     if str(payload.get("trade_date") or "") != str(trade_date):
         return None, MALFORMED
+    if cutoffs is not None:
+        time_proof = inspect_source_cutoff(payload, cutoffs=cutoffs,
+            expected_source_id=expected_source_id, expected_trade_date=trade_date)
+        if not time_proof["usable"]:
+            return None, time_proof["reason_code"]
     provider_dates = payload.get("provider_trade_dates")
     if isinstance(provider_dates, Mapping):
         observed_provider_dates = {
@@ -1028,6 +1043,7 @@ def load_board_capital_flow_snapshot(
     *,
     now: datetime | None = None,
     max_age_seconds: float | None = None,
+    cutoffs: SourceCutoffs | None = None,
 ) -> dict[str, Any] | None:
     """Load a hash-bound board flow cache; stale/malformed files are rejected."""
 
@@ -1038,6 +1054,7 @@ def load_board_capital_flow_snapshot(
         trade_date,
         now=now,
         max_age_seconds=max_age_seconds,
+        cutoffs=cutoffs,
     )
     return inspected["snapshot"] if inspected["available"] else None
 
@@ -1050,6 +1067,7 @@ def inspect_board_capital_flow_snapshot(
     *,
     now: datetime | None = None,
     max_age_seconds: float | None = None,
+    cutoffs: SourceCutoffs | None = None,
 ) -> dict[str, Any]:
     if board_type not in _BOARD_TYPES or period not in _BOARD_PERIODS:
         raise ValueError("board-flow identity is invalid")
@@ -1079,6 +1097,14 @@ def inspect_board_capital_flow_snapshot(
     )
     if not valid:
         return {"path": str(path), "exists": True, "available": False, "availability_state": MALFORMED, "reason_code": "BOARD_FLOW_CACHE_INVALID", "snapshot": None}
+    if cutoffs is not None:
+        time_proof = inspect_source_cutoff(payload, cutoffs=cutoffs,
+            expected_source_id=BOARD_FLOW_PROVIDER, expected_trade_date=date_text)
+        if not time_proof["usable"]:
+            return {"path": str(path), "exists": True, "available": False,
+                    "availability_state": SOURCE_UNAVAILABLE,
+                    "reason_code": time_proof["reason_code"], "snapshot": None,
+                    "cutoff_evidence": time_proof}
     provider_dates = payload.get("provider_trade_dates")
     if isinstance(provider_dates, Mapping):
         observed_provider_dates = {

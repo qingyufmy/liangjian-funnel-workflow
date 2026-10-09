@@ -15,7 +15,6 @@ import re
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from ..data.mootdx import map_symbol
 from ..pipeline.a2_role_logic import route_execution_permission
 from .calendar import ExchangeTradingCalendar
 
@@ -290,29 +289,13 @@ class PublicationReceiptBuilder:
     def _payloads(inputs: PublicationInputs, authority: Mapping[str, Any] | None, reasons: set[str]) -> None:
         raw, normalized = inputs.raw_plan.value, inputs.normalized_payload.value
         submitted = inputs.submitted_payload.value if inputs.submitted_payload else normalized
-
-        def number(value):
-            try:
-                result = float(value)
-                if not math.isfinite(result):
-                    raise ValueError()
-                return result if result > 0 else None
-            except (TypeError, ValueError):
-                return None
-
-        try:
-            text = str(raw.get("symbol") or "").strip().upper()
-            if text.startswith(("SHSE.", "SZSE.", "BJSE.")):
-                exchange, code = text.split(".", 1)
-                text = code + "." + {"SHSE": "SH", "SZSE": "SZ", "BJSE": "BJ"}[exchange]
-            symbol = map_symbol(text).canonical
-        except Exception:
-            symbol = None
+        # Lazy import avoids a module-level workflow/runtime cycle. This is
+        # the existing pure production function, not WorkflowApplication
+        # construction or a duplicate normalization implementation.
+        from ..workflow import _plan_payload
+        expected = _plan_payload(raw)
+        if expected["symbol"] is None:
             reasons.add("NORMALIZED_SYMBOL_UNPROVEN")
-        zone = raw.get("trigger_zone") if isinstance(raw.get("trigger_zone"), Mapping) else {}
-        expected = {**raw, "symbol": symbol, "trigger_low": number(zone.get("low")), "trigger_high": number(zone.get("high")),
-            "stop_level": number(raw.get("invalidation_level")), "no_chase": number(raw.get("no_chase_price")),
-            "confirmation_bars": 1 if raw.get("strategy_profile") else 2, "action": "BUY_SIGNAL"}
         if object_hash(expected) != object_hash(normalized):
             reasons.add("NORMALIZED_PAYLOAD_CONFLICT")
         expected = {**normalized, "source_run_id": inputs.run_id}
