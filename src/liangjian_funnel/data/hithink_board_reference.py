@@ -19,6 +19,35 @@ from .rotation_theme import build_membership_snapshot, unavailable_membership_sn
 SOURCE = 'HITHINK_THS_API'
 
 
+def maintain_configured_references(settings, *, now):
+    """Use the existing off-hours maintenance schedule; never A4's hot path."""
+    if getattr(settings, 'rotation_membership_source', 'EASTMONEY') != 'LOCAL_REFERENCE':
+        return {'status': 'NOOP', 'reason_code': 'LOCAL_REFERENCE_NOT_ENABLED'}
+    from datetime import time
+    if now.weekday() < 5 and time(6) <= now.time().replace(tzinfo=None) < time(16, 30):
+        return {'status': 'BLOCKED', 'reason_code': 'REFERENCE_REFRESH_TRADING_PREPARATION_PROTECTED'}
+    import subprocess
+    import sys
+    directory = settings.rotation_reference_dir or settings.fact_store_dir / 'board_reference/hithink'
+    bindings = settings.rotation_reference_bindings_path or settings.rotation_theme_registry_path.with_name('rotation_reference_bindings_v1.json')
+    command = [sys.executable, str(settings.root / 'scripts/collect_hithink_board_references.py'),
+        '--env-root', str(settings.root), '--output-dir', str(directory), '--bindings', str(bindings),
+        '--registry', str(settings.rotation_theme_registry_path), '--max-requests', '100', '--deadline-seconds', '300']
+    try:
+        result = subprocess.run(command, cwd=settings.root, capture_output=True, text=True, timeout=360)
+        # Never persist stderr: transport diagnostics could contain credentials.
+        summary = json.loads(result.stdout)
+        ready = (result.returncode == 0 and summary.get('qualified_themes') == summary.get('theme_count')
+                 and isinstance(summary.get('theme_count'), int) and summary['theme_count'] > 0)
+        return {'status': 'READY' if ready else 'DEGRADED', 'reason_code': 'OK' if ready else 'REFERENCE_REFRESH_INCOMPLETE',
+                'exit_code': result.returncode, 'qualified_themes': summary.get('qualified_themes'),
+                'theme_count': summary.get('theme_count'), 'requests': summary.get('requests'), 'report': summary.get('report')}
+    except subprocess.TimeoutExpired:
+        return {'status': 'BLOCKED', 'reason_code': 'REFERENCE_REFRESH_DEADLINE_EXCEEDED'}
+    except (OSError, ValueError, TypeError):
+        return {'status': 'BLOCKED', 'reason_code': 'REFERENCE_REFRESH_FAILED'}
+
+
 def binding_components(binding):
     """Explicit single-provider components; never infer an industry by name."""
     if binding.get('membership_operation') != 'EXPLICIT_COMPONENT_UNION':

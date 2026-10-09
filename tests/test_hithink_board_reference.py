@@ -15,6 +15,23 @@ BINDING = dict(theme_id='TEST_THEME', source_id='HITHINK_THS_API', board_id='886
                board_name='液冷服务器', category='concept', approved=True, priority=1)
 
 
+def test_maintenance_is_bounded_off_hours_and_cannot_hide_partial_refresh(tmp_path, monkeypatch):
+    import subprocess
+    from types import SimpleNamespace
+    from liangjian_funnel.data.hithink_board_reference import maintain_configured_references
+    settings = Settings.from_env({}, root=tmp_path).model_copy(update={'rotation_membership_source': 'LOCAL_REFERENCE'})
+    calls = []
+    def run(command, **kwargs):
+        calls.append((command, kwargs))
+        return SimpleNamespace(returncode=0, stdout='{"qualified_themes":18,"theme_count":27,"requests":1}')
+    monkeypatch.setattr(subprocess, 'run', run)
+    blocked = maintain_configured_references(settings, now=NOW.replace(hour=9))
+    assert blocked['status'] == 'BLOCKED' and not calls
+    partial = maintain_configured_references(settings, now=NOW.replace(hour=3))
+    assert partial['status'] == 'DEGRADED'
+    assert calls[0][1]['timeout'] == 360 and calls[0][0][-1] == '300'
+
+
 def test_explicit_composite_requires_every_component_and_preserves_lineage(tmp_path):
     settings = Settings.from_env({'HITHINK_FINANCE_API_KEY': 'unit-secret',
         'ASTOCK_HITHINK_MIN_REQUEST_INTERVAL_SECONDS': '0'}, root=tmp_path)

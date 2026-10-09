@@ -1091,14 +1091,19 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
     try:
         if args.command == "maintain-features":
             from .pipeline.feature_maintenance import run_feature_maintenance
+            from .data.hithink_board_reference import maintain_configured_references
+
+            reference_maintenance = maintain_configured_references(settings, now=datetime.now(ZoneInfo(settings.timezone)))
 
             payload = run_feature_maintenance(
                 settings,
                 full=bool(args.full),
                 now=datetime.now(ZoneInfo(settings.timezone)),
             )
+            payload = {**payload, 'rotation_reference_maintenance': reference_maintenance}
             print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True, default=str))
-            return 0 if payload.get("status") in {"PUBLISHED", "NOOP"} else 2
+            return 0 if (payload.get("status") in {"PUBLISHED", "NOOP"}
+                         and reference_maintenance['status'] in {'READY', 'NOOP'}) else 2
         application = WorkflowApplication(settings)
         if args.command == "run-a1-maintenance":
             maintenance_at = datetime.fromisoformat(args.as_of) if args.as_of else None
