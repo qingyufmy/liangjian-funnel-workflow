@@ -62,6 +62,20 @@ export function waitForProcessExit(child: ChildProcess, timeoutMs: number): Prom
   });
 }
 
+export function childEnvironment(
+  job: JobName, timeoutMs: number | null, startedAtMs: number,
+  base: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  const env = { ...base };
+  // Child-only deadline is authoritative for this invocation; never inherit
+  // an old close deadline into unrelated jobs or mutate the server env.
+  delete env.LIANGJIAN_PARENT_CLOSE_DEADLINE_MS;
+  if (job === "close" && timeoutMs !== null) {
+    env.LIANGJIAN_PARENT_CLOSE_DEADLINE_MS = String(startedAtMs + timeoutMs);
+  }
+  return env;
+}
+
 function splitChunk(
   pending: string,
   chunk: Buffer | string,
@@ -161,9 +175,10 @@ export class JobRunner {
     this.record(started);
     this.logger.info(`开始执行 ${command}`, { job, runId });
 
+    const timeoutMs = timeoutForJob(job, this.config.jobTimeoutMs, this.config.a1JobTimeoutMs);
     const child = spawn(this.config.pythonBin, ["-m", "liangjian_funnel", command], {
       cwd: this.config.rootDir,
-      env: process.env,
+      env: childEnvironment(job, timeoutMs, startedAt.getTime()),
       shell: false,
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
@@ -226,7 +241,6 @@ export class JobRunner {
         );
         resolve(record);
       };
-      const timeoutMs = timeoutForJob(job, this.config.jobTimeoutMs, this.config.a1JobTimeoutMs);
       if (timeoutMs !== null) {
         timer = setTimeout(() => {
           timedOut = true;

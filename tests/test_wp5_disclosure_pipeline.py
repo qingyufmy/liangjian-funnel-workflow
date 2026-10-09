@@ -80,8 +80,8 @@ def test_final_discovery_catches_up_without_losing_or_capping_candidates():
         pipeline.validate_domain(['600000.SH', '600001.SH'], {'600000.SH': 'a', '600001.SH': 'b'})
         pipeline.submit('600001.SH', input_hash='b')
         assert [row[0] for row in pipeline.results(['600001.SH', '600000.SH'])] == ['600001.SH', '600000.SH']
-        with pytest.raises(DisclosurePipelineError, match='OUTSIDE_FINAL_DOMAIN'):
-            pipeline.validate_domain(['600001.SH'], {'600001.SH': 'b'})
+        pipeline.validate_domain(['600001.SH'], {'600001.SH': 'b'})
+        assert pipeline.receipt()['domain_anomalies'][0]['symbols'] == ['600000.SH']
 
 
 def test_deadline_does_not_accept_late_results_or_wait_on_shutdown():

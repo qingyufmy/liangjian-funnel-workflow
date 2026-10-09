@@ -67,8 +67,12 @@ def build_disclosure_prefilter(*, symbols: Iterable[str], trade_date: date,
     field_present = bool(selected_board) if selected_board_field_present is None else selected_board_field_present
     by_symbol = selected_board.get('by_symbol')
     board_known = (selected_board.get('available') is True
-                   and isinstance(by_symbol, Mapping)
-                   and selected_board.get('trade_date') == trade_date.isoformat())
+                   and isinstance(by_symbol, Mapping))
+    # screen_a2 currently trusts materialized availability, not trade_date.
+    # A date mismatch is audit evidence, not a new blanket retention/block
+    # policy. Freshness-based execution permissions belong to board contract.
+    board_date_mismatch = (selected_board.get('available') is True
+                           and selected_board.get('trade_date') != trade_date.isoformat())
     # Match the explicit unavailable-field contract in screen_a2. A missing
     # field is different: historical FULL_MARKET/LEGACY fallbacks still exist.
     trend_channel_blocked = field_present and selected_board.get('available') is not True
@@ -105,6 +109,8 @@ def build_disclosure_prefilter(*, symbols: Iterable[str], trade_date: date,
         if uncertain:
             reasons.append('UNCERTAIN_FACTS_RETAINED')
         diagnostics = []
+        if board_date_mismatch:
+            diagnostics.append('BOARD_DATE_MISMATCH')
         if trend_channel_blocked:
             diagnostics.append('BOARD_CHANNEL_UNAVAILABLE')
         elif not board_known or not board_rows_valid:

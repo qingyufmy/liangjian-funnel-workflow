@@ -71,7 +71,7 @@ from .pipeline.early_discovery import scan_cached_universe
 from .pipeline.close_scope import seal_scope_receipt
 from .pipeline.disclosure_scope import build_disclosure_prefilter, event_scope
 from .pipeline.disclosure_maintenance import seal_maintenance_queue
-from .pipeline.disclosure_pipeline import DisclosurePipeline, industry_batch_order
+from .pipeline.disclosure_pipeline import DisclosurePipeline, industry_batch_order, collection_deadline
 from .pipeline.a2_features import build_a2_feature_snapshot
 from .pipeline.a1_sources import (
     A1SourceRegistryError,
@@ -560,7 +560,24 @@ class WorkflowApplication:
             return self._prepare_snapshot(**options)
         resources = ExitStack()
         pipeline = None
-        deadline = time.monotonic()+self.settings.research_close_deadline_seconds
+        wall_now = datetime.now(SHANGHAI)
+        elapsed = 0.0
+        if progress:
+            started = datetime.fromisoformat(str(progress.snapshot()['started_at']))
+            elapsed = max(0.0, (wall_now-_aware(started)).total_seconds())
+        raw_parent_deadline = os.environ.get('LIANGJIAN_PARENT_CLOSE_DEADLINE_MS')
+        parent_remaining = None
+        if raw_parent_deadline is not None:
+            try:
+                parent_deadline = float(raw_parent_deadline)/1000
+                if not math.isfinite(parent_deadline) or parent_deadline <= 0:
+                    raise ValueError('invalid deadline')
+                parent_remaining = parent_deadline-wall_now.timestamp()
+            except ValueError as exc:
+                raise WorkflowError('INVALID_PARENT_CLOSE_DEADLINE') from exc
+        deadline, deadline_policy = collection_deadline(
+            self.settings.research_close_deadline_seconds, elapsed_seconds=elapsed,
+            parent_remaining_seconds=parent_remaining)
         status = 'FAILED'
         failure_code = None
         def start(symbols):
@@ -609,6 +626,7 @@ class WorkflowApplication:
                 try:
                     receipt = pipeline.receipt()
                     receipt.update(status=status, failure_code=failure_code,
+                        deadline_policy=deadline_policy,
                         research_as_of=current.isoformat(), market_data_as_of=market_current.isoformat(),
                         initial_scope_receipt=getattr(pipeline, 'initial_scope_receipt', None),
                         final_prefilter_hash=getattr(pipeline, 'final_prefilter_hash', None),

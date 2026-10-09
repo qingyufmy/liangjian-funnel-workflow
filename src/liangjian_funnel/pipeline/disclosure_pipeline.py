@@ -26,6 +26,23 @@ class DisclosurePipelineError(RuntimeError):
     pass
 
 
+def collection_deadline(budget_seconds: float, *, elapsed_seconds: float = 0,
+                        parent_remaining_seconds: float | None = None) -> tuple[float, dict]:
+    """Reserve cleanup inside, never extend or restart the outer job budget."""
+    remaining = budget_seconds-max(0, elapsed_seconds)
+    if parent_remaining_seconds is not None:
+        remaining = min(remaining, parent_remaining_seconds)
+    headroom = min(300.0, budget_seconds*.1)
+    if remaining <= headroom:
+        raise DisclosurePipelineError('DISCLOSURE_PIPELINE_DEADLINE')
+    return time.monotonic()+remaining-headroom, {
+        'configured_budget_seconds': budget_seconds,
+        'elapsed_before_collection_seconds': max(0, elapsed_seconds),
+        'parent_remaining_seconds': parent_remaining_seconds,
+        'effective_remaining_seconds': remaining,
+        'cleanup_headroom_seconds': headroom}
+
+
 def industry_batch_order(symbols: Iterable[str], membership_rows: Iterable[Mapping[str, Any]],
                          node_order: Iterable[str]) -> tuple[str, ...]:
     """Group the existing complete node order; this function cannot add/drop.
@@ -66,6 +83,9 @@ class DisclosurePipeline:
         self._active = 0
         self._entered = False
         self._closed_resources = False
+        self._gate = _WORKERS
+        self._final_domain: set[str] | None = None
+        self._domain_anomalies: list[dict] = []
 
     def __enter__(self):
         if self._entered:
@@ -73,11 +93,19 @@ class DisclosurePipeline:
         self._entered = True
         try:
             for _ in range(self.workers):
-                if not _WORKERS.try_acquire():
+                if not self._gate.try_acquire():
                     raise DisclosurePipelineError('DISCLOSURE_PIPELINE_BACKPRESSURE')
                 with self._lock:
                     self._active += 1
-                Thread(target=self._worker, daemon=True, name='close-disclosure').start()
+                try:
+                    Thread(target=self._worker, daemon=True, name='close-disclosure').start()
+                except BaseException:
+                    # This slot has no worker to release it. Already started
+                    # workers keep ownership until their own finally blocks.
+                    with self._lock:
+                        self._active -= 1
+                    self._gate.release()
+                    raise
         except BaseException:
             self.close()
             raise
@@ -122,12 +150,14 @@ class DisclosurePipeline:
                 else:
                     future.set_result(value)
         finally:
-            _WORKERS.release()
+            self._gate.release()
             with self._lock:
                 self._active -= 1
             self._close_if_idle()
 
     def submit(self, symbol: str, *, input_hash: str):
+        if self._final_domain is not None and symbol not in self._final_domain:
+            raise DisclosurePipelineError('DISCLOSURE_PIPELINE_OUTSIDE_FINAL_DOMAIN')
         if not self._entered or self._stop.is_set() or time.monotonic() >= self.deadline:
             raise DisclosurePipelineError('DISCLOSURE_PIPELINE_DEADLINE')
         if symbol in self._futures:
@@ -141,13 +171,19 @@ class DisclosurePipeline:
 
     def validate_domain(self, symbols: Iterable[str], input_hashes: Mapping[str, str]):
         final = set(symbols)
-        if set(self._futures) - final:
-            raise DisclosurePipelineError('DISCLOSURE_PIPELINE_OUTSIDE_FINAL_DOMAIN')
-        if any(input_hashes.get(s) != digest for s, digest in self._inputs.items()):
+        if any(input_hashes.get(s) != digest for s, digest in self._inputs.items()
+               if s in final or s in input_hashes):
             raise DisclosurePipelineError('DISCLOSURE_PIPELINE_INPUT_CHANGED')
+        outside = sorted(set(self._futures)-final)
+        self._domain_anomalies = ([{'reason_code': 'PREFETCH_OUTSIDE_FINAL_DOMAIN',
+            'symbols': outside, 'input_hashes': {s: self._inputs[s] for s in outside}}]
+            if outside else [])
+        self._final_domain = final
 
     def results(self, symbols: Iterable[str]) -> list[Any]:
         ordered = tuple(symbols)
+        if self._final_domain is not None and set(ordered)-self._final_domain:
+            raise DisclosurePipelineError('DISCLOSURE_PIPELINE_OUTSIDE_FINAL_DOMAIN')
         if any(symbol not in self._futures for symbol in ordered):
             raise DisclosurePipelineError('DISCLOSURE_PIPELINE_SCOPE_INCOMPLETE')
         values = []
@@ -193,6 +229,8 @@ class DisclosurePipeline:
             'completed_symbols': sorted(s for s, f in self._futures.items()
                                         if f.done() and not f.cancelled() and f.exception() is None),
             'input_hashes': dict(sorted(self._inputs.items())),
+            'final_domain_symbols': sorted(self._final_domain) if self._final_domain is not None else None,
+            'domain_anomalies': self._domain_anomalies,
             'query_windows_seconds': {s: [a-self._started, b-self._started]
                                      for s, (a, b) in sorted(windows.items())}}
         payload['receipt_hash'] = content_hash(payload)

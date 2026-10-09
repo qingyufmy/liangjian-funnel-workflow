@@ -216,3 +216,41 @@ def test_pipeline_receipt_io_failure_preserves_original_failure_or_blocks_succes
     else:
         with pytest.raises(OSError, match='fixture full disk'):
             App().prepare_snapshot(as_of=NOW, candidate_symbols=('600000.SH',))
+
+
+def test_parent_deadline_and_elapsed_time_reach_pipeline_receipt(tmp_path, monkeypatch):
+    import json
+    from datetime import timedelta
+    from types import SimpleNamespace
+    class Clock:
+        @classmethod
+        def now(cls, *_):
+            return NOW
+    monkeypatch.setattr(wf, 'datetime', type('Clock', (wf.datetime,), {'now': Clock.now}))
+    monkeypatch.setenv('LIANGJIAN_PARENT_CLOSE_DEADLINE_MS', str(int((NOW.timestamp()+4800)*1000)))
+    class Client:
+        def __init__(self, **_):
+            pass
+        def __enter__(self):
+            return self
+        def __exit__(self, *_):
+            pass
+    for name in ('CninfoClient', 'BseClient', 'SseDisclosureClient', 'SzseDisclosureClient'):
+        monkeypatch.setattr(wf, name, Client)
+    class App(wf.WorkflowApplication):
+        def __init__(self):
+            self.settings = Settings.from_env({'LIANGJIAN_DISCLOSURE_SCOPE_MODE': 'CANDIDATE_DOMAIN'}, root=tmp_path)
+        def _prepare_snapshot(self, *, start_disclosure_pipeline, **_):
+            start_disclosure_pipeline(['600000.SH'])
+            raise wf.WorkflowError('ORIGINAL_TEST_FAILURE')
+    app = App()
+    app.settings = app.settings.model_copy(update={'research_checkpoint_dir': tmp_path/'c'})
+    progress = SimpleNamespace(snapshot=lambda: {'run_id': 'test', 'started_at': (NOW-timedelta(seconds=120)).isoformat()})
+    with pytest.raises(wf.WorkflowError, match='ORIGINAL_TEST_FAILURE'):
+        app.prepare_snapshot(as_of=NOW, progress=progress, candidate_symbols=('600000.SH',))
+    receipts = list((app.settings.research_checkpoint_dir/'scope_receipts').glob('*.json'))
+    assert len(receipts) == 1
+    policy = json.loads(receipts[0].read_text(encoding='utf-8'))['deadline_policy']
+    assert policy['elapsed_before_collection_seconds'] == 120
+    assert policy['effective_remaining_seconds'] == 4800
+    assert policy['cleanup_headroom_seconds'] == 300

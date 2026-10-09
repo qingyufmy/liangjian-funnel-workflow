@@ -122,6 +122,29 @@ def test_real_full_market_fallback_is_not_vacuous_legacy_coverage():
     assert audit["route_coverage"]["FULL_MARKET_FALLBACK"]["symbols"] == [symbol]
 
 
+def test_stale_available_board_matches_real_a2_without_retaining_full_domain():
+    snapshot, rows = _inputs(3)
+    primary, strong, negative = snapshot['g0_symbols']
+    daily = {s: _bars(s != negative) for s in snapshot['g0_symbols']}
+    _materialize(snapshot, daily)
+    board = {'available': True, 'trade_date': (NOW.date()-timedelta(days=1)).isoformat(),
+             'by_symbol': {primary: [{'board_code': 'PRIMARY', 'strategy_theme_id': 'theme-monthly',
+                'board_name': '主方向', 'selected_for_rotation': True, 'primary_rank': 1,
+                'strength': 100, 'main_net_inflow_cny': 100}]}}
+    snapshot['SELECTED_BOARD_SNAPSHOT'] = board
+    scope = build_disclosure_prefilter(symbols=snapshot['g0_symbols'], trade_date=NOW.date(),
+        daily=daily, selected_board=board, event_symbols=[], event_sources_complete=True)
+    gate = screen_a2(snapshot, {'active_research_pool': rows},
+                     minimum_identifiability_score=0, review_all_eligible=True)
+    # The real gate currently trusts available=True, not the board date.
+    assert set(gate.review_symbols) == {primary, strong}
+    assert scope['candidate_symbols'] == sorted([primary, strong])
+    assert scope['deferred_symbols'] == [negative]
+    assert not any(r['uncertainty_retained'] for r in scope['records'])
+    assert all('BOARD_DATE_MISMATCH' in r['channel_diagnostics'] for r in scope['records'])
+    assert audit_disclosure_scope(scope, gate.review_symbols, decisions=gate.decisions)['status'] == 'COVERED'
+
+
 def test_legacy_channel_is_separately_named_without_granting_scope_authority():
     snapshot, rows = _inputs(1)
     symbol = snapshot["g0_symbols"][0]
