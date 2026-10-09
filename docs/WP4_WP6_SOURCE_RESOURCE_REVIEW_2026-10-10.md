@@ -16,6 +16,8 @@ LOCAL 主关键链隔离东财资金：原反例2失败；today 原始事实独�
 
 Hot surrogate额外黄金在新代码即通过，原错误已被ValueError父类捕获，无需修改实现；它不是先红后绿缺陷证据。原命令错文件名/fixture自身失误记录保留，不叫生产回归。
 
+首次封存 HEAD `457595ba97ef2d8d8d7c1cfe4b979d5eae3c2aab` 全量实际失败：3113 总项、3101通过、5失败、6跳过、1预期失败，pytest exit1、npm/typecheck exit0，回执 `artifacts/wp5-20261010/full-source-resource-457595b/evidence.json` SHA `fcfc45abce692fc20af384c422f8fc1986ac0b3ddfe3773008baa9c5acdeea88` 原样保留。五项均为 `test_wp5_disclosure_formal_routes.py` 原仅1条记录却声明100的旧fixture；严格consumer拒绝符合预期。仅两处输入替换为既有 `_complete_hot100_fixture`，原route/公告覆盖断言保持不变，不改生产门槛。相关50通过/exit0，`hot100-formal-fixture-final.xml`。新提交须另跑全量，不能用此50项或失败的旧HEAD验收新版本。
+
 ## 4. 四层验收
 
 CODE：切片通过，联合新HEAD全量/独立verify后送Claude。REPLAY：固定输入，不是五日来源排名差集或27方向180秒预算。OPERATIONS：未发布、未模型/通知执行、未Linux/VM自然资源采集。STRATEGY：无阈值/数量/限流/旧权重政策应用。

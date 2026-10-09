@@ -25,6 +25,18 @@
     "strategy": "NO_THRESHOLD_COUNT_RATE_MODE_OR_LEGACY_WEIGHTING_CHANGE",
     "production_changed": false
   },
+  "source_resource_first_full_20261010": {
+    "head": "457595ba97ef2d8d8d7c1cfe4b979d5eae3c2aab",
+    "status": "FAILED_OLD_ONE_RECORD_AS_FULL100_FIXTURE_CORRECTED_NEW_HEAD_FULL_REQUIRED",
+    "receipt": "artifacts/wp5-20261010/full-source-resource-457595b/evidence.json",
+    "sha256": "fcfc45abce692fc20af384c422f8fc1986ac0b3ddfe3773008baa9c5acdeea88",
+    "total": 3113, "passed": 3101, "failed": 5, "skipped": 6, "xfail": 1,
+    "pytest_exit_code": 1, "npm_test_exit_code": 0, "typecheck_exit_code": 0,
+    "repair": "ONLY_TWO_HOT100_INPUT_FIXTURES_COMPLETE_WITH_ORIGINAL_ROUTE_ASSERTIONS_UNCHANGED",
+    "targeted_command": "pytest tests/test_wp5_disclosure_formal_routes.py tests/test_wp4_hot100_consumers.py -o addopts='' -q --junitxml=artifacts/wp5-20261010/hot100-formal-fixture-final.xml",
+    "targeted_exit_code": 0, "targeted_passed": 50,
+    "production_changed": false
+  },
   "claude_followups_and_source_cutoff_20261010": {
     "status": "LOCAL_CODE_SLICES_PASSED_PENDING_NEW_HEAD_FULL_TEST",
     "publication_normalization": "ACTUAL_WORKFLOW_PURE_FUNCTION_CALLED_LAZILY_NO_APPLICATION_CONSTRUCTION",

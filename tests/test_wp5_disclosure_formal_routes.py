@@ -11,7 +11,7 @@ from liangjian_funnel.pipeline.disclosure_scope import (
     audit_disclosure_scope, build_disclosure_prefilter,
 )
 from test_deterministic_pipeline_v2 import (
-    NOW, _complete_a2_factor_scores, _snapshot, _trend_a2_factor_scores,
+    NOW, _complete_a2_factor_scores, _complete_hot100_fixture, _snapshot, _trend_a2_factor_scores,
 )
 
 
@@ -57,9 +57,8 @@ def test_real_gate_nonempty_emotion_primary_reserve_and_strong_are_retained():
     rows[0]["a2_factor_scores"]["tier_structure"] = {
         "score": 90, "available": True, "availability_state": "OBSERVED_VALUE",
         "first_board_observed": True, "ladder_height": 1, "event_source": "HITHINK_LIMIT_UP_POOL"}
-    snapshot["EASTMONEY_HOT100_SNAPSHOT"] = {
-        "available": True, "trade_date": NOW.date().isoformat(), "record_count": 100,
-        "records": [{"symbol": emotion, "rank": 5}]}
+    snapshot["EASTMONEY_HOT100_SNAPSHOT"] = _complete_hot100_fixture(
+        [{"symbol": emotion, "rank": 5}], at=NOW)
     board = {"available": True, "trade_date": NOW.date().isoformat(), "by_symbol": {
         primary: [{"board_code": "PRIMARY", "strategy_theme_id": "theme-monthly",
                    "board_name": "主方向", "strength": 100, "main_net_inflow_cny": 100,
@@ -172,9 +171,8 @@ def test_unavailable_board_real_gate_keeps_emotion_but_not_trend(board):
     rows[0]['a2_factor_scores']['tier_structure'] = {
         'score': 90, 'available': True, 'availability_state': 'OBSERVED_VALUE',
         'first_board_observed': True, 'ladder_height': 1, 'event_source': 'HITHINK_LIMIT_UP_POOL'}
-    snapshot['EASTMONEY_HOT100_SNAPSHOT'] = {'available': True,
-        'trade_date': NOW.date().isoformat(), 'record_count': 100,
-        'records': [{'symbol': emotion, 'rank': 5}]}
+    snapshot['EASTMONEY_HOT100_SNAPSHOT'] = _complete_hot100_fixture(
+        [{'symbol': emotion, 'rank': 5}], at=NOW)
     snapshot['SELECTED_BOARD_SNAPSHOT'] = board
     scope = build_disclosure_prefilter(symbols=snapshot['g0_symbols'], trade_date=NOW.date(),
         daily=daily, selected_board=board, event_symbols=[emotion],
