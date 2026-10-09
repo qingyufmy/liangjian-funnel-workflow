@@ -21,7 +21,9 @@ from .a1_contract import (
     A1_CONTRACT_VERSION,
     A1_MONTHLY_DECISION_COUNT,
     canonical_json,
+    canonical_json_length,
     canonicalize_monthly_decisions,
+    measure_canonical_json,
     stable_digest,
 )
 
@@ -257,12 +259,13 @@ def packet_diagnostics(packet: Mapping[str, Any]) -> dict[str, Any]:
     """Expose section sizes without exposing source content in logs."""
 
     sections = {
-        str(key): len(canonical_json(value))
+        str(key): canonical_json_length(value)
         for key, value in packet.items()
         if str(key) not in {"packet_hash", "diagnostics"}
     }
-    total_chars = len(canonical_json({key: value for key, value in packet.items() if key != "diagnostics"}))
-    estimated = _estimate_tokens(canonical_json({key: value for key, value in packet.items() if key != "diagnostics"}))
+    measurement = measure_canonical_json({key: value for key, value in packet.items() if key != "diagnostics"})
+    total_chars = measurement.total_chars
+    estimated = _estimate_tokens_from_counts(measurement.ascii_chars, measurement.non_ascii_chars)
     largest = sorted(sections.items(), key=lambda item: (-item[1], item[0]))[:12]
     return {
         "packet_chars": total_chars,
@@ -770,6 +773,11 @@ def _estimate_tokens(text: str) -> int:
     # deterministic and inexpensive.  It is a gate, not provider billing.
     ascii_chars = sum(ord(char) < 128 for char in text)
     non_ascii_chars = len(text) - ascii_chars
+    return _estimate_tokens_from_counts(ascii_chars, non_ascii_chars)
+
+
+def _estimate_tokens_from_counts(ascii_chars: int, non_ascii_chars: int) -> int:
+    # Round only after aggregating the entire encoded document, not per chunk.
     return max(1, math.ceil(ascii_chars / 4 + non_ascii_chars / 1.5) + 8)
 
 

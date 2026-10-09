@@ -17,7 +17,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass, field
-from typing import Any, Mapping, Sequence
+from typing import Any, Iterator, Mapping, Sequence
 
 
 A1_CONTRACT_VERSION = "a1-discovery-contract/3.2.0"
@@ -59,8 +59,46 @@ def canonical_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
 
 
+def canonical_json_chunks(value: Any) -> Iterator[str]:
+    """Iterate the same canonical JSON without joining the complete document.
+
+    The encoder still sorts each mapping and can emit an entire large string
+    as one chunk. This removes document-sized copies, not all allocations.
+    """
+
+    return json.JSONEncoder(ensure_ascii=False, sort_keys=True,
+                            separators=(",", ":"), default=str).iterencode(value)
+
+
+@dataclass(frozen=True, slots=True)
+class CanonicalJSONMeasurement:
+    total_chars: int
+    ascii_chars: int
+    non_ascii_chars: int
+
+
+def canonical_json_length(value: Any) -> int:
+    """Count encoded characters without measuring unused ASCII statistics."""
+
+    return sum(len(chunk) for chunk in canonical_json_chunks(value))
+
+
+def measure_canonical_json(value: Any) -> CanonicalJSONMeasurement:
+    """Count encoded characters once, including JSON quoting/escapes."""
+
+    total_chars = ascii_chars = 0
+    for chunk in canonical_json_chunks(value):
+        size = len(chunk)
+        total_chars += size
+        ascii_chars += size if chunk.isascii() else sum(ord(char) < 128 for char in chunk)
+    return CanonicalJSONMeasurement(total_chars, ascii_chars, total_chars - ascii_chars)
+
+
 def stable_digest(value: Any) -> str:
-    return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
+    digest = hashlib.sha256()
+    for chunk in canonical_json_chunks(value):
+        digest.update(chunk.encode("utf-8"))
+    return digest.hexdigest()
 
 
 @dataclass(frozen=True, slots=True)
@@ -620,11 +658,15 @@ __all__ = [
     "A1_THEME_TARGET",
     "A1DiscoveryValidation",
     "CanonicalMonthlyIndustryDecision",
+    "CanonicalJSONMeasurement",
     "IndustryThemeMapping",
     "canonical_json",
+    "canonical_json_chunks",
+    "canonical_json_length",
     "canonicalize_monthly_decisions",
     "contract_values",
     "merge_a1_discovery_output",
+    "measure_canonical_json",
     "migrate_legacy_discovery_output",
     "render_runtime_contract",
     "required_mapping_codes",
