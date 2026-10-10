@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime
 import json
+import os
 from pathlib import Path
 import time
 import sys
@@ -19,6 +20,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--state-db',type=Path,required=True)
     parser.add_argument('--minute-db',type=Path,required=True)
+    parser.add_argument('--monitor-latest',type=Path,help='Explicit original atomic A4 completion file; no path discovery')
     parser.add_argument('--lane',action='append',required=True)
     parser.add_argument('--shadow-db',type=Path,required=True)
     parser.add_argument('--shadow-jsonl',type=Path,required=True)
@@ -38,13 +40,19 @@ def main(argv=None):
         receipt_path = args.receipt_jsonl.resolve()
         if receipt_path.exists() or receipt_path in paths:
             raise ValueError('UNIQUE_INDEPENDENT_RECEIPT_REQUIRED')
+        if args.monitor_latest is not None:
+            marker=args.monitor_latest.resolve()
+            if any(marker==path or marker.exists() and path.exists() and os.path.samefile(marker,path)
+                    for path in (*paths,receipt_path)):
+                raise ValueError('COMPLETION_AND_OUTPUT_PATH_ALIAS_REFUSED')
         # Validate budgets before ledger construction can create an output DB.
         for value in (args.budget_seconds,args.wait_seconds,args.max_lateness_seconds):
             if not math.isfinite(value): raise ValueError('FINITE_BUDGET_REQUIRED')
         if not 0 < args.budget_seconds <= 5 or not 0 <= args.wait_seconds <= 5 or not 0 < args.max_lateness_seconds <= 30:
             raise ValueError('SHADOW_BUDGET_OR_WAIT_INVALID')
         now=datetime.now().astimezone()
-        source=ReadOnlyShadowSource(paths[0],paths[1],lanes=args.lane)
+        source=ReadOnlyShadowSource(paths[0],paths[1],lanes=args.lane,monitor_latest=args.monitor_latest,
+            checkout_root=Path(__file__).resolve().parents[1])
         ledger=ShadowEvidenceLedger(paths[2],paths[3])
         service=ShadowSession(source,ledger=ledger,started_at=now,budget_seconds=args.budget_seconds,
             wait_seconds=args.wait_seconds,max_lateness_seconds=args.max_lateness_seconds)
@@ -56,7 +64,7 @@ def main(argv=None):
                 receipt=service.poll(observed_at=datetime.now().astimezone())
                 output.write(json.dumps(receipt,ensure_ascii=False,allow_nan=False)+'\n')
                 output.flush()
-                if receipt['status'] not in ('DUPLICATE','WAITING_COMPLETE_SCOPE'):
+                if receipt['status'] not in ('DUPLICATE','WAITING_COMPLETE_SCOPE','WAITING_PRODUCTION_COMPLETION'):
                     print(json.dumps({'status':receipt['status'],'minute':receipt.get('minute'),
                         'actual_execution_authorized':False},ensure_ascii=False))
                 time.sleep(min(args.poll_seconds,max(0,deadline-time.monotonic())))

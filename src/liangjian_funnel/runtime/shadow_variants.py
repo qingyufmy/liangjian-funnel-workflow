@@ -10,6 +10,7 @@ import math
 import re
 import threading
 import time
+import uuid
 
 from ..evaluation.ablation import engine
 
@@ -160,6 +161,14 @@ def _baseline_records(items, minute):
     return records
 
 
+@dataclass(frozen=True)
+class TentativeShadowEvaluation:
+    """Opaque engine-owned reservation; result mutation cannot authorize commit."""
+    token: str | None
+    result: dict
+    state_version: int
+
+
 class ShadowVariantEngine:
     """Single capacity, no queue; timed-out workers cannot emit or write anything."""
     def __init__(self, *, evaluator=None, clock=time.monotonic):
@@ -171,8 +180,57 @@ class ShadowVariantEngine:
         self._last_minute = {}
         self._states = {}
         self._triggered = set()
+        self._state_version = 0
+        self._pending = None
 
     def evaluate_minute(self, items, *, minute, budget_seconds=5.0):
+        # Existing direct callers retain immediate in-memory state commitment.
+        return self._evaluate_minute(items,minute=minute,budget_seconds=budget_seconds,tentative=False)
+
+    def evaluate_tentative(self, items, *, minute, budget_seconds=5.0):
+        return self._evaluate_minute(items,minute=minute,budget_seconds=budget_seconds,tentative=True)
+
+    def commit_tentative(self, evaluation, *, accepted_keys=None):
+        if not self._lock.acquire(blocking=False):
+            return {'ok':False,'error_code':'SHADOW_COMMIT_BUSY'}
+        try:
+            pending=self._pending
+            if pending is None or evaluation is not pending['handle']:
+                return {'ok':False,'error_code':'SHADOW_TRANSACTION_NOT_CURRENT'}
+            if evaluation.state_version!=self._state_version:
+                return {'ok':False,'error_code':'SHADOW_TRANSACTION_VERSION_CONFLICT'}
+            if _digest(evaluation.result)!=pending['result_sha256']:
+                return {'ok':False,'error_code':'SHADOW_TRANSACTION_RESULT_CHANGED'}
+            keys=pending['touched'] if accepted_keys is None else set(accepted_keys)
+            if not keys.issubset(pending['touched']):
+                return {'ok':False,'error_code':'SHADOW_TRANSACTION_KEYS_INVALID'}
+            if self._day!=pending['day']:
+                self._day=pending['day']; self._states.clear(); self._triggered.clear(); self._last_minute.clear()
+            for key in keys:
+                self._states[key]=pending['states'][key]
+                self._last_minute[key]=pending['last_minute'][key]
+                if key in pending['triggered']:
+                    self._triggered.add(key)
+            self._state_version+=1
+            self._pending=None
+            return {'ok':True,'state_version':self._state_version,
+                'status':'COMMITTED' if keys==pending['touched'] else 'PARTIALLY_COMMITTED',
+                'committed_key_count':len(keys)}
+        finally:
+            self._lock.release()
+
+    def discard_tentative(self, evaluation):
+        if not self._lock.acquire(blocking=False):
+            return {'ok':False,'error_code':'SHADOW_DISCARD_BUSY'}
+        try:
+            if self._pending is None or evaluation is not self._pending['handle']:
+                return {'ok':False,'error_code':'SHADOW_TRANSACTION_NOT_CURRENT'}
+            self._pending=None
+            return {'ok':True,'status':'DISCARDED','state_version':self._state_version}
+        finally:
+            self._lock.release()
+
+    def _evaluate_minute(self, items, *, minute, budget_seconds, tentative):
         if isinstance(budget_seconds, bool) or not isinstance(budget_seconds, (int, float)) or not math.isfinite(budget_seconds) or not 0 < budget_seconds <= 5:
             raise ValueError("SHADOW_BUDGET_MUST_BE_GT_ZERO_LE_5")
         at = _stamp(minute)
@@ -180,17 +238,28 @@ class ShadowVariantEngine:
         items = tuple(items)
         summary = {"schema_version": "a4-shadow-minute/2", "cohort": "REALTIME_SHADOW", "minute": at.isoformat(), "variant_set_version": VARIANT_SET_VERSION, "status": "OK", "budget_seconds": budget_seconds, "evaluated_plan_count": 0, "evaluated_variant_count": 0, "requested_variant_count": 0, "skipped_variant_count": 0, "first_trigger_count": 0, "shadow_budget_exceeded_count": 0, "baseline_records": _baseline_records(items, at)}
         result = {"signals": [], "minute_summary": summary, "errors": []}
+        def unavailable():
+            return TentativeShadowEvaluation(None,result,self._state_version) if tentative else result
         if not self._lock.acquire(blocking=False):
             summary["status"] = "SHADOW_REENTRY_IN_FLIGHT"
             summary["elapsed_ms"] = (self.clock()-started)*1000
-            return result
+            return unavailable()
+        staged=None
         try:
+            if self._pending is not None:
+                summary['status']='SHADOW_TRANSACTION_PENDING'
+                return unavailable()
             if self._active is not None and self._active.is_alive():
                 summary["status"] = "SHADOW_WORKER_BUSY"
-                return result
-            if self._day != at.date():
-                self._day = at.date()
-                self._last_minute.clear(); self._states.clear(); self._triggered.clear()
+                return unavailable()
+            if self._day is not None and at.date()<self._day:
+                summary['status']='SHADOW_CLOCK_REGRESSED'
+                return unavailable()
+            same_day=self._day==at.date()
+            last_minute=dict(self._last_minute) if same_day else {}
+            states=dict(self._states) if same_day else {}
+            triggered=set(self._triggered) if same_day else set()
+            touched=set()
             jobs = []
             evaluated_plans = set()
             summary["requested_plan_count"] = 0
@@ -213,7 +282,7 @@ class ShadowVariantEngine:
                     summary.update(status="SHADOW_BUDGET_EXCEEDED", shadow_budget_exceeded_count=1, skipped_variant_count=len(jobs)-index)
                     break
                 key = (item.get("plan_id"), spec.variant_id)
-                if self._last_minute.get(key, at-timedelta(minutes=1)) >= at:
+                if last_minute.get(key, at-timedelta(minutes=1)) >= at:
                     continue
                 frozen = deepcopy(item)
                 plan, checksum, limitation = prepare_shadow_plan(frozen["plan"], decision_time=frozen["decision_time"])
@@ -258,20 +327,31 @@ class ShadowVariantEngine:
                 if error: result["errors"].append({"plan_id": key[0], "variant_id": key[1], "error": error})
                 trigger = status == "OK" and row["variant_action"] in ("BUY_SIGNAL", "ADD_SIGNAL")
                 state = _digest({name: row[name] for name in ("status", "variant_action", "variant_state", "variant_conditions", "reason")})
-                first = trigger and key not in self._triggered
+                first = trigger and key not in triggered
                 if first:
                     row["event_kind"] = "FIRST_TRIGGER"
-                    self._triggered.add(key)
+                    triggered.add(key)
                     summary["first_trigger_count"] += 1
-                elif key not in self._states: row["event_kind"] = "INITIAL_STATE"
-                elif self._states[key] != state: row["event_kind"] = "STATE_CHANGE"
+                elif key not in states: row["event_kind"] = "INITIAL_STATE"
+                elif states[key] != state: row["event_kind"] = "STATE_CHANGE"
                 else: row["event_kind"] = None
                 if row["event_kind"]: result["signals"].append(row)
-                self._states[key] = state
-                self._last_minute[key] = at
+                states[key] = state
+                last_minute[key] = at
+                touched.add(key)
+            if tentative:
+                staged=TentativeShadowEvaluation(uuid.uuid4().hex,result,self._state_version)
+                self._pending={'handle':staged,'day':at.date(),'states':states,'last_minute':last_minute,
+                    'triggered':triggered,'touched':touched}
+                return staged
+            self._day=at.date()
+            self._last_minute,self._states,self._triggered=last_minute,states,triggered
+            self._state_version+=1
             return result
         finally:
             summary["elapsed_ms"] = (self.clock()-started)*1000
+            if staged is not None:
+                self._pending['result_sha256']=_digest(result)
             self._lock.release()
 
 

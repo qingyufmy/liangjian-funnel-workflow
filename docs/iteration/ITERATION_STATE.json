@@ -1,14 +1,31 @@
 {
   "weekend_sprint_20261010": {
-    "status": "ISOLATED_COMPONENTS_READY_FULL_HEAD_AND_REVIEW_PENDING",
+    "status": "W0_MINIMAL_499ED6A_FULL_VERIFIED_GATE0045_PENDING_SHADOW_FOLLOWUPS_IN_PROGRESS",
     "baseline_production": "adafe5054b9ff283ea03925e2b0c6baf2146dcfe",
     "production_changed_this_sprint": false,
     "code": "W1_ENGINE_W2_LEDGER_PIT_CONTRACT_A3_FIELDS_W3_DAY_WEEK_W4_SAMPLER_SCOPE_HASH_FIX",
-    "replay": "LOCAL_COUNTEREXAMPLES_AND_ORIGINAL_SCOPE_HASH_VERIFIED_SIX_DAY_VARIANT_GOLDEN_BLOCKED_MISSING_FIELDS",
+    "replay": "G_A_ALL_20820_ZERO_DIFFERENCES_G_B_94_ADJUSTMENT_DATA_GAP_NOT_GOLDEN_PASS",
     "operations": "UNDEPLOYED_UNWIRED_PIT_ARRIVAL_AND_DAILY_SCHEDULE_PENDING",
     "strategy": "NO_THRESHOLD_COUNT_MODEL_POLICY_CHANGES_NO_POSITIVE_EXPECTANCY_CLAIM",
     "approval": "DECISION14_REQUIRED_FOR_PUSH_AND_DEPLOY",
-    "bridge_inbox": [38,39,40,41],
+    "bridge_inbox": [38,39,40,41,42,43,44,45],
+    "w0_minimal_release": {
+      "head":"499ed6abc3fd159de23b59dd76b02329300582db",
+      "branch":"codex/w0-receipt-hotfix",
+      "base":"adafe5054b9ff283ea03925e2b0c6baf2146dcfe",
+      "changed_files":3,
+      "full":{"passed":3198,"failed":0,"skipped":6,"xfail":1,"exit_code":0,"independent_verify_exit_code":0,"receipt_sha256":"449d3cf7302c206df5d3c45527b61cd58cdf266374df57873a989216fdec3011"},
+      "real_reseal":{"artifact":"artifacts/W4HASH/w0-minimal-real-reseal.json","exit_code":0,"scope":1636,"candidate":1035,"deferred":601,"original_raw_hashes_unchanged":true},
+      "package":"artifacts/W4HASH/review-w0-499ed6a.zip",
+      "package_sha256":"5bc67eaf317e0c5d0a232bec43d97d5f43c60a6da193c2e0b0377aa561edc544",
+      "approval":"GATE0045_TONY_REQUIRED_NO_PUSH_DEPLOY_OR_PREP_RETRY",
+      "temporary_worktree_cleanup":"TOOL_CREATEPROCESS_BLOCKED_BY_POLICY_NO_WORKAROUND_NO_DELETION"
+    },
+    "w1_followup":{"two_phase_state_commit":"155_PASSED_TOTAL_5_SECOND_ACCEPTANCE_FENCE","installed_layout":"164_PASS_EXPLICIT_CHECKOUT_ACTUAL_IMPORT_HASH_BINDING","cli":"92_PASS_EXPLICIT_ROOT_COMPLETION_OUTPUT_ALIAS_REJECTED_BEFORE_LEDGER_CREATE","g_b":"POST_HOC_ENGINE_ONLY_APPROVED0043_OLD_ENGINE_RUN_ACTIVE_CANDIDATE_ADC1_FULL_RUN_PENDING"},
+    "w2_source_wrapper":{"related_tests":84,"exit_code":0,"source_sha256":"9002b6c46bd7088ef863cab4618ec3d1e085ceed8793b46793126159fe74e5f0","xml":"artifacts/w2-sources-20261010/sources-related-final-v2.xml","xml_sha256":"c5c83b46766a459191b511ddbfcaf1e5ba83e202f79dd9ff78bedf64eafa5419","real_quote_inventory":"DECODED_10_08_600189_ONLY_NOT_AUCTION_HTTP_RAW","operations":"UNWIRED_09_26_RAW_CATALOG_CA_LIMIT_FIELDS_PENDING_RULE_DATE_NOT_EXTENDED"},
+    "w6_w7_followup":{"w6":"107_PASS_FIXTURES_ACTUAL_A3_PURE_PATH_NOT_PRODUCTION_WIRED","w7":"50_PASS_MISSING_WINDOWS_UNKNOWN_FIVE_REAL_DAYS_PENDING_FULL_A2_B_POLICY_UNDEFINED"},
+    "full_3f49f78": {"passed":3504,"failed":0,"skipped":6,"xfail":1,"exit_code":0,"independent_verify_exit_code":0,"receipt_sha256":"2a9057d8f4a6b95616392bbb4fbbcb61e02723f4477526d14f0489c948f0ba9f","later_changes_not_covered":true},
+    "w8_vm_packet_dryrun": {"status":"COMPLETED","exit_code":0,"rss_peak_kib":1333028,"elapsed_seconds":7.583827609982109,"input_bytes":270802980,"g0_count":4264,"input_unchanged":true,"full_a1_execution_verified":false,"sha256":"e0eebde7ac8fc83a6a2b1c265ef1726140fdf1cebd6dcf16646934df72c91606"},
     "commands": [
       {"artifact":"scope-json-roundtrip-final-v2.xml","exit_code":0,"passed":73},
       {"artifact":"scope-json-roundtrip-real-candidate-run2.json","exit_code":0,"original_selected":1636,"candidate":1035,"deferred":601,"original_unchanged":true},
@@ -23,11 +40,13 @@
       {"artifact":"weekend-production-paths-v2.json","exit_code":0,"protected_files":9,"original_functions":137,"capital_prompt_projection_equal":true}
     ],
     "unresolved": [
-      "W1 94 historical plans lack ATR14/four preceding closes; zero eligible is not golden pass",
+      "W1 G-B source has94 raw MA5 matches but94 company-action coverage gaps; approved POST_HOC_ENGINE_ONLY comparison excludes strategy and return cohorts",
       "W2 actual raw source/listing/explicit-limit mapping and Monday rule-date proof are UNWIRED",
-      "standalone consumer installed-layout proof and persistent census to daily bridge are pending",
-      "W3 15:30 versus existing A5 16:00 schedule requires engineering interpretation",
-      "W8 VM complete packet memory dry-run pending; 1.59GB failed prep is not A1 FULL proof"
+      "standalone installed-layout fixture164PASS and CLI isolation92PASS; VM installed-layout and persistent census to daily bridge remain pending",
+      "W3 timing accepted0040, pure coordinator46tests passed; real daily timer/observer stillUNWIRED",
+      "W8 actual270MB4264scope packet dry-run complete1.271GiB; complete A1 FULL end-to-end peak remainsUNPROVEN",
+      "adafe50 natural fresh close shares scope JSON mismatch; minimal499ed6a full3198PASS and real reseal approved code evidence; release/prep retry needs Tony gate0045",
+      "W0b actual A1 generations10-08 FULL/10-09 INCREMENTAL validate; original pre-serialization key types and publication/corporate raw producers remain pending evidence, synthetic failures are not production defects"
     ]
   },
   "authorized_release_and_capital_label_20261010": {

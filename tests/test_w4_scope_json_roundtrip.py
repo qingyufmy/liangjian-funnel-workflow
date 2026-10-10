@@ -7,7 +7,11 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from liangjian_funnel.pipeline import close_scope as scope
-from liangjian_funnel.pipeline.disclosure_maintenance import build_maintenance_queue
+from liangjian_funnel.pipeline.disclosure_maintenance import (
+    build_maintenance_queue, seal_maintenance_queue, validate_queue,
+)
+from liangjian_funnel.pipeline.feature_store import content_hash
+from liangjian_funnel.reporting import atomic_write_json
 from test_wp5_disclosure_prefilter import build
 
 NOW = datetime(2026,10,9,15,10,tzinfo=ZoneInfo('Asia/Shanghai'))
@@ -110,7 +114,7 @@ def test_schema3_nonfinite_values_are_rejected(bad):
 def test_schema3_stringified_key_collision_is_rejected_before_loss():
     value = payload('close-scope-receipt/3')
     value['discovery']['records'][0]['evidence']['ma']['5'] = 999
-    with pytest.raises(ValueError,match='SCOPE_JSON_KEY_COLLISION'):
+    with pytest.raises(ValueError,match='^RECEIPT_KEY_COLLISION$'):
         scope.hash_scope_receipt(value)
 
 
@@ -130,3 +134,89 @@ def test_schema3_validator_does_not_resanitize_and_hide_persisted_tampering():
     frozen['source']['token'] = 'tampered-persisted-value'
     with pytest.raises(ValueError,match='CLOSE_SCOPE_RECEIPT_HASH_MISMATCH'):
         scope.validate_scope_receipt(frozen)
+
+
+# Deterministic property-style corpus: finite accepted key families crossed
+# with nested list/tuple containers, depth and insertion order. No dependency
+# or random seed; not claimed as a proof for every arbitrary Python object.
+KEY_FAMILIES = [
+    (5,20,60),
+    (2.5,10.5,-.125),
+    (True,False),
+    (None,),
+    (2,2.5,False,None,'string'),
+    ('unicode中文','control\nkey','quoted"key'),
+    (1e20,1e-7,-1e20),
+]
+
+
+def generated_tree(keys,depth,reverse):
+    keys=tuple(reversed(keys)) if reverse else keys
+    value={key:{'value':index,'nil':None,'bool':bool(index%2),'text':'中文\n"'}
+           for index,key in enumerate(keys)}
+    for level in range(depth):
+        value={'children':({level+100:value},),'flag':False,'nil':None}
+    return value
+
+
+@pytest.mark.parametrize('keys',KEY_FAMILIES)
+@pytest.mark.parametrize('depth',[0,1,5])
+@pytest.mark.parametrize('reverse',[False,True])
+def test_schema3_generated_output_hash_invariant_and_actual_maintenance_writer(
+        tmp_path,keys,depth,reverse):
+    tree=generated_tree(keys,depth,reverse)
+    options=args(tmp_path/'scopes')
+    options['discovery']['records'][0]['evidence']['generated']=tree
+    original=deepcopy(options['discovery'])
+    source_path=scope.seal_scope_receipt(**options)
+    persisted=json.loads(source_path.read_text(encoding='utf-8'))
+    scope.validate_scope_receipt(persisted)
+    assert options['discovery']==original
+    signed=scope.hash_scope_receipt({**payload('close-scope-receipt/3'),
+                                   'discovery':options['discovery'],
+                                   'recorded_at':persisted['recorded_at']})
+    assert signed==persisted
+    roundtrip=json.loads(json.dumps(signed,ensure_ascii=False,allow_nan=False))
+    assert scope._hash(signed)==scope._hash(roundtrip)
+    assert scope.hash_scope_receipt(signed)==scope.hash_scope_receipt(roundtrip)
+    actual_path=tmp_path/'actual-atomic-writer.json'
+    atomic_write_json(actual_path,signed)
+    actual=json.loads(actual_path.read_text(encoding='utf-8'))
+    assert actual==signed and scope._hash(actual)==scope._hash(signed)
+    scope.validate_scope_receipt(actual)
+    prefilter=build(SYMBOLS,hot_symbols=SYMBOLS[1:2],discovery_symbols=SYMBOLS[2:])
+    queue=build_maintenance_queue(actual,prefilter)
+    queue_path=seal_maintenance_queue(tmp_path/'queues',actual,prefilter)
+    read_queue=json.loads(queue_path.read_text(encoding='utf-8'))
+    assert read_queue==queue
+    assert content_hash(queue)==content_hash(read_queue)
+    validate_queue(read_queue)
+    assert read_queue['source_receipt_hash']==signed['receipt_hash']
+
+
+COLLISION_PAIRS=[(1,'1'),(1.25,'1.25'),(True,'true'),(False,'false'),(None,'null')]
+
+
+@pytest.mark.parametrize('pair',COLLISION_PAIRS)
+@pytest.mark.parametrize('depth',[0,1,5])
+@pytest.mark.parametrize('reverse',[False,True])
+def test_generated_key_collision_exact_code_before_any_receipt_write(tmp_path,pair,depth,reverse):
+    options=args(tmp_path/'not-written')
+    options['discovery']['records'][0]['evidence']['generated']=generated_tree(pair,depth,reverse)
+    original=deepcopy(options['discovery'])
+    with pytest.raises(ValueError,match='^RECEIPT_KEY_COLLISION$'):
+        scope.seal_scope_receipt(**options)
+    assert options['discovery']==original
+    assert not options['root'].exists()
+
+
+def test_legacy_v1_validator_preserves_original_bytes_and_does_not_resign(tmp_path):
+    value=payload('close-scope-receipt/1')
+    value['discovery']['records'][0]['evidence']={'ma':{'5':10,'20':9,'60':8}}
+    value['receipt_hash']=scope._hash(value)
+    path=tmp_path/'original-v1.json'
+    path.write_text(json.dumps(value,ensure_ascii=False,indent=3),encoding='utf-8')
+    before=path.read_bytes(); loaded=json.loads(before)
+    original=deepcopy(loaded)
+    scope.validate_scope_receipt(loaded)
+    assert loaded==original and path.read_bytes()==before

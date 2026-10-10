@@ -29,7 +29,7 @@ def _json_shape(value, *, redact=True):
                 except (TypeError, ValueError) as exc:
                     raise ValueError('SCOPE_JSON_KEY_INVALID') from exc
                 if text in output:
-                    raise ValueError('SCOPE_JSON_KEY_COLLISION')
+                    raise ValueError('RECEIPT_KEY_COLLISION')
                 output[text] = normalize(child)
             return output
         if isinstance(item, (list, tuple)):
@@ -40,7 +40,7 @@ def _json_shape(value, *, redact=True):
         return json.loads(json.dumps(sanitize(normalized) if redact else normalized,
             ensure_ascii=False,allow_nan=False))
     except (TypeError, ValueError) as exc:
-        if str(exc).startswith('SCOPE_JSON_KEY_'):
+        if str(exc) == 'RECEIPT_KEY_COLLISION' or str(exc).startswith('SCOPE_JSON_KEY_'):
             raise
         raise ValueError('SCOPE_JSON_VALUE_INVALID') from exc
 

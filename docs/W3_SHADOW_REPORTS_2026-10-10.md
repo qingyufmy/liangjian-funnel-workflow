@@ -18,7 +18,7 @@
 
 `scripts/build_shadow_week.py --report <daily-report.json> ... --session 2026-10-12 ... --session 2026-10-16 --as-of 2026-10-16T16:30:00+08:00 --output <new-dir>`。
 
-两个入口显式绑定本 checkout，仅读输入、拒绝覆盖既有输出、写manifest和文件SHA。COMPLETE=0，缺证=2。没有默认发现生产库/日期，没有客户飞书。生产任务书15:30与“现有A5之后”存在时点冲突，现有A5为16:00，已提交桥接0040；尚未接调度。
+两个入口显式绑定本 checkout，仅读输入、拒绝覆盖既有输出、写manifest和文件SHA。COMPLETE=0，缺证=2。没有默认发现生产库/日期，没有客户飞书。0040已裁定：15:30冻结草稿，16:00正式A5完成后出影子正式日报，16:45截止未完成则草稿+A5_NOT_COMPLETE；独立协调器和46项相关验证见W3_SHADOW_CLOSE_SCHEDULE_2026-10-10.md。实际调度尚未接线，不能将纯协调器通过称为自然运行通过。
 
 ## 实际测试
 
