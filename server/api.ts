@@ -51,34 +51,9 @@ function asyncRoute(
   };
 }
 
-/** Shadow observer only: exact in-memory DTOs, never a dashboard/status call. */
-export function shadowJobRunsReadOnlyRoute(runner: JobRunner, startedAtEpochMs: number): RequestHandler {
-  return (request, response): void => {
-    response.setHeader("Cache-Control", "no-store");
-    if (request.method !== "GET") {
-      response.setHeader("Allow", "GET");
-      response.status(405).json({ error: "METHOD_NOT_ALLOWED" });
-      return;
-    }
-    // The actual socket peer is authoritative; never trust Host or XFF.
-    const peer = request.socket.remoteAddress;
-    if (peer !== "127.0.0.1" && peer !== "::1" && peer !== "::ffff:127.0.0.1") {
-      response.status(403).json({ error: "LOOPBACK_ONLY" });
-      return;
-    }
-    response.json({
-      recentJobRuns: runner.recentRuns(1000),
-      node: { pid: process.pid, startedAtEpochMs, observedAt: new Date().toISOString() },
-    });
-  };
-}
-
 export function createApp(deps: ApiDependencies): Express {
   const app = express();
   app.disable("x-powered-by");
-  // Preserve the original floating-point process birth estimate once. It is
-  // process identity evidence, not a job completion timestamp.
-  const nodeStartedAtEpochMs = Date.now() - process.uptime() * 1000;
 
   app.get("/api/health", (_request, response) => {
     response.setHeader("Cache-Control", "no-store");
@@ -92,7 +67,6 @@ export function createApp(deps: ApiDependencies): Express {
   });
 
   app.use("/api", dashboardAuth(deps.config.dashboardToken));
-  app.all("/api/shadow/job-runs-readonly", shadowJobRunsReadOnlyRoute(deps.runner, nodeStartedAtEpochMs));
   app.use("/api/settings/lark", express.json({ limit: "4kb", strict: true }));
   app.get("/api/settings/lark", asyncRoute(async (_request, response) => {
     response.setHeader("Cache-Control", "no-store");

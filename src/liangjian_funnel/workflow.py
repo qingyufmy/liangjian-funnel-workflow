@@ -14,13 +14,11 @@ from copy import copy
 from contextlib import ExitStack
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
-from functools import wraps
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from threading import Event, RLock, Thread
 from typing import Any, Mapping
 from zoneinfo import ZoneInfo
-from uuid import uuid4
 
 from .data.cache import CacheConflictError, MinuteBarStore
 from .data.session_windows import closed_window_ends, latest_closed_end
@@ -33,7 +31,7 @@ from .data.a2_market import (
     with_capital_flow_provider_attempts,
 )
 from .data.bse import BseClient
-from .data.capital_source_policy import project_local_capital_evidence, inspect_legacy_capital_weighting
+from .data.capital_source_policy import project_local_capital_evidence
 from .data.cninfo import CninfoAnnouncement, CninfoClient, CninfoFetchResult
 from .data.disclosure_router import OfficialDisclosureRouter
 from .data.disclosure_incremental import compose_disclosure_delta, covers_query
@@ -428,193 +426,6 @@ def _a1_full_period(generation: A1Generation | None) -> str | None:
     # the current month's mandatory FULL was published. Fail safe by making
     # the next 18:00 wake-up a monthly catch-up.
     return "UNKNOWN"
-
-
-_CLOSE_RESOURCE_INTERVAL_SECONDS = 2.0
-_CLOSE_RESOURCE_MAX_SECONDS = 3600.0
-_CLOSE_RESOURCE_MAX_SAMPLES = 1802
-_CLOSE_RESOURCE_READ_BUDGET_SECONDS = 2.0
-_CLOSE_RESOURCE_STOP_JOIN_SECONDS = 0.05
-
-
-def _new_close_resource_sampler(invocation_id: str):
-    """Read actual Linux identity; never substitute invocation time for birth."""
-    import sys
-    from .runtime.process_identity import _host, _started
-    from .runtime.resource_sampler import LinuxResourceSampler, SamplerIdentity
-    if sys.platform != "linux":
-        raise ValueError("PLATFORM_UNSUPPORTED")
-    text, support = LinuxResourceSampler._read(Path("/proc/stat"))
-    boot = [line.split()[1] for line in (text or "").splitlines()
-            if line.startswith("btime ") and len(line.split()) == 2]
-    if support != "AVAILABLE" or len(boot) != 1 or not boot[0].isdigit():
-        raise ValueError("PROCESS_START_EVIDENCE_UNAVAILABLE")
-    ticks = os.sysconf("SC_CLK_TCK")
-    start_ticks = _started(os.getpid())
-    if type(ticks) is not int or ticks <= 0 or not start_ticks.isdigit():
-        raise ValueError("PROCESS_START_EVIDENCE_INVALID")
-    process_start = datetime.fromtimestamp(int(boot[0]) + int(start_ticks)/ticks, timezone.utc)
-    identity = SamplerIdentity(run_id=invocation_id, invocation_id=invocation_id,
-        pid=os.getpid(), process_started_at=process_start, host_id=_host())
-    return LinuxResourceSampler(identity)
-
-
-class _CloseResourceObservation:
-    """Bounded scheduler around the accepted sampler, not a second OS parser.
-
-    Only a unique invocation and small observations enter this worker. The
-    original pipeline never receives its data, budgets, locks or exceptions.
-    """
-    def __init__(self, output_dir: Path):
-        self.invocation_id = "close-resource-" + uuid4().hex
-        self.path = Path(output_dir) / "resource_observations" / (self.invocation_id + ".json")
-        self.started_at = datetime.now(timezone.utc)
-        self.started_mono = time.monotonic()
-        self.stop_event, self.sampling_done = Event(), Event()
-        self.lock = RLock()
-        self.ended_at = None
-        self.status, self.termination, self.run_id = "RUNNING", None, None
-        self.unfinished = False
-        self.thread = Thread(target=self._work, name=self.invocation_id, daemon=True)
-
-    def start(self):
-        self.thread.start()
-
-    def stop(self, result, failed):
-        with self.lock:
-            self.ended_at = datetime.now(timezone.utc)
-            self.status = "FAILED" if failed else "SUCCEEDED"
-            self.termination = "EXCEPTION" if failed else None
-            self.run_id = result.get("run_id") if isinstance(result, Mapping) else None
-        self.stop_event.set()
-        stopped = self.sampling_done.wait(_CLOSE_RESOURCE_STOP_JOIN_SECONDS)
-        if not stopped:
-            with self.lock:
-                self.unfinished = True
-        # No disk wait here: a stalled receipt writer cannot hold research.
-        self.thread.join(timeout=0)
-        return {"schema_version": "close-resource-reference/1", "path": str(self.path),
-                "invocation_id": self.invocation_id, "observer_stopped": stopped,
-                "receipt_persistence": "ASYNCHRONOUS_UNCONFIRMED", "eligibility_released": False}
-
-    def _write(self, value):
-        from .runtime.resource_evidence import evidence_hash
-        value["receipt_hash"] = evidence_hash(value)
-        try:
-            atomic_write_json(self.path, value)
-        except Exception:
-            # Never emit arbitrary OS errors or model text into diagnostics.
-            logging.getLogger(__name__).warning("CLOSE_RESOURCE_RECEIPT_WRITE_FAILED")
-
-    def _work(self):
-        from .runtime.resource_evidence import RunResourceEvidenceBuilder, RunResourceWindow
-        samples, issues, spans = [], [], []
-        sampler, read_seconds, missed = None, 0.0, 0
-        budget = {"interval_seconds": _CLOSE_RESOURCE_INTERVAL_SECONDS,
-            "max_seconds": _CLOSE_RESOURCE_MAX_SECONDS, "max_samples": _CLOSE_RESOURCE_MAX_SAMPLES,
-            "cumulative_read_seconds": _CLOSE_RESOURCE_READ_BUDGET_SECONDS,
-            "stop_wait_seconds": _CLOSE_RESOURCE_STOP_JOIN_SECONDS,
-            "independent_of_research_deadline": True}
-        base = {"schema_version": "close-resource-sampling/1", "invocation_id": self.invocation_id,
-            "workflow_started_at": self.started_at.isoformat(), "canonical_research_run_id": None,
-            "lifecycle_status": "RUNNING", "observation_budget": budget,
-            "eligibility_released": False, "acquisition_authenticated": False}
-        self._write({**base, "evidence": None, "gap_codes": ["RUN_NOT_FINISHED"]})
-        try:
-            sampler = _new_close_resource_sampler(self.invocation_id)
-            slot = 0
-            while not self.stop_event.is_set():
-                due = self.started_mono + slot * _CLOSE_RESOURCE_INTERVAL_SECONDS
-                now = time.monotonic()
-                if now - self.started_mono > _CLOSE_RESOURCE_MAX_SECONDS:
-                    issues.append("OBSERVATION_WINDOW_BUDGET_EXCEEDED")
-                    break
-                if len(samples) >= _CLOSE_RESOURCE_MAX_SAMPLES or read_seconds >= _CLOSE_RESOURCE_READ_BUDGET_SECONDS:
-                    issues.append("OBSERVATION_READ_OR_SAMPLE_BUDGET_EXCEEDED")
-                    break
-                if self.stop_event.wait(max(0.0, due-now)):
-                    break
-                begin = time.monotonic()
-                observation = sampler.sample()
-                completed_mono = time.monotonic()
-                read_seconds += completed_mono-begin
-                if read_seconds >= _CLOSE_RESOURCE_READ_BUDGET_SECONDS:
-                    issues.append("OBSERVATION_READ_OR_SAMPLE_BUDGET_EXCEEDED")
-                with self.lock:
-                    end = self.ended_at
-                late_run = end is not None and observation.observed_at > end
-                late_budget = completed_mono-self.started_mono > _CLOSE_RESOURCE_MAX_SECONDS
-                if late_run:
-                    issues.append("LATE_SAMPLE_OUTSIDE_RUN_WINDOW")
-                if late_budget:
-                    issues.append("LATE_SAMPLE_OUTSIDE_OBSERVATION_BUDGET")
-                    issues.append("OBSERVATION_WINDOW_BUDGET_EXCEEDED")
-                if not late_run and not late_budget:
-                    samples.append(observation)
-                    issues.extend(sampler.last_issues)
-                    spans.append([stamp.isoformat() for stamp in sampler.last_read_span])
-                slot += 1
-                now = time.monotonic()
-                if now > self.started_mono + slot * _CLOSE_RESOURCE_INTERVAL_SECONDS:
-                    skipped = math.ceil((now-self.started_mono)/_CLOSE_RESOURCE_INTERVAL_SECONDS)-slot
-                    missed += skipped
-                    slot += skipped
-        except Exception:
-            issues.append("PLATFORM_UNSUPPORTED" if os.name == "nt" and sampler is None
-                          else "RESOURCE_OBSERVATION_FAILED")
-        finally:
-            self.sampling_done.set()
-        # Exhausted observation budget is not a research completion event.
-        self.stop_event.wait()
-        with self.lock:
-            ended, status, termination, run_id = self.ended_at, self.status, self.termination, self.run_id
-            unfinished = self.unfinished
-        if unfinished:
-            issues.append("OBSERVER_STOP_UNFINISHED")
-        evidence = None
-        if sampler is not None:
-            try:
-                window = RunResourceWindow(**sampler.identity.__dict__, started_at=self.started_at,
-                    observed_until=ended, status="RUNNING" if unfinished else status,
-                    ended_at=None if unfinished else ended, termination=None if unfinished else termination)
-                evidence = RunResourceEvidenceBuilder().build(window, samples)
-            except Exception:
-                issues.append("RESOURCE_EVIDENCE_BUILD_FAILED")
-        self._write({**base, "canonical_research_run_id": run_id,
-            "workflow_ended_at": ended.isoformat(),
-            "lifecycle_status": "UNFINISHED" if unfinished else status,
-            "evidence": evidence, "gap_codes": sorted(set(issues)),
-            "missed_interval_count": missed, "read_seconds": read_seconds,
-            "read_spans": spans, "sampled_peak_is_exact": False})
-
-
-def _observe_close_research_resources(function):
-    @wraps(function)
-    def observed(self, slot, *args, **kwargs):
-        if (str(slot).lower() != "close" or kwargs.get("historical_replay")
-                or kwargs.get("comparison_run") or kwargs.get("auction_refresh")):
-            return function(self, slot, *args, **kwargs)
-        observer = None
-        try:
-            if getattr(self.settings, "close_resource_sampling_enabled", True):
-                observer = _CloseResourceObservation(self.settings.workflow_output_dir)
-                observer.start()
-        except Exception:
-            logging.getLogger(__name__).warning("CLOSE_RESOURCE_OBSERVER_START_FAILED")
-        result, failed, reference = None, True, None
-        try:
-            result = function(self, slot, *args, **kwargs)
-            failed = False
-        finally:
-            if observer is not None:
-                try:
-                    reference = observer.stop(result, failed)
-                except Exception:
-                    logging.getLogger(__name__).warning("CLOSE_RESOURCE_OBSERVER_STOP_FAILED")
-        if isinstance(result, dict) and reference is not None:
-            return {**result, "resource_sampling": reference}
-        return result
-    return observed
 
 
 class WorkflowApplication:
@@ -3049,7 +2860,6 @@ class WorkflowApplication:
                 "plan": plan.as_dict() if plan is not None else None,
             }
 
-    @_observe_close_research_resources
     def run_research(
         self,
         slot: str,
@@ -6647,7 +6457,6 @@ class WorkflowApplication:
             "A2_SECTOR_HEALTH_SNAPSHOT": sector_health,
             "SECTOR_PERMISSIONS": sector_permissions,
             "CAPITAL_FLOW_SNAPSHOT": capital_flow,
-            "CAPITAL_FLOW_WEIGHTING_AUDIT": inspect_legacy_capital_weighting(capital_flow),
             "BOARD_CAPITAL_FLOW_SNAPSHOT": board_capital_flow,
             **({"CAPITAL_FLOW_RAW_TODAY_EVIDENCE": raw_capital_today_evidence}
                if raw_capital_today_evidence is not None else {}),
@@ -6973,23 +6782,6 @@ class WorkflowApplication:
             slot == "close"
             and now.time().replace(tzinfo=None) >= datetime.strptime("15:10", "%H:%M").time()
         )
-        # Add local observation only AFTER the unchanged production gates.
-        # This projection does not mutate frozen research or feed any prompt.
-        from .runtime.shadow_inputs import shadow_inputs_for_publication
-        for candidate in batch:
-            payload = candidate["payload"]
-            facts = payload.get("strategy_facts")
-            if facts is not None and not isinstance(facts, Mapping):
-                continue  # Preserve malformed legacy fields, never replace them.
-            shadow = shadow_inputs_for_publication(
-                cache=getattr(self, "fact_cache", None),
-                calendar=getattr(self, "trading_calendar", None),
-                production_plan=payload, snapshot_data=snapshot_data,
-                target_trade_date=candidate["expires_at"].date(), observed_at=now,
-            )
-            candidate["payload"] = {
-                **payload, "strategy_facts": {**(facts or {}), "shadow_inputs": shadow},
-            }
         batch.sort(
             key=lambda item: (
                 _plan_priority_rank((item.get("payload") or {}).get("plan_priority")),
