@@ -62,7 +62,7 @@ def _stamp(value):
     return result
 
 
-def prepare_shadow_plan(plan, *, decision_time):
+def prepare_shadow_plan(plan, *, decision_time, generated_at=None):
     """Validate A3 append-only evidence, normalize only an isolated input copy."""
     facts = plan.get("strategy_facts")
     inputs = facts.get("shadow_inputs") if isinstance(facts, dict) else None
@@ -70,7 +70,8 @@ def prepare_shadow_plan(plan, *, decision_time):
         return None, None, "SHADOW_INPUTS_MISSING"
     checksum = _digest(inputs)
     try:
-        at = _stamp(decision_time)
+        from zoneinfo import ZoneInfo
+        at = _stamp(decision_time).astimezone(ZoneInfo('Asia/Shanghai'))
         if inputs.get("schema_version") != SHADOW_INPUT_SCHEMA:
             raise ValueError("SHADOW_INPUT_SCHEMA_UNSUPPORTED")
         if not all(_positive(inputs.get(key)) for key in ("daily_ma5", "atr14")):
@@ -83,11 +84,26 @@ def prepare_shadow_plan(plan, *, decision_time):
         parsed = [date.fromisoformat(value) for value in dates]
         if parsed != sorted(set(parsed)) or any(value >= at.date() for value in parsed):
             raise ValueError("PRECEDING_CLOSE_DATES_INVALID_OR_FUTURE")
-        as_of = _stamp(inputs.get("daily_as_of"))
+        as_of = _stamp(inputs.get("daily_as_of")).astimezone(ZoneInfo('Asia/Shanghai'))
         # Actual source observation can be this morning; closes remain strictly
         # from preceding sessions. Never disguise observation as yesterday.
         if as_of > at or parsed[-1] > as_of.date():
             raise ValueError("DAILY_EVIDENCE_INVALID_OR_FUTURE")
+        # SOURCE_OBSERVATION_AS_OF is knowledge time, not the closed bar
+        # date. Target-morning observations are legal; intraday refreshes are
+        # not a substitute for a preopen freeze.
+        if as_of >= at.replace(hour=9, minute=30, second=0, microsecond=0):
+            raise ValueError("DAILY_EVIDENCE_NOT_PREOPEN")
+        if inputs.get("last_closed_daily_bar_end") is not None:
+            closed_at = _stamp(inputs["last_closed_daily_bar_end"]).astimezone(ZoneInfo('Asia/Shanghai'))
+            if closed_at.date() >= at.date() or closed_at > as_of:
+                raise ValueError("CLOSED_DAILY_BAR_INVALID_OR_FUTURE")
+        for freeze_time in (generated_at, inputs.get("generated_at")):
+            if freeze_time is not None and as_of > _stamp(freeze_time):
+                raise ValueError("SHADOW_INPUT_SOURCE_AFTER_GENERATION")
+            if freeze_time is not None and (_stamp(freeze_time) > at or
+                    _stamp(freeze_time) >= at.replace(hour=9,minute=30,second=0,microsecond=0)):
+                raise ValueError("SHADOW_INPUT_GENERATION_NOT_PREOPEN")
         if not re.fullmatch(r"[0-9a-f]{64}", str(inputs.get("atr_source_hash", ""))):
             raise ValueError("ATR_SOURCE_HASH_REQUIRED")
         daily = engine.production._daily_context(plan)
@@ -285,7 +301,8 @@ class ShadowVariantEngine:
                 if last_minute.get(key, at-timedelta(minutes=1)) >= at:
                     continue
                 frozen = deepcopy(item)
-                plan, checksum, limitation = prepare_shadow_plan(frozen["plan"], decision_time=frozen["decision_time"])
+                plan, checksum, limitation = prepare_shadow_plan(frozen["plan"], decision_time=frozen["decision_time"],
+                    generated_at=frozen.get('inputs_generated_at'))
                 if _stamp(frozen["decision_time"]) != at:
                     limitation = "SHADOW_MINUTE_DIFFERS_FROM_DECISION_TIME"
                 baseline = frozen.get("baseline")

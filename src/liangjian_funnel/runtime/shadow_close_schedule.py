@@ -31,14 +31,20 @@ class ShadowCloseCoordinator:
         if not isinstance(value,dict):return False
         if (value.get('trade_date')!=self.day.isoformat()
                 or value.get('slot')!='A5_POST_CLOSE_1600'
-                or value.get('status')!='SUCCEEDED'
+                or value.get('status')!='A5_COMPLETED_OBSERVED'
+                or value.get('correlation_basis')!='UNIQUE_NONOVERLAPPING_INTERVAL'
+                or not value.get('ledger_row_id') or not value.get('parent_run_id')
                 or not value.get('source_ref')
                 or not isinstance(value.get('source_sha256'),str)
                 or _SHA.fullmatch(value['source_sha256']) is None):return False
         try:
             end=datetime.fromisoformat(value['completed_at'])
-            return (end.tzinfo is not None
-                and datetime.combine(self.day,time(16),_TZ)<=end<=now)
+            began=datetime.fromisoformat(value['parent_started_at'])
+            finished=datetime.fromisoformat(value['parent_finished_at'])
+            observed=datetime.fromisoformat(value['observed_at'])
+            return (all(v.tzinfo is not None for v in (end,began,finished,observed))
+                and datetime.combine(self.day,time(16),_TZ)<=began<=end==finished<=observed<=now
+                and observed<=self.deadline)
         except (KeyError,ValueError,TypeError):return False
 
     def poll(self, observed_at, *, a5=None):
@@ -68,7 +74,7 @@ class ShadowCloseCoordinator:
         # A later read cannot establish that A5 was observable at the fence.
         ready=now<=self.deadline and self._a5_ready(a5,now)
         if not ready and now<self.deadline:return {'status':'WAIT_A5','draft':deepcopy(self.draft)}
-        a5_status='COMPLETE' if ready else 'A5_NOT_COMPLETE'
+        a5_status='A5_COMPLETED_OBSERVED' if ready else 'A5_NOT_COMPLETE_OR_AMBIGUOUS'
         try:
             report=self.build_final(draft=deepcopy(self.draft),draft_status=self.draft_status,
                 a5_status=a5_status,a5=deepcopy(a5) if ready else None,as_of=now)

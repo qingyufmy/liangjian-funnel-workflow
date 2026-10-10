@@ -542,11 +542,14 @@ class _CloseResourceObservation:
                     issues.append("OBSERVATION_READ_OR_SAMPLE_BUDGET_EXCEEDED")
                 with self.lock:
                     end = self.ended_at
-                if end is not None and observation.observed_at > end:
+                late_run = end is not None and observation.observed_at > end
+                late_budget = completed_mono-self.started_mono > _CLOSE_RESOURCE_MAX_SECONDS
+                if late_run:
                     issues.append("LATE_SAMPLE_OUTSIDE_RUN_WINDOW")
-                elif completed_mono-self.started_mono > _CLOSE_RESOURCE_MAX_SECONDS:
+                if late_budget:
                     issues.append("LATE_SAMPLE_OUTSIDE_OBSERVATION_BUDGET")
-                else:
+                    issues.append("OBSERVATION_WINDOW_BUDGET_EXCEEDED")
+                if not late_run and not late_budget:
                     samples.append(observation)
                     issues.extend(sampler.last_issues)
                     spans.append([stamp.isoformat() for stamp in sampler.last_read_span])
@@ -593,8 +596,9 @@ def _observe_close_research_resources(function):
             return function(self, slot, *args, **kwargs)
         observer = None
         try:
-            observer = _CloseResourceObservation(self.settings.workflow_output_dir)
-            observer.start()
+            if getattr(self.settings, "close_resource_sampling_enabled", True):
+                observer = _CloseResourceObservation(self.settings.workflow_output_dir)
+                observer.start()
         except Exception:
             logging.getLogger(__name__).warning("CLOSE_RESOURCE_OBSERVER_START_FAILED")
         result, failed, reference = None, True, None

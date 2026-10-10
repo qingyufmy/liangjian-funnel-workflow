@@ -46,6 +46,54 @@ def app(tmp_path):
     return SimpleNamespace(settings=SimpleNamespace(workflow_output_dir=tmp_path / 'artifacts'))
 
 
+def test_disabled_sampler_has_no_constructor_thread_io_or_result_change(tmp_path,monkeypatch):
+    calls=[]
+    def forbidden(*args,**kwargs):
+        calls.append('observer');raise AssertionError('disabled observer constructed')
+    monkeypatch.setattr(workflow,'_CloseResourceObservation',forbidden)
+    actual=app(tmp_path);actual.settings.close_resource_sampling_enabled=False
+    original={'status':'READY','run_id':'r','plan_publication':{'created':['p']}}
+    @wire
+    def run(self,slot,**kwargs):return original
+    assert run(actual,'close') is original
+    assert calls==[] and not actual.settings.workflow_output_dir.exists()
+
+
+def test_sampling_env_switch_is_explicit_and_defaults_on(tmp_path):
+    from liangjian_funnel.settings import Settings
+    assert Settings.from_env({},root=tmp_path).close_resource_sampling_enabled is True
+    assert Settings.from_env({'LIANGJIAN_CLOSE_RESOURCE_SAMPLING_ENABLED':'false'},root=tmp_path).close_resource_sampling_enabled is False
+
+
+@pytest.mark.parametrize('site',['constructor','start','stop'])
+@pytest.mark.parametrize('research_raises',[False,True])
+def test_observer_lifecycle_fault_preserves_result_exception_and_deadline(tmp_path,monkeypatch,site,research_raises):
+    class BrokenObserver:
+        def __init__(self,*args):
+            if site=='constructor':raise OSError('fixture constructor')
+        def start(self):
+            if site=='start':raise OSError('fixture start')
+        def stop(self,*args):
+            if site=='stop':raise OSError('fixture stop')
+            return None
+    monkeypatch.setattr(workflow,'_CloseResourceObservation',BrokenObserver)
+    failure=RuntimeError('original research failure')
+    original={'run_id':'r','status':'READY'};deadline=object();seen=[]
+    @wire
+    def run(self,slot,**kwargs):
+        seen.append(kwargs)
+        if research_raises:raise failure
+        return original
+    began=time.monotonic()
+    if research_raises:
+        with pytest.raises(RuntimeError) as caught:run(app(tmp_path),'close',deadline=deadline)
+        assert caught.value is failure
+    else:assert run(app(tmp_path),'close',deadline=deadline) is original
+    assert seen==[{'deadline':deadline}]
+    assert time.monotonic()-began<0.3
+    assert not (tmp_path/'artifacts').exists()
+
+
 def receipt(path):
     deadline = time.monotonic()+2
     while time.monotonic()<deadline:

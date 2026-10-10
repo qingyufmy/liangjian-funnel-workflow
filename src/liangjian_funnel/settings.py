@@ -139,6 +139,8 @@ class Settings(BaseModel):
     a2_review_all_eligible: bool = True
     a2_llm_top_n_per_theme: int = Field(default=8, ge=1, le=30)
     research_close_deadline_seconds: int = Field(default=5400, ge=300, le=24 * 3600)
+    # Independent observation only; disabling cannot alter research/risk input.
+    close_resource_sampling_enabled: bool = True
     data_sync_batch_size: int = Field(default=50, ge=1, le=500)
     data_progress_every: int = Field(default=25, ge=1, le=500)
     # The maintenance plane is independently switchable.  Disabling it must
@@ -428,6 +430,9 @@ class Settings(BaseModel):
             research_close_deadline_seconds=int(
                 env.get("LIANGJIAN_RESEARCH_CLOSE_DEADLINE_SECONDS", "5400")
             ),
+            close_resource_sampling_enabled=_parse_bool(
+                env.get("LIANGJIAN_CLOSE_RESOURCE_SAMPLING_ENABLED"), default=True,
+            ),
             data_sync_batch_size=int(env.get("LIANGJIAN_DATA_SYNC_BATCH_SIZE", "50")),
             data_progress_every=int(env.get("LIANGJIAN_DATA_PROGRESS_EVERY", "25")),
             feature_maintenance_enabled=_parse_bool(
@@ -576,6 +581,7 @@ class Settings(BaseModel):
             "a2_review_all_eligible": self.a2_review_all_eligible,
             "a2_llm_top_n_per_theme": self.a2_llm_top_n_per_theme,
             "research_close_deadline_seconds": self.research_close_deadline_seconds,
+            "close_resource_sampling_enabled": self.close_resource_sampling_enabled,
             "data_sync_batch_size": self.data_sync_batch_size,
             "data_progress_every": self.data_progress_every,
             "feature_maintenance_enabled": self.feature_maintenance_enabled,

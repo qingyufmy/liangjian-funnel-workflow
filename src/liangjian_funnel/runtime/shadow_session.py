@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from contextlib import closing
+from collections import Counter
+from copy import deepcopy
 from datetime import datetime, timedelta
 import ast
 import hashlib
@@ -19,7 +21,7 @@ import uuid
 import zlib
 
 from ..data.mootdx import MinuteBar
-from .shadow_variants import ShadowVariantEngine
+from .shadow_variants import ShadowVariantEngine, _baseline_records
 
 
 def _stamp(value):
@@ -33,6 +35,59 @@ def _stamp(value):
 def _digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False,
         separators=(',', ':'), allow_nan=False).encode()).hexdigest()
+
+
+ENTRY_SCOPE_VERSION = 'shadow-entry-scope/1'
+
+
+def _entry_admission(facts):
+    """Current transaction facts only; updated_at is never a status clock."""
+    required = {'current_status', 'terminal_at', 'invalidated', 'held',
+        'valid_from', 'expires_at', 'minute', 'observed_at', 'identity_proven'}
+    if not isinstance(facts, dict) or set(facts) != required or any(
+            type(facts[key]) is not bool for key in ('invalidated', 'held', 'identity_proven')):
+        raise ValueError('ENTRY_SCOPE_FACTS_UNPROVEN')
+    minute, observed = _stamp(facts['minute']), _stamp(facts['observed_at'])
+    start, end = _stamp(facts['valid_from']), _stamp(facts['expires_at'])
+    terminal = _stamp(facts['terminal_at']) if facts['terminal_at'] is not None else None
+    reasons = []
+    if (terminal is not None and terminal <= observed) or facts['invalidated']:
+        reasons.append('TERMINAL')
+    if facts['current_status'] != 'ACTIVE_TODAY':
+        reasons.append('INACTIVE_STATUS')
+    if facts['held']:
+        reasons.append('HELD')
+    if not start <= minute <= observed <= end or start.date() != minute.date():
+        reasons.append('OUTSIDE_VALIDITY')
+    if not facts['identity_proven']:
+        reasons.append('IDENTITY_UNPROVEN')
+    return {'schema_version':ENTRY_SCOPE_VERSION,
+        'status':'EXCLUDED' if reasons else 'ELIGIBLE', 'excluded_reasons':reasons,
+        'facts_sha256':_digest(facts)}
+
+
+def _entry_cohort(items):
+    entries, counts, seen = [], Counter(), set()
+    for item in items:
+        pid = item['plan_id']
+        if pid in seen:
+            raise ValueError('ENTRY_COHORT_STRICT_EQUALITY_REQUIRED')
+        seen.add(pid)
+        admission = _entry_admission(item.get('entry_scope_facts'))
+        if item.get('entry_admission') != admission:
+            raise ValueError('ENTRY_SCOPE_DERIVATION_CONFLICT')
+        counts.update(admission['excluded_reasons'])
+        if admission['status'] == 'ELIGIBLE':
+            entries.append(item)
+    return entries, dict(sorted(counts.items()))
+
+
+def _verify_entry_subset(items, entries):
+    expected, _ = _entry_cohort(items)
+    expected_by_id = {item['plan_id']:item for item in expected}
+    actual_by_id = {item['plan_id']:item for item in entries}
+    if len(actual_by_id) != len(entries) or actual_by_id != expected_by_id:
+        raise ValueError('ENTRY_COHORT_STRICT_EQUALITY_REQUIRED')
 
 
 def _checkout_root(explicit=None):
@@ -130,7 +185,8 @@ def validate_paths(state_db, minute_db, ledger_db, jsonl):
 
 class ReadOnlyShadowSource:
     """Current WAL-aware SQLite read snapshots, not immutable historical replay."""
-    def __init__(self, state_db, minute_db, *, lanes, monitor_latest=None, checkout_root=None):
+    def __init__(self, state_db, minute_db, *, lanes, monitor_latest=None, checkout_root=None,
+                 preopen_inputs_provider=None):
         self.state_db, self.minute_db = Path(state_db).resolve(), Path(minute_db).resolve()
         self.lanes = tuple(sorted(set(lanes)))
         if not self.lanes or not all(isinstance(v, str) and v for v in self.lanes):
@@ -143,6 +199,7 @@ class ReadOnlyShadowSource:
             raise ValueError('SHADOW_AUDIT_HELPER_CHANGED_DURING_LOAD')
         self.last_census = None
         self.monitor_latest = Path(monitor_latest).resolve() if monitor_latest is not None else None
+        self.preopen_inputs_provider=preopen_inputs_provider
 
     def read_completion(self, minute, *, observed_at, observation_clock=None):
         """Original atomic monitor/latest.json is an end-of-round fence.
@@ -252,22 +309,28 @@ class ReadOnlyShadowSource:
         minute, observed_at = _stamp(minute), _stamp(observed_at)
         marks = ','.join('?' for _ in self.lanes)
         with closing(self._connect(self.state_db)) as db:
-            plans = [dict(r) for r in db.execute(
-                f'SELECT * FROM execution_plans WHERE lane_id IN ({marks}) AND status="ACTIVE_TODAY" LIMIT 1001', self.lanes)]
             events = [dict(r) for r in db.execute(
                 f'SELECT * FROM monitor_events WHERE lane_id IN ({marks}) AND minute_end=? ORDER BY event_id LIMIT 1001',
                 (*self.lanes, minute.isoformat()))]
-            positions = db.execute(f'SELECT COUNT(*) FROM virtual_positions WHERE account_id IN ({marks}) AND total_qty>0',
-                tuple('paper:'+lane for lane in self.lanes)).fetchone()[0]
+            event_ids = sorted({json.loads(e['payload_json']).get('plan_id') for e in events
+                if json.loads(e['payload_json']).get('plan_id')})
+            event_marks = ','.join('?' for _ in event_ids) or 'NULL'
+            plans = [dict(r) for r in db.execute(
+                f'SELECT * FROM execution_plans WHERE lane_id IN ({marks}) AND (status="ACTIVE_TODAY" OR plan_id IN ({event_marks})) ORDER BY plan_id LIMIT 1001',
+                (*self.lanes, *event_ids))]
+            positions = [dict(r) for r in db.execute(
+                f'SELECT account_id,symbol,total_qty FROM virtual_positions WHERE account_id IN ({marks}) AND total_qty>0 LIMIT 1001',
+                tuple('paper:'+lane for lane in self.lanes))]
             # Only the recorded terminal decision is an invalidation clock;
             # updated_at is not an historical status ledger.
             terminals = [dict(r) for r in db.execute(
-                f'SELECT minute_end,payload_json FROM monitor_events WHERE lane_id IN ({marks}) AND action="PLAN_INVALIDATED" AND effective=1 AND minute_end>=? AND minute_end<=? LIMIT 1001',
+                f'SELECT * FROM monitor_events WHERE lane_id IN ({marks}) AND action="PLAN_INVALIDATED" AND effective=1 AND minute_end>=? AND minute_end<=? LIMIT 1001',
                 (*self.lanes, minute.replace(hour=0, minute=0).isoformat(), observed_at.isoformat()))]
-        if positions:
-            raise ValueError('POSITION_REPLAY_UNPROVEN')
-        if max(len(plans), len(events), len(terminals)) > 1000:
+        if max(len(plans), len(events), len(terminals), len(positions)) > 1000:
             raise ValueError('READ_SCOPE_BOUND_EXCEEDED')
+        if any(not isinstance(p['symbol'],str) or not p['symbol'] or
+                not isinstance(p['total_qty'],(int,float)) or not math.isfinite(p['total_qty']) for p in positions):
+            raise ValueError('POSITION_SCOPE_UNPROVEN')
         by_plan, duplicates = {}, set()
         for event in events:
             payload = json.loads(event['payload_json'])
@@ -281,7 +344,10 @@ class ReadOnlyShadowSource:
             'scope_basis':'CURRENT_READ_TRANSACTION_NOT_HISTORICAL_STATUS_LEDGER',
             'minute':minute.isoformat(), 'lanes':list(self.lanes),
             'active_plans':[{key:p[key] for key in ('plan_id','symbol','status','plan_version','valid_from','expires_at')}
-                | {'row_sha256':_digest(p)} for p in plans],
+                | {'row_sha256':_digest(p)} for p in plans if p['status']=='ACTIVE_TODAY'],
+            'full_plan_count':len(plans),
+            'active_plan_count':sum(p['status']=='ACTIVE_TODAY' for p in plans),
+            'position_rows':positions, 'position_rows_sha256':_digest(positions),
             'expected_plan_ids':sorted(p['plan_id'] for p in plans),
             'event_plan_ids':sorted(by_plan),
             'missing_plan_ids':sorted({p['plan_id'] for p in plans}-set(by_plan)),
@@ -294,18 +360,18 @@ class ReadOnlyShadowSource:
             raise ValueError('MULTIPLE_BASELINES_FOR_PLAN_MINUTE')
         scope = {p['plan_id'] for p in plans}
         if set(by_plan) - scope:
-            raise ValueError('EVENT_OUTSIDE_CURRENT_ACTIVE_SCOPE')
+            raise ValueError('EVENT_PLAN_ROW_MISSING')
         if scope - set(by_plan):
             raise ValueError('ACTIVE_PLAN_BASELINE_WINDOW_MISSING')
         items = []
-        from ..workflow import _intraday_market_context
+        from ..workflow import _intraday_market_context, _a4_execution_cutoff
         total_bytes = 0
         with closing(self._connect(self.minute_db)) as cache:
             for row in plans:
                 event = by_plan[row['plan_id']]
                 plan, payload = json.loads(row['payload_json']), json.loads(event['payload_json'])
                 if (payload.get('symbol') != row['symbol'] or plan.get('symbol') != row['symbol']
-                        or plan.get('plan_id', row['plan_id']) != row['plan_id']
+                        or ('plan_id' in plan and plan['plan_id'] != row['plan_id'])
                         or event['lane_id'] != row['lane_id']):
                     raise ValueError('EXECUTION_PLAN_IDENTITY_MISMATCH')
                 created = _stamp(event['created_at'])
@@ -321,15 +387,51 @@ class ReadOnlyShadowSource:
                     key += ':'+str(payload.get('trigger_episode_id') or minute.isoformat())
                 if event['event_key'] != key:
                     raise ValueError('OUTER_BASELINE_EVENT_KEY_CONFLICT')
-                start, end = _stamp(row['valid_from']), _stamp(row['expires_at'])
                 invalid = [_stamp(t['minute_end']) for t in terminals
                     if json.loads(t['payload_json']).get('plan_id') == row['plan_id']]
-                if invalid:
-                    end = min(end, min(invalid))
-                if (not start <= minute <= observed_at <= end or start.date() != minute.date()
-                        or plan.get('invalidated') or plan.get('plan_invalidated')):
-                    raise ValueError('EXECUTION_PLAN_VALIDITY_UNPROVEN')
+                for terminal in terminals:
+                    terminal_payload = json.loads(terminal['payload_json'])
+                    if terminal_payload.get('plan_id') != row['plan_id']:
+                        continue
+                    terminal_key = f"effective:{row['lane_id']}:{row['plan_id']}:PLAN_INVALIDATED"
+                    if (terminal['event_key'] != terminal_key or terminal['event_id'] != str(uuid.uuid5(
+                            uuid.NAMESPACE_URL, 'liangjian-monitor:'+terminal_key))
+                            or terminal['lane_id'] != row['lane_id'] or terminal_payload.get('symbol') != row['symbol']
+                            or not _stamp(terminal['minute_end']) <= _stamp(terminal['created_at']) <= observed_at):
+                        raise ValueError('TERMINAL_EVENT_IDENTITY_OR_CLOCK_CONFLICT')
+                facts = {'current_status':row['status'], 'terminal_at':min(invalid).isoformat() if invalid else None,
+                    'invalidated':bool(plan.get('invalidated') or plan.get('plan_invalidated')),
+                    'held':any(p['account_id']=='paper:'+row['lane_id'] and p['symbol']==row['symbol'] for p in positions),
+                    'valid_from':row['valid_from'], 'expires_at':row['expires_at'],
+                    'minute':minute.isoformat(), 'observed_at':observed_at.isoformat(), 'identity_proven':True}
+                admission = _entry_admission(facts)
                 strategy = payload.get('strategy')
+                durable = {**plan, 'plan_id':row['plan_id'], 'valid_from':row['valid_from'], 'expires_at':row['expires_at']}
+                if invalid:
+                    durable['invalidated_at'] = min(invalid).isoformat()
+                item = {'plan_id':row['plan_id'], 'plan':durable,
+                    'inputs_generated_at':row['created_at'],
+                    'inputs_origin':'PLAN_FROZEN' if isinstance(plan.get('strategy_facts'),dict)
+                        and 'shadow_inputs' in plan['strategy_facts'] else 'UNKNOWN',
+                    'actual_outer_baseline':{'action':event['action'], 'reason':event['reason_code']},
+                    'baseline_event_id':event['event_id'], 'baseline_event_sha256':_digest(event),
+                    'now':_a4_execution_cutoff(minute), 'decision_time':minute,
+                    'entry_scope_facts':facts, 'entry_admission':admission,
+                    'source_binding':{'plan_row_sha256':_digest(row),
+                        'plan_payload_bytes_sha256':hashlib.sha256(row['payload_json'].encode()).hexdigest(),
+                        'payload_plan_id_status':'PRESENT' if 'plan_id' in plan else 'MISSING',
+                        'plan_identity_basis':'ORIGINAL_ROW_PRIMARY_KEY_AND_EVENT_UUID_KEY',
+                        'event_payload_bytes_sha256':hashlib.sha256(event['payload_json'].encode()).hexdigest(),
+                        'position_rows_sha256':_digest(positions),
+                        'minute_snapshot_id':payload.get('minute_snapshot_id'),
+                        'minute_payload_sha256':None, 'observation_clock_basis':'ORIGINAL_PASSIVE_OUTER_EVENT'}}
+                if 'strategy' in payload:
+                    item['baseline'] = deepcopy(strategy)
+                if admission['status']=='EXCLUDED':
+                    # No bar/inner replay invented for a genuine passive terminal
+                    # or held baseline. The completion fence still binds it below.
+                    items.append(item)
+                    continue
                 if not isinstance(strategy, dict) or not all(key in strategy for key in ('action','state')):
                     raise ValueError('INNER_BASELINE_MISSING')
                 closed, dispatch, basis = self.helpers.replay_clocks(payload, event['minute_end'])
@@ -373,17 +475,32 @@ class ReadOnlyShadowSource:
                     raise ValueError('FROZEN_MARKET_GATE_UNPROVEN')
                 context = _intraday_market_context(row['symbol'], bars['1m'], bars['5m'], current=closed)
                 context = self.helpers.frozen_market_overlay(context, strategy)
-                durable = {**plan, 'plan_id':row['plan_id'], 'valid_from':row['valid_from'], 'expires_at':row['expires_at']}
-                if invalid:
-                    durable['invalidated_at'] = min(invalid).isoformat()
-                items.append({'plan_id':row['plan_id'], 'plan':durable, 'baseline':strategy,
-                    'actual_outer_baseline':{'action':event['action'], 'reason':event['reason_code']},
-                    'baseline_event_id':event['event_id'], 'baseline_event_sha256':_digest(event),
-                    'bars':bars['1m'], 'now':closed, 'decision_time':dispatch, 'market_context':context,
-                    'source_binding':{'plan_row_sha256':_digest(row),
-                        'plan_payload_bytes_sha256':hashlib.sha256(row['payload_json'].encode()).hexdigest(),
-                        'minute_snapshot_id':snapshot, 'minute_payload_sha256':hashes,
-                        'observation_clock_basis':basis}})
+                item.update(baseline=strategy,bars=bars['1m'],now=closed,decision_time=dispatch,market_context=context)
+                item['source_binding'].update(minute_payload_sha256=hashes,observation_clock_basis=basis)
+                if item['inputs_origin']=='UNKNOWN' and self.preopen_inputs_provider is not None:
+                    try:
+                        from .shadow_preopen_sidecar import validate_preopen_record
+                        material=self.preopen_inputs_provider(deepcopy(row),target_trade_date=minute.date(),observed_at=observed_at)
+                        material=validate_preopen_record(material,row,target_trade_date=minute.date(),observed_at=observed_at)
+                        if material['status']=='AVAILABLE':
+                            research=deepcopy(durable)
+                            facts=deepcopy(research.get('strategy_facts') or {})
+                            if not isinstance(facts,dict):
+                                raise ValueError('ORIGINAL_STRATEGY_FACTS_NOT_MAPPING')
+                            facts['shadow_inputs']=deepcopy(material['shadow_inputs'])
+                            research['strategy_facts']=facts
+                            item.update(shadow_research_plan=research,inputs_origin='SHADOW_PREOPEN_SIDECAR',
+                                inputs_generated_at=material['generated_at'])
+                            item['source_binding']['preopen_sidecar_record_hash']=material['record_hash']
+                        else:
+                            item['source_binding']['preopen_sidecar_status']='DATA_LIMITED'
+                    except Exception:
+                        item['source_binding']['preopen_sidecar_status']='DATA_LIMITED'
+                items.append(item)
+        entries, counts = _entry_cohort(items)
+        self.last_census.update(entry_plan_ids=[i['plan_id'] for i in entries],
+            entry_plan_count=len(entries), exclusion_counts=counts,
+            entry_admission={i['plan_id']:i['entry_admission'] for i in items})
         return items
 
 
@@ -425,9 +542,10 @@ class ShadowSession:
         try:
             now = _stamp(observed_at)
             minute = now.replace(second=0, microsecond=0)
-            receipt = {'schema_version':'shadow-session-receipt/1', 'minute':minute.isoformat(),
+            receipt = {'schema_version':'shadow-session-receipt/2', 'minute':minute.isoformat(),
                 'observed_at':now.isoformat(), 'status':'DATA_LIMITED', 'scope_status':'INCOMPLETE',
                 'pit_status':'UNWIRED', 'arrival_status':'UNWIRED', 'gap_codes':[],
+                'full_plan_count':None, 'entry_plan_count':None, 'exclusion_counts':None,
                 'source_sha256':self.source_sha256,'source_references':self.source_references,
                 'audit_helper_source':self.source.helpers.source_reference,
                 'actual_execution_authorized':False}
@@ -451,8 +569,8 @@ class ShadowSession:
             try:
                 self.source.last_census = None
                 items, completion = self.source.read_round(minute, observed_at=now,observation_clock=self.wall_clock)
-                if not items:
-                    raise ValueError('EMPTY_ACTIVE_SCOPE_NO_STRATEGY_RECORDS')
+                entries, exclusion_counts = _entry_cohort(items)
+                _verify_entry_subset(items, entries)
             except Exception as exc:
                 # Permit only fixed internal uppercase codes, never exception data.
                 code = str(exc)
@@ -466,14 +584,36 @@ class ShadowSession:
             if evaluation_wall<_stamp(completion['observed_at']) or evaluation_wall+timedelta(seconds=self.budget_seconds)>=minute_end:
                 receipt['gap_codes']=['SHADOW_SOURCE_READY_OUTSIDE_MINUTE_FENCE']; return receipt
             receipt.update(scope_status='COMPLETE', plan_count=len(items),
+                full_plan_count=len(items), entry_plan_count=len(entries),
+                baseline_records=_baseline_records(items,minute),
+                passive_baseline_coverage_count=len(items), passive_baseline_status='COMPLETE',
+                entry_identity_basis='VALIDATED_PLAN_EVENT_UUID_KEY_NOT_PIT_AUTHENTICATION',
+                active_plan_count=sum(i['entry_scope_facts']['current_status']=='ACTIVE_TODAY' for i in items),
+                excluded_plan_count=len(items)-len(entries), exclusion_counts=exclusion_counts,
+                entry_plan_ids=sorted(i['plan_id'] for i in entries),
+                entry_scope_version=ENTRY_SCOPE_VERSION,
+                entry_admission={i['plan_id']:i['entry_admission'] for i in items},
                 plan_window_census=self.source.last_census,
                 production_completion=completion,evaluation_started_at=evaluation_wall.isoformat(),
                 source_bindings={item['plan_id']:item['source_binding'] for item in items})
             receipt['gap_codes'] = ([ 'PIT_PROVIDER_UNWIRED'] if self.identity_provider is None else []) + (
                 ['BAR_ARRIVAL_PROVIDER_UNWIRED'] if self.bar_arrival_provider is None else [])
             evaluation_mono = self.clock()
-            tentative = self.engine.evaluate_tentative(items, minute=minute, budget_seconds=self.budget_seconds)
-            result = tentative.result
+            if entries:
+                evaluation_entries=deepcopy(entries)
+                for entry in evaluation_entries:
+                    if 'shadow_research_plan' in entry:
+                        entry['plan']=entry['shadow_research_plan']
+                tentative = self.engine.evaluate_tentative(evaluation_entries, minute=minute, budget_seconds=self.budget_seconds)
+                result = tentative.result
+            else:
+                result = {'signals':[], 'errors':[], 'minute_summary':{
+                    'schema_version':'a4-shadow-minute/2', 'minute':minute.isoformat(),
+                    'status':'OK', 'evaluated_plan_count':0, 'evaluated_variant_count':0,
+                    'shadow_budget_exceeded_count':0, 'elapsed_ms':0}}
+            _verify_entry_subset(items, entries)
+            if any(signal.get('plan_id') not in receipt['entry_plan_ids'] for signal in result['signals']):
+                receipt['gap_codes']=['ENTRY_COHORT_STRICT_EQUALITY_REQUIRED']; return receipt
             result_ready = _stamp(self.wall_clock())
             elapsed_evaluation = self.clock()-evaluation_mono
             receipt['result_ready_at']=result_ready.isoformat()
@@ -486,6 +626,9 @@ class ShadowSession:
             now = result_ready  # Actual knowledge clock, never backdate to dispatch.
             write_started = self.clock()
             writes = []
+            pit_ready = set()
+            pit_blocked_keys = set()
+            receipt['pit_blocked_signal_count']=0
             writer_failed = False
             writer_late = False
             writer_limit_reason = 'SHADOW_WRITER_MINUTE_FENCE_REACHED'
@@ -512,7 +655,7 @@ class ShadowSession:
                 return current_wall
             if self.identity_provider is not None:
                 receipt['pit_status']='INJECTED_PROVIDER'
-                for item in items:
+                for item in entries:
                     if within_commit_deadline() is None:
                         writer_late=True; break
                     material = self.identity_provider(item['plan'], now)
@@ -520,11 +663,15 @@ class ShadowSession:
                         writer_late=True; break
                     if material.get('status') != 'READY' or not isinstance(material.get('raw_response'),bytes):
                         receipt['pit_status']='DATA_LIMITED'
-                    writes.append(self.ledger.seal_price_limit_evidence(item['plan_id'], material['evidence'],
-                        observed_at=material['observed_at'], raw_response=material.get('raw_response')))
+                    sealed = self.ledger.seal_price_limit_evidence(item['plan_id'], material['evidence'],
+                        observed_at=material['observed_at'], raw_response=material.get('raw_response'))
+                    writes.append(sealed)
+                    if material.get('status')=='READY' and isinstance(material.get('raw_response'),bytes) and sealed.get('ok') is True:
+                        pit_ready.add(item['plan_id'])
             if self.bar_arrival_provider is not None:
                 receipt['arrival_status']='INJECTED_PROVIDER'
             plans = {item['plan_id']:item['plan'] for item in items}
+            origins = {item['plan_id']:item.get('inputs_origin','UNKNOWN') for item in items}
             for signal in result['signals']:
                 if writer_late:
                     break
@@ -535,12 +682,27 @@ class ShadowSession:
                     writer_late=True; break
                 if signal.get('status') == 'ERROR':
                     signal = {**signal, 'reason':'SHADOW_VARIANT_EVALUATION_FAILED'}
+                technical_action=signal.get('variant_action')
+                technical_trigger=signal.get('status')=='OK' and technical_action in ('BUY','ADD','BUY_SIGNAL','ADD_SIGNAL')
+                signal={**signal,'inputs_origin':origins[signal['plan_id']],
+                    'technical_trigger':technical_trigger,'technical_action':technical_action,
+                    'technical_trigger_basis':'ISOLATED_RESEARCH_ENGINE_NOT_PIT_OR_FILL'}
+                if (signal.get('status')=='OK' and signal.get('variant_action') in
+                        ('BUY','ADD','BUY_SIGNAL','ADD_SIGNAL') and signal['plan_id'] not in pit_ready):
+                    # Keep the computed research action, but never manufacture a
+                    # valid first entry or consume its in-memory first-trigger.
+                    pit_blocked_keys.add((signal['plan_id'],signal['variant_id']))
+                    receipt['pit_blocked_signal_count']+=1
+                    signal = {**signal, 'evaluation_variant_action':signal['variant_action'],
+                        'status':'DATA_LIMITED', 'variant_action':None, 'data_block':True,
+                        'reason':'PIT_ENTRY_IDENTITY_UNPROVEN', 'pit_entry_status':'UNPROVEN'}
                 signal_write_in_flight=True
                 written=self.ledger.record_signal(signal, plans[signal['plan_id']], observed_at=write_now)
                 signal_write_in_flight=False
                 writes.append(written)
                 if written.get('stored') is True:
-                    accepted_keys.add((signal['plan_id'],signal['variant_id']))
+                    if (signal['plan_id'],signal['variant_id']) not in pit_blocked_keys:
+                        accepted_keys.add((signal['plan_id'],signal['variant_id']))
                 elif written.get('stored') is not False:
                     self._writer_uncertain=True
                 if written.get('ok') is not True or written.get('stored') is not True or self._writer_uncertain:
@@ -557,6 +719,13 @@ class ShadowSession:
                     else:
                         writes.append(self.ledger.advance_outcomes(arrivals, observed_at=now))
             summary = {**result['minute_summary'], 'scope_status':'COMPLETE',
+                'baseline_records':receipt['baseline_records'],
+                'first_trigger_count_basis':'ENGINE_TENTATIVE_BEFORE_PIT_NOT_DURABLE_LEDGER',
+                'inputs_origin_by_plan':origins,
+                **{key:receipt[key] for key in ('full_plan_count','entry_plan_count','active_plan_count',
+                    'excluded_plan_count','exclusion_counts','entry_plan_ids','entry_scope_version','entry_admission',
+                    'pit_blocked_signal_count','passive_baseline_coverage_count','passive_baseline_status',
+                    'entry_identity_basis')},
                 'production_completion':completion,'result_ready_at':result_ready.isoformat(),
                 'source_bindings':receipt['source_bindings'], 'pit_status':receipt['pit_status'],
                 'arrival_status':receipt['arrival_status']}
@@ -570,7 +739,9 @@ class ShadowSession:
             writer_failed = writer_failed or any(not value.get('ok') for value in writes)
             if not (writer_failed or writer_late) and within_commit_deadline() is None:
                 writer_late=True
-            if not (writer_failed or writer_late):
+            if tentative is None:
+                receipt['state_commit']={'ok':True,'status':'NO_ENTRY_COHORT'}
+            elif not (writer_failed or writer_late or pit_blocked_keys):
                 receipt['state_commit']=self.engine.commit_tentative(tentative)
             elif accepted_keys:
                 receipt['state_commit']=self.engine.commit_tentative(tentative,accepted_keys=accepted_keys)

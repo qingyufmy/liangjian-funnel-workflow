@@ -1,0 +1,23 @@
+[Unit]
+Description=Independent Monday shadow session (NOT A4 JobRunner)
+After=liangjian-shadow-preopen-20261012.service
+
+[Service]
+Type=oneshot
+User=__SHADOW_USER__
+WorkingDirectory=__CHECKOUT_ROOT__
+EnvironmentFile=__SHADOW_ENV_FILE__
+ExecStart=__PYTHON_BIN__ -B __CHECKOUT_ROOT__/scripts/run_shadow_session.py --state-db ${SHADOW_STATE_DB} --minute-db ${SHADOW_MINUTE_DB} --monitor-latest ${SHADOW_MONITOR_LATEST} --preopen-inputs-db ${PREOPEN_INPUTS_DB} --lane ${SHADOW_LANE} --shadow-db ${SHADOW_LEDGER_DB} --shadow-jsonl ${SHADOW_LEDGER_JSONL} --receipt-jsonl ${SHADOW_SESSION_RECEIPT} --duration-seconds 19800 --budget-seconds 5 --poll-seconds 0.5
+RuntimeMaxSec=331min
+TimeoutStopSec=10
+Restart=no
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=__PRODUCTION_STATE_DIR__ __MINUTE_CACHE_DIR__ __PRODUCTION_MONITOR_DIR__ __INDEPENDENT_PREOPEN_DIR__
+ReadWritePaths=__INDEPENDENT_SHADOW_LEDGER_DIR__ __INDEPENDENT_SESSION_RECEIPT_DIR__
+RestrictAddressFamilies=AF_UNIX
+
+# After is ordering only: preopen failure must not fail production A4.
+# Missing sidecar or PIT is DATA_LIMITED; this is not an execution-ready service.

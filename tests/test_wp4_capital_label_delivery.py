@@ -176,3 +176,32 @@ def test_a_label_does_not_change_deterministic_candidate_routing_or_factor_score
             assert new.get(key) == old.get(key)
         for key, factor in new['a2_factor_scores'].items():
             assert factor['score'] == old['a2_factor_scores'][key]['score']
+
+
+@pytest.mark.parametrize('template', ['agent_2_theme_sentiment_transport_v2.txt', 'agent_2_theme_sentiment_v2.txt'])
+def test_a_label_in_actual_review_factor_context_is_not_model_input(monkeypatch, template):
+    """The factor-bearing A2 review path, not just the capital raw projection."""
+    scope = set(SYMBOLS)
+    capital = raw(['today'])
+    contexts = {symbol: {'symbol': symbol, 'theme_id': 'theme-main',
+        'deterministic_status': 'WATCH', 'a2_factor_scores': {'capital_flow': {
+            'score': capital['by_symbol'][symbol]['capital_flow_score'],
+            'weighting_observation': inspect_legacy_capital_weighting(capital)['by_symbol'][symbol],
+        }}} for symbol in SYMBOLS}
+    data = {'CAPITAL_FLOW_SNAPSHOT': capital, 'A2_BOTTLENECK_CONTEXT': contexts,
+        'CAPITAL_FLOW_WEIGHTING_AUDIT': inspect_legacy_capital_weighting(capital),
+        'snapshot_manifest': {'trade_date': '2026-10-09', 'frozen_input_hash': 'fixed'}}
+    baseline = copy.deepcopy(data)
+    baseline.pop('CAPITAL_FLOW_WEIGHTING_AUDIT')
+    for row in baseline['A2_BOTTLENECK_CONTEXT'].values():
+        row['a2_factor_scores']['capital_flow'].pop('weighting_observation')
+    bundle = PromptRepository(Path(__file__).resolve().parents[1] / 'prompts').bundle()
+    monkeypatch.setitem(common.STAGE_PROMPT_FILES, 'A2', template)
+    upstream = {'active_research_pool': [{'symbol': symbol} for symbol in SYMBOLS]}
+    def render(payload):
+        snapshot = FrozenInputSnapshot(snapshot_id='fixed-a2-factor-prompt', as_of=NOW, data=payload)
+        return bundle.render_stage('A2', _prompt_replacements(bundle, 'A2', snapshot,
+            upstream, projection_symbols=scope)).encode('utf-8')
+    assert render(data) == render(baseline)
+    assert b'weighting_observation' not in render(data)
+    assert 'weighting_observation' in contexts[SYMBOLS[0]]['a2_factor_scores']['capital_flow']

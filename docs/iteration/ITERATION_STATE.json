@@ -1,14 +1,32 @@
 {
+  "weekend_closeout_20261010": {
+    "status": "LOCAL_W1_W3_SLICES_FROZEN_FINAL_INTEGRATED_HEAD_PENDING",
+    "current_production_head": "499ed6abc3fd159de23b59dd76b02329300582db",
+    "production_prep": {"status":"SUCCEEDED_READY_PUBLISHED", "plans":19, "target_trade_date":"2026-10-12", "pending_morning_review":19, "activated":0, "plan_set_sha256":"1366914cf81f93a76714c63c2154cc414849e850558d4c80cfed02653bb66105", "completion_receipt_sha256":"a97b60b8384102b9ba353a7433926c19809fc3903da8b8ea92cadd816962f915"},
+    "w1_sidecar": {"freeze_sha256":"cdd37dc65747ad39f262f9e8ccd31bd93136fed24eac90b10f37ed68dac40f58", "passed":229, "exit_code":0, "production_plan_writes":0, "source":"SHADOW_PREOPEN_SIDECAR"},
+    "w3_runtime": {"freeze_sha256":"357fb8ed12c7e438ba8e820afc88d1aee9f7cee3c35ea728ea4c91809111eafb", "passed":111, "exit_code":0, "deployed":false, "node_finished_at_auto_source":"ENGINEERING_QUESTION0062_PENDING", "fallback":"16:45_DATA_LIMITED", "real_timer_templates":true},
+    "a_label_prompt": {"artifact":"artifacts/weekend-closeout-20261010/20261010T1941-a-label-prompt-bytes.json", "sha256":"87cbb28ccb73956d08676991e53182d755516361103a0dfe2c393f7b9be943d0", "fixed_input_cases":18, "byte_differences":0, "model_calls":0},
+    "g_b": "NEW_SOURCE_F233_RUNNING_UNIQUE_REBIND_20261010T1932_OLD_EVIDENCE_NOT_SUBSTITUTED",
+    "production_path_audit": {"status":"MATCHED_SCOPE", "baseline":"499ed6abc3fd159de23b59dd76b02329300582db", "sha256":"9866e23253f0bdbab58b12d3daafef1e47355bbb561597cce3debd03e6b37b6b", "model_projection_body_equal":true},
+    "a1_placement":"VM_EXISTING_MEMORY_NO_CAPACITY_OR_SCHEDULE_CHANGE_TONY_DECISION17",
+    "approval":"DECISION14_REQUIRED_NO_NEW_PUSH_DEPLOY_CONFIG_OR_NOTIFICATIONS",
+    "historical_sections_below":"IMMUTABLE_STAGE_HISTORY_NOT_CURRENT_PRODUCTION_STATUS"
+  },
   "weekend_sprint_20261010": {
-    "status": "W0_MINIMAL_499ED6A_FULL_VERIFIED_GATE0045_PENDING_SHADOW_FOLLOWUPS_IN_PROGRESS",
+    "status": "AA68_FULL_VERIFIED_NEW_UNCOMMITTED_SLICES_REVIEW0054_0055_0056_ADC_FULL_RUNNING",
     "baseline_production": "adafe5054b9ff283ea03925e2b0c6baf2146dcfe",
     "production_changed_this_sprint": false,
     "code": "W1_ENGINE_W2_LEDGER_PIT_CONTRACT_A3_FIELDS_W3_DAY_WEEK_W4_SAMPLER_SCOPE_HASH_FIX",
-    "replay": "G_A_ALL_20820_ZERO_DIFFERENCES_G_B_94_ADJUSTMENT_DATA_GAP_NOT_GOLDEN_PASS",
+    "replay": "G_A_20820_ZERO_DIFF_OLD_GB_COMBINED123402_ZERO_DIFF_NOT_ORIGINAL_FULL_EXIT_ADC_NEW_FULL_RUNNING_POST_HOC_ENGINE_ONLY",
     "operations": "UNDEPLOYED_UNWIRED_PIT_ARRIVAL_AND_DAILY_SCHEDULE_PENDING",
     "strategy": "NO_THRESHOLD_COUNT_MODEL_POLICY_CHANGES_NO_POSITIVE_EXPECTANCY_CLAIM",
     "approval": "DECISION14_REQUIRED_FOR_PUSH_AND_DEPLOY",
-    "bridge_inbox": [38,39,40,41,42,43,44,45],
+    "bridge_inbox": [38,39,40,41,42,43,44,45,46,47,48,49,50,51],
+    "full_aa68a78": {"head":"aa68a7848a673238124b481ac7a646cd211b9155","passed":3701,"failed":0,"skipped":6,"xfail":1,"exit_code":0,"independent_verify_exit_code":0,"clean_start_end":true,"receipt_sha256":"5503d806e6ea2c6faf95fa961a70f1399c49fc6c8aba85a3f0d3025f2c7abeda","package_sha256":"8a3c055d606f4a288aee3c15263197b6005d342e938092d62002318974bce60c","later_rule_and_observer_changes_not_covered":true},
+    "w2_rule_preflight": {"status":"LOCAL_COMPONENT_ONLY_STRICT_DERIVED_API_UNWIRED","approved_bridge":46,"passed":123,"exit_code":0,"xml":"artifacts/w2-rule-preflight-20261010/related-final-v2.xml","xml_sha256":"b03244a46be6978b19f556dbca9457028d017229032dd826342f79058cb01160","network_requests":0,"rule_constant_modified":false},
+    "w3_source_observer": {"status":"APPROVED0049_INTERVAL_OBSERVED_ONLY_IMPLEMENTED_LOCAL_REVIEW0054","joint_slice_passed":101,"exit_code":0,"xml":"artifacts/wp5-20261010/claude-0048-0049-components-final.xml","xml_sha256":"0b493d660197fa4f4411d27324b2a827bc9330b62e3543507d01c5f2d04db05b","source_sha256":"1c9f887289f16163e8d64e3caca6dd3906b3186ce849c3bc82afec43ebe47b70","read_only":true,"production_wired":false,"formal_a5_success_claim":false,"original_review_packages_preserved":true},
+    "w4_sampler_switch": {"setting":"close_resource_sampling_enabled","env":"LIANGJIAN_CLOSE_RESOURCE_SAMPLING_ENABLED","default":true,"production_env_modified":false,"disabled_no_constructor_thread_or_files":true,"failure_result_exception_deadline_preserved":true,"joint_slice_passed":101,"new_head_full_pending":true},
+    "w2_shadow_daily_derivation": {"status":"LOCAL_WRAPPER210_PASS_REVIEW0056_NO_ORIGINAL_API_CHANGE","source_sha256":"88b58a9cf7e9a47d4bbac68af6cec23ef0de30178a0346892c87ba794b7be8b8","freeze":"artifacts/w2-shadow-derive-20261010/final-slice-v2.json","freeze_sha256":"96cca87348f2b7c07bec9eb40cd2e35a13177900e64cc0da9fc06022adcb6acc","tests":210,"exit_code":0,"actual_daily_receipt":"NOT_OBTAINED","operations":"UNWIRED","derived_outcome_provenance":"LEGACY_CONSUMER_UNWIRED_KEEP_BLOCKED","original_1012_api":"RULE_DATE_UNPROVEN"},
     "w0_minimal_release": {
       "head":"499ed6abc3fd159de23b59dd76b02329300582db",
       "branch":"codex/w0-receipt-hotfix",
@@ -21,9 +39,9 @@
       "approval":"GATE0045_TONY_REQUIRED_NO_PUSH_DEPLOY_OR_PREP_RETRY",
       "temporary_worktree_cleanup":"TOOL_CREATEPROCESS_BLOCKED_BY_POLICY_NO_WORKAROUND_NO_DELETION"
     },
-    "w1_followup":{"two_phase_state_commit":"155_PASSED_TOTAL_5_SECOND_ACCEPTANCE_FENCE","installed_layout":"164_PASS_EXPLICIT_CHECKOUT_ACTUAL_IMPORT_HASH_BINDING","cli":"92_PASS_EXPLICIT_ROOT_COMPLETION_OUTPUT_ALIAS_REJECTED_BEFORE_LEDGER_CREATE","g_b":"POST_HOC_ENGINE_ONLY_APPROVED0043_OLD_ENGINE_RUN_ACTIVE_CANDIDATE_ADC1_FULL_RUN_PENDING"},
+    "w1_followup":{"two_phase_state_commit":"155_PASSED_TOTAL_5_SECOND_ACCEPTANCE_FENCE","installed_layout":"164_PASS_EXPLICIT_CHECKOUT_ACTUAL_IMPORT_HASH_BINDING","cli":"92_PASS_EXPLICIT_ROOT_COMPLETION_OUTPUT_ALIAS_REJECTED_BEFORE_LEDGER_CREATE","g_b":"OLD_RUN_SESSION_LOST_EXIT_UNKNOWN_2_DAYS_30366_ZERO_DIFF_PRESERVED_REMAINING4_AND_CANDIDATE_ADC1_RESUMING"},
     "w2_source_wrapper":{"related_tests":84,"exit_code":0,"source_sha256":"9002b6c46bd7088ef863cab4618ec3d1e085ceed8793b46793126159fe74e5f0","xml":"artifacts/w2-sources-20261010/sources-related-final-v2.xml","xml_sha256":"c5c83b46766a459191b511ddbfcaf1e5ba83e202f79dd9ff78bedf64eafa5419","real_quote_inventory":"DECODED_10_08_600189_ONLY_NOT_AUCTION_HTTP_RAW","operations":"UNWIRED_09_26_RAW_CATALOG_CA_LIMIT_FIELDS_PENDING_RULE_DATE_NOT_EXTENDED"},
-    "w6_w7_followup":{"w6":"107_PASS_FIXTURES_ACTUAL_A3_PURE_PATH_NOT_PRODUCTION_WIRED","w7":"50_PASS_MISSING_WINDOWS_UNKNOWN_FIVE_REAL_DAYS_PENDING_FULL_A2_B_POLICY_UNDEFINED"},
+    "w6_w7_followup":{"w6":"0051_POLICY_APPROVED21_CLOSES20_RETURNS_DUAL_EXCESS_STRICT_GT0_CAP30_SHADOW_ONLY_NEW_WRAPPER141_PASS_FREEZE_PENDING","w6_real":"FORMAL_GENERATION_EXPORT_SSH_BLOCKED_COPY0_MEMBER_COUNT_NULL_GENERATE_NOT_RUN","w6_export_receipt":"artifacts/w6-real-20261010/export-blocked-20261010-check-01/ssh-blocked-receipt.json","w6_export_receipt_sha256":"752ca43e4c0f4016003ba4705a877333f889f083b98ca2e790c99e4f35fa9492","w7":"FULL_SCREEN_A2_POSTHOC_SLICE85_PASS_ACTUAL_NATIVE2_DATA_LIMITED_REVIEW0055","w7_actual":{"universe":1561,"scope":1451,"scope_missing_windows":1451,"score_changed":1451,"theme_rank_changed":0,"route_changed":0,"review_a":9,"review_b":9,"native_exit":2,"pit_authenticated":false,"five_real_days_verified":false},"http_health":{"receipt":"artifacts/w6-real-20261010/vm-http-reachability-134640.json","sha256":"5ecb465d6550d4cb985b8aa3cc7ef5d122a80cc4e86efeb276eb0f22d69ad871","status_code":null,"elapsed_ms":8141,"result":"TIMEOUT_VM_OUTAGE_NOT_PROVEN"}},
     "full_3f49f78": {"passed":3504,"failed":0,"skipped":6,"xfail":1,"exit_code":0,"independent_verify_exit_code":0,"receipt_sha256":"2a9057d8f4a6b95616392bbb4fbbcb61e02723f4477526d14f0489c948f0ba9f","later_changes_not_covered":true},
     "w8_vm_packet_dryrun": {"status":"COMPLETED","exit_code":0,"rss_peak_kib":1333028,"elapsed_seconds":7.583827609982109,"input_bytes":270802980,"g0_count":4264,"input_unchanged":true,"full_a1_execution_verified":false,"sha256":"e0eebde7ac8fc83a6a2b1c265ef1726140fdf1cebd6dcf16646934df72c91606"},
     "commands": [

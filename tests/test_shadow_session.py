@@ -128,7 +128,7 @@ def test_complete_current_scope_passes_original_inner_and_outer_without_baseline
 
 
 @pytest.mark.parametrize('case',['missing_plan_event','hash','future_bar','snapshot_time','wrong_snapshot',
-    'identity','event_id','no_inner','position','expires','valid_from','invalidated','captured_future','cross_day'])
+    'identity','event_id','no_inner','expires','valid_from','invalidated','captured_future','cross_day'])
 def test_invalid_or_partial_scope_never_calls_engine(case,tmp_path):
     service,engine,ledger,state,minute=session(tmp_path,count=2)
     with sqlite3.connect(state) as db:
@@ -138,7 +138,6 @@ def test_invalid_or_partial_scope_never_calls_engine(case,tmp_path):
         elif case=='identity': payload['symbol']='000001.SZ'
         elif case=='event_id': db.execute("UPDATE monitor_events SET event_id='fake' WHERE payload_json=?",(row[0],))
         elif case=='no_inner': payload['strategy']=None
-        elif case=='position': db.execute("INSERT INTO virtual_positions VALUES('paper:lane_1','600000.SH',100)")
         elif case=='expires': db.execute("UPDATE execution_plans SET expires_at=?",((AT-timedelta(seconds=1)).isoformat(),))
         elif case=='valid_from': db.execute("UPDATE execution_plans SET valid_from=?",((AT+timedelta(seconds=1)).isoformat(),))
         elif case=='invalidated': db.execute("UPDATE execution_plans SET status='INVALIDATED'")

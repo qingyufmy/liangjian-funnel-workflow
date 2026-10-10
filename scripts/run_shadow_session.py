@@ -21,6 +21,7 @@ def main(argv=None):
     parser.add_argument('--state-db',type=Path,required=True)
     parser.add_argument('--minute-db',type=Path,required=True)
     parser.add_argument('--monitor-latest',type=Path,help='Explicit original atomic A4 completion file; no path discovery')
+    parser.add_argument('--preopen-inputs-db',type=Path,help='Explicit independent preopen sidecar; read-only lookup only')
     parser.add_argument('--lane',action='append',required=True)
     parser.add_argument('--shadow-db',type=Path,required=True)
     parser.add_argument('--shadow-jsonl',type=Path,required=True)
@@ -51,8 +52,16 @@ def main(argv=None):
         if not 0 < args.budget_seconds <= 5 or not 0 <= args.wait_seconds <= 5 or not 0 < args.max_lateness_seconds <= 30:
             raise ValueError('SHADOW_BUDGET_OR_WAIT_INVALID')
         now=datetime.now().astimezone()
+        preopen_kwargs={}
+        if args.preopen_inputs_db is not None:
+            sidecar=args.preopen_inputs_db.resolve()
+            if not sidecar.is_file() or any(sidecar==path or path.exists() and os.path.samefile(sidecar,path)
+                    for path in (*paths,receipt_path)) or args.monitor_latest is not None and sidecar==args.monitor_latest.resolve():
+                raise ValueError('EXPLICIT_DISTINCT_PREOPEN_INPUTS_SOURCE_REQUIRED')
+            from liangjian_funnel.runtime.shadow_preopen_sidecar import PreopenInputsLedger
+            preopen_kwargs['preopen_inputs_provider']=PreopenInputsLedger(sidecar).lookup
         source=ReadOnlyShadowSource(paths[0],paths[1],lanes=args.lane,monitor_latest=args.monitor_latest,
-            checkout_root=Path(__file__).resolve().parents[1])
+            checkout_root=Path(__file__).resolve().parents[1],**preopen_kwargs)
         ledger=ShadowEvidenceLedger(paths[2],paths[3])
         service=ShadowSession(source,ledger=ledger,started_at=now,budget_seconds=args.budget_seconds,
             wait_seconds=args.wait_seconds,max_lateness_seconds=args.max_lateness_seconds)

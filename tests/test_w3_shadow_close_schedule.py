@@ -21,9 +21,36 @@ def harness():
     return ShadowCloseCoordinator(DAY,freeze=freeze,build_final=final),calls
 
 
-def observation(clock='16:08:00',status='SUCCEEDED'):
+def observation(clock='16:08:00',status='A5_COMPLETED_OBSERVED'):
     return {'trade_date':DAY,'slot':'A5_POST_CLOSE_1600','status':status,
-        'completed_at':at(clock).isoformat(),'source_ref':'fixture:a5','source_sha256':'c'*64}
+        'completed_at':at(clock).isoformat(),'source_ref':'fixture:a5','source_sha256':'c'*64,
+        'correlation_basis':'UNIQUE_NONOVERLAPPING_INTERVAL','ledger_row_id':'r1',
+        'parent_run_id':'node1','parent_started_at':at('16:00:00').isoformat(),
+        'parent_finished_at':at(clock).isoformat(),'observed_at':at(clock).isoformat()}
+
+
+def test_legacy_production_success_is_not_shadow_observation_authority():
+    engine,calls=harness();engine.poll(at('15:30:00'))
+    assert engine.poll(at('16:08:01'),a5=observation(status='SUCCEEDED'))['status']=='WAIT_A5'
+    assert [name for name,_ in calls]==['freeze']
+
+
+@pytest.mark.parametrize('change',[
+    {'correlation_basis':'GUESSED'}, {'ledger_row_id':None}, {'parent_run_id':None},
+    {'observed_at':at('16:09:00').isoformat()},
+    {'parent_finished_at':at('16:07:00').isoformat()},
+    {'parent_started_at':at('16:10:00').isoformat()},
+])
+def test_ambiguous_observation_keeps_draft_and_deadline_fallback(change):
+    engine,calls=harness();engine.poll(at('15:30:00'))
+    value={**observation(),**change}
+    assert engine.poll(at('16:08:01'),a5=value)['status']=='WAIT_A5'
+    # Still-invalid source remains a draft fallback, not a production failure.
+    if 'observed_at' in change:value['observed_at']=at('16:46:00').isoformat()
+    result=engine.poll(at('16:45:00'),a5=value)
+    assert result['a5_status']=='A5_NOT_COMPLETE_OR_AMBIGUOUS'
+    assert calls[-1][1]['a5'] is None
+    assert result['customer_notifications']==0 and result['production_mutation'] is False
 
 
 def test_draft_at_1530_is_frozen_once_not_formal_report():
@@ -38,7 +65,7 @@ def test_successful_a5_allows_formal_report_once_with_real_clock():
     engine,calls=harness();engine.poll(at('15:30:00'))
     result=engine.poll(at('16:08:01'),a5=observation())
     assert result['status']=='FORMAL_WRITTEN'
-    assert calls[-1][1]['a5_status']=='COMPLETE'
+    assert calls[-1][1]['a5_status']=='A5_COMPLETED_OBSERVED'
     assert calls[-1][1]['as_of']==at('16:08:01')
     assert engine.poll(at('16:10:00'),a5=observation())==result
     assert [name for name,_ in calls]==['freeze','final']
@@ -50,7 +77,7 @@ def test_hard_1645_deadline_does_not_wait_or_change_a5(a5):
     assert engine.poll(at('16:44:59'),a5=a5)['status']=='WAIT_A5'
     result=engine.poll(at('16:45:00'),a5=a5)
     assert result['status']=='FORMAL_WRITTEN'
-    assert calls[-1][1]['a5_status']=='A5_NOT_COMPLETE'
+    assert calls[-1][1]['a5_status']=='A5_NOT_COMPLETE_OR_AMBIGUOUS'
     assert calls[-1][1]['draft']['sha256']=='a'*64
 
 
@@ -99,6 +126,6 @@ def test_failed_report_does_not_retry_or_call_production():
 def test_late_poll_cannot_reconstruct_a5_availability_before_deadline():
     engine,calls=harness();engine.poll(at('15:30:00'))
     result=engine.poll(at('16:46:00'),a5=observation())
-    assert result['a5_status']=='A5_NOT_COMPLETE'
+    assert result['a5_status']=='A5_NOT_COMPLETE_OR_AMBIGUOUS'
     assert result['deadline_missed'] is True
     assert calls[-1][1]['a5'] is None

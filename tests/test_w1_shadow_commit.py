@@ -119,13 +119,26 @@ def service(tmp_path):
     state,minute=databases(tmp_path)
     source=ReadOnlyShadowSource(state,minute,lanes=('lane_1',))
     data=[item()]; wall=[NOW+timedelta(seconds=40)]; mono=[40.0]
-    source.read_round=lambda at,**kw:(deepcopy(data),{'observed_at':kw['observed_at'].isoformat(),'fixture_only':True})
+    def read_round(at, **kw):
+        from liangjian_funnel.runtime.shadow_session import _entry_admission
+        copied=deepcopy(data)
+        for current in copied:
+            facts={'current_status':'ACTIVE_TODAY','terminal_at':None,'invalidated':False,'held':False,
+                'valid_from':at.replace(hour=9,minute=30).isoformat(),
+                'expires_at':at.replace(hour=15,minute=0).isoformat(),
+                'minute':at.isoformat(),'observed_at':kw['observed_at'].isoformat(),'identity_proven':True}
+            current.update(entry_scope_facts=facts,entry_admission=_entry_admission(facts))
+        return copied,{'observed_at':kw['observed_at'].isoformat(),'fixture_only':True}
+    source.read_round=read_round
     engine=ShadowVariantEngine(evaluator=buy); ledger=Ledger(tmp_path)
     signals=[]
     ledger.record_signal=lambda signal,plan,**kw:(signals.append(signal) or {'ok':True,'stored':True})
     ledger.record_minute=lambda summary,**kw:(ledger.minutes.append(summary) or {'ok':True,'stored':True})
     session=ShadowSession(source,engine=engine,ledger=ledger,started_at=NOW-timedelta(seconds=1),
-        wall_clock=lambda:wall[0],clock=lambda:mono[0])
+        wall_clock=lambda:wall[0],clock=lambda:mono[0],
+        # Explicit protocol fixture only. Identity business proof is NOT tested
+        # by this mock writer/state-machine suite.
+        identity_provider=lambda plan,at:{'status':'READY','evidence':{},'observed_at':at,'raw_response':b'FIXTURE'})
     return session,engine,ledger,data,wall,mono,signals
 
 
