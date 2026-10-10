@@ -1,0 +1,11 @@
+[Unit]
+Description=Friday 16:00 independent shadow weekly snapshot
+
+[Timer]
+OnCalendar=Fri *-*-* 16:00:00 Asia/Shanghai
+AccuracySec=1s
+Persistent=false
+Unit=liangjian-shadow-week.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,11 @@
+[Unit]
+Description=One-time Monday shadow preopen inputs (NOT recurring research)
+
+[Timer]
+OnCalendar=2026-10-12 08:40:00 Asia/Shanghai
+AccuracySec=1s
+Persistent=false
+Unit=liangjian-shadow-preopen-20261012.service
+
+[Install]
+WantedBy=timers.target

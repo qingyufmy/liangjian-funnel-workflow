@@ -4996,6 +4996,8 @@ def _project_capital_flow(value: Any, symbols: set[str] | None) -> Any:
         result["by_symbol"] = _filter_symbol_mapping(by_symbol, symbols)
         result["prompt_symbol_count"] = len(result["by_symbol"])
         result["full_symbol_count"] = len(by_symbol)
+    # A-LABEL is audit-only metadata. Keep the deployed model projection
+    # unchanged; labels remain in the independent audit sidecar/factor facts.
     return result
 
 

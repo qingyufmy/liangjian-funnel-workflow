@@ -1,0 +1,23 @@
+[Unit]
+Description=Independent A4 shadow daily reporting (NOT production A5)
+
+[Service]
+Type=oneshot
+User=__SHADOW_USER__
+WorkingDirectory=__CHECKOUT_ROOT__
+EnvironmentFile=__SHADOW_ENV_FILE__
+ExecStart=__PYTHON_BIN__ -B __CHECKOUT_ROOT__/scripts/run_shadow_reporting.py --state-db ${SHADOW_STATE_DB} --shadow-db ${SHADOW_LEDGER_DB} --shadow-jsonl ${SHADOW_LEDGER_JSONL} --lane ${SHADOW_LANE} --approved-output-root ${SHADOW_A5_APPROVED_ROOT} --node-log-root ${SHADOW_NODE_LOG_ROOT} --node-endpoint ${SHADOW_NODE_ENDPOINT} --node-sample-archive ${SHADOW_NODE_SAMPLE_ARCHIVE} --node-token-env LIANGJIAN_DASHBOARD_TOKEN --archive-root ${SHADOW_REPORT_ARCHIVE} --report-root ${SHADOW_REPORT_DOCS} --bridge-outbox ${SHADOW_BRIDGE_OUTBOX} --watch --poll-seconds 5
+RuntimeMaxSec=80min
+TimeoutStopSec=10
+Restart=no
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=__PRODUCTION_STATE_DIR__ __PRODUCTION_A5_DIR__ __PRODUCTION_NODE_DIR__
+ReadWritePaths=__SHADOW_ARCHIVE_DIR__ __SHADOW_DOCS_DIR__ __SHADOW_OUTBOX_DIR__
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=localhost
+
+# Template only; no install/restart/daemon-reload is authorized by this file.

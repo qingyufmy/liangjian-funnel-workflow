@@ -92,6 +92,8 @@ def inspect_legacy_capital_weighting(snapshot: Mapping[str, Any]) -> dict[str, A
         'input_content_hash': snapshot.get('content_hash'),
         'source_id': snapshot.get('source_id'), 'by_symbol': {},
         'policy_approved': False, 'original_snapshot_mutated': False,
+        'label_only': True,
+        'original_weights': {key: weight for key, _, weight in WINDOWS},
     }
     if snapshot.get('content_hash') != _content_hash(snapshot):
         return {**audit, 'status': 'DATA_LIMITED', 'reason_code': 'INPUT_HASH_MISMATCH'}
@@ -135,3 +137,24 @@ def inspect_legacy_capital_weighting(snapshot: Mapping[str, Any]) -> dict[str, A
         }
     audit['status'] = 'OBSERVATION_ONLY'
     return audit
+
+
+def capital_weighting_label(audit: Mapping[str, Any], symbol: str) -> dict[str, Any]:
+    """Copy a proven row label, keeping absent/invalid evidence UNKNOWN.
+
+    These fields have no authority to accept/reject a candidate or change a
+    score. In particular A-LABEL approval does not approve a weighting policy.
+    """
+    row = audit.get('by_symbol', {}).get(symbol, {})
+    return {
+        'normalization_state': row.get('normalization_state', 'DATA_LIMITED'),
+        'observed_weight': row.get('observed_weight'),
+        'observed_windows': list(row.get('observed_windows', [])),
+        'missing_windows': list(row.get('missing_windows', [key for key, _, _ in WINDOWS])),
+        'original_weights': dict(audit.get('original_weights', {})),
+        'original_score': row.get('original_score'),
+        'original_score_preserved': True,
+        'input_content_hash': audit.get('input_content_hash'),
+        'label_only': True,
+        'policy_approved': False,
+    }
