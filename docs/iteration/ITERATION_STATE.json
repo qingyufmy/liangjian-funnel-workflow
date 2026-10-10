@@ -1,4 +1,24 @@
 {
+  "shadow_timeout_repair_0069": {
+    "production_base": "15dd63bb5f4d45042789433646f4bccc453a7409",
+    "restoration_commit": "6af53aa81964eab897c6ca3422e9206c3df32ef7",
+    "authorization": "DEVELOP_TEST_AND_SUBMIT_REVIEW_ONLY_NO_PUSH_OR_DEPLOY",
+    "before": {"command": "python -m pytest tests/test_shadow_service_timeouts.py -o addopts= -q --junitxml=artifacts/runtime-timeout-repair-20261010/before.xml", "exit_code": 1, "failed": 4, "passed": 16},
+    "after": {"command": "python -m pytest tests/test_shadow_service_timeouts.py tests/test_w1_shadow_installation.py tests/test_w3_shadow_reporting.py tests/test_w3_shadow_node_observer.py -o addopts= -q --junitxml=artifacts/runtime-timeout-repair-20261010/after.xml", "exit_code": 0, "passed": 77},
+    "code": "TEMPLATE_REPAIR_AND_LIFECYCLE_GUARD_SLICE_PASS_NEW_HEAD_FULL_RECEIPTS_PENDING",
+    "replay": "SOURCE_SHA_COMPARISON_REQUIRED_BEFORE_REUSING_GOLDENS",
+    "operations": "SHADOW_STOPPED_VM_TIMEOUT_SANDBOX_ENDPOINT_AND_TIMERS_PENDING_NEW_RELEASE_APPROVAL",
+    "strategy": "UNCHANGED_NO_PERFORMANCE_CLAIM",
+    "failure_policy": {"production_failure": "STOP_SHADOW_AND_FORWARD_ROLLBACK", "shadow_only_failure": "STOP_SHADOW_KEEP_PRODUCTION"},
+    "acceptance_mapping": {
+      "oneshot_effective_timeout": "test_every_shadow_template_has_effective_oneshot_deadline",
+      "invalid_old_setting": "test_oneshot_runtime_max_is_rejected_even_with_start_timeout",
+      "unbounded_timeout": "test_unbounded_or_invalid_oneshot_timeout_is_rejected",
+      "non_oneshot_lifecycle": "test_non_oneshot_start_timeout_alone_does_not_bound_runtime",
+      "preinstall_guard": "test_cli_reports_all_units_and_nonzero_before_any_install"
+    },
+    "evidence_directory": "artifacts/runtime-timeout-repair-20261010"
+  },
   "weekend_closeout_20261010": {
     "status": "LOCAL_W1_W3_SLICES_FROZEN_FINAL_INTEGRATED_HEAD_PENDING",
     "current_production_head": "499ed6abc3fd159de23b59dd76b02329300582db",

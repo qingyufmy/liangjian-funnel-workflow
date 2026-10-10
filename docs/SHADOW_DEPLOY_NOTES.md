@@ -1,5 +1,19 @@
 # 周末影子发布准备（2026-10-10）
 
+## 当前修订：0069 超时修复（覆盖下文历史发布状态）
+
+首次 7521d41 发布后发现 `Type=oneshot + RuntimeMaxSec` 不生效，已停止全部影子单位并前向回退至 `15dd63b`。生产19条计划和原env未变。新版从15dd子提交恢复候选内容并修复单位，旧7521不再作为发布目标；重新发布必须经Claude复审和Tony新一次明确批准。本轮仅开发、测试、送审，不安装、不启动、不重跑盘前准备。
+
+所有一次性服务保留 `Type=oneshot`，删除 `RuntimeMaxSec`，使用有效的 `TimeoutStartSec`：preopen 900秒、session 19860秒、reporting 4800秒、week 300秒；停止宽限10秒。15:30报告watch与16:45 timer重入合并语义不变。
+
+安装前必须对**所有渲染后的service**运行 `scripts/validate_shadow_service_timeouts.py`，退出非0即不得复制单位或daemon-reload。该只读校验按Type判断有效截止字段，拒绝oneshot的RuntimeMaxSec、缺失/零值/无限/非法截止和重复指令；simple/exec仅TimeoutStartSec不能代替RuntimeMaxSec。`systemd-analyze verify`的退出0不能替代这个检查，也不能忽略警告。现有旧单位只能在再次批准发布后按旧文件SHA受控替换，禁止直接覆盖未知版本或更改独立env。
+
+部署后必须逐个核对八个服务 `systemctl show -p Type -p TimeoutStartUSec -p TimeoutStopUSec`，与上述秒数精确一致；用唯一临时单位执行 `systemd-run --wait -p Type=oneshot -p TimeoutStartSec=5 /bin/sleep 30`，约5秒后应超时，保存native退出码与Result=timeout/进程终止证据并清理探针。该真实VM测试留在下一次批准后的验收，不用本地单测冒充。
+
+0068其余验收继续：19行及payload逐字节、原env、实际安装模块、旧Node路由和调度；同**oneshot**属性沙箱下`mode=ro`读真实WAL数据库（不使用immutable或复制库）；新端点本机200/远端403；08:40/09:30/15:30/16:45和周五16:00定时；本机只读小报告交付。沙箱不得改成Type=exec来绕过有效超时检查。
+
+失败分级：生产侧验收失败→停影子并正常deploy.sh前向回退至新包中已测试、TREE等于W0的子提交；仅影子侧验收失败→只停止并禁用影子单位，保留已通过生产验收的新代码，记录问题交Claude。周一08:40前验收未全通过则不启用影子，生产照常。
+
 本文件是待评审的运行清单，不是影子发布批准或已上线回执。2026-10-10当前生产基线为已批准发布的 W0 `499ed6abc3fd159de23b59dd76b02329300582db`；已通过既有deploy.sh部署，随后一次盘前准备成功形成10-12的19条待晨审计划。影子整包另走决策14，不能把W0批准扩大为整包批准。历史adafe50回执只作历史记录。
 
 ## 已完成与仍缺项
