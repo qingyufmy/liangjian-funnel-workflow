@@ -40,7 +40,7 @@ def queue(tmp_path, size=3):
 
 
 def rehash(value, key):
-    if key == 'receipt_hash' and value.get('schema_version') == 'close-scope-receipt/2':
+    if key == 'receipt_hash' and value.get('schema_version') in {'close-scope-receipt/2','close-scope-receipt/3'}:
         value.update(hash_scope_receipt(value))
         return
     value[key] = content_hash({k: v for k, v in value.items() if k != key})
