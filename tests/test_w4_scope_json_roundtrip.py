@@ -220,3 +220,4 @@ def test_legacy_v1_validator_preserves_original_bytes_and_does_not_resign(tmp_pa
     original=deepcopy(loaded)
     scope.validate_scope_receipt(loaded)
     assert loaded==original and path.read_bytes()==before
+
