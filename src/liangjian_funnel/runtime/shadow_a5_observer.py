@@ -49,7 +49,7 @@ def _decode(raw):
 
 
 def inspect_a5_completion(*,trade_date,observed_at,ledger_rows,approved_reports,
-                          node_receipt_raw,stdout_rows):
+                          node_receipt_raw,stdout_rows,node_sample=None,require_node_identity=False):
     result={'schema_version':'shadow-a5-observation/1','status':'DATA_LIMITED',
         'reason_codes':[],'candidate':None,'production_mutation':False,
         'models':0,'customer_notifications':0,'source_authenticated':False}
@@ -59,6 +59,10 @@ def inspect_a5_completion(*,trade_date,observed_at,ledger_rows,approved_reports,
         if now.date()!=day:raise ValueError('A5_OBSERVATION_DAY_MISMATCH')
         if now>deadline:raise ValueError('A5_OBSERVATION_AFTER_DEADLINE')
         if not isinstance(node_receipt_raw,bytes):raise ValueError('ORIGINAL_NODE_RECEIPT_REQUIRED')
+        node_identity=None
+        if require_node_identity:
+            from .shadow_node_observer import verify_ready_sample
+            node_identity=verify_ready_sample(node_receipt_raw,node_sample,observed_at=now)
         node=_decode(node_receipt_raw)
         jobs=node.get('recentJobRuns') if isinstance(node,dict) else None
         if not isinstance(jobs,list):raise ValueError('ORIGINAL_NODE_JOB_LIST_REQUIRED')
@@ -71,6 +75,9 @@ def inspect_a5_completion(*,trade_date,observed_at,ledger_rows,approved_reports,
         # a second parent prevents uniqueness, not just a second exit-zero one.
         if len(parents)!=1:raise ValueError('A5_PARENT_NOT_UNIQUE')
         parent=parents[0];began=_stamp(parent['startedAt']);ended=_stamp(parent.get('finishedAt'))
+        if node_identity is not None:
+            if (began.timestamp()*1000<node_identity['startedAtEpochMs']
+                    or ended>_stamp(node_identity['observedAt'])):raise ValueError('A5_NODE_SOURCE_CLOCK_CONFLICT')
         if (parent.get('command')!='run-a5-close' or parent.get('status')!='succeeded'
             or type(parent.get('exitCode')) is not int or parent['exitCode']!=0
             or parent.get('signal') is not None or parent.get('reason') is not None
@@ -138,6 +145,11 @@ def inspect_a5_completion(*,trade_date,observed_at,ledger_rows,approved_reports,
             'stdout_projection_sha256':_sha(_canonical(stdout_rows)),
             'observed_at':now.isoformat(),'correlation_basis':'UNIQUE_NONOVERLAPPING_INTERVAL'}
         result.update(result['candidate'])
+        if node_identity is not None:
+            result.update(node_pid=node_identity['pid'],node_started_at_epoch_ms=node_identity['startedAtEpochMs'],
+                node_server_observed_at=node_identity['observedAt'],node_sample_receipt_sha256=node_sample['receipt_sha256'])
+            result['candidate'].update(node_pid=node_identity['pid'],node_started_at_epoch_ms=node_identity['startedAtEpochMs'],
+                node_server_observed_at=node_identity['observedAt'],node_sample_receipt_sha256=node_sample['receipt_sha256'])
         result['status']='A5_COMPLETED_OBSERVED'
         result['reason_codes']=[]
     except (ValueError,TypeError,KeyError,AttributeError,OverflowError) as exc:
@@ -159,7 +171,7 @@ def _read_stable(path):
 
 
 def read_a5_observation(*,trade_date,observed_at,state_db,approved_output_root,
-                        node_receipt_path,node_log_path,observation_clock=None):
+                        node_receipt_path,node_log_path,observation_clock=None,node_sample=None,require_node_identity=False):
     """Explicit local source paths only, never construct RuntimeStore/Settings.
 
     Node bytes must be a separately archived original dashboard DTO, not an
@@ -196,7 +208,8 @@ def read_a5_observation(*,trade_date,observed_at,state_db,approved_output_root,
         actual_observed=_stamp(observation_clock()) if observation_clock is not None else _stamp(observed_at)
         if actual_observed<_stamp(observed_at):raise ValueError('A5_READ_CLOCK_REGRESSED')
         result=inspect_a5_completion(trade_date=trade_date,observed_at=actual_observed,
-            ledger_rows=rows,approved_reports=reports,node_receipt_raw=node,stdout_rows=logs)
+            ledger_rows=rows,approved_reports=reports,node_receipt_raw=node,stdout_rows=logs,
+            node_sample=node_sample,require_node_identity=require_node_identity)
         if monotonic()>=deadline:raise ValueError('A5_OBSERVER_READ_BUDGET_EXCEEDED')
         if observation_clock is not None:
             finished=_stamp(observation_clock())

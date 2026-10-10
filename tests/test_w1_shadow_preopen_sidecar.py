@@ -193,3 +193,81 @@ def test_cli_only_independent_sidecar_writes_original_sqlite_rows_unchanged(tmp_
     receipt=json.loads((tmp_path/'receipt.json').read_bytes())
     assert receipt['available_count']==1 and receipt['selected_plan_count']==1
     assert hashlib.sha256(state.read_bytes()).hexdigest()==before
+
+
+def test_real_morning_activation_preserves_original_payload_bytes_and_binding(tmp_path,monkeypatch):
+    from types import SimpleNamespace
+    from liangjian_funnel.runtime.state import RuntimeStore, PlanStatus
+    import liangjian_funnel.runtime.state as state_module
+    from liangjian_funnel.workflow import WorkflowApplication
+    from liangjian_funnel.data.tencent_minute import MarketQuote, QuoteResult
+    _,_,plan,_=fixture()
+    plan.update(source_run_id='isolated-close',target_trade_date=TARGET.isoformat(),
+        trigger_low=11.5,trigger_high=12.0,stop_level=11.0,no_chase=12.5)
+    store=RuntimeStore(tmp_path/'fixture-state.sqlite3')
+    monkeypatch.setattr(state_module,'_now',lambda:AT)
+    store.create_execution_plan('fixture-p','lane_1',SYMBOL,
+        status=PlanStatus.PENDING_MORNING_REVIEW,expires_at=GENERATED.replace(hour=15),payload=plan)
+    before=store.get_execution_plan('fixture-p')
+    ledger=module().PreopenInputsLedger(tmp_path/'sidecar.sqlite3')
+    assert ledger.record(generate(before))['ok']
+    now=GENERATED.replace(hour=9,minute=26)
+    quote=MarketQuote(symbol=SYMBOL,name='fixture',quote_time=now,price=11.8,open=11.8,
+        previous_close=11.8,volume=1000,amount=11800)
+    app=SimpleNamespace(store=store,brokers={'lane_1':object()},
+        settings=SimpleNamespace(workflow_output_dir=tmp_path/'outputs'),
+        _ensure_trading_day=lambda _:None,
+        market_data=SimpleNamespace(fetch_quote=lambda *a,**kw:QuoteResult(
+            symbol=SYMBOL,reason_code='OK',complete=True,quote=quote)))
+    result=WorkflowApplication.review_pending_morning(app,now=now)
+    after=store.get_execution_plan('fixture-p')
+    assert result['activated']==['fixture-p']
+    assert (before['status'],after['status'])==('PENDING_MORNING_REVIEW','ACTIVE_TODAY')
+    assert before['payload_json']==after['payload_json']
+    sha=lambda raw:hashlib.sha256(raw.encode('utf-8')).hexdigest()
+    assert sha(before['payload_json'])==sha(after['payload_json'])
+    assert all(before[k]==after[k] for k in ('plan_id','lane_id','symbol','plan_version','created_at'))
+    assert ledger.lookup(after,target_trade_date=TARGET,observed_at=GENERATED.replace(hour=10))['status']=='AVAILABLE'
+    for key in ('trigger_low','trigger_high','stop_level','no_chase'):
+        changed=deepcopy(after); payload=json.loads(changed['payload_json']); payload[key]+=0.01
+        changed['payload_json']=json.dumps(payload)
+        assert ledger.lookup(changed,target_trade_date=TARGET,observed_at=GENERATED.replace(hour=10))['status']=='DATA_LIMITED'
+    changed=deepcopy(after); changed['payload_json']+=' '
+    assert ledger.lookup(changed,target_trade_date=TARGET,observed_at=GENERATED.replace(hour=10))['status']=='DATA_LIMITED'
+
+
+@pytest.mark.parametrize('case,reason',[('reentry','SIDECAR_REENTRY_CONFLICT'),('hash','SIDECAR_RECORD_HASH_CONFLICT')])
+def test_ledger_conflict_reason_preserved_without_overwriting(tmp_path,case,reason):
+    from liangjian_funnel.pipeline.local_fact_cache import canonical_json_hash
+    ledger=module().PreopenInputsLedger(tmp_path/'sidecar.db'); original=generate()
+    assert ledger.record(original)['stored']
+    changed=deepcopy(original); changed['generated_at']=GENERATED.replace(minute=1).isoformat()
+    changed.pop('record_hash'); changed['record_hash']=canonical_json_hash(changed)
+    if case=='hash': changed['record_hash']='0'*64
+    assert ledger.record(changed)['error_code']==reason
+    assert ledger.lookup(row(),target_trade_date=TARGET,observed_at=GENERATED.replace(hour=10))==original
+
+
+def test_ledger_connections_close_and_explicit_commit(tmp_path,monkeypatch):
+    from liangjian_funnel.pipeline.local_fact_cache import canonical_json_hash
+    real=sqlite3.connect; opened=[]
+    class Tracking(sqlite3.Connection):
+        was_closed=False
+        commits=0
+        def close(self):
+            self.was_closed=True
+            return super().close()
+        def commit(self):
+            self.commits+=1
+            return super().commit()
+    def connect(*args,**kw):
+        db=real(*args,**kw,factory=Tracking); opened.append(db); return db
+    monkeypatch.setattr(module().sqlite3,'connect',connect)
+    ledger=module().PreopenInputsLedger(tmp_path/'sidecar.db'); record=generate()
+    assert ledger.record(record)['stored']
+    assert ledger.record(record)['duplicate']
+    changed=deepcopy(record); changed['generated_at']=GENERATED.replace(minute=1).isoformat()
+    changed.pop('record_hash'); changed['record_hash']=canonical_json_hash(changed)
+    assert not ledger.record(changed)['ok']
+    assert all(db.was_closed for db in opened)
+    assert opened[0].commits==1 and opened[1].commits==1 and opened[2].commits==0

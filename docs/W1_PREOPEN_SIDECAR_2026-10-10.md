@@ -34,6 +34,10 @@ ledger signal追加`inputs_origin=PLAN_FROZEN|SHADOW_PREOPEN_SIDECAR|UNKNOWN`；
 
 ## 6. 验收与未完成边界
 
+0063 followup：在隔离临时SQLite调用真实`WorkflowApplication.review_pending_morning`（workflow.py:5657）和`RuntimeStore.activate_pending_plan_batch`（state.py:2151）。PENDING→ACTIVE的原payload字节SHA前后均为`4c4f01bddd06c104c09a431e57b6aef53e286d8eaefe3fd073b60ca8c8a2ac33`，plan_version/created_at与区间/失效位/追高线/MA5不变，原sidecar消费AVAILABLE；几何改动或仅加空格仍拒绝。因此保留完整原字节绑定，不引入宽松lineage或只比plan_id。此证据是调用真实函数的fixture，不是生产19条晨审结果。
+
+ledger小修仅保留明确`SIDECAR_REENTRY_CONFLICT`/`SIDECAR_RECORD_HASH_CONFLICT`错误码，并以`closing()`确保成功、幂等和冲突路径关闭连接；成功/幂等显式commit，冲突不提交且不覆盖原record。新`w1-sidecar-0063-followup`回执保留反例红/绿；原0061 freeze229不覆盖，shadow_variants f233及正式晨审/state源未改。
+
 独立artifact `artifacts/wp5-20261010/w1-preopen-sidecar-0061`封存red/after/final XML及freeze清单。测试用真实临时SQLite、真实LocalFactCache envelopes/选择器、真实原builder；验证未来bar、MA5冲突、>=09:00/>=09:30晚生成、源钟未来、wrong target/plan/payload bytes/hash拒绝，原execution_plans行/整SQLite字节SHA/status一致，盘中源/闭合clock守卫及只读消费。session fixture证明只有engine copy附inputs，独立ledger仍收到原计划，原outer warmup不变，缺PIT技术BUY被研究audit保留但不是执行BUY。
 
 没有复制/修改真实19条计划，没有生产运行、网络、模型、部署、自然日或收益证据；W3正式接线和统一新HEAD全量由root完成。原adc1de89 G-B封存仍绑定旧源码，本日期边界新SHA不得冒充已跑候选的证明；所有数学/策略/resolver字节仍未改。新版consumer需要独立全量回执，不覆盖旧freeze。

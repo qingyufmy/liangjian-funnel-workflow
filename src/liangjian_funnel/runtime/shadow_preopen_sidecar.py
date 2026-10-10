@@ -166,7 +166,7 @@ class PreopenInputsLedger:
                 raise ValueError('SIDECAR_RECORD_HASH_CONFLICT')
             key=record['target_trade_date']+':'+record['plan_binding']['plan_id']
             self.path.parent.mkdir(parents=True,exist_ok=True)
-            with sqlite3.connect(self.path,timeout=.2) as db:
+            with closing(sqlite3.connect(self.path,timeout=.2)) as db:
                 db.execute('PRAGMA synchronous=FULL')
                 db.execute('CREATE TABLE IF NOT EXISTS shadow_preopen_inputs(id TEXT PRIMARY KEY,record_json TEXT NOT NULL)')
                 old=db.execute('SELECT record_json FROM shadow_preopen_inputs WHERE id=?',(key,)).fetchone()
@@ -174,11 +174,15 @@ class PreopenInputsLedger:
                 if old:
                     if old[0] != raw:
                         raise ValueError('SIDECAR_REENTRY_CONFLICT')
+                    db.commit()
                     return {'ok':True,'stored':False,'duplicate':True}
                 db.execute('INSERT INTO shadow_preopen_inputs VALUES(?,?)',(key,raw))
+                db.commit()
             return {'ok':True,'stored':True,'duplicate':False}
-        except Exception:
-            return {'ok':False,'stored':False,'duplicate':False,'error_code':'SIDECAR_WRITE_FAILED'}
+        except Exception as exc:
+            code=str(exc)
+            reason=code if code in ('SIDECAR_REENTRY_CONFLICT','SIDECAR_RECORD_HASH_CONFLICT') else 'SIDECAR_WRITE_FAILED'
+            return {'ok':False,'stored':False,'duplicate':False,'error_code':reason}
 
     def lookup(self,plan_row,*,target_trade_date,observed_at):
         try:

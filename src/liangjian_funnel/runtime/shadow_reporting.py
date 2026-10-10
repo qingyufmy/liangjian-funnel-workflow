@@ -266,13 +266,14 @@ def _freeze(cfg,day,now,observation_clock=None):
     return dict(trade_date=day,market_cutoff=package['market_cutoff'],source_ref=str(path),sha256=_sha(raw))
 
 
-def _final(cfg,draft,*,draft_status,a5_status,a5,as_of):
+def _final(cfg,draft,*,draft_status,a5_status,a5,as_of,node_sampling=None):
     raw=_read_stable(draft['source_ref'])
     if _sha(raw)!=draft['sha256']:raise ValueError('SHADOW_DRAFT_HASH_CONFLICT')
     package=_decode(raw);day=package['trade_date'];report=package['report']
     report.update(a5_status=a5_status,a5_observation=a5,draft_status=draft_status,
                   formal_written_at=as_of.isoformat(),formal_clock_basis='ACCEPTANCE_BEFORE_SYNCHRONOUS_OUTPUT_WRITES',
                   draft_captured_at=package['captured_at'])
+    if node_sampling is not None:report['node_sampling']=node_sampling
     text=(render_shadow_day(report) if report['schema']=='shadow-day-adapter/1' else
         '# A4 影子日报 '+day+'\n\nDATA_LIMITED：独立影子源未取得，不把无账本写成0触发或0成交。\n'
         '生产外层等价：'+report['production_equivalence']['status']+'；缺腿 null。\n')
@@ -311,7 +312,7 @@ def _saved_outputs(path,*,expected,now,day):
     return saved
 
 
-def run_reporting_tick(cfg,*,observed_at,observation_clock=None):
+def run_reporting_tick(cfg,*,observed_at,observation_clock=None,node_sampler=None):
     """One independent poll; persistent immutable draft makes restart idempotent.
 
     Filesystem writes cannot be hard-preempted; failures are shadow-only. No
@@ -319,6 +320,8 @@ def run_reporting_tick(cfg,*,observed_at,observation_clock=None):
     """
     try:
         now=_stamp(observed_at);day=now.date().isoformat();_validate_paths(cfg)
+        if node_sampler is not None and not node_sampler.root.is_relative_to(cfg.archive_root.resolve()):
+            raise ValueError('NODE_SAMPLE_ARCHIVE_OUTSIDE_INDEPENDENT_REPORT_ARCHIVE')
         if not ExchangeTradingCalendar().is_trading_day(now.date()):return _safe_result('NON_TRADING_DAY')
     except Exception:return _safe_result('SHADOW_SETUP_FAILED')
     final=cfg.archive_root/day/'final-manifest.json'
@@ -344,21 +347,35 @@ def run_reporting_tick(cfg,*,observed_at,observation_clock=None):
             if (saved['schema_version']!=VERSION or saved['trade_date']!=day or _stamp(saved['captured_at'])>now):raise ValueError
         except Exception:return _safe_result('SHADOW_DRAFT_BINDING_FAILED')
     a5=None
-    if time(16)<=now.time()<=time(16,45) and cfg.node_receipt_path is not None:
+    sample=None;node_path=cfg.node_receipt_path
+    if node_sampler is not None:
+        node_path=None
+        if time(16)<=now.time()<=time(16,45):
+            try:
+                sample=node_sampler.sample_if_due(observed_at=now)
+                if sample.get('status')=='READY':node_path=sample['raw_path']
+            except Exception:sample={'status':'DATA_LIMITED','reason_codes':['NODE_SAMPLE_UNAVAILABLE']}
+            if observation_clock is not None:
+                finished=_stamp(observation_clock())
+                if finished<now or finished.date()!=now.date():return _safe_result('SHADOW_OBSERVATION_CLOCK_FAILED')
+                now=finished
+    if time(16)<=now.time()<=time(16,45) and node_path is not None:
         a5=read_a5_observation(trade_date=day,observed_at=now,state_db=cfg.state_db,
-            approved_output_root=cfg.approved_output_root,node_receipt_path=cfg.node_receipt_path,node_log_path=cfg.node_log_path,
-            observation_clock=observation_clock)
+            approved_output_root=cfg.approved_output_root,node_receipt_path=node_path,node_log_path=cfg.node_log_path,
+            observation_clock=observation_clock,node_sample=sample,require_node_identity=node_sampler is not None)
         if observation_clock is not None:
             finished=_stamp(observation_clock())
             if finished<now or finished.date()!=now.date():return _safe_result('SHADOW_OBSERVATION_CLOCK_FAILED')
             now=finished
+    sample_summary=({k:sample[k] for k in ('status','reason_codes','raw_path','raw_sha256','receipt_sha256',
+        'requested_at','received_at','node','restart_unproven') if k in sample} if sample is not None else None)
     engine=ShadowCloseCoordinator(day,freeze=lambda **kw:_freeze(cfg,day,now,observation_clock),
-        build_final=lambda **kw:_final(cfg,**kw))
+        build_final=lambda **kw:_final(cfg,**kw,node_sampling=sample_summary))
     if draftpath.exists():
         engine.draft=dict(trade_date=day,market_cutoff=saved['market_cutoff'],source_ref=str(draftpath),sha256=_sha(raw))
         engine.draft_status=saved['draft_status']
     result=engine.poll(now,a5=a5)
-    return {**_safe_result(result['status']),**result}
+    return {**_safe_result(result['status']),**result,**({'node_sampling':sample_summary} if sample_summary is not None else {})}
 
 
 def run_weekly_reporting(cfg,*,trading_days,observed_at):

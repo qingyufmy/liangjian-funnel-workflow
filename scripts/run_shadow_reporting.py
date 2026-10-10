@@ -18,6 +18,9 @@ def main(argv=None):
         parser.add_argument('--'+name,type=Path,required=True)
     parser.add_argument('--shadow-jsonl',type=Path)
     parser.add_argument('--node-receipt',type=Path,help='Original Node recentJobRuns DTO; no default source')
+    parser.add_argument('--node-endpoint',help='Explicit loopback-only new readonly route; incompatible with --node-receipt')
+    parser.add_argument('--node-sample-archive',type=Path,help='Independent original response archive inside --archive-root')
+    parser.add_argument('--node-token-env',default='LIANGJIAN_DASHBOARD_TOKEN',help='Bearer environment variable NAME only')
     parser.add_argument('--lane',action='append',required=True)
     parser.add_argument('--as-of',help='Explicit fixture one-tick clock only; cannot combine with --watch')
     parser.add_argument('--watch',action='store_true',help='Independent single process until final/16:45 fallback')
@@ -28,15 +31,22 @@ def main(argv=None):
         import math
         if (args.watch and (args.as_of or args.week_session) or not math.isfinite(args.poll_seconds) or not 1<=args.poll_seconds<=30):
             raise ValueError
+        if (args.node_endpoint and (args.node_receipt or args.as_of or not args.node_sample_archive)
+                or args.node_sample_archive and not args.node_endpoint):raise ValueError
         now=datetime.fromisoformat(args.as_of) if args.as_of else datetime.now(ZoneInfo('Asia/Shanghai'))
         cfg=ReportingPaths(state_db=args.state_db,shadow_db=args.shadow_db,shadow_jsonl=args.shadow_jsonl,
             lanes=tuple(args.lane),approved_output_root=args.approved_output_root,node_receipt_path=args.node_receipt,
             node_log_path=args.node_log_root/f'node-{now.date()}.jsonl',archive_root=args.archive_root,
             report_root=args.report_root,bridge_outbox=args.bridge_outbox)
+        node_sampler=None
+        if args.node_endpoint:
+            from liangjian_funnel.runtime.shadow_node_observer import LoopbackNodeSampler
+            node_sampler=LoopbackNodeSampler(args.node_endpoint,args.node_sample_archive,token_env_name=args.node_token_env)
         while True:
             result=(run_weekly_reporting(cfg,trading_days=args.week_session,observed_at=now) if args.week_session
                 else run_reporting_tick(cfg,observed_at=now,
-                    observation_clock=None if args.as_of else lambda:datetime.now(ZoneInfo('Asia/Shanghai'))))
+                    observation_clock=None if args.as_of else lambda:datetime.now(ZoneInfo('Asia/Shanghai')),
+                    node_sampler=node_sampler))
             # Only narrow receipt, never print A5/body/model/account payloads.
             print(json.dumps({k:v for k,v in result.items() if k!='draft'},ensure_ascii=False),flush=True)
             if not args.watch or result['status'] not in ('WAIT_DRAFT','WAIT_A5'):break
