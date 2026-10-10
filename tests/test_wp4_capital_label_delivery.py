@@ -1,5 +1,7 @@
 """A-LABEL is observation transport, never a new capital factor policy."""
 import copy
+import json
+from pathlib import Path
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -9,6 +11,9 @@ from liangjian_funnel.data.a2_market import WINDOWS, _content_hash, build_capita
 from liangjian_funnel.data.capital_source_policy import inspect_legacy_capital_weighting
 from liangjian_funnel.pipeline.a2_features import build_a2_feature_snapshot
 from liangjian_funnel.pipeline.research.common import _project_capital_flow
+from liangjian_funnel.pipeline.research import common
+from liangjian_funnel.pipeline.research.common import FrozenInputSnapshot, _prompt_replacements
+from liangjian_funnel.pipeline.prompts import PromptRepository
 from liangjian_funnel.pipeline.deterministic import screen_a2
 from test_wp4_capital_source_isolation import research
 
@@ -43,15 +48,14 @@ def test_label_contains_original_weights_and_does_not_accept_new_policy(windows,
     assert snapshot == before
 
 
-def test_model_projection_delivers_labels_without_rehashing_or_mutating_original():
+def test_model_projection_excludes_audit_label_and_preserves_original_bytes():
     snapshot = raw(['today'])
     before = copy.deepcopy(snapshot)
     projected = _project_capital_flow(snapshot, {SYMBOLS[0]})
     assert set(projected['by_symbol']) == {SYMBOLS[0]}
-    label = projected['by_symbol'][SYMBOLS[0]]['weighting_observation']
-    assert label['normalization_state'] == 'DEGRADED_RENORMALIZED'
-    assert label['original_score'] == snapshot['by_symbol'][SYMBOLS[0]]['capital_flow_score']
-    assert projected['weighting_observation_input_hash'] == snapshot['content_hash']
+    assert 'weighting_observation' not in projected['by_symbol'][SYMBOLS[0]]
+    assert 'weighting_observation_input_hash' not in projected
+    assert 'weighting_observation_status' not in projected
     assert projected['content_hash'] == snapshot['content_hash']
     assert snapshot == before and snapshot['content_hash'] == _content_hash(snapshot)
 
@@ -89,10 +93,46 @@ def test_formal_research_freezes_a_label_sidecar_preserving_routing(tmp_path, mo
 def test_invalid_hash_cannot_receive_full_window_label():
     snapshot = raw([key for key, _, _ in WINDOWS])
     snapshot['content_hash'] = '0' * 64
-    projected = _project_capital_flow(snapshot, set(SYMBOLS))
-    assert projected['weighting_observation_status'] == 'DATA_LIMITED'
-    assert all(row['weighting_observation']['normalization_state'] == 'DATA_LIMITED'
-               for row in projected['by_symbol'].values())
+    audit = inspect_legacy_capital_weighting(snapshot)
+    assert audit['status'] == 'DATA_LIMITED'
+    assert all(row['normalization_state'] == 'DATA_LIMITED'
+               for row in audit['by_symbol'].values())
+
+
+@pytest.mark.parametrize('windows', [['today'], [key for key, _, _ in WINDOWS]])
+@pytest.mark.parametrize('scope', [None, set(), {SYMBOLS[0]}, set(SYMBOLS)])
+@pytest.mark.parametrize('template', ['agent_2_theme_sentiment_transport_v2.txt', 'agent_2_theme_sentiment_v2.txt'])
+def test_a_label_a2_rendered_prompt_is_byte_identical_to_deployed_projection(monkeypatch, windows, scope, template):
+    """Golden projection copied from deployed adafe50, not a second score oracle."""
+    capital = raw(windows)
+    frozen_before = copy.deepcopy(capital)
+    snapshot = FrozenInputSnapshot(snapshot_id='fixed-capital-prompt', as_of=NOW,
+        data={'CAPITAL_FLOW_SNAPSHOT': capital,
+              'snapshot_manifest': {'trade_date': '2026-10-09', 'frozen_input_hash': 'fixed'}})
+    bundle = PromptRepository(Path(__file__).resolve().parents[1] / 'prompts').bundle()
+    monkeypatch.setitem(common.STAGE_PROMPT_FILES, 'A2', template)
+    upstream = {'active_research_pool': [{'symbol': symbol} for symbol in SYMBOLS]}
+    actual = _prompt_replacements(bundle, 'A2', snapshot, upstream, projection_symbols=scope)
+    rendered_actual = bundle.render_stage('A2', actual).encode('utf-8')
+
+    def deployed_projection(value, symbols):
+        if not isinstance(value, dict):
+            return value
+        projected = dict(value)
+        by_symbol = value.get('by_symbol')
+        if isinstance(by_symbol, dict) and symbols is not None:
+            projected['by_symbol'] = common._filter_symbol_mapping(by_symbol, symbols)
+            projected['prompt_symbol_count'] = len(projected['by_symbol'])
+            projected['full_symbol_count'] = len(by_symbol)
+        return projected
+
+    assert common._project_capital_flow(capital, scope) == deployed_projection(capital, scope)
+    monkeypatch.setattr(common, '_project_capital_flow', deployed_projection)
+    expected = _prompt_replacements(bundle, 'A2', snapshot, upstream, projection_symbols=scope)
+    assert rendered_actual == bundle.render_stage('A2', expected).encode('utf-8')
+    assert json.dumps(actual, sort_keys=True, default=str) == json.dumps(expected, sort_keys=True, default=str)
+    assert 'weighting_observation' not in rendered_actual.decode('utf-8')
+    assert capital == frozen_before
 
 
 @pytest.mark.parametrize('windows', [['today'], [key for key, _, _ in WINDOWS]])

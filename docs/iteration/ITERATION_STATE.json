@@ -1,4 +1,35 @@
 {
+  "weekend_sprint_20261010": {
+    "status": "ISOLATED_COMPONENTS_READY_FULL_HEAD_AND_REVIEW_PENDING",
+    "baseline_production": "adafe5054b9ff283ea03925e2b0c6baf2146dcfe",
+    "production_changed_this_sprint": false,
+    "code": "W1_ENGINE_W2_LEDGER_PIT_CONTRACT_A3_FIELDS_W3_DAY_WEEK_W4_SAMPLER_SCOPE_HASH_FIX",
+    "replay": "LOCAL_COUNTEREXAMPLES_AND_ORIGINAL_SCOPE_HASH_VERIFIED_SIX_DAY_VARIANT_GOLDEN_BLOCKED_MISSING_FIELDS",
+    "operations": "UNDEPLOYED_UNWIRED_PIT_ARRIVAL_AND_DAILY_SCHEDULE_PENDING",
+    "strategy": "NO_THRESHOLD_COUNT_MODEL_POLICY_CHANGES_NO_POSITIVE_EXPECTANCY_CLAIM",
+    "approval": "DECISION14_REQUIRED_FOR_PUSH_AND_DEPLOY",
+    "bridge_inbox": [38,39,40,41],
+    "commands": [
+      {"artifact":"scope-json-roundtrip-final-v2.xml","exit_code":0,"passed":73},
+      {"artifact":"scope-json-roundtrip-real-candidate-run2.json","exit_code":0,"original_selected":1636,"candidate":1035,"deferred":601,"original_unchanged":true},
+      {"artifact":"w1234-integrated-v2.xml","exit_code":0,"passed":311},
+      {"artifact":"w2-pit-related-final.xml","exit_code":0,"passed":195},
+      {"artifact":"shadow-session-final-v3.xml","exit_code":0,"passed":108},
+      {"artifact":"w3-daily-cli-before.xml","exit_code":1,"failed":1,"passed":1},
+      {"artifact":"w3-daily-cli-after.xml","exit_code":0,"passed":73},
+      {"artifact":"w3-week-before.xml","exit_code":1,"result":"MODULE_NOT_IMPLEMENTED"},
+      {"artifact":"w3-week-after-v1.xml","exit_code":0,"passed":80},
+      {"artifact":"weekend-production-paths-v1.json","exit_code":2,"result":"AUDIT_ONLY_RESEARCH_KEY_NOT_YET_EXPLICITLY_CLASSIFIED"},
+      {"artifact":"weekend-production-paths-v2.json","exit_code":0,"protected_files":9,"original_functions":137,"capital_prompt_projection_equal":true}
+    ],
+    "unresolved": [
+      "W1 94 historical plans lack ATR14/four preceding closes; zero eligible is not golden pass",
+      "W2 actual raw source/listing/explicit-limit mapping and Monday rule-date proof are UNWIRED",
+      "standalone consumer installed-layout proof and persistent census to daily bridge are pending",
+      "W3 15:30 versus existing A5 16:00 schedule requires engineering interpretation",
+      "W8 VM complete packet memory dry-run pending; 1.59GB failed prep is not A1 FULL proof"
+    ]
+  },
   "authorized_release_and_capital_label_20261010": {
     "approved_release_head": "adafe5054b9ff283ea03925e2b0c6baf2146dcfe",
     "release_status": "DEPLOYED_EXIT0_INSTALLED_32_MODULES_MATCH",
@@ -6,10 +37,17 @@
     "production_scope_mode": "SHADOW",
     "next_session": "2026-10-12",
     "next_session_plan_count": 0,
-    "weekend_preparation": "DECISION9_NOT_AUTHORIZED_NOT_RUN",
-    "fsync_idle": "EXIT3_PARENT_NOT_EXISTING_DIRECTORY_NO_SAMPLES_GATE0033",
+    "weekend_preparation": "FAILED_EXIT4_VALUEERROR_080041_NO_A2_A3_OR_NEXT_SESSION_PLANS",
+    "weekend_preparation_run_id": "next-session-prep-2026-10-12-a1-12c5a938f622-prep-v2",
+    "weekend_preparation_unit": "liangjian-next-session-prep-20261010-authorized-0743.service",
+    "weekend_preparation_followup": "10-10_DELETED_AFTER_FAILURE",
+    "weekend_preparation_evidence": "artifacts/wp5-20261010/authorized-prep-fsync-20261010T0743/",
+    "fsync_idle": "APPROVED_PARENT_WWW_WWWROOT_AGU_EXIT0_1000_ITERATIONS_150MB_CLEANED_PARENT_UNCHANGED",
+    "fsync_idle_sha256": "0aa90edf32e59ed0264b7d17c204abcd7e97b6ecf610dd584241b899fd7d8fc6",
+    "fsync_idle_hot_path_p99_ms": 1.380766,
+    "fsync_busy": "NOT_AUTHORIZED_CLAUDE0037_SYNC_TAIL_SELECTED_FUTURE_LIVE_RECEIPTS_NO_WIRING",
     "raw_six_day_copy": "EXIT2_EMPTY_PROVEN_COPY_ALLOWLIST_ZERO_FILES_NOT_PIT_PROVEN",
-    "capital_label_status": "ISOLATED_CODE_AND_FULL_PASSED_REVIEW0035_PENDING_NOT_DEPLOYED",
+    "capital_label_status": "ACCEPT_0035_WITH_PROMPT_PROJECTION_FIX_CONDITION_NOT_DEPLOYED",
     "capital_label_code_head": "e63bdb280009aa7690a63e3e6d0e186a72c95866",
     "capital_label_full": {
       "receipt": "artifacts/wp5-20261010/full-capital-label-v1/evidence.json",

@@ -28,7 +28,6 @@ from zoneinfo import ZoneInfo
 
 from ...redaction import digest_text, safe_error, sanitize
 from ...data.hot100_observation import observe_hot100, snapshot_decision_as_of
-from ...data.capital_source_policy import capital_weighting_label, inspect_legacy_capital_weighting
 from ...reporting import atomic_write_json, atomic_write_text
 from ...evaluation.outcome_labels import record_stage_decisions
 from ..rotation_diagnostics import rotation_coverage
@@ -4997,17 +4996,8 @@ def _project_capital_flow(value: Any, symbols: set[str] | None) -> Any:
         result["by_symbol"] = _filter_symbol_mapping(by_symbol, symbols)
         result["prompt_symbol_count"] = len(result["by_symbol"])
         result["full_symbol_count"] = len(by_symbol)
-    audit = inspect_legacy_capital_weighting(value)
-    result['weighting_observation_input_hash'] = audit.get('input_content_hash')
-    result['weighting_observation_status'] = audit.get('status')
-    if isinstance(result.get('by_symbol'), Mapping):
-        result['by_symbol'] = {
-            symbol: {**row, 'weighting_observation': capital_weighting_label(audit, symbol)}
-            if isinstance(row, Mapping) else row
-            for symbol, row in result['by_symbol'].items()
-        }
-    # content_hash still refers to the unmodified full frozen input, just as
-    # in the existing symbol-filtered projection; labels are derived metadata.
+    # A-LABEL is audit-only metadata. Keep the deployed model projection
+    # unchanged; labels remain in the independent audit sidecar/factor facts.
     return result
 
 
