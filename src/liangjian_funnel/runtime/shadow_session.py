@@ -1,7 +1,7 @@
 """Independent read-only monitor consumer. Never dispatch A4 or acquire data."""
 from __future__ import annotations
 
-from contextlib import closing
+from contextlib import closing, contextmanager
 from collections import Counter
 from copy import deepcopy
 from datetime import datetime, timedelta
@@ -183,6 +183,11 @@ def validate_paths(state_db, minute_db, ledger_db, jsonl):
     return paths
 
 
+class MinuteSourceUnavailable(ValueError):
+    def __init__(self):
+        super().__init__('MINUTE_DB_WAL_NOT_PRESENT')
+
+
 class ReadOnlyShadowSource:
     """Current WAL-aware SQLite read snapshots, not immutable historical replay."""
     def __init__(self, state_db, minute_db, *, lanes, monitor_latest=None, checkout_root=None,
@@ -200,6 +205,42 @@ class ReadOnlyShadowSource:
         self.last_census = None
         self.monitor_latest = Path(monitor_latest).resolve() if monitor_latest is not None else None
         self.preopen_inputs_provider=preopen_inputs_provider
+        self._minute_connection = None
+
+    def close(self):
+        connection, self._minute_connection = self._minute_connection, None
+        if connection is not None:
+            connection.close()
+
+    def ensure_minute_ready(self):
+        """Pin WAL lifetime without pinning a read transaction or writing files."""
+        if self._minute_connection is not None:
+            return
+        connection = None
+        try:
+            connection = self._connect(self.minute_db)
+            # connect() alone need not open WAL/SHM. Touch the real schema now.
+            connection.execute('SELECT name FROM sqlite_master LIMIT 1').fetchone()
+            connection.rollback()
+            self._minute_connection = connection
+        except (sqlite3.Error, ValueError, OSError) as exc:
+            if connection is not None:
+                connection.close()
+            raise MinuteSourceUnavailable() from exc
+
+    @contextmanager
+    def minute_transaction(self):
+        self.ensure_minute_ready()
+        connection = self._minute_connection
+        try:
+            connection.execute('BEGIN')
+            try:
+                yield connection
+            finally:
+                connection.rollback()
+        except sqlite3.Error as exc:
+            self.close()
+            raise MinuteSourceUnavailable() from exc
 
     def read_completion(self, minute, *, observed_at, observation_clock=None):
         """Original atomic monitor/latest.json is an end-of-round fence.
@@ -300,9 +341,13 @@ class ReadOnlyShadowSource:
         if not path.is_file():
             raise ValueError('SOURCE_NOT_LOCALLY_AVAILABLE')
         db = sqlite3.connect(path.as_uri() + '?mode=ro', uri=True, timeout=.2)
-        db.row_factory = sqlite3.Row
-        db.execute('PRAGMA query_only=ON')
-        db.execute('BEGIN')
+        try:
+            db.row_factory = sqlite3.Row
+            db.execute('PRAGMA query_only=ON')
+            db.execute('BEGIN')
+        except Exception:
+            db.close()
+            raise
         return db
 
     def read_minute(self, minute, *, observed_at):
@@ -366,7 +411,7 @@ class ReadOnlyShadowSource:
         items = []
         from ..workflow import _intraday_market_context, _a4_execution_cutoff
         total_bytes = 0
-        with closing(self._connect(self.minute_db)) as cache:
+        with self.minute_transaction() as cache:
             for row in plans:
                 event = by_plan[row['plan_id']]
                 plan, payload = json.loads(row['payload_json']), json.loads(event['payload_json'])
@@ -526,10 +571,45 @@ class ShadowSession:
         self._lock, self._minute, self._finished, self._wait_start = threading.Lock(), None, False, None
         self._last_clock = None
         self._writer_uncertain = False
+        self._minute_was_ready = False
+        self._minute_lost_since = None
+        self._minute_next_attempt = 0.
+        self.termination_reason = None
         self.source_sha256 = source_hashes(repo_root=source.checkout_root)
         if self.source_sha256!=source.source_sha256:
             raise ValueError('SHADOW_SOURCE_CHANGED_SINCE_SOURCE_SETUP')
         self.source_references=source.source_references
+
+    def close(self):
+        self.source.close()
+
+    def _minute_unavailable(self, started):
+        if self._minute_was_ready and self._minute_lost_since is None:
+            self._minute_lost_since = started
+        self._minute_next_attempt = started + .5
+
+    def _maintain_minute_source(self, started, receipt):
+        if self.termination_reason is not None:
+            receipt.update(status=self.termination_reason, gap_codes=[self.termination_reason])
+            return False
+        if self._minute_lost_since is not None and started-self._minute_lost_since >= 120:
+            self.termination_reason = 'SHADOW_MINUTE_SOURCE_LOST'
+            self.source.close()
+            receipt.update(status=self.termination_reason, gap_codes=[self.termination_reason])
+            return False
+        if started < self._minute_next_attempt:
+            receipt['gap_codes'] = ['MINUTE_DB_WAL_NOT_PRESENT']
+            return False
+        try:
+            self.source.ensure_minute_ready()
+        except MinuteSourceUnavailable:
+            self._minute_unavailable(started)
+            receipt['gap_codes'] = ['MINUTE_DB_WAL_NOT_PRESENT']
+            return False
+        self._minute_was_ready = True
+        self._minute_lost_since = None
+        receipt['minute_source_status'] = 'READ_OK'
+        return True
 
     def poll(self, *, observed_at):
         if not self._lock.acquire(blocking=False):
@@ -558,6 +638,10 @@ class ShadowSession:
                 receipt['gap_codes']=['CLOCK_REGRESSED']; return receipt
             if minute != self._minute:
                 self._minute, self._finished, self._wait_start = minute, False, started
+            # Readiness retries are independent of completed strategy minutes.
+            # Keeping one RO connection is not keeping a SQLite transaction.
+            if not self._maintain_minute_source(started, receipt):
+                return receipt
             if self._finished:
                 receipt['status']='DUPLICATE'; return receipt
             minute_end = minute+timedelta(minutes=1)
@@ -578,6 +662,8 @@ class ShadowSession:
                 receipt['plan_window_census']=self.source.last_census
                 if code=='PRODUCTION_COMPLETION_PENDING':
                     receipt['status']='WAITING_PRODUCTION_COMPLETION'; return receipt
+                if isinstance(exc, MinuteSourceUnavailable):
+                    self._minute_unavailable(self.clock())
                 self._finished=True; return receipt
             self._finished=True
             evaluation_wall = _stamp(self.wall_clock())

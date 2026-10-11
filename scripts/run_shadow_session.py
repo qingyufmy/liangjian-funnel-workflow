@@ -32,10 +32,11 @@ def main(argv=None):
     parser.add_argument('--wait-seconds',type=float,default=5)
     parser.add_argument('--max-lateness-seconds',type=float,default=15)
     args = parser.parse_args(argv)
+    source = None
     try:
         import math
         if (not math.isfinite(args.duration_seconds) or not 0 < args.duration_seconds <= 86400
-                or not math.isfinite(args.poll_seconds) or not .1 <= args.poll_seconds <= 5):
+                or not math.isfinite(args.poll_seconds) or not .1 <= args.poll_seconds <= .5):
             raise ValueError('STANDALONE_DURATION_OR_POLL_INVALID')
         paths = validate_paths(args.state_db,args.minute_db,args.shadow_db,args.shadow_jsonl)
         receipt_path = args.receipt_jsonl.resolve()
@@ -73,6 +74,9 @@ def main(argv=None):
                 receipt=service.poll(observed_at=datetime.now().astimezone())
                 output.write(json.dumps(receipt,ensure_ascii=False,allow_nan=False)+'\n')
                 output.flush()
+                if receipt['status'] == 'SHADOW_MINUTE_SOURCE_LOST':
+                    print(json.dumps({'status':receipt['status'],'actual_execution_authorized':False}))
+                    return 3
                 if receipt['status'] not in ('DUPLICATE','WAITING_COMPLETE_SCOPE','WAITING_PRODUCTION_COMPLETION'):
                     print(json.dumps({'status':receipt['status'],'minute':receipt.get('minute'),
                         'actual_execution_authorized':False},ensure_ascii=False))
@@ -83,6 +87,11 @@ def main(argv=None):
     except Exception:
         print(json.dumps({'status':'DATA_LIMITED','error_code':'SHADOW_SESSION_SETUP_OR_RECEIPT_FAILED',
             'actual_execution_authorized':False})); return 2
+    finally:
+        if source is not None:
+            close = getattr(source, 'close', None)
+            if close is not None:
+                close()
 
 
 if __name__=='__main__':
