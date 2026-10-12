@@ -14,6 +14,7 @@ import sys
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'src'))
 from liangjian_funnel.runtime.shadow_preopen_sidecar import (
     ReadOnlyLocalFactCache,PreopenInputsLedger,generate_from_local_cache)
+from liangjian_funnel.runtime.shadow_sqlite_source import SourceUnavailable, bounded_live_transaction
 
 
 def main(argv=None, *, clock=lambda:datetime.now().astimezone()):
@@ -35,8 +36,7 @@ def main(argv=None, *, clock=lambda:datetime.now().astimezone()):
         # No writable LocalFactCache constructor, Settings, provider or RuntimeStore.
         cache=ReadOnlyLocalFactCache(paths[1]); ledger=PreopenInputsLedger(paths[2])
         marks=','.join('?' for _ in args.lane)
-        with closing(sqlite3.connect(paths[0].as_uri()+'?mode=ro',uri=True,timeout=.2)) as db:
-            db.row_factory=sqlite3.Row; db.execute('PRAGMA query_only=ON'); db.execute('BEGIN')
+        with bounded_live_transaction(paths[0], database='state') as db:
             rows=[dict(r) for r in db.execute(f'SELECT * FROM execution_plans WHERE lane_id IN ({marks}) AND status IN ("ACTIVE_TODAY","PENDING_MORNING_REVIEW") AND expires_at LIKE ? ORDER BY plan_id LIMIT 1001',
                 (*args.lane,args.target_trade_date.isoformat()+'%'))]
         if len(rows)>1000:
@@ -49,17 +49,23 @@ def main(argv=None, *, clock=lambda:datetime.now().astimezone()):
             try:
                 record=generate_from_local_cache(row,cache=cache,target_trade_date=args.target_trade_date,
                     generated_at=clock(),clock=clock)
-            except Exception:
-                # Retain the per-plan failure, do not erase the requested scope
-                # or substitute another cache/source/run.
+            except SourceUnavailable as exc:
+                # Keep the plan binding, but never relabel failed SQL as empty
+                # market data. No alternate source or production plan write.
                 from liangjian_funnel.runtime.shadow_preopen_sidecar import generate_preopen_sidecar
+                from liangjian_funnel.pipeline.local_fact_cache import canonical_json_hash
                 actual=clock()
                 record=generate_preopen_sidecar(plan_row=row,rows=[],target_trade_date=args.target_trade_date,
                     generated_at=actual,source_as_of=actual,bar_cutoff=actual,expected_close_dates=[])
+                record.update(status='DATA_LIMITED', reason_codes=[str(exc)], source_error=exc.diagnostic)
+                record.pop('builder_gaps', None)
+                record.pop('record_hash', None); record['record_hash']=canonical_json_hash(record)
             written=ledger.record(record)
             records.append({'plan_id':row['plan_id'],'status':record['status'],
                 'record_hash':record['record_hash'],'generated_at':record['generated_at'],
                 'reason_codes':record['reason_codes'],'write_receipt':written})
+            if 'source_error' in record:
+                records[-1]['source_error']=record['source_error']
         qualified=sum(r['status']=='AVAILABLE' and r['write_receipt']['ok'] for r in records)
         receipt={'schema_version':'shadow-preopen-run/1','target_trade_date':args.target_trade_date.isoformat(),
             'selected_plan_count':len(rows),'available_count':qualified,'records':records,'skipped':skipped,
@@ -71,6 +77,14 @@ def main(argv=None, *, clock=lambda:datetime.now().astimezone()):
             json.dump(receipt,output,ensure_ascii=False,allow_nan=False,indent=2)
         print(json.dumps({'status':receipt['status'],'available_count':qualified,'actual_execution_authorized':False}))
         return 0 if receipt['status']=='COMPLETE' else 2
+    except SourceUnavailable as exc:
+        failure={'status':'DATA_LIMITED','error_code':str(exc),'source_error':exc.diagnostic,
+            'actual_execution_authorized':False}
+        if not args.receipt_json.exists():
+            args.receipt_json.parent.mkdir(parents=True,exist_ok=True)
+            with args.receipt_json.open('x',encoding='utf-8') as output:
+                json.dump(failure,output,ensure_ascii=False,allow_nan=False,indent=2)
+        print(json.dumps(failure,ensure_ascii=False)); return 3
     except Exception:
         print(json.dumps({'status':'DATA_LIMITED','error_code':'PREOPEN_SIDECAR_FAILED','actual_execution_authorized':False})); return 2
 

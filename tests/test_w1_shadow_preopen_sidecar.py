@@ -124,6 +124,10 @@ def test_readonly_real_local_fact_cache_reuses_selection_without_init_or_write(t
     from liangjian_funnel.pipeline.local_fact_cache import LocalFactCache
     rows,_,_,_=fixture()
     source=tmp_path/'facts.db'; LocalFactCache(source).upsert_daily_bars(rows)
+    # Fixture writers use SQLite context managers (commit, not close). Complete
+    # their lifetime before taking a cold-file hash, not during reader GC.
+    import gc
+    gc.collect()
     before=hashlib.sha256(source.read_bytes()).hexdigest()
     monkeypatch.setattr(LocalFactCache,'_initialize',lambda *args:(_ for _ in ()).throw(AssertionError('writable init')))
     cache=module().ReadOnlyLocalFactCache(source)

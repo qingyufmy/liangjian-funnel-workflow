@@ -122,9 +122,8 @@ class ReadOnlyLocalFactCache(LocalFactCache):
 
     @contextmanager
     def _connect(self):
-        with closing(sqlite3.connect(self.path.as_uri()+'?mode=ro',uri=True,timeout=.2)) as db:
-            db.row_factory=sqlite3.Row
-            db.execute('PRAGMA query_only=ON'); db.execute('BEGIN')
+        from .shadow_sqlite_source import fact_readonly_transaction
+        with fact_readonly_transaction(self.path) as db:
             yield db
 
 

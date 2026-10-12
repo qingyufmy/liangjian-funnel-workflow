@@ -139,7 +139,7 @@ def _source_evidence(repo_root=None):
     root=_checkout_root(repo_root)
     modules={'src/liangjian_funnel/runtime/shadow_session.py':sys.modules[__name__]}
     for name in ('workflow','runtime.strategies','runtime.decision_observability',
-            'runtime.shadow_variants','runtime.shadow_evidence'):
+            'runtime.shadow_variants','runtime.shadow_evidence','runtime.shadow_sqlite_source'):
         modules['src/liangjian_funnel/'+name.replace('.','/')+'.py']=importlib.import_module('liangjian_funnel.'+name)
     records={}
     for relative,module in modules.items():
@@ -183,9 +183,14 @@ def validate_paths(state_db, minute_db, ledger_db, jsonl):
     return paths
 
 
-class MinuteSourceUnavailable(ValueError):
-    def __init__(self):
-        super().__init__('MINUTE_DB_WAL_NOT_PRESENT')
+from .shadow_sqlite_source import SourceUnavailable
+
+
+class MinuteSourceUnavailable(SourceUnavailable):
+    def __init__(self, original=None, stage='open'):
+        # Retain the legacy test-adapter code; real errors are source-specific.
+        super().__init__('SOURCE_MINUTE_OPEN_FAILED' if original is not None else 'MINUTE_DB_WAL_NOT_PRESENT',
+                         'minute', stage, original)
 
 
 class ReadOnlyShadowSource:
@@ -206,11 +211,14 @@ class ReadOnlyShadowSource:
         self.monitor_latest = Path(monitor_latest).resolve() if monitor_latest is not None else None
         self.preopen_inputs_provider=preopen_inputs_provider
         self._minute_connection = None
+        self._state_connection = None
 
     def close(self):
-        connection, self._minute_connection = self._minute_connection, None
-        if connection is not None:
-            connection.close()
+        for name in ('_minute_connection', '_state_connection'):
+            connection = getattr(self, name)
+            setattr(self, name, None)
+            if connection is not None:
+                connection.close()
 
     def ensure_minute_ready(self):
         """Pin WAL lifetime without pinning a read transaction or writing files."""
@@ -226,7 +234,35 @@ class ReadOnlyShadowSource:
         except (sqlite3.Error, ValueError, OSError) as exc:
             if connection is not None:
                 connection.close()
-            raise MinuteSourceUnavailable() from exc
+            raise MinuteSourceUnavailable(exc) from exc
+
+    def ensure_state_ready(self):
+        if self._state_connection is not None:
+            return
+        try:
+            self._state_connection = self._connect(self.state_db)
+        except (sqlite3.Error, ValueError, OSError) as exc:
+            raise SourceUnavailable('SOURCE_STATE_OPEN_FAILED', 'state', 'open', exc) from exc
+
+    def ensure_sources_ready(self):
+        # Keep a successfully opened source pinned while the other is cold.
+        self.ensure_minute_ready()
+        self.ensure_state_ready()
+
+    @contextmanager
+    def state_transaction(self):
+        self.ensure_state_ready()
+        connection = self._state_connection
+        try:
+            connection.execute('BEGIN')
+            try:
+                yield connection
+            finally:
+                connection.rollback()
+        except sqlite3.Error as exc:
+            connection.close()
+            self._state_connection = None
+            raise SourceUnavailable('SOURCE_STATE_OPEN_FAILED', 'state', 'read', exc) from exc
 
     @contextmanager
     def minute_transaction(self):
@@ -239,8 +275,9 @@ class ReadOnlyShadowSource:
             finally:
                 connection.rollback()
         except sqlite3.Error as exc:
-            self.close()
-            raise MinuteSourceUnavailable() from exc
+            connection.close()
+            self._minute_connection = None
+            raise MinuteSourceUnavailable(exc, 'read') from exc
 
     def read_completion(self, minute, *, observed_at, observation_clock=None):
         """Original atomic monitor/latest.json is an end-of-round fence.
@@ -338,22 +375,13 @@ class ReadOnlyShadowSource:
         return items,binding
 
     def _connect(self, path):
-        if not path.is_file():
-            raise ValueError('SOURCE_NOT_LOCALLY_AVAILABLE')
-        db = sqlite3.connect(path.as_uri() + '?mode=ro', uri=True, timeout=.2)
-        try:
-            db.row_factory = sqlite3.Row
-            db.execute('PRAGMA query_only=ON')
-            db.execute('BEGIN')
-        except Exception:
-            db.close()
-            raise
-        return db
+        from .shadow_sqlite_source import open_live_readonly
+        return open_live_readonly(path)
 
     def read_minute(self, minute, *, observed_at):
         minute, observed_at = _stamp(minute), _stamp(observed_at)
         marks = ','.join('?' for _ in self.lanes)
-        with closing(self._connect(self.state_db)) as db:
+        with self.state_transaction() as db:
             events = [dict(r) for r in db.execute(
                 f'SELECT * FROM monitor_events WHERE lane_id IN ({marks}) AND minute_end=? ORDER BY event_id LIMIT 1001',
                 (*self.lanes, minute.isoformat()))]
@@ -575,6 +603,7 @@ class ShadowSession:
         self._minute_lost_since = None
         self._minute_next_attempt = 0.
         self.termination_reason = None
+        self._last_source_error = None
         self.source_sha256 = source_hashes(repo_root=source.checkout_root)
         if self.source_sha256!=source.source_sha256:
             raise ValueError('SHADOW_SOURCE_CHANGED_SINCE_SOURCE_SETUP')
@@ -584,7 +613,7 @@ class ShadowSession:
         self.source.close()
 
     def _minute_unavailable(self, started):
-        if self._minute_was_ready and self._minute_lost_since is None:
+        if self._minute_lost_since is None:
             self._minute_lost_since = started
         self._minute_next_attempt = started + .5
 
@@ -598,17 +627,23 @@ class ShadowSession:
             receipt.update(status=self.termination_reason, gap_codes=[self.termination_reason])
             return False
         if started < self._minute_next_attempt:
-            receipt['gap_codes'] = ['MINUTE_DB_WAL_NOT_PRESENT']
+            receipt['gap_codes'] = [(self._last_source_error or {}).get('code', 'MINUTE_DB_WAL_NOT_PRESENT')]
+            if self._last_source_error is not None:
+                receipt['source_error'] = self._last_source_error
             return False
         try:
-            self.source.ensure_minute_ready()
-        except MinuteSourceUnavailable:
+            self.source.ensure_sources_ready()
+        except SourceUnavailable as exc:
             self._minute_unavailable(started)
-            receipt['gap_codes'] = ['MINUTE_DB_WAL_NOT_PRESENT']
+            self._last_source_error = exc.diagnostic
+            receipt['gap_codes'] = [str(exc)]
+            receipt['source_error'] = exc.diagnostic
             return False
         self._minute_was_ready = True
         self._minute_lost_since = None
         receipt['minute_source_status'] = 'READ_OK'
+        receipt['state_source_status'] = 'READ_OK'
+        self._last_source_error = None
         return True
 
     def poll(self, *, observed_at):
@@ -662,7 +697,9 @@ class ShadowSession:
                 receipt['plan_window_census']=self.source.last_census
                 if code=='PRODUCTION_COMPLETION_PENDING':
                     receipt['status']='WAITING_PRODUCTION_COMPLETION'; return receipt
-                if isinstance(exc, MinuteSourceUnavailable):
+                if isinstance(exc, SourceUnavailable):
+                    receipt['source_error'] = exc.diagnostic
+                    self._last_source_error = exc.diagnostic
                     self._minute_unavailable(self.clock())
                 self._finished=True; return receipt
             self._finished=True

@@ -131,15 +131,15 @@ def test_successful_reconnect_resets_continuous_loss_and_no_historical_catchup(t
     service.close()
 
 
-def test_initial_unready_does_not_claim_success_or_exit_as_recovered_loss(tmp_path, monkeypatch):
+def test_initial_unready_never_claims_success_and_exits_at_120_seconds(tmp_path, monkeypatch):
     service, engine, ledger, *_ = session(tmp_path)
     clock, _ = install_window(service, monkeypatch, available=lambda _: False)
     for value in (0, 120, 240):
         clock[0] = value
         receipt = service.poll(observed_at=AT+timedelta(seconds=value+1))
-        assert receipt['status'] == 'DATA_LIMITED'
-        assert receipt['gap_codes'] == ['MINUTE_DB_WAL_NOT_PRESENT']
-    assert not engine.calls and not ledger.minutes and service.termination_reason is None
+        assert receipt['status'] == ('DATA_LIMITED' if value == 0 else 'SHADOW_MINUTE_SOURCE_LOST')
+        assert receipt['gap_codes'] == (['MINUTE_DB_WAL_NOT_PRESENT'] if value == 0 else ['SHADOW_MINUTE_SOURCE_LOST'])
+    assert not engine.calls and not ledger.minutes and service.termination_reason == 'SHADOW_MINUTE_SOURCE_LOST'
     service.close()
 
 
@@ -152,7 +152,8 @@ def test_real_read_round_sqlite_fault_returns_to_retry_without_strategy_executio
         return original(*args, **kwargs)
     monkeypatch.setattr(service.source, 'read_completion', completion)
     result = service.poll(observed_at=AT+timedelta(seconds=1))
-    assert result['gap_codes'] == ['MINUTE_DB_WAL_NOT_PRESENT']
+    assert result['gap_codes'] == ['SOURCE_MINUTE_OPEN_FAILED']
+    assert result['source_error']['exception_class'] == 'ProgrammingError'
     assert service.source._minute_connection is None and service._minute_lost_since == 0
     assert not engine.calls and not ledger.minutes
     monkeypatch.setattr(service.source, 'read_completion', original)
