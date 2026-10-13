@@ -192,6 +192,10 @@ _DISPLAY_LABELS = {
     "A2_EMOTION_CYCLE_NO_NEW_ENTRY": "情绪阶段限制新开仓，保留研究观察",
     "A2_EMOTION_THEME_SELECTION_REQUIRED": "存在多个有依据的主题，需明确本轮研究题材",
     "MINUTE_FETCH_BUDGET_EXHAUSTED": "本分钟取数超时，等待后续完整行情",
+    "MINUTE_PROVIDER_BACKPRESSURE": "本地分钟请求槽仍被未结束任务占用，受影响股票暂停新增仓",
+    "MINUTE_PROVIDER_TIMEOUT": "分钟源请求未在本次截止前返回，不使用迟到行情",
+    "MINUTE_FETCH_BACKPRESSURE": "本地分钟取数入口拥塞，未启动部分请求",
+    "MINUTE_FETCH_DEADLINE_EXCEEDED": "本轮分钟取数截止已到，拒绝迟到结果",
     "MINUTE_PUBLICATION_PENDING": "本分钟行情版本待确认，暂不新增仓",
     "MINUTE_PUBLICATION_UNCONFIRMED": "连续分钟行情版本未确认，暂停受影响股票新增仓",
     "MINUTE_PUBLICATION_REPLAY_MISMATCH": "同一决策的行情版本已变化，不重算历史入场",
@@ -1383,7 +1387,7 @@ class WorkflowLarkPublisher:
                 continue
             event_payload = _payload(event)
             data_reason = str(event.get("reason_code") or event_payload.get("reason_code") or "")
-            if action == "DATA_BLOCK" and (data_reason.startswith(("TENCENT_", "NODE_")) or data_reason in {
+            if action == "DATA_BLOCK" and (data_reason.startswith(("TENCENT_", "NODE_", "MINUTE_PROVIDER_", "MINUTE_FETCH_", "MINUTE_PUBLICATION_RETRY_")) or data_reason in {
                 "MINUTE_FETCH_BUDGET_EXHAUSTED", "CURRENT_SESSION_WINDOW_INVALID", "MINUTE_DATA_FETCH_FAILED",
                 "CLOSE_BAR_FINALIZATION_UNCONFIRMED",
                 "EXECUTION_NATIVE_5M_CONFLICT", "MINUTE_PUBLICATION_PENDING",

@@ -396,6 +396,22 @@ def test_systemic_timestamp_block_is_not_sent_once_per_stock(tmp_path):
     assert not fake.calls and not store.list_notification_deliveries()
 
 
+def test_minute_provider_incident_sends_one_aggregate_and_one_recovery_not_fifty_cards(tmp_path):
+    store=RuntimeStore(tmp_path/'minute-health.sqlite3')
+    publisher=WorkflowLarkPublisher(store,'https://open.larksuite.com/open-apis/bot/v2/hook/test-token')
+    fake=FakeNotifier();publisher.notifier=fake
+    now=datetime(2026,10,13,9,38,tzinfo=SHANGHAI)
+    failures={f'{n:06d}.SZ':'MINUTE_PROVIDER_TIMEOUT' if n<8 else 'MINUTE_PROVIDER_BACKPRESSURE' for n in range(50)}
+    events=[{'effective':0,'action':'DATA_BLOCK','plan_id':s,'lane_id':'lane_1','symbol':s,'reason_code':r,'payload_json':'{}'} for s,r in failures.items()]
+    assert publisher.publish_a4_events(events,plans={},now=now)==[]
+    assert len(publisher.publish_minute_source_health(failures,now=now))==1
+    assert publisher.publish_minute_source_health(failures,now=now.replace(minute=39))==[]
+    assert len(publisher.publish_minute_source_health({},now=now.replace(minute=40)))==1
+    assert len(fake.calls)==2
+    assert not store.list_notification_deliveries(kind='A4_DATA_ALERT')
+    assert len(store.list_notification_deliveries(kind='A4_MINUTE_SOURCE_HEALTH'))==2
+
+
 def test_expected_auxiliary_deferral_does_not_toggle_source_alert(tmp_path):
     store = RuntimeStore(tmp_path / "state.sqlite3")
     publisher = WorkflowLarkPublisher(store, "https://open.larksuite.com/open-apis/bot/v2/hook/test-token")

@@ -49,6 +49,10 @@ def _reserve_node(source):
 def _release_node(source, node, healthy):
     with _NODE_LOCK:
         source._live_busy_nodes.discard(node.server)
+        if healthy is None:
+            # Admission refusal is local, not a failed supplier request.
+            # Do not put an untried node on the network cooldown.
+            return
         source._live_node_health[node.server] = {'retry_at': 0 if healthy else time.time()+60,
                                                  'healthy': healthy, 'checked_at': time.time()}
         path = getattr(source, 'live_health_path', None)
@@ -118,7 +122,8 @@ def fetch_live_window(provider, secondary, symbol, interval, required, cutoff: d
                     if node is not None:
                         _release_node(source, node, healthy)
             work = (_PRIMARY_WORK if source is provider else _SECONDARY_WORK).call(
-                invoke, deadline=attempt_deadline, clock=clock, name="minute-provider")
+                invoke, deadline=attempt_deadline, clock=clock, name="minute-provider",
+                wait_for_slot=True, operation_key=(id(source), symbol, interval, cutoff))
             if work.status == "READY" and clock() > attempt_deadline:
                 # The queue can wake at the deadline boundary. Reject the
                 # late response even if the outer round still has time.
@@ -130,7 +135,7 @@ def fetch_live_window(provider, secondary, symbol, interval, required, cutoff: d
                 "MINUTE_PROVIDER_BACKPRESSURE" if work.status == "BACKPRESSURE" else
                 "TENCENT_REQUEST_FAILED" if source is provider else "NODE_REQUEST_FAILED")
             if work.status == "BACKPRESSURE" and reserved_node is not None:
-                _release_node(source, reserved_node, False)
+                _release_node(source, reserved_node, None)
             received_at = wall_clock()
             result = result.model_copy(update={"request_started_at": requested_at,
                 "response_received_at": received_at})
@@ -143,6 +148,7 @@ def fetch_live_window(provider, secondary, symbol, interval, required, cutoff: d
                 "expected_last_end": expected_ends[-1].isoformat(),
                 "request_started_at": requested_at.isoformat(), "response_received_at": received_at.isoformat(),
                 "elapsed_ms": round(max(0, (clock()-attempt_started)*1000), 3),
+                "admission_reason": work.reason_code,
                 "transport_error_type": result.transport_error_type,
                 "reason_code": result.reason_code, "complete": False}
             observations.append(observation)

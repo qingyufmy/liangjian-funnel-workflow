@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from queue import Empty, Queue
-from threading import BoundedSemaphore, Thread
+from threading import BoundedSemaphore, Lock, Thread
 import time
 from typing import Any, Callable, Mapping
 
@@ -27,6 +27,8 @@ class BoundedWorkGate:
         if max_inflight <= 0:
             raise ValueError("max_inflight must be positive")
         self._slots = BoundedSemaphore(max_inflight)
+        self._key_lock = Lock()
+        self._inflight_keys: set[object] = set()
 
     def try_acquire(self) -> bool:
         return self._slots.acquire(blocking=False)
@@ -41,13 +43,34 @@ class BoundedWorkGate:
         deadline: float,
         clock: Callable[[], float] = time.monotonic,
         name: str = "bounded-work",
+        wait_for_slot: bool = False,
+        operation_key: object | None = None,
     ) -> BoundedWorkResult:
         started = clock()
         remaining = deadline - started
         if remaining <= 0:
             return BoundedWorkResult("TIMED_OUT", reason_code="DEADLINE_EXCEEDED")
-        if not self.try_acquire():
-            return BoundedWorkResult("BACKPRESSURE", reason_code="BACKPRESSURE")
+        # An attempt timeout is not cancellation. Keep a window identity
+        # registered until the real worker exits, so retries cannot multiply
+        # identical outstanding transport work.
+        with self._key_lock:
+            if operation_key is not None and operation_key in self._inflight_keys:
+                return BoundedWorkResult("BACKPRESSURE", reason_code="REQUEST_ALREADY_INFLIGHT")
+        admitted = (self._slots.acquire(timeout=max(0.0, deadline-clock()))
+                    if wait_for_slot else self.try_acquire())
+        if not admitted:
+            return BoundedWorkResult("BACKPRESSURE", reason_code=(
+                "ADMISSION_DEADLINE_EXCEEDED" if wait_for_slot else "BACKPRESSURE"),
+                elapsed_ms=max(0.0, (clock()-started)*1000.0))
+        if clock() >= deadline:
+            self.release()
+            return BoundedWorkResult("BACKPRESSURE", reason_code="ADMISSION_DEADLINE_EXCEEDED")
+        with self._key_lock:
+            if operation_key is not None and operation_key in self._inflight_keys:
+                self.release()
+                return BoundedWorkResult("BACKPRESSURE", reason_code="REQUEST_ALREADY_INFLIGHT")
+            if operation_key is not None:
+                self._inflight_keys.add(operation_key)
         queue: Queue[tuple[str, Any]] = Queue(maxsize=1)
 
         def invoke() -> None:
@@ -56,9 +79,19 @@ class BoundedWorkGate:
             except BaseException as exc:
                 queue.put(("FAILED", exc))
             finally:
+                with self._key_lock:
+                    if operation_key is not None:
+                        self._inflight_keys.discard(operation_key)
                 self.release()
 
-        Thread(target=invoke, daemon=True, name=name).start()
+        try:
+            Thread(target=invoke, daemon=True, name=name).start()
+        except BaseException:
+            with self._key_lock:
+                if operation_key is not None:
+                    self._inflight_keys.discard(operation_key)
+            self.release()
+            raise
         try:
             status, value = queue.get(timeout=max(0.001, deadline - clock()))
         except Empty:
