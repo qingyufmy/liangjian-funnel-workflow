@@ -43,6 +43,10 @@ strong_trend_observation=true 且 research_observation_scope=RESEARCH_ONLY_NO_AU
    rotation_reviews只列没有focus股票的方向；已有focus_decisions代表的方向不要再列。
    若所有方向都有focus代表，rotation_reviews返回[]。NO_FOCUS和focus不能同时属于同一方向。
    使用A2_BOTTLENECK_CONTEXT._rotation_review_scope核对方向与股票，不要用A1主题替换轮动方向。
+   _rotation_review_contract.direction_count=N与allowed_direction_ids是本次完整审核目录。
+   仅可在rotation_reviews引用这N个方向中尚未聚焦的方向；N=0时必须返回rotation_reviews=[]。
+   空目录表示没有符合轮动审核条件的方向，不是目录缺失；候选行自身的方向ID不能扩大目录。
+   独立策略研究候选仍按原规则审阅，空轮动审核域不等于清空focus_decisions或WATCH候选。
    同属AI_COMPUTE_INFRASTRUCTURE月度主题的股票，可能分别绑定AI_CPO和AI_COMPUTE_INFRASTRUCTURE两个轮动方向。
    聚焦AI_CPO中的股票不等于覆盖算力方向；算力无聚焦时仍须保留其NO_FOCUS说明。只删除与实际已聚焦方向冲突的重复说明，不要清空全部rotation_reviews。
 3. 情绪通道独立审阅同交易日东财股吧人气前 100。启动期可首板试探，加速期

@@ -1,3 +1,4 @@
 /LATEST_RESULTS/*.md text eol=lf
 /LATEST_RESULTS/*.json text eol=lf
 /LATEST_RESULTS/*.sha256 text eol=lf
+/tests/fixtures/a2_review_domain_20261013/*.json -text

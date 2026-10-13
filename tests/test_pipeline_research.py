@@ -1541,7 +1541,9 @@ def test_a2_prompt_projection_removes_full_market_permission_and_attribution_bul
 
     assert set(permissions["by_symbol"]) == symbols
     assert permissions["full_symbol_count"] == 2
-    assert set(context) == symbols
+    assert {key for key in context if not key.startswith("_")} == symbols
+    assert context["_rotation_review_scope"] == {}
+    assert context["_rotation_review_contract"] == {"direction_count": 0, "allowed_direction_ids": []}
     assert "gate_results" not in context["600001.SH"]
     assert context["600001.SH"]["factor_scores"]["breadth"] == 88
     assert _stage_model_output_limit("A2", 15, configured_limit=393_216) == 8_192

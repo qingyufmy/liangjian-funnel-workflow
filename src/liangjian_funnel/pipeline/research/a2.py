@@ -351,8 +351,13 @@ def _project_a2_bottleneck_context(value: Any, symbols: set[str] | None) -> Any:
                 and row.get("top_rotation_theme") is True
                 and row.get("selected_board", {}).get("selected_for_rotation") is True):
             scope.setdefault(str(direction), []).append(symbol)
-    if scope:
-        result["_rotation_review_scope"] = scope
+    # An empty qualified domain is an explicit fact, not a missing catalog.
+    # Candidate direction IDs describe research rows; they cannot expand it.
+    result["_rotation_review_scope"] = scope
+    result["_rotation_review_contract"] = {
+        "direction_count": len(scope),
+        "allowed_direction_ids": sorted(scope),
+    }
     theme_scope: dict[str, list[str]] = {}
     for symbol in sorted(symbols):
         row = result.get(symbol, {})
@@ -1876,9 +1881,13 @@ def _a2_rotation_retry_feedback(output, snapshot_data, upstream_symbols):
     for row in output.get("focus_pool", []):
         symbol = _first_symbol(row.get("symbol")) if isinstance(row, Mapping) else ""
         direction = str(contexts.get(symbol, {}).get("rotation_direction_id") or "")
-        if direction in scope:
+        # Preserve actual focus conflicts even outside the NO_FOCUS domain.
+        # Otherwise the empty-domain retry loses every existing focus label.
+        if direction and symbol in upstream_symbols:
             focus_by_direction.setdefault(direction, []).append(symbol)
-    return {"already_focused_directions": focus_by_direction,
+    return {"allowed_direction_count": len(scope),
+        "allowed_rotation_direction_ids": sorted(scope),
+        "already_focused_directions": focus_by_direction,
         "required_no_focus_if_focus_unchanged": {
             key: values for key, values in scope.items() if key not in focus_by_direction},
         "validation_errors": _validate_a2_rotation_focus_coverage(output, snapshot_data, upstream_symbols)}

@@ -5660,6 +5660,10 @@ def _stage_execution_budget(
             "- WATCH defaults do not discharge direction review: every key in "
             "A2_BOTTLENECK_CONTEXT._rotation_review_scope needs a focus representative OR "
             "an explicit NO_FOCUS review with bound reviewed_symbols and a concrete evidence-based explanation.\n"
+            "- The explicit _rotation_review_contract.allowed_direction_ids is the complete NO_FOCUS domain. "
+            "When direction_count=0, return rotation_reviews=[]; ordinary candidate direction IDs do not "
+            "expand this domain. On retry use only allowed catalog directions not already focused. "
+            "Keep independent research focus decisions separate from this NO_FOCUS catalog.\n"
             "- Each supplied symbol may appear at most once across focus_decisions and reject_decisions; "
             "never add a symbol outside the supplied set.\n"
             "- Copy RUNTIME_INPUT.required_envelope exactly as the complete envelope; omit no field.\n"
@@ -6391,6 +6395,9 @@ def _semantic_retry_instruction(
             "Do not require a limit-up ladder for TREND candidates or reject a direction solely on these entry gates."
             " rotation_reviews contains ONLY directions with no focus_decisions representative: omit all focused "
             "directions from rotation_reviews, use [] when all have focus. Do not emit decision=FOCUS in rotation_reviews."
+            " The explicit _rotation_review_contract.allowed_direction_ids is the complete allowed catalog; "
+            "direction_count=0 requires rotation_reviews=[] even when independent research focus exists. "
+            "Use only allowed catalog directions not already focused; ordinary candidate IDs cannot expand it."
         )
     if stage == "A2" and any(code.startswith("A2_THEME_REVIEW_") for code in safe_reasons):
         discovery_requirements.append(
