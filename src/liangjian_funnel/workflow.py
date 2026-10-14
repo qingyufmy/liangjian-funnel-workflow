@@ -132,6 +132,7 @@ from .reporting import atomic_write_json, atomic_write_json_streaming, atomic_wr
 from .review.daily import A5DailyReviewService, A5ReviewKind
 from .review.verification import A5IndependentVerifier
 from .runtime.monitor import MonitorBatchResult, MonitorEngine, MonitorEvent, rebuild_effective_markdown
+from .runtime.monitor_phase_trace import mark_phase, phase_timings
 from .runtime.llm_review import ReviewCallbackResult, ReviewTransportAudit
 from .runtime.bounded_work import BoundedWorkGate, run_many_bounded
 from .runtime.decision_observability import (
@@ -4580,6 +4581,7 @@ class WorkflowApplication:
         }
 
     def monitor_once(self, *, now: datetime | None = None) -> dict[str, Any]:
+        mark_phase("fetch")
         monitor_started = time.monotonic()
         monitor_started_wall = datetime.now(SHANGHAI)
         # One absolute budget starts before plan recovery.  Every later phase
@@ -5248,6 +5250,7 @@ class WorkflowApplication:
                 blocked=True,
             )
 
+        mark_phase("judge")
         lane_batches: dict[str, MonitorBatchResult] = {}
         lane_work = run_many_bounded(
             {
@@ -5323,6 +5326,7 @@ class WorkflowApplication:
             ),
             all_plans,
         )
+        mark_phase("notify")
         notification_started = time.monotonic()
         notification_wall = datetime.now(SHANGHAI)
         notification_deadline_exceeded = time.monotonic() >= round_deadline
@@ -5550,7 +5554,11 @@ class WorkflowApplication:
             "notifications": notifications,
             "observability": observation.to_dict(),
         }
+        mark_phase("persist")
+        payload["phase_timings"] = phase_timings()
+        payload["phase_timing_source"] = "NODE_FINAL_RECEIPT_AUTHORITATIVE"
         atomic_write_json(self.settings.workflow_output_dir / "monitor" / "latest.json", payload)
+        payload["phase_timings"] = phase_timings()
         return payload
 
     def collect_a4_auxiliary_once(
@@ -6976,8 +6984,10 @@ class WorkflowApplication:
         # Add local observation only AFTER the unchanged production gates.
         # This projection does not mutate frozen research or feed any prompt.
         from .runtime.shadow_inputs import shadow_inputs_for_publication
+        from .runtime.plan_expiry import normalize_publication_expiry
         for candidate in batch:
-            payload = candidate["payload"]
+            payload = normalize_publication_expiry(candidate["payload"], candidate["expires_at"])
+            candidate["payload"] = payload
             facts = payload.get("strategy_facts")
             if facts is not None and not isinstance(facts, Mapping):
                 continue  # Preserve malformed legacy fields, never replace them.

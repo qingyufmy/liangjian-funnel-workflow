@@ -130,7 +130,7 @@ def publisher_fixture():
     return SimpleNamespace(store=store,fact_cache=cache,trading_calendar=ExchangeTradingCalendar()),result,data,raw
 
 
-def test_actual_publisher_adds_only_shadow_field_after_qualification_no_prompt_mutation():
+def test_actual_publisher_adds_shadow_and_b2_server_expiry_after_qualification_no_prompt_mutation():
     app,result,data,raw=publisher_fixture()
     before=deepcopy((data,raw))
     summary=WorkflowApplication._publish_plans(app,result,'close',AT,snapshot_data=data,minimum_trade_date=TARGET)
@@ -139,7 +139,10 @@ def test_actual_publisher_adds_only_shadow_field_after_qualification_no_prompt_m
     assert payload['strategy_facts']['shadow_inputs']['status']=='AVAILABLE'
     without=deepcopy(payload)
     without['strategy_facts'].pop('shadow_inputs')
-    assert without=={**_plan_payload(raw),'source_run_id':result.run_id,'trend_entry_rule_version':'trend-ma5/2'}
+    from liangjian_funnel.runtime.plan_expiry import normalize_publication_expiry
+    expected=normalize_publication_expiry({**_plan_payload(raw),'source_run_id':result.run_id,'trend_entry_rule_version':'trend-ma5/2'}, app.store.batch[0]['expires_at'])
+    assert without==expected
+    assert without['plan_expiry']==app.store.batch[0]['expires_at'].isoformat()
     assert (data,raw)==before
     assert app.fact_cache.calls[0][1]['adjust']=='none'
     assert app.fact_cache.calls[0][1]['as_of']==AT

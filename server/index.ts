@@ -48,6 +48,7 @@ export async function startServer(): Promise<RunningControlPlane> {
   if (config.schedulerEnabled) scheduler.start();
   else logger.warn("Node 调度器已通过 LIANGJIAN_SCHEDULER_ENABLED=false 禁用");
   logger.info(`控制面已启动 host=${config.host} port=${config.port}`);
+  logger.info(JSON.stringify({ event: "NODE_PROCESS_START", pid: process.pid, at: new Date().toISOString() }));
 
   let stopping = false;
   const stop = async (): Promise<void> => {
@@ -64,11 +65,12 @@ export async function startServer(): Promise<RunningControlPlane> {
 
 async function main(): Promise<void> {
   const controlPlane = await startServer();
-  const shutdown = (): void => {
+  const shutdown = (signal: "SIGINT" | "SIGTERM"): void => {
+    controlPlane.logger.info(JSON.stringify({ event: "NODE_PROCESS_STOP", pid: process.pid, signal, at: new Date().toISOString() }));
     void controlPlane.stop().finally(() => process.exit(0));
   };
-  process.once("SIGINT", shutdown);
-  process.once("SIGTERM", shutdown);
+  process.once("SIGINT", () => shutdown("SIGINT"));
+  process.once("SIGTERM", () => shutdown("SIGTERM"));
 }
 
 const executedPath = process.argv[1] ? fileURLToPath(pathToFileURL(process.argv[1])) : "";

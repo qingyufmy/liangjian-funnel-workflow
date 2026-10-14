@@ -130,7 +130,7 @@ function outcomeQuality(value: unknown, fallback: string): OutcomeQualityState |
   if (["CANCELLED", "CANCELED"].includes(fallback)) return "CANCELLED";
   if (["FAILED", "BLOCKED_MODEL", "MODEL_FAILED", "MODEL_CALL_FAILED"].includes(fallback)) return "FAILED";
   if (["BLOCKED", "BLOCKED_DATA_COVERAGE", "BLOCKED_EVIDENCE_GAP", "BLOCKED_TECHNICAL_DATA", "EXPIRED", "NOT_RUN_UPSTREAM_BLOCKED"].includes(fallback)) return "BLOCKED";
-  if (["DEGRADED", "DEGRADED_UNDERFILLED_DATA_GAP", "READY_DEGRADED", "VALIDATED_UNDERFILLED_MARKET"].includes(fallback)) return "DEGRADED";
+  if (["A2_REVIEW_DEGRADED", "DEGRADED", "DEGRADED_UNDERFILLED_DATA_GAP", "READY_DEGRADED", "VALIDATED_UNDERFILLED_MARKET"].includes(fallback)) return "DEGRADED";
   if (["PENDING", "CREATED", "DATA_PREPARING", "DATA_BOUND", "QUEUED", "RUNNING"].includes(fallback)) return "DEGRADED";
   if (fallback) return "VALIDATED";
   return null;

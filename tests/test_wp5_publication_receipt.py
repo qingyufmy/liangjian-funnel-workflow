@@ -89,6 +89,24 @@ def build(inputs):
     return PublicationReceiptBuilder().build(inputs, calendar=ExchangeTradingCalendar())
 
 
+def test_b2_source_expiry_is_authenticated_before_server_normalization():
+    from liangjian_funnel.runtime.plan_expiry import normalize_publication_expiry
+    original = fixture()
+    raw = dict(original.raw_plan.value, plan_expiry="2026-10-08T15:00:00+08:00")
+    raw_output = dict(original.a3_audit.value["output"], core_watch_pool=[raw])
+    audit = dict(original.a3_audit.value, output=raw_output, output_hash=object_hash(raw_output))
+    from liangjian_funnel.workflow import _plan_payload
+    normalized = normalize_publication_expiry(_plan_payload(raw), EXPIRY)
+    published = {**normalized, "source_run_id": RUN}
+    inputs = replace(original, raw_plan=bound(raw), a3_audit=bound(audit), normalized_payload=bound(normalized),
+        submitted_payload=bound(published), published_payload=bound(published),
+        changes=changes(raw,normalized,"NORMALIZE")+changes(normalized,published,"PUBLISH"))
+    receipt=build(inputs)
+    assert receipt["evidence_complete"] is True, receipt
+    wrong=dict(normalized,research_source_expiry="2026-10-07T15:00:00+08:00")
+    assert build(replace(inputs,normalized_payload=bound(wrong)))["evidence_complete"] is False
+
+
 def test_normalization_consumes_actual_production_function(monkeypatch):
     import liangjian_funnel.workflow as workflow
     original = workflow._plan_payload

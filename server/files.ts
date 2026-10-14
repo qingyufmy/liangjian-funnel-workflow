@@ -120,6 +120,7 @@ const PROGRESS_STATUS = new Set<WorkflowProgressStatus>([
   "VALIDATED_NO_SETUP",
   "DEGRADED_UNDERFILLED_DATA_GAP",
   "VALIDATED_UNDERFILLED_MARKET",
+  "A2_REVIEW_DEGRADED",
   "NOT_RUN",
   "IDLE",
   "UNKNOWN",
@@ -492,7 +493,7 @@ function legacyStageOutcome(value: JsonRecord, stage: string): StageOutcomeContr
   const failed = ["FAILED", "BLOCKED_MODEL", "MODEL_FAILED", "MODEL_CALL_FAILED"].includes(legacyStatus);
   const blocked = ["BLOCKED", "BLOCKED_DATA_COVERAGE", "BLOCKED_EVIDENCE_GAP", "BLOCKED_TECHNICAL_DATA", "NOT_RUN_UPSTREAM_BLOCKED", "EXPIRED"].includes(legacyStatus);
   const cancelled = ["CANCELLED", "CANCELED"].includes(legacyStatus);
-  const degraded = ["DEGRADED", "DEGRADED_UNDERFILLED_DATA_GAP", "DATA_GAP", "READY_DEGRADED", "VALIDATED_UNDERFILLED_MARKET"].includes(legacyStatus);
+  const degraded = ["A2_REVIEW_DEGRADED", "DEGRADED", "DEGRADED_UNDERFILLED_DATA_GAP", "DATA_GAP", "READY_DEGRADED", "VALIDATED_UNDERFILLED_MARKET"].includes(legacyStatus);
   const upstreamDataGap = stage === "A3" && legacyStatus === "NOT_RUN_UPSTREAM_BLOCKED" && reasons.some((reason) => /COVERAGE|UNAVAILABLE|INSUFFICIENT|EVIDENCE_GAP|DATA_GAP/.test(reason));
   const quality = cancelled ? "CANCELLED" : failed ? "FAILED" : upstreamDataGap ? "DEGRADED" : blocked ? "BLOCKED" : degraded ? "DEGRADED" : ["PENDING", "CREATED", "DATA_PREPARING", "DATA_BOUND", "QUEUED", "RUNNING"].includes(legacyStatus) ? "DEGRADED" : "VALIDATED";
   let opportunity: StageOutcomeContract["opportunity_state"] = "UNKNOWN";
@@ -1385,6 +1386,7 @@ const TERMINAL_PROGRESS_STATUSES = new Set<WorkflowProgressStatus>([
   "VALIDATED_NO_SETUP",
   "DEGRADED_UNDERFILLED_DATA_GAP",
   "VALIDATED_UNDERFILLED_MARKET",
+  "A2_REVIEW_DEGRADED",
   "NOT_RUN",
 ]);
 

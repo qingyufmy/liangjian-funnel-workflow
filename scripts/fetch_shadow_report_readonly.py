@@ -15,12 +15,32 @@ import re
 import shlex
 import stat
 import subprocess
+import traceback
 from time import monotonic
 from zoneinfo import ZoneInfo
 
 MAX_FILE_BYTES=1024*1024
 MAX_PACKAGE_BYTES=10*1024*1024
 TZ=ZoneInfo('Asia/Shanghai')
+
+
+class NoReportToday(FileNotFoundError):
+    pass
+
+
+class TransferFailed(ValueError):
+    pass
+
+
+def classified_failure(exc):
+    status = ('NO_REPORT_TODAY' if isinstance(exc, NoReportToday) else
+              'TRANSFER_FAILED' if isinstance(exc, (TransferFailed, subprocess.TimeoutExpired, OSError)) else
+              'VERIFY_FAILED')
+    # No exception text, source lines, URLs, argv, or local variables.
+    return {'status': status, 'error_class': type(exc).__name__,
+            'safe_traceback': [{'file':Path(x.filename).name,'function':x.name,'line':x.lineno}
+                               for x in traceback.extract_tb(exc.__traceback__)],
+            'production_mutation':False,'notifications':0,'models':0,'claude_review_received':False}
 
 
 def sha(raw):return hashlib.sha256(raw).hexdigest()
@@ -106,7 +126,10 @@ def fetch_report(*,reader,remote_root,archive_root,report_root,bridge_root,trade
         total+=len(body)
         if total>MAX_PACKAGE_BYTES:raise ValueError('PACKAGE_SIZE_INVALID')
         return body
-    manifest_raw=read(manifest_path)
+    try:
+        manifest_raw=read(manifest_path)
+    except FileNotFoundError as exc:
+        raise NoReportToday('TODAY_FINAL_MANIFEST_ABSENT') from exc
     if sha(manifest_raw)!=_pin(manifest_sha256):raise ValueError('MANIFEST_PIN_MISMATCH')
     manifest=_json(manifest_raw)
     if (manifest.get('schema_version')!='shadow-reporting/1' or manifest.get('trade_date')!=trade_date
@@ -116,7 +139,10 @@ def fetch_report(*,reader,remote_root,archive_root,report_root,bridge_root,trade
     for pin in manifest['outputs'].values():_pin(pin)
     bodies={}
     for path,name in paths.items():
-        body=read(path)
+        try:
+            body=read(path)
+        except FileNotFoundError as exc:
+            raise ValueError('MANIFEST_OUTPUT_MISSING') from exc
         if sha(body)!=manifest['outputs'][path]:raise ValueError('OUTPUT_PIN_MISMATCH')
         bodies[name]=body
     report=_json(bodies['report.json']);proof=_json(bodies['PRODUCTION_EQUIVALENCE_'+trade_date+'.json'])
@@ -164,7 +190,9 @@ def fetch_report(*,reader,remote_root,archive_root,report_root,bridge_root,trade
 REMOTE_READER='''import os,sys,json,base64,hashlib,stat
 p=sys.argv[1];limit=int(sys.argv[2])
 if os.path.realpath(p)!=p:raise ValueError("REMOTE_ALIAS")
-fd=os.open(p,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
+try:fd=os.open(p,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
+except FileNotFoundError:
+ print(json.dumps(dict(status="FILE_NOT_FOUND")));sys.exit(3)
 with os.fdopen(fd,"rb") as f:
  a=os.fstat(f.fileno())
  if not stat.S_ISREG(a.st_mode) or a.st_size>limit:raise ValueError("REMOTE_FILE_LIMIT")
@@ -184,8 +212,10 @@ def ssh_reader(*,run=subprocess.run,budget_seconds=30):
         command=['ssh','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=5',
                  '-o','ConnectionAttempts=1','aurum-vm',remote]
         response=run(command,capture_output=True,timeout=min(8,remaining),check=False)
+        if response.returncode==3 and response.stdout.strip()==b'{"status": "FILE_NOT_FOUND"}':
+            raise FileNotFoundError('REMOTE_FILE_NOT_FOUND')
         if response.returncode!=0 or len(response.stdout)>2*MAX_FILE_BYTES or monotonic()>deadline:
-            raise ValueError('SSH_READ_FAILED')
+            raise TransferFailed('SSH_READ_FAILED')
         envelope=_json(response.stdout)
         body=base64.b64decode(envelope.get('body_base64',''),validate=True)
         if envelope.get('path')!=path or len(body)>MAX_FILE_BYTES or sha(body)!=_pin(envelope.get('raw_sha256')):
@@ -194,23 +224,37 @@ def ssh_reader(*,run=subprocess.run,budget_seconds=30):
     return read
 
 
+def read_actual_head(remote_root, *, run=subprocess.run):
+    root=str(_remote(remote_root))
+    command=['ssh','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=5',
+        'aurum-vm','git -c '+shlex.quote('safe.directory='+root)+' -C '+shlex.quote(root)+' rev-parse HEAD']
+    result=run(command,capture_output=True,timeout=8,check=False)
+    if result.returncode!=0:raise TransferFailed('HEAD_READ_FAILED')
+    head=result.stdout.decode('ascii').strip()
+    if re.fullmatch('[a-f0-9]{40}',head) is None:raise ValueError('HEAD_INVALID')
+    return head
+
+
 def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__)
     for key in ('remote-root','archive-root','report-root','bridge-root','trade-date','manifest-sha256','shadow-outbox'):
         p.add_argument('--'+key,required=True)
     p.add_argument('--enable-ssh-readonly',action='store_true',help='Explicit standalone action only; no scheduler')
     args=p.parse_args(argv)
+    source_head=None
     try:
         if not args.enable_ssh_readonly:raise ValueError('SSH_UNWIRED_EXPLICIT_ENABLE_REQUIRED')
+        # Independent shadow output is not a Git checkout; query the actual
+        # producer checkout, never a fixed release string or the output root.
+        source_head=read_actual_head('/www/wwwroot/Agu/liangjian-funnel-workflow')
         result=fetch_report(reader=ssh_reader(),remote_root=args.remote_root,archive_root=args.archive_root,
             report_root=args.report_root,bridge_root=args.bridge_root,trade_date=args.trade_date,
             manifest_sha256=args.manifest_sha256,shadow_outbox=args.shadow_outbox,
             observed_at=datetime.now(TZ))
-        print(json.dumps(result,ensure_ascii=False));return 0
-    except Exception:
+        print(json.dumps({**result,'source_head':source_head},ensure_ascii=False));return 0
+    except Exception as exc:
         # No provider stderr/credentials/body in status output; owner unaffected.
-        print(json.dumps(dict(status='SHADOW_DELIVERY_FAILED',production_mutation=False,
-            notifications=0,models=0,claude_review_received=False)));return 2
+        print(json.dumps({**classified_failure(exc),'source_head':source_head}));return 2
 
 
 if __name__=='__main__':raise SystemExit(main())

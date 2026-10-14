@@ -122,6 +122,7 @@ STATUS_BLOCKED_TECHNICAL_DATA = "BLOCKED_TECHNICAL_DATA"
 _COMPLETED_STAGE_STATUSES = frozenset(
     {
         STATUS_VALIDATED,
+        "A2_REVIEW_DEGRADED",
         STATUS_VALIDATED_NO_OPPORTUNITY,
         STATUS_VALIDATED_NO_ACTION,
         STATUS_DEGRADED_UNDERFILLED_DATA_GAP,
@@ -1869,6 +1870,15 @@ class ResearchPipeline:
                 stages=(a1_audit, blocked, self._not_run_stage(lane_id, model, "A3", snapshot.snapshot_id, "UPSTREAM_STAGE_BLOCKED")),
                 final_output=None,
             )
+        from ...data.rotation_policy import authorized_rotation_policy, POLICY_ID
+        policy_data = dict(a2_snapshot.data)
+        if isinstance(policy_data.get("SELECTED_BOARD_SNAPSHOT"), Mapping):
+            policy_data["SELECTED_BOARD_SNAPSHOT"] = authorized_rotation_policy(policy_data["SELECTED_BOARD_SNAPSHOT"])
+        policy_data.update(A2_ROTATION_THEME_COUNT=8, A2_AUTHORIZED_ROTATION_POLICY=POLICY_ID)
+        a2_snapshot = FrozenInputSnapshot(snapshot_id=a2_snapshot.snapshot_id + ":rotation-policy",
+            snapshot_hash=_sha256_json({"source_hash": a2_snapshot.snapshot_hash, "policy": POLICY_ID,
+                                      "board_overlay": policy_data.get("SELECTED_BOARD_SNAPSHOT")}),
+            data=policy_data, as_of=a2_snapshot.as_of)
         a2_gate = screen_a2(
             a2_snapshot.data,
             a1_output,
@@ -2070,6 +2080,15 @@ class ResearchPipeline:
                 stages=(a1_audit, blocked, self._not_run_stage(lane_id, model, "A3", snapshot.snapshot_id, "UPSTREAM_STAGE_BLOCKED")),
                 final_output=None,
             )
+        from ...data.rotation_policy import authorized_rotation_policy, POLICY_ID
+        policy_data = dict(a2_snapshot.data)
+        if isinstance(policy_data.get("SELECTED_BOARD_SNAPSHOT"), Mapping):
+            policy_data["SELECTED_BOARD_SNAPSHOT"] = authorized_rotation_policy(policy_data["SELECTED_BOARD_SNAPSHOT"])
+        policy_data.update(A2_ROTATION_THEME_COUNT=8, A2_AUTHORIZED_ROTATION_POLICY=POLICY_ID)
+        a2_snapshot = FrozenInputSnapshot(snapshot_id=a2_snapshot.snapshot_id + ":rotation-policy",
+            snapshot_hash=_sha256_json({"source_hash": a2_snapshot.snapshot_hash, "policy": POLICY_ID,
+                                      "board_overlay": policy_data.get("SELECTED_BOARD_SNAPSHOT")}),
+            data=policy_data, as_of=a2_snapshot.as_of)
         a2_gate = screen_a2(
             a2_snapshot.data,
             a1_output,
@@ -2230,6 +2249,27 @@ class ResearchPipeline:
                 audit = self._blocked_stage(
                     lane_id, model, stage, snapshot.snapshot_id, "RESEARCH_DEADLINE_EXCEEDED"
                 )
+            from ..review_degraded import rotation_review_failed_twice
+            degraded_history = (audit.diagnostics or {}).get("validation_history")
+            if (stage == "A2" and audit.status == "BLOCKED"
+                    and rotation_review_failed_twice(degraded_history)):
+                # Discard no failed evidence: produce a new server-owned
+                # WATCH partition, retaining both failed audits by hash/path.
+                quantitative = {"envelope": {**_required_envelope(snapshot, lane_id, model, stage), "status": "DEGRADED"},
+                    "active_themes": [], "focus_pool": [],
+                    "watch_only_pool": [_gate_item_from_decision(row, stage, "WATCH_ONLY")
+                                        for row in gate.decisions if row["symbol"] in review_symbols],
+                    "rotation_reviews": [], "A2_REVIEW_DEGRADED": True,
+                    "analysis_summary": {"review_status": "FAILED_TWO_ROTATION_VALIDATIONS",
+                                         "decision_source": "DETERMINISTIC_QUANTITATIVE_GATE"}}
+                policy_data = dict(snapshot.data)
+                policy_data["A2_REVIEW_DEGRADED_EVIDENCE"] = {
+                    "validation_history": degraded_history, "failed_input_hash": audit.input_hash,
+                    "failed_prompt_hash": audit.prompt_hash, "model_review_passed": False}
+                snapshot = replace(snapshot, data=policy_data)
+                audit = replace(audit, status="A2_REVIEW_DEGRADED", output=quantitative,
+                    diagnostics={**dict(audit.diagnostics or {}), "model_review_passed": False,
+                                 "fallback_source": "DETERMINISTIC_QUANTITATIVE_GATE"})
             if not _stage_completed(audit.status):
                 self._emit_progress(
                     run_id=run_id,
@@ -2358,6 +2398,11 @@ class ResearchPipeline:
             gate=gate,
             reviewed_output=reviewed_output,
         )
+        if stage == "A2" and audit.status == "A2_REVIEW_DEGRADED" and not reasons:
+            stage_status = "A2_REVIEW_DEGRADED"
+            output["A2_REVIEW_DEGRADED"] = True
+            for row in output.get("watch_only_pool", []):
+                row["A2_REVIEW_DEGRADED"] = True
         reasons = list(dict.fromkeys([*reasons, *outcome_reasons]))
         self._emit_progress(
             run_id=run_id,
@@ -3361,6 +3406,14 @@ class ResearchPipeline:
             ),
         )
         system_content = shared + "\n\n" + stage_prompt + "\n\n" + execution_budget
+        if stage == "A2" and snapshot.data.get("A2_AUTHORIZED_ROTATION_POLICY"):
+            system_content += ("\n\nSERVER-AUTHORIZED ROTATION POLICY 2026-10-14: "
+                "selected-board strength TOP8, then positive current-day net inflow OR "
+                "positive three-session mean backed by frozen same-basket evidence. "
+                "Legacy TOP5 wording for board selection is superseded, not stock relative-score thresholds. "
+                "ROTATION_GATE_EMPTY is a server-owned research fallback within the existing review candidates; "
+                "it is NOT a claim that a board passed selection. A3 technical and risk gates are unchanged. "
+                "Copy route permissions; never invent or remove policy flags.")
         if policy_macro_discovery:
             system_content += "\n\n" + render_runtime_contract()
         prompt_hash = digest_text(system_content)
@@ -3550,6 +3603,7 @@ class ResearchPipeline:
         aggregate_attempts = 0
         variants: list[str] = []
         last_reasons: list[str] = []
+        validation_history: list[list[str]] = []
         last_missing_mapping_codes: tuple[str, ...] = ()
         last_shape: dict[str, Any] = {"type": "NoneType"}
         last_a2_output: Mapping[str, Any] | None = None
@@ -4006,6 +4060,7 @@ class ResearchPipeline:
                     diagnostics=diagnostics if any(diagnostics.values()) else None,
                 )
             last_reasons = list(dict.fromkeys(reasons))
+            validation_history.append(last_reasons)
             last_shape = _output_shape(output)
             if stage == "A2":
                 last_a2_output = _strip_reasoning(result.output)
@@ -4030,6 +4085,7 @@ class ResearchPipeline:
             output=None,
             diagnostics={
                 "semantic_attempts": semantic_limit,
+                "validation_history": validation_history,
                 "last_invalid_output_shape": last_shape,
                 "missing_mapping_codes": list(last_missing_mapping_codes),
                 **({"discovery_audit_paths": discovery_audit_paths,
@@ -5818,6 +5874,7 @@ def _gate_outside_rotation_items(gate: DeterministicGateResult) -> list[dict[str
         _gate_item_from_decision(decision, "A2", "OUTSIDE_ROTATION")
         for decision in gate.decisions
         if decision.get("top_rotation_theme") is not True
+        and decision.get("ROTATION_GATE_EMPTY") is not True
         and str(decision.get("status") or "").upper() != "HARD_REJECT"
         and not (
             decision.get("a1_formal_member") is not False
@@ -5848,6 +5905,8 @@ def _gate_item_from_decision(
         "status": status,
         "reason_codes": list(decision.get("reason_codes", ())),
         "local_decision": True,
+        "ROTATION_GATE_EMPTY": decision.get("ROTATION_GATE_EMPTY") is True,
+        "trend_pre_rotation_eligible": decision.get("trend_pre_rotation_eligible") is True,
         "sent_to_llm": False,
         "source_refs": [],
         "data_sufficiency_state": decision.get("data_sufficiency_state"),
@@ -6931,6 +6990,8 @@ def _canonicalize_stage_lineage(
                 canonical["execution_permission"] = context.get("execution_permission")
                 canonical["emotion_theme_binding"] = context.get("emotion_theme_binding")
                 canonical["trend_core_eligible"] = context.get("trend_core_eligible") is True
+                canonical["ROTATION_GATE_EMPTY"] = context.get("ROTATION_GATE_EMPTY") is True
+                canonical["trend_pre_rotation_eligible"] = context.get("trend_pre_rotation_eligible") is True
                 canonical["eastmoney_hot100"] = dict(context.get("eastmoney_hot100") or {})
                 canonical["channel_source_health"] = dict(context.get("channel_source_health") or {})
                 canonical["selected_board"] = dict(context.get("selected_board") or {})
@@ -6953,6 +7014,8 @@ def _canonicalize_stage_lineage(
                     )
         else:
             canonical["upstream_candidate_id"] = upstream_id
+            canonical["ROTATION_GATE_EMPTY"] = context.get("ROTATION_GATE_EMPTY") is True
+            canonical["A2_REVIEW_DEGRADED"] = source.get("A2_REVIEW_DEGRADED") is True
             canonical["parent_candidate_id"] = upstream_id
             canonical["candidate_origin"] = candidate_origin
             if technical_context:
@@ -8148,7 +8211,11 @@ def _validate_output(
             ),
             "A2",
         ))
-        reasons.extend(
+        from ..review_degraded import rotation_review_failed_twice
+        degraded_evidence = (snapshot_data or {}).get("A2_REVIEW_DEGRADED_EVIDENCE") or {}
+        if not (output.get("A2_REVIEW_DEGRADED") is True
+                and rotation_review_failed_twice(degraded_evidence.get("validation_history"))):
+          reasons.extend(
             _validate_a2_rotation_focus_coverage(
                 output,
                 snapshot_data or {},
@@ -8614,7 +8681,7 @@ def _lane_status_from_stages(stages: Sequence[StageAudit]) -> str:
     """Expose degraded/data-gap outcomes at lane level."""
 
     statuses = tuple(str(stage.status or "") for stage in stages)
-    if any(status == STATUS_DEGRADED_UNDERFILLED_DATA_GAP for status in statuses):
+    if any(status in {STATUS_DEGRADED_UNDERFILLED_DATA_GAP, "A2_REVIEW_DEGRADED"} for status in statuses):
         return "READY_DEGRADED"
     if any(status == STATUS_VALIDATED_UNDERFILLED_MARKET for status in statuses):
         return "READY_DEGRADED"
@@ -8635,6 +8702,7 @@ def _progress_status_for_stage_status(status: Any) -> str:
         STATUS_VALIDATED_NO_SETUP,
         STATUS_VALIDATED_UNDERFILLED_MARKET,
         STATUS_DEGRADED_UNDERFILLED_DATA_GAP,
+        "A2_REVIEW_DEGRADED",
     }:
         return text
     return "COMPLETED"

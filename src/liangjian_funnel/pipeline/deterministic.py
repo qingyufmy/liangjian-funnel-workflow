@@ -1020,6 +1020,13 @@ def screen_a1(
     )
 
 
+def _authorized_positive_rotation_flow(row, snapshot):
+    from ..data.rotation_policy import POLICY_ID, positive_rotation_flow
+    if snapshot.get("A2_AUTHORIZED_ROTATION_POLICY") == POLICY_ID:
+        return positive_rotation_flow(row)
+    return (_number(row.get("main_net_inflow_cny")) or 0.0) > 0
+
+
 def screen_a2(
     snapshot: Mapping[str, Any],
     a1_output: Mapping[str, Any],
@@ -1356,7 +1363,7 @@ def screen_a2(
             and row.get("selected_for_rotation") is True
             and str(row.get("board_code") or row.get("theme_id") or "").strip()
             and 1 <= (_number(row.get("primary_rank")) or 0) <= rotation_theme_count
-            and (_number(row.get("main_net_inflow_cny")) or 0.0) > 0
+            and _authorized_positive_rotation_flow(row, snapshot)
         ]
         a1_strategy_theme_id = str(
             item.get("primary_theme")
@@ -1649,7 +1656,7 @@ def screen_a2(
             if isinstance(row, Mapping) and selected_board_source_available
             and row.get("rotation_reserve_scope") == "RESEARCH_ONLY_NO_AUTOMATIC_ENTRY"
             and 1 <= (_number(row.get("rotation_reserve_rank")) or 0) <= rotation_theme_count
-            and (_number(row.get("main_net_inflow_cny")) or 0) > 0
+            and _authorized_positive_rotation_flow(row, snapshot)
             and (stable_symbol_membership_binding or _a2_selected_board_matches_theme(
                 row, a1_strategy_theme_id=a1_strategy_theme_id, item=item))]
         reserve_eligible = bool(reserve_boards and selected_board_match is None and status == "REVIEW_CANDIDATE"
@@ -1674,6 +1681,10 @@ def screen_a2(
                 )
             )
         )
+        trend_pre_rotation_eligible = bool(status == "REVIEW_CANDIDATE"
+            and fundamental_a1_member and not upstream_research_only
+            and not hard_risk_present and not explicitly_inactive
+            and (behavior_type == "TREND" or trend_research_qualified))
         pool_channel = (
             "EMOTION" if emotion_core_eligible
             else "TREND" if trend_core_eligible or reserve_eligible
@@ -1809,6 +1820,7 @@ def screen_a2(
             "research_only_reason": ("A2_EMOTION_THEME_SELECTION_REQUIRED" if theme_selection_pending else "A2_EMOTION_CYCLE_NO_NEW_ENTRY") if emotion_research_only else None,
             "execution_permission": "BLOCKED" if emotion_research_only else "REQUIRES_A3_A4_CONFIRMATION",
             "trend_core_eligible": trend_core_eligible,
+            "trend_pre_rotation_eligible": trend_pre_rotation_eligible,
             "rotation_reserve_eligible": reserve_eligible,
             "rotation_reserve_boards": reserve_boards,
             "rotation_reserve_scope": "RESEARCH_ONLY_NO_AUTOMATIC_ENTRY" if reserve_eligible else None,
@@ -2070,6 +2082,25 @@ def screen_a2(
         if rank > 30:
             item["strong_trend_observation"] = False
             item["reason_codes"].append("A2_STRONG_TREND_OBSERVATION_BUDGET")
+
+    from ..data.rotation_policy import POLICY_ID, authorized_rotation_gate_empty
+    if (snapshot.get("A2_AUTHORIZED_ROTATION_POLICY") == POLICY_ID
+            and selected_board_source_available
+            and authorized_rotation_gate_empty(selected_boards)):
+        fallback_by_theme = defaultdict(list)
+        for item in decisions:
+            if (item.get("trend_pre_rotation_eligible")
+                    and item.get("status") == "REVIEW_CANDIDATE"
+                    and item.get("sent_to_llm") is True):
+                fallback_by_theme[item["rotation_direction_id"]].append(item)
+        for values in fallback_by_theme.values():
+            values.sort(key=lambda item: (-float(item["score"]), -float(item["identifiability_score"]), item["symbol"]))
+            for rank, item in enumerate(values, 1):
+                if not review_all_eligible and rank > llm_top_n_per_theme:
+                    continue
+                item.update(ROTATION_GATE_EMPTY=True, status="REVIEW_CANDIDATE",
+                            sent_to_llm=True, a2_pool_channel="TREND", top_rotation_theme=False)
+                item["reason_codes"].append("ROTATION_GATE_EMPTY")
 
     # Attribution is deliberately computed after theme ranking and transport
     # selection.  This records the final ``SENT_TO_LLM`` state while leaving

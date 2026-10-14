@@ -21,6 +21,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from ..contracts import RunStatus, StageStatus
+from .monitor_phase_trace import timed_phase
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -168,6 +169,7 @@ class ResearchStageStatus(StrEnum):
     VALIDATED_NO_ACTION = "VALIDATED_NO_ACTION"
     DEGRADED_UNDERFILLED_DATA_GAP = "DEGRADED_UNDERFILLED_DATA_GAP"
     VALIDATED_UNDERFILLED_MARKET = "VALIDATED_UNDERFILLED_MARKET"
+    A2_REVIEW_DEGRADED = "A2_REVIEW_DEGRADED"
     VALIDATED_NO_SETUP = "VALIDATED_NO_SETUP"
     NOT_RUN_UPSTREAM_BLOCKED = "NOT_RUN_UPSTREAM_BLOCKED"
     BLOCKED_DATA_COVERAGE = "BLOCKED_DATA_COVERAGE"
@@ -193,6 +195,7 @@ STAGE_COMPLETED_VALUES = frozenset(
         ResearchStageStatus.VALIDATED_NO_ACTION.value,
         ResearchStageStatus.DEGRADED_UNDERFILLED_DATA_GAP.value,
         ResearchStageStatus.VALIDATED_UNDERFILLED_MARKET.value,
+        ResearchStageStatus.A2_REVIEW_DEGRADED.value,
         ResearchStageStatus.VALIDATED_NO_SETUP.value,
     }
 )
@@ -282,6 +285,7 @@ STAGE_TRANSITIONS: dict[str, frozenset[str]] = {
             ResearchStageStatus.VALIDATED_NO_ACTION.value,
             ResearchStageStatus.DEGRADED_UNDERFILLED_DATA_GAP.value,
             ResearchStageStatus.VALIDATED_UNDERFILLED_MARKET.value,
+            ResearchStageStatus.A2_REVIEW_DEGRADED.value,
             ResearchStageStatus.VALIDATED_NO_SETUP.value,
             ResearchStageStatus.NOT_RUN_UPSTREAM_BLOCKED.value,
             ResearchStageStatus.BLOCKED_DATA_COVERAGE.value,
@@ -2349,6 +2353,7 @@ class RuntimeStore:
 
         return self._read(operation)
 
+    @timed_phase("persist")
     def record_monitor_event(
         self,
         *,
@@ -3576,6 +3581,19 @@ class RuntimeStore:
                 ).fetchone()
             )
         )
+
+    def notification_delivery_counts(self, *, from_time: datetime, to_time: datetime) -> dict[str, Any]:
+        """Count ledger rows without the UI's 200-row presentation limit."""
+        if from_time.tzinfo is None or to_time.tzinfo is None or from_time > to_time:
+            raise ValueError("INVALID_NOTIFICATION_COUNT_WINDOW")
+        def operation(connection):
+            rows = connection.execute(
+                "SELECT status,COUNT(*) AS n FROM notification_deliveries "
+                "WHERE julianday(created_at)>=julianday(?) AND julianday(created_at)<=julianday(?) GROUP BY status",
+                (from_time.isoformat(), to_time.isoformat())).fetchall()
+            counts = {row["status"]: row["n"] for row in rows}
+            return {"total": sum(counts.values()), "statuses": counts, "truncated": False}
+        return self._read(operation)
 
     def list_notification_deliveries(
         self,

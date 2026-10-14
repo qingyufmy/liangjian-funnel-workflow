@@ -671,6 +671,12 @@ class WorkflowLarkPublisher:
             return {"status": str(existing["status"]), "duplicate": True, "delivery_id": existing["delivery_id"]}
         color = self.store.next_notification_color()
         send_started = self.clock()
+        from .card_archive import archive_card
+        archive = archive_card(directory=self.store.path.parent / "lark_cards",
+            card=LarkNotifier.build_card(title, lines, color), delivery_key=delivery_key,
+            source_run_id=str(summary.get("source_run_id") or (source_id if kind == "PREMARKET_A3" else "UNRESOLVED")),
+            plan_ids=summary.get("plan_ids") or ([summary["plan_id"]] if summary.get("plan_id") else []),
+            trade_date=str(summary.get("trade_date") or now.date().isoformat()), observed_at=send_started)
         result = notifier.send(title, lines, color)
         acknowledged_at = self.clock()
         row, _ = self.store.record_delivery(
@@ -682,7 +688,7 @@ class WorkflowLarkPublisher:
             color=color,
             attempt_count=result.attempts,
             last_reason_code=None if result.ok else result.reason_code,
-            payload={**summary, "business_at": now.isoformat()},
+            payload={**summary, **archive, "business_at": now.isoformat()},
             created_at=send_started,
             sent_at=acknowledged_at if result.ok else None,
         )
@@ -751,6 +757,12 @@ class WorkflowLarkPublisher:
                         f"• 早盘价格：{_number(auction_price)}；确认条件：{'；'.join(conditions) if conditions else '按计划触发条件执行'}",
                     ]
                 )
+                if str(payload.get("strategy_profile") or "") == "LEADER_INTRADAY":
+                    lines.append(f"• 跳空预检：若开盘价 > 追价线 {_number(payload.get('no_chase_price') or payload.get('max_chase_price'))} 自动失效。")
+                if payload.get("ROTATION_GATE_EMPTY") is True:
+                    lines.append("• 研究标记：ROTATION_GATE_EMPTY；仍需 A3/A4 技术确认。")
+                if payload.get("A2_REVIEW_DEGRADED") is True:
+                    lines.append("• 研究标记：A2_REVIEW_DEGRADED；量化结果，不代表模型审核通过。")
             lines.extend(["", "**执行纪律**", "• 未触发不交易，超过禁止追价位不追，跌破失效价立即按风控处理。"])
             source_id = next((item for item in source_ids if item and item != "—"), f"premarket-{reviewed_at.date().isoformat()}")
             outputs.append(
@@ -760,7 +772,7 @@ class WorkflowLarkPublisher:
                     source_id=source_id,
                     title=f"A股盘前计划｜{reviewed_at.date().isoformat()}｜{page}/{len(chunks)}",
                     lines=lines,
-                    summary={"trade_date": reviewed_at.date().isoformat(), "symbols": symbols, "plan_count": len(ordered), "page": page},
+                    summary={"trade_date": reviewed_at.date().isoformat(), "symbols": symbols, "plan_ids": [str(row.get("plan_id") or "") for row in chunk], "plan_count": len(ordered), "page": page},
                     now=reviewed_at,
                 )
             )
@@ -1476,7 +1488,8 @@ class WorkflowLarkPublisher:
                     source_id=source_id,
                     title=title,
                     lines=lines + execution_lines,
-                    summary={"minute_end": event.get("minute_end"), "symbol": symbol, "action": action, "reason_code": event.get("reason_code"), "execution_eligibility": eligibility},
+                    summary={"minute_end": event.get("minute_end"), "symbol": symbol, "action": action, "reason_code": event.get("reason_code"), "execution_eligibility": eligibility,
+                             "plan_id": plan_id, "source_run_id": payload.get("source_run_id")},
                     now=now,
                 )
             )

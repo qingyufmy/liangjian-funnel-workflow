@@ -12,6 +12,25 @@ mod=importlib.util.module_from_spec(SPEC);SPEC.loader.exec_module(mod)
 DAY='2026-10-12'
 NOW=datetime.fromisoformat(DAY+'T17:00:00+08:00')
 ROOT='/isolated/shadow'
+
+
+def test_b2_failure_classes_never_expose_credentials_or_body():
+    for exc, expected in [(mod.NoReportToday('private-secret'), 'NO_REPORT_TODAY'),
+                          (mod.TransferFailed('private-secret'), 'TRANSFER_FAILED'),
+                          (ValueError('private-secret'), 'VERIFY_FAILED')]:
+        result=mod.classified_failure(exc)
+        assert result['status']==expected
+        assert 'private-secret' not in json.dumps(result)
+
+
+def test_b2_head_is_queried_not_a_pinned_release():
+    from types import SimpleNamespace
+    commands=[]
+    def run(command, **kwargs):
+        commands.append(command)
+        return SimpleNamespace(returncode=0, stdout=('b'*40+'\n').encode())
+    assert mod.read_actual_head('/isolated/producer',run=run)=='b'*40
+    assert 'rev-parse HEAD' in commands[0][-1]
 ARCH=ROOT+'/archive';DOC=ROOT+'/docs';BRIDGE=ROOT+'/bridge'
 
 

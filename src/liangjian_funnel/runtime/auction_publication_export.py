@@ -541,7 +541,11 @@ class ReadOnlyPublicationReader:
         authority/snapshot context. That context is absent from this slice.
         """
         aliases = {"symbol", "trigger_low", "trigger_high", "stop_level", "no_chase",
-                   "confirmation_bars", "action", "trend_entry_rule_version"}
+                   "confirmation_bars", "action", "trend_entry_rule_version", "plan_expiry"}
+        if "research_source_expiry" in payload:
+            original = raw.get("research_source_expiry", raw.get("plan_expiry"))
+            if original is None or payload["research_source_expiry"] != original:
+                raise ExportError("PLAN_RESEARCH_SOURCE_EXPIRY_CONFLICT")
         permissions = {"execution_permission", "research_only_reason", "a2_execution_permission",
                        "a2_research_only_reason"}
         for key, value in raw.items():
@@ -579,7 +583,7 @@ class ReadOnlyPublicationReader:
         for key, value in expected.items():
             if key not in payload or payload[key] != value or isinstance(payload[key], bool) != isinstance(value, bool):
                 raise ExportError("PLAN_AUDIT_PAYLOAD_CONFLICT")
-        if set(payload) - set(raw) - set(expected):
+        if set(payload) - set(raw) - set(expected) - {"research_source_expiry", "plan_expiry"}:
             raise ExportError("PLAN_AUDIT_PAYLOAD_BINDING_UNPROVEN")
 
 

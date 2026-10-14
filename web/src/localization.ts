@@ -24,6 +24,7 @@ const CODE_LABELS: Record<string, string> = {
   TERMINAL: "已结束",
   MISSING: "缺失",
   VALIDATED: "已验证",
+  A2_REVIEW_DEGRADED: "A2量化降级，模型审核未通过",
   VALIDATED_UNDERFILLED_MARKET: "已验证，市场机会较少",
   ACTIVE: "运行中",
   ACTIVE_TODAY: "今日监测中",

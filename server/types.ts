@@ -96,6 +96,7 @@ export interface JobRunRecord {
   readonly durationMs: number | null;
   readonly status: JobStatus;
   readonly reason: string | null;
+  readonly monitorTrace?: Readonly<Record<string, unknown>>;
 }
 
 export interface LogEvent {
@@ -175,7 +176,7 @@ export interface StatusSnapshot {
   readonly reason: string | null;
 }
 
-export type WorkflowProgressStatus = "RUNNING" | "STALE" | "COMPLETED" | "READY" | "READY_DEGRADED" | "PARTIAL" | "BLOCKED" | "FAILED" | "SUCCEEDED" | "CANCELLED" | "VALIDATED" | "VALIDATED_NO_OPPORTUNITY" | "VALIDATED_NO_ACTION" | "VALIDATED_NO_SETUP" | "DEGRADED_UNDERFILLED_DATA_GAP" | "VALIDATED_UNDERFILLED_MARKET" | "NOT_RUN" | "IDLE" | "UNKNOWN" | "INVALID";
+export type WorkflowProgressStatus = "RUNNING" | "STALE" | "COMPLETED" | "READY" | "READY_DEGRADED" | "PARTIAL" | "BLOCKED" | "FAILED" | "SUCCEEDED" | "CANCELLED" | "VALIDATED" | "VALIDATED_NO_OPPORTUNITY" | "VALIDATED_NO_ACTION" | "VALIDATED_NO_SETUP" | "DEGRADED_UNDERFILLED_DATA_GAP" | "VALIDATED_UNDERFILLED_MARKET" | "A2_REVIEW_DEGRADED" | "NOT_RUN" | "IDLE" | "UNKNOWN" | "INVALID";
 
 /**
  * Fixed, non-sensitive diagnostics for an unavailable or stale progress file.

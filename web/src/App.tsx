@@ -246,7 +246,7 @@ function toneForStatus(status?: string | null): HealthTone {
   const normalized = (status ?? "").toUpperCase();
   if (["OK", "PASS", "HEALTHY", "READY", "READY_TO_PUBLISH", "PUBLISHED", "NOOP", "NOOP_NO_DIRTY", "COMPLETED", "VALIDATED", "VALIDATED_NO_OPPORTUNITY", "VALIDATED_NO_ACTION", "VALIDATED_NO_SETUP", "ACTIVE"].includes(normalized)) return "healthy";
   if (["RUNNING", "QUEUED", "IN_PROGRESS", "STARTED", "RETRYING"].includes(normalized)) return "running";
-  if (["WARN", "WARNING", "DEGRADED", "READY_DEGRADED", "VALIDATED_UNDERFILLED_MARKET", "DEGRADED_UNDERFILLED_DATA_GAP", "NOT_RUN_UPSTREAM_BLOCKED", "UPSTREAM_NOT_RUN", "DATA_INSUFFICIENT", "BLOCKED", "BLOCKED_SOURCE_GENERATION", "BLOCKED_DATA_COVERAGE", "BLOCKED_EVIDENCE_GAP", "BLOCKED_MODEL", "BLOCKED_TECHNICAL_DATA", "PARTIAL", "MISSED", "STALE"].includes(normalized)) return "warning";
+  if (["A2_REVIEW_DEGRADED", "WARN", "WARNING", "DEGRADED", "READY_DEGRADED", "VALIDATED_UNDERFILLED_MARKET", "DEGRADED_UNDERFILLED_DATA_GAP", "NOT_RUN_UPSTREAM_BLOCKED", "UPSTREAM_NOT_RUN", "DATA_INSUFFICIENT", "BLOCKED", "BLOCKED_SOURCE_GENERATION", "BLOCKED_DATA_COVERAGE", "BLOCKED_EVIDENCE_GAP", "BLOCKED_MODEL", "BLOCKED_TECHNICAL_DATA", "PARTIAL", "MISSED", "STALE"].includes(normalized)) return "warning";
   if (["ERROR", "FAILED", "FAILED_RESOURCE", "UNHEALTHY", "STOPPED"].includes(normalized)) return "error";
   if (["TECHNICAL_FAILURE", "CANCELLED"].includes(normalized)) return "error";
   return "unknown";
@@ -287,6 +287,7 @@ function statusLabel(status?: string | null): string {
     VALIDATED_NO_OPPORTUNITY: "已验证·当前无机会",
     VALIDATED_NO_ACTION: "已验证·无需行动",
     VALIDATED_NO_SETUP: "已验证·无合格形态",
+    A2_REVIEW_DEGRADED: "A2量化降级·模型未通过",
     VALIDATED_UNDERFILLED_MARKET: "已验证·市场机会较少",
     READY_DEGRADED: "就绪·降级",
     DEGRADED_UNDERFILLED_DATA_GAP: "降级·事实覆盖不足",

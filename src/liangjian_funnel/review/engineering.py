@@ -76,6 +76,14 @@ def operational_evidence(store, output_dir, *, cutoff):
                             reason_by_run[run_id] = match.group(1)
                     if item.get("stream") != "node":
                         continue
+                    if str(message).startswith('{'):
+                        try:
+                            structured=json.loads(message)
+                            if structured.get('event')=='NODE_PROCESS_START' and (9,31)<=(stamp.astimezone(cutoff.tzinfo).hour,stamp.astimezone(cutoff.tzinfo).minute)<=(15,0):
+                                rows.append({'evidence_id':f"ENGINEERING:NODE:{item.get('id')}",
+                                    'kind':'NODE_PROCESS_RESTART','pid':structured.get('pid'),
+                                    'time':stamp.isoformat(),'run_id':None,'gap_proven':False})
+                        except ValueError:pass
                     # Do not copy raw messages: retain safe counters/identities,
                     # and do not classify the 15:00 finality block as downtime.
                     if "任务结束" not in message or not any(x in message for x in ("status=failed", "status=terminated")):

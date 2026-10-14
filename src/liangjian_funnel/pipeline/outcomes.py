@@ -237,6 +237,7 @@ def _derived_reason(status: str, stage: str) -> str | None:
         "VALIDATED_NO_ACTION": "A3_NO_ACTION",
         "VALIDATED_NO_SETUP": "A3_NO_TECHNICAL_SETUP",
         "VALIDATED_UNDERFILLED_MARKET": "POOL_UNDERFILLED_MARKET",
+        "A2_REVIEW_DEGRADED": "A2_REVIEW_DEGRADED",
         "DEGRADED_UNDERFILLED_DATA_GAP": "DATA_COVERAGE_INSUFFICIENT",
         "DATA_GAP": "DATA_GAP",
         "BLOCKED_DATA_COVERAGE": "DATA_COVERAGE_INSUFFICIENT",
@@ -269,6 +270,7 @@ def _quality_for_status(status: str) -> QualityState:
         "DEGRADED_UNDERFILLED_DATA_GAP",
         "DATA_GAP",
         "READY_DEGRADED",
+        "A2_REVIEW_DEGRADED",
         "VALIDATED_UNDERFILLED_MARKET",
     }:
         return QualityState.DEGRADED

@@ -256,7 +256,10 @@ def _a3_candidate_eligible(item: Mapping[str, Any], *, origin: str) -> bool:
 
     # The selected-board top-five requirement belongs only to the trend
     # channel.  Emotion rows are sourced independently from Eastmoney Hot100.
-    if behavior_value != "EMOTION" and item.get("top_rotation_theme") is False and not _is_rotation_reserve(item):
+    if (behavior_value != "EMOTION" and item.get("top_rotation_theme") is False
+            and not _is_rotation_reserve(item)
+            and not (item.get("ROTATION_GATE_EMPTY") is True
+                     and item.get("trend_pre_rotation_eligible") is True)):
         return False
 
     raw_permission = item.get("route_permission")

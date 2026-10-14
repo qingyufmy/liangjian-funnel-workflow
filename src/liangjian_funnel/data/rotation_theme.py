@@ -2480,6 +2480,25 @@ def _apply_history_factors(rows: Sequence[dict[str, Any]], snapshot_dir: Path, t
             expected_day = ExchangeTradingCalendar().previous_trading_day(expected_day)
         current_return = _number(row.get("relative_return_pct"))
         returns = [current_return] + [_number(item.get("relative_return_pct")) for item in previous]
+        row.pop("main_net_inflow_3d_mean_cny", None)
+        row.pop("fund_flow_history_evidence", None)
+        # Today's observation plus exactly the previous two closed sessions.
+        # The loader verifies each historical file hash and basket identity.
+        flows = [_number(row.get("tencent_main_net_inflow_cny"))] + [
+            _number(item.get("tencent_main_net_inflow_cny", item.get("main_net_inflow_cny")))
+            for item in previous[:2]]
+        if (len(flows) == 3 and all(value is not None for value in flows)
+                and all(item.get("history_closed_fund_observation") is True
+                        and item.get("member_snapshot_complete") is True
+                        and (_number(item.get("effective_fund_coverage")) or 0) >= .8
+                        for item in previous[:2])):
+            row["main_net_inflow_3d_mean_cny"] = sum(flows) / 3
+            row["fund_flow_history_evidence"] = {
+                "consecutive_sessions": 3, "hash_verified": True, "same_basket": True,
+                "trade_dates": [trade_day.isoformat(), *[item["history_trade_date"] for item in previous[:2]]],
+                "historical_hashes": [item.get("history_content_hash") for item in previous[:2]],
+                "flows_cny": flows, "missing_is_zero": False,
+            }
         if row.get("momentum_3d_pct") is None and len(returns) >= 3 and all(value is not None for value in returns[:3]):
             row["momentum_3d_pct"] = (math.prod(1 + float(value) / 100 for value in returns[:3]) - 1) * 100
         if row.get("momentum_5d_pct") is None and len(returns) >= 5 and all(value is not None for value in returns[:5]):
@@ -2540,6 +2559,14 @@ def _load_recent_rotation_history(snapshot_dir: Path, trade_day: date, *, limit:
             theme_id = str(item.get("theme_id") or item.get("board_code") or "").strip().upper()
             item["liangjian_rank"] = rank_by_theme.get(theme_id)
             item["history_trade_date"] = day.isoformat()
+            item["history_content_hash"] = expected
+            try:
+                observed = datetime.fromisoformat(str(payload.get("captured_at")))
+                local_observed = observed.astimezone(SHANGHAI) if observed.tzinfo is not None else None
+                item["history_closed_fund_observation"] = bool(local_observed
+                    and local_observed.date() == day and local_observed.hour >= 15)
+            except (TypeError, ValueError):
+                item["history_closed_fund_observation"] = False
             if not item.get("component_board_codes") and payload.get("source_health", {}).get("eastmoney_board_flow") == "OK":
                 member = load_membership_snapshot(snapshot_dir / "memberships", theme_id, day)
                 if member.get("available") and str(member.get("captured_at") or "") <= str(payload.get("captured_at") or ""):
@@ -2933,6 +2960,8 @@ def _public_board_row(row: Mapping[str, Any]) -> dict[str, Any]:
         "missing_factors": list(row.get("missing_factors") or ()),
         "tencent_main_net_inflow_cny": row.get("tencent_main_net_inflow_cny"),
         "main_net_inflow_cny": row.get("tencent_main_net_inflow_cny"),
+        "main_net_inflow_3d_mean_cny": row.get("main_net_inflow_3d_mean_cny"),
+        "fund_flow_history_evidence": row.get("fund_flow_history_evidence"),
         "eastmoney_main_net_inflow_cny": row.get("eastmoney_main_net_inflow_cny"),
         "turnover_coverage": row.get("turnover_coverage"),
         "flow_coverage": row.get("flow_coverage"),

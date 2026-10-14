@@ -23,7 +23,7 @@ NORMALIZATION_VERSION = "workflow-plan-payload/1"
 AUTHORITY_VERSION = "route-execution-permission/1"
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 NORMAL_FIELDS = frozenset({"symbol", "trigger_low", "trigger_high", "stop_level", "no_chase",
-                          "confirmation_bars", "action"})
+                          "confirmation_bars", "action", "plan_expiry", "research_source_expiry"})
 PERMISSION_FIELDS = frozenset({"execution_permission", "research_only_reason", "a2_execution_permission",
                               "a2_research_only_reason"})
 PUBLISH_FIELDS = PERMISSION_FIELDS | {"source_run_id", "trend_entry_rule_version"}
@@ -294,6 +294,9 @@ class PublicationReceiptBuilder:
         # construction or a duplicate normalization implementation.
         from ..workflow import _plan_payload
         expected = _plan_payload(raw)
+        if "research_source_expiry" in normalized:
+            from .plan_expiry import normalize_publication_expiry
+            expected = normalize_publication_expiry(expected, _aware(inputs.server_expires_at))
         if expected["symbol"] is None:
             reasons.add("NORMALIZED_SYMBOL_UNPROVEN")
         if object_hash(expected) != object_hash(normalized):
@@ -371,6 +374,9 @@ class PublicationReceiptBuilder:
             return isinstance(value, str) and value in SAFE_PERMISSION_VALUES, value
         if field == "action":
             return value == "BUY_SIGNAL", value
+        if field in {"plan_expiry", "research_source_expiry"}:
+            try:return True, _aware(value).isoformat()
+            except (TypeError, ValueError, AttributeError):return False, None
         if field == "source_run_id":
             return value == run_id, value
         if field == "trend_entry_rule_version":

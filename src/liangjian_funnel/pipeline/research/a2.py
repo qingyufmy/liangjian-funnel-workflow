@@ -316,6 +316,7 @@ def _project_a2_bottleneck_context(value: Any, symbols: set[str] | None) -> Any:
                 for key in (
                     "eligible", "selected_for_rotation", "board_code", "board_name", "theme_id", "parent_theme_id",
                     "primary_rank", "strength", "main_net_inflow_cny",
+                    "main_net_inflow_3d_mean_cny", "fund_flow_history_evidence",
                 )
                 if key in board
             }
@@ -1164,6 +1165,9 @@ def _enrich_a2_decision_facts(
                         changed += 1
 
             deterministic_state = context.get("data_sufficiency_state")
+            item["A2_REVIEW_DEGRADED"] = False  # Set only by server fallback after strict review fails.
+            item["ROTATION_GATE_EMPTY"] = context.get("ROTATION_GATE_EMPTY") is True
+            item["trend_pre_rotation_eligible"] = context.get("trend_pre_rotation_eligible") is True
             if deterministic_state and item.get("deterministic_data_sufficiency_state") != deterministic_state:
                 item["deterministic_data_sufficiency_state"] = deterministic_state
                 changed += 1
@@ -1285,6 +1289,11 @@ def _a2_relative_top5_market_core_exception(
         if not isinstance(context, Mapping):
             return False
         top_rotation_theme = context.get("top_rotation_theme") is True
+        # Decision 20 changes the board admission domain, not the existing
+        # relative-TOP5 numeric-score exception.
+        if (snapshot_data.get("A2_AUTHORIZED_ROTATION_POLICY") and top_rotation_theme
+                and not 1 <= (_safe_int(context.get("theme_rotation_rank")) or 0) <= 5):
+            return False
         emotion_core_eligible = context.get("emotion_core_eligible") is True
         local_status = str(
             context.get("deterministic_status")
@@ -2064,6 +2073,8 @@ def _with_a2_bottleneck_context(
             "execution_permission": item.get("execution_permission"),
             "emotion_theme_binding": item.get("emotion_theme_binding"),
             "trend_core_eligible": item.get("trend_core_eligible") is True,
+            "trend_pre_rotation_eligible": item.get("trend_pre_rotation_eligible") is True,
+            "ROTATION_GATE_EMPTY": item.get("ROTATION_GATE_EMPTY") is True,
             "eastmoney_hot100": dict(item.get("eastmoney_hot100") or {}),
             "channel_source_health": dict(item.get("channel_source_health") or {}),
             "selected_board": dict(item.get("selected_board") or {}),

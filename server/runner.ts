@@ -1,5 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { mkdirSync, readFileSync, writeFileSync, existsSync, openSync, readSync, closeSync } from "node:fs";
+import path from "node:path";
 
 import type { AppConfig } from "./config.js";
 import { JOB_DEFINITIONS } from "./config.js";
@@ -28,7 +30,7 @@ export function timeoutForJob(
   // orchestration previously left stale close processes blocking every later
   // schedule. Minute monitoring has a much tighter deadline so it releases
   // the single worker before the 09:26/15:10 research protection windows.
-  if (job === "monitor") return Math.min(configuredTimeoutMs, 55_000);
+  if (job === "monitor") return Math.min(configuredTimeoutMs, 58_000);
   if (job === "auction-base") return Math.min(configuredTimeoutMs, 60 * 60 * 1000);
   if (job === "auction-refresh") return Math.min(configuredTimeoutMs, 30 * 60 * 1000);
   // A5's model call has a 600s total budget. The parent must also allow
@@ -42,6 +44,45 @@ export function timeoutForJob(
   if (job === "close") return Math.min(configuredTimeoutMs, 90 * 60 * 1000);
   if (job === "a1") return a1TimeoutMs;
   return configuredTimeoutMs;
+}
+
+export function monitorSnapshotDelay(job: JobName, timeoutMs: number | null): number | null {
+  return job === "monitor" && timeoutMs !== null && timeoutMs > 50_000 ? 50_000 : null;
+}
+
+export function ensureMonitorTimeoutSnapshot(directory: string, runId: string, elapsedMs: number): void {
+  const target = path.join(directory, `${runId}.json`);
+  if (existsSync(target)) return;
+  const bounded = (file: string): string | null => {
+    let fd: number | undefined;
+    try { fd = openSync(file, "r"); const data = Buffer.alloc(128 * 1024);
+      return data.subarray(0, readSync(fd, data, 0, data.length, 0)).toString("utf8");
+    } catch { return null; } finally { if (fd !== undefined) closeSync(fd); }
+  };
+  let phase: Record<string, unknown> | null = null;
+  try { const parsed = JSON.parse(bounded(path.join(directory, `${runId}.phase.json`)) ?? "null") as Record<string, unknown> | null;
+    if (parsed?.run_id === runId) phase = parsed;
+  } catch { /* Unknown is not startup/strategy success. */ }
+  mkdirSync(directory, { recursive: true });
+  writeFileSync(target, JSON.stringify({ run_id: runId, observed_at: new Date().toISOString(),
+    reason: "PYTHON_SIGNAL_JSON_NOT_ACKNOWLEDGED", phase_checkpoint: phase,
+    current_phase: phase?.current_phase ?? null, stack: bounded(path.join(directory, `${runId}.stacks.log`)),
+    parent_elapsed_ms: elapsedMs, snapshot_is_parent_fallback: true, phase_is_last_checkpoint: true }),
+    { flag: "wx", mode: 0o640 });
+}
+
+function readMonitorTrace(directory: string, runId: string): Record<string, unknown> {
+  try {
+    const receiptPath = path.join(directory, `${runId}.receipt.json`);
+    const raw = readFileSync(receiptPath, "utf8");
+    if (raw.length > 256 * 1024) return { status: "TRACE_TOO_LARGE" };
+    const receipt = JSON.parse(raw) as Record<string, unknown>;
+    if (receipt.run_id !== runId) return { status: "TRACE_RUN_ID_MISMATCH" };
+    return { status: "RECORDED", receiptPath, phase_timings: receipt.phase_timings,
+      elapsed_ms: receipt.elapsed_ms, timeoutSnapshotPath: path.join(directory, `${runId}.json`) };
+  } catch {
+    return { status: "NO_FINAL_RECEIPT", timeoutSnapshotPath: path.join(directory, `${runId}.json`) };
+  }
 }
 
 export function waitForProcessExit(child: ChildProcess, timeoutMs: number): Promise<boolean> {
@@ -78,6 +119,8 @@ export function childEnvironment(
   delete env.LIANGJIAN_PARENT_CLOSE_DEADLINE_MS;
   delete env.LIANGJIAN_PARENT_JOB_BUDGET_MS;
   delete env.LIANGJIAN_PARENT_JOB_STARTED_MS;
+  delete env.LIANGJIAN_PARENT_RUN_ID;
+  delete env.LIANGJIAN_MONITOR_TRACE_DIR;
   if (timeoutMs !== null) {
     env.LIANGJIAN_PARENT_JOB_BUDGET_MS = String(timeoutMs);
     env.LIANGJIAN_PARENT_JOB_STARTED_MS = String(startedAtMs);
@@ -188,9 +231,15 @@ export class JobRunner {
     this.logger.info(`开始执行 ${command}`, { job, runId });
 
     const timeoutMs = timeoutForJob(job, this.config.jobTimeoutMs, this.config.a1JobTimeoutMs);
+    const traceDir = path.join(this.config.rootDir, "outputs", "node", "timeout-snapshots");
+    const env = childEnvironment(job, timeoutMs, startedAt.getTime());
+    if (job === "monitor") {
+      env.LIANGJIAN_PARENT_RUN_ID = runId;
+      env.LIANGJIAN_MONITOR_TRACE_DIR = traceDir;
+    }
     const child = spawn(this.config.pythonBin, ["-m", "liangjian_funnel", command], {
       cwd: this.config.rootDir,
-      env: childEnvironment(job, timeoutMs, startedAt.getTime()),
+      env,
       shell: false,
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
@@ -199,6 +248,7 @@ export class JobRunner {
 
     let stdoutPending = "";
     let stderrPending = "";
+    let traceReady = false;
     child.stdout.on("data", (chunk: Buffer | string) => {
       const split = splitChunk(stdoutPending, chunk);
       stdoutPending = split.pending;
@@ -207,7 +257,10 @@ export class JobRunner {
     child.stderr.on("data", (chunk: Buffer | string) => {
       const split = splitChunk(stderrPending, chunk);
       stderrPending = split.pending;
-      for (const line of split.lines) this.logger.warn(redactText(line, this.config.maxLogLineLength), { job, runId, stream: "stderr" });
+      for (const line of split.lines) {
+        if (line === "MONITOR_TRACE_READY") { traceReady = true; continue; }
+        this.logger.warn(redactText(line, this.config.maxLogLineLength), { job, runId, stream: "stderr" });
+      }
     });
 
     const result = await new Promise<JobRunRecord>((resolve) => {
@@ -216,16 +269,23 @@ export class JobRunner {
       let timer: NodeJS.Timeout | null = null;
       let escalationTimer: NodeJS.Timeout | null = null;
       let hardFinishTimer: NodeJS.Timeout | null = null;
+      let snapshotTimer: NodeJS.Timeout | null = null;
+      let snapshotRequested = false;
       const finish = (exitCode: number | null, signal: NodeJS.Signals | null): void => {
         if (settled) return;
         settled = true;
         if (timer) clearTimeout(timer);
         if (escalationTimer) clearTimeout(escalationTimer);
         if (hardFinishTimer) clearTimeout(hardFinishTimer);
+        if (snapshotTimer) clearTimeout(snapshotTimer);
         if (stdoutPending) this.logger.info(redactText(stdoutPending, this.config.maxLogLineLength), { job, runId, stream: "stdout" });
         if (stderrPending) this.logger.warn(redactText(stderrPending, this.config.maxLogLineLength), { job, runId, stream: "stderr" });
         const finishedAt = new Date();
         const durationMs = finishedAt.getTime() - startedAt.getTime();
+        if (job === "monitor" && snapshotRequested) {
+          try { ensureMonitorTimeoutSnapshot(traceDir, runId, durationMs); }
+          catch { this.logger.warn("MONITOR_SNAPSHOT_WRITE_FAILED", { job, runId }); }
+        }
         const status = timedOut ? "terminated" : exitCode === 0 ? "succeeded" : "failed";
         const record: JobRunRecord = {
           runId,
@@ -244,6 +304,7 @@ export class JobRunner {
               : signal
                 ? `SIGNAL_KILLED:${signal}`
                 : "NON_ZERO_EXIT",
+          ...(job === "monitor" ? { monitorTrace: readMonitorTrace(traceDir, runId) } : {}),
         };
         this.replaceRunning(record);
         if (this.childFor(slot)?.runId === runId) this.setChild(slot, null);
@@ -253,6 +314,28 @@ export class JobRunner {
         );
         resolve(record);
       };
+      const snapshotDelay = monitorSnapshotDelay(job, timeoutMs);
+      if (snapshotDelay !== null) {
+        snapshotTimer = setTimeout(() => {
+          if (settled) return;
+          snapshotRequested = true;
+          if (traceReady && process.platform !== "win32") {
+            try {
+              if (child.kill("SIGUSR1")) {
+                this.logger.warn("MONITOR_50S_SNAPSHOT_REQUESTED", { job, runId });
+                return;
+              }
+            } catch { /* Fall through to an honest missing-child-trace record. */ }
+          }
+          try {
+            mkdirSync(traceDir, { recursive: true });
+            writeFileSync(path.join(traceDir, `${runId}.json`), JSON.stringify({
+              run_id: runId, observed_at: new Date().toISOString(), current_phase: null, phase_is_known: false,
+              reason: "CHILD_TRACE_NOT_READY", stack: null, parent_elapsed_ms: Date.now() - startedAt.getTime(),
+            }), { flag: "wx", mode: 0o640 });
+          } catch { this.logger.warn("MONITOR_SNAPSHOT_WRITE_FAILED", { job, runId }); }
+        }, snapshotDelay);
+      }
       if (timeoutMs !== null) {
         timer = setTimeout(() => {
           timedOut = true;
