@@ -147,6 +147,9 @@ export class WorkflowScheduler {
       if (isFeatureMaintenanceMinute(clock)) due.push("features");
       if (clock.hour === 7 && clock.minute < 15) due.push("auction-base");
       if (clock.hour === 8 && clock.minute === 30) due.push("premarket");
+      // Independent evidence only. Never late-catch-up a 09:26 quote as an
+      // auction-final print, and never rerun the A2/A3 research to obtain it.
+      if (clock.hour === 9 && clock.minute === 25 && clock.second <= 30) due.push("auction-evidence");
       if (clock.hour === 9 && clock.minute === 26) due.push("morning");
       // A four-minute startup/restart window, with a stable daily key.
       // The Python lease is authoritative across Node restarts.

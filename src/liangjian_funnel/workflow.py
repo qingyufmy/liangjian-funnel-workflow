@@ -3414,6 +3414,7 @@ class WorkflowApplication:
                 minimum_trade_date=(target_trade_date or (self.trading_calendar.next_trading_day(current.date())
                                     if normalized_slot == "close" else current.date())),
                 same_day_recovery=same_day_recovery,
+                publication_snapshot_path=prepared.path,
             )
             if publish_plans
             else {
@@ -4066,19 +4067,27 @@ class WorkflowApplication:
             # The base snapshot is already content-addressed. Hash only its
             # digest plus the A2 overlay; serializing the complete 200MB+
             # snapshot once per lane creates an avoidable multi-GB peak.
-            stage_hash = _hash_json(
-                {
+            stage_recipe = {
                     "base_snapshot_hash": snapshot.snapshot_hash,
                     "stage": "A2",
                     "NEWS_HEAT_SNAPSHOT": merged_news,
                     "A2_STOCK_NEWS_SCOPE": scoped_symbols,
                 }
-            )
+            stage_hash = _hash_json(stage_recipe)
+            stage_id = f"{snapshot.snapshot_id}:a2:{stage_hash[:12]}"
+            proof_node = {"schema_version": "research-snapshot-recipe/1", "status": "CAPTURED",
+                "recipe_kind": "A2_STOCK_NEWS", "parent_snapshot_id": snapshot.snapshot_id,
+                "parent_snapshot_hash": snapshot.snapshot_hash,
+                "parent_as_of": _aware(snapshot.as_of).isoformat(),
+                "snapshot_id": stage_id, "snapshot_hash": stage_hash, "as_of": stage_current.isoformat(),
+                "hash_recipe": stage_recipe,
+                "data_recipe": {"NEWS_HEAT_SNAPSHOT": merged_news, "A2_STOCK_NEWS_SCOPE": scoped_symbols}}
             return {
-                "snapshot_id": f"{snapshot.snapshot_id}:a2:{stage_hash[:12]}",
+                "snapshot_id": stage_id,
                 "snapshot_hash": stage_hash,
                 "as_of": stage_current,
                 "data": merged_data,
+                "proof_chain": (*getattr(snapshot, "proof_chain", ()), proof_node),
             }
         if stage != "A3":
             return None
@@ -5129,6 +5138,10 @@ class WorkflowApplication:
                     live_market_state=live_market_state,
                     native_complete=bool(five is not None and five.complete),
                 )
+                # Version the live policy in both quant and model input. The
+                # original plan stays immutable; legacy frozen inputs still
+                # replay with their original one-bar default.
+                contexts[symbol]["runtime_policy"] = {"STRUCTURE_FAIL_CONFIRM_BARS_15M": 2}
                 contexts[symbol]["execution_data"]["minute_snapshot_id"] = minute_snapshot_id
                 contexts[symbol]["execution_data"]["publication"] = dict(fetched.get("publication") or {})
                 publication_attempts = fetched.get("publication", {}).get("attempts", [])
@@ -5191,6 +5204,7 @@ class WorkflowApplication:
             engine = MonitorEngine(
                 self.store,
                 llm_veto=observed_callback,
+                runtime_policy={"STRUCTURE_FAIL_CONFIRM_BARS_15M": 2},
                 max_seconds=model_budget,
                 deadline_monotonic=round_deadline,
                 strict_llm_review=strict_review,
@@ -5289,19 +5303,9 @@ class WorkflowApplication:
             and event.plan_id
             and event.lane_id == primary_lane_id
         }
-        durable_events = [
-            row
-            for row in self.store.list_monitor_events(
-                lane_id=primary_lane_id,
-                effective_only=True,
-            )
-            if (
-                str(row.get("lane_id") or ""),
-                str((json.loads(str(row.get("payload_json") or "{}"))).get("plan_id") or ""),
-                str(row.get("action") or ""),
-                str(row.get("minute_end") or ""),
-            ) in effective_identities
-        ]
+        durable_events = _effective_events_for_identities(
+            self.store, lane_id=primary_lane_id, identities=effective_identities,
+        )
         # Data observations are not trades. Keep each minute for audit, while
         # the publisher owns incident/delivery deduplication independently.
         durable_events.extend(row for row in self.store.list_monitor_events(
@@ -6783,8 +6787,15 @@ class WorkflowApplication:
         snapshot_data: Mapping[str, Any],
         minimum_trade_date: date | None = None,
         same_day_recovery: bool = False,
+        publication_snapshot_path: Path | None = None,
     ) -> dict[str, Any]:
         batch: list[dict[str, Any]] = []
+        # Metadata is captured before normalization/authority injection. It is
+        # not execution eligibility and never goes back into an A2/A3 prompt.
+        from .runtime.publication_archive import capture_plan_originals, write_publication_manifest
+        from .runtime.publication_receipt import object_hash
+        from copy import deepcopy
+        original_plans: dict[str, dict[str, Any]] = {}
         blocked: list[dict[str, str]] = []
         ready_lanes: list[str] = []
         comparison_lanes: list[dict[str, str]] = []
@@ -6813,13 +6824,24 @@ class WorkflowApplication:
             ready_lanes.append(lane.lane)
             from .pipeline.a2_role_logic import route_execution_permission
             upstream_permissions = {}
+            upstream_proofs = {}
+            a3_original = None
             for audit in getattr(lane, "stages", ()):
+                if getattr(audit, "stage", None) == "A3":
+                    a3_original = audit.as_dict() if callable(getattr(audit, "as_dict", None)) else None
                 if getattr(audit, "stage", None) != "A2" or not isinstance(getattr(audit, "output", None), Mapping):
                     continue
+                source_audit = audit.as_dict() if callable(getattr(audit, "as_dict", None)) else None
+                source_audit_hash = object_hash(source_audit) if source_audit is not None else None
                 for name in ("focus_pool", "watch_only_pool", "outside_rotation_pool", "rejected_candidates"):
-                    for row in audit.output.get(name, ()):
+                    for row_index, row in enumerate(audit.output.get(name, ())):
                         if isinstance(row, Mapping):
                             upstream_permissions[str(row.get("symbol"))] = row
+                            if source_audit is not None:
+                                upstream_proofs[str(row.get("symbol"))] = {
+                                "origin": "A2_AUDIT_ROW", "selector": ["output", name, row_index],
+                                "value_sha256": object_hash(row), "source_sha256": source_audit_hash,
+                                }
             previous = {
                 str(item["symbol"]): item
                 for item in self.store.list_execution_plans(lane_id=lane.lane, status=PlanStatus.PENDING_MORNING_REVIEW)
@@ -6830,7 +6852,7 @@ class WorkflowApplication:
             ):
                 if not isinstance(plans, list):
                     continue
-                for raw in plans:
+                for raw_index, raw in enumerate(plans):
                     if not isinstance(raw, Mapping):
                         continue
                     payload = {
@@ -6925,6 +6947,15 @@ class WorkflowApplication:
                         continue
                     logical = str(raw.get("plan_id") or _hash_json(raw)[:16])
                     plan_id = f"{result.run_id}:{lane.lane}:{logical}"
+                    authority_proof = upstream_proofs.get(symbol) if upstream_permissions.get(symbol) else None
+                    if authority and authority_proof is None and authority is permission_context:
+                        authority_proof = {"origin": "SNAPSHOT_A2_CONTEXT",
+                            "selector": ["data", "A2_BOTTLENECK_CONTEXT", symbol],
+                            "source_snapshot_id": result.snapshot_id,
+                            "source_snapshot_hash": result.snapshot_hash,
+                            "value_sha256": object_hash(authority)}
+                    original_plans[plan_id] = capture_plan_originals(raw=raw, pool=pool_name,
+                        index=raw_index, a3_audit=a3_original, authority=authority_proof)
                     # A bounded same-day recovery rebuilds the plan set that
                     # should have existed before the regular 09:26 review.
                     # Publish it as pending first, then let the explicit A4
@@ -6988,8 +7019,15 @@ class WorkflowApplication:
         for candidate in batch:
             payload = normalize_publication_expiry(candidate["payload"], candidate["expires_at"])
             candidate["payload"] = payload
+            original = original_plans[candidate["plan_id"]]
+            normalized_original = normalize_publication_expiry(
+                _plan_payload(original["raw_plan"]["value"]), candidate["expires_at"])
+            original["normalized_payload"] = {"value": normalized_original,
+                "sha256": object_hash(normalized_original)}
             facts = payload.get("strategy_facts")
             if facts is not None and not isinstance(facts, Mapping):
+                original["shadow_projection"] = None
+                original["submitted_payload"] = {"value": deepcopy(payload), "sha256": object_hash(payload)}
                 continue  # Preserve malformed legacy fields, never replace them.
             shadow = shadow_inputs_for_publication(
                 cache=getattr(self, "fact_cache", None),
@@ -6997,9 +7035,31 @@ class WorkflowApplication:
                 production_plan=payload, snapshot_data=snapshot_data,
                 target_trade_date=candidate["expires_at"].date(), observed_at=now,
             )
+            # Audit-only Wilder evidence from the full existing PIT cache.
+            # It never repairs missing factors or feeds back to model inputs.
+            from .runtime.publication_indicators import publication_atr_evidence
+            try:
+                if set(shadow.get("gap_codes") or ()) & {
+                    "FROZEN_SOURCE_TIME_CONFLICT", "FROZEN_FACTOR_IDENTITY_CONFLICT",
+                }:
+                    raise ValueError("FROZEN_SOURCE_CONFLICT_NO_EVIDENCE_READ")
+                closed_day = now.date()
+                if now.hour < 15 or not self.trading_calendar.is_trading_day(closed_day):
+                    closed_day = self.trading_calendar.previous_trading_day(closed_day)
+                closed_at = datetime(closed_day.year, closed_day.month, closed_day.day, 15, 0, tzinfo=SHANGHAI)
+                atr_evidence = publication_atr_evidence(cache=getattr(self, "fact_cache", None),
+                    symbol=candidate["symbol"], knowledge_at=now, last_closed_at=closed_at,
+                    captured_at=datetime.now(SHANGHAI))
+            except Exception:
+                atr_evidence = {"schema_version":"publication-atr-evidence/1", "status":"DATA_LIMITED",
+                    "atr14":None, "execution_authority":False, "reason_codes":["ATR_PUBLICATION_CLOCK_UNAVAILABLE"]}
+            shadow = {**shadow, "atr14_evidence":atr_evidence}
             candidate["payload"] = {
                 **payload, "strategy_facts": {**(facts or {}), "shadow_inputs": shadow},
             }
+            original["shadow_projection"] = {"value": deepcopy(shadow), "sha256": object_hash(shadow)}
+            original["submitted_payload"] = {"value": deepcopy(candidate["payload"]),
+                "sha256": object_hash(candidate["payload"])}
         batch.sort(
             key=lambda item: (
                 _plan_priority_rank((item.get("payload") or {}).get("plan_priority")),
@@ -7014,6 +7074,29 @@ class WorkflowApplication:
                 ready_lanes if slot == "close" or same_day_recovery else ()
             ),
         )
+        projection_manifests = []
+        for lane in result.lanes:
+            if lane.lane not in ready_lanes:
+                continue
+            if publication_snapshot_path is None or not getattr(lane, "audit_path", None):
+                projection_manifests.append({"lane_id": lane.lane, "status": "DATA_LIMITED",
+                    "reason_code": "ORIGINAL_PUBLICATION_REFERENCE_MISSING"})
+                continue
+            try:
+                projection_manifests.append({"lane_id": lane.lane, **write_publication_manifest(
+                    output_dir=self.settings.workflow_output_dir / "publication_proofs",
+                    run_id=result.run_id, lane_id=lane.lane,
+                    base_snapshot_path=publication_snapshot_path,
+                    base_snapshot_id=result.snapshot_id, base_snapshot_hash=result.snapshot_hash,
+                    audit_path=lane.audit_path, originals=original_plans, published=published,
+                    published_at=datetime.now(SHANGHAI), research_as_of=now,
+                    publication_mode="CLOSE" if slot == "close" else slot.upper(),
+                    minimum_trade_date=minimum_trade_date)})
+            except Exception as exc:
+                # A proof gap is visible, never a reason to retire valid plans
+                # or send a duplicate business notification after publication.
+                projection_manifests.append({"lane_id": lane.lane, "status": "DATA_LIMITED",
+                    "reason_code": "PUBLICATION_PROJECTION_CAPTURE_FAILED", "error_type": type(exc).__name__})
         self.store.mark_workflow_runs_published(result.run_id, ready_lanes)
         created = [str(item["plan_id"]) for item in published]
         activated = [
@@ -7040,6 +7123,7 @@ class WorkflowApplication:
             )
         return {
             "atomic": True,
+            "projection_manifests": projection_manifests,
             "indicator_preparation": indicator_preparation,
             "created": created,
             "activated": activated,
@@ -8441,6 +8525,30 @@ def _plan_payload(raw: Mapping[str, Any]) -> dict[str, Any]:
 
 def _plan_priority_rank(value: Any) -> int:
     return {"P1": 0, "P2": 1, "P3": 2}.get(str(value or "").strip().upper(), 3)
+
+
+def _effective_events_for_identities(store, *, lane_id, identities):
+    """Read only this round's exact durable identities, not all past payloads.
+
+    Keep the original final identity filter and row ordering. Bounds come
+    from those same persisted timestamp strings, not a guessed session/day.
+    This does not truncate the historical effective Markdown or mutate rows.
+    """
+    if not identities:
+        return []
+    minutes = [identity[3] for identity in identities]
+    return [
+        row for row in store.list_monitor_events(
+            lane_id=lane_id, effective_only=True,
+            from_time=min(minutes), to_time=max(minutes),
+        )
+        if (
+            str(row.get("lane_id") or ""),
+            str(json.loads(str(row.get("payload_json") or "{}")).get("plan_id") or ""),
+            str(row.get("action") or ""),
+            str(row.get("minute_end") or ""),
+        ) in identities
+    ]
 
 
 def _published_plan_sort_key(row: Mapping[str, Any]) -> tuple[int, str, str]:

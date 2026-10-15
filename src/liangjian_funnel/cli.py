@@ -462,6 +462,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub.add_parser("run-morning", help="dispatch only the due 09:26 morning review")
     sub.add_parser("run-auction-base", help="prepare immutable research evidence at 07:00; no models or plan publication")
+    sub.add_parser("run-auction-evidence", help="capture one 09:25 source observation; no research, activation or rebase")
     auction_refresh = sub.add_parser("run-auction-refresh", help="refresh A2/A3 research after auction; never replace active A4 plans")
     auction_refresh.add_argument("--manual-current", action="store_true",
                                  help="explicit operator rerun using the current session time, not the 09:26 auction cutoff")
@@ -641,6 +642,16 @@ def main(argv: Sequence[str] | None = None, *, settings: Settings | None = None)
     active = settings or Settings.from_env()
     if args.command == "doctor":
         return _doctor(active)
+    if args.command == "run-auction-evidence":
+        # Do not construct WorkflowApplication/RuntimeStore for a read-only
+        # plan scope plus an exclusive evidence file.
+        from .runtime.opening_evidence import capture_opening_evidence
+        try:
+            result = capture_opening_evidence(active)
+        except Exception:
+            result = {"status":"DATA_LIMITED", "reason_code":"OPENING_EVIDENCE_CAPTURE_FAILED"}
+        print(json.dumps(result, ensure_ascii=False))
+        return 0 if result["status"] in {"CAPTURED", "NOOP"} else 2
     if args.command in {"storage-audit", "storage-backup", "storage-cleanup"}:
         return _storage_command(args, active)
     if args.command in {

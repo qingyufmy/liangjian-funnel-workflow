@@ -24,6 +24,7 @@ from .context import A5ReviewError, PROMPT_LIMIT, render_a5_prompt
 from .plan_scope import carryover_evidence, select_review_plans
 from .plan_replay import replay_plan_pool, model_projection as replay_projection, markdown_lines as replay_markdown
 from .fact_guard import normalize_quality, reconcile_report, business_metrics, verification_totals
+from .observability import condition_observations, timing_observations, compact_observability, observability_markdown
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -879,6 +880,8 @@ def _compact_counterexamples_for_model(rows: Sequence[Mapping[str, Any]]) -> lis
 
 def _model_fact_projection(facts: Mapping[str, Any]) -> dict[str, Any]:
     projected = dict(facts)
+    if isinstance(facts.get("execution_observability"), Mapping):
+        projected["execution_observability"] = compact_observability(facts["execution_observability"])
     if isinstance(facts.get("business_audit"), Mapping):
         from .business_audit import compact_business_audit
         projected["business_audit"] = compact_business_audit(facts["business_audit"])
@@ -1698,6 +1701,10 @@ def build_a5_fact_snapshot(
         from_time=cutoff.replace(hour=0, minute=0, second=0, microsecond=0), to_time=operation_cutoff)
     snapshot["business_audit"] = business_audit(events=raw_event_rows, plans=plans,
         delivery_counts=delivery_counts, operational=snapshot["operational_evidence"], replay=snapshot["a3_plan_replay"])
+    snapshot["execution_observability"] = {
+        "conditions": condition_observations(selected_plan_rows, raw_event_rows, cutoff=cutoff),
+        "timings": timing_observations(Path(output_dir) / "node" / "timeout-snapshots", cutoff=operation_cutoff),
+    }
     snapshot["input_hash"] = _canonical_hash(snapshot)
     return snapshot
 
@@ -1780,6 +1787,7 @@ def _evidence_ids(snapshot: Mapping[str, Any]) -> set[str]:
     collect(snapshot.get("signal_stock_reviews"))
     collect(snapshot.get("operational_evidence"))
     collect(snapshot.get("business_audit"))
+    collect(snapshot.get("execution_observability"))
     collect(a3.get("plan_scope"))
     collect(a4.get("carryover_plans"))
     collect(a4.get("carryover_lifecycles"))
@@ -1882,6 +1890,7 @@ def _markdown(report: A5ReviewReport, snapshot: Mapping[str, Any]) -> str:
     if report.fact_reconciliation:
         lines.extend(["## 事实审校", "", *[f"- {note}" for note in report.fact_reconciliation], ""])
     lines.extend(replay_markdown(snapshot.get("a3_plan_replay")))
+    lines.extend(observability_markdown(snapshot.get("execution_observability")))
     business = _json_mapping(snapshot.get("business_audit"))
     if business:
         target = _json_mapping(business.get("target_buy_signals"))
@@ -1891,7 +1900,9 @@ def _markdown(report: A5ReviewReport, snapshot: Mapping[str, Any]) -> str:
             "- 按策略首因：`" + json.dumps(business.get("first_reason_by_strategy", {}), ensure_ascii=False) + "`",
             f"- ROTATION_GATE_EMPTY 计划 {business.get('ROTATION_GATE_EMPTY_plan_count')} / A2_REVIEW_DEGRADED 计划 {business.get('A2_REVIEW_DEGRADED_plan_count')}。",
             "- 缺口归因：`" + json.dumps(business.get("missing_execution_records", []), ensure_ascii=False) + "`",
-            "- 运维原因证据：`" + json.dumps(business.get("gap_cause_evidence", []), ensure_ascii=False) + "`", ""])
+            "- 运维事件候选（不自动证明执行缺口）：`" + json.dumps(business.get("incident_candidates", business.get("gap_cause_evidence", [])), ensure_ascii=False) + "`",
+            "- 正常观察计数：`" + json.dumps(business.get("healthy_observations", {}), ensure_ascii=False) + "`",
+            "- 待核实观察（UNKNOWN_PENDING）：`" + json.dumps(business.get("unknown_observations", []), ensure_ascii=False) + "`", ""])
     for title, layer in (("A2 选股与题材", report.a2_review), ("A3 日线计划", report.a3_review), ("A4 日内择时", report.a4_review)):
         lines.extend([f"## {title}", "", f"**{layer.verdict}**｜{layer.summary}", ""])
         if layer.strengths:

@@ -942,12 +942,16 @@ def _with_a3_candidate_context(
     data = dict(snapshot.data)
     data["A3_CANDIDATE_ORIGIN"] = dict(sorted(normalized.items()))
     data["A3_CANDIDATE_SCOPE"] = sorted(normalized)
-    return FrozenInputSnapshot(
+    result = FrozenInputSnapshot(
         snapshot_id=f"{snapshot.snapshot_id}:a3-candidates:{overlay_hash[:12]}",
         data=data,
         snapshot_hash=overlay_hash,
         as_of=snapshot.as_of,
     )
+    return _capture_snapshot_recipe(snapshot, result, recipe_kind="A3_CANDIDATE_CONTEXT",
+        hash_recipe={"base_snapshot_hash": snapshot.snapshot_hash, "stage": "A3_CANDIDATE_CONTEXT", "origins": normalized},
+        data_recipe={"operation": "SHALLOW_OVERLAY", "overlay": {
+            "A3_CANDIDATE_ORIGIN": dict(sorted(normalized.items())), "A3_CANDIDATE_SCOPE": sorted(normalized)}})
 
 
 def _a3_contract_scenarios(decision: Mapping[str, Any]) -> dict[str, Any]:
@@ -1092,12 +1096,15 @@ def _with_a3_deterministic_context(
             bounded_factors[str(symbol)] = factor
         data["FACTOR_SNAPSHOT"] = bounded_factors
     data["A3_DETERMINISTIC_CONTEXT"] = context
-    return FrozenInputSnapshot(
+    result = FrozenInputSnapshot(
         snapshot_id=f"{snapshot.snapshot_id}:a3-gate:{overlay_hash[:12]}",
         data=data,
         snapshot_hash=overlay_hash,
         as_of=snapshot.as_of,
     )
+    return _capture_snapshot_recipe(snapshot, result, recipe_kind="A3_DETERMINISTIC_CONTEXT",
+        hash_recipe={"base_snapshot_hash": snapshot.snapshot_hash, "stage": "A3_DETERMINISTIC_CONTEXT", "context": context},
+        data_recipe={"operation": "A3_DETERMINISTIC_CONTEXT", "context": context, "factor_projection": "MONTH_WEEK_DAY_ONLY"})
 
 
 def _a3_decision_evidence_gaps(

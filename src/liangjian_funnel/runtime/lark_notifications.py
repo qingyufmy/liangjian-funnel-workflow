@@ -908,6 +908,10 @@ class WorkflowLarkPublisher:
             ]
         )
         chunks = [ordered[index : index + 3] for index in range(0, len(ordered), 3)]
+        from .publication_projection import card_plan_binding
+        overview_binding = card_plan_binding(ordered, ordered, source_run_id=source_run_id,
+            trade_date=analyzed_at.date().isoformat(),
+            displayed_symbols=[str(row.get("symbol") or "") for row in ordered])
         outputs: list[dict[str, Any]] = [
             self._send(
                 delivery_key=f"a3-premarket-professional-v4:{analyzed_at.date().isoformat()}:{batch_hash}:overview",
@@ -918,6 +922,8 @@ class WorkflowLarkPublisher:
                 summary={
                     "trade_date": analyzed_at.date().isoformat(),
                     "source_run_id": source_run_id,
+                    "plan_ids": overview_binding["plan_ids"],
+                    "plan_binding": overview_binding,
                     "plan_count": len(ordered),
                     "context_status": context.get("status"),
                     "market_trade_date": context.get("market_trade_date"),
@@ -979,6 +985,8 @@ class WorkflowLarkPublisher:
                     ]
                 )
             lines.extend(["", "**执行纪律**", "• 未触发不交易；超过禁止追价位不追；跌破止损不等待模型解释。", "• 仅用于本地模拟研究，不连接真实账户。"])
+            page_binding = card_plan_binding(ordered, chunk, source_run_id=source_run_id,
+                trade_date=analyzed_at.date().isoformat(), displayed_symbols=symbols)
             outputs.append(
                 self._send(
                     delivery_key=f"a3-premarket-professional-v4:{analyzed_at.date().isoformat()}:{batch_hash}:plans:{page}",
@@ -990,6 +998,8 @@ class WorkflowLarkPublisher:
                         "trade_date": analyzed_at.date().isoformat(),
                         "source_run_id": source_run_id,
                         "symbols": symbols,
+                        "plan_ids": page_binding["plan_ids"],
+                        "plan_binding": page_binding,
                         "plan_count": len(ordered),
                         "page": page,
                         "card": "plans",

@@ -157,6 +157,7 @@ class PublicationReference:
     lane_id: str
     summary: FilePin
     audit: FilePin
+    projection_manifest: FilePin | None = None
 
 
 def freeze_local_sqlite(*, source: Path, expected_sha256: str, observed_at: datetime,
@@ -242,6 +243,7 @@ class ReadOnlyPublicationReader:
         reasons: set[str] = set()
         publications = tuple(publications)
         accounts = tuple(account_ids)
+        projection_original_pins = []
         if (not accounts or any(not isinstance(item, str) or not item.strip() for item in accounts)
                 or len(set(accounts)) != len(accounts)):
             raise ExportError("ACCOUNT_SET_INVALID")
@@ -326,7 +328,12 @@ class ReadOnlyPublicationReader:
                     except ExportError:
                         local_reasons.add("PUBLISHED_CANDIDATE_TIME_UNPROVEN")
                 try:
-                    logical = self._publication(ref, summary, audit, run, stage, target, previous, observed, evidence)
+                    projection_inputs, projection_pins, proof_builder = self._projection_inputs(ref, summary, audit)
+                    projection_original_pins.extend(projection_pins)
+                    if ref.projection_manifest is not None:
+                        evidence["projection_manifest"] = {"path": str(ref.projection_manifest.path), "sha256": ref.projection_manifest.sha256}
+                    logical = self._publication(ref, summary, audit, run, stage, target, previous, observed, evidence,
+                                                projection_inputs=projection_inputs)
                     created = summary["plan_publication"]["created"]
                     if set(created) != {row["plan_id"] for row in linked}:
                         raise ExportError("PUBLICATION_PLAN_SET_MISMATCH")
@@ -335,10 +342,14 @@ class ReadOnlyPublicationReader:
                     selected = []
                     for row in linked:
                         try:
-                            selected.append(self._plan(row, ref, summary, logical, target, observed))
+                            selected.append(self._plan(row, ref, summary, logical, target, observed,
+                                projection_inputs=projection_inputs, proof_builder=proof_builder, calendar=calendar))
                         except ExportError as exc:
                             local_reasons.add(exc.reason_code)
                     # A partial invalid publication cannot silently become ready.
+                    for pin in projection_pins:
+                        if file_sha256(Path(pin.path).resolve(strict=True)) != pin.sha256:
+                            raise ExportError("PROJECTION_REFERENCE_CHANGED")
                     if not local_reasons:
                         plans.extend(selected)
                         evidence["bound"] = True
@@ -384,6 +395,9 @@ class ReadOnlyPublicationReader:
             for pin in (ref.summary, ref.audit):
                 if file_sha256(Path(pin.path).resolve(strict=True)) != pin.sha256:
                     raise ExportError("REFERENCE_CHANGED")
+        for pin in projection_original_pins:
+            if file_sha256(Path(pin.path).resolve(strict=True)) != pin.sha256:
+                raise ExportError("PROJECTION_REFERENCE_CHANGED")
         body = {"schema_version": SCHEMA_VERSION, "implementation_status": "IMPLEMENTATION_PARTIAL",
             "evidence_status": "DATA_LIMITED" if reasons else "LOCAL_DECLARATION_BOUND",
             "scope_complete": not reasons, "eligibility_released": False,
@@ -417,7 +431,184 @@ class ReadOnlyPublicationReader:
         if "created_at" in row.keys() and _time(row["created_at"]) > updated:
             raise ExportError("ROW_TIME_CONFLICT")
 
-    def _publication(self, ref, summary, audit, run, stage, target, previous, observed, evidence):
+    def _projection_inputs(self, ref, summary, audit):
+        """Resolve one batch's pinned originals once; never read final DB payloads.
+
+        No manifest means exactly the existing strict reader contract. A manifest
+        can only explain transforms when its shared audit/base/recipe pins bind.
+        """
+        if ref.projection_manifest is None:
+            return None, (), None
+        from .publication_receipt import AuthorityProof, BoundObject, PublicationInputs, PublicationReceiptBuilder, SnapshotProof, object_hash
+        from .publication_projection import capture_publication_projection
+        def bound(value): return BoundObject(value, object_hash(value))
+        def original(value):
+            if (not isinstance(value, dict) or set(value) != {"value", "sha256"}
+                    or not isinstance(value["value"], dict) or object_hash(value["value"]) != value["sha256"]):
+                raise ExportError("PROJECTION_ORIGINAL_HASH_CONFLICT")
+            return BoundObject(value["value"], value["sha256"])
+        def pin(value):
+            if not isinstance(value, dict): raise ExportError("PROJECTION_PIN_INVALID")
+            return FilePin(Path(value["path"]).resolve(strict=True), _pin(value["sha256"]))
+        try:
+            manifest = ref.projection_manifest.read()
+            if (manifest.get("schema_version") != "publication-projection-manifest/1"
+                    or manifest.get("run_id") != ref.run_id or manifest.get("lane_id") != ref.lane_id
+                    or object_hash({key: value for key, value in manifest.items() if key != "manifest_sha256"}) != manifest.get("manifest_sha256")):
+                raise ExportError("PROJECTION_MANIFEST_BINDING_CONFLICT")
+            publication = summary.get("plan_publication", {})
+            manifests = publication.get("projection_manifests")
+            if manifests is not None:
+                if not isinstance(manifests, list): raise ExportError("PROJECTION_SUMMARY_REFERENCE_CONFLICT")
+                matches = [item for item in manifests if isinstance(item, dict) and item.get("lane_id") == ref.lane_id]
+                if len(matches) != 1: raise ExportError("PROJECTION_SUMMARY_REFERENCE_CONFLICT")
+                claimed = matches[0]
+            else:
+                claimed = publication.get("projection_manifest")
+            if (not isinstance(claimed, dict) or pin(claimed) != FilePin(Path(ref.projection_manifest.path).resolve(strict=True), ref.projection_manifest.sha256)):
+                raise ExportError("PROJECTION_SUMMARY_REFERENCE_CONFLICT")
+            if pin(manifest.get("audit")) != FilePin(Path(ref.audit.path).resolve(strict=True), ref.audit.sha256):
+                raise ExportError("PROJECTION_AUDIT_REFERENCE_CONFLICT")
+            base_ref = manifest["base_snapshot"]
+            base_pin = pin(base_ref)
+            base_raw = base_pin.path.read_bytes()
+            if hashlib.sha256(base_raw).hexdigest() != base_pin.sha256:
+                raise ExportError("PROJECTION_BASE_FILE_HASH_CONFLICT")
+            base = _json(base_raw)
+            if (base.get("snapshot_id") != base_ref.get("snapshot_id")
+                    or base.get("snapshot_hash") != base_ref.get("snapshot_hash")
+                    or base.get("snapshot_id") != summary.get("snapshot", {}).get("snapshot_id")
+                    or base.get("snapshot_hash") != summary.get("snapshot", {}).get("snapshot_hash")):
+                raise ExportError("PROJECTION_BASE_PUBLICATION_CONFLICT")
+            base_proof = SnapshotProof(bound(base), base_raw, base_pin.sha256, None, None, "BASE_RESEARCH_DATA")
+            stages = audit.get("stages")
+            if not isinstance(stages, list): raise ExportError("PROJECTION_AUDIT_STAGES_INVALID")
+            a3_stages = [item for item in stages if isinstance(item, dict) and item.get("stage") == "A3"]
+            if len(a3_stages) != 1: raise ExportError("PROJECTION_A3_MEMBERSHIP_CONFLICT")
+            a3 = a3_stages[0]
+            def chain(stage):
+                captured = stage.get("snapshot_proof")
+                if stage.get("snapshot_id") == base.get("snapshot_id"):
+                    if (not isinstance(captured, dict) or captured.get("schema_version") != "research-snapshot-proof/1"
+                            or captured.get("status") != "CAPTURED"
+                            or captured.get("snapshot_id") != base.get("snapshot_id")
+                            or captured.get("snapshot_hash") != base.get("snapshot_hash")
+                            or captured.get("as_of") != base.get("as_of") or captured.get("chain") != []):
+                        raise ExportError("PROJECTION_BASE_STAGE_BINDING_UNPROVEN")
+                    return (base_proof,)
+                if (not isinstance(captured, dict) or captured.get("schema_version") != "research-snapshot-proof/1"
+                        or captured.get("status") != "CAPTURED" or not isinstance(captured.get("chain"), list)):
+                    raise ExportError("AUDIT_OVERLAY_BINDING_UNPROVEN")
+                output, prior = [base_proof], base
+                for node in captured["chain"]:
+                    if (not isinstance(node, dict) or node.get("status") != "CAPTURED"
+                            or node.get("parent_snapshot_id") != prior.get("snapshot_id")
+                            or node.get("parent_snapshot_hash") != prior.get("snapshot_hash")
+                            or node.get("parent_as_of") != prior.get("as_of")):
+                        raise ExportError("AUDIT_OVERLAY_BINDING_UNPROVEN")
+                    recipe = node.get("hash_recipe")
+                    if not isinstance(recipe, dict) or object_hash(recipe) != node.get("snapshot_hash"):
+                        raise ExportError("PROJECTION_RECIPE_HASH_CONFLICT")
+                    reasons = set()
+                    expected, _ = PublicationReceiptBuilder._snapshot_transform(node.get("recipe_kind"), prior, recipe, reasons)
+                    delta = node.get("data_recipe")
+                    if not isinstance(delta, dict): raise ExportError("PROJECTION_DATA_RECIPE_UNPROVEN")
+                    if delta.get("operation") == "SHALLOW_OVERLAY" and set(delta) == {"operation", "overlay"} and isinstance(delta["overlay"], dict):
+                        derived = {**prior["data"], **delta["overlay"]}
+                    elif (node.get("recipe_kind") == "A2_STOCK_NEWS"
+                            and set(delta) == {"NEWS_HEAT_SNAPSHOT", "A2_STOCK_NEWS_SCOPE"}):
+                        derived = {**prior["data"], **delta}
+                    elif (delta.get("operation") == "A3_DETERMINISTIC_CONTEXT"
+                            and set(delta) == {"operation", "context", "factor_projection"}
+                            and delta.get("factor_projection") == "MONTH_WEEK_DAY_ONLY"
+                            and object_hash(delta.get("context")) == object_hash(recipe.get("context"))):
+                        derived = expected
+                    else:
+                        raise ExportError("PROJECTION_DATA_RECIPE_UNPROVEN")
+                    if reasons or expected is None or object_hash(derived) != object_hash(expected):
+                        raise ExportError("PROJECTION_DATA_RECIPE_CONFLICT")
+                    child = {"snapshot_id": node.get("snapshot_id"), "snapshot_hash": node.get("snapshot_hash"),
+                             "as_of": node.get("as_of"), "data": expected}
+                    output.append(SnapshotProof(bound(child), None, None, prior["snapshot_hash"],
+                        bound(recipe), node["recipe_kind"], "PINNED_RECIPE"))
+                    prior = child
+                if (prior.get("snapshot_id") != stage.get("snapshot_id")
+                        or captured.get("snapshot_id") != prior.get("snapshot_id")
+                        or captured.get("snapshot_hash") != prior.get("snapshot_hash")
+                        or captured.get("as_of") != prior.get("as_of")):
+                    raise ExportError("PROJECTION_CHAIN_TERMINAL_CONFLICT")
+                return tuple(output)
+            a3_chain = chain(a3)
+            a2_stages = [item for item in stages if isinstance(item, dict) and item.get("stage") == "A2"]
+            a2 = a2_stages[0] if len(a2_stages) == 1 else None
+            a2_chain = chain(a2) if a2 is not None else ()
+            proof_builder = PublicationReceiptBuilder()
+            chain_reasons = set()
+            proof_builder._snapshots(a3_chain, chain_reasons, audit=bound(a3))
+            if a2_chain:
+                proof_builder._snapshots(a2_chain, chain_reasons, audit=bound(a2))
+            if chain_reasons:
+                raise ExportError("PROJECTION_" + sorted(chain_reasons)[0])
+            result = {}
+            entries = manifest.get("plans")
+            if not isinstance(entries, list): raise ExportError("PROJECTION_PLAN_SET_CONFLICT")
+            for entry in entries:
+                plan_id = entry.get("plan_id")
+                if not isinstance(plan_id, str) or plan_id in result: raise ExportError("PROJECTION_PLAN_SET_CONFLICT")
+                location = entry.get("raw_plan_location")
+                if (not isinstance(location, list) or len(location) != 2
+                        or location[0] not in {"core_watch_pool", "secondary_watch_pool"}
+                        or type(location[1]) is not int or location[1] < 0):
+                    raise ExportError("PROJECTION_RAW_PLAN_LOCATION_INVALID")
+                raw = a3["output"][location[0]][location[1]]
+                if object_hash(raw) != entry.get("raw_plan_sha256"):
+                    raise ExportError("PROJECTION_RAW_PLAN_HASH_CONFLICT")
+                if entry.get("a3_audit_sha256") is not None and entry["a3_audit_sha256"] != object_hash(a3):
+                    raise ExportError("PROJECTION_A3_AUDIT_HASH_CONFLICT")
+                authority, authority_chain = None, ()
+                descriptor = entry.get("authority")
+                if descriptor is not None:
+                    origin, selector = descriptor.get("origin"), tuple(descriptor.get("selector", ()))
+                    if origin == "A2_AUDIT_ROW" and a2 is not None:
+                        source, authority_chain = a2, a2_chain
+                        if descriptor.get("source_sha256") is not None and descriptor["source_sha256"] != object_hash(a2):
+                            raise ExportError("PROJECTION_AUTHORITY_AUDIT_HASH_CONFLICT")
+                    elif origin == "SNAPSHOT_A2_CONTEXT":
+                        matches = [item.snapshot.value for item in (*a3_chain, *a2_chain)
+                            if item.snapshot.value.get("snapshot_id") == descriptor.get("source_snapshot_id")
+                            and item.snapshot.value.get("snapshot_hash") == descriptor.get("source_snapshot_hash")]
+                        unique = {object_hash(item): item for item in matches}
+                        if len(unique) != 1: raise ExportError("PROJECTION_AUTHORITY_SNAPSHOT_UNPROVEN")
+                        source = next(iter(unique.values()))
+                    else:
+                        raise ExportError("PROJECTION_AUTHORITY_SOURCE_UNPROVEN")
+                    selected = source
+                    for part in selector:
+                        if isinstance(part, bool): raise ExportError("PROJECTION_AUTHORITY_SELECTOR_INVALID")
+                        selected = selected[part]
+                    if not isinstance(selected, dict) or object_hash(selected) != descriptor.get("value_sha256"):
+                        raise ExportError("PROJECTION_AUTHORITY_VALUE_CONFLICT")
+                    authority = AuthorityProof(bound(selected), bound(source), selector, origin)
+                original_inputs = PublicationInputs(run_id=ref.run_id, lane_id=ref.lane_id, plan_id=plan_id,
+                    a3_audit=bound(a3), raw_plan=bound(raw), raw_plan_location=tuple(location),
+                    normalized_payload=original(entry["normalized_payload"]), submitted_payload=None,
+                    published_payload=original(entry["published_payload"]), changes=(), authority=authority,
+                    snapshot_chain=a3_chain, target_trade_date=_day(entry["target_trade_date"]),
+                    server_expires_at=_time(entry["server_expires_at"]), published_at=_time(entry["published_at"]),
+                    publication_mode=entry["publication_mode"], minimum_trade_date=_day(entry["minimum_trade_date"]) if entry.get("minimum_trade_date") else None,
+                    authority_snapshot_chain=authority_chain)
+                result[plan_id] = capture_publication_projection(original_inputs,
+                    shadow_projection=original(entry["shadow_projection"]) if entry.get("shadow_projection") is not None else None,
+                    submitted_payload=original(entry["submitted_payload"]), published_payload=original(entry["published_payload"]))
+            if set(result) != set(summary.get("plan_publication", {}).get("created", ())):
+                raise ExportError("PROJECTION_PLAN_SET_CONFLICT")
+            return result, (ref.projection_manifest, ref.audit, base_pin), proof_builder
+        except ExportError:
+            raise
+        except (OSError, KeyError, IndexError, TypeError, ValueError, AttributeError) as exc:
+            raise ExportError("PROJECTION_ORIGINALS_INVALID") from exc
+
+    def _publication(self, ref, summary, audit, run, stage, target, previous, observed, evidence, *, projection_inputs=None):
         publication = summary.get("plan_publication")
         snapshot = summary.get("snapshot")
         if (any(not isinstance(summary.get(key), str) for key in ("run_id", "slot", "status", "run_role"))
@@ -467,7 +658,8 @@ class ReadOnlyPublicationReader:
             bases = [item for item in audit["stages"] if isinstance(item, dict) and item.get("stage") == "A1"]
             if len(bases) != 1 or bases[0].get("snapshot_id") != snapshot["snapshot_id"]:
                 raise ExportError("AUDIT_SNAPSHOT_MISMATCH")
-            evidence["snapshot_binding"] = "BASE_ID_PLUS_PINNED_AUDIT_OVERLAY_DECLARATION"
+            evidence["snapshot_binding"] = ("BASE_FILE_PLUS_PINNED_CURRENT_RUN_RECIPES" if projection_inputs is not None
+                else "BASE_ID_PLUS_PINNED_AUDIT_OVERLAY_DECLARATION")
             evidence["base_snapshot_id"] = snapshot["snapshot_id"]
             evidence["a3_snapshot_id"] = audit_stage.get("snapshot_id")
         else:
@@ -493,13 +685,13 @@ class ReadOnlyPublicationReader:
                 logical[plan_id] = {"symbol": symbol, "raw_sha256": _hash(raw), "raw": raw}
         if not set(publication["created"]).issubset(logical):
             raise ExportError("PUBLICATION_AUDIT_PLAN_MISMATCH")
-        if overlay_unproven:
+        if overlay_unproven and projection_inputs is None:
             # An ID prefix or arbitrary 12hex suffix is not a derived snapshot
             # hash-chain proof. This slice never reconstructs absent overlays.
             raise ExportError("AUDIT_OVERLAY_BINDING_UNPROVEN")
         return logical
 
-    def _plan(self, row, ref, summary, logical, target, observed):
+    def _plan(self, row, ref, summary, logical, target, observed, *, projection_inputs=None, proof_builder=None, calendar=None):
         self._row_time(row, observed)
         _identifier(row["plan_id"])
         if row["status"] != "PENDING_MORNING_REVIEW":
@@ -522,7 +714,19 @@ class ReadOnlyPublicationReader:
                 raise ExportError("PLAN_PAYLOAD_EXPIRY_CONFLICT")
         if payload.get("target_trade_date") is not None and _day(payload["target_trade_date"]) != target:
             raise ExportError("PLAN_PAYLOAD_TARGET_CONFLICT")
-        self._payload_binding(payload, logical[row["plan_id"]]["raw"], ref.run_id)
+        if projection_inputs is None:
+            self._payload_binding(payload, logical[row["plan_id"]]["raw"], ref.run_id)
+        else:
+            from .publication_projection import validate_projected_payload
+            inputs = projection_inputs[row["plan_id"]]
+            if (_time(inputs.server_expires_at) != expiry or inputs.target_trade_date != target
+                    or _time(inputs.published_at) > observed):
+                raise ExportError("PLAN_PROJECTION_DATE_CONFLICT")
+            checked = validate_projected_payload(inputs, payload=payload,
+                raw_plan=logical[row["plan_id"]]["raw"], run_id=ref.run_id, lane_id=ref.lane_id,
+                plan_id=row["plan_id"], calendar=calendar, builder=proof_builder)
+            if not checked["evidence_complete"]:
+                raise ExportError("PLAN_PROJECTION_" + (checked["reason_codes"][0] if checked["reason_codes"] else "INVALID"))
         explicit = summary.get("target_trade_date") is not None or payload.get("target_trade_date") is not None
         return {"plan_id": row["plan_id"], "lane_id": row["lane_id"], "symbol": symbol,
             "status": row["status"], "source_run_id": ref.run_id,
@@ -530,7 +734,8 @@ class ReadOnlyPublicationReader:
             "expires_at": row["expires_at"], "target_binding": "EXPLICIT_TARGET" if explicit else "TARGET_BOUND_BY_SERVER_EXPIRY",
             "payload_sha256": hashlib.sha256(row["payload_json"].encode()).hexdigest(),
             "audit_plan_sha256": logical[row["plan_id"]]["raw_sha256"],
-            "payload_binding": "RAW_FIELDS_AND_KNOWN_SERVER_ALIASES"}
+            "payload_binding": "PINNED_ORIGINAL_PUBLICATION_PROJECTION" if projection_inputs is not None else "RAW_FIELDS_AND_KNOWN_SERVER_ALIASES",
+            **({"publication_projection_receipt": checked["receipt"]} if projection_inputs is not None else {})}
 
     @staticmethod
     def _payload_binding(payload: dict[str, Any], raw: dict[str, Any], run_id: str) -> None:

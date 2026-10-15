@@ -17,6 +17,7 @@ import os
 import re
 import sqlite3
 import time
+from functools import wraps
 from concurrent.futures import ThreadPoolExecutor
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -30,6 +31,7 @@ from ...redaction import digest_text, safe_error, sanitize
 from ...data.hot100_observation import observe_hot100, snapshot_decision_as_of
 from ...reporting import atomic_write_json, atomic_write_text
 from ...evaluation.outcome_labels import record_stage_decisions
+from ...evaluation.decision_capture import capture_gate, label_rows
 from ..rotation_diagnostics import rotation_coverage
 from ..a2_news_context import build_a2_news_shadow
 from ..a2_news_review import enrich_news_shadow, build_review_packet
@@ -453,9 +455,12 @@ class FrozenInputSnapshot(Mapping[str, Any]):
     data: Mapping[str, Any]
     snapshot_hash: str = ""
     as_of: Any = None
+    # Audit sidecar only: never enters data, content hash or model input.
+    proof_chain: tuple[Mapping[str, Any], ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "data", MappingProxyType(dict(self.data)))
+        object.__setattr__(self, "proof_chain", tuple(self.proof_chain or ()))
         if not self.snapshot_hash:
             object.__setattr__(self, "snapshot_hash", _sha256_json(self.data))
 
@@ -486,6 +491,7 @@ class StageAudit:
     reason_codes: tuple[str, ...]
     output: Mapping[str, Any] | None = None
     diagnostics: Mapping[str, Any] | None = None
+    snapshot_proof: Mapping[str, Any] | None = None
 
     def outcome(self) -> StageOutcome:
         return _stage_outcome(self)
@@ -508,7 +514,86 @@ class StageAudit:
             "output": dict(self.output) if isinstance(self.output, Mapping) else None,
             "diagnostics": dict(self.diagnostics) if isinstance(self.diagnostics, Mapping) else None,
             "outcome_v2": self.outcome().as_dict(),
+            **({"snapshot_proof": _jsonable(self.snapshot_proof)} if self.snapshot_proof is not None else {}),
         }
+
+
+def _capture_snapshot_recipe(
+    parent: FrozenInputSnapshot,
+    result: FrozenInputSnapshot,
+    *,
+    recipe_kind: str,
+    hash_recipe: Mapping[str, Any],
+    data_recipe: Mapping[str, Any],
+) -> FrozenInputSnapshot:
+    """Capture an original transform at its real construction boundary.
+
+    The existing business id/hash/data are used unchanged. A mismatching
+    builder recipe is evidence failure, never a new hash or business fallback.
+    """
+    original_recipe = _jsonable(hash_recipe)
+    node = {
+        "schema_version": "research-snapshot-recipe/1",
+        "status": "CAPTURED" if _sha256_json(original_recipe) == result.snapshot_hash else "UNPROVEN",
+        "recipe_kind": recipe_kind,
+        "parent_snapshot_id": parent.snapshot_id,
+        "parent_snapshot_hash": parent.snapshot_hash,
+        "parent_as_of": _jsonable(parent.as_of),
+        "snapshot_id": result.snapshot_id,
+        "snapshot_hash": result.snapshot_hash,
+        "as_of": _jsonable(result.as_of),
+        "hash_recipe": original_recipe,
+        "data_recipe": _jsonable(data_recipe),
+    }
+    return replace(result, proof_chain=(*parent.proof_chain, node))
+
+
+def _unproven_snapshot(snapshot: FrozenInputSnapshot, reason: str) -> FrozenInputSnapshot:
+    """Do not infer a builder or ancestor from a custom snapshot's id."""
+    node = {"schema_version": "research-snapshot-recipe/1", "status": "UNPROVEN",
+        "recipe_kind": "UNKNOWN_WRAPPER", "reason": reason,
+        "parent_snapshot_id": None, "parent_snapshot_hash": None,
+        "snapshot_id": snapshot.snapshot_id, "snapshot_hash": snapshot.snapshot_hash,
+        "as_of": _jsonable(snapshot.as_of), "hash_recipe": None, "data_recipe": None}
+    return replace(snapshot, proof_chain=(*snapshot.proof_chain, node))
+
+
+def _snapshot_proof(snapshot: FrozenInputSnapshot) -> dict[str, Any]:
+    chain = _jsonable(snapshot.proof_chain)
+    valid = bool(chain) and all(isinstance(node, Mapping) and node.get("status") == "CAPTURED" for node in chain)
+    if valid:
+        valid = (chain[-1].get("snapshot_id"), chain[-1].get("snapshot_hash")) == (snapshot.snapshot_id, snapshot.snapshot_hash)
+    return {"schema_version": "research-snapshot-proof/1", "status": "CAPTURED" if valid else "UNPROVEN",
+        "snapshot_id": snapshot.snapshot_id, "snapshot_hash": snapshot.snapshot_hash,
+        "as_of": _jsonable(snapshot.as_of), "chain": chain}
+
+
+def _with_authorized_rotation_policy(snapshot: FrozenInputSnapshot) -> FrozenInputSnapshot:
+    """Original B2 policy expression with its original, separate recipe."""
+    from ...data.rotation_policy import authorized_rotation_policy, POLICY_ID
+    data = dict(snapshot.data)
+    overlay = {"A2_ROTATION_THEME_COUNT": 8, "A2_AUTHORIZED_ROTATION_POLICY": POLICY_ID}
+    if isinstance(data.get("SELECTED_BOARD_SNAPSHOT"), Mapping):
+        overlay["SELECTED_BOARD_SNAPSHOT"] = authorized_rotation_policy(data["SELECTED_BOARD_SNAPSHOT"])
+    data.update(overlay)
+    recipe = {"source_hash": snapshot.snapshot_hash, "policy": POLICY_ID,
+              "board_overlay": data.get("SELECTED_BOARD_SNAPSHOT")}
+    result = FrozenInputSnapshot(snapshot_id=snapshot.snapshot_id + ":rotation-policy",
+        snapshot_hash=_sha256_json(recipe), data=data, as_of=snapshot.as_of)
+    return _capture_snapshot_recipe(snapshot, result, recipe_kind="A2_ROTATION_POLICY",
+        hash_recipe=recipe, data_recipe={"operation": "SHALLOW_OVERLAY", "overlay": overlay})
+
+
+def _audit_snapshot_proof(operation):
+    """Attach the actual stage input to every audit return, not its prompt."""
+    @wraps(operation)
+    def captured(self, *args, **kwargs):
+        audit = operation(self, *args, **kwargs)
+        snapshot = kwargs.get("snapshot")
+        if isinstance(audit, StageAudit) and isinstance(snapshot, FrozenInputSnapshot):
+            return replace(audit, snapshot_proof=_snapshot_proof(snapshot))
+        return audit
+    return captured
 
 
 @dataclass(frozen=True, slots=True)
@@ -636,6 +721,8 @@ class ResearchPipeline:
         self._feature_generation_id = ""
         self._feature_run_id = ""
         self._feature_generation_owned = False
+        self._outcome_gate_captures: dict[tuple[str, str, str], dict[str, Any]] = {}
+        self._outcome_capture_historical_replay = False
         self._pipeline_contract_hash = _sha256_json({
             "pipeline_mode": settings.research_pipeline_mode,
             "stages": STAGES,
@@ -677,6 +764,8 @@ class ResearchPipeline:
         primary run.
         """
         self._deadline_started_monotonic = time.monotonic()
+        self._outcome_gate_captures = {}
+        self._outcome_capture_historical_replay = bool(historical_replay)
         self._feature_generation_id = ""
         self._feature_run_id = ""
         self._feature_generation_owned = False
@@ -1870,15 +1959,7 @@ class ResearchPipeline:
                 stages=(a1_audit, blocked, self._not_run_stage(lane_id, model, "A3", snapshot.snapshot_id, "UPSTREAM_STAGE_BLOCKED")),
                 final_output=None,
             )
-        from ...data.rotation_policy import authorized_rotation_policy, POLICY_ID
-        policy_data = dict(a2_snapshot.data)
-        if isinstance(policy_data.get("SELECTED_BOARD_SNAPSHOT"), Mapping):
-            policy_data["SELECTED_BOARD_SNAPSHOT"] = authorized_rotation_policy(policy_data["SELECTED_BOARD_SNAPSHOT"])
-        policy_data.update(A2_ROTATION_THEME_COUNT=8, A2_AUTHORIZED_ROTATION_POLICY=POLICY_ID)
-        a2_snapshot = FrozenInputSnapshot(snapshot_id=a2_snapshot.snapshot_id + ":rotation-policy",
-            snapshot_hash=_sha256_json({"source_hash": a2_snapshot.snapshot_hash, "policy": POLICY_ID,
-                                      "board_overlay": policy_data.get("SELECTED_BOARD_SNAPSHOT")}),
-            data=policy_data, as_of=a2_snapshot.as_of)
+        a2_snapshot = _with_authorized_rotation_policy(a2_snapshot)
         a2_gate = screen_a2(
             a2_snapshot.data,
             a1_output,
@@ -2080,15 +2161,7 @@ class ResearchPipeline:
                 stages=(a1_audit, blocked, self._not_run_stage(lane_id, model, "A3", snapshot.snapshot_id, "UPSTREAM_STAGE_BLOCKED")),
                 final_output=None,
             )
-        from ...data.rotation_policy import authorized_rotation_policy, POLICY_ID
-        policy_data = dict(a2_snapshot.data)
-        if isinstance(policy_data.get("SELECTED_BOARD_SNAPSHOT"), Mapping):
-            policy_data["SELECTED_BOARD_SNAPSHOT"] = authorized_rotation_policy(policy_data["SELECTED_BOARD_SNAPSHOT"])
-        policy_data.update(A2_ROTATION_THEME_COUNT=8, A2_AUTHORIZED_ROTATION_POLICY=POLICY_ID)
-        a2_snapshot = FrozenInputSnapshot(snapshot_id=a2_snapshot.snapshot_id + ":rotation-policy",
-            snapshot_hash=_sha256_json({"source_hash": a2_snapshot.snapshot_hash, "policy": POLICY_ID,
-                                      "board_overlay": policy_data.get("SELECTED_BOARD_SNAPSHOT")}),
-            data=policy_data, as_of=a2_snapshot.as_of)
+        a2_snapshot = _with_authorized_rotation_policy(a2_snapshot)
         a2_gate = screen_a2(
             a2_snapshot.data,
             a1_output,
@@ -2184,6 +2257,7 @@ class ResearchPipeline:
         )
 
 
+    @_audit_snapshot_proof
     def _run_v2_downstream_review(
         self,
         *,
@@ -2444,6 +2518,16 @@ class ResearchPipeline:
         gate: DeterministicGateResult,
         snapshot: FrozenInputSnapshot,
     ) -> None:
+        # Capture the actual gate boundary even when the expensive feature
+        # store is deliberately disabled for an active-A1 downstream run.
+        # No old-generation reads or final-plan reconstruction are involved.
+        if getattr(self, "runtime_store", None) is not None and not self._outcome_capture_historical_replay:
+            self._outcome_gate_captures[(run_id, lane_id, gate.stage)] = capture_gate(
+                run_id=run_id, lane_id=lane_id, stage=gate.stage,
+                decisions=gate.decisions, snapshot_id=snapshot.snapshot_id,
+                snapshot_hash=snapshot.snapshot_hash,
+                as_of=snapshot.as_of.isoformat() if snapshot.as_of else None,
+            )
         prefilter = snapshot.data.get('DISCLOSURE_PREFILTER_SHADOW')
         if gate.stage == 'A2_LOCAL_ROLE' and isinstance(prefilter, Mapping):
             from ..disclosure_scope import audit_disclosure_scope
@@ -2508,7 +2592,21 @@ class ResearchPipeline:
         except (FeatureGenerationError, OSError, sqlite3.Error, ValueError) as exc:
             raise ResearchPipelineError("FEATURE_STORE_WRITE_FAILED") from exc
 
-    def _record_lane_outcome_labels(
+    def _record_lane_outcome_labels(self, **kwargs) -> None:
+        self._outcome_capture_stage = "UNKNOWN"
+        try:
+            self._record_lane_outcome_labels_impl(**kwargs)
+        except Exception as exc:
+            try:
+                atomic_write_json(
+                    self.output_dir / "outcome_capture" / _safe_run_id(kwargs["run_id"])
+                    / _safe_run_id(kwargs["lane"].lane) / f"{self._outcome_capture_stage}.json",
+                    {"status": "LABEL_CAPTURE_FAILED", "error_type": type(exc).__name__})
+            except Exception:
+                pass
+            logging.getLogger(__name__).warning("LABEL_CAPTURE_FAILED error_type=%s", type(exc).__name__)
+
+    def _record_lane_outcome_labels_impl(
         self,
         *,
         run_id: str,
@@ -2525,7 +2623,7 @@ class ResearchPipeline:
         rejections.
         """
 
-        if self.runtime_store is None or self.feature_store is None:
+        if self.runtime_store is None or self._outcome_capture_historical_replay:
             return
         audit_by_stage = {stage.stage: stage for stage in lane.stages}
         gate_stage = {
@@ -2544,92 +2642,34 @@ class ResearchPipeline:
             ).date()
 
         for stage_name, local_stage in gate_stage.items():
+            self._outcome_capture_stage = stage_name
             audit = audit_by_stage.get(stage_name)
-            if audit is None or not _stage_completed(audit.status):
+            if (audit is None or not _stage_completed(audit.status)
+                    or getattr(audit, "lane", lane.lane) != lane.lane):
                 continue
-            local_rows: list[dict[str, Any]] = []
-            offset = 0
-            while True:
-                page = self.feature_store.stage_decisions(
-                    self._feature_run_id or run_id,
-                    lane.lane,
-                    local_stage,
-                    limit=5000,
-                    offset=offset,
-                    generation_id=self._feature_generation_id or None,
-                )
-                local_rows.extend(page)
-                if len(page) < 5000:
-                    break
-                offset += len(page)
-            if not local_rows:
+            capture = self._outcome_gate_captures.get((run_id, lane.lane, local_stage))
+            if capture is None or capture["snapshot_id"] != audit.snapshot_id:
                 continue
-
-            passed_symbols = set(audit.symbols)
-            output_rows: dict[str, Mapping[str, Any]] = {}
             output = audit.output if isinstance(audit.output, Mapping) else {}
-            for pool_name in _STAGE_LINEAGE_POOLS.get(stage_name, ()):
-                pool = output.get(pool_name)
-                if not isinstance(pool, list):
-                    continue
-                for raw in pool:
-                    if not isinstance(raw, Mapping):
-                        continue
-                    symbol = _first_symbol(raw)
-                    if symbol:
-                        output_rows[symbol] = raw
-
-            decisions: list[dict[str, Any]] = []
-            for raw in local_rows:
-                item = dict(raw)
-                symbol = _first_symbol(item)
-                if not symbol:
-                    continue
-                reason_codes = {
-                    str(value).strip().upper()
-                    for value in item.get("reason_codes", ())
-                    if str(value).strip()
-                }
-                failed_gates = {
-                    str(value).strip().upper()
-                    for value in item.get("all_failed_gates", ())
-                    if str(value).strip()
-                }
-                transport_truncated = (
-                    "SENT_TO_LLM" in failed_gates
-                    or "A2_NOT_SENT_TO_LLM" in reason_codes
-                    or "A1_NOT_SENT_TO_LLM" in reason_codes
-                )
-                item["decision"] = (
-                    "PASSED"
-                    if symbol in passed_symbols
-                    else "NOT_SENT_TO_LLM"
-                    if transport_truncated
-                    else "REJECTED"
-                )
-                final_row = output_rows.get(symbol)
-                if final_row is not None:
-                    for key in (
-                        "industry",
-                        "industry_code",
-                        "industry_name",
-                        "ths_industry",
-                        "market_cap",
-                        "market_value",
-                        "volatility",
-                        "volatility_20d",
-                        "candidate_origin",
-                    ):
-                        if key not in item and key in final_row:
-                            item[key] = final_row[key]
-                decisions.append(item)
-
+            a3_eligible = set(_build_a3_candidate_domain(output)[1]) if stage_name == "A2" else set()
+            decisions, unknown = label_rows(capture, stage=stage_name, output=output,
+                approved_symbols=set(audit.symbols), a3_eligible=a3_eligible,
+                stage_status=str(audit.status))
+            atomic_write_json(
+                self.output_dir / "outcome_capture" / _safe_run_id(run_id)
+                / _safe_run_id(lane.lane) / f"{stage_name}.json",
+                {**capture, "stage_status": audit.status, "stage_output_hash": _sha256_json(output),
+                 "labeled_count": len(decisions), "unknown_symbols": unknown,
+                 "coverage_status": "PARTIAL_UNKNOWN" if unknown else "COMPLETE"},
+            )
+            if not decisions:
+                continue
             record_stage_decisions(
                 self.runtime_store,
                 trade_date=trade_date,
                 stage=stage_name,
                 decisions=decisions,
-                snapshot_id=snapshot.snapshot_id,
+                snapshot_id=capture["snapshot_id"],
                 config_hash=config_hash,
                 run_id=run_id,
                 lane_id=lane.lane,
@@ -2787,7 +2827,8 @@ class ResearchPipeline:
         if result is None:
             return snapshot
         if isinstance(result, FrozenInputSnapshot):
-            return _freeze_snapshot(result)
+            frozen = _freeze_snapshot(result)
+            return frozen if frozen.proof_chain else _unproven_snapshot(frozen, "CUSTOM_FROZEN_SNAPSHOT_RECIPE_MISSING")
         if isinstance(result, Mapping):
             # A full wrapper can be returned by a data adapter.  Otherwise the
             # mapping is an immutable overlay on the base stage snapshot.
@@ -2799,12 +2840,14 @@ class ResearchPipeline:
                 as_of = result.get("as_of", snapshot.as_of)
                 if not snapshot_id:
                     snapshot_id = f"{snapshot.snapshot_id}:{stage.lower()}"
-                return FrozenInputSnapshot(
+                frozen = FrozenInputSnapshot(
                     snapshot_id=snapshot_id,
                     data=data,
                     snapshot_hash=snapshot_hash,
                     as_of=as_of,
+                    proof_chain=tuple(result.get("proof_chain") or ()),
                 )
+                return frozen if frozen.proof_chain else _unproven_snapshot(frozen, "FULL_WRAPPER_RECIPE_MISSING")
             merged = dict(snapshot.data)
             merged.update(dict(result))
             # The base snapshot is already content-addressed.  Hash only the
@@ -2815,12 +2858,15 @@ class ResearchPipeline:
                 "stage": stage,
                 "overlay": result,
             })
-            return FrozenInputSnapshot(
+            enriched = FrozenInputSnapshot(
                 snapshot_id=f"{snapshot.snapshot_id}:{stage.lower()}:{overlay_hash[:12]}",
                 data=merged,
                 snapshot_hash=overlay_hash,
                 as_of=snapshot.as_of,
             )
+            return _capture_snapshot_recipe(snapshot, enriched, recipe_kind="STAGE_OVERLAY",
+                hash_recipe={"base_snapshot_hash": snapshot.snapshot_hash, "stage": stage, "overlay": result},
+                data_recipe={"operation": "SHALLOW_OVERLAY", "overlay": result})
         # Accept adapters that return a canonical snapshot object, but do not
         # let arbitrary model/data objects cross the immutable boundary.
         try:
@@ -2829,7 +2875,8 @@ class ResearchPipeline:
             raise ResearchPipelineError("STAGE_SNAPSHOT_ENRICHMENT_INVALID") from exc
         if not isinstance(coerced, FrozenInputSnapshot):
             raise ResearchPipelineError("STAGE_SNAPSHOT_ENRICHMENT_INVALID")
-        return _freeze_snapshot(coerced)
+        frozen = _freeze_snapshot(coerced)
+        return frozen if frozen.proof_chain else _unproven_snapshot(frozen, "CUSTOM_OBJECT_RECIPE_MISSING")
 
     def _checkpoint_key(
         self,
@@ -4282,6 +4329,7 @@ def _coerce_snapshot(snapshot: FrozenInputSnapshot | Mapping[str, Any] | Any) ->
         data=data,
         snapshot_hash=str(provided_hash) if provided_hash else _sha256_json(data),
         as_of=raw.get("as_of") or data.get("as_of"),
+        proof_chain=tuple(raw.get("proof_chain") or ()) if isinstance(nested, Mapping) else (),
     )
 
 
@@ -4385,12 +4433,14 @@ def _restrict_snapshot_to_symbols(
                 ]
             data[key] = projected
     data["A1_SCOPE_SYMBOLS"] = sorted(allowed)
-    return FrozenInputSnapshot(
+    restricted = FrozenInputSnapshot(
         snapshot_id=snapshot.snapshot_id,
         data=data,
         snapshot_hash=snapshot.snapshot_hash,
         as_of=snapshot.as_of,
+        proof_chain=snapshot.proof_chain,
     )
+    return _unproven_snapshot(restricted, "SCOPE_RESTRICT_HASH_PRESERVING_PROJECTION")
 
 
 
@@ -8542,6 +8592,7 @@ def _freeze_snapshot(snapshot: FrozenInputSnapshot) -> FrozenInputSnapshot:
         data=snapshot.data,
         snapshot_hash=snapshot.snapshot_hash,
         as_of=snapshot.as_of,
+        proof_chain=snapshot.proof_chain,
     )
 
 

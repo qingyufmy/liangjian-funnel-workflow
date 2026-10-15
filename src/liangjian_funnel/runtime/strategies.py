@@ -552,6 +552,11 @@ def evaluate_strategy(
         as_of=now,
         decision_time=decision_time,
     )
+    # Policy is a frozen runtime input, not an edit to the persisted A3 plan.
+    # Absence deliberately retains the historical one-bar contract for replay.
+    policy = _lookup(payload, ("market_context", "runtime_policy"))
+    if isinstance(policy, Mapping):
+        result["runtime_policy"] = dict(policy)
     return StrategyEvaluation.model_validate(result)
 
 
@@ -959,6 +964,18 @@ def _pre_entry_risk_decision(
         and latest15.close < stop - _EPSILON
         and latest5.end >= latest15.end
     )
+    if profile is StrategyProfile.TREND_MA5:
+        policy = _lookup(plan, ("market_context", "runtime_policy"))
+        count = policy.get("STRUCTURE_FAIL_CONFIRM_BARS_15M", 1) if isinstance(policy, Mapping) else 1
+        if type(count) is not int or count not in (1, 2):
+            return {
+                "state": "DATA_BLOCKED", "action": A4Action.DATA_BLOCK.value,
+                "reason_codes": ["A4_RUNTIME_POLICY_INVALID"], "met_conditions": [],
+                "unmet_conditions": ["VALID_STRUCTURE_FAIL_CONFIRM_BARS_15M"],
+                "veto_conditions": ["A4_RUNTIME_POLICY_INVALID"],
+            }
+        if count == 2:
+            confirmed_15m_break = confirmed_15m_break and _consecutive_15m_breaks(fifteen, stop)
 
     if profile in {StrategyProfile.MA520_SWING, StrategyProfile.TREND_MA5} and (
         failed_5m_reclaim or confirmed_15m_break
@@ -994,6 +1011,26 @@ def _pre_entry_risk_decision(
             "veto_conditions": ["ENTRY_BLOCKED_CURRENT_MINUTE"],
         }
     return None
+
+
+def _consecutive_15m_breaks(fifteen: Sequence[_Bar], stop: float) -> bool:
+    """Two complete adjacent buckets in one session; no gap/lunch bridging."""
+    if len(fifteen) < 2:
+        return False
+    previous, latest = fifteen[-2:]
+    if latest.end - previous.end != timedelta(minutes=15):
+        return False
+    if previous.end.date() != latest.end.date():
+        return False
+    ends = [item.end.timetz().replace(tzinfo=None) for item in (previous, latest)]
+    same_session = all(time(9, 45) <= at <= _MORNING_CLOSE for at in ends) or all(
+        time(13, 15) <= at <= _SESSION_CLOSE for at in ends
+    )
+    return bool(
+        same_session
+        and all(item.end.minute % 15 == 0 and item.end.second == 0 and item.end.microsecond == 0
+                and item.close < stop - _EPSILON for item in (previous, latest))
+    )
 
 
 def _evaluate_520(

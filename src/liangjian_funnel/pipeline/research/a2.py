@@ -2111,12 +2111,15 @@ def _with_a2_bottleneck_context(
     })
     data = dict(snapshot.data)
     data["A2_BOTTLENECK_CONTEXT"] = context
-    return FrozenInputSnapshot(
+    result = FrozenInputSnapshot(
         snapshot_id=f"{snapshot.snapshot_id}:a2-bottleneck:{overlay_hash[:12]}",
         data=data,
         snapshot_hash=overlay_hash,
         as_of=snapshot.as_of,
     )
+    return _capture_snapshot_recipe(snapshot, result, recipe_kind="A2_BOTTLENECK_CONTEXT",
+        hash_recipe={"base_snapshot_hash": snapshot.snapshot_hash, "stage": "A2_BOTTLENECK_CONTEXT", "context": context},
+        data_recipe={"operation": "SHALLOW_OVERLAY", "overlay": {"A2_BOTTLENECK_CONTEXT": context}})
 
 
 def _a2_optional_gap_only(views: Sequence[Mapping[str, Any]]) -> bool:

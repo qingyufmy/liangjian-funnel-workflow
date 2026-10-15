@@ -73,6 +73,7 @@ class MonitorEngine:
         strict_llm_review: bool = False,
         llm_model_identity: str | None = None,
         llm_prompt_version: str | None = None,
+        runtime_policy: Mapping[str, Any] | None = None,
     ):
         if max_seconds <= 0:
             raise ValueError("max_seconds must be positive")
@@ -88,6 +89,7 @@ class MonitorEngine:
         self.strict_llm_review = bool(strict_llm_review)
         self.llm_model_identity = str(llm_model_identity or "").strip()
         self.llm_prompt_version = str(llm_prompt_version or "").strip()
+        self.runtime_policy = dict(runtime_policy) if runtime_policy is not None else None
         self._confirmations: dict[tuple[str, str], tuple[datetime, int]] = {}
         self._condition_active: set[tuple[str, str]] = set()
         self._overrun_until: dict[str, datetime] = {}
@@ -121,6 +123,13 @@ class MonitorEngine:
             else:
                 raise ValueError("minute timestamp is required when bars are empty")
         minute = _local(now)
+        if self.runtime_policy is not None:
+            # Copy inputs before adding runtime policy: execution_plans and
+            # caller-owned frozen evidence must never be mutated in place.
+            market_contexts = {
+                symbol: {**dict(context), "runtime_policy": dict(self.runtime_policy)}
+                for symbol, context in (market_contexts or {}).items()
+            }
         observation_end = _local(decision_bar_end) if decision_bar_end is not None else minute
         if minute is None:
             raise ValueError("minute timestamp is required when bars are empty")
@@ -321,6 +330,10 @@ class MonitorEngine:
                     or [bar]
                 )
                 context_map = market_contexts or {}
+                selected_context = context_map.get(symbol) or context_map.get(symbol.split(".")[0]) or {}
+                if self.runtime_policy is not None and "runtime_policy" not in selected_context:
+                    selected_context = {**dict(selected_context), "runtime_policy": dict(self.runtime_policy)}
+                    market_contexts = {**dict(market_contexts or {}), symbol: selected_context}
                 strategy_result = evaluate_strategy(
                     payload,
                     history,
@@ -333,12 +346,8 @@ class MonitorEngine:
                     now=observation_end,
                     decision_time=minute,
                     position=position,
-                    market_context=(
-                        context_map.get(symbol)
-                        or context_map.get(symbol.split(".")[0])
-                    ),
+                    market_context=selected_context or None,
                 ).model_dump(mode="json")
-                selected_context = context_map.get(symbol) or context_map.get(symbol.split(".")[0]) or {}
                 if selected_context.get("execution_data"):
                     strategy_result["execution_data"] = dict(selected_context["execution_data"])
                 project_exit_eligibility(strategy_result, position)

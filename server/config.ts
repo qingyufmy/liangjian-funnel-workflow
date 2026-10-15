@@ -8,6 +8,7 @@ export const FEATURE_MAINTENANCE_AT = "03:30";
 export const A1_MAINTENANCE_AT = "18:00";
 
 export const JOB_DEFINITIONS: readonly JobDefinition[] = [
+  { name: "auction-evidence", command: "run-auction-evidence", label: "09:25竞价原时标证据", schedule: "09:25:00–09:25:30（只取证、不研究或重锚）" },
   { name: "auction-base", command: "run-auction-base", label: "竞价研究资料基线准备", schedule: "07:00（无模型调用、不发布计划）" },
   { name: "premarket", command: "run-premarket", label: "A3 盘前分析", schedule: "08:30" },
   { name: "morning", command: "run-morning", label: "早盘复核", schedule: "09:26" },

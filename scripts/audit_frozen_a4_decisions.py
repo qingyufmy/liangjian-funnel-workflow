@@ -25,6 +25,14 @@ def replay_clocks(payload, stamp):
 def frozen_market_overlay(context, strategy):
     """Reuse the recorded permission facts; do not infer a missing live quote."""
     result = dict(context)
+    # Versioned rule inputs come only from that original frozen decision,
+    # never today's runtime default. Legacy records deliberately remain1.
+    result.pop('runtime_policy', None)
+    if 'runtime_policy' in strategy:
+        policy = strategy['runtime_policy']
+        if not isinstance(policy, dict):
+            raise ValueError('FROZEN_RUNTIME_POLICY_INVALID')
+        result['runtime_policy'] = dict(policy)
     gate = strategy.get('market_gate') or {}
     if gate:
         result['live_market_state'] = {

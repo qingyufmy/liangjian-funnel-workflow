@@ -6,6 +6,7 @@ current invocation. Nothing here obtains or reconstructs historical evidence.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from copy import deepcopy
 from dataclasses import dataclass, replace
 from datetime import date, datetime, time
 import hashlib
@@ -85,6 +86,7 @@ class SnapshotProof:
     parent_snapshot_hash: str | None
     hash_recipe: BoundObject | None
     recipe_kind: str
+    representation: str = "ORIGINAL_FILE"
 
 
 @dataclass(frozen=True)
@@ -97,6 +99,7 @@ class FieldChange:
     new: Any
     basis: str
     authority_sha256: str | None = None
+    projection_sha256: str | None = None
 
 
 @dataclass(frozen=True)
@@ -118,10 +121,15 @@ class PublicationInputs:
     published_at: datetime
     publication_mode: str
     minimum_trade_date: date | None = None
+    shadow_projection: BoundObject | None = None
+    authority_snapshot_chain: Sequence[SnapshotProof] = ()
 
 
 class PublicationReceiptBuilder:
-    """Normally constructed, stateless pure builder; no caller objects mutated."""
+    """Pure builder with invocation-local chain decode cache; no caller mutation."""
+
+    def __init__(self):
+        self._chain_cache = {}
 
     @staticmethod
     def _bound(value: BoundObject | None, reasons: set[str]) -> bool:
@@ -139,7 +147,8 @@ class PublicationReceiptBuilder:
 
     def build(self, inputs: PublicationInputs, *, calendar: ExchangeTradingCalendar) -> dict[str, Any]:
         try:
-            inputs = replace(inputs, changes=tuple(inputs.changes), snapshot_chain=tuple(inputs.snapshot_chain))
+            inputs = replace(inputs, changes=tuple(inputs.changes), snapshot_chain=tuple(inputs.snapshot_chain),
+                             authority_snapshot_chain=tuple(inputs.authority_snapshot_chain))
             return self._build(inputs, calendar=calendar)
         except (AttributeError, KeyError, IndexError, TypeError, ValueError, OverflowError):
             body = {"schema_version": SCHEMA, "implementation_status": "IMPLEMENTATION_PARTIAL",
@@ -167,9 +176,19 @@ class PublicationReceiptBuilder:
         authority = self._authority(inputs, reasons)
         self._payloads(inputs, authority, reasons)
         modifications = self._changes(inputs, raw, normalized, submitted, reasons)
+        self._chain_audit = inputs.a3_audit
         chain = self._snapshots(tuple(inputs.snapshot_chain), reasons)
+        authority_chain = []
+        if inputs.authority_snapshot_chain:
+            self._chain_audit = inputs.authority.source if inputs.authority else None
+            authority_chain = self._snapshots(tuple(inputs.authority_snapshot_chain), reasons)
+            if (not chain or not authority_chain or chain[0]["snapshot_hash"] != authority_chain[0]["snapshot_hash"]
+                    or chain[0]["snapshot_id"] != authority_chain[0]["snapshot_id"]
+                    or not inputs.authority
+                    or authority_chain[-1]["snapshot_id"] != inputs.authority.source.value.get("snapshot_id")):
+                reasons.add("A2_SNAPSHOT_CHAIN_MISMATCH")
         try:
-            if any(_aware(proof.snapshot.value.get("as_of")) > _aware(inputs.published_at) for proof in inputs.snapshot_chain):
+            if any(_aware(proof.snapshot.value.get("as_of")) > _aware(inputs.published_at) for proof in (*inputs.snapshot_chain, *inputs.authority_snapshot_chain)):
                 reasons.add("SNAPSHOT_AFTER_PUBLICATION")
         except (AttributeError, TypeError, ValueError):
             reasons.add("SNAPSHOT_CLOCK_UNPROVEN")
@@ -184,7 +203,9 @@ class PublicationReceiptBuilder:
             originals.append(inputs.submitted_payload)
         if inputs.authority is not None:
             originals.extend((inputs.authority.value, inputs.authority.source))
-        for proof in inputs.snapshot_chain:
+        if inputs.shadow_projection is not None:
+            originals.append(inputs.shadow_projection)
+        for proof in (*inputs.snapshot_chain, *inputs.authority_snapshot_chain):
             originals.append(proof.snapshot)
             if proof.hash_recipe is not None:
                 originals.append(proof.hash_recipe)
@@ -218,6 +239,10 @@ class PublicationReceiptBuilder:
             "limitations": ["Local explicit-object declaration, not publisher/DB execution proof.",
                 "Original files and objects must be captured at the actual call; no historical repair.",
                 "No existing reader gap or qualification is changed by this isolated module."]}
+        if inputs.shadow_projection is not None:
+            body["shadow_projection_sha256"] = inputs.shadow_projection.sha256 if _sha(inputs.shadow_projection.sha256) else None
+        if inputs.authority_snapshot_chain:
+            body["authority_snapshot_chain"] = authority_chain
         body["receipt_sha256"] = object_hash(body)
         return body
 
@@ -263,7 +288,7 @@ class PublicationReceiptBuilder:
                         or object_hash(source["output"]) != source.get("output_hash")
                         or len(proof.selector) != 3 or proof.selector[0] != "output"
                         or proof.selector[1] not in {"focus_pool", "watch_only_pool", "outside_rotation_pool", "rejected_candidates"}
-                        or source.get("snapshot_id") not in {item.snapshot.value.get("snapshot_id") for item in inputs.snapshot_chain}):
+                        or source.get("snapshot_id") not in {item.snapshot.value.get("snapshot_id") for item in (*inputs.snapshot_chain, *inputs.authority_snapshot_chain)}):
                     raise ValueError()
             elif proof.origin == "SNAPSHOT_A2_CONTEXT":
                 if (proof.selector != ("data", "A2_BOTTLENECK_CONTEXT", inputs.normalized_payload.value.get("symbol"))
@@ -315,6 +340,21 @@ class PublicationReceiptBuilder:
                 expected.update(a2_execution_permission=authority.get("execution_permission"),
                     a2_research_only_reason=authority.get("research_only_reason"), execution_permission=scoped,
                     research_only_reason=None if scoped != "BLOCKED" else authority.get("research_only_reason"))
+        if inputs.shadow_projection is not None:
+            proof = inputs.shadow_projection
+            PublicationReceiptBuilder._bound(proof, reasons)
+            projection = proof.value
+            if (projection.get("schema_version") != "a4-shadow-inputs/1"
+                    or projection.get("execution_authority") is not False
+                    or projection.get("status") not in {"AVAILABLE", "DATA_LIMITED"}):
+                reasons.add("SHADOW_PROJECTION_INVALID")
+            facts = expected.get("strategy_facts")
+            if facts is not None and not isinstance(facts, Mapping):
+                reasons.add("SHADOW_PROJECTION_PARENT_INVALID")
+            else:
+                # Only this single independently supplied projection is added.
+                # All other strategy facts must remain byte-canonical equal.
+                expected["strategy_facts"] = {**(facts or {}), "shadow_inputs": dict(projection)}
         if object_hash(expected) != object_hash(submitted):
             reasons.add("PUBLISH_PAYLOAD_CONFLICT")
 
@@ -331,7 +371,9 @@ class PublicationReceiptBuilder:
             reasons.add("MODIFICATION_SET_MISMATCH")
         output = []
         for change in changes:
-            allowed = change.field in (NORMAL_FIELDS if change.stage == "NORMALIZE" else PUBLISH_FIELDS if change.stage == "PUBLISH" else ())
+            projection_change = (change.stage == "PUBLISH" and change.field == "strategy_facts"
+                                 and inputs.shadow_projection is not None)
+            allowed = projection_change or change.field in (NORMAL_FIELDS if change.stage == "NORMALIZE" else PUBLISH_FIELDS if change.stage == "PUBLISH" else ())
             if not allowed:
                 reasons.add("MODIFICATION_FIELD_UNSUPPORTED")
             actual = diffs.get((change.stage, change.field))
@@ -340,9 +382,11 @@ class PublicationReceiptBuilder:
                     or object_hash(actual[2]) != object_hash(change.old) or object_hash(actual[3]) != object_hash(change.new)):
                 reasons.add("MODIFICATION_VALUE_MISMATCH")
             expected_basis = "SERVER_NORMALIZATION" if change.stage == "NORMALIZE" else (
-                "SOURCE_RUN" if change.field == "source_run_id" else "TREND_RULE" if change.field == "trend_entry_rule_version" else "A2_AUTHORITY")
+                "SOURCE_RUN" if change.field == "source_run_id" else "TREND_RULE" if change.field == "trend_entry_rule_version" else "SHADOW_PROJECTION" if projection_change else "A2_AUTHORITY")
             if change.basis != expected_basis:
                 reasons.add("MODIFICATION_BASIS_MISMATCH")
+            if projection_change and change.projection_sha256 != inputs.shadow_projection.sha256:
+                reasons.add("MODIFICATION_PROJECTION_HASH_MISMATCH")
             if change.field in PERMISSION_FIELDS and change.stage == "PUBLISH":
                 if not inputs.authority:
                     reasons.add("A2_AUTHORITY_PROOF_MISSING")
@@ -353,6 +397,8 @@ class PublicationReceiptBuilder:
                 "old_present": change.old_present is True, "new_present": change.new_present is True,
                 "old_sha256": object_hash(change.old), "new_sha256": object_hash(change.new),
                 "basis": expected_basis, "authority_sha256": change.authority_sha256 if _sha(change.authority_sha256) else None}
+            if projection_change:
+                entry["projection_sha256"] = change.projection_sha256 if _sha(change.projection_sha256) else None
             for name, value in (("old", change.old), ("new", change.new)):
                 safe, projection = self._safe_value(change.field, value, inputs.run_id)
                 if allowed and safe:
@@ -384,20 +430,65 @@ class PublicationReceiptBuilder:
         # Reason strings and unsupported fields retain hash evidence only.
         return False, None
 
-    def _snapshots(self, proofs: tuple[SnapshotProof, ...], reasons: set[str]) -> list[dict[str, Any]]:
+    def _snapshots(self, proofs: tuple[SnapshotProof, ...], reasons: set[str], *, audit: BoundObject | None = None) -> list[dict[str, Any]]:
+        # Only exact same in-memory originals/pins reuse JSON decoding. Every
+        # original object/recipe is still canonical-hashed again at seal time.
+        audit = audit or getattr(self, "_chain_audit", None)
+        key = (audit.sha256 if audit else None, tuple((id(item.snapshot.value), item.snapshot.sha256,
+            id(item.file_bytes), item.file_sha256, item.parent_snapshot_hash, item.recipe_kind,
+            item.representation, item.hash_recipe.sha256 if item.hash_recipe else None)
+            for item in proofs))
+        if key in self._chain_cache:
+            prior_reasons, result = self._chain_cache[key]
+            reasons.update(prior_reasons)
+            return deepcopy(result)
+        local_reasons: set[str] = set()
+        result = self._verify_snapshots(proofs, local_reasons, audit=audit)
+        if len(self._chain_cache) >= 4:
+            self._chain_cache.clear()
+        self._chain_cache[key] = (tuple(local_reasons), deepcopy(result))
+        reasons.update(local_reasons)
+        return result
+
+    def _verify_snapshots(self, proofs: tuple[SnapshotProof, ...], reasons: set[str], *, audit: BoundObject | None = None) -> list[dict[str, Any]]:
         if not proofs:
             reasons.add("SNAPSHOT_CHAIN_PROOF_MISSING")
             return []
         output, prior = [], None
         seen = set()
-        for proof in proofs:
+        for index, proof in enumerate(proofs):
             self._bound(proof.snapshot, reasons)
             value = proof.snapshot.value
             sid, internal_hash = value.get("snapshot_id"), value.get("snapshot_hash")
             if not _id(sid) or not _sha(internal_hash) or sid in seen or not isinstance(value.get("data"), Mapping):
                 reasons.add("SNAPSHOT_OBJECT_INVALID")
             seen.add(sid if isinstance(sid, str) else None)
-            if proof.file_bytes is None or proof.file_sha256 is None:
+            derived = proof.representation == "PINNED_RECIPE"
+            if derived:
+                captured = audit.value.get("snapshot_proof") if audit is not None else None
+                nodes = captured.get("chain") if isinstance(captured, Mapping) else None
+                try:
+                    node = nodes[index - 1]
+                    if (prior is None or proof.file_bytes is not None or proof.file_sha256 is not None
+                            or captured.get("schema_version") != "research-snapshot-proof/1"
+                            or captured.get("status") != "CAPTURED"
+                            or node.get("status") != "CAPTURED"
+                            or node.get("snapshot_id") != sid or node.get("snapshot_hash") != internal_hash
+                            or node.get("parent_snapshot_id") != prior.get("snapshot_id")
+                            or node.get("parent_snapshot_hash") != proof.parent_snapshot_hash
+                            or node.get("as_of") != value.get("as_of")
+                            or node.get("parent_as_of") != prior.get("as_of")
+                            or node.get("recipe_kind") != proof.recipe_kind
+                            or proof.hash_recipe is None
+                            or object_hash(node.get("hash_recipe")) != proof.hash_recipe.sha256):
+                        raise ValueError()
+                except (TypeError, KeyError, IndexError, AttributeError, ValueError):
+                    reasons.add("SNAPSHOT_PINNED_RECIPE_UNPROVEN")
+            elif proof.representation != "ORIGINAL_FILE":
+                reasons.add("SNAPSHOT_REPRESENTATION_UNSUPPORTED")
+            if derived:
+                pass  # Explicit derived-object proof; not a missing original file.
+            elif proof.file_bytes is None or proof.file_sha256 is None:
                 reasons.add("SNAPSHOT_FILE_PROOF_MISSING")
             else:
                 try:
@@ -428,14 +519,20 @@ class PublicationReceiptBuilder:
                 else:
                     self._bound(proof.hash_recipe, reasons)
                     recipe = proof.hash_recipe.value
-                    if recipe.get("base_snapshot_hash") != prior.get("snapshot_hash") or object_hash(recipe) != internal_hash:
+                    recipe_parent = recipe.get("source_hash") if proof.recipe_kind == "A2_ROTATION_POLICY" else recipe.get("base_snapshot_hash")
+                    if recipe_parent != prior.get("snapshot_hash") or object_hash(recipe) != internal_hash:
                         reasons.add("SNAPSHOT_HASH_RECIPE_CONFLICT")
                     expected, tag = self._snapshot_transform(proof.recipe_kind, prior, recipe, reasons)
                     if expected is not None and object_hash(expected) != object_hash(value.get("data")):
                         reasons.add("SNAPSHOT_TRANSFORM_CONFLICT")
-                    if tag is not None and sid != f"{prior.get('snapshot_id')}:{tag}:{str(internal_hash)[:12]}":
+                    expected_sid = (f"{prior.get('snapshot_id')}:rotation-policy" if proof.recipe_kind == "A2_ROTATION_POLICY"
+                                    else f"{prior.get('snapshot_id')}:{tag}:{str(internal_hash)[:12]}")
+                    if tag is not None and sid != expected_sid:
                         reasons.add("SNAPSHOT_ID_HASH_CONFLICT")
-                    if value.get("as_of") != prior.get("as_of"):
+                    if proof.recipe_kind == "A2_STOCK_NEWS":
+                        if _aware(value.get("as_of")) < _aware(prior.get("as_of")):
+                            reasons.add("SNAPSHOT_AS_OF_CONFLICT")
+                    elif value.get("as_of") != prior.get("as_of"):
                         reasons.add("SNAPSHOT_AS_OF_CONFLICT")
             output.append({"snapshot_id": sid if _id(sid) else None,
                 "snapshot_hash": internal_hash if _sha(internal_hash) else None,
@@ -444,14 +541,39 @@ class PublicationReceiptBuilder:
                 "parent_snapshot_id": prior.get("snapshot_id") if prior and _id(prior.get("snapshot_id")) else None,
                 "parent_snapshot_hash": proof.parent_snapshot_hash if _sha(proof.parent_snapshot_hash) else None,
                 "hash_recipe_sha256": proof.hash_recipe.sha256 if proof.hash_recipe and _sha(proof.hash_recipe.sha256) else None,
-                "recipe_kind": proof.recipe_kind if proof.recipe_kind in {"BASE_RESEARCH_DATA", "STAGE_OVERLAY", "A2_BOTTLENECK_CONTEXT", "A3_CANDIDATE_CONTEXT", "A3_DETERMINISTIC_CONTEXT"} else "UNSUPPORTED"})
+                "recipe_kind": proof.recipe_kind if proof.recipe_kind in {"BASE_RESEARCH_DATA", "STAGE_OVERLAY", "A2_BOTTLENECK_CONTEXT", "A3_CANDIDATE_CONTEXT", "A3_DETERMINISTIC_CONTEXT", "A2_ROTATION_POLICY", "A2_STOCK_NEWS"} else "UNSUPPORTED"})
+            if derived:
+                output[-1].update(representation="PINNED_RECIPE", original_file_available=False,
+                                  reconstruction_basis="PINNED_CURRENT_RUN_RECIPE")
             prior = value
+        if any(item.representation == "PINNED_RECIPE" for item in proofs):
+            captured = audit.value.get("snapshot_proof") if audit is not None else None
+            if (not isinstance(captured, Mapping) or not prior
+                    or captured.get("snapshot_id") != prior.get("snapshot_id")
+                    or captured.get("snapshot_hash") != prior.get("snapshot_hash")
+                    or captured.get("as_of") != prior.get("as_of")
+                    or audit.value.get("snapshot_id") != prior.get("snapshot_id")
+                    or len(captured.get("chain") or ()) != len(proofs) - 1):
+                reasons.add("SNAPSHOT_PINNED_RECIPE_TERMINAL_CONFLICT")
         return output
 
     @staticmethod
     def _snapshot_transform(kind, parent, recipe, reasons):
         expected = dict(parent.get("data") or {})
         keys = set(recipe)
+        if kind == "A2_STOCK_NEWS" and keys == {"base_snapshot_hash", "stage", "NEWS_HEAT_SNAPSHOT", "A2_STOCK_NEWS_SCOPE"} and recipe.get("stage") == "A2":
+            expected.update(NEWS_HEAT_SNAPSHOT=recipe["NEWS_HEAT_SNAPSHOT"], A2_STOCK_NEWS_SCOPE=recipe["A2_STOCK_NEWS_SCOPE"])
+            return expected, "a2"
+        if kind == "A2_ROTATION_POLICY" and keys == {"source_hash", "policy", "board_overlay"}:
+            from ..data.rotation_policy import POLICY_ID, authorized_rotation_policy
+            if recipe.get("policy") != POLICY_ID:
+                reasons.add("SNAPSHOT_TRANSFORM_CONFLICT")
+            if isinstance(expected.get("SELECTED_BOARD_SNAPSHOT"), Mapping):
+                expected["SELECTED_BOARD_SNAPSHOT"] = authorized_rotation_policy(expected["SELECTED_BOARD_SNAPSHOT"])
+            expected.update(A2_ROTATION_THEME_COUNT=8, A2_AUTHORIZED_ROTATION_POLICY=POLICY_ID)
+            if object_hash(expected.get("SELECTED_BOARD_SNAPSHOT")) != object_hash(recipe.get("board_overlay")):
+                reasons.add("SNAPSHOT_TRANSFORM_CONFLICT")
+            return expected, "rotation-policy"
         if kind == "STAGE_OVERLAY" and keys == {"base_snapshot_hash", "stage", "overlay"} and recipe.get("stage") in {"A2", "A3"} and isinstance(recipe.get("overlay"), Mapping):
             expected.update(recipe["overlay"])
             return expected, recipe["stage"].lower()
