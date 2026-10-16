@@ -39,7 +39,8 @@ def _hard_exit(broker,*,plan,bar,at,account_id):
     return broker.admit_signal(signal_id,binding=json.loads(dump(binding)),decide=decide,mode='control')
 
 
-def run_control_minute(*,session_kwargs,closed_bars,deadline_monotonic,monotonic=time.monotonic):
+def run_control_minute(*,session_kwargs,closed_bars,deadline_monotonic,monotonic=time.monotonic,envelope_refresh=None,
+        model_enabled=True):
     """One absolute caller deadline; every late order rechecks it under lock.
 
     A 10:00 complete bar is consumed at 10:01 under the existing one-minute
@@ -76,6 +77,7 @@ def run_control_minute(*,session_kwargs,closed_bars,deadline_monotonic,monotonic
                 errors.append(dict(plan_id=plan.plan_id,reason_code='CONTROL_HARD_EXIT_FAILED'))
     result=dict(status='DEGRADED' if errors else 'MINUTE_PROTECTED',minute_end=minute.isoformat(),
         execution_cutoff=expected.isoformat(),fills=fills,hard_exits=hard,errors=errors,trader=None)
+    if not model_enabled:return {**result,'trader_skip_reason':'CONTROL_MODEL_CONTEXT_UNAVAILABLE'}
     if not is_closed_trader_tick(expected):return result
     if (not (set(closed_bars)-bad_symbols)
             or any(p['plan_id'] not in args['all_plans'] for p in positions)):
@@ -86,6 +88,10 @@ def run_control_minute(*,session_kwargs,closed_bars,deadline_monotonic,monotonic
     # No current/future 5m context can be relabelled as the isolated prior bucket.
     if args['closed_5m_end']!=expected or args['mark_as_of']!=expected:
         raise ValueError('CONTROL_TRADER_BUCKET_UNPROVEN')
+    if envelope_refresh is not None:
+        try:args['envelopes']=envelope_refresh()
+        except Exception:
+            return {**result,'status':'DATA_LIMITED','trader_skip_reason':'CONTROL_FRESH_ACCOUNT_ENVELOPE_UNPROVEN'}
     plans={};envelopes={}
     for pid,plan in args['all_plans'].items():
         bar=closed_bars.get(plan.symbol);envelope=args['envelopes'][pid]

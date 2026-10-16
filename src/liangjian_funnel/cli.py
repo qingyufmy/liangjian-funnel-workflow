@@ -1205,7 +1205,7 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
         elif args.command == "run-comparison":
             payload = application.run_comparison(parent_run_id=args.parent_run_id)
         elif args.command == "monitor-once":
-            payload = application.monitor_once()
+            payload = application.monitor_dispatch()
         elif args.command == "archive-a4-auxiliary-once":
             payload = application.collect_a4_auxiliary_once()
         elif args.command == "activate-latest-a3-for-a4":

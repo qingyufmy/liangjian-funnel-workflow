@@ -146,14 +146,15 @@ def read_execution_scope(settings, *, now, calendar, morning_source, positions):
     now=stamp(now);day=now.date().isoformat()
     if calendar.is_trading_day(now.date()) is not True:
         return dict(status='NOOP',reason_codes=[{'reason_code':'NON_TRADING_DAY'}],plans=[],active_plan_ids=[])
-    frozen_at=stamp(morning_source.get('observed_at'))
-    if (frozen_at>now or frozen_at.date()!=now.date()
+    held_only=morning_source is None
+    frozen_at=stamp(morning_source.get('observed_at')) if not held_only else now
+    if not held_only and (frozen_at>now or frozen_at.date()!=now.date()
             or frozen_at>=frozen_at.replace(hour=9,minute=30,second=0,microsecond=0)
             or morning_source.get('status')!='COMPLETE' or morning_source.get('trade_date')!=day
             or morning_source.get('lane_id')!=settings.research_primary_lane_id):
         raise ValueError('EXECUTION_MORNING_SOURCE_UNPROVEN')
-    original=morning_source['plan_rows']
-    if hashlib.sha256(canonical(original).encode()).hexdigest()!=morning_source.get('plan_rowset_sha256'):
+    original=morning_source['plan_rows'] if not held_only else []
+    if not held_only and hashlib.sha256(canonical(original).encode()).hexdigest()!=morning_source.get('plan_rowset_sha256'):
         raise ValueError('EXECUTION_MORNING_SOURCE_HASH_MISMATCH')
     expected={r['plan_id']:r for r in original}
     if len(expected)!=len(original):raise ValueError('EXECUTION_MORNING_PLAN_ID_AMBIGUOUS')
@@ -165,10 +166,10 @@ def read_execution_scope(settings, *, now, calendar, morning_source, positions):
         db.row_factory=sqlite3.Row;db.execute('PRAGMA query_only=ON');db.execute('BEGIN')
         try:
             query="SELECT * FROM execution_plans WHERE lane_id=? AND ("
-            match=('plan_id IN ('+','.join('?' for _ in ids)+') OR ') if ids else ''
-            rows=[dict(r) for r in db.execute(query+match+
-                "(status='ACTIVE_TODAY' AND substr(expires_at,1,10)=?)) ORDER BY symbol,plan_id",
-                (settings.research_primary_lane_id,*ids,day))]
+            match=('plan_id IN ('+','.join('?' for _ in ids)+')') if ids else '0'
+            if not held_only:match+=" OR (status='ACTIVE_TODAY' AND substr(expires_at,1,10)=?)"
+            rows=[dict(r) for r in db.execute(query+match+") ORDER BY symbol,plan_id",
+                (settings.research_primary_lane_id,*ids,*(() if held_only else (day,))))]
         finally:db.execute('ROLLBACK')
     plans=[];active=[];reasons=[];seen={r['plan_id'] for r in rows}
     for pid in sorted(set(ids)-seen):
@@ -209,7 +210,7 @@ def read_execution_scope(settings, *, now, calendar, morning_source, positions):
     body=dict(schema_version='team-execution-source/1',trade_date=day,observed_at=now.isoformat(),
         status='DATA_LIMITED' if reasons else 'COMPLETE',lane_id=settings.research_primary_lane_id,
         plan_rows=rows,plan_rowset_sha256=hashlib.sha256(canonical(rows).encode()).hexdigest(),
-        morning_rowset_sha256=morning_source['plan_rowset_sha256'],plans=plans,
+        morning_rowset_sha256=morning_source['plan_rowset_sha256'] if not held_only else None,plans=plans,
         active_plan_ids=sorted(active),held_plan_ids=held,reason_codes=reasons,
-        authority='CURRENT_DATABASE_ACTIVATION_ONLY_NO_CURRENT_TRADABILITY_OR_PRICE')
+        authority='HELD_ONLY_NO_MORNING_NO_ENTRY' if held_only else 'CURRENT_DATABASE_ACTIVATION_ONLY_NO_CURRENT_TRADABILITY_OR_PRICE')
     return json.loads(json.dumps(body,default=lambda x:x.isoformat() if isinstance(x,datetime) else str(x)))

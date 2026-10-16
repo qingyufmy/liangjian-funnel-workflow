@@ -1,0 +1,142 @@
+from copy import deepcopy
+from contextlib import closing
+from datetime import timedelta
+import json
+import sqlite3
+from types import SimpleNamespace
+
+import httpx
+import pytest
+
+from test_team_v2_morning import fixture,client,advance,CAL,source_bytes
+from test_team_v2_minute_projection import source
+from test_team_v2_trader_schema import output
+from liangjian_funnel.runtime.team_v2_morning import run_morning_stage
+from liangjian_funnel.runtime.team_v2_monitor import run_monitor_control
+from liangjian_funnel.data.mootdx import FetchResult
+from liangjian_funnel.data.tencent_minute import MarketQuote,QuoteResult
+from liangjian_funnel.pipeline.model_client import OpenAICompatibleModelClient
+from liangjian_funnel.settings import Settings
+from liangjian_funnel.workflow import WorkflowApplication,WorkflowError
+
+
+def prepared(tmp_path,monkeypatch):
+    settings,clock=fixture(tmp_path);api,morning_calls=client(settings)
+    run_morning_stage(settings,'engine',clock=lambda:clock.now,calendar=CAL)
+    advance(clock,8,35);run_morning_stage(settings,'risk',clock=lambda:clock.now,calendar=CAL,client=api)
+    advance(clock,8,38);run_morning_stage(settings,'pm',clock=lambda:clock.now,calendar=CAL,client=api)
+    with closing(sqlite3.connect(settings.state_db_path)) as db,db:
+        db.execute("UPDATE execution_plans SET status='ACTIVE_TODAY'")
+    advance(clock,9,36);seen=[]
+    def bars(symbol,interval,count,cutoff,**kwargs):
+        values=tuple(source(bar_end=source().bar_end+timedelta(minutes=i)) for i in range(count))
+        return FetchResult(symbol=symbol,interval='1m',requested_bars=count,returned_bars=count,bars=values,complete=True,reason_code='OK')
+    def quote(symbol,at,**kwargs):
+        return QuoteResult(symbol=symbol,complete=True,reason_code='OK',quote=MarketQuote(symbol=symbol,
+            quote_time=clock.now,price=10,open=10,previous_close=10,volume=10000,amount=100000))
+    app=SimpleNamespace(settings=settings,trading_calendar=CAL,market_data=object(),_fetch_live_bars=bars,_fetch_live_quote=quote)
+    import liangjian_funnel.runtime.live_market as live
+    monkeypatch.setattr(live,'load_or_refresh_live_market_state',lambda *a,**kw:dict(status='READY',
+        as_of=clock.now.isoformat(),trade_date=clock.now.date().isoformat(),entry_permission='ALLOW'))
+    def handler(request):
+        seen.append(json.loads(request.read()));runtime=json.loads(seen[-1]['messages'][1]['content'].removeprefix('RUNTIME_INPUT\n'))
+        text=seen[-1]['messages'][0]['content'];refs=json.JSONDecoder().raw_decode(text.split('TECH_REFERENCE=',1)[1])[0]
+        raw=output('BUY_SIGNAL');raw['envelope']=runtime['required_envelope']
+        raw['decision_id']=runtime['inputs']['DECISION_ID'];raw['minute_snapshot_id']=runtime['inputs']['MINUTE_SNAPSHOT_ID']
+        raw['signals'][0].update(supporting_refs=['LIVE:MARKET'],opposing_refs=['TECH:p1'],tech_reference_review=[
+            dict(item=k,status=v,my_read='isolated alternative evidence LIVE:MARKET') for k,v in refs['p1'].items() if v=='UNMET'])
+        return httpx.Response(200,json={'choices':[{'message':{'content':json.dumps(raw)}}]},request=request)
+    trader=OpenAICompatibleModelClient(settings,transport=httpx.MockTransport(handler),max_attempts=1)
+    def proof(*args,**kwargs):
+        return dict(status='KNOWN',halted=False,limit_up=False,limit_down=False,entry_tradable=True)
+    return app,clock,seen,trader,proof
+
+
+def test_default_control_and_explicit_record_select_one_engine_without_fallback(tmp_path,monkeypatch):
+    import liangjian_funnel.runtime.team_v2_monitor as module
+    settings=Settings.from_env({},root=tmp_path);seen=[]
+    app=SimpleNamespace(settings=settings,monitor_once=lambda **kw:seen.append('legacy'))
+    monkeypatch.setattr(module,'run_monitor_control',lambda *a,**k:seen.append('control') or {'status':'BLOCKED'})
+    assert WorkflowApplication.monitor_dispatch(app)['status']=='BLOCKED' and seen==['control']
+    app.settings=settings.model_copy(update={'a4_trader_mode':'record'})
+    WorkflowApplication.monitor_dispatch(app);assert seen==['control','legacy']
+    app.settings=settings.model_copy(update={'broker_adapter':'gm_live'})
+    with pytest.raises(WorkflowError,match='BROKER_ADAPTER_NOT_ENABLED'):WorkflowApplication.monitor_dispatch(app)
+
+
+def test_actual_control_task_source_to_mocked_HTTP_to_owned_paper_not_legacy(tmp_path,monkeypatch):
+    app,clock,seen,api,proof=prepared(tmp_path,monkeypatch);before=source_bytes(app.settings)
+    result=run_monitor_control(app,now=clock.now,clock=lambda:clock.now,client=api,tradability_loader=proof)
+    assert result['mode']=='control' and result['result']['trader']['model_validated']
+    assert result['result']['trader']['admissions'][0]['dispatched']
+    assert len(seen)==1 and source_bytes(app.settings)==before
+
+
+def test_missing_rule_material_never_calls_model_or_falls_back_to_legacy(tmp_path,monkeypatch):
+    app,clock,seen,api,proof=prepared(tmp_path,monkeypatch)
+    result=run_monitor_control(app,now=clock.now,clock=lambda:clock.now,client=api)
+    assert result['status']=='DEGRADED' and not seen
+    assert result['result']['trader'] is None and result['source_reasons'][0]['reason_code']=='RULE_UNCONFIRMED'
+
+
+def test_actual_task_same_minute_retry_reuses_model_and_single_order(tmp_path,monkeypatch):
+    app,clock,seen,api,proof=prepared(tmp_path,monkeypatch)
+    first=run_monitor_control(app,now=clock.now,clock=lambda:clock.now,client=api,tradability_loader=proof)
+    clock.now+=timedelta(seconds=1)
+    second=run_monitor_control(app,now=clock.now,clock=lambda:clock.now,client=api,tradability_loader=proof)
+    assert first['packet_sha256']==second['packet_sha256'] and len(seen)==1
+    with closing(sqlite3.connect(app.settings.root/'state/team_v2/paper.db')) as db:
+        assert db.execute('SELECT count(*) FROM paper_orders').fetchone()[0]==1
+
+
+def test_after0945_without_current_primary_record_cannot_keep_yesterday_permission(tmp_path,monkeypatch):
+    app,clock,seen,api,proof=prepared(tmp_path,monkeypatch);advance(clock,9,46)
+    result=run_monitor_control(app,now=clock.now,clock=lambda:clock.now,client=api,tradability_loader=proof)
+    assert result['result']['trader']['model_validated'] and not result['result']['trader']['admissions'][0]['dispatched']
+    assert result['result']['trader']['admissions'][0]['judgment']['reason_codes']
+
+
+def test_current_entry_block_does_not_turn_plan_into_untradable_for_held_exits(tmp_path,monkeypatch):
+    app,clock,seen,api,proof=prepared(tmp_path,monkeypatch)
+    def blocked(*a,**k):return {**proof(*a,**k),'entry_tradable':False}
+    result=run_monitor_control(app,now=clock.now,clock=lambda:clock.now,client=api,tradability_loader=blocked)
+    assert result['result']['trader']['model_validated'] and not result['result']['trader']['admissions'][0]['dispatched']
+    assert 'CONTROL_CURRENT_ENTRY_TRADABILITY_UNPROVEN' in result['result']['trader']['admissions'][0]['judgment']['reason_codes']
+
+
+def test_changed_risk_yaml_cannot_silently_reuse_morning_authority(tmp_path,monkeypatch):
+    app,clock,seen,api,proof=prepared(tmp_path,monkeypatch)
+    path=app.settings.root/'config/risk_limits.yaml';path.write_text(path.read_text()+'\n# changed after morning\n')
+    result=run_monitor_control(app,now=clock.now,clock=lambda:clock.now,client=api,tradability_loader=proof)
+    assert result['result']['trader_skip_reason']=='CONTROL_FRESH_ACCOUNT_ENVELOPE_UNPROVEN' and not seen
+
+
+def test_missing_morning_keeps_existing_inventory_hard_exit_without_any_model(tmp_path,monkeypatch):
+    from test_team_v2_paper_ledger import stamp,bar
+    from liangjian_funnel.runtime.broker.local_paper import create_broker
+    from liangjian_paper_broker.matching import PaperRules
+    app,clock,seen,api,proof=prepared(tmp_path,monkeypatch);settings=app.settings
+    broker=create_broker('local_paper',database=settings.root/'state/team_v2/paper.db',
+        paper_config=settings.root/'config/paper_broker.yaml',risk_config=settings.root/'config/risk_limits.yaml',
+        clock=lambda:clock.now,calendar=CAL,run_id='isolated-inventory')
+    # Isolated prior-day inventory plus original owner row, not a production
+    # backfill. Remove only the owned morning marker to inject the failure.
+    clock.now=stamp(day='16',tm='09:59:00')
+    broker.place_order('000001.SZ','BUY',1000,order_type='LIMIT',limit_price='10',client_order_id='prior',
+        plan_id='old-held',signal_id='prior',no_chase_price='10.2',tradable=True)
+    clock.now=stamp(day='16',tm='10:03:00');broker.on_bar(bar(day='16',tm='10:00:00'))
+    with closing(sqlite3.connect(settings.state_db_path)) as db,db:
+        row=db.execute('SELECT * FROM execution_plans WHERE plan_id=?',('p1',)).fetchone()
+        db.execute('INSERT INTO execution_plans VALUES (?,?,?,?,?,?,?)',
+            ('old-held',row[1],row[2],'INVALIDATED','2026-10-16T09:32:00+08:00','2026-10-16T15:00:00+08:00',row[-1]))
+    with closing(sqlite3.connect(settings.root/'state/team_v2/team.db')) as db,db:db.execute('DELETE FROM morning_engine')
+    clock.now=stamp(tm='09:36:00');before=source_bytes(settings)
+    def stopped(symbol,interval,count,cutoff,**kwargs):
+        rows=tuple(source(bar_end=source().bar_end+timedelta(minutes=i),open=8.9,low=8.5,high=9.1,close=8.9,amount=89000)
+            for i in range(count))
+        return FetchResult(symbol=symbol,interval='1m',requested_bars=count,returned_bars=count,bars=rows,complete=True,reason_code='OK')
+    app._fetch_live_bars=stopped
+    result=run_monitor_control(app,now=clock.now,clock=lambda:clock.now,client=api,tradability_loader=proof)
+    assert result['reason_code']=='CONTROL_MORNING_ENGINE_MISSING' and not seen
+    assert result['result']['hard_exits'][0]['dispatched']
+    assert broker.get_orders('2026-10-19')[0]['side']=='SELL' and source_bytes(settings)==before

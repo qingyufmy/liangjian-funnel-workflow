@@ -124,6 +124,12 @@ class TeamMeetingStore:
                 (account_id,trade_date,source_call_id)).fetchone()
         return self._decode(row[0]) if row else None
 
+    def load_live_regime(self, trade_date, tick):
+        with closing(self._connect()) as db:
+            row=db.execute('SELECT result_json FROM regime_observations WHERE trade_date=? AND tick=?',
+                (trade_date,tick.isoformat())).fetchone()
+        return json.loads(row[0]) if row else None
+
     def record_morning_engine(self, account_id, trade_date, body):
         text=canonical(body)
         with closing(self._connect()) as db,db:
