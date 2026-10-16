@@ -9,6 +9,7 @@ from dataclasses import asdict, replace
 from datetime import datetime
 import hashlib
 import json
+import time
 from zoneinfo import ZoneInfo
 
 from liangjian_paper_broker.ledger import dump
@@ -25,7 +26,7 @@ def run_trader_session(*,repository,client,journal,store,broker,decision_id,minu
         closed_5m_end,mark_as_of,required_envelope,replacements,active_plan_ids,all_plans,
         envelopes,held_plan_ids,position_snapshot,tech_reference,limits,regime,
         live_market_ready,snapshot_ready,mode,calendar,timeout_seconds,max_output_tokens,
-        allow_model_call=False,pm_meeting_id=None):
+        allow_model_call=False,pm_meeting_id=None,deadline_monotonic=None,monotonic=time.monotonic):
     if not allow_model_call:raise ValueError('TEAM_MODEL_CALL_NOT_AUTHORIZED')
     now=clock()
     if (any(not isinstance(v,datetime) or v.utcoffset() is None for v in (now,decision_at,mark_as_of))
@@ -62,6 +63,7 @@ def run_trader_session(*,repository,client,journal,store,broker,decision_id,minu
         envelopes={pid:asdict(e) for pid,e in sorted(envelopes.items())},limits=asdict(limits),
         held_plan_ids=dict(held_plan_ids),regime=regime,live_market_ready=live_market_ready,
         snapshot_ready=snapshot_ready,timeout_seconds=timeout_seconds,max_output_tokens=max_output_tokens,
+        deadline_guard=deadline_monotonic is not None,
         pm_allocation=asdict(allocation) if allocation is not None else None)
     execution_hash=hashlib.sha256(dump(context).encode()).hexdigest()
     values=dict(replacements)
@@ -101,6 +103,8 @@ def run_trader_session(*,repository,client,journal,store,broker,decision_id,minu
             run_id=run_id,model=model,session='INTRADAY',timeout_seconds=timeout_seconds,
             max_output_tokens=max_output_tokens))) is not None:
         issues=(failure,)
+    elif deadline_monotonic is not None and monotonic()>=deadline_monotonic:
+        issues=('TRADER_GLOBAL_DEADLINE_EXCEEDED',)
     else:
         try:
             outcome=call_team_model(request,client,journal,call_id=call_id,run_id=run_id,model=model,
@@ -112,11 +116,13 @@ def run_trader_session(*,repository,client,journal,store,broker,decision_id,minu
         except ValueError as exc:
             if str(exc) not in {'TEAM_MODEL_CALL_FAILED','TEAM_MODEL_RESULT_INVALID'}:raise
             issues=(str(exc),)
-    admissions=[]
+    admissions=[];expired='TRADER_GLOBAL_DEADLINE_EXCEEDED' in issues
     if valid:
         commands=[('plan',row['plan_id'],row) for row in output['signals']]
         commands.extend(('position',held_plan_ids[row['symbol']],row) for row in output['position_actions'])
         for kind,pid,row in commands:
+            if deadline_monotonic is not None and monotonic()>=deadline_monotonic:
+                expired=True;break
             if row['action']=='HOLD':continue
             risk=envelopes[pid]
             if row['action'] in {'BUY_SIGNAL','ADD_SIGNAL'} and kind=='plan':
@@ -129,8 +135,10 @@ def run_trader_session(*,repository,client,journal,store,broker,decision_id,minu
                 plan=all_plans[pid],envelope=risk,limits=limits,all_plans=all_plans,now=decision_at,
                 closed_5m_end=closed_5m_end,mark_as_of=mark_as_of,regime=regime,
                 live_market_ready=live_market_ready,snapshot_ready=snapshot_ready,mode=mode,
-                calendar=calendar,input_sha256=request.input_hash,pm_allocation=allocation))
-    result=dict(status='EVALUATED' if valid else 'TRADER_DEGRADED_NO_ACTION',
+                calendar=calendar,input_sha256=request.input_hash,pm_allocation=allocation,
+                deadline_monotonic=deadline_monotonic,monotonic=monotonic))
+    if expired:issues=(*issues,'TRADER_GLOBAL_DEADLINE_EXCEEDED')
+    result=dict(status='TRADER_DEADLINE_NO_ACTION' if expired else 'EVALUATED' if valid else 'TRADER_DEGRADED_NO_ACTION',
         decision_id=decision_id,source_call_id=call_id,minute_snapshot_id=minute_snapshot_id,
         trade_date=trade_date,input_hash=request.input_hash,model_validated=valid,
         reason_codes=list(issues),admissions=admissions,

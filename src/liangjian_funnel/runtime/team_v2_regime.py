@@ -30,6 +30,9 @@ def load_rules(path):
     raw=Path(path).read_bytes();rules=yaml.safe_load(raw)
     try:
         primary=rules['primary'];emotion=rules['emotion'];on=emotion['on'];off=emotion['off']
+        if rules['route_gating']!={'existing_strategies':'CURRENT_ENGINE_PERMISSION_ONLY',
+                'risk_off_existing_risk_unit':'PROBE','intraday_leader_required_state':'EMOTION_ON',
+                'radar_required_state':'EMOTION_ON','held_exits':'INDEPENDENT'}:raise ValueError
         if (rules['schema_version']!='live-regime/1' or not isinstance(rules['version'],str)
                 or rules['confirmation_bars']!=2 or rules['authority_from']!='09:45'
                 or any(number(primary[k]) is None or not 0<=number(primary[k])<=1
@@ -116,8 +119,12 @@ def advance(previous,*,tick,primary,emotion,prior,rules):
     return dict(state=state,regime=effective if live else prior if prior in REGIMES else 'DATA_BLOCK',
         primary_status='READY' if primary_ready else 'DATA_BLOCK',emotion_state=emotion_effective,
         live_authority=live and primary_ready,
-        leader_open=bool(live and primary_ready and emotion_ready and effective!='RISK_OFF_RETREAT'
-            and emotion_effective=='EMOTION_ON' and rules['emotion']['enabled']),
+        leader_open=bool(live and emotion_ready
+            and emotion_effective==rules['route_gating']['intraday_leader_required_state']
+            and rules['emotion']['enabled']),
+        radar_open=bool(live and emotion_ready
+            and emotion_effective==rules['route_gating']['radar_required_state']
+            and rules['emotion']['enabled']),
         exit_authority_changed=False,transitions=transitions)
 
 

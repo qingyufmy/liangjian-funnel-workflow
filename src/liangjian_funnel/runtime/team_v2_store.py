@@ -88,6 +88,8 @@ class TeamMeetingStore:
                 CREATE TABLE IF NOT EXISTS morning_engine (
                     account_id TEXT NOT NULL,trade_date TEXT NOT NULL,
                     body_json TEXT NOT NULL,PRIMARY KEY(account_id,trade_date));
+                CREATE TABLE IF NOT EXISTS control_minute_context (
+                    decision_id TEXT PRIMARY KEY,source_sha256 TEXT NOT NULL,body_json TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS regime_transitions (
                     transition_id TEXT PRIMARY KEY,trade_date TEXT NOT NULL,tick TEXT NOT NULL,
                     evidence_json TEXT NOT NULL,notification_status TEXT NOT NULL DEFAULT 'PENDING');
@@ -102,6 +104,19 @@ class TeamMeetingStore:
             row=db.execute('SELECT body_json FROM morning_engine WHERE account_id=? AND trade_date=?',
                 (account_id,trade_date)).fetchone()
         return json.loads(row[0]) if row else None
+
+    def freeze_control_context(self,decision_id,*,source_sha256,body):
+        """Persist the post-bar view before HTTP; restart reuses that exact view."""
+        text=canonical(body)
+        with closing(self._connect()) as db,db:
+            db.execute('BEGIN IMMEDIATE')
+            old=db.execute('SELECT source_sha256,body_json FROM control_minute_context WHERE decision_id=?',
+                (decision_id,)).fetchone()
+            if old:
+                if old[0]!=source_sha256:raise ValueError('CONTROL_MINUTE_SOURCE_CONFLICT')
+                return json.loads(old[1])
+            db.execute('INSERT INTO control_minute_context VALUES (?,?,?)',(decision_id,source_sha256,text))
+        return json.loads(text)
 
     def load_morning_risk(self, account_id, trade_date, *, source_call_id):
         with closing(self._connect()) as db:

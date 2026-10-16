@@ -24,6 +24,7 @@ from .team_v2_risk_session import run_risk_premarket
 from .team_v2_pm_session import run_pm_premarket
 from .team_v2_sources import read_planning_scope, read_held_bindings, decode_plan, stamp
 from .team_v2_store import TeamMeetingStore, canonical
+from .team_v2_external import read_external
 
 TZ=ZoneInfo('Asia/Shanghai')
 ACCOUNT='local-paper'
@@ -82,13 +83,15 @@ def _freeze_engine(settings,store,source,now,calendar,directory):
     bounds=policy['ranges'][source['market_regime']]
     if (not isinstance(bounds,list) or len(bounds)!=2 or any(type(x) is not int for x in bounds)
             or not 0<=bounds[0]<=bounds[1]<=95):raise ValueError('DEPLOYMENT_POLICY_INVALID')
+    external=read_external(settings,now=now,policy=policy['external'])
+    bounds=[max(0,min(95,v+external['value_pp'])) for v in bounds]
     body=dict(status='COMPLETE',session='ENGINE_PREMARKET',trade_date=source['trade_date'],
         observed_at=now.isoformat(),account_id=ACCOUNT,source=source,snapshot=snapshot,held_plan_bindings=held,
         envelopes=[asdict(e) for e in envelopes],capacity_slots=max(0,limits.max_positions-len({p.symbol for p in positions})),
         cluster_caps={key:limits.max_positions for key in sorted({p.cluster for p in plans})},
         baseline_range=bounds,engine_utilization_cap=bounds[1],deployment_policy_sha256=hashlib.sha256(raw).hexdigest(),
         risk_limits_sha256=hashlib.sha256((settings.root/'config/risk_limits.yaml').read_bytes()).hexdigest(),
-        external_adjustment=dict(status='NOT_APPLIED_SOURCE_MISSING',value_pp=0,claim='NO_EXTERNAL_RISK_INFERENCE'),
+        external_adjustment=external,
         authority='PLANNING_ONLY_NOT_EXECUTION_PERMISSION')
     return store.record_morning_engine(ACCOUNT,source['trade_date'],body)
 

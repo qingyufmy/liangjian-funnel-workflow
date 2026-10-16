@@ -34,6 +34,17 @@ def test_rules_authorized_and_original_primary_thresholds():
     assert classify_primary(.8,{},rules)=='DATA_BLOCK'
 
 
+def test_route_policy_is_explicit_and_cannot_silently_revive_global_stop(tmp_path):
+    import yaml
+    rules=load_rules(CONFIG)
+    assert rules['route_gating']['existing_strategies']=='CURRENT_ENGINE_PERMISSION_ONLY'
+    assert rules['route_gating']['risk_off_existing_risk_unit']=='PROBE'
+    raw=yaml.safe_load(CONFIG.read_text(encoding='utf-8'))
+    raw['route_gating']['existing_strategies']='BLOCK_ALL_ON_RISK_OFF'
+    changed=tmp_path/'regime.yaml';changed.write_text(yaml.safe_dump(raw),encoding='utf-8')
+    with pytest.raises(ValueError,match='LIVE_REGIME_CONFIG_INVALID'):load_rules(changed)
+
+
 def test_primary_matches_original_workflow_for_all_declared_valid_combinations():
     from liangjian_funnel.workflow import _determine_market_regime
     rules=load_rules(CONFIG)
@@ -72,7 +83,7 @@ def test_two_consecutive_bars_live_authority_after0945_and_reproducible():
     third=step(second['state'],'09:45')
     assert original=={} and not first['leader_open'] and not second['live_authority']
     assert second['regime']=='ROTATION_NO_MAINLINE'
-    assert third['regime']=='TREND_MAINLINE' and third['leader_open'] and third['live_authority']
+    assert third['regime']=='TREND_MAINLINE' and third['leader_open'] and third['radar_open'] and third['live_authority']
     assert step(second['state'],'09:45')==third
 
 

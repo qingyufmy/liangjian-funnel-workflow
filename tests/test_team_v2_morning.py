@@ -46,7 +46,7 @@ def advance(clock,hour,minute):clock.now=clock.now.replace(hour=hour,minute=minu
 def source_bytes(settings):return settings.state_db_path.read_bytes()
 
 
-def client(settings,*,risk_cap=75,probe=False,offline=False):
+def client(settings,*,risk_cap=65,probe=False,offline=False):
     seen=[]
     def handler(request):
         req=json.loads(request.read());runtime=json.loads(req['messages'][1]['content'].removeprefix('RUNTIME_INPUT\n'))
@@ -58,7 +58,7 @@ def client(settings,*,risk_cap=75,probe=False,offline=False):
         if envelope['stage_id']=='A6':raw['utilization_cap']['cap_pct']=risk_cap
         else:
             raw['plan_allocations'][0].update(max_batches=1,intended_risk_unit='PROBE' if probe else 'STANDARD')
-            bounds=[min(50,risk_cap),min(75,risk_cap)]
+            bounds=[min(40,risk_cap),min(65,risk_cap)]
             raw['deployment_target'].update(target_pct=min(60,risk_cap),baseline_range=bounds)
         body=json.dumps(raw).replace('"C1"','"MORNING:ACCOUNT"').replace('"M1"','"MORNING:MARKET"')
         body=body.replace('"A"','"MORNING:ACCOUNT"').replace('"M"','"MORNING:MARKET"')

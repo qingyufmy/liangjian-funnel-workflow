@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal as D
 import json
 import re
+import time
 from zoneinfo import ZoneInfo
 
 from liangjian_paper_broker.ledger import dump
@@ -54,7 +55,8 @@ def _views(snapshot,*,plan,all_plans,mark_as_of,entry):
 
 
 def admit_trader_signal(*,broker,signal_id,action,plan,envelope,limits,all_plans,now,closed_5m_end,
-                        mark_as_of,regime,live_market_ready,snapshot_ready,mode,calendar,input_sha256,pm_allocation=None):
+                        mark_as_of,regime,live_market_ready,snapshot_ready,mode,calendar,input_sha256,pm_allocation=None,
+                        deadline_monotonic=None,monotonic=time.monotonic):
     if (not isinstance(now,datetime) or now.utcoffset() is None or not isinstance(mark_as_of,datetime)
             or mark_as_of.utcoffset() is None or not re.fullmatch(r'[a-f0-9]{64}',input_sha256)
             or plan.plan_id not in all_plans or all_plans[plan.plan_id]!=plan):
@@ -63,11 +65,13 @@ def admit_trader_signal(*,broker,signal_id,action,plan,envelope,limits,all_plans
     binding=json.loads(dump(dict(plan_id=plan.plan_id,symbol=plan.symbol,trade_date=current.date().isoformat(),
         cluster=plan.cluster,action=action,plan=asdict(plan),envelope=asdict(envelope),limits=asdict(limits),
         decision_at=current,closed_5m_end=closed_5m_end,mark_as_of=mark_as_of,input_sha256=input_sha256,
-        regime=regime,live_market_ready=live_market_ready,snapshot_ready=snapshot_ready,
+        regime=regime,live_market_ready=live_market_ready,snapshot_ready=snapshot_ready,deadline_guard=deadline_monotonic is not None,
         pm_allocation=asdict(pm_allocation) if pm_allocation is not None else None,
         plan_clusters={pid:[item.symbol,item.cluster] for pid,item in sorted(all_plans.items())})))
     def decide(snapshot):
         def block(code):return dict(judgment=dict(status='REJECTED',shares=0,risk_unit='NONE',reason_codes=[code]),order=None)
+        if deadline_monotonic is not None and monotonic()>=deadline_monotonic:
+            return block('TRADER_GLOBAL_DEADLINE_EXCEEDED')
         if action not in ENTRY|{'SELL_SIGNAL','REDUCE_SIGNAL','CANCEL_SIGNAL'}:
             return dict(judgment=dict(status='NO_ORDER_ACTION',shares=0,risk_unit='NONE',reason_codes=[]),order=None)
         # No model completion from a past tick may create a current order.
@@ -119,5 +123,7 @@ def admit_trader_signal(*,broker,signal_id,action,plan,envelope,limits,all_plans
         if action in ENTRY:
             for code in ('DRAWDOWN_HALT','DAILY_LOSS_HALT','A6_DEGRADED_HALT'):
                 if code in guarded.reason_codes:result['halt_reason']=code;break
+        if result['order'] is not None and deadline_monotonic is not None and monotonic()>=deadline_monotonic:
+            return block('TRADER_GLOBAL_DEADLINE_EXCEEDED')
         return result
     return broker.admit_signal(signal_id,binding=binding,decide=decide,mode=mode)
