@@ -8,8 +8,7 @@ from .stock_trading_rules import stock_trading_rules
 
 
 def next_entry_minute(signal_time):
-    value = signal_time.astimezone(ZoneInfo("Asia/Shanghai"))
-    return value.replace(hour=13, minute=1) if value.hour == 11 and value.minute == 30 else value + timedelta(minutes=1)
+    return next_complete_minute(signal_time)
 
 
 def next_complete_minute(review_time: datetime) -> datetime | None:
@@ -30,6 +29,38 @@ def next_complete_minute(review_time: datetime) -> datetime | None:
         candidate = floor + timedelta(minutes=1 if value == floor else 2)
         return candidate if candidate.time() <= time(15) else None
     return None
+
+
+def entry_bar_for(signal: Mapping[str, Any]) -> datetime | None:
+    """One immutable entry-window definition for matching and expiration.
+
+    Retain the original contract's eligible end; reject malformed clocks rather
+    than moving an order into a different minute. Legacy events use signal time.
+    """
+    contract = signal.get("entry_contract") or {}
+    if not isinstance(contract, Mapping):
+        raise ValueError("ENTRY_CONTRACT_CLOCK_INVALID")
+
+    def stamp(raw):
+        try:
+            value = raw if isinstance(raw, datetime) else datetime.fromisoformat(str(raw))
+        except (ValueError,TypeError):
+            raise ValueError("ENTRY_CONTRACT_CLOCK_INVALID") from None
+        if value.tzinfo is None:
+            raise ValueError("ENTRY_CONTRACT_CLOCK_INVALID")
+        return value.astimezone(ZoneInfo("Asia/Shanghai"))
+
+    references = [contract.get("order_created_at"),contract.get("review_completed_at"),
+                  signal.get("signal_time") or signal.get("minute_end")]
+    clocks = [stamp(reference) for reference in references if reference is not None]
+    if not clocks:raise ValueError("ENTRY_CONTRACT_CLOCK_INVALID")
+    calculated = next_complete_minute(max(clocks))
+    if contract.get("eligible_bar_end") is None:
+        return calculated
+    frozen = stamp(contract["eligible_bar_end"])
+    if frozen.second or frozen.microsecond or frozen != calculated:
+        raise ValueError("ENTRY_CONTRACT_CLOCK_CONFLICT")
+    return frozen
 
 
 def freeze_entry_contract(
@@ -62,6 +93,8 @@ def freeze_entry_contract(
         if review_completed_at is not None
         else next_entry_minute(at) if at else None
     )
+    if eligible is None and (review_completed_at is not None or at is not None):
+        valid, reason = False, "ENTRY_NO_NEXT_TRADING_MINUTE"
     if eligible is not None:
         clock = eligible.timetz().replace(tzinfo=None)
         if not (time(9,31) <= clock <= time(11,30) or time(13,1) <= clock <= time(15)):

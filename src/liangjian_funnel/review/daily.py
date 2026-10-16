@@ -1545,6 +1545,10 @@ def build_a5_fact_snapshot(
     lifecycles = []
     raw_lifecycles = store.list_a4_signal_lifecycles(lane_id=lane_id, trade_date=trade_date.isoformat(), limit=1000)
     for row in raw_lifecycles:
+        quarantine_reader = getattr(store, "get_a4_plan_quarantine", None)
+        reconciliation = quarantine_reader(str(row.get("plan_id") or "")) if callable(quarantine_reader) else None
+        row["performance_eligible"] = reconciliation is None
+        row["reconciliation_reason_code"] = "A4_LIFECYCLE_RECONCILIATION_REQUIRED" if reconciliation else None
         signal_time = row.get("signal_time")
         if signal_time and not _within_cutoff(signal_time, trade_date, cutoff):
             continue
@@ -1558,6 +1562,8 @@ def build_a5_fact_snapshot(
             "stock_behavior_type": row.get("stock_behavior_type"),
             "strategy_profile": row.get("strategy_profile"),
             "status": row.get("status"),
+            "performance_eligible": row["performance_eligible"],
+            "reconciliation_reason_code": row["reconciliation_reason_code"],
             "signal_time": row.get("signal_time"),
             "signal_price": row.get("signal_price"),
             "entry_time": row.get("entry_time"),
@@ -1585,7 +1591,8 @@ def build_a5_fact_snapshot(
         key = str(item.get("status") or "UNKNOWN")
         lifecycle_counts[key] = lifecycle_counts.get(key, 0) + 1
     finished_returns = [float(item["net_return"]) for item in lifecycles
-                        if item.get("status") == "CLOSED" and item.get("remaining_qty") == 0 and item.get("net_return") is not None]
+                        if item.get("performance_eligible", True) and item.get("status") == "CLOSED"
+                        and item.get("remaining_qty") == 0 and item.get("net_return") is not None]
     metrics = {
         "a2_focus_count": int(a2.get("counts", {}).get("FOCUS", 0)),
         "a2_watch_count": int(a2.get("counts", {}).get("WATCH", 0)),

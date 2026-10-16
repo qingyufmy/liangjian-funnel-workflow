@@ -8,6 +8,7 @@ import { JOB_DEFINITIONS } from "./config.js";
 import { redactText } from "./redaction.js";
 import { LogStore } from "./logger.js";
 import type { JobName, JobRunRecord } from "./types.js";
+import { MonitorHealth, monitorReasonCounts } from "./monitor-health.js";
 
 interface ActiveChild {
   readonly runId: string;
@@ -80,6 +81,9 @@ function readMonitorTrace(directory: string, runId: string): Record<string, unkn
     const receipt = JSON.parse(raw) as Record<string, unknown>;
     if (receipt.run_id !== runId) return { status: "TRACE_RUN_ID_MISMATCH" };
     return { status: "RECORDED", receiptPath, phase_timings: receipt.phase_timings,
+      business_reason_counts: receipt.business_reason_counts,
+      business_status_observed: receipt.business_status_observed,
+      business_incident_ids: receipt.business_incident_ids,
       elapsed_ms: receipt.elapsed_ms, timeoutSnapshotPath: path.join(directory, `${runId}.json`) };
   } catch {
     return { status: "NO_FINAL_RECEIPT", timeoutSnapshotPath: path.join(directory, `${runId}.json`) };
@@ -147,6 +151,7 @@ function definitionFor(job: JobName) {
 
 export class JobRunner {
   private readonly history: JobRunRecord[] = [];
+  private readonly monitorHealth: MonitorHealth;
   // The optional comparison plane has its own child slot.  It is deliberately
   // independent from the priority slot so a slow Kimi/GLM run cannot block the
   // next morning/close research or the one-minute monitor.
@@ -157,7 +162,11 @@ export class JobRunner {
   public constructor(
     private readonly config: AppConfig,
     private readonly logger: LogStore,
-  ) {}
+  ) {
+    this.monitorHealth = new MonitorHealth(path.join(config.nodeLogDir, "monitor-business-health.json"),
+      path.join(path.dirname(config.rootDir), "liangjian-shadow", "shadow.env"),
+      message => logger.warn(message, { job:"monitor" }));
+  }
 
   public activeJob(): JobRunRecord | null {
     const current = this.history.find((item) => item.runId === (this.active?.runId ?? this.review?.runId ?? this.comparison?.runId));
@@ -250,12 +259,15 @@ export class JobRunner {
     let stdoutPending = "";
     let stderrPending = "";
     let traceReady = false;
+    let monitorReasons: Record<string, number> = {};
     child.stdout.on("data", (chunk: Buffer | string) => {
+      if (job === "monitor") monitorReasons = { ...monitorReasons, ...monitorReasonCounts(stdoutPending + chunk.toString()) };
       const split = splitChunk(stdoutPending, chunk);
       stdoutPending = split.pending;
       for (const line of split.lines) this.logger.info(redactText(line, this.config.maxLogLineLength), { job, runId, stream: "stdout" });
     });
     child.stderr.on("data", (chunk: Buffer | string) => {
+      if (job === "monitor") monitorReasons = { ...monitorReasons, ...monitorReasonCounts(stderrPending + chunk.toString()) };
       const split = splitChunk(stderrPending, chunk);
       stderrPending = split.pending;
       for (const line of split.lines) {
@@ -288,6 +300,21 @@ export class JobRunner {
           catch { this.logger.warn("MONITOR_SNAPSHOT_WRITE_FAILED", { job, runId }); }
         }
         const status = timedOut ? "terminated" : exitCode === 0 ? "succeeded" : "failed";
+        const monitorTrace = job === "monitor" ? readMonitorTrace(traceDir, runId) : null;
+        let monitorBusiness: Readonly<Record<string, unknown>> | null = null;
+        if (monitorTrace) {
+          const captured = monitorTrace.business_reason_counts;
+          if (monitorTrace.business_status_observed === true) monitorReasons = {};
+          if (captured && typeof captured === "object" && !Array.isArray(captured)) {
+            for (const [code, count] of Object.entries(captured)) {
+              if (typeof count === "number" && Number.isSafeInteger(count) && count > 0) monitorReasons[code] = count;
+            }
+          }
+          if (monitorTrace.business_status_observed !== true && !Object.keys(monitorReasons).length)
+            monitorReasons.MONITOR_BUSINESS_STATUS_UNAVAILABLE = 1;
+          monitorBusiness = { ...this.monitorHealth.observe({ runId, startedAt: startedAt.toISOString(),
+            finishedAt: finishedAt.toISOString(), exitCode }, monitorReasons,monitorTrace.business_incident_ids) };
+        }
         const record: JobRunRecord = {
           runId,
           job,
@@ -305,7 +332,8 @@ export class JobRunner {
               : signal
                 ? `SIGNAL_KILLED:${signal}`
                 : "NON_ZERO_EXIT",
-          ...(job === "monitor" ? { monitorTrace: readMonitorTrace(traceDir, runId) } : {}),
+          ...(monitorTrace ? { monitorTrace } : {}),
+          ...(monitorBusiness ? { monitorBusiness } : {}),
         };
         this.replaceRunning(record);
         if (this.childFor(slot)?.runId === runId) this.setChild(slot, null);
@@ -313,6 +341,8 @@ export class JobRunner {
           `任务结束 ${command} status=${status} exit=${exitCode ?? "null"} signal=${signal ?? "none"} duration_ms=${durationMs}`,
           { job, runId },
         );
+        if (monitorBusiness) this.logger[monitorBusiness.status === "READY" ? "info" : "warn"](
+          `MONITOR_BUSINESS_HEALTH ${JSON.stringify(monitorBusiness)}`, { job, runId });
         resolve(record);
       };
       const snapshotDelay = monitorSnapshotDelay(job, timeoutMs);

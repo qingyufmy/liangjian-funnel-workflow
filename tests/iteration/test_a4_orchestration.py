@@ -149,7 +149,7 @@ def test_a4_04_position_protection_is_written_before_plan_activation(tmp_path: P
     app._ensure_trading_day = lambda _: None
     app._expire_missed_a4_entries = lambda _: None
     app._fetch_live_quote = lambda *_args, **_kwargs: quote("600519.SH", price=8.8, at=current)
-    app._settle_prior_signals = lambda *_args: []
+    app._settle_prior_signals = lambda *_args, **_kwargs: []
 
     def activation_barrier(**_kwargs):
         events = store.list_monitor_events(lane_id="lane_1", effective_only=True)
@@ -341,7 +341,7 @@ def test_a4_02_monitor_never_fetches_native_5m_or_archive_only_symbol(
     app._ensure_trading_day = lambda _: None
     app._expire_missed_a4_entries = lambda _: None
     app.activate_latest_a3_for_monitor = lambda **_: {}
-    app._settle_prior_signals = lambda *_args: []
+    app._settle_prior_signals = lambda *_args, **_kwargs: []
     app._record_a4_outcomes = lambda *_args: {}
     app._a4_callback = lambda *_args, **_kwargs: None
     fetched: list[tuple[str, str]] = []

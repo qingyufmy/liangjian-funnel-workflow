@@ -215,6 +215,9 @@ class MonitorEngine:
             plan_id = str(plan["plan_id"])
             symbol = str(plan["symbol"])
             symbol_reason = symbol_data_errors.get(symbol) or symbol_data_errors.get(symbol.split(".")[0])
+            quarantine_reader = getattr(self.store, "get_a4_plan_quarantine", None)
+            if callable(quarantine_reader) and quarantine_reader(plan_id):
+                symbol_reason = "STATE_CONFLICT_QUARANTINED"
             # Entry-history failure must not silence an independently valid
             # current-bar hard stop. Global persistence/integrity failures and
             # untrusted current bars still cannot authorize any execution.

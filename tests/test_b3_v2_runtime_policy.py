@@ -176,7 +176,7 @@ def test_live_workflow_supplies_same_policy_to_model_and_monitor_without_plan_re
     app._ensure_trading_day = lambda *_: None
     app._expire_missed_a4_entries = lambda *_: None
     app.activate_latest_a3_for_monitor = lambda **_: {}
-    app._settle_prior_signals = lambda *_: []
+    app._settle_prior_signals = lambda *_, **__: []
     app._record_a4_outcomes = lambda *_: {}
     app._fetch_live_bars = lambda *_, **__: FetchResult(symbol=symbol, interval='1m', requested_bars=1,
         returned_bars=1, bars=(source,), reason_code='OK', complete=True)

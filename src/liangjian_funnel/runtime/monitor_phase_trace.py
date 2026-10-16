@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import contextmanager, nullcontext
 from datetime import datetime
 import faulthandler
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -25,6 +26,7 @@ class MonitorPhaseTrace:
         self.directory=Path(directory).resolve();self.directory.mkdir(parents=True,exist_ok=True)
         self.run_id=run_id;self.started=time.monotonic();self.phase_started=self.started;self.current_phase='startup'
         self.timings={name:{'duration_ms':0.0,'calls':0} for name in PHASES}
+        self.business_reason_counts={};self.business_status_observed=False;self.business_incident_ids=set()
         self.active={};self.lock=threading.RLock();self.old_handler=None;self.finished=False;self.native_signal=False
         self.stack_path=self.directory/(run_id+'.stacks.log')
         self.stack_handle=self.stack_path.open('a+',encoding='utf-8')
@@ -61,7 +63,23 @@ class MonitorPhaseTrace:
             'observed_at':datetime.now().astimezone().isoformat(),'current_phase':self.current_phase,
             'active_scopes':list(self.active.copy().values()),'phase_timings':timings,
             'elapsed_ms':max(0,(at-self.started)*1000),
+            'business_reason_counts':dict(self.business_reason_counts),
+            'business_status_observed':self.business_status_observed,
+            'business_incident_ids':sorted(self.business_incident_ids),
             'timing_basis':'WALL_SCOPES_MAY_OVERLAP_PERSIST_IS_NESTED_NOT_ADDITIVE_CPU_TIME'}
+
+    def note_business_reasons(self,reasons,*,incident_key=None):
+        # Counts and stable codes only; no exception messages, URLs or secrets.
+        safe={code:count for code,count in reasons.items()
+              if isinstance(code,str) and re.fullmatch(r'[A-Z][A-Z0-9_]{1,79}',code)
+              and isinstance(count,int) and not isinstance(count,bool) and 0<count<=10000}
+        with self.lock:
+            self.business_status_observed=True
+            for code,count in safe.items():
+                self.business_reason_counts[code]=max(count,self.business_reason_counts.get(code,0))
+            if isinstance(incident_key,str) and len(self.business_incident_ids)<64:
+                self.business_incident_ids.add(hashlib.sha256(incident_key.encode()).hexdigest())
+        self._save(self.directory/(self.run_id+'.phase.json'),self.state())
 
     def _save(self,path,payload,*,immutable=False):
         temporary=None
@@ -145,6 +163,10 @@ def phase_scope(name):
 
 def phase_timings():
     return _CURRENT.state()['phase_timings'] if _CURRENT is not None else {}
+
+
+def record_business_reasons(reasons,*,incident_key=None):
+    if _CURRENT is not None:_CURRENT.note_business_reasons(reasons,incident_key=incident_key)
 
 
 def timed_phase(name):

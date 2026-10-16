@@ -9,6 +9,7 @@ transaction, so a persistence failure blocks subsequent actions.
 from __future__ import annotations
 
 import math
+import json
 from collections.abc import Iterable, Mapping
 from datetime import date, datetime, time as datetime_time, timedelta
 from decimal import Decimal
@@ -24,6 +25,7 @@ from .risk import RiskGovernor
 from .stock_trading_rules import stock_trading_rules
 from .execution_eligibility import sell_eligibility
 from .execution_accounting import FeeSchedule, OrderFeeLedger
+from .entry_contract import next_complete_minute
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -231,28 +233,8 @@ def _floor_lot(value: float, lot_size: int) -> int:
 
 
 def _first_complete_bar_end(value: datetime) -> datetime | None:
-    """Return the first session minute wholly after an information timestamp."""
-
-    local = value.astimezone(SHANGHAI)
-    day = local.date()
-    clock = local.time().replace(tzinfo=None)
-    morning_open = datetime.combine(day, datetime_time(9, 30), SHANGHAI)
-    morning_close = datetime.combine(day, datetime_time(11, 30), SHANGHAI)
-    afternoon_open = datetime.combine(day, datetime_time(13, 0), SHANGHAI)
-    afternoon_close = datetime.combine(day, datetime_time(15, 0), SHANGHAI)
-    if local < morning_open:
-        return morning_open + timedelta(minutes=1)
-    if local < morning_close:
-        floor = local.replace(second=0, microsecond=0)
-        candidate = floor + timedelta(minutes=1 if local == floor else 2)
-        return candidate if candidate <= morning_close else afternoon_open + timedelta(minutes=1)
-    if local < afternoon_open:
-        return afternoon_open + timedelta(minutes=1)
-    if local < afternoon_close:
-        floor = local.replace(second=0, microsecond=0)
-        candidate = floor + timedelta(minutes=1 if local == floor else 2)
-        return candidate if candidate <= afternoon_close else None
-    return None
+    """Compatibility alias; the session clock has one implementation."""
+    return next_complete_minute(value)
 
 
 def _fee(gross: float, config: SimulationConfig, *, sell: bool) -> float:
@@ -399,6 +381,15 @@ class PaperBroker:
         except (PersistenceError, PersistenceBlockedError):
             return self._blocked(parsed, "PERSISTENCE_FAILED")
         if existing is not None:
+            try:
+                intent = self.store.get_simulation_intent(intent_key)
+                existing_plan = json.loads(intent["order_metadata_json"] or "{}").get("plan_id") if intent else None
+            except (PersistenceError, PersistenceBlockedError, ValueError, TypeError):
+                return self._blocked(parsed, "PERSISTENCE_FAILED")
+            if intent is None or existing_plan != parsed.plan_id:
+                return self._blocked(parsed, "A4_PLAN_IDENTITY_CONFLICT")
+            if existing["symbol"] != parsed.symbol or existing["signal_id"] != parsed.signal_id:
+                return self._blocked(parsed, "A4_SIGNAL_IDENTITY_CONFLICT")
             return SimulationResult(
                 status=SimulationStatus.DUPLICATE,
                 reason_code="IDEMPOTENT_REPLAY",

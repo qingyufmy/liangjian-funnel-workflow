@@ -80,6 +80,17 @@ def test_duplicate_minute_does_not_inflate_coverage():
     assert row["performance"]["observed_minute_count"] == 2
 
 
+def test_quarantined_orphan_fill_is_visible_but_excluded_from_performance():
+    event, fill, market = fixture()
+    row=build_signal_stock_reviews([event],[],[fill],market,datetime(2026,9,9,11,30,tzinfo=TZ),
+        lifecycles=[{'plan_id':'p','performance_eligible':False}])[0]
+    assert row['entry_audit']['fill_qty']==100  # raw ledger evidence retained
+    assert row['entry_audit']['execution_status']=='RECONCILIATION_REQUIRED'
+    assert row['performance']['performance_eligible'] is False
+    assert row['performance']['entry_mark_return_pct'] is None
+    assert row['performance']['post_entry_high_return_pct'] is None
+
+
 def test_unfilled_reason_is_exact_signal_and_not_future_state():
     event, _, market = fixture()
     def audit(updated):

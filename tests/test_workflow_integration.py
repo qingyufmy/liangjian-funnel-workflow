@@ -924,7 +924,7 @@ def test_a4_signal_lifecycle_survives_t1_and_closes_on_next_session(tmp_path):
     assert lifecycle["net_return"] is not None
 
 
-def test_missed_next_bar_entry_is_retained_as_unfilled_sample(tmp_path):
+def test_missing_next_bar_without_matching_evidence_stays_pending(tmp_path):
     store = RuntimeStore(tmp_path / "runtime.sqlite3")
     signal_time = datetime(2026, 9, 3, 10, 0, tzinfo=TZ)
     store.create_execution_plan(
@@ -958,10 +958,10 @@ def test_missed_next_bar_entry_is_retained_as_unfilled_sample(tmp_path):
         signal_time + timedelta(minutes=2),
     )
 
-    assert expired == 1
+    assert expired == 0
     lifecycle = store.get_a4_signal_lifecycle("effective:unfilled")
-    assert lifecycle["status"] == A4SignalStatus.UNFILLED.value
-    assert lifecycle["exit_reason"] == "ENTRY_NEXT_BAR_MISSED"
+    assert lifecycle["status"] == A4SignalStatus.SIGNALLED.value
+    assert lifecycle["exit_reason"] is None
 
 
 def test_effective_a4_entry_is_persisted_as_idempotent_tn_outcome_cohort(tmp_path):
