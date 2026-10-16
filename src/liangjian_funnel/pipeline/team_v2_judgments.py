@@ -56,6 +56,14 @@ class ModelJudgmentJournal:
                     PRIMARY KEY(call_id, ordinal));
                 CREATE INDEX IF NOT EXISTS model_calls_cohort
                     ON model_calls(source_trade_date, role, session);
+                CREATE TABLE IF NOT EXISTS model_call_evidence (
+                    call_id TEXT PRIMARY KEY REFERENCES model_calls(call_id),
+                    catalog_json TEXT NOT NULL,catalog_sha256 TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS model_judgment_outcomes (
+                    decision_id TEXT NOT NULL REFERENCES model_judgments(decision_id),
+                    horizon INTEGER NOT NULL CHECK(horizon IN (1,3)),
+                    captured_at TEXT NOT NULL,body_json TEXT NOT NULL,body_sha256 TEXT NOT NULL,
+                    PRIMARY KEY(decision_id,horizon));
                 CREATE TABLE IF NOT EXISTS model_call_claims (
                     call_id TEXT PRIMARY KEY, request_binding TEXT NOT NULL,
                     state TEXT NOT NULL, failure_code TEXT);
@@ -123,7 +131,8 @@ class ModelJudgmentJournal:
 
     def capture(self, *, call_id: str, run_id: str, role: str, session: str,
                 source_trade_date: str, execution_trade_date: str, captured_at: datetime,
-                catalog_hash: str, response: ModelCallResult, validation: TeamValidation) -> dict:
+                catalog_hash: str, response: ModelCallResult, validation: TeamValidation,
+                catalog: dict | None = None) -> dict:
         if (not isinstance(captured_at, datetime) or captured_at.tzinfo is None
                 or captured_at.utcoffset() is None):
             raise ValueError("MODEL_CAPTURE_TIME_INVALID")
@@ -139,6 +148,8 @@ class ModelJudgmentJournal:
                 or type(response.attempts) is not int or response.attempts < 1):
             raise ValueError("MODEL_CAPTURE_METRICS_INVALID")
         output_json = _json(response.output)
+        if catalog is not None and _hash(_json(catalog))!=catalog_hash:
+            raise ValueError('MODEL_CATALOG_HASH_MISMATCH')
         if _hash(output_json) != response.output_hash:
             raise ValueError("MODEL_OUTPUT_HASH_MISMATCH")
         judgments = []
@@ -169,6 +180,8 @@ class ModelJudgmentJournal:
                 fields = {"call_id": call_id, **body, "captured_at": captured_at.isoformat(), "binding_sha256": binding}
                 db.execute("INSERT INTO model_calls (" + ",".join(fields) + ") VALUES ("
                            + ",".join("?" for _ in fields) + ")", tuple(fields.values()))
+                if catalog is not None:
+                    db.execute('INSERT INTO model_call_evidence VALUES (?,?,?)',(call_id,_json(catalog),catalog_hash))
                 db.executemany("""INSERT INTO model_judgments
                     (call_id,ordinal,judgment_path,validated,judgment_json,judgment_sha256,
                      decision_id,plan_id,symbol) VALUES (?,?,?,?,?,?,?,?,?)""",

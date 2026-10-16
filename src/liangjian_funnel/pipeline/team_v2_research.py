@@ -42,6 +42,10 @@ class TeamResearchAdapter:
         from .team_v2_a2_research import prepare_a2_snapshot
         return prepare_a2_snapshot(self,snapshot,symbols)
 
+    def method_feedback(self,recipient,as_of):
+        from .team_v2_feedback import read_a5_method_feedback
+        return read_a5_method_feedback(self.journal.path,self.store.path,recipient=recipient,as_of=as_of)
+
     def finalize_a3_output(self, output):
         # Model ranks are batch-local. Deterministic interleaving is display
         # only, not a claim that one model reviewed the entire merged universe.
@@ -95,7 +99,7 @@ class TeamResearchAdapter:
             SECTOR_PERMISSIONS=snapshot.data.get('SECTOR_PERMISSIONS', {'status': 'UNAVAILABLE'}),
             A2_HANDOFF=upstream.get('handoff_notes', {'status': 'UNAVAILABLE'}),
             RISK_CAPACITY=snapshot.data.get('RISK_CAPACITY', {'status': 'UNAVAILABLE'}),
-            PRIOR_OUTCOME_FEEDBACK=snapshot.data.get('PRIOR_OUTCOME_FEEDBACK', {'status': 'INSUFFICIENT'}))
+            PRIOR_OUTCOME_FEEDBACK=self.method_feedback('A3',stamp))
         projected = plan_review_inputs(values, domain, engine)
         # IDs and hashes refer to the actual blind facts, not engine verdicts.
         items = [dict(id='A3:MARKET', category='MARKET', sha256=_hash(market), summary='冻结市场环境')]

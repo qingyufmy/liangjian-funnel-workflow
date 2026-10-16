@@ -94,7 +94,7 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
         if len({r['symbol'] for r in sample})!=len(sample) or set(r['symbol'] for r in sample)&set(frozen['review_symbols']):
             return blocked('TEAM_A2_NOMINATION_SOURCE_INVALID')
         values['A2_QUANT_FILTERED_SAMPLE']=sample
-        values['PRIOR_OUTCOME_FEEDBACK']={'status':'INSUFFICIENT','reason_code':'METHOD_LABEL_MATURITY_UNPROVEN'}
+        values['PRIOR_OUTCOME_FEEDBACK']=adapter.method_feedback('A2',source)
         values['PENALTY_RULES']=dict(penalty_mode=frozen['policy']['penalty_mode'],
             penalty_points=frozen['policy']['penalty_points'],minimum_penalty_points=-30)
         # Metadata, not a second unscoped copy of all snapshot/legacy feedback.

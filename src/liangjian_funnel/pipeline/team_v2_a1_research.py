@@ -97,10 +97,9 @@ def run_a1_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
             # Same packet/snapshot intersection as the old request builder;
             # do not trust an inherited or caller-expanded citation allowlist.
             context['authorized_discovery_source_refs']=tuple(values['A1_BATCH_CONTEXT']['allowed_primary_source_refs'])
-        # A caller's arbitrary READY/stock-return blob is not method calibration.
-        # Owned mature, as-of-proven feedback is connected separately; until
-        # that source exists the required first-ten-day state is explicit.
-        values['PRIOR_OUTCOME_FEEDBACK']={'status':'INSUFFICIENT','reason_code':'METHOD_LABEL_MATURITY_UNPROVEN'}
+        # Only owned, mature, as-of-bound A5 method aggregates; no arbitrary
+        # READY/stock-return blob from a legacy snapshot or model prose.
+        values['PRIOR_OUTCOME_FEEDBACK']=adapter.method_feedback('A1',source)
         values['EVIDENCE_CATALOG']=_catalog(values)
         envelope=dict(schema_version='team-research-envelope/1',run_id=run_id,stage_id='A1',
             source_trade_date=source.date().isoformat(),execution_trade_date=adapter.calendar.next_trading_day(source.date()).isoformat(),

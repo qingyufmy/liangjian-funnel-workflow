@@ -93,5 +93,5 @@ def call_team_model(request: TeamMessageRequest, client, journal: ModelJudgmentJ
         validation = TeamValidation(False, ("TEAM_VALIDATOR_FAILED",), (), 0)
     receipt = journal.capture(call_id=call_id, run_id=run_id, role=request.prompt.role, session=session,
         source_trade_date=source_trade_date, execution_trade_date=execution_trade_date, captured_at=clock(),
-        catalog_hash=catalog_hash, response=response, validation=validation)
+        catalog_hash=catalog_hash, response=response, validation=validation,catalog=catalog)
     return TeamCallOutcome(response, validation, receipt)

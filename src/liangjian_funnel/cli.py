@@ -1058,6 +1058,13 @@ def _evaluation_command(args: argparse.Namespace, settings: Settings) -> int:
                 ),
                 price_source=source,
             )
+            if args.command in {'run-outcomes','run-outcomes-refresh'} and not getattr(args,'as_of',None):
+                # Research-only append labels; no extra network, and its data
+                # status cannot turn a legacy successful outcome job into a retry.
+                from .runtime.team_v2_model_outcomes import refresh_model_outcomes
+                try:payload['team_model_judgments']=refresh_model_outcomes(settings)
+                except Exception:
+                    payload['team_model_judgments']={'status':'DATA_LIMITED','reason_code':'MODEL_LABEL_LOCAL_FAILURE'}
             if refresh is not None:
                 payload["price_refresh"] = refresh
                 payload["network_used"] = refresh["network_used"]
