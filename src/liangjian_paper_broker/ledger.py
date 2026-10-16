@@ -59,6 +59,7 @@ class LocalPaperBroker:
             c.execute("CREATE TABLE IF NOT EXISTS paper_marks(symbol TEXT PRIMARY KEY,price TEXT NOT NULL,trade_date TEXT NOT NULL,minute_end TEXT NOT NULL)")
             c.execute("CREATE TABLE IF NOT EXISTS exec_ledger(event_id TEXT PRIMARY KEY,kind TEXT NOT NULL,payload_json TEXT NOT NULL)")
             c.execute("CREATE TABLE IF NOT EXISTS daily_nav(trade_date TEXT PRIMARY KEY,payload_json TEXT NOT NULL)")
+            c.execute("CREATE TABLE IF NOT EXISTS paper_admissions(signal_id TEXT PRIMARY KEY,binding_hash TEXT NOT NULL,trade_date TEXT NOT NULL,result_json TEXT NOT NULL)")
 
     @contextmanager
     def _tx(self, *, readonly=False):
@@ -106,32 +107,94 @@ class LocalPaperBroker:
 
     def place_order(self,symbol,side,qty,*,order_type,limit_price,client_order_id,plan_id,signal_id,
                     no_chase_price=None,tradable=False) -> str:
-        now = local_time(self.clock()); day = now.date().isoformat()
+        with self._tx() as c:
+            return self._place_order_tx(c,symbol,side,qty,order_type=order_type,limit_price=limit_price,
+                client_order_id=client_order_id,plan_id=plan_id,signal_id=signal_id,
+                no_chase_price=no_chase_price,tradable=tradable,now=local_time(self.clock()))
+
+    def _place_order_tx(self,c,symbol,side,qty,*,order_type,limit_price,client_order_id,plan_id,signal_id,
+                        no_chase_price=None,tradable=False,now) -> str:
+        day = now.date().isoformat()
         if tradable is not True: raise ValueError("PAPER_NOT_TRADABLE")
         if not (time(9,30)<=now.time().replace(tzinfo=None)<time(11,30) or time(13)<=now.time().replace(tzinfo=None)<time(15)):
             raise ValueError("PAPER_ORDER_OUTSIDE_SESSION")
         request = dict(symbol=symbol,side=side,qty=qty,order_type=order_type,limit_price=limit_price,
                        client_order_id=client_order_id,plan_id=plan_id,signal_id=signal_id,no_chase_price=no_chase_price)
         request_hash = digest(request); oid = "paper-"+digest(client_order_id)[:24]
-        with self._tx() as c:
-            old = c.execute("SELECT * FROM paper_orders WHERE client_order_id=?",(client_order_id,)).fetchone()
-            if old:
-                if old["request_hash"] != request_hash: raise ValueError("PAPER_IDEMPOTENCY_CONFLICT")
-                return old["order_id"]
-            if c.execute("SELECT 1 FROM daily_nav WHERE trade_date=?",(day,)).fetchone():raise ValueError("PAPER_DAY_SETTLED")
-            o = PaperOrder(oid,plan_id,signal_id,symbol,side,order_type,qty,qty,now,
-                           limit_price=limit_price,no_chase_price=no_chase_price)
-            if side == "BUY" and (qty % 100 or o.no_chase_price is None or o.no_chase_price <= 0):
-                raise ValueError("PAPER_BUY_ROUND_LOT_AND_PRICE_CAP_REQUIRED")
-            if side == "SELL":
-                reserved = sum(self._order(r).remaining_qty for r in self._open(c) if r["symbol"]==symbol and r["plan_id"]==plan_id and self._order(r).side=="SELL")
-                available = self._sellable(c,symbol,plan_id,day)-reserved
-                if qty>available: raise ValueError("PAPER_T1_NOT_SELLABLE")
-                o = replace(o,sellable_qty=qty)
-            c.execute("INSERT INTO paper_orders VALUES (?,?,?,?,?,?,?,?)",(oid,client_order_id,request_hash,day,symbol,plan_id,"OPEN",dump(asdict(o))))
-            if self._reserved(c)>self._meta(c,"cash"): raise ValueError("PAPER_INSUFFICIENT_CASH")
-            self._event(c,"order:"+oid,"ORDER_ACCEPTED",dict(request,order_id=oid,submitted_at=now,run_id=self.run_id))
+        old = c.execute("SELECT * FROM paper_orders WHERE client_order_id=?",(client_order_id,)).fetchone()
+        if old:
+            if old["request_hash"] != request_hash: raise ValueError("PAPER_IDEMPOTENCY_CONFLICT")
+            return old["order_id"]
+        if c.execute("SELECT 1 FROM daily_nav WHERE trade_date=?",(day,)).fetchone():raise ValueError("PAPER_DAY_SETTLED")
+        o = PaperOrder(oid,plan_id,signal_id,symbol,side,order_type,qty,qty,now,
+                       limit_price=limit_price,no_chase_price=no_chase_price)
+        if side == "BUY" and (qty % 100 or o.no_chase_price is None or o.no_chase_price <= 0):
+            raise ValueError("PAPER_BUY_ROUND_LOT_AND_PRICE_CAP_REQUIRED")
+        if side == "SELL":
+            reserved = sum(self._order(r).remaining_qty for r in self._open(c) if r["symbol"]==symbol and r["plan_id"]==plan_id and self._order(r).side=="SELL")
+            available = self._sellable(c,symbol,plan_id,day)-reserved
+            if qty>available: raise ValueError("PAPER_T1_NOT_SELLABLE")
+            o = replace(o,sellable_qty=qty)
+        c.execute("INSERT INTO paper_orders VALUES (?,?,?,?,?,?,?,?)",(oid,client_order_id,request_hash,day,symbol,plan_id,"OPEN",dump(asdict(o))))
+        if self._reserved(c)>self._meta(c,"cash"): raise ValueError("PAPER_INSUFFICIENT_CASH")
+        self._event(c,"order:"+oid,"ORDER_ACCEPTED",dict(request,order_id=oid,submitted_at=now,run_id=self.run_id))
         return oid
+
+    @staticmethod
+    def _admissions(c,day):
+        return tuple(json.loads(row[0]) for row in c.execute(
+            "SELECT result_json FROM paper_admissions WHERE trade_date=? ORDER BY signal_id", (day,)))
+
+    def get_admissions(self,trade_date):
+        with self._tx(readonly=True) as c:
+            return self._admissions(c,trade_date)
+
+    def admit_signal(self,signal_id,*,binding,decide,mode="control"):
+        """Trusted pure risk callback under the same lock as paper reservation.
+
+        The callback gets fresh positions, open orders and committed daily
+        admissions. It must not perform network/model calls or open this DB.
+        No strategy limit lives here; the project risk engine remains owner.
+        A record-mode judgment is auditable but never consumes a trading slot.
+        """
+        if mode not in {"control","record"} or not isinstance(signal_id,str) or not signal_id.strip():
+            raise ValueError("PAPER_ADMISSION_ID_INVALID")
+        if (not isinstance(binding,dict) or any(not isinstance(binding.get(k),str) or not binding[k]
+                for k in ("plan_id","symbol","trade_date"))):
+            raise ValueError("PAPER_ADMISSION_BINDING_INVALID")
+        # Canonical deep copy isolates the immutable request from callback edits.
+        bound=json.loads(json.dumps(binding,sort_keys=True,allow_nan=False))
+        bhash=digest({"binding":bound,"mode":mode})
+        with self._tx() as c:
+            now=local_time(self.clock());day=now.date().isoformat()
+            if bound["trade_date"]!=day:raise ValueError("PAPER_ADMISSION_DATE_MISMATCH")
+            old=c.execute("SELECT binding_hash,result_json FROM paper_admissions WHERE signal_id=?",(signal_id,)).fetchone()
+            if old:
+                if old[0]!=bhash:raise ValueError("PAPER_ADMISSION_BINDING_CONFLICT")
+                return json.loads(old[1])
+            snapshot={"observed_at":now.isoformat(),"account":self._account(c,day),
+                "positions":self._positions(c,day),
+                "open_orders":tuple({**json.loads(r["body_json"]),"status":r["status"]} for r in self._open(c)),
+                "admissions":self._admissions(c,day)}
+            response=decide(snapshot)
+            if not isinstance(response,dict) or set(response)!={"judgment","order"} or not isinstance(response["judgment"],dict):
+                raise ValueError("PAPER_ADMISSION_DECISION_INVALID")
+            # Validate persisted judgment data before any paper order is placed.
+            judgment=json.loads(json.dumps(response["judgment"],sort_keys=True,allow_nan=False))
+            order=response["order"];oid=None
+            if order is not None:
+                if (not isinstance(order,dict) or set(order)-{"side","qty","order_type","limit_price","no_chase_price","tradable"}
+                        or judgment.get("status") not in {"APPROVED","REDUCED"}):
+                    raise ValueError("PAPER_ADMISSION_ORDER_INVALID")
+                if mode=="control":
+                    oid=self._place_order_tx(c,bound["symbol"],plan_id=bound["plan_id"],signal_id=signal_id,
+                        client_order_id="team-"+digest(signal_id)[:32],now=now,**order)
+            result={"signal_id":signal_id,"binding":bound,"judgment":judgment,"mode":mode,
+                "order_id":oid,"order_side":order["side"] if oid else None,"dispatched":oid is not None,
+                "observed_at":now.isoformat()}
+            c.execute("INSERT INTO paper_admissions VALUES(?,?,?,?)",(signal_id,bhash,day,dump(result)))
+            self._event(c,"admission:"+signal_id,"SIGNAL_ADMISSION",result)
+            return result
 
     @staticmethod
     def _event(c,key,kind,payload):
@@ -275,6 +338,6 @@ class LocalPaperBroker:
 
     def snapshot_bytes(self):
         with self._tx(readonly=True) as c:
-            tables=("paper_meta","paper_orders","paper_fills","paper_lots","paper_bars","paper_marks","exec_ledger","daily_nav")
+            tables=("paper_meta","paper_orders","paper_fills","paper_lots","paper_bars","paper_marks","exec_ledger","daily_nav","paper_admissions")
             data={table:[dict(r) for r in c.execute("SELECT * FROM "+table+" ORDER BY 1,2")] for table in tables}
             return dump(data).encode()
