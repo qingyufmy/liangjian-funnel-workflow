@@ -50,7 +50,7 @@ class LocalPaperBroker:
             old_policy=c.execute("SELECT value FROM paper_meta WHERE key='fee_policy'").fetchone()
             if old_policy and old_policy[0]!=dump(self.policy): raise ValueError("PAPER_RULE_POLICY_CONFLICT")
             c.execute("INSERT OR IGNORE INTO paper_meta VALUES ('fee_policy',?)",(dump(self.policy),))
-            for key,value in (("initial_capital",str(initial_capital)),("cash",str(initial_capital)),("realized","0")):
+            for key,value in (("initial_capital",str(initial_capital)),("cash",str(initial_capital)),("realized","0"),("risk_peak_nav",str(initial_capital)),("risk_halt_reason","")):
                 c.execute("INSERT OR IGNORE INTO paper_meta VALUES (?,?)",(key,value))
             c.execute("CREATE TABLE IF NOT EXISTS paper_orders(order_id TEXT PRIMARY KEY,client_order_id TEXT UNIQUE NOT NULL,request_hash TEXT NOT NULL,trade_date TEXT NOT NULL,symbol TEXT NOT NULL,plan_id TEXT NOT NULL,status TEXT NOT NULL,body_json TEXT NOT NULL)")
             c.execute("CREATE TABLE IF NOT EXISTS paper_fills(fill_id TEXT PRIMARY KEY,order_id TEXT NOT NULL,symbol TEXT NOT NULL,plan_id TEXT NOT NULL,side TEXT NOT NULL,qty INTEGER NOT NULL,price TEXT NOT NULL,fee TEXT NOT NULL,minute_end TEXT NOT NULL,run_id TEXT NOT NULL,source_signal_id TEXT NOT NULL)")
@@ -60,6 +60,7 @@ class LocalPaperBroker:
             c.execute("CREATE TABLE IF NOT EXISTS exec_ledger(event_id TEXT PRIMARY KEY,kind TEXT NOT NULL,payload_json TEXT NOT NULL)")
             c.execute("CREATE TABLE IF NOT EXISTS daily_nav(trade_date TEXT PRIMARY KEY,payload_json TEXT NOT NULL)")
             c.execute("CREATE TABLE IF NOT EXISTS paper_admissions(signal_id TEXT PRIMARY KEY,binding_hash TEXT NOT NULL,trade_date TEXT NOT NULL,result_json TEXT NOT NULL)")
+            c.execute("CREATE TABLE IF NOT EXISTS paper_risk_days(trade_date TEXT PRIMARY KEY,body_json TEXT NOT NULL,halt_reasons_json TEXT NOT NULL)")
 
     @contextmanager
     def _tx(self, *, readonly=False):
@@ -149,6 +150,35 @@ class LocalPaperBroker:
         with self._tx(readonly=True) as c:
             return self._admissions(c,trade_date)
 
+    @staticmethod
+    def _risk_day(c,day):
+        row=c.execute("SELECT body_json,halt_reasons_json FROM paper_risk_days WHERE trade_date=?",(day,)).fetchone()
+        return {**json.loads(row[0]),"halt_reason_codes":json.loads(row[1])} if row else None
+
+    def open_risk_day(self,trade_date):
+        """Seal an account-owned premarket baseline once, never reset it intraday."""
+        with self._tx() as c:
+            now=local_time(self.clock())
+            if now.date().isoformat()!=trade_date:raise ValueError("PAPER_RISK_DAY_DATE_INVALID")
+            old=self._risk_day(c,trade_date)
+            if old is not None:return old
+            if now.time().replace(tzinfo=None)>=time(9,30):raise ValueError("PAPER_RISK_DAY_OPEN_TIME_INVALID")
+            if c.execute("SELECT 1 FROM paper_orders WHERE trade_date=?",(trade_date,)).fetchone():
+                raise ValueError("PAPER_RISK_DAY_ALREADY_TRADED")
+            account=self._account(c,trade_date);positions=self._positions(c,trade_date)
+            if account['nav'] is None:raise ValueError("PAPER_RISK_DAY_NAV_UNPROVEN")
+            if positions:
+                prior=c.execute("SELECT payload_json FROM daily_nav WHERE trade_date<? ORDER BY trade_date DESC LIMIT 1",(trade_date,)).fetchone()
+                report=json.loads(prior[0]) if prior else {}
+                if (report.get('status')!='COMPLETE' or report.get('reconcile',{}).get('status')!='MATCH'
+                        or report.get('account',{}).get('nav')!=account['nav']):
+                    raise ValueError("PAPER_RISK_DAY_PRIOR_CLOSE_UNPROVEN")
+            basis=dict(trade_date=trade_date,opened_at=now.isoformat(),day_open_nav=account['nav'],
+                source_sha256=digest({'account':account,'positions':positions}))
+            c.execute("INSERT INTO paper_risk_days VALUES(?,?,?)",(trade_date,dump(basis),'[]'))
+            self._event(c,'risk-open:'+trade_date,'RISK_DAY_OPEN',basis)
+            return {**basis,'halt_reason_codes':[]}
+
     def admit_signal(self,signal_id,*,binding,decide,mode="control"):
         """Trusted pure risk callback under the same lock as paper reservation.
 
@@ -175,12 +205,25 @@ class LocalPaperBroker:
             snapshot={"observed_at":now.isoformat(),"account":self._account(c,day),
                 "positions":self._positions(c,day),
                 "open_orders":tuple({**json.loads(r["body_json"]),"status":r["status"]} for r in self._open(c)),
-                "admissions":self._admissions(c,day)}
+                "admissions":self._admissions(c,day),"risk_day":self._risk_day(c,day),
+                "peak_nav":str(self._meta(c,'risk_peak_nav')),
+                "global_halt":c.execute("SELECT value FROM paper_meta WHERE key='risk_halt_reason'").fetchone()[0],
+                "fills_today":tuple(dict(r) for r in c.execute("SELECT * FROM paper_fills WHERE substr(minute_end,1,10)=? ORDER BY fill_id",(day,)))}
             response=decide(snapshot)
-            if not isinstance(response,dict) or set(response)!={"judgment","order"} or not isinstance(response["judgment"],dict):
+            if (not isinstance(response,dict) or not {'judgment','order'}.issubset(response)
+                    or set(response)-{'judgment','order','halt_reason'} or not isinstance(response["judgment"],dict)):
                 raise ValueError("PAPER_ADMISSION_DECISION_INVALID")
             # Validate persisted judgment data before any paper order is placed.
             judgment=json.loads(json.dumps(response["judgment"],sort_keys=True,allow_nan=False))
+            halt=response.get('halt_reason')
+            if halt is not None:
+                if halt not in {'DAILY_LOSS_HALT','DRAWDOWN_HALT','A6_DEGRADED_HALT'} or response['order'] is not None:
+                    raise ValueError('PAPER_HALT_REQUEST_INVALID')
+                basis=self._risk_day(c,day)
+                if basis is None:raise ValueError('PAPER_RISK_BASIS_MISSING')
+                reasons=sorted(set(basis['halt_reason_codes'])|{halt})
+                c.execute('UPDATE paper_risk_days SET halt_reasons_json=? WHERE trade_date=?',(dump(reasons),day))
+                if halt=='DRAWDOWN_HALT':self._set(c,'risk_halt_reason',halt)
             order=response["order"];oid=None
             if order is not None:
                 if (not isinstance(order,dict) or set(order)-{"side","qty","order_type","limit_price","no_chase_price","tradable"}
@@ -260,6 +303,10 @@ class LocalPaperBroker:
                 fill=dict(fill_id=fid,order_id=o.order_id,symbol=o.symbol,plan_id=o.plan_id,side=o.side,qty=result.qty,price=str(result.price),fee=str(result.fee),minute_end=end,run_id=self.run_id,source_signal_id=o.signal_id)
                 c.execute("INSERT INTO paper_fills VALUES (?,?,?,?,?,?,?,?,?,?,?)",tuple(fill.values()))
                 self._event(c,fid,"FILL",fill);fills.append(fill);volume_left-=result.qty
+            positions=self._positions(c,day)
+            if all(p['mark_minute_end']==end for p in positions):
+                nav=self._account(c,day)['nav']
+                if nav is not None:self._set(c,'risk_peak_nav',max(self._meta(c,'risk_peak_nav'),Decimal(nav)))
         return tuple(fills)
 
     def _positions(self,c,day):
@@ -270,7 +317,7 @@ class LocalPaperBroker:
         marks={r["symbol"]:r for r in c.execute("SELECT * FROM paper_marks")};result=[]
         for (symbol,plan_id),p in sorted(groups.items()):
             mark=marks.get(symbol);value=Decimal(mark["price"])*p["qty"] if mark else None
-            result.append(dict(symbol=symbol,plan_id=plan_id,qty=p["qty"],sellable_qty=p["sellable_qty"],avg_cost=str(p["cost"]/p["qty"]),market_value=str(value) if value is not None else None,mark_trade_date=mark["trade_date"] if mark else None))
+            result.append(dict(symbol=symbol,plan_id=plan_id,qty=p["qty"],sellable_qty=p["sellable_qty"],avg_cost=str(p["cost"]/p["qty"]),market_value=str(value) if value is not None else None,mark_trade_date=mark["trade_date"] if mark else None,mark_minute_end=mark["minute_end"] if mark else None))
         return tuple(result)
 
     def get_positions(self):
@@ -338,6 +385,6 @@ class LocalPaperBroker:
 
     def snapshot_bytes(self):
         with self._tx(readonly=True) as c:
-            tables=("paper_meta","paper_orders","paper_fills","paper_lots","paper_bars","paper_marks","exec_ledger","daily_nav","paper_admissions")
+            tables=("paper_meta","paper_orders","paper_fills","paper_lots","paper_bars","paper_marks","exec_ledger","daily_nav","paper_admissions","paper_risk_days")
             data={table:[dict(r) for r in c.execute("SELECT * FROM "+table+" ORDER BY 1,2")] for table in tables}
             return dump(data).encode()

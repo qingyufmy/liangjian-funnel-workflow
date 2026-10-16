@@ -26,6 +26,10 @@ class LocalPaperAdapter:
     def get_orders(self,trade_date):return self.ledger.get_orders(trade_date)
     def get_fills(self,trade_date):return self.ledger.get_fills(trade_date)
     def get_admissions(self,trade_date):return self.ledger.get_admissions(trade_date)
+    def open_risk_day(self,trade_date):
+        if not self.calendar.is_trading_day(local_time(self.clock()).date()):
+            raise ValueError('PAPER_NON_TRADING_DAY')
+        return self.ledger.open_risk_day(trade_date)
     def cancel_order(self,order_id):return self.ledger.cancel_order(order_id)
     def reconcile(self):return self.ledger.reconcile()
     def settle(self,trade_date):return self.ledger.settle(trade_date)
