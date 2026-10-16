@@ -28,3 +28,12 @@ external_adjustment:
   a50_expansion_gte_pct: '1'
   expansion_vix_lte: '20'
   maximum_utilization_pct: 95
+# Claude 0253. Review wake-up only: no risk/position limit is changed.
+exception_triggers:
+  version: exception-triggers/1
+  approved_by: claude
+  daily_loss_review_at: '0.70'
+  cluster_exposure_review_at: '0.90'
+  position_stop_proximity: '0.50'
+  drawdown_review_at: '0.75'
+  max_reviews_per_object_type_day: 2

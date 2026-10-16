@@ -85,6 +85,10 @@ class RiskExceptionRuntime:
                 CREATE TABLE IF NOT EXISTS risk_exception_caps (
                     account_id TEXT NOT NULL,trade_date TEXT NOT NULL,
                     cap_pct TEXT NOT NULL,PRIMARY KEY(account_id,trade_date));
+                CREATE TABLE IF NOT EXISTS risk_exception_control_origins (
+                    account_id TEXT NOT NULL,trade_date TEXT NOT NULL,target TEXT NOT NULL,target_id TEXT NOT NULL,
+                    source_call_id TEXT NOT NULL,evidence_json TEXT NOT NULL,
+                    PRIMARY KEY(account_id,trade_date,target,target_id));
                 CREATE INDEX IF NOT EXISTS risk_exception_requests_account_day ON risk_exception_requests (
                     json_extract(context_json,'$.account_id'),json_extract(context_json,'$.trade_date'));
             ''')
@@ -94,7 +98,7 @@ class RiskExceptionRuntime:
             row=db.execute('SELECT context_json FROM risk_exception_requests WHERE meeting_id=?',(meeting_id,)).fetchone()
         return json.loads(row[0]) if row else None
 
-    def claim(self,meeting_id,*,account_id,trade_date,observed_at,input_sha256,targets,hard_halt,deadline_at=None,source_call_id=None):
+    def claim(self,meeting_id,*,account_id,trade_date,observed_at,input_sha256,targets,hard_halt,deadline_at=None,source_call_id=None,trigger_evidence=None):
         from ..pipeline.team_v2_risk_schema import exception_domain
         exception_domain(targets)
         if (any(not isinstance(v,str) or not v.strip() for v in (meeting_id,account_id,input_sha256))
@@ -104,7 +108,7 @@ class RiskExceptionRuntime:
             raise ValueError('A6_EXCEPTION_CONTEXT_INVALID')
         if any(t['target']=='account' and t['target_id']!=account_id for t in targets):
             raise ValueError('A6_EXCEPTION_ACCOUNT_MISMATCH')
-        base=dict(account_id=account_id,trade_date=trade_date,targets=targets,hard_halt=hard_halt)
+        base=dict(account_id=account_id,trade_date=trade_date,targets=targets,hard_halt=hard_halt,trigger_evidence=trigger_evidence)
         with closing(self.store._connect()) as db,db:
             db.execute('BEGIN IMMEDIATE')
             old=db.execute('SELECT input_sha256,context_json FROM risk_exception_requests WHERE meeting_id=?',(meeting_id,)).fetchone()
@@ -149,9 +153,11 @@ class RiskExceptionRuntime:
                 'LEFT JOIN risk_exception_reviews r ON q.meeting_id=r.meeting_id WHERE r.meeting_id IS NULL '
                 "AND json_extract(q.context_json,'$.account_id')=? AND json_extract(q.context_json,'$.trade_date')=?",
                 (account_id,trade_date)).fetchone()[0]
+            origins=[json.loads(r[0]) for r in db.execute('SELECT evidence_json FROM risk_exception_control_origins '
+                'WHERE account_id=? AND trade_date=? ORDER BY target,target_id',(account_id,trade_date))]
         return dict(controls=json.loads(controls[0]) if controls else [],
             consecutive_failures=max(state[0] if state else 0,2 if state and state[1] else 0,
-                min(2,pending)),utilization_cap=cap[0] if cap else None,pending_reviews=pending)
+                min(2,pending)),utilization_cap=cap[0] if cap else None,pending_reviews=pending,origins=origins)
 
     def expire_pending(self,account_id,trade_date,*,now):
         """An abandoned expired request is one failure, never a provider retry."""
@@ -212,6 +218,23 @@ class RiskExceptionRuntime:
                     'DO UPDATE SET cap_pct=excluded.cap_pct',(account,day,cap))
             result['utilization_cap']=cap
             result.update(source_call_id=source_call_id,observed_at=context['observed_at'])
+            if result['status']=='READY':
+                evidence=context.get('trigger_evidence') or {}
+                for action in output['exception_actions']:
+                    key=(account,day,action['target'],action['target_id'])
+                    if action['action']=='RESUME':
+                        db.execute('DELETE FROM risk_exception_control_origins WHERE account_id=? AND trade_date=? AND target=? AND target_id=?',key)
+                    elif action['action']=='HALT_NEW_ENTRY':
+                        events=[e for e in evidence.get('events',[]) if (e['target'],e['target_id'])==key[2:]]
+                        if events:
+                            prior_origin=db.execute('SELECT evidence_json FROM risk_exception_control_origins WHERE '
+                                'account_id=? AND trade_date=? AND target=? AND target_id=?',key).fetchone()
+                            original=json.loads(prior_origin[0]) if prior_origin else dict(target=key[2],target_id=key[3],events=[])
+                            known={canonical(e) for e in original['events']}
+                            original['events'].extend(e for e in events if canonical(e) not in known)
+                            db.execute('INSERT INTO risk_exception_control_origins VALUES (?,?,?,?,?,?) ON CONFLICT '
+                                '(account_id,trade_date,target,target_id) DO UPDATE SET source_call_id=excluded.source_call_id,evidence_json=excluded.evidence_json',
+                                (*key,source_call_id,canonical(original)))
             db.execute('INSERT INTO risk_exception_controls VALUES (?,?,?,?) ON CONFLICT(account_id,trade_date) DO UPDATE SET '
                 'controls_json=excluded.controls_json,version=excluded.version',
                 (account,day,canonical(result['controls']),context['control_version']+1))

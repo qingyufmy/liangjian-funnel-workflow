@@ -65,6 +65,8 @@ class LocalPaperBroker:
             c.execute("CREATE TABLE IF NOT EXISTS daily_nav(trade_date TEXT PRIMARY KEY,payload_json TEXT NOT NULL)")
             c.execute("CREATE TABLE IF NOT EXISTS paper_admissions(signal_id TEXT PRIMARY KEY,binding_hash TEXT NOT NULL,trade_date TEXT NOT NULL,result_json TEXT NOT NULL)")
             c.execute("CREATE TABLE IF NOT EXISTS paper_risk_days(trade_date TEXT PRIMARY KEY,body_json TEXT NOT NULL,halt_reasons_json TEXT NOT NULL)")
+            c.execute("CREATE TABLE IF NOT EXISTS order_cancellation_sessions(session_id TEXT PRIMARY KEY,input_sha256 TEXT NOT NULL,result_json TEXT NOT NULL)")
+            c.execute("CREATE TABLE IF NOT EXISTS order_cancellations(session_id TEXT NOT NULL,order_id TEXT NOT NULL,result_json TEXT NOT NULL,PRIMARY KEY(session_id,order_id))")
 
     @contextmanager
     def _tx(self, *, readonly=False):
@@ -263,6 +265,32 @@ class LocalPaperBroker:
         with self._tx() as c:
             return self._cancel_order_tx(c,order_id)
 
+    def cancel_buy_reservations(self,session_id,*,plan_ids):
+        """0253: same transaction for remaining BUY reservations and audit.
+
+        Existing fills/lots and protective SELL reservations are untouched. The
+        session owns its first result: retry cannot cancel a subsequently placed
+        order or create a second cancellation after an uncertain caller commit.
+        """
+        if (not isinstance(session_id,str) or not session_id or not isinstance(plan_ids,(set,frozenset))
+                or any(not isinstance(pid,str) or not pid for pid in plan_ids)):
+            raise ValueError('PAPER_CANCELLATION_CONTEXT_INVALID')
+        binding=digest(sorted(plan_ids))
+        with self._tx() as c:
+            old=c.execute('SELECT input_sha256,result_json FROM order_cancellation_sessions WHERE session_id=?',(session_id,)).fetchone()
+            if old:
+                if old[0]!=binding:raise ValueError('PAPER_CANCELLATION_BINDING_CONFLICT')
+                return json.loads(old[1])
+            results=[]
+            for row in sorted(self._open(c),key=lambda r:r['order_id']):
+                order=self._order(row)
+                if order.side!='BUY' or row['plan_id'] not in plan_ids:continue
+                result=dict(self._cancel_order_tx(c,row['order_id']),cancelled_remaining_qty=order.remaining_qty)
+                c.execute('INSERT INTO order_cancellations VALUES (?,?,?)',(session_id,row['order_id'],dump(result)))
+                results.append(result)
+            c.execute('INSERT INTO order_cancellation_sessions VALUES (?,?,?)',(session_id,binding,dump(results)))
+        return results
+
     def _cancel_order_tx(self,c,order_id):
         row = c.execute("SELECT * FROM paper_orders WHERE order_id=?",(order_id,)).fetchone()
         if row is None: raise ValueError("PAPER_ORDER_NOT_FOUND")
@@ -353,7 +381,23 @@ class LocalPaperBroker:
             return dict(account=self._account(c,day),positions=self._positions(c,day),
                 risk_day=self._risk_day(c,day),peak_nav=str(self._meta(c,'risk_peak_nav')),
                 open_orders=tuple({**json.loads(r['body_json']),'status':r['status']} for r in self._open(c)),
+                entry_risk_references=self._entry_risk_references(c),
                 global_halt=c.execute("SELECT value FROM paper_meta WHERE key='risk_halt_reason'").fetchone()[0])
+
+    @staticmethod
+    def _entry_risk_references(c):
+        references={}
+        for row in c.execute('SELECT l.plan_id,l.lot_id,l.qty,f.symbol,f.price,a.result_json FROM paper_lots l '
+                'JOIN paper_fills f ON f.fill_id=l.lot_id JOIN paper_admissions a ON a.signal_id=f.source_signal_id '
+                'WHERE l.qty>0 AND f.side=\'BUY\' ORDER BY f.minute_end,f.fill_id'):
+            bound=json.loads(row['result_json'])['binding'];plan=bound.get('plan',{})
+            stop=plan.get('stop_price');price=number(row['price'])
+            if (bound.get('plan_id')!=row['plan_id'] or bound.get('symbol')!=row['symbol']
+                    or stop is None or number(stop)>=price):continue
+            references.setdefault(row['plan_id'],[]).append(dict(fill_id=row['lot_id'],qty=row['qty'],
+                entry_price=str(price),stop_price=str(stop),initial_stop_distance=str(price-number(stop)),
+                basis='OWNED_OPEN_LOT_AND_ORIGINAL_ADMISSION_STOP'))
+        return references
 
     def _account(self,c,day):
         positions=self._positions(c,day);cash=self._meta(c,"cash")
@@ -418,6 +462,6 @@ class LocalPaperBroker:
 
     def snapshot_bytes(self):
         with self._tx(readonly=True) as c:
-            tables=("paper_meta","paper_orders","paper_fills","paper_lots","paper_bars","paper_marks","exec_ledger","daily_nav","paper_admissions","paper_risk_days")
+            tables=("paper_meta","paper_orders","paper_fills","paper_lots","paper_bars","paper_marks","exec_ledger","daily_nav","paper_admissions","paper_risk_days","order_cancellation_sessions","order_cancellations")
             data={table:[dict(r) for r in c.execute("SELECT * FROM "+table+" ORDER BY 1,2")] for table in tables}
             return dump(data).encode()

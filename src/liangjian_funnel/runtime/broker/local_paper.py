@@ -32,6 +32,8 @@ class LocalPaperAdapter:
             raise ValueError('PAPER_NON_TRADING_DAY')
         return self.ledger.open_risk_day(trade_date)
     def cancel_order(self,order_id):return self.ledger.cancel_order(order_id)
+    def cancel_buy_reservations(self,session_id,*,plan_ids):
+        return self.ledger.cancel_buy_reservations(session_id,plan_ids=plan_ids)
     def reconcile(self):return self.ledger.reconcile()
     def settle(self,trade_date):return self.ledger.settle(trade_date)
 

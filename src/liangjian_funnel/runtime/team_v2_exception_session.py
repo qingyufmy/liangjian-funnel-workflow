@@ -46,7 +46,8 @@ def run_risk_exception(*,repository,client,journal,store,meeting_id,call_id,acco
         prompt_sha256=repository.document('A6').sha256)).encode()).hexdigest()
     frozen=runtime.claim(meeting_id,account_id=account_id,trade_date=trade_date,observed_at=now,
         input_sha256=binding,targets=targets,hard_halt=hard_halt,
-        deadline_at=now+timedelta(seconds=max(0,deadline_monotonic-monotonic())),source_call_id=call_id)
+        deadline_at=now+timedelta(seconds=max(0,deadline_monotonic-monotonic())),source_call_id=call_id,
+        trigger_evidence=values.get('EXCEPTION_CONTEXT'))
     previous=runtime.load(meeting_id,input_sha256=binding)
     if previous is not None:return previous
     # Reserve two seconds for local validation/commit; bind the first request's

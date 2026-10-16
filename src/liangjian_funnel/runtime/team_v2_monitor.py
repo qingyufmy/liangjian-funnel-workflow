@@ -179,9 +179,10 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
         max_output_tokens=settings.model_max_output_tokens,allow_model_call=True,pm_meeting_id='morning-pm:'+day)
     def exception_handler(**kwargs):
         from .team_v2_exception_coordinator import run_exception_after_trader
+        from .team_v2_exception_policy import load_exception_policy
         return run_exception_after_trader(session_kwargs=args,live_state=live['team_v2_regime'],
             engine_utilization_cap=utilization_cap,capacity_slots=morning['capacity_slots'],
-            cluster_caps=morning['cluster_caps'],**kwargs)
+            cluster_caps=morning['cluster_caps'],trigger_policy=load_exception_policy(settings.root/'config/risk_limits.yaml'),**kwargs)
     result=run_control_minute(session_kwargs=args,closed_bars=paper,deadline_monotonic=deadline,envelope_refresh=refresh,
         exception_handler=exception_handler)
     return dict(status='DEGRADED' if problems or packet['status']=='DATA_LIMITED' else result['status'],mode='control',
