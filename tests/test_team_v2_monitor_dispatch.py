@@ -105,6 +105,18 @@ def test_current_entry_block_does_not_turn_plan_into_untradable_for_held_exits(t
     assert 'CONTROL_CURRENT_ENTRY_TRADABILITY_UNPROVEN' in result['result']['trader']['admissions'][0]['judgment']['reason_codes']
 
 
+def test_new_regime_sidecar_failure_does_not_crash_the_monitor_or_allow_new_entry(tmp_path,monkeypatch):
+    import liangjian_funnel.runtime.team_v2_live_regime_source as source_module
+    app,clock,seen,api,proof=prepared(tmp_path,monkeypatch)
+    def failed(*a,**kw):raise RuntimeError('PRIVATE_NOT_FOR_LOG')
+    monkeypatch.setattr(source_module,'record_current_regime',failed)
+    result=run_monitor_control(app,now=clock.now,clock=lambda:clock.now,client=api,tradability_loader=proof)
+    assert result['status']=='DEGRADED' and result['result']['trader']['model_validated']
+    assert not result['result']['trader']['admissions'][0]['dispatched']
+    assert {'reason_code':'CONTROL_LIVE_REGIME_UPDATE_FAILED'} in result['source_reasons']
+    assert 'PRIVATE_NOT_FOR_LOG' not in json.dumps(result)
+
+
 def test_changed_risk_yaml_cannot_silently_reuse_morning_authority(tmp_path,monkeypatch):
     app,clock,seen,api,proof=prepared(tmp_path,monkeypatch)
     path=app.settings.root/'config/risk_limits.yaml';path.write_text(path.read_text()+'\n# changed after morning\n')

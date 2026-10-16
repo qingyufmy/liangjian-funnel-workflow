@@ -36,6 +36,8 @@ TZ=ZoneInfo('Asia/Shanghai');_MARKET=BoundedWorkGate(1)
 def run_monitor_control(application,*,now=None,clock=None,client=None,tradability_loader=production_monitor_tradability):
     from ..workflow import A4_DECISION_BUDGET_SECONDS,A4_MARKET_STATE_BUDGET_SECONDS,_intraday_market_context
     from .live_market import load_or_refresh_live_market_state
+    from .team_v2_emotion_baseline import observe_full_market
+    from .team_v2_live_regime_source import record_current_regime
     from .strategies import evaluate_strategy
     clock=clock or (lambda:datetime.now(TZ));current=stamp(now or clock());started=time.monotonic()
     deadline=started+A4_DECISION_BUDGET_SECONDS;calendar=application.trading_calendar;settings=application.settings
@@ -62,15 +64,27 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
         if r['plan_id'] in {p['plan_id'] for p in scope['plans']}}
     # Full-market collector is the existing durable five-minute bucket. Missing
     # current data is never replaced with yesterday's regime or a fake ALLOW.
-    market_work=_MARKET.call(lambda:load_or_refresh_live_market_state(settings,application.market_data,as_of=stamp(clock())),
-        deadline=min(deadline,time.monotonic()+A4_MARKET_STATE_BUDGET_SECONDS),name='team-live-market') if morning else None
+    market_deadline=min(deadline,time.monotonic()+A4_MARKET_STATE_BUDGET_SECONDS)
+    market_work=_MARKET.call(lambda:load_or_refresh_live_market_state(settings,application.market_data,as_of=stamp(clock()),
+        minimum_source_as_of=cutoff.replace(minute=cutoff.minute-cutoff.minute%5,second=0,microsecond=0),
+        snapshot_observer=lambda result:observe_full_market(settings,result,observed_at=stamp(clock()),
+            calendar=calendar,deadline=market_deadline)),deadline=market_deadline,name='team-live-market') if morning else None
     live=market_work.value if market_work and market_work.status=='READY' else {'status':'DATA_BLOCKED','reason_code':'CONTROL_LIVE_MARKET_UNAVAILABLE'}
     decision='team:'+current.strftime('%Y%m%dT%H%M')
     regime=morning['source']['market_regime'] if morning else 'DATA_BLOCK'
-    if current.time().replace(tzinfo=None)>=wall_time(9,45):
-        tick=cutoff.replace(minute=cutoff.minute-cutoff.minute%5,second=0,microsecond=0)
-        current_state=store.load_live_regime(day,tick)
-        regime=current_state['regime'] if current_state and current_state.get('live_authority') else 'DATA_BLOCK'
+    try:
+        current_state=record_current_regime(settings,store,live=live,cutoff=cutoff,
+            observed_at=stamp(clock()),prior=regime) if morning else None
+        if current.time().replace(tzinfo=None)>=wall_time(9,45):
+            tick=cutoff.replace(minute=cutoff.minute-cutoff.minute%5,second=0,microsecond=0)
+            current_state=current_state or store.load_live_regime(day,tick)
+            regime=current_state['regime'] if current_state and current_state.get('live_authority') else 'DATA_BLOCK'
+    except Exception:
+        # Classification/persistence failure cannot skip this minute's existing
+        # holdings and hard exits. New entry is blocked, no fake prior fallback.
+        regime='DATA_BLOCK';current_state={'status':'DATA_BLOCK','leader_open':False,'radar_open':False}
+        problems.append({'reason_code':'CONTROL_LIVE_REGIME_UPDATE_FAILED'})
+    live={**live,'team_v2_regime':current_state or {'status':'DATA_BLOCK','reason_code':'LIVE_REGIME_TICK_NOT_YET_OBSERVED'}}
     # A retry reuses the first captured market view, not a second same-minute
     # query relabelled as the original model input. A changed packet is rejected.
     market=store.freeze_control_context('market:'+decision,source_sha256=packet['packet_sha256'],
@@ -93,6 +107,8 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
         # Only a detected changed formal rule body pauses new entries all day.
         rule_blocked=bool(morning and morning.get('rule_preflight',{}).get('status')=='BLOCK')
         entry_proven[plan.plan_id]=ready and quote.complete and proof.get('entry_tradable',False) and not rule_blocked
+        if raw_rows[plan.plan_id].get('strategy_profile')=='LEADER_INTRADAY':
+            entry_proven[plan.plan_id] &= bool(live.get('team_v2_regime',{}).get('leader_open'))
         plan=replace(plan,price=D(str(quote.quote.price)) if quote.complete else bar.close if bar is not None else plan.price,
             data_ready=ready,tradable=ready and not proof.get('halted',True))
         plans[plan.plan_id]=plan

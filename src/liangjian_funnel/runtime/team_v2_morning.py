@@ -88,6 +88,8 @@ def _freeze_engine(settings,store,source,now,calendar,directory,clock):
     bounds=[max(0,min(external_policy['maximum_utilization_pct'],v+external['value_pp'])) for v in bounds]
     from .team_v2_rule_source import prepare_daily_rule_source
     rule_source=prepare_daily_rule_source(settings,clock=clock,calendar=calendar)
+    from .team_v2_emotion_baseline import prepare_emotion_baseline
+    emotion_baseline=prepare_emotion_baseline(settings,clock=clock,calendar=calendar)
     body=dict(status='COMPLETE',session='ENGINE_PREMARKET',trade_date=source['trade_date'],
         observed_at=stamp(clock()).isoformat(),account_id=ACCOUNT,source=source,snapshot=snapshot,held_plan_bindings=held,
         envelopes=[asdict(e) for e in envelopes],capacity_slots=max(0,limits.max_positions-len({p.symbol for p in positions})),
@@ -95,6 +97,7 @@ def _freeze_engine(settings,store,source,now,calendar,directory,clock):
         baseline_range=bounds,engine_utilization_cap=bounds[1],deployment_policy_sha256=hashlib.sha256(raw).hexdigest(),
         risk_limits_sha256=hashlib.sha256((settings.root/'config/risk_limits.yaml').read_bytes()).hexdigest(),
         external_adjustment=external,rule_preflight=rule_source,
+        emotion_baseline={k:v for k,v in emotion_baseline.items() if k not in ('catalogue','previous_streaks','source_results')},
         authority='PLANNING_ONLY_NOT_EXECUTION_PERMISSION')
     return store.record_morning_engine(ACCOUNT,source['trade_date'],body)
 
