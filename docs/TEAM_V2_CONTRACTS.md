@@ -29,3 +29,5 @@ Claude 提供的角色正文和根/判断证据规范为唯一提示词来源。
 ## A3 PLAN_REVIEW（组件切片，尚未切换自然研究）
 
 冻结候选域仅 FOCUS/WATCH_ONLY，原引擎资格只在盲审之后比对。模型PASS不能放宽风险单位、改策略/簇/几何；engine=false不能因模型PASS获得计划权限。逐事件模型原判断与无效输出都进独立研究账本，不混有效成交cohort；排名只用于本批次展示，全局合并需自然适配器绑定。原技术事实投影、完整源hash、严格schema、真实客户端mock及故障恢复见 `TEAM_V2_A3_PLAN_REVIEW_2026-10-17.md`。组件返回 publication_authorized=false，不是发布入口。
+
+`ResearchPipeline(team_research_adapter=...)` 已能在实际A3分派/批次/本地门合并中调用新接口；生产Workflow尚未注入，旧提示词checkpoint不满足新角色。原引擎provenance/风险门仍适用，跨批排名只作标明来源的展示穿插；原FOCUS且plan_mode=PROBE也不得升STANDARD。细节和红绿原件见 `TEAM_V2_A3_RESEARCH_ADAPTER_2026-10-17.md`。A1/A2及正式真实模型干跑仍未完成。

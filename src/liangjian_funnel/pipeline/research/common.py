@@ -691,6 +691,7 @@ class ResearchPipeline:
         checkpoint_store: Any | None = None,
         stage_snapshot_enricher: Callable[..., Any] | None = None,
         enable_feature_store: bool = True,
+        team_research_adapter: Any | None = None,
     ):
         if isinstance(batch_workers, bool) or not isinstance(batch_workers, int) or batch_workers < 1:
             raise ValueError("batch_workers must be a positive integer")
@@ -713,6 +714,7 @@ class ResearchPipeline:
         self.progress_callback = progress_callback
         self.checkpoint_store = checkpoint_store
         self.stage_snapshot_enricher = stage_snapshot_enricher
+        self.team_research_adapter = team_research_adapter
         self.feature_store = (
             ResearchFeatureStore(settings.feature_store_db_path)
             if enable_feature_store and settings.research_pipeline_mode == DETERMINISTIC_PIPELINE_MODE
@@ -2892,6 +2894,11 @@ class ResearchPipeline:
         projection_symbols: set[str] | None,
         a1_discovery_context: Mapping[str, Any] | None,
     ) -> tuple[ResearchCheckpointKey | None, _PreparedStageRequest | None]:
+        adapter = getattr(self, "team_research_adapter", None)
+        if adapter is not None and adapter.supports(stage):
+            # Team model claims/captures bind their own prompt and exact source.
+            # A legacy prompt checkpoint must never satisfy a new role review.
+            return None, None
         if self.checkpoint_store is None or bundle is None:
             return None, None
         try:
@@ -3570,6 +3577,11 @@ class ResearchPipeline:
         a1_discovery_context: Mapping[str, Any] | None = None,
         prepared_request: _PreparedStageRequest | None = None,
     ) -> StageAudit:
+        adapter = getattr(self, "team_research_adapter", None)
+        if adapter is not None and adapter.supports(stage):
+            return adapter.run_stage(self, lane_id=lane_id, model=model, stage=stage,
+                snapshot=snapshot, upstream_output=upstream_output, upstream_symbols=upstream_symbols,
+                run_id=run_id, projection_symbols=projection_symbols)
         if bundle is None:
             return self._blocked_stage(lane_id, model, stage, snapshot.snapshot_id, "PROMPT_REPOSITORY_BLOCKED")
         try:
