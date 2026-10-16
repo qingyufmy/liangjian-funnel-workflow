@@ -14,6 +14,8 @@ export const JOB_DEFINITIONS: readonly JobDefinition[] = [
   { name: "paper-settle", command: "run-paper-settle", label: "独立模拟盘结算与对账", schedule: "15:30（仅既有 paper 账户）" },
   { name: "team-eod", command: "run-team-eod", label: "模拟盘收盘组合与风险复核", schedule: "同日 close 完成后（独立120s）" },
   { name: "team-internal", command: "run-team-internal", label: "模拟盘内部通知", schedule: "08:45–17:20 每分钟（独立通知槽8s）" },
+  { name: "team-a5-midday", command: "run-team-a5-midday", label: "团队A5独立午间复盘", schedule: "11:35后，客户复盘槽释放后，独立240s" },
+  { name: "team-a5-close", command: "run-team-a5-close", label: "团队A5独立盘后复盘", schedule: "16:00后，EOD完成或16:45后，独立240s" },
   { name: "auction-evidence", command: "run-auction-evidence", label: "09:25竞价原时标证据", schedule: "09:25:03/08/15/24（只取证、不研究或重锚）" },
   { name: "auction-base", command: "run-auction-base", label: "竞价研究资料基线准备", schedule: "07:00（无模型调用、不发布计划）" },
   { name: "premarket", command: "run-premarket", label: "A3 盘前分析", schedule: "08:30" },

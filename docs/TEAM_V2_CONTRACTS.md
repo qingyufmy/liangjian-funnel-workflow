@@ -21,3 +21,7 @@ Claude 提供的角色正文和根/判断证据规范为唯一提示词来源。
 ## 内部通知（2026-10-17 接线切片）
 
 `run-team-internal` 08:45–17:20 每分钟、独立 notification 槽8s，不占交易47s或模型 review 槽。只读投影已提交的 owned 账本到 `team_notifications`；游标和去重拒绝计数也只写 Team 库。只使用独立 SHADOW_RESEARCH_WEBHOOK，不复用客户发送器或模板。正文原样hash绑定、先提交 SENDING 再请求、明确 code=0 才 SENT，未知状态不自动重发。原状态切换/A5卡投递标记跟随真实回执。相关测试与未完成的自然/VM证明见 `TEAM_V2_INTERNAL_DELIVERY_2026-10-17.md`；不以开发 mock 代替投递验收。
+
+## A5双路径（0258）
+
+客户v1提示词/service/publisher不变；Team A5 2.0.3独立模型、独立研究表和内部卡，不读取客户报告正文，不向客户DTO投影。signal_reviews用原model_judgments.decision_id或原旧路径事件evidence_id精确覆盖，禁止按同股三元组合并。假设只写研究库和`artifacts/replay-queue`，不自动应用。两个自然Team A5任务各240s，模型请求前等待退出75可限速重试；模型失败退出2不能重试或回退v1生成。完整回执见 `TEAM_V2_A5_203_WIRING_2026-10-17.md`。收盘尾15:00原bar缺失反例0259仍是整包发布门未完成项，不能用A5关联绿代替。

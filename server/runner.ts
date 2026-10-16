@@ -45,6 +45,7 @@ export function timeoutForJob(
   if (job === "paper-settle") return Math.min(configuredTimeoutMs, 60_000);
   if (job === "team-eod") return Math.min(configuredTimeoutMs, 120_000);
   if (job === "team-internal") return Math.min(configuredTimeoutMs, 8_000);
+  if (job === "team-a5-midday" || job === "team-a5-close") return Math.min(configuredTimeoutMs, 240_000);
   if (job.startsWith("team-morning-")) return Math.min(configuredTimeoutMs, 120_000);
   if (job === "auction-base") return Math.min(configuredTimeoutMs, 60 * 60 * 1000);
   if (job === "auction-refresh") return Math.min(configuredTimeoutMs, 30 * 60 * 1000);
@@ -210,7 +211,7 @@ export class JobRunner {
     if (!definition) {
       throw new Error("unsupported job");
     }
-    const slot = job === "team-internal" ? "notification" : job === "comparison" ? "comparison" : job.startsWith("team-morning-") || job === "team-eod" || job === "auction-evidence" || job === "auction-refresh" || job === "a5-midday" || job === "a5-close" || job === "outcomes" || job === "paper-settle" ? "review" : "primary";
+    const slot = job === "team-internal" ? "notification" : job === "comparison" ? "comparison" : job.startsWith("team-morning-") || job.startsWith("team-a5-") || job === "team-eod" || job === "auction-evidence" || job === "auction-refresh" || job === "a5-midday" || job === "a5-close" || job === "outcomes" || job === "paper-settle" ? "review" : "primary";
     const current = this.childFor(slot);
     if (current) return this.skipped(job, definition.command, current.runId);
 

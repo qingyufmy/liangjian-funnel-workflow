@@ -215,7 +215,8 @@ class InternalEventProjector:
                     "ON r.review_id=c.review_id WHERE r.account_id=? AND r.trade_date=? AND c.status='PENDING' LIMIT 10",
                     (account, day)).fetchall()
                 for card_id, body in cards:
-                    self._emit(account, day, 'A5_CLOSE', card_id, json.loads(body), now, 20)
+                    self._emit(account, day, 'A5_MIDDAY' if card_id.startswith('team-midday:') else 'A5_CLOSE',
+                        card_id, json.loads(body), now, 20)
             if now.time().replace(tzinfo=None)>=time(17,10):
                 review = (source.execute("SELECT 1 FROM team_a5_reviews WHERE account_id=? AND trade_date=? "
                     "AND review_kind='POST_CLOSE' LIMIT 1",(account,day)).fetchone()
@@ -270,7 +271,7 @@ class InternalEventProjector:
             tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             if 'team_internal_cards' in tables:
                 db.execute("UPDATE team_internal_cards SET status=(SELECT n.status FROM team_notifications n "
-                    "WHERE n.kind='A5_CLOSE' AND n.source_id=team_internal_cards.card_id AND n.account_id=? AND n.trade_date=?) "
-                    "WHERE EXISTS(SELECT 1 FROM team_notifications n WHERE n.kind='A5_CLOSE' "
+                    "WHERE n.kind IN ('A5_CLOSE','A5_MIDDAY') AND n.source_id=team_internal_cards.card_id AND n.account_id=? AND n.trade_date=?) "
+                    "WHERE EXISTS(SELECT 1 FROM team_notifications n WHERE n.kind IN ('A5_CLOSE','A5_MIDDAY') "
                     "AND n.source_id=team_internal_cards.card_id AND n.account_id=? AND n.trade_date=?)",
                     (account_id, trade_date, account_id, trade_date))

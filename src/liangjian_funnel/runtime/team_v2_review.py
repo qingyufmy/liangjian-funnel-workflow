@@ -67,9 +67,9 @@ class TeamReviewRuntime:
                         'VALUES (?,?,?,?)',(key,review_id,row['hypothesis_id'],canonical(row)))
                 for recipient,rows in report['method_feedback'].items():
                     db.execute('INSERT INTO team_method_feedback VALUES (?,?,?)',(review_id,recipient,canonical(rows)))
-            if review_kind=='POST_CLOSE':
-                db.execute('INSERT INTO team_internal_cards(card_id,review_id,body_json,body_sha256) VALUES (?,?,?,?)',
-                    ('team-close:'+account_id+':'+trade_date,review_id,canonical(card),_hash(card)))
+            prefix='team-close:' if review_kind=='POST_CLOSE' else 'team-midday:'
+            db.execute('INSERT INTO team_internal_cards(card_id,review_id,body_json,body_sha256) VALUES (?,?,?,?)',
+                (prefix+account_id+':'+trade_date,review_id,canonical(card),_hash(card)))
         return json.loads(text)
 
     def deliver_internal(self,card_id,*,send_internal):
@@ -98,7 +98,7 @@ def close_card(facts,*,review_status):
     metrics=facts['metrics'].get('team_v2',{});settlement=facts['paper_broker'].get('settlement')
     def show(value):return '资料不足' if value is None else str(value)
     return dict(msg_type='text',content={'text': '\n'.join([
-        '量见团队模拟盘收盘｜'+facts['trade_date'],
+        '量见团队模拟盘'+('午间' if facts['review_kind']=='MIDDAY' else '收盘')+'｜'+facts['trade_date'],
         '复盘：'+('已完成' if review_status=='READY' else '未完成，事实仍保留'),
         '模拟账户净值：'+show(metrics.get('nav')),
         '使用率：'+show(metrics.get('utilization_pct')),
@@ -124,7 +124,7 @@ def run_team_review(*,repository,client,journal,store,review_id,call_id,account_
     catalog=facts['citation_catalog'];session=review_kind
     context=dict(facts=facts,account_id=account_id,run_id=run_id,model=model,call_id=call_id,
         source_trade_date=source_trade_date,required_envelope=required_envelope,
-        signal_domain=sorted(signal_domain),counterexample_domain=sorted(counterexample_domain),
+        signal_domain=dict(sorted(signal_domain.items())),counterexample_domain=sorted(counterexample_domain),
         confirmed_defect_symbols=sorted(confirmed_defect_symbols),timeout_seconds=timeout_seconds,
         max_output_tokens=max_output_tokens,prompt_hashes=dict(repository.prepare('A5',
             dict(A5_FACT_SNAPSHOT=facts,EVIDENCE_CATALOG=catalog)).source_hashes))

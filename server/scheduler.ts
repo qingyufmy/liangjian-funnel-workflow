@@ -176,6 +176,8 @@ export class WorkflowScheduler {
       if (clock.hour === 9 && clock.minute >= 26 && clock.minute < 30) due.push("auction-refresh");
       if (clock.hour === 11 && clock.minute === 35) due.push("a5-midday");
       if (clock.hour === 16 && clock.minute === 0) due.push("a5-close");
+      if ((clock.hour===11 && clock.minute>=35) || clock.hour===12) due.push("team-a5-midday");
+      if (clock.hour===16 || (clock.hour===17 && clock.minute<=5)) due.push("team-a5-close");
       if (clock.hour === 16 && clock.minute === 10) due.push("outcomes");
       if (clock.hour === 15 && clock.minute === 10) due.push("close");
       // Owned paper settlement may recover a busy review slot or a Node
@@ -192,6 +194,8 @@ export class WorkflowScheduler {
       const dispatchKey = job === "auction-evidence" ? `${clock.date}T09:25:${auctionEvidenceSlot(clock)}`
         : job === "auction-refresh" ? `${clock.date}T09:26`
         : job === "paper-settle" ? `${clock.date}T15:30`
+        : job === "team-a5-midday" ? `${clock.date}Tteam-midday`
+        : job === "team-a5-close" ? `${clock.date}Tteam-close`
         : job === "auction-base" ? `${clock.date}T07:00` : key;
       if (job === "features" && !this.featureMaintenanceEnabled) continue;
       if (this.dispatched.get(job) === dispatchKey || this.inFlight.has(job) || this.retryKeys.get(job) === dispatchKey) continue;
@@ -199,6 +203,8 @@ export class WorkflowScheduler {
           && value.getTime() - Date.parse(this.lastDispatch.get(job)!) < 60_000) continue;
       if (job === "paper-settle" && this.lastDispatch.has(job)
           && value.getTime() - Date.parse(this.lastDispatch.get(job)!) < 5_000) continue;
+      if (job.startsWith('team-a5-') && this.lastDispatch.has(job)
+          && value.getTime() - Date.parse(this.lastDispatch.get(job)!) < 60_000) continue;
       this.dispatch(job, dispatchKey, value);
     }
     // The 16:10 pass can precede refreshed closing prices. Reconcile again
@@ -243,6 +249,8 @@ export class WorkflowScheduler {
     this.logger.info(`触发调度 ${job} at=${key}`, { job });
     void this.runner.run(job)
       .then((result) => {
+        if (job.startsWith('team-a5-') && ((result.status==='skipped' && result.reason?.startsWith('BUSY:'))
+            || result.exitCode===75)) this.dispatched.delete(job);
         if (job === "auction-refresh" && result.status === "skipped" && result.reason?.startsWith("BUSY:")) {
           // A deterministic input failure cannot heal by repeatedly executing
           // the same frozen base. Only a busy worker may be rescheduled.

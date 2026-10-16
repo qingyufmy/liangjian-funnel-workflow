@@ -64,13 +64,13 @@ def fixture(tmp_path,*,invalid=False,offline=False):
     args={k:base[k] for k in ('repository','journal','store','account_id','run_id','model','trade_date','source_trade_date')}
     args.update(client=client,required_envelope=envelope,facts=facts,review_id='review:paper:20261019:POST_CLOSE',
         call_id='A5:paper:20261019:POST_CLOSE',review_kind='POST_CLOSE',clock=lambda:NOW,
-        signal_domain=set(),counterexample_domain=set(),allow_model_call=True)
+        signal_domain={},counterexample_domain=set(),allow_model_call=True)
     return args,seen
 
 
 def check(raw,**changes):
     args=dict(required_envelope={},trade_date='2026-10-19',review_kind='POST_CLOSE',
-        signal_domain=set(),counterexample_domain=set(),metrics={})|changes
+        signal_domain={},counterexample_domain=set(),metrics={})|changes
     return validate_daily_review(raw,dict(categories=['METRICS','LEGACY'],items=[
         dict(id='METRICS:DAILY',category='METRICS'),dict(id='A5:LEGACY',category='LEGACY')]),**args)
 

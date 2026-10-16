@@ -33,10 +33,33 @@ def read_paper_review_evidence(path,*,trade_date,observed_at):
         rows=dict(orders=[dict(r) for r in db.execute('SELECT * FROM paper_orders WHERE trade_date=? ORDER BY order_id',(trade_date,))],
             fills=[dict(r) for r in db.execute('SELECT * FROM paper_fills WHERE substr(minute_end,1,10)=? ORDER BY fill_id',(trade_date,))],
             admissions=[dict(r) for r in db.execute('SELECT * FROM paper_admissions WHERE trade_date=? ORDER BY signal_id',(trade_date,))])
+        # One query-only snapshot. Account values are observations for A5,
+        # never passed back as risk/execution authority or as settlement.
+        meta=dict(db.execute('SELECT key,value FROM paper_meta'))
+        lots=[dict(r) for r in db.execute('SELECT * FROM paper_lots WHERE qty>0')]
+        marks={r['symbol']:dict(r) for r in db.execute('SELECT * FROM paper_marks')}
+        positions={};cost=D(0);market_value=D(0);complete=True
+        for row in lots:
+            key=(row['plan_id'],row['symbol']);mark=marks.get(row['symbol']);cost+=D(row['cost'])
+            current=bool(mark and mark['trade_date']==trade_date
+                and datetime.fromisoformat(mark['minute_end'])<=observed_at)
+            complete=complete and current
+            if current:market_value+=D(mark['price'])*row['qty']
+            item=positions.setdefault(key,dict(plan_id=row['plan_id'],symbol=row['symbol'],qty=0,sellable_qty=0))
+            item['qty']+=row['qty'];item['sellable_qty']+=row['qty'] if row['open_date']<trade_date else 0
+        cash=D(meta['cash']);account=dict(cash=str(cash),nav=str(cash+market_value) if complete else None,
+            positions_value=str(market_value) if complete else None,pnl_realized=meta['realized'],
+            pnl_unrealized=str(market_value-cost) if complete else None,
+            valuation_scope='CURRENT_DAY_MARKS_NOT_SETTLEMENT')
+        if settlement is not None:
+            account=json.loads(settlement['payload_json'])['account']
         db.rollback()
     for row in rows['fills']:
         if datetime.fromisoformat(row['minute_end'])>observed_at:raise ValueError('A5_FUTURE_PAPER_FILL')
     return dict(status='CAPTURED',rows=rows,content_sha256=_hash(rows),
+        account=account,positions=list(positions.values()),
+        valuation_evidence=dict(meta=meta,lots=lots,marks=marks),
+        valuation_evidence_sha256=_hash(dict(meta=meta,lots=lots,marks=marks)),
         settlement=json.loads(settlement[0]) if settlement else None)
 
 

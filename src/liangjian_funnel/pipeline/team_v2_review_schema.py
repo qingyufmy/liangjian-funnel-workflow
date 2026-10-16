@@ -1,4 +1,4 @@
-"""Claude's A5 2.0.2 JSON contract; research only, never execution authority."""
+"""Claude's A5 2.0.3 JSON contract; research only, never execution authority."""
 from collections.abc import Mapping
 import json
 import re
@@ -22,8 +22,8 @@ def _texts(value,limit=8):
     return isinstance(value,list) and len(value)<=limit and all(_text(v) for v in value)
 
 
-def _item(row,keys):
-    return isinstance(row,Mapping) and keys<=set(row) and set(row)<=keys|OPTIONAL
+def _item(row,keys,optional=frozenset()):
+    return isinstance(row,Mapping) and keys<=set(row) and set(row)<=keys|OPTIONAL|optional
 
 
 def validate_daily_review(output,catalog,*,required_envelope,trade_date,review_kind,
@@ -33,8 +33,11 @@ def validate_daily_review(output,catalog,*,required_envelope,trade_date,review_k
     The lexical numeric guard covers the scorecard's numeric claims. Whether a
     narrative conclusion is justified still requires evidence/replay review.
     """
-    if (review_kind not in {'MIDDAY','POST_CLOSE'} or not isinstance(signal_domain,set)
-            or any(not isinstance(x,tuple) or len(x)!=3 or not all(_text(y) for y in x) for x in signal_domain)
+    signal_fields={'symbol','strategy_profile','lifecycle_status'}
+    if (review_kind not in {'MIDDAY','POST_CLOSE'} or not isinstance(signal_domain,Mapping)
+            or any(not _text(key) or not isinstance(row,Mapping) or not signal_fields<=set(row)
+                or not set(row)<=signal_fields|{'plan_id'} or any(not _text(v) for v in row.values())
+                for key,row in signal_domain.items())
             or not isinstance(counterexample_domain,set) or not all(_text(x) for x in counterexample_domain)
             or not set(confirmed_defect_symbols)<=counterexample_domain):
         raise ValueError('A5_SERVER_CONTEXT_INVALID')
@@ -79,7 +82,7 @@ def validate_daily_review(output,catalog,*,required_envelope,trade_date,review_k
     schemas={
         'model_value_assessment':({'layer','judgment_type','model_group','control_group','verdict'},
             lambda r:r['layer'] in {'A2','A3','A4','A6'} and r['verdict'] in {'ADDS_VALUE','NO_DIFFERENCE','HARMS','INSUFFICIENT'}),
-        'signal_reviews':({'symbol','strategy_profile','lifecycle_status','assessment','attribution'},
+        'signal_reviews':({'decision_id','symbol','strategy_profile','lifecycle_status','assessment','attribution'},
             lambda r:r['attribution'] in {'GOOD_EXECUTION','SELECTION_ERROR','PLAN_ERROR','CONFIRM_ERROR','RISK_ERROR',
                 'DATA_ERROR','MARKET_REVERSAL','DATA_LIMITED','UNCLASSIFIED','NOT_AN_ERROR'}),
         'missed_opportunity_reviews':({'symbol','theme','observed_performance','funnel_drop_stage','assessment','is_confirmed_defect'},
@@ -97,11 +100,12 @@ def validate_daily_review(output,catalog,*,required_envelope,trade_date,review_k
         rows=output.get(name)
         if not isinstance(rows,list):issue('JUDGMENT_POOL_INVALID');continue
         for row in rows:
-            if not _item(row,fields|REFS):issue('JUDGMENT_FIELDS_INVALID');continue
+            if not _item(row,fields|REFS,{'plan_id'} if name=='signal_reviews' else frozenset()):
+                issue('JUDGMENT_FIELDS_INVALID');continue
             if not check(row) or any(not _text(row[k]) for k in fields if k not in
                     {'is_confirmed_defect','blocked_by_data','min_observation_days','automatic_production_change'}):
                 issue('JUDGMENT_VALUE_INVALID')
-    for name,domain,key in (('signal_reviews',signal_domain,lambda r:(r.get('symbol'),r.get('strategy_profile'),r.get('lifecycle_status'))),
+    for name,domain,key in (('signal_reviews',signal_domain,lambda r:r.get('decision_id')),
             ('missed_opportunity_reviews',counterexample_domain,lambda r:r.get('symbol'))):
         rows=output.get(name)
         if isinstance(rows,list):
@@ -109,6 +113,14 @@ def validate_daily_review(output,catalog,*,required_envelope,trade_date,review_k
             encoded=[json.dumps(v,sort_keys=True,default=str) for v in ids]
             if (len(ids)!=len(rows) or len(set(encoded))!=len(ids)
                     or set(encoded)!={json.dumps(v,sort_keys=True) for v in domain}):issue('REVIEW_DOMAIN_INVALID')
+    rows=output.get('signal_reviews')
+    if isinstance(rows,list):
+        for row in rows:
+            if not isinstance(row,Mapping) or not isinstance(row.get('decision_id'),str):continue
+            expected=signal_domain.get(row['decision_id'])
+            if expected is not None and (any(row.get(key)!=expected[key] for key in signal_fields)
+                    or ('plan_id' in row and (not _text(row['plan_id']) or row['plan_id']!=expected.get('plan_id')))):
+                issue('SIGNAL_METADATA_BINDING_INVALID')
     hypotheses=output.get('hypotheses')
     if isinstance(hypotheses,list):
         ids=[r.get('hypothesis_id') for r in hypotheses if isinstance(r,Mapping)]

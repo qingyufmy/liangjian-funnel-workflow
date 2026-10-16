@@ -1572,7 +1572,7 @@ test("scheduler dispatches both A5 review slots without manufacturing monitor wo
   await scheduler.tick(new Date("2026-09-03T03:35:05.000Z"));
   await scheduler.tick(new Date("2026-09-03T08:00:05.000Z"));
   await new Promise<void>((resolve) => setImmediate(resolve));
-  expect(calls).toEqual(["team-internal", "a5-midday", "a5-close"]);
+  expect(calls).toEqual(["team-internal", "a5-midday", "team-a5-midday", "a5-close", "team-a5-close"]);
 });
 
 test("scheduler dispatches the local T+N outcome backfill after close", async () => {
@@ -1591,7 +1591,7 @@ test("scheduler dispatches the local T+N outcome backfill after close", async ()
   await scheduler.tick(new Date("2026-09-04T08:10:05.000Z"));
   await new Promise<void>((resolve) => setImmediate(resolve));
 
-  expect(calls).toEqual(["team-internal", "outcomes"]);
+  expect(calls).toEqual(["team-internal", "team-a5-close", "outcomes"]);
 });
 
 test("scheduler reconciles outcomes after late close success without rerunning research", async () => {
@@ -1619,7 +1619,7 @@ test("scheduler reconciles outcomes after late close success without rerunning r
   await scheduler.tick(now);
   await new Promise<void>(resolve => setImmediate(resolve));
   await scheduler.tick(now);
-  expect(calls).toEqual(["team-internal", "close", "outcomes", "team-eod", "outcomes"]);
+  expect(calls).toEqual(["team-internal", "close", "team-a5-close", "outcomes", "team-eod", "outcomes"]);
 });
 
 test("process-exit wait returns after timeout so shutdown can escalate to SIGKILL", async () => {
