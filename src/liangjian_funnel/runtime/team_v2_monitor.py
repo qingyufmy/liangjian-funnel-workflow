@@ -129,8 +129,11 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
         for e in _envelopes(morning['envelopes']))
     limits=RiskLimits.from_yaml(settings.root/'config/risk_limits.yaml')
     exception_runtime=RiskExceptionRuntime(store)
+    exception_runtime.expire_pending(ACCOUNT,day,now=stamp(clock()))
     restrictions=exception_runtime.restrictions(ACCOUNT,day)
     utilization_cap=reviewed.utilization_cap if reviewed is not None else D(morning['engine_utilization_cap'])
+    pm_upper=store.load_pm_target_upper('morning-pm:'+day,account_id=ACCOUNT,trade_date=day)
+    utilization_cap=min(utilization_cap,pm_upper if pm_upper is not None else D(0))
     if restrictions['utilization_cap'] is not None:utilization_cap=min(utilization_cap,D(restrictions['utilization_cap']))
     def refresh():
         if hashlib.sha256((settings.root/'config/risk_limits.yaml').read_bytes()).hexdigest()!=morning['risk_limits_sha256']:
@@ -174,7 +177,13 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
         snapshot_ready=True,mode='control',calendar=calendar,timeout_seconds=30,
         utilization_cap_pct=utilization_cap,
         max_output_tokens=settings.model_max_output_tokens,allow_model_call=True,pm_meeting_id='morning-pm:'+day)
-    result=run_control_minute(session_kwargs=args,closed_bars=paper,deadline_monotonic=deadline,envelope_refresh=refresh)
+    def exception_handler(**kwargs):
+        from .team_v2_exception_coordinator import run_exception_after_trader
+        return run_exception_after_trader(session_kwargs=args,live_state=live['team_v2_regime'],
+            engine_utilization_cap=utilization_cap,capacity_slots=morning['capacity_slots'],
+            cluster_caps=morning['cluster_caps'],**kwargs)
+    result=run_control_minute(session_kwargs=args,closed_bars=paper,deadline_monotonic=deadline,envelope_refresh=refresh,
+        exception_handler=exception_handler)
     return dict(status='DEGRADED' if problems or packet['status']=='DATA_LIMITED' else result['status'],mode='control',
         result=result,source_reasons=problems,scope_reasons=scope['reason_codes'],packet_sha256=packet['packet_sha256'],
         deterministic_reference=evaluations,total_ms=(time.monotonic()-started)*1000)

@@ -40,7 +40,7 @@ def _hard_exit(broker,*,plan,bar,at,account_id):
 
 
 def run_control_minute(*,session_kwargs,closed_bars,deadline_monotonic,monotonic=time.monotonic,envelope_refresh=None,
-        model_enabled=True):
+        model_enabled=True,exception_handler=None):
     """One absolute caller deadline; every late order rechecks it under lock.
 
     A 10:00 complete bar is consumed at 10:01 under the existing one-minute
@@ -119,11 +119,25 @@ def run_control_minute(*,session_kwargs,closed_bars,deadline_monotonic,monotonic
     source_sha=hashlib.sha256(dump(source).encode()).hexdigest()
     frozen=store.freeze_control_context(args['decision_id'],source_sha256=source_sha,body=json.loads(dump(dict(
         positions=broker.get_positions(),envelopes={pid:asdict(e) for pid,e in args['envelopes'].items()},
+        utilization_cap_pct=args.get('utilization_cap_pct'),
         timeout_seconds=min(args['timeout_seconds'],30,remaining-2)))))
     positions=frozen['positions'];held={p['symbol']:p['plan_id'] for p in positions}
     if len(held)!=len(positions):raise ValueError('CONTROL_HELD_SYMBOL_AMBIGUOUS')
     args.update(position_snapshot=positions,held_plan_ids=held,decision_at=minute,
         envelopes={pid:_envelopes([row])[0] for pid,row in frozen['envelopes'].items()},
+        utilization_cap_pct=frozen['utilization_cap_pct'],
         timeout_seconds=frozen['timeout_seconds'],deadline_monotonic=deadline_monotonic,monotonic=monotonic)
     result['trader']=run_trader_session(**args)
+    if exception_handler is not None and args['mode']=='control':
+        risk_started=monotonic()
+        try:
+            result['risk_exception']=exception_handler(trader_result=result['trader'],envelopes=args['envelopes'],
+                all_plans=args['all_plans'],closed_bars=closed_bars,deadline_monotonic=deadline_monotonic,monotonic=monotonic)
+            if result['risk_exception']['status'] in ('DEGRADED','HALT','DATA_LIMITED'):result['status']='DEGRADED'
+        except Exception:
+            from .team_v2_exception_coordinator import record_coordinator_failure
+            try:failed=record_coordinator_failure(args)
+            except Exception:failed=dict(status='DEGRADED',failure_persisted=False,internal_alert_status='PENDING')
+            result.update(status='DEGRADED',risk_exception=dict(failed,reason_code='A6_EXCEPTION_COORDINATOR_FAILED'))
+        result['phase_timings']={'risk_exception_ms':max(0,(monotonic()-risk_started)*1000)}
     return result

@@ -163,3 +163,25 @@ def test_intraday_utilization_ceiling_only_decreases_across_valid_reviews(tmp_pa
     raw['utilization_cap']['cap_pct']=75
     assert record(rt,'two',raw,now=AT+timedelta(minutes=5))[0]['utilization_cap']=='25'
     assert runtime(tmp_path).restrictions('paper','2026-10-19')['utilization_cap']=='25'
+
+
+def test_abandoned_requests_tighten_before_next_entry_and_expire_once_without_recall(tmp_path):
+    rt=runtime(tmp_path)
+    for index in range(2):
+        at=AT+timedelta(minutes=5*index)
+        rt.claim(str(index),account_id='paper',trade_date='2026-10-19',observed_at=at,
+            input_sha256=str(index),targets=targets(),hard_halt=False,source_call_id='A6:'+str(index),
+            deadline_at=at+timedelta(seconds=20))
+        state=rt.restrictions('paper','2026-10-19')
+        assert state['pending_reviews']==1 and state['consecutive_failures']>=1
+        assert rt.expire_pending('paper','2026-10-19',now=at+timedelta(seconds=21))==[str(index)]
+        assert rt.expire_pending('paper','2026-10-19',now=at+timedelta(seconds=22))==[]
+        assert rt.restrictions('paper','2026-10-19')['consecutive_failures']==index+1
+
+
+def test_pending_requests_are_scoped_to_account_and_date(tmp_path):
+    rt=runtime(tmp_path)
+    rt.claim('pending',account_id='other',trade_date='2026-10-19',observed_at=AT,
+        input_sha256='pending',targets=targets(),hard_halt=False)
+    assert rt.restrictions('paper','2026-10-19')['pending_reviews']==0
+    assert rt.expire_pending('paper','2026-10-19',now=AT+timedelta(hours=1))==[]

@@ -303,6 +303,22 @@ class TeamMeetingStore:
         return compile_pm_allocation(result,account_id=account_id,trade_date=trade_date,
             meeting_id=meeting_id,input_sha256=row[2])
 
+    def load_pm_target_upper(self,meeting_id,*,account_id,trade_date):
+        """Already-validated morning upper range, not the PM's chosen target."""
+        from ..pipeline.team_v2_risk_schema import number
+        with closing(self._connect()) as db:
+            row=db.execute('SELECT account_id,trade_date,result_json FROM pm_decisions WHERE meeting_id=?',
+                (meeting_id,)).fetchone()
+        if row is None:return None
+        if row[:2]!=(account_id,trade_date):raise ValueError('PM_ALLOCATION_ACCOUNT_DATE_MISMATCH')
+        body=json.loads(row[2])
+        if body.get('status')!='READY' or body.get('session')!='PM_PREMARKET':return None
+        bounds=(body.get('deployment_target') or {}).get('baseline_range')
+        if not isinstance(bounds,list) or len(bounds)!=2:return None
+        low,high=map(number,bounds)
+        if low is None or high is None or not 0<=low<=high<=100:raise ValueError('PM_TARGET_UPPER_INVALID')
+        return high
+
     def record_premarket(self, *, meeting_id: str, source_call_id: str, account_id: str,
                           trade_date: str, observed_at: datetime, envelopes: tuple[RiskEnvelope, ...],
                           output, validated: bool, engine_utilization_cap: Decimal) -> RiskMeetingResult:

@@ -352,6 +352,7 @@ class LocalPaperBroker:
             day=local_time(self.clock()).date().isoformat()
             return dict(account=self._account(c,day),positions=self._positions(c,day),
                 risk_day=self._risk_day(c,day),peak_nav=str(self._meta(c,'risk_peak_nav')),
+                open_orders=tuple({**json.loads(r['body_json']),'status':r['status']} for r in self._open(c)),
                 global_halt=c.execute("SELECT value FROM paper_meta WHERE key='risk_halt_reason'").fetchone()[0])
 
     def _account(self,c,day):

@@ -46,7 +46,7 @@ def run_risk_exception(*,repository,client,journal,store,meeting_id,call_id,acco
         prompt_sha256=repository.document('A6').sha256)).encode()).hexdigest()
     frozen=runtime.claim(meeting_id,account_id=account_id,trade_date=trade_date,observed_at=now,
         input_sha256=binding,targets=targets,hard_halt=hard_halt,
-        deadline_at=now+timedelta(seconds=max(0,deadline_monotonic-monotonic())))
+        deadline_at=now+timedelta(seconds=max(0,deadline_monotonic-monotonic())),source_call_id=call_id)
     previous=runtime.load(meeting_id,input_sha256=binding)
     if previous is not None:return previous
     # Reserve two seconds for local validation/commit; bind the first request's
@@ -59,7 +59,8 @@ def run_risk_exception(*,repository,client,journal,store,meeting_id,call_id,acco
         hard_halt=hard_halt or latched,engine_utilization_cap=engine_utilization_cap,
         capacity_slots=capacity_slots,cluster_caps=cluster_caps)
     values.update(RISK_SESSION='INTRADAY_EXCEPTION',EXCEPTION_CONTEXT=dict(targets=frozen['targets'],
-        previous_a6_controls=frozen['controls'],hard_halt=hard_halt or latched),
+        previous_a6_controls=frozen['controls'],hard_halt=hard_halt or latched,
+        trigger_evidence=values.get('EXCEPTION_CONTEXT',{})),
         RISK_LIMITS=context,ENGINE_ENVELOPES=values.get('ENGINE_ENVELOPES',[]))
     values=json.loads(canonical(values))
     validate_risk_exception(None,values['EVIDENCE_CATALOG'],**validator_args)

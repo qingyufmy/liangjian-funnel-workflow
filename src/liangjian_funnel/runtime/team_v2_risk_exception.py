@@ -85,6 +85,8 @@ class RiskExceptionRuntime:
                 CREATE TABLE IF NOT EXISTS risk_exception_caps (
                     account_id TEXT NOT NULL,trade_date TEXT NOT NULL,
                     cap_pct TEXT NOT NULL,PRIMARY KEY(account_id,trade_date));
+                CREATE INDEX IF NOT EXISTS risk_exception_requests_account_day ON risk_exception_requests (
+                    json_extract(context_json,'$.account_id'),json_extract(context_json,'$.trade_date'));
             ''')
 
     def context(self,meeting_id):
@@ -92,7 +94,7 @@ class RiskExceptionRuntime:
             row=db.execute('SELECT context_json FROM risk_exception_requests WHERE meeting_id=?',(meeting_id,)).fetchone()
         return json.loads(row[0]) if row else None
 
-    def claim(self,meeting_id,*,account_id,trade_date,observed_at,input_sha256,targets,hard_halt,deadline_at=None):
+    def claim(self,meeting_id,*,account_id,trade_date,observed_at,input_sha256,targets,hard_halt,deadline_at=None,source_call_id=None):
         from ..pipeline.team_v2_risk_schema import exception_domain
         exception_domain(targets)
         if (any(not isinstance(v,str) or not v.strip() for v in (meeting_id,account_id,input_sha256))
@@ -119,6 +121,7 @@ class RiskExceptionRuntime:
             context=dict(base,observed_at=observed_at.isoformat(),controls=json.loads(prior[0]) if prior else [],
                 control_version=prior[1] if prior else 0,day_state=list(state) if state else None,
                 deadline_at=deadline_at.isoformat() if deadline_at is not None else None)
+            context['source_call_id']=source_call_id
             cap=db.execute('SELECT cap_pct FROM risk_exception_caps WHERE account_id=? AND trade_date=?',
                 (account_id,trade_date)).fetchone()
             context['utilization_cap']=cap[0] if cap else None
@@ -142,9 +145,35 @@ class RiskExceptionRuntime:
                 (account_id,trade_date)).fetchone()
             cap=db.execute('SELECT cap_pct FROM risk_exception_caps WHERE account_id=? AND trade_date=?',
                 (account_id,trade_date)).fetchone()
+            pending=db.execute('SELECT count(*) FROM risk_exception_requests q '
+                'LEFT JOIN risk_exception_reviews r ON q.meeting_id=r.meeting_id WHERE r.meeting_id IS NULL '
+                "AND json_extract(q.context_json,'$.account_id')=? AND json_extract(q.context_json,'$.trade_date')=?",
+                (account_id,trade_date)).fetchone()[0]
         return dict(controls=json.loads(controls[0]) if controls else [],
-            consecutive_failures=max(state[0],2 if state[1] else 0) if state else 0,
-            utilization_cap=cap[0] if cap else None)
+            consecutive_failures=max(state[0] if state else 0,2 if state and state[1] else 0,
+                min(2,pending)),utilization_cap=cap[0] if cap else None,pending_reviews=pending)
+
+    def expire_pending(self,account_id,trade_date,*,now):
+        """An abandoned expired request is one failure, never a provider retry."""
+        with closing(self.store._connect()) as db:
+            pending=[(mid,pin,json.loads(body)) for mid,pin,body in db.execute(
+                'SELECT q.meeting_id,q.input_sha256,q.context_json FROM risk_exception_requests q '
+                'LEFT JOIN risk_exception_reviews r ON q.meeting_id=r.meeting_id WHERE r.meeting_id IS NULL '
+                "AND json_extract(q.context_json,'$.account_id')=? AND json_extract(q.context_json,'$.trade_date')=?",
+                (account_id,trade_date))]
+        settled=[]
+        for mid,pin,body in sorted(pending,key=lambda row:row[2]['observed_at']):
+            if (body['account_id']!=account_id or body['trade_date']!=trade_date
+                    or not body.get('deadline_at') or not body.get('source_call_id')
+                    or now<=datetime.fromisoformat(body['deadline_at'])):continue
+            try:
+                self.record(mid,source_call_id=body['source_call_id'],input_sha256=pin,output=None,validated=False)
+                settled.append(mid)
+            except ValueError as exc:
+                if str(exc) not in {'A6_EXCEPTION_STATE_CHANGED','A6_EXCEPTION_BINDING_CONFLICT'}:raise
+                # A concurrent/later authority cannot be overwritten. The
+                # remaining pending request still tightens restrictions().
+        return settled
 
     def record(self,meeting_id,*,source_call_id,input_sha256,output,validated):
         if not isinstance(source_call_id,str) or not source_call_id:raise ValueError('A6_EXCEPTION_CALL_INVALID')
