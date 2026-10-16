@@ -106,6 +106,12 @@ def validate_team_output(role: str, output: Any, catalog: Any, *, session: str |
                 issues.append("TEAM_ATTRIBUTION_INVALID")
             else:
                 judgments.append({**deepcopy(dict(row)), "path": "team_scorecard.attribution"})
+    if role == 'A5' and isinstance(output.get('method_feedback'),Mapping):
+        for recipient,rows in output['method_feedback'].items():
+            if not isinstance(rows,list):continue
+            for index,row in enumerate(rows):
+                if isinstance(row,Mapping):
+                    judgments.append({**deepcopy(dict(row)), 'path':f'method_feedback.{recipient}[{index}]'})
     sentinel_count = 0
     for row in judgments:
         aliases = (("supporting_source_refs", "contradicting_source_refs")

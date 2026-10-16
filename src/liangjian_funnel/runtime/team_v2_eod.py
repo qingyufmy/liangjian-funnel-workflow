@@ -91,7 +91,7 @@ def run_team_eod(*,repository,client,journal,store,meeting_id,pm_call_id,risk_ca
             status='READY' if pm_valid else 'PM_EOD_NO_PROPOSAL',source_call_id=pm_call_id,
             overnight_stances=pm['overnight_stances'] if pm_valid else [],
             capacity_request=pm['capacity_request'] if pm_valid else None,reason_codes=list(issues)))
-    result=dict(status='PM_EOD_NO_PROPOSAL',session='RISK_EOD',trade_date=trade_date,
+    result=dict(status='PM_EOD_NO_PROPOSAL',session='RISK_EOD',trade_date=trade_date,account_id=account_id,
         source_pm_call_id=pm_call_id,source_risk_call_id=None,pm_proposal=None,
         overnight_actions=[],capacity_for_tomorrow=None,reason_codes=list(issues))
     if pm_valid:
