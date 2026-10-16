@@ -46,7 +46,8 @@ _ENVELOPE_KEYS = frozenset('schema_version run_id stage_id source_trade_date exe
     'knowledge_cutoff input_snapshot_ids config_version config_hash prompt_version model_name market_regime '
     'status reason_codes'.split())
 _SHORTHAND_INPUTS = {('A3','PM_POST_CLOSE'): frozenset(('ACCOUNT_SNAPSHOT','POSITIONS',
-    'MARKET_STATE','THEME_REVIEWS','EVIDENCE_CATALOG'))}
+    'MARKET_STATE','THEME_REVIEWS','EVIDENCE_CATALOG')),
+    ('A4','INTRADAY'): frozenset(('DECISION_ID','MINUTE_SNAPSHOT_ID'))}
 
 
 class TeamPromptRepository:
