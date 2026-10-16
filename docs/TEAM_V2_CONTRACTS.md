@@ -25,3 +25,7 @@ Claude 提供的角色正文和根/判断证据规范为唯一提示词来源。
 ## A5双路径（0258）
 
 客户v1提示词/service/publisher不变；Team A5 2.0.3独立模型、独立研究表和内部卡，不读取客户报告正文，不向客户DTO投影。signal_reviews用原model_judgments.decision_id或原旧路径事件evidence_id精确覆盖，禁止按同股三元组合并。假设只写研究库和`artifacts/replay-queue`，不自动应用。两个自然Team A5任务各240s，模型请求前等待退出75可限速重试；模型失败退出2不能重试或回退v1生成。完整回执见 `TEAM_V2_A5_203_WIRING_2026-10-17.md`。收盘尾15:00原bar缺失反例0259仍是整包发布门未完成项，不能用A5关联绿代替。
+
+## A3 PLAN_REVIEW（组件切片，尚未切换自然研究）
+
+冻结候选域仅 FOCUS/WATCH_ONLY，原引擎资格只在盲审之后比对。模型PASS不能放宽风险单位、改策略/簇/几何；engine=false不能因模型PASS获得计划权限。逐事件模型原判断与无效输出都进独立研究账本，不混有效成交cohort；排名只用于本批次展示，全局合并需自然适配器绑定。原技术事实投影、完整源hash、严格schema、真实客户端mock及故障恢复见 `TEAM_V2_A3_PLAN_REVIEW_2026-10-17.md`。组件返回 publication_authorized=false，不是发布入口。
