@@ -210,3 +210,13 @@ tony: 盘中新路线信号推送内部 LARK 群，用项目已配置的飞书�
 - H-1 独立包：回退树≡2b077f3。
 - H-1 生产验收后：Team V2 整包回退树改为 H-1 生产提交；record 模式也包含 H-1。之后任何回退都不得撤销 H-1。H-1 自身回退单独执行，回退后恢复人工监控。
 - H-1 最终 ACCEPT 条件（0222-reply）：R1 隔离范围只限当次/当日冲突 lifecycle；R2 原入场窗缺失时，收盘确定性迁移为 DATA_ERROR/ENTRY_WINDOW_DATA_MISSING（不写 UNFILLED，不计 cohort）；告警读取权限按 0216 最小权限分支安装。
+
+### 11.4 10-16 22:45 裁定（0234-reply）
+- H-1 最终候选 f79abd4 ACCEPT。部署窗口：周日 10-18 白天；回退 edac351（tree≡2b）。告警源：决策 15 本机秘密文件 → VM `/www1/Agu/liangjian-shadow/internal_alert.env`（root:www 0640，只含 SHADOW_RESEARCH_WEBHOOK）。
+- WP-F F-1 修订：晨会分为 08:33 引擎 / 08:35 A6 / 08:38 PM 三条独立调度边，各会话独立 120s，08:45 内部卡；取代"单父 120s"。
+- G-5 分两层：
+  - 第一层：复用 `_determine_market_regime` 三类，输入改为当日 live 数据，阈值 0.35/0.40 进 `config/regime_live.yaml`。
+  - 第二层：`emotion_state`（EMOTION_ON：涨停≥40 且炸板率≤35% 且最高连板≥3 且跌停≤10；EMOTION_OFF：涨停<20 或炸板率>50% 或跌停≥20 或 RISK_OFF_RETREAT；其余滞回）。阈值为 PROVISIONAL，待 Tony 批准后生效。
+- A6 1.0.3：exception_actions 加 target_id，每对象恰好一条；RESUME 不得解除硬熔断。
+
+tony: 情绪开关按 Claude 建议方案执行（emotion_state 阈值 APPROVED，上线生效）。（2026-10-16 22:38）
