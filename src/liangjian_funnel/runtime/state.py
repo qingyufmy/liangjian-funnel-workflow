@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import sqlite3
 import threading
 import uuid
@@ -3294,6 +3295,8 @@ class RuntimeStore:
 
     def quarantine_a4_signal(self, signal_id: str, *, reason_code: str, at: datetime) -> dict[str, Any]:
         """Append an incident; never repair a historical lifecycle or cash row."""
+        if not isinstance(reason_code,str) or not re.fullmatch(r'[A-Z][A-Z0-9_]{1,79}',reason_code):
+            reason_code='STATE_CONFLICT'
         def operation(connection):
             row = self._a4_resolve_on_connection(connection, signal_id)
             if row is None:

@@ -8,9 +8,10 @@ import { LogStore } from "../../server/logger.js";
 import { JobRunner } from "../../server/runner.js";
 import * as childProcess from "node:child_process";
 vi.mock("node:child_process", async original => ({ ...await original<typeof import("node:child_process")>(), spawn:vi.fn() }));
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks();vi.unstubAllEnvs(); });
 
 test("actual runner binds current child business receipt into readonly DTO; no customer send", async () => {
+  vi.stubEnv('SHADOW_RESEARCH_WEBHOOK','');
   const root = await mkdtemp(join(tmpdir(),"liangjian-h1-runner-"));
   const config=loadConfig({},root), logger=new LogStore(config);
   const child=Object.assign(new EventEmitter(),{stdout:new EventEmitter(),stderr:new EventEmitter(),kill:vi.fn()});

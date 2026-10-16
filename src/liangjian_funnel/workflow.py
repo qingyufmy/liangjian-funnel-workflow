@@ -4634,7 +4634,8 @@ class WorkflowApplication:
                         symbol=str(position["symbol"]), at=current)
                     if conflicts:
                         record_business_reasons({"STATE_CONFLICT_QUARANTINED":len(conflicts),
-                                                 "A4_LIFECYCLE_RECONCILIATION_REQUIRED":len(conflicts)})
+                                                 "A4_LIFECYCLE_RECONCILIATION_REQUIRED":len(conflicts)},
+                                                 incident_key=f"{lane_id}:{position['symbol']}")
         position_symbols = sorted({
             str(position["symbol"])
             for positions in lane_positions.values()
@@ -5149,6 +5150,7 @@ class WorkflowApplication:
                     if plan["symbol"] == symbol
                 ):
                     data_errors[symbol] = "STATE_CONFLICT_QUARANTINED"
+                    record_business_reasons({"STATE_CONFLICT_QUARANTINED":1},incident_key=f"{lane_id}:{symbol}")
                 contexts[symbol] = _intraday_market_context(
                     symbol,
                     one_bars,
@@ -7391,7 +7393,7 @@ class WorkflowApplication:
             ):
                 self.store.quarantine_a4_signal(str(lifecycle["entry_event_key"]),
                     reason_code=str(exc), at=observed_at)
-            record_business_reasons({"STATE_CONFLICT_QUARANTINED":1})
+            record_business_reasons({"STATE_CONFLICT_QUARANTINED":1},incident_key=f"{lane_id}:{symbol}")
             return [], "STATE_CONFLICT_QUARANTINED"
 
     def _settle_prior_signals(self, lane_id: str, symbol: str, bar: MinuteBar,
@@ -7535,7 +7537,7 @@ class WorkflowApplication:
                         self.store.quarantine_a4_signal(lifecycle_key,
                             reason_code="A4_TERMINAL_STATE_CONFLICT", at=bar.bar_end)
                         record_business_reasons({"STATE_CONFLICT_QUARANTINED":1,
-                                                 "A4_LIFECYCLE_RECONCILIATION_REQUIRED":1})
+                                                 "A4_LIFECYCLE_RECONCILIATION_REQUIRED":1},incident_key=f"{lane_id}:{symbol}")
                         # Do not reopen a terminal lifecycle or replay money.
                         # Continue to later protective exits for held inventory.
                         continue

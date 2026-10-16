@@ -83,6 +83,7 @@ function readMonitorTrace(directory: string, runId: string): Record<string, unkn
     return { status: "RECORDED", receiptPath, phase_timings: receipt.phase_timings,
       business_reason_counts: receipt.business_reason_counts,
       business_status_observed: receipt.business_status_observed,
+      business_incident_ids: receipt.business_incident_ids,
       elapsed_ms: receipt.elapsed_ms, timeoutSnapshotPath: path.join(directory, `${runId}.json`) };
   } catch {
     return { status: "NO_FINAL_RECEIPT", timeoutSnapshotPath: path.join(directory, `${runId}.json`) };
@@ -312,7 +313,7 @@ export class JobRunner {
           if (monitorTrace.business_status_observed !== true && !Object.keys(monitorReasons).length)
             monitorReasons.MONITOR_BUSINESS_STATUS_UNAVAILABLE = 1;
           monitorBusiness = { ...this.monitorHealth.observe({ runId, startedAt: startedAt.toISOString(),
-            finishedAt: finishedAt.toISOString(), exitCode }, monitorReasons) };
+            finishedAt: finishedAt.toISOString(), exitCode }, monitorReasons,monitorTrace.business_incident_ids) };
         }
         const record: JobRunRecord = {
           runId,

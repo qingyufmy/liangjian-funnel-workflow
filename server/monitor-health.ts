@@ -1,6 +1,6 @@
 /** Internal business watchdog. Never uses the customer notification channel. */
 import { mkdirSync, openSync, readSync, closeSync, writeFileSync, renameSync, unlinkSync } from "node:fs";
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import path from "node:path";
 
 const CODES = new Set(["STATE_CONFLICT_QUARANTINED", "A4_LIFECYCLE_RECONCILIATION_REQUIRED",
@@ -84,7 +84,7 @@ export class MonitorHealth {
         this.state = { ...raw, dailyReasonCounts: counts(raw.dailyReasonCounts),
           failureEpisodeStart: Number.isSafeInteger(raw.failureEpisodeStart) ? raw.failureEpisodeStart : raw.lastSlot,
           quarantineHighWater: Number.isSafeInteger(raw.quarantineHighWater) ? raw.quarantineHighWater : 0,
-          notifiedKeys: raw.notifiedKeys.filter(x => typeof x === "string").slice(-8),
+          notifiedKeys: raw.notifiedKeys.filter(x => typeof x === "string").slice(-128),
           lastAttempts: raw.lastAttempts && typeof raw.lastAttempts === "object" ? raw.lastAttempts : {} };
       }
     } catch { this.log("MONITOR_HEALTH_PREVIOUS_STATE_UNREADABLE"); }
@@ -102,7 +102,7 @@ export class MonitorHealth {
     } catch { this.log("MONITOR_HEALTH_STATE_WRITE_FAILED"); }
     finally { try { unlinkSync(temporary); } catch { /* already renamed or absent */ } }
   }
-  public observe(record: MonitorResult, rawReasons: unknown): MonitorBusiness {
+  public observe(record: MonitorResult, rawReasons: unknown, rawIncidents: unknown = []): MonitorBusiness {
     const started = Date.parse(record.startedAt);
     if (!Number.isFinite(started)) return { status: "UNKNOWN", reasonCounts: {}, dailyReasonCounts: {}, failureStreak: 0 };
     const slot = Math.floor(started / 60000);
@@ -125,12 +125,17 @@ export class MonitorHealth {
     const alertReason = quarantined ? "STATE_CONFLICT_QUARANTINED" : this.state.failureStreak >= 2 ? "MONITOR_CONSECUTIVE_FAILURES" : null;
     if (alertReason) {
       const episode = quarantined ? this.state.quarantineHighWater : this.state.failureEpisodeStart;
-      const key = `${day}:${alertReason}:${episode}`;
-      if (!this.state.notifiedKeys.includes(key) && !this.pending.has(key) && this.state.lastAttempts[key] !== slot) {
+      const incidentIds = Array.isArray(rawIncidents) ? [...new Set(rawIncidents.filter(
+        (id): id is string => typeof id==="string" && /^[a-f0-9]{64}$/.test(id)))].slice(0,64).sort() : [];
+      const notificationKeys = quarantined && incidentIds.length
+        ? incidentIds.map(id=>`${day}:${alertReason}:${id}`).filter(key=>!this.state.notifiedKeys.includes(key))
+        : [`${day}:${alertReason}:${episode}`].filter(key=>!this.state.notifiedKeys.includes(key));
+      const key = createHash("sha256").update(notificationKeys.join("|")).digest("hex");
+      if (notificationKeys.length && !this.pending.has(key) && this.state.lastAttempts[key] !== slot) {
         this.state.lastAttempts[key] = slot;
         const task = Promise.resolve().then(() => this.send(this.envFile, { alertReason, runId: record.runId, reasonCounts }))
           .then(sent => {
-            if (sent && this.state.day === day) this.state.notifiedKeys.push(key);
+            if (sent && this.state.day === day) this.state.notifiedKeys.push(...notificationKeys);
             this.log(sent ? "MONITOR_INTERNAL_ALERT_SENT" : "MONITOR_INTERNAL_ALERT_FAILED");
             this.save();
           }).catch(() => this.log("MONITOR_INTERNAL_ALERT_FAILED"))

@@ -107,3 +107,12 @@ test("business data failures are visible as degraded even with zero process exit
     status:"DEGRADED",reasonCounts:{MINUTE_DATA_NOT_CURRENT:12},dailyReasonCounts:{MINUTE_DATA_NOT_CURRENT:12}});
   await health.flush();expect(send).not.toHaveBeenCalled();
 });
+
+test("a different quarantined symbol alerts even when total count stays one", async()=>{
+  const {health,send}=await setup();
+  health.observe(record('10:00',0),{STATE_CONFLICT_QUARANTINED:1},['a'.repeat(64)]);
+  await health.flush();
+  health.observe(record('10:01',0),{STATE_CONFLICT_QUARANTINED:1},['b'.repeat(64)]);
+  await health.flush();
+  expect(send).toHaveBeenCalledTimes(2);
+});

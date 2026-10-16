@@ -259,3 +259,11 @@ def test_idempotent_fill_key_cannot_claim_another_plan_or_symbol(tmp_path):
     assert broker.apply(action.model_copy(update={'symbol':'600000.SH'}),bar).reason_code=='A4_SIGNAL_IDENTITY_CONFLICT'
     assert store.get_account('paper:lane_1')['cash']==cash
     assert len(store.list_fills('paper:lane_1'))==1
+
+
+def test_quarantine_stores_only_stable_failure_code_not_exception_text(tmp_path):
+    store,_,_=seeded(tmp_path)
+    store.quarantine_a4_signal('h1-entry',reason_code='fixture error: https://private.invalid/FAKE_SECRET',at=at('11:19:00'))
+    incident=store.get_a4_plan_quarantine('p1')
+    assert incident['reason_code']=='STATE_CONFLICT'
+    assert 'FAKE_SECRET' not in str(incident)
