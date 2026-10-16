@@ -18,7 +18,7 @@ from datetime import date, datetime, timedelta, timezone
 from functools import wraps
 from pathlib import Path
 from threading import Event, RLock, Thread
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 from zoneinfo import ZoneInfo
 from uuid import uuid4
 
@@ -153,7 +153,8 @@ from .runtime.resource_guard import evaluate_resources, measure_resources
 from .runtime.calendar import ExchangeTradingCalendar, TradingCalendarError
 from .runtime.scheduler import ScheduleKind, Scheduler
 from .runtime.simulation import PaperBroker, SimulationAction, SimulationConfig
-from .runtime.state import A4SignalStatus, MonitorAction, PlanStatus, RuntimeStore
+from .runtime.state import A4SignalStatus, MonitorAction, PlanStatus, RuntimeStore, StateTransitionError
+from .runtime.entry_contract import entry_bar_for
 from .settings import Settings, load_yaml
 
 
@@ -4614,7 +4615,8 @@ class WorkflowApplication:
         current = _aware(now or datetime.now(SHANGHAI)).replace(second=0, microsecond=0)
         execution_cutoff = _a4_execution_cutoff(current)
         self._ensure_trading_day(current)
-        self._expire_missed_a4_entries(current)
+        # Wall time is not matching evidence. Entries are settled against their
+        # immutable closed window below, before any unfilled transition.
         minute_snapshot_id = f"minute-{current.strftime('%Y%m%dT%H%M%S%z')}"
 
         # Position protection is restored before A3 activation and the wider
@@ -5114,7 +5116,11 @@ class WorkflowApplication:
                         execution_started = time.monotonic()
                         execution_wall = datetime.now(SHANGHAI)
                         try:
-                            simulation.extend(self._settle_prior_signals(lane_id, symbol, one_bars[-1]))
+                            settled, settlement_error = WorkflowApplication._settle_prior_signals_isolated(
+                                self, lane_id, symbol, one_bars[-1], observed_at=current, entry_bars=one_bars)
+                            simulation.extend(settled)
+                            if settlement_error:
+                                data_errors[symbol] = "STATE_CONFLICT_QUARANTINED"
                             risk_settled.add((lane_id, symbol))
                         finally:
                             record_span(f"order_intent_and_simulation:{lane_id}:{symbol}", execution_started, execution_wall)
@@ -5128,6 +5134,12 @@ class WorkflowApplication:
                             low=observation_bar.low,
                             close=observation_bar.close,
                         )
+                quarantine_reader = getattr(self.store, "get_a4_plan_quarantine", None)
+                if callable(quarantine_reader) and any(
+                    quarantine_reader(str(plan["plan_id"])) for plan in lane_plans[lane_id]
+                    if plan["symbol"] == symbol
+                ):
+                    data_errors[symbol] = "STATE_CONFLICT_QUARANTINED"
                 contexts[symbol] = _intraday_market_context(
                     symbol,
                     one_bars,
@@ -7267,6 +7279,11 @@ class WorkflowApplication:
             plan_id = str(payload.get("plan_id") or "").strip()
             lane_id = str(event.get("lane_id") or "").strip()
             plan = plans.get(plan_id) or self.store.get_execution_plan(plan_id)
+            quarantine_reader = getattr(self.store, "get_a4_plan_quarantine", None)
+            if callable(quarantine_reader) and quarantine_reader(plan_id):
+                skipped.append({"event_key": str(event.get("event_key") or ""),
+                                "reason_code": "A4_LIFECYCLE_RECONCILIATION_REQUIRED"})
+                continue
             if not plan_id or not lane_id or plan is None:
                 skipped.append({
                     "event_key": str(event.get("event_key") or ""),
@@ -7344,10 +7361,31 @@ class WorkflowApplication:
             "skipped": skipped,
         }
 
-    def _settle_prior_signals(self, lane_id: str, symbol: str, bar: MinuteBar) -> list[dict[str, Any]]:
+    def _settle_prior_signals_isolated(self, lane_id: str, symbol: str, bar: MinuteBar,
+                                     *, observed_at: datetime,
+                                     entry_bars: Sequence[MinuteBar] | None = None) -> tuple[list[dict[str, Any]], str | None]:
+        try:
+            return WorkflowApplication._settle_prior_signals(self, lane_id, symbol, bar,
+                entry_bars=entry_bars), None
+        except (StateTransitionError, ValueError) as exc:
+            # Only state/contract faults are local. Persistence failures still
+            # propagate; it is unsafe to pretend a broken database is healthy.
+            for lifecycle in self.store.list_a4_signal_lifecycles(
+                account_id=f"paper:{lane_id}", symbol=symbol, limit=100,
+            ):
+                self.store.quarantine_a4_signal(str(lifecycle["entry_event_key"]),
+                    reason_code=str(exc), at=observed_at)
+            return [], "STATE_CONFLICT_QUARANTINED"
+
+    def _settle_prior_signals(self, lane_id: str, symbol: str, bar: MinuteBar,
+                             *, entry_bars: Sequence[MinuteBar] | None = None) -> list[dict[str, Any]]:
         broker = self.brokers[lane_id]
         account_id = f"paper:{lane_id}"
         results: list[dict[str, Any]] = []
+        execution_cutoff = bar.bar_end
+        latest_bar = bar
+        original_windows = {item.bar_end: item for item in (entry_bars or (bar,))
+                            if item.bar_end <= execution_cutoff and item.symbol == symbol and item.interval == "1m"}
         events = self.store.list_monitor_events(lane_id=lane_id, effective_only=True)
         exit_priority = {"FORCED_RISK_EXIT": 3, "SELL_SIGNAL": 2, "REDUCE_SIGNAL": 1}
         # Entries retain their next-bar contract. Among already-known exits,
@@ -7357,6 +7395,7 @@ class WorkflowApplication:
             -exit_priority.get(str(event.get("action")), 0), str(event.get("minute_end")),
         ))
         for event in events:
+            bar = latest_bar
             if event.get("action") not in {
                 MonitorAction.BUY_SIGNAL.value,
                 MonitorAction.ADD_SIGNAL.value,
@@ -7381,12 +7420,14 @@ class WorkflowApplication:
             contract = payload.get("entry_contract")
             contract = contract if isinstance(contract, Mapping) else None
             new_entry = contract is not None and action in {"BUY", "ADD"}
-            contract_eligible_end = None
-            if new_entry and contract.get("eligible_bar_end"):
-                try:
-                    contract_eligible_end = datetime.fromisoformat(str(contract["eligible_bar_end"]))
-                except (TypeError, ValueError):
-                    contract_eligible_end = None
+            contract_eligible_end = entry_bar_for({
+                "entry_contract": contract or {}, "signal_time": signal_time,
+            })
+            if action in {"BUY", "ADD"}:
+                original_bar = original_windows.get(contract_eligible_end)
+                if original_bar is None:
+                    continue
+                bar = original_bar
             contract_eligible_from = (
                 contract_eligible_end - timedelta(minutes=1)
                 if contract_eligible_end is not None else signal_time
@@ -7471,6 +7512,12 @@ class WorkflowApplication:
             existing_fill = self.store.get_fill_by_intent_key(intent_key)
             if existing_fill is not None:
                 if lifecycle_key:
+                    if lifecycle.get("status") in {"UNFILLED", "CANCELLED", "INVALIDATED", "DATA_ERROR"}:
+                        self.store.quarantine_a4_signal(lifecycle_key,
+                            reason_code="A4_TERMINAL_STATE_CONFLICT", at=bar.bar_end)
+                        # Do not reopen a terminal lifecycle or replay money.
+                        # Continue to later protective exits for held inventory.
+                        continue
                     self.store.apply_a4_fill(lifecycle_key, existing_fill)
                 if action not in {"SELL", "FORCED_RISK_EXIT"}:
                     continue
@@ -7482,18 +7529,15 @@ class WorkflowApplication:
                     "signal_id": f"{event['event_key']}:residual:{bar.bar_end.date().isoformat()}",
                 })
 
-            eligible_bar = contract_eligible_end if new_entry and contract_eligible_end is not None else _next_closed_minute(signal_time)
+            eligible_bar = contract_eligible_end
             if action in {"BUY", "ADD"}:
+                if eligible_bar is None:
+                    continue
                 if bar.bar_end < eligible_bar:
                     continue
                 if bar.bar_end > eligible_bar:
-                    if action == "BUY" and lifecycle_key and lifecycle.get("status") == A4SignalStatus.SIGNALLED.value:
-                        self.store.mark_a4_signal_terminal(
-                            lifecycle_key,
-                            A4SignalStatus.UNFILLED,
-                            reason_code="ENTRY_NEXT_BAR_MISSED",
-                            at=bar.bar_end,
-                        )
+                    # A later bar is not proof that the original window was
+                    # attempted. Missing original bars stay data-limited.
                     continue
             else:
                 if bar.bar_end <= signal_time:
@@ -7511,6 +7555,9 @@ class WorkflowApplication:
                 if int(position.get("sellable_qty") or 0) <= 0:
                     continue
             outcome = broker.apply(simulation_action, bar)
+            if outcome.reason_code in {"STATE_CONFLICT", "A4_TERMINAL_STATE_CONFLICT",
+                    "A4_SIGNAL_IDENTITY_CONFLICT", "A4_PLAN_IDENTITY_CONFLICT"}:
+                raise StateTransitionError(outcome.reason_code)
             result = outcome.model_dump(mode="json")
             account = self.store.get_account(account_id) or {}
             position = self.store.get_position(account_id, symbol) or {}
@@ -7545,103 +7592,31 @@ class WorkflowApplication:
             })
             results.append(result)
             if outcome.fill is not None and lifecycle_key:
-                self.store.apply_a4_fill(lifecycle_key, outcome.fill)
+                quarantine_reader = getattr(self.store, "get_a4_plan_quarantine", None)
+                if not (action in {"SELL", "REDUCE", "FORCED_RISK_EXIT"}
+                        and callable(quarantine_reader) and quarantine_reader(str(payload.get("plan_id") or ""))):
+                    self.store.apply_a4_fill(lifecycle_key, outcome.fill)
             elif (
                 action == "BUY"
                 and lifecycle_key
                 and outcome.status.value in {"BLOCKED", "CANCELLED"}
-                and outcome.reason_code not in {
-                    "ORDER_NOT_YET_ELIGIBLE",
-                    "FILL_EVIDENCE_INVALID",
-                    "PERSISTENCE_FAILED",
+                and outcome.reason_code in {
+                    "LIMIT_NOT_REACHED", "LIMIT_TOUCH_WITHOUT_FILL_EVIDENCE",
+                    "BAR_NOT_EXECUTABLE", "INSUFFICIENT_WINDOW_CAPACITY",
                 }
             ):
-                self.store.mark_a4_signal_terminal(
-                    lifecycle_key,
-                    A4SignalStatus.UNFILLED,
-                    reason_code=outcome.reason_code,
-                    at=bar.bar_end,
-                )
+                self.store.complete_a4_entry_no_fill(lifecycle_key,
+                    bar=bar.model_dump(mode="json"), reason_code=outcome.reason_code)
         return results
 
     def _expire_missed_a4_entries(self, current: datetime) -> int:
-        """Close stale unfilled signals without deleting their evidence."""
+        """Compatibility hook; wall-clock-only expiration is forbidden.
 
-        expired = 0
-        event_rows: dict[str, dict[str, Any]] | None = None
-        for lifecycle in self.store.list_a4_signal_lifecycles(
-            status=A4SignalStatus.SIGNALLED.value,
-            limit=10_000,
-        ):
-            signal_time = datetime.fromisoformat(str(lifecycle["signal_time"]))
-            if event_rows is None:
-                event_rows = {
-                    str(row.get("event_key") or ""): row
-                    for row in self.store.list_monitor_events(effective_only=True)
-                }
-            source_event = event_rows.get(str(lifecycle.get("entry_event_key") or "")) or {}
-            try:
-                source_payload = json.loads(str(source_event.get("payload_json") or "{}"))
-            except (TypeError, ValueError, json.JSONDecodeError):
-                source_payload = {}
-            source_contract = source_payload.get("entry_contract") if isinstance(source_payload.get("entry_contract"), Mapping) else {}
-            eligible_bar_end = _next_closed_minute(signal_time)
-            if source_contract.get("eligible_bar_end"):
-                try:
-                    eligible_bar_end = datetime.fromisoformat(str(source_contract["eligible_bar_end"]))
-                except (TypeError, ValueError):
-                    pass
-            if current <= eligible_bar_end:
-                continue
-            account_id = str(lifecycle["account_id"])
-            event_key = str(lifecycle["entry_event_key"])
-            fill = self.store.get_fill_by_intent_key(f"{account_id}:{event_key}:BUY")
-            if fill is not None:
-                self.store.apply_a4_fill(event_key, fill)
-                continue
-            self.store.mark_a4_signal_terminal(
-                event_key,
-                A4SignalStatus.UNFILLED,
-                reason_code="ENTRY_NEXT_BAR_MISSED",
-                at=current,
-            )
-            execution_publisher = getattr(getattr(self, "lark_publisher", None), "publish_a4_execution_results", None)
-            if callable(execution_publisher):
-                event = event_rows.get(event_key) or {}
-                try:
-                    event_payload = json.loads(str(event.get("payload_json") or "{}"))
-                except (TypeError, ValueError, json.JSONDecodeError):
-                    event_payload = {}
-                plan_id = str(lifecycle.get("plan_id") or event_payload.get("plan_id") or "")
-                plan = self.store.get_execution_plan(plan_id) if plan_id else None
-                try:
-                    plan_payload = json.loads(str((plan or {}).get("payload_json") or "{}"))
-                except (TypeError, ValueError, json.JSONDecodeError):
-                    plan_payload = {}
-                contract = event_payload.get("entry_contract") if isinstance(event_payload.get("entry_contract"), Mapping) else {}
-                account = self.store.get_account(account_id) or {}
-                position = self.store.get_position(account_id, str(lifecycle.get("symbol") or "")) or {}
-                execution_publisher([{
-                    "account_id": account_id, "signal_id": event_key,
-                    "symbol": lifecycle.get("symbol"), "action": "BUY",
-                    "status": "CANCELLED", "reason_code": "ENTRY_NEXT_BAR_MISSED",
-                    "name": plan_payload.get("name") or plan_payload.get("company_name"),
-                    "plan_id": plan_id,
-                    "signal_time": signal_time.isoformat(),
-                    "signal_reference": contract.get("signal_reference") or lifecycle.get("signal_price"),
-                    "limit_price": contract.get("limit_price"),
-                    "stop_level": contract.get("stop_level") or plan_payload.get("stop_level"),
-                    "execution_basis": "NEXT_COMPLETE_1M_BAR_SIMULATION",
-                    "decision_context": event_payload.get("decision_context") or {},
-                    "account_snapshot": {
-                        "equity": account.get("equity"), "cash": account.get("cash"),
-                        "position_total_qty": position.get("total_qty", 0),
-                        "position_sellable_qty": position.get("sellable_qty", 0),
-                        "position_avg_cost": position.get("avg_cost"),
-                    },
-                }], now=current)
-            expired += 1
-        return expired
+        Definitive no-fill results transition only in _settle_prior_signals,
+        after broker.apply has evaluated the exact original eligible bar.
+        """
+        return 0
+
 
     def _ensure_trading_day(self, current: datetime, *, synchronize_accounts: bool = True) -> None:
         try:

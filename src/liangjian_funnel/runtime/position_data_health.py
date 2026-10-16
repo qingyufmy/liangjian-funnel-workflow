@@ -1,7 +1,8 @@
 """Separate position observation from new-entry history readiness."""
 from ..pipeline.presentation import project_position_presentation
 
-HISTORY_ONLY_ERRORS = frozenset({"TENCENT_INSUFFICIENT_BARS", "INSUFFICIENT_BARS", "MINUTE_DATA_GAP"})
+HISTORY_ONLY_ERRORS = frozenset({"TENCENT_INSUFFICIENT_BARS", "INSUFFICIENT_BARS", "MINUTE_DATA_GAP",
+                                "STATE_CONFLICT_QUARANTINED"})
 
 
 def position_data_health(bar, *, at, reason=None, integrity_ok=True, expected_bar_end=None):

@@ -804,6 +804,26 @@ class RuntimeStore:
                         ON a4_signal_lifecycles(plan_id, trade_date, updated_at DESC);
                     CREATE INDEX IF NOT EXISTS idx_a4_signal_lifecycles_status
                         ON a4_signal_lifecycles(status, updated_at DESC);
+                    CREATE TABLE IF NOT EXISTS a4_entry_matching_attempts (
+                        plan_id TEXT NOT NULL,
+                        signal_id TEXT NOT NULL,
+                        eligible_bar_end TEXT NOT NULL,
+                        result TEXT NOT NULL,
+                        reason_code TEXT NOT NULL,
+                        evidence_json TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        PRIMARY KEY(plan_id,signal_id)
+                    );
+                    CREATE TABLE IF NOT EXISTS a4_lifecycle_reconciliations (
+                        plan_id TEXT NOT NULL,
+                        signal_id TEXT NOT NULL,
+                        account_id TEXT NOT NULL,
+                        symbol TEXT NOT NULL,
+                        reason_code TEXT NOT NULL,
+                        evidence_json TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        PRIMARY KEY(plan_id,signal_id)
+                    );
                     CREATE TABLE IF NOT EXISTS notification_deliveries (
                         delivery_id TEXT PRIMARY KEY,
                         delivery_key TEXT NOT NULL UNIQUE,
@@ -1809,6 +1829,7 @@ class RuntimeStore:
         symbol: str | None = None,
         decision: str | None = None,
         labeled_only: bool = False,
+        include_quarantined: bool = False,
     ) -> tuple[dict[str, Any], ...]:
         """Read labels in deterministic identity order for offline evaluation."""
 
@@ -1840,6 +1861,11 @@ class RuntimeStore:
             args.append(value)
         if labeled_only:
             clauses.append("labeled_at IS NOT NULL")
+        if not include_quarantined:
+            # Performance projection only; forensic readers may opt into raw
+            # immutable labels. Never rewrite their recorded decisions/returns.
+            clauses.append("NOT (stage='A4' AND EXISTS (SELECT 1 FROM a4_lifecycle_reconciliations r "
+                           "WHERE r.plan_id=json_extract(astock_outcome_labels.metadata_json,'$.plan_id')))")
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         return self._read(
             lambda connection: tuple(
@@ -2797,6 +2823,14 @@ class RuntimeStore:
             return _row_dict(row), False
         current = str(row["status"])
         if current in A4_SIGNAL_TERMINAL_STATUSES:
+            quarantined = connection.execute(
+                "SELECT 1 FROM a4_lifecycle_reconciliations WHERE plan_id=?", (row["plan_id"],),
+            ).fetchone()
+            if (quarantined is not None
+                    and action in {"SELL_SIGNAL", "SELL", "REDUCE_SIGNAL", "REDUCE", "FORCED_RISK_EXIT"}):
+                # The exit intent itself remains in monitor_events. Protect
+                # held paper inventory without reopening the disputed row.
+                return _row_dict(row), False
             raise StateTransitionError("A4_TERMINAL_STATE_CONFLICT")
         if action in {"PLAN_INVALIDATED"}:
             # Invalidating an unfilled plan is terminal. If a paper position
@@ -2952,6 +2986,7 @@ class RuntimeStore:
         remaining_qty: int | None = None,
         *,
         fill: Mapping[str, Any] | sqlite3.Row | None = None,
+        _connection: sqlite3.Connection | None = None,
     ) -> tuple[dict[str, Any], bool]:
         """Apply one paper fill to a lifecycle, with fill-key idempotency."""
 
@@ -3093,7 +3128,9 @@ class RuntimeStore:
                 connection.execute("SELECT * FROM a4_signal_lifecycles WHERE lifecycle_id=?", (row["lifecycle_id"],)).fetchone()
             ) or {}, True
 
-        return self._write(operation)
+        # commit_fill uses the same connection: lifecycle, fill, cash and
+        # inventory either all commit or all roll back. Never nest _write.
+        return operation(_connection) if _connection is not None else self._write(operation)
 
     def observe_a4_lifecycle(
         self,
@@ -3169,6 +3206,7 @@ class RuntimeStore:
         exit_price: float | None = None,
         exit_qty: int | None = None,
         fee: float | None = None,
+        _connection: sqlite3.Connection | None = None,
     ) -> dict[str, Any]:
         signal_event_key = str(signal_event_key or event_key or "").strip()
         if not signal_event_key:
@@ -3221,7 +3259,61 @@ class RuntimeStore:
                 connection.execute("SELECT * FROM a4_signal_lifecycles WHERE lifecycle_id=?", (row["lifecycle_id"],)).fetchone()
             ) or {}
 
+        return operation(_connection) if _connection is not None else self._write(operation)
+
+    def complete_a4_entry_no_fill(self, signal_id: str, *, bar: Mapping[str, Any], reason_code: str) -> None:
+        """Seal the exact matching attempt and its no-fill transition atomically."""
+        from .entry_contract import entry_bar_for
+        if reason_code not in {"LIMIT_NOT_REACHED", "LIMIT_TOUCH_WITHOUT_FILL_EVIDENCE",
+                "BAR_NOT_EXECUTABLE", "INSUFFICIENT_WINDOW_CAPACITY"}:
+            raise StateTransitionError("A4_MATCHING_RESULT_UNPROVEN")
+        def operation(connection):
+            event = connection.execute("SELECT * FROM monitor_events WHERE event_key=?", (signal_id,)).fetchone()
+            lifecycle = self._a4_resolve_on_connection(connection, signal_id)
+            if event is None or lifecycle is None:
+                raise StateTransitionError("A4_LIFECYCLE_NOT_FOUND")
+            payload = json.loads(event["payload_json"])
+            eligible = entry_bar_for({**payload, "signal_time": event["minute_end"]})
+            if (eligible is None or _iso(eligible) != _a4_bar_stamp(bar.get("bar_end"))
+                    or bar.get("interval") != "1m" or bar.get("symbol") != lifecycle["symbol"]
+                    or not bar.get("source_id") or str(bar.get("source_id")).endswith(":RISK_ONLY")
+                    or bar.get("evidence_kind", "MARKET_BAR") != "MARKET_BAR"):
+                raise StateTransitionError("A4_MATCHING_EVIDENCE_INVALID")
+            if int(lifecycle["entry_qty"]) or int(lifecycle["remaining_qty"]):
+                raise StateTransitionError("A4_NO_FILL_CONFLICT")
+            connection.execute(
+                "INSERT OR IGNORE INTO a4_entry_matching_attempts VALUES(?,?,?,?,?,?,?)",
+                (lifecycle["plan_id"], signal_id, _iso(eligible), "UNFILLED", reason_code,
+                 json.dumps(dict(bar), sort_keys=True, default=str), _iso(_now())),
+            )
+            self.mark_a4_signal_terminal(signal_id, A4SignalStatus.UNFILLED,
+                reason_code=reason_code, at=eligible, _connection=connection)
+        self._write(operation)
+
+    def quarantine_a4_signal(self, signal_id: str, *, reason_code: str, at: datetime) -> dict[str, Any]:
+        """Append an incident; never repair a historical lifecycle or cash row."""
+        def operation(connection):
+            row = self._a4_resolve_on_connection(connection, signal_id)
+            if row is None:
+                raise StateTransitionError("A4_LIFECYCLE_NOT_FOUND")
+            fills = connection.execute(
+                "SELECT fill_id,qty,price,bar_end FROM virtual_fills WHERE account_id=? AND signal_id=?",
+                (row["account_id"], row["entry_event_key"]),
+            ).fetchall()
+            evidence = {"event": "A4_LIFECYCLE_RECONCILIATION_REQUIRED",
+                "status": "STATE_CONFLICT_QUARANTINED", "lifecycle_status": row["status"],
+                "observed_at": _iso(at), "fills": [dict(fill) for fill in fills],
+                "performance_eligible": False, "original_rows_unchanged": True}
+            connection.execute("INSERT OR IGNORE INTO a4_lifecycle_reconciliations VALUES(?,?,?,?,?,?,?)",
+                (row["plan_id"], row["entry_event_key"], row["account_id"], row["symbol"],
+                 reason_code, json.dumps(evidence, sort_keys=True), _iso(_now())))
+            return dict(row)
         return self._write(operation)
+
+    def get_a4_plan_quarantine(self, plan_id: str) -> dict[str, Any] | None:
+        return self._read(lambda connection: _row_dict(connection.execute(
+            "SELECT * FROM a4_lifecycle_reconciliations WHERE plan_id=? LIMIT 1", (plan_id,),
+        ).fetchone()))
 
     def rebuild_a4_exit_projection(self, lifecycle_id: str, *, apply: bool = False) -> dict[str, Any]:
         """Explicit, auditable repair of a derived summary, never raw events/fills."""
@@ -3954,7 +4046,11 @@ class RuntimeStore:
             raise ValueError("invalid fee components")
         if abs((commission + sell_tax + other_fee) - fee) > 0.011:
             raise StateTransitionError("FEE_COMPONENT_CONFLICT")
-        metadata_json = json.dumps(dict(order_metadata or {}), ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+        metadata_payload = dict(order_metadata or {})
+        if "plan_id" in metadata_payload and metadata_payload["plan_id"] != plan_id:
+            raise StateTransitionError("A4_PLAN_IDENTITY_CONFLICT")
+        metadata_payload["plan_id"] = plan_id
+        metadata_json = json.dumps(metadata_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
         theme = str(primary_theme_id or "UNKNOWN").strip() or "UNKNOWN"
         exit_rules_json = json.dumps(dict(exit_rules or {}), ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
         trade_date = bar_end.astimezone(SHANGHAI).date()
@@ -3995,6 +4091,9 @@ class RuntimeStore:
                     raise StateTransitionError("RISK_RESERVATION_IDENTITY_CONFLICT")
             existing_intent = connection.execute("SELECT * FROM simulation_intents WHERE intent_key=?", (intent_key,)).fetchone()
             if existing_intent is not None:
+                existing_plan = json.loads(existing_intent["order_metadata_json"] or "{}").get("plan_id")
+                if existing_plan != plan_id:
+                    raise StateTransitionError("A4_PLAN_IDENTITY_CONFLICT")
                 existing_fill = connection.execute(
                     "SELECT * FROM virtual_fills WHERE intent_id=? ORDER BY fill_sequence LIMIT 1",
                     (existing_intent["intent_id"],),
@@ -4017,6 +4116,27 @@ class RuntimeStore:
             expected_cash = float(account["cash"]) + (qty * price if selling else -qty * price) - fee
             if abs(expected_cash - cash_after) > .000001:
                 raise StateTransitionError("FILL_CASH_CONFLICT")
+            quarantine = connection.execute(
+                "SELECT 1 FROM a4_lifecycle_reconciliations WHERE plan_id=?", (plan_id,),
+            ).fetchone() if plan_id else None
+            if quarantine is not None and not selling:
+                raise StateTransitionError("STATE_CONFLICT_QUARANTINED")
+            fill_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"liangjian-fill:{intent_key}:1"))
+            lifecycle = self._a4_resolve_on_connection(
+                connection, signal_id, plan_id=plan_id, account_id=account_id, symbol=symbol,
+            ) if plan_id else None
+            if lifecycle is not None and not (selling and quarantine is not None):
+                if lifecycle["plan_id"] != plan_id:
+                    raise StateTransitionError("A4_PLAN_IDENTITY_CONFLICT")
+                if action == "BUY" and lifecycle["entry_event_key"] != signal_id:
+                    raise StateTransitionError("A4_SIGNAL_IDENTITY_CONFLICT")
+                # Validate and transition BEFORE writing the paper ledger,
+                # inside this transaction. A later SQL failure rolls it back.
+                self.apply_a4_fill(str(lifecycle["entry_event_key"]), {
+                    "fill_id": fill_id, "account_id": account_id, "symbol": symbol,
+                    "action": action, "qty": qty, "price": price, "fee": fee,
+                    "bar_end": bar_stamp,
+                }, _connection=connection)
             connection.execute(
                 """
                 INSERT INTO simulation_intents(
@@ -4033,7 +4153,6 @@ class RuntimeStore:
             current = connection.execute(
                 "SELECT COALESCE(MAX(fill_sequence),0) AS sequence FROM virtual_fills WHERE intent_id=?", (intent_id,)
             ).fetchone()["sequence"]
-            fill_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"liangjian-fill:{intent_key}:1"))
             connection.execute(
                 """
                 INSERT INTO virtual_fills(

@@ -117,6 +117,12 @@ def build_signal_stock_reviews(events, plans, fills, market, cutoff, *, lifecycl
             fill_label += "；" + reason_labels.get(unfilled_reason, "执行阻断，具体原因保留在审计证据中")
         if not entry_signal:
             audit_state, fill_label = "退出事件（非新入场）", "本条不作为买入成交或已实现收益"
+        reconciled = next((row for row in lifecycles if row.get("plan_id") == payload.get("plan_id")
+                           and row.get("performance_eligible") is False), None)
+        if reconciled:
+            audit_state = "生命周期与模拟账本待对账；排除成交收益统计"
+            entry_return = None
+            highs, lows = [], []
         day_return = pct(last.get("close"), observed.get("previous_close"))
         performance = {"cutoff_at": cutoff.isoformat(), "price_as_of": last.get("bar_end"),
             "source": observed.get("source"), "previous_close": observed.get("previous_close"),
@@ -148,6 +154,10 @@ def build_signal_stock_reviews(events, plans, fills, market, cutoff, *, lifecycl
             "strategy_hash": hashlib.sha256(json.dumps(strategy, sort_keys=True, ensure_ascii=False).encode()).hexdigest(),
             "t1_note": "当日新买入股份受T+1限制，当日不可卖；退出信号不等于卖出成交" if qty else "未以信号推定持仓或收益",
             "scope": "核对已冻结的决策和成交记录，不代表全策略重新计算通过"}
+        if reconciled:
+            performance["performance_eligible"] = False
+            audit["execution_status"] = "RECONCILIATION_REQUIRED"
+            audit["reconciliation_reason_code"] = "A4_LIFECYCLE_RECONCILIATION_REQUIRED"
         coverage = "完整分钟覆盖" if performance["coverage_complete"] else "分钟覆盖不完整或不可用"
         result.append({"event_id": event.get("event_id"), "plan_id": payload.get("plan_id"), "symbol": symbol,
             "name": plan.get("name") or plan.get("company_name") or "名称未提供",

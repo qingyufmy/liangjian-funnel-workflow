@@ -8,8 +8,7 @@ from .stock_trading_rules import stock_trading_rules
 
 
 def next_entry_minute(signal_time):
-    value = signal_time.astimezone(ZoneInfo("Asia/Shanghai"))
-    return value.replace(hour=13, minute=1) if value.hour == 11 and value.minute == 30 else value + timedelta(minutes=1)
+    return next_complete_minute(signal_time)
 
 
 def next_complete_minute(review_time: datetime) -> datetime | None:
@@ -30,6 +29,33 @@ def next_complete_minute(review_time: datetime) -> datetime | None:
         candidate = floor + timedelta(minutes=1 if value == floor else 2)
         return candidate if candidate.time() <= time(15) else None
     return None
+
+
+def entry_bar_for(signal: Mapping[str, Any]) -> datetime | None:
+    """One immutable entry-window definition for matching and expiration.
+
+    Retain the original contract's eligible end; reject malformed clocks rather
+    than moving an order into a different minute. Legacy events use signal time.
+    """
+    contract = signal.get("entry_contract") or {}
+    if not isinstance(contract, Mapping):
+        raise ValueError("ENTRY_CONTRACT_CLOCK_INVALID")
+
+    def stamp(raw):
+        value = raw if isinstance(raw, datetime) else datetime.fromisoformat(str(raw))
+        if value.tzinfo is None:
+            raise ValueError("ENTRY_CONTRACT_CLOCK_INVALID")
+        return value.astimezone(ZoneInfo("Asia/Shanghai"))
+
+    reviewed = contract.get("order_created_at") or contract.get("review_completed_at")
+    reference = reviewed or signal.get("signal_time") or signal.get("minute_end")
+    calculated = next_complete_minute(stamp(reference))
+    if contract.get("eligible_bar_end") is None:
+        return calculated
+    frozen = stamp(contract["eligible_bar_end"])
+    if frozen.second or frozen.microsecond or frozen != calculated:
+        raise ValueError("ENTRY_CONTRACT_CLOCK_CONFLICT")
+    return frozen
 
 
 def freeze_entry_contract(
