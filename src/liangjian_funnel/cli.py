@@ -1176,6 +1176,8 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
             return 0 if (payload.get("status") in {"PUBLISHED", "NOOP"}
                          and reference_maintenance['status'] in {'READY', 'NOOP'}) else 2
         application = WorkflowApplication(settings)
+        from .pipeline.team_v2_wiring import RESEARCH_COMMANDS
+        application.team_research_enabled = args.command in RESEARCH_COMMANDS
         if args.command == "run-a1-maintenance":
             maintenance_at = datetime.fromisoformat(args.as_of) if args.as_of else None
             if maintenance_at is not None and (maintenance_at.tzinfo is None or maintenance_at.utcoffset() is None):

@@ -622,6 +622,15 @@ def _observe_close_research_resources(function):
 class WorkflowApplication:
     """Join data, research, A4 and paper simulation without external orders."""
 
+    def _new_research_pipeline(self, **kwargs):
+        # Explicit CLI composition; legacy library consumers keep their
+        # requested pipeline until they opt into the Team role contract.
+        if getattr(self, 'team_research_enabled', False):
+            from .pipeline.team_v2_wiring import configured_research_adapter
+            kwargs['team_research_adapter'] = configured_research_adapter(
+                self.settings, calendar=self.trading_calendar)
+        return ResearchPipeline(self.settings, **kwargs)
+
     def __init__(self, settings: Settings):
         self.settings = settings
         self.store = RuntimeStore(settings.state_db_path)
@@ -2866,8 +2875,7 @@ class WorkflowApplication:
                 progress.research_event(event)
                 _progress_stdout(progress.snapshot())
 
-            pipeline = ResearchPipeline(
-                self.settings,
+            pipeline = self._new_research_pipeline(
                 prompt_repository=self.prompts,
                 model_client=self.model_client,
                 output_dir=self.settings.workflow_output_dir / "research",
@@ -3305,8 +3313,7 @@ class WorkflowApplication:
             progress.research_event(event)
             _progress_stdout(progress.snapshot())
 
-        pipeline = ResearchPipeline(
-            self.settings,
+        pipeline = self._new_research_pipeline(
             prompt_repository=self.prompts,
             model_client=self.model_client,
             output_dir=self.settings.workflow_output_dir / "research",
