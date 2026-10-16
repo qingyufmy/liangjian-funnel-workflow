@@ -34,6 +34,17 @@ def test_rules_authorized_and_original_primary_thresholds():
     assert classify_primary(.8,{},rules)=='DATA_BLOCK'
 
 
+def test_primary_matches_original_workflow_for_all_declared_valid_combinations():
+    from liangjian_funnel.workflow import _determine_market_regime
+    rules=load_rules(CONFIG)
+    for breadth in (0.,.2,.35,.350001,.5,.8,1.):
+        for overlap in (.39,.4,.8):
+            for persistent in (False,True):
+                raw=sector(overlap,persistent)
+                original,_=_determine_market_regime({'breadth':breadth},raw,rotation_overlap_threshold=.4)
+                assert classify_primary(breadth,raw,rules)==original
+
+
 @pytest.mark.parametrize('changes,expected',[
     ({},'EMOTION_ON'),({'limit_up_count':19},'EMOTION_OFF'),
     ({'limit_down_count':20},'EMOTION_OFF'),({'broken_board_rate':.51},'EMOTION_OFF'),
