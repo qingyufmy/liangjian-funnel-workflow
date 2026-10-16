@@ -6,7 +6,8 @@ import path from "node:path";
 const CODES = new Set(["STATE_CONFLICT_QUARANTINED", "A4_LIFECYCLE_RECONCILIATION_REQUIRED",
   "A4_TERMINAL_STATE_CONFLICT", "A4_PLAN_IDENTITY_CONFLICT", "A4_SIGNAL_IDENTITY_CONFLICT",
   "ENTRY_CONTRACT_CLOCK_INVALID", "ENTRY_CONTRACT_CLOCK_CONFLICT", "STATE_CONFLICT",
-  "PERSISTENCE_FAILED", "MONITOR_EXIT_NONZERO", "MONITOR_BUSINESS_STATUS_UNAVAILABLE"]);
+  "PERSISTENCE_FAILED", "MONITOR_EXIT_NONZERO", "MONITOR_BUSINESS_STATUS_UNAVAILABLE",
+  "A4_ENTRY_WINDOW_UNRESOLVED"]);
 type Counts = Record<string, number>;
 type Logger = (message: string) => void;
 interface MonitorResult { runId: string; startedAt: string; finishedAt: string | null; exitCode: number | null }
@@ -122,9 +123,11 @@ export class MonitorHealth {
     const quarantined = Boolean(reasonCounts.STATE_CONFLICT_QUARANTINED || reasonCounts.A4_LIFECYCLE_RECONCILIATION_REQUIRED);
     if (quarantined) this.state.quarantineHighWater = Math.max(this.state.quarantineHighWater,
       reasonCounts.STATE_CONFLICT_QUARANTINED ?? reasonCounts.A4_LIFECYCLE_RECONCILIATION_REQUIRED ?? 1);
-    const alertReason = quarantined ? "STATE_CONFLICT_QUARANTINED" : this.state.failureStreak >= 2 ? "MONITOR_CONSECUTIVE_FAILURES" : null;
+    const unresolved = Boolean(reasonCounts.A4_ENTRY_WINDOW_UNRESOLVED);
+    const alertReason = quarantined ? "STATE_CONFLICT_QUARANTINED" : unresolved ? "A4_ENTRY_WINDOW_UNRESOLVED"
+      : this.state.failureStreak >= 2 ? "MONITOR_CONSECUTIVE_FAILURES" : null;
     if (alertReason) {
-      const episode = quarantined ? this.state.quarantineHighWater : this.state.failureEpisodeStart;
+      const episode = quarantined ? this.state.quarantineHighWater : unresolved ? 0 : this.state.failureEpisodeStart;
       const incidentIds = Array.isArray(rawIncidents) ? [...new Set(rawIncidents.filter(
         (id): id is string => typeof id==="string" && /^[a-f0-9]{64}$/.test(id)))].slice(0,64).sort() : [];
       const notificationKeys = quarantined && incidentIds.length

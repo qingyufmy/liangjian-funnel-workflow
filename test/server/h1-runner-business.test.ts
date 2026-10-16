@@ -8,7 +8,33 @@ import { LogStore } from "../../server/logger.js";
 import { JobRunner } from "../../server/runner.js";
 import * as childProcess from "node:child_process";
 vi.mock("node:child_process", async original => ({ ...await original<typeof import("node:child_process")>(), spawn:vi.fn() }));
-afterEach(() => { vi.restoreAllMocks();vi.unstubAllEnvs(); });
+afterEach(() => { vi.restoreAllMocks();vi.clearAllMocks();vi.unstubAllEnvs(); });
+
+test("actual a5-close child unresolved marker reaches internal watchdog even if model later fails", async () => {
+  vi.stubEnv('SHADOW_RESEARCH_WEBHOOK','');
+  const root = await mkdtemp(join(tmpdir(),"liangjian-h1-eod-"));
+  const config=loadConfig({},root), logger=new LogStore(config);
+  const child=Object.assign(new EventEmitter(),{stdout:new EventEmitter(),stderr:new EventEmitter(),kill:vi.fn()});
+  vi.mocked(childProcess.spawn).mockReturnValue(child as unknown as childProcess.ChildProcessWithoutNullStreams);
+  const runner=new JobRunner(config,logger);
+  const health=(runner as unknown as {monitorHealth:{observe:Function;flush():Promise<void>}}).monitorHealth;
+  expect((health as unknown as {envFile:string}).envFile).toBe(join(root,"..","liangjian-shadow","internal_alert.env"));
+  const observed=vi.spyOn(health,'observe');
+  try {
+    const finished=runner.run("a5-close");
+    child.stderr.emit("data","A4_ENTRY_WINDOW_UN");
+    child.stderr.emit("data","RESOLVED\n");
+    child.emit("close",2,null);
+    const result=await finished;
+    expect(observed).toHaveBeenCalledTimes(1);
+    expect(result.monitorBusiness).toMatchObject({reasonCounts:{A4_ENTRY_WINDOW_UNRESOLVED:1}});
+    expect(childProcess.spawn).toHaveBeenCalledTimes(1);
+    await health.flush();
+  } finally {
+    await (logger as unknown as {writeChain:Promise<void>}).writeChain;
+    await rm(root,{recursive:true,force:true});
+  }
+});
 
 test("actual runner binds current child business receipt into readonly DTO; no customer send", async () => {
   vi.stubEnv('SHADOW_RESEARCH_WEBHOOK','');
