@@ -49,7 +49,7 @@ def _envelopes(rows):
     return tuple(result)
 
 
-def _freeze_engine(settings,store,source,now,calendar,directory):
+def _freeze_engine(settings,store,source,now,calendar,directory,clock):
     previous=store.load_morning_engine(ACCOUNT,source['trade_date'])
     if previous is not None:
         if previous['source']['plan_rowset_sha256']!=source['plan_rowset_sha256']:
@@ -85,13 +85,15 @@ def _freeze_engine(settings,store,source,now,calendar,directory):
             or not 0<=bounds[0]<=bounds[1]<=95):raise ValueError('DEPLOYMENT_POLICY_INVALID')
     external=read_external(settings,now=now,policy=policy['external'])
     bounds=[max(0,min(95,v+external['value_pp'])) for v in bounds]
+    from .team_v2_rule_source import prepare_daily_rule_source
+    rule_source=prepare_daily_rule_source(settings,clock=clock,calendar=calendar)
     body=dict(status='COMPLETE',session='ENGINE_PREMARKET',trade_date=source['trade_date'],
-        observed_at=now.isoformat(),account_id=ACCOUNT,source=source,snapshot=snapshot,held_plan_bindings=held,
+        observed_at=stamp(clock()).isoformat(),account_id=ACCOUNT,source=source,snapshot=snapshot,held_plan_bindings=held,
         envelopes=[asdict(e) for e in envelopes],capacity_slots=max(0,limits.max_positions-len({p.symbol for p in positions})),
         cluster_caps={key:limits.max_positions for key in sorted({p.cluster for p in plans})},
         baseline_range=bounds,engine_utilization_cap=bounds[1],deployment_policy_sha256=hashlib.sha256(raw).hexdigest(),
         risk_limits_sha256=hashlib.sha256((settings.root/'config/risk_limits.yaml').read_bytes()).hexdigest(),
-        external_adjustment=external,
+        external_adjustment=external,rule_preflight=rule_source,
         authority='PLANNING_ONLY_NOT_EXECUTION_PERMISSION')
     return store.record_morning_engine(ACCOUNT,source['trade_date'],body)
 
@@ -109,7 +111,7 @@ def run_morning_stage(settings,stage,*,clock=None,calendar=None,client=None):
     if stage!='engine' and not (directory/'team.db').is_file():
         return dict(status='BLOCKED',reason_code='MORNING_ENGINE_MISSING')
     store=TeamMeetingStore(directory/'team.db')
-    if stage=='engine':return _freeze_engine(settings,store,source,now,calendar,directory)
+    if stage=='engine':return _freeze_engine(settings,store,source,now,calendar,directory,clock)
     frozen=store.load_morning_engine(ACCOUNT,day)
     if frozen is None:return dict(status='BLOCKED',reason_code='MORNING_ENGINE_MISSING')
     if source['plan_rowset_sha256']!=frozen['source']['plan_rowset_sha256']:
