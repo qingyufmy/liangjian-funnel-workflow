@@ -134,3 +134,82 @@ def read_held_bindings(settings, positions):
         result.append(dict(plan_id=row['plan_id'],symbol=row['symbol'],cluster=label,cluster_basis=basis,
             original_row=row,row_sha256=hashlib.sha256(canonical(row).encode()).hexdigest()))
     return result
+
+
+def read_execution_scope(settings, *, now, calendar, morning_source, positions):
+    """Current activation + unchanged morning payload in one short RO view.
+
+    Morning status/valid_from are not execution authority. Historical held
+    owners remain in the view for exits, never reactivated or added to PM slots.
+    A corrupt individual plan is excluded with its own stable reason.
+    """
+    now=stamp(now);day=now.date().isoformat()
+    if calendar.is_trading_day(now.date()) is not True:
+        return dict(status='NOOP',reason_codes=[{'reason_code':'NON_TRADING_DAY'}],plans=[],active_plan_ids=[])
+    frozen_at=stamp(morning_source.get('observed_at'))
+    if (frozen_at>now or frozen_at.date()!=now.date()
+            or frozen_at>=frozen_at.replace(hour=9,minute=30,second=0,microsecond=0)
+            or morning_source.get('status')!='COMPLETE' or morning_source.get('trade_date')!=day
+            or morning_source.get('lane_id')!=settings.research_primary_lane_id):
+        raise ValueError('EXECUTION_MORNING_SOURCE_UNPROVEN')
+    original=morning_source['plan_rows']
+    if hashlib.sha256(canonical(original).encode()).hexdigest()!=morning_source.get('plan_rowset_sha256'):
+        raise ValueError('EXECUTION_MORNING_SOURCE_HASH_MISMATCH')
+    expected={r['plan_id']:r for r in original}
+    if len(expected)!=len(original):raise ValueError('EXECUTION_MORNING_PLAN_ID_AMBIGUOUS')
+    held={r['plan_id']:r['symbol'] for r in positions}
+    if len(held)!=len(positions):raise ValueError('EXECUTION_HELD_PLAN_ID_AMBIGUOUS')
+    ids=sorted(set(expected)|set(held));path=Path(settings.state_db_path)
+    if not path.is_file() or path.is_symlink():raise ValueError('TEAM_SOURCE_DATABASE_UNAVAILABLE')
+    with closing(sqlite3.connect(path.resolve().as_uri()+'?mode=ro',uri=True,timeout=2)) as db:
+        db.row_factory=sqlite3.Row;db.execute('PRAGMA query_only=ON');db.execute('BEGIN')
+        try:
+            query="SELECT * FROM execution_plans WHERE lane_id=? AND ("
+            match=('plan_id IN ('+','.join('?' for _ in ids)+') OR ') if ids else ''
+            rows=[dict(r) for r in db.execute(query+match+
+                "(status='ACTIVE_TODAY' AND substr(expires_at,1,10)=?)) ORDER BY symbol,plan_id",
+                (settings.research_primary_lane_id,*ids,day))]
+        finally:db.execute('ROLLBACK')
+    plans=[];active=[];reasons=[];seen={r['plan_id'] for r in rows}
+    for pid in sorted(set(ids)-seen):
+        reasons.append(dict(plan_id=pid,reason_code='EXECUTION_BOUND_PLAN_MISSING'))
+    for row in rows:
+        pid=row['plan_id'];old=expected.get(pid)
+        def limited(code):reasons.append(dict(plan_id=pid,reason_code=code))
+        if old is None and pid not in held:
+            limited('EXECUTION_PLAN_OUTSIDE_MORNING_SCOPE');continue
+        if old is not None and any(row[key]!=old[key] for key in ('symbol','payload_json','expires_at')):
+            limited('EXECUTION_MORNING_PAYLOAD_CHANGED');continue
+        try:
+            raw=json.loads(row['payload_json']);label,_=_cluster(row)
+            if (not isinstance(raw,dict) or raw.get('symbol')!=row['symbol'] or label=='UNKNOWN'
+                    or (pid in held and held[pid]!=row['symbol'])
+                    or not isinstance(raw.get('source_run_id'),str) or not raw['source_run_id'].strip()):
+                raise ValueError
+            start=stamp(row['valid_from']) if row['valid_from'] is not None else None
+            expiry=stamp(row['expires_at'])
+            # Never manufacture valid_from for INVALIDATED/PENDING rows. An
+            # inactive row with no activation cannot own a new Team position.
+            if start is None and row['status']!='PENDING_MORNING_REVIEW':
+                if pid in held:limited('EXECUTION_HELD_ACTIVATION_UNPROVEN')
+                continue
+            if start is not None and start>=expiry:raise ValueError
+            geometry={k:Decimal(str(raw[v])) for k,v in dict(price='reference_price',stop_price='stop_level',
+                entry_low='trigger_low',entry_high='trigger_high',no_chase='no_chase').items()}
+            if (not all(v.is_finite() and v>0 for v in geometry.values())
+                    or not geometry['stop_price']<geometry['entry_low']<=geometry['entry_high']<=geometry['no_chase']):
+                raise ValueError
+            plan=PlanRisk(pid,row['symbol'],label,row['status'],start,expiry,**geometry,
+                invalidation_price=geometry['stop_price'],tradable=False,data_ready=False)
+            plans.append(asdict(plan))
+            if (old is not None and row['status']=='ACTIVE_TODAY' and start is not None
+                    and start.date()==now.date() and expiry.date()==now.date() and start<=now<expiry):
+                active.append(pid)
+        except (ValueError,TypeError,KeyError,ArithmeticError):limited('EXECUTION_ORIGINAL_PLAN_INPUT_UNPROVEN')
+    body=dict(schema_version='team-execution-source/1',trade_date=day,observed_at=now.isoformat(),
+        status='DATA_LIMITED' if reasons else 'COMPLETE',lane_id=settings.research_primary_lane_id,
+        plan_rows=rows,plan_rowset_sha256=hashlib.sha256(canonical(rows).encode()).hexdigest(),
+        morning_rowset_sha256=morning_source['plan_rowset_sha256'],plans=plans,
+        active_plan_ids=sorted(active),held_plan_ids=held,reason_codes=reasons,
+        authority='CURRENT_DATABASE_ACTIVATION_ONLY_NO_CURRENT_TRADABILITY_OR_PRICE')
+    return json.loads(json.dumps(body,default=lambda x:x.isoformat() if isinstance(x,datetime) else str(x)))
