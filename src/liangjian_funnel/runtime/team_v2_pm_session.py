@@ -86,6 +86,7 @@ def run_pm_premarket(*, repository, client, journal, store, meeting_id: str, cal
         'input_hash': request.input_hash, 'reason_codes': list(issues),
         'deployment_target': output['deployment_target'] if valid else None,
         'slot_plan': output['slot_plan'] if valid else [],
+        'allocation_plan_bindings': {row.plan_id:[row.symbol,plan_clusters[row.plan_id]] for row in envelopes} if valid else {},
         'plan_allocations': output['plan_allocations'] if valid else [],
         'shortfall_reason': output['shortfall_reason'] if valid else 'ENVELOPE_TIGHTENED',
         'handoff_notes': output['handoff_notes'] if valid else {},

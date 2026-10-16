@@ -9,6 +9,22 @@ from test_team_v2_risk_engine import plan, envelope
 from liangjian_paper_broker.matching import PaperRules
 from liangjian_funnel.runtime.risk_engine import RiskLimits
 from liangjian_funnel.runtime.team_v2_execution import admit_trader_signal
+from liangjian_funnel.runtime.team_v2_allocation import compile_pm_allocation
+
+
+def pm_result(plans):
+    # Explicit server-owned permission fixture for low-level risk tests, not a
+    # claim that the model/schema would admit three same-cluster primaries.
+    return dict(status='READY',session='PM_PREMARKET',trade_date='2026-10-19',source_call_id='pm-test',
+        allocation_plan_bindings={pid:[p.symbol,p.cluster] for pid,p in plans.items()},
+        slot_plan=[dict(slot=i,primary_plan_id=pid,backup_plan_id='',cluster=p.cluster)
+            for i,(pid,p) in enumerate(plans.items(),1)],
+        plan_allocations=[dict(plan_id=pid,intended_risk_unit='STANDARD',max_batches=2) for pid in plans])
+
+
+def policy(plans):
+    return compile_pm_allocation(pm_result(plans),account_id='paper',trade_date='2026-10-19',
+        meeting_id='pm-test',input_sha256='b'*64)
 
 
 def fixture(tmp_path):
@@ -21,7 +37,7 @@ def fixture(tmp_path):
     args=dict(broker=b,signal_id='A4:d1:p1',action='BUY_SIGNAL',plan=plan(),envelope=envelope(),
         limits=RiskLimits(),all_plans={'p1':plan()},now=stamp(),closed_5m_end=stamp(),
         mark_as_of=stamp(),regime='TREND_MAINLINE',live_market_ready=True,snapshot_ready=True,
-        mode='control',calendar=calendar,input_sha256='a'*64)
+        mode='control',calendar=calendar,input_sha256='a'*64,pm_allocation=policy({'p1':plan()}))
     return b,args
 
 
@@ -43,9 +59,9 @@ def test_pending_buy_consumes_daily_cluster_and_position_limits_before_any_fill(
     p3=replace(plan(),plan_id='p3',symbol='000003.SZ')
     e3=replace(envelope(),plan_id='p3',symbol='000003.SZ')
     plans={'p1':plan(),'p2':p2,'p3':p3}
-    second=admit_trader_signal(**(args|dict(signal_id='s2',plan=p2,envelope=e2,all_plans=plans)))
+    second=admit_trader_signal(**(args|dict(signal_id='s2',plan=p2,envelope=e2,all_plans=plans,pm_allocation=policy(plans))))
     assert second['dispatched']
-    third=admit_trader_signal(**(args|dict(signal_id='s3',plan=p3,envelope=e3,all_plans=plans)))
+    third=admit_trader_signal(**(args|dict(signal_id='s3',plan=p3,envelope=e3,all_plans=plans,pm_allocation=policy(plans))))
     assert not third['dispatched'] and 'CLUSTER_SIGNAL_CAP' in third['judgment']['reason_codes']
     assert b.get_fills('2026-10-19')==()
 
@@ -112,7 +128,8 @@ def test_cancel_cannot_touch_another_plan(tmp_path):
     b,args=fixture(tmp_path)
     p2=replace(plan(),plan_id='p2',symbol='000002.SZ')
     second=admit_trader_signal(**(args|dict(signal_id='second',plan=p2,
-        envelope=replace(envelope(),plan_id='p2',symbol=p2.symbol),all_plans={'p1':plan(),'p2':p2})))
+        envelope=replace(envelope(),plan_id='p2',symbol=p2.symbol),all_plans={'p1':plan(),'p2':p2},
+        pm_allocation=policy({'p1':plan(),'p2':p2}))))
     assert second['dispatched']
     row=admit_trader_signal(**(args|dict(signal_id='empty-cancel',action='CANCEL_SIGNAL')))
     assert row['cancelled_order_ids']==[] and b.get_orders('2026-10-19')[0]['status']=='OPEN'

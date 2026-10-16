@@ -211,6 +211,18 @@ class TeamMeetingStore:
                 (meeting_id, source_call_id, account_id, trade_date, input_sha256, text))
         return json.loads(text)
 
+    def load_pm_allocation(self, meeting_id: str, *, account_id: str, trade_date: str):
+        from .team_v2_allocation import compile_pm_allocation
+        with closing(self._connect()) as db:
+            row=db.execute('SELECT account_id,trade_date,input_sha256,result_json,source_call_id FROM pm_decisions '
+                'WHERE meeting_id=?',(meeting_id,)).fetchone()
+        if row is None:return None
+        if row[:2]!=(account_id,trade_date):raise ValueError('PM_ALLOCATION_ACCOUNT_DATE_MISMATCH')
+        result=json.loads(row[3])
+        if result.get('source_call_id')!=row[4]:raise ValueError('PM_ALLOCATION_BINDING_INVALID')
+        return compile_pm_allocation(result,account_id=account_id,trade_date=trade_date,
+            meeting_id=meeting_id,input_sha256=row[2])
+
     def record_premarket(self, *, meeting_id: str, source_call_id: str, account_id: str,
                           trade_date: str, observed_at: datetime, envelopes: tuple[RiskEnvelope, ...],
                           output, validated: bool, engine_utilization_cap: Decimal) -> RiskMeetingResult:

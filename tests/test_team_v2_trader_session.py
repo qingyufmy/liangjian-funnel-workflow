@@ -16,7 +16,7 @@ from liangjian_funnel.runtime.team_v2_store import TeamMeetingStore
 from liangjian_funnel.runtime.team_v2_trader_session import run_trader_session
 from liangjian_funnel.settings import Settings
 from liangjian_paper_broker.matching import PaperRules
-from test_team_v2_execution import fixture as execution_fixture
+from test_team_v2_execution import fixture as execution_fixture,pm_result
 from test_team_v2_paper_ledger import bar, drive, stamp
 from test_team_v2_trader_schema import output, CAT, CONTEXT
 
@@ -51,6 +51,9 @@ def fixture(tmp_path, *, invalid=False, offline=False, moved=False, mode='contro
         held_plan_ids={},position_snapshot=[],tech_reference=CONTEXT['tech_reference'],limits=args['limits'],
         regime='TREND_MAINLINE',live_market_ready=True,snapshot_ready=True,mode=mode,calendar=args['calendar'],
         timeout_seconds=30,max_output_tokens=4096,allow_model_call=True)
+    kwargs['store'].record_pm(meeting_id='pm-test',source_call_id='pm-test',account_id='paper',
+        trade_date='2026-10-19',input_sha256='b'*64,result=pm_result(args['all_plans']))
+    kwargs['pm_meeting_id']='pm-test'
     return kwargs,seen,raw
 
 

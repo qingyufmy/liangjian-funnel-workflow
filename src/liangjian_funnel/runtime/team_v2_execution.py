@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 from liangjian_paper_broker.ledger import dump
 from .risk_engine import AccountRisk, PositionRisk
 from .trader_guardrails import guard_trader_signal
+from .team_v2_allocation import enforce_pm_allocation
 
 TZ=ZoneInfo('Asia/Shanghai')
 ENTRY={'BUY_SIGNAL','ADD_SIGNAL'}
@@ -53,7 +54,7 @@ def _views(snapshot,*,plan,all_plans,mark_as_of,entry):
 
 
 def admit_trader_signal(*,broker,signal_id,action,plan,envelope,limits,all_plans,now,closed_5m_end,
-                        mark_as_of,regime,live_market_ready,snapshot_ready,mode,calendar,input_sha256):
+                        mark_as_of,regime,live_market_ready,snapshot_ready,mode,calendar,input_sha256,pm_allocation=None):
     if (not isinstance(now,datetime) or now.utcoffset() is None or not isinstance(mark_as_of,datetime)
             or mark_as_of.utcoffset() is None or not re.fullmatch(r'[a-f0-9]{64}',input_sha256)
             or plan.plan_id not in all_plans or all_plans[plan.plan_id]!=plan):
@@ -63,6 +64,7 @@ def admit_trader_signal(*,broker,signal_id,action,plan,envelope,limits,all_plans
         cluster=plan.cluster,action=action,plan=asdict(plan),envelope=asdict(envelope),limits=asdict(limits),
         decision_at=current,closed_5m_end=closed_5m_end,mark_as_of=mark_as_of,input_sha256=input_sha256,
         regime=regime,live_market_ready=live_market_ready,snapshot_ready=snapshot_ready,
+        pm_allocation=asdict(pm_allocation) if pm_allocation is not None else None,
         plan_clusters={pid:[item.symbol,item.cluster] for pid,item in sorted(all_plans.items())})))
     def decide(snapshot):
         def block(code):return dict(judgment=dict(status='REJECTED',shares=0,risk_unit='NONE',reason_codes=[code]),order=None)
@@ -89,6 +91,10 @@ def admit_trader_signal(*,broker,signal_id,action,plan,envelope,limits,all_plans
             if str(exc) not in {'PAPER_POSITION_SCOPE_UNPROVEN','PAPER_POSITION_MARK_STALE','PAPER_RISK_BASIS_MISSING',
                     'PAPER_ORDER_SCOPE_UNPROVEN','DAILY_LOSS_HALT','DRAWDOWN_HALT','A6_DEGRADED_HALT'}:raise
             return block(str(exc))
+        permitted=envelope;pm_reason=None
+        if action in ENTRY:
+            permitted,pm_reason=enforce_pm_allocation(pm_allocation,plan=plan,envelope=envelope,
+                trade_date=current.date().isoformat(),snapshot=snapshot)
         cluster_count=sum(row['dispatched'] and row['binding'].get('action') in ENTRY
             and row['binding'].get('cluster')==plan.cluster for row in snapshot['admissions'])
         active_orders={row['order_id'] for row in snapshot['open_orders']}
@@ -97,11 +103,14 @@ def admit_trader_signal(*,broker,signal_id,action,plan,envelope,limits,all_plans
             and row['binding'].get('action') in ENTRY and row['order_id'] in active_orders|filled_orders
             for row in snapshot['admissions'])
         guarded=guard_trader_signal(signal_id=signal_id,action=action,signal_plan_id=plan.plan_id,
-            signal_symbol=plan.symbol,plan=plan,envelope=envelope,account=account,positions=positions,
+            signal_symbol=plan.symbol,plan=plan,envelope=permitted,account=account,positions=positions,
             limits=limits,now=observed,closed_5m_end=closed_5m_end,regime=regime,
             live_market_ready=live_market_ready,snapshot_ready=snapshot_ready,schema_valid=True,mode=mode,
             cluster_signals_today=cluster_count,batches_executed=batches,calendar=calendar)
         risk=guarded.risk_decision
+        # Hard loss/drawdown latches retain priority even if PM is unavailable.
+        if pm_reason and not set(guarded.reason_codes)&{'DRAWDOWN_HALT','DAILY_LOSS_HALT','A6_DEGRADED_HALT'}:
+            return block(pm_reason)
         result=dict(judgment=asdict(risk) if risk is not None else dict(status='REJECTED',shares=0,
             risk_unit='NONE',reason_codes=list(guarded.reason_codes)),order=None)
         if risk is not None and risk.status!='REJECTED' and guarded.dispatch_allowed:

@@ -25,7 +25,7 @@ def run_trader_session(*,repository,client,journal,store,broker,decision_id,minu
         closed_5m_end,mark_as_of,required_envelope,replacements,active_plan_ids,all_plans,
         envelopes,held_plan_ids,position_snapshot,tech_reference,limits,regime,
         live_market_ready,snapshot_ready,mode,calendar,timeout_seconds,max_output_tokens,
-        allow_model_call=False):
+        allow_model_call=False,pm_meeting_id=None):
     if not allow_model_call:raise ValueError('TEAM_MODEL_CALL_NOT_AUTHORIZED')
     now=clock()
     if (any(not isinstance(v,datetime) or v.utcoffset() is None for v in (now,decision_at,mark_as_of))
@@ -48,12 +48,21 @@ def run_trader_session(*,repository,client,journal,store,broker,decision_id,minu
     # The file-backed paper identity is part of the immutable input. A completed
     # session from account A cannot be re-used against a different paper ledger.
     ledger=getattr(broker,'ledger',broker)
+    # A held-only exit session never depends on an expired morning allocation.
+    allocation=None
+    if pm_meeting_id and active_plan_ids:
+        try:allocation=store.load_pm_allocation(pm_meeting_id,account_id=account_id,trade_date=trade_date)
+        except ValueError as exc:
+            # Missing/stale ownership never grants entries, but cannot turn a
+            # valid held-position exit into a dependency on a morning meeting.
+            if str(exc)!='PM_ALLOCATION_ACCOUNT_DATE_MISMATCH':raise
     context=dict(account_id=account_id,paper_identity=str(ledger.path),run_id=run_id,call_id=call_id,
         decision_at=decision_at,closed_5m_end=closed_5m_end,mark_as_of=mark_as_of,mode=mode,
         plans={pid:asdict(p) for pid,p in sorted(all_plans.items())},active_plan_ids=sorted(active_plan_ids),
         envelopes={pid:asdict(e) for pid,e in sorted(envelopes.items())},limits=asdict(limits),
         held_plan_ids=dict(held_plan_ids),regime=regime,live_market_ready=live_market_ready,
-        snapshot_ready=snapshot_ready,timeout_seconds=timeout_seconds,max_output_tokens=max_output_tokens)
+        snapshot_ready=snapshot_ready,timeout_seconds=timeout_seconds,max_output_tokens=max_output_tokens,
+        pm_allocation=asdict(allocation) if allocation is not None else None)
     execution_hash=hashlib.sha256(dump(context).encode()).hexdigest()
     values=dict(replacements)
     time_rules=dict(values['TIME_RULES']) if isinstance(values.get('TIME_RULES'),Mapping) else {}
@@ -120,7 +129,7 @@ def run_trader_session(*,repository,client,journal,store,broker,decision_id,minu
                 plan=all_plans[pid],envelope=risk,limits=limits,all_plans=all_plans,now=decision_at,
                 closed_5m_end=closed_5m_end,mark_as_of=mark_as_of,regime=regime,
                 live_market_ready=live_market_ready,snapshot_ready=snapshot_ready,mode=mode,
-                calendar=calendar,input_sha256=request.input_hash))
+                calendar=calendar,input_sha256=request.input_hash,pm_allocation=allocation))
     result=dict(status='EVALUATED' if valid else 'TRADER_DEGRADED_NO_ACTION',
         decision_id=decision_id,source_call_id=call_id,minute_snapshot_id=minute_snapshot_id,
         trade_date=trade_date,input_hash=request.input_hash,model_validated=valid,
