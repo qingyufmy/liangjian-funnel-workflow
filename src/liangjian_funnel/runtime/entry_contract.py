@@ -93,6 +93,8 @@ def freeze_entry_contract(
         if review_completed_at is not None
         else next_entry_minute(at) if at else None
     )
+    if eligible is None and (review_completed_at is not None or at is not None):
+        valid, reason = False, "ENTRY_NO_NEXT_TRADING_MINUTE"
     if eligible is not None:
         clock = eligible.timetz().replace(tzinfo=None)
         if not (time(9,31) <= clock <= time(11,30) or time(13,1) <= clock <= time(15)):
