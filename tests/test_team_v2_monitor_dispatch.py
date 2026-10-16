@@ -72,11 +72,12 @@ def test_actual_control_task_source_to_mocked_HTTP_to_owned_paper_not_legacy(tmp
     assert len(seen)==1 and source_bytes(app.settings)==before
 
 
-def test_missing_rule_material_never_calls_model_or_falls_back_to_legacy(tmp_path,monkeypatch):
+def test_shadow_rule_material_is_not_a_new_production_entry_gate(tmp_path,monkeypatch):
     app,clock,seen,api,proof=prepared(tmp_path,monkeypatch)
     result=run_monitor_control(app,now=clock.now,clock=lambda:clock.now,client=api)
-    assert result['status']=='DEGRADED' and not seen
-    assert result['result']['trader'] is None and result['source_reasons'][0]['reason_code']=='RULE_UNCONFIRMED'
+    assert result['result']['trader']['model_validated'] and len(seen)==1
+    assert result['result']['trader']['admissions'][0]['dispatched']
+    assert not (app.settings.root/'state/team_v2/pit').exists()
 
 
 def test_actual_task_same_minute_retry_reuses_model_and_single_order(tmp_path,monkeypatch):

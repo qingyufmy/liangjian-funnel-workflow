@@ -1,6 +1,6 @@
 """Single CONTROL task path. Never runs the legacy entry engine first.
 
-Missing morning/rules/source is an explicit no-entry result, not an implicit
+Missing morning/source is an explicit no-entry result, not an implicit
 legacy fallback. RECORD is selected by the caller and runs the protected legacy
 path. This module only writes owned Team/paper state, not execution_plans.
 """
@@ -27,13 +27,13 @@ from .team_v2_monitor_source import collect_monitor_packet
 from .team_v2_morning import _directory,_envelopes,ACCOUNT
 from .team_v2_sources import read_execution_scope,decode_plan,stamp
 from .team_v2_store import TeamMeetingStore,canonical
-from .team_v2_tradability import load_current_tradability
+from .team_v2_tradability import production_monitor_tradability
 from .trader_guardrails import is_closed_trader_tick
 
 TZ=ZoneInfo('Asia/Shanghai');_MARKET=BoundedWorkGate(1)
 
 
-def run_monitor_control(application,*,now=None,clock=None,client=None,tradability_loader=load_current_tradability):
+def run_monitor_control(application,*,now=None,clock=None,client=None,tradability_loader=production_monitor_tradability):
     from ..workflow import A4_DECISION_BUDGET_SECONDS,A4_MARKET_STATE_BUDGET_SECONDS,_intraday_market_context
     from .live_market import load_or_refresh_live_market_state
     from .strategies import evaluate_strategy
@@ -82,12 +82,17 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
         projected=project_closed_minute(bars,(),observed_at=stamp(packet['captured_at']))
         bar=projected.get('paper_bar');quote=QuoteResult.model_validate(packed.get('quote',{'symbol':plan.symbol,'reason_code':'MISSING'}))
         proof=tradability_loader(settings,symbol=plan.symbol,now=stamp(packet['captured_at']),bar=bar,
-            quote=quote.quote if quote.complete else None) if bar is not None else {'status':'RULE_UNCONFIRMED'}
+            quote=quote.quote if quote.complete else None,plan=raw_rows[plan.plan_id],
+            minute_bars=bars) if bar is not None else {'status':'DATA_LIMITED'}
         ready=bool(bar is not None and packed.get('minute_complete') and proof.get('status')=='KNOWN')
         if ready:
             paper[plan.symbol]=replace(bar,tradability_known=True,halted=proof['halted'],limit_up=proof['limit_up'],limit_down=proof['limit_down'])
-        else:problems.append(dict(plan_id=plan.plan_id,reason_code='RULE_UNCONFIRMED' if bar else 'CONTROL_MINUTE_PROJECTION_UNPROVEN'))
-        entry_proven[plan.plan_id]=ready and quote.complete and proof.get('entry_tradable',False)
+        else:problems.append(dict(plan_id=plan.plan_id,reason_code=proof.get('reason_code') or
+            ('CONTROL_PRODUCTION_CONTRACT_UNPROVEN' if bar else 'CONTROL_MINUTE_PROJECTION_UNPROVEN')))
+        # 0247: unavailable preflight is an annotation, not a new entry gate.
+        # Only a detected changed formal rule body pauses new entries all day.
+        rule_blocked=bool(morning and morning.get('rule_preflight',{}).get('status')=='BLOCK')
+        entry_proven[plan.plan_id]=ready and quote.complete and proof.get('entry_tradable',False) and not rule_blocked
         plan=replace(plan,price=D(str(quote.quote.price)) if quote.complete else bar.close if bar is not None else plan.price,
             data_ready=ready,tradable=ready and not proof.get('halted',True))
         plans[plan.plan_id]=plan

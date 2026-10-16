@@ -10,7 +10,7 @@ from pathlib import Path
 from datetime import datetime,time
 from zoneinfo import ZoneInfo
 
-from .shadow_rule_preflight import load_approved_rule_archive,fetch_rule_preflight
+from .shadow_rule_preflight import load_approved_rule_archive,fetch_rule_preflight,PLANNED_DUE
 from .shadow_price_limits import validate_shadow_rule_receipt
 from .team_v2_sources import stamp
 from .team_v2_store import canonical
@@ -35,11 +35,19 @@ def prepare_daily_rule_source(settings,*,clock=None,calendar,fetch_response=None
     if any(path.is_symlink() for path in (target,attempt,claim)):raise ValueError('TEAM_RULE_FILE_SCOPE_INVALID')
     try:approved=load_approved_rule_archive(root/'artifacts/wp5-20261010/official-rules-20261010')
     except Exception:return limited('RULE_APPROVED_ARCHIVE_UNAVAILABLE')
+    plan=None;plan_path=root/'config/rule_revalidation_plan.yaml'
+    if now.date()>PLANNED_DUE and plan_path.exists():
+        from .team_v2_rule_plan import load_plan,fetch_plan,validate_plan_receipt
+        try:plan=load_plan(plan_path)
+        except Exception:return limited('RULE_RENEWAL_AUTHORIZATION_INVALID')
+    def validate(receipt,at):
+        return (validate_plan_receipt(approved,receipt,plan=plan,at=at) if plan is not None
+            else validate_shadow_rule_receipt(approved,receipt,at=at))
     def existing():
         try:
             if target.stat().st_size>16*1024*1024:raise ValueError
             receipt=json.loads(target.read_text(encoding='utf-8'))
-            checked=validate_shadow_rule_receipt(approved,receipt,at=now)
+            checked=validate(receipt,now)
             if checked['status']!='RULE_VERSION_CONFIRMED':raise ValueError
             return dict(status='RULE_VERSION_CONFIRMED',trade_date=day,source_requests_started=0,
                 reused=True,receipt_path=str(target),receipt_sha256=receipt['receipt_sha256'])
@@ -56,21 +64,30 @@ def prepare_daily_rule_source(settings,*,clock=None,calendar,fetch_response=None
         import httpx
         with httpx.Client(trust_env=False,follow_redirects=False,timeout=remaining) as client:
             return client.get(url)
-    receipt=fetch_rule_preflight(approved,trade_date=day,fetch_response=fetch_response or fetch,
-        clock=clock,budget_seconds=budget_seconds)
+    receipt=(fetch_plan(approved,plan=plan,day=day,fetch_response=fetch_response or fetch,
+        clock=clock,budget_seconds=budget_seconds) if plan is not None else
+        fetch_rule_preflight(approved,trade_date=day,fetch_response=fetch_response or fetch,
+        clock=clock,budget_seconds=budget_seconds))
+    _write_once(directory/(day+'.observation.json'),receipt)
     count=receipt['source_requests_started']
     if receipt['status']=='RULE_VERSION_CONFIRMED':
         # Revalidate using completion time; never substitute today's clock for
         # a stored old receipt or synthesize the approved archive as an arrival.
         completed=stamp(clock())
-        checked=validate_shadow_rule_receipt(approved,receipt,at=completed)
+        checked=validate(receipt,completed)
         if checked['status']=='RULE_VERSION_CONFIRMED':
             _write_once(target,receipt)
             result=dict(status='RULE_VERSION_CONFIRMED',trade_date=day,source_requests_started=count,
                 reused=False,receipt_path=str(target),receipt_sha256=receipt['receipt_sha256'])
         else:result=dict(status='DATA_LIMITED',reason_code='RULE_COMPLETED_RECEIPT_UNPROVEN',
             trade_date=day,source_requests_started=count)
-    else:result=dict(status='DATA_LIMITED',reason_code='RULE_PREFLIGHT_FAILED',
+    else:result=dict(status='BLOCK' if receipt['status']=='BLOCK' or
+        'RULE_VERSION_CHANGED_NO_AUTO_ACCEPT' in receipt.get('reason_codes',[]) else 'DATA_LIMITED',reason_code='RULE_PREFLIGHT_FAILED',
         reason_codes=receipt['reason_codes'],trade_date=day,source_requests_started=count)
+    result.update(annotation_only=result['status']!='BLOCK',blocks_new_entries=result['status']=='BLOCK')
+    if result['status']=='BLOCK':
+        _write_once(directory/(day+'.alert.json'),dict(trade_date=day,delivery_status='PENDING',
+            audience='INTERNAL_ONLY',reason_code='RULE_VERSION_CHANGED_NO_AUTO_ACCEPT',
+            receipt_sha256=receipt['receipt_sha256'],blocks_new_entries=True))
     _write_once(attempt,result)
     return result

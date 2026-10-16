@@ -60,7 +60,7 @@ def test_unapproved_or_interrupted_attempt_stays_blocked_and_is_not_silently_ret
         (directory/'2026-10-16.json').write_text('{}');seen.clear()
     count=len(seen)
     again=prepare_daily_rule_source(settings,clock=lambda:NOW,calendar=CAL,fetch_response=fetch)
-    assert again['status']=='DATA_LIMITED' and len(seen)==count
+    assert again['status']==('BLOCK' if failure=='changed' else 'DATA_LIMITED') and len(seen)==count
     assert 'PRIVATE_NEVER_LOG' not in json.dumps(again)
 
 

@@ -15,6 +15,47 @@ from .shadow_rule_preflight import load_approved_rule_archive
 from .team_v2_sources import stamp
 
 
+def production_monitor_tradability(settings,*,symbol,now,bar,quote,plan,minute_bars=()):
+    """Adapter of the existing published-plan/current-minute monitor contract.
+
+    Publication already uses TRADABILITY_FLAGS (workflow._publish_plans).
+    MonitorEngine.process_minute checks current 1m identity and evaluate_strategy's
+    _locked_limit_up; simulation.PaperBroker.apply checks executable bar/quantity/T1.
+    No emotion identity, shadow PIT or research rule-date gate is added here.
+    """
+    from collections.abc import Mapping
+    from types import SimpleNamespace
+    from .strategies import _locked_limit_up
+    from ..evaluation.ablation.price_limits import _explicit
+    from .stock_trading_rules import stock_trading_rules
+    result=dict(status='DATA_LIMITED',reason_code='CONTROL_PRODUCTION_CONTRACT_UNPROVEN',
+        basis='PRODUCTION_MONITOR_CONTRACT',shadow_pit_required=False)
+    try:
+        now=stamp(now);stock_trading_rules(symbol)
+        if (not isinstance(plan,Mapping) or plan.get('symbol')!=symbol or bar.symbol!=symbol
+                or not bar.closed or bar.minute_end.date()!=now.date() or bar.minute_end>=now
+                or (now-bar.minute_end).total_seconds()>120):return result
+        # Same optional explicit limit aliases as the original strategy. No
+        # identity/rate estimate is introduced when that original field is absent.
+        latest=tuple(minute_bars)[-5:]
+        five=SimpleNamespace(low=min(b.low for b in latest) if latest else float(bar.low))
+        locked,upper=_locked_limit_up(plan,bar,five)
+        explicit,bad,conflict=_explicit(plan)
+        if bad or conflict:return {**result,'reason_code':'CONTROL_EXPLICIT_LIMIT_CONFLICT'}
+        lower=explicit[1]
+        halted=bar.volume_shares<=0 or plan.get('suspended') is True or plan.get('halted') is True
+        quote_valid=bool(quote is not None and quote.symbol==symbol and quote.quote_time.date()==now.date()
+            and quote.quote_time<=now and (now-quote.quote_time).total_seconds()<=90)
+        at_up=bool(locked or upper is not None and bar.close>=Decimal(str(upper)))
+        at_down=bool(lower is not None and bar.close<=lower)
+        quote_at_limit=bool(quote_valid and (upper is not None and Decimal(str(quote.price))>=Decimal(str(upper))
+            or lower is not None and Decimal(str(quote.price))<=lower))
+        return dict(status='KNOWN',reason_code=None,basis=result['basis'],shadow_pit_required=False,
+            tradability_known=True,halted=halted,limit_up=at_up,limit_down=at_down,
+            entry_tradable=quote_valid and not halted and not at_up and not at_down and not quote_at_limit and bar.high>bar.low)
+    except (ValueError,TypeError,AttributeError):return result
+
+
 def current_tradability(evidence, source, *, symbol, now, rule_receipt,approved,bar,quote):
     result=derive_shadow_price_limits(evidence,symbol=symbol,at=now,
         rule_receipt=rule_receipt,approved=approved,source=source)
