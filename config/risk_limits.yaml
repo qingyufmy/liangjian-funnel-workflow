@@ -1,0 +1,16 @@
+# Tony master brief section 10, 2026-10-15 20:42. Fractions, not percentage points.
+# Research/local-paper only. No live broker is enabled by this file.
+initial_capital: '1000000'
+standard_risk_pct: '0.03'
+max_risk_pct: '0.05'
+probe_multiplier: '0.5'
+max_position_pct: '0.20'
+max_cluster_pct: '0.40'
+max_positions: 6
+max_new_entries: 3
+max_cluster_signals: 2
+daily_loss_halt_pct: '0.02'
+drawdown_half_pct: '0.08'
+drawdown_halt_pct: '0.15'
+min_cash_reserve_pct: '0.10'
+no_new_entry_after: '14:30'

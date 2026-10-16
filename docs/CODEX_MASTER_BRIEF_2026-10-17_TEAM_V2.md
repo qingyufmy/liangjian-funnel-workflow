@@ -1,0 +1,128 @@
+# 量见交易团队 2.0 · 统一任务书（周五 10-16 收盘后开工 · 周末 10-17/10-18 落地 · 周一 10-19 上线跟踪）
+
+> **日期勘误（2026-10-15 20:55）**：文件名中的 10-17 为笔误。按 Tony 确认以星期为准：周五 = 2026-10-16，周六 = 10-17，周日 = 10-18，周一 = 10-19，下周五五日校准 = 10-23。正文所有"周五/周六/周日/周一"按此解释。
+
+> 本文件整合并取代以下三份的执行安排（细节仍以其章节为准，本文件冲突时以本文件为准）：
+> - docs/REVIEW_2026-10-15_LLM_PROMPTS.md（LLM 审查结论 P1–P6）
+> - docs/CODEX_ITERATION_BRIEF_2026-10-15_B4_LLM.md（B4-LLM：角色化、盲审、A4 交易员）
+> - docs/CODEX_TASK_BRIEF_A6_RISK_GOVERNOR_2026-10-15.md（A6 风控师、模拟盘、责任矩阵）
+> 授权：Tony 2026-10-15 20:12 / 20:19 / 20:20 / 20:24 / 20:29 / 20:31 / 20:34（聊天原话见各源文件）。
+> **调整**：原定"今晚 Phase 0"取消，不在 B3 首日前再动生产；周五 15:10 收盘后统一开工。
+
+---
+
+## 0. 原则（不可违反）
+1. 确定性引擎是风控总监：护栏、硬止损、限额、撮合、T+1 由代码执行；LLM 只能在引擎给定范围内判断、收紧、择时，不能放宽。
+2. 每个 LLM 角色：角色卡 + `handoff_notes` + `what_would_change_my_mind` + 正反方证据（引用证据目录 ID）；不输出数值分；审查型输入盲审（去服务端结论）。
+3. 模型判断全部进标签链路，T+1/T+3 可校准；A5 出团队记分卡，偏差归因到角色。
+4. 客户飞书模板不变（新增卡片需 Tony 单独批准）；凭证只进 VM env；不盘中部署；限额改动只经 `config/risk_limits.yaml` + Tony 批准。
+5. 每个提示词 ≤12KB；能用 schema/校验器表达的规则不写进提示词。
+
+## 1. 周一验收目标
+- 盘前 08:45 前：A6 上限信封 → A6 晨会收紧 → A3 组合经理槽位/使用率目标 → 注入交易员上下文，三份输出齐全。
+- 盘中：A4 交易员每 5 分钟对激活计划产出合法信号；每笔信号一条 A6 裁决；模拟盘成交回报落账；护栏零越过；monitor 父时长 p95 < 45s。
+- 收盘：A3-PM 隔夜去留 → A6 否决审 → 引擎标记；15:30 模拟盘结算、NAV 曲线；A5 含 `a6_review`、交易员 vs 确定性链对比、团队记分卡。
+- 目标：每日 2–5 个有效买入信号（决策 4）；使用率落在当日目标区间；零工程故障。
+
+## 2. 团队角色总表
+| 角色 | 提示词 | 模型 | 节拍 | 主责（被考核） |
+|---|---|---|---|---|
+| 共享章程 | `00_shared_system_v3`（团队章程 + 事实纪律） | — | — | — |
+| A1 宏观产业链研究员 | `agent_1_macro_chain_v3`（+catalysts/falsifiers、方法级反馈） | pro | 月/周 | 主题命中率 |
+| A2 题材情绪策略师 | `agent_2_theme_sentiment_v3`（TOP8 正文、去打分、模型提名观察池） | pro | 收盘 | 阶段判断、提名池表现 |
+| A3 交易计划官兼组合经理 | `agent_3_portfolio_planner_v4`（盲审 + 优先级 + 槽位/使用率 + 隔夜去留） | pro | 收盘 + 08:38 + 15:10 | 使用率达标、槽位命中、隔夜决策、**模拟盘表现主责** |
+| A4 交易员 | `agent_4_trader_v1`（入场/离场/加减仓，确定性链为参考证据） | pro | 盘中每 5m | 入场 MFE/MAE、主动离场、滑点 |
+| A6 风控师 | `agent_6_risk_governor_v1`（晨会/异常/收盘，只能收紧） | pro | 08:35 + 异常 + 15:10 | 回撤、风险事件命中、是否过度收紧 |
+| A5 复盘教练 | `agent_5_daily_reviewer_v2`（瘦身 + method_feedback + hypotheses + 记分卡） | review | 午间/盘后 | 假设质量 |
+| 引擎 | risk_engine / trader_guardrails / paper_broker | — | 1m | 护栏零越过 |
+
+## 3. 工作包
+### WP-A 提示词与角色化（源：B4-LLM L0/L1/L3/L6/L7/L9/L10/L11，A6 §13.3）
+**提示词正文由 Claude 统一给出**：`prompts/team_v2/`（共享 v3、A1 v3 修订段、A2 v3、A3 v4、A4-trader v1、A5 v2、A6 v1）+ `README_TEAM_V2_PROMPTS.md`（接线与校验改动表）。Codex 不改写角色定义与规则，只做接线、占位符注入、schema 校验器与干跑；需要改动提示词正文时通过桥接提出，由 Claude 裁定。
+A-1 共享章程 v3；A-2 A2 v3（TOP8 入正文、删 `common.py` 英文追加、transport 前置并入、去 score_breakdown → 主题分确定性、`model_nominations` ≤5 只研究用）；A-3 A3 v4（盲审、正反方、`plan_priority_rank`、交易计划简报、PM 晨会 `deployment_target/slot_plan/intended_risk_unit`、收盘 `overnight_stance`）；A-4 A1 v3（catalysts/falsifiers、PRIOR_OUTCOME_FEEDBACK 方法级、满 10 日注入）；A-5 A5 v2（瘦身、`method_feedback/hypotheses/model_value_assessment/team_scorecard`、假设进 `artifacts/replay-queue/`）；A-6 归档死文件、信封数值服务端回填、全部 `prompt_version` 递增。
+
+### WP-B A4 交易员（源：B4-LLM §6）
+B-1 `agent_4_trader_v1.txt`；B-2 5m 节拍调度、批量请求、30s 预算、`trader_signals` 落库；B-3 `runtime/trader_guardrails.py`（ACTIVE/未过期/可交易/入场带/≤no_chase/硬止损/时间窗/同簇当日 ≤2）；B-4 `LIANGJIAN_A4_TRADER_MODE=record|control`，**发布即 control**，record 为回退开关；B-5 原 veto 路径并入护栏与 opposing_refs。
+
+### WP-C A6 风控师 + 风控引擎（源：A6 §2–§8、§13）
+C-1 `runtime/risk_engine.py`（信封、裁决、容量、硬退出判定、异常触发）+ `config/risk_limits.yaml`（§3.2 默认）；C-2 08:33 上限信封 / 08:35 A6 晨会 / 08:38 A3-PM 晨会 / 08:45 注入交易员 / 09:26 更新；C-3 信号同步裁决 <2s；C-4 A6 三会话 + 失效保守路径（超时/LOOSEN → PROBE 单批次；连续 2 次 → HALT + 内部告警）；C-5 `pm_decisions / pm_override / UTILIZATION_SHORTFALL`；C-6 容量回灌 A3 注入字段（只展示）。
+
+### WP-D 模拟盘执行层（源：A6 §12）
+D-1 `runtime/broker/base.py` 统一接口；D-2 `liangjian_paper_broker/` 本地开源模拟盘（100 万、SQLite、A 股撮合 12 规则、T+1、费用、15:30 结算、对账、逐字节可复现）；D-3 `LIANGJIAN_BROKER=local_paper` 默认；掘金 `gm_sim/gm_live` 接口桩 + 映射表（不接 SDK）；D-4 outcomes 读模拟持仓与已实现盈亏。
+
+### WP-E 标签、校准、记分卡（源：B4-LLM L2/L8，A6 R6/R14）
+E-1 近 20 日五层模型调用统计（周五晚先交，只读）；E-2 A2 FOCUS/提名、A3 PASS/VETO/优先级、A4 信号、A6 裁决、PM 决策全部进 decision_capture 标签链路；E-3 A5 `a6_review / risk_governor_value / trader_calibration / team_scorecard_daily`（NAV vs 沪深 300/中证 1000、使用率 vs 目标、槽位、命中率、回撤、角色 KPI、闲置资金成本）。
+
+### WP-F 调度、预算、告警
+F-1 Node 新任务：`risk-premarket` 08:33（引擎 + A6 + A3-PM 串行，120s，review 槽）、`risk-eod`（close 末尾，A3-PM + A6 串行，120s）、`paper-settle` 15:30（60s）；monitor 分钟内：交易员 30s（仅 5m 闭合）+ 裁决 2s + 异常 A6 ≤20s（仅触发）；父 58s 不变；F-2 phase_timings 增 trader/risk/broker 段；F-3 内部告警（决策 15 webhook）：DAILY_LOSS_HALT / DRAWDOWN_* / A6_DEGRADED×2 / BROKER_RECONCILE_MISMATCH / TRADER_SIGNAL_BLOCKED_BY_GUARDRAIL 单日 >5；F-4 合同文档 `docs/TEAM_V2_CONTRACTS.md`（表结构、拒绝码、信封、时序）。
+
+## 4. 时序总表（交易日）
+| 时刻 | 动作 |
+|---|---|
+| 07:00 | auction-base（不变） |
+| 08:30 | A3 计划发布（含 priority_rank、簇标签、交易计划简报） |
+| 08:33 | 引擎：账户快照、上限信封 |
+| 08:35 | A6 晨会（收紧） |
+| 08:38 | A3-PM 晨会（使用率目标、槽位、风险单位；在信封内） |
+| 08:45 | 信封 + 槽位注入交易员上下文；盘前卡片（模板不变） |
+| 09:25 | auction-evidence（B3） |
+| 09:26 | 晨审；信封/槽位更新 |
+| 09:30–15:00 | 1m：引擎护栏、硬退出、mark-to-market、模拟盘撮合；5m 闭合（09:35 起）：A4 交易员 → 引擎裁决 → place_order；异常 → A6 |
+| 15:10 | close 研究（A2/A3）；末尾 risk-eod：A3-PM 隔夜去留 → A6 否决审 → 引擎标记次日动作 |
+| 15:30 | paper-settle：结算、NAV、对账 |
+| 16:00 | A5 盘后（含 a6/trader/记分卡） |
+| 16:10 | outcomes（含模拟持仓） |
+
+## 5. 日程
+| 时间 | 内容 | 交付 |
+|---|---|---|
+| 周五 09:30–15:00 | **只观察 B3 首日**，不改码（可做 E-1 只读统计、A-6 归档准备） | 0184-reply §4 观察点 |
+| 周五 15:10–23:00 | 开工：WP-A 提示词初稿；WP-C 引擎与 yaml；WP-D 接口与撮合内核；E-1 交付 | 23:00 进度回执（桥接） |
+| 周六 | WP-B 交易员接线；WP-C 三会话 + PM 会话接线；WP-D 结算/对账/可复现；WP-E 标签；六日冻结回放（交易员 + 裁决 + 撮合）第一轮 | 12:00 / 20:00 回执；20:00 交回放初稿 |
+| 周日 | 修复回放问题；10-14/10-15/10-16 真实模型干跑全部角色；故障注入反例；全量 + VM + 回退（树 ≡ 周五生产 HEAD）；评审包 | 12:00 回执；**18:00 候选送审**；Claude 评审；Tony 批准限额与模式；21:00 前发布 |
+| 周一 | 06:55 盘前检查；08:50 晨会三份输出复核；09:40 / 10:10 / 11:40 / 14:10 / 16:40 复核；首个 BUY_SIGNAL 5 分钟内投递上下文 | 周一盘后团队记分卡第一版 |
+
+## 6. 发布门
+1. 六日冻结回放：交易员合法输出 ≥99%；护栏零越过（拦截数单列）；裁决拒绝码分布；模拟盘账户曲线两次回放逐字节一致；交易员 vs 确定性链分歧表。
+2. 三日真实模型干跑：七个提示词 JSON 全部合法；与生产原响应逐字段 diff；A2 选中主题/FOCUS 集合差异逐项说明；A3 PASS 数下降 >20% 需 Claude 裁定。
+3. 故障注入：交易员超时 → NO_ACTION；A6 超时/LOOSEN → 保守信封；A6 连续 2 次 → HALT + 告警；撮合涨停/跌停/停牌/部分成交各 1 反例。
+4. 全量 + VM 差异 + 前向回退（树 ≡ 周五生产 HEAD）+ 评审包 SHA；周一 14 条或新批次计划原行不变。
+5. 回退：`LIANGJIAN_A4_TRADER_MODE=record` 立即恢复旧路径；整包回退提交可 ff。
+Claude ACCEPT 后按 P0 委托 push + deploy.sh。
+
+## 7. Tony 裁定清单（周日 12:00 前，未定按默认）
+1. 限额默认值（初始 100 万、单笔 1%、单票 20%、簇 40%、持仓 6、日新开 3、日亏 −2% 停、回撤 −8% 减半 / −15% 停）。
+2. 使用率目标区间默认表（主线 60–80 / 轮动 40–60 / 修复 30–50 / 避险 0–30 / 冰点 0）。
+3. 模拟盘参与率 10%、费用参数、盘后固定价关闭。
+4. 客户是否收风控/仓位信息（默认否，仅内部）。
+5. A6 盘中异常复核允许调模型（默认是，≤20s）。
+6. 掘金仿真接入时间（默认本地模拟盘稳定 5 日后）。
+
+## 8. 周一起跟踪
+- 每日：A5 团队记分卡 + 交易员 vs 确定性链 + A6 否决事后表现；Claude 复核点 06:55 / 08:50 / 09:40 / 11:40 / 16:40（周一加 10:10 / 14:10）。
+- 周五（10-23）：5 日校准报告 → 裁定 A3/A4/A6 提示词与权限调整、A2 提名池资格、掘金仿真接入。
+
+## 9. 发给 Codex 的正文
+```
+【量见交易团队 2.0 统一任务书】以 docs/CODEX_MASTER_BRIEF_2026-10-17_TEAM_V2.md 为准（细节见其引用的三份文档）。Tony 10-15 授权：周五 15:10 收盘后开工，周末全部落地，周一 10-19 上线跟踪；原"今晚 Phase 0"取消，周五盘中只观察 B3。
+原则：引擎最终裁决，LLM 只能收紧/择时/配置，不放宽；角色卡 + handoff + 证伪条件 + 正反方证据；模型判断全进标签；客户模板不变；限额只经 yaml + Tony。
+工作包：WP-A 提示词角色化（共享章程 v3、A1 v3、A2 v3 含去打分与提名池、A3 v4 组合经理、A5 v2 记分卡、归档死文件）；WP-B A4 交易员（5m 节拍、30s、护栏、control 默认 + record 回退）；WP-C A6 风控师 + risk_engine + risk_limits.yaml + PM 晨会/收盘时序 + pm_override；WP-D BrokerAdapter + 本地开源模拟盘（100 万、A 股撮合、T+1、费用、结算、对账、可复现）+ 掘金接口桩；WP-E 20 日模型统计、全角色标签、A5 a6/trader/team_scorecard；WP-F Node risk-premarket 08:33 / risk-eod / paper-settle 15:30、phase_timings、内部告警、合同文档。
+日程：周五 23:00 进度；周六 12:00/20:00 回执 + 回放初稿；周日 12:00 回执、18:00 候选送审、21:00 前发布。
+发布门：六日回放（交易员合法 ≥99%、护栏零越过、账户曲线逐字节一致、分歧表）；三日真实干跑七提示词 JSON 合法 + 逐字段 diff；故障注入反例；全量/VM/回退树≡周五生产 HEAD/包 SHA；record 模式回退开关。
+Tony 裁定项见第 7 节，周日 12:00 前未定按默认。
+```
+
+---
+
+## 10. Tony 裁定记录（2026-10-15 20:42，聊天）—— 覆盖 §7 与 A6 任务书 §3.2/§12.5 默认值
+
+| # | 裁定 | 落地口径 |
+|---|---|---|
+| 1 | 限额：**单笔风险 3%–5%**，其余默认（初始 100 万、单票 20%、簇 40%、持仓 6、日新开 3、日亏 −2% 停、回撤 −8% 减半 / −15% 停）接受 | `RISK_PER_TRADE=3%`（STANDARD），`RISK_PER_TRADE_MAX=5%`（仅当 A3-PM 对该计划标 HIGH_CONVICTION 且 A6 晨会未收紧时）；PROBE = 1.5%。**提示**：单票 20% 上限与单笔 3–5% 存在相互约束——止损距离 <15% 时 20% 仓位上限先生效（例：止损 5% → 实际单笔风险 1%）。引擎取两者较小值并在裁决记录中写明哪条生效；若 Tony 希望 3–5% 真正落地，需把单票上限提到 30–35%，待记分卡数据后再议 |
+| 2 | 使用率目标可适当激进，追求账户表现 | 默认区间改为：TREND_MAINLINE **70–90%**、ROTATION_NO_MAINLINE **50–75%**、REPAIR **40–60%**、RISK_OFF_RETREAT **10–30%**、ICE_POINT **0–10%**；A3-PM 可在区间内选点，A6 只给上限 |
+| 3 | 模拟盘参与率 10%、费用、盘后固定价关闭接受；**资金仓位按大盘环境与外围市场环境决定** | A3-PM 晨会新增输入 `OVERNIGHT_EXTERNAL_SNAPSHOT`（美股三大指数、纳指期货、A50 期货、港股盘前、美元/人民币、VIX，均带时间戳，沿用 A1 的 GLOBAL_MACRO_SNAPSHOT 源）；引擎给确定性基线：市场状态区间 ± 外围调整（外围显著风险偏好收缩，如纳指 ≤ −1.5% 或 A50 ≤ −1%：区间下移 10pp；显著扩张：上移 10pp，不超 95%）；PM 在调整后区间内定点并说明外围依据 |
+| 4 | 风控/仓位信息**仅内部**，发到项目对应的 Lark 内部通道 | 使用决策 15 的内部研究 webhook（VM `shadow.env` 的 `SHADOW_RESEARCH_WEBHOOK`，值不进仓库/桥接/回执）；新增内部卡：08:45 晨会摘要（使用率目标、槽位、信封收紧项）、每笔裁决（APPROVED/REDUCED/REJECTED + 股数 + 拒绝码）、15:30 结算摘要（NAV、持仓、当日盈亏）、告警（§WP-F F-3）。客户通道零改动 |
+| 5 | A6 盘中异常复核允许调模型，≤20s | 确认 |
+| 6 | 掘金仿真接入：本地模拟盘稳定 5 日后 | 确认；目标 10-26 周评估 |
+
+tony: 单笔 3%–5%；使用率适当激进；仓位按大盘与外围环境决定；风控仓位信息仅内部发项目 Lark；A6 盘中可调模型；掘金 5 日后。（2026-10-15 20:42）
