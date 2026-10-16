@@ -58,11 +58,44 @@ class TeamMeetingStore:
                     observed_at TEXT NOT NULL, binding_sha256 TEXT NOT NULL,
                     input_json TEXT NOT NULL, result_json TEXT NOT NULL,
                     UNIQUE(account_id,trade_date,source_call_id));
+                CREATE TABLE IF NOT EXISTS pm_decisions (
+                    meeting_id TEXT PRIMARY KEY, source_call_id TEXT NOT NULL,
+                    account_id TEXT NOT NULL, trade_date TEXT NOT NULL,
+                    input_sha256 TEXT NOT NULL, result_json TEXT NOT NULL,
+                    UNIQUE(account_id,trade_date,source_call_id));
                 COMMIT;
             """)
 
     def _connect(self):
         return sqlite3.connect(self.path, timeout=2)
+
+    def load_pm(self, meeting_id: str, *, input_sha256: str):
+        with closing(self._connect()) as db:
+            row = db.execute('SELECT input_sha256,result_json FROM pm_decisions WHERE meeting_id=?',
+                             (meeting_id,)).fetchone()
+        if row is None: return None
+        if row[0] != input_sha256: raise ValueError('PM_MEETING_BINDING_CONFLICT')
+        return json.loads(row[1])
+
+    def record_pm(self, *, meeting_id: str, source_call_id: str, account_id: str,
+                  trade_date: str, input_sha256: str, result: dict):
+        if (any(not isinstance(value, str) or not value.strip() for value in
+                (meeting_id, source_call_id, account_id, input_sha256))
+                or date.fromisoformat(trade_date).isoformat() != trade_date):
+            raise ValueError('PM_MEETING_ID_INVALID')
+        text = canonical(result)
+        with closing(self._connect()) as db, db:
+            db.execute('BEGIN IMMEDIATE')
+            rows = db.execute('SELECT input_sha256,result_json FROM pm_decisions WHERE meeting_id=? OR '
+                '(account_id=? AND trade_date=? AND source_call_id=?)',
+                (meeting_id, account_id, trade_date, source_call_id)).fetchall()
+            if rows:
+                if len(rows) != 1 or rows[0] != (input_sha256, text):
+                    raise ValueError('PM_MEETING_BINDING_CONFLICT')
+                return json.loads(rows[0][1])
+            db.execute('INSERT INTO pm_decisions VALUES (?,?,?,?,?,?)',
+                (meeting_id, source_call_id, account_id, trade_date, input_sha256, text))
+        return json.loads(text)
 
     def record_premarket(self, *, meeting_id: str, source_call_id: str, account_id: str,
                           trade_date: str, observed_at: datetime, envelopes: tuple[RiskEnvelope, ...],

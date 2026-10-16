@@ -87,6 +87,27 @@ class ModelJudgmentJournal:
             db.execute("UPDATE model_call_claims SET state='FAILED',failure_code=? WHERE call_id=? AND state='CLAIMED'",
                        (code, call_id))
 
+    def load_captured(self, call_id: str, *, expected: dict):
+        """Resume after capture-before-meeting crash without another provider call.
+
+        Only immutable, hash-verified original output is returned. The caller
+        revalidates it against the same frozen domain before using any decision.
+        An in-flight/failed claim remains owned by claim(), never auto-retried.
+        """
+        allowed = {'run_id', 'role', 'session', 'source_trade_date', 'execution_trade_date',
+                   'model', 'prompt_hash', 'input_hash', 'catalog_hash'}
+        if set(expected) != allowed: raise ValueError('MODEL_CAPTURE_LOOKUP_INVALID')
+        with closing(self._connect()) as db:
+            db.row_factory = sqlite3.Row
+            row = db.execute('SELECT * FROM model_calls WHERE call_id=?', (call_id,)).fetchone()
+        if row is None: return None
+        if any(row[key] != value for key, value in expected.items()):
+            raise ValueError('MODEL_CALL_BINDING_CONFLICT')
+        if _hash(row['output_json']) != row['output_hash']:
+            raise ValueError('MODEL_OUTPUT_HASH_MISMATCH')
+        return {'output': json.loads(row['output_json']), 'validated': bool(row['validated']),
+                'issues': tuple(json.loads(row['issues_json'])), 'output_hash': row['output_hash']}
+
     def capture(self, *, call_id: str, run_id: str, role: str, session: str,
                 source_trade_date: str, execution_trade_date: str, captured_at: datetime,
                 catalog_hash: str, response: ModelCallResult, validation: TeamValidation) -> dict:
