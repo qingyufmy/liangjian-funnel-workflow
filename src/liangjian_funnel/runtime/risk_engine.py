@@ -124,7 +124,7 @@ class PlanRisk:
     symbol: str
     cluster: str
     status: str
-    valid_from: datetime
+    valid_from: datetime | None
     expires_at: datetime
     price: Decimal
     stop_price: Decimal
@@ -141,7 +141,11 @@ class PlanRisk:
             object.__setattr__(self, key, _number(getattr(self, key)))
         if self.invalidation_price is not None:
             object.__setattr__(self, "invalidation_price", _number(self.invalidation_price))
-        _aware(self.valid_from); _aware(self.expires_at)
+        if self.valid_from is not None:
+            _aware(self.valid_from)
+        elif self.status != 'PENDING_MORNING_REVIEW':
+            raise ValueError('RISK_PLAN_ACTIVATION_TIME_MISSING')
+        _aware(self.expires_at)
         if (type(self.max_batches) is not int or self.max_batches < 1
                 or type(self.tradable) is not bool or type(self.data_ready) is not bool):
             raise ValueError("RISK_PLAN_INVALID")
@@ -207,9 +211,9 @@ def _build_envelope(plan, account, positions, limits, *, now, regime, cluster_si
     allowed_statuses = {"ACTIVE_TODAY", "PENDING_MORNING_REVIEW"} if planning else {"ACTIVE_TODAY"}
     if plan.status not in allowed_statuses: reasons.append("ENVELOPE_INELIGIBLE")
     if now >= _aware(plan.expires_at): reasons.append("PLAN_EXPIRED")
-    if not planning and now < _aware(plan.valid_from): reasons.append("PLAN_NOT_YET_VALID")
+    if not planning and (plan.valid_from is None or now < _aware(plan.valid_from)): reasons.append("PLAN_NOT_YET_VALID")
     if _aware(plan.expires_at).date() != now.date(): reasons.append("PLAN_DATE_MISMATCH")
-    if planning and (_aware(plan.valid_from).date() != now.date() or plan.valid_from >= plan.expires_at):
+    if planning and plan.valid_from is not None and (_aware(plan.valid_from).date() != now.date() or plan.valid_from >= plan.expires_at):
         reasons.append("PLAN_DATE_MISMATCH")
     if planning and now.time().replace(tzinfo=None) >= time(9, 30):
         reasons.append("PLANNING_WINDOW_CLOSED")

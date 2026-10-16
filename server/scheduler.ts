@@ -152,6 +152,11 @@ export class WorkflowScheduler {
       if (isFeatureMaintenanceMinute(clock)) due.push("features");
       if (clock.hour === 7 && clock.minute < 15) due.push("auction-base");
       if (clock.hour === 8 && clock.minute === 30) due.push("premarket");
+      // Independent budgets and durable Python prerequisites. No delayed
+      // catch-up/model retry can make a missed prior edge appear successful.
+      if (clock.hour === 8 && clock.minute === 33) due.push("team-morning-engine");
+      if (clock.hour === 8 && clock.minute === 35) due.push("team-morning-risk");
+      if (clock.hour === 8 && clock.minute === 38) due.push("team-morning-pm");
       // Independent evidence only. Never late-catch-up a 09:26 quote as an
       // auction-final print, and never rerun the A2/A3 research to obtain it.
       if (auctionEvidenceSlot(clock) !== undefined) due.push("auction-evidence");

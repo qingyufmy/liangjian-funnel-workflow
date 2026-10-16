@@ -85,6 +85,9 @@ class TeamMeetingStore:
                 CREATE TABLE IF NOT EXISTS regime_observations (
                     trade_date TEXT NOT NULL,tick TEXT NOT NULL,input_sha256 TEXT NOT NULL,
                     result_json TEXT NOT NULL,PRIMARY KEY(trade_date,tick));
+                CREATE TABLE IF NOT EXISTS morning_engine (
+                    account_id TEXT NOT NULL,trade_date TEXT NOT NULL,
+                    body_json TEXT NOT NULL,PRIMARY KEY(account_id,trade_date));
                 CREATE TABLE IF NOT EXISTS regime_transitions (
                     transition_id TEXT PRIMARY KEY,trade_date TEXT NOT NULL,tick TEXT NOT NULL,
                     evidence_json TEXT NOT NULL,notification_status TEXT NOT NULL DEFAULT 'PENDING');
@@ -93,6 +96,30 @@ class TeamMeetingStore:
 
     def _connect(self):
         return sqlite3.connect(self.path, timeout=2)
+
+    def load_morning_engine(self, account_id, trade_date):
+        with closing(self._connect()) as db:
+            row=db.execute('SELECT body_json FROM morning_engine WHERE account_id=? AND trade_date=?',
+                (account_id,trade_date)).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def load_morning_risk(self, account_id, trade_date, *, source_call_id):
+        with closing(self._connect()) as db:
+            row=db.execute('SELECT result_json FROM risk_meetings WHERE account_id=? AND trade_date=? AND source_call_id=?',
+                (account_id,trade_date,source_call_id)).fetchone()
+        return self._decode(row[0]) if row else None
+
+    def record_morning_engine(self, account_id, trade_date, body):
+        text=canonical(body)
+        with closing(self._connect()) as db,db:
+            db.execute('BEGIN IMMEDIATE')
+            old=db.execute('SELECT body_json FROM morning_engine WHERE account_id=? AND trade_date=?',
+                (account_id,trade_date)).fetchone()
+            if old:
+                if old[0]!=text:raise ValueError('MORNING_ENGINE_BINDING_CONFLICT')
+                return json.loads(old[0])
+            db.execute('INSERT INTO morning_engine VALUES (?,?,?)',(account_id,trade_date,text))
+        return json.loads(text)
 
     def record_live_regime(self,*,facts,tick,observed_at,prior,rules):
         from .team_v2_regime import advance,frozen_candidates

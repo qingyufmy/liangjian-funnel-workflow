@@ -74,7 +74,7 @@ import type {
   StageOutcomeContract,
 } from "./generated/research-outcome-v3.js";
 
-export type JobName = "auction-base" | "auction-evidence" | "premarket" | "morning" | "auction-refresh" | "close" | "a1" | "monitor" | "features" | "comparison" | "a5-midday" | "a5-close" | "outcomes" | "paper-settle";
+export type JobName = "auction-base" | "auction-evidence" | "premarket" | "morning" | "auction-refresh" | "close" | "a1" | "monitor" | "features" | "comparison" | "a5-midday" | "a5-close" | "outcomes" | "paper-settle" | "team-morning-engine" | "team-morning-risk" | "team-morning-pm";
 
 export type JobStatus = "running" | "succeeded" | "failed" | "skipped" | "terminated";
 

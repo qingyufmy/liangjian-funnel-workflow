@@ -34,6 +34,7 @@ export function timeoutForJob(
   if (job === "monitor") return Math.min(configuredTimeoutMs, 58_000);
   if (job === "auction-evidence") return Math.min(configuredTimeoutMs, 30_000);
   if (job === "paper-settle") return Math.min(configuredTimeoutMs, 60_000);
+  if (job.startsWith("team-morning-")) return Math.min(configuredTimeoutMs, 120_000);
   if (job === "auction-base") return Math.min(configuredTimeoutMs, 60 * 60 * 1000);
   if (job === "auction-refresh") return Math.min(configuredTimeoutMs, 30 * 60 * 1000);
   // A5's model call has a 600s total budget. The parent must also allow
@@ -183,7 +184,7 @@ export class JobRunner {
     if (!definition) {
       throw new Error("unsupported job");
     }
-    const slot = job === "comparison" ? "comparison" : job === "auction-evidence" || job === "auction-refresh" || job === "a5-midday" || job === "a5-close" || job === "outcomes" || job === "paper-settle" ? "review" : "primary";
+    const slot = job === "comparison" ? "comparison" : job.startsWith("team-morning-") || job === "auction-evidence" || job === "auction-refresh" || job === "a5-midday" || job === "a5-close" || job === "outcomes" || job === "paper-settle" ? "review" : "primary";
     const current = slot === "comparison" ? this.comparison : slot === "review" ? this.review : this.active;
     if (current) return this.skipped(job, definition.command, current.runId);
 

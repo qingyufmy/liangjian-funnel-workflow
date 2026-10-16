@@ -1,0 +1,11 @@
+# Tony master section 10. Percentage points; advisory, never a forced buy.
+schema_version: team-deployment/1
+version: '2026-10-15.1'
+ranges:
+  TREND_MAINLINE: [70, 90]
+  ROTATION_NO_MAINLINE: [50, 75]
+  REPAIR: [40, 60]
+  RISK_OFF_RETREAT: [10, 30]
+  BEAR_RISK: [10, 30]
+  ICE_POINT: [0, 10]
+  ICE_POINT_NO_NEW_ENTRY: [0, 0]

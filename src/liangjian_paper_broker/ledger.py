@@ -342,6 +342,14 @@ class LocalPaperBroker:
         with self._tx(readonly=True) as c:
             return self._account(c,local_time(self.clock()).date().isoformat())
 
+    def planning_snapshot(self):
+        """One consistent owned-account view; no mark or baseline is invented."""
+        with self._tx(readonly=True) as c:
+            day=local_time(self.clock()).date().isoformat()
+            return dict(account=self._account(c,day),positions=self._positions(c,day),
+                risk_day=self._risk_day(c,day),peak_nav=str(self._meta(c,'risk_peak_nav')),
+                global_halt=c.execute("SELECT value FROM paper_meta WHERE key='risk_halt_reason'").fetchone()[0])
+
     def _account(self,c,day):
         positions=self._positions(c,day);cash=self._meta(c,"cash")
         value=sum((Decimal(p["market_value"]) for p in positions),ZERO) if all(p["market_value"] is not None for p in positions) else None

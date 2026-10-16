@@ -464,6 +464,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("run-auction-base", help="prepare immutable research evidence at 07:00; no models or plan publication")
     sub.add_parser("run-auction-evidence", help="capture the current fixed 09:25 poll slot; no research, activation or rebase")
     sub.add_parser("run-paper-settle", help="settle the existing independent local-paper account; no research or customer I/O")
+    for stage in ('engine','risk','pm'):
+        sub.add_parser('run-team-morning-'+stage, help='independent owned Team V2 morning '+stage+' edge')
     auction_refresh = sub.add_parser("run-auction-refresh", help="refresh A2/A3 research after auction; never replace active A4 plans")
     auction_refresh.add_argument("--manual-current", action="store_true",
                                  help="explicit operator rerun using the current session time, not the 09:26 auction cutoff")
@@ -641,6 +643,16 @@ def main(argv: Sequence[str] | None = None, *, settings: Settings | None = None)
         sys.stdout.reconfigure(encoding="utf-8", errors="strict")
     args = build_parser().parse_args(argv)
     active = settings or Settings.from_env()
+    if args.command.startswith('run-team-morning-'):
+        from .runtime.team_v2_morning import run_morning_stage
+        try:
+            result=run_morning_stage(active,args.command.removeprefix('run-team-morning-'))
+        except Exception:
+            result={'status':'BLOCKED','reason_code':'TEAM_MORNING_STAGE_FAILED'}
+        # No provider exception text, original plan payload or account details
+        # in Node stdout. Full receipts stay in the owned Team V2 stores.
+        print(json.dumps({key:result[key] for key in ('status','reason_code','session','trade_date') if key in result},ensure_ascii=False))
+        return 0 if result['status'] in {'COMPLETE','READY','NOOP'} else 2
     if args.command == "run-paper-settle":
         from .runtime.team_v2_commands import run_paper_settle
         try:
