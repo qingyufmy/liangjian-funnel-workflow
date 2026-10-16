@@ -72,6 +72,12 @@ def test_success_resets_failure_count_and_cap_may_only_tighten():
     assert result.utilization_cap == Decimal("60")
 
 
+def test_second_failure_halt_is_latched_for_the_day_even_if_a_later_model_reply_is_valid():
+    result = apply(review(), failures=2)
+    assert result.status == "HALT" and result.envelopes[0].eligible is False
+    assert result.consecutive_failures >= 2 and "A6_DEGRADED_HALT" in result.reason_codes
+
+
 def test_pm_overnight_review_has_exact_scope_and_never_reverses_a_more_conservative_stance():
     pm = {"000001.SZ": "EXIT_TOMORROW", "000002.SZ": "HOLD"}
     rows = [{"symbol": "000001.SZ", "pm_stance": "EXIT_TOMORROW", "review": "AGREE"},

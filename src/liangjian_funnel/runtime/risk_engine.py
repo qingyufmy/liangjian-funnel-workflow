@@ -161,6 +161,7 @@ class RiskEnvelope:
     binding_limits: tuple[str, ...]
     a6_tightened: bool = False
     high_conviction: bool = False
+    purpose: str = "EXECUTION"
 
 
 @dataclass(frozen=True)
@@ -177,22 +178,50 @@ def build_risk_envelope(plan: PlanRisk, account: AccountRisk, positions: tuple[P
                         limits: RiskLimits, *, now: datetime, regime: str,
                         cluster_signals_today: int = 0, high_conviction: bool = False,
                         a6_tightened: bool = False, action: str = "BUY_SIGNAL") -> RiskEnvelope:
+    return _build_envelope(plan, account, positions, limits, now=now, regime=regime,
+        cluster_signals_today=cluster_signals_today, high_conviction=high_conviction,
+        a6_tightened=a6_tightened, action=action, purpose="EXECUTION")
+
+
+def build_planning_envelope(plan: PlanRisk, account: AccountRisk, positions: tuple[PositionRisk, ...],
+                            limits: RiskLimits, *, now: datetime, regime: str,
+                            cluster_signals_today: int = 0, high_conviction: bool = False,
+                            a6_tightened: bool = False) -> RiskEnvelope:
+    """Prospective capacity for the morning meeting, NEVER a trading permission.
+
+    No plan is activated or repriced. Reference-price size is provisional;
+    execution must build a fresh current-quote envelope after morning review.
+    """
+    return _build_envelope(plan, account, positions, limits, now=now, regime=regime,
+        cluster_signals_today=cluster_signals_today, high_conviction=high_conviction,
+        a6_tightened=a6_tightened, action="BUY_SIGNAL", purpose="PLANNING")
+
+
+def _build_envelope(plan, account, positions, limits, *, now, regime, cluster_signals_today,
+                     high_conviction, a6_tightened, action, purpose):
     if type(high_conviction) is not bool or type(a6_tightened) is not bool:
         raise ValueError("RISK_FLAG_INVALID")
     now = _aware(now); reasons: list[str] = []
+    planning = purpose == "PLANNING"
     existing = [p for p in positions if p.symbol == plan.symbol and p.qty > 0]
-    if plan.status != "ACTIVE_TODAY": reasons.append("ENVELOPE_INELIGIBLE")
+    allowed_statuses = {"ACTIVE_TODAY", "PENDING_MORNING_REVIEW"} if planning else {"ACTIVE_TODAY"}
+    if plan.status not in allowed_statuses: reasons.append("ENVELOPE_INELIGIBLE")
     if now >= _aware(plan.expires_at): reasons.append("PLAN_EXPIRED")
-    if now < _aware(plan.valid_from): reasons.append("PLAN_NOT_YET_VALID")
+    if not planning and now < _aware(plan.valid_from): reasons.append("PLAN_NOT_YET_VALID")
     if _aware(plan.expires_at).date() != now.date(): reasons.append("PLAN_DATE_MISMATCH")
+    if planning and (_aware(plan.valid_from).date() != now.date() or plan.valid_from >= plan.expires_at):
+        reasons.append("PLAN_DATE_MISMATCH")
+    if planning and now.time().replace(tzinfo=None) >= time(9, 30):
+        reasons.append("PLANNING_WINDOW_CLOSED")
     if not plan.tradable: reasons.append("NOT_TRADABLE")
     if not plan.data_ready: reasons.append("DATA_NOT_READY")
     if not plan.cluster or plan.cluster == "UNKNOWN": reasons.append("CLUSTER_UNKNOWN")
     if (plan.invalidation_price is None or plan.price <= plan.stop_price
             or plan.price <= (plan.invalidation_price or _ZERO)
-            or not plan.entry_low <= plan.price <= min(plan.entry_high, plan.no_chase)):
+            or plan.entry_low > min(plan.entry_high, plan.no_chase)
+            or (not planning and not plan.entry_low <= plan.price <= min(plan.entry_high, plan.no_chase))):
         reasons.append("PRICE_OUTSIDE_PLAN_GEOMETRY")
-    if not (time(9, 30) <= now.time().replace(tzinfo=None) <= time(11, 30)
+    if not planning and not (time(9, 30) <= now.time().replace(tzinfo=None) <= time(11, 30)
             or time(13) <= now.time().replace(tzinfo=None) < time.fromisoformat(limits.no_new_entry_after)):
         reasons.append("NO_NEW_ENTRY_TIME")
     if regime not in {"TREND_MAINLINE", "ROTATION_NO_MAINLINE", "REPAIR", "BEAR_RISK", "RISK_OFF_RETREAT", "ICE_POINT", "ICE_POINT_NO_NEW_ENTRY"}:
@@ -227,7 +256,7 @@ def build_risk_envelope(plan: PlanRisk, account: AccountRisk, positions: tuple[P
     return RiskEnvelope(plan.plan_id, plan.symbol, now.date().isoformat(), not reasons,
                         unit if not reasons else "NONE", risk_budget, plan.max_batches,
                         qty if not reasons else 0, tuple(dict.fromkeys(reasons)), binding,
-                        a6_tightened, high_conviction)
+                        a6_tightened, high_conviction, purpose)
 
 
 def conservative_envelope(envelope: RiskEnvelope, *, consecutive_failures: int) -> RiskEnvelope:
@@ -251,6 +280,7 @@ def adjudicate_signal(signal_id: str, action: str, plan: PlanRisk, envelope: Ris
                       *, now: datetime, regime: str, cluster_signals_today: int = 0) -> RiskDecision:
     def reject(*codes): return RiskDecision(signal_id, plan.plan_id, "REJECTED", 0, tuple(codes), "NONE")
     if not signal_id: return reject("SIGNAL_ID_MISSING")
+    if envelope.purpose != "EXECUTION": return reject("PLANNING_ENVELOPE_NOT_EXECUTABLE")
     if envelope.plan_id != plan.plan_id or envelope.symbol != plan.symbol or envelope.trade_date != _aware(now).date().isoformat():
         return reject("ENVELOPE_BINDING_MISMATCH")
     if action in {"SELL_SIGNAL", "REDUCE_SIGNAL"}:
@@ -267,7 +297,11 @@ def adjudicate_signal(signal_id: str, action: str, plan: PlanRisk, envelope: Ris
                                high_conviction=envelope.high_conviction, a6_tightened=envelope.a6_tightened)
     if not envelope.eligible or not fresh.eligible:
         return reject(*(envelope.blocked_reasons or fresh.blocked_reasons or ("ENVELOPE_INELIGIBLE",)))
-    shares = min(envelope.max_shares_cap, fresh.max_shares_cap)
+    risk_distance = plan.price - plan.stop_price
+    risk_cap = _lots(min(_number(envelope.risk_budget), fresh.risk_budget) / risk_distance) if risk_distance > 0 else 0
+    shares = min(envelope.max_shares_cap, fresh.max_shares_cap, risk_cap)
     if shares <= 0: return reject("ROUND_LOT_UNAVAILABLE")
-    return RiskDecision(signal_id, plan.plan_id, "REDUCED" if fresh.binding_limits else "APPROVED",
-                        shares, fresh.binding_limits, "PROBE" if envelope.risk_unit == "PROBE" else fresh.risk_unit)
+    codes = tuple(dict.fromkeys((*fresh.binding_limits,
+        *(("A6_RISK_BUDGET_CAP",) if risk_cap < min(envelope.max_shares_cap, fresh.max_shares_cap) else ()))))
+    return RiskDecision(signal_id, plan.plan_id, "REDUCED" if codes else "APPROVED",
+                        shares, codes, "PROBE" if envelope.risk_unit == "PROBE" else fresh.risk_unit)

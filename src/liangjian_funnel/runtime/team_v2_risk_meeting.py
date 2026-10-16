@@ -51,6 +51,9 @@ def apply_premarket_review(envelopes: tuple[RiskEnvelope, ...], output: Any, *,
     by_id = {e.plan_id: e for e in envelopes}
     if len(by_id) != len(envelopes) or len({e.trade_date for e in envelopes}) > 1:
         raise ValueError("A6_ENGINE_DOMAIN_INVALID")
+    if previous_failures >= 2:
+        return RiskMeetingResult("HALT", tuple(conservative_envelope(e, consecutive_failures=previous_failures)
+            for e in envelopes), cap, previous_failures, ("A6_DEGRADED_HALT",))
     try:
         if not validated or not isinstance(output, Mapping) or output.get("session") != "PREMARKET":
             raise ValueError("A6_REVIEW_INVALID")

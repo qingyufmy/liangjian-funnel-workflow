@@ -16,6 +16,7 @@ from typing import Any
 
 from .model_client import ModelCallResult
 from .team_v2_contract import TeamValidation
+from ..runtime.team_v2_store import assert_database_scope
 
 
 def _json(value: Any) -> str:
@@ -28,10 +29,14 @@ def _hash(text: str) -> str:
 
 class ModelJudgmentJournal:
     def __init__(self, path: str | Path):
-        self.path = Path(path)
+        self.path = Path(path).resolve()
+        assert_database_scope(self.path, marker='model_research_meta', version='model-research/1')
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with closing(self._connect()) as db, db:
             db.executescript("""
+                BEGIN IMMEDIATE;
+                CREATE TABLE IF NOT EXISTS model_research_meta(version TEXT PRIMARY KEY);
+                INSERT OR IGNORE INTO model_research_meta VALUES ('model-research/1');
                 CREATE TABLE IF NOT EXISTS model_calls (
                     call_id TEXT PRIMARY KEY, run_id TEXT NOT NULL, role TEXT NOT NULL,
                     session TEXT NOT NULL, source_trade_date TEXT NOT NULL,
@@ -54,6 +59,7 @@ class ModelJudgmentJournal:
                 CREATE TABLE IF NOT EXISTS model_call_claims (
                     call_id TEXT PRIMARY KEY, request_binding TEXT NOT NULL,
                     state TEXT NOT NULL, failure_code TEXT);
+                COMMIT;
             """)
 
     def _connect(self):

@@ -151,3 +151,34 @@ def test_add_requires_existing_profitable_position_and_remaining_batch():
 def test_model_flags_must_be_actual_booleans(field, value):
     with pytest.raises(ValueError, match="RISK_FLAG_INVALID"):
         envelope(**{field: value})
+
+
+def test_0833_pending_plan_has_planning_capacity_but_is_never_an_execution_permission():
+    from liangjian_funnel.runtime import risk_engine
+    now = datetime.fromisoformat("2026-10-19T08:33:00+08:00")
+    pending = plan(status="PENDING_MORNING_REVIEW", price=D("10.5"))
+    before = pending
+    e = risk_engine.build_planning_envelope(pending, account(), (), RiskLimits(), now=now, regime="TREND_MAINLINE")
+    assert e.eligible and e.purpose == "PLANNING" and pending == before
+    current = plan(price=D("10"))
+    d = adjudicate_signal("s1", "BUY_SIGNAL", current, e, account(), (), RiskLimits(), now=NOW, regime="TREND_MAINLINE")
+    assert d.status == "REJECTED" and "PLANNING_ENVELOPE_NOT_EXECUTABLE" in d.reason_codes
+
+
+def test_fresh_quote_risk_amount_never_exceeds_a6_budget_even_when_share_cap_was_position_bound():
+    old = plan(entry_high=D("12"), no_chase=D("12"))
+    e = conservative_envelope(envelope(old), consecutive_failures=1)
+    current = replace(old, price=D("11"))
+    d = adjudicate_signal("s1", "BUY_SIGNAL", current, e, account(), (), RiskLimits(), now=NOW, regime="TREND_MAINLINE")
+    assert d.shares > 0 and D(d.shares) * (current.price-current.stop_price) <= e.risk_budget
+    assert "A6_RISK_BUDGET_CAP" in d.reason_codes
+
+
+@pytest.mark.parametrize("changes", [{"status": "INVALIDATED"},
+    {"data_ready": False}, {"tradable": False},
+    {"expires_at": datetime.fromisoformat("2026-10-18T15:00:00+08:00")}])
+def test_planning_capacity_does_not_remove_data_identity_or_calendar_gates(changes):
+    from liangjian_funnel.runtime import risk_engine
+    now=datetime.fromisoformat("2026-10-19T08:33:00+08:00")
+    assert not risk_engine.build_planning_envelope(plan(**changes), account(), (), RiskLimits(), now=now,
+                                                    regime="TREND_MAINLINE").eligible
