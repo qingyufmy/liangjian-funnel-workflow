@@ -211,7 +211,7 @@ class LocalPaperBroker:
                 "fills_today":tuple(dict(r) for r in c.execute("SELECT * FROM paper_fills WHERE substr(minute_end,1,10)=? ORDER BY fill_id",(day,)))}
             response=decide(snapshot)
             if (not isinstance(response,dict) or not {'judgment','order'}.issubset(response)
-                    or set(response)-{'judgment','order','halt_reason'} or not isinstance(response["judgment"],dict)):
+                    or set(response)-{'judgment','order','halt_reason','cancel_order_ids'} or not isinstance(response["judgment"],dict)):
                 raise ValueError("PAPER_ADMISSION_DECISION_INVALID")
             # Validate persisted judgment data before any paper order is placed.
             judgment=json.loads(json.dumps(response["judgment"],sort_keys=True,allow_nan=False))
@@ -225,6 +225,18 @@ class LocalPaperBroker:
                 c.execute('UPDATE paper_risk_days SET halt_reasons_json=? WHERE trade_date=?',(dump(reasons),day))
                 if halt=='DRAWDOWN_HALT':self._set(c,'risk_halt_reason',halt)
             order=response["order"];oid=None
+            requested=response.get('cancel_order_ids',[]);cancelled=[]
+            if (not isinstance(requested,list) or any(not isinstance(x,str) for x in requested)
+                    or len(set(requested))!=len(requested) or (requested and order is not None)):
+                raise ValueError('PAPER_CANCEL_SCOPE_INVALID')
+            for cancel_id in requested:
+                target=c.execute('SELECT * FROM paper_orders WHERE order_id=?',(cancel_id,)).fetchone()
+                if (target is None or target['plan_id']!=bound['plan_id'] or target['symbol']!=bound['symbol']
+                        or target['trade_date']!=day or target['status'] not in {'OPEN','PARTIAL'}
+                        or self._order(target).side!='BUY'):
+                    raise ValueError('PAPER_CANCEL_SCOPE_INVALID')
+                if mode=='control':
+                    self._cancel_order_tx(c,cancel_id);cancelled.append(cancel_id)
             if order is not None:
                 if (not isinstance(order,dict) or set(order)-{"side","qty","order_type","limit_price","no_chase_price","tradable"}
                         or judgment.get("status") not in {"APPROVED","REDUCED"}):
@@ -234,7 +246,7 @@ class LocalPaperBroker:
                         client_order_id="team-"+digest(signal_id)[:32],now=now,**order)
             result={"signal_id":signal_id,"binding":bound,"judgment":judgment,"mode":mode,
                 "order_id":oid,"order_side":order["side"] if oid else None,"dispatched":oid is not None,
-                "observed_at":now.isoformat()}
+                "observed_at":now.isoformat(),"cancelled_order_ids":cancelled}
             c.execute("INSERT INTO paper_admissions VALUES(?,?,?,?)",(signal_id,bhash,day,dump(result)))
             self._event(c,"admission:"+signal_id,"SIGNAL_ADMISSION",result)
             return result
@@ -245,12 +257,15 @@ class LocalPaperBroker:
 
     def cancel_order(self,order_id):
         with self._tx() as c:
-            row = c.execute("SELECT * FROM paper_orders WHERE order_id=?",(order_id,)).fetchone()
-            if row is None: raise ValueError("PAPER_ORDER_NOT_FOUND")
-            if row["status"] in ("OPEN","PARTIAL"):
-                c.execute("UPDATE paper_orders SET status='CANCELLED' WHERE order_id=?",(order_id,))
-                self._event(c,"cancel:"+order_id,"ORDER_CANCELLED",{"order_id":order_id})
-            return {"order_id":order_id,"status":"CANCELLED" if row["status"] in ("OPEN","PARTIAL") else row["status"]}
+            return self._cancel_order_tx(c,order_id)
+
+    def _cancel_order_tx(self,c,order_id):
+        row = c.execute("SELECT * FROM paper_orders WHERE order_id=?",(order_id,)).fetchone()
+        if row is None: raise ValueError("PAPER_ORDER_NOT_FOUND")
+        if row["status"] in ("OPEN","PARTIAL"):
+            c.execute("UPDATE paper_orders SET status='CANCELLED' WHERE order_id=?",(order_id,))
+            self._event(c,"cancel:"+order_id,"ORDER_CANCELLED",{"order_id":order_id})
+        return {"order_id":order_id,"status":"CANCELLED" if row["status"] in ("OPEN","PARTIAL") else row["status"]}
 
     def on_bar(self,bar:MinuteBar,rules:PaperRules,*,observed_at:datetime):
         day = local_time(bar.minute_end).date().isoformat(); end = local_time(bar.minute_end).isoformat()

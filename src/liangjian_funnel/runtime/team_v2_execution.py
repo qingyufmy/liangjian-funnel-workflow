@@ -66,12 +66,20 @@ def admit_trader_signal(*,broker,signal_id,action,plan,envelope,limits,all_plans
         plan_clusters={pid:[item.symbol,item.cluster] for pid,item in sorted(all_plans.items())})))
     def decide(snapshot):
         def block(code):return dict(judgment=dict(status='REJECTED',shares=0,risk_unit='NONE',reason_codes=[code]),order=None)
-        if action not in ENTRY|{'SELL_SIGNAL','REDUCE_SIGNAL'}:
+        if action not in ENTRY|{'SELL_SIGNAL','REDUCE_SIGNAL','CANCEL_SIGNAL'}:
             return dict(judgment=dict(status='NO_ORDER_ACTION',shares=0,risk_unit='NONE',reason_codes=[]),order=None)
         # No model completion from a past tick may create a current order.
         observed=datetime.fromisoformat(snapshot['observed_at']).astimezone(TZ)
         if observed.date()!=current.date() or observed.replace(second=0,microsecond=0)!=current.replace(second=0,microsecond=0):
             return block('TRADER_EXECUTION_CLOCK_MOVED')
+        if action=='CANCEL_SIGNAL':
+            # Exact order IDs come only from the current owned paper snapshot.
+            # Cancel entry reservations, never an independent protective exit.
+            ids=[row['order_id'] for row in snapshot['open_orders'] if row['plan_id']==plan.plan_id
+                and row['symbol']==plan.symbol and row['side']=='BUY'
+                and datetime.fromisoformat(row['submitted_at']).astimezone(TZ).date()==current.date()]
+            return dict(judgment=dict(status='NO_ORDER_ACTION',shares=0,risk_unit='NONE',reason_codes=[]),
+                order=None,cancel_order_ids=ids)
         minute=current.replace(second=0,microsecond=0)
         if not minute-timedelta(minutes=1)<=mark_as_of.astimezone(TZ)<=minute:
             return block('TRADER_MARK_TIME_UNPROVEN')

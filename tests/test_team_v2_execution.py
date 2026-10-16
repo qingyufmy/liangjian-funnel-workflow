@@ -90,6 +90,51 @@ def test_record_mode_does_not_enter_admission_trading_counters(tmp_path):
     assert not row['dispatched'] and b.get_orders('2026-10-19')==()
 
 
+def test_cancel_signal_only_releases_exact_plan_pending_entry_once(tmp_path):
+    b,args=fixture(tmp_path)
+    entry=admit_trader_signal(**args)
+    before=b.get_account()['frozen']
+    cancelled=admit_trader_signal(**(args|dict(signal_id='cancel1',action='CANCEL_SIGNAL')))
+    assert cancelled['cancelled_order_ids']==[entry['order_id']]
+    assert D(before)>0 and D(b.get_account()['frozen'])==0
+    assert admit_trader_signal(**(args|dict(signal_id='cancel1',action='CANCEL_SIGNAL')))==cancelled
+    assert b.get_orders('2026-10-19')[0]['status']=='CANCELLED'
+
+
+def test_record_cancel_does_not_cancel_pending_order(tmp_path):
+    b,args=fixture(tmp_path)
+    admit_trader_signal(**args)
+    row=admit_trader_signal(**(args|dict(signal_id='record-cancel',action='CANCEL_SIGNAL',mode='record')))
+    assert row['cancelled_order_ids']==[] and b.get_orders('2026-10-19')[0]['status']=='OPEN'
+
+
+def test_cancel_cannot_touch_another_plan(tmp_path):
+    b,args=fixture(tmp_path)
+    p2=replace(plan(),plan_id='p2',symbol='000002.SZ')
+    second=admit_trader_signal(**(args|dict(signal_id='second',plan=p2,
+        envelope=replace(envelope(),plan_id='p2',symbol=p2.symbol),all_plans={'p1':plan(),'p2':p2})))
+    assert second['dispatched']
+    row=admit_trader_signal(**(args|dict(signal_id='empty-cancel',action='CANCEL_SIGNAL')))
+    assert row['cancelled_order_ids']==[] and b.get_orders('2026-10-19')[0]['status']=='OPEN'
+    # Even a faulty trusted callback cannot nominate a foreign order ID.
+    with pytest.raises(ValueError,match='PAPER_CANCEL_SCOPE_INVALID'):
+        b.admit_signal('bad-cancel',binding=dict(plan_id='p1',symbol='000001.SZ',trade_date='2026-10-19'),
+            decide=lambda _:dict(judgment={},order=None,cancel_order_ids=[second['order_id']]))
+    assert b.get_orders('2026-10-19')[0]['status']=='OPEN'
+
+
+def test_cancel_and_admission_audit_rollback_together_on_storage_failure(tmp_path,monkeypatch):
+    b,args=fixture(tmp_path)
+    admit_trader_signal(**args);before=b.snapshot_bytes();original=b._event
+    def fail(c,key,kind,payload):
+        if kind=='SIGNAL_ADMISSION':raise RuntimeError('ISOLATED_STORAGE_FAULT')
+        return original(c,key,kind,payload)
+    monkeypatch.setattr(b,'_event',fail)
+    with pytest.raises(RuntimeError,match='ISOLATED_STORAGE_FAULT'):
+        admit_trader_signal(**(args|dict(signal_id='failed-cancel',action='CANCEL_SIGNAL')))
+    assert b.snapshot_bytes()==before
+
+
 def test_basis_cannot_be_opened_late_or_reset_after_orders(tmp_path):
     b=broker(tmp_path/'paper.db')
     with pytest.raises(ValueError,match='RISK_DAY_OPEN_TIME'):
@@ -114,6 +159,12 @@ def test_t1_applies_to_model_exit_but_next_day_expired_plan_can_sell(tmp_path):
         envelope=replace(envelope(),trade_date='2026-10-20'),
         calendar=SimpleNamespace(is_trading_day=lambda day:day.isoformat()=='2026-10-20'))))
     assert result['dispatched'] and result['judgment']['shares']==20000
+    cancel=admit_trader_signal(**(args|dict(broker=restarted,signal_id='cancel-exit',action='CANCEL_SIGNAL',
+        now=tomorrow,closed_5m_end=tomorrow,mark_as_of=tomorrow,
+        envelope=replace(envelope(),trade_date='2026-10-20'),
+        calendar=SimpleNamespace(is_trading_day=lambda day:day.isoformat()=='2026-10-20'))))
+    assert cancel['cancelled_order_ids']==[]
+    assert restarted.get_orders('2026-10-20')[0]['status']=='OPEN'
 
 
 def test_drawdown_halt_survives_rebound_and_new_risk_day(tmp_path):
