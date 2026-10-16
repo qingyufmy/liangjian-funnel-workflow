@@ -63,11 +63,57 @@ class TeamMeetingStore:
                     account_id TEXT NOT NULL, trade_date TEXT NOT NULL,
                     input_sha256 TEXT NOT NULL, result_json TEXT NOT NULL,
                     UNIQUE(account_id,trade_date,source_call_id));
+                CREATE TABLE IF NOT EXISTS trader_sessions (
+                    decision_id TEXT PRIMARY KEY, source_call_id TEXT NOT NULL,
+                    account_id TEXT NOT NULL, trade_date TEXT NOT NULL,
+                    input_sha256 TEXT NOT NULL, result_json TEXT NOT NULL,
+                    UNIQUE(account_id,trade_date,source_call_id));
+                CREATE TABLE IF NOT EXISTS trader_session_claims (
+                    decision_id TEXT PRIMARY KEY, input_sha256 TEXT NOT NULL);
                 COMMIT;
             """)
 
     def _connect(self):
         return sqlite3.connect(self.path, timeout=2)
+
+    def load_trader(self, decision_id: str, *, input_sha256: str):
+        with closing(self._connect()) as db:
+            row=db.execute('SELECT input_sha256,result_json FROM trader_sessions WHERE decision_id=?',
+                (decision_id,)).fetchone()
+        if row is None:return None
+        if row[0]!=input_sha256:raise ValueError('TRADER_SESSION_BINDING_CONFLICT')
+        return json.loads(row[1])
+
+    def claim_trader(self, decision_id: str, *, input_sha256: str):
+        if any(not isinstance(v,str) or not v.strip() for v in (decision_id,input_sha256)):
+            raise ValueError('TRADER_SESSION_ID_INVALID')
+        with closing(self._connect()) as db,db:
+            db.execute('BEGIN IMMEDIATE')
+            old=db.execute('SELECT input_sha256 FROM trader_session_claims WHERE decision_id=?',
+                (decision_id,)).fetchone()
+            if old:
+                if old[0]!=input_sha256:raise ValueError('TRADER_SESSION_BINDING_CONFLICT')
+                return
+            db.execute('INSERT INTO trader_session_claims VALUES (?,?)',(decision_id,input_sha256))
+
+    def record_trader(self, *, decision_id: str, source_call_id: str, account_id: str,
+                      trade_date: str, input_sha256: str, result: dict):
+        if (any(not isinstance(v,str) or not v.strip() for v in
+                (decision_id,source_call_id,account_id,input_sha256))
+                or date.fromisoformat(trade_date).isoformat()!=trade_date):
+            raise ValueError('TRADER_SESSION_ID_INVALID')
+        text=canonical(result)
+        with closing(self._connect()) as db,db:
+            db.execute('BEGIN IMMEDIATE')
+            rows=db.execute('SELECT input_sha256,result_json FROM trader_sessions WHERE decision_id=? OR '
+                '(account_id=? AND trade_date=? AND source_call_id=?)',
+                (decision_id,account_id,trade_date,source_call_id)).fetchall()
+            if rows:
+                if len(rows)!=1 or rows[0]!=(input_sha256,text):raise ValueError('TRADER_SESSION_BINDING_CONFLICT')
+                return json.loads(rows[0][1])
+            db.execute('INSERT INTO trader_sessions VALUES (?,?,?,?,?,?)',
+                (decision_id,source_call_id,account_id,trade_date,input_sha256,text))
+        return json.loads(text)
 
     def load_pm(self, meeting_id: str, *, input_sha256: str):
         with closing(self._connect()) as db:
