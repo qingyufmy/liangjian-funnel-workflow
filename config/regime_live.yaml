@@ -1,0 +1,25 @@
+# Primary rules reuse market-regime/2.0.0. Emotion rules: Tony 0234b.
+schema_version: live-regime/1
+version: '2026-10-16.1'
+primary:
+  breadth_risk_off_lte: '0.35'
+  rotation_overlap_gte: '0.40'
+confirmation_bars: 2
+authority_from: '09:45'
+emotion:
+  status: APPROVED
+  approved_by: tony
+  approved_at: '2026-10-16T22:38:00+08:00'
+  enabled: true
+  exclude_st: true
+  minimum_listing_days: 5
+  'on':
+    limit_up_gte: 40
+    broken_rate_lte: '0.35'
+    highest_streak_gte: 3
+    limit_down_lte: 10
+  'off':
+    limit_up_lt: 20
+    broken_rate_gt: '0.50'
+    limit_down_gte: 20
+    risk_off: true

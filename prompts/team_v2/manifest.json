@@ -1,6 +1,6 @@
 {
   "schema_version": "claude-team-prompt-bundle/3.0.2",
-  "authority": "canonical .claude_bridge/outbox/0222-reply.md; A1/A2/A3 unchanged 0204 SHA",
+  "authority": "canonical .claude_bridge/outbox/0234-reply.md; A6 1.0.3 and README exact approved bytes; other six unchanged 0222/0204 SHA",
   "role_semantics_modified": false,
   "files": {
     "00_shared_system_v3.txt": {
@@ -28,12 +28,12 @@
       "bytes": 6980
     },
     "agent_6_risk_governor_v1.txt": {
-      "sha256": "3197c25399273fa5f230c76bf41979bc4c8677055a59bfabd00c883fbe4ad954",
-      "bytes": 6094
+      "sha256": "4a790958d04dce655bf5be2b8aef8c657664efb888a26bceb1c4f3806faf6199",
+      "bytes": 6541
     },
     "README_TEAM_V2_PROMPTS.md": {
-      "sha256": "1d8e76087e72c74ecd104c8557fc1ae7f74f0f2f1a5da854c2c86ef89d091846",
-      "bytes": 5767
+      "sha256": "4a1b2261b385dea6b84f04188a6114b6739536f87fa0bd1b34745e166a415aad",
+      "bytes": 6167
     }
   }
 }

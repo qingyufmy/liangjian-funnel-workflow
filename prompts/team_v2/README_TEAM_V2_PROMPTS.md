@@ -24,7 +24,7 @@
 - A3 候选域 = A2 FOCUS + WATCH_ONLY（均为技术送审来源）；仅 model_nominations 不进 A3。
 - EVIDENCE_CATALOG：每层注入的可引用 ID 目录；引用不在目录内 → INVALID。
 - 模型判断全部进 `model_judgments`（decision_id/plan_id 唯一、原始输出与解析状态不可变、T+1/T+3 独立列），不混入有效入场 cohort。
-- prompt_version：shared 3.0.2 / A1 3.0.1 / A2 3.0.1 / A3 4.0.1 / A4-trader 1.0.2 / A5 2.0.2 / A6 1.0.2；envelope 原样回填。
+- prompt_version：shared 3.0.2 / A1 3.0.1 / A2 3.0.1 / A3 4.0.1 / A4-trader 1.0.2 / A5 2.0.2 / A6 1.0.3；envelope 原样回填。
 - 体积：角色专属 ≤12KB；A1 例外 ≤48KB（低频 pro 调用，v2 硬规则全部保留，见 A1【合同说明】C4），共享另计。
 
 ## 干跑要求（发布门）
@@ -42,3 +42,7 @@
 ## 3.0.2 修订记录（2026-10-16，回应 0213）
 - A4 / A5 / A6 输出 Schema 根对象补 `envelope`（第一个字段，原样复制 required_envelope），与 A1/A2/A3 一致；共享第五节写明六角色全部适用。它是 Schema 内字段，不是 O6 例外。
 - A1/A2/A3 文件未改动。其他字段、角色、动作、权限零改动。
+
+## A6 1.0.3（2026-10-16，回应 0232）
+- exception_actions 增 `target_id`（原样复制 EXCEPTION_CONTEXT 对象 ID），以 (target, target_id) 绑定；每个上下文对象恰好一条（可 NO_ACTION），缺失/重复/域外无效。
+- RESUME 边界写入规则 4：只解除 A6 自己对同一对象的临时收紧；硬熔断（日亏/回撤/连续失败 HALT）不可由模型解除。

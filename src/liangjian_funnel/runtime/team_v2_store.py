@@ -82,11 +82,43 @@ class TeamMeetingStore:
                     meeting_id TEXT NOT NULL, symbol TEXT NOT NULL,
                     pm_call_id TEXT NOT NULL, risk_call_id TEXT NOT NULL,
                     evidence_json TEXT NOT NULL, PRIMARY KEY(meeting_id,symbol));
+                CREATE TABLE IF NOT EXISTS regime_observations (
+                    trade_date TEXT NOT NULL,tick TEXT NOT NULL,input_sha256 TEXT NOT NULL,
+                    result_json TEXT NOT NULL,PRIMARY KEY(trade_date,tick));
+                CREATE TABLE IF NOT EXISTS regime_transitions (
+                    transition_id TEXT PRIMARY KEY,trade_date TEXT NOT NULL,tick TEXT NOT NULL,
+                    evidence_json TEXT NOT NULL,notification_status TEXT NOT NULL DEFAULT 'PENDING');
                 COMMIT;
             """)
 
     def _connect(self):
         return sqlite3.connect(self.path, timeout=2)
+
+    def record_live_regime(self,*,facts,tick,observed_at,prior,rules):
+        from .team_v2_regime import advance,frozen_candidates
+        primary,emotion=frozen_candidates(facts,tick=tick,observed_at=observed_at,rules=rules)
+        stamp=tick.astimezone(ZoneInfo('Asia/Shanghai')).isoformat();day=stamp[:10]
+        binding=hashlib.sha256(canonical(dict(facts=facts,tick=stamp,observed_at=observed_at.isoformat(),
+            prior=prior,config_sha256=rules['config_sha256'])).encode()).hexdigest()
+        with closing(self._connect()) as db,db:
+            db.execute('BEGIN IMMEDIATE')
+            old=db.execute('SELECT input_sha256,result_json FROM regime_observations WHERE trade_date=? AND tick=?',
+                (day,stamp)).fetchone()
+            if old:
+                if old[0]!=binding:raise ValueError('REGIME_OBSERVATION_BINDING_CONFLICT')
+                return json.loads(old[1])
+            latest=db.execute('SELECT result_json FROM regime_observations WHERE trade_date=? ORDER BY tick DESC LIMIT 1',
+                (day,)).fetchone()
+            previous=json.loads(latest[0])['state'] if latest else {}
+            result=advance(previous,tick=tick,primary=primary,emotion=emotion,prior=prior,rules=rules)
+            result.update(source_input_sha256=binding,config_sha256=rules['config_sha256'])
+            db.execute('INSERT INTO regime_observations VALUES (?,?,?,?)',(day,stamp,binding,canonical(result)))
+            for transition in result['transitions']:
+                evidence=dict(transition,source_input_sha256=binding,config_sha256=rules['config_sha256'])
+                tid=hashlib.sha256(canonical(evidence).encode()).hexdigest()
+                db.execute('INSERT INTO regime_transitions(transition_id,trade_date,tick,evidence_json) VALUES (?,?,?,?)',
+                    (tid,day,stamp,canonical(evidence)))
+        return result
 
     def claim_eod(self, meeting_id: str, *, input_sha256: str):
         if any(not isinstance(v,str) or not v.strip() for v in (meeting_id,input_sha256)):
