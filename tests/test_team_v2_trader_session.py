@@ -88,15 +88,17 @@ def test_invalid_or_failed_model_never_defaults_to_buy(tmp_path,invalid,offline)
     assert b'PRIVATE_PROVIDER_DETAILS' not in (tmp_path/'team.db').read_bytes()
 
 
-def test_crash_after_paper_commit_resumes_no_provider_or_order_duplicate(tmp_path,monkeypatch):
-    kwargs,seen,_=fixture(tmp_path)
+@pytest.mark.parametrize('offline',[False,True])
+def test_crash_after_paper_commit_resumes_no_provider_or_order_duplicate(tmp_path,monkeypatch,offline):
+    kwargs,seen,_=fixture(tmp_path,offline=offline)
     def broken(**_):raise sqlite3.OperationalError('ISOLATED_COMMIT_FAULT')
     monkeypatch.setattr(kwargs['store'],'record_trader',broken)
     with pytest.raises(sqlite3.OperationalError):run_trader_session(**kwargs)
-    assert len(kwargs['broker'].get_orders('2026-10-19'))==1
+    assert len(kwargs['broker'].get_orders('2026-10-19'))==(0 if offline else 1)
     kwargs['store']=TeamMeetingStore(tmp_path/'team.db')
-    assert run_trader_session(**kwargs)['admissions'][0]['dispatched'] and len(seen)==1
-    assert len(kwargs['broker'].get_orders('2026-10-19'))==1
+    result=run_trader_session(**kwargs)
+    assert result['status']==('TRADER_DEGRADED_NO_ACTION' if offline else 'EVALUATED') and len(seen)==1
+    assert len(kwargs['broker'].get_orders('2026-10-19'))==(0 if offline else 1)
 
 
 def test_capture_before_any_admission_crash_resumes_original_vote(tmp_path,monkeypatch):

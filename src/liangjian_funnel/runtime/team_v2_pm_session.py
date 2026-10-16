@@ -12,7 +12,7 @@ import hashlib
 import json
 from zoneinfo import ZoneInfo
 
-from ..pipeline.team_v2_model import call_team_model
+from ..pipeline.team_v2_model import call_team_model,team_call_binding
 from ..pipeline.team_v2_pm_schema import validate_pm_premarket
 from .team_v2_store import canonical
 
@@ -63,6 +63,10 @@ def run_pm_premarket(*, repository, client, journal, store, meeting_id: str, cal
         checked = validate_pm_premarket(output, values['EVIDENCE_CATALOG'], **validator_args)
         valid = captured['validated'] and checked.valid
         issues = tuple(dict.fromkeys((*captured['issues'], *checked.issues)))
+    elif (failure := journal.load_failed(call_id,request_binding=team_call_binding(request,
+            run_id=run_id,model=model,session='PM_PREMARKET',timeout_seconds=timeout_seconds,
+            max_output_tokens=max_output_tokens))) is not None:
+        issues=(failure,)
     else:
         try:
             outcome = call_team_model(request, client, journal, call_id=call_id, run_id=run_id, model=model,

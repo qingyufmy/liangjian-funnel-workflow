@@ -61,13 +61,14 @@ def test_pm_actual_client_schema_and_both_journals_restart_without_another_call(
         assert db.execute("SELECT name FROM sqlite_master WHERE name='execution_plans'").fetchall() == []
 
 
-def test_capture_then_meeting_commit_crash_resumes_original_output_without_provider_retry(tmp_path, monkeypatch):
-    kwargs, seen = fixture(tmp_path)
+@pytest.mark.parametrize('offline',[False,True])
+def test_capture_then_meeting_commit_crash_resumes_original_output_without_provider_retry(tmp_path, monkeypatch,offline):
+    kwargs, seen = fixture(tmp_path,offline=offline)
     def broken(**_): raise sqlite3.OperationalError('TEST_ONLY_STORAGE_FAULT')
     monkeypatch.setattr(kwargs['store'], 'record_pm', broken)
     with pytest.raises(sqlite3.OperationalError): run_pm_premarket(**kwargs)
     kwargs['store'] = TeamMeetingStore(tmp_path/'team.sqlite3')
-    assert run_pm_premarket(**kwargs)['status'] == 'READY' and len(seen) == 1
+    assert run_pm_premarket(**kwargs)['status'] == ('PM_DEGRADED_NO_ALLOCATION' if offline else 'READY') and len(seen) == 1
 
 
 @pytest.mark.parametrize('invalid,offline', [(True, False), (False, True)])

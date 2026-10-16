@@ -87,6 +87,18 @@ class ModelJudgmentJournal:
             db.execute("UPDATE model_call_claims SET state='FAILED',failure_code=? WHERE call_id=? AND state='CLAIMED'",
                        (code, call_id))
 
+    def load_failed(self, call_id: str, *, request_binding: str):
+        """Replay a proven terminal transport failure, never an in-flight claim."""
+        with closing(self._connect()) as db:
+            row=db.execute('SELECT request_binding,state,failure_code FROM model_call_claims WHERE call_id=?',
+                (call_id,)).fetchone()
+        if row is None:return None
+        if row[0]!=request_binding:raise ValueError('MODEL_CALL_BINDING_CONFLICT')
+        if row[1]!='FAILED':return None
+        if row[2] not in {'TEAM_MODEL_CALL_FAILED','TEAM_MODEL_RESULT_INVALID','TEAM_VALIDATOR_FAILED'}:
+            raise ValueError('MODEL_FAILURE_CODE_INVALID')
+        return row[2]
+
     def load_captured(self, call_id: str, *, expected: dict):
         """Resume after capture-before-meeting crash without another provider call.
 

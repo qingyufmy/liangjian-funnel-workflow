@@ -12,7 +12,7 @@ import json
 from zoneinfo import ZoneInfo
 
 from liangjian_paper_broker.ledger import dump
-from ..pipeline.team_v2_model import call_team_model
+from ..pipeline.team_v2_model import call_team_model,team_call_binding
 from ..pipeline.team_v2_trader_schema import validate_trader_output
 from .team_v2_execution import admit_trader_signal
 from .trader_guardrails import is_closed_trader_tick
@@ -83,6 +83,10 @@ def run_trader_session(*,repository,client,journal,store,broker,decision_id,minu
         checked=validate_trader_output(output,values['EVIDENCE_CATALOG'],**validation_context)
         valid=captured['validated'] and checked.valid
         issues=tuple(dict.fromkeys((*captured['issues'],*checked.issues)))
+    elif (failure := journal.load_failed(call_id,request_binding=team_call_binding(request,
+            run_id=run_id,model=model,session='INTRADAY',timeout_seconds=timeout_seconds,
+            max_output_tokens=max_output_tokens))) is not None:
+        issues=(failure,)
     else:
         try:
             outcome=call_team_model(request,client,journal,call_id=call_id,run_id=run_id,model=model,

@@ -70,11 +70,35 @@ class TeamMeetingStore:
                     UNIQUE(account_id,trade_date,source_call_id));
                 CREATE TABLE IF NOT EXISTS trader_session_claims (
                     decision_id TEXT PRIMARY KEY, input_sha256 TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS risk_session_requests (
+                    meeting_id TEXT PRIMARY KEY, input_sha256 TEXT NOT NULL,
+                    observed_at TEXT NOT NULL);
                 COMMIT;
             """)
 
     def _connect(self):
         return sqlite3.connect(self.path, timeout=2)
+
+    def claim_risk_session(self, meeting_id: str, *, input_sha256: str, observed_at: datetime):
+        if (any(not isinstance(v,str) or not v.strip() for v in (meeting_id,input_sha256))
+                or not isinstance(observed_at,datetime) or observed_at.utcoffset() is None):
+            raise ValueError('A6_SESSION_ID_INVALID')
+        with closing(self._connect()) as db,db:
+            db.execute('BEGIN IMMEDIATE')
+            old=db.execute('SELECT input_sha256,observed_at FROM risk_session_requests WHERE meeting_id=?',
+                (meeting_id,)).fetchone()
+            if old:
+                if old[0]!=input_sha256:raise ValueError('A6_SESSION_BINDING_CONFLICT')
+                return datetime.fromisoformat(old[1])
+            db.execute('INSERT INTO risk_session_requests VALUES (?,?,?)',(meeting_id,input_sha256,observed_at.isoformat()))
+        return observed_at
+
+    def load_risk_session(self, meeting_id: str, *, input_sha256: str):
+        with closing(self._connect()) as db:
+            request=db.execute('SELECT input_sha256 FROM risk_session_requests WHERE meeting_id=?',(meeting_id,)).fetchone()
+            if request is None or request[0]!=input_sha256:raise ValueError('A6_SESSION_BINDING_CONFLICT')
+            row=db.execute('SELECT result_json FROM risk_meetings WHERE meeting_id=?',(meeting_id,)).fetchone()
+        return self._decode(row[0]) if row else None
 
     def load_trader(self, decision_id: str, *, input_sha256: str):
         with closing(self._connect()) as db:

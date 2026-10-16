@@ -28,6 +28,12 @@ def _hash(value):
     return hashlib.sha256(text.encode()).hexdigest()
 
 
+def team_call_binding(request, *, run_id, model, session, timeout_seconds, max_output_tokens):
+    return _hash({'run_id':run_id,'session':session,'role':request.prompt.role,
+        'input_hash':request.input_hash,'model':model,'timeout_seconds':timeout_seconds,
+        'max_output_tokens':max_output_tokens,'catalog_hash':request.evidence_catalog_hash})
+
+
 def call_team_model(request: TeamMessageRequest, client, journal: ModelJudgmentJournal, *,
                     call_id: str, run_id: str, model: str, session: str,
                     source_trade_date: str, execution_trade_date: str, catalog: dict,
@@ -63,10 +69,8 @@ def call_team_model(request: TeamMessageRequest, client, journal: ModelJudgmentJ
     now=clock()
     if not isinstance(now,datetime) or now.tzinfo is None or now.utcoffset() is None:
         raise ValueError("TEAM_CALL_CLOCK_INVALID")
-    binding = _hash({"run_id": run_id, "session": session, "role": request.prompt.role,
-                     "input_hash": request.input_hash, "model": model,
-                     "timeout_seconds": timeout_seconds, "max_output_tokens": max_output_tokens,
-                     "catalog_hash": catalog_hash})
+    binding = team_call_binding(request,run_id=run_id,model=model,session=session,
+        timeout_seconds=timeout_seconds,max_output_tokens=max_output_tokens)
     journal.claim(call_id, binding)
     try:
         response = client.complete(model, messages, prompt_hash=request.prompt.sha256,
