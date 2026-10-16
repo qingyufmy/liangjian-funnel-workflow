@@ -35,7 +35,7 @@ def test_monitor_consumes_persisted_revision_or_blocks(monkeypatch, tmp_path, br
     app._expire_missed_a4_entries = lambda _: None
     app.activate_latest_a3_for_monitor = lambda **_: {}
     settlements = []
-    app._settle_prior_signals = lambda *args: settlements.append(args) or []
+    app._settle_prior_signals = lambda *args, **kwargs: settlements.append(args) or []
     app._record_a4_outcomes = lambda *args: {}
     app._a4_callback = lambda *args, **kwargs: None
     app._fetch_live_bars = lambda *args, **kwargs: FetchResult(symbol=symbol, interval="1m",

@@ -97,6 +97,7 @@ export interface JobRunRecord {
   readonly status: JobStatus;
   readonly reason: string | null;
   readonly monitorTrace?: Readonly<Record<string, unknown>>;
+  readonly monitorBusiness?: Readonly<Record<string, unknown>>;
 }
 
 export interface LogEvent {

@@ -42,14 +42,19 @@ def entry_bar_for(signal: Mapping[str, Any]) -> datetime | None:
         raise ValueError("ENTRY_CONTRACT_CLOCK_INVALID")
 
     def stamp(raw):
-        value = raw if isinstance(raw, datetime) else datetime.fromisoformat(str(raw))
+        try:
+            value = raw if isinstance(raw, datetime) else datetime.fromisoformat(str(raw))
+        except (ValueError,TypeError):
+            raise ValueError("ENTRY_CONTRACT_CLOCK_INVALID") from None
         if value.tzinfo is None:
             raise ValueError("ENTRY_CONTRACT_CLOCK_INVALID")
         return value.astimezone(ZoneInfo("Asia/Shanghai"))
 
-    reviewed = contract.get("order_created_at") or contract.get("review_completed_at")
-    reference = reviewed or signal.get("signal_time") or signal.get("minute_end")
-    calculated = next_complete_minute(stamp(reference))
+    references = [contract.get("order_created_at"),contract.get("review_completed_at"),
+                  signal.get("signal_time") or signal.get("minute_end")]
+    clocks = [stamp(reference) for reference in references if reference is not None]
+    if not clocks:raise ValueError("ENTRY_CONTRACT_CLOCK_INVALID")
+    calculated = next_complete_minute(max(clocks))
     if contract.get("eligible_bar_end") is None:
         return calculated
     frozen = stamp(contract["eligible_bar_end"])

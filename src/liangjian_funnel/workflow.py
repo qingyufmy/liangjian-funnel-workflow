@@ -132,7 +132,7 @@ from .reporting import atomic_write_json, atomic_write_json_streaming, atomic_wr
 from .review.daily import A5DailyReviewService, A5ReviewKind
 from .review.verification import A5IndependentVerifier
 from .runtime.monitor import MonitorBatchResult, MonitorEngine, MonitorEvent, rebuild_effective_markdown
-from .runtime.monitor_phase_trace import mark_phase, phase_timings
+from .runtime.monitor_phase_trace import mark_phase, phase_timings, record_business_reasons
 from .runtime.llm_review import ReviewCallbackResult, ReviewTransportAudit
 from .runtime.bounded_work import BoundedWorkGate, run_many_bounded
 from .runtime.decision_observability import (
@@ -4626,6 +4626,15 @@ class WorkflowApplication:
             lane_id: tuple(self.store.list_positions(f"paper:{lane_id}"))
             for lane_id in self.brokers
         }
+        reconcile_held = getattr(self.store, "reconcile_held_a4_lifecycles", None)
+        if callable(reconcile_held):
+            for lane_id, positions in lane_positions.items():
+                for position in positions:
+                    conflicts = reconcile_held(account_id=f"paper:{lane_id}",
+                        symbol=str(position["symbol"]), at=current)
+                    if conflicts:
+                        record_business_reasons({"STATE_CONFLICT_QUARANTINED":len(conflicts),
+                                                 "A4_LIFECYCLE_RECONCILIATION_REQUIRED":len(conflicts)})
         position_symbols = sorted({
             str(position["symbol"])
             for positions in lane_positions.values()
@@ -5574,6 +5583,10 @@ class WorkflowApplication:
         payload["phase_timings"] = phase_timings()
         payload["phase_timing_source"] = "NODE_FINAL_RECEIPT_AUTHORITATIVE"
         atomic_write_json(self.settings.workflow_output_dir / "monitor" / "latest.json", payload)
+        record_business_reasons({code:sum(event.reason_code==code
+            for batch in lane_batches.values() for event in batch.events)
+            for code in {event.reason_code for batch in lane_batches.values() for event in batch.events
+                         if event.action in {"DATA_BLOCK","BLOCK","MONITOR_OVERRUN"} and event.reason_code}})
         payload["phase_timings"] = phase_timings()
         return payload
 
@@ -7365,6 +7378,9 @@ class WorkflowApplication:
                                      *, observed_at: datetime,
                                      entry_bars: Sequence[MinuteBar] | None = None) -> tuple[list[dict[str, Any]], str | None]:
         try:
+            settle = getattr(self, "_settle_prior_signals", None)
+            if callable(settle):
+                return settle(lane_id, symbol, bar, entry_bars=entry_bars), None
             return WorkflowApplication._settle_prior_signals(self, lane_id, symbol, bar,
                 entry_bars=entry_bars), None
         except (StateTransitionError, ValueError) as exc:
@@ -7375,6 +7391,7 @@ class WorkflowApplication:
             ):
                 self.store.quarantine_a4_signal(str(lifecycle["entry_event_key"]),
                     reason_code=str(exc), at=observed_at)
+            record_business_reasons({"STATE_CONFLICT_QUARANTINED":1})
             return [], "STATE_CONFLICT_QUARANTINED"
 
     def _settle_prior_signals(self, lane_id: str, symbol: str, bar: MinuteBar,
@@ -7425,9 +7442,11 @@ class WorkflowApplication:
             })
             if action in {"BUY", "ADD"}:
                 original_bar = original_windows.get(contract_eligible_end)
-                if original_bar is None:
+                if (original_bar is None and self.store.get_fill_by_intent_key(
+                        f"{account_id}:{event['event_key']}:{action}") is None):
                     continue
-                bar = original_bar
+                if original_bar is not None:
+                    bar = original_bar
             contract_eligible_from = (
                 contract_eligible_end - timedelta(minutes=1)
                 if contract_eligible_end is not None else signal_time
@@ -7515,6 +7534,8 @@ class WorkflowApplication:
                     if lifecycle.get("status") in {"UNFILLED", "CANCELLED", "INVALIDATED", "DATA_ERROR"}:
                         self.store.quarantine_a4_signal(lifecycle_key,
                             reason_code="A4_TERMINAL_STATE_CONFLICT", at=bar.bar_end)
+                        record_business_reasons({"STATE_CONFLICT_QUARANTINED":1,
+                                                 "A4_LIFECYCLE_RECONCILIATION_REQUIRED":1})
                         # Do not reopen a terminal lifecycle or replay money.
                         # Continue to later protective exits for held inventory.
                         continue
@@ -7531,6 +7552,9 @@ class WorkflowApplication:
 
             eligible_bar = contract_eligible_end
             if action in {"BUY", "ADD"}:
+                quarantine_reader = getattr(self.store, "get_a4_plan_quarantine", None)
+                if callable(quarantine_reader) and quarantine_reader(str(payload.get("plan_id") or "")):
+                    continue
                 if eligible_bar is None:
                     continue
                 if bar.bar_end < eligible_bar:

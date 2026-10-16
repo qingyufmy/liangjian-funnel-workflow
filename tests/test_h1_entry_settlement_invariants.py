@@ -84,6 +84,15 @@ def test_single_entry_clock_session_boundaries(clock,expected):
     assert entry_bar_for({'signal_time':at(clock)}) == (at(expected) if expected else None)
 
 
+def test_entry_clock_uses_latest_review_and_creation_time_and_never_echoes_bad_input():
+    with pytest.raises(ValueError,match='^ENTRY_CONTRACT_CLOCK_CONFLICT$'):
+        entry_bar_for({'signal_time':at('11:16:00'),'entry_contract':{
+            'order_created_at':at('11:16:17'),'review_completed_at':at('11:19:17'),
+            'eligible_bar_end':at('11:18:00')}})
+    with pytest.raises(ValueError,match='^ENTRY_CONTRACT_CLOCK_INVALID$'):
+        entry_bar_for({'signal_time':'FAKE_PRIVATE_FIXTURE_DO_NOT_ECHO'})
+
+
 def test_unfilled_requires_the_exact_original_matching_bar(tmp_path):
     store,app,bar=seeded(tmp_path)
     later=bar.model_copy(update={'bar_end':at('11:19:00')})
@@ -143,6 +152,16 @@ def test_historical_orphan_is_quarantined_without_reopening_or_money_replay(tmp_
     incident=store.get_a4_plan_quarantine('p1')
     assert incident['reason_code']=='A4_TERMINAL_STATE_CONFLICT'
     assert 'A4_LIFECYCLE_RECONCILIATION_REQUIRED' in incident['evidence_json']
+
+
+def test_next_day_packet_without_original_entry_bar_still_detects_existing_orphan(tmp_path):
+    store,app,bar=seeded(tmp_path)
+    WorkflowApplication._settle_prior_signals(app,'lane_1','600621.SH',bar)
+    original=corrupt_local_fixture_only(tmp_path,store)
+    next_day=bar.model_copy(update={'bar_end':datetime.fromisoformat('2026-10-19T09:31:00+08:00')})
+    WorkflowApplication._settle_prior_signals(app,'lane_1','600621.SH',next_day)
+    assert store.get_a4_plan_quarantine('p1') is not None
+    assert store.get_a4_signal_lifecycle('h1-entry')==original
 
 
 def test_quarantined_position_still_records_hard_stop_without_terminal_reopen(tmp_path):
@@ -215,3 +234,28 @@ def test_quarantine_excludes_cohort_but_raw_decision_remains_readable(tmp_path):
     store.quarantine_a4_signal('h1-entry',reason_code='A4_TERMINAL_STATE_CONFLICT',at=at('11:19:00'))
     assert store.list_outcome_labels(stage='A4')==()
     assert store.list_outcome_labels(stage='A4',include_quarantined=True)==(before,)
+
+
+def test_quarantine_follows_same_lane_symbol_not_a_replacement_plan_id(tmp_path):
+    store,_,_=seeded(tmp_path)
+    store.quarantine_a4_signal('h1-entry',reason_code='A4_TERMINAL_STATE_CONFLICT',at=at('11:19:00'))
+    for pid,lane,symbol in [('replacement','lane_1','600621.SH'),('other-stock','lane_1','600000.SH'),('other-lane','lane_2','600621.SH')]:
+        store.create_execution_plan(pid,lane,symbol,status=PlanStatus.ACTIVE_TODAY,payload={})
+    assert store.get_a4_plan_quarantine('replacement') is not None
+    assert store.get_a4_plan_quarantine('other-stock') is None
+    assert store.get_a4_plan_quarantine('other-lane') is None
+
+
+def test_idempotent_fill_key_cannot_claim_another_plan_or_symbol(tmp_path):
+    from liangjian_funnel.runtime.simulation import SimulationAction
+    store,app,bar=seeded(tmp_path)
+    WorkflowApplication._settle_prior_signals(app,'lane_1','600621.SH',bar)
+    broker=app.brokers['lane_1']
+    action=SimulationAction(account_id='paper:lane_1',signal_id='h1-entry',symbol='600621.SH',
+        action='BUY',signal_bar_end=at('11:16:00'),entry_reference=14.85,stop_level=14.49,plan_id='p1')
+    cash=store.get_account('paper:lane_1')['cash']
+    assert broker.apply(action,bar).status=='DUPLICATE'
+    assert broker.apply(action.model_copy(update={'plan_id':'p2'}),bar).reason_code=='A4_PLAN_IDENTITY_CONFLICT'
+    assert broker.apply(action.model_copy(update={'symbol':'600000.SH'}),bar).reason_code=='A4_SIGNAL_IDENTITY_CONFLICT'
+    assert store.get_account('paper:lane_1')['cash']==cash
+    assert len(store.list_fills('paper:lane_1'))==1

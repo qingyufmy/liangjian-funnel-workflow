@@ -824,6 +824,8 @@ class RuntimeStore:
                         created_at TEXT NOT NULL,
                         PRIMARY KEY(plan_id,signal_id)
                     );
+                    CREATE INDEX IF NOT EXISTS a4_reconciliation_account_symbol
+                        ON a4_lifecycle_reconciliations(account_id,symbol);
                     CREATE TABLE IF NOT EXISTS notification_deliveries (
                         delivery_id TEXT PRIMARY KEY,
                         delivery_key TEXT NOT NULL UNIQUE,
@@ -3312,8 +3314,31 @@ class RuntimeStore:
 
     def get_a4_plan_quarantine(self, plan_id: str) -> dict[str, Any] | None:
         return self._read(lambda connection: _row_dict(connection.execute(
-            "SELECT * FROM a4_lifecycle_reconciliations WHERE plan_id=? LIMIT 1", (plan_id,),
+            """SELECT q.* FROM a4_lifecycle_reconciliations q
+               WHERE q.plan_id=? OR EXISTS (
+                   SELECT 1 FROM execution_plans p WHERE p.plan_id=?
+                   AND q.account_id='paper:' || p.lane_id AND q.symbol=p.symbol
+               ) LIMIT 1""", (plan_id,plan_id),
         ).fetchone()))
+
+    def reconcile_held_a4_lifecycles(self, *, account_id: str, symbol: str, at: datetime) -> tuple[str, ...]:
+        """Append-only check of this held symbol before any hard-stop intent.
+
+        No historical bar is required to observe a persisted contradiction.
+        Closed/valid filled trades are excluded. Original cash/fills/lifecycle
+        rows are untouched; reconciliation itself never replays a fill.
+        """
+        rows = self._read(lambda connection: tuple(connection.execute(
+            "SELECT DISTINCT l.entry_event_key FROM a4_signal_lifecycles l "
+            "JOIN virtual_positions p ON p.account_id=l.account_id AND p.symbol=l.symbol AND p.plan_id=l.plan_id "
+            "JOIN virtual_fills f ON f.account_id=l.account_id AND f.signal_id=l.entry_event_key "
+            "WHERE l.account_id=? AND l.symbol=? AND f.action='BUY' "
+            "AND l.status IN ('UNFILLED','CANCELLED','INVALIDATED','DATA_ERROR') LIMIT 100",
+            (account_id,symbol),
+        ).fetchall()))
+        for row in rows:
+            self.quarantine_a4_signal(str(row[0]),reason_code="A4_TERMINAL_STATE_CONFLICT",at=at)
+        return tuple(str(row[0]) for row in rows)
 
     def rebuild_a4_exit_projection(self, lifecycle_id: str, *, apply: bool = False) -> dict[str, Any]:
         """Explicit, auditable repair of a derived summary, never raw events/fills."""
@@ -4117,8 +4142,9 @@ class RuntimeStore:
             if abs(expected_cash - cash_after) > .000001:
                 raise StateTransitionError("FILL_CASH_CONFLICT")
             quarantine = connection.execute(
-                "SELECT 1 FROM a4_lifecycle_reconciliations WHERE plan_id=?", (plan_id,),
-            ).fetchone() if plan_id else None
+                "SELECT 1 FROM a4_lifecycle_reconciliations WHERE plan_id=? OR (account_id=? AND symbol=?) LIMIT 1",
+                (plan_id,account_id,symbol),
+            ).fetchone()
             if quarantine is not None and not selling:
                 raise StateTransitionError("STATE_CONFLICT_QUARANTINED")
             fill_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"liangjian-fill:{intent_key}:1"))

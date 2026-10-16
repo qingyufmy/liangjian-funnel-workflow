@@ -9,6 +9,7 @@ transaction, so a persistence failure blocks subsequent actions.
 from __future__ import annotations
 
 import math
+import json
 from collections.abc import Iterable, Mapping
 from datetime import date, datetime, time as datetime_time, timedelta
 from decimal import Decimal
@@ -380,6 +381,15 @@ class PaperBroker:
         except (PersistenceError, PersistenceBlockedError):
             return self._blocked(parsed, "PERSISTENCE_FAILED")
         if existing is not None:
+            try:
+                intent = self.store.get_simulation_intent(intent_key)
+                existing_plan = json.loads(intent["order_metadata_json"] or "{}").get("plan_id") if intent else None
+            except (PersistenceError, PersistenceBlockedError, ValueError, TypeError):
+                return self._blocked(parsed, "PERSISTENCE_FAILED")
+            if intent is None or existing_plan != parsed.plan_id:
+                return self._blocked(parsed, "A4_PLAN_IDENTITY_CONFLICT")
+            if existing["symbol"] != parsed.symbol or existing["signal_id"] != parsed.signal_id:
+                return self._blocked(parsed, "A4_SIGNAL_IDENTITY_CONFLICT")
             return SimulationResult(
                 status=SimulationStatus.DUPLICATE,
                 reason_code="IDEMPOTENT_REPLAY",
