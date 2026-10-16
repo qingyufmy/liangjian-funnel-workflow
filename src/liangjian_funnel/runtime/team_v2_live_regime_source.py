@@ -7,6 +7,8 @@ No new provider, model, activation or notification path is created here.
 import hashlib
 import json
 from pathlib import Path
+from datetime import timedelta
+import time as timer
 
 from .team_v2_emotion_baseline import _sealed
 from .team_v2_rule_source import _write_once
@@ -67,3 +69,28 @@ def record_current_regime(settings,store,*,live,cutoff,observed_at,prior):
         full_market_frame_sha256=source.get('frame_sha256'))
     return store.record_live_regime(facts=facts,tick=tick,observed_at=stamp(observed_at),
         prior=prior,rules=load_rules(Path(settings.root)/'config/regime_live.yaml'))
+
+
+def run_source_only(settings,market_data,*,clock,calendar,gate,deadline):
+    """No paper account/plan required; reuse natural monitor, no new timer.
+
+    This path only collects market evidence and advances G5. It cannot create
+    a trading account, model judgment, order, or execution plan.
+    """
+    from .live_market import load_or_refresh_live_market_state
+    from .team_v2_emotion_baseline import observe_full_market
+    from .team_v2_store import TeamMeetingStore
+    now=stamp(clock());cutoff=now.replace(second=0,microsecond=0)-timedelta(minutes=1)
+    end=min(deadline,timer.monotonic()+8)
+    work=gate.call(lambda:load_or_refresh_live_market_state(settings,market_data,as_of=stamp(clock()),
+        minimum_source_as_of=cutoff.replace(minute=cutoff.minute-cutoff.minute%5),
+        snapshot_observer=lambda result:observe_full_market(settings,result,
+            observed_at=stamp(clock()),calendar=calendar,deadline=end)),deadline=end,name='team-g5-source-only')
+    live=work.value if work.status=='READY' else {'status':'DATA_BLOCKED'}
+    try:
+        store=TeamMeetingStore(Path(settings.root)/'state/team_v2/team.db')
+        state=record_current_regime(settings,store,live=live,cutoff=cutoff,observed_at=stamp(clock()),prior='DATA_BLOCK')
+    except Exception:
+        return dict(status='DEGRADED',reason_code='G5_SOURCE_ONLY_UPDATE_FAILED',new_entries=0,model_calls=0)
+    return dict(status='NOOP',reason_code='G5_SOURCE_ONLY_NO_TRADING_ACCOUNT_OR_MORNING',
+        live_regime=state,market_status=live.get('status'),new_entries=0,model_calls=0)

@@ -55,6 +55,10 @@ def _freeze_engine(settings,store,source,now,calendar,directory,clock):
         if previous['source']['plan_rowset_sha256']!=source['plan_rowset_sha256']:
             raise ValueError('MORNING_PLAN_ROWS_CHANGED')
         return previous
+    # Market evidence is independent of whether A3 happened to publish plans.
+    # An empty plan day must not prevent the intraday radar's G5 source seed.
+    from .team_v2_emotion_baseline import prepare_emotion_baseline
+    emotion_baseline=prepare_emotion_baseline(settings,clock=clock,calendar=calendar)
     if source['status']!='COMPLETE' or source['market_regime'] is None:
         return dict(status='BLOCKED',reason_code='MORNING_SOURCE_NOT_COMPLETE',source=source)
     limits=RiskLimits.from_yaml(settings.root/'config/risk_limits.yaml')
@@ -88,8 +92,6 @@ def _freeze_engine(settings,store,source,now,calendar,directory,clock):
     bounds=[max(0,min(external_policy['maximum_utilization_pct'],v+external['value_pp'])) for v in bounds]
     from .team_v2_rule_source import prepare_daily_rule_source
     rule_source=prepare_daily_rule_source(settings,clock=clock,calendar=calendar)
-    from .team_v2_emotion_baseline import prepare_emotion_baseline
-    emotion_baseline=prepare_emotion_baseline(settings,clock=clock,calendar=calendar)
     body=dict(status='COMPLETE',session='ENGINE_PREMARKET',trade_date=source['trade_date'],
         observed_at=stamp(clock()).isoformat(),account_id=ACCOUNT,source=source,snapshot=snapshot,held_plan_bindings=held,
         envelopes=[asdict(e) for e in envelopes],capacity_slots=max(0,limits.max_positions-len({p.symbol for p in positions})),

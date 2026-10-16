@@ -78,6 +78,8 @@ def test_actual_three_stage_source_to_model_to_allocation_retains_legacy_bytes(t
     advance(clock,8,38)
     result=run_morning_stage(settings,'pm',clock=lambda:clock.now,calendar=CAL,client=api)
     assert result['status']=='READY' and result['slot_plan'][0]['primary_plan_id']=='p1'
+
+
     assert run_morning_stage(settings,'pm',clock=lambda:clock.now,calendar=CAL,client=api)==result
     assert len(seen)==2 and source_bytes(settings)==before
     with sqlite3.connect(tmp_path/'state/team_v2/team.db') as db:
@@ -85,6 +87,17 @@ def test_actual_three_stage_source_to_model_to_allocation_retains_legacy_bytes(t
         assert db.execute('SELECT count(*) FROM risk_meetings').fetchone()[0]==1
         assert db.execute('SELECT count(*) FROM pm_decisions').fetchone()[0]==1
         assert not db.execute("SELECT name FROM sqlite_master WHERE name='execution_plans'").fetchall()
+
+
+def test_empty_plan_day_still_prepares_emotion_seed_without_inventing_morning_permission(tmp_path,monkeypatch):
+    import liangjian_funnel.runtime.team_v2_emotion_baseline as source
+    settings,clock=fixture(tmp_path);calls=[]
+    with closing(sqlite3.connect(settings.state_db_path)) as db,db:db.execute('DELETE FROM execution_plans')
+    def prepare(*a,**kw):calls.append(kw['clock']());return {'status':'READY','body_sha256':'seed-only'}
+    monkeypatch.setattr(source,'prepare_emotion_baseline',prepare)
+    result=run_morning_stage(settings,'engine',clock=lambda:clock.now,calendar=CAL)
+    assert result['status']=='BLOCKED' and len(calls)==1
+    assert not (settings.root/'state/team_v2/paper.db').exists()
 
 
 def test_a6_lower_cap_clips_pm_baseline_without_loosening(tmp_path):

@@ -37,7 +37,7 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
     from ..workflow import A4_DECISION_BUDGET_SECONDS,A4_MARKET_STATE_BUDGET_SECONDS,_intraday_market_context
     from .live_market import load_or_refresh_live_market_state
     from .team_v2_emotion_baseline import observe_full_market
-    from .team_v2_live_regime_source import record_current_regime
+    from .team_v2_live_regime_source import record_current_regime,run_source_only
     from .strategies import evaluate_strategy
     clock=clock or (lambda:datetime.now(TZ));current=stamp(now or clock());started=time.monotonic()
     deadline=started+A4_DECISION_BUDGET_SECONDS;calendar=application.trading_calendar;settings=application.settings
@@ -47,14 +47,14 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
         return dict(status='NOOP',reason_code='NO_TRADING_TIME')
     directory=_directory(settings);day=current.date().isoformat()
     if not (directory/'paper.db').is_file():
-        return dict(status='BLOCKED',reason_code='CONTROL_MORNING_ACCOUNT_MISSING')
+        return run_source_only(settings,application.market_data,clock=clock,calendar=calendar,gate=_MARKET,deadline=deadline)
     store=TeamMeetingStore(directory/'team.db');morning=store.load_morning_engine(ACCOUNT,day)
     broker=create_broker('local_paper',database=directory/'paper.db',paper_config=settings.root/'config/paper_broker.yaml',
         risk_config=settings.root/'config/risk_limits.yaml',clock=clock,calendar=calendar,run_id='team-monitor:'+day)
     scope=read_execution_scope(settings,now=current,calendar=calendar,morning_source=morning['source'] if morning else None,
         positions=broker.get_positions())
     if morning is None and not scope['plans']:
-        return dict(status='BLOCKED',reason_code='CONTROL_MORNING_ENGINE_MISSING')
+        return run_source_only(settings,application.market_data,clock=clock,calendar=calendar,gate=_MARKET,deadline=deadline)
     packet=collect_monitor_packet(settings,scope,clock=clock,deadline=deadline,
         fetch_bars=lambda symbol,cutoff,count,end:application._fetch_live_bars(symbol,'1m',count,cutoff,deadline=end),
         fetch_quote=lambda symbol,at,end:application._fetch_live_quote(symbol,at,deadline=end))

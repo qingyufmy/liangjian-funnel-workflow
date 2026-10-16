@@ -90,3 +90,23 @@ def test_emotion_unavailable_does_not_block_supported_primary_trend(tmp_path):
         out=record_current_regime(settings,store,live=facts,cutoff=at,
             observed_at=at+timedelta(minutes=1),prior='ROTATION_NO_MAINLINE')
     assert out['regime']=='TREND_MAINLINE' and not out['leader_open'] and not out['radar_open']
+
+
+def test_natural_control_no_account_or_plans_still_advances_g5_without_model_or_order(tmp_path,monkeypatch):
+    from liangjian_funnel.runtime.team_v2_monitor import run_monitor_control
+    from liangjian_funnel.runtime.calendar import ExchangeTradingCalendar
+    import liangjian_funnel.runtime.live_market as market
+    settings,store,_=fixture(tmp_path)
+    clock=SimpleNamespace(now=tick('09:40')+timedelta(minutes=1));calls=[]
+    def collect(*a,**kw):
+        calls.append(kw);return live(clock.now-timedelta(minutes=1))
+    monkeypatch.setattr(market,'load_or_refresh_live_market_state',collect)
+    app=SimpleNamespace(settings=settings,trading_calendar=ExchangeTradingCalendar(),market_data=object())
+    for tm in ('09:40','09:45'):
+        clock.now=tick(tm)+timedelta(minutes=1)
+        out=run_monitor_control(app,now=clock.now,clock=lambda:clock.now)
+    assert out['status']=='NOOP' and out['live_regime']['leader_open']
+    assert out['model_calls']==out['new_entries']==0 and len(calls)==2
+    assert not (tmp_path/'state/team_v2/paper.db').exists()
+    assert not (tmp_path/'state/team_v2/model.db').exists()
+    assert not hasattr(settings,'state_db_path') # even reading the legacy execution DB was unnecessary
