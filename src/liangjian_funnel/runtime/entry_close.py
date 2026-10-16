@@ -6,6 +6,7 @@ holes/late-only bars are UNKNOWN, not evidence of an unfilled order. The final
 15:00 market bar is outside the original monitor's 14:59 execution cutoff and
 cannot be declared missing by this reader. No source query or candle synthesis.
 """
+from contextlib import closing
 from datetime import datetime, timedelta, time
 from hashlib import sha256
 import json
@@ -38,7 +39,7 @@ def missing_window_evidence(path, *, symbol: str, eligible: datetime, now: datet
     try:
         # One stable read transaction, streaming one bounded compressed packet at
         # a time. Never instantiate a writer or repair a missing cache.
-        with sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=2) as connection:
+        with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=2)) as connection:
             connection.execute("PRAGMA query_only=ON")
             connection.execute("BEGIN")
             if connection.execute("SELECT 1 FROM minute_bar_versions WHERE symbol=? AND interval='1m' "
