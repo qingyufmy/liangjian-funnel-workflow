@@ -60,7 +60,7 @@ def test_real_command_freezes_facts_calls_new_coach_once_no_customer_prose_or_wr
     assert len(seen)==1 and settings.state_db_path.read_bytes()==before and (owned/'paper.db').read_bytes()==paper_before
     assert 'CUSTOMER_PROSE' not in canonical(seen) and 'CUSTOMER_CURRENT_REPORT' not in canonical(seen)
     assert b'CUSTOMER_PROSE' not in (owned/'team.db').read_bytes()
-    assert 'agent-5/2.0.3' in seen[0]['messages'][0]['content']
+    assert 'agent-5/2.0.4' in seen[0]['messages'][0]['content']
     with sqlite3.connect(owned/'team.db') as db:
         assert db.execute('SELECT count(*) FROM team_a5_reviews').fetchone()[0]==1
         assert db.execute('SELECT count(*) FROM team_internal_cards').fetchone()[0]==1

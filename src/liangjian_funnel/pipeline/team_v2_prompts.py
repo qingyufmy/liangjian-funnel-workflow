@@ -20,7 +20,7 @@ _FILES = {"A1": "agent_1_macro_chain_v3.txt", "A2": "agent_2_theme_sentiment_v3.
           "A3": "agent_3_portfolio_planner_v4.txt", "A4": "agent_4_trader_v1.txt",
           "A5": "agent_5_daily_reviewer_v2.txt", "A6": "agent_6_risk_governor_v1.txt"}
 _VERSIONS = {"A1": "agent-1/3.0.1", "A2": "agent-2/3.0.1", "A3": "agent-3/4.0.1",
-             "A4": "agent-4-trader/1.0.2", "A5": "agent-5/2.0.3", "A6": "agent-6-risk/1.0.3"}
+             "A4": "agent-4-trader/1.0.2", "A5": "agent-5/2.0.4", "A6": "agent-6-risk/1.0.3"}
 _TOKEN = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
 
 

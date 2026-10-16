@@ -1,6 +1,6 @@
 {
   "schema_version": "claude-team-prompt-bundle/3.0.2",
-  "authority": "canonical .claude_bridge/outbox/0258-reply.md A5 2.0.3 and README exact approved bytes; other six unchanged 0234/0222/0204 SHA",
+  "authority": "canonical .claude_bridge/outbox/0271-reply.md A5 2.0.4 and README exact approved bytes; other six unchanged 0234/0222/0204 SHA",
   "role_semantics_modified": false,
   "files": {
     "00_shared_system_v3.txt": {
@@ -24,16 +24,16 @@
       "bytes": 5633
     },
     "agent_5_daily_reviewer_v2.txt": {
-      "sha256": "b05ea8cc8f0aceaa5c6d19905b3ca9043f7fa0812e8391c4057ccaee48afadcf",
-      "bytes": 7189
+      "sha256": "a64a8b367f34fbd1854063b5d36cc947eb62d81d13a7ba142a045d37c6dd4ad7",
+      "bytes": 7383
     },
     "agent_6_risk_governor_v1.txt": {
       "sha256": "4a790958d04dce655bf5be2b8aef8c657664efb888a26bceb1c4f3806faf6199",
       "bytes": 6541
     },
     "README_TEAM_V2_PROMPTS.md": {
-      "sha256": "b0f5cb48c525cb6ee170df9e2190055ef262bb7ec5f9cc75b4501f01f887fc6f",
-      "bytes": 6408
+      "sha256": "39368196be3ec7360ae91eea0ced72a417522c0271d86ffaa305c6783f19ea9d",
+      "bytes": 6681
     }
   }
 }

@@ -1,4 +1,4 @@
-"""Claude's A5 2.0.3 JSON contract; research only, never execution authority."""
+"""Claude's A5 2.0.4 JSON contract; research only, never execution authority."""
 from collections.abc import Mapping
 import json
 import re
@@ -138,11 +138,14 @@ def validate_daily_review(output,catalog,*,required_envelope,trade_date,review_k
     feedback=output.get('method_feedback')
     if not isinstance(feedback,Mapping) or set(feedback)!=ROLES:issue('METHOD_FEEDBACK_INVALID')
     else:
-        # Authored prompt leaves the entry shape open. Accept evidence-bearing
-        # judgments, not an unreferenced prose channel around the evidence gate.
+        # Unknown method IDs remain auditable judgments, never feedback inputs.
+        # Only the owned mature-input reader grants an ID injection authority.
         for role,rows in feedback.items():
             if not isinstance(rows,list):issue('METHOD_FEEDBACK_INVALID');continue
             for index,row in enumerate(rows):
-                if not isinstance(row,Mapping) or not REFS<=set(row):issue('METHOD_FEEDBACK_INVALID');continue
+                if (not _item(row,{'method_id','stance','note'}|REFS)
+                        or not _text(row['method_id']) or not _text(row['note'])
+                        or not isinstance(row['stance'],str) or row['stance'] not in {'TIGHTEN','KEEP','INSUFFICIENT'}):
+                    issue('METHOD_FEEDBACK_INVALID');continue
                 if row.get('symbol') is not None:issue('METHOD_FEEDBACK_MUST_NOT_BE_STOCK_SPECIFIC')
     return TeamValidation(not issues,tuple(dict.fromkeys(issues)),common.judgments,common.sentinel_count)

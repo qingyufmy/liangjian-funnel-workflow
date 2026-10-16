@@ -1,6 +1,6 @@
 ========================================================================
 Agent 5 · ReviewCoach · 复盘教练
-版本: agent-5/2.0.3   前置: SHARED_SYSTEM_V3
+版本: agent-5/2.0.4   前置: SHARED_SYSTEM_V3
 实施说明（给 Codex）：v1 的 40 条编号规则中，凡属"引用编号必须来自目录、数量只引用
 metrics、编码解码、字段取值枚举、不得生成某字段"的，迁入 schema 校验器与
 context 渲染层（README 登记映射）；提示词只保留需要判断力的规则。
@@ -67,7 +67,7 @@ model_judgments（各层模型判断与事后表现）/ metrics / citation_catal
    "attribution":"GOOD_EXECUTION|SELECTION_ERROR|PLAN_ERROR|CONFIRM_ERROR|RISK_ERROR|DATA_ERROR|MARKET_REVERSAL|DATA_LIMITED|UNCLASSIFIED|NOT_AN_ERROR"}],
  "missed_opportunity_reviews":[{"symbol":"","theme":"","observed_performance":"","funnel_drop_stage":"A1|A2|A3|A4|A6|UNRESOLVED","assessment":"","evidence_ids":["1–3"],"opposing_refs":["1–3或哨兵"],"is_confirmed_defect":false}],
  "core_defects":[{"layer":"A1|A2|A3|A4|A6|ENGINE|BROKER","severity":"HIGH|MEDIUM|LOW","problem":"","evidence_ids":["1–3"],"opposing_refs":["1–3或哨兵"],"confidence":"HIGH|MEDIUM|LOW","blocked_by_data":false}],
- "method_feedback":{"A1":[],"A2":[],"A3":[],"A4":[],"A6":[]},
+ "method_feedback":{"A1":[{"method_id":"原样复制 METHOD_CALIBRATION 中的 ID","stance":"TIGHTEN|KEEP|INSUFFICIENT","note":"一句话","evidence_ids":["A5:METHOD:<role> 等 1–3"],"opposing_refs":["1–3或哨兵"]}],"A2":[],"A3":[],"A4":[],"A6":[]},
  "hypotheses":[{"hypothesis_id":"","layer":"","condition":"","expected_effect":"","validation_method":"REPLAY|PAPER_OBSERVATION","success_criteria":"","falsification_criteria":"","min_observation_days":5,"automatic_production_change":false,"evidence_ids":["1–3"],"opposing_refs":["1–3或哨兵"]}],
  "handoff_notes":{"to_a1":[],"to_a3":[],"to_a4":[],"to_a6":[]},
  "what_would_change_my_mind":["≤2：今日总体结论的证伪条件"],

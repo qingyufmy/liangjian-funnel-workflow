@@ -117,7 +117,7 @@ def test_schema_rejects_without_repair_or_default_permission(kind):
 
 
 def test_sentinel_scope_and_method_feedback_are_research_judgments():
-    raw=report({});raw['method_feedback']['A1']=[dict(evidence_type='财报',judgment_type='方法',
+    raw=report({});raw['method_feedback']['A1']=[dict(method_id='unmatched-auditable-id',stance='INSUFFICIENT',
         note='等待更多样本',evidence_ids=['METRICS:DAILY'],opposing_refs=['NO_OPPOSING_EVIDENCE_FOUND'],
         opposing_search_scope=['METRICS','LEGACY'])]
     result=check(raw)

@@ -42,31 +42,37 @@ def evidence(day,close='10',**changes):
         observed_at=day.isoformat()+'T15:30:00+08:00')
 
 
-def capture(journal,day,*,with_catalog=True,valid=True):
-    row=dict(symbol='000001.SZ',supporting_refs=['N'],opposing_refs=['Q'])
+def capture(journal,day,*,with_catalog=True,valid=True,symbol='000001.SZ',ordinal=0,action=None):
+    row=dict(symbol=symbol,supporting_refs=['N'],opposing_refs=['Q'])
+    if action is not None:row['action']=action
+    call_id=f'a2:{day.isoformat()}:{symbol}:{ordinal}'
     response=ModelCallResult('frozen-model',{'focus_decisions':[row]},'a'*64,'b'*64,5,1,'disabled')
-    journal.capture(call_id='a2:'+day.isoformat(),run_id='r:'+day.isoformat(),role='A2',session='CLOSE_REVIEW',
+    journal.capture(call_id=call_id,run_id='r:'+day.isoformat(),role='A2',session='CLOSE_REVIEW',
         source_trade_date=day.isoformat(),execution_trade_date=CAL.next_trading_day(day).isoformat(),
         captured_at=datetime.fromisoformat(day.isoformat()+'T17:00:00+08:00'),catalog_hash=h(CATALOG),response=response,
         validation=TeamValidation(valid,() if valid else ('INVALID',),(dict(row,path='focus_decisions[0]'),),0),
         catalog=CATALOG if with_catalog else None)
     with closing(journal._connect()) as db:
-        return db.execute('SELECT decision_id FROM model_judgments WHERE call_id=?',('a2:'+day.isoformat(),)).fetchone()[0]
+        return db.execute('SELECT decision_id FROM model_judgments WHERE call_id=?',(call_id,)).fetchone()[0]
 
 
 def label(journal,decision,day,*,captured_at=ASOF):
+    with closing(journal._connect()) as db:
+        symbol=db.execute('SELECT symbol FROM model_judgments WHERE decision_id=?',(decision,)).fetchone()[0]
     target=day
     for n in range(1,4):
         target=CAL.next_trading_day(target)
-        if n in (1,3):append_judgment_outcome(journal,decision_id=decision,horizon=n,reference=evidence(day),
-            target=evidence(target,'11'),captured_at=captured_at,calendar=CAL)
+        if n in (1,3):append_judgment_outcome(journal,decision_id=decision,horizon=n,reference=evidence(day,symbol=symbol),
+            target=evidence(target,'11',symbol=symbol),captured_at=captured_at,calendar=CAL)
 
 
-def mature_fixture(tmp_path,n=10,*,with_catalog=True):
-    journal=ModelJudgmentJournal(tmp_path/'model.db');day=date(2026,9,1);decisions=[]
-    for _ in range(n):
-        decision=capture(journal,day,with_catalog=with_catalog);label(journal,decision,day)
-        decisions.append((decision,day));day=CAL.next_trading_day(day)
+def mature_fixture(tmp_path,n=10,*,with_catalog=True,samples=15,symbols=5):
+    journal=ModelJudgmentJournal(tmp_path/'model.db');day=date(2026,9,1);decisions=[];days=[]
+    for _ in range(n):days.append(day);day=CAL.next_trading_day(day)
+    for i in range(samples):
+        day=days[i%n]
+        decision=capture(journal,day,with_catalog=with_catalog,symbol=f'{1+i%symbols:06d}.SZ',ordinal=i)
+        label(journal,decision,day);decisions.append((decision,day))
     return journal,decisions
 
 
@@ -81,14 +87,33 @@ def test_ten_distinct_mature_days_only_method_aggregate_no_stock_or_prose(tmp_pa
     result=read_method_feedback(journal.path,recipient='A2',as_of=ASOF,calendar=CAL)
     assert result['status']=='READY' and len(result['methods'])==1
     method=result['methods'][0]
-    assert method['sample_count']==10 and method['labeled_trade_dates']==10
-    assert method['evidence_types']==['NEWS','QUANT'] and method['mean_return_1d']=='0.1'
-    assert method['mean_return_3d']=='0.1' and method['positive_fraction_1d']=='1'
+    assert method['sample_count']==15 and method['labeled_trade_dates']==10
+    assert method['evidence_types']==['NEWS','QUANT'] and method['positive_fraction_1d']=='1'
+    assert method['positive_fraction_3d']=='1' and 'mean_return_1d' not in method and 'mean_return_3d' not in method
     text=canonical(result)
     assert '000001' not in text and 'source_ref' not in text and 'supporting_refs' not in text
     assert journal.path.read_bytes()==before
     # Another role cannot borrow A2's mature dates.
     assert read_method_feedback(journal.path,recipient='A1',as_of=ASOF,calendar=CAL)['status']=='INSUFFICIENT'
+
+
+@pytest.mark.parametrize('days,samples,symbols',[(9,15,5),(10,14,5),(10,15,4),(10,20,1)])
+def test_each_bucket_must_meet_all_three_independent_maturity_minima(tmp_path,days,samples,symbols):
+    journal,_=mature_fixture(tmp_path,n=days,samples=samples,symbols=symbols)
+    result=read_method_feedback(journal.path,recipient='A2',as_of=ASOF,calendar=CAL)
+    assert result['status']=='INSUFFICIENT' and result['methods']==[]
+    assert result['minimum_samples']==15 and result['minimum_distinct_symbols']==5
+
+
+def test_mature_dates_and_stocks_cannot_be_borrowed_from_a_different_judgment_bucket(tmp_path):
+    journal=ModelJudgmentJournal(tmp_path/'models.db');day=date(2026,9,1)
+    for i in range(10):
+        for action in ('BUY_SIGNAL','BLOCK'):
+            decision=capture(journal,day,symbol=f'{1+i%5:06d}.SZ',ordinal=action,action=action)
+            label(journal,decision,day)
+        day=CAL.next_trading_day(day)
+    result=read_method_feedback(journal.path,recipient='A2',as_of=ASOF,calendar=CAL)
+    assert result['status']=='INSUFFICIENT' and result['methods']==[]
 
 
 def test_nine_dates_or_missing_t3_cannot_be_called_mature(tmp_path):
@@ -166,7 +191,10 @@ def test_original_model_catalog_and_new_tables_commit_atomically(tmp_path):
         assert db.execute('SELECT count(*) FROM model_judgments').fetchone()[0]==0
 
 
-def test_actual_a5_http_mock_selects_mature_method_then_research_reader_excludes_free_prose(tmp_path,monkeypatch):
+@pytest.mark.parametrize('stance,method_id,expected',[
+    ('TIGHTEN',None,'READY'),('KEEP',None,'READY'),('INSUFFICIENT',None,'INSUFFICIENT'),
+    ('KEEP','NOT_IN_INPUT','INSUFFICIENT'),('LOOSEN',None,'A5_DEGRADED_NO_APPROVED_REPORT')])
+def test_actual_a5_http_mock_selects_mature_method_then_research_reader_excludes_free_prose(tmp_path,monkeypatch,stance,method_id,expected):
     import httpx
     import liangjian_funnel.pipeline.team_v2_feedback as feedback
     from liangjian_funnel.pipeline.model_client import OpenAICompatibleModelClient
@@ -191,19 +219,20 @@ def test_actual_a5_http_mock_selects_mature_method_then_research_reader_excludes
     envelope.update(stage_id='A5',source_trade_date='2026-09-24',execution_trade_date='2026-09-25',
         as_of=ASOF.isoformat(),knowledge_cutoff=ASOF.isoformat())
     output=report(envelope);output['trade_date']='2026-09-25'
-    output['method_feedback']['A2']=[dict(method_id=method['method_id'],evidence_ids=['A5:METHOD:A2'],
-        opposing_refs=['A5:LEGACY'],finding='Do not inject stock 000001.SZ return 999 into another model')]
+    output['method_feedback']['A2']=[dict(method_id=method_id or method['method_id'],stance=stance,evidence_ids=['A5:METHOD:A2'],
+        opposing_refs=['A5:LEGACY'],note='Do not inject stock 000001.SZ return 999 into another model')]
     client=OpenAICompatibleModelClient(Settings.from_env({'LIANGJIAN_MODEL_API_KEY':'UNIT_TEST_ONLY_NOT_A_CREDENTIAL'},root=tmp_path),
         transport=httpx.MockTransport(lambda request:httpx.Response(200,json={'choices':[{'message':{'content':json.dumps(output)}}]},request=request)),max_attempts=1)
     result=run_team_review(repository=TeamPromptRepository(Path(__file__).resolve().parents[1]/'prompts/team_v2'),client=client,
         journal=journal,store=store,review_id='actual-a5',call_id='actual-a5-model',account_id='paper',run_id=envelope['run_id'],
         model=envelope['model_name'],trade_date='2026-09-25',source_trade_date='2026-09-24',review_kind='POST_CLOSE',clock=lambda:ASOF,
         required_envelope=envelope,facts=facts,signal_domain={},counterexample_domain=set(),allow_model_call=True)
-    assert result['status']=='READY',result['reason_codes']
+    assert result['status']==('A5_DEGRADED_NO_APPROVED_REPORT' if expected=='A5_DEGRADED_NO_APPROVED_REPORT' else 'READY'),result['reason_codes']
     before=store.path.read_bytes()
     actual=feedback.read_a5_method_feedback(journal.path,store.path,recipient='A2',as_of=ASOF)
-    assert actual['status']=='READY' and actual['methods'][0]==method
-    assert '000001' not in canonical(actual) and 'finding' not in canonical(actual)
+    assert actual['status']==('INSUFFICIENT' if expected=='A5_DEGRADED_NO_APPROVED_REPORT' else expected)
+    if expected=='READY':assert actual['methods'][0]==dict(method,stance=stance)
+    assert '000001' not in canonical(actual) and 'note' not in canonical(actual) and 'mean_return' not in canonical(actual)
     assert before==store.path.read_bytes()
     assert feedback.read_a5_method_feedback(journal.path,store.path,recipient='A2',as_of=ASOF-timedelta(seconds=1))['status']=='INSUFFICIENT'
     with closing(journal._connect()) as db,db:

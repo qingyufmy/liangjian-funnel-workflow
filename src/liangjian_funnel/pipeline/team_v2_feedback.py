@@ -20,6 +20,7 @@ from ..runtime.team_v2_store import canonical
 
 TZ=ZoneInfo('Asia/Shanghai')
 BASIS='SOURCE_DAY_CLOSE_TO_CLOSE_RESEARCH_NOT_FILL'
+MINIMUMS=dict(minimum_labeled_trade_dates=10,minimum_samples=15,minimum_distinct_symbols=5)
 
 
 def _hash(value):return hashlib.sha256(canonical(value).encode()).hexdigest()
@@ -122,14 +123,15 @@ def append_judgment_outcome(journal,*,decision_id,horizon,reference,target,captu
 def read_method_feedback(journal_path,*,recipient,as_of,calendar=None):
     """mode=ro only; no schema initialization/backfill or per-stock prose.
 
-    Ten distinct fully matured trading dates are required per method bucket.
+    Each method bucket needs ten mature trading dates, fifteen judgments and
+    five distinct stocks. Only rates/counts/dates/proof hashes leave this reader.
     A method is a role/session/decision-family and its actual evidence-category
     set, not an untrusted model-written free-text strategy or a stock identity.
     """
     if recipient not in {'A1','A2','A3','A4','A6'}:raise ValueError('METHOD_RECIPIENT_INVALID')
     cutoff=_stamp(as_of);calendar=calendar or ExchangeTradingCalendar()
     def insufficient(code,**metadata):return dict(status='INSUFFICIENT',reason_code=code,
-        recipient=recipient,as_of=cutoff.isoformat(),minimum_labeled_trade_dates=10,methods=[],**metadata)
+        recipient=recipient,as_of=cutoff.isoformat(),**MINIMUMS,methods=[],**metadata)
     path=Path(journal_path)
     if not path.is_file():return insufficient('METHOD_JOURNAL_NOT_AVAILABLE')
     try:
@@ -188,8 +190,8 @@ def read_method_feedback(journal_path,*,recipient,as_of,calendar=None):
                         'KEEP','TIGHTEN_TO_PROBE','REDUCE_BATCHES','SUSPEND','REDUCE_HALF','EXIT','HALT_NEW_ENTRY',
                         'RESUME','HOLD','REDUCE_TOMORROW','EXIT_TOMORROW','ACTIVE','MONITOR','REJECT'}:raise ValueError('KIND')
                 key=(row['session'],family+(':'+kind if kind is not None else ''),evidence)
-                entry=decisions.setdefault(row['decision_id'],dict(day=base,key=key,returns={},hashes=[]))
-                if entry['key']!=key or entry['day']!=base:raise ValueError('METHOD')
+                entry=decisions.setdefault(row['decision_id'],dict(day=base,key=key,symbol=row['symbol'],returns={},hashes=[]))
+                if entry['key']!=key or entry['day']!=base or entry['symbol']!=row['symbol']:raise ValueError('METHOD')
                 entry['returns'][row['horizon']]=Decimal(body['forward_return']);entry['hashes'].append(row['body_sha256'])
             except (ValueError,TypeError,KeyError,IndexError,ArithmeticError):excluded+=1
         groups={}
@@ -198,17 +200,15 @@ def read_method_feedback(journal_path,*,recipient,as_of,calendar=None):
         methods=[]
         for (session,family,evidence),items in sorted(groups.items()):
             days=sorted({i['day'] for i in items})
-            if len(days)<10:continue
+            if len(days)<10 or len(items)<15 or len({i['symbol'] for i in items})<5:continue
             bucket=dict(recipient=recipient,session=session,judgment_type=family,evidence_types=list(evidence))
             methods.append(dict(method_id=_hash(bucket),**bucket,sample_count=len(items),labeled_trade_dates=len(days),
                 date_from=days[0].isoformat(),date_through=days[-1].isoformat(),
-                mean_return_1d=str(sum(i['returns'][1] for i in items)/len(items)),
-                mean_return_3d=str(sum(i['returns'][3] for i in items)/len(items)),
                 positive_fraction_1d=str(Decimal(sum(i['returns'][1]>0 for i in items))/len(items)),
                 positive_fraction_3d=str(Decimal(sum(i['returns'][3]>0 for i in items))/len(items)),
                 outcome_evidence_sha256=_hash(sorted(h for i in items for h in i['hashes']))))
-        if not methods:return insufficient('METHOD_TEN_MATURE_TRADING_DATES_NOT_MET',excluded_records=excluded)
-        return dict(status='READY',recipient=recipient,as_of=cutoff.isoformat(),minimum_labeled_trade_dates=10,
+        if not methods:return insufficient('METHOD_BUCKET_MATURITY_NOT_MET',excluded_records=excluded)
+        return dict(status='READY',recipient=recipient,as_of=cutoff.isoformat(),**MINIMUMS,
             window_trading_dates=20,methodology='MODEL_JUDGMENTS_NOT_EFFECTIVE_TRADES',basis=BASIS,
             methods=methods,excluded_records=excluded)
     except (sqlite3.Error,ValueError,IndexError):return insufficient('METHOD_SOURCE_READ_OR_CONTRACT_FAILED')
@@ -223,7 +223,7 @@ def read_a5_method_feedback(journal_path,team_path,*,recipient,as_of):
     cutoff=_stamp(as_of)
     if recipient not in {'A1','A2','A3','A4','A6'}:raise ValueError('METHOD_RECIPIENT_INVALID')
     def missing(code):return dict(status='INSUFFICIENT',reason_code=code,recipient=recipient,
-        as_of=cutoff.isoformat(),minimum_labeled_trade_dates=10,methods=[])
+        as_of=cutoff.isoformat(),**MINIMUMS,methods=[])
     if not Path(journal_path).is_file() or not Path(team_path).is_file():return missing('A5_METHOD_SOURCE_NOT_AVAILABLE')
     try:
         with closing(sqlite3.connect(Path(team_path).resolve().as_uri()+'?mode=ro',uri=True,timeout=2)) as db:
@@ -263,11 +263,17 @@ def read_a5_method_feedback(journal_path,team_path,*,recipient,as_of):
                 if proof is None or proof.get('sha256')!=_hash(metrics):continue
                 by_id={r['method_id']:r for r in metrics['methods'] if r.get('labeled_trade_dates',0)>=10}
                 refs=report.get('method_feedback',{}).get(recipient,[])
-                ids={r.get('method_id') for r in refs if isinstance(r,dict)
-                    and 'A5:METHOD:'+recipient in r.get('evidence_ids',r.get('supporting_refs',[]))}
-                methods=[by_id[i] for i in sorted(ids & set(by_id))]
+                selected={}
+                for row in refs:
+                    if (not isinstance(row,dict) or row.get('stance') not in {'TIGHTEN','KEEP'}
+                            or not isinstance(row.get('method_id'),str)
+                            or row['method_id'] not in by_id
+                            or 'A5:METHOD:'+recipient not in row.get('evidence_ids',[])):continue
+                    selected.setdefault(row['method_id'],set()).add(row['stance'])
+                # Conflicting duplicates are not resolved by array order.
+                methods=[dict(by_id[i],stance=next(iter(stances))) for i,stances in sorted(selected.items()) if len(stances)==1]
                 if methods:return dict(status='READY',recipient=recipient,as_of=cutoff.isoformat(),
-                    source_as_of=facts['observed_at'],minimum_labeled_trade_dates=10,basis=BASIS,
+                    source_as_of=facts['observed_at'],**MINIMUMS,basis=BASIS,
                     methods=methods,a5_review_id=review['review_id'],a5_model_output_sha256=call['output_hash'],
                     feedback_scope='A5_SELECTED_DETERMINISTIC_METHOD_AGGREGATES_NO_STOCK_PROSE')
         return missing('A5_MATURE_METHOD_SELECTION_NOT_AVAILABLE')
