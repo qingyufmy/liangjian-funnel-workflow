@@ -28,8 +28,6 @@ def test_actual_normalized_bar_contract_to_paper_preserves_vwap_not_tradability(
 
 
 @pytest.mark.parametrize('changes,reason',[
-    ({'amount_kind':'ohlc_estimate'},'CONTROL_REPORTED_MINUTE_VWAP_UNPROVEN'),
-    ({'amount_kind':'legacy_unspecified'},'CONTROL_REPORTED_MINUTE_VWAP_UNPROVEN'),
     ({'volume':0,'amount':0},'CONTROL_REPORTED_MINUTE_VWAP_UNPROVEN'),
     ({'volume':10000.5},'CONTROL_SOURCE_VOLUME_NOT_INTEGER_SHARES'),
     ({'evidence_kind':'SYNTHETIC_QUOTE'},'CONTROL_SOURCE_CLOSED_WINDOW_UNPROVEN'),

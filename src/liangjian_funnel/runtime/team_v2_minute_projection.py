@@ -43,18 +43,20 @@ def project_closed_minute(one_minute, native_five, *, observed_at):
         return {**result,'reason_codes':['CONTROL_SOURCE_SESSION_INCOMPLETE']}
     if proof['native_5m_comparison']['status']=='CONFLICT':
         return {**result,'reason_codes':['CONTROL_SOURCE_INDEPENDENT_BAR_CONFLICT']}
-    # Tencent's OHLC-estimated notional is preserved as a limitation, never
-    # relabelled into the next-minute VWAP promised by the broker contract.
-    if last.amount_kind!='reported' or last.volume<=0 or last.amount<=0:
+    # Claude 0242: actual volume is still mandatory. Estimated amount never
+    # becomes VWAP; matching uses explicitly tagged side-specific OHLC prices.
+    if last.volume<=0 or last.amount_kind=='reported' and last.amount<=0:
         return {**result,'reason_codes':['CONTROL_REPORTED_MINUTE_VWAP_UNPROVEN']}
-    vwap=Decimal(str(last.amount))/Decimal(str(last.volume))
-    if not Decimal(str(last.low))<=vwap<=Decimal(str(last.high)):
+    reported=last.amount_kind=='reported'
+    vwap=Decimal(str(last.amount))/Decimal(str(last.volume)) if reported else None
+    if reported and not Decimal(str(last.low))<=vwap<=Decimal(str(last.high)):
         return {**result,'reason_codes':['CONTROL_REPORTED_MINUTE_VWAP_OUTSIDE_BAR']}
     projected=PaperMinuteBar(symbol,last.bar_end,Decimal(str(last.low)),Decimal(str(last.high)),
-        vwap,int(last.volume),closed=True,tradability_known=False,close=Decimal(str(last.close)))
+        vwap,int(last.volume),closed=True,tradability_known=False,close=Decimal(str(last.close)),
+        fill_basis='REPORTED_VWAP' if reported else 'OHLC_ESTIMATED_PAPER_FILL')
     if Decimal(str(last.volume))!=projected.volume_shares:
         return {**result,'reason_codes':['CONTROL_SOURCE_VOLUME_NOT_INTEGER_SHARES']}
     # Source completeness and order eligibility are different claims.
     return {**result,'status':'BAR_PROJECTED_RULES_PENDING','paper_bar':projected,
-        'vwap_basis':'REPORTED_AMOUNT_DIVIDED_BY_SHARES',
+        'vwap_basis':'REPORTED_AMOUNT_DIVIDED_BY_SHARES' if reported else 'NOT_AVAILABLE_OHLC_SIDE_SPECIFIC_ESTIMATE',
         'reason_codes':['CONTROL_CURRENT_TRADABILITY_PROOF_PENDING']}

@@ -91,7 +91,7 @@ class MinuteBar:
     minute_end: datetime
     low: Decimal
     high: Decimal
-    vwap: Decimal
+    vwap: Decimal | None
     volume_shares: int
     closed: bool = False
     tradability_known: bool = False
@@ -99,6 +99,7 @@ class MinuteBar:
     limit_up: bool = False
     limit_down: bool = False
     close: Decimal | None = None
+    fill_basis: str = 'REPORTED_VWAP'
 
     def __post_init__(self):
         end=local_time(self.minute_end)
@@ -107,8 +108,14 @@ class MinuteBar:
             raise ValueError("PAPER_VOLUME_UNIT_SHARES_REQUIRED")
         for key in ("closed", "tradability_known", "halted", "limit_up", "limit_down"):
             if type(getattr(self,key)) is not bool: raise ValueError("PAPER_TRADABILITY_INVALID")
-        for key in ("low", "high", "vwap"): object.__setattr__(self,key,number(getattr(self,key)))
-        if not self.low <= self.vwap <= self.high: raise ValueError("PAPER_BAR_PRICE_INCONSISTENT")
+        for key in ("low", "high"): object.__setattr__(self,key,number(getattr(self,key)))
+        if self.fill_basis not in {'REPORTED_VWAP','OHLC_ESTIMATED_PAPER_FILL'}:
+            raise ValueError('PAPER_FILL_BASIS_INVALID')
+        if self.fill_basis=='REPORTED_VWAP':
+            object.__setattr__(self,'vwap',number(self.vwap))
+            if not self.low <= self.vwap <= self.high: raise ValueError("PAPER_BAR_PRICE_INCONSISTENT")
+        elif self.vwap is not None or self.close is None:
+            raise ValueError('PAPER_ESTIMATED_VWAP_FORBIDDEN_CLOSE_REQUIRED')
         if self.close is not None:
             object.__setattr__(self,'close',number(self.close))
             if not self.low<=self.close<=self.high:raise ValueError("PAPER_BAR_PRICE_INCONSISTENT")
@@ -123,6 +130,7 @@ class MatchResult:
     fee: Decimal
     minute_end: str
     reason_code: str
+    fill_basis: str = 'REPORTED_VWAP'
 
     def canonical_bytes(self) -> bytes:
         return json.dumps(asdict(self),sort_keys=True,separators=(",",":"),default=str).encode()
@@ -141,7 +149,7 @@ def match_order(order: PaperOrder, bar: MinuteBar, rules: PaperRules, *, spendab
     end = local_time(bar.minute_end); submitted = local_time(order.submitted_at)
     cash = number(spendable_cash)
     def no(code, status="UNFILLED"):
-        return MatchResult(order.order_id,status,0,None,ZERO,end.isoformat(),code)
+        return MatchResult(order.order_id,status,0,None,ZERO,end.isoformat(),code,bar.fill_basis)
     if bar.symbol != order.symbol: return no("BAR_SYMBOL_MISMATCH","REJECTED")
     if rules.trade_date != end.date().isoformat(): return no("RULE_SNAPSHOT_DATE_MISMATCH","REJECTED")
     if not rules.trading_day: return no("NON_TRADING_DAY")
@@ -156,7 +164,10 @@ def match_order(order: PaperOrder, bar: MinuteBar, rules: PaperRules, *, spendab
     if order.side == "BUY" and bar.limit_up: return no("LIMIT_UP_LOCKED")
     if order.side == "SELL" and bar.limit_down: return no("LIMIT_DOWN_LOCKED")
     if order.remaining_qty <= 0: return no("ORDER_ALREADY_FILLED")
-    if bar.volume_shares <= 0 or bar.vwap <= 0: return no("NO_REPORTED_TRADES")
+    if bar.volume_shares <= 0: return no("NO_REPORTED_TRADES")
+    price=(bar.vwap if bar.fill_basis=='REPORTED_VWAP' else
+        (bar.high+bar.close)/2 if order.side=='BUY' else (bar.low+bar.close)/2)
+    if price<=0:return no('NO_REPORTED_TRADES')
     if order.side == "BUY" and (order.qty % 100 or order.remaining_qty % 100):
         return no("BUY_ROUND_LOT_REQUIRED","REJECTED")
     if order.side == "SELL" and order.sellable_qty <= 0: return no("T1_NOT_SELLABLE")
@@ -164,8 +175,10 @@ def match_order(order: PaperOrder, bar: MinuteBar, rules: PaperRules, *, spendab
         if (order.side == "BUY" and bar.low > order.limit_price
                 or order.side == "SELL" and bar.high < order.limit_price):
             return no("LIMIT_NOT_TOUCHED")
-        price = min(order.limit_price,bar.vwap) if order.side == "BUY" else max(order.limit_price,bar.vwap)
-    else: price = bar.vwap
+        if bar.fill_basis=='OHLC_ESTIMATED_PAPER_FILL':
+            if (order.side=='BUY' and price>order.limit_price or order.side=='SELL' and price<order.limit_price):
+                return no('ESTIMATED_PRICE_OUTSIDE_LIMIT')
+        else:price = min(order.limit_price,price) if order.side == "BUY" else max(order.limit_price,price)
     if order.side == "BUY":
         if order.no_chase_price is None or order.no_chase_price <= 0: return no("BUY_PRICE_CAP_REQUIRED","REJECTED")
         if price > order.no_chase_price: return no("PRICE_ABOVE_NO_CHASE")
@@ -186,4 +199,4 @@ def match_order(order: PaperOrder, bar: MinuteBar, rules: PaperRules, *, spendab
         qty -= 100
     if qty <= 0: return no("INSUFFICIENT_CASH")
     return MatchResult(order.order_id,"FILLED" if qty == order.remaining_qty else "PARTIAL",
-                       qty,price,fee,end.isoformat(),"MATCHED_NEXT_CLOSED_MINUTE")
+                       qty,price,fee,end.isoformat(),"MATCHED_NEXT_CLOSED_MINUTE",bar.fill_basis)

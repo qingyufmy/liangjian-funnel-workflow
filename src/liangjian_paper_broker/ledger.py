@@ -54,6 +54,10 @@ class LocalPaperBroker:
                 c.execute("INSERT OR IGNORE INTO paper_meta VALUES (?,?)",(key,value))
             c.execute("CREATE TABLE IF NOT EXISTS paper_orders(order_id TEXT PRIMARY KEY,client_order_id TEXT UNIQUE NOT NULL,request_hash TEXT NOT NULL,trade_date TEXT NOT NULL,symbol TEXT NOT NULL,plan_id TEXT NOT NULL,status TEXT NOT NULL,body_json TEXT NOT NULL)")
             c.execute("CREATE TABLE IF NOT EXISTS paper_fills(fill_id TEXT PRIMARY KEY,order_id TEXT NOT NULL,symbol TEXT NOT NULL,plan_id TEXT NOT NULL,side TEXT NOT NULL,qty INTEGER NOT NULL,price TEXT NOT NULL,fee TEXT NOT NULL,minute_end TEXT NOT NULL,run_id TEXT NOT NULL,source_signal_id TEXT NOT NULL)")
+            # Owned paper schema only. Existing rows remain unclassified rather
+            # than silently gaining a reported-VWAP claim after an upgrade.
+            if 'fill_basis' not in {r[1] for r in c.execute('PRAGMA table_info(paper_fills)')}:
+                c.execute("ALTER TABLE paper_fills ADD COLUMN fill_basis TEXT NOT NULL DEFAULT 'LEGACY_UNCLASSIFIED'")
             c.execute("CREATE TABLE IF NOT EXISTS paper_lots(lot_id TEXT PRIMARY KEY,symbol TEXT NOT NULL,plan_id TEXT NOT NULL,open_date TEXT NOT NULL,qty INTEGER NOT NULL,cost TEXT NOT NULL)")
             c.execute("CREATE TABLE IF NOT EXISTS paper_bars(symbol TEXT NOT NULL,minute_end TEXT NOT NULL,sha256 TEXT NOT NULL,observed_at TEXT NOT NULL,PRIMARY KEY(symbol,minute_end))")
             c.execute("CREATE TABLE IF NOT EXISTS paper_marks(symbol TEXT PRIMARY KEY,price TEXT NOT NULL,trade_date TEXT NOT NULL,minute_end TEXT NOT NULL)")
@@ -315,8 +319,8 @@ class LocalPaperBroker:
                 self._set(c,"cash",cash)
                 updated=replace(o,remaining_qty=o.remaining_qty-result.qty,filled_notional=o.filled_notional+gross,fees_paid=o.fees_paid+result.fee)
                 c.execute("UPDATE paper_orders SET status=?,body_json=? WHERE order_id=?",(result.status,dump(asdict(updated)),o.order_id))
-                fill=dict(fill_id=fid,order_id=o.order_id,symbol=o.symbol,plan_id=o.plan_id,side=o.side,qty=result.qty,price=str(result.price),fee=str(result.fee),minute_end=end,run_id=self.run_id,source_signal_id=o.signal_id)
-                c.execute("INSERT INTO paper_fills VALUES (?,?,?,?,?,?,?,?,?,?,?)",tuple(fill.values()))
+                fill=dict(fill_id=fid,order_id=o.order_id,symbol=o.symbol,plan_id=o.plan_id,side=o.side,qty=result.qty,price=str(result.price),fee=str(result.fee),minute_end=end,run_id=self.run_id,source_signal_id=o.signal_id,fill_basis=result.fill_basis)
+                c.execute("INSERT INTO paper_fills (fill_id,order_id,symbol,plan_id,side,qty,price,fee,minute_end,run_id,source_signal_id,fill_basis) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",tuple(fill.values()))
                 self._event(c,fid,"FILL",fill);fills.append(fill);volume_left-=result.qty
             positions=self._positions(c,day)
             if all(p['mark_minute_end']==end for p in positions):
@@ -402,6 +406,11 @@ class LocalPaperBroker:
                 account={**account,'nav':None,'positions_value':None,'pnl_unrealized':None}
             report=dict(trade_date=trade_date,status='DATA_LIMITED' if missing else 'COMPLETE',account=account,
                         positions=list(positions),missing_current_marks=sorted(set(missing)),reconcile=self._reconcile(c))
+            from .basis_report import fill_basis_report
+            report['fill_basis_report']=json.loads(dump(fill_basis_report(
+                [dict(r) for r in c.execute('SELECT * FROM paper_fills')],
+                [dict(r) for r in c.execute('SELECT * FROM paper_lots')],
+                {r['symbol']:dict(r) for r in c.execute('SELECT * FROM paper_marks')},trade_date=trade_date)))
             c.execute("INSERT INTO daily_nav VALUES (?,?)",(trade_date,dump(report)))
             self._event(c,'settle:'+trade_date,'SETTLEMENT',report)
             return report
