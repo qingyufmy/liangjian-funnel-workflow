@@ -67,6 +67,11 @@ export function isMonitorDispatchReady(clock: ShanghaiClock): boolean {
   return clock.second >= 3;
 }
 
+export function auctionEvidenceSlot(clock: ShanghaiClock): number | undefined {
+  if (clock.hour !== 9 || clock.minute !== 25) return undefined;
+  return [3, 8, 15, 24].find(second => clock.second >= second && clock.second < second + 2);
+}
+
 function isFeatureMaintenanceMinute(clock: ShanghaiClock): boolean {
   const [hour, minute] = FEATURE_MAINTENANCE_AT.split(":").map((value) => Number(value));
   return clock.hour === hour && clock.minute === minute;
@@ -149,7 +154,7 @@ export class WorkflowScheduler {
       if (clock.hour === 8 && clock.minute === 30) due.push("premarket");
       // Independent evidence only. Never late-catch-up a 09:26 quote as an
       // auction-final print, and never rerun the A2/A3 research to obtain it.
-      if (clock.hour === 9 && clock.minute === 25 && clock.second <= 30) due.push("auction-evidence");
+      if (auctionEvidenceSlot(clock) !== undefined) due.push("auction-evidence");
       if (clock.hour === 9 && clock.minute === 26) due.push("morning");
       // A four-minute startup/restart window, with a stable daily key.
       // The Python lease is authoritative across Node restarts.
@@ -169,7 +174,8 @@ export class WorkflowScheduler {
     }
 
     for (const job of due) {
-      const dispatchKey = job === "auction-refresh" ? `${clock.date}T09:26`
+      const dispatchKey = job === "auction-evidence" ? `${clock.date}T09:25:${auctionEvidenceSlot(clock)}`
+        : job === "auction-refresh" ? `${clock.date}T09:26`
         : job === "paper-settle" ? `${clock.date}T15:30`
         : job === "auction-base" ? `${clock.date}T07:00` : key;
       if (job === "features" && !this.featureMaintenanceEnabled) continue;
