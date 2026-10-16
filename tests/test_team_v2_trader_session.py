@@ -55,7 +55,9 @@ def fixture(tmp_path, *, invalid=False, offline=False, moved=False, mode='contro
 
 
 def test_real_client_to_guard_risk_paper_and_restart_no_second_call(tmp_path):
-    kwargs,seen,_=fixture(tmp_path);frozen=deepcopy(kwargs['replacements'])
+    kwargs,seen,_=fixture(tmp_path)
+    kwargs['replacements']['TIME_RULES']={'TIGHTEN_AFTER':'14:00','POST_CLOSE_FIXED_PRICE':False}
+    frozen=deepcopy(kwargs['replacements'])
     result=run_trader_session(**kwargs)
     assert result['status']=='EVALUATED' and result['model_validated']
     assert result['admissions'][0]['dispatched']
@@ -68,6 +70,7 @@ def test_real_client_to_guard_risk_paper_and_restart_no_second_call(tmp_path):
     kwargs['store']=TeamMeetingStore(tmp_path/'team.db')
     assert run_trader_session(**kwargs)==result and len(seen)==1
     assert kwargs['replacements']==frozen
+    assert 'TIGHTEN_AFTER' in seen[0]['messages'][0]['content']
     with sqlite3.connect(tmp_path/'team.db') as db:
         assert db.execute("SELECT name FROM sqlite_master WHERE name='execution_plans'").fetchall()==[]
 

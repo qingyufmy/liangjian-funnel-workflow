@@ -56,11 +56,12 @@ def run_trader_session(*,repository,client,journal,store,broker,decision_id,minu
         snapshot_ready=snapshot_ready,timeout_seconds=timeout_seconds,max_output_tokens=max_output_tokens)
     execution_hash=hashlib.sha256(dump(context).encode()).hexdigest()
     values=dict(replacements)
+    time_rules=dict(values['TIME_RULES']) if isinstance(values.get('TIME_RULES'),Mapping) else {}
+    time_rules.update(NO_NEW_ENTRY_AFTER=limits.no_new_entry_after,execution_context_sha256=execution_hash)
     values.update(DECISION_ID=decision_id,MINUTE_SNAPSHOT_ID=minute_snapshot_id,
         ACTIVE_PLANS=[context['plans'][pid] for pid in sorted(active_plan_ids)],
         RISK_ENVELOPES=context['envelopes'],POSITIONS=position_snapshot,TECH_REFERENCE=tech_reference,
-        CURRENT_TIME=decision_at.isoformat(),TIME_RULES=dict(NO_NEW_ENTRY_AFTER=limits.no_new_entry_after,
-            execution_context_sha256=execution_hash))
+        CURRENT_TIME=decision_at.isoformat(),TIME_RULES=time_rules)
     # Decimal/datetime normalization is fact serialization, never a role rewrite.
     values=json.loads(dump(values))
     request=repository.prepare_messages('A4',values,required_envelope=required_envelope,session='INTRADAY')
