@@ -158,6 +158,9 @@ export class WorkflowScheduler {
       if (clock.hour === 16 && clock.minute === 0) due.push("a5-close");
       if (clock.hour === 16 && clock.minute === 10) due.push("outcomes");
       if (clock.hour === 15 && clock.minute === 10) due.push("close");
+      // Owned paper settlement may recover a busy review slot or a Node
+      // restart for ten minutes. Its persisted daily ledger is authoritative.
+      if (clock.hour === 15 && clock.minute >= 30 && clock.minute < 40) due.push("paper-settle");
       // Node provides a cheap weekday wake-up. Python owns the exchange
       // calendar and decides whether this date is the monthly full or weekly
       // incremental A1 maintenance boundary; ordinary weekdays are a NOOP.
@@ -167,11 +170,14 @@ export class WorkflowScheduler {
 
     for (const job of due) {
       const dispatchKey = job === "auction-refresh" ? `${clock.date}T09:26`
+        : job === "paper-settle" ? `${clock.date}T15:30`
         : job === "auction-base" ? `${clock.date}T07:00` : key;
       if (job === "features" && !this.featureMaintenanceEnabled) continue;
       if (this.dispatched.get(job) === dispatchKey || this.inFlight.has(job) || this.retryKeys.get(job) === dispatchKey) continue;
       if (job === "auction-refresh" && this.lastDispatch.has(job)
           && value.getTime() - Date.parse(this.lastDispatch.get(job)!) < 60_000) continue;
+      if (job === "paper-settle" && this.lastDispatch.has(job)
+          && value.getTime() - Date.parse(this.lastDispatch.get(job)!) < 5_000) continue;
       this.dispatch(job, dispatchKey, value);
     }
     // The 16:10 pass can precede refreshed closing prices. Reconcile again
@@ -217,6 +223,9 @@ export class WorkflowScheduler {
         // Baseline failures require investigation, not repeated full syncs.
         // Only retry a worker-busy skip while the 07:00-07:14 window is open.
         if (job === "auction-base" && result.status === "skipped" && result.reason?.startsWith("BUSY:")) {
+          this.dispatched.delete(job);
+        }
+        if (job === "paper-settle" && result.status === "skipped" && result.reason?.startsWith("BUSY:")) {
           this.dispatched.delete(job);
         }
         const shouldRetry = (job === "premarket" || job === "morning" || job === "close" || job === "a1" || job === "a5-midday" || job === "a5-close" || job === "outcomes")

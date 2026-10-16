@@ -463,6 +463,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("run-morning", help="dispatch only the due 09:26 morning review")
     sub.add_parser("run-auction-base", help="prepare immutable research evidence at 07:00; no models or plan publication")
     sub.add_parser("run-auction-evidence", help="capture one 09:25 source observation; no research, activation or rebase")
+    sub.add_parser("run-paper-settle", help="settle the existing independent local-paper account; no research or customer I/O")
     auction_refresh = sub.add_parser("run-auction-refresh", help="refresh A2/A3 research after auction; never replace active A4 plans")
     auction_refresh.add_argument("--manual-current", action="store_true",
                                  help="explicit operator rerun using the current session time, not the 09:26 auction cutoff")
@@ -640,6 +641,14 @@ def main(argv: Sequence[str] | None = None, *, settings: Settings | None = None)
         sys.stdout.reconfigure(encoding="utf-8", errors="strict")
     args = build_parser().parse_args(argv)
     active = settings or Settings.from_env()
+    if args.command == "run-paper-settle":
+        from .runtime.team_v2_commands import run_paper_settle
+        try:
+            result = run_paper_settle(active)
+        except Exception:
+            result = {"status":"BLOCKED", "reason_code":"PAPER_SETTLE_FAILED"}
+        print(json.dumps(result, ensure_ascii=False))
+        return 0 if result["status"] in {"COMPLETE", "NOOP"} else 2
     if args.command == "doctor":
         return _doctor(active)
     if args.command == "run-auction-evidence":
