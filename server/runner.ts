@@ -164,7 +164,7 @@ export class JobRunner {
     private readonly logger: LogStore,
   ) {
     this.monitorHealth = new MonitorHealth(path.join(config.nodeLogDir, "monitor-business-health.json"),
-      path.join(path.dirname(config.rootDir), "liangjian-shadow", "shadow.env"),
+      path.join(path.dirname(config.rootDir), "liangjian-shadow", "internal_alert.env"),
       message => logger.warn(message, { job:"monitor" }));
   }
 
@@ -268,6 +268,8 @@ export class JobRunner {
     });
     child.stderr.on("data", (chunk: Buffer | string) => {
       if (job === "monitor") monitorReasons = { ...monitorReasons, ...monitorReasonCounts(stderrPending + chunk.toString()) };
+      if (job === "a5-close" && /^A4_ENTRY_WINDOW_UNRESOLVED\r?$/m.test(stderrPending + chunk.toString()))
+        monitorReasons.A4_ENTRY_WINDOW_UNRESOLVED = 1;
       const split = splitChunk(stderrPending, chunk);
       stderrPending = split.pending;
       for (const line of split.lines) {
@@ -315,6 +317,9 @@ export class JobRunner {
           monitorBusiness = { ...this.monitorHealth.observe({ runId, startedAt: startedAt.toISOString(),
             finishedAt: finishedAt.toISOString(), exitCode }, monitorReasons,monitorTrace.business_incident_ids) };
         }
+        if (job === "a5-close" && monitorReasons.A4_ENTRY_WINDOW_UNRESOLVED)
+          monitorBusiness = { ...this.monitorHealth.observe({ runId, startedAt: startedAt.toISOString(),
+            finishedAt: finishedAt.toISOString(), exitCode }, monitorReasons) };
         const record: JobRunRecord = {
           runId,
           job,

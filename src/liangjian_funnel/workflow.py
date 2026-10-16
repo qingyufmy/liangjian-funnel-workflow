@@ -6099,6 +6099,10 @@ class WorkflowApplication:
             }
         kind = review_kind if isinstance(review_kind, A5ReviewKind) else A5ReviewKind(str(review_kind).upper())
         close_archive = self.collect_close_finalization(now=current) if kind is A5ReviewKind.POST_CLOSE else None
+        if kind is A5ReviewKind.POST_CLOSE and current.date() == datetime.now(SHANGHAI).date():
+            from .runtime.entry_close import finalize_pending_entries
+            entry_close = finalize_pending_entries(self.store, self.minute_store, now=current)
+            close_archive = {**(close_archive or {}), "entry_window_reconciliation": entry_close}
         model, _lane_index, lane_id = _primary_model_for_settings(self.settings)
         return A5DailyReviewService(
             store=self.store,
@@ -7390,6 +7394,8 @@ class WorkflowApplication:
             # propagate; it is unsafe to pretend a broken database is healthy.
             for lifecycle in self.store.list_a4_signal_lifecycles(
                 account_id=f"paper:{lane_id}", symbol=symbol, limit=100,
+                trade_date=observed_at.astimezone(SHANGHAI).date().isoformat(),
+                status=("SIGNALLED", "OPEN", "EXIT_PENDING", "PARTIALLY_CLOSED"),
             ):
                 self.store.quarantine_a4_signal(str(lifecycle["entry_event_key"]),
                     reason_code=str(exc), at=observed_at)

@@ -9,6 +9,7 @@ No table in this module contains model reasoning text.
 from __future__ import annotations
 
 import json
+import hashlib
 import math
 import re
 import sqlite3
@@ -1869,6 +1870,9 @@ class RuntimeStore:
             # immutable labels. Never rewrite their recorded decisions/returns.
             clauses.append("NOT (stage='A4' AND EXISTS (SELECT 1 FROM a4_lifecycle_reconciliations r "
                            "WHERE r.plan_id=json_extract(astock_outcome_labels.metadata_json,'$.plan_id')))")
+            clauses.append("NOT (stage='A4' AND EXISTS (SELECT 1 FROM a4_signal_lifecycles l "
+                           "WHERE l.plan_id=json_extract(astock_outcome_labels.metadata_json,'$.plan_id') "
+                           "AND l.status='DATA_ERROR' AND l.exit_reason='ENTRY_WINDOW_DATA_MISSING'))")
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         return self._read(
             lambda connection: tuple(
@@ -2497,6 +2501,11 @@ class RuntimeStore:
             return _row_dict(connection.execute("SELECT * FROM monitor_events WHERE event_id=?", (event_id,)).fetchone()), True
 
         return self._write(operation)
+
+    def get_monitor_event(self, event_key: str) -> dict[str, Any] | None:
+        return self._read(lambda connection: _row_dict(connection.execute(
+            "SELECT * FROM monitor_events WHERE event_key=?", (event_key,),
+        ).fetchone()))
 
     def list_monitor_events(
         self,
@@ -3292,6 +3301,46 @@ class RuntimeStore:
             self.mark_a4_signal_terminal(signal_id, A4SignalStatus.UNFILLED,
                 reason_code=reason_code, at=eligible, _connection=connection)
         self._write(operation)
+
+    def complete_a4_entry_data_missing(self, signal_id: str, *, evidence: Mapping[str, Any], at: datetime) -> None:
+        """Commit negative-window proof and DATA_ERROR together; never a no-fill."""
+        from .entry_contract import entry_bar_for
+        manifest = evidence.get("captures")
+        if (not isinstance(manifest, list) or len(manifest) != 239
+                or hashlib.sha256(json.dumps(manifest, separators=(",", ":")).encode()).hexdigest() != evidence.get("ledger_sha256")):
+            raise StateTransitionError("A4_MISSING_WINDOW_UNPROVEN")
+        def operation(connection):
+            event = connection.execute("SELECT * FROM monitor_events WHERE event_key=?", (signal_id,)).fetchone()
+            life = self._a4_resolve_on_connection(connection, signal_id)
+            if event is None or life is None:
+                raise StateTransitionError("A4_LIFECYCLE_NOT_FOUND")
+            eligible = entry_bar_for({**json.loads(event["payload_json"]), "signal_time": event["minute_end"]})
+            if (eligible is None or evidence.get("status") != "COMPLETE_CAPTURE_MISSING"
+                    or evidence.get("eligible_bar_end") != _iso(eligible)
+                    or evidence.get("symbol") != life["symbol"]
+                    or evidence.get("trade_date") != life["trade_date"]
+                    or evidence.get("capture_count") != 239
+                    or not re.fullmatch(r"[a-f0-9]{64}", str(evidence.get("ledger_sha256", "")))
+                    or at.date().isoformat() != life["trade_date"] or at.hour < 15):
+                raise StateTransitionError("A4_MISSING_WINDOW_UNPROVEN")
+            if life["status"] == "DATA_ERROR" and life["exit_reason"] == "ENTRY_WINDOW_DATA_MISSING":
+                return
+            if (life["status"] != "SIGNALLED" or int(life["entry_qty"]) or int(life["remaining_qty"])
+                    or connection.execute("SELECT 1 FROM virtual_fills WHERE account_id=? AND signal_id=?",
+                        (life["account_id"], signal_id)).fetchone()):
+                raise StateTransitionError("A4_MISSING_WINDOW_FILL_CONFLICT")
+            connection.execute("INSERT INTO a4_entry_matching_attempts VALUES(?,?,?,?,?,?,?)",
+                (life["plan_id"], signal_id, _iso(eligible), "DATA_MISSING", "ENTRY_WINDOW_DATA_MISSING",
+                 json.dumps(dict(evidence), sort_keys=True), _iso(at)))
+            self.mark_a4_signal_terminal(signal_id, A4SignalStatus.DATA_ERROR,
+                reason_code="ENTRY_WINDOW_DATA_MISSING", at=at, _connection=connection)
+        self._write(operation)
+
+    def get_a4_lifecycle_reconciliation(self, signal_id: str) -> dict[str, Any] | None:
+        """Performance exclusion is exact; new-entry symbol quarantine is separate."""
+        return self._read(lambda connection: _row_dict(connection.execute(
+            "SELECT * FROM a4_lifecycle_reconciliations WHERE signal_id=? LIMIT 1", (signal_id,),
+        ).fetchone()))
 
     def quarantine_a4_signal(self, signal_id: str, *, reason_code: str, at: datetime) -> dict[str, Any]:
         """Append an incident; never repair a historical lifecycle or cash row."""

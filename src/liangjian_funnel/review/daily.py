@@ -1545,10 +1545,12 @@ def build_a5_fact_snapshot(
     lifecycles = []
     raw_lifecycles = store.list_a4_signal_lifecycles(lane_id=lane_id, trade_date=trade_date.isoformat(), limit=1000)
     for row in raw_lifecycles:
-        quarantine_reader = getattr(store, "get_a4_plan_quarantine", None)
-        reconciliation = quarantine_reader(str(row.get("plan_id") or "")) if callable(quarantine_reader) else None
-        row["performance_eligible"] = reconciliation is None
-        row["reconciliation_reason_code"] = "A4_LIFECYCLE_RECONCILIATION_REQUIRED" if reconciliation else None
+        quarantine_reader = getattr(store, "get_a4_lifecycle_reconciliation", None)
+        reconciliation = quarantine_reader(str(row.get("entry_event_key") or "")) if callable(quarantine_reader) else None
+        missing_window = row.get("status") == "DATA_ERROR" and row.get("exit_reason") == "ENTRY_WINDOW_DATA_MISSING"
+        row["performance_eligible"] = reconciliation is None and not missing_window
+        row["reconciliation_reason_code"] = ("A4_LIFECYCLE_RECONCILIATION_REQUIRED" if reconciliation
+            else "ENTRY_WINDOW_DATA_MISSING" if missing_window else None)
         signal_time = row.get("signal_time")
         if signal_time and not _within_cutoff(signal_time, trade_date, cutoff):
             continue

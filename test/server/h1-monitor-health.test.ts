@@ -17,6 +17,18 @@ function record(minute: string, exitCode = 2) {
     finishedAt: `2026-10-16T${minute}:10+08:00`, exitCode };
 }
 
+test("EOD unresolved entry alerts immediately, once per day across restart", async () => {
+  const { health, root, send, log } = await setup();
+  expect(health.observe(record("16:00", 0), { A4_ENTRY_WINDOW_UNRESOLVED: 1 }).status).toBe("DEGRADED");
+  await health.flush();
+  expect(send).toHaveBeenCalledTimes(1);
+  expect(send.mock.calls[0]?.[1]).toMatchObject({ alertReason: "A4_ENTRY_WINDOW_UNRESOLVED" });
+  const restarted = new MonitorHealth(join(root, "health.json"), join(root, "shadow.env"), log, send);
+  restarted.observe(record("16:05", 0), { A4_ENTRY_WINDOW_UNRESOLVED: 1 });
+  await restarted.flush();
+  expect(send).toHaveBeenCalledTimes(1);
+});
+
 test("two distinct consecutive failures alert; repeated poll is not a new minute", async () => {
   const { health, send } = await setup();
   expect(health.observe(record("10:00"), { A4_TERMINAL_STATE_CONFLICT: 1 }).failureStreak).toBe(1);
