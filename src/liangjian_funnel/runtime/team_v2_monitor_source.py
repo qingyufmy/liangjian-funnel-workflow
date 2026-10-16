@@ -24,6 +24,7 @@ _WORK=BoundedWorkGate(8)
 
 def collect_monitor_packet(settings,scope,*,clock,deadline,fetch_bars,fetch_quote,
         monotonic=time.monotonic,gate=_WORK):
+    scope=json.loads(canonical(scope))
     now=stamp(clock());minute=now.replace(second=0,microsecond=0)
     from datetime import timedelta
     cutoff=minute-timedelta(minutes=1)
@@ -74,7 +75,7 @@ def collect_monitor_packet(settings,scope,*,clock,deadline,fetch_bars,fetch_quot
         else:initial[symbol]={'fetch_error':'CONTROL_SOURCE_'+item.status}
     confirmed=confirm_publications(initial,minute_fetch,at=cutoff,deadline=acquisition_deadline,
         clock=monotonic,wall_clock=lambda:stamp(clock()),closed_window=True)
-    captured=stamp(clock());packs={};problems=[]
+    captured=stamp(clock());packs={};problems=list(scope.get('reason_codes',()))
     if captured.replace(second=0,microsecond=0)!=minute:
         problems.append(dict(reason_code='CONTROL_CAPTURE_MINUTE_MOVED'))
     for symbol in symbols:
@@ -92,7 +93,8 @@ def collect_monitor_packet(settings,scope,*,clock,deadline,fetch_bars,fetch_quot
             minute_complete=minute_ok,publication=selected.get('publication'),
             quote=checked.model_dump(mode='json'),tradability_authority='UNPROVEN_RULE_ADAPTER_PENDING')
     body=dict(schema_version='team-monitor-packet/1',status='CAPTURED' if not problems else 'DATA_LIMITED',
-        binding=binding,binding_sha256=binding_hash,captured_at=captured.isoformat(),
+        binding=binding,binding_sha256=binding_hash,captured_at=captured.isoformat(),scope=scope,
+        producer_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         execution_cutoff=cutoff.isoformat(),sources=packs,reason_codes=problems,
         no_model_or_order_authority=True)
     digest=hashlib.sha256(canonical(body).encode()).hexdigest();body['packet_sha256']=digest

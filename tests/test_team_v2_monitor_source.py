@@ -32,6 +32,7 @@ def test_existing_source_and_publication_contract_freeze_once_without_model_auth
     settings,clock,scope,calls,args=prepared(tmp_path)
     result=collect_monitor_packet(settings,scope,**args)
     assert result['status']=='CAPTURED' and len(calls)==2
+    assert result['scope']==scope and result['scope']['plan_rows'][0]['payload_json']
     assert result['sources']['000001.SZ']['minute_complete']
     assert result['no_model_or_order_authority']
     assert result['sources']['000001.SZ']['tradability_authority']=='UNPROVEN_RULE_ADAPTER_PENDING'
@@ -94,3 +95,11 @@ def test_past_global_deadline_makes_no_source_call(tmp_path):
     settings,clock,scope,calls,args=prepared(tmp_path)
     result=collect_monitor_packet(settings,scope,**{**args,'deadline':time.monotonic()-1})
     assert result['status']=='DATA_LIMITED' and not calls
+
+
+def test_source_scope_gap_survives_capture_of_another_valid_symbol(tmp_path):
+    settings,clock,scope,calls,args=prepared(tmp_path)
+    scope.update(status='DATA_LIMITED',reason_codes=[dict(plan_id='missing-owner',reason_code='EXECUTION_BOUND_PLAN_MISSING')])
+    result=collect_monitor_packet(settings,scope,**args)
+    assert result['status']=='DATA_LIMITED' and result['sources']['000001.SZ']['minute_complete']
+    assert result['scope']==scope and result['reason_codes']==scope['reason_codes']
