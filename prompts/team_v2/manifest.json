@@ -1,0 +1,39 @@
+{
+  "schema_version": "claude-team-prompt-bundle/3.0.1",
+  "authority": "canonical .claude_bridge/outbox/0204-reply.md",
+  "role_semantics_modified": false,
+  "files": {
+    "00_shared_system_v3.txt": {
+      "sha256": "11e377f00bc944487cb549d576bbace8ab25d8689d7733704686e8a59c7eae41",
+      "bytes": 9171
+    },
+    "agent_1_macro_chain_v3.txt": {
+      "sha256": "a4496ad8f7ffc073fdb34716487f31bf43838bf41de4c77365098b90f5f8751e",
+      "bytes": 45049
+    },
+    "agent_2_theme_sentiment_v3.txt": {
+      "sha256": "ce10d92c7faea955155dbd5cfe83f01c57aed11b45b0919d8d5c48360aca79e0",
+      "bytes": 7875
+    },
+    "agent_3_portfolio_planner_v4.txt": {
+      "sha256": "77e8858d3b236c5cfb0e09636a338809dd1efea0c9fb2006323c0353e909dea4",
+      "bytes": 9012
+    },
+    "agent_4_trader_v1.txt": {
+      "sha256": "014902af49d5c189f905426ddbf05b8ffa1396ff8241c32bfabd37531db6fdd8",
+      "bytes": 5589
+    },
+    "agent_5_daily_reviewer_v2.txt": {
+      "sha256": "7b34ca3e7b65e50a8b09805c063c40c0521020efac1465fd1bae337dca13d1af",
+      "bytes": 6936
+    },
+    "agent_6_risk_governor_v1.txt": {
+      "sha256": "83a8d316d344974123e3ae7e3fa9d187071ead1f0ca9e1a8d588d4e53d2bb596",
+      "bytes": 6050
+    },
+    "README_TEAM_V2_PROMPTS.md": {
+      "sha256": "47bf0c04b77a1b9b24a837aed1050d8df13ad51f3c6d195d457075166211b616",
+      "bytes": 5411
+    }
+  }
+}

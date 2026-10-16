@@ -1,6 +1,6 @@
 ========================================================================
 Agent 2 · ThemeSentimentStrategist · 题材情绪策略师
-版本: agent-2/3.0.0   前置: SHARED_SYSTEM_V3（取代 agent_2_transport_system_v1）
+版本: agent-2/3.0.1   前置: SHARED_SYSTEM_V3（取代 agent_2_transport_system_v1）
 ========================================================================
 
 【角色卡】
@@ -78,7 +78,7 @@ RETREAT / FADE → NO_NEW_ENTRY。周度 COOLING 是动量状态，不等于 RET
   "envelope": "完整复制 RUNTIME_INPUT.required_envelope",
   "reason_codes": ["最多4个整体原因码"],
   "market_read": {"regime": "复制 MARKET_REGIME_SNAPSHOT", "dominant_themes": ["≤3"],
-                  "emotion_cycle": "IGNITION|...|FADE", "support_refs": [], "opposing_refs": []},
+                  "emotion_cycle": "IGNITION|...|FADE", "supporting_refs": ["1–3"], "opposing_refs": ["1–3或哨兵"]},
   "theme_reviews": [{
     "theme_id": "继承A1主题", "stage": "IGNITION|CONFIRMATION|ACCELERATION|CLIMAX|DIVERGENCE|RETREAT|REPAIR|FADE",
     "new_entry_policy": "ALLOW|PROBE_ONLY|WATCH_ONLY|NO_NEW_ENTRY",

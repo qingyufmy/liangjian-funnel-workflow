@@ -99,8 +99,8 @@ def test_real_prompt_package_shared_is_used_and_values_are_rendered_once():
     values = {key: {"status": "INSUFFICIENT"} for key in doc.placeholders}
     values["EVIDENCE_CATALOG"] = CATALOG
     request = repo.prepare("A2", values)
-    assert request.shared_version == "shared-system/3.0.0"
-    assert request.role_version == "agent-2/3.0.0"
+    assert request.shared_version == "shared-system/3.0.1"
+    assert request.role_version == "agent-2/3.0.1"
     assert "Legacy TOP5 wording" not in request.system
     assert "{{" not in request.system
     assert request.system.count('"id":"M1"') == 1
@@ -113,11 +113,15 @@ def test_missing_prompt_input_fails_before_any_model_call():
         repo.prepare("A2", {})
 
 
-def test_a1_revision_instruction_is_not_a_callable_complete_prompt():
+def test_a1_complete_claude_prompt_is_callable_and_still_requires_all_inputs():
     from pathlib import Path
     repo = TeamPromptRepository(Path(__file__).resolve().parents[1] / "prompts/team_v2")
-    with pytest.raises(ValueError, match="A1_COMPOSITION_REQUIRED"):
+    with pytest.raises(ValueError, match="UNRESOLVED_PLACEHOLDER"):
         repo.prepare("A1", {})
+    values={key: {"status":"INSUFFICIENT"} for key in repo.document("A1").placeholders}
+    prepared=repo.prepare("A1",values)
+    assert prepared.role_version=="agent-1/3.0.1"
+    assert "【A1 合同说明" in prepared.system and "{{" not in prepared.system
 
 
 def test_handoff_can_omit_an_unneeded_recipient_but_not_all_recipients():
@@ -152,3 +156,71 @@ def test_plan_review_routes_only_its_own_session_and_blinds_both_inputs():
     assert '═══════ 会话 PM_POST_CLOSE' not in request.system
     assert values==before
     with pytest.raises(TypeError):request.source_hashes['x']='bad'
+
+
+def test_a1_authored_list_handoff_and_mapping_ref_alias_are_enforced():
+    raw={"handoff_notes":["A2 verify theme"],"what_would_change_my_mind":["official evidence reverses"],
+         "industry_theme_mappings":[{"industry_thscode":"881001.TI", "supporting_source_refs":["M1"],
+                                    "contradicting_source_refs":["N1"]}]}
+    assert validate_team_output("A1",raw,CATALOG).valid
+    raw['industry_theme_mappings'][0]['supporting_refs']=['N1']
+    assert not validate_team_output("A1",raw,CATALOG).valid
+
+
+@pytest.mark.parametrize('role,key',[('A3','capacity_request'),('A6','capacity_for_tomorrow')])
+def test_capacity_judgments_cannot_escape_opposing_evidence(role,key):
+    raw=response(core_watch_pool=[]);raw[key]={"supporting_refs":["M1"]}
+    assert not validate_team_output(role,raw,CATALOG).valid
+    raw[key]['opposing_refs']=['N1']
+    assert validate_team_output(role,raw,CATALOG).valid
+
+
+def test_a5_malformed_attribution_returns_invalid_not_exception():
+    assert not validate_team_output('A5',response(core_watch_pool=[],team_scorecard={'attribution':None}),CATALOG).valid
+
+
+def test_claude301_bundle_exact_bytes_match_all_eight_approved_digests():
+    import hashlib,json
+    from pathlib import Path
+    root=Path(__file__).resolve().parents[1]/'prompts/team_v2'
+    manifest=json.loads((root/'manifest.json').read_text(encoding='utf-8'))
+    assert len(manifest['files'])==8 and manifest['role_semantics_modified'] is False
+    for name,expected in manifest['files'].items():
+        raw=(root/name).read_bytes()
+        assert len(raw)==expected['bytes'] and hashlib.sha256(raw).hexdigest()==expected['sha256']
+
+
+def required_envelope(role):
+    from liangjian_funnel.pipeline.team_v2_prompts import _ENVELOPE_KEYS
+    return {**{key:'FROZEN_TRANSPORT_ONLY' for key in _ENVELOPE_KEYS},'stage_id':role}
+
+
+def test_pm_close_shorthand_facts_are_sent_once_in_runtime_not_silently_dropped():
+    from pathlib import Path
+    repo=TeamPromptRepository(Path(__file__).resolve().parents[1]/'prompts/team_v2')
+    values={key:[] for key in ('TRADER_OBSERVATIONS','POSITIONS','MARKET_STATE','THEME_REVIEWS')}
+    values.update(ACCOUNT_SNAPSHOT={'nav':'UNIQUE_FROZEN_ACCOUNT_FACT'},EVIDENCE_CATALOG=CATALOG)
+    original=deepcopy(values)
+    result=repo.prepare_messages('A3',values,session='PM_POST_CLOSE',required_envelope=required_envelope('A3'))
+    joined=''.join(message['content'] for message in result.messages)
+    assert joined.count('UNIQUE_FROZEN_ACCOUNT_FACT')==1
+    assert joined.count('"id":"M1"')==1 and values==original
+    assert '═══════ 会话 PM_PREMARKET' not in joined
+    with pytest.raises(TypeError):result.messages[0]['content']='mutate'
+    del values['POSITIONS']
+    with pytest.raises(ValueError,match='UNRESOLVED_PLACEHOLDER'):
+        repo.prepare_messages('A3',values,session='PM_POST_CLOSE',required_envelope=required_envelope('A3'))
+
+
+def test_blind_messages_hide_conclusions_in_catalog_too_and_bind_transport():
+    from pathlib import Path
+    repo=TeamPromptRepository(Path(__file__).resolve().parents[1]/'prompts/team_v2')
+    names=('A3_CANDIDATE_POOL','A3_FACT_SHEET','MARKET_REGIME_SNAPSHOT','SECTOR_PERMISSIONS',
+           'A2_HANDOFF','RISK_CAPACITY','PRIOR_OUTCOME_FEEDBACK','EVIDENCE_CATALOG')
+    values={name:{'review_status':'UNIQUE_HIDDEN_ENGINE_VERDICT','close':12} for name in names}
+    result=repo.prepare_messages('A3',values,session='PLAN_REVIEW',required_envelope=required_envelope('A3'))
+    assert 'UNIQUE_HIDDEN_ENGINE_VERDICT' not in ''.join(message['content'] for message in result.messages)
+    other=required_envelope('A3');other['run_id']='different-original-run'
+    assert repo.prepare_messages('A3',values,session='PLAN_REVIEW',required_envelope=other).input_hash!=result.input_hash
+    with pytest.raises(ValueError,match='REQUIRED_ENVELOPE_INVALID'):
+        repo.prepare_messages('A3',values,session='PLAN_REVIEW',required_envelope=required_envelope('A2'))

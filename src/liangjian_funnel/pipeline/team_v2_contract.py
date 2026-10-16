@@ -10,7 +10,7 @@ NO_OPPOSING = "NO_OPPOSING_EVIDENCE_FOUND"
 _BLIND_KEYS = frozenset({"eligibility", "met_conditions", "unmet_conditions", "review_status",
                          "technical_score", "score_breakdown", "engine_verdict", "trigger_result"})
 _POOLS = {
-    "A1": ("structural_themes", "active_research_pool", "monitor_pool", "rejected_candidates"),
+    "A1": ("structural_themes", "active_research_pool", "monitor_pool", "rejected_candidates", "industry_theme_mappings"),
     "A2": ("theme_reviews", "focus_decisions", "reject_decisions", "rotation_reviews", "model_nominations"),
     "A3": ("core_watch_pool", "secondary_watch_pool", "rejected_candidates", "slot_plan",
            "plan_allocations", "overnight_stances"),
@@ -18,9 +18,9 @@ _POOLS = {
     "A5": ("model_value_assessment", "signal_reviews", "missed_opportunity_reviews", "core_defects", "hypotheses"),
     "A6": ("envelope_adjustments", "exception_actions", "overnight_reviews", "risk_event_attribution"),
 }
-_SINGLE = {"A2": ("market_read",), "A3": ("deployment_target",),
+_SINGLE = {"A2": ("market_read",), "A3": ("deployment_target", "capacity_request"),
            "A5": ("a2_review", "a3_review", "a4_review", "a6_review", "trader_vs_deterministic", "risk_governor_value"),
-           "A6": ("utilization_cap",)}
+           "A6": ("utilization_cap", "capacity_for_tomorrow")}
 
 
 @dataclass(frozen=True)
@@ -55,7 +55,9 @@ def validate_team_output(role: str, output: Any, catalog: Any, *, session: str |
     if session is not None and output.get("session") != session:
         issues.append("TEAM_SESSION_MISMATCH")
     notes = output.get("handoff_notes")
-    if (not isinstance(notes, Mapping) or not notes
+    if role == "A1" and isinstance(notes, list):
+        if not _texts(notes, 3): issues.append("TEAM_HANDOFF_NOTES_INVALID")
+    elif (not isinstance(notes, Mapping) or not notes
             or not any(_texts(value, 3) for value in notes.values())
             or any(not isinstance(key, str) or not isinstance(value, list) or len(value) > 3
                    or (value and not _texts(value, 3)) for key, value in notes.items())):
@@ -96,15 +98,25 @@ def validate_team_output(role: str, output: Any, catalog: Any, *, session: str |
             else:
                 judgments.append({**deepcopy(dict(row)), "path": name})
     if role == "A5" and isinstance(output.get("team_scorecard"), Mapping):
-        for row in output["team_scorecard"].get("attribution", []):
+        attribution = output["team_scorecard"].get("attribution", [])
+        if not isinstance(attribution,list):
+            issues.append("TEAM_ATTRIBUTION_INVALID"); attribution=[]
+        for row in attribution:
             if not isinstance(row, Mapping):
                 issues.append("TEAM_ATTRIBUTION_INVALID")
             else:
                 judgments.append({**deepcopy(dict(row)), "path": "team_scorecard.attribution"})
     sentinel_count = 0
     for row in judgments:
-        supporting = row.get("evidence_ids") if role == "A5" else row.get("supporting_refs")
-        opposing = row.get("opposing_refs")
+        aliases = (("supporting_source_refs", "contradicting_source_refs")
+                   if role=="A1" and row["path"].startswith("industry_theme_mappings[")
+                   else ("evidence_ids", "opposing_refs") if role=="A5"
+                   else ("supporting_refs", "opposing_refs"))
+        supporting = row.get("supporting_refs",row.get(aliases[0]))
+        opposing = row.get("opposing_refs",row.get(aliases[1]))
+        if ((aliases[0] in row and "supporting_refs" in row and row[aliases[0]] != supporting)
+                or (aliases[1] in row and "opposing_refs" in row and row[aliases[1]] != opposing)):
+            issues.append("TEAM_REF_ALIAS_CONFLICT:"+row["path"])
         if not _valid_refs(supporting, refs):
             issues.append("TEAM_SUPPORTING_REFS_INVALID:" + row["path"])
         if opposing == [NO_OPPOSING]:
@@ -118,6 +130,8 @@ def validate_team_output(role: str, output: Any, catalog: Any, *, session: str |
                 sentinel_count += 1
         elif not _valid_refs(opposing, refs):
             issues.append("TEAM_OPPOSING_REFS_INVALID:" + row["path"])
+        if opposing != [NO_OPPOSING] and "opposing_search_scope" in row:
+            issues.append("TEAM_UNEXPECTED_SEARCH_SCOPE:"+row["path"])
     if role == "A3" and output.get("session") == "PLAN_REVIEW" and expected_ids is not None:
         ids = [row.get("symbol") for row in judgments if row["path"].split("[", 1)[0] in
                {"core_watch_pool", "secondary_watch_pool", "rejected_candidates"}]

@@ -5,7 +5,9 @@ flag: live callers are integrated only after the corresponding role schema.
 """
 from dataclasses import dataclass
 import hashlib
+import json
 import re
+from copy import deepcopy
 from pathlib import Path
 from collections.abc import Mapping
 from typing import Any
@@ -17,8 +19,8 @@ from .team_v2_contract import blind_plan_facts
 _FILES = {"A1": "agent_1_macro_chain_v3.txt", "A2": "agent_2_theme_sentiment_v3.txt",
           "A3": "agent_3_portfolio_planner_v4.txt", "A4": "agent_4_trader_v1.txt",
           "A5": "agent_5_daily_reviewer_v2.txt", "A6": "agent_6_risk_governor_v1.txt"}
-_VERSIONS = {"A1": "agent-1/3.0.0", "A2": "agent-2/3.0.0", "A3": "agent-3/4.0.0",
-             "A4": "agent-4-trader/1.0.0", "A5": "agent-5/2.0.0", "A6": "agent-6-risk/1.0.0"}
+_VERSIONS = {"A1": "agent-1/3.0.1", "A2": "agent-2/3.0.1", "A3": "agent-3/4.0.1",
+             "A4": "agent-4-trader/1.0.1", "A5": "agent-5/2.0.1", "A6": "agent-6-risk/1.0.1"}
 _TOKEN = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
 
 
@@ -30,6 +32,20 @@ class TeamPromptRequest:
     system: str
     sha256: str
     source_hashes: Mapping[str, str]
+
+
+@dataclass(frozen=True)
+class TeamMessageRequest:
+    prompt: TeamPromptRequest
+    messages: tuple[Mapping[str, str], ...]
+    input_hash: str
+
+
+_ENVELOPE_KEYS = frozenset('schema_version run_id stage_id source_trade_date execution_trade_date as_of '
+    'knowledge_cutoff input_snapshot_ids config_version config_hash prompt_version model_name market_regime '
+    'status reason_codes'.split())
+_SHORTHAND_INPUTS = {('A3','PM_POST_CLOSE'): frozenset(('ACCOUNT_SNAPSHOT','POSITIONS',
+    'MARKET_STATE','THEME_REVIEWS','EVIDENCE_CATALOG'))}
 
 
 class TeamPromptRepository:
@@ -51,11 +67,35 @@ class TeamPromptRepository:
             raise ValueError("TEAM_ROLE_INVALID")
         return self._read(_FILES[role])
 
+    def prepare_messages(self, role: str, replacements: Mapping[str, Any], *,
+                         required_envelope: Mapping[str, Any], session: str | None = None) -> TeamMessageRequest:
+        """Bind immutable transport metadata plus shorthand input exactly once.
+
+        The role body remains byte-identical. This creates messages only; no
+        provider, state store, execution permission or fallback is involved.
+        """
+        if (not isinstance(required_envelope,Mapping) or set(required_envelope)!=_ENVELOPE_KEYS
+                or required_envelope.get('stage_id')!=role):
+            raise ValueError('TEAM_REQUIRED_ENVELOPE_INVALID')
+        extra_keys=_SHORTHAND_INPUTS.get((role,session),frozenset())
+        if not extra_keys.issubset(replacements):raise ValueError('TEAM_UNRESOLVED_PLACEHOLDER')
+        values=deepcopy(dict(replacements))
+        if role=='A3' and session=='PLAN_REVIEW':values=blind_plan_facts(values)
+        prompt=self.prepare(role,values,session=session)
+        runtime={'required_envelope':deepcopy(dict(required_envelope)), 'session':session,
+                 'inputs':{key:values[key] for key in sorted(extra_keys)}}
+        user='RUNTIME_INPUT\n'+json.dumps(runtime,ensure_ascii=False,sort_keys=True,separators=(',',':'),allow_nan=False)
+        messages=(MappingProxyType({'role':'system','content':prompt.system}),
+                  MappingProxyType({'role':'user','content':user}))
+        binding=json.dumps([dict(message) for message in messages],ensure_ascii=False,
+                           sort_keys=True,separators=(',',':'),allow_nan=False)
+        return TeamMessageRequest(prompt,messages,hashlib.sha256(binding.encode()).hexdigest())
+
     def prepare(self, role: str, replacements: Mapping[str, Any], *, session: str | None = None) -> TeamPromptRequest:
         shared = self._read("00_shared_system_v3.txt"); document = self.document(role)
         if role == "A1" and "【v3 修订清单】" in document.text:
             raise ValueError("A1_COMPOSITION_REQUIRED")
-        if f"版本: {_VERSIONS[role]}" not in document.text or "版本: shared-system/3.0.0" not in shared.text:
+        if f"版本: {_VERSIONS[role]}" not in document.text or "版本: shared-system/3.0.1" not in shared.text:
             raise ValueError("TEAM_PROMPT_VERSION_MISMATCH")
         values = dict(replacements)
         role_text = document.text
@@ -83,6 +123,6 @@ class TeamPromptRepository:
         rendered = _TOKEN.sub(lambda m: _replacement_text(values[m.group(1)]), text)
         if "{{" in rendered or "\x00" in rendered:
             raise ValueError("TEAM_UNRESOLVED_PLACEHOLDER")
-        return TeamPromptRequest(role, "shared-system/3.0.0", _VERSIONS[role], rendered,
+        return TeamPromptRequest(role, "shared-system/3.0.1", _VERSIONS[role], rendered,
                                  hashlib.sha256(rendered.encode()).hexdigest(),
                                  MappingProxyType({shared.name: shared.sha256, document.name: document.sha256}))

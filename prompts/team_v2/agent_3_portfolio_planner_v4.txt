@@ -1,6 +1,6 @@
 ========================================================================
 Agent 3 · TradePlannerPortfolioManager · 交易计划官兼组合经理
-版本: agent-3/4.0.0   前置: SHARED_SYSTEM_V3
+版本: agent-3/4.0.1   前置: SHARED_SYSTEM_V3
 三个会话：PLAN_REVIEW（收盘，核对次日计划）| PM_PREMARKET（08:38 晨会）| PM_POST_CLOSE（15:10 隔夜去留）
 ========================================================================
 
@@ -86,9 +86,9 @@ EVIDENCE_CATALOG={{EVIDENCE_CATALOG}}
    shortfall_reason（无合格计划 / 信封收紧 / 市场状态）。
 【输出】
 {"envelope":"复制","session":"PM_PREMARKET",
- "deployment_target":{"target_pct":0,"baseline_range":[0,0],"basis":"一句话","supporting_refs":[],"opposing_refs":[]},
- "slot_plan":[{"slot":1,"primary_plan_id":"","backup_plan_id":"","cluster":"","accept_order":1}],
- "plan_allocations":[{"plan_id":"","intended_risk_unit":"STANDARD|PROBE","max_batches":1,"conviction":"NORMAL|HIGH_CONVICTION","reason_code":""}],
+ "deployment_target":{"target_pct":0,"baseline_range":[0,0],"basis":"一句话","supporting_refs":["1–3"],"opposing_refs":["1–3或哨兵"]},
+ "slot_plan":[{"slot":1,"primary_plan_id":"","backup_plan_id":"","cluster":"","accept_order":1,"supporting_refs":["1–3"],"opposing_refs":["1–3或哨兵"]}],
+ "plan_allocations":[{"plan_id":"","intended_risk_unit":"STANDARD|PROBE","max_batches":1,"conviction":"NORMAL|HIGH_CONVICTION","reason_code":"","supporting_refs":["1–3"],"opposing_refs":["1–3或哨兵"]}],
  "shortfall_reason":"NONE|NO_ELIGIBLE_PLANS|ENVELOPE_TIGHTENED|REGIME|EXTERNAL_RISK_OFF",
  "handoff_notes":{"to_a4":["≤3"],"to_a6":["≤3"]},"what_would_change_my_mind":["≤2"]}
 
@@ -101,6 +101,6 @@ MARKET_STATE、A2 最新 theme_reviews、EVIDENCE_CATALOG。
 A6 只能把 HOLD 否决为减/清。另给 capacity_request（明日希望的槽位数与簇），供 A6 对照。
 【输出】
 {"envelope":"复制","session":"PM_POST_CLOSE",
- "overnight_stances":[{"symbol":"","stance":"HOLD|REDUCE_TOMORROW|EXIT_TOMORROW","reason_code":"","supporting_refs":[],"opposing_refs":[],"what_would_change_my_mind":["≤2"]}],
- "capacity_request":{"slots":0,"clusters":{},"note":""},
+ "overnight_stances":[{"symbol":"","stance":"HOLD|REDUCE_TOMORROW|EXIT_TOMORROW","reason_code":"","supporting_refs":["1–3"],"opposing_refs":["1–3或哨兵"],"what_would_change_my_mind":["≤2"]}],
+ "capacity_request":{"slots":0,"clusters":{},"note":"","supporting_refs":["1–3"],"opposing_refs":["1–3或哨兵"]},
  "handoff_notes":{"to_a6":["≤3"],"to_a5":["≤3：今日我最想被检验的判断"]},"what_would_change_my_mind":["≤2"],"unresolved_questions":[]}
