@@ -56,7 +56,8 @@ test("in-flight poll misses the next slot without overlap or late catch-up", asy
   const root = await mkdtemp(join(tmpdir(), "opening-busy-"));
   let finish: (() => void) | undefined;
   let calls=0;
-  const runner={run:async () => {
+  const runner={run:async (job:string) => {
+    if(job!=='auction-evidence')return {status:'succeeded'};
     calls++;
     if (calls===1) await new Promise<void>(resolve=>{finish=resolve;});
     return {status:"succeeded"};

@@ -44,6 +44,7 @@ export function timeoutForJob(
   if (job === "auction-evidence") return Math.min(configuredTimeoutMs, 30_000);
   if (job === "paper-settle") return Math.min(configuredTimeoutMs, 60_000);
   if (job === "team-eod") return Math.min(configuredTimeoutMs, 120_000);
+  if (job === "team-internal") return Math.min(configuredTimeoutMs, 8_000);
   if (job.startsWith("team-morning-")) return Math.min(configuredTimeoutMs, 120_000);
   if (job === "auction-base") return Math.min(configuredTimeoutMs, 60 * 60 * 1000);
   if (job === "auction-refresh") return Math.min(configuredTimeoutMs, 30 * 60 * 1000);
@@ -170,6 +171,7 @@ export class JobRunner {
   private active: ActiveChild | null = null;
   private comparison: ActiveChild | null = null;
   private review: ActiveChild | null = null;
+  private notification: ActiveChild | null = null;
 
   public constructor(
     private readonly config: AppConfig,
@@ -181,7 +183,7 @@ export class JobRunner {
   }
 
   public activeJob(): JobRunRecord | null {
-    const current = this.history.find((item) => item.runId === (this.active?.runId ?? this.review?.runId ?? this.comparison?.runId));
+    const current = this.history.find((item) => item.runId === (this.active?.runId ?? this.review?.runId ?? this.comparison?.runId ?? this.notification?.runId));
     return current ?? null;
   }
 
@@ -208,8 +210,8 @@ export class JobRunner {
     if (!definition) {
       throw new Error("unsupported job");
     }
-    const slot = job === "comparison" ? "comparison" : job.startsWith("team-morning-") || job === "team-eod" || job === "auction-evidence" || job === "auction-refresh" || job === "a5-midday" || job === "a5-close" || job === "outcomes" || job === "paper-settle" ? "review" : "primary";
-    const current = slot === "comparison" ? this.comparison : slot === "review" ? this.review : this.active;
+    const slot = job === "team-internal" ? "notification" : job === "comparison" ? "comparison" : job.startsWith("team-morning-") || job === "team-eod" || job === "auction-evidence" || job === "auction-refresh" || job === "a5-midday" || job === "a5-close" || job === "outcomes" || job === "paper-settle" ? "review" : "primary";
+    const current = this.childFor(slot);
     if (current) return this.skipped(job, definition.command, current.runId);
 
     return this.runChild(job, definition.command, slot);
@@ -233,20 +235,21 @@ export class JobRunner {
     return skipped;
   }
 
-  private childFor(slot: "primary" | "comparison" | "review"): ActiveChild | null {
-    return slot === "comparison" ? this.comparison : slot === "review" ? this.review : this.active;
+  private childFor(slot: "primary" | "comparison" | "review" | "notification"): ActiveChild | null {
+    return slot === "notification" ? this.notification : slot === "comparison" ? this.comparison : slot === "review" ? this.review : this.active;
   }
 
-  private setChild(slot: "primary" | "comparison" | "review", child: ActiveChild | null): void {
+  private setChild(slot: "primary" | "comparison" | "review" | "notification", child: ActiveChild | null): void {
     if (slot === "comparison") this.comparison = child;
     else if (slot === "review") this.review = child;
+    else if (slot === "notification") this.notification = child;
     else this.active = child;
   }
 
   private async runChild(
     job: JobName,
     command: string,
-    slot: "primary" | "comparison" | "review",
+    slot: "primary" | "comparison" | "review" | "notification",
   ): Promise<JobRunRecord> {
 
     const runId = `${job}-${new Date().toISOString().replace(/[:.]/g, "-")}-${randomUUID().slice(0, 8)}`;
@@ -427,6 +430,7 @@ export class JobRunner {
       this.stopChild(this.active),
       this.stopChild(this.comparison),
       this.stopChild(this.review),
+      this.stopChild(this.notification),
     ]);
   }
 

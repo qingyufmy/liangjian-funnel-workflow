@@ -166,6 +166,7 @@ export class WorkflowScheduler {
       if (clock.hour === 8 && clock.minute === 33) due.push("team-morning-engine");
       if (clock.hour === 8 && clock.minute === 35) due.push("team-morning-risk");
       if (clock.hour === 8 && clock.minute === 38) due.push("team-morning-pm");
+      if (clock.hour*60+clock.minute>=8*60+45 && clock.hour*60+clock.minute<=17*60+20) due.push("team-internal");
       // Independent evidence only. Never late-catch-up a 09:26 quote as an
       // auction-final print, and never rerun the A2/A3 research to obtain it.
       if (auctionEvidenceSlot(clock) !== undefined) due.push("auction-evidence");

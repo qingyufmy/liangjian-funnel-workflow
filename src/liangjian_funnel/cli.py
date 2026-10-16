@@ -465,6 +465,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("run-auction-evidence", help="capture the current fixed 09:25 poll slot; no research, activation or rebase")
     sub.add_parser("run-paper-settle", help="settle the existing independent local-paper account; no research or customer I/O")
     sub.add_parser('run-team-eod', help='owned PM then A6 close-completion review; no new research or customer I/O')
+    sub.add_parser('run-team-internal', help='deliver committed owned internal facts; no trading or customer I/O')
     for stage in ('engine','risk','pm'):
         sub.add_parser('run-team-morning-'+stage, help='independent owned Team V2 morning '+stage+' edge')
     auction_refresh = sub.add_parser("run-auction-refresh", help="refresh A2/A3 research after auction; never replace active A4 plans")
@@ -654,6 +655,12 @@ def main(argv: Sequence[str] | None = None, *, settings: Settings | None = None)
         # in Node stdout. Full receipts stay in the owned Team V2 stores.
         print(json.dumps({key:result[key] for key in ('status','reason_code','session','trade_date') if key in result},ensure_ascii=False))
         return 0 if result['status'] in {'COMPLETE','READY','NOOP'} else 2
+    if args.command=='run-team-internal':
+        from .runtime.team_v2_internal_command import run_internal_delivery
+        try:result=run_internal_delivery(active)
+        except Exception:result={'status':'BLOCKED','reason_code':'INTERNAL_DELIVERY_FAILED'}
+        print(json.dumps(result,ensure_ascii=False))
+        return 0 if result['status'] in {'READY','NOOP'} else 2
     if args.command=='run-team-eod':
         from .runtime.team_v2_eod_command import run_eod_stage
         try:result=run_eod_stage(active)

@@ -17,3 +17,7 @@ Claude 提供的角色正文和根/判断证据规范为唯一提示词来源。
 ## 未完成的发布门
 
 六日真实冻结输入回放、三日七提示词真实模型干跑、A6/PM/trader 完整编排、model_judgments/标签、Node 接线、故障注入、最终 HEAD 全量、VM 切片、回退树及最终 Claude ACCEPT。以上任何缺项都不是生产就绪。
+
+## 内部通知（2026-10-17 接线切片）
+
+`run-team-internal` 08:45–17:20 每分钟、独立 notification 槽8s，不占交易47s或模型 review 槽。只读投影已提交的 owned 账本到 `team_notifications`；游标和去重拒绝计数也只写 Team 库。只使用独立 SHADOW_RESEARCH_WEBHOOK，不复用客户发送器或模板。正文原样hash绑定、先提交 SENDING 再请求、明确 code=0 才 SENT，未知状态不自动重发。原状态切换/A5卡投递标记跟随真实回执。相关测试与未完成的自然/VM证明见 `TEAM_V2_INTERNAL_DELIVERY_2026-10-17.md`；不以开发 mock 代替投递验收。

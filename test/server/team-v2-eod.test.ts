@@ -80,7 +80,7 @@ test('Node restart replays only same-day completed close handoff, never research
       run:async(job:JobName)=>{calls.push(job);return {...source,job};}};
     const scheduler=new WorkflowScheduler(fake as unknown as JobRunner,logger,{now:()=>now,comparisonEnabled:false});
     await scheduler.tick(now);await settle();await scheduler.tick(now);await settle();
-    expect(calls).toEqual(['team-eod']);scheduler.stop();
+    expect(calls).toEqual(['team-internal','team-eod']);scheduler.stop();
     await writeFile(join(root,'state','team_v2','eod-handoff','2026-10-19.json'),' '.repeat(8193));
     expect(reader.completedCloseForTeamEod('2026-10-19')).toBe(false);
   }finally{await (logger as unknown as {writeChain:Promise<void>}).writeChain;await rm(root,{recursive:true,force:true});}

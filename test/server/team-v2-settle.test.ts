@@ -16,9 +16,9 @@ test("paper settlement has a real isolated command, sixty seconds, and no monito
 
 test("15:30 settlement can recover once from BUSY without duplicate or research dispatch", async () => {
   const root=await mkdtemp(join(tmpdir(),"team-settle-"));
-  const calls:string[]=[];
-  const runner={run:async(job:JobName) => {calls.push(job); return {
-    status:calls.length===1?"skipped":"succeeded",job,reason:calls.length===1?"BUSY:review":null};}};
+  const calls:string[]=[];let settleCalls=0;
+  const runner={run:async(job:JobName) => {calls.push(job); const busy=job==='paper-settle'&&++settleCalls===1; return {
+    status:busy?"skipped":"succeeded",job,reason:busy?"BUSY:review":null};}};
   const logger=new LogStore(loadConfig({},root));
   const scheduler=new WorkflowScheduler(runner as unknown as JobRunner,logger,{comparisonEnabled:false});
   try {
@@ -26,9 +26,10 @@ test("15:30 settlement can recover once from BUSY without duplicate or research 
       "2026-10-19T07:30:06Z","2026-10-19T07:31:00Z","2026-10-19T07:39:00Z","2026-10-19T07:40:00Z"]) {
       await scheduler.tick(new Date(iso));await new Promise<void>(resolve=>setImmediate(resolve));
     }
-    expect(calls).toEqual(["paper-settle","paper-settle"]);
+    expect(calls.filter(x=>x!=='team-internal')).toEqual(["paper-settle","paper-settle"]);
+    expect(calls.filter(x=>x==='team-internal')).toHaveLength(5);
     await scheduler.tick(new Date("2026-10-18T07:30:00Z"));
-    expect(calls).toHaveLength(2);
+    expect(calls).toHaveLength(7);
   } finally {scheduler.stop();await (logger as unknown as {writeChain:Promise<void>}).writeChain;await rm(root,{recursive:true,force:true});}
 });
 
