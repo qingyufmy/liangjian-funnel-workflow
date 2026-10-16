@@ -474,6 +474,16 @@ agent_2:
     minimum_valid_members: 3
     maximum_minor_missing_weight: 0.15
     missing_weight_basis: ORIGINAL_WEIGHTS_EXCLUDING_GLOBAL_CAPITAL_GAP
+    # Claude 0267: fixed classification penalties; do not infer range endpoints.
+    penalty_mode: MIDPOINT_FIXED_V1
+    minimum_penalty_points: -30
+    penalty_points:
+      high_crowding: -12
+      single_limit_up_driven: -10
+      laggard_spread_core_weak: -12
+      news_hot_capital_out: -10
+      volume_up_return_down: -12
+      insufficient_capacity: -10
   capital_flow:
     required_for_focus: false              # 缺失时按可用权重归一，禁止用成交额冒充
     unavailable_reason_code: A2_CAPITAL_FLOW_UNAVAILABLE

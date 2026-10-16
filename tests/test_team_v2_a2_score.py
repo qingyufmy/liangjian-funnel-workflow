@@ -84,14 +84,37 @@ def test_unknown_missing_theme_and_invalid_policy_fail_before_model():
     with pytest.raises(ValueError,match='POLICY'):freeze(config,data,{'1','2'})
 
 
-def test_penalty_original_scalar_once_unknown_invalid_range_not_guessed():
+def test_0267_fixed_penalties_once_cap_and_original_rule_binding():
     from liangjian_funnel.pipeline.team_v2_a2_score import score_with_penalties
     config,data,symbols=fixture();body=freeze(config,data,symbols)
-    result=score_with_penalties(body,'T1',['one','one'],{'one':-5})
-    assert D(result['theme_score'])==45 and result['applied_penalty_codes']==['one']
-    with pytest.raises(ValueError,match='UNKNOWN'):score_with_penalties(body,'T1',['outside'],{'one':-5})
-    result=score_with_penalties(body,'T1',['range'],{'range':[-20,-5]})
-    assert result['theme_score'] is None and result['unresolved_penalty_codes']==['range']
-    assert result['status']=='SCORE_DATA_LIMITED' and result['focus_policy']=='WATCH_ONLY'
+    rules=config['penalty_rules']
+    result=score_with_penalties(body,'T1',['high_crowding','high_crowding'],rules)
+    assert D(result['theme_score'])==38 and result['applied_penalty_codes']==['high_crowding']
+    assert result['penalty_mode']=='MIDPOINT_FIXED_V1' and result['unresolved_penalty_codes']==[]
+    result=score_with_penalties(body,'T1',['high_crowding','news_hot_capital_out','volume_up_return_down'],rules)
+    assert D(result['raw_penalty_points'])==-34 and D(result['penalty_points'])==-30
+    assert D(result['theme_score'])==20
+    assert result['original_penalty_rules']==rules
+    with pytest.raises(ValueError,match='UNKNOWN'):score_with_penalties(body,'T1',['outside'],rules)
     body['themes']['T1']['base_score']='100'
     with pytest.raises(ValueError,match='HASH'):score_with_penalties(body,'T1',[],{})
+
+
+@pytest.mark.parametrize('missing,limited',[(('capital_flow',),False),(('capital_flow','breadth'),True)])
+def test_0267_local_capital_missing_counts_minor_weight(missing,limited):
+    config,data,symbols=fixture()
+    for row in data['A2_BOTTLENECK_CONTEXT'].values():
+        for name in missing:row['a2_factor_scores'][name]['available']=False
+    theme=freeze(config,data,symbols)['themes']['T1']
+    assert theme['globally_removed_factors']==[]
+    assert D(theme['missing_weight'])==sum(D(str(config['score_weights'][n])) for n in missing)
+    assert (theme['status']=='SCORE_DATA_LIMITED')==limited
+
+
+def test_0267_fixed_points_and_cap_are_frozen_and_not_model_options():
+    config,data,symbols=fixture()
+    assert config['team_theme_score_policy']['penalty_points']==dict(high_crowding=-12,
+        single_limit_up_driven=-10,laggard_spread_core_weak=-12,news_hot_capital_out=-10,
+        volume_up_return_down=-12,insufficient_capacity=-10)
+    config['team_theme_score_policy']['penalty_points']['high_crowding']=-5
+    with pytest.raises(ValueError,match='POLICY'):freeze(config,data,symbols)

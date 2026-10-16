@@ -14,7 +14,10 @@ from ..runtime.team_v2_store import canonical
 FACTORS=frozenset(('breadth','turnover_share','capital_flow','leader_structure','tier_structure',
     'profit_effect','catalyst_freshness','index_chain_resonance','weekly_confirmation','agent_1_quality'))
 POLICY=dict(version='FROZEN_QUANT_THEME_MEAN_V1',minimum_valid_members=3,
-    maximum_minor_missing_weight=.15,missing_weight_basis='ORIGINAL_WEIGHTS_EXCLUDING_GLOBAL_CAPITAL_GAP')
+    maximum_minor_missing_weight=.15,missing_weight_basis='ORIGINAL_WEIGHTS_EXCLUDING_GLOBAL_CAPITAL_GAP',
+    penalty_mode='MIDPOINT_FIXED_V1',minimum_penalty_points=-30,
+    penalty_points=dict(high_crowding=-12,single_limit_up_driven=-10,laggard_spread_core_weak=-12,
+        news_hot_capital_out=-10,volume_up_return_down=-12,insufficient_capacity=-10))
 
 
 def _hash(body):return hashlib.sha256(canonical(body).encode()).hexdigest()
@@ -93,29 +96,29 @@ def freeze_theme_scores(snapshot_data, *, review_symbols, weights, policy, sourc
 
 
 def score_with_penalties(frozen, theme_id, penalty_codes, penalty_rules):
-    """Numeric original penalties only; range/description stays unresolved.
+    """0267 fixed classification deductions, original ranges retained for audit.
 
-    A model cannot choose the stronger/weaker endpoint of an original range.
-    Frozen score/policy binding is verified before any downstream use.
+    Explicit approved -12/-10 values are authoritative, not Python rounding.
     """
     body={k:v for k,v in frozen.items() if k!='score_snapshot_sha256'}
     if _hash(body)!=frozen.get('score_snapshot_sha256'):raise ValueError('A2_SCORE_FROZEN_HASH_MISMATCH')
     if (not isinstance(penalty_codes,list) or len(penalty_codes)>3
             or any(not isinstance(c,str) or not c for c in penalty_codes) or not isinstance(penalty_rules,Mapping)):
         raise ValueError('A2_SCORE_PENALTY_CODES_INVALID')
-    unknown=set(penalty_codes)-set(penalty_rules)
+    fixed=frozen['policy']['penalty_points']
+    unknown=set(penalty_codes)-(set(penalty_rules)&set(fixed))
     if unknown:raise ValueError('A2_SCORE_PENALTY_CODE_UNKNOWN')
     theme=frozen['themes'][theme_id];points=Decimal(0);applied=[];unresolved=[]
     for code in sorted(set(penalty_codes)):
-        raw=penalty_rules[code];values=raw if isinstance(raw,(list,tuple)) else [raw]
-        numbers=[_number(value) for value in values]
-        if not numbers or any(n is None or n>0 for n in numbers) or len(set(numbers))!=1:
-            unresolved.append(code);continue
-        points+=numbers[0];applied.append(code)
+        points+=Decimal(str(fixed[code]));applied.append(code)
+    raw_points=points
+    points=max(Decimal(str(frozen['policy']['minimum_penalty_points'])),points)
     limited=bool(unresolved or theme['base_score'] is None)
     score=None if limited else max(Decimal(0),min(Decimal(100),Decimal(theme['base_score'])+points))
     return dict(theme_id=theme_id,theme_score=str(score) if score is not None else None,
         base_score=theme['base_score'],penalty_points=str(points),applied_penalty_codes=applied,
+        raw_penalty_points=str(raw_points),penalty_mode=frozen['policy']['penalty_mode'],
+        original_penalty_rules=deepcopy(dict(penalty_rules)),
         unresolved_penalty_codes=unresolved,penalty_rules_sha256=_hash(penalty_rules),
         score_snapshot_sha256=frozen['score_snapshot_sha256'],
         status='SCORE_DATA_LIMITED' if limited else theme['status'],
