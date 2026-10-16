@@ -34,7 +34,7 @@ class TeamResearchAdapter:
         self.config_hash = config_hash
 
     def supports(self, stage):
-        return stage == 'A3'
+        return stage in {'A1','A3'}
 
     def finalize_a3_output(self, output):
         # Model ranks are batch-local. Deterministic interleaving is display
@@ -110,7 +110,12 @@ class TeamResearchAdapter:
         return values, domain, engine, envelope
 
     def run_stage(self, pipeline, *, lane_id, model, stage, snapshot, upstream_output,
-            upstream_symbols, run_id, projection_symbols=None):
+            upstream_symbols, run_id, projection_symbols=None,bundle=None,a1_discovery_context=None):
+        if stage=='A1':
+            from .team_v2_a1_research import run_a1_stage
+            return run_a1_stage(self,pipeline,lane_id=lane_id,model=model,snapshot=snapshot,
+                upstream_output=upstream_output,upstream_symbols=upstream_symbols,bundle=bundle,run_id=run_id,
+                projection_symbols=projection_symbols,a1_discovery_context=a1_discovery_context)
         # Lazy import avoids the research package's moved-method bootstrap cycle.
         from .research import common as legacy
         if not self.supports(stage):

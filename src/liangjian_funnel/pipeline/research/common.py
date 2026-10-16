@@ -3579,6 +3579,10 @@ class ResearchPipeline:
     ) -> StageAudit:
         adapter = getattr(self, "team_research_adapter", None)
         if adapter is not None and adapter.supports(stage):
+            if stage=='A1':
+                return adapter.run_stage(self,lane_id=lane_id,model=model,stage=stage,snapshot=snapshot,
+                    upstream_output=upstream_output,upstream_symbols=upstream_symbols,run_id=run_id,
+                    projection_symbols=projection_symbols,bundle=bundle,a1_discovery_context=a1_discovery_context)
             return adapter.run_stage(self, lane_id=lane_id, model=model, stage=stage,
                 snapshot=snapshot, upstream_output=upstream_output, upstream_symbols=upstream_symbols,
                 run_id=run_id, projection_symbols=projection_symbols)
