@@ -99,7 +99,7 @@ def test_real_prompt_package_shared_is_used_and_values_are_rendered_once():
     values = {key: {"status": "INSUFFICIENT"} for key in doc.placeholders}
     values["EVIDENCE_CATALOG"] = CATALOG
     request = repo.prepare("A2", values)
-    assert request.shared_version == "shared-system/3.0.1"
+    assert request.shared_version == "shared-system/3.0.2"
     assert request.role_version == "agent-2/3.0.1"
     assert "Legacy TOP5 wording" not in request.system
     assert "{{" not in request.system
@@ -179,7 +179,7 @@ def test_a5_malformed_attribution_returns_invalid_not_exception():
     assert not validate_team_output('A5',response(core_watch_pool=[],team_scorecard={'attribution':None}),CATALOG).valid
 
 
-def test_claude301_bundle_exact_bytes_match_all_eight_approved_digests():
+def test_claude302_bundle_exact_bytes_match_all_eight_approved_digests():
     import hashlib,json
     from pathlib import Path
     root=Path(__file__).resolve().parents[1]/'prompts/team_v2'

@@ -1,6 +1,6 @@
 ========================================================================
 量见·A股交易团队 2.0 · 共享系统前置提示词  SHARED_SYSTEM_V3
-版本: shared-system/3.0.1（10-16 schema 一致性修订，角色语义不变）
+版本: shared-system/3.0.2（10-16 schema 一致性修订：A4/A5/A6 根对象补 envelope；角色语义不变）
 用法: 拼接在每个角色专属提示词之前，作为 system message 第一段。
 ========================================================================
 
@@ -93,7 +93,7 @@ F10. 板块级分钟数据只能用于分钟级否决，不能做秒级触发判
 五、通用输出信封
 ────────────────────────────────────────────────────────────────────────
 
-每份输出的 envelope 由服务端注入 required_envelope，模型必须原样复制：
+每份输出（六个角色、所有会话）根对象第一个字段为 envelope，由服务端注入 required_envelope，模型必须原样复制：
 schema_version / run_id / stage_id / source_trade_date / execution_trade_date /
 as_of / knowledge_cutoff / input_snapshot_ids / config_version / config_hash /
 prompt_version / model_name / market_regime / status / reason_codes。

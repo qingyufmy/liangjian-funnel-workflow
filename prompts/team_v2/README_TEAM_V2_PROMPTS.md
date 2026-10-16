@@ -24,7 +24,7 @@
 - A3 候选域 = A2 FOCUS + WATCH_ONLY（均为技术送审来源）；仅 model_nominations 不进 A3。
 - EVIDENCE_CATALOG：每层注入的可引用 ID 目录；引用不在目录内 → INVALID。
 - 模型判断全部进 `model_judgments`（decision_id/plan_id 唯一、原始输出与解析状态不可变、T+1/T+3 独立列），不混入有效入场 cohort。
-- prompt_version：shared 3.0.1 / A1 3.0.1 / A2 3.0.1 / A3 4.0.1 / A4-trader 1.0.1 / A5 2.0.1 / A6 1.0.1；envelope 原样回填。
+- prompt_version：shared 3.0.2 / A1 3.0.1 / A2 3.0.1 / A3 4.0.1 / A4-trader 1.0.2 / A5 2.0.2 / A6 1.0.2；envelope 原样回填。
 - 体积：角色专属 ≤12KB；A1 例外 ≤48KB（低频 pro 调用，v2 硬规则全部保留，见 A1【合同说明】C4），共享另计。
 
 ## 干跑要求（发布门）
@@ -38,3 +38,7 @@
 - A5 `attribution`、`trader_vs_deterministic`、`risk_governor_value`、`model_value_assessment`、`signal_reviews`、`hypotheses` 补 `opposing_refs`（evidence_ids 别名保留）。
 - A6 `capacity_for_tomorrow`、`risk_event_attribution` 补 refs；A4 `position_actions` refs 示例统一。
 - 角色定义、动作枚举、权限边界无任何改动。
+
+## 3.0.2 修订记录（2026-10-16，回应 0213）
+- A4 / A5 / A6 输出 Schema 根对象补 `envelope`（第一个字段，原样复制 required_envelope），与 A1/A2/A3 一致；共享第五节写明六角色全部适用。它是 Schema 内字段，不是 O6 例外。
+- A1/A2/A3 文件未改动。其他字段、角色、动作、权限零改动。
