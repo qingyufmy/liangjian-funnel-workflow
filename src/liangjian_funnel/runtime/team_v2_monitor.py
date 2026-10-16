@@ -27,6 +27,7 @@ from .team_v2_monitor_source import collect_monitor_packet
 from .team_v2_morning import _directory,_envelopes,ACCOUNT
 from .team_v2_sources import read_execution_scope,decode_plan,stamp
 from .team_v2_store import TeamMeetingStore,canonical
+from .team_v2_risk_exception import RiskExceptionRuntime,restrict_exception_envelopes
 from .team_v2_tradability import production_monitor_tradability
 from .trader_guardrails import is_closed_trader_tick
 
@@ -127,6 +128,10 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
     upper=reviewed.envelopes if reviewed is not None else tuple(conservative_envelope(e,consecutive_failures=1)
         for e in _envelopes(morning['envelopes']))
     limits=RiskLimits.from_yaml(settings.root/'config/risk_limits.yaml')
+    exception_runtime=RiskExceptionRuntime(store)
+    restrictions=exception_runtime.restrictions(ACCOUNT,day)
+    utilization_cap=reviewed.utilization_cap if reviewed is not None else D(morning['engine_utilization_cap'])
+    if restrictions['utilization_cap'] is not None:utilization_cap=min(utilization_cap,D(restrictions['utilization_cap']))
     def refresh():
         if hashlib.sha256((settings.root/'config/risk_limits.yaml').read_bytes()).hexdigest()!=morning['risk_limits_sha256']:
             raise ValueError('CONTROL_MORNING_RISK_POLICY_CHANGED')
@@ -138,6 +143,8 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
         fresh=refresh_execution_envelopes(tuple(plans.values()),morning_envelopes=upper,
             account=account,positions=positions,limits=limits,now=stamp(clock()),regime=regime,
             consecutive_failures=reviewed.consecutive_failures if reviewed is not None else 1)
+        fresh=restrict_exception_envelopes(fresh,plans=plans,account_id=ACCOUNT,
+            restrictions=exception_runtime.restrictions(ACCOUNT,day))
         return {e.plan_id:e if entry_proven[e.plan_id] else replace(e,eligible=False,risk_unit='NONE',max_shares_cap=0,
             blocked_reasons=tuple(dict.fromkeys((*e.blocked_reasons,'CONTROL_CURRENT_ENTRY_TRADABILITY_UNPROVEN')))) for e in fresh}
     # These provisional blocked envelopes are replaced after existing intents
@@ -165,6 +172,7 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
         active_plan_ids=active,all_plans=plans,envelopes=envelopes,held_plan_ids={},position_snapshot=[],tech_reference=references,
         limits=limits,regime=regime,live_market_ready=regime!='DATA_BLOCK' and live.get('status') in {'READY','READY_DEGRADED'},
         snapshot_ready=True,mode='control',calendar=calendar,timeout_seconds=30,
+        utilization_cap_pct=utilization_cap,
         max_output_tokens=settings.model_max_output_tokens,allow_model_call=True,pm_meeting_id='morning-pm:'+day)
     result=run_control_minute(session_kwargs=args,closed_bars=paper,deadline_monotonic=deadline,envelope_refresh=refresh)
     return dict(status='DEGRADED' if problems or packet['status']=='DATA_LIMITED' else result['status'],mode='control',

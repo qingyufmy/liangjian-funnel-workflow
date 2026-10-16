@@ -3,7 +3,7 @@
 Only owned paper state is written. No model, notification or legacy runtime DB.
 Queued buys reserve stock/cluster/cash/slot capacity before their first fill.
 """
-from dataclasses import asdict
+from dataclasses import asdict,replace
 from datetime import datetime, timedelta
 from decimal import Decimal as D
 import json
@@ -56,17 +56,22 @@ def _views(snapshot,*,plan,all_plans,mark_as_of,entry):
 
 def admit_trader_signal(*,broker,signal_id,action,plan,envelope,limits,all_plans,now,closed_5m_end,
                         mark_as_of,regime,live_market_ready,snapshot_ready,mode,calendar,input_sha256,pm_allocation=None,
-                        deadline_monotonic=None,monotonic=time.monotonic):
+                        deadline_monotonic=None,monotonic=time.monotonic,utilization_cap_pct=None):
     if (not isinstance(now,datetime) or now.utcoffset() is None or not isinstance(mark_as_of,datetime)
             or mark_as_of.utcoffset() is None or not re.fullmatch(r'[a-f0-9]{64}',input_sha256)
             or plan.plan_id not in all_plans or all_plans[plan.plan_id]!=plan):
         raise ValueError('TRADER_EXECUTION_CONTEXT_INVALID')
+    if utilization_cap_pct is not None:
+        from ..pipeline.team_v2_risk_schema import number
+        utilization_cap_pct=number(utilization_cap_pct)
+        if utilization_cap_pct is None or not 0<=utilization_cap_pct<=100:raise ValueError('TRADER_UTILIZATION_CAP_INVALID')
     current=now.astimezone(TZ)
     binding=json.loads(dump(dict(plan_id=plan.plan_id,symbol=plan.symbol,trade_date=current.date().isoformat(),
         cluster=plan.cluster,action=action,plan=asdict(plan),envelope=asdict(envelope),limits=asdict(limits),
         decision_at=current,closed_5m_end=closed_5m_end,mark_as_of=mark_as_of,input_sha256=input_sha256,
         regime=regime,live_market_ready=live_market_ready,snapshot_ready=snapshot_ready,deadline_guard=deadline_monotonic is not None,
         pm_allocation=asdict(pm_allocation) if pm_allocation is not None else None,
+        utilization_cap_pct=utilization_cap_pct,
         plan_clusters={pid:[item.symbol,item.cluster] for pid,item in sorted(all_plans.items())})))
     def decide(snapshot):
         def block(code):return dict(judgment=dict(status='REJECTED',shares=0,risk_unit='NONE',reason_codes=[code]),order=None)
@@ -99,6 +104,14 @@ def admit_trader_signal(*,broker,signal_id,action,plan,envelope,limits,all_plans
         if action in ENTRY:
             permitted,pm_reason=enforce_pm_allocation(pm_allocation,plan=plan,envelope=envelope,
                 trade_date=current.date().isoformat(),snapshot=snapshot)
+            if utilization_cap_pct is not None:
+                # Inside the same reservation transaction: open buys already
+                # count as exposure, so two plans cannot spend the same room.
+                room=account.nav*utilization_cap_pct/D(100)-sum((p.market_value for p in positions),D(0))
+                shares=max(0,int(room/plan.price/D(100))*100) if plan.price>0 else 0
+                permitted=replace(permitted,max_shares_cap=min(permitted.max_shares_cap,shares),a6_tightened=True)
+                if shares<=0:permitted=replace(permitted,eligible=False,risk_unit='NONE',
+                    blocked_reasons=tuple(dict.fromkeys((*permitted.blocked_reasons,'A6_UTILIZATION_CAP'))))
         cluster_count=sum(row['dispatched'] and row['binding'].get('action') in ENTRY
             and row['binding'].get('cluster')==plan.cluster for row in snapshot['admissions'])
         active_orders={row['order_id'] for row in snapshot['open_orders']}

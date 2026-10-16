@@ -124,6 +124,27 @@ def test_changed_risk_yaml_cannot_silently_reuse_morning_authority(tmp_path,monk
     assert result['result']['trader_skip_reason']=='CONTROL_FRESH_ACCOUNT_ENVELOPE_UNPROVEN' and not seen
 
 
+@pytest.mark.parametrize('kind',['symbol','cluster','account','failure_latch'])
+def test_persisted_exception_controls_block_entry_after_restart_not_morning_only(tmp_path,monkeypatch,kind):
+    from liangjian_funnel.runtime.team_v2_store import TeamMeetingStore
+    from liangjian_funnel.runtime.team_v2_risk_exception import RiskExceptionRuntime
+    from liangjian_funnel.runtime.team_v2_morning import ACCOUNT
+    from test_team_v2_risk_exception import response
+    app,clock,seen,api,proof=prepared(tmp_path,monkeypatch)
+    rt=RiskExceptionRuntime(TeamMeetingStore(app.settings.root/'state/team_v2/team.db'))
+    target_id=ACCOUNT if kind in ('account','failure_latch') else '000001.SZ' if kind=='symbol' else 'bank'
+    target='account' if kind=='failure_latch' else kind
+    domain=[dict(target=target,target_id=target_id,data_ready=True,trigger_cleared=False)]
+    raw=response();raw['exception_actions']=[dict(raw['exception_actions'][0],target=target,target_id=target_id)]
+    for index in range(2 if kind=='failure_latch' else 1):
+        rt.claim(str(index),account_id=ACCOUNT,trade_date='2026-10-19',observed_at=clock.now-timedelta(minutes=1),
+            input_sha256=str(index),targets=domain,hard_halt=False)
+        rt.record(str(index),source_call_id=str(index),input_sha256=str(index),output=raw,validated=kind!='failure_latch')
+    result=run_monitor_control(app,now=clock.now,clock=lambda:clock.now,client=api,tradability_loader=proof)
+    assert result['result']['trader']['model_validated'] and len(seen)==1
+    assert not result['result']['trader']['admissions'][0]['dispatched']
+
+
 def test_missing_morning_keeps_existing_inventory_hard_exit_without_any_model(tmp_path,monkeypatch):
     from test_team_v2_paper_ledger import stamp,bar
     from liangjian_funnel.runtime.broker.local_paper import create_broker

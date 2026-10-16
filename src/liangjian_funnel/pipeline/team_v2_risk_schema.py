@@ -155,3 +155,82 @@ def validate_risk_post_close(output,catalog,*,required_envelope,pm_stances,
     unresolved=output.get('unresolved_questions')
     if not isinstance(unresolved,list) or any(not text(v) for v in unresolved):issue('UNRESOLVED_INVALID')
     return TeamValidation(not issues,tuple(dict.fromkeys(issues)),common.judgments,common.sentinel_count)
+
+
+def exception_domain(targets):
+    """Server-owned trigger facts, not objects or release permission from JSON."""
+    if not isinstance(targets,(list,tuple)) or not targets:
+        raise ValueError('A6_EXCEPTION_CONTEXT_INVALID')
+    domain={}
+    for row in targets:
+        if (not isinstance(row,Mapping) or set(row)!={'target','target_id','trigger_cleared','data_ready'}
+                or row['target'] not in ('symbol','cluster','account') or not text(row['target_id'])
+                or type(row['trigger_cleared']) is not bool or type(row['data_ready']) is not bool):
+            raise ValueError('A6_EXCEPTION_CONTEXT_INVALID')
+        key=(row['target'],row['target_id'])
+        if key in domain:raise ValueError('A6_EXCEPTION_CONTEXT_INVALID')
+        domain[key]=row
+    return domain
+
+
+def validate_risk_exception(output,catalog,*,required_envelope,targets,resume_allowed,hard_halt,
+        engine_utilization_cap,capacity_slots,cluster_caps):
+    domain=exception_domain(targets);cap=number(engine_utilization_cap)
+    if (not isinstance(resume_allowed,(set,frozenset))
+            or any(not isinstance(k,tuple) or len(k)!=2 or k[0] not in ('symbol','cluster','account')
+                or not text(k[1]) for k in resume_allowed) or type(hard_halt) is not bool
+            or cap is None or not 0<=cap<=100 or type(capacity_slots) is not int or capacity_slots<0
+            or not isinstance(cluster_caps,Mapping)
+            or any(not text(k) or type(v) is not int or v<0 for k,v in cluster_caps.items())):
+        raise ValueError('A6_SERVER_CONTEXT_INVALID')
+    common=validate_team_output('A6',output,catalog,session='INTRADAY_EXCEPTION')
+    issues=list(common.issues)
+    def issue(code):issues.append('A6_'+code)
+    if not isinstance(output,Mapping):return common
+    if set(output)!=ROOT:issue('ROOT_FIELDS_INVALID')
+    try:
+        bound=json.dumps(output.get('envelope'),sort_keys=True,allow_nan=False)==json.dumps(required_envelope,sort_keys=True,allow_nan=False)
+    except (ValueError,TypeError):bound=False
+    if not bound:issue('ENVELOPE_BINDING_MISMATCH')
+    if output.get('schema_version')!='a6-risk/1.0.0':issue('SCHEMA_VERSION_INVALID')
+    notes=output.get('handoff_notes')
+    if not isinstance(notes,Mapping) or set(notes)!={'to_a3','to_a4','to_a5'}:issue('HANDOFF_RECIPIENT_INVALID')
+    for key in ('envelope_adjustments','overnight_reviews','risk_event_attribution'):
+        if output.get(key)!=[]:issue('INACTIVE_SESSION_ACTIONS')
+    rows=output.get('exception_actions');seen=[]
+    if not isinstance(rows,list):issue('EXCEPTION_DOMAIN_INVALID');rows=[]
+    for row in rows:
+        if not item(row,{'target','target_id','action','reason_code','release_condition','what_would_change_my_mind'}|REFS):
+            issue('EXCEPTION_FIELDS_INVALID');continue
+        if not isinstance(row['target'],str) or not isinstance(row['target_id'],str):
+            issue('EXCEPTION_DOMAIN_INVALID');continue
+        key=(row['target'],row['target_id'])
+        if key not in domain:issue('EXCEPTION_DOMAIN_INVALID');continue
+        seen.append(key);action=row['action'];source=domain[key]
+        if (not isinstance(action,str) or action not in {'REDUCE_HALF','EXIT','HALT_NEW_ENTRY','RESUME','NO_ACTION'}
+                or not isinstance(row['reason_code'],str) or not re.fullmatch('[A-Z][A-Z0-9_]{1,79}',row['reason_code'])
+                or not text(row['release_condition']) or not texts(row['what_would_change_my_mind'])):
+            issue('EXCEPTION_ACTION_INVALID')
+        if action=='RESUME' and (hard_halt or key not in resume_allowed
+                or not source['trigger_cleared'] or not source['data_ready']):issue('RESUME_FORBIDDEN')
+        if not source['data_ready'] and action in ('NO_ACTION','RESUME'):issue('MISSING_DATA_KEEP_FORBIDDEN')
+    if len(seen)!=len(set(seen)) or set(seen)!=set(domain):issue('EXCEPTION_DOMAIN_INVALID')
+    utilization=output.get('utilization_cap')
+    if not item(utilization,{'cap_pct','basis'}|REFS):issue('UTILIZATION_CAP_INVALID')
+    else:
+        value=number(utilization['cap_pct'])
+        if value is None or not 0<=value<=cap or not text(utilization['basis']):issue('UTILIZATION_CAP_INVALID')
+    capacity=output.get('capacity_for_tomorrow')
+    if not item(capacity,{'plans_acceptable','cluster_quota','risk_unit','response_to_pm','notes'}|REFS):issue('CAPACITY_INVALID')
+    else:
+        slots=capacity['plans_acceptable'];quota=capacity['cluster_quota']
+        if (type(slots) is not int or not 0<=slots<=capacity_slots
+                or not isinstance(quota,Mapping) or not set(quota).issubset(cluster_caps)
+                or any(type(v) is not int or not 0<=v<=cluster_caps[k] for k,v in quota.items())
+                or (isinstance(quota,Mapping) and all(type(v) is int for v in quota.values())
+                    and type(slots) is int and sum(quota.values())>slots)
+                or capacity['risk_unit'] not in ('STANDARD','PROBE','NONE')
+                or not text(capacity['response_to_pm']) or not texts(capacity['notes'],3)):issue('CAPACITY_INVALID')
+    unresolved=output.get('unresolved_questions')
+    if not isinstance(unresolved,list) or any(not text(v) for v in unresolved):issue('UNRESOLVED_INVALID')
+    return TeamValidation(not issues,tuple(dict.fromkeys(issues)),common.judgments,common.sentinel_count)

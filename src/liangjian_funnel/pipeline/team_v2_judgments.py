@@ -118,7 +118,8 @@ class ModelJudgmentJournal:
         if _hash(row['output_json']) != row['output_hash']:
             raise ValueError('MODEL_OUTPUT_HASH_MISMATCH')
         return {'output': json.loads(row['output_json']), 'validated': bool(row['validated']),
-                'issues': tuple(json.loads(row['issues_json'])), 'output_hash': row['output_hash']}
+                'issues': tuple(json.loads(row['issues_json'])), 'output_hash': row['output_hash'],
+                'captured_at': row['captured_at']}
 
     def capture(self, *, call_id: str, run_id: str, role: str, session: str,
                 source_trade_date: str, execution_trade_date: str, captured_at: datetime,

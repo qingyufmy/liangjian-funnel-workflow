@@ -51,6 +51,27 @@ def test_real_guard_risk_admit_and_next_minute_fill(tmp_path):
     assert admit_trader_signal(**args)==result
 
 
+def test_a6_utilization_is_enforced_under_reservation_lock_including_open_buys(tmp_path):
+    b,args=fixture(tmp_path)
+    # 5% of the 1m fixture NAV = 50k; at price 10 this grants only 5,000 shares.
+    first=admit_trader_signal(**(args|dict(utilization_cap_pct='5')))
+    assert first['dispatched'] and first['judgment']['shares']==5000
+    p2=replace(plan(),plan_id='p2',symbol='000002.SZ',cluster='other')
+    e2=replace(envelope(),plan_id='p2',symbol='000002.SZ')
+    plans={'p1':plan(),'p2':p2}
+    second=admit_trader_signal(**(args|dict(signal_id='cap:second',plan=p2,envelope=e2,
+        all_plans=plans,pm_allocation=policy(plans),utilization_cap_pct='5')))
+    assert not second['dispatched'] and 'A6_UTILIZATION_CAP' in second['judgment']['reason_codes']
+    assert len(b.get_orders('2026-10-19'))==1
+
+
+@pytest.mark.parametrize('value',[True,'NaN',-1,101])
+def test_invalid_a6_utilization_is_not_an_implicit_no_cap(tmp_path,value):
+    _,args=fixture(tmp_path)
+    with pytest.raises(ValueError,match='UTILIZATION_CAP_INVALID'):
+        admit_trader_signal(**(args|dict(utilization_cap_pct=value)))
+
+
 def test_pending_buy_consumes_daily_cluster_and_position_limits_before_any_fill(tmp_path):
     b,args=fixture(tmp_path)
     assert admit_trader_signal(**args)['dispatched']

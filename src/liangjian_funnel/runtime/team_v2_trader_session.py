@@ -26,7 +26,7 @@ def run_trader_session(*,repository,client,journal,store,broker,decision_id,minu
         closed_5m_end,mark_as_of,required_envelope,replacements,active_plan_ids,all_plans,
         envelopes,held_plan_ids,position_snapshot,tech_reference,limits,regime,
         live_market_ready,snapshot_ready,mode,calendar,timeout_seconds,max_output_tokens,
-        allow_model_call=False,pm_meeting_id=None,deadline_monotonic=None,monotonic=time.monotonic):
+        allow_model_call=False,pm_meeting_id=None,deadline_monotonic=None,monotonic=time.monotonic,utilization_cap_pct=None):
     if not allow_model_call:raise ValueError('TEAM_MODEL_CALL_NOT_AUTHORIZED')
     now=clock()
     if (any(not isinstance(v,datetime) or v.utcoffset() is None for v in (now,decision_at,mark_as_of))
@@ -64,6 +64,7 @@ def run_trader_session(*,repository,client,journal,store,broker,decision_id,minu
         held_plan_ids=dict(held_plan_ids),regime=regime,live_market_ready=live_market_ready,
         snapshot_ready=snapshot_ready,timeout_seconds=timeout_seconds,max_output_tokens=max_output_tokens,
         deadline_guard=deadline_monotonic is not None,
+        utilization_cap_pct=utilization_cap_pct,
         pm_allocation=asdict(allocation) if allocation is not None else None)
     execution_hash=hashlib.sha256(dump(context).encode()).hexdigest()
     values=dict(replacements)
@@ -136,6 +137,7 @@ def run_trader_session(*,repository,client,journal,store,broker,decision_id,minu
                 closed_5m_end=closed_5m_end,mark_as_of=mark_as_of,regime=regime,
                 live_market_ready=live_market_ready,snapshot_ready=snapshot_ready,mode=mode,
                 calendar=calendar,input_sha256=request.input_hash,pm_allocation=allocation,
+                utilization_cap_pct=utilization_cap_pct,
                 deadline_monotonic=deadline_monotonic,monotonic=monotonic))
     if expired:issues=(*issues,'TRADER_GLOBAL_DEADLINE_EXCEEDED')
     result=dict(status='TRADER_DEADLINE_NO_ACTION' if expired else 'EVALUATED' if valid else 'TRADER_DEGRADED_NO_ACTION',
