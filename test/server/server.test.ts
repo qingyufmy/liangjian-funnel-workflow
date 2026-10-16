@@ -1619,7 +1619,7 @@ test("scheduler reconciles outcomes after late close success without rerunning r
   await scheduler.tick(now);
   await new Promise<void>(resolve => setImmediate(resolve));
   await scheduler.tick(now);
-  expect(calls).toEqual(["close", "outcomes", "outcomes"]);
+  expect(calls).toEqual(["close", "outcomes", "team-eod", "outcomes"]);
 });
 
 test("process-exit wait returns after timeout so shutdown can escalate to SIGKILL", async () => {

@@ -22,6 +22,15 @@ export interface ReadOnlyCommandResult {
   readonly timedOut: boolean;
 }
 
+export function writeTeamEodHandoff(config: AppConfig, record: JobRunRecord): void {
+  if (record.job !== 'close' || record.status !== 'succeeded' || record.exitCode !== 0 || !record.finishedAt) return;
+  const day = new Intl.DateTimeFormat('en-CA', {timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(record.finishedAt));
+  const directory=path.join(config.rootDir,'state','team_v2','eod-handoff');
+  mkdirSync(directory,{recursive:true});
+  try {writeFileSync(path.join(directory,day+'.json'),JSON.stringify({trade_date:day,source_close:record}),{flag:'wx',mode:0o600});}
+  catch(error){if((error as NodeJS.ErrnoException).code!=='EEXIST')throw error;}
+}
+
 export function timeoutForJob(
   job: JobName,
   configuredTimeoutMs: number,
@@ -34,6 +43,7 @@ export function timeoutForJob(
   if (job === "monitor") return Math.min(configuredTimeoutMs, 58_000);
   if (job === "auction-evidence") return Math.min(configuredTimeoutMs, 30_000);
   if (job === "paper-settle") return Math.min(configuredTimeoutMs, 60_000);
+  if (job === "team-eod") return Math.min(configuredTimeoutMs, 120_000);
   if (job.startsWith("team-morning-")) return Math.min(configuredTimeoutMs, 120_000);
   if (job === "auction-base") return Math.min(configuredTimeoutMs, 60 * 60 * 1000);
   if (job === "auction-refresh") return Math.min(configuredTimeoutMs, 30 * 60 * 1000);
@@ -179,12 +189,26 @@ export class JobRunner {
     return this.history.slice(-limit).reverse();
   }
 
+  public completedCloseForTeamEod(day: string): boolean {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return false;
+    let fd: number | undefined;
+    try {
+      fd=openSync(path.join(this.config.rootDir,'state','team_v2','eod-handoff',day+'.json'),'r');
+      const buffer=Buffer.alloc(8193);const size=readSync(fd,buffer,0,buffer.length,0);
+      if(size>8192)return false;const raw=buffer.subarray(0,size).toString('utf8');
+      const receipt=JSON.parse(raw) as {trade_date?:string;source_close?:JobRunRecord};const source=receipt.source_close;
+      const date=(value:string)=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(value));
+      return receipt.trade_date===day && source?.job==='close' && source.status==='succeeded' && source.exitCode===0
+        && typeof source.runId==='string' && !!source.runId && !!source.finishedAt && date(source.startedAt)===day && date(source.finishedAt)===day;
+    } catch{return false;} finally {if(fd!==undefined)closeSync(fd);}
+  }
+
   public async run(job: JobName): Promise<JobRunRecord> {
     const definition = definitionFor(job);
     if (!definition) {
       throw new Error("unsupported job");
     }
-    const slot = job === "comparison" ? "comparison" : job.startsWith("team-morning-") || job === "auction-evidence" || job === "auction-refresh" || job === "a5-midday" || job === "a5-close" || job === "outcomes" || job === "paper-settle" ? "review" : "primary";
+    const slot = job === "comparison" ? "comparison" : job.startsWith("team-morning-") || job === "team-eod" || job === "auction-evidence" || job === "auction-refresh" || job === "a5-midday" || job === "a5-close" || job === "outcomes" || job === "paper-settle" ? "review" : "primary";
     const current = slot === "comparison" ? this.comparison : slot === "review" ? this.review : this.active;
     if (current) return this.skipped(job, definition.command, current.runId);
 
@@ -343,6 +367,8 @@ export class JobRunner {
           ...(monitorBusiness ? { monitorBusiness } : {}),
         };
         this.replaceRunning(record);
+        try {writeTeamEodHandoff(this.config,record);}
+        catch {this.logger.warn('TEAM_EOD_HANDOFF_WRITE_FAILED',{job,runId});}
         if (this.childFor(slot)?.runId === runId) this.setChild(slot, null);
         this.logger[status === "succeeded" ? "info" : "error"](
           `任务结束 ${command} status=${status} exit=${exitCode ?? "null"} signal=${signal ?? "none"} duration_ms=${durationMs}`,

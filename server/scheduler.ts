@@ -94,6 +94,8 @@ export class WorkflowScheduler {
   private comparisonPendingTrigger = false;
   private comparisonRetryTimer: NodeJS.Timeout | null = null;
   private outcomesAfterCloseDate: string | null = null;
+  private teamEodAfterCloseDate: string | null = null;
+  private teamEodRecoveryCheckedDate: string | null = null;
   private readonly now: () => Date;
   private readonly intervalMs: number;
   private readonly retryMs: number;
@@ -135,6 +137,8 @@ export class WorkflowScheduler {
     this.comparisonInFlight = false;
     this.comparisonPendingTrigger = false;
     this.outcomesAfterCloseDate = null;
+    this.teamEodAfterCloseDate = null;
+    this.teamEodRecoveryCheckedDate = null;
     this.running = false;
     this.logger.info("Node 调度器已停止");
   }
@@ -146,6 +150,11 @@ export class WorkflowScheduler {
     // Sunday is a hard NOOP.  Saturday has exactly one maintenance slot;
     // research and intraday monitoring remain trading-day-only.
     if (clock.weekday === 0) return;
+    if (clock.weekday >= 1 && clock.weekday <= 5 && clock.hour*60+clock.minute>=15*60+10
+        && this.teamEodRecoveryCheckedDate!==clock.date) {
+      this.teamEodRecoveryCheckedDate=clock.date;
+      if (this.runner.completedCloseForTeamEod?.(clock.date)) this.teamEodAfterCloseDate=clock.date;
+    }
     if (clock.weekday === 6) {
       if (isFeatureMaintenanceMinute(clock)) due.push("features");
     } else {
@@ -193,6 +202,13 @@ export class WorkflowScheduler {
     }
     // The 16:10 pass can precede refreshed closing prices. Reconcile again
     // after a successful same-day research run, without replaying research.
+    if (this.teamEodAfterCloseDate && this.teamEodAfterCloseDate !== clock.date) this.teamEodAfterCloseDate = null;
+    if (this.teamEodAfterCloseDate === clock.date && clock.hour >= 15
+        && !this.inFlight.has("team-eod")
+        && (!this.lastDispatch.has("team-eod") || value.getTime() - Date.parse(this.lastDispatch.get("team-eod")!) >= 5_000)) {
+      this.teamEodAfterCloseDate = null;
+      this.dispatch("team-eod", `${clock.date}Tafter-close`, value);
+    }
     if (this.outcomesAfterCloseDate && this.outcomesAfterCloseDate !== clock.date) {
       this.outcomesAfterCloseDate = null;
     }
@@ -239,6 +255,10 @@ export class WorkflowScheduler {
         if (job === "paper-settle" && result.status === "skipped" && result.reason?.startsWith("BUSY:")) {
           this.dispatched.delete(job);
         }
+        if (job === "team-eod" && result.status === "skipped" && result.reason?.startsWith("BUSY:")
+            && shanghaiClock(this.now()).date === key.slice(0,10)) {
+          this.teamEodAfterCloseDate = key.slice(0,10);
+        }
         const shouldRetry = (job === "premarket" || job === "morning" || job === "close" || job === "a1" || job === "a5-midday" || job === "a5-close" || job === "outcomes")
           && result.status === "skipped"
           && result.reason?.startsWith("BUSY:") === true;
@@ -249,6 +269,7 @@ export class WorkflowScheduler {
         if (job === "close" && result.status === "succeeded"
           && shanghaiClock(this.now()).date === key.slice(0, 10)) {
           this.outcomesAfterCloseDate = key.slice(0, 10);
+          this.teamEodAfterCloseDate = key.slice(0, 10);
         }
         // The current morning command is the deterministic pending-plan
         // review; the model-backed primary research hand-off is the close
