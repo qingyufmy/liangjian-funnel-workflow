@@ -14,6 +14,12 @@ def _run_a2_batched(
 ) -> StageAudit:
     """Run A2 in theme-preserving transport batches, then rank globally."""
 
+    adapter=getattr(self,'team_research_adapter',None)
+    if adapter is not None and adapter.supports('A2'):
+        try:snapshot=adapter.prepare_a2_snapshot(snapshot,upstream_symbols)
+        except (ValueError,TypeError,KeyError):
+            return self._blocked_stage(lane_id,model,'A2',snapshot.snapshot_id,'TEAM_A2_SCORE_SOURCE_INVALID')
+
     batches = _build_a2_theme_batches(
         upstream_output,
         upstream_symbols,
@@ -1819,7 +1825,10 @@ def _a2_theme_reasons(theme: Mapping[str, Any], snapshot_data: Mapping[str, Any]
             reasons.append(reason)
     raw_weights = snapshot_data.get("THEME_SCORE_WEIGHTS")
     breakdown = theme.get("score_breakdown")
-    if isinstance(raw_weights, Mapping) and raw_weights:
+    if '_TEAM_A2_SCORE_FREEZE' in snapshot_data:
+        from ..team_v2_a2_score import team_theme_score_reasons
+        reasons.extend(team_theme_score_reasons(theme,snapshot_data))
+    elif isinstance(raw_weights, Mapping) and raw_weights:
         weights = {str(key): _safe_float(value) for key, value in raw_weights.items()}
         if not isinstance(breakdown, Mapping):
             reasons.append("A2_SCORE_BREAKDOWN_MISSING")

@@ -3579,7 +3579,7 @@ class ResearchPipeline:
     ) -> StageAudit:
         adapter = getattr(self, "team_research_adapter", None)
         if adapter is not None and adapter.supports(stage):
-            if stage=='A1':
+            if stage in {'A1','A2'}:
                 return adapter.run_stage(self,lane_id=lane_id,model=model,stage=stage,snapshot=snapshot,
                     upstream_output=upstream_output,upstream_symbols=upstream_symbols,run_id=run_id,
                     projection_symbols=projection_symbols,bundle=bundle,a1_discovery_context=a1_discovery_context)
@@ -7276,6 +7276,9 @@ def _canonicalize_stage_scores(
     """
 
     result = dict(output)
+    if stage=='A2' and '_TEAM_A2_SCORE_FREEZE' in snapshot_data:
+        from ..team_v2_a2_score import canonicalize_team_scores
+        return canonicalize_team_scores(output,snapshot_data)
     if stage == "A3":
         # A3 is a condition/route contract.  Retain legacy score fields only
         # as inert historical payload; never canonicalize or use them for a

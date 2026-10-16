@@ -123,3 +123,47 @@ def score_with_penalties(frozen, theme_id, penalty_codes, penalty_rules):
         score_snapshot_sha256=frozen['score_snapshot_sha256'],
         status='SCORE_DATA_LIMITED' if limited else theme['status'],
         focus_policy='WATCH_ONLY' if limited else theme['focus_policy'])
+
+
+def canonicalize_team_scores(output,snapshot_data):
+    """Server-only score projection; NULL must demote even the TOP5 exception."""
+    frozen=snapshot_data['_TEAM_A2_SCORE_FREEZE'];rules=snapshot_data['PENALTY_RULES']
+    result=deepcopy(dict(output));themes={}
+    for theme in result.get('active_themes',[]):
+        proof=score_with_penalties(frozen,theme['theme_id'],theme['team_penalty_codes'],rules)
+        record=frozen['themes'][theme['theme_id']]
+        theme.update(theme_score=proof['theme_score'],team_score_evidence=proof,
+            score_breakdown={n:record['factors'][n]['mean_score'] for n in sorted(FACTORS)},
+            penalties=[dict(points=proof['penalty_points'],reason_codes=proof['applied_penalty_codes'])],
+            factor_coverage=dict(ratio=float(record['available_weight']),
+                available_weight=float(record['available_weight']),total_weight=1,
+                unavailable_factors=sorted(set(record['missing_factors']+record['globally_removed_factors'])),
+                normalized_over_available_weight=True))
+        themes[theme['theme_id']]=theme
+    demoted=[];focus=[]
+    for pool in ('focus_pool','watch_only_pool'):
+        for row in result.get(pool,[]):
+            theme=themes.get(row.get('theme_id'))
+            if theme is not None:
+                row['theme_score']=theme['theme_score'];row['team_score_evidence']=deepcopy(theme['team_score_evidence'])
+            if pool=='focus_pool':
+                if theme is None or theme['theme_score'] is None:
+                    row['status']='WATCH_ONLY'
+                    row['reason_codes']=list(dict.fromkeys([*row.get('reason_codes',[]),'SCORE_DATA_LIMITED']))
+                    demoted.append(row)
+                else:focus.append(row)
+    result['focus_pool']=focus
+    result['watch_only_pool']=[*result.get('watch_only_pool',[]),*demoted]
+    return result,len(themes)+len(demoted)
+
+
+def team_theme_score_reasons(theme,snapshot_data):
+    """Validate the new score contract without inventing legacy zero dimensions."""
+    try:
+        frozen=snapshot_data['_TEAM_A2_SCORE_FREEZE']
+        expected=score_with_penalties(frozen,theme['theme_id'],theme['team_penalty_codes'],snapshot_data['PENALTY_RULES'])
+        values={n:frozen['themes'][theme['theme_id']]['factors'][n]['mean_score'] for n in sorted(FACTORS)}
+        if (theme.get('team_score_evidence')!=expected or theme.get('theme_score')!=expected['theme_score']
+                or theme.get('score_breakdown')!=values):return ['A2_TEAM_SCORE_PROOF_MISMATCH']
+        return []
+    except (ValueError,KeyError,TypeError):return ['A2_TEAM_SCORE_PROOF_INVALID']

@@ -2,7 +2,8 @@
 
 Explicit constructor injection is required. No global prompt switch, env
 mutation, legacy checkpoint reuse, customer publisher or extra data fetch.
-A1/A2 are not advertised as supported until their new contracts are wired.
+A2 additionally requires an explicit approved scoring config; absent that
+config its legacy stage remains unchanged. Workflow activation is separate.
 """
 from collections.abc import Mapping
 from contextlib import closing
@@ -21,7 +22,7 @@ def _hash(value):
 
 
 class TeamResearchAdapter:
-    def __init__(self, *, repository, journal, store, calendar, config_version, config_hash):
+    def __init__(self, *, repository, journal, store, calendar, config_version, config_hash,a2_config=None):
         if (not isinstance(config_version, str) or not config_version
                 or not isinstance(config_hash, str) or len(config_hash) != 64
                 or any(c not in '0123456789abcdef' for c in config_hash)):
@@ -32,9 +33,14 @@ class TeamResearchAdapter:
         self.calendar = calendar
         self.config_version = config_version
         self.config_hash = config_hash
+        self.a2_config = a2_config
 
     def supports(self, stage):
-        return stage in {'A1','A3'}
+        return stage in {'A1','A3'} or stage=='A2' and self.a2_config is not None
+
+    def prepare_a2_snapshot(self,snapshot,symbols):
+        from .team_v2_a2_research import prepare_a2_snapshot
+        return prepare_a2_snapshot(self,snapshot,symbols)
 
     def finalize_a3_output(self, output):
         # Model ranks are batch-local. Deterministic interleaving is display
@@ -116,6 +122,11 @@ class TeamResearchAdapter:
             return run_a1_stage(self,pipeline,lane_id=lane_id,model=model,snapshot=snapshot,
                 upstream_output=upstream_output,upstream_symbols=upstream_symbols,bundle=bundle,run_id=run_id,
                 projection_symbols=projection_symbols,a1_discovery_context=a1_discovery_context)
+        if stage=='A2':
+            from .team_v2_a2_research import run_a2_stage
+            return run_a2_stage(self,pipeline,lane_id=lane_id,model=model,snapshot=snapshot,
+                upstream_output=upstream_output,upstream_symbols=upstream_symbols,bundle=bundle,run_id=run_id,
+                projection_symbols=projection_symbols)
         # Lazy import avoids the research package's moved-method bootstrap cycle.
         from .research import common as legacy
         if not self.supports(stage):
