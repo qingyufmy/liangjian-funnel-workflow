@@ -22,6 +22,9 @@ def run_paper_settle(settings, *, now=None, calendar=None):
     broker=create_broker('local_paper',database=database,paper_config=settings.root/'config/paper_broker.yaml',
         risk_config=settings.root/'config/risk_limits.yaml',clock=lambda:now,calendar=calendar,
         run_id='paper-settle:'+now.date().isoformat())
+    from .team_v2_close_bar import run_close_bar
+    # Reuse original frozen close only; settlement never starts provider work.
+    run_close_bar(settings,clock=lambda:now,calendar=calendar,reuse_only=True,broker=broker)
     report=broker.settle(now.date().isoformat())
     if report['reconcile']['status']!='MATCH':
         return {**report,'status':'RECONCILIATION_FAILED','settlement_status':report['status'],

@@ -15,7 +15,7 @@ from .shadow_rule_preflight import load_approved_rule_archive
 from .team_v2_sources import stamp
 
 
-def production_monitor_tradability(settings,*,symbol,now,bar,quote,plan,minute_bars=()):
+def production_monitor_tradability(settings,*,symbol,now,bar,quote,plan,minute_bars=(),max_bar_age_seconds=120):
     """Adapter of the existing published-plan/current-minute monitor contract.
 
     Publication already uses TRADABILITY_FLAGS (workflow._publish_plans).
@@ -34,7 +34,7 @@ def production_monitor_tradability(settings,*,symbol,now,bar,quote,plan,minute_b
         now=stamp(now);stock_trading_rules(symbol)
         if (not isinstance(plan,Mapping) or plan.get('symbol')!=symbol or bar.symbol!=symbol
                 or not bar.closed or bar.minute_end.date()!=now.date() or bar.minute_end>=now
-                or (now-bar.minute_end).total_seconds()>120):return result
+                or (now-bar.minute_end).total_seconds()>max_bar_age_seconds):return result
         # Same optional explicit limit aliases as the original strategy. No
         # identity/rate estimate is introduced when that original field is absent.
         latest=tuple(minute_bars)[-5:]

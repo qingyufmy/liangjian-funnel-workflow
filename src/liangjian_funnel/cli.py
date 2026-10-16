@@ -464,6 +464,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("run-auction-base", help="prepare immutable research evidence at 07:00; no models or plan publication")
     sub.add_parser("run-auction-evidence", help="capture the current fixed 09:25 poll slot; no research, activation or rebase")
     sub.add_parser("run-paper-settle", help="settle the existing independent local-paper account; no research or customer I/O")
+    sub.add_parser('run-team-close-bar', help='consume original 15:00 close for owned paper orders/positions only')
     sub.add_parser('run-team-eod', help='owned PM then A6 close-completion review; no new research or customer I/O')
     sub.add_parser('run-team-internal', help='deliver committed owned internal facts; no trading or customer I/O')
     sub.add_parser('run-team-a5-midday', help='independent Team A5 coach from frozen facts; no customer publisher')
@@ -678,6 +679,12 @@ def main(argv: Sequence[str] | None = None, *, settings: Settings | None = None)
         except Exception:result={'status':'BLOCKED','reason_code':'TEAM_EOD_STAGE_FAILED'}
         print(json.dumps({key:result[key] for key in ('status','reason_code','session','trade_date') if key in result},ensure_ascii=False))
         return 0 if result['status'] in {'READY','NOOP'} else 2
+    if args.command=='run-team-close-bar':
+        from .runtime.team_v2_close_bar import run_close_bar
+        try:result=run_close_bar(active)
+        except Exception:result={'status':'BLOCKED','reason_code':'TEAM_CLOSE_BAR_FAILED'}
+        print(json.dumps(result,ensure_ascii=False))
+        return 0 if result['status'] in {'COMPLETE','NOOP'} else 2
     if args.command == "run-paper-settle":
         from .runtime.team_v2_commands import run_paper_settle
         try:

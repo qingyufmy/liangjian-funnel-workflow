@@ -15,8 +15,12 @@ from ..data.session_windows import closed_window_ends
 from .team_v2_sources import stamp
 
 
-def project_closed_minute(one_minute, native_five, *, observed_at):
-    now=stamp(observed_at);cutoff=now.replace(second=0,microsecond=0)-timedelta(minutes=1)
+def project_closed_minute(one_minute, native_five, *, observed_at, execution_cutoff=None):
+    now=stamp(observed_at);latest=now.replace(second=0,microsecond=0)-timedelta(minutes=1)
+    cutoff=latest if execution_cutoff is None else stamp(execution_cutoff)
+    # Dedicated close consumer may prove an older explicit session close;
+    # the original arrival time is retained, never replaced with a fake clock.
+    if cutoff>latest or cutoff.date()!=now.date():raise ValueError('CONTROL_PROJECTION_CUTOFF_INVALID')
     result=dict(status='DATA_LIMITED',reason_codes=[],paper_bar=None,
         execution_cutoff=cutoff.isoformat(),source_requests_started=0,
         authority='CLOSED_BAR_ONLY_TRADABILITY_NOT_AUTHENTICATED')

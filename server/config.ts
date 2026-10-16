@@ -12,6 +12,7 @@ export const JOB_DEFINITIONS: readonly JobDefinition[] = [
   { name: "team-morning-risk", command: "run-team-morning-risk", label: "A6模拟盘风险晨会", schedule: "08:35（独立120s）" },
   { name: "team-morning-pm", command: "run-team-morning-pm", label: "A3模拟盘组合晨会", schedule: "08:38（独立120s）" },
   { name: "paper-settle", command: "run-paper-settle", label: "独立模拟盘结算与对账", schedule: "15:30（仅既有 paper 账户）" },
+  { name: "team-close-bar", command: "run-team-close-bar", label: "模拟盘15:00原始尾盘消费", schedule: "15:01，review槽，60s，最迟15:05" },
   { name: "team-eod", command: "run-team-eod", label: "模拟盘收盘组合与风险复核", schedule: "同日 close 完成后（独立120s）" },
   { name: "team-internal", command: "run-team-internal", label: "模拟盘内部通知", schedule: "08:45–17:20 每分钟（独立通知槽8s）" },
   { name: "team-a5-midday", command: "run-team-a5-midday", label: "团队A5独立午间复盘", schedule: "11:35后，客户复盘槽释放后，独立240s" },

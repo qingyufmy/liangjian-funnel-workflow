@@ -180,6 +180,7 @@ export class WorkflowScheduler {
       if (clock.hour===16 || (clock.hour===17 && clock.minute<=5)) due.push("team-a5-close");
       if (clock.hour === 16 && clock.minute === 10) due.push("outcomes");
       if (clock.hour === 15 && clock.minute === 10) due.push("close");
+      if (clock.hour === 15 && clock.minute >= 1 && clock.minute < 5) due.push("team-close-bar");
       // Owned paper settlement may recover a busy review slot or a Node
       // restart for ten minutes. Its persisted daily ledger is authoritative.
       if (clock.hour === 15 && clock.minute >= 30 && clock.minute < 40) due.push("paper-settle");
@@ -194,6 +195,7 @@ export class WorkflowScheduler {
       const dispatchKey = job === "auction-evidence" ? `${clock.date}T09:25:${auctionEvidenceSlot(clock)}`
         : job === "auction-refresh" ? `${clock.date}T09:26`
         : job === "paper-settle" ? `${clock.date}T15:30`
+        : job === "team-close-bar" ? `${clock.date}T15:01`
         : job === "team-a5-midday" ? `${clock.date}Tteam-midday`
         : job === "team-a5-close" ? `${clock.date}Tteam-close`
         : job === "auction-base" ? `${clock.date}T07:00` : key;
@@ -201,7 +203,7 @@ export class WorkflowScheduler {
       if (this.dispatched.get(job) === dispatchKey || this.inFlight.has(job) || this.retryKeys.get(job) === dispatchKey) continue;
       if (job === "auction-refresh" && this.lastDispatch.has(job)
           && value.getTime() - Date.parse(this.lastDispatch.get(job)!) < 60_000) continue;
-      if (job === "paper-settle" && this.lastDispatch.has(job)
+      if ((job === "paper-settle" || job === "team-close-bar") && this.lastDispatch.has(job)
           && value.getTime() - Date.parse(this.lastDispatch.get(job)!) < 5_000) continue;
       if (job.startsWith('team-a5-') && this.lastDispatch.has(job)
           && value.getTime() - Date.parse(this.lastDispatch.get(job)!) < 60_000) continue;
@@ -261,7 +263,7 @@ export class WorkflowScheduler {
         if (job === "auction-base" && result.status === "skipped" && result.reason?.startsWith("BUSY:")) {
           this.dispatched.delete(job);
         }
-        if (job === "paper-settle" && result.status === "skipped" && result.reason?.startsWith("BUSY:")) {
+        if ((job === "paper-settle" || job === "team-close-bar") && result.status === "skipped" && result.reason?.startsWith("BUSY:")) {
           this.dispatched.delete(job);
         }
         if (job === "team-eod" && result.status === "skipped" && result.reason?.startsWith("BUSY:")
