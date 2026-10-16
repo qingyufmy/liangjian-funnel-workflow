@@ -58,9 +58,14 @@ def run_trader_session(*,repository,client,journal,store,broker,decision_id,minu
     values=dict(replacements)
     time_rules=dict(values['TIME_RULES']) if isinstance(values.get('TIME_RULES'),Mapping) else {}
     time_rules.update(NO_NEW_ENTRY_AFTER=limits.no_new_entry_after,execution_context_sha256=execution_hash)
+    # A4 sees the authored permission/unit/batch interface, not A6's account
+    # sizing budget or share cap. Full envelopes remain in the engine binding.
+    visible_envelopes={pid:{key:value for key,value in e.items() if key in {
+        'plan_id','symbol','trade_date','eligible','risk_unit','max_batches','blocked_reasons','purpose','a6_tightened'}}
+        for pid,e in context['envelopes'].items()}
     values.update(DECISION_ID=decision_id,MINUTE_SNAPSHOT_ID=minute_snapshot_id,
         ACTIVE_PLANS=[context['plans'][pid] for pid in sorted(active_plan_ids)],
-        RISK_ENVELOPES=context['envelopes'],POSITIONS=position_snapshot,TECH_REFERENCE=tech_reference,
+        RISK_ENVELOPES=visible_envelopes,POSITIONS=position_snapshot,TECH_REFERENCE=tech_reference,
         CURRENT_TIME=decision_at.isoformat(),TIME_RULES=time_rules)
     # Decimal/datetime normalization is fact serialization, never a role rewrite.
     values=json.loads(dump(values))
