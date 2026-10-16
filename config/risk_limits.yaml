@@ -14,3 +14,17 @@ drawdown_half_pct: '0.08'
 drawdown_halt_pct: '0.15'
 min_cash_reserve_pct: '0.10'
 no_new_entry_after: '14:30'
+# Claude 0242, 2026-10-17. Percentage points; shared-account advisory ceiling.
+external_adjustment:
+  version: external-adjustment/1
+  max_age_hours: 12
+  missing_adjustment_pp: -10
+  contraction_adjustment_pp: -10
+  nasdaq_contraction_lte_pct: '-1.5'
+  a50_contraction_lte_pct: '-1'
+  expansion_enabled: true
+  expansion_adjustment_pp: 10
+  nasdaq_expansion_gte_pct: '1.5'
+  a50_expansion_gte_pct: '1'
+  expansion_vix_lte: '20'
+  maximum_utilization_pct: 95

@@ -76,6 +76,9 @@ class RiskLimits:
     def from_yaml(cls, path: str | Path) -> "RiskLimits":
         import yaml
         data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+        if isinstance(data,dict) and 'external_adjustment' in data:
+            from .team_v2_external_policy import validate_external_policy
+            validate_external_policy(data.pop('external_adjustment'))
         if not isinstance(data, dict) or set(data) != {f.name for f in fields(cls)}:
             raise ValueError("RISK_LIMIT_KEYS_INVALID")
         return cls(**data)

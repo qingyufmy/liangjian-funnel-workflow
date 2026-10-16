@@ -1,13 +1,7 @@
 # Tony master section 10. Percentage points; advisory, never a forced buy.
 schema_version: team-deployment/1
 version: '2026-10-15.1'
-external:
-  max_age_hours: 12
-  missing_adjustment_pp: -10
-  contraction_adjustment_pp: -10
-  nasdaq_contraction_lte_pct: '-1.5'
-  a50_contraction_lte_pct: '-1'
-  expansion: NOT_DEFINED_NO_AUTOMATIC_INCREASE
+# External adjustment has one authority: risk_limits.yaml.external_adjustment.
 ranges:
   TREND_MAINLINE: [70, 90]
   ROTATION_NO_MAINLINE: [50, 75]

@@ -11,7 +11,7 @@ from liangjian_funnel.runtime.team_v2_external import assess_external,read_exter
 from liangjian_funnel.data.open_macro import _finalize_contract
 
 NOW=datetime.fromisoformat('2026-10-19T08:33:00+08:00')
-POLICY=yaml.safe_load((Path(__file__).resolve().parents[1]/'config/team_v2_deployment.yaml').read_text())['external']
+POLICY=yaml.safe_load((Path(__file__).resolve().parents[1]/'config/risk_limits.yaml').read_text())['external_adjustment']
 
 
 def snapshot():
@@ -31,7 +31,7 @@ def test_missing_external_is_minus_ten_pp_not_neutral(tmp_path):
 
 @pytest.mark.parametrize('key,value,expected',[('nasdaq_change_pct',-1.5,-10),('a50_futures_change_pct',-1,-10),
     ('nasdaq_change_pct',-1.49,0),('a50_futures_change_pct',-0.99,0),('nasdaq_change_pct',5,0)])
-def test_only_approved_contraction_no_invented_expansion(key,value,expected):
+def test_contraction_boundaries_and_nasdaq_alone_cannot_expand(key,value,expected):
     data=snapshot();data['market_observations'][key]['value']=value
     assert assess_external(data,now=NOW,policy=POLICY)['value_pp']==expected
 
@@ -71,3 +71,54 @@ def test_existing_cache_binding_rechecked_and_no_file_rewrite_or_collection(tmp_
     before=path.read_bytes();result=read_external(settings,now=NOW,policy=POLICY)
     assert result['value_pp']==(-10 if tamper else 0) and result['source_requests_started']==0
     assert path.read_bytes()==before
+
+
+@pytest.mark.parametrize('nasdaq,a50,vix,expected',[
+    (1.5,1,20,10),(1.49,1,20,0),(1.5,0.99,20,0),(1.5,1,20.01,0),
+    (1.5,1,None,0),(3,-1,10,-10),(-1.5,3,10,-10)])
+def test_0242_expansion_requires_both_indices_and_available_vix_with_contraction_priority(nasdaq,a50,vix,expected):
+    data=snapshot()
+    for key,value in (('nasdaq_change_pct',nasdaq),('a50_futures_change_pct',a50),('vix',vix)):
+        data['market_observations'][key]['value']=value
+    result=assess_external(data,now=NOW,policy=POLICY)
+    assert result['value_pp']==expected
+    if vix is None:assert result['vix'] is None and result['status']=='FROZEN_PARTIAL_VIX_UNAVAILABLE'
+
+
+def test_yaml_only_disable_of_expansion_leaves_contraction_and_missing_protection():
+    policy={**POLICY,'expansion_enabled':False};data=snapshot()
+    data['market_observations']['nasdaq_change_pct']['value']=2
+    data['market_observations']['a50_futures_change_pct']['value']=2
+    assert assess_external(data,now=NOW,policy=policy)['value_pp']==0
+    data['market_observations']['a50_futures_change_pct']['value']=-2
+    assert assess_external(data,now=NOW,policy=policy)['value_pp']==-10
+    assert assess_external(None,now=NOW,policy=policy)['value_pp']==-10
+
+
+def test_actual_morning_engine_applies_expansion_ceiling95_from_versioned_risk_yaml(tmp_path):
+    from contextlib import closing
+    import sqlite3
+    settings,clock=fixture(tmp_path)
+    with closing(sqlite3.connect(settings.state_db_path)) as db,db:
+        row=db.execute('SELECT payload_json FROM execution_plans').fetchone()
+        body=json.loads(row[0]);body['market_regime']='TREND_MAINLINE'
+        db.execute('UPDATE execution_plans SET payload_json=?',(json.dumps(body),))
+    data=snapshot()
+    for key,value in (('nasdaq_change_pct',1.5),('a50_futures_change_pct',1),('vix',20)):
+        data['market_observations'][key]['value']=value
+    cached=_finalize_contract(dict(as_of=data['as_of'],cache_status='LIVE',GLOBAL_MACRO_SNAPSHOT=_finalize_contract(data)))
+    settings.open_macro_cache_dir.mkdir(parents=True)
+    (settings.open_macro_cache_dir/'open-macro-20261019.json').write_text(json.dumps(cached),encoding='utf-8')
+    result=run_morning_stage(settings,'engine',clock=lambda:clock.now,calendar=CAL)
+    assert result['baseline_range']==[80,95] and result['engine_utilization_cap']==95
+    assert result['external_adjustment']['reason_code']=='EXTERNAL_RISK_EXPANSION'
+
+
+@pytest.mark.parametrize('mutation',[{'expansion_enabled':'true'},{'expansion_vix_lte':'NaN'},
+    {'maximum_utilization_pct':100},{'unknown_permission':True},{'nasdaq_expansion_gte_pct':True}])
+def test_malformed_external_section_is_not_ignored_by_risk_config_loader(tmp_path,mutation):
+    from liangjian_funnel.runtime.risk_engine import RiskLimits
+    root=yaml.safe_load((Path(__file__).resolve().parents[1]/'config/risk_limits.yaml').read_text())
+    root['external_adjustment'].update(mutation)
+    path=tmp_path/'risk.yaml';path.write_text(yaml.safe_dump(root),encoding='utf-8')
+    with pytest.raises(ValueError,match='EXTERNAL_POLICY_INVALID'):RiskLimits.from_yaml(path)

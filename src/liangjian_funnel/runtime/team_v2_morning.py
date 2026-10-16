@@ -83,8 +83,9 @@ def _freeze_engine(settings,store,source,now,calendar,directory,clock):
     bounds=policy['ranges'][source['market_regime']]
     if (not isinstance(bounds,list) or len(bounds)!=2 or any(type(x) is not int for x in bounds)
             or not 0<=bounds[0]<=bounds[1]<=95):raise ValueError('DEPLOYMENT_POLICY_INVALID')
-    external=read_external(settings,now=now,policy=policy['external'])
-    bounds=[max(0,min(95,v+external['value_pp'])) for v in bounds]
+    external_policy=yaml.safe_load((settings.root/'config/risk_limits.yaml').read_text(encoding='utf-8'))['external_adjustment']
+    external=read_external(settings,now=now,policy=external_policy)
+    bounds=[max(0,min(external_policy['maximum_utilization_pct'],v+external['value_pp'])) for v in bounds]
     from .team_v2_rule_source import prepare_daily_rule_source
     rule_source=prepare_daily_rule_source(settings,clock=clock,calendar=calendar)
     body=dict(status='COMPLETE',session='ENGINE_PREMARKET',trade_date=source['trade_date'],
