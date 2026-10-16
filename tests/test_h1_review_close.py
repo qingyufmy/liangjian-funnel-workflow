@@ -113,7 +113,11 @@ def test_r2_incomplete_or_positive_evidence_never_forces_terminal(tmp_path, caps
         extra_missing=at("10:00:00") if case == "other_bar_gap" else None,
         include_entry=case == "entry_found")
     if case == "late_archive":
-        minutes.write_live([bar], as_of=at("15:00:00"))
+        from unittest.mock import patch
+        from liangjian_funnel.data.cache import _observed_at
+        with patch("liangjian_funnel.data.cache._observed_at", side_effect=lambda value:
+                at("15:05:00").isoformat() if value is None else _observed_at(value)):
+            minutes.write_live([bar], as_of=at("15:00:00"))
     if case == "hash_corrupt":
         with sqlite3.connect(minutes.path) as c:
             c.execute("UPDATE minute_decision_snapshots SET payload_sha256='bad' WHERE decision_as_of=?", (at("15:00:00").isoformat(),))
