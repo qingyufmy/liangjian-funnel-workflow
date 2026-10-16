@@ -39,6 +39,7 @@ class TeamMessageRequest:
     prompt: TeamPromptRequest
     messages: tuple[Mapping[str, str], ...]
     input_hash: str
+    evidence_catalog_hash: str
 
 
 _ENVELOPE_KEYS = frozenset('schema_version run_id stage_id source_trade_date execution_trade_date as_of '
@@ -81,15 +82,21 @@ class TeamPromptRepository:
         if not extra_keys.issubset(replacements):raise ValueError('TEAM_UNRESOLVED_PLACEHOLDER')
         values=deepcopy(dict(replacements))
         if role=='A3' and session=='PLAN_REVIEW':values=blind_plan_facts(values)
+        if 'EVIDENCE_CATALOG' not in values:raise ValueError('TEAM_EVIDENCE_CATALOG_REQUIRED')
         prompt=self.prepare(role,values,session=session)
+        catalog_text=json.dumps(values['EVIDENCE_CATALOG'],ensure_ascii=False,sort_keys=True,separators=(',',':'),allow_nan=False)
+        catalog_hash=hashlib.sha256(catalog_text.encode()).hexdigest()
+        extra_inputs={key:values[key] for key in sorted(extra_keys)}
+        if 'EVIDENCE_CATALOG' not in self.document(role).placeholders:
+            extra_inputs['EVIDENCE_CATALOG']=values['EVIDENCE_CATALOG']
         runtime={'required_envelope':deepcopy(dict(required_envelope)), 'session':session,
-                 'inputs':{key:values[key] for key in sorted(extra_keys)}}
+                 'catalog_sha256':catalog_hash, 'inputs':extra_inputs}
         user='RUNTIME_INPUT\n'+json.dumps(runtime,ensure_ascii=False,sort_keys=True,separators=(',',':'),allow_nan=False)
         messages=(MappingProxyType({'role':'system','content':prompt.system}),
                   MappingProxyType({'role':'user','content':user}))
         binding=json.dumps([dict(message) for message in messages],ensure_ascii=False,
                            sort_keys=True,separators=(',',':'),allow_nan=False)
-        return TeamMessageRequest(prompt,messages,hashlib.sha256(binding.encode()).hexdigest())
+        return TeamMessageRequest(prompt,messages,hashlib.sha256(binding.encode()).hexdigest(),catalog_hash)
 
     def prepare(self, role: str, replacements: Mapping[str, Any], *, session: str | None = None) -> TeamPromptRequest:
         shared = self._read("00_shared_system_v3.txt"); document = self.document(role)

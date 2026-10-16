@@ -144,7 +144,8 @@ def validate_team_output(role: str, output: Any, catalog: Any, *, session: str |
     if role == "A2":
         nominations = output.get("model_nominations", [])
         if (not isinstance(nominations, list) or len(nominations) > 5
-                or any(not isinstance(row, Mapping) or row.get("symbol") not in (nomination_scope or set()) for row in nominations)):
+                or any(not isinstance(row, Mapping) or not isinstance(row.get("symbol"), str)
+                       or row["symbol"] not in (nomination_scope or set()) for row in nominations)):
             issues.append("TEAM_NOMINATION_DOMAIN_INVALID")
     return TeamValidation(not issues, tuple(dict.fromkeys(issues)), tuple(judgments), sentinel_count)
 
