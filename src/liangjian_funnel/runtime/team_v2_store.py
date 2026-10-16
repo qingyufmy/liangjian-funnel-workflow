@@ -73,11 +73,55 @@ class TeamMeetingStore:
                 CREATE TABLE IF NOT EXISTS risk_session_requests (
                     meeting_id TEXT PRIMARY KEY, input_sha256 TEXT NOT NULL,
                     observed_at TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS eod_requests (
+                    meeting_id TEXT PRIMARY KEY, input_sha256 TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS eod_reviews (
+                    meeting_id TEXT PRIMARY KEY, input_sha256 TEXT NOT NULL,
+                    result_json TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS pm_override (
+                    meeting_id TEXT NOT NULL, symbol TEXT NOT NULL,
+                    pm_call_id TEXT NOT NULL, risk_call_id TEXT NOT NULL,
+                    evidence_json TEXT NOT NULL, PRIMARY KEY(meeting_id,symbol));
                 COMMIT;
             """)
 
     def _connect(self):
         return sqlite3.connect(self.path, timeout=2)
+
+    def claim_eod(self, meeting_id: str, *, input_sha256: str):
+        if any(not isinstance(v,str) or not v.strip() for v in (meeting_id,input_sha256)):
+            raise ValueError('EOD_ID_INVALID')
+        with closing(self._connect()) as db,db:
+            db.execute('BEGIN IMMEDIATE')
+            row=db.execute('SELECT input_sha256 FROM eod_requests WHERE meeting_id=?',(meeting_id,)).fetchone()
+            if row:
+                if row[0]!=input_sha256:raise ValueError('EOD_BINDING_CONFLICT')
+            else:db.execute('INSERT INTO eod_requests VALUES (?,?)',(meeting_id,input_sha256))
+
+    def load_eod(self, meeting_id: str, *, input_sha256: str):
+        with closing(self._connect()) as db:
+            row=db.execute('SELECT input_sha256,result_json FROM eod_reviews WHERE meeting_id=?',(meeting_id,)).fetchone()
+        if row is None:return None
+        if row[0]!=input_sha256:raise ValueError('EOD_BINDING_CONFLICT')
+        return json.loads(row[1])
+
+    def record_eod(self, *, meeting_id, input_sha256, pm_call_id, risk_call_id, result):
+        """Final review and each actual PM override commit together or not at all."""
+        body=canonical(result)
+        with closing(self._connect()) as db,db:
+            db.execute('BEGIN IMMEDIATE')
+            request=db.execute('SELECT input_sha256 FROM eod_requests WHERE meeting_id=?',(meeting_id,)).fetchone()
+            if request!=(input_sha256,):raise ValueError('EOD_BINDING_CONFLICT')
+            old=db.execute('SELECT input_sha256,result_json FROM eod_reviews WHERE meeting_id=?',(meeting_id,)).fetchone()
+            if old:
+                if old!=(input_sha256,body):raise ValueError('EOD_BINDING_CONFLICT')
+                return json.loads(old[1])
+            db.execute('INSERT INTO eod_reviews VALUES (?,?,?)',(meeting_id,input_sha256,body))
+            for row in result['overnight_actions']:
+                if row['overridden']:
+                    db.execute('INSERT INTO pm_override VALUES (?,?,?,?,?)',
+                        (meeting_id,row['symbol'],pm_call_id,risk_call_id,canonical(row)))
+        return json.loads(body)
 
     def claim_risk_session(self, meeting_id: str, *, input_sha256: str, observed_at: datetime):
         if (any(not isinstance(v,str) or not v.strip() for v in (meeting_id,input_sha256))
