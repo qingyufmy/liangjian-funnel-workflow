@@ -129,6 +129,12 @@ def build_team_review_facts(*,legacy_facts,store,journal,paper_snapshot,settleme
     nav=account.get('nav');value=account.get('positions_value')
     utilization=str(D(value)/D(nav)*100) if nav is not None and value is not None and D(nav)>0 else None
     metrics=dict(legacy_facts.get('metrics') or {})
+    # Explicit original counts, not focus+watch arithmetic by the model. The
+    # role may quote only metrics; missing/invalid originals stay unavailable.
+    a2=legacy_facts.get('a2',{})
+    for name in ('quant_evaluated_count','llm_reviewed_count'):
+        value=a2.get(name) if isinstance(a2,dict) else None
+        metrics['a2_'+name]=value if type(value) is int and value>=0 else None
     metrics['team_v2']=dict(nav=nav,utilization_pct=utilization,
         benchmark_hs300_return=None,benchmark_csi1000_return=None,entry_hit_rate=None,
         strict_t1_return=None,strict_t3_return=None,
