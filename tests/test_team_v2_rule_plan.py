@@ -93,7 +93,8 @@ def test_first_changed_body_is_frozen_and_alerted_without_waiting_for_failed_sec
     assert alert['audience']=='INTERNAL_ONLY' and alert['receipt_sha256']==receipt['receipt_sha256']
 
 
-def test_unavailable_annotation_does_not_block_control_but_changed_body_does(tmp_path,monkeypatch):
+@pytest.mark.parametrize('changed_body',[False,True])
+def test_unavailable_annotation_does_not_block_control_but_changed_body_does(tmp_path,monkeypatch,changed_body):
     from test_team_v2_monitor_dispatch import prepared
     from liangjian_funnel.runtime.team_v2_monitor import run_monitor_control
     from liangjian_funnel.runtime.team_v2_store import TeamMeetingStore,canonical
@@ -103,9 +104,17 @@ def test_unavailable_annotation_does_not_block_control_but_changed_body_does(tmp
     with sqlite3.connect(path) as db,db:
         raw=json.loads(db.execute('SELECT body_json FROM morning_engine').fetchone()[0])
         assert raw['rule_preflight']['status']=='DATA_LIMITED'
-        raw['rule_preflight']={'status':'BLOCK','blocks_new_entries':True,
-            'reason_codes':['RULE_VERSION_CHANGED_NO_AUTO_ACCEPT']}
-        db.execute('UPDATE morning_engine SET body_json=?',(canonical(raw),))
-    result=run_monitor_control(app,now=clock.now,clock=lambda:clock.now,client=api)
-    assert result['result']['trader']['model_validated']
-    assert not result['result']['trader']['admissions'][0]['dispatched']
+        if changed_body:
+            raw['rule_preflight']={'status':'BLOCK','blocks_new_entries':True,
+                'reason_codes':['RULE_VERSION_CHANGED_NO_AUTO_ACCEPT']}
+            db.execute('UPDATE morning_engine SET body_json=?',(canonical(raw),))
+    result=run_monitor_control(app,now=clock.now,clock=lambda:clock.now,client=api,tradability_loader=proof)
+    if changed_body:
+        # 0308: an ineligible engine envelope is not sent to the model at all.
+        assert result['result']['trader']['model_validated'] is None and not seen
+        assert result['result']['trader']['admissions']==[]
+        with sqlite3.connect(app.settings.root/'state/team_v2/paper.db') as db:
+            assert db.execute('SELECT count(*) FROM paper_orders').fetchone()[0]==0
+    else:
+        assert result['result']['trader']['model_validated'] and len(seen)==1
+        assert result['result']['trader']['admissions'][0]['dispatched']
