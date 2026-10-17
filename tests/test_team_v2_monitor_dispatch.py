@@ -72,6 +72,18 @@ def test_actual_control_task_source_to_mocked_HTTP_to_owned_paper_not_legacy(tmp
     assert len(seen)==1 and source_bytes(app.settings)==before
 
 
+def test_original_quote_archive_failure_cannot_grant_entry_or_call_legacy(tmp_path,monkeypatch):
+    app,clock,seen,api,proof=prepared(tmp_path,monkeypatch);before=source_bytes(app.settings)
+    import liangjian_funnel.runtime.team_v2_quote_evidence as archive
+    def broken(*args,**kwargs):raise RuntimeError('PRIVATE_FILESYSTEM_ERROR_NOT_TO_LOG')
+    monkeypatch.setattr(archive,'archive_monitor_quotes',broken)
+    result=run_monitor_control(app,now=clock.now,clock=lambda:clock.now,client=api,tradability_loader=proof)
+    assert result['original_quote_archive']['status']=='FAILED'
+    assert not result['result']['trader']['admissions'][0]['dispatched']
+    assert {'reason_code':'CONTROL_ORIGINAL_QUOTE_ARCHIVE_FAILED'} in result['source_reasons']
+    assert source_bytes(app.settings)==before and 'PRIVATE' not in json.dumps(result)
+
+
 def test_shadow_rule_material_is_not_a_new_production_entry_gate(tmp_path,monkeypatch):
     app,clock,seen,api,proof=prepared(tmp_path,monkeypatch)
     result=run_monitor_control(app,now=clock.now,clock=lambda:clock.now,client=api)

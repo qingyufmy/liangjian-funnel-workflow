@@ -82,6 +82,11 @@ def collect_monitor_packet(settings,scope,*,clock,deadline,fetch_bars,fetch_quot
         selected=confirmed[symbol];one=selected.get('1m');quote=initial[symbol].get('quote')
         if not isinstance(quote,QuoteResult):quote=QuoteResult(symbol=symbol,reason_code='CONTROL_QUOTE_UNAVAILABLE')
         checked=validate_quote(quote,symbol,as_of=captured)
+        if checked.quote is not None:
+            from .team_v2_quote_evidence import assert_original_market_quote
+            try:assert_original_market_quote(checked.quote)
+            except ValueError:
+                checked=checked.model_copy(update={'complete':False,'reason_code':'CONTROL_REPLAY_QUOTE_FORBIDDEN'})
         # Existing source freshness is necessary but future provider data is
         # never known at capture, even inside the provider's timestamp tolerance.
         if checked.quote is not None and checked.quote.quote_time>captured:

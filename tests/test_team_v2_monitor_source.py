@@ -60,6 +60,16 @@ def test_future_quote_cannot_use_existing_provider_tolerance_as_authority(tmp_pa
     assert result['sources']['000001.SZ']['quote']['reason_code']=='CONTROL_QUOTE_FUTURE'
 
 
+def test_bar_derived_replay_quote_is_never_production_quote_authority(tmp_path):
+    settings,clock,scope,calls,args=prepared(tmp_path);original=args['fetch_quote']
+    def replay(*params):
+        value=original(*params)
+        return value.model_copy(update={'quote':value.quote.model_copy(update={'source_id':'REPLAY_BAR_DERIVED'})})
+    result=collect_monitor_packet(settings,scope,**{**args,'fetch_quote':replay})
+    assert result['status']=='DATA_LIMITED'
+    assert result['sources']['000001.SZ']['quote']['reason_code']=='CONTROL_REPLAY_QUOTE_FORBIDDEN'
+
+
 def test_one_symbol_failure_and_deadline_do_not_fabricate_empty_success(tmp_path):
     settings,clock,scope,calls,args=prepared(tmp_path)
     def broken(*args):raise RuntimeError('DO_NOT_LOG_PROVIDER_PAYLOAD')

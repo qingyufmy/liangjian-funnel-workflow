@@ -60,7 +60,12 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
         fetch_bars=lambda symbol,cutoff,count,end:application._fetch_live_bars(symbol,'1m',count,cutoff,deadline=end),
         fetch_quote=lambda symbol,at,end:application._fetch_live_quote(symbol,at,deadline=end))
     if packet['status']=='NOOP':return packet
+    from .team_v2_quote_evidence import archive_monitor_quotes
+    try:quote_archive=archive_monitor_quotes(settings,packet,used_at=stamp(clock()))
+    except Exception:
+        quote_archive=dict(status='FAILED',reason_code='CONTROL_ORIGINAL_QUOTE_ARCHIVE_FAILED')
     cutoff=stamp(packet['execution_cutoff']);active=set(scope['active_plan_ids']);plans={};paper={};contexts={};problems=[]
+    if quote_archive['status']!='ARCHIVED':problems.append({'reason_code':'CONTROL_ORIGINAL_QUOTE_ARCHIVE_FAILED'})
     raw_rows={r['plan_id']:json.loads(r['payload_json']) for r in scope['plan_rows']
         if r['plan_id'] in {p['plan_id'] for p in scope['plans']}}
     # Full-market collector is the existing durable five-minute bucket. Missing
@@ -96,6 +101,8 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
         plan=decode_plan(row);packed=packet['sources'].get(plan.symbol,{});bars=tuple(MinuteBar.model_validate(b) for b in packed.get('bars',()))
         projected=project_closed_minute(bars,(),observed_at=stamp(packet['captured_at']))
         bar=projected.get('paper_bar');quote=QuoteResult.model_validate(packed.get('quote',{'symbol':plan.symbol,'reason_code':'MISSING'}))
+        if quote_archive['status']!='ARCHIVED':
+            quote=quote.model_copy(update={'complete':False,'reason_code':'CONTROL_ORIGINAL_QUOTE_ARCHIVE_FAILED'})
         proof=tradability_loader(settings,symbol=plan.symbol,now=stamp(packet['captured_at']),bar=bar,
             quote=quote.quote if quote.complete else None,plan=raw_rows[plan.plan_id],
             minute_bars=bars) if bar is not None else {'status':'DATA_LIMITED'}
@@ -107,7 +114,8 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
         # 0247: unavailable preflight is an annotation, not a new entry gate.
         # Only a detected changed formal rule body pauses new entries all day.
         rule_blocked=bool(morning and morning.get('rule_preflight',{}).get('status')=='BLOCK')
-        entry_proven[plan.plan_id]=ready and quote.complete and proof.get('entry_tradable',False) and not rule_blocked
+        entry_proven[plan.plan_id]=(ready and quote.complete and proof.get('entry_tradable',False)
+            and not rule_blocked and quote_archive['status']=='ARCHIVED')
         if raw_rows[plan.plan_id].get('strategy_profile')=='LEADER_INTRADAY':
             entry_proven[plan.plan_id] &= bool(live.get('team_v2_regime',{}).get('leader_open'))
         plan=replace(plan,price=D(str(quote.quote.price)) if quote.complete else bar.close if bar is not None else plan.price,
@@ -185,6 +193,7 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
             cluster_caps=morning['cluster_caps'],trigger_policy=load_exception_policy(settings.root/'config/risk_limits.yaml'),**kwargs)
     result=run_control_minute(session_kwargs=args,closed_bars=paper,deadline_monotonic=deadline,envelope_refresh=refresh,
         exception_handler=exception_handler)
-    return dict(status='DEGRADED' if problems or packet['status']=='DATA_LIMITED' else result['status'],mode='control',
+    return dict(status='DEGRADED' if problems or packet['status']=='DATA_LIMITED' or quote_archive['status']!='ARCHIVED' else result['status'],mode='control',
         result=result,source_reasons=problems,scope_reasons=scope['reason_codes'],packet_sha256=packet['packet_sha256'],
+        original_quote_archive=quote_archive,
         deterministic_reference=evaluations,total_ms=(time.monotonic()-started)*1000)
