@@ -113,7 +113,7 @@ def run_a1_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
         envelope=dict(schema_version='team-research-envelope/1',run_id=run_id,stage_id='A1',
             source_trade_date=source.date().isoformat(),execution_trade_date=adapter.calendar.next_trading_day(source.date()).isoformat(),
             as_of=source.isoformat(),knowledge_cutoff=source.isoformat(),input_snapshot_ids=[snapshot.snapshot_id],
-            config_version=adapter.config_version,config_hash=adapter.config_hash,prompt_version='agent-1/3.0.3',model_name=model,
+            config_version=adapter.config_version,config_hash=adapter.config_hash,prompt_version='agent-1/3.0.4',model_name=model,
             market_regime=legacy._required_envelope(snapshot,lane_id,model,stage)['market_regime'],status='OK',reason_codes=[])
         request=adapter.repository.prepare_messages('A1',values,required_envelope=envelope,session=mode)
         tokens=legacy._estimate_message_tokens(request.messages)
@@ -169,7 +169,7 @@ def run_a1_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
         if result_output is not None:
             from .team_v2_catalyst_gaps import enforce_catalyst_gaps
             result_output=enforce_catalyst_gaps(result_output,context)
-        if result_output is not None:result_output['envelope']['prompt_version']='agent-1/3.0.3'
+        if result_output is not None:result_output['envelope']['prompt_version']='agent-1/3.0.4'
         return replace(audit,output=result_output,output_hash=_hash(result_output) if result_output is not None else audit.output_hash,
             diagnostics={**(audit.diagnostics or {}),'team_call_id':call_id,'legacy_checkpoint_reused':False,
                 'team_model_prompt_hash':request.prompt.sha256,'method_feedback_status':values['PRIOR_OUTCOME_FEEDBACK']['status']})

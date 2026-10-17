@@ -118,7 +118,7 @@ class TeamResearchAdapter:
         envelope = dict(schema_version='team-research-envelope/1', run_id=run_id, stage_id='A3',
             source_trade_date=source_day.isoformat(), execution_trade_date=execution, as_of=stamp.isoformat(),
             knowledge_cutoff=stamp.isoformat(), input_snapshot_ids=[snapshot.snapshot_id],
-            config_version=self.config_version, config_hash=self.config_hash, prompt_version='agent-3/4.0.5',
+            config_version=self.config_version, config_hash=self.config_hash, prompt_version='agent-3/4.0.6',
             model_name=model, market_regime=market.get('regime', 'UNKNOWN') if isinstance(market, Mapping) else 'UNKNOWN',
             status='OK', reason_codes=[])
         return values, domain, engine, envelope
@@ -198,7 +198,7 @@ class TeamResearchAdapter:
         output = {pool: [dict(row) for row in report[pool]] for pool in (
             'core_watch_pool', 'secondary_watch_pool', 'rejected_candidates')}
         output.update(envelope={**legacy._required_envelope(snapshot, lane_id, model, stage),
-            'prompt_version': 'agent-3/4.0.5', 'status': 'OK'}, handoff_notes=report['handoff_notes'],
+            'prompt_version': 'agent-3/4.0.6', 'status': 'OK'}, handoff_notes=report['handoff_notes'],
             what_would_change_my_mind=report['what_would_change_my_mind'],
             analysis_summary={'outcome': 'TEAM_V2_BLIND_PLAN_REVIEW', 'team_review_id': identity,
                 'model_comparisons': result['comparisons']})

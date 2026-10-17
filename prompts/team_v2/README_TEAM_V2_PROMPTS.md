@@ -24,7 +24,7 @@
 - A3 候选域 = A2 FOCUS + WATCH_ONLY（均为技术送审来源）；仅 model_nominations 不进 A3。
 - EVIDENCE_CATALOG：每层注入的可引用 ID 目录；引用不在目录内 → INVALID。
 - 模型判断全部进 `model_judgments`（decision_id/plan_id 唯一、原始输出与解析状态不可变、T+1/T+3 独立列），不混入有效入场 cohort。
-- prompt_version：shared 3.0.2 / A1 3.0.3 / A2 3.0.5 / A3 4.0.5 / A4-trader 1.1.0 / A5 2.0.7 / A6 1.0.7；envelope 原样回填。
+- prompt_version：shared 3.0.2 / A1 3.0.4 / A2 3.0.5 / A3 4.0.6 / A4-trader 1.1.0 / A5 2.0.7 / A6 1.0.7；envelope 原样回填。
 - 体积：角色专属 ≤12KB；A1 例外 ≤48KB（低频 pro 调用，v2 硬规则全部保留，见 A1【合同说明】C4），共享另计。
 
 ## 干跑要求（发布门）
@@ -85,3 +85,8 @@
 - A6 1.0.7：按校验器原条件写明格式硬限（reason_code 2–80 字符单一主因、notes 1–3、what_would_change_my_mind 1–2）。
 - A2 保持 3.0.5（引用越目录由运行时既有反馈重试处理，见 0308-reply）。
 - A4 1.1.0：改为"引擎确定性主导 + 模型逐笔复核 BUY/ADD 与离场候选"（每次 1–2 个对象；超时 BUY→NO_ACTION，离场→引擎规则）。输出 Schema 不变。
+
+## 2026-10-17 15:0x 修订（回应 0309/0313/0314）
+- A1 3.0.4：根对象禁止 source_refs；每主题节点 chain_position 至少两段（附服务/金融类拆段示例）。
+- A3 4.0.6（仅 PM_PREMARKET 段）：intended_risk_unit 不高于计划信封 risk_unit。
+- 新增独立文件（不改动已过门的 A2/A3 正文）：agent_2_intraday_radar_v1.txt（A2 INTRADAY_RADAR 1.0.0）、agent_3_pm_intraday_v1.txt（A3 PM_INTRADAY 1.0.0）。G3/G4 盘中雷达/龙头计划用；几何由引擎按 LEADER_INTRADAY profile 生成，PM 只排序。

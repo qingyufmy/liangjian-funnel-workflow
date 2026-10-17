@@ -1,6 +1,6 @@
 {
   "schema_version": "claude-team-prompt-bundle/3.0.2",
-  "authority": "canonical .claude_bridge/outbox/0308-reply.md exact A4/A6/README; other0304 files unchanged; full author bytes read before wiring",
+  "authority": "canonical .claude_bridge/outbox/0315-reply.md exact A1/A3/README plus independent radar/PMI; other0308 files unchanged; full author bytes read before wiring",
   "role_semantics_modified": false,
   "files": {
     "00_shared_system_v3.txt": {
@@ -8,16 +8,16 @@
       "bytes": 9263
     },
     "agent_1_macro_chain_v3.txt": {
-      "sha256": "414ee79b5303b4d5e372d005278ceadbcabfb2747d1995e39b7e3523a030918b",
-      "bytes": 46764
+      "sha256": "616fc59fb818f08455743f1e95cb25d14ff55a6d9f394c171e541e2ec6060ffb",
+      "bytes": 47365
     },
     "agent_2_theme_sentiment_v3.txt": {
       "sha256": "e5f7cf5a429c971e8968e16d667520ef1d3a0eb7bc0654954db23fb9e1c8d2a2",
       "bytes": 9406
     },
     "agent_3_portfolio_planner_v4.txt": {
-      "sha256": "5dc908e2c1a045117f853607675de8b936bb6f842ae8aa5868025268c42c7d9f",
-      "bytes": 9930
+      "sha256": "7bfb0e4af1c81a25199a1a9fb91f8c83853355d1bb76727e8e2b9c466513da99",
+      "bytes": 10101
     },
     "agent_4_trader_v1.txt": {
       "sha256": "6dc0cc97cd0c57b71085c3fb8336e7c9aafa5a63ed6771ccbfb1e0e0f193d04d",
@@ -32,8 +32,16 @@
       "bytes": 8199
     },
     "README_TEAM_V2_PROMPTS.md": {
-      "sha256": "dc490588d834dbd35905770f6bbc0e385ddce37cd063d8dd00e8f97dc71b4289",
-      "bytes": 10073
+      "sha256": "0913fa7f2bb229fa2877636333598e28e681975151b7f80baa42ce8162b964c2",
+      "bytes": 10632
+    },
+    "agent_2_intraday_radar_v1.txt": {
+      "sha256": "e82b091fa61eedda2b2c2024fb0779c0d0c4d61b295746c4f753729f6d3296a9",
+      "bytes": 2735
+    },
+    "agent_3_pm_intraday_v1.txt": {
+      "sha256": "4a16d3d8698fe7ad0e1004527f35ddebb4c1074cefb1b3fe5b150c19c14c4077",
+      "bytes": 2367
     }
   }
 }

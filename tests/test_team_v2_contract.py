@@ -130,7 +130,7 @@ def test_a1_complete_claude_prompt_is_callable_and_still_requires_all_inputs():
         repo.prepare("A1", {})
     values={key: {"status":"INSUFFICIENT"} for key in repo.document("A1").placeholders}
     prepared=repo.prepare("A1",values)
-    assert prepared.role_version=="agent-1/3.0.3"
+    assert prepared.role_version=="agent-1/3.0.4"
     assert "【A1 合同说明" in prepared.system and "{{" not in prepared.system
 
 
@@ -189,12 +189,12 @@ def test_a5_malformed_attribution_returns_invalid_not_exception():
     assert not validate_team_output('A5',response(core_watch_pool=[],team_scorecard={'attribution':None}),CATALOG).valid
 
 
-def test_claude302_bundle_exact_bytes_match_all_eight_approved_digests():
+def test_author315_bundle_exact_bytes_match_all_ten_approved_digests():
     import hashlib,json
     from pathlib import Path
     root=Path(__file__).resolve().parents[1]/'prompts/team_v2'
     manifest=json.loads((root/'manifest.json').read_text(encoding='utf-8'))
-    assert len(manifest['files'])==8 and manifest['role_semantics_modified'] is False
+    assert len(manifest['files'])==10 and manifest['role_semantics_modified'] is False
     for name,expected in manifest['files'].items():
         raw=(root/name).read_bytes()
         assert len(raw)==expected['bytes'] and hashlib.sha256(raw).hexdigest()==expected['sha256']

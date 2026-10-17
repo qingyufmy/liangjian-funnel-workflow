@@ -19,8 +19,10 @@ from .team_v2_contract import blind_plan_facts
 _FILES = {"A1": "agent_1_macro_chain_v3.txt", "A2": "agent_2_theme_sentiment_v3.txt",
           "A3": "agent_3_portfolio_planner_v4.txt", "A4": "agent_4_trader_v1.txt",
           "A5": "agent_5_daily_reviewer_v2.txt", "A6": "agent_6_risk_governor_v1.txt"}
-_VERSIONS = {"A1": "agent-1/3.0.3", "A2": "agent-2/3.0.5", "A3": "agent-3/4.0.5",
+_VERSIONS = {"A1": "agent-1/3.0.4", "A2": "agent-2/3.0.5", "A3": "agent-3/4.0.6",
              "A4": "agent-4-trader/1.1.0", "A5": "agent-5/2.0.7", "A6": "agent-6-risk/1.0.7"}
+_SESSION_FILES = {('A2','INTRADAY_RADAR'): ('agent_2_intraday_radar_v1.txt','agent-2-radar/1.0.0'),
+                  ('A3','PM_INTRADAY'): ('agent_3_pm_intraday_v1.txt','agent-3-pmi/1.0.0')}
 _TOKEN = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
 
 
@@ -64,10 +66,10 @@ class TeamPromptRepository:
             raise PromptRepositoryError("PROMPT_FILE_INVALID", filename=filename)
         return PromptDocument(filename, path, text, hashlib.sha256(raw).hexdigest())
 
-    def document(self, role: str) -> PromptDocument:
+    def document(self, role: str, session: str | None = None) -> PromptDocument:
         if role not in _FILES:
             raise ValueError("TEAM_ROLE_INVALID")
-        return self._read(_FILES[role])
+        return self._read(_SESSION_FILES.get((role,session),(_FILES[role],None))[0])
 
     def prepare_messages(self, role: str, replacements: Mapping[str, Any], *,
                          required_envelope: Mapping[str, Any], session: str | None = None) -> TeamMessageRequest:
@@ -88,7 +90,7 @@ class TeamPromptRepository:
         catalog_text=json.dumps(values['EVIDENCE_CATALOG'],ensure_ascii=False,sort_keys=True,separators=(',',':'),allow_nan=False)
         catalog_hash=hashlib.sha256(catalog_text.encode()).hexdigest()
         extra_inputs={key:values[key] for key in sorted(extra_keys)}
-        if 'EVIDENCE_CATALOG' not in self.document(role).placeholders:
+        if 'EVIDENCE_CATALOG' not in self.document(role,session).placeholders:
             extra_inputs['EVIDENCE_CATALOG']=values['EVIDENCE_CATALOG']
         runtime={'required_envelope':deepcopy(dict(required_envelope)), 'session':session,
                  'catalog_sha256':catalog_hash, 'inputs':extra_inputs}
@@ -100,14 +102,15 @@ class TeamPromptRepository:
         return TeamMessageRequest(prompt,messages,hashlib.sha256(binding.encode()).hexdigest(),catalog_hash)
 
     def prepare(self, role: str, replacements: Mapping[str, Any], *, session: str | None = None) -> TeamPromptRequest:
-        shared = self._read("00_shared_system_v3.txt"); document = self.document(role)
+        shared = self._read("00_shared_system_v3.txt"); document = self.document(role,session)
+        version=_SESSION_FILES.get((role,session),(None,_VERSIONS[role]))[1]
         if role == "A1" and "【v3 修订清单】" in document.text:
             raise ValueError("A1_COMPOSITION_REQUIRED")
-        if f"版本: {_VERSIONS[role]}" not in document.text or "版本: shared-system/3.0.2" not in shared.text:
+        if f"版本: {version}" not in document.text or "版本: shared-system/3.0.2" not in shared.text:
             raise ValueError("TEAM_PROMPT_VERSION_MISMATCH")
         values = dict(replacements)
         role_text = document.text
-        if role == "A3":
+        if role == "A3" and session!='PM_INTRADAY':
             if session not in {"PLAN_REVIEW", "PM_PREMARKET", "PM_POST_CLOSE"}:
                 raise ValueError("TEAM_SESSION_REQUIRED")
             # Verbatim section routing is wiring, not a rewrite of Claude's rules.
@@ -131,6 +134,6 @@ class TeamPromptRepository:
         rendered = _TOKEN.sub(lambda m: _replacement_text(values[m.group(1)]), text)
         if "{{" in rendered or "\x00" in rendered:
             raise ValueError("TEAM_UNRESOLVED_PLACEHOLDER")
-        return TeamPromptRequest(role, "shared-system/3.0.2", _VERSIONS[role], rendered,
+        return TeamPromptRequest(role, "shared-system/3.0.2", version, rendered,
                                  hashlib.sha256(rendered.encode()).hexdigest(),
                                  MappingProxyType({shared.name: shared.sha256, document.name: document.sha256}))

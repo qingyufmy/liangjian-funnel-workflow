@@ -38,7 +38,8 @@ def configured_research_adapter(settings,*,calendar):
     files=manifest.get('files',{})
     expected={'00_shared_system_v3.txt','agent_1_macro_chain_v3.txt','agent_2_theme_sentiment_v3.txt',
         'agent_3_portfolio_planner_v4.txt','agent_4_trader_v1.txt','agent_5_daily_reviewer_v2.txt',
-        'agent_6_risk_governor_v1.txt','README_TEAM_V2_PROMPTS.md'}
+        'agent_6_risk_governor_v1.txt','README_TEAM_V2_PROMPTS.md',
+        'agent_2_intraday_radar_v1.txt','agent_3_pm_intraday_v1.txt'}
     if set(files)!=expected:raise ValueError('TEAM_RESEARCH_PROMPT_BUNDLE_INVALID')
     for name,proof in files.items():
         if '/' in name or '\\' in name or name in {'.','..'}:raise ValueError('TEAM_RESEARCH_PROMPT_BUNDLE_INVALID')
