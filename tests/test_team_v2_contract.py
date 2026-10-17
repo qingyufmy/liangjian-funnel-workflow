@@ -110,7 +110,7 @@ def test_real_prompt_package_shared_is_used_and_values_are_rendered_once():
     values["EVIDENCE_CATALOG"] = CATALOG
     request = repo.prepare("A2", values)
     assert request.shared_version == "shared-system/3.0.2"
-    assert request.role_version == "agent-2/3.0.2"
+    assert request.role_version == "agent-2/3.0.3"
     assert "Legacy TOP5 wording" not in request.system
     assert "{{" not in request.system
     assert request.system.count('"id":"M1"') == 1
@@ -130,7 +130,7 @@ def test_a1_complete_claude_prompt_is_callable_and_still_requires_all_inputs():
         repo.prepare("A1", {})
     values={key: {"status":"INSUFFICIENT"} for key in repo.document("A1").placeholders}
     prepared=repo.prepare("A1",values)
-    assert prepared.role_version=="agent-1/3.0.1"
+    assert prepared.role_version=="agent-1/3.0.2"
     assert "【A1 合同说明" in prepared.system and "{{" not in prepared.system
 
 

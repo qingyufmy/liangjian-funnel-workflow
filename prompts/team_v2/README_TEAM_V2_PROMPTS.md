@@ -24,7 +24,7 @@
 - A3 候选域 = A2 FOCUS + WATCH_ONLY（均为技术送审来源）；仅 model_nominations 不进 A3。
 - EVIDENCE_CATALOG：每层注入的可引用 ID 目录；引用不在目录内 → INVALID。
 - 模型判断全部进 `model_judgments`（decision_id/plan_id 唯一、原始输出与解析状态不可变、T+1/T+3 独立列），不混入有效入场 cohort。
-- prompt_version：shared 3.0.2 / A1 3.0.1 / A2 3.0.2 / A3 4.0.2 / A4-trader 1.0.3 / A5 2.0.5 / A6 1.0.3；envelope 原样回填。
+- prompt_version：shared 3.0.2 / A1 3.0.2 / A2 3.0.3 / A3 4.0.3 / A4-trader 1.0.3 / A5 2.0.6 / A6 1.0.4；envelope 原样回填。
 - 体积：角色专属 ≤12KB；A1 例外 ≤48KB（低频 pro 调用，v2 硬规则全部保留，见 A1【合同说明】C4），共享另计。
 
 ## 干跑要求（发布门）
@@ -58,3 +58,10 @@
 - A3 4.0.2 / A4 1.0.3：示例删除 opposing_search_scope（条件字段规则不变，见共享 O2）。
 - A5 2.0.5：a2/a3/a4/a6_review 全部展开，data_limitations 必填（无则 ["NONE"]）；funnel_drop_stage 只取六值，细分原因写入 assessment。
 - 校验器：非哨兵时出现的 opposing_search_scope 剥离并记 WARN_EXTRA_SEARCH_SCOPE，不判 INVALID（作者授权）。
+
+## 10-17 第二轮真实干跑修订（回应 0284/0285/0287/0288/0289）
+- A1 3.0.2：输出闭包——主题/节点数达月度覆盖下限；映射只能引用本次输出的 theme_id；证据不足用 UNVERIFIED/UNKNOWN 降级而非减少主题。
+- A2 3.0.3：regime 只复制 MARKET_REGIME_SNAPSHOT.regime 字符串；emotion_cycle 明列八值；rotation_direction_id 逐字取合同；refs 只取目录 ID。
+- A3 4.0.3：risk_unit ≤ 输入上限；所有池（含 secondary_watch_pool）必须有 cluster。
+- A5 2.0.6：哨兵 search_scope ≥2 类；数字纪律（每个数字附 metrics 键名）。
+- A6 1.0.4：PREMARKET 的 capacity_for_tomorrow 作为对 PM 的回应，response_to_pm/notes 非空。

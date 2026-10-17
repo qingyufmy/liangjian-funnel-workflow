@@ -76,7 +76,10 @@ def validate_daily_review(output,catalog,*,required_envelope,trade_date,review_k
             if isinstance(value,(list,tuple)):return set().union(set(),*(numbers(v) for v in value))
             if value is None or isinstance(value,bool):return set()
             # Ignore role labels A1..A6, T+1, and reference identifiers.
-            return {Decimal(v) for v in re.findall(r'(?<![A-Za-z0-9_:+])[-+]?\d+(?:\.\d+)?',str(value))}
+            # 0290: strip ONLY these exact benchmark names, not any numeric
+            # suffix, return or comparison written after the name.
+            text=re.sub(r'(?:沪深300|中证1000|中证500|上证指数)(?!\d)','BENCHMARK ',str(value))
+            return {Decimal(v) for v in re.findall(r'(?<![A-Za-z0-9_:+])[-+]?\d+(?:\.\d+)?',text)}
         if not numbers({k:score[k] for k in score_keys-{'attribution'}})<=numbers(metrics or {}):
             issue('SCORECARD_NUMBER_NOT_IN_METRICS')
     schemas={

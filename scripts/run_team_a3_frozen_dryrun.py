@@ -160,7 +160,7 @@ def main():
     audit=pipeline._run_v2_downstream_review(lane_id='lane_1',model=settings.review_model,stage='A3',snapshot=snapshot,
         upstream_output=upstream,full_upstream_symbols=set(origins),gate=gate,bundle=pipeline.prompts.load(),run_id=header['run_id'])
     save(output/'STAGE_AUDIT.json',audit.as_dict())
-    save(output/'FIELD_DIFF.json',dict(original_schema='PRODUCTION_A3',new_schema='agent-3/4.0.2',
+    save(output/'FIELD_DIFF.json',dict(original_schema='PRODUCTION_A3',new_schema='agent-3/4.0.3',
         fields=field_diff(old.get('output'),audit.output)))
     def core(body):return sorted(r['symbol'] for r in (body or {}).get('core_watch_pool',[]))
     previous,current=core(old.get('output')),core(audit.output)

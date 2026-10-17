@@ -26,7 +26,7 @@ def test_workflow_factory_composes_actual_a2_role_and_its_owned_capture(tmp_path
     assert adapter.journal.path==tmp_path/'state/team_v2/model.db'
     with closing(adapter.journal._connect()) as db:
         assert db.execute('SELECT role,validated FROM model_calls').fetchall()==[('A2',1)]
-    assert 'agent-2/3.0.2' in seen[0]['messages'][0]['content']
+    assert 'agent-2/3.0.3' in seen[0]['messages'][0]['content']
     assert not (tmp_path/'state/workflow.sqlite3').exists()
 
 

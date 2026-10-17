@@ -45,7 +45,7 @@ def _settings(tmp_path: Path, key: str | None = "model-secret") -> Settings:
     return Settings.from_env({"LIANGJIAN_MODEL_API_KEY": key or ""}, root=tmp_path)
 
 
-@pytest.mark.parametrize("stage,thinking", [("A2", "disabled"), ("A4", "disabled"), ("A3", "enabled"), ("A5", "enabled")])
+@pytest.mark.parametrize("stage,thinking", [("A2", "disabled"), ("A4", "disabled"), ("A3", "disabled"), ("A6", "disabled"), ("A1", "enabled"), ("A5", "enabled")])
 def test_ark_preserves_endpoint_path_and_uses_provider_thinking(tmp_path, stage, thinking):
     import json
     seen = []
@@ -60,6 +60,20 @@ def test_ark_preserves_endpoint_path_and_uses_provider_thinking(tmp_path, stage,
     assert result.output == {"ok": True}
     assert seen[0]["thinking"] == {"type": thinking}
     assert "enable_thinking" not in seen[0]
+
+
+def test_a3_a6_no_thinking_does_not_mutate_a1_a5_client_configuration(tmp_path):
+    import json
+    seen=[]
+    def handler(request):
+        seen.append(json.loads(request.read()))
+        return _sse_response(request,[{'choices':[{'delta':{'content':'{"ok":true}'}}]},'[DONE]'])
+    client=OpenAICompatibleModelClient(_settings(tmp_path),transport=httpx.MockTransport(handler))
+    for role in ('A3','A6','A1','A5'):
+        client.complete('deepseek-v4-pro',[{'role':'user','content':'facts'}],stage=role)
+    assert all(row['enable_thinking'] is False and 'reasoning_effort' not in row for row in seen[:2])
+    assert all(row['reasoning_effort']=='low' and 'enable_thinking' not in row for row in seen[2:])
+    assert client.thinking_enabled is True
 
 
 @pytest.mark.parametrize('streamed',[True,False])

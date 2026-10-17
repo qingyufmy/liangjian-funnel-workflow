@@ -129,6 +129,23 @@ def build_team_review_facts(*,legacy_facts,store,journal,paper_snapshot,settleme
     nav=account.get('nav');value=account.get('positions_value')
     utilization=str(D(value)/D(nav)*100) if nav is not None and value is not None and D(nav)>0 else None
     metrics=dict(legacy_facts.get('metrics') or {})
+    # 0290: name original observation denominators explicitly. Counts are
+    # copied from frozen metrics, never reconstructed from filtered prose.
+    def count(value):return value if type(value) is int and value>=0 else None
+    original_actions=metrics.get('a4_action_counts')
+    original_actions=original_actions if isinstance(original_actions,dict) else {}
+    metrics['observation_counts']=dict(
+        observed_minutes=count(metrics.get('a4_monitor_observation_count')),
+        start_confirmation=count(original_actions.get('START_CONFIRMATION')),
+        plan_invalidated=count(original_actions.get('PLAN_INVALIDATED')),
+        empty_scope=count(original_actions.get('EMPTY_SCOPE')),
+        denominator='ORIGINAL_MONITOR_OBSERVATION_ROWS_NOT_DISTINCT_WALL_CLOCK_MINUTES')
+    targets=(legacy_facts.get('business_audit') or {}).get('target_buy_signals') or {}
+    low=count(targets.get('minimum'));high=count(targets.get('maximum'))
+    if (low,high)!=(2,5):low=high=None
+    metrics['targets']=dict(daily_buy_signals_minimum=low,daily_buy_signals_maximum=high,
+        status='FROZEN_APPROVED_TARGET' if (low,high)==(2,5) else 'UNAVAILABLE',
+        target_is_not_quota=True)
     # Explicit original counts, not focus+watch arithmetic by the model. The
     # role may quote only metrics; missing/invalid originals stay unavailable.
     a2=legacy_facts.get('a2',{})

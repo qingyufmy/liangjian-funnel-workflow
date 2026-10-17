@@ -80,6 +80,20 @@ def test_strict_authored_schema_and_complete_judgment_capture():
     assert result.valid and before==raw and len(result.judgments)==9
 
 
+@pytest.mark.parametrize('name',['沪深300','中证1000','中证500','上证指数'])
+def test_only_exact_benchmark_name_digits_are_excluded_from_numeric_claims(name):
+    raw=report({});raw['team_scorecard']['nav_vs_benchmark']=name+' 收益率尚不可得'
+    assert check(raw).valid
+    raw['team_scorecard']['nav_vs_benchmark']=name+'收益率 37.25%'
+    assert 'A5_SCORECARD_NUMBER_NOT_IN_METRICS' in check(raw).issues
+    assert check(raw,metrics={'benchmark_return_pct':37.25}).valid
+
+
+def test_nearby_benchmark_like_words_do_not_hide_unprovided_numbers():
+    raw=report({});raw['team_scorecard']['nav_vs_benchmark']='沪深301和中证1001以及沪深30037.25'
+    assert 'A5_SCORECARD_NUMBER_NOT_IN_METRICS' in check(raw).issues
+
+
 @pytest.mark.parametrize('kind',['extra','envelope','date','summary','handoff','falsifier','refs','opposing',
     'sentinel_scope','hyp_auto','hyp_duplicate','hyp_count','hyp_days','hyp_method','hyp_empty','questions','score_number',
     'signal_outside','counter_outside','defect_unconfirmed','feedback_refs','feedback_stock','malformed','capability'])

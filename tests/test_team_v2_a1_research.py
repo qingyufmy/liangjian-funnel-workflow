@@ -70,12 +70,12 @@ def test_actual_a1_stage_uses_authored_role_durable_journal_and_server_quality(t
     app,args,seen=fixture(tmp_path);before=deepcopy(dict(args['snapshot'].data))
     result=app._run_stage(**args)
     assert result.status=='VALIDATED',result.reason_codes
-    assert len(seen)==1 and 'agent-1/3.0.1' in seen[0]['messages'][0]['content']
+    assert len(seen)==1 and 'agent-1/3.0.2' in seen[0]['messages'][0]['content']
     assert '"t1_return":999' not in seen[0]['messages'][0]['content']
     assert '"status":"INSUFFICIENT"' in seen[0]['messages'][0]['content']
     row=result.output['monitor_pool'][0]
     assert row['data_quality_score']==62 and row['evidence_confidence']==.62
-    assert result.output['envelope']['prompt_version']=='agent-1/3.0.1'
+    assert result.output['envelope']['prompt_version']=='agent-1/3.0.2'
     with closing(app.team_research_adapter.journal._connect()) as db:
         stored=json.loads(db.execute("SELECT output_json FROM model_calls WHERE role='A1'").fetchone()[0])
         assert stored['monitor_pool'][0]['data_quality_score']==100

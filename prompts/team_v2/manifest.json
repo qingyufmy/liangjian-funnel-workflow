@@ -1,6 +1,6 @@
 {
   "schema_version": "claude-team-prompt-bundle/3.0.2",
-  "authority": "canonical .claude_bridge/outbox/0283-reply.md exact A2 3.0.2 A3 4.0.2 A4 1.0.3 A5 2.0.5 and README; other three approved bytes unchanged",
+  "authority": "canonical .claude_bridge/outbox/0290-reply.md exact six authored files; shared and A4 unchanged; bytes fully read before wiring",
   "role_semantics_modified": false,
   "files": {
     "00_shared_system_v3.txt": {
@@ -8,32 +8,32 @@
       "bytes": 9263
     },
     "agent_1_macro_chain_v3.txt": {
-      "sha256": "a4496ad8f7ffc073fdb34716487f31bf43838bf41de4c77365098b90f5f8751e",
-      "bytes": 45049
+      "sha256": "ee7ffc183c750a58c74de073c86a99de612b45d13abba81c8117168c3ef8bac1",
+      "bytes": 45534
     },
     "agent_2_theme_sentiment_v3.txt": {
-      "sha256": "1273e86ddeb2357d7d1e894e60eb9183ef83d959168253e220ed274196def543",
-      "bytes": 8101
+      "sha256": "ba3c21697e929122fbe6a6da8fb2ada5854f6f80470bf8cb0ebc73ffee3d391a",
+      "bytes": 8434
     },
     "agent_3_portfolio_planner_v4.txt": {
-      "sha256": "8c522c486e30457e90cd6c436fa36078ab1aaf727c0f1e13ceb55b5ed2b48565",
-      "bytes": 8968
+      "sha256": "ef120eff8c6e5bb133e10d3f4e50bb18fcc90959bbc3fcaa4e177f49b47b0edb",
+      "bytes": 9249
     },
     "agent_4_trader_v1.txt": {
       "sha256": "88952bd47d3dbfdf644e551092fa9c376f4e800a84ddcdce374298728f055b62",
       "bytes": 5589
     },
     "agent_5_daily_reviewer_v2.txt": {
-      "sha256": "eccc64581fe835336b25e938e686028266a6ebda90e96ea85f9c3821b60dda70",
-      "bytes": 8201
+      "sha256": "a16e2e7b4569bef2b3b7aa040bc46534ad4d52b369d04750c73312d45c207aa7",
+      "bytes": 8669
     },
     "agent_6_risk_governor_v1.txt": {
-      "sha256": "4a790958d04dce655bf5be2b8aef8c657664efb888a26bceb1c4f3806faf6199",
-      "bytes": 6541
+      "sha256": "f2b94d80a825b9163a9c55816b206fa5ddb56595f340cd568cb7459e5edbe486",
+      "bytes": 6800
     },
     "README_TEAM_V2_PROMPTS.md": {
-      "sha256": "d2c7d23ffeca4c48319f8120df5e7d92e6136f37193d6686ad083b33c0190705",
-      "bytes": 7309
+      "sha256": "8e7c400bca71c0caf3a143b43a3f6082e0b6a98b011cef17a3f470d49606c4f7",
+      "bytes": 8031
     }
   }
 }
