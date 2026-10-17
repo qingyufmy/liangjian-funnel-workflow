@@ -113,7 +113,8 @@ def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--sources',type=Path,required=True)
     p.add_argument('--frozen-db',type=Path,required=True);p.add_argument('--frozen-db-sha256',required=True)
     p.add_argument('--day',choices=['2026-10-14','2026-10-15','2026-10-16'],required=True)
-    p.add_argument('--output',type=Path,required=True);p.add_argument('--execute-real-model',action='store_true');a=p.parse_args()
+    p.add_argument('--output',type=Path,required=True);p.add_argument('--execute-real-model',action='store_true')
+    p.add_argument('--disable-thinking',action='store_true',help='0283 authorized frozen A6 comparison only');a=p.parse_args()
     output=a.output.resolve()
     if output.exists() or not output.is_relative_to((ROOT/'artifacts/team-v2-20261016').resolve()):
         raise ValueError('DRYRUN_NEW_OWNED_DIRECTORY_REQUIRED')
@@ -135,7 +136,7 @@ def main():
     started=datetime.now(TZ);journal=ModelJudgmentJournal(output/'model.db')
     result=None
     try:
-        result=call_team_model(request,AuditedClient(settings,max_attempts=1),journal,call_id='A6:'+header['run_id'],
+        result=call_team_model(request,AuditedClient(settings,max_attempts=1,thinking_enabled=not a.disable_thinking),journal,call_id='A6:'+header['run_id'],
             run_id=header['run_id'],model=settings.review_model,session='PREMARKET',source_trade_date=a.day,
             execution_trade_date=header['execution_trade_date'],catalog=values['EVIDENCE_CATALOG'],timeout_seconds=100,
             max_output_tokens=16384,validator=lambda raw:validate_risk_premarket(raw,values['EVIDENCE_CATALOG'],**args),
@@ -150,7 +151,7 @@ def main():
         actual_started_at=started.isoformat(),actual_finished_at=datetime.now(TZ).isoformat(),
         response_output_sha256=result.response.output_hash if result else None,latency_ms=result.response.latency_ms if result else None,
         input_sha256=request.input_hash,prompt_hash=request.prompt.sha256,provider_attempts=result.response.attempts if result else None,
-        model_calls=1,production_writes=0,customer_notifications=0,provider_identity=provider,
+        model_calls=1,production_writes=0,customer_notifications=0,provider_identity=provider,thinking_enabled=not a.disable_thinking,
         historical_account='UNAVAILABLE_SEPARATE_INITIAL_ACCOUNT_ASSUMPTION',natural_acceptance=False)
     save(output/'RESULT.json',summary);print(json.dumps(summary,ensure_ascii=True))
     return 0 if result and result.validation.valid else 2
