@@ -89,7 +89,7 @@ def build_team_review_facts(*,legacy_facts,store,journal,paper_snapshot,settleme
     if _hash(original)!=legacy_facts.get('input_hash'):raise ValueError('A5_LEGACY_FACT_HASH_MISMATCH')
     tables={
         name:(name,f'SELECT * FROM {name} WHERE account_id=? AND trade_date=? ORDER BY 1',(account_id,trade_date))
-        for name in ('risk_meetings','pm_decisions','trader_sessions','risk_exception_reviews')}
+        for name in ('risk_meetings','pm_decisions','trader_sessions','risk_exception_reviews','record_fallback_state')}
     tables.update(
         morning_engine=('morning_engine','SELECT * FROM morning_engine WHERE account_id=? AND trade_date=?',(account_id,trade_date)),
         risk_day_state=('risk_day_state','SELECT * FROM risk_day_state WHERE account_id=? AND trade_date=?',(account_id,trade_date)))

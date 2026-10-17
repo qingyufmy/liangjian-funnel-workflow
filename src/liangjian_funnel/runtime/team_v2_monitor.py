@@ -34,7 +34,8 @@ from .trader_guardrails import is_closed_trader_tick
 TZ=ZoneInfo('Asia/Shanghai');_MARKET=BoundedWorkGate(1)
 
 
-def run_monitor_control(application,*,now=None,clock=None,client=None,tradability_loader=production_monitor_tradability):
+def run_monitor_control(application,*,now=None,clock=None,client=None,tradability_loader=production_monitor_tradability,
+        record_fallback=None):
     from ..workflow import A4_DECISION_BUDGET_SECONDS,A4_MARKET_STATE_BUDGET_SECONDS,_intraday_market_context
     from .live_market import load_or_refresh_live_market_state
     from .team_v2_emotion_baseline import observe_full_market
@@ -60,6 +61,11 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
         fetch_bars=lambda symbol,cutoff,count,end:application._fetch_live_bars(symbol,'1m',count,cutoff,deadline=end),
         fetch_quote=lambda symbol,at,end:application._fetch_live_quote(symbol,at,deadline=end))
     if packet['status']=='NOOP':return packet
+    if record_fallback is not None:
+        from .team_v2_record_protection import protect_packet
+        return protect_packet(settings,scope=scope,packet=packet,broker=broker,store=store,clock=clock,
+            account_id=ACCOUNT,deadline_monotonic=deadline,reason_code=record_fallback['reason_code'],
+            tradability_loader=tradability_loader)
     from .team_v2_quote_evidence import archive_monitor_quotes
     try:quote_archive=archive_monitor_quotes(settings,packet,used_at=stamp(clock()))
     except Exception:
@@ -70,9 +76,13 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
         guard_anomaly=quote_archive['status']!='ARCHIVED' or any(
             p.get('quote',{}).get('reason_code')=='CONTROL_REPLAY_QUOTE_FORBIDDEN' for p in packet['sources'].values()))
     if first_observation['record_required']:
+        from .team_v2_record_protection import protect_packet
+        protection=protect_packet(settings,scope=scope,packet=packet,broker=broker,store=store,clock=clock,
+            account_id=ACCOUNT,deadline_monotonic=deadline,
+            reason_code=first_observation['latch']['reason_code'],tradability_loader=tradability_loader)
         return dict(status='CONTROL_RECORD_REQUIRED',mode='record',record_effective_next_tick=True,
             first_day_observation=first_observation,original_quote_archive=quote_archive,
-            current_tick='NO_ACTION_NO_SECOND_ENGINE_OR_BUDGET_RESET')
+            current_tick='PROTECT_OWNED_ONLY_NO_SECOND_ENGINE_OR_BUDGET_RESET',record_protection=protection)
     cutoff=stamp(packet['execution_cutoff']);active=set(scope['active_plan_ids']);plans={};paper={};contexts={};problems=[]
     if quote_archive['status']!='ARCHIVED':problems.append({'reason_code':'CONTROL_ORIGINAL_QUOTE_ARCHIVE_FAILED'})
     raw_rows={r['plan_id']:json.loads(r['payload_json']) for r in scope['plan_rows']

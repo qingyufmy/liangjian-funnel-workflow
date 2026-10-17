@@ -58,6 +58,18 @@ def test_original_1500_edge_closes_known_mark_gap_and_settle_reuse_is_idempotent
     assert run_paper_settle(settings,now=clock.now,calendar=SimpleNamespace(is_trading_day=lambda _:True))==settled
 
 
+def test_explicit_record_at_close_cancels_new_buy_but_still_marks_owned_positions(tmp_path):
+    settings,b,clock,calls,fetch=setup(tmp_path)
+    clock.now=stamp(tm='14:59:00')
+    b.place_order('000001.SZ','BUY',100,order_type='MARKET',limit_price=None,
+        client_order_id='late-buy',plan_id='p1',signal_id='late-buy',no_chase_price='12',tradable=True)
+    clock.now=stamp(tm='15:01:00');settings.a4_trader_mode='record'
+    first=len(b.get_fills('2026-10-19'));result=run(settings,clock,fetch)
+    assert result['status']=='COMPLETE' and len(b.get_fills('2026-10-19'))==first
+    assert next(o for o in b.get_orders('2026-10-19') if o['client_order_id']=='late-buy')['status']=='CANCELLED'
+    assert b.get_positions()[0]['mark_minute_end']==stamp(tm='15:00:00').isoformat()
+
+
 def test_missing_packet_remains_data_limited_alerted_once_no_refetch_at_settle(tmp_path):
     from liangjian_funnel.runtime.team_v2_commands import run_paper_settle
     settings,b,clock,calls,fetch=setup(tmp_path)

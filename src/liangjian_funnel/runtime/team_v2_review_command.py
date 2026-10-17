@@ -169,6 +169,10 @@ def coach_projection(full):
             team[table]=[{k:(json.loads(v) if k=='result_json' else v) for k,v in r.items()
                 if k not in {'input_json','body_json'}} for r in rows]
     projected['a6']=dict(status=full['a6']['status'],rows=team)
+    fallback=team.get('record_fallback_state',[])
+    projected['record_fallback']=dict(status=('RECORD_FALLBACK_ACTIVE' if fallback else 'INACTIVE')
+        if isinstance(fallback,list) else 'UNAVAILABLE',
+        evidence=fallback)
     model=full.get('model_judgments',{});model_rows=model.get('rows',{});counts=Counter();sentinels=Counter();consequential=[]
     for row in model_rows.get('judgments',[]):
         body=json.loads(row['judgment_json']);classification=body.get('action') or body.get('verdict') or body.get('decision') or 'UNCLASSIFIED'

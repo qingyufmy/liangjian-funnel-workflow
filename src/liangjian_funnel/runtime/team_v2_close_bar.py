@@ -137,6 +137,10 @@ def run_close_bar(settings, *, clock=None, calendar=None, fetch_bars=None, reuse
     if not (directory/'paper.db').is_file():return dict(status='NOOP',reason_code='PAPER_ACCOUNT_NOT_INITIALIZED')
     broker=broker or create_broker('local_paper',database=directory/'paper.db',paper_config=settings.root/'config/paper_broker.yaml',
         risk_config=settings.root/'config/risk_limits.yaml',clock=clock,calendar=calendar,run_id='team-close-bar:'+now.date().isoformat())
+    from .team_v2_first_day import forced_record
+    if getattr(settings,'a4_trader_mode','control')=='record' or forced_record(settings,account_id=ACCOUNT,now=now):
+        from .team_v2_record_protection import cancel_owned_buys
+        cancel_owned_buys(broker)  # a late explicit fallback cannot fill a BUY at 15:00
     snapshot=broker.planning_snapshot();owners={}
     for row in (*snapshot['positions'],*snapshot['open_orders']):
         old=owners.setdefault(row['plan_id'],row['symbol'])

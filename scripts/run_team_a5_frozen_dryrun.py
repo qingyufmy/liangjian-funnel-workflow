@@ -181,7 +181,7 @@ def main():
             validated=result.validation.valid,response_output_sha256=result.response.output_hash,model=settings.review_model,
             latency_ms=result.response.latency_ms,provider_attempts=result.response.attempts,
             actual_capture=result.receipt,model_calls=1)
-        save(output/'FIELD_DIFF.json',dict(original_schema='LEGACY_A5',new_schema='TEAM_A5_204',
+        save(output/'FIELD_DIFF.json',dict(original_schema='LEGACY_A5',new_schema=request.prompt.role_version,
             schema_changed=True,fields=field_diff(prepared['original_report'],result.response.output)))
     except ValueError as exc:
         safe=str(exc) if str(exc).startswith(('TEAM_','A5_')) else 'DRYRUN_FAILED'

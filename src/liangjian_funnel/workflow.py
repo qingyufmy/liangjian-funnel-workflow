@@ -4603,6 +4603,10 @@ class WorkflowApplication:
         if mode not in {"record", "control"}:
             raise WorkflowError("TRADER_MODE_INVALID")
         if mode == "record":
+            from .runtime.team_v2_record_protection import has_owned_exposure
+            if has_owned_exposure(self.settings):
+                from .runtime.team_v2_monitor import run_monitor_control
+                return run_monitor_control(self,now=now,record_fallback={'reason_code':'EXPLICIT_RECORD_MODE'})
             return self.monitor_once(now=now)
         if self.settings.broker_adapter != "local_paper":
             raise WorkflowError("BROKER_ADAPTER_NOT_ENABLED")
@@ -4610,7 +4614,8 @@ class WorkflowApplication:
         from .runtime.team_v2_morning import ACCOUNT
         latch=forced_record(self.settings,account_id=ACCOUNT,now=_aware(now or datetime.now(SHANGHAI)))
         if latch is not None:
-            return {**self.monitor_once(now=now),'team_control_fallback':latch,'mode':'record'}
+            from .runtime.team_v2_monitor import run_monitor_control
+            return {**run_monitor_control(self,now=now,record_fallback=latch),'team_control_fallback':latch,'mode':'record'}
         from .runtime.team_v2_monitor import run_monitor_control
         return run_monitor_control(self, now=now)
 

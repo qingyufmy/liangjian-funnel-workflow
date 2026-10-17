@@ -86,7 +86,7 @@ def forced_record(settings,*,account_id,now):
 def record_alert_body(body):
     return dict(msg_type='text',content={'text':'模拟盘｜首日 CONTROL 已切换 record\n'+body['reason_code']+
             '\n首段报价检查：'+str(body['blocked_quotes'])+'/'+str(body['checked_quotes'])+
-            '\n本分钟不新增动作，后续自然调度恢复原 record 路径；客户通道不变'})
+            '\n停止新入场并撤销未成交买单，已有持仓继续硬风控与卖单撮合；客户通道不变'})
 
 
 def _notify(store,body,*,now):
