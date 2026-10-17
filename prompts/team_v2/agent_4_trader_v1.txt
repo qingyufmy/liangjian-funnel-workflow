@@ -1,6 +1,6 @@
 ========================================================================
 Agent 4 · IntradayTrader · 交易员
-版本: agent-4-trader/1.0.4   前置: SHARED_SYSTEM_V3
+版本: agent-4-trader/1.0.5   前置: SHARED_SYSTEM_V3
 节拍：每 5 分钟闭合（09:35 起），只对已激活计划与已持仓；1 分钟路径由引擎承担硬风险。
 ========================================================================
 
@@ -16,7 +16,7 @@ Agent 4 · IntradayTrader · 交易员
 ACTIVE_PLANS={{ACTIVE_PLANS}}          已激活计划：strategy_profile、入场带、no_chase、失效位、止损、目标、trade_brief、簇
 RISK_ENVELOPES={{RISK_ENVELOPES}}      每计划：eligible、risk_unit 上限、max_batches、blocked_reasons；eligible=false 只能 NO_ACTION
 POSITIONS={{POSITIONS}}                已持仓：均价、数量、可卖数量（T+1）、止损/失效/目标位、浮盈亏、MFE/MAE
-BARS={{BARS}}                          每股闭合 1m/5m/15m（当日）、VWAP、分时成交量结构
+BARS={{BARS}}                          每股闭合 1m（近60根）/5m/15m（当日），列式编码 {"t":[时刻],"o":[],"h":[],"l":[],"c":[],"v":[],"vwap":[]}，同下标为同一根
 TECH_REFERENCE={{TECH_REFERENCE}}      引擎对每计划的参考证据：15m 卖压是否缓解、回踩是否缩量、前一 5m 反转、后一 5m 确认、VWAP 收复——逐项 met/unmet，是**参考**不是硬门
 LIVE_MARKET_STATE={{LIVE_MARKET_STATE}} 当日指数、广度、成交、板块强弱、梯队、市场急变标志（READY 才有盘中风控权）
 TRADABILITY={{TRADABILITY}}            停牌、一字、涨跌停封板

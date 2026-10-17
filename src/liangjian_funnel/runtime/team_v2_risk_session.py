@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 from ..pipeline.team_v2_model import call_team_model,team_call_binding
 from ..pipeline.team_v2_risk_schema import validate_risk_premarket
 from .team_v2_store import canonical
+from ..pipeline.team_v2_pm_schema import PM_PRIMARY_CLUSTER_CAP
 
 
 def run_risk_premarket(*,repository,client,journal,store,meeting_id,call_id,account_id,run_id,model,
@@ -36,6 +37,12 @@ def run_risk_premarket(*,repository,client,journal,store,meeting_id,call_id,acco
     context_hash=hashlib.sha256(canonical(context).encode()).hexdigest()
     values.update(RISK_SESSION='PREMARKET',ENGINE_ENVELOPES=[asdict(e) for e in envelopes],
         RISK_LIMITS=dict(policy=asdict(limits),engine_upper_bounds=context,session_binding_sha256=context_hash))
+    market=dict(values.get('MARKET_STATE') or {})
+    regime=market.get('market_regime') or required_envelope.get('market_regime')
+    market['allowed_risk_units']=([] if regime in {'ICE_POINT','ICE_POINT_NO_NEW_ENTRY'} else
+        ['PROBE'] if regime in {'BEAR_RISK','RISK_OFF_RETREAT'} else ['PROBE','STANDARD'])
+    values['MARKET_STATE']=market
+    values['RISK_LIMITS']['primary_cluster_cap']=PM_PRIMARY_CLUSTER_CAP
     values=json.loads(canonical(values))
     validate_risk_premarket(None,values['EVIDENCE_CATALOG'],**validator_args)
     request=repository.prepare_messages('A6',values,required_envelope=required_envelope,session='PREMARKET')

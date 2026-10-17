@@ -65,6 +65,12 @@ def validate_risk_premarket(output,catalog,*,required_envelope,envelopes,engine_
                 or not isinstance(row['reason_code'],str) or not re.fullmatch('[A-Z][A-Z0-9_]{1,79}',row['reason_code'])
                 or not texts(row['what_would_change_my_mind'])):
             issue('ADJUSTMENT_INVALID')
+            if not isinstance(action,str) or action not in {'KEEP','TIGHTEN_TO_PROBE','REDUCE_BATCHES','SUSPEND'}:
+                issue('ADJUSTMENT_DETAIL:'+pid+':adjustment:ENUM')
+            if not isinstance(row['reason_code'],str) or not re.fullmatch('[A-Z][A-Z0-9_]{1,79}',row['reason_code']):
+                issue('ADJUSTMENT_DETAIL:'+pid+':reason_code:REGEX_2_TO_80')
+            if not texts(row['what_would_change_my_mind']):
+                issue('ADJUSTMENT_DETAIL:'+pid+':what_would_change_my_mind:NONEMPTY_MAX2_TEXT')
         if pid in unready_plan_ids and action=='KEEP':issue('MISSING_DATA_KEEP_FORBIDDEN')
     if len(seen)!=len(set(seen)) or set(seen)!=set(by_id):issue('ENVELOPE_DOMAIN_INVALID')
     utilization=output.get('utilization_cap')
@@ -79,6 +85,7 @@ def validate_risk_premarket(output,catalog,*,required_envelope,envelopes,engine_
     capacity=output.get('capacity_for_tomorrow')
     if not item(capacity,{'plans_acceptable','cluster_quota','risk_unit','response_to_pm','notes'}|REFS):
         issue('CAPACITY_INVALID')
+        issue('CAPACITY_DETAIL:fields:EXACT_SCHEMA')
     else:
         slots=capacity['plans_acceptable'];quota=capacity['cluster_quota']
         if (type(slots) is not int or not 0<=slots<=capacity_slots
@@ -89,6 +96,20 @@ def validate_risk_premarket(output,catalog,*,required_envelope,envelopes,engine_
                 or not isinstance(capacity['risk_unit'],str) or capacity['risk_unit'] not in {'STANDARD','PROBE','NONE'}
                 or not text(capacity['response_to_pm']) or not texts(capacity['notes'],3)):
             issue('CAPACITY_INVALID')
+            if type(slots) is not int or not 0<=slots<=capacity_slots:
+                issue('CAPACITY_DETAIL:plans_acceptable:MAX_'+str(capacity_slots))
+            if not texts(capacity['notes'],3):issue('CAPACITY_DETAIL:notes:NONEMPTY_MAX3_TEXT')
+            if not text(capacity['response_to_pm']):issue('CAPACITY_DETAIL:response_to_pm:NONEMPTY_MAX2000')
+            if not isinstance(quota,Mapping):issue('CAPACITY_DETAIL:cluster_quota:MAPPING')
+            else:
+                for key,value in quota.items():
+                    if key not in cluster_caps:issue('CAPACITY_DETAIL:cluster_quota:OUTSIDE_DOMAIN')
+                    elif type(value) is not int or not 0<=value<=cluster_caps[key]:
+                        issue('CAPACITY_DETAIL:cluster_quota:'+key+':MAX_'+str(cluster_caps[key]))
+                if type(slots) is int and all(type(v) is int for v in quota.values()) and sum(quota.values())>slots:
+                    issue('CAPACITY_DETAIL:cluster_quota:SUM_GT_PLANS_ACCEPTABLE')
+            if not isinstance(capacity['risk_unit'],str) or capacity['risk_unit'] not in {'STANDARD','PROBE','NONE'}:
+                issue('CAPACITY_DETAIL:risk_unit:ENUM')
     unresolved=output.get('unresolved_questions')
     if not isinstance(unresolved,list) or any(not text(v) for v in unresolved):issue('UNRESOLVED_INVALID')
     return TeamValidation(not issues,tuple(dict.fromkeys(issues)),common.judgments,common.sentinel_count)

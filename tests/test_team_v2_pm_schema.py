@@ -5,7 +5,7 @@ from decimal import Decimal
 
 import pytest
 
-from liangjian_funnel.pipeline.team_v2_pm_schema import validate_pm_premarket, validate_pm_post_close
+from liangjian_funnel.pipeline.team_v2_pm_schema import validate_pm_slots as validate_pm_premarket, validate_pm_post_close
 from liangjian_funnel.runtime.risk_engine import RiskEnvelope
 
 CATALOG = {"categories": ["ACCOUNT", "MARKET"], "items": [
@@ -36,6 +36,12 @@ def check(output, **changes):
         high_conviction_ids=set())
     args.update(changes)
     return validate_pm_premarket(output, CATALOG, **args)
+
+
+def ranking_response():
+    raw=response();raw.pop('slot_plan')
+    raw['plan_ranking']=[dict(rank=1,plan_id='p1',cluster='bank',**REFS)]
+    return raw
 
 
 def test_valid_pm_and_zero_plan_meetings_leave_frozen_output_untouched():

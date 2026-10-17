@@ -110,7 +110,7 @@ def test_real_prompt_package_shared_is_used_and_values_are_rendered_once():
     values["EVIDENCE_CATALOG"] = CATALOG
     request = repo.prepare("A2", values)
     assert request.shared_version == "shared-system/3.0.2"
-    assert request.role_version == "agent-2/3.0.4"
+    assert request.role_version == "agent-2/3.0.5"
     assert "Legacy TOP5 wording" not in request.system
     assert "{{" not in request.system
     assert request.system.count('"id":"M1"') == 1

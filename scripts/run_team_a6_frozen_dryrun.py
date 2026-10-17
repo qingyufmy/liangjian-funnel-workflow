@@ -69,7 +69,8 @@ def prepare(sources,database,database_hash,output,day,settings,provider):
     shift=external['missing_adjustment_pp']
     cap=max(0,min(external['maximum_utilization_pct'],bounds[1]+shift))
     envelopes=tuple(build_planning_envelope(p,account,(),limits,now=at,regime=regime) for p in plans)
-    cluster_caps={p.cluster:limits.max_positions for p in plans}
+    from liangjian_funnel.pipeline.team_v2_pm_schema import PM_PRIMARY_CLUSTER_CAP
+    cluster_caps={p.cluster:min(limits.max_positions,PM_PRIMARY_CLUSTER_CAP) for p in plans}
     context=dict(classification='POST_HOC_FROZEN_INPUT_MODEL_DRYRUN',source_trade_date=day,execution_trade_date=execution,
         account_basis='ISOLATED_INITIAL_CAPITAL_FROM_APPROVED_YAML_NOT_HISTORICAL_ACCOUNT',
         activation_basis='PLANNING_ONLY_NO_HISTORICAL_OR_CURRENT_ACTIVATION',
@@ -90,7 +91,9 @@ def prepare(sources,database,database_hash,output,day,settings,provider):
         PLANS=meeting_plans,ENGINE_ENVELOPES=[asdict(e) for e in envelopes],
         RISK_LIMITS=dict(policy=asdict(limits),engine_upper_bounds=upper,
             session_binding_sha256=hashlib.sha256(canonical(upper).encode()).hexdigest()),
-        MARKET_STATE=dict(market_regime=regime,basis='ORIGINAL_PRIOR_NOT_LIVE',dryrun_context=context),
+        MARKET_STATE=dict(market_regime=regime,basis='ORIGINAL_PRIOR_NOT_LIVE',dryrun_context=context,
+            allowed_risk_units=[] if regime in {'ICE_POINT','ICE_POINT_NO_NEW_ENTRY'} else
+                ['PROBE'] if regime in {'BEAR_RISK','RISK_OFF_RETREAT'} else ['PROBE','STANDARD']),
         PRIOR_OUTCOME_FEEDBACK=dict(status='INSUFFICIENT_TEN_DAYS'))
     values=json.loads(canonical(values))
     prompt=repository.prepare('A6',values,session='PREMARKET')

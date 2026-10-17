@@ -17,6 +17,8 @@ _REFS = frozenset(("supporting_refs", "opposing_refs"))
 _OPTIONAL = frozenset(("opposing_search_scope",))
 _COMMON = frozenset(("envelope", "session", "handoff_notes", "what_would_change_my_mind"))
 _PRE = _COMMON | {"deployment_target", "slot_plan", "plan_allocations", "shortfall_reason"}
+_RANKING_PRE = (_PRE - {"slot_plan"}) | {"plan_ranking"}
+PM_PRIMARY_CLUSTER_CAP = 2
 _CLOSE = _COMMON | {"overnight_stances", "capacity_request", "unresolved_questions"}
 
 
@@ -58,7 +60,7 @@ def _result(issues, common):
     return TeamValidation(not issues, tuple(dict.fromkeys(issues)), common.judgments, common.sentinel_count)
 
 
-def validate_pm_premarket(output: Any, catalog: Any, *, required_envelope: Mapping,
+def validate_pm_slots(output: Any, catalog: Any, *, required_envelope: Mapping,
                           envelopes: tuple[RiskEnvelope, ...], plan_clusters: Mapping[str, str],
                           free_slots: int, baseline_range: tuple[Decimal, Decimal],
                           utilization_cap: Decimal, high_conviction_ids: set[str]) -> TeamValidation:
@@ -107,7 +109,7 @@ def validate_pm_premarket(output: Any, catalog: Any, *, required_envelope: Mappi
         if row["cluster"] != plan_clusters[primary]: issues.append("PM_CLUSTER_BINDING_MISMATCH")
     if any(len(values) != len(set(values)) for values in (used, slot_numbers, orders)):
         issues.append("PM_DUPLICATE_SLOT_BINDING")
-    if any(count > 2 for count in Counter(plan_clusters[key] for key in primaries).values()):
+    if any(count > PM_PRIMARY_CLUSTER_CAP for count in Counter(plan_clusters[key] for key in primaries).values()):
         issues.append("PM_PRIMARY_CLUSTER_CAP_EXCEEDED")
     allocated: list[str] = []
     if not isinstance(allocations, list):
@@ -133,6 +135,55 @@ def validate_pm_premarket(output: Any, catalog: Any, *, required_envelope: Mappi
         issues.append("PM_SHORTFALL_REASON_INVALID")
     if not eligible and shortfall == "NONE": issues.append("PM_SHORTFALL_REASON_REQUIRED")
     return _result(issues, common)
+
+
+def derive_pm_slots(ranking, *, envelopes, plan_clusters, free_slots):
+    """0304: ranking is a model opinion; only this engine constructs slots."""
+    eligible={e.plan_id for e in envelopes if e.eligible and e.risk_unit in ('STANDARD','PROBE')}
+    if not isinstance(ranking,list) or type(free_slots) is not int or free_slots<0:
+        raise ValueError('PM_RANKING_INVALID')
+    seen=set();ordered=[]
+    for index,row in enumerate(ranking,1):
+        if not _item(row,{'rank','plan_id','cluster'}|_REFS):raise ValueError('PM_RANKING_FIELDS_INVALID')
+        pid=row['plan_id']
+        if not isinstance(pid,str) or pid not in eligible:raise ValueError('PM_RANKING_DOMAIN_INVALID')
+        if pid in seen:raise ValueError('PM_RANKING_DUPLICATE_ID')
+        if type(row['rank']) is not int or row['rank']!=index:raise ValueError('PM_RANKING_ORDER_INVALID')
+        if row['cluster']!=plan_clusters.get(pid):raise ValueError('PM_CLUSTER_BINDING_MISMATCH')
+        seen.add(pid);ordered.append(row)
+    counts=Counter();primary=[]
+    for row in ordered:
+        if len(primary)<free_slots and counts[row['cluster']]<PM_PRIMARY_CLUSTER_CAP:
+            primary.append(row);counts[row['cluster']]+=1
+    primary_ids={r['plan_id'] for r in primary}
+    backup=[r for r in ordered if r['plan_id'] not in primary_ids]
+    slots=[dict(slot=i,primary_plan_id=row['plan_id'],
+        backup_plan_id=backup[i-1]['plan_id'] if i<=len(backup) else '',
+        cluster=row['cluster'],accept_order=i,
+        **{k:row[k] for k in _REFS|_OPTIONAL if k in row}) for i,row in enumerate(primary,1)]
+    used=[pid for row in slots for pid in (row['primary_plan_id'],row['backup_plan_id']) if pid]
+    if len(used)!=len(set(used)):raise ValueError('PM_DUPLICATE_SLOT_BINDING')
+    if any(n>PM_PRIMARY_CLUSTER_CAP for n in counts.values()):raise ValueError('PM_PRIMARY_CLUSTER_CAP_EXCEEDED')
+    reason=('NONE' if len(primary)==free_slots else 'NO_ELIGIBLE_PLANS' if not eligible
+        else 'NO_ACCEPTED_PLANS' if not ordered else 'CLUSTER_CAP' if backup else 'RANKING_EXHAUSTED')
+    return dict(slot_plan=slots,derived_shortfall=reason)
+
+
+def validate_pm_premarket(output: Any, catalog: Any, **context) -> TeamValidation:
+    # Reuse every original numeric/allocation assertion against the engine's
+    # output. The model can no longer supply a slot_plan or derived_shortfall.
+    baseline=validate_pm_slots(None,catalog,**context)  # Validate server inputs first.
+    if not isinstance(output,Mapping):return baseline
+    issues,common=_root(output,catalog,session='PM_PREMARKET',keys=_RANKING_PRE,
+        required_envelope=context['required_envelope'],recipients={'to_a4','to_a6'})
+    try:derived=derive_pm_slots(output.get('plan_ranking'),envelopes=context['envelopes'],
+        plan_clusters=context['plan_clusters'],free_slots=context['free_slots'])
+    except ValueError as exc:
+        issues.append(str(exc));return _result(issues,common)
+    projected={k:v for k,v in output.items() if k!='plan_ranking'}
+    projected['slot_plan']=derived['slot_plan']
+    checked=validate_pm_slots(projected,catalog,**context)
+    return _result([*issues,*checked.issues],common)
 
 
 def validate_pm_post_close(output: Any, catalog: Any, *, required_envelope: Mapping,

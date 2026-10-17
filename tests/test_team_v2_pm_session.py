@@ -15,7 +15,7 @@ from liangjian_funnel.pipeline.team_v2_prompts import TeamPromptRepository, _ENV
 from liangjian_funnel.runtime.team_v2_pm_session import run_pm_premarket
 from liangjian_funnel.runtime.team_v2_store import TeamMeetingStore
 from liangjian_funnel.settings import Settings
-from test_team_v2_pm_schema import CATALOG, env, response
+from test_team_v2_pm_schema import CATALOG, env, ranking_response as response
 
 NOW = datetime.fromisoformat('2026-10-19T08:38:00+08:00')
 MODEL = 'deepseek-v4-pro-0813'

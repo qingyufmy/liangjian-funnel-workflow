@@ -73,7 +73,7 @@ def test_actual_role_journal_and_global_fact_score_before_model_choice(tmp_path)
     assert float(theme['theme_score'])==70 and len(result.output['focus_pool'])==1,result.output['watch_only_pool']
     assert float(theme['score_breakdown']['breadth'])==70
     assert theme['team_score_evidence']['score_snapshot_sha256']==result.diagnostics['score_snapshot_sha256']
-    assert len(seen)==1 and 'agent-2/3.0.4' in seen[0]['messages'][0]['content']
+    assert len(seen)==1 and 'agent-2/3.0.5' in seen[0]['messages'][0]['content']
     assert 'SERVER-AUTHORIZED ROTATION POLICY' not in seen[0]['messages'][0]['content']
     assert 'arbitrary_stock_return' not in seen[0]['messages'][0]['content']
     with closing(app.team_research_adapter.journal._connect()) as db:

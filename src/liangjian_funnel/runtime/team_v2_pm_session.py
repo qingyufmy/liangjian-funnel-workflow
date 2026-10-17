@@ -13,7 +13,7 @@ import json
 from zoneinfo import ZoneInfo
 
 from ..pipeline.team_v2_model import call_team_model,team_call_binding
-from ..pipeline.team_v2_pm_schema import validate_pm_premarket
+from ..pipeline.team_v2_pm_schema import validate_pm_premarket,derive_pm_slots,PM_PRIMARY_CLUSTER_CAP
 from .team_v2_store import canonical
 
 
@@ -38,7 +38,8 @@ def run_pm_premarket(*, repository, client, journal, store, meeting_id: str, cal
     # way round. Current geometry is not changed and planning is not activation.
     values['RISK_ENVELOPES'] = json.loads(canonical([asdict(row) for row in envelopes]))
     values['DEPLOYMENT_BASELINE'] = {'baseline_range': [str(x) for x in baseline_range],
-                                    'utilization_cap': str(utilization_cap), 'free_slots': free_slots}
+                                    'utilization_cap': str(utilization_cap), 'free_slots': free_slots,
+                                    'primary_cluster_cap':PM_PRIMARY_CLUSTER_CAP}
     request = repository.prepare_messages('A3', values, required_envelope=required_envelope,
                                            session='PM_PREMARKET')
     validator_args = dict(required_envelope=required_envelope, envelopes=envelopes,
@@ -81,11 +82,15 @@ def run_pm_premarket(*, repository, client, journal, store, meeting_id: str, cal
             # remain errors instead of being mistaken for model degradation.
             if str(exc) not in {'TEAM_MODEL_CALL_FAILED', 'TEAM_MODEL_RESULT_INVALID'}: raise
             issues = (str(exc),)
+    derived=derive_pm_slots(output['plan_ranking'],envelopes=envelopes,plan_clusters=plan_clusters,
+        free_slots=free_slots) if valid else dict(slot_plan=[],derived_shortfall='MODEL_INVALID')
     decision = {'status': 'READY' if valid else 'PM_DEGRADED_NO_ALLOCATION',
         'session': 'PM_PREMARKET', 'trade_date': trade_date, 'source_call_id': call_id,
         'input_hash': request.input_hash, 'reason_codes': list(issues),
         'deployment_target': output['deployment_target'] if valid else None,
-        'slot_plan': output['slot_plan'] if valid else [],
+        'slot_plan': derived['slot_plan'],
+        'plan_ranking': output['plan_ranking'] if valid else [],
+        'derived_shortfall': derived['derived_shortfall'],
         'allocation_plan_bindings': {row.plan_id:[row.symbol,plan_clusters[row.plan_id]] for row in envelopes} if valid else {},
         'plan_allocations': output['plan_allocations'] if valid else [],
         'shortfall_reason': output['shortfall_reason'] if valid else 'ENVELOPE_TIGHTENED',

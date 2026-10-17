@@ -94,7 +94,21 @@ def main():
     audit=pipeline._run_stage(lane_id='lane_1',model=settings.review_model,stage='A2',snapshot=snapshot,
         upstream_output=a1['output'],upstream_symbols=set(gate.review_symbols),projection_symbols=set(gate.review_symbols),
         bundle=pipeline.prompts.load(),run_id=run)
-    save(output/'STAGE_AUDIT.json',audit.as_dict())
+    # Preserve raw outputs separately; diagnostics name the exact frozen-domain
+    # members rather than repairing model IDs or relaxing the validator.
+    from contextlib import closing
+    import sqlite3
+    from liangjian_funnel.pipeline.team_v2_a2_schema import frozen_domain_diagnostics
+    diagnostics=[]
+    with closing(sqlite3.connect(adapter.journal.path.resolve().as_uri()+'?mode=ro',uri=True)) as db:
+        for call_id,raw,raw_hash in db.execute('SELECT call_id,output_json,output_hash FROM model_calls WHERE run_id=? ORDER BY captured_at,call_id',(run,)):
+            from liangjian_funnel.pipeline.research.common import _project_a2_bottleneck_context
+            domains=_project_a2_bottleneck_context(snapshot.data['A2_BOTTLENECK_CONTEXT'],set(gate.review_symbols))
+            diagnostics.append(dict(call_id=call_id,original_output_sha256=raw_hash,
+                details=frozen_domain_diagnostics(json.loads(raw),candidate_ids=set(gate.review_symbols),
+                    allowed_theme_ids=set(domains['_theme_review_scope']),
+                    direction_symbols={k:set(v) for k,v in domains['_rotation_review_scope'].items()})))
+    save(output/'STAGE_AUDIT.json',audit.as_dict()|dict(frozen_domain_diagnostics=diagnostics))
     save(output/'FIELD_DIFF.json',dict(basis='ORIGINAL_A2_POST_POLICY_VS_NEW_ROLE_POST_POLICY',
         original_status=a2['status'],new_status=audit.status,fields=field_diff(a2['output'],audit.as_dict()['output'])))
     def pools(body):

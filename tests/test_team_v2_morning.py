@@ -17,7 +17,7 @@ from liangjian_funnel.pipeline.model_client import OpenAICompatibleModelClient
 from liangjian_funnel.runtime.team_v2_morning import run_morning_stage
 from liangjian_funnel.runtime.team_v2_sources import read_planning_scope
 from test_team_v2_risk_schema import output as risk_output
-from test_team_v2_pm_schema import response as pm_output
+from test_team_v2_pm_schema import ranking_response as pm_output
 
 ROOT=Path(__file__).resolve().parents[1]
 CAL=SimpleNamespace(is_trading_day=lambda _:True,previous_trading_day=lambda _:date(2026,10,16))

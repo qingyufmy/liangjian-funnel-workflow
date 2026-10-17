@@ -196,7 +196,7 @@ class OpenAICompatibleModelClient:
         # A2 receives server-computed ranks, roles, routes and fact coverage.
         # 0290: every A3/A6 session disables hidden reasoning. A1/A5 retain
         # configured reasoning; do not mutate the shared client across roles.
-        role_no_thinking = str(stage or "").upper() in {"A3", "A6"}
+        role_no_thinking = str(stage or "").upper() in {"A3", "A4", "A6"}
         call_variants = (
             A2_NO_THINKING_VARIANTS
             if role_no_thinking or str(stage or "").upper() == "A2" or (

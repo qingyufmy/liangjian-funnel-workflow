@@ -33,6 +33,29 @@ _FIELDS = {
 }
 
 
+def frozen_domain_diagnostics(output, *, candidate_ids, allowed_theme_ids, direction_symbols):
+    """Name original offending values without replacing or accepting any ID."""
+    if not isinstance(output,Mapping):return {'status':'RAW_NOT_OBJECT'}
+    def rows(name):
+        value=output.get(name)
+        return [r for r in value if isinstance(r,Mapping)] if isinstance(value,list) else []
+    focused={r['symbol'] for r in rows('focus_decisions') if isinstance(r.get('symbol'),str)}
+    expected={key for key,values in direction_symbols.items() if not focused.intersection(values)}
+    outside_symbols=[dict(pool=pool,symbol=r.get('symbol')) for pool in ('focus_decisions','reject_decisions')
+        for r in rows(pool) if not isinstance(r.get('symbol'),str) or r['symbol'] not in candidate_ids]
+    themes=[r.get('theme_id') for r in rows('theme_reviews')]
+    market=output.get('market_read')
+    if isinstance(market,Mapping) and isinstance(market.get('dominant_themes'),list):themes+=market['dominant_themes']
+    return dict(outside_symbols=outside_symbols,
+        outside_themes=[t for t in themes if not isinstance(t,str) or t not in allowed_theme_ids],
+        expected_no_focus_directions=sorted(expected),
+        invalid_direction_reviews=[dict(direction=r.get('rotation_direction_id'),reviewed_symbols=r.get('reviewed_symbols'))
+            for r in rows('rotation_reviews') if not isinstance(r.get('rotation_direction_id'),str)
+            or r['rotation_direction_id'] not in expected
+            or not isinstance(r.get('reviewed_symbols'),list)
+            or any(not isinstance(s,str) or s not in direction_symbols.get(r['rotation_direction_id'],set()) for s in r['reviewed_symbols'])])
+
+
 def _strings(value: Any, maximum: int, minimum: int = 0) -> bool:
     return (isinstance(value, list) and minimum <= len(value) <= maximum
             and all(isinstance(item, str) and item.strip() for item in value)

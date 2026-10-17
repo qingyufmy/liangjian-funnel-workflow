@@ -12,7 +12,7 @@ _BLIND_KEYS = frozenset({"eligibility", "met_conditions", "unmet_conditions", "r
 _POOLS = {
     "A1": ("structural_themes", "active_research_pool", "monitor_pool", "rejected_candidates", "industry_theme_mappings"),
     "A2": ("theme_reviews", "focus_decisions", "reject_decisions", "rotation_reviews", "model_nominations"),
-    "A3": ("core_watch_pool", "secondary_watch_pool", "rejected_candidates", "slot_plan",
+    "A3": ("core_watch_pool", "secondary_watch_pool", "rejected_candidates", "slot_plan", "plan_ranking",
            "plan_allocations", "overnight_stances"),
     "A4": ("signals", "position_actions"),
     "A5": ("model_value_assessment", "signal_reviews", "missed_opportunity_reviews", "core_defects", "hypotheses"),

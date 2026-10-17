@@ -121,7 +121,7 @@ def main():
     from liangjian_funnel.pipeline.model_client import OpenAICompatibleModelClient,ModelClientError
     from liangjian_funnel.pipeline.team_v2_model import call_team_model
     from liangjian_funnel.pipeline.team_v2_judgments import ModelJudgmentJournal
-    from liangjian_funnel.pipeline.team_v2_pm_schema import validate_pm_premarket
+    from liangjian_funnel.pipeline.team_v2_pm_schema import validate_pm_premarket,derive_pm_slots
     settings,provider=model_settings(output,'vm-runtime')
     request,values,header,args=prepare(a.a6_source,a.frozen_db,a.frozen_db_sha256,output,settings,provider)
     # Check the server-owned domain before any provider call, as the real edge does.
@@ -142,6 +142,11 @@ def main():
             catalog=values['EVIDENCE_CATALOG'],timeout_seconds=100,max_output_tokens=16384,
             validator=lambda raw:validate_pm_premarket(raw,values['EVIDENCE_CATALOG'],**args),clock=lambda:datetime.now(TZ),allow_model_call=True)
         save(output/'FIELD_DIFF.json',dict(original_baseline='NO_PRODUCTION_PM_ROLE_CALL',fields=field_diff({},outcome.response.output)))
+        if outcome.validation.valid:
+            save(output/'ENGINE_SLOT_PLAN.json',dict(classification='ENGINE_DERIVED_NOT_MODEL_SLOT_OUTPUT',
+                original_response_output_sha256=outcome.response.output_hash,
+                **derive_pm_slots(outcome.response.output['plan_ranking'],envelopes=args['envelopes'],
+                    plan_clusters=args['plan_clusters'],free_slots=args['free_slots'])))
     except ValueError as exc:
         if str(exc) not in {'TEAM_MODEL_CALL_FAILED','TEAM_MODEL_RESULT_INVALID'}:raise
     result=dict(status='MODEL_CALL_FAILED' if outcome is None else 'PASS' if outcome.validation.valid else 'SCHEMA_FAILED',

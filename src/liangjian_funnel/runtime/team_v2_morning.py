@@ -22,6 +22,7 @@ from .risk_engine import AccountRisk, PositionRisk, RiskEnvelope, RiskLimits, bu
 from .team_v2_risk_meeting import RiskMeetingResult
 from .team_v2_risk_session import run_risk_premarket
 from .team_v2_pm_session import run_pm_premarket
+from ..pipeline.team_v2_pm_schema import PM_PRIMARY_CLUSTER_CAP
 from .team_v2_sources import read_planning_scope, read_held_bindings, decode_plan, stamp, meeting_plan_facts
 from .team_v2_store import TeamMeetingStore, canonical
 from .team_v2_external import read_external
@@ -99,7 +100,7 @@ def _freeze_engine(settings,store,source,now,calendar,directory,clock):
     body=dict(status='COMPLETE',session='ENGINE_PREMARKET',trade_date=source['trade_date'],
         observed_at=stamp(clock()).isoformat(),account_id=ACCOUNT,source=source,snapshot=snapshot,held_plan_bindings=held,
         envelopes=[asdict(e) for e in envelopes],capacity_slots=max(0,limits.max_positions-len({p.symbol for p in positions})),
-        cluster_caps={key:limits.max_positions for key in sorted({p.cluster for p in plans})},
+        cluster_caps={key:min(limits.max_positions,PM_PRIMARY_CLUSTER_CAP) for key in sorted({p.cluster for p in plans})},
         baseline_range=bounds,engine_utilization_cap=bounds[1],deployment_policy_sha256=hashlib.sha256(raw).hexdigest(),
         risk_limits_sha256=hashlib.sha256((settings.root/'config/risk_limits.yaml').read_bytes()).hexdigest(),
         external_adjustment=external,rule_preflight=rule_source,

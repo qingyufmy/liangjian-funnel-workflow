@@ -24,7 +24,7 @@
 - A3 候选域 = A2 FOCUS + WATCH_ONLY（均为技术送审来源）；仅 model_nominations 不进 A3。
 - EVIDENCE_CATALOG：每层注入的可引用 ID 目录；引用不在目录内 → INVALID。
 - 模型判断全部进 `model_judgments`（decision_id/plan_id 唯一、原始输出与解析状态不可变、T+1/T+3 独立列），不混入有效入场 cohort。
-- prompt_version：shared 3.0.2 / A1 3.0.3 / A2 3.0.4 / A3 4.0.4 / A4-trader 1.0.4 / A5 2.0.7 / A6 1.0.5；envelope 原样回填。
+- prompt_version：shared 3.0.2 / A1 3.0.3 / A2 3.0.5 / A3 4.0.5 / A4-trader 1.0.5 / A5 2.0.7 / A6 1.0.6；envelope 原样回填。
 - 体积：角色专属 ≤12KB；A1 例外 ≤48KB（低频 pro 调用，v2 硬规则全部保留，见 A1【合同说明】C4），共享另计。
 
 ## 干跑要求（发布门）
@@ -74,3 +74,9 @@
 - A1 3.0.3：节点下限硬门（每主题≥3 节点）；催化剂哨兵 NO_VERIFIED_CATALYST（仅 UNVERIFIED，合同 C5）。
 - A4 1.0.4：EVIDENCE_CATALOG 的 input_ref 条目说明（配合 0296 输入投影）。
 - 校验器：不放宽任何既有门；新增接受 backup_plan_id=""、CLUSTER_CAP 枚举、A1 催化剂哨兵（C5 条件）。
+
+## 2026-10-17 午间修订（回应 0300/0302）
+- A3 4.0.5（仅 PM_PREMARKET 段）：PM 改输出 plan_ranking（承接优先级），槽位由引擎确定性生成（同簇主计划≤2、主备全局唯一由构造保证，校验器对生成结果仍断言）。
+- A6 1.0.6：簇上限以输入为准（现为 2）；只允许 PROBE 的市场状态下 STANDARD 信封不得 KEEP；任何哨兵必须带 opposing_search_scope。
+- A2 3.0.5：冻结域显式化（决策股只来自 A2_BOTTLENECK_CONTEXT，主题只来自 _theme_review_scope）。
+- A4 1.0.5：BARS 列式编码说明。
