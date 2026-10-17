@@ -41,16 +41,20 @@ def run_trader_batch(**args):
     def capture(item):
         index,ids=item;child=dict(args);held=args['held_plan_ids'] if index==0 else {}
         child_decision=args['decision_id']+f':S{index:03d}'
-        budget=store.freeze_control_context('shard-budget:'+child_decision,source_sha256=binding,
-            body={'timeout_seconds':min(30,args['timeout_seconds'],max(0,deadline-monotonic()-2))})
-        if budget['timeout_seconds']<=0:
+        try:
+            timeout=args['journal'].freeze_transport_budget(args['call_id']+f':S{index:03d}',source_sha256=binding,
+                timeout_seconds=min(30,args['timeout_seconds'],max(0,deadline-monotonic()-2)))
+        except Exception:
+            return dict(index=index,plan_ids=ids,status='TRADER_SHARD_SOURCE_UNPROVEN',model_validated=False,
+                reason_codes=['TRADER_ORIGINAL_TRANSPORT_BUDGET_UNPROVEN'],admissions=[],source_call_id=args['call_id']+f':S{index:03d}')
+        if timeout<=0:
             return dict(index=index,plan_ids=ids,status='TRADER_SHARD_DEADLINE_NO_ACTION',model_validated=False,
                 reason_codes=['TRADER_GLOBAL_DEADLINE_EXCEEDED'],admissions=[],source_call_id=args['call_id']+f':S{index:03d}')
         child.update(decision_id=child_decision,call_id=args['call_id']+f':S{index:03d}',
             active_plan_ids=set(ids)&args['active_plan_ids'],held_plan_ids=held,
             position_snapshot=[row for row in args['position_snapshot'] if row['plan_id'] in set(held.values())],
             tech_reference={pid:args['tech_reference'][pid] for pid in ids if pid in args['active_plan_ids']},
-            timeout_seconds=budget['timeout_seconds'],capture_only=True)
+            timeout_seconds=timeout,capture_only=True)
         try:result=run_trader_session(**child)
         except Exception:
             result=dict(status='TRADER_SHARD_FAILED_NO_ACTION',model_validated=False,

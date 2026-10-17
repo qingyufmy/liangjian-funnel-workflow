@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import date, datetime
 import hashlib
 import json
+import math
 from contextlib import closing
 from pathlib import Path
 import sqlite3
@@ -67,6 +68,9 @@ class ModelJudgmentJournal:
                 CREATE TABLE IF NOT EXISTS model_call_claims (
                     call_id TEXT PRIMARY KEY, request_binding TEXT NOT NULL,
                     state TEXT NOT NULL, failure_code TEXT);
+                CREATE TABLE IF NOT EXISTS model_transport_budgets (
+                    call_id TEXT PRIMARY KEY, source_sha256 TEXT NOT NULL,
+                    timeout_seconds REAL NOT NULL);
                 COMMIT;
             """)
 
@@ -74,6 +78,34 @@ class ModelJudgmentJournal:
         db = sqlite3.connect(self.path, timeout=2)
         db.execute("PRAGMA foreign_keys=ON")
         return db
+
+    @staticmethod
+    def _budget_row(row,source_sha256):
+        if row[0]!=source_sha256:raise ValueError('MODEL_TRANSPORT_BUDGET_BINDING_CONFLICT')
+        value=row[1]
+        if type(value) not in (float,int) or not math.isfinite(value) or not 0<=value<=30:
+            raise ValueError('MODEL_TRANSPORT_BUDGET_INVALID')
+        return float(value)
+
+    def load_transport_budget(self,call_id,*,source_sha256):
+        with closing(self._connect()) as db:
+            row=db.execute('SELECT source_sha256,timeout_seconds FROM model_transport_budgets WHERE call_id=?',(call_id,)).fetchone()
+        return None if row is None else self._budget_row(row,source_sha256)
+
+    def freeze_transport_budget(self,call_id,*,source_sha256,timeout_seconds):
+        """Original A4 transport fact, not a call/decision or a larger budget.
+
+        The second independent execution must replay the original tail-shard
+        budget even when its captured responses load faster than original HTTP.
+        """
+        if (not isinstance(call_id,str) or not call_id or not isinstance(source_sha256,str) or len(source_sha256)!=64
+                or type(timeout_seconds) not in (float,int) or not math.isfinite(timeout_seconds) or not 0<=timeout_seconds<=30):
+            raise ValueError('MODEL_TRANSPORT_BUDGET_INVALID')
+        with closing(self._connect()) as db,db:
+            db.execute('BEGIN IMMEDIATE')
+            db.execute('INSERT OR IGNORE INTO model_transport_budgets VALUES (?,?,?)',(call_id,source_sha256,timeout_seconds))
+            row=db.execute('SELECT source_sha256,timeout_seconds FROM model_transport_budgets WHERE call_id=?',(call_id,)).fetchone()
+            return self._budget_row(row,source_sha256)
 
     def claim(self, call_id: str, request_binding: str) -> None:
         """Claim before network I/O. A crash/timeout cannot cause an implicit retry."""

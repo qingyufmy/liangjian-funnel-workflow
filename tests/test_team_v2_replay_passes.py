@@ -106,6 +106,30 @@ def test_second_pass_unknown_call_is_blocked_at_journal_claim_before_client(tmp_
         with pytest.raises(sqlite3.OperationalError):db.execute("DELETE FROM model_call_claims")
 
 
+def test_transport_budget_is_original_metadata_readonly_on_second_pass_not_a_new_model_call(tmp_path):
+    from liangjian_funnel.pipeline.team_v2_judgments import ModelJudgmentJournal
+    path=tmp_path/'model.db';journal=ModelJudgmentJournal(path)
+    assert journal.freeze_transport_budget('tail',source_sha256='a'*64,timeout_seconds=12.5)==12.5
+    before=path.read_bytes();ro=CapturesOnlyJournal(path)
+    assert ro.freeze_transport_budget('tail',source_sha256='a'*64,timeout_seconds=30)==12.5
+    assert path.read_bytes()==before
+    with pytest.raises(ValueError,match='BINDING_CONFLICT'):
+        ro.freeze_transport_budget('tail',source_sha256='b'*64,timeout_seconds=30)
+    with pytest.raises(ValueError,match='ORIGINAL_TRANSPORT_BUDGET_REQUIRED'):
+        ro.freeze_transport_budget('missing',source_sha256='a'*64,timeout_seconds=30)
+    with ro._connect() as db:
+        assert db.execute('SELECT count(*) FROM model_call_claims').fetchone()[0]==0
+        assert db.execute('SELECT count(*) FROM model_calls').fetchone()[0]==0
+
+
+@pytest.mark.parametrize('value',[True,-1,31,float('nan'),float('inf')])
+def test_transport_budget_never_grants_invalid_or_enlarged_initial_deadline(tmp_path,value):
+    from liangjian_funnel.pipeline.team_v2_judgments import ModelJudgmentJournal
+    journal=ModelJudgmentJournal(tmp_path/'model.db')
+    with pytest.raises(ValueError,match='BUDGET_INVALID'):
+        journal.freeze_transport_budget('tail',source_sha256='a'*64,timeout_seconds=value)
+
+
 def test_existing_or_outside_workspace_is_never_moved_or_overwritten(tmp_path):
     output=tmp_path/'existing';output.mkdir();(output/'keep.txt').write_text('keep')
     with pytest.raises(ValueError,match='NEW_OWNED_OUTPUT_REQUIRED'):

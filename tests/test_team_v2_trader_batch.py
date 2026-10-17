@@ -15,7 +15,7 @@ from test_team_v2_trader_session import fixture
 from test_team_v2_execution import pm_result
 
 
-def batch(tmp_path,*,count=9,fail_first=False,slow_clock=None):
+def batch(tmp_path,*,count=9,fail_first=False,slow_clock=None,wave_clock=None):
     args,_,template=fixture(tmp_path);original=next(iter(args['all_plans'].values()))
     plans={f'p{i:02d}':replace(original,plan_id=f'p{i:02d}',symbol=f'{i+1:06d}.SZ') for i in range(count)}
     args.update(all_plans=plans,active_plan_ids=set(plans),
@@ -47,6 +47,7 @@ def batch(tmp_path,*,count=9,fail_first=False,slow_clock=None):
         try:
             assert args['broker'].get_orders(args['trade_date'])==()
             if count>32:assert wave.wait(10)
+            if wave_clock is not None:wave_clock[0]=20
             time.sleep(.01)
             if slow_clock is not None:slow_clock[0]=48
             if fail_first and 'p00' in ids:raise httpx.ConnectError('UNIT_TEST_ONLY',request=request)
@@ -99,3 +100,22 @@ def test_capture_only_path_cannot_place_orders_even_for_valid_buy(tmp_path):
     result=run_trader_session(**args,capture_only=True)
     assert result['model_validated'] and result['capture_only'] and len(seen)==1
     assert not result['admissions'] and not args['broker'].get_orders(args['trade_date'])
+
+
+def test_queued_shard_transport_budgets_survive_independent_second_pass_without_http(tmp_path):
+    from liangjian_funnel.evaluation.team_v2_replay_passes import run_two_passes
+    from liangjian_paper_broker.matching import PaperRules
+    from test_team_v2_paper_ledger import drive,bar,stamp
+    seen=[];outcomes=[]
+    def execute(work,journal,override):
+        elapsed=[0];args,calls,_=batch(work,count=43,wave_clock=elapsed)
+        args.update(journal=journal,monotonic=lambda:elapsed[0])
+        if override is not None:args['client']=override
+        outcomes.append(run_trader_batch(**args));seen.extend(calls)
+        drive(args['broker'],bar(volume_shares=300000),PaperRules(args['trade_date']))
+        drive(args['broker'],bar(tm='15:00:00'),PaperRules(args['trade_date']))
+        args['broker'].clock=lambda:stamp(tm='15:30:00')
+        args['broker'].settle(args['trade_date'])
+    result=run_two_passes(tmp_path/'budget-replay',allowed_root=tmp_path,run_pass=execute)
+    assert len(seen)==6 and all(r['model_validated'] for r in outcomes)
+    assert result['ledger_bytes_equal'] and result['curve_bytes_equal'] and result['has_funded_fill_path']

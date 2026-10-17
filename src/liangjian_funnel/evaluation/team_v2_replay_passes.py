@@ -34,6 +34,10 @@ class CapturesOnlyJournal(ModelJudgmentJournal):
         return db
 
     def claim(self,*args,**kwargs):raise ValueError('REPLAY_SECOND_PASS_NEW_MODEL_CALL_FORBIDDEN')
+    def freeze_transport_budget(self,call_id,*,source_sha256,timeout_seconds):
+        original=self.load_transport_budget(call_id,source_sha256=source_sha256)
+        if original is None:raise ValueError('REPLAY_ORIGINAL_TRANSPORT_BUDGET_REQUIRED')
+        return original
     def capture(self,*args,**kwargs):raise ValueError('REPLAY_SECOND_PASS_CAPTURE_FORBIDDEN')
     def mark_failed(self,*args,**kwargs):raise ValueError('REPLAY_SECOND_PASS_CAPTURE_FORBIDDEN')
 
