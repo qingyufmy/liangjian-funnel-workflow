@@ -44,6 +44,9 @@ class FrozenMinuteMaterializer:
         self.snapshot_reads = 0
 
     def __enter__(self):
+        if self.db is not None or _file_hash(self.path) != self.pin:
+            raise ValueError('REPLAY_MATERIALIZER_SOURCE_CHANGED_BEFORE_READ')
+        self.verified_plans.clear()
         self.db = sqlite3.connect(self.path.as_uri()+'?mode=ro', uri=True, timeout=2)
         self.db.row_factory = sqlite3.Row
         self.db.execute('PRAGMA query_only=ON')
@@ -78,7 +81,7 @@ class FrozenMinuteMaterializer:
                 raise ValueError('REPLAY_MATERIALIZER_SNAPSHOT_AMBIGUOUS')
             snapshot = dict(rows[0])
             proof = project_snapshot(snapshot, symbol=row['symbol'], decision_at=frame['decision_at'],
-                event_created_at=min(e['created_at'] for e in frame['original_events']))
+                event_created_at=min(stamp(e['created_at']) for e in frame['original_events']))
             bars = tuple(MinuteBar.model_validate(v) for v in json.loads(zlib.decompress(snapshot['payload_zlib'])))
             self.cache[key] = (snapshot, bars, proof)
             if len(self.cache) > self.cache_size:

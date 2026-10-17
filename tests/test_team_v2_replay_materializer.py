@@ -101,3 +101,13 @@ def test_coherently_rehashed_external_plan_cannot_replace_original_database_row(
     frame['frame_sha256']=sha({k:v for k,v in frame.items() if k!='frame_sha256'})
     with FrozenMinuteMaterializer(path,expected_sha256=pin,plans=plans,settings=SimpleNamespace()) as reader:
         with pytest.raises(ValueError,match='DATABASE_PLAN_MISMATCH'):reader.materialize(batch)
+
+
+def test_frozen_file_changed_between_constructor_and_ro_transaction_is_rejected(tmp_path):
+    path,pin,plans,batch=source(tmp_path)
+    reader=FrozenMinuteMaterializer(path,expected_sha256=pin,plans=plans,settings=SimpleNamespace())
+    with sqlite3.connect(path) as db:
+        db.execute("UPDATE execution_plans SET payload_json='{}'")
+    with pytest.raises(ValueError,match='CHANGED_BEFORE_READ'):
+        with reader:
+            pytest.fail('Changed source must not be consumed')
