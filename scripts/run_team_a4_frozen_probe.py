@@ -26,7 +26,7 @@ from liangjian_funnel.runtime.team_v2_sources import stamp
 TZ=ZoneInfo('Asia/Shanghai')
 
 
-def prepare(source_pack,output,at,settings):
+def prepare(source_pack,output,at,settings,*,author298_inputs=False):
     from liangjian_funnel.data.mootdx import MinuteBar
     from liangjian_funnel.pipeline.team_v2_judgments import ModelJudgmentJournal
     from liangjian_funnel.pipeline.team_v2_prompts import TeamPromptRepository
@@ -69,6 +69,7 @@ def prepare(source_pack,output,at,settings):
     replay_clock[0]=at
     account=AccountRisk(limits.initial_capital,limits.initial_capital,limits.initial_capital,limits.initial_capital)
     plans={};envelopes={};bars={};refs={};facts={};original={};skipped=[]
+    source_rows=[];model_contexts={}
     live=dict(status='DATA_BLOCKED',reason_code='FROZEN_PROBE_LIVE_MARKET_NOT_BOUND',
         emotion_state='DATA_BLOCK',leader_open=False,quote_basis='REPLAY_BAR_DERIVED')
     with closing(sqlite3.connect(source.resolve().as_uri()+'?mode=ro',uri=True)) as db:
@@ -115,6 +116,9 @@ def prepare(source_pack,output,at,settings):
             facts[pid]=dict(plan=raw,closed_minute_context=context,quote_basis='REPLAY_BAR_DERIVED')
             original[pid]=dict(action=frame['original_action'],reason_code=frame['original_reason_code'],
                 frame_sha256=frame['frame_sha256'])
+            if author298_inputs:
+                from liangjian_funnel.runtime.team_v2_trader_inputs import model_closed_context
+                source_rows.append(row);model_contexts[pid]=model_closed_context(context,one,cutoff=cutoff)
         db.rollback()
     if not plans or not bars:raise ValueError('REPLAY_NO_ORIGINAL_PROJECTABLE_BATCH')
     repository=TeamPromptRepository(ROOT/'prompts/team_v2')
@@ -147,6 +151,9 @@ def prepare(source_pack,output,at,settings):
         held_plan_ids={},position_snapshot=[],tech_reference=refs,limits=limits,regime='DATA_BLOCK',
         live_market_ready=False,snapshot_ready=True,mode='control',calendar=calendar,timeout_seconds=30,
         max_output_tokens=16384,allow_model_call=True,pm_meeting_id=None)
+    if author298_inputs:
+        args['input_projection']=dict(plan_rows=source_rows,contexts={pid:fact['closed_minute_context'] for pid,fact in facts.items()},
+            model_contexts=model_contexts,evaluations=original)
     return args,bars,header
 
 

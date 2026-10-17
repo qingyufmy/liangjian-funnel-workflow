@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 from liangjian_paper_broker.ledger import dump
 from .team_v2_morning import _envelopes
 from .team_v2_trader_session import run_trader_session
+from .team_v2_trader_batch import run_trader_batch
 from .trader_guardrails import is_closed_trader_tick
 
 TZ=ZoneInfo('Asia/Shanghai')
@@ -116,6 +117,7 @@ def run_control_minute(*,session_kwargs,closed_bars,deadline_monotonic,monotonic
         bars={key:asdict(value) for key,value in sorted(closed_bars.items())},
         plans={pid:asdict(plan) for pid,plan in sorted(args['all_plans'].items())},
         tech_reference=args['tech_reference'],regime=args['regime'],mode=args['mode'])
+    if args.get('input_projection') is not None:source['input_projection']=args['input_projection']
     source_sha=hashlib.sha256(dump(source).encode()).hexdigest()
     frozen=store.freeze_control_context(args['decision_id'],source_sha256=source_sha,body=json.loads(dump(dict(
         positions=broker.get_positions(),envelopes={pid:asdict(e) for pid,e in args['envelopes'].items()},
@@ -127,7 +129,7 @@ def run_control_minute(*,session_kwargs,closed_bars,deadline_monotonic,monotonic
         envelopes={pid:_envelopes([row])[0] for pid,row in frozen['envelopes'].items()},
         utilization_cap_pct=frozen['utilization_cap_pct'],
         timeout_seconds=frozen['timeout_seconds'],deadline_monotonic=deadline_monotonic,monotonic=monotonic)
-    result['trader']=run_trader_session(**args)
+    result['trader']=run_trader_batch(**args) if args.get('input_projection') is not None else run_trader_session(**args)
     if exception_handler is not None and args['mode']=='control':
         risk_started=monotonic()
         try:

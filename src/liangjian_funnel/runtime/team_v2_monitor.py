@@ -115,7 +115,7 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
     market=store.freeze_control_context('market:'+decision,source_sha256=packet['packet_sha256'],
         body=dict(live=live,regime=regime))
     live=market['live'];regime=market['regime']
-    references={};evaluations={};entry_proven={}
+    references={};evaluations={};entry_proven={};model_contexts={}
     for row in scope['plans']:
         plan=decode_plan(row);packed=packet['sources'].get(plan.symbol,{});bars=tuple(MinuteBar.model_validate(b) for b in packed.get('bars',()))
         projected=project_closed_minute(bars,(),observed_at=stamp(packet['captured_at']))
@@ -142,7 +142,10 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
         plans[plan.plan_id]=plan
         context=_intraday_market_context(plan.symbol,bars,(),current=stamp(packet['captured_at']),execution_cutoff=cutoff,
             realtime_quote=quote.quote if quote.complete else None,live_market_state=live)
+        context={**context,'original_tradability_contract':proof}
         contexts[plan.plan_id]=context
+        from .team_v2_trader_inputs import model_closed_context
+        model_contexts[plan.plan_id]=model_closed_context(context,bars,cutoff=cutoff)
         if plan.plan_id in active:
             value=evaluate_strategy(raw_rows[plan.plan_id],bars,now=cutoff,decision_time=current,market_context=context)
             evaluations[plan.plan_id]=value.model_dump(mode='json')
@@ -204,7 +207,9 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
         limits=limits,regime=regime,live_market_ready=regime!='DATA_BLOCK' and live.get('status') in {'READY','READY_DEGRADED'},
         snapshot_ready=True,mode='control',calendar=calendar,timeout_seconds=30,
         utilization_cap_pct=utilization_cap,
-        max_output_tokens=settings.model_max_output_tokens,allow_model_call=True,pm_meeting_id='morning-pm:'+day)
+        max_output_tokens=settings.model_max_output_tokens,allow_model_call=True,pm_meeting_id='morning-pm:'+day,
+        input_projection=dict(plan_rows=[r for r in scope['plan_rows'] if r['plan_id'] in plans],
+            contexts=contexts,model_contexts=model_contexts,evaluations=evaluations))
     def exception_handler(**kwargs):
         from .team_v2_exception_coordinator import run_exception_after_trader
         from .team_v2_exception_policy import load_exception_policy

@@ -106,7 +106,7 @@ def review_events(facts):
             if action!='BUY_SIGNAL' and judgment.get('status')!='REJECTED':continue
             matching=[]
             for row in judgments:
-                if row['call_id']!=session['source_call_id'] or not row['validated']:continue
+                if row['call_id']!=admission.get('source_call_id',session['source_call_id']) or not row['validated']:continue
                 body=json.loads(row['judgment_json'])
                 if (body.get('action')==action and (body.get('plan_id')==binding['plan_id'] or
                         ('plan_id' not in body and body.get('symbol')==binding['symbol']))):matching.append(row)

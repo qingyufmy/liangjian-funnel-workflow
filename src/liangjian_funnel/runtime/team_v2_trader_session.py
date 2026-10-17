@@ -27,7 +27,7 @@ def run_trader_session(*,repository,client,journal,store,broker,decision_id,minu
         envelopes,held_plan_ids,position_snapshot,tech_reference,limits,regime,
         live_market_ready,snapshot_ready,mode,calendar,timeout_seconds,max_output_tokens,
         allow_model_call=False,pm_meeting_id=None,deadline_monotonic=None,monotonic=time.monotonic,utilization_cap_pct=None,
-        capture_clock=None):
+        capture_clock=None,input_projection=None,capture_only=False):
     if not allow_model_call:raise ValueError('TEAM_MODEL_CALL_NOT_AUTHORIZED')
     # Isolated frozen replay has a historical execution clock but records real
     # HTTP capture time. Live callers omit this option and retain one clock.
@@ -73,7 +73,8 @@ def run_trader_session(*,repository,client,journal,store,broker,decision_id,minu
         snapshot_ready=snapshot_ready,timeout_seconds=timeout_seconds,max_output_tokens=max_output_tokens,
         deadline_guard=deadline_monotonic is not None,
         utilization_cap_pct=utilization_cap_pct,
-        pm_allocation=asdict(allocation) if allocation is not None else None)
+        pm_allocation=asdict(allocation) if allocation is not None else None,
+        capture_only=capture_only)
     execution_hash=hashlib.sha256(dump(context).encode()).hexdigest()
     values=dict(replacements)
     time_rules=dict(values['TIME_RULES']) if isinstance(values.get('TIME_RULES'),Mapping) else {}
@@ -87,6 +88,10 @@ def run_trader_session(*,repository,client,journal,store,broker,decision_id,minu
         ACTIVE_PLANS=[context['plans'][pid] for pid in sorted(active_plan_ids)],
         RISK_ENVELOPES=visible_envelopes,POSITIONS=position_snapshot,TECH_REFERENCE=tech_reference,
         CURRENT_TIME=decision_at.isoformat(),TIME_RULES=time_rules)
+    if input_projection is not None:
+        from .team_v2_trader_inputs import project_trader_values
+        values=project_trader_values(values,plan_rows=input_projection['plan_rows'],
+            contexts=input_projection['contexts'],model_contexts=input_projection['model_contexts'])
     # Decimal/datetime normalization is fact serialization, never a role rewrite.
     values=json.loads(dump(values))
     request=repository.prepare_messages('A4',values,required_envelope=required_envelope,session='INTRADAY')
@@ -112,7 +117,8 @@ def run_trader_session(*,repository,client,journal,store,broker,decision_id,minu
             run_id=run_id,model=model,session='INTRADAY',timeout_seconds=timeout_seconds,
             max_output_tokens=max_output_tokens))) is not None:
         issues=(failure,)
-    elif deadline_monotonic is not None and monotonic()>=deadline_monotonic:
+    elif deadline_monotonic is not None and (monotonic()>=deadline_monotonic
+            or (capture_only and monotonic()+timeout_seconds>deadline_monotonic)):
         issues=('TRADER_GLOBAL_DEADLINE_EXCEEDED',)
     else:
         try:
@@ -126,7 +132,7 @@ def run_trader_session(*,repository,client,journal,store,broker,decision_id,minu
             if str(exc) not in {'TEAM_MODEL_CALL_FAILED','TEAM_MODEL_RESULT_INVALID'}:raise
             issues=(str(exc),)
     admissions=[];expired='TRADER_GLOBAL_DEADLINE_EXCEEDED' in issues
-    if valid:
+    if valid and not capture_only:
         commands=[('plan',row['plan_id'],row) for row in output['signals']]
         commands.extend(('position',held_plan_ids[row['symbol']],row) for row in output['position_actions'])
         for kind,pid,row in commands:
@@ -154,5 +160,8 @@ def run_trader_session(*,repository,client,journal,store,broker,decision_id,minu
         reason_codes=list(issues),admissions=admissions,
         handoff_notes=output['handoff_notes'] if valid else {},
         what_would_change_my_mind=output['what_would_change_my_mind'] if valid else [])
+    if capture_only:
+        result.update(capture_only=True,captured_output=output if valid else None,
+            status='CAPTURED_FOR_SERIAL_ADMISSION' if valid else result['status'])
     return store.record_trader(decision_id=decision_id,source_call_id=call_id,account_id=account_id,
         trade_date=trade_date,input_sha256=binding,result=result)
