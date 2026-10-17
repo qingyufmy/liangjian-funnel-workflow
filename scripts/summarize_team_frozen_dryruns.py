@@ -17,9 +17,9 @@ from liangjian_funnel.settings import load_dotenv
 
 def main():
     base=ROOT/'artifacts/team-v2-20261016';now=datetime.now(ZoneInfo('Asia/Shanghai'))
-    directories=sorted(p for prefix in ('a5-frozen-','a2-frozen-','a4-frozen-','dryrun-original-sources-','dryrun-source-inventory-')
+    directories=sorted(p for prefix in ('a5-frozen-','a2-frozen-','a4-frozen-','a6-frozen-','dryrun-original-sources-','dryrun-source-inventory-')
         for p in base.glob(prefix+'*') if p.is_dir())
-    rows={};failures=[]
+    rows={};failures=[];exclusions=[]
     for directory in directories:
         for database in (directory/'model.db',directory/'state/team_v2/model.db'):
             if not database.is_file():continue
@@ -33,6 +33,12 @@ def main():
             body=json.loads(result.read_bytes())
             if body.get('status')=='MODEL_CALL_FAILED':
                 failures.append(dict(directory=directory.name,reason_code=body['reason_code'],actual_at=body['actual_finished_at']))
+        reviewed=directory/'SOURCE_DOMAIN_REVIEW.json'
+        if reviewed.is_file():
+            body=json.loads(reviewed.read_bytes())
+            if body.get('disposition')=='EXCLUDED_FROM_FORMAL_GATES':
+                exclusions.append(dict(directory=directory.name,reason_code=body['reason_code'],
+                    note='ORIGINAL_SCHEMA_VALIDATION_AND_LATENCY_UNCHANGED_NOT_A_QUALIFIED_DOMAIN_PROBE'))
     sessions={('A1','POLICY_MACRO_DISCOVERY'):600,('A1','COMPANY_MAPPING'):600,
         ('A2','CLOSE_REVIEW'):600,('A3','PLAN_REVIEW'):600,('A3','PM_PREMARKET'):120,('A3','PM_POST_CLOSE'):50,
         ('A4','INTRADAY'):30,('A5','POST_CLOSE'):180,('A6','PREMARKET'):120,('A6','INTRADAY_EXCEPTION'):20,('A6','POST_CLOSE'):50}
@@ -63,7 +69,8 @@ def main():
         matching_files=hits,not_claimed='NO_GLOBAL_MACHINE_OR_UNKNOWN_CREDENTIAL_SCAN')
     body=dict(actual_at=now.isoformat(),completed_at=datetime.now(ZoneInfo('Asia/Shanghai')).isoformat(),
         actual_response_count=len(rows),validated_responses=sum(bool(r['validated']) for r in rows.values()),
-        provider_failed_requests=failures,calls=list(rows.values()),role_session_latencies=summary,
+        provider_failed_requests=failures,source_domain_exclusions=exclusions,
+        calls=list(rows.values()),role_session_latencies=summary,
         p50_method='MEDIAN',p95_method='NEAREST_RANK',small_sample_warning='N=0_IS_UNOBSERVED_NOT_ZERO;INVALID_RESPONSES_INCLUDED',
         credential_audit=audit,production_writes=0,model_calls=0,release_gate='NOT_PASSED')
     path=base/(now.strftime('%Y%m%dT%H%M%S%f')+'-REAL_DRYRUN_SUMMARY.json');save(path,body)
