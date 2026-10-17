@@ -40,3 +40,16 @@ def test_meeting_projection_never_hides_a_malformed_original_domain(kind):
         else:body.pop('source_run_id')
         original['payload_json']=json.dumps(body)
     with pytest.raises(ValueError,match='MEETING_PLAN_SOURCE_BINDING_INVALID'):meeting_plan_facts(rows)
+
+
+def test_historical_planning_cannot_see_later_activation_or_invalidation():
+    from liangjian_funnel.runtime.team_v2_sources import historical_meeting_plan_facts
+    original=row();original.update(status='INVALIDATED',valid_from='2026-10-15T09:26:00+08:00')
+    before=deepcopy(original)
+    facts=historical_meeting_plan_facts([original])[0]
+    assert original==before
+    assert 'status' not in facts and 'valid_from' not in facts
+    assert facts['lifecycle_evidence_status']=='UNAVAILABLE_AT_HISTORICAL_PLANNING_CUTOFF'
+    assert facts['publication_facts']==meeting_plan_facts([original])[0]['publication_facts']
+    assert facts['source_row_sha256']==meeting_plan_facts([original])[0]['source_row_sha256']
+    assert meeting_plan_facts([original])[0]['status']=='INVALIDATED'  # live path unchanged

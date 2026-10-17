@@ -141,6 +141,20 @@ def meeting_plan_facts(rows):
     return result
 
 
+def historical_meeting_plan_facts(rows):
+    """Prior-publication facts only, never an archived later lifecycle state.
+
+    The original row hash is retained for audit. Absence of an 08:38 lifecycle
+    snapshot is not repaired to PENDING or ACTIVE. The live meeting projection
+    remains unchanged and may legitimately see the current owned source state.
+    """
+    result=meeting_plan_facts(rows)
+    for item in result:
+        item.pop('status');item.pop('valid_from')
+        item['lifecycle_evidence_status']='UNAVAILABLE_AT_HISTORICAL_PLANNING_CUTOFF'
+    return result
+
+
 def read_held_bindings(settings, positions):
     """Original owner identity/cluster for an already-held, possibly old plan.
 

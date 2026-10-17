@@ -29,7 +29,7 @@ def prepare(sources,database,database_hash,output,day,settings,provider):
     from liangjian_funnel.review.observability import _cluster
     from liangjian_funnel.runtime.calendar import ExchangeTradingCalendar
     from liangjian_funnel.runtime.risk_engine import AccountRisk,PlanRisk,RiskLimits,build_planning_envelope
-    from liangjian_funnel.runtime.team_v2_sources import stamp,meeting_plan_facts
+    from liangjian_funnel.runtime.team_v2_sources import stamp,historical_meeting_plan_facts
     from liangjian_funnel.runtime.team_v2_store import canonical
     snapshot,_,_,proof=original_source(sources,day)
     lane=sources/'files'/proof['lane']['relative']
@@ -75,7 +75,7 @@ def prepare(sources,database,database_hash,output,day,settings,provider):
         activation_basis='PLANNING_ONLY_NO_HISTORICAL_OR_CURRENT_ACTIVATION',
         original_a3_run_id=original_run,original_a3_output_hash=a3['output_hash'],source_database_sha256=database_hash)
     account_value=dict(nav=str(account.nav),cash=str(account.cash),positions=[],basis=context['account_basis'])
-    meeting_plans=meeting_plan_facts(rows)
+    meeting_plans=historical_meeting_plan_facts(rows)
     catalog=dict(categories=['ACCOUNT','MARKET','PLAN'],items=[
         dict(id='DRY:ACCOUNT',category='ACCOUNT',value=account_value),
         dict(id='DRY:MARKET',category='MARKET',value=dict(market_regime=regime,external_status='UNAVAILABLE',external_adjustment_pp=shift)),

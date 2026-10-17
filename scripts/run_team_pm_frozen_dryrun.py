@@ -25,7 +25,7 @@ def prepare(a6_source,database,database_hash,output,settings,provider):
     import yaml
     from liangjian_funnel.pipeline.team_v2_prompts import TeamPromptRepository
     from liangjian_funnel.runtime.team_v2_morning import _envelopes
-    from liangjian_funnel.runtime.team_v2_sources import meeting_plan_facts,stamp
+    from liangjian_funnel.runtime.team_v2_sources import historical_meeting_plan_facts,stamp
     from liangjian_funnel.runtime.team_v2_store import canonical
     from liangjian_funnel.runtime.team_v2_risk_meeting import apply_premarket_review
     source=json.loads((a6_source/'PREPARED.json').read_bytes());failure=json.loads((a6_source/'RESULT.json').read_bytes())
@@ -45,7 +45,7 @@ def prepare(a6_source,database,database_hash,output,settings,provider):
             if original is None or dict(original)!=row:raise ValueError('PM_DRYRUN_ORIGINAL_PLAN_ROW_CHANGED')
         db.rollback()
     day=source['execution_trade_date'];at=stamp(day+'T08:38:00+08:00')
-    plans=meeting_plan_facts(source['original_plan_rows']);regimes={p['publication_facts'].get('market_regime') for p in plans}
+    plans=historical_meeting_plan_facts(source['original_plan_rows']);regimes={p['publication_facts'].get('market_regime') for p in plans}
     if len(regimes)!=1:raise ValueError('PM_DRYRUN_ORIGINAL_REGIME_CONFLICT')
     regime=regimes.pop();deployment=yaml.safe_load((ROOT/'config/team_v2_deployment.yaml').read_text(encoding='utf-8'))
     external=yaml.safe_load((ROOT/'config/risk_limits.yaml').read_text(encoding='utf-8'))['external_adjustment']
