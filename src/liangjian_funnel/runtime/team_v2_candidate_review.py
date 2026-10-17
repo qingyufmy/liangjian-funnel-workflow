@@ -56,7 +56,11 @@ def run_candidate_review(**args):
     store.claim_trader(args['decision_id'],input_sha256=binding)
     from .team_v2_review_latch import ReviewDayLatch
     latch=ReviewDayLatch(store);day_state=latch.read(args['account_id'],args['trade_date'])
-    engine_only=day_state['engine_only']
+    # A crash after the third failed capture must not reclassify that same
+    # decision as engine-only and admit its originally blocked entry on retry.
+    frozen_day=store.freeze_control_context('candidate-review-day:'+args['decision_id'],
+        source_sha256=binding,body={'engine_only':day_state['engine_only']})
+    engine_only=frozen_day['engine_only']
     latch.ensure_alert(args['account_id'],args['trade_date'],day_state)
     selected_entries={pid:entries[pid] for pid in selected if pid in entries}
     selected_exits={pid:exits[pid] for pid in selected if pid in exits}
