@@ -1,7 +1,7 @@
 """Approved A2 role -> frozen global scores -> original partition/hard gates.
 
-Explicit research adapter only. No Workflow activation, new fact source,
-model-picked score membership or nominations in executable candidate pools.
+Explicit research adapter, composed at the natural research boundary. No new
+fact source, model-picked score membership or executable nominations.
 """
 from collections.abc import Mapping
 from contextlib import closing
@@ -21,6 +21,7 @@ from .team_v2_a1_research import _hash
 
 def prepare_a2_snapshot(adapter,snapshot,symbols):
     from .research import common as legacy
+    from .team_v2_nomination_source import prepare_nomination_source
     config=adapter.a2_config
     if (not isinstance(config,Mapping) or snapshot.data.get('THEME_SCORE_WEIGHTS')!=config.get('score_weights')
             or snapshot.data.get('PENALTY_RULES')!=config.get('penalty_rules')):
@@ -31,12 +32,12 @@ def prepare_a2_snapshot(adapter,snapshot,symbols):
         expected=freeze_theme_scores(legacy._jsonable(snapshot.data),review_symbols=set(existing['review_symbols']),
             weights=config['score_weights'],policy=config['team_theme_score_policy'],source_snapshot_sha256=snapshot.snapshot_hash)
         if expected!=existing:raise ValueError('TEAM_A2_FROZEN_SOURCE_MISMATCH')
-        return snapshot
+        return prepare_nomination_source(snapshot,set(existing['review_symbols']))
     # The caller supplies the complete quantitative review domain before any
     # transport split. Membership is not reconstructed from model FOCUS.
     frozen=freeze_theme_scores(legacy._jsonable(snapshot.data),review_symbols=set(symbols),
         weights=config['score_weights'],policy=config['team_theme_score_policy'],source_snapshot_sha256=snapshot.snapshot_hash)
-    return replace(snapshot,data={**snapshot.data,'_TEAM_A2_SCORE_FREEZE':frozen})
+    return prepare_nomination_source(replace(snapshot,data={**snapshot.data,'_TEAM_A2_SCORE_FREEZE':frozen}),set(symbols))
 
 
 def _post_policy(raw,snapshot,upstream_output,symbols,lane_id,model):
@@ -133,6 +134,10 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
                 for r in raw['model_nominations']:
                     if r['quant_filter_reason']!=by_symbol[r['symbol']]['quant_filter_reason']:
                         issues.append('A2_NOMINATION_FILTER_REASON_MISMATCH')
+                    if r['theme_id']!=by_symbol[r['symbol']]['theme_id']:
+                        issues.append('A2_NOMINATION_THEME_BINDING_MISMATCH')
+                    if 'A2:NOMINATION:'+r['symbol'] not in r['supporting_refs']:
+                        issues.append('A2_NOMINATION_ORIGINAL_FACT_REFERENCE_REQUIRED')
             return TeamValidation(not issues,tuple(dict.fromkeys(issues)),result.judgments,result.sentinel_count)
         history=[];ids=[];output=None
         for attempt in range(2):
@@ -186,7 +191,8 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
                 row=db.execute('SELECT latency_ms,provider_attempts FROM model_calls WHERE call_id=?',(cid,)).fetchone()
                 if row:metrics.append(row)
         diagnostics=dict(team_call_ids=ids,legacy_checkpoint_reused=False,validation_history=history,
-            score_snapshot_sha256=frozen['score_snapshot_sha256'])
+            score_snapshot_sha256=frozen['score_snapshot_sha256'],
+            nomination_source=snapshot.data['_TEAM_A2_NOMINATION_FREEZE'])
         if not valid:
             return legacy.StageAudit(lane_id,model,'A2','BLOCKED',snapshot.snapshot_id,request.prompt.sha256,request.input_hash,
                 None,sum(r[0] or 0 for r in metrics),sum(r[1] for r in metrics),'team_v2',(),tuple(issues),diagnostics=diagnostics)

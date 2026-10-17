@@ -154,8 +154,10 @@ def test_valid_nomination_stays_research_only_and_not_a3_candidate(tmp_path):
             quant_filter_reason='SCORE_BELOW_GATE',why_i_disagree='Frozen disclosed catalyst',falsifiers=['Catalyst withdrawn'],
             supporting_refs=['A2:NOMINATION:000004.SZ'],opposing_refs=['A2:NEWS'])]
     app,args,_=fixture(tmp_path,change)
-    data={**args['snapshot'].data,'A2_QUANT_FILTERED_SAMPLE':[dict(symbol='000004.SZ',theme_id='T',
-        quant_filter_reason='SCORE_BELOW_GATE',source_refs=['frozen-source'])]}
+    data=deepcopy(dict(args['snapshot'].data))
+    data['A2_BOTTLENECK_CONTEXT']['000004.SZ']={**deepcopy(data['A2_BOTTLENECK_CONTEXT']['000001.SZ']),
+        'deterministic_status':'LOCAL_MONITOR','deterministic_reason_codes':['SCORE_BELOW_GATE'],
+        'role_breakdown':{'relative_strength':85}}
     args['snapshot']=replace(args['snapshot'],data=data)
     result=app._run_stage(**args)
     assert result.status=='VALIDATED',result.reason_codes
