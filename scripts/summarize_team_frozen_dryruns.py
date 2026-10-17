@@ -19,7 +19,7 @@ def main():
     base=ROOT/'artifacts/team-v2-20261016';now=datetime.now(ZoneInfo('Asia/Shanghai'))
     directories=sorted(p for prefix in ('a5-frozen-','a2-frozen-','a4-frozen-','a6-frozen-','pm-frozen-','dryrun-original-sources-','dryrun-source-inventory-')
         for p in base.glob(prefix+'*') if p.is_dir())
-    rows={};failures=[];exclusions=[]
+    rows={};call_directories={};failures=[];exclusions=[]
     for directory in directories:
         for database in (directory/'model.db',directory/'state/team_v2/model.db'):
             if not database.is_file():continue
@@ -28,6 +28,7 @@ def main():
                 for row in db.execute('SELECT call_id,role,session,captured_at,latency_ms,provider_attempts,validated,prompt_hash,input_hash,output_hash FROM model_calls'):
                     if row['call_id'] in rows and dict(row)!=rows[row['call_id']]:raise ValueError('DRYRUN_CALL_ID_CONFLICT')
                     rows[row['call_id']]=dict(row)
+                    call_directories[row['call_id']]=directory.name
         result=directory/'RESULT.json'
         if result.is_file():
             body=json.loads(result.read_bytes())
@@ -38,7 +39,7 @@ def main():
             body=json.loads(reviewed.read_bytes())
             if body.get('disposition')=='EXCLUDED_FROM_FORMAL_GATES':
                 exclusions.append(dict(directory=directory.name,reason_code=body['reason_code'],
-                    note='ORIGINAL_SCHEMA_VALIDATION_AND_LATENCY_UNCHANGED_NOT_A_QUALIFIED_DOMAIN_PROBE'))
+                    note=body.get('note','ORIGINAL_CAPTURE_UNCHANGED_NOT_SOURCE_QUALIFIED')))
     sessions={('A1','POLICY_MACRO_DISCOVERY'):600,('A1','COMPANY_MAPPING'):600,
         ('A2','CLOSE_REVIEW'):600,('A3','PLAN_REVIEW'):600,('A3','PM_PREMARKET'):120,('A3','PM_POST_CLOSE'):50,
         ('A4','INTRADAY'):30,('A5','POST_CLOSE'):180,('A6','PREMARKET'):120,('A6','INTRADAY_EXCEPTION'):20,('A6','POST_CLOSE'):50}
@@ -67,8 +68,11 @@ def main():
     audit=dict(status='PASS' if not hits else 'FAILED',credential_storage='PROCESS_MEMORY_ONLY',exact_known_credential_scan=True,
         scope=[str(p.relative_to(ROOT)) for p in directories],files_scanned=scanned,bytes_scanned=bytes_scanned,
         matching_files=hits,not_claimed='NO_GLOBAL_MACHINE_OR_UNKNOWN_CREDENTIAL_SCAN')
+    excluded={row['directory'] for row in exclusions}
     body=dict(actual_at=now.isoformat(),completed_at=datetime.now(ZoneInfo('Asia/Shanghai')).isoformat(),
         actual_response_count=len(rows),validated_responses=sum(bool(r['validated']) for r in rows.values()),
+        source_qualified_schema_valid_responses=sum(bool(r['validated']) and call_directories[key] not in excluded
+            for key,r in rows.items()),
         provider_failed_requests=failures,source_domain_exclusions=exclusions,
         calls=list(rows.values()),role_session_latencies=summary,
         p50_method='MEDIAN',p95_method='NEAREST_RANK',small_sample_warning='N=0_IS_UNOBSERVED_NOT_ZERO;INVALID_RESPONSES_INCLUDED',
