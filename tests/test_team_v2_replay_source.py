@@ -8,7 +8,7 @@ import zlib
 import pytest
 
 from liangjian_funnel.evaluation.team_v2_replay_source import (
-    SIX_DAYS, frozen_frames, project_snapshot, session_minutes,
+    SIX_DAYS, activation_reason, frozen_frames, project_snapshot, session_minutes,
 )
 from liangjian_funnel.runtime.team_v2_sources import stamp
 from liangjian_funnel.runtime.team_v2_quote_evidence import assert_original_market_quote
@@ -118,3 +118,13 @@ def test_scope_hash_and_session_do_not_cherry_pick_dates_or_lunch(tmp_path):
     values=session_minutes('2026-10-15')
     assert len(values)==240 and values[119].strftime('%H:%M')=='11:30' and values[120].strftime('%H:%M')=='13:01'
     assert all(not stamp('2026-10-15T11:30:00+08:00')<at<stamp('2026-10-15T13:01:00+08:00') for at in values)
+
+
+def test_terminal_event_or_prior_terminal_cannot_become_an_active_probe_plan():
+    row=dict(valid_from='2026-10-15T09:32:00+08:00',expires_at='2026-10-15T15:00:00+08:00',status='EXPIRED')
+    frame=dict(decision_at='2026-10-15T10:01:00+08:00',original_action='START_CONFIRMATION')
+    assert activation_reason(frame,row) is None  # archived final status is not historical authority
+    assert activation_reason(frame|{'original_action':'PLAN_INVALIDATED'},row)=='REPLAY_ORIGINAL_TERMINAL_PLAN_NOT_ACTIVE'
+    assert activation_reason(frame,row,terminal_seen=True)=='REPLAY_ORIGINAL_TERMINAL_PLAN_NOT_ACTIVE'
+    assert activation_reason(frame,row|{'valid_from':None})=='REPLAY_ORIGINAL_ACTIVATION_UNPROVEN'
+    assert activation_reason(frame|{'decision_at':row['expires_at']},row)=='REPLAY_ORIGINAL_PLAN_OUTSIDE_ACTIVE_WINDOW'

@@ -17,7 +17,7 @@ from liangjian_funnel.settings import load_dotenv
 
 def main():
     base=ROOT/'artifacts/team-v2-20261016';now=datetime.now(ZoneInfo('Asia/Shanghai'))
-    directories=sorted(p for prefix in ('a5-frozen-','a2-frozen-','dryrun-original-sources-','dryrun-source-inventory-')
+    directories=sorted(p for prefix in ('a5-frozen-','a2-frozen-','a4-frozen-','dryrun-original-sources-','dryrun-source-inventory-')
         for p in base.glob(prefix+'*') if p.is_dir())
     rows={};failures=[]
     for directory in directories:

@@ -32,6 +32,19 @@ def session_minutes(day):
                  for n in range(start, end+1))
 
 
+def activation_reason(frame, row, *, terminal_seen=False):
+    """Never reclassify an observed terminal event as an active entry plan."""
+    at=stamp(frame['decision_at'])
+    if terminal_seen or frame['original_action'] in {'PLAN_INVALIDATED','PLAN_EXPIRED'}:
+        return 'REPLAY_ORIGINAL_TERMINAL_PLAN_NOT_ACTIVE'
+    if row.get('valid_from') is None:
+        return 'REPLAY_ORIGINAL_ACTIVATION_UNPROVEN'
+    start=stamp(row['valid_from']);end=stamp(row['expires_at'])
+    if not start.date()==at.date() or not start<=at<end:
+        return 'REPLAY_ORIGINAL_PLAN_OUTSIDE_ACTIVE_WINDOW'
+    return None
+
+
 def project_snapshot(row, *, symbol, decision_at, event_created_at):
     """Exact original payload + chronological closed window, not scalar quotes."""
     at = stamp(decision_at)

@@ -21,7 +21,7 @@ from zoneinfo import ZoneInfo
 
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT/'src'))
 from run_team_a5_frozen_dryrun import model_settings,save
-from liangjian_funnel.evaluation.team_v2_replay_source import sha
+from liangjian_funnel.evaluation.team_v2_replay_source import activation_reason,sha
 from liangjian_funnel.runtime.team_v2_sources import stamp
 TZ=ZoneInfo('Asia/Shanghai')
 
@@ -46,10 +46,13 @@ def prepare(source_pack,output,at,settings):
     if (receipt['status']!='SOURCE_PREPARED_NOT_EXECUTED'
             or hashlib.file_digest(archive.open('rb'),'sha256').hexdigest()!=receipt['archive_sha256']):
         raise ValueError('REPLAY_PREPARED_ARCHIVE_HASH_INVALID')
-    frames=[]
+    frames=[];terminal=set()
     with gzip.open(archive,'rt',encoding='utf-8') as stream:
         for line in stream:
             frame=json.loads(line)
+            if (frame['kind']=='plan_minute' and frame['decision_at']<=at.isoformat()
+                    and frame['original_action'] in {'PLAN_INVALIDATED','PLAN_EXPIRED'}):
+                terminal.add(frame['plan_id'])
             if frame['kind']=='plan_minute' and frame['decision_at']==at.isoformat():
                 if sha({k:v for k,v in frame.items() if k!='frame_sha256'})!=frame['frame_sha256']:
                     raise ValueError('REPLAY_FRAME_HASH_INVALID')
@@ -76,8 +79,9 @@ def prepare(source_pack,output,at,settings):
             row=dict(db.execute('SELECT * FROM execution_plans WHERE plan_id=?',(frame['plan_id'],)).fetchone())
             if sha(row)!=frame['original_plan_row_sha256']:raise ValueError('REPLAY_PLAN_ROW_HASH_INVALID')
             raw=json.loads(row['payload_json']);pid=row['plan_id'];symbol=row['symbol'];cluster,_=_cluster(row)
-            if row['valid_from'] is None or cluster=='UNKNOWN':
-                skipped.append(dict(plan_id=pid,reasons=['REPLAY_ACTIVATION_OR_CLUSTER_UNPROVEN']));continue
+            inactive=activation_reason(frame,row,terminal_seen=pid in terminal)
+            if inactive or cluster=='UNKNOWN':
+                skipped.append(dict(plan_id=pid,reasons=[inactive or 'REPLAY_CLUSTER_UNPROVEN']));continue
             snapshot=db.execute("SELECT * FROM minute_decision_snapshots WHERE snapshot_id=? AND symbol=? AND interval='1m'",
                 (frame['original_snapshot_id'],symbol)).fetchone()
             payload=zlib.decompress(snapshot['payload_zlib'])
