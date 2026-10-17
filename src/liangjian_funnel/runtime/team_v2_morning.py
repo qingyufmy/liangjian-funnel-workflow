@@ -149,7 +149,7 @@ def run_morning_stage(settings,stage,*,clock=None,calendar=None,client=None):
     values={key:dict(status='NOT_AVAILABLE') for key in repository.document(role).placeholders}
     values.update(EVIDENCE_CATALOG=catalog,ACCOUNT_SNAPSHOT=frozen['snapshot']['account'],POSITIONS=frozen['snapshot']['positions'],
         MARKET_STATE={'market_regime':source['market_regime'],'basis':'FROZEN_PRIOR_NOT_INTRADAY'},
-        PLANS=meeting_plans,PRIOR_OUTCOME_FEEDBACK={'status':'INSUFFICIENT_TEN_DAYS'},
+        PLANS=meeting_plans,PLANS_TODAY=meeting_plans,PRIOR_OUTCOME_FEEDBACK={'status':'INSUFFICIENT_TEN_DAYS'},
         OVERNIGHT_EXTERNAL_SNAPSHOT=frozen['external_adjustment'])
     common=dict(repository=repository,client=client,journal=journal,store=store,account_id=ACCOUNT,run_id=run_id,
         model=settings.review_model,trade_date=day,source_trade_date=frozen['source']['source_trade_date'],clock=clock,

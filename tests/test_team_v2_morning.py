@@ -78,6 +78,8 @@ def test_actual_three_stage_source_to_model_to_allocation_retains_legacy_bytes(t
     advance(clock,8,38)
     result=run_morning_stage(settings,'pm',clock=lambda:clock.now,calendar=CAL,client=api)
     assert result['status']=='READY' and result['slot_plan'][0]['primary_plan_id']=='p1'
+    visible=json.JSONDecoder().raw_decode(seen[-1]['messages'][0]['content'].split('PLANS_TODAY=',1)[1])[0]
+    assert isinstance(visible,list) and visible[0]['plan_id']=='p1'
 
 
     assert run_morning_stage(settings,'pm',clock=lambda:clock.now,calendar=CAL,client=api)==result

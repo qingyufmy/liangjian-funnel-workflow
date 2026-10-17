@@ -68,7 +68,7 @@ def prepare(a6_source,database,database_hash,output,settings,provider):
         *(dict(id='PM:PLAN:'+p['plan_id'],category='PLAN',value=p) for p in plans)])
     repository=TeamPromptRepository(ROOT/'prompts/team_v2');run='team-pm-frozen-dryrun:'+output.name
     values={key:dict(status='UNAVAILABLE') for key in repository.document('A3').placeholders}
-    values.update(RISK_SESSION='PM_PREMARKET',ACCOUNT_SNAPSHOT=account,POSITIONS=[],PLANS=plans,
+    values.update(RISK_SESSION='PM_PREMARKET',ACCOUNT_SNAPSHOT=account,POSITIONS=[],PLANS=plans,PLANS_TODAY=plans,
         MARKET_STATE=market,EVIDENCE_CATALOG=catalog,PRIOR_OUTCOME_FEEDBACK=dict(status='INSUFFICIENT_TEN_DAYS'),
         OVERNIGHT_EXTERNAL_SNAPSHOT=market,RISK_ENVELOPES=[asdict(e) for e in reviewed.envelopes],
         DEPLOYMENT_BASELINE=dict(baseline_range=[str(v) for v in bounds],utilization_cap=str(reviewed.utilization_cap),
