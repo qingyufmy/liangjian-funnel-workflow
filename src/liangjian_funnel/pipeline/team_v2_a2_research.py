@@ -191,6 +191,8 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
                 row=db.execute('SELECT latency_ms,provider_attempts FROM model_calls WHERE call_id=?',(cid,)).fetchone()
                 if row:metrics.append(row)
         diagnostics=dict(team_call_ids=ids,legacy_checkpoint_reused=False,validation_history=history,
+            original_rotation_domain={d:sorted(ss) for d,ss in sorted(directions.items())},
+            original_theme_review_domain=sorted(projected['_theme_review_scope']),
             score_snapshot_sha256=frozen['score_snapshot_sha256'],
             nomination_source=snapshot.data['_TEAM_A2_NOMINATION_FREEZE'])
         if not valid:
