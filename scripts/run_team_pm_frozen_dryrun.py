@@ -1,6 +1,6 @@
-"""Real PM morning call after an actual failed A6 frozen request.
+"""Real PM morning call after an actual captured or failed A6 frozen request.
 
-Consumes only original frozen plans and the approved conservative A6 fallback.
+Consumes original frozen plans and either a verified A6 vote or its fallback.
 No synthetic A6 success, live source, account writer or production activation.
 """
 import argparse
@@ -21,6 +21,30 @@ from run_team_a5_frozen_dryrun import model_settings,save,field_diff
 TZ=ZoneInfo('Asia/Shanghai')
 
 
+def verified_a6_capture(directory,source,result):
+    if (result.get('input_sha256')!=source['request_input_sha256']
+            or result.get('source_head')!=source['head']):raise ValueError('PM_DRYRUN_A6_SOURCE_BINDING_INVALID')
+    with closing(sqlite3.connect((directory/'model.db').resolve().as_uri()+'?mode=ro',uri=True)) as db:
+        db.row_factory=sqlite3.Row;db.execute('PRAGMA query_only=ON')
+        claims=[tuple(r) for r in db.execute('SELECT call_id,state,failure_code FROM model_call_claims')]
+        if result.get('status')=='MODEL_CALL_FAILED':
+            if claims!=[('A6:'+source['run_id'],'FAILED','TEAM_MODEL_CALL_FAILED')]:
+                raise ValueError('PM_DRYRUN_ORIGINAL_A6_FAILURE_CLAIM_INVALID')
+            return None,False,'ACTUAL_FAILURE_CONSERVATIVE_FALLBACK'
+        rows=[dict(r) for r in db.execute('SELECT * FROM model_calls')]
+    if result.get('status')!='PASS' or len(rows)!=1 or claims!=[('A6:'+source['run_id'],'CAPTURED',None)]:
+        raise ValueError('PM_DRYRUN_VALIDATED_A6_CAPTURE_REQUIRED')
+    row=rows[0]
+    expected=dict(call_id='A6:'+source['run_id'],run_id=source['run_id'],role='A6',session='PREMARKET',
+        source_trade_date=source['source_trade_date'],execution_trade_date=source['execution_trade_date'],
+        input_hash=source['request_input_sha256'],prompt_hash=source['prompt_hash'])
+    if (any(row.get(k)!=v for k,v in expected.items()) or row['validated']!=1
+            or json.loads(row['issues_json']) or row['output_hash']!=result.get('response_output_sha256')
+            or hashlib.sha256(row['output_json'].encode()).hexdigest()!=row['output_hash']):
+        raise ValueError('PM_DRYRUN_A6_CAPTURE_HASH_OR_BINDING_INVALID')
+    return json.loads(row['output_json']),True,'ACTUAL_VALIDATED_A6_CAPTURE'
+
+
 def prepare(a6_source,database,database_hash,output,settings,provider):
     import yaml
     from liangjian_funnel.pipeline.team_v2_prompts import TeamPromptRepository
@@ -28,14 +52,9 @@ def prepare(a6_source,database,database_hash,output,settings,provider):
     from liangjian_funnel.runtime.team_v2_sources import historical_meeting_plan_facts,stamp
     from liangjian_funnel.runtime.team_v2_store import canonical
     from liangjian_funnel.runtime.team_v2_risk_meeting import apply_premarket_review
-    source=json.loads((a6_source/'PREPARED.json').read_bytes());failure=json.loads((a6_source/'RESULT.json').read_bytes())
-    if (failure['status']!='MODEL_CALL_FAILED' or failure['input_sha256']!=source['request_input_sha256']
-            or failure['source_head']!=source['head'] or source['source_database_sha256']!=database_hash):
-        raise ValueError('PM_DRYRUN_ACTUAL_A6_FAILURE_REQUIRED')
-    with closing(sqlite3.connect((a6_source/'model.db').resolve().as_uri()+'?mode=ro',uri=True)) as db:
-        claims=db.execute('SELECT call_id,state,failure_code FROM model_call_claims').fetchall()
-        if claims!=[('A6:'+source['run_id'],'FAILED','TEAM_MODEL_CALL_FAILED')]:
-            raise ValueError('PM_DRYRUN_ORIGINAL_A6_FAILURE_CLAIM_INVALID')
+    source=json.loads((a6_source/'PREPARED.json').read_bytes());prior=json.loads((a6_source/'RESULT.json').read_bytes())
+    if source['source_database_sha256']!=database_hash:raise ValueError('PM_DRYRUN_ORIGINAL_DATABASE_HASH_INVALID')
+    a6_output,a6_valid,a6_basis=verified_a6_capture(a6_source,source,prior)
     if hashlib.file_digest(database.open('rb'),'sha256').hexdigest()!=database_hash:
         raise ValueError('PM_DRYRUN_ORIGINAL_DATABASE_HASH_INVALID')
     with closing(sqlite3.connect(database.resolve().as_uri()+'?mode=ro',uri=True)) as db:
@@ -51,12 +70,12 @@ def prepare(a6_source,database,database_hash,output,settings,provider):
     external=yaml.safe_load((ROOT/'config/risk_limits.yaml').read_text(encoding='utf-8'))['external_adjustment']
     bounds=tuple(D(max(0,min(external['maximum_utilization_pct'],v+external['missing_adjustment_pp'])))
         for v in deployment['ranges'][regime])
-    reviewed=apply_premarket_review(_envelopes(source['planning_envelopes']),None,
-        engine_utilization_cap=bounds[1],validated=False,previous_failures=0)
-    if reviewed.status!='DEGRADED':raise ValueError('PM_DRYRUN_CONSERVATIVE_A6_FALLBACK_REQUIRED')
+    reviewed=apply_premarket_review(_envelopes(source['planning_envelopes']),a6_output,
+        engine_utilization_cap=bounds[1],validated=a6_valid,previous_failures=0)
+    if reviewed.status!=('READY' if a6_valid else 'DEGRADED'):raise ValueError('PM_DRYRUN_A6_REVIEW_NOT_APPLIED')
     clusters={p['plan_id']:p['cluster'] for p in plans};context=dict(
         classification='POST_HOC_FROZEN_INPUT_MODEL_DRYRUN',account_basis=source['account_basis'],
-        source_a6_request_sha256=source['request_input_sha256'],a6_status='ACTUAL_TIMEOUT_CONSERVATIVE_FALLBACK',
+        source_a6_request_sha256=source['request_input_sha256'],a6_status=a6_basis,
         a6_provider_calls_this_run=0,source_a6_result_sha256=hashlib.sha256((a6_source/'RESULT.json').read_bytes()).hexdigest())
     from liangjian_funnel.runtime.risk_engine import RiskLimits
     limits=RiskLimits.from_yaml(ROOT/'config/risk_limits.yaml')
