@@ -66,7 +66,7 @@ def batch(tmp_path,*,count=9,fail_first=False,slow_clock=None,wave_clock=None):
 
 def test_parallel_capture_never_orders_then_global_utilization_serially_blocks_second_buy(tmp_path):
     args,calls,_=batch(tmp_path);result=run_trader_batch(**args)
-    assert result['model_validated'] and sorted(map(len,calls))==[1,8]
+    assert result['model_validated'] and sorted(map(len,calls))==[3,6]
     assert len(args['broker'].get_orders(args['trade_date']))==1
     second=next(r for r in result['admissions'] if r['binding']['plan_id']=='p08')
     assert not second['dispatched'] and 'A6_UTILIZATION_CAP' in second['judgment']['reason_codes']
@@ -84,8 +84,9 @@ def test_failed_shard_does_not_suppress_other_valid_shard_or_get_recalled(tmp_pa
 
 def test_more_than_four_shards_queue_with_max_four_concurrent_capture_and_no_domain_loss(tmp_path):
     args,calls,inflight=batch(tmp_path,count=43);result=run_trader_batch(**args)
-    assert result['model_validated'] and len(calls)==6 and 1<inflight[1]<=4
-    assert set(pid for row in calls for pid in row)==set(args['all_plans'])
+    assert result['model_validated'] and len(calls)==4 and 1<inflight[1]<=4
+    assert len(set(pid for row in calls for pid in row))==24
+    assert sum(r['reason_code']=='DEFERRED_CAPACITY' for r in result['scope']['decisions'])==19
 
 
 def test_expired_global_deadline_never_admits_a_valid_capture(tmp_path):
@@ -117,5 +118,5 @@ def test_queued_shard_transport_budgets_survive_independent_second_pass_without_
         args['broker'].clock=lambda:stamp(tm='15:30:00')
         args['broker'].settle(args['trade_date'])
     result=run_two_passes(tmp_path/'budget-replay',allowed_root=tmp_path,run_pass=execute)
-    assert len(seen)==6 and all(r['model_validated'] for r in outcomes)
+    assert len(seen)==4 and all(r['model_validated'] for r in outcomes)
     assert result['ledger_bytes_equal'] and result['curve_bytes_equal'] and result['has_funded_fill_path']

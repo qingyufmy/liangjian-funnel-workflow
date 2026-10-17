@@ -208,7 +208,8 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
         snapshot_ready=True,mode='control',calendar=calendar,timeout_seconds=30,
         utilization_cap_pct=utilization_cap,
         max_output_tokens=settings.model_max_output_tokens,allow_model_call=True,pm_meeting_id='morning-pm:'+day,
-        input_projection=dict(plan_rows=[r for r in scope['plan_rows'] if r['plan_id'] in plans],
+        input_projection=dict(atr5m={pid:ctx['atr5m_evidence']['value'] for pid,ctx in model_contexts.items()},
+            plan_rows=[r for r in scope['plan_rows'] if r['plan_id'] in plans],
             contexts=contexts,model_contexts=model_contexts,evaluations=evaluations))
     def exception_handler(**kwargs):
         from .team_v2_exception_coordinator import run_exception_after_trader

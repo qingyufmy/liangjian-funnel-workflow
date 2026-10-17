@@ -16,6 +16,27 @@ from zoneinfo import ZoneInfo
 from .team_v2_store import assert_database_scope,canonical
 
 
+def trader_scope_metrics(rows):
+    counts={'scope_plan_ticks':0,'selected_plan_ticks':0,'model_attempted_plan_ticks':0,'deferred_plan_ticks':0,'carried_wait_plan_ticks':0}
+    seen=set();sessions=0
+    for row in rows if isinstance(rows,list) else []:
+        result=json.loads(row['result_json']);scope=result.get('scope')
+        if not isinstance(scope,dict):continue  # Capture-only shard rows are not another scope.
+        if row['decision_id'] in seen:raise ValueError('A5_DUPLICATE_TRADER_SCOPE')
+        seen.add(row['decision_id']);sessions+=1
+        for decision in scope.get('decisions',[]):
+            counts['scope_plan_ticks']+=1
+            if decision['reason_code']=='DEFERRED_CAPACITY':counts['deferred_plan_ticks']+=1
+            elif decision['reason_code']=='CARRIED_WAIT':counts['carried_wait_plan_ticks']+=1
+            elif decision.get('selected_for_model',decision.get('model_judgment_denominator',False)):counts['selected_plan_ticks']+=1
+            if decision.get('model_judgment_denominator'):counts['model_attempted_plan_ticks']+=1
+    denominator=counts['selected_plan_ticks']+counts['deferred_plan_ticks']
+    return dict(status='AVAILABLE' if sessions else 'NO_SCOPED_BATCH_EVIDENCE',**counts,
+        scheduled_candidate_plan_ticks=denominator,
+        deferred_capacity_rate=str(D(counts['deferred_plan_ticks'])/D(denominator)) if denominator else None,
+        carried_wait_model_judgments=0,scope_batches=sessions)
+
+
 def _hash(value):return hashlib.sha256(canonical(value).encode()).hexdigest()
 
 
@@ -129,6 +150,7 @@ def build_team_review_facts(*,legacy_facts,store,journal,paper_snapshot,settleme
     nav=account.get('nav');value=account.get('positions_value')
     utilization=str(D(value)/D(nav)*100) if nav is not None and value is not None and D(nav)>0 else None
     metrics=dict(legacy_facts.get('metrics') or {})
+    metrics['trader_model_scope']=trader_scope_metrics(rows.get('trader_sessions'))
     # 0290: name original observation denominators explicitly. Counts are
     # copied from frozen metrics, never reconstructed from filtered prose.
     def count(value):return value if type(value) is int and value>=0 else None

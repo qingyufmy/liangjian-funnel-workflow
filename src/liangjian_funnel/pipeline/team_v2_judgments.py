@@ -240,3 +240,7 @@ class ModelJudgmentJournal:
             """)]
         finally:
             db.close()
+
+    def has_call_claim(self,call_id):
+        with closing(self._connect()) as db:
+            return db.execute('SELECT 1 FROM model_call_claims WHERE call_id=?',(call_id,)).fetchone() is not None

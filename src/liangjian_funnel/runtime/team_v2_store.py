@@ -70,6 +70,10 @@ class TeamMeetingStore:
                     UNIQUE(account_id,trade_date,source_call_id));
                 CREATE TABLE IF NOT EXISTS trader_session_claims (
                     decision_id TEXT PRIMARY KEY, input_sha256 TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS trader_observation_state (
+                    account_id TEXT NOT NULL,trade_date TEXT NOT NULL,plan_id TEXT NOT NULL,
+                    state_json TEXT NOT NULL,observed_at TEXT NOT NULL,last_sent_at TEXT,
+                    PRIMARY KEY(account_id,trade_date,plan_id));
                 CREATE TABLE IF NOT EXISTS risk_session_requests (
                     meeting_id TEXT PRIMARY KEY, input_sha256 TEXT NOT NULL,
                     observed_at TEXT NOT NULL);
@@ -104,6 +108,38 @@ class TeamMeetingStore:
             row=db.execute('SELECT body_json FROM morning_engine WHERE account_id=? AND trade_date=?',
                 (account_id,trade_date)).fetchone()
         return json.loads(row[0]) if row else None
+
+    def freeze_trader_model_scope(self,*,account_id,trade_date,decision_id,observed_at,source_sha256,selector):
+        """Own research selection only; carried/deferred rows are not signals."""
+        from .team_v2_sources import stamp
+        at=stamp(observed_at)
+        if at.date().isoformat()!=trade_date:raise ValueError('TRADER_SCOPE_DATE_INVALID')
+        key='trader-model-scope:'+decision_id
+        with closing(self._connect()) as db,db:
+            db.execute('BEGIN IMMEDIATE')
+            frozen=db.execute('SELECT source_sha256,body_json FROM control_minute_context WHERE decision_id=?',(key,)).fetchone()
+            if frozen:
+                if frozen[0]!=source_sha256:raise ValueError('TRADER_SCOPE_SOURCE_CONFLICT')
+                return json.loads(frozen[1])
+            previous={pid:dict(state=json.loads(state),observed_at=observed,last_sent_at=sent)
+                for pid,state,observed,sent in db.execute('SELECT plan_id,state_json,observed_at,last_sent_at FROM trader_observation_state WHERE account_id=? AND trade_date=?',(account_id,trade_date))}
+            scope=selector(previous)
+            for pid,state in scope['observation_states'].items():
+                sent=previous.get(pid,{}).get('last_sent_at')
+                db.execute('INSERT OR REPLACE INTO trader_observation_state VALUES (?,?,?,?,?,?)',
+                    (account_id,trade_date,pid,canonical(state),at.isoformat(),sent))
+            db.execute('INSERT INTO control_minute_context VALUES (?,?,?)',(key,source_sha256,canonical(scope)))
+        return json.loads(canonical(scope))
+
+    def record_trader_model_sent(self,*,account_id,trade_date,plan_ids,observed_at):
+        from .team_v2_sources import stamp
+        at=stamp(observed_at)
+        if at.date().isoformat()!=trade_date:raise ValueError('TRADER_SCOPE_DATE_INVALID')
+        with closing(self._connect()) as db,db:
+            db.execute('BEGIN IMMEDIATE')
+            for pid in plan_ids:
+                db.execute('UPDATE trader_observation_state SET last_sent_at=? WHERE account_id=? AND trade_date=? AND plan_id=? AND (last_sent_at IS NULL OR last_sent_at<=?)',
+                    (at.isoformat(),account_id,trade_date,pid,at.isoformat()))
 
     def freeze_control_context(self,decision_id,*,source_sha256,body):
         """Persist the post-bar view before HTTP; restart reuses that exact view."""

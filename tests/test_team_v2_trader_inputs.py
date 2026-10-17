@@ -27,12 +27,13 @@ def test_near_invalidation_boundary_counts_even_when_far_from_entry():
     assert result['plan_ids']==['p1'] and result['r1_proximity_complete']
 
 
-def test_deterministic_eight_plan_shards_put_holdings_in_first_shard_without_dropping_any():
-    ids=[f'p{i:02d}' for i in range(43)];shards=shard_model_scope(reversed(ids),{'held':'p42'})
-    assert list(map(len,shards))==[8,8,8,8,8,3] and shards[0][0]=='p42'
-    assert len({pid for shard in shards for pid in shard})==43
-    assert shards==shard_model_scope(ids,{'held':'p42'})
-    with pytest.raises(ValueError):shard_model_scope(ids,{str(i):f'p{i:02d}' for i in range(9)})
+def test_deterministic_six_plan_shards_preserve_rank_and_put_holdings_first():
+    ids=[f'p{i:02d}' for i in range(24)];shards=shard_model_scope(ids,{'held':'p23'})
+    assert list(map(len,shards))==[6,6,6,6] and shards[0][0]=='p23'
+    assert len({pid for shard in shards for pid in shard})==24
+    assert shards==shard_model_scope(ids,{'held':'p23'})
+    with pytest.raises(ValueError):shard_model_scope(ids,{str(i):f'p{i:02d}' for i in range(7)})
+    with pytest.raises(ValueError):shard_model_scope([*ids,'extra'],{})
 
 
 def test_r3_only_changes_model_bars_not_engine_statistics_or_original_context():

@@ -152,7 +152,8 @@ def prepare(source_pack,output,at,settings,*,author298_inputs=False):
         live_market_ready=False,snapshot_ready=True,mode='control',calendar=calendar,timeout_seconds=30,
         max_output_tokens=16384,allow_model_call=True,pm_meeting_id=None)
     if author298_inputs:
-        args['input_projection']=dict(plan_rows=source_rows,contexts={pid:fact['closed_minute_context'] for pid,fact in facts.items()},
+        args['input_projection']=dict(atr5m={pid:ctx['atr5m_evidence']['value'] for pid,ctx in model_contexts.items()},
+            plan_rows=source_rows,contexts={pid:fact['closed_minute_context'] for pid,fact in facts.items()},
             model_contexts=model_contexts,evaluations=original)
     return args,bars,header
 

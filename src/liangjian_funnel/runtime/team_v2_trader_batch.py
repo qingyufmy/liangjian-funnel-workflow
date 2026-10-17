@@ -5,11 +5,11 @@ only validated captured outputs enter the existing globally locked risk engine.
 """
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict,replace
-import hashlib,time
+import hashlib,time,json
 
 from liangjian_paper_broker.ledger import dump
 from .team_v2_execution import admit_trader_signal
-from .team_v2_trader_inputs import select_model_scope,shard_model_scope
+from .team_v2_trader_inputs import transition_model_scope,shard_model_scope
 from .team_v2_trader_session import run_trader_session
 
 
@@ -19,8 +19,15 @@ def run_trader_batch(**args):
     if projection is None:return run_trader_session(**args)
     monotonic=args.get('monotonic',time.monotonic);deadline=args.get('deadline_monotonic')
     if deadline is None:raise ValueError('TRADER_BATCH_GLOBAL_DEADLINE_REQUIRED')
-    selected=select_model_scope(args['all_plans'],active_plan_ids=args['active_plan_ids'],
-        held_plan_ids=args['held_plan_ids'],evaluations=projection['evaluations'],atr5m=projection.get('atr5m'))
+    selection_source=hashlib.sha256(dump(dict(account_id=args['account_id'],trade_date=args['trade_date'],
+        at=args['decision_at'],active=sorted(args['active_plan_ids']),held=args['held_plan_ids'],
+        plans={pid:asdict(p) for pid,p in args['all_plans'].items()},projection=projection)).encode()).hexdigest()
+    ranks={r['plan_id']:json.loads(r['payload_json']).get('plan_priority_rank') for r in projection['plan_rows']}
+    selected=args['store'].freeze_trader_model_scope(account_id=args['account_id'],trade_date=args['trade_date'],
+        decision_id=args['decision_id'],observed_at=args['decision_at'],source_sha256=selection_source,
+        selector=lambda previous:transition_model_scope(args['all_plans'],active_plan_ids=args['active_plan_ids'],
+            held_plan_ids=args['held_plan_ids'],evaluations=projection['evaluations'],atr5m=projection.get('atr5m'),
+            at=args['decision_at'],previous=previous,ranks=ranks))
     shards=shard_model_scope(selected['plan_ids'],args['held_plan_ids'])
     # Bind all global engine facts, not just the model's reduced shard domain.
     source={key:args[key] for key in ('account_id','decision_id','minute_snapshot_id','call_id','run_id','model',
@@ -62,6 +69,11 @@ def run_trader_batch(**args):
         return dict(index=index,plan_ids=ids,**result)
     with ThreadPoolExecutor(max_workers=4,thread_name_prefix='team-a4-capture') as executor:
         captures=list(executor.map(capture,enumerate(shards)))
+    sent={pid for part in captures if args['journal'].has_call_claim(part['source_call_id']) for pid in part['plan_ids']}
+    for row in selected['decisions']:
+        row['model_judgment_denominator']=row['plan_id'] in sent
+        row['not_sent_to_model']=row['plan_id'] not in sent
+    store.record_trader_model_sent(account_id=args['account_id'],trade_date=args['trade_date'],plan_ids=sent,observed_at=args['decision_at'])
     allocation=None
     if args.get('pm_meeting_id') and args['active_plan_ids']:
         try:allocation=store.load_pm_allocation(args['pm_meeting_id'],account_id=args['account_id'],trade_date=args['trade_date'])

@@ -26,7 +26,7 @@ def main():
             except ModelClientError as exc:
                 with lock:failures.append(dict(reason_code=exc.reason_code,status_code=exc.status_code,attempts=exc.attempts))
                 raise
-    args['client']=Client(settings,max_attempts=1)
+    args['client']=Client(settings,max_attempts=1,thinking_enabled=False)
     started=datetime.now(ZoneInfo('Asia/Shanghai'));begin=time.monotonic()
     result=run_control_minute(session_kwargs=args,closed_bars=bars,deadline_monotonic=begin+47)
     elapsed=time.monotonic()-begin
@@ -42,6 +42,8 @@ def main():
         source_trade_date='2026-10-13',context_time='2026-10-13T10:01:00+08:00',classification='POST_HOC_FROZEN_CORRECTNESS_REPLAY',
         quote_basis='REPLAY_BAR_DERIVED',provider_identity=provider,model_validated=valid,model_calls=calls,claims=claims,
         provider_failures=failures,elapsed_seconds=elapsed,global_budget_seconds=47,per_shard_budget_seconds=30,
+        thinking_enabled=False,first_packet_latency_ms=None,
+        first_packet_unavailable_reason='EXISTING_NON_STREAMING_TRANSPORT_NO_TTFB_CAPTURE',
         original_scope=44,projected_scope=43,parts=parts,coordinator_result=result,production_writes=0,
         customer_notifications=0,orders=len(args['broker'].get_orders(args['trade_date'])),
         formal_six_day_gate='NOT_RUN',historical_account='UNAVAILABLE_SEPARATE_INITIAL_ACCOUNT',natural_acceptance=False)

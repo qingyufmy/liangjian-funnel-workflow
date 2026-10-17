@@ -43,8 +43,23 @@ def main():
     if calls or claims:raise AssertionError('OFFLINE_PROFILE_MODEL_CLAIM_CREATED')
     rows=[]
     for values,request in sorted(capture.rows,key=lambda row:row[0]['DECISION_ID']):
+        from liangjian_funnel.runtime.team_v2_compact_bars import decode_bars
+        from liangjian_funnel.runtime.team_v2_store import canonical
+        def chars(value):return len(canonical(value))
+        per_plan=[]
+        for i,plan in enumerate(values['ACTIVE_PLANS']):
+            pid=plan['plan_id']
+            for interval,encoded in values['BARS'][pid]['closed_bars'].items():
+                if decode_bars(encoded)!=kw['input_projection']['model_contexts'][pid]['closed_bars'][interval]:
+                    raise AssertionError('LOSSLESS_BAR_INVERSE_MISMATCH')
+            catalog=[item for item in values['EVIDENCE_CATALOG']['items'] if item['id'].endswith(('PLAN:'+pid,'TECH:'+pid))]
+            parts=dict(plan=chars(plan),bars=chars(values['BARS'][pid]),tech=chars(values['TECH_REFERENCE'][pid]),
+                catalog=chars(catalog),other=chars(values['RISK_ENVELOPES'][pid])+chars(values['TRADABILITY'][pid]))
+            per_plan.append(dict(plan_id=pid,components=parts,total_component_chars=sum(parts.values()),
+                target_6000_met=sum(parts.values())<=6000))
         record=dict(decision_id=values['DECISION_ID'],plan_ids=[r['plan_id'] for r in values['ACTIVE_PLANS']],
-            profile=describe(values,request),bar_counts={pid:{interval:len(bars) for interval,bars in context['closed_bars'].items()}
+            per_plan_character_breakdown=per_plan,lossless_bar_inverse='PASS_ALL_ORIGINAL_FIELDS',
+            profile=describe(values,request),bar_counts={pid:{interval:bars['count'] if isinstance(bars,dict) else len(bars) for interval,bars in context['closed_bars'].items()}
                 for pid,context in values['BARS'].items()},
             original_raw_sources='SEALED_SOURCE_DB_AND_FRAME_RECEIPTS_NOT_TRUNCATED',engine_statistics_changed=False)
         rows.append(record)
