@@ -153,6 +153,9 @@ class FrozenMinuteMaterializer:
                 quote=quote, tradability=rule, entry_source_eligible=pid in original_entry_ids,
                 tech_reference={**{k:'MET' for k in strategy.get('met_conditions',[])},
                     **{k:'UNMET' for k in strategy.get('unmet_conditions',[])}})
+            if batch.get('model_tick'):
+                from ..runtime.team_v2_trader_inputs import model_closed_context
+                projected[pid]['model_context'] = model_closed_context(context, bars, cutoff=at-timedelta(minutes=1))
         if not original_entry_ids <= source_ids:
             raise ValueError('REPLAY_MATERIALIZER_ENTRY_SOURCE_MISSING')
         for symbol in conflicts:

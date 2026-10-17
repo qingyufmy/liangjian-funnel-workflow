@@ -14,6 +14,41 @@ from ..runtime.team_v2_control_minute import run_control_minute
 from ..runtime.trader_guardrails import is_closed_trader_tick
 
 
+def model_evidence_counts(trader,journal):
+    """Count actual attempts, not CARRIED_WAIT, capacity deferrals or roots.
+
+    Shard scope flags are set by the coordinator after durable call claims.
+    When a journal is supplied, check those claims again without network I/O.
+    A legacy single-session status alone is not evidence that a request ran.
+    """
+    counts=Counter()
+    if 'shards' not in trader:
+        identity=trader.get('source_call_id')
+        if journal is not None and identity and journal.has_call_claim(identity):
+            counts['attempted_model_calls']=1
+            counts['validated_model_calls']=int(trader.get('model_validated') is True)
+        return counts
+    decisions=trader['scope']['decisions']
+    sent={r['plan_id'] for r in decisions if r.get('model_judgment_denominator') is True}
+    counts.update(model_attempted_plan_ticks=len(sent),
+        selected_not_sent_plan_ticks=sum(bool(r.get('selected_for_model')) and r['plan_id'] not in sent for r in decisions),
+        deferred_capacity_plan_ticks=sum(r['reason_code']=='DEFERRED_CAPACITY' for r in decisions),
+        carried_wait_plan_ticks=sum(r['reason_code']=='CARRIED_WAIT' for r in decisions))
+    covered=set()
+    for part in trader['shards']:
+        attempted=set(part['plan_ids']) & sent
+        if not attempted:continue
+        if (covered & attempted or journal is not None and not journal.has_call_claim(part['source_call_id'])):
+            raise ValueError('REPLAY_MODEL_ATTEMPT_BINDING_INVALID')
+        covered.update(attempted)
+        counts['attempted_model_calls']+=1
+        if part.get('model_validated') is True:
+            counts['validated_model_calls']+=1
+            counts['model_legal_plan_ticks']+=len(attempted)
+    if covered!=sent:raise ValueError('REPLAY_MODEL_ATTEMPT_SCOPE_MISSING')
+    return counts
+
+
 def execute_timeline(batches,*,broker,store,set_clock,prepare_day,prepare_minute,consume_close,
                      account_id,monotonic=time.monotonic):
     """Callbacks receive the SAME broker; none may start another account.
@@ -61,7 +96,10 @@ def execute_timeline(batches,*,broker,store,set_clock,prepare_day,prepare_minute
             if result.get('trader_skip_reason'):reasons[result['trader_skip_reason']]+=1
             trader=result.get('trader')
             if trader is not None:
-                counts['evaluated_model_batches']+=1;counts['validated_model_batches']+=bool(trader.get('model_validated'))
+                evidence=model_evidence_counts(trader,args.get('journal'))
+                counts.update(evidence)
+                counts['evaluated_model_batches']+=bool(evidence['attempted_model_calls'])
+                counts['validated_model_batches']+=bool(evidence['attempted_model_calls']) and trader.get('model_validated') is True
                 reasons.update(trader.get('reason_codes',[]))
                 for admission in trader.get('admissions',[]):
                     admission_statuses[admission['judgment']['status']]+=1
@@ -72,11 +110,15 @@ def execute_timeline(batches,*,broker,store,set_clock,prepare_day,prepare_minute
         if broker.reconcile()['status']!='MATCH':raise ValueError('REPLAY_RECONCILIATION_MISMATCH')
         days.append(dict(trade_date=day,morning=morning,counts=dict(counts),reason_codes=dict(reasons),
             admission_statuses=dict(admission_statuses),close=close,settlement=settlement))
-    model_batches=sum(d['counts'].get('evaluated_model_batches',0) for d in days)
-    validated=sum(d['counts'].get('validated_model_batches',0) for d in days)
+    model_batches=sum(d['counts'].get('attempted_model_calls',0) for d in days)
+    validated=sum(d['counts'].get('validated_model_calls',0) for d in days)
+    plan_attempts=sum(d['counts'].get('model_attempted_plan_ticks',0) for d in days)
+    legal_plans=sum(d['counts'].get('model_legal_plan_ticks',0) for d in days)
     return dict(status='CONTIGUOUS_TIMELINE_EXECUTED',days=days,paper_identity=paper_identity,
         scheduled_minutes=cursor,regular_model_ticks=sum(d['counts']['regular_model_ticks'] for d in days),
         model_batch_legal_rate=None if model_batches==0 else validated/model_batches,
-        legal_rate_denominator=model_batches,production_writes=0,
+        legal_rate_denominator=model_batches,legal_rate_unit='ACTUAL_MODEL_CALL_SHARD',
+        model_plan_legal_rate=None if plan_attempts==0 else legal_plans/plan_attempts,
+        model_plan_legal_rate_denominator=plan_attempts,production_writes=0,
         control_release_gate='NOT_EVALUATED_NEEDS_SOURCE_AND_GUARD_AND_TWO_PASS_AUDIT',
         returns_claim='NONE_REPLAY_BAR_DERIVED')
