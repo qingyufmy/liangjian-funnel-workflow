@@ -29,6 +29,9 @@ def main():
         raise ValueError('REPLAY_NEW_OWNED_OUTPUT_REQUIRED')
     output.mkdir(parents=True)
     started=datetime.now(ZoneInfo('Asia/Shanghai')).isoformat()
+    source_head=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
+    source_paths=(Path(__file__),ROOT/'src/liangjian_funnel/evaluation/team_v2_replay_materializer.py')
+    source_hashes={str(path.relative_to(ROOT)):hashlib.sha256(path.read_bytes()).hexdigest() for path in source_paths}
     receipt,records,plans=read_sealed_source(args.source_pack)
     days={};digest=hashlib.sha256()
     with FrozenMinuteMaterializer(receipt['source_path'],expected_sha256=receipt['source_database_sha256'],
@@ -54,7 +57,9 @@ def main():
         snapshot_reads=reader.snapshot_reads
     result=dict(status='ORIGINAL_SIX_DAY_SOURCE_MATERIALIZED_NOT_EXECUTED',
         actual_started_at=started,actual_completed_at=datetime.now(ZoneInfo('Asia/Shanghai')).isoformat(),
-        head=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),
+        head=source_head,completion_head=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),
+        source_hashes_at_start=source_hashes,
+        source_files_unchanged=all(hashlib.sha256((ROOT/path).read_bytes()).hexdigest()==pin for path,pin in source_hashes.items()),
         archive_sha256=receipt['archive_sha256'],database_sha256=receipt['source_database_sha256'],
         minute_audit_sha256=digest.hexdigest(),snapshot_reads=snapshot_reads,days=days,
         model_calls=0,broker_constructors=0,orders=0,source_requests=0,production_writes=0,
