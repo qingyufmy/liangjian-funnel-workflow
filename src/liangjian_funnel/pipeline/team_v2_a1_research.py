@@ -94,6 +94,15 @@ def run_a1_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
             as_of=source.isoformat(),source_fields=sorted(snapshot.data),
             data_quality_summary=snapshot.data.get('DATA_QUALITY_SUMMARY'))
         if mode=='POLICY_MACRO_DISCOVERY':
+            # The authored role refers to these limits in A1_BATCH_CONTEXT.
+            # Discovery intentionally omits company A1_POOL_TARGETS, so carry
+            # the original validator's one authority explicitly, not a quota
+            # inferred from the current batch or a caller-supplied override.
+            from .a1_contract import A1_CONTRACT_VERSION,A1_THEME_TARGET,A1_NODE_TARGET
+            values['A1_BATCH_CONTEXT']={**values['A1_BATCH_CONTEXT'],
+                'monthly_coverage_contract':dict(contract_version=A1_CONTRACT_VERSION,
+                    minimum_structural_themes=A1_THEME_TARGET[0],maximum_structural_themes=A1_THEME_TARGET[1],
+                    minimum_industry_chain_nodes=A1_NODE_TARGET[0],maximum_industry_chain_nodes=A1_NODE_TARGET[1])}
             # Same packet/snapshot intersection as the old request builder;
             # do not trust an inherited or caller-expanded citation allowlist.
             context['authorized_discovery_source_refs']=tuple(values['A1_BATCH_CONTEXT']['allowed_primary_source_refs'])

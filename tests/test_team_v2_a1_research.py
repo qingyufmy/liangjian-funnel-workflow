@@ -141,6 +141,22 @@ def test_discovery_keeps_12_themes_40_nodes_original_allowlist_and_no_stocks(tmp
     assert len(seen)==1
 
 
+def test_discovery_original_numeric_coverage_limits_are_in_the_model_input(tmp_path):
+    from liangjian_funnel.pipeline.a1_contract import A1_CONTRACT_VERSION,A1_THEME_TARGET,A1_NODE_TARGET
+    app,args,seen=fixture(tmp_path,discovery=True)
+    args['a1_discovery_context']['monthly_coverage_contract']={'minimum_structural_themes':1}
+    before=deepcopy(dict(args['snapshot'].data))
+    result=app._run_stage(**args);assert result.status=='VALIDATED',result.reason_codes
+    with closing(app.team_research_adapter.store._connect()) as db:
+        body=json.loads(db.execute("SELECT body_json FROM control_minute_context WHERE decision_id LIKE 'a1-research-source:%'").fetchone()[0])
+    assert body['values']['A1_BATCH_CONTEXT']['monthly_coverage_contract']==dict(
+        contract_version=A1_CONTRACT_VERSION,minimum_structural_themes=A1_THEME_TARGET[0],
+        maximum_structural_themes=A1_THEME_TARGET[1],minimum_industry_chain_nodes=A1_NODE_TARGET[0],
+        maximum_industry_chain_nodes=A1_NODE_TARGET[1])
+    assert '"minimum_structural_themes":12' in seen[0]['messages'][0]['content']
+    assert args['snapshot'].data==before and len(seen)==1
+
+
 def test_original_discovery_source_gate_still_rejects_non_catalog_node_refs(tmp_path):
     def invalid(raw):
         if raw.get('industry_chain_graph'):raw['industry_chain_graph'][0]['source_refs']=['invented-caller-ref']
