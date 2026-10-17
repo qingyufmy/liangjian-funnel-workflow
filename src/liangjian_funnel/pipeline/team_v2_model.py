@@ -61,6 +61,8 @@ def call_team_model(request: TeamMessageRequest, client, journal: ModelJudgmentJ
         raise ValueError("TEAM_CALL_BUDGET_INVALID")
     if request.prompt.role == "A6" and session == "INTRADAY_EXCEPTION" and timeout_seconds > 20:
         raise ValueError("TEAM_CALL_BUDGET_INVALID")
+    if (request.prompt.role,session) in {('A2','INTRADAY_RADAR'),('A3','PM_INTRADAY')} and timeout_seconds>60:
+        raise ValueError('TEAM_CALL_BUDGET_INVALID')
     catalog_hash = _hash(catalog)
     if catalog_hash != request.evidence_catalog_hash or catalog_hash != runtime["catalog_sha256"]:
         raise ValueError("TEAM_CATALOG_BINDING_MISMATCH")
