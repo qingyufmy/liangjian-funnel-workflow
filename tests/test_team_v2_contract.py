@@ -58,6 +58,16 @@ def test_sentinel_is_only_legal_with_two_actual_catalog_categories():
     assert result.judgments[0]["opposing_search_scope"] == ["NEWS", "MARKET"]
 
 
+def test_0283_authorized_extra_scope_is_removed_from_derived_judgment_not_raw_capture():
+    raw=response(core_watch_pool=[vote(opposing_search_scope=['NEWS','MARKET'])]);before=deepcopy(raw)
+    result=validate_team_output('A3',raw,CATALOG)
+    assert result.valid and raw==before and result.sentinel_count==0
+    assert 'opposing_search_scope' not in result.judgments[0]
+    assert result.judgments[0]['format_warnings']==['WARN_EXTRA_SEARCH_SCOPE']
+    raw['core_watch_pool'][0]['opposing_refs']=['OUTSIDE']
+    assert not validate_team_output('A3',raw,CATALOG).valid
+
+
 def test_duplicate_and_missing_candidate_never_default_to_pass():
     assert not validate_team_output("A3", response(core_watch_pool=[vote(), vote()]), CATALOG,
                                    expected_ids={"000001.SZ"}).valid
@@ -100,7 +110,7 @@ def test_real_prompt_package_shared_is_used_and_values_are_rendered_once():
     values["EVIDENCE_CATALOG"] = CATALOG
     request = repo.prepare("A2", values)
     assert request.shared_version == "shared-system/3.0.2"
-    assert request.role_version == "agent-2/3.0.1"
+    assert request.role_version == "agent-2/3.0.2"
     assert "Legacy TOP5 wording" not in request.system
     assert "{{" not in request.system
     assert request.system.count('"id":"M1"') == 1

@@ -16,9 +16,9 @@ def packet():
     return {"envelope": deepcopy(ENVELOPE), "reason_codes": [],
             "market_read": {"regime": "ROTATION", "dominant_themes": [],
                             "emotion_cycle": "CONFIRMATION", **REFS},
-            "theme_reviews": [{"theme_id": "T", "stage": "CONFIRMATION",
+            "theme_reviews": [{"theme_id": theme, "stage": "CONFIRMATION",
                 "new_entry_policy": "ALLOW", "penalty_codes": [], "support_codes": [],
-                "risk_codes": [], "what_would_change_my_mind": ["flow reverses"], **REFS}],
+                "risk_codes": [], "what_would_change_my_mind": ["flow reverses"], **REFS} for theme in ('T','U')],
             "focus_decisions": [{"symbol": "000001.SZ", "support_codes": [], "risk_codes": [], **REFS}],
             "rotation_reviews": [], "reject_decisions": [], "model_nominations": [],
             "handoff_notes": {"to_a3": ["watch next confirmation"]},
@@ -35,6 +35,17 @@ def validate(output, **overrides):
 def test_authored_a2_response_valid_and_unchanged():
     raw = packet(); before = deepcopy(raw)
     assert validate(raw).valid and raw == before
+
+
+def test_0283_no_focus_still_requires_every_frozen_theme_once():
+    raw=packet();raw['focus_decisions']=[]
+    raw['rotation_reviews']=[dict(rotation_direction_id='D',decision='NO_FOCUS',
+        reviewed_symbols=['000001.SZ'],reason_codes=[],explanation='frozen weak structure',**REFS)]
+    assert validate(raw).valid
+    raw['theme_reviews']=raw['theme_reviews'][:1]
+    assert not validate(raw).valid
+    raw['theme_reviews'].append(deepcopy(raw['theme_reviews'][0]))
+    assert not validate(raw).valid
 
 
 @pytest.mark.parametrize("field", list(packet()))

@@ -73,7 +73,7 @@ def test_actual_role_journal_and_global_fact_score_before_model_choice(tmp_path)
     assert float(theme['theme_score'])==70 and len(result.output['focus_pool'])==1,result.output['watch_only_pool']
     assert float(theme['score_breakdown']['breadth'])==70
     assert theme['team_score_evidence']['score_snapshot_sha256']==result.diagnostics['score_snapshot_sha256']
-    assert len(seen)==1 and 'agent-2/3.0.1' in seen[0]['messages'][0]['content']
+    assert len(seen)==1 and 'agent-2/3.0.2' in seen[0]['messages'][0]['content']
     assert 'SERVER-AUTHORIZED ROTATION POLICY' not in seen[0]['messages'][0]['content']
     assert 'arbitrary_stock_return' not in seen[0]['messages'][0]['content']
     with closing(app.team_research_adapter.journal._connect()) as db:
@@ -112,7 +112,7 @@ def test_bad_model_never_repaired_into_approved_output(tmp_path,kind):
 
 def test_two_rotation_failures_preserve_both_originals_for_existing_degradation(tmp_path):
     def change(raw,_):
-        raw['focus_decisions']=[];raw['theme_reviews']=[]
+        raw['focus_decisions']=[]  # all frozen themes still require stage reviews (0283)
     app,args,seen=fixture(tmp_path,change,rotation=True)
     result=app._run_stage(**args)
     from liangjian_funnel.pipeline.review_degraded import rotation_review_failed_twice
@@ -200,7 +200,7 @@ def test_legacy_rotation_validator_conflict_after_server_missing_data_demotion_i
 def test_second_review_must_actually_explain_no_focus_after_data_demotion(tmp_path):
     def change(raw,attempt):
         if attempt==2:
-            raw['focus_decisions']=[];raw['theme_reviews']=[]
+            raw['focus_decisions']=[]
             raw['rotation_reviews']=[dict(rotation_direction_id='D',decision='NO_FOCUS',reviewed_symbols=['000001.SZ'],
                 reason_codes=['SCORE_DATA_LIMITED'],explanation='Frozen member fields have insufficient coverage',
                 supporting_refs=['A2:QUANT:000001.SZ'],opposing_refs=['A2:NEWS'])]
@@ -215,7 +215,7 @@ def test_second_review_must_actually_explain_no_focus_after_data_demotion(tmp_pa
 
 def test_actual_quant_downstream_two_failed_reviews_yield_degraded_watch_not_fake_pass(tmp_path):
     from liangjian_funnel.pipeline.deterministic import DeterministicGateResult
-    def change(raw,_):raw['focus_decisions']=[];raw['theme_reviews']=[]
+    def change(raw,_):raw['focus_decisions']=[]
     app,args,seen=fixture(tmp_path,change,rotation=True)
     rows=tuple(dict(symbol=s,name='TEST',theme_id='T',node_id='N',upstream_candidate_id='a1:'+s,
         status='REVIEW_CANDIDATE',role='TREND_CORE',route='MARKET_CORE',eligible_routes=['MARKET_CORE'],

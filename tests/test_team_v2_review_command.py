@@ -26,6 +26,17 @@ CAL=SimpleNamespace(is_trading_day=lambda day:day.isoformat()=='2026-10-19')
 ROOT=Path(__file__).resolve().parents[1]
 
 
+def test_0283_counterexample_stage_projection_keeps_original_detail_without_editing_source():
+    from copy import deepcopy
+    from liangjian_funnel.runtime.team_v2_review_command import counterexample_stage_projection
+    rows=[dict(symbol='000001.SZ',drop_stage='A2_QUANT_FILTERED'),
+          dict(symbol='000002.SZ',drop_stage='UNRESOLVED_A3_LINEAGE_MISSING')]
+    before=deepcopy(rows);projected=counterexample_stage_projection(rows)
+    assert rows==before
+    assert [row['funnel_drop_stage'] for row in projected]==['A2','UNRESOLVED']
+    assert [row['original_drop_stage'] for row in projected]==[r['drop_stage'] for r in rows]
+
+
 def fixture(tmp_path,*,invalid=False):
     shutil.copytree(ROOT/'config',tmp_path/'config');shutil.copytree(ROOT/'prompts/team_v2',tmp_path/'prompts/team_v2')
     settings=Settings.from_env({'LIANGJIAN_MODEL_API_KEY':'UNIT_TEST_ONLY_NOT_A_CREDENTIAL'},root=tmp_path)
@@ -60,7 +71,7 @@ def test_real_command_freezes_facts_calls_new_coach_once_no_customer_prose_or_wr
     assert len(seen)==1 and settings.state_db_path.read_bytes()==before and (owned/'paper.db').read_bytes()==paper_before
     assert 'CUSTOMER_PROSE' not in canonical(seen) and 'CUSTOMER_CURRENT_REPORT' not in canonical(seen)
     assert b'CUSTOMER_PROSE' not in (owned/'team.db').read_bytes()
-    assert 'agent-5/2.0.4' in seen[0]['messages'][0]['content']
+    assert 'agent-5/2.0.5' in seen[0]['messages'][0]['content']
     with sqlite3.connect(owned/'team.db') as db:
         assert db.execute('SELECT count(*) FROM team_a5_reviews').fetchone()[0]==1
         assert db.execute('SELECT count(*) FROM team_internal_cards').fetchone()[0]==1

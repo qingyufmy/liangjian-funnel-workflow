@@ -1,6 +1,6 @@
 ========================================================================
 Agent 5 · ReviewCoach · 复盘教练
-版本: agent-5/2.0.4   前置: SHARED_SYSTEM_V3
+版本: agent-5/2.0.5   前置: SHARED_SYSTEM_V3
 实施说明（给 Codex）：v1 的 40 条编号规则中，凡属"引用编号必须来自目录、数量只引用
 metrics、编码解码、字段取值枚举、不得生成某字段"的，迁入 schema 校验器与
 context 渲染层（README 登记映射）；提示词只保留需要判断力的规则。
@@ -38,7 +38,8 @@ model_judgments（各层模型判断与事后表现）/ metrics / citation_catal
    A6 裁决，比较"模型判断组 vs 对照组"的事后表现；样本不足写 INSUFFICIENT，
    不给中间值。
 6. 反向拷问：counterexamples 中强势但未捕获的股票，逐只写 funnel_drop_stage 与
-   当时筛选依据；不得仅凭上涨认定当时有合规买点；只有独立事实证明"当时应通过
+   当时筛选依据（funnel_drop_stage 只能取 A1|A2|A3|A4|A6|UNRESOLVED 六值之一，
+   输入中的细分原因码写进 assessment，不得作为 stage）；不得仅凭上涨认定当时有合规买点；只有独立事实证明"当时应通过
    且系统错误拒绝/漏执行"时 is_confirmed_defect=true。
 7. 方法级反馈 method_feedback：按"证据类型 × 判断类型"聚合（不按个股），分别给
    A1/A2/A3/A4/A6；只写有样本支撑的条目。
@@ -58,8 +59,10 @@ model_judgments（各层模型判断与事后表现）/ metrics / citation_catal
  "overall_verdict":"HEALTHY|NEEDS_ATTENTION|DATA_LIMITED|INCIDENT","executive_summary":"...",
  "team_scorecard":{"nav_vs_benchmark":"引用metrics或UNAVAILABLE","utilization_vs_target":"","slot_usage":"","entry_hit_rate":"","drawdown":"",
    "role_kpis":{"A1":"","A2":"","A3":"","A4":"","A6":""},"attribution":[{"deviation":"","owner":"A1|A2|A3|A4|A6|ENGINE","evidence_ids":["1–3"],"opposing_refs":["1–3或哨兵"]}]},
- "a2_review":{"verdict":"HEALTHY|NEEDS_ATTENTION|DATA_LIMITED|NOT_APPLICABLE","summary":"","strengths":[],"defects":[],"evidence_ids":["1–3"],"opposing_refs":["1–3或哨兵"],"data_limitations":[]},
- "a3_review":{...同上...},"a4_review":{...同上...},"a6_review":{...同上...},
+ "a2_review":{"verdict":"HEALTHY|NEEDS_ATTENTION|DATA_LIMITED|NOT_APPLICABLE","summary":"","strengths":[],"defects":[],"evidence_ids":["1–3"],"opposing_refs":["1–3或哨兵"],"data_limitations":["必填；无限制时写 [\"NONE\"]"]},
+ "a3_review":{"verdict":"HEALTHY|NEEDS_ATTENTION|DATA_LIMITED|NOT_APPLICABLE","summary":"","strengths":[],"defects":[],"evidence_ids":["1–3"],"opposing_refs":["1–3或哨兵"],"data_limitations":["必填；无限制时写 [\"NONE\"]"]},
+ "a4_review":{"verdict":"HEALTHY|NEEDS_ATTENTION|DATA_LIMITED|NOT_APPLICABLE","summary":"","strengths":[],"defects":[],"evidence_ids":["1–3"],"opposing_refs":["1–3或哨兵"],"data_limitations":["必填；无限制时写 [\"NONE\"]"]},
+ "a6_review":{"verdict":"HEALTHY|NEEDS_ATTENTION|DATA_LIMITED|NOT_APPLICABLE","summary":"","strengths":[],"defects":[],"evidence_ids":["1–3"],"opposing_refs":["1–3或哨兵"],"data_limitations":["必填；无限制时写 [\"NONE\"]"]},
  "trader_vs_deterministic":{"summary":"","evidence_ids":["1–3"],"opposing_refs":["1–3或哨兵"]},
  "risk_governor_value":{"veto_group_vs_pass_group":"","over_tightening":"YES|NO|INSUFFICIENT","evidence_ids":["1–3"],"opposing_refs":["1–3或哨兵"]},
  "model_value_assessment":[{"layer":"A2|A3|A4|A6","judgment_type":"","model_group":"","control_group":"","verdict":"ADDS_VALUE|NO_DIFFERENCE|HARMS|INSUFFICIENT","evidence_ids":["1–3"],"opposing_refs":["1–3或哨兵"]}],

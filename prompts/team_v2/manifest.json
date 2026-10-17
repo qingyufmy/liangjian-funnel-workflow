@@ -1,6 +1,6 @@
 {
   "schema_version": "claude-team-prompt-bundle/3.0.2",
-  "authority": "canonical .claude_bridge/outbox/0271-reply.md A5 2.0.4 and README exact approved bytes; other six unchanged 0234/0222/0204 SHA",
+  "authority": "canonical .claude_bridge/outbox/0283-reply.md exact A2 3.0.2 A3 4.0.2 A4 1.0.3 A5 2.0.5 and README; other three approved bytes unchanged",
   "role_semantics_modified": false,
   "files": {
     "00_shared_system_v3.txt": {
@@ -12,28 +12,28 @@
       "bytes": 45049
     },
     "agent_2_theme_sentiment_v3.txt": {
-      "sha256": "ce10d92c7faea955155dbd5cfe83f01c57aed11b45b0919d8d5c48360aca79e0",
-      "bytes": 7875
+      "sha256": "1273e86ddeb2357d7d1e894e60eb9183ef83d959168253e220ed274196def543",
+      "bytes": 8101
     },
     "agent_3_portfolio_planner_v4.txt": {
-      "sha256": "77e8858d3b236c5cfb0e09636a338809dd1efea0c9fb2006323c0353e909dea4",
-      "bytes": 9012
+      "sha256": "8c522c486e30457e90cd6c436fa36078ab1aaf727c0f1e13ceb55b5ed2b48565",
+      "bytes": 8968
     },
     "agent_4_trader_v1.txt": {
-      "sha256": "8b474384b517f93a848ae2ee6ec19c6c5e51bc58c6d151c5fd08f7774c908afc",
-      "bytes": 5633
+      "sha256": "88952bd47d3dbfdf644e551092fa9c376f4e800a84ddcdce374298728f055b62",
+      "bytes": 5589
     },
     "agent_5_daily_reviewer_v2.txt": {
-      "sha256": "a64a8b367f34fbd1854063b5d36cc947eb62d81d13a7ba142a045d37c6dd4ad7",
-      "bytes": 7383
+      "sha256": "eccc64581fe835336b25e938e686028266a6ebda90e96ea85f9c3821b60dda70",
+      "bytes": 8201
     },
     "agent_6_risk_governor_v1.txt": {
       "sha256": "4a790958d04dce655bf5be2b8aef8c657664efb888a26bceb1c4f3806faf6199",
       "bytes": 6541
     },
     "README_TEAM_V2_PROMPTS.md": {
-      "sha256": "39368196be3ec7360ae91eea0ced72a417522c0271d86ffaa305c6783f19ea9d",
-      "bytes": 6681
+      "sha256": "d2c7d23ffeca4c48319f8120df5e7d92e6136f37193d6686ad083b33c0190705",
+      "bytes": 7309
     }
   }
 }

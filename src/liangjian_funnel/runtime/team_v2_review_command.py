@@ -120,6 +120,16 @@ def review_events(facts):
     return domain,events
 
 
+def counterexample_stage_projection(rows):
+    """0283: retain detailed original code beside the six-value role stage."""
+    result=[]
+    for source in rows:
+        original=source.get('drop_stage','UNRESOLVED');layer=str(original).split('_',1)[0]
+        result.append({**source,'original_drop_stage':original,
+            'funnel_drop_stage':layer if layer in {'A1','A2','A3','A4','A6'} else 'UNRESOLVED'})
+    return result
+
+
 def coach_projection(full):
     """Declared aggregates, not silent truncation. Every signal stays explicit.
 
@@ -137,6 +147,10 @@ def coach_projection(full):
         legacy_operational_evidence={k:legacy_view[k] for k in
             ('operational_evidence','business_audit','execution_observability','data_quality') if k in legacy_view},
         full_team_fact_sha256=full['input_hash'],projection_schema='team-a5-coach-projection/1')
+    projected['counterexamples']=counterexample_stage_projection(projected['counterexamples'])
+    if 'counterexamples' in projected['independent_verification']:
+        projected['independent_verification']={**projected['independent_verification'],
+            'counterexamples':counterexample_stage_projection(projected['independent_verification']['counterexamples'])}
     tables=full.get('a6',{}).get('rows',{});team={}
     for table,rows in tables.items():
         if not isinstance(rows,list):team[table]=rows;continue

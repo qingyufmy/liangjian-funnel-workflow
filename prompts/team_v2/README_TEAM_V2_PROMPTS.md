@@ -24,7 +24,7 @@
 - A3 候选域 = A2 FOCUS + WATCH_ONLY（均为技术送审来源）；仅 model_nominations 不进 A3。
 - EVIDENCE_CATALOG：每层注入的可引用 ID 目录；引用不在目录内 → INVALID。
 - 模型判断全部进 `model_judgments`（decision_id/plan_id 唯一、原始输出与解析状态不可变、T+1/T+3 独立列），不混入有效入场 cohort。
-- prompt_version：shared 3.0.2 / A1 3.0.1 / A2 3.0.1 / A3 4.0.1 / A4-trader 1.0.2 / A5 2.0.4 / A6 1.0.3；envelope 原样回填。
+- prompt_version：shared 3.0.2 / A1 3.0.1 / A2 3.0.2 / A3 4.0.2 / A4-trader 1.0.3 / A5 2.0.5 / A6 1.0.3；envelope 原样回填。
 - 体积：角色专属 ≤12KB；A1 例外 ≤48KB（低频 pro 调用，v2 硬规则全部保留，见 A1【合同说明】C4），共享另计。
 
 ## 干跑要求（发布门）
@@ -52,3 +52,9 @@
 
 ## A5 2.0.4（2026-10-17，回应 0270）
 - method_feedback 条目固定结构：method_id（必须来自 METHOD_CALIBRATION）、stance ∈ TIGHTEN|KEEP|INSUFFICIENT、note、evidence_ids、opposing_refs。无合法 method_id 的条目不回灌。A5 无"放宽"立场。
+
+## 10-17 真实干跑修订（回应 0278/0279）
+- A2 3.0.2：theme_reviews 覆盖 _theme_review_scope 每个键恰好一条（与 focus 无关）；示例删除 opposing_search_scope，改为输出说明中的条件规则。
+- A3 4.0.2 / A4 1.0.3：示例删除 opposing_search_scope（条件字段规则不变，见共享 O2）。
+- A5 2.0.5：a2/a3/a4/a6_review 全部展开，data_limitations 必填（无则 ["NONE"]）；funnel_drop_stage 只取六值，细分原因写入 assessment。
+- 校验器：非哨兵时出现的 opposing_search_scope 剥离并记 WARN_EXTRA_SEARCH_SCOPE，不判 INVALID（作者授权）。

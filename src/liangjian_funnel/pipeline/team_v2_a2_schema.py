@@ -1,4 +1,4 @@
-"""Claude A2 3.0.1 response schema, separate from engine eligibility.
+"""Claude A2 3.0.2 response schema, separate from engine eligibility.
 
 Caller supplies the frozen domains; no domain is inferred from model claims.
 An invalid response is returned intact to the existing degradation policy.
@@ -125,7 +125,8 @@ def validate_a2_response(output: Any, catalog: Any, *, required_envelope: Mappin
             issues.append("A2_THEME_FIELDS_INVALID")
     focus_themes = {symbol_themes[symbol] for symbol in focused if symbol in symbol_themes}
     if (any(symbol not in symbol_themes for symbol in focused)
-            or len(theme_ids) != len(set(theme_ids)) or set(theme_ids) != focus_themes):
+            or len(theme_ids) != len(set(theme_ids)) or set(theme_ids) != allowed_theme_ids
+            or not focus_themes.issubset(allowed_theme_ids)):
         issues.append("A2_FOCUS_THEME_COVERAGE_MISMATCH")
 
     expected = {direction for direction, symbols in direction_symbols.items()

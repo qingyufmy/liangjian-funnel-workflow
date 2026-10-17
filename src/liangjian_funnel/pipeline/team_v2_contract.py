@@ -137,7 +137,10 @@ def validate_team_output(role: str, output: Any, catalog: Any, *, session: str |
         elif not _valid_refs(opposing, refs):
             issues.append("TEAM_OPPOSING_REFS_INVALID:" + row["path"])
         if opposing != [NO_OPPOSING] and "opposing_search_scope" in row:
-            issues.append("TEAM_UNEXPECTED_SEARCH_SCOPE:"+row["path"])
+            # 0283: formatting noise only. Raw provider JSON stays immutable;
+            # the derived judgment drops it and records the explicit warning.
+            row.pop('opposing_search_scope')
+            row['format_warnings']=['WARN_EXTRA_SEARCH_SCOPE']
     if role == "A3" and output.get("session") == "PLAN_REVIEW" and expected_ids is not None:
         ids = [row.get("symbol") for row in judgments if row["path"].split("[", 1)[0] in
                {"core_watch_pool", "secondary_watch_pool", "rejected_candidates"}]
