@@ -25,6 +25,26 @@ def test_original_counterexample_and_nested_candidate_are_citable_without_alias_
         counterexample_citations(rows+rows)
 
 
+def test_sharded_model_admissions_bind_actual_child_call_not_aggregate_session_id():
+    import json
+    from liangjian_funnel.runtime.team_v2_review_command import review_events
+    calls=[];admissions=[]
+    for pid in ('p1','p2'):
+        call='A4:parent:'+pid
+        judgment=dict(action='BUY_SIGNAL',plan_id=pid,symbol='000001.SZ')
+        calls.append(dict(call_id=call,validated=1,judgment_json=json.dumps(judgment),decision_id='decision:'+pid))
+        admissions.append(dict(source_call_id=call,binding=judgment,judgment={'status':'APPROVED'}))
+    facts=dict(legacy_facts={'a4':{'events':[]},'a3':{'plans':[]}},model_judgments={'rows':{'judgments':calls}},
+        a6={'rows':{'trader_sessions':[dict(source_call_id='A4:parent',result_json=json.dumps({'admissions':admissions}))]}})
+    domain,events=review_events(facts)
+    assert set(domain)=={'decision:p1','decision:p2'} and len(events)==2
+    broken=deepcopy(facts)
+    raw=json.loads(broken['a6']['rows']['trader_sessions'][0]['result_json'])
+    raw['admissions'][0].pop('source_call_id')
+    broken['a6']['rows']['trader_sessions'][0]['result_json']=json.dumps(raw)
+    with pytest.raises(ValueError,match='JUDGMENT_BINDING_UNPROVEN'):review_events(broken)
+
+
 def response():
     raw=report({})
     raw['signal_reviews']=[dict(decision_id=key,**values,assessment='逐事件依据不足',attribution='DATA_LIMITED',**REFS)

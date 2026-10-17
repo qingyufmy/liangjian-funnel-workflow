@@ -14,6 +14,7 @@ from .team_v2_trader_session import run_trader_session
 
 
 def run_trader_batch(**args):
+    if not args.get('allow_model_call'):raise ValueError('TEAM_MODEL_CALL_NOT_AUTHORIZED')
     projection=args.get('input_projection')
     if projection is None:return run_trader_session(**args)
     monotonic=args.get('monotonic',time.monotonic);deadline=args.get('deadline_monotonic')
