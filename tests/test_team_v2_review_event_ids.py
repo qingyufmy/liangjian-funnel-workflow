@@ -10,6 +10,21 @@ DOMAIN={key:dict(symbol='000001.SZ',strategy_profile='TREND_MA5',lifecycle_statu
     for key in ('A4:original-one','A4:original-two')}
 
 
+def test_original_counterexample_and_nested_candidate_are_citable_without_alias_repair():
+    from liangjian_funnel.runtime.team_v2_review_command import counterexample_citations
+    rows=[dict(symbol='000001.SZ',evidence_id='A5V:MISS:000001.SZ',
+        a3_candidate=dict(evidence_id='A3:CANDIDATE:000001.SZ',verdict='WAIT'))]
+    before=deepcopy(rows);items=counterexample_citations(rows)
+    assert rows==before and [r['id'] for r in items]==['A5V:MISS:000001.SZ','A3:CANDIDATE:000001.SZ']
+    for item in items:
+        fact={'counterexamples':rows}
+        for key in item['input_ref']:fact=fact[key]
+        from liangjian_funnel.runtime.team_v2_review_command import _hash
+        assert item['sha256']==_hash(fact)
+    with pytest.raises(ValueError,match='CITATION_CONFLICT'):
+        counterexample_citations(rows+rows)
+
+
 def response():
     raw=report({})
     raw['signal_reviews']=[dict(decision_id=key,**values,assessment='逐事件依据不足',attribution='DATA_LIMITED',**REFS)

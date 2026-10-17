@@ -130,6 +130,23 @@ def counterexample_stage_projection(rows):
     return result
 
 
+def counterexample_citations(rows):
+    """Expose only original named facts, not invented model citation aliases."""
+    result=[];seen=set()
+    for i,row in enumerate(rows):
+        sources=[(row,['counterexamples',i],'COUNTEREXAMPLE')]
+        if isinstance(row.get('a3_candidate'),dict):
+            sources.append((row['a3_candidate'],['counterexamples',i,'a3_candidate'],'A3_CANDIDATE'))
+        for fact,path,category in sources:
+            identity=fact.get('evidence_id')
+            if identity is None:continue
+            if not isinstance(identity,str) or not identity.strip() or identity in seen:
+                raise ValueError('A5_COUNTEREXAMPLE_CITATION_CONFLICT')
+            seen.add(identity)
+            result.append(dict(id=identity,category=category,input_ref=path,sha256=_hash(fact)))
+    return result
+
+
 def coach_projection(full):
     """Declared aggregates, not silent truncation. Every signal stays explicit.
 
@@ -194,6 +211,11 @@ def coach_projection(full):
     catalog['categories'].append('SIGNAL')
     catalog['items'].extend(dict(id=e['decision_id'],category='SIGNAL',summary={k:v for k,v in e.items() if k!='evidence'},
         sha256=_hash(e)) for e in events)
+    extra=counterexample_citations(projected['counterexamples'])
+    if {row['id'] for row in extra}&{row['id'] for row in catalog['items']}:
+        raise ValueError('A5_COUNTEREXAMPLE_CITATION_CONFLICT')
+    catalog['categories']=list(dict.fromkeys([*catalog['categories'],*(row['category'] for row in extra)]))
+    catalog['items'].extend(extra)
     projected['citation_catalog']=catalog
     projected['input_hash']=_hash(projected)
     return projected,domain
