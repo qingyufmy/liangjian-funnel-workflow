@@ -27,7 +27,8 @@ def run_trader_session(*,repository,client,journal,store,broker,decision_id,minu
         envelopes,held_plan_ids,position_snapshot,tech_reference,limits,regime,
         live_market_ready,snapshot_ready,mode,calendar,timeout_seconds,max_output_tokens,
         allow_model_call=False,pm_meeting_id=None,deadline_monotonic=None,monotonic=time.monotonic,utilization_cap_pct=None,
-        capture_clock=None,input_projection=None,capture_only=False):
+        capture_clock=None,input_projection=None,capture_only=False,
+        review_candidate_actions=None,review_position_actions=None):
     if not allow_model_call:raise ValueError('TEAM_MODEL_CALL_NOT_AUTHORIZED')
     # Isolated frozen replay has a historical execution clock but records real
     # HTTP capture time. Live callers omit this option and retain one clock.
@@ -75,6 +76,8 @@ def run_trader_session(*,repository,client,journal,store,broker,decision_id,minu
         utilization_cap_pct=utilization_cap_pct,
         pm_allocation=asdict(allocation) if allocation is not None else None,
         capture_only=capture_only)
+    if review_candidate_actions is not None or review_position_actions is not None:
+        context.update(review_candidate_actions=review_candidate_actions,review_position_actions=review_position_actions)
     execution_hash=hashlib.sha256(dump(context).encode()).hexdigest()
     values=dict(replacements)
     time_rules=dict(values['TIME_RULES']) if isinstance(values.get('TIME_RULES'),Mapping) else {}
@@ -83,7 +86,10 @@ def run_trader_session(*,repository,client,journal,store,broker,decision_id,minu
     # sizing budget or share cap. Full envelopes remain in the engine binding.
     visible_envelopes={pid:{key:value for key,value in e.items() if key in {
         'plan_id','symbol','trade_date','eligible','risk_unit','max_batches','blocked_reasons','purpose','a6_tightened'}}
-        for pid,e in context['envelopes'].items()}
+        for pid,e in context['envelopes'].items() if pid in set(active_plan_ids)|set(held_plan_ids.values())}
+    if review_candidate_actions is not None:
+        time_rules['engine_review_candidates']=dict(review_candidate_actions)
+        time_rules['engine_position_candidates']=dict(review_position_actions or {})
     values.update(DECISION_ID=decision_id,MINUTE_SNAPSHOT_ID=minute_snapshot_id,
         ACTIVE_PLANS=[context['plans'][pid] for pid in sorted(active_plan_ids)],
         RISK_ENVELOPES=visible_envelopes,POSITIONS=position_snapshot,TECH_REFERENCE=tech_reference,
@@ -98,6 +104,8 @@ def run_trader_session(*,repository,client,journal,store,broker,decision_id,minu
     validation_context=dict(required_envelope=required_envelope,decision_id=decision_id,
         minute_snapshot_id=minute_snapshot_id,plans={pid:all_plans[pid].symbol for pid in active_plan_ids},
         held_symbols=set(held_plan_ids),tech_reference=tech_reference)
+    if review_candidate_actions is not None or review_position_actions is not None:
+        validation_context.update(candidate_actions=review_candidate_actions,position_candidate_actions=review_position_actions)
     validate_trader_output(None,values['EVIDENCE_CATALOG'],**validation_context)
     binding=hashlib.sha256(dump(dict(execution_hash=execution_hash,input_hash=request.input_hash)).encode()).hexdigest()
     previous=store.load_trader(decision_id,input_sha256=binding)

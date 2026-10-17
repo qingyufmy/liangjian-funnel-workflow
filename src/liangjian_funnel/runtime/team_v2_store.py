@@ -141,6 +141,13 @@ class TeamMeetingStore:
                 db.execute('UPDATE trader_observation_state SET last_sent_at=? WHERE account_id=? AND trade_date=? AND plan_id=? AND (last_sent_at IS NULL OR last_sent_at<=?)',
                     (at.isoformat(),account_id,trade_date,pid,at.isoformat()))
 
+    def read_control_context(self,decision_id,*,source_sha256):
+        with closing(self._connect()) as db:
+            old=db.execute('SELECT source_sha256,body_json FROM control_minute_context WHERE decision_id=?',(decision_id,)).fetchone()
+        if old is None:return None
+        if old[0]!=source_sha256:raise ValueError('CONTROL_MINUTE_SOURCE_CONFLICT')
+        return json.loads(old[1])
+
     def freeze_control_context(self,decision_id,*,source_sha256,body):
         """Persist the post-bar view before HTTP; restart reuses that exact view."""
         text=canonical(body)

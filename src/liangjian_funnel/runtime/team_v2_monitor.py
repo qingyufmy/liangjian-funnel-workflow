@@ -116,6 +116,7 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
         body=dict(live=live,regime=regime))
     live=market['live'];regime=market['regime']
     references={};evaluations={};entry_proven={};model_contexts={}
+    held_positions={p['plan_id']:dict(p) for p in broker.get_positions()}
     for row in scope['plans']:
         plan=decode_plan(row);packed=packet['sources'].get(plan.symbol,{});bars=tuple(MinuteBar.model_validate(b) for b in packed.get('bars',()))
         projected=project_closed_minute(bars,(),observed_at=stamp(packet['captured_at']))
@@ -146,10 +147,12 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
         contexts[plan.plan_id]=context
         from .team_v2_trader_inputs import model_closed_context
         model_contexts[plan.plan_id]=model_closed_context(context,bars,cutoff=cutoff)
-        if plan.plan_id in active:
-            value=evaluate_strategy(raw_rows[plan.plan_id],bars,now=cutoff,decision_time=current,market_context=context)
+        if plan.plan_id in active or plan.plan_id in held_positions:
+            value=evaluate_strategy(raw_rows[plan.plan_id],bars,now=cutoff,decision_time=current,
+                position=held_positions.get(plan.plan_id),market_context=context)
             evaluations[plan.plan_id]=value.model_dump(mode='json')
-            references[plan.plan_id]={**{x:'MET' for x in value.met_conditions},**{x:'UNMET' for x in value.unmet_conditions}}
+            if plan.plan_id in active:
+                references[plan.plan_id]={**{x:'MET' for x in value.met_conditions},**{x:'UNMET' for x in value.unmet_conditions}}
     if morning is None:
         result=run_control_minute(session_kwargs=dict(broker=broker,store=store,clock=clock,account_id=ACCOUNT,all_plans=plans),
             closed_bars=paper,deadline_monotonic=deadline,model_enabled=False)

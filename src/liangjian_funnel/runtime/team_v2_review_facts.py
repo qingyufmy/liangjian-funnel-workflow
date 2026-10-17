@@ -16,6 +16,27 @@ from zoneinfo import ZoneInfo
 from .team_v2_store import assert_database_scope,canonical
 
 
+def candidate_review_metrics(rows):
+    counts=dict(candidate_count=0,selected_count=0,actual_model_objects=0,confirmed_count=0,
+        veto_count=0,failed_review_count=0,engine_exit_fallback_count=0)
+    seen=set();timeouts=0;unknown=0
+    for row in rows if isinstance(rows,list) else []:
+        result=json.loads(row['result_json']);review=result.get('candidate_review')
+        if not isinstance(review,dict):continue
+        if row['decision_id'] in seen:raise ValueError('A5_DUPLICATE_CANDIDATE_REVIEW')
+        seen.add(row['decision_id'])
+        for key in counts:counts[key]+=review[key]
+        if review['timeout_count'] is None:unknown+=review['failed_review_count']
+        else:timeouts+=review['timeout_count']
+    denominator=counts['actual_model_objects']
+    return dict(status='AVAILABLE' if seen else 'NO_CANDIDATE_REVIEW_EVIDENCE',**counts,
+        confirmation_rate=str(D(counts['confirmed_count'])/D(denominator)) if denominator else None,
+        veto_rate=str(D(counts['veto_count'])/D(denominator)) if denominator else None,
+        known_timeout_count=timeouts,unclassified_failure_objects=unknown,
+        timeout_rate=str(D(timeouts)/D(denominator)) if denominator and not unknown else None,
+        model_denominator='ACTUAL_SENT_CANDIDATE_OBJECTS_NOT_ALL_TRACKED_PLANS')
+
+
 def trader_scope_metrics(rows):
     counts={'scope_plan_ticks':0,'selected_plan_ticks':0,'model_attempted_plan_ticks':0,'deferred_plan_ticks':0,'carried_wait_plan_ticks':0}
     seen=set();sessions=0
@@ -151,6 +172,7 @@ def build_team_review_facts(*,legacy_facts,store,journal,paper_snapshot,settleme
     utilization=str(D(value)/D(nav)*100) if nav is not None and value is not None and D(nav)>0 else None
     metrics=dict(legacy_facts.get('metrics') or {})
     metrics['trader_model_scope']=trader_scope_metrics(rows.get('trader_sessions'))
+    metrics['trader_candidate_review']=candidate_review_metrics(rows.get('trader_sessions'))
     # 0290: name original observation denominators explicitly. Counts are
     # copied from frozen metrics, never reconstructed from filtered prose.
     def count(value):return value if type(value) is int and value>=0 else None

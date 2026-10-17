@@ -38,6 +38,12 @@ def prepared(tmp_path,monkeypatch):
     import liangjian_funnel.runtime.live_market as live
     monkeypatch.setattr(live,'load_or_refresh_live_market_state',lambda *a,**kw:dict(status='READY',
         as_of=clock.now.isoformat(),trade_date=clock.now.date().isoformat(),entry_permission='ALLOW'))
+    # This fixture isolates source -> eligible engine candidate -> review ->
+    # paper wiring, not the strategy shape itself (covered by strategy tests).
+    import liangjian_funnel.runtime.strategies as strategy
+    original_evaluate=strategy.evaluate_strategy
+    monkeypatch.setattr(strategy,'evaluate_strategy',lambda *a,**kw:
+        original_evaluate(*a,**kw).model_copy(update={'action':'BUY_SIGNAL'}))
     def handler(request):
         seen.append(json.loads(request.read()));runtime=json.loads(seen[-1]['messages'][1]['content'].removeprefix('RUNTIME_INPUT\n'))
         text=seen[-1]['messages'][0]['content'];refs=json.JSONDecoder().raw_decode(text.split('TECH_REFERENCE=',1)[1])[0]
@@ -105,16 +111,16 @@ def test_actual_task_same_minute_retry_reuses_model_and_single_order(tmp_path,mo
 def test_after0945_without_current_primary_record_cannot_keep_yesterday_permission(tmp_path,monkeypatch):
     app,clock,seen,api,proof=prepared(tmp_path,monkeypatch);advance(clock,9,46)
     result=run_monitor_control(app,now=clock.now,clock=lambda:clock.now,client=api,tradability_loader=proof)
-    assert result['result']['trader']['model_validated'] and not result['result']['trader']['admissions'][0]['dispatched']
-    assert result['result']['trader']['admissions'][0]['judgment']['reason_codes']
+    assert result['result']['trader']['model_validated'] is None and not seen
+    assert result['result']['trader']['admissions']==[]
 
 
 def test_current_entry_block_does_not_turn_plan_into_untradable_for_held_exits(tmp_path,monkeypatch):
     app,clock,seen,api,proof=prepared(tmp_path,monkeypatch)
     def blocked(*a,**k):return {**proof(*a,**k),'entry_tradable':False}
     result=run_monitor_control(app,now=clock.now,clock=lambda:clock.now,client=api,tradability_loader=blocked)
-    assert result['result']['trader']['model_validated'] and not result['result']['trader']['admissions'][0]['dispatched']
-    assert 'CONTROL_CURRENT_ENTRY_TRADABILITY_UNPROVEN' in result['result']['trader']['admissions'][0]['judgment']['reason_codes']
+    assert result['result']['trader']['model_validated'] is None and not seen
+    assert result['result']['trader']['admissions']==[]
 
 
 def test_new_regime_sidecar_failure_does_not_crash_the_monitor_or_allow_new_entry(tmp_path,monkeypatch):
@@ -123,8 +129,8 @@ def test_new_regime_sidecar_failure_does_not_crash_the_monitor_or_allow_new_entr
     def failed(*a,**kw):raise RuntimeError('PRIVATE_NOT_FOR_LOG')
     monkeypatch.setattr(source_module,'record_current_regime',failed)
     result=run_monitor_control(app,now=clock.now,clock=lambda:clock.now,client=api,tradability_loader=proof)
-    assert result['status']=='DEGRADED' and result['result']['trader']['model_validated']
-    assert not result['result']['trader']['admissions'][0]['dispatched']
+    assert result['status']=='DEGRADED' and result['result']['trader']['model_validated'] is None
+    assert not seen and result['result']['trader']['admissions']==[]
     assert {'reason_code':'CONTROL_LIVE_REGIME_UPDATE_FAILED'} in result['source_reasons']
     assert 'PRIVATE_NOT_FOR_LOG' not in json.dumps(result)
 
@@ -153,8 +159,18 @@ def test_persisted_exception_controls_block_entry_after_restart_not_morning_only
             input_sha256=str(index),targets=domain,hard_halt=False)
         rt.record(str(index),source_call_id=str(index),input_sha256=str(index),output=raw,validated=kind!='failure_latch')
     result=run_monitor_control(app,now=clock.now,clock=lambda:clock.now,client=api,tradability_loader=proof)
-    assert result['result']['trader']['model_validated'] and len(seen)==1
-    assert not result['result']['trader']['admissions'][0]['dispatched']
+    assert result['result']['trader']['model_validated'] is None and not seen
+    assert result['result']['trader']['admissions']==[]
+
+
+def test_engine_start_confirmation_never_calls_review_model(tmp_path,monkeypatch):
+    app,clock,seen,api,proof=prepared(tmp_path,monkeypatch)
+    import liangjian_funnel.runtime.strategies as strategy
+    original=strategy.evaluate_strategy
+    monkeypatch.setattr(strategy,'evaluate_strategy',lambda *a,**kw:
+        original(*a,**kw).model_copy(update={'action':'START_CONFIRMATION'}))
+    result=run_monitor_control(app,now=clock.now,clock=lambda:clock.now,client=api,tradability_loader=proof)
+    assert not seen and result['result']['trader']['candidate_review']['candidate_count']==0
 
 
 def test_missing_morning_keeps_existing_inventory_hard_exit_without_any_model(tmp_path,monkeypatch):

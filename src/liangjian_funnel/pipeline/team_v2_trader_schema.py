@@ -28,7 +28,13 @@ def _same(left, right):
 
 
 def validate_trader_output(output, catalog, *, required_envelope, decision_id, minute_snapshot_id,
-                           plans, held_symbols, tech_reference):
+                           plans, held_symbols, tech_reference,candidate_actions=None,position_candidate_actions=None):
+    if candidate_actions is not None and (set(candidate_actions)!=set(plans)
+            or any(value not in {'BUY_SIGNAL','ADD_SIGNAL'} for value in candidate_actions.values())):
+        raise ValueError('TRADER_REVIEW_CANDIDATE_CONTEXT_INVALID')
+    if position_candidate_actions is not None and (set(position_candidate_actions)!=set(held_symbols)
+            or any(value not in {'SELL_SIGNAL','REDUCE_SIGNAL'} for value in position_candidate_actions.values())):
+        raise ValueError('TRADER_REVIEW_POSITION_CONTEXT_INVALID')
     if (not isinstance(plans, Mapping) or any(not _text(k) or not _text(v) for k, v in plans.items())
             or not isinstance(held_symbols, (set, frozenset)) or any(not _text(x) for x in held_symbols)
             or not isinstance(tech_reference, Mapping) or set(tech_reference) != set(plans)
@@ -63,6 +69,8 @@ def validate_trader_output(output, catalog, *, required_envelope, decision_id, m
                 issue("PLAN_SYMBOL_MISMATCH"); continue
             if not isinstance(action, str) or action not in _ACTIONS:
                 issue("ACTION_INVALID"); continue
+            if candidate_actions is not None and action not in {candidate_actions[pid],'NO_ACTION'}:
+                issue('CANDIDATE_ACTION_ESCALATION')
             if action in {"NO_ACTION", "START_CONFIRMATION"} and not _text(row.get("waiting_for")):
                 issue("WAITING_FOR_REQUIRED")
             if action in _ORDERS: ordered.add(symbol)
@@ -105,7 +113,10 @@ def validate_trader_output(output, catalog, *, required_envelope, decision_id, m
             seen.add(symbol)
             if not isinstance(action, str) or action not in {"HOLD", "REDUCE_SIGNAL", "SELL_SIGNAL", "ADD_SIGNAL"}:
                 issue("POSITION_ACTION_INVALID"); continue
+            if position_candidate_actions is not None and action not in {position_candidate_actions[symbol],'HOLD'}:
+                issue('POSITION_CANDIDATE_ACTION_ESCALATION')
             if action in _ORDERS and symbol in ordered: issue("DUPLICATE_ORDER_ACTION")
             if (not isinstance(row.get("reason_code"), str) or not re.fullmatch(r"[A-Z][A-Z0-9_]{1,79}", row["reason_code"])
                     or not _text(row.get("distance_to_stop_note"))): issue("POSITION_REASON_INVALID")
+    if position_candidate_actions is not None and seen!=set(held_symbols):issue('REVIEW_POSITION_DOMAIN_MISSING')
     return TeamValidation(not issues, tuple(dict.fromkeys(issues)), common.judgments, common.sentinel_count)

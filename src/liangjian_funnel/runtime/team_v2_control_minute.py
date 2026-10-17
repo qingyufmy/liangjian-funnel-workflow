@@ -129,7 +129,11 @@ def run_control_minute(*,session_kwargs,closed_bars,deadline_monotonic,monotonic
         envelopes={pid:_envelopes([row])[0] for pid,row in frozen['envelopes'].items()},
         utilization_cap_pct=frozen['utilization_cap_pct'],
         timeout_seconds=frozen['timeout_seconds'],deadline_monotonic=deadline_monotonic,monotonic=monotonic)
-    result['trader']=run_trader_batch(**args) if args.get('input_projection') is not None else run_trader_session(**args)
+    if args.get('input_projection') is not None and args['required_envelope'].get('prompt_version')=='agent-4-trader/1.1.0':
+        from .team_v2_candidate_review import run_candidate_review
+        result['trader']=run_candidate_review(**args)
+    else:
+        result['trader']=run_trader_batch(**args) if args.get('input_projection') is not None else run_trader_session(**args)
     if exception_handler is not None and args['mode']=='control':
         risk_started=monotonic()
         try:
