@@ -103,3 +103,21 @@ def test_timeout_classification_is_durable_and_never_retains_private_error_text(
     assert result['candidate_review']['transport_failure_classification']=='WALL_CLOCK_TIMEOUT'
     assert 'NEVER_RETAIN_THIS' not in json.dumps(result)
     assert review.run_candidate_review(**args)==result
+
+
+def test_add_review_keeps_owned_position_context_without_granting_exit_vote(tmp_path,monkeypatch):
+    args,_,_=prepared(tmp_path)
+    args['input_projection']['evaluations']['p1']['action']='ADD_SIGNAL'
+    args['held_plan_ids']={'000001.SZ':'p1'}
+    position=dict(plan_id='p1',symbol='000001.SZ',qty=100,available_qty=0,average_price='10')
+    args['position_snapshot']=[position]
+    calls=[]
+    def capture(**child):
+        calls.append(child)
+        return dict(model_validated=False,reason_codes=['TEAM_MODEL_CALL_FAILED'],source_call_id=child['call_id'])
+    monkeypatch.setattr(review,'run_trader_session',capture)
+    assert review.run_candidate_review(**args)['candidate_review']['selected_count']==1
+    assert calls[0]['review_entry_positions']==[position]
+    assert calls[0]['held_plan_ids']=={} and calls[0]['position_snapshot']==[]
+    assert calls[0]['review_candidate_actions']=={'p1':'ADD_SIGNAL'}
+    assert calls[0]['review_position_actions']=={}

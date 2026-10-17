@@ -72,6 +72,8 @@ def run_candidate_review(**args):
             active_plan_ids=set(selected_entries),
             held_plan_ids={s:pid for s,pid in args['held_plan_ids'].items() if pid in selected_exits},
             position_snapshot=[p for p in args['position_snapshot'] if p['plan_id'] in selected_exits],
+            review_entry_positions=[p for p in args['position_snapshot']
+                if selected_entries.get(p['plan_id'])=='ADD_SIGNAL'],
             tech_reference={pid:args['tech_reference'][pid] for pid in selected_entries},
             review_candidate_actions=selected_entries,
             review_position_actions={args['all_plans'][pid].symbol:action for pid,action in selected_exits.items()},client=ObservedClient())

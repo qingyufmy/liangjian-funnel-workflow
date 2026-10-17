@@ -23,6 +23,32 @@ from test_team_v2_trader_schema import output, CAT, CONTEXT
 MODEL='deepseek-v4-pro-0813'
 
 
+def test_add_review_renders_owned_position_without_authorizing_position_actions(tmp_path):
+    kwargs,seen,raw=fixture(tmp_path)
+    raw['signals'][0]['action']='NO_ACTION';raw['signals'][0]['waiting_for']='WAIT_FOR_CONFIRMATION'
+    position=dict(plan_id='p1',symbol='000001.SZ',qty=100,available_qty=0,average_price='10')
+    kwargs.update(review_candidate_actions={'p1':'ADD_SIGNAL'},review_position_actions={},
+        review_entry_positions=[position],capture_only=True)
+    result=run_trader_session(**kwargs)
+    assert result['model_validated'] and not result['admissions']
+    assert '"average_price":"10"' in seen[0]['messages'][0]['content']
+    assert '"engine_position_candidates":{}' in seen[0]['messages'][0]['content']
+    assert not kwargs['broker'].get_orders(kwargs['trade_date'])
+
+
+@pytest.mark.parametrize('change',['foreign_plan','buy_not_add','invalid_qty','malformed'])
+def test_add_context_cannot_invent_a_position_or_enlarge_review_domain(tmp_path,change):
+    kwargs,seen,_=fixture(tmp_path)
+    position=dict(plan_id='p1',symbol='000001.SZ',qty=100)
+    kwargs.update(review_candidate_actions={'p1':'ADD_SIGNAL'},review_position_actions={},review_entry_positions=[position])
+    if change=='foreign_plan':position['plan_id']='foreign'
+    elif change=='buy_not_add':kwargs['review_candidate_actions']['p1']='BUY_SIGNAL'
+    elif change=='malformed':kwargs['review_entry_positions']={}
+    else:position['qty']=True
+    with pytest.raises(ValueError,match='TRADER_REVIEW_ENTRY_POSITION_INVALID'):run_trader_session(**kwargs)
+    assert not seen
+
+
 def fixture(tmp_path, *, invalid=False, offline=False, moved=False, mode='control'):
     broker,args=execution_fixture(tmp_path)
     required={key:'FROZEN' for key in _ENVELOPE_KEYS}

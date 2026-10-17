@@ -28,7 +28,7 @@ def run_trader_session(*,repository,client,journal,store,broker,decision_id,minu
         live_market_ready,snapshot_ready,mode,calendar,timeout_seconds,max_output_tokens,
         allow_model_call=False,pm_meeting_id=None,deadline_monotonic=None,monotonic=time.monotonic,utilization_cap_pct=None,
         capture_clock=None,input_projection=None,capture_only=False,
-        review_candidate_actions=None,review_position_actions=None):
+        review_candidate_actions=None,review_position_actions=None,review_entry_positions=None):
     if not allow_model_call:raise ValueError('TEAM_MODEL_CALL_NOT_AUTHORIZED')
     # Isolated frozen replay has a historical execution clock but records real
     # HTTP capture time. Live callers omit this option and retain one clock.
@@ -55,6 +55,16 @@ def run_trader_session(*,repository,client,journal,store,broker,decision_id,minu
                 or type(p.get('qty')) is not int or p['qty']<=0 for p in position_snapshot)
             or {p['symbol'] for p in position_snapshot}!=set(held_plan_ids)):
         raise ValueError('TRADER_SERVER_CONTEXT_INVALID')
+    # ADD context is read-only evidence, not a second position-action mandate.
+    # Only the caller's selected ADD plan may carry its owned position here.
+    entry_positions=[] if review_entry_positions is None else review_entry_positions
+    if (not isinstance(entry_positions,(list,tuple))
+            or any(not isinstance(p,Mapping) or p.get('plan_id') not in active_plan_ids
+                or (review_candidate_actions or {}).get(p.get('plan_id'))!='ADD_SIGNAL'
+                or p.get('symbol')!=all_plans[p['plan_id']].symbol
+                or type(p.get('qty')) is not int or p['qty']<=0 for p in entry_positions)
+            or len({p['plan_id'] for p in entry_positions})!=len(entry_positions)):
+        raise ValueError('TRADER_REVIEW_ENTRY_POSITION_INVALID')
     # The file-backed paper identity is part of the immutable input. A completed
     # session from account A cannot be re-used against a different paper ledger.
     ledger=getattr(broker,'ledger',broker)
@@ -77,7 +87,8 @@ def run_trader_session(*,repository,client,journal,store,broker,decision_id,minu
         pm_allocation=asdict(allocation) if allocation is not None else None,
         capture_only=capture_only)
     if review_candidate_actions is not None or review_position_actions is not None:
-        context.update(review_candidate_actions=review_candidate_actions,review_position_actions=review_position_actions)
+        context.update(review_candidate_actions=review_candidate_actions,review_position_actions=review_position_actions,
+            review_entry_positions=entry_positions)
     execution_hash=hashlib.sha256(dump(context).encode()).hexdigest()
     values=dict(replacements)
     time_rules=dict(values['TIME_RULES']) if isinstance(values.get('TIME_RULES'),Mapping) else {}
@@ -92,7 +103,7 @@ def run_trader_session(*,repository,client,journal,store,broker,decision_id,minu
         time_rules['engine_position_candidates']=dict(review_position_actions or {})
     values.update(DECISION_ID=decision_id,MINUTE_SNAPSHOT_ID=minute_snapshot_id,
         ACTIVE_PLANS=[context['plans'][pid] for pid in sorted(active_plan_ids)],
-        RISK_ENVELOPES=visible_envelopes,POSITIONS=position_snapshot,TECH_REFERENCE=tech_reference,
+        RISK_ENVELOPES=visible_envelopes,POSITIONS=[*position_snapshot,*entry_positions],TECH_REFERENCE=tech_reference,
         CURRENT_TIME=decision_at.isoformat(),TIME_RULES=time_rules)
     if input_projection is not None:
         from .team_v2_trader_inputs import project_trader_values
