@@ -120,7 +120,7 @@ def meeting_plan_facts(rows):
         'invalidation_level','daily_invalidation','no_chase','no_chase_price','first_resistance',
         'pressure_reduce_price','reference_price','reference_price_as_of','plan_expiry',
         'market_regime','market_environment','risk_unit','max_batches','plan_priority',
-        'plan_priority_rank','priority_reasons','trading_plan_brief','trade_plan_brief',
+        'plan_priority_rank','priority_reasons','trading_plan_brief','trade_plan_brief','trade_brief',
         'handoff_notes','what_would_change_my_mind','supporting_refs','opposing_refs',
         'opposing_search_scope','confirmation_conditions','a4_required_entry_rules',
         'a4_deferred_conditions','a4_exit_rules','plan_premises','time_stop_sessions',
