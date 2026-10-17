@@ -57,6 +57,10 @@ class TeamResearchAdapter:
             row['priority_rank_scope'] = 'SERVER_INTERLEAVED_BATCH_LOCAL_DISPLAY_ONLY'
         return {**output, 'core_watch_pool': rows}
 
+    def finalize_a1_output(self,output,discovery_context=None):
+        from .team_v2_catalyst_gaps import enforce_catalyst_gaps
+        return enforce_catalyst_gaps(output,discovery_context)
+
     def _inputs(self, snapshot, upstream, symbols, *, run_id, model):
         stamp = snapshot.as_of
         if not isinstance(stamp, datetime) or stamp.utcoffset() is None:

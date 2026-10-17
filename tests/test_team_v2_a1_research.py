@@ -41,7 +41,8 @@ def fixture(tmp_path, *, mutate=None,discovery=False):
                 row.update(source_refs=['policy-ref'],supporting_refs=['policy-ref'],opposing_refs=['policy-ref'],
                     catalysts=[dict(event='Official catalyst',expected_date='UNKNOWN',source_ref='policy-ref',priced_in_assessment='UNKNOWN')],
                     falsifiers=['Policy revoked'],handoff_to_a2=['Verify market participation'])
-            for row in output['industry_chain_graph']:row['source_refs']=['policy-ref']
+            for i,row in enumerate(output['industry_chain_graph']):
+                row.update(source_refs=['policy-ref'],chain_position=('UPSTREAM','MIDSTREAM','DOWNSTREAM')[(i//12)%3])
             if mutate:mutate(output)
         return httpx.Response(200,json={'choices':[{'message':{'content':json.dumps(output)}}]},request=request)
     settings=Settings.from_env({'LIANGJIAN_MODEL_API_KEY':'UNIT_TEST_ONLY_NOT_A_CREDENTIAL'},root=tmp_path)

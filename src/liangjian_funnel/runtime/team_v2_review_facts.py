@@ -157,6 +157,12 @@ def build_team_review_facts(*,legacy_facts,store,journal,paper_snapshot,settleme
         strict_t1_return=None,strict_t3_return=None,
         model_calls=len(judgments.get('rows',{}).get('calls',[])),
         unavailable_reason='NO_BENCHMARK_OR_MATURED_COMPARISON_PROVIDED')
+    from ..pipeline.team_v2_catalyst_gaps import catalyst_gap_summary
+    a1_themes=[theme for call in judgments.get('rows',{}).get('calls',[])
+        if call['role']=='A1' and call['validated'] and call['session']=='POLICY_MACRO_DISCOVERY'
+        for theme in json.loads(call['output_json']).get('structural_themes',[])]
+    metrics['a1_catalyst_evidence']=dict(catalyst_gap_summary(a1_themes),
+        denominator='VALIDATED_DISCOVERY_THEME_JUDGMENTS_NOT_STOCKS_OR_TRADES')
     from ..review.portfolio_diagnostics import strategy_portfolio_diagnostics
     portfolio=strategy_portfolio_diagnostics(legacy_facts)
     metrics['strategy_portfolio_diagnostics']=portfolio

@@ -166,6 +166,9 @@ def run_a1_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
             upstream_symbols=upstream_symbols,bundle=bundle,run_id=run_id,projection_symbols=projection_symbols,
             a1_discovery_context=context,prepared_request=prepared)
         result_output=deepcopy(audit.output) if audit.output is not None else None
+        if result_output is not None:
+            from .team_v2_catalyst_gaps import enforce_catalyst_gaps
+            result_output=enforce_catalyst_gaps(result_output,context)
         if result_output is not None:result_output['envelope']['prompt_version']='agent-1/3.0.3'
         return replace(audit,output=result_output,output_hash=_hash(result_output) if result_output is not None else audit.output_hash,
             diagnostics={**(audit.diagnostics or {}),'team_call_id':call_id,'legacy_checkpoint_reused':False,
