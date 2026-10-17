@@ -67,13 +67,6 @@ def run_auction_base(app, *, now=None):
         receipt.update(status="READY", finished_at=finished.isoformat(),
                        a1_generation_id=generation.generation_id, scope_symbols=list(scope),
                        prepared_snapshot=prepared.as_dict())
-        # Additive compact history context for Team G5. It is not a new
-        # auction-base success gate and cannot take down natural preparation.
-        try:
-            from .team_v2_live_regime_source import capture_sector_context
-            receipt['team_sector_context']=capture_sector_context(app.settings,prepared,known_at=finished)
-        except Exception:
-            receipt['team_sector_context']={'status':'DATA_LIMITED','reason_code':'TEAM_SECTOR_CONTEXT_CAPTURE_FAILED'}
         atomic_write_json(path, receipt)
         app.store.complete_lease(lease, owner, dispatch_key=key, now=finished)
         progress.finish(status='READY', now=finished)

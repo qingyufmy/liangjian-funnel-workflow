@@ -78,9 +78,6 @@ def _run_a3_batched(
     )
     canonicalized_lineage += post_limit_lineage
     merged = _refresh_analysis_counts(merged, "A3")
-    adapter = getattr(self, "team_research_adapter", None)
-    if adapter is not None and adapter.supports("A3"):
-        merged = adapter.finalize_a3_output(merged)
     reasons = _validate_output(
         merged,
         stage="A3",

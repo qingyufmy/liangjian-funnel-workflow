@@ -8,16 +8,7 @@ export const FEATURE_MAINTENANCE_AT = "03:30";
 export const A1_MAINTENANCE_AT = "18:00";
 
 export const JOB_DEFINITIONS: readonly JobDefinition[] = [
-  { name: "team-morning-engine", command: "run-team-morning-engine", label: "模拟盘晨会引擎信封", schedule: "08:33（独立120s）" },
-  { name: "team-morning-risk", command: "run-team-morning-risk", label: "A6模拟盘风险晨会", schedule: "08:35（独立120s）" },
-  { name: "team-morning-pm", command: "run-team-morning-pm", label: "A3模拟盘组合晨会", schedule: "08:38（独立120s）" },
-  { name: "paper-settle", command: "run-paper-settle", label: "独立模拟盘结算与对账", schedule: "15:30（仅既有 paper 账户）" },
-  { name: "team-close-bar", command: "run-team-close-bar", label: "模拟盘15:00原始尾盘消费", schedule: "15:01，review槽，60s，最迟15:05" },
-  { name: "team-eod", command: "run-team-eod", label: "模拟盘收盘组合与风险复核", schedule: "17:20后且同日close完成；客户A5之后（独立120s）" },
-  { name: "team-internal", command: "run-team-internal", label: "模拟盘内部通知", schedule: "08:45–17:55 每分钟（独立通知槽8s）" },
-  { name: "team-a5-midday", command: "run-team-a5-midday", label: "团队A5独立午间复盘", schedule: "11:35后，客户复盘槽释放后，独立240s" },
-  { name: "team-a5-close", command: "run-team-a5-close", label: "团队A5独立盘后复盘", schedule: "17:25–17:45，客户A5之后，独立240s" },
-  { name: "auction-evidence", command: "run-auction-evidence", label: "09:25竞价原时标证据", schedule: "09:25:03/08/15/24（只取证、不研究或重锚）" },
+  { name: "auction-evidence", command: "run-auction-evidence", label: "09:25竞价原时标证据", schedule: "09:25:00–09:25:30（只取证、不研究或重锚）" },
   { name: "auction-base", command: "run-auction-base", label: "竞价研究资料基线准备", schedule: "07:00（无模型调用、不发布计划）" },
   { name: "premarket", command: "run-premarket", label: "A3 盘前分析", schedule: "08:30" },
   { name: "morning", command: "run-morning", label: "早盘复核", schedule: "09:26" },

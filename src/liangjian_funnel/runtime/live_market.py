@@ -163,8 +163,6 @@ def load_or_refresh_live_market_state(
     *,
     as_of: datetime,
     sleep: Callable[[float], None] | None = None,
-    snapshot_observer: Callable[[Any], Any] | None = None,
-    minimum_source_as_of: datetime | None = None,
 ) -> dict[str, Any]:
     """Read one five-minute bucket or collect a bounded current snapshot.
 
@@ -181,11 +179,6 @@ def load_or_refresh_live_market_state(
     bucket = current.replace(minute=bucket_minute)
     path = Path(settings.fact_store_dir) / "a4_live_market" / current.date().isoformat() / f"{bucket.strftime('%H%M')}.json"
     cached = _read_cache(path, current=current)
-    if cached is not None and minimum_source_as_of is not None:
-        try:
-            source_at=_aware(datetime.fromisoformat(cached['team_v2_source']['source_as_of']))
-            if source_at<minimum_source_as_of:cached=None
-        except (KeyError,TypeError,ValueError):cached=None
     if cached is not None:
         return cached
 
@@ -208,15 +201,6 @@ def load_or_refresh_live_market_state(
                     as_of=current,
                     expected_count=result.total,
                 )
-                # Opt-in Team observer consumes this exact completed request,
-                # never a second full-market request or an index-only fallback.
-                # Observer failure cannot erase the legacy primary result.
-                if snapshot_observer is not None:
-                    try:
-                        full_state['team_v2_source'] = snapshot_observer(result)
-                    except Exception:
-                        full_state['team_v2_source'] = {'status':'DATA_BLOCK',
-                            'reason_code':'TEAM_LIVE_SNAPSHOT_OBSERVER_FAILED'}
             else:
                 full_state = _unavailable(
                     current,

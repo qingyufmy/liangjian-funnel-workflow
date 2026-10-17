@@ -67,11 +67,6 @@ export function isMonitorDispatchReady(clock: ShanghaiClock): boolean {
   return clock.second >= 3;
 }
 
-export function auctionEvidenceSlot(clock: ShanghaiClock): number | undefined {
-  if (clock.hour !== 9 || clock.minute !== 25) return undefined;
-  return [3, 8, 15, 24].find(second => clock.second >= second && clock.second < second + 2);
-}
-
 function isFeatureMaintenanceMinute(clock: ShanghaiClock): boolean {
   const [hour, minute] = FEATURE_MAINTENANCE_AT.split(":").map((value) => Number(value));
   return clock.hour === hour && clock.minute === minute;
@@ -94,8 +89,6 @@ export class WorkflowScheduler {
   private comparisonPendingTrigger = false;
   private comparisonRetryTimer: NodeJS.Timeout | null = null;
   private outcomesAfterCloseDate: string | null = null;
-  private teamEodAfterCloseDate: string | null = null;
-  private teamEodRecoveryCheckedDate: string | null = null;
   private readonly now: () => Date;
   private readonly intervalMs: number;
   private readonly retryMs: number;
@@ -137,8 +130,6 @@ export class WorkflowScheduler {
     this.comparisonInFlight = false;
     this.comparisonPendingTrigger = false;
     this.outcomesAfterCloseDate = null;
-    this.teamEodAfterCloseDate = null;
-    this.teamEodRecoveryCheckedDate = null;
     this.running = false;
     this.logger.info("Node 调度器已停止");
   }
@@ -150,42 +141,23 @@ export class WorkflowScheduler {
     // Sunday is a hard NOOP.  Saturday has exactly one maintenance slot;
     // research and intraday monitoring remain trading-day-only.
     if (clock.weekday === 0) return;
-    if (clock.weekday >= 1 && clock.weekday <= 5 && clock.hour*60+clock.minute>=15*60+10
-        && this.teamEodRecoveryCheckedDate!==clock.date) {
-      this.teamEodRecoveryCheckedDate=clock.date;
-      if (this.runner.completedCloseForTeamEod?.(clock.date)) this.teamEodAfterCloseDate=clock.date;
-    }
     if (clock.weekday === 6) {
       if (isFeatureMaintenanceMinute(clock)) due.push("features");
     } else {
       if (isFeatureMaintenanceMinute(clock)) due.push("features");
       if (clock.hour === 7 && clock.minute < 15) due.push("auction-base");
       if (clock.hour === 8 && clock.minute === 30) due.push("premarket");
-      // Independent budgets and durable Python prerequisites. No delayed
-      // catch-up/model retry can make a missed prior edge appear successful.
-      if (clock.hour === 8 && clock.minute === 33) due.push("team-morning-engine");
-      if (clock.hour === 8 && clock.minute === 35) due.push("team-morning-risk");
-      if (clock.hour === 8 && clock.minute === 38) due.push("team-morning-pm");
-      if (clock.hour*60+clock.minute>=8*60+45 && clock.hour*60+clock.minute<=17*60+55) due.push("team-internal");
       // Independent evidence only. Never late-catch-up a 09:26 quote as an
       // auction-final print, and never rerun the A2/A3 research to obtain it.
-      if (auctionEvidenceSlot(clock) !== undefined) due.push("auction-evidence");
+      if (clock.hour === 9 && clock.minute === 25 && clock.second <= 30) due.push("auction-evidence");
       if (clock.hour === 9 && clock.minute === 26) due.push("morning");
       // A four-minute startup/restart window, with a stable daily key.
       // The Python lease is authoritative across Node restarts.
       if (clock.hour === 9 && clock.minute >= 26 && clock.minute < 30) due.push("auction-refresh");
       if (clock.hour === 11 && clock.minute === 35) due.push("a5-midday");
       if (clock.hour === 16 && clock.minute === 0) due.push("a5-close");
-      if ((clock.hour===11 && clock.minute>=35) || clock.hour===12) due.push("team-a5-midday");
-      // Customer A5: 16:00, BUSY retry through 17:00, max runtime 15m.
-      // Team never takes its slot during that entire customer window.
-      if (clock.hour===17 && clock.minute>=25 && clock.minute<=45) due.push("team-a5-close");
       if (clock.hour === 16 && clock.minute === 10) due.push("outcomes");
       if (clock.hour === 15 && clock.minute === 10) due.push("close");
-      if (clock.hour === 15 && clock.minute >= 1 && clock.minute < 5) due.push("team-close-bar");
-      // Owned paper settlement may recover a busy review slot or a Node
-      // restart for ten minutes. Its persisted daily ledger is authoritative.
-      if (clock.hour === 15 && clock.minute >= 30 && clock.minute < 40) due.push("paper-settle");
       // Node provides a cheap weekday wake-up. Python owns the exchange
       // calendar and decides whether this date is the monthly full or weekly
       // incremental A1 maintenance boundary; ordinary weekdays are a NOOP.
@@ -194,32 +166,16 @@ export class WorkflowScheduler {
     }
 
     for (const job of due) {
-      const dispatchKey = job === "auction-evidence" ? `${clock.date}T09:25:${auctionEvidenceSlot(clock)}`
-        : job === "auction-refresh" ? `${clock.date}T09:26`
-        : job === "paper-settle" ? `${clock.date}T15:30`
-        : job === "team-close-bar" ? `${clock.date}T15:01`
-        : job === "team-a5-midday" ? `${clock.date}Tteam-midday`
-        : job === "team-a5-close" ? `${clock.date}Tteam-close`
+      const dispatchKey = job === "auction-refresh" ? `${clock.date}T09:26`
         : job === "auction-base" ? `${clock.date}T07:00` : key;
       if (job === "features" && !this.featureMaintenanceEnabled) continue;
       if (this.dispatched.get(job) === dispatchKey || this.inFlight.has(job) || this.retryKeys.get(job) === dispatchKey) continue;
       if (job === "auction-refresh" && this.lastDispatch.has(job)
           && value.getTime() - Date.parse(this.lastDispatch.get(job)!) < 60_000) continue;
-      if ((job === "paper-settle" || job === "team-close-bar") && this.lastDispatch.has(job)
-          && value.getTime() - Date.parse(this.lastDispatch.get(job)!) < 5_000) continue;
-      if (job.startsWith('team-a5-') && this.lastDispatch.has(job)
-          && value.getTime() - Date.parse(this.lastDispatch.get(job)!) < 60_000) continue;
       this.dispatch(job, dispatchKey, value);
     }
     // The 16:10 pass can precede refreshed closing prices. Reconcile again
     // after a successful same-day research run, without replaying research.
-    if (this.teamEodAfterCloseDate && this.teamEodAfterCloseDate !== clock.date) this.teamEodAfterCloseDate = null;
-    if (this.teamEodAfterCloseDate === clock.date && clock.hour*60+clock.minute >= 17*60+20
-        && !this.inFlight.has("team-eod")
-        && (!this.lastDispatch.has("team-eod") || value.getTime() - Date.parse(this.lastDispatch.get("team-eod")!) >= 5_000)) {
-      this.teamEodAfterCloseDate = null;
-      this.dispatch("team-eod", `${clock.date}Tafter-close`, value);
-    }
     if (this.outcomesAfterCloseDate && this.outcomesAfterCloseDate !== clock.date) {
       this.outcomesAfterCloseDate = null;
     }
@@ -253,8 +209,6 @@ export class WorkflowScheduler {
     this.logger.info(`触发调度 ${job} at=${key}`, { job });
     void this.runner.run(job)
       .then((result) => {
-        if (job.startsWith('team-a5-') && ((result.status==='skipped' && result.reason?.startsWith('BUSY:'))
-            || result.exitCode===75)) this.dispatched.delete(job);
         if (job === "auction-refresh" && result.status === "skipped" && result.reason?.startsWith("BUSY:")) {
           // A deterministic input failure cannot heal by repeatedly executing
           // the same frozen base. Only a busy worker may be rescheduled.
@@ -264,13 +218,6 @@ export class WorkflowScheduler {
         // Only retry a worker-busy skip while the 07:00-07:14 window is open.
         if (job === "auction-base" && result.status === "skipped" && result.reason?.startsWith("BUSY:")) {
           this.dispatched.delete(job);
-        }
-        if ((job === "paper-settle" || job === "team-close-bar") && result.status === "skipped" && result.reason?.startsWith("BUSY:")) {
-          this.dispatched.delete(job);
-        }
-        if (job === "team-eod" && result.status === "skipped" && result.reason?.startsWith("BUSY:")
-            && shanghaiClock(this.now()).date === key.slice(0,10)) {
-          this.teamEodAfterCloseDate = key.slice(0,10);
         }
         const shouldRetry = (job === "premarket" || job === "morning" || job === "close" || job === "a1" || job === "a5-midday" || job === "a5-close" || job === "outcomes")
           && result.status === "skipped"
@@ -282,7 +229,6 @@ export class WorkflowScheduler {
         if (job === "close" && result.status === "succeeded"
           && shanghaiClock(this.now()).date === key.slice(0, 10)) {
           this.outcomesAfterCloseDate = key.slice(0, 10);
-          this.teamEodAfterCloseDate = key.slice(0, 10);
         }
         // The current morning command is the deterministic pending-plan
         // review; the model-backed primary research hand-off is the close

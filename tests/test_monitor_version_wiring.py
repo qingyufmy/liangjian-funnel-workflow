@@ -1,4 +1,3 @@
-import json
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
@@ -12,12 +11,10 @@ from liangjian_funnel.runtime.state import RuntimeStore, PlanStatus
 from liangjian_funnel.workflow import WorkflowApplication
 
 
-@pytest.mark.parametrize("archive_original_quotes", [False, True, 'fault'])
 @pytest.mark.parametrize("broken_snapshot,incomplete,strategy_block", [
     (False, False, False), (True, False, False), (False, True, False), (False, False, True),
 ])
-def test_monitor_consumes_persisted_revision_or_blocks(monkeypatch, tmp_path, broken_snapshot, incomplete, strategy_block,
-                                                       archive_original_quotes):
+def test_monitor_consumes_persisted_revision_or_blocks(monkeypatch, tmp_path, broken_snapshot, incomplete, strategy_block):
     now = datetime(2026, 9, 7, 9, 32, tzinfo=ZoneInfo("Asia/Shanghai"))
     symbol = "000001.SZ"
     original = MinuteBar(symbol=symbol, interval="1m", bar_end=now-timedelta(minutes=1),
@@ -59,18 +56,7 @@ def test_monitor_consumes_persisted_revision_or_blocks(monkeypatch, tmp_path, br
     if broken_snapshot:
         def fail(*args, **kwargs): raise ValueError("broken snapshot")
         app.minute_store.load_decision_snapshot = fail
-    captured=[]
-    def archive(settings,quotes,**kwargs):
-        captured.append((quotes,kwargs))
-        if archive_original_quotes == 'fault':
-            raise RuntimeError('PRIVATE_ARCHIVE_EXCEPTION_NOT_TO_LOG')
-        return {'status':'ARCHIVED','count':len(quotes)}
-    monkeypatch.setattr('liangjian_funnel.runtime.team_v2_quote_evidence.archive_legacy_monitor_quotes',archive)
-    result = app.monitor_once(now=now,archive_original_quotes=archive_original_quotes)
-    assert len(captured)==int(bool(archive_original_quotes))
-    if archive_original_quotes:
-        assert result['original_quote_archive']['status']==('FAILED' if archive_original_quotes=='fault' else 'ARCHIVED')
-        assert 'PRIVATE_ARCHIVE_EXCEPTION' not in json.dumps(result,default=str)
+    result = app.monitor_once(now=now)
     observability = result["observability"]
     assert observability["run_id"].startswith("a4-")
     assert observability["decision_id"].startswith("a4-decision-")

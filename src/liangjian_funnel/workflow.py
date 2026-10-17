@@ -622,15 +622,6 @@ def _observe_close_research_resources(function):
 class WorkflowApplication:
     """Join data, research, A4 and paper simulation without external orders."""
 
-    def _new_research_pipeline(self, **kwargs):
-        # Explicit CLI composition; legacy library consumers keep their
-        # requested pipeline until they opt into the Team role contract.
-        if getattr(self, 'team_research_enabled', False):
-            from .pipeline.team_v2_wiring import configured_research_adapter
-            kwargs['team_research_adapter'] = configured_research_adapter(
-                self.settings, calendar=self.trading_calendar)
-        return ResearchPipeline(self.settings, **kwargs)
-
     def __init__(self, settings: Settings):
         self.settings = settings
         self.store = RuntimeStore(settings.state_db_path)
@@ -2875,7 +2866,8 @@ class WorkflowApplication:
                 progress.research_event(event)
                 _progress_stdout(progress.snapshot())
 
-            pipeline = self._new_research_pipeline(
+            pipeline = ResearchPipeline(
+                self.settings,
                 prompt_repository=self.prompts,
                 model_client=self.model_client,
                 output_dir=self.settings.workflow_output_dir / "research",
@@ -3313,7 +3305,8 @@ class WorkflowApplication:
             progress.research_event(event)
             _progress_stdout(progress.snapshot())
 
-        pipeline = self._new_research_pipeline(
+        pipeline = ResearchPipeline(
+            self.settings,
             prompt_repository=self.prompts,
             model_client=self.model_client,
             output_dir=self.settings.workflow_output_dir / "research",
@@ -4597,42 +4590,7 @@ class WorkflowApplication:
             "failures": failures + invalidation_reasons,
         }
 
-    def monitor_dispatch(self, *, now: datetime | None = None) -> dict[str, Any]:
-        """Select one entry engine before either broker can place an order."""
-        mode = getattr(self.settings, "a4_trader_mode", "record")
-        if mode not in {"record", "control"}:
-            raise WorkflowError("TRADER_MODE_INVALID")
-        if mode == "record":
-            from .runtime.team_v2_record_protection import has_owned_exposure
-            try:
-                owned_exposure = has_owned_exposure(self.settings)
-            except Exception:
-                # A Team sidecar cannot prevent the original H1 engine running.
-                current = _aware(now or datetime.now(SHANGHAI))
-                from .runtime.team_v2_record_protection import exposure_failure_alert
-                alert = exposure_failure_alert(self.settings, now=current)
-                result = self.monitor_once(now=now, archive_original_quotes=True)
-                record_business_reasons({'TEAM_OWNED_EXPOSURE_CHECK_FAILED': 1},
-                    incident_key='TEAM_OWNED_EXPOSURE_CHECK_FAILED:'+current.date().isoformat())
-                return {**result, 'team_record_exposure': {
-                    'reason_code': 'TEAM_OWNED_EXPOSURE_CHECK_FAILED', 'internal_alert': alert}}
-            if owned_exposure:
-                from .runtime.team_v2_monitor import run_monitor_control
-                return run_monitor_control(self,now=now,record_fallback={'reason_code':'EXPLICIT_RECORD_MODE'})
-            return self.monitor_once(now=now, archive_original_quotes=True)
-        if self.settings.broker_adapter != "local_paper":
-            raise WorkflowError("BROKER_ADAPTER_NOT_ENABLED")
-        from .runtime.team_v2_first_day import forced_record
-        from .runtime.team_v2_morning import ACCOUNT
-        latch=forced_record(self.settings,account_id=ACCOUNT,now=_aware(now or datetime.now(SHANGHAI)))
-        if latch is not None:
-            from .runtime.team_v2_monitor import run_monitor_control
-            return {**run_monitor_control(self,now=now,record_fallback=latch),'team_control_fallback':latch,'mode':'record'}
-        from .runtime.team_v2_monitor import run_monitor_control
-        return run_monitor_control(self, now=now)
-
-    def monitor_once(self, *, now: datetime | None = None,
-                     archive_original_quotes: bool = False) -> dict[str, Any]:
+    def monitor_once(self, *, now: datetime | None = None) -> dict[str, Any]:
         mark_phase("fetch")
         monitor_started = time.monotonic()
         monitor_started_wall = datetime.now(SHANGHAI)
@@ -5045,18 +5003,6 @@ class WorkflowApplication:
                         record_span(f"database_write:{symbol}:{interval}", database_started, database_wall)
 
         record_span("market_acquisition", acquisition_started, acquisition_wall)
-
-        original_quote_archive = None
-        if archive_original_quotes:
-            from .runtime.team_v2_quote_evidence import archive_legacy_monitor_quotes
-            try:
-                quotes = {**position_quotes, **{symbol: pack['quote'] for symbol, pack in market.items()
-                    if pack.get('quote') is not None}}
-                original_quote_archive = archive_legacy_monitor_quotes(self.settings, quotes,
-                    decision_at=current, used_at=datetime.now(SHANGHAI))
-            except Exception:
-                original_quote_archive = {'status': 'FAILED', 'reason_code': 'CONTROL_ORIGINAL_QUOTE_ARCHIVE_FAILED'}
-                record_business_reasons({'CONTROL_ORIGINAL_QUOTE_ARCHIVE_FAILED': 1})
 
         lane_inputs: dict[
             str,
@@ -5636,8 +5582,6 @@ class WorkflowApplication:
             "observability": observation.to_dict(),
         }
         mark_phase("persist")
-        if original_quote_archive is not None:
-            payload['original_quote_archive'] = original_quote_archive
         payload["phase_timings"] = phase_timings()
         payload["phase_timing_source"] = "NODE_FINAL_RECEIPT_AUTHORITATIVE"
         atomic_write_json(self.settings.workflow_output_dir / "monitor" / "latest.json", payload)
@@ -6205,7 +6149,7 @@ class WorkflowApplication:
                 ),
                 ScheduleKind.A5_MIDDAY_1135: lambda _job: self.run_a5_review(A5ReviewKind.MIDDAY, now=current),
                 ScheduleKind.A5_POST_CLOSE_1600: lambda _job: self.run_a5_review(A5ReviewKind.POST_CLOSE, now=current),
-                ScheduleKind.MONITOR: lambda _job: self.monitor_dispatch(now=current),
+                ScheduleKind.MONITOR: lambda _job: self.monitor_once(now=current),
             },
             owner=local_process_owner(),
             trading_day=self.trading_calendar.is_trading_day,

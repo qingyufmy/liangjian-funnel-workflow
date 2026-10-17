@@ -245,9 +245,6 @@ market_regime:
 # Agent 1
 # ---------------------------------------------------------------------------
 agent_1:
-  # 0323: A1 3.0.6 failed its first frozen day; retain the production A1 role.
-  # A2/A3 remain Team V2; no automatic same-request retry or pool mutation.
-  team_role_mode: production
   id: MACRO_FUNDAMENTAL_CHAIN
   discovery_contract_version: a1-discovery-contract/3.2.0
   institutional_pool_role: P1_INSTITUTIONAL_DIRECT_RESEARCH
@@ -471,22 +468,6 @@ agent_2:
     - MARKET_CORE
     - SUPPLY_CHAIN_ALPHA
   factor_coverage_minimum: 0.65            # 可用权重低于此值最高只能 WATCH_ONLY
-  # Claude 0263: Team V2 opt-in only, not a legacy scoring-policy rewrite.
-  team_theme_score_policy:
-    version: FROZEN_QUANT_THEME_MEAN_V1
-    minimum_valid_members: 3
-    maximum_minor_missing_weight: 0.15
-    missing_weight_basis: ORIGINAL_WEIGHTS_EXCLUDING_GLOBAL_CAPITAL_GAP
-    # Claude 0267: fixed classification penalties; do not infer range endpoints.
-    penalty_mode: MIDPOINT_FIXED_V1
-    minimum_penalty_points: -30
-    penalty_points:
-      high_crowding: -12
-      single_limit_up_driven: -10
-      laggard_spread_core_weak: -12
-      news_hot_capital_out: -10
-      volume_up_return_down: -12
-      insufficient_capacity: -10
   capital_flow:
     required_for_focus: false              # 缺失时按可用权重归一，禁止用成交额冒充
     unavailable_reason_code: A2_CAPITAL_FLOW_UNAVAILABLE

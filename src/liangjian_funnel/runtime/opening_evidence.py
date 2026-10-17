@@ -47,26 +47,7 @@ def _scope(settings, current):
     return rows
 
 
-POLL_SECONDS=(3,8,15,24)
-
-
-def capture_scheduled_opening_evidence(settings, *, calendar=None, clock=None, fetch=None):
-    """Four fixed slots, at most one request per slot across process restarts.
-
-    A two-second dispatch allowance covers normal Python start-up, not a retry
-    or catch-up window. A busy/missed slot remains missing evidence. Each
-    individual child retains the existing 30s Node limit and strict receive
-    deadline; a source call after the receive deadline can never claim final.
-    """
-    clock=clock or (lambda:datetime.now(SHANGHAI))
-    current=_aware(clock())
-    slot=next((second for second in POLL_SECONDS if second<=current.second<second+2),None)
-    if not _in_window(current) or slot is None:
-        return {'status':'NOOP','reason_code':'OPENING_POLL_SLOT_MISSED'}
-    return capture_opening_evidence(settings,calendar=calendar,now=current,clock=clock,fetch=fetch,poll_slot=slot)
-
-
-def capture_opening_evidence(settings, *, calendar=None, now=None, clock=None, fetch=None,poll_slot=None):
+def capture_opening_evidence(settings, *, calendar=None, now=None, clock=None, fetch=None):
     """Capture one existing Tencent batch within the actual opening window.
 
     A true final-price *claim* means an original provider-reported 09:25:00
@@ -77,9 +58,6 @@ def capture_opening_evidence(settings, *, calendar=None, now=None, clock=None, f
     """
     clock = clock or (lambda: datetime.now(SHANGHAI))
     current = _aware(now or clock())
-    if poll_slot is not None and (type(poll_slot) is not int or poll_slot not in POLL_SECONDS
-            or not poll_slot<=current.second<poll_slot+2):
-        raise ValueError('OPENING_POLL_SLOT_INVALID')
     if not _in_window(current):
         return {"status":"NOOP", "reason_code":"OPENING_EVIDENCE_WINDOW_MISSED"}
     if calendar is None:
@@ -92,11 +70,10 @@ def capture_opening_evidence(settings, *, calendar=None, now=None, clock=None, f
         return {"status":"NOOP", "reason_code":"OPENING_EVIDENCE_SCOPE_EMPTY"}
     directory = Path(settings.workflow_output_dir) / "opening_evidence" / current.date().isoformat()
     directory.mkdir(parents=True, exist_ok=True)
-    claim = directory / ("once.json" if poll_slot is None else f"poll-{poll_slot:02d}.json")
+    claim = directory / "once.json"
     try:
         with claim.open("x", encoding="utf-8") as stream:
-            json.dump({"claimed_at":current.isoformat(),"poll_slot_second":poll_slot,
-                "plan_ids":[row["plan_id"] for row in rows]}, stream)
+            json.dump({"claimed_at":current.isoformat(), "plan_ids":[row["plan_id"] for row in rows]}, stream)
             stream.flush()
             os.fsync(stream.fileno())
     except FileExistsError:
@@ -153,7 +130,6 @@ def capture_opening_evidence(settings, *, calendar=None, now=None, clock=None, f
     claims = sum(item["auction_final_price_claimed"] for item in observed.values())
     encoded_scope = json.dumps(rows, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
     body = {"schema_version":"opening-auction-source-evidence/1", "observed_at":current.isoformat(),
-        "poll_slot_second":poll_slot,
         "received_at":received.isoformat(), "trade_date":current.date().isoformat(),
         "plan_ids":[row["plan_id"] for row in rows], "plan_rows_sha256":hashlib.sha256(encoded_scope).hexdigest(),
         "by_symbol":observed, "claimed_symbol_count":claims, "requested_symbol_count":len(observed),

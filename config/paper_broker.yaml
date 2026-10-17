@@ -1,7 +1,0 @@
-# Tony master section 10/3: local paper only. Prices/rules retain PIT evidence.
-initial_capital: '1000000'
-participation: '0.10'
-commission_rate: '0.00025'
-minimum_commission: '5'
-sell_stamp_rate: '0.0005'
-sh_transfer_rate: '0.00001'
