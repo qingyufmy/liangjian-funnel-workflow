@@ -19,6 +19,31 @@ from .team_v2_model import team_call_binding
 from .team_v2_a1_research import _hash
 
 
+def directory_reference_feedback(raw,catalog,issues):
+    """0308: one existing second round for concrete foreign IDs, not bad shapes.
+
+    This extends the Team runtime's former rotation-only feedback eligibility.
+    The original validator and captured first response remain unchanged.
+    """
+    from .team_v2_contract import validate_team_output
+    rows={row['path']:row for row in validate_team_output('A2',raw,catalog).judgments}
+    known={row['id'] for row in catalog['items']};invalid=set()
+    for issue in issues:
+        if issue.startswith('A2_ROTATION_'):continue
+        prefix,_,path=issue.partition(':')
+        field={'TEAM_SUPPORTING_REFS_INVALID':'supporting_refs',
+            'TEAM_OPPOSING_REFS_INVALID':'opposing_refs'}.get(prefix)
+        if field is None:return None
+        refs=rows.get(path,{}).get(field)
+        if (not isinstance(refs,list) or not 1<=len(refs)<=3
+                or any(not isinstance(ref,str) or not ref.strip() for ref in refs)):
+            return None
+        foreign=set(refs)-known
+        if not foreign:return None
+        invalid.update(foreign)
+    return dict(invalid_reference_ids=sorted(invalid),catalog_categories=sorted(catalog['categories'])) if invalid else None
+
+
 def prepare_a2_snapshot(adapter,snapshot,symbols):
     from .research import common as legacy
     from .team_v2_nomination_source import prepare_nomination_source
@@ -139,7 +164,7 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
                     if 'A2:NOMINATION:'+r['symbol'] not in r['supporting_refs']:
                         issues.append('A2_NOMINATION_ORIGINAL_FACT_REFERENCE_REQUIRED')
             return TeamValidation(not issues,tuple(dict.fromkeys(issues)),result.judgments,result.sentinel_count)
-        history=[];ids=[];output=None
+        history=[];ids=[];output=None;reference_feedback_rounds=0
         for attempt in range(2):
             request=adapter.repository.prepare_messages('A2',values,required_envelope=envelope,session='CLOSE_REVIEW')
             tokens=legacy._estimate_message_tokens(request.messages)
@@ -174,7 +199,12 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
                     body=dict(source_call_id=call_id,output=output,reason_codes=list(issues)))
             history.append(list(issues))
             if valid:break
-            if not issues or not all(r.startswith('A2_ROTATION_') for r in issues):break
+            reference_feedback=directory_reference_feedback(raw,values['EVIDENCE_CATALOG'],issues) if issues else None
+            if not issues or not (reference_feedback or all(r.startswith('A2_ROTATION_') for r in issues)):break
+            if reference_feedback is not None:
+                if attempt==0:reference_feedback_rounds+=1
+                projected['_rotation_review_contract']['retry_feedback']=reference_feedback
+                if not any(r.startswith('A2_ROTATION_') for r in issues):continue
             projected['_rotation_review_contract']['retry_feedback']=dict(validation_errors=list(issues),
                 unchanged_focus_symbols=[r['symbol'] for r in raw['focus_decisions']],
                 required_no_focus_if_focus_unchanged={d:sorted(ss) for d,ss in directions.items()
@@ -185,12 +215,16 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
                     set(r['symbol'] for r in output['focus_pool']))
                 feedback['theme_score_status']={theme:record['status'] for theme,record in frozen['themes'].items()}
                 projected['_rotation_review_contract']['retry_feedback']=feedback
+            if reference_feedback is not None:
+                projected['_rotation_review_contract']['retry_feedback']['reference_feedback']=reference_feedback
         metrics=[]
         with closing(adapter.journal._connect()) as db:
             for cid in ids:
                 row=db.execute('SELECT latency_ms,provider_attempts FROM model_calls WHERE call_id=?',(cid,)).fetchone()
                 if row:metrics.append(row)
         diagnostics=dict(team_call_ids=ids,legacy_checkpoint_reused=False,validation_history=history,
+            first_round_failed=bool(history and history[0]),reference_feedback_rounds=reference_feedback_rounds,
+            reference_retry_authority='0308_NEW_TEAM_RUNTIME_ELIGIBILITY_FORMERLY_ROTATION_ONLY',
             original_rotation_domain={d:sorted(ss) for d,ss in sorted(directions.items())},
             original_theme_review_domain=sorted(projected['_theme_review_scope']),
             score_snapshot_sha256=frozen['score_snapshot_sha256'],

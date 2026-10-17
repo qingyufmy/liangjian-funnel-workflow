@@ -24,7 +24,7 @@
 - A3 候选域 = A2 FOCUS + WATCH_ONLY（均为技术送审来源）；仅 model_nominations 不进 A3。
 - EVIDENCE_CATALOG：每层注入的可引用 ID 目录；引用不在目录内 → INVALID。
 - 模型判断全部进 `model_judgments`（decision_id/plan_id 唯一、原始输出与解析状态不可变、T+1/T+3 独立列），不混入有效入场 cohort。
-- prompt_version：shared 3.0.2 / A1 3.0.3 / A2 3.0.5 / A3 4.0.5 / A4-trader 1.0.5 / A5 2.0.7 / A6 1.0.6；envelope 原样回填。
+- prompt_version：shared 3.0.2 / A1 3.0.3 / A2 3.0.5 / A3 4.0.5 / A4-trader 1.1.0 / A5 2.0.7 / A6 1.0.7；envelope 原样回填。
 - 体积：角色专属 ≤12KB；A1 例外 ≤48KB（低频 pro 调用，v2 硬规则全部保留，见 A1【合同说明】C4），共享另计。
 
 ## 干跑要求（发布门）
@@ -80,3 +80,8 @@
 - A6 1.0.6：簇上限以输入为准（现为 2）；只允许 PROBE 的市场状态下 STANDARD 信封不得 KEEP；任何哨兵必须带 opposing_search_scope。
 - A2 3.0.5：冻结域显式化（决策股只来自 A2_BOTTLENECK_CONTEXT，主题只来自 _theme_review_scope）。
 - A4 1.0.5：BARS 列式编码说明。
+
+## 2026-10-17 13:5x 修订（回应 0305/0307）
+- A6 1.0.7：按校验器原条件写明格式硬限（reason_code 2–80 字符单一主因、notes 1–3、what_would_change_my_mind 1–2）。
+- A2 保持 3.0.5（引用越目录由运行时既有反馈重试处理，见 0308-reply）。
+- A4 1.1.0：改为"引擎确定性主导 + 模型逐笔复核 BUY/ADD 与离场候选"（每次 1–2 个对象；超时 BUY→NO_ACTION，离场→引擎规则）。输出 Schema 不变。

@@ -1,6 +1,6 @@
 {
   "schema_version": "claude-team-prompt-bundle/3.0.2",
-  "authority": "canonical .claude_bridge/outbox/0304-reply.md exact A2/A3/A4/A6 and README; A1/A5/shared unchanged from0298; all bytes fully read before wiring",
+  "authority": "canonical .claude_bridge/outbox/0308-reply.md exact A4/A6/README; other0304 files unchanged; full author bytes read before wiring",
   "role_semantics_modified": false,
   "files": {
     "00_shared_system_v3.txt": {
@@ -20,20 +20,20 @@
       "bytes": 9930
     },
     "agent_4_trader_v1.txt": {
-      "sha256": "61c357d1d3a01e989082b46e0c3cff8fc16b7789676b39415e4761c836bfb37a",
-      "bytes": 5811
+      "sha256": "6dc0cc97cd0c57b71085c3fb8336e7c9aafa5a63ed6771ccbfb1e0e0f193d04d",
+      "bytes": 6605
     },
     "agent_5_daily_reviewer_v2.txt": {
       "sha256": "29e88f8d5e74869e9be6e268d63fef0636f899c272ef9402c68545cb5a409094",
       "bytes": 9357
     },
     "agent_6_risk_governor_v1.txt": {
-      "sha256": "85332c4434899e13afb392141b16a5a899e5e130787c0b2906b02d2e97c5054f",
-      "bytes": 7896
+      "sha256": "ee236a93f6a36c577ed09eece94a28928a644dbb0435a91373eab54ad38ec933",
+      "bytes": 8199
     },
     "README_TEAM_V2_PROMPTS.md": {
-      "sha256": "77de05893978be1bab66528696c4ddcb910a0144785d31a97ad3ea59404adbaf",
-      "bytes": 9590
+      "sha256": "dc490588d834dbd35905770f6bbc0e385ddce37cd063d8dd00e8f97dc71b4289",
+      "bytes": 10073
     }
   }
 }

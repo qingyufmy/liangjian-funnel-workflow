@@ -84,6 +84,36 @@ def test_actual_role_journal_and_global_fact_score_before_model_choice(tmp_path)
     assert dict(args['snapshot'].data)==before
 
 
+@pytest.mark.parametrize('side',['supporting_refs','opposing_refs'])
+def test_directory_foreign_reference_uses_only_one_feedback_round_and_keeps_original(tmp_path,side):
+    def mutate(raw,attempt):
+        if attempt==1:raw['market_read'][side]=['A2:QUANT:601288.SZ']
+    app,args,seen=fixture(tmp_path,mutate)
+    result=app._run_stage(**args)
+    assert result.status=='VALIDATED' and len(seen)==2,result.reason_codes
+    assert result.diagnostics['first_round_failed'] is True
+    assert result.diagnostics['reference_feedback_rounds']==1
+    assert 'A2:QUANT:601288.SZ' in seen[1]['messages'][0]['content']
+    with closing(app.team_research_adapter.journal._connect()) as db:
+        outputs=[json.loads(r[0]) for r in db.execute("SELECT output_json FROM model_calls ORDER BY captured_at")]
+    assert outputs[0]['market_read'][side]==['A2:QUANT:601288.SZ']
+    assert len(outputs)==2 and result.latency_ms>=0
+    assert app._run_stage(**args).output==result.output and len(seen)==2
+
+
+def test_foreign_reference_twice_stays_invalid_not_dropped_or_default_pass(tmp_path):
+    app,args,seen=fixture(tmp_path,lambda raw,n:raw['market_read'].update(opposing_refs=['A2:FOREIGN']))
+    result=app._run_stage(**args)
+    assert result.status=='BLOCKED' and len(seen)==2
+    assert result.reason_codes==('TEAM_OPPOSING_REFS_INVALID:market_read',)
+
+
+def test_empty_refs_are_not_directory_foreign_ids_and_do_not_gain_retry(tmp_path):
+    app,args,seen=fixture(tmp_path,lambda raw,n:raw['market_read'].update(opposing_refs=[]))
+    result=app._run_stage(**args)
+    assert result.status=='BLOCKED' and len(seen)==1
+
+
 @pytest.mark.parametrize('missing,limited',[(('leader_structure',),False),(('leader_structure','breadth'),True)])
 def test_minor_missing_null_not_zero_and_major_missing_forced_watch(tmp_path,missing,limited):
     app,args,_=fixture(tmp_path)
@@ -107,7 +137,7 @@ def test_bad_model_never_repaired_into_approved_output(tmp_path,kind):
         if kind=='missing-envelope':raw.pop('envelope')
     app,args,seen=fixture(tmp_path,change)
     result=app._run_stage(**args)
-    assert result.status=='BLOCKED' and result.output is None and len(seen)==1
+    assert result.status=='BLOCKED' and result.output is None and len(seen)==(2 if kind=='foreign-ref' else 1)
 
 
 def test_two_rotation_failures_preserve_both_originals_for_existing_degradation(tmp_path):
