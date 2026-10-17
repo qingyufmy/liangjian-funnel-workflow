@@ -37,6 +37,58 @@ def test_library_legacy_pipeline_remains_explicit_without_own_journal(tmp_path):
     assert result.team_research_adapter is None and not (tmp_path/'state/team_v2').exists()
 
 
+def test_0323_explicit_production_a1_does_not_disable_actual_team_a2(tmp_path):
+    original,args,seen=fixture(tmp_path)
+    root=Path(__file__).resolve().parents[1]
+    config=(root/'config/funnel_config_v2.yaml').read_text(encoding='utf-8')
+    target=tmp_path/'fallback.yaml'
+    target.write_text(config.replace('agent_1:\n','agent_1:\n  team_role_mode: production\n',1),encoding='utf-8')
+    original.settings=original.settings.model_copy(update={'source_config_path':target,'prompt_dir':root/'prompts'})
+    adapter=configured_research_adapter(original.settings,calendar=original.team_research_adapter.calendar)
+    original.team_research_adapter=adapter
+    assert not adapter.supports('A1') and adapter.supports('A2') and adapter.supports('A3')
+    legacy={'structural_themes':[{'theme_id':'OLD','policy_verifiability':'VERIFIED'}]}
+    assert adapter.finalize_a1_output(legacy) is legacy
+    result=original._run_stage(**args)
+    assert result.status=='VALIDATED' and len(seen)==1
+    with closing(adapter.journal._connect()) as db:
+        assert db.execute('SELECT role FROM model_calls').fetchall()==[('A2',)]
+    with pytest.raises(ValueError,match='TEAM_A1_ROLE_DISABLED'):
+        adapter.run_stage(original,**(args|{'stage':'A1'}))
+
+
+def test_0323_production_a1_dispatch_reaches_original_preparation_without_team_call(tmp_path,monkeypatch):
+    from test_team_v2_a1_research import fixture as a1_fixture
+    from liangjian_funnel.pipeline.research.common import ResearchPipelineError
+    app,args,seen=a1_fixture(tmp_path)
+    app.team_research_adapter.a1_role_mode='production'
+    prepared=[]
+    def original_prepare(**kwargs):
+        prepared.append(kwargs)
+        raise ResearchPipelineError('ORIGINAL_A1_PREPARATION_PROBE')
+    monkeypatch.setattr(app,'_prepare_stage_request',original_prepare)
+    result=app._run_stage(**args)
+    assert result.reason_codes==('ORIGINAL_A1_PREPARATION_PROBE',)
+    assert len(prepared)==1 and prepared[0]['bundle'] is args['bundle'] and not seen
+    with closing(app.team_research_adapter.journal._connect()) as db:
+        assert db.execute('SELECT count(*) FROM model_calls').fetchone()[0]==0
+
+
+@pytest.mark.parametrize('mode',['RETRY',False,None,{},[]])
+def test_0323_invalid_a1_mode_cannot_create_owned_database(tmp_path,mode):
+    import yaml
+    from liangjian_funnel.settings import Settings
+    from test_team_v2_feedback import CAL
+    root=Path(__file__).resolve().parents[1]
+    config=yaml.safe_load((root/'config/funnel_config_v2.yaml').read_text(encoding='utf-8'))
+    config['agent_1']['team_role_mode']=mode
+    target=tmp_path/'invalid.yaml';target.write_text(yaml.safe_dump(config),encoding='utf-8')
+    settings=Settings.from_env({},root=tmp_path).model_copy(update={'source_config_path':target})
+    with pytest.raises(ValueError,match='TEAM_A1_ROLE_MODE_INVALID'):
+        configured_research_adapter(settings,calendar=CAL)
+    assert not (tmp_path/'state/team_v2').exists()
+
+
 def test_real_research_commands_opt_in_but_nonresearch_cli_cannot_initialize_models():
     assert {'run-a1-maintenance','run-research','run-next-session-prep','run-close','run-due'}<=RESEARCH_COMMANDS
     assert not {'status','run-auction-base','run-premarket','run-morning','run-monitor','prepare-snapshot'} & RESEARCH_COMMANDS

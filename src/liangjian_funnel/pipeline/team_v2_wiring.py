@@ -23,7 +23,7 @@ RESEARCH_COMMANDS=frozenset({'run-a1-maintenance','run-research','run-comparison
 
 
 def configured_research_adapter(settings,*,calendar):
-    """Bind all A1/A2/A3 to the exact approved prompt/config bytes or fail.
+    """Bind approved roles to exact bytes; explicit 0323 A1 fallback only.
 
     There is no missing-file fallback to the old role or subjective A2 score.
     Loading the config uses the identical hash/version recipe as Workflow's
@@ -33,6 +33,10 @@ def configured_research_adapter(settings,*,calendar):
     a2=config.get('agent_2')
     if not isinstance(a2,dict) or a2.get('team_theme_score_policy')!=POLICY:
         raise ValueError('TEAM_RESEARCH_CONFIGURATION_INVALID')
+    a1=config.get('agent_1')
+    a1_role_mode=a1.get('team_role_mode','team') if isinstance(a1,dict) else 'team'
+    if a1_role_mode not in ('team','production'):
+        raise ValueError('TEAM_A1_ROLE_MODE_INVALID')
     directory=settings.prompt_dir/'team_v2'
     manifest=json.loads((directory/'manifest.json').read_text(encoding='utf-8'))
     files=manifest.get('files',{})
@@ -51,4 +55,5 @@ def configured_research_adapter(settings,*,calendar):
     return TeamResearchAdapter(repository=TeamPromptRepository(directory),
         journal=ModelJudgmentJournal(owned/'model.db'),store=TeamMeetingStore(owned/'team.db'),
         calendar=calendar,config_version=config.get('version') or config.get('funnel_version') or 'funnel-config-v2',
-        config_hash=digest_text(json.dumps(config,ensure_ascii=False,sort_keys=True,default=str)),a2_config=deepcopy(a2))
+        config_hash=digest_text(json.dumps(config,ensure_ascii=False,sort_keys=True,default=str)),
+        a2_config=deepcopy(a2),a1_role_mode=a1_role_mode)

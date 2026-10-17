@@ -22,11 +22,14 @@ def _hash(value):
 
 
 class TeamResearchAdapter:
-    def __init__(self, *, repository, journal, store, calendar, config_version, config_hash,a2_config=None):
+    def __init__(self, *, repository, journal, store, calendar, config_version, config_hash,a2_config=None,
+                 a1_role_mode='team'):
         if (not isinstance(config_version, str) or not config_version
                 or not isinstance(config_hash, str) or len(config_hash) != 64
                 or any(c not in '0123456789abcdef' for c in config_hash)):
             raise ValueError('TEAM_RESEARCH_CONFIG_BINDING_INVALID')
+        if a1_role_mode not in ('team', 'production'):
+            raise ValueError('TEAM_A1_ROLE_MODE_INVALID')
         self.repository = repository
         self.journal = journal
         self.store = store
@@ -34,9 +37,11 @@ class TeamResearchAdapter:
         self.config_version = config_version
         self.config_hash = config_hash
         self.a2_config = a2_config
+        self.a1_role_mode = a1_role_mode
 
     def supports(self, stage):
-        return stage in {'A1','A3'} or stage=='A2' and self.a2_config is not None
+        return (stage=='A1' and self.a1_role_mode=='team' or stage=='A3'
+                or stage=='A2' and self.a2_config is not None)
 
     def prepare_a2_snapshot(self,snapshot,symbols):
         from .team_v2_a2_research import prepare_a2_snapshot
@@ -58,6 +63,8 @@ class TeamResearchAdapter:
         return {**output, 'core_watch_pool': rows}
 
     def finalize_a1_output(self,output,discovery_context=None):
+        if self.a1_role_mode == 'production':
+            return output
         from .team_v2_catalyst_gaps import enforce_catalyst_gaps
         return enforce_catalyst_gaps(output,discovery_context)
 
@@ -126,6 +133,8 @@ class TeamResearchAdapter:
     def run_stage(self, pipeline, *, lane_id, model, stage, snapshot, upstream_output,
             upstream_symbols, run_id, projection_symbols=None,bundle=None,a1_discovery_context=None):
         if stage=='A1':
+            if not self.supports(stage):
+                raise ValueError('TEAM_A1_ROLE_DISABLED')
             from .team_v2_a1_research import run_a1_stage
             return run_a1_stage(self,pipeline,lane_id=lane_id,model=model,snapshot=snapshot,
                 upstream_output=upstream_output,upstream_symbols=upstream_symbols,bundle=bundle,run_id=run_id,
