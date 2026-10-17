@@ -20,7 +20,7 @@ def test_workflow_factory_composes_actual_a2_role_and_its_owned_capture(tmp_path
     pipeline=app._new_research_pipeline(model_client=original.model_client,prompt_repository=root/'prompts',
         enable_feature_store=False,now=lambda:NOW)
     adapter=pipeline.team_research_adapter
-    assert all(adapter.supports(s) for s in ('A1','A2','A3'))
+    assert not adapter.supports('A1') and all(adapter.supports(s) for s in ('A2','A3'))
     result=pipeline._run_stage(**args)
     assert result.status=='VALIDATED' and len(seen)==1,result.reason_codes
     assert adapter.journal.path==tmp_path/'state/team_v2/model.db'
@@ -37,24 +37,26 @@ def test_library_legacy_pipeline_remains_explicit_without_own_journal(tmp_path):
     assert result.team_research_adapter is None and not (tmp_path/'state/team_v2').exists()
 
 
-def test_0323_explicit_production_a1_does_not_disable_actual_team_a2(tmp_path):
+@pytest.mark.parametrize('mode',['production','team'])
+def test_0323_explicit_a1_mode_does_not_disable_actual_team_a2(tmp_path,mode):
     original,args,seen=fixture(tmp_path)
     root=Path(__file__).resolve().parents[1]
     config=(root/'config/funnel_config_v2.yaml').read_text(encoding='utf-8')
     target=tmp_path/'fallback.yaml'
-    target.write_text(config.replace('agent_1:\n','agent_1:\n  team_role_mode: production\n',1),encoding='utf-8')
+    target.write_text(config.replace('team_role_mode: production','team_role_mode: '+mode,1),encoding='utf-8')
     original.settings=original.settings.model_copy(update={'source_config_path':target,'prompt_dir':root/'prompts'})
     adapter=configured_research_adapter(original.settings,calendar=original.team_research_adapter.calendar)
     original.team_research_adapter=adapter
-    assert not adapter.supports('A1') and adapter.supports('A2') and adapter.supports('A3')
+    assert adapter.supports('A1')==(mode=='team') and adapter.supports('A2') and adapter.supports('A3')
     legacy={'structural_themes':[{'theme_id':'OLD','policy_verifiability':'VERIFIED'}]}
-    assert adapter.finalize_a1_output(legacy) is legacy
+    if mode=='production':assert adapter.finalize_a1_output(legacy) is legacy
     result=original._run_stage(**args)
     assert result.status=='VALIDATED' and len(seen)==1
     with closing(adapter.journal._connect()) as db:
         assert db.execute('SELECT role FROM model_calls').fetchall()==[('A2',)]
-    with pytest.raises(ValueError,match='TEAM_A1_ROLE_DISABLED'):
-        adapter.run_stage(original,**(args|{'stage':'A1'}))
+    if mode=='production':
+        with pytest.raises(ValueError,match='TEAM_A1_ROLE_DISABLED'):
+            adapter.run_stage(original,**(args|{'stage':'A1'}))
 
 
 def test_0323_production_a1_dispatch_reaches_original_preparation_without_team_call(tmp_path,monkeypatch):

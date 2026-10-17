@@ -245,6 +245,9 @@ market_regime:
 # Agent 1
 # ---------------------------------------------------------------------------
 agent_1:
+  # 0323: A1 3.0.6 failed its first frozen day; retain the production A1 role.
+  # A2/A3 remain Team V2; no automatic same-request retry or pool mutation.
+  team_role_mode: production
   id: MACRO_FUNDAMENTAL_CHAIN
   discovery_contract_version: a1-discovery-contract/3.2.0
   institutional_pool_role: P1_INSTITUTIONAL_DIRECT_RESEARCH

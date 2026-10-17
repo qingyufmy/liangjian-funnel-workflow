@@ -30,6 +30,10 @@ H1 最终候选 f79abd4 与其独立回退 edac351 已单独验收，部署只�
 
 若 A1 3.0.6 任一冻结日期失败，最终包可在研究配置 `agent_1.team_role_mode` 显式选 `production`；缺省 `team` 保持新 A1。非法值阻断，不能触发隐式回退。`production` 只取消 Team adapter 对 A1 的接管及新 A1 催化剂后处理，A2/A3 仍走新版；自然收盘 `from_active_a1` 沿用原生产 A1 generation，不重写原池、不重跑 A1。既有 A1 维护入口在该配置下仍走原生产 A1 规则/提示词，不把它的结果标成 3.0.6 通过。运行中失败不会在同次请求里自动改模型或重试旧提示词。配置选择要随最终评审包列出，本段不是当前生产变更。
 
+## 原报价归档（0277 C，模式无关）
+
+显式 RECORD 的旧 monitor 复用本轮已取得的完整 `QuoteResult/MarketQuote` 批量封存到独立 append-only 报价库，不额外取行情、不改业务库或交易规则。它没有 owned SQL 行集证明，因此归档显式标 `LEGACY_RECORD_NO_OWNED_SQL_ROWSET_CLAIM`、scope hash 为 NULL；记录实际采集时刻和原判断分钟，不冒充 CONTROL packet。owned 持仓的 record 保护分支也须先归档已取得的 packet，再继续硬退出/撤买。归档失败返回稳定码，不阻断旧 H1 或持仓保护，不记录异常正文；CONTROL 归档失败仍执行原有 fail-closed/record 纪律。自然采集尚待发布后验证。
+
 ## A4 1.1.0 候选复核（0308，覆盖旧宽域/分片合同）
 
 引擎每分钟跟踪全部原计划与 owned 持仓，模型不再任意扫描计划池。只有确定性 BUY/ADD 且信封 eligible、计划有效、价格在带内且不超 no_chase 的入场候选，或确定性主动 SELL/REDUCE 持仓事件，才进入本节拍候选域。已闭合 5m 节拍一次最多送 2 个对象、单请求、不分片；旧状态转换/15m 心跳/24 对象分片仅保留历史兼容，不用于 1.1.0 调用。未送入的入场候选不能默认通过；未复核的确定性离场单列 ENGINE_EXIT_NOT_REVIEWED。

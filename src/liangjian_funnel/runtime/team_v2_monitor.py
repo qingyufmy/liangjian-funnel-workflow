@@ -61,15 +61,16 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
         fetch_bars=lambda symbol,cutoff,count,end:application._fetch_live_bars(symbol,'1m',count,cutoff,deadline=end),
         fetch_quote=lambda symbol,at,end:application._fetch_live_quote(symbol,at,deadline=end))
     if packet['status']=='NOOP':return packet
-    if record_fallback is not None:
-        from .team_v2_record_protection import protect_packet
-        return protect_packet(settings,scope=scope,packet=packet,broker=broker,store=store,clock=clock,
-            account_id=ACCOUNT,deadline_monotonic=deadline,reason_code=record_fallback['reason_code'],
-            tradability_loader=tradability_loader)
     from .team_v2_quote_evidence import archive_monitor_quotes
     try:quote_archive=archive_monitor_quotes(settings,packet,used_at=stamp(clock()))
     except Exception:
         quote_archive=dict(status='FAILED',reason_code='CONTROL_ORIGINAL_QUOTE_ARCHIVE_FAILED')
+    if record_fallback is not None:
+        from .team_v2_record_protection import protect_packet
+        protection=protect_packet(settings,scope=scope,packet=packet,broker=broker,store=store,clock=clock,
+            account_id=ACCOUNT,deadline_monotonic=deadline,reason_code=record_fallback['reason_code'],
+            tradability_loader=tradability_loader)
+        return {**protection, 'original_quote_archive': quote_archive}
     from .team_v2_first_day import load_first_day_policy,observe_first_day_packet,latch_record,first_day_limits
     first_policy=load_first_day_policy(settings.root/'config/risk_limits.yaml')
     first_observation=observe_first_day_packet(store,first_policy,account_id=ACCOUNT,packet=packet,now=stamp(clock()),

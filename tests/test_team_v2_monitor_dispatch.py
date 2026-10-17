@@ -66,6 +66,9 @@ def test_default_control_and_explicit_record_select_one_engine_without_fallback(
     assert WorkflowApplication.monitor_dispatch(app)['status']=='BLOCKED' and seen==['control']
     app.settings=settings.model_copy(update={'a4_trader_mode':'record'})
     WorkflowApplication.monitor_dispatch(app);assert seen==['control','legacy']
+    kwargs=[];app.monitor_once=lambda **kw:kwargs.append(kw)
+    WorkflowApplication.monitor_dispatch(app)
+    assert kwargs==[{'now':None,'archive_original_quotes':True}]
     app.settings=settings.model_copy(update={'broker_adapter':'gm_live'})
     with pytest.raises(WorkflowError,match='BROKER_ADAPTER_NOT_ENABLED'):WorkflowApplication.monitor_dispatch(app)
 
@@ -88,6 +91,21 @@ def test_original_quote_archive_failure_cannot_grant_entry_or_call_legacy(tmp_pa
     assert result['status']=='CONTROL_RECORD_REQUIRED' and result['record_effective_next_tick']
     assert not seen
     assert source_bytes(app.settings)==before and 'PRIVATE' not in json.dumps(result)
+
+
+@pytest.mark.parametrize('archive_fails',[False,True])
+def test_owned_record_protection_also_archives_without_model_or_new_buy(tmp_path,monkeypatch,archive_fails):
+    app,clock,seen,api,proof=prepared(tmp_path,monkeypatch);before=source_bytes(app.settings)
+    if archive_fails:
+        import liangjian_funnel.runtime.team_v2_quote_evidence as archive
+        def broken(*args,**kwargs):raise RuntimeError('PRIVATE_ARCHIVE_ERROR')
+        monkeypatch.setattr(archive,'archive_monitor_quotes',broken)
+    result=run_monitor_control(app,now=clock.now,clock=lambda:clock.now,client=api,
+        tradability_loader=proof,record_fallback={'reason_code':'EXPLICIT_RECORD_MODE'})
+    assert result['original_quote_archive']['status']==('FAILED' if archive_fails else 'ARCHIVED')
+    assert not seen and source_bytes(app.settings)==before and 'PRIVATE' not in json.dumps(result)
+    with sqlite3.connect(app.settings.root/'state/team_v2/paper.db') as db:
+        assert db.execute('SELECT count(*) FROM paper_orders').fetchone()[0]==0
 
 
 def test_shadow_rule_material_is_not_a_new_production_entry_gate(tmp_path,monkeypatch):

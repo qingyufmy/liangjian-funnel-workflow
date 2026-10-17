@@ -13,7 +13,8 @@ from test_team_v2_minute_projection import source
 from liangjian_funnel.data.tencent_minute import MarketQuote
 from liangjian_funnel.runtime.team_v2_monitor_source import collect_monitor_packet
 from liangjian_funnel.runtime.team_v2_quote_evidence import (
-    REPLAY_BASIS,archive_monitor_quotes,assert_original_market_quote,replay_quote_from_closed_bar)
+    REPLAY_BASIS,archive_monitor_quotes,archive_legacy_monitor_quotes,
+    assert_original_market_quote,replay_quote_from_closed_bar)
 from liangjian_funnel.runtime.team_v2_store import canonical
 
 
@@ -89,3 +90,34 @@ def test_existing_foreign_database_is_not_migrated_or_repaired(tmp_path):
     with pytest.raises(ValueError,match='ARCHIVE_SCOPE_INVALID'):
         archive_monitor_quotes(settings,packet,used_at=clock.now)
     assert database.read_bytes()==before
+
+
+def test_record_archive_preserves_received_quote_and_failure_without_sql_scope_claim(tmp_path):
+    from liangjian_funnel.data.tencent_minute import QuoteResult
+    settings,clock,scope,calls,args=prepared(tmp_path)
+    received=args['fetch_quote']('000001.SZ',clock.now,0)
+    missing=QuoteResult(symbol='000002.SZ',reason_code='REALTIME_QUOTE_REQUEST_FAILED')
+    quotes={'000001.SZ':received,'000002.SZ':missing};before=deepcopy(quotes)
+    receipt=archive_legacy_monitor_quotes(settings,quotes,decision_at=clock.now,used_at=clock.now)
+    assert receipt==archive_legacy_monitor_quotes(settings,quotes,decision_at=clock.now,used_at=clock.now)
+    assert receipt['count']==2 and quotes==before and len(calls)==1
+    with sqlite3.connect((settings.root/'state/team_v2/market_quotes.sqlite3').as_uri()+'?mode=ro',uri=True) as db:
+        rows=[json.loads(row[0]) for row in db.execute('SELECT body_json FROM original_market_quotes ORDER BY symbol')]
+    assert rows[0]['quote_result']==received.model_dump(mode='json')
+    assert rows[1]['quote_result']==missing.model_dump(mode='json')
+    assert all(row['scope_rowset_sha256'] is None for row in rows)
+    assert all(row['scope_basis']=='LEGACY_RECORD_NO_OWNED_SQL_ROWSET_CLAIM' for row in rows)
+
+
+def test_record_archive_empty_is_noop_and_replay_is_not_an_original(tmp_path):
+    from liangjian_funnel.data.tencent_minute import QuoteResult
+    settings,clock,scope,calls,args=prepared(tmp_path)
+    assert archive_legacy_monitor_quotes(settings,{},decision_at=clock.now,used_at=clock.now)['status']=='NO_QUOTES'
+    fake=args['fetch_quote']('000001.SZ',clock.now,0)
+    fake=fake.model_copy(update={'quote':fake.quote.model_copy(update={'source_id':REPLAY_BASIS})})
+    with pytest.raises(ValueError,match='CONTROL_REPLAY_QUOTE_FORBIDDEN'):
+        archive_legacy_monitor_quotes(settings,{'000001.SZ':fake},decision_at=clock.now,used_at=clock.now)
+    with pytest.raises(ValueError,match='SYMBOL_MISMATCH'):
+        archive_legacy_monitor_quotes(settings,{'000001.SZ':QuoteResult(symbol='WRONG',reason_code='GAP')},
+            decision_at=clock.now,used_at=clock.now)
+    assert not (settings.root/'state/team_v2/market_quotes.sqlite3').exists()

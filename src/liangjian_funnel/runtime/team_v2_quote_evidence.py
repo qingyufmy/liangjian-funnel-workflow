@@ -59,6 +59,29 @@ def assert_original_market_quote(quote):
         raise ValueError('CONTROL_REPLAY_QUOTE_FORBIDDEN')
 
 
+def archive_legacy_monitor_quotes(settings, quotes, *, decision_at, used_at):
+    """0277 C also applies to RECORD; reuse received typed objects, no fetch.
+
+    Legacy mode has no owned execution packet/SQL-rowset proof. Keep that
+    absence explicit rather than minting a row hash or execution permission.
+    """
+    current, observed = stamp(decision_at), stamp(used_at)
+    sources = {}
+    for symbol, quote in sorted(quotes.items()):
+        if not isinstance(quote, QuoteResult) or quote.symbol != symbol:
+            raise ValueError('CONTROL_QUOTE_ARCHIVE_SYMBOL_MISMATCH')
+        if quote.quote is not None:
+            assert_original_market_quote(quote.quote)
+        sources[symbol] = dict(quote=quote.model_dump(mode='json'))
+    if not sources:
+        return dict(status='NO_QUOTES', count=0, reason_code='NO_RECEIVED_QUOTE_OBJECTS')
+    packet = dict(captured_at=observed.isoformat(), binding=dict(minute=current.isoformat()),
+        scope=dict(trade_date=current.date().isoformat(), plan_rowset_sha256=None),
+        scope_basis='LEGACY_RECORD_NO_OWNED_SQL_ROWSET_CLAIM', sources=sources)
+    packet['packet_sha256'] = hashlib.sha256(canonical(packet).encode()).hexdigest()
+    return archive_monitor_quotes(settings, packet, used_at=observed)
+
+
 def archive_monitor_quotes(settings,packet,*,used_at):
     """Write once before use, byte-compare retries; source errors are retained.
 
@@ -85,6 +108,8 @@ def archive_monitor_quotes(settings,packet,*,used_at):
             packet_sha256=packet['packet_sha256'],decision_minute=packet['binding']['minute'],
             source_captured_at=packet['captured_at'],scope_rowset_sha256=packet['scope']['plan_rowset_sha256'],
             quote_result=raw,source_claim='COMPLETE_TYPED_OBJECT_NOT_RAW_PROVIDER_HTTP')
+        if 'scope_basis' in packet:
+            record['scope_basis'] = packet['scope_basis']
         text=canonical(record);quote_text=canonical(raw.get('quote'))
         key=hashlib.sha256(canonical([packet['packet_sha256'],symbol]).encode()).hexdigest()
         rows.append((key,observed.date().isoformat(),symbol,packet['binding']['minute'],packet['packet_sha256'],text,

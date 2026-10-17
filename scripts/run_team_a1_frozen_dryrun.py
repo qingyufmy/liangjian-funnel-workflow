@@ -49,6 +49,7 @@ def main():
    try:return super().complete(*args,**kwargs)
    except ModelClientError as exc:failures.append(dict(reason_code=exc.reason_code,status_code=exc.status_code,attempts=exc.attempts));raise
  adapter=configured_research_adapter(settings,calendar=ExchangeTradingCalendar())
+ if not adapter.supports('A1'):raise ValueError('A1_TEAM_ROLE_DISABLED_BY_RELEASE_CONFIG')
  pipeline=ResearchPipeline(settings,prompt_repository=ROOT/'prompts',model_client=AuditedClient(settings,max_attempts=1),
   now=lambda:datetime.now(TZ),enable_feature_store=False,team_research_adapter=adapter,output_dir=output/'research')
  audit=pipeline._run_stage(lane_id='lane_1',model=settings.review_model,stage='A1',snapshot=snapshot,

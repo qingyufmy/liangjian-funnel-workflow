@@ -1,5 +1,6 @@
 """Actual current gate matrix, not a final candidate or release permission."""
 import argparse,hashlib,json,subprocess,sys
+import yaml
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -22,11 +23,18 @@ def main():
     source=base/'continuous-source-account-20261017T1427/SOURCE_ACCOUNT_AUDIT.json'
     audit=json.loads(source.read_bytes());denominators=[p['timeline']['legal_rate_denominator'] for p in audit['passes']]
     if denominators!=[0,0] or audit['control_release_gate']!='NOT_PASSED':raise ValueError('CONTROL_GATE_REVIEW_REQUIRED_SOURCE_CHANGED')
+    config_path=ROOT/'config/funnel_config_v2.yaml'
+    config=yaml.safe_load(config_path.read_text(encoding='utf-8'))
+    a1_mode=config['agent_1'].get('team_role_mode','team')
+    if a1_mode not in ('team','production'):raise ValueError('TEAM_A1_ROLE_MODE_INVALID')
     result=dict(actual_at=datetime.now(ZoneInfo('Asia/Shanghai')).isoformat(),
         head=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),
         preliminary=True,release_approved=False,final_candidate=False,
-        a1_discovery305={d:read('a1-author305-'+d+'-discovery-real') for d in ('1015','1014','1016')},
-        a1_mapping='ONLY_AFTER_ALL_THREE_CURRENT_DISCOVERY_DAYS_PASS_NOT_OLD303_OR304',
+        a1_discovery306={d:read('a1-author306-'+d+'-discovery-real') for d in ('1015','1014','1016')},
+        a1_release_role=dict(mode=a1_mode,authority='0323_EXPLICIT_PRODUCTION_A1_FALLBACK_IF_ANY306_DAY_FAILS',
+            config_sha256=hashlib.sha256(config_path.read_bytes()).hexdigest(),
+            new_role_release_gate='NOT_PASSED',original_pool='EXISTING_PRODUCTION_A1_GENERATION_UNCHANGED'),
+        a1_mapping='NOT_RUN_NEW_A1_DISABLED' if a1_mode=='production' else 'ONLY_AFTER_ALL_THREE_CURRENT_DISCOVERY_DAYS_PASS',
         a2_305={d:read('a2-author305-'+('feedback308-' if d=='1016' else '')+d+'-real') for d in ('1014','1015','1016')},
         a3_plan_review406=read('a3-author406-1016-inherit-confirm-real'),
         pm406={d:read('pm-author406-from107-'+d+'-real') for d in ('1014','1015','1016')},

@@ -4607,7 +4607,7 @@ class WorkflowApplication:
             if has_owned_exposure(self.settings):
                 from .runtime.team_v2_monitor import run_monitor_control
                 return run_monitor_control(self,now=now,record_fallback={'reason_code':'EXPLICIT_RECORD_MODE'})
-            return self.monitor_once(now=now)
+            return self.monitor_once(now=now, archive_original_quotes=True)
         if self.settings.broker_adapter != "local_paper":
             raise WorkflowError("BROKER_ADAPTER_NOT_ENABLED")
         from .runtime.team_v2_first_day import forced_record
@@ -4619,7 +4619,8 @@ class WorkflowApplication:
         from .runtime.team_v2_monitor import run_monitor_control
         return run_monitor_control(self, now=now)
 
-    def monitor_once(self, *, now: datetime | None = None) -> dict[str, Any]:
+    def monitor_once(self, *, now: datetime | None = None,
+                     archive_original_quotes: bool = False) -> dict[str, Any]:
         mark_phase("fetch")
         monitor_started = time.monotonic()
         monitor_started_wall = datetime.now(SHANGHAI)
@@ -5032,6 +5033,18 @@ class WorkflowApplication:
                         record_span(f"database_write:{symbol}:{interval}", database_started, database_wall)
 
         record_span("market_acquisition", acquisition_started, acquisition_wall)
+
+        original_quote_archive = None
+        if archive_original_quotes:
+            from .runtime.team_v2_quote_evidence import archive_legacy_monitor_quotes
+            try:
+                quotes = {**position_quotes, **{symbol: pack['quote'] for symbol, pack in market.items()
+                    if pack.get('quote') is not None}}
+                original_quote_archive = archive_legacy_monitor_quotes(self.settings, quotes,
+                    decision_at=current, used_at=datetime.now(SHANGHAI))
+            except Exception:
+                original_quote_archive = {'status': 'FAILED', 'reason_code': 'CONTROL_ORIGINAL_QUOTE_ARCHIVE_FAILED'}
+                record_business_reasons({'CONTROL_ORIGINAL_QUOTE_ARCHIVE_FAILED': 1})
 
         lane_inputs: dict[
             str,
@@ -5611,6 +5624,8 @@ class WorkflowApplication:
             "observability": observation.to_dict(),
         }
         mark_phase("persist")
+        if original_quote_archive is not None:
+            payload['original_quote_archive'] = original_quote_archive
         payload["phase_timings"] = phase_timings()
         payload["phase_timing_source"] = "NODE_FINAL_RECEIPT_AUTHORITATIVE"
         atomic_write_json(self.settings.workflow_output_dir / "monitor" / "latest.json", payload)
