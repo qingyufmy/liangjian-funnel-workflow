@@ -19,6 +19,7 @@ def main():
     base=ROOT/'artifacts/team-v2-20261016';now=datetime.now(ZoneInfo('Asia/Shanghai'))
     directories=sorted(p for prefix in ('a5-frozen-','a1-frozen-','a2-frozen-','a3-frozen-','a4-frozen-','a6-frozen-','pm-frozen-',
         'a1-author','a2-author','a3-author','a4-author','a5-author','a6-author','pm-author',
+        'eod-author','radar-author','pmi-author',
         'dryrun-original-sources-','dryrun-source-inventory-')
         for p in base.glob(prefix+'*') if p.is_dir())
     rows={};call_directories={};failed_claims={};exclusions=[];pending=[];versions={};stage_status={}
@@ -51,7 +52,8 @@ def main():
     failures=list(failed_claims.values())
     sessions={('A1','POLICY_MACRO_DISCOVERY'):600,('A1','COMPANY_MAPPING'):600,
         ('A2','CLOSE_REVIEW'):600,('A3','PLAN_REVIEW'):600,('A3','PM_PREMARKET'):100,('A3','PM_POST_CLOSE'):50,
-        ('A4','INTRADAY'):30,('A5','POST_CLOSE'):180,('A6','PREMARKET'):100,('A6','INTRADAY_EXCEPTION'):20,('A6','POST_CLOSE'):50}
+        ('A4','INTRADAY'):30,('A5','POST_CLOSE'):180,('A6','PREMARKET'):100,('A6','INTRADAY_EXCEPTION'):20,('A6','POST_CLOSE'):50,
+        ('A2','INTRADAY_RADAR'):60,('A3','PM_INTRADAY'):60}
     summary=[]
     for (role,session),budget in sessions.items():
         actual=[r for r in rows.values() if (r['role'],r['session'])==(role,session)]
@@ -66,8 +68,11 @@ def main():
         times=sorted(r['latency_ms']/1000 for r in actual)
         valid_days=sorted({r['source_trade_date'] for r in actual if r['validated'] and call_directories[r['call_id']] not in excluded
             and stage_status.get(call_directories[r['call_id']]) in {'PASS','VALIDATED','PASS_PROBE_ONLY'}})
+        format_days=sorted({r['source_trade_date'] for r in actual if r['validated'] and call_directories[r['call_id']] not in excluded
+            and stage_status.get(call_directories[r['call_id']]) in {'PASS_FIXTURE_FORMAT_LATENCY_ONLY','PASS_EMPTY_NON_ON_FORMAT_LATENCY_ONLY'}})
         by_version.append(dict(role=role,session=session,prompt_version=version,response_count=len(actual),
             schema_valid_count=sum(bool(r['validated']) for r in actual),post_policy_valid_source_days=valid_days,
+            format_only_source_days=format_days,
             p50_seconds=statistics.median(times),p95_seconds=times[math.ceil(.95*len(times))-1],
             authority='ROLE_SESSION_VERSION_NOT_END_TO_END_PRODUCTION_OR_RETURNS'))
     # Read only the configured provider credential values into this process.
