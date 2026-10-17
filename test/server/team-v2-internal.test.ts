@@ -46,7 +46,9 @@ test('Shanghai weekday 08:45 first edge, once per minute, no weekend or late sen
     expect(calls.filter(x=>x==='team-internal')).toHaveLength(1);
     await tick('2026-10-19T00:46:00Z');expect(calls.filter(x=>x==='team-internal')).toHaveLength(2);
     await tick('2026-10-19T09:20:00Z');expect(calls.filter(x=>x==='team-internal')).toHaveLength(3);
-    await tick('2026-10-19T09:21:00Z');await tick('2026-10-18T00:45:00Z');
-    expect(calls.filter(x=>x==='team-internal')).toHaveLength(3);
+    await tick('2026-10-19T09:55:00Z');
+    expect(calls.filter(x=>x==='team-internal')).toHaveLength(4);
+    await tick('2026-10-19T09:56:00Z');await tick('2026-10-18T00:45:00Z');
+    expect(calls.filter(x=>x==='team-internal')).toHaveLength(4);
   }finally{schedule.stop();await(logger as unknown as {writeChain:Promise<void>}).writeChain;await rm(root,{recursive:true,force:true});}
 });
