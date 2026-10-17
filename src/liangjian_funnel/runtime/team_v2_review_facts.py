@@ -16,6 +16,20 @@ from zoneinfo import ZoneInfo
 from .team_v2_store import assert_database_scope,canonical
 
 
+def review_degradation_metrics(rows,trade_date):
+    """Only two consecutive exchange days warrant the author review flag."""
+    if not isinstance(rows,list):return dict(status='NO_REVIEW_DAY_EVIDENCE',report_to_claude=False)
+    states={r['trade_date']:json.loads(r['body_json']) for r in rows}
+    from datetime import date
+    from .calendar import ExchangeTradingCalendar
+    previous=ExchangeTradingCalendar().previous_trading_day(date.fromisoformat(trade_date)).isoformat()
+    current=states.get(trade_date,{})
+    return dict(status='AVAILABLE',engine_only_today=bool(current.get('engine_only')),
+        consecutive_review_failures=current.get('consecutive_failures',0),previous_trade_date=previous,
+        report_to_claude=bool(current.get('engine_only') and states.get(previous,{}).get('engine_only')),
+        delivery='A5_INTERNAL_REVIEW_NOT_CUSTOMER')
+
+
 def candidate_review_metrics(rows):
     counts=dict(candidate_count=0,selected_count=0,actual_model_objects=0,confirmed_count=0,
         veto_count=0,failed_review_count=0,engine_exit_fallback_count=0)
@@ -133,6 +147,7 @@ def build_team_review_facts(*,legacy_facts,store,journal,paper_snapshot,settleme
         name:(name,f'SELECT * FROM {name} WHERE account_id=? AND trade_date=? ORDER BY 1',(account_id,trade_date))
         for name in ('risk_meetings','pm_decisions','trader_sessions','risk_exception_reviews','record_fallback_state')}
     tables.update(
+        trader_review_days=('trader_review_days','SELECT * FROM trader_review_days WHERE account_id=? AND trade_date<=? ORDER BY trade_date DESC LIMIT 2',(account_id,trade_date)),
         morning_engine=('morning_engine','SELECT * FROM morning_engine WHERE account_id=? AND trade_date=?',(account_id,trade_date)),
         risk_day_state=('risk_day_state','SELECT * FROM risk_day_state WHERE account_id=? AND trade_date=?',(account_id,trade_date)))
     # Older unbound EOD rows are not silently assigned to the current account.
@@ -173,6 +188,7 @@ def build_team_review_facts(*,legacy_facts,store,journal,paper_snapshot,settleme
     metrics=dict(legacy_facts.get('metrics') or {})
     metrics['trader_model_scope']=trader_scope_metrics(rows.get('trader_sessions'))
     metrics['trader_candidate_review']=candidate_review_metrics(rows.get('trader_sessions'))
+    metrics['trader_review_degradation']=review_degradation_metrics(rows.get('trader_review_days'),trade_date)
     # 0290: name original observation denominators explicitly. Counts are
     # copied from frozen metrics, never reconstructed from filtered prose.
     def count(value):return value if type(value) is int and value>=0 else None

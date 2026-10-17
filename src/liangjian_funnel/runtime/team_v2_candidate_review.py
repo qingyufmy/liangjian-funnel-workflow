@@ -54,6 +54,10 @@ def run_candidate_review(**args):
     previous=store.load_trader(args['decision_id'],input_sha256=binding)
     if previous is not None:return previous
     store.claim_trader(args['decision_id'],input_sha256=binding)
+    from .team_v2_review_latch import ReviewDayLatch
+    latch=ReviewDayLatch(store);day_state=latch.read(args['account_id'],args['trade_date'])
+    engine_only=day_state['engine_only']
+    latch.ensure_alert(args['account_id'],args['trade_date'],day_state)
     selected_entries={pid:entries[pid] for pid in selected if pid in entries}
     selected_exits={pid:exits[pid] for pid in selected if pid in exits}
     child=dict(args);call_id=args['call_id']+':REVIEW';capture=None;sent=False
@@ -67,7 +71,7 @@ def run_candidate_review(**args):
                 code='WALL_CLOCK_TIMEOUT' if exc.reason_code=='WALL_CLOCK_TIMEOUT' else 'OTHER_TRANSPORT_FAILURE'
                 store.freeze_control_context(detail_id,source_sha256=binding,body={'reason_code':code})
                 raise
-    if selected:
+    if selected and not engine_only:
         child.update(decision_id=args['decision_id']+':REVIEW',call_id=call_id,capture_only=True,
             active_plan_ids=set(selected_entries),
             held_plan_ids={s:pid for s,pid in args['held_plan_ids'].items() if pid in selected_exits},
@@ -85,8 +89,16 @@ def run_candidate_review(**args):
             capture=dict(model_validated=False,reason_codes=['TRADER_CANDIDATE_REVIEW_FAILED'],
                 source_call_id=call_id,admissions=[])
         sent=args['journal'].has_call_claim(call_id)
+        if sent:
+            day_state=latch.record(account_id=args['account_id'],trade_date=args['trade_date'],
+                decision_id=args['decision_id'],valid=bool(capture['model_validated']),observed_at=args['decision_at'])
+            latch.ensure_alert(args['account_id'],args['trade_date'],day_state)
     commands=[];vetoed=0;confirmed=0;fallback=0
-    if capture and capture['model_validated']:
+    if engine_only:
+        commands.extend((pid,({**entries,**exits})[pid],None,'ENGINE_ONLY_DAILY_REVIEW_FALLBACK')
+            for pid in (*selected,*pending))
+        fallback=len(exits)
+    elif capture and capture['model_validated']:
         raw=capture['captured_output']
         for row in raw['signals']:
             if row['action']=='NO_ACTION':vetoed+=1
@@ -101,8 +113,9 @@ def run_candidate_review(**args):
         commands.extend((pid,action,None,'ENGINE_EXIT_FALLBACK') for pid,action in selected_exits.items())
         fallback+=len(selected_exits)
     # Capacity does not suspend an existing engine exit. Unreviewed entries wait.
-    commands.extend((pid,exits[pid],None,'ENGINE_EXIT_NOT_REVIEWED') for pid in pending if pid in exits)
-    fallback+=sum(pid in exits for pid in pending)
+    if not engine_only:
+        commands.extend((pid,exits[pid],None,'ENGINE_EXIT_NOT_REVIEWED') for pid in pending if pid in exits)
+        fallback+=sum(pid in exits for pid in pending)
     allocation=None
     if args.get('pm_meeting_id') and entries:
         try:allocation=store.load_pm_allocation(args['pm_meeting_id'],account_id=args['account_id'],trade_date=args['trade_date'])
@@ -111,7 +124,7 @@ def run_candidate_review(**args):
     admissions=[]
     for pid,action,row,origin in commands:
         risk=args['envelopes'][pid]
-        if action in {'BUY_SIGNAL','ADD_SIGNAL'}:
+        if action in {'BUY_SIGNAL','ADD_SIGNAL'} and row is not None:
             hint=row['handoff_to_a6'];risk=replace(risk,max_batches=min(risk.max_batches,hint['batches_hint']))
             if hint['risk_unit_hint']=='PROBE' and risk.risk_unit=='STANDARD':
                 risk=replace(risk,risk_unit='PROBE',risk_budget=risk.risk_budget*args['limits'].probe_multiplier)
@@ -128,19 +141,20 @@ def run_candidate_review(**args):
     failure=store.read_control_context(detail_id,source_sha256=binding) if selected else None
     timed_out=bool(failure and failure['reason_code']=='WALL_CLOCK_TIMEOUT' or 'TRADER_GLOBAL_DEADLINE_EXCEEDED' in issues)
     unknown_failure=bool(capture and not capture['model_validated'] and 'TEAM_MODEL_CALL_FAILED' in issues and failure is None)
-    result=dict(status='ENGINE_TRACKING_NO_REVIEW_CANDIDATE' if not selected else
+    result=dict(status='ENGINE_ONLY_DAILY_REVIEW_FALLBACK' if engine_only else 'ENGINE_TRACKING_NO_REVIEW_CANDIDATE' if not selected else
         'EVALUATED' if capture['model_validated'] else 'CANDIDATE_REVIEW_FAILED_ENTRIES_BLOCKED',
         decision_id=args['decision_id'],source_call_id=args['call_id'],trade_date=args['trade_date'],
         minute_snapshot_id=args['minute_snapshot_id'],input_hash=binding,
         model_validated=capture['model_validated'] if capture else None,admissions=admissions,reason_codes=issues,
         scope=dict(decisions=[dict(plan_id=pid,reason_code='ENGINE_REVIEW_CANDIDATE',
-            selected_for_model=pid in selected,model_judgment_denominator=sent and pid in selected)
+            selected_for_model=pid in selected and not engine_only,model_judgment_denominator=sent and pid in selected)
             for pid in (*entries,*exits)]),
         shards=[dict(capture,plan_ids=selected)] if capture else [],
-        candidate_review=dict(mode='ENGINE_LED_SINGLE_REQUEST',candidate_count=len(entries)+len(exits),
+        review_day_state=day_state,
+        candidate_review=dict(mode='ENGINE_ONLY_DAILY_REVIEW_FALLBACK' if engine_only else 'ENGINE_LED_SINGLE_REQUEST',candidate_count=len(entries)+len(exits),
             engine_candidates=[dict(plan_id=pid,action=action) for pid,action in {**entries,**exits}.items()],
-            selected_count=len(selected),unreviewed_candidate_ids=pending,actual_model_objects=len(selected) if sent else 0,
-            confirmed_count=confirmed,veto_count=vetoed,failed_review_count=len(selected) if selected and not capture['model_validated'] else 0,
+            selected_count=0 if engine_only else len(selected),unreviewed_candidate_ids=[] if engine_only else pending,actual_model_objects=len(selected) if sent else 0,
+            confirmed_count=confirmed,veto_count=vetoed,failed_review_count=len(selected) if capture and not capture['model_validated'] else 0,
             timeout_count=len(selected) if timed_out and sent else None if unknown_failure else 0,
             transport_failure_classification=failure['reason_code'] if failure else 'UNKNOWN' if unknown_failure else 'NOT_TIMEOUT',
             engine_exit_fallback_count=fallback),
