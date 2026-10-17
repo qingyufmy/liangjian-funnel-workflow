@@ -19,7 +19,7 @@ def main():
     base=ROOT/'artifacts/team-v2-20261016';now=datetime.now(ZoneInfo('Asia/Shanghai'))
     directories=sorted(p for prefix in ('a5-frozen-','a1-frozen-','a2-frozen-','a3-frozen-','a4-frozen-','a6-frozen-','pm-frozen-','dryrun-original-sources-','dryrun-source-inventory-')
         for p in base.glob(prefix+'*') if p.is_dir())
-    rows={};call_directories={};failures=[];exclusions=[]
+    rows={};call_directories={};failures=[];exclusions=[];pending=[]
     for directory in directories:
         for database in (directory/'model.db',directory/'state/team_v2/model.db'):
             if not database.is_file():continue
@@ -29,6 +29,8 @@ def main():
                     if row['call_id'] in rows and dict(row)!=rows[row['call_id']]:raise ValueError('DRYRUN_CALL_ID_CONFLICT')
                     rows[row['call_id']]=dict(row)
                     call_directories[row['call_id']]=directory.name
+                for row in db.execute("SELECT call_id FROM model_call_claims WHERE state='CLAIMED'"):
+                    pending.append(dict(directory=directory.name,call_id=row['call_id'],status='IN_FLIGHT_NOT_A_RESULT'))
         result=directory/'RESULT.json'
         if result.is_file():
             body=json.loads(result.read_bytes())
@@ -73,7 +75,7 @@ def main():
         actual_response_count=len(rows),validated_responses=sum(bool(r['validated']) for r in rows.values()),
         source_qualified_schema_valid_responses=sum(bool(r['validated']) and call_directories[key] not in excluded
             for key,r in rows.items()),
-        provider_failed_requests=failures,source_domain_exclusions=exclusions,
+        provider_failed_requests=failures,pending_requests=pending,source_domain_exclusions=exclusions,
         calls=list(rows.values()),role_session_latencies=summary,
         p50_method='MEDIAN',p95_method='NEAREST_RANK',small_sample_warning='N=0_IS_UNOBSERVED_NOT_ZERO;INVALID_RESPONSES_INCLUDED',
         credential_audit=audit,production_writes=0,model_calls=0,release_gate='NOT_PASSED')
