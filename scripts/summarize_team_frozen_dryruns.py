@@ -21,7 +21,7 @@ def main():
         'a1-author','a2-author','a3-author','a4-author','a5-author','a6-author','pm-author',
         'dryrun-original-sources-','dryrun-source-inventory-')
         for p in base.glob(prefix+'*') if p.is_dir())
-    rows={};call_directories={};failures=[];exclusions=[];pending=[];versions={};stage_status={}
+    rows={};call_directories={};failed_claims={};exclusions=[];pending=[];versions={};stage_status={}
     for directory in directories:
         for database in (directory/'model.db',directory/'state/team_v2/model.db'):
             if not database.is_file():continue
@@ -35,18 +35,20 @@ def main():
                     call_directories[row['call_id']]=directory.name
                 for row in db.execute("SELECT call_id FROM model_call_claims WHERE state='CLAIMED'"):
                     pending.append(dict(directory=directory.name,call_id=row['call_id'],status='IN_FLIGHT_NOT_A_RESULT'))
+                for row in db.execute("SELECT call_id,failure_code FROM model_call_claims WHERE state='FAILED'"):
+                    failed_claims.setdefault(row['call_id'],dict(directory=directory.name,call_id=row['call_id'],
+                        reason_code=row['failure_code'],status='FAILED_REQUEST_NOT_SOURCE_PREPARATION'))
         result=directory/'RESULT.json'
         if result.is_file():
             body=json.loads(result.read_bytes())
             stage_status[directory.name]=body.get('status','UNAVAILABLE')
-            if body.get('status')=='MODEL_CALL_FAILED':
-                failures.append(dict(directory=directory.name,reason_code=body['reason_code'],actual_at=body['actual_finished_at']))
         reviewed=directory/'SOURCE_DOMAIN_REVIEW.json'
         if reviewed.is_file():
             body=json.loads(reviewed.read_bytes())
             if body.get('disposition')=='EXCLUDED_FROM_FORMAL_GATES':
                 exclusions.append(dict(directory=directory.name,reason_code=body['reason_code'],
                     note=body.get('note','ORIGINAL_CAPTURE_UNCHANGED_NOT_SOURCE_QUALIFIED')))
+    failures=list(failed_claims.values())
     sessions={('A1','POLICY_MACRO_DISCOVERY'):600,('A1','COMPANY_MAPPING'):600,
         ('A2','CLOSE_REVIEW'):600,('A3','PLAN_REVIEW'):600,('A3','PM_PREMARKET'):100,('A3','PM_POST_CLOSE'):50,
         ('A4','INTRADAY'):30,('A5','POST_CLOSE'):180,('A6','PREMARKET'):100,('A6','INTRADAY_EXCEPTION'):20,('A6','POST_CLOSE'):50}
@@ -87,6 +89,8 @@ def main():
         scope=[str(p.relative_to(ROOT)) for p in directories],files_scanned=scanned,bytes_scanned=bytes_scanned,
         matching_files=hits,not_claimed='NO_GLOBAL_MACHINE_OR_UNKNOWN_CREDENTIAL_SCAN')
     body=dict(actual_at=now.isoformat(),completed_at=datetime.now(ZoneInfo('Asia/Shanghai')).isoformat(),
+        actual_request_count_including_pending=len(rows)+len(failures)+len(pending),
+        failure_count_basis='ORIGINAL_FAILED_MODEL_CLAIMS_NOT_TOP_LEVEL_RESULT_LABEL',
         actual_response_count=len(rows),validated_responses=sum(bool(r['validated']) for r in rows.values()),
         source_qualified_schema_valid_responses=sum(bool(r['validated']) and call_directories[key] not in excluded
             for key,r in rows.items()),
