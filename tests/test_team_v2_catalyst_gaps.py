@@ -56,6 +56,27 @@ def test_company_batch_omitting_themes_still_uses_frozen_discovery_and_does_not_
     assert output==before and len(themes)==1
 
 
+@pytest.mark.parametrize('categories,scope,valid',[
+    (['POLICY'],['POLICY'],True),
+    (['POLICY'],['POLICY','invented'],False),
+    (['POLICY','FUNDAMENTAL'],['POLICY'],False),
+    ([],[],False),
+])
+def test_author319_catalyst_scope_uses_actual_category_count_without_inventing_sources(categories,scope,valid):
+    raw=response();theme=raw['structural_themes'][0]
+    theme.update(supporting_refs=['p'],opposing_refs=['p'])
+    theme['catalysts'][0]['catalyst_search_scope']=scope
+    catalog=dict(categories=categories,items=[dict(id='p',category=categories[0])] if categories else [])
+    result=validate_a1_response(raw,catalog,required_envelope={'stage_id':'A1'},mode='POLICY_MACRO_DISCOVERY',candidate_symbols=set())
+    assert result.valid is valid
+    if valid:
+        raw['active_research_pool']=[dict(symbol='x',primary_theme='T',status='ACTIVE')]
+        projected=enforce_catalyst_gaps(raw)
+        assert not projected['active_research_pool']
+        assert projected['monitor_pool'][0]['reason_codes']==['CATALYST_GAP']
+        assert projected['analysis_summary']['catalyst_evidence']['catalyst_gap_theme_count']==1
+
+
 @pytest.mark.parametrize('kind',['two-nodes','one-segment'])
 def test_total_graph_size_cannot_replace_each_themes_chain_coverage(kind):
     raw=response()

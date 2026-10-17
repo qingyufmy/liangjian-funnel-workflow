@@ -19,7 +19,7 @@ from .team_v2_contract import blind_plan_facts
 _FILES = {"A1": "agent_1_macro_chain_v3.txt", "A2": "agent_2_theme_sentiment_v3.txt",
           "A3": "agent_3_portfolio_planner_v4.txt", "A4": "agent_4_trader_v1.txt",
           "A5": "agent_5_daily_reviewer_v2.txt", "A6": "agent_6_risk_governor_v1.txt"}
-_VERSIONS = {"A1": "agent-1/3.0.4", "A2": "agent-2/3.0.5", "A3": "agent-3/4.0.6",
+_VERSIONS = {"A1": "agent-1/3.0.5", "A2": "agent-2/3.0.5", "A3": "agent-3/4.0.6",
              "A4": "agent-4-trader/1.1.0", "A5": "agent-5/2.0.7", "A6": "agent-6-risk/1.0.7"}
 _SESSION_FILES = {('A2','INTRADAY_RADAR'): ('agent_2_intraday_radar_v1.txt','agent-2-radar/1.0.0'),
                   ('A3','PM_INTRADAY'): ('agent_3_pm_intraday_v1.txt','agent-3-pmi/1.0.0')}

@@ -14,6 +14,17 @@ from liangjian_funnel.settings import Settings
 NOW=datetime.fromisoformat('2026-10-16T18:00:00+08:00')
 
 
+def test_author319_catalog_uses_only_original_family_values_and_same_ref_domain():
+    from liangjian_funnel.pipeline.team_v2_a1_research import _catalog
+    values={'A1_RESEARCH_PACKET':{'policy':[dict(fact_id='p',official_category='bumenfile')],
+        'broker':dict(source_type='PUBLIC_INSTITUTION_STRATEGY_AGGREGATION',source_ref='b'),
+        'unknown':dict(source_ref='u',title='policy broker industry news is not metadata')}}
+    before=deepcopy(values);catalog=_catalog(values)
+    assert {r['id']:r['category'] for r in catalog['items']}=={
+        'p':'bumenfile','b':'PUBLIC_INSTITUTION_STRATEGY_AGGREGATION','u':'RESEARCH_PACKET'}
+    assert values==before
+
+
 def fixture(tmp_path, *, mutate=None,discovery=False):
     from liangjian_funnel.pipeline.model_client import OpenAICompatibleModelClient
     from liangjian_funnel.pipeline.team_v2_judgments import ModelJudgmentJournal
@@ -71,12 +82,12 @@ def test_actual_a1_stage_uses_authored_role_durable_journal_and_server_quality(t
     app,args,seen=fixture(tmp_path);before=deepcopy(dict(args['snapshot'].data))
     result=app._run_stage(**args)
     assert result.status=='VALIDATED',result.reason_codes
-    assert len(seen)==1 and 'agent-1/3.0.4' in seen[0]['messages'][0]['content']
+    assert len(seen)==1 and 'agent-1/3.0.5' in seen[0]['messages'][0]['content']
     assert '"t1_return":999' not in seen[0]['messages'][0]['content']
     assert '"status":"INSUFFICIENT"' in seen[0]['messages'][0]['content']
     row=result.output['monitor_pool'][0]
     assert row['data_quality_score']==62 and row['evidence_confidence']==.62
-    assert result.output['envelope']['prompt_version']=='agent-1/3.0.4'
+    assert result.output['envelope']['prompt_version']=='agent-1/3.0.5'
     with closing(app.team_research_adapter.journal._connect()) as db:
         stored=json.loads(db.execute("SELECT output_json FROM model_calls WHERE role='A1'").fetchone()[0])
         assert stored['monitor_pool'][0]['data_quality_score']==100

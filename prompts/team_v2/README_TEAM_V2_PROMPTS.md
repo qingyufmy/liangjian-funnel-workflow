@@ -24,7 +24,7 @@
 - A3 候选域 = A2 FOCUS + WATCH_ONLY（均为技术送审来源）；仅 model_nominations 不进 A3。
 - EVIDENCE_CATALOG：每层注入的可引用 ID 目录；引用不在目录内 → INVALID。
 - 模型判断全部进 `model_judgments`（decision_id/plan_id 唯一、原始输出与解析状态不可变、T+1/T+3 独立列），不混入有效入场 cohort。
-- prompt_version：shared 3.0.2 / A1 3.0.4 / A2 3.0.5 / A3 4.0.6 / A4-trader 1.1.0 / A5 2.0.7 / A6 1.0.7；envelope 原样回填。
+- prompt_version：shared 3.0.2 / A1 3.0.5 / A2 3.0.5 / A3 4.0.6 / A4-trader 1.1.0 / A5 2.0.7 / A6 1.0.7；envelope 原样回填。
 - 体积：角色专属 ≤12KB；A1 例外 ≤48KB（低频 pro 调用，v2 硬规则全部保留，见 A1【合同说明】C4），共享另计。
 
 ## 干跑要求（发布门）
@@ -90,3 +90,6 @@
 - A1 3.0.4：根对象禁止 source_refs；每主题节点 chain_position 至少两段（附服务/金融类拆段示例）。
 - A3 4.0.6（仅 PM_PREMARKET 段）：intended_risk_unit 不高于计划信封 risk_unit。
 - 新增独立文件（不改动已过门的 A2/A3 正文）：agent_2_intraday_radar_v1.txt（A2 INTRADAY_RADAR 1.0.0）、agent_3_pm_intraday_v1.txt（A3 PM_INTRADAY 1.0.0）。G3/G4 盘中雷达/龙头计划用；几何由引擎按 LEADER_INTRADAY profile 生成，PM 只排序。
+
+## 2026-10-17 16:0x 修订（回应 0316）
+- A1 3.0.5：催化剂哨兵 scope 要求改为 min(2, 实际目录类别数)；用哨兵前必须先查 policy_calendar 与目录中的已定日程，有相关事件必须写真实催化剂。

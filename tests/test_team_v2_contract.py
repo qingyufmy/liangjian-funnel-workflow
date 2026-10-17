@@ -130,7 +130,7 @@ def test_a1_complete_claude_prompt_is_callable_and_still_requires_all_inputs():
         repo.prepare("A1", {})
     values={key: {"status":"INSUFFICIENT"} for key in repo.document("A1").placeholders}
     prepared=repo.prepare("A1",values)
-    assert prepared.role_version=="agent-1/3.0.4"
+    assert prepared.role_version=="agent-1/3.0.5"
     assert "【A1 合同说明" in prepared.system and "{{" not in prepared.system
 
 

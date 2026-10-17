@@ -15,6 +15,10 @@ def _texts(value,maximum):
 
 
 def valid_catalyst_gap(theme,categories=None):
+    # 0319: actual source categories, not an impossible second invented one.
+    # Projection callers have already validated the catalog and conservatively
+    # retain a one-category gap so it can never support ACTIVE companies.
+    minimum=max(1,min(2,len(categories))) if categories is not None else 1
     rows=theme.get('catalysts')
     if not isinstance(rows,list) or len(rows)!=1 or not isinstance(rows[0],Mapping):return False
     row=rows[0];scope=row.get('catalyst_search_scope')
@@ -22,7 +26,7 @@ def valid_catalyst_gap(theme,categories=None):
         and row['event']==row['source_ref']=='NO_VERIFIED_CATALYST'
         and row['expected_date']==row['priced_in_assessment']=='UNKNOWN'
         and theme.get('policy_verifiability')=='UNVERIFIED'
-        and isinstance(scope,list) and len(scope)>=2 and all(isinstance(v,str) and v.strip() for v in scope)
+        and isinstance(scope,list) and len(scope)>=minimum and all(isinstance(v,str) and v.strip() for v in scope)
         and len(set(scope))==len(scope) and (categories is None or set(scope)<=set(categories)))
 
 
