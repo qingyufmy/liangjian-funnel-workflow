@@ -26,8 +26,16 @@ def run_trader_session(*,repository,client,journal,store,broker,decision_id,minu
         closed_5m_end,mark_as_of,required_envelope,replacements,active_plan_ids,all_plans,
         envelopes,held_plan_ids,position_snapshot,tech_reference,limits,regime,
         live_market_ready,snapshot_ready,mode,calendar,timeout_seconds,max_output_tokens,
-        allow_model_call=False,pm_meeting_id=None,deadline_monotonic=None,monotonic=time.monotonic,utilization_cap_pct=None):
+        allow_model_call=False,pm_meeting_id=None,deadline_monotonic=None,monotonic=time.monotonic,utilization_cap_pct=None,
+        capture_clock=None):
     if not allow_model_call:raise ValueError('TEAM_MODEL_CALL_NOT_AUTHORIZED')
+    # Isolated frozen replay has a historical execution clock but records real
+    # HTTP capture time. Live callers omit this option and retain one clock.
+    if capture_clock is not None and not (
+            isinstance(replacements.get('MINUTE_SOURCE'),Mapping)
+            and replacements['MINUTE_SOURCE'].get('classification')=='POST_HOC_FROZEN_CORRECTNESS_REPLAY'
+            and replacements['MINUTE_SOURCE'].get('quote_basis')=='REPLAY_BAR_DERIVED'):
+        raise ValueError('TRADER_REPLAY_CAPTURE_CONTEXT_REQUIRED')
     now=clock()
     if (any(not isinstance(v,datetime) or v.utcoffset() is None for v in (now,decision_at,mark_as_of))
             or now.astimezone(TZ).date().isoformat()!=trade_date
@@ -112,7 +120,7 @@ def run_trader_session(*,repository,client,journal,store,broker,decision_id,minu
                 session='INTRADAY',source_trade_date=source_trade_date,execution_trade_date=trade_date,
                 catalog=values['EVIDENCE_CATALOG'],timeout_seconds=timeout_seconds,
                 max_output_tokens=max_output_tokens,validator=lambda raw:validate_trader_output(
-                    raw,values['EVIDENCE_CATALOG'],**validation_context),clock=clock,allow_model_call=True)
+                    raw,values['EVIDENCE_CATALOG'],**validation_context),clock=capture_clock or clock,allow_model_call=True)
             output=outcome.response.output;valid=outcome.validation.valid;issues=outcome.validation.issues
         except ValueError as exc:
             if str(exc) not in {'TEAM_MODEL_CALL_FAILED','TEAM_MODEL_RESULT_INVALID'}:raise

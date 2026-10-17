@@ -80,6 +80,27 @@ def test_real_client_to_guard_risk_paper_and_restart_no_second_call(tmp_path):
         assert db.execute("SELECT name FROM sqlite_master WHERE name='execution_plans'").fetchall()==[]
 
 
+def test_frozen_replay_keeps_real_capture_time_separate_from_historical_execution(tmp_path):
+    kwargs,seen,_=fixture(tmp_path,mode='record')
+    actual=stamp(day='20',tm='08:15:12')
+    kwargs.update(capture_clock=lambda:actual)
+    kwargs['replacements']['MINUTE_SOURCE']={
+        'classification':'POST_HOC_FROZEN_CORRECTNESS_REPLAY','quote_basis':'REPLAY_BAR_DERIVED'}
+    result=run_trader_session(**kwargs)
+    assert result['model_validated'] and result['trade_date']=='2026-10-19' and len(seen)==1
+    with sqlite3.connect(tmp_path/'models.db') as db:
+        row=db.execute('SELECT execution_trade_date,captured_at FROM model_calls').fetchone()
+    assert row==('2026-10-19',actual.isoformat())
+    assert not kwargs['broker'].get_orders('2026-10-19')
+
+
+def test_capture_clock_override_cannot_masquerade_as_natural_production(tmp_path):
+    kwargs,seen,_=fixture(tmp_path)
+    with pytest.raises(ValueError,match='TRADER_REPLAY_CAPTURE_CONTEXT_REQUIRED'):
+        run_trader_session(**kwargs,capture_clock=kwargs['clock'])
+    assert not seen and not kwargs['broker'].get_orders('2026-10-19')
+
+
 @pytest.mark.parametrize('invalid,offline',[(True,False),(False,True)])
 def test_invalid_or_failed_model_never_defaults_to_buy(tmp_path,invalid,offline):
     kwargs,seen,_=fixture(tmp_path,invalid=invalid,offline=offline)
