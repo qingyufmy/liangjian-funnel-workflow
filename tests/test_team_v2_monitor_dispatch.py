@@ -73,6 +73,41 @@ def test_default_control_and_explicit_record_select_one_engine_without_fallback(
     with pytest.raises(WorkflowError,match='BROKER_ADAPTER_NOT_ENABLED'):WorkflowApplication.monitor_dispatch(app)
 
 
+def test_0327_exposure_failure_runs_legacy_each_tick_and_deduplicates_daily_alert(tmp_path,monkeypatch):
+    import liangjian_funnel.runtime.team_v2_record_protection as module
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    calls=[]
+    settings=Settings.from_env({'LIANGJIAN_A4_TRADER_MODE':'record'},root=tmp_path)
+    app=SimpleNamespace(settings=settings,monitor_once=lambda **kw:calls.append(kw) or {'status':'READY'})
+    def broken(*a,**kw):raise sqlite3.OperationalError('PRIVATE_LOCK_DETAIL')
+    monkeypatch.setattr(module,'has_owned_exposure',broken)
+    now=datetime(2026,10,19,10,0,tzinfo=ZoneInfo('Asia/Shanghai'))
+    for tick in (now,now+timedelta(minutes=1)):
+        result=WorkflowApplication.monitor_dispatch(app,now=tick)
+        assert result['status']=='READY'
+        assert result['team_record_exposure']['reason_code']=='TEAM_OWNED_EXPOSURE_CHECK_FAILED'
+        assert result['team_record_exposure']['internal_alert']['status']=='QUEUED'
+        assert 'PRIVATE' not in json.dumps(result)
+    assert len(calls)==2 and all(row['archive_original_quotes'] for row in calls)
+    with sqlite3.connect(tmp_path/'state/team_v2/team.db') as db:
+        rows=db.execute('SELECT kind,source_id,status FROM team_notifications').fetchall()
+        assert rows==[('ALERT','TEAM_OWNED_EXPOSURE_CHECK_FAILED','PENDING')]
+
+
+def test_0327_alert_store_failure_cannot_block_legacy_monitor(tmp_path,monkeypatch):
+    import liangjian_funnel.runtime.team_v2_record_protection as module
+    import liangjian_funnel.runtime.team_v2_internal as internal
+    def broken(*a,**kw):raise RuntimeError('PRIVATE_UNAVAILABLE')
+    monkeypatch.setattr(module,'has_owned_exposure',broken)
+    monkeypatch.setattr(internal,'InternalOutbox',broken)
+    app=SimpleNamespace(settings=Settings.from_env({'LIANGJIAN_A4_TRADER_MODE':'record'},root=tmp_path),
+        monitor_once=lambda **kw:{'status':'READY'})
+    result=WorkflowApplication.monitor_dispatch(app)
+    assert result['status']=='READY' and result['team_record_exposure']['internal_alert']['status']=='FAILED'
+    assert 'PRIVATE' not in json.dumps(result)
+
+
 def test_actual_control_task_source_to_mocked_HTTP_to_owned_paper_not_legacy(tmp_path,monkeypatch):
     app,clock,seen,api,proof=prepared(tmp_path,monkeypatch);before=source_bytes(app.settings)
     result=run_monitor_control(app,now=clock.now,clock=lambda:clock.now,client=api,tradability_loader=proof)

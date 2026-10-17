@@ -211,6 +211,12 @@ export class JobRunner {
     if (!definition) {
       throw new Error("unsupported job");
     }
+    if (job === 'team-eod' || job === 'team-a5-close') {
+      const clock = new Intl.DateTimeFormat('en-GB', {timeZone:'Asia/Shanghai',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date());
+      const [hour,minute] = clock.split(':').map(Number);
+      if (hour!*60+minute! < (job === 'team-eod' ? 17*60+20 : 17*60+25))
+        return this.skipped(job, definition.command, '', 'CUSTOMER_A5_PRIORITY_WINDOW');
+    }
     const slot = job === "team-internal" ? "notification" : job === "comparison" ? "comparison" : job.startsWith("team-morning-") || job.startsWith("team-a5-") || job === "team-eod" || job === "auction-evidence" || job === "auction-refresh" || job === "a5-midday" || job === "a5-close" || job === "outcomes" || job === "paper-settle" || job === "team-close-bar" ? "review" : "primary";
     const current = this.childFor(slot);
     if (current) return this.skipped(job, definition.command, current.runId);
@@ -218,7 +224,7 @@ export class JobRunner {
     return this.runChild(job, definition.command, slot);
   }
 
-  private skipped(job: JobName, command: string, activeRunId: string): JobRunRecord {
+  private skipped(job: JobName, command: string, activeRunId: string, reason?: string): JobRunRecord {
     const skipped: JobRunRecord = {
       runId: `skipped-${randomUUID()}`,
       job,
@@ -229,7 +235,7 @@ export class JobRunner {
       signal: null,
       durationMs: 0,
       status: "skipped",
-      reason: `BUSY:${activeRunId}`,
+      reason: reason ?? `BUSY:${activeRunId}`,
     };
     this.record(skipped);
     this.logger.warn(`任务互斥，跳过 ${command}; active=${activeRunId}`, { job });

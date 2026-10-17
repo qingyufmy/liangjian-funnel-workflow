@@ -21,10 +21,28 @@ def has_owned_exposure(settings):
     path=Path(settings.root)/'state/team_v2/paper.db'
     if not path.is_file():return False
     if path.is_symlink():raise ValueError('TEAM_DATABASE_SCOPE_INVALID')
-    with closing(sqlite3.connect(path.resolve().as_uri()+'?mode=ro',uri=True)) as db:
+    with closing(sqlite3.connect(path.resolve().as_uri()+'?mode=ro',uri=True,timeout=.25)) as db:
         db.execute('PRAGMA query_only=ON')
         return bool(db.execute('SELECT 1 FROM paper_lots WHERE qty>0 LIMIT 1').fetchone()
             or db.execute("SELECT 1 FROM paper_orders WHERE status IN ('OPEN','PARTIAL') LIMIT 1").fetchone())
+
+
+def exposure_failure_alert(settings, *, now):
+    """One durable internal alert/day; no network or exception text in monitor."""
+    try:
+        from .team_v2_internal import InternalOutbox
+        from .team_v2_store import TeamMeetingStore
+        from .team_v2_morning import ACCOUNT
+        from zoneinfo import ZoneInfo
+        now = now.astimezone(ZoneInfo('Asia/Shanghai'))
+        outbox = InternalOutbox(TeamMeetingStore(Path(settings.root)/'state/team_v2/team.db'))
+        event = outbox.enqueue(account_id=ACCOUNT, trade_date=now.date().isoformat(),
+            kind='ALERT', source_id='TEAM_OWNED_EXPOSURE_CHECK_FAILED', priority=0,
+            observed_at=now, body=dict(msg_type='text', content={'text':
+                'TEAM_OWNED_EXPOSURE_CHECK_FAILED\n本轮继续旧H1监控；owned保护跳过，下一轮重试。'}))
+        return dict(status='QUEUED', event_id=event)
+    except Exception:
+        return dict(status='FAILED', reason_code='INTERNAL_ALERT_ENQUEUE_FAILED')
 
 
 def cancel_owned_buys(broker):

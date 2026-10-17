@@ -4604,7 +4604,19 @@ class WorkflowApplication:
             raise WorkflowError("TRADER_MODE_INVALID")
         if mode == "record":
             from .runtime.team_v2_record_protection import has_owned_exposure
-            if has_owned_exposure(self.settings):
+            try:
+                owned_exposure = has_owned_exposure(self.settings)
+            except Exception:
+                # A Team sidecar cannot prevent the original H1 engine running.
+                current = _aware(now or datetime.now(SHANGHAI))
+                from .runtime.team_v2_record_protection import exposure_failure_alert
+                alert = exposure_failure_alert(self.settings, now=current)
+                result = self.monitor_once(now=now, archive_original_quotes=True)
+                record_business_reasons({'TEAM_OWNED_EXPOSURE_CHECK_FAILED': 1},
+                    incident_key='TEAM_OWNED_EXPOSURE_CHECK_FAILED:'+current.date().isoformat())
+                return {**result, 'team_record_exposure': {
+                    'reason_code': 'TEAM_OWNED_EXPOSURE_CHECK_FAILED', 'internal_alert': alert}}
+            if owned_exposure:
                 from .runtime.team_v2_monitor import run_monitor_control
                 return run_monitor_control(self,now=now,record_fallback={'reason_code':'EXPLICIT_RECORD_MODE'})
             return self.monitor_once(now=now, archive_original_quotes=True)

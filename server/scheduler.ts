@@ -166,7 +166,7 @@ export class WorkflowScheduler {
       if (clock.hour === 8 && clock.minute === 33) due.push("team-morning-engine");
       if (clock.hour === 8 && clock.minute === 35) due.push("team-morning-risk");
       if (clock.hour === 8 && clock.minute === 38) due.push("team-morning-pm");
-      if (clock.hour*60+clock.minute>=8*60+45 && clock.hour*60+clock.minute<=17*60+20) due.push("team-internal");
+      if (clock.hour*60+clock.minute>=8*60+45 && clock.hour*60+clock.minute<=17*60+55) due.push("team-internal");
       // Independent evidence only. Never late-catch-up a 09:26 quote as an
       // auction-final print, and never rerun the A2/A3 research to obtain it.
       if (auctionEvidenceSlot(clock) !== undefined) due.push("auction-evidence");
@@ -177,7 +177,9 @@ export class WorkflowScheduler {
       if (clock.hour === 11 && clock.minute === 35) due.push("a5-midday");
       if (clock.hour === 16 && clock.minute === 0) due.push("a5-close");
       if ((clock.hour===11 && clock.minute>=35) || clock.hour===12) due.push("team-a5-midday");
-      if (clock.hour===16 || (clock.hour===17 && clock.minute<=5)) due.push("team-a5-close");
+      // Customer A5: 16:00, BUSY retry through 17:00, max runtime 15m.
+      // Team never takes its slot during that entire customer window.
+      if (clock.hour===17 && clock.minute>=25 && clock.minute<=45) due.push("team-a5-close");
       if (clock.hour === 16 && clock.minute === 10) due.push("outcomes");
       if (clock.hour === 15 && clock.minute === 10) due.push("close");
       if (clock.hour === 15 && clock.minute >= 1 && clock.minute < 5) due.push("team-close-bar");
@@ -212,7 +214,7 @@ export class WorkflowScheduler {
     // The 16:10 pass can precede refreshed closing prices. Reconcile again
     // after a successful same-day research run, without replaying research.
     if (this.teamEodAfterCloseDate && this.teamEodAfterCloseDate !== clock.date) this.teamEodAfterCloseDate = null;
-    if (this.teamEodAfterCloseDate === clock.date && clock.hour >= 15
+    if (this.teamEodAfterCloseDate === clock.date && clock.hour*60+clock.minute >= 17*60+20
         && !this.inFlight.has("team-eod")
         && (!this.lastDispatch.has("team-eod") || value.getTime() - Date.parse(this.lastDispatch.get("team-eod")!) >= 5_000)) {
       this.teamEodAfterCloseDate = null;

@@ -65,11 +65,17 @@ def test_missing_internal_secret_and_unknown_delivery_remain_operationally_degra
     assert len(seen)==1
 
 
-@pytest.mark.parametrize('at',['2026-10-18T10:00:00+08:00','2026-10-19T08:44:59+08:00','2026-10-19T17:21:00+08:00'])
+@pytest.mark.parametrize('at',['2026-10-18T10:00:00+08:00','2026-10-19T08:44:59+08:00','2026-10-19T17:56:00+08:00'])
 def test_noop_without_any_owned_database_creation(tmp_path,at):
     settings=SimpleNamespace(root=tmp_path/'absent')
     assert run_internal_delivery(settings,clock=lambda:datetime.fromisoformat(at),calendar=CAL)['status']=='NOOP'
     assert not settings.root.exists()
+
+
+def test_0327_later_team_coach_card_can_flush_before_1756(tmp_path):
+    settings,b=prepared(tmp_path);send,seen=sender(tmp_path,env={'SHADOW_RESEARCH_WEBHOOK':URL})
+    result=run_internal_delivery(settings,clock=lambda:stamp(tm='17:55:00'),calendar=CAL,sender=send)
+    assert result['reason_code']=='INTERNAL_FLUSH_COMPLETED'
 
 
 def test_scope_rejects_team_database_symlink(tmp_path):

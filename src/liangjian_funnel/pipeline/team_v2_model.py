@@ -76,7 +76,7 @@ def call_team_model(request: TeamMessageRequest, client, journal: ModelJudgmentJ
     journal.claim(call_id, binding)
     try:
         response = client.complete(model, messages, prompt_hash=request.prompt.sha256,
-            input_hash=request.input_hash, stage=request.prompt.role,
+            input_hash=request.input_hash, stage=request.prompt.role, team_session=session,
             timeout_seconds=timeout_seconds, max_output_tokens=max_output_tokens)
     except Exception:
         journal.mark_failed(call_id, "TEAM_MODEL_CALL_FAILED")

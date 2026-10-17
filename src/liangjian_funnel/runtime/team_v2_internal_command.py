@@ -15,7 +15,7 @@ def run_internal_delivery(settings, *, clock=None, calendar=None, sender=None):
     calendar = calendar or ExchangeTradingCalendar()
     if calendar.is_trading_day(now.date()) is not True:
         return dict(status='NOOP', reason_code='NON_TRADING_DAY')
-    if not time(8, 45) <= now.time().replace(tzinfo=None) < time(17, 21):
+    if not time(8, 45) <= now.time().replace(tzinfo=None) < time(17, 56):
         return dict(status='NOOP', reason_code='INTERNAL_DELIVERY_WINDOW_CLOSED')
     directory = _directory(settings)
     if not (directory/'team.db').is_file():

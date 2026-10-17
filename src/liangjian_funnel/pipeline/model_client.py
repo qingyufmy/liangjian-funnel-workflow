@@ -168,6 +168,7 @@ class OpenAICompatibleModelClient:
         stage: str | None = None,
         timeout_seconds: float | None = None,
         max_output_tokens: int | None = None,
+        team_session: str | None = None,
     ) -> ModelCallResult:
         del snapshot_id  # metadata is retained by the pipeline audit, not sent as secrets
         if model not in ALL_MODELS:
@@ -194,9 +195,9 @@ class OpenAICompatibleModelClient:
         overall_deadline = self.monotonic() + call_timeout
         total_attempts = 0
         # A2 receives server-computed ranks, roles, routes and fact coverage.
-        # 0290: every A3/A6 session disables hidden reasoning. A1/A5 retain
+        # 0290/0327: only Team A3/A4/A6 disable hidden reasoning. A1/A5 retain
         # configured reasoning; do not mutate the shared client across roles.
-        role_no_thinking = str(stage or "").upper() in {"A3", "A4", "A6"}
+        role_no_thinking = team_session is not None and str(stage or "").upper() in {"A3", "A4", "A6"}
         call_variants = (
             A2_NO_THINKING_VARIANTS
             if role_no_thinking or str(stage or "").upper() == "A2" or (
