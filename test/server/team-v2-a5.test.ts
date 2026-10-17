@@ -1,7 +1,7 @@
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {expect,test} from 'vitest';
+import {expect,test,vi} from 'vitest';
 import {loadConfig,JOB_DEFINITIONS} from '../../server/config.js';
 import {LogStore} from '../../server/logger.js';
 import {JobRunner,timeoutForJob} from '../../server/runner.js';
@@ -16,9 +16,10 @@ test('Team A5 separate command has 240s review budget and never changes customer
   const runner=new JobRunner(loadConfig({},root),logger);
   const internals=runner as unknown as {active:unknown;review:unknown;runChild:(j:string,c:string,s:string)=>Promise<unknown>};
   internals.active={runId:'natural-close'};let slot='';internals.runChild=async(_j,_c,s)=>{slot=s;return {};};
-  try{await runner.run('team-a5-close');expect(slot).toBe('review');
+  try{vi.useFakeTimers();vi.setSystemTime(new Date('2026-10-19T09:30:00Z'));
+    await runner.run('team-a5-close');expect(slot).toBe('review');
     internals.review={runId:'customer-review'};expect((await runner.run('team-a5-close')).status).toBe('skipped');
-  }finally{await(logger as unknown as {writeChain:Promise<void>}).writeChain;await rm(root,{recursive:true,force:true});}
+  }finally{vi.useRealTimers();await(logger as unknown as {writeChain:Promise<void>}).writeChain;await rm(root,{recursive:true,force:true});}
 });
 
 test('only pre-model wait75 retries once/minute; model failure never retried or routed to v1',async()=>{

@@ -89,8 +89,9 @@ test('EOD uses review slot even while primary is occupied',async()=>{
   const internals=runner as unknown as {active:unknown;runChild:(job:string,command:string,slot:string)=>Promise<unknown>};
   internals.active={runId:'another-primary'};
   internals.runChild=async(_job,_command,slot)=>{seen=slot;return {};};
-  try{await runner.run('team-eod');expect(seen).toBe('review');}
-  finally{await (logger as unknown as {writeChain:Promise<void>}).writeChain;await rm(root,{recursive:true,force:true});}
+  try{vi.useFakeTimers();vi.setSystemTime(new Date('2026-10-19T09:30:00Z'));
+    await runner.run('team-eod');expect(seen).toBe('review');}
+  finally{vi.useRealTimers();await (logger as unknown as {writeChain:Promise<void>}).writeChain;await rm(root,{recursive:true,force:true});}
 });
 
 test('only BUSY can retry EOD, with five-second spacing and no repeated research',async()=>{
