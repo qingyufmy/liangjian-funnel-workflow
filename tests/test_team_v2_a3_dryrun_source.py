@@ -2,6 +2,7 @@
 from pathlib import Path
 import importlib.util
 import sys
+from datetime import datetime
 from types import SimpleNamespace
 
 scripts=Path(__file__).resolve().parents[1]/'scripts'
@@ -42,3 +43,15 @@ def test_changed_price_or_missing_candidate_is_blocked_before_model():
     issues=module.parity_issues(candidate,original())
     assert 'A3_ORIGINAL_GATE_DOMAIN_MISMATCH' in issues
     assert 'A3_ORIGINAL_GATE_FIELD_MISMATCH:000001.SZ:no_chase_price' in issues
+
+
+def test_historical_decision_time_does_not_become_provider_capture_time(monkeypatch):
+    captured={}
+    def capture(self,**kwargs):captured.update(kwargs);return kwargs
+    monkeypatch.setattr(module.ModelJudgmentJournal,'capture',capture)
+    journal=object.__new__(module.ActualCaptureJournal)
+    frozen=datetime.fromisoformat('2026-10-14T16:04:58+08:00')
+    before=datetime.now(module.TZ)
+    journal.capture(captured_at=frozen,call_id='isolated')
+    assert before<=captured['captured_at']<=datetime.now(module.TZ)
+    assert captured['captured_at']!=frozen and captured['call_id']=='isolated'

@@ -17,7 +17,14 @@ from zoneinfo import ZoneInfo
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT/'src'))
 from run_team_a2_frozen_dryrun import source
 from run_team_a5_frozen_dryrun import model_settings,save,field_diff,digest
+from liangjian_funnel.pipeline.team_v2_judgments import ModelJudgmentJournal
 TZ=ZoneInfo('Asia/Shanghai')
+
+
+class ActualCaptureJournal(ModelJudgmentJournal):
+    """Historical decision clock is not the real provider capture clock."""
+    def capture(self,**kwargs):
+        return super().capture(**{**kwargs,'captured_at':datetime.now(TZ)})
 
 
 def technical_overlay(original,upstream,pit_source,day,proof):
@@ -110,10 +117,12 @@ def prepare(sources,output,day,settings,provider,pit_source):
     if issues:raise ValueError('A3_RECONSTRUCTED_SOURCE_NOT_ORIGINAL_PARITY')
     snapshot=_with_a3_deterministic_context(snapshot,gate)
     adapter=configured_research_adapter(settings,calendar=ExchangeTradingCalendar())
+    adapter.journal=ActualCaptureJournal(adapter.journal.path)
     run='team-a3-frozen-dryrun:'+day+':'+output.name
     header=dict(classification='POST_HOC_INDEPENDENT_STAGE_FROZEN_DRYRUN',actual_prepared_at=datetime.now(TZ).isoformat(),
         head=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),run_id=run,
         source_trade_date=day,context_time=original['as_of'],source_proofs=proof,
+        decision_clock='ORIGINAL_FROZEN_AS_OF',model_capture_clock='ACTUAL_ASIA_SHANGHAI',
         parent_snapshot_sha256=original['snapshot_hash'],derived_snapshot_sha256=snapshot.snapshot_hash,
         original_a2_output_sha256=a2['output_hash'],original_a3_output_sha256=original_a3.get('output_hash'),
         candidate_origins=origins,quant_review_symbols=sorted(gate.review_symbols),pit_source=pit_proof,
@@ -147,7 +156,7 @@ def main():
             except ModelClientError as exc:
                 failures.append(dict(reason_code=exc.reason_code,status_code=exc.status_code,attempts=exc.attempts));raise
     pipeline=ResearchPipeline(settings,prompt_repository=ROOT/'prompts',model_client=AuditedClient(settings,max_attempts=1),
-        now=lambda:datetime.now(TZ),enable_feature_store=False,team_research_adapter=adapter,output_dir=output/'research')
+        now=lambda:snapshot.as_of,enable_feature_store=False,team_research_adapter=adapter,output_dir=output/'research')
     audit=pipeline._run_v2_downstream_review(lane_id='lane_1',model=settings.review_model,stage='A3',snapshot=snapshot,
         upstream_output=upstream,full_upstream_symbols=set(origins),gate=gate,bundle=pipeline.prompts.load(),run_id=header['run_id'])
     save(output/'STAGE_AUDIT.json',audit.as_dict())
