@@ -149,8 +149,10 @@ def coach_projection(full):
         full_team_fact_sha256=full['input_hash'],projection_schema='team-a5-coach-projection/1')
     projected['counterexamples']=counterexample_stage_projection(projected['counterexamples'])
     if 'counterexamples' in projected['independent_verification']:
-        projected['independent_verification']={**projected['independent_verification'],
-            'counterexamples':counterexample_stage_projection(projected['independent_verification']['counterexamples'])}
+        projected['independent_verification']={
+            **{k:v for k,v in projected['independent_verification'].items() if k!='counterexamples'},
+            'counterexamples_reference':dict(path='$.counterexamples',item_count=len(projected['counterexamples']),
+                sha256=_hash(projected['counterexamples']))}
     tables=full.get('a6',{}).get('rows',{});team={}
     for table,rows in tables.items():
         if not isinstance(rows,list):team[table]=rows;continue

@@ -129,7 +129,14 @@ def prepare(sources,output,day,model,provider_identity):
         prompt_version=prompt.role_version,model_name=model,market_regime='DATA_BLOCK',status='FROZEN',reason_codes=[])
     request=repository.prepare_messages('A5',replacements,required_envelope=envelope,session='POST_CLOSE')
     chars=sum(len(m['content']) for m in request.messages)
-    if chars>250000:raise ValueError('A5_MODEL_CONTEXT_TOO_LARGE')
+    if chars>250000:
+        profile={k:len(json.dumps(v,ensure_ascii=False,default=str)) for k,v in facts.items()}
+        detail={k:{name:len(json.dumps(value,ensure_ascii=False,default=str)) for name,value in v.items()}
+            for k,v in facts.items() if isinstance(v,dict) and profile[k]>10000}
+        save(output/'PREPARATION_FAILURE.json',dict(reason_code='A5_MODEL_CONTEXT_TOO_LARGE',
+            actual_at=datetime.now(TZ).isoformat(),prompt_chars=chars,fact_component_chars=profile,detail=detail,
+            original_fact_input_sha256=source_hash,input_sha256=request.input_hash,model_calls=0,production_writes=0))
+        raise ValueError('A5_MODEL_CONTEXT_TOO_LARGE')
     prepared=dict(classification='POST_HOC_FROZEN_INPUT_MODEL_DRYRUN',trade_date=day,run_id=run,
         source_proof=proof[0],original_fact_input_sha256=source_hash,original_fact_created_at=original['created_at'],
         source_verification_sha256=hashlib.sha256(audit_path.read_bytes()).hexdigest(),

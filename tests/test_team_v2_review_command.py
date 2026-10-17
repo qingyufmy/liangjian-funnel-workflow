@@ -166,6 +166,10 @@ def test_original_local_1015_facts_project_without_models_or_source_changes(tmp_
     before=canonical(facts);projected,domain=coach_projection(facts)
     assert len(canonical(projected))<220000
     assert canonical(facts)==before and path.read_bytes()==raw
+    assert 'counterexamples' not in projected['independent_verification']
+    reference=projected['independent_verification']['counterexamples_reference']
+    assert reference['item_count']==len(projected['counterexamples'])
+    assert reference['sha256']==hashlib.sha256(canonical(projected['counterexamples']).encode()).hexdigest()
     print('ORIGINAL_FROZEN_COACH_PROJECTION',json.dumps(dict(source_bytes=len(raw),source_file_sha256=hashlib.sha256(raw).hexdigest(),
         model_characters=len(canonical(projected)),signal_events=len(domain),model_calls=0)))
 
