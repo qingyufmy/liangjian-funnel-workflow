@@ -108,6 +108,26 @@ def test_actual_client_pm_to_a6_atomic_override_and_restart(tmp_path):
         assert db.execute("SELECT name FROM sqlite_master WHERE name='execution_plans'").fetchall()==[]
 
 
+def test_v1_research_fixture_keeps_original_decision_clock_and_actual_capture_clock(tmp_path):
+    kwargs,seen=fixture(tmp_path)
+    kwargs.update(account_id='FIXTURE_V1_NOT_TEAM_ACCOUNT',
+        capture_clock=lambda:datetime.fromisoformat('2026-10-20T12:00:00+08:00'))
+    for key in ('pm_replacements','risk_replacements'):
+        kwargs[key]['ACCOUNT_SNAPSHOT']={'basis':'FIXTURE_FROM_V1_PAPER_NOT_TEAM_ACCOUNT'}
+    assert run_team_eod(**kwargs)['status']=='READY' and len(seen)==2
+    with sqlite3.connect(kwargs['journal'].path) as db:
+        rows=db.execute('SELECT execution_trade_date,captured_at FROM model_calls').fetchall()
+    assert len(rows)==2 and all(day=='2026-10-19' and at.startswith('2026-10-20') for day,at in rows)
+    assert not (tmp_path/'paper.db').exists()
+
+
+def test_normal_account_cannot_relabel_capture_as_a_research_fixture(tmp_path):
+    kwargs,seen=fixture(tmp_path)
+    kwargs['capture_clock']=lambda:datetime.fromisoformat('2026-10-20T12:00:00+08:00')
+    with pytest.raises(ValueError,match='EOD_RESEARCH_CAPTURE_CONTEXT_REQUIRED'):run_team_eod(**kwargs)
+    assert not seen
+
+
 @pytest.mark.parametrize('failure',['pm_invalid','A3_offline','risk_invalid','A6_offline'])
 def test_failures_not_synthetic_hold_or_executable_tomorrow_instruction(tmp_path,failure):
     kwargs,seen=fixture(tmp_path,failure=failure);result=run_team_eod(**kwargs)

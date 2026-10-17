@@ -43,8 +43,14 @@ def _response(*,request,client,journal,call_id,run_id,model,source_trade_date,tr
 def run_team_eod(*,repository,client,journal,store,meeting_id,pm_call_id,risk_call_id,account_id,
         run_id,model,trade_date,source_trade_date,clock,pm_required_envelope,risk_required_envelope,
         pm_replacements,risk_replacements,positions,risk_events,catalog,engine_utilization_cap,
-        capacity_slots,cluster_caps,timeout_seconds,max_output_tokens,allow_model_call=False):
+        capacity_slots,cluster_caps,timeout_seconds,max_output_tokens,allow_model_call=False,capture_clock=None):
     if not allow_model_call:raise ValueError('TEAM_MODEL_CALL_NOT_AUTHORIZED')
+    if capture_clock is not None and (account_id!='FIXTURE_V1_NOT_TEAM_ACCOUNT'
+            or not isinstance(pm_replacements.get('ACCOUNT_SNAPSHOT'),Mapping)
+            or pm_replacements['ACCOUNT_SNAPSHOT'].get('basis')!='FIXTURE_FROM_V1_PAPER_NOT_TEAM_ACCOUNT'
+            or not isinstance(risk_replacements.get('ACCOUNT_SNAPSHOT'),Mapping)
+            or risk_replacements['ACCOUNT_SNAPSHOT'].get('basis')!='FIXTURE_FROM_V1_PAPER_NOT_TEAM_ACCOUNT'):
+        raise ValueError('EOD_RESEARCH_CAPTURE_CONTEXT_REQUIRED')
     now=clock()
     if (not isinstance(now,datetime) or now.utcoffset() is None
             or now.astimezone(ZoneInfo('Asia/Shanghai')).date().isoformat()!=trade_date
@@ -77,7 +83,7 @@ def run_team_eod(*,repository,client,journal,store,meeting_id,pm_call_id,risk_ca
     previous=store.load_eod(meeting_id,input_sha256=binding)
     if previous is not None:return previous
     common=dict(client=client,journal=journal,run_id=run_id,model=model,source_trade_date=source_trade_date,
-        trade_date=trade_date,timeout_seconds=timeout_seconds,max_output_tokens=max_output_tokens,catalog=catalog,clock=clock)
+        trade_date=trade_date,timeout_seconds=timeout_seconds,max_output_tokens=max_output_tokens,catalog=catalog,clock=capture_clock or clock)
     values=dict(pm_replacements)
     values.update(POSITIONS=positions,EVIDENCE_CATALOG=catalog,RISK_EVENTS_TODAY=risk_events,
         ACCOUNT_SNAPSHOT=dict(source_snapshot=pm_replacements['ACCOUNT_SNAPSHOT'],team_account_id=account_id,
