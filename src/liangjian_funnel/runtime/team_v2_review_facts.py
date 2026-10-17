@@ -140,6 +140,9 @@ def build_team_review_facts(*,legacy_facts,store,journal,paper_snapshot,settleme
         strict_t1_return=None,strict_t3_return=None,
         model_calls=len(judgments.get('rows',{}).get('calls',[])),
         unavailable_reason='NO_BENCHMARK_OR_MATURED_COMPARISON_PROVIDED')
+    from ..review.portfolio_diagnostics import strategy_portfolio_diagnostics
+    portfolio=strategy_portfolio_diagnostics(legacy_facts)
+    metrics['strategy_portfolio_diagnostics']=portfolio
     from ..pipeline.team_v2_feedback import read_method_feedback
     calibration={role:read_method_feedback(journal.path,recipient=role,as_of=observed_at)
         for role in ('A1','A2','A3','A4','A6')}
@@ -152,7 +155,7 @@ def build_team_review_facts(*,legacy_facts,store,journal,paper_snapshot,settleme
         independent_verification=legacy_facts.get('independent_verification',{'status':'UNAVAILABLE'}),
         counterexamples=legacy_facts.get('counterexamples',
             (legacy_facts.get('independent_verification') or {}).get('counterexamples',[])),model_judgments=judgments,
-        metrics=metrics,legacy_facts=legacy_facts,
+        metrics=metrics,legacy_facts=legacy_facts,strategy_portfolio_diagnostics=portfolio,
         method_calibration=calibration,
         consistency='PER_DATABASE_READ_TRANSACTIONS_NOT_CROSS_DATABASE_ATOMIC')
     categories=['LEGACY','ACCOUNT','A6','MODEL','METRICS'];items=[
@@ -160,7 +163,8 @@ def build_team_review_facts(*,legacy_facts,store,journal,paper_snapshot,settleme
         dict(id='A5:ACCOUNT',category='ACCOUNT',sha256=_hash(snapshot['paper_broker'])),
         dict(id='A5:A6',category='A6',sha256=_hash(team)),
         dict(id='A5:MODEL',category='MODEL',sha256=_hash(judgments)),
-        dict(id='METRICS:DAILY',category='METRICS',sha256=_hash(metrics))]
+        dict(id='METRICS:DAILY',category='METRICS',sha256=_hash(metrics)),
+        dict(id='METRICS:STRATEGY_PORTFOLIO',category='METRICS',sha256=_hash(portfolio))]
     snapshot['citation_catalog']=dict(categories=categories,items=items)
     items.extend(dict(id='A5:METHOD:'+role,category='METRICS',sha256=_hash(stats)) for role,stats in calibration.items())
     snapshot['input_hash']=_hash(snapshot)
