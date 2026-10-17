@@ -108,9 +108,32 @@ def test_crash_after_third_failure_cannot_reclassify_that_entry_on_restart(tmp_p
 
 def test_research_capture_buy_never_calls_admission_even_with_engine_envelope(tmp_path,monkeypatch):
     from liangjian_funnel.runtime import team_v2_trader_session as session
-    args,seen,_=prepared(tmp_path)
+    from test_team_v2_trader_session import fixture
+    args,seen,_=fixture(tmp_path)
     args.update(capture_only=True,review_candidate_actions={'p1':'BUY_SIGNAL'},review_position_actions={})
     monkeypatch.setattr(session,'admit_trader_signal',lambda **kw:pytest.fail('capture cannot enter admission'))
     result=session.run_trader_session(**args)
     assert result['model_validated'] and len(seen)==1 and not result['admissions']
     assert not args['broker'].get_orders(args['trade_date'])
+
+
+def test_three_wall_clock_timeouts_trigger_internal_only_engine_fallback(tmp_path,monkeypatch):
+    from liangjian_funnel.pipeline.model_client import ModelClientError
+    args,_,_=prepared(tmp_path)
+    class TimeoutClient:
+        def complete(self,*a,**kw):raise ModelClientError('WALL_CLOCK_TIMEOUT')
+    args['client']=TimeoutClient()
+    def capture(**child):
+        child['journal'].claim(child['call_id'],'timeout-test')
+        with pytest.raises(ModelClientError):child['client'].complete()
+        child['journal'].mark_failed(child['call_id'],'TEAM_MODEL_CALL_FAILED')
+        return dict(model_validated=False,reason_codes=['TEAM_MODEL_CALL_FAILED'])
+    monkeypatch.setattr(review,'run_trader_session',capture)
+    for n in range(3):
+        args.update(decision_id='timeout'+str(n),call_id='A4:timeout'+str(n))
+        result=review.run_candidate_review(**args)
+        assert result['candidate_review']['timeout_count']==1
+    assert result['review_day_state']['engine_only']
+    with closing(args['store']._connect()) as db:
+        assert db.execute('SELECT kind FROM team_notifications').fetchall()==[('A4_REVIEW_ENGINE_ONLY',)]
+        assert not db.execute('SELECT name FROM sqlite_master WHERE name=?',('notification_deliveries',)).fetchall()

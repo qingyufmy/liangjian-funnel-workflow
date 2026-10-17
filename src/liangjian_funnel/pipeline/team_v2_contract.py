@@ -11,9 +11,9 @@ _BLIND_KEYS = frozenset({"eligibility", "met_conditions", "unmet_conditions", "r
                          "technical_score", "score_breakdown", "engine_verdict", "trigger_result"})
 _POOLS = {
     "A1": ("structural_themes", "active_research_pool", "monitor_pool", "rejected_candidates", "industry_theme_mappings"),
-    "A2": ("theme_reviews", "focus_decisions", "reject_decisions", "rotation_reviews", "model_nominations"),
+    "A2": ("theme_reviews", "focus_decisions", "reject_decisions", "rotation_reviews", "model_nominations", "radar_picks"),
     "A3": ("core_watch_pool", "secondary_watch_pool", "rejected_candidates", "slot_plan", "plan_ranking",
-           "plan_allocations", "overnight_stances"),
+           "plan_allocations", "overnight_stances", "intraday_ranking"),
     "A4": ("signals", "position_actions"),
     "A5": ("model_value_assessment", "signal_reviews", "missed_opportunity_reviews", "core_defects", "hypotheses"),
     "A6": ("envelope_adjustments", "exception_actions", "overnight_reviews", "risk_event_attribution"),
