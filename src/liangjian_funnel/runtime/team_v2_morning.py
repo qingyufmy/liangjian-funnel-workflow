@@ -22,7 +22,7 @@ from .risk_engine import AccountRisk, PositionRisk, RiskEnvelope, RiskLimits, bu
 from .team_v2_risk_meeting import RiskMeetingResult
 from .team_v2_risk_session import run_risk_premarket
 from .team_v2_pm_session import run_pm_premarket
-from .team_v2_sources import read_planning_scope, read_held_bindings, decode_plan, stamp
+from .team_v2_sources import read_planning_scope, read_held_bindings, decode_plan, stamp, meeting_plan_facts
 from .team_v2_store import TeamMeetingStore, canonical
 from .team_v2_external import read_external
 
@@ -129,11 +129,12 @@ def run_morning_stage(settings,stage,*,clock=None,calendar=None,client=None):
     if frozen['risk_limits_sha256']!=hashlib.sha256((settings.root/'config/risk_limits.yaml').read_bytes()).hexdigest():
         return dict(status='BLOCKED',reason_code='MORNING_RISK_POLICY_CHANGED')
     envelopes=_envelopes(frozen['envelopes'])
+    meeting_plans=meeting_plan_facts(frozen['source']['plan_rows'])
     catalog={'categories':['ACCOUNT','MARKET','PLAN'], 'items':[
         {'id':'MORNING:ACCOUNT','category':'ACCOUNT','value':frozen['snapshot']},
         {'id':'MORNING:MARKET','category':'MARKET','value':{'market_regime':source['market_regime'],
             'external_adjustment':frozen['external_adjustment']}},
-        *({'id':'MORNING:PLAN:'+r['plan_id'],'category':'PLAN','value':r} for r in frozen['source']['plan_rows'])]}
+        *({'id':'MORNING:PLAN:'+r['plan_id'],'category':'PLAN','value':r} for r in meeting_plans)]}
     repository=TeamPromptRepository(settings.root/'prompts/team_v2')
     journal=ModelJudgmentJournal(directory/'model.db')
     client=client or OpenAICompatibleModelClient(settings,max_attempts=1)
@@ -148,7 +149,7 @@ def run_morning_stage(settings,stage,*,clock=None,calendar=None,client=None):
     values={key:dict(status='NOT_AVAILABLE') for key in repository.document(role).placeholders}
     values.update(EVIDENCE_CATALOG=catalog,ACCOUNT_SNAPSHOT=frozen['snapshot']['account'],POSITIONS=frozen['snapshot']['positions'],
         MARKET_STATE={'market_regime':source['market_regime'],'basis':'FROZEN_PRIOR_NOT_INTRADAY'},
-        PLANS=frozen['source']['plan_rows'],PRIOR_OUTCOME_FEEDBACK={'status':'INSUFFICIENT_TEN_DAYS'},
+        PLANS=meeting_plans,PRIOR_OUTCOME_FEEDBACK={'status':'INSUFFICIENT_TEN_DAYS'},
         OVERNIGHT_EXTERNAL_SNAPSHOT=frozen['external_adjustment'])
     common=dict(repository=repository,client=client,journal=journal,store=store,account_id=ACCOUNT,run_id=run_id,
         model=settings.review_model,trade_date=day,source_trade_date=frozen['source']['source_trade_date'],clock=clock,

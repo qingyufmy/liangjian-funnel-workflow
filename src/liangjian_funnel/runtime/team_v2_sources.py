@@ -109,6 +109,38 @@ def decode_plan(row):
     return PlanRisk(**value)
 
 
+def meeting_plan_facts(rows):
+    """Original planning fields, not repeated full A3 audit/payload JSON blobs.
+
+    Frozen raw rows stay in the owned source receipt. This projection grants no
+    activation, repairs no date and truncates no handoff/evidence/exit rules.
+    """
+    fields=('source_run_id','strategy_profile','strategy_version','primary_theme','theme_id',
+        'trigger_low','trigger_high','trigger_zone','entry_reference_zone','stop_level',
+        'invalidation_level','daily_invalidation','no_chase','no_chase_price','first_resistance',
+        'pressure_reduce_price','reference_price','reference_price_as_of','plan_expiry',
+        'market_regime','market_environment','risk_unit','max_batches','plan_priority',
+        'plan_priority_rank','priority_reasons','trading_plan_brief','trade_plan_brief',
+        'handoff_notes','what_would_change_my_mind','supporting_refs','opposing_refs',
+        'opposing_search_scope','confirmation_conditions','a4_required_entry_rules',
+        'a4_deferred_conditions','a4_exit_rules','plan_premises','time_stop_sessions',
+        'expected_holding_sessions','setup_type','setup_pattern','company_name','name')
+    result=[];seen=set()
+    for row in rows:
+        raw=json.loads(row['payload_json']);pid=row['plan_id'];cluster,basis=_cluster(row)
+        if (pid in seen or raw.get('symbol')!=row['symbol'] or cluster=='UNKNOWN'
+                or not isinstance(raw.get('source_run_id'),str) or not raw['source_run_id'].strip()):
+            raise ValueError('MEETING_PLAN_SOURCE_BINDING_INVALID')
+        seen.add(pid)
+        result.append(dict(plan_id=pid,symbol=row['symbol'],lane_id=row['lane_id'],status=row['status'],
+            valid_from=row.get('valid_from'),expires_at=row['expires_at'],cluster=cluster,cluster_basis=basis,
+            source_row_sha256=hashlib.sha256(canonical(row).encode()).hexdigest(),
+            original_payload_sha256=hashlib.sha256(row['payload_json'].encode()).hexdigest(),
+            publication_facts={key:raw[key] for key in fields if key in raw},
+            missing_fields=[key for key in ('handoff_notes','what_would_change_my_mind','plan_priority_rank') if key not in raw]))
+    return result
+
+
 def read_held_bindings(settings, positions):
     """Original owner identity/cluster for an already-held, possibly old plan.
 
