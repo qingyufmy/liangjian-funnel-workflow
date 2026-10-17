@@ -1,10 +1,10 @@
-# Team V2 合同草案
+# Team V2 隔离开发合同
 
 本文件仅说明当前隔离开发合同，不宣称所有工作包完成或已投入运行。
 
 ## 边界
 
-Claude 提供的角色正文和根/判断证据规范为唯一提示词来源。缺交接、证伪、真实目录引用即无效；反方哨兵必须附至少两个实际证据类别。解析失败不得放行。根会话 schema 与正式调用器接线是后续发布门。
+Claude 提供的角色正文和根/判断证据规范为唯一提示词来源。缺交接、证伪、真实目录引用即无效；反方哨兵必须附至少两个实际证据类别。解析失败不得放行。根会话 schema 与正式调用器已有组件接线；接线、真实模型、源回放、自然生产验收分别记录，不互相替代。
 
 引擎拥有硬风险和股数裁决。模型只能在已封存信封内收紧、排序、择时；研究提名永不进入 execution_plans。数量、费用和资金计算全部 Decimal；布尔输入不允许字符串真值转换。
 
@@ -16,7 +16,23 @@ Claude 提供的角色正文和根/判断证据规范为唯一提示词来源。
 
 ## 未完成的发布门
 
-六日真实冻结输入回放、三日七提示词真实模型干跑、A6/PM/trader 完整编排、model_judgments/标签、Node 接线、故障注入、最终 HEAD 全量、VM 切片、回退树及最终 Claude ACCEPT。以上任何缺项都不是生产就绪。
+六日冻结源的连续有权交易链、三日各角色/会话/提示词 SHA 的真实模型门、最终候选全量、VM 切片、回退树及最终 Claude ACCEPT 尚未全部完成。A6/PM/trader 编排、model_judgments/标签、Node 调度和故障注入已有源码与组件证明，不把旧文档里的“尚未接线”继续当成当前源码事实，也不把 mock 当成自然生产验收。真实模型失败原件不得追认；逐次最新状态以 execution state 与实际回执为准。
+
+H1 最终候选 f79abd4 与其独立回退 edac351 已单独验收，部署只在周日白天；本文件不构成发布批准。H1 生产验收后，Team 整包回退树必须等于实际 H1 生产 HEAD，不能撤销 H1。
+
+## A4 1.1.0 候选复核（0308，覆盖旧宽域/分片合同）
+
+引擎每分钟跟踪全部原计划与 owned 持仓，模型不再任意扫描计划池。只有确定性 BUY/ADD 且信封 eligible、计划有效、价格在带内且不超 no_chase 的入场候选，或确定性主动 SELL/REDUCE 持仓事件，才进入本节拍候选域。已闭合 5m 节拍一次最多送 2 个对象、单请求、不分片；旧状态转换/15m 心跳/24 对象分片仅保留历史兼容，不用于 1.1.0 调用。未送入的入场候选不能默认通过；未复核的确定性离场单列 ENGINE_EXIT_NOT_REVIEWED。
+
+模型只能确认本次原动作，或对入场回 NO_ACTION、对主动离场回 HOLD。校验绑定计划 ID/持仓 symbol 和原动作，不能从 BUY 升 ADD、对未送入对象发信号或放大仓位。ADD 的原持仓以只读上下文给模型，但不因此取得该持仓的额外 SELL/REDUCE 权限。
+
+模型预算至多 30s，仍受共享 47s 全局期限约束；没有延长 monitor 58s 父预算。入场超时/无效不下单，主动离场超时/无效保留原引擎动作并标 ENGINE_EXIT_FALLBACK；硬止损、T+1、停牌/涨跌停、账户/PM 限额仍由原引擎独立裁决。安全超时分类只存稳定码，不存异常正文、请求头或密钥。A5 按实际送入对象统计确认、否决和超时，未知失败的超时率为 NULL，未调用不能计成模型通过。
+
+0308 要求先清点原 kernel 候选，再做实际探针；原最终 monitor 动作可能已是 LLM_VETO 或去重 NO_ACTION，不能据此漏掉 kernel BUY。缺历史 PM/A6 或完整报价时不补造权限/报价；源接线、空账户两遍一致与 funded CONTROL 门必须分开。单对象超时后的纯引擎降级是作者已定义的评审路径，未实际触发和验收前不称已上线。
+
+## A2 3.0.5 自然反馈边界（0308）
+
+确定性 TOP8 主题分与原候选域不变。具体目录外引用导致的 TEAM_SUPPORTING_REFS_INVALID / TEAM_OPPOSING_REFS_INVALID，可进入最多两轮的自然反馈；空引用、错误结构和其它无效输出不获新增重试。反馈仅列无效 ID 和目录类别，第二轮仍完整校验。首轮失败原件和两轮合计耗时保留，不把旧 BLOCKED 改写成成功。这个 TEAM_* 重试资格是本次运行时新增，不冒称原生产路径早已覆盖。
 
 ## 内部通知（2026-10-17 接线切片）
 
@@ -24,10 +40,10 @@ Claude 提供的角色正文和根/判断证据规范为唯一提示词来源。
 
 ## A5双路径（0258）
 
-客户v1提示词/service/publisher不变；Team A5 2.0.3独立模型、独立研究表和内部卡，不读取客户报告正文，不向客户DTO投影。signal_reviews用原model_judgments.decision_id或原旧路径事件evidence_id精确覆盖，禁止按同股三元组合并。假设只写研究库和`artifacts/replay-queue`，不自动应用。两个自然Team A5任务各240s，模型请求前等待退出75可限速重试；模型失败退出2不能重试或回退v1生成。完整回执见 `TEAM_V2_A5_203_WIRING_2026-10-17.md`。收盘尾15:00原bar缺失反例0259仍是整包发布门未完成项，不能用A5关联绿代替。
+客户v1提示词/service/publisher不变；Team A5 使用当前 manifest 绑定的独立角色版本（现为 2.0.7）、独立研究表和内部卡，不读取客户报告正文，不向客户DTO投影。signal_reviews用原model_judgments.decision_id或原旧路径事件evidence_id精确覆盖，禁止按同股三元组合并。假设只写研究库和`artifacts/replay-queue`，不自动应用。两个自然Team A5任务各240s，模型请求前等待退出75可限速重试；模型失败退出2不能重试或回退v1生成。初始组件回执见 `TEAM_V2_A5_203_WIRING_2026-10-17.md`，后续源码/版本不借旧回执冒充最终证明。15:00 原 bar 存在与缺失两条正确性分支仍需纳入完整回放。
 
 ## A3 PLAN_REVIEW（组件切片，尚未切换自然研究）
 
 冻结候选域仅 FOCUS/WATCH_ONLY，原引擎资格只在盲审之后比对。模型PASS不能放宽风险单位、改策略/簇/几何；engine=false不能因模型PASS获得计划权限。逐事件模型原判断与无效输出都进独立研究账本，不混有效成交cohort；排名只用于本批次展示，全局合并需自然适配器绑定。原技术事实投影、完整源hash、严格schema、真实客户端mock及故障恢复见 `TEAM_V2_A3_PLAN_REVIEW_2026-10-17.md`。组件返回 publication_authorized=false，不是发布入口。
 
-`ResearchPipeline(team_research_adapter=...)` 已能在实际A3分派/批次/本地门合并中调用新接口；生产Workflow尚未注入，旧提示词checkpoint不满足新角色。原引擎provenance/风险门仍适用，跨批排名只作标明来源的展示穿插；原FOCUS且plan_mode=PROBE也不得升STANDARD。细节和红绿原件见 `TEAM_V2_A3_RESEARCH_ADAPTER_2026-10-17.md`。A1/A2及正式真实模型干跑仍未完成。
+`ResearchPipeline(team_research_adapter=...)` 已能在实际A3分派/批次/本地门合并中调用新接口；当前候选的 CLI 研究命令通过 `team_v2_wiring.RESEARCH_COMMANDS` 显式启用 Workflow adapter，只读/行情命令不因构造 Workflow 而启用角色或创建研究 journal。生产尚未发布，旧提示词 checkpoint 不满足新角色。原引擎 provenance/风险门仍适用，跨批排名只作标明来源的展示穿插；原 FOCUS 且 plan_mode=PROBE 也不得升 STANDARD。初始红绿原件见 `TEAM_V2_A3_RESEARCH_ADAPTER_2026-10-17.md`，实际三日角色门见最新 execution state；组件返回 publication_authorized=false 不替代正式发布入口。
