@@ -14,6 +14,17 @@ drawdown_half_pct: '0.08'
 drawdown_halt_pct: '0.15'
 min_cash_reserve_pct: '0.10'
 no_new_entry_after: '14:30'
+# Claude 0277: release-day tightening only; global limits above stay unchanged.
+control_first_day:
+  version: control-first-day/1
+  approved_by: claude-0277
+  activation_trade_date: '2026-10-19'
+  probe_only: true
+  max_new_entries: 2
+  observation_start: '09:30'
+  observation_end: '10:00'
+  quote_freshness_max_age_seconds: 90
+  maximum_freshness_data_block_pct: 20
 # Claude 0242, 2026-10-17. Percentage points; shared-account advisory ceiling.
 external_adjustment:
   version: external-adjustment/1

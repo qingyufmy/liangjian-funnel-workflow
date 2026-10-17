@@ -76,6 +76,9 @@ class RiskLimits:
     def from_yaml(cls, path: str | Path) -> "RiskLimits":
         import yaml
         data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+        if isinstance(data,dict) and 'control_first_day' in data:
+            from .team_v2_first_day import validate_first_day_policy
+            validate_first_day_policy(data.pop('control_first_day'))
         if isinstance(data,dict) and 'external_adjustment' in data:
             from .team_v2_external_policy import validate_external_policy
             validate_external_policy(data.pop('external_adjustment'))

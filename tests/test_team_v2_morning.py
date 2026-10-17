@@ -46,7 +46,7 @@ def advance(clock,hour,minute):clock.now=clock.now.replace(hour=hour,minute=minu
 def source_bytes(settings):return settings.state_db_path.read_bytes()
 
 
-def client(settings,*,risk_cap=65,probe=False,offline=False):
+def client(settings,*,risk_cap=65,probe=True,offline=False):
     seen=[]
     def handler(request):
         req=json.loads(request.read());runtime=json.loads(req['messages'][1]['content'].removeprefix('RUNTIME_INPUT\n'))
@@ -87,6 +87,16 @@ def test_actual_three_stage_source_to_model_to_allocation_retains_legacy_bytes(t
         assert db.execute('SELECT count(*) FROM risk_meetings').fetchone()[0]==1
         assert db.execute('SELECT count(*) FROM pm_decisions').fetchone()[0]==1
         assert not db.execute("SELECT name FROM sqlite_master WHERE name='execution_plans'").fetchall()
+
+
+def test_first_day_engine_probe_cannot_be_promoted_by_pm_standard_fixture(tmp_path):
+    settings,clock=fixture(tmp_path);api,_=client(settings,probe=False)
+    engine=run_morning_stage(settings,'engine',clock=lambda:clock.now,calendar=CAL)
+    assert engine['envelopes'][0]['risk_unit']=='PROBE'
+    advance(clock,8,35);run_morning_stage(settings,'risk',clock=lambda:clock.now,calendar=CAL,client=api)
+    advance(clock,8,38)
+    result=run_morning_stage(settings,'pm',clock=lambda:clock.now,calendar=CAL,client=api)
+    assert result['status']=='PM_DEGRADED_NO_ALLOCATION'
 
 
 def test_empty_plan_day_still_prepares_emotion_seed_without_inventing_morning_permission(tmp_path,monkeypatch):

@@ -64,6 +64,15 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
     try:quote_archive=archive_monitor_quotes(settings,packet,used_at=stamp(clock()))
     except Exception:
         quote_archive=dict(status='FAILED',reason_code='CONTROL_ORIGINAL_QUOTE_ARCHIVE_FAILED')
+    from .team_v2_first_day import load_first_day_policy,observe_first_day_packet,latch_record,first_day_limits
+    first_policy=load_first_day_policy(settings.root/'config/risk_limits.yaml')
+    first_observation=observe_first_day_packet(store,first_policy,account_id=ACCOUNT,packet=packet,now=stamp(clock()),
+        guard_anomaly=quote_archive['status']!='ARCHIVED' or any(
+            p.get('quote',{}).get('reason_code')=='CONTROL_REPLAY_QUOTE_FORBIDDEN' for p in packet['sources'].values()))
+    if first_observation['record_required']:
+        return dict(status='CONTROL_RECORD_REQUIRED',mode='record',record_effective_next_tick=True,
+            first_day_observation=first_observation,original_quote_archive=quote_archive,
+            current_tick='NO_ACTION_NO_SECOND_ENGINE_OR_BUDGET_RESET')
     cutoff=stamp(packet['execution_cutoff']);active=set(scope['active_plan_ids']);plans={};paper={};contexts={};problems=[]
     if quote_archive['status']!='ARCHIVED':problems.append({'reason_code':'CONTROL_ORIGINAL_QUOTE_ARCHIVE_FAILED'})
     raw_rows={r['plan_id']:json.loads(r['payload_json']) for r in scope['plan_rows']
@@ -136,6 +145,7 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
     upper=reviewed.envelopes if reviewed is not None else tuple(conservative_envelope(e,consecutive_failures=1)
         for e in _envelopes(morning['envelopes']))
     limits=RiskLimits.from_yaml(settings.root/'config/risk_limits.yaml')
+    limits=first_day_limits(limits,first_policy,now=current)
     exception_runtime=RiskExceptionRuntime(store)
     exception_runtime.expire_pending(ACCOUNT,day,now=stamp(clock()))
     restrictions=exception_runtime.restrictions(ACCOUNT,day)
@@ -153,7 +163,7 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
             D(p['market_value']),D(p['avg_cost'])) for p in snapshot['positions'])
         fresh=refresh_execution_envelopes(tuple(plans.values()),morning_envelopes=upper,
             account=account,positions=positions,limits=limits,now=stamp(clock()),regime=regime,
-            consecutive_failures=reviewed.consecutive_failures if reviewed is not None else 1)
+            consecutive_failures=reviewed.consecutive_failures if reviewed is not None else 1,first_day_policy=first_policy)
         fresh=restrict_exception_envelopes(fresh,plans=plans,account_id=ACCOUNT,
             restrictions=exception_runtime.restrictions(ACCOUNT,day))
         return {e.plan_id:e if entry_proven[e.plan_id] else replace(e,eligible=False,risk_unit='NONE',max_shares_cap=0,
@@ -191,9 +201,18 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
         return run_exception_after_trader(session_kwargs=args,live_state=live['team_v2_regime'],
             engine_utilization_cap=utilization_cap,capacity_slots=morning['capacity_slots'],
             cluster_caps=morning['cluster_caps'],trigger_policy=load_exception_policy(settings.root/'config/risk_limits.yaml'),**kwargs)
-    result=run_control_minute(session_kwargs=args,closed_bars=paper,deadline_monotonic=deadline,envelope_refresh=refresh,
-        exception_handler=exception_handler)
+    try:
+        result=run_control_minute(session_kwargs=args,closed_bars=paper,deadline_monotonic=deadline,envelope_refresh=refresh,
+            exception_handler=exception_handler)
+    except Exception:
+        latch_record(store,first_policy,account_id=ACCOUNT,now=stamp(clock()),
+            reason_code='CONTROL_FIRST_DAY_EXECUTION_EXCEPTION',packet_sha256=packet['packet_sha256'])
+        raise
+    if any(e.get('reason_code') in {'CONTROL_PAPER_BAR_FAILED','CONTROL_HARD_EXIT_FAILED'} for e in result.get('errors',[])):
+        first_observation=latch_record(store,first_policy,account_id=ACCOUNT,now=stamp(clock()),
+            reason_code='CONTROL_FIRST_DAY_GUARD_ANOMALY',packet_sha256=packet['packet_sha256'])
     return dict(status='DEGRADED' if problems or packet['status']=='DATA_LIMITED' or quote_archive['status']!='ARCHIVED' else result['status'],mode='control',
         result=result,source_reasons=problems,scope_reasons=scope['reason_codes'],packet_sha256=packet['packet_sha256'],
         original_quote_archive=quote_archive,
+        first_day_observation=first_observation,
         deterministic_reference=evaluations,total_ms=(time.monotonic()-started)*1000)

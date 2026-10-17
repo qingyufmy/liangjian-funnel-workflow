@@ -62,6 +62,9 @@ def _freeze_engine(settings,store,source,now,calendar,directory,clock):
     if source['status']!='COMPLETE' or source['market_regime'] is None:
         return dict(status='BLOCKED',reason_code='MORNING_SOURCE_NOT_COMPLETE',source=source)
     limits=RiskLimits.from_yaml(settings.root/'config/risk_limits.yaml')
+    from .team_v2_first_day import load_first_day_policy,first_day_limits,probe_envelope
+    first_policy=load_first_day_policy(settings.root/'config/risk_limits.yaml')
+    limits=first_day_limits(limits,first_policy,now=now)
     broker=create_broker('local_paper',database=directory/'paper.db',paper_config=settings.root/'config/paper_broker.yaml',
         risk_config=settings.root/'config/risk_limits.yaml',clock=lambda:now,calendar=calendar,run_id='morning-engine:'+source['trade_date'])
     broker.open_risk_day(source['trade_date']);snapshot=broker.planning_snapshot()
@@ -81,6 +84,7 @@ def _freeze_engine(settings,store,source,now,calendar,directory,clock):
         max(D(snapshot['peak_nav']),D(account['nav'])),D(account['frozen']),
         hard_halt=bool(snapshot['global_halt'] or basis['halt_reason_codes']))
     envelopes=tuple(build_planning_envelope(p,view,tuple(positions),limits,now=now,regime=source['market_regime']) for p in plans)
+    envelopes=tuple(probe_envelope(e,first_policy,now=now,probe_multiplier=limits.probe_multiplier) for e in envelopes)
     raw=(settings.root/'config/team_v2_deployment.yaml').read_bytes()
     policy=yaml.safe_load(raw)
     if policy.get('schema_version')!='team-deployment/1':raise ValueError('DEPLOYMENT_POLICY_INVALID')

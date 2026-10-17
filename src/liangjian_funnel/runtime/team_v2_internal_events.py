@@ -162,6 +162,13 @@ class InternalEventProjector:
     def _team(self, account, day, now):
         with closing(self.store._connect()) as source:
             source.execute('PRAGMA query_only=ON')
+            if source.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='control_record_latch'").fetchone():
+                latch=source.execute('SELECT body_json,body_sha256 FROM control_record_latch WHERE account_id=? AND trade_date=?',
+                    (account,day)).fetchone()
+                if latch is not None:
+                    if _sha(latch[0])!=latch[1]:raise ValueError('INTERNAL_CONTROL_LATCH_HASH_INVALID')
+                    from .team_v2_first_day import record_alert_body
+                    self._emit(account,day,'ALERT','CONTROL_FIRST_DAY_RECORD',record_alert_body(json.loads(latch[0])),now,0)
             rows = self._batch(source, account=account, day=day, table='regime_transitions',
                 columns='transition_id,evidence_json', predicate='trade_date=?', params=(day,))
             for row in rows:

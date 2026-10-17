@@ -79,8 +79,8 @@ def test_original_quote_archive_failure_cannot_grant_entry_or_call_legacy(tmp_pa
     monkeypatch.setattr(archive,'archive_monitor_quotes',broken)
     result=run_monitor_control(app,now=clock.now,clock=lambda:clock.now,client=api,tradability_loader=proof)
     assert result['original_quote_archive']['status']=='FAILED'
-    assert not result['result']['trader']['admissions'][0]['dispatched']
-    assert {'reason_code':'CONTROL_ORIGINAL_QUOTE_ARCHIVE_FAILED'} in result['source_reasons']
+    assert result['status']=='CONTROL_RECORD_REQUIRED' and result['record_effective_next_tick']
+    assert not seen
     assert source_bytes(app.settings)==before and 'PRIVATE' not in json.dumps(result)
 
 

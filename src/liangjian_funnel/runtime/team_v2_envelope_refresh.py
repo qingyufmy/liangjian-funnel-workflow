@@ -11,7 +11,7 @@ from .risk_engine import build_risk_envelope,conservative_envelope
 
 
 def refresh_execution_envelopes(plans, *, morning_envelopes,account,positions,limits,now,regime,
-        consecutive_failures=0):
+        consecutive_failures=0,first_day_policy=None):
     if type(consecutive_failures) is not int or consecutive_failures<0:
         raise ValueError('EXECUTION_A6_FAILURE_STATE_INVALID')
     original={e.plan_id:e for e in morning_envelopes}
@@ -21,6 +21,9 @@ def refresh_execution_envelopes(plans, *, morning_envelopes,account,positions,li
     refreshed=[]
     for plan in plans:
         fresh=build_risk_envelope(plan,account,positions,limits,now=now,regime=regime)
+        if first_day_policy is not None:
+            from .team_v2_first_day import probe_envelope
+            fresh=probe_envelope(fresh,first_day_policy,now=now,probe_multiplier=limits.probe_multiplier)
         previous=original.get(plan.plan_id)
         if previous is None:
             refreshed.append(replace(fresh,eligible=False,risk_unit='NONE',risk_budget=Decimal(0),
