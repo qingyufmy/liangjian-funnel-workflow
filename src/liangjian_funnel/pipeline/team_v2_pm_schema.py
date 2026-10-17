@@ -129,7 +129,7 @@ def validate_pm_premarket(output: Any, catalog: Any, *, required_envelope: Mappi
     if len(allocated) != len(set(allocated)) or not set(used).issubset(allocated):
         issues.append("PM_ALLOCATION_COVERAGE_INVALID")
     shortfall = output.get("shortfall_reason")
-    if shortfall not in ("NONE", "NO_ELIGIBLE_PLANS", "ENVELOPE_TIGHTENED", "REGIME", "EXTERNAL_RISK_OFF"):
+    if shortfall not in ("NONE", "NO_ELIGIBLE_PLANS", "CLUSTER_CAP", "ENVELOPE_TIGHTENED", "REGIME", "EXTERNAL_RISK_OFF"):
         issues.append("PM_SHORTFALL_REASON_INVALID")
     if not eligible and shortfall == "NONE": issues.append("PM_SHORTFALL_REASON_REQUIRED")
     return _result(issues, common)

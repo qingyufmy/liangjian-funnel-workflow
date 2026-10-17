@@ -1,6 +1,6 @@
 {
   "schema_version": "claude-team-prompt-bundle/3.0.2",
-  "authority": "canonical .claude_bridge/outbox/0290-reply.md exact six authored files; shared and A4 unchanged; bytes fully read before wiring",
+  "authority": "canonical .claude_bridge/outbox/0298-reply.md exact six authored roles and README; shared unchanged; all bytes fully read before wiring",
   "role_semantics_modified": false,
   "files": {
     "00_shared_system_v3.txt": {
@@ -8,32 +8,32 @@
       "bytes": 9263
     },
     "agent_1_macro_chain_v3.txt": {
-      "sha256": "ee7ffc183c750a58c74de073c86a99de612b45d13abba81c8117168c3ef8bac1",
-      "bytes": 45534
+      "sha256": "414ee79b5303b4d5e372d005278ceadbcabfb2747d1995e39b7e3523a030918b",
+      "bytes": 46764
     },
     "agent_2_theme_sentiment_v3.txt": {
-      "sha256": "ba3c21697e929122fbe6a6da8fb2ada5854f6f80470bf8cb0ebc73ffee3d391a",
-      "bytes": 8434
+      "sha256": "cbda42e7ec4b46f30e5b740dbee83e9b8ce0a9cd6e51ba94f2028e9b034d1ebf",
+      "bytes": 9032
     },
     "agent_3_portfolio_planner_v4.txt": {
-      "sha256": "ef120eff8c6e5bb133e10d3f4e50bb18fcc90959bbc3fcaa4e177f49b47b0edb",
-      "bytes": 9249
+      "sha256": "2929fbb8103c24986f58b873568cfe32885ed32b02038e9f70699f8f36cb0a1b",
+      "bytes": 9718
     },
     "agent_4_trader_v1.txt": {
-      "sha256": "88952bd47d3dbfdf644e551092fa9c376f4e800a84ddcdce374298728f055b62",
-      "bytes": 5589
+      "sha256": "331ffd6a46b1d673959924b7e6bd26caf561271755c2631eac30fd40c2b9076d",
+      "bytes": 5729
     },
     "agent_5_daily_reviewer_v2.txt": {
-      "sha256": "a16e2e7b4569bef2b3b7aa040bc46534ad4d52b369d04750c73312d45c207aa7",
-      "bytes": 8669
+      "sha256": "29e88f8d5e74869e9be6e268d63fef0636f899c272ef9402c68545cb5a409094",
+      "bytes": 9357
     },
     "agent_6_risk_governor_v1.txt": {
-      "sha256": "f2b94d80a825b9163a9c55816b206fa5ddb56595f340cd568cb7459e5edbe486",
-      "bytes": 6800
+      "sha256": "db76cd2d064c7d9bd6867bee4b908a32e7bb13aa0dce93eaff29a52e24f543a5",
+      "bytes": 7149
     },
     "README_TEAM_V2_PROMPTS.md": {
-      "sha256": "8e7c400bca71c0caf3a143b43a3f6082e0b6a98b011cef17a3f470d49606c4f7",
-      "bytes": 8031
+      "sha256": "1a3c2dfca192101d7d892753de9ab2414c5ff563ed0e45ddd1baa144dcd7cb56",
+      "bytes": 8997
     }
   }
 }

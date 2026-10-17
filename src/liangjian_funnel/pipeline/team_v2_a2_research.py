@@ -46,7 +46,7 @@ def _post_policy(raw,snapshot,upstream_output,symbols,lane_id,model):
     for theme,review in zip(output['active_themes'],raw['theme_reviews'],strict=True):
         theme.update(team_penalty_codes=list(review['penalty_codes']),supporting_evidence=list(review['supporting_refs']),
             contradicting_evidence=list(review['opposing_refs']),what_would_change_my_mind=list(review['what_would_change_my_mind']))
-    output['envelope']={**legacy._required_envelope(snapshot,lane_id,model,'A2'),'prompt_version':'agent-2/3.0.3','status':'OK'}
+    output['envelope']={**legacy._required_envelope(snapshot,lane_id,model,'A2'),'prompt_version':'agent-2/3.0.4','status':'OK'}
     output.update(handoff_notes=deepcopy(raw['handoff_notes']),what_would_change_my_mind=raw['what_would_change_my_mind'],
         model_nominations=deepcopy(raw['model_nominations']),market_read=deepcopy(raw['market_read']))
     output,_=legacy._canonicalize_stage_lineage(output,'A2',upstream_output,snapshot.data)
@@ -117,7 +117,7 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
         envelope=dict(schema_version='team-research-envelope/1',run_id=run_id,stage_id='A2',
             source_trade_date=source.date().isoformat(),execution_trade_date=adapter.calendar.next_trading_day(source.date()).isoformat(),
             as_of=source.isoformat(),knowledge_cutoff=source.isoformat(),input_snapshot_ids=[snapshot.snapshot_id],
-            config_version=adapter.config_version,config_hash=adapter.config_hash,prompt_version='agent-2/3.0.3',
+            config_version=adapter.config_version,config_hash=adapter.config_hash,prompt_version='agent-2/3.0.4',
             model_name=model,market_regime=market.get('regime','UNKNOWN'),status='OK',reason_codes=[])
         domain={s:snapshot.data['A2_BOTTLENECK_CONTEXT'][s]['theme_id'] for s in symbols}
         directions={d:set(ss) for d,ss in projected['_rotation_review_scope'].items()}

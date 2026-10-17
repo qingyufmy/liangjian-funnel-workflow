@@ -47,6 +47,19 @@ def test_valid_pm_and_zero_plan_meetings_leave_frozen_output_untouched():
     assert check(empty, envelopes=(), plan_clusters={}).valid
 
 
+def test_author298_cluster_shortfall_and_empty_backup_do_not_relax_global_identity():
+    output=response();output['shortfall_reason']='CLUSTER_CAP'
+    assert check(output).valid  # Empty backup was already explicitly accepted.
+    for primary,backup in [('p2','p3'),('p2','p1')]:
+        raw=deepcopy(output);raw['slot_plan'][0]['backup_plan_id']='p3'
+        raw['slot_plan'].append(dict(raw['slot_plan'][0],slot=2,accept_order=2,
+            primary_plan_id=primary,backup_plan_id=backup,cluster='other'))
+        raw['plan_allocations']=[dict(output['plan_allocations'][0],plan_id=pid) for pid in ('p1','p2','p3')]
+        result=check(raw,envelopes=tuple(env(pid) for pid in ('p1','p2','p3')),
+            plan_clusters={'p1':'bank','p2':'other','p3':'bank'})
+        assert not result.valid and 'PM_DUPLICATE_SLOT_BINDING' in result.issues
+
+
 @pytest.mark.parametrize("path,value", [
     (("deployment_target", "target_pct"), 76), (("deployment_target", "target_pct"), 49),
     (("deployment_target", "target_pct"), True), (("deployment_target", "target_pct"), float("nan")),

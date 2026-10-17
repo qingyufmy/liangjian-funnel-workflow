@@ -24,7 +24,7 @@
 - A3 候选域 = A2 FOCUS + WATCH_ONLY（均为技术送审来源）；仅 model_nominations 不进 A3。
 - EVIDENCE_CATALOG：每层注入的可引用 ID 目录；引用不在目录内 → INVALID。
 - 模型判断全部进 `model_judgments`（decision_id/plan_id 唯一、原始输出与解析状态不可变、T+1/T+3 独立列），不混入有效入场 cohort。
-- prompt_version：shared 3.0.2 / A1 3.0.2 / A2 3.0.3 / A3 4.0.3 / A4-trader 1.0.3 / A5 2.0.6 / A6 1.0.4；envelope 原样回填。
+- prompt_version：shared 3.0.2 / A1 3.0.3 / A2 3.0.4 / A3 4.0.4 / A4-trader 1.0.4 / A5 2.0.7 / A6 1.0.5；envelope 原样回填。
 - 体积：角色专属 ≤12KB；A1 例外 ≤48KB（低频 pro 调用，v2 硬规则全部保留，见 A1【合同说明】C4），共享另计。
 
 ## 干跑要求（发布门）
@@ -65,3 +65,12 @@
 - A3 4.0.3：risk_unit ≤ 输入上限；所有池（含 secondary_watch_pool）必须有 cluster。
 - A5 2.0.6：哨兵 search_scope ≥2 类；数字纪律（每个数字附 metrics 键名）。
 - A6 1.0.4：PREMARKET 的 capacity_for_tomorrow 作为对 PM 的回应，response_to_pm/notes 非空。
+
+## 2026-10-17 修订记录（回应 0292/0293/0295/0296）
+- A5 2.0.7：counterexample_domain 逐只恰好一条（数据不足写 UNRESOLVED+缺口说明）；handoff_notes 至少一个接收者非空。
+- A3 4.0.4（仅 PM_PREMARKET 段）：primary/backup 全局不重复；同簇主计划≤2 按全部槽位合计；无合格备份 backup_plan_id=""；shortfall_reason 增 CLUSTER_CAP。
+- A6 1.0.5：sum(cluster_quota) ≤ plans_acceptable ≤ 可用槽位，减配不扩容。
+- A2 3.0.4：stage→policy 固定查表（禁 REPAIR+WATCH_ONLY）；轮动审阅先定 focus 再扣除已有 focus 方向。
+- A1 3.0.3：节点下限硬门（每主题≥3 节点）；催化剂哨兵 NO_VERIFIED_CATALYST（仅 UNVERIFIED，合同 C5）。
+- A4 1.0.4：EVIDENCE_CATALOG 的 input_ref 条目说明（配合 0296 输入投影）。
+- 校验器：不放宽任何既有门；新增接受 backup_plan_id=""、CLUSTER_CAP 枚举、A1 催化剂哨兵（C5 条件）。
