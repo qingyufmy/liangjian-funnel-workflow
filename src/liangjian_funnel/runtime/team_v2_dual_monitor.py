@@ -251,7 +251,9 @@ def run_dual_monitor(application, *, now=None, monotonic=None):
                 team_control_fallback=failure)
         result = run_monitor_control(application, now=now, record_fallback=fallback,
             deadline_monotonic=deadline, minute_sources=shared)
-        if result.get('status') in {'FAILED', 'ERROR', 'DEGRADED', 'DATA_BLOCKED', 'CONTROL_RECORD_REQUIRED'}:
+        trader = (result.get('result') or {}).get('trader') or {}
+        if (result.get('status') in {'FAILED', 'ERROR', 'DEGRADED', 'DATA_BLOCKED', 'CONTROL_RECORD_REQUIRED'}
+                or trader.get('model_validated') is False):
             failure = _runtime_failure(application.settings, now=current, reason='TEAM_MONITOR_DEGRADED')
             return finish(result, effective_mode='record', team_control_fallback=failure)
         return finish(result, effective_mode='record' if fallback is not None or result.get('mode') == 'record' else mode,

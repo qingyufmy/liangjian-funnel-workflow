@@ -209,7 +209,9 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
         knowledge_cutoff=packet['captured_at'],input_snapshot_ids=[packet['packet_sha256']],config_version='team-v2/1',
         config_hash=morning['risk_limits_sha256'],prompt_version=prompt.role_version,model_name=settings.team_intraday_model,
         market_regime=regime,status='FROZEN',reason_codes=[])
-    args=dict(repository=repository,client=client or OpenAICompatibleModelClient(settings,max_attempts=1),
+    from .team_v2_model_deadline import BoundedTeamClient
+    bounded_client=BoundedTeamClient(client or OpenAICompatibleModelClient(settings,max_attempts=1),deadline=deadline)
+    args=dict(repository=repository,client=bounded_client,
         journal=ModelJudgmentJournal(directory/'model.db'),store=store,broker=broker,decision_id=decision,
         minute_snapshot_id=packet['packet_sha256'],call_id='A4:'+decision,account_id=ACCOUNT,run_id='team-monitor:'+day,
         model=settings.team_intraday_model,trade_date=day,source_trade_date=morning['source']['source_trade_date'],clock=clock,

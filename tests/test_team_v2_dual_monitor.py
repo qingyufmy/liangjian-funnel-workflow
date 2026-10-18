@@ -319,3 +319,34 @@ def test_next_round_reuses_exact_customer_market_cache_without_fetch_or_reobserv
     assert second.team_market(settings,clock=lambda:later,calendar=None,
         deadline=time.monotonic()+1)['team_v2_source']['status']=='DATA_BLOCK'
     assert len(calls)==1 and 'team_v2_source' not in original and 'team_v2_source' not in cached
+
+
+def test_uncooperative_model_transport_cannot_consume_the_post_review_reserve(tmp_path,monkeypatch):
+    from test_team_v2_monitor_dispatch import prepared
+    from liangjian_funnel.runtime.team_v2_monitor import run_monitor_control
+    from liangjian_funnel.pipeline.model_client import OpenAICompatibleModelClient
+    import httpx
+    app,clock,seen,api,proof=prepared(tmp_path,monkeypatch,trade_date='2026-10-21')
+    original=api.transport.handler
+    def late(request):time.sleep(2.2);return original(request)
+    delayed=OpenAICompatibleModelClient(app.settings,transport=httpx.MockTransport(late),max_attempts=1)
+    started=time.perf_counter()
+    result=run_monitor_control(app,now=clock.now,clock=lambda:clock.now,client=delayed,
+        tradability_loader=proof,deadline_monotonic=time.monotonic()+3)
+    elapsed=time.perf_counter()-started
+    assert elapsed<1.7
+    assert result['result']['trader']['model_validated'] is False
+    time.sleep(2.3)
+    with sqlite3.connect(tmp_path/'state/team_v2/paper.db') as db:
+        assert db.execute('SELECT count(*) FROM paper_orders').fetchone()[0]==0
+
+
+def test_invalid_team_model_vote_latches_record_without_dropping_customer_receipt(tmp_path,monkeypatch):
+    from liangjian_funnel.runtime.team_v2_dual_monitor import run_dual_monitor
+    import liangjian_funnel.runtime.team_v2_monitor as team
+    app=app_fixture(tmp_path);app.monitor_once=lambda **kw:{'notifications':['customer-finished']}
+    monkeypatch.setattr(team,'run_monitor_control',lambda *a,**kw:{'status':'MINUTE_PROTECTED',
+        'result':{'trader':{'model_validated':False,'status':'CANDIDATE_REVIEW_FAILED_ENTRIES_BLOCKED'}}})
+    result=run_dual_monitor(app,now=NOW)
+    assert result['mode']=='record' and result['notifications']==['customer-finished']
+    assert forced_record(app.settings,account_id=ACCOUNT,now=NOW)
