@@ -7,14 +7,13 @@ config its legacy stage remains unchanged. Workflow activation is separate.
 """
 from collections.abc import Mapping
 from contextlib import closing
-from datetime import datetime
 import hashlib
 import time
-from zoneinfo import ZoneInfo
 
 from ..runtime.team_v2_plan_review import plan_review_inputs, run_plan_review
 from ..runtime.team_v2_store import canonical
 from .team_v2_model import team_call_binding
+from .team_v2_research_time import research_times
 
 
 def _hash(value):
@@ -69,13 +68,8 @@ class TeamResearchAdapter:
         return enforce_catalyst_gaps(output,discovery_context)
 
     def _inputs(self, snapshot, upstream, symbols, *, run_id, model):
-        stamp = snapshot.as_of
-        if not isinstance(stamp, datetime) or stamp.utcoffset() is None:
-            raise ValueError('TEAM_RESEARCH_SOURCE_TIME_REQUIRED')
-        stamp = stamp.astimezone(ZoneInfo('Asia/Shanghai'))
-        source_day = stamp.date()
-        if self.calendar.is_trading_day(source_day) is not True or stamp.hour < 15:
-            raise ValueError('TEAM_RESEARCH_CLOSED_SOURCE_REQUIRED')
+        stamp, market_stamp = research_times(snapshot, self.calendar)
+        source_day = market_stamp.date()
         execution = self.calendar.next_trading_day(source_day).isoformat()
         contexts = snapshot.data.get('A3_DETERMINISTIC_CONTEXT')
         origins = snapshot.data.get('A3_CANDIDATE_ORIGIN')

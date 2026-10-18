@@ -7,9 +7,7 @@ from collections.abc import Mapping
 from contextlib import closing
 from copy import deepcopy
 from dataclasses import replace
-from datetime import datetime
 import time
-from zoneinfo import ZoneInfo
 
 from ..runtime.team_v2_eod import _response
 from .team_v2_a2_schema import validate_a2_response
@@ -17,6 +15,7 @@ from .team_v2_a2_score import freeze_theme_scores,canonicalize_team_scores
 from .team_v2_contract import TeamValidation
 from .team_v2_model import team_call_binding
 from .team_v2_a1_research import _hash
+from .team_v2_research_time import research_times
 
 
 def directory_reference_feedback(raw,catalog,issues):
@@ -95,11 +94,10 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
     def blocked(code,diagnostics=None):
         return replace(pipeline._blocked_stage(lane_id,model,'A2',snapshot.snapshot_id,code),diagnostics=diagnostics)
     if bundle is None:return blocked('PROMPT_REPOSITORY_BLOCKED')
-    source=snapshot.as_of
-    if not isinstance(source,datetime) or source.utcoffset() is None:return blocked('TEAM_RESEARCH_SOURCE_TIME_REQUIRED')
-    source=source.astimezone(ZoneInfo('Asia/Shanghai'))
-    if adapter.calendar.is_trading_day(source.date()) is not True or source.hour<15:
-        return blocked('TEAM_RESEARCH_CLOSED_SOURCE_REQUIRED')
+    try:
+        source,market_source=research_times(snapshot,adapter.calendar)
+    except ValueError as exc:
+        return blocked(str(exc))
     symbols=set(upstream_symbols if projection_symbols is None else projection_symbols)
     try:
         snapshot=prepare_a2_snapshot(adapter,snapshot,set(upstream_symbols))
@@ -140,7 +138,7 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
         market=values.get('MARKET_REGIME_SNAPSHOT')
         market=market if isinstance(market,Mapping) else {}
         envelope=dict(schema_version='team-research-envelope/1',run_id=run_id,stage_id='A2',
-            source_trade_date=source.date().isoformat(),execution_trade_date=adapter.calendar.next_trading_day(source.date()).isoformat(),
+            source_trade_date=market_source.date().isoformat(),execution_trade_date=adapter.calendar.next_trading_day(market_source.date()).isoformat(),
             as_of=source.isoformat(),knowledge_cutoff=source.isoformat(),input_snapshot_ids=[snapshot.snapshot_id],
             config_version=adapter.config_version,config_hash=adapter.config_hash,prompt_version='agent-2/3.0.5',
             model_name=model,market_regime=market.get('regime','UNKNOWN'),status='OK',reason_codes=[])
