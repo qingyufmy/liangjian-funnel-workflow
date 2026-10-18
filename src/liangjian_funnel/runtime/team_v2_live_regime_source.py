@@ -71,7 +71,7 @@ def record_current_regime(settings,store,*,live,cutoff,observed_at,prior):
         prior=prior,rules=load_rules(Path(settings.root)/'config/regime_live.yaml'))
 
 
-def run_source_only(settings,market_data,*,clock,calendar,gate,deadline):
+def run_source_only(settings,market_data,*,clock,calendar,gate,deadline,minute_sources=None):
     """No paper account/plan required; reuse natural monitor, no new timer.
 
     This path only collects market evidence and advances G5. It cannot create
@@ -82,7 +82,8 @@ def run_source_only(settings,market_data,*,clock,calendar,gate,deadline):
     from .team_v2_store import TeamMeetingStore
     now=stamp(clock());cutoff=now.replace(second=0,microsecond=0)-timedelta(minutes=1)
     end=min(deadline,timer.monotonic()+8)
-    work=gate.call(lambda:load_or_refresh_live_market_state(settings,market_data,as_of=stamp(clock()),
+    work=gate.call(lambda:minute_sources.team_market(settings,clock=clock,calendar=calendar,deadline=end)
+        if minute_sources is not None else load_or_refresh_live_market_state(settings,market_data,as_of=stamp(clock()),
         minimum_source_as_of=cutoff.replace(minute=cutoff.minute-cutoff.minute%5),
         snapshot_observer=lambda result:observe_full_market(settings,result,
             observed_at=stamp(clock()),calendar=calendar,deadline=end)),deadline=end,name='team-g5-source-only')

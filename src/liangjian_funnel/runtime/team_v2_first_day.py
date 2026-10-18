@@ -84,9 +84,12 @@ def forced_record(settings,*,account_id,now):
 
 
 def record_alert_body(body):
-    return dict(msg_type='text',content={'text':'模拟盘｜首日 CONTROL 已切换 record\n'+body['reason_code']+
-            '\n首段报价检查：'+str(body['blocked_quotes'])+'/'+str(body['checked_quotes'])+
-            '\n停止新入场并撤销未成交买单，已有持仓继续硬风控与卖单撮合；客户通道不变'})
+    general=body.get('alert_source_id')=='TEAM_MONITOR_RECORD'
+    title='模拟盘｜Team CONTROL 已切换 record\n' if general else '模拟盘｜首日 CONTROL 已切换 record\n'
+    return dict(msg_type='text',content={'text':title+body['reason_code']+
+            ('' if general else '\n首段报价检查：'+str(body['blocked_quotes'])+'/'+str(body['checked_quotes']))+
+            ('\n停止新入场；下一轮保护先撤未成交买单，再处理已有持仓硬风控与卖单撮合；客户通道不变'
+             if general else '\n停止新入场并撤销未成交买单，已有持仓继续硬风控与卖单撮合；客户通道不变')})
 
 
 def _notify(store,body,*,now):
@@ -94,12 +97,12 @@ def _notify(store,body,*,now):
     # One frozen latch per day; notification retry enqueues the same identity
     # and text, never sends HTTP from the minute process.
     return InternalOutbox(store).enqueue(account_id=body['account_id'],trade_date=body['trade_date'],kind='ALERT',
-        source_id='CONTROL_FIRST_DAY_RECORD',observed_at=now,priority=0,body=record_alert_body(body))
+        source_id=body.get('alert_source_id','CONTROL_FIRST_DAY_RECORD'),observed_at=now,priority=0,body=record_alert_body(body))
 
 
-def latch_record(store,policy,*,account_id,now,reason_code,packet_sha256=None):
+def latch_record(store,policy,*,account_id,now,reason_code,packet_sha256=None,first_day_only=True):
     now=stamp(now);day=now.date().isoformat()
-    if not active(policy,now):return dict(status='NOT_FIRST_DAY',record_required=False)
+    if first_day_only and not active(policy,now):return dict(status='NOT_FIRST_DAY',record_required=False)
     _tables(store)
     with closing(store._connect()) as db,db:
         db.execute('BEGIN IMMEDIATE')
@@ -111,6 +114,7 @@ def latch_record(store,policy,*,account_id,now,reason_code,packet_sha256=None):
             body=dict(account_id=account_id,trade_date=day,mode='record',reason_code=reason_code,
                 observed_at=now.isoformat(),checked_quotes=total,blocked_quotes=bad,packet_sha256=packet_sha256,
                 scope='PERSISTENT_THIS_DAY_NO_AUTOMATIC_RELEASE',current_tick='NO_SECOND_ENGINE_OR_BUDGET_RESET')
+            if not first_day_only:body['alert_source_id']='TEAM_MONITOR_RECORD'
             text=canonical(body);db.execute('INSERT INTO control_record_latch VALUES (?,?,?,?)',
                 (account_id,day,text,hashlib.sha256(text.encode()).hexdigest()))
     try:notification=_notify(store,body,now=now)

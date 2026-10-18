@@ -165,6 +165,7 @@ def load_or_refresh_live_market_state(
     sleep: Callable[[float], None] | None = None,
     snapshot_observer: Callable[[Any], Any] | None = None,
     minimum_source_as_of: datetime | None = None,
+    snapshot_capture: Callable[[Any], Any] | None = None,
 ) -> dict[str, Any]:
     """Read one five-minute bucket or collect a bounded current snapshot.
 
@@ -208,6 +209,14 @@ def load_or_refresh_live_market_state(
                     as_of=current,
                     expected_count=result.total,
                 )
+                # A dual-path monitor may retain this exact original request
+                # for later Team work. It must not inject Team fields into the
+                # legacy state or affect any customer decision on failure.
+                if snapshot_capture is not None:
+                    try:
+                        snapshot_capture(result)
+                    except Exception:
+                        pass
                 # Opt-in Team observer consumes this exact completed request,
                 # never a second full-market request or an index-only fallback.
                 # Observer failure cannot erase the legacy primary result.

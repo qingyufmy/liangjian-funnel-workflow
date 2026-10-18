@@ -59,19 +59,23 @@ def prepared(tmp_path,monkeypatch, *, trade_date='2026-10-19'):
     return app,clock,seen,trader,proof
 
 
-def test_default_control_and_explicit_record_select_one_engine_without_fallback(tmp_path,monkeypatch):
+def test_control_keeps_customer_first_and_explicit_record_skips_team_without_exposure(tmp_path,monkeypatch):
     import liangjian_funnel.runtime.team_v2_monitor as module
     settings=Settings.from_env({},root=tmp_path);seen=[]
-    app=SimpleNamespace(settings=settings,monitor_once=lambda **kw:seen.append('legacy'))
+    app=SimpleNamespace(settings=settings,monitor_once=lambda **kw:seen.append('legacy') or {'status':'READY'})
     monkeypatch.setattr(module,'run_monitor_control',lambda *a,**k:seen.append('control') or {'status':'BLOCKED'})
-    assert WorkflowApplication.monitor_dispatch(app)['status']=='BLOCKED' and seen==['control']
+    result=WorkflowApplication.monitor_dispatch(app)
+    assert result['status']=='READY' and result['team']['status']=='BLOCKED' and seen==['legacy','control']
     app.settings=settings.model_copy(update={'a4_trader_mode':'record'})
-    WorkflowApplication.monitor_dispatch(app);assert seen==['control','legacy']
-    kwargs=[];app.monitor_once=lambda **kw:kwargs.append(kw)
+    WorkflowApplication.monitor_dispatch(app);assert seen==['legacy','control','legacy']
+    kwargs=[];app.monitor_once=lambda **kw:kwargs.append(kw) or {'status':'READY'}
     WorkflowApplication.monitor_dispatch(app)
-    assert kwargs==[{'now':None,'archive_original_quotes':True}]
+    assert len(kwargs)==1 and kwargs[0]['now'] is None and kwargs[0]['archive_original_quotes']
+    assert kwargs[0]['deadline_monotonic']>0 and kwargs[0]['minute_sources'] is not None
     app.settings=settings.model_copy(update={'broker_adapter':'gm_live'})
-    with pytest.raises(WorkflowError,match='BROKER_ADAPTER_NOT_ENABLED'):WorkflowApplication.monitor_dispatch(app)
+    result=WorkflowApplication.monitor_dispatch(app)
+    assert result['status']=='READY' and result['mode']=='record'
+    assert result['team']['reason_code']=='TEAM_BROKER_ADAPTER_NOT_ENABLED'
 
 
 def test_0327_exposure_failure_runs_legacy_each_tick_and_deduplicates_daily_alert(tmp_path,monkeypatch):

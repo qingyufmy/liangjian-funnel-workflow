@@ -4598,48 +4598,31 @@ class WorkflowApplication:
         }
 
     def monitor_dispatch(self, *, now: datetime | None = None) -> dict[str, Any]:
-        """Select one entry engine before either broker can place an order."""
-        mode = getattr(self.settings, "a4_trader_mode", "record")
-        if mode not in {"record", "control"}:
-            raise WorkflowError("TRADER_MODE_INVALID")
-        if mode == "record":
-            from .runtime.team_v2_record_protection import has_owned_exposure
-            try:
-                owned_exposure = has_owned_exposure(self.settings)
-            except Exception:
-                # A Team sidecar cannot prevent the original H1 engine running.
-                current = _aware(now or datetime.now(SHANGHAI))
-                from .runtime.team_v2_record_protection import exposure_failure_alert
-                alert = exposure_failure_alert(self.settings, now=current)
-                result = self.monitor_once(now=now, archive_original_quotes=True)
-                record_business_reasons({'TEAM_OWNED_EXPOSURE_CHECK_FAILED': 1},
-                    incident_key='TEAM_OWNED_EXPOSURE_CHECK_FAILED:'+current.date().isoformat())
-                return {**result, 'team_record_exposure': {
-                    'reason_code': 'TEAM_OWNED_EXPOSURE_CHECK_FAILED', 'internal_alert': alert}}
-            if owned_exposure:
-                from .runtime.team_v2_monitor import run_monitor_control
-                return run_monitor_control(self,now=now,record_fallback={'reason_code':'EXPLICIT_RECORD_MODE'})
-            return self.monitor_once(now=now, archive_original_quotes=True)
-        if self.settings.broker_adapter != "local_paper":
-            raise WorkflowError("BROKER_ADAPTER_NOT_ENABLED")
-        from .runtime.team_v2_first_day import forced_record
-        from .runtime.team_v2_morning import ACCOUNT
-        latch=forced_record(self.settings,account_id=ACCOUNT,now=_aware(now or datetime.now(SHANGHAI)))
-        if latch is not None:
-            from .runtime.team_v2_monitor import run_monitor_control
-            return {**run_monitor_control(self,now=now,record_fallback=latch),'team_control_fallback':latch,'mode':'record'}
-        from .runtime.team_v2_monitor import run_monitor_control
-        return run_monitor_control(self, now=now)
+        """0338: finish original customer A4 first, then bounded owned Team."""
+        from .runtime.team_v2_dual_monitor import run_dual_monitor
+        return run_dual_monitor(self, now=now)
 
     def monitor_once(self, *, now: datetime | None = None,
-                     archive_original_quotes: bool = False) -> dict[str, Any]:
+                     archive_original_quotes: bool = False,
+                     deadline_monotonic: float | None = None,
+                     minute_sources: Any = None) -> dict[str, Any]:
         mark_phase("fetch")
         monitor_started = time.monotonic()
         monitor_started_wall = datetime.now(SHANGHAI)
         # One absolute budget starts before plan recovery.  Every later phase
         # receives this same deadline; no slow dependency can reset the clock.
         round_deadline = monitor_started + A4_DECISION_BUDGET_SECONDS
-        deadline_wall = monitor_started_wall + timedelta(seconds=A4_DECISION_BUDGET_SECONDS)
+        if deadline_monotonic is not None:
+            round_deadline = min(round_deadline, deadline_monotonic)
+        deadline_wall = monitor_started_wall + timedelta(seconds=max(0,round_deadline-monitor_started))
+
+        def fetch_live_bars(*args, **kwargs):
+            return (minute_sources.legacy_bars(*args, **kwargs) if minute_sources is not None
+                else self._fetch_live_bars(*args, **kwargs))
+
+        def fetch_live_quote(*args, **kwargs):
+            return (minute_sources.legacy_quote(*args, **kwargs) if minute_sources is not None
+                else self._fetch_live_quote(*args, **kwargs))
         timing_spans: list[TimingSpan] = []
         timing_lock = RLock()
 
@@ -4689,7 +4672,7 @@ class WorkflowApplication:
         position_quote_work = run_many_bounded(
             {
                 symbol: (
-                    lambda symbol=symbol: self._fetch_live_quote(symbol, current, deadline=risk_deadline)
+                    lambda symbol=symbol: fetch_live_quote(symbol, current, deadline=risk_deadline)
                 )
                 for symbol in position_symbols
             },
@@ -4809,9 +4792,12 @@ class WorkflowApplication:
         market_state_started = time.monotonic()
         market_state_wall = datetime.now(SHANGHAI)
         market_deadline = min(round_deadline, time.monotonic() + A4_MARKET_STATE_BUDGET_SECONDS)
+        if minute_sources is not None:
+            minute_sources.allow_market_collection = not any(lane_plans.values())
         market_work = _A4_MARKET_WORK.call(
             lambda: load_or_refresh_live_market_state(
                 self.settings, self.market_data, as_of=current,
+                **({'snapshot_capture': minute_sources.capture_market_snapshot} if minute_sources is not None else {}),
             ),
             deadline=market_deadline,
             name="a4-market-state",
@@ -4884,7 +4870,7 @@ class WorkflowApplication:
             one_started = time.monotonic()
             one_wall = datetime.now(SHANGHAI)
             try:
-                one = self._fetch_live_bars(symbol, "1m", one_required, execution_cutoff, deadline=fetch_deadline) if one_required else None
+                one = fetch_live_bars(symbol, "1m", one_required, execution_cutoff, deadline=fetch_deadline) if one_required else None
             finally:
                 record_span(f"required_minute:{symbol}", one_started, one_wall)
             # Before the first closed 5m bar, absence is a normal warm-up
@@ -4965,7 +4951,7 @@ class WorkflowApplication:
             def fetch_quote_only(symbol: str):
                 started, wall = time.monotonic(), datetime.now(SHANGHAI)
                 try:
-                    return position_quotes.get(symbol) or self._fetch_live_quote(
+                    return position_quotes.get(symbol) or fetch_live_quote(
                         symbol, current, deadline=fetch_deadline)
                 finally:
                     record_span(f"holding_quote:{symbol}", started, wall)

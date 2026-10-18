@@ -108,7 +108,7 @@ def test_daily_cap_two_is_checked_inside_actual_reservation_transaction(tmp_path
     assert len(broker.get_orders('2026-10-19'))==2
 
 
-def test_actual_stale_quote_persists_record_then_next_dispatch_protects_owned_without_legacy(tmp_path,monkeypatch):
+def test_actual_stale_quote_record_latch_keeps_legacy_then_owned_protection(tmp_path,monkeypatch):
     from test_team_v2_monitor_dispatch import prepared as dispatch_prepared
     from liangjian_funnel.runtime.team_v2_monitor import run_monitor_control
     from liangjian_funnel.workflow import WorkflowApplication
@@ -127,8 +127,9 @@ def test_actual_stale_quote_persists_record_then_next_dispatch_protects_owned_wi
     monkeypatch.setattr(monitor,'run_monitor_control',lambda app,**kw:run_monitor_control(
         app,**kw,clock=lambda:clock.now,tradability_loader=proof))
     next_tick=WorkflowApplication.monitor_dispatch(app,now=clock.now)
-    assert legacy==[] and next_tick['mode']=='record'
-    assert next_tick['status']=='RECORD_FALLBACK_ACTIVE' and next_tick['model_calls']==0
+    assert legacy==['legacy'] and next_tick['mode']=='record'
+    assert next_tick['status']=='LEGACY_RECORD'
+    assert next_tick['team']['status']=='RECORD_FALLBACK_ACTIVE' and next_tick['team']['model_calls']==0
     assert next_tick['team_control_fallback']['reason_code']=='CONTROL_FIRST_DAY_QUOTE_FRESHNESS_GT20PCT'
 
 

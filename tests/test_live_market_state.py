@@ -165,6 +165,20 @@ def test_observer_exception_does_not_damage_existing_primary_market_contract(tmp
     assert 'PRIVATE_DO_NOT_PERSIST' not in json.dumps(actual)
 
 
+@pytest.mark.parametrize('capture_fails', [False, True])
+def test_dual_capture_does_not_inject_team_fields_into_legacy_market(tmp_path,monkeypatch,capture_fails):
+    original=_full_result(ready=True);calls=[];seen=[]
+    monkeypatch.setattr(live_market,'HithinkClient',lambda _: _FullMarketClient(original,calls))
+    def capture(value):
+        seen.append(value)
+        if capture_fails:raise ValueError('PRIVATE_CAPTURE_FAILURE')
+    result=load_or_refresh_live_market_state(SimpleNamespace(fact_store_dir=tmp_path),
+        _index_market(ready=False,calls=[]),as_of=NOW,snapshot_capture=capture)
+    assert result['status']=='READY' and result['entry_permission']=='ALLOW'
+    assert 'team_v2_source' not in result and 'PRIVATE' not in json.dumps(result)
+    assert calls==[1] and seen==[original]
+
+
 def test_team_request_requires_new_provider_bucket_not_just_ready_cached_collection_clock(tmp_path,monkeypatch):
     calls=[];monkeypatch.setattr(live_market,'HithinkClient',lambda _: _FullMarketClient(_full_result(ready=True),calls))
     settings=SimpleNamespace(fact_store_dir=tmp_path)

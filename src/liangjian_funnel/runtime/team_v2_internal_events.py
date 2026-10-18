@@ -168,7 +168,8 @@ class InternalEventProjector:
                 if latch is not None:
                     if _sha(latch[0])!=latch[1]:raise ValueError('INTERNAL_CONTROL_LATCH_HASH_INVALID')
                     from .team_v2_first_day import record_alert_body
-                    self._emit(account,day,'ALERT','CONTROL_FIRST_DAY_RECORD',record_alert_body(json.loads(latch[0])),now,0)
+                    body=json.loads(latch[0])
+                    self._emit(account,day,'ALERT',body.get('alert_source_id','CONTROL_FIRST_DAY_RECORD'),record_alert_body(body),now,0)
             rows = self._batch(source, account=account, day=day, table='regime_transitions',
                 columns='transition_id,evidence_json', predicate='trade_date=?', params=(day,))
             for row in rows:

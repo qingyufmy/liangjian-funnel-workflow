@@ -1,8 +1,8 @@
-"""Single CONTROL task path. Never runs the legacy entry engine first.
+"""Owned Team task path, after customer A4 when called by the dual dispatcher.
 
 Missing morning/source is an explicit no-entry result, not an implicit
-legacy fallback. RECORD is selected by the caller and runs the protected legacy
-path. This module only writes owned Team/paper state, not execution_plans.
+second legacy run. RECORD is selected by the caller and protects owned holdings.
+This module only writes owned Team/paper state, not execution_plans.
 """
 from dataclasses import asdict,replace
 from datetime import datetime,time as wall_time
@@ -35,7 +35,7 @@ TZ=ZoneInfo('Asia/Shanghai');_MARKET=BoundedWorkGate(1)
 
 
 def run_monitor_control(application,*,now=None,clock=None,client=None,tradability_loader=production_monitor_tradability,
-        record_fallback=None):
+        record_fallback=None,deadline_monotonic=None,minute_sources=None):
     from ..workflow import A4_DECISION_BUDGET_SECONDS,A4_MARKET_STATE_BUDGET_SECONDS,_intraday_market_context
     from .live_market import load_or_refresh_live_market_state
     from .team_v2_emotion_baseline import observe_full_market
@@ -43,23 +43,29 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
     from .strategies import evaluate_strategy
     clock=clock or (lambda:datetime.now(TZ));current=stamp(now or clock());started=time.monotonic()
     deadline=started+A4_DECISION_BUDGET_SECONDS;calendar=application.trading_calendar;settings=application.settings
+    if deadline_monotonic is not None:deadline=min(deadline,deadline_monotonic)
+    if time.monotonic()>=deadline:return dict(status='SKIPPED',reason_code='TEAM_REMAINDER_EXHAUSTED')
     if calendar.is_trading_day(current.date()) is not True:return dict(status='NOOP',reason_code='NON_TRADING_DAY')
     if not (wall_time(9,30)<=current.time().replace(tzinfo=None)<=wall_time(11,30)
             or wall_time(13)<=current.time().replace(tzinfo=None)<=wall_time(15)):
         return dict(status='NOOP',reason_code='NO_TRADING_TIME')
     directory=_directory(settings);day=current.date().isoformat()
     if not (directory/'paper.db').is_file():
-        return run_source_only(settings,application.market_data,clock=clock,calendar=calendar,gate=_MARKET,deadline=deadline)
+        return run_source_only(settings,application.market_data,clock=clock,calendar=calendar,gate=_MARKET,deadline=deadline,
+            minute_sources=minute_sources)
     store=TeamMeetingStore(directory/'team.db');morning=store.load_morning_engine(ACCOUNT,day)
     broker=create_broker('local_paper',database=directory/'paper.db',paper_config=settings.root/'config/paper_broker.yaml',
         risk_config=settings.root/'config/risk_limits.yaml',clock=clock,calendar=calendar,run_id='team-monitor:'+day)
     scope=read_execution_scope(settings,now=current,calendar=calendar,morning_source=morning['source'] if morning else None,
         positions=broker.get_positions())
     if morning is None and not scope['plans']:
-        return run_source_only(settings,application.market_data,clock=clock,calendar=calendar,gate=_MARKET,deadline=deadline)
+        return run_source_only(settings,application.market_data,clock=clock,calendar=calendar,gate=_MARKET,deadline=deadline,
+            minute_sources=minute_sources)
     packet=collect_monitor_packet(settings,scope,clock=clock,deadline=deadline,
-        fetch_bars=lambda symbol,cutoff,count,end:application._fetch_live_bars(symbol,'1m',count,cutoff,deadline=end),
-        fetch_quote=lambda symbol,at,end:application._fetch_live_quote(symbol,at,deadline=end))
+        fetch_bars=lambda symbol,cutoff,count,end:(minute_sources.team_bars if minute_sources is not None
+            else application._fetch_live_bars)(symbol,'1m',count,cutoff,deadline=end),
+        fetch_quote=lambda symbol,at,end:(minute_sources.team_quote if minute_sources is not None
+            else application._fetch_live_quote)(symbol,at,deadline=end))
     if packet['status']=='NOOP':return packet
     from .team_v2_quote_evidence import archive_monitor_quotes
     try:quote_archive=archive_monitor_quotes(settings,packet,used_at=stamp(clock()))
@@ -91,7 +97,8 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
     # Full-market collector is the existing durable five-minute bucket. Missing
     # current data is never replaced with yesterday's regime or a fake ALLOW.
     market_deadline=min(deadline,time.monotonic()+A4_MARKET_STATE_BUDGET_SECONDS)
-    market_work=_MARKET.call(lambda:load_or_refresh_live_market_state(settings,application.market_data,as_of=stamp(clock()),
+    market_work=_MARKET.call(lambda:minute_sources.team_market(settings,clock=clock,calendar=calendar,deadline=market_deadline)
+        if minute_sources is not None else load_or_refresh_live_market_state(settings,application.market_data,as_of=stamp(clock()),
         minimum_source_as_of=cutoff.replace(minute=cutoff.minute-cutoff.minute%5,second=0,microsecond=0),
         snapshot_observer=lambda result:observe_full_market(settings,result,observed_at=stamp(clock()),
             calendar=calendar,deadline=market_deadline)),deadline=market_deadline,name='team-live-market') if morning else None
