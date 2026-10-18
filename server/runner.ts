@@ -22,6 +22,15 @@ export interface ReadOnlyCommandResult {
   readonly timedOut: boolean;
 }
 
+export function writeTeamEodHandoff(config: AppConfig, record: JobRunRecord): void {
+  if (record.job !== 'close' || record.status !== 'succeeded' || record.exitCode !== 0 || !record.finishedAt) return;
+  const day = new Intl.DateTimeFormat('en-CA', {timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(record.finishedAt));
+  const directory=path.join(config.rootDir,'state','team_v2','eod-handoff');
+  mkdirSync(directory,{recursive:true});
+  try {writeFileSync(path.join(directory,day+'.json'),JSON.stringify({trade_date:day,source_close:record}),{flag:'wx',mode:0o600});}
+  catch(error){if((error as NodeJS.ErrnoException).code!=='EEXIST')throw error;}
+}
+
 export function timeoutForJob(
   job: JobName,
   configuredTimeoutMs: number,
@@ -33,6 +42,11 @@ export function timeoutForJob(
   // the single worker before the 09:26/15:10 research protection windows.
   if (job === "monitor") return Math.min(configuredTimeoutMs, 58_000);
   if (job === "auction-evidence") return Math.min(configuredTimeoutMs, 30_000);
+  if (job === "paper-settle" || job === "team-close-bar") return Math.min(configuredTimeoutMs, 60_000);
+  if (job === "team-eod") return Math.min(configuredTimeoutMs, 120_000);
+  if (job === "team-internal") return Math.min(configuredTimeoutMs, 8_000);
+  if (job === "team-a5-midday" || job === "team-a5-close") return Math.min(configuredTimeoutMs, 240_000);
+  if (job.startsWith("team-morning-")) return Math.min(configuredTimeoutMs, 120_000);
   if (job === "auction-base") return Math.min(configuredTimeoutMs, 60 * 60 * 1000);
   if (job === "auction-refresh") return Math.min(configuredTimeoutMs, 30 * 60 * 1000);
   // A5's model call has a 600s total budget. The parent must also allow
@@ -158,6 +172,7 @@ export class JobRunner {
   private active: ActiveChild | null = null;
   private comparison: ActiveChild | null = null;
   private review: ActiveChild | null = null;
+  private notification: ActiveChild | null = null;
 
   public constructor(
     private readonly config: AppConfig,
@@ -169,7 +184,7 @@ export class JobRunner {
   }
 
   public activeJob(): JobRunRecord | null {
-    const current = this.history.find((item) => item.runId === (this.active?.runId ?? this.review?.runId ?? this.comparison?.runId));
+    const current = this.history.find((item) => item.runId === (this.active?.runId ?? this.review?.runId ?? this.comparison?.runId ?? this.notification?.runId));
     return current ?? null;
   }
 
@@ -177,19 +192,39 @@ export class JobRunner {
     return this.history.slice(-limit).reverse();
   }
 
+  public completedCloseForTeamEod(day: string): boolean {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return false;
+    let fd: number | undefined;
+    try {
+      fd=openSync(path.join(this.config.rootDir,'state','team_v2','eod-handoff',day+'.json'),'r');
+      const buffer=Buffer.alloc(8193);const size=readSync(fd,buffer,0,buffer.length,0);
+      if(size>8192)return false;const raw=buffer.subarray(0,size).toString('utf8');
+      const receipt=JSON.parse(raw) as {trade_date?:string;source_close?:JobRunRecord};const source=receipt.source_close;
+      const date=(value:string)=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(value));
+      return receipt.trade_date===day && source?.job==='close' && source.status==='succeeded' && source.exitCode===0
+        && typeof source.runId==='string' && !!source.runId && !!source.finishedAt && date(source.startedAt)===day && date(source.finishedAt)===day;
+    } catch{return false;} finally {if(fd!==undefined)closeSync(fd);}
+  }
+
   public async run(job: JobName): Promise<JobRunRecord> {
     const definition = definitionFor(job);
     if (!definition) {
       throw new Error("unsupported job");
     }
-    const slot = job === "comparison" ? "comparison" : job === "auction-evidence" || job === "auction-refresh" || job === "a5-midday" || job === "a5-close" || job === "outcomes" ? "review" : "primary";
-    const current = slot === "comparison" ? this.comparison : slot === "review" ? this.review : this.active;
+    if (job === 'team-eod' || job === 'team-a5-close') {
+      const clock = new Intl.DateTimeFormat('en-GB', {timeZone:'Asia/Shanghai',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date());
+      const [hour,minute] = clock.split(':').map(Number);
+      if (hour!*60+minute! < (job === 'team-eod' ? 17*60+20 : 17*60+25))
+        return this.skipped(job, definition.command, '', 'CUSTOMER_A5_PRIORITY_WINDOW');
+    }
+    const slot = job === "team-internal" ? "notification" : job === "comparison" ? "comparison" : job.startsWith("team-morning-") || job.startsWith("team-a5-") || job === "team-eod" || job === "auction-evidence" || job === "auction-refresh" || job === "a5-midday" || job === "a5-close" || job === "outcomes" || job === "paper-settle" || job === "team-close-bar" ? "review" : "primary";
+    const current = this.childFor(slot);
     if (current) return this.skipped(job, definition.command, current.runId);
 
     return this.runChild(job, definition.command, slot);
   }
 
-  private skipped(job: JobName, command: string, activeRunId: string): JobRunRecord {
+  private skipped(job: JobName, command: string, activeRunId: string, reason?: string): JobRunRecord {
     const skipped: JobRunRecord = {
       runId: `skipped-${randomUUID()}`,
       job,
@@ -200,27 +235,28 @@ export class JobRunner {
       signal: null,
       durationMs: 0,
       status: "skipped",
-      reason: `BUSY:${activeRunId}`,
+      reason: reason ?? `BUSY:${activeRunId}`,
     };
     this.record(skipped);
     this.logger.warn(`任务互斥，跳过 ${command}; active=${activeRunId}`, { job });
     return skipped;
   }
 
-  private childFor(slot: "primary" | "comparison" | "review"): ActiveChild | null {
-    return slot === "comparison" ? this.comparison : slot === "review" ? this.review : this.active;
+  private childFor(slot: "primary" | "comparison" | "review" | "notification"): ActiveChild | null {
+    return slot === "notification" ? this.notification : slot === "comparison" ? this.comparison : slot === "review" ? this.review : this.active;
   }
 
-  private setChild(slot: "primary" | "comparison" | "review", child: ActiveChild | null): void {
+  private setChild(slot: "primary" | "comparison" | "review" | "notification", child: ActiveChild | null): void {
     if (slot === "comparison") this.comparison = child;
     else if (slot === "review") this.review = child;
+    else if (slot === "notification") this.notification = child;
     else this.active = child;
   }
 
   private async runChild(
     job: JobName,
     command: string,
-    slot: "primary" | "comparison" | "review",
+    slot: "primary" | "comparison" | "review" | "notification",
   ): Promise<JobRunRecord> {
 
     const runId = `${job}-${new Date().toISOString().replace(/[:.]/g, "-")}-${randomUUID().slice(0, 8)}`;
@@ -341,6 +377,8 @@ export class JobRunner {
           ...(monitorBusiness ? { monitorBusiness } : {}),
         };
         this.replaceRunning(record);
+        try {writeTeamEodHandoff(this.config,record);}
+        catch {this.logger.warn('TEAM_EOD_HANDOFF_WRITE_FAILED',{job,runId});}
         if (this.childFor(slot)?.runId === runId) this.setChild(slot, null);
         this.logger[status === "succeeded" ? "info" : "error"](
           `任务结束 ${command} status=${status} exit=${exitCode ?? "null"} signal=${signal ?? "none"} duration_ms=${durationMs}`,
@@ -399,6 +437,7 @@ export class JobRunner {
       this.stopChild(this.active),
       this.stopChild(this.comparison),
       this.stopChild(this.review),
+      this.stopChild(this.notification),
     ]);
   }
 

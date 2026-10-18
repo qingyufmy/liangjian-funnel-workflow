@@ -168,6 +168,7 @@ class OpenAICompatibleModelClient:
         stage: str | None = None,
         timeout_seconds: float | None = None,
         max_output_tokens: int | None = None,
+        team_session: str | None = None,
     ) -> ModelCallResult:
         del snapshot_id  # metadata is retained by the pipeline audit, not sent as secrets
         if model not in ALL_MODELS:
@@ -194,12 +195,12 @@ class OpenAICompatibleModelClient:
         overall_deadline = self.monotonic() + call_timeout
         total_attempts = 0
         # A2 receives server-computed ranks, roles, routes and fact coverage.
-        # A4 also has a bounded veto-only task. Hidden reasoning can exhaust
-        # its minute deadline. A1 discovery and A3 plan verification retain the
-        # configured reasoning variants.
+        # 0290/0327: only Team A3/A4/A6 disable hidden reasoning. A1/A5 retain
+        # configured reasoning; do not mutate the shared client across roles.
+        role_no_thinking = team_session is not None and str(stage or "").upper() in {"A3", "A4", "A6"}
         call_variants = (
             A2_NO_THINKING_VARIANTS
-            if str(stage or "").upper() == "A2" or (
+            if role_no_thinking or str(stage or "").upper() == "A2" or (
                 str(stage or "").upper() == "A4" and model.startswith("deepseek-")
                 and not self.thinking_enabled
             )
@@ -209,7 +210,7 @@ class OpenAICompatibleModelClient:
             # Ark's control is a structured thinking field, not the former
             # gateway's enable_thinking boolean. Never try incompatible
             # variants or silently enable thinking in the minute budget.
-            no_thinking = str(stage or "").upper() in {"A2", "A4"} or not self.thinking_enabled
+            no_thinking = role_no_thinking or str(stage or "").upper() in {"A2", "A4"} or not self.thinking_enabled
             call_variants = (("ark_thinking_disabled", {"thinking": {"type": "disabled"}}),) if no_thinking else (
                 ("ark_thinking_enabled", {"thinking": {"type": "enabled"}, "reasoning_effort": "low"}),)
         last_variant = call_variants[0][0]
@@ -324,7 +325,7 @@ class OpenAICompatibleModelClient:
                                 generic_final_variant_fallback = (
                                     status in {400, 413, 422}
                                     and stage != "A5"
-                                    and self.thinking_enabled
+                                    and self.thinking_enabled and not role_no_thinking
                                     and variant_id == call_variants[-1][0]
                                 )
                                 if output_budget_rejected or generic_final_variant_fallback:

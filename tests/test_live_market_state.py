@@ -141,6 +141,40 @@ class _FullMarketClient:
         return self.result
 
 
+def test_opt_in_team_observer_consumes_same_result_and_cache_without_second_request(tmp_path,monkeypatch):
+    original=_full_result(ready=True);calls=[];seen=[]
+    monkeypatch.setattr(live_market,'HithinkClient',lambda _: _FullMarketClient(original,calls))
+    def observe(result):
+        seen.append(result)
+        return {'status':'READY','source_as_of':'PROVIDER_ORIGINAL_NOT_COLLECTION_CLOCK'}
+    settings=SimpleNamespace(fact_store_dir=tmp_path)
+    first=load_or_refresh_live_market_state(settings,_index_market(ready=False,calls=[]),
+        as_of=NOW,snapshot_observer=observe)
+    second=load_or_refresh_live_market_state(settings,_index_market(ready=False,calls=[]),
+        as_of=NOW,snapshot_observer=observe)
+    assert calls==[1] and seen==[original] and first['team_v2_source']==second['team_v2_source']
+
+
+def test_observer_exception_does_not_damage_existing_primary_market_contract(tmp_path,monkeypatch):
+    calls=[];monkeypatch.setattr(live_market,'HithinkClient',lambda _: _FullMarketClient(_full_result(ready=True),calls))
+    def broken(result):raise ValueError('PRIVATE_DO_NOT_PERSIST')
+    actual=load_or_refresh_live_market_state(SimpleNamespace(fact_store_dir=tmp_path),
+        _index_market(ready=False,calls=[]),as_of=NOW,snapshot_observer=broken)
+    assert actual['status']=='READY' and actual['fallback'] is False
+    assert actual['team_v2_source']['reason_code']=='TEAM_LIVE_SNAPSHOT_OBSERVER_FAILED'
+    assert 'PRIVATE_DO_NOT_PERSIST' not in json.dumps(actual)
+
+
+def test_team_request_requires_new_provider_bucket_not_just_ready_cached_collection_clock(tmp_path,monkeypatch):
+    calls=[];monkeypatch.setattr(live_market,'HithinkClient',lambda _: _FullMarketClient(_full_result(ready=True),calls))
+    settings=SimpleNamespace(fact_store_dir=tmp_path)
+    first=load_or_refresh_live_market_state(settings,_index_market(ready=False,calls=[]),as_of=NOW,
+        snapshot_observer=lambda _: {'source_as_of':NOW.replace(minute=4).isoformat()})
+    second=load_or_refresh_live_market_state(settings,_index_market(ready=False,calls=[]),as_of=NOW,
+        minimum_source_as_of=NOW,snapshot_observer=lambda _: {'source_as_of':NOW.isoformat()})
+    assert calls==[1,1] and first['team_v2_source']!=second['team_v2_source']
+
+
 def _full_result(*, ready: bool) -> SimpleNamespace:
     return SimpleNamespace(
         ok=ready,

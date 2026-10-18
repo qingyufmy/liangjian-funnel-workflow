@@ -26,8 +26,24 @@ from .stock_trading_rules import stock_trading_rules
 SH=ZoneInfo('Asia/Shanghai')
 VERSION='shadow-price-limit-derive/1'
 # Explicit ordinary rates only. No ST/IPO/new revision interpretation is added.
-RATES={'SSE_MAIN':Decimal('.10'),'SZSE_MAIN':Decimal('.10'),
-       'CHINEXT':Decimal('.20'),'STAR':Decimal('.20')}
+RATES=frozen.RATES
+
+
+def round_price_limits(preclose, rate, tick):
+    """Numeric rounding only: this function grants no identity/rule authority.
+
+    Shared by strict shadow derivation and explicitly labelled emotion-only
+    derived statistics. The frozen historical API and its byte pins stay intact.
+    """
+    preclose,rate,tick=(Decimal(str(v)) for v in (preclose,rate,tick))
+    if (not all(v.is_finite() for v in (preclose,rate,tick)) or preclose<=0
+            or tick<=0 or not 0<rate<1 or preclose%tick):
+        raise ValueError('PRICE_ROUNDING_INPUT_INVALID')
+    upper=(preclose*(1+rate)).quantize(tick,rounding=ROUND_HALF_UP)
+    lower=(preclose*(1-rate)).quantize(tick,rounding=ROUND_HALF_UP)
+    if abs(upper-preclose)<tick:upper=preclose+tick
+    if abs(lower-preclose)<tick:lower=preclose-tick
+    return max(tick,upper),max(tick,lower)
 
 
 def _canonical(value):
@@ -139,11 +155,7 @@ def _derive_confirmed_day(evidence,*,symbol,at,confirmed_day):
         if preclose is None or preclose%tick!=0 or evidence.get('preclose_basis')!='EXCHANGE_DISPLAYED_PRECLOSE':
             return None,'EXCHANGE_PRECLOSE_UNPROVEN'
         rate=RATES[board]
-        upper=(preclose*(1+rate)).quantize(tick,rounding=ROUND_HALF_UP)
-        lower=(preclose*(1-rate)).quantize(tick,rounding=ROUND_HALF_UP)
-        if abs(upper-preclose)<tick:upper=preclose+tick
-        if abs(lower-preclose)<tick:lower=preclose-tick
-        upper,lower=max(tick,upper),max(tick,lower)
+        upper,lower=round_price_limits(preclose,rate,tick)
         return dict(upper=float(upper),lower=float(lower),trade_date=str(day),symbol=symbol,
             basis='DERIVED_FROM_PRECLOSE_AND_BOARD_RULE',input_sha256=frozen._hash(dict(evidence)),
             source_input_sha256=evidence['source_input_sha256'],source_ref=evidence['source_ref'],
@@ -225,4 +237,4 @@ def build_shadow_plan_pit_capture(plan,source,*,observed_at,rule_receipt,approve
             'shadow_rule_derivation':resolved}
 
 
-__all__=['validate_shadow_rule_receipt','derive_shadow_price_limits','build_shadow_plan_pit_capture']
+__all__=['validate_shadow_rule_receipt','derive_shadow_price_limits','build_shadow_plan_pit_capture','round_price_limits']

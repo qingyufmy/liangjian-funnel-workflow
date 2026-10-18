@@ -462,7 +462,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub.add_parser("run-morning", help="dispatch only the due 09:26 morning review")
     sub.add_parser("run-auction-base", help="prepare immutable research evidence at 07:00; no models or plan publication")
-    sub.add_parser("run-auction-evidence", help="capture one 09:25 source observation; no research, activation or rebase")
+    sub.add_parser("run-auction-evidence", help="capture the current fixed 09:25 poll slot; no research, activation or rebase")
+    sub.add_parser("run-paper-settle", help="settle the existing independent local-paper account; no research or customer I/O")
+    sub.add_parser('run-team-close-bar', help='consume original 15:00 close for owned paper orders/positions only')
+    sub.add_parser('run-team-eod', help='owned PM then A6 close-completion review; no new research or customer I/O')
+    sub.add_parser('run-team-internal', help='deliver committed owned internal facts; no trading or customer I/O')
+    sub.add_parser('run-team-a5-midday', help='independent Team A5 coach from frozen facts; no customer publisher')
+    sub.add_parser('run-team-a5-close', help='independent Team A5 close coach from frozen facts; no customer publisher')
+    for stage in ('engine','risk','pm'):
+        sub.add_parser('run-team-morning-'+stage, help='independent owned Team V2 morning '+stage+' edge')
     auction_refresh = sub.add_parser("run-auction-refresh", help="refresh A2/A3 research after auction; never replace active A4 plans")
     auction_refresh.add_argument("--manual-current", action="store_true",
                                  help="explicit operator rerun using the current session time, not the 09:26 auction cutoff")
@@ -640,14 +648,59 @@ def main(argv: Sequence[str] | None = None, *, settings: Settings | None = None)
         sys.stdout.reconfigure(encoding="utf-8", errors="strict")
     args = build_parser().parse_args(argv)
     active = settings or Settings.from_env()
+    if args.command.startswith('run-team-morning-'):
+        from .runtime.team_v2_morning import run_morning_stage
+        try:
+            result=run_morning_stage(active,args.command.removeprefix('run-team-morning-'))
+        except Exception:
+            result={'status':'BLOCKED','reason_code':'TEAM_MORNING_STAGE_FAILED'}
+        # No provider exception text, original plan payload or account details
+        # in Node stdout. Full receipts stay in the owned Team V2 stores.
+        print(json.dumps({key:result[key] for key in ('status','reason_code','session','trade_date') if key in result},ensure_ascii=False))
+        return 0 if result['status'] in {'COMPLETE','READY','NOOP'} else 2
+    if args.command in {'run-team-a5-midday','run-team-a5-close'}:
+        from .runtime.team_v2_review_command import run_review_stage
+        kind='MIDDAY' if args.command.endswith('midday') else 'POST_CLOSE'
+        try:result=run_review_stage(active,kind)
+        except Exception:result={'status':'BLOCKED','reason_code':'TEAM_A5_STAGE_FAILED'}
+        print(json.dumps({key:result[key] for key in ('status','reason_code','trade_date','review_kind') if key in result},ensure_ascii=False))
+        # 75 is reserved for a pre-request prerequisite wait, never model retry.
+        if result['status']=='WAITING':return 75
+        return 0 if result['status'] in {'READY','NOOP'} else 2
+    if args.command=='run-team-internal':
+        from .runtime.team_v2_internal_command import run_internal_delivery
+        try:result=run_internal_delivery(active)
+        except Exception:result={'status':'BLOCKED','reason_code':'INTERNAL_DELIVERY_FAILED'}
+        print(json.dumps(result,ensure_ascii=False))
+        return 0 if result['status'] in {'READY','NOOP'} else 2
+    if args.command=='run-team-eod':
+        from .runtime.team_v2_eod_command import run_eod_stage
+        try:result=run_eod_stage(active)
+        except Exception:result={'status':'BLOCKED','reason_code':'TEAM_EOD_STAGE_FAILED'}
+        print(json.dumps({key:result[key] for key in ('status','reason_code','session','trade_date') if key in result},ensure_ascii=False))
+        return 0 if result['status'] in {'READY','NOOP'} else 2
+    if args.command=='run-team-close-bar':
+        from .runtime.team_v2_close_bar import run_close_bar
+        try:result=run_close_bar(active)
+        except Exception:result={'status':'BLOCKED','reason_code':'TEAM_CLOSE_BAR_FAILED'}
+        print(json.dumps(result,ensure_ascii=False))
+        return 0 if result['status'] in {'COMPLETE','NOOP'} else 2
+    if args.command == "run-paper-settle":
+        from .runtime.team_v2_commands import run_paper_settle
+        try:
+            result = run_paper_settle(active)
+        except Exception:
+            result = {"status":"BLOCKED", "reason_code":"PAPER_SETTLE_FAILED"}
+        print(json.dumps(result, ensure_ascii=False))
+        return 0 if result["status"] in {"COMPLETE", "NOOP"} else 2
     if args.command == "doctor":
         return _doctor(active)
     if args.command == "run-auction-evidence":
         # Do not construct WorkflowApplication/RuntimeStore for a read-only
         # plan scope plus an exclusive evidence file.
-        from .runtime.opening_evidence import capture_opening_evidence
+        from .runtime.opening_evidence import capture_scheduled_opening_evidence
         try:
-            result = capture_opening_evidence(active)
+            result = capture_scheduled_opening_evidence(active)
         except Exception:
             result = {"status":"DATA_LIMITED", "reason_code":"OPENING_EVIDENCE_CAPTURE_FAILED"}
         print(json.dumps(result, ensure_ascii=False))
@@ -1005,6 +1058,13 @@ def _evaluation_command(args: argparse.Namespace, settings: Settings) -> int:
                 ),
                 price_source=source,
             )
+            if args.command in {'run-outcomes','run-outcomes-refresh'} and not getattr(args,'as_of',None):
+                # Research-only append labels; no extra network, and its data
+                # status cannot turn a legacy successful outcome job into a retry.
+                from .runtime.team_v2_model_outcomes import refresh_model_outcomes
+                try:payload['team_model_judgments']=refresh_model_outcomes(settings)
+                except Exception:
+                    payload['team_model_judgments']={'status':'DATA_LIMITED','reason_code':'MODEL_LABEL_LOCAL_FAILURE'}
             if refresh is not None:
                 payload["price_refresh"] = refresh
                 payload["network_used"] = refresh["network_used"]
@@ -1116,6 +1176,8 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
             return 0 if (payload.get("status") in {"PUBLISHED", "NOOP"}
                          and reference_maintenance['status'] in {'READY', 'NOOP'}) else 2
         application = WorkflowApplication(settings)
+        from .pipeline.team_v2_wiring import RESEARCH_COMMANDS
+        application.team_research_enabled = args.command in RESEARCH_COMMANDS
         if args.command == "run-a1-maintenance":
             maintenance_at = datetime.fromisoformat(args.as_of) if args.as_of else None
             if maintenance_at is not None and (maintenance_at.tzinfo is None or maintenance_at.utcoffset() is None):
@@ -1184,7 +1246,7 @@ def _workflow_command(args: argparse.Namespace, settings: Settings) -> int:
         elif args.command == "run-comparison":
             payload = application.run_comparison(parent_run_id=args.parent_run_id)
         elif args.command == "monitor-once":
-            payload = application.monitor_once()
+            payload = application.monitor_dispatch()
         elif args.command == "archive-a4-auxiliary-once":
             payload = application.collect_a4_auxiliary_once()
         elif args.command == "activate-latest-a3-for-a4":

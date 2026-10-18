@@ -106,7 +106,7 @@ def test_cli_dispatch_never_constructs_workflow_application(tmp_path, monkeypatc
     import liangjian_funnel.runtime.opening_evidence as evidence
     def forbidden(*args, **kwargs): raise AssertionError("WORKFLOW_CONSTRUCTION_FORBIDDEN")
     monkeypatch.setattr(cli, "WorkflowApplication", forbidden)
-    monkeypatch.setattr(evidence, "capture_opening_evidence", lambda settings: {
+    monkeypatch.setattr(evidence, "capture_scheduled_opening_evidence", lambda settings: {
         "status":"NOOP", "reason_code":"OPENING_EVIDENCE_WINDOW_MISSED"})
     assert cli.main(["run-auction-evidence"], settings=settings(tmp_path)) == 0
     assert json.loads(capsys.readouterr().out)["reason_code"] == "OPENING_EVIDENCE_WINDOW_MISSED"
@@ -121,3 +121,50 @@ def test_missing_scope_has_no_source_call_or_plan_side_effect(tmp_path):
         clock=lambda:AT, fetch=forbidden)
     assert result["reason_code"] == "OPENING_EVIDENCE_SCOPE_EMPTY"
     assert not config.workflow_output_dir.exists()
+
+
+def test_four_fixed_polls_are_exclusive_per_slot_with_original_prints(tmp_path):
+    from liangjian_funnel.runtime.opening_evidence import capture_scheduled_opening_evidence
+    config=settings(tmp_path);before=config.state_db_path.read_bytes();seen=[]
+    for second in (3,8,15,24):
+        at=AT.replace(second=second)
+        result=capture_scheduled_opening_evidence(config,calendar=Calendar(),clock=lambda:at,
+            fetch=lambda symbols:(seen.append(second) or quote()))
+        assert result['status']=='CAPTURED'
+        raw=json.loads(Path(result['evidence_path']).read_text(encoding='utf-8'))
+        assert raw['poll_slot_second']==second and raw['source_attempts']==1
+        repeated=capture_scheduled_opening_evidence(config,calendar=Calendar(),clock=lambda:at,
+            fetch=lambda symbols:pytest.fail('DUPLICATE_SLOT_NETWORK'))
+        assert repeated['reason_code']=='OPENING_EVIDENCE_ALREADY_CLAIMED'
+    assert seen==[3,8,15,24] and before==config.state_db_path.read_bytes()
+
+
+@pytest.mark.parametrize('second',[0,2,5,7,10,14,17,23,26,30,31])
+def test_missed_poll_is_not_caught_up_or_claimed(tmp_path,second):
+    from liangjian_funnel.runtime.opening_evidence import capture_scheduled_opening_evidence
+    config=settings(tmp_path)
+    result=capture_scheduled_opening_evidence(config,calendar=Calendar(),clock=lambda:AT.replace(second=second),
+        fetch=lambda symbols:pytest.fail('LATE_POLL_NETWORK'))
+    assert result['status']=='NOOP' and not config.workflow_output_dir.exists()
+
+
+def test_poll_receive_after_deadline_is_retained_but_not_claimed(tmp_path):
+    from liangjian_funnel.runtime.opening_evidence import capture_scheduled_opening_evidence
+    times=iter((AT.replace(second=24),AT.replace(second=24),AT.replace(second=31)))
+    result=capture_scheduled_opening_evidence(settings(tmp_path),calendar=Calendar(),
+        clock=lambda:next(times),fetch=lambda symbols:quote())
+    body=json.loads(Path(result['evidence_path']).read_text(encoding='utf-8'))
+    assert body['status']=='DATA_LIMITED' and body['poll_slot_second']==24
+    assert body['received_at'].endswith('09:25:31+08:00') and body['claimed_symbol_count']==0
+
+
+def test_later_poll_does_not_replace_an_earlier_failure_or_its_original_quote(tmp_path):
+    from liangjian_funnel.runtime.opening_evidence import capture_scheduled_opening_evidence
+    config=settings(tmp_path)
+    bad=capture_scheduled_opening_evidence(config,calendar=Calendar(),clock=lambda:AT.replace(second=3),
+        fetch=lambda symbols:quote('2026-10-16T09:24:59+08:00'))
+    before=Path(bad['evidence_path']).read_bytes()
+    good=capture_scheduled_opening_evidence(config,calendar=Calendar(),clock=lambda:AT.replace(second=8),
+        fetch=lambda symbols:quote())
+    assert bad['status']=='DATA_LIMITED' and good['status']=='CAPTURED'
+    assert Path(bad['evidence_path']).read_bytes()==before and bad['evidence_path']!=good['evidence_path']

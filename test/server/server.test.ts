@@ -1357,7 +1357,7 @@ test("scheduler gives research exclusive dispatch in its protection minute", asy
   await scheduler.tick(new Date("2026-08-26T01:26:10.000Z"));
   await scheduler.tick(new Date("2026-08-26T01:26:30.000Z"));
   await new Promise<void>((resolve) => setImmediate(resolve));
-  expect(calls).toEqual(["morning", "auction-refresh"]);
+  expect(calls).toEqual(["team-internal", "morning", "auction-refresh"]);
 });
 
 test("dispatches A4 once at the settled second without catch-up", async () => {
@@ -1387,12 +1387,12 @@ test("dispatches A4 once at the settled second without catch-up", async () => {
   // 2026-08-31T05:58Z = 13:58 Asia/Shanghai. The minute key is the same
   // across the settling window; second zero must not dispatch or catch up.
   await scheduler.tick(new Date("2026-08-31T05:58:00.000Z"));
-  expect(calls).toEqual([]);
+  expect(calls).toEqual(["team-internal"]);
   await scheduler.tick(new Date("2026-08-31T05:58:03.000Z"));
   await new Promise<void>((resolve) => setImmediate(resolve));
   await scheduler.tick(new Date("2026-08-31T05:58:04.000Z"));
   await new Promise<void>((resolve) => setImmediate(resolve));
-  expect(calls).toEqual(["monitor"]);
+  expect(calls).toEqual(["team-internal", "monitor"]);
 });
 
 test("scheduler retries a research job skipped by an active monitor in the same minute", async () => {
@@ -1439,7 +1439,7 @@ test("scheduler retries a research job skipped by an active monitor in the same 
   });
   await scheduler.tick(now);
   await new Promise<void>((resolve) => setTimeout(resolve, 50));
-  expect(calls).toEqual(["morning", "auction-refresh", "morning"]);
+  expect(calls).toEqual(["team-internal", "morning", "auction-refresh", "morning"]);
 });
 
 test("scheduler dispatches weekday incremental and Saturday full maintenance but never Sunday", async () => {
@@ -1516,7 +1516,7 @@ test("feature maintenance flag disables only the 03:30 job", async () => {
   await scheduler.tick(new Date("2026-08-31T01:26:10.000Z"));
   await new Promise<void>((resolve) => setImmediate(resolve));
 
-  expect(calls).toEqual(["morning", "auction-refresh"]);
+  expect(calls).toEqual(["team-internal", "morning", "auction-refresh"]);
   expect(scheduler.snapshot().jobs.find((job) => job.job === "features")?.enabled).toBe(false);
   expect(scheduler.snapshot().jobs.find((job) => job.job === "morning")?.enabled).toBe(true);
   scheduler.stop();
@@ -1572,7 +1572,7 @@ test("scheduler dispatches both A5 review slots without manufacturing monitor wo
   await scheduler.tick(new Date("2026-09-03T03:35:05.000Z"));
   await scheduler.tick(new Date("2026-09-03T08:00:05.000Z"));
   await new Promise<void>((resolve) => setImmediate(resolve));
-  expect(calls).toEqual(["a5-midday", "a5-close"]);
+  expect(calls).toEqual(["team-internal", "a5-midday", "team-a5-midday", "a5-close"]);
 });
 
 test("scheduler dispatches the local T+N outcome backfill after close", async () => {
@@ -1591,7 +1591,7 @@ test("scheduler dispatches the local T+N outcome backfill after close", async ()
   await scheduler.tick(new Date("2026-09-04T08:10:05.000Z"));
   await new Promise<void>((resolve) => setImmediate(resolve));
 
-  expect(calls).toEqual(["outcomes"]);
+  expect(calls).toEqual(["team-internal", "outcomes"]);
 });
 
 test("scheduler reconciles outcomes after late close success without rerunning research", async () => {
@@ -1619,7 +1619,7 @@ test("scheduler reconciles outcomes after late close success without rerunning r
   await scheduler.tick(now);
   await new Promise<void>(resolve => setImmediate(resolve));
   await scheduler.tick(now);
-  expect(calls).toEqual(["close", "outcomes", "outcomes"]);
+  expect(calls).toEqual(["team-internal", "close", "outcomes", "team-eod", "outcomes"]);
 });
 
 test("process-exit wait returns after timeout so shutdown can escalate to SIGKILL", async () => {

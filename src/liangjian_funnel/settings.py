@@ -98,6 +98,8 @@ class Settings(BaseModel):
     mootdx_history_5m_required_bars: int = Field(default=12_240, ge=255, le=80_000)
     # New quote source remains shadow-only until separately promoted.
     a4_quote_backup_mode: Literal["SHADOW", "SINA"] = "SHADOW"
+    a4_trader_mode: Literal["record", "control"] = "control"
+    broker_adapter: Literal["local_paper", "gm_sim", "gm_live"] = "local_paper"
     minute_cache_dir: Path
     output_dir: Path
     workflow_output_dir: Path
@@ -348,6 +350,8 @@ class Settings(BaseModel):
             mootdx_max_pages=int(env.get("MOOTDX_MAX_PAGES", "20")),
             mootdx_history_5m_required_bars=int(env.get("MOOTDX_HISTORY_5M_REQUIRED_BARS", "12240")),
             a4_quote_backup_mode=env.get("LIANGJIAN_A4_QUOTE_BACKUP_MODE", "SHADOW").upper(),
+            a4_trader_mode=env.get("LIANGJIAN_A4_TRADER_MODE", "control").lower(),
+            broker_adapter=env.get("LIANGJIAN_BROKER", "local_paper").lower(),
             minute_cache_dir=Path(env["LIANGJIAN_MINUTE_CACHE_DIR"]).resolve()
             if env.get("LIANGJIAN_MINUTE_CACHE_DIR")
             else base / "storage" / "minute",

@@ -1,0 +1,8 @@
+{
+  "disposition": "EXCLUDED_FROM_FORMAL_GATES",
+  "reason_code": "REPLAY_ORIGINAL_TERMINAL_PLAN_PROJECTED_ACTIVE",
+  "finding": "The first three-plan probe included one original PLAN_INVALIDATED event in the ACTIVE_PLANS projection. Original response remains schema-valid and its latency remains an observed HTTP sample, but it cannot count as a qualified correctness batch.",
+  "original_files_unchanged": true,
+  "orders": 0,
+  "correction": "8c8bc51 excludes current/prior terminal events and missing activation; new source-bound two-plan model call is a4-frozen-1015-terminal-filtered-real. No response rewriting, activation or production writes."
+}

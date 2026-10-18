@@ -147,6 +147,9 @@ def _run_v2_a1_review(
                         )
             enriched.append(item)
         merged[partition] = enriched
+    adapter=getattr(self,'team_research_adapter',None)
+    if adapter is not None and hasattr(adapter,'finalize_a1_output'):
+        merged=adapter.finalize_a1_output(merged,discovery_context)
     basis_counts = {
         basis: 0
         for basis in (
@@ -386,6 +389,9 @@ def _run_a1_batched(
     if discovery_output:
         merge_outputs.insert(0, discovery_output)
     merged = _merge_a1_outputs(merge_outputs)
+    adapter=getattr(self,'team_research_adapter',None)
+    if adapter is not None and hasattr(adapter,'finalize_a1_output'):
+        merged=adapter.finalize_a1_output(merged,frozen_discovery_context)
     merged = _annotate_a1_pool_target(merged, snapshot.data)
     reasons = _validate_output(
         merged,
