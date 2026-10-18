@@ -13,13 +13,13 @@ from liangjian_funnel.runtime.team_v2_monitor_source import collect_monitor_pack
 from liangjian_funnel.runtime.bounded_work import BoundedWorkGate
 
 
-def prepared(tmp_path):
-    settings,clock,frozen=setup(tmp_path);clock.now=clock.now.replace(hour=9,minute=32)
+def prepared(tmp_path, *, trade_date='2026-10-19'):
+    settings,clock,frozen=setup(tmp_path,trade_date=trade_date);clock.now=clock.now.replace(hour=9,minute=32)
     scope=read(settings,clock,frozen);calls=[]
     def minute(symbol,cutoff,count,deadline):
         calls.append(('minute',symbol,cutoff,count))
         return FetchResult(symbol=symbol,interval='1m',requested_bars=count,returned_bars=1,
-            bars=(source(),),reason_code='OK',complete=True)
+            bars=(source(bar_end=source().bar_end.replace(year=clock.now.year,month=clock.now.month,day=clock.now.day)),),reason_code='OK',complete=True)
     def quote(symbol,at,deadline):
         calls.append(('quote',symbol))
         return QuoteResult(symbol=symbol,complete=True,reason_code='OK',quote=MarketQuote(symbol=symbol,

@@ -69,8 +69,8 @@ def main():
     output=a.output.resolve()
     if output.exists() or not output.is_relative_to((ROOT/'artifacts/team-v2-20261016').resolve()):raise ValueError('NEW_OWNED_OUTPUT_REQUIRED')
     output.mkdir(parents=True)
-    if a.execute_real_model:settings,provider=model_settings(output,'vm-runtime');model=settings.review_model
-    else:provider=dict(source='NOT_LOADED_NO_MODEL_CALL');model='deepseek-v4-pro'
+    if a.execute_real_model:settings,provider=model_settings(output,'vm-runtime');model=settings.team_intraday_model
+    else:provider=dict(source='NOT_LOADED_NO_MODEL_CALL');model='deepseek-v4-flash-0731'
     repo,context,prepared=prepare(a.source,output,a.day,a.role,model);prepared['provider']=provider
     save(output/'PREPARED.json',prepared)
     if not a.execute_real_model:print(json.dumps(dict(status='PREPARED_NOT_CALLED')));return 0

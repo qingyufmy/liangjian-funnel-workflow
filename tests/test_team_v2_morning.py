@@ -20,23 +20,25 @@ from test_team_v2_risk_schema import output as risk_output
 from test_team_v2_pm_schema import ranking_response as pm_output
 
 ROOT=Path(__file__).resolve().parents[1]
-CAL=SimpleNamespace(is_trading_day=lambda _:True,previous_trading_day=lambda _:date(2026,10,16))
+CAL=SimpleNamespace(is_trading_day=lambda _:True,previous_trading_day=lambda day:
+    date(2026,10,19) if day==date(2026,10,20) else date(2026,10,16))
 
 
-def fixture(tmp_path):
+def fixture(tmp_path, *, trade_date='2026-10-19'):
     shutil.copytree(ROOT/'config',tmp_path/'config')
     shutil.copytree(ROOT/'prompts/team_v2',tmp_path/'prompts/team_v2')
     settings=Settings.from_env({'LIANGJIAN_MODEL_API_KEY':'UNIT_TEST_ONLY_NOT_A_CREDENTIAL'},root=tmp_path)
     settings.state_db_path.parent.mkdir(parents=True,exist_ok=True)
+    source_day=CAL.previous_trading_day(date.fromisoformat(trade_date)).isoformat()
     raw=dict(symbol='000001.SZ',source_run_id='close-original',reference_price=10,
-        reference_price_as_of='2026-10-16T15:00:00+08:00',trigger_low=9.8,trigger_high=10.1,
+        reference_price_as_of=source_day+'T15:00:00+08:00',trigger_low=9.8,trigger_high=10.1,
         stop_level=9,no_chase=10.2,cluster_label='bank',market_regime='ROTATION_NO_MAINLINE',
-        plan_expiry='2026-10-16T15:00:00+08:00')
+        plan_expiry=source_day+'T15:00:00+08:00')
     with closing(sqlite3.connect(settings.state_db_path)) as db,db:
         db.execute('CREATE TABLE execution_plans(plan_id TEXT PRIMARY KEY,lane_id TEXT,symbol TEXT,status TEXT,valid_from TEXT,expires_at TEXT,payload_json TEXT)')
         db.execute('INSERT INTO execution_plans VALUES (?,?,?,?,?,?,?)',('p1',settings.research_primary_lane_id,
-            raw['symbol'],'PENDING_MORNING_REVIEW','2026-10-19T09:32:00+08:00','2026-10-19T15:00:00+08:00',json.dumps(raw)))
-    clock=SimpleNamespace(now=datetime.fromisoformat('2026-10-19T08:33:00+08:00'))
+            raw['symbol'],'PENDING_MORNING_REVIEW',trade_date+'T09:32:00+08:00',trade_date+'T15:00:00+08:00',json.dumps(raw)))
+    clock=SimpleNamespace(now=datetime.fromisoformat(trade_date+'T08:33:00+08:00'))
     return settings,clock
 
 
@@ -92,7 +94,7 @@ def test_actual_three_stage_source_to_model_to_allocation_retains_legacy_bytes(t
 
 
 def test_first_day_engine_probe_cannot_be_promoted_by_pm_standard_fixture(tmp_path):
-    settings,clock=fixture(tmp_path);api,_=client(settings,probe=False)
+    settings,clock=fixture(tmp_path,trade_date='2026-10-20');api,_=client(settings,probe=False)
     engine=run_morning_stage(settings,'engine',clock=lambda:clock.now,calendar=CAL)
     assert engine['envelopes'][0]['risk_unit']=='PROBE'
     advance(clock,8,35);run_morning_stage(settings,'risk',clock=lambda:clock.now,calendar=CAL,client=api)

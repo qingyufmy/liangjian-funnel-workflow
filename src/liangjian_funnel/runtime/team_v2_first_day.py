@@ -17,7 +17,7 @@ from ..data.tencent_minute import QuoteResult
 from .team_v2_sources import stamp
 from .team_v2_store import canonical
 
-POLICY=dict(version='control-first-day/1',approved_by='claude-0277',activation_trade_date='2026-10-19',
+POLICY=dict(version='control-first-day/2',approved_by='tony-0338',activation_trade_date='2026-10-20',
     probe_only=True,max_new_entries=2,observation_start='09:30',observation_end='10:00',
     quote_freshness_max_age_seconds=90,maximum_freshness_data_block_pct=20)
 

@@ -198,6 +198,13 @@ class Settings(BaseModel):
     publish_comparison_lanes: bool = False
     monitor_model: str = MONITOR_MODEL
 
+    @property
+    def team_intraday_model(self) -> str:
+        # Tony 0342-b: Team timing-sensitive sessions have their own Flash
+        # route. Never repurpose shared review_model (morning/EOD/A5 Pro) or
+        # let an old legacy-monitor override silently move Team back to Pro.
+        return MONITOR_MODEL
+
     @field_validator("research_models")
     @classmethod
     def allowed_research_models(cls, value: tuple[str, ...]) -> tuple[str, ...]:
@@ -619,6 +626,7 @@ class Settings(BaseModel):
             "comparison_enabled": self.comparison_enabled,
             "publish_comparison_lanes": self.publish_comparison_lanes,
             "monitor_model": self.monitor_model,
+            "team_intraday_model": self.team_intraday_model,
         }
 
 

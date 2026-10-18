@@ -8,12 +8,16 @@ import sqlite3
 
 import pytest
 
-from test_team_v2_monitor_source import prepared
+from test_team_v2_monitor_source import prepared as source_prepared
 from liangjian_funnel.runtime.risk_engine import RiskLimits,RiskEnvelope
 from liangjian_funnel.runtime.team_v2_first_day import (
     POLICY,validate_first_day_policy,first_day_limits,probe_envelope,observe_first_day_packet,forced_record)
 from liangjian_funnel.runtime.team_v2_monitor_source import collect_monitor_packet
 from liangjian_funnel.runtime.team_v2_store import TeamMeetingStore,canonical
+
+
+def prepared(tmp_path):
+    return source_prepared(tmp_path,trade_date=POLICY['activation_trade_date'])
 
 
 def packet(original,*,now,count,blocked):
@@ -31,10 +35,10 @@ def packet(original,*,now,count,blocked):
 
 def test_first_day_limits_probe_preserve_engine_ownership_no_double_halving():
     limits=RiskLimits();from datetime import datetime
-    now=datetime.fromisoformat('2026-10-19T09:36:00+08:00')
+    now=datetime.fromisoformat('2026-10-20T09:36:00+08:00')
     assert first_day_limits(limits,POLICY,now=now).max_new_entries==2 and limits.max_new_entries==3
     assert first_day_limits(limits,POLICY,now=now+timedelta(days=1))==limits
-    original=RiskEnvelope('p','000001.SZ','2026-10-19',True,'STANDARD',Decimal(30000),2,1000,(),(),high_conviction=True,purpose='PLANNING')
+    original=RiskEnvelope('p','000001.SZ','2026-10-20',True,'STANDARD',Decimal(30000),2,1000,(),(),high_conviction=True,purpose='PLANNING')
     result=probe_envelope(original,POLICY,now=now,probe_multiplier=limits.probe_multiplier)
     assert result.risk_unit=='PROBE' and result.risk_budget==15000 and result.max_shares_cap==500
     assert not result.a6_tightened and not result.high_conviction and result.purpose=='PLANNING'
@@ -42,7 +46,7 @@ def test_first_day_limits_probe_preserve_engine_ownership_no_double_halving():
     assert probe_envelope(original,POLICY,now=now+timedelta(days=1),probe_multiplier=limits.probe_multiplier)==original
 
 
-@pytest.mark.parametrize('key,value',[('max_new_entries',3),('probe_only',False),('maximum_freshness_data_block_pct',21),('activation_trade_date','2026-10-20')])
+@pytest.mark.parametrize('key,value',[('max_new_entries',3),('probe_only',False),('maximum_freshness_data_block_pct',21),('activation_trade_date','2026-10-19')])
 def test_unapproved_first_day_policy_cannot_silently_change_thresholds(key,value):
     with pytest.raises(ValueError,match='CONTROL_FIRST_DAY_POLICY_INVALID'):validate_first_day_policy(dict(POLICY,**{key:value}))
 
@@ -91,9 +95,12 @@ def test_daily_cap_two_is_checked_inside_actual_reservation_transaction(tmp_path
     from liangjian_funnel.runtime.team_v2_execution import admit_trader_signal
     broker,args=fixture(tmp_path);plans={}
     for i in range(1,4):plans['p'+str(i)]=replace(plan(),plan_id='p'+str(i),symbol=f'{i:06}.SZ',cluster='cluster'+str(i))
-    outcomes=[];limits=first_day_limits(args['limits'],POLICY,now=args['now'])
+    # This low-level reservation fixture deliberately uses its original day;
+    # the current production activation date is asserted independently.
+    day_policy=dict(POLICY,activation_trade_date=args['now'].date().isoformat())
+    outcomes=[];limits=first_day_limits(args['limits'],day_policy,now=args['now'])
     for pid,p in plans.items():
-        cap=probe_envelope(replace(envelope(),plan_id=pid,symbol=p.symbol),POLICY,now=args['now'],probe_multiplier=limits.probe_multiplier)
+        cap=probe_envelope(replace(envelope(),plan_id=pid,symbol=p.symbol),day_policy,now=args['now'],probe_multiplier=limits.probe_multiplier)
         outcomes.append(admit_trader_signal(**(args|dict(signal_id='first-day:'+pid,plan=p,envelope=cap,limits=limits,
             all_plans=plans,pm_allocation=policy(plans)))))
     assert [r['dispatched'] for r in outcomes]==[True,True,False]
@@ -105,7 +112,7 @@ def test_actual_stale_quote_persists_record_then_next_dispatch_protects_owned_wi
     from test_team_v2_monitor_dispatch import prepared as dispatch_prepared
     from liangjian_funnel.runtime.team_v2_monitor import run_monitor_control
     from liangjian_funnel.workflow import WorkflowApplication
-    app,clock,seen,api,proof=dispatch_prepared(tmp_path,monkeypatch);old=app._fetch_live_quote
+    app,clock,seen,api,proof=dispatch_prepared(tmp_path,monkeypatch,trade_date='2026-10-20');old=app._fetch_live_quote
     def stale(*args,**kwargs):
         value=old(*args,**kwargs)
         return value.model_copy(update={'quote':value.quote.model_copy(update={'quote_time':clock.now-timedelta(seconds=120)})})
@@ -137,7 +144,7 @@ def test_alert_enqueue_failure_does_not_release_record_and_internal_projector_re
     assert forced_record(settings,account_id='local-paper',now=clock.now)
     monkeypatch.setattr(InternalOutbox,'enqueue',enqueue)
     projector=InternalEventProjector(InternalOutbox(store))
-    projector._team('local-paper','2026-10-19',clock.now)
-    projector._team('local-paper','2026-10-19',clock.now)
+    projector._team('local-paper','2026-10-20',clock.now)
+    projector._team('local-paper','2026-10-20',clock.now)
     with sqlite3.connect(store.path) as db:
         assert db.execute("SELECT count(*) FROM team_notifications WHERE source_id='CONTROL_FIRST_DAY_RECORD'").fetchone()[0]==1

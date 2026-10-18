@@ -16,9 +16,9 @@ min_cash_reserve_pct: '0.10'
 no_new_entry_after: '14:30'
 # Claude 0277: release-day tightening only; global limits above stay unchanged.
 control_first_day:
-  version: control-first-day/1
-  approved_by: claude-0277
-  activation_trade_date: '2026-10-19'
+  version: control-first-day/2
+  approved_by: tony-0338
+  activation_trade_date: '2026-10-20'
   probe_only: true
   max_new_entries: 2
   observation_start: '09:30'

@@ -198,3 +198,5 @@ def test_actual_monitor_callback_sees_real_transition_after_trader_and_no_second
     second=run_monitor_control(app,clock=lambda:clock.now,client=api,tradability_loader=proof)
     assert second['result']['risk_exception']==first['result']['risk_exception']
     assert len(trader_calls)==len(risk_calls)==1 and source_bytes(app.settings)==before
+    assert trader_calls[0]['model'] == risk_calls[0]['model'] == 'deepseek-v4-flash-0731'
+    assert app.settings.review_model != 'deepseek-v4-flash-0731'

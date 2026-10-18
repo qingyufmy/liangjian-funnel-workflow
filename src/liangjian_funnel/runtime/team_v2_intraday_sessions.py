@@ -8,6 +8,7 @@ from datetime import timedelta
 
 from ..pipeline.team_v2_model import call_team_model
 from ..pipeline.team_v2_intraday_schema import validate_intraday_radar,validate_pm_intraday
+from ..settings import MONITOR_MODEL
 from .team_v2_sources import stamp
 
 
@@ -32,6 +33,7 @@ def call_intraday_research(*,role,repository,client,journal,call_id,run_id,model
         clock,max_output_tokens,allow_model_call=False):
     """Exactly one existing transport attempt, fixed 60s per authored session."""
     if role not in {'A2','A3'}:raise ValueError('INTRADAY_ROLE_INVALID')
+    if model != MONITOR_MODEL:raise ValueError('TEAM_INTRADAY_MODEL_NOT_ALLOWED')
     session='INTRADAY_RADAR' if role=='A2' else 'PM_INTRADAY'
     validator=validate_intraday_radar if role=='A2' else validate_pm_intraday
     values=deepcopy(replacements);context=deepcopy(server_context);envelope=deepcopy(required_envelope)

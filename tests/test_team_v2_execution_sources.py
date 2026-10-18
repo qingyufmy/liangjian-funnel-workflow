@@ -10,8 +10,8 @@ from test_team_v2_morning import fixture,CAL,advance,source_bytes
 from liangjian_funnel.runtime.team_v2_sources import read_planning_scope,read_execution_scope,decode_plan
 
 
-def setup(tmp_path):
-    settings,clock=fixture(tmp_path)
+def setup(tmp_path, *, trade_date='2026-10-19'):
+    settings,clock=fixture(tmp_path,trade_date=trade_date)
     frozen=read_planning_scope(settings,now=clock.now,calendar=CAL)
     advance(clock,10,1)
     return settings,clock,frozen

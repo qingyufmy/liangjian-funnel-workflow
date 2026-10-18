@@ -20,8 +20,8 @@ from liangjian_funnel.settings import Settings
 from liangjian_funnel.workflow import WorkflowApplication,WorkflowError
 
 
-def prepared(tmp_path,monkeypatch):
-    settings,clock=fixture(tmp_path);api,morning_calls=client(settings)
+def prepared(tmp_path,monkeypatch, *, trade_date='2026-10-19'):
+    settings,clock=fixture(tmp_path,trade_date=trade_date);api,morning_calls=client(settings)
     run_morning_stage(settings,'engine',clock=lambda:clock.now,calendar=CAL)
     advance(clock,8,35);run_morning_stage(settings,'risk',clock=lambda:clock.now,calendar=CAL,client=api)
     advance(clock,8,38);run_morning_stage(settings,'pm',clock=lambda:clock.now,calendar=CAL,client=api)
@@ -29,7 +29,8 @@ def prepared(tmp_path,monkeypatch):
         db.execute("UPDATE execution_plans SET status='ACTIVE_TODAY'")
     advance(clock,9,36);seen=[]
     def bars(symbol,interval,count,cutoff,**kwargs):
-        values=tuple(source(bar_end=source().bar_end+timedelta(minutes=i)) for i in range(count))
+        base=source().bar_end.replace(year=clock.now.year,month=clock.now.month,day=clock.now.day)
+        values=tuple(source(bar_end=base+timedelta(minutes=i)) for i in range(count))
         return FetchResult(symbol=symbol,interval='1m',requested_bars=count,returned_bars=count,bars=values,complete=True,reason_code='OK')
     def quote(symbol,at,**kwargs):
         return QuoteResult(symbol=symbol,complete=True,reason_code='OK',quote=MarketQuote(symbol=symbol,
@@ -117,7 +118,7 @@ def test_actual_control_task_source_to_mocked_HTTP_to_owned_paper_not_legacy(tmp
 
 
 def test_original_quote_archive_failure_cannot_grant_entry_or_call_legacy(tmp_path,monkeypatch):
-    app,clock,seen,api,proof=prepared(tmp_path,monkeypatch);before=source_bytes(app.settings)
+    app,clock,seen,api,proof=prepared(tmp_path,monkeypatch,trade_date='2026-10-20');before=source_bytes(app.settings)
     import liangjian_funnel.runtime.team_v2_quote_evidence as archive
     def broken(*args,**kwargs):raise RuntimeError('PRIVATE_FILESYSTEM_ERROR_NOT_TO_LOG')
     monkeypatch.setattr(archive,'archive_monitor_quotes',broken)

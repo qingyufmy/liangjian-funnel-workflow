@@ -15,6 +15,16 @@ from liangjian_funnel.settings import (
 )
 
 
+def test_team_intraday_flash_route_is_independent_of_research_and_legacy_overrides(tmp_path):
+    settings = Settings.from_env({'LIANGJIAN_REVIEW_MODEL': 'deepseek-v4-pro',
+        'LIANGJIAN_RESEARCH_MODEL': 'deepseek-v4-pro',
+        'LIANGJIAN_MONITOR_MODEL': 'deepseek-v4-pro'}, root=tmp_path)
+    assert settings.team_intraday_model == MONITOR_MODEL
+    assert settings.safe_summary()['team_intraday_model'] == MONITOR_MODEL
+    assert settings.review_model == settings.monitor_model == 'deepseek-v4-pro'
+    assert settings.research_models == ('deepseek-v4-pro',)
+
+
 def test_explicit_ark_provider_and_all_stage_models(tmp_path):
     configured = Settings.from_env({"LIANGJIAN_MODEL_BASE_URL": "https://ark.cn-beijing.volces.com/api/plan/v3",
         "LIANGJIAN_RESEARCH_MODEL": "deepseek-v4-pro", "LIANGJIAN_REVIEW_MODEL": "deepseek-v4-pro",
