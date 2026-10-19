@@ -2,6 +2,7 @@
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
+import hashlib
 import json
 import sqlite3
 
@@ -113,7 +114,8 @@ def session_fixture(tmp_path, *, invalid=False, offline=False, eligible=True):
         'entry_reference_zone': [10, 11], 'no_chase_price': 12, 'daily_invalidation': 9}})
     raw = response()
     if invalid:
-        raw['core_watch_pool'][0]['risk_unit'] = 'STANDARD'
+        # An invalid enum is not the authorized STANDARD -> PROBE cap clamp.
+        raw['core_watch_pool'][0]['risk_unit'] = 'INVALID_RISK'
     seen = []
     def handler(request):
         seen.append(json.loads(request.read()))
@@ -157,6 +159,67 @@ def test_real_client_blind_request_journal_and_comparison_without_publishing(tmp
         assert db.execute('SELECT t1_return,t3_return FROM model_judgments').fetchall() == [(None, None)]
     with sqlite3.connect(tmp_path / 'team.sqlite3') as db:
         assert not db.execute("SELECT name FROM sqlite_master WHERE name='execution_plans'").fetchall()
+
+
+def test_frozen_risk_cap_reaches_model_and_binds_actual_request_without_changing_source(tmp_path):
+    from liangjian_funnel.runtime.team_v2_plan_review import plan_review_inputs, run_plan_review
+    kwargs, seen = session_fixture(tmp_path, eligible=False)
+    originals = deepcopy({key: kwargs[key] for key in
+        ('replacements', 'candidate_domain', 'engine_decisions')})
+
+    def follows_visible_cap(request):
+        body = json.loads(request.read())
+        seen.append(body)
+        # Reproduce the transport defect: an absent explicit cap lets the
+        # provider return STANDARD. The server must never coerce that raw vote.
+        pool, _ = json.JSONDecoder().raw_decode(
+            body['messages'][0]['content'].split('A3_CANDIDATE_POOL=', 1)[1])
+        raw = response()
+        raw['core_watch_pool'][0]['risk_unit'] = pool[0].get('risk_unit', 'STANDARD')
+        return httpx.Response(200, json={'choices': [{'message': {'content': json.dumps(raw)}}]},
+            request=request)
+
+    kwargs['client'].transport = httpx.MockTransport(follows_visible_cap)
+    result = run_plan_review(**kwargs)
+    assert result['status'] == 'READY'
+    assert result['report']['core_watch_pool'][0]['risk_unit'] == 'PROBE'
+    assert not result['comparisons'][0]['engine_and_model_pass']
+    assert len(seen) == 1  # No additional A3 semantic retry.
+    assert {key: kwargs[key] for key in originals} == originals
+    projected = plan_review_inputs(kwargs['replacements'], kwargs['candidate_domain'], kwargs['engine_decisions'])
+    assert projected['A3_CANDIDATE_POOL'][0]['risk_unit'] == 'PROBE'
+    actual_hash = hashlib.sha256(json.dumps(seen[0]['messages'], ensure_ascii=False,
+        sort_keys=True, separators=(',', ':'), allow_nan=False).encode()).hexdigest()
+    prepared = kwargs['repository'].prepare_messages('A3', projected,
+        required_envelope=kwargs['required_envelope'], session='PLAN_REVIEW')
+    assert actual_hash == prepared.input_hash
+    with sqlite3.connect(tmp_path / 'models.sqlite3') as db:
+        assert db.execute('SELECT input_hash,validated FROM model_calls').fetchone() == (actual_hash, 1)
+    with sqlite3.connect(tmp_path / 'team.sqlite3') as db:
+        source = json.loads(db.execute('SELECT body_json FROM control_minute_context WHERE decision_id=?',
+            ('a3-plan-source:' + kwargs['review_id'],)).fetchone()[0])
+    assert source['prompt_input_hash'] == actual_hash
+    assert source['candidate_domain'] == originals['candidate_domain']
+    assert source['engine_decisions'] == originals['engine_decisions']
+    original_invalid_raw = response()
+    original_invalid_raw['core_watch_pool'][0]['risk_unit'] = 'STANDARD'
+    assert check(original_invalid_raw).issues == ('A3_PLAN_PASS_RISK_INVALID',)
+
+
+def test_candidate_cap_projection_is_exact_and_changes_prompt_binding(tmp_path):
+    from liangjian_funnel.runtime.team_v2_plan_review import plan_review_inputs
+    kwargs, _ = session_fixture(tmp_path)
+    domain = deepcopy(kwargs['candidate_domain'])
+    requests = []
+    for cap in ('PROBE', 'STANDARD'):
+        domain['000001.SZ']['risk_unit'] = cap
+        projected = plan_review_inputs(kwargs['replacements'], domain, kwargs['engine_decisions'])
+        assert projected['A3_CANDIDATE_POOL'] == [dict(symbol='000001.SZ',
+            strategy_profile='TREND_MA5', cluster='bank', candidate_origin='WATCH_ONLY', risk_unit=cap)]
+        requests.append(kwargs['repository'].prepare_messages('A3', projected,
+            required_envelope=kwargs['required_envelope'], session='PLAN_REVIEW'))
+    assert requests[0].input_hash != requests[1].input_hash
+    assert requests[0].evidence_catalog_hash == requests[1].evidence_catalog_hash
 
 
 @pytest.mark.parametrize('offline', [False, True])

@@ -2,6 +2,7 @@
 from datetime import datetime
 from copy import deepcopy
 import json
+import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -40,7 +41,8 @@ def test_no_adapter_preserves_existing_legacy_blocked_prompt_result(tmp_path):
     assert pipeline(tmp_path)._run_stage(**stage_args()).reason_codes == ('PROMPT_REPOSITORY_BLOCKED',)
 
 
-def actual_fixture(tmp_path, *, veto=False, invalid=False, eligibility='QUALIFIED', model_risk_unit='PROBE'):
+def actual_fixture(tmp_path, *, veto=False, invalid=False, eligibility='QUALIFIED', model_risk_unit='PROBE',
+                   quarantine=False):
     from liangjian_funnel.pipeline.model_client import OpenAICompatibleModelClient
     from liangjian_funnel.pipeline.team_v2_judgments import ModelJudgmentJournal
     from liangjian_funnel.pipeline.team_v2_prompts import TeamPromptRepository
@@ -69,6 +71,8 @@ def actual_fixture(tmp_path, *, veto=False, invalid=False, eligibility='QUALIFIE
             output['secondary_watch_pool'].append(row)
         if invalid:
             output['core_watch_pool'][0]['no_chase_price'] = 999
+        if quarantine:
+            output['core_watch_pool'][0]['trade_brief'] = {}
         return httpx.Response(200, json={'choices': [{'message': {'content': json.dumps(output)}}]}, request=request)
     settings = Settings.from_env({'LIANGJIAN_MODEL_API_KEY': 'UNIT_TEST_ONLY_NOT_A_CREDENTIAL'}, root=tmp_path)
     journal = ModelJudgmentJournal(tmp_path / 'models.sqlite3'); store = TeamMeetingStore(tmp_path / 'team.sqlite3')
@@ -212,8 +216,16 @@ def test_focus_original_probe_mode_cannot_be_upgraded_to_standard(tmp_path):
     args['snapshot'] = FrozenInputSnapshot('original-probe', data, as_of=NOW)
     args['upstream_output']['focus_pool'] = args['upstream_output'].pop('watch_only_pool')
     audit = app._run_stage(**args)
-    assert audit.status == 'BLOCKED' and audit.output is None and len(seen) == 1
-    assert 'A3_PLAN_PASS_RISK_INVALID' in audit.reason_codes
+    assert audit.status == 'VALIDATED' and audit.output is not None and len(seen) == 1
+    assert audit.output['core_watch_pool'][0]['risk_unit'] == 'PROBE'
+    projection = audit.diagnostics['server_projection']
+    assert projection['status'] == 'VALIDATED'
+    assert projection['original_issues'] == ['A3_PLAN_PASS_RISK_INVALID']
+    assert projection['actions'][0]['code'] == 'SERVER_CLAMPED_RISK_UNIT'
+    with sqlite3.connect(app.team_research_adapter.journal.path) as db:
+        captured = db.execute('SELECT validated,output_json FROM model_calls WHERE role=?', ('A3',)).fetchone()
+    assert captured[0] == 0
+    assert json.loads(captured[1])['core_watch_pool'][0]['risk_unit'] == 'STANDARD'
 
 
 def test_malformed_original_strategy_facts_is_explicit_source_block(tmp_path):
@@ -224,3 +236,18 @@ def test_malformed_original_strategy_facts_is_explicit_source_block(tmp_path):
     audit = app._run_stage(**args)
     assert audit.status == 'BLOCKED' and audit.reason_codes == ('TEAM_RESEARCH_A3_FACTS_INVALID',)
     assert seen == []
+
+
+def test_quarantined_model_row_stays_non_executable_through_actual_legacy_postpolicy(tmp_path):
+    app, args, seen = actual_fixture(tmp_path, quarantine=True)
+    original = deepcopy(dict(args['snapshot'].data))
+    audit = app._run_stage(**args)
+    assert audit.status == 'VALIDATED', audit.reason_codes
+    assert len(seen) == 1 and audit.output['core_watch_pool'] == []
+    row = audit.output['secondary_watch_pool'][0]
+    assert row['symbol'] == '000001.SZ' and row['review_status'] == 'DATA_GAP'
+    assert row['risk_unit'] == 'NO_ENTRY' and 'SERVER_QUARANTINED_ROW' in row['reason_codes']
+    assert dict(args['snapshot'].data) == original
+    projection = audit.diagnostics['server_projection']
+    assert projection['status'] == 'VALIDATED'
+    assert projection['actions'][0]['code'] == 'SERVER_QUARANTINED_ROW'

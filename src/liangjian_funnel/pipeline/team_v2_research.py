@@ -191,6 +191,7 @@ class TeamResearchAdapter:
         provider_attempts = captured_metrics[1] if captured_metrics is not None else 0
         diagnostics = dict(team_review_id=identity, legacy_checkpoint_reused=False,
             model_provider_attempts_unknown=captured_metrics is None,
+            server_projection=result.get('server_projection'),
             stage_processing_ms=int((time.perf_counter() - started) * 1000))
         if result['status'] != 'READY':
             return legacy.StageAudit(lane_id, model, stage, 'BLOCKED', snapshot.snapshot_id,

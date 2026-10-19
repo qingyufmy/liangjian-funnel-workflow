@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 from ..pipeline.team_v2_contract import blind_plan_facts
 from ..pipeline.team_v2_plan_review_schema import validate_plan_review
 from .team_v2_eod import _response
+from .team_v2_plan_recovery import recover_plan_review
 from .team_v2_store import canonical
 
 FACT_FIELDS = set('as_of strategy_version monthly_state monthly_partial_observation weekly_closed_state '
@@ -55,7 +56,7 @@ def plan_review_inputs(replacements, candidate_domain, engine_decisions):
         raise ValueError('A3_PLAN_FACT_DOMAIN_INVALID')
     values = dict(replacements)
     values['A3_CANDIDATE_POOL'] = [dict(symbol=symbol, strategy_profile=row['strategy_profile'],
-        cluster=row['cluster'], candidate_origin=row['candidate_origin'])
+        cluster=row['cluster'], candidate_origin=row['candidate_origin'], risk_unit=row['risk_unit'])
         for symbol, row in sorted(candidate_domain.items())]
     values['A3_FACT_SHEET'] = {}
     for symbol, raw in facts.items():
@@ -132,6 +133,20 @@ def run_plan_review(*, repository, client, journal, store, review_id, call_id, r
         timeout_seconds=timeout_seconds, max_output_tokens=max_output_tokens, catalog=catalog,
         clock=clock, session='PLAN_REVIEW', validator=lambda raw: validate_plan_review(raw, catalog,
             required_envelope=required_envelope, candidate_domain=candidate_domain))
+    provider_validated = valid
+    projection_audit = None
+    projection = recover_plan_review(output, catalog, required_envelope=required_envelope,
+        candidate_domain=candidate_domain)
+    if projection is not None:
+        effective, audit = projection
+        checked = validate_plan_review(effective, catalog, required_envelope=required_envelope,
+            candidate_domain=candidate_domain)
+        key = 'a3-plan-projection:' + review_id
+        projection_audit = dict(**audit, source_call_id=call_id, audit_context_key=key,
+            provider_raw_sha256=_hash(output), effective_raw_sha256=_hash(effective))
+        store.freeze_control_context(key, source_sha256=request.input_hash,
+            body=dict(**projection_audit, effective_raw=effective))
+        output, valid, issues = effective, checked.valid, checked.issues
     votes = {row['symbol']: row for name in ('core_watch_pool', 'secondary_watch_pool', 'rejected_candidates')
         for row in output[name]} if valid else {}
     comparisons = [dict(symbol=symbol, engine_eligible=engine_decisions[symbol]['eligible'],
@@ -141,5 +156,6 @@ def run_plan_review(*, repository, client, journal, store, review_id, call_id, r
     result = dict(status='READY' if valid else 'A3_REVIEW_DATA_GAP', source_call_id=call_id,
         source_trade_date=source_trade_date, execution_trade_date=trade_date, source_sha256=binding,
         report=output if valid else None, reason_codes=list(issues), comparisons=comparisons,
-        publication_authorized=False)
+        publication_authorized=False, provider_validated=provider_validated,
+        server_projection=projection_audit)
     return runtime.record(review_id, binding, result)

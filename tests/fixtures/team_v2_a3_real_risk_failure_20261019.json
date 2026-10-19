@@ -1,0 +1,695 @@
+{
+  "provenance": {
+    "scope": "ORIGINAL_PROVIDER_RAW_AND_FROZEN_DOMAIN_CATALOG_NOT_NEW_MODEL_CALL",
+    "source_sha256": "63704fdab3d7f0c35edb9fe5498790cdb476ef7f2db0a73e0c8c004cbfdda6af",
+    "input_hash": "3b70ce4799d1ee3489fb99b45ff99be5e1e5d05a790f0833ef24be9e3cdc062d",
+    "output_hash": "05a81fc69998ebe58aca6e4d56df128a47c9b3cdb21955f0934aa47818620bac",
+    "call_id": "A3:PLAN_REVIEW:a438509bb26974e37c2689e4e6bdf1199bac488e8a75bde2ad08da31a66ef7c8"
+  },
+  "raw": {
+    "core_watch_pool": [
+      {
+        "cluster": "UNKNOWN",
+        "opposing_refs": [
+          "A3:TECH:000576.SZ"
+        ],
+        "plan_priority_rank": 1,
+        "reason_codes": [],
+        "review_status": "PASS",
+        "risk_unit": "STANDARD",
+        "strategy_profile": "LEADER_INTRADAY",
+        "supporting_refs": [
+          "A3:TECH:000576.SZ",
+          "A3:MARKET"
+        ],
+        "symbol": "000576.SZ",
+        "trade_brief": {
+          "confirm_cadence": "5m",
+          "key_levels_note": "日线失效位8.2299，禁止追价线9.9395，参考价9.65，entry_reference_zone 8.602-8.688",
+          "likely_failure_path": "高开冲高后炸板回落，梯队断层或中军同步转弱，跌破15分钟结构低点",
+          "note_to_trader": "overextended=true，必须等回踩确认，禁止追高；梯队与中军未同步转弱才可执行"
+        },
+        "what_would_change_my_mind": [
+          "板块梯队断层或龙头连续两根闭合5分钟不能收回VWAP",
+          "高开低走或高位放量长上影跌破15分钟结构低点"
+        ]
+      },
+      {
+        "cluster": "UNKNOWN",
+        "opposing_refs": [
+          "A3:TECH:001266.SZ"
+        ],
+        "plan_priority_rank": 2,
+        "reason_codes": [],
+        "review_status": "PASS",
+        "risk_unit": "PROBE",
+        "strategy_profile": "MA520_SWING",
+        "supporting_refs": [
+          "A3:TECH:001266.SZ",
+          "A3:MARKET"
+        ],
+        "symbol": "001266.SZ",
+        "trade_brief": {
+          "confirm_cadence": "15m",
+          "key_levels_note": "日线失效位35.5，禁止追价线38.6，参考价37.75，entry_reference_zone 37.306-37.6791",
+          "likely_failure_path": "回踩MA20后反抽失败，放量跌破关键支撑35.5，MA5重新下行",
+          "note_to_trader": "MA520二波启动成立但周线BEAR_PARTIAL，只做PROBE；需15分钟结构稳定后5分钟更高低点确认"
+        },
+        "what_would_change_my_mind": [
+          "放量跌破MA20且反抽不过关键位",
+          "日线MA5下穿MA20形成死叉"
+        ]
+      },
+      {
+        "cluster": "UNKNOWN",
+        "opposing_refs": [
+          "A3:TECH:000858.SZ"
+        ],
+        "plan_priority_rank": 3,
+        "reason_codes": [],
+        "review_status": "PASS",
+        "risk_unit": "PROBE",
+        "strategy_profile": "TREND_MA5",
+        "supporting_refs": [
+          "A3:TECH:000858.SZ",
+          "A3:MARKET"
+        ],
+        "symbol": "000858.SZ",
+        "trade_brief": {
+          "confirm_cadence": "15m",
+          "key_levels_note": "日线失效位71.3676，禁止追价线75.0046，参考价72.82，entry_reference_zone 72.4033-72.82",
+          "likely_failure_path": "回踩MA5失败后放量跌破日线失效位71.3676，反抽不过MA5",
+          "note_to_trader": "无A4待确认条件，但月线周线均BEAR_STACK，只做PROBE；需15分钟卖压减弱后5分钟收回VWAP"
+        },
+        "what_would_change_my_mind": [
+          "放量跌破日线MA5参考位且连续15分钟不能收回",
+          "日线收盘确认趋势失效"
+        ]
+      },
+      {
+        "cluster": "UNKNOWN",
+        "opposing_refs": [
+          "A3:TECH:000601.SZ"
+        ],
+        "plan_priority_rank": 4,
+        "reason_codes": [],
+        "review_status": "PASS",
+        "risk_unit": "PROBE",
+        "strategy_profile": "TREND_MA5",
+        "supporting_refs": [
+          "A3:TECH:000601.SZ",
+          "A3:MARKET"
+        ],
+        "symbol": "000601.SZ",
+        "trade_brief": {
+          "confirm_cadence": "15m",
+          "key_levels_note": "日线失效位6.45，禁止追价线6.7568，参考价6.56，entry_reference_zone 6.548-6.56",
+          "likely_failure_path": "周线BEAR_STACK压制，回踩MA5失败后跌破日线失效位6.45",
+          "note_to_trader": "周线BEAR_STACK，conditional_probe=true，只做PROBE；需15分钟卖压减弱后5分钟收回VWAP"
+        },
+        "what_would_change_my_mind": [
+          "放量跌破日线MA5参考位且连续15分钟不能收回",
+          "周线空头结构压制导致日线收盘趋势失效"
+        ]
+      },
+      {
+        "cluster": "UNKNOWN",
+        "opposing_refs": [
+          "A3:TECH:002530.SZ"
+        ],
+        "plan_priority_rank": 5,
+        "reason_codes": [],
+        "review_status": "PASS",
+        "risk_unit": "PROBE",
+        "strategy_profile": "TREND_MA5",
+        "supporting_refs": [
+          "A3:TECH:002530.SZ",
+          "A3:MARKET"
+        ],
+        "symbol": "002530.SZ",
+        "trade_brief": {
+          "confirm_cadence": "15m",
+          "key_levels_note": "日线失效位7.01，禁止追价线7.4469，参考价7.23，entry_reference_zone 7.1633-7.23",
+          "likely_failure_path": "周线ENTANGLED，回踩MA5失败后跌破日线失效位7.01",
+          "note_to_trader": "主题CONFIRMATION但周线ENTANGLED，conditional_probe=true，只做PROBE；需15分钟卖压减弱后5分钟收回VWAP"
+        },
+        "what_would_change_my_mind": [
+          "放量跌破日线MA5参考位且连续15分钟不能收回",
+          "周线纠缠结构转弱导致日线收盘趋势失效"
+        ]
+      },
+      {
+        "cluster": "UNKNOWN",
+        "opposing_refs": [
+          "A3:TECH:002541.SZ"
+        ],
+        "plan_priority_rank": 6,
+        "reason_codes": [],
+        "review_status": "PASS",
+        "risk_unit": "PROBE",
+        "strategy_profile": "TREND_MA5",
+        "supporting_refs": [
+          "A3:TECH:002541.SZ",
+          "A3:MARKET"
+        ],
+        "symbol": "002541.SZ",
+        "trade_brief": {
+          "confirm_cadence": "15m",
+          "key_levels_note": "日线失效位19.38，禁止追价线20.66，参考价20.3，entry_reference_zone 20.016-20.2162",
+          "likely_failure_path": "周线ENTANGLED，回踩MA5失败后跌破日线失效位19.38",
+          "note_to_trader": "conditional_probe=false但周线ENTANGLED，只做PROBE；需15分钟卖压减弱后5分钟收回VWAP"
+        },
+        "what_would_change_my_mind": [
+          "放量跌破日线MA5参考位且连续15分钟不能收回",
+          "周线纠缠结构转弱导致日线收盘趋势失效"
+        ]
+      },
+      {
+        "cluster": "UNKNOWN",
+        "opposing_refs": [
+          "A3:TECH:000333.SZ"
+        ],
+        "plan_priority_rank": 7,
+        "reason_codes": [],
+        "review_status": "PASS",
+        "risk_unit": "PROBE",
+        "strategy_profile": "TREND_MA5",
+        "supporting_refs": [
+          "A3:TECH:000333.SZ",
+          "A3:MARKET"
+        ],
+        "symbol": "000333.SZ",
+        "trade_brief": {
+          "confirm_cadence": "15m",
+          "key_levels_note": "日线失效位84.02，禁止追价线88.1，参考价86.54，entry_reference_zone 84.8888-85.7377",
+          "likely_failure_path": "周线ENTANGLED，回踩MA5失败后跌破日线失效位84.02",
+          "note_to_trader": "conditional_probe=false但周线ENTANGLED，只做PROBE；需15分钟卖压减弱后5分钟收回VWAP"
+        },
+        "what_would_change_my_mind": [
+          "放量跌破日线MA5参考位且连续15分钟不能收回",
+          "周线纠缠结构转弱导致日线收盘趋势失效"
+        ]
+      },
+      {
+        "cluster": "UNKNOWN",
+        "opposing_refs": [
+          "A3:TECH:002322.SZ"
+        ],
+        "plan_priority_rank": 8,
+        "reason_codes": [],
+        "review_status": "PASS",
+        "risk_unit": "PROBE",
+        "strategy_profile": "TREND_MA5",
+        "supporting_refs": [
+          "A3:TECH:002322.SZ",
+          "A3:MARKET"
+        ],
+        "symbol": "002322.SZ",
+        "trade_brief": {
+          "confirm_cadence": "15m",
+          "key_levels_note": "日线失效位12.61，禁止追价线13.33，参考价13.24，entry_reference_zone 12.864-12.9926",
+          "likely_failure_path": "月线BEAR_STACK压制，回踩MA5失败后跌破日线失效位12.61",
+          "note_to_trader": "月线BEAR_STACK，conditional_probe=true，只做PROBE；需15分钟卖压减弱后5分钟收回VWAP"
+        },
+        "what_would_change_my_mind": [
+          "放量跌破日线MA5参考位且连续15分钟不能收回",
+          "月线空头结构压制导致日线收盘趋势失效"
+        ]
+      },
+      {
+        "cluster": "UNKNOWN",
+        "opposing_refs": [
+          "A3:TECH:002376.SZ"
+        ],
+        "plan_priority_rank": 9,
+        "reason_codes": [],
+        "review_status": "PASS",
+        "risk_unit": "PROBE",
+        "strategy_profile": "TREND_MA5",
+        "supporting_refs": [
+          "A3:TECH:002376.SZ",
+          "A3:MARKET"
+        ],
+        "symbol": "002376.SZ",
+        "trade_brief": {
+          "confirm_cadence": "15m",
+          "key_levels_note": "日线失效位6.67，禁止追价线6.99，参考价6.93，entry_reference_zone 6.83-6.8983",
+          "likely_failure_path": "月线BEAR_STACK压制，回踩MA5失败后跌破日线失效位6.67",
+          "note_to_trader": "月线BEAR_STACK，conditional_probe=true，只做PROBE；需15分钟卖压减弱后5分钟收回VWAP"
+        },
+        "what_would_change_my_mind": [
+          "放量跌破日线MA5参考位且连续15分钟不能收回",
+          "月线空头结构压制导致日线收盘趋势失效"
+        ]
+      },
+      {
+        "cluster": "UNKNOWN",
+        "opposing_refs": [
+          "A3:TECH:002461.SZ"
+        ],
+        "plan_priority_rank": 10,
+        "reason_codes": [],
+        "review_status": "PASS",
+        "risk_unit": "PROBE",
+        "strategy_profile": "TREND_MA5",
+        "supporting_refs": [
+          "A3:TECH:002461.SZ",
+          "A3:MARKET"
+        ],
+        "symbol": "002461.SZ",
+        "trade_brief": {
+          "confirm_cadence": "15m",
+          "key_levels_note": "日线失效位9.03，禁止追价线9.22，参考价9.15，entry_reference_zone 9.078-9.15",
+          "likely_failure_path": "月线BEAR_STACK压制，回踩MA5失败后跌破日线失效位9.03",
+          "note_to_trader": "月线BEAR_STACK，conditional_probe=true，只做PROBE；需15分钟卖压减弱后5分钟收回VWAP"
+        },
+        "what_would_change_my_mind": [
+          "放量跌破日线MA5参考位且连续15分钟不能收回",
+          "月线空头结构压制导致日线收盘趋势失效"
+        ]
+      },
+      {
+        "cluster": "UNKNOWN",
+        "opposing_refs": [
+          "A3:TECH:002557.SZ"
+        ],
+        "plan_priority_rank": 11,
+        "reason_codes": [],
+        "review_status": "PASS",
+        "risk_unit": "PROBE",
+        "strategy_profile": "TREND_MA5",
+        "supporting_refs": [
+          "A3:TECH:002557.SZ",
+          "A3:MARKET"
+        ],
+        "symbol": "002557.SZ",
+        "trade_brief": {
+          "confirm_cadence": "15m",
+          "key_levels_note": "日线失效位18.83，禁止追价线19.24，参考价19.2，entry_reference_zone 19.024-19.2",
+          "likely_failure_path": "月线周线均BEAR_STACK，回踩MA5失败后跌破日线失效位18.83",
+          "note_to_trader": "月线周线均BEAR_STACK，conditional_probe=true，只做PROBE；需15分钟卖压减弱后5分钟收回VWAP"
+        },
+        "what_would_change_my_mind": [
+          "放量跌破日线MA5参考位且连续15分钟不能收回",
+          "月线周线空头结构压制导致日线收盘趋势失效"
+        ]
+      },
+      {
+        "cluster": "UNKNOWN",
+        "opposing_refs": [
+          "A3:TECH:002216.SZ"
+        ],
+        "plan_priority_rank": 12,
+        "reason_codes": [],
+        "review_status": "PASS",
+        "risk_unit": "PROBE",
+        "strategy_profile": "TREND_MA5",
+        "supporting_refs": [
+          "A3:TECH:002216.SZ",
+          "A3:MARKET"
+        ],
+        "symbol": "002216.SZ",
+        "trade_brief": {
+          "confirm_cadence": "15m",
+          "key_levels_note": "日线失效位11.55，禁止追价线11.88，参考价11.84，entry_reference_zone 11.732-11.84",
+          "likely_failure_path": "周线BEAR_STACK压制，回踩MA5失败后跌破日线失效位11.55",
+          "note_to_trader": "周线BEAR_STACK，conditional_probe=true，只做PROBE；需15分钟卖压减弱后5分钟收回VWAP"
+        },
+        "what_would_change_my_mind": [
+          "放量跌破日线MA5参考位且连续15分钟不能收回",
+          "周线空头结构压制导致日线收盘趋势失效"
+        ]
+      },
+      {
+        "cluster": "UNKNOWN",
+        "opposing_refs": [
+          "A3:TECH:002270.SZ"
+        ],
+        "plan_priority_rank": 13,
+        "reason_codes": [],
+        "review_status": "PASS",
+        "risk_unit": "PROBE",
+        "strategy_profile": "TREND_MA5",
+        "supporting_refs": [
+          "A3:TECH:002270.SZ",
+          "A3:MARKET"
+        ],
+        "symbol": "002270.SZ",
+        "trade_brief": {
+          "confirm_cadence": "15m",
+          "key_levels_note": "日线失效位18.11，禁止追价线19.34，参考价19.08，entry_reference_zone 18.576-18.7618",
+          "likely_failure_path": "月线周线均BEAR_STACK，回踩MA5失败后跌破日线失效位18.11",
+          "note_to_trader": "月线周线均BEAR_STACK，conditional_probe=true，只做PROBE；需15分钟卖压减弱后5分钟收回VWAP"
+        },
+        "what_would_change_my_mind": [
+          "放量跌破日线MA5参考位且连续15分钟不能收回",
+          "月线周线空头结构压制导致日线收盘趋势失效"
+        ]
+      },
+      {
+        "cluster": "UNKNOWN",
+        "opposing_refs": [
+          "A3:TECH:000975.SZ"
+        ],
+        "plan_priority_rank": 14,
+        "reason_codes": [],
+        "review_status": "PASS",
+        "risk_unit": "PROBE",
+        "strategy_profile": "TREND_MA5",
+        "supporting_refs": [
+          "A3:TECH:000975.SZ",
+          "A3:MARKET"
+        ],
+        "symbol": "000975.SZ",
+        "trade_brief": {
+          "confirm_cadence": "15m",
+          "key_levels_note": "日线失效位23.85，禁止追价线25.35，参考价25.03，entry_reference_zone 24.8483-25.03",
+          "likely_failure_path": "月线BEAR_STACK压制，回踩MA5失败后跌破日线失效位23.85",
+          "note_to_trader": "月线BEAR_STACK，conditional_probe=true，只做PROBE；需15分钟卖压减弱后5分钟收回VWAP"
+        },
+        "what_would_change_my_mind": [
+          "放量跌破日线MA5参考位且连续15分钟不能收回",
+          "月线空头结构压制导致日线收盘趋势失效"
+        ]
+      },
+      {
+        "cluster": "UNKNOWN",
+        "opposing_refs": [
+          "A3:TECH:000848.SZ"
+        ],
+        "plan_priority_rank": 15,
+        "reason_codes": [],
+        "review_status": "PASS",
+        "risk_unit": "PROBE",
+        "strategy_profile": "TREND_MA5",
+        "supporting_refs": [
+          "A3:TECH:000848.SZ",
+          "A3:MARKET"
+        ],
+        "symbol": "000848.SZ",
+        "trade_brief": {
+          "confirm_cadence": "15m",
+          "key_levels_note": "日线失效位8.3，禁止追价线8.61，参考价8.59，entry_reference_zone 8.438-8.5224",
+          "likely_failure_path": "月线BEAR_STACK压制，回踩MA5失败后跌破日线失效位8.3",
+          "note_to_trader": "月线BEAR_STACK，conditional_probe=true，只做PROBE；需15分钟卖压减弱后5分钟收回VWAP"
+        },
+        "what_would_change_my_mind": [
+          "放量跌破日线MA5参考位且连续15分钟不能收回",
+          "月线空头结构压制导致日线收盘趋势失效"
+        ]
+      },
+      {
+        "cluster": "UNKNOWN",
+        "opposing_refs": [
+          "A3:TECH:000729.SZ"
+        ],
+        "plan_priority_rank": 16,
+        "reason_codes": [],
+        "review_status": "PASS",
+        "risk_unit": "PROBE",
+        "strategy_profile": "TREND_MA5",
+        "supporting_refs": [
+          "A3:TECH:000729.SZ",
+          "A3:MARKET"
+        ],
+        "symbol": "000729.SZ",
+        "trade_brief": {
+          "confirm_cadence": "15m",
+          "key_levels_note": "日线失效位11.38，禁止追价线11.6，参考价11.55，entry_reference_zone 11.48-11.55",
+          "likely_failure_path": "月线周线均BEAR_STACK，回踩MA5失败后跌破日线失效位11.38",
+          "note_to_trader": "月线周线均BEAR_STACK，conditional_probe=true，只做PROBE；需15分钟卖压减弱后5分钟收回VWAP"
+        },
+        "what_would_change_my_mind": [
+          "放量跌破日线MA5参考位且连续15分钟不能收回",
+          "月线周线空头结构压制导致日线收盘趋势失效"
+        ]
+      }
+    ],
+    "envelope": {
+      "as_of": "2026-10-19T16:35:50.215526+08:00",
+      "config_hash": "45a66a942beef43983ea5a4db485f043533c61b45fd6d8e4b04913d861b6e55e",
+      "config_version": "LIANGJIAN_FUNNEL_V2/2.0.0",
+      "execution_trade_date": "2026-10-20",
+      "input_snapshot_ids": [
+        "snapshot-20261019T163247+0800-4a9259fc15c8:a2:83bb2e920f4d:rotation-policy:a2-bottleneck:b05740e579e6:a3:e7477cd4d022:a3-candidates:72e00742c021:a3-gate:c908e1dd5aac"
+      ],
+      "knowledge_cutoff": "2026-10-19T16:35:50.215526+08:00",
+      "market_regime": "ROTATION_NO_MAINLINE",
+      "model_name": "deepseek-v4-pro",
+      "prompt_version": "agent-3/4.0.6",
+      "reason_codes": [],
+      "run_id": "isolated0361c-14a040411ee3-disk-recovered-20261019T230714",
+      "schema_version": "team-research-envelope/1",
+      "source_trade_date": "2026-10-19",
+      "stage_id": "A3",
+      "status": "OK"
+    },
+    "handoff_notes": {
+      "to_a4": [
+        "000576.SZ为唯一STANDARD且主题CONFIRMATION，但overextended=true，必须等回踩确认，禁止追高",
+        "其余TREND_MA5候选均为PROBE，月线或周线存在BEAR_STACK/ENTANGLED压制，严格按15分钟卖压减弱+5分钟收回VWAP确认",
+        "001266.SZ为MA520二波启动但周线BEAR_PARTIAL，只做PROBE，需15分钟结构稳定后5分钟更高低点确认"
+      ],
+      "to_a6": [
+        "明日候选簇信息全部为UNKNOWN，无法评估簇集中度，建议关注实际板块归属",
+        "16只PASS中15只为PROBE，仅000576.SZ为STANDARD，整体风险敞口偏保守",
+        "市场环境ROTATION_NO_MAINLINE，position_cap_pct=0.5，建议控制总仓位"
+      ]
+    },
+    "rejected_candidates": [],
+    "secondary_watch_pool": [],
+    "session": "PLAN_REVIEW",
+    "unresolved_questions": [],
+    "what_would_change_my_mind": [
+      "A2主题阶段从CONFIRMATION降级为FADE或情绪周期进入退潮期",
+      "市场环境从ROTATION_MIXED恶化为RISK_OFF或出现全局性硬否决"
+    ]
+  },
+  "domain": {
+    "000333.SZ": {
+      "candidate_origin": "WATCH_ONLY",
+      "cluster": "UNKNOWN",
+      "risk_unit": "PROBE",
+      "strategy_profile": "TREND_MA5"
+    },
+    "000576.SZ": {
+      "candidate_origin": "FOCUS",
+      "cluster": "UNKNOWN",
+      "risk_unit": "PROBE",
+      "strategy_profile": "LEADER_INTRADAY"
+    },
+    "000601.SZ": {
+      "candidate_origin": "WATCH_ONLY",
+      "cluster": "UNKNOWN",
+      "risk_unit": "PROBE",
+      "strategy_profile": "TREND_MA5"
+    },
+    "000729.SZ": {
+      "candidate_origin": "WATCH_ONLY",
+      "cluster": "UNKNOWN",
+      "risk_unit": "PROBE",
+      "strategy_profile": "TREND_MA5"
+    },
+    "000848.SZ": {
+      "candidate_origin": "WATCH_ONLY",
+      "cluster": "UNKNOWN",
+      "risk_unit": "PROBE",
+      "strategy_profile": "TREND_MA5"
+    },
+    "000858.SZ": {
+      "candidate_origin": "WATCH_ONLY",
+      "cluster": "UNKNOWN",
+      "risk_unit": "PROBE",
+      "strategy_profile": "TREND_MA5"
+    },
+    "000975.SZ": {
+      "candidate_origin": "WATCH_ONLY",
+      "cluster": "UNKNOWN",
+      "risk_unit": "PROBE",
+      "strategy_profile": "TREND_MA5"
+    },
+    "001266.SZ": {
+      "candidate_origin": "FOCUS",
+      "cluster": "UNKNOWN",
+      "risk_unit": "PROBE",
+      "strategy_profile": "MA520_SWING"
+    },
+    "002216.SZ": {
+      "candidate_origin": "WATCH_ONLY",
+      "cluster": "UNKNOWN",
+      "risk_unit": "PROBE",
+      "strategy_profile": "TREND_MA5"
+    },
+    "002270.SZ": {
+      "candidate_origin": "WATCH_ONLY",
+      "cluster": "UNKNOWN",
+      "risk_unit": "PROBE",
+      "strategy_profile": "TREND_MA5"
+    },
+    "002322.SZ": {
+      "candidate_origin": "WATCH_ONLY",
+      "cluster": "UNKNOWN",
+      "risk_unit": "PROBE",
+      "strategy_profile": "TREND_MA5"
+    },
+    "002376.SZ": {
+      "candidate_origin": "WATCH_ONLY",
+      "cluster": "UNKNOWN",
+      "risk_unit": "PROBE",
+      "strategy_profile": "TREND_MA5"
+    },
+    "002461.SZ": {
+      "candidate_origin": "WATCH_ONLY",
+      "cluster": "UNKNOWN",
+      "risk_unit": "PROBE",
+      "strategy_profile": "TREND_MA5"
+    },
+    "002530.SZ": {
+      "candidate_origin": "WATCH_ONLY",
+      "cluster": "UNKNOWN",
+      "risk_unit": "PROBE",
+      "strategy_profile": "TREND_MA5"
+    },
+    "002541.SZ": {
+      "candidate_origin": "WATCH_ONLY",
+      "cluster": "UNKNOWN",
+      "risk_unit": "PROBE",
+      "strategy_profile": "TREND_MA5"
+    },
+    "002557.SZ": {
+      "candidate_origin": "WATCH_ONLY",
+      "cluster": "UNKNOWN",
+      "risk_unit": "PROBE",
+      "strategy_profile": "TREND_MA5"
+    }
+  },
+  "envelope": {
+    "as_of": "2026-10-19T16:35:50.215526+08:00",
+    "config_hash": "45a66a942beef43983ea5a4db485f043533c61b45fd6d8e4b04913d861b6e55e",
+    "config_version": "LIANGJIAN_FUNNEL_V2/2.0.0",
+    "execution_trade_date": "2026-10-20",
+    "input_snapshot_ids": [
+      "snapshot-20261019T163247+0800-4a9259fc15c8:a2:83bb2e920f4d:rotation-policy:a2-bottleneck:b05740e579e6:a3:e7477cd4d022:a3-candidates:72e00742c021:a3-gate:c908e1dd5aac"
+    ],
+    "knowledge_cutoff": "2026-10-19T16:35:50.215526+08:00",
+    "market_regime": "ROTATION_NO_MAINLINE",
+    "model_name": "deepseek-v4-pro",
+    "prompt_version": "agent-3/4.0.6",
+    "reason_codes": [],
+    "run_id": "isolated0361c-14a040411ee3-disk-recovered-20261019T230714",
+    "schema_version": "team-research-envelope/1",
+    "source_trade_date": "2026-10-19",
+    "stage_id": "A3",
+    "status": "OK"
+  },
+  "catalog": {
+    "categories": [
+      "MARKET",
+      "STOCK_TECH"
+    ],
+    "items": [
+      {
+        "category": "MARKET",
+        "id": "A3:MARKET",
+        "sha256": "cba0e0f96f71bb8fbc5761dfbf0b67d754901ca9fc477598076c9ffd0f5f3066",
+        "summary": "冻结市场环境"
+      },
+      {
+        "category": "STOCK_TECH",
+        "id": "A3:TECH:000333.SZ",
+        "sha256": "63148cd52744d507de7f27e5dbd7e910e321ada994eada532c9e3d08f5fb4530",
+        "summary": "冻结月周日技术事实 000333.SZ"
+      },
+      {
+        "category": "STOCK_TECH",
+        "id": "A3:TECH:000576.SZ",
+        "sha256": "e621b18b70c16afb03c3de32abf007944b89b19752d78c4a517cb04744c5edae",
+        "summary": "冻结月周日技术事实 000576.SZ"
+      },
+      {
+        "category": "STOCK_TECH",
+        "id": "A3:TECH:000601.SZ",
+        "sha256": "3b20fd025fbfd6b95ebe571717541111e0497acd34872dd89d0809ea5e1bd720",
+        "summary": "冻结月周日技术事实 000601.SZ"
+      },
+      {
+        "category": "STOCK_TECH",
+        "id": "A3:TECH:000729.SZ",
+        "sha256": "0a406cd3c3c5680c553c50d371341c745b822f8e857e6b673169579d0fad1204",
+        "summary": "冻结月周日技术事实 000729.SZ"
+      },
+      {
+        "category": "STOCK_TECH",
+        "id": "A3:TECH:000848.SZ",
+        "sha256": "00dd5f503fcfaf1aab19514dba762089ade7cada4274988651c40afaa78cce1c",
+        "summary": "冻结月周日技术事实 000848.SZ"
+      },
+      {
+        "category": "STOCK_TECH",
+        "id": "A3:TECH:000858.SZ",
+        "sha256": "6757c5984fb13aa2a12c09bea204e9950f558e573763ca4b05f24859f0f7b5be",
+        "summary": "冻结月周日技术事实 000858.SZ"
+      },
+      {
+        "category": "STOCK_TECH",
+        "id": "A3:TECH:000975.SZ",
+        "sha256": "fdc30e34627a1fca1096d2fdcda4b9768fb0d585e48d9679f0ad73baac15e6c4",
+        "summary": "冻结月周日技术事实 000975.SZ"
+      },
+      {
+        "category": "STOCK_TECH",
+        "id": "A3:TECH:001266.SZ",
+        "sha256": "71a93a995277750fe26e22ca4ec3c3ab3c3efe73fe1a4798a790d7e803105dc2",
+        "summary": "冻结月周日技术事实 001266.SZ"
+      },
+      {
+        "category": "STOCK_TECH",
+        "id": "A3:TECH:002216.SZ",
+        "sha256": "4cdadec1643009a19843cf90377cb16cd8495b8b3ed748039601c4e9e8a8b4be",
+        "summary": "冻结月周日技术事实 002216.SZ"
+      },
+      {
+        "category": "STOCK_TECH",
+        "id": "A3:TECH:002270.SZ",
+        "sha256": "11505745a483fb6bfbfc9ee98bffb1072672a5cd8176a9ca24b5625409a101e8",
+        "summary": "冻结月周日技术事实 002270.SZ"
+      },
+      {
+        "category": "STOCK_TECH",
+        "id": "A3:TECH:002322.SZ",
+        "sha256": "faa5f2694a508d99cbba042fa128147f07dd1165c58fab6bfada6793235f82f8",
+        "summary": "冻结月周日技术事实 002322.SZ"
+      },
+      {
+        "category": "STOCK_TECH",
+        "id": "A3:TECH:002376.SZ",
+        "sha256": "4fc83c0f83db33749a73c3022e6b3a1477c9611f37fbc05e8b551df7ba298f24",
+        "summary": "冻结月周日技术事实 002376.SZ"
+      },
+      {
+        "category": "STOCK_TECH",
+        "id": "A3:TECH:002461.SZ",
+        "sha256": "80036f3fad1484586b32a8134f4d1515ac6fa2ae6243ca57365c3755075c527d",
+        "summary": "冻结月周日技术事实 002461.SZ"
+      },
+      {
+        "category": "STOCK_TECH",
+        "id": "A3:TECH:002530.SZ",
+        "sha256": "798c8208503ae46906ce68ef471786a0968dfcab7d46f5f49164e753136eed1a",
+        "summary": "冻结月周日技术事实 002530.SZ"
+      },
+      {
+        "category": "STOCK_TECH",
+        "id": "A3:TECH:002541.SZ",
+        "sha256": "ddc543dfee000c0965a0273c482c1d709c0c0ca84d499f688f496c5dad74b9af",
+        "summary": "冻结月周日技术事实 002541.SZ"
+      },
+      {
+        "category": "STOCK_TECH",
+        "id": "A3:TECH:002557.SZ",
+        "sha256": "44ee582b9395c642e5d443d5e2c71f61277b9f74f94fdcb81e98494a1f957f10",
+        "summary": "冻结月周日技术事实 002557.SZ"
+      }
+    ]
+  }
+}
