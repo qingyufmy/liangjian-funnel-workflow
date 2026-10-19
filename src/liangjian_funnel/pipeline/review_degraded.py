@@ -2,7 +2,7 @@
 
 
 def rotation_review_failed_twice(history):
-    if not isinstance(history, (list, tuple)) or len(history) != 2:
+    if not isinstance(history, (list, tuple)) or len(history) not in (2, 3):
         return False
     return all(isinstance(reasons, (list, tuple)) and reasons
                and all(isinstance(reason, str) and reason.startswith("A2_ROTATION_")

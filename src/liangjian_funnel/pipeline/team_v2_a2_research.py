@@ -16,6 +16,7 @@ from .team_v2_contract import TeamValidation
 from .team_v2_model import team_call_binding
 from .team_v2_a1_research import _hash
 from .team_v2_research_time import research_times
+from .team_v2_a2_recovery import normalize_rotation, validation_feedback
 
 
 def directory_reference_feedback(raw,catalog,issues):
@@ -162,24 +163,42 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
                     if 'A2:NOMINATION:'+r['symbol'] not in r['supporting_refs']:
                         issues.append('A2_NOMINATION_ORIGINAL_FACT_REFERENCE_REQUIRED')
             return TeamValidation(not issues,tuple(dict.fromkeys(issues)),result.judgments,result.sentinel_count)
-        history=[];ids=[];output=None;reference_feedback_rounds=0
-        for attempt in range(2):
+        history=[];ids=[];output=None;reference_feedback_rounds=0;normalization=None;budget_stop=None
+        for attempt in range(3):
             request=adapter.repository.prepare_messages('A2',values,required_envelope=envelope,session='CLOSE_REVIEW')
             tokens=legacy._estimate_message_tokens(request.messages)
             if tokens>pipeline.settings.model_max_input_tokens:return blocked('MODEL_PROMPT_TOO_LARGE')
-            timeout=float(pipeline.settings.model_timeout_seconds)
+            # Each semantic answer has its own bounded timeout; the original
+            # research deadline remains the absolute, shared budget.
+            timeout=min(600.0,float(pipeline.settings.model_timeout_seconds))
+            remaining=None
             if pipeline._deadline_started_monotonic is not None:
-                timeout=min(timeout,pipeline.settings.research_close_deadline_seconds-(time.monotonic()-pipeline._deadline_started_monotonic))
-            if timeout<=0:return blocked('RESEARCH_DEADLINE_EXCEEDED')
+                remaining=pipeline.settings.research_close_deadline_seconds-(time.monotonic()-pipeline._deadline_started_monotonic)
+                timeout=min(timeout,remaining)
+            if timeout<=0:
+                if not ids:return blocked('RESEARCH_DEADLINE_EXCEEDED')
+                issues=('RESEARCH_DEADLINE_EXCEEDED',);valid=False
+                budget_stop=dict(reason_code=issues[0],remaining_seconds=remaining)
+                break
             identity=_hash(dict(run_id=run_id,lane=lane_id,model=model,attempt=attempt,input_hash=request.input_hash,
                 snapshot_hash=snapshot.snapshot_hash,score_hash=frozen['score_snapshot_sha256'],config_hash=adapter.config_hash))
-            call_id='A2:CLOSE_REVIEW:'+identity;ids.append(call_id)
-            budget=adapter.store.freeze_control_context('a2-research-budget:'+identity,source_sha256=identity,
-                body=dict(timeout_seconds=timeout,max_output_tokens=legacy._stage_model_output_limit('A2',len(symbols),
-                    configured_limit=pipeline.settings.model_max_output_tokens)))
+            call_id='A2:CLOSE_REVIEW:'+identity
             expected=dict(run_id=run_id,role='A2',session='CLOSE_REVIEW',source_trade_date=envelope['source_trade_date'],
                 execution_trade_date=envelope['execution_trade_date'],model=model,prompt_hash=request.prompt.sha256,
                 input_hash=request.input_hash,catalog_hash=request.evidence_catalog_hash)
+            # Replaying a captured answer is not a new model attempt.  A new
+            # HTTP request is forbidden below 120s remaining, even on retry.
+            if remaining is not None and remaining<120 and adapter.journal.load_captured(call_id,expected=expected) is None:
+                if not ids:
+                    return blocked('TEAM_RESEARCH_REMAINING_BUDGET_INSUFFICIENT',
+                        dict(team_call_ids=ids,validation_history=history,remaining_timeout_seconds=timeout))
+                issues=('TEAM_RESEARCH_REMAINING_BUDGET_INSUFFICIENT',);valid=False
+                budget_stop=dict(reason_code=issues[0],remaining_seconds=remaining)
+                break
+            ids.append(call_id)
+            budget=adapter.store.freeze_control_context('a2-research-budget:'+identity,source_sha256=identity,
+                body=dict(timeout_seconds=timeout,max_output_tokens=legacy._stage_model_output_limit('A2',len(symbols),
+                    configured_limit=pipeline.settings.model_max_output_tokens)))
             if budget['timeout_seconds']>timeout:
                 if (adapter.journal.load_captured(call_id,expected=expected) is None and adapter.journal.load_failed(call_id,
                         request_binding=team_call_binding(request,run_id=run_id,model=model,session='CLOSE_REVIEW',**budget)) is None):
@@ -197,24 +216,39 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
                     body=dict(source_call_id=call_id,output=output,reason_codes=list(issues)))
             history.append(list(issues))
             if valid:break
+            if attempt==2:
+                projection=normalize_rotation(raw,values['EVIDENCE_CATALOG'],directions,issues)
+                if projection is not None:
+                    normalized,audit=projection
+                    checked=validate(normalized);post_issues=list(checked.issues);normalized_output=None
+                    if checked.valid:
+                        normalized_output,post_issues=_post_policy(normalized,snapshot,upstream_output,symbols,lane_id,model)
+                    normalization_key='a2-research-normalization:'+identity
+                    normalization=dict(**audit,status='VALIDATED' if not post_issues else 'BLOCKED',
+                        source_call_id=call_id,normalized_raw_sha256=_hash(normalized),
+                        normalized_validation_issues=list(checked.issues),postpolicy_reason_codes=list(post_issues),
+                        audit_context_key=normalization_key)
+                    adapter.store.freeze_control_context(normalization_key,source_sha256=request.input_hash,
+                        body=dict(**normalization,normalized_raw=normalized,postpolicy_output=normalized_output))
+                    if not post_issues:
+                        raw=normalized;output=normalized_output;issues=();valid=True
+                break
             reference_feedback=directory_reference_feedback(raw,values['EVIDENCE_CATALOG'],issues) if issues else None
-            if not issues or not (reference_feedback or all(r.startswith('A2_ROTATION_') for r in issues)):break
+            # Transport failures have no provider answer to correct.  Every
+            # actual validation failure, not only rotation, gets feedback.
+            if not issues or raw is None and set(issues)<={'TEAM_MODEL_CALL_FAILED','TEAM_MODEL_RESULT_INVALID'}:break
+            feedback=validation_feedback(raw,values['EVIDENCE_CATALOG'],issues,envelope=envelope,
+                symbols=symbols,themes=set(projected['_theme_review_scope']),directions=directions,
+                nomination_scope={r['symbol'] for r in sample})
             if reference_feedback is not None:
-                if attempt==0:reference_feedback_rounds+=1
-                projected['_rotation_review_contract']['retry_feedback']=reference_feedback
-                if not any(r.startswith('A2_ROTATION_') for r in issues):continue
-            projected['_rotation_review_contract']['retry_feedback']=dict(validation_errors=list(issues),
-                unchanged_focus_symbols=[r['symbol'] for r in raw['focus_decisions']],
-                required_no_focus_if_focus_unchanged={d:sorted(ss) for d,ss in directions.items()
-                    if not ss.intersection(r['symbol'] for r in raw['focus_decisions'])})
+                reference_feedback_rounds+=1
+                feedback['reference_feedback']=reference_feedback
             if output is not None:
-                feedback=legacy._a2_rotation_retry_feedback(output,snapshot.data,symbols)
+                feedback['postpolicy_rotation_feedback']=legacy._a2_rotation_retry_feedback(output,snapshot.data,symbols)
                 feedback['server_demoted_focus_symbols']=sorted(set(r['symbol'] for r in raw['focus_decisions'])-
                     set(r['symbol'] for r in output['focus_pool']))
                 feedback['theme_score_status']={theme:record['status'] for theme,record in frozen['themes'].items()}
-                projected['_rotation_review_contract']['retry_feedback']=feedback
-            if reference_feedback is not None:
-                projected['_rotation_review_contract']['retry_feedback']['reference_feedback']=reference_feedback
+            projected['_rotation_review_contract']['retry_feedback']=feedback
         metrics=[]
         with closing(adapter.journal._connect()) as db:
             for cid in ids:
@@ -222,7 +256,9 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
                 if row:metrics.append(row)
         diagnostics=dict(team_call_ids=ids,legacy_checkpoint_reused=False,validation_history=history,
             first_round_failed=bool(history and history[0]),reference_feedback_rounds=reference_feedback_rounds,
-            reference_retry_authority='0308_NEW_TEAM_RUNTIME_ELIGIBILITY_FORMERLY_ROTATION_ONLY',
+            reference_retry_authority='0361_REPLY_B_ALL_VALIDATION_FEEDBACK_MAX_THREE',
+            server_normalization=normalization,
+            budget_stop=budget_stop,
             original_rotation_domain={d:sorted(ss) for d,ss in sorted(directions.items())},
             original_theme_review_domain=sorted(projected['_theme_review_scope']),
             score_snapshot_sha256=frozen['score_snapshot_sha256'],

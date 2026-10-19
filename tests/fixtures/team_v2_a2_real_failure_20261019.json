@@ -1,0 +1,1812 @@
+{
+  "provenance": {
+    "call_id": "A2:CLOSE_REVIEW:a754a31820561f340b4382ee8f721f03ab8c1c7c0e633f7636d5b44ff0ffb568",
+    "input_hash": "cffec577ac1465e95d0758183295dc22d96d45921c6cc69d8984355a3e306d2e",
+    "source": "READONLY_CAPTURED_PRO_RESPONSE_NOT_NEW_MODEL_CALL",
+    "original_output_text_sha256": "046057f8c76596ce2d3eb62e42db584db8338fb1d5f0089bd47a2fe8c5719d13"
+  },
+  "output": {
+    "envelope": {
+      "as_of": "2026-10-19T16:35:50.215526+08:00",
+      "config_hash": "45a66a942beef43983ea5a4db485f043533c61b45fd6d8e4b04913d861b6e55e",
+      "config_version": "LIANGJIAN_FUNNEL_V2/2.0.0",
+      "execution_trade_date": "2026-10-20",
+      "input_snapshot_ids": [
+        "snapshot-20261019T163247+0800-4a9259fc15c8:a2:83bb2e920f4d:rotation-policy:a2-bottleneck:ea797f345db8"
+      ],
+      "knowledge_cutoff": "2026-10-19T16:35:50.215526+08:00",
+      "market_regime": "ROTATION_NO_MAINLINE",
+      "model_name": "deepseek-v4-pro",
+      "prompt_version": "agent-2/3.0.5",
+      "reason_codes": [],
+      "run_id": "2026-10-19-close-4a9259fc15c8",
+      "schema_version": "team-research-envelope/1",
+      "source_trade_date": "2026-10-19",
+      "stage_id": "A2",
+      "status": "OK"
+    },
+    "focus_decisions": [
+      {
+        "opposing_refs": [
+          "A2:QUANT:600685.SH"
+        ],
+        "risk_codes": [
+          "A2_CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "support_codes": [
+          "A2_EMOTION_LADDER_LEADER_CONFIRMED"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:000576.SZ"
+        ],
+        "symbol": "000576.SZ"
+      },
+      {
+        "opposing_refs": [
+          "A2:QUANT:000581.SZ"
+        ],
+        "risk_codes": [
+          "A2_CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "support_codes": [
+          "A2_EMOTION_FIRST_BOARD_OBSERVED"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:002164.SZ"
+        ],
+        "symbol": "002164.SZ"
+      },
+      {
+        "opposing_refs": [
+          "A2:QUANT:600000.SH"
+        ],
+        "risk_codes": [
+          "A2_CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "support_codes": [
+          "A2_MEDIUM_TERM_TREND_CONFIRMED"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:601288.SH"
+        ],
+        "symbol": "601288.SH"
+      }
+    ],
+    "handoff_notes": {
+      "to_a3": [
+        "军工板块龙头000576.SZ已确认情绪梯队，但资金流入数据缺失，需关注明日资金确认",
+        "机器人板块002164.SZ首板观察，需关注明日是否有二板接力",
+        "银行板块601288.SH趋势结构完整，但需关注资金流入是否持续"
+      ]
+    },
+    "market_read": {
+      "dominant_themes": [
+        "ROBOTICS_ADVANCED_MANUFACTURING",
+        "NATIONAL_DEFENSE",
+        "FINANCIAL_HIGH_DIVIDEND"
+      ],
+      "emotion_cycle": "LATENT",
+      "opposing_refs": [
+        "A2:NEWS"
+      ],
+      "regime": "ROTATION_NO_MAINLINE",
+      "supporting_refs": [
+        "A2:MARKET"
+      ]
+    },
+    "model_nominations": [
+      {
+        "falsifiers": [
+          "股价跌破MA20",
+          "出现放量下跌"
+        ],
+        "nomination_thesis": "善水科技20日涨幅208%居全市场前列，趋势结构完整，虽被量化过滤但相对强度极高，值得跟踪观察。",
+        "opposing_refs": [
+          "A2:QUANT:002683.SZ"
+        ],
+        "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD",
+        "supporting_refs": [
+          "A2:NOMINATION:301190.SZ"
+        ],
+        "symbol": "301190.SZ",
+        "theme_id": "CHEMICAL_NEW_MATERIALS",
+        "why_i_disagree": "相对强度99.97%为全市场最高，趋势结构完整，虽不在板块前八但个股强度突出。"
+      },
+      {
+        "falsifiers": [
+          "股价跌破MA20",
+          "出现放量下跌"
+        ],
+        "nomination_thesis": "郑中设计20日涨幅49%且趋势结构完整，虽被量化过滤但相对强度99.58%，值得跟踪观察。",
+        "opposing_refs": [
+          "A2:QUANT:001965.SZ"
+        ],
+        "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD",
+        "supporting_refs": [
+          "A2:NOMINATION:002811.SZ"
+        ],
+        "symbol": "002811.SZ",
+        "theme_id": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+        "why_i_disagree": "相对强度99.58%且趋势结构完整，虽不在板块前八但个股强度突出。"
+      },
+      {
+        "falsifiers": [
+          "股价跌破MA20",
+          "出现放量下跌"
+        ],
+        "nomination_thesis": "采纳股份20日涨幅44%且趋势结构完整，虽被量化过滤但相对强度99.42%，值得跟踪观察。",
+        "opposing_refs": [
+          "A2:QUANT:000423.SZ"
+        ],
+        "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD",
+        "supporting_refs": [
+          "A2:NOMINATION:301122.SZ"
+        ],
+        "symbol": "301122.SZ",
+        "theme_id": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "why_i_disagree": "相对强度99.42%且趋势结构完整，虽不在板块前八但个股强度突出。"
+      },
+      {
+        "falsifiers": [
+          "股价跌破MA20",
+          "出现放量下跌"
+        ],
+        "nomination_thesis": "灵康药业20日涨幅36%且趋势结构完整，虽被量化过滤但相对强度99.16%，值得跟踪观察。",
+        "opposing_refs": [
+          "A2:QUANT:000538.SZ"
+        ],
+        "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_MEDIUM_TERM_TREND_CONFIRMED;A2_RELATIVE_STRENGTH_CONFIRMED;A2_WEAK_INDUSTRY_LOGIC;A2_TREND_PARTIAL_CONFIRMATION;A2_TREND_OUTSIDE_SELECTED_BOARD_TOP5;A2_TREND_OUTSIDE_POSITIVE_FLOW_TOP3_BOARD",
+        "supporting_refs": [
+          "A2:NOMINATION:603669.SH"
+        ],
+        "symbol": "603669.SH",
+        "theme_id": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "why_i_disagree": "相对强度99.16%且趋势结构完整，虽不在板块前八但个股强度突出。"
+      },
+      {
+        "falsifiers": [
+          "股价跌破MA20",
+          "出现放量下跌"
+        ],
+        "nomination_thesis": "先导基电20日涨幅33%且趋势结构完整，虽被量化过滤但相对强度98.90%，值得跟踪观察。",
+        "opposing_refs": [
+          "A2:QUANT:301666.SZ"
+        ],
+        "quant_filter_reason": "A2_CAPITAL_FLOW_UNAVAILABLE;A2_OPTIONAL_FACTS_DEGRADED;A2_ROLE_EVIDENCE_INSUFFICIENT;A2_ROLE_KNOWN_NEGATIVE;A2_BEHAVIOR_UNRESOLVED",
+        "supporting_refs": [
+          "A2:NOMINATION:600641.SH"
+        ],
+        "symbol": "600641.SH",
+        "theme_id": "SEMICONDUCTOR_LOCALIZATION",
+        "why_i_disagree": "相对强度98.90%且趋势结构完整，虽被量化过滤但个股强度突出。"
+      }
+    ],
+    "reason_codes": [
+      "A2_CAPITAL_FLOW_UNAVAILABLE",
+      "A2_OPTIONAL_FACTS_DEGRADED",
+      "A2_EMOTION_CYCLE_NO_NEW_ENTRY",
+      "A2_MEDIUM_TERM_TREND_CONFIRMED"
+    ],
+    "reject_decisions": [
+      {
+        "opposing_refs": [
+          "A2:QUANT:002270.SZ"
+        ],
+        "risk_codes": [
+          "A2_IDENTIFIABILITY_BELOW_MINIMUM"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:002441.SZ"
+        ],
+        "symbol": "002441.SZ"
+      },
+      {
+        "opposing_refs": [
+          "A2:QUANT:300432.SZ"
+        ],
+        "risk_codes": [
+          "A2_IDENTIFIABILITY_BELOW_MINIMUM"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:300471.SZ"
+        ],
+        "symbol": "300471.SZ"
+      },
+      {
+        "opposing_refs": [
+          "A2:QUANT:002322.SZ"
+        ],
+        "risk_codes": [
+          "A2_IDENTIFIABILITY_BELOW_MINIMUM"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:600060.SH"
+        ],
+        "symbol": "600060.SH"
+      },
+      {
+        "opposing_refs": [
+          "A2:QUANT:300852.SZ"
+        ],
+        "risk_codes": [
+          "A2_IDENTIFIABILITY_BELOW_MINIMUM"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:600487.SH"
+        ],
+        "symbol": "600487.SH"
+      },
+      {
+        "opposing_refs": [
+          "A2:QUANT:688018.SH"
+        ],
+        "risk_codes": [
+          "A2_IDENTIFIABILITY_BELOW_MINIMUM"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:301666.SZ"
+        ],
+        "symbol": "301666.SZ"
+      }
+    ],
+    "rotation_reviews": [
+      {
+        "decision": "NO_FOCUS",
+        "explanation": "AI算力基础设施方向内代表股均未进入focus_decisions，且个股趋势结构虽完整但缺乏资金流入确认，板块强度排名靠后（第6），主力净流入仅1.64亿，不足以支撑聚焦。",
+        "opposing_refs": [
+          "A2:QUANT:002322.SZ"
+        ],
+        "reason_codes": [
+          "A2_CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "reviewed_symbols": [
+          "000601.SZ",
+          "002322.SZ",
+          "300556.SZ"
+        ],
+        "rotation_direction_id": "SELECTED_BOARD:AI_COMPUTE_INFRASTRUCTURE",
+        "supporting_refs": [
+          "A2:QUANT:000601.SZ"
+        ]
+      },
+      {
+        "decision": "NO_FOCUS",
+        "explanation": "液冷方向内代表股均未进入focus_decisions，且个股趋势结构虽完整但缺乏资金流入确认，板块强度排名靠后（第6），主力净流入虽达10.5亿但个股层面无聚焦信号。",
+        "opposing_refs": [
+          "A2:QUANT:300990.SZ"
+        ],
+        "reason_codes": [
+          "A2_CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "reviewed_symbols": [
+          "300839.SZ",
+          "300990.SZ"
+        ],
+        "rotation_direction_id": "SELECTED_BOARD:AI_LIQUID_COOLING",
+        "supporting_refs": [
+          "A2:QUANT:300839.SZ"
+        ]
+      },
+      {
+        "decision": "NO_FOCUS",
+        "explanation": "银行方向内代表股均未进入focus_decisions，且个股趋势结构虽完整但缺乏资金流入确认，板块强度排名第4，主力净流入3.27亿，不足以支撑聚焦。",
+        "opposing_refs": [
+          "A2:QUANT:600000.SH"
+        ],
+        "reason_codes": [
+          "A2_CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "reviewed_symbols": [
+          "002142.SZ",
+          "002966.SZ",
+          "600000.SH"
+        ],
+        "rotation_direction_id": "SELECTED_BOARD:BANKS",
+        "supporting_refs": [
+          "A2:QUANT:002142.SZ"
+        ]
+      },
+      {
+        "decision": "NO_FOCUS",
+        "explanation": "国防军工方向内代表股均未进入focus_decisions，且个股趋势结构虽完整但缺乏资金流入确认，板块强度排名第3，主力净流入4.97亿，不足以支撑聚焦。",
+        "opposing_refs": [
+          "A2:QUANT:300067.SZ"
+        ],
+        "reason_codes": [
+          "A2_CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "reviewed_symbols": [
+          "002683.SZ",
+          "300067.SZ",
+          "300471.SZ"
+        ],
+        "rotation_direction_id": "SELECTED_BOARD:NATIONAL_DEFENSE",
+        "supporting_refs": [
+          "A2:QUANT:002683.SZ"
+        ]
+      },
+      {
+        "decision": "NO_FOCUS",
+        "explanation": "贵金属方向内代表股均未进入focus_decisions，且个股趋势结构虽完整但缺乏资金流入确认，板块强度排名第2，主力净流入4.30亿，不足以支撑聚焦。",
+        "opposing_refs": [
+          "A2:QUANT:300839.SZ"
+        ],
+        "reason_codes": [
+          "A2_CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "reviewed_symbols": [
+          "000975.SZ"
+        ],
+        "rotation_direction_id": "SELECTED_BOARD:PRECIOUS_METALS",
+        "supporting_refs": [
+          "A2:QUANT:000975.SZ"
+        ]
+      },
+      {
+        "decision": "NO_FOCUS",
+        "explanation": "机器人概念方向内代表股均未进入focus_decisions，且个股趋势结构虽完整但缺乏资金流入确认，板块强度排名第1，主力净流入8.00亿，但个股层面无聚焦信号。",
+        "opposing_refs": [
+          "A2:QUANT:000581.SZ"
+        ],
+        "reason_codes": [
+          "A2_CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "reviewed_symbols": [
+          "000333.SZ",
+          "000581.SZ",
+          "001266.SZ"
+        ],
+        "rotation_direction_id": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+        "supporting_refs": [
+          "A2:QUANT:000333.SZ"
+        ]
+      }
+    ],
+    "theme_reviews": [
+      {
+        "new_entry_policy": "NO_NEW_ENTRY",
+        "opposing_refs": [
+          "A2:QUANT:002322.SZ"
+        ],
+        "penalty_codes": [
+          "laggard_spread_core_weak"
+        ],
+        "risk_codes": [
+          "A2_CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "stage": "FADE",
+        "support_codes": [],
+        "supporting_refs": [
+          "A2:QUANT:000333.SZ"
+        ],
+        "theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+        "what_would_change_my_mind": [
+          "板块主力净流入转正且核心股重新站上MA5",
+          "出现新的政策催化并伴随涨停梯队"
+        ]
+      },
+      {
+        "new_entry_policy": "NO_NEW_ENTRY",
+        "opposing_refs": [
+          "A2:QUANT:000538.SZ"
+        ],
+        "penalty_codes": [
+          "laggard_spread_core_weak"
+        ],
+        "risk_codes": [
+          "A2_CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "stage": "FADE",
+        "support_codes": [],
+        "supporting_refs": [
+          "A2:QUANT:000423.SZ"
+        ],
+        "theme_id": "INNOVATIVE_MEDICINE_HEALTHCARE",
+        "what_would_change_my_mind": [
+          "创新药板块出现连续两日资金净流入",
+          "核心股重新确认MA20支撑"
+        ]
+      },
+      {
+        "new_entry_policy": "ALLOW",
+        "opposing_refs": [
+          "A2:QUANT:600685.SH"
+        ],
+        "penalty_codes": [],
+        "risk_codes": [
+          "A2_CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "stage": "CONFIRMATION",
+        "support_codes": [
+          "A2_EMOTION_LADDER_LEADER_CONFIRMED"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:000576.SZ"
+        ],
+        "theme_id": "NATIONAL_DEFENSE",
+        "what_would_change_my_mind": [
+          "军工板块主力净流入转负",
+          "龙头股跌破MA5且梯队断裂"
+        ]
+      },
+      {
+        "new_entry_policy": "ALLOW",
+        "opposing_refs": [
+          "A2:QUANT:000581.SZ"
+        ],
+        "penalty_codes": [],
+        "risk_codes": [
+          "A2_CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "stage": "CONFIRMATION",
+        "support_codes": [
+          "A2_EMOTION_FIRST_BOARD_OBSERVED"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:002164.SZ"
+        ],
+        "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+        "what_would_change_my_mind": [
+          "机器人板块主力净流入转负",
+          "首板股次日无溢价且无二板接力"
+        ]
+      },
+      {
+        "new_entry_policy": "NO_NEW_ENTRY",
+        "opposing_refs": [
+          "A2:QUANT:002270.SZ"
+        ],
+        "penalty_codes": [
+          "laggard_spread_core_weak"
+        ],
+        "risk_codes": [
+          "A2_CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "stage": "FADE",
+        "support_codes": [],
+        "supporting_refs": [
+          "A2:QUANT:000601.SZ"
+        ],
+        "theme_id": "POWER_EQUIPMENT_NEW_ENERGY",
+        "what_would_change_my_mind": [
+          "电力设备板块出现连续资金净流入",
+          "核心股重新站上MA20"
+        ]
+      },
+      {
+        "new_entry_policy": "NO_NEW_ENTRY",
+        "opposing_refs": [
+          "A2:QUANT:000858.SZ"
+        ],
+        "penalty_codes": [
+          "laggard_spread_core_weak"
+        ],
+        "risk_codes": [
+          "A2_CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "stage": "FADE",
+        "support_codes": [],
+        "supporting_refs": [
+          "A2:QUANT:000729.SZ"
+        ],
+        "theme_id": "CONSUMER_SERVICES",
+        "what_would_change_my_mind": [
+          "消费板块出现政策催化",
+          "核心股重新确认MA20支撑"
+        ]
+      },
+      {
+        "new_entry_policy": "NO_NEW_ENTRY",
+        "opposing_refs": [
+          "A2:QUANT:300839.SZ"
+        ],
+        "penalty_codes": [
+          "laggard_spread_core_weak"
+        ],
+        "risk_codes": [
+          "A2_CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "stage": "FADE",
+        "support_codes": [],
+        "supporting_refs": [
+          "A2:QUANT:000975.SZ"
+        ],
+        "theme_id": "RESOURCES_ENERGY",
+        "what_would_change_my_mind": [
+          "资源板块出现连续资金净流入",
+          "核心股重新站上MA20"
+        ]
+      },
+      {
+        "new_entry_policy": "NO_NEW_ENTRY",
+        "opposing_refs": [
+          "A2:QUANT:002541.SZ"
+        ],
+        "penalty_codes": [
+          "laggard_spread_core_weak"
+        ],
+        "risk_codes": [
+          "A2_CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "stage": "FADE",
+        "support_codes": [],
+        "supporting_refs": [
+          "A2:QUANT:001965.SZ"
+        ],
+        "theme_id": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+        "what_would_change_my_mind": [
+          "基建板块出现政策催化",
+          "核心股重新确认MA20支撑"
+        ]
+      },
+      {
+        "new_entry_policy": "ALLOW",
+        "opposing_refs": [
+          "A2:QUANT:600000.SH"
+        ],
+        "penalty_codes": [],
+        "risk_codes": [
+          "A2_CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "stage": "CONFIRMATION",
+        "support_codes": [
+          "A2_MEDIUM_TERM_TREND_CONFIRMED"
+        ],
+        "supporting_refs": [
+          "A2:QUANT:601288.SH"
+        ],
+        "theme_id": "FINANCIAL_HIGH_DIVIDEND",
+        "what_would_change_my_mind": [
+          "银行板块主力净流入转负",
+          "核心股跌破MA20"
+        ]
+      },
+      {
+        "new_entry_policy": "NO_NEW_ENTRY",
+        "opposing_refs": [
+          "A2:QUANT:002886.SZ"
+        ],
+        "penalty_codes": [
+          "laggard_spread_core_weak"
+        ],
+        "risk_codes": [
+          "A2_CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "stage": "FADE",
+        "support_codes": [],
+        "supporting_refs": [
+          "A2:QUANT:002683.SZ"
+        ],
+        "theme_id": "CHEMICAL_NEW_MATERIALS",
+        "what_would_change_my_mind": [
+          "化工新材料板块出现连续资金净流入",
+          "核心股重新站上MA20"
+        ]
+      },
+      {
+        "new_entry_policy": "NO_NEW_ENTRY",
+        "opposing_refs": [
+          "A2:QUANT:301282.SZ"
+        ],
+        "penalty_codes": [
+          "laggard_spread_core_weak"
+        ],
+        "risk_codes": [
+          "A2_CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "stage": "FADE",
+        "support_codes": [],
+        "supporting_refs": [
+          "A2:QUANT:300852.SZ"
+        ],
+        "theme_id": "AI_COMPUTE_INFRASTRUCTURE",
+        "what_would_change_my_mind": [
+          "AI算力板块出现连续资金净流入",
+          "核心股重新站上MA20"
+        ]
+      },
+      {
+        "new_entry_policy": "NO_NEW_ENTRY",
+        "opposing_refs": [
+          "A2:QUANT:603418.SH"
+        ],
+        "penalty_codes": [
+          "laggard_spread_core_weak"
+        ],
+        "risk_codes": [
+          "A2_CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "stage": "FADE",
+        "support_codes": [],
+        "supporting_refs": [
+          "A2:QUANT:301002.SZ"
+        ],
+        "theme_id": "CONSUMER_ELECTRONICS",
+        "what_would_change_my_mind": [
+          "消费电子板块出现连续资金净流入",
+          "核心股重新站上MA20"
+        ]
+      },
+      {
+        "new_entry_policy": "NO_NEW_ENTRY",
+        "opposing_refs": [
+          "A2:QUANT:688018.SH"
+        ],
+        "penalty_codes": [
+          "laggard_spread_core_weak"
+        ],
+        "risk_codes": [
+          "A2_CAPITAL_FLOW_UNAVAILABLE"
+        ],
+        "stage": "FADE",
+        "support_codes": [],
+        "supporting_refs": [
+          "A2:QUANT:301666.SZ"
+        ],
+        "theme_id": "SEMICONDUCTOR_LOCALIZATION",
+        "what_would_change_my_mind": [
+          "半导体板块出现连续资金净流入",
+          "核心股重新站上MA20"
+        ]
+      }
+    ],
+    "unresolved_questions": [],
+    "what_would_change_my_mind": [
+      "若军工或机器人板块出现连续两日主力净流入，则上调至ACCELERATION阶段",
+      "若银行板块主力净流入转负，则下调至FADE阶段"
+    ]
+  },
+  "catalog": {
+    "categories": [
+      "MARKET",
+      "NEWS",
+      "QUANT"
+    ],
+    "items": [
+      {
+        "category": "MARKET",
+        "id": "A2:MARKET",
+        "sha256": "cba0e0f96f71bb8fbc5761dfbf0b67d754901ca9fc477598076c9ffd0f5f3066"
+      },
+      {
+        "category": "NEWS",
+        "id": "A2:NEWS",
+        "sha256": "00e0ef5aea637e563a3247b74656b2d5aed33524b8990a9c11c1435072f6bc6f"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:000333.SZ",
+        "sha256": "179f260888beea1dcfc5e0b1da876866aafb84ea2ee9664593256a7f0089b499"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:000423.SZ",
+        "sha256": "1a69ee4debe2b673e65990f14e0482e8bcd95bafae12f7595fcbc2e1d72f199b"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:000538.SZ",
+        "sha256": "b387bc3ac5ddedb70260300f5e949d1825ae988497007cbd48a0695f3439a895"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:000576.SZ",
+        "sha256": "b4fc43e6037a27c6e22db1d5ea63daf1a56349ffb45bd109775647eb6dcef545"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:000581.SZ",
+        "sha256": "46e652e7106921fb80b6b3b13dcd5487c2dd5917f2f33296edb969a17ed31141"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:000601.SZ",
+        "sha256": "3dd0420194148c70303a5adb9b56a4fc1e7eaff65eb44f1cfe7a9e09d74f81af"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:000729.SZ",
+        "sha256": "1f900f4268940712766fe2b23fc1f3bf860943e9009dd3594505172525d32ef2"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:000848.SZ",
+        "sha256": "2325da00407055239df71f98cf0d38de588b45d866fb55daa4df5285734a13e7"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:000858.SZ",
+        "sha256": "7b65502f87b32bf5f973ac6a7c823616f15c86c8b81fafd5d7a34fcee2da4856"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:000975.SZ",
+        "sha256": "c78c662cc2bb40a14750eaa591c1807fc388bde33e045617fad262aedba20354"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:000989.SZ",
+        "sha256": "9ae3056b039078f02f448da79f7307eddce08bfa6b1f4632da48efab95c96caa"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:001266.SZ",
+        "sha256": "e7482e2c8472649c8b8dc113320833212f51d660055b53ef3fff7836a4f230d7"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:001965.SZ",
+        "sha256": "9cab34194a065e59656e4076cf225bba063611e77455f5291efa67236b1d1745"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:002142.SZ",
+        "sha256": "0d8e6756c2f7164c320cf27ca2cab755acfe0d13f2518e1aa4e59ae99f82e199"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:002164.SZ",
+        "sha256": "5039c3835dd9feb4689f0041f78240c32623ecbebbd2a815d014ce017a563252"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:002216.SZ",
+        "sha256": "9284961380dfdbd3766f4f4781b97ea66e468c861cac5101d77fe32a0c9b5b61"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:002270.SZ",
+        "sha256": "6d6ae8ebb757d368485863fe273d750402aa1fc4d97b75738b2498ce813956f9"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:002292.SZ",
+        "sha256": "3da0459ee9a705bc54f3d664a6970668f75911a2713d8f721e973f2ad7688d84"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:002322.SZ",
+        "sha256": "c74176fbdede0eda3ee5a611d9c7e71955aa9c949d72e7d62d0821e71bf1907f"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:002376.SZ",
+        "sha256": "4c3c6eb2479f3005aab3545794b2a2acdd273dad10a8cbe133c88d1f0ec82916"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:002441.SZ",
+        "sha256": "3e0e396e4f87d0e1c7a532bf4fb8975526596daa635ac9d5b2819317bff0e02b"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:002461.SZ",
+        "sha256": "30fdbb5b5138d08fc72c644d2a6c245b566cadaef73ee743a2be67d9b41b4283"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:002530.SZ",
+        "sha256": "b27cce1d1676778b96589d23cb07d08b355437cafc6d91361cd26f97c56b1d42"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:002541.SZ",
+        "sha256": "165697f6aa429f344da9f45ec05f0478c93ebda94d190471bb21f45e76908476"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:002557.SZ",
+        "sha256": "d687ef9dd3403daa1e678cc4bebc39143a27ef3b5d6b01096a27384d9bc59e07"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:002590.SZ",
+        "sha256": "a6072d40df4a5291ebe628003a8da83e9def00451d4ce194e496657740223c7b"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:002603.SZ",
+        "sha256": "3c2c8a2aa14f70383116db709483e2a5a745d8227e7f9957666cfd34c4796e1c"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:002683.SZ",
+        "sha256": "0eb2579263dcd7f58f22536f7061c8e5f39e35f8a00b5b0920e7030305f7b3ae"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:002712.SZ",
+        "sha256": "dff49702bfe5fdc482ee7a8083b527123560efd87c05871b42b77a51ece250a2"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:002833.SZ",
+        "sha256": "9670bd96f894a4121550ca9b428549dbf473d32aedeb6bd55b24dc771894fbd7"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:002847.SZ",
+        "sha256": "49a885001ad76e632d6ecec3ee8072462e8bd687e33ab370216a94c21f1b906c"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:002886.SZ",
+        "sha256": "12a00f60cee93456a6246a9768e03de1d1aaea9292b73c2a41ab551768e49c59"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:002946.SZ",
+        "sha256": "2b46b85a938421874d031798d9a8ef6bdcba021d25a7f5258f1d117e4ddae96b"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:002956.SZ",
+        "sha256": "0a98bb576705ae5b89656d1f6c9afa9ada11ef623386e994c04cb6c3b07026df"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:002966.SZ",
+        "sha256": "088c1cf80ad623bbf31cbce73d719c5435030e9bf58cb9c1ecae98e3bf271b49"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:002990.SZ",
+        "sha256": "80fd591cb71988cdb59340af3698b83f4396897a513c073217af03b02d0b35ce"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:300012.SZ",
+        "sha256": "f1eb011d35b79bba184f1859f33003f57c047861230515422a57576a5f3cabf4"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:300031.SZ",
+        "sha256": "8720c773084602bff50a88474ce1e3a6548793a55bd0e46db3b323bc29b4bebd"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:300067.SZ",
+        "sha256": "4a97e08ba001d3aec97b96c257fbf6389189911fc72676cccabd2085c6696a84"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:300299.SZ",
+        "sha256": "e7a97760bea98cd1dceda0b4d6578ac6d6dd359191a1a5102c4c877132418038"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:300406.SZ",
+        "sha256": "c31ca58c6d5cf3e51a8dcf1173a6b6fd89c02063594501fc41144ae8a755bca2"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:300410.SZ",
+        "sha256": "52a5fdfd4f1c67d7164ba6f6e5fad3a1d1b20b705468b260f079851a3ede5fed"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:300432.SZ",
+        "sha256": "c55cad56fcb467886bf57b3bd8cb8e89d17e3c98dc48343917ab17dad9eeeaeb"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:300471.SZ",
+        "sha256": "4d06d023f5b27d3b2678aad3617cfd69ca7dbc2ac93241d75613793d0444a797"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:300516.SZ",
+        "sha256": "139b49528ca9d06a5b81be4932f0fb6ad1090b751ac3562fefac09eb0604448f"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:300556.SZ",
+        "sha256": "070a07a1b9ec05c88f20d7ff817c787311a814aed4df53a4c3f8e1e2e871b91d"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:300733.SZ",
+        "sha256": "37278e8960476bf818f38d37d3c320c881c6a29e2341b0c9ee3d87d63a801004"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:300832.SZ",
+        "sha256": "3b06b16198a7f1330d1b40d36a54b61cc52e4f86d37cc5198470a97399e53601"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:300839.SZ",
+        "sha256": "56a1e6ee2b3ef6a9dfb9d882e80cdbe04346615cc7657731a727837ff2933e0b"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:300852.SZ",
+        "sha256": "29156102643f7472f0f5415ae39446581e58dcc5ce741e655eb653257c6b1e10"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:300888.SZ",
+        "sha256": "91f857a97eed37a0f3891c152dc59b2eed4fad816ec0204930776d4767362e3b"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:300957.SZ",
+        "sha256": "d245661db30603f897f5c0c4a38466a011a89576dd3b6afa2975b7b7c0ad1587"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:300990.SZ",
+        "sha256": "6678a58941961caf26e769c05c050bb268994f54a2206dbdc93645c80e2b57e3"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:301002.SZ",
+        "sha256": "df98d4a97225250c7b10aa7de670adbd3bceb77cdbb4688b91ff7867999fdfc8"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:301025.SZ",
+        "sha256": "776ab2f7ce48c14d1cce355ee71c8642f4e53dc45d7c3a4fd346eb7a7dec30ce"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:301029.SZ",
+        "sha256": "530b2a264d0c64af78846bafdddd42c091270435cf7d55f9cbe3302ea1ef0adc"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:301239.SZ",
+        "sha256": "b85be02f6accbb8f4d622920001108228f39680b24e110fe2e31da07b1101e51"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:301282.SZ",
+        "sha256": "9e7f450c125939deddf75051fe6f96e2326fb09e737381522d263dfe826ada3b"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:301286.SZ",
+        "sha256": "e389696bdebbbb9fe303fe946f29923b7dbac01251a0fed6662bc1a3c8e063b6"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:301487.SZ",
+        "sha256": "26fc014732668a8aec72623058334635aa12b3d51a6f5ddfcfc571dcdaa751d5"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:301666.SZ",
+        "sha256": "f3d4df1e947c7308936ef25f15ef78cd3f0a73b29ffa92f0c4e25ff533feba9e"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:600000.SH",
+        "sha256": "be0482b5d30add456c9544fbd563f0ae29f8a6266ac9337c5cce862b09c80ddf"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:600036.SH",
+        "sha256": "c56c6e6107cd4687179862f4135150f691a1e59e38723e13047543760b23a2b3"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:600060.SH",
+        "sha256": "bd67d5792630d07616133b9c264acc913d7faf6f61d22e590cb768f04ead453d"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:600285.SH",
+        "sha256": "1bd19720023f9c71e7ad25b75abbce1230690efa9a31823f503809d83c43fb1a"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:600316.SH",
+        "sha256": "447f486b647a269b92460e1bc54a06a9f93b4593667a221bdf193bf9aa409602"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:600351.SH",
+        "sha256": "0d4009b1e3bade4a1694538db9b059aa4832c9d0aee5a20bfe0122652cbac2bc"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:600406.SH",
+        "sha256": "ccff9c6a34fafcecb5348cee6ff06b68e980e0ef64b0ab336274092ab123869d"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:600487.SH",
+        "sha256": "ddb4cda5c3df4278b291527d7386d3a56a8aaa324586ed9d979f6020a4b5825b"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:600495.SH",
+        "sha256": "b871db67ae629fa356aaca4b96942b583b7b3909929d679cff649c12560afd2c"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:600558.SH",
+        "sha256": "eab7d5b8b3830e465fee4293cdf0d685b9000887faf1361fd0bfe54163d053c4"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:600573.SH",
+        "sha256": "a7de344ffb23fabc2a3a183e4458dd746b5ff9d1d40488ef78e7a23333b48d68"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:600685.SH",
+        "sha256": "e396b6461d0d16c70426b5afaecf1e4eaa35603bdaefffc82e687542391eb4c6"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:600872.SH",
+        "sha256": "c635742ca58636c6f136ce6b4213fdd1bc04565bbe7ba63ede0d52f9e8479c1f"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:600901.SH",
+        "sha256": "9a18f61130de659ee811124543a0d460ad3406be8ff068ef731683d547c60318"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:600908.SH",
+        "sha256": "25f58cfc774c0b501d178964837d1f0799b9f3b95972bea7d1b9738f5e50a33b"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:600968.SH",
+        "sha256": "82f3fb86f83b85f7082455230fa7493837f5e3129f8f5b43e275dc374371b238"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:600993.SH",
+        "sha256": "62c11f52d9cadf61855d7ebdc9a11fee85ca14b1a311674432adf01cf1c368dc"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:601006.SH",
+        "sha256": "206cc8deef8da8f9ce39f067458ccdbb6709dbc1cbcf7f61e81171e1676b5362"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:601077.SH",
+        "sha256": "096c557debf522621fa0401bdcf9de4ccd5757100b2494bb69875a85dc9f873e"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:601169.SH",
+        "sha256": "6ff7a6a9c0074225fe6d1b565878054d14036ad580175b52537d78470ef08346"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:601222.SH",
+        "sha256": "9e1c8cc1d49a68a6b7e7be4cfa0bfeeea651d2f5fdbfea1fc72e6524ac07982e"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:601288.SH",
+        "sha256": "a140f2fa3fe68b05efff61019864177032fa1c758e84061dd2e69332a28e8510"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:601328.SH",
+        "sha256": "889fc8ae8dcaf97be994bba92d41e3e1db72f4fa37c0321b473dfd286c755265"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:601398.SH",
+        "sha256": "e0b9faebcdbca6a9d9a5ab45c3f1dc677a90b7ca820a42980a49d65cf6d1604c"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:601658.SH",
+        "sha256": "8ea7997ce8810762ac79199d042b664b3ee5a868dde3352ddcec1bdff6e19d48"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:601766.SH",
+        "sha256": "cc3f69b747fb1491547ae1d63941d6fbc691faee73ddcc8682c15e4a9c1f85a1"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:601816.SH",
+        "sha256": "26c67fe06305e1580a6c6f169005825af44af36c13615d13cba7fc3b2a54fd31"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:601838.SH",
+        "sha256": "808f01b025f6fde6aa3ef999af98bee25b802eda391d0766b41be7985d1df50f"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:601877.SH",
+        "sha256": "a013e6476c735c1a6f30eeee46b93a289b3c38279918215460a021ad7bf90276"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:601916.SH",
+        "sha256": "73f7755515e21d812fccf15376f09a383eb879a5ba335b8afe83f641962d5471"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:601939.SH",
+        "sha256": "54c1eb1deb9f628011c2956b0c037f5e7f08680bac89f0e5416ea56b3061fae1"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:601963.SH",
+        "sha256": "109ac2a75175d4462873a88c74dc173d507821db742d699473e32f2e0b74c30a"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:601965.SH",
+        "sha256": "4e1df20b5c5096438a4e4bf528706b71f9bb5d67e11c76b2e03897321b8bec47"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:601988.SH",
+        "sha256": "eb5ce7560149659535be9ef6a9f144236b3009d4aa213125ee5ad93e60cd3f76"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:601998.SH",
+        "sha256": "0821927c7ab7622834ea3ecc72aa635ec4546560f48bda2e8437e0768e8f82e4"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:603025.SH",
+        "sha256": "9f14ce6e91b365e671fbd9533c134a9ef865e04560970be28367bc96d12da472"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:603027.SH",
+        "sha256": "3d3b6c27a1e5fb528dbc8d846d85cd886edc4e74040d298182ab1fd6ea161bce"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:603198.SH",
+        "sha256": "845cabdb2d14f92fbcb72e6715f606b81b4d719749ebc445a9a4eadb50ea90fe"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:603288.SH",
+        "sha256": "f0bc4be7dd3d1c57bec7d42bdc1b5feb5344a3d7646a9de42d36ab1b5bae70f1"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:603345.SH",
+        "sha256": "857d01c086024591aa7919e1746342c7e47bb5fd830611ac0bdd7ed772718893"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:603418.SH",
+        "sha256": "38e3c55518e05a859222ebb29b08830ee44e263083f5f5aa86937dff0c814fde"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:603598.SH",
+        "sha256": "e0f77c7aa5e64be0649512c555c23b58f9252f8e6ebb77549caffc0a0ab601ac"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:603602.SH",
+        "sha256": "8e15a925890a382a8e318573d189dc6683f976ff8b06f00f8d5acf0b9f95e9b0"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:603605.SH",
+        "sha256": "3556909b5440feb56dba41396ee8e524c5726e50643f66ba6c61d268ad5337f2"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:603630.SH",
+        "sha256": "4e1012ce261faf672e4c4b623c3211917d0e8d264f6c8f95e87a01695fe61879"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:603656.SH",
+        "sha256": "33b4c3954f255df7cd1c9478f6e4f01401a5103b08c069f08a29da4e390c1ee5"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:603978.SH",
+        "sha256": "d6bfa8a4d33cfe1c4c39cbcfce6ab3200a8eacf3927b7a8103fe576bdabeb03a"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:603992.SH",
+        "sha256": "8c815fbc12e2cc29532133252054a0ada133b52eaf4a358a64ad6821c2ea405a"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:605499.SH",
+        "sha256": "d6cadab61d53872722550e7955260eb8b779027f6e8726cc980ee7d11021bd47"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:688018.SH",
+        "sha256": "bad4d33e599b8c7c074c0969872d1320d7ac128d29f45da237cf603bdd48f07e"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:688071.SH",
+        "sha256": "19e0a61a79d23be391206c56bf56724a1f7861c709c41640d0d76315d01ad533"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:688187.SH",
+        "sha256": "e07032f33a091893614d88e4aa85681f0efd7037482857f3bf50958a4afeb6eb"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:688188.SH",
+        "sha256": "55ef77ae920a6c8a6431cfa6b93a91f46cc1c6573fdaa50a8007b68bb8139d47"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:688213.SH",
+        "sha256": "f7e77c68f95dff2117efde444a1b2850c12aafd045487c2f06088d65424d69a2"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:688475.SH",
+        "sha256": "b088d45e3a47148c39681ecb908b6c072005fd71c8f52f017c0f3651e7d24afb"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:688499.SH",
+        "sha256": "a68499e8625d49ecbc55aaac7523a343af04bf3abea126a87c40259164a7fc92"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:QUANT:688522.SH",
+        "sha256": "b73baefc4e3fcc98c4735edb8ccc100c07f130952a389ae12a840d7db34f58fa"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:NOMINATION:301190.SZ",
+        "sha256": "939ab3eacfbc16aa19a935f4ec68751b2efd17bc5773480aa8494fc50853e75f"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:NOMINATION:002811.SZ",
+        "sha256": "1954f1a69218216b3623001ac93e80fe1719f1ace702b55dfb30416f5506c5c0"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:NOMINATION:301122.SZ",
+        "sha256": "3b405a6a3a7820c9564e6c5a5f2e593925dc105f4ced9b19d6c474eea5e9a62e"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:NOMINATION:603669.SH",
+        "sha256": "feee33eea4d86b1473d14e7f67928b74e43360619f9c136a1901093b0948cdc8"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:NOMINATION:600641.SH",
+        "sha256": "bb55a54f46da2304d1c034ed3564fbbfb83a4e00d1a4f32e3b798f8b8ee789d9"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:NOMINATION:001326.SZ",
+        "sha256": "ff67608226f256c766ed027755c36cff1f506b7ad7ba60659f63c7036477a55c"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:NOMINATION:300981.SZ",
+        "sha256": "9eeb9e14be9a0eb81aadf281cc983c6aa260b8e4dd09ec678d8a921f5b1524e2"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:NOMINATION:301608.SZ",
+        "sha256": "ca0335bf79a522515a150d45c52ac4482426fce032c8878b08eb74ba45e2b8e3"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:NOMINATION:001368.SZ",
+        "sha256": "7cb1f571436c4657a190703c4b51a65e546837363b77d3bb049e2a70cfddbb34"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:NOMINATION:300984.SZ",
+        "sha256": "6a09cd4c3d953a400c05ea486140d30d0d093250bc179966e6ea5e80d4695af1"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:NOMINATION:300107.SZ",
+        "sha256": "5deeaa8a681b43bad0dc6db356915dd53aac08cf4835c6509eaf0b9e2b4d2340"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:NOMINATION:301080.SZ",
+        "sha256": "ce79a4f1af8a74cd1fc36d9692be2ffa7140966cb13144f0d8428dd5e8e0df1f"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:NOMINATION:605100.SH",
+        "sha256": "57d8a124fc215a99147bc96196a2832a7d8a496f8d5259792885d40af628c54d"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:NOMINATION:603188.SH",
+        "sha256": "94ab86d2de94a2cf95f8970a59a6c17f7854cf362a909fd814e0917fe210afab"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:NOMINATION:301230.SZ",
+        "sha256": "0ea8dfd7f75c851c4426ab7f591bbf09c0986731da6aba5636b62a72e1f5ccb8"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:NOMINATION:301108.SZ",
+        "sha256": "6456e11e82e85532ff334faab94d758a7935f80d47bedb8b302dc999474ee34a"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:NOMINATION:301047.SZ",
+        "sha256": "ef03a4c8582edfff98a73f1bc6be6e2a5549d489ac82cf84e2310ebb927d7579"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:NOMINATION:301210.SZ",
+        "sha256": "ae1289428e0a0cc607137e1cb2db02ad680470759bd4218ff051e68edfc7ab97"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:NOMINATION:688112.SH",
+        "sha256": "b19289e4022e7b0a362594e013ce2d364b118c9230a42a4c38dd88f33d276c15"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:NOMINATION:688222.SH",
+        "sha256": "7e5fabaa02b5500ee8f832eb58df22203d6686815c40bd10acc160a215cc6295"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:NOMINATION:603883.SH",
+        "sha256": "97ad3d50c437e3a93c56e5e5cceb857d63ebeeae6332ddf212537d01907a8a96"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:NOMINATION:603980.SH",
+        "sha256": "1006e0277857185ed4b34ad56eee669a37595aca6324815654c53c756e9e1204"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:NOMINATION:002674.SZ",
+        "sha256": "1d4e870e88676702a74556e894148a5ce6bd597b7687e076862310ca84cdb33a"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:NOMINATION:300821.SZ",
+        "sha256": "8da81b5ac39809b4df0cbbbe967fee251ea20b4415e25203adc857cae6f88e44"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:NOMINATION:301529.SZ",
+        "sha256": "5d0dee5ebf4931c4158cd56f0f136953821c714a7cd504a7494a77d4438c443f"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:NOMINATION:603276.SH",
+        "sha256": "ed70187b05e298ee18b163b68e655ed1d76227bb30e5ed29412c83a91812d47d"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:NOMINATION:603500.SH",
+        "sha256": "140dfbb8fa277fcb312a2b8bdeec23acf46748009eb9c81c10d052d36771e940"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:NOMINATION:000504.SZ",
+        "sha256": "a18d70f44dca1b760e37b66bcbe4ebfa348c09576930952ee00c55a08ac6cb2c"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:NOMINATION:688199.SH",
+        "sha256": "af02a396d858ed4791a840ed8580bc76093f92967e778bb12436088c3f3cef5e"
+      },
+      {
+        "category": "QUANT",
+        "id": "A2:NOMINATION:300199.SZ",
+        "sha256": "c9af3dcd8270c86c8c5f521db30f6e301e9f7b6cfab2d16cd5e611843b634581"
+      }
+    ]
+  },
+  "required_envelope": {
+    "as_of": "2026-10-19T16:35:50.215526+08:00",
+    "config_hash": "45a66a942beef43983ea5a4db485f043533c61b45fd6d8e4b04913d861b6e55e",
+    "config_version": "LIANGJIAN_FUNNEL_V2/2.0.0",
+    "execution_trade_date": "2026-10-20",
+    "input_snapshot_ids": [
+      "snapshot-20261019T163247+0800-4a9259fc15c8:a2:83bb2e920f4d:rotation-policy:a2-bottleneck:ea797f345db8"
+    ],
+    "knowledge_cutoff": "2026-10-19T16:35:50.215526+08:00",
+    "market_regime": "ROTATION_NO_MAINLINE",
+    "model_name": "deepseek-v4-pro",
+    "prompt_version": "agent-2/3.0.5",
+    "reason_codes": [],
+    "run_id": "2026-10-19-close-4a9259fc15c8",
+    "schema_version": "team-research-envelope/1",
+    "source_trade_date": "2026-10-19",
+    "stage_id": "A2",
+    "status": "OK"
+  },
+  "candidate_ids": [
+    "000333.SZ",
+    "000423.SZ",
+    "000538.SZ",
+    "000576.SZ",
+    "000581.SZ",
+    "000601.SZ",
+    "000729.SZ",
+    "000848.SZ",
+    "000858.SZ",
+    "000975.SZ",
+    "000989.SZ",
+    "001266.SZ",
+    "001965.SZ",
+    "002142.SZ",
+    "002164.SZ",
+    "002216.SZ",
+    "002270.SZ",
+    "002292.SZ",
+    "002322.SZ",
+    "002376.SZ",
+    "002441.SZ",
+    "002461.SZ",
+    "002530.SZ",
+    "002541.SZ",
+    "002557.SZ",
+    "002590.SZ",
+    "002603.SZ",
+    "002683.SZ",
+    "002712.SZ",
+    "002833.SZ",
+    "002847.SZ",
+    "002886.SZ",
+    "002946.SZ",
+    "002956.SZ",
+    "002966.SZ",
+    "002990.SZ",
+    "300012.SZ",
+    "300031.SZ",
+    "300067.SZ",
+    "300299.SZ",
+    "300406.SZ",
+    "300410.SZ",
+    "300432.SZ",
+    "300471.SZ",
+    "300516.SZ",
+    "300556.SZ",
+    "300733.SZ",
+    "300832.SZ",
+    "300839.SZ",
+    "300852.SZ",
+    "300888.SZ",
+    "300957.SZ",
+    "300990.SZ",
+    "301002.SZ",
+    "301025.SZ",
+    "301029.SZ",
+    "301239.SZ",
+    "301282.SZ",
+    "301286.SZ",
+    "301487.SZ",
+    "301666.SZ",
+    "600000.SH",
+    "600036.SH",
+    "600060.SH",
+    "600285.SH",
+    "600316.SH",
+    "600351.SH",
+    "600406.SH",
+    "600487.SH",
+    "600495.SH",
+    "600558.SH",
+    "600573.SH",
+    "600685.SH",
+    "600872.SH",
+    "600901.SH",
+    "600908.SH",
+    "600968.SH",
+    "600993.SH",
+    "601006.SH",
+    "601077.SH",
+    "601169.SH",
+    "601222.SH",
+    "601288.SH",
+    "601328.SH",
+    "601398.SH",
+    "601658.SH",
+    "601766.SH",
+    "601816.SH",
+    "601838.SH",
+    "601877.SH",
+    "601916.SH",
+    "601939.SH",
+    "601963.SH",
+    "601965.SH",
+    "601988.SH",
+    "601998.SH",
+    "603025.SH",
+    "603027.SH",
+    "603198.SH",
+    "603288.SH",
+    "603345.SH",
+    "603418.SH",
+    "603598.SH",
+    "603602.SH",
+    "603605.SH",
+    "603630.SH",
+    "603656.SH",
+    "603978.SH",
+    "603992.SH",
+    "605499.SH",
+    "688018.SH",
+    "688071.SH",
+    "688187.SH",
+    "688188.SH",
+    "688213.SH",
+    "688475.SH",
+    "688499.SH",
+    "688522.SH"
+  ],
+  "nomination_scope": [
+    "000504.SZ",
+    "001326.SZ",
+    "001368.SZ",
+    "002674.SZ",
+    "002811.SZ",
+    "300107.SZ",
+    "300199.SZ",
+    "300821.SZ",
+    "300981.SZ",
+    "300984.SZ",
+    "301047.SZ",
+    "301080.SZ",
+    "301108.SZ",
+    "301122.SZ",
+    "301190.SZ",
+    "301210.SZ",
+    "301230.SZ",
+    "301529.SZ",
+    "301608.SZ",
+    "600641.SH",
+    "603188.SH",
+    "603276.SH",
+    "603500.SH",
+    "603669.SH",
+    "603883.SH",
+    "603980.SH",
+    "605100.SH",
+    "688112.SH",
+    "688199.SH",
+    "688222.SH"
+  ],
+  "symbol_themes": {
+    "000333.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+    "000423.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+    "000538.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+    "000576.SZ": "NATIONAL_DEFENSE",
+    "000581.SZ": "ROBOTICS_ADVANCED_MANUFACTURING",
+    "000601.SZ": "POWER_EQUIPMENT_NEW_ENERGY",
+    "000729.SZ": "CONSUMER_SERVICES",
+    "000848.SZ": "CONSUMER_SERVICES",
+    "000858.SZ": "CONSUMER_SERVICES",
+    "000975.SZ": "RESOURCES_ENERGY",
+    "000989.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+    "001266.SZ": "ROBOTICS_ADVANCED_MANUFACTURING",
+    "001965.SZ": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+    "002142.SZ": "FINANCIAL_HIGH_DIVIDEND",
+    "002164.SZ": "ROBOTICS_ADVANCED_MANUFACTURING",
+    "002216.SZ": "CONSUMER_SERVICES",
+    "002270.SZ": "POWER_EQUIPMENT_NEW_ENERGY",
+    "002292.SZ": "CONSUMER_SERVICES",
+    "002322.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+    "002376.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+    "002441.SZ": "POWER_EQUIPMENT_NEW_ENERGY",
+    "002461.SZ": "CONSUMER_SERVICES",
+    "002530.SZ": "ROBOTICS_ADVANCED_MANUFACTURING",
+    "002541.SZ": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+    "002557.SZ": "CONSUMER_SERVICES",
+    "002590.SZ": "ROBOTICS_ADVANCED_MANUFACTURING",
+    "002603.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+    "002683.SZ": "CHEMICAL_NEW_MATERIALS",
+    "002712.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+    "002833.SZ": "ROBOTICS_ADVANCED_MANUFACTURING",
+    "002847.SZ": "CONSUMER_SERVICES",
+    "002886.SZ": "CHEMICAL_NEW_MATERIALS",
+    "002946.SZ": "CONSUMER_SERVICES",
+    "002956.SZ": "CONSUMER_SERVICES",
+    "002966.SZ": "FINANCIAL_HIGH_DIVIDEND",
+    "002990.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+    "300012.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+    "300031.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+    "300067.SZ": "CHEMICAL_NEW_MATERIALS",
+    "300299.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+    "300406.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+    "300410.SZ": "POWER_EQUIPMENT_NEW_ENERGY",
+    "300432.SZ": "ROBOTICS_ADVANCED_MANUFACTURING",
+    "300471.SZ": "ROBOTICS_ADVANCED_MANUFACTURING",
+    "300516.SZ": "ROBOTICS_ADVANCED_MANUFACTURING",
+    "300556.SZ": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+    "300733.SZ": "NATIONAL_DEFENSE",
+    "300832.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+    "300839.SZ": "RESOURCES_ENERGY",
+    "300852.SZ": "AI_COMPUTE_INFRASTRUCTURE",
+    "300888.SZ": "CONSUMER_SERVICES",
+    "300957.SZ": "CONSUMER_SERVICES",
+    "300990.SZ": "ROBOTICS_ADVANCED_MANUFACTURING",
+    "301002.SZ": "CONSUMER_ELECTRONICS",
+    "301025.SZ": "CONSUMER_SERVICES",
+    "301029.SZ": "ROBOTICS_ADVANCED_MANUFACTURING",
+    "301239.SZ": "INNOVATIVE_MEDICINE_HEALTHCARE",
+    "301282.SZ": "AI_COMPUTE_INFRASTRUCTURE",
+    "301286.SZ": "CHEMICAL_NEW_MATERIALS",
+    "301487.SZ": "POWER_EQUIPMENT_NEW_ENERGY",
+    "301666.SZ": "SEMICONDUCTOR_LOCALIZATION",
+    "600000.SH": "FINANCIAL_HIGH_DIVIDEND",
+    "600036.SH": "FINANCIAL_HIGH_DIVIDEND",
+    "600060.SH": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+    "600285.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+    "600316.SH": "NATIONAL_DEFENSE",
+    "600351.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+    "600406.SH": "POWER_EQUIPMENT_NEW_ENERGY",
+    "600487.SH": "AI_COMPUTE_INFRASTRUCTURE",
+    "600495.SH": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+    "600558.SH": "ROBOTICS_ADVANCED_MANUFACTURING",
+    "600573.SH": "CONSUMER_SERVICES",
+    "600685.SH": "NATIONAL_DEFENSE",
+    "600872.SH": "CONSUMER_SERVICES",
+    "600901.SH": "FINANCIAL_HIGH_DIVIDEND",
+    "600908.SH": "FINANCIAL_HIGH_DIVIDEND",
+    "600968.SH": "RESOURCES_ENERGY",
+    "600993.SH": "INNOVATIVE_MEDICINE_HEALTHCARE",
+    "601006.SH": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+    "601077.SH": "FINANCIAL_HIGH_DIVIDEND",
+    "601169.SH": "FINANCIAL_HIGH_DIVIDEND",
+    "601222.SH": "POWER_EQUIPMENT_NEW_ENERGY",
+    "601288.SH": "FINANCIAL_HIGH_DIVIDEND",
+    "601328.SH": "FINANCIAL_HIGH_DIVIDEND",
+    "601398.SH": "FINANCIAL_HIGH_DIVIDEND",
+    "601658.SH": "FINANCIAL_HIGH_DIVIDEND",
+    "601766.SH": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+    "601816.SH": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+    "601838.SH": "FINANCIAL_HIGH_DIVIDEND",
+    "601877.SH": "POWER_EQUIPMENT_NEW_ENERGY",
+    "601916.SH": "FINANCIAL_HIGH_DIVIDEND",
+    "601939.SH": "FINANCIAL_HIGH_DIVIDEND",
+    "601963.SH": "FINANCIAL_HIGH_DIVIDEND",
+    "601965.SH": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+    "601988.SH": "FINANCIAL_HIGH_DIVIDEND",
+    "601998.SH": "FINANCIAL_HIGH_DIVIDEND",
+    "603025.SH": "ROBOTICS_ADVANCED_MANUFACTURING",
+    "603027.SH": "CONSUMER_SERVICES",
+    "603198.SH": "CONSUMER_SERVICES",
+    "603288.SH": "CONSUMER_SERVICES",
+    "603345.SH": "CONSUMER_SERVICES",
+    "603418.SH": "CONSUMER_ELECTRONICS",
+    "603598.SH": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+    "603602.SH": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+    "603605.SH": "CONSUMER_SERVICES",
+    "603630.SH": "CONSUMER_SERVICES",
+    "603656.SH": "ROBOTICS_ADVANCED_MANUFACTURING",
+    "603978.SH": "CHEMICAL_NEW_MATERIALS",
+    "603992.SH": "CONSUMER_SERVICES",
+    "605499.SH": "CONSUMER_SERVICES",
+    "688018.SH": "SEMICONDUCTOR_LOCALIZATION",
+    "688071.SH": "ROBOTICS_ADVANCED_MANUFACTURING",
+    "688187.SH": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+    "688188.SH": "ROBOTICS_ADVANCED_MANUFACTURING",
+    "688213.SH": "SEMICONDUCTOR_LOCALIZATION",
+    "688475.SH": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+    "688499.SH": "POWER_EQUIPMENT_NEW_ENERGY",
+    "688522.SH": "NATIONAL_DEFENSE"
+  },
+  "allowed_theme_ids": [
+    "AI_APPLICATIONS_DIGITAL_ECONOMY",
+    "AI_COMPUTE_INFRASTRUCTURE",
+    "CHEMICAL_NEW_MATERIALS",
+    "CONSUMER_ELECTRONICS",
+    "CONSUMER_SERVICES",
+    "FINANCIAL_HIGH_DIVIDEND",
+    "INFRASTRUCTURE_DOMESTIC_DEMAND",
+    "INNOVATIVE_MEDICINE_HEALTHCARE",
+    "NATIONAL_DEFENSE",
+    "POWER_EQUIPMENT_NEW_ENERGY",
+    "RESOURCES_ENERGY",
+    "ROBOTICS_ADVANCED_MANUFACTURING",
+    "SEMICONDUCTOR_LOCALIZATION"
+  ],
+  "direction_symbols": {
+    "SELECTED_BOARD:AI_COMPUTE_INFRASTRUCTURE": [
+      "000601.SZ",
+      "002322.SZ",
+      "300556.SZ",
+      "600406.SH",
+      "601222.SH",
+      "603602.SH"
+    ],
+    "SELECTED_BOARD:AI_LIQUID_COOLING": [
+      "300839.SZ",
+      "300990.SZ"
+    ],
+    "SELECTED_BOARD:BANKS": [
+      "002142.SZ",
+      "002966.SZ",
+      "600000.SH",
+      "600036.SH",
+      "600908.SH",
+      "601077.SH",
+      "601169.SH",
+      "601288.SH",
+      "601328.SH",
+      "601398.SH",
+      "601658.SH",
+      "601838.SH",
+      "601916.SH",
+      "601939.SH",
+      "601963.SH",
+      "601988.SH",
+      "601998.SH"
+    ],
+    "SELECTED_BOARD:NATIONAL_DEFENSE": [
+      "002683.SZ",
+      "300067.SZ",
+      "300471.SZ",
+      "300516.SZ",
+      "301286.SZ",
+      "600316.SH",
+      "600495.SH",
+      "600558.SH",
+      "600685.SH",
+      "603978.SH",
+      "688522.SH"
+    ],
+    "SELECTED_BOARD:PRECIOUS_METALS": [
+      "000975.SZ"
+    ],
+    "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING": [
+      "000333.SZ",
+      "000581.SZ",
+      "001266.SZ",
+      "002270.SZ",
+      "002376.SZ",
+      "002441.SZ",
+      "002530.SZ",
+      "002541.SZ",
+      "002590.SZ",
+      "002833.SZ",
+      "002990.SZ",
+      "300012.SZ",
+      "300031.SZ",
+      "300299.SZ",
+      "300410.SZ",
+      "300432.SZ",
+      "300733.SZ",
+      "301002.SZ",
+      "301029.SZ",
+      "301282.SZ",
+      "301487.SZ",
+      "600060.SH",
+      "600968.SH",
+      "601766.SH",
+      "601877.SH",
+      "601965.SH",
+      "603025.SH",
+      "603418.SH",
+      "603656.SH",
+      "603992.SH",
+      "688018.SH",
+      "688071.SH",
+      "688187.SH",
+      "688188.SH",
+      "688213.SH",
+      "688475.SH",
+      "688499.SH"
+    ]
+  }
+}

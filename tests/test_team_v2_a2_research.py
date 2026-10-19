@@ -101,17 +101,17 @@ def test_directory_foreign_reference_uses_only_one_feedback_round_and_keeps_orig
     assert app._run_stage(**args).output==result.output and len(seen)==2
 
 
-def test_foreign_reference_twice_stays_invalid_not_dropped_or_default_pass(tmp_path):
+def test_foreign_reference_three_times_stays_invalid_not_dropped_or_default_pass(tmp_path):
     app,args,seen=fixture(tmp_path,lambda raw,n:raw['market_read'].update(opposing_refs=['A2:FOREIGN']))
     result=app._run_stage(**args)
-    assert result.status=='BLOCKED' and len(seen)==2
+    assert result.status=='BLOCKED' and len(seen)==3
     assert result.reason_codes==('TEAM_OPPOSING_REFS_INVALID:market_read',)
 
 
-def test_empty_refs_are_not_directory_foreign_ids_and_do_not_gain_retry(tmp_path):
+def test_empty_refs_get_bounded_feedback_but_are_never_repaired(tmp_path):
     app,args,seen=fixture(tmp_path,lambda raw,n:raw['market_read'].update(opposing_refs=[]))
     result=app._run_stage(**args)
-    assert result.status=='BLOCKED' and len(seen)==1
+    assert result.status=='BLOCKED' and len(seen)==3
 
 
 @pytest.mark.parametrize('missing,limited',[(('leader_structure',),False),(('leader_structure','breadth'),True)])
@@ -137,20 +137,20 @@ def test_bad_model_never_repaired_into_approved_output(tmp_path,kind):
         if kind=='missing-envelope':raw.pop('envelope')
     app,args,seen=fixture(tmp_path,change)
     result=app._run_stage(**args)
-    assert result.status=='BLOCKED' and result.output is None and len(seen)==(2 if kind=='foreign-ref' else 1)
+    assert result.status=='BLOCKED' and result.output is None and len(seen)==3
 
 
-def test_two_rotation_failures_preserve_both_originals_for_existing_degradation(tmp_path):
+def test_three_missing_rotation_captures_remain_invalid_but_coverage_projection_is_valid(tmp_path):
     def change(raw,_):
         raw['focus_decisions']=[]  # all frozen themes still require stage reviews (0283)
     app,args,seen=fixture(tmp_path,change,rotation=True)
     result=app._run_stage(**args)
-    from liangjian_funnel.pipeline.review_degraded import rotation_review_failed_twice
-    assert result.status=='BLOCKED' and len(seen)==2
-    assert rotation_review_failed_twice(result.diagnostics['validation_history'])
+    assert result.status=='VALIDATED' and len(seen)==3
+    assert result.diagnostics['validation_history']==[['A2_ROTATION_COVERAGE_MISMATCH']]*3
+    assert result.diagnostics['server_normalization']['status']=='VALIDATED'
     assert 'required_no_focus_if_focus_unchanged' in seen[1]['messages'][0]['content']
     again=app._run_stage(**args)
-    assert again.reason_codes==result.reason_codes and len(seen)==2
+    assert again.output==result.output and len(seen)==3
 
 
 def test_pre_split_freeze_uses_all_members_not_batch_mean(tmp_path):
@@ -223,7 +223,7 @@ def test_legacy_rotation_validator_conflict_after_server_missing_data_demotion_i
     # Do not invent a model review: expose this contract question to Claude.
     assert result.status=='BLOCKED' and any(r.startswith('A2_ROTATION_') for r in result.reason_codes)
     from liangjian_funnel.pipeline.review_degraded import rotation_review_failed_twice
-    assert rotation_review_failed_twice(result.diagnostics['validation_history']) and len(seen)==2
+    assert rotation_review_failed_twice(result.diagnostics['validation_history']) and len(seen)==3
     assert 'server_demoted_focus_symbols' in seen[1]['messages'][0]['content']
 
 
@@ -243,9 +243,14 @@ def test_second_review_must_actually_explain_no_focus_after_data_demotion(tmp_pa
     assert app._run_stage(**args).output==result.output and len(seen)==2
 
 
-def test_actual_quant_downstream_two_failed_reviews_yield_degraded_watch_not_fake_pass(tmp_path):
+def test_actual_quant_downstream_three_unrepairable_reviews_yield_degraded_watch_not_fake_pass(tmp_path):
     from liangjian_funnel.pipeline.deterministic import DeterministicGateResult
-    def change(raw,_):raw['focus_decisions']=[]
+    def change(raw,_):
+        raw['focus_decisions']=[]
+        row=dict(rotation_direction_id='D',decision='NO_FOCUS',reviewed_symbols=['000001.SZ'],
+            reason_codes=['LOW_CONVICTION'],explanation='Frozen evidence remains insufficient for focus',
+            supporting_refs=['A2:QUANT:000001.SZ'],opposing_refs=['A2:NEWS'])
+        raw['rotation_reviews']=[deepcopy(row),deepcopy(row)]
     app,args,seen=fixture(tmp_path,change,rotation=True)
     rows=tuple(dict(symbol=s,name='TEST',theme_id='T',node_id='N',upstream_candidate_id='a1:'+s,
         status='REVIEW_CANDIDATE',role='TREND_CORE',route='MARKET_CORE',eligible_routes=['MARKET_CORE'],
@@ -256,9 +261,9 @@ def test_actual_quant_downstream_two_failed_reviews_yield_degraded_watch_not_fak
     assert result.status=='A2_REVIEW_DEGRADED',result.reason_codes
     assert result.output['focus_pool']==[] and result.diagnostics['model_review_passed'] is False
     assert all(r['A2_REVIEW_DEGRADED'] is True for r in result.output['watch_only_pool'])
-    assert len(seen)==2
+    assert len(seen)==3
     with closing(app.team_research_adapter.journal._connect()) as db:
-        assert db.execute("SELECT count(*) FROM model_calls WHERE role='A2'").fetchone()[0]==2
+        assert db.execute("SELECT count(*) FROM model_calls WHERE role='A2'").fetchone()[0]==3
 
 
 def test_forged_server_score_proof_is_rejected_by_original_lineage_validator(tmp_path):
