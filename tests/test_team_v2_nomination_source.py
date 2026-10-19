@@ -59,9 +59,23 @@ def test_model_nomination_must_bind_original_theme_reason_and_own_quant_fact(tmp
     def reply(raw,n):nominate(raw,n);change(raw['model_nominations'][0])
     app,args,seen=fixture(tmp_path,reply);add_filtered(args)
     result=app._run_stage(**args)
-    assert result.status=='BLOCKED' and reason in result.reason_codes and len(seen)==1
+    assert result.status=='BLOCKED' and result.reason_codes==(reason,) and len(seen)==3
+    assert result.diagnostics['validation_history']==[[reason]]*3
+    assert all(reason in request['messages'][0]['content'] for request in seen[1:])
     with closing(app.team_research_adapter.journal._connect()) as db:
-        assert db.execute('SELECT validated FROM model_calls').fetchall()==[(0,)]
+        assert db.execute('SELECT validated FROM model_calls').fetchall()==[(0,)]*3
+    with closing(app.team_research_adapter.store._connect()) as db:
+        rows=db.execute("SELECT body_json FROM control_minute_context WHERE decision_id LIKE 'a2-research-source:%'").fetchall()
+    frozen=[json.loads(row[0])['values'] for row in rows]
+    assert len(frozen)==3
+    assert all(values['A2_QUANT_FILTERED_SAMPLE']==frozen[0]['A2_QUANT_FILTERED_SAMPLE'] for values in frozen)
+    assert [row['symbol'] for row in frozen[0]['A2_QUANT_FILTERED_SAMPLE']]==['000004.SZ']
+    for values in frozen:
+        feedback=values['A2_BOTTLENECK_CONTEXT']['_rotation_review_contract'].get('retry_feedback')
+        if feedback is not None:
+            assert feedback['validation_errors']==[reason]
+            assert feedback['legal_values']['nomination_scope']==['000004.SZ']
+            assert [row['code'] for row in feedback['violations']]==[reason]
 
 
 @pytest.mark.parametrize('changes',[
@@ -101,8 +115,20 @@ def test_later_transport_batch_cannot_get_another_nomination_quota(tmp_path):
     args['projection_symbols']={'000002.SZ','000003.SZ'}
     # The old model mock focuses symbol 1, intentionally invalid in this batch;
     # inspect the actual pre-model source, not a repaired mock response.
-    app._run_stage(**args)
-    assert len(seen)==1 and 'A2:NOMINATION:000004.SZ' not in seen[0]['messages'][0]['content']
+    result=app._run_stage(**args)
+    assert result.status=='BLOCKED' and result.reason_codes==(
+        'A2_SYMBOL_OUTSIDE_FROZEN_DOMAIN:focus_decisions',
+        'TEAM_SUPPORTING_REFS_INVALID:theme_reviews[0]',
+        'TEAM_SUPPORTING_REFS_INVALID:focus_decisions[0]')
+    assert len(seen)==3
+    assert all('A2:NOMINATION:000004.SZ' not in request['messages'][0]['content'] for request in seen)
+    assert all('A2_SYMBOL_OUTSIDE_FROZEN_DOMAIN:focus_decisions' in request['messages'][0]['content'] for request in seen[1:])
     with closing(app.team_research_adapter.store._connect()) as db:
         rows=db.execute("SELECT body_json FROM control_minute_context WHERE decision_id LIKE 'a2-research-source:%'").fetchall()
-    assert len(rows)==1 and json.loads(rows[0][0])['values']['A2_QUANT_FILTERED_SAMPLE']==[]
+    assert len(rows)==3
+    for row in rows:
+        values=json.loads(row[0])['values']
+        assert values['A2_QUANT_FILTERED_SAMPLE']==[]
+        feedback=values['A2_BOTTLENECK_CONTEXT']['_rotation_review_contract'].get('retry_feedback')
+        if feedback is not None:
+            assert feedback['legal_values']['nomination_scope']==[]
