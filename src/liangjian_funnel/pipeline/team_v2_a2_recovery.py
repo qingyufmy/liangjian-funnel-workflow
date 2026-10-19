@@ -6,7 +6,7 @@ explicitly authorized NO_FOCUS coverage noise can enter a derived projection.
 from collections.abc import Mapping
 from copy import deepcopy
 
-from .team_v2_a2_schema import _FIELDS, _POLICIES, _ROOT
+from .team_v2_a2_schema import _ENGINE_EMOTION_STAGES, _FIELDS, _OPTIONAL, _POLICIES, _ROOT
 from .team_v2_contract import validate_team_output
 
 
@@ -15,13 +15,18 @@ def _rows(raw, field):
     return [row for row in value if isinstance(row, Mapping)] if isinstance(value, list) else []
 
 
-def validation_feedback(raw, catalog, issues, *, envelope, symbols, themes, directions, nomination_scope):
+def validation_feedback(raw, catalog, issues, *, envelope, symbols, themes, directions, nomination_scope,
+                        engine_emotion_cycle=None):
     """Return concrete offending values plus the unchanged frozen legal domains."""
     source = raw if isinstance(raw, Mapping) else {}
     focused = {r.get('symbol') for r in _rows(source, 'focus_decisions') if isinstance(r.get('symbol'), str)}
     expected = {d: sorted(ss) for d, ss in directions.items() if not focused.intersection(ss)}
     known_refs = sorted(row['id'] for row in catalog['items'])
-    laws = dict(emotion_cycle=list(_POLICIES), stage_policy=dict(_POLICIES),
+    emotion_values = list(_POLICIES)
+    if (isinstance(engine_emotion_cycle, str) and engine_emotion_cycle in _ENGINE_EMOTION_STAGES
+            and engine_emotion_cycle not in emotion_values):
+        emotion_values.append(engine_emotion_cycle)
+    laws = dict(emotion_cycle=emotion_values, engine_emotion_cycle=engine_emotion_cycle, stage_policy=dict(_POLICIES),
         candidate_ids=sorted(symbols), allowed_theme_ids=sorted(themes),
         nomination_scope=sorted(nomination_scope), evidence_reference_ids=known_refs,
         required_envelope=envelope, required_root_fields=sorted(_ROOT),
@@ -60,7 +65,7 @@ def validation_feedback(raw, catalog, issues, *, envelope, symbols, themes, dire
         # error feedback must not multiply a large catalog into an oversized prompt.
         allowed = {'contract': 'See legal_values and the unchanged role schema'}
         if field == 'market_read':
-            allowed = dict(emotion_cycle=list(_POLICIES), regime=envelope['market_regime'],
+            allowed = dict(emotion_cycle=emotion_values, regime=envelope['market_regime'],
                 dominant_themes=sorted(themes))
         elif field == 'rotation_reviews':
             allowed = dict(rotation_rule=laws['rotation_rule'], required_no_focus_if_focus_unchanged=expected)
@@ -73,15 +78,14 @@ def validation_feedback(raw, catalog, issues, *, envelope, symbols, themes, dire
         authority='0361_REPLY_B_ALL_VALIDATION_FEEDBACK_MAX_THREE')
 
 
-def normalize_rotation(raw, catalog, directions, issues):
-    """Only delete already-focused NO_FOCUS rows or synthesize missing rows.
+def drop_focused_rotation(raw, catalog, directions):
+    """Drop safe NO_FOCUS rows already covered by a provider FOCUS decision.
 
     Strictly inspect *all* rows before deletion: the original schema intentionally
     skips the rest of a row once its direction is not expected.  That skip must
     not conceal a foreign stock, bad decision, invalid evidence or duplicates.
     """
-    allowed = {'A2_ROTATION_DOMAIN_MISMATCH', 'A2_ROTATION_COVERAGE_MISMATCH'}
-    if not issues or set(issues)-allowed or not isinstance(raw, Mapping):
+    if not isinstance(raw, Mapping):
         return None
     rows = raw.get('rotation_reviews')
     if not isinstance(rows, list):
@@ -90,7 +94,8 @@ def normalize_rotation(raw, catalog, directions, issues):
     expected = {d for d, ss in directions.items() if not focused.intersection(ss)}
     seen = set()
     for row in rows:
-        if not isinstance(row, Mapping) or not _FIELDS['rotation_reviews'].issubset(row):
+        if (not isinstance(row, Mapping) or not _FIELDS['rotation_reviews'].issubset(row)
+                or not set(row).issubset(_FIELDS['rotation_reviews'] | _OPTIONAL)):
             return None
         direction = row.get('rotation_direction_id'); symbols = row.get('reviewed_symbols')
         if (not isinstance(direction, str) or direction not in directions or direction in seen
@@ -113,22 +118,9 @@ def normalize_rotation(raw, catalog, directions, issues):
         if row['rotation_direction_id'] in expected:
             result['rotation_reviews'].append(deepcopy(row))
         else:
-            actions.append(dict(action='REMOVE_ALREADY_FOCUSED_NO_FOCUS', original_index=index,
+            actions.append(dict(action='SERVER_DROPPED_FOCUSED_DIRECTION', original_index=index,
                 rotation_direction_id=row['rotation_direction_id'], original_row=deepcopy(row)))
-    known = {row['id'] for row in catalog['items'] if row.get('category') == 'QUANT'}
-    for direction in sorted(expected-seen):
-        symbols = sorted(directions[direction])[:3]
-        refs = ['A2:QUANT:'+s for s in symbols]
-        if not refs or not set(refs).issubset(known):
-            return None
-        row = dict(rotation_direction_id=direction, decision='NO_FOCUS', reviewed_symbols=symbols,
-            reason_codes=['SERVER_NORMALIZED'],
-            explanation='Server synthesized missing NO_FOCUS coverage from the frozen direction domain; mechanical coverage evidence only, not a model positive/negative judgment or trading permission.',
-            supporting_refs=refs, opposing_refs=list(refs))
-        result['rotation_reviews'].append(row)
-        actions.append(dict(action='SYNTHESIZE_MISSING_NO_FOCUS', rotation_direction_id=direction,
-            normalized_row=deepcopy(row), evidence_basis='MECHANICAL_COVERAGE_EXISTING_DIRECTION_QUANT_ONLY'))
     if not actions:
         return None
-    return result, dict(original_issues=list(issues), actions=actions,
+    return result, dict(actions=actions,
         provider_capture_unchanged=True, purpose='MECHANICAL_COVERAGE_NOT_MODEL_JUDGMENT')

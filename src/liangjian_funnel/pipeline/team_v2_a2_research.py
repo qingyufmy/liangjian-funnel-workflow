@@ -16,7 +16,7 @@ from .team_v2_contract import TeamValidation
 from .team_v2_model import team_call_binding
 from .team_v2_a1_research import _hash
 from .team_v2_research_time import research_times
-from .team_v2_a2_recovery import normalize_rotation, validation_feedback
+from .team_v2_a2_recovery import drop_focused_rotation, validation_feedback
 
 
 def directory_reference_feedback(raw,catalog,issues):
@@ -145,10 +145,13 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
             model_name=model,market_regime=market.get('regime','UNKNOWN'),status='OK',reason_codes=[])
         domain={s:snapshot.data['A2_BOTTLENECK_CONTEXT'][s]['theme_id'] for s in symbols}
         directions={d:set(ss) for d,ss in projected['_rotation_review_scope'].items()}
+        emotion=snapshot.data.get('MARKET_EMOTION_SNAPSHOT')
+        engine_emotion=emotion.get('emotion_cycle_stage') if isinstance(emotion,Mapping) else None
         def validate(raw):
             result=validate_a2_response(raw,values['EVIDENCE_CATALOG'],required_envelope=envelope,
                 candidate_ids=symbols,nomination_scope={r['symbol'] for r in sample},symbol_themes=domain,
-                allowed_theme_ids=set(projected['_theme_review_scope']),direction_symbols=directions)
+                allowed_theme_ids=set(projected['_theme_review_scope']),direction_symbols=directions,
+                engine_emotion_cycle=engine_emotion)
             issues=list(result.issues)
             if result.valid:
                 if raw['market_read']['regime']!=envelope['market_regime']:issues.append('A2_MARKET_REGIME_BINDING_MISMATCH')
@@ -163,7 +166,8 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
                     if 'A2:NOMINATION:'+r['symbol'] not in r['supporting_refs']:
                         issues.append('A2_NOMINATION_ORIGINAL_FACT_REFERENCE_REQUIRED')
             return TeamValidation(not issues,tuple(dict.fromkeys(issues)),result.judgments,result.sentinel_count)
-        history=[];ids=[];output=None;reference_feedback_rounds=0;normalization=None;budget_stop=None
+        history=[];provider_history=[];ids=[];output=None;reference_feedback_rounds=0
+        normalization=None;normalizations=[];budget_stop=None
         for attempt in range(3):
             request=adapter.repository.prepare_messages('A2',values,required_envelope=envelope,session='CLOSE_REVIEW')
             tokens=legacy._estimate_message_tokens(request.messages)
@@ -208,38 +212,41 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
             raw,valid,issues=_response(request=request,client=pipeline.model_client,journal=adapter.journal,call_id=call_id,
                 run_id=run_id,model=model,source_trade_date=envelope['source_trade_date'],trade_date=envelope['execution_trade_date'],
                 catalog=values['EVIDENCE_CATALOG'],clock=pipeline.now,session='CLOSE_REVIEW',validator=validate,**budget)
+            provider_history.append(list(issues))
+            # Keep the provider's captured JSON and validation immutable.  The
+            # effective research view drops only redundant, otherwise valid
+            # NO_FOCUS rows; missing reviews always remain the model's job.
+            effective_raw=raw;projection=drop_focused_rotation(raw,values['EVIDENCE_CATALOG'],directions)
+            normalization=None
+            if projection is not None:
+                effective_raw,audit=projection
+                checked=validate(effective_raw);valid=checked.valid;issues=checked.issues
             output=None
             if valid:
-                output,issues=_post_policy(raw,snapshot,upstream_output,symbols,lane_id,model)
+                output,issues=_post_policy(effective_raw,snapshot,upstream_output,symbols,lane_id,model)
                 valid=not issues
                 adapter.store.freeze_control_context('a2-research-postpolicy:'+identity,source_sha256=request.input_hash,
                     body=dict(source_call_id=call_id,output=output,reason_codes=list(issues)))
+            if projection is not None:
+                normalization_key='a2-research-focused-drop:'+identity
+                normalization=dict(**audit,original_issues=provider_history[-1],
+                    status='VALIDATED' if valid else 'BLOCKED',source_call_id=call_id,
+                    provider_raw_sha256=_hash(raw),normalized_raw_sha256=_hash(effective_raw),
+                    normalized_validation_issues=list(checked.issues),postpolicy_reason_codes=list(issues),
+                    audit_context_key=normalization_key)
+                adapter.store.freeze_control_context(normalization_key,source_sha256=request.input_hash,
+                    body=dict(**normalization,normalized_raw=effective_raw,postpolicy_output=output))
+                normalizations.append(normalization)
             history.append(list(issues))
             if valid:break
-            if attempt==2:
-                projection=normalize_rotation(raw,values['EVIDENCE_CATALOG'],directions,issues)
-                if projection is not None:
-                    normalized,audit=projection
-                    checked=validate(normalized);post_issues=list(checked.issues);normalized_output=None
-                    if checked.valid:
-                        normalized_output,post_issues=_post_policy(normalized,snapshot,upstream_output,symbols,lane_id,model)
-                    normalization_key='a2-research-normalization:'+identity
-                    normalization=dict(**audit,status='VALIDATED' if not post_issues else 'BLOCKED',
-                        source_call_id=call_id,normalized_raw_sha256=_hash(normalized),
-                        normalized_validation_issues=list(checked.issues),postpolicy_reason_codes=list(post_issues),
-                        audit_context_key=normalization_key)
-                    adapter.store.freeze_control_context(normalization_key,source_sha256=request.input_hash,
-                        body=dict(**normalization,normalized_raw=normalized,postpolicy_output=normalized_output))
-                    if not post_issues:
-                        raw=normalized;output=normalized_output;issues=();valid=True
-                break
-            reference_feedback=directory_reference_feedback(raw,values['EVIDENCE_CATALOG'],issues) if issues else None
+            if attempt==2:break
+            reference_feedback=directory_reference_feedback(effective_raw,values['EVIDENCE_CATALOG'],issues) if issues else None
             # Transport failures have no provider answer to correct.  Every
             # actual validation failure, not only rotation, gets feedback.
             if not issues or raw is None and set(issues)<={'TEAM_MODEL_CALL_FAILED','TEAM_MODEL_RESULT_INVALID'}:break
-            feedback=validation_feedback(raw,values['EVIDENCE_CATALOG'],issues,envelope=envelope,
+            feedback=validation_feedback(effective_raw,values['EVIDENCE_CATALOG'],issues,envelope=envelope,
                 symbols=symbols,themes=set(projected['_theme_review_scope']),directions=directions,
-                nomination_scope={r['symbol'] for r in sample})
+                nomination_scope={r['symbol'] for r in sample},engine_emotion_cycle=engine_emotion)
             if reference_feedback is not None:
                 reference_feedback_rounds+=1
                 feedback['reference_feedback']=reference_feedback
@@ -255,9 +262,11 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
                 row=db.execute('SELECT latency_ms,provider_attempts FROM model_calls WHERE call_id=?',(cid,)).fetchone()
                 if row:metrics.append(row)
         diagnostics=dict(team_call_ids=ids,legacy_checkpoint_reused=False,validation_history=history,
+            provider_validation_history=provider_history,engine_emotion_cycle=engine_emotion,
             first_round_failed=bool(history and history[0]),reference_feedback_rounds=reference_feedback_rounds,
             reference_retry_authority='0361_REPLY_B_ALL_VALIDATION_FEEDBACK_MAX_THREE',
             server_normalization=normalization,
+            server_normalizations=normalizations,
             budget_stop=budget_stop,
             original_rotation_domain={d:sorted(ss) for d,ss in sorted(directions.items())},
             original_theme_review_domain=sorted(projected['_theme_review_scope']),

@@ -15,6 +15,9 @@ from .team_v2_contract import TeamValidation, validate_team_output
 _POLICIES = {"IGNITION": "PROBE_ONLY", "CONFIRMATION": "ALLOW", "ACCELERATION": "ALLOW",
              "CLIMAX": "WATCH_ONLY", "DIVERGENCE": "WATCH_ONLY", "RETREAT": "NO_NEW_ENTRY",
              "REPAIR": "ALLOW", "FADE": "NO_NEW_ENTRY"}
+# Market facts and theme policy are separate vocabularies.  A market-stage
+# extension is permitted only when it exactly matches the supplied frozen fact.
+_ENGINE_EMOTION_STAGES = frozenset(("ICE_POINT", "DIVERGENCE", "CLIMAX", "ACCELERATION", "STARTUP", "LATENT"))
 _ROOT = frozenset(("envelope", "reason_codes", "market_read", "theme_reviews", "focus_decisions",
                    "rotation_reviews", "reject_decisions", "model_nominations", "handoff_notes",
                    "what_would_change_my_mind", "unresolved_questions"))
@@ -77,7 +80,8 @@ def _same_json(left: Any, right: Any) -> bool:
 def validate_a2_response(output: Any, catalog: Any, *, required_envelope: Mapping[str, Any],
                          candidate_ids: set[str], nomination_scope: set[str],
                          symbol_themes: Mapping[str, str], allowed_theme_ids: set[str],
-                         direction_symbols: Mapping[str, set[str]]) -> TeamValidation:
+                         direction_symbols: Mapping[str, set[str]],
+                         engine_emotion_cycle: str | None = None) -> TeamValidation:
     issues: list[str] = []
     if not isinstance(output, Mapping):
         return TeamValidation(False, ("A2_RESPONSE_OBJECT_REQUIRED",), (), 0)
@@ -108,7 +112,10 @@ def validate_a2_response(output: Any, catalog: Any, *, required_envelope: Mappin
             pools[name].append(row)
 
     for row in pools["market_read"]:
-        if row["emotion_cycle"] not in tuple(_POLICIES) or not _strings(row["dominant_themes"], 3):
+        engine_match = (isinstance(engine_emotion_cycle, str) and engine_emotion_cycle in _ENGINE_EMOTION_STAGES
+                        and row["emotion_cycle"] == engine_emotion_cycle)
+        if (row["emotion_cycle"] not in tuple(_POLICIES) and not engine_match
+                or not _strings(row["dominant_themes"], 3)):
             issues.append("A2_MARKET_READ_INVALID")
     focused: list[str] = []; rejected: list[str] = []; nominated: list[str] = []
     for name, ids in (("focus_decisions", focused), ("reject_decisions", rejected),

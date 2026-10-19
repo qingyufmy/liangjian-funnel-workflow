@@ -140,17 +140,17 @@ def test_bad_model_never_repaired_into_approved_output(tmp_path,kind):
     assert result.status=='BLOCKED' and result.output is None and len(seen)==3
 
 
-def test_three_missing_rotation_captures_remain_invalid_but_coverage_projection_is_valid(tmp_path):
+def test_three_missing_rotation_captures_stay_invalid_for_existing_degradation(tmp_path):
     def change(raw,_):
         raw['focus_decisions']=[]  # all frozen themes still require stage reviews (0283)
     app,args,seen=fixture(tmp_path,change,rotation=True)
     result=app._run_stage(**args)
-    assert result.status=='VALIDATED' and len(seen)==3
+    assert result.status=='BLOCKED' and len(seen)==3
     assert result.diagnostics['validation_history']==[['A2_ROTATION_COVERAGE_MISMATCH']]*3
-    assert result.diagnostics['server_normalization']['status']=='VALIDATED'
+    assert result.diagnostics['server_normalization'] is None
     assert 'required_no_focus_if_focus_unchanged' in seen[1]['messages'][0]['content']
     again=app._run_stage(**args)
-    assert again.output==result.output and len(seen)==3
+    assert again.reason_codes==result.reason_codes and len(seen)==3
 
 
 def test_pre_split_freeze_uses_all_members_not_batch_mean(tmp_path):

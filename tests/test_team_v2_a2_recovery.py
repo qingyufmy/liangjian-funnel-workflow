@@ -1,6 +1,7 @@
 """0361-b: feedback is not validation; normalized projections are not model raw."""
 from contextlib import closing
 from copy import deepcopy
+from dataclasses import replace
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -17,7 +18,7 @@ def no_focus(direction='D', symbols=None):
         supporting_refs=['A2:QUANT:000001.SZ'], opposing_refs=['A2:NEWS'])
 
 
-def test_mixed_enum_and_rotation_gets_three_rounds_then_safe_projection(tmp_path):
+def test_mixed_unbound_enum_and_rotation_retries_only_enum_after_safe_drop(tmp_path):
     def mutate(raw, attempt):
         raw['rotation_reviews'] = [no_focus()]
         if attempt == 1:
@@ -25,7 +26,7 @@ def test_mixed_enum_and_rotation_gets_three_rounds_then_safe_projection(tmp_path
     app, args, seen = fixture(tmp_path, mutate, rotation=True)
     result = app._run_stage(**args)
     assert result.status == 'VALIDATED', result.reason_codes
-    assert len(seen) == 3
+    assert len(seen) == 2
     feedback = seen[1]['messages'][0]['content']
     assert 'LATENT' in feedback and 'A2_MARKET_READ_INVALID' in feedback
     assert all(value in feedback for value in (
@@ -37,7 +38,7 @@ def test_mixed_enum_and_rotation_gets_three_rounds_then_safe_projection(tmp_path
         validated = [r[0] for r in db.execute('SELECT validated FROM model_calls ORDER BY captured_at')]
     assert captured[0]['market_read']['emotion_cycle'] == 'LATENT'
     assert all(r['rotation_reviews'] for r in captured)
-    assert validated == [0, 0, 0]
+    assert validated == [0, 0]
     audit_key = result.diagnostics['server_normalization']['audit_context_key']
     with closing(app.team_research_adapter.store._connect()) as db:
         audit = json.loads(db.execute('SELECT body_json FROM control_minute_context WHERE decision_id=?',
@@ -47,19 +48,18 @@ def test_mixed_enum_and_rotation_gets_three_rounds_then_safe_projection(tmp_path
     assert audit['normalized_validation_issues'] == audit['postpolicy_reason_codes'] == []
     assert audit['postpolicy_output'] == result.output
     assert audit['original_issues'] == ['A2_ROTATION_DOMAIN_MISMATCH']
-    assert app._run_stage(**args).output == result.output and len(seen) == 3
+    assert app._run_stage(**args).output == result.output and len(seen) == 2
 
 
-def test_only_missing_rotation_is_synthesized_after_third_invalid_capture(tmp_path):
+def test_missing_rotation_is_only_feedback_and_never_server_synthesized(tmp_path):
     app, args, seen = fixture(tmp_path, lambda raw, _: raw.update(focus_decisions=[]), rotation=True)
     result = app._run_stage(**args)
-    assert result.status == 'VALIDATED', result.reason_codes
-    assert len(seen) == 3 and result.output['focus_pool'] == []
-    row = result.output['rotation_reviews'][0]
-    assert row['reviewed_symbols'] == ['000001.SZ', '000002.SZ', '000003.SZ']
-    assert row['reason_codes'] == ['SERVER_NORMALIZED']
-    assert 'server' in row['explanation'].lower()
+    assert result.status == 'BLOCKED', result.reason_codes
+    assert len(seen) == 3 and result.output is None
+    assert result.diagnostics['server_normalization'] is None
     assert result.diagnostics['validation_history'] == [['A2_ROTATION_COVERAGE_MISMATCH']] * 3
+    assert 'required_no_focus_if_focus_unchanged' in seen[1]['messages'][0]['content']
+    assert all(symbol in seen[1]['messages'][0]['content'] for symbol in ('000001.SZ', '000002.SZ', '000003.SZ'))
 
 
 def test_illegal_enum_never_normalized_even_with_rotation_error(tmp_path):
@@ -70,7 +70,7 @@ def test_illegal_enum_never_normalized_even_with_rotation_error(tmp_path):
     result = app._run_stage(**args)
     assert result.status == 'BLOCKED' and len(seen) == 3
     assert 'A2_MARKET_READ_INVALID' in result.reason_codes
-    assert result.diagnostics['server_normalization'] is None
+    assert result.diagnostics['server_normalization']['status'] == 'BLOCKED'
 
 
 @pytest.mark.parametrize('mutation', [
@@ -88,10 +88,12 @@ def test_normalization_cannot_hide_foreign_stock_direction_or_duplicates(tmp_pat
     assert result.status == 'BLOCKED' and len(seen) == 3
 
 
-def test_real_failure_fixture_keeps_latent_invalid_until_model_reanswers():
+@pytest.mark.parametrize('name', ['team_v2_a2_real_failure_20261019.json',
+    'team_v2_a2_real_failure_rerun_20261019.json'])
+def test_two_real_failures_use_exact_frozen_market_fact_and_drop_without_retry(name):
     from liangjian_funnel.pipeline.team_v2_a2_schema import validate_a2_response
-    from liangjian_funnel.pipeline.team_v2_a2_recovery import normalize_rotation
-    path = Path(__file__).parent / 'fixtures/team_v2_a2_real_failure_20261019.json'
+    from liangjian_funnel.pipeline.team_v2_a2_recovery import drop_focused_rotation
+    path = Path(__file__).parent / 'fixtures' / name
     frozen = json.loads(path.read_text(encoding='utf-8'))
     raw = frozen['output']; before = deepcopy(raw)
     context = {key: frozen[key] for key in ('required_envelope', 'candidate_ids', 'nomination_scope',
@@ -103,12 +105,15 @@ def test_real_failure_fixture_keeps_latent_invalid_until_model_reanswers():
         return validate_a2_response(value, frozen['catalog'], **context)
     invalid = validate(raw)
     assert set(invalid.issues) == {'A2_MARKET_READ_INVALID', 'A2_ROTATION_DOMAIN_MISMATCH'}
-    assert normalize_rotation(raw, frozen['catalog'], context['direction_symbols'], invalid.issues) is None
-    # This line represents the model's corrected second reply, NOT enum repair by the server.
-    answered = deepcopy(raw); answered['market_read']['emotion_cycle'] = 'CONFIRMATION'
-    projected, audit = normalize_rotation(answered, frozen['catalog'], context['direction_symbols'], validate(answered).issues)
+    # First capture's exact fact is independently archived in
+    # FROZEN_A2_REQUEST_VALUES.json (SHA58e94020...); rerun carries its fact inline.
+    fact = frozen.get('engine_emotion_snapshot', {'emotion_cycle_stage': 'LATENT'})
+    assert fact['emotion_cycle_stage'] == 'LATENT'
+    context['engine_emotion_cycle'] = fact['emotion_cycle_stage']
+    projected, audit = drop_focused_rotation(raw, frozen['catalog'], context['direction_symbols'])
     assert validate(projected).valid and raw == before
-    assert audit['actions'] and audit['original_issues'] == ['A2_ROTATION_DOMAIN_MISMATCH']
+    assert projected['market_read']['emotion_cycle'] == raw['market_read']['emotion_cycle'] == 'LATENT'
+    assert audit['actions'] and all(r['action'] == 'SERVER_DROPPED_FOCUSED_DIRECTION' for r in audit['actions'])
 
 
 @pytest.mark.parametrize('remaining,requests', [(119, 0), (120, 1)])
@@ -190,9 +195,63 @@ def test_deleting_focused_direction_must_not_conceal_invalid_row_fields(tmp_path
     assert result.status == 'BLOCKED' and len(seen) == 3
 
 
-def test_synthesis_requires_actual_member_quant_catalog_entry(tmp_path):
-    from liangjian_funnel.pipeline.team_v2_a2_recovery import normalize_rotation
+def test_missing_coverage_never_creates_server_rows():
+    from liangjian_funnel.pipeline.team_v2_a2_recovery import drop_focused_rotation
     raw = dict(focus_decisions=[], rotation_reviews=[], handoff_notes={'to_a3': ['Frozen']},
         what_would_change_my_mind=['Frozen evidence changes'])
-    assert normalize_rotation(raw, {'categories': ['NEWS'], 'items': [{'id': 'NEWS', 'category': 'NEWS'}]},
-        {'D': {'000001.SZ'}}, ['A2_ROTATION_COVERAGE_MISMATCH']) is None
+    assert drop_focused_rotation(raw, {'categories': ['NEWS'], 'items': [{'id': 'NEWS', 'category': 'NEWS'}]},
+        {'D': {'000001.SZ'}}) is None
+
+
+def test_exact_engine_latent_and_redundant_bank_review_validate_in_one_call_without_raw_rewrite(tmp_path):
+    def mutate(raw, _):
+        raw['market_read']['emotion_cycle'] = 'LATENT'
+        raw['rotation_reviews'] = [no_focus()]
+    app, args, seen = fixture(tmp_path, mutate, rotation=True)
+    args['snapshot'] = replace(args['snapshot'], data={**args['snapshot'].data,
+        'MARKET_EMOTION_SNAPSHOT': {'emotion_cycle_stage': 'LATENT'}})
+    result = app._run_stage(**args)
+    assert result.status == 'VALIDATED' and len(seen) == 1
+    assert result.output['market_read']['emotion_cycle'] == 'LATENT'
+    assert result.diagnostics['validation_history'] == [[]]
+    assert result.diagnostics['provider_validation_history'] == [['A2_ROTATION_DOMAIN_MISMATCH']]
+    with closing(app.team_research_adapter.journal._connect()) as db:
+        captured, validated = db.execute('SELECT output_json,validated FROM model_calls').fetchone()
+    assert not validated and json.loads(captured)['rotation_reviews'] == [no_focus()]
+    audit = result.diagnostics['server_normalization']
+    assert audit['status'] == 'VALIDATED'
+    assert [r['action'] for r in audit['actions']] == ['SERVER_DROPPED_FOCUSED_DIRECTION']
+    assert app._run_stage(**args).output == result.output and len(seen) == 1
+
+
+@pytest.mark.parametrize('fact,answer,valid', [
+    ('LATENT', 'LATENT', True), ('STARTUP', 'STARTUP', True), ('ICE_POINT', 'ICE_POINT', True),
+    ('LATENT', 'STARTUP', False), ('STARTUP', 'LATENT', False), (None, 'LATENT', False),
+    ('INVENTED', 'INVENTED', False), ('LATENT', 'INVENTED', False),
+    ('LATENT', 'CONFIRMATION', True),
+])
+def test_market_stage_extension_is_exact_frozen_fact_not_mapping_or_free_enum(fact, answer, valid):
+    from test_team_v2_a2_schema import packet, validate
+    raw = packet(); raw['market_read']['emotion_cycle'] = answer
+    result = validate(raw, engine_emotion_cycle=fact)
+    assert result.valid is valid
+    assert raw['market_read']['emotion_cycle'] == answer
+
+
+def test_engine_market_stage_cannot_change_theme_stage_execution_policy():
+    from test_team_v2_a2_schema import packet, validate
+    raw = packet(); raw['market_read']['emotion_cycle'] = 'LATENT'
+    raw['theme_reviews'][0].update(stage='LATENT', new_entry_policy='WATCH_ONLY')
+    result = validate(raw, engine_emotion_cycle='LATENT')
+    assert not result.valid and 'A2_STAGE_POLICY_MISMATCH' in result.issues
+
+
+def test_redundant_focused_row_with_unknown_extra_field_is_not_deleted(tmp_path):
+    def mutate(raw, _):
+        row = no_focus(); row['executable'] = True
+        raw['rotation_reviews'] = [row]
+    app, args, seen = fixture(tmp_path, mutate, rotation=True)
+    result = app._run_stage(**args)
+    assert result.status == 'BLOCKED' and len(seen) == 3
+    assert 'A2_ITEM_FIELDS_INVALID:rotation_reviews' in result.reason_codes
+    assert result.diagnostics['server_normalization'] is None
