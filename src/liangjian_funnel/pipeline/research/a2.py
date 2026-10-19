@@ -1920,6 +1920,7 @@ def _validate_a2_rotation_focus_coverage(
 
     contexts = _lineage_context_rows(snapshot_data, "A2_BOTTLENECK_CONTEXT")
     expected: set[str] = set()
+    direction_symbols: dict[str, set[str]] = {}
     for symbol in upstream_symbols:
         context = contexts.get(symbol)
         if not isinstance(context, Mapping):
@@ -1941,6 +1942,7 @@ def _validate_a2_rotation_focus_coverage(
         ).strip()
         if direction:
             expected.add(direction)
+            direction_symbols.setdefault(direction, set()).add(symbol)
 
     focused: set[str] = set()
     for item in output.get("focus_pool", ()):
@@ -1956,7 +1958,11 @@ def _validate_a2_rotation_focus_coverage(
             or selected.get("theme_id")
             or ""
         ).strip()
-        if direction:
+        # EMOTION focus with the same board label does not cover a qualified
+        # TREND member domain. Match the Team schema's member intersection.
+        # Out-of-domain labels retain their old extra diagnostic only; they
+        # still fail UNKNOWN_DIRECTION and cannot cover any expected member.
+        if direction and (direction not in expected or symbol in direction_symbols.get(direction, set())):
             focused.add(direction)
 
     explained: set[str] = set()
