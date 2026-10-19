@@ -5,6 +5,10 @@ explicitly authorized NO_FOCUS coverage noise can enter a derived projection.
 """
 from collections.abc import Mapping
 from copy import deepcopy
+from dataclasses import replace
+import hashlib
+import json
+from types import MappingProxyType
 
 from .team_v2_a2_schema import _ENGINE_EMOTION_STAGES, _FIELDS, _OPTIONAL, _POLICIES, _ROOT
 from .team_v2_contract import validate_team_output
@@ -13,6 +17,63 @@ from .team_v2_contract import validate_team_output
 def _rows(raw, field):
     value = raw.get(field)
     return [row for row in value if isinstance(row, Mapping)] if isinstance(value, list) else []
+
+
+def _message_input_hash(messages):
+    # Exactly the serialization used by TeamPromptRepository.prepare_messages
+    # and the call_team_model message-binding guard, including UTF-8 and NaN.
+    text = json.dumps([dict(message) for message in messages], ensure_ascii=False,
+        sort_keys=True, separators=(',', ':'), allow_nan=False)
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def bind_a2_retry_feedback(request, feedback, *, correction_attempt, engine_emotion_cycle=None):
+    """Bind existing correction data to the last user JSON, without a new role.
+
+    No prompt source bytes, system text, catalog, envelope, validation rule or
+    model response are rewritten.  The derived message bytes own a new binding.
+    """
+    if feedback is None:
+        return request
+    if (request.prompt.role != 'A2' or type(correction_attempt) is not int
+            or correction_attempt not in (2, 3) or not isinstance(feedback, Mapping)
+            or not feedback.get('validation_errors')):
+        raise ValueError('TEAM_A2_RETRY_FEEDBACK_SCOPE_INVALID')
+    if (len(request.messages) != 2 or request.messages[0].get('role') != 'system'
+            or request.messages[1].get('role') != 'user'
+            or _message_input_hash(request.messages) != request.input_hash
+            or hashlib.sha256(request.messages[0]['content'].encode()).hexdigest() != request.prompt.sha256):
+        raise ValueError('TEAM_MESSAGE_BINDING_MISMATCH')
+    user = request.messages[1]['content']
+    if not user.startswith('RUNTIME_INPUT\n'):
+        raise ValueError('TEAM_A2_RETRY_FEEDBACK_SCOPE_INVALID')
+    runtime = json.loads(user.removeprefix('RUNTIME_INPUT\n'))
+    if (not isinstance(runtime, Mapping) or runtime.get('session') != 'CLOSE_REVIEW'
+            or not isinstance(runtime.get('required_envelope'), Mapping)
+            or runtime['required_envelope'].get('stage_id') != 'A2'):
+        raise ValueError('TEAM_A2_RETRY_FEEDBACK_SCOPE_INVALID')
+    if {'validation_feedback', 'correction_attempt', 'field_contracts'}.intersection(runtime):
+        raise ValueError('TEAM_A2_RETRY_FEEDBACK_ALREADY_BOUND')
+    emotion_values = list(_POLICIES)
+    if (isinstance(engine_emotion_cycle, str) and engine_emotion_cycle in _ENGINE_EMOTION_STAGES
+            and engine_emotion_cycle not in emotion_values):
+        emotion_values.append(engine_emotion_cycle)
+    runtime = deepcopy(dict(runtime))
+    # Never merge feedback into runtime: untrusted previous-answer values must
+    # not replace the envelope, session, evidence catalog hash or input fields.
+    runtime['validation_feedback'] = deepcopy(dict(feedback))
+    runtime['correction_attempt'] = correction_attempt
+    runtime['field_contracts'] = {
+        'market_theme_boundary': 'LATENT/STARTUP/ICE_POINT 是 MARKET_EMOTION_SNAPSHOT 的市场阶段，不是题材阶段；theme_reviews[*].stage 只能从下面八个题材阶段选择，不做市场阶段到题材阶段的语义映射。',
+        'market_read.emotion_cycle': dict(kind='MARKET_FACT_OR_EXISTING_A2_STAGE',
+            engine_fact=engine_emotion_cycle, allowed_values=emotion_values),
+        'theme_reviews[*].stage': dict(kind='THEME_JUDGMENT_NOT_MARKET_FACT', allowed_values=list(_POLICIES)),
+        'theme_reviews[*].new_entry_policy': dict(allowed_by_stage=dict(_POLICIES)),
+    }
+    content = 'RUNTIME_INPUT\n'+json.dumps(runtime, ensure_ascii=False, sort_keys=True,
+        separators=(',', ':'), allow_nan=False)
+    messages = (request.messages[0], MappingProxyType({'role': 'user', 'content': content}))
+    return replace(request, messages=messages, input_hash=_message_input_hash(messages))
 
 
 def validation_feedback(raw, catalog, issues, *, envelope, symbols, themes, directions, nomination_scope,
@@ -53,6 +114,18 @@ def validation_feedback(raw, catalog, issues, *, envelope, symbols, themes, dire
     violations = []
     for code in issues:
         prefix, _, path = code.partition(':')
+        if prefix == 'A2_STAGE_POLICY_MISMATCH':
+            for index, row in enumerate(_rows(source, 'theme_reviews')):
+                stage = row.get('stage'); policy = row.get('new_entry_policy')
+                if not isinstance(stage, str) or stage not in _POLICIES:
+                    violations.append(dict(code=code, field=f'theme_reviews[{index}].stage',
+                        actual=deepcopy(stage), allowed=dict(values=list(_POLICIES), stage_policy=dict(_POLICIES)),
+                        actual_new_entry_policy=deepcopy(policy)))
+                elif _POLICIES[stage] != policy:
+                    violations.append(dict(code=code, field=f'theme_reviews[{index}].new_entry_policy',
+                        actual=deepcopy(policy), stage=stage,
+                        allowed=dict(values=[_POLICIES[stage]], stage_policy=dict(_POLICIES))))
+            continue
         field = path or fields.get(prefix, 'rotation_reviews' if prefix.startswith('A2_ROTATION_') else '$')
         actual = raw if field == '$' else source.get(field)
         if '[' in field:

@@ -16,7 +16,7 @@ from .team_v2_contract import TeamValidation
 from .team_v2_model import team_call_binding
 from .team_v2_a1_research import _hash
 from .team_v2_research_time import research_times
-from .team_v2_a2_recovery import drop_focused_rotation, validation_feedback
+from .team_v2_a2_recovery import bind_a2_retry_feedback, drop_focused_rotation, validation_feedback
 
 
 def directory_reference_feedback(raw,catalog,issues):
@@ -170,6 +170,9 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
         normalization=None;normalizations=[];budget_stop=None
         for attempt in range(3):
             request=adapter.repository.prepare_messages('A2',values,required_envelope=envelope,session='CLOSE_REVIEW')
+            if attempt:
+                request=bind_a2_retry_feedback(request,projected['_rotation_review_contract'].get('retry_feedback'),
+                    correction_attempt=attempt+1,engine_emotion_cycle=engine_emotion)
             tokens=legacy._estimate_message_tokens(request.messages)
             if tokens>pipeline.settings.model_max_input_tokens:return blocked('MODEL_PROMPT_TOO_LARGE')
             # Each semantic answer has its own bounded timeout; the original
@@ -208,7 +211,10 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
                         request_binding=team_call_binding(request,run_id=run_id,model=model,session='CLOSE_REVIEW',**budget)) is None):
                     return blocked('TEAM_RESEARCH_REMAINING_BUDGET_INSUFFICIENT')
             adapter.store.freeze_control_context('a2-research-source:'+identity,source_sha256=request.input_hash,
-                body=dict(values=legacy._jsonable(values),envelope=envelope,score_freeze=frozen))
+                body=dict(values=legacy._jsonable(values),envelope=envelope,score_freeze=frozen,
+                    request_transport_projection=dict(schema='a2-retry-user-feedback/1',semantic_attempt=attempt+1,
+                        input_hash=request.input_hash,prompt_sha256=request.prompt.sha256,
+                        user_message=request.messages[1]['content'])))
             raw,valid,issues=_response(request=request,client=pipeline.model_client,journal=adapter.journal,call_id=call_id,
                 run_id=run_id,model=model,source_trade_date=envelope['source_trade_date'],trade_date=envelope['execution_trade_date'],
                 catalog=values['EVIDENCE_CATALOG'],clock=pipeline.now,session='CLOSE_REVIEW',validator=validate,**budget)

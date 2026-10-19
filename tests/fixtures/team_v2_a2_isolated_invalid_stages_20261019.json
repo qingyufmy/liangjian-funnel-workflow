@@ -1,0 +1,3629 @@
+{
+  "at": "2026-10-19T22:03:07.898467+08:00",
+  "systemd": {
+    "MainPID": "0",
+    "NRestarts": "0",
+    "ExecMainStatus": "2",
+    "ActiveState": "failed"
+  },
+  "receipt": {
+    "schema": "isolated-real-a2-a3/1",
+    "at": "2026-10-19T22:00:51.884381+08:00",
+    "candidate_head": "29a22e155d9ab29b01c308e307804494e56eed34",
+    "run_id": "isolated0361c-29a22e155d9a-20261019T215636",
+    "status": "BLOCKED",
+    "snapshot_id": "snapshot-20261019T163247+0800-4a9259fc15c8",
+    "snapshot_hash": "4a9259fc15c837237ffdcc9441160769f0b60431d9a0248e6674d8c0bb0c7c30",
+    "snapshot_as_of": "2026-10-19T16:32:47+08:00",
+    "a1_generation_id": "a1-incremental-20261016T180003192023Z-824999b48c32",
+    "stages": [
+      {
+        "lane": "lane_1",
+        "stage": "A1",
+        "status": "VALIDATED",
+        "reason_codes": [
+          "A1_ACTIVE_SCOPE_FILTERED",
+          "A1_ACTIVE_REUSED"
+        ]
+      },
+      {
+        "lane": "lane_1",
+        "stage": "A2",
+        "status": "BLOCKED",
+        "reason_codes": [
+          "A2_STAGE_POLICY_MISMATCH"
+        ]
+      },
+      {
+        "lane": "lane_1",
+        "stage": "A3",
+        "status": "NOT_RUN_UPSTREAM_BLOCKED",
+        "reason_codes": [
+          "UPSTREAM_STAGE_BLOCKED"
+        ]
+      }
+    ],
+    "real_a3_plan_rows": 0,
+    "plan_symbols": [],
+    "plan_rows_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "elapsed_seconds": 255.79491557899746,
+    "model_requests": [
+      {
+        "at": "2026-10-19T21:58:40.584613+08:00",
+        "model": "deepseek-v4-pro",
+        "request_body_sha256": "9199f748b3358594300df4391edc4ac96e8870831d432f3c107fdaec334cfe9b"
+      },
+      {
+        "at": "2026-10-19T21:59:15.245115+08:00",
+        "model": "deepseek-v4-pro",
+        "request_body_sha256": "079009dbc16b7f1f41c125743133840b244d143102e42fc2fd5a19e59b61f2dc"
+      },
+      {
+        "at": "2026-10-19T21:59:57.643287+08:00",
+        "model": "deepseek-v4-pro",
+        "request_body_sha256": "b7fadb43798b6ebac60e26af3f15b4781a09cc8fa4b2d5b293efa07f88a6af02"
+      }
+    ],
+    "denied_operations": [],
+    "error": null,
+    "publish_plans": false,
+    "execution_plans_written": 0,
+    "production_writes": 0,
+    "customer_or_internal_sends": 0,
+    "new_source_collection": false,
+    "new_a1_call": false,
+    "a2_stock_news_overlay": "DISABLED_USE_CONTENT_BOUND_163247_BASE_ONLY_NOT_ORIGINAL_PRODUCTION_OVERLAY_REPLAY",
+    "a3_enrichment": "REAL_LOCAL_COPIED_FACT_CACHE_AND_MINUTE_CACHE_NO_NETWORK",
+    "isolated_root": "/media/qy/120aebe1-8c98-412b-a490-3797cae5656b/Agu/liangjian-shadow/isolated/a2-a3-0361c-29a22e155d9ab29b01c308e307804494e56eed34",
+    "frozen_market_emotion_snapshot": {
+      "advances": 2274,
+      "algorithm_version": "market-emotion/2.0.0",
+      "as_of": "2026-10-19T16:13:39.718000+08:00",
+      "available": true,
+      "breadth": 0.42087729039422545,
+      "breadth_coverage": 0.9971321025273346,
+      "break_rate": 0.2898550724637681,
+      "declines": 3129,
+      "emotion_cycle_evidence": {
+        "breadth": 0.42087729039422545,
+        "break_rate": 0.2898550724637681,
+        "ladder_height": 3,
+        "limit_down_count": 25,
+        "limit_up_count": 49,
+        "scoring_used": false,
+        "temperature": "RECOVERY"
+      },
+      "emotion_cycle_reason_codes": [
+        "EMOTION_CYCLE_NOT_CONFIRMED"
+      ],
+      "emotion_cycle_stage": "LATENT",
+      "emotion_cycle_stage_cn": "潜伏期",
+      "flats": 160,
+      "ladder_height": 3,
+      "limit_break_count": 20,
+      "limit_down_count": 25,
+      "limit_up_count": 49,
+      "missing_fields": [
+        "previous_limit_up_premium"
+      ],
+      "new_long_permission": "WATCH_ONLY",
+      "previous_day_promotion_rate": 0.2857142857142857,
+      "previous_limit_up_premium": null,
+      "reason_code": "OK",
+      "source": "DETERMINISTIC_FROZEN_FACTS",
+      "temperature": "RECOVERY"
+    }
+  },
+  "provider_originals": [
+    {
+      "call_id": "A2:CLOSE_REVIEW:30a9c65a86947a64f65daa0fad07eb17753c9750bf76850ae34fcbeb9d8df735",
+      "input_hash": "09dd5fcfcf5a1b8ac83609c26b5a82efae86c14142ee0771e7b6732055961e3b",
+      "latency_ms": 34419,
+      "provider_attempts": 1,
+      "validated": 0,
+      "issues_json": "[\"A2_STAGE_POLICY_MISMATCH\"]",
+      "provider_raw": {
+        "envelope": {
+          "as_of": "2026-10-19T16:32:47+08:00",
+          "config_hash": "45a66a942beef43983ea5a4db485f043533c61b45fd6d8e4b04913d861b6e55e",
+          "config_version": "LIANGJIAN_FUNNEL_V2/2.0.0",
+          "execution_trade_date": "2026-10-20",
+          "input_snapshot_ids": [
+            "snapshot-20261019T163247+0800-4a9259fc15c8:rotation-policy:a2-bottleneck:faabdcd18944"
+          ],
+          "knowledge_cutoff": "2026-10-19T16:32:47+08:00",
+          "market_regime": "ROTATION_NO_MAINLINE",
+          "model_name": "deepseek-v4-pro",
+          "prompt_version": "agent-2/3.0.5",
+          "reason_codes": [],
+          "run_id": "isolated0361c-29a22e155d9a-20261019T215636",
+          "schema_version": "team-research-envelope/1",
+          "source_trade_date": "2026-10-19",
+          "stage_id": "A2",
+          "status": "OK"
+        },
+        "focus_decisions": [],
+        "handoff_notes": {
+          "to_a3": [
+            "所有主题均处于潜伏期，无新开仓权限，明日重点观察主力净流入是否转正",
+            "机器人概念、国防军工、银行三个方向若出现连续两日主力净流入，需重新评估聚焦",
+            "情绪周期未确认，任何涨停梯队出现前不提升新开仓政策"
+          ]
+        },
+        "market_read": {
+          "dominant_themes": [
+            "ROBOTICS_ADVANCED_MANUFACTURING",
+            "NATIONAL_DEFENSE",
+            "FINANCIAL_HIGH_DIVIDEND"
+          ],
+          "emotion_cycle": "LATENT",
+          "opposing_refs": [
+            "A2:NEWS"
+          ],
+          "regime": "ROTATION_NO_MAINLINE",
+          "supporting_refs": [
+            "A2:MARKET"
+          ]
+        },
+        "model_nominations": [],
+        "reason_codes": [
+          "A2_CAPITAL_FLOW_UNAVAILABLE",
+          "A2_OPTIONAL_FACTS_DEGRADED",
+          "A2_EMOTION_CYCLE_LATENT",
+          "A2_ROTATION_NO_MAINLINE"
+        ],
+        "reject_decisions": [],
+        "rotation_reviews": [
+          {
+            "decision": "NO_FOCUS",
+            "explanation": "该方向成员均处于趋势通道但无主力净流入数据，且无涨停梯队确认，情绪周期为潜伏期，不满足聚焦条件。",
+            "opposing_refs": [
+              "A2:QUANT:002322.SZ"
+            ],
+            "reason_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "reviewed_symbols": [
+              "000601.SZ",
+              "002322.SZ",
+              "300556.SZ"
+            ],
+            "rotation_direction_id": "SELECTED_BOARD:AI_COMPUTE_INFRASTRUCTURE",
+            "supporting_refs": [
+              "A2:QUANT:000601.SZ"
+            ]
+          },
+          {
+            "decision": "NO_FOCUS",
+            "explanation": "液冷方向成员无主力净流入数据，且无涨停梯队确认，情绪周期为潜伏期，不满足聚焦条件。",
+            "opposing_refs": [
+              "A2:QUANT:300990.SZ"
+            ],
+            "reason_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "reviewed_symbols": [
+              "300839.SZ",
+              "300990.SZ"
+            ],
+            "rotation_direction_id": "SELECTED_BOARD:AI_LIQUID_COOLING",
+            "supporting_refs": [
+              "A2:QUANT:300839.SZ"
+            ]
+          },
+          {
+            "decision": "NO_FOCUS",
+            "explanation": "银行方向成员无主力净流入数据，且无涨停梯队确认，情绪周期为潜伏期，不满足聚焦条件。",
+            "opposing_refs": [
+              "A2:QUANT:600000.SH"
+            ],
+            "reason_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "reviewed_symbols": [
+              "002142.SZ",
+              "002966.SZ",
+              "600000.SH"
+            ],
+            "rotation_direction_id": "SELECTED_BOARD:BANKS",
+            "supporting_refs": [
+              "A2:QUANT:002142.SZ"
+            ]
+          },
+          {
+            "decision": "NO_FOCUS",
+            "explanation": "国防军工方向成员无主力净流入数据，且无涨停梯队确认，情绪周期为潜伏期，不满足聚焦条件。",
+            "opposing_refs": [
+              "A2:QUANT:300067.SZ"
+            ],
+            "reason_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "reviewed_symbols": [
+              "002683.SZ",
+              "300067.SZ",
+              "300471.SZ"
+            ],
+            "rotation_direction_id": "SELECTED_BOARD:NATIONAL_DEFENSE",
+            "supporting_refs": [
+              "A2:QUANT:002683.SZ"
+            ]
+          },
+          {
+            "decision": "NO_FOCUS",
+            "explanation": "贵金属方向成员无主力净流入数据，且无涨停梯队确认，情绪周期为潜伏期，不满足聚焦条件。",
+            "opposing_refs": [
+              "NO_OPPOSING_EVIDENCE_FOUND"
+            ],
+            "opposing_search_scope": [
+              "MARKET",
+              "QUANT"
+            ],
+            "reason_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "reviewed_symbols": [
+              "000975.SZ"
+            ],
+            "rotation_direction_id": "SELECTED_BOARD:PRECIOUS_METALS",
+            "supporting_refs": [
+              "A2:QUANT:000975.SZ"
+            ]
+          },
+          {
+            "decision": "NO_FOCUS",
+            "explanation": "机器人概念方向成员无主力净流入数据，且无涨停梯队确认，情绪周期为潜伏期，不满足聚焦条件。",
+            "opposing_refs": [
+              "A2:QUANT:000581.SZ"
+            ],
+            "reason_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "reviewed_symbols": [
+              "000333.SZ",
+              "000581.SZ",
+              "001266.SZ"
+            ],
+            "rotation_direction_id": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+            "supporting_refs": [
+              "A2:QUANT:000333.SZ"
+            ]
+          }
+        ],
+        "theme_reviews": [
+          {
+            "new_entry_policy": "WATCH_ONLY",
+            "opposing_refs": [
+              "A2:QUANT:002322.SZ"
+            ],
+            "penalty_codes": [],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "stage": "LATENT",
+            "support_codes": [],
+            "supporting_refs": [
+              "A2:QUANT:000333.SZ"
+            ],
+            "theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+            "what_would_change_my_mind": [
+              "板块主力净流入转正且连续两日为正",
+              "出现连续两日涨停梯队"
+            ]
+          },
+          {
+            "new_entry_policy": "WATCH_ONLY",
+            "opposing_refs": [
+              "A2:QUANT:301282.SZ"
+            ],
+            "penalty_codes": [],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "stage": "LATENT",
+            "support_codes": [],
+            "supporting_refs": [
+              "A2:QUANT:300852.SZ"
+            ],
+            "theme_id": "AI_COMPUTE_INFRASTRUCTURE",
+            "what_would_change_my_mind": [
+              "板块主力净流入转正",
+              "出现连续两日涨停梯队"
+            ]
+          },
+          {
+            "new_entry_policy": "WATCH_ONLY",
+            "opposing_refs": [
+              "A2:QUANT:002886.SZ"
+            ],
+            "penalty_codes": [],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "stage": "LATENT",
+            "support_codes": [],
+            "supporting_refs": [
+              "A2:QUANT:002683.SZ"
+            ],
+            "theme_id": "CHEMICAL_NEW_MATERIALS",
+            "what_would_change_my_mind": [
+              "板块主力净流入转正",
+              "出现连续两日涨停梯队"
+            ]
+          },
+          {
+            "new_entry_policy": "WATCH_ONLY",
+            "opposing_refs": [
+              "A2:QUANT:603418.SH"
+            ],
+            "penalty_codes": [],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "stage": "LATENT",
+            "support_codes": [],
+            "supporting_refs": [
+              "A2:QUANT:301002.SZ"
+            ],
+            "theme_id": "CONSUMER_ELECTRONICS",
+            "what_would_change_my_mind": [
+              "板块主力净流入转正",
+              "出现连续两日涨停梯队"
+            ]
+          },
+          {
+            "new_entry_policy": "WATCH_ONLY",
+            "opposing_refs": [
+              "A2:QUANT:000858.SZ"
+            ],
+            "penalty_codes": [],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "stage": "LATENT",
+            "support_codes": [],
+            "supporting_refs": [
+              "A2:QUANT:000729.SZ"
+            ],
+            "theme_id": "CONSUMER_SERVICES",
+            "what_would_change_my_mind": [
+              "板块主力净流入转正",
+              "出现连续两日涨停梯队"
+            ]
+          },
+          {
+            "new_entry_policy": "WATCH_ONLY",
+            "opposing_refs": [
+              "A2:QUANT:600036.SH"
+            ],
+            "penalty_codes": [],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "stage": "LATENT",
+            "support_codes": [],
+            "supporting_refs": [
+              "A2:QUANT:601288.SH"
+            ],
+            "theme_id": "FINANCIAL_HIGH_DIVIDEND",
+            "what_would_change_my_mind": [
+              "板块主力净流入转正",
+              "出现连续两日涨停梯队"
+            ]
+          },
+          {
+            "new_entry_policy": "WATCH_ONLY",
+            "opposing_refs": [
+              "A2:QUANT:002541.SZ"
+            ],
+            "penalty_codes": [],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "stage": "LATENT",
+            "support_codes": [],
+            "supporting_refs": [
+              "A2:QUANT:001965.SZ"
+            ],
+            "theme_id": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+            "what_would_change_my_mind": [
+              "板块主力净流入转正",
+              "出现连续两日涨停梯队"
+            ]
+          },
+          {
+            "new_entry_policy": "WATCH_ONLY",
+            "opposing_refs": [
+              "A2:QUANT:000538.SZ"
+            ],
+            "penalty_codes": [],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "stage": "LATENT",
+            "support_codes": [],
+            "supporting_refs": [
+              "A2:QUANT:000423.SZ"
+            ],
+            "theme_id": "INNOVATIVE_MEDICINE_HEALTHCARE",
+            "what_would_change_my_mind": [
+              "板块主力净流入转正",
+              "出现连续两日涨停梯队"
+            ]
+          },
+          {
+            "new_entry_policy": "WATCH_ONLY",
+            "opposing_refs": [
+              "A2:QUANT:600316.SH"
+            ],
+            "penalty_codes": [],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "stage": "LATENT",
+            "support_codes": [],
+            "supporting_refs": [
+              "A2:QUANT:000576.SZ"
+            ],
+            "theme_id": "NATIONAL_DEFENSE",
+            "what_would_change_my_mind": [
+              "板块主力净流入转正",
+              "出现连续两日涨停梯队"
+            ]
+          },
+          {
+            "new_entry_policy": "WATCH_ONLY",
+            "opposing_refs": [
+              "A2:QUANT:002270.SZ"
+            ],
+            "penalty_codes": [],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "stage": "LATENT",
+            "support_codes": [],
+            "supporting_refs": [
+              "A2:QUANT:000601.SZ"
+            ],
+            "theme_id": "POWER_EQUIPMENT_NEW_ENERGY",
+            "what_would_change_my_mind": [
+              "板块主力净流入转正",
+              "出现连续两日涨停梯队"
+            ]
+          },
+          {
+            "new_entry_policy": "WATCH_ONLY",
+            "opposing_refs": [
+              "A2:QUANT:300839.SZ"
+            ],
+            "penalty_codes": [],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "stage": "LATENT",
+            "support_codes": [],
+            "supporting_refs": [
+              "A2:QUANT:000975.SZ"
+            ],
+            "theme_id": "RESOURCES_ENERGY",
+            "what_would_change_my_mind": [
+              "板块主力净流入转正",
+              "出现连续两日涨停梯队"
+            ]
+          },
+          {
+            "new_entry_policy": "WATCH_ONLY",
+            "opposing_refs": [
+              "A2:QUANT:001266.SZ"
+            ],
+            "penalty_codes": [],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "stage": "LATENT",
+            "support_codes": [],
+            "supporting_refs": [
+              "A2:QUANT:000581.SZ"
+            ],
+            "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+            "what_would_change_my_mind": [
+              "板块主力净流入转正",
+              "出现连续两日涨停梯队"
+            ]
+          },
+          {
+            "new_entry_policy": "WATCH_ONLY",
+            "opposing_refs": [
+              "A2:QUANT:688018.SH"
+            ],
+            "penalty_codes": [],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "stage": "LATENT",
+            "support_codes": [],
+            "supporting_refs": [
+              "A2:QUANT:301666.SZ"
+            ],
+            "theme_id": "SEMICONDUCTOR_LOCALIZATION",
+            "what_would_change_my_mind": [
+              "板块主力净流入转正",
+              "出现连续两日涨停梯队"
+            ]
+          }
+        ],
+        "unresolved_questions": [],
+        "what_would_change_my_mind": [
+          "任一主题出现连续两日主力净流入且涨停梯队确认",
+          "市场情绪周期从潜伏期进入确认期"
+        ]
+      },
+      "provider_raw_text_sha256": "af744499a1fd4dae14152f7b930ff6c1b9a41f534dcff18511e0b44b3fdb5b43",
+      "policy_mismatches": [
+        {
+          "theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+          "stage": "LATENT",
+          "actual_policy": "WATCH_ONLY",
+          "expected_policy": null
+        },
+        {
+          "theme_id": "AI_COMPUTE_INFRASTRUCTURE",
+          "stage": "LATENT",
+          "actual_policy": "WATCH_ONLY",
+          "expected_policy": null
+        },
+        {
+          "theme_id": "CHEMICAL_NEW_MATERIALS",
+          "stage": "LATENT",
+          "actual_policy": "WATCH_ONLY",
+          "expected_policy": null
+        },
+        {
+          "theme_id": "CONSUMER_ELECTRONICS",
+          "stage": "LATENT",
+          "actual_policy": "WATCH_ONLY",
+          "expected_policy": null
+        },
+        {
+          "theme_id": "CONSUMER_SERVICES",
+          "stage": "LATENT",
+          "actual_policy": "WATCH_ONLY",
+          "expected_policy": null
+        },
+        {
+          "theme_id": "FINANCIAL_HIGH_DIVIDEND",
+          "stage": "LATENT",
+          "actual_policy": "WATCH_ONLY",
+          "expected_policy": null
+        },
+        {
+          "theme_id": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+          "stage": "LATENT",
+          "actual_policy": "WATCH_ONLY",
+          "expected_policy": null
+        },
+        {
+          "theme_id": "INNOVATIVE_MEDICINE_HEALTHCARE",
+          "stage": "LATENT",
+          "actual_policy": "WATCH_ONLY",
+          "expected_policy": null
+        },
+        {
+          "theme_id": "NATIONAL_DEFENSE",
+          "stage": "LATENT",
+          "actual_policy": "WATCH_ONLY",
+          "expected_policy": null
+        },
+        {
+          "theme_id": "POWER_EQUIPMENT_NEW_ENERGY",
+          "stage": "LATENT",
+          "actual_policy": "WATCH_ONLY",
+          "expected_policy": null
+        },
+        {
+          "theme_id": "RESOURCES_ENERGY",
+          "stage": "LATENT",
+          "actual_policy": "WATCH_ONLY",
+          "expected_policy": null
+        },
+        {
+          "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+          "stage": "LATENT",
+          "actual_policy": "WATCH_ONLY",
+          "expected_policy": null
+        },
+        {
+          "theme_id": "SEMICONDUCTOR_LOCALIZATION",
+          "stage": "LATENT",
+          "actual_policy": "WATCH_ONLY",
+          "expected_policy": null
+        }
+      ]
+    },
+    {
+      "call_id": "A2:CLOSE_REVIEW:14648f2bf13f9d667ca2e50c132f0944a247c0ea4464149ca61501c9f341b762",
+      "input_hash": "f1128f142a8dbdefc477ab3d7939f46313b5d188d6ff497c8e457d73341c2184",
+      "latency_ms": 42186,
+      "provider_attempts": 1,
+      "validated": 0,
+      "issues_json": "[\"A2_STAGE_POLICY_MISMATCH\",\"A2_ROTATION_DOMAIN_MISMATCH\"]",
+      "provider_raw": {
+        "envelope": {
+          "as_of": "2026-10-19T16:32:47+08:00",
+          "config_hash": "45a66a942beef43983ea5a4db485f043533c61b45fd6d8e4b04913d861b6e55e",
+          "config_version": "LIANGJIAN_FUNNEL_V2/2.0.0",
+          "execution_trade_date": "2026-10-20",
+          "input_snapshot_ids": [
+            "snapshot-20261019T163247+0800-4a9259fc15c8:rotation-policy:a2-bottleneck:faabdcd18944"
+          ],
+          "knowledge_cutoff": "2026-10-19T16:32:47+08:00",
+          "market_regime": "ROTATION_NO_MAINLINE",
+          "model_name": "deepseek-v4-pro",
+          "prompt_version": "agent-2/3.0.5",
+          "reason_codes": [],
+          "run_id": "isolated0361c-29a22e155d9a-20261019T215636",
+          "schema_version": "team-research-envelope/1",
+          "source_trade_date": "2026-10-19",
+          "stage_id": "A2",
+          "status": "OK"
+        },
+        "focus_decisions": [
+          {
+            "opposing_refs": [
+              "A2:QUANT:002322.SZ"
+            ],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "support_codes": [
+              "A2_MEDIUM_TERM_TREND_CONFIRMED"
+            ],
+            "supporting_refs": [
+              "A2:QUANT:000333.SZ"
+            ],
+            "symbol": "000333.SZ"
+          },
+          {
+            "opposing_refs": [
+              "A2:QUANT:001266.SZ"
+            ],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "support_codes": [
+              "A2_MEDIUM_TERM_TREND_CONFIRMED"
+            ],
+            "supporting_refs": [
+              "A2:QUANT:000581.SZ"
+            ],
+            "symbol": "000581.SZ"
+          },
+          {
+            "opposing_refs": [
+              "A2:QUANT:600036.SH"
+            ],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "support_codes": [
+              "A2_MEDIUM_TERM_TREND_CONFIRMED"
+            ],
+            "supporting_refs": [
+              "A2:QUANT:601288.SH"
+            ],
+            "symbol": "601288.SH"
+          },
+          {
+            "opposing_refs": [
+              "A2:QUANT:600316.SH"
+            ],
+            "risk_codes": [
+              "A2_EMOTION_CYCLE_NO_NEW_ENTRY"
+            ],
+            "support_codes": [
+              "A2_EMOTION_LADDER_LEADER_CONFIRMED"
+            ],
+            "supporting_refs": [
+              "A2:QUANT:000576.SZ"
+            ],
+            "symbol": "000576.SZ"
+          }
+        ],
+        "handoff_notes": {
+          "to_a3": [
+            "机器人方向000581.SZ与国防军工000576.SZ为当前最强趋势/情绪代表，明日重点观察板块资金流是否转正",
+            "银行方向601288.SH趋势结构完整但缺乏情绪催化，关注高股息资金是否持续流入",
+            "所有聚焦股均受资金流数据缺失约束，A3确认前需等待资金流事实补全"
+          ]
+        },
+        "market_read": {
+          "dominant_themes": [
+            "ROBOTICS_ADVANCED_MANUFACTURING",
+            "NATIONAL_DEFENSE",
+            "BANKS"
+          ],
+          "emotion_cycle": "LATENT",
+          "opposing_refs": [
+            "A2:NEWS"
+          ],
+          "regime": "ROTATION_NO_MAINLINE",
+          "supporting_refs": [
+            "A2:MARKET"
+          ]
+        },
+        "model_nominations": [],
+        "reason_codes": [
+          "A2_CAPITAL_FLOW_UNAVAILABLE",
+          "A2_OPTIONAL_FACTS_DEGRADED",
+          "A2_EMOTION_CYCLE_LATENT",
+          "A2_STAGE_POLICY_MISMATCH_CORRECTED"
+        ],
+        "reject_decisions": [
+          {
+            "opposing_refs": [
+              "A2:QUANT:002270.SZ"
+            ],
+            "risk_codes": [
+              "A2_IDENTIFIABILITY_BELOW_MINIMUM"
+            ],
+            "supporting_refs": [
+              "A2:QUANT:002441.SZ"
+            ],
+            "symbol": "002441.SZ"
+          },
+          {
+            "opposing_refs": [
+              "A2:QUANT:300432.SZ"
+            ],
+            "risk_codes": [
+              "A2_IDENTIFIABILITY_BELOW_MINIMUM"
+            ],
+            "supporting_refs": [
+              "A2:QUANT:300471.SZ"
+            ],
+            "symbol": "300471.SZ"
+          },
+          {
+            "opposing_refs": [
+              "A2:QUANT:000333.SZ"
+            ],
+            "risk_codes": [
+              "A2_IDENTIFIABILITY_BELOW_MINIMUM"
+            ],
+            "supporting_refs": [
+              "A2:QUANT:600060.SH"
+            ],
+            "symbol": "600060.SH"
+          },
+          {
+            "opposing_refs": [
+              "A2:QUANT:300852.SZ"
+            ],
+            "risk_codes": [
+              "A2_IDENTIFIABILITY_BELOW_MINIMUM"
+            ],
+            "supporting_refs": [
+              "A2:QUANT:600487.SH"
+            ],
+            "symbol": "600487.SH"
+          },
+          {
+            "opposing_refs": [
+              "A2:QUANT:688018.SH"
+            ],
+            "risk_codes": [
+              "A2_IDENTIFIABILITY_BELOW_MINIMUM"
+            ],
+            "supporting_refs": [
+              "A2:QUANT:301666.SZ"
+            ],
+            "symbol": "301666.SZ"
+          }
+        ],
+        "rotation_reviews": [
+          {
+            "decision": "NO_FOCUS",
+            "explanation": "该方向成员均处于趋势通道但无资金流确认，且个股结构强度弱于已聚焦的机器人方向代表，暂不新增聚焦。",
+            "opposing_refs": [
+              "A2:QUANT:002322.SZ"
+            ],
+            "reason_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "reviewed_symbols": [
+              "000601.SZ",
+              "002322.SZ",
+              "600406.SH"
+            ],
+            "rotation_direction_id": "SELECTED_BOARD:AI_COMPUTE_INFRASTRUCTURE",
+            "supporting_refs": [
+              "A2:QUANT:000601.SZ"
+            ]
+          },
+          {
+            "decision": "NO_FOCUS",
+            "explanation": "液冷方向成员数量少且无资金流确认，个股趋势结构未形成板块级共振，暂不聚焦。",
+            "opposing_refs": [
+              "A2:QUANT:300990.SZ"
+            ],
+            "reason_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "reviewed_symbols": [
+              "300839.SZ",
+              "300990.SZ"
+            ],
+            "rotation_direction_id": "SELECTED_BOARD:AI_LIQUID_COOLING",
+            "supporting_refs": [
+              "A2:QUANT:300839.SZ"
+            ]
+          },
+          {
+            "decision": "NO_FOCUS",
+            "explanation": "银行方向已有601288.SH聚焦，其余成员趋势结构完整但相对强度与广度弱于已聚焦代表，不重复聚焦。",
+            "opposing_refs": [
+              "A2:QUANT:002142.SZ"
+            ],
+            "reason_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "reviewed_symbols": [
+              "002142.SZ",
+              "600000.SH",
+              "601077.SH"
+            ],
+            "rotation_direction_id": "SELECTED_BOARD:BANKS",
+            "supporting_refs": [
+              "A2:QUANT:600000.SH"
+            ]
+          },
+          {
+            "decision": "NO_FOCUS",
+            "explanation": "国防军工方向已有000576.SZ聚焦，其余成员趋势结构虽完整但缺乏情绪梯队确认，暂不新增聚焦。",
+            "opposing_refs": [
+              "A2:QUANT:600685.SH"
+            ],
+            "reason_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "reviewed_symbols": [
+              "600316.SH",
+              "600685.SH",
+              "688522.SH"
+            ],
+            "rotation_direction_id": "SELECTED_BOARD:NATIONAL_DEFENSE",
+            "supporting_refs": [
+              "A2:QUANT:600316.SH"
+            ]
+          },
+          {
+            "decision": "NO_FOCUS",
+            "explanation": "贵金属方向仅一只成员，趋势结构完整但无资金流确认，且板块广度不足，暂不聚焦。",
+            "opposing_refs": [
+              "A2:QUANT:300839.SZ"
+            ],
+            "reason_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "reviewed_symbols": [
+              "000975.SZ"
+            ],
+            "rotation_direction_id": "SELECTED_BOARD:PRECIOUS_METALS",
+            "supporting_refs": [
+              "A2:QUANT:000975.SZ"
+            ]
+          },
+          {
+            "decision": "NO_FOCUS",
+            "explanation": "机器人方向已有000581.SZ聚焦，其余成员趋势结构完整但相对强度与广度弱于已聚焦代表，不重复聚焦。",
+            "opposing_refs": [
+              "A2:QUANT:002270.SZ"
+            ],
+            "reason_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "reviewed_symbols": [
+              "001266.SZ",
+              "002270.SZ",
+              "002376.SZ"
+            ],
+            "rotation_direction_id": "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING",
+            "supporting_refs": [
+              "A2:QUANT:001266.SZ"
+            ]
+          }
+        ],
+        "theme_reviews": [
+          {
+            "new_entry_policy": "WATCH_ONLY",
+            "opposing_refs": [
+              "A2:QUANT:002322.SZ"
+            ],
+            "penalty_codes": [],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "stage": "LATENT",
+            "support_codes": [],
+            "supporting_refs": [
+              "A2:QUANT:000333.SZ"
+            ],
+            "theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+            "what_would_change_my_mind": [
+              "板块主力净流入转正且连续两日为正",
+              "出现连续两日涨停梯队"
+            ]
+          },
+          {
+            "new_entry_policy": "WATCH_ONLY",
+            "opposing_refs": [
+              "A2:QUANT:301282.SZ"
+            ],
+            "penalty_codes": [],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "stage": "LATENT",
+            "support_codes": [],
+            "supporting_refs": [
+              "A2:QUANT:300852.SZ"
+            ],
+            "theme_id": "AI_COMPUTE_INFRASTRUCTURE",
+            "what_would_change_my_mind": [
+              "板块主力净流入转正",
+              "出现连续两日涨停梯队"
+            ]
+          },
+          {
+            "new_entry_policy": "WATCH_ONLY",
+            "opposing_refs": [
+              "A2:QUANT:002886.SZ"
+            ],
+            "penalty_codes": [],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "stage": "LATENT",
+            "support_codes": [],
+            "supporting_refs": [
+              "A2:QUANT:002683.SZ"
+            ],
+            "theme_id": "CHEMICAL_NEW_MATERIALS",
+            "what_would_change_my_mind": [
+              "板块主力净流入转正",
+              "出现连续两日涨停梯队"
+            ]
+          },
+          {
+            "new_entry_policy": "WATCH_ONLY",
+            "opposing_refs": [
+              "A2:QUANT:603418.SH"
+            ],
+            "penalty_codes": [],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "stage": "LATENT",
+            "support_codes": [],
+            "supporting_refs": [
+              "A2:QUANT:301002.SZ"
+            ],
+            "theme_id": "CONSUMER_ELECTRONICS",
+            "what_would_change_my_mind": [
+              "板块主力净流入转正",
+              "出现连续两日涨停梯队"
+            ]
+          },
+          {
+            "new_entry_policy": "WATCH_ONLY",
+            "opposing_refs": [
+              "A2:QUANT:000858.SZ"
+            ],
+            "penalty_codes": [],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "stage": "LATENT",
+            "support_codes": [],
+            "supporting_refs": [
+              "A2:QUANT:000729.SZ"
+            ],
+            "theme_id": "CONSUMER_SERVICES",
+            "what_would_change_my_mind": [
+              "板块主力净流入转正",
+              "出现连续两日涨停梯队"
+            ]
+          },
+          {
+            "new_entry_policy": "WATCH_ONLY",
+            "opposing_refs": [
+              "A2:QUANT:600036.SH"
+            ],
+            "penalty_codes": [],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "stage": "LATENT",
+            "support_codes": [],
+            "supporting_refs": [
+              "A2:QUANT:601288.SH"
+            ],
+            "theme_id": "FINANCIAL_HIGH_DIVIDEND",
+            "what_would_change_my_mind": [
+              "板块主力净流入转正",
+              "出现连续两日涨停梯队"
+            ]
+          },
+          {
+            "new_entry_policy": "WATCH_ONLY",
+            "opposing_refs": [
+              "A2:QUANT:002541.SZ"
+            ],
+            "penalty_codes": [],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "stage": "LATENT",
+            "support_codes": [],
+            "supporting_refs": [
+              "A2:QUANT:001965.SZ"
+            ],
+            "theme_id": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+            "what_would_change_my_mind": [
+              "板块主力净流入转正",
+              "出现连续两日涨停梯队"
+            ]
+          },
+          {
+            "new_entry_policy": "WATCH_ONLY",
+            "opposing_refs": [
+              "A2:QUANT:000538.SZ"
+            ],
+            "penalty_codes": [],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "stage": "LATENT",
+            "support_codes": [],
+            "supporting_refs": [
+              "A2:QUANT:000423.SZ"
+            ],
+            "theme_id": "INNOVATIVE_MEDICINE_HEALTHCARE",
+            "what_would_change_my_mind": [
+              "板块主力净流入转正",
+              "出现连续两日涨停梯队"
+            ]
+          },
+          {
+            "new_entry_policy": "WATCH_ONLY",
+            "opposing_refs": [
+              "A2:QUANT:600316.SH"
+            ],
+            "penalty_codes": [],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "stage": "LATENT",
+            "support_codes": [],
+            "supporting_refs": [
+              "A2:QUANT:000576.SZ"
+            ],
+            "theme_id": "NATIONAL_DEFENSE",
+            "what_would_change_my_mind": [
+              "板块主力净流入转正",
+              "出现连续两日涨停梯队"
+            ]
+          },
+          {
+            "new_entry_policy": "WATCH_ONLY",
+            "opposing_refs": [
+              "A2:QUANT:002270.SZ"
+            ],
+            "penalty_codes": [],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "stage": "LATENT",
+            "support_codes": [],
+            "supporting_refs": [
+              "A2:QUANT:000601.SZ"
+            ],
+            "theme_id": "POWER_EQUIPMENT_NEW_ENERGY",
+            "what_would_change_my_mind": [
+              "板块主力净流入转正",
+              "出现连续两日涨停梯队"
+            ]
+          },
+          {
+            "new_entry_policy": "WATCH_ONLY",
+            "opposing_refs": [
+              "A2:QUANT:300839.SZ"
+            ],
+            "penalty_codes": [],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "stage": "LATENT",
+            "support_codes": [],
+            "supporting_refs": [
+              "A2:QUANT:000975.SZ"
+            ],
+            "theme_id": "RESOURCES_ENERGY",
+            "what_would_change_my_mind": [
+              "板块主力净流入转正",
+              "出现连续两日涨停梯队"
+            ]
+          },
+          {
+            "new_entry_policy": "WATCH_ONLY",
+            "opposing_refs": [
+              "A2:QUANT:001266.SZ"
+            ],
+            "penalty_codes": [],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "stage": "LATENT",
+            "support_codes": [],
+            "supporting_refs": [
+              "A2:QUANT:000581.SZ"
+            ],
+            "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+            "what_would_change_my_mind": [
+              "板块主力净流入转正",
+              "出现连续两日涨停梯队"
+            ]
+          },
+          {
+            "new_entry_policy": "WATCH_ONLY",
+            "opposing_refs": [
+              "A2:QUANT:688018.SH"
+            ],
+            "penalty_codes": [],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "stage": "LATENT",
+            "support_codes": [],
+            "supporting_refs": [
+              "A2:QUANT:301666.SZ"
+            ],
+            "theme_id": "SEMICONDUCTOR_LOCALIZATION",
+            "what_would_change_my_mind": [
+              "板块主力净流入转正",
+              "出现连续两日涨停梯队"
+            ]
+          }
+        ],
+        "unresolved_questions": [],
+        "what_would_change_my_mind": [
+          "任一聚焦主题出现连续两日主力净流入转正",
+          "市场情绪周期从LATENT升级为CONFIRMATION或ACCELERATION"
+        ]
+      },
+      "provider_raw_text_sha256": "a507bf06b5fca5dd114895e79a49c10722f2a233c4dca5f9954869b66022bcce",
+      "policy_mismatches": [
+        {
+          "theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+          "stage": "LATENT",
+          "actual_policy": "WATCH_ONLY",
+          "expected_policy": null
+        },
+        {
+          "theme_id": "AI_COMPUTE_INFRASTRUCTURE",
+          "stage": "LATENT",
+          "actual_policy": "WATCH_ONLY",
+          "expected_policy": null
+        },
+        {
+          "theme_id": "CHEMICAL_NEW_MATERIALS",
+          "stage": "LATENT",
+          "actual_policy": "WATCH_ONLY",
+          "expected_policy": null
+        },
+        {
+          "theme_id": "CONSUMER_ELECTRONICS",
+          "stage": "LATENT",
+          "actual_policy": "WATCH_ONLY",
+          "expected_policy": null
+        },
+        {
+          "theme_id": "CONSUMER_SERVICES",
+          "stage": "LATENT",
+          "actual_policy": "WATCH_ONLY",
+          "expected_policy": null
+        },
+        {
+          "theme_id": "FINANCIAL_HIGH_DIVIDEND",
+          "stage": "LATENT",
+          "actual_policy": "WATCH_ONLY",
+          "expected_policy": null
+        },
+        {
+          "theme_id": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+          "stage": "LATENT",
+          "actual_policy": "WATCH_ONLY",
+          "expected_policy": null
+        },
+        {
+          "theme_id": "INNOVATIVE_MEDICINE_HEALTHCARE",
+          "stage": "LATENT",
+          "actual_policy": "WATCH_ONLY",
+          "expected_policy": null
+        },
+        {
+          "theme_id": "NATIONAL_DEFENSE",
+          "stage": "LATENT",
+          "actual_policy": "WATCH_ONLY",
+          "expected_policy": null
+        },
+        {
+          "theme_id": "POWER_EQUIPMENT_NEW_ENERGY",
+          "stage": "LATENT",
+          "actual_policy": "WATCH_ONLY",
+          "expected_policy": null
+        },
+        {
+          "theme_id": "RESOURCES_ENERGY",
+          "stage": "LATENT",
+          "actual_policy": "WATCH_ONLY",
+          "expected_policy": null
+        },
+        {
+          "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+          "stage": "LATENT",
+          "actual_policy": "WATCH_ONLY",
+          "expected_policy": null
+        },
+        {
+          "theme_id": "SEMICONDUCTOR_LOCALIZATION",
+          "stage": "LATENT",
+          "actual_policy": "WATCH_ONLY",
+          "expected_policy": null
+        }
+      ]
+    },
+    {
+      "call_id": "A2:CLOSE_REVIEW:dd9cc186619562b7169e0cec93b71641c38518f5ae75f1d1880ef171908295de",
+      "input_hash": "ef33207f5ad980f54f0f82c7c3a6c43913ea5e45e7abbae640c7d48b416f0fd5",
+      "latency_ms": 43942,
+      "provider_attempts": 1,
+      "validated": 0,
+      "issues_json": "[\"A2_STAGE_POLICY_MISMATCH\"]",
+      "provider_raw": {
+        "envelope": {
+          "as_of": "2026-10-19T16:32:47+08:00",
+          "config_hash": "45a66a942beef43983ea5a4db485f043533c61b45fd6d8e4b04913d861b6e55e",
+          "config_version": "LIANGJIAN_FUNNEL_V2/2.0.0",
+          "execution_trade_date": "2026-10-20",
+          "input_snapshot_ids": [
+            "snapshot-20261019T163247+0800-4a9259fc15c8:rotation-policy:a2-bottleneck:faabdcd18944"
+          ],
+          "knowledge_cutoff": "2026-10-19T16:32:47+08:00",
+          "market_regime": "ROTATION_NO_MAINLINE",
+          "model_name": "deepseek-v4-pro",
+          "prompt_version": "agent-2/3.0.5",
+          "reason_codes": [],
+          "run_id": "isolated0361c-29a22e155d9a-20261019T215636",
+          "schema_version": "team-research-envelope/1",
+          "source_trade_date": "2026-10-19",
+          "stage_id": "A2",
+          "status": "OK"
+        },
+        "focus_decisions": [
+          {
+            "opposing_refs": [
+              "A2:QUANT:002322.SZ"
+            ],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "support_codes": [
+              "A2_MEDIUM_TERM_TREND_CONFIRMED"
+            ],
+            "supporting_refs": [
+              "A2:QUANT:000333.SZ"
+            ],
+            "symbol": "000333.SZ"
+          },
+          {
+            "opposing_refs": [
+              "A2:QUANT:600316.SH"
+            ],
+            "risk_codes": [
+              "A2_EMOTION_CYCLE_NO_NEW_ENTRY"
+            ],
+            "support_codes": [
+              "A2_EMOTION_LADDER_LEADER_CONFIRMED"
+            ],
+            "supporting_refs": [
+              "A2:QUANT:000576.SZ"
+            ],
+            "symbol": "000576.SZ"
+          },
+          {
+            "opposing_refs": [
+              "A2:QUANT:001266.SZ"
+            ],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "support_codes": [
+              "A2_MEDIUM_TERM_TREND_CONFIRMED"
+            ],
+            "supporting_refs": [
+              "A2:QUANT:000581.SZ"
+            ],
+            "symbol": "000581.SZ"
+          },
+          {
+            "opposing_refs": [
+              "A2:QUANT:600036.SH"
+            ],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "support_codes": [
+              "A2_MEDIUM_TERM_TREND_CONFIRMED"
+            ],
+            "supporting_refs": [
+              "A2:QUANT:601288.SH"
+            ],
+            "symbol": "601288.SH"
+          }
+        ],
+        "handoff_notes": {
+          "to_a3": [
+            "机器人概念与国防军工是当前仅有的两个有主力净流入为正的轮动方向，但情绪周期仍处 LATENT，明日重点盯板块主力净流入能否连续为正",
+            "银行方向 601288.SH 趋势结构完整且广度 100，但资金流数据缺失，需等待资金确认后再考虑技术研究",
+            "所有主题均处 LATENT 潜伏期，新开仓政策为 WATCH_ONLY，明日若出现连续两日涨停梯队或主力净流入转正是升级信号"
+          ]
+        },
+        "market_read": {
+          "dominant_themes": [
+            "ROBOTICS_ADVANCED_MANUFACTURING",
+            "NATIONAL_DEFENSE",
+            "FINANCIAL_HIGH_DIVIDEND"
+          ],
+          "emotion_cycle": "LATENT",
+          "opposing_refs": [
+            "A2:QUANT:600487.SH",
+            "A2:QUANT:301666.SZ"
+          ],
+          "regime": "ROTATION_NO_MAINLINE",
+          "supporting_refs": [
+            "A2:MARKET",
+            "A2:QUANT:000581.SZ",
+            "A2:QUANT:601288.SH"
+          ]
+        },
+        "model_nominations": [],
+        "reason_codes": [
+          "A2_CAPITAL_FLOW_UNAVAILABLE",
+          "A2_OPTIONAL_FACTS_DEGRADED",
+          "A2_EMOTION_CYCLE_LATENT",
+          "A2_ROTATION_NO_MAINLINE"
+        ],
+        "reject_decisions": [
+          {
+            "opposing_refs": [
+              "A2:QUANT:000601.SZ"
+            ],
+            "risk_codes": [
+              "A2_IDENTIFIABILITY_BELOW_MINIMUM"
+            ],
+            "supporting_refs": [
+              "A2:QUANT:002441.SZ"
+            ],
+            "symbol": "002441.SZ"
+          },
+          {
+            "opposing_refs": [
+              "A2:QUANT:000581.SZ"
+            ],
+            "risk_codes": [
+              "A2_IDENTIFIABILITY_BELOW_MINIMUM"
+            ],
+            "supporting_refs": [
+              "A2:QUANT:300471.SZ"
+            ],
+            "symbol": "300471.SZ"
+          },
+          {
+            "opposing_refs": [
+              "A2:QUANT:000333.SZ"
+            ],
+            "risk_codes": [
+              "A2_IDENTIFIABILITY_BELOW_MINIMUM"
+            ],
+            "supporting_refs": [
+              "A2:QUANT:600060.SH"
+            ],
+            "symbol": "600060.SH"
+          },
+          {
+            "opposing_refs": [
+              "A2:QUANT:300852.SZ"
+            ],
+            "risk_codes": [
+              "A2_IDENTIFIABILITY_BELOW_MINIMUM"
+            ],
+            "supporting_refs": [
+              "A2:QUANT:600487.SH"
+            ],
+            "symbol": "600487.SH"
+          },
+          {
+            "opposing_refs": [
+              "A2:QUANT:688018.SH"
+            ],
+            "risk_codes": [
+              "A2_IDENTIFIABILITY_BELOW_MINIMUM"
+            ],
+            "supporting_refs": [
+              "A2:QUANT:301666.SZ"
+            ],
+            "symbol": "301666.SZ"
+          }
+        ],
+        "rotation_reviews": [
+          {
+            "decision": "NO_FOCUS",
+            "explanation": "该方向成员均未进入 focus_decisions。000601.SZ 趋势结构完整但换手占比仅 1.77、广度 30.1 偏弱；002322.SZ 趋势强度高但换手占比 1.85、板块共振不足；300556.SZ 换手占比 1.85、identifiability 64.7 偏低，均缺乏资金确认与梯队支撑，不构成聚焦条件。",
+            "opposing_refs": [
+              "A2:QUANT:300852.SZ"
+            ],
+            "reason_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "reviewed_symbols": [
+              "000601.SZ",
+              "002322.SZ",
+              "300556.SZ"
+            ],
+            "rotation_direction_id": "SELECTED_BOARD:AI_COMPUTE_INFRASTRUCTURE",
+            "supporting_refs": [
+              "A2:QUANT:000601.SZ",
+              "A2:QUANT:002322.SZ",
+              "A2:QUANT:300556.SZ"
+            ]
+          },
+          {
+            "decision": "NO_FOCUS",
+            "explanation": "该方向成员均未进入 focus_decisions。300839.SZ 趋势结构完整但广度仅 20.0、换手占比 33.53 偏高且无梯队；300990.SZ 广度 23.08、换手占比 7.97，均缺乏资金确认与板块共振，不构成聚焦条件。",
+            "opposing_refs": [
+              "A2:QUANT:301282.SZ"
+            ],
+            "reason_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "reviewed_symbols": [
+              "300839.SZ",
+              "300990.SZ"
+            ],
+            "rotation_direction_id": "SELECTED_BOARD:AI_LIQUID_COOLING",
+            "supporting_refs": [
+              "A2:QUANT:300839.SZ",
+              "A2:QUANT:300990.SZ"
+            ]
+          },
+          {
+            "decision": "NO_FOCUS",
+            "explanation": "该方向成员均未进入 focus_decisions。002683.SZ 趋势结构完整但换手占比仅 2.0、广度 32.17；300067.SZ 广度 32.17、换手占比 2.0；600316.SH 广度 25.0、换手占比 2.9，均缺乏资金确认与梯队支撑，不构成聚焦条件。",
+            "opposing_refs": [
+              "A2:QUANT:000576.SZ"
+            ],
+            "reason_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "reviewed_symbols": [
+              "002683.SZ",
+              "300067.SZ",
+              "600316.SH"
+            ],
+            "rotation_direction_id": "SELECTED_BOARD:NATIONAL_DEFENSE",
+            "supporting_refs": [
+              "A2:QUANT:002683.SZ",
+              "A2:QUANT:300067.SZ",
+              "A2:QUANT:600316.SH"
+            ]
+          },
+          {
+            "decision": "NO_FOCUS",
+            "explanation": "该方向成员均未进入 focus_decisions。000975.SZ 趋势结构完整但广度仅 7.8、换手占比 4.25、板块共振 16.31 极弱，缺乏资金确认与梯队支撑，不构成聚焦条件。",
+            "opposing_refs": [
+              "A2:QUANT:300839.SZ"
+            ],
+            "reason_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "reviewed_symbols": [
+              "000975.SZ"
+            ],
+            "rotation_direction_id": "SELECTED_BOARD:PRECIOUS_METALS",
+            "supporting_refs": [
+              "A2:QUANT:000975.SZ"
+            ]
+          }
+        ],
+        "theme_reviews": [
+          {
+            "new_entry_policy": "WATCH_ONLY",
+            "opposing_refs": [
+              "A2:QUANT:002322.SZ"
+            ],
+            "penalty_codes": [],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "stage": "LATENT",
+            "support_codes": [],
+            "supporting_refs": [
+              "A2:QUANT:000333.SZ"
+            ],
+            "theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+            "what_would_change_my_mind": [
+              "板块主力净流入转正且连续两日为正",
+              "出现连续两日涨停梯队"
+            ]
+          },
+          {
+            "new_entry_policy": "WATCH_ONLY",
+            "opposing_refs": [
+              "A2:QUANT:301282.SZ"
+            ],
+            "penalty_codes": [],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "stage": "LATENT",
+            "support_codes": [],
+            "supporting_refs": [
+              "A2:QUANT:300852.SZ"
+            ],
+            "theme_id": "AI_COMPUTE_INFRASTRUCTURE",
+            "what_would_change_my_mind": [
+              "板块主力净流入转正",
+              "出现连续两日涨停梯队"
+            ]
+          },
+          {
+            "new_entry_policy": "WATCH_ONLY",
+            "opposing_refs": [
+              "A2:QUANT:002886.SZ"
+            ],
+            "penalty_codes": [],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "stage": "LATENT",
+            "support_codes": [],
+            "supporting_refs": [
+              "A2:QUANT:002683.SZ"
+            ],
+            "theme_id": "CHEMICAL_NEW_MATERIALS",
+            "what_would_change_my_mind": [
+              "板块主力净流入转正",
+              "出现连续两日涨停梯队"
+            ]
+          },
+          {
+            "new_entry_policy": "WATCH_ONLY",
+            "opposing_refs": [
+              "A2:QUANT:603418.SH"
+            ],
+            "penalty_codes": [],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "stage": "LATENT",
+            "support_codes": [],
+            "supporting_refs": [
+              "A2:QUANT:301002.SZ"
+            ],
+            "theme_id": "CONSUMER_ELECTRONICS",
+            "what_would_change_my_mind": [
+              "板块主力净流入转正",
+              "出现连续两日涨停梯队"
+            ]
+          },
+          {
+            "new_entry_policy": "WATCH_ONLY",
+            "opposing_refs": [
+              "A2:QUANT:000858.SZ"
+            ],
+            "penalty_codes": [],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "stage": "LATENT",
+            "support_codes": [],
+            "supporting_refs": [
+              "A2:QUANT:000729.SZ"
+            ],
+            "theme_id": "CONSUMER_SERVICES",
+            "what_would_change_my_mind": [
+              "板块主力净流入转正",
+              "出现连续两日涨停梯队"
+            ]
+          },
+          {
+            "new_entry_policy": "WATCH_ONLY",
+            "opposing_refs": [
+              "A2:QUANT:600036.SH"
+            ],
+            "penalty_codes": [],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "stage": "LATENT",
+            "support_codes": [],
+            "supporting_refs": [
+              "A2:QUANT:601288.SH"
+            ],
+            "theme_id": "FINANCIAL_HIGH_DIVIDEND",
+            "what_would_change_my_mind": [
+              "板块主力净流入转正",
+              "出现连续两日涨停梯队"
+            ]
+          },
+          {
+            "new_entry_policy": "WATCH_ONLY",
+            "opposing_refs": [
+              "A2:QUANT:002541.SZ"
+            ],
+            "penalty_codes": [],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "stage": "LATENT",
+            "support_codes": [],
+            "supporting_refs": [
+              "A2:QUANT:001965.SZ"
+            ],
+            "theme_id": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+            "what_would_change_my_mind": [
+              "板块主力净流入转正",
+              "出现连续两日涨停梯队"
+            ]
+          },
+          {
+            "new_entry_policy": "WATCH_ONLY",
+            "opposing_refs": [
+              "A2:QUANT:000538.SZ"
+            ],
+            "penalty_codes": [],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "stage": "LATENT",
+            "support_codes": [],
+            "supporting_refs": [
+              "A2:QUANT:000423.SZ"
+            ],
+            "theme_id": "INNOVATIVE_MEDICINE_HEALTHCARE",
+            "what_would_change_my_mind": [
+              "板块主力净流入转正",
+              "出现连续两日涨停梯队"
+            ]
+          },
+          {
+            "new_entry_policy": "WATCH_ONLY",
+            "opposing_refs": [
+              "A2:QUANT:600316.SH"
+            ],
+            "penalty_codes": [],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "stage": "LATENT",
+            "support_codes": [],
+            "supporting_refs": [
+              "A2:QUANT:000576.SZ"
+            ],
+            "theme_id": "NATIONAL_DEFENSE",
+            "what_would_change_my_mind": [
+              "板块主力净流入转正",
+              "出现连续两日涨停梯队"
+            ]
+          },
+          {
+            "new_entry_policy": "WATCH_ONLY",
+            "opposing_refs": [
+              "A2:QUANT:002270.SZ"
+            ],
+            "penalty_codes": [],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "stage": "LATENT",
+            "support_codes": [],
+            "supporting_refs": [
+              "A2:QUANT:000601.SZ"
+            ],
+            "theme_id": "POWER_EQUIPMENT_NEW_ENERGY",
+            "what_would_change_my_mind": [
+              "板块主力净流入转正",
+              "出现连续两日涨停梯队"
+            ]
+          },
+          {
+            "new_entry_policy": "WATCH_ONLY",
+            "opposing_refs": [
+              "A2:QUANT:300839.SZ"
+            ],
+            "penalty_codes": [],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "stage": "LATENT",
+            "support_codes": [],
+            "supporting_refs": [
+              "A2:QUANT:000975.SZ"
+            ],
+            "theme_id": "RESOURCES_ENERGY",
+            "what_would_change_my_mind": [
+              "板块主力净流入转正",
+              "出现连续两日涨停梯队"
+            ]
+          },
+          {
+            "new_entry_policy": "WATCH_ONLY",
+            "opposing_refs": [
+              "A2:QUANT:001266.SZ"
+            ],
+            "penalty_codes": [],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "stage": "LATENT",
+            "support_codes": [],
+            "supporting_refs": [
+              "A2:QUANT:000581.SZ"
+            ],
+            "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+            "what_would_change_my_mind": [
+              "板块主力净流入转正",
+              "出现连续两日涨停梯队"
+            ]
+          },
+          {
+            "new_entry_policy": "WATCH_ONLY",
+            "opposing_refs": [
+              "A2:QUANT:688018.SH"
+            ],
+            "penalty_codes": [],
+            "risk_codes": [
+              "A2_CAPITAL_FLOW_UNAVAILABLE"
+            ],
+            "stage": "LATENT",
+            "support_codes": [],
+            "supporting_refs": [
+              "A2:QUANT:301666.SZ"
+            ],
+            "theme_id": "SEMICONDUCTOR_LOCALIZATION",
+            "what_would_change_my_mind": [
+              "板块主力净流入转正",
+              "出现连续两日涨停梯队"
+            ]
+          }
+        ],
+        "unresolved_questions": [],
+        "what_would_change_my_mind": [
+          "任一主题出现连续两日主力净流入为正且涨停梯队高度≥2",
+          "市场情绪周期从 LATENT 升级为 IGNITION 或 CONFIRMATION"
+        ]
+      },
+      "provider_raw_text_sha256": "ade1927a0eed9b66f68630fbd9c8b045e2de3a3ddf73523b6efdb7f465ce0372",
+      "policy_mismatches": [
+        {
+          "theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+          "stage": "LATENT",
+          "actual_policy": "WATCH_ONLY",
+          "expected_policy": null
+        },
+        {
+          "theme_id": "AI_COMPUTE_INFRASTRUCTURE",
+          "stage": "LATENT",
+          "actual_policy": "WATCH_ONLY",
+          "expected_policy": null
+        },
+        {
+          "theme_id": "CHEMICAL_NEW_MATERIALS",
+          "stage": "LATENT",
+          "actual_policy": "WATCH_ONLY",
+          "expected_policy": null
+        },
+        {
+          "theme_id": "CONSUMER_ELECTRONICS",
+          "stage": "LATENT",
+          "actual_policy": "WATCH_ONLY",
+          "expected_policy": null
+        },
+        {
+          "theme_id": "CONSUMER_SERVICES",
+          "stage": "LATENT",
+          "actual_policy": "WATCH_ONLY",
+          "expected_policy": null
+        },
+        {
+          "theme_id": "FINANCIAL_HIGH_DIVIDEND",
+          "stage": "LATENT",
+          "actual_policy": "WATCH_ONLY",
+          "expected_policy": null
+        },
+        {
+          "theme_id": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+          "stage": "LATENT",
+          "actual_policy": "WATCH_ONLY",
+          "expected_policy": null
+        },
+        {
+          "theme_id": "INNOVATIVE_MEDICINE_HEALTHCARE",
+          "stage": "LATENT",
+          "actual_policy": "WATCH_ONLY",
+          "expected_policy": null
+        },
+        {
+          "theme_id": "NATIONAL_DEFENSE",
+          "stage": "LATENT",
+          "actual_policy": "WATCH_ONLY",
+          "expected_policy": null
+        },
+        {
+          "theme_id": "POWER_EQUIPMENT_NEW_ENERGY",
+          "stage": "LATENT",
+          "actual_policy": "WATCH_ONLY",
+          "expected_policy": null
+        },
+        {
+          "theme_id": "RESOURCES_ENERGY",
+          "stage": "LATENT",
+          "actual_policy": "WATCH_ONLY",
+          "expected_policy": null
+        },
+        {
+          "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+          "stage": "LATENT",
+          "actual_policy": "WATCH_ONLY",
+          "expected_policy": null
+        },
+        {
+          "theme_id": "SEMICONDUCTOR_LOCALIZATION",
+          "stage": "LATENT",
+          "actual_policy": "WATCH_ONLY",
+          "expected_policy": null
+        }
+      ]
+    }
+  ],
+  "request_feedback": [
+    {
+      "call_id": "A2:CLOSE_REVIEW:30a9c65a86947a64f65daa0fad07eb17753c9750bf76850ae34fcbeb9d8df735",
+      "feedback": null,
+      "input_engine_stage": "LATENT"
+    },
+    {
+      "call_id": "A2:CLOSE_REVIEW:14648f2bf13f9d667ca2e50c132f0944a247c0ea4464149ca61501c9f341b762",
+      "feedback": {
+        "already_focused_directions_forbidden": [],
+        "authority": "0361_REPLY_B_ALL_VALIDATION_FEEDBACK_MAX_THREE",
+        "legal_values": {
+          "allowed_theme_ids": [
+            "AI_APPLICATIONS_DIGITAL_ECONOMY",
+            "AI_COMPUTE_INFRASTRUCTURE",
+            "CHEMICAL_NEW_MATERIALS",
+            "CONSUMER_ELECTRONICS",
+            "CONSUMER_SERVICES",
+            "FINANCIAL_HIGH_DIVIDEND",
+            "INFRASTRUCTURE_DOMESTIC_DEMAND",
+            "INNOVATIVE_MEDICINE_HEALTHCARE",
+            "NATIONAL_DEFENSE",
+            "POWER_EQUIPMENT_NEW_ENERGY",
+            "RESOURCES_ENERGY",
+            "ROBOTICS_ADVANCED_MANUFACTURING",
+            "SEMICONDUCTOR_LOCALIZATION"
+          ],
+          "candidate_ids": [
+            "000333.SZ",
+            "000423.SZ",
+            "000538.SZ",
+            "000576.SZ",
+            "000581.SZ",
+            "000601.SZ",
+            "000729.SZ",
+            "000848.SZ",
+            "000858.SZ",
+            "000975.SZ",
+            "000989.SZ",
+            "001266.SZ",
+            "001965.SZ",
+            "002142.SZ",
+            "002164.SZ",
+            "002216.SZ",
+            "002270.SZ",
+            "002292.SZ",
+            "002322.SZ",
+            "002376.SZ",
+            "002441.SZ",
+            "002461.SZ",
+            "002530.SZ",
+            "002541.SZ",
+            "002557.SZ",
+            "002590.SZ",
+            "002603.SZ",
+            "002683.SZ",
+            "002712.SZ",
+            "002833.SZ",
+            "002847.SZ",
+            "002886.SZ",
+            "002946.SZ",
+            "002956.SZ",
+            "002966.SZ",
+            "002990.SZ",
+            "300012.SZ",
+            "300031.SZ",
+            "300067.SZ",
+            "300299.SZ",
+            "300406.SZ",
+            "300410.SZ",
+            "300432.SZ",
+            "300471.SZ",
+            "300516.SZ",
+            "300556.SZ",
+            "300733.SZ",
+            "300832.SZ",
+            "300839.SZ",
+            "300852.SZ",
+            "300888.SZ",
+            "300957.SZ",
+            "300990.SZ",
+            "301002.SZ",
+            "301025.SZ",
+            "301029.SZ",
+            "301239.SZ",
+            "301282.SZ",
+            "301286.SZ",
+            "301487.SZ",
+            "301666.SZ",
+            "600000.SH",
+            "600036.SH",
+            "600060.SH",
+            "600285.SH",
+            "600316.SH",
+            "600351.SH",
+            "600406.SH",
+            "600487.SH",
+            "600495.SH",
+            "600558.SH",
+            "600573.SH",
+            "600685.SH",
+            "600872.SH",
+            "600901.SH",
+            "600908.SH",
+            "600968.SH",
+            "600993.SH",
+            "601006.SH",
+            "601077.SH",
+            "601169.SH",
+            "601222.SH",
+            "601288.SH",
+            "601328.SH",
+            "601398.SH",
+            "601658.SH",
+            "601766.SH",
+            "601816.SH",
+            "601838.SH",
+            "601877.SH",
+            "601916.SH",
+            "601939.SH",
+            "601963.SH",
+            "601965.SH",
+            "601988.SH",
+            "601998.SH",
+            "603025.SH",
+            "603027.SH",
+            "603198.SH",
+            "603288.SH",
+            "603345.SH",
+            "603418.SH",
+            "603598.SH",
+            "603602.SH",
+            "603605.SH",
+            "603630.SH",
+            "603656.SH",
+            "603978.SH",
+            "603992.SH",
+            "605499.SH",
+            "688018.SH",
+            "688071.SH",
+            "688187.SH",
+            "688188.SH",
+            "688213.SH",
+            "688475.SH",
+            "688499.SH",
+            "688522.SH"
+          ],
+          "emotion_cycle": [
+            "IGNITION",
+            "CONFIRMATION",
+            "ACCELERATION",
+            "CLIMAX",
+            "DIVERGENCE",
+            "RETREAT",
+            "REPAIR",
+            "FADE",
+            "LATENT"
+          ],
+          "engine_emotion_cycle": "LATENT",
+          "evidence_reference_ids": [
+            "A2:MARKET",
+            "A2:NEWS",
+            "A2:NOMINATION:000504.SZ",
+            "A2:NOMINATION:001326.SZ",
+            "A2:NOMINATION:001368.SZ",
+            "A2:NOMINATION:002674.SZ",
+            "A2:NOMINATION:002811.SZ",
+            "A2:NOMINATION:300107.SZ",
+            "A2:NOMINATION:300199.SZ",
+            "A2:NOMINATION:300821.SZ",
+            "A2:NOMINATION:300981.SZ",
+            "A2:NOMINATION:300984.SZ",
+            "A2:NOMINATION:301047.SZ",
+            "A2:NOMINATION:301080.SZ",
+            "A2:NOMINATION:301108.SZ",
+            "A2:NOMINATION:301122.SZ",
+            "A2:NOMINATION:301190.SZ",
+            "A2:NOMINATION:301210.SZ",
+            "A2:NOMINATION:301230.SZ",
+            "A2:NOMINATION:301529.SZ",
+            "A2:NOMINATION:301608.SZ",
+            "A2:NOMINATION:600641.SH",
+            "A2:NOMINATION:603188.SH",
+            "A2:NOMINATION:603276.SH",
+            "A2:NOMINATION:603500.SH",
+            "A2:NOMINATION:603669.SH",
+            "A2:NOMINATION:603883.SH",
+            "A2:NOMINATION:603980.SH",
+            "A2:NOMINATION:605100.SH",
+            "A2:NOMINATION:688112.SH",
+            "A2:NOMINATION:688199.SH",
+            "A2:NOMINATION:688222.SH",
+            "A2:QUANT:000333.SZ",
+            "A2:QUANT:000423.SZ",
+            "A2:QUANT:000538.SZ",
+            "A2:QUANT:000576.SZ",
+            "A2:QUANT:000581.SZ",
+            "A2:QUANT:000601.SZ",
+            "A2:QUANT:000729.SZ",
+            "A2:QUANT:000848.SZ",
+            "A2:QUANT:000858.SZ",
+            "A2:QUANT:000975.SZ",
+            "A2:QUANT:000989.SZ",
+            "A2:QUANT:001266.SZ",
+            "A2:QUANT:001965.SZ",
+            "A2:QUANT:002142.SZ",
+            "A2:QUANT:002164.SZ",
+            "A2:QUANT:002216.SZ",
+            "A2:QUANT:002270.SZ",
+            "A2:QUANT:002292.SZ",
+            "A2:QUANT:002322.SZ",
+            "A2:QUANT:002376.SZ",
+            "A2:QUANT:002441.SZ",
+            "A2:QUANT:002461.SZ",
+            "A2:QUANT:002530.SZ",
+            "A2:QUANT:002541.SZ",
+            "A2:QUANT:002557.SZ",
+            "A2:QUANT:002590.SZ",
+            "A2:QUANT:002603.SZ",
+            "A2:QUANT:002683.SZ",
+            "A2:QUANT:002712.SZ",
+            "A2:QUANT:002833.SZ",
+            "A2:QUANT:002847.SZ",
+            "A2:QUANT:002886.SZ",
+            "A2:QUANT:002946.SZ",
+            "A2:QUANT:002956.SZ",
+            "A2:QUANT:002966.SZ",
+            "A2:QUANT:002990.SZ",
+            "A2:QUANT:300012.SZ",
+            "A2:QUANT:300031.SZ",
+            "A2:QUANT:300067.SZ",
+            "A2:QUANT:300299.SZ",
+            "A2:QUANT:300406.SZ",
+            "A2:QUANT:300410.SZ",
+            "A2:QUANT:300432.SZ",
+            "A2:QUANT:300471.SZ",
+            "A2:QUANT:300516.SZ",
+            "A2:QUANT:300556.SZ",
+            "A2:QUANT:300733.SZ",
+            "A2:QUANT:300832.SZ",
+            "A2:QUANT:300839.SZ",
+            "A2:QUANT:300852.SZ",
+            "A2:QUANT:300888.SZ",
+            "A2:QUANT:300957.SZ",
+            "A2:QUANT:300990.SZ",
+            "A2:QUANT:301002.SZ",
+            "A2:QUANT:301025.SZ",
+            "A2:QUANT:301029.SZ",
+            "A2:QUANT:301239.SZ",
+            "A2:QUANT:301282.SZ",
+            "A2:QUANT:301286.SZ",
+            "A2:QUANT:301487.SZ",
+            "A2:QUANT:301666.SZ",
+            "A2:QUANT:600000.SH",
+            "A2:QUANT:600036.SH",
+            "A2:QUANT:600060.SH",
+            "A2:QUANT:600285.SH",
+            "A2:QUANT:600316.SH",
+            "A2:QUANT:600351.SH",
+            "A2:QUANT:600406.SH",
+            "A2:QUANT:600487.SH",
+            "A2:QUANT:600495.SH",
+            "A2:QUANT:600558.SH",
+            "A2:QUANT:600573.SH",
+            "A2:QUANT:600685.SH",
+            "A2:QUANT:600872.SH",
+            "A2:QUANT:600901.SH",
+            "A2:QUANT:600908.SH",
+            "A2:QUANT:600968.SH",
+            "A2:QUANT:600993.SH",
+            "A2:QUANT:601006.SH",
+            "A2:QUANT:601077.SH",
+            "A2:QUANT:601169.SH",
+            "A2:QUANT:601222.SH",
+            "A2:QUANT:601288.SH",
+            "A2:QUANT:601328.SH",
+            "A2:QUANT:601398.SH",
+            "A2:QUANT:601658.SH",
+            "A2:QUANT:601766.SH",
+            "A2:QUANT:601816.SH",
+            "A2:QUANT:601838.SH",
+            "A2:QUANT:601877.SH",
+            "A2:QUANT:601916.SH",
+            "A2:QUANT:601939.SH",
+            "A2:QUANT:601963.SH",
+            "A2:QUANT:601965.SH",
+            "A2:QUANT:601988.SH",
+            "A2:QUANT:601998.SH",
+            "A2:QUANT:603025.SH",
+            "A2:QUANT:603027.SH",
+            "A2:QUANT:603198.SH",
+            "A2:QUANT:603288.SH",
+            "A2:QUANT:603345.SH",
+            "A2:QUANT:603418.SH",
+            "A2:QUANT:603598.SH",
+            "A2:QUANT:603602.SH",
+            "A2:QUANT:603605.SH",
+            "A2:QUANT:603630.SH",
+            "A2:QUANT:603656.SH",
+            "A2:QUANT:603978.SH",
+            "A2:QUANT:603992.SH",
+            "A2:QUANT:605499.SH",
+            "A2:QUANT:688018.SH",
+            "A2:QUANT:688071.SH",
+            "A2:QUANT:688187.SH",
+            "A2:QUANT:688188.SH",
+            "A2:QUANT:688213.SH",
+            "A2:QUANT:688475.SH",
+            "A2:QUANT:688499.SH",
+            "A2:QUANT:688522.SH"
+          ],
+          "nomination_scope": [
+            "000504.SZ",
+            "001326.SZ",
+            "001368.SZ",
+            "002674.SZ",
+            "002811.SZ",
+            "300107.SZ",
+            "300199.SZ",
+            "300821.SZ",
+            "300981.SZ",
+            "300984.SZ",
+            "301047.SZ",
+            "301080.SZ",
+            "301108.SZ",
+            "301122.SZ",
+            "301190.SZ",
+            "301210.SZ",
+            "301230.SZ",
+            "301529.SZ",
+            "301608.SZ",
+            "600641.SH",
+            "603188.SH",
+            "603276.SH",
+            "603500.SH",
+            "603669.SH",
+            "603883.SH",
+            "603980.SH",
+            "605100.SH",
+            "688112.SH",
+            "688199.SH",
+            "688222.SH"
+          ],
+          "required_envelope": {
+            "as_of": "2026-10-19T16:32:47+08:00",
+            "config_hash": "45a66a942beef43983ea5a4db485f043533c61b45fd6d8e4b04913d861b6e55e",
+            "config_version": "LIANGJIAN_FUNNEL_V2/2.0.0",
+            "execution_trade_date": "2026-10-20",
+            "input_snapshot_ids": [
+              "snapshot-20261019T163247+0800-4a9259fc15c8:rotation-policy:a2-bottleneck:faabdcd18944"
+            ],
+            "knowledge_cutoff": "2026-10-19T16:32:47+08:00",
+            "market_regime": "ROTATION_NO_MAINLINE",
+            "model_name": "deepseek-v4-pro",
+            "prompt_version": "agent-2/3.0.5",
+            "reason_codes": [],
+            "run_id": "isolated0361c-29a22e155d9a-20261019T215636",
+            "schema_version": "team-research-envelope/1",
+            "source_trade_date": "2026-10-19",
+            "stage_id": "A2",
+            "status": "OK"
+          },
+          "required_item_fields": {
+            "focus_decisions": [
+              "opposing_refs",
+              "risk_codes",
+              "support_codes",
+              "supporting_refs",
+              "symbol"
+            ],
+            "market_read": [
+              "dominant_themes",
+              "emotion_cycle",
+              "opposing_refs",
+              "regime",
+              "supporting_refs"
+            ],
+            "model_nominations": [
+              "falsifiers",
+              "nomination_thesis",
+              "opposing_refs",
+              "quant_filter_reason",
+              "supporting_refs",
+              "symbol",
+              "theme_id",
+              "why_i_disagree"
+            ],
+            "reject_decisions": [
+              "opposing_refs",
+              "risk_codes",
+              "supporting_refs",
+              "symbol"
+            ],
+            "rotation_reviews": [
+              "decision",
+              "explanation",
+              "opposing_refs",
+              "reason_codes",
+              "reviewed_symbols",
+              "rotation_direction_id",
+              "supporting_refs"
+            ],
+            "theme_reviews": [
+              "new_entry_policy",
+              "opposing_refs",
+              "penalty_codes",
+              "risk_codes",
+              "stage",
+              "support_codes",
+              "supporting_refs",
+              "theme_id",
+              "what_would_change_my_mind"
+            ]
+          },
+          "required_no_focus_if_focus_unchanged": {
+            "SELECTED_BOARD:AI_COMPUTE_INFRASTRUCTURE": [
+              "000601.SZ",
+              "002322.SZ",
+              "300556.SZ",
+              "600406.SH",
+              "601222.SH",
+              "603602.SH"
+            ],
+            "SELECTED_BOARD:AI_LIQUID_COOLING": [
+              "300839.SZ",
+              "300990.SZ"
+            ],
+            "SELECTED_BOARD:BANKS": [
+              "002142.SZ",
+              "002966.SZ",
+              "600000.SH",
+              "600036.SH",
+              "600908.SH",
+              "601077.SH",
+              "601169.SH",
+              "601288.SH",
+              "601328.SH",
+              "601398.SH",
+              "601658.SH",
+              "601838.SH",
+              "601916.SH",
+              "601939.SH",
+              "601963.SH",
+              "601988.SH",
+              "601998.SH"
+            ],
+            "SELECTED_BOARD:NATIONAL_DEFENSE": [
+              "002683.SZ",
+              "300067.SZ",
+              "300471.SZ",
+              "300516.SZ",
+              "301286.SZ",
+              "600316.SH",
+              "600495.SH",
+              "600558.SH",
+              "600685.SH",
+              "603978.SH",
+              "688522.SH"
+            ],
+            "SELECTED_BOARD:PRECIOUS_METALS": [
+              "000975.SZ"
+            ],
+            "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING": [
+              "000333.SZ",
+              "000581.SZ",
+              "001266.SZ",
+              "002270.SZ",
+              "002376.SZ",
+              "002441.SZ",
+              "002530.SZ",
+              "002541.SZ",
+              "002590.SZ",
+              "002833.SZ",
+              "002990.SZ",
+              "300012.SZ",
+              "300031.SZ",
+              "300299.SZ",
+              "300410.SZ",
+              "300432.SZ",
+              "300733.SZ",
+              "301002.SZ",
+              "301029.SZ",
+              "301282.SZ",
+              "301487.SZ",
+              "600060.SH",
+              "600968.SH",
+              "601766.SH",
+              "601877.SH",
+              "601965.SH",
+              "603025.SH",
+              "603418.SH",
+              "603656.SH",
+              "603992.SH",
+              "688018.SH",
+              "688071.SH",
+              "688187.SH",
+              "688188.SH",
+              "688213.SH",
+              "688475.SH",
+              "688499.SH"
+            ]
+          },
+          "required_root_fields": [
+            "envelope",
+            "focus_decisions",
+            "handoff_notes",
+            "market_read",
+            "model_nominations",
+            "reason_codes",
+            "reject_decisions",
+            "rotation_reviews",
+            "theme_reviews",
+            "unresolved_questions",
+            "what_would_change_my_mind"
+          ],
+          "rotation_rule": "Already FOCUS directions must not appear in rotation_reviews; each remaining frozen direction requires exactly one NO_FOCUS row with 1-3 unique in-domain symbols.",
+          "stage_policy": {
+            "ACCELERATION": "ALLOW",
+            "CLIMAX": "WATCH_ONLY",
+            "CONFIRMATION": "ALLOW",
+            "DIVERGENCE": "WATCH_ONLY",
+            "FADE": "NO_NEW_ENTRY",
+            "IGNITION": "PROBE_ONLY",
+            "REPAIR": "ALLOW",
+            "RETREAT": "NO_NEW_ENTRY"
+          }
+        },
+        "required_no_focus_if_focus_unchanged": {
+          "SELECTED_BOARD:AI_COMPUTE_INFRASTRUCTURE": [
+            "000601.SZ",
+            "002322.SZ",
+            "300556.SZ",
+            "600406.SH",
+            "601222.SH",
+            "603602.SH"
+          ],
+          "SELECTED_BOARD:AI_LIQUID_COOLING": [
+            "300839.SZ",
+            "300990.SZ"
+          ],
+          "SELECTED_BOARD:BANKS": [
+            "002142.SZ",
+            "002966.SZ",
+            "600000.SH",
+            "600036.SH",
+            "600908.SH",
+            "601077.SH",
+            "601169.SH",
+            "601288.SH",
+            "601328.SH",
+            "601398.SH",
+            "601658.SH",
+            "601838.SH",
+            "601916.SH",
+            "601939.SH",
+            "601963.SH",
+            "601988.SH",
+            "601998.SH"
+          ],
+          "SELECTED_BOARD:NATIONAL_DEFENSE": [
+            "002683.SZ",
+            "300067.SZ",
+            "300471.SZ",
+            "300516.SZ",
+            "301286.SZ",
+            "600316.SH",
+            "600495.SH",
+            "600558.SH",
+            "600685.SH",
+            "603978.SH",
+            "688522.SH"
+          ],
+          "SELECTED_BOARD:PRECIOUS_METALS": [
+            "000975.SZ"
+          ],
+          "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING": [
+            "000333.SZ",
+            "000581.SZ",
+            "001266.SZ",
+            "002270.SZ",
+            "002376.SZ",
+            "002441.SZ",
+            "002530.SZ",
+            "002541.SZ",
+            "002590.SZ",
+            "002833.SZ",
+            "002990.SZ",
+            "300012.SZ",
+            "300031.SZ",
+            "300299.SZ",
+            "300410.SZ",
+            "300432.SZ",
+            "300733.SZ",
+            "301002.SZ",
+            "301029.SZ",
+            "301282.SZ",
+            "301487.SZ",
+            "600060.SH",
+            "600968.SH",
+            "601766.SH",
+            "601877.SH",
+            "601965.SH",
+            "603025.SH",
+            "603418.SH",
+            "603656.SH",
+            "603992.SH",
+            "688018.SH",
+            "688071.SH",
+            "688187.SH",
+            "688188.SH",
+            "688213.SH",
+            "688475.SH",
+            "688499.SH"
+          ]
+        },
+        "unchanged_focus_symbols": [],
+        "validation_errors": [
+          "A2_STAGE_POLICY_MISMATCH"
+        ],
+        "violations": [
+          {
+            "actual": [
+              {
+                "new_entry_policy": "WATCH_ONLY",
+                "opposing_refs": [
+                  "A2:QUANT:002322.SZ"
+                ],
+                "penalty_codes": [],
+                "risk_codes": [
+                  "A2_CAPITAL_FLOW_UNAVAILABLE"
+                ],
+                "stage": "LATENT",
+                "support_codes": [],
+                "supporting_refs": [
+                  "A2:QUANT:000333.SZ"
+                ],
+                "theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+                "what_would_change_my_mind": [
+                  "板块主力净流入转正且连续两日为正",
+                  "出现连续两日涨停梯队"
+                ]
+              },
+              {
+                "new_entry_policy": "WATCH_ONLY",
+                "opposing_refs": [
+                  "A2:QUANT:301282.SZ"
+                ],
+                "penalty_codes": [],
+                "risk_codes": [
+                  "A2_CAPITAL_FLOW_UNAVAILABLE"
+                ],
+                "stage": "LATENT",
+                "support_codes": [],
+                "supporting_refs": [
+                  "A2:QUANT:300852.SZ"
+                ],
+                "theme_id": "AI_COMPUTE_INFRASTRUCTURE",
+                "what_would_change_my_mind": [
+                  "板块主力净流入转正",
+                  "出现连续两日涨停梯队"
+                ]
+              },
+              {
+                "new_entry_policy": "WATCH_ONLY",
+                "opposing_refs": [
+                  "A2:QUANT:002886.SZ"
+                ],
+                "penalty_codes": [],
+                "risk_codes": [
+                  "A2_CAPITAL_FLOW_UNAVAILABLE"
+                ],
+                "stage": "LATENT",
+                "support_codes": [],
+                "supporting_refs": [
+                  "A2:QUANT:002683.SZ"
+                ],
+                "theme_id": "CHEMICAL_NEW_MATERIALS",
+                "what_would_change_my_mind": [
+                  "板块主力净流入转正",
+                  "出现连续两日涨停梯队"
+                ]
+              },
+              {
+                "new_entry_policy": "WATCH_ONLY",
+                "opposing_refs": [
+                  "A2:QUANT:603418.SH"
+                ],
+                "penalty_codes": [],
+                "risk_codes": [
+                  "A2_CAPITAL_FLOW_UNAVAILABLE"
+                ],
+                "stage": "LATENT",
+                "support_codes": [],
+                "supporting_refs": [
+                  "A2:QUANT:301002.SZ"
+                ],
+                "theme_id": "CONSUMER_ELECTRONICS",
+                "what_would_change_my_mind": [
+                  "板块主力净流入转正",
+                  "出现连续两日涨停梯队"
+                ]
+              },
+              {
+                "new_entry_policy": "WATCH_ONLY",
+                "opposing_refs": [
+                  "A2:QUANT:000858.SZ"
+                ],
+                "penalty_codes": [],
+                "risk_codes": [
+                  "A2_CAPITAL_FLOW_UNAVAILABLE"
+                ],
+                "stage": "LATENT",
+                "support_codes": [],
+                "supporting_refs": [
+                  "A2:QUANT:000729.SZ"
+                ],
+                "theme_id": "CONSUMER_SERVICES",
+                "what_would_change_my_mind": [
+                  "板块主力净流入转正",
+                  "出现连续两日涨停梯队"
+                ]
+              },
+              {
+                "new_entry_policy": "WATCH_ONLY",
+                "opposing_refs": [
+                  "A2:QUANT:600036.SH"
+                ],
+                "penalty_codes": [],
+                "risk_codes": [
+                  "A2_CAPITAL_FLOW_UNAVAILABLE"
+                ],
+                "stage": "LATENT",
+                "support_codes": [],
+                "supporting_refs": [
+                  "A2:QUANT:601288.SH"
+                ],
+                "theme_id": "FINANCIAL_HIGH_DIVIDEND",
+                "what_would_change_my_mind": [
+                  "板块主力净流入转正",
+                  "出现连续两日涨停梯队"
+                ]
+              },
+              {
+                "new_entry_policy": "WATCH_ONLY",
+                "opposing_refs": [
+                  "A2:QUANT:002541.SZ"
+                ],
+                "penalty_codes": [],
+                "risk_codes": [
+                  "A2_CAPITAL_FLOW_UNAVAILABLE"
+                ],
+                "stage": "LATENT",
+                "support_codes": [],
+                "supporting_refs": [
+                  "A2:QUANT:001965.SZ"
+                ],
+                "theme_id": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+                "what_would_change_my_mind": [
+                  "板块主力净流入转正",
+                  "出现连续两日涨停梯队"
+                ]
+              },
+              {
+                "new_entry_policy": "WATCH_ONLY",
+                "opposing_refs": [
+                  "A2:QUANT:000538.SZ"
+                ],
+                "penalty_codes": [],
+                "risk_codes": [
+                  "A2_CAPITAL_FLOW_UNAVAILABLE"
+                ],
+                "stage": "LATENT",
+                "support_codes": [],
+                "supporting_refs": [
+                  "A2:QUANT:000423.SZ"
+                ],
+                "theme_id": "INNOVATIVE_MEDICINE_HEALTHCARE",
+                "what_would_change_my_mind": [
+                  "板块主力净流入转正",
+                  "出现连续两日涨停梯队"
+                ]
+              },
+              {
+                "new_entry_policy": "WATCH_ONLY",
+                "opposing_refs": [
+                  "A2:QUANT:600316.SH"
+                ],
+                "penalty_codes": [],
+                "risk_codes": [
+                  "A2_CAPITAL_FLOW_UNAVAILABLE"
+                ],
+                "stage": "LATENT",
+                "support_codes": [],
+                "supporting_refs": [
+                  "A2:QUANT:000576.SZ"
+                ],
+                "theme_id": "NATIONAL_DEFENSE",
+                "what_would_change_my_mind": [
+                  "板块主力净流入转正",
+                  "出现连续两日涨停梯队"
+                ]
+              },
+              {
+                "new_entry_policy": "WATCH_ONLY",
+                "opposing_refs": [
+                  "A2:QUANT:002270.SZ"
+                ],
+                "penalty_codes": [],
+                "risk_codes": [
+                  "A2_CAPITAL_FLOW_UNAVAILABLE"
+                ],
+                "stage": "LATENT",
+                "support_codes": [],
+                "supporting_refs": [
+                  "A2:QUANT:000601.SZ"
+                ],
+                "theme_id": "POWER_EQUIPMENT_NEW_ENERGY",
+                "what_would_change_my_mind": [
+                  "板块主力净流入转正",
+                  "出现连续两日涨停梯队"
+                ]
+              },
+              {
+                "new_entry_policy": "WATCH_ONLY",
+                "opposing_refs": [
+                  "A2:QUANT:300839.SZ"
+                ],
+                "penalty_codes": [],
+                "risk_codes": [
+                  "A2_CAPITAL_FLOW_UNAVAILABLE"
+                ],
+                "stage": "LATENT",
+                "support_codes": [],
+                "supporting_refs": [
+                  "A2:QUANT:000975.SZ"
+                ],
+                "theme_id": "RESOURCES_ENERGY",
+                "what_would_change_my_mind": [
+                  "板块主力净流入转正",
+                  "出现连续两日涨停梯队"
+                ]
+              },
+              {
+                "new_entry_policy": "WATCH_ONLY",
+                "opposing_refs": [
+                  "A2:QUANT:001266.SZ"
+                ],
+                "penalty_codes": [],
+                "risk_codes": [
+                  "A2_CAPITAL_FLOW_UNAVAILABLE"
+                ],
+                "stage": "LATENT",
+                "support_codes": [],
+                "supporting_refs": [
+                  "A2:QUANT:000581.SZ"
+                ],
+                "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+                "what_would_change_my_mind": [
+                  "板块主力净流入转正",
+                  "出现连续两日涨停梯队"
+                ]
+              },
+              {
+                "new_entry_policy": "WATCH_ONLY",
+                "opposing_refs": [
+                  "A2:QUANT:688018.SH"
+                ],
+                "penalty_codes": [],
+                "risk_codes": [
+                  "A2_CAPITAL_FLOW_UNAVAILABLE"
+                ],
+                "stage": "LATENT",
+                "support_codes": [],
+                "supporting_refs": [
+                  "A2:QUANT:301666.SZ"
+                ],
+                "theme_id": "SEMICONDUCTOR_LOCALIZATION",
+                "what_would_change_my_mind": [
+                  "板块主力净流入转正",
+                  "出现连续两日涨停梯队"
+                ]
+              }
+            ],
+            "allowed": {
+              "allowed_theme_ids": [
+                "AI_APPLICATIONS_DIGITAL_ECONOMY",
+                "AI_COMPUTE_INFRASTRUCTURE",
+                "CHEMICAL_NEW_MATERIALS",
+                "CONSUMER_ELECTRONICS",
+                "CONSUMER_SERVICES",
+                "FINANCIAL_HIGH_DIVIDEND",
+                "INFRASTRUCTURE_DOMESTIC_DEMAND",
+                "INNOVATIVE_MEDICINE_HEALTHCARE",
+                "NATIONAL_DEFENSE",
+                "POWER_EQUIPMENT_NEW_ENERGY",
+                "RESOURCES_ENERGY",
+                "ROBOTICS_ADVANCED_MANUFACTURING",
+                "SEMICONDUCTOR_LOCALIZATION"
+              ],
+              "stage_policy": {
+                "ACCELERATION": "ALLOW",
+                "CLIMAX": "WATCH_ONLY",
+                "CONFIRMATION": "ALLOW",
+                "DIVERGENCE": "WATCH_ONLY",
+                "FADE": "NO_NEW_ENTRY",
+                "IGNITION": "PROBE_ONLY",
+                "REPAIR": "ALLOW",
+                "RETREAT": "NO_NEW_ENTRY"
+              }
+            },
+            "code": "A2_STAGE_POLICY_MISMATCH",
+            "field": "theme_reviews"
+          }
+        ]
+      },
+      "input_engine_stage": "LATENT"
+    },
+    {
+      "call_id": "A2:CLOSE_REVIEW:dd9cc186619562b7169e0cec93b71641c38518f5ae75f1d1880ef171908295de",
+      "feedback": {
+        "already_focused_directions_forbidden": [
+          "SELECTED_BOARD:BANKS",
+          "SELECTED_BOARD:ROBOTICS_ADVANCED_MANUFACTURING"
+        ],
+        "authority": "0361_REPLY_B_ALL_VALIDATION_FEEDBACK_MAX_THREE",
+        "legal_values": {
+          "allowed_theme_ids": [
+            "AI_APPLICATIONS_DIGITAL_ECONOMY",
+            "AI_COMPUTE_INFRASTRUCTURE",
+            "CHEMICAL_NEW_MATERIALS",
+            "CONSUMER_ELECTRONICS",
+            "CONSUMER_SERVICES",
+            "FINANCIAL_HIGH_DIVIDEND",
+            "INFRASTRUCTURE_DOMESTIC_DEMAND",
+            "INNOVATIVE_MEDICINE_HEALTHCARE",
+            "NATIONAL_DEFENSE",
+            "POWER_EQUIPMENT_NEW_ENERGY",
+            "RESOURCES_ENERGY",
+            "ROBOTICS_ADVANCED_MANUFACTURING",
+            "SEMICONDUCTOR_LOCALIZATION"
+          ],
+          "candidate_ids": [
+            "000333.SZ",
+            "000423.SZ",
+            "000538.SZ",
+            "000576.SZ",
+            "000581.SZ",
+            "000601.SZ",
+            "000729.SZ",
+            "000848.SZ",
+            "000858.SZ",
+            "000975.SZ",
+            "000989.SZ",
+            "001266.SZ",
+            "001965.SZ",
+            "002142.SZ",
+            "002164.SZ",
+            "002216.SZ",
+            "002270.SZ",
+            "002292.SZ",
+            "002322.SZ",
+            "002376.SZ",
+            "002441.SZ",
+            "002461.SZ",
+            "002530.SZ",
+            "002541.SZ",
+            "002557.SZ",
+            "002590.SZ",
+            "002603.SZ",
+            "002683.SZ",
+            "002712.SZ",
+            "002833.SZ",
+            "002847.SZ",
+            "002886.SZ",
+            "002946.SZ",
+            "002956.SZ",
+            "002966.SZ",
+            "002990.SZ",
+            "300012.SZ",
+            "300031.SZ",
+            "300067.SZ",
+            "300299.SZ",
+            "300406.SZ",
+            "300410.SZ",
+            "300432.SZ",
+            "300471.SZ",
+            "300516.SZ",
+            "300556.SZ",
+            "300733.SZ",
+            "300832.SZ",
+            "300839.SZ",
+            "300852.SZ",
+            "300888.SZ",
+            "300957.SZ",
+            "300990.SZ",
+            "301002.SZ",
+            "301025.SZ",
+            "301029.SZ",
+            "301239.SZ",
+            "301282.SZ",
+            "301286.SZ",
+            "301487.SZ",
+            "301666.SZ",
+            "600000.SH",
+            "600036.SH",
+            "600060.SH",
+            "600285.SH",
+            "600316.SH",
+            "600351.SH",
+            "600406.SH",
+            "600487.SH",
+            "600495.SH",
+            "600558.SH",
+            "600573.SH",
+            "600685.SH",
+            "600872.SH",
+            "600901.SH",
+            "600908.SH",
+            "600968.SH",
+            "600993.SH",
+            "601006.SH",
+            "601077.SH",
+            "601169.SH",
+            "601222.SH",
+            "601288.SH",
+            "601328.SH",
+            "601398.SH",
+            "601658.SH",
+            "601766.SH",
+            "601816.SH",
+            "601838.SH",
+            "601877.SH",
+            "601916.SH",
+            "601939.SH",
+            "601963.SH",
+            "601965.SH",
+            "601988.SH",
+            "601998.SH",
+            "603025.SH",
+            "603027.SH",
+            "603198.SH",
+            "603288.SH",
+            "603345.SH",
+            "603418.SH",
+            "603598.SH",
+            "603602.SH",
+            "603605.SH",
+            "603630.SH",
+            "603656.SH",
+            "603978.SH",
+            "603992.SH",
+            "605499.SH",
+            "688018.SH",
+            "688071.SH",
+            "688187.SH",
+            "688188.SH",
+            "688213.SH",
+            "688475.SH",
+            "688499.SH",
+            "688522.SH"
+          ],
+          "emotion_cycle": [
+            "IGNITION",
+            "CONFIRMATION",
+            "ACCELERATION",
+            "CLIMAX",
+            "DIVERGENCE",
+            "RETREAT",
+            "REPAIR",
+            "FADE",
+            "LATENT"
+          ],
+          "engine_emotion_cycle": "LATENT",
+          "evidence_reference_ids": [
+            "A2:MARKET",
+            "A2:NEWS",
+            "A2:NOMINATION:000504.SZ",
+            "A2:NOMINATION:001326.SZ",
+            "A2:NOMINATION:001368.SZ",
+            "A2:NOMINATION:002674.SZ",
+            "A2:NOMINATION:002811.SZ",
+            "A2:NOMINATION:300107.SZ",
+            "A2:NOMINATION:300199.SZ",
+            "A2:NOMINATION:300821.SZ",
+            "A2:NOMINATION:300981.SZ",
+            "A2:NOMINATION:300984.SZ",
+            "A2:NOMINATION:301047.SZ",
+            "A2:NOMINATION:301080.SZ",
+            "A2:NOMINATION:301108.SZ",
+            "A2:NOMINATION:301122.SZ",
+            "A2:NOMINATION:301190.SZ",
+            "A2:NOMINATION:301210.SZ",
+            "A2:NOMINATION:301230.SZ",
+            "A2:NOMINATION:301529.SZ",
+            "A2:NOMINATION:301608.SZ",
+            "A2:NOMINATION:600641.SH",
+            "A2:NOMINATION:603188.SH",
+            "A2:NOMINATION:603276.SH",
+            "A2:NOMINATION:603500.SH",
+            "A2:NOMINATION:603669.SH",
+            "A2:NOMINATION:603883.SH",
+            "A2:NOMINATION:603980.SH",
+            "A2:NOMINATION:605100.SH",
+            "A2:NOMINATION:688112.SH",
+            "A2:NOMINATION:688199.SH",
+            "A2:NOMINATION:688222.SH",
+            "A2:QUANT:000333.SZ",
+            "A2:QUANT:000423.SZ",
+            "A2:QUANT:000538.SZ",
+            "A2:QUANT:000576.SZ",
+            "A2:QUANT:000581.SZ",
+            "A2:QUANT:000601.SZ",
+            "A2:QUANT:000729.SZ",
+            "A2:QUANT:000848.SZ",
+            "A2:QUANT:000858.SZ",
+            "A2:QUANT:000975.SZ",
+            "A2:QUANT:000989.SZ",
+            "A2:QUANT:001266.SZ",
+            "A2:QUANT:001965.SZ",
+            "A2:QUANT:002142.SZ",
+            "A2:QUANT:002164.SZ",
+            "A2:QUANT:002216.SZ",
+            "A2:QUANT:002270.SZ",
+            "A2:QUANT:002292.SZ",
+            "A2:QUANT:002322.SZ",
+            "A2:QUANT:002376.SZ",
+            "A2:QUANT:002441.SZ",
+            "A2:QUANT:002461.SZ",
+            "A2:QUANT:002530.SZ",
+            "A2:QUANT:002541.SZ",
+            "A2:QUANT:002557.SZ",
+            "A2:QUANT:002590.SZ",
+            "A2:QUANT:002603.SZ",
+            "A2:QUANT:002683.SZ",
+            "A2:QUANT:002712.SZ",
+            "A2:QUANT:002833.SZ",
+            "A2:QUANT:002847.SZ",
+            "A2:QUANT:002886.SZ",
+            "A2:QUANT:002946.SZ",
+            "A2:QUANT:002956.SZ",
+            "A2:QUANT:002966.SZ",
+            "A2:QUANT:002990.SZ",
+            "A2:QUANT:300012.SZ",
+            "A2:QUANT:300031.SZ",
+            "A2:QUANT:300067.SZ",
+            "A2:QUANT:300299.SZ",
+            "A2:QUANT:300406.SZ",
+            "A2:QUANT:300410.SZ",
+            "A2:QUANT:300432.SZ",
+            "A2:QUANT:300471.SZ",
+            "A2:QUANT:300516.SZ",
+            "A2:QUANT:300556.SZ",
+            "A2:QUANT:300733.SZ",
+            "A2:QUANT:300832.SZ",
+            "A2:QUANT:300839.SZ",
+            "A2:QUANT:300852.SZ",
+            "A2:QUANT:300888.SZ",
+            "A2:QUANT:300957.SZ",
+            "A2:QUANT:300990.SZ",
+            "A2:QUANT:301002.SZ",
+            "A2:QUANT:301025.SZ",
+            "A2:QUANT:301029.SZ",
+            "A2:QUANT:301239.SZ",
+            "A2:QUANT:301282.SZ",
+            "A2:QUANT:301286.SZ",
+            "A2:QUANT:301487.SZ",
+            "A2:QUANT:301666.SZ",
+            "A2:QUANT:600000.SH",
+            "A2:QUANT:600036.SH",
+            "A2:QUANT:600060.SH",
+            "A2:QUANT:600285.SH",
+            "A2:QUANT:600316.SH",
+            "A2:QUANT:600351.SH",
+            "A2:QUANT:600406.SH",
+            "A2:QUANT:600487.SH",
+            "A2:QUANT:600495.SH",
+            "A2:QUANT:600558.SH",
+            "A2:QUANT:600573.SH",
+            "A2:QUANT:600685.SH",
+            "A2:QUANT:600872.SH",
+            "A2:QUANT:600901.SH",
+            "A2:QUANT:600908.SH",
+            "A2:QUANT:600968.SH",
+            "A2:QUANT:600993.SH",
+            "A2:QUANT:601006.SH",
+            "A2:QUANT:601077.SH",
+            "A2:QUANT:601169.SH",
+            "A2:QUANT:601222.SH",
+            "A2:QUANT:601288.SH",
+            "A2:QUANT:601328.SH",
+            "A2:QUANT:601398.SH",
+            "A2:QUANT:601658.SH",
+            "A2:QUANT:601766.SH",
+            "A2:QUANT:601816.SH",
+            "A2:QUANT:601838.SH",
+            "A2:QUANT:601877.SH",
+            "A2:QUANT:601916.SH",
+            "A2:QUANT:601939.SH",
+            "A2:QUANT:601963.SH",
+            "A2:QUANT:601965.SH",
+            "A2:QUANT:601988.SH",
+            "A2:QUANT:601998.SH",
+            "A2:QUANT:603025.SH",
+            "A2:QUANT:603027.SH",
+            "A2:QUANT:603198.SH",
+            "A2:QUANT:603288.SH",
+            "A2:QUANT:603345.SH",
+            "A2:QUANT:603418.SH",
+            "A2:QUANT:603598.SH",
+            "A2:QUANT:603602.SH",
+            "A2:QUANT:603605.SH",
+            "A2:QUANT:603630.SH",
+            "A2:QUANT:603656.SH",
+            "A2:QUANT:603978.SH",
+            "A2:QUANT:603992.SH",
+            "A2:QUANT:605499.SH",
+            "A2:QUANT:688018.SH",
+            "A2:QUANT:688071.SH",
+            "A2:QUANT:688187.SH",
+            "A2:QUANT:688188.SH",
+            "A2:QUANT:688213.SH",
+            "A2:QUANT:688475.SH",
+            "A2:QUANT:688499.SH",
+            "A2:QUANT:688522.SH"
+          ],
+          "nomination_scope": [
+            "000504.SZ",
+            "001326.SZ",
+            "001368.SZ",
+            "002674.SZ",
+            "002811.SZ",
+            "300107.SZ",
+            "300199.SZ",
+            "300821.SZ",
+            "300981.SZ",
+            "300984.SZ",
+            "301047.SZ",
+            "301080.SZ",
+            "301108.SZ",
+            "301122.SZ",
+            "301190.SZ",
+            "301210.SZ",
+            "301230.SZ",
+            "301529.SZ",
+            "301608.SZ",
+            "600641.SH",
+            "603188.SH",
+            "603276.SH",
+            "603500.SH",
+            "603669.SH",
+            "603883.SH",
+            "603980.SH",
+            "605100.SH",
+            "688112.SH",
+            "688199.SH",
+            "688222.SH"
+          ],
+          "required_envelope": {
+            "as_of": "2026-10-19T16:32:47+08:00",
+            "config_hash": "45a66a942beef43983ea5a4db485f043533c61b45fd6d8e4b04913d861b6e55e",
+            "config_version": "LIANGJIAN_FUNNEL_V2/2.0.0",
+            "execution_trade_date": "2026-10-20",
+            "input_snapshot_ids": [
+              "snapshot-20261019T163247+0800-4a9259fc15c8:rotation-policy:a2-bottleneck:faabdcd18944"
+            ],
+            "knowledge_cutoff": "2026-10-19T16:32:47+08:00",
+            "market_regime": "ROTATION_NO_MAINLINE",
+            "model_name": "deepseek-v4-pro",
+            "prompt_version": "agent-2/3.0.5",
+            "reason_codes": [],
+            "run_id": "isolated0361c-29a22e155d9a-20261019T215636",
+            "schema_version": "team-research-envelope/1",
+            "source_trade_date": "2026-10-19",
+            "stage_id": "A2",
+            "status": "OK"
+          },
+          "required_item_fields": {
+            "focus_decisions": [
+              "opposing_refs",
+              "risk_codes",
+              "support_codes",
+              "supporting_refs",
+              "symbol"
+            ],
+            "market_read": [
+              "dominant_themes",
+              "emotion_cycle",
+              "opposing_refs",
+              "regime",
+              "supporting_refs"
+            ],
+            "model_nominations": [
+              "falsifiers",
+              "nomination_thesis",
+              "opposing_refs",
+              "quant_filter_reason",
+              "supporting_refs",
+              "symbol",
+              "theme_id",
+              "why_i_disagree"
+            ],
+            "reject_decisions": [
+              "opposing_refs",
+              "risk_codes",
+              "supporting_refs",
+              "symbol"
+            ],
+            "rotation_reviews": [
+              "decision",
+              "explanation",
+              "opposing_refs",
+              "reason_codes",
+              "reviewed_symbols",
+              "rotation_direction_id",
+              "supporting_refs"
+            ],
+            "theme_reviews": [
+              "new_entry_policy",
+              "opposing_refs",
+              "penalty_codes",
+              "risk_codes",
+              "stage",
+              "support_codes",
+              "supporting_refs",
+              "theme_id",
+              "what_would_change_my_mind"
+            ]
+          },
+          "required_no_focus_if_focus_unchanged": {
+            "SELECTED_BOARD:AI_COMPUTE_INFRASTRUCTURE": [
+              "000601.SZ",
+              "002322.SZ",
+              "300556.SZ",
+              "600406.SH",
+              "601222.SH",
+              "603602.SH"
+            ],
+            "SELECTED_BOARD:AI_LIQUID_COOLING": [
+              "300839.SZ",
+              "300990.SZ"
+            ],
+            "SELECTED_BOARD:NATIONAL_DEFENSE": [
+              "002683.SZ",
+              "300067.SZ",
+              "300471.SZ",
+              "300516.SZ",
+              "301286.SZ",
+              "600316.SH",
+              "600495.SH",
+              "600558.SH",
+              "600685.SH",
+              "603978.SH",
+              "688522.SH"
+            ],
+            "SELECTED_BOARD:PRECIOUS_METALS": [
+              "000975.SZ"
+            ]
+          },
+          "required_root_fields": [
+            "envelope",
+            "focus_decisions",
+            "handoff_notes",
+            "market_read",
+            "model_nominations",
+            "reason_codes",
+            "reject_decisions",
+            "rotation_reviews",
+            "theme_reviews",
+            "unresolved_questions",
+            "what_would_change_my_mind"
+          ],
+          "rotation_rule": "Already FOCUS directions must not appear in rotation_reviews; each remaining frozen direction requires exactly one NO_FOCUS row with 1-3 unique in-domain symbols.",
+          "stage_policy": {
+            "ACCELERATION": "ALLOW",
+            "CLIMAX": "WATCH_ONLY",
+            "CONFIRMATION": "ALLOW",
+            "DIVERGENCE": "WATCH_ONLY",
+            "FADE": "NO_NEW_ENTRY",
+            "IGNITION": "PROBE_ONLY",
+            "REPAIR": "ALLOW",
+            "RETREAT": "NO_NEW_ENTRY"
+          }
+        },
+        "required_no_focus_if_focus_unchanged": {
+          "SELECTED_BOARD:AI_COMPUTE_INFRASTRUCTURE": [
+            "000601.SZ",
+            "002322.SZ",
+            "300556.SZ",
+            "600406.SH",
+            "601222.SH",
+            "603602.SH"
+          ],
+          "SELECTED_BOARD:AI_LIQUID_COOLING": [
+            "300839.SZ",
+            "300990.SZ"
+          ],
+          "SELECTED_BOARD:NATIONAL_DEFENSE": [
+            "002683.SZ",
+            "300067.SZ",
+            "300471.SZ",
+            "300516.SZ",
+            "301286.SZ",
+            "600316.SH",
+            "600495.SH",
+            "600558.SH",
+            "600685.SH",
+            "603978.SH",
+            "688522.SH"
+          ],
+          "SELECTED_BOARD:PRECIOUS_METALS": [
+            "000975.SZ"
+          ]
+        },
+        "unchanged_focus_symbols": [
+          "000333.SZ",
+          "000576.SZ",
+          "000581.SZ",
+          "601288.SH"
+        ],
+        "validation_errors": [
+          "A2_STAGE_POLICY_MISMATCH"
+        ],
+        "violations": [
+          {
+            "actual": [
+              {
+                "new_entry_policy": "WATCH_ONLY",
+                "opposing_refs": [
+                  "A2:QUANT:002322.SZ"
+                ],
+                "penalty_codes": [],
+                "risk_codes": [
+                  "A2_CAPITAL_FLOW_UNAVAILABLE"
+                ],
+                "stage": "LATENT",
+                "support_codes": [],
+                "supporting_refs": [
+                  "A2:QUANT:000333.SZ"
+                ],
+                "theme_id": "AI_APPLICATIONS_DIGITAL_ECONOMY",
+                "what_would_change_my_mind": [
+                  "板块主力净流入转正且连续两日为正",
+                  "出现连续两日涨停梯队"
+                ]
+              },
+              {
+                "new_entry_policy": "WATCH_ONLY",
+                "opposing_refs": [
+                  "A2:QUANT:301282.SZ"
+                ],
+                "penalty_codes": [],
+                "risk_codes": [
+                  "A2_CAPITAL_FLOW_UNAVAILABLE"
+                ],
+                "stage": "LATENT",
+                "support_codes": [],
+                "supporting_refs": [
+                  "A2:QUANT:300852.SZ"
+                ],
+                "theme_id": "AI_COMPUTE_INFRASTRUCTURE",
+                "what_would_change_my_mind": [
+                  "板块主力净流入转正",
+                  "出现连续两日涨停梯队"
+                ]
+              },
+              {
+                "new_entry_policy": "WATCH_ONLY",
+                "opposing_refs": [
+                  "A2:QUANT:002886.SZ"
+                ],
+                "penalty_codes": [],
+                "risk_codes": [
+                  "A2_CAPITAL_FLOW_UNAVAILABLE"
+                ],
+                "stage": "LATENT",
+                "support_codes": [],
+                "supporting_refs": [
+                  "A2:QUANT:002683.SZ"
+                ],
+                "theme_id": "CHEMICAL_NEW_MATERIALS",
+                "what_would_change_my_mind": [
+                  "板块主力净流入转正",
+                  "出现连续两日涨停梯队"
+                ]
+              },
+              {
+                "new_entry_policy": "WATCH_ONLY",
+                "opposing_refs": [
+                  "A2:QUANT:603418.SH"
+                ],
+                "penalty_codes": [],
+                "risk_codes": [
+                  "A2_CAPITAL_FLOW_UNAVAILABLE"
+                ],
+                "stage": "LATENT",
+                "support_codes": [],
+                "supporting_refs": [
+                  "A2:QUANT:301002.SZ"
+                ],
+                "theme_id": "CONSUMER_ELECTRONICS",
+                "what_would_change_my_mind": [
+                  "板块主力净流入转正",
+                  "出现连续两日涨停梯队"
+                ]
+              },
+              {
+                "new_entry_policy": "WATCH_ONLY",
+                "opposing_refs": [
+                  "A2:QUANT:000858.SZ"
+                ],
+                "penalty_codes": [],
+                "risk_codes": [
+                  "A2_CAPITAL_FLOW_UNAVAILABLE"
+                ],
+                "stage": "LATENT",
+                "support_codes": [],
+                "supporting_refs": [
+                  "A2:QUANT:000729.SZ"
+                ],
+                "theme_id": "CONSUMER_SERVICES",
+                "what_would_change_my_mind": [
+                  "板块主力净流入转正",
+                  "出现连续两日涨停梯队"
+                ]
+              },
+              {
+                "new_entry_policy": "WATCH_ONLY",
+                "opposing_refs": [
+                  "A2:QUANT:600036.SH"
+                ],
+                "penalty_codes": [],
+                "risk_codes": [
+                  "A2_CAPITAL_FLOW_UNAVAILABLE"
+                ],
+                "stage": "LATENT",
+                "support_codes": [],
+                "supporting_refs": [
+                  "A2:QUANT:601288.SH"
+                ],
+                "theme_id": "FINANCIAL_HIGH_DIVIDEND",
+                "what_would_change_my_mind": [
+                  "板块主力净流入转正",
+                  "出现连续两日涨停梯队"
+                ]
+              },
+              {
+                "new_entry_policy": "WATCH_ONLY",
+                "opposing_refs": [
+                  "A2:QUANT:002541.SZ"
+                ],
+                "penalty_codes": [],
+                "risk_codes": [
+                  "A2_CAPITAL_FLOW_UNAVAILABLE"
+                ],
+                "stage": "LATENT",
+                "support_codes": [],
+                "supporting_refs": [
+                  "A2:QUANT:001965.SZ"
+                ],
+                "theme_id": "INFRASTRUCTURE_DOMESTIC_DEMAND",
+                "what_would_change_my_mind": [
+                  "板块主力净流入转正",
+                  "出现连续两日涨停梯队"
+                ]
+              },
+              {
+                "new_entry_policy": "WATCH_ONLY",
+                "opposing_refs": [
+                  "A2:QUANT:000538.SZ"
+                ],
+                "penalty_codes": [],
+                "risk_codes": [
+                  "A2_CAPITAL_FLOW_UNAVAILABLE"
+                ],
+                "stage": "LATENT",
+                "support_codes": [],
+                "supporting_refs": [
+                  "A2:QUANT:000423.SZ"
+                ],
+                "theme_id": "INNOVATIVE_MEDICINE_HEALTHCARE",
+                "what_would_change_my_mind": [
+                  "板块主力净流入转正",
+                  "出现连续两日涨停梯队"
+                ]
+              },
+              {
+                "new_entry_policy": "WATCH_ONLY",
+                "opposing_refs": [
+                  "A2:QUANT:600316.SH"
+                ],
+                "penalty_codes": [],
+                "risk_codes": [
+                  "A2_CAPITAL_FLOW_UNAVAILABLE"
+                ],
+                "stage": "LATENT",
+                "support_codes": [],
+                "supporting_refs": [
+                  "A2:QUANT:000576.SZ"
+                ],
+                "theme_id": "NATIONAL_DEFENSE",
+                "what_would_change_my_mind": [
+                  "板块主力净流入转正",
+                  "出现连续两日涨停梯队"
+                ]
+              },
+              {
+                "new_entry_policy": "WATCH_ONLY",
+                "opposing_refs": [
+                  "A2:QUANT:002270.SZ"
+                ],
+                "penalty_codes": [],
+                "risk_codes": [
+                  "A2_CAPITAL_FLOW_UNAVAILABLE"
+                ],
+                "stage": "LATENT",
+                "support_codes": [],
+                "supporting_refs": [
+                  "A2:QUANT:000601.SZ"
+                ],
+                "theme_id": "POWER_EQUIPMENT_NEW_ENERGY",
+                "what_would_change_my_mind": [
+                  "板块主力净流入转正",
+                  "出现连续两日涨停梯队"
+                ]
+              },
+              {
+                "new_entry_policy": "WATCH_ONLY",
+                "opposing_refs": [
+                  "A2:QUANT:300839.SZ"
+                ],
+                "penalty_codes": [],
+                "risk_codes": [
+                  "A2_CAPITAL_FLOW_UNAVAILABLE"
+                ],
+                "stage": "LATENT",
+                "support_codes": [],
+                "supporting_refs": [
+                  "A2:QUANT:000975.SZ"
+                ],
+                "theme_id": "RESOURCES_ENERGY",
+                "what_would_change_my_mind": [
+                  "板块主力净流入转正",
+                  "出现连续两日涨停梯队"
+                ]
+              },
+              {
+                "new_entry_policy": "WATCH_ONLY",
+                "opposing_refs": [
+                  "A2:QUANT:001266.SZ"
+                ],
+                "penalty_codes": [],
+                "risk_codes": [
+                  "A2_CAPITAL_FLOW_UNAVAILABLE"
+                ],
+                "stage": "LATENT",
+                "support_codes": [],
+                "supporting_refs": [
+                  "A2:QUANT:000581.SZ"
+                ],
+                "theme_id": "ROBOTICS_ADVANCED_MANUFACTURING",
+                "what_would_change_my_mind": [
+                  "板块主力净流入转正",
+                  "出现连续两日涨停梯队"
+                ]
+              },
+              {
+                "new_entry_policy": "WATCH_ONLY",
+                "opposing_refs": [
+                  "A2:QUANT:688018.SH"
+                ],
+                "penalty_codes": [],
+                "risk_codes": [
+                  "A2_CAPITAL_FLOW_UNAVAILABLE"
+                ],
+                "stage": "LATENT",
+                "support_codes": [],
+                "supporting_refs": [
+                  "A2:QUANT:301666.SZ"
+                ],
+                "theme_id": "SEMICONDUCTOR_LOCALIZATION",
+                "what_would_change_my_mind": [
+                  "板块主力净流入转正",
+                  "出现连续两日涨停梯队"
+                ]
+              }
+            ],
+            "allowed": {
+              "allowed_theme_ids": [
+                "AI_APPLICATIONS_DIGITAL_ECONOMY",
+                "AI_COMPUTE_INFRASTRUCTURE",
+                "CHEMICAL_NEW_MATERIALS",
+                "CONSUMER_ELECTRONICS",
+                "CONSUMER_SERVICES",
+                "FINANCIAL_HIGH_DIVIDEND",
+                "INFRASTRUCTURE_DOMESTIC_DEMAND",
+                "INNOVATIVE_MEDICINE_HEALTHCARE",
+                "NATIONAL_DEFENSE",
+                "POWER_EQUIPMENT_NEW_ENERGY",
+                "RESOURCES_ENERGY",
+                "ROBOTICS_ADVANCED_MANUFACTURING",
+                "SEMICONDUCTOR_LOCALIZATION"
+              ],
+              "stage_policy": {
+                "ACCELERATION": "ALLOW",
+                "CLIMAX": "WATCH_ONLY",
+                "CONFIRMATION": "ALLOW",
+                "DIVERGENCE": "WATCH_ONLY",
+                "FADE": "NO_NEW_ENTRY",
+                "IGNITION": "PROBE_ONLY",
+                "REPAIR": "ALLOW",
+                "RETREAT": "NO_NEW_ENTRY"
+              }
+            },
+            "code": "A2_STAGE_POLICY_MISMATCH",
+            "field": "theme_reviews"
+          }
+        ]
+      },
+      "input_engine_stage": "LATENT"
+    }
+  ],
+  "files_sha256": {
+    "REAL_DRYRUN_RECEIPT.json": "11b5af4db390cc6d51daf45e7fe48b174bbeb8ca699fb86b4a2159ee2974390b",
+    "REAL_A3_PLAN_ROWS.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "stdout.jsonl": "2dbebe5dd378512f6b4aedbf6fddbe99924d10fd8947d4b0b5dce63a60a919b6",
+    "stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "new_invocations": 0,
+  "production_changes": 0
+}

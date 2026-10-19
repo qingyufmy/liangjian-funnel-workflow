@@ -333,13 +333,9 @@ def _project_a2_bottleneck_context(value: Any, symbols: set[str] | None) -> Any:
                 for key in ("eligible", "rank")
                 if key in hot
             }
-        emotion = raw.get("market_emotion_cycle")
-        if isinstance(emotion, Mapping):
-            row["emotion_cycle"] = {
-                key: emotion.get(key)
-                for key in ("stage", "new_entry_policy")
-                if key in emotion
-            }
+        # Market emotion is supplied once in MARKET_EMOTION_SNAPSHOT, not as
+        # a per-stock field homonymous with A2's independent theme-stage vote.
+        # The original snapshot and engine execution permissions stay intact.
         behavior = raw.get("behavior_type_decision")
         if isinstance(behavior, Mapping):
             row["behavior"] = {
