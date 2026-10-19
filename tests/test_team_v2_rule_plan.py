@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 import shutil
 import time
+from threading import Event, Thread
 
 import pytest
 
@@ -66,15 +67,58 @@ def test_plan_cannot_silently_extend_or_receipt_rewrite(tmp_path):
     assert result['reason_code']=='RULE_RENEWAL_AUTHORIZATION_INVALID' and not seen
 
 
-def test_uncooperative_request_cannot_continue_or_publish_late(tmp_path):
+def test_uncooperative_request_cannot_continue_or_publish_late(tmp_path, monkeypatch):
+    from liangjian_funnel.runtime import bounded_work
+    from liangjian_funnel.runtime import team_v2_rule_plan as renewal
+    from liangjian_funnel.runtime.bounded_work import BoundedWorkGate
     settings,archive,plan=setup(tmp_path);seen=[]
+    now=NOW.replace(day=19)
+    # The request-deadline test starts after real prerequisite verification.
+    assert renewal._clock(plan,now.date().isoformat(),now)==now
+    assert renewal.old._approved(archive) is archive
+    def checked_clock(actual_plan,actual_day,known):
+        assert actual_plan==plan and str(actual_day)==now.date().isoformat() and known==now
+        return now
+    def checked_archive(value):
+        # The production wrapper re-reads the same immutable archive value.
+        assert value==archive
+        return value
+    monkeypatch.setattr(renewal,'_clock',checked_clock)
+    monkeypatch.setattr(renewal.old,'_approved',checked_archive)
+    entered=Event();release=Event();finished=Event();request_started=[None]
+    def request_clock():
+        # Freeze only test-local pre-request setup. Once the real callback
+        # enters, the unmodified 10ms budget uses actual elapsed wall time.
+        return 0.0 if request_started[0] is None else time.monotonic()-request_started[0]
+    monkeypatch.setattr(renewal,'timer',SimpleNamespace(monotonic=request_clock))
+    class EnteredThread(Thread):
+        def start(self):
+            super().start()
+            assert entered.wait(timeout=2), 'bounded request did not enter'
+    # Replace only bounded_work's imported constructor, never threading.Thread.
+    monkeypatch.setattr(bounded_work,'Thread',EnteredThread)
+    class ObservedGate(BoundedWorkGate):
+        def call(self,operation,**kwargs):
+            def observed():
+                try:return operation()
+                finally:finished.set()
+            return super().call(observed,clock=request_clock,**kwargs)
+    monkeypatch.setattr(renewal,'_FETCH',ObservedGate(1))
     def slow(url,remaining):
-        seen.append(url);time.sleep(.06)
+        seen.append(url);request_started[0]=time.monotonic();entered.set()
+        if not release.wait(timeout=5):raise RuntimeError('TEST_RELEASE_NOT_RECEIVED')
         return SimpleNamespace(url=url,status_code=200,content=archive.documents[0].raw_response)
-    result=prepare_daily_rule_source(settings,clock=lambda:NOW.replace(day=19),calendar=CAL,
-        fetch_response=slow,budget_seconds=.01)
-    assert result['status']=='DATA_LIMITED'
-    time.sleep(.09)
+    path=tmp_path/'state/team_v2/rules/2026-10-19.json'
+    try:
+        result=prepare_daily_rule_source(settings,clock=lambda:now,calendar=CAL,
+            fetch_response=slow,budget_seconds=.01)
+        assert entered.is_set()
+        assert result['status']=='DATA_LIMITED'
+        assert not finished.is_set()
+        assert len(seen)==1 and not path.exists()
+    finally:
+        release.set()
+    assert finished.wait(timeout=2), 'released bounded operation did not finish'
     assert len(seen)==1 and not (tmp_path/'state/team_v2/rules/2026-10-19.json').exists()
 
 
