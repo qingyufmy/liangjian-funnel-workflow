@@ -188,6 +188,13 @@ def _build_a3_candidate_domain(
     watch_rows = a2_output.get("watch_only_pool")
     focus_rows = focus_rows if isinstance(focus_rows, list) else []
     watch_rows = watch_rows if isinstance(watch_rows, list) else []
+    # P0-9 is an explicit A1/engine intersection, not permission to consume
+    # deterministic WATCH rows appended for other research-only reasons.
+    if a2_output.get('A2_UNAVAILABLE') is True:
+        allowed=a2_output.get('A2_UNAVAILABLE_SCOPE')
+        allowed=set(allowed) if isinstance(allowed,list) and all(isinstance(s,str) for s in allowed) else set()
+        focus_rows=[r for r in focus_rows if isinstance(r,Mapping) and r.get('symbol') in allowed]
+        watch_rows=[r for r in watch_rows if isinstance(r,Mapping) and r.get('symbol') in allowed]
 
     selected: dict[str, dict[str, Any]] = {}
     origins: dict[str, str] = {}

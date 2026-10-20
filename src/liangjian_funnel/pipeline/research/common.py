@@ -2318,6 +2318,25 @@ class ResearchPipeline:
                 )
             from ..review_degraded import rotation_review_failed_twice
             degraded_history = (audit.diagnostics or {}).get("validation_history")
+            adapter=getattr(self,'team_research_adapter',None)
+            if (stage=='A2' and audit.status=='BLOCKED' and adapter is not None and adapter.supports('A2')):
+                from ..team_v2_a2_fallback import build_a2_unavailable,notify_a2_unavailable
+                fallback=build_a2_unavailable(failed_audit=audit,decisions=gate.decisions,
+                    a1_symbols=set(full_upstream_symbols),contexts=snapshot.data.get('A2_BOTTLENECK_CONTEXT'),
+                    envelope=_required_envelope(snapshot,lane_id,model,stage),snapshot_id=snapshot.snapshot_id,
+                    snapshot_hash=snapshot.snapshot_hash,market_emotion=snapshot.data.get('MARKET_EMOTION_SNAPSHOT'),
+                    project_row=_gate_item_from_decision)
+                if fallback is not None:
+                    quantitative,proof=fallback
+                    policy_data=dict(snapshot.data);policy_data['A2_UNAVAILABLE_EVIDENCE']=proof
+                    snapshot=replace(snapshot,data=policy_data)
+                    adapter.store.freeze_control_context('a2-unavailable:'+run_id+':'+lane_id,
+                        source_sha256=proof['sha256'],body=dict(proof=proof,output=quantitative))
+                    notify_a2_unavailable(adapter.store,run_id=run_id,observed_at=self.now())
+                    audit=replace(audit,status='A2_REVIEW_DEGRADED',output=quantitative,
+                        diagnostics={**dict(audit.diagnostics or {}),'model_review_passed':False,
+                            'original_failed_status':'BLOCKED','fallback_source':'A2_UNAVAILABLE',
+                            'a2_unavailable_proof':proof})
             if (stage == "A2" and audit.status == "BLOCKED"
                     and rotation_review_failed_twice(degraded_history)):
                 # Discard no failed evidence: produce a new server-owned
@@ -7073,6 +7092,7 @@ def _canonicalize_stage_lineage(
             canonical["upstream_candidate_id"] = upstream_id
             canonical["ROTATION_GATE_EMPTY"] = context.get("ROTATION_GATE_EMPTY") is True
             canonical["A2_REVIEW_DEGRADED"] = source.get("A2_REVIEW_DEGRADED") is True
+            if source.get('A2_UNAVAILABLE') is True:canonical['A2_UNAVAILABLE']=True
             canonical["parent_candidate_id"] = upstream_id
             canonical["candidate_origin"] = candidate_origin
             if technical_context:
@@ -8272,9 +8292,11 @@ def _validate_output(
             "A2",
         ))
         from ..review_degraded import rotation_review_failed_twice
+        from ..team_v2_a2_fallback import proven_a2_unavailable
         degraded_evidence = (snapshot_data or {}).get("A2_REVIEW_DEGRADED_EVIDENCE") or {}
-        if not (output.get("A2_REVIEW_DEGRADED") is True
-                and rotation_review_failed_twice(degraded_evidence.get("validation_history"))):
+        if not ((output.get("A2_REVIEW_DEGRADED") is True
+                and rotation_review_failed_twice(degraded_evidence.get("validation_history")))
+                or proven_a2_unavailable(output,snapshot_data or {})):
           reasons.extend(
             _validate_a2_rotation_focus_coverage(
                 output,
@@ -8742,6 +8764,7 @@ def _lane_status_from_stages(stages: Sequence[StageAudit]) -> str:
     """Expose degraded/data-gap outcomes at lane level."""
 
     statuses = tuple(str(stage.status or "") for stage in stages)
+    if not statuses or any(not _stage_completed(status) for status in statuses):return 'BLOCKED'
     if any(status in {STATUS_DEGRADED_UNDERFILLED_DATA_GAP, "A2_REVIEW_DEGRADED"} for status in statuses):
         return "READY_DEGRADED"
     if any(status == STATUS_VALIDATED_UNDERFILLED_MARKET for status in statuses):
