@@ -153,7 +153,8 @@ def test_quota_projection_does_not_repair_other_bad_model_judgments(tmp_path):
     kwargs,seen,raw=quota_fixture(tmp_path,invalid=True)
     assert run_risk_premarket(**kwargs).status=='DEGRADED'
     with sqlite3.connect(tmp_path/'team.db') as db:
-        audit=json.loads(db.execute('SELECT body_json FROM control_minute_context').fetchone()[0])
+        audit=json.loads(db.execute('SELECT body_json FROM control_minute_context WHERE decision_id=?',
+            ('a6-quota-normalization:'+kwargs['meeting_id'],)).fetchone()[0])
     assert audit['status']=='BLOCKED' and 'A6_ADJUSTMENT_INVALID' in audit['effective_validation_issues']
     assert audit['effective_raw']['envelope_adjustments'][0]['adjustment']=='LOOSEN'
     assert len(seen)==1

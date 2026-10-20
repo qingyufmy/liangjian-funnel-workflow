@@ -37,7 +37,7 @@ def run_pm_premarket(*, repository, client, journal, store, meeting_id: str, cal
                       timeout_seconds: float, max_output_tokens: int,
                       allow_model_call: bool = False, fallback_enabled: bool = True,
                       fallback_priority_order: tuple = (), max_new_entries: int = 3,
-                      a6_validated: bool = False) -> dict:
+                      a6_validated: bool = False, a6_degraded_conservative: bool = False) -> dict:
     now = clock()
     if (not isinstance(now, datetime) or now.utcoffset() is None
             or now.astimezone(ZoneInfo('Asia/Shanghai')).date().isoformat() != trade_date
@@ -46,7 +46,8 @@ def run_pm_premarket(*, repository, client, journal, store, meeting_id: str, cal
     # Authorization is checked even on a replay, avoiding an accidental live
     # enable by a read-only caller which happens to know an old meeting ID.
     if not allow_model_call: raise ValueError('TEAM_MODEL_CALL_NOT_AUTHORIZED')
-    if type(fallback_enabled) is not bool or type(a6_validated) is not bool:
+    if (type(fallback_enabled) is not bool or type(a6_validated) is not bool
+            or type(a6_degraded_conservative) is not bool):
         raise ValueError('PM_FALLBACK_CONTEXT_INVALID')
     values = project_pm_values(replacements)
     # Authoritative derived inputs overwrite caller decoration, never the other
@@ -79,7 +80,7 @@ def run_pm_premarket(*, repository, client, journal, store, meeting_id: str, cal
         high_conviction_ids=sorted(high_conviction_ids), timeout_seconds=timeout_seconds,
         max_output_tokens=max_output_tokens,fallback_enabled=fallback_enabled,
         fallback_priority_order=list(fallback_priority_order),max_new_entries=max_new_entries,
-        a6_validated=a6_validated)).encode()).hexdigest()
+        a6_validated=a6_validated,a6_degraded_conservative=a6_degraded_conservative)).encode()).hexdigest()
     previous = store.load_pm(meeting_id, input_sha256=binding)
     if previous is not None:
         _notify_fallback(store,previous,account_id=account_id,trade_date=trade_date)
@@ -132,10 +133,12 @@ def run_pm_premarket(*, repository, client, journal, store, meeting_id: str, cal
     if not valid and fallback_enabled and fallback_priority_order:
         fallback=derive_pm_fallback(envelopes=envelopes,plan_clusters=plan_clusters,
             priority=fallback_priority_order,free_slots=free_slots,max_new_entries=max_new_entries,
-            a6_validated=a6_validated,utilization_cap=utilization_cap)
+            a6_validated=a6_validated,utilization_cap=utilization_cap,
+            a6_degraded_conservative=a6_degraded_conservative)
         decision['reason_codes']=list(dict.fromkeys([*issues,fallback['reason_code']]))
         if fallback['slot_plan']:
             decision.update(status='READY',decision_authority='SERVER_FALLBACK_NOT_MODEL_VALIDATED',
+                fallback_envelope_authority=('VALIDATED_A6' if a6_validated else 'SERVER_A6_DEGRADED_CONSERVATIVE'),
                 fallback_observed_at=now.isoformat(),slot_plan=fallback['slot_plan'],
                 plan_allocations=fallback['plan_allocations'],plan_ranking=[],
                 derived_shortfall='PM_UNAVAILABLE_SERVER_FALLBACK',

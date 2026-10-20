@@ -14,6 +14,7 @@ from ..pipeline.team_v2_risk_schema import validate_risk_premarket
 from .team_v2_store import canonical
 from ..pipeline.team_v2_pm_schema import PM_PRIMARY_CLUSTER_CAP
 from ..pipeline.team_v2_cluster_quota import checked_cluster_quota_context,normalize_cluster_quota
+from .team_v2_risk_policy import project_risk_values
 
 
 def run_risk_premarket(*,repository,client,journal,store,meeting_id,call_id,account_id,run_id,model,
@@ -53,13 +54,23 @@ def run_risk_premarket(*,repository,client,journal,store,meeting_id,call_id,acco
     values['RISK_LIMITS']['primary_cluster_cap']=PM_PRIMARY_CLUSTER_CAP
     if quota_context is not None:values['RISK_LIMITS']['server_cluster_capacity']=quota_context
     values=json.loads(canonical(values))
+    original_values=values
+    values=project_risk_values(values)
     validate_risk_premarket(None,values['EVIDENCE_CATALOG'],**validator_args)
+    original_request=repository.prepare_messages('A6',original_values,required_envelope=required_envelope,session='PREMARKET')
     request=repository.prepare_messages('A6',values,required_envelope=required_envelope,session='PREMARKET')
     binding=hashlib.sha256(canonical(dict(input_hash=request.input_hash,run_id=run_id,model=model,
         trade_date=trade_date,source_trade_date=source_trade_date,context_hash=context_hash)).encode()).hexdigest()
     original_observed=store.claim_risk_session(meeting_id,input_sha256=binding,observed_at=now)
     previous=store.load_risk_session(meeting_id,input_sha256=binding)
     if previous is not None:return previous
+    store.freeze_control_context('a6-input-projection:'+meeting_id,source_sha256=request.input_hash,
+        body=dict(original_input_hash=original_request.input_hash,projected_input_hash=request.input_hash,
+            original_chars=sum(len(m['content']) for m in original_request.messages),
+            projected_chars=sum(len(m['content']) for m in request.messages),
+            catalogue_sha256=hashlib.sha256(canonical(values['EVIDENCE_CATALOG']).encode()).hexdigest(),
+            plan_refs=values['PLANS']['plan_evidence_ids'],all_resolved_values_equal=True,
+            authority='UNCHANGED_FULL_CATALOG_DUPLICATE_PLANS_REFS_ONLY'))
     expected=dict(run_id=run_id,role='A6',session='PREMARKET',source_trade_date=source_trade_date,
         execution_trade_date=trade_date,model=model,prompt_hash=request.prompt.sha256,
         input_hash=request.input_hash,catalog_hash=request.evidence_catalog_hash)

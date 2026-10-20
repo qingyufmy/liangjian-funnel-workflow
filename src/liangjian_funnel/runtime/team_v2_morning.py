@@ -163,6 +163,10 @@ def run_morning_stage(settings,stage,*,clock=None,calendar=None,client=None):
             cluster_caps=frozen['cluster_caps'],
             plan_clusters={p['plan_id']:p['cluster'] for p in frozen['source']['plans']},
             plan_priority_order=priority_order(meeting_plans))
+        from .team_v2_risk_policy import load_risk_policy, risk_output_budget
+        risk_policy=load_risk_policy(settings.root)
+        common.update(timeout_seconds=risk_policy['timeout_seconds'],max_output_tokens=risk_output_budget(
+            risk_policy,len(meeting_plans),len(frozen['cluster_caps']),settings.model_max_output_tokens))
         result=run_risk_premarket(**common,meeting_id='morning-risk:'+day,call_id='A6:morning:'+day,
             engine_utilization_cap=D(frozen['engine_utilization_cap']),capacity_slots=frozen['capacity_slots'],
             cluster_caps=frozen['cluster_caps'],unready_plan_ids={e.plan_id for e in envelopes if not e.eligible},
@@ -189,4 +193,5 @@ def run_morning_stage(settings,stage,*,clock=None,calendar=None,client=None):
         free_slots=frozen['capacity_slots'],baseline_range=bounds,
         utilization_cap=result.utilization_cap,high_conviction_ids=set(),
         fallback_enabled=pm_policy['fallback_enabled'],fallback_priority_order=tuple(priority_order(meeting_plans)),
-        max_new_entries=limits.max_new_entries,a6_validated=result.status=='READY')
+        max_new_entries=limits.max_new_entries,a6_validated=result.status=='READY',
+        a6_degraded_conservative=result.status=='DEGRADED' and result.consecutive_failures==1)

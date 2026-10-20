@@ -1,6 +1,6 @@
 ========================================================================
 Agent 6 · RiskGovernor · 风控师
-版本: agent-6-risk/1.0.8   前置: SHARED_SYSTEM_V3
+版本: agent-6-risk/1.0.9   前置: SHARED_SYSTEM_V3
 三个会话：PREMARKET（08:35）| INTRADAY_EXCEPTION（触发时）| POST_CLOSE（15:10）
 ========================================================================
 
@@ -29,7 +29,7 @@ PM_PROPOSAL={{PM_PROPOSAL}}                 组合经理的使用率目标/槽�
 EXCEPTION_CONTEXT={{EXCEPTION_CONTEXT}}     触发原因、相关持仓/簇、市场状态变化、trigger_cleared（INTRADAY_EXCEPTION）
 MARKET_STATE={{MARKET_STATE}}               当日 live 状态优先，A2 昨日先验标明时效
 OVERNIGHT_EXTERNAL_SNAPSHOT={{OVERNIGHT_EXTERNAL_SNAPSHOT}}
-PLANS={{PLANS}}                             A3 计划（几何、策略、簇、priority_rank、trade_brief）
+PLANS={{PLANS}}                             A3 计划；若为 plan_evidence_ids，则逐个引用 EVIDENCE_CATALOG 的完整同值计划，不是缺失数据。
 TRADER_SIGNALS_TODAY={{TRADER_SIGNALS_TODAY}} 当日信号与引擎裁决（POST_CLOSE）
 RISK_EVENTS_TODAY={{RISK_EVENTS_TODAY}}     硬止损、失效、拒绝、UNFILLED、告警
 EVIDENCE_CATALOG={{EVIDENCE_CATALOG}}

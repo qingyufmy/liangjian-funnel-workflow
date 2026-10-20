@@ -67,7 +67,7 @@ def project_pm_values(values):
 
 
 def derive_pm_fallback(*,envelopes,plan_clusters,priority,free_slots,max_new_entries,
-                       cluster_cap=2,a6_validated=False,utilization_cap=0):
+                       cluster_cap=2,a6_validated=False,utilization_cap=0,a6_degraded_conservative=False):
     if (type(free_slots) is not int or free_slots<0 or type(max_new_entries) is not int
             or max_new_entries<0 or type(cluster_cap) is not int or cluster_cap<1):
         raise ValueError('PM_FALLBACK_CONTEXT_INVALID')
@@ -75,7 +75,12 @@ def derive_pm_fallback(*,envelopes,plan_clusters,priority,free_slots,max_new_ent
     if (len(by_id)!=len(envelopes) or set(by_id)!=set(plan_clusters)
             or len(priority)!=len(set(priority)) or set(priority)!=set(by_id)):
         raise ValueError('PM_FALLBACK_DOMAIN_INVALID')
-    if not a6_validated or utilization_cap<=0:
+    if type(a6_degraded_conservative) is not bool:
+        raise ValueError('PM_FALLBACK_CONTEXT_INVALID')
+    if a6_degraded_conservative and any(e.eligible and
+            (not e.a6_tightened or e.risk_unit!='PROBE' or e.max_batches!=1) for e in envelopes):
+        raise ValueError('PM_FALLBACK_CONSERVATIVE_ENVELOPE_INVALID')
+    if not (a6_validated or a6_degraded_conservative) or utilization_cap<=0:
         return dict(slot_plan=[],plan_allocations=[],reason_code='PM_FALLBACK_A6_UNAVAILABLE')
     counts=Counter();selected=[]
     for pid in priority:
