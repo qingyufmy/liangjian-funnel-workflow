@@ -51,6 +51,10 @@ def test_capture_precedes_and_survives_caller_mutation(tmp_path):
     assert "raw_plan" not in data["plans"][0]
     assert data["plans"][0]["raw_plan_sha256"] == capture["raw_plan"]["sha256"]
     assert data["plans"][0]["published_payload"]["value"] == row["payload"]
+    facts = data["plans"][0]["entry_confirmation_daily_facts"]
+    assert facts["schema_version"] == "entry-confirmation-daily-facts/1"
+    assert facts["sha256"] == object_hash(facts["value"])
+    assert facts["value"]["status"] == "UNPROVEN"
 
 
 def test_resealed_different_audit_cannot_substitute_original(tmp_path):

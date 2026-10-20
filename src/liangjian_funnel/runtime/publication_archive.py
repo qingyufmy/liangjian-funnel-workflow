@@ -15,6 +15,10 @@ import re
 from typing import Any
 
 from .publication_receipt import object_hash
+from .entry_confirmation_sources import (
+    ENTRY_CONFIRMATION_FACTS_SCHEMA,
+    project_entry_confirmation_daily_facts_from_rows,
+)
 
 
 def _bound(value):
@@ -48,6 +52,88 @@ def _iso(value):
     return value.isoformat() if isinstance(value, (date, datetime)) else value
 
 
+def _verified_base_snapshot(*, path: Path, pin: Mapping[str, Any], snapshot_id: str,
+                            snapshot_hash: str) -> tuple[Mapping[str, Any], bool]:
+    """Load the already byte-pinned base once for publication-time projection."""
+
+    try:
+        body = json.loads(path.read_bytes())
+    except (OSError, UnicodeError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise ValueError("ENTRY_CONFIRMATION_SOURCE_INVALID") from exc
+    if not isinstance(body, Mapping) or not isinstance(body.get("data"), Mapping):
+        raise ValueError("ENTRY_CONFIRMATION_SOURCE_INVALID")
+    try:
+        observed_data_hash = object_hash(body["data"])
+    except (TypeError, ValueError):
+        observed_data_hash = None
+    source_verified = (
+        body.get("snapshot_id") == snapshot_id
+        and body.get("snapshot_hash") == snapshot_hash
+        and observed_data_hash == snapshot_hash
+    )
+    # The source was pinned before it was parsed.  Re-pin after the read so a
+    # concurrent replacement cannot be silently paired with the facts.
+    if _file(path) != dict(pin):
+        raise ValueError("ENTRY_CONFIRMATION_SOURCE_CHANGED")
+    return body, source_verified
+
+
+def _entry_confirmation_facts(*, snapshot: Mapping[str, Any], base_pin: Mapping[str, Any],
+                              snapshot_id: str, snapshot_hash: str, run_id: str,
+                              lane_id: str, row: Mapping[str, Any], payload: Mapping[str, Any],
+                              target_trade_date: str, source_verified: bool) -> dict[str, Any]:
+    symbol = payload.get("symbol")
+    source_pin = {
+        "source_run_id": run_id,
+        "lane_id": lane_id,
+        "plan_id": row.get("plan_id"),
+        "snapshot_id": snapshot_id,
+        "snapshot_hash": snapshot_hash,
+        "source_snapshot_id": snapshot_id,
+        "source_snapshot_hash": snapshot_hash,
+        "snapshot_file_sha256": base_pin.get("sha256"),
+        "raw_plan_sha256": row.get("raw_plan_sha256"),
+        "a3_audit_sha256": row.get("a3_audit_sha256"),
+        "source_as_of": snapshot.get("as_of"),
+        "target_trade_date": target_trade_date,
+    }
+    rows: Sequence[Any] = ()
+    data = snapshot.get("data")
+    recent = data.get("RECENT_DAILY_BARS") if isinstance(data, Mapping) else None
+    if isinstance(symbol, str) and isinstance(recent, Mapping):
+        candidate = recent.get(symbol)
+        if candidate is None:
+            candidate = recent.get(symbol.upper())
+        if isinstance(candidate, (list, tuple)):
+            rows = candidate
+    if source_verified:
+        facts = project_entry_confirmation_daily_facts_from_rows(
+            rows,
+            symbol=str(symbol or ""),
+            current_trade_date=target_trade_date,
+            source_pin=source_pin,
+            source_as_of=snapshot.get("as_of"),
+        )
+    else:
+        # Preserve the publication archive even when an older/fixture caller
+        # supplied a base wrapper whose object hash is not independently
+        # verifiable.  The compact facts object must remain fail-closed.
+        facts = {
+            "status": "UNPROVEN",
+            "reason_codes": ["ENTRY_CONFIRMATION_SOURCE_CONFLICT"],
+            "daily_closes": [],
+            "previous_day_high": None,
+            "daily_ma5": None,
+            "source_pin": source_pin,
+        }
+    value = {"schema_version": ENTRY_CONFIRMATION_FACTS_SCHEMA, **facts}
+    return {
+        "schema_version": ENTRY_CONFIRMATION_FACTS_SCHEMA,
+        "value": value,
+        "sha256": object_hash(value),
+    }
+
+
 def write_publication_manifest(*, output_dir: Path, run_id: str, lane_id: str,
         base_snapshot_path: Path, base_snapshot_id: str, base_snapshot_hash: str,
         audit_path: Path, originals: Mapping[str, Mapping], published: Sequence[Mapping],
@@ -65,6 +151,11 @@ def write_publication_manifest(*, output_dir: Path, run_id: str, lane_id: str,
     if publication_contract not in {PUBLICATION_CONTRACT,LEGACY_PUBLICATION_CONTRACT}:
         raise ValueError('PUBLICATION_CONTRACT_INVALID')
     base_pin, audit_pin = _file(base_snapshot_path), _file(audit_path)
+    base_snapshot_path = Path(base_snapshot_path).resolve(strict=True)
+    base_snapshot, base_source_verified = _verified_base_snapshot(
+        path=base_snapshot_path, pin=base_pin, snapshot_id=base_snapshot_id,
+        snapshot_hash=base_snapshot_hash,
+    )
     audit = json.loads(Path(audit_path).read_text(encoding="utf-8"))
     if _file(audit_path) != audit_pin:
         raise ValueError("PUBLICATION_REFERENCE_CHANGED")
@@ -91,6 +182,7 @@ def write_publication_manifest(*, output_dir: Path, run_id: str, lane_id: str,
         payload = row.get("payload")
         if payload is None:
             payload = json.loads(row["payload_json"])
+        payload_for_facts = payload if isinstance(payload, Mapping) else {}
         expiry = _iso(row["expires_at"])
         entry = {"plan_id": row["plan_id"], "raw_plan_location": [pool, index],
             "raw_plan_sha256": raw["sha256"], "a3_audit_sha256": original["a3_audit_sha256"],
@@ -100,6 +192,12 @@ def write_publication_manifest(*, output_dir: Path, run_id: str, lane_id: str,
             "authority": original.get("authority"), "target_trade_date": str(expiry)[:10],
             "server_expires_at": expiry, "published_at": _iso(published_at),
             "publication_mode": publication_mode, "minimum_trade_date": _iso(minimum_trade_date)}
+        entry["entry_confirmation_daily_facts"] = _entry_confirmation_facts(
+            snapshot=base_snapshot, base_pin=base_pin, snapshot_id=base_snapshot_id,
+            snapshot_hash=base_snapshot_hash, run_id=run_id, lane_id=lane_id,
+            row=entry, payload=payload_for_facts, target_trade_date=str(expiry)[:10],
+            source_verified=base_source_verified,
+        )
         entries.append(entry)
     body = {"schema_version": "publication-projection-manifest/1", "run_id": run_id,
         "lane_id": lane_id, "status": "CAPTURED_NOT_VALIDATED",
