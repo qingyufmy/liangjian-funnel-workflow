@@ -42,10 +42,18 @@ def test_original_responses_remain_strictly_rejected_without_mutation(name):
     original = copy.deepcopy(record)
     assert "_rotation_review_scope" not in record["review_context"]
     assert len(record["model_output"]["rotation_reviews"]) == 11
+    # Keep the historical diagnostics verbatim. P0-8a intentionally removes
+    # their label-only ALREADY_FOCUSED tag: the exact qualified member domain
+    # is empty, so no direction can be covered by these FOCUS symbols.
+    assert sum("ALREADY_FOCUSED" in reason for reason in record["validation_reasons"]) == 4
+    expected = {
+        f"A2_ROTATION_REVIEW_INVALID:{row['rotation_direction_id']}:UNKNOWN_DIRECTION"
+        for row in record["post_policy_output"]["rotation_reviews"]
+    }
     reasons = _validate_a2_rotation_focus_coverage(record["post_policy_output"], snapshot, symbols)
-    assert set(reasons) == set(record["validation_reasons"])
+    assert set(reasons) == expected
     assert len(reasons) == 11
-    assert sum("ALREADY_FOCUSED" in reason for reason in reasons) == 4
+    assert all(reason.endswith(":UNKNOWN_DIRECTION") for reason in reasons)
     assert record == original
 
 def test_empty_domain_is_explicit_despite_strong_trend_observations():
@@ -57,14 +65,18 @@ def test_empty_domain_is_explicit_despite_strong_trend_observations():
     assert {key for key in projected if not key.startswith("_")} == symbols
 
 @pytest.mark.parametrize("name", list(PINS))
-def test_retry_empty_domain_lists_all_actual_focus_conflicts_but_allows_no_review(name):
+def test_retry_empty_domain_has_no_member_coverage_and_rejects_all_foreign_reviews(name):
     record, snapshot, symbols = frozen(name)
     feedback = _a2_rotation_retry_feedback(record["post_policy_output"], snapshot, symbols)
     assert feedback["allowed_direction_count"] == 0
     assert feedback["allowed_rotation_direction_ids"] == []
     assert feedback["required_no_focus_if_focus_unchanged"] == {}
-    assert set(feedback["already_focused_directions"]) == {
-        "INDUSTRY:881142.TI", "INDUSTRY:881148.TI", "INDUSTRY:881280.TI", "INDUSTRY:884249.TI",
+    # The feedback uses the same exact member-domain contract as validation;
+    # historical board labels must not invent coverage when its domain is {}.
+    assert feedback["already_focused_directions"] == {}
+    assert set(feedback["validation_errors"]) == {
+        f"A2_ROTATION_REVIEW_INVALID:{row['rotation_direction_id']}:UNKNOWN_DIRECTION"
+        for row in record["post_policy_output"]["rotation_reviews"]
     }
     assert len(feedback["validation_errors"]) == 11
 
