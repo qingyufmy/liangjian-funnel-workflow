@@ -183,15 +183,19 @@ def run_morning_stage(settings,stage,*,clock=None,calendar=None,client=None):
     bounds=tuple(min(D(v),result.utilization_cap) for v in frozen['baseline_range'])
     from .team_v2_pm_policy import load_pm_policy, pm_output_budget, priority_order
     pm_policy=load_pm_policy(settings.root)
-    common.update(timeout_seconds=pm_policy['timeout_seconds'],
-        max_output_tokens=pm_output_budget(pm_policy,len(meeting_plans),settings.model_max_output_tokens))
     limits=RiskLimits.from_yaml(settings.root/'config/risk_limits.yaml')
     from .team_v2_first_day import load_first_day_policy,first_day_limits
     limits=first_day_limits(limits,load_first_day_policy(settings.root/'config/risk_limits.yaml'),now=now)
+    from .team_v2_pm_geometry import pm_geometry_domain
+    geometry_ids,geometry_audit=pm_geometry_domain(frozen['source']['plan_rows'])
+    common.update(timeout_seconds=pm_policy['timeout_seconds'],
+        max_output_tokens=pm_output_budget(pm_policy,len(meeting_plans),settings.model_max_output_tokens,
+            max_positions=limits.max_positions))
     return run_pm_premarket(**common,meeting_id='morning-pm:'+day,call_id='A3:morning:'+day,
         plan_clusters={p['plan_id']:p['cluster'] for p in frozen['source']['plans']},
         free_slots=frozen['capacity_slots'],baseline_range=bounds,
         utilization_cap=result.utilization_cap,high_conviction_ids=set(),
         fallback_enabled=pm_policy['fallback_enabled'],fallback_priority_order=tuple(priority_order(meeting_plans)),
-        max_new_entries=limits.max_new_entries,a6_validated=result.status=='READY',
+        max_new_entries=limits.max_new_entries,max_positions=limits.max_positions,
+        geometry_plan_ids=geometry_ids,geometry_audit=geometry_audit,a6_validated=result.status=='READY',
         a6_degraded_conservative=result.status=='DEGRADED' and result.consecutive_failures==1)
