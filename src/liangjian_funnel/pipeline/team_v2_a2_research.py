@@ -21,7 +21,7 @@ from .team_v2_a2_normalization import synthesize_final_no_focus
 from .team_v2_prompts import _VERSIONS as PROMPT_VERSIONS
 
 
-def directory_reference_feedback(raw,catalog,issues):
+def directory_reference_feedback(raw,catalog,issues,*,nomination_sample=()):
     """0308: one existing second round for concrete foreign IDs, not bad shapes.
 
     This extends the Team runtime's former rotation-only feedback eligibility.
@@ -43,7 +43,10 @@ def directory_reference_feedback(raw,catalog,issues):
         foreign=set(refs)-known
         if not foreign:return None
         invalid.update(foreign)
-    return dict(invalid_reference_ids=sorted(invalid),catalog_categories=sorted(catalog['categories'])) if invalid else None
+    if not invalid:return None
+    from .team_v2_a2_references import same_fact_namespace_suggestions
+    return dict(invalid_reference_ids=sorted(invalid),catalog_categories=sorted(catalog['categories']),
+        same_fact_namespace_suggestions=same_fact_namespace_suggestions(raw,catalog,issues,nomination_sample))
 
 
 def prepare_a2_snapshot(adapter,snapshot,symbols):
@@ -186,7 +189,10 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
         input_projections=[]
         for attempt in range(3):
             from .team_v2_a2_projection import prepare_a2_transport_values
-            transport_values,input_projection=prepare_a2_transport_values(values)
+            from .team_v2_a2_references import prepare_nomination_evidence_values
+            model_values,nomination_evidence=prepare_nomination_evidence_values(values)
+            transport_values,input_projection=prepare_a2_transport_values(model_values)
+            input_projection['nomination_evidence_projection']=nomination_evidence
             request=adapter.repository.prepare_messages('A2',transport_values,required_envelope=envelope,session='CLOSE_REVIEW')
             if attempt:
                 request=bind_a2_retry_feedback(request,projected['_rotation_review_contract'].get('retry_feedback'),
@@ -289,7 +295,8 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
             history.append(list(issues))
             if valid:break
             if attempt==2:break
-            reference_feedback=directory_reference_feedback(effective_raw,values['EVIDENCE_CATALOG'],issues) if issues else None
+            reference_feedback=directory_reference_feedback(effective_raw,values['EVIDENCE_CATALOG'],issues,
+                nomination_sample=sample) if issues else None
             # Transport failures have no provider answer to correct.  Every
             # actual validation failure, not only rotation, gets feedback.
             if not issues or raw is None and set(issues)<={'TEAM_MODEL_CALL_FAILED','TEAM_MODEL_RESULT_INVALID'}:break

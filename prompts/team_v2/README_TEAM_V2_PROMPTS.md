@@ -24,7 +24,8 @@
 - A3 候选域 = A2 FOCUS + WATCH_ONLY（均为技术送审来源）；仅 model_nominations 不进 A3。
 - EVIDENCE_CATALOG：每层注入的可引用 ID 目录；引用不在目录内 → INVALID。
 - 模型判断全部进 `model_judgments`（decision_id/plan_id 唯一、原始输出与解析状态不可变、T+1/T+3 独立列），不混入有效入场 cohort。
-- prompt_version：shared 3.0.2 / A1 3.0.6 / A2 3.0.7 / A3 4.0.6 / A4-trader 1.1.0 / A5 2.0.7 / A6 1.0.9；envelope 原样回填。
+- prompt_version：shared 3.0.2 / A1 3.0.6 / A2 3.0.8 / A3 4.0.6 / A4-trader 1.1.0 / A5 2.0.7 / A6 1.0.9；envelope 原样回填。
+- 0417：A2 样本仅在模型投影增加原事实 SHA 绑定的 `evidence_ref` / `evidence_role` 注释；目录与源快照不改，明确 NOMINATION 引用不能改为 QUANT，纠错只给下一次回答建议，不改原 raw、不晋级。
 - 2026-10-20 Tony / 0384 / 0386：A2 使用统一十阶段固定政策及可逆去重复传输；A6 使用服务端簇容量和单一完整目录引用。历史修订记录保留，不代表当前版本。
 - 体积：角色专属 ≤12KB；A1 例外 ≤48KB（低频 pro 调用，v2 硬规则全部保留，见 A1【合同说明】C4），共享另计。
 

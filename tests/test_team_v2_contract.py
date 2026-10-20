@@ -110,7 +110,7 @@ def test_real_prompt_package_shared_is_used_and_values_are_rendered_once():
     values["EVIDENCE_CATALOG"] = CATALOG
     request = repo.prepare("A2", values)
     assert request.shared_version == "shared-system/3.0.2"
-    assert request.role_version == "agent-2/3.0.7"
+    assert request.role_version == "agent-2/3.0.8"
     assert "Legacy TOP5 wording" not in request.system
     assert "{{" not in request.system
     assert request.system.count('"id":"M1"') == 1
@@ -197,7 +197,7 @@ def test_author315_bundle_exact_bytes_match_all_ten_approved_digests():
     assert len(manifest['files'])==10 and manifest['role_semantics_modified'] is True
     assert manifest['authorized_changes']==['P0-2_A6_SERVER_CLUSTER_CAPACITY',
         'P0-3_A6_CATALOG_REFS','P0-17_UNIFIED_TEN_STAGE_POLICY','P0-12_LOSSLESS_A2_TRANSPORT',
-        'P0-3_0404_PM_SHORTLIST_COMPACT_OUTPUT']
+        'P0-3_0404_PM_SHORTLIST_COMPACT_OUTPUT','0417_A2_EXPLICIT_NOMINATION_EVIDENCE_BINDING']
     for name,expected in manifest['files'].items():
         raw=(root/name).read_bytes()
         assert len(raw)==expected['bytes'] and hashlib.sha256(raw).hexdigest()==expected['sha256']

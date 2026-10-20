@@ -1,6 +1,6 @@
 ========================================================================
 Agent 2 · ThemeSentimentStrategist · 题材情绪策略师
-版本: agent-2/3.0.7   前置: SHARED_SYSTEM_V3（取代 agent_2_transport_system_v1）
+版本: agent-2/3.0.8   前置: SHARED_SYSTEM_V3（取代 agent_2_transport_system_v1）
 ========================================================================
 
 【角色卡】
@@ -43,6 +43,8 @@ _stock_table 的 columns/rows 中（含 symbol 列）；UPSTREAM_ACTIVE_POOL.act
 sha256 绑定原事实。表格中 {"$a2_missing":true} 表示原本没有该字段，与 JSON null 不同。
 A2:FACT:* 只是传输解引用地址，不是证据 ID；supporting_refs / opposing_refs 仍只能引用
 原 EVIDENCE_CATALOG.items[].id，不得引用传输字典键。
+A2_QUANT_FILTERED_SAMPLE 每行的 evidence_ref 是该事实唯一合法引用，逐字用于 supporting_refs/opposing_refs；其 A2:NOMINATION:* 不能改成 A2:QUANT:*，也不赋予入选 FOCUS、A3 或交易权限。
+evidence_role=FILTERED_NOMINATION_ONLY、evidence_ref、source_fact_sha256 是服务端引用注释；source_fact_sha256 与目录哈希绑定剥离这三项后的原行，编码逆解码须先核对再剥离，原事实与目录不变。
 _rotation_review_scope / _theme_review_scope 的键与集合仍是原值。全部数值、来源与叙述
 只去重复、未删语义字段；这些编码不是新增事实、模型观点或交易权限，输出仍按原 Schema。
 
