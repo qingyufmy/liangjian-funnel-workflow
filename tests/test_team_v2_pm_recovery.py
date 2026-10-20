@@ -28,7 +28,7 @@ def test_mock_read_timeout_keeps_public_reason_not_private_cause_message(tmp_pat
     assert run_pm_premarket(**kwargs)['status']=='PM_DEGRADED_NO_ALLOCATION'
     with sqlite3.connect(tmp_path/'model.sqlite3') as db:
         metrics=json.loads(db.execute('SELECT body_json FROM model_call_telemetry').fetchone()[0])
-        assert metrics['failure_code']=='MODEL_WALL_CLOCK_TIMEOUT'
+        assert metrics['failure_code']=='PM_FIRST_PACKET_TIMEOUT'
         assert metrics['exception_class']=='ModelNetworkError' and metrics['provider_attempts']==1
         assert db.execute('SELECT count(*) FROM model_calls').fetchone()[0]==0
     assert calls==[1] and b'PRIVATE_PROVIDER_DETAILS' not in (tmp_path/'model.sqlite3').read_bytes()
@@ -136,7 +136,7 @@ def test_compact_projection_is_one_catalogue_preserves_owner_and_does_not_mutate
     assert p['plan_id']=='p1' and p['original_payload_sha256']=='original'
     assert p['publication_facts']=={'trigger_low':10,'stop_level':9,'plan_priority_rank':1}
     assert 'LARGE_PRIVATE_NARRATIVE' not in json.dumps(projected)
-    assert pm_output_budget(DEFAULT_POLICY,33,393216)==20480
+    assert pm_output_budget(DEFAULT_POLICY,33,393216)==6144
     assert priority_order([dict(plan_id='b',symbol='b',plan_priority_rank=2),
         dict(plan_id='a',symbol='a',plan_priority_rank=1)])==['a','b']
 

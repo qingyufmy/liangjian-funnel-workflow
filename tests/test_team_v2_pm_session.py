@@ -15,7 +15,14 @@ from liangjian_funnel.pipeline.team_v2_prompts import TeamPromptRepository, _ENV
 from liangjian_funnel.runtime.team_v2_pm_session import run_pm_premarket
 from liangjian_funnel.runtime.team_v2_store import TeamMeetingStore
 from liangjian_funnel.settings import Settings
-from test_team_v2_pm_schema import CATALOG, env, ranking_response as response
+from test_team_v2_pm_schema import CATALOG, env, ranking_response as legacy_response
+
+
+def response():
+    output=legacy_response();output.pop('plan_ranking');output.pop('plan_allocations')
+    output['plan_decisions']=[dict(plan_ref='PLAN:p1',decision='ACCEPT',size_tier='STANDARD',
+        reason_code='ACCEPT_STRUCTURE',note='冻结形态')]
+    return output
 
 NOW = datetime.fromisoformat('2026-10-19T08:38:00+08:00')
 MODEL = 'deepseek-v4-pro-0813'
@@ -27,9 +34,12 @@ def fixture(tmp_path, *, invalid=False, offline=False):
         source_trade_date='2026-10-16', execution_trade_date='2026-10-19')
     repo = TeamPromptRepository(Path(__file__).resolve().parents[1]/'prompts/team_v2')
     values = {key: [] for key in repo.document('A3').placeholders}
-    values['EVIDENCE_CATALOG'] = CATALOG
+    values['EVIDENCE_CATALOG'] = deepcopy(CATALOG)
+    values['EVIDENCE_CATALOG']['categories'].append('PLAN')
+    values['EVIDENCE_CATALOG']['items'].append(dict(id='PLAN:p1',category='PLAN',
+        value=dict(plan_id='p1',symbol='000001.SZ',cluster='bank',publication_facts={'plan_priority_rank':1})))
     output = response(); output['envelope'] = envelope
-    if invalid: output['plan_allocations'][0]['max_batches'] = 999
+    if invalid: output['plan_decisions'][0]['size_tier'] = 'MAX'
     seen = []
     def handler(request):
         seen.append(json.loads(request.read()))
@@ -43,7 +53,8 @@ def fixture(tmp_path, *, invalid=False, offline=False):
         model=MODEL, trade_date='2026-10-19', source_trade_date='2026-10-16', clock=lambda: NOW,
         required_envelope=envelope, replacements=values, envelopes=(env(),), plan_clusters={'p1': 'bank'},
         free_slots=2, baseline_range=(Decimal(50), Decimal(75)), utilization_cap=Decimal(75),
-        high_conviction_ids=set(), timeout_seconds=30, max_output_tokens=4096, allow_model_call=True)
+        high_conviction_ids=set(), timeout_seconds=30, max_output_tokens=4096, allow_model_call=True,
+        geometry_plan_ids=frozenset({'p1'}))
     return kwargs, seen
 
 
@@ -83,7 +94,7 @@ def test_model_failure_does_not_allocate_slots_or_expose_exception_text(tmp_path
     if invalid:
         with sqlite3.connect(tmp_path/'model.sqlite3') as db:
             output = json.loads(db.execute('SELECT output_json FROM model_calls').fetchone()[0])
-            assert output['plan_allocations'][0]['max_batches'] == 999
+            assert output['plan_decisions'][0]['size_tier'] == 'MAX'
 
 
 def test_model_claim_in_flight_never_creates_a_false_degraded_winner(tmp_path):

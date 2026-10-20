@@ -97,3 +97,8 @@
 
 ## 2026-10-17 17:0x 修订（回应 0322）
 - A1 3.0.6：输出 Schema 中列出催化剂哨兵完整对象（含 catalyst_search_scope）；节点总数≥下限（12 主题时至少 40，不能 12×3 凑数）。
+
+## 2026-10-20 0404 PM 负载修复
+- A3 4.0.7：PM_PREMARKET 先由服务端取 P0-6 可执行几何与 A6 eligible 的交集，沿 A3 既有排序截前 2×max_positions（常规 12），截断项 WATCH/PM_SHORTLIST_CUTOFF 独立审计。
+- 模型逐行输出改为 plan_ref / decision / size_tier / reason_code / ≤40字 note 五字段；全局目标保持原证据约束。服务端还原原分配结构，固定 max_batches=1、NORMAL，只降不升；原 raw 与派生记录分开，source_link 不伪装模型正反证据。
+- 这是明确授权的 PM 角色输出语义变更，PLAN_REVIEW 和 PM_POST_CLOSE 段业务规则未修改；实际文件/组合 prompt hash 与版本按新内容绑定。预算估计 1024 + 12×256×1.5 向 1024 取整为 6144，尚不等于真实 provider usage。

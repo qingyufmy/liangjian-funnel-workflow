@@ -196,7 +196,8 @@ def test_author315_bundle_exact_bytes_match_all_ten_approved_digests():
     manifest=json.loads((root/'manifest.json').read_text(encoding='utf-8'))
     assert len(manifest['files'])==10 and manifest['role_semantics_modified'] is True
     assert manifest['authorized_changes']==['P0-2_A6_SERVER_CLUSTER_CAPACITY',
-        'P0-3_A6_CATALOG_REFS','P0-17_UNIFIED_TEN_STAGE_POLICY','P0-12_LOSSLESS_A2_TRANSPORT']
+        'P0-3_A6_CATALOG_REFS','P0-17_UNIFIED_TEN_STAGE_POLICY','P0-12_LOSSLESS_A2_TRANSPORT',
+        'P0-3_0404_PM_SHORTLIST_COMPACT_OUTPUT']
     for name,expected in manifest['files'].items():
         raw=(root/name).read_bytes()
         assert len(raw)==expected['bytes'] and hashlib.sha256(raw).hexdigest()==expected['sha256']

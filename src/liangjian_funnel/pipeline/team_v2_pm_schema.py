@@ -20,6 +20,9 @@ _PRE = _COMMON | {"deployment_target", "slot_plan", "plan_allocations", "shortfa
 _RANKING_PRE = (_PRE - {"slot_plan"}) | {"plan_ranking"}
 PM_PRIMARY_CLUSTER_CAP = 2
 _CLOSE = _COMMON | {"overnight_stances", "capacity_request", "unresolved_questions"}
+_COMPACT_PRE = _COMMON | {'deployment_target','plan_decisions','shortfall_reason'}
+PM_COMPACT_REASONS = frozenset(('ACCEPT_STRUCTURE','ACCEPT_DIVERSIFICATION','WATCH_TRIGGER',
+    'WATCH_CLUSTER','WATCH_REGIME','WATCH_RISK','WATCH_PRIORITY'))
 
 
 def _text(value):
@@ -58,6 +61,75 @@ def _root(output, catalog, *, session, keys, required_envelope, recipients):
 
 def _result(issues, common):
     return TeamValidation(not issues, tuple(dict.fromkeys(issues)), common.judgments, common.sentinel_count)
+
+
+def _allocation_risk_valid(unit,batches,conviction,envelope):
+    return (unit in ('STANDARD','PROBE') and (envelope.risk_unit!='PROBE' or unit=='PROBE')
+        and type(batches) is int and 1<=batches<=envelope.max_batches
+        and conviction in ('NORMAL','HIGH_CONVICTION'))
+
+
+def project_pm_compact(output,catalog,*,plan_refs,**context):
+    """0404 five-field provider judgments -> original downstream allocation.
+
+    Source links are not fabricated supporting/opposing opinions. Global target
+    keeps its original evidence contract; identity/risk assertions remain hard.
+    """
+    baseline=validate_pm_slots(None,catalog,**context)
+    if not isinstance(output,Mapping):return None,baseline
+    issues,common=_root(output,catalog,session='PM_PREMARKET',keys=_COMPACT_PRE,
+        required_envelope=context['required_envelope'],recipients={'to_a4','to_a6'})
+    # Run the exact original global numeric/target/ref/shortfall validators with
+    # no synthetic model allocation or opposing evidence.
+    global_only={k:v for k,v in output.items() if k!='plan_decisions'}
+    global_only.update(slot_plan=[],plan_allocations=[])
+    global_check=validate_pm_slots(global_only,catalog,**context)
+    issues.extend(global_check.issues)
+    by_id={e.plan_id:e for e in context['envelopes']}
+    if (not isinstance(plan_refs,Mapping) or len(set(plan_refs.values()))!=len(plan_refs)
+            or not set(plan_refs.values()).issubset(by_id)):
+        raise ValueError('PM_SHORTLIST_BINDING_INVALID')
+    catalog_refs={i['id']:i for i in catalog.get('items',[]) if isinstance(i,Mapping)}
+    if any(ref not in catalog_refs or catalog_refs[ref].get('category')!='PLAN'
+            or catalog_refs[ref].get('value',{}).get('plan_id')!=pid for ref,pid in plan_refs.items()):
+        raise ValueError('PM_SHORTLIST_BINDING_INVALID')
+    rows=output.get('plan_decisions');seen=[];ranking=[];allocations=[];judgments=[]
+    if not isinstance(rows,list):issues.append('PM_COMPACT_POOL_INVALID');rows=[]
+    for index,row in enumerate(rows):
+        if not isinstance(row,Mapping) or set(row)!={'plan_ref','decision','size_tier','reason_code','note'}:
+            issues.append('PM_COMPACT_FIELDS_INVALID');continue
+        ref=row['plan_ref']
+        if not isinstance(ref,str) or ref not in plan_refs:
+            issues.append('PM_COMPACT_REF_INVALID');continue
+        seen.append(ref);pid=plan_refs[ref];e=by_id[pid]
+        if (row['decision'] not in ('ACCEPT','WATCH') or row['size_tier'] not in ('STANDARD','PROBE','NONE')
+                or not isinstance(row['reason_code'],str) or row['reason_code'] not in PM_COMPACT_REASONS
+                or not _text(row['note']) or len(row['note'])>40
+                or (row['decision']=='WATCH' and (row['size_tier']!='NONE' or not row['reason_code'].startswith('WATCH_')))
+                or (row['decision']=='ACCEPT' and not row['reason_code'].startswith('ACCEPT_'))):
+            issues.append('PM_COMPACT_DECISION_INVALID');continue
+        judgments.append(dict(row,path=f'plan_decisions[{index}]'))
+        if row['decision']=='WATCH':continue
+        if (not e.eligible or not _allocation_risk_valid(row['size_tier'],1,'NORMAL',e)):
+            issues.append('PM_ALLOCATION_ABOVE_ENVELOPE');continue
+        ranking.append(dict(rank=len(ranking)+1,plan_id=pid,cluster=context['plan_clusters'][pid],source_link=ref))
+        allocations.append(dict(plan_id=pid,intended_risk_unit=row['size_tier'],max_batches=1,
+            conviction='NORMAL',reason_code=row['reason_code'],source_link=ref))
+    if len(seen)!=len(set(seen)) or set(seen)!=set(plan_refs):issues.append('PM_COMPACT_COVERAGE_INVALID')
+    counts=Counter();primary=[]
+    for row in ranking:
+        if len(primary)<context['free_slots'] and counts[row['cluster']]<PM_PRIMARY_CLUSTER_CAP:
+            primary.append(row);counts[row['cluster']]+=1
+    primary_ids={r['plan_id'] for r in primary};backup=[r for r in ranking if r['plan_id'] not in primary_ids]
+    slots=[dict(slot=i,primary_plan_id=r['plan_id'],backup_plan_id=backup[i-1]['plan_id'] if i<=len(backup) else '',
+        cluster=r['cluster'],accept_order=i,source_link=r['source_link']) for i,r in enumerate(primary,1)]
+    derived={k:v for k,v in output.items() if k!='plan_decisions'}
+    derived.update(plan_ranking=ranking,plan_allocations=allocations,slot_plan=slots,
+        derived_shortfall='NONE' if len(primary)==context['free_slots'] else
+            'NO_ACCEPTED_PLANS' if not ranking else 'CLUSTER_CAP' if backup else 'RANKING_EXHAUSTED')
+    validation=TeamValidation(not issues,tuple(dict.fromkeys(issues)),
+        (*common.judgments,*judgments),common.sentinel_count)
+    return derived,validation
 
 
 def validate_pm_slots(output: Any, catalog: Any, *, required_envelope: Mapping,
@@ -121,10 +193,8 @@ def validate_pm_slots(output: Any, catalog: Any, *, required_envelope: Mapping,
         if not isinstance(key, str) or key not in eligible:
             issues.append("PM_ALLOCATION_DOMAIN_INVALID"); continue
         allocated.append(key); envelope = by_id[key]
-        if (row["intended_risk_unit"] not in ("STANDARD", "PROBE")
-                or (envelope.risk_unit == "PROBE" and row["intended_risk_unit"] != "PROBE")
-                or type(row["max_batches"]) is not int or not 1 <= row["max_batches"] <= envelope.max_batches
-                or row["conviction"] not in ("NORMAL", "HIGH_CONVICTION") or not _text(row["reason_code"])):
+        if (not _allocation_risk_valid(row['intended_risk_unit'],row['max_batches'],row['conviction'],envelope)
+                or not _text(row["reason_code"])):
             issues.append("PM_ALLOCATION_ABOVE_ENVELOPE")
         if row["conviction"] == "HIGH_CONVICTION" and (key not in high_conviction_ids or envelope.a6_tightened):
             issues.append("PM_HIGH_CONVICTION_NOT_ELIGIBLE")

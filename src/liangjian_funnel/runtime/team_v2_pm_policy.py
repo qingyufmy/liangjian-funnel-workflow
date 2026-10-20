@@ -12,7 +12,7 @@ import math
 from .risk_engine import conservative_envelope
 
 DEFAULT_POLICY=dict(schema_version='team-pm-runtime/1',fallback_enabled=True,
-    timeout_seconds=106,output_base_tokens=2048,output_per_plan_tokens=512)
+    timeout_seconds=106,output_base_tokens=1024,output_per_plan_tokens=256)
 PLAN_FIELDS=frozenset(('strategy_profile','strategy_version','primary_theme','theme_id',
     'trigger_low','trigger_high','trigger_zone','entry_reference_zone','stop_level',
     'no_chase_price','first_resistance','pressure_reduce_price','reference_price',
@@ -34,10 +34,51 @@ def load_pm_policy(root):
     return value
 
 
-def pm_output_budget(policy,count,configured_max):
+def pm_output_budget(policy,count,configured_max,*,max_positions=6):
     if type(count) is not int or count<0:raise ValueError('PM_PLAN_COUNT_INVALID')
-    estimate=policy['output_base_tokens']+count*policy['output_per_plan_tokens']
-    return min(configured_max,max(4096,math.ceil(estimate/4096)*4096))
+    if type(max_positions) is not int or max_positions<1:raise ValueError('PM_POSITION_CAP_INVALID')
+    # Compact row worst-case serialized fixture: 256 estimated tokens, including
+    # a 40-character note and long catalog ID. 12 * 256 * 1.5 + 1024 global
+    # envelope/target overhead = 5632 -> 6144. Not claimed provider usage.
+    estimate=policy['output_base_tokens']+math.ceil(min(count,2*max_positions)*policy['output_per_plan_tokens']*1.5)
+    return min(configured_max,max(2048,math.ceil(estimate/1024)*1024))
+
+
+def pm_shortlist(values,*,envelopes,plan_clusters,geometry_plan_ids,max_positions=6):
+    """R1: existing A3 priority, proven publication geometry, A6 intersection."""
+    if type(max_positions) is not int or max_positions<1:raise ValueError('PM_POSITION_CAP_INVALID')
+    by_id={e.plan_id:e for e in envelopes}
+    if len(by_id)!=len(envelopes) or set(by_id)!=set(plan_clusters):
+        raise ValueError('PM_SERVER_CONTEXT_INVALID')
+    items=values['EVIDENCE_CATALOG'].get('items',[])
+    plans=[i['value'] for i in items if i.get('category')=='PLAN']
+    if (any(not isinstance(p,dict) or p.get('plan_id') not in by_id for p in plans)
+            or len({p['plan_id'] for p in plans})!=len(plans) or {p['plan_id'] for p in plans}!=set(by_id)):
+        raise ValueError('PM_PLAN_CATALOG_DOMAIN_INVALID')
+    if any(p.get('symbol')!=by_id[p['plan_id']].symbol or p.get('cluster')!=plan_clusters[p['plan_id']] for p in plans):
+        raise ValueError('PM_PLAN_CATALOG_BINDING_INVALID')
+    refs={i['value']['plan_id']:i['id'] for i in items if i.get('category')=='PLAN'}
+    if geometry_plan_ids is None:
+        geometry_plan_ids={p['plan_id'] for p in plans if p.get('publication_facts',{}).get(
+            'team_plan_geometry',{}).get('classification') in ('FULL','PARTIAL')}
+    if not isinstance(geometry_plan_ids,(set,frozenset)) or not geometry_plan_ids.issubset(by_id):
+        raise ValueError('PM_GEOMETRY_SCOPE_INVALID')
+    order=priority_order(plans)
+    candidates=[p for p in order if p in geometry_plan_ids and by_id[p].eligible
+        and by_id[p].risk_unit in ('STANDARD','PROBE')]
+    selected=candidates[:2*max_positions];selected_set=set(selected)
+    audit=dict(authority='SERVER_SHORTLIST_NOT_NEW_ELIGIBILITY',max_positions=max_positions,
+        shortlist_limit=2*max_positions,priority_order=order,geometry_plan_ids=sorted(geometry_plan_ids),
+        a6_eligible_plan_ids=[p for p in order if by_id[p].eligible],selected_plan_ids=selected,
+        excluded=[dict(plan_id=p,decision='WATCH',reason_code='PM_SHORTLIST_CUTOFF',
+            exclusion_basis='SHORTLIST_CAP' if p in candidates else 'GEOMETRY_OR_A6_INELIGIBLE')
+            for p in order if p not in selected_set])
+    result=project_pm_values(values)
+    result['EVIDENCE_CATALOG']['items']=[i for i in result['EVIDENCE_CATALOG']['items']
+        if i.get('category')!='PLAN' or i['value']['plan_id'] in selected_set]
+    for field in ('PLANS','PLANS_TODAY'):
+        if field in result:result[field]={'source':'EVIDENCE_CATALOG','plan_evidence_ids':[refs[p] for p in selected]}
+    return result,audit,{refs[p]:p for p in selected}
 
 
 def priority_order(plans):

@@ -3,6 +3,8 @@ fallback_enabled: true
 # Eight frozen Pro calls today: empirical mixed-session p95=70.111s.
 # 106s is ceil(p95 * 1.5), within Node's existing 120s morning job.
 timeout_seconds: 106
-# Full ranking + allocation JSON, not actual provider-token usage.
-output_base_tokens: 2048
-output_per_plan_tokens: 512
+# 0404 compact five-field rows: estimated upper sample 256 tokens/row,
+# 40-char note and long plan ref included. Not actual provider-token usage.
+# ceil_1024(1024 + min(count, 2*max_positions) * 256 * 1.5): 12 rows -> 6144.
+output_base_tokens: 1024
+output_per_plan_tokens: 256
