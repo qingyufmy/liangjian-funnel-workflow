@@ -17,7 +17,7 @@ from liangjian_funnel.pipeline.model_client import OpenAICompatibleModelClient
 from liangjian_funnel.runtime.team_v2_morning import run_morning_stage
 from liangjian_funnel.runtime.team_v2_sources import read_planning_scope
 from test_team_v2_risk_schema import output as risk_output
-from test_team_v2_pm_schema import ranking_response as pm_output
+from test_team_v2_pm_session import response as pm_output
 
 ROOT=Path(__file__).resolve().parents[1]
 CAL=SimpleNamespace(is_trading_day=lambda _:True,previous_trading_day=lambda day:
@@ -32,7 +32,8 @@ def fixture(tmp_path, *, trade_date='2026-10-19'):
     source_day=CAL.previous_trading_day(date.fromisoformat(trade_date)).isoformat()
     raw=dict(symbol='000001.SZ',source_run_id='close-original',reference_price=10,
         reference_price_as_of=source_day+'T15:00:00+08:00',trigger_low=9.8,trigger_high=10.1,
-        stop_level=9,no_chase=10.2,cluster_label='bank',market_regime='ROTATION_NO_MAINLINE',
+        stop_level=9,no_chase=10.2,first_resistance=14,minimum_reward_risk=2.5,
+        cluster_label='bank',market_regime='ROTATION_NO_MAINLINE',
         plan_expiry=source_day+'T15:00:00+08:00')
     with closing(sqlite3.connect(settings.state_db_path)) as db,db:
         db.execute('CREATE TABLE execution_plans(plan_id TEXT PRIMARY KEY,lane_id TEXT,symbol TEXT,status TEXT,valid_from TEXT,expires_at TEXT,payload_json TEXT)')
@@ -59,7 +60,7 @@ def client(settings,*,risk_cap=65,probe=True,offline=False):
         raw['envelope']=envelope
         if envelope['stage_id']=='A6':raw['utilization_cap']['cap_pct']=risk_cap
         else:
-            raw['plan_allocations'][0].update(max_batches=1,intended_risk_unit='PROBE' if probe else 'STANDARD')
+            raw['plan_decisions'][0].update(plan_ref='MORNING:PLAN:p1',size_tier='PROBE' if probe else 'STANDARD')
             bounds=[min(40,risk_cap),min(65,risk_cap)]
             raw['deployment_target'].update(target_pct=min(60,risk_cap),baseline_range=bounds)
         body=json.dumps(raw).replace('"C1"','"MORNING:ACCOUNT"').replace('"M1"','"MORNING:MARKET"')
