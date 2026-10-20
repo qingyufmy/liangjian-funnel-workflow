@@ -56,7 +56,8 @@ def _views(snapshot,*,plan,all_plans,mark_as_of,entry):
 
 def admit_trader_signal(*,broker,signal_id,action,plan,envelope,limits,all_plans,now,closed_5m_end,
                         mark_as_of,regime,live_market_ready,snapshot_ready,mode,calendar,input_sha256,pm_allocation=None,
-                        deadline_monotonic=None,monotonic=time.monotonic,utilization_cap_pct=None):
+                        deadline_monotonic=None,monotonic=time.monotonic,utilization_cap_pct=None,
+                        entry_pattern_binding=None):
     if (not isinstance(now,datetime) or now.utcoffset() is None or not isinstance(mark_as_of,datetime)
             or mark_as_of.utcoffset() is None or not re.fullmatch(r'[a-f0-9]{64}',input_sha256)
             or plan.plan_id not in all_plans or all_plans[plan.plan_id]!=plan):
@@ -66,6 +67,12 @@ def admit_trader_signal(*,broker,signal_id,action,plan,envelope,limits,all_plans
         utilization_cap_pct=number(utilization_cap_pct)
         if utilization_cap_pct is None or not 0<=utilization_cap_pct<=100:raise ValueError('TRADER_UTILIZATION_CAP_INVALID')
     current=now.astimezone(TZ)
+    if entry_pattern_binding is not None:
+        from .entry_pattern_binding import probe_envelope,validate_team_intent
+        envelope=probe_envelope(envelope)
+        entry_pattern_binding=validate_team_intent(plan,envelope,entry_pattern_binding)
+        if entry_pattern_binding['source_as_of']!=closed_5m_end.isoformat():
+            raise ValueError('ENTRY_PATTERN_INTENT_CLOCK_CONFLICT')
     binding=json.loads(dump(dict(plan_id=plan.plan_id,symbol=plan.symbol,trade_date=current.date().isoformat(),
         cluster=plan.cluster,action=action,plan=asdict(plan),envelope=asdict(envelope),limits=asdict(limits),
         decision_at=current,closed_5m_end=closed_5m_end,mark_as_of=mark_as_of,input_sha256=input_sha256,
@@ -73,6 +80,7 @@ def admit_trader_signal(*,broker,signal_id,action,plan,envelope,limits,all_plans
         pm_allocation=asdict(pm_allocation) if pm_allocation is not None else None,
         utilization_cap_pct=utilization_cap_pct,
         plan_clusters={pid:[item.symbol,item.cluster] for pid,item in sorted(all_plans.items())})))
+    if entry_pattern_binding is not None:binding['entry_pattern_binding']=entry_pattern_binding
     def decide(snapshot):
         def block(code):return dict(judgment=dict(status='REJECTED',shares=0,risk_unit='NONE',reason_codes=[code]),order=None)
         if deadline_monotonic is not None and monotonic()>=deadline_monotonic:

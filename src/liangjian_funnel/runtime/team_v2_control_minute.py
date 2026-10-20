@@ -64,6 +64,13 @@ def run_control_minute(*,session_kwargs,closed_bars,deadline_monotonic,monotonic
     # Match all already-placed intents first, then derive the next intent from
     # the same closed bar. Never fill a new stop intent using its trigger bar.
     positions=broker.get_positions()
+    # An admitted B stop survives the next tick and process restart. Only
+    # dispatched owned-paper evidence may tighten an already-held position.
+    if positions:
+        from .entry_pattern_binding import held_stop_overlays
+        pattern_snapshot=getattr(broker,'get_entry_pattern_stop_snapshot',None)
+        if callable(pattern_snapshot):
+            args['all_plans']=held_stop_overlays(args['all_plans'],pattern_snapshot())
     for position in positions:
         plan=args['all_plans'].get(position['plan_id']);bar=closed_bars.get(position['symbol'])
         if plan is None or plan.symbol!=position['symbol']:

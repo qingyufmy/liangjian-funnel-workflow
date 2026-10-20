@@ -27,7 +27,7 @@ NORMAL_FIELDS = frozenset({"symbol", "trigger_low", "trigger_high", "stop_level"
                           "confirmation_bars", "action", "plan_expiry", "research_source_expiry"})
 PERMISSION_FIELDS = frozenset({"execution_permission", "research_only_reason", "a2_execution_permission",
                               "a2_research_only_reason"})
-PUBLISH_FIELDS = PERMISSION_FIELDS | {"source_run_id", "trend_entry_rule_version"}
+PUBLISH_FIELDS = PERMISSION_FIELDS | {"source_run_id", "trend_entry_rule_version", "cluster", "cluster_display_projection"}
 SAFE_PERMISSION_VALUES = frozenset({"BLOCKED", "ALLOW", "ALLOW_A4", "REQUIRES_A3_A4_CONFIRMATION"})
 
 
@@ -207,6 +207,9 @@ class PublicationReceiptBuilder:
             originals.append(inputs.submitted_payload)
         if inputs.authority is not None:
             originals.extend((inputs.authority.value, inputs.authority.source))
+        from .plan_cluster_display import FIELD as CLUSTER_FIELD,project_cluster_display
+        if CLUSTER_FIELD in submitted:
+            expected = project_cluster_display(expected)
         if inputs.shadow_projection is not None:
             originals.append(inputs.shadow_projection)
         for proof in (*inputs.snapshot_chain, *inputs.authority_snapshot_chain):

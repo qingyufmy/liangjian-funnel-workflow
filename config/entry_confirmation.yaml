@@ -1,0 +1,23 @@
+schema_version: entry-confirmation/1
+entry_confirmation:
+  mode: pattern_v1  # Tony 2026-10-20 16:35: deployment default; legacy is emergency only.
+  patterns: {A: true, B: true, C: true}  # Failed correctness gates may disable one shape independently.
+  atr_period: 20  # Mean true range of the latest closed 5m bars.
+  volume_lookback: 6  # PRECEDING bars, excluding the measured bar.
+  segment_min_bars: 2  # Consecutive close-direction bars; flat closes split runs.
+  tolerance_atr: 0.5
+  tolerance_reference_pct: 0.003
+  a_pullback_volume_ratio: 0.7
+  a_wick_body_ratio: 1.0
+  a_wick_volume_ratio: 1.2
+  b_breakout_volume_ratio: 1.5
+  b_retest_volume_ratio: 0.6
+  b_retest_upper_tolerance: 2.0
+  b_max_breakouts: 2
+  platform_days: 20
+  platform_quantile: 0.8  # Linear interpolation: index=(n-1)*q.
+  c_decline_atr: 1.5
+  c_volume_ratio: 1.5
+  c_recovery_fraction: 0.382
+  c_upper_wick_body_ratio: 1.5
+  c_sync_bars: 1

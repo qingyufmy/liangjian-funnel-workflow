@@ -337,6 +337,11 @@ class MonitorEngine:
                 if self.runtime_policy is not None and "runtime_policy" not in selected_context:
                     selected_context = {**dict(selected_context), "runtime_policy": dict(self.runtime_policy)}
                     market_contexts = {**dict(market_contexts or {}), symbol: selected_context}
+                if selected_context.get("entry_confirmation_config",{}).get("mode")=="pattern_v1":
+                    selected_context={**dict(selected_context),"entry_confirmation_plan_id":plan_id}
+                    daily_by_plan=selected_context.pop("entry_confirmation_daily_facts_by_plan",{})
+                    if plan_id in daily_by_plan:
+                        selected_context["entry_confirmation_daily_facts"]=daily_by_plan[plan_id]
                 strategy_result = evaluate_strategy(
                     payload,
                     history,
@@ -401,10 +406,12 @@ class MonitorEngine:
                         MonitorAction.ADD_SIGNAL.value,
                     },
                 }
+                if "entry_confirmation" in strategy_result:
+                    trigger_record["entry_confirmation"] = strategy_result["entry_confirmation"]
                 trigger_results.append(trigger_record)
                 if action == MonitorAction.DATA_BLOCK.value:
                     self._reset_confirmation(lane_id, plan_id)
-                    if reason in {"NO_CLOSED_5M", "NO_CLOSED_15M"}:
+                    if reason in {"NO_CLOSED_5M", "NO_CLOSED_15M", "CONFIRM_WARMUP"}:
                         events.append(self._emit_internal(
                             lane_id, minute, minute_snapshot_id,
                             MonitorAction.START_CONFIRMATION.value,
@@ -1189,6 +1196,8 @@ class MonitorEngine:
         )
         from .entry_contract import freeze_entry_contract
         entry_payload = self._payload(plan)
+        from .entry_pattern_binding import digest as entry_plan_digest
+        entry_plan_sha256 = entry_plan_digest(entry_payload) if (strategy_result or {}).get("entry_pattern_binding") else None
         if plan.get("expires_at"):
             entry_payload = {**entry_payload, "expires_at": plan["expires_at"]}
         observed_wall = self._wall_clock()
@@ -1203,6 +1212,8 @@ class MonitorEngine:
                 strategy_result or {},
                 at=minute,
                 review_completed_at=review_completed_at,
+                source_plan_sha256=entry_plan_sha256,
+                source_plan_id=plan_id if entry_plan_sha256 else None,
             )
             if action in {MonitorAction.BUY_SIGNAL.value, MonitorAction.ADD_SIGNAL.value}
             and strategy_result is not None else None

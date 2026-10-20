@@ -5081,6 +5081,13 @@ class WorkflowApplication:
         for lane_id, scope_symbols in lane_scopes.items():
             bars: dict[str, MinuteBar] = {}
             contexts: dict[str, Any] = {}
+            from .runtime.entry_confirmation import runtime_confirmation_overlay
+            confirmation_overlay = runtime_confirmation_overlay(self.settings.root)
+            confirmation_facts = {}
+            if confirmation_overlay.get("entry_confirmation_config",{}).get("mode")=="pattern_v1":
+                from .runtime.entry_confirmation import runtime_confirmation_facts
+                confirmation_facts = runtime_confirmation_facts(self.settings,lane_plans[lane_id],
+                    current_trade_date=current.date(),deadline_monotonic=round_deadline)
             histories: dict[str, tuple[MinuteBar, ...]] = {}
             data_errors: dict[str, str] = {}
             risk_bars: dict[str, MinuteBar] = {}
@@ -5228,6 +5235,11 @@ class WorkflowApplication:
                 # original plan stays immutable; legacy frozen inputs still
                 # replay with their original one-bar default.
                 contexts[symbol]["runtime_policy"] = {"STRUCTURE_FAIL_CONFIRM_BARS_15M": 2}
+                contexts[symbol].update(confirmation_overlay)
+                if confirmation_facts:
+                    contexts[symbol]["entry_confirmation_daily_facts_by_plan"] = {
+                        row["plan_id"]:confirmation_facts.get(row["plan_id"],{})
+                        for row in lane_plans[lane_id] if row["symbol"]==symbol}
                 contexts[symbol]["execution_data"]["minute_snapshot_id"] = minute_snapshot_id
                 contexts[symbol]["execution_data"]["publication"] = dict(fetched.get("publication") or {})
                 publication_attempts = fetched.get("publication", {}).get("attempts", [])
@@ -5241,7 +5253,7 @@ class WorkflowApplication:
                 # execution dependency.
                 # Supporting history cannot alter today's price structure or
                 # fill a missing current-session bucket. Read local archive only.
-                if any(str(json.loads(p.get("payload_json") or "{}").get("strategy_profile")) == "MA520_SWING"
+                if confirmation_overlay or any(str(json.loads(p.get("payload_json") or "{}").get("strategy_profile")) == "MA520_SWING"
                        for p in lane_plans[lane_id] if p.get("symbol") == symbol):
                     try:
                         past = self.minute_store.load_latest(symbol, "5m", limit=360,
@@ -7134,6 +7146,8 @@ class WorkflowApplication:
                         reason=projection['audit']['reason_code']))
                     continue
                 payload = projection['payload']
+                from .runtime.plan_cluster_display import project_cluster_display
+                payload = project_cluster_display(payload)
             candidate["payload"] = payload
             geometry_ready.append(candidate)
             original = original_plans[candidate["plan_id"]]

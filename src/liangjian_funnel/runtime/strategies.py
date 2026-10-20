@@ -158,6 +158,12 @@ def evaluate_a4_plan(
     *,
     as_of: datetime | None = None,
     decision_time: datetime | None = None,
+    entry_confirmation_config: Mapping[str, Any] | None = None,
+    entry_confirmation_daily_facts: Mapping[str, Any] | None = None,
+    entry_confirmation_historical_five: Sequence[Any] = (),
+    entry_pattern_execution_supported: bool = False,
+    entry_confirmation_source_sha256: str | None = None,
+    entry_confirmation_plan_id: str | None = None,
 ) -> dict[str, Any]:
     """Evaluate one A3 plan against one frozen intraday bar snapshot.
 
@@ -491,19 +497,43 @@ def evaluate_a4_plan(
         decision = _evaluate_520(plan, bars_5m, bars_15m, current_bar, context, position_open, locked)
     else:
         decision = _evaluate_trend(plan, bars_5m, bars_15m, current_bar, context, position_open, locked)
+    pattern = None
+    if (entry_confirmation_config is not None and entry_confirmation_config.get("mode") != "legacy"
+            and not position_open and profile is not StrategyProfile.LEADER_INTRADAY):
+        decision = _evaluate_pattern_entry(
+            plan, bars_5m, bars_15m, current, locked,
+            entry_confirmation_config, entry_confirmation_daily_facts,
+            execution_supported=entry_pattern_execution_supported,source_sha256=entry_confirmation_source_sha256,
+            plan_id=entry_confirmation_plan_id,historical_five=entry_confirmation_historical_five,
+        )
+        if current_bar is not None and current_bar.volume<=0:
+            # A carried price for a real zero-trade minute is not an entry
+            # bar, even if the preceding closed 5m shape was confirmed.
+            # This is local observation, not DATA_BLOCK or an account latch.
+            decision={**decision,"state":"WAITING","action":A4Action.NO_ACTION.value,
+                "reason_codes":["CONFIRM_CURRENT_MINUTE_NO_TRADES"],
+                "unmet_conditions":["CURRENT_MINUTE_HAS_TRADES"],"veto_conditions":[],
+                "entry_confirmation":{**decision.get("entry_confirmation",{}),
+                    "current_minute":dict(status="NO_TRADES",volume=current_bar.volume,
+                        source_as_of=current_bar.end.isoformat())}}
+            decision.pop("entry_pattern_binding",None)
+        pattern = decision.get("entry_confirmation")
     realtime_quote = _lookup(plan, ("market_context", "realtime_quote"))
     realtime_price = (
         _number(realtime_quote.get("price"))
         if isinstance(realtime_quote, Mapping) and realtime_quote.get("available") is True
         else None
     )
+    execution_binding=decision.get("entry_pattern_binding")
+    geometry_plan={**plan,"stop_level":execution_binding["stop"]} if execution_binding else plan
     decision = _apply_live_entry_geometry(
-        plan,
+        geometry_plan,
         decision,
         current_price=(
-            realtime_price
-            if realtime_price is not None
-            else current_bar.close if current_bar is not None else bars_5m[-1].close
+            bars_5m[-1].close if pattern is not None else (
+                realtime_price if realtime_price is not None else
+                current_bar.close if current_bar is not None else bars_5m[-1].close
+            )
         ),
     )
     base.update(_apply_live_market_gate(decision, live_market_gate))
@@ -546,11 +576,23 @@ def evaluate_strategy(
         ):
             if (key not in payload or payload.get(key) is None) and key in market_context:
                 payload[key] = market_context[key]
+    confirmation_source_sha256 = None
+    if (market_context or {}).get("entry_confirmation_config",{}).get("mode") == "pattern_v1":
+        from .entry_pattern_binding import digest
+        confirmation_source_sha256 = digest(dict(plan))
     result = evaluate_a4_plan(
         payload,
         bars,
         as_of=now,
         decision_time=decision_time,
+        # Only an explicit server overlay may opt in. A persisted plan's
+        # self-reported mode/market_context must never enable new semantics.
+        entry_confirmation_config=(market_context or {}).get("entry_confirmation_config"),
+        entry_confirmation_daily_facts=(market_context or {}).get("entry_confirmation_daily_facts"),
+        entry_confirmation_historical_five=(market_context or {}).get("historical_5m",()),
+        entry_pattern_execution_supported=(market_context or {}).get("entry_pattern_execution_supported") is True,
+        entry_confirmation_source_sha256=confirmation_source_sha256,
+        entry_confirmation_plan_id=(market_context or {}).get("entry_confirmation_plan_id"),
     )
     # Policy is a frozen runtime input, not an edit to the persisted A3 plan.
     # Absence deliberately retains the historical one-bar contract for replay.
@@ -563,6 +605,80 @@ def evaluate_strategy(
 # The alias makes the module convenient for callers that use the descriptive
 # ``evaluate_a4`` name while keeping one strategy dispatch implementation.
 evaluate_a4 = evaluate_a4_plan
+
+
+def _evaluate_pattern_entry(plan, five, fifteen, as_of, locked, config, daily_facts,*,execution_supported=False,source_sha256=None,plan_id=None,historical_five=()):
+    """Replace entry confirmation only; common guards/exits remain upstream.
+
+    A/C replace the legacy reversal/VWAP/15m-low confirmations. They do not
+    replace A3 daily eligibility, volume overheat, lock or live market gates.
+    B requires an explicitly server-owned execution adapter capability and
+    an immutable, checked raised-stop/PROBE binding. A plan flag is not one.
+    """
+    from .entry_confirmation import evaluate_pattern
+    try:
+        evidence=evaluate_pattern(plan,five,fifteen,as_of=as_of,config=config,
+            daily_facts=daily_facts,vwap=_vwap(five),historical_five=historical_five)
+    except (ValueError,TypeError):
+        evidence={"mode":"pattern_v1","status":"DATA_LIMITED","confirmed":False,
+            "reason_codes":["ENTRY_CONFIRMATION_CONFIG_INVALID"],"conditions":{}}
+    if evidence.get("mode")=="legacy":
+        # Explicit legacy configuration is still byte-compatible delegation.
+        profile=_parse_profile(_lookup(plan,("strategy_profile",),("strategyProfile",)))
+        context=_common_context(plan,None,five,fifteen)
+        return (_evaluate_520 if profile is StrategyProfile.MA520_SWING else _evaluate_trend)(
+            plan,five,fifteen,None,context,False,locked)
+    met=[];unmet=[];reasons=[];veto=[]
+    for name,item in evidence.get("conditions",{}).items():
+        if name not in evidence.get("required_conditions",evidence.get("conditions",{})):
+            continue
+        (met if item["status"]=="MET" else unmet).append(name)
+    reasons.extend(evidence.get("reason_codes") or [])
+    if plan.get("strategy_profile")=="MA520_SWING":
+        daily=_daily_context(plan)
+        ma5=_number(_lookup(daily,("ma5",),("MA5",))) if daily else None
+        ma20=_number(_lookup(daily,("ma20",),("MA20",))) if daily else None
+        close=_number(_lookup(daily,("close",),("latest_close",),("daily_close",))) if daily else None
+        eligibility={"DAILY_MA5_ABOVE_MA20":ma5 is not None and ma20 is not None and ma5>=ma20,
+            "DAILY_CLOSE_ABOVE_MA20":ma20 is not None and (close is None or close>ma20),
+            "A3_RIGHT_SIDE_CONFIRMATION":_ma520_right_side_confirmed(plan)}
+        for name,passed in eligibility.items():
+            (met if passed else unmet).append(name)
+            if not passed:reasons.append(name+"_NOT_MET");veto.append(name)
+    else:
+        met.append("A3_TREND_ROUTE_APPROVED")
+    volume_ok,volume_reason=_volume_not_overheated(plan,five)
+    if not volume_ok:unmet.append("VOLUME_NOT_OVERHEATED");reasons.append(volume_reason);veto.append(volume_reason)
+    else:met.append("VOLUME_NOT_OVERHEATED")
+    if locked:unmet.append("EXECUTABLE_NOT_LOCKED_LIMIT_UP");reasons.append("LOCKED_LIMIT_UP");veto.append("LOCKED_LIMIT_UP")
+    if _requested_action(plan) is A4Action.ADD_SIGNAL:
+        unmet.append("PROFITABLE_POSITION_FOR_ADD");reasons.append("TREND_ADD_REQUIRES_PROFIT");veto.append("TREND_AVERAGE_DOWN_FORBIDDEN")
+    binding=None
+    if evidence.get("pattern")=="B_BREAKOUT_RETEST" and evidence.get("confirmed") and execution_supported:
+        from .entry_pattern_binding import make_b_execution_binding
+        try:binding=make_b_execution_binding(plan,evidence,source_sha256=source_sha256,plan_id=plan_id)
+        except ValueError:
+            unmet.append("ENTRY_PATTERN_B_BINDING_VALID");reasons.append("ENTRY_PATTERN_BINDING_INVALID");veto.append("ENTRY_PATTERN_BINDING_INVALID")
+        if binding is not None:
+            quote=_lookup(plan,("market_context","realtime_quote"))
+            price=_number(quote.get("price")) if isinstance(quote,Mapping) and quote.get("available") is True else None
+            if price is not None and not float(binding['stop'])<price<=float(binding['no_chase']):
+                unmet.append("CURRENT_QUOTE_WITHIN_BOUND_B_RISK");reasons.append("B_CURRENT_QUOTE_OUTSIDE_STOP_OR_NO_CHASE")
+                veto.append("B_CURRENT_QUOTE_OUTSIDE_STOP_OR_NO_CHASE")
+    if evidence.get("pattern")=="B_BREAKOUT_RETEST" and not execution_supported:
+        unmet.append("ENTRY_PATTERN_B_EXECUTION_BOUND");reasons.append("ENTRY_PATTERN_B_EXECUTION_UNBOUND");veto.append("ENTRY_PATTERN_B_EXECUTION_UNBOUND")
+        evidence={**evidence,"execution_binding":"UNBOUND_NO_ENTRY"}
+    if evidence.get("confirmed") and not veto:
+        result=_entry_decision(plan,met,unmet,reasons,veto)
+    elif evidence.get("status") in {"DATA_LIMITED","CONFIRM_WARMUP","NO_TRADES"} or set(veto)&{"ENTRY_PATTERN_B_EXECUTION_UNBOUND","ENTRY_PATTERN_BINDING_INVALID"}:
+        result=dict(state="DATA_BLOCKED",action=A4Action.DATA_BLOCK.value,reason_codes=_unique(reasons),
+            met_conditions=_unique(met),unmet_conditions=_unique(unmet),veto_conditions=_unique(veto))
+    else:
+        result=_waiting_decision(met,unmet,reasons,veto,forced_action=A4Action.NO_ACTION if locked else None)
+    result["entry_confirmation"]=evidence
+    if binding is not None and str(result.get("action")) in _ENTRY_ACTIONS:
+        result["entry_pattern_binding"]=binding
+    return result
 
 
 def aggregate_closed_bars(

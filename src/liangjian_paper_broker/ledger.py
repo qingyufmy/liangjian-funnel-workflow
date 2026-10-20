@@ -156,6 +156,22 @@ class LocalPaperBroker:
         with self._tx(readonly=True) as c:
             return self._admissions(c,trade_date)
 
+    def get_entry_pattern_stop_snapshot(self):
+        """Original B stop for currently open owned lots, across trade dates.
+
+        Separate from positive entry-risk-distance references: an adverse
+        next-minute gap below a B stop must not erase the hard-stop binding.
+        No new table, source or history rewrite is involved.
+        """
+        with self._tx(readonly=True) as c:
+            day=local_time(self.clock()).date().isoformat()
+            rows=c.execute('SELECT DISTINCT a.result_json FROM paper_lots l '
+                'JOIN paper_fills f ON f.fill_id=l.lot_id '
+                'JOIN paper_admissions a ON a.signal_id=f.source_signal_id '
+                'WHERE l.qty>0 AND f.side=\'BUY\'').fetchall()
+            admissions=tuple(value for row in rows if isinstance((value:=json.loads(row[0])).get('binding',{}).get('entry_pattern_binding'),dict))
+            return dict(positions=self._positions(c,day),admissions=admissions)
+
     @staticmethod
     def _risk_day(c,day):
         row=c.execute("SELECT body_json,halt_reasons_json FROM paper_risk_days WHERE trade_date=?",(day,)).fetchone()

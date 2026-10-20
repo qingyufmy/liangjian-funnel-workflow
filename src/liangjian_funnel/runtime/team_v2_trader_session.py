@@ -171,6 +171,8 @@ def run_trader_session(*,repository,client,journal,store,broker,decision_id,minu
                 live_market_ready=live_market_ready,snapshot_ready=snapshot_ready,mode=mode,
                 calendar=calendar,input_sha256=request.input_hash,pm_allocation=allocation,
                 utilization_cap_pct=utilization_cap_pct,
+                entry_pattern_binding=((input_projection or {}).get('evaluations',{}).get(pid,{}).get('entry_pattern_binding')
+                    if row['action'] in {'BUY_SIGNAL','ADD_SIGNAL'} else None),
                 deadline_monotonic=deadline_monotonic,monotonic=monotonic))
     if expired:issues=(*issues,'TRADER_GLOBAL_DEADLINE_EXCEEDED')
     result=dict(status='TRADER_DEADLINE_NO_ACTION' if expired else 'EVALUATED' if valid else 'TRADER_DEGRADED_NO_ACTION',

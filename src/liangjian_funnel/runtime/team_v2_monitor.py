@@ -126,7 +126,14 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
     health_policy=load_monitor_health_policy(settings.root/'config/team_v2_monitor_health.yaml')
     health=assess_monitor_packet(packet,live=live,
         policy=health_policy,projections=projections)
-    references={};evaluations={};entry_proven={};model_contexts={};symbol_failures={}
+    from .entry_confirmation import runtime_confirmation_overlay
+    confirmation_overlay=runtime_confirmation_overlay(settings.root)
+    confirmation_facts={}
+    if confirmation_overlay.get('entry_confirmation_config',{}).get('mode')=='pattern_v1':
+        from .entry_confirmation import runtime_confirmation_facts
+        confirmation_facts=runtime_confirmation_facts(settings,scope['plan_rows'],
+            current_trade_date=current.date(),deadline_monotonic=deadline)
+    references={};evaluations={};entry_proven={};model_contexts={};symbol_failures={};pattern_bindings={}
     held_positions={p['plan_id']:dict(p) for p in broker.get_positions()}
     for row in scope['plans']:
         plan=decode_plan(row);packed=packet['sources'].get(plan.symbol,{});projected=projections[plan.symbol];bars=projected['bars']
@@ -164,7 +171,18 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
         plans[plan.plan_id]=plan
         context=_intraday_market_context(plan.symbol,bars,(),current=stamp(packet['captured_at']),execution_cutoff=cutoff,
             realtime_quote=quote.quote if quote.complete else None,live_market_state=live)
-        context={**context,'original_tradability_contract':proof}
+        context={**context,'original_tradability_contract':proof,**confirmation_overlay}
+        if confirmation_overlay:
+            context['entry_confirmation_plan_id']=plan.plan_id
+            context['entry_confirmation_daily_facts']=confirmation_facts.get(plan.plan_id,{})
+            # Existing closed local cache only; this is ATR/V6 warmup, never
+            # a source request or a replacement for missing current buckets.
+            try:
+                past=application.minute_store.load_latest(plan.symbol,'5m',limit=20,
+                    before=current.replace(hour=0,minute=0,second=0,microsecond=0))
+                context['historical_5m']=[item.model_dump(mode='json') for item in past]
+            except Exception:
+                context['historical_5m']=[]
         contexts[plan.plan_id]=context
         from .team_v2_trader_inputs import model_closed_context
         model_contexts[plan.plan_id]=model_closed_context(context,bars,cutoff=cutoff)
@@ -172,6 +190,13 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
             value=evaluate_strategy(raw_rows[plan.plan_id],bars,now=cutoff,decision_time=current,
                 position=held_positions.get(plan.plan_id),market_context=context)
             evaluations[plan.plan_id]=value.model_dump(mode='json')
+            pattern_binding=evaluations[plan.plan_id].get('entry_pattern_binding')
+            if pattern_binding is not None and plan.plan_id in active and plan.plan_id not in held_positions:
+                from .entry_pattern_binding import bind_team_plan,digest
+                if pattern_binding['source_plan_sha256']!=digest(raw_rows[plan.plan_id]):
+                    raise ValueError('ENTRY_PATTERN_PLAN_SOURCE_CONFLICT')
+                plans[plan.plan_id]=bind_team_plan(plan,pattern_binding)
+                pattern_bindings[plan.plan_id]=pattern_binding
             if plan.plan_id in active:
                 references[plan.plan_id]={**{x:'MET' for x in value.met_conditions},**{x:'UNMET' for x in value.unmet_conditions}}
     health=assess_monitor_packet(packet,live=live,policy=health_policy,
@@ -207,6 +232,9 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
             consecutive_failures=reviewed.consecutive_failures if reviewed is not None else 1,first_day_policy=first_policy)
         fresh=restrict_exception_envelopes(fresh,plans=plans,account_id=ACCOUNT,
             restrictions=exception_runtime.restrictions(ACCOUNT,day))
+        if pattern_bindings:
+            from .entry_pattern_binding import probe_envelope
+            fresh=tuple(probe_envelope(e) if e.plan_id in pattern_bindings else e for e in fresh)
         return {e.plan_id:e if entry_proven[e.plan_id] else replace(e,eligible=False,risk_unit='NONE',max_shares_cap=0,
             blocked_reasons=tuple(dict.fromkeys((*e.blocked_reasons,'CONTROL_CURRENT_ENTRY_TRADABILITY_UNPROVEN')))) for e in fresh}
     # These provisional blocked envelopes are replaced after existing intents

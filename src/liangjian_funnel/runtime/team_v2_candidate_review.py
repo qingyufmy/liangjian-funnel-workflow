@@ -139,6 +139,8 @@ def run_candidate_review(**args):
             live_market_ready=args['live_market_ready'],snapshot_ready=args['snapshot_ready'],mode=args['mode'],
             calendar=args['calendar'],input_sha256=capture.get('input_hash',binding) if capture else binding,
             pm_allocation=allocation,utilization_cap_pct=args.get('utilization_cap_pct'),
+            entry_pattern_binding=(args.get('input_projection',{}).get('evaluations',{}).get(pid,{}).get('entry_pattern_binding')
+                if action in {'BUY_SIGNAL','ADD_SIGNAL'} else None),
             deadline_monotonic=deadline,monotonic=monotonic)
         admissions.append({**outcome,'origin':origin,'source_call_id':call_id if sent else None})
     issues=capture.get('reason_codes',[]) if capture else []

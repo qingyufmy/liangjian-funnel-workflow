@@ -101,6 +101,8 @@ def run_trader_batch(**args):
             closed_5m_end=args['closed_5m_end'],mark_as_of=args['mark_as_of'],regime=args['regime'],
             live_market_ready=args['live_market_ready'],snapshot_ready=args['snapshot_ready'],mode=args['mode'],
             calendar=args['calendar'],input_sha256=part['input_hash'],pm_allocation=allocation,
+            entry_pattern_binding=(projection.get('evaluations',{}).get(pid,{}).get('entry_pattern_binding')
+                if row['action'] in {'BUY_SIGNAL','ADD_SIGNAL'} else None),
             utilization_cap_pct=args.get('utilization_cap_pct'),deadline_monotonic=deadline,monotonic=monotonic)
         admissions.append({**admission,'source_call_id':part['source_call_id']})
     valid=all(p['model_validated'] for p in captures) if captures else None
