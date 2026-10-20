@@ -1013,13 +1013,19 @@ def test_effective_a4_entry_is_persisted_as_idempotent_tn_outcome_cohort(tmp_pat
 def test_morning_review_activates_pending_plans_without_research_models(tmp_path):
     store = RuntimeStore(tmp_path / "runtime.sqlite3")
     current = datetime(2026, 8, 24, 9, 26, tzinfo=TZ)
+    # Monday auction activates a published Friday-close plan, not an
+    # unproven plan or a new morning research result.
+    store.record_workflow_run(
+        run_id="friday-close", lane_id="lane_1", trade_date="2026-08-21",
+        slot="close", model="fixture", status="PUBLISHED", snapshot_hash="fixture",
+    )
     store.create_execution_plan(
         "pending-1",
         "lane_1",
         "600519.SH",
         status=PlanStatus.PENDING_MORNING_REVIEW,
         expires_at=current.replace(hour=15, minute=0),
-        payload={"trigger_low": 10, "trigger_high": 11, "stop_level": 9},
+        payload={"source_run_id": "friday-close", "trigger_low": 10, "trigger_high": 11, "stop_level": 9},
     )
     class Market:
         def fetch_quote(self, symbol, *, as_of):
