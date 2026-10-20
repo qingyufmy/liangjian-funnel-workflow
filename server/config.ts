@@ -21,7 +21,7 @@ export const JOB_DEFINITIONS: readonly JobDefinition[] = [
   { name: "auction-base", command: "run-auction-base", label: "竞价研究资料基线准备", schedule: "07:00（无模型调用、不发布计划）" },
   { name: "premarket", command: "run-premarket", label: "A3 盘前分析", schedule: "08:30" },
   { name: "morning", command: "run-morning", label: "早盘复核", schedule: "09:26" },
-  { name: "auction-refresh", command: "run-auction-refresh", label: "竞价后 A2→A3 研究刷新", schedule: "09:26（独立研究，不替换执行计划）" },
+  { name: "auction-refresh", command: "run-auction-refresh", label: "竞价后 A2→A3 研究刷新（仅手动）", schedule: "仅手动触发（无自动调度，不替换执行计划）" },
   { name: "a5-midday", command: "run-a5-midday", label: "A5 盘中复盘", schedule: "11:35（事实截止 11:30）" },
   { name: "a5-close", command: "run-a5-close", label: "A5 盘后复盘", schedule: "16:00（事实截止 15:00）" },
   { name: "outcomes", command: "run-outcomes-refresh", label: "信号 T+N 表现补齐", schedule: "16:10（交易日）" },

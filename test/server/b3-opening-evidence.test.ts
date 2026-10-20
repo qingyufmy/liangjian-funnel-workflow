@@ -29,7 +29,7 @@ test("source evidence dispatches four exclusive slots and never catches up after
     }
     expect(calls.filter(x => x === "auction-evidence")).toHaveLength(4);
     expect(calls).toContain("morning");
-    expect(calls).toContain("auction-refresh");
+    expect(calls).not.toContain("auction-refresh");
     expect(calls).toContain("monitor");
     const late = new WorkflowScheduler(runner as unknown as JobRunner, logger, { comparisonEnabled: false });
     await late.tick(new Date("2026-10-16T01:25:31Z"));

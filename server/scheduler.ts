@@ -171,9 +171,8 @@ export class WorkflowScheduler {
       // auction-final print, and never rerun the A2/A3 research to obtain it.
       if (auctionEvidenceSlot(clock) !== undefined) due.push("auction-evidence");
       if (clock.hour === 9 && clock.minute === 26) due.push("morning");
-      // A four-minute startup/restart window, with a stable daily key.
-      // The Python lease is authoritative across Node restarts.
-      if (clock.hour === 9 && clock.minute >= 26 && clock.minute < 30) due.push("auction-refresh");
+      // Auction refresh remains a manual runner/CLI command. Morning only
+      // validates and activates the already-published previous-close plans.
       if (clock.hour === 11 && clock.minute === 35) due.push("a5-midday");
       if (clock.hour === 16 && clock.minute === 0) due.push("a5-close");
       if ((clock.hour===11 && clock.minute>=35) || clock.hour===12) due.push("team-a5-midday");
@@ -195,7 +194,6 @@ export class WorkflowScheduler {
 
     for (const job of due) {
       const dispatchKey = job === "auction-evidence" ? `${clock.date}T09:25:${auctionEvidenceSlot(clock)}`
-        : job === "auction-refresh" ? `${clock.date}T09:26`
         : job === "paper-settle" ? `${clock.date}T15:30`
         : job === "team-close-bar" ? `${clock.date}T15:01`
         : job === "team-a5-midday" ? `${clock.date}Tteam-midday`
@@ -203,8 +201,6 @@ export class WorkflowScheduler {
         : job === "auction-base" ? `${clock.date}T07:00` : key;
       if (job === "features" && !this.featureMaintenanceEnabled) continue;
       if (this.dispatched.get(job) === dispatchKey || this.inFlight.has(job) || this.retryKeys.get(job) === dispatchKey) continue;
-      if (job === "auction-refresh" && this.lastDispatch.has(job)
-          && value.getTime() - Date.parse(this.lastDispatch.get(job)!) < 60_000) continue;
       if ((job === "paper-settle" || job === "team-close-bar") && this.lastDispatch.has(job)
           && value.getTime() - Date.parse(this.lastDispatch.get(job)!) < 5_000) continue;
       if (job.startsWith('team-a5-') && this.lastDispatch.has(job)
@@ -239,6 +235,7 @@ export class WorkflowScheduler {
         label: definition.label,
         schedule: definition.schedule,
         enabled: this.running
+          && definition.name !== "auction-refresh"
           && (definition.name !== "comparison" || this.comparisonEnabled)
           && (definition.name !== "features" || this.featureMaintenanceEnabled),
         lastDispatchAt: this.lastDispatch.get(definition.name) ?? null,
@@ -255,11 +252,6 @@ export class WorkflowScheduler {
       .then((result) => {
         if (job.startsWith('team-a5-') && ((result.status==='skipped' && result.reason?.startsWith('BUSY:'))
             || result.exitCode===75)) this.dispatched.delete(job);
-        if (job === "auction-refresh" && result.status === "skipped" && result.reason?.startsWith("BUSY:")) {
-          // A deterministic input failure cannot heal by repeatedly executing
-          // the same frozen base. Only a busy worker may be rescheduled.
-          this.dispatched.delete(job);
-        }
         // Baseline failures require investigation, not repeated full syncs.
         // Only retry a worker-busy skip while the 07:00-07:14 window is open.
         if (job === "auction-base" && result.status === "skipped" && result.reason?.startsWith("BUSY:")) {
