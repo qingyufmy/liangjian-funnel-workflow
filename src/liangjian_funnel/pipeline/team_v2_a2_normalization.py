@@ -28,6 +28,10 @@ def synthesize_final_no_focus(output, *, issues, direction_members, engine_score
     original_issues=tuple(validator(output))
     if set(original_issues)!=set(issues):return None
     missing=sorted({code[len(MISSING_PREFIX):] for code in issues})
+    from .team_v2_rotation_scope import rotation_coverage
+    coverage=rotation_coverage({row['symbol'] for row in output.get('focus_pool',[])
+        if isinstance(row,Mapping) and isinstance(row.get('symbol'),str)},direction_members)
+    if not set(missing)<=set(coverage['required_no_focus']):return None
     if (any(not direction or direction not in direction_members for direction in missing)
             or not isinstance(output.get('rotation_reviews'),list)):
         return None
@@ -63,6 +67,6 @@ def synthesize_final_no_focus(output, *, issues, direction_members, engine_score
     return projected,dict(authority='0384_REPLY_P0_8_FINAL_COVERAGE_ONLY',semantic_attempt=3,
         provider_raw_sha256=_sha(provider_raw),original_postpolicy_sha256=_sha(output),
         projected_postpolicy_sha256=_sha(projected),original_issues=list(original_issues),
-        projected_validation_issues=[],actions=actions,provider_capture_unchanged=True,
+        projected_validation_issues=[],actions=actions,coverage_domain=coverage,provider_capture_unchanged=True,
         focus_unchanged=projected.get('focus_pool')==output.get('focus_pool'),
         status='VALIDATED',purpose='EXPLANATORY_COVERAGE_NOT_MODEL_JUDGMENT')

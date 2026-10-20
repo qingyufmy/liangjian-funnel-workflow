@@ -147,7 +147,9 @@ def test_three_missing_rotation_captures_stay_invalid_for_existing_degradation(t
     app,args,seen=fixture(tmp_path,change,rotation=True)
     result=app._run_stage(**args)
     assert result.status=='BLOCKED' and len(seen)==3
-    assert result.diagnostics['validation_history']==[['A2_ROTATION_COVERAGE_MISMATCH']]*3
+    assert result.diagnostics['provider_validation_history']==[['A2_ROTATION_COVERAGE_MISMATCH']]*3
+    assert result.diagnostics['validation_history']==[['A2_ROTATION_COVERAGE_MISMATCH']]*2+[
+        ['A2_ROTATION_FOCUS_COVERAGE_MISSING:D']]
     assert result.diagnostics['server_normalization'] is None
     assert 'required_no_focus_if_focus_unchanged' in seen[1]['messages'][0]['content']
     again=app._run_stage(**args)

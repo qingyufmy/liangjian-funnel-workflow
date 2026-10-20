@@ -1891,20 +1891,14 @@ def _a2_rotation_retry_feedback(output, snapshot_data, upstream_symbols):
     contexts = _lineage_context_rows(snapshot_data, "A2_BOTTLENECK_CONTEXT")
     projected = _project_a2_bottleneck_context(contexts, upstream_symbols)
     scope = projected.get("_rotation_review_scope", {})
-    focus_by_direction: dict[str, list[str]] = {}
-    for row in output.get("focus_pool", []):
-        symbol = _first_symbol(row.get("symbol")) if isinstance(row, Mapping) else ""
-        direction = str(contexts.get(symbol, {}).get("rotation_direction_id") or "")
-        # Preserve actual focus conflicts even outside the NO_FOCUS domain.
-        # Otherwise the empty-domain retry loses every existing focus label.
-        if (direction and symbol in upstream_symbols
-                and (direction not in scope or symbol in scope[direction])):
-            focus_by_direction.setdefault(direction, []).append(symbol)
+    from ..team_v2_rotation_scope import rotation_coverage
+    coverage=rotation_coverage({symbol for row in output.get('focus_pool',[])
+        if isinstance(row,Mapping) and (symbol:=_first_symbol(row.get('symbol'))) in upstream_symbols},scope)
+    focus_by_direction=coverage['covered_by_final_focus']
     return {"allowed_direction_count": len(scope),
         "allowed_rotation_direction_ids": sorted(scope),
         "already_focused_directions": focus_by_direction,
-        "required_no_focus_if_focus_unchanged": {
-            key: values for key, values in scope.items() if key not in focus_by_direction},
+        "required_no_focus_if_focus_unchanged": coverage['required_no_focus'],
         "validation_errors": _validate_a2_rotation_focus_coverage(output, snapshot_data, upstream_symbols)}
 
 
@@ -1920,51 +1914,14 @@ def _validate_a2_rotation_focus_coverage(
     """
 
     contexts = _lineage_context_rows(snapshot_data, "A2_BOTTLENECK_CONTEXT")
-    expected: set[str] = set()
-    direction_symbols: dict[str, set[str]] = {}
-    for symbol in upstream_symbols:
-        context = contexts.get(symbol)
-        if not isinstance(context, Mapping):
-            continue
-        selected = context.get("selected_board")
-        selected = selected if isinstance(selected, Mapping) else {}
-        if (
-            str(context.get("deterministic_status") or "").upper() != "REVIEW_CANDIDATE"
-            or context.get("trend_core_eligible") is not True
-            or context.get("top_rotation_theme") is not True
-            or selected.get("selected_for_rotation") is not True
-        ):
-            continue
-        direction = str(
-            context.get("rotation_direction_id")
-            or selected.get("board_code")
-            or selected.get("theme_id")
-            or ""
-        ).strip()
-        if direction:
-            expected.add(direction)
-            direction_symbols.setdefault(direction, set()).add(symbol)
+    direction_symbols={direction:set(members) for direction,members in
+        _project_a2_bottleneck_context(contexts,upstream_symbols).get('_rotation_review_scope',{}).items()}
+    expected=set(direction_symbols)
 
-    focused: set[str] = set()
-    for item in output.get("focus_pool", ()):
-        if not isinstance(item, Mapping):
-            continue
-        symbol = _first_symbol(item.get("symbol"))
-        context = contexts.get(symbol, {})
-        selected = context.get("selected_board")
-        selected = selected if isinstance(selected, Mapping) else {}
-        direction = str(
-            context.get("rotation_direction_id")
-            or selected.get("board_code")
-            or selected.get("theme_id")
-            or ""
-        ).strip()
-        # EMOTION focus with the same board label does not cover a qualified
-        # TREND member domain. Match the Team schema's member intersection.
-        # Out-of-domain labels retain their old extra diagnostic only; they
-        # still fail UNKNOWN_DIRECTION and cannot cover any expected member.
-        if direction and (direction not in expected or symbol in direction_symbols.get(direction, set())):
-            focused.add(direction)
+    from ..team_v2_rotation_scope import rotation_coverage
+    coverage=rotation_coverage({symbol for item in output.get('focus_pool',())
+        if isinstance(item,Mapping) and (symbol:=_first_symbol(item.get('symbol'))) in upstream_symbols},direction_symbols)
+    focused=set(coverage['covered_by_final_focus'])
 
     explained: set[str] = set()
     reviews = output.get("rotation_reviews", [])
@@ -2025,10 +1982,7 @@ def _validate_a2_rotation_focus_coverage(
         valid = True
         for representative in representatives:
             symbol = _first_symbol(representative)
-            context = contexts.get(symbol, {})
-            selected = context.get("selected_board") or {}
-            bound = str(context.get("rotation_direction_id") or selected.get("board_code") or selected.get("theme_id") or "").strip()
-            if symbol not in upstream_symbols or bound != direction:
+            if symbol not in upstream_symbols or symbol not in direction_symbols.get(direction,set()):
                 valid = False
                 break
         if not valid:

@@ -77,11 +77,13 @@ def bind_a2_retry_feedback(request, feedback, *, correction_attempt, engine_emot
 
 
 def validation_feedback(raw, catalog, issues, *, envelope, symbols, themes, directions, nomination_scope,
-                        engine_emotion_cycle=None):
+                        engine_emotion_cycle=None,effective_focus_symbols=None):
     """Return concrete offending values plus the unchanged frozen legal domains."""
     source = raw if isinstance(raw, Mapping) else {}
     focused = {r.get('symbol') for r in _rows(source, 'focus_decisions') if isinstance(r.get('symbol'), str)}
-    expected = {d: sorted(ss) for d, ss in directions.items() if not focused.intersection(ss)}
+    from .team_v2_rotation_scope import rotation_coverage
+    coverage=rotation_coverage(focused if effective_focus_symbols is None else effective_focus_symbols,directions)
+    expected=coverage['required_no_focus']
     known_refs = sorted(row['id'] for row in catalog['items'])
     emotion_values = list(_POLICIES)
     if (isinstance(engine_emotion_cycle, str) and engine_emotion_cycle in _ENGINE_EMOTION_STAGES
@@ -146,12 +148,13 @@ def validation_feedback(raw, catalog, issues, *, envelope, symbols, themes, dire
             allowed = dict(stage_policy=dict(_POLICIES), allowed_theme_ids=sorted(themes))
         violations.append(dict(code=code, field=field, actual=deepcopy(actual), allowed=allowed))
     return dict(validation_errors=list(issues), violations=violations, legal_values=laws,
-        unchanged_focus_symbols=sorted(focused), required_no_focus_if_focus_unchanged=expected,
+        unchanged_focus_symbols=coverage['final_focus_symbols'],provider_raw_focus_symbols=sorted(focused),
+        coverage_domain=coverage,required_no_focus_if_focus_unchanged=expected,
         already_focused_directions_forbidden=sorted(set(directions)-set(expected)),
         authority='0361_REPLY_B_ALL_VALIDATION_FEEDBACK_MAX_THREE')
 
 
-def drop_focused_rotation(raw, catalog, directions):
+def drop_focused_rotation(raw, catalog, directions,*,effective_focus_symbols=None):
     """Drop safe NO_FOCUS rows already covered by a provider FOCUS decision.
 
     Strictly inspect *all* rows before deletion: the original schema intentionally
@@ -164,7 +167,9 @@ def drop_focused_rotation(raw, catalog, directions):
     if not isinstance(rows, list):
         return None
     focused = {r.get('symbol') for r in _rows(raw, 'focus_decisions') if isinstance(r.get('symbol'), str)}
-    expected = {d for d, ss in directions.items() if not focused.intersection(ss)}
+    from .team_v2_rotation_scope import rotation_coverage
+    coverage=rotation_coverage(focused if effective_focus_symbols is None else effective_focus_symbols,directions)
+    expected=set(coverage['required_no_focus'])
     seen = set()
     for row in rows:
         if (not isinstance(row, Mapping) or not _FIELDS['rotation_reviews'].issubset(row)
@@ -195,5 +200,5 @@ def drop_focused_rotation(raw, catalog, directions):
                 rotation_direction_id=row['rotation_direction_id'], original_row=deepcopy(row)))
     if not actions:
         return None
-    return result, dict(actions=actions,
+    return result, dict(actions=actions,coverage_domain=coverage,
         provider_capture_unchanged=True, purpose='MECHANICAL_COVERAGE_NOT_MODEL_JUDGMENT')

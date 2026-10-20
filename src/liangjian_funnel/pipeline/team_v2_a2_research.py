@@ -149,11 +149,24 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
         directions={d:set(ss) for d,ss in projected['_rotation_review_scope'].items()}
         emotion=snapshot.data.get('MARKET_EMOTION_SNAPSHOT')
         engine_emotion=emotion.get('emotion_cycle_stage') if isinstance(emotion,Mapping) else None
+        policy_previews={}
+        def policy_preview(raw):
+            if not isinstance(raw,Mapping):return None
+            try:
+                key=_hash(raw)
+                if key not in policy_previews:
+                    policy_previews[key]=_post_policy(raw,snapshot,upstream_output,symbols,lane_id,model)[0]
+                return policy_previews[key]
+            except (TypeError,KeyError,ValueError,AttributeError):return None
+        def final_focus(raw):
+            preview=policy_preview(raw)
+            return {r['symbol'] for r in (preview or {}).get('focus_pool',[])
+                if isinstance(r,Mapping) and isinstance(r.get('symbol'),str)}
         def validate(raw):
             result=validate_a2_response(raw,values['EVIDENCE_CATALOG'],required_envelope=envelope,
                 candidate_ids=symbols,nomination_scope={r['symbol'] for r in sample},symbol_themes=domain,
                 allowed_theme_ids=set(projected['_theme_review_scope']),direction_symbols=directions,
-                engine_emotion_cycle=engine_emotion)
+                engine_emotion_cycle=engine_emotion,effective_focus_symbols=final_focus(raw))
             issues=list(result.issues)
             if result.valid:
                 if raw['market_read']['regime']!=envelope['market_regime']:issues.append('A2_MARKET_REGIME_BINDING_MISMATCH')
@@ -232,13 +245,15 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
             # effective research view drops only redundant, otherwise valid
             # NO_FOCUS rows. 0384 permits final post-policy explanation-only
             # coverage filling, never a rewrite of provider FOCUS judgments.
-            effective_raw=raw;projection=drop_focused_rotation(raw,values['EVIDENCE_CATALOG'],directions)
+            effective_raw=raw;effective_focus=final_focus(raw)
+            projection=drop_focused_rotation(raw,values['EVIDENCE_CATALOG'],directions,
+                effective_focus_symbols=effective_focus)
             normalization=None
             if projection is not None:
                 effective_raw,audit=projection
                 checked=validate(effective_raw);valid=checked.valid;issues=checked.issues
             output=None;coverage_normalization=None
-            if valid:
+            if valid or (attempt==2 and set(issues)=={'A2_ROTATION_COVERAGE_MISMATCH'}):
                 output,issues=_post_policy(effective_raw,snapshot,upstream_output,symbols,lane_id,model)
                 valid=not issues
                 adapter.store.freeze_control_context('a2-research-postpolicy:'+identity,source_sha256=request.input_hash,
@@ -280,15 +295,17 @@ def run_a2_stage(adapter,pipeline,*,lane_id,model,snapshot,upstream_output,upstr
             if not issues or raw is None and set(issues)<={'TEAM_MODEL_CALL_FAILED','TEAM_MODEL_RESULT_INVALID'}:break
             feedback=validation_feedback(effective_raw,values['EVIDENCE_CATALOG'],issues,envelope=envelope,
                 symbols=symbols,themes=set(projected['_theme_review_scope']),directions=directions,
-                nomination_scope={r['symbol'] for r in sample},engine_emotion_cycle=engine_emotion)
+                nomination_scope={r['symbol'] for r in sample},engine_emotion_cycle=engine_emotion,
+                effective_focus_symbols=effective_focus)
             if reference_feedback is not None:
                 reference_feedback_rounds+=1
                 feedback['reference_feedback']=reference_feedback
-            if output is not None:
-                feedback['postpolicy_rotation_feedback']=legacy._a2_rotation_retry_feedback(output,snapshot.data,symbols)
-                feedback['rotation_scope_boundary']='raw FOCUS coverage applies before server policy; postpolicy_rotation_feedback uses effective qualified members after policy. These are separate explanatory scopes, not new focus or trading permissions.'
+            preview=output if output is not None else policy_preview(effective_raw)
+            if preview is not None:
+                feedback['postpolicy_rotation_feedback']=legacy._a2_rotation_retry_feedback(preview,snapshot.data,symbols)
+                feedback['rotation_scope_boundary']='0387: all coverage uses final post-policy FOCUS intersect the frozen qualified direction members, never raw FOCUS or a direction label.'
                 feedback['server_demoted_focus_symbols']=sorted(set(r['symbol'] for r in raw['focus_decisions'])-
-                    set(r['symbol'] for r in output['focus_pool']))
+                    set(r['symbol'] for r in preview['focus_pool']))
                 feedback['theme_score_status']={theme:record['status'] for theme,record in frozen['themes'].items()}
             projected['_rotation_review_contract']['retry_feedback']=feedback
         metrics=[]

@@ -51,13 +51,14 @@ def test_mixed_unbound_enum_and_rotation_retries_only_enum_after_safe_drop(tmp_p
     assert app._run_stage(**args).output == result.output and len(seen) == 2
 
 
-def test_missing_rotation_is_only_feedback_and_never_server_synthesized(tmp_path):
+def test_missing_rotation_without_frozen_engine_rank_is_never_server_synthesized(tmp_path):
     app, args, seen = fixture(tmp_path, lambda raw, _: raw.update(focus_decisions=[]), rotation=True)
     result = app._run_stage(**args)
     assert result.status == 'BLOCKED', result.reason_codes
     assert len(seen) == 3 and result.output is None
     assert result.diagnostics['server_normalization'] is None
-    assert result.diagnostics['validation_history'] == [['A2_ROTATION_COVERAGE_MISMATCH']] * 3
+    assert result.diagnostics['validation_history'] == [['A2_ROTATION_COVERAGE_MISMATCH']] * 2 + [
+        ['A2_ROTATION_FOCUS_COVERAGE_MISSING:D']]
     assert 'required_no_focus_if_focus_unchanged' in seen[1]['messages'][0]['content']
     assert all(symbol in seen[1]['messages'][0]['content'] for symbol in ('000001.SZ', '000002.SZ', '000003.SZ'))
 

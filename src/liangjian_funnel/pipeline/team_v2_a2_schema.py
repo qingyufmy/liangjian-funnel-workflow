@@ -78,7 +78,8 @@ def validate_a2_response(output: Any, catalog: Any, *, required_envelope: Mappin
                          candidate_ids: set[str], nomination_scope: set[str],
                          symbol_themes: Mapping[str, str], allowed_theme_ids: set[str],
                          direction_symbols: Mapping[str, set[str]],
-                         engine_emotion_cycle: str | None = None) -> TeamValidation:
+                         engine_emotion_cycle: str | None = None,
+                         effective_focus_symbols: set[str] | None = None) -> TeamValidation:
     issues: list[str] = []
     if not isinstance(output, Mapping):
         return TeamValidation(False, ("A2_RESPONSE_OBJECT_REQUIRED",), (), 0)
@@ -160,8 +161,10 @@ def validate_a2_response(output: Any, catalog: Any, *, required_envelope: Mappin
             or not focus_themes.issubset(allowed_theme_ids)):
         issues.append("A2_FOCUS_THEME_COVERAGE_MISMATCH")
 
-    expected = {direction for direction, symbols in direction_symbols.items()
-                if not set(focused).intersection(symbols)}
+    from .team_v2_rotation_scope import rotation_coverage
+    coverage=rotation_coverage(set(focused) if effective_focus_symbols is None else effective_focus_symbols,
+        direction_symbols)
+    expected=set(coverage['required_no_focus'])
     reviewed: list[str] = []
     for row in pools["rotation_reviews"]:
         direction = row["rotation_direction_id"]
