@@ -1,0 +1,916 @@
+{
+  "output": {
+    "a2_review": {
+      "data_limitations": [
+        "A2_AUDIT_UNREADABLE",
+        "A2_STAGE_NOT_FOUND"
+      ],
+      "defects": [
+        "A2主题快照缺失，阶段判断无法复盘"
+      ],
+      "evidence_ids": [
+        "METRICS:DAILY"
+      ],
+      "opposing_refs": [
+        "NO_OPPOSING_EVIDENCE_FOUND"
+      ],
+      "opposing_search_scope": [
+        "METRICS",
+        "MODEL"
+      ],
+      "strengths": [],
+      "summary": "A2候选人域为空（a2_candidate_count=0），且A2_STAGE_NOT_FOUND、A2_AUDIT_UNREADABLE，无法评估主题阶段判断质量。",
+      "verdict": "DATA_LIMITED"
+    },
+    "a3_review": {
+      "data_limitations": [
+        "无T+1/T+3结果",
+        "A2主题上下文缺失，无法交叉验证优先级"
+      ],
+      "defects": [
+        "暂无方法级或执行级缺陷"
+      ],
+      "evidence_ids": [
+        "METRICS:DAILY"
+      ],
+      "opposing_refs": [
+        "NO_OPPOSING_EVIDENCE_FOUND"
+      ],
+      "opposing_search_scope": [
+        "METRICS",
+        "MODEL"
+      ],
+      "strengths": [
+        "每日MACD完整（daily_macd_complete_count=6）",
+        "计划覆盖5个主题簇"
+      ],
+      "summary": "计划层产出完整：a3_plan_count=6，daily_macd_complete_count=6，全部为TREND_MA5，无VETO或unmet_conditions阻断。尚无T+1/T+3结果验证计划质量。",
+      "verdict": "DATA_LIMITED"
+    },
+    "a4_review": {
+      "data_limitations": [
+        "10:55–11:20执行记录缺失",
+        "独立验证源不一致，无法确认A4决策链完整性"
+      ],
+      "defects": [
+        "执行记录缺口130条，原因未知",
+        "全部6个计划生产归档与行情源不一致，独立验证DEGRADED"
+      ],
+      "evidence_ids": [
+        "METRICS:DAILY",
+        "A5:MODEL"
+      ],
+      "opposing_refs": [
+        "NO_OPPOSING_EVIDENCE_FOUND"
+      ],
+      "opposing_search_scope": [
+        "METRICS",
+        "MODEL"
+      ],
+      "strengths": [
+        "未在数据不完整时强行发出买入信号",
+        "对遗留计划执行了有效的强制风险退出"
+      ],
+      "summary": "A4未出现追高或过早入场，唯一有效事件为600621.SH的FORCED_RISK_EXIT。但执行可观测性存在两块问题：一是10:55–11:20五个计划缺失130条执行记录；二是独立验证显示全部6个计划生产归档与行情源不一致（PRODUCTION_ARCHIVE_DIVERGENCE）。",
+      "verdict": "NEEDS_ATTENTION"
+    },
+    "a6_review": {
+      "data_limitations": [
+        "无成交组与对照组",
+        "无否决后表现样本"
+      ],
+      "defects": [],
+      "evidence_ids": [
+        "A5:A6"
+      ],
+      "opposing_refs": [
+        "NO_OPPOSING_EVIDENCE_FOUND"
+      ],
+      "opposing_search_scope": [
+        "A6",
+        "METRICS"
+      ],
+      "strengths": [
+        "所有计划按PROBE级放行，未出现过度收紧迹象",
+        "utilization_cap=65未被动用"
+      ],
+      "summary": "上午风险会正常完成，5个计划全部eligible且PROBE级，无否决、无blocked_reasons。未成交导致放行组与对照组均无结果，是否过度收紧无法判断。",
+      "verdict": "DATA_LIMITED"
+    },
+    "core_defects": [
+      {
+        "blocked_by_data": true,
+        "confidence": "MEDIUM",
+        "evidence_ids": [
+          "METRICS:DAILY"
+        ],
+        "layer": "ENGINE",
+        "opposing_refs": [
+          "NO_OPPOSING_EVIDENCE_FOUND"
+        ],
+        "opposing_search_scope": [
+          "METRICS",
+          "MODEL"
+        ],
+        "problem": "A4执行记录缺失130条（10:55–11:20，涉及5个计划），原因UNKNOWN，降低执行可观测性",
+        "severity": "MEDIUM"
+      },
+      {
+        "blocked_by_data": true,
+        "confidence": "MEDIUM",
+        "evidence_ids": [
+          "METRICS:DAILY",
+          "A5:MODEL"
+        ],
+        "layer": "ENGINE",
+        "opposing_refs": [
+          "NO_OPPOSING_EVIDENCE_FOUND"
+        ],
+        "opposing_search_scope": [
+          "METRICS",
+          "MODEL"
+        ],
+        "problem": "A4独立验证全部6个计划出现PRODUCTION_ARCHIVE_DIVERGENCE，本地归档与TDX/Tencent行情源不一致",
+        "severity": "MEDIUM"
+      },
+      {
+        "blocked_by_data": true,
+        "confidence": "HIGH",
+        "evidence_ids": [
+          "METRICS:DAILY"
+        ],
+        "layer": "A2",
+        "opposing_refs": [
+          "NO_OPPOSING_EVIDENCE_FOUND"
+        ],
+        "opposing_search_scope": [
+          "METRICS",
+          "MODEL"
+        ],
+        "problem": "A2主题快照与阶段缺失，导致主题阶段复盘无法进行",
+        "severity": "LOW"
+      }
+    ],
+    "envelope": {
+      "as_of": "2026-10-19T11:37:01.089997+08:00",
+      "config_hash": "9ae956c4f5df23dc94f62e698adcfaf0202149aa0d969f89e9f506511d9f3a38",
+      "config_version": "team-v2/1",
+      "execution_trade_date": "2026-10-19",
+      "input_snapshot_ids": [
+        "ad355c2b152f6cebb63bd219129bd8a09ae9d12e6172f1af2e02d47591aca821",
+        "38aeef2e168d94977f2595c515b267ba2bcbcf58ea377b1d5411b1283a86e2c6"
+      ],
+      "knowledge_cutoff": "2026-10-19T11:37:01.089997+08:00",
+      "market_regime": "DATA_BLOCK",
+      "model_name": "deepseek-v4-pro",
+      "prompt_version": "agent-5/2.0.7",
+      "reason_codes": [],
+      "run_id": "team-a5:2026-10-19:MIDDAY",
+      "schema_version": "team-envelope/1",
+      "source_trade_date": "2026-10-19",
+      "stage_id": "A5",
+      "status": "FROZEN"
+    },
+    "executive_summary": "截至11:30无成交、无买入信号，账户净值仍为初始值，未产生盈亏。A3已产出6个TREND_MA5计划，A6风险会正常放行PROBE级，但A4全天仅出现1条强制风险退出，所有计划均未触发入场。主要关注点不在策略产出，而在数据与执行可观测性：A2主题快照与阶段缺失，A4存在10:55–11:20共130条执行记录缺口且独立验证显示全部6个计划出现生产归档与行情源不一致。上述均为数据/工程问题，尚未构成确认的策略或执行缺陷。",
+    "handoff_notes": {
+      "to_a1": [
+        "下一交易日补齐A2所需主线主题快照，特别关注AI_COMPUTE_INFRASTRUCTURE与NATIONAL_DEFENSE两个计划簇的可验证表现"
+      ],
+      "to_a3": [
+        "关注A4在5/6条件满足但仅差一个确认条件的高优先级计划（如300516.SZ、300999.SZ），若连续出现可在积累样本后重新评估触发条件"
+      ],
+      "to_a4": [
+        "核实10:55–11:20执行记录缺失的原因，确认是否影响未来决策落盘；对所有TREND_MA5计划检查第五条件未满足是否源于数据而非形态缺失"
+      ],
+      "to_a6": [
+        "今日零成交且无否决，若次日仍无信号且非数据原因，需提示是否存在门控过严风险，但暂不放松任何约束"
+      ]
+    },
+    "hypotheses": [
+      {
+        "automatic_production_change": false,
+        "condition": "TREND_MA5计划在5/6条件满足、仅剩TREND_SUBSEQUENT_5M_CONFIRMATION未满足时被阻止入场",
+        "evidence_ids": [
+          "METRICS:DAILY"
+        ],
+        "expected_effect": "该条件可能构成过度门槛，若未来多次出现相同模式且后续价格有效，则说明可放宽确认链",
+        "falsification_criteria": "放宽后出现亏损或入场命中率下降",
+        "hypothesis_id": "H1",
+        "layer": "A4",
+        "min_observation_days": 10,
+        "opposing_refs": [
+          "NO_OPPOSING_EVIDENCE_FOUND"
+        ],
+        "opposing_search_scope": [
+          "METRICS",
+          "MODEL"
+        ],
+        "success_criteria": "未来10个交易日至少3次出现5/6条件满足且未入场，事后T+1/T+3为正收益",
+        "validation_method": "REPLAY"
+      },
+      {
+        "automatic_production_change": false,
+        "condition": "无主线市场中PROBE约束导致当日利用率0",
+        "evidence_ids": [
+          "A5:A6"
+        ],
+        "expected_effect": "PROBE约束在无主线市场中牺牲机会但保护回撤，若次日仍无成交且无数据原因，则需评估约束是否过严",
+        "falsification_criteria": "连续5个交易日无成交且确无数据/形态原因",
+        "hypothesis_id": "H2",
+        "layer": "A6",
+        "min_observation_days": 5,
+        "opposing_refs": [
+          "NO_OPPOSING_EVIDENCE_FOUND"
+        ],
+        "opposing_search_scope": [
+          "A6",
+          "METRICS"
+        ],
+        "success_criteria": "未来5个交易日内有成交且整体回撤不超过1%",
+        "validation_method": "PAPER_OBSERVATION"
+      }
+    ],
+    "method_feedback": {
+      "A1": [],
+      "A2": [],
+      "A3": [],
+      "A4": [],
+      "A6": []
+    },
+    "missed_opportunity_reviews": [],
+    "model_value_assessment": [
+      {
+        "control_group": "全市场主题对照",
+        "evidence_ids": [
+          "METRICS:DAILY"
+        ],
+        "judgment_type": "主题候选选择",
+        "layer": "A2",
+        "model_group": "a2_llm_reviewed_count=null",
+        "opposing_refs": [
+          "NO_OPPOSING_EVIDENCE_FOUND"
+        ],
+        "opposing_search_scope": [
+          "METRICS",
+          "MODEL"
+        ],
+        "verdict": "INSUFFICIENT"
+      },
+      {
+        "control_group": "无候选对照",
+        "evidence_ids": [
+          "METRICS:DAILY"
+        ],
+        "judgment_type": "计划通过/VETO",
+        "layer": "A3",
+        "model_group": "PASS/VETO构成6/0",
+        "opposing_refs": [
+          "NO_OPPOSING_EVIDENCE_FOUND"
+        ],
+        "opposing_search_scope": [
+          "METRICS",
+          "MODEL"
+        ],
+        "verdict": "INSUFFICIENT"
+      },
+      {
+        "control_group": "确定性链门槛",
+        "evidence_ids": [
+          "METRICS:DAILY"
+        ],
+        "judgment_type": "入场确认",
+        "layer": "A4",
+        "model_group": "TREND_MA5确认链",
+        "opposing_refs": [
+          "NO_OPPOSING_EVIDENCE_FOUND"
+        ],
+        "opposing_search_scope": [
+          "METRICS",
+          "MODEL"
+        ],
+        "verdict": "INSUFFICIENT"
+      },
+      {
+        "control_group": "潜在否决组",
+        "evidence_ids": [
+          "A5:A6"
+        ],
+        "judgment_type": "风险裁决",
+        "layer": "A6",
+        "model_group": "PROBE放行",
+        "opposing_refs": [
+          "NO_OPPOSING_EVIDENCE_FOUND"
+        ],
+        "opposing_search_scope": [
+          "A6",
+          "METRICS"
+        ],
+        "verdict": "INSUFFICIENT"
+      }
+    ],
+    "overall_verdict": "NEEDS_ATTENTION",
+    "review_kind": "MIDDAY",
+    "risk_governor_value": {
+      "evidence_ids": [
+        "A5:A6"
+      ],
+      "opposing_refs": [
+        "NO_OPPOSING_EVIDENCE_FOUND"
+      ],
+      "opposing_search_scope": [
+        "A6",
+        "METRICS"
+      ],
+      "over_tightening": "INSUFFICIENT",
+      "veto_group_vs_pass_group": "无否决组也无放行组，无法比较"
+    },
+    "schema_version": "a5-daily-review/2.0.0",
+    "signal_reviews": [],
+    "team_scorecard": {
+      "attribution": [
+        {
+          "deviation": "A4执行记录缺口：10:55–11:20五个计划共缺失130条执行记录，cause=UNKNOWN",
+          "evidence_ids": [
+            "METRICS:DAILY"
+          ],
+          "opposing_refs": [
+            "NO_OPPOSING_EVIDENCE_FOUND"
+          ],
+          "opposing_search_scope": [
+            "METRICS",
+            "MODEL"
+          ],
+          "owner": "ENGINE"
+        },
+        {
+          "deviation": "A4独立验证全部6个计划出现PRODUCTION_ARCHIVE_DIVERGENCE（本地归档与TDX/Tencent不一致）",
+          "evidence_ids": [
+            "METRICS:DAILY"
+          ],
+          "opposing_refs": [
+            "NO_OPPOSING_EVIDENCE_FOUND"
+          ],
+          "opposing_search_scope": [
+            "METRICS",
+            "MODEL"
+          ],
+          "owner": "ENGINE"
+        },
+        {
+          "deviation": "A2主题快照不可用导致主题阶段与主线判断无法复盘",
+          "evidence_ids": [
+            "METRICS:DAILY"
+          ],
+          "opposing_refs": [
+            "NO_OPPOSING_EVIDENCE_FOUND"
+          ],
+          "opposing_search_scope": [
+            "METRICS",
+            "MODEL"
+          ],
+          "owner": "A2"
+        }
+      ],
+      "drawdown": "nav=1000000，无持仓，回撤为0",
+      "entry_hit_rate": "a4_completed_return_count=0，entry_hit_rate=UNAVAILABLE",
+      "nav_vs_benchmark": "nav=1000000；benchmark_csi1000_return与benchmark_hs300_return均为UNAVAILABLE，无法比较",
+      "role_kpis": {
+        "A1": "a2_theme_count=0，无法评估主题命中率",
+        "A2": "a2_theme_count=0且A2_STAGE_NOT_FOUND，阶段判断无可评估样本",
+        "A3": "a3_plan_count=6，daily_macd_complete_count=6，strategy_counts.TREND_MA5=6，产出完整",
+        "A4": "a4_monitor_observation_count=529，a4_trade_signal_count=1（FORCED_RISK_EXIT），买入信号为0",
+        "A6": "risk_meeting状态READY，5个计划均eligible且PROBE级，无否决、无成交"
+      },
+      "slot_usage": "slot_plan=5，实际使用0",
+      "utilization_vs_target": "utilization_pct=0；A6部署目标target_pct=40，未成交，不构成违反上限"
+    },
+    "trade_date": "2026-10-19",
+    "trader_vs_deterministic": {
+      "evidence_ids": [
+        "METRICS:DAILY"
+      ],
+      "opposing_refs": [
+        "NO_OPPOSING_EVIDENCE_FOUND"
+      ],
+      "opposing_search_scope": [
+        "METRICS",
+        "MODEL"
+      ],
+      "summary": "无BUY_SIGNAL；确定性动作仅1条FORCED_RISK_EXIT（600621.SH），无可比较的A4信号与确定性链信号；T+1/T+3结果不存在。"
+    },
+    "unresolved_questions": [
+      {
+        "question": "10:55–11:20是否发生真实执行缺口，还是仅为监控落盘延迟？",
+        "reason": "MISSING_DATA",
+        "resolution": "需次日核对监控日志与归档文件"
+      },
+      {
+        "question": "A4独立验证全部6个计划PRODUCTION_ARCHIVE_DIVERGENCE的根因是什么？",
+        "reason": "MISSING_DATA",
+        "resolution": "需对比本地生产归档与TDX/Tencent源原始文件"
+      },
+      {
+        "question": "A2主题快照缺失是否影响当日主线判断与后续策略有效性？",
+        "reason": "MISSING_DATA",
+        "resolution": "需补充A2完整输出后重新复盘"
+      }
+    ],
+    "what_would_change_my_mind": [
+      "若后续交易日出现成交或有效买入信号且T+1/T+3结果可用于验证，则今日INSUFFICIENT/NEEDS_ATTENTION结论需重新评估",
+      "若执行记录缺口与生产归档不一致被证明为归档故障而非真实决策遗漏，则本日NEEDS_ATTENTION应降级为DATA_LIMITED"
+    ]
+  },
+  "catalog": {
+    "categories": [
+      "LEGACY",
+      "ACCOUNT",
+      "A6",
+      "MODEL",
+      "METRICS",
+      "SIGNAL"
+    ],
+    "items": [
+      {
+        "category": "LEGACY",
+        "id": "A5:LEGACY",
+        "sha256": "7a5342e676df8dd218c3652cfa4792ce938db29b038403b153bbf1ee86c86a6f"
+      },
+      {
+        "category": "ACCOUNT",
+        "id": "A5:ACCOUNT",
+        "sha256": "b7e35850f02ad27b6856abdec192cf340db4b069ccb762ea996850f3ec2a722d"
+      },
+      {
+        "category": "A6",
+        "id": "A5:A6",
+        "sha256": "aeb36ffcb64f554860e6bf1ac4a0ee6e9c0179737249bc1fc79e3404214cb8e6"
+      },
+      {
+        "category": "MODEL",
+        "id": "A5:MODEL",
+        "sha256": "c9b1a47020d531c331e423dfbdb93fc913df703ee82b9be5e1960eeaebb48e4f"
+      },
+      {
+        "category": "METRICS",
+        "id": "METRICS:DAILY",
+        "sha256": "3d2b9717c05d39d2152b8925662456c45ba898deb7412b1041f8d890483a6001"
+      },
+      {
+        "category": "METRICS",
+        "id": "METRICS:STRATEGY_PORTFOLIO",
+        "sha256": "cb82feb766affde65944562e8604be6455ba9d038da68f9e9429492112eb217b"
+      },
+      {
+        "category": "METRICS",
+        "id": "A5:METHOD:A1",
+        "sha256": "66fdd93fc0a3d1cffe0db4c96909bd7a61105e0908065726507e8c328d14a254"
+      },
+      {
+        "category": "METRICS",
+        "id": "A5:METHOD:A2",
+        "sha256": "9daf8ef824a1cf2fd12405f9287e3d3f2aedf03bf0a6a6c4c259786b44bf84bb"
+      },
+      {
+        "category": "METRICS",
+        "id": "A5:METHOD:A3",
+        "sha256": "67c7bbac0b1147bfdeaf72675e6fd157ee946a003c60a02e0b7d395186f930a4"
+      },
+      {
+        "category": "METRICS",
+        "id": "A5:METHOD:A4",
+        "sha256": "a1d5c1534102a6538bc7a8564d1673de92ea751e8715098c5a9eca054eec57db"
+      },
+      {
+        "category": "METRICS",
+        "id": "A5:METHOD:A6",
+        "sha256": "d23cebec3ff7a2a4b81d67d395619c235ed97695f7b3a900a68c6de834f9940a"
+      }
+    ]
+  },
+  "required_envelope": {
+    "as_of": "2026-10-19T11:37:01.089997+08:00",
+    "config_hash": "9ae956c4f5df23dc94f62e698adcfaf0202149aa0d969f89e9f506511d9f3a38",
+    "config_version": "team-v2/1",
+    "execution_trade_date": "2026-10-19",
+    "input_snapshot_ids": [
+      "ad355c2b152f6cebb63bd219129bd8a09ae9d12e6172f1af2e02d47591aca821",
+      "38aeef2e168d94977f2595c515b267ba2bcbcf58ea377b1d5411b1283a86e2c6"
+    ],
+    "knowledge_cutoff": "2026-10-19T11:37:01.089997+08:00",
+    "market_regime": "DATA_BLOCK",
+    "model_name": "deepseek-v4-pro",
+    "prompt_version": "agent-5/2.0.7",
+    "reason_codes": [],
+    "run_id": "team-a5:2026-10-19:MIDDAY",
+    "schema_version": "team-envelope/1",
+    "source_trade_date": "2026-10-19",
+    "stage_id": "A5",
+    "status": "FROZEN"
+  },
+  "metrics": {
+    "a1_catalyst_evidence": {
+      "catalyst_gap_rate": null,
+      "catalyst_gap_theme_count": 0,
+      "catalyst_gap_theme_ids": [],
+      "denominator": "VALIDATED_DISCOVERY_THEME_JUDGMENTS_NOT_STOCKS_OR_TRADES",
+      "theme_count": 0
+    },
+    "a2_focus_count": 0,
+    "a2_llm_reviewed_count": null,
+    "a2_quant_evaluated_count": null,
+    "a2_theme_count": 0,
+    "a2_watch_count": 0,
+    "a3_daily_macd_complete_count": 6,
+    "a3_plan_count": 6,
+    "a3_strategy_counts": {
+      "TREND_MA5": 6
+    },
+    "a4_action_counts": {
+      "DATA_BLOCK": 31,
+      "FORCED_RISK_EXIT": 1,
+      "NO_ACTION": 32,
+      "START_CONFIRMATION": 465
+    },
+    "a4_completed_return_count": 0,
+    "a4_effective_action_counts": {
+      "FORCED_RISK_EXIT": 1
+    },
+    "a4_effective_event_count": 1,
+    "a4_lifecycle_count": 0,
+    "a4_lifecycle_counts": {},
+    "a4_m15_macd_applicable_plan_count": 0,
+    "a4_m15_macd_not_warmed_plan_ids": [],
+    "a4_m15_macd_warmed_plan_count": 0,
+    "a4_mean_net_return": null,
+    "a4_monitor_observation_count": 529,
+    "a4_plan_invalidation_count": 0,
+    "a4_positive_return_count": 0,
+    "a4_trade_signal_count": 1,
+    "a5_counterexample_count": 0,
+    "a5_counterexample_drop_stage_counts": {},
+    "a5_independent_verification_status": "DEGRADED",
+    "a5_stage_supplement_count": 0,
+    "a5_top_performance_captured_count": 0,
+    "a5_top_performance_ledger_count": 0,
+    "indicator_verification_scope": "SEE_INDEPENDENT_VERIFICATION_FIELD_CHECKS_AND_FROZEN_INDICATOR_FORMULA_AUDIT; FORMULA_MATCH_IS_NOT_RAW_SOURCE_VERIFICATION",
+    "observation_counts": {
+      "denominator": "ORIGINAL_MONITOR_OBSERVATION_ROWS_NOT_DISTINCT_WALL_CLOCK_MINUTES",
+      "empty_scope": null,
+      "observed_minutes": 529,
+      "plan_invalidated": null,
+      "start_confirmation": 465
+    },
+    "strategy_portfolio_diagnostics": {
+      "conflicting_event_ids": 0,
+      "coverage_claim": "OBSERVED_ROWS_ONLY_NOT_WHOLE_SESSION_SUCCESS_RATE",
+      "distinct_event_ids": 497,
+      "original_event_record_count": 497,
+      "plan_scope": "ALL_FROZEN_PUBLISHED_ROWS_NOT_SURVIVING_ACTIVE_POOL",
+      "regime_block_definition": "ONLY_EXPLICIT_A4_LIVE_MARKET_BLOCK_WAIT_NOT_PRIOR_RISK_OFF_CONTEXT",
+      "regime_entry_block_events_by_profile": {
+        "LEADER_INTRADAY": 0,
+        "MA520_SWING": 0,
+        "TREND_MA5": 0
+      },
+      "regime_entry_block_symbol_minutes_by_profile": {
+        "LEADER_INTRADAY": 0,
+        "MA520_SWING": 0,
+        "TREND_MA5": 0
+      },
+      "selected_board_next_session_rank_lag": {
+        "reason_code": "SAME_DOMAIN_NEXT_SESSION_RANKING_NOT_BOUND",
+        "status": "UNAVAILABLE",
+        "value": null
+      },
+      "status": "OBSERVED_FROZEN_ROWS",
+      "strategy_profile_counts": {
+        "TREND_MA5": 6
+      },
+      "trade_date": "2026-10-19",
+      "unbound_regime_block_events": 0,
+      "unique_plan_count": 6,
+      "waiting_groups_not_added": "a4.observation_groups_reference_the_same_a4.events",
+      "warnings": [],
+      "window": "CURRENT_FROZEN_DAY_ONLY_NOT_TWENTY_DAY_COVERAGE"
+    },
+    "targets": {
+      "daily_buy_signals_maximum": 5,
+      "daily_buy_signals_minimum": 2,
+      "status": "FROZEN_APPROVED_TARGET",
+      "target_is_not_quota": true
+    },
+    "team_v2": {
+      "benchmark_csi1000_return": null,
+      "benchmark_hs300_return": null,
+      "entry_hit_rate": null,
+      "model_calls": 2,
+      "nav": "1000000",
+      "strict_t1_return": null,
+      "strict_t3_return": null,
+      "unavailable_reason": "NO_BENCHMARK_OR_MATURED_COMPARISON_PROVIDED",
+      "utilization_pct": "0"
+    },
+    "trader_candidate_review": {
+      "actual_model_objects": 0,
+      "candidate_count": 0,
+      "confirmation_rate": null,
+      "confirmed_count": 0,
+      "engine_exit_fallback_count": 0,
+      "failed_review_count": 0,
+      "known_timeout_count": 0,
+      "model_denominator": "ACTUAL_SENT_CANDIDATE_OBJECTS_NOT_ALL_TRACKED_PLANS",
+      "selected_count": 0,
+      "status": "NO_CANDIDATE_REVIEW_EVIDENCE",
+      "timeout_rate": null,
+      "unclassified_failure_objects": 0,
+      "veto_count": 0,
+      "veto_rate": null
+    },
+    "trader_model_scope": {
+      "carried_wait_model_judgments": 0,
+      "carried_wait_plan_ticks": 0,
+      "deferred_capacity_rate": null,
+      "deferred_plan_ticks": 0,
+      "model_attempted_plan_ticks": 0,
+      "scheduled_candidate_plan_ticks": 0,
+      "scope_batches": 0,
+      "scope_plan_ticks": 0,
+      "selected_plan_ticks": 0,
+      "status": "NO_SCOPED_BATCH_EVIDENCE"
+    },
+    "trader_review_degradation": {
+      "report_to_claude": false,
+      "status": "NO_REVIEW_DAY_EVIDENCE"
+    }
+  },
+  "signal_domain": {},
+  "counterexample_domain": [],
+  "confirmed_defect_symbols": [],
+  "pm_decisions": [
+    {
+      "account_id": "local-paper",
+      "input_sha256": "c2b60a6759efa4a483bfede8cecab2308269a16c6c9e0227702d498074e826e6",
+      "meeting_id": "morning-pm:2026-10-19",
+      "result_json": {
+        "allocation_plan_bindings": {
+          "2026-10-16-close-624199bb9c19:lane_1:2c5108dc7573935f": [
+            "301282.SZ",
+            "AI_COMPUTE_INFRASTRUCTURE"
+          ],
+          "2026-10-16-close-624199bb9c19:lane_1:6c022292c96fb5b8": [
+            "300999.SZ",
+            "AGRICULTURE_FOOD_SECURITY"
+          ],
+          "2026-10-16-close-624199bb9c19:lane_1:a6bd78d63b531a01": [
+            "600316.SH",
+            "NATIONAL_DEFENSE"
+          ],
+          "2026-10-16-close-624199bb9c19:lane_1:da5110da5fdb55c1": [
+            "300516.SZ",
+            "AI_COMPUTE_INFRASTRUCTURE"
+          ],
+          "2026-10-16-close-624199bb9c19:lane_1:fba22d88043920db": [
+            "301286.SZ",
+            "CHEMICAL_NEW_MATERIALS"
+          ]
+        },
+        "deployment_target": {
+          "baseline_range": [
+            40,
+            65
+          ],
+          "basis": "外围快照缺失触发保守回退（value_pp=-10），市场状态为ROTATION_NO_MAINLINE无主线，且全部计划均为PROBE级，取区间下沿40%控制首日风险。",
+          "opposing_refs": [
+            "NO_OPPOSING_EVIDENCE_FOUND"
+          ],
+          "opposing_search_scope": [
+            "MARKET",
+            "PLAN"
+          ],
+          "supporting_refs": [
+            "MORNING:MARKET",
+            "MORNING:ACCOUNT"
+          ],
+          "target_pct": 40
+        },
+        "derived_shortfall": "RANKING_EXHAUSTED",
+        "handoff_notes": {
+          "to_a4": [
+            "金禄电子为今日最高优先级（P1），但信封仅PROBE，首日只做试探仓，严格按A3日线MA5回踩区与no_chase执行。",
+            "所有计划均为TREND_MA5主升回踩型，必须等价格进入entry_reference_zone且闭合15分钟卖压减弱才可触发，禁止追高。",
+            "外围快照缺失，市场无主线，若开盘出现系统性走弱，优先放弃低优先级计划（侨源、洪都）。"
+          ],
+          "to_a6": [
+            "今日目标使用率40%，全部计划为PROBE级，首日风险预算合计约7.5万，请关注首日试探仓的集中度。",
+            "AI_COMPUTE_INFRASTRUCTURE簇有两个计划（金禄、久之洋），若同时触发需注意同簇集中度上限。"
+          ]
+        },
+        "input_hash": "4f584b0724d1912dce0519fa3d8e31f751ccc5c71fb69e6552ab67e57060951f",
+        "plan_allocations": [
+          {
+            "conviction": "NORMAL",
+            "intended_risk_unit": "PROBE",
+            "max_batches": 1,
+            "opposing_refs": [
+              "MORNING:PLAN:2026-10-16-close-624199bb9c19:lane_1:da5110da5fdb55c1"
+            ],
+            "plan_id": "2026-10-16-close-624199bb9c19:lane_1:2c5108dc7573935f",
+            "reason_code": "ENVELOPE_PROBE_ONLY",
+            "supporting_refs": [
+              "MORNING:PLAN:2026-10-16-close-624199bb9c19:lane_1:2c5108dc7573935f"
+            ]
+          },
+          {
+            "conviction": "NORMAL",
+            "intended_risk_unit": "PROBE",
+            "max_batches": 1,
+            "opposing_refs": [
+              "MORNING:PLAN:2026-10-16-close-624199bb9c19:lane_1:2c5108dc7573935f"
+            ],
+            "plan_id": "2026-10-16-close-624199bb9c19:lane_1:da5110da5fdb55c1",
+            "reason_code": "ENVELOPE_PROBE_ONLY",
+            "supporting_refs": [
+              "MORNING:PLAN:2026-10-16-close-624199bb9c19:lane_1:da5110da5fdb55c1"
+            ]
+          },
+          {
+            "conviction": "NORMAL",
+            "intended_risk_unit": "PROBE",
+            "max_batches": 1,
+            "opposing_refs": [
+              "MORNING:PLAN:2026-10-16-close-624199bb9c19:lane_1:2c5108dc7573935f"
+            ],
+            "plan_id": "2026-10-16-close-624199bb9c19:lane_1:6c022292c96fb5b8",
+            "reason_code": "ENVELOPE_PROBE_ONLY",
+            "supporting_refs": [
+              "MORNING:PLAN:2026-10-16-close-624199bb9c19:lane_1:6c022292c96fb5b8"
+            ]
+          },
+          {
+            "conviction": "NORMAL",
+            "intended_risk_unit": "PROBE",
+            "max_batches": 1,
+            "opposing_refs": [
+              "MORNING:PLAN:2026-10-16-close-624199bb9c19:lane_1:2c5108dc7573935f"
+            ],
+            "plan_id": "2026-10-16-close-624199bb9c19:lane_1:fba22d88043920db",
+            "reason_code": "ENVELOPE_PROBE_ONLY",
+            "supporting_refs": [
+              "MORNING:PLAN:2026-10-16-close-624199bb9c19:lane_1:fba22d88043920db"
+            ]
+          },
+          {
+            "conviction": "NORMAL",
+            "intended_risk_unit": "PROBE",
+            "max_batches": 1,
+            "opposing_refs": [
+              "MORNING:PLAN:2026-10-16-close-624199bb9c19:lane_1:2c5108dc7573935f"
+            ],
+            "plan_id": "2026-10-16-close-624199bb9c19:lane_1:a6bd78d63b531a01",
+            "reason_code": "ENVELOPE_PROBE_ONLY",
+            "supporting_refs": [
+              "MORNING:PLAN:2026-10-16-close-624199bb9c19:lane_1:a6bd78d63b531a01"
+            ]
+          }
+        ],
+        "plan_ranking": [
+          {
+            "cluster": "AI_COMPUTE_INFRASTRUCTURE",
+            "opposing_refs": [
+              "MORNING:PLAN:2026-10-16-close-624199bb9c19:lane_1:da5110da5fdb55c1"
+            ],
+            "plan_id": "2026-10-16-close-624199bb9c19:lane_1:2c5108dc7573935f",
+            "rank": 1,
+            "supporting_refs": [
+              "MORNING:PLAN:2026-10-16-close-624199bb9c19:lane_1:2c5108dc7573935f"
+            ]
+          },
+          {
+            "cluster": "AI_COMPUTE_INFRASTRUCTURE",
+            "opposing_refs": [
+              "MORNING:PLAN:2026-10-16-close-624199bb9c19:lane_1:2c5108dc7573935f"
+            ],
+            "plan_id": "2026-10-16-close-624199bb9c19:lane_1:da5110da5fdb55c1",
+            "rank": 2,
+            "supporting_refs": [
+              "MORNING:PLAN:2026-10-16-close-624199bb9c19:lane_1:da5110da5fdb55c1"
+            ]
+          },
+          {
+            "cluster": "AGRICULTURE_FOOD_SECURITY",
+            "opposing_refs": [
+              "MORNING:PLAN:2026-10-16-close-624199bb9c19:lane_1:2c5108dc7573935f"
+            ],
+            "plan_id": "2026-10-16-close-624199bb9c19:lane_1:6c022292c96fb5b8",
+            "rank": 3,
+            "supporting_refs": [
+              "MORNING:PLAN:2026-10-16-close-624199bb9c19:lane_1:6c022292c96fb5b8"
+            ]
+          },
+          {
+            "cluster": "CHEMICAL_NEW_MATERIALS",
+            "opposing_refs": [
+              "MORNING:PLAN:2026-10-16-close-624199bb9c19:lane_1:2c5108dc7573935f"
+            ],
+            "plan_id": "2026-10-16-close-624199bb9c19:lane_1:fba22d88043920db",
+            "rank": 4,
+            "supporting_refs": [
+              "MORNING:PLAN:2026-10-16-close-624199bb9c19:lane_1:fba22d88043920db"
+            ]
+          },
+          {
+            "cluster": "NATIONAL_DEFENSE",
+            "opposing_refs": [
+              "MORNING:PLAN:2026-10-16-close-624199bb9c19:lane_1:2c5108dc7573935f"
+            ],
+            "plan_id": "2026-10-16-close-624199bb9c19:lane_1:a6bd78d63b531a01",
+            "rank": 5,
+            "supporting_refs": [
+              "MORNING:PLAN:2026-10-16-close-624199bb9c19:lane_1:a6bd78d63b531a01"
+            ]
+          }
+        ],
+        "reason_codes": [],
+        "session": "PM_PREMARKET",
+        "shortfall_reason": "NONE",
+        "slot_plan": [
+          {
+            "accept_order": 1,
+            "backup_plan_id": "",
+            "cluster": "AI_COMPUTE_INFRASTRUCTURE",
+            "opposing_refs": [
+              "MORNING:PLAN:2026-10-16-close-624199bb9c19:lane_1:da5110da5fdb55c1"
+            ],
+            "primary_plan_id": "2026-10-16-close-624199bb9c19:lane_1:2c5108dc7573935f",
+            "slot": 1,
+            "supporting_refs": [
+              "MORNING:PLAN:2026-10-16-close-624199bb9c19:lane_1:2c5108dc7573935f"
+            ]
+          },
+          {
+            "accept_order": 2,
+            "backup_plan_id": "",
+            "cluster": "AI_COMPUTE_INFRASTRUCTURE",
+            "opposing_refs": [
+              "MORNING:PLAN:2026-10-16-close-624199bb9c19:lane_1:2c5108dc7573935f"
+            ],
+            "primary_plan_id": "2026-10-16-close-624199bb9c19:lane_1:da5110da5fdb55c1",
+            "slot": 2,
+            "supporting_refs": [
+              "MORNING:PLAN:2026-10-16-close-624199bb9c19:lane_1:da5110da5fdb55c1"
+            ]
+          },
+          {
+            "accept_order": 3,
+            "backup_plan_id": "",
+            "cluster": "AGRICULTURE_FOOD_SECURITY",
+            "opposing_refs": [
+              "MORNING:PLAN:2026-10-16-close-624199bb9c19:lane_1:2c5108dc7573935f"
+            ],
+            "primary_plan_id": "2026-10-16-close-624199bb9c19:lane_1:6c022292c96fb5b8",
+            "slot": 3,
+            "supporting_refs": [
+              "MORNING:PLAN:2026-10-16-close-624199bb9c19:lane_1:6c022292c96fb5b8"
+            ]
+          },
+          {
+            "accept_order": 4,
+            "backup_plan_id": "",
+            "cluster": "CHEMICAL_NEW_MATERIALS",
+            "opposing_refs": [
+              "MORNING:PLAN:2026-10-16-close-624199bb9c19:lane_1:2c5108dc7573935f"
+            ],
+            "primary_plan_id": "2026-10-16-close-624199bb9c19:lane_1:fba22d88043920db",
+            "slot": 4,
+            "supporting_refs": [
+              "MORNING:PLAN:2026-10-16-close-624199bb9c19:lane_1:fba22d88043920db"
+            ]
+          },
+          {
+            "accept_order": 5,
+            "backup_plan_id": "",
+            "cluster": "NATIONAL_DEFENSE",
+            "opposing_refs": [
+              "MORNING:PLAN:2026-10-16-close-624199bb9c19:lane_1:2c5108dc7573935f"
+            ],
+            "primary_plan_id": "2026-10-16-close-624199bb9c19:lane_1:a6bd78d63b531a01",
+            "slot": 5,
+            "supporting_refs": [
+              "MORNING:PLAN:2026-10-16-close-624199bb9c19:lane_1:a6bd78d63b531a01"
+            ]
+          }
+        ],
+        "source_call_id": "A3:morning:2026-10-19",
+        "status": "READY",
+        "trade_date": "2026-10-19",
+        "what_would_change_my_mind": [
+          "若外围快照恢复且显示风险偏好改善（value_pp转正），可将目标使用率上调至区间上沿。",
+          "若A2晨会更新主题阶段为ACCELERATION/CONFIRMATION，可重新评估HIGH_CONVICTION标记与优先级排序。"
+        ]
+      },
+      "source_call_id": "A3:morning:2026-10-19",
+      "trade_date": "2026-10-19"
+    }
+  ],
+  "original_review_context_sha256": "fcf27a0ca7e070e74e0ababc98b86cb5d49d242d815f6a8cc2aacf14afcfb219"
+}

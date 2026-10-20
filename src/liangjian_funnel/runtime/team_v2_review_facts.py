@@ -75,6 +75,36 @@ def trader_scope_metrics(rows):
 def _hash(value):return hashlib.sha256(canonical(value).encode()).hexdigest()
 
 
+def pm_deployment_target_metrics(rows):
+    """Copy frozen server-journal targets into A5's numeric citation domain.
+
+    Targets are objectives, not deployed cash or execution permission. Invalid
+    or absent originals remain absent; this never repairs a model response.
+    """
+    result=[]
+    for row in rows if isinstance(rows,list) else []:
+        raw=row.get('result_json')
+        try:body=json.loads(raw) if isinstance(raw,str) else raw
+        except ValueError:continue
+        if not isinstance(body,dict) or body.get('status')!='READY':continue
+        target=body.get('deployment_target')
+        if not isinstance(target,dict):continue
+        def number(value):
+            if isinstance(value,bool):return None
+            try:v=D(str(value))
+            except Exception:return None
+            return v if v.is_finite() else None
+        pct=number(target.get('target_pct'));bounds=target.get('baseline_range')
+        if (pct is None or not 0<=pct<=100 or not isinstance(bounds,list) or len(bounds)!=2):continue
+        low,high=map(number,bounds)
+        if low is None or high is None or not 0<=low<=pct<=high<=100:continue
+        result.append(dict(meeting_id=row.get('meeting_id'),target_pct=str(pct),
+            baseline_range=[str(low),str(high)],source_result_sha256=_hash(body),
+            source='FROZEN_PM_DECISION_NOT_A6_VOTE',execution_authority=False))
+    return dict(status='AVAILABLE' if result else 'UNAVAILABLE',observations=result,
+        interpretation='OBJECTIVE_NOT_ACTUAL_UTILIZATION_OR_ORDER_PERMISSION')
+
+
 def read_paper_review_evidence(path,*,trade_date,observed_at):
     """No broker constructor/settlement. Missing settlement is not zero NAV."""
     path=Path(path)
@@ -217,6 +247,7 @@ def build_team_review_facts(*,legacy_facts,store,journal,paper_snapshot,settleme
         strict_t1_return=None,strict_t3_return=None,
         model_calls=len(judgments.get('rows',{}).get('calls',[])),
         unavailable_reason='NO_BENCHMARK_OR_MATURED_COMPARISON_PROVIDED')
+    metrics['pm_deployment_targets']=pm_deployment_target_metrics(rows.get('pm_decisions'))
     from ..pipeline.team_v2_catalyst_gaps import catalyst_gap_summary
     a1_themes=[theme for call in judgments.get('rows',{}).get('calls',[])
         if call['role']=='A1' and call['validated'] and call['session']=='POLICY_MACRO_DISCOVERY'
