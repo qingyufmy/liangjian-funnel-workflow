@@ -18,7 +18,10 @@ from datetime import date, datetime, timedelta, timezone
 from functools import wraps
 from pathlib import Path
 from threading import Event, RLock, Thread
-from typing import Any, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Mapping, Sequence
+
+if TYPE_CHECKING:
+    from .runtime.publication_receipt import BoundObject
 from zoneinfo import ZoneInfo
 from uuid import uuid4
 
@@ -594,7 +597,8 @@ def _observe_close_research_resources(function):
     @wraps(function)
     def observed(self, slot, *args, **kwargs):
         if (str(slot).lower() != "close" or kwargs.get("historical_replay")
-                or kwargs.get("comparison_run") or kwargs.get("auction_refresh")):
+                or kwargs.get("comparison_run") or kwargs.get("auction_refresh")
+                or kwargs.get("frozen_a2_stock_news") is not None):
             return function(self, slot, *args, **kwargs)
         observer = None
         try:
@@ -3087,9 +3091,23 @@ class WorkflowApplication:
         active_a1_generation_id: str | None = None,
         same_day_recovery: bool = False,
         auction_refresh: bool = False,
+        frozen_a2_stock_news: BoundObject | None = None,
     ) -> dict[str, Any]:
         normalized_slot = _slot(slot)
         current = _aware(as_of or datetime.now(SHANGHAI))
+        if frozen_a2_stock_news is not None:
+            from .pipeline.research_overlay_resume import require_resume_arguments
+            require_resume_arguments(normalized_slot=normalized_slot,from_active_a1=from_active_a1,
+                primary_only=primary_only,reuse_completed_snapshot=reuse_completed_snapshot,
+                reuse_resume_snapshot=reuse_resume_snapshot,run_id_override=run_id_override,
+                snapshot_expected_hash=snapshot_expected_hash,historical_replay=historical_replay,
+                comparison_run=comparison_run,schedule_comparison=schedule_comparison,
+                auction_refresh=auction_refresh,same_day_recovery=same_day_recovery,
+                target_trade_date=target_trade_date,allow_non_trading_source=allow_non_trading_source,
+                market_data_as_of=market_data_as_of,snapshot_id=snapshot_id,models=models,
+                primary_lane_ids=primary_lane_ids,publish_plans=publish_plans,record_runtime=record_runtime)
+            if (self.settings.workflow_output_dir/'runs'/f'{run_id_override}.json').exists():
+                raise WorkflowError('A2_NEWS_RESUME_NEW_RUN_REQUIRED')
         if reuse_completed_snapshot and (
             normalized_slot != "close" or not from_active_a1 or not primary_only
             or not run_id_override or historical_replay or comparison_run
@@ -3178,7 +3196,7 @@ class WorkflowApplication:
         if not next_session_prep:
             self._ensure_trading_day(
                 current,
-                synchronize_accounts=not historical_replay and not comparison_run,
+                synchronize_accounts=not historical_replay and not comparison_run and frozen_a2_stock_news is None,
             )
         if normalized_slot == "morning" and current.hour == 9 and current.minute < 26:
             time.sleep(max(0.0, (_at_time(current, 9, 26) - current).total_seconds()))
@@ -3198,7 +3216,7 @@ class WorkflowApplication:
             if auction_refresh
             else
             self.settings.workflow_output_dir / "comparison_progress" / f"{comparison_progress_id}.json"
-            if comparison_run
+            if comparison_run or frozen_a2_stock_news is not None
             else self.settings.workflow_progress_path
         )
         progress = WorkflowProgress(
@@ -3308,6 +3326,11 @@ class WorkflowApplication:
             _progress_stdout(progress.snapshot())
             raise
         run_id = run_id_override or f"{current.date()}-{normalized_slot}-{prepared.snapshot.snapshot_hash[:12]}"
+        stage_enricher = self._stage_snapshot_enricher
+        if frozen_a2_stock_news is not None:
+            from .pipeline.research_overlay_resume import make_a2_stock_news_enricher
+            stage_enricher=make_a2_stock_news_enricher(proof=frozen_a2_stock_news,
+                prepared_snapshot=prepared.snapshot,expected_base_hash=snapshot_expected_hash,fallback=stage_enricher)
 
         def research_progress(event: Mapping[str, Any]) -> None:
             progress.research_event(event)
@@ -3326,7 +3349,7 @@ class WorkflowApplication:
             batch_workers=1,
             progress_callback=research_progress,
             checkpoint_store=self.research_checkpoints,
-            stage_snapshot_enricher=self._stage_snapshot_enricher,
+            stage_snapshot_enricher=stage_enricher,
             enable_feature_store=not from_active_a1,
         )
         heartbeat_stop = Event()
