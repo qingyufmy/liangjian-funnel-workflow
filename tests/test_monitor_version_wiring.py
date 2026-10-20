@@ -8,6 +8,7 @@ import pytest
 from liangjian_funnel.data.cache import MinuteBarStore
 from liangjian_funnel.data.mootdx import FetchResult, MinuteBar
 from liangjian_funnel.runtime.monitor import MonitorBatchResult, MonitorEvent
+from liangjian_funnel.runtime.entry_confirmation import DEFAULT_CONFIG
 from liangjian_funnel.runtime.state import RuntimeStore, PlanStatus
 from liangjian_funnel.workflow import WorkflowApplication
 
@@ -27,7 +28,11 @@ def test_monitor_consumes_persisted_revision_or_blocks(monkeypatch, tmp_path, br
     store.create_execution_plan("p", "lane_1", symbol, status=PlanStatus.ACTIVE_TODAY,
         valid_from=now-timedelta(minutes=2), expires_at=now.replace(hour=15, minute=0), payload={})
     app = object.__new__(WorkflowApplication)
-    app.settings = SimpleNamespace(workflow_output_dir=tmp_path/"outputs", research_primary_lane_id="lane_1")
+    app.settings = SimpleNamespace(root=tmp_path, workflow_output_dir=tmp_path/"outputs", research_primary_lane_id="lane_1")
+    (tmp_path/"config").mkdir(exist_ok=True)
+    (tmp_path/"config/entry_confirmation.yaml").write_text(json.dumps({
+        "schema_version":"entry-confirmation/1", "entry_confirmation":{**DEFAULT_CONFIG,"mode":"legacy"}
+    }), encoding="utf-8")
     app.store = store
     app.minute_store = MinuteBarStore(tmp_path/"minute")
     app.minute_store.write([original])

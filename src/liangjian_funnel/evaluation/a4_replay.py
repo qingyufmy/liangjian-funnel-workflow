@@ -22,6 +22,8 @@ from ..data.mootdx import MinuteBar
 from ..data.tencent_minute import MarketQuote, QuoteResult
 from ..reporting import atomic_write_json, atomic_write_text
 from ..runtime.monitor import MonitorEngine
+from ..runtime.calendar import ExchangeTradingCalendar
+from ..runtime.entry_confirmation import DEFAULT_CONFIG
 from ..runtime.strategies import STRATEGY_PROFILES
 from ..runtime.simulation import PaperBroker, SimulationConfig
 from ..runtime.state import MonitorAction, PlanStatus, RuntimeStore
@@ -267,9 +269,16 @@ def run_a4_replay(
     source_pool: str = "secondary_watch_pool",
     source_ordinal: int = 0,
     lane_id: str = "lane_1",
+    entry_confirmation_mode: str = "legacy",
 ) -> dict[str, Any]:
-    """Replay one counterfactual plan through the production A4 state machine."""
+    """Replay the legacy counterfactual contract, not pattern correctness.
 
+    New pattern correctness needs pinned daily facts, prefix coverage and its
+    separate release harness. This utility cannot silently claim that gate.
+    """
+
+    if entry_confirmation_mode != "legacy":
+        raise ValueError("A4_REPLAY_PATTERN_REQUIRES_CORRECTNESS_HARNESS")
     ordered, day_bars = _closed_session_bars(bars, trade_date)
     symbol = day_bars[0].symbol
     if any(bar.symbol != symbol for bar in day_bars):
@@ -294,6 +303,26 @@ def run_a4_replay(
     if plan["symbol"] != symbol:
         raise ValueError("A4_REPLAY_PLAN_BAR_SYMBOL_MISMATCH")
     morning = datetime.combine(trade_date, datetime.min.time(), tzinfo=SHANGHAI).replace(hour=9, minute=26)
+    # This historical control-path experiment promotes a watch row, not an
+    # official completed close. Bind that assumption to its OWN isolated run
+    # instead of inventing a successful production source_run_id or bypassing
+    # the real morning previous-close contract.
+    counterfactual_source = "TEST_ONLY_A4_REPLAY_CLOSE_" + plan["plan_id"].rsplit(":", 1)[-1]
+    previous_session = ExchangeTradingCalendar().previous_trading_day(trade_date).isoformat()
+    assumption = {
+        "mode": "TEST_ONLY_COUNTERFACTUAL", "source_run_id": source_run_id,
+        "counterfactual_source_run_id": counterfactual_source,
+        "market_trade_date": previous_session, "official_research_completed": False,
+        "entry_confirmation_mode": "legacy",
+    }
+    store.record_workflow_run(
+        run_id=counterfactual_source, lane_id=lane_id, trade_date=previous_session,
+        slot="close", model="TEST_ONLY_COUNTERFACTUAL_ASSUMPTION", status="READY",
+        snapshot_hash=hashlib.sha256(json.dumps(dict(source_plan), sort_keys=True,
+            ensure_ascii=False, default=str).encode("utf-8")).hexdigest(),
+        reason_codes=("TEST_ONLY_COUNTERFACTUAL_CLOSE_SOURCE",), outcome=assumption,
+    )
+    plan["source_run_id"] = counterfactual_source
     store.create_execution_plan(
         plan["plan_id"],
         lane_id,
@@ -333,6 +362,9 @@ def run_a4_replay(
             bar_histories={symbol: day_bars[: index + 1]},
             market_contexts={
                 symbol: {
+                    # This existing replay verifies the historical technical
+                    # design, not the new pattern correctness release gate.
+                    "entry_confirmation_config": {**DEFAULT_CONFIG, "mode": "legacy"},
                     "live_market_state": {
                         "status": "READY",
                         "entry_permission": "ALLOW",
@@ -443,6 +475,7 @@ def run_a4_replay(
         "model_mode": model_mode,
         "trade_date": trade_date.isoformat(),
         "source_run_id": source_run_id,
+        "counterfactual_close_source": assumption,
         "official_a3_plan_count": int(official_a3_plan_count),
         "production_path_expected": "EMPTY_SCOPE" if official_a3_plan_count == 0 else "ACTIVE_PLAN_SCOPE",
         "test_plan": {
@@ -535,6 +568,7 @@ def run_a4_replay_batch(
     data_errors: Mapping[str, str] | None = None,
     veto_factories: Mapping[str, VetoFactory | None] | None = None,
     model_mode: str = "DETERMINISTIC_ACCEPT",
+    entry_confirmation_mode: str = "legacy",
 ) -> dict[str, Any]:
     """Replay every persisted A3 plan in an isolated batch ledger.
 
@@ -543,6 +577,8 @@ def run_a4_replay_batch(
     ``DATA_FAILURE`` row and never aborts another symbol's replay.
     """
 
+    if entry_confirmation_mode != "legacy":
+        raise ValueError("A4_REPLAY_PATTERN_REQUIRES_CORRECTNESS_HARNESS")
     output_root = Path(output_dir).resolve()
     output_root.mkdir(parents=True, exist_ok=True)
     state_path = Path(state_db_path).resolve()
@@ -686,6 +722,7 @@ def run_a4_replay_batch(
                 source_pool=pool,
                 source_ordinal=ordinal,
                 lane_id=f"batch_{ordinal:04d}",
+                entry_confirmation_mode=entry_confirmation_mode,
             )
         except Exception as exc:
             replay_failure_count += 1

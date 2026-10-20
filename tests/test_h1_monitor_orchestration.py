@@ -12,6 +12,7 @@ from liangjian_funnel.data.mootdx import FetchResult
 from liangjian_funnel.data.session_windows import closed_window_ends
 from liangjian_funnel.data.tencent_minute import MarketQuote, QuoteResult
 from liangjian_funnel.runtime.state import PlanStatus
+from liangjian_funnel.runtime.entry_confirmation import DEFAULT_CONFIG
 from liangjian_funnel.workflow import WorkflowApplication
 from test_h1_entry_settlement_invariants import seeded, at, corrupt_local_fixture_only
 
@@ -55,7 +56,11 @@ def test_full_monitor_with_one_bad_plan_keeps_other12_applicable239_minutes(tmp_
         store.create_execution_plan(pid,'lane_1',symbol,status=PlanStatus.ACTIVE_TODAY,
             valid_from=at('09:32:00'),expires_at=at('15:00:00'),
             payload={'trigger_low':100,'trigger_high':101,'confirmation_bars':2})
-    app.settings=SimpleNamespace(workflow_output_dir=tmp_path/'outputs',research_primary_lane_id='lane_1')
+    app.settings=SimpleNamespace(root=tmp_path,workflow_output_dir=tmp_path/'outputs',research_primary_lane_id='lane_1')
+    (tmp_path/'config').mkdir(exist_ok=True)
+    (tmp_path/'config/entry_confirmation.yaml').write_text(json.dumps({
+        'schema_version':'entry-confirmation/1','entry_confirmation':{**DEFAULT_CONFIG,'mode':'legacy'}
+    }),encoding='utf-8')
     app.minute_store=MinuteBarStore(tmp_path/'minute')
     app.market_data=object();app.lark_publisher=None
     app._ensure_trading_day=lambda *_: None

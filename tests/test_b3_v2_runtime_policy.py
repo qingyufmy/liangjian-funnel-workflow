@@ -151,6 +151,8 @@ def test_opt_in_does_not_accept_unclosed_or_future_minute(case):
 
 
 def test_live_workflow_supplies_same_policy_to_model_and_monitor_without_plan_rewrite(monkeypatch, tmp_path):
+    import json
+    from liangjian_funnel.runtime.entry_confirmation import DEFAULT_CONFIG
     """Exercise the real orchestration; no provider, model or production store."""
     from types import SimpleNamespace
     from liangjian_funnel.data.cache import MinuteBarStore
@@ -170,7 +172,11 @@ def test_live_workflow_supplies_same_policy_to_model_and_monitor_without_plan_re
     # This isolated fixture intentionally installs all I/O boundaries before
     # invoking monitor_once; production construction is never bypassed.
     app = object.__new__(WorkflowApplication)
-    app.settings = SimpleNamespace(workflow_output_dir=tmp_path/'outputs', research_primary_lane_id='lane_1')
+    app.settings = SimpleNamespace(root=tmp_path, workflow_output_dir=tmp_path/'outputs', research_primary_lane_id='lane_1')
+    (tmp_path/'config').mkdir(exist_ok=True)
+    (tmp_path/'config/entry_confirmation.yaml').write_text(json.dumps({
+        'schema_version':'entry-confirmation/1','entry_confirmation':{**DEFAULT_CONFIG,'mode':'legacy'}
+    }),encoding='utf-8')
     app.store, app.minute_store = store, MinuteBarStore(tmp_path/'minute')
     app.brokers, app.market_data, app.lark_publisher = {'lane_1':object()}, object(), None
     app._ensure_trading_day = lambda *_: None

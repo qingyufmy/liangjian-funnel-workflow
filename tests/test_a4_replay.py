@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
+import pytest
 
 from liangjian_funnel.data.mootdx import MinuteBar
 from liangjian_funnel.evaluation.a4_replay import run_a4_replay, run_a4_replay_batch
+from liangjian_funnel.runtime.state import RuntimeStore
 
 
 TZ = ZoneInfo("Asia/Shanghai")
@@ -65,8 +67,18 @@ def test_a4_replay_isolated_full_day_reaches_one_next_bar_fill(tmp_path) -> None
         state_db_path=tmp_path / "replay.sqlite3",
         output_dir=tmp_path / "report",
         official_a3_plan_count=0,
+        entry_confirmation_mode="legacy",
     )
     assert report["mode"] == "TEST_ONLY_COUNTERFACTUAL"
+    assumption = report["counterfactual_close_source"]
+    assert assumption["official_research_completed"] is False
+    assert assumption["entry_confirmation_mode"] == "legacy"
+    assert assumption["market_trade_date"] == "2026-08-27"
+    source_store = RuntimeStore(tmp_path / "replay.sqlite3")
+    assert source_store.get_workflow_run("source-run", "lane_1") is None
+    counterfactual = source_store.get_workflow_run(assumption["counterfactual_source_run_id"], "lane_1")
+    assert counterfactual["model"] == "TEST_ONLY_COUNTERFACTUAL_ASSUMPTION"
+    assert report["morning_review"]["research_contract"]["status"] == "READY"
     assert report["official_a3_plan_count"] == 0
     assert report["bar_coverage"]["count"] == 240
     assert report["model_calls"] == 1
@@ -94,6 +106,7 @@ def test_a4_replay_preserves_core_execution_parameters_and_signal_identity(tmp_p
         output_dir=tmp_path / "core-report",
         source_pool="core_watch_pool",
         official_a3_plan_count=1,
+        entry_confirmation_mode="legacy",
     )
     test_plan = report["test_plan"]
     assert test_plan["source_plan_id"] == "core-plan-1"
@@ -111,7 +124,8 @@ def test_replay_morning_invalidation_is_a_valid_zero_entry_outcome(tmp_path):
     plan = _plan("600519.SH", source_plan_id="invalid-open")
     plan.update(invalidation_level=10.6, trigger_zone={"low":10.8,"high":11.0})
     report = run_a4_replay(trade_date=date(2026,8,28), source_run_id="source",
-        source_plan=plan, bars=_bars(), state_db_path=tmp_path/"state.sqlite3", output_dir=tmp_path/"report")
+        source_plan=plan, bars=_bars(), state_db_path=tmp_path/"state.sqlite3", output_dir=tmp_path/"report",
+        entry_confirmation_mode="legacy")
     assert report["morning_review"]["invalidated"]
     assert report["fills"] == []
     assert report["model_calls"] == 0
@@ -131,6 +145,7 @@ def test_a4_replay_batch_aggregates_two_plans_in_one_isolated_ledger(tmp_path) -
         bars_by_symbol={"600519.SH": _bars("600519.SH"), "600520.SH": _bars("600520.SH")},
         state_db_path=tmp_path / "batch.sqlite3",
         output_dir=tmp_path / "batch-report",
+        entry_confirmation_mode="legacy",
     )
     assert report["status"] == "READY"
     assert report["summary"] == {
@@ -165,6 +180,7 @@ def test_a4_replay_batch_isolates_one_incomplete_symbol(tmp_path) -> None:
         state_db_path=tmp_path / "partial.sqlite3",
         output_dir=tmp_path / "partial-report",
         data_errors={"600520.SH": "TENCENT_INSUFFICIENT_BARS"},
+        entry_confirmation_mode="legacy",
     )
     assert report["status"] == "DEGRADED"
     assert report["summary"]["total_plans"] == 2
@@ -175,3 +191,20 @@ def test_a4_replay_batch_isolates_one_incomplete_symbol(tmp_path) -> None:
     assert rows["600520.SH"]["status"] == "DATA_FAILURE"
     assert rows["600519.SH"]["status"] in {"READY", "NO_EFFECTIVE_SIGNAL"}
     assert report["invariants"]["per_symbol_failure_isolation"] is True
+
+
+@pytest.mark.parametrize("batch", [False, True])
+def test_legacy_replay_cannot_claim_new_pattern_gate(tmp_path, batch):
+    kwargs = dict(trade_date=date(2026, 8, 28), source_run_id="not-a-completed-close",
+        state_db_path=tmp_path/"must-not-create.sqlite3", output_dir=tmp_path/"must-not-create",
+        entry_confirmation_mode="pattern_v1")
+    if batch:
+        function = run_a4_replay_batch
+        kwargs.update(source_plans=(), bars_by_symbol={})
+    else:
+        function = run_a4_replay
+        kwargs.update(source_plan={}, bars=())
+    with pytest.raises(ValueError, match="A4_REPLAY_PATTERN_REQUIRES_CORRECTNESS_HARNESS"):
+        function(**kwargs)
+    assert not kwargs["state_db_path"].exists()
+    assert not kwargs["output_dir"].exists()

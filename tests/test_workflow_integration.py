@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 from liangjian_funnel.data.cache import MinuteBarStore
 from liangjian_funnel.data.mootdx import FetchResult, MinuteBar
 from liangjian_funnel.runtime.monitor import MonitorEngine
+from liangjian_funnel.runtime.entry_confirmation import DEFAULT_CONFIG
 from liangjian_funnel.runtime.simulation import PaperBroker, SimulationAction, SimulationConfig
 from liangjian_funnel.runtime.state import A4SignalStatus, MonitorAction, PlanStatus, RuntimeStore
 from liangjian_funnel.pipeline.research import (
@@ -142,10 +143,16 @@ def test_monitor_defers_invalidated_plan_archive_outside_a4_critical_path(tmp_pa
     provider = Provider()
     app = object.__new__(WorkflowApplication)
     app.settings = SimpleNamespace(
+        root=tmp_path,
         fact_store_dir=tmp_path / "facts",
         workflow_output_dir=tmp_path / "outputs",
         research_primary_lane_id="lane_1",
     )
+    (tmp_path / "config").mkdir(exist_ok=True)
+    (tmp_path / "config/entry_confirmation.yaml").write_text(json.dumps({
+        "schema_version": "entry-confirmation/1",
+        "entry_confirmation": {**DEFAULT_CONFIG, "mode": "legacy"},
+    }), encoding="utf-8")
     app.store = store
     app.minute_store = MinuteBarStore(tmp_path / "minute")
     app.market_data = SimpleNamespace(fallback=provider)

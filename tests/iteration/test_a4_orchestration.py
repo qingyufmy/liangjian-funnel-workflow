@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from pathlib import Path
 import sqlite3
+import json
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 import time
@@ -13,6 +14,7 @@ from liangjian_funnel.data.cache import MinuteBarStore
 from liangjian_funnel.data.mootdx import FetchResult, MinuteBar
 from liangjian_funnel.data.tencent_minute import MarketQuote, QuoteResult
 from liangjian_funnel.runtime.bounded_work import BoundedWorkGate
+from liangjian_funnel.runtime.entry_confirmation import DEFAULT_CONFIG
 from liangjian_funnel.runtime.monitor import MonitorBatchResult, MonitorEngine
 from liangjian_funnel.runtime.simulation import PaperBroker, SimulationAction
 from liangjian_funnel.runtime.state import MonitorAction, PlanStatus, RuntimeStore
@@ -329,10 +331,16 @@ def test_a4_02_monitor_never_fetches_native_5m_or_archive_only_symbol(
     store.list_observable_invalidated_plans = lambda *_args, **_kwargs: ({"symbol": archive_symbol},)
     app = object.__new__(WorkflowApplication)
     app.settings = SimpleNamespace(
+        root=tmp_path,
         workflow_output_dir=tmp_path / "outputs",
         fact_store_dir=tmp_path / "facts",
         research_primary_lane_id="lane_1",
     )
+    (tmp_path / "config").mkdir(exist_ok=True)
+    (tmp_path / "config/entry_confirmation.yaml").write_text(json.dumps({
+        "schema_version": "entry-confirmation/1",
+        "entry_confirmation": {**DEFAULT_CONFIG, "mode": "legacy"},
+    }), encoding="utf-8")
     app.store = store
     app.minute_store = MinuteBarStore(tmp_path / "minute")
     app.brokers = {"lane_1": object()}
