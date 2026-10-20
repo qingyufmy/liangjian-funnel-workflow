@@ -18,6 +18,7 @@ ROOT=Path(__file__).resolve().parents[1]
 def fixture(tmp_path):
     settings=SimpleNamespace(root=tmp_path,workflow_output_dir=tmp_path/'outputs')
     (tmp_path/'config').mkdir();shutil.copyfile(ROOT/'config/regime_live.yaml',tmp_path/'config/regime_live.yaml')
+    shutil.copyfile(ROOT/'config/team_v2_sector_context.yaml',tmp_path/'config/team_v2_sector_context.yaml')
     at=tick('09:40');known=at.replace(hour=7,minute=25)
     cycle={'available':True,'as_of':'2026-10-16T15:00:00+08:00',
         'history_metrics':{'top3_daily_overlap':.6,'persistent_mainline_candidates':[{'industry_thscode':'881101.TI'}]}}

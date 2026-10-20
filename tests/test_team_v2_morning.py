@@ -81,7 +81,7 @@ def test_actual_three_stage_source_to_model_to_allocation_retains_legacy_bytes(t
     result=run_morning_stage(settings,'pm',clock=lambda:clock.now,calendar=CAL,client=api)
     assert result['status']=='READY' and result['slot_plan'][0]['primary_plan_id']=='p1'
     visible=json.JSONDecoder().raw_decode(seen[-1]['messages'][0]['content'].split('PLANS_TODAY=',1)[1])[0]
-    assert isinstance(visible,list) and visible[0]['plan_id']=='p1'
+    assert visible=={'source':'EVIDENCE_CATALOG','plan_evidence_ids':['MORNING:PLAN:p1']}
 
 
     assert run_morning_stage(settings,'pm',clock=lambda:clock.now,calendar=CAL,client=api)==result
@@ -100,7 +100,10 @@ def test_first_day_engine_probe_cannot_be_promoted_by_pm_standard_fixture(tmp_pa
     advance(clock,8,35);run_morning_stage(settings,'risk',clock=lambda:clock.now,calendar=CAL,client=api)
     advance(clock,8,38)
     result=run_morning_stage(settings,'pm',clock=lambda:clock.now,calendar=CAL,client=api)
-    assert result['status']=='PM_DEGRADED_NO_ALLOCATION'
+    assert result['status']=='READY'
+    assert result['model_validated'] is False
+    assert result['decision_authority']=='SERVER_FALLBACK_NOT_MODEL_VALIDATED'
+    assert result['plan_allocations'][0]['intended_risk_unit']=='PROBE'
 
 
 def test_empty_plan_day_still_prepares_emotion_seed_without_inventing_morning_permission(tmp_path,monkeypatch):

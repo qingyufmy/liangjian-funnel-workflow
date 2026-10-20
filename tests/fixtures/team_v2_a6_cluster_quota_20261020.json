@@ -1,0 +1,1729 @@
+{
+  "provenance": {
+    "models_sha256": "d898f7e4bd22afb924acf1eab4be4f78c71fb1bd23b4b82b18cf43c946960f11",
+    "morning_sha256": "8b869dac2e94ece67b0f83d070b9706b00e399bd5503669a16085aea0c279362",
+    "raw_output_sha256": "1b46ce10ddbf1d1eedf86d766199ccc407182a63cef3bafd71e390040205d33a",
+    "catalog_projection": "CATEGORIES_AND_ORIGINAL_IDS_ONLY_NO_FACT_BODY_REWRITE_CLAIM",
+    "call_id": "A6:morning:2026-10-20",
+    "original_catalog_sha256": "1c3dee4305107d5e0df9036e3a6c87f0446de9e59596af46ad63e9b50534a333"
+  },
+  "raw": {
+    "capacity_for_tomorrow": {
+      "cluster_quota": {
+        "AI_APPLICATIONS_DIGITAL_ECONOMY": 2,
+        "AI_COMPUTE_INFRASTRUCTURE": 2,
+        "CHEMICAL_NEW_MATERIALS": 2,
+        "FINANCIAL_HIGH_DIVIDEND": 2,
+        "INFRASTRUCTURE_DOMESTIC_DEMAND": 2,
+        "INNOVATIVE_MEDICINE_HEALTHCARE": 2,
+        "NATIONAL_DEFENSE": 2,
+        "POWER_EQUIPMENT_NEW_ENERGY": 2,
+        "RESOURCES_ENERGY": 2,
+        "ROBOTICS_ADVANCED_MANUFACTURING": 2,
+        "SEMICONDUCTOR_LOCALIZATION": 2
+      },
+      "notes": [
+        "市场状态ROTATION_NO_MAINLINE，仅允许PROBE",
+        "外围快照缺失，保守回退，不提高风险单位",
+        "各簇配额不超过引擎上限2，总可承接计划数6"
+      ],
+      "opposing_refs": [
+        "NO_OPPOSING_EVIDENCE_FOUND"
+      ],
+      "opposing_search_scope": [
+        "ACCOUNT",
+        "MARKET"
+      ],
+      "plans_acceptable": 6,
+      "response_to_pm": "NO_PM_REQUEST",
+      "risk_unit": "PROBE",
+      "supporting_refs": [
+        "MORNING:ACCOUNT",
+        "MORNING:MARKET"
+      ]
+    },
+    "envelope": {
+      "as_of": "2026-10-20T08:33:04.246712+08:00",
+      "config_hash": "411c17454b03b7c0d40e1aba253513f70631f785fe49dca329337f6c76db4a73",
+      "config_version": "team-v2/1",
+      "execution_trade_date": "2026-10-20",
+      "input_snapshot_ids": [
+        "b6fa60b40b2371c0f4e361a21227cd96f1016698516eb49f9fb0e11ac0f90144"
+      ],
+      "knowledge_cutoff": "2026-10-20T08:33:04.246712+08:00",
+      "market_regime": "ROTATION_NO_MAINLINE",
+      "model_name": "deepseek-v4-pro",
+      "prompt_version": "agent-6-risk/1.0.7",
+      "reason_codes": [],
+      "run_id": "team-morning:2026-10-20",
+      "schema_version": "team-envelope/1",
+      "source_trade_date": "2026-10-19",
+      "stage_id": "A6",
+      "status": "FROZEN"
+    },
+    "envelope_adjustments": [
+      {
+        "adjustment": "KEEP",
+        "opposing_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:73d52dde12eafd5a"
+        ],
+        "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:73d52dde12eafd5a",
+        "reason_code": "PROBE_WITHIN_MARKET_STATE",
+        "supporting_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:73d52dde12eafd5a",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若开盘前市场状态转为RISK_OFF_RETREAT则收紧",
+          "若该簇已占用配额达到上限则SUSPEND"
+        ]
+      },
+      {
+        "adjustment": "KEEP",
+        "opposing_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:013ca03c98a1173b"
+        ],
+        "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:013ca03c98a1173b",
+        "reason_code": "PROBE_WITHIN_MARKET_STATE",
+        "supporting_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:013ca03c98a1173b",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若市场状态转为RISK_OFF_RETREAT则收紧",
+          "若该簇配额已满则SUSPEND"
+        ]
+      },
+      {
+        "adjustment": "KEEP",
+        "opposing_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:a994b06c2e42aa18"
+        ],
+        "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:a994b06c2e42aa18",
+        "reason_code": "PROBE_WITHIN_MARKET_STATE",
+        "supporting_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:a994b06c2e42aa18",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若市场状态转为RISK_OFF_RETREAT则收紧",
+          "若该簇配额已满则SUSPEND"
+        ]
+      },
+      {
+        "adjustment": "KEEP",
+        "opposing_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:2bd8722ed3bd1159"
+        ],
+        "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:2bd8722ed3bd1159",
+        "reason_code": "PROBE_WITHIN_MARKET_STATE",
+        "supporting_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:2bd8722ed3bd1159",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若市场状态转为RISK_OFF_RETREAT则收紧",
+          "若该簇配额已满则SUSPEND"
+        ]
+      },
+      {
+        "adjustment": "KEEP",
+        "opposing_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:6b427630d533da87"
+        ],
+        "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:6b427630d533da87",
+        "reason_code": "PROBE_WITHIN_MARKET_STATE",
+        "supporting_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:6b427630d533da87",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若市场状态转为RISK_OFF_RETREAT则收紧",
+          "若该簇配额已满则SUSPEND"
+        ]
+      },
+      {
+        "adjustment": "KEEP",
+        "opposing_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:f0d34aa3e199571f"
+        ],
+        "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:f0d34aa3e199571f",
+        "reason_code": "PROBE_WITHIN_MARKET_STATE",
+        "supporting_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:f0d34aa3e199571f",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若市场状态转为RISK_OFF_RETREAT则收紧",
+          "若该簇配额已满则SUSPEND"
+        ]
+      },
+      {
+        "adjustment": "KEEP",
+        "opposing_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:c33a690d0f5e4975"
+        ],
+        "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:c33a690d0f5e4975",
+        "reason_code": "PROBE_WITHIN_MARKET_STATE",
+        "supporting_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:c33a690d0f5e4975",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若市场状态转为RISK_OFF_RETREAT则收紧",
+          "若该簇配额已满则SUSPEND"
+        ]
+      },
+      {
+        "adjustment": "KEEP",
+        "opposing_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:250dba70d0b25991"
+        ],
+        "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:250dba70d0b25991",
+        "reason_code": "PROBE_WITHIN_MARKET_STATE",
+        "supporting_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:250dba70d0b25991",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若市场状态转为RISK_OFF_RETREAT则收紧",
+          "若该簇配额已满则SUSPEND"
+        ]
+      },
+      {
+        "adjustment": "KEEP",
+        "opposing_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:d3cce021161150b9"
+        ],
+        "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:d3cce021161150b9",
+        "reason_code": "PROBE_WITHIN_MARKET_STATE",
+        "supporting_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:d3cce021161150b9",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若市场状态转为RISK_OFF_RETREAT则收紧",
+          "若该簇配额已满则SUSPEND"
+        ]
+      },
+      {
+        "adjustment": "KEEP",
+        "opposing_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:f22678583344b280"
+        ],
+        "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:f22678583344b280",
+        "reason_code": "PROBE_WITHIN_MARKET_STATE",
+        "supporting_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:f22678583344b280",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若市场状态转为RISK_OFF_RETREAT则收紧",
+          "若该簇配额已满则SUSPEND"
+        ]
+      },
+      {
+        "adjustment": "KEEP",
+        "opposing_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:bfb23cf19848d13d"
+        ],
+        "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:bfb23cf19848d13d",
+        "reason_code": "PROBE_WITHIN_MARKET_STATE",
+        "supporting_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:bfb23cf19848d13d",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若市场状态转为RISK_OFF_RETREAT则收紧",
+          "若该簇配额已满则SUSPEND"
+        ]
+      },
+      {
+        "adjustment": "KEEP",
+        "opposing_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:b6db4b39c40c080f"
+        ],
+        "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:b6db4b39c40c080f",
+        "reason_code": "PROBE_WITHIN_MARKET_STATE",
+        "supporting_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:b6db4b39c40c080f",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若市场状态转为RISK_OFF_RETREAT则收紧",
+          "若该簇配额已满则SUSPEND"
+        ]
+      },
+      {
+        "adjustment": "KEEP",
+        "opposing_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:d68c6a4bc89e694c"
+        ],
+        "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:d68c6a4bc89e694c",
+        "reason_code": "PROBE_WITHIN_MARKET_STATE",
+        "supporting_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:d68c6a4bc89e694c",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若市场状态转为RISK_OFF_RETREAT则收紧",
+          "若该簇配额已满则SUSPEND"
+        ]
+      },
+      {
+        "adjustment": "KEEP",
+        "opposing_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:942c98f40f4b9129"
+        ],
+        "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:942c98f40f4b9129",
+        "reason_code": "PROBE_WITHIN_MARKET_STATE",
+        "supporting_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:942c98f40f4b9129",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若市场状态转为RISK_OFF_RETREAT则收紧",
+          "若该簇配额已满则SUSPEND"
+        ]
+      },
+      {
+        "adjustment": "KEEP",
+        "opposing_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:30b0a9bd73a66862"
+        ],
+        "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:30b0a9bd73a66862",
+        "reason_code": "PROBE_WITHIN_MARKET_STATE",
+        "supporting_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:30b0a9bd73a66862",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若市场状态转为RISK_OFF_RETREAT则收紧",
+          "若该簇配额已满则SUSPEND"
+        ]
+      },
+      {
+        "adjustment": "KEEP",
+        "opposing_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:302738f263e4d044"
+        ],
+        "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:302738f263e4d044",
+        "reason_code": "PROBE_WITHIN_MARKET_STATE",
+        "supporting_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:302738f263e4d044",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若市场状态转为RISK_OFF_RETREAT则收紧",
+          "若该簇配额已满则SUSPEND"
+        ]
+      },
+      {
+        "adjustment": "KEEP",
+        "opposing_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:32cc5e99f30eeffb"
+        ],
+        "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:32cc5e99f30eeffb",
+        "reason_code": "PROBE_WITHIN_MARKET_STATE",
+        "supporting_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:32cc5e99f30eeffb",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若市场状态转为RISK_OFF_RETREAT则收紧",
+          "若该簇配额已满则SUSPEND"
+        ]
+      },
+      {
+        "adjustment": "KEEP",
+        "opposing_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:5fe0d82ed0dfb628"
+        ],
+        "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:5fe0d82ed0dfb628",
+        "reason_code": "PROBE_WITHIN_MARKET_STATE",
+        "supporting_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:5fe0d82ed0dfb628",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若市场状态转为RISK_OFF_RETREAT则收紧",
+          "若该簇配额已满则SUSPEND"
+        ]
+      },
+      {
+        "adjustment": "KEEP",
+        "opposing_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:f16160c3f5afb8bf"
+        ],
+        "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:f16160c3f5afb8bf",
+        "reason_code": "PROBE_WITHIN_MARKET_STATE",
+        "supporting_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:f16160c3f5afb8bf",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若市场状态转为RISK_OFF_RETREAT则收紧",
+          "若该簇配额已满则SUSPEND"
+        ]
+      },
+      {
+        "adjustment": "KEEP",
+        "opposing_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:8d598775ea337b65"
+        ],
+        "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:8d598775ea337b65",
+        "reason_code": "PROBE_WITHIN_MARKET_STATE",
+        "supporting_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:8d598775ea337b65",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若市场状态转为RISK_OFF_RETREAT则收紧",
+          "若该簇配额已满则SUSPEND"
+        ]
+      },
+      {
+        "adjustment": "KEEP",
+        "opposing_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:d8d44e5dfd0e5f08"
+        ],
+        "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:d8d44e5dfd0e5f08",
+        "reason_code": "PROBE_WITHIN_MARKET_STATE",
+        "supporting_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:d8d44e5dfd0e5f08",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若市场状态转为RISK_OFF_RETREAT则收紧",
+          "若该簇配额已满则SUSPEND"
+        ]
+      },
+      {
+        "adjustment": "KEEP",
+        "opposing_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:d8338445355e295a"
+        ],
+        "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:d8338445355e295a",
+        "reason_code": "PROBE_WITHIN_MARKET_STATE",
+        "supporting_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:d8338445355e295a",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若市场状态转为RISK_OFF_RETREAT则收紧",
+          "若该簇配额已满则SUSPEND"
+        ]
+      },
+      {
+        "adjustment": "KEEP",
+        "opposing_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:84cd8ca1d18c6e6c"
+        ],
+        "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:84cd8ca1d18c6e6c",
+        "reason_code": "PROBE_WITHIN_MARKET_STATE",
+        "supporting_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:84cd8ca1d18c6e6c",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若市场状态转为RISK_OFF_RETREAT则收紧",
+          "若该簇配额已满则SUSPEND"
+        ]
+      },
+      {
+        "adjustment": "KEEP",
+        "opposing_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:9579c39d1f7e66fa"
+        ],
+        "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:9579c39d1f7e66fa",
+        "reason_code": "PROBE_WITHIN_MARKET_STATE",
+        "supporting_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:9579c39d1f7e66fa",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若市场状态转为RISK_OFF_RETREAT则收紧",
+          "若该簇配额已满则SUSPEND"
+        ]
+      },
+      {
+        "adjustment": "KEEP",
+        "opposing_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:7b7caf4a2b767e8c"
+        ],
+        "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:7b7caf4a2b767e8c",
+        "reason_code": "PROBE_WITHIN_MARKET_STATE",
+        "supporting_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:7b7caf4a2b767e8c",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若市场状态转为RISK_OFF_RETREAT则收紧",
+          "若该簇配额已满则SUSPEND"
+        ]
+      },
+      {
+        "adjustment": "KEEP",
+        "opposing_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:ae5a359b88bada47"
+        ],
+        "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:ae5a359b88bada47",
+        "reason_code": "PROBE_WITHIN_MARKET_STATE",
+        "supporting_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:ae5a359b88bada47",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若市场状态转为RISK_OFF_RETREAT则收紧",
+          "若该簇配额已满则SUSPEND"
+        ]
+      },
+      {
+        "adjustment": "KEEP",
+        "opposing_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:4ab9e4d6cd0a1331"
+        ],
+        "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:4ab9e4d6cd0a1331",
+        "reason_code": "PROBE_WITHIN_MARKET_STATE",
+        "supporting_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:4ab9e4d6cd0a1331",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若市场状态转为RISK_OFF_RETREAT则收紧",
+          "若该簇配额已满则SUSPEND"
+        ]
+      },
+      {
+        "adjustment": "KEEP",
+        "opposing_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:9298a44240fb50f2"
+        ],
+        "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:9298a44240fb50f2",
+        "reason_code": "PROBE_WITHIN_MARKET_STATE",
+        "supporting_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:9298a44240fb50f2",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若市场状态转为RISK_OFF_RETREAT则收紧",
+          "若该簇配额已满则SUSPEND"
+        ]
+      },
+      {
+        "adjustment": "KEEP",
+        "opposing_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:4f789123c3f20d58"
+        ],
+        "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:4f789123c3f20d58",
+        "reason_code": "PROBE_WITHIN_MARKET_STATE",
+        "supporting_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:4f789123c3f20d58",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若市场状态转为RISK_OFF_RETREAT则收紧",
+          "若该簇配额已满则SUSPEND"
+        ]
+      },
+      {
+        "adjustment": "KEEP",
+        "opposing_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:ed02cf8af1031a77"
+        ],
+        "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:ed02cf8af1031a77",
+        "reason_code": "PROBE_WITHIN_MARKET_STATE",
+        "supporting_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:ed02cf8af1031a77",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若市场状态转为RISK_OFF_RETREAT则收紧",
+          "若该簇配额已满则SUSPEND"
+        ]
+      },
+      {
+        "adjustment": "KEEP",
+        "opposing_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:d1bdc217e25c4d3d"
+        ],
+        "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:d1bdc217e25c4d3d",
+        "reason_code": "PROBE_WITHIN_MARKET_STATE",
+        "supporting_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:d1bdc217e25c4d3d",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若市场状态转为RISK_OFF_RETREAT则收紧",
+          "若该簇配额已满则SUSPEND"
+        ]
+      },
+      {
+        "adjustment": "KEEP",
+        "opposing_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:57d1577259b28287"
+        ],
+        "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:57d1577259b28287",
+        "reason_code": "PROBE_WITHIN_MARKET_STATE",
+        "supporting_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:57d1577259b28287",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若市场状态转为RISK_OFF_RETREAT则收紧",
+          "若该簇配额已满则SUSPEND"
+        ]
+      },
+      {
+        "adjustment": "KEEP",
+        "opposing_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:d28fc04af1bb9555"
+        ],
+        "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:d28fc04af1bb9555",
+        "reason_code": "PROBE_WITHIN_MARKET_STATE",
+        "supporting_refs": [
+          "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:d28fc04af1bb9555",
+          "MORNING:MARKET"
+        ],
+        "what_would_change_my_mind": [
+          "若市场状态转为RISK_OFF_RETREAT则收紧",
+          "若该簇配额已满则SUSPEND"
+        ]
+      }
+    ],
+    "exception_actions": [],
+    "handoff_notes": {
+      "to_a3": [
+        "今日仅允许PROBE，STANDARD计划需降级",
+        "外围快照缺失，保守回退，勿提高使用率",
+        "各簇配额上限2，总可承接计划数6"
+      ],
+      "to_a4": [
+        "所有计划信封KEEP，但仅PROBE风险单位",
+        "外围快照缺失，盘中注意市场状态变化"
+      ],
+      "to_a5": [
+        "外围快照缺失导致保守回退，记录为DATA_ISSUE",
+        "所有计划信封KEEP，无收紧动作"
+      ]
+    },
+    "overnight_reviews": [],
+    "risk_event_attribution": [],
+    "schema_version": "a6-risk/1.0.0",
+    "session": "PREMARKET",
+    "unresolved_questions": [],
+    "utilization_cap": {
+      "basis": "ENGINE_UPPER_BOUND",
+      "cap_pct": 65,
+      "opposing_refs": [
+        "NO_OPPOSING_EVIDENCE_FOUND"
+      ],
+      "opposing_search_scope": [
+        "ACCOUNT",
+        "MARKET"
+      ],
+      "supporting_refs": [
+        "MORNING:ACCOUNT",
+        "MORNING:MARKET"
+      ]
+    },
+    "what_would_change_my_mind": [
+      "若开盘前市场状态转为RISK_OFF_RETREAT或BEAR_RISK，则收紧所有信封",
+      "若外围快照恢复且显示风险偏好显著收缩，则收紧"
+    ]
+  },
+  "envelopes": [
+    {
+      "a6_tightened": false,
+      "binding_limits": [
+        "POSITION_CAP",
+        "CONTROL_FIRST_DAY_PROBE"
+      ],
+      "blocked_reasons": [],
+      "eligible": true,
+      "high_conviction": false,
+      "max_batches": 1,
+      "max_shares_cap": 1100,
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:73d52dde12eafd5a",
+      "purpose": "PLANNING",
+      "risk_budget": "15000.000",
+      "risk_unit": "PROBE",
+      "symbol": "000333.SZ",
+      "trade_date": "2026-10-20"
+    },
+    {
+      "a6_tightened": false,
+      "binding_limits": [
+        "POSITION_CAP",
+        "CONTROL_FIRST_DAY_PROBE"
+      ],
+      "blocked_reasons": [],
+      "eligible": true,
+      "high_conviction": false,
+      "max_batches": 1,
+      "max_shares_cap": 15200,
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:013ca03c98a1173b",
+      "purpose": "PLANNING",
+      "risk_budget": "15000.000",
+      "risk_unit": "PROBE",
+      "symbol": "000601.SZ",
+      "trade_date": "2026-10-20"
+    },
+    {
+      "a6_tightened": false,
+      "binding_limits": [
+        "POSITION_CAP",
+        "CONTROL_FIRST_DAY_PROBE"
+      ],
+      "blocked_reasons": [],
+      "eligible": true,
+      "high_conviction": false,
+      "max_batches": 1,
+      "max_shares_cap": 3900,
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:a994b06c2e42aa18",
+      "purpose": "PLANNING",
+      "risk_budget": "15000.000",
+      "risk_unit": "PROBE",
+      "symbol": "000975.SZ",
+      "trade_date": "2026-10-20"
+    },
+    {
+      "a6_tightened": false,
+      "binding_limits": [
+        "POSITION_CAP",
+        "CONTROL_FIRST_DAY_PROBE"
+      ],
+      "blocked_reasons": [],
+      "eligible": true,
+      "high_conviction": false,
+      "max_batches": 1,
+      "max_shares_cap": 2600,
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:2bd8722ed3bd1159",
+      "purpose": "PLANNING",
+      "risk_budget": "15000.000",
+      "risk_unit": "PROBE",
+      "symbol": "001266.SZ",
+      "trade_date": "2026-10-20"
+    },
+    {
+      "a6_tightened": false,
+      "binding_limits": [
+        "POSITION_CAP",
+        "CONTROL_FIRST_DAY_PROBE"
+      ],
+      "blocked_reasons": [],
+      "eligible": true,
+      "high_conviction": false,
+      "max_batches": 1,
+      "max_shares_cap": 5200,
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:6b427630d533da87",
+      "purpose": "PLANNING",
+      "risk_budget": "15000.000",
+      "risk_unit": "PROBE",
+      "symbol": "002270.SZ",
+      "trade_date": "2026-10-20"
+    },
+    {
+      "a6_tightened": false,
+      "binding_limits": [
+        "POSITION_CAP",
+        "CONTROL_FIRST_DAY_PROBE"
+      ],
+      "blocked_reasons": [],
+      "eligible": true,
+      "high_conviction": false,
+      "max_batches": 1,
+      "max_shares_cap": 7500,
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:f0d34aa3e199571f",
+      "purpose": "PLANNING",
+      "risk_budget": "15000.000",
+      "risk_unit": "PROBE",
+      "symbol": "002322.SZ",
+      "trade_date": "2026-10-20"
+    },
+    {
+      "a6_tightened": false,
+      "binding_limits": [
+        "POSITION_CAP",
+        "CONTROL_FIRST_DAY_PROBE"
+      ],
+      "blocked_reasons": [],
+      "eligible": true,
+      "high_conviction": false,
+      "max_batches": 1,
+      "max_shares_cap": 14400,
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:c33a690d0f5e4975",
+      "purpose": "PLANNING",
+      "risk_budget": "15000.000",
+      "risk_unit": "PROBE",
+      "symbol": "002376.SZ",
+      "trade_date": "2026-10-20"
+    },
+    {
+      "a6_tightened": false,
+      "binding_limits": [
+        "POSITION_CAP",
+        "CONTROL_FIRST_DAY_PROBE"
+      ],
+      "blocked_reasons": [],
+      "eligible": true,
+      "high_conviction": false,
+      "max_batches": 1,
+      "max_shares_cap": 13800,
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:250dba70d0b25991",
+      "purpose": "PLANNING",
+      "risk_budget": "15000.000",
+      "risk_unit": "PROBE",
+      "symbol": "002530.SZ",
+      "trade_date": "2026-10-20"
+    },
+    {
+      "a6_tightened": false,
+      "binding_limits": [
+        "POSITION_CAP",
+        "CONTROL_FIRST_DAY_PROBE"
+      ],
+      "blocked_reasons": [],
+      "eligible": true,
+      "high_conviction": false,
+      "max_batches": 1,
+      "max_shares_cap": 4900,
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:d3cce021161150b9",
+      "purpose": "PLANNING",
+      "risk_budget": "15000.000",
+      "risk_unit": "PROBE",
+      "symbol": "002541.SZ",
+      "trade_date": "2026-10-20"
+    },
+    {
+      "a6_tightened": false,
+      "binding_limits": [
+        "POSITION_CAP",
+        "CONTROL_FIRST_DAY_PROBE"
+      ],
+      "blocked_reasons": [],
+      "eligible": true,
+      "high_conviction": false,
+      "max_batches": 1,
+      "max_shares_cap": 6500,
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:f22678583344b280",
+      "purpose": "PLANNING",
+      "risk_budget": "15000.000",
+      "risk_unit": "PROBE",
+      "symbol": "300012.SZ",
+      "trade_date": "2026-10-20"
+    },
+    {
+      "a6_tightened": false,
+      "binding_limits": [
+        "POSITION_CAP",
+        "CONTROL_FIRST_DAY_PROBE"
+      ],
+      "blocked_reasons": [],
+      "eligible": true,
+      "high_conviction": false,
+      "max_batches": 1,
+      "max_shares_cap": 4000,
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:bfb23cf19848d13d",
+      "purpose": "PLANNING",
+      "risk_budget": "15000.000",
+      "risk_unit": "PROBE",
+      "symbol": "300031.SZ",
+      "trade_date": "2026-10-20"
+    },
+    {
+      "a6_tightened": false,
+      "binding_limits": [
+        "POSITION_CAP",
+        "CONTROL_FIRST_DAY_PROBE"
+      ],
+      "blocked_reasons": [],
+      "eligible": true,
+      "high_conviction": false,
+      "max_batches": 1,
+      "max_shares_cap": 18000,
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:b6db4b39c40c080f",
+      "purpose": "PLANNING",
+      "risk_budget": "15000.000",
+      "risk_unit": "PROBE",
+      "symbol": "300067.SZ",
+      "trade_date": "2026-10-20"
+    },
+    {
+      "a6_tightened": false,
+      "binding_limits": [
+        "POSITION_CAP",
+        "CONTROL_FIRST_DAY_PROBE"
+      ],
+      "blocked_reasons": [],
+      "eligible": true,
+      "high_conviction": false,
+      "max_batches": 1,
+      "max_shares_cap": 11300,
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:d68c6a4bc89e694c",
+      "purpose": "PLANNING",
+      "risk_budget": "15000.000",
+      "risk_unit": "PROBE",
+      "symbol": "300410.SZ",
+      "trade_date": "2026-10-20"
+    },
+    {
+      "a6_tightened": false,
+      "binding_limits": [
+        "POSITION_CAP",
+        "CONTROL_FIRST_DAY_PROBE"
+      ],
+      "blocked_reasons": [],
+      "eligible": true,
+      "high_conviction": false,
+      "max_batches": 1,
+      "max_shares_cap": 2700,
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:942c98f40f4b9129",
+      "purpose": "PLANNING",
+      "risk_budget": "15000.000",
+      "risk_unit": "PROBE",
+      "symbol": "300516.SZ",
+      "trade_date": "2026-10-20"
+    },
+    {
+      "a6_tightened": false,
+      "binding_limits": [
+        "POSITION_CAP",
+        "CONTROL_FIRST_DAY_PROBE"
+      ],
+      "blocked_reasons": [],
+      "eligible": true,
+      "high_conviction": false,
+      "max_batches": 1,
+      "max_shares_cap": 7100,
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:30b0a9bd73a66862",
+      "purpose": "PLANNING",
+      "risk_budget": "15000.000",
+      "risk_unit": "PROBE",
+      "symbol": "300733.SZ",
+      "trade_date": "2026-10-20"
+    },
+    {
+      "a6_tightened": false,
+      "binding_limits": [
+        "POSITION_CAP",
+        "CONTROL_FIRST_DAY_PROBE"
+      ],
+      "blocked_reasons": [],
+      "eligible": true,
+      "high_conviction": false,
+      "max_batches": 1,
+      "max_shares_cap": 7200,
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:302738f263e4d044",
+      "purpose": "PLANNING",
+      "risk_budget": "15000.000",
+      "risk_unit": "PROBE",
+      "symbol": "300839.SZ",
+      "trade_date": "2026-10-20"
+    },
+    {
+      "a6_tightened": false,
+      "binding_limits": [
+        "POSITION_CAP",
+        "CONTROL_FIRST_DAY_PROBE"
+      ],
+      "blocked_reasons": [],
+      "eligible": true,
+      "high_conviction": false,
+      "max_batches": 1,
+      "max_shares_cap": 900,
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:32cc5e99f30eeffb",
+      "purpose": "PLANNING",
+      "risk_budget": "15000.000",
+      "risk_unit": "PROBE",
+      "symbol": "300990.SZ",
+      "trade_date": "2026-10-20"
+    },
+    {
+      "a6_tightened": false,
+      "binding_limits": [
+        "POSITION_CAP",
+        "CONTROL_FIRST_DAY_PROBE"
+      ],
+      "blocked_reasons": [],
+      "eligible": true,
+      "high_conviction": false,
+      "max_batches": 1,
+      "max_shares_cap": 2100,
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:5fe0d82ed0dfb628",
+      "purpose": "PLANNING",
+      "risk_budget": "15000.000",
+      "risk_unit": "PROBE",
+      "symbol": "301282.SZ",
+      "trade_date": "2026-10-20"
+    },
+    {
+      "a6_tightened": false,
+      "binding_limits": [
+        "POSITION_CAP",
+        "CONTROL_FIRST_DAY_PROBE"
+      ],
+      "blocked_reasons": [],
+      "eligible": true,
+      "high_conviction": false,
+      "max_batches": 1,
+      "max_shares_cap": 1900,
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:f16160c3f5afb8bf",
+      "purpose": "PLANNING",
+      "risk_budget": "15000.000",
+      "risk_unit": "PROBE",
+      "symbol": "301286.SZ",
+      "trade_date": "2026-10-20"
+    },
+    {
+      "a6_tightened": false,
+      "binding_limits": [
+        "POSITION_CAP",
+        "CONTROL_FIRST_DAY_PROBE"
+      ],
+      "blocked_reasons": [],
+      "eligible": true,
+      "high_conviction": false,
+      "max_batches": 1,
+      "max_shares_cap": 5400,
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:8d598775ea337b65",
+      "purpose": "PLANNING",
+      "risk_budget": "15000.000",
+      "risk_unit": "PROBE",
+      "symbol": "301487.SZ",
+      "trade_date": "2026-10-20"
+    },
+    {
+      "a6_tightened": false,
+      "binding_limits": [
+        "POSITION_CAP",
+        "CONTROL_FIRST_DAY_PROBE"
+      ],
+      "blocked_reasons": [],
+      "eligible": true,
+      "high_conviction": false,
+      "max_batches": 1,
+      "max_shares_cap": 10200,
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:d8d44e5dfd0e5f08",
+      "purpose": "PLANNING",
+      "risk_budget": "15000.000",
+      "risk_unit": "PROBE",
+      "symbol": "600000.SH",
+      "trade_date": "2026-10-20"
+    },
+    {
+      "a6_tightened": false,
+      "binding_limits": [
+        "POSITION_CAP",
+        "CONTROL_FIRST_DAY_PROBE"
+      ],
+      "blocked_reasons": [],
+      "eligible": true,
+      "high_conviction": false,
+      "max_batches": 1,
+      "max_shares_cap": 2300,
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:d8338445355e295a",
+      "purpose": "PLANNING",
+      "risk_budget": "15000.000",
+      "risk_unit": "PROBE",
+      "symbol": "600036.SH",
+      "trade_date": "2026-10-20"
+    },
+    {
+      "a6_tightened": false,
+      "binding_limits": [
+        "POSITION_CAP",
+        "CONTROL_FIRST_DAY_PROBE"
+      ],
+      "blocked_reasons": [],
+      "eligible": true,
+      "high_conviction": false,
+      "max_batches": 1,
+      "max_shares_cap": 2600,
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:84cd8ca1d18c6e6c",
+      "purpose": "PLANNING",
+      "risk_budget": "15000.000",
+      "risk_unit": "PROBE",
+      "symbol": "600316.SH",
+      "trade_date": "2026-10-20"
+    },
+    {
+      "a6_tightened": false,
+      "binding_limits": [
+        "POSITION_CAP",
+        "CONTROL_FIRST_DAY_PROBE"
+      ],
+      "blocked_reasons": [],
+      "eligible": true,
+      "high_conviction": false,
+      "max_batches": 1,
+      "max_shares_cap": 4300,
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:9579c39d1f7e66fa",
+      "purpose": "PLANNING",
+      "risk_budget": "15000.000",
+      "risk_unit": "PROBE",
+      "symbol": "600406.SH",
+      "trade_date": "2026-10-20"
+    },
+    {
+      "a6_tightened": false,
+      "binding_limits": [
+        "POSITION_CAP",
+        "CONTROL_FIRST_DAY_PROBE"
+      ],
+      "blocked_reasons": [],
+      "eligible": true,
+      "high_conviction": false,
+      "max_batches": 1,
+      "max_shares_cap": 16600,
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:7b7caf4a2b767e8c",
+      "purpose": "PLANNING",
+      "risk_budget": "15000.000",
+      "risk_unit": "PROBE",
+      "symbol": "600908.SH",
+      "trade_date": "2026-10-20"
+    },
+    {
+      "a6_tightened": false,
+      "binding_limits": [
+        "POSITION_CAP",
+        "CONTROL_FIRST_DAY_PROBE"
+      ],
+      "blocked_reasons": [],
+      "eligible": true,
+      "high_conviction": false,
+      "max_batches": 1,
+      "max_shares_cap": 13300,
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:ae5a359b88bada47",
+      "purpose": "PLANNING",
+      "risk_budget": "15000.000",
+      "risk_unit": "PROBE",
+      "symbol": "601288.SH",
+      "trade_date": "2026-10-20"
+    },
+    {
+      "a6_tightened": false,
+      "binding_limits": [
+        "POSITION_CAP",
+        "CONTROL_FIRST_DAY_PROBE"
+      ],
+      "blocked_reasons": [],
+      "eligible": true,
+      "high_conviction": false,
+      "max_batches": 1,
+      "max_shares_cap": 12100,
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:4ab9e4d6cd0a1331",
+      "purpose": "PLANNING",
+      "risk_budget": "15000.000",
+      "risk_unit": "PROBE",
+      "symbol": "601328.SH",
+      "trade_date": "2026-10-20"
+    },
+    {
+      "a6_tightened": false,
+      "binding_limits": [
+        "POSITION_CAP",
+        "CONTROL_FIRST_DAY_PROBE"
+      ],
+      "blocked_reasons": [],
+      "eligible": true,
+      "high_conviction": false,
+      "max_batches": 1,
+      "max_shares_cap": 11600,
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:9298a44240fb50f2",
+      "purpose": "PLANNING",
+      "risk_budget": "15000.000",
+      "risk_unit": "PROBE",
+      "symbol": "601398.SH",
+      "trade_date": "2026-10-20"
+    },
+    {
+      "a6_tightened": false,
+      "binding_limits": [
+        "POSITION_CAP",
+        "CONTROL_FIRST_DAY_PROBE"
+      ],
+      "blocked_reasons": [],
+      "eligible": true,
+      "high_conviction": false,
+      "max_batches": 1,
+      "max_shares_cap": 17600,
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:4f789123c3f20d58",
+      "purpose": "PLANNING",
+      "risk_budget": "15000.000",
+      "risk_unit": "PROBE",
+      "symbol": "601658.SH",
+      "trade_date": "2026-10-20"
+    },
+    {
+      "a6_tightened": false,
+      "binding_limits": [
+        "POSITION_CAP",
+        "CONTROL_FIRST_DAY_PROBE"
+      ],
+      "blocked_reasons": [],
+      "eligible": true,
+      "high_conviction": false,
+      "max_batches": 1,
+      "max_shares_cap": 5100,
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:ed02cf8af1031a77",
+      "purpose": "PLANNING",
+      "risk_budget": "15000.000",
+      "risk_unit": "PROBE",
+      "symbol": "601838.SH",
+      "trade_date": "2026-10-20"
+    },
+    {
+      "a6_tightened": false,
+      "binding_limits": [
+        "POSITION_CAP",
+        "CONTROL_FIRST_DAY_PROBE"
+      ],
+      "blocked_reasons": [],
+      "eligible": true,
+      "high_conviction": false,
+      "max_batches": 1,
+      "max_shares_cap": 8600,
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:d1bdc217e25c4d3d",
+      "purpose": "PLANNING",
+      "risk_budget": "15000.000",
+      "risk_unit": "PROBE",
+      "symbol": "601939.SH",
+      "trade_date": "2026-10-20"
+    },
+    {
+      "a6_tightened": false,
+      "binding_limits": [
+        "POSITION_CAP",
+        "CONTROL_FIRST_DAY_PROBE"
+      ],
+      "blocked_reasons": [],
+      "eligible": true,
+      "high_conviction": false,
+      "max_batches": 1,
+      "max_shares_cap": 800,
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:57d1577259b28287",
+      "purpose": "PLANNING",
+      "risk_budget": "15000.000",
+      "risk_unit": "PROBE",
+      "symbol": "688018.SH",
+      "trade_date": "2026-10-20"
+    },
+    {
+      "a6_tightened": false,
+      "binding_limits": [
+        "POSITION_CAP",
+        "CONTROL_FIRST_DAY_PROBE"
+      ],
+      "blocked_reasons": [],
+      "eligible": true,
+      "high_conviction": false,
+      "max_batches": 1,
+      "max_shares_cap": 1000,
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:d28fc04af1bb9555",
+      "purpose": "PLANNING",
+      "risk_budget": "15000.000",
+      "risk_unit": "PROBE",
+      "symbol": "688213.SH",
+      "trade_date": "2026-10-20"
+    }
+  ],
+  "engine_utilization_cap": 65,
+  "capacity_slots": 6,
+  "cluster_caps": {
+    "AI_APPLICATIONS_DIGITAL_ECONOMY": 2,
+    "AI_COMPUTE_INFRASTRUCTURE": 2,
+    "CHEMICAL_NEW_MATERIALS": 2,
+    "FINANCIAL_HIGH_DIVIDEND": 2,
+    "INFRASTRUCTURE_DOMESTIC_DEMAND": 2,
+    "INNOVATIVE_MEDICINE_HEALTHCARE": 2,
+    "NATIONAL_DEFENSE": 2,
+    "POWER_EQUIPMENT_NEW_ENERGY": 2,
+    "RESOURCES_ENERGY": 2,
+    "ROBOTICS_ADVANCED_MANUFACTURING": 2,
+    "SEMICONDUCTOR_LOCALIZATION": 2
+  },
+  "plan_clusters": [
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:73d52dde12eafd5a",
+      "cluster": "AI_APPLICATIONS_DIGITAL_ECONOMY"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:013ca03c98a1173b",
+      "cluster": "POWER_EQUIPMENT_NEW_ENERGY"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:a994b06c2e42aa18",
+      "cluster": "RESOURCES_ENERGY"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:2bd8722ed3bd1159",
+      "cluster": "ROBOTICS_ADVANCED_MANUFACTURING"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:6b427630d533da87",
+      "cluster": "POWER_EQUIPMENT_NEW_ENERGY"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:f0d34aa3e199571f",
+      "cluster": "AI_APPLICATIONS_DIGITAL_ECONOMY"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:c33a690d0f5e4975",
+      "cluster": "AI_APPLICATIONS_DIGITAL_ECONOMY"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:250dba70d0b25991",
+      "cluster": "ROBOTICS_ADVANCED_MANUFACTURING"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:d3cce021161150b9",
+      "cluster": "INFRASTRUCTURE_DOMESTIC_DEMAND"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:f22678583344b280",
+      "cluster": "INNOVATIVE_MEDICINE_HEALTHCARE"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:bfb23cf19848d13d",
+      "cluster": "AI_APPLICATIONS_DIGITAL_ECONOMY"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:b6db4b39c40c080f",
+      "cluster": "CHEMICAL_NEW_MATERIALS"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:d68c6a4bc89e694c",
+      "cluster": "POWER_EQUIPMENT_NEW_ENERGY"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:942c98f40f4b9129",
+      "cluster": "ROBOTICS_ADVANCED_MANUFACTURING"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:30b0a9bd73a66862",
+      "cluster": "NATIONAL_DEFENSE"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:302738f263e4d044",
+      "cluster": "RESOURCES_ENERGY"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:32cc5e99f30eeffb",
+      "cluster": "ROBOTICS_ADVANCED_MANUFACTURING"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:5fe0d82ed0dfb628",
+      "cluster": "AI_COMPUTE_INFRASTRUCTURE"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:f16160c3f5afb8bf",
+      "cluster": "CHEMICAL_NEW_MATERIALS"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:8d598775ea337b65",
+      "cluster": "POWER_EQUIPMENT_NEW_ENERGY"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:d8d44e5dfd0e5f08",
+      "cluster": "FINANCIAL_HIGH_DIVIDEND"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:d8338445355e295a",
+      "cluster": "FINANCIAL_HIGH_DIVIDEND"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:84cd8ca1d18c6e6c",
+      "cluster": "NATIONAL_DEFENSE"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:9579c39d1f7e66fa",
+      "cluster": "POWER_EQUIPMENT_NEW_ENERGY"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:7b7caf4a2b767e8c",
+      "cluster": "FINANCIAL_HIGH_DIVIDEND"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:ae5a359b88bada47",
+      "cluster": "FINANCIAL_HIGH_DIVIDEND"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:4ab9e4d6cd0a1331",
+      "cluster": "FINANCIAL_HIGH_DIVIDEND"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:9298a44240fb50f2",
+      "cluster": "FINANCIAL_HIGH_DIVIDEND"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:4f789123c3f20d58",
+      "cluster": "FINANCIAL_HIGH_DIVIDEND"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:ed02cf8af1031a77",
+      "cluster": "FINANCIAL_HIGH_DIVIDEND"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:d1bdc217e25c4d3d",
+      "cluster": "FINANCIAL_HIGH_DIVIDEND"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:57d1577259b28287",
+      "cluster": "SEMICONDUCTOR_LOCALIZATION"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:d28fc04af1bb9555",
+      "cluster": "SEMICONDUCTOR_LOCALIZATION"
+    }
+  ],
+  "priorities": [
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:73d52dde12eafd5a",
+      "symbol": "000333.SZ",
+      "plan_priority_rank": 11,
+      "plan_priority": "P1"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:013ca03c98a1173b",
+      "symbol": "000601.SZ",
+      "plan_priority_rank": 26,
+      "plan_priority": "P3"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:a994b06c2e42aa18",
+      "symbol": "000975.SZ",
+      "plan_priority_rank": 31,
+      "plan_priority": "P3"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:2bd8722ed3bd1159",
+      "symbol": "001266.SZ",
+      "plan_priority_rank": 23,
+      "plan_priority": "P3"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:6b427630d533da87",
+      "symbol": "002270.SZ",
+      "plan_priority_rank": 32,
+      "plan_priority": "P3"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:f0d34aa3e199571f",
+      "symbol": "002322.SZ",
+      "plan_priority_rank": 14,
+      "plan_priority": "P3"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:c33a690d0f5e4975",
+      "symbol": "002376.SZ",
+      "plan_priority_rank": 17,
+      "plan_priority": "P3"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:250dba70d0b25991",
+      "symbol": "002530.SZ",
+      "plan_priority_rank": 20,
+      "plan_priority": "P3"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:d3cce021161150b9",
+      "symbol": "002541.SZ",
+      "plan_priority_rank": 8,
+      "plan_priority": "P1"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:f22678583344b280",
+      "symbol": "300012.SZ",
+      "plan_priority_rank": 28,
+      "plan_priority": "P1"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:bfb23cf19848d13d",
+      "symbol": "300031.SZ",
+      "plan_priority_rank": 21,
+      "plan_priority": "P3"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:b6db4b39c40c080f",
+      "symbol": "300067.SZ",
+      "plan_priority_rank": 29,
+      "plan_priority": "P1"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:d68c6a4bc89e694c",
+      "symbol": "300410.SZ",
+      "plan_priority_rank": 30,
+      "plan_priority": "P3"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:942c98f40f4b9129",
+      "symbol": "300516.SZ",
+      "plan_priority_rank": 9,
+      "plan_priority": "P3"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:30b0a9bd73a66862",
+      "symbol": "300733.SZ",
+      "plan_priority_rank": 15,
+      "plan_priority": "P3"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:302738f263e4d044",
+      "symbol": "300839.SZ",
+      "plan_priority_rank": 27,
+      "plan_priority": "P1"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:32cc5e99f30eeffb",
+      "symbol": "300990.SZ",
+      "plan_priority_rank": 2,
+      "plan_priority": "P1"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:5fe0d82ed0dfb628",
+      "symbol": "301282.SZ",
+      "plan_priority_rank": 34,
+      "plan_priority": "P1"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:f16160c3f5afb8bf",
+      "symbol": "301286.SZ",
+      "plan_priority_rank": 24,
+      "plan_priority": "P1"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:8d598775ea337b65",
+      "symbol": "301487.SZ",
+      "plan_priority_rank": 18,
+      "plan_priority": "P3"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:d8d44e5dfd0e5f08",
+      "symbol": "600000.SH",
+      "plan_priority_rank": 33,
+      "plan_priority": "P3"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:d8338445355e295a",
+      "symbol": "600036.SH",
+      "plan_priority_rank": 5,
+      "plan_priority": "P3"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:84cd8ca1d18c6e6c",
+      "symbol": "600316.SH",
+      "plan_priority_rank": 12,
+      "plan_priority": "P3"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:9579c39d1f7e66fa",
+      "symbol": "600406.SH",
+      "plan_priority_rank": 25,
+      "plan_priority": "P3"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:7b7caf4a2b767e8c",
+      "symbol": "600908.SH",
+      "plan_priority_rank": 22,
+      "plan_priority": "P3"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:ae5a359b88bada47",
+      "symbol": "601288.SH",
+      "plan_priority_rank": 3,
+      "plan_priority": "P1"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:4ab9e4d6cd0a1331",
+      "symbol": "601328.SH",
+      "plan_priority_rank": 10,
+      "plan_priority": "P3"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:9298a44240fb50f2",
+      "symbol": "601398.SH",
+      "plan_priority_rank": 6,
+      "plan_priority": "P1"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:4f789123c3f20d58",
+      "symbol": "601658.SH",
+      "plan_priority_rank": 13,
+      "plan_priority": "P3"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:ed02cf8af1031a77",
+      "symbol": "601838.SH",
+      "plan_priority_rank": 16,
+      "plan_priority": "P1"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:d1bdc217e25c4d3d",
+      "symbol": "601939.SH",
+      "plan_priority_rank": 19,
+      "plan_priority": "P1"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:57d1577259b28287",
+      "symbol": "688018.SH",
+      "plan_priority_rank": 7,
+      "plan_priority": "P3"
+    },
+    {
+      "plan_id": "2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:d28fc04af1bb9555",
+      "symbol": "688213.SH",
+      "plan_priority_rank": 4,
+      "plan_priority": "P1"
+    }
+  ],
+  "catalog": {
+    "categories": [
+      "ACCOUNT",
+      "MARKET",
+      "PLAN"
+    ],
+    "items": [
+      {
+        "id": "MORNING:ACCOUNT",
+        "category": "ACCOUNT"
+      },
+      {
+        "id": "MORNING:MARKET",
+        "category": "MARKET"
+      },
+      {
+        "id": "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:73d52dde12eafd5a",
+        "category": "PLAN"
+      },
+      {
+        "id": "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:013ca03c98a1173b",
+        "category": "PLAN"
+      },
+      {
+        "id": "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:a994b06c2e42aa18",
+        "category": "PLAN"
+      },
+      {
+        "id": "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:2bd8722ed3bd1159",
+        "category": "PLAN"
+      },
+      {
+        "id": "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:6b427630d533da87",
+        "category": "PLAN"
+      },
+      {
+        "id": "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:f0d34aa3e199571f",
+        "category": "PLAN"
+      },
+      {
+        "id": "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:c33a690d0f5e4975",
+        "category": "PLAN"
+      },
+      {
+        "id": "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:250dba70d0b25991",
+        "category": "PLAN"
+      },
+      {
+        "id": "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:d3cce021161150b9",
+        "category": "PLAN"
+      },
+      {
+        "id": "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:f22678583344b280",
+        "category": "PLAN"
+      },
+      {
+        "id": "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:bfb23cf19848d13d",
+        "category": "PLAN"
+      },
+      {
+        "id": "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:b6db4b39c40c080f",
+        "category": "PLAN"
+      },
+      {
+        "id": "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:d68c6a4bc89e694c",
+        "category": "PLAN"
+      },
+      {
+        "id": "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:942c98f40f4b9129",
+        "category": "PLAN"
+      },
+      {
+        "id": "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:30b0a9bd73a66862",
+        "category": "PLAN"
+      },
+      {
+        "id": "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:302738f263e4d044",
+        "category": "PLAN"
+      },
+      {
+        "id": "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:32cc5e99f30eeffb",
+        "category": "PLAN"
+      },
+      {
+        "id": "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:5fe0d82ed0dfb628",
+        "category": "PLAN"
+      },
+      {
+        "id": "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:f16160c3f5afb8bf",
+        "category": "PLAN"
+      },
+      {
+        "id": "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:8d598775ea337b65",
+        "category": "PLAN"
+      },
+      {
+        "id": "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:d8d44e5dfd0e5f08",
+        "category": "PLAN"
+      },
+      {
+        "id": "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:d8338445355e295a",
+        "category": "PLAN"
+      },
+      {
+        "id": "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:84cd8ca1d18c6e6c",
+        "category": "PLAN"
+      },
+      {
+        "id": "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:9579c39d1f7e66fa",
+        "category": "PLAN"
+      },
+      {
+        "id": "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:7b7caf4a2b767e8c",
+        "category": "PLAN"
+      },
+      {
+        "id": "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:ae5a359b88bada47",
+        "category": "PLAN"
+      },
+      {
+        "id": "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:4ab9e4d6cd0a1331",
+        "category": "PLAN"
+      },
+      {
+        "id": "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:9298a44240fb50f2",
+        "category": "PLAN"
+      },
+      {
+        "id": "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:4f789123c3f20d58",
+        "category": "PLAN"
+      },
+      {
+        "id": "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:ed02cf8af1031a77",
+        "category": "PLAN"
+      },
+      {
+        "id": "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:d1bdc217e25c4d3d",
+        "category": "PLAN"
+      },
+      {
+        "id": "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:57d1577259b28287",
+        "category": "PLAN"
+      },
+      {
+        "id": "MORNING:PLAN:2026-10-19-close-recovery-2e95040a98c9-20261020T000217:lane_1:d28fc04af1bb9555",
+        "category": "PLAN"
+      }
+    ]
+  }
+}

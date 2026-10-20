@@ -1,0 +1,8 @@
+schema_version: team-pm-runtime/1
+fallback_enabled: true
+# Eight frozen Pro calls today: empirical mixed-session p95=70.111s.
+# 106s is ceil(p95 * 1.5), within Node's existing 120s morning job.
+timeout_seconds: 106
+# Full ranking + allocation JSON, not actual provider-token usage.
+output_base_tokens: 2048
+output_per_plan_tokens: 512

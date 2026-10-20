@@ -71,6 +71,9 @@ class ModelJudgmentJournal:
                 CREATE TABLE IF NOT EXISTS model_transport_budgets (
                     call_id TEXT PRIMARY KEY, source_sha256 TEXT NOT NULL,
                     timeout_seconds REAL NOT NULL);
+                CREATE TABLE IF NOT EXISTS model_call_telemetry (
+                    call_id TEXT PRIMARY KEY, request_binding TEXT NOT NULL,
+                    body_json TEXT NOT NULL, body_sha256 TEXT NOT NULL);
                 COMMIT;
             """)
 
@@ -126,6 +129,28 @@ class ModelJudgmentJournal:
         with closing(self._connect()) as db, db:
             db.execute("UPDATE model_call_claims SET state='FAILED',failure_code=? WHERE call_id=? AND state='CLAIMED'",
                        (code, call_id))
+
+    def record_telemetry(self, call_id: str, *, request_binding: str, metrics: dict) -> None:
+        """Safe transport facts, including calls without a JSON response.
+
+        Never store exception text, headers, credentials or a provider body.
+        The immutable request claim still prevents a retry after failure.
+        """
+        text = _json(metrics)
+        with closing(self._connect()) as db, db:
+            db.execute('BEGIN IMMEDIATE')
+            claim = db.execute('SELECT request_binding FROM model_call_claims WHERE call_id=?',
+                               (call_id,)).fetchone()
+            if claim is None or claim[0] != request_binding:
+                raise ValueError('MODEL_CALL_BINDING_CONFLICT')
+            previous = db.execute('SELECT request_binding,body_json,body_sha256 FROM model_call_telemetry '
+                                  'WHERE call_id=?', (call_id,)).fetchone()
+            if previous:
+                if previous != (request_binding, text, _hash(text)):
+                    raise ValueError('MODEL_TELEMETRY_BINDING_CONFLICT')
+                return
+            db.execute('INSERT INTO model_call_telemetry VALUES (?,?,?,?)',
+                       (call_id, request_binding, text, _hash(text)))
 
     def load_failed(self, call_id: str, *, request_binding: str):
         """Replay a proven terminal transport failure, never an in-flight claim."""

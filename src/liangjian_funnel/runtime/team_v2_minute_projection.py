@@ -49,6 +49,13 @@ def project_closed_minute(one_minute, native_five, *, observed_at, execution_cut
         return {**result,'reason_codes':['CONTROL_SOURCE_INDEPENDENT_BAR_CONFLICT']}
     # Claude 0242: actual volume is still mandatory. Estimated amount never
     # becomes VWAP; matching uses explicitly tagged side-specific OHLC prices.
+    if (last.volume == 0 and last.amount == 0
+            and last.open == last.high == last.low == last.close and last.close > 0):
+        # A complete, flat zero-turnover minute is a market fact, not a source
+        # outage. Keep its actual last price for valuation; never fabricate a
+        # fill/entry bar or reuse an older bar as this minute's evidence.
+        return {**result, 'status':'NO_TRADES', 'last_price':str(last.close),
+            'reason_codes':['CONTROL_CLOSED_MINUTE_NO_TRADES']}
     if last.volume<=0 or last.amount_kind=='reported' and last.amount<=0:
         return {**result,'reason_codes':['CONTROL_REPORTED_MINUTE_VWAP_UNPROVEN']}
     reported=last.amount_kind=='reported'

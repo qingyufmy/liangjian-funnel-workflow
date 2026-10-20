@@ -34,13 +34,20 @@ def item(row,keys):return isinstance(row,Mapping) and keys.issubset(row) and set
 
 
 def validate_risk_premarket(output,catalog,*,required_envelope,envelopes,engine_utilization_cap,
-        capacity_slots,cluster_caps,unready_plan_ids):
+        capacity_slots,cluster_caps,unready_plan_ids,cluster_plan_counts=None):
     by_id={e.plan_id:e for e in envelopes};cap=number(engine_utilization_cap)
     if (len(by_id)!=len(envelopes) or cap is None or not 0<=cap<=100
             or type(capacity_slots) is not int or capacity_slots<0 or not isinstance(cluster_caps,Mapping)
             or any(not text(k) or type(v) is not int or v<0 for k,v in cluster_caps.items())
             or not isinstance(unready_plan_ids,(set,frozenset)) or not unready_plan_ids.issubset(by_id)):
         raise ValueError('A6_SERVER_CONTEXT_INVALID')
+    if cluster_plan_counts is not None:
+        if (not isinstance(cluster_plan_counts,Mapping) or set(cluster_plan_counts)!=set(cluster_caps)
+                or any(type(value) is not int or value<0 for value in cluster_plan_counts.values())
+                or sum(cluster_plan_counts.values())!=len(by_id)):
+            raise ValueError('A6_SERVER_CONTEXT_INVALID')
+        cluster_caps={key:min(value,cluster_plan_counts[key]) for key,value in cluster_caps.items()}
+        capacity_slots=min(capacity_slots,sum(cluster_caps.values()))
     common=validate_team_output('A6',output,catalog,session='PREMARKET')
     issues=list(common.issues)
     def issue(code):issues.append('A6_'+code)

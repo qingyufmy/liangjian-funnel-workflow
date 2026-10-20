@@ -1,0 +1,10 @@
+# 2026-10-20 signed legacy file: 2,457,074 B; classifier-only v2: 912 B.
+# Both producer and normal reader allow exactly 2x the measured projection.
+# The separately bounded legacy path verifies original signature/parent first;
+# it only projects in memory and never rewrites an old evidence file.
+schema_version: team-sector-capacity/1
+projection_version: team-sector-classifier/1
+capacity_multiplier: 2
+reference_projected_bytes: 912
+reference_legacy_bytes: 2457074
+parent_marker_max_bytes: 2097152

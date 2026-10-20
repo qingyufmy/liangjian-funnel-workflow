@@ -1,0 +1,5 @@
+schema_version: team-monitor-health/1
+# Engineering proposal, not an empirically calibrated strategy threshold:
+# isolate a minority of bad symbols; strictly more than half is a broad source
+# outage. Genuine zero-turnover closed minutes are not failed symbols.
+max_invalid_symbol_ratio: 0.50

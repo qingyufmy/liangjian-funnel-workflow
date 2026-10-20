@@ -8,9 +8,10 @@ from datetime import date, datetime
 import hashlib
 import json
 import math
+import time
 from typing import Callable
 
-from .model_client import ModelCallResult
+from .model_client import ModelCallResult, ModelClientError
 from .team_v2_contract import TeamValidation
 from .team_v2_judgments import ModelJudgmentJournal
 from .team_v2_prompts import TeamMessageRequest
@@ -74,15 +75,40 @@ def call_team_model(request: TeamMessageRequest, client, journal: ModelJudgmentJ
     binding = team_call_binding(request,run_id=run_id,model=model,session=session,
         timeout_seconds=timeout_seconds,max_output_tokens=max_output_tokens)
     journal.claim(call_id, binding)
+    started = time.monotonic()
+    metrics = dict(role=request.prompt.role, session=session, model=model,
+        input_chars=sum(len(m['content']) for m in messages),
+        input_bytes=sum(len(m['content'].encode('utf-8')) for m in messages),
+        input_hash=request.input_hash, timeout_seconds=timeout_seconds,
+        max_output_tokens=max_output_tokens, provider_attempts=None,
+        elapsed_ms=None, output_chars=None, output_bytes=None,
+        token_usage_status='NOT_REPORTED', exception_class=None,
+        failure_code=None, http_status=None)
+    def observe(**updates):
+        metrics.update(elapsed_ms=max(0,round((time.monotonic()-started)*1000)), **updates)
+        journal.record_telemetry(call_id, request_binding=binding, metrics=metrics)
     try:
         response = client.complete(model, messages, prompt_hash=request.prompt.sha256,
             input_hash=request.input_hash, stage=request.prompt.role, team_session=session,
             timeout_seconds=timeout_seconds, max_output_tokens=max_output_tokens)
-    except Exception:
+    except Exception as exc:
+        safe_codes={'MODEL_TOTAL_DEADLINE_EXCEEDED','NETWORK_RETRY_EXHAUSTED',
+            'RATE_LIMIT_RETRY_EXHAUSTED','UPSTREAM_5XX_RETRY_EXHAUSTED','UPSTREAM_4XX',
+            'MODEL_AUTHENTICATION_REJECTED','MODEL_PAYMENT_REQUIRED','MODEL_ACCESS_DENIED',
+            'OUTPUT_BUDGET_FALLBACK_REJECTED','STRICT_JSON_INVALID','MODEL_API_KEY_MISSING',
+            'THINKING_VARIANTS_EXHAUSTED'}
+        attempts=getattr(exc,'attempts',None) if isinstance(exc,ModelClientError) else None
+        status=getattr(exc,'status_code',None) if isinstance(exc,ModelClientError) else None
+        code=getattr(exc,'reason_code',None) if isinstance(exc,ModelClientError) else None
+        observe(status='TRANSPORT_FAILED',exception_class=type(exc).__name__,
+            failure_code=code if code in safe_codes else 'UNCLASSIFIED_MODEL_FAILURE',
+            provider_attempts=attempts if type(attempts) is int and attempts>=0 else None,
+            http_status=status if type(status) is int and 100<=status<=599 else None)
         journal.mark_failed(call_id, "TEAM_MODEL_CALL_FAILED")
         raise ValueError("TEAM_MODEL_CALL_FAILED") from None
     if (not isinstance(response, ModelCallResult) or response.model != model
             or response.prompt_hash != request.prompt.sha256 or response.input_hash != request.input_hash):
+        observe(status='RESULT_INVALID',failure_code='TEAM_MODEL_RESULT_INVALID')
         journal.mark_failed(call_id, "TEAM_MODEL_RESULT_INVALID")
         raise ValueError("TEAM_MODEL_RESULT_INVALID")
     try:
@@ -93,6 +119,11 @@ def call_team_model(request: TeamMessageRequest, client, journal: ModelJudgmentJ
         # The schema implementation can fail too. Preserve original model JSON,
         # but never turn a validator exception into a valid or executable vote.
         validation = TeamValidation(False, ("TEAM_VALIDATOR_FAILED",), (), 0)
+    output_text=json.dumps(response.output,ensure_ascii=False,sort_keys=True,separators=(',',':'))
+    observe(status='VALIDATED' if validation.valid else 'VALIDATION_FAILED',
+        provider_attempts=response.attempts,provider_latency_ms=response.latency_ms,
+        output_chars=len(output_text),output_bytes=len(output_text.encode('utf-8')),
+        validation_issues=list(validation.issues),reasoning_tokens=response.reasoning_tokens)
     receipt = journal.capture(call_id=call_id, run_id=run_id, role=request.prompt.role, session=session,
         source_trade_date=source_trade_date, execution_trade_date=execution_trade_date, captured_at=clock(),
         catalog_hash=catalog_hash, response=response, validation=validation,catalog=catalog)

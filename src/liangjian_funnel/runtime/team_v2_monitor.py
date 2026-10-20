@@ -12,7 +12,6 @@ import json
 import time
 from zoneinfo import ZoneInfo
 
-from ..data.mootdx import MinuteBar
 from ..data.tencent_minute import QuoteResult
 from ..pipeline.model_client import OpenAICompatibleModelClient
 from ..pipeline.team_v2_judgments import ModelJudgmentJournal
@@ -22,7 +21,7 @@ from .broker.local_paper import create_broker
 from .risk_engine import AccountRisk,PositionRisk,RiskLimits,conservative_envelope
 from .team_v2_control_minute import run_control_minute
 from .team_v2_envelope_refresh import refresh_execution_envelopes
-from .team_v2_minute_projection import project_closed_minute
+from .team_v2_monitor_health import load_monitor_health_policy,project_packet_sources,assess_monitor_packet
 from .team_v2_monitor_source import collect_monitor_packet
 from .team_v2_morning import _directory,_envelopes,ACCOUNT
 from .team_v2_sources import read_execution_scope,decode_plan,stamp
@@ -123,30 +122,44 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
     market=store.freeze_control_context('market:'+decision,source_sha256=packet['packet_sha256'],
         body=dict(live=live,regime=regime))
     live=market['live'];regime=market['regime']
-    references={};evaluations={};entry_proven={};model_contexts={}
+    projections=project_packet_sources(packet)
+    health_policy=load_monitor_health_policy(settings.root/'config/team_v2_monitor_health.yaml')
+    health=assess_monitor_packet(packet,live=live,
+        policy=health_policy,projections=projections)
+    references={};evaluations={};entry_proven={};model_contexts={};symbol_failures={}
     held_positions={p['plan_id']:dict(p) for p in broker.get_positions()}
     for row in scope['plans']:
-        plan=decode_plan(row);packed=packet['sources'].get(plan.symbol,{});bars=tuple(MinuteBar.model_validate(b) for b in packed.get('bars',()))
-        projected=project_closed_minute(bars,(),observed_at=stamp(packet['captured_at']))
-        bar=projected.get('paper_bar');quote=QuoteResult.model_validate(packed.get('quote',{'symbol':plan.symbol,'reason_code':'MISSING'}))
+        plan=decode_plan(row);packed=packet['sources'].get(plan.symbol,{});projected=projections[plan.symbol];bars=projected['bars']
+        bar=projected.get('paper_bar')
+        try:quote=QuoteResult.model_validate(packed.get('quote',{'symbol':plan.symbol,'reason_code':'MISSING'}))
+        except (ValueError,TypeError):
+            quote=QuoteResult(symbol=plan.symbol,reason_code='CONTROL_QUOTE_INVALID')
+            symbol_failures.setdefault(plan.symbol,[]).append('CONTROL_QUOTE_INVALID')
         if quote_archive['status']!='ARCHIVED':
             quote=quote.model_copy(update={'complete':False,'reason_code':'CONTROL_ORIGINAL_QUOTE_ARCHIVE_FAILED'})
-        proof=tradability_loader(settings,symbol=plan.symbol,now=stamp(packet['captured_at']),bar=bar,
-            quote=quote.quote if quote.complete else None,plan=raw_rows[plan.plan_id],
-            minute_bars=bars) if bar is not None else {'status':'DATA_LIMITED'}
+        try:
+            proof=tradability_loader(settings,symbol=plan.symbol,now=stamp(packet['captured_at']),bar=bar,
+                quote=quote.quote if quote.complete else None,plan=raw_rows[plan.plan_id],
+                minute_bars=bars) if bar is not None else {'status':'DATA_LIMITED'}
+        except Exception:
+            proof={'status':'DATA_LIMITED','reason_code':'CONTROL_SYMBOL_TRADABILITY_FAILED'}
+        if bar is not None and proof.get('status')!='KNOWN':
+            symbol_failures.setdefault(plan.symbol,[]).append(proof.get('reason_code') or 'CONTROL_PRODUCTION_CONTRACT_UNPROVEN')
         ready=bool(bar is not None and packed.get('minute_complete') and proof.get('status')=='KNOWN')
         if ready:
             paper[plan.symbol]=replace(bar,tradability_known=True,halted=proof['halted'],limit_up=proof['limit_up'],limit_down=proof['limit_down'])
-        else:problems.append(dict(plan_id=plan.plan_id,reason_code=proof.get('reason_code') or
-            ('CONTROL_PRODUCTION_CONTRACT_UNPROVEN' if bar else 'CONTROL_MINUTE_PROJECTION_UNPROVEN')))
+        else:problems.append(dict(plan_id=plan.plan_id,symbol=plan.symbol,scope='SYMBOL',
+            reason_code=proof.get('reason_code') or (projected['reason_codes'][0] if bar is None else
+                'CONTROL_PRODUCTION_CONTRACT_UNPROVEN')))
         # 0247: unavailable preflight is an annotation, not a new entry gate.
         # Only a detected changed formal rule body pauses new entries all day.
         rule_blocked=bool(morning and morning.get('rule_preflight',{}).get('status')=='BLOCK')
-        entry_proven[plan.plan_id]=(ready and quote.complete and proof.get('entry_tradable',False)
+        entry_proven[plan.plan_id]=(not health['account_record_required'] and ready and quote.complete and proof.get('entry_tradable',False)
             and not rule_blocked and quote_archive['status']=='ARCHIVED')
         if raw_rows[plan.plan_id].get('strategy_profile')=='LEADER_INTRADAY':
             entry_proven[plan.plan_id] &= bool(live.get('team_v2_regime',{}).get('leader_open'))
-        plan=replace(plan,price=D(str(quote.quote.price)) if quote.complete else bar.close if bar is not None else plan.price,
+        plan=replace(plan,price=D(str(quote.quote.price)) if quote.complete else bar.close if bar is not None
+            else D(projected['last_price']) if projected.get('status')=='NO_TRADES' else plan.price,
             data_ready=ready,tradable=ready and not proof.get('halted',True))
         plans[plan.plan_id]=plan
         context=_intraday_market_context(plan.symbol,bars,(),current=stamp(packet['captured_at']),execution_cutoff=cutoff,
@@ -161,6 +174,10 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
             evaluations[plan.plan_id]=value.model_dump(mode='json')
             if plan.plan_id in active:
                 references[plan.plan_id]={**{x:'MET' for x in value.met_conditions},**{x:'UNMET' for x in value.unmet_conditions}}
+    health=assess_monitor_packet(packet,live=live,policy=health_policy,
+        projections=projections,symbol_failures=symbol_failures)
+    if health['account_record_required']:
+        entry_proven={pid:False for pid in entry_proven}
     if morning is None:
         result=run_control_minute(session_kwargs=dict(broker=broker,store=store,clock=clock,account_id=ACCOUNT,all_plans=plans),
             closed_bars=paper,deadline_monotonic=deadline,model_enabled=False)
@@ -217,7 +234,7 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
         model=settings.team_intraday_model,trade_date=day,source_trade_date=morning['source']['source_trade_date'],clock=clock,
         decision_at=current,closed_5m_end=cutoff,mark_as_of=cutoff,required_envelope=required,replacements=values,
         active_plan_ids=active,all_plans=plans,envelopes=envelopes,held_plan_ids={},position_snapshot=[],tech_reference=references,
-        limits=limits,regime=regime,live_market_ready=regime!='DATA_BLOCK' and live.get('status') in {'READY','READY_DEGRADED'},
+        limits=limits,regime=regime,live_market_ready=not health['account_record_required'] and regime!='DATA_BLOCK' and live.get('status') in {'READY','READY_DEGRADED'},
         snapshot_ready=True,mode='control',calendar=calendar,timeout_seconds=30,
         utilization_cap_pct=utilization_cap,
         max_output_tokens=settings.model_max_output_tokens,allow_model_call=True,pm_meeting_id='morning-pm:'+day,
@@ -240,7 +257,17 @@ def run_monitor_control(application,*,now=None,clock=None,client=None,tradabilit
     if any(e.get('reason_code') in {'CONTROL_PAPER_BAR_FAILED','CONTROL_HARD_EXIT_FAILED'} for e in result.get('errors',[])):
         first_observation=latch_record(store,first_policy,account_id=ACCOUNT,now=stamp(clock()),
             reason_code='CONTROL_FIRST_DAY_GUARD_ANOMALY',packet_sha256=packet['packet_sha256'])
-    return dict(status='DEGRADED' if problems or packet['status']=='DATA_LIMITED' or quote_archive['status']!='ARCHIVED' else result['status'],mode='control',
+    # Held exposure without a current symbol bar remains explicitly unproven;
+    # it is not a permission to fabricate a fill or to lock unrelated symbols.
+    local_held_gaps=bool(result.get('errors')) and all(
+        e.get('reason_code')=='CONTROL_HELD_MINUTE_MISSING' for e in result['errors'])
+    account_problem=health['account_record_required'] or any(p.get('scope')!='SYMBOL' for p in problems)
+    result_degraded=result['status']=='DEGRADED' and not (local_held_gaps
+        and result.get('risk_exception',{}).get('status') not in {'DEGRADED','HALT','DATA_LIMITED'}
+        and not result.get('trader_skip_reason'))
+    health=store.freeze_control_context('source-health:'+decision,source_sha256=packet['packet_sha256'],body=health)
+    return dict(status='DEGRADED' if account_problem or result_degraded else
+        'SYMBOL_ISOLATED' if health['isolated'] or problems else result['status'],mode='control',source_health=health,
         result=result,source_reasons=problems,scope_reasons=scope['reason_codes'],packet_sha256=packet['packet_sha256'],
         original_quote_archive=quote_archive,
         first_day_observation=first_observation,
