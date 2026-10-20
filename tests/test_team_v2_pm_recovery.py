@@ -3,7 +3,10 @@ from dataclasses import replace
 from decimal import Decimal
 import json
 import sqlite3
+import ast
+from pathlib import Path
 
+import httpx
 import pytest
 
 from test_team_v2_pm_session import fixture
@@ -11,6 +14,58 @@ from liangjian_funnel.runtime.team_v2_pm_session import run_pm_premarket
 from liangjian_funnel.runtime.team_v2_pm_policy import (
     derive_pm_fallback,project_pm_values,priority_order,pm_output_budget,DEFAULT_POLICY)
 from liangjian_funnel.runtime.team_v2_allocation import compile_pm_allocation
+
+
+def test_mock_read_timeout_keeps_public_reason_not_private_cause_message(tmp_path):
+    kwargs,_=fixture(tmp_path)
+    from liangjian_funnel.pipeline.model_client import OpenAICompatibleModelClient
+    calls=[]
+    def timeout(request):
+        calls.append(1)
+        raise httpx.ReadTimeout('PRIVATE_PROVIDER_DETAILS',request=request)
+    kwargs['client']=OpenAICompatibleModelClient(kwargs['client'].settings,
+        transport=httpx.MockTransport(timeout),max_attempts=1)
+    assert run_pm_premarket(**kwargs)['status']=='PM_DEGRADED_NO_ALLOCATION'
+    with sqlite3.connect(tmp_path/'model.sqlite3') as db:
+        metrics=json.loads(db.execute('SELECT body_json FROM model_call_telemetry').fetchone()[0])
+        assert metrics['failure_code']=='MODEL_WALL_CLOCK_TIMEOUT'
+        assert metrics['exception_class']=='ModelNetworkError' and metrics['provider_attempts']==1
+        assert db.execute('SELECT count(*) FROM model_calls').fetchone()[0]==0
+    assert calls==[1] and b'PRIVATE_PROVIDER_DETAILS' not in (tmp_path/'model.sqlite3').read_bytes()
+    assert run_pm_premarket(**kwargs)['status']=='PM_DEGRADED_NO_ALLOCATION' and calls==[1]
+
+
+@pytest.mark.parametrize('code,expected',[
+    ('MODEL_TOTAL_DEADLINE_EXCEEDED','MODEL_TOTAL_DEADLINE_EXCEEDED'),
+    ('MODEL_WALL_CLOCK_TIMEOUT','MODEL_WALL_CLOCK_TIMEOUT'),
+    ('PRIVATE_PROVIDER_DETAILS','UNCLASSIFIED_MODEL_FAILURE')])
+def test_public_deadline_codes_are_safe_but_unknown_reason_stays_redacted(tmp_path,code,expected):
+    from liangjian_funnel.pipeline.model_client import ModelNetworkError
+    kwargs,_=fixture(tmp_path)
+    class Failure:
+        def complete(self,*args,**kwargs):raise ModelNetworkError(code,attempts=0)
+    kwargs['client']=Failure()
+    assert run_pm_premarket(**kwargs)['status']=='PM_DEGRADED_NO_ALLOCATION'
+    with sqlite3.connect(tmp_path/'model.sqlite3') as db:
+        metrics=json.loads(db.execute('SELECT body_json FROM model_call_telemetry').fetchone()[0])
+    assert metrics['failure_code']==expected and metrics['exception_class']=='ModelNetworkError'
+    assert b'PRIVATE_PROVIDER_DETAILS' not in (tmp_path/'model.sqlite3').read_bytes()
+
+
+def test_all_literal_public_model_client_reasons_are_explicitly_safelisted():
+    from liangjian_funnel.pipeline import model_client
+    from liangjian_funnel.pipeline.team_v2_model import _SAFE_MODEL_FAILURE_CODES
+    tree=ast.parse(Path(model_client.__file__).read_text(encoding='utf-8'))
+    known=set()
+    for node in ast.walk(tree):
+        if (isinstance(node,ast.Raise) and isinstance(node.exc,ast.Call)
+                and isinstance(node.exc.func,ast.Name)
+                and node.exc.func.id in {'ModelClientError','ModelNetworkError','ModelHTTPError','StrictJSONError'}
+                and node.exc.args and isinstance(node.exc.args[0],ast.Constant)
+                and isinstance(node.exc.args[0].value,str)):
+            known.add(node.exc.args[0].value)
+    assert known<=_SAFE_MODEL_FAILURE_CODES
+    assert all(code.replace('_','').isalnum() and code.upper()==code for code in _SAFE_MODEL_FAILURE_CODES)
 
 
 def test_transport_failure_is_safe_durable_observable_and_not_retried(tmp_path):

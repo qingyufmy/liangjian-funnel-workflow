@@ -17,6 +17,20 @@ from .team_v2_judgments import ModelJudgmentJournal
 from .team_v2_prompts import TeamMessageRequest
 
 
+_SAFE_MODEL_FAILURE_CODES = frozenset('''
+    MODEL_WALL_CLOCK_TIMEOUT MODEL_TOTAL_DEADLINE_EXCEEDED NETWORK_RETRY_EXHAUSTED
+    RATE_LIMIT_RETRY_EXHAUSTED UPSTREAM_5XX_RETRY_EXHAUSTED UPSTREAM_4XX
+    MODEL_AUTHENTICATION_REJECTED MODEL_PAYMENT_REQUIRED MODEL_ACCESS_DENIED
+    OUTPUT_BUDGET_FALLBACK_REJECTED STRICT_JSON_INVALID MODEL_API_KEY_MISSING
+    THINKING_VARIANTS_EXHAUSTED MODEL_NOT_ALLOWED MESSAGES_INVALID MODEL_TIMEOUT_INVALID
+    MODEL_OUTPUT_BUDGET_INVALID JSON_OBJECT_REQUIRED RESPONSE_OBJECT_REQUIRED
+    RESPONSE_JSON_INVALID RESPONSE_BODY_TOO_LARGE MODEL_OUTPUT_TRUNCATED
+    STREAM_SSE_INVALID STREAM_UPSTREAM_ERROR STREAM_CHOICES_INVALID STREAM_DELTA_INVALID
+    STREAM_CONTENT_INVALID STREAM_EMPTY STREAM_DONE_MISSING STREAM_CONTENT_MISSING
+    CHOICES_INVALID MESSAGE_INVALID
+'''.split())
+
+
 @dataclass(frozen=True)
 class TeamCallOutcome:
     response: ModelCallResult
@@ -92,16 +106,11 @@ def call_team_model(request: TeamMessageRequest, client, journal: ModelJudgmentJ
             input_hash=request.input_hash, stage=request.prompt.role, team_session=session,
             timeout_seconds=timeout_seconds, max_output_tokens=max_output_tokens)
     except Exception as exc:
-        safe_codes={'MODEL_TOTAL_DEADLINE_EXCEEDED','NETWORK_RETRY_EXHAUSTED',
-            'RATE_LIMIT_RETRY_EXHAUSTED','UPSTREAM_5XX_RETRY_EXHAUSTED','UPSTREAM_4XX',
-            'MODEL_AUTHENTICATION_REJECTED','MODEL_PAYMENT_REQUIRED','MODEL_ACCESS_DENIED',
-            'OUTPUT_BUDGET_FALLBACK_REJECTED','STRICT_JSON_INVALID','MODEL_API_KEY_MISSING',
-            'THINKING_VARIANTS_EXHAUSTED'}
         attempts=getattr(exc,'attempts',None) if isinstance(exc,ModelClientError) else None
         status=getattr(exc,'status_code',None) if isinstance(exc,ModelClientError) else None
         code=getattr(exc,'reason_code',None) if isinstance(exc,ModelClientError) else None
         observe(status='TRANSPORT_FAILED',exception_class=type(exc).__name__,
-            failure_code=code if code in safe_codes else 'UNCLASSIFIED_MODEL_FAILURE',
+            failure_code=code if code in _SAFE_MODEL_FAILURE_CODES else 'UNCLASSIFIED_MODEL_FAILURE',
             provider_attempts=attempts if type(attempts) is int and attempts>=0 else None,
             http_status=status if type(status) is int and 100<=status<=599 else None)
         journal.mark_failed(call_id, "TEAM_MODEL_CALL_FAILED")

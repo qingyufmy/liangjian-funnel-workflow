@@ -36,6 +36,54 @@ def test_002530_actual_frozen_geometry_is_infeasible_not_market_no_setup():
     assert Decimal(out['audit']['rr_entry_ceiling'])<Decimal('7.1633')
 
 
+@pytest.mark.parametrize('alias',['entry_reference_zone','entry_zone','pullback_zone'])
+def test_partial_projection_never_widens_a_stricter_zone_alias(alias):
+    raw=plan(target=8,low=7.2,high=7.5,stop=7)
+    raw[alias]={'low':7.21,'high':7.25};before=deepcopy(raw)
+    result=project_team_plan_geometry(raw)
+    assert result['audit']['classification']=='PARTIAL'
+    out=result['payload']
+    assert out[alias]==before[alias]
+    assert Decimal(str(out['trigger_zone']['high']))<=Decimal('7.285714285714285714285714285714286')
+    assert raw==before
+
+
+def test_each_high_max_and_scalar_upper_is_independently_nonincreasing():
+    raw=plan(target=8,low=7.2,high=7.5,stop=7)
+    raw['trigger_high']='7.24'
+    raw['trigger_zone']['max']='7.235'
+    raw['entry_reference_zone']={'min':'7.21','low':7.22,'high':7.4,'max':'7.23'}
+    raw['strategy_facts']={'entry_reference_zone':{'low':7.2,'high':7.5},'opaque':'original'}
+    before=deepcopy(raw);out=project_team_plan_geometry(raw)['payload']
+    assert out['trigger_high']==before['trigger_high']
+    assert out['trigger_zone']['max']==before['trigger_zone']['max']
+    for name in ('trigger_zone','entry_reference_zone'):
+        for key in ('high','max'):
+            assert Decimal(str(out[name][key]))<=Decimal(str(before[name][key]))
+        for key in ('low','min'):
+            if key in before[name]:assert out[name][key]==before[name][key]
+    assert out['strategy_facts']==before['strategy_facts'] and raw==before
+
+
+@pytest.mark.parametrize('upper',[{}, {'high':None}, {'max':None}, {'high':'unknown'}, {'high':False}])
+def test_alias_without_a_valid_upper_is_not_fabricated_or_repaired(upper):
+    raw=plan(target=8,low=7.2,high=7.5,stop=7)
+    raw['entry_reference_zone']={'low':7.21,**upper}
+    raw['trigger_high']=None
+    out=project_team_plan_geometry(raw)['payload']
+    assert out['entry_reference_zone']==raw['entry_reference_zone']
+    assert out['trigger_high'] is None
+
+
+def test_missing_scalar_upper_is_not_added_and_equal_upper_is_not_reformatted():
+    raw=plan(target=8,low=7.2,high=7.5,stop=7);raw.pop('trigger_high')
+    number=project_team_plan_geometry(raw)['payload']['trigger_zone']['high']
+    raw['entry_reference_zone']['high']=str(number)
+    out=project_team_plan_geometry(raw)['payload']
+    assert 'trigger_high' not in out
+    assert out['entry_reference_zone']['high']==str(number)
+
+
 @pytest.mark.parametrize('change',[dict(first_resistance=None),dict(stop_level=None,invalidation_level=None),
     dict(trigger_low=None,trigger_zone={},entry_reference_zone={}),dict(minimum_reward_risk=None),
     dict(first_resistance=float('inf'))])

@@ -97,10 +97,20 @@ def project_team_plan_geometry(payload, *, minimum_reward_risk=None):
         reason_code='PLAN_GEOMETRY_RR_TIGHTENED' if ceiling<high else 'PLAN_GEOMETRY_RR_FEASIBLE')
     result=deepcopy(dict(payload))
     if ceiling<high:
-        result['trigger_high']=number
+        bound=Decimal(str(number))
+        # Aliases can already be stricter than the selected A4 zone. Clamp
+        # every existing upper to its OWN original value, not to another
+        # alias's wider ceiling. Unknown/missing uppers remain unknown.
+        scalar=_decimal(result.get('trigger_high'))
+        if scalar is not None and scalar>bound:
+            result['trigger_high']=number
         for name in ('trigger_zone','entry_reference_zone','entry_zone','pullback_zone'):
             if isinstance(result.get(name),Mapping):
-                value=dict(result[name]);value['high' if 'high' in value or 'max' not in value else 'max']=number
+                value=dict(result[name])
+                for key in ('high','max'):
+                    original=_decimal(value.get(key))
+                    if original is not None and original>bound:
+                        value[key]=number
                 result[name]=value
         # A nested-only original keeps the original nested facts immutable;
         # the new authoritative top-level zone is a narrower explicit alias.
