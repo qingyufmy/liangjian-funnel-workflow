@@ -854,6 +854,8 @@ def test_optional_a2_a3_model_reuses_the_single_canonical_primary_a1(tmp_path: P
 def test_close_fails_closed_when_active_a1_is_unavailable(tmp_path: Path, reason: str):
     app = object.__new__(WorkflowApplication)
     app.settings = _settings(tmp_path)
+    app.settings.source_config_path.parent.mkdir(parents=True, exist_ok=True)
+    app.settings.source_config_path.write_text('agent_2: {}\n', encoding='utf-8')
     app._ensure_trading_day = lambda *_args, **_kwargs: None
 
     class _UnavailableA1:

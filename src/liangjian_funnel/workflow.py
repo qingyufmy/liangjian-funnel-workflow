@@ -626,10 +626,35 @@ def _observe_close_research_resources(function):
 class WorkflowApplication:
     """Join data, research, A4 and paper simulation without external orders."""
 
-    def _new_research_pipeline(self, **kwargs):
+    def _natural_close_team_research(self) -> bool:
+        """Resolve one natural close from its configured role contract.
+
+        An existing legacy agent_2 mapping without a Team policy remains
+        legacy. Missing/unreadable configuration and a present but invalid
+        Team policy are not permission to fall back to the legacy roles.
+        This check creates no owned model/store objects.
+        """
+        from .pipeline.team_v2_a2_score import POLICY
+        from yaml import YAMLError
+        try:
+            config = load_yaml(self.settings.source_config_path)
+        except (OSError, ValueError, YAMLError) as exc:
+            raise WorkflowError("RESEARCH_ROLE_CONFIGURATION_UNAVAILABLE") from exc
+        a2 = config.get("agent_2")
+        if not isinstance(a2, Mapping):
+            raise WorkflowError("RESEARCH_ROLE_CONFIGURATION_UNAVAILABLE")
+        if "team_theme_score_policy" not in a2:
+            return False
+        if a2["team_theme_score_policy"] != POLICY:
+            raise WorkflowError("TEAM_RESEARCH_CONFIGURATION_INVALID")
+        return True
+
+    def _new_research_pipeline(self, *, configured_team_research: bool | None = None, **kwargs):
         # Explicit CLI composition; legacy library consumers keep their
         # requested pipeline until they opt into the Team role contract.
-        if getattr(self, 'team_research_enabled', False):
+        enabled = (getattr(self, 'team_research_enabled', False)
+                   if configured_team_research is None else configured_team_research)
+        if enabled:
             from .pipeline.team_v2_wiring import configured_research_adapter
             kwargs['team_research_adapter'] = configured_research_adapter(
                 self.settings, calendar=self.trading_calendar)
@@ -3201,6 +3226,16 @@ class WorkflowApplication:
         if normalized_slot == "morning" and current.hour == 9 and current.minute < 26:
             time.sleep(max(0.0, (_at_time(current, 9, 26) - current).total_seconds()))
             current = datetime.now(SHANGHAI)
+        # The normal close API must not silently select old roles merely
+        # because a library/operations caller omitted the CLI-only flag.
+        # Resolve per run, without changing that flag or constructing Team
+        # journals for status, replay, comparison or auction-only workflows.
+        configured_team_research = (
+            self._natural_close_team_research()
+            if normalized_slot == "close" and not historical_replay
+            and not comparison_run and not auction_refresh
+            and frozen_a2_stock_news is None else None
+        )
         # A comparison is an audit child of the primary run.  It must not
         # overwrite the single control-plane progress projection that the UI
         # uses for the next morning/close job.  Keep a durable child progress
@@ -3337,6 +3372,8 @@ class WorkflowApplication:
             _progress_stdout(progress.snapshot())
 
         pipeline = self._new_research_pipeline(
+            **({"configured_team_research": configured_team_research}
+               if configured_team_research is not None else {}),
             prompt_repository=self.prompts,
             model_client=self.model_client,
             output_dir=self.settings.workflow_output_dir / "research",

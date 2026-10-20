@@ -103,6 +103,8 @@ def workflow_fixture(tmp_path,monkeypatch):
     base,node,calls,bind=fixture()
     app=workflow.WorkflowApplication.__new__(workflow.WorkflowApplication)
     app.settings=Settings.from_env({},root=tmp_path)
+    app.settings.source_config_path.parent.mkdir(parents=True,exist_ok=True)
+    app.settings.source_config_path.write_text('agent_2: {}\n',encoding='utf-8')
     app._ensure_trading_day=Mock()
     app.a1_registry=SimpleNamespace(require_active=Mock(return_value=SimpleNamespace(
         as_of=base.as_of,payload={},generation_id='existing-a1')))

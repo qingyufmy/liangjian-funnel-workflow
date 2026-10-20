@@ -50,6 +50,9 @@ def _settings(tmp_path: Path) -> Settings:
 def _app(tmp_path: Path) -> WorkflowApplication:
     app = object.__new__(WorkflowApplication)
     app.settings = _settings(tmp_path)
+    # This orchestration fixture explicitly exercises the old role contract.
+    app.settings.source_config_path.parent.mkdir(parents=True, exist_ok=True)
+    app.settings.source_config_path.write_text('agent_2: {}\n', encoding='utf-8')
     app._ensure_trading_day = lambda *_args, **_kwargs: None
     # ``run_research`` normally receives these from ``__init__``.  Keeping
     # the test application deliberately small makes it explicit that no
