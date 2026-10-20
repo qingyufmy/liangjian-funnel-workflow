@@ -194,7 +194,9 @@ def test_author315_bundle_exact_bytes_match_all_ten_approved_digests():
     from pathlib import Path
     root=Path(__file__).resolve().parents[1]/'prompts/team_v2'
     manifest=json.loads((root/'manifest.json').read_text(encoding='utf-8'))
-    assert len(manifest['files'])==10 and manifest['role_semantics_modified'] is False
+    assert len(manifest['files'])==10 and manifest['role_semantics_modified'] is True
+    assert manifest['authorized_changes']==['P0-2_A6_SERVER_CLUSTER_CAPACITY',
+        'P0-3_A6_CATALOG_REFS','P0-17_UNIFIED_TEN_STAGE_POLICY']
     for name,expected in manifest['files'].items():
         raw=(root/name).read_bytes()
         assert len(raw)==expected['bytes'] and hashlib.sha256(raw).hexdigest()==expected['sha256']

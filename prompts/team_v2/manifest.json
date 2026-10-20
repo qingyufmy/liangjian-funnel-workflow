@@ -1,7 +1,8 @@
 {
   "schema_version": "claude-team-prompt-bundle/3.0.2",
-  "authority": "canonical .claude_bridge/outbox/0323-reply.md exact A1 3.0.6/README; other0315/0308 files unchanged; full author bytes read before wiring",
-  "role_semantics_modified": false,
+  "authority": "Original 0323/0315/0308 bundle; A6 bounded contract authorized by 0384; A2 unified ten-stage policy authorized by Tony and 0386 on 2026-10-20",
+  "role_semantics_modified": true,
+  "authorized_changes": ["P0-2_A6_SERVER_CLUSTER_CAPACITY", "P0-3_A6_CATALOG_REFS", "P0-17_UNIFIED_TEN_STAGE_POLICY"],
   "files": {
     "00_shared_system_v3.txt": {
       "sha256": "02417791ffeb2b31e7d70b065cf87b5af0a0ffe25162a2374ad0c8056c4f067c",
