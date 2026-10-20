@@ -6,7 +6,7 @@ and bind B's raised stop / PROBE to the actual intent, not merely display them.
 """
 from collections.abc import Mapping
 from copy import deepcopy
-from datetime import datetime,time as wall_time
+from datetime import datetime,time as wall_time,timedelta
 import math
 import time
 from pathlib import Path
@@ -295,8 +295,30 @@ def _b(plan,rows,cfg,daily,vwap,tol,atr,reference):
     old,target,rr,chase=_levels(plan)
     _condition(conditions,'B_KEY_LEVEL',None if key is None else True,key,k_evidence,k_evidence.get('daily_sources'))
     _condition(conditions,'B_KEY_BELOW_NO_CHASE',None if key is None or chase is None else key<=chase,key,dict(no_chase=chase),'FROZEN_PLAN')
-    attempts=0;active=None;invalidated=[]
-    if key is not None:
+    # The two-attempt limit belongs to the WHOLE session, not the warm suffix.
+    # A missing opening prefix/ATR/V6 makes prior attempts unknown. Never skip
+    # those rows and then relabel a possible third breakout as the first.
+    today=[(i,row) for i,row in enumerate(rows) if row['end'].date()==at.date()]
+    missing=[]
+    first=today[0][1]['end']
+    expected=at.replace(hour=9,minute=35,second=0,microsecond=0)
+    while expected<first:
+        clock=expected.time().replace(tzinfo=None)
+        if wall_time(9,35)<=clock<=wall_time(11,30) or wall_time(13,5)<=clock<=wall_time(15):
+            missing.append(dict(as_of=expected.isoformat(),reason_codes=['CLOSED5M_PREFIX_MISSING']))
+        expected+=timedelta(minutes=5)
+    for i,row in today:
+        reasons=[]
+        if _atr(rows[:i+1],cfg['atr_period']) is None:reasons.append('ATR20_UNPROVEN')
+        v6=_v6(rows,i,cfg['volume_lookback'])
+        if v6 is None or v6<=0:reasons.append('V6_UNPROVEN')
+        if reasons:missing.append(dict(as_of=row['end'].isoformat(),reason_codes=reasons))
+    prefix_known=not missing
+    _condition(conditions,'B_ATTEMPT_PREFIX',True if prefix_known else None,
+        dict(missing_timestamps=missing),dict(first_closed5m='09:35:00',
+        atr_period=cfg['atr_period'],volume_lookback=cfg['volume_lookback']),at.isoformat())
+    attempts=0 if prefix_known else None;active=None;invalidated=[]
+    if key is not None and prefix_known:
         for i,row in enumerate(rows):
             if row['end'].date()!=at.date():continue
             local_atr=_atr(rows[:i+1],cfg['atr_period']);v6=_v6(rows,i,cfg['volume_lookback'])
@@ -306,7 +328,7 @@ def _b(plan,rows,cfg,daily,vwap,tol,atr,reference):
                 invalidated.append(row['end'].isoformat());active=None
             if active is None and attempts<cfg['b_max_breakouts'] and row['close']>key+local_tol and row['volume']>=v6*cfg['b_breakout_volume_ratio']:
                 attempts+=1;active=dict(index=i,volume=row['volume'],tol=local_tol,v6=v6,as_of=row['end'].isoformat())
-    _condition(conditions,'B_EFFECTIVE_BREAKOUT',None if key is None else active is not None,active,
+    _condition(conditions,'B_EFFECTIVE_BREAKOUT',None if key is None or not prefix_known else active is not None,active,
         dict(price_above=key+tol if key is not None else None,volume_ratio=cfg['b_breakout_volume_ratio'],max_attempts=cfg['b_max_breakouts']),at.isoformat())
     # Keep the breakout as the direction anchor, not part of the pullback:
     # the first two lower closes after it are already a two-bar down segment.
@@ -330,9 +352,10 @@ def _b(plan,rows,cfg,daily,vwap,tol,atr,reference):
     _condition(conditions,'B_STOP_ONLY_RAISED',None if candidate is None or old is None else candidate>=old,candidate,dict(original_stop=old),_stamp(pull))
     _condition(conditions,'B_NO_CHASE',None if chase is None else close<=chase,close,dict(maximum=chase),at.isoformat())
     _geometry(conditions,plan,close,at.isoformat(),stop=candidate,inside_zone=False)
-    return _finish('B_BREAKOUT_RETEST',conditions,('B_KEY_LEVEL','B_KEY_BELOW_NO_CHASE','B_EFFECTIVE_BREAKOUT','B_RETEST','B_RETEST_VOLUME','B_ACCEPTED','B_STOP_ONLY_RAISED','B_NO_CHASE','ENTRY_RR'),
+    return _finish('B_BREAKOUT_RETEST',conditions,('B_KEY_LEVEL','B_KEY_BELOW_NO_CHASE','B_ATTEMPT_PREFIX','B_EFFECTIVE_BREAKOUT','B_RETEST','B_RETEST_VOLUME','B_ACCEPTED','B_STOP_ONLY_RAISED','B_NO_CHASE','ENTRY_RR'),
         close=close,stop=candidate,force_probe=True,metrics=dict(atr5=atr,tol=tol,key_level=key,breakout_count=attempts,
-            max_breakouts=cfg['b_max_breakouts'],invalidated_at=invalidated,active_breakout=active,key_evidence=k_evidence))
+            max_breakouts=cfg['b_max_breakouts'],invalidated_at=invalidated,active_breakout=active,key_evidence=k_evidence,
+            attempt_prefix_proven=prefix_known,attempt_prefix_missing=missing))
 
 
 def _c(plan,rows,cfg,vwap,tol,atr):
@@ -408,7 +431,7 @@ def evaluate_pattern(plan,five,fifteen,*,as_of,config,daily_facts=None,vwap=None
     today=[r for r in rows if r['end'].date()==rows[-1]['end'].date()]
     if high is not None and any(r['close']>high for r in today):
         b=_b(plan,rows,cfg,daily,vwap,tol,atr,reference)
-        if b['metrics']['breakout_count']>0 or rows[-1]['close']>high:
+        if (b['metrics']['breakout_count'] or 0)>0 or rows[-1]['close']>high:
             return {**b,'source_as_of':rows[-1]['end'].isoformat()} if cfg['patterns']['B'] else disabled('B_BREAKOUT_RETEST')
     environment=[r for r in environment if r['end'].date()==rows[-1]['end'].date()]
     if plan.get('strategy_profile')=='TREND_MA5':

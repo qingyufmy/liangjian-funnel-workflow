@@ -5,7 +5,7 @@ from decimal import Decimal as D
 
 import pytest
 
-from test_entry_confirmation import b_rows,daily,plan,CFG
+from test_entry_confirmation import b_rows,daily,plan,history,CFG
 from liangjian_funnel.runtime.entry_confirmation import evaluate_pattern
 from liangjian_funnel.runtime.entry_pattern_binding import (
     make_b_execution_binding,checked_binding,bind_team_plan,probe_envelope,held_stop_overlays,digest,
@@ -40,6 +40,19 @@ def test_b_binding_pins_original_and_condition_proof_without_mutating_plan():
     assert raw==original
 
 
+def test_b_binding_cannot_strip_unknown_attempt_prefix_proof():
+    raw,proof,_=source()
+    forged=deepcopy(proof)
+    forged['conditions']['B_ATTEMPT_PREFIX']['status']='UNPROVEN'
+    with pytest.raises(ValueError,match='BINDING_INVALID'):
+        make_b_execution_binding(raw,forged)
+    stripped=deepcopy(proof)
+    stripped['required_conditions']=[key for key in stripped['required_conditions'] if key!='B_ATTEMPT_PREFIX']
+    stripped['conditions'].pop('B_ATTEMPT_PREFIX')
+    with pytest.raises(ValueError,match='BINDING_INVALID'):
+        make_b_execution_binding(raw,stripped)
+
+
 def test_shared_strategy_b_uses_runtime_single_price_and_bound_new_stop():
     from test_entry_confirmation import DAY,server_context
     from liangjian_funnel.runtime.strategies import evaluate_strategy
@@ -52,7 +65,8 @@ def test_shared_strategy_b_uses_runtime_single_price_and_bound_new_stop():
                 amount=row['volume']/5*row['close'],closed=True))
     raw={**plan(high=100.2),'symbol':'000001.SZ','stock_behavior_type':'TREND','trade_date':'2026-10-20'}
     at=minutes[-1]['bar_end'];ctx=server_context(at,entry_confirmation_config=CFG,
-        entry_confirmation_daily_facts=daily(),entry_pattern_execution_supported=True,entry_confirmation_plan_id='PUBLISHED:p1')
+        entry_confirmation_daily_facts=daily(),entry_pattern_execution_supported=True,entry_confirmation_plan_id='PUBLISHED:p1',
+        historical_5m=[{**row,'symbol':'000001.SZ'} for row in history()])
     result=evaluate_strategy(raw,minutes,now=at,market_context=ctx).model_dump(mode='json')
     assert result['action']=='BUY_SIGNAL',result
     binding=result['entry_pattern_binding']

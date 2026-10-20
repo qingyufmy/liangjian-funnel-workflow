@@ -234,6 +234,45 @@ def test_b_no_chase_and_missing_daily_sources_are_not_bypassed():
     assert out['status']=='DATA_LIMITED' and out['conditions']['B_KEY_LEVEL']['status']=='UNPROVEN'
 
 
+def test_b_unknown_early_attempts_cannot_make_third_breakout_the_first():
+    rows=[bar(DAY+timedelta(minutes=5*(i+1))) for i in range(20)]
+    for i,(close,volume) in enumerate(((101,200),(99.5,100),(101.2,250),(99.4,100))):
+        rows[i]=bar(DAY+timedelta(minutes=5*(i+1)),close,volume)
+    for i,(close,volume) in enumerate(((101,200),(100.8,50),(100.5,40),(100.7,120)),20):
+        rows.append(bar(DAY+timedelta(minutes=5*(i+1)),close,volume))
+    rows[-2]['low']=100.3
+    rows[-1].update(open=100.6,high=100.8,low=100.5)
+    cold=run(plan(high=100.2),rows)
+    assert cold['status']=='DATA_LIMITED' and not cold['confirmed']
+    assert cold['conditions']['B_ATTEMPT_PREFIX']['status']=='UNPROVEN'
+    assert cold['metrics']['breakout_count'] is None
+    assert cold['metrics']['attempt_prefix_missing'][0]['as_of']=='2026-10-20T09:35:00+08:00'
+    warm=run(plan(high=100.2),rows,historical_five=history())
+    assert not warm['confirmed'] and warm['metrics']['breakout_count']==2
+    assert warm['metrics']['attempt_prefix_proven'] is True
+    assert len(warm['metrics']['invalidated_at'])==2
+
+
+def test_b_late_window_cannot_clear_missing_opening_attempts():
+    rows=b_rows()
+    # A contiguous late suffix has its own ATR20 but not the opening prefix.
+    late=[bar(DAY+timedelta(minutes=5*(i+1))) for i in range(4,24)]
+    last=late[-1]['bar_end']
+    out=run(plan(high=99.8),late)
+    assert out['status']=='DATA_LIMITED' and out['metrics']['breakout_count'] is None
+    missing=out['conditions']['B_ATTEMPT_PREFIX']['value']['missing_timestamps']
+    assert missing[0]==dict(as_of='2026-10-20T09:35:00+08:00',reason_codes=['CLOSED5M_PREFIX_MISSING'])
+    assert out['source_as_of']==last
+
+
+def test_b_early_zero_v6_is_unknown_not_zero_attempts():
+    rows=b_rows();rows[:20]=[{**row,'volume':0} for row in rows[:20]]
+    out=run(plan(high=100.2),rows)
+    assert out['status']=='DATA_LIMITED' and out['metrics']['breakout_count'] is None
+    assert out['metrics']['attempt_prefix_missing'][0]==dict(
+        as_of='2026-10-20T09:35:00+08:00',reason_codes=['V6_UNPROVEN'])
+
+
 def c_rows():
     rows=history()
     for i,(close,volume) in enumerate(((100,100),(99.5,100),(99,100),(99.6,200))):

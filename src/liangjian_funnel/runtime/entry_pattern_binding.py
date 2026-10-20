@@ -31,7 +31,7 @@ def make_b_execution_binding(plan,evidence,*,source_sha256=None,plan_id=None):
             or evidence.get('pattern')!='B_BREAKOUT_RETEST' or evidence.get('confirmed') is not True
             or evidence.get('force_probe') is not True):raise ValueError('ENTRY_PATTERN_BINDING_INVALID')
     conditions=evidence.get('conditions',{});required=evidence.get('required_conditions',())
-    expected={'B_KEY_LEVEL','B_KEY_BELOW_NO_CHASE','B_EFFECTIVE_BREAKOUT','B_RETEST','B_RETEST_VOLUME',
+    expected={'B_KEY_LEVEL','B_KEY_BELOW_NO_CHASE','B_ATTEMPT_PREFIX','B_EFFECTIVE_BREAKOUT','B_RETEST','B_RETEST_VOLUME',
         'B_ACCEPTED','B_STOP_ONLY_RAISED','B_NO_CHASE','ENTRY_RR'}
     if set(required)!=expected or any(conditions.get(k,{}).get('status')!='MET' for k in expected):
         raise ValueError('ENTRY_PATTERN_BINDING_INVALID')
