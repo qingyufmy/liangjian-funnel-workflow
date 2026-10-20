@@ -601,7 +601,7 @@ agent_2:
     - REPAIR
     - FADE
   climax_new_entry_policy: WATCH_ONLY
-  divergence_new_entry_policy: NO_NEW_ENTRY
+  divergence_new_entry_policy: WATCH_ONLY
 
   divergence_checks: [D1, D2, D3, D4, D5, D6, D7, D8, D9, D10]
   divergence_count_for_high_risk: 2

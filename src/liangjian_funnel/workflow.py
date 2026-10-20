@@ -8518,7 +8518,7 @@ def _prompt_parameters(config: Mapping[str, Any]) -> dict[str, Any]:
         "FAST_TRACK_DAILY_QUOTA": 0,
         "FAST_TRACK_COOLDOWN_DAYS": a1_fast_track.get("cooldown_days", 30),
         "CLIMAX_NEW_ENTRY_POLICY": a2.get("climax_new_entry_policy", "WATCH_ONLY"),
-        "DIVERGENCE_NEW_ENTRY_POLICY": a2.get("divergence_new_entry_policy", "NO_NEW_ENTRY"),
+        "DIVERGENCE_NEW_ENTRY_POLICY": a2.get("divergence_new_entry_policy", "WATCH_ONLY"),
         "MIN_SECTOR_COVERAGE": data_policy.get("minimum_sector_coverage", 0.80),
         "ROTATION_LOOKBACK_DAYS": market_regime.get("rotation_lookback_days", 5),
         "LEADER_MIN_CRITERIA": a2_selection.get("leader_min_criteria", 4),

@@ -22,13 +22,13 @@ def test_mixed_unbound_enum_and_rotation_retries_only_enum_after_safe_drop(tmp_p
     def mutate(raw, attempt):
         raw['rotation_reviews'] = [no_focus()]
         if attempt == 1:
-            raw['market_read']['emotion_cycle'] = 'LATENT'
+            raw['market_read']['emotion_cycle'] = 'INVENTED_STAGE'
     app, args, seen = fixture(tmp_path, mutate, rotation=True)
     result = app._run_stage(**args)
     assert result.status == 'VALIDATED', result.reason_codes
     assert len(seen) == 2
     feedback = seen[1]['messages'][0]['content']
-    assert 'LATENT' in feedback and 'A2_MARKET_READ_INVALID' in feedback
+    assert 'INVENTED_STAGE' in feedback and 'A2_MARKET_READ_INVALID' in feedback
     assert all(value in feedback for value in (
         'IGNITION', 'CONFIRMATION', 'ACCELERATION', 'CLIMAX', 'DIVERGENCE', 'RETREAT', 'REPAIR', 'FADE'))
     assert result.diagnostics['server_normalization']['status'] == 'VALIDATED'
@@ -36,7 +36,7 @@ def test_mixed_unbound_enum_and_rotation_retries_only_enum_after_safe_drop(tmp_p
     with closing(app.team_research_adapter.journal._connect()) as db:
         captured = [json.loads(r[0]) for r in db.execute('SELECT output_json FROM model_calls ORDER BY captured_at')]
         validated = [r[0] for r in db.execute('SELECT validated FROM model_calls ORDER BY captured_at')]
-    assert captured[0]['market_read']['emotion_cycle'] == 'LATENT'
+    assert captured[0]['market_read']['emotion_cycle'] == 'INVENTED_STAGE'
     assert all(r['rotation_reviews'] for r in captured)
     assert validated == [0, 0]
     audit_key = result.diagnostics['server_normalization']['audit_context_key']
@@ -64,7 +64,7 @@ def test_missing_rotation_is_only_feedback_and_never_server_synthesized(tmp_path
 
 def test_illegal_enum_never_normalized_even_with_rotation_error(tmp_path):
     def mutate(raw, _):
-        raw['market_read']['emotion_cycle'] = 'LATENT'
+        raw['market_read']['emotion_cycle'] = 'INVENTED_STAGE'
         raw['rotation_reviews'] = [no_focus()]
     app, args, seen = fixture(tmp_path, mutate, rotation=True)
     result = app._run_stage(**args)
@@ -104,7 +104,8 @@ def test_two_real_failures_use_exact_frozen_market_fact_and_drop_without_retry(n
     def validate(value):
         return validate_a2_response(value, frozen['catalog'], **context)
     invalid = validate(raw)
-    assert set(invalid.issues) == {'A2_MARKET_READ_INVALID', 'A2_ROTATION_DOMAIN_MISMATCH'}
+    # P0-17: LATENT is now a first-class ten-stage value, not an illegal enum.
+    assert set(invalid.issues) == {'A2_ROTATION_DOMAIN_MISMATCH'}
     # First capture's exact fact is independently archived in
     # FROZEN_A2_REQUEST_VALUES.json (SHA58e94020...); rerun carries its fact inline.
     fact = frozen.get('engine_emotion_snapshot', {'emotion_cycle_stage': 'LATENT'})
@@ -140,7 +141,7 @@ def test_every_semantic_retry_gets_fresh_bounded_timeout_not_original_elapsed(tm
     state = {'clock': 100.0}; budgets = []
     def mutate(raw, attempt):
         if attempt < 3:
-            raw['market_read']['emotion_cycle'] = 'LATENT'
+            raw['market_read']['emotion_cycle'] = 'INVENTED_STAGE'
         state['clock'] += 550
     app, args, seen = fixture(tmp_path, mutate)
     app._deadline_started_monotonic = 100
@@ -159,7 +160,7 @@ def test_retry_does_not_issue_request_when_global_remaining_drops_below_120(tmp_
     from liangjian_funnel.pipeline import team_v2_a2_research as research
     state = {'clock': 100.0}
     def mutate(raw, _):
-        raw['market_read']['emotion_cycle'] = 'LATENT'
+        raw['market_read']['emotion_cycle'] = 'INVENTED_STAGE'
         state['clock'] += 550
     app, args, seen = fixture(tmp_path, mutate)
     app.settings = app.settings.model_copy(update={'research_close_deadline_seconds': 650})
@@ -225,8 +226,8 @@ def test_exact_engine_latent_and_redundant_bank_review_validate_in_one_call_with
 
 
 @pytest.mark.parametrize('fact,answer,valid', [
-    ('LATENT', 'LATENT', True), ('STARTUP', 'STARTUP', True), ('ICE_POINT', 'ICE_POINT', True),
-    ('LATENT', 'STARTUP', False), ('STARTUP', 'LATENT', False), (None, 'LATENT', False),
+    ('LATENT', 'LATENT', True), ('STARTUP', 'STARTUP', False), ('ICE_POINT', 'ICE_POINT', True),
+    ('LATENT', 'STARTUP', False), ('STARTUP', 'LATENT', True), (None, 'LATENT', True),
     ('INVENTED', 'INVENTED', False), ('LATENT', 'INVENTED', False),
     ('LATENT', 'CONFIRMATION', True),
 ])
@@ -238,12 +239,14 @@ def test_market_stage_extension_is_exact_frozen_fact_not_mapping_or_free_enum(fa
     assert raw['market_read']['emotion_cycle'] == answer
 
 
-def test_engine_market_stage_cannot_change_theme_stage_execution_policy():
+def test_shared_ten_stages_accept_latent_watch_but_never_latent_allow():
     from test_team_v2_a2_schema import packet, validate
     raw = packet(); raw['market_read']['emotion_cycle'] = 'LATENT'
     raw['theme_reviews'][0].update(stage='LATENT', new_entry_policy='WATCH_ONLY')
     result = validate(raw, engine_emotion_cycle='LATENT')
-    assert not result.valid and 'A2_STAGE_POLICY_MISMATCH' in result.issues
+    assert result.valid
+    raw['theme_reviews'][0]['new_entry_policy']='ALLOW'
+    assert 'A2_STAGE_POLICY_MISMATCH' in validate(raw,engine_emotion_cycle='LATENT').issues
 
 
 def test_redundant_focused_row_with_unknown_extra_field_is_not_deleted(tmp_path):

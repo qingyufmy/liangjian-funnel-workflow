@@ -12,12 +12,9 @@ from typing import Any
 
 from .team_v2_contract import TeamValidation, validate_team_output
 
-_POLICIES = {"IGNITION": "PROBE_ONLY", "CONFIRMATION": "ALLOW", "ACCELERATION": "ALLOW",
-             "CLIMAX": "WATCH_ONLY", "DIVERGENCE": "WATCH_ONLY", "RETREAT": "NO_NEW_ENTRY",
-             "REPAIR": "ALLOW", "FADE": "NO_NEW_ENTRY"}
-# Market facts and theme policy are separate vocabularies.  A market-stage
-# extension is permitted only when it exactly matches the supplied frozen fact.
-_ENGINE_EMOTION_STAGES = frozenset(("ICE_POINT", "DIVERGENCE", "CLIMAX", "ACCELERATION", "STARTUP", "LATENT"))
+from .emotion_vocabulary import POLICIES,STAGES
+_POLICIES = dict(POLICIES)
+_ENGINE_EMOTION_STAGES = STAGES
 _ROOT = frozenset(("envelope", "reason_codes", "market_read", "theme_reviews", "focus_decisions",
                    "rotation_reviews", "reject_decisions", "model_nominations", "handoff_notes",
                    "what_would_change_my_mind", "unresolved_questions"))
@@ -112,8 +109,12 @@ def validate_a2_response(output: Any, catalog: Any, *, required_envelope: Mappin
             pools[name].append(row)
 
     for row in pools["market_read"]:
-        engine_match = (isinstance(engine_emotion_cycle, str) and engine_emotion_cycle in _ENGINE_EMOTION_STAGES
-                        and row["emotion_cycle"] == engine_emotion_cycle)
+        from .emotion_vocabulary import read_emotion_stage
+        try:
+            canonical_engine=read_emotion_stage(engine_emotion_cycle,
+                source_trade_date=required_envelope.get('source_trade_date'))
+        except (ValueError,TypeError):canonical_engine=None
+        engine_match = canonical_engine is not None and row["emotion_cycle"] == canonical_engine
         if (row["emotion_cycle"] not in tuple(_POLICIES) and not engine_match
                 or not _strings(row["dominant_themes"], 3)):
             issues.append("A2_MARKET_READ_INVALID")

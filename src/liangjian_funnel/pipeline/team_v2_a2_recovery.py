@@ -64,7 +64,7 @@ def bind_a2_retry_feedback(request, feedback, *, correction_attempt, engine_emot
     runtime['validation_feedback'] = deepcopy(dict(feedback))
     runtime['correction_attempt'] = correction_attempt
     runtime['field_contracts'] = {
-        'market_theme_boundary': 'LATENT/STARTUP/ICE_POINT 是 MARKET_EMOTION_SNAPSHOT 的市场阶段，不是题材阶段；theme_reviews[*].stage 只能从下面八个题材阶段选择，不做市场阶段到题材阶段的语义映射。',
+        'market_theme_boundary': '市场与题材共用以下十阶段词表；题材阶段须按题材事实判断，不照抄市场标签；STARTUP仅为旧输入只读别名，新输出使用IGNITION。',
         'market_read.emotion_cycle': dict(kind='MARKET_FACT_OR_EXISTING_A2_STAGE',
             engine_fact=engine_emotion_cycle, allowed_values=emotion_values),
         'theme_reviews[*].stage': dict(kind='THEME_JUDGMENT_NOT_MARKET_FACT', allowed_values=list(_POLICIES)),

@@ -69,7 +69,7 @@ def test_market_emotion_is_complete_and_deterministic() -> None:
     assert first["previous_day_promotion_rate"] == pytest.approx(0.5)
     assert first["temperature"] == "STRONG"
     assert first["emotion_cycle_stage"] == "ACCELERATION"
-    assert first["new_long_permission"] == "ALLOW_CORE"
+    assert first["new_long_permission"] == "ALLOW"
     assert first["emotion_cycle_evidence"]["scoring_used"] is False
 
 
@@ -82,7 +82,7 @@ def test_market_emotion_blocks_new_leader_plans_at_climax_and_retreat() -> None:
 
     assert climax["temperature"] == "OVERHEATED"
     assert climax["emotion_cycle_stage"] == "CLIMAX"
-    assert climax["new_long_permission"] == "NO_NEW_ENTRY"
+    assert climax["new_long_permission"] == "WATCH_ONLY"
 
     retreat_records = [{"change_ratio_pct": 1.0}] * 30 + [{"change_ratio_pct": -1.0}] * 70
     retreat = build_market_emotion(retreat_records, _facts(), as_of=NOW)
@@ -95,13 +95,13 @@ def test_market_emotion_exposes_only_the_six_confirmed_cycle_stages() -> None:
     scenarios = [
         ([{"change_ratio_pct": 1.0}] * 20 + [{"change_ratio_pct": -1.0}] * 80, "ICE_POINT"),
         ([{"change_ratio_pct": 1.0}] * 40 + [{"change_ratio_pct": -1.0}] * 60, "LATENT"),
-        ([{"change_ratio_pct": 1.0}] * 50 + [{"change_ratio_pct": -1.0}] * 50, "STARTUP"),
+        ([{"change_ratio_pct": 1.0}] * 50 + [{"change_ratio_pct": -1.0}] * 50, "IGNITION"),
         ([{"change_ratio_pct": 1.0}] * 60 + [{"change_ratio_pct": -1.0}] * 40, "ACCELERATION"),
         ([{"change_ratio_pct": 1.0}] * 80 + [{"change_ratio_pct": -1.0}] * 20, "CLIMAX"),
     ]
     for records, expected in scenarios:
         facts = _facts()
-        if expected == "STARTUP":
+        if expected == "IGNITION":
             facts["LIMIT_UP_POOL"] = _fact([{"thscode": f"600{i:03d}.SH"} for i in range(20)])
             facts["LIMIT_BREAK_POOL"] = _fact([{"thscode": "300001.SZ"}])
             facts["LIMIT_UP_LADDER"] = _fact([
@@ -128,7 +128,8 @@ def test_market_emotion_exposes_only_the_six_confirmed_cycle_stages() -> None:
     assert divergence["emotion_cycle_stage"] == "DIVERGENCE"
 
     observed = {expected for _, expected in scenarios} | {divergence["emotion_cycle_stage"]}
-    assert observed == {"LATENT", "STARTUP", "ACCELERATION", "CLIMAX", "DIVERGENCE", "ICE_POINT"}
+    assert observed == {"LATENT", "IGNITION", "ACCELERATION", "CLIMAX", "DIVERGENCE", "ICE_POINT"}
+    assert divergence['new_long_permission']=='WATCH_ONLY'
 
 
 def test_market_emotion_rejects_future_and_low_breadth_coverage() -> None:

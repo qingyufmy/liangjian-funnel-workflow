@@ -1,0 +1,94 @@
+{
+  "schema": "emotion-real-regression-input/1",
+  "sources": [
+    {
+      "path": "/media/qy/120aebe1-8c98-412b-a490-3797cae5656b/Agu/liangjian-funnel-workflow/storage/snapshots/snapshot-20261016T071950+0800-d7e9d60f3c25.json",
+      "file_sha256": "3034e9f54276bfb6fb2fd41eb0c89369f25143add2f5855438f10bd3fb9e1923",
+      "byte_offset": 87757882,
+      "market_emotion_snapshot": {
+        "advances": 430,
+        "algorithm_version": "market-emotion/2.0.0",
+        "as_of": "2026-10-16T07:02:17.878000+08:00",
+        "available": true,
+        "breadth": 0.0776593823370056,
+        "breadth_coverage": 0.9983870967741936,
+        "break_rate": 0.16279069767441862,
+        "declines": 5107,
+        "emotion_cycle_evidence": {
+          "breadth": 0.0776593823370056,
+          "break_rate": 0.16279069767441862,
+          "ladder_height": 5,
+          "limit_down_count": 26,
+          "limit_up_count": 36,
+          "scoring_used": false,
+          "temperature": "ICE"
+        },
+        "emotion_cycle_reason_codes": [
+          "MARKET_ICE_POINT"
+        ],
+        "emotion_cycle_stage": "ICE_POINT",
+        "emotion_cycle_stage_cn": "冰点期",
+        "flats": 34,
+        "ladder_height": 5,
+        "limit_break_count": 7,
+        "limit_down_count": 26,
+        "limit_up_count": 36,
+        "missing_fields": [
+          "previous_limit_up_premium"
+        ],
+        "new_long_permission": "NO_NEW_ENTRY",
+        "previous_day_promotion_rate": 0.26666666666666666,
+        "previous_limit_up_premium": null,
+        "reason_code": "OK",
+        "source": "DETERMINISTIC_FROZEN_FACTS",
+        "temperature": "ICE"
+      }
+    },
+    {
+      "path": "/media/qy/120aebe1-8c98-412b-a490-3797cae5656b/Agu/liangjian-funnel-workflow/storage/snapshots/snapshot-20261019T163247+0800-4a9259fc15c8.json",
+      "file_sha256": "dc280ae6988a9819992edbf3fc2612cda73b03beaa9e1595b6aa915c2a6a58cf",
+      "byte_offset": 95478159,
+      "market_emotion_snapshot": {
+        "advances": 2274,
+        "algorithm_version": "market-emotion/2.0.0",
+        "as_of": "2026-10-19T16:13:39.718000+08:00",
+        "available": true,
+        "breadth": 0.42087729039422545,
+        "breadth_coverage": 0.9971321025273346,
+        "break_rate": 0.2898550724637681,
+        "declines": 3129,
+        "emotion_cycle_evidence": {
+          "breadth": 0.42087729039422545,
+          "break_rate": 0.2898550724637681,
+          "ladder_height": 3,
+          "limit_down_count": 25,
+          "limit_up_count": 49,
+          "scoring_used": false,
+          "temperature": "RECOVERY"
+        },
+        "emotion_cycle_reason_codes": [
+          "EMOTION_CYCLE_NOT_CONFIRMED"
+        ],
+        "emotion_cycle_stage": "LATENT",
+        "emotion_cycle_stage_cn": "潜伏期",
+        "flats": 160,
+        "ladder_height": 3,
+        "limit_break_count": 20,
+        "limit_down_count": 25,
+        "limit_up_count": 49,
+        "missing_fields": [
+          "previous_limit_up_premium"
+        ],
+        "new_long_permission": "WATCH_ONLY",
+        "previous_day_promotion_rate": 0.2857142857142857,
+        "previous_limit_up_premium": null,
+        "reason_code": "OK",
+        "source": "DETERMINISTIC_FROZEN_FACTS",
+        "temperature": "RECOVERY"
+      }
+    }
+  ],
+  "source_calls": 0,
+  "model_calls": 0,
+  "production_writes": 0
+}

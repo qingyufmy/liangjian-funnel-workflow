@@ -10,10 +10,11 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel
+from .emotion_vocabulary import POLICIES
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
-EMOTION_ALGORITHM = "market-emotion/2.0.0"
+EMOTION_ALGORITHM = "market-emotion/2.1.0"
 SECTOR_CYCLE_ALGORITHM = "sector-cycle/2.0.0"
 SECTOR_HEALTH_ALGORITHM = "sector-health/1.0.0"
 _MONTHLY_OBSERVATION_BARS = 21  # 20 return periods require 21 closes.
@@ -1836,20 +1837,20 @@ def _emotion_cycle_contract(
         "ICE": ("ICE_POINT", "冰点期", "NO_NEW_ENTRY", ["MARKET_ICE_POINT"]),
         "DIVERGING_WEAK": (
             "DIVERGENCE",
-            "分化退潮期",
-            "NO_NEW_ENTRY",
+            "分化期",
+            "WATCH_ONLY",
             ["HIGH_BREAK_RATE_DIVERGENCE"],
         ),
         "OVERHEATED": (
             "CLIMAX",
             "情绪高潮期",
-            "NO_NEW_ENTRY",
+            "WATCH_ONLY",
             ["OVERHEATED_CLIMAX_NO_NEW_LEADER"],
         ),
         "STRONG": (
-            "ACCELERATION" if height >= 2 else "STARTUP",
+            "ACCELERATION" if height >= 2 else "IGNITION",
             "加速期" if height >= 2 else "启动期",
-            "ALLOW_CORE",
+            "ALLOW" if height >= 2 else "PROBE_ONLY",
             ["HEALTHY_BREADTH_AND_LADDER"],
         ),
     }
@@ -1860,8 +1861,8 @@ def _emotion_cycle_contract(
         or limit_down >= max(5, limit_up)
     ):
         stage, stage_cn, permission, reason_codes = (
-            "DIVERGENCE",
-            "分化退潮期",
+            "RETREAT",
+            "退潮期",
             "NO_NEW_ENTRY",
             ["MARKET_RETREAT"],
         )
@@ -1874,7 +1875,7 @@ def _emotion_cycle_contract(
         )
     elif limit_up > limit_down and breadth >= 0.45 and height >= 1:
         stage, stage_cn, permission, reason_codes = (
-            "STARTUP",
+            "IGNITION",
             "启动期",
             "PROBE_ONLY",
             ["RECOVERY_WITH_LADDER_SEED"],
@@ -1889,7 +1890,7 @@ def _emotion_cycle_contract(
     return {
         "stage": stage,
         "stage_cn": stage_cn,
-        "new_long_permission": permission,
+        "new_long_permission": POLICIES[stage],
         "reason_codes": reason_codes,
         "evidence": {
             "temperature": temperature,

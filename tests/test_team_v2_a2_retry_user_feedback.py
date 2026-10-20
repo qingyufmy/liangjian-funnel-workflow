@@ -57,7 +57,7 @@ def test_retry_user_carries_feedback_without_rewriting_any_original_input_or_sys
     value = runtime(result)
     assert value['validation_feedback'] == source_feedback and value['correction_attempt'] == 2
     assert 'LATENT' in value['field_contracts']['market_read.emotion_cycle']['allowed_values']
-    assert 'LATENT' not in value['field_contracts']['theme_reviews[*].stage']['allowed_values']
+    assert 'LATENT' in value['field_contracts']['theme_reviews[*].stage']['allowed_values']
     assert result.input_hash == message_hash(result.messages) != original.input_hash
     assert source_feedback == before and 'validation_feedback' not in runtime(original)
     source_feedback['violations'][0]['actual'] = 'MUTATED_AFTER_BINDING'
@@ -95,16 +95,16 @@ def test_feedback_cannot_replace_envelope_catalog_or_other_runtime_fields():
 
 
 def test_all_thirteen_bad_theme_stages_have_precise_fields_actual_values_and_fixed_legal_table():
-    raw = dict(focus_decisions=[], theme_reviews=[dict(theme_id=f'T{i}', stage='LATENT',
+    raw = dict(focus_decisions=[], theme_reviews=[dict(theme_id=f'T{i}', stage='INVENTED_STAGE',
         new_entry_policy='WATCH_ONLY') for i in range(13)])
     result = validation_feedback(raw, {'items': []}, ['A2_STAGE_POLICY_MISMATCH'],
         envelope={'market_regime': 'ROTATION'}, symbols=set(), themes=set(), directions={},
         nomination_scope=set(), engine_emotion_cycle='LATENT')
     assert len(result['violations']) == 13
     for index, row in enumerate(result['violations']):
-        assert row['field'] == f'theme_reviews[{index}].stage' and row['actual'] == 'LATENT'
+        assert row['field'] == f'theme_reviews[{index}].stage' and row['actual'] == 'INVENTED_STAGE'
         assert row['actual_new_entry_policy'] == 'WATCH_ONLY'
-        assert len(row['allowed']['values']) == 8 and 'LATENT' not in row['allowed']['values']
+        assert len(row['allowed']['values']) == 10 and 'LATENT' in row['allowed']['values']
         assert row['allowed']['stage_policy']['IGNITION'] == 'PROBE_ONLY'
     raw['theme_reviews'] = [dict(stage='CONFIRMATION', new_entry_policy='WATCH_ONLY')]
     bad_policy = validation_feedback(raw, {'items': []}, ['A2_STAGE_POLICY_MISMATCH'],
@@ -117,7 +117,7 @@ def test_actual_mock_transport_receives_last_user_correction_and_journal_binds_e
     def mutate(raw, attempt):
         raw['market_read']['emotion_cycle'] = 'LATENT'
         if attempt == 1:
-            raw['theme_reviews'][0].update(stage='LATENT', new_entry_policy='WATCH_ONLY')
+            raw['theme_reviews'][0].update(stage='INVENTED_STAGE', new_entry_policy='WATCH_ONLY')
     app, args, seen = fixture(tmp_path, mutate)
     args['snapshot'] = replace(args['snapshot'], data={**args['snapshot'].data,
         'MARKET_EMOTION_SNAPSHOT': {'emotion_cycle_stage': 'LATENT'}})
@@ -132,7 +132,7 @@ def test_actual_mock_transport_receives_last_user_correction_and_journal_binds_e
     assert seen[0]['messages'] == [dict(row) for row in original_requests[0].messages]
     correction = json.loads(seen[1]['messages'][1]['content'].removeprefix('RUNTIME_INPUT\n'))
     assert correction['validation_feedback']['violations'][0]['field'] == 'theme_reviews[0].stage'
-    assert correction['validation_feedback']['violations'][0]['actual'] == 'LATENT'
+    assert correction['validation_feedback']['violations'][0]['actual'] == 'INVENTED_STAGE'
     assert correction['correction_attempt'] == 2
     assert seen[1]['messages'][0]['content'] == original_requests[1].messages[0]['content']
     assert original_requests[0].prompt.source_hashes == original_requests[1].prompt.source_hashes
@@ -140,7 +140,7 @@ def test_actual_mock_transport_receives_last_user_correction_and_journal_binds_e
         captured = db.execute('SELECT input_hash,prompt_hash,output_json,validated FROM model_calls ORDER BY captured_at').fetchall()
     assert [row[0] for row in captured] == [message_hash(body['messages']) for body in seen]
     assert [row[1] for row in captured] == [hashlib.sha256(body['messages'][0]['content'].encode()).hexdigest() for body in seen]
-    assert not captured[0][3] and json.loads(captured[0][2])['theme_reviews'][0]['stage'] == 'LATENT'
+    assert not captured[0][3] and json.loads(captured[0][2])['theme_reviews'][0]['stage'] == 'INVENTED_STAGE'
     assert captured[1][3] and result.output['market_read']['emotion_cycle'] == 'LATENT'
     with closing(app.team_research_adapter.store._connect()) as db:
         contexts = [json.loads(row[0]) for row in db.execute(
@@ -169,19 +169,16 @@ def test_all_three_real_isolated_replies_have_precise_final_user_theme_correctio
             envelope={'market_regime': raw['envelope']['market_regime']},
             symbols=set(), themes={row['theme_id'] for row in rows}, directions={},
             nomination_scope=set(), engine_emotion_cycle='LATENT')
-        assert len(actual['violations']) == 13
+        # Historical raw/journal keeps its old issues, but the newly unified
+        # contract accepts all thirteen LATENT+WATCH_ONLY theme opinions.
+        assert actual['violations'] == []
         derived = bind_a2_retry_feedback(request(), actual, correction_attempt=2, engine_emotion_cycle='LATENT')
         last = runtime(derived)
-        for index, violation in enumerate(last['validation_feedback']['violations']):
-            assert violation['field'] == f'theme_reviews[{index}].stage'
-            assert violation['actual'] == rows[index]['stage'] == 'LATENT'
-            assert violation['actual_new_entry_policy'] == rows[index]['new_entry_policy'] == 'WATCH_ONLY'
-            assert violation['allowed']['stage_policy'] == {
-                'IGNITION': 'PROBE_ONLY', 'CONFIRMATION': 'ALLOW', 'ACCELERATION': 'ALLOW',
-                'CLIMAX': 'WATCH_ONLY', 'DIVERGENCE': 'WATCH_ONLY', 'RETREAT': 'NO_NEW_ENTRY',
-                'REPAIR': 'ALLOW', 'FADE': 'NO_NEW_ENTRY'}
+        from liangjian_funnel.pipeline.emotion_vocabulary import POLICIES
+        assert all(POLICIES[row['stage']]==row['new_entry_policy'] for row in rows)
         assert last['field_contracts']['market_read.emotion_cycle']['engine_fact'] == 'LATENT'
-        assert '不是题材阶段' in last['field_contracts']['market_theme_boundary']
+        assert len(last['field_contracts']['theme_reviews[*].stage']['allowed_values'])==10
+        assert '十阶段' in last['field_contracts']['market_theme_boundary']
         assert raw == before and derived.input_hash == message_hash(derived.messages)
 
 
